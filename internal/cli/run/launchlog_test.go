@@ -3,6 +3,7 @@ package run
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +18,24 @@ import (
 // launchlog_test.go covers docs/reference/report-tiers.md the launch stream's *Persist the
 // launcher's half*: the launcher's own output, which used to exist only on a terminal, lands in
 // <workspace>/.yolo/launch.log beside the entrypoint's boot.log.
+
+// THE LOG HALF ALONE (LaunchLogOnly, WriteLog), WriteTransient's inverse: a write for the record and
+// not the terminal — a build jail's output under its progress line — lands in the log with its color
+// stripped and never on the terminal; a stream teed into no log takes it nowhere.
+func TestTheLogHalfAloneReachesTheLogAndNotTheTerminal(t *testing.T) {
+	var term, log bytes.Buffer
+	stream := teeLog{w: &term, log: &log}
+	line := []byte("\x1b[33mnpm warn deprecated\x1b[0m\n")
+	if n, err := LaunchLogOnly(stream).Write(line); err != nil || n != len(line) {
+		t.Fatalf("Write = %d, %v", n, err)
+	}
+	if term.Len() != 0 || log.String() != "npm warn deprecated\n" {
+		t.Errorf("terminal %q, log %q; want nothing and the stripped line", term.String(), log.String())
+	}
+	if w := LaunchLogOnly(&term); w != io.Discard {
+		t.Errorf("a stream with no log half gave %T, want io.Discard", w)
+	}
+}
 
 // readLaunchLog returns the log's content, or fails.
 func readLaunchLog(t *testing.T, ws string) string {

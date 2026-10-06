@@ -241,4 +241,34 @@ var ansiEscape = regexp.MustCompile("\x1b\\[[0-9;?]*[ -/]*[@-~]")
 // that was shown.
 func (t teeLog) WriteTransient(p []byte) (int, error) { return t.w.Write(p) }
 
+// WriteLog is the log half alone, WriteTransient's inverse: for what a sub-launch of this launch
+// prints — a build jail's launch, its boot and its build line's output (internal/cli's
+// buildreport.go) — whose every byte belongs in this launch's record and none on its terminal,
+// where the build's progress line stands for it (docs/reference/report-tiers.md: "too much on the
+// terminal is answered by reading the file").
+func (t teeLog) WriteLog(p []byte) (int, error) {
+	_, _ = t.log.Write(stripANSI(p))
+	return len(p), nil
+}
+
+// LogWriter is a launch stream that can take a write for its launch.log alone (teeLog).
+type LogWriter interface {
+	WriteLog(p []byte) (int, error)
+}
+
+// LaunchLogOnly is w's log half: a writer that appends to the launch.log w tees into and writes
+// nothing to the terminal, or io.Discard when w is not teed into one (a launch with no workspace
+// or no log, a test's buffer).
+func LaunchLogOnly(w io.Writer) io.Writer {
+	if lw, ok := w.(LogWriter); ok {
+		return logOnly{lw}
+	}
+	return io.Discard
+}
+
+// logOnly is LaunchLogOnly's writer.
+type logOnly struct{ w LogWriter }
+
+func (l logOnly) Write(p []byte) (int, error) { return l.w.WriteLog(p) }
+
 func stripANSI(p []byte) []byte { return ansiEscape.ReplaceAll(p, nil) }

@@ -38,7 +38,9 @@ package cli
 //     which runs as a child process of its own for that reason (forkbuildchild.go) — and the jail
 //     starts on the good build; the build itself is bounded at forkBuildWaitBound. A FIRST
 //     advance has nothing to start on, so it runs as a plain fork's build does and a Ctrl-C ends
-//     the launch (§7).
+//     the launch (§7). Every build a jail launch runs is that child, a first advance's included,
+//     outside any interrupt scope then, so its output can be kept off the terminal: the launch
+//     shows it as one progress line (advanceOptions.report, buildreport.go, PF-D78).
 //   - ONE CTRL-C ENDS THE ACT'S WHOLE WAIT (PF-D57): an act that runs several advances — every
 //     patched fork, then every patched extension, at a jail launch; the extensions, then the
 //     program, at `yolo host`; all of them at `yolo host apply --assert` — shares one act interrupt
@@ -123,6 +125,12 @@ type advanceOptions struct {
 	// the act's, and once a Ctrl-C has ended any advance of the act, a later one checks and builds
 	// nothing (actStopped). nil for an advance that is an act of its own.
 	act *run.ActInterrupt
+	// report is a jail launch's build report (buildreport.go, PF-D78): its check a progress line,
+	// each build one progress line whose start line carries what the lines before it said, its build
+	// jail always the fork-build-jail child with every stream kept off the terminal, and the move line
+	// that build's result line. nil — `yolo capture`, `yolo host` and `yolo host apply` — prints each
+	// line as its own and streams the build jail's output.
+	report *buildReport
 }
 
 // installedCopy is a copy of the program that runs outside the capture store: the host floor's
@@ -204,6 +212,12 @@ type advance struct {
 	// (PF-D23), so its failure's lines say that rather than the steps; ownLock is that build's lock.
 	thenBase bool
 	ownLock  string
+	// why is, with a report, what the line before a build says without one — the upstream moved,
+	// the series was edited, the good build is gone, no build yet — for the build's start line.
+	why string
+	// inFlight is the build under way's share of the report, nil between builds and without a
+	// report.
+	inFlight *buildRun
 }
 
 // baseWhy is why an advance builds the series at its own base (§6.4), baseNone when it does not.
@@ -350,6 +364,13 @@ func (a *advance) dim(format string, args ...any) {
 	a.pr.Printf("[dim]%s[/dim]", richtext.Escape(fmt.Sprintf(format, args...)))
 }
 
+// sayUnlessReport is say for a line a jail launch's report folds into the next build's start line.
+func (a *advance) sayUnlessReport(format string, args ...any) {
+	if a.o.report == nil {
+		a.say(format, args...)
+	}
+}
+
 // goodLine is the good build as the lines name what keeps running: "<label> + N patches".
 func (a *advance) goodLine() string {
 	g := a.rec.Good
@@ -382,6 +403,12 @@ func (a *advance) run() advanceResult {
 	} else {
 		res := a.packs.CheckPatched(f.CheckWant(a.series), packsrc.CheckOptions{Force: a.o.force, Now: patchedNow,
 			Begin: func() (func(string), func()) {
+				if a.o.report != nil {
+					// A JAIL LAUNCH'S CHECK IS A PROGRESS LINE, silent when it ends inside the grace
+					// period, as a check finding nothing new mostly does (PF-D78).
+					line := a.o.report.checkLine(f)
+					return line.Println, func() { line.Done("") }
+				}
 				a.dim("checking %s's upstream %s", f.Label(), f.Source)
 				return func(line string) { a.dim("%s", line) }, func() {}
 			}})
@@ -470,18 +497,23 @@ func (a *advance) run() advanceResult {
 		}
 		list = []packsrc.ListEntry{a.baseEntry()}
 	}
+	// WHY A BUILD MAY FOLLOW: its own line without a report, the build's start line's clause with one.
 	switch {
 	case a.serves() && good != nil && list[0].Commit != good.Commit:
-		a.say("%s: upstream moved — %s is newer than the good build %s; replaying the series", f.Label(),
+		a.why = ", upstream moved past the good build " + run.GoodBuildLabel(good)
+		a.sayUnlessReport("%s: upstream moved — %s is newer than the good build %s; replaying the series", f.Label(),
 			list[0].Label(), run.GoodBuildLabel(good))
 	case edited:
-		a.say("%s: its series or build recipe changed since the good build %s; replaying the edited series",
+		a.why = ", its series or build recipe edited since the good build " + run.GoodBuildLabel(good)
+		a.sayUnlessReport("%s: its series or build recipe changed since the good build %s; replaying the edited series",
 			f.Label(), run.GoodBuildLabel(good))
 	case good != nil && a.serving == nil:
-		a.say("%s: the good build %s is gone from the capture store; building it again", f.Label(),
+		a.why = ", the good build " + run.GoodBuildLabel(good) + " being gone from the capture store"
+		a.sayUnlessReport("%s: the good build %s is gone from the capture store; building it again", f.Label(),
 			run.GoodBuildLabel(good))
 	case good == nil:
-		a.say("%s: no build of it on this machine yet; replaying its %s", f.Label(), run.PatchCount(a.series.Len()))
+		a.why = ", the first build of it on this machine"
+		a.sayUnlessReport("%s: no build of it on this machine yet; replaying its %s", f.Label(), run.PatchCount(a.series.Len()))
 	}
 	w := a.walk(list, base == baseNone)
 	if a.interrupted() {
@@ -497,7 +529,8 @@ func (a *advance) run() advanceResult {
 				"check retries the rest, or `yolo pack update` now", f.Label(), err, shortSHA(a.series.Base))
 			base = baseApplyErr
 		} else {
-			a.say("%s: no version on the list takes the series, so it is built at its base %s and held there",
+			// With a report, the base build's start line carries this (baseClause).
+			a.sayUnlessReport("%s: no version on the list takes the series, so it is built at its base %s and held there",
 				f.Label(), shortSHA(a.series.Base))
 			base = baseNoFit
 		}
@@ -869,7 +902,7 @@ func (a *advance) buildFailedLines(b forkBuild, err error, retryAt time.Time) {
 		tail = a.baseNext()
 	}
 	a.warn("%s: the build of %s failed: %v — %s", f.Label(), what, err, tail)
-	if a.o.workspace != "" {
+	if !a.printRunFailure() && a.o.workspace != "" {
 		a.dim("  its output is above, and in %s", filepath.Join(a.o.workspace, ".yolo", "launch.log"))
 	}
 	switch {
@@ -897,26 +930,43 @@ func (a *advance) baseNext() string {
 // whose build fails or cannot be put in place sends the advance on to the series' base (PF-D23).
 func (a *advance) build(b forkBuild, base baseWhy, edited bool) advanceResult {
 	f := a.f
+	wait := ""
 	switch {
 	case a.serves() && a.o.launch:
 		runs := "the good build " + run.GoodBuildLabel(a.rec.Good)
 		if a.serving == nil {
 			runs = a.servingName()
 		}
-		a.say("%s: %s takes the series; building it — %s waits for it, at most %s, and a Ctrl-C "+
-			"%s %s instead", f.Label(), b.Entry.Label(), a.waiter(), forkBuildWaitBound, a.ctrlCStarts(), runs)
+		wait = fmt.Sprintf("%s waits for it, at most %s, and a Ctrl-C %s %s instead", a.waiter(), forkBuildWaitBound,
+			a.ctrlCStarts(), runs)
+		a.sayUnlessReport("%s: %s takes the series; building it — %s", f.Label(), b.Entry.Label(), wait)
 	case base == baseNone:
-		a.say("%s: %s takes the series; building it", f.Label(), b.Entry.Label())
+		a.sayUnlessReport("%s: %s takes the series; building it", f.Label(), b.Entry.Label())
 	}
 	a.thenBase = base == baseNone && !a.serves() && a.baseFallback() && b.Commit != a.series.Base
 	startFail := a.buildFailure(b.Commit)
 	startGood := a.goodBuild()
 	a.boundHit, a.ownLock = false, b.lockPath()
 	mode := buildMode{force: a.o.force, packs: a.packs, lock: pidlock.NoWait, replaySpent: a.replaySpent}
+	if a.o.report != nil {
+		// THE BUILD'S START LINE (PF-D78): what the lines above say without a report, before the build
+		// line runs — what is built, why, the wait, the log and the build's disclosures.
+		why := a.why
+		if base != baseNone {
+			why = a.baseClause(base)
+		}
+		a.inFlight = a.o.report.begin(buildStart{fork: f, why: why, wait: wait, what: b.Entry.Label() + " + " +
+			run.PatchCount(b.Series.Len()) + " (series " + b.Series.ShortDigest() + ")"})
+		mode.run = a.inFlight
+	}
 	if a.o.launch {
 		mode.lock = pidlock.Mode{Wait: true, Bound: forkBuildWaitBound, Cancel: a.ctx.Done()}
 		mode.afterLock = func() (*capture.Entry, error, bool) { return a.afterLock(b, startGood, startFail) }
-		if a.serves() {
+		if a.serves() || a.o.report != nil {
+			// THE CHILD: while a good build serves, so a Ctrl-C ends the build and not the launch
+			// (PF-D25); at every jail launch, so its output can be kept off the terminal (PF-D78). A
+			// first advance's runs outside any interrupt scope (a.ctx is Background), so the terminal's
+			// Ctrl-C reaches this launch's own arm as it reaches the child's, and ends the launch (§7).
 			mode.runJail = func(staging string, b forkBuild, s captureStreams) int {
 				rc, bound := forkBuildChild(a.ctx, forkBuildWaitBound, staging, b, s, a.o.color)
 				a.boundHit = bound
@@ -926,6 +976,7 @@ func (a *advance) build(b forkBuild, base baseWhy, edited bool) advanceResult {
 	}
 	var settled *advanceResult
 	mode.settle = func(entry *capture.Entry, err error) {
+		a.endRun(err)
 		r := a.settle(b, entry, err, base, edited)
 		settled = &r
 	}
@@ -934,8 +985,11 @@ func (a *advance) build(b forkBuild, base baseWhy, edited bool) advanceResult {
 	if settled != nil {
 		r = *settled
 	} else {
+		a.endRun(err)
 		r = a.settle(b, nil, err, base, edited) // the lock was never taken
 	}
+	a.inFlight.fail("done") // a no-op once the result line is written, which every path above writes
+	a.inFlight = nil
 	if !a.thenBase || !r.fellShort || a.interrupted() {
 		return r
 	}
@@ -959,6 +1013,46 @@ func (a *advance) build(b forkBuild, base baseWhy, edited bool) advanceResult {
 		Entry: w.Results[w.Fit].Entry}, baseBuildFailed, edited)
 	res.failed = true // what was asked for did not build, whatever the base did
 	return res
+}
+
+// endRun closes the build's progress line on a build that came to nothing, with what ended it, so
+// the lines settle prints for it follow it whole. An admitted build's result line is its move line
+// (moved), so a nil err leaves the line to it.
+func (a *advance) endRun(err error) {
+	if a.inFlight == nil || err == nil {
+		return
+	}
+	var waited waiterFailure
+	var lockTimeout forkLockTimeout
+	var source forkSourceError
+	switch {
+	case a.interrupted() || errors.Is(err, pidlock.ErrCanceled):
+		a.inFlight.fail("interrupted")
+	case a.boundHit:
+		a.inFlight.fail("stopped at the " + forkBuildWaitBound.String() + " bound")
+	case errors.As(err, &waited):
+		a.inFlight.fail("another launch's build of it failed")
+	case errors.As(err, &lockTimeout), errors.Is(err, errForkBuildLocked):
+		a.inFlight.fail("another build of it holds its lock")
+	case errors.Is(err, errForkBuildNotStarted):
+		a.inFlight.fail("its build jail stopped before the build line ran")
+	case errors.As(err, &source):
+		a.inFlight.fail("its source could not be put in place")
+	default:
+		a.inFlight.fail("failed")
+	}
+}
+
+// printRunFailure prints, under a failed build's line, its last lines and where its whole output
+// is (buildRun.failureLines), and reports whether there was a run to print.
+func (a *advance) printRunFailure() bool {
+	if a.inFlight == nil {
+		return false
+	}
+	for _, l := range a.inFlight.failureLines() {
+		a.pr.Print(l)
+	}
+	return true
 }
 
 // settle is the build act's result, settled while the build's lock is held (buildMode.settle,
@@ -1008,7 +1102,7 @@ func (a *advance) settle(b forkBuild, entry *capture.Entry, err error, base base
 		// error relays the lines it said it with (forkBuildNotStarted, PPX-D39): a launch pre-flight's
 		// refusal, a runtime that would not start it, or a boot that failed.
 		a.warn("%s: %v — %s", f.Label(), err, a.runsNow())
-		if jailSaidWhy(err) {
+		if a.printRunFailure() || jailSaidWhy(err) {
 			a.dim("  Fix what it names, then `yolo capture %s` builds it; %s tries too", f.CaptureArg(), a.next())
 		} else {
 			a.dim("  Its output above says why: fix what it names, then `yolo capture %s` builds it; %s tries too",
@@ -1125,6 +1219,7 @@ func (a *advance) moved(b forkBuild, entry *capture.Entry, base baseWhy, edited 
 	if r.gone != nil {
 		// THE BUILD WENT BEFORE IT COULD BE HANDED: never moved to (§6.7, "never moves the good build
 		// to a build this machine has not admitted"), and the jail runs what the record names.
+		a.inFlight.fail("left the capture store before it was handed")
 		a.warn("%s: the build of %s left the capture store before this launch could hand it (%v) — %s; %s "+
 			"builds it again", a.f.Label(), b.Entry.Label(), r.gone, a.handedNow(r), a.next())
 		r.failed = true
@@ -1132,25 +1227,40 @@ func (a *advance) moved(b forkBuild, entry *capture.Entry, base baseWhy, edited 
 	}
 	r.built = true
 	if r.lost {
-		a.say("%s: another launch moved the good build meanwhile, from a newer check; %s runs that one, "+
-			"and this build is reaped", a.f.Label(), a.runner())
+		lost := richtext.Escape(fmt.Sprintf("%s: another launch moved the good build meanwhile, from a newer "+
+			"check; %s runs that one, and this build is reaped", a.f.Label(), a.runner()))
+		a.result(lost)
 		return r
 	}
+	// THE MOVE LINE (PF-D8), the disclosure of what now runs, which no flag hides (OQ-RO3): with a
+	// report, the build's result line, with the store's key, paths and size folded in.
 	what := b.Entry.Label() + " + " + run.PatchCount(b.Series.Len())
+	var line string
 	switch {
 	case prev == nil:
-		a.pr.Printf("[bold]%s[/bold]", richtext.Escape("built "+a.f.Label()+": "+what+"; "+a.runner()+" runs it"+a.baseClause(base)))
+		line = "built " + a.f.Label() + ": " + what + "; " + a.runner() + " runs it" + a.baseClause(base)
 	case prev.Entry == entry.Key:
-		a.pr.Printf("[bold]%s[/bold]", richtext.Escape("rebuilt "+a.f.Label()+": "+what+"; "+a.runner()+" runs it"+a.baseClause(base)))
+		line = "rebuilt " + a.f.Label() + ": " + what + "; " + a.runner() + " runs it" + a.baseClause(base)
 	case edited:
-		a.pr.Printf("[bold]%s[/bold]", richtext.Escape("updated "+a.f.Label()+": "+run.GoodBuildLabel(prev)+
-			" → "+b.Entry.Label()+", the edited series ("+run.PatchCount(b.Series.Len())+", series "+
-			b.Series.ShortDigest()+"); "+a.runner()+" runs the new build"+a.baseClause(base)))
+		line = "updated " + a.f.Label() + ": " + run.GoodBuildLabel(prev) + " → " + b.Entry.Label() +
+			", the edited series (" + run.PatchCount(b.Series.Len()) + ", series " + b.Series.ShortDigest() + "); " +
+			a.runner() + " runs the new build" + a.baseClause(base)
 	default:
-		a.pr.Printf("[bold]%s[/bold]", richtext.Escape("updated "+a.f.Label()+": "+run.GoodBuildLabel(prev)+" → "+
-			b.Entry.Label()+", "+run.PatchCount(b.Series.Len())+"; "+a.runner()+" runs the new build"+a.baseClause(base)))
+		line = "updated " + a.f.Label() + ": " + run.GoodBuildLabel(prev) + " → " + b.Entry.Label() + ", " +
+			run.PatchCount(b.Series.Len()) + "; " + a.runner() + " runs the new build" + a.baseClause(base)
 	}
+	a.result("[bold]" + richtext.Escape(line) + "[/bold]")
 	return r
+}
+
+// result is a build's result line, in markup: the run's, which closes its progress line, with a
+// report; a line of its own without one.
+func (a *advance) result(markup string) {
+	if a.inFlight != nil {
+		a.inFlight.done(markup)
+		return
+	}
+	a.pr.Print(markup)
 }
 
 // baseClause is the move line's last clause for a build at the series' base: why it is there, and

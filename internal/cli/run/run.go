@@ -1358,6 +1358,9 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// the per-launch copy its jail mounts read-only. Below every attach site, under the launch lock.
 	o.treeDelivered = o.treeDeliveriesFor(rt)
 	o.noteTreeDeliveries(rt)
+	// And at once, before the image step and the boot, when the program asked for will not start in
+	// the jail for want of a tree (PPX-D18): said here, not only by its launcher after a whole boot.
+	o.noteTreeGateStops(rt, staged.packs)
 	forkSpan.End()
 
 	// Refresh the per-jail skills + AGENTS/CLAUDE staging from this launch's own pack tree. An

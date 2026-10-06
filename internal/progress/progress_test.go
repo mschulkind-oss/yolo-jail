@@ -130,6 +130,50 @@ func TestImmediateShowsAtStart(t *testing.T) {
 	l.Done("")
 }
 
+// Announced: the caller printed the start line itself, so off a terminal the step writes no
+// start line of its own — only its heartbeats and its result.
+func TestAnAnnouncedStepWritesNoStartLineOfItsOwn(t *testing.T) {
+	cfg, clk := newCfg(false)
+	cfg.Immediate, cfg.Announced = true, true
+	var buf bytes.Buffer
+	l := cfg.Start(&buf, "Building extension a/b")
+	if buf.Len() != 0 {
+		t.Errorf("an announced step wrote a start line of its own: %q", buf.String())
+	}
+	clk.advance(DefaultHeartbeat)
+	l.Tick()
+	l.Done("failed")
+	want := "  Building extension a/b… (15s)\nBuilding extension a/b: failed (15.0s)\n"
+	if got := buf.String(); got != want {
+		t.Errorf("announced rendering:\n got %q\nwant %q", got, want)
+	}
+}
+
+// DoneWith closes the step with the caller's own line, timed when the step was shown, and prints
+// it even for a step never shown: it is a line the caller must print.
+func TestDoneWithIsTheResultLine(t *testing.T) {
+	cfg, clk := newCfg(true)
+	cfg.Immediate = true
+	w := &transientTee{}
+	l := cfg.Start(w, "Building extension a/b")
+	clk.advance(3 * time.Second)
+	l.DoneWith("built extension a/b: v1 + 1 patch")
+	if got, want := w.log.String(), "built extension a/b: v1 + 1 patch (3.0s)\n"; got != want {
+		t.Errorf("log half:\n got %q\nwant %q", got, want)
+	}
+	if !strings.Contains(w.term.String(), "\r\x1b[Kbuilt extension a/b") {
+		t.Errorf("the result did not erase the live line first: %q", w.term.String())
+	}
+
+	quick, _ := newCfg(false)
+	var buf bytes.Buffer
+	q := quick.Start(&buf, "Checking")
+	q.DoneWith("the line")
+	if got := buf.String(); got != "the line\n" {
+		t.Errorf("an unshown step's DoneWith = %q, want the line alone", got)
+	}
+}
+
 // A live line never wraps: a wrapped line cannot be redrawn in place.
 func TestLiveLineIsTruncatedToTheTerminal(t *testing.T) {
 	cfg, clk := newCfg(true)

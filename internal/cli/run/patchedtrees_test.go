@@ -9,6 +9,7 @@ package run
 // jail it names the host; the copies go with their pack tree; and an attach names what its jail mounts.
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/image"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
@@ -150,6 +152,38 @@ func TestATreeWithNoBuildMountsNothingAndStopsItsOwner(t *testing.T) {
 	d := patchedTreesInArgv(t, argv)[treeKey]
 	if !d.Stop || d.Owner != "agentpack" || !strings.Contains(d.Reason, "no build on this machine yet") {
 		t.Errorf("the jail is handed %+v, want its owner stopped with the reason\n%s", d, printed)
+	}
+}
+
+// THE GATE, SAID AT ONCE (PPX-D18; patched-extensions.md's OQ-PPX3 background): a launch of the
+// owning agent's program whose tree has no build says so on the host right after the tree arm,
+// before the image step, with the remedy, and that the shell is unaffected; a launch of anything
+// else, or of a shell, says nothing of it. Red with Run's noteTreeGateStops call deleted.
+func TestALaunchOfAGatedProgramSaysSoBeforeTheImage(t *testing.T) {
+	want := "Warning: tool will not start in this jail: 1 patched extension it loads has no build (above); " +
+		"the shell is unaffected"
+	for _, args := range [][]string{{"tool", "-p", "hi"}, {"/usr/local/bin/tool"}, {"bash"}, nil} {
+		treeLaunchHome(t, true)
+		atImage := ""
+		_, printed := fakePodmanLaunch(t, func(o *Options) {
+			o.Args = args
+			stream := o.Stderr.(*bytes.Buffer)
+			o.BuildTrees = func(TreeBuildRequest) map[string]TreeDelivery {
+				return map[string]TreeDelivery{treeKey: {Reason: "extension " + treeKey + " has no build on this machine yet"}}
+			}
+			o.autoLoad = func(image.AutoLoadOptions) image.LoadResult {
+				atImage = stream.String()
+				return image.LoadResult{OK: true, Ref: goldenImageRef}
+			}
+		})
+		gated := len(args) > 0 && filepath.Base(args[0]) == "tool"
+		if got := strings.Contains(printed, want); got != gated {
+			t.Errorf("args %q: the gate's line printed %v, want %v:\n%s", args, got, gated, printed)
+		}
+		if gated && (!strings.Contains(atImage, want) ||
+			!strings.Contains(printed, "The next fresh launch builds each, or `yolo capture "+treeKey+"` now")) {
+			t.Errorf("args %q: the line came after the image step, or names no remedy:\n%s", args, printed)
+		}
 	}
 }
 

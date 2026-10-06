@@ -44,18 +44,21 @@ var treeCopied = func(key string) {}
 // deliverTreesForLaunch is run.Options.BuildTrees.
 func deliverTreesForLaunch(req run.TreeBuildRequest, out, errw io.Writer, color bool) map[string]run.TreeDelivery {
 	got := map[string]run.TreeDelivery{}
+	// EACH BUILD IS ONE PROGRESS LINE on the launch's stream (buildreport.go), as the fork builds'.
+	report := newBuildReport(req.Workspace, errw, req.Progress, color)
 	for _, f := range req.Trees {
-		got[f.Key()] = deliverTree(f, req, out, errw, color)
+		got[f.Key()] = deliverTree(f, req, report, out, errw, color)
 	}
 	return got
 }
 
 // deliverTree is one patched extension's delivery: what serves, then its per-launch copy, with the
 // one re-read a reaped entry gets.
-func deliverTree(f packload.Fork, req run.TreeBuildRequest, out, errw io.Writer, color bool) run.TreeDelivery {
+func deliverTree(f packload.Fork, req run.TreeBuildRequest, report *buildReport, out, errw io.Writer,
+	color bool) run.TreeDelivery {
 	pr := richtext.Printer{W: errw, Color: color}
 	o := advanceOptions{platform: req.Platform, runtime: req.Runtime, workspace: req.Workspace, out: out,
-		errw: errw, color: color, launch: true, act: req.Interrupt}
+		errw: errw, color: color, launch: true, act: req.Interrupt, report: report}
 	for attempt := 0; ; attempt++ {
 		var r advanceResult
 		if req.Build {

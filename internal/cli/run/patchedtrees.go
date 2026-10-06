@@ -35,9 +35,11 @@ package run
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -46,6 +48,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
+	"github.com/mschulkind-oss/yolo-jail/internal/progress"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
@@ -77,8 +80,11 @@ type TreeBuildRequest struct {
 	Runtime string
 	// Workspace is the launch's workspace, whose launch.log a failed build's line names.
 	Workspace string
-	// Stdout and Stderr are the launch's own writers, teed into its launch.log.
+	// Stdout and Stderr are the launch's own writers, teed into its launch.log, as the fork
+	// builds' are (ForkBuildRequest.Stdout).
 	Stdout, Stderr io.Writer
+	// Progress is the rendering of this launch's stream, for each build's progress line.
+	Progress progress.Config
 	// Build is false where this launch may check and build nothing — below Apple Container's
 	// read-only floor (BuildFloor says why) — and a good build already on this machine is delivered
 	// all the same.
@@ -214,7 +220,8 @@ func (o *Options) treeDeliveriesFor(rt string) map[string]TreeDelivery {
 		return out
 	}
 	req := TreeBuildRequest{Trees: o.patchedTrees, Platform: containerJailPlatform(), Runtime: rt,
-		Workspace: o.Workspace, Stdout: o.Stdout, Stderr: o.Stderr, Build: floor == "", BuildFloor: floor,
+		Workspace: o.Workspace, Stdout: o.Stdout, Stderr: o.Stderr, Progress: o.progressConfig(),
+		Build: floor == "", BuildFloor: floor,
 		CopyRoot: patchedCopiesDir(o.packTree), Interrupt: o.actInterrupt()}
 	for key, d := range o.BuildTrees(req) {
 		out[key] = d
@@ -292,6 +299,55 @@ func (o *Options) noteTreeDeliveries(rt string) {
 				richtext.Escape(d.Reason) + "; the agent starts without it." + next)
 		}
 	}
+}
+
+// noteTreeGateStops is the host's line, right after the tree arm decided, for a launch whose program
+// PPX-D18's gate will stop in the jail: the program's owning agent pack loads a patched extension
+// this launch hands no build of, at a notch that builds trees (patchedTreesWire's Stop, which the
+// jail's launchers read). Without it the user learned that only once the image was built, the jail
+// booted and the launcher ran (OQ-PPX3's background). The program is the command's base name, as
+// a host launch keys on it (HP-DIR4's reading, selectedPacksInstall); the launch goes on, for the
+// shell and every other program (PPX-D12), which the line says.
+func (o *Options) noteTreeGateStops(rt string, packs []*packload.Pack) {
+	if len(o.Args) == 0 || len(o.treeDelivered) == 0 || !o.treesBuildHere(rt) {
+		return
+	}
+	bin := filepath.Base(o.Args[0])
+	var keys []string
+	for _, f := range o.patchedTrees {
+		if d := o.treeDelivered[f.Key()]; d.Dir == "" && f.Owner != "" && f.ListedInJail && packInstalls(packs, f.Owner, bin) {
+			keys = append(keys, f.Key())
+		}
+	}
+	if len(keys) == 0 {
+		return
+	}
+	sort.Strings(keys)
+	n := len(keys)
+	out := o.pr(o.Stderr)
+	out.print("[yellow]Warning: " + richtext.Escape(fmt.Sprintf("%s will not start in this jail: %d %s it loads %s "+
+		"no build (above); the shell is unaffected", bin, n, plural(n, "patched extension", "patched extensions"),
+		plural(n, "has", "have"))) + "[/yellow]")
+	out.print("[dim]  " + richtext.Escape("The next fresh launch builds each, or `yolo capture "+keys[0]+"` now"+
+		moreKeys(keys)+"; dropping the list entry that names one runs "+bin+" without it.") + "[/dim]")
+}
+
+// moreKeys names the capture of every key after the first, "" for one.
+func moreKeys(keys []string) string {
+	if len(keys) < 2 {
+		return ""
+	}
+	return " (and `yolo capture " + strings.Join(keys[1:], "`, `yolo capture ") + "`)"
+}
+
+// packInstalls reports whether the selected pack named pack installs a program named bin.
+func packInstalls(packs []*packload.Pack, pack, bin string) bool {
+	for _, p := range packs {
+		if p != nil && p.Name == pack && slices.Contains(p.InstallBins(), bin) {
+			return true
+		}
+	}
+	return false
 }
 
 // noteMacosUserTrees is the macos-user launch's line for each patched extension (§11, FP-D3's

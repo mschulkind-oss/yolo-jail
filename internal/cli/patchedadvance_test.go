@@ -69,6 +69,7 @@ type patchedAdvanceFixture struct {
 	ran    bool     // whether the fake build jail writes the toolchain record (its build line ran)
 	said   string   // a line the fake build jail's runtime prints on the jail's stderr before it exits, "" for none
 	child  int      // how many builds went through the child-process runner
+	scoped []bool   // per child build, whether an interrupt scope's context could cancel it
 	// platform is what the fake build jail's manifest reports: a container capture jail's, unless a
 	// host floor test makes it the floor's own (capture.Platform), which a materialize on the host
 	// requires.
@@ -87,9 +88,10 @@ func newPatchedAdvanceFixture(t *testing.T, follow string) *patchedAdvanceFixtur
 	t.Cleanup(func() { patchedNow = prevNow })
 	withFakeCaptureJail(t, fx.buildJail(t))
 	prevChild := forkBuildChild
-	forkBuildChild = func(_ context.Context, _ time.Duration, staging string, b forkBuild, s captureStreams,
+	forkBuildChild = func(ctx context.Context, _ time.Duration, staging string, b forkBuild, s captureStreams,
 		color bool) (int, bool) {
 		fx.child++
+		fx.scoped = append(fx.scoped, ctx.Done() != nil)
 		return forkBuildRunJail(staging, b, s, color), false
 	}
 	t.Cleanup(func() { forkBuildChild = prevChild })
@@ -526,8 +528,8 @@ func TestCaptureOfAPatchedForkBuildsThroughTheSwap(t *testing.T) {
 // THE LAUNCH'S WIRED TRIGGER RUNS THE ADVANCE for a patched fork (TestALaunchWiresTheForkBuildTrigger's
 // shape): red if runRun stops wiring Options.BuildForks, if buildForksForLaunch stops sending a
 // patched fork to its advance, or if the wiring stops writing the advance to the launch's own
-// writers (the request's Stdout and Stderr, teed into its launch.log, which a failed build's line
-// names).
+// stream (the request's Stderr, teed into its launch.log), or writes any of it on the jail
+// command's stdout (PF-D78).
 func TestTheWiredTriggerRunsAPatchedForksAdvance(t *testing.T) {
 	fx := newPatchedAdvanceFixture(t, "")
 	fx.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
@@ -550,8 +552,8 @@ func TestTheWiredTriggerRunsAPatchedForksAdvance(t *testing.T) {
 	if got["tool"].Key == "" || len(fx.builds) != 1 {
 		t.Errorf("the wired trigger answered %+v after %d builds, want the advance's build", got, len(fx.builds))
 	}
-	if !strings.Contains(launchOut.String(), "built fork forkpack/tool") {
-		t.Errorf("the advance's lines did not reach the launch's writers:\nstdout: %s\nstderr: %s", launchOut.String(),
+	if !strings.Contains(launchErr.String(), "built fork forkpack/tool") || launchOut.String() != "" {
+		t.Errorf("the advance's lines did not reach the launch's stream alone:\nstdout: %s\nstderr: %s", launchOut.String(),
 			launchErr.String())
 	}
 }

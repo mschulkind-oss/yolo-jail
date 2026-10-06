@@ -13,12 +13,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 **Patch series for programs and pi extensions.** A pack can name an upstream and your changes as a
-patch series, and yolo builds them onto each new release they fit. When a release conflicts, the
-last good build keeps running and `yolo pack rebase` sets up the fix, and `yolo pack series check`
-says whether a series still applies; both work in a jail. `yolo pack lint --online` checks a series
-before you use it, and patch series need git 2.40 or newer on the host. A launch now leaves out, and
-names, any part of a pack written for a newer yolo instead of failing, and `yolo features` lists
-what a yolo can read. See [Follow an upstream with a patch series](userguide/guides/patch-series.md).
+patch series, and yolo builds them onto each new release they fit, keeping the last good build
+running when one conflicts. `yolo pack rebase` sets up the fix, `yolo pack series check` and
+`yolo pack lint --online` check a series, in a jail too, and patch series need git 2.40 or newer on
+the host. A launch shows each build as one line, with its full output in the launch's log. See
+[Follow an upstream with a patch series](userguide/guides/patch-series.md).
+
+**Packs written for a newer yolo.** A launch now leaves out, and names, any part of a pack written
+for a newer yolo instead of failing, and `yolo features` lists what a yolo can read.
 
 **Claude Code plugins and mods.** A new guide covers the ways to bring a Claude Code plugin or mod
 into a jail, and what each launch shows about the code it runs. See
