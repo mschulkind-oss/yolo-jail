@@ -379,6 +379,13 @@ func TestPrelaunchRefreshReportsAMissingStoreAsSuch(t *testing.T) {
 		if !strings.Contains(stderr, "cannot take the refresh lock") || strings.Contains(stderr, "another refresh holds") {
 			t.Errorf("launch %d: a missing store must be reported as that, not as contention:\n%s", launch, stderr)
 		}
+		// Every stop names the next step: a store the jail mounts is missing because the mount
+		// did not happen, and restarting the jail is what mounts it again.
+		for _, want := range []string{p.store + " is missing", "restart the jail", "yolo stop"} {
+			if !strings.Contains(stderr, want) {
+				t.Errorf("launch %d: the missing-store line does not say %q:\n%s", launch, want, stderr)
+			}
+		}
 		if _, err := os.Stat(p.store); !os.IsNotExist(err) {
 			t.Errorf("launch %d: the launcher must never create the store itself (err=%v)", launch, err)
 		}
@@ -388,6 +395,36 @@ func TestPrelaunchRefreshReportsAMissingStoreAsSuch(t *testing.T) {
 	}
 	if _, err := os.Lstat(filepath.Join(p.stamps, "refresh")); !os.IsNotExist(err) {
 		t.Errorf("the report was throttled in the machine-global stamp dir (err=%v)", err)
+	}
+}
+
+// TestPrelaunchRefreshNamesWhatToCheckWhenTheStoreIsThereButTheLockIsNot: the store exists, but
+// something that is not a directory sits at the lock's path (or the store refuses the write,
+// which a root test process cannot produce), so the lock cannot be taken. That is not a missing
+// mount, and the line names the command that shows which of the two it is, its paths quoted for
+// a home with a space in it.
+func TestPrelaunchRefreshNamesWhatToCheckWhenTheStoreIsThereButTheLockIsNot(t *testing.T) {
+	for _, native := range []bool{false, true} {
+		p := newPrelaunchProbe(t, native)
+		if err := os.WriteFile(p.lockPath(), []byte("not a lock\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		stdout, stderr := p.run(t, "")
+		log := p.logLines(t)
+		if countLine(log, "REFRESH") != 0 {
+			t.Errorf("native=%v: with the lock's path occupied the refresh must not run: %v", native, log)
+		}
+		q, err := exec.Command("bash", "-c", `printf '%q %q' "$1" "$2"`, "_", p.store, p.lockPath()).Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := "ls -ld " + string(q)
+		if !strings.Contains(stderr, "cannot take the refresh lock") || !strings.Contains(stderr, want) ||
+			strings.Contains(stderr, "is missing") {
+			t.Errorf("native=%v: an occupied lock path must name %q, and never a missing store:\n%s",
+				native, want, stderr)
+		}
+		assertProgramLaunched(t, log, stdout)
 	}
 }
 

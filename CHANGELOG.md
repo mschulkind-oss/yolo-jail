@@ -39,6 +39,7 @@ into a jail, and what each launch shows about the code it runs. See
 - `pi --version` and `pi -v` no longer update pi or refresh its extensions first.
 - pi's extension refresh now runs only when pi's settings name an extension pi installs itself,
   and one that fails waits an hour before it is tried again.
+- When pi's extension refresh cannot lock its folder, it now says how to fix that.
 - When `yolo host` has no container runtime to capture an agent with, it now says to install one.
 - A Ctrl-C in one of a jail's terminals now says the jail stays up for the others.
 - A Ctrl-C as a terminal's session starts no longer leaves that session's command running in the

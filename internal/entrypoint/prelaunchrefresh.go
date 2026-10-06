@@ -344,7 +344,15 @@ _prelaunch_refresh() {
         return 0
     fi
     if [ "$lrc" != 0 ]; then
-        echo "  ⚠ $BIN: cannot take the refresh lock $REFRESH_LOCK ($REFRESH_STORE is missing or not writable) — skipping the pre-launch refresh." >&2
+        # Every stop names the next step, and the two causes have different ones. A missing store
+        # is a mount that did not happen, which a restart of the jail makes again. A store that is
+        # there refused the write or holds something other than a directory at the lock's path,
+        # and the one command that tells those apart is named with both paths.
+        if [ ! -d "$REFRESH_STORE" ]; then
+            echo "  ⚠ $BIN: cannot take the refresh lock: $REFRESH_STORE is missing, so this jail did not mount it — skipping the pre-launch refresh. To mount it, restart the jail: yolo stop on the host, then launch again." >&2
+        else
+            echo "  ⚠ $BIN: cannot take the refresh lock $REFRESH_LOCK ($REFRESH_STORE refuses writes, or something that is not a directory is at that path) — skipping the pre-launch refresh. See which: ls -ld $(printf '%q %q' "$REFRESH_STORE" "$REFRESH_LOCK")" >&2
+        fi
         # Stamped where the store can hold a stamp, so a lock path something else occupies says
         # so once an hour rather than every launch, and the content key is recorded for the same
         # reason. A store that is missing or refuses writes has nowhere to keep either, so it is
