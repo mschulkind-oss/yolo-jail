@@ -20,6 +20,7 @@ package packs_test
 
 import (
 	"io/fs"
+	"slices"
 	"strings"
 	"testing"
 
@@ -233,4 +234,36 @@ func containsArg(argv []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// TestAWSAuthInheritsExactlyItsPointer: a nested launch takes aws-auth's pointer from the
+// launching jail (the manifest's `inherit_from_parent_jail`, docs/design/sso-backed-bedrock.md
+// SSO-D2), and the credential gate withholds every pointer variable the block does not carry.
+// So the block names exactly the variables the pack's env contribution `served_by` aws-auth
+// declares: one fewer is a nested agent handed half a pointer, one more is a launching-jail
+// variable no pointer asked for.
+func TestAWSAuthInheritsExactlyItsPointer(t *testing.T) {
+	var pointer []string
+	for _, g := range awsAuthPack(t).GatedEnvContributions() {
+		if g.ServedBy != "aws-auth" {
+			continue
+		}
+		for k := range g.Vars {
+			pointer = append(pointer, k)
+		}
+	}
+	manifest, err := loopholedecl.Decode(
+		mustRead(t, "aws-auth/loopholes/aws-auth/"+loopholedecl.ManifestName), "/loopholes/aws-auth")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.InheritFromParentJail == nil {
+		t.Fatal("the aws-auth manifest declares no inherit_from_parent_jail, so a nested jail cannot reach Bedrock")
+	}
+	got := append([]string(nil), manifest.InheritFromParentJail.Vars...)
+	slices.Sort(got)
+	slices.Sort(pointer)
+	if !slices.Equal(got, pointer) {
+		t.Errorf("inherit_from_parent_jail.vars = %v, want the pointer's own variables %v", got, pointer)
+	}
 }

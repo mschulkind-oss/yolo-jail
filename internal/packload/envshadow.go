@@ -184,6 +184,9 @@ func shadowSource(p shadowProcess, e EnvEntry) string {
 		// derive, and the Region line names that file too.
 		if d != nil && d.RegionFile != nil && d.RegionFile.Region != "" && d.RegionFile.Var == e.Key &&
 			!e.Unset && e.Value == d.RegionFile.Region {
+			if d.RegionFile.FromParent != "" {
+				return "the region of the launching jail's " + d.RegionFile.FromParent
+			}
 			return "the region yolo read from " + d.RegionFile.fileLabel()
 		}
 		set := []string(nil)

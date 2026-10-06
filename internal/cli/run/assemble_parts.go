@@ -551,6 +551,17 @@ func (o *Options) fwdSocketDir(cname string) string {
 // emitted elsewhere, so the mount is owed there even when this set is empty.
 func (o *Options) hostServicesMountArgs(rt, cname string, cfg *jsonx.OrderedMap) []string {
 	names := hostScopedEndpoints(rt, cfg)
+	// None for a loophole whose pointer this nested launch inherits (parentjailpointers.go): it
+	// starts no daemon, so nothing publishes the endpoint and the witness must not wait on one.
+	if inherited := o.inheritedLoopholes(rt, cfg); len(inherited) > 0 {
+		kept := names[:0:0]
+		for _, n := range names {
+			if _, ok := inherited[n]; !ok {
+				kept = append(kept, n)
+			}
+		}
+		names = kept
+	}
 	if rt == "container" && len(names) == 0 {
 		return nil
 	}

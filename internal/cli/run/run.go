@@ -1769,6 +1769,9 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	o.noteUnstartedProfileDaemons()
 	// And what it set aside because a later pack declares the same service name (NC-D59).
 	o.noteShadowedServices()
+	// And each loophole whose pointer this nested launch takes from the launching jail, starting
+	// none of its daemons (parentjailpointers.go, SSO-D2).
+	o.noteParentJailPointers(cfg, channel)
 
 	// Broker singleton + relay: ensure BEFORE building the argv (the sockets-dir
 	// mount + broker env are emitted by the assembler when the socket exists).
@@ -2902,6 +2905,9 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 		if rc := o.deliverChannelOnAttach(cname, rt, cfg, view.staged, channel); rc != 0 {
 			return rc, false
 		}
+		// The channel is now written into the running jail. Disclose inheritance from this
+		// effective composition, which may have been recomposed over the jail's own pack tree.
+		o.noteParentJailPointers(cfg, channel)
 		// THE LAUNCH CHECK, asked of the services the running jail's launch started, through the
 		// fronts it still owns (runAttachLaunchChecks): a session that lapsed since that launch
 		// is warned about here, before this entry's agent's first request finds out. Only for an

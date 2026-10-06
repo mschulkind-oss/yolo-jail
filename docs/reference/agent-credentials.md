@@ -46,9 +46,15 @@ tags: [credentials, security, boundary, env_sources, host_files, broker, oauth, 
 
 # Agent credentials — what crosses the jail boundary, and how
 
-**Status:** verified 2026-10-01 against `d4e435a3`, the whole doc. A runtime claim says whether
-anyone has watched it run: `MEASURED` where someone has, `UNMEASURED` where no one has, which
-covers most of the `macos-user` column and opencode on the OpenAI service. The
+**Status:** The pre-existing credential-channel sections were last fully verified 2026-10-01 against
+`d4e435a3`. The nested-jail addition below was checked 2026-10-06 against the current source,
+its permanent fixture tests, and a Linux rootful-Podman nested shell smoke. That smoke confirmed
+the inherited pointer is rendered for the Bedrock agent and the nested launch publishes no
+aws-auth endpoint, without making a credentials request or any Bedrock/model API call. The
+permanent `macos-user` integration guard supplies parent-pointer sentinels and checks that the
+backend still opens its own doorway; its hosted-Mac execution remains pending. A runtime claim
+says whether anyone has watched it run: `MEASURED` where someone has, `UNMEASURED` where no one
+has, which covers most of the `macos-user` column and opencode on the OpenAI service. The
 [OpenAI service section](#the-openai-subscription-credential-service), its `OQ-OA` and `OA-D1`
 rows in [Why it's this way](#why-its-this-way) and its current values were rewritten against
 `d4e435a3` the same day, when the design `openai-auth-broker.md` graduated into them.
@@ -840,6 +846,48 @@ its own, so the credential's short life is invisible to the agent.
 > file, which any process running as the jail's user can read, and anything that reads it can
 > `GET` the same credential. So the narrowing is the only defense inside the jail, which is why
 > the service will not start without one.
+
+#### A nested jail uses its launching jail's pointer
+
+A jail has no `aws` CLI and no SSO session, so a service started for a jail launched from inside
+one could never mint. A nested jail therefore borrows its launching jail's pointer instead. When
+yolo launches a podman jail from inside a jail whose environment carries both
+`AWS_CONTAINER_CREDENTIALS_FULL_URI` and `AWS_CONTAINER_AUTHORIZATION_TOKEN`, it starts neither
+the host service nor the adapter. It hands those two values to the nested agents whose provider is
+a Bedrock one, in place of the pointer it would have composed. It prints one line:
+`aws-auth: the nested jail uses this jail's own Bedrock credentials (narrowed by the host; no
+daemon started)`. This works because a podman launched inside a container shares that
+container's network namespace (`--net=host`), so the launching jail's adapter answers on the
+nested jail's loopback too. Everywhere else the launch is the ordinary one, and so is its refusal
+when no service can mint: a launch from the host, another backend, or a launching jail whose
+environment lacks either variable.
+
+- **Never broader than the launching jail.** The nested agent fetches the launching jail's own
+  credential, which the host narrowed for it. The nested config's `profile`, `role_arn`,
+  `session_policy` and `unnarrowed` are not applied, so a nested config cannot widen what it
+  gets.
+- **The region comes with the credential when the parent supplies a valid one.** A nested agent
+  whose provider names no region, and that receives no region variable, gets the launching jail's
+  `AWS_REGION` (or `AWS_DEFAULT_REGION`) when it is a valid region; that valid parent value bypasses
+  `~/.aws/config`, and the launch says so in a `Region:` line. If both parent region variables are
+  missing or empty, the existing region-file fallback still reads `~/.aws/config`. A non-empty but
+  invalid parent region remains stranded by the existing rule: the file is not used in its place,
+  and the region pre-flight reports the problem.
+- **No model list is fetched.** The narrowed credential cannot list Bedrock's models, so the
+  [fetched model list](../design/model-lists-and-pickers.md#OQ-MM6) fails as a real fetch failure
+  does: an agent that has a list of its own keeps it, and one that needs a fetched list is
+  refused with the reason and the ways to supply one.
+
+The declaration is the loophole manifest's `inherit_from_parent_jail` block, which names the
+variables that carry the pointer and the launch line. Core names no AWS variable for it. The
+reasoning is [SSO-D2 to SSO-D5](../design/sso-backed-bedrock.md#SSO-D2).
+
+For this implementation, fixture tests cover pointer gating, daemon/endpoint suppression, region
+precedence and model-list failure. A Linux rootful-Podman nested shell smoke confirmed the inherited
+pointer entries were rendered for Claude and no nested aws-auth endpoint was set; it did not make
+a credentials request or any Bedrock/model API call. The permanent macos-user doorway integration
+test injects parent-pointer sentinels and checks the backend opens its own doorway; its hosted-Mac
+execution remains pending.
 
 #### The narrowing
 

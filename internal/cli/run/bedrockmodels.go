@@ -165,6 +165,9 @@ func (o *Options) composeFetchedLists(cfg *jsonx.OrderedMap, packs []*packload.P
 		enabled[lp.Name] = true
 	}
 	setting := packload.LoopholeSettingIn(cfg)
+	// A service whose pointer this nested launch inherits is not asked (SSO-D5): its answer is a
+	// failed fetch, so the launch says and refuses exactly what a real failure makes it.
+	inherited := o.inheritedLoopholes(o.runtime, cfg)
 	var problems []string
 	for _, w := range wants {
 		if w.Region == "" {
@@ -174,7 +177,9 @@ func (o *Options) composeFetchedLists(cfg *jsonx.OrderedMap, packs []*packload.P
 		}
 		ans := awsauthdaemon.ModelListAnswer{Note: "no selected pack names a service that serves " +
 			w.Platform + " credentials"}
-		if w.Service != "" {
+		if _, ok := inherited[w.Service]; ok && w.Service != "" {
+			ans = inheritedModelListAnswer(w.Service)
+		} else if w.Service != "" {
 			ans = o.FetchModelList(ModelListRequest{Service: w.Service, Enabled: enabled[w.Service],
 				Profile: setting(w.Service, "profile"), Region: w.Region})
 		}

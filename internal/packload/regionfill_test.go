@@ -397,9 +397,63 @@ func TestTheRegionFillLeavesAnUnreadRegionToTheRefusal(t *testing.T) {
 	}
 }
 
-// THE FILE: AWS_CONFIG_FILE in the launching environment relocates it (a leading ~ expanded
-// under that environment's HOME); a missing file, a missing section, no HOME and a value that is
-// not one DNS label each deliver nothing and say why.
+// When an inherited credential pointer has no parent region, the established region-file fallback
+// still runs. A valid parent region takes precedence; missing or empty parent variables leave the
+// fill free to consult the normal file source.
+func TestTheRegionFillFallsBackWhenAnInheritedCredentialHasNoParentRegion(t *testing.T) {
+	home := regionHome(t, regionConfig)
+	packs := embeddedNamed(t, "claude", "aws-auth", "bedrock", "openai-auth", "wire-bridge")
+	served := ServedInJail([]string{"aws-auth", "wire-bridge"}).WithListen(declaredListen).
+		WithInherited(map[string]map[string]string{"aws-auth": {
+			"AWS_CONTAINER_CREDENTIALS_FULL_URI": "http://127.0.0.1:52001/credentials",
+			"AWS_CONTAINER_AUTHORIZATION_TOKEN":  "parent-pointer-test-token",
+		}})
+	getenv := launchEnv(map[string]string{
+		"HOME":                               home,
+		"AWS_CONTAINER_CREDENTIALS_FULL_URI": "http://127.0.0.1:52001/credentials",
+		"AWS_CONTAINER_AUTHORIZATION_TOKEN":  "parent-pointer-test-token",
+	})
+	s, _ := fillCase{packs: packs, profiles: map[string]string{"claude": "bedrock"}, served: &served,
+		src: &RegionFileSource{Getenv: getenv}}.scope(t)
+	d := s.Agent("claude")
+	if got := shapeValue(d, "AWS_REGION"); got != "us-east-2" {
+		t.Fatalf("without a parent region, the fill did not fall back to ~/.aws/config: AWS_REGION=%q", got)
+	}
+	if d.RegionFile == nil || d.RegionFile.Region != "us-east-2" || d.RegionFile.FromParent != "" ||
+		d.RegionFile.File != filepath.Join(home, ".aws", "config") {
+		t.Errorf("the fallback must be recorded as a region-file read, not parent inheritance: %+v", d.RegionFile)
+	}
+}
+
+func TestTheRegionFillKeepsAnInvalidParentRegionStranded(t *testing.T) {
+	home := regionHome(t, regionConfig)
+	packs := embeddedNamed(t, "claude", "aws-auth", "bedrock", "openai-auth", "wire-bridge")
+	served := ServedInJail([]string{"aws-auth", "wire-bridge"}).WithListen(declaredListen).
+		WithInherited(map[string]map[string]string{"aws-auth": {
+			"AWS_CONTAINER_CREDENTIALS_FULL_URI": "http://127.0.0.1:52001/credentials",
+			"AWS_CONTAINER_AUTHORIZATION_TOKEN":  "parent-pointer-test-token",
+		}})
+	getenv := launchEnv(map[string]string{
+		"HOME":                               home,
+		"AWS_CONTAINER_CREDENTIALS_FULL_URI": "http://127.0.0.1:52001/credentials",
+		"AWS_CONTAINER_AUTHORIZATION_TOKEN":  "parent-pointer-test-token",
+		"AWS_REGION":                         "invalid.region.example",
+	})
+	s, _ := fillCase{packs: packs, profiles: map[string]string{"claude": "bedrock"}, served: &served,
+		src: &RegionFileSource{Getenv: getenv, Stranded: func(name string) bool { return name == "AWS_REGION" }}}.scope(t)
+	d := s.Agent("claude")
+	if got := shapeValue(d, "AWS_REGION"); got != "" {
+		t.Fatalf("the invalid stranded parent region was delivered: %q", got)
+	}
+	if d.RegionFile == nil || d.RegionFile.Region != "" || !strings.Contains(d.RegionFile.Problem, "AWS_REGION") ||
+		!strings.Contains(d.RegionFile.Problem, "set in the environment yolo was launched from") {
+		t.Errorf("the invalid parent region must remain stranded rather than fall back to the file: %+v", d.RegionFile)
+	}
+}
+
+// THE FILE: AWS_CONFIG_FILE in the launching environment relocates it (a leading ~ expanded under
+// that environment's HOME); a missing file, a missing section, no HOME and a value that is not one
+// DNS label each deliver nothing and say why.
 func TestTheRegionFillReadsTheFileTheLaunchNames(t *testing.T) {
 	packs := embeddedNamed(t, "claude", "aws-auth", "bedrock", "openai-auth", "wire-bridge")
 	onBedrock := map[string]string{"claude": "bedrock"}

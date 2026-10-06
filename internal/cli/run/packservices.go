@@ -99,6 +99,10 @@ func (o *Options) jailDaemonsFor(cfg *jsonx.OrderedMap, rt string,
 	o.jailBound = set.JailBoundNames(set.Enabled(), rt)
 	specs := o.withoutUnselectedProfileDaemons(cfg, packs,
 		set.JailDaemons(set.Enabled(), rt, serviceJailDaemons(packs)))
+	// A NESTED LAUNCH INHERITS a declaring loophole's pointer from the launching jail and runs
+	// none of its daemons (parentjailpointers.go, SSO-D2): its jail daemon leaves the payload
+	// here, and servedDaemons delivers the recorded pointer in its place.
+	specs = o.withoutInheritedDaemons(rt, set, specs)
 	// A DOORWAY'S HOST ARGV RUNS ONLY FROM A PACK YOLO SHIPS OR A LOCAL ONE (HS-D27;
 	// macosuserdoorways.go): one this launch will not admit is cleared here, so every reader below
 	// (the served set, the settle, the split) sees a daemon that runs where it would have without

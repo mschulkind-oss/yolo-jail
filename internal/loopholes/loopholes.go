@@ -132,6 +132,10 @@ type Loophole struct {
 	// machine's platform and the cache.
 	Binaries   []Binary
 	BinaryRefs BinaryRefs
+	// InheritFromParentJail is the manifest's `inherit_from_parent_jail` block verbatim, or nil
+	// (loopholedecl/parentjail.go): the variables a nested launch sharing the launching jail's
+	// loopback may take this loophole's pointer from, and the line it prints when it does.
+	InheritFromParentJail *ParentJailInheritance
 	// SupersededBy is the claims that retired every capability this loophole serves —
 	// set at DISCOVERY, where the selected packs' claims and the loophole records are
 	// both in hand. Never a manifest declaration: the same manifest is superseded under

@@ -212,7 +212,10 @@ nested jail's loopback *is* this jail's loopback and its SDKs will resolve these
 credentials. That is a property, not a defect — a nested jail already shares this jail's
 home, and the netns is not the widest thing it shares. What follows from it is that
 anything reasoning about who may mint has to reason at the **network namespace**, not at
-the process.
+the process. It is also how a nested jail reaches Bedrock at all: a podman jail launched from
+inside a jail whose environment holds this pointer starts no aws-auth service of its own and
+hands its Bedrock agents this jail's pointer and region, never more than this jail can reach
+([`agent-credentials.md`](../../docs/reference/agent-credentials.md#a-nested-jail-uses-its-launching-jails-pointer)).
 
 **Logging in less often is an org-wide change, not a setting.** The one dial that
 extends how long a portal session lasts is **instance-wide**: it changes the session

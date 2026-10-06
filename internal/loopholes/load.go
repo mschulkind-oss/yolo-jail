@@ -165,6 +165,8 @@ func (l *Loophole) subsetManifest() *loopholedecl.Manifest {
 		Brokered:       l.Brokered,
 		Binaries:       l.Binaries,
 		BinaryRefs:     l.BinaryRefs,
+
+		InheritFromParentJail: l.InheritFromParentJail,
 	}
 }
 
@@ -318,6 +320,8 @@ func resolve(m *loopholedecl.Manifest, modulePath string) *Loophole {
 		Brokered:      m.Brokered,
 		Binaries:      m.Binaries,
 		BinaryRefs:    m.BinaryRefs,
+
+		InheritFromParentJail: m.InheritFromParentJail,
 		// SOURCE IS THE CALLER'S FACT and this is only the fail-safe default. A
 		// manifest cannot say who shipped it (it would just lie), so every discovery
 		// path relabels the record immediately — loadModuleDirs, loadModuleDirs and

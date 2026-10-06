@@ -334,6 +334,10 @@ type Manifest struct {
 	// Brokered is the `brokered` block (brokered.go), or nil: a loophole whose daemon
 	// runs a host credential's commands, fenced to the workspace's own repositories.
 	Brokered *Brokered
+	// InheritFromParentJail is the `inherit_from_parent_jail` block (parentjail.go), or nil: a
+	// nested launch sharing the launching jail's loopback may take this loophole's credential
+	// pointer from the launching jail instead of starting its daemons.
+	InheritFromParentJail *ParentJailInheritance
 	// Binaries are the `binaries` declarations (binaries.go): executables this loophole ships
 	// as downloads pinned by sha256, in declaration order. nil when absent.
 	Binaries []Binary
@@ -660,6 +664,10 @@ func walk(data *jsonx.OrderedMap, manifestPath, dirName string) (*Manifest, erro
 	if err != nil {
 		return nil, err
 	}
+	inherit, err := parseParentJailInheritance(manifestPath, getOrNil(data, keyInheritFromParentJail), jailDaemon)
+	if err != nil {
+		return nil, err
+	}
 	binaryRefs, err := resolveBinaryRefs(manifestPath, binaries, binaryRefFields(doctorCmd,
 		hostDaemon, jailDaemon, jailEnv, caCert, hostBindMounts, requires, stateFiles, hostDevices))
 	if err != nil {
@@ -742,33 +750,34 @@ func walk(data *jsonx.OrderedMap, manifestPath, dirName string) (*Manifest, erro
 	}
 
 	return &Manifest{
-		Name:           name,
-		Description:    description,
-		Version:        version,
-		VersionSet:     versionSet,
-		DefaultEnabled: defaultEnabled,
-		Transport:      transport,
-		Lifecycle:      lifecycle,
-		Intercepts:     intercepts,
-		BrokerIP:       brokerIP,
-		CACert:         caCert,
-		CACertSet:      caCertSet,
-		JailEnv:        jailEnv,
-		DoctorCmd:      doctorCmd,
-		DoctorCmdSet:   doctorCmdSet,
-		HostDaemon:     hostDaemon,
-		JailDaemon:     jailDaemon,
-		HostBindMounts: hostBindMounts,
-		HostDevices:    hostDevices,
-		StateFiles:     stateFiles,
-		Requires:       requires,
-		Platforms:      platforms,
-		PlatformsSet:   platformsSet,
-		Serves:         serves,
-		Settings:       settings,
-		Brokered:       brokered,
-		Binaries:       binaries,
-		BinaryRefs:     binaryRefs,
+		Name:                  name,
+		Description:           description,
+		Version:               version,
+		VersionSet:            versionSet,
+		DefaultEnabled:        defaultEnabled,
+		Transport:             transport,
+		Lifecycle:             lifecycle,
+		Intercepts:            intercepts,
+		BrokerIP:              brokerIP,
+		CACert:                caCert,
+		CACertSet:             caCertSet,
+		JailEnv:               jailEnv,
+		DoctorCmd:             doctorCmd,
+		DoctorCmdSet:          doctorCmdSet,
+		HostDaemon:            hostDaemon,
+		JailDaemon:            jailDaemon,
+		HostBindMounts:        hostBindMounts,
+		HostDevices:           hostDevices,
+		StateFiles:            stateFiles,
+		Requires:              requires,
+		Platforms:             platforms,
+		PlatformsSet:          platformsSet,
+		Serves:                serves,
+		Settings:              settings,
+		Brokered:              brokered,
+		Binaries:              binaries,
+		BinaryRefs:            binaryRefs,
+		InheritFromParentJail: inherit,
 	}, nil
 }
 

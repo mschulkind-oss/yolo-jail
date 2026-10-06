@@ -120,6 +120,31 @@ func TestAttachDeliversTheChannelFile(t *testing.T) {
 	}
 }
 
+func TestAttachDisclosesAnInheritedParentJailPointer(t *testing.T) {
+	packs := awsAuthSelected(t)
+	o, cfg, channel, stderr := attachFixture(t, currentJailEnv, packs, emptyEnv(), func(o *Options, cfg *jsonx.OrderedMap) {
+		o.runtime = "podman"
+		o.ProfileName = "bedrock"
+		inAJail(o)
+		o.Getenv = launchingJailEnv
+		served, _ := awsAuthServedConfig(t, packs).Get("loopholes")
+		cfg.Set("loopholes", served)
+	})
+
+	rc, restarted, execed := attachToExec(t, o, cfg, packs, channel)
+	if rc != 0 || restarted || !execed {
+		t.Fatalf("a healthy inherited-pointer attach did not execute: rc=%d restarted=%v execed=%v\n%s",
+			rc, restarted, execed, stderr.String())
+	}
+	if got := stderr.String(); !strings.Contains(got,
+		"aws-auth: the nested jail uses this jail's own Bedrock credentials (narrowed by the host; no daemon started)") {
+		t.Errorf("the successful attach delivered an inherited pointer without disclosing it:\n%s", got)
+	}
+	if strings.Contains(stderr.String(), parentToken) {
+		t.Error("the attach disclosure printed the inherited token")
+	}
+}
+
 // currentJailEnv is the frozen environment of a jail THIS yolo launched: no wire tables (they
 // cross in the file), and the contract tags every current launch freezes in
 // (entrypoint.ContractTagsEnv), which tell an attach what the jail can receive — the

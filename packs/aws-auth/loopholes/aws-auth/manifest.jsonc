@@ -199,6 +199,25 @@
     ]
   },
 
+  // A NESTED JAIL BORROWS THIS JAIL'S POINTER rather than starting a service of its own
+  // (docs/design/sso-backed-bedrock.md SSO-D2 to SSO-D5). Inside a jail there is no `aws` CLI
+  // and no SSO session, so a nested launch's host daemon could never mint. A podman jail
+  // launched from inside a jail is forced onto that jail's network namespace, so the
+  // launching jail's adapter, at the address its own AWS_CONTAINER_CREDENTIALS_FULL_URI names,
+  // is on the nested jail's loopback too. So when yolo launches a podman jail from inside a
+  // jail whose environment carries both variables below, it starts neither daemon above and
+  // hands the nested Bedrock agents those two values as their pointer, beside the launching
+  // jail's region. The nested jail can then reach exactly what the launching jail reaches,
+  // credentials the host already narrowed, and never more: the nested config's own
+  // settings above are not applied. Anywhere else this block changes nothing.
+  "inherit_from_parent_jail": {
+    "vars": [
+      "AWS_CONTAINER_CREDENTIALS_FULL_URI",
+      "AWS_CONTAINER_AUTHORIZATION_TOKEN"
+    ],
+    "disclose": "the nested jail uses this jail's own Bedrock credentials (narrowed by the host; no daemon started)"
+  },
+
   // An absent or empty list mounts the ENTIRE host state directory read-only, and
   // this state dir holds credentials.json — the minted credentials for every profile
   // this machine serves. Keep this list nonempty, exactly as openai-auth's comment

@@ -105,6 +105,11 @@ type RegionFileLookup struct {
 	Key         string
 	// Problem is why the file gave no region, "" when it gave one.
 	Problem string
+	// FromParent is the variable of the environment yolo was launched from that the region was
+	// taken from, in place of the file, when the agent's credential pointer is inherited from the
+	// launching jail (ServedDaemons.WithInherited): the region that came with the credential
+	// (SSO-D4). "" when the region, or its absence, is the file's.
+	FromParent string
 	// stranded is the variable, set where yolo was launched and delivered to the agent by no
 	// channel, that kept the file from being read (RegionFileSource.Stranded), "" when none did;
 	// strandedProfile is the profile it names when it is the profile variable.
@@ -226,6 +231,14 @@ func (s *CredentialScope) fillRegion(in ScopeInput, src *RegionFileSource, reqs 
 		}
 	}
 	f := req.file
+	// A REGION THAT CAME WITH THE CREDENTIAL (SSO-D4): an agent whose pointer this launch takes
+	// from the launching jail uses the launching jail's credential, so the region that belongs to
+	// it is the one the launching jail's own agents use, set where yolo was launched — the rule
+	// WHICH PROFILE's first step states for a minted credential. Read before the file, which
+	// names a profile this launch's credential was never minted for.
+	if region, from := s.inheritedRegion(src, d, regionVars); region != "" {
+		return &RegionFileLookup{Provider: provider, Var: vars[0], Region: region, Key: f.Key, FromParent: from}
+	}
 	l := &RegionFileLookup{Provider: provider, Var: vars[0], Key: f.Key}
 	// A REGION LEFT WHERE YOLO WAS LAUNCHED, which this launch does not deliver (a jail's shell,
 	// BR-D2): the region the user chose, which the file's may not be, so the file is not read.
@@ -325,6 +338,32 @@ func (s *CredentialScope) fillRegion(in ScopeInput, src *RegionFileSource, reqs 
 		l.Region = value
 	}
 	return l
+}
+
+// inheritedRegion is the region an agent whose credential pointer is inherited from the
+// launching jail takes from the environment yolo was launched from: the first of regionVars set
+// there to one DNS label, and the variable it was read from. "" when d's fold inherits no pointer
+// or none of them holds a region.
+func (s *CredentialScope) inheritedRegion(src *RegionFileSource, d *AgentDelivery, regionVars []string) (region, from string) {
+	if s.served == nil || src.Getenv == nil {
+		return "", ""
+	}
+	inherits := false
+	for _, e := range d.Fold {
+		if e.ServedBy != "" && s.served.Inherits(e.ServedBy) {
+			inherits = true
+			break
+		}
+	}
+	if !inherits {
+		return "", ""
+	}
+	for _, v := range regionVars {
+		if r := strings.TrimSpace(src.Getenv(v)); r != "" && packdecl.RegionProblem("r", r) == "" {
+			return r, v
+		}
+	}
+	return "", ""
 }
 
 // sectionList names sections as bracketed headers joined by "or": "[default]", "[profile
@@ -494,7 +533,7 @@ func (s *CredentialScope) RegionLines() []string {
 		if l == nil || l.Region == "" {
 			continue
 		}
-		key := strings.Join([]string{l.Provider, l.Var, l.Region, l.File, l.Section, l.ProfileFrom}, "\x00")
+		key := strings.Join([]string{l.Provider, l.Var, l.Region, l.File, l.Section, l.ProfileFrom, l.FromParent}, "\x00")
 		if g, ok := groups[key]; ok {
 			g.agents = append(g.agents, agent)
 			continue
@@ -506,6 +545,13 @@ func (s *CredentialScope) RegionLines() []string {
 	var lines []string
 	for _, key := range order {
 		g := groups[key]
+		if g.l.FromParent != "" {
+			lines = append(lines, "Region: "+g.l.Var+"="+g.l.Region+" for "+andList(g.agents)+
+				" on provider "+quoted(g.provider)+", the launching jail's "+g.l.FromParent+
+				", which came with the credential pointer this nested launch inherits from it: the "+
+				"provider sets no region, and no region variable "+reachesWhom(g.agents))
+			continue
+		}
 		lines = append(lines, "Region: "+g.l.Var+"="+g.l.Region+" for "+andList(g.agents)+
 			" on provider "+quoted(g.provider)+", read from "+g.l.fileLabel()+" ["+g.l.Section+"] ("+
 			g.l.profileClause()+"): the provider sets no region, and no region variable "+

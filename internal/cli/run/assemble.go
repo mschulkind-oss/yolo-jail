@@ -1173,7 +1173,8 @@ func (o *Options) servedDaemons(specs []loopholes.JailDaemonSpec) packload.Serve
 	// beside this payload): their pointers name a path in the jail that exists exactly when the
 	// bind does (docs/design/loophole-packaging.md LP-D1).
 	names = append(append([]string(nil), names...), o.jailBound...)
-	served := packload.ServedInJail(names).WithListen(listen).WithRebind(o.movedServedAddresses())
+	served := packload.ServedInJail(names).WithListen(listen).WithRebind(o.movedServedAddresses()).
+		WithInherited(o.parentPointers)
 	if o.runtime == "macos-user" { // parity: Warned — the Seatbelt sandbox binds nothing (loopholes.JailBoundNames is nil there), so a pointer at what a loophole binds is withheld and the launch names it (packload.UnservedEnvLines)
 		served = served.MountsNothing()
 	}

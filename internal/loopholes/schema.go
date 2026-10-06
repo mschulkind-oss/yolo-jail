@@ -31,6 +31,8 @@ type (
 	Binary        = loopholedecl.Binary
 	BinaryBuild   = loopholedecl.BinaryBuild
 	BinaryRefs    = loopholedecl.BinaryRefs
+
+	ParentJailInheritance = loopholedecl.ParentJailInheritance
 )
 
 // Manifest enum values and the broker_ip default.

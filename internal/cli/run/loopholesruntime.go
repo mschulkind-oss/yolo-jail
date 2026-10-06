@@ -272,6 +272,19 @@ func (o *Options) loopholeAllow(rt string, cfg *jsonx.OrderedMap) func(string) b
 			}
 		}
 	}
+	// A LOOPHOLE WHOSE POINTER THIS NESTED LAUNCH INHERITS STARTS NOTHING HERE
+	// (parentjailpointers.go, SSO-D2): the launching jail's own service answers its pointer, so
+	// no host daemon, front or settings file is this launch's. Asked of the records and the
+	// environment alone, so the keeper, which inherits both, plans what the launch disclosed.
+	if inherited := o.inheritedLoopholes(rt, cfg); len(inherited) > 0 {
+		base := allow
+		allow = func(name string) bool {
+			if _, ok := inherited[name]; ok {
+				return false
+			}
+			return base(name)
+		}
+	}
 	return allow
 }
 

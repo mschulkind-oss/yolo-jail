@@ -165,7 +165,7 @@ var (
 		keyName, keyDescription, keyVersion, keyDefaultEnabled, keyTransport, keyLifecycle,
 		keyIntercepts, keyBrokerIP, keyCACert, keyJailEnv, keyDoctorCmd, keyHostDaemon,
 		keyJailDaemon, keyHostBindMounts, keyHostDevices, keyStateFiles, keyRequires,
-		keyPlatforms, keyServes, keySettings, keyBrokered, keyBinaries,
+		keyPlatforms, keyServes, keySettings, keyBrokered, keyBinaries, keyInheritFromParentJail,
 	}
 	// settingDeclKeys is the census for ONE `settings.<key>` declaration. It is
 	// enforced by parseSettings and DELIBERATELY NOT descended into by

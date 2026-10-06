@@ -268,6 +268,13 @@ type Options struct {
 	// `served_by` one reaches the jail only where its binds do (docs/design/loophole-packaging.md
 	// LP-D1). nil on macos-user, which binds nothing, and when none is active.
 	jailBound []string
+	// parentPointers are the loopholes whose credential pointer the last jail-daemon payload this
+	// process composed takes from the launching jail instead of running their daemons
+	// (parentjailpointers.go, docs/design/sso-backed-bedrock.md SSO-D2), each mapped to the
+	// launching environment's value of every variable its pointer carries. Recorded beside the
+	// payload so servedDaemons delivers them, and read by the one disclosure that says so
+	// (noteParentJailPointers). VALUES ARE CREDENTIALS: never printed, never logged. nil when none.
+	parentPointers map[string]map[string]string
 	// launchServices are the LAUNCH-OWNED SERVICES this macos-user launch planned
 	// (macosuserservices.go, docs/design/host-notch-services.md §4.7): pack services whose host
 	// half runs as this launch's child because a profiled agent's pairing needs one. Settled

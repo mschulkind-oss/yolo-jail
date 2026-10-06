@@ -8,6 +8,15 @@ one per patch release.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+**Bedrock in a nested jail.** A podman jail launched from inside a jail now reaches Bedrock with
+the launching jail's own credentials and region, narrowed by the host and never wider, instead of
+failing to start its AWS service. See
+[agent-credentials.md](docs/reference/agent-credentials.md#a-nested-jail-uses-its-launching-jails-pointer).
+
 ## [0.12.0] - 2026-10-06
 
 Packs can carry your patches onto an upstream program, `yolo host` and macos-user do most of what

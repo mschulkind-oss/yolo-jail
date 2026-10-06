@@ -75,6 +75,11 @@ type ServedDaemons struct {
 	// is disabled, or the front door owns no process lifetime to open a doorway for. A pointer
 	// at a BOUND LOOPHOLE never reads it (notBoundWhy says why).
 	notServed map[string]string
+	// inherited is each daemon whose pointer this launch takes from the launching jail instead
+	// of serving it (WithInherited), keyed by daemon name, then by variable: the value the
+	// launching jail's environment holds. Such a daemon runs nowhere in this launch, and Serves
+	// still answers true for it, since its pointer is delivered.
+	inherited map[string]map[string]string
 	// mountsNothing marks a jail notch that binds nothing into its jail (MountsNothing):
 	// macos-user, whose Seatbelt sandbox is a process on the host's own filesystem. A pointer at
 	// what a loophole binds (a BOUND LOOPHOLE, notBoundWhy) is worded as one this notch cannot
@@ -194,6 +199,52 @@ func (s ServedDaemons) WithListen(listen map[string]string) ServedDaemons {
 	return s
 }
 
+// WithInherited returns s serving each daemon in pointers by INHERITANCE: a nested launch that
+// shares the launching jail's loopback takes that daemon's pointer from the launching jail's
+// environment (loopholedecl.ParentJailInheritance; docs/design/sso-backed-bedrock.md SSO-D2) and
+// runs neither of its daemons. pointers maps a daemon's name to the value of each variable it
+// carries. A pack `env` pointer `served_by` such a daemon is delivered with the inherited value in
+// place of its declared one, and one naming a variable pointers does not carry is withheld. nil
+// or empty adds nothing.
+func (s ServedDaemons) WithInherited(pointers map[string]map[string]string) ServedDaemons {
+	if len(pointers) == 0 {
+		return s
+	}
+	names := make(map[string]bool, len(s.names)+len(pointers))
+	for n, ok := range s.names {
+		names[n] = ok
+	}
+	inherited := make(map[string]map[string]string, len(s.inherited)+len(pointers))
+	for d, vals := range s.inherited {
+		inherited[d] = vals
+	}
+	for d, vals := range pointers {
+		if d == "" {
+			continue
+		}
+		names[d] = true
+		inherited[d] = vals
+	}
+	s.names, s.inherited = names, inherited
+	return s
+}
+
+// Inherits reports whether s takes daemon's pointer from the launching jail (WithInherited).
+func (s ServedDaemons) Inherits(daemon string) bool {
+	_, ok := s.inherited[daemon]
+	return ok && s.runs
+}
+
+// inheritedValue is the launching jail's value of key for daemon's inherited pointer, and ok false
+// when daemon is not inherited or its pointer carries no such variable.
+func (s ServedDaemons) inheritedValue(daemon, key string) (string, bool) {
+	if !s.Inherits(daemon) {
+		return "", false
+	}
+	v, ok := s.inherited[daemon][key]
+	return v, ok && v != ""
+}
+
 // WithRebind returns s with the declared-to-served address map for a pack service's declared
 // adapter and via addresses (served address, above). nil moves nothing.
 func (s ServedDaemons) WithRebind(rebind map[string]string) ServedDaemons {
@@ -291,6 +342,12 @@ func (s ServedDaemons) Plus(o ServedDaemons) ServedDaemons {
 				out.rebind = map[string]string{}
 			}
 			out.rebind[k] = v
+		}
+		for d, vals := range part.inherited {
+			if out.inherited == nil {
+				out.inherited = map[string]map[string]string{}
+			}
+			out.inherited[d] = vals
 		}
 	}
 	return out

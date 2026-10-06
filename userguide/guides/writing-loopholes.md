@@ -115,6 +115,10 @@ replacing the file. To remove the loophole, delete its folder and its two entrie
     "caller_token": true,         // optional; default false
     "host_cmd": ["yolo", "…", "--listen", "{listen}"]  // optional; yolo's own packs only, below
   },
+  "inherit_from_parent_jail": {   // optional; a nested jail reuses its launching jail's, below
+    "vars": ["MY_POINTER_URL", "MY_POINTER_TOKEN"],
+    "disclose": "the nested jail uses this jail's own …"
+  },
   "host_bind_mounts": [           // optional; host paths mounted into the jail
     {"host": "{loophole_dir}/assets", "container": "/opt/thing", "readonly": true}
   ],
@@ -249,6 +253,15 @@ new agent attaching to a running jail is asked about the same way, but is never 
 `aws-auth` uses it to say that an SSO session has lapsed. The
 [frame protocol](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/reference/loophole-protocol.md#the-launch-check)
 has the details.
+
+**`inherit_from_parent_jail`** lets a jail launched from inside a jail reuse the launching jail's
+own service instead of starting yours. List in `vars` the variables your pack's `env`
+contribution points the jail at your service with (`served_by` your loophole), and in `disclose`
+the line the launch prints. When yolo launches a podman jail from inside a jail whose environment
+has every one of those variables set, it starts neither of your programs and hands the nested
+agents the launching jail's values instead. That works because such a nested jail shares the
+launching jail's network, so the address answers there too. Everywhere else the block changes
+nothing. `aws-auth` uses it, since a jail has no AWS login to mint from.
 
 **Where the program lives matters.** yolo refuses a host program, or a loophole folder, inside the
 project being launched or inside the jail's home, because an agent in the jail could rewrite it

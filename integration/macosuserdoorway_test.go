@@ -122,6 +122,11 @@ func requireDoorwayRanOutsideAndStopped(t *testing.T, argv, saw, me, uid, diag s
 // user; and that it is gone once the session ends. It runs no agent: the probe sources claude's
 // env file, as claude's launcher does, and speaks the protocol with curl.
 //
+// The test supplies parent-jail-looking pointer sentinels to the macos-user launch and confirms
+// its own listener answers instead: inheritance is a podman-in-podman affordance only (SSO-D2).
+// This is the permanent Mac CI guard for the non-inheriting backend; native execution remains
+// pending until macos-user.yml runs this test on its hosted Mac.
+//
 // The host `aws` is a stand-in on the launcher's PATH, which the host daemon inherits, as in
 // awsauth_test.go, and the aws-auth host daemon is a machine-wide singleton: the test refuses to
 // run beside a live one, which the launch would adopt, and stops the one it started.
@@ -180,7 +185,9 @@ func TestMacosUserOpensTheAWSDoorwayOutsideTheSandbox(t *testing.T) {
 		`echo "NOTOKEN=$(` + curl("") + `)"`,
 		`echo "TOKEN=$(` + curl(`-H "Authorization: ${AWS_CONTAINER_AUTHORIZATION_TOKEN:-}"`) + `)"`,
 		`echo "=== END ==="`,
-	}, "\n"), withEnv("PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH")))
+	}, "\n"), withEnv("PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"AWS_CONTAINER_CREDENTIALS_FULL_URI=http://127.0.0.1:52001/nested-inheritance-sentinel",
+		"AWS_CONTAINER_AUTHORIZATION_TOKEN=integration-parent-pointer-sentinel"))
 	saw := watch.stop()
 	door := section(r.stdout, "=== DOOR ===", "=== END ===")
 	diag := "\n--- probe:\n" + door + "\n--- launch stderr:\n" + r.stderr + awsAuthDaemonLog(t)
@@ -197,6 +204,9 @@ func TestMacosUserOpensTheAWSDoorwayOutsideTheSandbox(t *testing.T) {
 	if !strings.HasPrefix(got["URI"], "http://127.0.0.1:") || strings.HasPrefix(got["URI"], "http://"+awsAuthAdapterAddr+"/") ||
 		!strings.HasSuffix(got["URI"], "/credentials") {
 		t.Errorf("claude's AWS_CONTAINER_CREDENTIALS_FULL_URI is not a port picked for this launch%s", diag)
+	}
+	if got["URI"] == "http://127.0.0.1:52001/nested-inheritance-sentinel" {
+		t.Errorf("macos-user inherited the launching environment's parent-jail pointer%s", diag)
 	}
 	if got["SHELL_TOKEN"] != "absent" {
 		t.Errorf("the bare shell carries the AWS doorway's token, which only a bedrock agent's env gets%s", diag)

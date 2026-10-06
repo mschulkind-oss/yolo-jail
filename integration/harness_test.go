@@ -166,8 +166,12 @@ func runSuite(m *testing.M) int {
 // daemon, while other tests were using them: on CI that is the runner's, and in a jail with
 // YOLO_VERSION unset, so that the launch takes itself for a host one, it is the HOST's nix daemon
 // (found 2026-10-03, when a reaper's stamp showed it had run on the maintainer's host).
+//
+// And the launching jail's credential pointers are unset (parentpointerenv_test.go): an in-jail
+// run would otherwise hand them to every nested launch in place of the service under test.
 func applySuiteEnv() {
 	os.Setenv(autoReapersOffEnv, "1")
+	unsetParentJailPointers()
 }
 
 // warmJail pays the suite's ONE-TIME container costs here, where nothing is being

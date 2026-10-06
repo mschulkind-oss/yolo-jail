@@ -479,6 +479,8 @@ func TestSubsetManifestProjectsEveryField(t *testing.T) {
 			Platform: "linux/amd64", URL: "https://acme.test/acmed",
 			SHA256: strings.Repeat("a", 64)}}}},
 		BinaryRefs: BinaryRefs{Jail: []string{"acmed"}},
+
+		InheritFromParentJail: &ParentJailInheritance{Vars: []string{"A"}, Disclose: "inherits"},
 	}
 	rec.JailEnv.Set("A", "1")
 

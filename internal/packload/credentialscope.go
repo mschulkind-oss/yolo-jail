@@ -343,6 +343,23 @@ func (s *CredentialScope) servedFold(fold []EnvFoldEntry) []EnvFoldEntry {
 			s.unservedEnv[e.Key] = e.ServedBy
 			continue
 		}
+		// A POINTER THIS LAUNCH INHERITS (ServedDaemons.WithInherited, SSO-D2): the launching
+		// jail's own value, verbatim, in place of the declared one, so neither the listen
+		// address nor the caller token below is this launch's. A variable the inheritance does
+		// not carry is withheld, as an unserved one is: half a pointer is no pointer.
+		if e.ServedBy != "" && s.served.Inherits(e.ServedBy) {
+			v, ok := s.served.inheritedValue(e.ServedBy, e.Key)
+			if !ok {
+				if s.unservedEnv == nil {
+					s.unservedEnv = map[string]string{}
+				}
+				s.unservedEnv[e.Key] = e.ServedBy
+				continue
+			}
+			e.Value = v
+			out = append(out, e)
+			continue
+		}
 		// The pointer's address is COMPOSED from the daemon that serves it
 		// (loopholedecl.TokenListen, NC-D41): the served address of this launch, never a
 		// second literal in the pack that the daemon's port could drift away from.
