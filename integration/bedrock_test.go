@@ -284,3 +284,31 @@ func TestBedrockTakesTheRegionOfTheHostsAWSConfig(t *testing.T) {
 		t.Errorf("the launch must say where the region came from, %q:\n%s", want, r.stderr)
 	}
 }
+
+// A BEDROCK LAUNCH LEFT WITH NOTHING TO START ON STOPS, SAYING WHY (docs/design/model-lists-and-pickers.md
+// OQ-MM6), at a real launch through the front door: copilot, whose pack says it has no Bedrock
+// catalog, on a Bedrock provider no pack or config gives a model list, with a profile naming no
+// model. The launch asks the aws-auth service for the region's list; none is running here, so it
+// runs the same fetch itself, which cannot succeed in this isolated home (no `aws` CLI, or no such
+// profile in an empty ~/.aws), and nothing reaches AWS. It fails if the front door stops installing
+// the fetch or the composition stops asking it.
+func TestABedrockLaunchWithNoListAndNoFetchStopsSayingWhy(t *testing.T) {
+	requireJail(t)
+
+	dir := writeProject(t, `{}`)
+	packHome(t, `{"packs": ["copilot", "aws-auth", "wire-bridge"],
+  "providers": {"bare": {"platform": "aws-bedrock", "region": "us-east-1"}},
+  "profiles": {"bare": {"provider": "bare"}},
+  "loopholes": {"aws-auth": {"enabled": true, "settings": {"profile": "stand-in-profile", "unnarrowed": true}}}}`)
+
+	r := runCommand(t, dir, append(jailRunArgs(), "-p", "bare", "--", "true"))
+	if r.rc == 0 {
+		t.Fatalf("a launch that left copilot nothing to start on ran:\n%s", r.combined())
+	}
+	for _, want := range []string{`copilot has no model to start on for profile "bare"`,
+		`"providers.bare.models"`, `"model" on profile "bare"`} {
+		if !strings.Contains(r.combined(), want) {
+			t.Errorf("the refusal lacks %q:\n%s", want, r.combined())
+		}
+	}
+}

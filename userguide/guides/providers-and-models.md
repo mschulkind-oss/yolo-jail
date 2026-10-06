@@ -136,11 +136,18 @@ Two more come with the agent packs, with no extra pack to add:
   `-p bedrock-bridge` sends each agent to Bedrock through the wire bridge instead of its own
   client, and so does any profile that adds `"via": "wire-bridge"` to a Bedrock provider. The
   bridge reaches Bedrock in the region the agent was given, found the same three ways, and signs
-  every request with your AWS credentials itself. Under it Claude Code can switch between Claude
-  and every other model on the list in one session: a Claude model goes to Bedrock untranslated,
-  so prompt caching and thinking keep working, and any other model is translated. codex,
-  opencode, pi and oh-omp send their own requests through the bridge unchanged, and Copilot
-  starts on the first model on the list. A Bedrock provider of your own that names its own
+  every request with your AWS credentials itself. Under it Claude Code runs its own Bedrock
+  support pointed at the bridge, so it uses Claude models only, its own Bedrock default unless
+  your profile names one. codex, opencode, pi and oh-omp send their own requests through the
+  bridge unchanged, and Copilot starts on the first model on the list. For Copilot a Claude model
+  goes to Bedrock untranslated, so prompt caching and thinking keep working, and any other model
+  is translated.
+
+  Where no pack and no config lists Bedrock models, yolo reads your region's list from Bedrock
+  itself, through the `aws-auth` login, at most once a day, and gives it to the bridge and to
+  Copilot, which then starts on a Claude model from it. The other agents keep their own Bedrock
+  model lists. A launch that leaves Copilot with no model to start on, because that read failed
+  too, stops and says why and what to add. A Bedrock provider of your own that names its own
   address in `endpoints` is signed there too, whatever the address, once its `platform` says
   `aws-bedrock`. The bridge signs with a key pair, the `aws-auth` login or a Bedrock API key, and
   not with a profile in `~/.aws`, so in a jail whose only AWS credential is `AWS_PROFILE` it has

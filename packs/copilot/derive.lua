@@ -100,6 +100,25 @@ local function narrowedFirst(p)
   return rows[1] and rows[1].id
 end
 
+-- fetchedStart is copilot's start model from a provider's FETCHED LIST (`fetched_models`, the
+-- list yolo reads from Bedrock where no pack or config supplies one,
+-- docs/design/model-lists-and-pickers.md OQ-MM6): its first entry whose maker is anthropic, else its
+-- first. A start model must be one the wire bridge carries, and an Anthropic model is the one maker
+-- it forwards untranslated, to runtime's own Messages route (measured 2026-10-01); a model it would
+-- translate to runtime's chat completions is carried there only if runtime serves that model, which
+-- the list does not say. nil for no list.
+local function fetchedStart(p)
+  local rows = type(p.fetched_models) == "table" and p.fetched_models or {}
+  local first
+  for _, r in ipairs(rows) do
+    if type(r) == "table" and type(r.id) == "string" and r.id ~= "" then
+      if r.vendor == "anthropic" then return r.id end
+      first = first or r.id
+    end
+  end
+  return first
+end
+
 yolo.env("copilot", function(ctx)
   local p = ctx.providers[ctx.selected_provider]
   if not p then return {} end
@@ -167,8 +186,18 @@ yolo.env("copilot", function(ctx)
   -- model, since BYOK refuses to start without one, and the bridge carries every maker on the list
   -- (translating all but Anthropic's). OQ-ML2's rule picks it: the provider's declared default,
   -- else the first model it lists.
+  -- A PROFILE'S OWN ID ON THAT PATH, one the list does not hold, is passed through as the user wrote
+  -- it, ahead of any pick: naming a model on the profile is how a user starts copilot on one.
+  if not model and viaOnly then
+    local named = ctx.profile and ctx.profile.model
+    if type(named) == "string" and named ~= "" and named ~= "default" then model = named end
+  end
   if not model and viaOnly then
     model = m.default or narrowedFirst(p)
+  end
+  -- NO LIST FROM A PACK OR THE USER: the one yolo fetched from the platform, when it fetched one.
+  if not model and viaOnly then
+    model = fetchedStart(p)
   end
   if not model then return {} end
   local out = {

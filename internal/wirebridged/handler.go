@@ -188,6 +188,10 @@ type bridgeHandler struct {
 	// is not narrowed or its switch is off: a request for a model off the list is refused
 	// before it reaches either upstream.
 	allow *modelAllowlist
+	// invoke is set for a Bedrock upstream (invoke.go): Bedrock's own POST /model/{id}/invoke
+	// routes, signed and passed through, for an agent in its own Bedrock mode pointed at the
+	// bridge (claude on -p bedrock-bridge, docs/design/model-lists-and-pickers.md OQ-MM6).
+	invoke *invokePassthrough
 }
 
 func (h *bridgeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -215,6 +219,22 @@ func (h *bridgeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			time.Since(start).Round(time.Millisecond), note)
 	}()
 
+	// BEDROCK'S OWN ROUTES (invoke.go), on a Bedrock upstream: an agent in its own Bedrock mode
+	// sends InvokeModel here, which is signed and passed through; its best-effort control-plane
+	// reads are refused in the shape its AWS SDK reads, and it falls back on its own model ids.
+	if h.invoke != nil {
+		if id, op, ok := parseInvokePath(r.URL.EscapedPath()); ok {
+			h.invoke.serve(rec, r, id, op, h.allow, &note)
+			return
+		}
+		if !strings.HasPrefix(r.URL.Path, "/v1/") {
+			writeAWSError(rec, http.StatusNotFound, "ResourceNotFoundException",
+				"wire-bridge: only Bedrock's POST /model/{id}/invoke, /invoke-with-response-stream and "+
+					"/count-tokens are passed through here; the control plane is not (a jail's credential "+
+					"may only invoke)")
+			return
+		}
+	}
 	// count_tokens lands here (404, WB-D14), as does every method and path the
 	// surface does not implement. One refusal message covers both, naming the
 	// rule rather than staging a guess.

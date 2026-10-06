@@ -64,6 +64,9 @@ func newSignedChatHandler(upstreamBaseURL string, opts wirebridge.ChatOptions, s
 	h := newChatHandler(upstreamBaseURL, "", opts).(*bridgeHandler)
 	h.signer = signer
 	h.messages = newMessagesPassthrough(upstreamBaseURL, anthropicModels, signer)
+	// Bedrock's own invoke routes, for an agent in its own Bedrock mode (invoke.go). The makers
+	// the list declares are the boot's to add (route.ModelVendors).
+	h.invoke = newInvokePassthrough(upstreamBaseURL, signer)
 	return h
 }
 

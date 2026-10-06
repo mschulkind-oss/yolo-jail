@@ -17,6 +17,9 @@ type HandlerConfig struct {
 	// (launchcheck.go), so a launch arriving during the spawn-time mint waits for that one.
 	// nil gets a tracker of the handler's own, which logs nowhere.
 	Mints *mintTracker
+	// ModelLists is what the `bedrock-models` action answers from (modellists.go). Its zero
+	// value answers that there is no profile to fetch as.
+	ModelLists ModelListSource
 }
 
 // BuildHandler serves the action protocol the jail-side adapter speaks.
@@ -71,6 +74,10 @@ func BuildHandler(config HandlerConfig) hostservice.Handler {
 			// be served, and if not, why? As credential-free as `status`: a warning carries a
 			// classifier Message, never a credential field.
 			_ = session.AnswerLaunchCheck(launchCheck(config.Broker, mints, hostservice.LaunchCheckBudgetOf(session)))
+		case ModelListAction:
+			// The launch's Bedrock model list (modellists.go): on the host socket alone, since it
+			// is fetched with the profile's own credential, before any narrowing.
+			answerModelList(session, config.ModelLists)
 		default:
 			session.Stderr("unknown action: " + action + "\n")
 			session.Exit(2)

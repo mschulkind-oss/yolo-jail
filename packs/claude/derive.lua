@@ -275,16 +275,39 @@ end
 --     `profile: "bedrock"` gate in pack.json, which matched the name and nothing else.
 --   - THE TRANSPORT IS CLAUDE'S OWN: its profile routes through no via service
 --     (ctx.via_url, the wire bridge). The everything profile reaches the same provider through
---     the bridge (OQ-BR11, OQ-BR1's `bedrock-bridge`), so it must NOT turn claude's native client
---     on; aws-auth's credential pointer still reaches it, keyed on the platform alone. claude is
---     then routed at the provider's anthropic endpoint (routedProvider below), which for the
---     shipped `bedrock`, named by region alone, is the wire bridge's adapter address, composed
---     for the via (docs/design/wire-bridge-gateway.md WG-I39); the bridge reaches runtime in the
---     region claude was handed. A Bedrock provider whose anthropic address is its own carries
---     none of claude's requests through the bridge, and the launch's via-route gate says so
+--     the bridge (OQ-BR11, OQ-BR1's `bedrock-bridge`), so it must not write the settings file's
+--     switch, which a bare `claude` outside yolo would read; aws-auth's credential pointer still
+--     reaches it, keyed on the platform alone. Since 2026-10-05 (OQ-MM6) claude runs its own
+--     Bedrock client there too, pointed at the wire bridge's adapter address composed for the
+--     via (docs/design/wire-bridge-gateway.md WG-I39), and the bridge only signs: that is
+--     bridgedBedrock below, set for the launched process alone. A Bedrock provider whose
+--     anthropic address is its own is routed at it (routedProvider below), carries none of
+--     claude's requests through the bridge, and the launch's via-route gate says so
 --     (wirebridged.unroutedViaNotice).
 local function nativeBedrock(ctx)
   return ctx.selected_platform == "aws-bedrock" and (ctx.via_url or "") == ""
+end
+
+-- bridgedBedrock: claude reaches a Bedrock provider through the wire bridge in its OWN Bedrock
+-- mode (docs/design/model-lists-and-pickers.md OQ-MM6, ruled 2026-10-05, amending
+-- docs/design/wire-bridge-gateway.md Part 2's "never CLAUDE_CODE_USE_BEDROCK"): its profile
+-- routes it through a via service (ctx.via_url) and the provider's anthropic address is the one
+-- core composed for that via (`for_via`, WG-I39), the bridge's adapter. Claude Code's documented
+-- gateway settings (https://code.claude.com/docs/en/llm-gateway-connect, "Amazon Bedrock") then
+-- point its own Bedrock client at that address with its own signing skipped, so claude's own
+-- Bedrock defaults name the model and the bridge only signs (internal/wirebridged's invoke.go).
+-- A Bedrock provider whose anthropic address is its own is routed at it as before.
+local function bridgedBedrock(ctx, p)
+  if ctx.selected_platform ~= "aws-bedrock" or (ctx.via_url or "") == "" then return false end
+  local ep = type(p) == "table" and type(p.endpoints) == "table" and p.endpoints.anthropic
+  return type(ep) == "table" and type(ep.base_url) == "string" and ep.base_url ~= ""
+    and type(ep.for_via) == "string" and ep.for_via ~= ""
+end
+
+-- claudeBedrock: claude's own Bedrock client carries its requests, natively or at the bridge, so
+-- it calls Anthropic's models alone (docs/design/bedrock-plumbing.md OQ-BR9).
+local function claudeBedrock(ctx, p)
+  return nativeBedrock(ctx) or bridgedBedrock(ctx, p)
 end
 
 -- routedProvider: claude reaches the selected provider at an anthropic endpoint yolo composed
@@ -296,7 +319,7 @@ end
 local function routedProvider(ctx, p)
   return type(p) == "table" and type(p.endpoints) == "table" and type(p.endpoints.anthropic) == "table"
     and type(p.endpoints.anthropic.base_url) == "string" and p.endpoints.anthropic.base_url ~= ""
-    and not nativeBedrock(ctx)
+    and not claudeBedrock(ctx, p)
 end
 
 -- routedSpelling returns the function that spells a provider's wire id the way claude sends it
@@ -409,7 +432,7 @@ end
 -- user's string-form alias always is.
 local function onlyRows(ctx, p)
   local rows = routedRows(ctx, p)
-  if not nativeBedrock(ctx) then return rows end
+  if not claudeBedrock(ctx, p) then return rows end
   local kept = {}
   for _, r in ipairs(rows) do
     local vendor = listFact(p, r.wire, "vendor")
@@ -484,7 +507,7 @@ end
 -- `only` narrowed the list and claude reaches the provider, and otherwise MM-D2's remaining pins
 -- on a routed provider (completeRoutedTiers).
 local function listPins(ctx, p, out)
-  if listOnly(p) and (nativeBedrock(ctx) or routedProvider(ctx, p)) then
+  if listOnly(p) and (claudeBedrock(ctx, p) or routedProvider(ctx, p)) then
     return applyOnlyPins(ctx, p, out)
   end
   return completeRoutedTiers(ctx, p, out)
@@ -655,7 +678,7 @@ yolo.derive("claude", "settings", function(ctx)
   -- those.
   local selectedP = ctx.providers and ctx.providers[ctx.selected_provider]
   if ctx.selected_provider ~= "openai-codex" and listOnly(selectedP)
-    and (nativeBedrock(ctx) or routedProvider(ctx, selectedP)) then
+    and (claudeBedrock(ctx, selectedP) or routedProvider(ctx, selectedP)) then
     local rows = onlyRows(ctx, selectedP)
     if #rows > 0 then
       local default = listDefault(ctx, selectedP, rows)
@@ -787,7 +810,7 @@ yolo.env("claude", function(ctx)
   -- own URL from the region, and an anthropic endpoint on a Bedrock provider is the wire
   -- bridge's (a user who gave the provider an `openai` endpoint gets the adapter's twin), which
   -- only a profile routing claude through the bridge asks for.
-  if p.endpoints and p.endpoints.anthropic and p.endpoints.anthropic.base_url and not nativeBedrock(ctx) then
+  if p.endpoints and p.endpoints.anthropic and p.endpoints.anthropic.base_url and not claudeBedrock(ctx, p) then
     baseUrl = p.endpoints.anthropic.base_url
   end
   if baseUrl then
@@ -832,6 +855,19 @@ yolo.env("claude", function(ctx)
   -- settings derive writes the same switch into the file).
   if nativeBedrock(ctx) then
     out.CLAUDE_CODE_USE_BEDROCK = "1"
+  end
+  -- THE SAME CLIENT AT THE WIRE BRIDGE (bridgedBedrock above), for the launched process only: a
+  -- bare `claude` outside yolo has no bridge to reach, so the settings file says nothing of it.
+  -- Claude Code's documented gateway settings: ANTHROPIC_BEDROCK_BASE_URL at the bridge's adapter,
+  -- CLAUDE_CODE_SKIP_BEDROCK_AUTH so claude signs nothing (the bridge does), and the bridge's
+  -- per-launch caller token as ANTHROPIC_AUTH_TOKEN, which Claude Code sends there as
+  -- `Authorization: Bearer` (docs/reference/wire-bridge.md WB-D18). No ANTHROPIC_BASE_URL: the
+  -- requests are Bedrock's own, and claude's own Bedrock defaults name the model.
+  if bridgedBedrock(ctx, p) then
+    out.CLAUDE_CODE_USE_BEDROCK = "1"
+    out.ANTHROPIC_BEDROCK_BASE_URL = p.endpoints.anthropic.base_url
+    out.CLAUDE_CODE_SKIP_BEDROCK_AUTH = "1"
+    out.ANTHROPIC_AUTH_TOKEN = routedAuthToken(p.endpoints.anthropic)
   end
   -- Provider FACTS reach the derive as profile options (OQ-CS4: the provider declares
   -- the knobs, this derive decides what each one means for claude), so the values stay
@@ -929,7 +965,7 @@ yolo.env("claude", function(ctx)
   -- where a Bedrock id is one it cannot call.
   local bedrockCallable = nil
   if ctx.selected_platform == "aws-bedrock" then
-    if nativeBedrock(ctx) then
+    if claudeBedrock(ctx, p) then
       local list = callableModels(p, { anthropic = true })
       selected = callableModel(p, list, ctx.profile, false)
       bedrockCallable = {}

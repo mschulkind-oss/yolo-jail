@@ -42,6 +42,11 @@ an agent told a repository is out of scope is told how. See
 give that script the variables it needs, such as where to install, with `installer_env`. See
 [the pack system reference](docs/reference/pack-system.md).
 
+**Bedrock's own model list.** Where no pack or config lists Bedrock models, yolo reads your
+region's list from Bedrock through the `aws-auth` login, once a day, so Copilot starts on a model
+Bedrock serves; a launch that still leaves Copilot no model says what to add. See
+[the providers yolo ships](userguide/guides/providers-and-models.md#the-providers-yolo-ships).
+
 ### Changed
 
 - A jail now installs every agent and tool your selected packs declare when it starts, once
@@ -67,6 +72,8 @@ give that script the variables it needs, such as where to install, with `install
 - A host-wide service an older yolo started, such as `aws-auth`, now stops a new launch that uses
   it instead of warning: run the `yolo host-daemon restart <name>` it names, which jails already
   running survive.
+- On `-p bedrock-bridge`, Claude Code now uses its own Bedrock support through the wire bridge,
+  so it reaches Claude models only there; use Copilot, codex, opencode or pi for other makers'.
 
 ### Fixed
 

@@ -801,6 +801,16 @@ does not narrow the agent's menu there, naming the agent, the provider, the prof
 [MM-D29](../design/model-lists-and-pickers.md#MM-D29)). It does not see `-p`. On `program` alone;
 `packdecl` refuses an empty `providers` list, an empty name and a name given twice.
 
+<a id="needs_model_list"></a>`needs_model_list` names the provider platforms on which the program
+has no model catalog and no default model of its own, so it starts only on a model some list
+names. `packs/copilot` declares `["aws-bedrock"]`: copilot has no Bedrock catalog, and its BYOK
+refuses to start without a model. On a provider of such a platform that no pack and no config
+gives a list, the launch fetches the list from the platform itself (for `aws-bedrock`, through
+the `aws-auth` service), and when the profile names no `model` and no list was obtained, the
+launch stops, saying why and what to add
+([MM-D36](../design/model-lists-and-pickers.md#MM-D36)). On `program` alone; `packdecl` refuses an
+empty list, an empty platform and a platform given twice.
+
 `install_hints` maps a host package manager to the package that provides `bin` there. Used
 below the `jail` notch, where yolo bakes no image, by `yolo check-deps` / `apply` to probe
 for the binary and emit a runnable manifest. A value is `<package> [<package>…]`, optionally
@@ -875,7 +885,7 @@ programs, the launcher generator and the host floor included, sees the fork's. I
 selection function (`config.SelectPacks`), which every host verb and the launch read, and in the
 jail's pack loader over the staged tree, whose base `pack.json` is unchanged. The rewrite keeps the
 base's `refresh`, `probe_args`, `temp_caches`, `protocols`, `provider_sets`, `platform_switches`, `capabilities`,
-`platform_regions`, `unlisted_background_models`, `exact_menu_refuses` and `node_floor` (a
+`platform_regions`, `unlisted_background_models`, `exact_menu_refuses`, `needs_model_list` and `node_floor` (a
 fork's own `node_floor` replaces it). It drops every other delivery field of the base: `package`, `url`, `flags`, `update`,
 `versions_dir`, `installer_env`, `install_hints`, `model_catalog`, and `platforms` unless the fork declares its own.
 

@@ -120,6 +120,15 @@ func (a *modelAllowlist) checks(agentOrRoute string, body []byte) (ok bool, msg 
 	if !named {
 		return true, ""
 	}
+	return a.checksModel(agentOrRoute, model, dup)
+}
+
+// checksModel is checks for a model already read off the request: the body's `model`, or the
+// path's on Bedrock's own invoke routes (invoke.go). dup says the body named it more than once.
+func (a *modelAllowlist) checksModel(agentOrRoute, model string, dup bool) (ok bool, msg string) {
+	if a == nil {
+		return true, ""
+	}
 	listedID := a.ids[a.key(model)]
 	if a.exempt != "" {
 		// Admitted whatever it names, and said when that is off the list: the evidence a later

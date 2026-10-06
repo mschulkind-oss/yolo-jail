@@ -890,6 +890,20 @@ type Contribution struct {
 	// A PACK FACT for `platform_switches`' reason: what an agent's menu can do is that agent's
 	// fact, and core names no agent. ON `program` ALONE.
 	ExactMenuRefuses *ExactMenuRefusal `json:"exact_menu_refuses,omitempty"`
+	// NeedsModelList names the provider PLATFORMS (`platform`'s open vocabulary) on which this
+	// program has no model catalog and no default model of its own, so it starts only on a model
+	// some list names: a pack's, the user's config, a profile's `model`, or the list yolo fetches
+	// from the platform itself (docs/design/model-lists-and-pickers.md OQ-MM6; for "aws-bedrock"
+	// the aws-auth daemon's). A launch that selects a provider of such a platform for this program
+	// with none of those, and whose fetch failed, is refused, saying why and what to add
+	// (internal/cli/run's bedrockmodels.go). It is also what asks a launch to fetch the list at
+	// all. packs/copilot declares "aws-bedrock": copilot has no Bedrock catalog, and its BYOK
+	// refuses to start without a model. A program that declares nothing is never refused for a
+	// missing list, since it falls back on its own catalog (MM-D32).
+	//
+	// A PACK FACT for `platform_switches`' reason: what a binary can start on is that binary's
+	// fact, and core names no agent. ON `program` ALONE.
+	NeedsModelList []string `json:"needs_model_list,omitempty"`
 
 	// --- adapter (docs/reference/protocol-resolution.md#the-three-declarations, OQ-PR1) ---
 	// Adapts is the protocol PAIR this contribution converts, and Address is where the
@@ -3672,6 +3686,7 @@ func validateContribution(label string, c Contribution) []string {
 	problems = append(problems, protocolsProblems(label, c)...)
 	problems = append(problems, platformSwitchProblems(label, c)...)
 	problems = append(problems, platformRegionProblems(label, c)...)
+	problems = append(problems, needsModelListProblems(label, c)...)
 	if c.UnlistedBackgroundModels && c.Kind != KindProgram {
 		problems = append(problems, fmt.Sprintf("%s: kind %q does not take \"unlisted_background_models\" — "+
 			"it says which models a PROGRAM sends, so only \"program\" has an answer", label, c.Kind))

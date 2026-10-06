@@ -308,6 +308,9 @@ func adapterHandler(route route, e *entrypoint.Env) (http.Handler, string, strin
 		}
 		h := newSignedChatHandler(route.UpstreamBaseURL, route.chatOptions(),
 			&bedrockSigner{region: route.SignRegion, chain: &sigv4.Chain{Env: env}}, route.AnthropicModels)
+		if h.invoke != nil {
+			h.invoke.vendors = route.ModelVendors
+		}
 		return h, signingDescription(route.SignRegion, route.RegionSource) + ", from " + env.String(), ""
 	}
 	key, keySource := keyFor(e, route.KeyEnvName, route.Agent)
@@ -382,7 +385,7 @@ func servePlan(ctx context.Context, p plan, e *entrypoint.Env) int {
 				handler: requireAnthropicCaller(token, "the adapter route for "+what, handler)})
 			serving = append(serving, fmt.Sprintf("provider %q: anthropic on {addr} → openai %s (endpoint {endpoint}, credential %s)%s%s",
 				route.ProviderName, route.UpstreamBaseURL, credentialDescription(route, keySource),
-				messagesServeNote(handler), allowlistNote(allow.adapter)))
+				invokeServeNote(handler)+messagesServeNote(handler), allowlistNote(allow.adapter)))
 			if len(route.VendorConflicts) > 0 {
 				logf("provider %q's list names %s under aliases declaring different vendors, so the bridge "+
 					"translates %s as it does any model not declared Anthropic's (wire-bridge-gateway.md WG-I34)",
@@ -679,6 +682,10 @@ type route struct {
 	// VendorConflicts is every id the list names under aliases declaring different vendors,
 	// which therefore stays translated; the serve log names them (WG-I34).
 	VendorConflicts []string
+	// ModelVendors is, for a Bedrock upstream, each listed id's declared maker (declaredVendors),
+	// the pack's or config's list or else the fetched one: the invoke pass-through refuses an id
+	// declared another maker's (invoke.go).
+	ModelVendors map[string]string
 }
 
 // bedrock reports whether the route signs for Bedrock: its region is known, or the boot reads
@@ -1026,6 +1033,7 @@ func routeFor(providers *jsonx.OrderedMap, useProfiles map[string]string,
 			// composed entry as the upstream, so the launcher's WillServe and this boot read one
 			// table; it changes no serve-or-idle answer.
 			rt.AnthropicModels, rt.VendorConflicts = anthropicModelIDs(entry)
+			rt.ModelVendors = declaredVendors(entry)
 		}
 		return rt, ""
 	}

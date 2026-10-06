@@ -1233,6 +1233,10 @@ func runRun(args []string) int {
 		return macosUserRun(cfg, workspace, agents, agentArgv, repoRoot, packRoot, homeOverlay,
 			hostCtx, dryRun, packEnv, blocked, jailDaemons)
 	}
+	// Wire the fetched model list (docs/design/model-lists-and-pickers.md OQ-MM6): a provider no
+	// pack or config gives a list gets the region's from its platform's credential service. A
+	// seam the front door fills so that no hand-built Options in a test can reach AWS.
+	opts.FetchModelList = run.DefaultFetchModelList
 	// Wire E3's capture-on-terminate. Same injection shape and same reason: the
 	// capture engine lives in THIS package, which imports run, so run cannot call it
 	// directly. Warnings go to stderr — the capture is an observability aid, and its

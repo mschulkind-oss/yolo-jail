@@ -396,6 +396,15 @@ func hydrateCredential(entry map[string]any, lookup func(string) (string, bool))
 // objects become map[string]any (recursively), a null drops, everything else passes
 // through. A nil *jsonx.OrderedMap is a nil input, not a receiver to call methods on.
 func plainValue(v any) any {
+	// An ARRAY's elements lower too: a fetched list (FetchedModelsKey) is an array of objects, and
+	// the Lua marshaller takes plain maps only.
+	if arr, isArr := v.([]any); isArr {
+		out := make([]any, len(arr))
+		for i, e := range arr {
+			out[i] = plainValue(e)
+		}
+		return out
+	}
 	m, ok := v.(*jsonx.OrderedMap)
 	if !ok || m == nil {
 		return v
