@@ -3,7 +3,7 @@ package entrypoint
 import "github.com/mschulkind-oss/yolo-jail/internal/shquote"
 
 // probeargs.go is the launcher half of a program's VERSION PROBE (packdecl.Contribution.ProbeArgs;
-// docs/design/pi-extension-store-builds.md XB-D24, which coined the term, and XB-D29, which built
+// docs/design/pi-extension-store-builds.md XB-D24, which coined the term, and XB-D51, which built
 // it): an invocation whose first argument is one the pack declares, answered by the program before
 // it does any work of its own.
 //
@@ -31,7 +31,7 @@ import "github.com/mschulkind-oss/yolo-jail/internal/shquote"
 // as npmLauncherTemplate: every sentinel is a shquote'd literal in a bare position. HAS_PROBE_ARGS
 // gates the array for HAS_UPDATE_VERB's reason: bash before 4.4 treats "${arr[@]}" on an EMPTY
 // array as unbound under "set -u", and macos-user runs these launchers on a stock bash 3.2.
-const probeArgsDeclShell = `# The pack's declared PROBE ARGUMENTS (pi-extension-store-builds.md XB-D24, XB-D29): an
+const probeArgsDeclShell = `# The pack's declared PROBE ARGUMENTS (pi-extension-store-builds.md XB-D24, XB-D51): an
 # invocation whose FIRST argument is one is a version probe, which skips every step below that
 # its answer never reads. BAKED, like everything above; _YOLO_PROBE is 1 for a probe.
 HAS_PROBE_ARGS=__YOLO_HAS_PROBE_ARGS__

@@ -6,7 +6,7 @@ import (
 )
 
 // probeArgsProblems validates Contribution.ProbeArgs, a program's VERSION PROBE arguments
-// (docs/design/pi-extension-store-builds.md XB-D24, XB-D29). It is refused off a `program` for
+// (docs/design/pi-extension-store-builds.md XB-D24, XB-D51). It is refused off a `program` for
 // `update`'s reason: the generated launcher is its one reader, so anywhere else it would be a
 // declaration that silently does nothing.
 //
@@ -46,7 +46,7 @@ func probeArgsProblems(label string, c Contribution) []string {
 }
 
 // tempCachesProblems validates Contribution.TempCaches, the directories a program keeps compiled
-// code in under its temporary directory (XB-D30). It is refused off a `program` for `update`'s
+// code in under its temporary directory (XB-D52). It is refused off a `program` for `update`'s
 // reason.
 //
 // Each entry must be ONE bare directory name: the launcher links `<tmpdir>/<name>` to

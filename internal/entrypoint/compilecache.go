@@ -6,7 +6,7 @@ import (
 )
 
 // compilecache.go keeps a program's COMPILE CACHES per workspace across jail restarts
-// (docs/design/pi-extension-store-builds.md §9 findings #1 and #7, XB-D30 to XB-D32): the code a
+// (docs/design/pi-extension-store-builds.md §9 findings #1 and #7, XB-D52 to XB-D54): the code a
 // program compiled on its last start, which a jail restart used to throw away.
 //
 // TWO CACHES, ONE DIRECTORY. Both live under CompileCacheDirRel, in the workspace's own home
@@ -16,19 +16,19 @@ import (
 // must never run in another, and it is why neither cache goes in ~/.cache, which every jail on the
 // machine shares.
 //
-//   - Node's own compile cache (XB-D31), for a program its launcher runs under a Node it resolved
+//   - Node's own compile cache (XB-D53), for a program its launcher runs under a Node it resolved
 //     (a declared node_floor): NODE_COMPILE_CACHE names <dir>/node unless the environment already
 //     names one. Unset, Node's module.enableCompileCache() writes to <tmpdir>/node-compile-cache,
 //     which a restart empties. Not set for a program delivered by npm that is a native binary
 //     (copilot's loader spawns one, opencode's bin is one): Node would cache nothing of theirs and
 //     only reach the processes they start.
-//   - The temporary-directory caches a pack declares (Install.TempCaches, XB-D30): right before the
+//   - The temporary-directory caches a pack declares (Install.TempCaches, XB-D52): right before the
 //     exec, <tmpdir>/<name> is linked to <dir>/tmp/<name> when nothing is there yet. For pi that is
 //     jiti's, which jiti puts at os.tmpdir()/jiti with no setting that moves it. The link names the
 //     home by path, so in every jail it resolves to that jail's own home; an entry already there,
 //     a directory a program made first or a link someone else made, is never replaced.
 //
-// BOUNDED (XB-D32): neither cache prunes itself, and a path-keyed cache only grows (a scratch home
+// BOUNDED (XB-D54): neither cache prunes itself, and a path-keyed cache only grows (a scratch home
 // adds a full set of entries), so at most once a day the launcher removes the files no program
 // has rewritten for COMPILE_CACHE_MAX_AGE days. A live entry removed that way is compiled again
 // once, on the next start.
@@ -42,7 +42,7 @@ const CompileCacheDirRel = ".local/state/yolo/compile-cache"
 // compileCacheShellFn defines the step and runs it. Same splice contract as npmLauncherTemplate:
 // every sentinel is a shquote'd literal in a bare position, and HAS_TEMP_CACHES gates the array
 // for bash 3.2's reason. A program with neither cache returns at the first line and makes nothing.
-const compileCacheShellFn = `# --- compile caches kept per workspace (pi-extension-store-builds.md XB-D30 to XB-D32) ---
+const compileCacheShellFn = `# --- compile caches kept per workspace (pi-extension-store-builds.md XB-D52 to XB-D54) ---
 NODE_COMPILE=__YOLO_NODE_COMPILE__
 HAS_TEMP_CACHES=__YOLO_HAS_TEMP_CACHES__
 TEMP_CACHES=(__YOLO_TEMP_CACHES__)

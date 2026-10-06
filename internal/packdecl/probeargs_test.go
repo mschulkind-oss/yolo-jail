@@ -6,7 +6,7 @@ import (
 )
 
 // probeargs_test.go covers `program`'s `probe_args` (a version probe, pi-extension-store-builds.md
-// XB-D24) and `temp_caches` (the temporary-directory compile caches, XB-D30): each survives the
+// XB-D24) and `temp_caches` (the temporary-directory compile caches, XB-D52): each survives the
 // projection every launcher reads, is refused on kinds no launcher serves, and each malformed
 // shape that would silently do nothing is refused by name.
 

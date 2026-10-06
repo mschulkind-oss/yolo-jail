@@ -11,7 +11,7 @@
         "brew-cask": "antigravity-cli"
       },
       "kind": "program",
-      // A version probe answers at once (pi-extension-store-builds.md XB-D24, XB-D29): the
+      // A version probe answers at once (pi-extension-store-builds.md XB-D24, XB-D51): the
       // word the per-pack install matrix runs (integration/agents_test.go).
       "probe_args": [
         "--version"

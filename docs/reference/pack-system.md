@@ -682,7 +682,7 @@ the exec, when `<tmpdir>/<name>` does not exist, the launcher links it to
 state on every backend, so the cache is per workspace and survives restarts. The launcher never
 replaces something already at `<tmpdir>/<name>`. Each entry must be one bare directory name.
 `temp_caches` is read on `program` alone
-([XB-D30](../design/pi-extension-store-builds.md#XB-D30)).
+([XB-D52](../design/pi-extension-store-builds.md#XB-D52)).
 
 `platforms` is **where the vendor publishes a build**: a list of `<goos>` or
 `<goos>/<goarch>` entries, spelled as Go spells them. Absent means every platform, which is
@@ -717,9 +717,9 @@ refused. [`protocol-resolution.md`](protocol-resolution.md) is what reads it.
 than the workspace pin's, and a floor nothing satisfies refuses the launch. The launcher also
 hands such a program `NODE_COMPILE_CACHE=~/.local/state/yolo/compile-cache/node`, unless the
 environment already names one, so Node's compile cache is per workspace and survives a restart
-([XB-D31](../design/pi-extension-store-builds.md#XB-D31)). Files in either compile cache that no
+([XB-D53](../design/pi-extension-store-builds.md#XB-D53)). Files in either compile cache that no
 program has written for a week are removed, at most once a day
-([XB-D32](../design/pi-extension-store-builds.md#XB-D32)).
+([XB-D54](../design/pi-extension-store-builds.md#XB-D54)).
 [`agent-program-runtimes.md`](agent-program-runtimes.md) is what reads it.
 
 `provider_sets` (`true`) declares that the agent this program installs **holds several providers

@@ -167,7 +167,7 @@ type Contribution struct {
 	// `<tmpdir>/jiti` and reads no setting that moves it (jiti 2.7's JITI_FS_CACHE takes only
 	// true or false). Read only on `program`, and refused elsewhere for `update`'s reason.
 	//
-	// The launcher keeps each one per workspace across jail restarts (XB-D30): right before the
+	// The launcher keeps each one per workspace across jail restarts (XB-D52): right before the
 	// exec, when `<tmpdir>/<name>` does not exist, it links it to
 	// `~/.local/state/yolo/compile-cache/tmp/<name>`, in the workspace's own home state. A
 	// container's /tmp is its jail's own and a restart empties it, which is what made pi's first

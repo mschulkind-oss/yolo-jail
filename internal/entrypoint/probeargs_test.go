@@ -1,7 +1,7 @@
 package entrypoint
 
 // probeargs_test.go RUNS the version probe (probeargs.go; pi-extension-store-builds.md XB-D24,
-// XB-D29) through the production generators, in all three templates: an invocation whose first
+// XB-D51) through the production generators, in all three templates: an invocation whose first
 // argument the pack declares as a probe runs none of the launcher's steps before the exec, and
 // waits for no lock.
 //

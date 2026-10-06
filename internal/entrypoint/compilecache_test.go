@@ -1,7 +1,7 @@
 package entrypoint
 
 // compilecache_test.go RUNS the compile caches (compilecache.go; pi-extension-store-builds.md
-// XB-D30 to XB-D32) through the production generators: Node's compile cache and a pack's
+// XB-D52 to XB-D54) through the production generators: Node's compile cache and a pack's
 // temporary-directory caches land in the workspace's own home state, survive a jail restart (a
 // fresh, empty temporary directory), never replace what is already there, and are pruned.
 //

@@ -41,7 +41,7 @@
         "lock": ".pi-shared-npm/.yolo-update.lock"
       },
       // pi's extension loader caches what it compiles in <tmpdir>/jiti, which a jail restart
-      // empties (XB-D30).
+      // empties (XB-D52).
       "temp_caches": [
         "jiti"
       ],
