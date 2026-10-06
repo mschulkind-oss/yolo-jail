@@ -98,7 +98,7 @@ func newBuildPool(w io.Writer, cfg progress.Config, color bool, workspace, rt st
 	}
 	p := &buildPool{w: w, cfg: cfg, color: color, checks: newFIFOSem(maxChecks), builds: newFIFOSem(maxBuilds),
 		act: act, ctx: context.Background()}
-	p.report = newBuildReport(workspace, w, color)
+	p.report = newBuildReport(workspace, rt, w, color)
 	return p
 }
 
@@ -160,10 +160,10 @@ func (p *buildPool) run() {
 	p.act.Scope(scope)
 }
 
-// renderLocked is the pool's line's detail: what is building, how many are checking, and how many
-// keys have ended. Callers hold mu.
+// renderLocked is the pool's line's detail: what is building, how many are checking — naming a check
+// that waits for another's lock — and how many keys have ended. Callers hold mu.
 func (p *buildPool) renderLocked() string {
-	var building []string
+	var building, waiting []string
 	checking := 0
 	for _, it := range p.items {
 		switch it.phase {
@@ -175,6 +175,9 @@ func (p *buildPool) renderLocked() string {
 			building = append(building, it.label)
 		case "checking":
 			checking++
+			if it.note != "" {
+				waiting = append(waiting, it.label+" ("+it.note+")")
+			}
 		}
 	}
 	var parts []string
@@ -182,7 +185,11 @@ func (p *buildPool) renderLocked() string {
 		parts = append(parts, "building "+strings.Join(building, ", "))
 	}
 	if checking > 0 {
-		parts = append(parts, fmt.Sprintf("checking %d", checking))
+		c := fmt.Sprintf("checking %d", checking)
+		if len(waiting) > 0 {
+			c += ": " + strings.Join(waiting, ", ")
+		}
+		parts = append(parts, c)
 	}
 	return strings.Join(append(parts, fmt.Sprintf("%d of %d done", p.ended, len(p.items))), "; ")
 }
@@ -199,7 +206,8 @@ func (it *poolItem) setPhase(phase string) {
 	p.line.Set(p.renderLocked())
 }
 
-// setNote records what the building key waits for when shown is set, and clears it otherwise.
+// setNote records what the key waits for, building or checking, when shown is set, and clears it
+// otherwise.
 func (it *poolItem) setNote(note string, shown bool) {
 	if it == nil {
 		return

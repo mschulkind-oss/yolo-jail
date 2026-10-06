@@ -441,7 +441,7 @@ func buildForkUnderLock(b forkBuild, mode buildMode, store *capture.Store, pr ri
 			pr.Printf("[bold]build[/bold] [cyan]%s[/cyan]  [dim]%s at %s + %d %s (series %s), in a sealed jail[/dim]",
 				f.Key(), patchedBuildSource(f.Source), b.Entry.Label(), b.Series.Len(),
 				plural(b.Series.Len(), "patch", "patches"), b.Series.ShortDigest())
-			pr.Printf("[dim]  %s[/dim]", richtext.Escape(sealDisclosure+"; "+buildRuns(f)))
+			pr.Printf("[dim]  %s[/dim]", richtext.Escape(sealDisclosure("")+"; "+buildRuns(f)))
 		}
 	} else {
 		mode.run.phase("checking out its source")
@@ -450,7 +450,7 @@ func buildForkUnderLock(b forkBuild, mode buildMode, store *capture.Store, pr ri
 		}
 		if mode.run == nil {
 			pr.Printf("[bold]build[/bold] [cyan]%s[/cyan]  [dim]%s at %s, in a sealed jail[/dim]", f.Key(), f.Source, b.Commit)
-			pr.Printf("[dim]  %s[/dim]", richtext.Escape(sealDisclosure+"; "+buildRuns(f)))
+			pr.Printf("[dim]  %s[/dim]", richtext.Escape(sealDisclosure("")+"; "+buildRuns(f)))
 		}
 	}
 	runJail := mode.runJail

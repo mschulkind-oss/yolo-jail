@@ -154,6 +154,59 @@ func TestTheImageIdentityIsEvaluatedOnce(t *testing.T) {
 	}
 }
 
+// THE LAUNCH'S PREWARM AND ITS IMAGE STEP SHARE ONE IDENTITY EVAL (XB-D30): a fresh launch with a
+// slot asks the identity from both, and the eval runs once. The memo's own behavior is pinned above;
+// this pins its call sites. Red with imageLoadOptions' EvalIdentity no longer the launch's memo, or
+// startImagePrewarm no longer making one.
+func TestALaunchsPrewarmAndImageStepShareOneIdentityEval(t *testing.T) {
+	slotLaunchHome(t)
+	var mu sync.Mutex
+	evals := 0
+	prev := identityEval
+	identityEval = func(string) (string, bool) {
+		mu.Lock()
+		defer mu.Unlock()
+		evals++
+		return "sha256:x", true
+	}
+	t.Cleanup(func() { identityEval = prev })
+	ask := func(who string, opts image.AutoLoadOptions) {
+		if opts.EvalIdentity == nil {
+			t.Errorf("the %s's request carries no identity eval of the launch's", who)
+			return
+		}
+		if id, ok := opts.EvalIdentity(opts.RepoRoot); !ok || id != "sha256:x" {
+			t.Errorf("the %s's identity eval answered %q (ok %v)", who, id, ok)
+		}
+	}
+	prewarmed := make(chan struct{})
+	images := 0
+	_, printed := fakePodmanLaunch(t, func(o *Options) {
+		o.prewarmImage = func(opts image.AutoLoadOptions) {
+			defer close(prewarmed)
+			ask("prewarm", opts)
+		}
+		o.autoLoad = func(opts image.AutoLoadOptions) image.LoadResult {
+			images++
+			select {
+			case <-prewarmed:
+			case <-time.After(10 * time.Second):
+				t.Error("the prewarm did not run")
+			}
+			ask("image step", opts)
+			return image.LoadResult{OK: true, Ref: goldenImageRef}
+		}
+		o.BuildSlot = func(BuildSlotRequest) (map[string]entrypoint.ForkDelivery, map[string]TreeDelivery) {
+			return map[string]entrypoint.ForkDelivery{"tool": {Reason: "test"}},
+				map[string]TreeDelivery{treeKey: {Reason: "test"}}
+		}
+	})
+	if images != 1 || evals != 1 {
+		t.Errorf("the image step ran %d times and the identity was evaluated %d times, want once each\n%s", images,
+			evals, printed)
+	}
+}
+
 // NO HAND IS LOST (forkhanded.go's handedFileMu): the pool's advances record what each hands its
 // jail at once, each a read-modify-write of the one record, and every one is kept. Red without the
 // mutex: the hook between the read and the write lets every writer read the record before any

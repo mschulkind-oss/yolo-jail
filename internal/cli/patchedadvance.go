@@ -223,6 +223,9 @@ type advance struct {
 	// inFlight is the build under way's share of the report, nil between builds and without a
 	// report.
 	inFlight *buildRun
+	// stopSaid is set once actStopped has said that a Ctrl-C ended this advance, which the pool's
+	// interruptedLine then does not say again.
+	stopSaid bool
 }
 
 // baseWhy is why an advance builds the series at its own base (§6.4), baseNone when it does not.
@@ -263,7 +266,7 @@ func advancePatchedFork(f packload.Fork, o advanceOptions) advanceResult {
 		a.ctx = o.slot.context()
 		a.packs.Ctx = a.ctx
 		res := a.run()
-		if a.interrupted() && !res.built {
+		if a.interrupted() && !res.built && !a.stopSaid {
 			a.interruptedLine()
 		}
 		return res
@@ -307,6 +310,7 @@ func (a *advance) interruptedLine() {
 // forkBuildWaitBound, that the user had just declined.
 func (a *advance) actStopped() advanceResult {
 	f := a.f
+	a.stopSaid = true
 	if a.serves() {
 		a.dim("%s: not checked — a Ctrl-C ended %s's wait for its patched builds; %s %s, and %s checks it",
 			f.Label(), a.waiter(), a.startsOn(), a.servingName(), a.next())
@@ -437,8 +441,12 @@ func (a *advance) run() advanceResult {
 				Begin: func() (func(string), func()) {
 					if a.o.slot != nil {
 						// IN A POOL THE CHECK IS ITS LINE'S "checking N" (buildpool.go), and a wait for a
-						// lock another key or launch holds is its own (PF-D77).
-						return func(string) {}, func() {}
+						// lock another key or launch holds is said there, beside the key, and kept in
+						// launch.log (PF-D77).
+						return func(line string) {
+							a.o.report.logLine(f.Key(), line)
+							a.o.slot.setNote(line, true)
+						}, func() { a.o.slot.setNote("", false) }
 					}
 					a.dim("checking %s's upstream %s", f.Label(), f.Source)
 					return func(line string) { a.dim("%s", line) }, func() {}

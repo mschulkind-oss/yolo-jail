@@ -370,3 +370,33 @@ func TestASealedBuildReachesNoHostServiceThroughTheNetwork(t *testing.T) {
 		})
 	}
 }
+
+// A SEALED BUILD'S NETWORK, AS ITS START LINE NAMES IT, IS THE ONE ITS LAUNCH APPLIES: the runtime's
+// bridge on a host, and the launcher's own namespace from inside a container, where a nested podman is
+// forced onto --net=host whatever the seal asks. SealedBuildSharesLauncherNetwork answers the same
+// question as assembleRunCmd's argv for both. Red when the predicate stops reading the nested-container
+// probe the assembler reads, which is how a jail's build was told it ran bridged.
+func TestASealedBuildsNetworkDisclosureIsWhatItsLaunchApplies(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	emptyLoopholeDirs(t)
+	for _, nested := range []bool{false, true} {
+		o, _ := pastaHostOptions(t, "/ws", home, nested)
+		o.Sealed = true
+		in := relocationInput(t, "podman", t.TempDir(), nil)
+		in.sealed = true
+		shared := slices.Contains(networkSelectors(o.assembleRunCmd(in)), "--net=host")
+		if shared != nested {
+			t.Fatalf("nested %v: the sealed argv shares the launcher's network %v; the fixture is not what it says", nested, shared)
+		}
+		if got := sealedBuildSharesNetns("podman", false, o.PathExists); got != shared {
+			t.Errorf("nested %v: the start line's predicate says shared %v, the argv %v", nested, got, shared)
+		}
+		if got := sealedBuildSharesNetns("", false, o.PathExists); got != shared {
+			t.Errorf("nested %v: with the runtime left to the build's launch the predicate says %v, want %v", nested, got, shared)
+		}
+	}
+	if sealedBuildSharesNetns("container", false, func(string) bool { return true }) {
+		t.Error("Apple Container's sealed build is said to share the launcher's network; it runs on its own bridge")
+	}
+}

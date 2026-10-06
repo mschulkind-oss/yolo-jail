@@ -439,7 +439,8 @@ launch's fork or patched build runs a whole nested launch, whose provenance, pro
 output used to land among the launch's own lines. Now the builds run at once under one progress
 line, and the terminal shows each build's start line at once, which carries its disclosures (the
 seal, and the build line whole, before it runs), and its result, the move line, among its key's
-lines in declaration order; the nested launch's warnings and refusals are repeated under it; and
+lines in declaration order; the nested launch's warnings and refusals are repeated under it, a
+failed build's as well as an admitted one's; and
 every line of a build jail goes to `launch.log` (the stream's log half alone, `run.LaunchLogOnly`)
 and to the build's own `<workspace>/.yolo/build-<slug>.log`, whose last lines a failed build
 prints.

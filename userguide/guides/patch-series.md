@@ -121,7 +121,9 @@ built fork pi-mine/pi: v1.0.0 (a13d35a7) + 7 patches; this jail runs it — stor
 
 A later launch that moves to a new version says `updated fork pi-mine/pi: v1.0.0 (a13d35a7) →
 v1.0.2 (cd32f772), 7 patches; this jail runs the new build`. Everything the build printed is in
-the build's own log, named on its first line, and in `.yolo/launch.log`.
+the build's own log, named on its first line, and in `.yolo/launch.log`. A build started from inside a
+jail says it uses that jail's network rather than a bridged one, since a nested jail cannot have
+its own.
 
 - **The first build** happens at the first launch, which waits for it.
 - **A newer version** is built at a later launch, which waits up to 20 minutes for each build.
