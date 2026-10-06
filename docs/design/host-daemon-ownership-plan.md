@@ -3,7 +3,7 @@ title: "Plan sketch: host-daemon ownership"
 date: 2026-09-19
 status: draft
 stage: SKETCH
-next: "Rule OQ-HD10 against this sketch's table of what the spawn flock covers, then write a plan for HD-R1 against the tree; this sketch is that plan's input, not the plan"
+next: "Write a plan for HD-R1 against the tree, now unblocked on spawn: OQ-HD10 was answered 2026-10-05 (HD-D4), so the plan's per-workspace spawn guard on macos-user answers for each row of this sketch's table of what the spawn flock covers; this sketch is that plan's input, not the plan"
 depends-on:
   - host-daemon-ownership.md#OQ-HD10
 tags: [plan, sketch, daemons, loopholes, lifecycle]
@@ -22,7 +22,10 @@ need: [what the spawn flock covers today](#what-the-spawn-flock-covers-today), w
 what [OQ-HD10](host-daemon-ownership.md#OQ-HD10) has to answer for, the
 [spawn sites the ruling reworks](#the-spawn-sites-hd-r1-reworks), the
 [OQ-HD4](host-daemon-ownership.md#OQ-HD4) note, and the timing facts. Nothing here plans HD-R1
-itself, and nothing here has been watched running beyond what the design records.
+itself, and nothing here has been watched running beyond what the design records. Since
+2026-10-05 [OQ-HD10](host-daemon-ownership.md#OQ-HD10) is answered from its Mac runs
+([HD-D4](host-daemon-ownership.md#HD-D4)): per-jail daemons owe macos-user a per-workspace spawn
+guard, and the table below is what that guard answers for.
 
 **Design:** [`host-daemon-ownership.md`](host-daemon-ownership.md). **Precedence:** the
 design wins on behavior; this file is the first thing here to be wrong.

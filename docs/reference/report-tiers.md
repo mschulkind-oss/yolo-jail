@@ -29,8 +29,9 @@ the footer) was re-verified on 2026-10-02 against `fe504e58` and the changes lan
 revision; the rest was last verified in full against `71e86789`, 2026-09-13.
 
 **Needs your ruling:** [OQ-RO8](#oq-ro8) (whether the dry run's exit follows its ruling or its
-code), [OQ-RO9](#OQ-RO9) (**new** — whether the launch's disclosure block may name a fork's build
-line by digest once the build prints it).
+code). [OQ-RO9](#OQ-RO9) was ruled in review on 2026-10-05: a launch's disclosure shows a build
+line by its digest, and every act that builds prints the line in full first. That ruling is not
+built yet, so the launch stream below still describes the full line on every launch.
 
 Two commands in yolo produce long output for three different readers: `yolo host apply`, which
 renders pack surfaces into a real `$HOME`, and a container launch. A **report tier** *(coined
@@ -137,7 +138,7 @@ is numbered last so the existing P1–P6 citations keep resolving, not because i
 | **1 — Notch facts** | True of this notch regardless of the home: which kinds do not apply here, which keys the user config declares that the host leaves undone (the config-key census, [OQ-DP5](../design/declaration-parity.md#OQ-DP5)), an inert `packages:`, the autonomy posture | **one line per run**, naming the kinds, those keys, `packages` when it is inert, and the posture in [the vocabulary](#the-report-vocabulary)'s words (`printNotchFacts`). | the full lines: the kinds with the `yolo config-ref` pointer, the keys, `describe`'s own `packages` line, and where the posture folded. Never the reasoning; that is the manual's (P8) |
 | **2 — Run facts** | Vary with the home but need no action: in-sync, skipped and unchanged surfaces, delivered files and wrappers, composed-from, inferred destinations, would-render surfaces, a reserved skills tree already reported, and a declared dependency that is **present** | counted in the verdict; a destination that changes is itemized, of every kind | every destination, and the per-entry lines |
 | **3 — Losses and blockers** | Two members, one treatment. A **loss**: something of the user's is replaced, dropped, moved or archived. A **blocker**: something stands between this home and a completed apply — a missing declared dependency, a refusal, a pack that failed to render | always itemized, grouped by remedy, each group carrying its remedy once, and every group represented in the verdict line | the per-destination expansion of each group |
-| **4 — Disclosures** (launch only) | Host access this launch has: pack read/exec claims, the cache alias, passthrough, the loopback verdict | always, unchanged, never grouped or compressed | nothing — there is no more to say |
+| **4 — Disclosures** (launch only) | Host access this launch has: pack read/exec claims, the cache alias, passthrough, the loopback verdict | always, unchanged, never grouped or compressed. **One exception**, ruled 2026-10-05 and not built: a build line is shown by its recipe's digest and `yolo pack status <key>` ([OQ-RO9](#OQ-RO9)) | nothing — there is no more to say |
 
 **Only tiers 2 and 3 have constants.** `reportTier` declares `tierRun` and `tierLoss` and stops,
 because tiers 1 and 4 have no per-destination representative: a notch fact is true of the *notch*
@@ -357,7 +358,7 @@ verdict block, and the report does not get a progress stream.
 | :--- | :--- | :--- |
 | version banner, `Flake source:`, `Jail binaries:`, `Jail:` | provenance (a decision) | unchanged. Each answers a different question |
 | nix build, image delivery, provisioning, `⚡ Executing:` | progress | unchanged; a stream needs its progress — see [Progress lines](#progress-lines) |
-| pack read/exec disclosures, the argv rewrite, cache alias, loopback verdict, passthrough | **disclosure** | unchanged, and un-gate-able by construction (P4) |
+| pack read/exec disclosures, the argv rewrite, cache alias, loopback verdict, passthrough | **disclosure** | unchanged, and un-gate-able by construction (P4); a fork's or patched extension's build line is to be shown by digest once [OQ-RO9](#OQ-RO9)'s ruling is built |
 | the config-change diff and prompt | disclosure (approval) | unchanged — [`config-safety.md`](config-safety.md)'s |
 | the boot catalog | notch fact with state | **one line**, naming how many installed programs no selected pack declares; the list lands in `boot.log` through the same tee (`CatalogInstalledOrphans`, `catalogSummary`) |
 | captured-in-jail-edit notices | run fact **with a remedy** | unchanged — each already meets P2, and five surfaces are five facts |
@@ -382,10 +383,11 @@ The maintainer's patched pi fork has a build line of about 600 characters of inl
 which his first patched launch printed there in full on 2026-10-05. Today the build's own start
 line names the fork and the version it builds, not the build line (`cli/patchedadvance.go`). Once
 it names the build line before the sealed jail runs it, which is when the line matters,
-[OQ-RO9](#OQ-RO9) asks whether the block may stop repeating it. **Truncation is no answer**: a
-payload can sit at character 590.
+[OQ-RO9](#OQ-RO9) asked whether the block may stop repeating it. **Truncation is no answer**: a
+payload can sit at character 590. Ruled 2026-10-05: the block shows the digest, as the answer
+below records.
 
-- 💬 <a id="OQ-RO9"></a>**[`OQ-RO9`](#OQ-RO9) — once a build's start line prints its build line,
+- ✅ <a id="OQ-RO9"></a>**[`OQ-RO9`](#OQ-RO9) — once a build's start line prints its build line,
   may the launch's disclosure block name that line instead of printing it again?**
 
   Decides whether tier 4's "unchanged" admits a reference ([background](#oq-ro9-background)).
@@ -398,8 +400,6 @@ payload can sit at character 590.
     line (it does not today). *You pay:* tier 4 gains an exception; a changed line shows as a new
     digest, and whole at its build.
 
-  <!-- vantage: question id=OQ-RO9 leaning="(c): the digest moves when any character of the line does, a new or changed build line is a new recipe that is built before anything runs it and whose start line prints it whole, and (b) leaves the launch that builds nothing, the common one, as it is. The digest must cover the whole line, never a prefix, and (c) holds only if every act that builds (a launch, yolo capture, yolo host) prints the full line first." -->
-
   _Leaning:_ (c) — the digest moves when any character of the line does, a new or changed build
   line is a new recipe that is built before anything runs it and whose start line prints it whole,
   and (b) leaves the launch that builds nothing, the common one, as it is. ⚠ The digest must cover
@@ -407,7 +407,17 @@ payload can sit at character 590.
   `yolo capture`, `yolo host`) prints the full line first.
 
   **Answer:**
-  > _(empty — fill in when decided)_
+  > **Ruled in review 2026-10-05, as leaned (c)** (the maintainer's answer: *"207 C"*). Every
+  > launch's disclosure of a build line shows the recipe's short digest and
+  > `yolo pack status <key>` (for the maintainer's fork, `yolo pack status pi-fork/pi`), which
+  > prints the full line. Every act that builds, a launch, `yolo capture` and `yolo host`, prints
+  > the full build line before it runs. Truncation is never used: the digest is taken over the
+  > whole line, never over a prefix of it. It is the one exception to tier 4's *"always,
+  > unchanged"*, and it holds because a changed line is always built before anything runs it, and
+  > that build's start line shows it in full, so new text is always seen whole once, and on demand
+  > after that. Not built: the build's start line does not print the line yet
+  > (`cli/patchedadvance.go`), nor does `yolo pack status <key>`, and the digest may not land
+  > before both do.
 
 ### Progress lines
 
@@ -599,6 +609,7 @@ comments and sibling docs, and this is where they resolve.
 | `OQ-RO5` | **The dry run exits 0 — it is information.** `--assert` carries an accurate exit code: 0 only when the apply completed. Recorded with it: *observe* undersells what the posture is for — it is a **dry run**, and the report says so in those words. |
 | `OQ-RO6` | **Offer to install, with a confirm — and a decline is fatal at the prompt**, not at the end of the run. The dry run reports and never prompts. Silence is NO. |
 | `OQ-RO7` | **Both kinds are fatal; only `program` gets the install offer.** A missing `requires` is the more clear-cut blocker — `guardrails` removes `grep`/`find` in favour of binaries that must be present, and a block may never leave a jail with neither the tool nor its replacement — while offering to install one would contradict the kind's own definition. |
+| `OQ-RO9` | **A build line is disclosed by its recipe's short digest and `yolo pack status <key>`, which prints it in full; every act that builds (a launch, `yolo capture`, `yolo host`) prints the full line before it runs; truncation is never used.** Ruled in review 2026-10-05, (c). Tier 4's one exception to *"always, unchanged"*, and it holds only because a changed line always builds before it runs and its start line shows it whole. Built: pending |
 | — | **Tier 3 has two members, not two tiers.** A tier is a rendering decision and a loss and a blocker want the same rendering, so `tierLoss` carries both. Splitting them would be severity creeping back in. |
 
 > [!WARNING]

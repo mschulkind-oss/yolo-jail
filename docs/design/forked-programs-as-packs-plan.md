@@ -459,11 +459,13 @@ canonical form, as long as it covers `build`, `produces` and the source subdirec
 id, the lock file name and the wait bound (a named constant with its reason); a `--dir` flag on
 `capture-run` or a `cd` in the argv; whether `produces` is validated in `packdecl` or `packload`.
 
-**Stop and ask** if a fork needs a build toolchain the image, `packages`, `mise_tools` and the
-base's `node_floor` cannot supply: a pack-declared toolchain is a new contribution the design does
-not have. Stop and ask if step 7's measurement finds the motivating fork referencing the image's
-own paths: [FP-D4](forked-programs-as-packs.md#FP-D4)'s host notch cannot then ship as written.
-Stop and ask before a launch refuses over a fork's pin or build
+**Stop and ask** if a fork needs a build toolchain the image, `packages` and the base's
+`node_floor` cannot supply: a pack-declared toolchain is a new contribution the design does not
+have. The user config's `mise_tools` no longer reach a build
+([FP-D19](forked-programs-as-packs.md#FP-D19), ruled 2026-10-05, not built). Stop and ask if
+step 7's measurement finds the motivating fork referencing the image's own paths:
+[FP-D4](forked-programs-as-packs.md#FP-D4)'s host notch cannot then ship as written. Stop and ask
+before a launch refuses over a fork's pin or build
 ([§9](forked-programs-as-packs.md#9-failure-modes): a broken fork is one missing tool); the
 selection refusals [FP-D5](forked-programs-as-packs.md#FP-D5) names are the only ones.
 

@@ -71,16 +71,16 @@ host or an outside account follows under [External waits](#external-waits).
     for both "out as soon as possible" so he can test them, and delegated their open questions, which
     were decided on their leanings.
 
-    His first patched launch (2026-10-05) left four rulings for the same sitting as his test, each
-    changing what his next launch prints or spends: [whether the disclosure block may name a fork's
-    build line by digest](../reference/report-tiers.md#OQ-RO9), since every launch prints his whole
-    build line, about 600 characters; [whether a sealed build drops the user config's
-    `mise_tools`](../design/forked-programs-as-packs.md#OQ-FP10), since every build of his fork
-    downloads his neovim nightly; [whether a launch whose only program the tree gate will stop may
-    stop before booting](../design/patched-extensions.md#OQ-PPX3), since the host line saying pi will
-    not start is being built now and a stop would land with it; and [whether a launch restarts a host
-    daemon older than itself](../design/host-daemon-ownership.md#OQ-HD11), since after every upgrade
-    each singleton otherwise waits for a restart typed by hand.
+    His first patched launch (2026-10-05) left four questions, each changing what his next launch
+    prints or spends. Two were ruled that day and build with the patched mode: [a build line shown
+    by its digest](../reference/report-tiers.md#why-its-this-way), once every build prints the line
+    whole before it runs, since every launch prints his whole build line, about 600 characters; and
+    [no user `mise_tools` in a build or capture jail](../design/forked-programs-as-packs.md#FP-D19),
+    since every build of his fork downloads his neovim nightly. [Whether a launch whose only program
+    the tree gate will stop may stop before booting](../design/patched-extensions.md#OQ-PPX3) is
+    still for the same sitting as his test, since the host line saying pi will not start is being
+    built now and a stop would land with it. Whether a launch restarts a host daemon older than
+    itself now leans to waiting for per-jail daemons, so it moved to item 28.
 13. [Build pack-declared pi extensions as host builds, one read-only copy per jail](../design/pi-git-extension-caching.md), with
     [what the background update mode moves](../design/pi-extension-store-builds.md) — next, since the maintainer
     asked on 2026-10-05 to be led through them, and the capture of unmodified extensions (or the held store) and
@@ -136,9 +136,11 @@ host or an outside account follows under [External waits](#external-waits).
 23. [Rule the slot split's migration window](../design/slots-and-contributions.md#OQ-D6), then [the manifest language](../design/manifest-language.md)
     with [the slots' other calls](../design/slots-and-contributions.md) — `exposes` and [the pi extension-tree
     rework](../design/pi-pack-extensions.md) wait on the first, and one sitting for the rest rewrites manifests once.
-24. Provider rulings later decisions build on: [how far the natively-implements rule reaches](../design/pi-codex-provider-shadowing.md),
-    which holds pi's Converse route through the wire bridge, and [what `-p` names](../design/providers-and-profiles-redesign.md),
-    which the plain-words rewrite of the provider reference waits on.
+24. Provider work later decisions build on: [build the natively-implements rule's broad reading](../design/pi-codex-provider-shadowing-plan.md),
+    ruled 2026-10-05, since pi's Converse route through the wire bridge waits on where it lets that route's row sit, with
+    [whether the rule reaches a list a pack declares](../design/pi-codex-provider-shadowing.md#OQ-4), which holds two of the
+    rows the build would remove; and [what `-p` names](../design/providers-and-profiles-redesign.md), which the plain-words
+    rewrite of the provider reference waits on.
 25. [Decide whether a jail shell gets the credential grant](../design/credential-sources-separation.md) — a jail's
     `--with-credentials` and [its build sketch](../design/credential-sources-separation-plan.md) wait on it.
 26. [Notch convergence's held items](notch-convergence.md) — after the workspace-config and jail-credential rulings above
@@ -147,9 +149,11 @@ host or an outside account follows under [External waits](#external-waits).
     that login waits only on the credential view's measures, under [External waits](#external-waits).
 27. [Settle what retiring `host_management: "assert"` does to configs on it](../design/config-ownership-and-promotion.md)
     — the retirement cannot start until then.
-28. [Rule what serializes a daemon's spawn once the host singleton goes](../design/host-daemon-ownership.md), against [the plan's table of what the
-    spawn flock covers](../design/host-daemon-ownership-plan.md) — retiring the machine-wide credential daemons waits on it, the OpenAI
-    legacy-state migration and the `yolo host -- codex|pi` spawns included.
+28. [Rule who keeps Claude's login fresh with no jail running](../design/host-daemon-ownership.md), then [plan per-jail host
+    daemons](../design/host-daemon-ownership-plan.md) — three Mac runs answered what serializes their spawn (2026-10-05: a
+    per-workspace guard on macos-user), so retiring the machine-wide credential daemons, the OpenAI legacy-state migration
+    and the `yolo host -- codex|pi` spawns included, waits on whether it adds that refresh. [Whether a launch restarts a
+    daemon older than itself](../design/host-daemon-ownership.md#OQ-HD11) rides along, since its leaning now waits for that build.
 29. [Rule the provisioner override's grain](../design/provisioner-sets.md) — the user-scope preference that re-ranks the
     recipes packs ship waits on it, and macos-user's corporate-CA trust rides in the same design.
 30. [Rule what the environment manager promises at each notch](../design/environment-manager-user-stories.md) — Q1b
