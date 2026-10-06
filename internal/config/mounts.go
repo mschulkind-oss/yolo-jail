@@ -265,6 +265,31 @@ func LoadRWMounts(warn Warn) ([]ContextMount, error) {
 	return rwElements(userCfg, mountScopeUser), nil
 }
 
+// MountElementWhere is where the `mounts` element m was written, for a launch message that
+// names it: its validator path ("config.mounts[2]", the spelling `yolo check` reports it by)
+// and the file, line and column of each place that wrote it, highest precedence first
+// (Sources.Locations). The element is found by its spelling (Spec) in the composed config read
+// again with its record, so this belongs on a reporting path: a launch with nothing to report
+// never reads the files twice.
+//
+// ("", nil) when no element of the composed config is spelled as m; a path and nil locations
+// when the config came from no file the loader read (the in-jail copy of the host's config,
+// a map a caller built by hand).
+func MountElementWhere(workspace string, m ContextMount) (string, []string) {
+	cfg, src, err := LoadConfigWithSources(workspace, false, func(string) {})
+	if err != nil || m.Spec == "" {
+		return "", nil
+	}
+	elements, indices := parseMountsIndexed(cfg)
+	for i, e := range elements {
+		if e.Spec == m.Spec && e.RW == m.RW {
+			path := fmt.Sprintf("config.mounts[%d]", indices[i])
+			return path, src.Locations(path)
+		}
+	}
+	return "", nil
+}
+
 // hasRWMount reports whether cfg declares any read-write element.
 func hasRWMount(cfg *jsonx.OrderedMap) bool {
 	for _, m := range ParseMounts(cfg) {

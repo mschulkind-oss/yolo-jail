@@ -29,7 +29,8 @@ import (
 //	no such file or directory
 //
 // A launch that selects claude (so openai-auth, through `needs`) writes that sentinel and
-// names it as a bind source (internal/cli/run/openaiauthbackend.go); a launch in the OTHER run
+// names it as a bind source (loopholes.Set.PrepareMountSentinels, which
+// internal/cli/run/assemble_parts.go calls); a launch in the OTHER run
 // that selects neither reads the machine-wide ownership record, sees openai-auth "leave
 // `packs`", and RETIRES the loophole's state dir — moves it into state/.retired
 // (internal/cli/run/loopholeretire.go) — between the first launch's write and podman's stat.

@@ -1,10 +1,6 @@
 package run
 
 import (
-	"fmt"
-	"os"
-	"path/filepath"
-
 	"github.com/mschulkind-oss/yolo-jail/internal/broker"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
@@ -18,9 +14,7 @@ const (
 	// It scopes NO report any more — that was the disclosure/inert split deleted below — and
 	// what still reads it is the fixtures that name a realistic pack. Kept because the
 	// distinction it records is the one a future per-pack scoping would get wrong again.
-	openAIAuthPackName             = "openai-auth"
-	openAIAuthMountSentinelName    = ".mount-sentinel"
-	openAIAuthMountSentinelContent = "yolo-openai-auth-mount-v1\n"
+	openAIAuthPackName = "openai-auth"
 )
 
 // openAIServiceRefusal is what the macos-user arm prints when it refuses a launch whose OpenAI
@@ -63,59 +57,13 @@ func openAIAuthLoopholeActive(cfg *jsonx.OrderedMap) bool {
 // hand-maintained filters. `partitionOpenAIAuthPack`/`withoutOpenAIAuthPack` were kept for the
 // container branch, and that branch is gone as well (see below).
 
-// prepareOpenAIAuthMountSentinel creates the inert file named by the shipped
-// loophole's state_files list before container argv assembly. A nonempty list is
-// the fail-closed boundary that keeps credentials.json out of the jail; the marker
-// gives that boundary one harmless, always-present source to mount without the
-// runtime's missing-source warning.
-//
-// Replace the path atomically on every launch. Besides avoiding torn content, the
-// rename replaces a pre-existing symlink rather than following it into some other
-// host file that the bind mount would then expose.
-func (o *Options) prepareOpenAIAuthMountSentinel(cfg *jsonx.OrderedMap) {
-	if !openAIAuthLoopholeActive(cfg) {
-		return
-	}
-	if err := writeOpenAIAuthMountSentinel(); err != nil {
-		o.pr(o.Stderr).print("[yellow]Warning: could not prepare the OpenAI authentication mount marker: " +
-			err.Error() + "[/yellow]")
-	}
-}
-
-func writeOpenAIAuthMountSentinel() error {
-	dir := loopholes.StateDirFor(openAIAuthBrokerName)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("create state directory: %w", err)
-	}
-	if err := os.Chmod(dir, 0o700); err != nil {
-		return fmt.Errorf("secure state directory: %w", err)
-	}
-	tmp, err := os.CreateTemp(dir, ".mount-sentinel.*")
-	if err != nil {
-		return fmt.Errorf("create temporary marker: %w", err)
-	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("secure temporary marker: %w", err)
-	}
-	if _, err := tmp.WriteString(openAIAuthMountSentinelContent); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("write temporary marker: %w", err)
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("sync temporary marker: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("close temporary marker: %w", err)
-	}
-	if err := os.Rename(tmpPath, filepath.Join(dir, openAIAuthMountSentinelName)); err != nil {
-		return fmt.Errorf("replace marker: %w", err)
-	}
-	return nil
-}
+// THE NAME-GATED SENTINEL WRITER IS GONE — deleted 2026-10-05 (OQ-T10 in
+// docs/reference/loophole-transport.md). `prepareOpenAIAuthMountSentinel` wrote the inert
+// `.mount-sentinel` this loophole's state_files names, gated on openai-auth-broker's NAME, so
+// aws-auth — whose manifest declares the same marker for the same reason — had no writer and
+// warned "skipping state file, host source missing" on every launch. The writer is now keyed on
+// the declaration (loopholes.Set.PrepareMountSentinels, called from loopholesRuntimeArgs over
+// the argv's own Set), so every loophole that declares the marker gets it.
 
 // THE SUBSET PARTITION IS GONE TOO — deleted 2026-09-18, and what it was wrong about is the
 // record worth keeping.

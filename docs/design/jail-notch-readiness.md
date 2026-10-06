@@ -3,9 +3,9 @@ title: "`yolo -- true` says it provisions, and leaves every agent CLI uninstalle
 date: 2026-09-22
 status: in-review
 stage: DESIGN
-next: "Rule OQ-JR1, what a failed install does to the launch: the readiness act waits on it, every other ruling it needs being in"
+next: "Plan and build the readiness act: OQ-JR1 was ruled 2026-10-05, (C) with a bypass, so a launch that cannot install a declared program stops, offline included, unless YOLO_ALLOW_MISSING_PROGRAMS=1 (JR-D3); a missing patched build refuses a launch the same way (OQ-PPX3, PPX-D40)"
 tags: [notches, provisioning, readiness, apply, launchers, program-delivery]
-summary: "Each notch is supposed to have an ahead-of-time act that leaves the environment ready. The host has one — `yolo host apply --assert` probes dependencies, offers the install, and refuses rather than returning 0 on an unready home. The jail's equivalent is the launch, and the launch does not install the programs its selected packs declare: they arrive on first invocation. Until 2026-09-24 yolo's own message called `yolo -- true` the provisioning act; the message is corrected, and the readiness act it promised is still unbuilt."
+summary: "Each notch is supposed to have an ahead-of-time act that leaves the environment ready. The host has one — `yolo host apply --assert` probes dependencies, offers the install, and refuses rather than returning 0 on an unready home. The jail's equivalent is the launch, and the launch does not install the programs its selected packs declare: they arrive on first invocation. Until 2026-09-24 yolo's own message called `yolo -- true` the provisioning act; the message is corrected, and the readiness act it promised is still unbuilt. Ruled 2026-10-05: once it is built, a launch that cannot install a declared program stops, offline included, unless YOLO_ALLOW_MISSING_PROGRAMS=1 is set."
 vantage:
   status-chip: true
 ---
@@ -13,8 +13,10 @@ vantage:
 # `yolo -- true` says it provisions, and leaves every agent CLI uninstalled
 
 **Status:** 2026-09-22; re-checked against the tree 2026-09-24; questions triaged
-2026-09-30. **The readiness act is not built.** One question is open, [OQ-JR1](#OQ-JR1) (what a
-failed install does to the launch). [OQ-JR2](#OQ-JR2) is answered by
+2026-09-30; [OQ-JR1](#OQ-JR1) ruled 2026-10-05. **The readiness act is not built.** No question
+is open. [OQ-JR1](#OQ-JR1) was ruled in review on 2026-10-05: a launch that cannot install a
+declared program stops, naming the pack, the program and the error, offline included, unless
+`YOLO_ALLOW_MISSING_PROGRAMS=1` is set ([JR-D3](#JR-D3)). [OQ-JR2](#OQ-JR2) is answered by
 [HP-DIR2](host-tool-provisioning.md#HP-DIR2): every declared program, once per home.
 [OQ-JR3](#OQ-JR3) is decided as an implementation choice, [JR-D1](#JR-D1): `yolo apply --at jail`
 runs the launch's readiness act with no target. One piece shipped: alternative B, the message fix
@@ -50,8 +52,9 @@ readiness to the *declared set* rather than to a refresh.
 **Start at [§2](#2-the-host-notch-already-has-this-and-says-why)** — the host's act is the model, and
 it is already written down.
 
-**Needs your ruling:** [OQ-JR1](#OQ-JR1). [OQ-JR2](#OQ-JR2) is answered by a standing ruling, and
-[OQ-JR3](#OQ-JR3) was decided as an implementation choice ([JR-D1](#JR-D1)).
+**Needs your ruling:** none. [OQ-JR1](#OQ-JR1) was ruled in review on 2026-10-05 ((C), with a
+bypass), [OQ-JR2](#OQ-JR2) is answered by a standing ruling, and [OQ-JR3](#OQ-JR3) was decided as
+an implementation choice ([JR-D1](#JR-D1)).
 
 **Reads with:** [`program-delivery.md`](program-delivery.md) (owns the launcher and
 [`OQ-PD12a`](program-delivery.md#decision-ledger), the lazy ruling this must not contradict),
@@ -192,6 +195,12 @@ The options in full:
 - **(C)** Always refuse, as [`OQ-AR3`](../reference/agent-program-runtimes.md#oq-ar3) does for a
   floor. An offline cold home cannot start a jail while a program-declaring pack is selected.
 
+**Ruled 2026-10-05: (C), with a bypass** ([OQ-JR1](#OQ-JR1)). A launch that cannot install a
+declared program stops before your command runs, naming the pack, the program and the error,
+offline included. `YOLO_ALLOW_MISSING_PROGRAMS=1` ([JR-D3](#JR-D3)) lets the jail start and list
+what it could not install. [`OQ-PD12`](program-delivery.md#decision-ledger)'s rule still governs
+the launcher's install at first use, which stays the fallback (R3 in [§6](#6-risks)).
+
 ## 4. What this does not license
 
 - **No refresh on the readiness path.** Currency stays at invocation. This doc installs what is
@@ -223,7 +232,7 @@ The options in full:
 | Risk | Mitigation |
 | :--- | :--- |
 | **R1.** A jail that never runs an agent pays its install — the objection that killed the eager shape. | Install-only and once per home, not per launch: the cost is paid on a cold home and never again, where the deleted shape paid a network round-trip every launch. [OQ-JR2](#OQ-JR2) asked whether that is still too much, and is answered: every declared program, because narrowing would mean reading the command line ([HP-DIR2](host-tool-provisioning.md#HP-DIR2)). |
-| **R2.** An offline cold home cannot install, and the launch has to decide. | The provisioning stage's five neighbours all degrade rather than refuse ([§3](#3-what-ready-has-to-mean-here)'s home). [OQ-JR1](#OQ-JR1) rules it, and is the one question still open; whichever way, it is stated rather than inherited. |
+| **R2.** An offline cold home cannot install, and the launch has to decide. | The provisioning stage's five neighbours all degrade rather than refuse ([§3](#3-what-ready-has-to-mean-here)'s home). [OQ-JR1](#OQ-JR1), ruled 2026-10-05, decides it the other way: the launch stops, naming the pack, the program and the error, and `YOLO_ALLOW_MISSING_PROGRAMS=1` ([JR-D3](#JR-D3)) starts it anyway. |
 | **R3.** The change is made and the launcher's cold branch is left in place, so nothing proves the eager path ran. | The cold branch **must stay** — it is the fallback for an install that failed and for a program added to a running jail. So the done-condition cannot be "the branch is gone"; it is [§7](#7-what-done-looks-like)'s observable state of a fresh jail. |
 | **R4.** `macos-user`'s provisioning stage is not the container's. | Since 2026-09-12 that backend has a confined stage of its own (`runProvisionStage`, between the darwin bootstrap and the agent — [the stage](../reference/macos-user-provisioning.md#the-stage)), so there is a place for readiness there; it runs a subset of the container's steps, under `env -i`. Named, not assumed away: [JR-D2](#JR-D2) ships readiness container-first and has a macos-user launch name each declared program it did not install, until that backend's stage carries the step. |
 
@@ -240,10 +249,14 @@ The options in full:
 5. The launcher's cold branch still works: delete the installed binary, invoke the name, and it
    returns.
 6. `yolo check` installs nothing, on a cold home, twice.
+7. Offline, on a cold home with a program-declaring pack selected, `yolo -- true` stops before
+   `true` runs, naming the pack, the program, the error and `YOLO_ALLOW_MISSING_PROGRAMS=1`; with
+   that variable set it starts, lists each program it could not install, and exits 0
+   ([OQ-JR1](#OQ-JR1)).
 
 ## 8. Open Questions
 
-1. 💬 <a id="OQ-JR1"></a>**[OQ-JR1](#OQ-JR1): does an install that cannot happen refuse the launch, or degrade?**
+1. ✅ <a id="OQ-JR1"></a>**[OQ-JR1](#OQ-JR1): does an install that cannot happen refuse the launch, or degrade?**
    Every other step in the provisioning stage degrades, and two standing rulings pull opposite
    ways; the evidence and each option in full are in
    [When an install cannot happen](#when-an-install-cannot-happen). Stakes: whether "ready" is a
@@ -255,13 +268,35 @@ The options in full:
    - **(C)** Always refuse, as [`OQ-AR3`](../reference/agent-program-runtimes.md#oq-ar3) does for a
      floor.
 
-   <!-- vantage: question id=OQ-JR1 leaning="(A): degrade on a network failure, refuse on a failure with the network up — the distinction being whether anything but the connection is wrong. (C) makes an offline cold boot unusable; (B) re-creates the false success this doc opens with for a package that will never install." -->
-
    _Leaning:_ **(A).** (C) makes an offline cold boot unusable. (B) re-creates the false success
    this doc opens with for a package that will never install.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled in review 2026-10-05: (C) with a bypass, against the leaning** (the maintainer's
+   > answer: *"171 no. we can have a bypass var or whatever, but by default, no"*). When a launch
+   > cannot install a program a selected pack declares before your command runs, the launch
+   > stops, naming the pack, the program and the installer's error. Offline is no exception: an
+   > offline cold home starts no jail while a pack that declares a program is selected. One
+   > opt-in variable, `YOLO_ALLOW_MISSING_PROGRAMS=1`, forwarded from the host environment, lets
+   > the jail start anyway and list each program it could not install; the launcher's cold branch
+   > then retries when the name is run. The refusal names the variable, and the variable is
+   > documented where the refusal is enforced, as every `YOLO_ALLOW_*` hatch is. Its name says
+   > "programs", not "agents", because readiness keys on a declared program, never on whether it
+   > is an agent ([§4](#4-what-this-does-not-license)); it follows the existing
+   > `YOLO_ALLOW_MISSING_PROVIDERS` ([JR-D3](#JR-D3)). It is a hatch the standing rule allows:
+   > an offline machine or a broken registry is the user's situation, not a yolo bug. Not built:
+   > the readiness act it governs is not built either.
+   >
+   > **The consistency question this raised, answered the same day.** A patched fork or patched
+   > extension whose first build fails leaves nothing serving, the same unready state as a program
+   > that could not be installed, and that launch was never stopped
+   > ([PF §6.7](patched-forks.md#67-what-the-mode-never-does): *"Never refuses a launch over a
+   > check, a replay or a build"*; [PPX-D12](patched-extensions.md#PPX-D12): *"the jail launch is
+   > never refused"*). [OQ-PPX3](patched-extensions.md#OQ-PPX3), ruled in review the same day,
+   > agrees with this ruling: a fresh launch refuses before booting when a patched build a
+   > selected pack needs has none to deliver ([PPX-D40](patched-extensions.md#PPX-D40),
+   > [PF-D77](patched-forks.md#PF-D77)). Whether that refusal honors this one's bypass is left to
+   > its builder.
 
 2. ✅ <a id="OQ-JR2"></a>**[OQ-JR2](#OQ-JR2): is readiness scoped to every declared program, or only to what the launch might run?**
    The selected pack set is statically knowable, but a config selecting seven program-declaring packs
@@ -309,10 +344,13 @@ The options in full:
 ## 9. Decision Ledger
 
 Rows land here as [§8](#8-open-questions)'s questions are answered or decided, and the ruling moves
-into the body section it governs. [OQ-JR1](#OQ-JR1) is still open.
+into the body section it governs. All three are settled; [OQ-JR1](#OQ-JR1) was ruled in review
+on 2026-10-05.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
 | OQ-JR2 | **Answered by [HP-DIR2](host-tool-provisioning.md#HP-DIR2), not ruled here: every program a selected pack declares, once per home.** The maintainer's words there: *"we construct an environment. We do not sniff the command line."* Narrowing readiness to what a launch might run needs exactly that signal, or the agent registry this project deleted. The host floor already takes the selected packs' programs ([OQ-HP1](host-tool-provisioning.md#OQ-HP1)), and a fork's build already keys on the selected pack set ([OQ-FP4](forked-programs-as-packs.md#14-decision-ledger)) | 2026-09-29, recorded 2026-09-30 | [§3](#3-what-ready-has-to-mean-here), [§6](#6-risks) R1 | — |
 | <a id="JR-D1"></a>JR-D1 | *Implementation decision, [OQ-JR3](#OQ-JR3).* **`yolo apply --at jail` runs the launch's readiness act with no target command.** It is the launch path, the same one `yolo -- true` takes, never a second provisioner. The leaning kept a pointer to avoid *"a second path to the same work"*, and delegating to the launch gives no second path. What it adds is the notch as an input: [NC-D1](../plans/notch-convergence.md#7-decision-ledger) (*"host is supposed to act like everywhere else"*) has `yolo apply` perform each notch's readiness act, as `yolo host apply --assert` does at the host. It is also the jail meaning [`yolo-as-environment-manager.md` §3.1](yolo-as-environment-manager.md#31-apply-is-the-verb-the-current-design-is-missing) gave the verb, *"builds the image, stages packs, renders config, and exits"*. It is built with the readiness act. Until then the corrected pointer (`a323fd9a`) stays, since a launch today leaves the declared programs uninstalled. On a jail that is already running, `yolo -- true` attaches and stages nothing, so the verb says so rather than claiming a provision. Reversible: the verb goes back to printing the pointer | 2026-09-30 | [§4](#4-what-this-does-not-license), [§5](#5-alternatives-with-verdicts) D | — |
 | <a id="JR-D2"></a>JR-D2 | *Implementation decision, [§6](#6-risks) R4 and [OQ-JR2](#OQ-JR2)'s `macos-user` stake.* **Readiness ships container-first, and a macos-user launch names each declared program it did not install** until that backend's provisioning stage carries the step. It is never silent there: [`backend-parity.md`](backend-parity.md#3-the-dispositions--the-most-important-section)'s `Warned`, not `Dropped`. Two things on that backend shape the step. The stage starts for `mise_tools` and, since [AR-L3](../reference/agent-program-runtimes.md#ar-l3) was built (2026-09-30), for a declared Node floor the host cannot show met (`ProvisionNeeded`), and a missing declared program gets the start rule AR-L3 sets for a floor: start the stage unless the host can show the program is already there. And the stage runs under `env -i`. Reversible: the backend can ship with the container instead of after it | 2026-09-30 | [§6](#6-risks) R4 | — |
+| OQ-JR1 | **Ruled in review, (C) with a bypass, against the leaning (A): a launch that cannot install a program a selected pack declares stops before your command runs, naming the pack, the program and the installer's error, offline included.** The maintainer's words: *"171 no. we can have a bypass var or whatever, but by default, no."* An opt-in variable ([JR-D3](#JR-D3)) lets the jail start and list what it could not install. This overrides, for the launch's own install only, [OQ-PD12](program-delivery.md#decision-ledger)'s *"No jail refuses to boot over this"*, which was ruled for the launcher's install at first use; that install is unchanged. [JR-D2](#JR-D2) stands: until macos-user's stage carries the step, that backend attempts no install, so it names each declared program it did not install. The patched mode, whose failed first build never stopped a launch ([PF §6.7](patched-forks.md#67-what-the-mode-never-does), [PPX-D12](patched-extensions.md#PPX-D12)), was ruled the same way the same day: a missing patched build refuses a fresh launch ([OQ-PPX3](patched-extensions.md#OQ-PPX3), [PPX-D40](patched-extensions.md#PPX-D40)) | 2026-10-05 | [When an install cannot happen](#when-an-install-cannot-happen), [§6](#6-risks) R2 | pending, with the readiness act |
+| <a id="JR-D3"></a>JR-D3 | *Implementation decision, [OQ-JR1](#OQ-JR1)'s bypass, reversible.* **The variable is `YOLO_ALLOW_MISSING_PROGRAMS=1`: any non-empty value lets the launch continue, loudly, listing each program it could not install with its pack and error.** The refusal names it and it is documented where the refusal is enforced, as every `YOLO_ALLOW_*` hatch is, with its spelling in one `internal/paths` constant beside `YOLO_ALLOW_MISSING_PROVIDERS`, whose shape it follows. The readiness act runs in the provisioning stage, inside the jail, so the launcher forwards it from the host environment, as it forwards `YOLO_ALLOW_UNREACHABLE_SERVICES`. "Programs", not "agents": readiness keys on a declared program, never on whether it is an agent ([§4](#4-what-this-does-not-license)). No other `YOLO_ALLOW_*` implies it, and the Node floor's refusal ([OQ-AR3](../reference/agent-program-runtimes.md#oq-ar3)) is unchanged. Whether [PPX-D40](patched-extensions.md#PPX-D40)'s refusal of a missing patched build honors it too is that build's call, as PPX-D40 records | 2026-10-05 | [§8](#8-open-questions) | pending, with the readiness act |

@@ -1056,12 +1056,20 @@ func (c *hostComposition) profileLines() []string {
 		}
 	}
 	var out []string
+	// The "reaches nothing" warning's ending (PP-D12): where this command's selection came from
+	// and how to select none for it there, in the host's own terms — its -p refuses `-p <cli>=`,
+	// so the clause never offers it, and the key's null works here through the same fold.
+	key := config.ConfigProfileSelection(c.cfg)
+	deselect := func(agent, _ string) string {
+		return config.HostProfileDeselection(key, c.typedProfile != "", c.configuredProfile != "", agent)
+	}
 	// Over the agent's whole ACTIVE SET (docs/design/active-provider-sets.md): every entry says
 	// where it landed, beside the set's own line and the key's bare-list note.
 	for _, d := range packload.ProfileDisclosures(packload.ProfileDisclosureInput{
 		Table: table, Sets: sets, Packs: c.packs, Resolved: c.resolved, Providers: c.providers,
-		Scope:   c.scope,
-		Reaches: func(agent, name string) bool { return agent == c.agent && env[name] != "" },
+		Scope:    c.scope,
+		Reaches:  func(agent, name string) bool { return agent == c.agent && env[name] != "" },
+		Deselect: deselect,
 	}) {
 		out = append(append(out, d.Line()), d.Warnings()...)
 	}

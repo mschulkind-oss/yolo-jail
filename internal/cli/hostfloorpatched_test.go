@@ -150,7 +150,7 @@ func TestACtrlCDuringAHostLaunchsBuildStartsTheGoodBuild(t *testing.T) {
 	v13 := fx.commit(t, "v1.3.0", map[int]string{14: "fourteen", 20: "twenty"})
 	fx.later(2 * time.Hour)
 	prev := forkBuildChild
-	forkBuildChild = func(ctx context.Context, _ time.Duration, _ string, _ forkBuild, _, _ io.Writer, _ bool) (int, bool) {
+	forkBuildChild = func(ctx context.Context, _ time.Duration, _ string, _ forkBuild, _ captureStreams, _ bool) (int, bool) {
 		_ = syscall.Kill(os.Getpid(), syscall.SIGINT)
 		select {
 		case <-ctx.Done():
@@ -448,7 +448,7 @@ func TestAWalkThatStopsLeavesTheFloorsCopyServing(t *testing.T) {
 		fx.commit(t, "v1.3.0", map[int]string{14: "fourteen", 20: "twenty"})
 		fx.later(2 * time.Hour)
 		prev := forkBuildChild
-		forkBuildChild = func(ctx context.Context, _ time.Duration, _ string, _ forkBuild, _, _ io.Writer, _ bool) (int, bool) {
+		forkBuildChild = func(ctx context.Context, _ time.Duration, _ string, _ forkBuild, _ captureStreams, _ bool) (int, bool) {
 			fx.child++
 			if ctx.Done() == nil {
 				t.Error("the floor's advance built outside an interrupt scope")
@@ -511,7 +511,7 @@ func TestTheFloorsInstalledCopyServesWhileAMovedGoodBuildIsBuiltAgain(t *testing
 		fx := patchedFloorFixture(t)
 		v11, _ := movedPastTheFloor(t, fx)
 		prev := forkBuildChild
-		forkBuildChild = func(ctx context.Context, _ time.Duration, _ string, _ forkBuild, _, _ io.Writer, _ bool) (int, bool) {
+		forkBuildChild = func(ctx context.Context, _ time.Duration, _ string, _ forkBuild, _ captureStreams, _ bool) (int, bool) {
 			fx.child++
 			if ctx.Done() == nil {
 				// No interrupt scope holds the Ctrl-C, which would end the launch (and this test binary).

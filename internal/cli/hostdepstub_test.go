@@ -78,6 +78,9 @@ func TestMain(m *testing.M) {
 			"depInstallRun in your test if the install itself is what you are exercising", cmd)
 	}
 	disarmTheHostFloor()
+	// A CHILD BUILD JAIL RUN IN THIS PROCESS (runForkBuildJail with --jail-streams) never takes fds 3
+	// to 5, which are this test binary's own: a test that means them hands its own.
+	forkBuildJailStreams = func() (*os.File, *os.File, *os.File, bool) { return nil, nil, nil, false }
 	// A fixture's git reads no machine configuration (testsupport.HermeticGitEnv), and the
 	// tripwire makes one that does fail here and on CI, not only on a machine that signs.
 	testsupport.ArmGitConfigTripwire()

@@ -215,7 +215,9 @@ func captureHost(args []string, out, errw io.Writer, color bool) int {
 	// file an entry that materializes nothing and satisfies every later resolve.
 	empty := false
 	entry, m, err := captureStaged(store, staging,
-		func() int { return runCaptureJail(staging, bin, captureJailArgv(bin), nil, out, errw, color) },
+		func() int {
+			return runCaptureJail(staging, bin, captureJailArgv(bin), nil, captureStreams{out: out, errw: errw}, color)
+		},
 		func(m *capture.Manifest) string {
 			empty = true
 			return fmt.Sprintf("%s's installer left nothing in the capture surfaces (%s). Either it "+
@@ -615,7 +617,12 @@ func captureJailArgv(bin string) []string {
 // the pipeline withholds every host crossing (run.Options.Sealed) and narrows the pack selection to
 // the packs the seal names. seal nil is the installer capture's jail, unchanged: the design scopes
 // the seal to the fork route.
-func runCaptureJail(workspace, bin string, argv []string, seal *captureSeal, out, errw io.Writer, color bool) int {
+//
+// s is the jail's writers (captureStreams): the launch's own lines go to s.out and s.errw, and the
+// jail's own, its runtime client's and pid 1's, to s.jailOut and s.jailErr, the process's own
+// streams when nil; s.jailReady is called once its boot is done.
+func runCaptureJail(workspace, bin string, argv []string, seal *captureSeal, s captureStreams, color bool) int {
+	out, errw := s.out, s.errw
 	opts := run.NewDefaultOptions()
 	opts.Workspace = workspace
 	opts.Args = argv
@@ -626,6 +633,7 @@ func runCaptureJail(workspace, bin string, argv []string, seal *captureSeal, out
 		opts.SealedTree = seal.tree
 	}
 	opts.Stdout, opts.Stderr = out, errw
+	opts.JailStdout, opts.JailStderr, opts.OnJailReady = s.jailOut, s.jailErr, s.jailReady
 	// NO CAPTURE STORE IN A CAPTURE JAIL. Every ordinary launch binds the store :ro so a
 	// native launcher can materialize instead of downloading (run/captures.go); this one
 	// must not, and the reason is circularity rather than tidiness. The installer a capture

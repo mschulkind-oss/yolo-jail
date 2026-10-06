@@ -167,9 +167,9 @@ type buildMode struct {
 	afterLock func() (entry *capture.Entry, err error, done bool)
 	// runJail, when non-nil, runs the build jail in place of forkBuildRunJail: a launch's patched
 	// advance runs it as a child process, so a Ctrl-C ends the build and not the launch
-	// (forkbuildchild.go, PF-D25). out and errw are the jail's writers, which the act tees to keep
-	// the last lines the jail printed (jailTail).
-	runJail func(staging string, b forkBuild, out, errw io.Writer) int
+	// (forkbuildchild.go, PF-D25). s is the jail's four writers, which the act tees to keep the
+	// last lines the jail printed (jailTail).
+	runJail func(staging string, b forkBuild, s captureStreams) int
 	// packs is the pack store a PATCHED build replays its series in (the launch's, under the
 	// advance's context); nil reads the machine's with the store's default budget.
 	packs *packsrc.Store
@@ -218,6 +218,17 @@ func (e forkBuildNotStarted) Error() string {
 func (e forkBuildNotStarted) Is(target error) bool { return target == errForkBuildNotStarted }
 func (e forkBuildNotStarted) Unwrap() error        { return e.exit }
 
+// captureStreams are the four writers a capture jail prints on: out and errw take the launch's own
+// lines (run.Options.Stdout and Stderr), and jailOut and jailErr the JAIL'S OWN, what its runtime
+// client and pid 1 print up to its ready, which the launch relays apart from its own
+// (run.Options.JailStdout and JailStderr). A nil jail writer is the process's own stream, where any
+// launch relays them. jailReady, when non-nil, is called once the jail's boot is done, after the
+// last of its own lines (run.Options.OnJailReady).
+type captureStreams struct {
+	out, errw, jailOut, jailErr io.Writer
+	jailReady                   func()
+}
+
 // jailSaidWhy reports whether err is a build jail that stopped before its build line ran and relays
 // the lines it said why with, so the next step can point at them rather than at the output above.
 func jailSaidWhy(err error) bool {
@@ -225,21 +236,40 @@ func jailSaidWhy(err error) bool {
 	return errors.As(err, &ns) && ns.said != ""
 }
 
-// jailTail keeps the last lines a build jail prints on each of its two streams (writer), for
-// forkBuildNotStarted to relay. A launch that refuses says so on ONE stream, and a refusal can take
-// a few lines — the config gate's is its verdict, the key and `yolo check` — while the stream it did
-// not use carries the lines the launch printed before it, such as its flake source. So what it
-// relays is the last jailTailLines lines of the stream that printed last (said).
+// jailTail keeps the last lines a build jail prints on each of its four streams (writer,
+// captureStreams), for forkBuildNotStarted to relay. A jail the runtime refused, or whose boot
+// failed, says why on its OWN two streams, and the launch's lines after that are only its keeper's
+// account of the end ("keeper: done"); a launch that refused at a pre-flight started no container,
+// so its own two streams are all it printed on. Either says so on ONE stream, and can take a few
+// lines — the config gate's refusal is its verdict, the key and `yolo check` — while the stream it
+// did not use carries what the launch printed before it, such as its flake source. So what it
+// relays is the last jailTailLines lines of the stream that printed last, of the jail's own two
+// when either printed (said).
 //
-// Safe for the two copy goroutines a child process's pipes run. Color is stripped and a carriage
-// return starts a line again, so a styled or redrawn line is kept as a terminal shows it, and a line
-// is cut at jailTailMaxLine bytes, since what it keeps ends up in a delivery reason the jail is
-// handed.
+// NOTHING, ONCE THE JAIL'S BOOT IS DONE (ready). pid 1 prints lines on a boot that succeeds too —
+// a shared directory linked, no cgroup delegate — and a jail that stops after it says why in its
+// session, whose lines reach the terminal and not this tail; what the launch prints then is its
+// keeper's teardown. So a jail that stopped after its boot is relayed with nothing, and the next
+// step points at the output above.
+//
+// Safe for the copy goroutines a child process's pipes run. Color is stripped and a carriage return
+// starts a line again, so a styled or redrawn line is kept as a terminal shows it, and a line is cut
+// at jailTailMaxLine bytes, since what it keeps ends up in a delivery reason the jail is handed.
 type jailTail struct {
 	mu      sync.Mutex
 	seq     int
-	streams [2]jailTailStream
+	streams [tailStreams]jailTailStream
+	booted  bool
 }
+
+// The streams a jailTail keeps, one writer each.
+const (
+	tailLaunchOut = iota // the launch's own stdout (run.Options.Stdout)
+	tailLaunchErr        // the launch's own stderr (run.Options.Stderr)
+	tailJailOut          // the jail's own stdout: its runtime client's and pid 1's (run.Options.JailStdout)
+	tailJailErr          // the jail's own stderr (run.Options.JailStderr)
+	tailStreams
+)
 
 // jailTailStream is one stream's partial line and last lines, with the order its last line came in.
 type jailTailStream struct {
@@ -258,8 +288,33 @@ const (
 // jailTailANSI matches a CSI sequence, as run's launch log strips them.
 var jailTailANSI = regexp.MustCompile("\x1b\\[[0-9;?]*[ -/]*[@-~]")
 
-// writer is the writer for stream i: 0 for the jail's stdout, 1 for its stderr.
+// writer is the writer for stream i, one of the tail* streams.
 func (t *jailTail) writer(i int) io.Writer { return jailTailWriter{t: t, i: i} }
+
+// tee is s with every writer teed into t, a nil jail writer standing for the process's own stream:
+// the writers the act hands the build jail.
+func (t *jailTail) tee(s captureStreams) captureStreams {
+	if s.jailOut == nil {
+		s.jailOut = os.Stdout
+	}
+	if s.jailErr == nil {
+		s.jailErr = os.Stderr
+	}
+	return captureStreams{
+		out:       io.MultiWriter(s.out, t.writer(tailLaunchOut)),
+		errw:      io.MultiWriter(s.errw, t.writer(tailLaunchErr)),
+		jailOut:   io.MultiWriter(s.jailOut, t.writer(tailJailOut)),
+		jailErr:   io.MultiWriter(s.jailErr, t.writer(tailJailErr)),
+		jailReady: t.ready,
+	}
+}
+
+// ready records that the jail's boot is done: from here said is "".
+func (t *jailTail) ready() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.booted = true
+}
 
 type jailTailWriter struct {
 	t *jailTail
@@ -303,20 +358,29 @@ func (t *jailTail) endLine(s *jailTailStream) {
 }
 
 // said is the last lines of the stream that printed last, an unterminated line included, joined by
-// " / " so they read as one line; "" when neither printed anything.
+// " / " so they read as one line: of the jail's own two streams when either printed, and of the
+// launch's two otherwise; "" when none printed anything, or the jail's boot was done.
 func (t *jailTail) said() string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if t.booted {
+		return ""
+	}
 	for i := range t.streams {
 		if len(t.streams[i].cur) > 0 {
 			t.endLine(&t.streams[i])
 		}
 	}
-	last := &t.streams[0]
-	if t.streams[1].seq > last.seq {
-		last = &t.streams[1]
+	for _, pair := range [][2]int{{tailJailOut, tailJailErr}, {tailLaunchOut, tailLaunchErr}} {
+		last := &t.streams[pair[0]]
+		if t.streams[pair[1]].seq > last.seq {
+			last = &t.streams[pair[1]]
+		}
+		if last.seq > 0 {
+			return strings.Join(last.lines, " / ")
+		}
 	}
-	return strings.Join(last.lines, " / ")
+	return ""
 }
 
 // forkSourceError is a build that never reached its jail because its source could not be put in
@@ -411,17 +475,17 @@ func buildForkUnderLock(b forkBuild, mode buildMode, store *capture.Store, pr ri
 	}
 	runJail := mode.runJail
 	if runJail == nil {
-		runJail = func(staging string, b forkBuild, out, errw io.Writer) int {
-			return forkBuildRunJail(staging, b, out, errw, color)
+		runJail = func(staging string, b forkBuild, s captureStreams) int {
+			return forkBuildRunJail(staging, b, s, color)
 		}
 	}
-	// THE JAIL'S OWN LAST LINES, kept as they stream past: a jail that stops before its build line ran
-	// is relayed with them (forkBuildNotStarted).
+	// THE JAIL'S LAST LINES, kept as they stream past, the launch's and the jail's own apart: a jail
+	// that stops before its build line ran is relayed with them (forkBuildNotStarted). The jail's own
+	// go where any launch relays them, the process's own streams.
 	tail := &jailTail{}
+	streams := tail.tee(captureStreams{out: out, errw: errw})
 	entry, m, err := captureStaged(store, staging,
-		func() int {
-			return runJail(staging, b, io.MultiWriter(out, tail.writer(0)), io.MultiWriter(errw, tail.writer(1)))
-		},
+		func() int { return runJail(staging, b, streams) },
 		func(m *capture.Manifest) string {
 			if f.IsTree() {
 				return fmt.Sprintf("%s's build left no tree at ~/%s", f.Label(), packdecl.TreeReservedDir(f.Bin))
@@ -728,15 +792,15 @@ func forkBuildJailArgv(build string) []string {
 // forkBuildRunJail runs b's build in the capture jail UNDER THE SEAL, with the pack selection
 // narrowed to the fork and its base (FP-D9) — or, for a PATCHED EXTENSION, to the contributing pack
 // alone (PPX-D5): its toolchain is the image's, so no agent pack has anything to add to it.
-func forkBuildRunJail(workspace string, b forkBuild, out, errw io.Writer, color bool) int {
+func forkBuildRunJail(workspace string, b forkBuild, s captureStreams, color bool) int {
 	return runCaptureJail(workspace, b.Fork.Bin, buildJailArgv(b.Fork), &captureSeal{only: sealPacks(b.Fork), tree: sealTree(b.Fork)},
-		out, errw, color)
+		s, color)
 }
 
 // sealPacks are the packs a build jail's selection is narrowed to: a fork and its base, or a
-// patched extension's contributing pack — and the base of every other fork that pack declares
-// (Fork.PackBases), without which the narrowed selection is refused for a fork whose base it lacks
-// (PPX-D39). Every other gate that asks whether another pack provides what one names is skipped for
+// patched extension's contributing pack — and the base of every other fork that pack declares, and
+// in turn every base those bases fork (Fork.PackBases), without which the narrowed selection is
+// refused for a fork whose base it lacks (PPX-D39). Every other gate that asks whether another pack provides what one names is skipped for
 // a narrowed selection (run's selectionNarrowed), so nothing more is carried for those.
 func sealPacks(f packload.Fork) []string {
 	out := []string{f.Pack}

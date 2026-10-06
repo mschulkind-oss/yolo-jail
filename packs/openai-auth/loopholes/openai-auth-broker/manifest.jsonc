@@ -66,7 +66,8 @@
 
   // An absent or empty list mounts the entire host state directory read-only.
   // Keep this list nonempty or credentials.json would cross into every jail.
-  // The launcher creates this inert marker before it assembles the mount.
+  // The launcher writes this inert marker before it assembles the mounts, for every
+  // loophole whose list names it (loopholes.Set.PrepareMountSentinels).
   "state_files": [".mount-sentinel"],
 
   "doctor_cmd": [

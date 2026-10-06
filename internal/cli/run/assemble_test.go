@@ -498,6 +498,8 @@ func podmanLinuxGolden(home string) []string {
 		"-e", "JAIL_HOME=/home/agent",
 		"-e", "NPM_CONFIG_PREFIX=/home/agent/.npm-global",
 		"-e", "NPM_CONFIG_CACHE=/home/agent/.cache/npm",
+		"-e", "NPM_CONFIG_UPDATE_NOTIFIER=false",
+		"-e", "NPM_CONFIG_FUND=false",
 		"-e", "GOPATH=/home/agent/go",
 		"-e", "MISE_DATA_DIR=/mise",
 		"-e", "MISE_CACHE_DIR=/tmp/mise-cache",
@@ -925,6 +927,36 @@ func treeDiff(t *testing.T, want, got string) string {
 	}
 	slices.Sort(problems)
 	return strings.Join(problems, "\n")
+}
+
+// THE JAIL'S npm SAYS NOTHING NOBODY ASKED FOR, as the host floor's does
+// (hostfloor.Floor.npmEnv): no "new version of npm available" box and no "packages are
+// looking for funding" line. An agent reads every line a command prints, and these two arrive
+// on installs that succeeded — env hygiene, beside PAGER=cat and EDITOR=cat. On the -e block,
+// so every process in the jail inherits it, the lazy agent installers included.
+func TestAssembleSilencesNpmNotices(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	emptyLoopholeDirs(t)
+	o := goldenOptions("/ws", home)
+	sec := jsonx.NewOrderedMap()
+	sec.Set("blocked_tools", []any{})
+	got := o.assembleRunCmd(&assembleInput{
+		cfg:          newConfig("security", sec),
+		rt:           "podman",
+		cname:        "yolo-ws-abcd1234",
+		agentsPath:   "/agents/yolo-ws-abcd1234",
+		wsState:      "/ws/.yolo/home",
+		miseStore:    "/mise-store",
+		yoloVersion:  "9.9.9-test",
+		mountTargets: map[string]struct{}{},
+	})
+	pairs := envPairs(got)
+	for _, name := range []string{"NPM_CONFIG_UPDATE_NOTIFIER", "NPM_CONFIG_FUND"} {
+		if v, ok := pairs[name]; !ok || v != "false" {
+			t.Errorf("%s = %q (set %v), want false on the jail's -e block", name, v, ok)
+		}
+	}
 }
 
 func TestAssembleForwardsTermAndColorterm(t *testing.T) {

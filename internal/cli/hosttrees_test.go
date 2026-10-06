@@ -344,7 +344,7 @@ func TestAHostAdvancesLinesNameTheHost(t *testing.T) {
 	fx.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
 	fx.now = fx.now.Add(2 * time.Hour)
 	prev := forkBuildChild
-	forkBuildChild = func(ctx context.Context, _ time.Duration, _ string, _ forkBuild, _, _ io.Writer, _ bool) (int, bool) {
+	forkBuildChild = func(ctx context.Context, _ time.Duration, _ string, _ forkBuild, _ captureStreams, _ bool) (int, bool) {
 		_ = syscall.Kill(os.Getpid(), syscall.SIGINT)
 		select {
 		case <-ctx.Done():

@@ -180,8 +180,9 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 		// `program` a selected pack declares installs from its lazy launcher on first
 		// invocation (entrypoint.GenerateAgentLaunchers). This line once told the reader
 		// `yolo -- true` would "provision and exit", which exits 0 with no agent CLI
-		// installed. Whether a launch should install them is
-		// docs/design/jail-notch-readiness.md's OQ-JR1..3; until it rules, say what happens.
+		// installed. docs/design/jail-notch-readiness.md has ruled that a launch will install
+		// them, and stop when it cannot (OQ-JR1..3, JR-D1: this verb then runs that act with no
+		// target). That readiness act is not built, so until it is, say what happens.
 		pr.Printf("[dim]At the jail notch, `yolo apply` provisions nothing itself: that work " +
 			"happens when a jail launches. `yolo -- <cmd>` builds the image (on a container " +
 			"runtime; macos-user has none), stages the selected packs and renders their " +

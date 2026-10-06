@@ -203,7 +203,8 @@
   // this state dir holds credentials.json — the minted credentials for every profile
   // this machine serves. Keep this list nonempty, exactly as openai-auth's comment
   // says, or the cache crosses into every jail and the service's one job is undone.
-  // The launcher creates this inert marker before it assembles the mount.
+  // The launcher writes this inert marker before it assembles the mounts, for every
+  // loophole whose list names it (loopholes.Set.PrepareMountSentinels).
   "state_files": [
     ".mount-sentinel"
   ],

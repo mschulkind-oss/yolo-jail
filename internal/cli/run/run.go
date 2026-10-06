@@ -1014,19 +1014,33 @@ func (o *Options) warnIfNoPacks() {
 // delivered no pack `mount` (DP-B2: a disclosure of a read that does not happen is worse than
 // silence); it delivers them by link since docs/design/context-mounts.md §4 step 4, and refuses
 // the launch where it cannot, so the exception went with the gap.
+//
+// UNDER THE SEAL the same rule cuts the other way: a sealed build is handed no pack env, no
+// host read and no loophole (seal.go), so only the claims about what the build itself fetches or
+// runs are listed (sealKeepsClaim), and the rest are counted in one line naming their packs
+// (sealedWithheldLine). A pack a base `needs` can declare a credential pointer (aws-auth does),
+// and listing its `{caller_token}` for a jail that gets no token was that worse-than-silence.
 func (o *Options) notePackHostAccess(loadedPacks []*packload.Pack, channel *packChannel) {
 	served := packload.NothingServed()
 	if channel != nil {
 		served = channel.served
 	}
-	lines := disclosedClaimsServed(loadedPacks, disclosureRead, served)
-	if len(lines) == 0 {
-		return
+	var keep func(packload.Claim) bool
+	if o.Sealed {
+		keep = sealKeepsClaim
 	}
 	out := o.pr(o.Stderr)
-	out.print("[dim]Pack environment this launch:[/dim]")
-	for _, l := range lines {
-		out.print("[dim]  " + l.pack + ": " + l.claim + "[/dim]")
+	if lines := disclosedClaimsWhere(loadedPacks, disclosureRead, served, keep); len(lines) > 0 {
+		out.print("[dim]Pack environment this launch:[/dim]")
+		for _, l := range lines {
+			out.print("[dim]  " + l.pack + ": " + l.claim + "[/dim]")
+		}
+	}
+	if !o.Sealed {
+		return
+	}
+	if line := sealedWithheldLine(disclosedClaimsWhere(loadedPacks, disclosureRead, served, sealWithholdsClaim)); line != "" {
+		out.print("[dim]" + richtext.Escape(line) + "[/dim]")
 	}
 }
 
@@ -1065,6 +1079,7 @@ func (o *Options) noteUseProfiles(channel *packChannel, loadedPacks []*packload.
 		Resolved:  channel.resolvedProfiles,
 		Providers: channel.providers,
 		Scope:     channel.scope,
+		Deselect:  channel.deselect,
 		Reaches: func(agent, name string) bool {
 			if v, found := argvPairs[name]; found && v != "" {
 				return true
@@ -1977,7 +1992,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// arm runs releases it, and so does this launch before each disarm below.
 	o.registerHerdrAgent(loadedPacks, injectedArgs)
 	keeperStarted := false
-	ready := kp.relay(o.Stdout, o.Stderr, os.Stdout, os.Stderr, keeperEvents{
+	ready := kp.relay(o.Stdout, o.Stderr, o.JailStdout, o.JailStderr, keeperEvents{
 		started: func(pid int) {
 			keeperStarted = true
 			o.pr(o.Stderr).printf("[dim]keeper: started, pid %d[/dim]", pid)
@@ -1993,6 +2008,11 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		// delays the jail. It dies at this launch's exit, restartable by design.
 		running: func() {
 			housekeepingSlots.Go(func() { safeRun(func() { o.runHousekeeping(rt, reclaimConsent, cname) }) })
+		},
+		ready: func(int64, bool) {
+			if o.OnJailReady != nil {
+				o.OnJailReady()
+			}
 		},
 	})
 	_ = kp.progress.Close()

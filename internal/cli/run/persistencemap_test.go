@@ -35,24 +35,35 @@ import (
 func TestThePersistenceMapIsTheMountPlan(t *testing.T) {
 	for _, tc := range []struct {
 		name, rt, ephemeral string
+		// sealed is a fork's build jail (seal.go): its ~/.cache and /mise are its own
+		// workspace's (sealedStores), and no pack's machine-scope directory is bound.
+		sealed bool
 	}{
-		{"podman-volumes", "podman", ""},
-		{"podman-tmpfs", "podman", "tmpfs"},
-		{"apple-container", "container", ""},
+		{"podman-volumes", "podman", "", false},
+		{"podman-tmpfs", "podman", "tmpfs", false},
+		{"apple-container", "container", "", false},
+		{"podman-sealed", "podman", "", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			home := t.TempDir()
 			t.Setenv("HOME", home)
 			emptyLoopholeDirs(t)
 			o := goldenOptions("/ws", home)
+			o.Sealed = tc.sealed
 			cfg, packs := persistenceFixture(t, tc.ephemeral)
 			const scratchID = "0123456789abcdef"
 			in := relocationInput(t, tc.rt, "/ws/.yolo/home", nil)
 			in.cfg, in.packs, in.scratchID = cfg, packs, scratchID
 			in.writableHomeDirs = persistenceWritableHomeDirs(cfg, packs)
 			in.durableDir = durable.ContainerJailPath
+			if tc.sealed {
+				// The two private stores Run hands a sealed launch (sealedStores), by their paths.
+				in.sealed = true
+				in.cacheDir = filepath.Join(paths.WorkspaceStateDir("/ws"), sealedCacheLeaf)
+				in.miseStore = filepath.Join(paths.WorkspaceStateDir("/ws"), sealedMiseLeaf)
+			}
 			argv := o.assembleRunCmd(in)
-			m := persistenceMapFor(tc.rt, cfg, packs, "/ws")
+			m := persistenceMapFor(tc.rt, cfg, packs, "/ws", tc.sealed)
 			if m == nil {
 				t.Fatalf("no persistence map for %s", tc.rt)
 			}
@@ -161,7 +172,7 @@ func TestTheBriefingNamesEveryPathInThePersistenceMap(t *testing.T) {
 			}
 			// Every path is named as a `~/rel` or `/abs` code span IN ITS OWN CLASS'S bullet,
 			// so a path rendered under the wrong lifecycle fails as surely as a missing one.
-			for _, e := range persistenceMapFor(rt, cfg, packs, ws).Paths {
+			for _, e := range persistenceMapFor(rt, cfg, packs, ws, false).Paths {
 				if e.Class == jailcontent.PathInternal {
 					if strings.Contains(section, spanFor(e.Path)) {
 						t.Errorf("the section names the internal path %s as a place for work", e.Path)
@@ -230,7 +241,7 @@ func TestTheBriefingNamesEveryPathInThePersistenceMap(t *testing.T) {
 // macos-user mounts nothing, so it has no map and its briefing no section: the section for
 // that backend is the design's §8 step 5, and a container-shaped one there would be false.
 func TestMacosUserHasNoPersistenceMapYet(t *testing.T) {
-	if m := persistenceMapFor("macos-user", newConfig(), nil, "/ws"); m != nil {
+	if m := persistenceMapFor("macos-user", newConfig(), nil, "/ws", false); m != nil {
 		t.Errorf("macos-user got a persistence map: %+v", m)
 	}
 }
@@ -295,6 +306,10 @@ func expectedClassBySource(mt writableMount, in *assembleInput, scratchID string
 	case mt.src == "/ws":
 		return jailcontent.PathProject, true
 	case mt.src == in.wsState || strings.HasPrefix(mt.src, in.wsState+"/"):
+		return jailcontent.PathWorkspaceDurable, true
+	case strings.HasPrefix(mt.src, paths.WorkspaceStateDir("/ws")+"/"):
+		// The workspace's own state dir beyond its home overlay: a sealed build's private
+		// ~/.cache and /mise (sealedStores).
 		return jailcontent.PathWorkspaceDurable, true
 	case strings.HasPrefix(mt.src, paths.GlobalStorage()+"/"), mt.src == in.miseStore, mt.src == miseStoreVolume:
 		return jailcontent.PathMachineDurable, true

@@ -430,8 +430,10 @@ func runtimeArgsWith(loopholes []*Loophole, runtime string, gate *Set, specs []J
 						if !isFile(src) {
 							// Never emit a -v for a missing source: the runtime
 							// would materialize it as an empty DIRECTORY, shadowing
-							// the file the jail daemon is waiting for.
-							warnf("loophole %s: skipping state file, host source missing: %s", m.Name, src)
+							// the file the jail daemon is waiting for. The line names
+							// who writes the file and so what to do (cyclecommand.go).
+							warnf("loophole %s: skipping state file, host source missing: %s — %s",
+								m.Name, src, missingStateFileStep(m, rel))
 							continue
 						}
 						args = append(args, "-v", src+":"+stateContainer+"/"+rel+":ro")

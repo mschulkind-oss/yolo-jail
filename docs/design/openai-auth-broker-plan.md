@@ -173,8 +173,10 @@ stays in `YOLO_JAIL_DAEMONS` turns an unreachable front into no front at all.
   forged token reaching a concurrent launch is the exposure that remains.
 - **Do not mount the state directory anywhere.** The nonempty `state_files` list is the
   fail-closed boundary that keeps `credentials.json` out of the jail; an empty or absent
-  list mounts the whole directory. `prepareOpenAIAuthMountSentinel` exists to give that
-  boundary one harmless always-present source.
+  list mounts the whole directory. The launch writes the list's inert `.mount-sentinel`
+  (`loopholes.Set.PrepareMountSentinels`, for every loophole whose list names it since
+  [OQ-T10](../reference/loophole-transport.md#oq-t10)) to give that boundary one harmless
+  always-present source.
 - Carried forward, still true: do not share all of `CODEX_HOME`; do not treat a symlink as
   a refresh lock; do not cancel after redemption may have started; do not log callback URLs
   (their query holds an authorization code).

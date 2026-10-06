@@ -12,15 +12,21 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/outfmt"
 )
 
 // HostDaemonVerb is the management verb's registry name, in ONE place because
-// three surfaces spell it: the command's own help, the refusals below, and the
+// four surfaces spell it: the command's own help, the refusals below, the
 // launch-path warning about an alive-but-incompatible daemon
-// (internal/cli/run/loopholesruntime.go). A literal in each of those is how the
+// (internal/cli/run/loopholesruntime.go), and the loophole runtime's missing-state-file
+// warning (internal/loopholes/runtime.go). A literal in each of those is how the
 // last one came to name a command that cycles a different daemon.
-const HostDaemonVerb = "host-daemon"
+//
+// DEFINED IN internal/loopholes and named here: that package's warning needs the spelling,
+// and it cannot import this one, which imports it. This name stays the one every other caller
+// spells.
+const HostDaemonVerb = loopholes.HostDaemonVerb
 
 // CycleCommand is THE answer to "what do I type to cycle the daemon called
 // <name>?", and it is a function precisely because the answer used to be a
@@ -33,8 +39,10 @@ const HostDaemonVerb = "host-daemon"
 // always will — the alias is retained — but there is one grammar here rather than
 // a switch on a loophole name, so the sentence is right for a daemon that ships
 // tomorrow without anybody editing this function.
+//
+// The grammar is loopholes.HostDaemonCycleCommand's, for HostDaemonVerb's reason.
 func CycleCommand(name string) string {
-	return "yolo " + HostDaemonVerb + " restart " + name
+	return loopholes.HostDaemonCycleCommand(name)
 }
 
 // SetStatus is one member's row in the set-wide report: the loophole name and

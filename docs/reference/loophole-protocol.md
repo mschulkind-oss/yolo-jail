@@ -485,16 +485,10 @@ within the budget plus a short margin prints one dim line saying the daemon coul
 **One non-zero exit refuses the launch**: a `scope: "host"` daemon whose first stderr line starts
 `unknown action:` and names `launch-check`, the answer yolo's daemons give an action they do not
 know. That daemon was started by an earlier yolo and kept running through the upgrade, since
-nothing restarts one when yolo changes. A launch past it would start agents without the check, so
-the launch stops before the jail starts, says the daemon predates this yolo, and names
-`yolo host-daemon restart <name>`. That restart is safe for the jails already running: each one's
-front dials the daemon's socket for every connection, so it reaches the new daemon on its next
-request. No launch restarts the daemon itself
-([OQ-HD11](../design/host-daemon-ownership.md#OQ-HD11)). An attach refuses the same way, before it
-delivers anything to the running jail
-([`HD-D5`](../design/host-daemon-ownership.md#HD-D5)). A `scope: "jail"` daemon that answers the
-same way still gets a yellow warning instead, since the launch just started it from a manifest
-that declares a check it does not answer, and no restart fixes that.
+nothing restarts one when yolo changes, so the yellow line says it predates this yolo and names
+`yolo host-daemon restart <name>`. Ruled 2026-10-05 and not built
+([OQ-HD11](../design/host-daemon-ownership.md#OQ-HD11)): a fresh launch is to refuse on that
+answer instead, naming the same command; an attach keeps the line.
 The first daemon to declare it is `aws-auth`
 ([`agent-credentials.md`](agent-credentials.md#when-the-sso-session-lapses)).
 

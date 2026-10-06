@@ -4,6 +4,7 @@ package packload
 // a fork claims no name, and its footprint keys apart from its base's.
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
@@ -74,6 +75,53 @@ func TestEveryForkCarriesItsPacksForkBases(t *testing.T) {
 	for _, f := range forks {
 		if len(f.PackBases) != 2 || f.PackBases[0] != "pi" || f.PackBases[1] != "claude" {
 			t.Errorf("fork %s carries PackBases %v, want [pi claude]", f.Key(), f.PackBases)
+		}
+	}
+}
+
+// TestPackBasesFollowAConfiguredBasesOwnForks: a fork whose configured base itself forks a third
+// configured pack's program hands its fork every base down that chain (Fork.PackBases), so a build
+// sealed to the fork pack and its bases is a selection the fork rewrite accepts, as it accepts the
+// user's whole selection; a fork rewrite refused for a base it lacks is what a build jail met
+// before its build line ran ("basepack forks pack cpack's "c", and cpack is not in this selection",
+// docs/design/patched-extensions.md PPX-D39). A cycle of forks ends the walk. Red if PackBases
+// stops at the fork pack's own bases.
+func TestPackBasesFollowAConfiguredBasesOwnForks(t *testing.T) {
+	cpack := claimPack(t, "cpack", packdecl.Contribution{Kind: packdecl.KindProgram, Bin: "c", Via: "npm", Package: "c"})
+	basepack := claimPack(t, "basepack",
+		packdecl.Contribution{Kind: packdecl.KindProgram, Bin: "tool", Via: "npm", Package: "tool"},
+		forkContribution("c", "cpack"))
+	forkpack := claimPack(t, "forkpack", forkContribution("tool", "basepack"))
+	all := []*Pack{cpack, basepack, forkpack}
+	if _, err := ApplyForks(all); err != nil {
+		t.Fatalf("the user's whole selection is refused: %v", err)
+	}
+	byName := map[string]*Pack{}
+	for _, p := range all {
+		byName[p.Name] = p
+	}
+	for _, f := range Forks(all) {
+		sealed := []*Pack{byName[f.Pack], byName[f.Base]}
+		for _, b := range f.PackBases {
+			if b != f.Base {
+				sealed = append(sealed, byName[b])
+			}
+		}
+		if _, err := ApplyForks(sealed); err != nil {
+			t.Errorf("fork %s sealed to its pack and PackBases %v is refused: %v", f.Key(), f.PackBases, err)
+		}
+		if f.Pack == "forkpack" && !slices.Equal(f.PackBases, []string{"basepack", "cpack"}) {
+			t.Errorf("fork %s carries PackBases %v, want [basepack cpack]", f.Key(), f.PackBases)
+		}
+	}
+
+	a := claimPack(t, "a", packdecl.Contribution{Kind: packdecl.KindProgram, Bin: "x", Via: "npm", Package: "x"},
+		forkContribution("y", "b"))
+	b := claimPack(t, "b", packdecl.Contribution{Kind: packdecl.KindProgram, Bin: "y", Via: "npm", Package: "y"},
+		forkContribution("x", "a"))
+	for _, f := range Forks([]*Pack{a, b}) {
+		if want := map[string]string{"a": "b", "b": "a"}[f.Pack]; !slices.Equal(f.PackBases, []string{want}) {
+			t.Errorf("in a cycle, fork %s carries PackBases %v, want [%s]", f.Key(), f.PackBases, want)
 		}
 	}
 }

@@ -151,3 +151,48 @@ func TestABuildJailsNarrowingIsNotRefusedForAViaRoute(t *testing.T) {
 		t.Fatalf("a narrowed selection was refused by the via-route gate: %v", err)
 	}
 }
+
+// A FORK WHOSE BASE FORKS A THIRD PACK: forkpack forks basepack's tool and basepack forks cpack's c,
+// all three configured. The user's own launch is accepted; a build jail sealed to the fork and its
+// base alone is refused by the fork rewrite, which no gate's skip can answer; sealed to every base
+// down the chain, as packload.Fork.PackBases now carries them, it reaches the runtime.
+func TestAForkBuildJailSealedToEveryBaseDownTheChainIsAccepted(t *testing.T) {
+	home := packHome(t)
+	t.Setenv("YOLO_VERSION", "")
+	t.Setenv("YOLO_PACK_ROOT", "")
+	packs := t.TempDir()
+	for rel, body := range map[string]string{
+		"cpack/pack.json": `{"contributes":[{"kind":"program","bin":"c","via":"npm","package":"c"}]}`,
+		"basepack/pack.json": `{"contributes":[{"kind":"program","bin":"tool","via":"npm","package":"tool"},` +
+			`{"kind":"program","bin":"c","via":"source","fork_of":"cpack","source":"` + forkPinSource + `",` +
+			`"build":"make install","produces":[".local/bin/c"]}]}`,
+		"forkpack/pack.json": `{"contributes":[{"kind":"program","bin":"tool","via":"source","fork_of":"basepack",` +
+			`"source":"` + forkPinSource + `","build":"make install","produces":[".local/bin/tool"]}]}`,
+	} {
+		p := filepath.Join(packs, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeUserPacks(t, home, `[{"source":"file://`+filepath.Join(packs, "cpack")+`","name":"cpack"},`+
+		`{"source":"file://`+filepath.Join(packs, "basepack")+`","name":"basepack"},`+
+		`{"source":"file://`+filepath.Join(packs, "forkpack")+`","name":"forkpack"}]`)
+	if argv, printed := fakePodmanLaunch(t, func(*Options) {}); argv == nil {
+		t.Fatalf("the user's own launch of the fixture never reached the runtime:\n%s", printed)
+	}
+	sealed := func(only ...string) ([]string, string) {
+		return fakePodmanLaunch(t, func(o *Options) {
+			o.Sealed, o.OnlyPacks = true, only
+			o.CapturesDir = func() string { return "" }
+		})
+	}
+	if argv, printed := sealed("forkpack", "basepack"); argv != nil || !strings.Contains(printed, "cpack is not in this selection") {
+		t.Errorf("sealed to the fork and its base alone, the build jail was not refused for the base's own base:\n%s", printed)
+	}
+	if argv, printed := sealed("forkpack", "basepack", "cpack"); argv == nil {
+		t.Fatalf("sealed to every base down the chain, the build jail never reached the runtime:\n%s", printed)
+	}
+}

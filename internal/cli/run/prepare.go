@@ -118,8 +118,9 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	// The user's `lsp_servers` table, for the one plugin yolo renders from it — option D of
 	// docs/reference/mcp-configuration.md#oq-lsp1. Injected rather than read inside jailcontent for the
 	// same reason the two setters above are: that package is called from here and does not read
-	// config itself.
-	jailcontent.SetLSPServers(cfgMap(cfg, "lsp_servers"))
+	// config itself. None under the seal (agentServerTables, seal.go): a build runs no agent.
+	lspServers, _, _ := agentServerTables(cfg, o.Sealed)
+	jailcontent.SetLSPServers(lspServers)
 
 	// Skills staging — with the WORKSPACE as the lowest layer (docs/reference/agent-briefings.md),
 	// re-read from the workspace as it stands on every entry, attach included, and disclosed on
@@ -200,7 +201,7 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 		// selected packs and config it is assembled from (persistencemap.go). It renders
 		// the storage-classes section and the Home line that points at it
 		// (docs/design/durable-scratch-space.md §4.1). Nil on macos-user.
-		Persistence: persistenceMapFor(rt, cfg, staged.packs, o.Workspace),
+		Persistence: persistenceMapFor(rt, cfg, staged.packs, o.Workspace, o.Sealed),
 		// THE DURABLE DIR the section leads with (durabledir.go): the one this fresh launch
 		// made, or the one the running jail was started with on an attach, or why there is
 		// none. The same value the backend exports as $YOLO_DURABLE_DIR, so the briefing
@@ -211,8 +212,14 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	// (config.ResolveWorkspaceConfigPath): `yolo-jail.json` in a workspace that keeps that file,
 	// where naming `yolo-jail.jsonc` sent the agent to create a file read in its place.
 	_, in.ConfigName = config.ResolveWorkspaceConfigPath(o.Workspace, config.WorkspaceConfigName)
+	// Under the seal (seal.go, FP-D23) the briefing describes only what crosses, and carries none
+	// of the user's own text: it is staged where the build reads it.
+	extra := cfgStr(cfg, "agents_md_extra")
+	if o.Sealed {
+		in, extra = sealedBriefingInput(in), ""
+	}
 	briefingBody := jailcontent.BriefingContent(in)
-	briefingBody = jailcontent.ComposeBriefing(briefingBody, cfgStr(cfg, "agents_md_extra"))
+	briefingBody = jailcontent.ComposeBriefing(briefingBody, extra)
 
 	// Write one briefing per PACK-DECLARED briefing DESTINATION. The pack says where its
 	// prose goes; core composes that destination's content and writes it to the matching

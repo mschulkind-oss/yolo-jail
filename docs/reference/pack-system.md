@@ -855,7 +855,11 @@ pack store's mirror and copied into a workspace inside the capture store. The or
 then runs the fork's `build` there under the seal (`run.Options.Sealed`), which withholds every
 crossing of the host into the jail: `env_sources`, pack `env`, provider credentials, `host_files`,
 `mounts`, pack `mount` and reads-host layers, loopholes and host services, machine-scope pack
-directories, the host-cache alias and the nix daemon socket. It also withholds the host's network:
+directories, the host-cache alias and the nix daemon socket. The workspace's copy of the merged
+config is an empty object, and the jail gets no MCP or LSP server and no MCP preset
+([FP-D20](../design/forked-programs-as-packs.md#FP-D20)). Its briefing describes only what crosses,
+with no `agents_md_extra`, context mount, port, loophole or host nix daemon
+([FP-D23](../design/forked-programs-as-packs.md#FP-D23)). It also withholds the host's network:
 the build runs on the runtime's own bridge whatever `network.mode` says, with no host-loopback
 forwarding, so no service the host binds to 127.0.0.1 is in its reach
 ([FP-D13](../design/forked-programs-as-packs.md#FP-D13)). `~/.cache` and `/mise` are private
@@ -863,12 +867,16 @@ directories of the build's workspace. The build jail still has its
 [keeper](../design/jail-lifetime-last-session-wins.md#11-terms), which holds the container and
 nothing else and ends the jail when the build exits
 ([FP-D15](../design/forked-programs-as-packs.md#FP-D15)). The selection is narrowed to the fork and
-its configured base, and to the base of any other fork the fork's pack declares. The launch gates
+its configured base, and to the base of any other fork the fork's pack declares and, in turn, any
+base those bases fork, and the packs those bases `needs` still join. The launch gates
 that ask whether another selected pack provides what one pack names (an `agents` selector, a
 `supersedes` claim, a via profile's route, `required_capabilities`) do not run in a build jail,
 since the narrowing is what dropped that pack, and a build jail that stops before its build line
 runs is reported with the last lines it printed
-([PPX-D39](../design/patched-extensions.md#PPX-D39)). A build whose result misses a `produces` path stores nothing, and so does one that leaves a
+([PPX-D39](../design/patched-extensions.md#PPX-D39)). The build launch's pack disclosure
+lists only what the build fetches or runs, and counts every other claim in one line,
+`Sealed build: … declared by <packs> are withheld`
+([FP-D21](../design/forked-programs-as-packs.md#FP-D21)). A build whose result misses a `produces` path stores nothing, and so does one that leaves a
 link into its own workspace, which is deleted when the build ends: `npm install -g .` is the common
 cause, npm installing a folder as a link to it, and the refusal names the copy-installing spelling
 (`npm install -g "$(npm pack --silent)"`). An admitted build is

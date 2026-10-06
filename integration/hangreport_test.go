@@ -28,6 +28,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // hangTailLines is how much of each stream a timeout repeats: enough to show the last stage a
@@ -162,7 +164,8 @@ func TestATimedOutLaunchSaysWhereItStood(t *testing.T) {
 		"while [ $i -le 100 ]; do echo \"launch stage $i\" >&2; i=$((i+1)); done\n" +
 		"echo 'the one stdout line'\n" +
 		"sleep 7351 </dev/null >/dev/null 2>&1 &\n" +
-		"echo $! > " + pidFile + "\n" +
+		// Quoted: a TMPDIR with a space in it split the redirect and the pid was never written.
+		"echo $! > " + shquote.Quote(pidFile) + "\n" +
 		"exec sleep 7352\n"
 	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
 		t.Fatal(err)

@@ -27,7 +27,7 @@ func TestTheChildBuildJailIsThisBinaryAndNeverATestBinary(t *testing.T) {
 	}
 	var errw bytes.Buffer
 	rc, bound := runForkBuildChild(t.Context(), forkBuildWaitBound, "/staging", forkBuild{Fork: packload.Fork{Pack: "p",
-		Bin: "b"}}, io.Discard, &errw, false)
+		Bin: "b"}}, captureStreams{out: io.Discard, errw: &errw, jailOut: io.Discard, jailErr: io.Discard}, false)
 	if rc == 0 || bound || !strings.Contains(errw.String(), "could not start the build jail") {
 		t.Errorf("the runner under a test binary = %d (bound %v): %s", rc, bound, errw.String())
 	}

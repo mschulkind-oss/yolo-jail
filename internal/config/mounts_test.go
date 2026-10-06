@@ -447,3 +447,42 @@ func TestAMountAtAPackMountsJailPathIsRefused(t *testing.T) {
 		t.Fatalf("errors = %q, want the collision with pack acme's mount", errs)
 	}
 }
+
+// A LAUNCH THAT SKIPS A MOUNT NAMES WHERE IT WAS WRITTEN: MountElementWhere reads the composed
+// config again with its record and answers the element's validator path and the file, line and
+// column it sits at, whichever scope wrote it — the user config's string element and the
+// workspace config's object element alike, each located in its own file.
+func TestMountElementWhereNamesTheFileAndLine(t *testing.T) {
+	h := newMountsHost(t)
+	h.user(t, "{\n  \"mounts\": [\n    \"~/no/such/dir\"\n  ]\n}\n")
+	h.workspace(t, "{\n  \"mounts\": [\n\n    {\"host\": \"/no/such/ro\", \"mode\": \"ro\"}\n  ]\n}\n")
+
+	cfg, err := LoadConfig(h.ws, false, func(string) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		spec, path, loc string
+	}{
+		{"~/no/such/dir", "config.mounts[0]", "~/.config/yolo-jail/config.jsonc:3:5"},
+		{`{"host": "/no/such/ro", "mode": "ro"}`, "config.mounts[1]",
+			filepath.Join(h.ws, "yolo-jail.jsonc") + ":4:5"},
+	} {
+		var m ContextMount
+		for _, e := range ParseMounts(cfg) {
+			if e.Spec == tc.spec {
+				m = e
+			}
+		}
+		if m.Spec == "" {
+			t.Fatalf("no parsed element spelled %s in %v", tc.spec, ParseMounts(cfg))
+		}
+		path, locs := MountElementWhere(h.ws, m)
+		if path != tc.path || len(locs) == 0 || locs[0] != tc.loc {
+			t.Errorf("MountElementWhere(%s) = %q, %q; want %q at %q", tc.spec, path, locs, tc.path, tc.loc)
+		}
+	}
+	if path, locs := MountElementWhere(h.ws, ContextMount{Spec: "~/never/written"}); path != "" || locs != nil {
+		t.Errorf("an element no config writes was located at %q %q", path, locs)
+	}
+}

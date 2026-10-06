@@ -226,7 +226,7 @@ func TestOpenAIAuthAssemblyPreparesOnlySafeStateMount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read mount sentinel: %v", err)
 	}
-	if string(data) != "yolo-openai-auth-mount-v1\n" {
+	if string(data) != "yolo-loophole-mount-sentinel-v1\n" {
 		t.Errorf("mount sentinel = %q, want fixed token-free content", data)
 	}
 	info, err := os.Stat(sentinel)

@@ -334,7 +334,8 @@ folder, such as `"{state}/ca.crt"`; a state file survives restarts, so clients k
 **`state_files`** lists which files in the state folder the jail may read. A loophole with a jail
 daemon gets its state folder mounted read-only in the jail, and without `state_files` that is the
 whole folder, so declare it whenever the folder holds anything private, such as the certificate
-authority's key.
+authority's key. If the jail needs none of it, list only `".mount-sentinel"`: yolo writes that
+marker, a file that holds nothing secret, before every launch, so the list mounts nothing else.
 
 ### Mounts and devices
 

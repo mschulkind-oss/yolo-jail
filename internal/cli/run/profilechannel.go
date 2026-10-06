@@ -52,6 +52,11 @@ type packChannel struct {
 	// config key's or a -p's, config.ProfileFold.BareListNote): which agents take its first entry
 	// alone. "" when none did. The profile disclosure prints it (noteUseProfiles).
 	bareNote string
+	// deselect answers, for an agent the selection reaches nothing for, where its selection
+	// came from (the config `profile` key, with its file and line, or this launch's -p) and the
+	// spelling that selects none for it there (config.ProfileDeselection). The profile
+	// disclosure's warning prints it (noteUseProfiles); nil names the -p form alone.
+	deselect func(agent, profile string) string
 	// providers is the composed provider table (composedProviders): user `providers`
 	// entries over every selected pack's `kind: "provider"` service facts. Emitted as
 	// YOLO_PROVIDERS and read by the env derive below.
@@ -173,6 +178,12 @@ func (o *Options) composePackChannel(cfg *jsonx.OrderedMap, packs []*packload.Pa
 		if err == nil || o.runtime != "macos-user" || tries > len(packs) { // parity: HonoredBy — a container runs the service's jail daemon; macos-user its host half (macosuserservices.go)
 			if c != nil {
 				c.bareNote = fold.BareListNote(fold.BareFrom == profileFoldFromKey)
+				// The two sources profileFold folded, for the disclosure's "reaches nothing"
+				// warning to name the one that reached an agent and how to undo it there.
+				key, flags := config.ConfigProfileSelection(cfg), o.ProfileFlags()
+				c.deselect = func(agent, _ string) string {
+					return config.ProfileDeselection(key, flags, agent)
+				}
 			}
 			return c, err
 		}

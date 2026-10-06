@@ -7,6 +7,8 @@ package config
 // can parse an argv; this file owns what one ProfileSelection means.
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -401,5 +403,93 @@ func TestUserScopeSelectionFoldsTheDefaultOverTheSet(t *testing.T) {
 		if names := selectedNames(t); !viaHasName(names, "wire-bridge") {
 			t.Errorf("%s: the via profile \"*\" selects for pi did not join the bridge: %v", name, names)
 		}
+	}
+}
+
+// THE DESELECTION NAMES WHERE THE SELECTION CAME FROM AND THE SPELLING THAT UNDOES IT THERE. A
+// selection from the `profile` key is answered with the key's file and line and the key's own
+// spelling with a null for the agent — which, parsed and folded back, selects nothing for that
+// agent while every other agent keeps the selection. One from -p is answered with the -p pair
+// that selects none, since nothing persistent wrote it.
+func TestProfileDeselectionNamesTheSourceAndTheSpelling(t *testing.T) {
+	h := newMountsHost(t)
+	h.user(t, "{\n  \"profile\": \"bedrock\"\n}\n")
+	key := ProfileSelection{Default: []string{"bedrock"}}
+
+	got := ProfileDeselection(key, ProfileSelection{}, "agy")
+	const spelling = `"profile": {"*": "bedrock", "agy": null}`
+	for _, want := range []string{
+		"your config's `profile` key at ~/.config/yolo-jail/config.jsonc:2:14",
+		"write `" + spelling + "` there",
+		"or add `-p agy=` for one launch",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("ProfileDeselection() = %q, want it to contain %q", got, want)
+		}
+	}
+	doc, err := jsonx.Decode([]byte("{" + spelling + "}"))
+	if err != nil {
+		t.Fatalf("the printed spelling does not parse: %v", err)
+	}
+	v, _ := doc.(*jsonx.OrderedMap).Get(ProfileKey)
+	sel, ok := ProfileSelectionOf(v)
+	if !ok {
+		t.Fatalf("the printed spelling is not a valid `profile` value: %v", v)
+	}
+	table := ProfileTableFor(ProfileReceivers{Bins: []string{"claude", "agy"}}, sel)
+	if agy, _ := table.Get("agy"); agy != nil {
+		t.Errorf("the printed spelling still selects %v for agy", agy)
+	}
+	if claude, _ := table.Get("claude"); claude != "bedrock" {
+		t.Errorf("the printed spelling took bedrock from claude too: %v", claude)
+	}
+
+	flag := ProfileSelection{Default: []string{"bedrock"}}
+	if got := ProfileDeselection(key, flag, "agy"); got != "the selection is this launch's `-p`, so add `-p agy=` to it" {
+		t.Errorf("a -p selection was answered with %q", got)
+	}
+}
+
+// IN A JAIL THE USER CONFIG IS A READ-ONLY COPY THE HOST GENERATED, so "write it there" names a
+// file nothing in the jail can write. The persistent fix is the host's: the clause says the key
+// was read from that copy and names the host config as where to write the spelling. A
+// --user-layer file is the one user-scope input a jail's own caller writes, so a selection made
+// there keeps the plain "there".
+func TestProfileDeselectionInAJailNamesTheHostConfig(t *testing.T) {
+	h := newMountsHost(t)
+	h.user(t, "{\n  \"profile\": \"bedrock\"\n}\n")
+	t.Setenv("YOLO_VERSION", "0.0.0-test")
+	t.Setenv(UserLayerEnv, "")
+	key := ProfileSelection{Default: []string{"bedrock"}}
+	const spelling = `"profile": {"*": "bedrock", "agy": null}`
+
+	got := ProfileDeselection(key, ProfileSelection{}, "agy")
+	for _, want := range []string{
+		"the selection is your host config's `profile` key, which this jail reads from a " +
+			"read-only copy at ~/.config/yolo-jail/config.jsonc:2:14",
+		"so write `" + spelling + "` in your user config on the host to select none for agy on every launch",
+		"or add `-p agy=` for one launch",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("ProfileDeselection() in a jail = %q, want it to contain %q", got, want)
+		}
+	}
+	if strings.Contains(got, "` there") {
+		t.Errorf("ProfileDeselection() in a jail points at the read-only copy as the place to write: %q", got)
+	}
+
+	layerDir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	layer := filepath.Join(layerDir, "layer.jsonc")
+	if err := os.WriteFile(layer, []byte("{\n  \"profile\": \"bedrock\"\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(UserLayerEnv, layer)
+	got = ProfileDeselection(key, ProfileSelection{}, "agy")
+	if want := "the selection is your config's `profile` key at " + layer + ":2:14, so write `" +
+		spelling + "` there"; !strings.Contains(got, want) {
+		t.Errorf("a --user-layer selection in a jail = %q, want it to contain %q", got, want)
 	}
 }

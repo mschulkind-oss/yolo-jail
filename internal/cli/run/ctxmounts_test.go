@@ -44,7 +44,13 @@ func ctxMountArgs(argv []string) []string {
 // returning the argv and whatever the assembler printed.
 func assembleWithMounts(t *testing.T, rt string, mounts []any) ([]string, string) {
 	t.Helper()
-	home := t.TempDir()
+	return assembleWithMountsIn(t, t.TempDir(), rt, mounts)
+}
+
+// assembleWithMountsIn is assembleWithMounts with HOME at home, for a test that writes the
+// user config there first.
+func assembleWithMountsIn(t *testing.T, home, rt string, mounts []any) ([]string, string) {
+	t.Helper()
 	t.Setenv("HOME", home)
 	emptyLoopholeDirs(t)
 	o := goldenOptions("/ws", home)
@@ -151,6 +157,43 @@ func TestCtxMountDockerStyleROSuffixIsSkipped(t *testing.T) {
 	}
 	if !strings.Contains(printed, "mount path does not exist") {
 		t.Errorf("expected a skip warning naming the bad path; printed: %q", printed)
+	}
+}
+
+// A SKIPPED MOUNT NAMES ITS NEXT STEP (docs/reference/happy-path-principle.md): the element's
+// file and line, both fixes — create the source, or remove the element — and `yolo check` to
+// confirm. It used to name only the resolved path, every launch, leaving the user to find which
+// of their config files wrote it.
+func TestAMissingMountSourceNamesWhereItWasWrittenAndTheFix(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".config", "yolo-jail"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
+		[]byte("{\n  \"mounts\": [\n    \"~/no/such/dir\"\n  ]\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, printed := assembleWithMountsIn(t, home, "podman", []any{"~/no/such/dir"})
+
+	source := filepath.Join(home, "no", "such", "dir")
+	want := "Warning: mount path does not exist, skipping: " + source +
+		" (the `mounts` element `~/no/such/dir` at ~/.config/yolo-jail/config.jsonc:3:5). Create " +
+		source + " or remove that element, then run `yolo check`."
+	if !strings.Contains(printed, want) {
+		t.Errorf("the skip warning\n%s\nwant it to contain\n%s", printed, want)
+	}
+}
+
+// A config read from no file (the in-jail copy of the host's) still names the element and
+// both fixes, without a location to give.
+func TestAMissingMountSourceWithNoFileStillNamesTheFix(t *testing.T) {
+	_, printed := assembleWithMounts(t, "podman", []any{"/no/such/host/path"})
+	want := "Warning: mount path does not exist, skipping: /no/such/host/path (the `mounts` " +
+		"element `/no/such/host/path`). Create /no/such/host/path or remove that element, then " +
+		"run `yolo check`."
+	if !strings.Contains(printed, want) {
+		t.Errorf("the skip warning\n%s\nwant it to contain\n%s", printed, want)
 	}
 }
 

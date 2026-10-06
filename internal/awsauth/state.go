@@ -24,9 +24,12 @@ import (
 // for a manifest with a `jail_daemon`, and then only the files named in
 // `state_files` — the manifest names an inert `.mount-sentinel` and nothing else,
 // which is the discipline internal/openaiauth records as "keep this list nonempty or
-// credentials.json would cross into every jail." The mode is the host-side,
-// single-user half of the story only: a jail's agent runs as UID 0, so a file the
-// container can see at all it can read.
+// credentials.json would cross into every jail." Nothing in this package writes that
+// marker: the launcher does, before it assembles the mounts, for every loophole whose
+// list names it (loopholes.Set.PrepareMountSentinels). Until 2026-10-05 only
+// openai-auth's was written, so every aws-auth launch warned that it was missing.
+// The mode is the host-side, single-user half of the story only: a jail's agent runs
+// as UID 0, so a file the container can see at all it can read.
 
 const stateVersion = 1
 

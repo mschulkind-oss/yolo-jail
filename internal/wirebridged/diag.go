@@ -21,8 +21,9 @@ package wirebridged
 // LANDS IN A FILE a human can open, and there is no other channel out of this
 // process: the supervisor's own stderr is /dev/null in a real jail. That file's
 // other writer is the supervisor itself (its prefixed `logf` lines — restarts,
-// backoff, exit codes), and the entrypoint prints its path when it waits on this
-// daemon's readiness ("Daemon diagnostics: …", entrypoint.startJailDaemonSupervisor).
+// backoff, exit codes), and the entrypoint names its path when a wait on this
+// daemon's readiness fails or runs past two seconds ("daemon log: …",
+// entrypoint.startJailDaemonSupervisor; WB-D20 in docs/reference/wire-bridge.md).
 //
 // ⚠ NOTHING HERE IS GATED, AND NOTHING MAY BECOME GATED. There is no verbosity
 // flag, no env dial and no level: every line this package writes is written on

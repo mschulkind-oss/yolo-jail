@@ -17,7 +17,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -68,7 +67,7 @@ type patchedAdvanceFixture struct {
 	builds []string // f.txt as each build saw it in its src/
 	rc     int      // what the fake build jail exits with
 	ran    bool     // whether the fake build jail writes the toolchain record (its build line ran)
-	said   string   // a line the fake build jail prints on its stderr before it exits, "" for none
+	said   string   // a line the fake build jail's runtime prints on the jail's stderr before it exits, "" for none
 	child  int      // how many builds went through the child-process runner
 	// platform is what the fake build jail's manifest reports: a container capture jail's, unless a
 	// host floor test makes it the floor's own (capture.Platform), which a materialize on the host
@@ -88,10 +87,10 @@ func newPatchedAdvanceFixture(t *testing.T, follow string) *patchedAdvanceFixtur
 	t.Cleanup(func() { patchedNow = prevNow })
 	withFakeCaptureJail(t, fx.buildJail(t))
 	prevChild := forkBuildChild
-	forkBuildChild = func(_ context.Context, _ time.Duration, staging string, b forkBuild, out, errw io.Writer,
+	forkBuildChild = func(_ context.Context, _ time.Duration, staging string, b forkBuild, s captureStreams,
 		color bool) (int, bool) {
 		fx.child++
-		return forkBuildRunJail(staging, b, out, errw, color), false
+		return forkBuildRunJail(staging, b, s, color), false
 	}
 	t.Cleanup(func() { forkBuildChild = prevChild })
 	return fx
@@ -116,7 +115,11 @@ func (fx *patchedAdvanceFixture) buildJail(t *testing.T) func(run.Options) int {
 			writeFile(t, filepath.Join(o.Workspace, forkToolchainLeaf), "image-identity\n")
 		}
 		if fx.said != "" {
-			fmt.Fprintln(o.Stderr, fx.said)
+			// As a launch relays a runtime that refused: its own error on the jail's stderr, between
+			// the keeper's lines on the launch's.
+			fmt.Fprintln(o.Stderr, "keeper: started, pid 42")
+			fmt.Fprintln(jailStderr(o), fx.said)
+			fmt.Fprintln(o.Stderr, "keeper: done")
 		}
 		if fx.rc != 0 {
 			return fx.rc
@@ -451,7 +454,7 @@ func TestACtrlCDuringTheBuildStartsTheJailOnTheGoodBuild(t *testing.T) {
 	v13 := fx.commit(t, "v1.3.0", map[int]string{14: "fourteen", 20: "twenty"})
 	fx.later(2 * time.Hour)
 	prev := forkBuildChild
-	forkBuildChild = func(ctx context.Context, _ time.Duration, _ string, _ forkBuild, _, _ io.Writer, _ bool) (int, bool) {
+	forkBuildChild = func(ctx context.Context, _ time.Duration, _ string, _ forkBuild, _ captureStreams, _ bool) (int, bool) {
 		_ = syscall.Kill(os.Getpid(), syscall.SIGINT)
 		select {
 		case <-ctx.Done():
@@ -585,11 +588,11 @@ func TestTheChildBuildJailIsStoppedByTheScopeAndTheBound(t *testing.T) {
 	t.Cleanup(func() { forkBuildChildCommand = prev })
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() { time.Sleep(300 * time.Millisecond); cancel() }()
-	rc, bound := runForkBuildChild(ctx, time.Hour, "/s", forkBuild{}, io.Discard, io.Discard, false)
+	rc, bound := runForkBuildChild(ctx, time.Hour, "/s", forkBuild{}, discardStreams, false)
 	if rc != 130 || bound {
 		t.Errorf("a cancelled child = %d, bound %v; want the SIGINT's 130 and no bound", rc, bound)
 	}
-	rc, bound = runForkBuildChild(context.Background(), 300*time.Millisecond, "/s", forkBuild{}, io.Discard, io.Discard, false)
+	rc, bound = runForkBuildChild(context.Background(), 300*time.Millisecond, "/s", forkBuild{}, discardStreams, false)
 	if rc != 130 || !bound {
 		t.Errorf("a child past its bound = %d, bound %v; want 130 and the bound", rc, bound)
 	}
