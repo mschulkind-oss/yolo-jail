@@ -118,13 +118,24 @@ func TestPrepareMountSentinelsSkipsWhatTheArgvWouldNotMount(t *testing.T) {
 	md := modsDir(t)
 	mod := mkdir(t, filepath.Join(md, "off"))
 	writeManifest(t, mod, map[string]any{
-		"name": "off", "description": "x", "transport": "none", "enabled": false,
+		"name": "off", "description": "x", "transport": "none", "default_enabled": false,
 		"state_files": []any{MountSentinelName},
 		"jail_daemon": map[string]any{"cmd": []any{"true"}, "restart": "no"},
 	})
 	sentinelModule(t, md, "ungated", []any{MountSentinelName})
 
 	approved := approvedSetFrom(md)
+	// The disabled record must LOAD, or the assertion below holds of nothing: a manifest the
+	// loader refuses (the retired `enabled` key, say) never reaches PrepareMountSentinels.
+	var off *Loophole
+	for _, m := range approved.All() {
+		if m.Name == "off" {
+			off = m
+		}
+	}
+	if off == nil || off.Active() {
+		t.Fatalf("the fixture's disabled loophole did not load as an inactive record: %+v", off)
+	}
 	approved.PrepareMountSentinels(approved.All(), "")
 	if _, err := os.Lstat(filepath.Join(root, "off", MountSentinelName)); !os.IsNotExist(err) {
 		t.Errorf("a disabled loophole got a sentinel: %v", err)
@@ -142,9 +153,11 @@ func TestPrepareMountSentinelsSkipsWhatTheArgvWouldNotMount(t *testing.T) {
 
 // THE MISSING-STATE-FILE WARNING NAMES ITS NEXT STEP (docs/reference/happy-path-principle.md),
 // and the step depends on who writes the file: a host-scoped daemon's file is restored by
-// restarting that daemon, so the line names the one command that does it; a file nothing yolo
-// runs writes is the manifest's to fix; and the sentinel is yolo's own marker, whose failure to
-// write was reported above it.
+// restarting that daemon, so the line names the one command that does it; a per-jail host
+// daemon writes its file when this launch starts it, so the line says the next launch has it
+// and names `yolo check` for when it does not; a file nothing yolo runs writes is the
+// manifest's to fix; and the sentinel is yolo's own marker, whose failure to write was reported
+// above it.
 func TestMissingStateFileWarningNamesTheNextStep(t *testing.T) {
 	unsetJail(t)
 	root := sentinelState(t)
@@ -157,9 +170,17 @@ func TestMissingStateFileWarningNamesTheNextStep(t *testing.T) {
 			"publishes": "socket", "scope": "host"},
 		"jail_daemon": map[string]any{"cmd": []any{"true"}, "restart": "no"},
 	})
+	perJail := mkdir(t, filepath.Join(md, "perjail"))
+	writeManifest(t, perJail, map[string]any{
+		"name": "perjail", "description": "x", "transport": "loopback-tls",
+		"state_files": []any{"leaf.crt"},
+		"host_daemon": map[string]any{"cmd": []any{"/bin/true", "--socket", "{socket}"},
+			"publishes": "socket", "scope": "jail"},
+		"jail_daemon": map[string]any{"cmd": []any{"true"}, "restart": "no"},
+	})
 	sentinelModule(t, md, "bare", []any{"handmade.txt"})
 	sentinelModule(t, md, "marked", []any{MountSentinelName})
-	for _, name := range []string{"hosted", "bare", "marked"} {
+	for _, name := range []string{"hosted", "perjail", "bare", "marked"} {
 		mkdir(t, filepath.Join(root, name))
 	}
 	warnings := captureWarnings(t)
@@ -171,6 +192,10 @@ func TestMissingStateFileWarningNamesTheNextStep(t *testing.T) {
 		"loophole hosted: skipping state file, host source missing: " +
 			filepath.Join(root, "hosted", "leaf.crt") +
 			" — its host daemon writes it: restart that daemon with `yolo host-daemon restart hosted`, then launch again",
+		"loophole perjail: skipping state file, host source missing: " +
+			filepath.Join(root, "perjail", "leaf.crt") +
+			" — its host daemon writes it once this launch starts it, after the mounts are assembled; " +
+			"if this repeats on the next launch, run `yolo check` to see why perjail does not",
 		"loophole bare: skipping state file, host source missing: " +
 			filepath.Join(root, "bare", "handmade.txt") +
 			" — nothing yolo runs writes it: create it, or remove \"handmade.txt\" from `state_files` in " +

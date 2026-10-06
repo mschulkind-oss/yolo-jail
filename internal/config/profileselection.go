@@ -441,12 +441,69 @@ func ProfileDeselection(key, flag ProfileSelection, cli string) string {
 	if _, named := flag.Named[cli]; named || len(flag.Default) > 0 {
 		return "the selection is this launch's `-p`, so add `-p " + cli + "=` to it"
 	}
-	where := "your config's `" + ProfileKey + "` key"
-	if locs := UserScopeSources().Locations(profileKeyPathFor(key, cli)); len(locs) > 0 {
-		where += " at " + locs[0]
+	return "the selection is " + profileKeyFix(key, cli, "launch") + ", or add `-p " + cli +
+		"=` for one launch"
+}
+
+// HostProfileDeselection is ProfileDeselection for `yolo host --` and `yolo host env`, whose -p
+// selects for its one command and refuses `-p <cli>=` ("names no profile"), so no -p spelling
+// selects none there and the clause never offers one. typed is whether this command's -p made
+// the selection; keyReaches whether the `profile` key selects a profile for cli without it.
+//
+// A key-made selection names the key's fix exactly as a jail launch does: the fold the host
+// composes from (FoldProfiles over ConfigProfileSelection) reads the key's null for cli as none,
+// so the spelling it prints stops the warning on every later command. A typed one is undone by
+// leaving the -p out, and when the key would then select for cli too, the key's fix follows.
+func HostProfileDeselection(key ProfileSelection, typed, keyReaches bool, cli string) string {
+	if !typed {
+		return "the selection is " + profileKeyFix(key, cli, "command")
 	}
-	return "the selection is " + where + ", so write `" + ProfileKeySpelling(withNoProfileFor(key, cli)) +
-		"` there to select none for " + cli + " on every launch, or add `-p " + cli + "=` for one launch"
+	out := "the selection is this command's `-p`, so leave it out"
+	if keyReaches {
+		out += "; without it the selection is " + profileKeyFix(key, cli, "command")
+	}
+	return out
+}
+
+// profileKeyFix is where the `profile` key's selection for cli was written and the instruction
+// to write the key respelled with a null for cli, so it selects none for cli on every launch or
+// command (every names which).
+//
+// IN A JAIL the user scope is a copy the host generated and mounted read-only (inherit.go), so
+// "write it there" would name a file nothing in the jail can write: the clause names the copy it
+// was read from and the host's user config as the place to write. A --user-layer file is the one
+// user-scope input a jail's own caller writes (userlayer.go), so a selection located there keeps
+// the plain form.
+func profileKeyFix(key ProfileSelection, cli, every string) string {
+	spelling := "`" + ProfileKeySpelling(withNoProfileFor(key, cli)) + "`"
+	none := " to select none for " + cli + " on every " + every
+	loc := ""
+	if locs := UserScopeSources().Locations(profileKeyPathFor(key, cli)); len(locs) > 0 {
+		loc = locs[0]
+	}
+	if inJail() && !locatedInUserLayer(loc) {
+		where := "your host config's `" + ProfileKey + "` key"
+		if loc != "" {
+			where += ", which this jail reads from a read-only copy at " + loc
+		}
+		return where + ", so write " + spelling + " in your user config on the host" + none
+	}
+	where := "your config's `" + ProfileKey + "` key"
+	if loc != "" {
+		where += " at " + loc
+	}
+	return where + ", so write " + spelling + " there" + none
+}
+
+// locatedInUserLayer reports whether loc, an origin as Sources spells it (a file, then its line
+// and column), is in the --user-layer file.
+func locatedInUserLayer(loc string) bool {
+	layer := UserLayerPath()
+	if layer == "" || loc == "" {
+		return false
+	}
+	file := tildePath(layer)
+	return loc == file || strings.HasPrefix(loc, file+":")
 }
 
 // profileKeyPathFor is the validator path of the `profile` entry that reached cli: its own

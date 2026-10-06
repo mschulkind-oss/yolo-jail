@@ -18,20 +18,37 @@ import (
 // so every launch with aws-auth enabled warned "loophole aws-auth: skipping state file, host
 // source missing: …/.mount-sentinel".
 //
-// The state dir exists already, as it does once the host daemon has minted a credential: that
-// is the case that warned (a launch on a machine whose daemon never ran has no state dir and
-// mounts nothing). Deleting the call site fails this test on the warning and the mount both.
+// Two machines. One whose host daemon has minted a credential, so the state dir exists already:
+// that is the case that warned. And a fresh one, whose daemon never ran: before the writer,
+// no state dir meant nothing mounted and nothing said; the writer creates the dir (0700), so
+// the marker is mounted there too. Deleting the call site fails this test on the warning and
+// the mount both.
 func TestAWSAuthLaunchWritesItsMountSentinel(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		minted bool
+	}{{"a daemon that minted a credential", true}, {"a fresh machine", false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			awsAuthLaunchWritesItsMountSentinel(t, tc.minted)
+		})
+	}
+}
+
+func awsAuthLaunchWritesItsMountSentinel(t *testing.T, minted bool) {
 	home := retireHome(t)
 	p := officialPack(t, "aws-auth")
 	loopholes.SetPackModules(packLoopholeModules([]*packload.Pack{p}))
 	t.Cleanup(func() { loopholes.SetPackModules(nil) })
 	stateDir := loopholes.StateDirFor("aws-auth")
-	if err := os.MkdirAll(stateDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(stateDir, "credentials.json"), []byte(`{"version":1}`), 0o600); err != nil {
-		t.Fatal(err)
+	if minted {
+		if err := os.MkdirAll(stateDir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(stateDir, "credentials.json"), []byte(`{"version":1}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	} else if _, err := os.Lstat(stateDir); !os.IsNotExist(err) {
+		t.Fatalf("a fresh machine already has aws-auth's state dir %s: %v", stateDir, err)
 	}
 
 	r, w, err := os.Pipe()
@@ -75,6 +92,9 @@ func TestAWSAuthLaunchWritesItsMountSentinel(t *testing.T) {
 	}
 	if info.Mode().Perm() != 0o600 {
 		t.Errorf("sentinel mode = %o, want 600", info.Mode().Perm())
+	}
+	if dir, err := os.Stat(stateDir); err != nil || dir.Mode().Perm() != 0o700 {
+		t.Errorf("state dir = %v (%v), want 0700", dir, err)
 	}
 }
 

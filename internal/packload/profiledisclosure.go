@@ -53,7 +53,8 @@ type ProfileDisclosureInput struct {
 	// that selects no profile for it there, as one clause — for the warning that the selection
 	// reaches nothing for agent, which otherwise names only a flag and repeats every launch.
 	// The notch knows its selection's sources (the config key, a -p) and this package does
-	// not: a jail launch passes config.ProfileDeselection. nil names the -p form alone.
+	// not: a jail launch passes config.ProfileDeselection, and `yolo host`
+	// config.HostProfileDeselection. nil names the -p form alone.
 	Deselect func(agent, profile string) string
 }
 

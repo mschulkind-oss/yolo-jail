@@ -7,6 +7,8 @@ package config
 // can parse an argv; this file owns what one ProfileSelection means.
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -445,5 +447,49 @@ func TestProfileDeselectionNamesTheSourceAndTheSpelling(t *testing.T) {
 	flag := ProfileSelection{Default: []string{"bedrock"}}
 	if got := ProfileDeselection(key, flag, "agy"); got != "the selection is this launch's `-p`, so add `-p agy=` to it" {
 		t.Errorf("a -p selection was answered with %q", got)
+	}
+}
+
+// IN A JAIL THE USER CONFIG IS A READ-ONLY COPY THE HOST GENERATED, so "write it there" names a
+// file nothing in the jail can write. The persistent fix is the host's: the clause says the key
+// was read from that copy and names the host config as where to write the spelling. A
+// --user-layer file is the one user-scope input a jail's own caller writes, so a selection made
+// there keeps the plain "there".
+func TestProfileDeselectionInAJailNamesTheHostConfig(t *testing.T) {
+	h := newMountsHost(t)
+	h.user(t, "{\n  \"profile\": \"bedrock\"\n}\n")
+	t.Setenv("YOLO_VERSION", "0.0.0-test")
+	t.Setenv(UserLayerEnv, "")
+	key := ProfileSelection{Default: []string{"bedrock"}}
+	const spelling = `"profile": {"*": "bedrock", "agy": null}`
+
+	got := ProfileDeselection(key, ProfileSelection{}, "agy")
+	for _, want := range []string{
+		"the selection is your host config's `profile` key, which this jail reads from a " +
+			"read-only copy at ~/.config/yolo-jail/config.jsonc:2:14",
+		"so write `" + spelling + "` in your user config on the host to select none for agy on every launch",
+		"or add `-p agy=` for one launch",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("ProfileDeselection() in a jail = %q, want it to contain %q", got, want)
+		}
+	}
+	if strings.Contains(got, "` there") {
+		t.Errorf("ProfileDeselection() in a jail points at the read-only copy as the place to write: %q", got)
+	}
+
+	layerDir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	layer := filepath.Join(layerDir, "layer.jsonc")
+	if err := os.WriteFile(layer, []byte("{\n  \"profile\": \"bedrock\"\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(UserLayerEnv, layer)
+	got = ProfileDeselection(key, ProfileSelection{}, "agy")
+	if want := "the selection is your config's `profile` key at " + layer + ":2:14, so write `" +
+		spelling + "` there"; !strings.Contains(got, want) {
+		t.Errorf("a --user-layer selection in a jail = %q, want it to contain %q", got, want)
 	}
 }

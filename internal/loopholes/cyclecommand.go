@@ -25,8 +25,11 @@ func HostDaemonCycleCommand(name string) string {
 //
 //   - the mount sentinel is the launcher's own marker (mountsentinel.go), written just before
 //     the argv; missing, it is because that write failed, and the launch said why above;
-//   - a host-scoped daemon writes its state files, and the one command that restarts it is
-//     the fix, since this launch ensures that daemon only after its mounts are assembled;
+//   - a host-scoped daemon writes its state files when it starts, and it is one daemon shared by
+//     every jail, so a launch that finds it alive reuses it rather than starting it again
+//     (broker.EnsureSingleton restarts a live one only when its settings changed, wherever in
+//     the launch the ensure runs): a file missing while it runs stays missing until it
+//     restarts, and the one command that restarts it is the fix;
 //   - a per-jail host daemon writes them when it starts, which is also after the mounts, so
 //     the file is there for the next launch, and `yolo check` says why when it never is;
 //   - nothing else yolo runs writes a state file, so the manifest's own list is what to fix.

@@ -95,9 +95,9 @@ func serviceJailDaemons(packs []*packload.Pack) []loopholes.JailDaemonSpec {
 // arm reading the same value rather than a second composition of it.
 //
 // It touches no filesystem (the mounts do; this reads declarations), so it is
-// safe this early — in particular it does not depend on
-// prepareOpenAIAuthMountSentinel, which runs later and exists for the bind
-// sources.
+// safe this early — in particular it does not depend on the mount sentinels
+// (loopholes.Set.PrepareMountSentinels, which loopholesRuntimeArgs calls later
+// and which exists for the bind sources).
 func (o *Options) jailDaemonsFor(cfg *jsonx.OrderedMap, rt string,
 	packs []*packload.Pack) []loopholes.JailDaemonSpec {
 	// The credential view drops the terminator from the payload, as it drops the rest of the
