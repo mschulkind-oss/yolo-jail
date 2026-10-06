@@ -78,6 +78,10 @@ func TestMain(m *testing.M) {
 			"depInstallRun in your test if the install itself is what you are exercising", cmd)
 	}
 	disarmTheHostFloor()
+	// EVERY BUILD A JAIL LAUNCH RUNS IS THE fork-build-jail CHILD (buildreport.go), and a test binary
+	// never self-execs as one (forkBuildChildCommand): the package's builds run in this process,
+	// through the fake capture jail a test installs, unless a test stands in a child of its own.
+	forkBuildChild = inProcessForkBuildChild
 	// A fixture's git reads no machine configuration (testsupport.HermeticGitEnv), and the
 	// tripwire makes one that does fail here and on CI, not only on a machine that signs.
 	testsupport.ArmGitConfigTripwire()

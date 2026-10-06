@@ -252,6 +252,36 @@ func TestSlowSpanNoticeIsSilentWhileTheBootIsRelayed(t *testing.T) {
 	}
 }
 
+// TestASubLaunchNamesNoSlowSpan: a capture or build jail's launch (the capture store's mount
+// suppressed, CapturesDir returning "") prints no slow-span notice on its stream, which is its
+// parent's record, and the file still records the span; an ordinary launch still names it. Red with
+// initPerf's sub-launch switch deleted (the first half) or the slow-span sink dropped for every
+// launch (the second).
+func TestASubLaunchNamesNoSlowSpan(t *testing.T) {
+	for _, sub := range []bool{true, false} {
+		ws := t.TempDir()
+		o := goldenOptions(ws, t.TempDir())
+		o.Timing = true
+		if sub {
+			o.CapturesDir = func() string { return "" }
+		} else {
+			o.CapturesDir = func() string { return filepath.Join(ws, "captures") }
+		}
+		var out, errb bytes.Buffer
+		o.Stdout, o.Stderr = &out, &errb
+		o.initPerf("yolo-ws-test0003")
+		requireWallClockSpans(t, o.Perf)
+		slowSpanEnd(o.Perf, "launch.auto_load_image")
+		if named := strings.Contains(errb.String(), "launch.auto_load_image took"); named == sub {
+			t.Errorf("sub-launch %v: the slow-span notice was named %v:\n%s", sub, named, errb.String())
+		}
+		got, err := os.ReadFile(filepath.Join(ws, ".yolo", HostPerfLogName))
+		if err != nil || !strings.Contains(string(got), "end    launch.auto_load_image  dur=") {
+			t.Errorf("sub-launch %v: host-perf.log does not record the span (%v):\n%s", sub, err, got)
+		}
+	}
+}
+
 // TestWindowAEndsAtTheMainProcessClientsExit: since the first session is an exec, the proxy's
 // child.exited is that exec's, which returns before the container dies. Window A ends at the
 // main process's client's exit when there is one.

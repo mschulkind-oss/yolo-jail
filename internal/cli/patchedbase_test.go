@@ -10,7 +10,6 @@ package cli
 
 import (
 	"context"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -225,7 +224,7 @@ func TestABuildStoppedAtTheBoundIsAFailedBuild(t *testing.T) {
 			fx.commit(t, "v1.3.0", map[int]string{14: "fourteen", 20: "twenty"})
 			fx.later(2 * time.Hour)
 			prev := forkBuildChild
-			forkBuildChild = func(_ context.Context, _ time.Duration, staging string, _ forkBuild, _, _ io.Writer, _ bool) (int, bool) {
+			forkBuildChild = func(_ context.Context, _ time.Duration, staging string, _ forkBuild, _ jailStreams, _ bool) (int, bool) {
 				if booted {
 					writeFile(t, filepath.Join(staging, forkToolchainLeaf), "image-identity\n")
 				}
@@ -245,7 +244,7 @@ func TestABuildStoppedAtTheBoundIsAFailedBuild(t *testing.T) {
 				t.Fatalf("a build stopped at the bound recorded no failed build:\n%s", out)
 			}
 			calls := 0
-			forkBuildChild = func(context.Context, time.Duration, string, forkBuild, io.Writer, io.Writer, bool) (int, bool) {
+			forkBuildChild = func(context.Context, time.Duration, string, forkBuild, jailStreams, bool) (int, bool) {
 				calls++
 				return 130, true
 			}

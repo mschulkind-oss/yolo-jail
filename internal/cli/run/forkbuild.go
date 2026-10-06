@@ -19,6 +19,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/progress"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
@@ -35,9 +36,13 @@ type ForkBuildRequest struct {
 	Runtime string
 	// Workspace is the launch's workspace, whose launch.log a failed build's line names.
 	Workspace string
-	// Stdout and Stderr are the launch's own writers, teed into that launch.log (launchlog.go), so
-	// a build's output is there as well as above; nil for the process's streams.
+	// Stdout and Stderr are the launch's own writers, teed into that launch.log (launchlog.go): a
+	// build's lines and its progress line go to Stderr, and its build jail's output to the log half
+	// alone (LaunchLogOnly); nil for the process's streams.
 	Stdout, Stderr io.Writer
+	// Progress is the rendering of this launch's stream (progressConfig), for each build's progress
+	// line: redrawn in place on a terminal, lines anywhere else.
+	Progress progress.Config
 	// Interrupt is this launch's act interrupt (ActInterrupt, PF-D57), shared with its tree arm's
 	// request (TreeBuildRequest.Interrupt): a Ctrl-C that ends one patched fork's wait ends every
 	// later patched fork's and extension's too, and their good builds are handed with no check and no
@@ -117,7 +122,7 @@ func (o *Options) forkDeliveriesFor(rt string) map[string]entrypoint.ForkDeliver
 		return out
 	}
 	req := ForkBuildRequest{Pins: build, Platform: platform, Runtime: rt, Workspace: o.Workspace,
-		Stdout: o.Stdout, Stderr: o.Stderr, Interrupt: o.actInterrupt()}
+		Stdout: o.Stdout, Stderr: o.Stderr, Progress: o.progressConfig(), Interrupt: o.actInterrupt()}
 	if o.packTree != "" {
 		req.Hand = func(bin string, h HandedFork) error {
 			o.handedForks = append(o.handedForks, bin)

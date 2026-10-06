@@ -32,7 +32,7 @@ func countedCtrlC(t *testing.T) *int {
 	t.Helper()
 	calls := 0
 	prev := forkBuildChild
-	forkBuildChild = func(ctx context.Context, _ time.Duration, _ string, _ forkBuild, _, _ io.Writer, _ bool) (int, bool) {
+	forkBuildChild = func(ctx context.Context, _ time.Duration, _ string, _ forkBuild, _ jailStreams, _ bool) (int, bool) {
 		calls++
 		if calls == 1 {
 			_ = syscall.Kill(os.Getpid(), syscall.SIGINT)

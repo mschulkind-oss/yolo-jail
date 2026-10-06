@@ -251,7 +251,11 @@ Two sinks are wired by the run pipeline:
   disclosure prints before the spawn, and the window closes before the teardown
   notices that name a slow quit. Same rule, same reason as `housekeepingNote`'s
   refusal to write to the terminal at all (`housekeeping.go`, property 2); the slot
-  is also a span, and this sink was the second door.
+  is also a span, and this sink was the second door. **A capture or build jail's own
+  launch has no notice at all** (`Options.subLaunch`, the suppressed capture-store
+  mount that makes a launch one): its stream is its parent launch's record, which
+  shows the build as one progress line, and its file still records every span
+  ([`patched-forks.md` PF-D77](../design/patched-forks.md#PF-D77)).
 
 **The report** renders the completed events in the same register as the
 entrypoint's boot log — elapsed-since-start, `+delta` from the previous line, the

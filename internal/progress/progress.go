@@ -80,6 +80,11 @@ type Config struct {
 	// Immediate shows the step at Start instead of after the grace period, for a
 	// step that is known to be slow before it begins (a wait on another launch).
 	Immediate bool
+	// Announced says the caller printed the step's start line itself, carrying more
+	// than a label can (what runs, and what it may touch): the line-oriented
+	// rendering then writes no start line of its own, only its heartbeats and the
+	// result line. The live rendering is unchanged.
+	Announced bool
 	// Heartbeat overrides DefaultHeartbeat (0 => DefaultHeartbeat).
 	Heartbeat time.Duration
 	// Now and Tick are test seams. nil => time.Now and a real one-second ticker.
@@ -250,6 +255,39 @@ func (l *Line) Tick() {
 // "Copying the image into podman: done — 92 of 92 layers, 3.2 GB (12.8s)".
 // result "" means "done".
 func (l *Line) Done(result string) {
+	l.finish(func(elapsed string) string {
+		if elapsed == "" {
+			return "" // never shown: nothing to close
+		}
+		if result == "" {
+			result = "done"
+		}
+		msg := l.label + ": " + result
+		if l.detail != "" {
+			msg += " — " + l.detail
+		}
+		return msg + " (" + elapsed + ")"
+	})
+}
+
+// DoneWith ends the step with msg as its persistent result line, in place of the
+// "<label>: <result>" Done writes, for a step whose result is itself a line the
+// caller must print (a disclosure): the result is then one line, not two. The
+// elapsed time is appended when the step was shown; a step never shown prints msg
+// alone, since the caller's line is printed whatever the timing.
+func (l *Line) DoneWith(msg string) {
+	l.finish(func(elapsed string) string {
+		if elapsed == "" {
+			return msg
+		}
+		return msg + " (" + elapsed + ")"
+	})
+}
+
+// finish ends the step: the held partial line, then the live line erased and the
+// line result composes from the elapsed time ("" for a step never shown) written,
+// unless it is "".
+func (l *Line) finish(result func(elapsed string) string) {
 	if l == nil {
 		return
 	}
@@ -265,16 +303,12 @@ func (l *Line) Done(result string) {
 		_, _ = l.w.Write(append(l.pending, '\n'))
 		l.pending = nil
 	}
+	elapsed := ""
 	if l.shown {
 		l.erase()
-		if result == "" {
-			result = "done"
-		}
-		msg := l.label + ": " + result
-		if l.detail != "" {
-			msg += " — " + l.detail
-		}
-		msg += " (" + formatElapsed(l.cfg.Now().Sub(l.start), true) + ")"
+		elapsed = formatElapsed(l.cfg.Now().Sub(l.start), true)
+	}
+	if msg := result(elapsed); msg != "" {
 		fmt.Fprintln(l.w, msg)
 	}
 	l.mu.Unlock()
@@ -290,6 +324,9 @@ func (l *Line) show() {
 	if l.cfg.Live {
 		l.draw()
 		return
+	}
+	if l.cfg.Announced {
+		return // the caller's own start line said what began
 	}
 	start := l.label + "…"
 	if l.detail != "" {

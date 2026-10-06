@@ -70,6 +70,7 @@ type patchedAdvanceFixture struct {
 	ran    bool     // whether the fake build jail writes the toolchain record (its build line ran)
 	said   string   // a line the fake build jail prints on its stderr before it exits, "" for none
 	child  int      // how many builds went through the child-process runner
+	scoped []bool   // per child build, whether an interrupt scope's context could cancel it
 	// platform is what the fake build jail's manifest reports: a container capture jail's, unless a
 	// host floor test makes it the floor's own (capture.Platform), which a materialize on the host
 	// requires.
@@ -88,10 +89,11 @@ func newPatchedAdvanceFixture(t *testing.T, follow string) *patchedAdvanceFixtur
 	t.Cleanup(func() { patchedNow = prevNow })
 	withFakeCaptureJail(t, fx.buildJail(t))
 	prevChild := forkBuildChild
-	forkBuildChild = func(_ context.Context, _ time.Duration, staging string, b forkBuild, out, errw io.Writer,
+	forkBuildChild = func(ctx context.Context, _ time.Duration, staging string, b forkBuild, s jailStreams,
 		color bool) (int, bool) {
 		fx.child++
-		return forkBuildRunJail(staging, b, out, errw, color), false
+		fx.scoped = append(fx.scoped, ctx.Done() != nil)
+		return forkBuildRunJail(staging, b, s, color), false
 	}
 	t.Cleanup(func() { forkBuildChild = prevChild })
 	return fx
@@ -451,7 +453,7 @@ func TestACtrlCDuringTheBuildStartsTheJailOnTheGoodBuild(t *testing.T) {
 	v13 := fx.commit(t, "v1.3.0", map[int]string{14: "fourteen", 20: "twenty"})
 	fx.later(2 * time.Hour)
 	prev := forkBuildChild
-	forkBuildChild = func(ctx context.Context, _ time.Duration, _ string, _ forkBuild, _, _ io.Writer, _ bool) (int, bool) {
+	forkBuildChild = func(ctx context.Context, _ time.Duration, _ string, _ forkBuild, _ jailStreams, _ bool) (int, bool) {
 		_ = syscall.Kill(os.Getpid(), syscall.SIGINT)
 		select {
 		case <-ctx.Done():
@@ -523,8 +525,8 @@ func TestCaptureOfAPatchedForkBuildsThroughTheSwap(t *testing.T) {
 // THE LAUNCH'S WIRED TRIGGER RUNS THE ADVANCE for a patched fork (TestALaunchWiresTheForkBuildTrigger's
 // shape): red if runRun stops wiring Options.BuildForks, if buildForksForLaunch stops sending a
 // patched fork to its advance, or if the wiring stops writing the advance to the launch's own
-// writers (the request's Stdout and Stderr, teed into its launch.log, which a failed build's line
-// names).
+// stream (the request's Stderr, teed into its launch.log), or writes any of it on the jail
+// command's stdout (PF-D77).
 func TestTheWiredTriggerRunsAPatchedForksAdvance(t *testing.T) {
 	fx := newPatchedAdvanceFixture(t, "")
 	fx.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
@@ -547,8 +549,8 @@ func TestTheWiredTriggerRunsAPatchedForksAdvance(t *testing.T) {
 	if got["tool"].Key == "" || len(fx.builds) != 1 {
 		t.Errorf("the wired trigger answered %+v after %d builds, want the advance's build", got, len(fx.builds))
 	}
-	if !strings.Contains(launchOut.String(), "built fork forkpack/tool") {
-		t.Errorf("the advance's lines did not reach the launch's writers:\nstdout: %s\nstderr: %s", launchOut.String(),
+	if !strings.Contains(launchErr.String(), "built fork forkpack/tool") || launchOut.String() != "" {
+		t.Errorf("the advance's lines did not reach the launch's stream alone:\nstdout: %s\nstderr: %s", launchOut.String(),
 			launchErr.String())
 	}
 }
@@ -585,11 +587,11 @@ func TestTheChildBuildJailIsStoppedByTheScopeAndTheBound(t *testing.T) {
 	t.Cleanup(func() { forkBuildChildCommand = prev })
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() { time.Sleep(300 * time.Millisecond); cancel() }()
-	rc, bound := runForkBuildChild(ctx, time.Hour, "/s", forkBuild{}, io.Discard, io.Discard, false)
+	rc, bound := runForkBuildChild(ctx, time.Hour, "/s", forkBuild{}, jailStreams{out: io.Discard, errw: io.Discard}, false)
 	if rc != 130 || bound {
 		t.Errorf("a cancelled child = %d, bound %v; want the SIGINT's 130 and no bound", rc, bound)
 	}
-	rc, bound = runForkBuildChild(context.Background(), 300*time.Millisecond, "/s", forkBuild{}, io.Discard, io.Discard, false)
+	rc, bound = runForkBuildChild(context.Background(), 300*time.Millisecond, "/s", forkBuild{}, jailStreams{out: io.Discard, errw: io.Discard}, false)
 	if rc != 130 || !bound {
 		t.Errorf("a child past its bound = %d, bound %v; want 130 and the bound", rc, bound)
 	}

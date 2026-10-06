@@ -70,9 +70,9 @@ func newTreeFixture(t *testing.T, produces string) *treeFixture {
 	asLinuxTreeHost(t)
 	withFakeCaptureJail(t, fx.buildJail(t))
 	prevChild := forkBuildChild
-	forkBuildChild = func(_ context.Context, _ time.Duration, staging string, b forkBuild, out, errw io.Writer,
+	forkBuildChild = func(_ context.Context, _ time.Duration, staging string, b forkBuild, s jailStreams,
 		color bool) (int, bool) {
-		return forkBuildRunJail(staging, b, out, errw, color), false
+		return forkBuildRunJail(staging, b, s, color), false
 	}
 	t.Cleanup(func() { forkBuildChild = prevChild })
 	return fx
