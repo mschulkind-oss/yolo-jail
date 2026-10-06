@@ -8,259 +8,81 @@ one per patch release.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.12.0] - 2026-10-06
 
-Packs can follow an upstream with your patches, `yolo host` carries more of a jail, and macos-user
-catches up and becomes the guest notch on a Mac.
+Packs can carry your patches onto an upstream program, `yolo host` and macos-user do most of what
+a jail does, and Bedrock launches use your region's own model list.
 
 ### Added
 
-**Patch series for programs and pi extensions.** A pack can name an upstream and your changes as a
-patch series, and yolo builds them onto each new release they fit, keeping the last good build
-running when one conflicts; `yolo pack rebase`, `yolo pack series check` and `yolo pack lint
---online` keep a series applying, in a jail too, with git 2.40 or newer on the host. A launch
-builds them at once and shows them as one line, and a launch with no build of a series a pack
-needs stops before the jail starts, saying why once, in plain words
-(`YOLO_ALLOW_MISSING_PROGRAMS=1` starts it anyway). See
+**Patch series.** A pack can name an upstream program or pi extension and your patches to it, and
+yolo builds them onto each new release they fit, keeping the last good build when one conflicts.
+`yolo pack rebase` and `yolo pack series check` keep a series applying, from a jail too. See
 [Follow an upstream with a patch series](userguide/guides/patch-series.md).
 
-**Packs written for a newer yolo.** A launch now leaves out, and names, any part of a pack written
-for a newer yolo instead of failing, and `yolo features` lists what a yolo can read.
-
-**Provider keys for a whole jail.** `yolo --with-credentials <provider>` now starts a jail holding
-those providers' keys from `env_sources`, as `yolo host --with-credentials` hands them to one
-command. See [Give a shell a provider's key](userguide/guides/providers-and-models.md#give-a-shell-a-providers-key).
-
-**Pi can start without waiting for its extension update.** Set
-`"agent_updates": { "pi": "next-launch" }` and the update runs while you work, for your next launch.
-See [Keep agents and packs up to date](userguide/guides/packs-and-skills.md#keep-agents-and-packs-up-to-date).
-
-**Pi extensions built once per machine.** A pack can name a pi extension from npm or git with no
-patches, and yolo builds it on the host and gives each new jail a read-only copy, so no jail's pi
-installs or changes it. A launch builds its extensions at the same time. See
+**Pi extensions built once per machine.** Extensions a pack names are built on the host and shared
+read-only. `"agent_updates": { "pi": "next-launch" }` runs pi's update while you work. See
 [Build a pi extension as it is](userguide/guides/patch-series.md#build-a-pi-extension-as-it-is).
 
-**Chrome DevTools as a pack.** Add `"chrome-devtools"` to `packs` for a browser at `yolo host`, in
-a jail and on macos-user. See [MCP configuration](docs/reference/mcp-configuration.md#the-chrome-devtools-pack).
-
 **More of the jail at `yolo host`.** `yolo host --` applies your blocked tools, links a
-repository's skills, runs a local pack's services and keeps pi's extensions current; `yolo host
-apply` writes Claude's language servers. On a Mac, and on Linux with no container runtime, it
-keeps its own copy of claude too. See [Your own machine](userguide/guides/confinement.md#your-own-machine).
+repository's skills and runs a local pack's services. See
+[Your own machine](userguide/guides/confinement.md#your-own-machine).
 
 **macos-user catches up.** Port remaps, `host_files` folders, `cache_relocations`, serial ports,
-`host-processes`, `--timing`, `yolo config drift` and your System keychain's certificate
-authorities work there, `resources` acts though not kernel-enforced, and a project's sessions
-share their host services, which `yolo stop` ends. `"confinement": "guest"` runs it with no `runtime`
+`resources` and `yolo config drift` work there, and `"confinement": "guest"` needs no `runtime`
 key. See [each setting on each setup](userguide/reference/settings-per-setup.md).
-**Pi extensions, themes and prompts as one folder.** A pack can give pi a whole folder of them in
-one manifest line, with no list of files, and yolo adds that folder to pi's packages beside your
-own, in jails and at `yolo host apply`, until you drop the pack. See
-[Writing your own pack](userguide/guides/migrating-to-packs.md#give-pi-your-extensions-themes-and-prompts).
 
-**Claude Code plugins and mods.** A new guide covers the ways to bring a Claude Code plugin or mod
-into a jail, and what each launch shows about the code it runs. See
-[Claude Code plugins and mods](userguide/guides/claude-plugins-and-mods.md).
-
-**An agent can ask for another GitHub repository.** List it under `brokered.github.repos` in the
-project's config, and the next launch asks you to approve it beside the project's own remotes;
-an agent told a repository is out of scope is told how. See
-[Adding a repository the project has no remote for](userguide/guides/github.md#adding-a-repository-the-project-has-no-remote-for).
-
-**Settings for a vendor installer.** A pack whose program comes from its vendor's install script can
-give that script the variables it needs, such as where to install, with `installer_env`. See
-[the pack system reference](docs/reference/pack-system.md).
-
-**Copilot shows a provider's whole model list.** In a jail, Copilot's model picker offers every
-model on the provider's list, beside GitHub's own models when you are signed in to GitHub. See
-[a company's model list](userguide/guides/providers-and-models.md#model-menus-and-a-companys-model-list).
-
-**Overridden variables are named.** When a profile, your `env_sources` or a pack's default
-overrides another on a variable, every launch says which won, never the value. See
-[Providers and models](userguide/guides/providers-and-models.md).
-**Bedrock's own model list.** Where no pack or config lists Bedrock models, yolo reads your
-region's list from Bedrock through the `aws-auth` login, once a day, so Copilot's picker shows it
-and Copilot starts on a model Bedrock serves; a launch that still leaves Copilot no model says
-what to add. See
+**Bedrock's own model list.** Where nothing else lists Bedrock models, yolo reads your region's
+list, so Copilot offers it and starts on a model Bedrock serves. See
 [the providers yolo ships](userguide/guides/providers-and-models.md#the-providers-yolo-ships).
 
-**Packages from inside a nixpkgs collection.** A `packages` entry such as `rocmPackages.clr` now
-installs that member of the collection, and every entry installs what `nix build nixpkgs#<entry>`
-would. A bare collection is refused with members you could name instead. See
-[Packages and Tools](userguide/guides/packages-and-tools.md#nix-packages-image-level).
+**Chrome DevTools as a pack.** `"chrome-devtools"` in `packs` gives your agent a browser at
+`yolo host` and on macos-user too. See
+[MCP configuration](docs/reference/mcp-configuration.md#the-chrome-devtools-pack).
 
-**Unused tool versions are cleaned up.** On Linux, mise tool versions no jail on your machine has
-used for 30 days are offered for removal at a launch once they reach 1 GiB, beside the old-cache
-offer, and a yes makes it automatic; `yolo stores` and `yolo prune` show them too. The first offer
-comes 30 days after you upgrade. See [Storage](userguide/guides/storage.md#see-and-reclaim-disk).
+**Unused tool versions cleaned up.** On Linux, a launch offers to remove mise tool versions no jail
+has used for 30 days. See [Storage](userguide/guides/storage.md#see-and-reclaim-disk).
 
 ### Changed
 
-- `host_management` now defaults to `"none"`, and `"assert"` is refused: to keep `yolo host apply`
-  writing your agents' config files, set `"host_management": "own"`.
-- A jail now installs every agent and tool your selected packs declare when it starts, once
-  per project, and `yolo apply` does exactly that and exits. If one cannot be installed,
-  offline included, the launch stops and names it: to start without it, set
-  `YOLO_ALLOW_MISSING_PROGRAMS=1`, and it installs the first time you run it. See the
-  [CLI reference](userguide/reference/cli-reference.md#run-agents).
-- Copilot now comes from GitHub's own installer. It updates itself, as Claude Code does, and yolo
-  cannot say which version ran: to freeze it, set `agent_updates` to false for `copilot` and add
-  `{"COPILOT_AUTO_UPDATE": "false"}` to `env_sources`. See
-  [Keep agents and packs up to date](userguide/guides/packs-and-skills.md#keep-agents-and-packs-up-to-date).
-- On a Mac, and on Linux with no container runtime, `yolo host -- copilot` now runs the copilot on
-  your PATH, as it does for Claude Code: on a Mac install it with `brew install --cask copilot-cli`;
-  on Linux install Podman, and the next `yolo host -- copilot` installs it.
-- pi installs its extensions per project, so one jail's update no longer changes another's, and
-  each project's first pi launch installs them again. While the old shared extensions folder is
-  still there, a Podman or Apple Container launch names it and the command that deletes it.
-- A `brokered.github.workspaces` entry in your user config stops every launch: move each project's
-  repositories into its `yolo-jail.local.jsonc` as `brokered.github.repos` (yolo does not
-  git-ignore that file), and approve them at that project's next launch.
-- Renaming a project's GitHub remote, or adding a second one for a repository it already reaches,
-  asks you to approve its repositories again at the next launch.
-- A host-wide service an older yolo started, such as `aws-auth`, now stops a new launch that uses
-  it instead of warning: run the `yolo host-daemon restart <name>` it names, which jails already
-  running survive.
-- yolo no longer ships a Bedrock model list: each agent starts on its own Bedrock default, and
-  Copilot on gpt-oss-120b. To start on a model of your choosing, name it in a profile's `model` or
-  list it under `providers.bedrock.models`.
-- `yolo host apply` refuses inside a jail: run it on your machine.
-- `yolo host --` refuses an unmet `required_capabilities`: satisfy or remove it.
-- With `guardrails`, `yolo host --` blocks `grep -r` and `find` too: `YOLO_BYPASS_SHIMS=1` runs the
-  real one.
-- On macos-user a profile's value beats an `env_sources` one, which a `null` no longer removes: set
-  it on the agent's command instead.
-- On macos-user, a `network.ports` remap listens on every interface: write `127.0.0.1:8000:3000`
-  to keep it on the Mac.
-- On macos-user, a second project's launch stops while another's session runs: quit that session
-  first.
-- On macos-user, `macos_log: "off"` hides the log from the sandbox: set `"user"` to read it.
-- On macos-user, an unusable host service stops the launch: `YOLO_ALLOW_UNREACHABLE_SERVICES=1`
-  continues.
-- On macos-user, `host_files` may not name a shell profile such as `~/.zshrc` (use `~/.zshenv`),
-  and an old home-root file may stop one launch: run the `sudo rm` it prints.
-- `yolo-ps --tree` also shows allowlisted processes' descendants: narrow `visible` if that is too
-  much.
-- On `-p bedrock-bridge`, Claude Code now uses its own Bedrock support through the wire bridge,
-  so its model menu is its own: to start it on another maker's model there, name that model in
-  the profile's `model`.
-- pi, oh-omp and opencode run zai, cerebras and openrouter, and oh-omp and opencode kilo, on their
-  own client and model list, opencode reaching z.ai's coding plan as its own `zai-coding-plan`: a
-  profile now uses the agent's own model list, so pick models in the agent, and name such a
-  provider differently under `providers` to route it through the wire bridge.
+- `host_management` defaults to `"none"` and refuses `"assert"`: set `"own"` to keep
+  `yolo host apply` writing your agents' config.
+- A jail installs every program its packs declare, patched builds included, before your command,
+  and stops if one is missing: `YOLO_ALLOW_MISSING_PROGRAMS=1` starts it anyway.
+- Copilot comes from GitHub's installer and updates itself: to freeze it, set `agent_updates` false
+  for it and `COPILOT_AUTO_UPDATE=false` in `env_sources`.
+- On a Mac, `yolo host -- copilot` runs your own copilot: `brew install --cask copilot-cli`.
+- pi's extensions are per project: delete the old shared folder a launch names.
+- A host-wide service an older yolo started, such as `aws-auth`, stops a launch: run the
+  `yolo host-daemon restart` it names.
+- yolo ships no Bedrock model list: name a model in a profile's `model` or
+  `providers.bedrock.models`.
+- Claude Code on `-p bedrock-bridge` uses its own Bedrock mode: name another maker's model in the
+  profile's `model`.
+- pi, oh-omp and opencode use their own model list for a provider they build in, such as zai or
+  openrouter: pick models in the agent, or rename the provider to keep the wire bridge.
+- `brokered.github.workspaces` stops a launch: move its repositories to each project's
+  `yolo-jail.local.jsonc` as `brokered.github.repos`.
+- `yolo host apply` refuses in a jail, and `yolo host --` refuses an unmet `required_capabilities`
+  and honors `guardrails` (`YOLO_BYPASS_SHIMS=1` bypasses).
+- `yolo-ps --tree` shows allowlisted processes' descendants: narrow `visible` to see less.
+- On macos-user, a profile beats `env_sources`; port remaps listen on every interface (write
+  `127.0.0.1:8000:3000`); a launch stops while another project's session runs; `macos_log: "off"`
+  hides the log (use `"user"`); an unusable host service stops the launch
+  (`YOLO_ALLOW_UNREACHABLE_SERVICES=1`); and `host_files` refuses `~/.zshrc` (use `~/.zshenv`).
 
 ### Fixed
 
-- Pi starts faster after a jail restart, and an agent's `--version` answers at once instead of
-  updating the agent and its extensions first.
-- Piping an agent or pnpm, such as `claude -p … | jq`, no longer hands the log of its install or
-  hourly update to the next command.
-- pi's extension refresh now runs only when pi's settings name an extension pi installs itself,
-  and one that fails waits an hour before it is tried again.
-- When pi's extension refresh cannot lock its folder, it now says how to fix that.
-- Blocking `cat` with `security.blocked_tools` no longer stops pi's extension refresh, or leaves
-  its lock held.
-- Naming a large package collection such as `python3Packages` in `packages` no longer says it
-  holds no packages.
-- Saying yes to a cleanup offer now reclaims during that launch, instead of up to a day later.
-- When `yolo host` has no container runtime to capture an agent with, it now says to install one.
-- On a host whose `/bin/sh` is dash, such as Debian or Ubuntu, the Claude Code install command that
-  `yolo check-deps` prints and `yolo host apply --assert` runs now installs it.
-- A Ctrl-C in one of a jail's terminals now says the jail stays up for the others.
-- A Ctrl-C as a terminal's session starts no longer leaves that session's command running in the
-  jail.
-- A host service that goes down just as a jail starts, or as another terminal joins it, is now
-  reported to that terminal.
-- `yolo stop` now stops an Apple Container jail, and a jail launched with a different
-  `YOLO_RUNTIME`, where it used to say no jail was running, and on Apple Container yolo's messages
-  now name it instead of `container stop`.
-- A launch retries a Podman that cannot be started for a moment, such as mid-upgrade, instead of
-  refusing, and one that gives up waiting for Podman now always shows Podman's last error.
-- On Apple Container, a launch that cannot tell whether its jail is running now says to run
-  `container ls`, not `container ps`.
-- Ending a jail no longer waits on, and leaves behind, a stopped container Podman could not remove
-  itself, as can happen after a terminal closes while its session starts.
-- On Apple Container, claude, codex and agy are now recorded once per machine, where every launch
-  ran their installers again and recorded nothing.
-- Joining a running jail no longer runs agent installers to record them first; only a launch that
-  starts a jail does.
-- When yolo cannot record an agent's install, the next launches no longer try again each time: the
-  launch that failed says when it will retry, and `yolo capture <agent>` retries at once.
-- A launch whose temporary directory is full or unusable now says so and how to fix it, instead of
-  pointing at Podman.
-- After a `/login` in a jail, Claude no longer keeps the previous login's permissions or expiry
-  date.
-- On Apple Container, a terminal whose jail is stopped while it runs now says the jail stopped and
-  why, instead of saying nothing or that the jail stays up.
-- On Apple Container, two projects' jails can now run at once: each project keeps its own disk for
-  mise's tools, filled on its first launch, and `yolo stores` lists them while `yolo prune --apply`
-  removes a removed project's disk and the one all projects shared before.
-- The launch, `yolo pack footprint` and `yolo host apply` now name all the code a wrapped Claude
-  plugin runs, its workflows and highlighting grammars included, wherever Claude Code or Copilot
-  loads it from by default, not only where its manifest says, and the launch says when its hooks
-  include a mod's module.
-- A Claude plugin at the root of a pack with no `skills/` folder, the usual shape of a Claude Code
-  mod, now reaches a jail and `yolo host apply`.
-- A plugin whose manifest names it with a path, such as `../x`, is refused instead of being written
-  outside the skills folder.
-- When a flat skills folder leaves out a wrapped Claude plugin's workflows, themes, highlighting
-  grammars or the agent it sets for your sessions, it now says so by name, as it does for the rest.
-- In a jail, `gh` now runs `--jq` and `--template`, takes an encoded branch name such as
-  `MS%2Fmain`, and answers `gh auth status` without your machine's paths or the token's scopes; a
-  write says at once that nothing ran and to run it on your machine.
-- A jail's `gh` can no longer reach past the project through `--org` or `--user` on a secret or
-  variable write, a `..` in an argument, or a `:owner` or `:repo` placeholder.
-- A macos-user launch of Codex or Pi no longer refuses when the shared OpenAI credential service
-  restarts just as it connects.
-- On macos-user, `requires_env` MCP servers and `yolo programs` work, and `workspace_readonly` locks
-  the config file.
-- On macos-user, `uv` keeps its own venv, home-root files stay per workspace, a git identity you
-  removed is removed, your global gitignore applies, agents install once per Mac, and closing the
-  window deletes the session's credentials file.
-- `yolo host` runs its own codex on Linux, keeps installer agents such as claude current, and on
-  NixOS without nix-ld runs your own copy, naming the fix.
-- `yolo host -p` moves codex, opencode, pi and oh-omp onto its provider for the launch, pi's ChatGPT
-  models included, and copilot reaches Bedrock on a bridge profile.
-- `yolo host apply` keeps your comments in oh-omp's yaml, and `config reset --at host` keeps your
-  profile's model.
-- A host wrapper starts yolo by its full path, so an IDE can run it.
-- The `audio` pack no longer sets `PULSE_SERVER` on a Mac or at `yolo host`.
-- `yolo host-daemon stop` or `restart` on a host-wide service that was not running, such as
-  `aws-auth`, no longer stops the Claude OAuth broker in its place.
-- On a Mac, a launch and `yolo check` wait up to a minute for a busy Podman machine instead of
-  calling it not started after 10 seconds.
-- A launch, `yolo check` or `yolo prune` stopped by a signal sent to yolo alone, such as `kill` or
-  a supervisor's, no longer leaves the nix it was running behind, a macOS sandbox's package build
-  included.
-- A launch, or `yolo check`, no longer hangs for good, printing nothing, when nix prints one very
-  long line while it builds the jail's image, yolo's own binaries, or a macOS sandbox's packages.
-- A fork's build no longer refuses over something only another of your packs provides, such as the
-  agent a pack's prose is addressed to, the settings a pack writes for that agent, or a capability
-  your config requires, and a build that stops before it starts now quotes why.
-- A fork's build no longer gets a copy of your config, your MCP servers' settings or your
-  `agents_md_extra` text, and neither its launch nor its briefing lists credentials, host files or
-  host connections the build does not get. A build, or `yolo capture`, no longer downloads your
-  own `mise_tools`.
-- A launch with `aws-auth` enabled no longer warns that its `.mount-sentinel` is missing.
-- A jail's wait for its in-jail services shows only when it is slow, and a failure names the
-  service's log.
-- A jail whose wire bridge cannot start, because its port is taken or a provider key is missing,
-  no longer reports it as a failed config generator: it says which pack's service failed, why and
-  what to do, and `YOLO_ALLOW_UNREACHABLE_SERVICES=1` now opens a shell anyway.
-- A profile that reaches nothing for an agent now says where you selected it and the setting that
-  stops it.
-- A missing `mounts` source now names the file and line that declare it, and the fix.
-- Host service logs now record each request's real exit code.
-- npm in a jail no longer prints update or funding notices.
-- On Apple Container, a config with `network.forward_host_ports` now stops the launch before
-  anything starts, naming the key and how to go on, instead of failing inside Apple Container with
-  an error about a socket.
-- A launch refused because a project's `.yolo` folder is a symbolic link now says where the link
-  points and how to move a folder you moved there yourself back, not only how to delete the link.
-- A config error or warning at a launch or in `yolo check` now shows a file name, key or value an
-  agent wrote as plain text, so it can no longer send your terminal escape sequences.
-- With `LD_LIBRARY_PATH` or `LD_PRELOAD` set, a launch no longer fails to load the jail image with
-  "stack smashing detected".
+- Pi starts faster after a jail restart, and an agent's `--version` answers at once.
+- Piping an agent, as in `claude -p … | jq`, no longer passes on its install log.
+- A Ctrl-C as a terminal's session starts no longer leaves its command running.
+- After a `/login`, Claude no longer keeps the old login's permissions or expiry.
+- On Apple Container, two projects' jails can run at once, and `yolo stop` works.
+- A launch no longer hangs when nix prints a very long line.
+- Stopping a host service that was not running no longer stops the Claude OAuth broker.
+- A fork's build no longer gets a copy of your config, your MCP servers' settings or your own
+  `mise_tools`.
+- A jail's `gh` runs `--jq` and `--template`, and can no longer reach past the project.
 
 ## [0.11.1] - 2026-10-02
 
