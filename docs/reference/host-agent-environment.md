@@ -494,8 +494,9 @@ capture store.
 **A launch's `-p` is handed to the program, never written**
 ([MM-D30](../design/model-lists-and-pickers.md#MM-D30)). The file above holds the `profile`
 key's selection alone. When `yolo host -p <profile> -- <agent>` selects differently, a program
-whose pack declares a `launch_selection` gets the `-p`'s selection for that process only: codex
-as `-c` overrides right after `codex`, opencode in `OPENCODE_CONFIG_CONTENT` (merged over a value
+whose pack declares a `launch_selection` gets the `-p`'s selection for that process only, except
+a launch whose first word is a subcommand the pack names (`yolo host -p zai -- pi update`), which
+runs as typed and says so: codex as `-c` overrides right after `codex`, opencode in `OPENCODE_CONFIG_CONTENT` (merged over a value
 you set there), pi and oh-omp as their own flags, with pi's two model-list files in the variables
 its extensions read first. Each is disclosed; your own later flag still wins. With no `-p`, or a
 `-p` that composes what the `profile` key does, the program starts on its file, so a model you

@@ -1530,10 +1530,10 @@
                     inside its briefing/ dir (filename order), plus any file a `from`
                     names.  A root AGENTS.md, CLAUDE.md or GEMINI.md is NEVER read: it is
                     the pack repository's own instructions.  A `from` with one of those
-                    basenames, or such a file inside briefing/, is refused.  `from` names exactly ONE
-                    file; one that is missing or blank delivers nothing (a launch warns),
-                    and no other file is read in its place.  Omitted, `from` means every
-                    briefing/ file no other contribution names.
+                    basenames, or such a file inside briefing/, is refused.  `from` names
+                    exactly ONE file; one that is missing or blank delivers nothing (a
+                    launch warns), and no other file is read in its place.  Omitted, `from`
+                    means every briefing/ file no other contribution names.
                     `agent` is the IDENTITY a destination declares for itself — the
                     launcher command whose agent reads that `into`, declared by the pack
                     that OWNS the name.  A destination SOURCES NOTHING: `from` on one is
@@ -1752,9 +1752,10 @@
                     `yolo host --` and on macos-user, as a child of the one launch whose
                     agent is paired through the service, or beside the command for a
                     service no adapter names, and stops when that command exits; it runs
-                    for a pack yolo ships or one your config selects by path, and a
-                    fetched pack's is refused by name (host-notch-services.md OQ-HS4,
-                    HS-D27, HS-D29).
+                    for a pack yolo ships or a local one (a path or file:// entry in
+                    `packs`, or your local pack at ~/.config/yolo-jail/local); a fetched
+                    pack's, `git+file://` included, is refused by name
+                    (host-notch-services.md OQ-HS4, HS-D27, HS-D29).
       mcp           {name, bin, config:{command, args, env, requires_env, provides}} —
                     ONE MCP SERVER ENTRY composed into `mcp_servers`, which every
                     selected agent's MCP file renders in its own dialect.  `config` is
@@ -1769,10 +1770,11 @@
                     `yolo host -- <agent>` installs into yolo's host floor beside the
                     agent.  The name is sole-owned: two selected packs shipping one
                     refuse a jail launch and `yolo check` (at the host the later pack
-                    in `packs` holds it).  At the host only a pack yolo ships or one at
-                    a path on this machine has its entry written; a fetched pack's is
-                    left out and named.  The `chrome-devtools` pack is the shipped
-                    instance.
+                    in `packs` holds it).  At the host only a pack yolo ships or a local
+                    one (a path or file:// entry in `packs`, or your local pack at
+                    ~/.config/yolo-jail/local) has its entry written; a fetched pack's,
+                    `git+file://` included, is left out and named.  The `chrome-devtools`
+                    pack is the shipped instance.
     AT LAUNCH ONLY (`yolo host -- <program>`): at the host notch the kinds below are
     delivered to the program yolo starts, for that process only, and `yolo host apply`
     writes no file for them: what each declares reaches an agent through its process
@@ -1791,14 +1793,18 @@
       adapter       an adapter's address is composed into the providers table a launch
                     carries, so `yolo host -- <program>` points its agent there,
                     starting the pack service that answers it when one does.
-      service       a service's host half (`host_daemon`, in a pack yolo ships or one
-                    selected by path) runs at `yolo host -- <program>` beside the one
-                    agent paired through it, or beside the program when no adapter names
-                    the service, and stops when that program exits.
+      service       a service's host half (`host_daemon`, in a pack yolo ships or a
+                    local one: a path or file:// entry in `packs`, or your local pack at
+                    ~/.config/yolo-jail/local) runs at `yolo host -- <program>` beside the
+                    one agent paired through it, or beside the program when no adapter
+                    names the service, and stops when that program exits.  A fetched
+                    pack's, `git+file://` included, is refused by name.
       loophole      a credential loophole's doorway (`jail_daemon.host_cmd`, in a pack
-                    yolo ships or one selected by path) opens at `yolo host -- <program>`
-                    for the agent whose selection asks for it, once the loophole is
-                    enabled, and closes when that agent exits.
+                    yolo ships or a local one: a path or file:// entry in `packs`, or your
+                    local pack at ~/.config/yolo-jail/local) opens at `yolo host --
+                    <program>` for the agent whose selection asks for it, once the
+                    loophole is enabled, and closes when that agent exits.  A fetched
+                    pack's, `git+file://` included, is refused by name.
     AT THE HOST NOTCH THE KINDS BELOW DO NOT APPLY: neither `yolo host apply` nor `yolo
     host --` does anything with them, and this is where the reason lives.  The report
     names them in one line and stops, because a reason is for the person changing a
@@ -1837,8 +1843,9 @@
                     into.  An INLINE loophole of yours (a `loopholes.<name>` entry with a
                     `command`) is one, and the report names it by entry.
       service       a service with no host half (`host_daemon`), or one in a fetched
-                    pack, is a daemon pair plus an endpoint file under the jail's /run.  With no jail there is nothing to supervise the jail
-                    half and nothing to read the endpoint.
+                    pack, is a daemon pair plus an endpoint file under the jail's /run.  With
+                    no jail there is nothing to supervise the jail half and nothing to read
+                    the endpoint.
     WHAT A HOST APPLY COMPUTES, as a jail does: `yolo host apply`, and the automatic
     apply a wrapped launch runs, run each pack's derives over inputs composed from
     your USER config alone — the providers table (your `providers` over the selected

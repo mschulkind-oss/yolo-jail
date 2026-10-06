@@ -739,12 +739,16 @@ variable receiving the selection and rows as one document (`packs/opencode`:
 `named_by`), hands each row of a table the selection names; `defaults` gives a key the
 selection omits a value (codex: `model_provider` `openai`); `surfaces`, optional, maps a computed
 surface's path to the variable that carries its content for the launch (pi's two model-list
-files). The launch hands it only when a `-p` was typed and what it composes differs from the
+files); `subcommands`, optional on the argv forms only, lists the words the program reads as a
+subcommand only as `argv[1]` (pi: `update`, `install`, …), and a launch whose typed first word
+is one hands nothing of the selection, argv or variables, says so, and runs as typed. The launch
+hands it only when a `-p` was typed and what it composes differs from the
 configured profile's, right after `argv[0]`, disclosed, never in a jail, and skipped with
 `YOLO_NO_LAUNCH_FLAGS=1`. On `program` alone, any `via`. `packdecl` refuses a surface that is not
 a clean home-relative file path, no form or more than one, words that never carry `{value}`
 (or, for `each`, `{key}`), `rows` with `flags`, an empty key or default, a bad variable name, a
-surface naming the selection's own, and two surfaces in one variable
+surface naming the selection's own, two surfaces in one variable, `subcommands` on the `env`
+form, and a subcommand word that is empty, a flag, holds a space or is named twice
 ([MM-D30](../design/model-lists-and-pickers.md#MM-D30)).
 
 <a id="exact_menu_refuses"></a>`exact_menu_refuses` says the program's model menu can show
