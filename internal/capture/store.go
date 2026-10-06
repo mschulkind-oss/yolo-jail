@@ -250,6 +250,16 @@ func (s *Store) admit(staged, digestOf string, whole bool) (*Entry, error) {
 	// Absent, or a previous admit died partway. Start clean: a torn entry silently kept would
 	// be an installer's half-written state presented as a package.
 	if err := os.RemoveAll(entry); err != nil {
+		if errors.Is(err, fs.ErrPermission) {
+			// Files in it are not the store owner's: an older yolo's capture on a rootless
+			// podman left them a container user's (ownership.go), and only that user
+			// namespace can delete them. Every capture of the same bytes stops here until
+			// they are gone, so the message names the command that removes them.
+			return nil, fmt.Errorf("capture admit: %s, an unfinished entry an earlier capture left, "+
+				"holds files that are not yours to remove (%w) — an older yolo's capture on a rootless "+
+				"podman left them owned by a container user; remove the entry with "+
+				"`podman unshare rm -rf %s`", entry, err, entry)
+		}
 		return nil, err
 	}
 	if err := os.MkdirAll(filepath.Dir(entry), 0o755); err != nil {

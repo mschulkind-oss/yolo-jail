@@ -156,6 +156,12 @@ func Run(opts Options) (*Result, error) {
 	if err := d.moveDelta(baseline, res); err != nil {
 		return nil, fmt.Errorf("capture delta: %w", err)
 	}
+	// THE STORE OWNER'S TREE (ownership.go): what a root installer left owned by an archive's
+	// uid is handed to whoever owns the store, or that user's admit cannot freeze it. Before
+	// the manifest reads the tree's modes, which root's chown can change.
+	if err := d.giveToStoreOwner(d.opts.Out); err != nil {
+		return nil, err
+	}
 	entries, refs, err := describeTree(d.tree, d.home)
 	if err != nil {
 		return nil, fmt.Errorf("capture manifest: %w", err)
@@ -257,6 +263,11 @@ type driver struct {
 	// once before the baseline (surfaceDoor) so the walk, the move and the parents' modes all
 	// use the same one.
 	doors map[string]string
+	// owner is who the output is handed to when this driver runs as root (ownership.go): the
+	// owner of the scratch dir the host act made, read before the driver creates anything in it.
+	// hasOwner is false where the platform reports no owner, and nothing is handed over.
+	owner    fileOwner
+	hasOwner bool
 }
 
 func newDriver(opts Options) (*driver, error) {
@@ -320,6 +331,7 @@ func newDriver(opts Options) (*driver, error) {
 			}
 		}
 	}
+	d.owner, d.hasOwner = outOwner(opts.Out)
 	if err := os.MkdirAll(opts.Out, 0o755); err != nil {
 		return nil, err
 	}
@@ -333,6 +345,17 @@ func newDriver(opts Options) (*driver, error) {
 		return nil, err
 	}
 	return d, nil
+}
+
+// giveToStoreOwner is fileOwner.giveTo for this driver's owner, when the platform reported one.
+func (d *driver) giveToStoreOwner(path string) error {
+	if !d.hasOwner {
+		return nil
+	}
+	if err := d.owner.giveTo(path); err != nil {
+		return fmt.Errorf("capture ownership: %w", err)
+	}
+	return nil
 }
 
 // surfaceRels is the home-relative spelling of the walked surfaces, in walk order.

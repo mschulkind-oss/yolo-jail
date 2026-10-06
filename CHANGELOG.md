@@ -80,6 +80,8 @@ has used for 30 days. See [Storage](userguide/guides/storage.md#see-and-reclaim-
 - On Apple Container, two projects' jails can run at once, and `yolo stop` works.
 - A launch no longer hangs when nix prints a very long line.
 - Stopping a host service that was not running no longer stops the Claude OAuth broker.
+- On rootless podman, capturing an installer agent such as Codex or Copilot no longer fails and leaves
+  files you cannot delete.
 - A fork's build no longer gets a copy of your config, your MCP servers' settings or your own
   `mise_tools`.
 - A jail's `gh` runs `--jq` and `--template`, and can no longer reach past the project.
