@@ -80,6 +80,10 @@ Bedrock serves; a launch that still leaves Copilot no model says what to add. Se
 - On `-p bedrock-bridge`, Claude Code now uses its own Bedrock support through the wire bridge,
   so its model menu is its own: to start it on another maker's model there, name that model in
   the profile's `model`.
+- pi, oh-omp and opencode run zai, cerebras and openrouter, and oh-omp and opencode kilo, on their
+  own client and model list, opencode reaching z.ai's coding plan as its own `zai-coding-plan`: a
+  profile now uses the agent's own model list, so pick models in the agent, and name such a
+  provider differently under `providers` to route it through the wire bridge.
 
 ### Fixed
 

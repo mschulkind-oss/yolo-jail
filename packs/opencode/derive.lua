@@ -41,6 +41,35 @@ local opencodeSDK = {
 local opencodeCodexProvider = "openai-codex"
 local opencodeOpenAIProvider = "openai"
 
+-- OPENCODE'S OWN PROVIDERS (docs/design/pi-codex-provider-shadowing.md OQ-3, ruled 2026-10-05:
+-- yolo writes no model entry over any provider an agent has built in, and the agent uses its own
+-- list). packs/opencode/pack.json's `built_in_providers` names them, and core hands the answer
+-- here as ctx.built_in_providers, keyed by yolo provider name: `{ id = <opencode's own id> }`
+-- where opencode reaches the provider through its own client, `false` where opencode has the
+-- name built in for another plan and none for this one. The id differs from the name where the
+-- pack's `plans` say so: yolo's zai is z.ai's coding plan, which opencode serves as its own
+-- `zai-coding-plan` (its `zai` is the metered API), and the core delivers that provider's key as
+-- ZHIPU_API_KEY, the name it reads (packload.AgentEnv). opencodeOwn returns that value, or nil for
+-- a provider opencode does not implement, whose row this derive writes as before.
+--
+-- openai-codex answers as opencode's own `openai` whatever the table says: it is the original
+-- rule (OQ-1, OQ-2, opencodeCodexProvider above), so an entrypoint older than the table still
+-- keeps the subscription on opencode's own client.
+local function opencodeOwn(ctx, name)
+  if type(name) ~= "string" or name == "" then return nil end
+  local own = nil
+  if type(ctx.built_in_providers) == "table" then
+    own = ctx.built_in_providers[name]
+  end
+  if own == nil and name == opencodeCodexProvider then
+    return { id = opencodeOpenAIProvider }
+  end
+  if own == false or type(own) == "table" then
+    return own
+  end
+  return nil
+end
+
 local function isLocalEndpoint(url)
   if type(url) ~= "string" then return false end
   return string.find(url, "://localhost") or
@@ -381,12 +410,21 @@ local function opencodeSetProviders(ctx, primary, rows)
   for i, e in ipairs(ctx.active_set) do
     if i > 1 then
       local id = e.provider
+      -- An entry on a provider opencode has built in (opencodeOwn, OQ-3) is named by opencode's
+      -- own id though the catalog wrote it no row: opencode's own provider reaches it. One
+      -- opencode has none of its own for (`false`) enables nothing.
+      local own = opencodeOwn(ctx, e.provider)
+      local builtIn = false
       if id ~= nil and id == bedrockName then
         id = opencodeBedrockProvider
       elseif id == opencodeCodexProvider then
         id = opencodeOpenAIProvider
+      elseif type(own) == "table" then
+        id, builtIn = own.id, true
+      elseif own == false then
+        id = nil
       end
-      local named = rows[id] ~= nil or
+      local named = builtIn or rows[id] ~= nil or
         (id == e.provider and opencodeFirstParty(ctx.providers and ctx.providers[id] or nil))
       if type(id) == "string" and id ~= "" and named and not seen[id] then
         seen[id] = true
@@ -540,10 +578,37 @@ yolo.derive("opencode", "config", function(ctx)
       if viaRow then
         baseUrl, protocol = ctx.via_url, "openai"
       end
-      -- openai-codex IS NEVER A ROW, a via one included (opencodeCodexProvider above): opencode
-      -- reaches it through its own `openai` client, the native row below.
-      if name == opencodeCodexProvider then
+      -- A PROVIDER OPENCODE HAS BUILT IN IS NEVER A ROW, a via one included (opencodeOwn; OQ-3):
+      -- opencode starts a config provider from its own catalog entry of the same id and lets the
+      -- row's address and models override it, so a row written from yolo's declaration replaces
+      -- opencode's own. openai-codex was the first case (opencodeCodexProvider above): opencode
+      -- reaches it through its own `openai` client, the native row below. Under an `only` the
+      -- narrowed list still becomes the whitelist of opencode's own provider (below), since that
+      -- list is an override a pack or the user declared, which docs/design/pi-codex-provider-
+      -- shadowing.md OQ-4 holds open.
+      local own = opencodeOwn(ctx, name)
+      if own ~= nil then
+        -- The whitelist keeps to the providers that had a row to carry one before the ruling,
+        -- the ones naming an address opencode speaks (providerEndpoint): an endpoint-less
+        -- provider is opencode's own first-party API, which yolo never narrowed, and
+        -- packload.UnnarrowedMenus says nothing of it (firstPartyOnly).
+        local hadRow = providerEndpoint(prov) ~= nil
         baseUrl = nil
+        if type(own) == "table" and name ~= opencodeCodexProvider and type(prov) == "table" and
+          hadRow and prov.models_only == true and type(prov.models) == "table" and
+          opencodeEnforceFor(ctx, name) ~= false then
+          local ids, seen = {}, {}
+          for _, id in pairs(prov.models) do
+            if type(id) == "string" and id ~= "" and not seen[id] then
+              seen[id] = true
+              table.insert(ids, id)
+            end
+          end
+          table.sort(ids)
+          if #ids > 0 then
+            provOut[own.id] = { whitelist = ids }
+          end
+        end
       end
       -- A BEDROCK PROVIDER GETS NO GENERIC ROW, even one a user gave an `openai` endpoint: the
       -- row speaks @ai-sdk/openai-compatible with one key, and Bedrock's credential is the AWS
@@ -736,6 +801,47 @@ yolo.derive("opencode", "config", function(ctx)
           local small = (smallAlias and (models[smallAlias] or smallAlias)) or
             models.haiku or models.fast or models.small or model
           sel.small_model = opencodeOpenAIProvider .. "/" .. small
+        end
+        res.selection = sel
+      end
+    elseif opencodeOwn(ctx, ctx.selected_provider) ~= nil then
+      -- A PROVIDER OPENCODE HAS BUILT IN (opencodeOwn; OQ-3): the catalog wrote it no row, so
+      -- opencode runs it on its own client, address and model list, and the selection names
+      -- nothing from yolo's list. enabled_providers names opencode's own id (zai-coding-plan for
+      -- yolo's zai), so opencode's menu is that provider's own models. `model` is the profile's
+      -- `model` option as opencode's own model id, taken literally and never resolved through
+      -- yolo's alias table, and `small_model` the profile's `small_model` the same way; with
+      -- neither, opencode starts within the enabled providers by its own rule (AP-D17) and picks
+      -- its own small model. Under an `only` the session starts on the profile's model when the
+      -- list holds it, else the list's `default` alias, else its first entry, as the generic
+      -- branch below does, since
+      -- that list is an override a pack or the user declared (OQ-4). `false` is a provider
+      -- opencode has built in for another plan with none of its own for this one: no selection,
+      -- and the launch's profile line says the profile cannot reach opencode's own client.
+      local own = opencodeOwn(ctx, ctx.selected_provider)
+      if own then
+        local function literal(v)
+          if type(v) == "string" and v ~= "" and v ~= "default" then return v end
+          return nil
+        end
+        local start = literal(ctx.profile and ctx.profile.model)
+        if type(p) == "table" and p.models_only == true and type(p.models) == "table" then
+          local list = callableModels(p, nil)
+          local held = false
+          for _, e in ipairs(list) do
+            held = held or e.id == start
+          end
+          if not held then
+            start = p.models.default or (list[1] and list[1].id)
+          end
+        end
+        local sel = { enabled_providers = opencodeSetProviders(ctx, own.id, provOut) }
+        if start then
+          sel.model = own.id .. "/" .. start
+          local small = literal(ctx.profile and ctx.profile.small_model)
+          if small then
+            sel.small_model = own.id .. "/" .. small
+          end
         end
         res.selection = sel
       end

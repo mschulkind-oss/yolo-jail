@@ -40,11 +40,12 @@ func TestPiRunsOnEveryProviderOfItsSet(t *testing.T) {
 	if settings.provider != "zai" || settings.model != "glm-5.3" {
 		t.Errorf("pi's start pair = %s/%s, want the first entry's zai/glm-5.3", settings.provider, settings.model)
 	}
-	// The scoped list is the union, the primary's default first; openrouter ships no model list,
-	// so it contributes every model of the provider (§4.4).
+	// The scoped list is the union, the primary's first (§4.4). Both are pi's own providers, so
+	// each contributes every model pi has for it, and none of yolo's list
+	// (docs/design/pi-codex-provider-shadowing.md OQ-3).
 	enabled, _ := settings.raw["enabledModels"].([]any)
-	if len(enabled) == 0 || enabled[0] != "zai/glm-5.3" {
-		t.Fatalf("pi's enabledModels = %v, want zai's default first", enabled)
+	if len(enabled) == 0 || enabled[0] != "zai/*" {
+		t.Fatalf("pi's enabledModels = %v, want zai's run, pi's own list, first", enabled)
 	}
 	if enabled[len(enabled)-1] != "openrouter/*" {
 		t.Errorf("pi's enabledModels = %v, want openrouter's run after zai's", enabled)
@@ -62,9 +63,10 @@ func TestPiRunsOnEveryProviderOfItsSet(t *testing.T) {
 	if !zai || !router {
 		t.Errorf("pi-subagents' scope %v must span both entries of the set", allow)
 	}
+	// Neither gets a models.json row: both are pi's own (OQ-3).
 	models := readPioencodeSurface(t, dir, "pi", "agent", "models.json")
-	requireCataloged(t, models.raw, "providers", "zai", "pi models.json")
-	requireCataloged(t, models.raw, "providers", "openrouter", "pi models.json")
+	requireNotCataloged(t, models.raw, "providers", "zai", "pi models.json")
+	requireNotCataloged(t, models.raw, "providers", "openrouter", "pi models.json")
 }
 
 // A BEDROCK ENTRY AFTER THE FIRST (AP-D12's "anywhere in pi's set"): `-p pi=zai,bedrock` with a
@@ -102,8 +104,9 @@ func TestPiRunsOnABedrockEntryAfterItsFirst(t *testing.T) {
 	if !found {
 		t.Errorf("pi's enabledModels = %v, want the Bedrock entry's models under amazon-bedrock", enabled)
 	}
+	// zai is pi's own and gets no row (OQ-3); the Bedrock entry's list is pi's native row.
 	models := readPioencodeSurface(t, dir, "pi", "agent", "models.json")
-	requireCataloged(t, models.raw, "providers", "zai", "pi models.json")
+	requireNotCataloged(t, models.raw, "providers", "zai", "pi models.json")
 	requireCataloged(t, models.raw, "providers", "amazon-bedrock", "pi models.json")
 }
 

@@ -73,6 +73,13 @@ profile's.
 | `cerebras` | [Cerebras](https://www.cerebras.ai) | Claude Code and Copilot through the wire bridge; pi and opencode directly | `CEREBRAS_API_KEY` |
 | `llamacpp` | a [llama.cpp](https://github.com/ggml-org/llama.cpp) `llama-server` you run on port 8080 | Claude Code, Copilot, pi, opencode | none |
 
+pi, opencode and oh-omp have zai, cerebras and openrouter built in, and opencode and oh-omp have
+kilo too, so on those providers each agent uses its own connection and its own model list. The
+`models` you give such a provider under `providers` reach only the other agents there, and a
+profile's `model` reaches these three only as the agent's own model id. opencode reaches z.ai's coding plan through its own `zai-coding-plan`.
+To send one of these providers through yolo's [wire bridge](#the-wire-bridge) anyway, add it
+under `providers` with a name the agent does not have.
+
 Two more come with the agent packs, with no extra pack to add:
 
 - **`bedrock`**, in the `bedrock` pack, which the `claude`, `codex`, `opencode` and `pi` packs

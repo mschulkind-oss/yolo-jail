@@ -205,6 +205,27 @@ func profileReach(in ProfileDisclosureInput, agent, profile string) ProfileReach
 			agent, agent))
 		return r
 	}
+	// A PROVIDER THE AGENT HAS BUILT IN (BuiltInProviderFor; docs/design/pi-codex-provider-
+	// shadowing.md OQ-3): its pack's derive writes it no model entry, so the agent reaches it
+	// through its own client and list, whatever the provider's endpoints or the profile's via
+	// say. Where the agent has the name built in for another plan and no provider of its own for
+	// this one, nothing reaches it, and the line says so with the next step.
+	if own, builtIn := BuiltInProviderFor(in.Packs, agent, r.Provider); builtIn {
+		if own.ID == "" {
+			r.Warnings = append(r.Warnings, fmt.Sprintf("Warning: profile %s reaches nothing for %s: "+
+				"%s has a provider of its own named %q for another plan and none for this "+
+				"profile's, and yolo writes no model entry over a provider an agent has built in, "+
+				"so nothing this profile configures reaches %s's own client. Select a profile whose "+
+				"provider %s reaches (`-p %s=<name>`), or none for %s", quoted, agent, agent,
+				r.Provider, agent, agent, agent, agent))
+			return r
+		}
+		r.Route = fmt.Sprintf("through its own %q client, with its own model list", own.ID)
+		if via != "" {
+			r.Route += fmt.Sprintf(", which pack %q's route does not re-point", via)
+		}
+		return r
+	}
 	platform := entryString(entry, "platform")
 	switch res, err := ResolveProtocol(agent, owner.Decl.SpokenProtocols(agent), r.Provider, entry, nil); {
 	case ViaURLFor(in.Resolved[profile], agent) != "" && in.Resolved[profile].Via == "":

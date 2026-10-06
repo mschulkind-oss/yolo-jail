@@ -60,8 +60,8 @@ func TestOmpScopesANarrowedList(t *testing.T) {
 	// beside omp's catalog as models.yml rows (OQ-MM1).
 	plain := &Env{Home: t.TempDir(), Workspace: t.TempDir(), Stderr: &errw, Vars: map[string]string{
 		"YOLO_PROVIDERS":    zaiReachableJSON,
-		"YOLO_USE_PROFILES": `{"oh-omp":"zai"}`,
-		"YOLO_PROFILES":     `{"zai":{"provider":"zai"}}`,
+		"YOLO_USE_PROFILES": `{"oh-omp":"zhipu"}`,
+		"YOLO_PROFILES":     `{"zhipu":{"provider":"zhipu"}}`,
 	}}
 	ConfigurePackSurfaces(plain, []*packload.Pack{omp})
 	if raw, err := os.ReadFile(filepath.Join(plain.Home, ".oh-omp", "agent", "config.yml")); err == nil {
@@ -206,10 +206,13 @@ func zaiNarrowedTo(t *testing.T, agent string, user map[string]packload.UserProf
 	return mustCompactJSON(t, table), mustCompactJSON(t, packload.ProfilesWireTable(resolved))
 }
 
-// OPENCODE UNDER AN `only` (§14.1, opencode native; MM-D7): opencode starts zai from its own
-// catalog entry of the same id, so a config row adds beside about 18 models and cannot narrow;
-// its `whitelist` is the one lever, and it refuses every other model too, so it renders only
-// while the profile's switch is on (MM-D5). Off, the menu is not narrowed.
+// OPENCODE UNDER AN `only` (§14.1, opencode native; MM-D7): opencode starts a provider from its own
+// catalog entry of the same id, so config rows add beside its models and cannot narrow; its
+// `whitelist` is the one lever, and it refuses every other model too, so it renders only while
+// the profile's switch is on (MM-D5). Off, the menu is not narrowed. zai's plan is opencode's own
+// zai-coding-plan (docs/design/pi-codex-provider-shadowing.md OQ-3), so the narrowed list is that
+// provider's whitelist alone, with no model entries and no row under zai; whether the ruling
+// reaches such a list at all is OQ-4's, open, and until it rules the narrowing stays.
 func TestOpencodeWhitelistsANarrowedList(t *testing.T) {
 	off := false
 	for _, tc := range []struct {
@@ -227,22 +230,19 @@ func TestOpencodeWhitelistsANarrowedList(t *testing.T) {
 			r.wireProfiles(profiles)
 			r.render(t, `{"opencode":"`+tc.profile+`"}`)
 			provider, _ := r.ocConfig(t)["provider"].(map[string]any)
-			zai, _ := provider["zai"].(map[string]any)
-			models, _ := zai["models"].(map[string]any)
-			var ids []string
-			for id := range models {
-				ids = append(ids, id)
+			if provider["zai"] != nil {
+				t.Errorf("provider.zai = %v, want no row: zai's plan is opencode's own", provider["zai"])
 			}
-			sort.Strings(ids)
-			if want := []string{"glm-5.3", "glm-5.3-flash"}; !reflect.DeepEqual(ids, want) {
-				t.Errorf("provider.zai.models = %v, want the narrowed list %v", ids, want)
+			own, _ := provider["zai-coding-plan"].(map[string]any)
+			if models, has := own["models"]; has {
+				t.Errorf("provider.zai-coding-plan.models = %v, want no model entries over opencode's own", models)
 			}
-			whitelist, has := zai["whitelist"]
+			whitelist, has := own["whitelist"]
 			switch {
 			case tc.enforced && !reflect.DeepEqual(whitelist, []any{"glm-5.3", "glm-5.3-flash"}):
-				t.Errorf("provider.zai.whitelist = %v, want the narrowed ids", whitelist)
+				t.Errorf("provider.zai-coding-plan.whitelist = %v, want the narrowed ids", whitelist)
 			case !tc.enforced && has:
-				t.Errorf("provider.zai.whitelist = %v with enforce_models off, want none: it refuses too", whitelist)
+				t.Errorf("provider.zai-coding-plan.whitelist = %v with enforce_models off, want none: it refuses too", whitelist)
 			}
 		})
 	}
@@ -253,18 +253,21 @@ func TestOpencodeWhitelistsANarrowedList(t *testing.T) {
 // first entry. zai declares `model: glm-5.3` and no `default` alias, so narrowed to glm-4.6 and
 // glm-5.3-flash its default entry is glm-4.6, the first by id. Without the rule the derive
 // resolved nothing and wrote neither `model` nor `enabled_providers`, so opencode started on its
-// own persisted choice and its menu no longer followed the selection (OQ-CN4).
+// own persisted choice and its menu no longer followed the selection (OQ-CN4). opencode reaches
+// zai's plan through its own zai-coding-plan (OQ-3), and picks its own small model there.
 func TestOpencodeStartsOnANarrowedListsDefault(t *testing.T) {
 	providers, profiles := zaiNarrowedTo(t, "opencode", nil, `["glm-4.6","glm-5.3-flash"]`)
 	r := newPioencodeRender(t, providers)
 	r.wireProfiles(profiles)
 	r.render(t, `{"opencode":"zai"}`)
 	cfg := r.ocConfig(t)
-	if cfg["model"] != "zai/glm-4.6" || cfg["small_model"] != "zai/glm-4.6" {
-		t.Errorf("opencode model/small_model = %v/%v, want zai/glm-4.6 for both, the narrowed list's first entry",
-			cfg["model"], cfg["small_model"])
+	if cfg["model"] != "zai-coding-plan/glm-4.6" {
+		t.Errorf("opencode model = %v, want zai-coding-plan/glm-4.6, the narrowed list's first entry", cfg["model"])
 	}
-	if got, want := cfg["enabled_providers"], []any{"zai"}; !reflect.DeepEqual(got, want) {
+	if small, present := cfg["small_model"]; present {
+		t.Errorf("opencode small_model = %v, want none: no profile names one, so opencode picks its own", small)
+	}
+	if got, want := cfg["enabled_providers"], []any{"zai-coding-plan"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("enabled_providers = %v, want %v: the menu follows the selection", got, want)
 	}
 }
@@ -366,10 +369,14 @@ func TestOpencodeWhitelistsANarrowedListOnItsOwnBedrockClient(t *testing.T) {
 // OQ-MM1's, and whether a list with no `only` refuses on a gateway serving more is OQ-MM3's.
 func TestOpencodeWritesNoWhitelistForAnUnnarrowedList(t *testing.T) {
 	r := newPioencodeRender(t, zaiReachableJSON)
-	r.render(t, `{"opencode":"zai"}`)
+	r.render(t, `{"opencode":"zhipu"}`)
 	provider, _ := r.ocConfig(t)["provider"].(map[string]any)
-	if zai, _ := provider["zai"].(map[string]any); zai["whitelist"] != nil {
-		t.Errorf("provider.zai.whitelist = %v, want none for a list no only narrowed", zai["whitelist"])
+	zai, _ := provider["zhipu"].(map[string]any)
+	if zai == nil {
+		t.Fatalf("no provider.zhipu row, so this measures nothing: %v", provider)
+	}
+	if zai["whitelist"] != nil {
+		t.Errorf("provider.zhipu.whitelist = %v, want none for a list no only narrowed", zai["whitelist"])
 	}
 }
 
@@ -395,10 +402,12 @@ func TestPiGetsANarrowedListToRegister(t *testing.T) {
 	if len(lists) != 1 {
 		t.Errorf("pi model-lists = %v, want only the narrowed provider", lists)
 	}
-	// The switch is on by default, so the extension refuses outside the list (MM-D21), on the api
-	// of the models.json row the models derive writes for zai.
-	if zai["enforce"] != true || zai["api"] != "openai-completions" {
-		t.Errorf("pi model-lists zai enforce/api = %v/%v, want true/openai-completions", zai["enforce"], zai["api"])
+	// The switch is on by default, so the extension refuses outside the list (MM-D21). zai is one
+	// of pi's own providers, which gets no models.json row (docs/design/pi-codex-provider-
+	// shadowing.md OQ-3), so the list names no api and the extension reads it from pi's own
+	// catalog, as for pi's own Bedrock client.
+	if api, present := zai["api"]; zai["enforce"] != true || present {
+		t.Errorf("pi model-lists zai enforce/api = %v/%v, want true and no api", zai["enforce"], api)
 	}
 	settings := r.piSettings(t)
 	if settings["defaultProvider"] != "zai" || settings["defaultModel"] != "glm-5.3" {
@@ -529,27 +538,49 @@ func TestPiNarrowedKiloListRegistersTheIdsItsRowSends(t *testing.T) {
 	}
 }
 
-// OPENROUTER'S NARROWED LIST NAMES ITS ROW'S ONE API, so pi refuses there: pi's own OpenRouter
-// catalog mixes apis, but yolo reaches OpenRouter through a models.json row, whose one api every
-// registered model takes (the extension's listApi reads the derive's before any catalog). Only a
-// list with no row could reach the extension's two-api branch, and the one such list the derive
-// renders, pi's own Bedrock client, is on one api. The docs once said OpenRouter's list is shown
-// but not refused; this pins the fact they now state.
+// A NARROWED LIST NAMES ITS ROW'S ONE API, so pi refuses there: yolo reaches a provider pi does
+// not have built in through a models.json row, whose one api every registered model takes (the
+// extension's listApi reads the derive's before any catalog). kilo is such a provider.
+//
+// OPENROUTER IS ONE OF PI'S OWN (docs/design/pi-codex-provider-shadowing.md OQ-3), so it has no row
+// and its narrowed list names no api: the extension takes each listed model's api from pi's own
+// catalog, which serves OpenRouter's Anthropic models on anthropic-messages and the rest on
+// openai-completions (pi 1.0.1's data/openrouter.json), so a list mixing the two is registered as
+// pi's menu without the refusing wrapper (yolo-model-lists.js, listApi). Whether such a list on a
+// built-in provider is still yolo's to narrow is OQ-4's.
 func TestPiNarrowedOpenRouterListNamesItsRowsOneAPI(t *testing.T) {
-	r := narrowedPiRender(t, "openrouter",
+	r := narrowedPiRender(t, "kilo",
+		`{"kind":"models","provider":"kilo","add":[{"id":"anthropic/claude-opus-4.6","vendor":"anthropic"},`+
+			`{"id":"openai/gpt-5","vendor":"openai"}]},`+
+			`{"kind":"models","provider":"kilo","only":["anthropic/claude-opus-4.6","openai/gpt-5"]}`)
+	lists, _ := r.surface(t, ".pi", "agent", "yolo-model-lists.json")["providers"].(map[string]any)
+	kilo, _ := lists["kilo"].(map[string]any)
+	rows, _ := r.surface(t, ".pi", "agent", "models.json")["providers"].(map[string]any)
+	row, _ := rows["kilo"].(map[string]any)
+	if api, _ := kilo["api"].(string); api == "" || api != row["api"] {
+		t.Errorf("kilo's narrowed list names api %v, want its models.json row's %v, so every "+
+			"listed model shares one api and pi's wrapper refuses outside the list", kilo["api"], row["api"])
+	}
+	if kilo["enforce"] != true {
+		t.Errorf("kilo's narrowed list enforce = %v, want true, the switch's default", kilo["enforce"])
+	}
+
+	r = narrowedPiRender(t, "openrouter",
 		`{"kind":"models","provider":"openrouter","add":[{"id":"anthropic/claude-opus-4.6","vendor":"anthropic"},`+
 			`{"id":"openai/gpt-5","vendor":"openai"}]},`+
 			`{"kind":"models","provider":"openrouter","only":["anthropic/claude-opus-4.6","openai/gpt-5"]}`)
-	lists, _ := r.surface(t, ".pi", "agent", "yolo-model-lists.json")["providers"].(map[string]any)
+	lists, _ = r.surface(t, ".pi", "agent", "yolo-model-lists.json")["providers"].(map[string]any)
 	openrouter, _ := lists["openrouter"].(map[string]any)
-	rows, _ := r.surface(t, ".pi", "agent", "models.json")["providers"].(map[string]any)
-	row, _ := rows["openrouter"].(map[string]any)
-	if api, _ := openrouter["api"].(string); api == "" || api != row["api"] {
-		t.Errorf("openrouter's narrowed list names api %v, want its models.json row's %v, so every "+
-			"listed model shares one api and pi's wrapper refuses outside the list", openrouter["api"], row["api"])
+	if openrouter == nil {
+		t.Fatalf("pi's own openrouter, narrowed, registers no list: %v", lists)
 	}
-	if openrouter["enforce"] != true {
-		t.Errorf("openrouter's narrowed list enforce = %v, want true, the switch's default", openrouter["enforce"])
+	if api, present := openrouter["api"]; present {
+		t.Errorf("openrouter's narrowed list names api %v, want none: it has no models.json row, so "+
+			"pi's own catalog answers", api)
+	}
+	rows, _ = r.surface(t, ".pi", "agent", "models.json")["providers"].(map[string]any)
+	if rows["openrouter"] != nil {
+		t.Errorf("pi's own openrouter got a models.json row: %v", rows["openrouter"])
 	}
 }
 
@@ -569,7 +600,7 @@ func TestPiRegistersNoNarrowedListItCannotUse(t *testing.T) {
 // own catalog (what an `add` does to that catalog is OQ-MM1's), and the scope stays as before.
 func TestPiRegistersNothingForAnUnnarrowedList(t *testing.T) {
 	r := newPioencodeRender(t, zaiReachableJSON)
-	r.render(t, `{"pi":"zai"}`)
+	r.render(t, `{"pi":"zhipu"}`)
 	if file := r.surface(t, ".pi", "agent", "yolo-model-lists.json"); len(file) != 0 {
 		t.Errorf("pi model-lists = %v, want nothing for a list no only narrowed", file)
 	}

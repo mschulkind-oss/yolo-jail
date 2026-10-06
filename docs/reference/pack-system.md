@@ -813,6 +813,25 @@ service to carry the program, it reaches nothing whatever a list holds, so nothi
 refused for it, and the launch's profile line says so. On `program` alone; `packdecl` refuses an
 empty list, an empty platform and a platform given twice.
 
+<a id="built_in_providers"></a>`built_in_providers` names the providers the program ships its own
+client and model list for, a **built-in provider** in
+[`pi-codex-provider-shadowing.md`](../design/pi-codex-provider-shadowing.md#OQ-3)'s term, so yolo
+writes no model entry over one and the agent uses its own list
+([OQ-3](../design/pi-codex-provider-shadowing.md#OQ-3), ruled 2026-10-05). It is an
+object. `names` is every provider id the program's own code registers. `plans`, optional, maps a
+yolo provider name to the program's own provider for that provider's plan, `{"provider": …,
+"api_key_env_name": …}`, when the name alone gets it wrong, or to `null` when the program has the
+name built in for another plan and none of its own for this one. `packs/pi`, `packs/omp` and
+`packs/opencode` declare it; opencode's `plans` map `zai` to its own `zai-coding-plan`, which reads
+`ZHIPU_API_KEY`, and `openai-codex` to its own `openai`. Core reads it three ways: every derive's
+`ctx.built_in_providers` (`{ id, api_key_env_name }`, or `false` for a `null` plan), the launch's
+profile line, which names the agent's own client or says a `null` plan's profile reaches nothing
+for it, and the agent's environment, which carries the plan's key under `api_key_env_name` and no
+`YOLO_MODEL_<ROLE>` ([`providers.md`](providers.md#a-provider-the-agent-has-built-in)). On
+`program` alone, and a fork keeps its base's; `packdecl` refuses no `names`, an empty, padded or
+repeated name, a plan naming no provider or one not in `names`, and an `api_key_env_name` that is
+no variable name.
+
 `install_hints` maps a host package manager to the package that provides `bin` there. Used
 below the `jail` notch, where yolo bakes no image, by `yolo check-deps` / `apply` to probe
 for the binary and emit a runnable manifest. A value is `<package> [<package>…]`, optionally
@@ -887,7 +906,7 @@ programs, the launcher generator and the host floor included, sees the fork's. I
 selection function (`config.SelectPacks`), which every host verb and the launch read, and in the
 jail's pack loader over the staged tree, whose base `pack.json` is unchanged. The rewrite keeps the
 base's `refresh`, `probe_args`, `temp_caches`, `protocols`, `provider_sets`, `platform_switches`, `capabilities`,
-`platform_regions`, `unlisted_background_models`, `exact_menu_refuses`, `needs_model_list` and `node_floor` (a
+`platform_regions`, `unlisted_background_models`, `exact_menu_refuses`, `needs_model_list`, `built_in_providers` and `node_floor` (a
 fork's own `node_floor` replaces it). It drops every other delivery field of the base: `package`, `url`, `flags`, `update`,
 `versions_dir`, `installer_env`, `install_hints`, `model_catalog`, and `platforms` unless the fork declares its own.
 

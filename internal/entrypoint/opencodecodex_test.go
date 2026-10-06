@@ -114,19 +114,20 @@ func TestOpencodeOnCodexWithEnforcementOffWritesNoWhitelist(t *testing.T) {
 }
 
 // A LATER ENTRY ON THE SUBSCRIPTION (AP-P1): opencode on [zai, codex] starts on zai, enables both
-// zai and its own `openai`, and carries the subscription's row, so a switch mid-session reaches
-// the subscription through opencode's own client.
+// zai's provider and its own `openai`, and carries the subscription's row, so a switch mid-session
+// reaches the subscription through opencode's own client. zai's plan is opencode's own
+// zai-coding-plan, which gets no row (docs/design/pi-codex-provider-shadowing.md OQ-3).
 func TestOpencodeOnASetWithCodexSecondKeepsTheSubscription(t *testing.T) {
 	cfg := renderOpencodeCodex(t, `{"opencode":["zai","codex"]}`, "", "zai")
-	if got := strs(cfg["enabled_providers"]); !reflect.DeepEqual(got, []string{"zai", "openai"}) {
-		t.Errorf("enabled_providers = %v, want [zai openai]", got)
+	if got := strs(cfg["enabled_providers"]); !reflect.DeepEqual(got, []string{"zai-coding-plan", "openai"}) {
+		t.Errorf("enabled_providers = %v, want [zai-coding-plan openai]", got)
 	}
-	if m, _ := cfg["model"].(string); !strings.HasPrefix(m, "zai/") {
-		t.Errorf("model = %v, want the primary's", cfg["model"])
+	if m, _ := cfg["model"].(string); !strings.HasPrefix(m, "zai-coding-plan/") {
+		t.Errorf("model = %v, want the primary's, on opencode's own zai-coding-plan", cfg["model"])
 	}
 	rows := ocRows(t, cfg)
-	if rows["zai"] == nil || rows["openai"] == nil {
-		t.Errorf("rows = %v, want zai's and the subscription's", rows)
+	if rows["zai"] != nil || rows["zai-coding-plan"] != nil || rows["openai"] == nil {
+		t.Errorf("rows = %v, want the subscription's alone", rows)
 	}
 }
 

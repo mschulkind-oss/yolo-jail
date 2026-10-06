@@ -120,13 +120,15 @@ func TestTheHostRendersEachDerivedSurfaceClass(t *testing.T) {
 		ownership                render.HostOwnership
 		check                    func(t *testing.T, home string)
 	}{
+		// llamacpp, because pi has no provider of that name: cerebras, which this used, is one of
+		// pi's own and gets no row (docs/design/pi-codex-provider-shadowing.md OQ-3).
 		{name: "pi/models carries the provider table", pack: "pi", surface: "pi/models",
-			rel: ".pi/agent/models.json", extra: []string{"cerebras"},
+			rel: ".pi/agent/models.json", extra: []string{"llamacpp"},
 			ownership: render.OwnershipAssert,
 			check: func(t *testing.T, home string) {
-				row := jsonAt(t, home, ".pi/agent/models.json", "providers", "cerebras").(map[string]any)
-				if row["baseUrl"] != "https://api.cerebras.ai/v1" {
-					t.Errorf("pi/models' cerebras row does not point at the provider: %v", row)
+				row := jsonAt(t, home, ".pi/agent/models.json", "providers", "llamacpp").(map[string]any)
+				if row["baseUrl"] != "http://localhost:8080/v1" {
+					t.Errorf("pi/models' llamacpp row does not point at the provider: %v", row)
 				}
 			}},
 		{name: "pi/codex-models carries the declared openai-codex list", pack: "pi",
@@ -170,17 +172,18 @@ func TestTheHostRendersEachDerivedSurfaceClass(t *testing.T) {
 			}},
 		// yaml has no rmw encoder, so oh-omp/models is refused under `assert` as it always was;
 		// under `own` it renders through `stateful` (OQ-HC2), which is its host path.
+		// llamacpp for pi's reason above: cerebras is one of omp's own providers.
 		{name: "oh-omp/models carries the provider table under own", pack: "omp",
-			surface: "oh-omp/models", rel: ".oh-omp/agent/models.yml", extra: []string{"cerebras"},
+			surface: "oh-omp/models", rel: ".oh-omp/agent/models.yml", extra: []string{"llamacpp"},
 			ownership: render.OwnershipOwn,
 			check: func(t *testing.T, home string) {
 				raw, err := os.ReadFile(filepath.Join(home, ".oh-omp/agent/models.yml"))
 				if err != nil {
 					t.Fatal(err)
 				}
-				if !strings.Contains(string(raw), "cerebras") ||
-					!strings.Contains(string(raw), "https://api.cerebras.ai/v1") {
-					t.Errorf("oh-omp/models has no cerebras row:\n%s", raw)
+				if !strings.Contains(string(raw), "llamacpp") ||
+					!strings.Contains(string(raw), "http://localhost:8080/v1") {
+					t.Errorf("oh-omp/models has no llamacpp row:\n%s", raw)
 				}
 			}},
 	} {
@@ -383,7 +386,9 @@ func TestAProviderCatalogNewlyYolosInAHomeIsAFirstApply(t *testing.T) {
 	home := t.TempDir()
 	models := filepath.Join(home, ".pi", "agent", "models.json")
 	writeTestFile(t, models, `{"providers": {"mine": {"baseUrl": "http://127.0.0.1:9/v1", "api": "openai-completions"}}}`)
-	packs := testPacksForAgent(t, "pi", "cerebras")
+	// llamacpp, a provider pi has none of its own for, so the host composes a row for it
+	// (cerebras, which this used, is pi's own: docs/design/pi-codex-provider-shadowing.md OQ-3).
+	packs := testPacksForAgent(t, "pi", "llamacpp")
 	pi := packs[0]
 	// A record from an apply that owned no table here: the key is the user's (`host`).
 	if err := os.MkdirAll(render.Host(home, nil, render.OwnershipAssert).ProvenanceDir(), 0o755); err != nil {

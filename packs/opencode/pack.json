@@ -5,6 +5,63 @@
     //   pacman: https://archlinux.org/packages/extra/x86_64/opencode/files/ (usr/bin/opencode)
     {
       "bin": "opencode",
+      // opencode's own providers, read from the models snapshot bundled in the opencode 1.18.34
+      // binary on 2026-10-05, never run: every `<id>:{id:"<id>",env:[...]` entry its strings hold
+      // (opencode also fetches models.dev at run time, which may list more). yolo writes no model
+      // entry over one (docs/design/pi-codex-provider-shadowing.md OQ-3). Two yolo providers'
+      // plans are opencode's under another name: z.ai's coding plan is `zai-coding-plan`
+      // (api.z.ai/api/coding/paas/v4, reading ZHIPU_API_KEY), opencode's own `zai` being the
+      // metered api.z.ai/api/paas/v4; and the ChatGPT subscription is its own `openai`, which its
+      // built-in ChatGPT login puts on the subscription (packs/opencode/derive.lua).
+      "built_in_providers": {
+        "names": [
+          "302ai", "abacus", "abliteration-ai", "above", "agentrouter", "agnes", "ai-router",
+          "ai21", "aiand", "aihubmix", "ainetcafe", "aixy", "aki-io", "alibaba", "alibaba-cn",
+          "alibaba-coding-plan", "alibaba-coding-plan-cn", "alibaba-token-plan",
+          "alibaba-token-plan-cn", "amazon-bedrock", "ambient", "amd", "anthropic", "anyapi",
+          "arcee", "atomic-chat", "auriko", "azure", "azure-cognitive-services", "bailing",
+          "baseten", "bee", "berget", "blueclaw", "bothub", "cerebras", "chutes", "clarifai",
+          "claudinio", "cline-pass", "cloudferro-sherlock", "cloudflare-ai-gateway",
+          "cloudflare-workers-ai", "cohere", "coralbricks", "cortecs", "crof", "crossmodel",
+          "crusoe", "daoxe", "databricks", "deepinfra", "deepseek", "digitalocean", "dinference",
+          "drun", "ebcloud", "echo", "edenai", "empiriolabs", "evroc", "fastrouter", "fireworks-ai",
+          "freemodel", "friendli", "frogbot", "github-copilot", "gitlab", "gmicloud", "google",
+          "google-vertex", "google-vertex-anthropic", "greenpt", "groq", "helicone", "hetzner",
+          "hpc-ai", "huggingface", "hyper", "iflowcn", "impossibl", "inception", "inceptron",
+          "inco", "infer", "inference", "inferx", "infomaniak", "io-net", "iteracompute",
+          "jalapeno", "jiekou", "kenari", "kilo", "kimi-code-plan-cn", "kimi-code-plan-global",
+          "klokintegration", "kosmik", "kuae-cloud-coding-plan", "lilac", "llama", "llmgateway",
+          "llmgateway-providers", "llmtech", "llmtr", "lmstudio", "longcat", "lucidquery", "lynkr",
+          "meganova", "melious", "merge-gateway", "meta", "minimax", "minimax-cn",
+          "minimax-cn-coding-plan", "minimax-coding-plan", "mistral", "mixlayer", "moark", "modal",
+          "model-oracle-ai", "modelis", "modelscope", "moonshotai", "moonshotai-cn", "morph", "nan",
+          "nano-gpt", "nearai", "nebius", "neon", "neosmith", "neuralwatt", "nova", "novita-ai",
+          "nvidia", "oci", "ofox", "ollama-cloud", "openai", "opencode", "opencode-go",
+          "openreason", "openrouter", "opper", "orcarouter", "ovhcloud", "pareto", "pendra",
+          "perplexity", "perplexity-agent", "pioneer", "poe", "poolside", "privatemode-ai",
+          "qihang-ai", "qiniu-ai", "qvac", "regolo-ai", "requesty", "routing-run", "runinfra",
+          "sakana", "salad-cloud", "sap-ai-core", "sarvam", "scaleway", "scnet-token-plan",
+          "scx-ai", "sensenova", "siliconflow", "siliconflow-cn", "snowflake-cortex", "stackit",
+          "standardcompute", "stepfun", "stepfun-ai", "stepfun-ai-step-plan", "stepfun-step-plan",
+          "subconscious", "submodel", "synthetic", "tempr", "tencent-coding-plan",
+          "tencent-token-plan", "tencent-tokenhub", "tensorx", "the-grid-ai", "thinkingmachines",
+          "tinfoil", "togetherai", "tokengo", "tokenrouter", "trustedrouter", "umans-ai",
+          "umans-ai-coding-plan", "unorouter", "upstage", "v0", "vancine", "venice", "vercel",
+          "vispark", "vivgrid", "volcengine", "volcengine-coding-plan", "vultr", "wafer.ai",
+          "wallaby", "wandb", "watsonx", "xai", "xiaomi", "xiaomi-token-plan-ams",
+          "xiaomi-token-plan-cn", "xiaomi-token-plan-sgp", "xpersona", "zai", "zai-coding-plan",
+          "zeldoc", "zenifra", "zenmux", "zhipuai", "zhipuai-coding-plan"
+        ],
+        "plans": {
+          "openai-codex": {
+            "provider": "openai"
+          },
+          "zai": {
+            "api_key_env_name": "ZHIPU_API_KEY",
+            "provider": "zai-coding-plan"
+          }
+        }
+      },
       "exact_menu_refuses": {
         "providers": [
           "openai-codex"

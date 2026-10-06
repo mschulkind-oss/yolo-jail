@@ -245,19 +245,20 @@ func TestPiDeriveCompatFallsBackToTheActiveProfile(t *testing.T) {
 // declaration that never reaches the composed table each turn this red — where a test that
 // called the derive with a hand-written table would stay green through three of the four.
 //
-// zai rides along as the selectivity half, and it too is a shipped manifest: it declares
+// kilo rides along as the selectivity half, and it too is a shipped manifest: it declares
 // none of these options, so its catalog row must carry no compat key while llamacpp's
-// carries the whole block. One render, both answers.
+// carries the whole block. One render, both answers. It was zai until zai became one of pi's
+// own providers, which gets no row at all (docs/design/pi-codex-provider-shadowing.md OQ-3).
 func TestShippedLlamacppCompatFactsReachPiModelsJSON(t *testing.T) {
 	llamacpp, err := embeddedPack("llamacpp")
 	if err != nil {
 		t.Fatalf("embedded llamacpp: %v", err)
 	}
-	zai, err := embeddedPack("zai")
+	kilo, err := embeddedPack("kilo")
 	if err != nil {
-		t.Fatalf("embedded zai: %v", err)
+		t.Fatalf("embedded kilo: %v", err)
 	}
-	composed, err := packload.ComposeProviders(nil, []*packload.Pack{llamacpp, zai})
+	composed, err := packload.ComposeProviders(nil, []*packload.Pack{llamacpp, kilo})
 	if err != nil {
 		t.Fatalf("composing the shipped providers: %v", err)
 	}
@@ -280,12 +281,12 @@ func TestShippedLlamacppCompatFactsReachPiModelsJSON(t *testing.T) {
 	}
 	requireCompat(t, "llamacpp", entry, llamaCompatWire)
 
-	other, ok := provs["zai"].(map[string]any)
+	other, ok := provs["kilo"].(map[string]any)
 	if !ok {
-		t.Fatalf("models.json has no zai row, so the selectivity half measures nothing: %#v", provs)
+		t.Fatalf("models.json has no kilo row, so the selectivity half measures nothing: %#v", provs)
 	}
 	if _, present := other["compat"]; present {
-		t.Errorf("zai declares no compat facts and must get none — the facts are the "+
+		t.Errorf("kilo declares no compat facts and must get none — the facts are the "+
 			"provider's, not every provider's: %#v", other["compat"])
 	}
 }

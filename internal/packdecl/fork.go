@@ -177,6 +177,7 @@ func forkBaseFields(c Contribution) []forkBaseField {
 		{"unlisted_background_models", base, c.UnlistedBackgroundModels},
 		{"exact_menu_refuses", base, c.ExactMenuRefuses != nil},
 		{"needs_model_list", base, c.NeedsModelList != nil},
+		{"built_in_providers", base, c.BuiltInProviders != nil},
 	}
 }
 

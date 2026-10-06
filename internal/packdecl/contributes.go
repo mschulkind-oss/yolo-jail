@@ -913,6 +913,21 @@ type Contribution struct {
 	// A PACK FACT for `platform_switches`' reason: what a binary can start on is that binary's
 	// fact, and core names no agent. ON `program` ALONE.
 	NeedsModelList []string `json:"needs_model_list,omitempty"`
+	// BuiltInProviders names the providers this program ships its own client and model list
+	// for, and which of them serves a yolo provider's plan where the name alone gets it wrong
+	// (docs/design/pi-codex-provider-shadowing.md OQ-3, ruled 2026-10-05: yolo writes no model
+	// entry over any provider an agent has built in, and the agent uses its own list). Core reads
+	// it for each derive's ctx.built_in_providers (packload.BuiltInProvidersFor), for the launch's
+	// profile line, which says the agent reaches the provider through its own client or cannot
+	// reach it at all, and for the plan's key name (ProviderPlan.APIKeyEnvName). packs/pi,
+	// packs/omp and packs/opencode declare it. See BuiltInProviders.
+	//
+	// A PACK FACT for `platform_switches`' reason: which providers a binary implements is that
+	// binary's fact, and core names no agent. NAMES, NEVER MODELS: yolo keeps the names of an
+	// agent's own providers and none of their lists. ON `program` ALONE. The list goes stale when
+	// the program adds a provider, and until its pack names the new one yolo writes over it
+	// (the design's R3).
+	BuiltInProviders *BuiltInProviders `json:"built_in_providers,omitempty"`
 
 	// --- adapter (docs/reference/protocol-resolution.md#the-three-declarations, OQ-PR1) ---
 	// Adapts is the protocol PAIR this contribution converts, and Address is where the
@@ -3626,6 +3641,8 @@ func validateContribution(label string, c Contribution) []string {
 	problems = append(problems, modelMenuProblems(label, c)...)
 	// `exact_menu_refuses` is a program's alone: it says how that program's model menu narrows.
 	problems = append(problems, exactMenuProblems(label, c)...)
+	// `built_in_providers` is a program's alone: it names the providers that program implements.
+	problems = append(problems, builtInProvidersProblems(label, c)...)
 	// `reserved` is skills' alone, refused in `profile`'s position and for `profile`'s reason:
 	// the only consumer is the skills destination walk, so a reserved name on any other kind is
 	// a declaration that silently protects nothing.

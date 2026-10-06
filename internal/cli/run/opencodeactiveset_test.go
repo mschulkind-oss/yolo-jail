@@ -141,11 +141,13 @@ func TestOpencodesFlagAndKeyListRenderTheSame(t *testing.T) {
 	if err := json.Unmarshal(fromKey, &rendered); err != nil {
 		t.Fatalf("opencode.json is not JSON: %v\n%s", err, fromKey)
 	}
-	if got, _ := rendered["enabled_providers"].([]any); !reflect.DeepEqual(got, []any{"zai", "openrouter"}) {
-		t.Errorf("enabled_providers = %v, want [zai openrouter]\n%s", got, fromKey)
+	// Both are opencode's own providers, zai's plan its zai-coding-plan, so each is named by
+	// opencode's own id (docs/design/pi-codex-provider-shadowing.md OQ-3).
+	if got, _ := rendered["enabled_providers"].([]any); !reflect.DeepEqual(got, []any{"zai-coding-plan", "openrouter"}) {
+		t.Errorf("enabled_providers = %v, want [zai-coding-plan openrouter]\n%s", got, fromKey)
 	}
-	if m, _ := rendered["model"].(string); !strings.HasPrefix(m, "zai/") {
-		t.Errorf("model = %v, want the first entry's zai model\n%s", rendered["model"], fromKey)
+	if m, _ := rendered["model"].(string); !strings.HasPrefix(m, "zai-coding-plan/") {
+		t.Errorf("model = %v, want the first entry's zai model on zai-coding-plan\n%s", rendered["model"], fromKey)
 	}
 }
 

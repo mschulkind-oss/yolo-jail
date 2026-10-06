@@ -133,11 +133,11 @@ host or an outside account follows under [External waits](#external-waits).
 22. [Rule the slot split's migration window](../design/slots-and-contributions.md#OQ-D6), then [the manifest language](../design/manifest-language.md)
     with [the slots' other calls](../design/slots-and-contributions.md) — `exposes` and [the pi extension-tree
     rework](../design/pi-pack-extensions.md) wait on the first, and one sitting for the rest rewrites manifests once.
-23. Provider work later decisions build on: [build the natively-implements rule's broad reading](../design/pi-codex-provider-shadowing-plan.md),
-    ruled 2026-10-05, since pi's Converse route through the wire bridge waits on where it lets that route's row sit, with
-    [whether the rule reaches a list a pack declares](../design/pi-codex-provider-shadowing.md#OQ-4), which holds two of the
-    rows the build would remove; and [what `-p` names](../design/providers-and-profiles-redesign.md), which the plain-words
-    rewrite of the provider reference waits on.
+23. Provider work later decisions build on: [whether the natively-implements rule reaches a list a pack declares](../design/pi-codex-provider-shadowing.md#OQ-4),
+    which holds two rows [the rule's broad reading](../design/pi-codex-provider-shadowing-plan.md) left in place when it was
+    built on 2026-10-05; pi's Converse route through the wire bridge may no longer sit on `amazon-bedrock` under that
+    build; and [what `-p` names](../design/providers-and-profiles-redesign.md), which the plain-words rewrite of the
+    provider reference waits on.
 24. [Decide whether a jail shell gets the credential grant](../design/credential-sources-separation.md) — a jail's
     `--with-credentials` and [its build sketch](../design/credential-sources-separation-plan.md) wait on it.
 25. [Notch convergence's held items](notch-convergence.md) — after the workspace-config and jail-credential rulings above

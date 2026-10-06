@@ -157,13 +157,33 @@ func AgentEnv(packs []*Pack, providers *jsonx.OrderedMap, useProfiles map[string
 	// the pack is the more specific statement about its own agent's process. Composed before
 	// the derive-script check, because the variables are core's and an agent whose pack ships
 	// no yolo.env producer is still an agent whose children want its provider's tiers.
+	//
+	// A PROVIDER THE AGENT HAS BUILT IN NAMES NO MODEL FROM YOLO'S LIST (BuiltInProviderFor;
+	// docs/design/pi-codex-provider-shadowing.md OQ-3): the agent runs it on its own list, so
+	// each role variable is composed as if the selection named no tier at all, which removes the
+	// ones another provider of the table names. A child reading YOLO_MODEL_FAST would otherwise
+	// be handed `<yolo name>/<yolo's id>`, which names a provider the agent may know by another
+	// id (opencode's zai-coding-plan) and a model its own list may not hold.
+	roleProvider := selected
+	if _, builtIn := BuiltInProviderFor(packs, agent, selected); builtIn {
+		roleProvider = ""
+	}
 	composed := map[string]any{}
-	for _, v := range ModelRoleVars(table, selected) {
+	for _, v := range ModelRoleVars(table, roleProvider) {
 		if v.Unset {
 			composed[v.Key] = nil
 		} else {
 			composed[v.Key] = v.Value
 		}
+	}
+	// THE PLAN'S KEY UNDER THE NAME THE AGENT'S OWN PROVIDER READS (packdecl.ProviderPlan's
+	// APIKeyEnvName): opencode serves yolo's zai as its own zai-coding-plan, which reads
+	// ZHIPU_API_KEY where packs/zai names ZAI_API_KEY, so the selected provider's key is composed
+	// under that name too, for every entry of the active set. Core, not the derive, because the
+	// declaration is core's to read; the agent's own pack still wins a name it sets itself.
+	for _, v := range BuiltInKeyVars(packs, agent, table, append([]string{selected},
+		activeSetProviders(ActiveSetFor(cfg.setOr(profile), cfg.resolved))...)) {
+		composed[v.Key] = v.Value
 	}
 	if script := DeriveScript(owner); script != "" {
 		out, err := deriveAgentEnv(script, owner, packs, providers, table, useProfiles, agent,
@@ -202,6 +222,10 @@ func deriveAgentEnv(script string, owner *Pack, packs []*Pack, providers *jsonx.
 		// derive paths cannot grow different answers to "what is the active source", which
 		// is the rule SelectedProvider and Profile above already follow.
 		NativeCapabilities: owner.Decl.NativeCapabilities(agent),
+		// The agent's own providers (ctx.built_in_providers), the same answer the surface path
+		// hands its derives, so an env derive and a config derive cannot disagree about which
+		// provider the agent reaches through its own client.
+		BuiltInProviders: BuiltInProvidersFor(packs, agent),
 		Tables: map[string]map[string]any{
 			manifest.SourceProviders:   table,
 			manifest.SourceUseProfiles: plainProfiles(useProfiles),

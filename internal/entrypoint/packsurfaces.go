@@ -301,6 +301,11 @@ type surfaceSelection struct {
 	// applies (luahook.sourceCapabilities) — resolving it here would put the rule in the
 	// caller the same way the per-agent Lua branches used to.
 	NativeCapabilities []string
+	// BuiltInProviders is the providers this surface's agent implements itself, keyed by yolo
+	// provider name (packload.BuiltInProvidersFor, from the agent's own pack, by bin ownership)
+	// — ctx.built_in_providers. A derive writes no model entry under one of them
+	// (docs/design/pi-codex-provider-shadowing.md OQ-3).
+	BuiltInProviders map[string]luahook.BuiltInProvider
 	// ViaURL is this agent's per-agent route on the service its active profile's `via`
 	// names (OQ-WG7 (d)) — ctx.via_url; "" when the profile is not a via profile, or its
 	// service is not in the launch (the host notch).
@@ -350,6 +355,7 @@ func surfaceSelectionFor(packs []*packload.Pack, resolved map[string]packload.Re
 		Provider:           packload.ProviderFor(resolved, profile),
 		ActiveSet:          packload.ActiveSetFor(set, resolved),
 		NativeCapabilities: packload.NativeCapabilities(packs, s.Agent),
+		BuiltInProviders:   packload.BuiltInProvidersFor(packs, s.Agent),
 		ViaURL:             packload.ViaURLFor(resolved[profile], s.Agent),
 		ViaAPIKeyEnvName:   packload.ViaAPIKeyEnvNameFor(packs, resolved[profile], s.Agent),
 		ModelsNotEnforced:  !packload.ModelsEnforced(resolved[profile]),
@@ -412,6 +418,7 @@ func deriveCtx(e *Env, surface manifest.Surface, sel surfaceSelection, tables ma
 		Profile:            activeProfileOptions(e, sel.Profile),
 		ActiveSet:          sel.ActiveSet,
 		NativeCapabilities: sel.NativeCapabilities,
+		BuiltInProviders:   sel.BuiltInProviders,
 		ViaURL:             sel.ViaURL,
 		ViaAPIKeyEnvName:   sel.ViaAPIKeyEnvName,
 		ModelsNotEnforced:  sel.ModelsNotEnforced,

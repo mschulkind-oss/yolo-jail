@@ -5,6 +5,23 @@
     //   dnf: https://packages.fedoraproject.org/pkgs/pi-coding-agent/pi-coding-agent/fedora-rawhide.html#files (/usr/bin/pi; only in Fedora 45, unreleased on 2026-10-02, and Rawhide, so dnf finds no such package on Fedora 43 or 44)
     {
       "bin": "pi",
+      // pi's own providers, read from pi 1.0.1's installed code on 2026-10-05, never run: the ids
+      // pi-ai's builtinProviders() registers (dist/providers/all.js) and the `llama.cpp` its own
+      // extension adds (dist/extensions/llama/provider.js). yolo writes no model entry over one
+      // (docs/design/pi-codex-provider-shadowing.md OQ-3). pi's own zai already calls the coding
+      // plan (api.z.ai/api/coding/paas/v4, reading ZAI_API_KEY), so yolo's zai needs no plan.
+      "built_in_providers": {
+        "names": [
+          "amazon-bedrock", "ant-ling", "anthropic", "azure-openai-responses", "baseten",
+          "cerebras", "cloudflare-ai-gateway", "cloudflare-workers-ai", "deepseek", "fireworks",
+          "github-copilot", "google", "google-vertex", "groq", "huggingface", "kimi-coding",
+          "llama.cpp", "meta", "minimax", "minimax-cn", "mistral", "moonshotai", "moonshotai-cn",
+          "nvidia", "openai", "openai-codex", "opencode", "opencode-go", "openrouter",
+          "qwen-token-plan", "qwen-token-plan-cn", "qwen-token-plan-individual", "radius",
+          "together", "typesafe", "vercel-ai-gateway", "xai", "xiaomi", "xiaomi-token-plan-ams",
+          "xiaomi-token-plan-cn", "xiaomi-token-plan-sgp", "zai", "zai-coding-cn"
+        ]
+      },
       "flags": [
         "--ignore-scripts"
       ],
