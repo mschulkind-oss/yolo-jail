@@ -121,8 +121,15 @@
 
   [bold]packages[/bold] (array): Extra nix packages baked into the image.
     Supports three formats:
-    • String: package name from nixpkgs (latest from flake's pin)
-      Example: "postgresql"
+    • String: a nixpkgs attribute path (latest from flake's pin).  An entry
+      installs what `nix build nixpkgs#<entry>` builds, so a dot reaches into
+      whatever the name before it holds: an output or a collection member.
+      Examples: "postgresql", "gtk4.dev" (gtk4's dev output),
+                "rocmPackages.clr" (a member of the rocmPackages collection),
+                "rocmPackages.clr.icd" (that member's icd output)
+      A name that is not letters, digits, '_' and '-' is quoted as Nix quotes
+      it: "nerd-fonts.\"m+\"".  A bare collection ("rocmPackages") is refused,
+      naming members you could write instead.
     • Object with nixpkgs: pinned to a specific nixpkgs commit
       Example: {"name": "freetype", "nixpkgs": "<commit-hash>"}
     • Object with version override: build from upstream source

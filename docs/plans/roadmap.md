@@ -204,7 +204,8 @@ host or an outside account follows under [External waits](#external-waits).
     [the Bedrock user-guide recipes](../design/bedrock-plumbing.md#12-what-i-would-build-in-order); [the disk levers' re-measure](../design/disk-levers-and-backfill.md),
     its jail half now; [a shared-dir hook whose `at` names no machine `state` of its pack](../design/pack-conventions.md#7-considered-and-not-proposed),
     which `yolo pack lint` and `yolo check` pass and the boot then refuses, starting with the failing lint test; and graduating
-    [the extension model defaults](../research/extension-model-defaults.md) into the provider reference.
+    [the extension model defaults](../research/extension-model-defaults.md) into the provider reference and
+    [`packages` attribute paths](../design/package-nested-attribute-paths.md), built 2026-10-06, into a system doc.
 44. The builds the 2026-10-05 CI and testing rulings released, beside those, since none holds other work either:
     [real vendor installs on the macos-user nightly](../reference/agent-install-in-ci.md#OQ-CI7), one hard-failing job per pack
     with the npm packs first, since no CI job installs a vendor's Mac build before a user does; [copilot from GitHub's own

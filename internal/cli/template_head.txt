@@ -17,13 +17,15 @@
   // --help` and `yolo config-ref`.
 
   // Extra nix packages to include in the jail image.
-  // Names must match nixpkgs attribute names (search at https://search.nixos.org/packages).
+  // Names are nixpkgs attribute paths (search at https://search.nixos.org/packages):
+  // an entry installs what `nix build nixpkgs#<entry>` builds.
   // The image rebuilds only when this list changes.
-  // Supports plain strings (latest), dotted output selection, pinned nixpkgs
-  // commits, version overrides, and explicit multi-output objects:
+  // Supports plain strings (latest), dotted outputs and collection members, pinned
+  // nixpkgs commits, version overrides, and explicit multi-output objects:
   // "packages": [
   //   "postgresql",
   //   "gtk4.dev",                                       // single non-default output
+  //   "rocmPackages.clr",                               // a collection member
   //   {"name": "gtk4", "outputs": ["out", "dev"]},      // multiple outputs
   //   {"name": "freetype", "nixpkgs": "<commit-hash>"},
   //   {"name": "freetype", "version": "2.14.1",

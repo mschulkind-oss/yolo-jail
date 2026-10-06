@@ -232,6 +232,17 @@ func validateAgentsRetired(config *jsonx.OrderedMap, errs, warns *[]string) {
 	add(errs, msg)
 }
 
+// invalidPackagePath is the refusal for a `packages` name that is not a nixpkgs
+// attribute path (packageNameRe), saying what one is and how to find the right one.
+func invalidPackagePath(s string) string {
+	return fmt.Sprintf("invalid package name %s; expected a nixpkgs attribute path, "+
+		"as `nix build nixpkgs#<path>` takes it: 'strace', an output like 'gtk4.dev', "+
+		"or a collection member like 'rocmPackages.clr' — names of letters, digits, "+
+		"'_' and '-', separated by single dots, with any other name quoted as Nix "+
+		"quotes it ('nerd-fonts.\"m+\"'). `nix search nixpkgs <name>` finds the path.",
+		pytext.Repr(s))
+}
+
 func validatePackages(config *jsonx.OrderedMap, errs *[]string) {
 	packagesV, present := config.Get("packages")
 	if !present || packagesV == nil {
@@ -246,10 +257,7 @@ func validatePackages(config *jsonx.OrderedMap, errs *[]string) {
 		path := fmt.Sprintf("config.packages[%d]", idx)
 		if s, ok := asStr(pkgV); ok {
 			if !packageNameRe.MatchString(s) {
-				add(errs, fmt.Sprintf("%s: invalid package name %s; "+
-					"expected '<name>' or '<name>.<output>' "+
-					"(letters, digits, '_' and '-' only; at most one dot)",
-					path, pytext.Repr(s)))
+				add(errs, path+": "+invalidPackagePath(s))
 			}
 			continue
 		}
@@ -260,11 +268,13 @@ func validatePackages(config *jsonx.OrderedMap, errs *[]string) {
 		}
 		reportUnknownKeys(pkg, knownPackageKeys, path, errs)
 		nameV, _ := pkg.Get("name")
+		// The object's name is the same attribute path a string entry is, so every
+		// string entry can be rewritten as {"name": <it>, "platforms": [...]}: the
+		// spelling the macos-user launch refusal tells the user to write.
 		if name, ok := asStr(nameV); !ok {
 			add(errs, path+".name: expected a string")
-		} else if strings.Contains(name, ".") {
-			add(errs, path+".name: dotted output shorthand ('gtk4.dev') is "+
-				"string-only; use the 'outputs' field on the object form")
+		} else if !packageNameRe.MatchString(name) {
+			add(errs, path+".name: "+invalidPackagePath(name))
 		}
 		// platforms: the entry applies only on these GOOS values. An UNKNOWN value is
 		// an error rather than an entry that quietly never matches — a typo like

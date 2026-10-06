@@ -52,6 +52,11 @@ region's list from Bedrock through the `aws-auth` login, once a day, so Copilot 
 Bedrock serves; a launch that still leaves Copilot no model says what to add. See
 [the providers yolo ships](userguide/guides/providers-and-models.md#the-providers-yolo-ships).
 
+**Packages from inside a nixpkgs collection.** A `packages` entry such as `rocmPackages.clr` now
+installs that member of the collection, and every entry installs what `nix build nixpkgs#<entry>`
+would. A bare collection is refused with members you could name instead. See
+[Packages and Tools](userguide/guides/packages-and-tools.md#nix-packages-image-level).
+
 ### Changed
 
 - A jail now installs every agent and tool your selected packs declare when it starts, once
@@ -96,6 +101,8 @@ Bedrock serves; a launch that still leaves Copilot no model says what to add. Se
 - When pi's extension refresh cannot lock its folder, it now says how to fix that.
 - Blocking `cat` with `security.blocked_tools` no longer stops pi's extension refresh, or leaves
   its lock held.
+- Naming a large package collection such as `python3Packages` in `packages` no longer says it
+  holds no packages.
 - When `yolo host` has no container runtime to capture an agent with, it now says to install one.
 - On a host whose `/bin/sh` is dash, such as Debian or Ubuntu, the Claude Code install command that
   `yolo check-deps` prints and `yolo host apply --assert` runs now installs it.

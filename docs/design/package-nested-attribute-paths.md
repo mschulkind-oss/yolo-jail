@@ -1,355 +1,354 @@
 ---
-title: "Nested nixpkgs attribute paths in `packages`"
+title: "A `packages` entry is a nixpkgs attribute path — and installs what `nix build` would"
 date: 2026-08-22
 status: accepted
 tags: [config, nix, packages, flake]
-summary: "A `packages` entry like `rocmPackages.clr` fails because yolo reads any dot as an output selection. In Nix both are the same attribute walk, so one path-walking resolver supports nested collections and output selection alike — provided it keeps the base derivation for the /lib symlink farm."
-stage: DECIDED
-next: "Build the resolver under OQ-1's (C), decided 2026-10-05 by the agent under the maintainer's delegation: a packages entry installs what nix build nixpkgs#<path> builds for the same dotted path, so §5.1's output-first walk is replaced; record which reading Nix gives on the colliding paths (one texsource path measured 2026-10-05 builds its own derivation, so there (A) and (C) differ), keeping §4.2's base derivation for the /lib farm"
+summary: "A `packages` entry is a nixpkgs attribute path, resolved by the attribute walk Nix itself does, so `rocmPackages.clr` installs a collection member and `gtk4.dev` an output, exactly what `nix build nixpkgs#<entry>` builds. yolo adds one rule of its own: an output keeps its parent as the base derivation, because the /lib farm and the header closure read the base."
+stage: BUILT
+next: "Graduate into a system doc (system-doc): the resolver, its refusals and the /lib-farm base rule, from §5 and the ledger. Before that, measure the non-container half on a Mac: a macos-user launch with a dotted entry, which no CI job runs"
 ---
 
-# Nested nixpkgs attribute paths in `packages` — and why output selection is the same operation
+# A `packages` entry is a nixpkgs attribute path — and installs what `nix build` would
 
-**Status:** 2026-10-05 — sketched 2026-08-22. [OQ-1](#OQ-1), the resolver's central rule, was
-decided on 2026-10-05 by the agent under the maintainer's delegation: follow Nix exactly. Nothing
-built: re-checked 2026-10-05, `packageNameRe` is still the single-optional-dot pattern and
-`flake.nix` still has no `attrByPath`, `hasAttrByPath` or `resolvePackagePath`. `60376fed` does not invalidate any premise
-below — see the postscript. Code is cited by symbol throughout, never by line: the line anchors
-this doc used to carry had drifted by hundreds of lines.
+**Status:** built 2026-10-06 on `d775dde6`, after [OQ-1](#8-decision-ledger) was ruled on
+2026-10-05. MEASURED: in a nested podman jail launched from a throwaway workspace with the
+freshly built `yolo`, one entry of each shape in [§5.1](#51-the-resolver) was installed as
+designed (headers and `.pc` files on `PKG_CONFIG_PATH`, the base's `.so` in `/lib`, the
+texsource files linking Nix's derivation and not the rejected one), and a bare
+`rocmPackages` stopped the launch with the member advice of [§5.4](#54-the-refusals). Every
+store path the integration tests compare is Nix's own answer, read from `nix build --dry-run`
+against the flake's pin. UNMEASURED: the non-container resolution on a Mac. Its Linux
+evaluation is tested, and no macos-user launch with a dotted entry has run.
 
-**Needs your ruling:** none. [OQ-1](#OQ-1) was decided in review on 2026-10-05 by the agent,
-under the maintainer's delegation (*"I have no idea you decide"*): yolo installs what
-`nix build nixpkgs#<path>` builds for the same dotted path.
+> **In short.** A dotted `packages` entry is not yolo syntax. It is the attribute path
+> `nix build nixpkgs#<entry>` takes, walked the way Nix walks it, so every entry means what it
+> means on the command line. yolo's own contribution is one rule: an output keeps its parent
+> as the base derivation.
 
-> [!NOTE]
-> **Postscript, 2026-08-23 — audit against the tree, and against `60376fed`.**
->
-> **"Nothing built" holds — re-verified 2026-09-24.** Every mechanism this doc proposes to change
-> is untouched:
-> `packageNameRe` is still the single-optional-dot pattern `^[a-zA-Z0-9_-]+(\.[a-zA-Z0-9_-]+)?$`
-> (declared in [`internal/config/config.go`](../../internal/config/config.go), enforced in the
-> `packages` branch of [`validate.go`](../../internal/config/validate.go));
-> `parseDottedSpec` in [`flake.nix`](../../flake.nix) still splits on one dot under the comment
-> *"Validator (yolo check) rejects multi-dot strings, so we only handle one dot here"*; and
-> `flake.nix` contains no
-> `attrByPath`, no `hasAttrByPath`, and no `resolvePackagePath`. [§5.1](#51-resolution-algorithm-flakenix)'s resolver does not exist in
-> any form.
->
-> **One worked example has died in the pin (found 2026-09-02, still true 2026-09-24):**
-> `llvmPackages_16` was removed from nixpkgs (*"unmaintained and obsolete"*), so this doc's
-> `llvmPackages_16.libclang.dev` example no longer evaluates against the nixpkgs `flake.lock` pins.
-> The *shape* it illustrates is unchanged — substitute a maintained set (e.g.
-> `llvmPackages_19.libclang.dev`) when implementing the test list in [§7](#7-test-plan). The other
-> examples still hold, re-measured 2026-09-24 against the current pin (`flake.lock` has moved since
-> the first check): `rocmPackages` has exactly 114 attributes, `rocmPackages.clr` and `xorg.libX11`
-> are derivations, `gtk4.outputs` is `[out dev devdoc debug]`.
->
-> **`60376fed` (2026-08-20) does not change this doc's premises — it *is* one of them.** This doc
-> was written on 2026-08-22, two days after that commit, and [§2.1](#21-the-current-failure) already cites it by hash and
-> quotes the error it introduced. `requireDerivation` is in
-> [`flake.nix`](../../flake.nix), exactly as [§2.1](#21-the-current-failure) says, and
-> [`integration/packagecollection_test.go`](../../integration/packagecollection_test.go) exists
-> already — so [§7](#7-test-plan)'s first bullet list is *extending* a suite, not creating one. Nothing here is
-> stale.
->
-> **One consequence of `60376fed` the body does not yet record.** [§2.1](#21-the-current-failure) quotes the refusal
-> accurately but *truncated*. The full `nonPackageError` message ends with two more lines
-> (`nonPackageError`, [`flake.nix`](../../flake.nix)):
->
-> ```text
->   Members include: <sample>, ...
->   A collection member is NOT selectable from `packages`: use the member's own
->   top-level attribute if nixpkgs has one (`nix search nixpkgs <member>` to
->   check — most of xorg.* is top-level today, e.g. libX11), and drop "<entry>".
-> ```
->
-> That second line is a **normative statement to the user that this design reverses.** It is not a
-> diagnostic that happens to fire; it is advice telling people the thing this doc wants to make
-> work is not a thing. So P3 ("keep collection diagnostics honest and actionable") acquires a
-> second obligation the body does not state: shipping this design means rewriting that advice, not
-> merely narrowing when the throw fires. A user who followed the shipped advice and rewrote
-> `xorg.libX11` to `libX11` is not wrong afterwards — but the message must stop saying the dotted
-> form is unselectable, or the error becomes the lie.
->
-> Everything else in [§1](#1-goal--principles)–[§7](#7-test-plan) is stated as of 2026-08-22 and still reads true.
+**Why it matters.** `"rocmPackages.clr"`, the ROCm runtime the AMD GPU passthrough needs, was
+refused: the one-dot pattern read every dot as an output selection. Collection members had no
+spelling at all.
 
-**The short version.** A `packages` entry like `"rocmPackages.clr"` currently fails because yolo assumes any dot indicates an output selection on a top-level package. But in Nix, derivation outputs *are* attributes on the derivation itself. Unifying dotted strings as a general attribute path walk (`lib.attrByPath`) supports arbitrary nested collections (`rocmPackages.clr`, `llvmPackages_16.libclang.dev`, `darwin.apple_sdk.frameworks.Security`) without new syntax, provided the resolver preserves the base derivation for the `/lib` symlink farm and header propagation.
+**The shape.** One walk ([§5.1](#51-the-resolver)), one split into base and outputs, and every
+consumer reading that split: the image contents, the `/lib` farm and the non-container
+`buildEnv`.
 
-**Reads with:** [`provisioner-evidence.md`](provisioner-evidence.md#3-the-nix-resolver-in-depth) (the nix resolver in depth — how `packages:` materializes off-container; it was split out of [`provisioner-sets.md`](provisioner-sets.md) on 2026-09-20, which had absorbed [`noncontainer-nix-environment.md`](noncontainer-nix-environment.md) on 2026-09-11), [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md) (the image build path), [`mise-node-dynamic-linking.md`](../reference/mise-node-dynamic-linking.md) (the `/lib` symlink farm and dlopen discovery).
+**Start at [§4.3](#43-the-collision-and-why-nix-decides-it)**, the one place two readings of a
+path existed. The rest falls out of following Nix there.
+
+**Needs your ruling:** None.
+
+**Reads with:** [`provisioner-evidence.md`](provisioner-evidence.md#3-the-nix-resolver-in-depth)
+(how `packages:` materializes off-container),
+[`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md) (the image build path),
+[`mise-node-dynamic-linking.md`](../reference/mise-node-dynamic-linking.md) (the `/lib` symlink
+farm and dlopen discovery).
 
 ---
 
-## 1. Goal & Principles
+## 1. Goal and principles
 
 ### 1.1 Goal
-Allow `packages` in `yolo-jail.jsonc` to resolve nested nixpkgs package collections (`rocmPackages.clr`, `xorg.libX11`, `llvmPackages_16.libclang`, `darwin.apple_sdk.frameworks.Security`) alongside output selection (`gtk4.dev`, `rocmPackages.clr.dev`), across container image builds and non-container (`macos-user` / `guest`) environments.
+
+Let `packages` in `yolo-jail.jsonc` name anything nixpkgs builds by attribute path: a
+top-level package (`strace`), an output (`gtk4.dev`), a member of a package collection
+(`rocmPackages.clr`, `gst_all_1.gstreamer`) and a member's output
+(`gst_all_1.gstreamer.dev`). This holds on every backend: the container image, and the
+non-container `buildEnv` that `macos-user` builds.
 
 ### 1.2 Principles
-- **P1. One uniform syntax.** A user should not have to learn a separate syntax for a top-level package, a nested collection member, or a package output. Attribute access in Nix is uniform; yolo's package resolution should match.
-- **P2. Preserve the `/lib` symlink farm contract.** Adding a library to `packages` (or `.dev` for headers) must continue to link its shared `.so` libraries into `/lib` for runtime `dlopen()` discovery by non-nix tooling.
-- **P3. Keep collection diagnostics honest and actionable.** A bare collection with no derivation (`xorg`, `rocmPackages`, `python3Packages`) must continue to be refused by name with member samples, rather than failing downstream inside Nix's string coercion.
+
+- **P1. One syntax, and it is Nix's.** An entry installs what `nix build nixpkgs#<entry>`
+  builds, against the flake's pinned nixpkgs. A user who can spell it for `nix build` can spell
+  it here, quoting a name with punctuation as the Nix language does, and yolo never reinterprets
+  a name.
+- **P2. Preserve the `/lib` symlink farm contract.** Adding a library to `packages`, or its
+  `.dev` output for headers, links its shared libraries into `/lib` for `dlopen()` by soname.
+- **P3. Keep collection diagnostics honest and actionable.** A bare collection (`xorg`,
+  `rocmPackages`, `python3Packages`) is refused by name, with members sampled and one written
+  out as an entry the user could use instead.
 
 ---
 
-## 2. Problem Statement & Why Runtime Workarounds Fall Short
+## 2. The failure this fixes
 
-### 2.1 The Current Failure
-Currently, string entries in `packages` support at most one dot (`packageNameRe = ^[a-zA-Z0-9_-]+(\.[a-zA-Z0-9_-]+)?$`), which `parseDottedSpec` in [`flake.nix`](../../flake.nix) parses exclusively as `<base-package>.<output>`.
+Until this design, a string entry allowed at most one dot (`packageNameRe` was
+`^[a-zA-Z0-9_-]+(\.[a-zA-Z0-9_-]+)?$`), and the flake read that dot as `<package>.<output>`.
+So `"rocmPackages.clr"` resolved `rocmPackages` as the package and `clr` as its output, and the
+collection guard refused it:
 
-When a user specifies a collection member:
-```jsonc
-"packages": ["rocmPackages.clr"]
-```
-yolo attempts to resolve base attribute `imagePkgs.rocmPackages` and output `clr`. Because `rocmPackages` is an attribute set of 114 derivations (not a derivation itself), the `requireDerivation` guard ([`flake.nix`](../../flake.nix), added in `60376fed`) refuses the build:
-
-```
+```text
 error: yolo: `packages` entry "rocmPackages.clr" resolves to nixpkgs.rocmPackages,
 which is a package COLLECTION of 114 attributes, not a package — it has no
 derivation to install. (from the `packages` entry "rocmPackages.clr" — the part
 after the dot selects an OUTPUT, not a collection member)
 ```
 
-### 2.2 Why Runtime `nix shell` is Insufficient
-An interactive `nix shell nixpkgs#rocmPackages.clr` works for temporary build tasks, but fails to replace baked packages:
+The same message went on to tell the user that *"a collection member is NOT selectable from
+`packages`"*. That sentence is gone ([§5.4](#54-the-refusals)), because it is no longer true.
+
+### 2.1 Why runtime `nix shell` is not the answer
+
+`nix shell nixpkgs#rocmPackages.clr` works for a temporary task, but it does not replace a
+baked package:
 
 | Property | Baked via `packages:` | Runtime `nix shell` |
-|---|---|---|
+| :--- | :--- | :--- |
 | Available to non-nix tooling | **Yes** (in `/bin` / `/lib`) | **No** (subshell only) |
-| On `PATH` for all jail processes (MCP servers, hooks, subagents) | **Yes** | **No** (interactive subshell only) |
+| On `PATH` for all jail processes (MCP servers, hooks, subagents) | **Yes** | **No** |
 | Symlinked into the `/lib` farm for `dlopen()` by soname | **Yes** | **No** |
 | Startup cost per invocation | **Zero** | Re-resolves and fetches |
-| Fully offline / air-gapped jail runs | **Yes** | Fails on cold cache |
+| Fully offline jail runs | **Yes** | Fails on a cold cache |
 
-The **/lib symlink farm row** is the hard limit: non-nix binaries (Python wheels, node native addons, downloaded binaries) locate shared libraries by soname (`dlopen("libamdhip64.so.6")`) using `LD_LIBRARY_PATH=/lib:/usr/lib`. If a library is not baked into the image and linked into `/lib`, runtime `dlopen()` fails regardless of `nix shell`.
-
----
-
-## 3. What this Proposal does NOT Propose (Non-Goals)
-
-- **No arbitrary Nix syntax in JSON.** We are not supporting arbitrary Nix expressions, function calls, or uncurried attribute overrides in `yolo-jail.jsonc`.
-- **No abolition of the collection guard.** Specifying a bare attribute set (e.g. `"xorg"` or `"rocmPackages"`) remains a hard error.
+The `/lib` farm row is the hard limit. Non-nix binaries (Python wheels, node native addons,
+downloaded binaries) find a shared library by soname (`dlopen("libamdhip64.so.7")`) through
+`LD_LIBRARY_PATH=/lib:/usr/lib`, and a library that is not linked into `/lib` is not found,
+whatever `nix shell` provides.
 
 ---
 
-## 4. Architectural Analysis & The Traps
+## 3. What this does NOT do
 
-### 4.1 Output Selection *is* Attribute Access
-In Nix, a derivation's outputs are exposed as attributes on the derivation attrset:
-- `pkgs.gtk4` → derivation with outputs `["out", "dev", ...]`
-- `pkgs.gtk4.dev` → derivation corresponding to the `dev` output
-- `pkgs.rocmPackages.clr` → derivation corresponding to the `clr` package
+- **No arbitrary Nix in JSON.** No expressions, function calls or overrides in
+  `yolo-jail.jsonc`. The attribute-path grammar is all of Nix this accepts, and only a subset of
+  it ([§5.2](#52-the-grammar-yolo-check-enforces)).
+- **No abolition of the collection guard.** A bare set (`"xorg"`, `"rocmPackages"`) is still a
+  hard error.
+- **No renaming of what Nix names.** yolo never maps an entry to a different attribute, not
+  even where nixpkgs deprecates one (`xorg.libX11` warns in this pin and still resolves).
 
-Both `gtk4.dev` and `rocmPackages.clr` are reached by walking the same dotted attribute path.
+---
 
-### 4.2 The Base Derivation vs. Output Trap in `/lib` Farm Extraction
-In [`flake.nix`](../../flake.nix), `extraLibPackages` builds the runtime `/lib` symlink farm by running `imagePkgs.lib.getLib` on the **base derivation**:
-```nix
-# Runtime-library derivations for the /lib farm. getLib is applied
-# to the BASE derivation of each spec, never the selected outputs:
-# getLib is a no-op on an output-specified entry, so deriving the
-# farm from extraPackages made a ".dev" request... contribute no
-# runtime .so at all
-extraLibPackages = builtins.concatMap (r:
-  let
-    devRequested = r.outputs != null && builtins.elem "dev" r.outputs;
-    propagatedLibs = map (i: imagePkgs.lib.getLib i.pkg)
-      (builtins.filter (i: i.key != r.drv.outPath)
-        (propagatedClosure r.drv));
-  in
-    [ (imagePkgs.lib.getLib r.drv) ]
-    ++ imagePkgs.lib.optionals devRequested propagatedLibs
-) resolvedPackageSpecs;
-```
+## 4. How Nix reaches a value, and the traps
 
-If `"gtk4.dev"` were naively resolved as a leaf derivation `drv = imagePkgs.gtk4.dev`:
-- `lib.getLib (imagePkgs.gtk4.dev)` returns `gtk4.dev` itself (which contains only headers and `.pc` files, no `.so` shared libraries).
-- `libgtk-4.so` would be **missing from `/lib` and `/usr/lib`**.
+### 4.1 Output selection is attribute access
 
-Therefore, the resolver must distinguish:
-- **`drv` (Base Derivation):** The parent derivation providing the package (`gtk4`, `rocmPackages.clr`), from which `.outPath`, `getLib`, and `propagatedClosure` are derived.
-- **`outputs`:** The requested outputs (e.g. `["dev"]`), or `null` for default.
+In Nix a derivation's outputs are attributes on the derivation:
 
-### 4.3 The collision between a collection member and an output
+- `pkgs.gtk4` is a derivation with outputs `[out dev devdoc debug]`.
+- `pkgs.gtk4.dev` is the same derivation, with `dev` selected.
+- `pkgs.rocmPackages.clr` is a derivation reached through a collection.
 
-If package `foo` has an output named `bar` and nixpkgs also has an attrset `foo.bar`, the dotted
-string `foo.bar` has two readings; [OQ-1](#OQ-1) asks which one wins.
+`gtk4.dev` and `rocmPackages.clr` are the same operation, one attribute access per name, and
+`nix build` performs exactly that walk. When the value it reaches is one output of a derivation,
+it carries Nix's own marker, `outputSpecified = true` with `outputName` naming the output, and
+that marker is how `nix build` knows to build only that output.
 
-**What [OQ-1](#OQ-1) decides:** the resolver's central disambiguation rule, and therefore the whole feature.
-[§5.1](#51-resolution-algorithm-flakenix)'s `walk` already encodes an answer — it tests `builtins.elem (head remaining) (curr.outputs
-or ["out"])` *before* it tries a deeper attribute — so ruling the other way is not a tweak to that
-code, it is a different algorithm. It also decides what [§4.2](#42-the-base-derivation-vs-output-trap-in-lib-farm-extraction)'s base-derivation contract means in
-the ambiguous case: an output resolution keeps `foo` as the base and feeds `getLib foo` to the
-`/lib` farm, while a member resolution makes `foo.bar` the base and feeds `getLib foo.bar`. Those
-produce **different image contents**, silently, from the same config string. That is why this
-rule gates the feature as a whole rather than one corner of it.
+### 4.2 The base-derivation trap in the `/lib` farm
 
-**Measured 2026-10-01: the collision exists, in one family.** A `nix eval` over the nixpkgs
-this flake pins (`e158d9ed` in `flake.lock`) asked, of every derivation, whether any name in
-its `outputs` resolves to an attribute that is not that output (its `outputName` differs). A
-positive control, a derivation whose `passthru.lib` shadows its `lib` output, was caught.
+The `/lib` farm applies `lib.getLib` to each entry's **base derivation**, and a `.dev` request
+walks the base's propagated inputs for the header closure. `getLib` is a no-op on a value that
+already selects an output, so `getLib gtk4.dev` is `gtk4.dev` itself: headers and `.pc` files,
+no `.so`. A resolver that kept only the walked value would leave `libgtk-4.so` out of `/lib`,
+and every binary built against the headers would fail to start.
+
+So the resolver yields two things, not one:
+
+- **The base derivation.** For an output, the derivation one step up (`gtk4`); for anything
+  else, the value itself (`rocmPackages.clr`).
+- **The selected outputs.** `["dev"]` for `gtk4.dev`, or none (the default) otherwise.
+
+### 4.3 The collision, and why Nix decides it
+
+A path's last name can be both one of its parent's outputs and an attribute that is not that
+output. Then the path has two readings: the output, with the parent as base, or the attribute,
+as its own base. The two give **different image contents**, even though yolo's contents step
+reads the attribute under both: the `/lib` farm takes `getLib` of whichever is the base.
+
+**Measured 2026-10-01, over this flake's nixpkgs pin** (`e158d9ed`), by the probe in
+[the appendix](#appendix-re-running-the-collision-probe):
 
 - **Top level: none**, among 24,786 derivations.
 - **One level down: 1,961**, among the 79,811 derivations of the 292 package sets marked
-  `recurseForDerivations`. All but one are `texlivePackages.<pkg>.texsource`: `texsource` is in
-  the package's `outputs` (`["tex", "texdoc", "texsource"]`), but the attribute is a separate
-  derivation named `<pkg>-texsource` whose `outputName` is `out`. The other is
+  `recurseForDerivations`. All but one are `texlivePackages.<pkg>.texsource`; the other is
   `cygwin.newlib-cygwin-nobin.bin`, a cross-compilation set.
 
-So the rule [OQ-1](#OQ-1)'s leaning states resolves `texlivePackages.abc.texsource` as an output of
-`texlivePackages.abc` and feeds `getLib texlivePackages.abc` to the `/lib` farm, while the
-member reading would feed `getLib` of the separate texsource derivation: the different image
-contents the question warns of, on a real path. The `throw` alternative would refuse those
-1,960 paths, none of which `packages` can spell today, since `packageNameRe` allows one dot.
-UNMEASURED: sets nested more than one level deep, and whether anyone wants such a path in
-`packages`.
+**[OQ-1](#8-decision-ledger), ruled (C) on 2026-10-05: follow Nix exactly.** Of the three
+readings put to the ruling, the other two were rejected:
 
-**Decided 2026-10-05: neither of those two readings by rule — Nix's own.**
-[OQ-1](#OQ-1) went to (C): a dotted path resolves to what `nix build nixpkgs#<path>` builds.
-MEASURED the same day on one colliding path, at the nixpkgs `flake.lock` pins (`e158d9ed`):
-`nix build --dry-run --json` of `texlivePackages.12many.texsource` builds the `out` of
-`12many-0.3-texsource.drv`, a derivation separate from `12many-0.3.drv`. So on that path Nix gives
-the member reading, and the leaning's output-first rule would have installed something else.
+| Reading | What `texlivePackages.abc.texsource` installs | Verdict |
+| :--- | :--- | :--- |
+| **(A)** The output wins on the last name | The `texsource` output of `abc-2.0b.drv` | Rejected |
+| **(B)** Refuse the ambiguous path | Nothing; a `throw` names both readings | Rejected |
+| **(C)** Follow Nix | What `nix build nixpkgs#texlivePackages.abc.texsource` builds | **Ruled** |
 
----
+**(A) and (C) do not coincide.** Measured 2026-10-05 with `nix build --dry-run --json` against
+the pin, with nothing built:
 
-## 5. Proposed Solution
+| Installable | Derivation | Output path |
+| :--- | :--- | :--- |
+| `texlivePackages.abc.texsource` (C) | `v7cj0riq…-abc-2.0b-texsource.drv`, a fixed-output derivation | `out`: `/nix/store/xvfaa5f5…-abc-2.0b-texsource` |
+| `texlivePackages.abc^texsource` (A) | `ybx390i2…-abc-2.0b.drv` | `texsource`: `/nix/store/synsxp3g…-abc-2.0b-texsource` |
 
-### 5.1 Resolution Algorithm (`flake.nix`)
+The attribute is the separate derivation that `abc` takes as an input. It carries
+`outputSpecified = true` with `outputName = "out"`, so Nix builds its `out`, and that is what
+the image holds. Classified by (A) instead, the entry would make `abc` the base, and the `/lib`
+farm would link `getLib abc`, which is `abc`'s default output `fdfdnz1a…-abc-2.0b-tex`, in place
+of the texsource derivation. That is the difference the integration test catches.
 
 > [!WARNING]
-> **The walk below encodes [OQ-1](#OQ-1)'s leaning, which was not taken.** It tests the
-> output list before it tries the attribute, so on a colliding path it installs the output where
-> Nix installs the attribute. [OQ-1](#OQ-1) decided (C) on 2026-10-05: resolve each path to what
-> `nix build nixpkgs#<path>` builds. The builder replaces that branch; the rest of the sketch
-> (the base derivation, the error messages) stands.
-
-We replace `parseDottedSpec` with a path-walking parser that walks `lib.attrByPath` from head to tail:
-
-```nix
-# Walk a dotted string against an attribute root (e.g. imagePkgs).
-# Returns { drv = <base-derivation>; outputs = [ "dev" ] | null; }
-resolvePackagePath = rootPkgs: entryStr:
-  let
-    parts = builtins.filter builtins.isString (builtins.split "\\." entryStr);
-    isDrv = p: p != null && builtins.isAttrs p && (p ? outPath);
-
-    walk = prefix: remaining:
-      let
-        curr = pkgs.lib.attrByPath prefix null rootPkgs;
-      in
-        if curr == null then
-          throw "yolo: `packages` entry \"${entryStr}\" does not exist in nixpkgs (failed at ${builtins.concatStringsSep "." prefix})."
-        else if isDrv curr then
-          if remaining == [] then
-            # Reached end of path on a valid derivation
-            { drv = curr; outputs = null; }
-          else if builtins.length remaining == 1
-                  && (builtins.elem (builtins.head remaining) (curr.outputs or ["out"])) then
-            # Final component is an output of this derivation (.dev, .lib, .out)
-            { drv = curr; outputs = [ (builtins.head remaining) ]; }
-          else
-            # Continue traversing if curr is also an attrset (passthru / sub-package)
-            let nextVal = pkgs.lib.attrByPath (prefix ++ [ (builtins.head remaining) ]) null rootPkgs;
-            in if nextVal != null then
-              walk (prefix ++ [ (builtins.head remaining) ]) (builtins.tail remaining)
-            else
-              throw "yolo: `packages` entry \"${entryStr}\": \"${builtins.head remaining}\" is neither a sub-attribute nor a valid output of ${builtins.concatStringsSep "." prefix} (valid outputs: ${builtins.concatStringsSep ", " (curr.outputs or ["out"])})."
-        else if remaining == [] then
-          # Exhausted path but target is a collection or non-package attrset
-          throw (nonPackageError (builtins.concatStringsSep "." prefix) entryStr curr)
-        else
-          walk (prefix ++ [ (builtins.head remaining) ]) (builtins.tail remaining);
-  in
-    walk [ (builtins.head parts) ] (builtins.tail parts);
-```
-
-### 5.2 Host-Side Validation
-
-The pattern and its enforcement live in two files, and both move (verified 2026-09-24):
-
-1. Update `packageNameRe` — declared in [`internal/config/config.go`](../../internal/config/config.go), not in `validate.go` — to allow multi-segment dotted identifiers:
-   ```go
-   packageNameRe = regexp.MustCompile(`^[a-zA-Z0-9_-]+(\.[a-zA-Z0-9_-]+)*$`)
-   ```
-2. Update the error message on regex mismatch, raised in the `packages` branch of [`internal/config/validate.go`](../../internal/config/validate.go), which today reads *"expected '\<name>' or '\<name>.\<output>' (letters, digits, '_' and '-' only; at most one dot)"*:
-   `"expected '<name>', '<collection>.<name>', or '<name>.<output>' (letters, digits, '_' and '-' separated by dots)"`.
-3. Rewrite the collection-refusal advice in `nonPackageError` ([`flake.nix`](../../flake.nix)) — see the postscript at the top. It currently tells the user a collection member is not selectable from `packages`, which is the sentence this design falsifies.
-
-### 5.3 Non-Container Backend Resolution (`yoloNoncontainerPackages`)
-Update `noncontainerResolved` in `flake.nix` to use `pkgs.lib.hasAttrByPath` and `pkgs.lib.attrByPath` instead of flat `src ? ${attr}` checks, evaluating `lib.meta.availableOn` and `meta.available` on the resolved base derivation.
+> **The last name being in the parent's `outputs` is not evidence that the path names an
+> output.** `texsource` is in `abc`'s `outputs` (`[tex texdoc texsource]`), and the attribute
+> is another derivation. The test is Nix's marker on the value reached: `outputSpecified`, with
+> `outputName` equal to the last name, under a parent derivation that lists that output
+> ([§5.1](#51-the-resolver)).
 
 ---
 
-## 6. Alternatives Considered
+## 5. The design as built
+
+### 5.1 The resolver
+
+Every entry, string or object `name`, goes through one resolver in [`flake.nix`](../../flake.nix):
+
+1. **Parse** the entry into names on its dots; a quoted name is one name, its dots included
+   ([§5.2](#52-the-grammar-yolo-check-enforces)).
+2. **Walk** from the nixpkgs root one name at a time, testing `?` before each read. A missing
+   attribute is an abort that `tryEval` cannot catch, so the test is what lets the non-container
+   path skip an unknown entry ([§5.3](#53-the-non-container-path)). The walk never forces the
+   value it ends on.
+3. **Classify** the value reached:
+   - not found: refused on the image path, skipped on the non-container path;
+   - found and not a derivation: the collection or non-package refusal ([§5.4](#54-the-refusals));
+   - found and an output of its parent, by the test in [§4.3](#43-the-collision-and-why-nix-decides-it):
+     the base is the parent and the output is the last name;
+   - any other derivation: its own base, with no output selected.
+4. **Consume** the split. The image contents take the selected outputs of the base (a `.dev`
+   output brings its propagated closure's `.dev` outputs, as before). The `/lib` farm takes
+   `getLib` of the base and, for a `.dev` request, of its propagated closure.
+
+The image therefore always receives the value the path names: for an output, the contents read
+`base.<output>`, which is that value. Only the `/lib` farm and the header closure read the base.
+
+| Entry | Base | Outputs | Image gets | `/lib` farm gets |
+| :--- | :--- | :--- | :--- | :--- |
+| `strace` | `strace` | default | `strace` | `getLib strace` |
+| `gtk4.dev` | `gtk4` | `dev` | `gtk4.dev` and its propagated `.dev` outputs | `getLib gtk4` and its propagated libraries |
+| `rocmPackages.clr` | `rocmPackages.clr` | default | `clr` | `getLib clr` |
+| `rocmPackages.clr.icd` | `rocmPackages.clr` | `icd` | `clr.icd` | `getLib clr` |
+| `texlivePackages.abc.texsource` | the texsource derivation | default | that derivation's `out` | `getLib` of it |
+
+### 5.2 The grammar `yolo check` enforces
+
+A `packages` string, and an object's `name`, must match `packageNameRe`
+([`internal/config/config.go`](../../internal/config/config.go)):
+
+- names separated by single dots;
+- each name is letters, digits, `_` and `-`, or quoted as Nix quotes it: `nerd-fonts."m+"`,
+  `rubyPackages."http_parser.rb"`;
+- no empty name, no leading or trailing dot, no unclosed quote and no empty quotes.
+
+This is a subset of what `nix build` parses (it also takes `nerd-fonts.m+` unquoted), and
+every entry it accepts means what Nix means. **Measured 2026-10-06** over the
+pin: 11 of the 84,949 member names in the 296 recursed package sets need the quotes, and among
+top-level names only `makeScopeWithSplicing'`, a function. The refusal names the three shapes,
+the `nix build` spelling it mirrors and `nix search nixpkgs <name>` as the way to find a path.
+
+**The object form takes the same path** ([NP-D2](#NP-D2)). `{"name": "rocmPackages.clr",
+"platforms": ["linux"]}` is valid, because a macos-user launch with a package that has no Mac
+build tells the user to write exactly `{"name": "<pkg>", "platforms": ["linux"]}`. Pinned
+(`nixpkgs`) and version-override (`version`, `url`, `hash`) objects resolve their `name` the
+same way, against their own nixpkgs.
+
+### 5.3 The non-container path
+
+`yoloNoncontainerPackages`, the native `buildEnv` a macos-user launch builds, resolves with the
+same walk and split against the flake's own `system`:
+
+- **Unknown is skipped, not fatal, in the flake.** An entry the walk cannot find is skipped with
+  a warning naming the missing step, for instance `nixpkgs.rocmPackages has no attribute
+  "nosuch"`. The macos-user launch then refuses host-side, as it does for any skipped package.
+- **A collection, a non-package or an object naming an output twice is fatal**, outside the
+  `tryEval` around platform availability, which would otherwise relabel a config error
+  `no <system> build`.
+- **A skip names the entry as written**, `cudaPackages.libcublas.dev` and not its base, so the
+  macos-user refusal's `{"name": "<pkg>", "platforms": ["linux"]}` can be filled in from it
+  verbatim ([NP-D6](#NP-D6)). The non-container floor drops its own copy of the **base** path
+  a user declared (`gtk4` for `gtk4.dev`); a dotted base never matches a floor name, which are
+  all top-level.
+
+### 5.4 The refusals
+
+Each names the entry as written and says what to do ([NP-D4](#NP-D4)):
+
+| Case | Path | Says |
+| :--- | :--- | :--- |
+| A name is missing | image: abort; non-container: skip | which step failed (`nixpkgs.gtk4 has no attribute "nosuch"`), the outputs when that step is a derivation, and `nix search nixpkgs <name>` |
+| A bare collection | both: abort | three sampled members, one written as an entry (`"rocmPackages.amdsmi"`) with the `nix build` it mirrors, and the `nix eval … --apply builtins.attrNames` that lists them all |
+| A large set with no package among the first 500 names scanned | both: abort | what was seen, and the same listing command; never "holds no packages" |
+| A set holding no packages at all (`lib`) | both: abort | remove the entry |
+| An object whose `name` selects an output and which lists `outputs` | both: abort | the one spelling that says it once: `{"name": "gtk4", "outputs": ["dev","out"]}` |
+
+The member sample scans names until it finds three packages, at most 500
+([NP-D5](#NP-D5)). A fixed window was not enough: **measured 2026-10-06**,
+`python3Packages`' first 49 names are removed aliases that throw, so the old 40-name window
+found no member in a set of 12,184 packages and said it held none.
+
+---
+
+## 6. Alternatives considered
 
 | Alternative | Verdict | Rationale |
-|---|---|---|
-| **Explicit `attr` key on object specs** (`{"attr": "rocmPackages.clr"}`) | ❌ **Rejected** | Creates two syntaxes for one idea when uniform attribute path traversal makes standard string entries *just work*. |
-| **Flake-ref syntax** (`nixpkgs#rocmPackages.clr`) | ❌ **Rejected for v1** | Unnecessary CLI-style divergence in JSON config; does not align with existing `packages: [...]` conventions. |
-| **Naive leaf derivation resolution** (discarding base package) | ❌ **Rejected** | Breaks runtime library `/lib` farm extraction (`getLib gtk4.dev` loses `.so` files). |
+| :--- | :--- | :--- |
+| **(A) The output wins on the last name** | ❌ Rejected by [OQ-1](#8-decision-ledger) | Installs a different store path from `nix build` on 1,960 texlive paths ([§4.3](#43-the-collision-and-why-nix-decides-it)) |
+| **(B) Refuse an ambiguous path** | ❌ Rejected by [OQ-1](#8-decision-ledger) | Refuses paths Nix builds without complaint |
+| **An explicit `attr` key on object specs** (`{"attr": "rocmPackages.clr"}`) | ❌ Rejected | Two syntaxes for one idea, when the attribute walk makes the string form work |
+| **Flake-ref syntax** (`nixpkgs#rocmPackages.clr`) | ❌ Rejected | A command-line spelling in JSON, and the `nixpkgs#` prefix would carry nothing |
+| **Keep only the walked value** (no base) | ❌ Rejected | `getLib gtk4.dev` loses the `.so` files ([§4.2](#42-the-base-derivation-trap-in-the-lib-farm)) |
+| **The design's first resolver sketch** (`lib.attrByPath` with a `null` default) | ❌ Rejected | `null` cannot be told from an attribute whose value is `null`, and its output test was the leaf-in-`outputs` test (A) |
 
 ---
 
-## 7. Test Plan
+## 7. What done looks like
 
-1. **Integration Tests ([`integration/packagecollection_test.go`](../../integration/packagecollection_test.go)):**
-   - Verify `rocmPackages.clr` resolves as a valid package derivation.
-   - Verify `rocmPackages.clr.dev` resolves with `rocmPackages.clr` as base and `dev` as output.
-   - Verify `xorg.libX11` resolves.
-   - Verify `gtk4.dev` continues to resolve with `gtk4` as base and `dev` as output.
-   - Verify bare collections (`xorg`, `rocmPackages`, `python3Packages`) are still caught and refused with member hints.
-2. **Nested Jail Verification:**
-   - Launch nested jail with `"packages": ["rocmPackages.clr"]` and verify successful container image build and execution.
+Observable, and each checked on 2026-10-06:
+
+- `yolo check` accepts every shape in [§5.1](#51-the-resolver)'s table, the quoted names and the
+  object form naming a member, and refuses an empty name, a stray quote or a space, naming the
+  shapes it takes.
+- A nested jail with `gtk4.dev`, `rocmPackages.clr`, `gst_all_1.gstreamer.dev`,
+  `texlivePackages.abc.texsource`, `nerd-fonts."m+"` and
+  `{"name": "rocmPackages.rocminfo", "platforms": ["linux"]}` boots with `gtk4.pc` and
+  `gstreamer-1.0.pc` on `PKG_CONFIG_PATH`, `libgtk-4.so`, `libamdhip64.so` and
+  `libgstreamer-1.0.so` in `/lib` from their base derivations, `rocminfo` on `PATH`, the M+
+  fonts under `/share/fonts`, and `/source/latex/abc/*` linking `xvfaa5f5…` and not `synsxp3g…`.
+- A launch with a bare `rocmPackages` stops at the nix build, printing the member advice.
+
+The tests, each revert-checked on 2026-10-06:
+
+- **Unit** ([`packageattrpath_test.go`](../../internal/config/packageattrpath_test.go)),
+  through `ValidateConfig`: the accepted shapes and the refusals in one table. Removing the
+  `validatePackages` call fails every refusal row.
+- **Integration** ([`packagecollection_test.go`](../../integration/packagecollection_test.go)),
+  evaluation only: what each shape installs, compared with `nix build --dry-run` and
+  `lib.getLib` against the pin; the collection advice for `xorg`, `rocmPackages` and
+  `python3Packages`; the missing-name refusal and skip; the double-output refusal on both
+  paths; a skip named as written. The first four fail against the previous `flake.nix`, the
+  texsource case alone fails when the output test is reduced to reading (A), and the skip-name
+  test fails when the skip is named by its base again.
 
 ---
 
-## 8. Open Questions
-
-1. ✅ <a id="OQ-1"></a>**OQ-1: Namespace collision between collection members and derivation outputs.** If package
-   `foo` has an output named `bar` AND nixpkgs has an attrset `foo.bar` containing package `baz`, how
-   should `foo.bar` resolve — to the `bar` *output* of the `foo` derivation, or to the `bar` *member*
-   of the `foo` collection?
-
-   **What it decides:** the resolver's central disambiguation rule, and therefore the whole feature.
-   Why, and the 2026-10-01 measurement that found a real collision:
-   [§4.3](#43-the-collision-between-a-collection-member-and-an-output).
-
-   _Leaning:_ **output wins on the leaf; a deeper path wins over both.** Concretely: if the remaining
-   path is exactly one component and that component is in `curr.outputs`, resolve it as an output;
-   otherwise keep walking. In practice the two namespaces do not overlap — nixpkgs output names are a
-   tiny closed set (`out`, `dev`, `lib`, `bin`, `man`, `doc`, `info`, `debug`) and collections are
-   named `*Packages`, `xorg`, `gst_all_1` — so the rule almost never fires, which is an argument for
-   picking the *predictable* one rather than the clever one. The alternative worth stating, and the
-   reason I hold this loosely: **refuse the ambiguity instead of ranking it.** A `throw` naming both
-   candidate resolutions and telling the user to disambiguate costs nothing today (no known collision
-   exists to break) and cannot silently produce the wrong `/lib` farm tomorrow. If you want the
-   resolver to have no surprising cases at all, that is the ruling to make.
-
-   **Answer:**
-   > **Decided in review 2026-10-05 by the agent under delegation, against the leaning: (C),
-   > follow Nix exactly.** The maintainer delegated it: *"I have no idea you decide."* A
-   > `packages` entry installs what `nix build nixpkgs#<path>` builds for the same dotted path.
-   > This keeps the doc's first principle, match Nix ([§1.2](#12-principles) P1), and gives a
-   > user one command that checks yolo's answer. [§4.2](#42-the-base-derivation-vs-output-trap-in-lib-farm-extraction)'s
-   > contract still holds: where Nix's answer is an output of the derivation one step up
-   > (`gtk4.dev`), that derivation stays the base for the `/lib` farm; where it is a derivation of
-   > its own, it is the base. If evaluation shows Nix's answer on the colliding paths is the
-   > output reading, (A) and (C) coincide there, and the builder records which. On the one path
-   > measured, `texlivePackages.12many.texsource`, Nix builds the separate derivation
-   > ([§4.3](#43-the-collision-between-a-collection-member-and-an-output)), so there they differ;
-   > the builder records the rest of that family and `cygwin.newlib-cygwin-nobin.bin`. Not built.
-
-## Decision Ledger
+## 8. Decision Ledger
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| [OQ-1](#OQ-1) | **Follow Nix exactly (C), decided by the agent under the maintainer's delegation** (*"I have no idea you decide"*), against the leaning's output-first rule: a dotted `packages` entry installs what `nix build nixpkgs#<path>` builds for that path, and [§4.2](#42-the-base-derivation-vs-output-trap-in-lib-farm-extraction)'s base derivation still feeds the `/lib` farm. Where Nix gives the output reading on a colliding path, (A) and (C) coincide and the builder records it; on `texlivePackages.12many.texsource` Nix builds the separate derivation (MEASURED 2026-10-05) | 2026-10-05 | [OQ-1](#OQ-1), [§4.3](#43-the-collision-between-a-collection-member-and-an-output) | pending |
+| <a id="OQ-1"></a>[`OQ-1`](#8-decision-ledger) | (C), under delegation: follow Nix exactly. A `packages` entry with dots installs what `nix build nixpkgs#<path>` builds, so the collision resolves to the attribute, never by ranking output against member | 2026-10-05 | [§4.3](#43-the-collision-and-why-nix-decides-it) | ✅ `flake.nix` `splitPackageAttr` |
+| <a id="NP-D1"></a>[`NP-D1`](#8-decision-ledger) | *Implementation decision.* "Is an output of its parent" is Nix's marker on the value reached (`outputSpecified`, `outputName` equal to the last name, a parent derivation listing it), not the last name's membership in the parent's `outputs` | 2026-10-06 | [§5.1](#51-the-resolver) | ✅ `flake.nix` `splitPackageAttr` |
+| <a id="NP-D2"></a>[`NP-D2`](#8-decision-ledger) | *Implementation decision.* An object's `name` is the same attribute path, in every object form, so the macos-user refusal's advice works for every string entry; a `name` that selects an output plus an `outputs` list is refused | 2026-10-06 | [§5.2](#52-the-grammar-yolo-check-enforces) | ✅ `validatePackages`, `objectOutputs` |
+| <a id="NP-D3"></a>[`NP-D3`](#8-decision-ledger) | *Implementation decision.* Quoted names are accepted as Nix writes them, and the unquoted name stays letters, digits, `_` and `-`: a subset of Nix's grammar that spells every package measured | 2026-10-06 | [§5.2](#52-the-grammar-yolo-check-enforces) | ✅ `packageNameRe`, `packageAttrPath` |
+| <a id="NP-D4"></a>[`NP-D4`](#8-decision-ledger) | *Implementation decision.* A missing name is a yolo refusal naming the failed step on the image path (it was Nix's raw missing-attribute error) and a skip naming it on the non-container path | 2026-10-06 | [§5.4](#54-the-refusals) | ✅ `missingPackageError` |
+| <a id="NP-D5"></a>[`NP-D5`](#8-decision-ledger) | *Implementation decision.* The collection member sample is an early-exit scan of at most 500 names, and "holds no packages" is said only of a set scanned whole | 2026-10-06 | [§5.4](#54-the-refusals) | ✅ `nonPackageError` |
+| <a id="NP-D6"></a>[`NP-D6`](#8-decision-ledger) | *Implementation decision.* A non-container skip names the entry as written (it named the base, `gtk4` for `gtk4.dev`); the floor's de-duplication keeps the base | 2026-10-06 | [§5.3](#53-the-non-container-path) | ✅ `noncontainerResolved` |
+
+---
 
 ## Appendix: re-running the collision probe
 
-The 2026-10-01 measurement in [§4.3](#43-the-collision-between-a-collection-member-and-an-output), for [OQ-1](#OQ-1), as one expression. Save it as `collide.nix` and run
-`nix eval --impure --json --file collide.nix`; pin `rev` and `narHash` to the `nixpkgs` node of
-`flake.lock`. It finished in a few minutes in a jail.
+The 2026-10-01 measurement in [§4.3](#43-the-collision-and-why-nix-decides-it) as one
+expression. Save it as `collide.nix` and run `nix eval --impure --json --file collide.nix`;
+pin `rev` and `narHash` to the `nixpkgs` node of `flake.lock`. It finished in a few minutes in a
+jail.
 
 ```nix
 let
@@ -379,4 +378,11 @@ let
     (builtins.filter (n: isSet (try pkgs.${n})) (builtins.attrNames pkgs));
   hits = rows: builtins.filter (r: r.outputs != [ ]) rows;
 in { top = hits top; nested = hits nested; }
+```
+
+Nix's own answer for one colliding path, the 2026-10-05 measurement, from the repository root:
+
+```console
+$ nix build --dry-run --json --no-link --option substitute false --inputs-from . \
+    'nixpkgs#texlivePackages.abc.texsource' 'nixpkgs#texlivePackages.abc^texsource'
 ```

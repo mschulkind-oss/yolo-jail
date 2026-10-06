@@ -33,6 +33,20 @@ no Mac build stops the launch. Mark a Linux-only package so other setups skip it
 { "packages": [ { "name": "strace", "platforms": ["linux"] } ] }
 ```
 
+**Packages inside a collection:** an entry is a nixpkgs attribute path, and it installs what `nix build nixpkgs#<entry>` would build. So a dot reaches into a package collection the way it does on the command line:
+
+```jsonc
+{
+  "packages": [
+    "rocmPackages.clr",                 // a member of the rocmPackages collection
+    "gst_all_1.gstreamer.dev",          // a member's dev output
+    {"name": "rocmPackages.clr", "platforms": ["linux"]}  // the object form takes the same path
+  ]
+}
+```
+
+A bare collection such as `"rocmPackages"` is not a package, so `yolo` stops the launch and names members you could write instead. A name that is not letters, digits, `_` and `-` is quoted the way Nix quotes it: `"nerd-fonts.\"m+\""`.
+
 **Non-default outputs (`.dev` for headers + `pkg-config`):** Nixpkgs splits many libraries into outputs — the default output ships only the runtime `.so`, while `.dev` carries headers and `.pc` files. For cgo / FFI builds, request the `.dev` output with a dotted shorthand or an explicit `outputs` array:
 
 ```jsonc
