@@ -377,10 +377,14 @@ translated copy of it would root nothing more.
    `/home/matt/sysadmin/obsrec` uncensored in [§3](#3-measured-in-this-jail). The difference is
    that the mount also shows dead entries and shows changes as they happen.
 
-   <!-- vantage: question id=OQ-NR2 leaning="Yes, disclosed at launch like every other mount: it exposes paths, not contents, and FindRoots already hands an untrusted jail most of the same list." -->
+   <!-- vantage: question id=OQ-NR2 leaning="Yes, with a launch line of its own: it exposes paths, not contents, and FindRoots already hands an untrusted jail most of the same list." -->
 
-   _Leaning:_ Yes, disclosed at launch like every other mount. It exposes paths, not contents,
-   and `FindRoots` already hands an untrusted jail most of the same list.
+   _Leaning:_ Yes, with a launch line of its own. It exposes paths, not contents, and
+   `FindRoots` already hands an untrusted jail most of the same list. The line would be new: no
+   read-only bind of yolo's own prints one today, not the host nix store or daemon socket every
+   jail already gets, and neither does a read-only `mounts` entry. Only a read-write `mounts`
+   entry gets a line of its own (`rwMountDisclosure`), and a pack's `mount` is named in the
+   pack's host-read banner.
 
    **Answer:**
    > _(empty — fill in when decided)_

@@ -38,7 +38,7 @@ host or an outside account follows under [External waits](#external-waits).
    attach walks it again and prints its line, against [DS-D11](../design/durable-scratch-space.md#DS-D11)'s "never at an
    attach", and the walk is already every boot pass's largest step (0.95 s on 2026-10-04 in the maintainer's own workspace).
 5. Fix the two live defects ruled 2026-10-05, next among the fixes an agent can make now, the second proved only by an
-   `apple-container.yml` dispatch: [let `YOLO_ALLOW_UNREACHABLE_SERVICES=1` reach a required daemon's refusal](../reference/loopback-tls-reachability.md#oq-r8), which the
+   `apple-container.yml` dispatch: [let `YOLO_ALLOW_UNREACHABLE_SERVICES=1` reach a required daemon's refusal](../reference/loopback-tls-reachability.md#OQ-R8), which the
    documented hatch cannot, in a refusal that names the wire bridge and the next step; and [a `/mise` disk per workspace on Apple
    Container](../research/macos-backend-performance.md#OQ-MB1), since while one such jail runs a jail in another workspace cannot start,
    which also stopped the 2026-10-03 Apple Container run's keeper sweep measure.
@@ -66,9 +66,9 @@ host or an outside account follows under [External waits](#external-waits).
 12. Rulings that hold a defect's fix: [the Kilo special-casing in two derives](../design/gateway-provider-packs.md), while claude gives every
    Kilo model without a declared window a 1M-token context; [`--no-daemon` for every in-jail `codex`](../research/codex-background-service.md#OQ-CDX3), since `codex agents`
    there still starts the daemon yolo turns off; [how host pi gets its OpenAI subscription credential](../design/pi-host-openai-auth.md), since
-   `yolo host -- pi` on the `codex` profile lists no ChatGPT model; and [who owns the host's pi `mcp.json` server table](../reference/mcp-configuration.md#OQ-MC1)
-   with [an old pi or a leftover `mcp-adapter.json` there](../reference/mcp-configuration.md#OQ-MC2), since `--revert` removes the servers you added
-   with `pi mcp add`.
+   `yolo host -- pi` on the `codex` profile lists no ChatGPT model; and [an old pi or a leftover `mcp-adapter.json` at the host](../reference/mcp-configuration.md#OQ-MC2),
+   since host apply never deletes that file and pi-mcp-adapter keeps loading it (the `--revert` that removes the servers you added with
+   `pi mcp add` runs only under `assert`, so its fix is the `host_management: "assert"` retirement below, not [OQ-MC1](../reference/mcp-configuration.md#OQ-MC1)).
 13. [Build the patched-fork mode](../design/patched-forks.md), with [its companion for pi
     extensions](../design/patched-extensions.md), at every notch — the maintainer asked on 2026-10-04
     for both "out as soon as possible" so he can test them, and delegated their open questions, which
@@ -153,7 +153,7 @@ host or an outside account follows under [External waits](#external-waits).
     `--with-credentials` and [its build sketch](../design/credential-sources-separation-plan.md) wait on it.
 27. [Notch convergence's held items](notch-convergence.md) — after the workspace-config and jail-credential rulings above
     and the `assert` ruling next, which they wait on. Its env composition order and [whether every jail on a machine shares one
-    Claude login](../reference/claude-oauth-interposition.md#oq-ci1) were ruled 2026-10-05, so `yolo host -- claude` joining
+    Claude login](../reference/claude-oauth-interposition.md#OQ-CI1) were ruled 2026-10-05, so `yolo host -- claude` joining
     that login waits only on the credential view's measures, under [External waits](#external-waits).
 28. [Settle what retiring `host_management: "assert"` does to configs on it](../design/config-ownership-and-promotion.md)
     — the retirement cannot start until then.
@@ -217,7 +217,7 @@ host or an outside account follows under [External waits](#external-waits).
     which `yolo pack lint` and `yolo check` pass and the boot then refuses, starting with the failing lint test; and graduating
     [the extension model defaults](../research/extension-model-defaults.md) into the provider reference.
 46. The builds the 2026-10-05 CI and testing rulings released, beside those, since none holds other work either:
-    [real vendor installs on the macos-user nightly](../reference/agent-install-in-ci.md#oq-ci7), one hard-failing job per pack
+    [real vendor installs on the macos-user nightly](../reference/agent-install-in-ci.md#OQ-CI7), one hard-failing job per pack
     with the npm packs first, since no CI job installs a vendor's Mac build before a user does; [copilot from GitHub's own
     installer](native-installer-migration.md), its own updater left on; and [the per-setup census](../design/backend-parity.md),
     whose test fails when a config key or pack kind has no answer for one of the four setups. Six more of that day's rulings
@@ -264,11 +264,11 @@ host or an outside account follows under [External waits](#external-waits).
     the VM-local probe needs the maintainer's push and one dispatch, after the upgrade for answers that hold on 1.5.0.
 52. A human with a subscription login clears [Claude's login without interception](../design/claude-login-without-interception.md)
     by running [its runbook](runbooks/claude-credential-view-measures.md), on a Mac and for a day on a rootless host,
-    which also releases [`yolo host -- claude` joining the shared login](../reference/claude-oauth-interposition.md#oq-ci1),
+    which also releases [`yolo host -- claude` joining the shared login](../reference/claude-oauth-interposition.md#OQ-CI1),
     and [the OpenAI service](../design/openai-auth-broker-plan.md) by recording one browser login and one shared expiry.
 53. One session at a Mac clears [the host capture for installer agents](../design/host-tool-provisioning.md), which runs
     each vendor installer under Seatbelt; the hosted macos-user job's own vendor installs, ruled 2026-10-05
-    ([OQ-CI7](../reference/agent-install-in-ci.md#oq-ci7)), are queued above as a build.
+    ([OQ-CI7](../reference/agent-install-in-ci.md#OQ-CI7)), are queued above as a build.
 54. A real rootless Linux host, which a nested jail is not, clears [a real reboot](../design/podman-reboot-readiness.md#testing-and-the-real-host-check),
     [a low-space collection with a jail up](storage-lifecycle.md) and [the keeper's scope move and logout](../design/jail-lifetime-last-session-wins.md#8-what-done-looks-like).
 55. One live agent session per check, which no test may start, clears [the footer](../design/agent-footer.md#21-as-built),

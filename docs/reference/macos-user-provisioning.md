@@ -498,7 +498,7 @@ tier otherwise.
 | `lsp_servers` | config rendered, nothing installed — the binary is the user's | the same: config rendered, nothing installed, no stage started for it | no warning — the property is every backend's, not a gap of this one |
 | `mcp_presets` | npm-installed by the stage | wrappers not generated, packages not installed | warns — **from inside the bootstrap** (`RunDarwinBootstrap`), so `--dry-run` never shows it |
 | agent CLIs, `via: installer` | the launcher execs the vendor installer | **works** — `curl` and `bash` are at `/usr/bin` | n/a — nothing to tell |
-| agent CLIs, `via: npm` | the launcher execs `npm install -g` | the floor supplies node and npm, so the launcher can run — **not measured on hardware**; the nightly's `install` job, built 2026-10-05, runs it ([OQ-CI7](agent-install-in-ci.md#oq-ci7)) | `GenerateAgentLaunchers` has no *generation*-time precondition, so nothing warns at launch; a failure lands on the user's first real command |
+| agent CLIs, `via: npm` | the launcher execs `npm install -g` | the floor supplies node and npm, so the launcher can run — **not measured on hardware**; the nightly's `install` job, built 2026-10-05, runs it ([OQ-CI7](agent-install-in-ci.md#OQ-CI7)) | `GenerateAgentLaunchers` has no *generation*-time precondition, so nothing warns at launch; a failure lands on the user's first real command |
 | `packages:` | baked into the image | realized natively, and now composed with the floor | works |
 
 `rg -n '"via": "(installer|npm)"' packs/*/pack.json` is the split; do not write the membership
@@ -590,7 +590,7 @@ the chain that blocks the container macOS nightly reaches it. It has run nightly
 `TestMacosUserProvisioningStageRunsAndRecordsItself`. Since 2026-10-05 the same workflow also
 has an `install` job, one per agent pack, that installs each pack's program from its vendor
 through the generated launcher, the `via: npm` packs first
-([`agent-install-in-ci.md`](agent-install-in-ci.md#the-darwin-install-job), OQ-CI7). No
+([`agent-install-in-ci.md`](agent-install-in-ci.md#the-darwin-install-job), [OQ-CI7](agent-install-in-ci.md#OQ-CI7)). No
 scheduled run of it has reported yet.
 
 ⚠ **A suite that skips must not look like a suite that passes.** Every one of these tests skips

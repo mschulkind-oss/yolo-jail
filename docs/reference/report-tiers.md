@@ -28,7 +28,7 @@ summary: "How yolo decides what to print: a report tier is assigned where a fact
 the footer) was re-verified on 2026-10-02 against `fe504e58` and the changes landed with this
 revision; the rest was last verified in full against `71e86789`, 2026-09-13.
 
-**Needs your ruling:** [OQ-RO8](#oq-ro8) (whether the dry run's exit follows its ruling or its
+**Needs your ruling:** [OQ-RO8](#OQ-RO8) (whether the dry run's exit follows its ruling or its
 code). [OQ-RO9](#OQ-RO9) was ruled in review on 2026-10-05: a launch's disclosure shows a build
 line by its digest, and every act that builds prints the line in full first. That ruling is not
 built yet, so the launch stream below still describes the full line on every launch.
@@ -483,13 +483,13 @@ did not achieve (P7).
 `config drift`'s 0/3/4 is the house precedent for a report verb encoding its finding, and it is
 deliberately not copied: a dry run that has JSON does not need the exit code to carry the verdict.
 
-**The code does not yet match that ruling** ([OQ-RO8](#oq-ro8), filed 2026-10-02). **READ FROM CODE**:
+**The code does not yet match that ruling** ([OQ-RO8](#OQ-RO8), filed 2026-10-02). **READ FROM CODE**:
 `applyHostSurveyed` (`internal/cli/apply.go`) returns 1 from a dry run that meets a refusal or
 an overlay problem; a [broken link](#broken-links) leaves it at 0. The launch gate reads a
 non-zero observe pass as *cannot determine* (`hostapplygate.go`). The question has no leaning
 yet: which scripts read the dry run's exit is the fact a leaning would need.
 
-- 💬 <a id="oq-ro8"></a>**[`OQ-RO8`](#oq-ro8) — the dry run exits 1 on a refusal or a failed
+- 💬 <a id="OQ-RO8"></a>**[`OQ-RO8`](#OQ-RO8) — the dry run exits 1 on a refusal or a failed
   stage. Does the code move, or the ruling?**
 
   [OQ-RO5](#why-its-this-way) rules exit 0; the code differs ([Exit codes](#exit-codes)).
@@ -631,7 +631,7 @@ place the values themselves are stated.
 | :--- | :--- | :--- |
 | Report tiers with a constant | `tierRun` = 2, `tierLoss` = 3 | `internal/cli` (`reportTier`) |
 | Outcome tokens | `refused`, `incomplete`, `no_packs`, `blocked`, `nothing_to_do`, `applied`, `would_complete` | `internal/cli` (`hostapplyverdict.go`) |
-| Dry-run exit code | 0, whatever it finds | `internal/cli` (`applyHost`) |
+| Dry-run exit code | 1 when it meets a refusal or a failed stage, 0 otherwise, a broken link included; re-read at `b830eabb6`. The ruling says 0 whatever it finds ([OQ-RO8](#OQ-RO8)) | `internal/cli` (`applyHostSurveyed`) |
 | `--assert` refusal exit code | 1 | `internal/cli` (`gateHostDeps`) |
 | Acting-posture JSON refusal | exit 2, stdout empty | `internal/cli` (`refuseJSONForActingApply`) |
 | Launcher log | `launch.log`, under `<workspace>/.yolo/` | `internal/cli/run` (`LaunchLogName`) |

@@ -57,6 +57,21 @@ func linkedWorkspaceState(workspace string) string {
 	return ""
 }
 
+// linkedStateTarget returns where the link at link points, as an absolute path: a relative
+// target is joined to the link's own directory, lexically, so the `mv` Run's refusal offers
+// works from any directory. It reads the link only and follows nothing, so a link into a
+// host path names that path without touching it. "" when the link cannot be read.
+func linkedStateTarget(link string) string {
+	target, err := os.Readlink(link)
+	if err != nil {
+		return ""
+	}
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(filepath.Dir(link), target)
+	}
+	return filepath.Clean(target)
+}
+
 // openStateRoot opens dir, a jail-writable directory such as wsState, as an os.Root, creating
 // it (and its parent) when missing. It refuses, with a linkedStateRootError naming the path,
 // when dir or its parent is a symbolic link: for wsState those are `.yolo/home` and `.yolo`,

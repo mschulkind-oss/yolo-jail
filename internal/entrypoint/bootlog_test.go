@@ -95,7 +95,7 @@ func TestBootLogRecordsARefusedBoot(t *testing.T) {
 
 	blog := attachBootLog(e, &bytes.Buffer{})
 	e.warn("host services unreachable from inside the jail: claude-oauth-broker")
-	blog.finish(errors.New("refusing to start the jail: 1 config generator(s) failed"))
+	blog.finish(errors.New("refusing to start the jail: 1 boot step(s) failed"))
 
 	got := readBootLog(t, ws, bootLogName)
 	if !strings.Contains(got, "BOOT REFUSED") {

@@ -570,23 +570,53 @@ func TestVenvShadowBackingDirsAreNeverLinks(t *testing.T) {
 // THE LAUNCH REFUSES A LINKED `.yolo` OR `.yolo/home` before its first write there (the
 // launch log's tee), naming the path. Past that point every host write below the link would
 // follow it, and podman would bind whatever the bind sources under it resolve to.
+//
+// THE REFUSAL OFFERS TWO NEXT STEPS, because it cannot tell who made the link (the happy-path
+// principle, docs/reference/happy-path-principle.md). For a link the jail left, `rm` it and yolo
+// recreates the directory. For a directory the user moved on purpose, `rm` alone is the wrong
+// step: the next launch makes an empty directory and the moved one is stranded, so the refusal
+// names where the link points and the move that brings it back. A relative link is named by
+// the absolute path it resolves to, so the pasted `mv` works from any directory.
 func TestRunRefusesALinkedWorkspaceState(t *testing.T) {
-	for _, linked := range []string{".yolo", ".yolo/home"} {
-		t.Run(linked, func(t *testing.T) {
+	for _, tc := range []struct {
+		linked   string
+		relative bool
+	}{
+		{linked: ".yolo"},
+		{linked: ".yolo/home"},
+		{linked: ".yolo/home", relative: true},
+	} {
+		name := tc.linked
+		if tc.relative {
+			name += " (relative link)"
+		}
+		t.Run(name, func(t *testing.T) {
+			linked := tc.linked
 			t.Setenv("HOME", t.TempDir())
 			// Under "My Projects", so the `rm` the refusal offers has a space to keep in one word.
 			ws := filepath.Join(t.TempDir(), "My Projects", "ws")
 			if err := os.MkdirAll(ws, 0o755); err != nil {
 				t.Fatal(err)
 			}
-			hostDir := t.TempDir()
+			hostDir := filepath.Join(t.TempDir(), "Moved Away")
+			if err := os.MkdirAll(hostDir, 0o755); err != nil {
+				t.Fatal(err)
+			}
 			if linked == ".yolo/home" {
 				if err := os.MkdirAll(filepath.Join(ws, ".yolo"), 0o755); err != nil {
 					t.Fatal(err)
 				}
 			}
 			link := filepath.Join(ws, filepath.FromSlash(linked))
-			symlinkAt(t, hostDir, link)
+			target := hostDir
+			if tc.relative {
+				rel, err := filepath.Rel(filepath.Dir(link), hostDir)
+				if err != nil {
+					t.Fatal(err)
+				}
+				target = rel
+			}
+			symlinkAt(t, target, link)
 			var stdout, stderr bytes.Buffer
 			o := dispatchOptions(t, ws, "podman", &stdout, &stderr, nil)
 			o.Getenv = guardEnv(nil)
@@ -596,7 +626,7 @@ func TestRunRefusesALinkedWorkspaceState(t *testing.T) {
 					linked, rc, stdout.String(), stderr.String())
 			}
 			out := stdout.String() + stderr.String()
-			for _, want := range []string{"Refusing to launch", link, "symbolic link"} {
+			for _, want := range []string{"Refusing to launch", link, "symbolic link", hostDir} {
 				if !strings.Contains(out, want) {
 					t.Errorf("the refusal should name %q:\n%s", want, out)
 				}
@@ -607,6 +637,23 @@ func TestRunRefusesALinkedWorkspaceState(t *testing.T) {
 				t.Errorf("the refusal offers no `rm <link>`:\n%s", out)
 			} else if got := testsupport.ShellWords(t, "rm "+arg); !slices.Equal(got, []string{"rm", link}) {
 				t.Errorf("the offered rm reads as %q in a shell, want [rm %q]:\n%s", got, link, out)
+			}
+			// And the move that puts a deliberately moved directory back, pasteable the same way:
+			// each half of `rm <link> && mv <target> <link>` read by a shell on its own.
+			_, rest, ok := strings.Cut(out, "move it back instead, so its contents come with it: ")
+			cmd, _, ok2 := strings.Cut(rest, ". There is no override")
+			rmPart, mvPart, ok3 := strings.Cut(cmd, " && ")
+			if !ok || !ok2 || !ok3 {
+				t.Errorf("the refusal offers no `rm <link> && mv <target> <link>` for a directory "+
+					"the user moved on purpose:\n%s", out)
+			} else {
+				if got := testsupport.ShellWords(t, rmPart); !slices.Equal(got, []string{"rm", link}) {
+					t.Errorf("the move-back's rm reads as %q in a shell, want [rm %q]:\n%s", got, link, out)
+				}
+				if got := testsupport.ShellWords(t, mvPart); !slices.Equal(got, []string{"mv", hostDir, link}) {
+					t.Errorf("the move-back's mv reads as %q in a shell, want [mv %q %q]:\n%s",
+						got, hostDir, link, out)
+				}
 			}
 			assertEmptyDir(t, hostDir, "a refused launch")
 		})

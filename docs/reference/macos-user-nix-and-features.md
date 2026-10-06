@@ -400,7 +400,7 @@ bound, and what a real `sudo -n` refusal or `sandbox-exec` denial prints.
 > container cannot emit, so nothing would reach a running terminator anyway. The more useful
 > reason is that it may not need to exist on any backend: it serves only the OAuth broker, and
 > the broker exists only because the credential file is shared across jails while the vendor's
-> refresh lock is not. If [`OQ-CI1`](claude-oauth-interposition.md#oq-ci1) is ruled against
+> refresh lock is not. If [`OQ-CI1`](claude-oauth-interposition.md#OQ-CI1) is ruled against
 > sharing, the terminator goes everywhere, with the `/etc/hosts` pin and the CA.
 
 > [!WARNING]

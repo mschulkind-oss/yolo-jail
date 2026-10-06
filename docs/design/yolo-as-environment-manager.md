@@ -1037,8 +1037,8 @@ derives the `/ctx` path both halves evaluate
    ⚠ **Pointer updated 2026-09-25.** `CO13` was decided on 2026-09-20 and built on 2026-09-25,
    so it is no longer a place to rule anything. The config-ownership design's open questions
    are [its Decision Ledger](config-ownership-and-promotion.md#13-decision-ledger)'s `OPEN`
-   rows ([`OQ-CO14`](config-ownership-and-promotion.md#oq-co14), [`OQ-CO15`](config-ownership-and-promotion.md#oq-co15),
-   [`OQ-CO16`](config-ownership-and-promotion.md#oq-co16) as of that date), and a further question on this axis
+   rows ([`OQ-CO14`](config-ownership-and-promotion.md#oq-co14), [`OQ-CO15`](config-ownership-and-promotion.md#OQ-CO15),
+   [`OQ-CO16`](config-ownership-and-promotion.md#OQ-CO16) as of that date), and a further question on this axis
    is filed there.
 
 ---

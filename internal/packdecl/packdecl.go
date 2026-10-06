@@ -550,7 +550,7 @@ func unknownFieldHint(err error) string {
 // reproduced the original `tier` incident in mirror image — a manifest yolo SHIPS gained
 // `skills_tier`, and an older baked entrypoint reading the newly-staged tree refused it:
 //
-//	yolo-entrypoint: refusing to start the jail: 2 config generator(s) failed:
+//	yolo-entrypoint: refusing to start the jail: 2 boot step(s) failed:
 //	  - load_packs: pack claude: contributes[2]: "tier" is no longer a contribution field …
 //
 // Caught by running a nested jail against the previous baked image. The asymmetry is right in
@@ -617,7 +617,7 @@ func (m *Manifest) retiredFieldProblems() []string {
 // Verified the hard way: adding the `tier` field to `skills` made every jail refuse to start
 // against an older baked image —
 //
-//	yolo-entrypoint: refusing to start the jail: 2 config generator(s) failed:
+//	yolo-entrypoint: refusing to start the jail: 2 boot step(s) failed:
 //	  - load_packs: pack claude: pack.json: json: unknown field "tier"
 //
 // with no route to recovery except rebuilding the image, since the failing manifest is one

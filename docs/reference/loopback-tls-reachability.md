@@ -1,7 +1,7 @@
 ---
 status: current
 stage: DECIDED
-next: "Build OQ-R8 (a), ruled 2026-10-05: YOLO_ALLOW_UNREACHABLE_SERVICES=1 also reaches the jail-daemon supervisor's readiness refusal, so with it set a wire bridge that cannot start or publish is a warning and the boot continues, and without it the refusal names the hatch; the refusal stops calling the bridge a config generator and names the next step. Today that jail is refused with no hatch"
+next: "Build OQ-R8 (a), ruled 2026-10-05: YOLO_ALLOW_UNREACHABLE_SERVICES=1 also reaches the jail-daemon supervisor's readiness refusal, so with it set a wire bridge that cannot start or publish is a warning and the boot continues, and without it the refusal names the hatch; the refusal names the next step, and it already stops calling the bridge a config generator. Today that jail is refused with no hatch"
 verified: 2026-09-24
 verified_commit: f491d192
 covers:
@@ -382,7 +382,7 @@ state the fatal makes reachable, where there is no jail left to ask. A healthy w
 verdict there and stays silent on the terminal, because "ran and found nothing" and "never ran"
 are otherwise the same bytes.
 
-- ✅ <a id="oq-r8"></a>**[`OQ-R8`](#oq-r8) — should a required jail daemon that cannot publish
+- ✅ <a id="OQ-R8"></a>**[`OQ-R8`](#OQ-R8) — should a required jail daemon that cannot publish
   refuse the launch with nothing to get past it?**
 
   The escape hatch downgrades the witness, but the jail-daemon supervisor refuses on its own and
@@ -413,9 +413,11 @@ are otherwise the same bytes.
   > refusal names the hatch, as the witness's refusal does. The message also stops calling the
   > bridge a "config generator" and names the next step. The cost the ruling accepts: a jail can
   > look booted with a dead bridge, and an agent routed through it fails at its first request.
-  > Not built: today the readiness refusal reads no hatch (`startJailDaemonSupervisor`).
+  > Built in part: since 2026-10-05 the boot's refusal counts failed boot steps, not config
+  > generators (`genFailuresError`). The hatch is not built: the readiness refusal reads none
+  > (`startJailDaemonSupervisor`).
 
-### Background to [`OQ-R8`](#oq-r8)
+### Background to [`OQ-R8`](#OQ-R8)
 
 The escape hatch downgrades the witness, but the jail-daemon supervisor
 (`startJailDaemonSupervisor`, `internal/entrypoint/runtime.go`) refuses on its own, through the boot's `genStep`, which reads no hatch. So a jail whose required
@@ -525,7 +527,7 @@ underlying asymmetry is not closed and cannot be: a host-side check still cannot
 | <a id="oq-r5"></a>[**OQ-R5**](#oq-r5) — a jail sharing the launcher's netns **is** escalatable | There is no host-stack excuse in that mode: the advertise address is the loopback and it is the only thing that works, so a failure has nothing to hide in. |
 | <a id="oq-r6"></a>[**OQ-R6**](#oq-r6) — the launcher's decision rides on the wire with **every** state spelled; only positive facts escalate | From inside the jail, "this host cannot forward loopback" and "yolo asked and the service is still down" are the same observation. Spelling every state is what keeps an absent variable from meaning anything but "older launcher". |
 | <a id="oq-r7"></a>[**OQ-R7**](#oq-r7) — a podman too old to **name** its rootless stack is an UNREAD backend, not an unrecognised one | Both are the same empty string one layer down, and reading them alike left every jail-facing service silently down on a stock LTS podman. |
-| [**OQ-R8**](#oq-r8) — the hatch also reaches a required jail daemon's readiness refusal; with it set the boot warns and continues, without it the refusal names it, in words that name the bridge and the next step | Ruled in review 2026-10-05, (a). The witness's refusal already promises a shell to a user who only needs one, and the bridge's failures are mostly the user's own state (a held port, a missing credential), which is what a hatch is for. Built: pending |
+| [**OQ-R8**](#OQ-R8) — the hatch also reaches a required jail daemon's readiness refusal; with it set the boot warns and continues, without it the refusal names it, in words that name the bridge and the next step | Ruled in review 2026-10-05, (a). The witness's refusal already promises a shell to a user who only needs one, and the bridge's failures are mostly the user's own state (a held port, a missing credential), which is what a hatch is for. Built in part: the refusal counts failed boot steps, not config generators; the hatch is pending |
 
 ## Current values
 

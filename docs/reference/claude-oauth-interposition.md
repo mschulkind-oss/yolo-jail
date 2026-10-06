@@ -32,7 +32,7 @@ summary: "What yolo interposes on for Claude OAuth and what it leaves alone: exa
 
 # Claude OAuth interposition — one hostname, one grant, and why there is still a file
 
-**Status:** verified 2026-09-23 against `7ad8358c`. [OQ-CI1](#oq-ci1) was ruled on 2026-10-05: one
+**Status:** verified 2026-09-23 against `7ad8358c`. [OQ-CI1](#OQ-CI1) was ruled on 2026-10-05: one
 Claude login per machine, which `yolo host -- claude` joins through a credential view once the
 view's measures pass. That is not built yet.
 
@@ -930,7 +930,7 @@ easy to over-read:
 
 ## Sharing the login: what each choice keeps and pays
 
-[OQ-CI1](#oq-ci1) asks whether every jail on a machine should share one Claude login, because
+[OQ-CI1](#OQ-CI1) asks whether every jail on a machine should share one Claude login, because
 every mechanism above exists to share it. Two things have moved since it was first asked: a ruling
 changed what sharing costs, and a measurement changed how often anyone pays for a login.
 
@@ -945,7 +945,7 @@ The split between the shared file and Claude's own locks was closed earlier stil
 [§8](../design/claude-login-without-interception.md#8-what-this-does-not-cover) says that by
 keeping the login shared it answers the reason this question was asked. That is the design's
 inference: neither of its rulings was put to the maintainer as this question. The maintainer
-ruled this question itself on 2026-10-05: one login per machine ([OQ-CI1](#oq-ci1)).
+ruled this question itself on 2026-10-05: one login per machine ([OQ-CI1](#OQ-CI1)).
 
 **What sharing still costs once the view lands.** The broker stays, as the only refresher, so a
 jail cannot refresh while it is down. It writes into a directory each jail can write, which is
@@ -999,7 +999,7 @@ What that does to each choice:
 [OQ-NC7](../plans/notch-convergence.md#OQ-NC7) keeps host claude on its own login until this
 question is ruled, because a shared store without interception would race the broker. It was
 ruled on 2026-10-05: host claude joins through a view once the view's measures pass
-([OQ-CI1](#oq-ci1)). A view
+([OQ-CI1](#OQ-CI1)). A view
 carries no refresh token, so a host view races nothing: the design calls host claude on a view
 *"a second refresher of nothing, which is safe"*
 ([§8](../design/claude-login-without-interception.md#8-what-this-does-not-cover)). The OpenAI
@@ -1010,7 +1010,10 @@ would read such a view or its Keychain is unmeasured, as measure M11 is for `mac
 ### The maintainer's words, and one phrase that is not theirs
 
 - On [OQ-CL2](../design/claude-login-without-interception.md#OQ-CL2), whose leaning has `/login`
-  in any jail still enroll the machine: *"all of that sounds right"* (2026-09-28).
+  in any jail still enroll the machine: *"all of that sounds right"* (2026-09-28). The text it
+  approved assumes one login per machine: a jail's `/login` enrolls the machine, a jail's
+  `/logout` signs out only that workspace, and `yolo claude-auth logout` on the host signs the
+  machine out. Whether approving it was also a ruling on sharing is this question's to say.
 - On [OQ-CL1](../design/claude-login-without-interception.md#OQ-CL1): *"we can just write the new
   one in there and it just picks it up. If that's the case, then yes, we should do that."*
   (2026-09-28). That approves the mechanism that shares the grant. It does not rule on sharing.
@@ -1049,11 +1052,11 @@ one login per workspace into one per machine.
 ## Open question
 
 > [!NOTE]
-> **Two reference docs define an `oq-ci1` anchor.** [This doc's](#oq-ci1) asks whether the Claude
+> **Two reference docs define a `CI1` anchor, in different case.** [This doc's](#OQ-CI1) asks whether the Claude
 > credential should be shared at all. [`agent-install-in-ci.md#oq-ci1`](agent-install-in-ci.md#oq-ci1)
 > is an unrelated CI-pinning ruling. Cite either one as a file-qualified link, never as bare text.
 
-### <a id="oq-ci1"></a>✅ [`OQ-CI1`](#oq-ci1) — should the credential be shared at all?
+### <a id="OQ-CI1"></a>✅ [`OQ-CI1`](#OQ-CI1) — should the credential be shared at all?
 
 Should every jail on a machine share one Claude login, or should each workspace keep its own?
 Evidence: [above](#sharing-the-login-what-each-choice-keeps-and-pays).
@@ -1095,7 +1098,7 @@ together, and nothing warns ahead of it until something reads `refreshTokenExpir
 | **The refresh token a jail presents is discarded at the jail edge** | Structural rather than defensive: `Refresh` forwards no body and `DoRefresh` takes only a path, so a jail cannot spend a stale token even with serialization switched off entirely. |
 | **The flock is taken host-side, not in a singleton** | Host-side is where every backend agrees on the inode. The daemon being one process is not required — the lock derives from `$HOME` — and a shared-file lock would be backend-dependent. |
 | **yolo's broker errors are never the string `invalid_grant`** | The vendor's dead-token classifier fires on that string at status 400/401, and the terminator already answers 400. Passing the upstream error through verbatim would blank the machine-wide credential file. |
-| [**`OQ-CI1`**](#oq-ci1) — **one Claude login per machine, which `yolo host -- claude` joins through a credential view once the view's measures pass; a host claude yolo did not start keeps its own.** Ruled in review 2026-10-05. **Built: pending**, waiting on [the view's measures](../plans/runbooks/claude-credential-view-measures.md) | One `/login` about every four weeks serves every jail and the host's yolo-started claude, and a view carries no refresh token, so the host races nothing. It is how `yolo host -- codex` already shares the OpenAI login ([OQ-OA3](agent-credentials.md#oq-oa3)), and a host behaving like every other notch is the plan's thesis ([notch convergence §1](../plans/notch-convergence.md#1-the-thesis)) |
+| [**`OQ-CI1`**](#OQ-CI1) — **one Claude login per machine, which `yolo host -- claude` joins through a credential view once the view's measures pass; a host claude yolo did not start keeps its own.** Ruled in review 2026-10-05. **Built: pending**, waiting on [the view's measures](../plans/runbooks/claude-credential-view-measures.md) | One `/login` about every four weeks serves every jail and the host's yolo-started claude, and a view carries no refresh token, so the host races nothing. It is how `yolo host -- codex` already shares the OpenAI login ([OQ-OA3](agent-credentials.md#oq-oa3)), and a host behaving like every other notch is the plan's thesis ([notch convergence §1](../plans/notch-convergence.md#1-the-thesis)) |
 | <a id="oq-1"></a>[**`OQ-1`**](#oq-1) (broker-ca) — **bake `openssl` *and* port the mint to `crypto/x509`, both** | The bake is not a substitute for retiring the dependency: a host-wide daemon that shells out to a tool fails on any host lacking it, and a nested launch's host is a jail. The port also takes the CA private key off disk. The bake stays regardless, for two consumers this ruling was never about ([why](#why-the-image-still-bakes-openssl)). |
 | <a id="oq-2"></a>[**`OQ-2`**](#oq-2) (broker-ca) — **a nested jail runs its own broker singleton**, like any other host | Nesting earns affordances, not exemptions: a jail that behaves differently cannot test the thing it is nested inside, and a special case here is one carried forever. So the endpoint-withholding gate has no nested arm ([how](#a-nested-jail-runs-its-own-broker)). |
 | <a id="oq-3"></a>[**`OQ-3`**](#oq-3) (broker-ca) — **a check that did not look must not be counted as a pass** | The principle is the ruling and the token was delegated: `[SKIP]` with its own counter, excluded from the pass tally, plus `hostFact` for a fact about the host rather than the reader. An all-green in-jail run that includes areas nobody examined offers them as evidence ([how](#yolo-check-does-not-count-a-skip-as-a-pass)). |

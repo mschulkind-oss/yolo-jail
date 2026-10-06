@@ -754,7 +754,9 @@ there `prepareWsState` only creates directories beneath the root and leaves link
 
 **A linked `.yolo` or `.yolo/home` refuses the launch.** `Run` checks both
 (`linkedWorkspaceState`) right after the workspace-scope guard and before the launch log,
-whose tee is the first write under `.yolo`, and names the link and the `rm` that clears it.
+whose tee is the first write under `.yolo`. It names the link and where it points, the `rm` that
+clears a link the jail left, and, for a directory the user moved there on purpose, the
+`rm` and `mv` that move it back, since `rm` alone would leave the next launch an empty directory.
 There is no override: a link there is indistinguishable from one a jail planted, and it would
 carry every write below it, and every bind source under it, wherever it points
 ([`OQ-JH1`](#OQ-JH1) is the open question about a user who relocated the directory on purpose).

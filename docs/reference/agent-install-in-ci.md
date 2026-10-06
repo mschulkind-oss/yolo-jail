@@ -20,7 +20,7 @@ summary: "How the integration suite tests agent-CLI installation without letting
 
 **Status:** verified 2026-09-23 against `7ad8358c`. MEASURED in CI on Linux: the
 Pack Installs workflow was green at `7ad8358c` (run 35820702398) and on its 2026-09-21 weekly
-schedule (run 35620029721). **Not measured on macOS yet:** [OQ-CI7](#oq-ci7), ruled on
+schedule (run 35620029721). **Not measured on macOS yet:** [OQ-CI7](#OQ-CI7), ruled on
 2026-10-05 and built the same day, gives the macos-user nightly one real vendor-install job per
 pack ([The darwin install job](#the-darwin-install-job)), and no scheduled run has reported since.
 The podman macOS nightly runs no vendor install. Its warmup, skipped there from 2026-08-23 to
@@ -297,7 +297,7 @@ artifacts do not cross workflow runs. Change one, check the other.
 
 ### The darwin install job
 
-`.github/workflows/macos-user.yml` has a second job, `install`, which is [OQ-CI7](#oq-ci7) as
+`.github/workflows/macos-user.yml` has a second job, `install`, which is [OQ-CI7](#OQ-CI7) as
 built. It installs the vendors' **darwin** builds, which no other job installs, under the
 macos-user backend on GitHub's hosted Apple Silicon runner.
 
@@ -425,7 +425,7 @@ test do run, so the podman-VM install path is exercised on macOS by the pinned f
 builds are installed by `macos-user.yml`'s `install` job instead
 ([The darwin install job](#the-darwin-install-job)), built 2026-10-05 and not yet run.
 
-<a id="what-a-vendor-install-on-a-mac-costs"></a>**What a vendor install on a Mac would cost.** [OQ-CI7](#oq-ci7)'s
+<a id="what-a-vendor-install-on-a-mac-costs"></a>**What a vendor install on a Mac would cost.** [OQ-CI7](#OQ-CI7)'s
 options, stakes and leaning were drafted 2026-10-01, from the workflows at `d4e435a3` and the runs named
 below. Three facts set the price:
 
@@ -460,9 +460,9 @@ The options in full, with what each one pays:
   A vendor's darwin breakage then turns a scheduled run red, which no push waits on.
 - **(d) Both (b) and (c).**
 
-[OQ-CI7](#oq-ci7) asks which of them to take:
+[OQ-CI7](#OQ-CI7) asks which of them to take:
 
-- ✅ <a id="oq-ci7"></a>**[`OQ-CI7`](#oq-ci7) — should the macOS nightly run any vendor agent
+- ✅ <a id="OQ-CI7"></a>**[`OQ-CI7`](#OQ-CI7) — should the macOS nightly run any vendor agent
   install at all?**
 
   When filed it ran none, as above. Filed 2026-09-26; until then the question had no id. The three
@@ -557,9 +557,9 @@ Rulings a maintainer reading only the normative text would otherwise undo. [OQ-C
 `.github/workflows/packs.yml`. The CI runs named here are the evidence each ruling was settled on.
 
 > [!NOTE]
-> **Two reference docs define an `oq-ci1` anchor.** [This doc's](#oq-ci1) is the CI-pinning
-> ruling. [`claude-oauth-interposition.md#oq-ci1`](claude-oauth-interposition.md#oq-ci1) is an
-> unrelated open question about sharing the Claude credential. Cite either one as a file-qualified
+> **Two reference docs define a `CI1` anchor, in different case.** [This doc's](#oq-ci1) is the CI-pinning
+> ruling. [`claude-oauth-interposition.md#OQ-CI1`](claude-oauth-interposition.md#OQ-CI1) is an
+> unrelated ruling about sharing the Claude credential. Cite either one as a file-qualified
 > link, never as bare text.
 
 | ID | Ruling | Why it holds |
@@ -570,5 +570,5 @@ Rulings a maintainer reading only the normative text would otherwise undo. [OQ-C
 | <a id="oq-ci4"></a>[**OQ-CI4**](#oq-ci4) — suite warmup runs in `TestMain`'s seam, outside any timed test; **no cap widening** | [Mode B](#mode-b) was a misattribution. On x64 (run 32419507352) the first test's two installs cost about ten times what the same two cost later in the run, and on the macOS nightly most of a blown 1200s cap was warmup. After the warmup landed (run 32597479510) it took 1m56s, moving that one-time cost into a line that belongs to no test, while the job's wall clock barely moved |
 | <a id="oq-ci5"></a>[**OQ-CI5**](#oq-ci5) — **no warm-prefix seeding** | Measured in run 32597479510: with vendor installs off the push path, the whole residual per-test install cost is the two pinned cells, about 18 seconds. A seeded prefix has nothing left to remove, and it would risk silently deleting the one cold install per mechanism |
 | <a id="oq-ci6"></a>[**OQ-CI6**](#oq-ci6) — the push gate uses **fixture packs**, and real packs get a **path-filtered trigger** | A fixture pins with shipped mechanisms only (a `file://` pack and a version in its `package` string), and lets the specimen be a small, fast package instead of a large agent CLI. The cost is that the gate no longer proves the shipped manifests install. The path-filtered and weekly triggers exist to cover exactly that |
-| [**OQ-CI7**](#oq-ci7) — real vendor installs run on the **macos-user workflow**, one hard-failing job per pack, the `via: npm` packs first. Ruled 2026-10-05 and **built** the same day ([The darwin install job](#the-darwin-install-job)); not yet run on a Mac | darwin is the one platform whose vendor builds no CI job installs, and the npm half has never been measured on a Mac. The podman nightly would re-install the linux-x64 bytes Pack Installs already installs, at its highest setup cost. The workflow runs on a schedule and by dispatch only, so [P1](#p1) still holds for the push gate, and one job per pack keeps one vendor's break from masking the others ([OQ-CI3](#oq-ci3)) |
+| [**OQ-CI7**](#OQ-CI7) — real vendor installs run on the **macos-user workflow**, one hard-failing job per pack, the `via: npm` packs first. Ruled 2026-10-05 and **built** the same day ([The darwin install job](#the-darwin-install-job)); not yet run on a Mac | darwin is the one platform whose vendor builds no CI job installs, and the npm half has never been measured on a Mac. The podman nightly would re-install the linux-x64 bytes Pack Installs already installs, at its highest setup cost. The workflow runs on a schedule and by dispatch only, so [P1](#p1) still holds for the push gate, and one job per pack keeps one vendor's break from masking the others ([OQ-CI3](#oq-ci3)) |
 | <a id="oq-ci8"></a>[**OQ-CI8**](#oq-ci8) — the darwin warmup **stays**, and a warmup killed while building yolo's own binaries is **not** a reason to skip it again | The roadmap's rule was *keep it if the nightly's Mode B failures stop*, applied 2026-09-30 to the eight macOS nightlies since the skip went (runs 36237110678, 36315864178, 36425623325, 36461553752, 36470275574, 36476746916, 36521751485, 36566584474): no test timed out, and each shard's first container test fell back to its steady-state cost ([Suite warmup](#suite-warmup)). The second half is decided here, because the old reading rule would have misfired on the first degraded warmup: it keyed on `Fetching …` lines, and the `.#installPrefix` build prints those too. The skip had rested on a warmup that realised an image, so only that, a `Building the jail image with nix` line, is the evidence for bringing it back |

@@ -118,6 +118,10 @@ give that script the variables it needs, such as where to install, with `install
 - On Apple Container, a config with `network.forward_host_ports` now stops the launch before
   anything starts, naming the key and how to go on, instead of failing inside Apple Container with
   an error about a socket.
+- A launch refused because a project's `.yolo` folder is a symbolic link now says where the link
+  points and how to move a folder you moved there yourself back, not only how to delete the link.
+- A jail that refuses to boot because a service inside it, such as the wire bridge, cannot start
+  no longer reports it as a failed config generator.
 
 ## [0.11.1] - 2026-10-02
 

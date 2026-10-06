@@ -683,13 +683,18 @@ change in one place rather than a call-site hunt.
 [`OQ-MP1`](../design/mcp-presets-removal.md#decision-ledger).
 
 **Open for pi's MCP files.** Two calls are written up below with their options: who owns the
-host's `mcp.json` server table ([OQ-MC1](#oq-mc1)), and what yolo does about an old pi or a
-leftover `mcp-adapter.json` at the host ([OQ-MC2](#oq-mc2)). Also not ruled: whether
+host's `mcp.json` server table ([OQ-MC1](#OQ-MC1)), and what yolo does about an old pi or a
+leftover `mcp-adapter.json` at the host ([OQ-MC2](#OQ-MC2)). [OQ-MC1](#OQ-MC1) no longer holds a fix: both
+faults it names arise under `host_management: assert`, the emptied entry directly and `--revert`
+because it runs under no other value (`hostRevertRefusal`). `assert` is ruled retired
+([§4.5 there](../design/config-ownership-and-promotion.md#45-retiring-assert--the-two-value-key)),
+and since [`OQ-CO14`](../design/config-ownership-and-promotion.md#oq-co14) was ruled on 2026-10-05
+nothing holds the retirement's build, which ends both. Also not ruled: whether
 `~/.config/mcp/mcp.json` is still written now that pi-subagents 0.74.0 runs `mcp:` tools from pi's
 own client, and whether yolo does anything for a pi-mcp-adapter user beyond saying the two clients
 duplicate each other.
 
-- 💬 <a id="oq-mc1"></a>**[`OQ-MC1`](#oq-mc1) — does the host own `mcp.json`'s server table per
+- 💬 <a id="OQ-MC1"></a>**[`OQ-MC1`](#OQ-MC1) — does the host own `mcp.json`'s server table per
   server, or whole?** Filed 2026-10-02. Today each server is yolo's or yours, which leaves the
   two faults [pi's own file](#pis-mcp-files) records at the host: an emptied `{}` entry under
   `assert`, and a `--revert` that removes your servers with yolo's.
@@ -707,8 +712,8 @@ duplicate each other.
   **Answer:**
   > _(empty — fill in when decided)_
 
-- 💬 <a id="oq-mc2"></a>**[`OQ-MC2`](#oq-mc2) — what does yolo do about an old pi, or a leftover
-  `mcp-adapter.json`, at the host?** Filed 2026-10-02 with [OQ-MC1](#oq-mc1). A pi older than 0.99.0 has no
+- 💬 <a id="OQ-MC2"></a>**[`OQ-MC2`](#OQ-MC2) — what does yolo do about an old pi, or a leftover
+  `mcp-adapter.json`, at the host?** Filed 2026-10-02 with [OQ-MC1](#OQ-MC1). A pi older than 0.99.0 has no
   MCP client and starts none of the servers in `mcp.json`, and host apply deletes nothing, so a
   `mcp-adapter.json` at the host stays, and pi-mcp-adapter keeps loading it.
 

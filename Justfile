@@ -413,7 +413,7 @@ lint:
     GOOS=darwin staticcheck -checks=inherit,-SA4023 ./...
 
 # ONE COPY OF THE LINT COMMANDS, reached by dependency rather than restated: the
-# hook (`check-ci`) and the interactive recipe (`check`) have to run the same
+# landing gate (`check-ci`) and the interactive recipe (`check`) have to run the same
 # passes, and two hand-kept lists is exactly how a gate ends up applied on one
 # path and not the other. `lint` modifies nothing, so there is nothing for a
 # "CI mode" to withhold; what this recipe adds is the gofmt cleanliness check.
