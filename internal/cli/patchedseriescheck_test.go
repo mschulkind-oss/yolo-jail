@@ -38,6 +38,12 @@ func inAJail(t *testing.T, ws string) string {
 	t.Setenv("YOLO_WORKSPACE", ws)
 	tmp := t.TempDir()
 	t.Setenv("TMPDIR", tmp)
+	// A CONTAINER JAIL, whatever the test runs on: on darwin an in-jail process is read as a
+	// macos-user sandbox (jailMountsItsOwnFiles, PF-D74), which reads a pack anywhere, so a test
+	// of the container jail's workspace rule passed on Linux and failed on the macOS runner.
+	prev := jailMountsItsOwnFiles
+	jailMountsItsOwnFiles = func() bool { return true }
+	t.Cleanup(func() { jailMountsItsOwnFiles = prev })
 	return tmp
 }
 

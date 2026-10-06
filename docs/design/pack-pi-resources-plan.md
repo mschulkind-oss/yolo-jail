@@ -31,7 +31,11 @@ settled detail the design does not need.
   the same fold `config-list` contributions take (`internal/agentcfg/listcontrib.go`), attributed to
   the contributing pack so the orphan and provenance reports name it. Check whether the list
   contributions are gathered per notch or once; both notches must see the same set
-  (`filesslotparity_test.go` is the pattern to copy for a parity pin).
+  (`filesslotparity_test.go` is the pattern to copy for a parity pin). Addressed trees only: keep
+  the emission a loop over landings with one predicate, since
+  [`pack-conventions.md`](pack-conventions.md)'s [OQ-PC3](pack-conventions.md#OQ-PC3) may add
+  patched extensions written directly into the slot, and its review found the readers of a
+  patched extension take the selection unresolved.
 - **Advisory.** `expects` feeds `pack lint`, `pack footprint` and a `yolo check` WARN row; it never
   refuses.
 - **packs/pi.** Add the slot with `register` and `expects`. Nothing else in the pack moves.

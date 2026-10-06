@@ -332,6 +332,16 @@ so `"program": {…}` replaces `{"kind": "program", …}` in a list; state the p
 is [`OQ-D5`](slots-and-contributions.md#OQ-D5)'s ruled rule and is not built; and give each kind
 defaults for `into`, `path` and `codec`.
 
+⚠ **Added 2026-10-05: what an older yolo does with each lever**
+([`pack-conventions.md` §2](pack-conventions.md#2-what-an-older-yolo-does-with-a-convention)).
+Grouping by kind replaces every top-level key, so a yolo with the launch's skip reads a regrouped
+manifest as an empty pack, naming each key it ignored. Defaults built as omissions are refused,
+since a missing required field stays a problem. Every release through v0.11.1 refuses either. That
+conflicts with this question's premise, *"We don't need transitions"*, while hosts run different
+yolos. The same review handed this question a fourth candidate lever, a posture naming a surface
+instead of restating it, with its measured costs
+([`pack-conventions.md` §7](pack-conventions.md#7-considered-and-not-proposed)).
+
 #### Background to [OQ-M2](#OQ-M2)
 
 ⚠ **MEASURED 2026-09-22, and the result is that this question should be DISSOLVED rather than
