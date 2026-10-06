@@ -396,22 +396,24 @@ func TestAUserOverrideOfAPacksProviderCapabilitiesWins(t *testing.T) {
 	}
 }
 
-// TestAForkBuildCountsOnlyItsNarrowedPacks pins the launch's narrowing input: a fork build
-// (Options.OnlyPacks, seal.go) stages only the packs it names, so claude, selected in the user
-// config but not in the build, satisfies nothing and the build's copilot declares nothing.
-func TestAForkBuildCountsOnlyItsNarrowedPacks(t *testing.T) {
+// TestAForkBuildsNarrowedSelectionIsNotRefusedForACapability pins the gate's skip for a build
+// jail's narrowed selection (Options.OnlyPacks, seal.go; PPX-D39): a fork build staging copilot
+// alone drops claude, the agent that searches, and the build runs no agent to want search at all.
+// The user's own launch of the same config passes the gate on claude, and copilot alone is
+// refused (TestAnUnselectedPacksCapabilitySatisfiesNothing), so a refusal here is the narrowing's.
+// It used to be refused, which this test pinned as the narrowing's input to the census.
+func TestAForkBuildsNarrowedSelectionIsNotRefusedForACapability(t *testing.T) {
 	ws := capabilityWorkspace(t, `{"required_capabilities": ["web_search"]}`)
 	capabilityPackHome(t, `{"packs": ["claude", "copilot"]}`)
 	var stdout, stderr bytes.Buffer
 	o := capabilityGateOptions(t, ws, nil, &stdout, &stderr)
 	o.OnlyPacks = []string{"copilot"}
 
-	rc := Run(*o)
+	Run(*o)
 
-	if rc != 1 || !refusedForTheCapability(stderr.String()) {
-		t.Errorf("the build stages copilot alone, which declares no web_search, so claude's "+
-			"declaration must not count (rc=%d):\nstdout:\n%s\nstderr:\n%s",
-			rc, stdout.String(), stderr.String())
+	if refusedForTheCapability(stderr.String()) || !strings.Contains(stderr.String(), gotPastTheGate) {
+		t.Errorf("a build jail's narrowed selection was refused for a capability its dropped agent "+
+			"provides:\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
 	}
 }
 

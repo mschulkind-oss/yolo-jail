@@ -100,7 +100,8 @@ const AllowUnmetCapabilitiesEnv = config.AllowUnmetCapabilitiesEnv
 // closure and the profile sets both read the config's `profile` key with `-p` folded over it
 // (launchSelectionFor, effectiveUseProfiles), so the census counts the agents this launch will
 // stage, on the sources this launch will run them on: not the user scope's selection alone, not
-// the config's `profile` key alone, and never every pack yolo ships.
+// the config's `profile` key alone, and never every pack yolo ships. (A narrowed launch does not
+// ask the gate at all: refuseUnmetCapabilities, PPX-D39.)
 func (o *Options) capabilityLaunch(cfg *jsonx.OrderedMap) *config.CapabilityLaunch {
 	return &config.CapabilityLaunch{
 		Packs: func() ([]*packload.Pack, bool) {
@@ -147,6 +148,12 @@ func (o *Options) capabilityLaunch(cfg *jsonx.OrderedMap) *config.CapabilityLaun
 //
 // src locates the key in the files that wrote it (config's sources.go); nil locates nothing.
 func (o *Options) refuseUnmetCapabilities(cfg *jsonx.OrderedMap, src *config.Sources) bool {
+	if o.selectionNarrowed() {
+		// A BUILD JAIL'S NARROWED SELECTION (seal.go, PPX-D39): the capability a config requires
+		// is one its agents need, a build jail runs none, and the agent that provides it is often
+		// a pack the narrowing dropped. The user's own launches count the whole selection.
+		return false
+	}
 	missing, err := config.UnmetCapabilities(cfg, o.capabilityLaunch(cfg))
 	if len(missing) == 0 {
 		return false

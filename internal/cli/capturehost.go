@@ -310,6 +310,9 @@ func captureFork(f packload.Fork, out, errw io.Writer, color bool) int {
 		switch {
 		case errors.Is(err, errForkBuildLocked):
 			fmt.Fprintf(errw, "  %s\n", captureWaitStep(f.Bin))
+		case jailSaidWhy(err):
+			// The jail stopped before its build line and said why, on the line above (PPX-D39).
+			fmt.Fprintf(errw, "  Fix what it names, %s.\n", captureAgain(f.Bin))
 		case errors.As(err, &exit):
 			fmt.Fprintf(errw, "  %s\n", captureJailFailedStep(f.Bin))
 		default:

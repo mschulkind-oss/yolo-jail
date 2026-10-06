@@ -60,3 +60,20 @@ func TestAForkFootprintKeysApartFromItsBase(t *testing.T) {
 		t.Error("two forks of one base's program are not reported as a program collision")
 	}
 }
+
+// TestEveryForkCarriesItsPacksForkBases: a pack forking two bases' programs hands each fork both
+// bases (Fork.PackBases), which a build sealed to that pack carries so the rewrite of the other fork
+// finds its base (docs/design/patched-extensions.md PPX-D39).
+func TestEveryForkCarriesItsPacksForkBases(t *testing.T) {
+	p := claimPack(t, "forks", forkContribution("pi", "pi"), forkContribution("claude", "claude"),
+		forkContribution("pi2", "pi"))
+	forks := Forks([]*Pack{p})
+	if len(forks) != 3 {
+		t.Fatalf("Forks = %+v, want three", forks)
+	}
+	for _, f := range forks {
+		if len(f.PackBases) != 2 || f.PackBases[0] != "pi" || f.PackBases[1] != "claude" {
+			t.Errorf("fork %s carries PackBases %v, want [pi claude]", f.Key(), f.PackBases)
+		}
+	}
+}

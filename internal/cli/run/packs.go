@@ -412,8 +412,15 @@ func (o *Options) stagePacksInto(stagingRoot string, entries []config.PackEntry)
 	// destination of that kind — that is R1, reported through the resolution outcome, because
 	// the remedy is a line in the OWNING pack (AgentAudienceProblems' package doc has the
 	// split, and why keeping both severities is what makes P3 and R1 one rule).
-	if probs := packload.AgentAudienceProblems(loaded); len(probs) > 0 {
-		return nil, nil, fmt.Errorf("packs: %s", strings.Join(probs, "\npacks: "))
+	//
+	// NONE OF THE FOUR BELOW RUNS FOR A BUILD JAIL'S NARROWED SELECTION (selectionNarrowed,
+	// PPX-D39): each asks whether another selected pack provides what one names, and the
+	// narrowing is what dropped that pack.
+	narrowed := o.selectionNarrowed()
+	if !narrowed {
+		if probs := packload.AgentAudienceProblems(loaded); len(probs) > 0 {
+			return nil, nil, fmt.Errorf("packs: %s", strings.Join(probs, "\npacks: "))
+		}
 	}
 	// A `supersedes` claim that matches no capability any loophole of this set serves
 	// (refuseUnmatchedSupersessions; docs/design/reference-mismatch-diagnostics.md §7 step 4).
@@ -421,18 +428,21 @@ func (o *Options) stagePacksInto(stagingRoot string, entries []config.PackEntry)
 	// indistinguishable from one that worked. And BEFORE the ninth, deliberately: checkViaRoutes
 	// composes the jail-daemon payload through NewHostSet, whose discovery warns this same
 	// sentence to stderr, so a later refusal would print the finding twice.
-	if err := o.refuseUnmatchedSupersessions(loaded); err != nil {
-		return nil, nil, err
+	if !narrowed {
+		if err := o.refuseUnmatchedSupersessions(loaded); err != nil {
+			return nil, nil, err
+		}
+		// THE NINTH: a via profile its service will serve no route for (checkViaRoutes). After
+		// the closure, because the via's service pack is what makes the agent's via URL real.
+		if err := o.checkViaRoutes(loaded); err != nil {
+			return nil, nil, err
+		}
+		// And R1 itself, the half that is REPORTED: every name here is now known to be owned by
+		// a selected pack, so an addressed contribution that still reaches no destination of
+		// its kind is the owning pack's missing `agent`, printed and never refused
+		// (unmatchedaudience.go).
+		o.reportUnmatchedAudiences(loaded)
 	}
-	// THE NINTH: a via profile its service will serve no route for (checkViaRoutes). After
-	// the closure, because the via's service pack is what makes the agent's via URL real.
-	if err := o.checkViaRoutes(loaded); err != nil {
-		return nil, nil, err
-	}
-	// And R1 itself, the half that is REPORTED: every name here is now known to be owned by a
-	// selected pack, so an addressed contribution that still reaches no destination of its kind
-	// is the owning pack's missing `agent`, printed and never refused (unmatchedaudience.go).
-	o.reportUnmatchedAudiences(loaded)
 
 	jailcontent.SetPackSkillDirs(skillDirs)
 	// Record the pack-contributed loophole modules for every host-side consumer, with

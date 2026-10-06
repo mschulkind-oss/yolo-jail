@@ -79,6 +79,9 @@ into a jail, and what each launch shows about the code it runs. See
   included.
 - A launch, or `yolo check`, no longer hangs for good, printing nothing, when nix prints one very
   long line while it builds the jail's image, yolo's own binaries, or a macOS sandbox's packages.
+- A fork's build no longer refuses over something only another of your packs provides, such as the
+  agent a pack's prose is addressed to or a capability your config requires, and a build that stops
+  before it starts now quotes why.
 
 ## [0.11.1] - 2026-10-02
 

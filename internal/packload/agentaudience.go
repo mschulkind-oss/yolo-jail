@@ -42,7 +42,9 @@ import (
 // rather than at `yolo pack lint`: lint takes a single pack root with NO config, so it cannot
 // know the enabled set and must not pretend to (R5 of
 // docs/reference/stringly-typed-references-principle.md#r5-place-the-gate-where-the-reference-is-decidable-and-the-failure-is-actionable:
-// move the gate, do not lower the severity).
+// move the gate, do not lower the severity). A fork's or a patched extension's build jail does not
+// ask at all: the seal narrows its selection to the building pack, which is what drops the agent a
+// name belongs to (cli/run's selectionNarrowed, docs/design/patched-extensions.md PPX-D39).
 func AgentAudienceProblems(packs []*Pack) []string {
 	have := AgentNames(packs)
 	known := map[string]bool{}

@@ -16,6 +16,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -67,6 +68,7 @@ type patchedAdvanceFixture struct {
 	builds []string // f.txt as each build saw it in its src/
 	rc     int      // what the fake build jail exits with
 	ran    bool     // whether the fake build jail writes the toolchain record (its build line ran)
+	said   string   // a line the fake build jail prints on its stderr before it exits, "" for none
 	child  int      // how many builds went through the child-process runner
 	// platform is what the fake build jail's manifest reports: a container capture jail's, unless a
 	// host floor test makes it the floor's own (capture.Platform), which a materialize on the host
@@ -112,6 +114,9 @@ func (fx *patchedAdvanceFixture) buildJail(t *testing.T) func(run.Options) int {
 		fx.builds = append(fx.builds, string(data))
 		if fx.ran {
 			writeFile(t, filepath.Join(o.Workspace, forkToolchainLeaf), "image-identity\n")
+		}
+		if fx.said != "" {
+			fmt.Fprintln(o.Stderr, fx.said)
 		}
 		if fx.rc != 0 {
 			return fx.rc
@@ -388,21 +393,35 @@ func TestAFailedBuildBacksOffWhileTheGoodBuildServes(t *testing.T) {
 }
 
 // A BUILD JAIL THAT NEVER RAN THE BUILD LINE is not a failed build (PF-D21): nothing is recorded,
-// the good build serves, the line names the step (Apple Container's own), and the next launch
-// tries again with no back-off.
+// the good build serves, the line relays what the jail said last and names the step (Apple
+// Container's own besides), and the next launch tries again with no back-off. The jail runs as the
+// child a serving advance runs (forkBuildChild), so this is red if that closure stops handing the
+// child the act's teed writers, as well as if the act stops relaying (PPX-D39).
 func TestABuildJailThatNeverRanRecordsNothing(t *testing.T) {
 	fx, _, _, r, _, _ := firstAdvance(t)
 	fx.commit(t, "v1.3.0", map[int]string{14: "fourteen", 20: "twenty"})
-	fx.rc, fx.ran = 125, false
+	fx.rc, fx.ran, fx.said = 125, false, "Error: the fixture's runtime refused the container"
 	fx.later(2 * time.Hour)
+	children := fx.child
 	got, out, _ := fx.launch(t, "container")
 	if got.delivery.Key != r.delivery.Key {
 		t.Fatalf("handed %+v\n%s", got.delivery, out)
 	}
-	for _, w := range []string{"the build jail did not start", "On Apple Container a capture jail cannot start beside a running jail",
-		"`yolo capture tool` builds it"} {
+	if fx.child == children {
+		t.Fatalf("the build did not run as a child, which this test is about:\n%s", out)
+	}
+	for _, w := range []string{"fork forkpack/tool: the build jail exited 125 before its build line ran, saying: " +
+		"Error: the fixture's runtime refused the container — still running v1.1.0",
+		"  Fix what it names, then `yolo capture tool` builds it; the next fresh launch tries too",
+		"On Apple Container a capture jail cannot start beside a running jail: if that is what stopped it, " +
+			"`yolo capture tool` builds it once the other jails stop"} {
 		if !strings.Contains(out, w) {
 			t.Errorf("the lines lack %q:\n%s", w, out)
+		}
+	}
+	for _, w := range []string{"((", "))", "once the runtime starts jails again"} {
+		if strings.Contains(out, w) {
+			t.Errorf("the lines still say %q:\n%s", w, out)
 		}
 	}
 	for _, o := range fx.record(t).Outcomes {

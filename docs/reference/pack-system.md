@@ -863,7 +863,12 @@ directories of the build's workspace. The build jail still has its
 [keeper](../design/jail-lifetime-last-session-wins.md#11-terms), which holds the container and
 nothing else and ends the jail when the build exits
 ([FP-D15](../design/forked-programs-as-packs.md#FP-D15)). The selection is narrowed to the fork and
-its configured base. A build whose result misses a `produces` path stores nothing, and so does one that leaves a
+its configured base, and to the base of any other fork the fork's pack declares. The launch gates
+that ask whether another selected pack provides what one pack names (an `agents` selector, a
+`supersedes` claim, a via profile's route, `required_capabilities`) do not run in a build jail,
+since the narrowing is what dropped that pack, and a build jail that stops before its build line
+runs is reported with the last lines it printed
+([PPX-D39](../design/patched-extensions.md#PPX-D39)). A build whose result misses a `produces` path stores nothing, and so does one that leaves a
 link into its own workspace, which is deleted when the build ends: `npm install -g .` is the common
 cause, npm installing a folder as a link to it, and the refusal names the copy-installing spelling
 (`npm install -g "$(npm pack --silent)"`). An admitted build is

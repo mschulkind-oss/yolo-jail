@@ -917,8 +917,8 @@ func (a *advance) build(b forkBuild, base baseWhy, edited bool) advanceResult {
 		mode.lock = pidlock.Mode{Wait: true, Bound: forkBuildWaitBound, Cancel: a.ctx.Done()}
 		mode.afterLock = func() (*capture.Entry, error, bool) { return a.afterLock(b, startGood, startFail) }
 		if a.serves() {
-			mode.runJail = func(staging string, b forkBuild) int {
-				rc, bound := forkBuildChild(a.ctx, forkBuildWaitBound, staging, b, a.o.out, a.o.errw, a.o.color)
+			mode.runJail = func(staging string, b forkBuild, out, errw io.Writer) int {
+				rc, bound := forkBuildChild(a.ctx, forkBuildWaitBound, staging, b, out, errw, a.o.color)
 				a.boundHit = bound
 				return rc
 			}
@@ -1003,16 +1003,22 @@ func (a *advance) settle(b forkBuild, entry *capture.Entry, err error, base base
 		a.dim("  %s", captureWaitStep(f.CaptureArg()))
 		return a.serveOr(fmt.Sprintf("%s: %v", f.Label(), err))
 	case errors.Is(err, errForkBuildNotStarted):
-		// THE RUNTIME WOULD NOT START THE BUILD JAIL (PF-D21): not a failed build, so nothing is
-		// recorded and the candidate stays pending.
-		a.warn("%s: the build jail did not start (%v) — %s", f.Label(), err, a.runsNow())
-		if a.o.runtime == "container" {
-			a.dim("  On Apple Container a capture jail cannot start beside a running jail: once the other "+
-				"jails stop, `yolo capture %s` builds it", f.CaptureArg())
+		// THE BUILD JAIL STOPPED BEFORE ITS BUILD LINE RAN (PF-D21): not a failed build, so nothing is
+		// recorded and the candidate stays pending. What stopped it is the jail's to say, and the
+		// error relays the lines it said it with (forkBuildNotStarted, PPX-D39): a launch pre-flight's
+		// refusal, a runtime that would not start it, or a boot that failed.
+		a.warn("%s: %v — %s", f.Label(), err, a.runsNow())
+		if jailSaidWhy(err) {
+			a.dim("  Fix what it names, then `yolo capture %s` builds it; %s tries too", f.CaptureArg(), a.next())
 		} else {
-			a.dim("  `yolo capture %s` builds it once the runtime starts jails again; %s tries too", f.CaptureArg(), a.next())
+			a.dim("  Its output above says why: fix what it names, then `yolo capture %s` builds it; %s tries too",
+				f.CaptureArg(), a.next())
 		}
-		return a.serveOr(fmt.Sprintf("%s's build jail did not start on the host (%v)", f.Label(), err))
+		if a.o.runtime == "container" {
+			a.dim("  On Apple Container a capture jail cannot start beside a running jail: if that is what "+
+				"stopped it, `yolo capture %s` builds it once the other jails stop", f.CaptureArg())
+		}
+		return a.serveOr(fmt.Sprintf("%s was not built on the host: %v", f.Label(), err))
 	case errors.As(err, &source):
 		// AN APPLY ERROR in the build's own replay: nothing recorded against the entry, and the next
 		// check retries it (PF-D45).

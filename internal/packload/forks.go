@@ -90,6 +90,12 @@ type Fork struct {
 	// Patches and Follow are a PATCHED fork's (docs/design/patched-forks.md): the series directory,
 	// relative to Root, and the follow rule as written. Both "" for a plain fork.
 	Patches, Follow string
+	// PackBases is the base of every fork the fork pack declares (forkBases), this one's included:
+	// the packs a build sealed to that pack must carry, since a selection holding a fork whose base
+	// it lacks is refused (ApplyForks) on the host and again by the jail's own loader. A base yolo
+	// ships joins by itself; a configured one is in the selection only when the seal names it
+	// (docs/design/patched-extensions.md PPX-D39).
+	PackBases []string
 	// Into is a PATCHED EXTENSION's home-relative landing (docs/design/patched-extensions.md;
 	// patchedtrees.go), "" for every fork of a program. With it set the value is an extension:
 	// Bin is its name, the last segment of Into; Base is ""; and Produces are tree-relative.
@@ -150,7 +156,7 @@ func Forks(packs []*Pack) []Fork {
 				Pack: p.Name, Base: c.ForkOf, Bin: c.Bin, Source: c.Source, Build: c.Build,
 				Produces:  append([]string(nil), c.Produces...),
 				Platforms: append([]string(nil), c.Platforms...),
-				Root:      p.Root, Patches: c.Patches, Follow: c.Follow,
+				Root:      p.Root, Patches: c.Patches, Follow: c.Follow, PackBases: forkBases(p),
 			})
 		}
 	}

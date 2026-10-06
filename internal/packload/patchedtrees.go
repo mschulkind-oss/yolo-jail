@@ -87,7 +87,7 @@ func PatchedTrees(packs []*Pack) []Fork {
 			f := Fork{
 				Pack: p.Name, Bin: c.ExtensionName(), Source: c.Source, Build: c.Build,
 				Produces: append([]string(nil), c.Produces...),
-				Root:     p.Root, Patches: c.Patches, Follow: c.Follow, Into: c.Into,
+				Root:     p.Root, Patches: c.Patches, Follow: c.Follow, Into: c.Into, PackBases: forkBases(p),
 			}
 			f.Owner, f.ListedInJail, f.ListedAtHost = owningAgentPack(packs, p, c.Into)
 			if f.Owner != "" {

@@ -1,0 +1,133 @@
+package cli
+
+// sealnarrowing_test.go pins the build act's half of PPX-D39 (docs/design/patched-extensions.md):
+// a build jail that stops before its build line ran is relayed with the lines it printed last — its
+// own refusal — at a launch's tree arm and at `yolo capture <pack>/<name>`, and blames no runtime;
+// and a patched extension's seal carries the configured base of every fork its pack declares,
+// without which the narrowed selection is refused. The run pipeline's half, the gates a narrowed
+// selection skips, is pinned in run's sealnarrowing_test.go.
+
+import (
+	"bytes"
+	"fmt"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
+)
+
+// sealRefusal is the line the fake build jail refuses with: the refusal the first launch with
+// patched extensions met, as the run pipeline prints it on its stdout.
+const sealRefusal = "packs: pack treepack: briefing `agents` names \"pi\", which no pack in `packs` provides"
+
+// refusingBuildJail is a build jail that prints what a launch prints before its staging, then the
+// refusal, and exits 1 without writing the toolchain record: its build line never ran.
+func refusingBuildJail(o run.Options) int {
+	fmt.Fprintln(o.Stderr, "Flake source: /nix/fixture (YOLO_REPO_ROOT)")
+	fmt.Fprintln(o.Stdout, sealRefusal)
+	return 1
+}
+
+// A launch's tree arm relays the refusal in its warning and in the reason the jail is handed, names
+// the step that follows from it, and says nothing about a runtime or doubled parentheses. Red if the
+// build act stops teeing the jail's writers or stops relaying what it kept.
+func TestATreeBuildJailThatRefusedIsRelayedWithItsRefusal(t *testing.T) {
+	fx := newTreeFixture(t, `"f.txt"`)
+	withFakeCaptureJail(t, refusingBuildJail)
+	d, out := fx.deliver(t, true)
+	if d.Dir != "" {
+		t.Fatalf("a jail that never ran its build line delivered %+v\n%s", d, out)
+	}
+	relayed := "the build jail exited 1 before its build line ran, saying: " + sealRefusal
+	for _, w := range []string{
+		"extension " + treeKeyCLI + ": " + relayed + " — this jail has no extension " + treeKeyCLI,
+		"  Fix what it names, then `yolo capture " + treeKeyCLI + "` builds it; the next fresh launch tries too",
+	} {
+		if !strings.Contains(out, w) {
+			t.Errorf("the lines lack %q:\n%s", w, out)
+		}
+	}
+	if want := "extension " + treeKeyCLI + " was not built on the host: " + relayed; !strings.Contains(d.Reason, want) {
+		t.Errorf("the reason the jail is handed is %q, want it to relay %q", d.Reason, want)
+	}
+	for _, w := range []string{"runtime", "did not start", "((", "))"} {
+		if strings.Contains(out, w) || strings.Contains(d.Reason, w) {
+			t.Errorf("the lines or the reason still say %q:\n%s\nreason: %s", w, out, d.Reason)
+		}
+	}
+	if strings.Contains(out, "saying: Flake source") {
+		t.Errorf("the relay took a line the jail printed before its refusal:\n%s", out)
+	}
+}
+
+// A REFUSAL OF SEVERAL LINES is relayed whole, from the stream it was printed on: the config gate's
+// verdict, the key it names and its `yolo check` line, where the last line alone would name the
+// remedy and not the fault; and not the line the other stream printed after it.
+func TestATreeBuildJailsSeveralLineRefusalIsRelayedFromItsStream(t *testing.T) {
+	fx := newTreeFixture(t, `"f.txt"`)
+	withFakeCaptureJail(t, func(o run.Options) int {
+		fmt.Fprintln(o.Stdout, "Invalid jail config:")
+		fmt.Fprintln(o.Stdout, "  • ~/.config/yolo-jail/config.jsonc:2:22: config.network.mode: expected 'bridge' or 'host'")
+		fmt.Fprintln(o.Stdout, "")
+		fmt.Fprintln(o.Stdout, "\x1b[2mRun `yolo check` for a full preflight before restarting.\x1b[0m")
+		return 1
+	})
+	d, out := fx.deliver(t, true)
+	want := "saying: Invalid jail config: / • ~/.config/yolo-jail/config.jsonc:2:22: config.network.mode: " +
+		"expected 'bridge' or 'host' / Run `yolo check` for a full preflight before restarting. — "
+	if !strings.Contains(out, want) || !strings.Contains(d.Reason, strings.TrimSuffix(want, " — ")) {
+		t.Errorf("the refusal is not relayed whole (%q):\n%s\nreason: %s", want, out, d.Reason)
+	}
+}
+
+// `yolo capture <pack>/<name>` stops with the same relay, as its last line, which names the step.
+func TestCaptureOfATreeWhoseJailRefusedRelaysTheRefusal(t *testing.T) {
+	newTreeFixture(t, `"f.txt"`)
+	withFakeCaptureJail(t, refusingBuildJail)
+	var out, errw bytes.Buffer
+	rc, handled := captureTree(treeKeyCLI, &out, &errw, false)
+	if !handled || rc == 0 {
+		t.Fatalf("captureTree = %d, %v\n%s%s", rc, handled, out.String(), errw.String())
+	}
+	all := out.String() + errw.String()
+	want := "yolo capture: extension " + treeKeyCLI + " was not built on the host: the build jail exited 1 " +
+		"before its build line ran, saying: " + sealRefusal
+	if !strings.Contains(errw.String(), want) {
+		t.Errorf("the capture's stop does not relay the refusal (%q):\n%s", want, all)
+	}
+	if !strings.Contains(all, "Fix what it names, then `yolo capture "+treeKeyCLI+"` builds it") {
+		t.Errorf("the capture names no step that follows from the refusal:\n%s", all)
+	}
+	if strings.Contains(all, "runtime starts jails again") {
+		t.Errorf("the capture blames the runtime for the jail's own refusal:\n%s", all)
+	}
+}
+
+// A PATCHED EXTENSION'S SEAL CARRIES ITS PACK'S FORK BASES: the contributing pack also forks a
+// configured base's program, so a selection narrowed to that pack alone is one the fork rewrite
+// refuses (packload.ApplyForks: the base "is not in this selection"), on the host and in the jail.
+// Red if sealPacks stops adding Fork.PackBases, or PatchedTrees stops filling it.
+func TestATreesSealCarriesTheConfiguredBaseOfItsPacksFork(t *testing.T) {
+	fx := newTreeFixture(t, `"f.txt"`)
+	writeFile(t, filepath.Join(fx.treeDir, "pack.json"), `{"name":"treepack","contributes":[{"kind":"files",`+
+		`"into":".tool/ext/tool-ext","source":"git+file://`+fx.repo+`?ref=main","patches":"patches",`+
+		`"build":"true","produces":["f.txt"]},`+
+		`{"kind":"program","bin":"tool","via":"source","fork_of":"basepack","source":"git+file://`+fx.repo+`?ref=main",`+
+		`"build":"make","produces":[".local/bin/tool"]}]}`)
+	writeFile(t, filepath.Join(fx.home, ".config", "yolo-jail", "config.jsonc"), `{"packs":[`+
+		`{"source":"file://`+filepath.Join(fx.packs, "basepack")+`","name":"basepack"},`+
+		`{"source":"file://`+fx.treeDir+`","name":"treepack"}]}`)
+	d, out := fx.deliver(t, true)
+	if d.Dir == "" {
+		t.Fatalf("no copy was delivered: %+v\n%s", d, out)
+	}
+	if len(fx.seen) != 1 || !slices.Equal(fx.seen[0].OnlyPacks, []string{"treepack", "basepack"}) {
+		t.Fatalf("the build jail ran %d times, the first sealed to %v; want the contributing pack and its fork's "+
+			"base", len(fx.seen), fx.seen[0].OnlyPacks)
+	}
+	if got := forkBuildChildArgv("/staging", forkBuild{Fork: fx.tree(t)}, false); !slices.Contains(got, "--only=basepack") {
+		t.Errorf("the child build jail's argv %q does not carry the fork's base", got)
+	}
+}

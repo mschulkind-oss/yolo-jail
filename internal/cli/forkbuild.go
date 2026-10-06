@@ -33,7 +33,10 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
@@ -164,8 +167,9 @@ type buildMode struct {
 	afterLock func() (entry *capture.Entry, err error, done bool)
 	// runJail, when non-nil, runs the build jail in place of forkBuildRunJail: a launch's patched
 	// advance runs it as a child process, so a Ctrl-C ends the build and not the launch
-	// (forkbuildchild.go, PF-D25).
-	runJail func(staging string, b forkBuild) int
+	// (forkbuildchild.go, PF-D25). out and errw are the jail's writers, which the act tees to keep
+	// the last lines the jail printed (jailTail).
+	runJail func(staging string, b forkBuild, out, errw io.Writer) int
 	// packs is the pack store a PATCHED build replays its series in (the launch's, under the
 	// advance's context); nil reads the machine's with the store's default budget.
 	packs *packsrc.Store
@@ -183,10 +187,137 @@ type buildMode struct {
 // errForkBuildLocked is a build refused because another holds its lock.
 var errForkBuildLocked = errors.New("another build of this fork is running")
 
-// errForkBuildNotStarted marks a build jail that exited before its build line ran: the runtime
-// would not start it, or its boot failed. Not a failed build (§8.1, PF-D21): a patched fork records
-// nothing for it, and the candidate stays pending.
-var errForkBuildNotStarted = errors.New("the build jail never ran the build line")
+// errForkBuildNotStarted marks a build jail that exited before its build line ran (forkBuildNotStarted
+// is the error itself). Not a failed build (§8.1, PF-D21): a patched fork records nothing for it,
+// and the candidate stays pending.
+var errForkBuildNotStarted = errors.New("the build jail exited before its build line ran")
+
+// forkBuildNotStarted is a build jail that exited before its build line ran, with the last lines it
+// printed. Which of three things stopped it — the launch's own refusal at a pre-flight, a runtime
+// that would not start the container, or a boot that failed — only the jail knows, and the lines it
+// printed last are the ones that say (for a refusal, the refusal itself), so the error relays them
+// rather than guessing (PPX-D39: the first launch with patched extensions said "once the runtime
+// starts jails again" of a config refusal). It is errForkBuildNotStarted to errors.Is, and its
+// jail's exit to errors.As, so `yolo capture` exits with the jail's status, as for any jail that
+// failed.
+type forkBuildNotStarted struct {
+	exit captureJailExit
+	// said is the jail's last lines (jailTail.said), "" for none.
+	said string
+}
+
+func (e forkBuildNotStarted) Error() string {
+	if e.said == "" {
+		// Nothing came through the jail's writers, which is not to say it printed nothing: a container
+		// that started writes to the terminal itself.
+		return fmt.Sprintf("the build jail exited %d before its build line ran", e.exit.rc)
+	}
+	return fmt.Sprintf("the build jail exited %d before its build line ran, saying: %s", e.exit.rc, e.said)
+}
+
+func (e forkBuildNotStarted) Is(target error) bool { return target == errForkBuildNotStarted }
+func (e forkBuildNotStarted) Unwrap() error        { return e.exit }
+
+// jailSaidWhy reports whether err is a build jail that stopped before its build line ran and relays
+// the lines it said why with, so the next step can point at them rather than at the output above.
+func jailSaidWhy(err error) bool {
+	var ns forkBuildNotStarted
+	return errors.As(err, &ns) && ns.said != ""
+}
+
+// jailTail keeps the last lines a build jail prints on each of its two streams (writer), for
+// forkBuildNotStarted to relay. A launch that refuses says so on ONE stream, and a refusal can take
+// a few lines — the config gate's is its verdict, the key and `yolo check` — while the stream it did
+// not use carries the lines the launch printed before it, such as its flake source. So what it
+// relays is the last jailTailLines lines of the stream that printed last (said).
+//
+// Safe for the two copy goroutines a child process's pipes run. Color is stripped and a carriage
+// return starts a line again, so a styled or redrawn line is kept as a terminal shows it, and a line
+// is cut at jailTailMaxLine bytes, since what it keeps ends up in a delivery reason the jail is
+// handed.
+type jailTail struct {
+	mu      sync.Mutex
+	seq     int
+	streams [2]jailTailStream
+}
+
+// jailTailStream is one stream's partial line and last lines, with the order its last line came in.
+type jailTailStream struct {
+	cur   []byte
+	lines []string
+	seq   int
+}
+
+const (
+	// jailTailLines is how many of a stream's last lines jailTail relays.
+	jailTailLines = 3
+	// jailTailMaxLine bounds one line jailTail keeps.
+	jailTailMaxLine = 1024
+)
+
+// jailTailANSI matches a CSI sequence, as run's launch log strips them.
+var jailTailANSI = regexp.MustCompile("\x1b\\[[0-9;?]*[ -/]*[@-~]")
+
+// writer is the writer for stream i: 0 for the jail's stdout, 1 for its stderr.
+func (t *jailTail) writer(i int) io.Writer { return jailTailWriter{t: t, i: i} }
+
+type jailTailWriter struct {
+	t *jailTail
+	i int
+}
+
+func (w jailTailWriter) Write(p []byte) (int, error) {
+	w.t.mu.Lock()
+	defer w.t.mu.Unlock()
+	s := &w.t.streams[w.i]
+	for _, c := range p {
+		switch c {
+		case '\n':
+			w.t.endLine(s)
+		case '\r':
+			s.cur = s.cur[:0]
+		default:
+			if len(s.cur) < jailTailMaxLine*2 {
+				s.cur = append(s.cur, c)
+			}
+		}
+	}
+	return len(p), nil
+}
+
+// endLine keeps s's partial line as its newest when it holds anything but space.
+func (t *jailTail) endLine(s *jailTailStream) {
+	line := strings.TrimSpace(jailTailANSI.ReplaceAllString(string(s.cur), ""))
+	s.cur = s.cur[:0]
+	if line == "" {
+		return
+	}
+	if len(line) > jailTailMaxLine {
+		line = strings.ToValidUTF8(line[:jailTailMaxLine], "") + "…"
+	}
+	if s.lines = append(s.lines, line); len(s.lines) > jailTailLines {
+		s.lines = s.lines[len(s.lines)-jailTailLines:]
+	}
+	t.seq++
+	s.seq = t.seq
+}
+
+// said is the last lines of the stream that printed last, an unterminated line included, joined by
+// " / " so they read as one line; "" when neither printed anything.
+func (t *jailTail) said() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for i := range t.streams {
+		if len(t.streams[i].cur) > 0 {
+			t.endLine(&t.streams[i])
+		}
+	}
+	last := &t.streams[0]
+	if t.streams[1].seq > last.seq {
+		last = &t.streams[1]
+	}
+	return strings.Join(last.lines, " / ")
+}
 
 // forkSourceError is a build that never reached its jail because its source could not be put in
 // place: a checkout that failed, or for a patched fork a replay that failed. Nothing about the
@@ -280,10 +411,17 @@ func buildForkUnderLock(b forkBuild, mode buildMode, store *capture.Store, pr ri
 	}
 	runJail := mode.runJail
 	if runJail == nil {
-		runJail = func(staging string, b forkBuild) int { return forkBuildRunJail(staging, b, out, errw, color) }
+		runJail = func(staging string, b forkBuild, out, errw io.Writer) int {
+			return forkBuildRunJail(staging, b, out, errw, color)
+		}
 	}
+	// THE JAIL'S OWN LAST LINES, kept as they stream past: a jail that stops before its build line ran
+	// is relayed with them (forkBuildNotStarted).
+	tail := &jailTail{}
 	entry, m, err := captureStaged(store, staging,
-		func() int { return runJail(staging, b) },
+		func() int {
+			return runJail(staging, b, io.MultiWriter(out, tail.writer(0)), io.MultiWriter(errw, tail.writer(1)))
+		},
 		func(m *capture.Manifest) string {
 			if f.IsTree() {
 				return fmt.Sprintf("%s's build left no tree at ~/%s", f.Label(), packdecl.TreeReservedDir(f.Bin))
@@ -302,11 +440,12 @@ func buildForkUnderLock(b forkBuild, mode buildMode, store *capture.Store, pr ri
 		})
 	toolchain, terr := os.ReadFile(filepath.Join(staging, forkToolchainLeaf))
 	var exit captureJailExit
-	if err != nil && b.Series != nil && errors.As(err, &exit) && terr != nil {
+	if err != nil && errors.As(err, &exit) && terr != nil {
 		// THE BUILD LINE NEVER RAN: the jail's script writes the toolchain record first, so a jail
-		// that exited without one is a runtime that would not start it or a boot that failed,
-		// never a build that failed — which a PATCHED fork's record keeps apart (§8.1, PF-D21).
-		return nil, fmt.Errorf("%w (%v)", errForkBuildNotStarted, err)
+		// that exited without one stopped before it — a launch pre-flight that refused, a runtime
+		// that would not start it, or a boot that failed — and never a build that failed, which a
+		// PATCHED fork's record keeps apart (§8.1, PF-D21). Which it was, the jail said last.
+		return nil, forkBuildNotStarted{exit: exit, said: tail.said()}
 	}
 	if err != nil {
 		return nil, err
@@ -595,12 +734,21 @@ func forkBuildRunJail(workspace string, b forkBuild, out, errw io.Writer, color 
 }
 
 // sealPacks are the packs a build jail's selection is narrowed to: a fork and its base, or a
-// patched extension's contributing pack.
+// patched extension's contributing pack — and the base of every other fork that pack declares
+// (Fork.PackBases), without which the narrowed selection is refused for a fork whose base it lacks
+// (PPX-D39). Every other gate that asks whether another pack provides what one names is skipped for
+// a narrowed selection (run's selectionNarrowed), so nothing more is carried for those.
 func sealPacks(f packload.Fork) []string {
-	if f.IsTree() {
-		return []string{f.Pack}
+	out := []string{f.Pack}
+	if !f.IsTree() {
+		out = append(out, f.Base)
 	}
-	return []string{f.Pack, f.Base}
+	for _, b := range f.PackBases {
+		if !slices.Contains(out, b) {
+			out = append(out, b)
+		}
+	}
+	return out
 }
 
 // sealTree is the name a patched extension's build jail is told it builds, "" for a fork's.

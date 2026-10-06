@@ -9,6 +9,7 @@ package cli
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -232,11 +233,36 @@ func TestEveryForkCaptureStopNamesItsNextStep(t *testing.T) {
 	})
 	t.Run("a build that failed", func(t *testing.T) {
 		forkBuildHome(t)
-		withFakeCaptureJail(t, func(run.Options) int { return 3 })
+		// The toolchain record is the build script's first line, so a jail that wrote it ran its build.
+		withFakeCaptureJail(t, func(o run.Options) int {
+			writeFile(t, filepath.Join(o.Workspace, forkToolchainLeaf), "image-identity\n")
+			return 3
+		})
 		_, stderr := runCaptureFor(t, "probetool")
 		const want = "  Its output above says why: fix what it names, then run `yolo capture probetool` again."
 		if got := stepAfter(t, stderr, "yolo capture: the capture jail exited 3"); got != want {
 			t.Errorf("the step is\n%q\nwant\n%q", got, want)
+		}
+	})
+	// A JAIL THAT STOPPED BEFORE ITS BUILD LINE (PPX-D39) is relayed with the last line it printed,
+	// its own refusal, through the writers the build act handed it: no runtime is blamed, and the
+	// step points at that line. Red if the act stops teeing the jail's writers.
+	t.Run("a build jail that refused before its build line", func(t *testing.T) {
+		forkBuildHome(t)
+		withFakeCaptureJail(t, func(o run.Options) int {
+			fmt.Fprintln(o.Stderr, "Flake source: /nix/fixture (YOLO_REPO_ROOT)") // the stream a launch prints it on
+			fmt.Fprintln(o.Stdout, "packs: pack forkpack: briefing `agents` names \"nope\", which no pack in `packs` provides")
+			return 1
+		})
+		_, stderr := runCaptureFor(t, "probetool")
+		const lead = "yolo capture: the build jail exited 1 before its build line ran, saying: packs: pack forkpack: " +
+			"briefing `agents` names \"nope\", which no pack in `packs` provides"
+		const want = "  Fix what it names, then run `yolo capture probetool` again."
+		if got := stepAfter(t, stderr, lead); got != want {
+			t.Errorf("the step is\n%q\nwant\n%q", got, want)
+		}
+		if strings.Contains(stderr, "runtime") {
+			t.Errorf("the stop blames the runtime for the jail's own refusal:\n%s", stderr)
 		}
 	})
 }

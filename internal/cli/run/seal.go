@@ -108,6 +108,31 @@ func sealedStores(workspace string) (cacheDir, miseDir string, err error) {
 	return cacheDir, miseDir, nil
 }
 
+// selectionNarrowed reports whether this launch carries a NARROWED SELECTION (Options.OnlyPacks): a
+// fork's or a patched extension's build jail, whose packs are a subset of the user's chosen by the
+// build act, not a selection anybody typed.
+//
+// THE SEAL MUST NOT TRIP OVER ITS OWN NARROWING (docs/design/patched-extensions.md PPX-D39). Some
+// launch gates ask whether a name one pack writes is provided by ANOTHER selected pack, and the
+// narrowing is what drops that other pack, so asked of a build jail they refuse a config the user's
+// own launches accept. The first launch with patched extensions met one: pack matt's briefing named
+// `agents: ["pi"]`, the seal narrowed the build to matt, and every build jail refused before its
+// build line ran. Each gate below is skipped under a narrowed selection, because what it protects
+// is an agent this jail runs, and a build jail runs a build line and no agent; the user's own
+// launches still run every one of them over the whole selection:
+//
+//	an `agents` selector naming an agent no selected pack provides   AgentAudienceProblems
+//	an addressed contribution reaching no destination (reported)     reportUnmatchedAudiences
+//	a `supersedes` claim no selected pack's loophole serves          refuseUnmatchedSupersessions
+//	a via profile whose service serves no route for it               checkViaRoutes
+//	a required capability no selected pack satisfies                 refuseUnmetCapabilities
+//
+// The one gate of that shape a skip cannot answer is a fork whose base is not selected
+// (packload.ApplyForks), which the jail's own loader repeats over the staged tree: there the build
+// act names the base in the seal instead (packload.Fork.PackBases, cli's sealPacks). Every other
+// pre-flight asks about two packs claiming one thing, which a subset can only make rarer, and stays.
+func (o *Options) selectionNarrowed() bool { return o.OnlyPacks != nil }
+
 // narrowedPackEntries is entries narrowed to the names in Options.OnlyPacks, or entries unchanged
 // when OnlyPacks is nil. The conventional local pack is dropped unless named, like any other.
 func (o *Options) narrowedPackEntries(entries []config.PackEntry) []config.PackEntry {
