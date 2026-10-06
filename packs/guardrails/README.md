@@ -1,6 +1,9 @@
 # guardrails
 
-Tools the jail refuses in favour of a faster one for the same work.
+Tools a launch refuses in favour of a faster one for the same work: in a jail, and in the program
+`yolo host --` starts, whose PATH yolo composes, so the same shims go first on it
+([HE-D11](../../docs/design/host-launch-environment.md#he-d11)). `yolo host apply` starts nothing
+and blocks nothing.
 
 Not shipped into the jail — a README at a pack root is not a briefing source (that
 is a `briefing/` directory, which this pack does not have), and nothing here needs to
@@ -40,3 +43,13 @@ makes that rule expressible the day someone wants it.
 
 Deliberately not used yet: the refactor that moved these rules into a pack is not
 the place to also change which rules there are.
+
+## What a block cannot reach
+
+A blocker is the first `grep` or `find` a PATH lookup finds, so two things never meet it. A shell
+that resets PATH: a login shell on macOS runs `path_helper`, and Debian's `/etc/profile` sets PATH
+outright, so a `bash -l` started under the agent loses the block dir. And an agent's own shell
+function of the same name: Claude Code's Bash tool defines `grep` and `find` as functions that run
+its bundled search tools, so Claude's own commands skip these blocks in a jail and at the host
+alike (measured in Claude Code 2.1.289, 2026-10-04). Every host launch that blocks anything says
+both.

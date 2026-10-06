@@ -2,9 +2,12 @@ package entrypoint
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
 // TestGenerateShimsPreservesAnchorAndClearsStale is the regression guard for the
@@ -292,5 +295,176 @@ func TestShippedBlockersDeclareNoExemptions(t *testing.T) {
 		if strings.Contains(string(body), "exec /bin/"+name+` "$@" ;;`) {
 			t.Errorf("%s gained an exemption arm it never declared:\n%s", name, body)
 		}
+	}
+}
+
+// TestTheJailAndAHostLaunchRenderOneBlockerScript pins the one writer (HE-D11): the jail's boot
+// and `yolo host --` render a blocked-tool list through RenderBlockers, so the same entries, the
+// same replacement answer and the same real grep give byte-identical scripts in both places. A
+// second copy of the shim logic at the host would pass every host test and drift from this one.
+func TestTheJailAndAHostLaunchRenderOneBlockerScript(t *testing.T) {
+	const block = `[{"name":"grep","message":"grep's recursive mode is blocked.",` +
+		`"suggestion":"Try: rg","replacement":"rg","block_flags":["--recursive","-r","-R","-*[rR]*"]},` +
+		`{"name":"find","message":"find is blocked.","suggestion":"Try: fd","replacement":"fd"},` +
+		`{"name":"curl","message":"no"}]`
+	bin := t.TempDir()
+	for _, name := range []string{"rg", "fd"} {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e := NewEnv(map[string]string{
+		"JAIL_HOME":              t.TempDir(),
+		"YOLO_DARWIN_LOGIN_PATH": bin,
+		"YOLO_BLOCK_CONFIG":      block,
+	})
+	if err := GenerateShims(e); err != nil {
+		t.Fatal(err)
+	}
+
+	decoded, err := jsonx.Decode([]byte(block))
+	if err != nil {
+		t.Fatal(err)
+	}
+	host := RenderBlockers(decoded.([]any), BlockerRender{
+		LookPath: func(b string) string { return lookPathIn(bin, b) },
+		RealBin:  func(name string) (string, bool) { return e.ShimBinPath() + "/" + name, true },
+	})
+	if len(host) != 3 {
+		t.Fatalf("the host render gave %d scripts, want grep, find and curl: %+v", len(host), host)
+	}
+	for _, s := range host {
+		jail, err := os.ReadFile(filepath.Join(e.BlockDir(), s.Name))
+		if err != nil {
+			t.Fatalf("the jail wrote no %s: %v", s.Name, err)
+		}
+		if string(jail) != s.Content {
+			t.Errorf("%s differs between the jail and a host launch:\njail:\n%s\nhost:\n%s",
+				s.Name, jail, s.Content)
+		}
+	}
+}
+
+// A host launch's real grep can sit in a folder a shell would split; the exec in the shim quotes
+// it, and leaves a plain path bare so the jail's script is unchanged.
+func TestABlockerQuotesTheRealBinaryItExecs(t *testing.T) {
+	decoded, err := jsonx.Decode([]byte(`[{"name":"grep","message":"m","block_flags":["-r"]}]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries := decoded.([]any)
+	spaced := RenderBlockers(entries, BlockerRender{
+		RealBin: func(string) (string, bool) { return "/Users/A User/bin/grep", true },
+	})
+	if len(spaced) != 1 || !strings.Contains(spaced[0].Content, `exec '/Users/A User/bin/grep' "$@"`) {
+		t.Errorf("the real grep's path was not quoted:\n%+v", spaced)
+	}
+	plain := RenderBlockers(entries, BlockerRender{
+		RealBin: func(string) (string, bool) { return "/bin/grep", true },
+	})
+	if len(plain) != 1 || !strings.Contains(plain[0].Content, `exec /bin/grep "$@"`) {
+		t.Errorf("a plain path was quoted, changing the jail's script:\n%+v", plain)
+	}
+	// No real binary: the entry is skipped, never rendered as a shim that execs nothing.
+	if none := RenderBlockers(entries, BlockerRender{
+		RealBin: func(string) (string, bool) { return "", false },
+	}); len(none) != 0 {
+		t.Errorf("a grep blocker with no real grep was rendered: %+v", none)
+	}
+}
+
+// THE HATCH RUNS WHAT IS BEHIND EVERY BLOCK when the caller says what that is (BlockerRender.Behind,
+// HE-D12): an unconditional block of a name other than grep or find execs the program behind it
+// under YOLO_BYPASS_SHIMS=1, or says nothing is installed there and exits 127, rather than
+// skipping its refusal and running nothing. A caller that passes no Behind (the jail, today) gets
+// the script it always wrote. And a Behind never turns a block into a filter: a custom entry's
+// block_flags keep their unconditional block, as without one.
+func TestABlockerRunsWhatIsBehindItUnderTheHatch(t *testing.T) {
+	dir := t.TempDir()
+	real := filepath.Join(dir, "a dir", "yolo-fixture-tool")
+	if err := os.MkdirAll(filepath.Dir(real), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(real, []byte("#!/bin/sh\necho \"real tool ran: $*\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := jsonx.Decode([]byte(`[{"name":"yolo-fixture-tool","message":"tool is blocked"},` +
+		`{"name":"yolo-flagged-tool","message":"flagged is blocked","block_flags":["--danger"]}]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries := decoded.([]any)
+	render := func(behind func(string) string) map[string]string {
+		out := map[string]string{}
+		for _, s := range RenderBlockers(entries, BlockerRender{Behind: behind}) {
+			p := filepath.Join(t.TempDir(), s.Name)
+			if err := os.WriteFile(p, []byte(s.Content), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			out[s.Name] = p
+		}
+		return out
+	}
+	run := func(shim string, bypass bool, args ...string) (int, string) {
+		cmd := exec.Command(shim, args...)
+		cmd.Env = []string{"PATH=/usr/bin:/bin"}
+		if bypass {
+			cmd.Env = append(cmd.Env, "YOLO_BYPASS_SHIMS=1")
+		}
+		out, err := cmd.CombinedOutput()
+		if ee, ok := err.(*exec.ExitError); ok {
+			return ee.ExitCode(), string(out)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		return 0, string(out)
+	}
+
+	behind := render(func(name string) string {
+		if name == "yolo-fixture-tool" {
+			return real
+		}
+		return ""
+	})
+	if rc, out := run(behind["yolo-fixture-tool"], false, "a"); rc != 127 || !strings.Contains(out, "tool is blocked") {
+		t.Errorf("without the hatch: rc=%d %q, want the refusal", rc, out)
+	}
+	if rc, out := run(behind["yolo-fixture-tool"], true, "a", "b c"); rc != 0 || out != "real tool ran: a b c\n" {
+		t.Errorf("the hatch did not run the program behind the block: rc=%d %q", rc, out)
+	}
+	if rc, out := run(behind["yolo-flagged-tool"], true); rc != 127 ||
+		!strings.Contains(out, "YOLO_BYPASS_SHIMS is set, and no yolo-flagged-tool is installed behind this block") {
+		t.Errorf("the hatch with nothing behind: rc=%d %q, want 127 and the line saying so", rc, out)
+	}
+	if rc, _ := run(behind["yolo-flagged-tool"], false, "--safe"); rc != 127 {
+		t.Errorf("a custom entry's block_flags became a filter once a Behind was given (rc=%d)", rc)
+	}
+
+	// No Behind: the scripts are what they always were, nothing after the refusal.
+	for name, p := range render(nil) {
+		body, _ := os.ReadFile(p)
+		if !strings.HasSuffix(string(body), "  exit 127\nfi\n") {
+			t.Errorf("%s changed for a caller passing no Behind:\n%s", name, body)
+		}
+	}
+}
+
+// A later entry for a name an earlier one already rendered replaces it, as a second write of the
+// same file in the block dir always did: one script per name, at the first one's place, with the
+// later entry's body. A host launch names its block dir by the scripts, so a duplicate kept twice
+// would name a different dir and print the name twice in its disclosure.
+func TestRenderBlockersKeepsOneScriptPerNameTheLaterEntrys(t *testing.T) {
+	decoded, err := jsonx.Decode([]byte(`[{"name":"curl","message":"first curl rule"},` +
+		`{"name":"wget","message":"wget rule"},{"name":"curl","message":"second curl rule"}]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := RenderBlockers(decoded.([]any), BlockerRender{})
+	if len(got) != 2 || got[0].Name != "curl" || got[1].Name != "wget" {
+		t.Fatalf("RenderBlockers = %+v, want curl then wget, once each", got)
+	}
+	if !strings.Contains(got[0].Content, "second curl rule") || strings.Contains(got[0].Content, "first curl rule") {
+		t.Errorf("curl's script is not the later entry's:\n%s", got[0].Content)
 	}
 }

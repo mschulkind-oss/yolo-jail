@@ -11,7 +11,9 @@ package check
 // a platform question instead: the report sat behind `isNativeRuntime` and then behind
 // `checkMacosUserBackend`'s own `IsMacOS` return, so two commands disagreed about which
 // environments have a nix profile at all, and a `confinement: guest` or `confinement: host`
-// workspace got no diagnosis of its tool closure from `check` on any platform.
+// workspace got no diagnosis of its tool closure from `check` on any platform. (A macOS
+// `confinement: guest` now resolves the macos-user mechanism itself — env-manager plan
+// EMP-D1 — so its report is that backend's.)
 
 import (
 	"os"
@@ -53,8 +55,10 @@ func (o *Options) sectionPackageProfile(r *reporter, merged *jsonx.OrderedMap, m
 	}
 	// WHETHER A LAUNCH HERE BUILDS THE PROFILE AT ALL, which decides what an absent root
 	// MEANS. Only the macos-user backend materializes it today (darwinpkg.Materialize has
-	// exactly one caller, the macos-user launch); `guest` and `host` have no package layer
-	// yet (provisioner-evidence.md §3.4, "not orthogonal to confinement: the provisioning
+	// exactly one caller, the macos-user launch), and that backend is the macOS guest notch
+	// as well as `runtime: "macos-user"` (env-manager plan EMP-D1): the mechanism check
+	// resolved is macos-user for both. `host` and a Linux `guest` have no package layer yet
+	// (provisioner-evidence.md §3.4, "not orthogonal to confinement: the provisioning
 	// primitive below jail"). Reported through the same mechanism question the gate
 	// asks, not through IsMacOS: a native runtime is the thing that provisions, and the
 	// platform it happens to require is not what makes the sentence true.
@@ -98,9 +102,9 @@ func (o *Options) sectionPackageProfile(r *reporter, merged *jsonx.OrderedMap, m
 // the inertness instead and says there is nothing to run — P2's "a loss with no remedy says
 // so" rather than borrowing one it cannot cash (docs/reference/report-tiers.md#principles).
 // notch and declared are what that cell reports; the other three cells are about the ROOT
-// and depend on neither. A false materializes reaches here only at `guest` or `host` — the
-// gate has already returned for every notch composing an image, and the one mechanism that
-// provisions is the one that makes materializes true — so naming the notch there is always
+// and depend on neither. A false materializes reaches here only at `host` or a Linux `guest`
+// — the gate has already returned for every notch composing an image, and the one mechanism
+// that provisions, macos-user, is the macOS guest's too — so naming the notch there is always
 // naming one of those two.
 func (o *Options) checkPackageProfile(r *reporter, notch render.Kind, materializes bool, declared int) {
 	link := darwinpkg.ProfileRootLink(paths.Home())
@@ -114,8 +118,9 @@ func (o *Options) checkPackageProfile(r *reporter, notch render.Kind, materializ
 			r.warn("`packages:` declares "+itoa(declared)+" "+noun+" that nothing "+
 				"materializes at the `"+notch.String()+"` notch",
 				"A notch with no baked image gets its tools from a nix profile, and only "+
-					"the macos-user backend builds one today — `guest` and `host` have no "+
-					"package layer yet (docs/design/provisioner-evidence.md §3.4).  "+
+					"the macos-user backend builds one today, which is also the guest notch "+
+					"on macOS — `host` and a Linux `guest` have no package layer yet "+
+					"(docs/design/provisioner-evidence.md §3.4).  "+
 					"Nothing to "+
 					"run: the entries are inert here, not wrong.")
 			return

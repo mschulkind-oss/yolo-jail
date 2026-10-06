@@ -127,7 +127,9 @@ func packUpdate(out, errw io.Writer, color bool) int {
 // matters: it does not merely say "in a jail", it says "this process can see the staged
 // pack tree", which is the input the refresh actually needs. The host has neither.
 func refreshProgramsFromOS(pr richtext.Printer, errw io.Writer) int {
-	e := entrypoint.EnvFromOS()
+	// The Env this backend's boot built (JailEnvFromOS), so a macos-user session reads its
+	// launchers the way its bootstrap generated them, as `yolo programs` does.
+	e := entrypoint.JailEnvFromOS()
 	if e.Getenv("YOLO_PACK_ROOT") == "" {
 		pr.Printf("[dim]No staged packs here — a pack-declared program is installed " +
 			"INSIDE a jail, so run `yolo pack update` there to refresh it.[/dim]")

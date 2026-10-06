@@ -586,8 +586,11 @@ func TestHostComposedBriefingIsNotDeliveredTwice(t *testing.T) {
 	stubHostBins(t, "claude")
 
 	// The host notch first: this is what makes ~/.claude/CLAUDE.md yolo's own output rather
-	// than the user's file, and it is the precondition the bug needs.
-	if a := runYoloCLI(t, dir, "apply", "--at", "host", "--assert"); a.rc != 0 {
+	// than the user's file, and it is the precondition the bug needs. YOLO_VERSION blanked, as in
+	// supersession_test.go: the suite may run inside a jail, where a host apply refuses
+	// (hostapplyinjail.go), and this is the host's verb.
+	if a := runCommand(t, dir, []string{"apply", "--at", "host", "--assert"},
+		withEnv("YOLO_VERSION=")); a.rc != 0 {
 		t.Fatalf("yolo apply --at host --assert failed: rc %d\nstdout: %s\nstderr: %s",
 			a.rc, a.stdout, a.stderr)
 	}

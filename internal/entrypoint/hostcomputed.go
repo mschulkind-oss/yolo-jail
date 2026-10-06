@@ -25,6 +25,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
 // hostLayer is one surface's computed layer at the host, split by how it lands.
@@ -244,6 +245,210 @@ func lossInNewTable(losses []string, previous map[string]string) bool {
 		if !agentcfg.LayerAsserted(layer) {
 			return true
 		}
+	}
+	return false
+}
+
+// overwriteLeaves is the computed layer's LEAVES as the write lands them, for the overwrite
+// report: the derive's leaves plus the selection keys, at the root where both mechanisms put
+// them. lift is the rmw arm's edge-decided selection (hostRMWSelection); the stateful arm
+// passes the derive's whole selection namespace, and its composition decides which of those
+// keys move. The wholesale tables are not here: a table's entries are reported by name, as
+// EntryLosses, never as overwritten values.
+func (h hostLayer) overwriteLeaves(lift map[string]any) map[string]any {
+	if len(h.leaves) == 0 && len(lift) == 0 {
+		return nil
+	}
+	return mergeSurfaceRoot(h.leaves, lift)
+}
+
+// hostLeafInputs are the user-scope inputs a host derive reads, in the order a label names
+// them: the `profile` selection, then the three tables (HostInputs).
+var hostLeafInputs = []string{"profile", manifest.SourceProviders, manifest.SourceLSPServers,
+	manifest.SourceMCPServers}
+
+// hostLeafAttribution answers, for a computed leaf this render overwrites a value of the
+// user's with, WHICH OF THEIR OWN INPUTS it is computed from — the label the overwrite report
+// carries, and so the input the remedy names.
+//
+// It ASKS THE DERIVE rather than keeping a key-to-input table: each input is taken away in
+// turn and the derive re-run over the rest, and an input whose absence changes the leaf is one
+// it is computed from. A table core kept would be a list of vendor keys (claude's
+// `env.ENABLE_LSP_TOOL` comes from lsp_servers, pi's `defaultModel` from profile), which is
+// exactly what core does not know; the derive is the one authority on its own output. The
+// re-runs are lazy and memoized, so a render that overwrites no computed leaf runs none.
+type hostLeafAttribution struct {
+	e      *Env
+	s      manifest.Surface
+	script string
+	sel    surfaceSelection
+	tables map[string]map[string]any
+	base   map[string]any
+	// without is the derive's output with one input taken away, by input name; nil for an
+	// input that is empty already (taking it away changes nothing) or whose re-run failed.
+	without map[string]map[string]any
+	ran     map[string]bool
+}
+
+func newHostLeafAttribution(e *Env, s manifest.Surface, script string, sel surfaceSelection,
+	tables map[string]map[string]any, derived map[string]any) *hostLeafAttribution {
+	return &hostLeafAttribution{e: e, s: s, script: script, sel: sel, tables: tables,
+		base: derived, without: map[string]map[string]any{}, ran: map[string]bool{}}
+}
+
+// rerun is the derive's output without input, and whether there is one to compare.
+func (a *hostLeafAttribution) rerun(input string) (map[string]any, bool) {
+	if a.ran[input] {
+		out, ok := a.without[input]
+		return out, ok
+	}
+	a.ran[input] = true
+	sel, tables := a.sel, a.tables
+	if input == "profile" {
+		if sel.Profile == "" && sel.Provider == "" && len(sel.ActiveSet) == 0 {
+			return nil, false
+		}
+		// No profile at this agent's CLI name, as the selection reads when the user selects
+		// none: the agent's own built-in source stays, being no input of theirs.
+		sel = surfaceSelection{NativeCapabilities: a.sel.NativeCapabilities}
+	} else {
+		if len(tables[input]) == 0 {
+			return nil, false
+		}
+		tables = make(map[string]map[string]any, len(a.tables))
+		for k, v := range a.tables {
+			tables[k] = v
+		}
+		tables[input] = map[string]any{}
+	}
+	out, _, err := deriveComputedLayer(a.e, a.s, a.script, sel, tables)
+	if err != nil {
+		return nil, false
+	}
+	a.without[input] = out
+	return out, true
+}
+
+// label is the overwrite line for the leaf at path: "<key> (selected by your profile)" for a
+// key the profile's SELECTION writes, "<key> (computed from your <inputs>)" for any other leaf,
+// or "<key> (computed by its pack)" for a leaf no input of the user's moves.
+//
+// THE SELECTION IS TOLD APART because what happens to the user's value next differs. A selection
+// key (pi's defaultModel) is written on the activation edge, so a pick of theirs made after it
+// stands on every later apply (HC-D17); a derive leaf computed from the same profile (pi-subagents'
+// subagents.defaultModel) is written on EVERY apply, so their pick there does not. The CLI's
+// remedy group promises the first and must not promise it of the second, which it did while both
+// read "computed from your profile" (MEASURED 2026-10-05: the dry run said the user's subagent
+// model would stand, and the apply replaced it).
+func (a *hostLeafAttribution) label(path []string) string {
+	key := strings.Join(path, ".")
+	base, _ := derivedLeaf(a.base, path)
+	var from []string
+	for _, input := range hostLeafInputs {
+		out, ok := a.rerun(input)
+		if !ok {
+			continue
+		}
+		if v, has := derivedLeaf(out, path); !has || !sameJSON(v, base) {
+			from = append(from, input)
+		}
+	}
+	// A PROFILE RESOLVES OVER THE PROVIDER TABLE, so a value the profile moves always moves with
+	// the table too: naming both would send the reader to two keys for one choice. The table is
+	// named only for a leaf no profile explains (a menu built from every provider, say).
+	if len(from) > 1 && from[0] == "profile" && from[1] == manifest.SourceProviders {
+		from = append(from[:1], from[2:]...)
+	}
+	if len(from) > 0 && from[0] == "profile" && a.selected(path) {
+		return key + SelectedByProfileLabel
+	}
+	if len(from) == 0 {
+		return key + ComputedByPackLabel
+	}
+	return key + ComputedFromLabel + joinInputs(from) + ")"
+}
+
+// selected reports whether path is a key the derive's selection namespace carries
+// (agentcfg.SelectionKey): a top-level key the write lifts from it, edge-triggered, as opposed
+// to a leaf the derive asserts on every apply. derivedLeaf reads such a key there too.
+func (a *hostLeafAttribution) selected(path []string) bool {
+	if len(path) != 1 {
+		return false
+	}
+	_, selection, _ := agentcfg.TakeSelection(a.base)
+	_, ok := selection[path[0]]
+	return ok
+}
+
+// The computed-overwrite label forms, exported so the CLI's report reads the same spelling the
+// render writes (splitOverwriteLabel) rather than a copy of it.
+const (
+	SelectedByProfileLabel = " (selected by your profile)"
+	ComputedFromLabel      = " (computed from your "
+	ComputedByPackLabel    = " (computed by its pack)"
+)
+
+// joinInputs names inputs as a label does: "profile", "profile and providers",
+// "profile, providers and lsp_servers".
+func joinInputs(in []string) string {
+	switch len(in) {
+	case 0:
+		return ""
+	case 1:
+		return in[0]
+	}
+	return strings.Join(in[:len(in)-1], ", ") + " and " + in[len(in)-1]
+}
+
+// derivedLeaf is the value at path in a derive's output: a top-level key the selection
+// namespace carries is read there, where the write lifts it from; anything else is read from
+// the rest of the output.
+func derivedLeaf(derived map[string]any, path []string) (any, bool) {
+	rest, selection, _ := agentcfg.TakeSelection(derived)
+	if len(path) == 1 {
+		if v, ok := selection[path[0]]; ok {
+			return v, true
+		}
+	}
+	return valueAtPath(stripNils(rest), path)
+}
+
+// computedOverwritePaths are the computed leaves whose value differs from the file's, as key
+// segments, minus every key managed asserts (managed outranks computed, and managedOverwrites
+// has already named it).
+func computedOverwritePaths(existing *jsonx.OrderedMap, leaves, managed map[string]any) [][]string {
+	if len(leaves) == 0 {
+		return nil
+	}
+	var paths [][]string
+	collectOverwritePaths(existing, leaves, nil, &paths)
+	out := paths[:0]
+	for _, p := range paths {
+		if layerAssertsSegments(managed, p) {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// layerAssertsSegments is layerAssertsPath over a key's SEGMENTS, so a key that itself contains a
+// dot (pi's "archimedes.sessionName") is looked up as the one key it is rather than split in two.
+func layerAssertsSegments(m map[string]any, p []string) bool {
+	cur := m
+	for i, seg := range p {
+		v, present := cur[seg]
+		if !present {
+			return false
+		}
+		if i == len(p)-1 {
+			return true
+		}
+		next, isMap := v.(map[string]any)
+		if !isMap {
+			return true // an ancestor asserts this whole branch
+		}
+		cur = next
 	}
 	return false
 }

@@ -837,11 +837,12 @@ func TestEnvOverrideWarningDoesNotHideARefusal(t *testing.T) {
 }
 
 // TestEnvOverrideCountsADirectoryGrantOnlyWhereItIsBound: the canonical `~/.aws/` grant is a
-// DIRECTORY entry, and two backends never deliver one — macos-user copies files only, and
-// Apple Container below the read-only-bind floor declines the bind. On those a finding over
-// it is a false positive: the jail gets no ~/.aws and the pointer serves. The shipped entry
-// is uncertain, so the finding is a WARNING on stderr and never a refusal; the backend rule
-// decides whether it is printed at all.
+// DIRECTORY entry, and one backend never delivers one — Apple Container below the
+// read-only-bind floor declines the bind. There a finding over it is a false positive: the jail
+// gets no ~/.aws and the pointer serves. macos-user used to be the second, and copies the tree
+// now (buildMacosCtxTree), so a ~/.aws/ grant reaches that sandbox and is counted there. The
+// shipped entry is uncertain, so the finding is a WARNING on stderr and never a refusal; the
+// backend rule decides whether it is printed at all.
 func TestEnvOverrideCountsADirectoryGrantOnlyWhereItIsBound(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -850,7 +851,7 @@ func TestEnvOverrideCountsADirectoryGrantOnlyWhereItIsBound(t *testing.T) {
 		counted bool // the warning is printed
 	}{
 		{"podman binds it", "podman", nil, true},
-		{"macos-user never copies a tree", "macos-user", nil, false},
+		{"macos-user copies the tree", "macos-user", nil, true},
 		{"Apple Container below the floor declines it", "container",
 			&acVersionProbe{v: "1.0.0", ok: true}, false},
 		{"Apple Container of unknown version declines it", "container",
@@ -885,28 +886,34 @@ func TestEnvOverrideCountsADirectoryGrantOnlyWhereItIsBound(t *testing.T) {
 }
 
 // TestEnvOverrideLetsAMacosUserDirectoryGrantThrough is the same fact through Run, on the
-// backend of the internal rollout: `~/.aws/` never crosses there, the launch already says so,
-// and with `-p bedrock` it must still launch rather than be refused over it.
+// backend of the internal rollout: `~/.aws/` CROSSES there now, by copy, so with `-p bedrock`
+// and aws-auth's loophole on (its pointer is served then, through a launch-owned doorway) the
+// launch says the grant may override that pointer — the shipped entry is uncertain, so it WARNS
+// — and still launches rather than being refused over it. It used to assert the opposite (no
+// warning, the grant absent from the sandbox's host files), when the backend dropped a directory
+// entry; the premise that test guarded is gone, and this is the warning it said would be owed.
 func TestEnvOverrideLetsAMacosUserDirectoryGrantThrough(t *testing.T) {
-	o, stderr, seen := overrideNativeLaunch(t, awsAuthUserConfig(`, "host_files": ["~/.aws/"]`),
-		shellWith(nil))
+	o, stderr, seen := overrideNativeLaunch(t, awsAuthUserConfig(`, "host_files": ["~/.aws/"], `+
+		`"loopholes": {"aws-auth": {"enabled": true}}`), shellWith(nil))
+	observeDoorways(t)
 	if err := os.MkdirAll(filepath.Join(seen.home, ".aws"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if rc := Run(*o); rc != 0 || !seen.reached {
-		t.Fatalf("Run() = %d (reached=%v), want the launch to proceed: a directory grant does "+
-			"not cross on macos-user, so it overrides nothing\nstderr:\n%s",
-			rc, seen.reached, stderr.String())
+		t.Fatalf("Run() = %d (reached=%v), want the launch to proceed: an uncertain override "+
+			"warns and never refuses\nstderr:\n%s", rc, seen.reached, stderr.String())
 	}
-	if strings.Contains(stderr.String(), "renders ~/.aws into the jail") {
-		t.Errorf("the launch warned about a directory grant macos-user never delivers:\n%s",
-			stderr.String())
+	if !strings.Contains(stderr.String(), "renders ~/.aws into the jail") {
+		t.Errorf("the launch did not warn that the ~/.aws grant it delivers may override the "+
+			"pointer:\n%s", stderr.String())
 	}
+	crossed := false
 	for _, e := range seen.hostCtx.HostFiles {
-		if e.Path == ".aws" {
-			t.Errorf("the directory grant reached the sandbox's host files — the premise of this "+
-				"test is gone, and the refusal it removed is owed again: %+v", e)
-		}
+		crossed = crossed || (e.Path == ".aws" && e.IsDir)
+	}
+	if !crossed {
+		t.Errorf("the directory grant did not reach the sandbox's host files (%+v), so the "+
+			"warning above names a delivery that did not happen", seen.hostCtx.HostFiles)
 	}
 }
 

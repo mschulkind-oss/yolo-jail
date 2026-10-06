@@ -196,12 +196,13 @@ func (o *Options) packCtxMounts(rt string, packs []*packload.Pack, note func(str
 // pack's own prose), at the path the agent opens under ctxDir, the context dir.
 //
 // macos-user lists what ITS decider delivers (macosCtxLinks: a link in the context dir per
-// mount), and nothing at all when that decider refuses one, since such a launch refuses before
-// any agent reads a briefing. One decider per backend for the briefing and the delivery, so the
-// agent is never told about a path that is not there.
+// mount, or a copy of a pack's single-file grant, marked Copied so the agent is told a host edit
+// arrives at the next launch), and nothing at all when that decider refuses one, since such a
+// launch refuses before any agent reads a briefing. One decider per backend for the briefing and
+// the delivery, so the agent is never told about a path that is not there.
 func (o *Options) briefedCtxMounts(rt, ctxDir string, cfg *jsonx.OrderedMap, packs []*packload.Pack) []jailcontent.ContextMount {
-	if rt == "macos-user" { // parity: HonoredBy — macos-user delivers a context mount as a root-owned link plus Seatbelt rules (macosCtxLinks), and the briefing lists exactly what that decider delivers
-		links, refused := o.macosCtxLinks(cfg, packs, nil)
+	if rt == "macos-user" { // parity: HonoredBy — macos-user delivers a context mount as a root-owned link plus Seatbelt rules, or a pack's single-file grant as a copy (macosCtxLinks), and the briefing lists exactly what that decider delivers
+		links, copies, refused := o.macosCtxLinks(cfg, packs, nil)
 		if len(refused) > 0 {
 			return nil
 		}
@@ -209,6 +210,10 @@ func (o *Options) briefedCtxMounts(rt, ctxDir string, cfg *jsonx.OrderedMap, pac
 		for _, l := range links {
 			out = append(out, jailcontent.ContextMount{Path: ctxDir + "/" + l.Rel(),
 				Host: l.Source, ReadWrite: l.RW, Pack: l.Pack})
+		}
+		for _, c := range copies {
+			out = append(out, jailcontent.ContextMount{Path: ctxDir + "/" + c.Rel(),
+				Host: c.Source, Pack: c.Pack, Copied: true})
 		}
 		return out
 	}

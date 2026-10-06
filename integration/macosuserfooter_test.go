@@ -27,6 +27,11 @@ func TestMacosUserFooterSaysJail(t *testing.T) {
 		`command -v yolo || echo "YOLO-NOT-FOUND"`,
 		`echo "=== NOTCH ==="`,
 		`yolo internal footer --template '{yolo.notch}' 2>&1; echo "RC=$?"`,
+		// The same marker makes a host apply refuse inside the sandbox (hostapplyinjail.go):
+		// rendering the account's own home at the host notch would rewrite what its launch
+		// rendered for the jail.
+		`echo "=== HOSTAPPLY ==="`,
+		`yolo host apply 2>&1; echo "RC=$?"`,
 		`echo "=== END ==="`,
 	}, "\n")
 	r := runMacosUser(t, macosUserWorkspace(t, `{}`), probe)
@@ -36,7 +41,8 @@ func TestMacosUserFooterSaysJail(t *testing.T) {
 	}
 	marker := strings.TrimSpace(section(r.stdout, "=== MARKER ===", "=== YOLO ==="))
 	yolo := strings.TrimSpace(section(r.stdout, "=== YOLO ===", "=== NOTCH ==="))
-	notch := strings.TrimSpace(section(r.stdout, "=== NOTCH ===", "=== END ==="))
+	notch := strings.TrimSpace(section(r.stdout, "=== NOTCH ===", "=== HOSTAPPLY ==="))
+	hostApply := strings.TrimSpace(section(r.stdout, "=== HOSTAPPLY ===", "=== END ==="))
 	if marker == "" && yolo == "" && notch == "" {
 		t.Fatalf("the sandbox produced no probe output.\nstdout:\n%s\nstderr:\n%s", r.stdout, r.stderr)
 	}
@@ -52,6 +58,12 @@ func TestMacosUserFooterSaysJail(t *testing.T) {
 		if yolo == "" || yolo == "YOLO-NOT-FOUND" {
 			t.Errorf("`command -v yolo` in the sandbox = %q: every agent footer runs `yolo internal "+
 				"footer`, so none would render here\nlaunch output:\n%s%s", yolo, r.stdout, r.stderr)
+		}
+	})
+	t.Run("host_apply_refuses", func(t *testing.T) {
+		if strings.HasSuffix(hostApply, "RC=0") || !strings.Contains(hostApply, "inside a jail") {
+			t.Errorf("`yolo host apply` in the sandbox printed %q, want a refusal naming the jail "+
+				"and a non-zero exit\nlaunch output:\n%s%s", hostApply, r.stdout, r.stderr)
 		}
 	})
 	t.Run("notch_is_jail", func(t *testing.T) {

@@ -63,8 +63,70 @@ func SetLSPServers(t *jsonx.OrderedMap) { lspServers = t }
 // LSPServers returns the recorded table, for the launch scope's snapshot.
 func LSPServers() *jsonx.OrderedMap { return lspServers }
 
+// LSPPluginManifestRel is the manifest's path inside the plugin directory, slash-separated. The
+// `.claude-plugin/` segment is mandatory on this load path (the file header says why).
+const LSPPluginManifestRel = ".claude-plugin/plugin.json"
+
+// RenderLSPPlugin is the plugin manifest for table, as the bytes written at LSPPluginManifestRel,
+// and false when no entry has a command, so there is nothing to render.
+//
+// ONE RENDERER FOR BOTH NOTCHES. A launch stages these bytes (writeLSPPlugin) and `yolo host apply`
+// writes them into the real home (internal/cli's applyHostLSPPlugin), so the description below
+// names no notch: it is the same file in a jail and on the host.
+//
+// The marshal cannot fail on a table jsonx.Decode produced (strings, numbers, bools, lists and
+// objects all encode), so a failure is reported as nothing to render rather than threaded as an
+// error no input reaches.
+func RenderLSPPlugin(table *jsonx.OrderedMap) ([]byte, bool) {
+	servers := renderLSPServers(table)
+	if len(servers) == 0 {
+		return nil, false
+	}
+	manifest := map[string]any{
+		"name":        LSPPluginDir,
+		"description": "Language servers declared in your lsp_servers config, rendered by yolo.",
+		"lspServers":  servers,
+		// The ownership marker IsYoloPluginDir reads. Without it the host-side adoption walk
+		// cannot prove this directory is yolo's and would offer to migrate it into the user's
+		// local pack — the same class of defect the sync-root fence exists for.
+		"x-yolo-managed-by": yoloPluginManagedBy,
+	}
+	data, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return nil, false
+	}
+	return append(data, '\n'), true
+}
+
+// IsLSPPlugin reports whether dir holds yolo's LSP plugin: a manifest at LSPPluginManifestRel
+// carrying yolo's ownership marker, the plugin's own name, and an `lspServers` object.
+//
+// The marker alone is not enough. A pack's NAMESPACED skills subtree carries the same marker
+// with the pack's name (hostskills' tier A), so a pack literally named `yolo-lsp` writes a
+// marked directory at this very path. `lspServers` is what only this renderer writes, so a
+// directory without it is that pack's output and never this plugin's.
+//
+// Errors read as "not this plugin", the safe direction: yolo only rewrites or retires what it
+// can prove it wrote.
+func IsLSPPlugin(dir string) bool {
+	data, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(LSPPluginManifestRel)))
+	if err != nil {
+		return false
+	}
+	var m struct {
+		Name       string         `json:"name"`
+		ManagedBy  string         `json:"x-yolo-managed-by"`
+		LSPServers map[string]any `json:"lspServers"`
+	}
+	if json.Unmarshal(data, &m) != nil {
+		return false
+	}
+	return m.ManagedBy == yoloPluginManagedBy && m.Name == LSPPluginDir && m.LSPServers != nil
+}
+
 // writeLSPPlugin renders the plugin into skillsDir, or removes a stale one when nothing is
-// configured. Returns nil when there is nothing to do.
+// configured. Returns nil when there is nothing to do. The bytes are RenderLSPPlugin's, so a jail
+// and the host hold the same file.
 //
 // # Why it is written LAST, after the pack skills
 //
@@ -80,31 +142,18 @@ func LSPServers() *jsonx.OrderedMap { return lspServers }
 // a caller that stages without clearing.
 func writeLSPPlugin(skillsDir string) error {
 	dir := filepath.Join(skillsDir, LSPPluginDir)
-	servers := renderLSPServers(lspServers)
-	if len(servers) == 0 {
+	data, ok := RenderLSPPlugin(lspServers)
+	if !ok {
 		if err := os.RemoveAll(dir); err != nil && !os.IsNotExist(err) {
 			return err
 		}
 		return nil
 	}
-	manifest := map[string]any{
-		"name":        LSPPluginDir,
-		"description": "Language servers declared in this jail's lsp_servers config, rendered by yolo.",
-		"lspServers":  servers,
-		// The ownership marker IsYoloPluginDir reads. Without it the host-side adoption walk
-		// cannot prove this directory is yolo's and would offer to migrate it into the user's
-		// local pack — the same class of defect the sync-root fence exists for.
-		"x-yolo-managed-by": yoloPluginManagedBy,
-	}
-	data, err := json.MarshalIndent(manifest, "", "  ")
-	if err != nil {
+	manifest := filepath.Join(dir, filepath.FromSlash(LSPPluginManifestRel))
+	if err := os.MkdirAll(filepath.Dir(manifest), 0o755); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Join(dir, ".claude-plugin"), 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(filepath.Join(dir, ".claude-plugin", "plugin.json"),
-		append(data, '\n'), 0o644)
+	return os.WriteFile(manifest, data, 0o644)
 }
 
 // yoloPluginManagedBy mirrors hostskills' marker value, which that package keeps unexported. It

@@ -11,10 +11,11 @@ import (
 // run than it carries: they measure the BYTES this repo emits — the clauses present, the clauses
 // absent, and the ordering the last-match-wins policy depends on. They measure nothing about
 // Apple Seatbelt. This profile HAS been kernel-loaded — capture.go records the run, on hardware
-// 2026-09-11 — but nothing asserts it continuously the way the SESSION profile is now asserted
-// (integration/macosuserseatbelt_test.go), because a capture needs the whole staging pipeline
-// rather than one `sandbox-exec`. A Linux jail cannot run sandbox-exec at all, so a human with a
-// Mac is what closes that gap — see docs/plans/install-capture.md's slice 6 hardware checklist.
+// 2026-09-11 — and its denials have a case of their own now, with no green run recorded:
+// integration/macosusercaptureseatbelt_test.go's TestMacosUserCaptureSeatbeltProfileDeniesTheSharedHome,
+// which loads a capture plan's profile as the sandbox account (macos-user.yml, on a Mac). A Linux
+// jail cannot run sandbox-exec at all; what the case leaves to a human with a Mac is in
+// docs/plans/install-capture.md's slice 6 hardware checklist.
 
 const testStagingRoot = "/Users/Shared/yolo-captures/probetool"
 
@@ -158,5 +159,45 @@ func TestCaptureProfileEscapesTheStagingPath(t *testing.T) {
 	p := SeatbeltCaptureProfile(`/Users/Shared/a"b\c`)
 	if !contains(p, `\"`) || !contains(p, `\\`) {
 		t.Errorf("SBPL escaping absent:\n%s", p)
+	}
+}
+
+// THE SEALED CAPTURE PROFILE (FP-D24) is the capture profile with the seal after it: everything the
+// capture profile pins still holds, and the loopback and the nix daemon are denied AFTER
+// `(allow default)` — last match wins, so a deny before it would be none.
+func TestSealedCaptureProfileDeniesTheLoopbackAndTheNixDaemonAfterAllowDefault(t *testing.T) {
+	p := SeatbeltSealedCaptureProfile(testStagingRoot)
+	if problems := captureProfileProblems(p); len(problems) > 0 {
+		t.Errorf("the sealed profile breaks the capture profile's own rules: %v", problems)
+	}
+	if !strings.HasPrefix(p, SeatbeltCaptureProfile(testStagingRoot)) {
+		t.Error("the sealed profile is not the capture profile with the seal appended")
+	}
+	allow := idx(p, "(allow default)")
+	for _, deny := range []string{
+		`(deny network-outbound (remote ip "localhost:*"))`,
+		`(deny network-outbound (remote unix-socket (path-literal "/nix/var/nix/daemon-socket/socket")))`,
+		`(deny file-read* file-write* (subpath "/nix/var/nix/daemon-socket"))`,
+	} {
+		if !contains(p, deny) {
+			t.Errorf("the sealed profile lacks %q:\n%s", deny, p)
+		} else if idx(p, deny) < allow {
+			t.Errorf("%q precedes `(allow default)`, so it denies nothing", deny)
+		}
+	}
+	if problems := sealedProfileProblems(p); len(problems) > 0 {
+		t.Errorf("the sealed profile fails its own check: %v", problems)
+	}
+	// The network beyond the loopback stays: a build fetches its dependencies.
+	if contains(p, `(deny network-outbound (remote ip "*:*"))`) || contains(p, "(deny network*") {
+		t.Errorf("the sealed profile denies the network a build fetches from:\n%s", p)
+	}
+}
+
+// The plain capture profile, an installer's, is NOT sealed: the seal is a fork build's alone (FP-D9
+// scopes it to the fork route), and the check says so of it.
+func TestTheInstallerCaptureProfileIsNotSealed(t *testing.T) {
+	if problems := sealedProfileProblems(SeatbeltCaptureProfile(testStagingRoot)); len(problems) != 3 {
+		t.Errorf("the installer's capture profile reads as sealed: %v", problems)
 	}
 }

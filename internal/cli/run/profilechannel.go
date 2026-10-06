@@ -28,7 +28,6 @@ package run
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
@@ -57,6 +56,16 @@ type packChannel struct {
 	// spelling that selects none for it there (config.ProfileDeselection). The profile
 	// disclosure's warning prints it (noteUseProfiles); nil names the -p form alone.
 	deselect func(agent, profile string) string
+	// workerNotes is the line, one per worker, for every macos-user PURE WORKER with no jail
+	// daemon that this launch does not start (planMacosUserWorkers; host-notch-services.md
+	// HS-D29), recorded when the composition planned the workers and printed where the arm opens
+	// its doorways (planMacosUserDoorways). nil on every other runtime.
+	workerNotes []string
+	// viaNotes is the line, one per agent, for every profiled agent whose via or carrier names a
+	// pack service that this macos-user launch does not plan because the via re-points nothing of
+	// the agent (planMacosUserViaServices, packload.ViaRouted.NoEffect), printed beside workerNotes.
+	// nil on every other runtime.
+	viaNotes []string
 	// providers is the composed provider table (composedProviders): user `providers`
 	// entries over every selected pack's `kind: "provider"` service facts. Emitted as
 	// YOLO_PROVIDERS and read by the env derive below.
@@ -72,9 +81,12 @@ type packChannel struct {
 	// agent's (launchEnv).
 	scope *packload.CredentialScope
 	// userEnv is the hydrated env_sources BEFORE the gate — the secret channel the gate
-	// scopes. Hydrated once, here, because two hydrations would read every dotenv file
-	// twice and warn twice. No writer delivers it whole any more: the shared file carries
-	// scope.SharedEnvSources(), and each agent's file its own claimed entries.
+	// scopes — with each removal (an inline null no later entry cancelled) carried as a nil
+	// value after the assignments (config.HydrateEnvSources). Hydrated once, here, because two
+	// hydrations would read every dotenv file twice and warn twice, and the paths that compose
+	// the channel again (an attach's rekey, a pack-skew attach) hand this map back, removals
+	// included. No writer delivers it whole any more: the shared file carries the shared
+	// composition (scope.SharedEnv), and each agent's file what its own composition adds.
 	userEnv *jsonx.OrderedMap
 	// resolvedProfiles is every profile name this launch could activate, resolved to its
 	// provider and option map (packload.ResolveProfiles). Emitted as YOLO_PROFILES and
@@ -116,6 +128,9 @@ type packChannel struct {
 	// served is what this launch's notch serves (servedDaemons), for the checks that read
 	// the channel after it is composed (checkEnvOverrides).
 	served packload.ServedDaemons
+	// packs is the selected pack set the channel was composed from, for a reader that asks a
+	// pack fact of the composed tables: which service a profile's via names (viaURLsThrough).
+	packs []*packload.Pack
 	// servedAddresses is the declared-to-served address map this entry was composed with
 	// (servedaddresses.go): the ports a fresh launch picked on a shared network namespace, or
 	// the running jail's on an attach. The writer records it in the channel section, which is
@@ -125,14 +140,15 @@ type packChannel struct {
 
 // composePackChannel composes the channel from the config and the STAGED pack set.
 //
-// userEnv may be nil, which means "hydrate env_sources here". Run passes the map it
-// hydrated itself so the container arm can write the same value to yolo-user-env.sh
-// rather than resolving env_sources a second time; a hand-built assembleInput (every one
-// is a test) passes whatever it has, or nil.
+// userEnv may be nil, which means "hydrate env_sources here", through
+// config.HydrateEnvSources: the assignments and the removals of one pass, the removals carried
+// as nil values so a later composition from the same map keeps them. The paths that compose
+// again pass the channel's own map back rather than resolving env_sources a second time; a
+// hand-built assembleInput (every one is a test) passes whatever it has, or nil.
 func (o *Options) composePackChannel(cfg *jsonx.OrderedMap, packs []*packload.Pack,
 	userEnv *jsonx.OrderedMap) (*packChannel, error) {
 	if userEnv == nil {
-		userEnv = config.ResolveEnvSources(o.Workspace, cfg, func(msg string) {
+		userEnv = config.HydrateEnvSources(o.Workspace, cfg, func(msg string) {
 			o.pr(o.Stdout).print(msg)
 		})
 	}
@@ -170,11 +186,37 @@ func (o *Options) composePackChannel(cfg *jsonx.OrderedMap, packs []*packload.Pa
 	// Run resolved) decide both the caller tokens and what is SERVED AT THIS NOTCH
 	// (servedDaemons), and the provider table composes only the addresses served here.
 	specs := o.jailDaemonsFor(cfg, o.runtime, packs)
+	// THE VIA TRIGGER (macosuserservices.go, host-notch-services.md HS-D30): on macos-user a via or a
+	// carrier routes an agent through a pack service only once the launch runs its host half, and
+	// it refuses nothing while the service is unserved, so the launch asks first and plans the
+	// service when serving it would route some profiled agent through it.
+	var viaNotes []string
+	if o.runtime == "macos-user" { // parity: HonoredBy — a container runs the via's service as a jail daemon; macos-user its host half (macosuserservices.go)
+		notes, err := o.planMacosUserViaServices(cfg, packs, profiles, userProfiles, o.servedDaemons(specs))
+		if err != nil {
+			return nil, err
+		}
+		viaNotes = notes
+	}
 	// ONE RETRY PER LAUNCH-OWNED SERVICE (macosuserservices.go): on macos-user a pairing through a
 	// pack service's adaptation refuses at the gate below until this launch plans that service's
 	// host half, and then composes again against it. Bounded by the services the packs declare.
 	for tries := 0; ; tries++ {
 		c, err := o.composePackChannelWith(cfg, packs, userEnv, profiles, userProfiles, specs)
+		// THE PURE WORKERS this macos-user launch starts outside the sandbox (planMacosUserWorkers,
+		// host-notch-services.md HS-D29), planned off the selection this composition resolved and
+		// composed in once more, so a pack env pointer at one is served and handed its caller
+		// token, as a container composes a pointer at the worker's jail daemon. A worker serves no
+		// adaptation, so the second composition resolves the same selection.
+		if err == nil && o.runtime == "macos-user" { // parity: HonoredBy — a container runs a worker's jail daemon in the jail; macos-user runs a host-only worker's host half (macosuserservices.go)
+			added, notes := o.planMacosUserWorkers(packs, c)
+			if added {
+				c, err = o.composePackChannelWith(cfg, packs, userEnv, profiles, userProfiles, specs)
+			}
+			if c != nil {
+				c.workerNotes = notes
+			}
+		}
 		if err == nil || o.runtime != "macos-user" || tries > len(packs) { // parity: HonoredBy — a container runs the service's jail daemon; macos-user its host half (macosuserservices.go)
 			if c != nil {
 				c.bareNote = fold.BareListNote(fold.BareFrom == profileFoldFromKey)
@@ -183,6 +225,16 @@ func (o *Options) composePackChannel(cfg *jsonx.OrderedMap, packs []*packload.Pa
 				key, flags := config.ConfigProfileSelection(cfg), o.ProfileFlags()
 				c.deselect = func(agent, _ string) string {
 					return config.ProfileDeselection(key, flags, agent)
+				}
+				c.viaNotes = viaNotes
+			}
+			// THE VIA GATE OVER THE VIAS THIS LAUNCH SERVES (checkViaRoutes' rule, WG-I13 to WG-I15): on
+			// macos-user that pre-flight runs before the channel plans a launch-owned service, so it
+			// sees every via cleared and asks nothing; the channel asks it again here once a planned
+			// service serves them (HS-D30), as a container launch's pre-flight does of its jail daemon.
+			if err == nil && o.runtime == "macos-user" && len(o.launchServices) > 0 { // parity: HonoredBy — a container's checkViaRoutes sees its jail daemon served; macos-user's served set grows only here
+				if gerr := o.checkServedViaRoutes(packs, c); gerr != nil {
+					return nil, gerr
 				}
 			}
 			return c, err
@@ -244,6 +296,7 @@ func (o *Options) composePackChannelWith(cfg *jsonx.OrderedMap, packs []*packloa
 		}
 	}
 	c := &packChannel{
+		packs:                       packs,
 		scopedTokenVars:             scopedTokenVars,
 		unservedVias:                unservedVias,
 		served:                      served,
@@ -263,14 +316,21 @@ func (o *Options) composePackChannelWith(cfg *jsonx.OrderedMap, packs []*packloa
 	// resolves through what this launch carries: the hydrated env_sources, then the
 	// environment yolo was launched from, so the relay does not claim a credential the
 	// launch would not have carried.
+	//
+	// The REMOVALS cross too: a null ranks with env_sources in the one ordered composition every
+	// vehicle serializes (packload's envcompose.go, the null rank OQ-NC12's decision records), so
+	// it takes out a pack env value of its name in a jail as it does at the host, and never a
+	// shape var.
+	assignments, removals := config.SplitHydratedEnvSources(userEnv)
 	scope, err := packload.ScopeCredentials(packload.ScopeInput{
 		Packs:     packs,
 		Providers: providers,
 		Profiles:  packload.ProfileTable(profiles),
 		// Each agent's whole active set (§4.5): every entry's claimed key reaches that agent.
-		Sets:       packload.ProfileSets(profiles),
-		Resolved:   resolved,
-		EnvSources: userEnv,
+		Sets:              packload.ProfileSets(profiles),
+		Resolved:          resolved,
+		EnvSources:        assignments,
+		EnvSourceRemovals: removals,
 		// THE SERVICE CALLER TOKENS, answering first in every agent's lookup (WB-D18): an
 		// address a pack service serves names its token as its credential, and the derive of
 		// any agent sent there must read the value that service demands.
@@ -366,16 +426,17 @@ func (o *Options) checkProfileDeclarations(fold config.ProfileFold,
 }
 
 // deliverySource answers whether this launch delivers a variable, non-empty, and the PHRASE
-// naming which of five sources answered, in the order the launch would have used the value:
+// naming which source answered:
 //
-//  1. the hydrated env_sources (the secret channel);
-//  2. argvPairs — the `-e K=V` pairs of the assembled container argv, which carry the
-//     pack env, the provider env vars and every pack-shipped loophole's jail_env. Nil on
-//     the macos-user arm, which assembles no argv;
-//  3. the composed channel's own pack env and shape vars — the same pairs the container
-//     argv carries, spelled out so the check means the same thing on a backend that has
-//     no argv to read;
-//  4. the environment yolo itself was launched from, which reaches the jail by no channel
+//  1. the one ordered composition (packload's envcompose.go) of some process of the launch —
+//     the shared one, else the first agent's (sorted) that delivers the name
+//     (CredentialScope.Delivered) — which names the source that WINS there: a shape var over
+//     env_sources over the pack env fold, an env_sources null removing the fold's value. It
+//     answers FromProfileEnv, FromEnvSources or FromPackEnv;
+//  2. argvPairs — the `-e K=V` pairs of the assembled container argv, which carry every
+//     pack-shipped loophole's jail_env, a channel the composition does not hold. Nil on the
+//     macos-user arm, which assembles no argv;
+//  3. the environment yolo itself was launched from, which reaches the jail by no channel
 //     and which the one reader, jailOriginLookup, drops.
 //
 // An EMPTY value is unset at every step: the env-derive runner drops an empty value
@@ -392,19 +453,17 @@ func (o *Options) checkProfileDeclarations(fold config.ProfileFold,
 // selected pack's env contribution" does not. It never carries the VALUE — these are
 // typically credentials.
 //
-// It cannot name WHICH pack set a var. packEnv is already the fold
-// (packload.EnvVarsFor), and the launch delivers the fold rather than any one
+// It cannot name WHICH pack set a var: the launch delivers the fold rather than any one
 // contribution, so "a selected pack's" is the honest precision available here; the
 // `yolo pack footprint` verb is where a reader learns which one.
 //
 // THE PHRASES THEMSELVES ARE packload's (packload.From*), not this file's, because the
-// `yolo check` prediction reports the same refusal from two of these five channels
+// `yolo check` prediction reports the same refusal from the same composition
 // (internal/cli/check/envoverrides.go). Spelled at both callers they would drift, and a
 // prediction that worded one problem differently from the launch is the defect that file
-// exists to avoid rather than to introduce. WHICH channels exist and IN WHAT ORDER they
-// are consulted stays here, where the launch composes them.
+// exists to avoid rather than to introduce.
 //
-// ⚠ THE FIFTH SOURCE IS NOT A DELIVERY INTO THE JAIL: nothing forwards the launch
+// ⚠ THE LAST SOURCE IS NOT A DELIVERY INTO THE JAIL: nothing forwards the launch
 // environment into the jail under its own name. So the env-override pre-flight reads this
 // through jailOriginLookup (envoverrides.go), which drops that answer.
 //
@@ -415,17 +474,11 @@ func (o *Options) checkProfileDeclarations(fold config.ProfileFold,
 // having been narrowed to the selected providers (OQ-CN3).
 func (c *packChannel) deliverySource(o *Options, argvPairs map[string]string,
 	name string) (value, origin string, ok bool) {
-	if s := mapStr(c.userEnv, name); s != "" && c.scope.DeliversEnvSource(name) {
-		return s, packload.FromEnvSources, true
+	if e, found := c.scope.Delivered(name); found {
+		return e.Value, e.Origin, true
 	}
 	if v, found := argvPairs[name]; found && v != "" {
 		return v, packload.FromContainerArgv, true
-	}
-	if v, found := c.scope.DeliveredPackEnv(name); found && v != "" {
-		return v, packload.FromPackEnv, true
-	}
-	if v, found := c.scope.DeliveredShape(name); found && v != "" {
-		return v, packload.FromProfileEnv, true
 	}
 	if v := o.Getenv(name); v != "" {
 		return v, packload.FromLaunchEnv, true
@@ -436,7 +489,7 @@ func (c *packChannel) deliverySource(o *Options, argvPairs map[string]string,
 // launchEnv flattens the channel into the launch environment of ONE PROGRAM: the form the
 // macos-user arm layers into its plan env, for the program its invocation starts. agent is
 // that program's name (the basename of its argv[0]); a shell, or any name no profile
-// selects, receives the shared half only.
+// selects, receives the shared composition only.
 //
 // PER LAUNCH for the session env, and the macos-user arm says so
 // (noteMacosUserCredentialScope): this backend runs one command per invocation under one
@@ -446,53 +499,27 @@ func (c *packChannel) deliverySource(o *Options, argvPairs map[string]string,
 // vehicle's writer (writeMacosUserAgentEnvFiles, providers.md OQ-CN9); before
 // OQ-CN9 it received none of them.
 //
-// The order is the backend's own precedence, unchanged by the gate: the pack env fold
-// first (sorted — a map has no order and the environment it becomes must not reshuffle
-// between runs), then the agent's provider env vars, so a provider var is the more
-// specific intent and wins (providers.md#pv-oq-8's rule at the env boundary rather than
-// the fold's), then the three wire tables, then env_sources LAST, in hydration order —
-// which is where macosuser.buildPlan layered its own hydration before the gate took that
-// call away, so a user's own dotenv entry still beats every channel value on this backend.
+// THE ORDER IS THE ONE COMPOSITION's (packload's envcompose.go, OQ-NC12's option A), the
+// order the host exec and the container's files serialize too: the agent's shape vars over
+// the env_sources it receives over the pack env fold, then the three wire tables. So a profile's
+// ANTHROPIC_BASE_URL now beats a dotenv entry of the same name on this backend, where
+// env_sources used to be layered LAST, and the launched agent and a login shell that starts it
+// read one winner per name. A user who wants a value to beat the profile types it on the
+// command line, which the per-agent file keeps (OQ-CN8).
 //
-// The shape vars' Unset half is skipped: `env -i K=V…` starts from nothing, so there is
-// nothing to remove, and spelling a removal here would need a convention neither backend
-// has.
+// A removal (an env_sources null, a shape tombstone) is the name left out: `env -i K=V…` starts
+// from nothing, so there is nothing to remove.
 func (c *packChannel) launchEnv(agent string) *jsonx.OrderedMap {
 	env := jsonx.NewOrderedMap()
-	packEnv := map[string]string{}
-	for k, v := range c.scope.SharedPackEnv() {
-		packEnv[k] = v
-	}
-	d := c.scope.Agent(agent)
-	if d != nil {
-		for k, v := range d.PackEnv {
-			packEnv[k] = v
+	for _, e := range c.scope.EnvFor(agent).Entries() {
+		if e.Unset || e.Key == "" {
+			continue
 		}
-	}
-	keys := make([]string, 0, len(packEnv))
-	for k := range packEnv {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		env.Set(k, packEnv[k])
-	}
-	if d != nil {
-		for _, v := range d.Shape {
-			if v.Unset || v.Key == "" {
-				continue
-			}
-			env.Set(v.Key, v.Value)
-		}
+		env.Set(e.Key, e.Value)
 	}
 	wire := c.wireTableValues()
 	for _, k := range entrypoint.WireTables() {
 		env.Set(k, wire[k])
-	}
-	sources := c.scope.EnvSourcesFor(agent)
-	for _, k := range sources.Keys() {
-		v, _ := sources.Get(k)
-		env.Set(k, v)
 	}
 	return env
 }

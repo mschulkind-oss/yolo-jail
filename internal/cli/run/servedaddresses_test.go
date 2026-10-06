@@ -23,8 +23,9 @@ import (
 )
 
 // A service macos-user cannot run refuses the pairing, naming why: here a wire-bridge pack that is
-// not the one yolo ships, whose host half never runs (OQ-HS4). The shipped pack's host half is
-// planned and composed instead (macosuserservices_test.go).
+// neither the one yolo ships nor a local one, a fetched pack, whose host half never runs (OQ-HS4).
+// The shipped pack's host half is planned and composed instead (macosuserservices_test.go), and so
+// is a local copy's (HS-D27), which the second half pins.
 func TestMacosUserRefusesAPairingThroughAServiceItCannotStart(t *testing.T) {
 	packs := bridgedPacks(t)
 	o, cfg, channel, _ := attachFixture(t, currentJailEnv, packs, cerebrasKey(), selectCerebras)
@@ -42,10 +43,27 @@ func TestMacosUserRefusesAPairingThroughAServiceItCannotStart(t *testing.T) {
 		t.Fatalf("macos-user composed claude on cerebras through a bridge it cannot start (err %v)", err)
 	}
 	for _, want := range []string{"nothing serves it here", `cannot start the "wire-bridge" service's host half`,
-		"not one yolo ships"} {
+		"its pack was fetched", "not one yolo ships"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("the refusal does not say %q: %v", want, err)
 		}
+	}
+
+	// The same pack as a LOCAL one, the user's own copy: its host half is planned, and claude is
+	// composed against the port this launch picked for it.
+	packs[2].Local = true
+	o.launchServices = nil
+	channel, err = o.composePackChannel(cfg, packs, cerebrasKey())
+	if err != nil {
+		t.Fatalf("macos-user refused a pairing through a local pack's bridge: %v", err)
+	}
+	if len(o.launchServices) != 1 || o.launchServices[0].Service != "wire-bridge" || !o.launchServices[0].Local {
+		t.Fatalf("launch services = %+v, want the local pack's wire bridge", o.launchServices)
+	}
+	picked := o.launchServices[0].Moved["127.0.0.1:8214"]
+	shared, _ = deliveredFiles(t, channel)
+	if picked == "" || strings.Contains(shared, "127.0.0.1:8214") {
+		t.Errorf("claude was not moved off the declared 8214 to the local bridge's picked port (%q)", picked)
 	}
 }
 
@@ -110,11 +128,13 @@ func viaFixture(t *testing.T) ([]*packload.Pack, *jsonx.OrderedMap, func(*Option
 	return packs, userEnv, tune
 }
 
-// ON MACOS-USER A VIA IS CLEARED AND NAMED (notch convergence item 2, NC-D16). A container
-// launch runs the wire bridge, so pi's `pz` keeps its via; macos-user's guest declines the
-// bridge's jail daemon, so the channel clears the via, pi keeps its own client, and the launch names the profile. Through
-// the real composePackChannel, so deleting its ViaServedAt call fails this.
-func TestMacosUserClearsAnUnservedViaAndNamesTheProfile(t *testing.T) {
+// ON MACOS-USER THE VIA IS SERVED BY THE BRIDGE'S HOST HALF (docs/design/host-notch-services.md
+// HS-D30, which reverses the clearing NC-D16 gave this backend). A container launch runs the wire
+// bridge, so pi's `pz` keeps its via; macos-user's guest declines the bridge's jail daemon, and the
+// channel now plans the bridge's host half for the via (the via trigger) and composes pi's via at
+// the port the plan picked for the bridge's via address, naming nothing unserved. Through the real
+// composePackChannel, so deleting its via trigger fails this (the via is cleared and named again).
+func TestMacosUserServesAViaThroughTheBridgesHostHalf(t *testing.T) {
 	packs, userEnv, tune := viaFixture(t)
 	o, cfg, channel, _ := attachFixture(t, currentJailEnv, packs, userEnv, tune)
 	if channel.resolvedProfiles["pz"].ViaBase == "" {
@@ -125,22 +145,24 @@ func TestMacosUserClearsAnUnservedViaAndNamesTheProfile(t *testing.T) {
 	}
 
 	o.runtime = "macos-user"
+	o.launchServices = nil
 	macos, err := o.composePackChannel(cfg, packs, userEnv)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if base := macos.resolvedProfiles["pz"].ViaBase; base != "" {
-		t.Errorf("macos-user kept pz's via %q, a bridge no daemon of its serves", base)
+	if len(o.launchServices) != 1 || o.launchServices[0].Service != "wire-bridge" {
+		t.Fatalf("launch services = %+v, want the bridge's host half planned for pz's via", o.launchServices)
 	}
-	if strings.Join(macos.unservedVias, ",") != "pz" {
-		t.Errorf("unservedVias = %v, want [pz]", macos.unservedVias)
+	if base, want := macos.resolvedProfiles["pz"].ViaBase, "http://"+o.launchServices[0].Moved["127.0.0.1:8216"]; base != want {
+		t.Errorf("macos-user composed pz's via at %q, want the port the plan picked, %q", base, want)
+	}
+	if len(macos.unservedVias) != 0 {
+		t.Errorf("unservedVias = %v, want none: the launch serves the via", macos.unservedVias)
 	}
 	var stderr bytes.Buffer
 	o.Stderr = &stderr
 	o.noteCredentialScope(macos)
-	for _, want := range []string{"Not set at this notch", "pz"} {
-		if !strings.Contains(stderr.String(), want) {
-			t.Errorf("the launch does not name %s:\n%s", want, stderr.String())
-		}
+	if strings.Contains(stderr.String(), `profile "pz"'s via`) {
+		t.Errorf("the launch names pz's via as unserved:\n%s", stderr.String())
 	}
 }

@@ -41,6 +41,11 @@ var convergenceExemptions = map[string]string{
 	// set is the one a launch of those packs records, and it never writes the process-wide
 	// record, which a host verb shares with every other verb and test in its process.
 	"internal/cli/run/hostdoorways.go": "the host launch's own selection, projected as stagePacks records it",
+	// `yolo host apply`'s notch line, for hostdoorways.go's reason: it asks PlanHostDoorways'
+	// composition over the packs the apply's selection chose (HostDoorwayLoopholes), and which
+	// of the user's config entries are inline loopholes over those packs (HostInlineLoopholes),
+	// never through the process-wide record.
+	"internal/cli/run/hostdoorwaysets.go": "the host apply's own selection, projected as hostdoorways.go projects the launch's",
 }
 
 // skippedTopLevelDirs are the repo-root subtrees the walker does not read, each because it

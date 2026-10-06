@@ -435,9 +435,10 @@ var configKeys = map[string]Entry{
 		AppleContainer: honored("the same boot step (bootsteps.go)"),
 		MacosUser: warnedSaying("DarwinEnvFrom sets SkipMCPPresets and the darwin boot's "+
 			"mcp_presets_declined step (entrypoint bootsteps.go) prints the notice naming each "+
-			"preset; the preset's entry is still written into each agent's MCP config", Notice{
+			"preset; SkipMCPPresets also keeps each preset's entry out of every agent's MCP table "+
+			"(entrypoint mcpServersWith)", Notice{
 			Says: "mcp_presets are not delivered on macos-user",
-			Then: "The preset wrappers hardcode Linux paths (/usr/bin/chromium, /bin/node, " +
+			Then: "Left out of every agent's MCP config: the preset wrappers hardcode Linux paths (/usr/bin/chromium, /bin/node, " +
 				"/etc/fonts) that this backend does not provision. Configure the MCP server " +
 				"directly in `mcp_servers` if you need it here.",
 			By: "entrypoint.mcp_presets_declined",

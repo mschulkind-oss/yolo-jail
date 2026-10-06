@@ -113,7 +113,7 @@ func TestTheLogWrapperAppendsStdoutAndStderrToTheLog(t *testing.T) {
 	ws := t.TempDir()
 	plan := BuildRunPlanWithDaemons(ws, jsonx.NewOrderedMap(), []string{"codex"}, []string{"codex"},
 		"/opt/yolo/bin/yolo", "", HomeOverlay{}, HostContext{}, jsonx.NewOrderedMap(), mockDarwin(), nil,
-		openAIAdapterDaemons("/src"), FloorStage{})
+		openAIAdapterDaemons("/src"), FloorStage{}, PlanSession{})
 	start := -1
 	for i, a := range plan.JailDaemonArgv {
 		if a == supervisorLogWrapper {
@@ -225,7 +225,7 @@ func TestASupervisorThatExitsBeforeStartingIsDisclosedWithItsLog(t *testing.T) {
 	if strings.Contains(joined, "proxy:") {
 		t.Error("the agent ran after its supervisor failed")
 	}
-	if !strings.Contains(joined, "stop\nrun:sudo "+rmBin+" -f "+SandboxDaemonEnvFile(cnameFor(ws), "")) {
+	if !strings.Contains(joined, "stop\nrun:sudo "+rmBin+" -f "+SandboxDaemonEnvFile(launchedSessionKey(t, rec, ws), "")) {
 		t.Errorf("the failed supervisor is not stopped and its env file swept:\n%s", joined)
 	}
 }

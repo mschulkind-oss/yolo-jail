@@ -2,9 +2,13 @@ package macosuser
 
 import (
 	"bytes"
+	"io"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
@@ -12,7 +16,18 @@ import (
 // override fields per test. The default is a clean macOS host with a resolved
 // interpreter (so the plan is viable), recording every Run/RunBash/RunWithProxy.
 func mockDeps(rec *[]string) Deps {
+	// The process disk policy the mock "holds": SetDiskIOPolicy records the call and sets it,
+	// and DiskIOPolicy reads it back, as the real pair does on a Mac.
+	policy := 0
 	return Deps{
+		SetDiskIOPolicy: func(p int) error {
+			if rec != nil {
+				*rec = append(*rec, "iopol:"+strconv.Itoa(p))
+			}
+			policy = p
+			return nil
+		},
+		DiskIOPolicy:      func() (int, error) { return policy, nil },
 		IsMacOS:           func() bool { return true },
 		Geteuid:           func() int { return 501 },
 		Which:             func(string) bool { return true },
@@ -56,6 +71,9 @@ func mockDeps(rec *[]string) Deps {
 		SetRandomPassword: func() bool { return true },
 		PathIsDir:         func(string) bool { return true },
 		PathExists:        func(string) bool { return true },
+		// Discarded unless a test reads it: every launch prints, and a production Deps always
+		// has a writer.
+		Out: io.Discard,
 	}
 }
 
@@ -533,7 +551,7 @@ func (e errFake) Error() string { return string(e) }
 //     above the dispatch and the channel carries them — so an env_sources entry the
 //     channel does not carry must NOT reach the sandbox. Re-adding a hydration here is the
 //     second delivery vehicle §2.3 names, bypassing the gate, and it fails this test;
-//  3. the order is kept as handed over — env_sources LAST in the channel is what makes a
+//  3. the order is kept as handed over — the channel's one ordered composition is what makes a
 //     user's own dotenv entry beat a pack's default here (the run pipeline's launchEnv).
 func TestPackEnvReachesTheLaunchEnvAheadOfEnvSources(t *testing.T) {
 	opts := newOpts("/Users/Shared/proj")
@@ -611,5 +629,95 @@ func TestNoPackEnvMeansNoWireTables(t *testing.T) {
 		if strings.Contains(joined, wire) {
 			t.Errorf("a launch with no channel must not invent %s: %s", wire, joined)
 		}
+	}
+}
+
+// A FAILED BOOTSTRAP SENDS ITS READER TO THE BOOT LOG, which the bootstrap now keeps in the
+// workspace (entrypoint.BootLogPath): the launch line alone said that it failed, and the
+// bootstrap's own output — the refusal and every line before it — was on a terminal the user
+// may have closed. And the session env file is installed BEFORE the bootstrap runs, because
+// the bootstrap reads it (hydrate_session_env).
+//
+// HEDGED, because the log is this launch's only if the bootstrap got as far as opening it: a
+// refusal before RunDarwinBootstrap (the workspace-scope check), a sudo or exec failure, or a
+// linked `.yolo` leaves the PREVIOUS launch's log at that path, which may well end "boot
+// complete". So the line says how to tell (the log's first line carries the time it started)
+// and where the output is otherwise.
+func TestABootstrapFailureNamesTheBootLog(t *testing.T) {
+	var rec []string
+	d := mockDeps(&rec)
+	run := d.Run
+	d.Run = func(argv []string) int {
+		if strings.Contains(strings.Join(argv, " "), "internal darwin-bootstrap") {
+			rec = append(rec, "run:"+strings.Join(argv, " "))
+			return 1
+		}
+		return run(argv)
+	}
+	var buf bytes.Buffer
+	d.Out = &buf
+	opts := newOpts("/Users/Shared/yolo/proj")
+	if rc := RunMacosUser(d, opts); rc != 1 {
+		t.Fatalf("rc = %d after a failed bootstrap, want 1\n%s", rc, buf.String())
+	}
+	out := buf.String()
+	if !strings.Contains(out, "entrypoint bootstrap failed") ||
+		!strings.Contains(out, entrypoint.BootLogPath(resolvePathAbs(opts.Workspace))) {
+		t.Errorf("the bootstrap-failed line does not name the boot log %s:\n%s",
+			entrypoint.BootLogPath(resolvePathAbs(opts.Workspace)), out)
+	}
+	for _, want := range []string{"If it got as far as opening its log", "first line", "the lines above"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the bootstrap-failed line claims the log is this launch's without saying how "+
+				"to tell, or where the output is otherwise (missing %q):\n%s", want, out)
+		}
+	}
+
+	envInstall, boot := -1, -1
+	for i, r := range rec {
+		switch {
+		case envInstall < 0 && strings.HasPrefix(r, "install:"+stateDir+"/"+sandboxEnvLeaf+"/"):
+			envInstall = i
+		case boot < 0 && strings.Contains(r, "internal darwin-bootstrap"):
+			boot = i
+		}
+	}
+	if envInstall < 0 || boot < 0 || envInstall > boot {
+		t.Errorf("the session env file must be installed before the bootstrap that reads it "+
+			"(install at %d, bootstrap at %d):\n%s", envInstall, boot, strings.Join(rec, "\n"))
+	}
+}
+
+// TestRealDepsWiresTheDiskPolicyCalls: the launch's Deps reach internal/ioprio's
+// setiopolicy_np pair. Unwired, a declared resources.io would warn "no call wired" on every
+// macos-user launch while every mock-driven test stayed green. Off darwin the pair refuses
+// with ioprio's own error, which is how this test tells the wiring from a stand-in.
+func TestRealDepsWiresTheDiskPolicyCalls(t *testing.T) {
+	d := RealDeps(nil, nil, false)
+	if d.SetDiskIOPolicy == nil || d.DiskIOPolicy == nil {
+		t.Fatal("RealDeps leaves the disk policy seams nil")
+	}
+	if runtime.GOOS == "darwin" {
+		return // the real call; internal/ioprio's darwin test drives it in a child process
+	}
+	if err := d.SetDiskIOPolicy(3); err == nil || !strings.Contains(err.Error(), "setiopolicy_np") {
+		t.Errorf("SetDiskIOPolicy off darwin = %v, want internal/ioprio's refusal", err)
+	}
+	if _, err := d.DiskIOPolicy(); err == nil || !strings.Contains(err.Error(), "setiopolicy_np") {
+		t.Errorf("DiskIOPolicy off darwin = %v, want internal/ioprio's refusal", err)
+	}
+}
+
+// TestRealDepsWiresTheHostCPUCount: the cap on resources.cpus's parallelism defaults reads the
+// launcher's own CPU count, which is the count each of those variables defaults to on the Mac
+// the sandbox shares. Unwired, a declared cpus above it would raise them again while every
+// mock-driven test stayed green.
+func TestRealDepsWiresTheHostCPUCount(t *testing.T) {
+	d := RealDeps(nil, nil, false)
+	if d.HostCPUs == nil {
+		t.Fatal("RealDeps leaves HostCPUs nil, so resources.cpus is never capped")
+	}
+	if got := d.HostCPUs(); got != runtime.NumCPU() {
+		t.Errorf("HostCPUs() = %d, want runtime.NumCPU() = %d", got, runtime.NumCPU())
 	}
 }

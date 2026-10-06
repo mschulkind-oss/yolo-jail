@@ -130,12 +130,15 @@ func hookHome(t *testing.T, src string) string {
 func hashTree(t *testing.T, root string) string {
 	t.Helper()
 	store := paths.PacksDir()
+	// The machine logs are no render either: every `yolo host --` writes its launch line, its
+	// launch log and (when asked) its spans there, whatever it renders (hostLaunchTrace).
+	logs := filepath.Join(paths.GlobalStorage(), "logs")
 	var lines []string
 	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if p == store && d.IsDir() {
+		if (p == store || p == logs) && d.IsDir() {
 			return filepath.SkipDir
 		}
 		rel, _ := filepath.Rel(root, p)

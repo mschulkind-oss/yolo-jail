@@ -182,3 +182,44 @@ func appendLaunchLine(path, line string) {
 	defer f.Close()
 	_, _ = f.WriteString(line)
 }
+
+// HostLaunchRuntime is the `runtime=` a host-notch launch's line carries: `yolo host -- <cmd>`
+// starts no container, so the field names the notch instead of a runtime, and a reader of a
+// storm can tell the host's launches from the jails' at a glance (OQ-PR3).
+const HostLaunchRuntime = "host"
+
+// HostLaunchRecord is the machine-wide launch line of one `yolo host -- <cmd>`: the SAME file,
+// line format and writer a jail launch uses (launchLine, appendLaunchLine), so the one record a
+// reboot's storm is read from holds the host's launches too. The workspace is the directory the
+// command ran in, named by its short code like a jail's (never its path). There is no podman
+// wait, so `podman_wait=- tries=-`.
+//
+// One line, written once: `outcome=started rc=-` immediately before the hand-over (the exec, or
+// the agent started under yolo), or `outcome=not-started rc=<n>` when the launch returned without
+// one. A nil *HostLaunchRecord does nothing.
+type HostLaunchRecord struct {
+	rec *launchRecord
+}
+
+// StartHostLaunchRecord starts the record of a host launch from workspace, timed from now.
+func StartHostLaunchRecord(workspace string) *HostLaunchRecord {
+	return &HostLaunchRecord{rec: &launchRecord{start: time.Now(), cname: runtime.FromWorkspace(workspace)}}
+}
+
+// Started writes the line of a launch about to hand over to its command; every later call on
+// this record is a no-op.
+func (h *HostLaunchRecord) Started() { h.write(launchStarted, -1) }
+
+// NotStarted writes the line of a launch that returned rc without handing over, unless the line
+// was already written (Started, then an exec that failed).
+func (h *HostLaunchRecord) NotStarted(rc int) { h.write(launchNotStarted, rc) }
+
+func (h *HostLaunchRecord) write(outcome string, rc int) {
+	if h == nil || h.rec == nil {
+		return
+	}
+	h.rec.once.Do(func() {
+		appendLaunchLine(MachineLaunchLogPath(),
+			launchLine(h.rec, HostLaunchRuntime, nil, outcome, rc, time.Now()))
+	})
+}

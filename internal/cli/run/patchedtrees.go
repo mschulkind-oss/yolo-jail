@@ -300,7 +300,7 @@ func (o *Options) noteMacosUserTrees() {
 	for _, f := range o.patchedTrees {
 		o.pr(o.Stderr).print("[yellow]Warning: " + richtext.Escape(f.Label()) + " is not delivered on macos-user[/yellow] — " +
 			"its tree is built from source in a capture jail, which this backend has none of; the agent starts " +
-			"without it. Run it on a container backend (YOLO_RUNTIME=podman).")
+			"without it. Run it on a container backend (YOLO_RUNTIME=podman)" + o.containerStepClause() + ".")
 	}
 }
 

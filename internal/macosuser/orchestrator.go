@@ -4,7 +4,11 @@ import (
 	"fmt"
 	"github.com/mschulkind-oss/yolo-jail/internal/progress"
 	"io"
+	"math"
 	"os"
+	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -14,6 +18,9 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/nixchildren"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/perf"
+	"github.com/mschulkind-oss/yolo-jail/internal/perside"
 	"github.com/mschulkind-oss/yolo-jail/internal/provision"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	"github.com/mschulkind-oss/yolo-jail/internal/setupcensus"
@@ -51,8 +58,11 @@ type Deps struct {
 	// RunBash runs `bash -c <script>` and returns the returncode (unshare /
 	// fix-permissions).
 	RunBash func(script string) int
-	// RunWithProxy launches argv under the TTY proxy and returns the agent exit
-	// code.
+	// RunWithProxy runs the session's command, argv, in the foreground and returns its exit
+	// status, 128+N when a signal ended it. The name is the seam's history: darwin has no TTY
+	// proxy. A launch passes its signal arm's session runner (internal/cli/run's
+	// MacosUserArm.RunSession), which absorbs SIGINT and SIGQUIT and forwards SIGTERM and SIGHUP
+	// to the command's sudo.
 	RunWithProxy func(argv []string) int
 	// InstallRootFile writes content to a root-owned file (sudo mkdir+tee+chmod).
 	InstallRootFile func(path, content, mode string) bool
@@ -78,6 +88,26 @@ type Deps struct {
 	// one npm prefix and one mise store; the container serialises the same window and
 	// then attaches to the jail that won, which this backend cannot do.
 	LockWorkspace func(workspace, cname string) func()
+	// HoldAccountHome takes this workspace's hold on the sandbox account's home for the session,
+	// or refuses: the home holds ONE set of links into one workspace's sidecar, so a launch of
+	// another workspace while a session runs would repoint them under it
+	// (docs/reference/macos-user-home-tiers.md#ht-d15, HT-D15). It returns the release, idempotent and
+	// never nil when it admits, or a refusal that names the live workspace and the next step,
+	// ending with step, the container-runtime clause this launch's notch needs (containerStep).
+	//
+	// Asked BEFORE the native nix build, so a refusal costs seconds, and before the first sudo (the
+	// context preflight's), so a refused launch never prompts for a password; released when the
+	// session's teardown has run. A SEAM for LockWorkspace's reason: the implementation lives in
+	// internal/cli/run (run.HoldAccountHome), which imports this package. nil takes no hold, which
+	// is what the four `yolo macos-*` commands get (RealDeps): none of them lays the links.
+	HoldAccountHome func(workspace, cname, step string) (release func(), refusal string)
+	// Ending reports that a signal has begun ending this launch, with the status it ends with
+	// (128+N): the launch's signal arm's answer (internal/cli/run's macosuserarm.go). RunMacosUser
+	// asks it at each step boundary and returns that status, so every deferred teardown runs, and
+	// its teardown's sudo runs non-interactively once it is true (teardownDeps). nil is a caller
+	// with no arm — the `yolo macos-*` commands and a test — and RunMacosUser then arms its own
+	// nix stop (nixchildren.StopOnSignal) around its host nix builds, as it always did.
+	Ending func() (status int, ending bool)
 	// TakenIDs returns the union of existing UIDs+GIDs (macos_setup).
 	TakenIDs func() map[int]struct{}
 	// SetRandomPassword sets a random password on the sandbox account.
@@ -99,15 +129,45 @@ type Deps struct {
 	// GuestBinaries resolves the directory holding the darwin guest binaries
 	// (jaildaemon.go's GuestBinaries) for a flake source: the bundle's prebuilt
 	// bin/darwin-<arch>, else a `nix build .#guestPrefix`. Asked only when the launch has
-	// a jail daemon to run. A SEAM because the build lives in internal/image, which this
-	// package does not import; the front door wires it (internal/cli's guestBinariesSeam).
-	// nil refuses a launch that has a daemon to run, naming why.
+	// a jail daemon to run or carries the endpoint of a guest client (GuestClients). A SEAM
+	// because the build lives in internal/image, which this package does not import; the
+	// front door wires it (internal/cli's guestBinariesSeam). nil refuses such a launch,
+	// naming why.
 	GuestBinaries func(repoRoot string) (string, error)
+	// SetDiskIOPolicy sets THIS process's disk I/O policy (setiopolicy_np, process scope), and
+	// DiskIOPolicy reads it back (getiopolicy_np): the launcher calls them on itself before the
+	// bootstrap, so every process the session starts inherits a declared resources.io
+	// (docs/design/io-priority.md §5.5, IO-D7). Seams because the call is darwin's alone
+	// (internal/ioprio's diskpolicy_darwin.go), and a test must see it made, and made first.
+	// nil means this build cannot set one, which the launch reports like a failed set.
+	SetDiskIOPolicy func(policy int) error
+	DiskIOPolicy    func() (int, error)
+	// HostCPUs is this Mac's logical CPU count (runtime.NumCPU), which is what every
+	// CooperativeCPUVars variable already defaults to unset: resources.cpus's defaults are
+	// capped at it, so they can only lower parallelism (cooperativeCPUCount). nil, or a count
+	// below 1, caps nothing.
+	HostCPUs func() int
+	// SessionRecordDir is the directory holding each session's liveness record
+	// (sessionfiles.go): <global storage>/locks/macos-user-sessions in production. nil, or "",
+	// means no record is kept and no ended session's files are swept, which is a test's launch.
+	SessionRecordDir func() string
+	// ReadSystemKeychain exports every certificate in the Mac's System keychain as PEM, as the
+	// invoking user (`security find-certificate -a -p`, no sudo), and VerifyCA asks macOS whether
+	// it trusts one CA for TLS (`security verify-cert -p ssl`, offline). The two seams of the
+	// launch's CA trust (cabundle.go). nil ReadSystemKeychain is a read that failed; nil VerifyCA
+	// trusts nothing beyond the public roots.
+	ReadSystemKeychain func() (string, error)
+	VerifyCA           func(pem string) bool
 	// StartBackground starts argv in the background, in a process group of its own, with
 	// no terminal, and returns its handle: the stop that ends it (idempotent, never nil on
 	// success), a channel closed when it exits, and what it wrote on its own stdout and
 	// stderr. The jail-daemon supervisor's one seam (startBackgroundReal).
 	StartBackground func(argv []string) (Background, error)
+	// Perf is the launch's timing collector (internal/perf; docs/reference/perf-logging.md): the
+	// run pipeline's own, so RunMacosUser's `macos_user.*` spans land in the same host perf log
+	// and the same report as the host-side spans before the dispatch. nil records nothing, which
+	// is every caller outside a launch.
+	Perf *perf.Log
 	// Out receives the human output. Rich markup is rendered to ANSI when
 	// Color is set, else stripped to plain text.
 	Out io.Writer
@@ -171,20 +231,20 @@ type Options struct {
 	// packs, and the bootstrap is told nothing rather than pointed at an absent dir.
 	HostPackRoot string
 	// PackEnv is the launch's composed channel in launch-env form, for the ONE program this
-	// invocation starts: the pack env fold, the provider env vars, the three wire tables
-	// (YOLO_PROVIDERS, YOLO_PROFILES, YOLO_USE_PROFILES), and the hydrated env_sources LAST
-	// — all of it already narrowed by the credential gate
+	// invocation starts: the one ordered composition (packload's envcompose.go: the pack env
+	// fold, then env_sources, then the provider env vars, one entry per name) and then the
+	// three wire tables (YOLO_PROVIDERS, YOLO_PROFILES, YOLO_USE_PROFILES) — all of it already
+	// narrowed by the credential gate
 	// (docs/reference/providers.md; the run pipeline's packChannel.launchEnv)
 	// to the shared values plus what that program's own profile scopes to it. The run
 	// pipeline composes the channel above the backend dispatch, so a `-p` launch composes
 	// the same environment natively that it does in a container. Nil is the pre-channel
 	// shape and layers nothing.
 	//
-	// Layered into the plan env BEFORE SandboxEnv. env_sources closes the map, so a user's
-	// own dotenv entry beats a pack's default here, as it did when this package hydrated
-	// env_sources itself. Its two wire tables are ALSO relayed into the bootstrap env
-	// (BuildRunPlan), because the native bootstrap renders pack surfaces and derives from
-	// them exactly as the container boot does.
+	// Layered into the plan env BEFORE SandboxEnv. The wire tables close the map; within it a
+	// dotenv value beats a pack's default and the profile's value beats both. Its two wire
+	// tables are ALSO relayed into the bootstrap env (BuildRunPlan), because the native
+	// bootstrap renders pack surfaces and derives from them exactly as the container boot does.
 	PackEnv *jsonx.OrderedMap
 	// JailDaemons is what this launch runs in the guest: the supervisor's composed env,
 	// payload included (jaildaemon.go). The run pipeline composes it from the daemons the
@@ -195,6 +255,37 @@ type Options struct {
 	// jail marker buildPlan sets over everything; nil is the common case.
 	SandboxEnv *jsonx.OrderedMap
 	DryRun     bool
+	// SessionID is this session's id (sessionfiles.go), minted by RunMacosUser after a dry run
+	// has returned; "" plans with SessionPlaceholder. CATrust is the TLS trust RunMacosUser
+	// composed from the tool profile and the System keychain (cabundle.go); the zero value, as
+	// in a dry run, composes none. Neither is the caller's to set.
+	SessionID string
+	CATrust   CATrust
+	// OnAgentStart runs once, just before the session's command starts: after the workspace lock
+	// is released and every step before the session has succeeded. Never on a dry run, a refusal,
+	// or a launch a signal ended first. The run pipeline hands its macos-user arm's AgentStarting
+	// (internal/cli/run's macosuserarm.go), which runs what the pipeline registered for the
+	// session's start. It must return promptly: the session waits for it. nil runs nothing.
+	OnAgentStart func()
+	// SkipGrant and OnStaged are the stage's two questions about the endpoint-file grants
+	// (endpointGrantCommands) when a keeper holds the workspace's host services
+	// (docs/design/jail-lifetime-last-session-wins.md §9.9.5): every session of the workspace is
+	// told the same endpoint files, in the keeper's one host-services dir, and what a second `chmod
+	// +a` of one ACE on one file does is unmeasured, so a session grants only a file no session of
+	// the workspace granted yet. SkipGrant reports whether a grant's path is such a file; OnStaged
+	// is told, once the stage succeeded, every path a grant named, granted or skipped. Either may be
+	// nil: a launch with no keeper grants every one, as before.
+	SkipGrant func(path string) bool
+	OnStaged  func(paths []string)
+}
+
+// grantTarget is the path a stage command grants the sandbox account an ACE on (`chmod +a <ace>
+// <path>`), and whether it is such a grant.
+func grantTarget(cmd []string) (string, bool) {
+	if len(cmd) == 4 && cmd[0] == chmodBin && cmd[1] == "+a" {
+		return cmd[3], true
+	}
+	return "", false
 }
 
 // printer wraps the shared richtext renderer. When color is set the rich markup
@@ -210,12 +301,18 @@ func (p printer) print(msg string)          { fmt.Fprintln(p.w, richtext.Render(
 func (p printer) printf(f string, a ...any) { p.print(fmt.Sprintf(f, a...)) }
 
 // MacosSandboxEnv returns the extra env layered into the sandbox launch (git
-// identity + TERM/COLORTERM/NO_COLOR). Host credentials never cross.
+// identity + TERM/COLORTERM/NO_COLOR, and the reachability hatch). Host credentials never
+// cross.
 //
 // NO_COLOR crosses for the container's reason (run.Options.noColorEnvArgs): a user
 // who asked the host for no color asked it of the sandbox's programs too, and it
 // crosses only when set — non-empty, the convention's definition
 // (https://no-color.org).
+//
+// YOLO_ALLOW_UNREACHABLE_SERVICES (paths.AllowUnreachableServicesEnv) crosses for the
+// container's reason too: the user types it on the host, and the witness that reads it runs
+// inside the sandbox (serviceprobe.go), so a hatch left on the host would be one the refusal
+// names and nothing honors. Only when set, so an ordinary launch's env file does not grow it.
 func MacosSandboxEnv(deps Deps, cfg *jsonx.OrderedMap) *jsonx.OrderedMap {
 	env := jsonx.NewOrderedMap()
 	if term := deps.Getenv("TERM"); term != "" {
@@ -227,6 +324,9 @@ func MacosSandboxEnv(deps Deps, cfg *jsonx.OrderedMap) *jsonx.OrderedMap {
 	if tty.NoColor(deps.Getenv) {
 		env.Set(tty.NoColorVar, deps.Getenv(tty.NoColorVar))
 	}
+	if v := deps.Getenv(paths.AllowUnreachableServicesEnv); v != "" {
+		env.Set(paths.AllowUnreachableServicesEnv, v)
+	}
 	for _, pair := range [][2]string{{"YOLO_GIT_NAME", "user.name"}, {"YOLO_GIT_EMAIL", "user.email"}} {
 		if val, ok := deps.GitConfig(pair[1]); ok && val != "" {
 			env.Set(pair[0], val)
@@ -235,23 +335,33 @@ func MacosSandboxEnv(deps Deps, cfg *jsonx.OrderedMap) *jsonx.OrderedMap {
 	return env
 }
 
-// buildPlan starts from the sandbox env, layers the composed channel (PackEnv, which
-// carries the gate-narrowed env_sources last), layers the caller's sandbox_env, sets the
-// jail marker over all of them, then builds the plan.
-// unenforcedResourceKeys is every `resources` key the warning below names: all of them,
-// whatever their value, except an `io` that resolves to "normal" (that string, null or {}).
-// That one makes no call on any backend, so it is already honored here, and naming it would
-// report a declaration of nothing (docs/design/io-priority.md IO-D8). Any other `io` is named
-// until setiopolicy_np ships, build step 5.
+// unenforcedResourceKeys is every `resources` key the "NOT enforced" warning below names:
+// the ones this backend reads and does nothing with. Since build step 5 of
+// docs/design/io-priority.md that is no longer all of them:
+//
+//   - `io` is never named. A declared priority is set as the process disk policy before the
+//     bootstrap (RunMacosUser), and one that resolves to "normal" makes no call on any backend
+//     (IO-D8). A failed set is the launch's own warning, said where it happens.
+//   - `cpus` is honored COOPERATIVELY (CooperativeCPUVars) and `memory` by the SAMPLED session
+//     guard (sessionguard.go), each with a disclosure line of its own saying how far that goes.
+//     A value neither can read (validation refuses one first) is still named here.
+//   - `pids_limit` is the one left, and stays named: RLIMIT_NPROC is per-USER, so it would
+//     collide across concurrent sessions on the shared sandbox account (DP-D1).
 func unenforcedResourceKeys(res *jsonx.OrderedMap) []string {
 	if res == nil {
 		return nil
 	}
 	var keys []string
 	for _, k := range res.Keys() {
-		if k == "io" {
-			v, _ := res.Get(k)
-			if p, problems := ioprio.Parse(v, "resources.io"); len(problems) == 0 && !p.Declared() {
+		switch k {
+		case "io":
+			continue
+		case "cpus":
+			if _, ok := CooperativeCPUs(res); ok {
+				continue
+			}
+		case "memory":
+			if SessionGuardFor(res).Enabled() {
 				continue
 			}
 		}
@@ -260,6 +370,93 @@ func unenforcedResourceKeys(res *jsonx.OrderedMap) []string {
 	return keys
 }
 
+// CooperativeCPUVars are the variables `resources.cpus` sets for the session, and they are
+// chosen by ONE RULE: each is a variable whose unset default is the machine's CPU count, so
+// setting it to the declared count, capped at that count (cooperativeCPUCount), can only
+// LOWER a program's parallelism, never raise it. That rule is why MAKEFLAGS and
+// CMAKE_BUILD_PARALLEL_LEVEL are not here: make's default is one job, so `-j4` would turn a
+// serial build parallel (docs/design/declaration-parity.md ledger). Each is a default, under
+// every value the user's own env layers set.
+//
+//   - GOMAXPROCS: the Go runtime's OS threads running Go code, and `go build -p`'s default.
+//   - CARGO_BUILD_JOBS: cargo's parallel rustc jobs.
+//   - RAYON_NUM_THREADS: the rayon thread pool, which rustc and many Rust tools use.
+//   - OMP_NUM_THREADS: OpenMP's team size; GNU `nproc` honors it too.
+var CooperativeCPUVars = []string{"GOMAXPROCS", "CARGO_BUILD_JOBS", "RAYON_NUM_THREADS", "OMP_NUM_THREADS"}
+
+// CooperativeCPUs is the whole-CPU count a declared `resources.cpus` asks for: ceil of the
+// number, at least 1, so "0.5" is 1 and "2.5" is 3, because every variable above takes a
+// whole count and a fractional cap rounded down would be a stricter one than declared. false
+// when cpus is absent or is not a number (validation refuses that first). A bool is the
+// validator's own reading: true is 1.
+func CooperativeCPUs(res *jsonx.OrderedMap) (int, bool) {
+	if res == nil {
+		return 0, false
+	}
+	v, _ := res.Get("cpus")
+	var f float64
+	switch t := v.(type) {
+	case nil:
+		return 0, false
+	case bool:
+		if !t {
+			return 0, false
+		}
+		f = 1
+	case string:
+		n, err := strconv.ParseFloat(strings.TrimSpace(t), 64)
+		if err != nil {
+			return 0, false
+		}
+		f = n
+	case float64:
+		f = t
+	case int:
+		f = float64(t) // a config built in code rather than decoded
+	case int64:
+		f = float64(t)
+	default:
+		n, ok := jsonx.AsInt(v) // a decoded JSON integer
+		if !ok {
+			return 0, false
+		}
+		f = float64(n)
+	}
+	if f <= 0 || math.IsNaN(f) || math.IsInf(f, 0) {
+		return 0, false
+	}
+	n := int(math.Ceil(f))
+	if n < 1 {
+		n = 1
+	}
+	return n, true
+}
+
+// cooperativeCPUCount is the value the CooperativeCPUVars defaults are set to: the declared
+// whole count, capped at host, the Mac's own CPU count, which is what each of them already
+// defaults to unset. Without the cap a declaration written for a bigger machine would RAISE
+// parallelism here (GOMAXPROCS=32 on an 8-CPU Mac runs 32 Ps), which the rule that picks them
+// forbids; at the cap they change nothing. A host below 1 (unknown) caps nothing. capped
+// reports whether the cap applied, for the disclosure.
+func cooperativeCPUCount(declared, host int) (n int, capped bool) {
+	if host >= 1 && declared > host {
+		return host, true
+	}
+	return declared, false
+}
+
+// hostCPUs is deps.HostCPUs' answer, 0 (cap nothing) when the seam is not wired.
+func hostCPUs(deps Deps) int {
+	if deps.HostCPUs == nil {
+		return 0
+	}
+	return deps.HostCPUs()
+}
+
+// buildPlan starts from the sandbox env, layers the composed channel (PackEnv: the launched
+// program's one ordered composition, its shape vars over the gate-narrowed env_sources over the
+// pack env fold, then the three wire tables), layers the caller's sandbox_env, sets the jail
+// marker over all of them, then builds the plan.
 func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 	env := MacosSandboxEnv(deps, opts.Config)
 	// Trust the workspace's mise configs, for the same reason the container gets this on its
@@ -280,6 +477,29 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 	if opts.Workspace != "" {
 		env.Set("MISE_TRUSTED_CONFIG_PATHS", resolvePathAbs(opts.Workspace))
 	}
+	// uv's PROJECT VENV, KEPT OFF THE HOST'S. The container backends shadow `.venv` per side
+	// with a mount; this backend has no mount namespace, so a sandbox `uv sync` would find the
+	// host's `.venv`, whose interpreter links point into a home the sandbox cannot read, and
+	// rebuild it in place — breaking the host's. UV_PROJECT_ENVIRONMENT moves uv alone to a
+	// directory of its own. RELATIVE, so uv resolves it against each project root it is run
+	// in (a monorepo's members each get theirs), and uv writes a `*` .gitignore inside it, so
+	// git never shows it. VIRTUAL_ENV is deliberately not set: it would steer every other tool
+	// too. Here, before PackEnv, env_sources and SandboxEnv, so a value the user set wins, and
+	// the per-side disclosure below reports the value that won.
+	env.Set(uvProjectEnvironmentVar, uvProjectEnvironment)
+	// `resources.cpus`, COOPERATIVELY: the parallelism defaults of the common build tools, set
+	// to the declared count, capped at this Mac's (CooperativeCPUVars says which, and the one
+	// rule that picks them; cooperativeCPUCount, why the cap). Here, before PackEnv,
+	// env_sources and SandboxEnv, for MISE_TRUSTED_CONFIG_PATHS's reason: a value the user set
+	// in any of those wins, and the disclosure below reports the value that won.
+	resources := cfgSection(opts.Config, "resources")
+	host := hostCPUs(deps)
+	if declared, ok := CooperativeCPUs(resources); ok {
+		n, _ := cooperativeCPUCount(declared, host)
+		for _, k := range CooperativeCPUVars {
+			env.Set(k, strconv.Itoa(n))
+		}
+	}
 	// The composed profile/provider channel, ahead of env_sources — the container's
 	// precedence, where the channel rides the `-e` base env and yolo-user-env.sh
 	// (sourced later) overrides it. Before the channel crossed at all, a `-p` launch on
@@ -298,63 +518,44 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 	// (the container path wires the same warn callback; a no-op here would
 	// silently drop the line).
 	out := printer{w: deps.Out, color: deps.Color}
-	// `per_side_paths` cannot be honoured here and must SAY so. Unlike
-	// `workspace_readonly` — whose policy this backend can express natively, and now
-	// does (SeatbeltProfile's readonlyRels) — a per-side path needs the host and the
-	// sandbox to see DIFFERENT contents at one path. That is a mount-namespace
-	// capability; Seatbelt filters permissions and cannot fork a path, so there is no
-	// SBPL spelling of it and no prospect of one.
-	//
-	// The warning matters more since 2026-08-23, when `node_modules` joined the
-	// DEFAULT shadow set (internal/cli/run/mounts.go): every Node workspace now gets
-	// a protection on the container backends that is absent here, with nothing in the
-	// config to hint at the difference. Shipping that silently would repeat exactly
-	// the defect the workspace_readonly wiring above exists to fix.
-	// See docs/reference/host-execution-from-the-workspace.md §5.5.
-	//
-	// THE WORDS OF THIS LINE AND THE TWO BELOW ARE THE SETUP CENSUS'S (internal/setupcensus,
-	// OQ-BP-1: "the macos-user notice block reads it"): each is the Notice of the cell that marks
-	// its key Warned on this backend. This function decides whether the key is declared and
-	// which entries to name; the census decides what is said about them.
-	if perSide := cfgStrList(opts.Config, "per_side_paths"); len(perSide) > 0 {
-		out.print(setupcensus.Warning(setupcensus.MacosUser, "per_side_paths").Line(strings.Join(perSide, ", ")))
-	}
 	// THE REST OF WHAT THIS BACKEND CANNOT DO, said at the same boundary and for the
-	// same reason as per_side_paths above. Each of these renders, validates and reads
+	// same reason as per_side_paths below. Each of these renders, validates and reads
 	// exactly like it does on a container backend, and then does nothing here — which
-	// is the silent-drop shape the sweep behind #39 found ten more of.
+	// is the silent-drop shape the sweep behind #39 found ten more of. The `resources`
+	// lines are printed below, once the env layers have run, because the cpus line reports
+	// the values that won.
 	//
-	// resources: macOS has no cgroups and there is no VM to size. RLIMIT_AS is not what
-	// --memory means (address space, not RSS — it breaks JITs and the Go runtime) and
-	// RLIMIT_NPROC is per-USER, so it would collide across concurrent sessions on the
-	// shared _yolojail account. A cap a user believes in but that does not hold is worse
-	// than a documented absence, so this warns and will keep warning.
-	if keys := unenforcedResourceKeys(cfgSection(opts.Config, "resources")); len(keys) > 0 {
-		out.print(setupcensus.Warning(setupcensus.MacosUser, "resources").Line(strings.Join(keys, ", ")))
-	}
-	// cache_relocations: the container path nests a bind inside ~/.cache. There are no
-	// binds here, and the documented "just symlink it yourself" workaround does NOT
-	// work either — the Seatbelt profile denies writes outside the workspace, the
-	// sandbox home, /tmp and /var/folders, and denies reads under /Volumes. So a large
-	// cold cache stays on the boot volume, which is the one outcome the feature exists
-	// to prevent.
-	if relocs := cfgSection(opts.Config, "cache_relocations"); relocs != nil && len(relocs.Keys()) > 0 {
-		out.print(setupcensus.Warning(setupcensus.MacosUser, "cache_relocations").Line(strings.Join(relocs.Keys(), ", ")))
-	}
+	// cache_relocations, DELIVERED (ctxlinks.go's cache_relocations section): each is a link the
+	// bootstrap lays at ~/.cache/<subdir> to its target, which the profile opens. A DISCLOSURE,
+	// every launch and every dry run, naming each link and the folder behind it, because the
+	// sandbox writes your disk there. Read from the caller's record (HostContext.Relocations),
+	// which the run pipeline read from the USER config alone — never from opts.Config, the
+	// merged config, where a workspace-scope entry would be the agent's to write.
+	printCacheRelocations(out, opts.HostCtx.Relocations)
 	// NO env_sources HYDRATION HERE ANY MORE. This backend used to call
 	// config.ResolveEnvSources itself and layer EVERY hydrated value — the second delivery
 	// vehicle the credential gate's design counted (docs/reference/providers.md), bypassing
 	// the credential gate. Its env_sources now arrive inside PackEnv, already narrowed by the gate to what
-	// the launched program may see, and LAST in it (the run pipeline's launchEnv), which
-	// is exactly where this layer used to sit: a user's own dotenv entry still beats every
-	// channel value. One hydration per launch also means one set of "file not found"
-	// warnings rather than two.
+	// the launched program may see, at their rank in the one ordered composition (the run
+	// pipeline's launchEnv): a user's own dotenv entry beats a pack's default and loses to the
+	// selected profile's value, as at every other notch (notch-convergence NC-D72). One
+	// hydration per launch also means one set of "file not found" warnings rather than two.
 	if opts.SandboxEnv != nil {
 		for _, k := range opts.SandboxEnv.Keys() {
 			v, _ := opts.SandboxEnv.Get(k)
 			env.Set(k, v)
 		}
 	}
+	// THE PER-SIDE SET IS SHARED HERE, and the launch must SAY so (DP-D2 holds: a per-side
+	// path needs the host and the sandbox to see DIFFERENT contents at one path, which is a
+	// mount-namespace capability Seatbelt cannot express). Since `node_modules` joined the
+	// DEFAULT set on 2026-08-23 that is every Node workspace, so the old line — printed only for
+	// a user's own per_side_paths entries — was silent about the paths that matter most. One
+	// disclosure (OQ-DP5 (a)), a warning (OQ-HX6), naming every user entry and each default the
+	// workspace actually uses (perSideSharedPaths). After the env layers, because it reports
+	// the uv redirect that won.
+	printPerSideDisclosure(out, opts.Workspace, opts.Config, env)
+	printResourceDispositions(out, resources, env, host)
 	// THE JAIL MARKER, the one variable every container launch sets (`-e YOLO_VERSION=` in
 	// internal/cli/run's commonEnvBlock) and this backend did not (docs/design/agent-footer.md
 	// OQ-FT13). config.InJail() and the probes that copy it read it, so without it every
@@ -366,10 +567,19 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 	// env_sources and the caller's own env: whether this process is a jail is the launcher's
 	// fact, and a composed layer that emptied it would turn every in-jail refusal off.
 	//
-	// It crosses in the session env file, so it reaches the provisioning stage and the agent,
-	// not the bootstrap, which reads a closed contract of its own (buildBootstrapEnv). What
+	// It crosses in the session env file, so it reaches the provisioning stage and the agent.
+	// The bootstrap reads that file too, but into its generator Env alone (entrypoint's
+	// hydrate_session_env step), never into its process environment: config.InJail reads the
+	// process, so it stays false there and the bootstrap's children inherit nothing. What
 	// setting it changes on this backend is audited in the design's §2.2.
 	env.Set("YOLO_VERSION", version.Get(opts.RepoRoot))
+	// AND THE JAIL'S OWN WORKSPACE beside it, for the same reason and in the same position: a
+	// container jail's own workspace is its bind root, /workspace, while this backend's is the
+	// host path, so the `yolo` the agent runs here learns it from YOLO_WORKSPACE
+	// (config.IsJailOwnWorkspace, which reads it, as the entrypoint's Env does). Without it every
+	// in-sandbox question "is this my own workspace?" compared against /workspace and answered no.
+	// The launcher's fact too, so no composed layer can point it elsewhere.
+	env.Set("YOLO_WORKSPACE", resolvePathAbs(opts.Workspace))
 	selfExe := ""
 	if deps.SelfExe != nil {
 		selfExe = deps.SelfExe()
@@ -389,7 +599,167 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 	floors := floorStageFor(opts.HostPackRoot, met)
 	return BuildRunPlanWithDaemons(opts.Workspace, opts.Config, opts.Agents, opts.AgentArgv,
 		selfExe, opts.HostPackRoot, opts.HostHomeOverlay, opts.HostCtx, env, darwin,
-		opts.BlockedTools, opts.JailDaemons, floors)
+		opts.BlockedTools, opts.JailDaemons, floors,
+		PlanSession{ID: opts.SessionID, CATrust: opts.CATrust})
+}
+
+// printCacheRelocations is the cache relocations' disclosure: one line per relocation, the link
+// and its target, and the one caveat a reader needs to trust it — only what a tool keeps under
+// ~/.cache moves. Nothing with no relocation.
+func printCacheRelocations(out printer, relocs []CacheRelocation) {
+	for _, r := range relocs {
+		line := "[bold]Cache relocation:[/bold] ~/.cache/" + r.Subdir + " → " + r.Target
+		if r.Target != r.NamedTarget() {
+			line += " (" + r.NamedTarget() + ")"
+		}
+		line += ", a link in the sandbox home. The sandbox reads and writes that folder"
+		switch {
+		case r.Created && r.GrantFailure != "":
+			line += ", which yolo created now and could not add the sandbox account's access " +
+				"entries to (" + r.GrantFailure + ")"
+		case r.Created:
+			line += ", which yolo created now and opened to the sandbox account"
+		}
+		out.print(line + ".")
+	}
+	if len(relocs) > 0 {
+		out.print("[dim]  Only ~/.cache moves: a macOS tool that caches under ~/Library/Caches " +
+			"(Go's build cache, and likely pip and playwright) keeps its cache in the sandbox " +
+			"home.[/dim]")
+	}
+}
+
+// uvProjectEnvironment is where a sandbox `uv` keeps a project's venv, relative to the project
+// root (buildPlan says why), and uvProjectEnvironmentVar the variable uv reads it from.
+const (
+	uvProjectEnvironmentVar = "UV_PROJECT_ENVIRONMENT"
+	uvProjectEnvironment    = ".venv-macos-user"
+)
+
+// perSideManifests are the files whose presence says a workspace USES a default per-side path
+// before the directory exists: a Node project's package.json makes a node_modules, a Python
+// project's manifest a .venv. A default the workspace neither has nor would make is not named,
+// so a workspace that is neither hears nothing (the OQ-BP-3 rule: a warning about something
+// the user never had is the one they learn to skip).
+var perSideManifests = map[string][]string{
+	"node_modules": {"package.json"},
+	".venv":        {"pyproject.toml", "requirements.txt", "Pipfile"},
+}
+
+// perSideSharedPaths is the per-side set this launch shares with the host, in the order the
+// disclosure names it: each default (perside.DefaultRels) that exists in the workspace or whose
+// manifest does — the venv path a mise config declares always does, that config being its
+// manifest — then every user per_side_paths entry, as written and whether or not it exists.
+// python reports whether a Python venv is among them, which is what the uv clause is about.
+func perSideSharedPaths(workspace string, cfg *jsonx.OrderedMap) (shared []string, python bool) {
+	seen := map[string]bool{}
+	add := func(rel string) {
+		if !seen[rel] {
+			seen[rel] = true
+			shared = append(shared, rel)
+		}
+	}
+	exists := func(rel string) bool {
+		_, err := os.Lstat(filepath.Join(workspace, rel))
+		return err == nil
+	}
+	miseVenv, miseDeclared := perside.MiseConfigVenvPathFromDir(workspace)
+	for _, rel := range perside.DefaultRels(workspace) {
+		used := exists(rel) || (miseDeclared && rel == miseVenv)
+		for _, m := range perSideManifests[rel] {
+			used = used || exists(m)
+		}
+		if used {
+			add(rel)
+			python = python || rel == ".venv" || (miseDeclared && rel == miseVenv)
+		}
+	}
+	for _, rel := range perside.UserRels(cfg) {
+		add(rel)
+	}
+	return shared, python
+}
+
+// printPerSideDisclosure prints the per-side line, or nothing when the launch shares none of
+// the set (buildPlan says why it exists). env is the layered launch env, so the uv clause names
+// the redirect that won.
+func printPerSideDisclosure(out printer, workspace string, cfg *jsonx.OrderedMap, env *jsonx.OrderedMap) {
+	shared, python := perSideSharedPaths(workspace, cfg)
+	if len(shared) == 0 {
+		return
+	}
+	// The headline and body are the setup census's notice for per_side_paths on this backend
+	// (internal/setupcensus, OQ-BP-1: "the macos-user notice block reads it"); the uv clause and
+	// the step after it are this function's, since they read the launch env.
+	msg := setupcensus.Warning(setupcensus.MacosUser, "per_side_paths").Line(strings.Join(shared, ", "))
+	if python {
+		uv := ""
+		if v, ok := env.Get(uvProjectEnvironmentVar); ok {
+			uv = asStr(v)
+		}
+		if uv == uvProjectEnvironment {
+			msg += " uv is redirected to " + uvProjectEnvironment + " (" + uvProjectEnvironmentVar + ")"
+		} else {
+			msg += " uv uses " + uvProjectEnvironmentVar + "=" + uv + ", which your own environment set"
+		}
+		msg += "; `python -m venv`, poetry, pipenv and mise's `_.python.venv` still use the shared path."
+	}
+	out.print(msg + " Where the two sides must not share them, use a container runtime " +
+		"(podman, or Apple Container), which shadows each per side" + containerStep(env) + ".")
+}
+
+// containerStep is config.ContainerStepClause at the notch the run pipeline launched this session
+// at, read off the launch env it hands this backend (config.NotchEnv, set on a guest launch;
+// env-manager plan EMP-D4): "" at the jail notch, and at a guest the jail notch that a container
+// runtime also needs there, since the notch gate refuses a container runtime beside a macOS guest
+// (EMP-D5). Every message here whose next step names a container runtime appends it to that step.
+// launchEnv is Options.PackEnv, or the plan env layered over it; nil reads as the jail notch.
+func containerStep(launchEnv *jsonx.OrderedMap) string {
+	notch := config.ConfinementJail
+	if launchEnv != nil {
+		v, _ := launchEnv.Get(config.NotchEnv)
+		notch = config.SessionNotch(asStr(v))
+	}
+	return config.ContainerStepClause(notch)
+}
+
+// printResourceDispositions says, at launch and in a dry run, what this backend does with each
+// declared `resources` key: the cooperative cpus defaults with the values that won (env is the
+// layered launch env) and the cap at host's CPU count when it applied, the sampled memory
+// guard and its holes, and the keys still read and ignored. A launch that declares none prints
+// nothing. resources.io says nothing here: it is applied, and the launch speaks only if the
+// set fails (RunMacosUser).
+func printResourceDispositions(out printer, res, env *jsonx.OrderedMap, host int) {
+	if n, ok := CooperativeCPUs(res); ok {
+		pairs := make([]string, 0, len(CooperativeCPUVars))
+		for _, k := range CooperativeCPUVars {
+			v, _ := env.Get(k)
+			pairs = append(pairs, k+"="+asStr(v))
+		}
+		capNote := ""
+		if _, capped := cooperativeCPUCount(n, host); capped {
+			capNote = fmt.Sprintf(" (capped at this Mac's %d CPUs, the count each one already "+
+				"defaults to)", host)
+		}
+		out.printf("[yellow]resources.cpus (%d) is honored cooperatively on macos-user[/yellow] — "+
+			"%s for the session%s; a program that ignores them is not limited.", n,
+			strings.Join(pairs, ", "), capNote)
+	}
+	if g := SessionGuardFor(res); g.Enabled() {
+		out.printf("[yellow]resources.memory (%s) is guarded by sampling on macos-user, not enforced "+
+			"by the kernel[/yellow] — a process inside the sandbox sums the session's resident memory "+
+			"every %s and stops the largest process when the total is over. The agent can kill that "+
+			"process, and a process that leaves the session's process tree is not counted.",
+			formatBytes(g.MemoryBytes), sessionGuardInterval)
+	}
+	// RLIMIT_NPROC, the one stand-in for pids_limit, is per-USER, so it would collide across
+	// concurrent sessions on the shared _yolojail account (DP-D1): a cap a user believes in but
+	// that does not hold is worse than a documented absence, so this warns.
+	// The words are the setup census's notice for resources.pids_limit on this backend, the one
+	// key no mechanism here acts on (internal/setupcensus); the keys are this launch's.
+	if keys := unenforcedResourceKeys(res); len(keys) > 0 {
+		out.print(setupcensus.Warning(setupcensus.MacosUser, "resources.pids_limit").Line(strings.Join(keys, ", ")))
+	}
 }
 
 // RunMacosUser launches agent_argv in the dedicated-user + Seatbelt sandbox.
@@ -423,7 +793,13 @@ func RunMacosUser(deps Deps, opts Options) int {
 		plainDeps.Color = false
 		// A plan render builds nothing, so the guest binaries are named at the prebuilt
 		// spelling; a launch whose flake source ships none builds `.#guestPrefix` instead.
-		if len(opts.JailDaemons.Names()) > 0 && opts.JailDaemons.GuestBinSource == "" {
+		// Asked under the live launch's condition (guestBinariesWanted), over what a render
+		// carries: the daemons, which it knows, and only the endpoints the run pipeline's dry run
+		// can name, which is the credential service's alone (it starts no host service). So a
+		// render whose launch would stage the set for yolo-serial or yolo-ps alone names none,
+		// and PrintPlan says that is what it cannot see rather than that nothing is staged.
+		if daemons, clients := guestBinariesWanted(opts); (len(daemons) > 0 || len(clients) > 0) &&
+			opts.JailDaemons.GuestBinSource == "" {
 			opts.JailDaemons.GuestBinSource = PrebuiltGuestBinDir(opts.RepoRoot)
 		}
 		plan := buildPlan(plainDeps, opts, nil)
@@ -435,23 +811,61 @@ func RunMacosUser(deps Deps, opts Options) int {
 		return 0
 	}
 
+	// THIS SESSION'S ID (sessionfiles.go), minted only now: a dry run writes nothing, so it plans
+	// with SessionPlaceholder, and every file a launch writes beside the env file is named by it.
+	opts.SessionID = newSessionID()
+
+	// THE STEPS ARE SPANNED (docs/reference/perf-logging.md, the macos-user family) on the run
+	// pipeline's collector, one after another: each begin ends the step before it, and the defer
+	// ends the one a refusal returned from, so no span is left open in the host perf log.
+	steps := &launchSteps{log: deps.Perf}
+	defer steps.end()
+
 	// THE LAUNCH'S PRECONDITIONS (preconditions.go): the machine and workspace conditions it
 	// refuses without — cheap, and asked BEFORE the up-to-30-minute nix build, in the order
 	// that list gives. The order is load-bearing (the in-home rule before the ACL probe), and
 	// `yolo check` reports from the same list. The first one that does not hold refuses the
 	// launch with its own message; nothing after it is asked.
+	steps.begin("preconditions")
 	if c, unmet := unmetLaunchPrecondition(deps.launchProbes(), opts.Workspace); unmet {
 		out.print(c.Refusal(opts.Workspace))
 		return 1
+	}
+
+	// THE ACCOUNT HOME'S HOLD (Deps.HoldAccountHome), before the nix build for the preconditions'
+	// reason: a launch of another workspace while a session runs here would repoint the links that
+	// session's agent reads through, so it is refused now, in seconds, rather than after a
+	// half-hour build. And before the context preflight, the first step that may run sudo: the hold
+	// runs none, so a launch it refuses never prompts for a password. Held until this function
+	// returns — after the session and after every teardown deferred below, which run first.
+	steps.begin("account_home")
+	if deps.HoldAccountHome != nil {
+		releaseHome, refusal := deps.HoldAccountHome(opts.Workspace, cnameFor(opts.Workspace),
+			containerStep(opts.PackEnv))
+		if refusal != "" {
+			out.print("[bold red]Refusing the macos-user launch:[/bold red] " + refusal)
+			return 1
+		}
+		defer releaseHome()
 	}
 
 	// THE DAC PREFLIGHT for every context mount this launch delivers (ctxlinks.go;
 	// docs/design/context-mounts.md §3.5), asked here, BEFORE the nix build, for the reason the
 	// preconditions above are: it is cheap, it is a fact about this machine, and a refusal after
 	// a half-hour build is the worst place to learn it. The same probes the plan carries
-	// (BuildRunPlan → ContextPreflight over the same links), which PlanInvariants checks.
-	if !runContextPreflight(deps, out, opts.HostCtx.Links) {
-		return 1
+	// (BuildRunPlan → ContextPreflight over the same links), which PlanInvariants checks. Its
+	// probes run `sudo -u _yolojail`, whose password prompt a Ctrl-C can end: that is the signal's
+	// status, not a refusal.
+	steps.begin("context_preflight")
+	if !runContextPreflight(deps, out, opts.HostCtx.Links, containerStep(opts.PackEnv)) {
+		return deps.endingOr(1)
+	}
+	// AND EVERY CACHE RELOCATION'S TARGET, the same DAC questions as a read-write context source
+	// (CacheRelocationPreflight), asked here for the same reasons. The write under the session's
+	// own profile needs the profile installed, so it waits for that step (relocation_probe).
+	if !runCacheRelocationProbes(deps, out, CacheRelocationPreflight(opts.HostCtx.Relocations, ""),
+		containerStep(opts.PackEnv)) {
+		return deps.endingOr(1)
 	}
 
 	// Materialize the native tool closure for THIS Mac's arch (the acceptance
@@ -473,12 +887,16 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// message rather than three layers down in nix.
 	//
 	// A SIGNAL SENT TO YOLO ALONE WHILE IT RUNS NIX HERE STOPS THAT NIX (internal/nixchildren):
-	// this build and the guest-binaries build below. This backend has no signal arm of its own
-	// before the TTY proxy's, so the default action ended yolo here and left the nix building
-	// with no parent. The arm stops that nix, then ends the launch with status 128+N, and is
-	// removed once the two builds are done (disarmNix below), so the privileged steps and the
-	// session keep the signal behavior they had.
-	disarmNix := nixchildren.StopOnSignal()
+	// this build and the guest-binaries build below. On a launch, the run pipeline's signal arm
+	// (Deps.Ending) does that: it stops the nix and ends the launch at the next step boundary,
+	// so every teardown below runs. A caller with no arm gets the stop it always had here —
+	// nixchildren.StopOnSignal, which ends the process 128+N once the nix has stopped, removed
+	// once the two builds are done (disarmNix below). Never both: two handlers acting on one
+	// signal, one of them exiting the process, would skip the arm's teardown.
+	disarmNix := func() {}
+	if deps.Ending == nil {
+		disarmNix = nixchildren.StopOnSignal()
+	}
 	defer disarmNix()
 	var darwin *Darwin
 	pkgs := config.EffectivePackages(opts.Config, config.PlatformDarwin)
@@ -487,6 +905,7 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// A flake eval (the skip list) and a build of the whole floor: seconds warm,
 	// up to half an hour cold, and the eval prints nothing while it runs — so the
 	// step has a progress line.
+	steps.begin("materialize")
 	build := deps.Progress.Start(deps.Out, "Building the sandbox's tools with nix")
 	d, ok, err := deps.MaterializeDarwin(opts.RepoRoot, pkgs)
 	if ok {
@@ -494,10 +913,16 @@ func RunMacosUser(deps Deps, opts Options) int {
 	} else {
 		build.Done("failed")
 	}
+	// A BUILD THE SIGNAL STOPPED is not a failed one: the launch ends with the signal's status,
+	// and says nothing of fixing a package (every step boundary below asks the same).
+	if rc, ending := deps.ending(); ending {
+		return rc
+	}
 	if !ok {
 		out.printf("[bold red]Could not materialize packages natively:[/bold red] %s\n"+
 			"[dim]Fix the package, or use the Apple Container runtime "+
-			"(runtime: \"container\") which builds them in a Linux VM.[/dim]", errStr(err))
+			"(runtime: \"container\") which builds them in a Linux VM%s.[/dim]", errStr(err),
+			containerStep(opts.PackEnv))
 		return 1
 	}
 	darwin = d
@@ -556,7 +981,7 @@ func RunMacosUser(deps Deps, opts Options) int {
 			"installed in a container:\n" +
 			"      {\"name\": \"<pkg>\", \"platforms\": [\"linux\"]}\n" +
 			"  • or use the Apple Container runtime (runtime: \"container\"), which " +
-			"builds them in a Linux VM."
+			"builds them in a Linux VM" + containerStep(opts.PackEnv) + "."
 		if excluded := config.PackagesExcludedOn(opts.Config, config.PlatformDarwin); len(excluded) > 0 {
 			msg += "\n\n[dim]Already marked Linux-only and skipped without complaint: " +
 				strings.Join(excluded, ", ") + ".[/dim]"
@@ -568,6 +993,7 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// THE HOST'S nix CLIENT, for the sandbox (hostnix.go) — and SAID either way, because the
 	// one backend that requires a host nix for every launch is the last place a user would
 	// expect `nix: command not found`, and the reason it is absent is a fact about their host.
+	steps.begin("host_nix")
 	if deps.HostNix != nil {
 		darwin.Nix = deps.HostNix()
 		if darwin.Nix.BinDir != "" {
@@ -579,23 +1005,34 @@ func RunMacosUser(deps Deps, opts Options) int {
 		}
 	}
 
-	// THE GUEST BINARIES (OQ-DP8), resolved only when there is a daemon to run, and FATAL
-	// when they cannot be: the launch has already told its agents these addresses are served
-	// (the served set composed them), so starting the agent without them hands it a pointer
-	// at a dead port — the state steps 3 and 4 exist to end. The same rule as a container
+	// THE GUEST BINARIES (OQ-DP8), resolved only when there is a daemon to run or a guest
+	// client's endpoint to use (guestBinariesWanted), and FATAL when they cannot be: the launch
+	// has already told its agents these addresses are served and these endpoints published, so
+	// starting the agent without them hands it a pointer at a dead port, or an endpoint with no
+	// client to dial it — the state steps 3 and 4 exist to end. The same rule as a container
 	// launch that cannot build its prefix.
-	if len(opts.JailDaemons.Names()) > 0 && opts.JailDaemons.GuestBinSource == "" {
+	steps.begin("guest_binaries")
+	if daemons, clients := guestBinariesWanted(opts); (len(daemons) > 0 || len(clients) > 0) &&
+		opts.JailDaemons.GuestBinSource == "" {
+		// No resolver is a yolo bug (macosLaunchDeps always wires one), so the refusal says so and
+		// where to report it; both refusals then name the way past it that needs no fix: the
+		// launch without what the guest set is for (guestWayPast).
 		if deps.GuestBinaries == nil {
-			out.print("[bold red]This build cannot stage the sandbox's jail daemons[/bold red] " +
-				"(no guest-binary resolver is wired).")
+			out.print("[bold red]This build cannot stage the sandbox's in-jail binaries[/bold red] " +
+				"(no guest-binary resolver is wired), and this launch needs them: " +
+				guestNeedPhrase(daemons, clients) + ". That is a yolo bug; please report it at " +
+				entrypoint.IssuesURL + "." + guestWayPast(daemons, clients))
 			return 1
 		}
 		src, err := deps.GuestBinaries(opts.RepoRoot)
+		if rc, ending := deps.ending(); ending {
+			return rc
+		}
 		if err != nil {
 			out.printf("[bold red]Could not provide the sandbox's in-jail binaries:[/bold red] %s\n"+
-				"[dim]The jail daemons this launch runs (%s) are started by %s inside the "+
-				"sandbox, and there is no copy of it to stage.[/dim]", errStr(err),
-				strings.Join(opts.JailDaemons.Names(), ", "), JaildName)
+				"[dim]This launch needs them because %s, inside the sandbox, and there is no "+
+				"copy to stage.%s[/dim]", errStr(err), guestNeedPhrase(daemons, clients),
+				guestWayPast(daemons, clients))
 			return 1
 		}
 		opts.JailDaemons.GuestBinSource = src
@@ -603,6 +1040,14 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// The host nix builds are done: the signal arm goes before anything else runs.
 	disarmNix()
 
+	// THE SANDBOX'S TLS TRUST (cabundle.go): the tool profile's public roots, plus each CA in this
+	// Mac's System keychain that macOS trusts for TLS. A read of the host, so here and not in the
+	// pure plan builder, after the build that produced the profile; disclosed once the plan says
+	// which variables it set.
+	steps.begin("ca_trust")
+	opts.CATrust = ComposeCATrust(deps, darwin)
+
+	steps.begin("build_plan")
 	plan := buildPlan(deps, opts, darwin)
 	problems := PlanInvariants(plan)
 	if len(problems) > 0 {
@@ -613,6 +1058,17 @@ func RunMacosUser(deps Deps, opts Options) int {
 		out.print("\n[dim]Run `yolo run --dry-run` to inspect the full plan.[/dim]")
 		return 1
 	}
+	// A DISCLOSURE, every launch: which certificate authorities the sandbox trusts, and which
+	// variables say so.
+	printCATrust(out, plan.CATrust, plan.EnvFileContent, plan.CABundleFile, plan.CAExtrasFile, plan.CAFollows)
+
+	// THE DISK I/O POLICY (docs/design/io-priority.md §5.5, IO-D7), set on THIS process before
+	// anything that does the session's I/O starts: the stage copies, the bootstrap, the
+	// provisioning stage, the jail daemons and the agent all descend from it, and a process
+	// policy is inherited across fork and exec — measured through sudo, env -i and sandbox-exec
+	// (GitHub Actions run 37121866798, IOPOL VERDICT: SURVIVES). After the plan is known viable,
+	// so a refused launch never ran under a policy it did not use. Never fatal (IO-D4).
+	applyDiskIOPolicy(deps, out, plan.IOPriority)
 
 	// THE PER-WORKSPACE LAUNCH LOCK, held across the three privileged steps below and
 	// released before the agent — never across the agent itself, which would make a
@@ -633,6 +1089,7 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// (docs/reference/pack-system.md#oq-pk2), so the copy below reads a tree no other launch
 	// writes. The seam then hands back THAT hold (run.AcquireWorkspaceLockFor), so the release
 	// below is what ends the launch's whole window, before the agent as always.
+	steps.begin("workspace_lock")
 	release := func() {}
 	if deps.LockWorkspace != nil {
 		if r := deps.LockWorkspace(opts.Workspace, plan.Cname); r != nil {
@@ -644,45 +1101,131 @@ func RunMacosUser(deps Deps, opts Options) int {
 	out.print("[dim]Setting up the sandbox (Seatbelt profile + bootstrap) — sudo may " +
 		"prompt for your password once.[/dim]")
 
-	// 2. Install the root-owned Seatbelt profile (0444) + stage entrypoint.
+	// 1.5 THIS SESSION'S LIVENESS RECORD, THEN THE SWEEP (sessionfiles.go), before the first
+	// root-owned write. The record is held until this function returns and ended LAST, after
+	// every one of this session's files, so a sweeper never finds it free while a file it names
+	// is still in use. Every removal below goes through the teardown, which unlinks the record
+	// only when each one succeeded: one that failed keeps it, free, for the next launch's sweep,
+	// and warns with the command. The sweep removes what sessions that ended without their
+	// teardown left in the state dir, every workspace's that this macOS user launched (the
+	// records are in this user's own state dir), and keeps everything it cannot prove ended. It
+	// runs `sudo rm -f`, so it sits after the notice above.
+	steps.begin("session_sweep")
+	sessionKey := SessionKey(plan.Cname, plan.SessionID)
+	record := openSessionRecordOrWarn(deps, out, sessionKey)
+	teardown := &sessionTeardown{deps: teardownDeps(deps)}
+	defer teardown.finish(out, record, sessionKey, plan.StagedDir)
+	if deps.SessionRecordDir != nil {
+		sweepGoneSessions(deps, out, deps.SessionRecordDir())
+	}
+
+	// 2. Install the root-owned Seatbelt profile (0444) + stage entrypoint. Its removal is
+	// deferred FIRST, so it runs whether the install succeeded or failed half-way: no launch
+	// used to remove its profile, and every one left a file behind.
+	defer func() { teardown.remove(plan.ProfileRemoveCommands) }()
+	// This step usually holds the launch's first sudo, so its span includes the password prompt
+	// (the context preflight's probes, and a sweep with something to remove, ask first).
+	steps.begin("install_profile")
 	if !deps.InstallRootFile(plan.ProfilePath, plan.Seatbelt, "0444") {
+		if rc, ending := deps.ending(); ending {
+			return rc
+		}
 		out.printf("[bold red]Could not write Seatbelt profile %s", plan.ProfilePath)
 		return 1
 	}
+	// 2.1 ONE REAL WRITE PER CACHE RELOCATION, under the profile just installed
+	// (CacheRelocationWriteProbe): what the DAC preflight cannot ask — whether the profile's allow
+	// and the volume under the target let a write through — asked now, before anything is staged
+	// for a session that could not use its cache. FATAL, as the preflight is: a relocated cache
+	// the sandbox cannot write fails at the agent's first download otherwise.
+	// A step of its own only on a launch that relocates something, so every other launch's spans
+	// are the ones they always were.
+	if len(plan.CacheRelocationProbes) > 0 {
+		steps.begin("relocation_probe")
+		if !runCacheRelocationProbes(deps, out, plan.CacheRelocationProbes, containerStep(opts.PackEnv)) {
+			return deps.endingOr(1)
+		}
+	}
+	steps.begin("stage")
+	// A GRANT ANOTHER SESSION OF THE WORKSPACE MADE is not made again (Options.SkipGrant): the
+	// keeper's endpoint files are every session's (§9.9.5).
+	var granted []string
 	for _, cmd := range plan.StageCommands {
+		if target, ok := grantTarget(cmd); ok {
+			granted = append(granted, target)
+			if opts.SkipGrant != nil && opts.SkipGrant(target) {
+				continue
+			}
+		}
 		if deps.Run(append([]string{"sudo"}, cmd...)) != 0 {
+			if rc, ending := deps.ending(); ending {
+				return rc
+			}
 			out.printf("[bold red]Could not stage entrypoint (%s).[/bold red]", shquote.JoinDisplay(cmd))
 			return 1
 		}
 	}
+	if opts.OnStaged != nil {
+		opts.OnStaged(granted)
+	}
+	// THE INSTALL-CAPTURE STORE'S ENTRIES (H4), after every stage command this launch cannot run
+	// without, and best-effort where those are fatal (stageCaptures).
+	if rc, ending := stageCaptures(deps, out, plan); ending {
+		return rc
+	}
 
 	// 2.5 THE SESSION ENV FILE — everything this launch composed, delivered as a root-owned
 	// 0600 file the sandbox account may read, instead of as words on three command lines
-	// (envfile.go). Before the bootstrap, because the provisioning stage is the next thing
-	// after it that reads the file.
+	// (envfile.go). Before the bootstrap, because the bootstrap is the first thing that reads
+	// it: its argv names the file (SandboxEnvFileEnv), and the MCP requires_env gate it renders
+	// every agent config through asks what the file holds.
 	//
-	// SWEPT ON EVERY EXIT PATH BELOW THIS LINE, including the failures: the file holds this
-	// launch's credentials, and a launch that died at the bootstrap has no more use for them
-	// than one whose agent exited. Best-effort — a session must not be reported as failed
-	// because its env file could not be removed, and the next launch of this workspace
-	// rewrites the same path.
-	if !installSandboxEnvFile(deps, out, plan) {
-		return 1
-	}
+	// SWEPT ON EVERY EXIT PATH FROM HERE, including the failures and a write that failed
+	// half-way: the file holds this launch's credentials, and a launch that died at the
+	// bootstrap has no more use for them than one whose agent exited. Best-effort — a session
+	// must not be reported as failed because its env file could not be removed. A removal that
+	// fails keeps the record, and one killed before this runs leaves it too, so either way the
+	// next launch's sweep removes the file, which the record names it to.
+	//
+	// THE CA FILES go beside it, after it (cabundle.go), on the same terms and swept by the same
+	// commands: the env file names them, so the sandbox reads neither before both are written.
 	defer func() {
-		for _, cmd := range plan.EnvFileRemoveCommands {
-			_ = deps.Run(append([]string{"sudo"}, cmd...))
-		}
+		steps.end() // a refused step's span ends before the teardown's
+		sp := deps.Perf.Span("macos_user.remove_env_file")
+		teardown.remove(plan.EnvFileRemoveCommands)
+		sp.End()
 	}()
+	steps.begin("env_file")
+	if !installSandboxEnvFile(deps, out, plan) {
+		return deps.endingOr(1)
+	}
+	if !installCATrustFiles(deps, out, plan.caTrustFilePlans()) {
+		return deps.endingOr(1)
+	}
 
 	// 3. Bootstrap the sandbox user's home via the staged-yolo self-exec; ABORT
 	// on failure. The binary was staged (fresh inode) by the StageCommands above;
 	// no bootstrap FILE to install — the sandbox runs `yolo internal
 	// darwin-bootstrap` with the generator env baked onto the argv.
-	if deps.Run(plan.BootstrapArgv) != 0 {
+	//
+	// The failure line names the boot log, HEDGED: the log is this launch's only when the
+	// bootstrap got as far as opening it. A refusal before that (the workspace-scope check in
+	// `yolo internal darwin-bootstrap`), a sudo or exec failure, or a linked `.yolo` the open
+	// refuses all leave the PREVIOUS launch's log at the path, which may end "boot complete".
+	// So the line says how to tell (the log's first line carries the time it started) and where
+	// the output is otherwise.
+	steps.begin("bootstrap")
+	bootRC := deps.Run(plan.BootstrapArgv)
+	if rc, ending := deps.ending(); ending {
+		return rc
+	}
+	if bootRC != 0 {
 		out.print("[bold red]entrypoint bootstrap failed[/bold red] — the sandbox " +
 			"user's shims/agent configs were not generated, so the agent " +
-			"would not run correctly. Aborting.")
+			"would not run correctly. Aborting. If it got as far as opening its log, its full " +
+			"output and the reason it refused are in " + entrypoint.BootLogPath(plan.Workspace) +
+			", whose first line carries the time it started; if that time is older than this " +
+			"launch, it stopped before opening the log, and the lines above are all it printed.")
 		return 1
 	}
 
@@ -690,7 +1233,15 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// the agent (docs/design/macos-user-provisioning.md half two). Confined under the same
 	// Seatbelt profile the agent gets, which step 2 already installed; empty when the
 	// config declares no tools, and then this costs nothing at all.
-	if len(plan.ProvisionArgv) > 0 && !runProvisionStage(deps, out, plan) {
+	steps.begin("provision")
+	provisioned := len(plan.ProvisionArgv) == 0 || runProvisionStage(deps, out, plan)
+	// A SIGNAL DURING THE STAGE ENDS THE LAUNCH whatever the stage reported: a stage it cut short
+	// may have written no marker, which runProvisionStage reads as "never ran" and launches
+	// anyway, and a Ctrl-C that stopped the tool installs must never continue to the agent.
+	if rc, ending := deps.ending(); ending {
+		return rc
+	}
+	if !provisioned {
 		return 1
 	}
 
@@ -699,19 +1250,263 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// installs, but a failed stage the human vetoed has already returned above — and before
 	// the agent, so an address the launch composed is being bound by the time a client asks.
 	// Stopped when the agent exits (LIFO: the supervisor first, then its env file swept).
+	steps.begin("start_jail_daemons")
 	if len(plan.JailDaemonArgv) > 0 {
-		stop, ok := startJailDaemons(deps, out, plan)
+		stop, ok := startJailDaemons(deps, out, plan, teardown)
 		if !ok {
-			return 1
+			return deps.endingOr(1)
 		}
-		defer stop()
+		defer func() {
+			steps.end()
+			sp := deps.Perf.Span("macos_user.stop_jail_daemons")
+			stop()
+			sp.End()
+		}()
+		if rc, ending := deps.ending(); ending {
+			return rc
+		}
 	}
 
-	// 4. Launch under the TTY proxy — OUTSIDE the lock. Everything that writes the
-	// per-workspace tier has happened; the agent's own writes are the same ones two
-	// sessions on one workspace already share on every backend.
+	// 3.7 THE HOST-SERVICE WITNESS (serviceprobe.go): every published endpoint the session env
+	// carries, dialled from inside the sandbox as the agent's clients will dial it. After the
+	// jail daemons, the last thing the launch starts, and before the agent, so a service the
+	// sandbox cannot use refuses the launch as it would refuse a container's boot (OQ-R2,
+	// OQ-R4) — the agent never starts holding an endpoint it cannot open. A refusal returns
+	// through every deferred teardown above: the supervisor is stopped and the env files swept.
+	steps.begin("service_probe")
+	if len(plan.ProbeArgv) > 0 && runServiceProbe(deps, out, plan) == probeRefused {
+		return deps.endingOr(1)
+	}
+
+	// 4. Launch the session — OUTSIDE the lock. Everything that writes the per-workspace tier
+	// has happened; the agent's own writes are the same ones two sessions on one workspace
+	// already share on every backend. The account home's hold is kept (Deps.HoldAccountHome):
+	// the session reads through the links the bootstrap laid.
 	release()
-	return deps.RunWithProxy(plan.LaunchArgv)
+	// THE LAST BOUNDARY: a signal that has begun ending the launch never reaches the agent. The
+	// arm's own runner refuses too (MacosUserArm.RunSession), for a signal landing after this.
+	if rc, ending := deps.ending(); ending {
+		return rc
+	}
+	// THE LAUNCH'S SESSION-LONG HOST LISTENERS (JailDaemons.OnLaunch: the port relays), opened
+	// only now that nothing is left to refuse and no signal is ending the launch, and closed when
+	// the command exits, first of everything deferred above.
+	if opts.JailDaemons.OnLaunch != nil {
+		if stop := opts.JailDaemons.OnLaunch(); stop != nil {
+			defer stop()
+		}
+	}
+	if opts.OnAgentStart != nil {
+		opts.OnAgentStart()
+	}
+	steps.begin("agent")
+	rc := deps.RunWithProxy(plan.LaunchArgv)
+	// Ended here, not by the defer, so the teardown's own spans come after the session's.
+	steps.end()
+	return rc
+}
+
+// ending is Deps.Ending, false when no arm is wired.
+func (d Deps) ending() (int, bool) {
+	if d.Ending == nil {
+		return 0, false
+	}
+	return d.Ending()
+}
+
+// sayFailed prints msg, a step's failure, unless a signal is ending the launch. A step the signal
+// cut short failed because the signal reached its child — a sudo stopped at its password prompt
+// fails like any refusal — so its message would name a cause that is not the cause; the launch
+// returns the signal's status instead (endingOr).
+func (d Deps) sayFailed(out printer, msg string) {
+	if _, ending := d.ending(); !ending {
+		out.print(msg)
+	}
+}
+
+// endingOr is the status a failed step returns: the signal's, when one is ending the launch (the
+// step most likely failed because the signal reached its child), else rc.
+func (d Deps) endingOr(rc int) int {
+	if status, ending := d.ending(); ending {
+		return status
+	}
+	return rc
+}
+
+// teardownDeps is deps for the session's removal of its own files (sessionTeardown). Once a signal
+// is ending the launch, each removal's sudo runs NON-INTERACTIVELY (`sudo -n`): the terminal may
+// be gone (a closed window's SIGHUP), and a password prompt nobody can answer would hold the
+// teardown, and every teardown after it, until sudo gave up. A removal that cannot run so fails,
+// and the teardown then keeps the session's record and names the command (finish), which the next
+// launch's sweep runs. With no arm, deps is unchanged.
+func teardownDeps(deps Deps) Deps {
+	if deps.Ending == nil || deps.Run == nil {
+		return deps
+	}
+	run, ending := deps.Run, deps.Ending
+	deps.Run = func(argv []string) int {
+		if _, signaled := ending(); signaled && len(argv) > 1 && argv[0] == "sudo" && argv[1] != "-n" {
+			argv = append([]string{"sudo", "-n"}, argv[1:]...)
+		}
+		return run(argv)
+	}
+	return deps
+}
+
+// launchSteps spans RunMacosUser's steps one after another on the launch's collector, as
+// `macos_user.<step>`: begin ends the open step and starts the next, end ends the open one. nil-safe
+// on a nil collector, which records nothing.
+type launchSteps struct {
+	log  *perf.Log
+	open *perf.Span
+}
+
+func (s *launchSteps) begin(step string) {
+	s.open.End()
+	s.open = s.log.Span("macos_user." + step)
+}
+
+func (s *launchSteps) end() {
+	s.open.End()
+	s.open = nil
+}
+
+// stageCaptures runs plan.CaptureStageCommands (macosuser.go's StageCaptureCommands), BEST-EFFORT:
+// the store only spares a program its vendor's download, and its launcher falls back to that
+// download on any miss (internal/cli's capturematerialize.go), so a copy that fails costs that
+// program the copy and nothing else — a full disk partway through a 1.2 GB plain copy, an I/O
+// error, or the user's entry reaped by a concurrent `yolo prune --apply` after the host picked it.
+// Before this, every one of them refused the launch with "Could not stage entrypoint", which is the
+// capture made mandatory, a change install-capture.md's Blockers say nobody has ruled.
+//
+// One line per failure, after the command's own stderr: which program installs the ordinary way,
+// and that the next launch tries again, which is the next step and needs nothing from the user.
+// When one of the store's own commands fails (make it, open it, prune it), no entry is copied
+// into a store that may not exist. A signal still ends the launch with its status, as at every
+// stage command: true is returned with it.
+func stageCaptures(deps Deps, out printer, plan RunPlan) (int, bool) {
+	for _, cmd := range plan.CaptureStageCommands {
+		if deps.Run(append([]string{"sudo"}, cmd...)) == 0 {
+			continue
+		}
+		if rc, ending := deps.ending(); ending {
+			return rc, true
+		}
+		c, ok := captureStagedBy(plan, cmd)
+		if !ok {
+			out.printf("[yellow]Warning: could not prepare the install-capture store at %s[/yellow] "+
+				"(%s failed; its cause is above). [dim]Every program this launch would have "+
+				"materialized from it installs the ordinary way this launch, from its vendor's "+
+				"installer; the next launch tries again.[/dim]", plan.CapturesDir, commandName(cmd))
+			return 0, false
+		}
+		out.printf("[yellow]Warning: could not copy the install capture of %s (%s) from %s[/yellow] "+
+			"(its cause is above). [dim]%s installs the ordinary way this launch, from its vendor's "+
+			"installer; the next launch tries the copy again.[/dim]", c.Bin, c.Key, c.Source, c.Bin)
+	}
+	return 0, false
+}
+
+// commandName is how a warning names cmd: a `/bin/sh -c <script> <$0> …` by its $0, which every
+// root script here sets to say which one ran, and anything else by its program.
+func commandName(cmd []string) string {
+	if len(cmd) > 3 && cmd[1] == "-c" {
+		return cmd[3]
+	}
+	if len(cmd) == 0 {
+		return ""
+	}
+	return filepath.Base(cmd[0])
+}
+
+// captureStagedBy is the entry cmd copies, when it is one of plan's per-entry copies.
+func captureStagedBy(plan RunPlan, cmd []string) (CaptureEntry, bool) {
+	for _, c := range plan.Captures {
+		want := stageCaptureArgv(plan.CapturesDir, c)
+		if len(cmd) == len(want) && containsArgRun(cmd, want) {
+			return c, true
+		}
+	}
+	return CaptureEntry{}, false
+}
+
+// guestBinariesWanted is why this launch stages the guest set (jaildaemon.go): the daemons its
+// payload names, and the guest clients whose endpoint the composed channel carries
+// (GuestClientsIn over PackEnv and SandboxEnv, the two layers a host service's endpoint
+// variable arrives in). Both empty, it stages none and resolves none. The plan builder asks the
+// same question of the layered env, and PlanInvariants refuses a plan whose env carries a
+// client's endpoint with no client staged (guestClientInvariants), which is what a launch that
+// answered no here and yes there would build.
+func guestBinariesWanted(opts Options) (daemons []string, clients []GuestClient) {
+	return opts.JailDaemons.Names(), GuestClientsIn(opts.PackEnv, opts.SandboxEnv)
+}
+
+// guestNeedPhrase says what the guest set is for on this launch, for the refusal that cannot
+// stage it: "the jail daemons this launch runs (x) are started by yolo-jaild", "the agent runs
+// yolo-serial (the serial loophole's client)", or both.
+func guestNeedPhrase(daemons []string, clients []GuestClient) string {
+	var parts []string
+	if len(daemons) > 0 {
+		parts = append(parts, "the jail daemons this launch runs ("+strings.Join(daemons, ", ")+
+			") are started by "+JaildName)
+	}
+	if len(clients) > 0 {
+		parts = append(parts, "the agent runs "+guestClientPhrase(clients))
+	}
+	return strings.Join(parts, ", and ")
+}
+
+// guestWayPast is the refusals' way past a guest set that cannot be staged without fixing
+// anything: launch without what it is for. A client's loophole is known (GuestClient.Loophole), so
+// its switch is spelled in full; a daemon's name is a loophole's or a pack service's, which this
+// package cannot tell apart, so it is named and not spelled.
+func guestWayPast(daemons []string, clients []GuestClient) string {
+	var parts []string
+	for _, c := range clients {
+		parts = append(parts, "set `\"loopholes\": {\""+c.Loophole+"\": {\"enabled\": false}}` in the "+
+			"workspace config (yolo-jail.jsonc) to go without "+c.Binary)
+	}
+	if len(daemons) > 0 {
+		parts = append(parts, "deselect the loophole or pack that runs "+strings.Join(daemons, ", "))
+	}
+	return " To launch without them for now: " + strings.Join(parts, "; ") + "."
+}
+
+// applyDiskIOPolicy sets a declared priority as this process's disk policy and reads it back.
+// Silent when it holds; one warning naming resources.io when the set fails or the read-back
+// disagrees, and the launch goes on at the default policy (IO-D4, IO-D9); a read-back that
+// itself fails is one dim line, since the set before it succeeded. "normal" makes no call.
+func applyDiskIOPolicy(deps Deps, out printer, p ioprio.Priority) {
+	want, ok := p.DarwinPolicy()
+	if !ok {
+		return
+	}
+	key := `resources.io "` + string(p) + `"`
+	fail := func(why string) {
+		out.print("[yellow]Warning: " + key + " was not applied on macos-user[/yellow] — " + why +
+			", so the session runs at the default disk I/O policy. Remove resources.io to " +
+			"silence this.")
+	}
+	if deps.SetDiskIOPolicy == nil {
+		fail("this build has no setiopolicy_np call wired")
+		return
+	}
+	if err := deps.SetDiskIOPolicy(want); err != nil {
+		fail("setiopolicy_np(" + ioprio.DarwinPolicyName(want) + ") failed: " + err.Error())
+		return
+	}
+	if deps.DiskIOPolicy == nil {
+		return
+	}
+	got, err := deps.DiskIOPolicy()
+	switch {
+	case err != nil:
+		out.printf("[dim]%s: %s was set; reading it back failed (%v).[/dim]",
+			key, ioprio.DarwinPolicyName(want), err)
+	case got != want:
+		fail("it was set to " + ioprio.DarwinPolicyName(want) + " and reads back as " +
+			ioprio.DarwinPolicyName(got))
+	}
 }
 
 // runContextPreflight asks the kernel, as the sandbox account, whether it can reach every
@@ -720,7 +1515,8 @@ func RunMacosUser(deps Deps, opts Options) int {
 // a link's later probes are skipped once one fails, since its line is already written.
 //
 // No links asks nothing and prints nothing, which is every launch that declares no context mount.
-func runContextPreflight(deps Deps, out printer, links []ContextLink) bool {
+// step is containerStep's clause for the refusal's container-runtime step.
+func runContextPreflight(deps Deps, out printer, links []ContextLink, step string) bool {
 	if len(links) == 0 {
 		return true
 	}
@@ -729,6 +1525,10 @@ func runContextPreflight(deps Deps, out printer, links []ContextLink) bool {
 	var failed []ContextProbe
 	refused := map[string]bool{}
 	for _, p := range ContextPreflight(links, "") {
+		// A signal ending the launch stops the probing: each probe is a sudo that may prompt.
+		if _, ending := deps.ending(); ending {
+			return false
+		}
 		key := p.Link.Dest + "\x00" + p.Link.Source
 		if refused[key] {
 			continue
@@ -739,7 +1539,37 @@ func runContextPreflight(deps Deps, out printer, links []ContextLink) bool {
 		}
 	}
 	if len(failed) > 0 {
-		out.print(ContextPreflightRefusal(failed))
+		deps.sayFailed(out, ContextPreflightRefusal(failed, step))
+		return false
+	}
+	return true
+}
+
+// runCacheRelocationProbes runs each relocation probe (the DAC preflight's, or the writes under
+// the session's profile) and reports whether the launch should continue. Every relocation is
+// asked in full, so one message names every target to fix; a target's later probes are skipped
+// once one fails. None asks nothing and prints nothing, which is every launch with no relocation.
+func runCacheRelocationProbes(deps Deps, out printer, probes []CacheRelocationProbe, step string) bool {
+	if len(probes) == 0 {
+		return true
+	}
+	var failed []CacheRelocationProbe
+	refused := map[string]bool{}
+	for _, p := range probes {
+		// A signal ending the launch stops the probing: each probe is a sudo that may prompt.
+		if _, ending := deps.ending(); ending {
+			return false
+		}
+		if refused[p.Relocation.Subdir] {
+			continue
+		}
+		if deps.Run(p.Argv) != 0 {
+			refused[p.Relocation.Subdir] = true
+			failed = append(failed, p)
+		}
+	}
+	if len(failed) > 0 {
+		deps.sayFailed(out, CacheRelocationRefusalMessage(failed, step))
 		return false
 	}
 	return true
@@ -791,20 +1621,22 @@ func runProvisionStage(deps Deps, out printer, plan RunPlan) bool {
 		body, ok := deps.ReadFile(log)
 		vetoed = !ok || strings.Contains(body, provision.FailedMarker)
 	}
+	// A stage a signal cut short is reported by none of these (Deps.sayFailed): the launch is ending,
+	// and its caller returns the signal's status whatever this returns.
 	if vetoed && rc == provision.RefusedStatus {
-		out.print("[bold red]Provisioning refused the launch.[/bold red] A selected pack " +
-			"declares something this sandbox cannot provide; the reason is printed above " +
-			"and in " + log + ".")
+		deps.sayFailed(out, "[bold red]Provisioning refused the launch.[/bold red] A selected pack "+
+			"declares something this sandbox cannot provide; the reason is printed above "+
+			"and in "+log+".")
 		return false
 	}
 	if vetoed {
-		out.print("[bold red]Provisioning was aborted.[/bold red] The sandbox is set up " +
-			"but its declared tools were not installed — the log is at " + log + ".")
+		deps.sayFailed(out, "[bold red]Provisioning was aborted.[/bold red] The sandbox is set up "+
+			"but its declared tools were not installed — the log is at "+log+".")
 		return false
 	}
-	out.print("[bold yellow]The provisioning stage could not be started.[/bold yellow] It " +
-		"wrote nothing to " + log + ", so it never ran — sudo, sandbox-exec or the " +
-		"profile, not the tools themselves. Launching anyway: the declared tools are " +
+	deps.sayFailed(out, "[bold yellow]The provisioning stage could not be started.[/bold yellow] It "+
+		"wrote nothing to "+log+", so it never ran — sudo, sandbox-exec or the "+
+		"profile, not the tools themselves. Launching anyway: the declared tools are "+
 		"NOT installed in this sandbox.")
 	return true
 }
@@ -818,7 +1650,11 @@ func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 	p := printer{w: w, color: false}
 	p.print("[bold]macos-user run plan[/bold] (dry-run — nothing executed)\n")
 	p.printf("workspace:   %s", plan.Workspace)
-	p.printf("session:     %s", plan.Cname)
+	p.printf("session:     %s", SessionKey(plan.Cname, plan.SessionID))
+	if plan.SessionID == SessionPlaceholder {
+		p.printf("  [dim]%s is the id each launch mints, so no two terminals in this workspace "+
+			"share a file below[/dim]", SessionPlaceholder)
+	}
 	p.printf("profile:     %s", plan.ProfilePath)
 	p.printf("staged yolo: %s", plan.StagedYolo)
 	// Named even when empty: "this launch renders no packs" is the state that used to be
@@ -847,15 +1683,40 @@ func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 	}
 	// THE CONTEXT MOUNTS, named on the same rule: "this launch declares none" and "this
 	// backend delivers none" were one statement until §4 step 4. Each is the link the agent
-	// opens and the host folder behind it, at the STAGED path — never the /ctx spelling, which
-	// names nothing on macOS.
-	if len(plan.ContextLinks) == 0 {
+	// opens and the host folder behind it, or the pack file copied there (CX-D25), at the
+	// STAGED path — never the /ctx spelling, which names nothing on macOS.
+	if len(plan.ContextLinks) == 0 && len(plan.ContextCopies) == 0 {
 		p.print("context:     [dim]no context mounts[/dim]")
 	} else {
 		for _, l := range plan.ContextLinks {
 			p.printf("context:     %s/%s → %s [dim](%s, %s; a root-owned link, and the "+
 				"profile decides access)[/dim]", plan.ContextDir, l.Rel(), l.Source, l.Mode(), l.Origin())
 		}
+		for _, c := range plan.ContextCopies {
+			p.printf("context:     %s/%s ← %s [dim](read-only, %s; copied at launch, so a host "+
+				"edit arrives at the next launch)[/dim]", plan.ContextDir, c.Rel(), c.Source, c.Origin())
+		}
+	}
+	// THE CACHE RELOCATIONS, named on the same rule: the link the bootstrap lays, and the folder
+	// behind it. "This launch relocates nothing" is said only by omission here, as no relocation
+	// is the common case and the key is user-scope.
+	for _, r := range plan.CacheRelocations {
+		p.printf("cache:       %s → %s [dim](read-write, cache_relocations; a link the bootstrap "+
+			"lays, and the profile opens the target)[/dim]", r.LinkPath(""), r.Target)
+	}
+	// THE INSTALL-CAPTURE STORE (H4), named either way on the same rule: "nothing captured yet"
+	// and "this backend cannot materialize a capture" were one statement until it landed.
+	if plan.CapturesDir == "" {
+		p.print("captures:    [dim]none staged — a program its vendor's installer installs " +
+			"downloads on first use[/dim]")
+	} else {
+		staged := make([]string, 0, len(plan.Captures))
+		for _, c := range plan.Captures {
+			staged = append(staged, c.Bin+" "+c.Key)
+		}
+		p.printf("captures:    %s ← %s [dim](root-owned copies, made once per machine; a "+
+			"program's launcher materializes its entry instead of downloading)[/dim]",
+			plan.CapturesDir, strings.Join(staged, ", "))
 	}
 	p.printf("git identity: %s", gitIdentityRepr(plan.GitIdentity))
 	// THE ENV FILE IS DISCLOSED BY NAME AND BY KEY, NEVER BY VALUE — and that is the
@@ -873,21 +1734,75 @@ func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 		p.printf("  [dim]sets, values not shown:[/dim] %s",
 			strings.Join(SandboxEnvFileKeys(plan.EnvFileContent), ", "))
 	}
+	// THE TLS TRUST (cabundle.go), named whichever way it went: a dry run reads no keychain, so it
+	// says when the launch composes it.
+	switch {
+	case plan.CABundleFile != "":
+		p.printf("ca trust:    %s [dim](the tool profile's public roots plus %d CA(s) from this "+
+			"Mac's System keychain)[/dim]", plan.CABundleFile, len(plan.CATrust.Kept))
+		p.printf("  extra CAs: %s [dim](%s)[/dim]", plan.CAExtrasFile, NodeExtraCAVar)
+	case plan.CATrust.ProfileBundle != "":
+		p.printf("ca trust:    %s [dim](the tool profile's public roots)[/dim]", plan.CATrust.ProfileBundle)
+	default:
+		p.print("ca trust:    [dim]composed at launch, from the tool profile's public roots and " +
+			"this Mac's System keychain (a dry run reads neither)[/dim]")
+	}
 	// THE GUEST'S JAIL DAEMONS, named even when there are none, on the pack line's rule:
 	// "this launch runs no jail daemon" and "this backend runs none" were the same statement
 	// until OQ-DP8, and a dry run is how a user tells them apart.
 	if len(plan.JailDaemonNames) == 0 {
 		p.print("jail daemons: [dim]none run in the sandbox for this launch[/dim]")
+		// The guest set staged for the agent's clients alone, named on the same rule. And when the
+		// render names no client, it says what it cannot see rather than "none": the run
+		// pipeline's dry run starts no host service, so a client's endpoint is never in the plan
+		// it renders, and "no guest bins" here is not "no guest bins at launch".
+		if len(plan.GuestClients) > 0 {
+			p.printf("  guest bins: %s → %s [dim](for %s)[/dim]", plan.GuestBinSource,
+				GuestBinDir(plan.StagedDir), strings.Join(plan.GuestClients, ", "))
+		} else {
+			var each []string
+			for _, c := range GuestClients {
+				each = append(each, guestClientPhrase([]GuestClient{c}))
+			}
+			p.printf("  guest bins: [dim]none in this render — a dry run starts no host service, so "+
+				"it cannot see whether %s will have an endpoint to dial; a live launch stages the "+
+				"guest set into %s when one of those loopholes publishes[/dim]",
+				strings.Join(each, " or "), GuestBinDir(plan.StagedDir))
+		}
 	} else {
 		p.printf("jail daemons: %s [dim](confined; %s supervise, as %s)[/dim]",
 			strings.Join(plan.JailDaemonNames, ", "), JaildName, SandboxUser)
 		p.printf("  guest bins: %s → %s", plan.GuestBinSource, GuestBinDir(plan.StagedDir))
+		if len(plan.GuestClients) > 0 {
+			p.printf("  [dim]and for the agent's %s[/dim]", strings.Join(plan.GuestClients, ", "))
+		}
 		p.printf("  env file:   %s [dim](0600, root-owned, read by %s only)[/dim]",
 			plan.DaemonEnvFile, SandboxUser)
 		p.printf("  log:        %s [dim](the supervisor's own stdout and stderr)[/dim]",
 			plan.SupervisorLog)
 		p.printf("  [dim]sets, values not shown:[/dim] %s",
 			strings.Join(SandboxEnvFileKeys(plan.DaemonEnvFileContent), ", "))
+	}
+	// THE DECLARED RESOURCES THIS BACKEND ACTS ON, each named only when declared: an undeclared
+	// key has nothing to show, and the keys still ignored are the warning printed above the plan.
+	if pol, ok := plan.IOPriority.DarwinPolicy(); ok {
+		p.printf("disk I/O:    %s [dim](resources.io %q; set on the launcher by setiopolicy_np "+
+			"before the bootstrap, and inherited by every process of the session)[/dim]",
+			ioprio.DarwinPolicyName(pol), string(plan.IOPriority))
+	}
+	if plan.CooperativeCPUs > 0 {
+		pairs := make([]string, 0, len(CooperativeCPUVars))
+		for _, k := range CooperativeCPUVars {
+			v, _ := sandboxEnvFileValue(plan.EnvFileContent, k)
+			pairs = append(pairs, k+"="+v)
+		}
+		p.printf("cpus:        %d, cooperatively [dim](%s in the env file; a program that ignores "+
+			"them is not limited)[/dim]", plan.CooperativeCPUs, strings.Join(pairs, ", "))
+	}
+	if plan.SessionGuard.Enabled() {
+		p.printf("memory:      %s, sampled every %s by `%s internal %s` inside the sandbox "+
+			"[dim](not kernel-enforced; the largest process is stopped when the session is over)[/dim]",
+			formatBytes(plan.SessionGuard.MemoryBytes), sessionGuardInterval, plan.StagedYolo, SessionGuardVerb)
 	}
 	if plan.DarwinMaterialized {
 		p.printf("darwin pkgs: %d store bin dir(s) on PATH", len(plan.DarwinPathPrefix))
@@ -900,16 +1815,31 @@ func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 	p.print("")
 
 	p.print("[bold]── privileged commands (run via sudo) ──[/bold]\n" +
-		"[dim]sudo may prompt for your password; it's forwarded through the " +
-		"TTY proxy so you can answer inline.[/dim]")
+		"[dim]sudo may prompt for your password, on this terminal, which every command " +
+		"below runs on.[/dim]")
 	// The DAC preflight first, as the launch runs it: before the nix build, as the sandbox
 	// account. Each is the whole argv, `sudo` included.
 	for _, probe := range plan.ContextPreflight {
 		p.print("  " + shquote.JoinDisplay(probe.Argv) + "  [dim](can " + SandboxUser + " " +
 			probe.Access + " it?)[/dim]")
 	}
+	for _, probe := range plan.CacheRelocationPreflight {
+		p.print("  " + shquote.JoinDisplay(probe.Argv) + "  [dim](can " + SandboxUser + " " +
+			probe.Access + " it?)[/dim]")
+	}
+	// The relocation writes run once the profile is installed (it is printed below), before the
+	// stage commands.
+	for _, probe := range plan.CacheRelocationProbes {
+		p.print("  " + shquote.JoinDisplay(probe.Argv) + "  [dim](can " + SandboxUser + " " +
+			probe.Access + "?)[/dim]")
+	}
 	for _, cmd := range plan.StageCommands {
 		p.print("  sudo " + shquote.JoinDisplay(cmd))
+	}
+	// The capture store's, after them as the launch runs them, and marked: a failure of one warns
+	// and the launch goes on (stageCaptures).
+	for _, cmd := range plan.CaptureStageCommands {
+		p.print("  sudo " + shquote.JoinDisplay(cmd) + "  [dim](best-effort)[/dim]")
 	}
 	// The env-file steps, in the order they run and NAMED — the directory's mode and the
 	// sandbox's read ACE are the whole of what keeps this file private, so a dry run that
@@ -924,6 +1854,16 @@ func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 	for _, cmd := range plan.EnvFileGrantCommands {
 		p.print("  sudo " + shquote.JoinDisplay(cmd))
 	}
+	for _, f := range plan.caTrustFilePlans() {
+		for _, cmd := range f.dir {
+			p.print("  sudo " + shquote.JoinDisplay(cmd))
+		}
+		p.printf("  sudo %s %s  [dim](content on stdin, never argv)[/dim]", teeBin, shquote.QuoteDisplay(f.path))
+		p.printf("  sudo %s 0600 %s", chmodBin, shquote.QuoteDisplay(f.path))
+		for _, cmd := range f.grant {
+			p.print("  sudo " + shquote.JoinDisplay(cmd))
+		}
+	}
 	p.print("  sudo " + shquote.JoinDisplay(plan.BootstrapArgv[1:]))
 	// NAMED EVEN WHEN THERE IS NO STAGE, for the reason the pack line above is: "this
 	// launch installs nothing" and "this backend cannot install anything" were
@@ -931,6 +1871,17 @@ func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 	// keep them that way.
 	if len(plan.ProvisionArgv) > 0 {
 		p.print("  sudo " + shquote.JoinDisplay(plan.ProvisionArgv[1:]))
+	}
+	if len(plan.ProbeArgv) > 0 {
+		p.print("  sudo " + shquote.JoinDisplay(plan.ProbeArgv[1:]))
+	}
+	p.print("")
+	// WHAT THE SESSION REMOVES WHEN IT ENDS, its own files only (sessionfiles.go): a session
+	// killed before this leaves them to the next launch's sweep.
+	p.print("[bold]── when the session ends (run via sudo) ──[/bold]")
+	for _, cmd := range append(append(append([][]string{}, plan.DaemonEnvRemoveCommands...),
+		plan.EnvFileRemoveCommands...), plan.ProfileRemoveCommands...) {
+		p.print("  sudo " + shquote.JoinDisplay(cmd))
 	}
 	p.print("")
 
@@ -960,6 +1911,22 @@ func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 		p.print("  " + shquote.JoinDisplay(plan.JailDaemonArgv))
 		p.print("")
 	}
+	// THE WITNESS, named either way, on the provisioning stage's rule: "this launch enabled no
+	// host service" and "this backend checks none" must read differently. And without an argv it
+	// claims nothing a render cannot know: the run pipeline's dry run starts no host service and
+	// names only the endpoints it can (the credential service's), so "this launch publishes no
+	// endpoint" would describe every launch whose serial or host-processes loophole is on.
+	if len(plan.ProbeArgv) == 0 {
+		p.print("[bold]── host-service witness ──[/bold]")
+		p.print("  [dim]not in this render — a dry run starts no host service, so the plan carries " +
+			"only the endpoints it can name, and none here; a live launch runs this stage, before " +
+			"the agent, whenever a host service it starts publishes an endpoint[/dim]")
+	} else {
+		p.print("[bold]── host-service witness (confined, before the agent; refuses the launch " +
+			"when the sandbox cannot use a service) ──[/bold]")
+		p.print("  " + shquote.JoinDisplay(plan.ProbeArgv))
+	}
+	p.print("")
 	p.print("[bold]── launch argv ──[/bold]")
 	p.print("  " + shquote.JoinDisplay(plan.LaunchArgv))
 	p.print("")
@@ -1065,10 +2032,12 @@ func LaunchWriter() io.Writer {
 }
 
 // RealDeps returns Deps backed by real subprocesses / filesystem. runProxy is
-// the TTY-proxy launcher the front door
-// supplies (internal/cli/run's runWithProxy is Linux/macOS-specific);
-// materialize wires internal/darwinpkg's streaming nix build. Both are passed
-// in so this package needs no build-tagged syscall dependencies. color is the
+// the session runner (Deps.RunWithProxy): on a launch, the one its signal arm
+// supplies (internal/cli/run's MacosUserArm.RunSession, a plain foreground exec
+// that absorbs SIGINT and SIGQUIT and forwards SIGTERM and SIGHUP to the
+// command's sudo; darwin has no TTY proxy), nil for a caller that runs no
+// session. materialize wires internal/darwinpkg's streaming nix build. Both are
+// passed in so this package needs no build-tagged syscall dependencies. color is the
 // resolved color capability (the caller's requested color AND a real TTY);
 // it drives ANSI vs. plain output.
 //
@@ -1077,29 +2046,71 @@ func LaunchWriter() io.Writer {
 // process's own.
 func RealDeps(runProxy func(argv []string) int, materialize func(repoRoot string, packages []any) (*Darwin, bool, error), color bool) Deps {
 	return Deps{
-		IsMacOS:           func() bool { return isMacOSReal() },
-		Geteuid:           os.Geteuid,
-		Which:             whichReal,
-		SandboxUserExists: func() bool { return sandboxUserExistsReal(SandboxUser) },
-		SelfExe:           selfExeReal,
-		GitConfig:         gitConfigReal,
-		Getenv:            os.Getenv,
-		HostUser:          hostUserReal,
-		Run:               runReal,
-		RunBash:           runBashReal,
-		RunWithProxy:      runProxy,
-		InstallRootFile:   installRootFileReal,
-		MaterializeDarwin: materialize,
-		StartBackground:   startBackgroundReal,
-		HostNix:           hostNixReal,
-		NodeFloorMet:      entrypoint.PackageFloorMeets,
-		TakenIDs:          takenIDsReal,
-		SetRandomPassword: func() bool { return setRandomPasswordReal(SandboxUser) },
-		PathIsDir:         pathIsDirReal,
-		PathExists:        pathExistsReal,
-		ReadFile:          readFileReal,
-		RemoveFile:        removeFileReal,
-		Out:               LaunchWriter(),
-		Color:             color,
+		IsMacOS:            func() bool { return isMacOSReal() },
+		Geteuid:            os.Geteuid,
+		Which:              whichReal,
+		SandboxUserExists:  func() bool { return sandboxUserExistsReal(SandboxUser) },
+		SelfExe:            selfExeReal,
+		GitConfig:          gitConfigReal,
+		Getenv:             os.Getenv,
+		HostUser:           hostUserReal,
+		Run:                runReal,
+		RunBash:            runBashReal,
+		RunWithProxy:       runProxy,
+		InstallRootFile:    installRootFileReal,
+		MaterializeDarwin:  materialize,
+		StartBackground:    startBackgroundReal,
+		SessionRecordDir:   SessionRecordsDir,
+		ReadSystemKeychain: readSystemKeychainReal,
+		VerifyCA:           verifyCAReal,
+		SetDiskIOPolicy:    ioprio.SetProcessDiskPolicy,
+		DiskIOPolicy:       ioprio.GetProcessDiskPolicy,
+		HostCPUs:           runtime.NumCPU,
+		HostNix:            hostNixReal,
+		NodeFloorMet:       entrypoint.PackageFloorMeets,
+		TakenIDs:           takenIDsReal,
+		SetRandomPassword:  func() bool { return setRandomPasswordReal(SandboxUser) },
+		PathIsDir:          pathIsDirReal,
+		PathExists:         pathExistsReal,
+		ReadFile:           readFileReal,
+		RemoveFile:         removeFileReal,
+		Out:                LaunchWriter(),
+		Color:              color,
 	}
+}
+
+// RealLaunchProbes is the launch's own answer to every precondition (LaunchPreconditions) on this
+// machine: RealDeps' probes, for a caller that asks them before a launch does (PreflightLaunch).
+func RealLaunchProbes() LaunchProbes {
+	return RealDeps(nil, nil, false).launchProbes()
+}
+
+// PreflightLaunch asks, before a launch of workspace does, the first two things RunMacosUser asks
+// — its preconditions (LaunchPreconditions, on p) and then the account home's hold, taken through
+// hold — with the launch's own resolution of the workspace and its own name for the hold
+// (cnameFor), so the answer cannot differ from the launch's for any reason but time. ok is false
+// when either would refuse the launch; when it is true the hold is held until release, which the
+// caller must call. RunMacosUser takes its own when it runs, and a second shared hold of one
+// workspace admits, so a caller may hold this one across that call too.
+//
+// For a caller that must not act for a launch about to be refused: the run pipeline's
+// auto-capture (internal/cli/run's autoCaptureMacosUser), which on a Mac never set up used to
+// record a failure memo that held every later capture off for a day, and with the workspace
+// under a home or another workspace's session live paid an installer download, and replaced the
+// staged yolo under that session, only for the launch to refuse. It says nothing: the launch's
+// own refusal, which names the next step, follows.
+func PreflightLaunch(p LaunchProbes, hold func(workspace, cname, step string) (func(), string),
+	workspace string) (release func(), ok bool) {
+	ws := resolvePathAbs(workspace)
+	if _, unmet := unmetLaunchPrecondition(p, ws); unmet {
+		return nil, false
+	}
+	if hold == nil {
+		return func() {}, true
+	}
+	r, refusal := hold(ws, cnameFor(ws), "")
+	if refusal != "" {
+		return nil, false
+	}
+	return r, true
 }

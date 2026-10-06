@@ -32,6 +32,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
@@ -105,9 +106,15 @@ func localPackDirUnder(home string) string {
 // the local pack's prose sat in a file no reader reads, so its broadcast is not in that set. nil
 // means "no reload available", which is correct for the no-packs-configured caller and fails
 // safe everywhere else (the pre-migration set is still rendered).
+//
+// `delivery` is the `describes` gate's census (hostDelivery), computed over `loaded` by the
+// caller, which names the same answer in its notch line. A reload keeps it: the packs a reload
+// finds again are the ones it was taken over, and the one a migration creates (the local pack,
+// holding the user's own prose) is answered per kind (entrypoint.HostDelivery).
 func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 	loaded, candidates []*packload.Pack, active map[string]bool, complete bool,
-	home, stamp string, write bool, reload func() []*packload.Pack, survey *hostApplySurvey) int {
+	home, stamp string, write bool, reload func() []*packload.Pack,
+	delivery entrypoint.HostDelivery, survey *hostApplySurvey) int {
 	manPath := hostBriefingManifestPath(home)
 	man, err := hostskills.LoadManifest(manPath)
 	if err != nil {
@@ -131,6 +138,8 @@ func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 		// ahead of every destination's pack prose — what a jail's BriefingContent and
 		// agents_md_extra are to a jail's destinations.
 		Base: jailcontent.HostBriefingBase(config.AgentsMDExtraUser(), paths.IsMacOS),
+		// The `describes` gate's census (BB-D69), the one the notch line above was printed from.
+		Delivery: delivery,
 	}
 
 	rc := 0
@@ -199,7 +208,8 @@ func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 		reresolve()
 	}
 
-	adoptions := entrypoint.HostBriefingAdoptions(loaded, home, man, req.Base, req.Provenance)
+	adoptions := entrypoint.HostBriefingAdoptions(loaded, home, man, req.Base, req.Provenance,
+		req.Delivery)
 	if len(adoptions) > 0 {
 		if !write {
 			// A QUESTION THE --assert WILL ASK — see the skills adoption's twin.
@@ -245,7 +255,12 @@ func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 		}
 	}
 
+	// The composition the render below writes — same packs, same request, the record not yet
+	// touched by it — read for what became of each destination's `after` file, which the render's
+	// results do not carry (reportBriefingOverlays).
+	composedDests := entrypoint.ComposeHostBriefingsFor(loaded, home, req)
 	bres, berr := entrypoint.RenderHostBriefings(loaded, home, req, !write)
+	written := map[string]entrypoint.HostRenderResult{}
 	for _, r := range bres {
 		// The broken-link rule's report half, as for a config surface (apply.go): a blocker
 		// stated once by its group, attributed to the packs that DECLARE this destination.
@@ -253,6 +268,7 @@ func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 			survey.noteBrokenLink(briefingDestinationPacks(loaded, home, r.Path), *r.BrokenLink)
 			continue
 		}
+		written[r.Path] = r
 		survey.note(tierRun, string(packdecl.KindBriefing), r.Surface, r.Path, r.WouldChange)
 		// A settled destination is DETAIL (§4.5): the verdict counts briefing destinations,
 		// and a reader who wants each one by name asks for it. A destination that WOULD
@@ -260,6 +276,7 @@ func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 		reportDestination(pr, tierRun, r.WouldChange,
 			"  [cyan]%-20s[/cyan] %s  [dim]%s[/dim]", r.Surface, r.Action, r.Path)
 	}
+	reportBriefingOverlays(pr, composedDests, written, home)
 	if berr != nil {
 		pr.Printf("  [red]briefing   refused[/red] — %v", berr)
 		rc = 1
@@ -293,6 +310,114 @@ func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 		}
 	}
 	return rc
+}
+
+// reportBriefingOverlays says what became of each destination's `after: "host:<path>"` file
+// (DP-B26), from the composition the render wrote; written holds the render's result per
+// destination it did not refuse.
+//
+// THREE OUTCOMES REACH THE REPORT, each at its own tier:
+//
+//   - PREPENDED: one line naming the file, printed with the destination's own line when it would
+//     change and under --verbose once settled — the same rule reportDestination applies to the
+//     destination, since the file is part of what changed.
+//   - NOT READ BECAUSE IT IS yolo's OUTPUT: detail only. Every shipped agent pack's `after` names
+//     its own `into`, so this is every home on every run, and it changes nothing.
+//   - UNREAD: a yellow warning on every run, in a jail launch's wording
+//     (internal/cli/run's noteUnreadHostSource): the file is the user's, it is not reaching the
+//     agent, and the remedy is theirs. A warning and never a refusal, as at a launch.
+//
+// An absent file says nothing, for the launch's reason: that is the user not having written one.
+func reportBriefingOverlays(pr richtext.Printer, dests []entrypoint.HostBriefingDestination,
+	written map[string]entrypoint.HostRenderResult, home string) {
+	for _, d := range dests {
+		ov := d.Overlay
+		dest := prettyHomePath(home, d.Path)
+		src := prettyHomePath(home, ov.Source)
+		switch ov.Outcome {
+		case entrypoint.OverlayPrepended:
+			r, ok := written[d.Path]
+			if !ok {
+				continue // refused under the broken-link rule: nothing opens with anything
+			}
+			reportDestination(pr, tierRun, r.WouldChange,
+				"  [cyan]%-20s[/cyan] %s opens with your %s  [dim](after: \"host:%s\")[/dim]",
+				"briefing/after", richtext.Escape(dest), richtext.Escape(src), richtext.Escape(d.After))
+		case entrypoint.OverlayYoloOutput:
+			// ov.Why is escaped like every other value here: it can name another destination by
+			// its path, and a pack may spell one with brackets.
+			detail(pr, "  [dim]%-20s %s: after: \"host:%s\" is not read — %s, and yolo never "+
+				"reads its own output back in[/dim]", "briefing/after", richtext.Escape(dest),
+				richtext.Escape(d.After), richtext.Escape(ov.Why))
+		case entrypoint.OverlayUnread:
+			subject := "the host briefing " + src
+			if ov.Source != d.Path {
+				subject += " for " + dest
+			}
+			line := "Warning: " + subject + " was not read: " + ov.Unread.Why + ". " + dest +
+				" is composed without it."
+			if ov.Unread.Remedy != "" {
+				line += " " + ov.Unread.Remedy + "."
+			}
+			pr.Printf("  [yellow]%s[/yellow]", richtext.Escape(line))
+		}
+	}
+}
+
+// withheldBriefing is one briefing source the host composer leaves out of every destination
+// because its governor `describes` a kind of its pack's own that the host does not deliver
+// (entrypoint.HostWithheldKinds over hostDelivery's census, docs/design/boundary-broker.md
+// BB-D69): the pack, the pack-relative file, and those kinds.
+type withheldBriefing struct {
+	pack  string
+	rel   string
+	kinds []packdecl.Kind
+}
+
+// withheldBriefings is every briefing source of the resolved pack set that the host notch
+// withholds, in pack order and then by file, each pack once. It is a fact about the NOTCH and
+// the pack, true in every home that selects the pack, so the apply states it once in its notch
+// line (printNotchFacts) rather than per destination. Governance reads each pack's original
+// declaration, so a ResolveDestinations clone names its own files once. delivery is the census the
+// composer withholds by (HostBriefingRequest.Delivery), so this names exactly what it leaves out.
+func withheldBriefings(loaded []*packload.Pack, delivery entrypoint.HostDelivery) []withheldBriefing {
+	var out []withheldBriefing
+	seen := map[string]bool{}
+	for _, p := range loaded {
+		if p == nil || seen[p.Name] {
+			continue
+		}
+		seen[p.Name] = true
+		sources, _ := p.GovernedSources(packdecl.KindBriefing)
+		for _, s := range sources {
+			if kinds := entrypoint.HostWithheldKinds(delivery, p.Name, s); len(kinds) > 0 {
+				out = append(out, withheldBriefing{pack: p.Name, rel: s.Rel, kinds: kinds})
+			}
+		}
+	}
+	return out
+}
+
+// withheldBriefingFact is the notch line's one sentence for ws, "" for none:
+// "github: briefing/gh.md describes intercept, which does not apply at the host — it reaches
+// agents in a jail". Unmarked text; the caller escapes it.
+func withheldBriefingFact(ws []withheldBriefing) string {
+	if len(ws) == 0 {
+		return ""
+	}
+	clauses := make([]string, len(ws))
+	nkinds := 0
+	for i, w := range ws {
+		names := make([]string, len(w.kinds))
+		for j, k := range w.kinds {
+			names[j] = string(k)
+		}
+		nkinds += len(names)
+		clauses[i] = w.pack + ": " + w.rel + " describes " + strings.Join(names, ", ")
+	}
+	return strings.Join(clauses, "; ") + ", which " +
+		plural(nkinds, "does not apply", "do not apply") + " at the host — " +
+		plural(len(ws), "it reaches", "they reach") + " agents in a jail"
 }
 
 // reportBriefingSourceProblems prints each pack's briefing governance problems once per pack.

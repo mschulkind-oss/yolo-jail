@@ -6,15 +6,21 @@ package config
 // both "a weaker isolation level" and "by what backend."
 //
 //	confinement: jail | guest | host   (default: jail)
-//	runtime:     podman | container | auto   — a mechanism hint INSIDE jail
+//	runtime:     podman | container | macos-user   — the mechanism; none is the platform probe
 //
-// This phase (env-manager plan Phase 2) lands the key, its validation, and the resolver.
-// It is intentionally behavior-neutral for the default: an absent key, or "jail", is
-// exactly today's behavior. The guest/host notches are wired by later phases (host
-// render, the guest backend); here they are accepted and resolvable so nothing downstream
-// has to string-guess.
+// Phase 2 of the env-manager plan landed the key, its validation, and the resolver,
+// behavior-neutral for the default: an absent key, or "jail", is exactly what a launch did
+// before the key existed. The host notch has its own verbs (`yolo host`, `yolo apply --at
+// host`). The guest notch launches on macOS, where its backend is macos-user (plan Phase
+// 7.1, decision EMP-D1 in docs/plans/environment-manager-plan.md), and nowhere else yet:
+// Linux's bwrap + Landlock backend (7.2) is unwritten, and a Linux launch refuses it.
 
-import "github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+import (
+	"slices"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+)
 
 // Confinement is the resolved notch. The three values are presets over a composable
 // primitive model (see internal/render/confinement.go) — a user selects a notch, not a
@@ -26,8 +32,9 @@ const (
 	// Apple Container), disposable home, none of the user's credentials.
 	ConfinementJail Confinement = "jail"
 	// ConfinementGuest is the middle notch: a real home on the real filesystem, no
-	// image, an LSM boundary (Seatbelt on macOS, bwrap+Landlock on Linux), its own
-	// separate identity. Not yet enforced — later-phase work.
+	// image, an LSM boundary (Seatbelt on macOS, bwrap+Landlock on Linux). On macOS it is
+	// the macos-user backend, a separate account under Seatbelt (GuestRuntime); on Linux
+	// it has no backend yet, and a launch refuses it.
 	ConfinementGuest Confinement = "guest"
 	// ConfinementHost is the weakest notch: you, your machine, your dotfiles, your
 	// credentials. `yolo apply --at host` renders into it. Never inferred, never a fallback.
@@ -40,8 +47,11 @@ var KnownConfinements = []Confinement{ConfinementJail, ConfinementGuest, Confine
 // ResolveConfinement reads the confinement notch from a merged config, defaulting to
 // jail. An unknown value is treated as jail here (validateConfinement is what reports
 // it as an error at check time) so a resolver never has to fail — the same shape
-// ResolveRuntime and friends use.
+// ResolveRuntime and friends use. A nil config is the default too.
 func ResolveConfinement(config *jsonx.OrderedMap) Confinement {
+	if config == nil {
+		return ConfinementJail
+	}
 	v, ok := config.Get("confinement")
 	if !ok || v == nil {
 		return ConfinementJail
@@ -77,4 +87,141 @@ func validateConfinement(config *jsonx.OrderedMap, errs *[]string) {
 		}
 	}
 	add(errs, "config.confinement: expected 'jail', 'guest', or 'host'")
+}
+
+// GuestRuntime is the runtime the guest notch runs on where it is built: macos-user, a
+// dedicated macOS account under Seatbelt with no VM (env-manager plan Phase 7.1). It is the
+// guest notch's only backend; Linux's (Phase 7.2) is unwritten.
+const GuestRuntime = "macos-user"
+
+// NotchRuntime is the runtime a notch selects by itself on this platform, with no `runtime`
+// key and no YOLO_RUNTIME: GuestRuntime for the guest notch on macOS, and "" otherwise.
+// The jail notch leaves the mechanism to the platform probe, the host notch launches
+// nothing, and a Linux guest has no backend to name.
+//
+// THE NOTCH IS THE CALLER'S. A launch's notch is the config's `confinement` key overridden by
+// `--at`, which only the launch knows; every other reader passes ResolveConfinement(cfg).
+func NotchRuntime(notch Confinement, isMacOS bool) string {
+	if notch == ConfinementGuest && isMacOS {
+		return GuestRuntime
+	}
+	return ""
+}
+
+// NotchEnv is the variable a launch sets in the session it starts when YOLO_VERSION alone would
+// name the wrong notch: "guest", on a macOS guest launch (the macos-user arm of internal/cli/run;
+// env-manager plan EMP-D4). YOLO_VERSION says the process is in a launched session (InJail), and
+// that alone reads as the jail notch; this names the guest. Two readers: the agent footer, which
+// prints the notch (docs/design/agent-footer.md §1.2), and the macos-user backend's host-side
+// messages, which name a next step that fits the notch (ContainerStepClause).
+//
+// Unset, or any value but "guest", is the jail notch. A launch at the jail notch sets nothing.
+const NotchEnv = "YOLO_CONFINEMENT"
+
+// SessionNotch is the notch a launched session's NotchEnv value names: the guest notch for
+// "guest", the jail notch for anything else. The caller has already established that the
+// process is in a launched session; outside one there is no notch to read here.
+func SessionNotch(value string) Confinement {
+	if Confinement(value) == ConfinementGuest {
+		return ConfinementGuest
+	}
+	return ConfinementJail
+}
+
+// ContainerStepClause is what a next step that names a container runtime must add at notch, so
+// that it is a step the launch takes rather than one that walks into the notch gate: "" at every
+// notch but guest, and there the jail notch as well, because the guest notch runs only on
+// GuestRuntime and an explicit container runtime beside it is refused as a contradiction
+// (NotchRuntimeConflict; env-manager plan EMP-D5). It begins with "; " and is appended to the
+// clause naming the runtime, before that sentence's final period.
+//
+// Both spellings it names pass that refusal whatever else is set: `--at jail` outranks the
+// config's `confinement`, and `confinement: "jail"` is the notch when no `--at` is typed.
+func ContainerStepClause(notch Confinement) string {
+	if notch != ConfinementGuest {
+		return ""
+	}
+	return "; the guest notch runs only on " + GuestRuntime + ", so a container runtime also " +
+		"needs the jail notch (`--at jail`, or `confinement` set to \"jail\")"
+}
+
+// RuntimeSource names the input that selected a runtime, for a message that has to tell the
+// reader which one to change.
+type RuntimeSource int
+
+const (
+	// RuntimeUnselected: nothing names a runtime, and the caller probes the platform.
+	RuntimeUnselected RuntimeSource = iota
+	// RuntimeFromEnv: YOLO_RUNTIME named it.
+	RuntimeFromEnv
+	// RuntimeFromConfig: the config's `runtime` key named it.
+	RuntimeFromConfig
+	// RuntimeFromNotch: the notch selected its own backend (NotchRuntime).
+	RuntimeFromNotch
+)
+
+// RuntimeKey is the config's `runtime` value as a string, "" when absent or not a string.
+func RuntimeKey(cfg *jsonx.OrderedMap) string {
+	if cfg == nil {
+		return ""
+	}
+	v, _ := cfg.Get("runtime")
+	s, _ := v.(string)
+	return s
+}
+
+// SelectedRuntime is the runtime a launch's own inputs select before any platform probe, and
+// the input that selected it, in the precedence every runtime reader shares: YOLO_RUNTIME,
+// then the config's `runtime` key, each counted only when it names a runtime yolo knows
+// (paths.AllRuntimes), then the notch's own backend (NotchRuntime). ("", RuntimeUnselected)
+// means nothing selects one.
+//
+// The explicit inputs outrank the notch so that this is the one place the two are weighed;
+// whether they CONTRADICT is NotchRuntimeConflict's question, which a launch refuses on.
+func SelectedRuntime(envRuntime string, cfg *jsonx.OrderedMap, notch Confinement, isMacOS bool) (string, RuntimeSource) {
+	if rt, src := explicitRuntime(envRuntime, cfg); rt != "" {
+		return rt, src
+	}
+	if rt := NotchRuntime(notch, isMacOS); rt != "" {
+		return rt, RuntimeFromNotch
+	}
+	return "", RuntimeUnselected
+}
+
+// ConfiguredRuntime is SelectedRuntime without YOLO_RUNTIME, for the readers that weigh the
+// environment variable themselves (runtime.ResolveRuntime's callers): a known `runtime` key,
+// else the notch's own backend, else "".
+func ConfiguredRuntime(cfg *jsonx.OrderedMap, notch Confinement, isMacOS bool) string {
+	rt, _ := SelectedRuntime("", cfg, notch, isMacOS)
+	return rt
+}
+
+// NotchRuntimeConflict reports an explicit runtime that contradicts the notch's own backend:
+// on macOS `confinement: guest` (or `--at guest`) runs on macos-user, so a YOLO_RUNTIME or
+// `runtime` key naming podman or Apple Container asks for two different launches at once. It
+// returns the explicit runtime and the input that named it; conflict is false when the notch
+// selects no backend, nothing explicit is named, or the two agree (`runtime: "macos-user"`
+// with `confinement: "guest"` is one launch said twice).
+func NotchRuntimeConflict(envRuntime string, cfg *jsonx.OrderedMap, notch Confinement, isMacOS bool) (rt string, src RuntimeSource, conflict bool) {
+	want := NotchRuntime(notch, isMacOS)
+	if want == "" {
+		return "", RuntimeUnselected, false
+	}
+	rt, src = explicitRuntime(envRuntime, cfg)
+	if rt == "" || rt == want {
+		return "", RuntimeUnselected, false
+	}
+	return rt, src, true
+}
+
+// explicitRuntime is the runtime YOLO_RUNTIME or the `runtime` key names, in that order, each
+// only when it is one yolo knows.
+func explicitRuntime(envRuntime string, cfg *jsonx.OrderedMap) (string, RuntimeSource) {
+	if envRuntime != "" && slices.Contains(paths.AllRuntimes, envRuntime) {
+		return envRuntime, RuntimeFromEnv
+	}
+	if rt := RuntimeKey(cfg); rt != "" && slices.Contains(paths.AllRuntimes, rt) {
+		return rt, RuntimeFromConfig
+	}
+	return "", RuntimeUnselected
 }

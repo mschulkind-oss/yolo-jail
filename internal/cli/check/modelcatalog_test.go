@@ -132,7 +132,7 @@ func TestCheckPassesWhenEveryListedIDIsKnown(t *testing.T) {
 func TestCheckReadsTheHostFloorsCopyAtTheHost(t *testing.T) {
 	floorDir := t.TempDir()
 	provisionAgentx(t, floorDir, "alpha-1")
-	out, _ := runHostCatalogCheck(t, &hostfloor.Floor{Dir: floorDir, GOOS: runtime.GOOS, GOARCH: runtime.GOARCH})
+	out, _ := runHostCatalogCheck(t, &hostfloor.Floor{Dir: floorDir, GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, Root: checkLoaderRoot(t)})
 	if want := `provider "gw" lists "ghost-9", which no installed agent's catalog knows`; !strings.Contains(out, want) {
 		t.Errorf("the host check should say %q from the floor's copy:\n%s", want, out)
 	}
@@ -146,7 +146,7 @@ func TestCheckReadsTheHostFloorsCopyAtTheHost(t *testing.T) {
 func TestCheckDoesNotReadAFloorCopyYoloHostDoesNotRun(t *testing.T) {
 	floorDir := t.TempDir()
 	provisionAgentx(t, floorDir, "alpha-1")
-	out, r := runHostCatalogCheck(t, &hostfloor.Floor{Dir: floorDir, GOOS: runtime.GOOS, GOARCH: runtime.GOARCH,
+	out, r := runHostCatalogCheck(t, &hostfloor.Floor{Dir: floorDir, GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, Root: checkLoaderRoot(t),
 		Include: func(string) bool { return false }})
 	if strings.Contains(out, "which no installed agent's catalog knows") || strings.Contains(out, "checked against agentx") {
 		t.Errorf("the check read the catalog of a floor copy `yolo host` does not run:\n%s", out)
@@ -175,7 +175,7 @@ func TestCheckSendsANewerYolosFloorRecordToTheUpdateForItsCatalog(t *testing.T) 
 	if err := os.WriteFile(rec, []byte(`{"schema": 99, "bin": "agentx"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	out, _ := runHostCatalogCheck(t, &hostfloor.Floor{Dir: floorDir, GOOS: runtime.GOOS, GOARCH: runtime.GOARCH})
+	out, _ := runHostCatalogCheck(t, &hostfloor.Floor{Dir: floorDir, GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, Root: checkLoaderRoot(t)})
 	if !strings.Contains(out, "agentx: not readable by this yolo: host floor record "+rec) ||
 		!strings.Contains(out, "run `yolo update`") {
 		t.Errorf("the skip must name the newer record and `yolo update`:\n%s", out)

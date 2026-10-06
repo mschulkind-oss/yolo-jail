@@ -7,7 +7,7 @@
 // Terms, as that design coins them: the FOOTER is the agent's line; the YOLO SEGMENT is the
 // text yolo adds to it; the BILLING ROUTE is what the session is billed through, in plain
 // words (the agent's own login, or a provider); the NOTCH is one setting of the confinement
-// dial — `jail` or `host` here, since `guest` is unbuilt and nothing may print it yet.
+// dial — `jail`, `guest` or `host`.
 //
 // # Core keeps no agent list
 //
@@ -77,12 +77,14 @@ import (
 // alone, in the shape every example in the design takes.
 const DefaultTemplate = "yolo: {yolo.billing} · {yolo.notch}"
 
-// The two notches this renderer can name. `guest` is absent on purpose: the notch is
-// unbuilt, and until its launcher sets a marker a guest session is indistinguishable from
-// the host (§1.2), which is the under-claim the design chose.
+// The three notches this renderer can name. `guest` needs a marker of its own beside the jail's,
+// which only its launcher sets — the macOS guest launch (config.NotchEnv; env-manager plan
+// EMP-D4) — so a guest session started any other way reads as the jail config.InJail says,
+// never as the host (§1.2).
 const (
-	NotchJail = "jail"
-	NotchHost = "host"
+	NotchJail  = "jail"
+	NotchGuest = "guest"
+	NotchHost  = "host"
 )
 
 // stdinLimit and stdinTimeout bound the one read this command makes that another process
@@ -167,11 +169,19 @@ func ParseArgs(args []string) Options {
 // jail?" — and never of a copy of its test (the copies already disagree: §1.2). An absent
 // or empty marker reads as host, deliberately: a missing marker can only under-claim
 // confinement.
+//
+// A launched session is the guest notch when its launcher said so through config.NotchEnv,
+// which the macOS guest launch sets (config.SessionNotch reads the value), and the jail
+// otherwise. The guest marker narrows a launched session only: without InJail's marker it is
+// no launch, and the footer says host.
 func Notch() string {
-	if config.InJail() {
-		return NotchJail
+	if !config.InJail() {
+		return NotchHost
 	}
-	return NotchHost
+	if config.SessionNotch(os.Getenv(config.NotchEnv)) == config.ConfinementGuest {
+		return NotchGuest
+	}
+	return NotchJail
 }
 
 // Billing is the billing route in the pack's plain words, by the rule of §1.1, in order:

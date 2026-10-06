@@ -230,8 +230,8 @@ type hostApplySurvey struct {
 	// nothing" with a different next action, which an empty Changed set cannot distinguish.
 	home      string
 	zeroPacks bool
-	// notch is the tier-1 half of the report: the kinds this notch does nothing with and whether
-	// any pack declares `autonomy`. Recorded for the machine document (machine consumers), which
+	// notch is the tier-1 half of the report: the kinds this notch does nothing with, the ones
+	// `yolo host --` delivers at launch, and whether any pack declares `autonomy`. Recorded for the machine document (machine consumers), which
 	// names the kinds and carries none of their prose — rationale is not data.
 	notch notchFacts
 }
@@ -318,6 +318,21 @@ func (s *hostApplySurvey) InapplicableKinds() []string {
 	}
 	out := make([]string, 0, len(s.notch.Inapplicable))
 	for _, k := range s.notch.Inapplicable {
+		out = append(out, string(k))
+	}
+	return out
+}
+
+// AtLaunchKinds names the contribution kinds `yolo host -- <program>` delivers and this command
+// writes no file for (the report vocabulary's AT LAUNCH ONLY), sorted as the census collected
+// them. Names only, as InapplicableKinds's are; a kind may be in both, each for its own
+// contributions.
+func (s *hostApplySurvey) AtLaunchKinds() []string {
+	if s == nil {
+		return nil
+	}
+	out := make([]string, 0, len(s.notch.AtLaunch))
+	for _, k := range s.notch.AtLaunch {
 		out = append(out, string(k))
 	}
 	return out
@@ -436,18 +451,45 @@ func configResultTier(r entrypoint.HostRenderResult) reportTier {
 }
 
 // replacedValue is one value of the user's a render replaces: the key, the surface and file it
-// sits in, and the WINNER — the pack whose config-overlay wrote it, or "" for a managed key of
-// the surface's own pack.
+// sits in, and the WINNER — the pack whose config-overlay wrote it, "" for a managed key of the
+// surface's own pack, computedWinner plus the inputs for a computed leaf, or selectedWinner for a
+// key the profile's selection wrote (splitOverwriteLabel).
 type replacedValue struct {
 	Key, Winner, Surface, Path string
 }
 
-// splitOverwriteLabel splits one HostRenderResult.Overwrites entry, "<key>" or
-// "<key> (config-overlay from <pack>)", into the key and the overlay's pack.
-func splitOverwriteLabel(label string) (key, overlayPack string) {
+// computedWinner prefixes the winner of a value a COMPUTED leaf replaced: the user-scope inputs
+// it is computed from follow it ("computed:profile", "computed:lsp_servers"), and nothing does
+// for a leaf no input of the user's moves ("computed:"). The colon is what keeps it apart from
+// an overlay's winner, a pack name: a pack reference may not contain one
+// (packdecl.ValidPackName, through ValidBinName).
+const computedWinner = "computed:"
+
+// selectedWinner is the winner of a value the profile's SELECTION replaced: a computed key, but
+// one written on the activation edge, so a pick of the user's after it stands (HC-D17) — which is
+// what its remedy group says and the computed group's must not. Not under computedWinner's
+// prefix, so no reader of that prefix takes it for a leaf the derive re-writes on every apply.
+const selectedWinner = "selected:profile"
+
+// splitOverwriteLabel splits one HostRenderResult.Overwrites entry into the key and its winner:
+// "<key>" is the owning pack's managed layer (""), "<key> (config-overlay from <pack>)" the
+// pack, "<key> (selected by your profile)" the profile's selection (selectedWinner), and
+// "<key> (computed from your <inputs>)" or "<key> (computed by its pack)" a computed leaf
+// (computedWinner plus the inputs, or alone). The computed spellings are the render's own
+// constants, so the two packages cannot drift apart on them.
+func splitOverwriteLabel(label string) (key, winner string) {
 	const mark = " (config-overlay from "
 	if i := strings.LastIndex(label, mark); i >= 0 && strings.HasSuffix(label, ")") {
 		return label[:i], label[i+len(mark) : len(label)-1]
+	}
+	if k, ok := strings.CutSuffix(label, entrypoint.SelectedByProfileLabel); ok {
+		return k, selectedWinner
+	}
+	if k, ok := strings.CutSuffix(label, entrypoint.ComputedByPackLabel); ok {
+		return k, computedWinner
+	}
+	if i := strings.LastIndex(label, entrypoint.ComputedFromLabel); i >= 0 && strings.HasSuffix(label, ")") {
+		return label[:i], computedWinner + label[i+len(entrypoint.ComputedFromLabel):len(label)-1]
 	}
 	return label, ""
 }

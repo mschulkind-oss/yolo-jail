@@ -13,8 +13,9 @@ import (
 // TestGuestNotchSentenceHasExactlyOneHome is the drift guard NotchUnbuilt exists for.
 //
 // Two packages say this sentence — `cli.applyMain` for `yolo apply --at guest` and
-// `run.Run` for a guest-notch LAUNCH (docs/design/declaration-parity.md DP-A12, DP-B16) —
-// and internal/cli imports internal/cli/run, so neither could own the string. OQ-DP3 ruled
+// `run.Run` for a guest-notch LAUNCH, both on Linux since the notch launches on macOS
+// (docs/design/declaration-parity.md DP-A12, DP-B16) — and internal/cli imports
+// internal/cli/run, so neither could own the string. OQ-DP3 ruled
 // the launch gate must reuse apply's sentence VERBATIM, and "verbatim" enforced by two
 // authors reading each other's files is the drift this catalog is a list of. So the
 // property is stronger than equality: the sentence exists ONCE in the tree.
@@ -23,7 +24,7 @@ import (
 // line below), and so may a doc — what must not exist is a second thing a user could be
 // shown.
 func TestGuestNotchSentenceHasExactlyOneHome(t *testing.T) {
-	const distinctive = "is not built yet (env-manager plan Phase 7"
+	const distinctive = "not built yet: the guest notch launches"
 	if !strings.Contains(NotchUnbuilt("apply"), distinctive) {
 		t.Fatalf("the guard's needle no longer appears in NotchUnbuilt(%q) = %q — update "+
 			"the needle, do not delete the guard", "apply", NotchUnbuilt("apply"))
@@ -64,15 +65,21 @@ func TestGuestNotchSentenceHasExactlyOneHome(t *testing.T) {
 // TestNotchUnbuiltNamesTheVerbItWasGiven: the verb is the ONLY thing that varies, which is
 // what makes "verbatim" mean something. A call site that got the phase wrong, or dropped
 // the plan reference, would be a different sentence wearing the same function.
+//
+// And since the guest notch launches on macOS (env-manager plan EMP-D1), the sentence must
+// say WHERE it runs: a refusal that only said "not built" would be false of the Mac a user
+// reads `yolo config --at guest`'s copy on.
 func TestNotchUnbuiltNamesTheVerbItWasGiven(t *testing.T) {
-	for _, verb := range []string{"apply", "launch"} {
+	for _, verb := range []string{"apply", "launch", "config"} {
 		got := NotchUnbuilt(verb)
 		if !strings.HasPrefix(got, verb+" at the guest notch is not built yet") {
 			t.Errorf("NotchUnbuilt(%q) = %q, want it to open with the verb", verb, got)
 		}
-		if !strings.Contains(got, "Phase 7") || !strings.Contains(got, "LSM-confined backend") {
-			t.Errorf("NotchUnbuilt(%q) = %q, want it to name the phase and what it builds",
-				verb, got)
+		for _, want := range []string{"only on macOS", "macos-user", "Phase 7.1", "Phase 7.2", "Landlock"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("NotchUnbuilt(%q) = %q, want it to name %q: where the notch runs, "+
+					"by what, and which phase owes the rest", verb, got, want)
+			}
 		}
 	}
 	// The two differ ONLY by the verb.
@@ -83,17 +90,19 @@ func TestNotchUnbuiltNamesTheVerbItWasGiven(t *testing.T) {
 	}
 }
 
-// TestServiceAndBlockedToolCarryTheirOwnRefusalReason closes DP-B27 (DP-L6): both kinds
-// fell to Refuse's generic fallback — "<kind> is not applicable at this confinement
-// level", which names the kind and explains nothing — while the real reasons sat, hand
-// written, in internal/cli/config_ref.txt's host-notch list.
+// TestServiceAndInterceptCarryTheirOwnRefusalReason closes DP-B27 (DP-L6) for the kinds the host
+// still refuses: `service` fell to Refuse's generic fallback — "<kind> is not applicable at this
+// confinement level", which names the kind and explains nothing — while the real reason sat,
+// hand written, in internal/cli/config_ref.txt's host-notch list. `intercept`'s reason is its own
+// since HE-D11 took `blocked-tool` out of this set: an intercept layers a permission over a CLI,
+// and the agent at the host runs as the user (boundary-broker.md BB-D17).
 //
 // Asserted on the HOST FieldSet rather than on the map, because "the host notch refuses
 // this kind" and "the reason is specific" are one fact for a reader and the map is an
 // implementation detail of it.
-func TestServiceAndBlockedToolCarryTheirOwnRefusalReason(t *testing.T) {
+func TestServiceAndInterceptCarryTheirOwnRefusalReason(t *testing.T) {
 	fields := HostFields()
-	for _, k := range []packdecl.Kind{packdecl.KindService, packdecl.KindBlockedTool} {
+	for _, k := range []packdecl.Kind{packdecl.KindService, packdecl.KindIntercept} {
 		if fields.Honors(k) {
 			t.Fatalf("%s is honored at the host notch now — this test is asserting the "+
 				"reason for a refusal that no longer happens", k)
@@ -113,12 +122,131 @@ func TestServiceAndBlockedToolCarryTheirOwnRefusalReason(t *testing.T) {
 	// and not on the meaning (the same reason
 	// TestEveryHostNotchInapplicableKindHasItsReasonDocumented asserts an entry, not text).
 	for kind, fragment := range map[packdecl.Kind]string{
-		packdecl.KindBlockedTool: "a blocker is a shim at the head of a JAIL's PATH",
-		packdecl.KindService:     "a daemon pair plus an endpoint file under the jail's /run",
+		packdecl.KindIntercept: "the agent runs as you and can run the real program",
+		packdecl.KindService:   "a daemon pair plus an endpoint file under the jail's /run",
 	} {
 		if !strings.Contains(fields.Refuse(kind), fragment) {
 			t.Errorf("%s's reason is not the one config_ref.txt gives a reader.\n"+
 				"want substring: %q\ngot: %q", kind, fragment, fields.Refuse(kind))
+		}
+	}
+	// And the old reason is gone from the one kind that still carries a shim's name: "yolo owns no
+	// PATH entry" stopped being true of `yolo host --` when it composed the child's PATH (HE-D1).
+	if strings.Contains(fields.Refuse(packdecl.KindIntercept), "owns no PATH entry") {
+		t.Errorf("intercept's reason still says yolo owns no PATH entry off-container, which "+
+			"`yolo host --` has since HE-D1: %q", fields.Refuse(packdecl.KindIntercept))
+	}
+}
+
+// TestBlockedToolIsHonoredAtTheHostAndDeliveredAtLaunch pins HE-D11 in the census: `yolo host --`
+// puts the blockers first on the PATH of the program it starts, so the kind is honored at the
+// host, and delivered AT LAUNCH ONLY (report-tiers.md): `yolo host apply`, which starts nothing,
+// writes no file for it, and that is no longer an honored-but-unbuilt entry, which the apply's
+// notch line reads as "does not apply at the host".
+func TestBlockedToolIsHonoredAtTheHostAndDeliveredAtLaunch(t *testing.T) {
+	fields := HostFields()
+	if !fields.Honors(packdecl.KindBlockedTool) {
+		t.Fatalf("blocked-tool is refused at the host, but `yolo host --` renders it (HE-D11): %q",
+			fields.Refuse(packdecl.KindBlockedTool))
+	}
+	if r := fields.Refuse(packdecl.KindBlockedTool); r != "" {
+		t.Errorf("an honored kind has a refusal reason: %q", r)
+	}
+	reason, ok := HostAtLaunch(packdecl.KindBlockedTool)
+	if !ok {
+		t.Fatal("blocked-tool is not delivered at launch, so the apply's notch line would name it " +
+			"as not applying at the host while `yolo host --` puts the blockers on the PATH")
+	}
+	for _, want := range []string{"`yolo host apply`", "`yolo host -- <program>`"} {
+		if !strings.Contains(reason, want) {
+			t.Errorf("blocked-tool's at-launch reason does not name %s: %q", want, reason)
+		}
+	}
+}
+
+// TestTheAtLaunchKindsLeftTheUnbuiltMap is the regression half of the at-launch outcome: env,
+// adapter and blocked-tool sat in hostUnimplemented, which the apply's notch line reads through
+// notchInapplicable, so `yolo host apply` named them as not applying at the host while
+// `yolo host -- <program>` delivered every one. A kind is in at most one of the two maps.
+func TestTheAtLaunchKindsLeftTheUnbuiltMap(t *testing.T) {
+	for _, k := range []packdecl.Kind{packdecl.KindEnv, packdecl.KindAdapter, packdecl.KindBlockedTool} {
+		if why, unbuilt := HostUnimplemented(k); unbuilt {
+			t.Errorf("%s is honored-but-unbuilt at the host (%q), but `yolo host --` delivers it: "+
+				"it belongs in hostAtLaunch", k, why)
+		}
+		if _, ok := HostAtLaunch(k); !ok {
+			t.Errorf("%s is not delivered at launch", k)
+		}
+	}
+	for k := range hostAtLaunch {
+		if _, unbuilt := hostUnimplemented[k]; unbuilt {
+			t.Errorf("%s is in both hostAtLaunch and hostUnimplemented — one kind, two answers", k)
+		}
+	}
+	// hook is what is left, and it is the end state's last entry rather than an at-launch kind:
+	// `yolo host --` runs no pack hook either.
+	if _, unbuilt := HostUnimplemented(packdecl.KindHook); !unbuilt {
+		t.Error("hook left hostUnimplemented, but no host verb runs a pack hook")
+	}
+	if _, ok := HostAtLaunch(packdecl.KindHook); ok {
+		t.Error("hook is named as delivered at launch, and `yolo host --` runs no pack hook")
+	}
+}
+
+// TestEveryHostAtLaunchKindIsHonoredOrRefusedWithItsOwnReason: an at-launch kind is either one
+// the host FieldSet honors (env, adapter, blocked-tool) or one it refuses with a reason of its
+// own for the shape the host does not deliver (service, loophole). A kind honored and carrying
+// a withheld shape names it in hostWithheldAtLaunch, since Refuse cannot.
+func TestEveryHostAtLaunchKindIsHonoredOrRefusedWithItsOwnReason(t *testing.T) {
+	fields := HostFields()
+	if len(hostAtLaunch) < 2 {
+		t.Fatalf("hostAtLaunch has %d entries — the test below checks nothing", len(hostAtLaunch))
+	}
+	for k := range hostAtLaunch {
+		if fields.Honors(k) {
+			continue
+		}
+		got := fields.Refuse(k)
+		if got == "" || strings.Contains(got, "is not applicable at this confinement level") {
+			t.Errorf("%s is delivered at launch and refused by the FieldSet, and its refusal does "+
+				"not say which shape the host leaves undone: %q", k, got)
+		}
+	}
+	for k := range hostWithheldAtLaunch {
+		if _, ok := hostAtLaunch[k]; !ok {
+			t.Errorf("%s has a withheld shape but no delivered one: hostWithheldAtLaunch is the "+
+				"other half of an at-launch kind, never a kind of its own", k)
+		}
+		if !fields.Honors(k) {
+			t.Errorf("%s has a hostWithheldAtLaunch entry and is refused by the FieldSet, whose "+
+				"refusal reason already states it", k)
+		}
+	}
+	// The "Launch a jail to run it" remedy was a notch fact wearing a warning's word (P2), and
+	// it was false of a credential loophole, whose doorway `yolo host --` opens.
+	for _, k := range []packdecl.Kind{packdecl.KindLoophole, packdecl.KindService} {
+		if r := fields.Refuse(k); strings.Contains(r, "Launch a jail") {
+			t.Errorf("%s's reason still tells the reader to launch a jail: %q", k, r)
+		}
+	}
+}
+
+// TestHostAtLaunchReasonsNameTheLaunchAndTheApply holds each at-launch reason to the shape
+// TestEnvAndLaunchRefusalsBlameTheCommandNotTheNotch held env's honored-but-unbuilt one to: it
+// names the verb that delivers it and the one that writes no file, and does not blame the notch,
+// since the notch does deliver it.
+func TestHostAtLaunchReasonsNameTheLaunchAndTheApply(t *testing.T) {
+	for k, why := range hostAtLaunch {
+		for _, want := range []string{"`yolo host -- <program>`", "`yolo host apply`"} {
+			if !strings.Contains(why, want) {
+				t.Errorf("%s: the at-launch reason does not name %s: %q", k, want, why)
+			}
+		}
+		for _, blames := range []string{"off-container", "below jail", "without a container"} {
+			if strings.Contains(why, blames) {
+				t.Errorf("%s: the at-launch reason blames the notch (%q), which delivers it: %q",
+					k, blames, why)
+			}
 		}
 	}
 }

@@ -39,7 +39,8 @@ import (
 // retire the label: the report is what makes the pane's agent match it. A registration made
 // above the dispatch outlived a Ctrl-C at the config prompt or during the image build, where
 // no arm runs, and left a host shell reading as the jailed agent under "🔒 JAIL". macos-user
-// has no signal arm; it registers after its config prompt, just before its sandbox starts.
+// registers just before its sandbox starts, under its own arm (macosuserarm.go), which ends a
+// signaled launch through Run's defers, the release included.
 //
 // WHICH LAUNCHES. Only one whose argv[0] is a program a SELECTED pack installs
 // (Pack.InstallBins, the one authority for that namespace), so core names no agent. A bare

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor/floortest"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -43,6 +44,15 @@ func launchPathCheckFixture(t *testing.T, userConfig string, contributions ...st
 		return ""
 	}}
 	o.selectedPacks, o.selectedPacksKnown = []*packload.Pack{pack}, true
+	// The floor the sections ask which programs it answers for: the default one, its loader check
+	// under a filesystem root of the fixture's own (checkLoaderRoot), so no answer depends on this
+	// machine's /lib64.
+	root := checkLoaderRoot(t)
+	o.HostFloor = func(progs []hostfloor.Program) *hostfloor.Floor {
+		f := (&Options{}).hostFloor(progs)
+		f.Root = root
+		return f
+	}
 	return o, home, pathDir
 }
 

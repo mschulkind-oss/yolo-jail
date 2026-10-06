@@ -11,6 +11,8 @@ package entrypoint
 
 import (
 	"bytes"
+	"errors"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,23 +25,60 @@ import (
 // what the bootstrap printed.
 func gitLayoutLaunch(t *testing.T, home, ws, packRoot, email string) string {
 	t.Helper()
+	said, _ := gitLayoutBoot(t, home, ws, packRoot, map[string]string{"YOLO_GIT_EMAIL": email})
+	return said
+}
+
+// gitLayoutBoot is gitLayoutLaunch forwarding the YOLO_GIT_* variables in identity (none, for a
+// host that sets no identity), and returning as well what the launch logged without printing
+// (launchLogged).
+func gitLayoutBoot(t *testing.T, home, ws, packRoot string, identity map[string]string) (said, logged string) {
+	t.Helper()
 	t.Setenv("PATH", "")
-	e := DarwinEnvFrom(map[string]string{
+	vars := map[string]string{
 		"JAIL_HOME":             home,
 		"YOLO_HOST_DIR":         ws,
 		"YOLO_BLOCK_CONFIG":     `[]`,
 		"YOLO_MISE_TOOLS":       `{}`,
 		"YOLO_PACK_ROOT":        packRoot,
 		"YOLO_DARWIN_WORKSPACE": ws,
-		"YOLO_GIT_EMAIL":        email,
 		DarwinHomeSidecarEnv:    filepath.Join(ws, ".yolo", "home"),
 		"MISE_DATA_DIR":         filepath.Join(home, ".yolo", "mise"),
 		DarwinLoginPathEnv:      filepath.Dir(gitBin),
-	}, home)
-	var out strings.Builder
+	}
+	for k, v := range identity {
+		vars[k] = v
+	}
+	e := DarwinEnvFrom(vars, home)
+	var out, logOnly strings.Builder
 	e.Stderr = &out
+	e.LogOnly = &logOnly
 	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
-	return out.String()
+	return out.String(), launchLogged(t, ws, logOnly.String())
+}
+
+// launchLogged is what one launch logged without printing it: the workspace's boot.log when the
+// bootstrap keeps one, because that file is where production sends a log-only note
+// (Env.LogOnly); otherwise injected, what reached the LogOnly sink the test handed the Env.
+//
+// ⚠ THE SECOND HALF CHECKS WHAT THE CODE SAID, NOT THAT ANYTHING KEPT IT. A macos-user
+// bootstrap that keeps no boot log (G20 in docs/plans/setup-support-gaps.md) attaches no
+// LogOnly sink of its own, so in production every note is discarded and the injected sink is
+// the only place the test can read one. Once the bootstrap keeps <ws>/.yolo/boot.log it
+// replaces the sink with that file for the launch, the injected one receives nothing, and the
+// file is read instead: a note the bootstrap stops sending there then fails the test.
+func launchLogged(t *testing.T, ws, injected string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(ws, ".yolo", bootLogName))
+	switch {
+	case err == nil:
+		return string(b)
+	case errors.Is(err, fs.ErrNotExist):
+		return injected
+	default:
+		t.Fatalf("reading the launch's boot log: %v", err)
+		return ""
+	}
 }
 
 // swapForLink replaces p, whatever it is, with a symbolic link to target — what an agent can do
@@ -57,23 +96,45 @@ func swapForLink(t *testing.T, p, target string) {
 // THE LAYOUT'S OWN PATH WORKS, AND NO OTHER. A clean first launch writes the identity and the
 // safe.directory entry into the sidecar's git config, through the layout's links, and the
 // agent's git (which reads ~/.gitconfig) accepts the workspace. Then the agent swaps a link in
-// at each point of the sidecar path below the layout's own — the directory, or the file itself —
-// aimed at ANOTHER workspace's .git, and the next launch must leave that repository's config
-// byte-for-byte alone and say which link it refused and how to remove it.
+// at each point of the sidecar path below the layout's own — the directory, the file itself, or
+// the record of the identity yolo forwarded beside it (forwardIdentity) — aimed at ANOTHER
+// workspace's .git, and the next launch must leave that repository's config byte-for-byte alone
+// and say which link it refused and how to remove it.
 //
 // It fails if configureGit hands git ~/.gitconfig instead of the checked physical path (the
-// other repository's config gained `[user] email` and `[safe] directory`), and its first half
-// fails if the check stops following the layout's own links (nothing would be written at all).
+// other repository's config gained `[user] email` and `[safe] directory`), or the record's path
+// unchecked (it gained `[user] email`); and its first half fails if the check stops following
+// the layout's own links (nothing would be written at all).
 func TestConfigureGitWritesOnlyThroughTheLayoutsOwnLinks(t *testing.T) {
-	cases := map[string]func(sidecar, other string) (link, target string){
-		"a link at the git config directory": func(sidecar, other string) (string, string) {
-			return filepath.Join(sidecar, "config", "git"), filepath.Join(other, ".git")
+	type plant func(sidecar, other string) (link, target string)
+	cases := map[string]struct {
+		plant plant
+		// says is what the refusal must say besides the link. A link at the record costs only
+		// the clearing, so that launch still writes the identity and the safe.directory entry.
+		says        string
+		stillWrites bool
+	}{
+		"a link at the git config directory": {
+			plant: func(sidecar, other string) (string, string) {
+				return filepath.Join(sidecar, "config", "git"), filepath.Join(other, ".git")
+			},
+			says: "no safe.directory entry",
 		},
-		"a link at the git config file": func(sidecar, other string) (string, string) {
-			return filepath.Join(sidecar, "config", "git", "config"), filepath.Join(other, ".git", "config")
+		"a link at the git config file": {
+			plant: func(sidecar, other string) (string, string) {
+				return filepath.Join(sidecar, "config", "git", "config"), filepath.Join(other, ".git", "config")
+			},
+			says: "no safe.directory entry",
+		},
+		"a link at the record of the forwarded identity": {
+			plant: func(sidecar, other string) (string, string) {
+				return filepath.Join(sidecar, "config", "git", "yolo-forwarded"), filepath.Join(other, ".git", "config")
+			},
+			says:        "the host stops setting will not be removed",
+			stillWrites: true,
 		},
 	}
-	for name, plant := range cases {
+	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			hermeticGit(t)
 			base, err := filepath.EvalSymlinks(t.TempDir())
@@ -101,7 +162,7 @@ func TestConfigureGitWritesOnlyThroughTheLayoutsOwnLinks(t *testing.T) {
 				t.Fatalf("after the clean launch the agent's git refuses the workspace (rc %d):\n%s", rc, out)
 			}
 
-			link, target := plant(sidecar, other)
+			link, target := tc.plant(sidecar, other)
 			swapForLink(t, link, target)
 			before, err := os.ReadFile(filepath.Join(other, ".git", "config"))
 			if err != nil {
@@ -118,13 +179,24 @@ func TestConfigureGitWritesOnlyThroughTheLayoutsOwnLinks(t *testing.T) {
 				t.Fatalf("the bootstrap wrote another workspace's .git/config through a link the "+
 					"agent planted at %s:\n%s", link, after)
 			}
-			for _, want := range []string{link, "no safe.directory entry"} {
+			for _, want := range []string{link, tc.says} {
 				if !strings.Contains(said, want) {
 					t.Errorf("the refusal does not say %q:\n%s", want, said)
 				}
 			}
 			if !offers(t, said, "sudo", "rm", link) {
 				t.Errorf("the refusal does not offer `sudo rm %s` as a shell reads it:\n%s", link, said)
+			}
+			if !tc.stillWrites {
+				return
+			}
+			if out, rc := gitAsAnotherOwner(home, ws, "config", "--global", "user.email"); rc != 0 ||
+				strings.TrimSpace(out) != "second@example.com" {
+				t.Errorf("a link at the record cost the launch its identity too: user.email = %q "+
+					"(rc %d), want second@example.com\nbootstrap said:\n%s", out, rc, said)
+			}
+			if out, rc := gitAsAnotherOwner(home, ws, "status"); rc != 0 {
+				t.Errorf("a link at the record cost the launch its safe.directory entry (rc %d):\n%s", rc, out)
 			}
 		})
 	}

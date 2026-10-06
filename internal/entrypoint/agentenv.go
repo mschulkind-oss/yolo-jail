@@ -19,6 +19,8 @@ package entrypoint
 import (
 	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -84,46 +86,16 @@ func agentsWithEnvFiles(e *Env) []string {
 }
 
 // agentEnvLookup is e.Lookup as agent's own launcher will see it: the boot's environment
-// with agent's env file applied over it, in the file's own grammar — a def-form line
-// (`export K=${K:-'v'}`) sets K only when the environment lacks it, a plain-form line sets
-// it, and `unset K` removes it. A boot-time answer to "will this agent's process hold K?",
-// for the gates that decide what its config names (loadMCPTables). A file it cannot read
-// changes nothing.
+// with agent's env file applied over it, line by line in the file's own grammar
+// (agentEnvLine). A def-form line (`export K=${K:-'v'}`) sets K only when K is unset or
+// empty at that point, a plain-form line sets it, `unset K` removes it, and the writer's
+// `case` lines set or remove K only when K's value at that point is one the line lists. A
+// boot-time answer to "will this agent's process hold K?", for the gates that decide what its
+// config names (loadMCPTables). A file it cannot read changes nothing.
 func agentEnvLookup(e *Env, agent string) func(string) (string, bool) {
 	own := map[string]string{}
 	unset := map[string]bool{}
-	if data, err := os.ReadFile(AgentEnvFile(e.Home, agent)); err == nil {
-		for _, line := range splitLines(string(data)) {
-			if key, ok := strings.CutPrefix(strings.TrimSpace(line), "unset "); ok {
-				key = strings.TrimSpace(key)
-				delete(own, key)
-				unset[key] = true
-				continue
-			}
-			loc := exportLineRe.FindStringSubmatchIndex(line)
-			if loc == nil {
-				continue
-			}
-			key := groupStr(line, loc, exportGroupKey)
-			var raw string
-			switch {
-			case groupParticipated(loc, exportGroupDef):
-				if v, ok := e.Vars[key]; ok && v != "" && !unset[key] {
-					continue // a default the environment already beats
-				}
-				raw = groupStr(line, loc, exportGroupDef)
-			case groupParticipated(loc, exportGroupSq):
-				raw = groupStr(line, loc, exportGroupSq)
-			case groupParticipated(loc, exportGroupDq):
-				raw = groupStr(line, loc, exportGroupDq)
-			default:
-				raw = groupStr(line, loc, exportGroupBare)
-			}
-			own[key] = strings.ReplaceAll(raw, "'\\''", "'")
-			delete(unset, key)
-		}
-	}
-	return func(key string) (string, bool) {
+	current := func(key string) (string, bool) {
 		if v, ok := own[key]; ok {
 			return v, true
 		}
@@ -132,4 +104,117 @@ func agentEnvLookup(e *Env, agent string) func(string) (string, bool) {
 		}
 		return e.Lookup(key)
 	}
+	for _, l := range readAgentEnvFile(e.Home, agent) {
+		if v, _ := current(l.key); !l.appliesTo(v) {
+			continue
+		}
+		if l.unset {
+			delete(own, l.key)
+			unset[l.key] = true
+			continue
+		}
+		own[l.key] = l.value
+		delete(unset, l.key)
+	}
+	return current
+}
+
+// agentEnvLine is one line of a per-agent env file, in the grammar of its writer
+// (internal/cli/run's agentEnvFileContent), which writes three shapes:
+//
+//	export K=${K:-'v'}
+//	case "${K-}" in ''|'a'|'b') export K='v' ;; esac
+//	case "${K-}" in 'a'|'b') unset K ;; esac
+//
+// The first, the def form, is an env_sources value or a composed value whose name yolo set
+// nowhere else this entry, and it sets K only when K is unset or empty. The second is a
+// composed value whose name yolo DID set elsewhere this entry: it overrides only an empty K or
+// one of the values yolo set there (the line's guard), so a value the user set is kept. The
+// third is a profile's removal of K, applied only when K holds one of those values.
+//
+// A plain `export K='v'` and a bare `unset K` are read too: the writer writes neither, but a hand
+// edit may. Where the line is a `case`, cased is set and guard holds its patterns, the empty
+// pattern as "".
+type agentEnvLine struct {
+	key   string
+	value string
+	unset bool
+	def   bool
+	cased bool
+	guard []string
+}
+
+// appliesTo reports whether the line acts on a K whose value at that point is cur ("" for an
+// unset K, as `${K-}` and `${K:-}` read it).
+func (l agentEnvLine) appliesTo(cur string) bool {
+	switch {
+	case l.cased:
+		return slices.Contains(l.guard, cur)
+	case l.def:
+		return cur == ""
+	}
+	return true
+}
+
+// agentEnvCaseRe is the writer's `case` line, both actions. RE2 has no backreference, so the
+// action's name is captured separately and parseAgentEnvLine checks it is the guard's.
+var agentEnvCaseRe = regexp.MustCompile(`^\s*case "\$\{(?P<key>[A-Za-z_][A-Za-z0-9_]*)-\}" in ` +
+	`(?P<pats>` + agentEnvQuoted + `(?:\|` + agentEnvQuoted + `)*)\) ` +
+	`(?:export (?P<setkey>[A-Za-z_][A-Za-z0-9_]*)='(?P<val>(?:[^']|'\\'')*)'|unset (?P<unsetkey>[A-Za-z_][A-Za-z0-9_]*))` +
+	` ;; esac\s*$`)
+
+// agentEnvQuoted is one single-quoted word with the writer's escape for an embedded single
+// quote (a single quote, a backslash, and two single quotes); agentEnvPatternRe takes one apart.
+const agentEnvQuoted = `'(?:[^']|'\\'')*'`
+
+var agentEnvPatternRe = regexp.MustCompile(`'((?:[^']|'\\'')*)'`)
+
+// parseAgentEnvLine reads one line of a per-agent env file (agentEnvLine's grammar), and
+// reports false for a comment, a blank line or anything else.
+func parseAgentEnvLine(line string) (agentEnvLine, bool) {
+	trimmed := strings.TrimSpace(line)
+	if key, ok := strings.CutPrefix(trimmed, "unset "); ok {
+		return agentEnvLine{key: strings.TrimSpace(key), unset: true}, true
+	}
+	if key, val, def, ok := parseExportLine(line); ok {
+		return agentEnvLine{key: key, value: val, def: def}, true
+	}
+	m := agentEnvCaseRe.FindStringSubmatch(line)
+	if m == nil {
+		return agentEnvLine{}, false
+	}
+	group := func(name string) string { return m[agentEnvCaseRe.SubexpIndex(name)] }
+	l := agentEnvLine{key: group("key"), cased: true}
+	switch {
+	case group("setkey") == l.key:
+		l.value = unescapeSingleQuoted(group("val"))
+	case group("unsetkey") == l.key:
+		l.unset = true
+	default:
+		return agentEnvLine{}, false // a case on one name acting on another: not the writer's
+	}
+	for _, p := range agentEnvPatternRe.FindAllStringSubmatch(group("pats"), -1) {
+		l.guard = append(l.guard, unescapeSingleQuoted(p[1]))
+	}
+	return l, true
+}
+
+// unescapeSingleQuoted reverses the writer's escape for a single quote inside a single-quoted
+// word.
+func unescapeSingleQuoted(s string) string { return strings.ReplaceAll(s, "'\\''", "'") }
+
+// readAgentEnvFile is agent's env file under home, parsed (parseAgentEnvLine); nil when it
+// cannot be read.
+func readAgentEnvFile(home, agent string) []agentEnvLine {
+	data, err := os.ReadFile(AgentEnvFile(home, agent))
+	if err != nil {
+		return nil
+	}
+	var out []agentEnvLine
+	for _, line := range splitLines(string(data)) {
+		if l, ok := parseAgentEnvLine(line); ok {
+			out = append(out, l)
+		}
+	}
+	return out
 }

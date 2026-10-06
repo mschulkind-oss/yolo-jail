@@ -81,3 +81,41 @@ func TestTheBriefingScopesTheIOPriorityToTheJail(t *testing.T) {
 		}
 	}
 }
+
+// TestTheMacosUserBriefingNamesTheDiskPolicy: on macos-user the priority is a macOS disk I/O
+// policy the launcher set before the session (docs/design/io-priority.md §5.5), so the line
+// names IOPOL_UTILITY or IOPOL_THROTTLE, stays advisory and scoped, and carries none of the
+// Linux sentence — no class, no scheduler, no writeback clause, no boot of an entrypoint.
+func TestTheMacosUserBriefingNamesTheDiskPolicy(t *testing.T) {
+	for _, tc := range []struct{ p, want string }{
+		{"low", "`low` (IOPOL_UTILITY)"},
+		{"idle", "`idle` (IOPOL_THROTTLE)"},
+	} {
+		body := BriefingContent(BriefingInput{Workspace: "/Users/Shared/proj", Mechanism: "macos-user", IOPriority: tc.p})
+		var line string
+		for _, l := range strings.Split(body, "\n") {
+			if strings.HasPrefix(l, "- **Disk I/O priority**") {
+				line = l
+			}
+		}
+		for _, want := range []string{tc.want, "Advisory, not a limit", "every process here inherits it",
+			"keeps the host's policy"} {
+			if !strings.Contains(line, want) {
+				t.Errorf("%s: the line is %q, want it to say %q", tc.p, line, want)
+			}
+		}
+		for _, never := range []string{"scheduler", "mq-deadline", "kyber", "writeback", "best effort",
+			"idle class", "at boot", "jail"} {
+			if strings.Contains(line, never) {
+				t.Errorf("%s: the macos-user line carries the Linux word %q: %q", tc.p, never, line)
+			}
+		}
+	}
+	if body := BriefingContent(BriefingInput{Workspace: "/w", Mechanism: "macos-user", IOPriority: "normal"}); strings.Contains(body, "Disk I/O priority") {
+		t.Error("an undeclared priority gained a line on macos-user")
+	}
+	// The container line is untouched by the mechanism it does not name.
+	if body := BriefingContent(BriefingInput{Workspace: "/w", Mechanism: "podman", IOPriority: "low"}); !strings.Contains(body, "(best effort, level 7)") {
+		t.Error("podman's line lost its Linux class")
+	}
+}

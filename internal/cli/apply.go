@@ -56,7 +56,7 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 		return 2
 	}
 	var at string
-	var dryRun, sealed, assert, revert bool
+	var dryRun, sealed, assert, revert, timing bool
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		// Already consumed by the format parse above; this parser refuses an unrecognized
@@ -86,6 +86,8 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 			sealed = true
 		case a == "--revert":
 			revert = true
+		case a == hostTimingFlag:
+			timing = true // the host notch's alone; refused below once the notch is known
 		default:
 			fmt.Fprintf(errw, "yolo apply: unexpected argument %q\n\n%s\n", a, applyUsage)
 			return 2
@@ -118,14 +120,27 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 	pr := richtext.Printer{W: out, Color: color}
 	// THE FLAG BELONGS TO ONE ROUTE, and every other one refuses it rather than answering a
 	// request for data with prose — which is the failure the flag exists to prevent, and the
-	// shape `yolo broker` already uses for its acting verbs. `--sealed` is a refusal verb,
-	// the guest notch is unbuilt, and the jail notch's apply is a launch (JR-D1): none of the
-	// three has a document to emit, and each would otherwise print a human report to
-	// something that asked for JSON.
+	// shape `yolo broker` already uses for its acting verbs. `--sealed` is a refusal verb, the
+	// jail notch's apply is a launch (JR-D1), at a macOS guest this verb is a pointer at launch,
+	// and a Linux guest is unbuilt: none of them has a document to emit, and each would
+	// otherwise print a human report to something that asked for JSON.
 	if outfmt.IsJSON(format) && (sealed || notch != config.ConfinementHost) {
 		fmt.Fprintln(errw, "yolo apply: --format json is the HOST notch's dry run "+
 			"(`yolo apply --at host`, or `yolo host apply`). No other notch has a document "+
-			"to emit: guest is unbuilt, and at jail this verb is a launch.")
+			"to emit: at jail this verb is a launch, at guest on macOS it points at launch, "+
+			"and guest has no backend on Linux.")
+		return 2
+	}
+	// --timing TIMES THE HOST NOTCH'S APPLY (perf-logging.md D18), and only that, by the JSON
+	// flag's reasoning above: at jail this verb is a launch and at a macOS guest a pointer at
+	// one (the launch's own --timing is where that time goes), a Linux guest is unbuilt, and
+	// --sealed refuses rather than applies. Refused by name rather than silently ignored.
+	if timing && (sealed || notch != config.ConfinementHost) {
+		fmt.Fprintln(errw, "yolo apply: --timing times the HOST notch's apply (`yolo apply --at "+
+			"host --timing`, or `yolo host apply --timing`). No other route here has a stage to "+
+			"time: --sealed only checks, guest has no backend on Linux, at jail this verb is a "+
+			"launch and at guest on macOS it points at one, and the launch's own "+
+			"`yolo --timing -- <cmd>` times it.")
 		return 2
 	}
 	if sealed {
@@ -144,34 +159,37 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 
 	switch notch {
 	case config.ConfinementHost:
-		// The declared ownership contract decides whether there is a host render at all
-		// (hostmanagementgate.go). Both spellings of the verb are one operation (OQ-7), so
-		// both ask — a key that stopped `yolo host apply` and not `yolo apply --at host`
-		// would be a contract with a way around it.
-		if revert {
-			if rc, refused := refuseHostRevert(errw); refused {
-				return rc
-			}
-			return hostRevert(out, errw, color, assert && !dryRun)
-		}
-		if rc, refused := refuseHostManagement(errw); refused {
+		// IN A JAIL, NOTHING, at this spelling too (hostapplyinjail.go): `--at host`, its
+		// --revert, and a config whose `confinement` is host all render into the home of whoever
+		// runs them, which in a jail is the jail's own.
+		if rc, refused := refuseHostApplyInJail("yolo apply", revert, errw); refused {
 			return rc
 		}
-		// The same fetch-before-resolve `yolo host apply` does: one operation, two spellings.
-		refreshHostPacks(errw)
-		// And the same patched-extension advance before the render, acting posture only, in the act
-		// the floor stage's patched forks share (PF-D57).
-		act := &run.ActInterrupt{}
-		if assert && !dryRun {
-			advanceHostTrees(errw, color, "", act)
-		}
-		return applyHostFormatted(out, errw, color, assert && !dryRun, stdin, format, act)
+		finish := startHostApplyTiming(timing, errw)
+		rc := applyAtHost(out, errw, color, assert && !dryRun, revert, stdin, format)
+		finish(rc)
+		return rc
 	case config.ConfinementGuest:
-		// render.NotchUnbuilt is the sentence, not a literal: `run.Run` refuses a guest
+		if paths.IsMacOS {
+			return applyAtMacosGuest(pr, at != "")
+		}
+		// render.NotchUnbuilt is the sentence, not a literal: `run.Run` refuses a Linux guest
 		// LAUNCH with the same words (OQ-DP3), and two spellings of one notch's status is
-		// the drift docs/design/declaration-parity.md exists to name. The bytes this verb
-		// printed before the move are unchanged — the verb is the parameter.
+		// the drift docs/design/declaration-parity.md exists to name. The verb is the
+		// parameter; the next step is this verb's own.
 		pr.Printf("[yellow]%s[/yellow]", render.NotchUnbuilt("apply"))
+		// THE JAIL STEP DEPENDS ON THE CONFIG, not on whether `--at` was typed: a bare launch
+		// reads the config's `confinement`, so where that says guest `yolo -- <cmd>` refuses
+		// as this verb does, and the step is the config edit (or `--at jail` for one launch).
+		jail := "the jail notch, the default, launches here with `yolo -- <cmd>` (`yolo apply` " +
+			"alone points at that launch)"
+		if config.ResolveConfinement(cfg) == config.ConfinementGuest {
+			jail = "set `confinement` to \"jail\" (or remove it) in your config and `yolo -- " +
+				"<cmd>` launches the jail notch here, or `yolo --at jail -- <cmd>` launches it once"
+		}
+		pr.Printf("[dim]Instead: %s; `yolo host -- <cmd>` runs a command on the real machine "+
+			"with no sandbox, and `yolo apply --at host` renders your config into your real "+
+			"home.[/dim]", jail)
 		return 1
 	default: // jail
 		pr.Printf("[bold]apply[/bold] at confinement [cyan]jail[/cyan].")
@@ -207,6 +225,46 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 // re-reads `confinement` (run.refuseUnbuiltNotch), so `yolo apply --at jail` under a
 // `confinement: host` config was refused, and told to edit a key the flag had overridden.
 var applyJailLaunch = func() int { return runRun([]string{"run", "--at", "jail", "--", "true"}) }
+
+// applyAtMacosGuest is `yolo apply` at the guest notch on macOS, where that notch is the
+// macos-user backend (env-manager plan Phase 7.1, EMP-D1): a POINTER at the launch, because a
+// macos-user launch is where that backend provisions — it builds the sandbox's nix profile,
+// stages the selected packs and renders their config in the sandbox account's home, then runs
+// the command. The jail notch's apply IS that launch (JR-D1, applyJailLaunch); this notch's
+// stays a pointer, so rc 0: nothing failed.
+//
+// fromFlag says the notch came from `--at guest` rather than the config, so the launch it
+// points at carries the same flag; a config at `confinement: "guest"` needs none.
+func applyAtMacosGuest(pr richtext.Printer, fromFlag bool) int {
+	launch := "`yolo -- <cmd>`"
+	if fromFlag {
+		launch = "`yolo --at guest -- <cmd>`"
+	}
+	pr.Printf("[bold]apply[/bold] at confinement [cyan]guest[/cyan].")
+	pr.Printf("[dim]At the guest notch on macOS, `yolo apply` provisions nothing itself: "+
+		"that work happens when the sandbox launches. %s runs <cmd> as the macos-user "+
+		"backend's sandbox account under Seatbelt, after building its nix profile, staging "+
+		"the selected packs and rendering their config in that account's home. The programs "+
+		"those packs declare (agent CLIs included) install from their launchers the first "+
+		"time each is run there, not at launch. `yolo describe` prints what the notch "+
+		"composes.[/dim]", launch)
+	return 0
+}
+
+// applyAtHost is `yolo apply`'s host notch: the declared ownership contract decides whether there
+// is a host render at all (hostmanagementgate.go). Both spellings of the verb are one operation
+// (OQ-7), so both ask — a key that stopped `yolo host apply` and not `yolo apply --at host` would
+// be a contract with a way around it — and both run the same stages (hostApplyRevert,
+// hostApplyRefreshAndRender), spanned the same way.
+func applyAtHost(out, errw io.Writer, color, write, revert bool, stdin io.Reader, format string) int {
+	if revert {
+		return hostApplyRevert(out, errw, color, write)
+	}
+	if rc, refused := refuseHostManagement(errw); refused {
+		return rc
+	}
+	return hostApplyRefreshAndRender(out, errw, color, write, stdin, format, "")
+}
 
 // applyHost renders the configured packs' config surfaces into the invoking user's REAL
 // home (env-manager plan Phase 4). Default posture is OBSERVE (dry-run): it prints what
@@ -348,8 +406,11 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 		userFiles := readHostUserFiles(userCfg)
 		// And every other config key the host leaves undone, from the census (OQ-DP5): a jail
 		// with no pack still honors `mounts` or `mise_tools`, so at the host they are named here.
+		// So is an inline loophole, a config entry rather than a pack's: with no pack selected
+		// every `loopholes.<name>` entry with a command is one, and a jail still runs it.
 		printNotchFacts(pr, notchFacts{InertConfig: userFiles.inertNames(),
-			InertKeys: inertConfigKeys(userCfg, render.HostFields())})
+			InertLoopholes: inertInlineLoopholes(userCfg, nil),
+			InertKeys:      inertConfigKeys(userCfg, render.HostFields())})
 		// The BRANCH, recorded: "no packs are configured" and "every configured pack changed
 		// nothing" are different results with different next actions, and both reach the
 		// survey as an empty changed set. Nothing can derive it downstream, so it is stated
@@ -375,12 +436,14 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 		// left to retire."
 		rc := applyHostUserFiles(pr, survey, userFiles, home, write)
 		if brc := applyHostBriefings(pr, out, stdin, nil, packload.Embedded(), empty, true,
-			home, stamp, write, nil, survey); brc != 0 {
+			home, stamp, write, nil, nil, survey); brc != 0 {
 			rc = brc
 			survey.noteStageFailure(stageBriefing)
 		}
+		// nil lsp_servers: with no pack there is no skills destination to deliver Claude's LSP
+		// plugin into, so every plugin a previous apply wrote is retired with the rest.
 		if src := applyHostSkills(pr, out, stdin, nil, packload.Embedded(), empty, empty, true,
-			home, stamp, write, nil, survey); src != 0 {
+			home, stamp, write, nil, nil, survey); src != 0 {
 			rc = src
 			survey.noteStageFailure(stageSkills)
 		}
@@ -395,16 +458,20 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 		// orphan pointing at something nothing will reinstall. Leaving them behind is
 		// exactly the "delivered output nobody will ever ask about again" this branch
 		// exists to prevent — and these are EXECUTABLES, at the front of a PATH.
+		sp := hostApplySpan("host_apply.wrappers")
 		if wrc := applyHostWrappers(pr, errw, home, nil, write, survey); wrc != 0 {
 			rc = wrc
 			survey.noteStageFailure(stageWrappers)
 		}
+		sp.End()
 		// The FLOOR too, for the same reason: with no pack configured, every agent yolo keeps in
 		// its host prefix is one no selected pack delivers, and this is the act that removes it.
 		if survey.floorStage {
+			sp := hostApplySpan("host_apply.floor")
 			if frc := applyHostFloor(pr, out, nil, write, true, survey); frc != 0 {
 				rc = frc
 			}
+			sp.End()
 		}
 		// THE TIER-3 GROUPS, HERE TOO. This branch can retire content, and the remedy contract's rule
 		// is that no default view omits a loss — a branch that cannot currently produce one must
@@ -591,8 +658,19 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	}
 	loaded, destinations := packload.ResolveDestinations(loaded)
 	survey.noteLoaded(loaded)
+	// THE HOST'S DELIVERY CENSUS, once, over the resolved set: per pack, the kinds of its own
+	// contributions some host verb delivers, by the notch line's own per-contribution outcome
+	// (hostDelivery). A briefing's `describes` is gated on it (BB-D69), so the destinations
+	// report below, the notch line and the briefing composer read one answer. The doorways are
+	// the ones `yolo host --` can open for these packs (run.HostDoorwayLoopholes: PlanHostDoorways'
+	// composition and admission check, read with every selected loophole switched on and no
+	// selection filter, as its header says), so a credential loophole is named as delivered at
+	// launch by the check the launch decides with. Discovering them says the loader's warnings on
+	// stderr, here, above the notch line whose loophole outcome they explain.
+	doorways := run.HostDoorwayLoopholes(userCfg, loaded)
+	delivery := hostDelivery(loaded, hostFields, doorways)
 	for _, d := range destinations {
-		if drc, refused := reportInferredDestinations(pr, d); drc != 0 {
+		if drc, refused := reportInferredDestinations(pr, d, delivery); drc != 0 {
 			rc = drc
 			// Named in the verdict by the kinds its `<kind> refused` lines lead with.
 			survey.noteStageFailureAs(stageDestinations, refused...)
@@ -745,9 +823,14 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	//
 	// Before the loop, so "folded into the config surfaces below" is a true word about what
 	// comes next, and so a reader meets the notch before they meet this home.
-	notch := surveyNotchFacts(loaded, hostFields, overlays)
+	//
+	// Over the doorways and the delivery census taken after resolution, above.
+	notch := surveyNotchFacts(loaded, hostFields, overlays, doorways, delivery)
 	notch.InertPackages = inertPackages
 	notch.InertConfig = userFiles.inertNames()
+	// The user's own inline loopholes, per entry: the `loopholes` key is honored here, so the
+	// key census below cannot name one, and a jail runs it while no host verb does.
+	notch.InertLoopholes = inertInlineLoopholes(userCfg, loaded)
 	// THE CONFIG-KEY CENSUS (docs/design/declaration-parity.md OQ-DP5's second half, DP-B31):
 	// every key the user scope declares that the host's FieldSet says this notch leaves undone
 	// is named on the same line as the kinds, from the same FieldSet the kinds are read off.
@@ -757,9 +840,9 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 
 	for _, p := range loaded {
 		// Account for EVERY kind the pack declares. Three outcomes, and the invariant is that
-		// there is no fourth: named once above as a kind this notch does not apply (whether
-		// the FieldSet refuses it or honors it with no renderer behind it), rendered below, or
-		// — for the two dep kinds — probed here. A kind that produced no line at all was the
+		// there is no fourth: named once above — as a kind `yolo host --` delivers at launch, or
+		// as one this notch does not apply (whether the FieldSet refuses it or honors it with no
+		// renderer behind it) — rendered below, or — for the two dep kinds — probed here. A kind that produced no line at all was the
 		// G1 bug: `skills`/`briefing` were honored by the FieldSet but rendered by nothing, so
 		// they vanished silently, which is strictly worse than a loud refusal.
 		packDeps := deps.of(p) // probed in the pre-flight above, consulted here
@@ -821,13 +904,15 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	// a confirmed one, so either order converges — but a user answering two prompts should be
 	// asked about the bigger move first, and moving a directory of skills is bigger than moving
 	// one file's prose.
+	// The lsp_servers table the composition above carries (jail-only paths already left out and
+	// named), for Claude's yolo-lsp plugin — written beside the composed skills (applyHostLSPPlugin).
 	if src := applyHostSkills(pr, out, stdin, loaded, candidates, active, configured, resolvedAll,
-		home, stamp, write, reloadPacks, survey); src != 0 {
+		home, stamp, write, reloadPacks, inputs.lsp, survey); src != 0 {
 		rc = src
 		survey.noteStageFailure(stageSkills)
 	}
 	if brc := applyHostBriefings(pr, out, stdin, loaded, candidates, active, resolvedAll,
-		home, stamp, write, reloadPacks, survey); brc != 0 {
+		home, stamp, write, reloadPacks, delivery, survey); brc != 0 {
 		rc = brc
 		survey.noteStageFailure(stageBriefing)
 	}
@@ -857,17 +942,21 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	// Launch wrappers, last: they are the only stage that writes OUTSIDE the composed
 	// surfaces, and generating them after the surfaces means a wrapper never appears for
 	// a pack whose own apply just failed. Silent unless opted in (§5.5).
+	sp := hostApplySpan("host_apply.wrappers")
 	if wrc := applyHostWrappers(pr, errw, home, loaded, write, survey); wrc != 0 {
 		rc = wrc
 		survey.noteStageFailure(stageWrappers)
 	}
+	sp.End()
 	// THE HOST AGENT FLOOR (host-tool-provisioning.md): the same provisioning a launch does, for
 	// every program the selection delivers, and the one place an entry no selected pack delivers
 	// any more is removed. After the surfaces for the wrappers' reason: it writes outside them.
 	if survey.floorStage {
+		sp := hostApplySpan("host_apply.floor")
 		if frc := applyHostFloor(pr, out, loaded, write, resolvedAll, survey); frc != 0 {
 			rc = frc
 		}
+		sp.End()
 	}
 
 	// A destination refused under the broken-link rule was not written, so an --assert that met
@@ -1274,15 +1363,33 @@ func confirmHostLosses(pr richtext.Printer, out io.Writer, stdin io.Reader,
 // unable to tell a working selector from a typo, since both produce the same line. The audience
 // is named, so the report answers "did my selector reach claude?".
 //
+// NEITHER LINE CLAIMS A DELIVERY THE `describes` GATE WITHHELD (BB-D69). delivery is the
+// census the briefing composer withholds by (hostDelivery), and a contribution that reaches a
+// destination only to deliver withheld files merges nothing there
+// (entrypoint.HostWithholdsBorrowing, the composer's own ownership rule): it is left off both
+// lines, since the notch line already names each withheld file once. The github pack's
+// briefing/gh.md is that case, and the merge line used to name ~/.claude/CLAUDE.md for it in the
+// same run whose destination line read claude/briefing.
+//
 // The second return is the kinds its `<kind> refused` lines named, the words the verdict names
 // this stage's failure by (noteStageFailureAs).
-func reportInferredDestinations(pr richtext.Printer, d packload.Destinations) (int, []string) {
+func reportInferredDestinations(pr richtext.Printer, d packload.Destinations,
+	delivery entrypoint.HostDelivery) (int, []string) {
+	// withheld reports whether c, one of this pack's briefing contributions, delivers nothing
+	// at the host (see above). Asked only of a delivery that resolved somewhere.
+	withheld := func(c packdecl.Contribution) bool {
+		return entrypoint.HostWithholdsBorrowing(delivery, d.Pack, c)
+	}
 	// Destinations an ADDRESSED contribution accounted for. Subtracted from the silent-inference
 	// line below so one delivery is not reported twice, in two voices — a pack MAY carry both a
 	// bare into-less contribution (broadcast) and an addressed one, in which case the addressed
-	// line names its destinations and the broadcast line names the rest.
+	// line names its destinations and the broadcast line names the rest. An addressed delivery
+	// the gate withheld accounts for nothing, so a broadcast into the same file is still named.
 	addressed := map[string]bool{}
 	for _, a := range d.Addressed {
+		if len(a.Into) > 0 && withheld(packdecl.Contribution{Kind: a.Kind, From: a.From}) {
+			continue
+		}
 		for _, into := range a.Into {
 			addressed[string(a.Kind)+"\x00"+into] = true
 		}
@@ -1301,7 +1408,7 @@ func reportInferredDestinations(pr richtext.Printer, d packload.Destinations) (i
 	byKind := map[packdecl.Kind][]string{}
 	var order []packdecl.Kind
 	for _, c := range d.Inferred {
-		if addressed[string(c.Kind)+"\x00"+c.Into] {
+		if addressed[string(c.Kind)+"\x00"+c.Into] || withheld(c) {
 			continue
 		}
 		if _, seen := byKind[c.Kind]; !seen {
@@ -1512,6 +1619,7 @@ const applyUsage = `yolo apply — make this environment match its description, 
                             (not yet on macos-user) — then exits; a jail already running is
                             attached to, installing nothing)
   yolo apply --at <level>   … at a different notch (jail|guest|host) for this run
+                            (at guest: macOS only, a pointer to the macos-user launch)
   yolo apply --at host      render your config into your real home
                             (yolo host apply is the same thing, more typeable)
                             (a DRY RUN by default — prints what would change, writes nothing)
@@ -1526,6 +1634,11 @@ const applyUsage = `yolo apply — make this environment match its description, 
                             an unset host_management)
   yolo apply --dry-run      show what would change, write nothing
                             (at jail: the description the launch would provision, and no launch)
+  yolo apply --at host --timing  time the host apply's stages; the table goes to stderr
+                            (refused at every other notch, and with --sealed)
+
+At the host notch, apply refuses inside a jail and writes nothing: it renders into the
+home of whoever runs it, which in a jail is the jail's own. Run it on the host.
 
 Machine-readable output, at the HOST notch's dry run only (` + "`yolo apply --at host --format json`" + `):
 the asserting posture acts, and an acting verb refuses the flag rather than growing a

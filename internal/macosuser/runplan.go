@@ -8,6 +8,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/durable"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -19,10 +20,18 @@ import (
 // RunPlan is the fully-resolved, ordered artifacts + commands for one session.
 // real gate rather than a pretty-printer.
 type RunPlan struct {
-	Workspace   string
+	Workspace string
+	// Cname is the WORKSPACE's container name: the launch lock and the staged trees are keyed
+	// by it, and shared by every session of the workspace. SessionID is this session's own id
+	// (SessionPlaceholder in a plan no launch minted one for), and SessionKey(Cname, SessionID)
+	// names every root-owned file only this session writes: its profile, its env and daemons env
+	// files and its CA files (sessionfiles.go).
 	Cname       string
+	SessionID   string
 	ProfilePath string
 	Seatbelt    string
+	// ProfileRemoveCommands remove the session's Seatbelt profile when the session ends.
+	ProfileRemoveCommands [][]string
 	// StagedDir is the root-owned state dir; StagedYolo is the staged yolo
 	// binary the sandbox self-execs. StageCommands stage that binary
 	// (fresh-inode copy).
@@ -50,7 +59,21 @@ type RunPlan struct {
 	ContextLinks     []ContextLink
 	ContextPreflight []ContextProbe
 	ContextOccupied  []string
-	BootstrapArgv    []string
+	// ContextCopies are the pack `mount` files this launch COPIED into ContextDir
+	// (HostContext.Copied), for the dry run to name beside the links: without them a launch
+	// whose only context mount is a copy printed "no context mounts" while its briefing listed
+	// one.
+	ContextCopies []ContextLink
+	// CacheRelocations are the user's `cache_relocations` this launch delivers
+	// (HostContext.Relocations), each a link the bootstrap lays at ~/.cache/<subdir> to its
+	// resolved target, which the profile opens read and write (ctxlinks.go).
+	// CacheRelocationPreflight is the DAC preflight the launch asks of each target before the
+	// nix build, and CacheRelocationProbes the write-and-remove each gets under this session's
+	// profile once it is installed. All empty with no relocation.
+	CacheRelocations         []CacheRelocation
+	CacheRelocationPreflight []CacheRelocationProbe
+	CacheRelocationProbes    []CacheRelocationProbe
+	BootstrapArgv            []string
 	// ProvisionArgv is the CONFINED provisioning stage, run between the bootstrap and
 	// the agent — nil when this config gives it nothing to do (ProvisionNeeded), which
 	// is what makes `yolo -- bash` in a tool-less workspace pay nothing for it.
@@ -71,9 +94,18 @@ type RunPlan struct {
 	// to (SupervisorLogPath), and the one the launch reads its readiness line from. "" with
 	// no daemon.
 	SupervisorLog string
-	// GuestBinSource is where the darwin guest binaries are copied from ("" with no
-	// daemon), and StageCommands carries the copies into GuestBinDir.
+	// GuestBinSource is where the darwin guest binaries are copied from ("" with no daemon
+	// and no guest client's endpoint), and StageCommands carries the copies into GuestBinDir.
+	// GuestClients names the clients (GuestClients' binaries) whose endpoint the session env
+	// carries, each of which is then staged with the set, so the agent can run it.
 	GuestBinSource string
+	GuestClients   []string
+	// ProbeArgv is the CONFINED host-service witness (serviceprobe.go): `yolo internal
+	// probe-services` under the session's Seatbelt profile, as the sandbox account, reading
+	// the session env file, so it dials each published endpoint exactly as the agent's clients
+	// will. nil when the session env carries no YOLO_SERVICE_*_ENDPOINT, which is every launch
+	// that started no host service, and then it costs nothing.
+	ProbeArgv []string
 	// DaemonEnvFile is the supervisor's own env file, beside EnvFile and delivered the same
 	// way (root-owned 0600 in the 0700 env dir, one `user:` read ACE for the sandbox
 	// account); DaemonEnvFileContent is what to write. Both "" with no daemon.
@@ -95,22 +127,60 @@ type RunPlan struct {
 	EnvFileCommands       [][]string
 	EnvFileGrantCommands  [][]string
 	EnvFileRemoveCommands [][]string
-	GitIdentity           *jsonx.OrderedMap
-	OffendingHome         string // "" when on neutral ground
-	OffendingHomeSet      bool   // true when a home contains the workspace
-	DarwinPathPrefix      []string
-	DarwinEnv             *jsonx.OrderedMap
-	DarwinSkipped         []string
-	DarwinMaterialized    bool
+	// CATrust is the TLS trust this launch composed (cabundle.go): the zero value composed none.
+	// CABundleFile and CAExtrasFile are the session's two CA files beside the env file, with what
+	// to write into each, each "" when no variable names it: the variables name the tool
+	// profile's own bundle, the launch's env layers named a bundle of their own, or nothing was
+	// composed. EnvFileRemoveCommands sweep both. CAFollows is the bundle variable those layers
+	// set, which the other four then name too (applyCATrust), or "".
+	CATrust            CATrust
+	CABundleFile       string
+	CABundleContent    string
+	CAExtrasFile       string
+	CAExtrasContent    string
+	CAFollows          string
+	GitIdentity        *jsonx.OrderedMap
+	OffendingHome      string // "" when on neutral ground
+	OffendingHomeSet   bool   // true when a home contains the workspace
+	DarwinPathPrefix   []string
+	DarwinEnv          *jsonx.OrderedMap
+	DarwinSkipped      []string
+	DarwinMaterialized bool
 	// NixClientDir is the host nix client's store bin dir when this launch put one on the
 	// sandbox PATH (it is also the last entry of DarwinPathPrefix), "" when it did not.
 	NixClientDir string
+	// IOPriority is the declared resources.io priority, which the launcher sets on itself as
+	// a process disk policy before the bootstrap, so every process of the session inherits it
+	// (orchestrator.go, applyDiskIOPolicy; docs/design/io-priority.md §5.5). Normal sets
+	// nothing.
+	IOPriority ioprio.Priority
+	// SessionGuard is the declared resources.memory, which the launch argv enforces by
+	// sampling (sessionguard.go); the zero value runs no guard and leaves the argv untouched.
+	SessionGuard SessionGuard
+	// CooperativeCPUs is ceil(resources.cpus), at least 1, when cpus is declared, and 0 when
+	// it is not: the DECLARED count the parallelism variables (CooperativeCPUVars) default
+	// from in the session env file, below any value the user's own env layers set. The file
+	// holds the values themselves, which buildPlan caps at the Mac's own CPU count
+	// (cooperativeCPUCount), so PrintPlan prints this number beside the values the file holds.
+	CooperativeCPUs int
 	// HomeReadonly is what Seatbelt was told to write-protect in the sandbox home: every
 	// staged skills dir and briefing this launch delivered, at the PHYSICAL path the kernel
 	// will see, and the chain above each (ResolveHomeReadonly). Empty when the launch
 	// delivered no content. Carried so a reader can check the profile against the
 	// delivery rather than re-deriving one from the other.
 	HomeReadonly HomeReadonly
+	// CapturesDir is the root-owned staged copy of the install-capture store this launch's
+	// launchers materialize from (StagedCapturesRoot, what entrypoint.CapturesDirEnv names to the
+	// bootstrap), "" when the launch stages no capture; Captures are the entries it stages there
+	// (HostContext.Captures, less any a root script may not be handed), for the dry run and for
+	// PlanInvariants, which checks each is staged.
+	CapturesDir string
+	Captures    []CaptureEntry
+	// CaptureStageCommands bring that store up to date (StageCaptureCommands), run as root after
+	// StageCommands and BEST-EFFORT, which is why they are not among them: a failure warns, names
+	// the program that downloads instead, and the launch goes on (orchestrator.go's
+	// stageCaptures). Empty when the launch stages no capture.
+	CaptureStageCommands [][]string
 }
 
 // HostContext is what the HOST CLI composed for this launch's `/ctx` delivery: the tree
@@ -133,8 +203,9 @@ type RunPlan struct {
 type HostContext struct {
 	// Tree is the host-side root the caller composed, laid out at the /ctx-relative
 	// paths the jail reads (`host-<staged slug>/<basename>` for a pack `reads-host`
-	// grant, `host-user/<slug>` for a source-bearing `host_files` entry). "" means the
-	// caller composed nothing.
+	// grant, `host-user/<slug>` for a source-bearing `host_files` entry, file or directory,
+	// `<into>` for a pack's single-file `mount`, `host-user/_global-gitignore` for the
+	// host's global gitignore). "" means the caller composed nothing.
 	//
 	// It crosses as a TREE rather than as a mapping for macoshomeoverlay.go's reason:
 	// the container path's mapping lives in its mount list, and re-sending it as data
@@ -175,10 +246,25 @@ type HostContext struct {
 	// emits the entry and skips only the bind). Only the BYTES are conditional on the
 	// source existing; the declaration crosses either way.
 	//
-	// Directory-shaped entries are NOT here and must not be: a copy does not scale to
-	// an arbitrary user-named tree, which is why the directory-shaped cells stayed with
-	// DP-D15 (refuse) rather than joining DP-L1 (deliver).
+	// Directory-shaped entries ARE here since 2026-10-05, on the file entries' rule: the host
+	// CLI copies the tree into Tree confined to its source, and caps the copy (run's
+	// macosctxtree.go), because a container's directory host_files is a full copy at boot too
+	// (entrypoint.stageHostFile), so DP-D15's size reason never applied to this key. They used
+	// to be left out and warned about.
 	HostFiles []config.HostFileEntry
+	// Copied is every selected pack's single-FILE `mount` the host CLI copied into Tree at its
+	// /ctx destination (Dest, packload.MountCtxPath), rather than linked: a pack grant names a
+	// path in the user's home, which a link cannot serve here (OQ-CX7), and a copy can. Each
+	// keeps its source and pack for the dry run, which names what it copied. Separate from
+	// Delivered, which is the host-layer report's subject and nothing else; a context link may
+	// land at, inside or around neither (ContextOccupied).
+	Copied []ContextLink
+	// GlobalGitignore is the /ctx destination of the host's global gitignore
+	// (paths.ContextGlobalGitignore) when the host CLI copied it into Tree, "" when there is
+	// none. The bootstrap is told its staged path (YOLO_GLOBAL_GITIGNORE) and points the
+	// sandbox's core.excludesFile at it, as the container launch points the jail's at its
+	// read-only bind.
+	GlobalGitignore string
 	// Links are the CONTEXT MOUNTS this launch delivers — config `mounts` elements and pack
 	// `mount` grants — each sited by the caller with SiteContextLinks against its resolved
 	// source (docs/design/context-mounts.md §3). Not bytes: each becomes a root-owned link in
@@ -186,7 +272,31 @@ type HostContext struct {
 	// agent reads are live. The caller's for the same reason as the rest of this struct:
 	// resolving a source is a read of the invoking user's filesystem.
 	Links []ContextLink
+	// Relocations are the user's `cache_relocations` this launch delivers, read from the USER
+	// config alone (config.LoadCacheRelocations), their targets resolved and, where absent,
+	// created and granted the sandbox's access by the host CLI, and sited with
+	// SiteCacheRelocations (internal/cli/run's macosuserrelocations.go). The caller's for the
+	// same reason as the rest of this struct: reading the user's config and making a directory
+	// in their filesystem are host acts, and the plan builder is pure.
+	Relocations []CacheRelocation
+	// Captures are the install-capture store entries this launch stages for its launchers
+	// (CaptureEntry; docs/plans/install-capture.md hand-off H4): for each selected pack's
+	// `via: "installer"` program, the entry the materialize path's own resolver chooses at this
+	// backend's platform, darwin. The caller's because the store is in the invoking user's state
+	// dir. Empty stages nothing and names no store to the bootstrap, so every launcher downloads,
+	// as before H4.
+	//
+	// CapturesKept are the keys of the store's other current entries at that platform — programs
+	// this launch does not select and another workspace may — whose staged copies the launch
+	// leaves in place (StageCaptureCommands).
+	Captures     []CaptureEntry
+	CapturesKept []string
 }
+
+// GlobalGitignoreEnv names the global gitignore's staged path to the bootstrap, whose git step
+// (entrypoint's configureGit) reads it under this name; TestTheBootstrapAppliesTheStagedGlobalGitignore
+// runs the real bootstrap with it, so the two spellings cannot drift apart unnoticed.
+const GlobalGitignoreEnv = "YOLO_GLOBAL_GITIGNORE"
 
 // Darwin carries the already-materialized native `packages:` result threaded
 // into a RunPlan
@@ -280,7 +390,16 @@ func DarwinBootstrapArgv(stagedYolo, home string, bootstrapEnv *jsonx.OrderedMap
 // section (core blocks nothing by default). `darwin` may be nil.
 func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []string, selfExe, hostPackRoot string, hostHomeOverlay HomeOverlay, hostCtx HostContext, sandboxEnv *jsonx.OrderedMap, darwin *Darwin, blockedTools []packload.BlockedTool) RunPlan {
 	return BuildRunPlanWithDaemons(workspace, cfg, agents, agentArgv, selfExe, hostPackRoot,
-		hostHomeOverlay, hostCtx, sandboxEnv, darwin, blockedTools, JailDaemons{}, FloorStage{})
+		hostHomeOverlay, hostCtx, sandboxEnv, darwin, blockedTools, JailDaemons{}, FloorStage{},
+		PlanSession{})
+}
+
+// PlanSession is what the orchestrator minted and composed for ONE session, beside the
+// workspace's inputs: its id (sessionfiles.go; "" is SessionPlaceholder) and its TLS trust
+// (cabundle.go; the zero value composes none).
+type PlanSession struct {
+	ID      string
+	CATrust CATrust
 }
 
 // sandboxPathPrefix is the store bin dirs this launch puts on the sandbox PATH, in order: the
@@ -302,10 +421,12 @@ func sandboxPathPrefix(darwin *Darwin) []string {
 }
 
 // BuildRunPlanWithDaemons is BuildRunPlan plus the jail daemons this launch runs in the guest
-// (jaildaemon.go) and the host's answer to whether a declared Node floor starts the provisioning
-// stage (FloorStage, AR-L3). The orchestrator's buildPlan calls this one; BuildRunPlan is the plan
-// of a launch that runs no daemon and whose floors, if any, the host showed met.
-func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []string, selfExe, hostPackRoot string, hostHomeOverlay HomeOverlay, hostCtx HostContext, sandboxEnv *jsonx.OrderedMap, darwin *Darwin, blockedTools []packload.BlockedTool, jailDaemons JailDaemons, floors FloorStage) RunPlan {
+// (jaildaemon.go), the host's answer to whether a declared Node floor starts the provisioning
+// stage (FloorStage, AR-L3), and what the launch minted and composed for this one session
+// (PlanSession). The orchestrator's buildPlan calls this one; BuildRunPlan is the plan of a
+// launch that runs no daemon, whose floors, if any, the host showed met, and that no launch
+// minted a session for.
+func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []string, selfExe, hostPackRoot string, hostHomeOverlay HomeOverlay, hostCtx HostContext, sandboxEnv *jsonx.OrderedMap, darwin *Darwin, blockedTools []packload.BlockedTool, jailDaemons JailDaemons, floors FloorStage, session PlanSession) RunPlan {
 	// SYMLINK-RESOLVED ONCE, HERE, BECAUSE THE KERNEL RESOLVES BEFORE THE POLICY IS CONSULTED.
 	// Measured on hardware 2026-09-13 (declaration-parity.md §6.1's probe 2): a profile denying
 	// `(subpath "/tmp")` does not stop `touch /tmp/canary`, while one denying
@@ -364,7 +485,15 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 	}
 
 	cname := cnameFor(workspace)
-	profilePath := SessionProfilePath(cname, "")
+	// THE SESSION'S OWN NAMES (sessionfiles.go): every root-owned file only this session writes
+	// is named by its key, never by the workspace's cname, which every terminal in the workspace
+	// shares.
+	sessionID := session.ID
+	if sessionID == "" {
+		sessionID = SessionPlaceholder
+	}
+	sessionKey := SessionKey(cname, sessionID)
+	profilePath := SessionProfilePath(sessionKey, "")
 
 	// Git identity = the sandbox-env keys prefixed YOLO_GIT.
 	gitIdentity := jsonx.NewOrderedMap()
@@ -408,6 +537,13 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 	if hostCtx.Tree != "" {
 		ctxRoot = StagedCtxRoot(cname, "")
 	}
+	// AND THE FOURTH, the install-capture store (H4): named only when the launch stages an
+	// entry, so a launch with none bakes an empty store into every launcher, which downloads.
+	captures := stageableCaptures(hostCtx.Captures)
+	capturesRoot := ""
+	if len(captures) > 0 {
+		capturesRoot = StagedCapturesRoot("")
+	}
 	// THE CONTEXT DIR (docs/design/context-mounts.md CX-D4): the same root-owned tree, named
 	// to the AGENT on every launch whether or not anything was composed into it, so pack
 	// text and agents spell a context path `$YOLO_CONTEXT_DIR/<rel>` here as on a container
@@ -418,15 +554,80 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 	// argv's `env -i` list is closed (sandboxEnvPairs).
 	contextDir := StagedCtxRoot(cname, "")
 	sandboxEnv = withEnvVar(sandboxEnv, paths.ContextDirEnv, contextDir)
+	// THE HOST-LOOPBACK DISPOSITION (paths.HostLoopbackEnvVar), which every container launch
+	// emits and this backend did not: `shared`, BY CONSTRUCTION. The sandbox is an ordinary child
+	// of the launcher on the Mac's own network stack, which is why internal/cli/run's
+	// sharesLauncherNetns answers true for macos-user whatever `network.mode` says and every host
+	// daemon advertises 127.0.0.1 here (loopholesruntime.go). The witness reads it to decide
+	// severity (internal/entrypoint's loopbackDisposition), and `shared` escalates (OQ-R5): there
+	// is no forwarding hop for an unusable service to hide behind. Set over every layer, as a fact
+	// of the launch rather than a value a composed layer may change, and HERE rather than in
+	// buildPlan so every plan carries it, the one the probe argv below reads included, and
+	// PlanInvariants can check it.
+	sandboxEnv = withEnvVar(sandboxEnv, paths.HostLoopbackEnvVar, paths.HostLoopbackShared)
+	// THE STAGED PACK TREE AND THE WORKSPACE, NAMED TO THE SESSION, so an in-sandbox `yolo`
+	// reads the jail the way its bootstrap did. `yolo programs` and `yolo pack update` decide
+	// whether they are looking at a jail by YOLO_PACK_ROOT (cli/programs.go states why that
+	// variable and not YOLO_VERSION), and read the receipts from the workspace's .yolo, which
+	// this backend's session names as YOLO_DARWIN_WORKSPACE: entrypoint.JailEnvFromOS turns it
+	// into the same Env DarwinEnvFrom gives the bootstrap. The container launch passes both
+	// through its environment already (YOLO_PACK_ROOT=/ctx/packs, and /workspace is literal).
+	//
+	// Both on the PACK ROOT's condition, the bootstrap's own rule (buildBootstrapEnv): a launch
+	// that staged no tree says so by absence, and the verbs then say "no staged packs here"
+	// rather than computing every installed program as undeclared. The values are paths, root-
+	// owned or the workspace itself; nothing composed rides with them.
+	if packRoot != "" {
+		sandboxEnv = withEnvVar(sandboxEnv, "YOLO_PACK_ROOT", packRoot)
+		sandboxEnv = withEnvVar(sandboxEnv, "YOLO_DARWIN_WORKSPACE", workspace)
+	}
 	// THE WORKSPACE SIDECAR — <workspace>/.yolo/home, the same directory the podman argv
 	// binds the jail home's per-workspace dirs from (paths.WorkspaceHomeState, one spelling
 	// for both backends). Naming it is what turns the tier collapse off: the bootstrap
 	// symlinks the account home's per-workspace dirs into it
 	// (entrypoint.InstallDarwinHomeLayout). A capture passes none — see the parameter.
 	bootstrapEnv := buildBootstrapEnv(workspace, cfg, gitIdentity, sandboxEnv, packRoot,
-		homeOverlay, ctxRoot, hostCtx, paths.WorkspaceHomeState(workspace), SandboxHome(),
+		homeOverlay, ctxRoot, capturesRoot, hostCtx, paths.WorkspaceHomeState(workspace), SandboxHome(),
 		darwinPrefix, blockedTools)
 	bootstrapEnv.Set(paths.ContextDirEnv, contextDir)
+	// THE COMPOSED MCP TABLE (packload.ComposeMCPServers): the staged packs' `mcp` entries joined
+	// to the sandbox account's home, under the config's own `mcp_servers` — what the container
+	// launch hands its jail as YOLO_MCP_SERVERS (docs/design/mcp-presets-removal.md OQ-MP4).
+	// Composed from the host-side tree the stage commands copy, which is the tree the bootstrap
+	// renders from; here rather than in buildBootstrapEnv, which an install capture shares and
+	// whose throwaway home renders no agent. A tree that cannot be read leaves the config's own
+	// table here, and the bootstrap, which reads the copy of that tree, fails the launch for it.
+	userServers, _ := getSectionOrEmptyMap(cfg, "mcp_servers").(*jsonx.OrderedMap)
+	if servers, err := entrypoint.MCPServersAt(hostPackRoot, userServers, SandboxHome()); err == nil {
+		if wire, err := jsonx.DumpsCompact(servers); err == nil {
+			bootstrapEnv.Set("YOLO_MCP_SERVERS", wire)
+		}
+	}
+	// `programs.autoprune` — the catalog's removal act at boot (OQ-PD4's third clause, off by
+	// default), relayed exactly as the container launch relays it (internal/cli/run's
+	// assembleRunCmd): read from the USER config alone, so an agent-editable workspace config
+	// cannot turn on a destructive act, and emitted only when on. Nor can an env_sources value:
+	// the session env file carries those, and the bootstrap takes no YOLO_ name from it
+	// (entrypoint's hydrate_session_env, program-delivery.md OQ-PD29). Here and not in
+	// buildBootstrapEnv, because the install capture shares that function, and a capture's
+	// throwaway staging home has nothing a removal could be for.
+	if config.ProgramsAutoprune(nil) {
+		bootstrapEnv.Set(entrypoint.OrphanAutopruneEnv, "1")
+	}
+	// THE CACHE RELOCATIONS' LINKS (ctxlinks.go; docs/plans/cache-relocation.md): the bootstrap
+	// lays ~/.cache/<subdir> → target for each, and removes a link it laid for a subdir no longer
+	// relocated (entrypoint's DarwinCacheRelocationsEnv). Named only when there is one, so a
+	// launch with none says so by absence and the bootstrap's sweep removes every link it laid.
+	// Here rather than in buildBootstrapEnv, which the install capture shares: its throwaway
+	// home has no cache a relocation could be for.
+	relocs := append([]CacheRelocation(nil), hostCtx.Relocations...)
+	if len(relocs) > 0 {
+		wire := map[string]string{}
+		for _, r := range relocs {
+			wire[r.Subdir] = r.Target
+		}
+		bootstrapEnv.Set(entrypoint.DarwinCacheRelocationsEnv, entrypoint.DarwinCacheRelocationsWire(wire))
+	}
 
 	stagedYolo := StagedYoloPath("")
 	offendingHome, offendingSet := HomeContaining(workspace)
@@ -443,11 +644,32 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 	// whenever this launch composed anything at all — a workspace with no env_sources, no
 	// profile and no git identity composes an empty map, and then there is no file, no
 	// directory to prepare and no wrapper on either argv.
+	//
+	// THE TLS VARIABLES first (cabundle.go), each a default under the caller's layers, so the file
+	// carries them and names the session's own CA files.
+	sandboxEnv, caBundleFile, caExtrasFile, caFollows := applyCATrust(sandboxEnv, session.CATrust, sessionKey)
 	envFile := ""
 	envFileContent := SandboxEnvFileContent(sandboxEnv)
 	if envFileContent != "" {
-		envFile = SandboxEnvFile(cname, "")
+		envFile = SandboxEnvFile(sessionKey, "")
+		// AND THE BOOTSTRAP IS TOLD WHERE IT IS, by path and never by value: the launch writes
+		// the file before the bootstrap runs (orchestrator.go, step 2.5), and the bootstrap
+		// reads it into its generator Env only (entrypoint's hydrate_session_env step), so the
+		// MCP requires_env gate sees the hydrated env_sources the agent will have. Without it,
+		// a server gated on a shared env_sources variable was dropped from every agent config
+		// although the agent's own environment carried the variable.
+		bootstrapEnv.Set(SandboxEnvFileEnv, envFile)
 	}
+
+	// THE DECLARED RESOURCES THIS BACKEND NOW ACTS ON (docs/design/declaration-parity.md
+	// DP-D1's two rejected stand-ins were RLIMIT_AS and RLIMIT_NPROC; neither is used): the I/O
+	// priority the orchestrator sets as a disk policy, the memory guard the launch argv runs,
+	// and the cpus value buildPlan's parallelism defaults were set from. pids_limit is the one
+	// still read and ignored.
+	resCfg := cfgSection(cfg, "resources")
+	ioPriority := ioprio.FromResources(resCfg)
+	guard := SessionGuardFor(resCfg)
+	cpus, _ := CooperativeCPUs(resCfg)
 
 	var provisionArgv []string
 	provisionScriptPath := ""
@@ -478,54 +700,108 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 	stageCommands = append(stageCommands, StageContextDirCommands(hostCtx.Tree, ctxLinks, cname, "")...)
 	stageCommands = append(stageCommands, endpointGrantCommands(sandboxEnv)...)
 
+	// THE GUEST'S BINARIES (OQ-DP8; jaildaemon.go), staged as ONE SET when the launch runs a
+	// jail daemon OR its session env carries an endpoint a guest client reads (GuestClientsIn,
+	// keyed on each client's own variable) — so a launch with neither stages nothing and a
+	// checkout launch builds no `.#guestPrefix` for nothing.
+	daemonNames := jailDaemons.Names()
+	guestClients := GuestClientsIn(sandboxEnv)
+	guestSource := ""
+	if len(daemonNames) > 0 || len(guestClients) > 0 {
+		guestSource = jailDaemons.GuestBinSource
+		// The binaries the supervisor, the payload's argvs and the agent's clients name, beside
+		// the staged yolo.
+		stageCommands = append(stageCommands, StageGuestBinaryCommands(guestSource, "")...)
+	}
+
 	// THE GUEST'S JAIL DAEMONS (OQ-DP8, OQ-DP9; jaildaemon.go), composed only when the
 	// launch handed this backend a payload naming at least one — so every artifact below is
-	// absent, not empty, on a launch that runs none.
+	// absent, not empty, on a launch that runs none. The supervisor, its env file and its log
+	// are the daemons' alone: a launch staging the set for a client starts no supervisor.
 	var jailDaemonArgv []string
-	daemonNames := jailDaemons.Names()
-	guestSource, daemonEnvFile, daemonEnvContent, supervisorLog := "", "", "", ""
+	daemonEnvFile, daemonEnvContent, supervisorLog := "", "", ""
 	if len(daemonNames) > 0 {
-		guestSource = jailDaemons.GuestBinSource
-		daemonEnvFile = SandboxDaemonEnvFile(cname, "")
+		daemonEnvFile = SandboxDaemonEnvFile(sessionKey, "")
 		daemonEnvContent = SandboxEnvFileContent(jailDaemons.Env)
 		supervisorLog = SupervisorLogPath(workspace)
 		jailDaemonArgv = JailDaemonArgv(profilePath, daemonEnvFile, supervisorLog, "", "", darwinPrefix)
-		// The binaries the supervisor and the payload's argvs name, beside the staged yolo.
-		stageCommands = append(stageCommands, StageGuestBinaryCommands(guestSource, "")...)
 		// Every endpoint the DAEMONS dial is granted too — the same grant the agent's
 		// endpoints get, read off the daemon env for endpointGrantCommands' reason (the env
 		// is the manifest), deduped against the ones already granted.
 		stageCommands = appendNewCommands(stageCommands, endpointGrantCommands(jailDaemons.Env))
 	}
 
+	// THE HOST-SERVICE WITNESS (serviceprobe.go), composed only when the session env carries a
+	// published endpoint, so a launch that started no host service runs no probe. The env file
+	// exists whenever it does (the endpoint variable is in it).
+	var probeArgv []string
+	if carriesServiceEndpoint(sandboxEnv) {
+		probeArgv = ProbeServicesArgv(stagedYolo, profilePath, envFile, "", "", darwinPrefix)
+	}
+	// AND ONE REAL WRITE PER CACHE RELOCATION under this session's profile (ctxlinks.go's
+	// CacheRelocationWriteProbe), the question no DAC preflight can ask.
+	var relocationProbes []CacheRelocationProbe
+	for _, r := range relocs {
+		relocationProbes = append(relocationProbes, CacheRelocationWriteProbe(r, profilePath, sessionID, ""))
+	}
+
+	// workspace_readonly with the config self-lock the container backends perform, a symlinked
+	// config's target included wherever it sits (workspacereadonly.go).
+	readonlyRels, readonlyTargets := workspaceReadonlyRels(workspace, cfg)
+
+	caBundleContent, caExtrasContent := caTrustContents(session.CATrust, caBundleFile, caExtrasFile)
+	envFileRemove := SandboxEnvRemoveCommands(envFile)
+	for _, f := range []string{caBundleFile, caExtrasFile} {
+		envFileRemove = append(envFileRemove, SandboxEnvRemoveCommands(f)...)
+	}
+
 	return RunPlan{
-		Workspace:   workspace,
-		Cname:       cname,
-		ProfilePath: profilePath,
-		Seatbelt: SeatbeltProfileWithContext(workspace, SandboxHome(),
-			cfgStrList(cfg, "workspace_readonly"), homeReadonly, ctxLinks),
+		Workspace:             workspace,
+		Cname:                 cname,
+		SessionID:             sessionID,
+		ProfilePath:           profilePath,
+		ProfileRemoveCommands: [][]string{{rmBin, "-f", profilePath}},
+		// workspace_readonly and its config lock, each raw-path `devices` entry's ioctl
+		// carve-out (devices.go), and macos_log, whose "off" is a deny (SeatbeltProfile).
+		Seatbelt: seatbeltProfile(workspace, SandboxHome(), readonlyRels, readonlyTargets,
+			homeReadonly, ctxLinks, relocs, cfgStrList(cfg, "devices"), macosLogMode(cfg)),
 		StagedDir:  stateDir,
 		StagedYolo: stagedYolo,
 		// Binary first, then the pack trees, then the content overlay, then the context
 		// tree: all four are prerequisites of the bootstrap the caller runs immediately
 		// after this list, and the binary is the one that fails most cheaply.
-		StageCommands:       stageCommands,
-		PackRoot:            packRoot,
-		CtxRoot:             ctxRoot,
-		ContextDir:          contextDir,
-		ContextLinks:        ctxLinks,
-		ContextPreflight:    ContextPreflight(ctxLinks, ""),
-		ContextOccupied:     ContextOccupied(hostCtx.Delivered),
-		BootstrapArgv:       DarwinBootstrapArgv(stagedYolo, SandboxHome(), bootstrapEnv, ""),
-		ProvisionArgv:       provisionArgv,
-		ProvisionScriptPath: provisionScriptPath,
-		ProvisionFloors:     floors,
-		LaunchArgv:          LaunchArgv(agentArgv, profilePath, envFile, workspace, "", "", darwinPrefix),
+		StageCommands:    stageCommands,
+		PackRoot:         packRoot,
+		CtxRoot:          ctxRoot,
+		ContextDir:       contextDir,
+		ContextLinks:     ctxLinks,
+		ContextPreflight: ContextPreflight(ctxLinks, ""),
+		// A copied pack `mount` occupies its path as a copied host file does, so the plan's own
+		// re-siting (contextLinkProblems) refuses a link at, inside or around either.
+		ContextOccupied: ContextOccupied(append(append([]string(nil), hostCtx.Delivered...),
+			copiedDests(hostCtx.Copied)...)),
+		ContextCopies: hostCtx.Copied,
+		// THE CACHE RELOCATIONS (ctxlinks.go): the links the bootstrap lays, the profile's rules
+		// above, and the two probes the launch asks before the agent.
+		CacheRelocations:         relocs,
+		CacheRelocationPreflight: CacheRelocationPreflight(relocs, ""),
+		CacheRelocationProbes:    relocationProbes,
+		BootstrapArgv:            DarwinBootstrapArgv(stagedYolo, SandboxHome(), bootstrapEnv, ""),
+		ProvisionArgv:            provisionArgv,
+		ProvisionScriptPath:      provisionScriptPath,
+		ProvisionFloors:          floors,
+		LaunchArgv: LaunchArgvWithGuard(agentArgv, profilePath, envFile, workspace, "", "",
+			darwinPrefix, guard, stagedYolo),
+		IOPriority:      ioPriority,
+		SessionGuard:    guard,
+		CooperativeCPUs: cpus,
 
 		JailDaemonArgv:          jailDaemonArgv,
 		JailDaemonNames:         daemonNames,
 		SupervisorLog:           supervisorLog,
 		GuestBinSource:          guestSource,
+		GuestClients:            guestClientNames(guestClients),
+		ProbeArgv:               probeArgv,
 		DaemonEnvFile:           daemonEnvFile,
 		DaemonEnvFileContent:    daemonEnvContent,
 		DaemonEnvRemoveCommands: SandboxEnvRemoveCommands(daemonEnvFile),
@@ -534,7 +810,14 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 		EnvFileContent:        envFileContent,
 		EnvFileCommands:       SandboxEnvDirCommands(envFile, ""),
 		EnvFileGrantCommands:  SandboxEnvGrantCommands(envFile, ""),
-		EnvFileRemoveCommands: SandboxEnvRemoveCommands(envFile),
+		EnvFileRemoveCommands: envFileRemove,
+
+		CATrust:         session.CATrust,
+		CABundleFile:    caBundleFile,
+		CABundleContent: caBundleContent,
+		CAExtrasFile:    caExtrasFile,
+		CAExtrasContent: caExtrasContent,
+		CAFollows:       caFollows,
 
 		GitIdentity:        gitIdentity,
 		OffendingHome:      offendingHome,
@@ -545,6 +828,12 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 		DarwinMaterialized: darwin != nil,
 		NixClientDir:       nixClientDir,
 		HomeReadonly:       homeReadonly,
+		CapturesDir:        capturesRoot,
+		Captures:           captures,
+		// THE CAPTURE STORE'S ENTRIES (H4), copied once per machine and pruned to what the user's
+		// store still selects; nothing at all when the launch stages none. Their own field, run
+		// best-effort, never StageCommands, every one of which refuses the launch when it fails.
+		CaptureStageCommands: StageCaptureCommands(captures, hostCtx.CapturesKept, ""),
 	}
 }
 
@@ -648,11 +937,13 @@ func stageCommandsNameEnvValue(cmds [][]string, content, key string) bool {
 // generated against the home the capture is about to run in. It is used for the login-rc PATH;
 // the HOME/JAIL_HOME pair is baked by DarwinBootstrapArgv, which takes the same value.
 //
-// `packRoot`, `homeOverlay` and `ctxRoot` are the ALREADY-STAGED destinations
-// (StagedPackRoot, StagedHomeOverlay, StagedCtxRoot), not their host-side sources, and ""
-// means the caller staged nothing of that kind. They are resolved by the caller rather than
-// here because the caller is also what emits the commands that stage them, and the two must
-// not be able to disagree.
+// `packRoot`, `homeOverlay`, `ctxRoot` and `capturesRoot` are the ALREADY-STAGED destinations
+// (StagedPackRoot, StagedHomeOverlay, StagedCtxRoot, StagedCapturesRoot), not their host-side
+// sources, and "" means the caller staged nothing of that kind. They are resolved by the caller
+// rather than here because the caller is also what emits the commands that stage them, and the
+// two must not be able to disagree. An install capture passes "" for capturesRoot always: a
+// capture whose launcher could materialize would record the store's bytes as a fresh install
+// (install-capture.md slice 4(f), the container capture jail's own suppression).
 //
 // `hostCtx` is the caller's RECORD of what went into that tree (HostContext). Two variables
 // read it — the host-layer report and the source-bearing half of YOLO_HOST_FILES — and both
@@ -670,7 +961,7 @@ func stageCommandsNameEnvValue(cmds [][]string, content, key string) bool {
 // config's security section alone would render an empty YOLO_BLOCK_CONFIG and the generated
 // home would carry no blockers at all.
 func buildBootstrapEnv(workspace string, cfg, gitIdentity, sandboxEnv *jsonx.OrderedMap,
-	packRoot, homeOverlay, ctxRoot string, hostCtx HostContext, homeSidecar, home string,
+	packRoot, homeOverlay, ctxRoot, capturesRoot string, hostCtx HostContext, homeSidecar, home string,
 	darwinPrefix []string, blockedTools []packload.BlockedTool) *jsonx.OrderedMap {
 	bootstrapEnv := jsonx.NewOrderedMap()
 	bootstrapEnv.Set("YOLO_HOST_DIR", resolvePathAbs(workspace))
@@ -754,6 +1045,18 @@ func buildBootstrapEnv(workspace string, cfg, gitIdentity, sandboxEnv *jsonx.Ord
 		bootstrapEnv.Set("YOLO_CTX_ROOT", ctxRoot)
 	}
 
+	// YOLO_GLOBAL_GITIGNORE — the host's global gitignore, at the PHYSICAL path the staged tree
+	// holds it at (there is no /ctx on macOS to name instead). The entrypoint's git step
+	// (configureGit) points core.excludesFile at it when it is a regular file, which is the
+	// container launch's composed `excludesFile = ~/.config/git/ignore` done by the one reader
+	// this backend's bootstrap already has. Git identity reaches the bootstrap only through
+	// the YOLO_GIT prefix filter above, so the variable is set here, from the caller's record,
+	// rather than through the launch env. Only with a tree: the file is in it or nowhere.
+	if ctxRoot != "" && hostCtx.GlobalGitignore != "" {
+		bootstrapEnv.Set(GlobalGitignoreEnv,
+			ctxRoot+strings.TrimPrefix(hostCtx.GlobalGitignore, paths.ContainerContextDir))
+	}
+
 	// YOLO_HOST_LAYERS — the host-layer report (packload.HostLayerReport), and since
 	// DP-L1 this backend can answer `supported` like every other one.
 	//
@@ -786,6 +1089,16 @@ func buildBootstrapEnv(workspace string, cfg, gitIdentity, sandboxEnv *jsonx.Ord
 	// launch still says so by ABSENCE rather than by naming a directory that is not there.
 	if packRoot != "" {
 		bootstrapEnv.Set("YOLO_PACK_ROOT", packRoot)
+	}
+
+	// YOLO_CAPTURES_DIR — the staged install-capture store (StagedCapturesRoot), which the
+	// bootstrap bakes into every generated launcher (entrypoint's capturesDir) so its
+	// `_try_materialize` hands it to `capture-materialize --store=`. The container launch emits
+	// the same variable beside its `:ro` bind of the store (internal/cli/run's captures.go).
+	// Only when the launch stages an entry, on YOLO_PACK_ROOT's rule: a store named and empty is
+	// a launcher asking a directory that answers every program with a miss.
+	if capturesRoot != "" {
+		bootstrapEnv.Set(entrypoint.CapturesDirEnv, capturesRoot)
 	}
 
 	// YOLO_DARWIN_HOME_OVERLAY — the composed CONTENT tree (skills + briefings) the
@@ -965,6 +1278,18 @@ func PlanInvariants(plan RunPlan) []string {
 		}
 	}
 
+	// THE GLOBAL GITIGNORE IS READ FROM THE STAGED TREE OR NOT AT ALL. The bootstrap runs
+	// outside Seatbelt as the sandbox account and sets core.excludesFile to whatever this names,
+	// so a path outside the root-owned tree is a file the agent could write and every git in the
+	// sandbox would then obey.
+	if v, ok := argvEnvValue(plan.BootstrapArgv, GlobalGitignoreEnv); ok &&
+		(plan.CtxRoot == "" || !strings.HasPrefix(v, plan.CtxRoot+"/")) {
+		problems = append(problems,
+			GlobalGitignoreEnv+"="+v+" is not under the staged context root "+
+				quoteOrNone(plan.CtxRoot)+"; the sandbox's git would read its global "+
+				"gitignore from a file yolo did not stage")
+	}
+
 	// THE CONTEXT DIR IS NAMED AND IT EXISTS (CX-D4). Every launch tells the agent where its
 	// context mounts live, so the name must be the root-owned staged tree — never a path the
 	// agent can write, where a context tree could be re-pointed — something must stage it,
@@ -992,6 +1317,7 @@ func PlanInvariants(plan RunPlan) []string {
 	}
 
 	problems = append(problems, contextLinkProblems(plan)...)
+	problems = append(problems, cacheRelocationProblems(plan)...)
 
 	// THE REPORT AND THE TREE ARE ONE FACT, checked against each other rather than each
 	// against itself. The jail's read fails CLOSED (OQ-CO10), so a report claiming
@@ -1145,6 +1471,26 @@ func PlanInvariants(plan RunPlan) []string {
 				"the keychains or another process's command line")
 	}
 
+	// THE MEMORY GUARD IS ON THE LAUNCH ARGV EXACTLY WHEN IT IS DECLARED, run by the staged
+	// yolo. Declared and absent, the launch tells the human resources.memory is guarded and
+	// guards nothing; present and undeclared, a launch that asked for nothing runs a sampler
+	// it never heard of; run by another binary, the sandbox execs one it may not be able to
+	// read. The words are checked consecutively, like the profile above, because `--memory`
+	// and a byte count alone could sit anywhere on an argv.
+	guardWords := plan.SessionGuard.Argv(plan.StagedYolo)
+	hasGuard := containsArgPair(plan.LaunchArgv, plan.StagedYolo, "internal", SessionGuardVerb)
+	switch {
+	case len(plan.LaunchArgv) == 0:
+	case plan.SessionGuard.Enabled() && !containsArgRun(plan.LaunchArgv, guardWords):
+		problems = append(problems,
+			"resources.memory is declared ("+formatBytes(plan.SessionGuard.MemoryBytes)+") but the "+
+				"launch argv does not run `"+strings.Join(guardWords, " ")+"`; the launch would "+
+				"say the session's memory is guarded and guard nothing")
+	case !plan.SessionGuard.Enabled() && hasGuard:
+		problems = append(problems,
+			"the launch argv runs the memory guard although resources.memory is not declared")
+	}
+
 	// Acceptance-bar guard: darwin store bin dirs must reach the launch PATH.
 	launchStr := strings.Join(plan.LaunchArgv, " ")
 	for _, storeBin := range plan.DarwinPathPrefix {
@@ -1289,9 +1635,94 @@ func PlanInvariants(plan RunPlan) []string {
 			"session env file "+plan.EnvFile+" is not under the root-owned state dir "+
 				plan.StagedDir+"; the sandbox could rewrite the environment it is launched with")
 	}
+	// AND THE BOOTSTRAP IS TOLD WHERE THE FILE IS. It renders every agent's MCP table, and the
+	// requires_env gate there asks the environment the agent will have; that environment is
+	// this file. A bootstrap not told about it answers from its own closed contract, which
+	// carries no env_sources value, and drops every server gated on one — silently, from every
+	// agent config, while the agent's own environment has the variable.
+	if plan.EnvFile != "" && !containsArg(plan.BootstrapArgv, SandboxEnvFileEnv+"="+plan.EnvFile) {
+		problems = append(problems,
+			SandboxEnvFileEnv+"="+plan.EnvFile+" is not baked into the bootstrap env; the MCP "+
+				"requires_env gate would not see the hydrated env_sources, and every server gated "+
+				"on one would be dropped from every agent config")
+	}
 
 	problems = append(problems, jailDaemonInvariants(plan)...)
+	problems = append(problems, guestClientInvariants(plan)...)
+	problems = append(problems, serviceProbeInvariants(plan)...)
+	problems = append(problems, sessionFileInvariants(plan)...)
+	problems = append(problems, captureStoreInvariants(plan)...)
 	return problems
+}
+
+// captureStoreInvariants is PlanInvariants' rule for the staged install-capture store (H4): the
+// bootstrap is told a store exactly when the plan stages an entry, the store it is told is under
+// the root-owned state dir and under no spelling of /Users, and every entry the plan carries has
+// its stage command. Each is a way a launch could look healthy and hand every launcher a store
+// the sandbox can rewrite — the bytes every workspace on the machine then runs — or a store
+// nothing filled, which downloads in silence.
+func captureStoreInvariants(plan RunPlan) []string {
+	var problems []string
+	v, named := argvEnvValue(plan.BootstrapArgv, entrypoint.CapturesDirEnv)
+	switch {
+	case !named && len(plan.Captures) == 0:
+		return nil
+	case !named:
+		return append(problems, "the plan stages "+itoa(len(plan.Captures))+" install capture(s) "+
+			"but "+entrypoint.CapturesDirEnv+" is not baked into the bootstrap env; every launcher "+
+			"would bake an empty store and download what is staged")
+	case len(plan.Captures) == 0:
+		problems = append(problems, entrypoint.CapturesDirEnv+"="+v+" is baked into the bootstrap "+
+			"env but the plan stages no install capture; every launcher would ask a store "+
+			"nothing filled")
+	}
+	if !strings.HasPrefix(v, plan.StagedDir+"/") {
+		problems = append(problems, entrypoint.CapturesDirEnv+"="+v+" is not under the root-owned "+
+			"state dir "+plan.StagedDir+"; the sandbox could rewrite captured bytes every "+
+			"workspace on this machine runs")
+	}
+	if underUsersRoot(v) {
+		problems = append(problems, entrypoint.CapturesDirEnv+"="+v+" is under /Users, which the "+
+			"session profile denies reads of and where a capture's own files are the sandbox "+
+			"account's; the store must be the root-owned copy under "+plan.StagedDir)
+	}
+	for _, c := range plan.Captures {
+		if !containsCommand(plan.CaptureStageCommands, stageCaptureArgv(v, c)) {
+			problems = append(problems, "nothing stages the capture of "+c.Bin+" ("+c.Key+") into "+
+				v+"; its launcher would find no entry and download")
+		}
+	}
+	// AND NONE OF IT IS FATAL: a capture copy among the stage commands, every one of which
+	// refuses the launch when it fails, would make the store a launch's requirement.
+	for _, c := range plan.StageCommands {
+		if containsArg(c, stageCaptureScriptName) || containsArg(c, pruneCapturesScriptName) {
+			problems = append(problems, "a capture-store script is among the stage commands a "+
+				"launch refuses without; the store is optional, and a copy that fails must cost its "+
+				"program the copy alone")
+		}
+	}
+	return problems
+}
+
+// underUsersRoot reports whether p is any spelling of the users root (macOSHomes) or lies beneath
+// it, /Users/Shared included.
+func underUsersRoot(p string) bool {
+	for _, q := range append([]string{p}, pathParents(p)...) {
+		if macOSHomes.isUsersRoot(q) {
+			return true
+		}
+	}
+	return false
+}
+
+// containsCommand reports whether cmds holds want, argv for argv.
+func containsCommand(cmds [][]string, want []string) bool {
+	for _, c := range cmds {
+		if len(c) == len(want) && containsArgRun(c, want) {
+			return true
+		}
+	}
+	return false
 }
 
 // jailDaemonInvariants is PlanInvariants' rule for the guest's jail daemons (jaildaemon.go),
@@ -1453,6 +1884,28 @@ func argvEnvValue(argv []string, key string) (string, bool) {
 func containsArg(argv []string, arg string) bool {
 	for _, a := range argv {
 		if a == arg {
+			return true
+		}
+	}
+	return false
+}
+
+// containsArgRun reports whether words appear in argv consecutively, in order: containsArgPair
+// for a run of any length. An empty run is never contained, so an invariant handed a guard
+// that renders no words cannot pass by vacuity.
+func containsArgRun(argv, words []string) bool {
+	if len(words) == 0 {
+		return false
+	}
+	for i := 0; i+len(words) <= len(argv); i++ {
+		match := true
+		for j, w := range words {
+			if argv[i+j] != w {
+				match = false
+				break
+			}
+		}
+		if match {
 			return true
 		}
 	}
@@ -1722,6 +2175,11 @@ func cfgStrList(cfg *jsonx.OrderedMap, key string) []string {
 		}
 	}
 	return out
+}
+
+// caTrustFilePlans are the plan's CA files as installable files (cabundle.go).
+func (p RunPlan) caTrustFilePlans() []sessionFilePlan {
+	return caTrustFiles(p.EnvFile, p.CABundleFile, p.CABundleContent, p.CAExtrasFile, p.CAExtrasContent)
 }
 
 // envFile and envFileCommands make a RunPlan a sandboxEnvPlan (envfile.go).

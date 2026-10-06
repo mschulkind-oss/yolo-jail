@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -100,13 +101,18 @@ var seatbeltRules = []seatbeltRule{
 	{id: "cross-process-procargs-deny"},
 	{id: "cross-process-pidinfo-deny"},
 	{id: "same-sandbox-pidinfo-allow"},
-	{id: "file-ioctl-deny", unproven: "there is no shell-level ioctl on a non-terminal " +
-		"that succeeds UNSANDBOXED: an ioctl on a regular file or a pipe returns ENOTTY " +
-		"on its own, and the device ioctls that would succeed (a raw disk) need root. " +
-		"With no bare control that succeeds, a refusal inside the sandbox proves nothing. " +
-		"What is measured instead is the allow beside it — file-ioctl-tty-allow runs a " +
-		"real pty through `script`, which fails if the deny is wider than the re-allow."},
+	{id: "file-ioctl-deny"},
 	{id: "file-ioctl-tty-allow"},
+	// config.devices (macosuser.DeviceIoctlPaths): a declared node's control calls come back.
+	{id: "device-ioctl-allow"},
+	// config.macos_log "off", the default (macosuser.SeatbeltProfile).
+	{id: "macos-log-off-deny"},
+	{id: "macos-log-off-stream-deny", unproven: "a live `log stream` has no exit a bare control " +
+		"can rely on: the only clean-exit spelling (`--timeout`) is unverified on the runner's " +
+		"macOS, and a stream killed from outside may never flush the entries it buffered, so a " +
+		"control that printed nothing would say nothing about the profile. The stream is RECORDED " +
+		"instead, bare and under each profile, by TestMacosUserSeatbeltMacosLogDialDecidesTheLogRead; " +
+		"the store read beside it (macos-log-off-deny) is the asserted half."},
 	// THE CONTEXT MOUNTS (docs/design/context-mounts.md §3.4, §4 steps 4-5).
 	{id: "context-read-allow"},
 	{id: "context-write-allow"},
@@ -117,6 +123,11 @@ var seatbeltRules = []seatbeltRule{
 		"is refused with EPERM — context_ro_source_write_refused, registered against the rule " +
 		"that decides it. The deny is the one that keeps \"read-only\" true if a later edit " +
 		"ever re-allows writes there."},
+	// THE CACHE RELOCATIONS (docs/plans/cache-relocation.md, the macos-user section): each
+	// resolved target, read after the /Users and /Volumes denies and written beside the
+	// read-write context sources.
+	{id: "cache-relocation-read-allow"},
+	{id: "cache-relocation-write-allow"},
 }
 
 // ---------------------------------------------------------------------------
@@ -182,6 +193,13 @@ type seatbeltFixtures struct {
 	ctxSibling string // <root>/ctx/other         — granted by nothing
 	linkDir    string // /private/var/tmp/yolo-sb-ctx-…   — the links
 	ctxLinks   []macosuser.ContextLink
+	// THE CACHE RELOCATION, laid out as a launch delivers one: a target under a traversal-only
+	// directory beside the workspace, which only the relocation's rules open, a sibling of it
+	// that nothing grants, and a link to it in linkDir standing in for ~/.cache/<subdir>.
+	relocRoot    string // <root>/caches            — traversal only
+	relocTarget  string // <root>/caches/hf         — the relocation target, read+write
+	relocSibling string // <root>/caches/other      — granted by nothing
+	relocs       []macosuser.CacheRelocation
 }
 
 type seatbeltCase struct {
@@ -440,6 +458,37 @@ func seatbeltCases() []seatbeltCase {
 			},
 			want: wantAllowed,
 		},
+		{
+			name: "undeclared_device_ioctl_refused",
+			id:   "file-ioctl-deny",
+			why: "FIONBIO on /dev/null succeeds unsandboxed (the null driver accepts it), so the " +
+				"control passes, and the profile's ioctl deny must turn it into EPERM: /dev/null " +
+				"is not a terminal and the fixture declares no such device. Until `devices` was " +
+				"carved out this rule had no case, for want of an ioctl that succeeds bare.",
+			script:  func(seatbeltFixtures) string { return devIoctlProbe("/dev/null") },
+			want:    wantRefused,
+			refusal: "Operation not permitted",
+		},
+		{
+			name: "declared_device_ioctl_allowed",
+			id:   "device-ioctl-allow",
+			why: "the fixture declares /dev/zero as a `devices` entry, so the same FIONBIO the " +
+				"case above is refused on /dev/null must succeed here. The pair is the proof: " +
+				"this case alone would also pass if Seatbelt never checked the ioctl at all.",
+			script: func(seatbeltFixtures) string { return devIoctlProbe("/dev/zero") },
+			want:   wantAllowed,
+		},
+		{
+			name: "macos_log_off_store_read_refused",
+			id:   "macos-log-off-deny",
+			why: "macos_log defaults to \"off\", and off used to be advisory: the yolo-log helper " +
+				"refused while /usr/bin/log itself read the store. The probe passes only when an " +
+				"entry was actually read (the runner is an admin, so the bare control does), and " +
+				"TestMacosUserSeatbeltMacosLogDialDecidesTheLogRead runs it under a \"user\" " +
+				"profile to show the dial, not some other rule, is what refuses it.",
+			script: func(seatbeltFixtures) string { return macosLogStoreProbe },
+			want:   wantRefused,
+		},
 		// --- THE CONTEXT MOUNTS (docs/design/context-mounts.md §3, §4 steps 4-5): the
 		// Mac-hardware probes §4 lists that need no sandbox account. The DAC preflight, the
 		// root-owned link and the real launch are macosusercontextmounts_test.go's. ---
@@ -534,6 +583,60 @@ func seatbeltCases() []seatbeltCase {
 			},
 			want:    wantRefused,
 			refusal: "Operation not permitted",
+		},
+		// --- THE CACHE RELOCATIONS (docs/plans/cache-relocation.md, the macos-user section): the
+		// profile half, with no sandbox account. The DAC preflight, the link the bootstrap lays and
+		// a real launch are macosuserrelocations_test.go's. ---
+		{
+			name: "cache_relocation_target_readable",
+			id:   "cache-relocation-read-allow",
+			why: "the read allow is what opens a relocation target: it sits beside the workspace " +
+				"under the /Users read deny, so nothing else in the profile re-allows it.",
+			script: func(f seatbeltFixtures) string { return "cat " + sh(f.relocTarget+"/seed") },
+			want:   wantAllowed,
+		},
+		{
+			name: "cache_relocation_target_writable",
+			id:   "cache-relocation-write-allow",
+			why: "the write allow is the ONLY rule that lets the sandbox write a relocation target: " +
+				"it is outside the workspace, the sandbox home and the writable set. Self-cleaning.",
+			script: func(f seatbeltFixtures) string {
+				p := sh(f.relocTarget + "/probe")
+				return "touch " + p + " && rm " + p + " && echo " + seatbeltOK
+			},
+			want: wantAllowed,
+		},
+		{
+			name: "cache_relocation_write_through_the_link",
+			id:   "cache-relocation-write-allow",
+			why: "the delivery's own shape: a tool writes ~/.cache/<subdir>, which is a LINK, and " +
+				"Seatbelt judges its TARGET, so the target's allow is what lets the write through " +
+				"(a mkdir under it too, which is how a cache grows). Self-cleaning.",
+			script: func(f seatbeltFixtures) string {
+				d := sh(f.linkDir + "/cache/nested")
+				return "mkdir " + d + " && echo x > " + sh(f.linkDir+"/cache/nested/blob") +
+					" && rm -r " + d + " && echo " + seatbeltOK
+			},
+			want: wantAllowed,
+		},
+		{
+			name: "cache_relocation_sibling_refused",
+			id:   "users-read-deny",
+			why: "the allow names the target as a subpath and its parent as a literal, so a " +
+				"folder beside the target stays denied.",
+			script: func(f seatbeltFixtures) string { return "cat " + sh(f.relocSibling+"/secret") },
+			want:   wantRefused,
+		},
+		{
+			name: "cache_relocation_ancestor_stat_allowed",
+			id:   "cache-relocation-read-allow",
+			why: "a target under /Users/Shared/ has its intermediate directories granted as " +
+				"literals, so a tool that stats up the chain (a cache library resolving its root) " +
+				"can, while the siblings stay denied.",
+			script: func(f seatbeltFixtures) string {
+				return "test -d " + sh(f.relocRoot) + " && echo " + seatbeltOK
+			},
+			want: wantAllowed,
 		},
 		{
 			name: "context_ancestor_stat_allowed",
@@ -667,6 +770,66 @@ func TestMacosUserSeatbeltContextHardLinkMeasurement(t *testing.T) {
 	t.Logf("MEASUREMENT (context-mounts.md §3.7, hard links): %s (rc %d).\noutput:\n%s", verdict, rc, out)
 }
 
+// TestMacosUserSeatbeltRelocationOnAVolumeMeasurement RECORDS the profile half of the /Volumes
+// question (CX-D5 narrowed for cache_relocations; OQ-CX8 in docs/design/context-mounts.md) and
+// asserts nothing about it: on each volume macos-user.yml attached (macosUserRelocationVolumesEnv;
+// APFS with ownership on, APFS with it off, and exFAT), does the relocation's read allow re-open a folder there past
+// the /Volumes read deny, does its write allow let a write through, and does a sibling folder on
+// the same volume stay denied? As the runner, under the profile, with no sandbox account — the
+// account's half is TestMacosUserCacheRelocationOnAVolumeMeasurement's. Only a broken control fails.
+func TestMacosUserSeatbeltRelocationOnAVolumeMeasurement(t *testing.T) {
+	requireMacosUserSeatbelt(t)
+	vols := os.Getenv(macosUserRelocationVolumesEnv)
+	if vols == "" {
+		t.Skipf("%s is unset: no volume was attached for this measurement", macosUserRelocationVolumesEnv)
+	}
+	f := seatbeltFixture(t)
+	for _, vol := range strings.Split(vols, ":") {
+		t.Run(filepath.Base(vol), func(t *testing.T) {
+			base, err := os.MkdirTemp(vol, "yolo-sb-reloc-")
+			if err != nil {
+				t.Skipf("cannot make a folder on %s: %v", vol, err)
+			}
+			t.Cleanup(func() { _ = os.RemoveAll(base) })
+			resolved, err := filepath.EvalSymlinks(base)
+			if err != nil {
+				t.Fatal(err)
+			}
+			target, sibling := filepath.Join(resolved, "hf"), filepath.Join(resolved, "other")
+			for _, d := range []string{target, sibling} {
+				if err := os.MkdirAll(d, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(d, "seed"), []byte(seatbeltOK+"\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			profile := macosuser.SeatbeltProfileWithRelocations(f.ws, "", nil, macosuser.HomeReadonly{}, nil,
+				[]macosuser.CacheRelocation{{Subdir: "huggingface", Target: target}}, nil, "off")
+			path := filepath.Join(t.TempDir(), "volume.sb")
+			if err := os.WriteFile(path, []byte(profile), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			for _, probe := range []struct{ what, script string }{
+				{"read the target", "cat " + sh(target+"/seed")},
+				{"write the target", "touch " + sh(target+"/probe") + " && rm " + sh(target+"/probe") + " && echo " + seatbeltOK},
+				{"read a sibling on the same volume", "cat " + sh(sibling+"/seed")},
+			} {
+				if out, rc := runScript(t, probe.script, nil); rc != 0 {
+					t.Fatalf("the CONTROL failed: %s on %s exits %d unsandboxed:\n%s", probe.what, vol, rc, out)
+				}
+				out, rc := runScript(t, probe.script, []string{"/usr/bin/sandbox-exec", "-f", path})
+				verdict := "REFUSED"
+				if rc == 0 && strings.Contains(out, seatbeltOK) {
+					verdict = "ALLOWED"
+				}
+				t.Logf("MEASUREMENT (CX-D5, OQ-CX8; cache_relocations on %s): %s under the profile: %s (rc %d)\n%s",
+					vol, probe.what, verdict, rc, out)
+			}
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // The registry check — pure, and it runs on Linux.
 // ---------------------------------------------------------------------------
@@ -679,16 +842,18 @@ func TestMacosUserSeatbeltContextHardLinkMeasurement(t *testing.T) {
 // that develop this repo cannot load a Seatbelt profile, so if this check waited for a
 // Mac, a deny added today would sit unproven until the next nightly at the earliest.
 func TestMacosUserSeatbeltRegistryMatchesTheProfile(t *testing.T) {
-	// With delivered content, so the two G14 rules are in the text too, and a context mount of
-	// each mode, so the three context rules are — otherwise the rules a launch with a pack or a
-	// `mounts` entry generates are the ones this never checks.
-	profile := macosuser.SeatbeltProfileWithContext("/Users/Shared/proj", "", []string{"vendored"},
+	// With delivered content, so the two G14 rules are in the text too, a context mount of each
+	// mode, so the three context rules are, and a cache relocation, so its two are — otherwise the
+	// rules a launch with a pack, a `mounts` entry or a relocation generates are the ones this
+	// never checks.
+	profile := macosuser.SeatbeltProfileWithRelocations("/Users/Shared/proj", "", []string{"vendored"},
 		macosuser.ResolveHomeReadonly(macosuser.SandboxHome(), "/Users/Shared/proj",
 			[]string{".claude"}, []string{".claude/skills", ".claude/CLAUDE.md"}),
 		[]macosuser.ContextLink{
 			{Dest: "/ctx/lib", Source: "/Users/Shared/ci/lib", Dir: true},
 			{Dest: "/ctx/data", Source: "/Users/Shared/yolo/data", RW: true, Dir: true},
-		})
+		}, []macosuser.CacheRelocation{{Subdir: "huggingface", Target: "/Volumes/Data/hf"}},
+		seatbeltFixtureDevices, "off")
 
 	inProfile := map[string]bool{}
 	for _, m := range seatbeltIDPattern.FindAllStringSubmatch(profile, -1) {
@@ -763,7 +928,8 @@ func TestMacosUserSeatbeltContentControlsRunUnsandboxed(t *testing.T) {
 	ran := 0
 	_, gitErr := exec.LookPath("git")
 	for _, tc := range seatbeltCases() {
-		if !strings.HasPrefix(tc.name, "home_content_") && !strings.HasPrefix(tc.name, "context_") {
+		if !strings.HasPrefix(tc.name, "home_content_") && !strings.HasPrefix(tc.name, "context_") &&
+			!strings.HasPrefix(tc.name, "cache_relocation_") {
 			continue
 		}
 		if tc.name == "context_git_inside_a_source" && gitErr != nil {
@@ -782,7 +948,7 @@ func TestMacosUserSeatbeltContentControlsRunUnsandboxed(t *testing.T) {
 		// Every control must leave the fixture as it found it, or the next case measures a
 		// different tree.
 		for _, p := range []string{f.stateDir, filepath.Join(f.skills, "demo", "SKILL.md"), f.briefing,
-			filepath.Join(f.ctxRO, "seed"), filepath.Join(f.ctxRW, "seed")} {
+			filepath.Join(f.ctxRO, "seed"), filepath.Join(f.ctxRW, "seed"), filepath.Join(f.relocTarget, "seed")} {
 			if _, err := os.Stat(p); err != nil {
 				t.Errorf("after %s's control, %s is gone (%v): the control does not restore "+
 					"what it changed", tc.name, p, err)
@@ -792,7 +958,8 @@ func TestMacosUserSeatbeltContentControlsRunUnsandboxed(t *testing.T) {
 			t.Errorf("after %s's control, the link points at %q (%v), not %s", tc.name, target, err, f.ctxRO)
 		}
 		for _, p := range []string{filepath.Join(f.ctxRO, "probe"), filepath.Join(f.ctxRW, "probe"),
-			filepath.Join(f.ws, "planted-link")} {
+			filepath.Join(f.ws, "planted-link"), filepath.Join(f.relocTarget, "probe"),
+			filepath.Join(f.relocTarget, "nested")} {
 			if _, err := os.Lstat(p); err == nil {
 				t.Errorf("after %s's control, %s is left behind", tc.name, p)
 			}
@@ -999,10 +1166,15 @@ func seatbeltTree(t *testing.T, root string) seatbeltFixtures {
 		{Dest: "/ctx/ro", Source: f.ctxRO, Dir: true},
 		{Dest: "/ctx/rw", Source: f.ctxRW, RW: true, Dir: true},
 	}
+	f.relocRoot = filepath.Join(resolved, "caches")
+	f.relocTarget = filepath.Join(f.relocRoot, "hf")
+	f.relocSibling = filepath.Join(f.relocRoot, "other")
+	f.relocs = []macosuser.CacheRelocation{{Subdir: "huggingface", Target: f.relocTarget}}
 	for _, d := range []string{f.ws, f.readonly, f.outside,
 		filepath.Join(f.skills, "demo"), filepath.Join(f.stateDir, "projects"),
 		filepath.Join(f.ctxRO, "sub"), filepath.Join(f.ctxRO, ".git", "objects"),
-		filepath.Join(f.ctxRO, ".git", "refs"), f.ctxRW, f.ctxSibling, f.linkDir} {
+		filepath.Join(f.ctxRO, ".git", "refs"), f.ctxRW, f.ctxSibling, f.linkDir,
+		f.relocTarget, f.relocSibling} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatalf("creating %s: %v", d, err)
 		}
@@ -1011,10 +1183,12 @@ func seatbeltTree(t *testing.T, root string) seatbeltFixtures {
 		filepath.Join(f.ws, "seed"):                 seatbeltOK + "\n",
 		filepath.Join(f.outside, "secret"):          "a sibling checkout's private file\n",
 		filepath.Join(f.skills, "demo", "SKILL.md"): "demo skill\n",
-		f.briefing:                            "the briefing\n",
-		filepath.Join(f.ctxRO, "seed"):        seatbeltOK + "\n",
-		filepath.Join(f.ctxRW, "seed"):        seatbeltOK + "\n",
-		filepath.Join(f.ctxSibling, "secret"): "a folder nobody mounted\n",
+		f.briefing:                              "the briefing\n",
+		filepath.Join(f.ctxRO, "seed"):          seatbeltOK + "\n",
+		filepath.Join(f.ctxRW, "seed"):          seatbeltOK + "\n",
+		filepath.Join(f.ctxSibling, "secret"):   "a folder nobody mounted\n",
+		filepath.Join(f.relocTarget, "seed"):    seatbeltOK + "\n",
+		filepath.Join(f.relocSibling, "secret"): "a folder beside the relocated cache\n",
 		// The smallest tree git accepts as a repository: HEAD, objects/ and refs/.
 		filepath.Join(f.ctxRO, ".git", "HEAD"): "ref: refs/heads/main\n",
 	} {
@@ -1022,7 +1196,7 @@ func seatbeltTree(t *testing.T, root string) seatbeltFixtures {
 			t.Fatalf("writing %s: %v", path, err)
 		}
 	}
-	for name, target := range map[string]string{"data": f.ctxRO, "other": f.ctxSibling} {
+	for name, target := range map[string]string{"data": f.ctxRO, "other": f.ctxSibling, "cache": f.relocTarget} {
 		if err := os.Symlink(target, filepath.Join(f.linkDir, name)); err != nil {
 			t.Fatalf("linking %s: %v", name, err)
 		}
@@ -1068,13 +1242,25 @@ func startSeatbeltCanary(t *testing.T) (int, string) {
 //
 // The arguments are the ones BuildRunPlan passes (runplan.go): the workspace, the real
 // sandbox home, the workspace_readonly list, the content rules ResolveHomeReadonly derives
-// for a claude-pack delivery, and the context links — so the text under test is the text a
-// launch would install, not a second profile written for the occasion. It is left in
-// the temp dir on failure and its path is logged, because the first question about a
-// surprising refusal is what the profile actually said.
+// for a claude-pack delivery, the context links, a declared device and macos_log at its
+// default — so the text under test is the text a launch would install, not a second profile
+// written for the occasion. It is left in the temp dir on failure and its path is logged,
+// because the first question about a surprising refusal is what the profile actually said.
 func seatbeltProfileFile(t *testing.T, f seatbeltFixtures) string {
 	t.Helper()
-	profile := macosuser.SeatbeltProfileWithContext(f.ws, "", []string{"vendored"}, f.content, f.ctxLinks)
+	return seatbeltProfileFileFor(t, f, "off")
+}
+
+// seatbeltFixtureDevices is the `devices` list every fixture profile declares: one node a case
+// drives (declared_device_ioctl_allowed), so the carve-out is in the text under test.
+var seatbeltFixtureDevices = []string{"/dev/zero"}
+
+// seatbeltProfileFileFor is seatbeltProfileFile with macos_log set to mode — the default launch's
+// "off" for the suite, "user" for the dial's control.
+func seatbeltProfileFileFor(t *testing.T, f seatbeltFixtures, macosLog string) string {
+	t.Helper()
+	profile := macosuser.SeatbeltProfileWithRelocations(f.ws, "", []string{"vendored"}, f.content, f.ctxLinks,
+		f.relocs, seatbeltFixtureDevices, macosLog)
 	path := filepath.Join(t.TempDir(), "session.sb")
 	if err := os.WriteFile(path, []byte(profile), 0o644); err != nil {
 		t.Fatalf("writing the profile to %s: %v", path, err)
@@ -1124,3 +1310,190 @@ func runScript(t *testing.T, script string, prefix []string) (string, int) {
 // sh single-quotes a path for /bin/sh. The fixture paths are ours and hold no quotes,
 // but a script built by concatenation is a script that grows a space one day.
 func sh(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+
+// devIoctlProbe issues FIONBIO (_IOW('f', 126, int)) on a device node through the system perl
+// and prints seatbeltOK when the ioctl succeeded. FIONBIO because the null and zero drivers
+// accept it, so it succeeds unsandboxed with no privilege and changes nothing. The argument is
+// a variable, not `pack(...)` inline: perl's ioctl writes the buffer back and refuses a
+// read-only one (checked on Linux with its own FIONBIO number, 2026-10-04).
+func devIoctlProbe(dev string) string {
+	return "/usr/bin/perl -e 'open(my $f, \"<\", $ARGV[0]) or die \"open: $!\\n\"; " +
+		"my $v = pack(\"i\", 1); ioctl($f, 0x8004667e, $v) or die \"ioctl: $!\\n\"; " +
+		"print \"" + seatbeltOK + "\\n\"' " + sh(dev)
+}
+
+// macosLogStoreProbe exits 0 only when `log show` actually READ an entry from the store: the
+// last minute of a running Mac always holds one, and json output names each `eventMessage`. An
+// exit status alone would not do, because `log show` can succeed having read nothing.
+const macosLogStoreProbe = "/usr/bin/log show --last 1m --style json 2>/dev/null | grep -q '\"eventMessage\"'"
+
+// macosLogStreamProbe RECORDS whether a live stream delivered an entry within three seconds:
+// started in the background, terminated, then read. SIGTERM and not SIGINT, because a
+// non-interactive shell starts a background job with SIGINT ignored, and a SIGKILL a second
+// later, so a stream that ignores SIGTERM cannot hold `wait` past runScript's deadline. See the
+// stream rule's registry entry for why this is recorded rather than asserted.
+const macosLogStreamProbe = "f=$(mktemp /tmp/yolo-sb-logstream.XXXXXX) || exit 2; " +
+	"/usr/bin/log stream --style json >\"$f\" 2>&1 & p=$!; sleep 3; kill $p 2>/dev/null; " +
+	"sleep 1; kill -9 $p 2>/dev/null; wait $p 2>/dev/null; " +
+	"grep -q '\"eventMessage\"' \"$f\"; rc=$?; rm -f \"$f\"; exit $rc"
+
+// TestMacosUserSeatbeltMacosLogDialDecidesTheLogRead is the CONTROL for macos_log_off_store_read_refused:
+// the same store read, under the same fixture's profile generated with macos_log "user", must
+// succeed — so what refuses it under "off" is the dial's deny, and not another rule of the
+// profile (the /Users read deny, the keychains) catching something `log` happens to touch.
+// The live stream is recorded beside it, bare and under both profiles.
+func TestMacosUserSeatbeltMacosLogDialDecidesTheLogRead(t *testing.T) {
+	requireMacosUserSeatbelt(t)
+	f := seatbeltFixture(t)
+	off := seatbeltProfileFileFor(t, f, "off")
+	user := seatbeltProfileFileFor(t, f, "user")
+	sandbox := func(profile string) []string { return []string{"/usr/bin/sandbox-exec", "-f", profile} }
+
+	if out, rc := runScript(t, macosLogStoreProbe, nil); rc != 0 {
+		t.Fatalf("the CONTROL failed: `%s` read no log entry unsandboxed (rc %d), so this "+
+			"machine cannot say what the dial does.\noutput:\n%s", macosLogStoreProbe, rc, out)
+	}
+	if out, rc := runScript(t, macosLogStoreProbe, sandbox(user)); rc != 0 {
+		t.Errorf("macos_log \"user\" READ NOTHING: the profile without the dial's deny still "+
+			"refuses the store read (rc %d), so the off case's refusal may be another rule's.\n"+
+			"output:\n%s", rc, out)
+	}
+	if out, rc := runScript(t, macosLogStoreProbe, sandbox(off)); rc == 0 {
+		t.Errorf("macos_log \"off\" READ THE LOG: the store read succeeded under the default "+
+			"profile.\nrule: #seatbelt-test-id:macos-log-off-deny#\noutput:\n%s", out)
+	}
+	for _, run := range []struct {
+		name   string
+		prefix []string
+	}{{"bare", nil}, {"user", sandbox(user)}, {"off", sandbox(off)}} {
+		out, rc := runScript(t, macosLogStreamProbe, run.prefix)
+		verdict := "an entry ARRIVED"
+		if rc != 0 {
+			verdict = "nothing arrived"
+		}
+		t.Logf("MEASUREMENT (macos-log-off-stream-deny), `log stream` %s: %s (rc %d).\noutput:\n%s",
+			run.name, verdict, rc, out)
+	}
+}
+
+// TestMacosUserMacosLogAsTheSandboxAccountMeasurement RECORDS what the dial is worth for the
+// account a session really runs as: the policy suite above runs as the runner, an admin, and
+// `log` treats an admin differently. If the sandbox account cannot read the log even with no
+// profile at all, macos_log "off"'s deny is belt and braces, and "user" is the setting that
+// needs a fix; the log line below is what that ruling would be made from. It asserts nothing
+// about either answer and fails only when the account cannot be reached.
+func TestMacosUserMacosLogAsTheSandboxAccountMeasurement(t *testing.T) {
+	requireMacosUser(t)
+	// The profiles must be readable by the sandbox account, which a per-user temp dir is not.
+	dir, err := os.MkdirTemp("/private/tmp", "yolo-it-maclog-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	_ = os.Chmod(dir, 0o755)
+	profiles := map[string]string{}
+	for _, mode := range []string{"off", "user"} {
+		p := filepath.Join(dir, mode+".sb")
+		text := macosuser.SeatbeltProfileWithContext(macosuser.SharedRootDefault(), "", nil,
+			macosuser.HomeReadonly{}, nil, nil, mode)
+		if err := os.WriteFile(p, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		profiles[mode] = p
+	}
+	asSandbox := func(prefix []string) []string {
+		return append([]string{"/usr/bin/sudo", "-n", "--user=" + macosuser.SandboxUser}, prefix...)
+	}
+	if out, rc := runScript(t, "true", asSandbox(nil)); rc != 0 {
+		t.Fatalf("cannot run a command as %s (rc %d), so there is nothing to measure:\n%s",
+			macosuser.SandboxUser, rc, out)
+	}
+	for _, probe := range []struct{ name, script string }{
+		{"log show (the store)", macosLogStoreProbe}, {"log stream (live)", macosLogStreamProbe},
+	} {
+		for _, run := range []struct {
+			name   string
+			prefix []string
+		}{
+			{"no profile", asSandbox(nil)},
+			{"macos_log user", asSandbox([]string{"/usr/bin/sandbox-exec", "-f", profiles["user"]})},
+			{"macos_log off", asSandbox([]string{"/usr/bin/sandbox-exec", "-f", profiles["off"]})},
+		} {
+			out, rc := runScript(t, probe.script, run.prefix)
+			verdict := "READ an entry"
+			if rc != 0 {
+				verdict = "read NOTHING"
+			}
+			t.Logf("MEASUREMENT (macos_log, as %s), %s, %s: %s (rc %d).\noutput:\n%s",
+				macosuser.SandboxUser, probe.name, run.name, verdict, rc, out)
+		}
+	}
+}
+
+// THE SEALED BUILD PROFILE (macosuser.SeatbeltSealedCaptureProfile; docs/design/forked-programs-as-packs.md
+// FP-D24): the profile a fork's build runs under on this backend, which shares the host's network
+// stack, so the seal a container build gets from its own network namespace is two Seatbelt denies
+// here. Each case connects bare first, where it must succeed, then under the profile, where the
+// kernel must refuse it: a TCP connect to a listener this test holds on 127.0.0.1, and a connect to
+// the nix daemon's socket — skipped, with why, on a machine with no daemon to connect to.
+//
+// The profile is the one BuildForkBuildPlan installs, over a staging root of the test's own under
+// /Users/Shared, loaded as the invoking user: the denies name no user, so the account a build runs
+// as does not change what they refuse.
+func TestMacosUserSeatbeltSealedBuildProfileDeniesTheLoopbackAndTheNixDaemon(t *testing.T) {
+	requireMacosUserSeatbelt(t)
+	root, err := os.MkdirTemp(sharedUsersDir, "yolo-sb-sealed-")
+	if err != nil {
+		t.Fatalf("creating the staging root under %s: %v", sharedUsersDir, err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	profile := macosuser.SeatbeltSealedCaptureProfile(root)
+	path := filepath.Join(t.TempDir(), "sealed.sb")
+	if err := os.WriteFile(path, []byte(profile), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("Seatbelt profile under test (%s):\n%s", path, profile)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listening on the loopback: %v", err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			_ = c.Close()
+		}
+	}()
+	port := ln.Addr().(*net.TCPAddr).Port
+	const nixSocket = "/nix/var/nix/daemon-socket/socket"
+	for _, tc := range []struct {
+		name, script, needs string
+	}{
+		{"loopback_tcp_connect_refused", "/usr/bin/perl -MIO::Socket::INET -e 'IO::Socket::INET->new(PeerAddr => " +
+			"\"127.0.0.1:" + strconv.Itoa(port) + "\", Timeout => 5) or die \"connect: $!\\n\"; print \"" +
+			seatbeltOK + "\\n\"'", ""},
+		{"nix_daemon_socket_connect_refused", "/usr/bin/perl -MIO::Socket::UNIX -e 'IO::Socket::UNIX->new(Peer => " +
+			"$ARGV[0]) or die \"connect: $!\\n\"; print \"" + seatbeltOK + "\\n\"' " + sh(nixSocket), nixSocket},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.needs != "" {
+				if _, err := os.Stat(tc.needs); err != nil {
+					t.Skipf("no %s on this machine (%v): there is nothing for the profile to refuse", tc.needs, err)
+				}
+			}
+			out, rc := runScript(t, tc.script, nil)
+			if rc != 0 || !strings.Contains(out, seatbeltOK) {
+				t.Fatalf("BROKEN CONTROL: the bare connect failed (rc %d), so the sandboxed refusal below would "+
+					"prove nothing:\n%s", rc, out)
+			}
+			out, rc = runScript(t, tc.script, []string{"/usr/bin/sandbox-exec", "-f", path})
+			if rc == 0 || strings.Contains(out, seatbeltOK) {
+				t.Errorf("the sealed build profile let the connect through (rc %d):\n%s", rc, out)
+			}
+		})
+	}
+}

@@ -11,19 +11,24 @@ package run
 // packload is a cycle), and the inert report reads the backend.
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/image"
 	"github.com/mschulkind-oss/yolo-jail/internal/json5"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	yoloruntime "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // shippedAudioPack returns the embedded `audio` pack, materialized.
@@ -497,8 +502,9 @@ func TestShippedAudioPackEmitsAReadOnlyBindIntoTheContainerArgv(t *testing.T) {
 	}
 	// NO --add-host and NO jail_env: this loophole intercepts nothing, and the two
 	// environment variables travel as the pack's `env` contribution because `jail_env`
-	// is refused for a pack-shipped loophole (which is what makes them UNCONDITIONAL —
-	// OQ-LP5's named cost, paid here).
+	// is refused for a pack-shipped loophole. That contribution is `served_by` this
+	// loophole, so it reaches a jail only where this argv binds it
+	// (docs/design/loophole-packaging.md LP-D1; the tests at the end of this file).
 	for _, unwanted := range []string{"--add-host", "PULSE_SERVER"} {
 		if strings.Contains(joined, unwanted) {
 			t.Errorf("the pack's loophole must not emit %s (the env goes through the `env` "+
@@ -549,4 +555,251 @@ func inJailLauncher() bool {
 	// would assert the opposite branch from the one the code takes.
 	_, ok := os.LookupEnv("YOLO_VERSION")
 	return ok
+}
+
+// ─── The pack env goes only where the loophole's binds go (docs/design/loophole-packaging.md
+// LP-D1) ───
+//
+// MEASURED before this (2026-10-04): with packs [claude, audio], `yolo host env --agent claude`
+// exported PULSE_SERVER='unix:/run/pulse/native', and libpulse given that value never tries
+// $XDG_RUNTIME_DIR/pulse/native, so `yolo host -- claude` broke the host's own audio; the
+// macos-user arm handed its sandbox both variables too. The pack's `env` now declares
+// `served_by: "audio"`, and a launch serves that name exactly where its container argv binds the
+// loophole (loopholes.JailBoundNames). Every test below drives Run(), so deleting the record in
+// jailDaemonsFor, the names in servedDaemons or the pack's `served_by` fails one of them.
+
+// audioPointers are the shipped pack's two variables.
+var audioPointers = []string{"PIPEWIRE_REMOTE", "PULSE_SERVER"}
+
+// boundFixtureLoophole is a bound loophole of the conventional local pack, with no `platforms`,
+// so it is active on every host the unit suite runs on (the shipped audio loophole is
+// platform-inert on darwin, which check-macos runs). Its env contribution points at the socket its
+// bind puts in the jail, as audio's does.
+const boundFixtureLoophole = "snd-fixture"
+
+// writeBoundFixturePack writes boundFixtureLoophole and its pointer into the local pack, with
+// the loophole switched on or off in the user config.
+func writeBoundFixturePack(t *testing.T, home string, enabled bool) {
+	t.Helper()
+	local := filepath.Join(home, ".config", "yolo-jail", "local")
+	mod := filepath.Join(local, "loopholes", boundFixtureLoophole)
+	if err := os.MkdirAll(mod, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(mod, "native"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"name":"` + boundFixtureLoophole + `","description":"a bound fixture","version":1,` +
+		`"default_enabled":false,"transport":"none","lifecycle":"external",` +
+		`"host_bind_mounts":[{"host":"{loophole_dir}/native","container":"/run/snd-fixture/native","readonly":true}]}`
+	if err := os.WriteFile(filepath.Join(mod, "manifest.jsonc"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pack := `{"contributes":[{"kind":"loophole","from":"loopholes/` + boundFixtureLoophole + `"},` +
+		`{"kind":"env","served_by":"` + boundFixtureLoophole + `","vars":{"SND_FIXTURE_SERVER":"unix:/run/snd-fixture/native"}}]}`
+	if err := os.WriteFile(filepath.Join(local, "pack.json"), []byte(pack), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	on := "false"
+	if enabled {
+		on = "true"
+	}
+	writeUserConfigJSON(t, home, `{"packs": [], "loopholes": {"`+boundFixtureLoophole+`": {"enabled": `+on+`}}}`)
+}
+
+// hostLauncher makes this process a launcher on a HOST: loopholes.inJail reads YOLO_VERSION by
+// presence, so t.Setenv("", …) alone still reads as a jail, where a loophole's activation asks
+// whether the outer jail wired its container paths.
+func hostLauncher(t *testing.T) {
+	t.Helper()
+	t.Setenv("YOLO_VERSION", "")
+	os.Unsetenv("YOLO_VERSION")
+}
+
+// podmanLaunchEnvFile drives one podman launch through Run() to the runtime's `run`, with a fake
+// podman on PATH, and returns the shared channel file the launch wrote for the jail
+// (yolo-user-env.sh, where the pack env fold crosses) and everything it printed.
+func podmanLaunchEnvFile(t *testing.T) (string, string) {
+	t.Helper()
+	ws := t.TempDir()
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "podman"), []byte("#!/bin/sh\nexit 3\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+":/bin:/usr/bin")
+	var stdout, stderr bytes.Buffer
+	o := dispatchOptions(t, ws, "podman", &stdout, &stderr, nil)
+	repo, _ := o.RepoRoot()
+	o.PathExists = func(p string) bool { return p == filepath.Join(prebuiltBinDir(repo.Root), "yolo-entrypoint") }
+	o.Exec = func([]string, string, []string, time.Duration) ExecResult { return ExecResult{Ran: true, RC: 0} }
+	o.autoLoad = func(image.AutoLoadOptions) image.LoadResult { return image.LoadResult{OK: true, Ref: goldenImageRef} }
+	o.Getenv = func(k string) string {
+		switch k {
+		case "YOLO_RUNTIME":
+			return "podman"
+		case "YOLO_NO_AUTO_IMAGE_REAP":
+			return "1"
+		}
+		return ""
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(hostServiceSocketsDir(yoloruntime.FromWorkspace(ws), false)) })
+	Run(*o)
+	raw, err := os.ReadFile(filepath.Join(paths.WorkspaceHomeState(ws), "yolo-user-env.sh"))
+	if err != nil {
+		t.Fatalf("the launch wrote no channel file: %v\n%s", err, stdout.String()+stderr.String())
+	}
+	return string(raw), stdout.String() + stderr.String()
+}
+
+// A CONTAINER LAUNCH THAT BINDS THE LOOPHOLE DELIVERS ITS POINTER, and one that leaves it off
+// withholds the pointer and names it, with the switch that turns it on.
+func TestABoundLoopholesPointerReachesOnlyTheJailThatBindsIt(t *testing.T) {
+	hostLauncher(t)
+	const pointer = "SND_FIXTURE_SERVER"
+
+	home := packHome(t)
+	writeBoundFixturePack(t, home, true)
+	file, out := podmanLaunchEnvFile(t)
+	if !strings.Contains(file, "export "+pointer+"='unix:/run/snd-fixture/native'") {
+		t.Errorf("a launch binding %s did not deliver %s:\n%s\n%s", boundFixtureLoophole, pointer, file, out)
+	}
+	if strings.Contains(out, pointer+" — ") {
+		t.Errorf("a launch binding %s named its pointer as withheld:\n%s", boundFixtureLoophole, out)
+	}
+
+	home = packHome(t)
+	writeBoundFixturePack(t, home, false)
+	file, out = podmanLaunchEnvFile(t)
+	if strings.Contains(file, pointer) {
+		t.Errorf("a launch with %s off delivered %s, a socket nothing bound:\n%s", boundFixtureLoophole, pointer, file)
+	}
+	for _, want := range []string{
+		pointer + ` — points at what the "` + boundFixtureLoophole + `" loophole binds into a jail`,
+		`"loopholes": {"` + boundFixtureLoophole + `": {"enabled": true}}`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the withheld line does not say %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, `"`+boundFixtureLoophole+`" jail daemon`) {
+		t.Errorf("a bound loophole's pointer was worded as a jail daemon's:\n%s", out)
+	}
+}
+
+// THE SHIPPED PACK, on podman: delivered on Linux, where its loophole binds; withheld and named on
+// darwin, where it is platform-inert (podman on a Mac reaches no host PipeWire socket).
+func TestTheShippedAudioPointersFollowItsBindsOnPodman(t *testing.T) {
+	hostLauncher(t)
+	home := packHome(t)
+	writeUserConfigJSON(t, home, `{"packs": ["audio"], "loopholes": {"audio": {"enabled": true}}}`)
+	file, out := podmanLaunchEnvFile(t)
+	for _, k := range audioPointers {
+		delivered := strings.Contains(file, "export "+k+"=")
+		if want := runtime.GOOS == "linux"; delivered != want {
+			t.Errorf("%s delivered = %v on %s, want %v\nfile:\n%s\nout:\n%s", k, delivered, runtime.GOOS, want, file, out)
+		}
+	}
+	if runtime.GOOS != "linux" && !strings.Contains(out, `points at what the "audio" loophole binds into a jail`) {
+		t.Errorf("a launch withholding audio's pointers did not name them:\n%s", out)
+	}
+}
+
+// MACOS-USER BINDS NOTHING INTO ITS SANDBOX, so it hands the sandbox neither variable and names
+// both with that reason — on Linux too, where the loophole is otherwise active, which is the
+// half only the runtime decides.
+func TestMacosUserHandsTheSandboxNoAudioPointer(t *testing.T) {
+	hostLauncher(t)
+	home := packHome(t)
+	writeUserConfigJSON(t, home, `{"packs": ["audio"], "loopholes": {"audio": {"enabled": true}}}`)
+	got := macosUserLaunch(t, t.TempDir())
+	if got.rc != 0 {
+		t.Fatalf("Run() = %d, want 0\n%s", got.rc, got.out)
+	}
+	if got.env == nil {
+		t.Fatalf("Run() never reached the macos-user handler\n%s", got.out)
+	}
+	for _, k := range audioPointers {
+		if v := envAt(got.env, k); v != "" {
+			t.Errorf("macos-user handed its sandbox %s=%q, a socket it never binds", k, v)
+		}
+	}
+	want := `PIPEWIRE_REMOTE, PULSE_SERVER — points at what the "audio" loophole binds into a jail, ` +
+		"which the macos-user sandbox does not have"
+	if !strings.Contains(got.out, want) {
+		t.Errorf("the macos-user launch did not name the withheld pointers with its reason (%q):\n%s", want, got.out)
+	}
+}
+
+// `yolo host --` OPENS NO DOORWAY FOR A BOUND LOOPHOLE, so a withheld pointer at one never names
+// a doorway's next step. PlanHostDoorways gives every profile-served name it did not open a
+// reason, and a profile-gated pointer `served_by` a bound loophole is one: its reason is a
+// doorway's ("`yolo host --` opens its doorway for this agent once ... `"enabled": true`" for a
+// loophole left off, "declares no doorway ... so only a jail runs it" for one switched on). No
+// switch gives the host a jail to bind into, so the line the host prints is the host's own clause
+// either way. No shipped pack gates a bound pointer (audio's is ungated), so a local pack does.
+func TestTheHostWordsAGatedBoundPointerAsTheHostsOwn(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	hostLauncher(t)
+	emptyLoopholeDirs(t)
+	root := t.TempDir()
+	mod := filepath.Join(root, "loopholes", "snd")
+	if err := os.MkdirAll(mod, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for file, body := range map[string]string{
+		filepath.Join(mod, "native"): "",
+		filepath.Join(mod, "manifest.jsonc"): `{"name": "snd", "description": "d", "version": 1,
+		"transport": "none", "lifecycle": "external",
+		"host_bind_mounts": [{"host": "{loophole_dir}/native", "container": "/run/snd/native", "readonly": true}]}`,
+		filepath.Join(root, "pack.json"): `{"contributes": [{"kind": "loophole", "from": "loopholes/snd"},
+		{"kind": "env", "profile": "p", "served_by": "snd", "vars": {"SND_SERVER": "unix:/run/snd/native"}}]}`,
+	} {
+		if err := os.WriteFile(file, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	acme, probs := packload.LoadDir(root, "acme")
+	if len(probs) > 0 {
+		t.Fatalf("the local pack fixture does not load: %v", probs)
+	}
+	packs := []*packload.Pack{officialPack(t, "pi"), acme}
+	profiles := map[string]string{"pi": "p"}
+	for _, enabled := range []string{"false", "true"} {
+		t.Run("enabled="+enabled, func(t *testing.T) {
+			cfg := loopholesConfig(t, `{"snd": {"enabled": `+enabled+`}}`)
+			plan, err := PlanHostDoorways(cfg, packs, packload.GateSelection{Profiles: profiles},
+				true, "yolo host -- pi")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer plan.Release()
+			if plan.notOpened["snd"] == "" {
+				t.Fatalf("fixture bug: the plan gave the gated bound pointer no reason, so this " +
+					"test no longer reaches the arm it guards")
+			}
+			served := plan.Served()
+			scope, err := packload.ScopeCredentials(packload.ScopeInput{Packs: packs,
+				Profiles: profiles, NoDerives: true, Served: &served})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, delivered := scope.DeliveredPackEnv("SND_SERVER"); delivered {
+				t.Fatal("the host delivered a pointer at a socket only a jail's bind provides")
+			}
+			lines := strings.Join(packload.UnservedLines(scope, nil, nil), "\n")
+			want := `SND_SERVER — points at what the "snd" loophole binds into a jail, and the host ` +
+				"has no jail to bind it into, so a client here reaches the host's own server"
+			if !strings.Contains(lines, want) {
+				t.Errorf("the host's withheld line does not say %q:\n%s", want, lines)
+			}
+			for _, wrong := range []string{"doorway", "is disabled", "only a jail runs it"} {
+				if strings.Contains(lines, wrong) {
+					t.Errorf("the host's withheld line says %q, a doorway's reason for a loophole "+
+						"that has none:\n%s", wrong, lines)
+				}
+			}
+		})
+	}
 }

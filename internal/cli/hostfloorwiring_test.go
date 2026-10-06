@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -115,6 +116,53 @@ func TestTheProductionFloorRunsTheCaptureActForAnInstallerAgentItHasNoCaptureOf(
 	cmd.Env = []string{}
 	if out, err := cmd.CombinedOutput(); err != nil || string(out) != "nativecli from the capture --version\n" {
 		t.Errorf("the floor's copy ran %q (%v), want the captured program", out, err)
+	}
+}
+
+// TestTheProductionFloorsRefreshRecapturesAnInstallerAgentThroughTheCaptureAct drives newHostFloor's
+// own Capture wiring from the EVERGREEN REFRESH (HP-D16): an installer agent provisioned from a
+// capture, once its newest capture is older than the capture-refresh age (shortened here, with the
+// hourly interval), is captured again through the capture act on its next launch, and the newer
+// capture is the copy that runs. Delete the recapture from the refresh and the second launch runs the
+// first copy, after one capture.
+func TestTheProductionFloorsRefreshRecapturesAnInstallerAgentThroughTheCaptureAct(t *testing.T) {
+	nativeFloorFixture(t)
+	orig := newHostFloor
+	newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Floor {
+		f := productionHostFloor(out, progs)
+		f.GOOS = "linux"
+		f.Node.BaseURL = "http://127.0.0.1:1/test-guard-no-node-download"
+		f.UpdateInterval, f.CaptureRefreshAge = time.Nanosecond, time.Nanosecond
+		return f
+	}
+	t.Cleanup(func() { newHostFloor = orig })
+	t.Setenv("YOLO_RUNTIME", "podman")
+	stubBins(t, "podman")
+	var captured []string
+	origAct := hostFloorCaptureAct
+	hostFloorCaptureAct = func(args []string, out, errw io.Writer, color bool) int {
+		captured = append(captured, strings.Join(args, " "))
+		admitRelocatableCapture(t, args[0], fmt.Sprintf("#!/bin/sh\necho nativecli capture %d\n", len(captured)))
+		return 0
+	}
+	t.Cleanup(func() { hostFloorCaptureAct = origAct })
+
+	got := captureHostExec(t)
+	launcher := filepath.Join(paths.HostFloorDir(), "bin", "nativecli")
+	for i, want := range []string{"nativecli capture 1\n", "nativecli capture 2\n"} {
+		time.Sleep(time.Millisecond)
+		var errw bytes.Buffer
+		if rc := hostExec(nil, []string{"nativecli"}, io.Discard, &errw, nil); rc != 0 || got.target != launcher {
+			t.Fatalf("launch %d: rc=%d target=%s\n%s", i+1, rc, got.target, errw.String())
+		}
+		if len(captured) != i+1 {
+			t.Fatalf("launch %d: the capture act ran %d times, want %d\n%s", i+1, len(captured), i+1, errw.String())
+		}
+		cmd := exec.Command(launcher)
+		cmd.Env = []string{}
+		if out, err := cmd.CombinedOutput(); err != nil || string(out) != want {
+			t.Errorf("launch %d: the floor's copy ran %q (%v), want %q\n%s", i+1, out, err, want, errw.String())
+		}
 	}
 }
 

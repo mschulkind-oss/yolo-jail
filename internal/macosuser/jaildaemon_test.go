@@ -20,10 +20,13 @@ package macosuser
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // openAIAdapterDaemons is the payload the launch hands this backend for the shipped OpenAI
@@ -39,7 +42,8 @@ func openAIAdapterDaemons(src string) JailDaemons {
 func guestPlan(t *testing.T, jd JailDaemons) RunPlan {
 	t.Helper()
 	return BuildRunPlanWithDaemons("/Users/Shared/yolo/proj", jsonx.NewOrderedMap(), []string{"codex"},
-		[]string{"codex"}, "/opt/yolo/bin/yolo", "", HomeOverlay{}, HostContext{}, jsonx.NewOrderedMap(), mockDarwin(), nil, jd, FloorStage{})
+		[]string{"codex"}, "/opt/yolo/bin/yolo", "", HomeOverlay{}, HostContext{}, jsonx.NewOrderedMap(), mockDarwin(), nil, jd, FloorStage{},
+		PlanSession{})
 }
 
 // THE DECLARED COMMAND RUNS VERBATIM, INSIDE THE PROFILE (OQ-DP8's "runs exactly as declared",
@@ -87,15 +91,162 @@ func TestTheGuestPlanStartsTheDeclaredDaemonVerbatimInsideTheSeatbeltProfile(t *
 	}
 }
 
-// A LAUNCH WITH NO DAEMON PAYS NOTHING: no binary staged, no file, no supervisor.
+// A LAUNCH WITH NO DAEMON AND NO GUEST CLIENT'S ENDPOINT PAYS NOTHING: no binary staged, no
+// file, no supervisor. Neither trigger fires, so not one guest binary is copied, a guest
+// source that happens to be named included.
 func TestAGuestPlanWithNoDaemonStagesAndStartsNothing(t *testing.T) {
-	plan := guestPlan(t, JailDaemons{})
-	if len(plan.JailDaemonArgv) != 0 || plan.DaemonEnvFile != "" || plan.GuestBinSource != "" {
-		t.Errorf("a plan with no daemon carries guest-daemon artifacts: %+v", plan.JailDaemonArgv)
+	for _, jd := range []JailDaemons{{}, {GuestBinSource: "/src"}} {
+		plan := guestPlan(t, jd)
+		if len(plan.JailDaemonArgv) != 0 || plan.DaemonEnvFile != "" || plan.GuestBinSource != "" ||
+			len(plan.GuestClients) != 0 {
+			t.Errorf("a plan with no daemon carries guest artifacts: %+v %q %v",
+				plan.JailDaemonArgv, plan.GuestBinSource, plan.GuestClients)
+		}
+		for _, c := range plan.StageCommands {
+			for _, name := range GuestBinaries {
+				if len(c) == 4 && c[0] == mvBin && c[3] == GuestBinaryPath(name, "") {
+					t.Errorf("a plan with no daemon and no client endpoint stages %s", name)
+				}
+			}
+		}
 	}
-	for _, c := range plan.StageCommands {
-		if len(c) == 4 && c[0] == mvBin && c[3] == GuestBinaryPath(JaildName, "") {
-			t.Errorf("a plan with no daemon stages %s", JaildName)
+}
+
+// serialEndpointEnv is a launch env carrying the serial loophole's published endpoint, the
+// variable yolo-serial reads.
+func serialEndpointEnv() *jsonx.OrderedMap {
+	env := jsonx.NewOrderedMap()
+	env.Set(paths.SerialEndpointEnv, "/private/tmp/yolo-host-services-x/serial.endpoint")
+	return env
+}
+
+// A GUEST CLIENT'S ENDPOINT ALONE STAGES THE WHOLE GUEST SET, AND STARTS NO SUPERVISOR. The
+// serial loophole runs no jail daemon, so before the guest clients a macos-user sandbox was
+// told where the serial bridge is and had no yolo-serial to dial it with. Every guest binary is
+// copied to a temp name in GuestBinDir and renamed into place; the supervisor, its env file and
+// its log stay the daemons' alone.
+func TestASerialEndpointWithNoDaemonStagesEveryGuestBinaryAndNoSupervisor(t *testing.T) {
+	src := "/opt/homebrew/Cellar/yolo-jail/1.0/share/yolo-jail/bin/darwin-arm64"
+	plan := BuildRunPlanWithDaemons(probeWS, jsonx.NewOrderedMap(), []string{"claude"},
+		[]string{"claude"}, "/opt/yolo/bin/yolo", "", HomeOverlay{}, HostContext{}, serialEndpointEnv(),
+		mockDarwin(), nil, JailDaemons{GuestBinSource: src}, FloorStage{}, PlanSession{})
+	if problems := PlanInvariants(plan); len(problems) > 0 {
+		t.Fatalf("a well-formed client-only plan fails its invariants:\n%s", strings.Join(problems, "\n"))
+	}
+	if len(plan.JailDaemonArgv) != 0 || plan.DaemonEnvFile != "" || plan.SupervisorLog != "" {
+		t.Errorf("a client-only plan starts a supervisor: %v %q %q",
+			plan.JailDaemonArgv, plan.DaemonEnvFile, plan.SupervisorLog)
+	}
+	if got := strings.Join(plan.GuestClients, ","); got != "yolo-serial" || plan.GuestBinSource != src {
+		t.Errorf("GuestClients = %q, GuestBinSource = %q", got, plan.GuestBinSource)
+	}
+	for _, name := range GuestBinaries {
+		dst := GuestBinaryPath(name, "")
+		copied, renamed := -1, -1
+		for i, c := range plan.StageCommands {
+			if len(c) == 4 && c[0] == cpBin && c[2] == src+"/"+name && c[3] == dst+".new" {
+				copied = i
+			}
+			if len(c) == 4 && c[0] == mvBin && c[2] == dst+".new" && c[3] == dst {
+				renamed = i
+			}
+		}
+		if copied < 0 || renamed < 0 || renamed < copied {
+			t.Errorf("%s is not staged copy-then-rename into %s (copy %d, rename %d)",
+				name, GuestBinDir(""), copied, renamed)
+		}
+	}
+}
+
+// guestClientInvariants fails a plan whose session env carries a client's endpoint and stages
+// no client.
+func TestPlanInvariantsCatchAGuestClientEndpointWithNoClient(t *testing.T) {
+	good := BuildRunPlanWithDaemons(probeWS, jsonx.NewOrderedMap(), []string{"claude"},
+		[]string{"claude"}, "/opt/yolo/bin/yolo", "", HomeOverlay{}, HostContext{}, serialEndpointEnv(),
+		mockDarwin(), nil, JailDaemons{GuestBinSource: "/src"}, FloorStage{}, PlanSession{})
+	p := good
+	p.StageCommands = nil
+	for _, c := range good.StageCommands {
+		if len(c) == 4 && c[0] == mvBin && c[3] == GuestBinaryPath("yolo-serial", "") {
+			continue
+		}
+		p.StageCommands = append(p.StageCommands, c)
+	}
+	if problems := guestClientInvariants(p); len(problems) == 0 || len(PlanInvariants(p)) == 0 {
+		t.Error("PlanInvariants accepted a serial endpoint with no yolo-serial staged")
+	}
+	// And a plan built with no source at all, which is what a launch whose resolver was skipped
+	// would hand it.
+	none := BuildRunPlanWithDaemons(probeWS, jsonx.NewOrderedMap(), []string{"claude"},
+		[]string{"claude"}, "/opt/yolo/bin/yolo", "", HomeOverlay{}, HostContext{}, serialEndpointEnv(),
+		mockDarwin(), nil, JailDaemons{}, FloorStage{}, PlanSession{})
+	if len(guestClientInvariants(none)) == 0 {
+		t.Error("PlanInvariants accepted a serial endpoint with no guest source to stage from")
+	}
+}
+
+// THE ORCHESTRATOR RESOLVES THE GUEST SET FOR A CLIENT ALONE, and refuses, naming the client and
+// its loophole, when it cannot. Deleting the client half of guestBinariesWanted fails this.
+func TestTheOrchestratorResolvesTheGuestSetForAClientAlone(t *testing.T) {
+	var rec []string
+	d := mockDeps(&rec)
+	asked := 0
+	d.GuestBinaries = func(string) (string, error) { asked++; return "/opt/yolo/bin/darwin-arm64", nil }
+	d.StartBackground = func([]string) (Background, error) {
+		t.Error("a client-only launch started a supervisor")
+		return Background{Stop: func() {}}, nil
+	}
+	var buf bytes.Buffer
+	d.Out = &buf
+	o := newOpts(probeWS)
+	o.PackEnv = serialEndpointEnv()
+	if rc := RunMacosUser(d, o); rc != 42 {
+		t.Fatalf("rc = %d\n%s", rc, buf.String())
+	}
+	if asked != 1 {
+		t.Errorf("Deps.GuestBinaries was asked %d times for a launch carrying the serial endpoint", asked)
+	}
+	if !strings.Contains(strings.Join(rec, "\n"), "run:sudo "+mvBin+" -f "+GuestBinaryPath("yolo-serial", "")+".new "+
+		GuestBinaryPath("yolo-serial", "")) {
+		t.Errorf("the launch did not stage yolo-serial:\n%s", strings.Join(rec, "\n"))
+	}
+
+	rec = nil
+	d = mockDeps(&rec)
+	d.GuestBinaries = func(string) (string, error) { return "", errFake("nix build .#guestPrefix failed") }
+	buf.Reset()
+	d.Out = &buf
+	if rc := RunMacosUser(d, o); rc != 1 {
+		t.Fatalf("rc = %d, want the refusal\n%s", rc, buf.String())
+	}
+	for _, want := range []string{"nix build .#guestPrefix failed", "yolo-serial", "the serial loophole",
+		`"loopholes": {"serial": {"enabled": false}}`} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("the refusal does not name %q:\n%s", want, buf.String())
+		}
+	}
+	if strings.Contains(buf.String(), "<name>") {
+		t.Errorf("the refusal leaves the loophole as a placeholder although it knows it:\n%s", buf.String())
+	}
+
+	// No resolver wired at all: a yolo bug, said so, with the same way past it.
+	rec = nil
+	d = mockDeps(&rec)
+	d.GuestBinaries = nil
+	buf.Reset()
+	d.Out = &buf
+	if rc := RunMacosUser(d, o); rc != 1 {
+		t.Fatalf("rc = %d with no resolver, want the refusal\n%s", rc, buf.String())
+	}
+	for _, want := range []string{"yolo bug", "github.com/mschulkind-oss/yolo-jail/issues",
+		`"loopholes": {"serial": {"enabled": false}}`} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("the no-resolver refusal names no next step (%q):\n%s", want, buf.String())
+		}
+	}
+	for _, r := range rec {
+		if strings.HasPrefix(r, "proxy:") {
+			t.Error("the agent ran")
 		}
 	}
 }
@@ -159,7 +310,8 @@ func TestTheDaemonTokenFileIsRootOwned0600AndReadableByTheSandboxAccountOnly(t *
 	if rc := RunMacosUser(d, o); rc != 42 {
 		t.Fatalf("rc = %d\n%s", rc, buf.String())
 	}
-	file := SandboxDaemonEnvFile(cnameFor("/Users/Shared/yolo/proj"), "")
+	// The session's own file, named by the key this launch minted (sessionfiles.go).
+	file := SandboxDaemonEnvFile(launchedSessionKey(t, rec, "/Users/Shared/yolo/proj"), "")
 	if !strings.HasPrefix(file, stateDir+"/"+sandboxEnvLeaf+"/") {
 		t.Fatalf("the daemon env file %s is not in the root-owned env dir", file)
 	}
@@ -302,6 +454,122 @@ func TestPlanInvariantsCatchAnUnconfinedOrMissingSupervisor(t *testing.T) {
 		mutate(&p)
 		if len(PlanInvariants(p)) == 0 {
 			t.Errorf("%s: PlanInvariants accepted the plan", name)
+		}
+	}
+}
+
+// A DAEMONS ENV FILE WHOSE INSTALL FAILED HALF-WAY IS STILL REMOVED THROUGH THE TEARDOWN. The tee
+// may have written the supervisor's caller tokens before the chmod or the read ACE failed, and the
+// file's per-session name means no later launch rewrites it; so the refusal removes it, and a
+// removal that fails keeps the session's record for the next sweep, as the env file's and the
+// profile's do. Driven through RunMacosUser, so it fails if startJailDaemons returns without the
+// teardown's removal.
+func TestADaemonsEnvFileWhoseInstallFailsIsRemovedThroughTheTeardown(t *testing.T) {
+	ws := "/Users/Shared/yolo/proj"
+	for _, tc := range []struct {
+		name               string
+		installFails       bool // the tee ran and the chmod after it failed
+		grantFails, rmFail bool
+	}{
+		{name: "the install", installFails: true},
+		{name: "the read ACE", grantFails: true},
+		{name: "the install, and its removal", installFails: true, rmFail: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			var rec []string
+			d := mockDeps(&rec)
+			d.SessionRecordDir = func() string { return dir }
+			fakeSupervisor(&d, &rec, ws, "", readyLine, "", false)
+			d.GuestBinaries = func(string) (string, error) { return "/opt/yolo/bin/darwin-arm64", nil }
+			install := d.InstallRootFile
+			d.InstallRootFile = func(path, content, mode string) bool {
+				ok := install(path, content, mode)
+				return ok && !(tc.installFails && strings.HasSuffix(path, ".daemons.env"))
+			}
+			run := d.Run
+			d.Run = func(argv []string) int {
+				rc := run(argv)
+				last := argv[len(argv)-1]
+				if !strings.HasSuffix(last, ".daemons.env") {
+					return rc
+				}
+				if (tc.grantFails && argv[1] == chmodBin) || (tc.rmFail && argv[1] == rmBin) {
+					return 1
+				}
+				return rc
+			}
+			var out bytes.Buffer
+			d.Out = &out
+			o := newOpts(ws)
+			o.JailDaemons = openAIAdapterDaemons("")
+			if rc := RunMacosUser(d, o); rc != 1 {
+				t.Fatalf("rc = %d, want the refusal\n%s", rc, out.String())
+			}
+			key := launchedSessionKey(t, rec, ws)
+			daemonsEnv := SandboxDaemonEnvFile(key, "")
+			if !strings.Contains(strings.Join(rec, "\n"), "run:sudo "+rmBin+" -f "+daemonsEnv) {
+				t.Errorf("the half-written daemons env file %s is never removed:\n%s",
+					daemonsEnv, strings.Join(rec, "\n"))
+			}
+			record := filepath.Join(dir, key+sessionRecordSuffix)
+			_, err := os.Lstat(record)
+			if tc.rmFail {
+				if err != nil {
+					t.Errorf("the daemons env file could not be removed and the record naming it is gone: %v", err)
+				}
+				if !strings.Contains(out.String(), "sudo "+rmBin+" -f "+strings.Join(SessionFilePaths(key, ""), " ")) {
+					t.Errorf("the failed removal does not warn with the command:\n%s", out.String())
+				}
+			} else if !os.IsNotExist(err) {
+				t.Errorf("every removal succeeded and the record is still there (%v)", err)
+			}
+		})
+	}
+}
+
+// A DRY RUN NAMES THE GUEST SET STAGED FOR A CLIENT ALONE: "no jail daemon" is not "nothing
+// staged into the guest", and the plan is how a user tells them apart.
+func TestTheDryRunNamesTheGuestSetStagedForAClient(t *testing.T) {
+	d := mockDeps(nil)
+	var buf bytes.Buffer
+	d.Out = &buf
+	o := newOpts(probeWS)
+	o.PackEnv = serialEndpointEnv()
+	o.DryRun = true
+	if rc := RunMacosUser(d, o); rc != 0 {
+		t.Fatalf("dry run rc = %d\n%s", rc, buf.String())
+	}
+	out := buf.String()
+	want := "  guest bins: " + PrebuiltGuestBinDir(o.RepoRoot) + " → " + GuestBinDir("") + " (for yolo-serial)"
+	if !strings.Contains(out, "jail daemons: none run in the sandbox for this launch") || !strings.Contains(out, want) {
+		t.Errorf("the dry run does not name the guest set staged for yolo-serial (want %q):\n%s", want, out)
+	}
+	if !strings.Contains(out, "sudo "+mvBin+" -f "+GuestBinaryPath("yolo-serial", "")+".new "+GuestBinaryPath("yolo-serial", "")) {
+		t.Errorf("the dry run's privileged commands do not stage yolo-serial:\n%s", out)
+	}
+}
+
+// A DRY RUN THAT SEES NO CLIENT'S ENDPOINT SAYS IT CANNOT SEE ONE. The run pipeline's dry run starts
+// no host service and names only the credential service's endpoint, so "no guest bins" in a
+// render is not "no guest bins at launch": the line names each client and its loophole, so a
+// user with serial on is not told the sandbox gets no yolo-serial.
+func TestTheDryRunSaysItCannotSeeAGuestClientsEndpoint(t *testing.T) {
+	d := mockDeps(nil)
+	var buf bytes.Buffer
+	d.Out = &buf
+	o := newOpts(probeWS)
+	o.DryRun = true
+	if rc := RunMacosUser(d, o); rc != 0 {
+		t.Fatalf("dry run rc = %d\n%s", rc, buf.String())
+	}
+	out := buf.String()
+	if !strings.Contains(out, "a dry run starts no host service") {
+		t.Errorf("the dry run does not say it cannot see a client's endpoint:\n%s", out)
+	}
+	for _, c := range GuestClients {
+		if !strings.Contains(out, c.Binary+" (the "+c.Loophole+" loophole's client)") {
+			t.Errorf("the dry run does not name %s and its loophole:\n%s", c.Binary, out)
 		}
 	}
 }

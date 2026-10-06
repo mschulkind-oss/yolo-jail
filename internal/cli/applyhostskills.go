@@ -47,6 +47,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/hostskills"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -140,9 +141,14 @@ func localPackSkillsPath(home string) string {
 // drop the user's just-migrated skills for exactly one apply (§6a-6 defect 2, found in the
 // sibling kind by asserting idempotency). nil means "no reload available", which is correct for
 // the no-packs-configured caller and fails safe everywhere else.
+//
+// `lsp` is the host's `lsp_servers` table (hostInputComposition.lsp), rendered as Claude's
+// yolo-lsp plugin into every destination after the composition (applyHostLSPPlugin). nil renders
+// no plugin and retires any a previous apply wrote.
 func applyHostSkills(pr richtext.Printer, out io.Writer, stdin io.Reader,
 	loaded, candidates []*packload.Pack, active, configured map[string]bool, complete bool,
-	home, stamp string, write bool, reload func() []*packload.Pack, survey *hostApplySurvey) int {
+	home, stamp string, write bool, reload func() []*packload.Pack, lsp *jsonx.OrderedMap,
+	survey *hostApplySurvey) int {
 	composedPath := hostComposedSkillsManifestPath(home)
 	composed, err := hostskills.LoadManifest(composedPath)
 	if err != nil {
@@ -288,6 +294,14 @@ func applyHostSkills(pr richtext.Printer, out io.Writer, stdin io.Reader,
 	if serr != nil {
 		pr.Printf("  [red]skills     failed[/red] — %v", serr)
 		rc = 1
+	}
+
+	// yolo's OWN LSP plugin, after the composition for the jail's reason (writeLSPPlugin goes in
+	// last, so no pack's same-named directory can stand in for it) and before the prune, which
+	// visits the same destinations. Not reached when the adoption is declined or a collision
+	// refuses the composition: nothing is written into a destination this apply left alone.
+	if lrc := applyHostLSPPlugin(pr, survey, lsp, dests, sres, candidates, req, home, write); lrc != 0 {
+		rc = lrc
 	}
 
 	// Retire the composed output at an ORPHANED destination: one yolo composed into that no active

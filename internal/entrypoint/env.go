@@ -50,13 +50,16 @@ type Env struct {
 	// Defaults to true (the container) via the zero value + StatIsGNU().
 	GNUStat bool
 	// SkipMCPPresets reports that this environment does NOT generate the MCP preset
-	// wrappers, so nothing should install the npm packages behind them either.
+	// wrappers, so nothing may point at them or install what they spawn: no preset server
+	// entry reaches any agent's MCP table (mcpServersWith), and the bootstrap script installs
+	// none of the npm packages behind them (mcpPresetNpmPackages).
 	//
 	// Spelled as the NEGATIVE so the zero value is the container, like every other seam
 	// here. macos-user sets it: the wrapper bodies are Linux-absolute (/usr/bin/chromium,
-	// /bin/node, /etc/fonts) and RunDarwinBootstrap skips them and says so. Without this
-	// the bootstrap script would still `npm install -g chrome-devtools-mcp` — a download
-	// for an executable this backend never writes.
+	// /bin/node, /etc/fonts) and RunDarwinBootstrap skips them and says so. Without the
+	// first half every agent config named a `node` wrapper that does not exist; without the
+	// second the bootstrap script would still `npm install -g chrome-devtools-mcp` — a
+	// download for an executable this backend never writes.
 	SkipMCPPresets bool
 	// DeferProgramReadiness reports that this environment's provisioning stage does NOT run the
 	// readiness act (docs/design/jail-notch-readiness.md JR-D2): the bootstrap renders no
@@ -139,6 +142,17 @@ type Env struct {
 	// value is the line-oriented one with the default timings; a test sets
 	// Immediate to see a step that finishes at once.
 	progressCfg progress.Config
+	// sessionEnvKeys names the keys hydrateEnvFromSessionEnvFile put into Vars from the
+	// macos-user session env file — the LAUNCHED agent's environment, which carries the values
+	// the credential gate scoped to that agent alongside the shared ones. loadMCPTables reads it
+	// to rebuild the shared composition from the per-agent files (scopedMCPView). Nil on every
+	// other boot.
+	sessionEnvKeys map[string]struct{}
+	// orphanFS is where the orphan finders read and the removal act unlinks
+	// (orphanFiles): nil, the plain filesystem, everywhere but the macos-user bootstrap's
+	// catalog step, which installs one confined beneath roots on the workspace sidecar
+	// (catalogConfinedOrphans) for as long as the step runs.
+	orphanFS orphanFS
 }
 
 // genFailure records a fatal config-generator failure (A12). Collected rather
@@ -311,6 +325,24 @@ func EnvFromOS() *Env {
 		}
 	}
 	return NewEnv(vars)
+}
+
+// JailEnvFromOS is EnvFromOS for an in-jail `yolo` verb that reads the jail its boot generated
+// (`yolo programs`, `yolo pack update`'s launcher refresh): the Env THIS backend's boot built.
+// In a container that is EnvFromOS. In a macos-user session the boot was the darwin bootstrap,
+// whose Env is DarwinEnvFrom's translation — the real workspace (the receipts and the sidecar
+// live under its .yolo, and /workspace does not exist there), the macOS shim dir and BSD stat,
+// and no MCP presets — and the session says which by naming the workspace as
+// YOLO_DARWIN_WORKSPACE, beside the staged pack tree (macosuser.BuildRunPlanWithDaemons).
+//
+// YOLO_WORKSPACE is deliberately not the signal: NewEnv already honors it, and it says
+// where a workspace is, not which boot built the home.
+func JailEnvFromOS() *Env {
+	e := EnvFromOS()
+	if e.Getenv("YOLO_DARWIN_WORKSPACE") == "" {
+		return e
+	}
+	return DarwinEnvFrom(e.Vars, e.Home)
 }
 
 // Getenv "").

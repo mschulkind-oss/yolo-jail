@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
@@ -251,4 +252,111 @@ func flatten(cmds [][]string) []string {
 		out = append(out, c...)
 	}
 	return out
+}
+
+// THE BOOTSTRAP IS TOLD WHERE THE SESSION ENV FILE IS — by path, never by value — so its MCP
+// requires_env gate reads what the agent will have. Asserted through the plan a launch
+// executes, and checked by PlanInvariants, whose own mutation half follows.
+func TestTheBootstrapArgvNamesTheSessionEnvFile(t *testing.T) {
+	plan := planWithSecrets(t)
+	if plan.EnvFile == "" {
+		t.Fatal("premise: a plan with a composed env named no session env file")
+	}
+	if got, ok := argvEnvValue(plan.BootstrapArgv, SandboxEnvFileEnv); !ok || got != plan.EnvFile {
+		t.Errorf("the bootstrap argv names %s=%q (present=%v), want the session env file %q",
+			SandboxEnvFileEnv, got, ok, plan.EnvFile)
+	}
+	if problems := PlanInvariants(plan); len(problems) > 0 {
+		t.Errorf("a plan naming the file to its bootstrap is not viable: %v", problems)
+	}
+}
+
+// PlanInvariants FIRES when the bootstrap loses the file's name: the one way the env-gated
+// server drop comes back with every rendered artifact still looking healthy.
+func TestPlanInvariantsRejectABootstrapNotToldOfTheSessionEnvFile(t *testing.T) {
+	plan := planWithSecrets(t)
+	var kept []string
+	for _, w := range plan.BootstrapArgv {
+		if strings.HasPrefix(w, SandboxEnvFileEnv+"=") {
+			continue
+		}
+		kept = append(kept, w)
+	}
+	plan.BootstrapArgv = kept
+	problems := strings.Join(PlanInvariants(plan), "\n")
+	if !strings.Contains(problems, SandboxEnvFileEnv+"="+plan.EnvFile+" is not baked into the bootstrap env") {
+		t.Errorf("a bootstrap argv with no session env file passed the invariants:\n%s", problems)
+	}
+}
+
+// The capture's bootstrap is the launch's, and is told the same way, under the same check.
+func TestTheCaptureBootstrapNamesTheSessionEnvFile(t *testing.T) {
+	plan := BuildCapturePlan(testCaptureOptions())
+	if plan.EnvFile == "" {
+		t.Fatal("premise: the capture fixture composes an env and names no file")
+	}
+	if got, _ := argvEnvValue(plan.BootstrapArgv, SandboxEnvFileEnv); got != plan.EnvFile {
+		t.Errorf("the capture bootstrap names %s=%q, want %q", SandboxEnvFileEnv, got, plan.EnvFile)
+	}
+	var kept []string
+	for _, w := range plan.BootstrapArgv {
+		if !strings.HasPrefix(w, SandboxEnvFileEnv+"=") {
+			kept = append(kept, w)
+		}
+	}
+	plan.BootstrapArgv = kept
+	if problems := strings.Join(CapturePlanInvariants(plan), "\n"); !strings.Contains(problems, SandboxEnvFileEnv) {
+		t.Errorf("a capture bootstrap with no session env file passed the invariants:\n%s", problems)
+	}
+}
+
+// ACROSS THE BOUNDARY: the plan a launch builds, its env file written where the bootstrap will
+// read it, and the bootstrap's own Env translation over the plan's argv, keep a workspace MCP
+// server gated on a variable only env_sources supplies. This is the measured defect (a gh
+// server gated on GITHUB_TOKEN, dropped on macos-user), asked of both halves together.
+func TestAnEnvGatedServerSurvivesTheLaunchToBootstrapCrossing(t *testing.T) {
+	cfg, err := jsonx.Decode([]byte(`{"mcp_servers": {"gh": {"command": "gh-mcp", "requires_env": ["GITHUB_TOKEN"]}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := jsonx.NewOrderedMap()
+	env.Set("GITHUB_TOKEN", "ghp-not-a-real-token")
+	plan := BuildRunPlan("/Users/Shared/proj", cfg.(*jsonx.OrderedMap), []string{"claude"},
+		[]string{"claude"}, "/opt/yolo-jail/bin/yolo", "", HomeOverlay{}, HostContext{}, env, nil, nil)
+	if strings.Contains(strings.Join(plan.BootstrapArgv, " "), "ghp-not-a-real-token") {
+		t.Fatal("the credential rode the bootstrap argv")
+	}
+
+	vars := bootstrapVars(t, plan.BootstrapArgv)
+	if vars[SandboxEnvFileEnv] != plan.EnvFile || plan.EnvFile == "" {
+		t.Fatalf("the bootstrap argv names %s=%q, not the plan's session env file %q",
+			SandboxEnvFileEnv, vars[SandboxEnvFileEnv], plan.EnvFile)
+	}
+	file := filepath.Join(t.TempDir(), "session.env")
+	if err := os.WriteFile(file, []byte(plan.EnvFileContent), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	vars[SandboxEnvFileEnv] = file // the plan's path is /var/yolo-jail; the bytes are the plan's
+	vars["JAIL_HOME"], vars["HOME"] = home, home
+	vars["YOLO_DARWIN_WORKSPACE"] = t.TempDir()
+	vars["MISE_DATA_DIR"] = t.TempDir() // the plan's names the real sandbox home
+	delete(vars, entrypoint.DarwinHomeSidecarEnv)
+	delete(vars, "YOLO_PACK_ROOT")
+
+	e := entrypoint.DarwinEnvFrom(vars, home)
+	var term strings.Builder
+	e.Stderr = &term
+	_ = entrypoint.RunDarwinBootstrap(e, entrypoint.DarwinBootstrapOptions{MacosLog: "off"})
+	if e.Getenv("GITHUB_TOKEN") != "ghp-not-a-real-token" {
+		t.Fatalf("the bootstrap's Env never saw the session file's GITHUB_TOKEN:\n%s", term.String())
+	}
+	renderClaude(t, e)
+	raw, err := os.ReadFile(e.ClaudeJSONPath())
+	if err != nil {
+		t.Fatalf("no ~/.claude.json rendered: %v\n%s", err, term.String())
+	}
+	if !strings.Contains(string(raw), `"gh"`) {
+		t.Errorf("the env-gated server is missing from claude's config:\n%s\nterminal:\n%s", raw, term.String())
+	}
 }

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -23,6 +24,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/openauthclient"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/perf"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
@@ -84,11 +86,16 @@ Exec flags (yolo host -- ...):
                                 Nothing else implies it: not -p, not the profile key, not
                                 any YOLO_ALLOW_* variable, and no config key. HOST ONLY:
                                 a jail launch refuses it.
+  --timing                      Time this launch: record its stages' spans in
+                                ~/.local/share/yolo-jail/logs/host-notch-perf.log and
+                                print the table before the command starts, as a jail
+                                launch's --timing does. ` + "`perf_logging: true`" + ` and an
+                                exported YOLO_TIMING record without printing.
   --at host                     Accepted and changes nothing: this verb is the host notch.
                                 ` + "`yolo --at host -- <cmd>`" + ` and ` + "`yolo run --at host -- <cmd>`" + `
                                 are this verb, wherever --at sits. Another notch is
                                 refused, as is a jail-launch flag with no meaning here
-                                (--timing, --dry-run, --network, --accept-config-changes).
+                                (--dry-run, --network, --accept-config-changes).
   --help, -h                    Show this help.
 
 With ` + "`host_apply_on_launch`" + ` enabled (defaulting to on when ` + "`host_wrappers: true`" + `),
@@ -122,6 +129,13 @@ apply flags:
                   blockers, the counts and the outcome. --json is the same flag.
                   Refused with --assert (exit 2): that posture acts, and an acting
                   verb does not grow a second output mode.
+  --timing        Time the apply's stages and print the table on stderr, so a
+                  --format json stdout stays one document. ` + "`yolo --timing host apply`" + `
+                  is the same request.
+
+Run in a jail, apply refuses (exit 1) and writes nothing: it renders into the home of
+whoever runs it, and a jail's home is the jail's own, rendered by its launch. Run it on
+the host.
 
 The report ends in one sentence saying how the run went, with the counts beneath it.
 Packs resolve the way a launch resolves them: a git pack from the pack store, which this
@@ -202,6 +216,14 @@ func hostMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) i
 		fmt.Fprintln(out, hostUsage)
 		return 0
 	}
+	// `yolo --timing host apply` IS `yolo host apply --timing` (perf-logging.md D18): --timing is
+	// the one flag both host verbs take, so typed ahead of `apply` — where the front door leaves
+	// it, as it leaves `yolo -p zai host -- c`'s -p for the exec half — it is the apply's, and is
+	// moved after the verb rather than refused as an exec flag naming no command. The verb switch
+	// below then runs it, so the apply is reached by one branch only.
+	if moved, ok := timingAheadOfApply(args); ok {
+		args = moved
+	}
 	// A LEADING FLAG WITH NO `--` IS AN EXEC FLAG, never a verb: no verb is spelled with a dash,
 	// and `yolo --at host -p zai` reaches here as [-p zai] exactly as `yolo host -p zai` does. So
 	// the exec half's parser judges it, and a missing value, a jail-only flag or a typo gets the
@@ -224,6 +246,19 @@ func hostMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) i
 		fmt.Fprintf(errw, "yolo host: unknown verb %q\n\n%s\n", args[0], hostUsage)
 		return 1
 	}
+}
+
+// timingAheadOfApply reports whether args is one or more --timing followed by the apply verb,
+// and if so the same command with the flag after the verb: `apply <args...> --timing`.
+func timingAheadOfApply(args []string) ([]string, bool) {
+	i := 0
+	for i < len(args) && args[i] == hostTimingFlag {
+		i++
+	}
+	if i == 0 || i >= len(args) || args[i] != "apply" {
+		return nil, false
+	}
+	return append(append([]string{"apply"}, args[i+1:]...), hostTimingFlag), true
 }
 
 // hostExecWithoutCommand is exec flags typed with no `--` and so no command: `yolo host -p zai`,
@@ -254,11 +289,15 @@ type hostExecFlags struct {
 	// help is a --help/-h among the exec flags: parseHostExecFlags stops there, and hostExec
 	// prints the usage and exits 0.
 	help bool
+	// timing is --timing, as typed on this invocation: the launch's spans recorded AND printed
+	// (perf-logging.md D12's explicit flag; hosttiming.go in internal/cli/run, D18).
+	timing bool
 }
 
 // jailOnlyRunFlags are the launch flags `yolo run` takes and `yolo host --` has no meaning for:
-// runFlags less the two the host shares (the profile, and `--at`, a no-op here). Derived, so a
-// run flag added later is named here as a jail-launch flag rather than called unknown.
+// runFlags less the three the host shares (the profile; `--at`, a no-op here; and `--timing`,
+// which times the host launch as it times a jail's: perf-logging.md D18). Derived, so a run flag
+// added later is named here as a jail-launch flag rather than called unknown.
 //
 // `--accept-config-changes` is among them, by the maintainer's ruling (notch-convergence.md
 // OQ-NC10, 2026-09-28): since host-apply-staleness.md's zero-prompt auto-apply the host launch
@@ -268,12 +307,17 @@ type hostExecFlags struct {
 func jailOnlyRunFlags() []string {
 	var out []string
 	for _, f := range runFlags {
-		if f != "--profile" && f != "--at" {
+		if f != "--profile" && f != "--at" && f != hostTimingFlag {
 			out = append(out, f)
 		}
 	}
 	return out
 }
+
+// hostTimingFlag is the one run flag both notches take whole: `--timing` records this launch's
+// spans and prints them (D18). A constant because jailOnlyRunFlags must leave out exactly the
+// spelling the parsers accept.
+const hostTimingFlag = "--timing"
 
 // acceptConfigChangesAtHost is the line the refusal of `--accept-config-changes` adds at the host
 // (OQ-NC10): what the flag would approve there, which is nothing, and where the one question the
@@ -388,6 +432,10 @@ func parseHostExecFlags(args []string, errw io.Writer) (hostExecFlags, bool) {
 		if a == "--help" || a == "-h" {
 			f.help = true
 			return f, false
+		}
+		if a == hostTimingFlag {
+			f.timing = true
+			continue
 		}
 		// A LAUNCH FLAG WITH NO HOST MEANING is named as one. It reaches here from
 		// `yolo --at host --timing -- c` as readily as from `yolo host --timing -- c`, and an
@@ -525,6 +573,11 @@ func hostBareListUndeclared(agent string, entries []string) error {
 // dynamic loopback credential adapter must be closed when the agent exits, and so does a
 // launch that starts a pack service's host half or opens a credential doorway, which stay
 // the agent's parent (launchservice.RunAgent) and close both when it exits.
+//
+// THE ARGV IS JUDGED HERE, and everything after it is a LAUNCH (hostLaunch), which leaves a
+// trace whatever its outcome (hostLaunchTrace): one machine-wide launch line, a block in the host
+// launch log, and, when an opt-in asks, its timing spans. A usage error (exit 2 at the parse)
+// leaves none, as a jail launch's argv refusal leaves no launch line.
 func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int {
 	flags, ok := parseHostExecFlags(flagArgs, errw)
 	if flags.help {
@@ -543,6 +596,74 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 		fmt.Fprintf(errw, "yolo host: %v\n", err)
 		return 2
 	}
+	trace := startHostLaunchTrace(cmd[0], flags.timing, errw)
+	rc := hostLaunch(flags, profile, cmd, out, trace.errw, errw, stdin, trace)
+	trace.end(rc)
+	return rc
+}
+
+// hostLaunchTrace is what one `yolo host -- <cmd>` leaves behind on this machine, whatever its
+// outcome, in three places under GLOBAL_STORAGE/logs and never in the directory it ran in:
+//
+//   - launches.log, the machine-wide launch line every jail launch writes (OQ-PR3), with
+//     `runtime=host` (run.HostLaunchRecord);
+//   - host-launch.log, a block holding every line yolo printed to stderr, ANSI-stripped, each
+//     named by the launch's pid, with nothing typed after the program and never the directory
+//     (run.HostLaunchLog; the argv disclosures and the starting line reach it through
+//     printHostLinesLogged) — the host's half of report-tiers.md's "the launcher persists its
+//     half";
+//   - host-notch-perf.log, the launch's spans, when --timing, a typed --verbose, `perf_logging`
+//     or YOLO_TIMING/YOLO_VERBOSE asks (run.HostNotchTiming; perf-logging.md D18).
+//
+// errw is the stream yolo's own lines go to, the log teed beneath it. The stream as the caller
+// handed it is what a resident launch hands the AGENT (hostLaunch's rawErrw), so the agent keeps
+// its terminal and nothing it prints lands in the log.
+type hostLaunchTrace struct {
+	record *run.HostLaunchRecord
+	log    *run.HostLaunchLog
+	timing *run.HostNotchTiming
+	errw   io.Writer
+}
+
+// startHostLaunchTrace starts the trace of a launch of cmd0 from the current directory; typedTiming
+// is --timing as typed.
+func startHostLaunchTrace(cmd0 string, typedTiming bool, errw io.Writer) *hostLaunchTrace {
+	ws, err := os.Getwd()
+	if err != nil {
+		ws = "."
+	}
+	t := &hostLaunchTrace{record: run.StartHostLaunchRecord(ws)}
+	t.log = run.OpenHostLaunchLog(ws, cmd0)
+	t.errw = t.log.Writer(errw)
+	t.timing = run.HostNotchTimingLog(typedTiming, explicitVerbose(), os.Getenv, t.errw)
+	return t
+}
+
+// span starts one of the launch's named spans (a no-op when nothing records).
+func (t *hostLaunchTrace) span(name string) *perf.Span { return t.timing.Log.Span(name) }
+
+// handOver is the last thing the launch does before the command gets the process or the
+// terminal: the hand-over mark, the timing report (the table, or the line naming the file), and
+// the launch line's `outcome=started`. It runs BEFORE the starting line, so that line stays the
+// last one yolo prints and a slow agent startup is visibly the agent's.
+func (t *hostLaunchTrace) handOver() {
+	t.timing.Log.Mark("host.handover")
+	t.timing.Report("yolo host timing (to the hand-over):")
+	t.record.Started()
+}
+
+// end is the trace of a launch that returned rc: `outcome=not-started` unless it had already
+// handed over (a resident agent that exited, or an exec that failed), and the log's trailer.
+func (t *hostLaunchTrace) end(rc int) {
+	t.record.NotStarted(rc)
+	t.log.Done(rc)
+}
+
+// hostLaunch is hostExec past the argv: every stage of one launch, spanned. errw is the teed
+// stream for yolo's own lines, rawErrw the caller's, handed only to an agent yolo stays resident
+// under.
+func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, rawErrw io.Writer,
+	stdin io.Reader, trace *hostLaunchTrace) int {
 	profile, bareNote, err := narrowHostBareList(flags.profile, profile, filepath.Base(cmd[0]))
 	if err != nil {
 		fmt.Fprintf(errw, "yolo host: refusing to launch: %v\n", err)
@@ -552,28 +673,44 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 		fmt.Fprintf(errw, "yolo host: %s\n", bareNote)
 	}
 	flags.profile = profile
-	// THE HOST-RENDER GATE, before anything else this function does (hostapplygate.go, and
-	// docs/reference/host-apply-staleness.md §4.1). It is the host notch's answer to the jail's
-	// launch-time config approval, and it sits FIRST for the reason the credential pre-flight
-	// below gives for its own placement: a launch that is going to be stopped should be stopped
-	// while the only thing it has done is read some files. It is silent unless the user opted
-	// in, and it is a no-op in a jail.
-	// THE PACK REFRESH, above the gate: the gate's observe pass and the composition below
-	// both resolve the selected packs, and a never-fetched git pack must be fetched (and a
-	// branch-following one refreshed hourly) before either reads the store, exactly as a
-	// jail launch does (hostpackrefresh.go). stderr, like the gate: an agent's stdout is
-	// routinely parsed.
+	// THE PACK REFRESH, first: the capability gate, the render gate's observe pass and the
+	// composition below all resolve the selected packs, and a never-fetched git pack must be
+	// fetched (and a branch-following one refreshed hourly) before any of them reads the store,
+	// exactly as a jail launch does (hostpackrefresh.go). stderr, like the gates: an agent's
+	// stdout is routinely parsed.
+	sp := trace.span("host.pack_refresh")
 	refreshHostPacks(errw)
+	sp.End()
+	// OQ-CAP2's GATE (hostcapabilities.go), before the render gate for the reason that gate gives
+	// for its own provider-section check (hostapplygate.go, "a config the launch refuses is not
+	// rendered first"): a launch this refuses must not auto-apply a render of its config first —
+	// nor fetch or build a patched extension for it.
+	sp = trace.span("host.capability_gate")
+	refused := refuseHostUnmetCapabilities(errw, filepath.Base(cmd[0]), flags.profile)
+	sp.End()
+	if refused {
+		return 1
+	}
 	// THE PATCHED EXTENSIONS this program loads (docs/design/patched-extensions.md §8.3, PPX-D11):
 	// their check and advance BEFORE the gate compares the render, and outside that comparison, so
 	// it sees the build the apply would install — scoped to the owning agent's programs, so a
-	// launch of any other bin waits on no extension's fetch or build.
+	// launch of any other bin waits on no extension's fetch or build. Inside the gate's span: it is
+	// the gate's preparation, and a build it waits on is time the gate cost.
 	// ONE ACT (PF-D57): a Ctrl-C that ends an extension's wait here ends the program's below too.
+	//
+	// THE HOST-RENDER GATE (hostapplygate.go, and docs/reference/host-apply-staleness.md §4.1).
+	// It is the host notch's answer to the jail's launch-time config approval, and it sits before
+	// the composition for the reason the credential pre-flight below gives for its own placement:
+	// a launch that is going to be stopped should be stopped while the only thing it has done is
+	// read some files. It is silent unless the user opted in, and it is a no-op in a jail.
+	sp = trace.span("host.apply_gate")
 	act := &run.ActInterrupt{}
 	if config.HostApplyOnLaunchEnabled() && config.HostManagementMode() != config.HostManagementNone {
 		advanceHostTrees(errw, colorForWriter(errw), filepath.Base(cmd[0]), act)
 	}
-	if !hostApplyGate(errw, stdin, cmd[0]) {
+	gated := hostApplyGate(errw, stdin, cmd[0])
+	sp.End()
+	if !gated {
 		return 1
 	}
 	// AND PPX-D18's STOP: the owning agent does not start without a patched extension it loads;
@@ -588,10 +725,235 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 	// hostServicesStart: this is the one front door that owns its command's lifetime, so a
 	// profile paired through a pack service runs that service's host half for the command
 	// (docs/design/host-notch-services.md; OQ-NC1 A, OQ-HS3 per launch).
+	sp = trace.span("host.compose")
 	launch := composeHostLaunchWith(cmd[0], flags.profile, flags.grant, func(msg string) {
 		fmt.Fprintf(errw, "Warning: %s\n", msg)
 	}, hostServicesStart)
+	sp.End()
 
+	sp = trace.span("host.preflight")
+	if rc := hostPreflight(launch, errw); rc != 0 {
+		sp.End()
+		return rc
+	}
+	sp.End()
+
+	// WHICH BINARY RUNS (HP-DIR4, host-agent-environment.md, which copy runs): a bare name of a program a
+	// selected pack delivers is the FLOOR's copy, installed first when missing; a path is exec'd
+	// as given; anything else is looked up on the child's PATH — the LAUNCH PATH (the caller's
+	// PATH, then `host_path`'s folders not already on it: HE-DIR1, HE-D3), then the floor's bin/
+	// (OQ-HE10 (c), HE-D1), which is also the PATH the child is handed below. The launch PATH is
+	// resolved once, here, for both.
+	lp := hostLaunchPath()
+	childPath := hostChildPath(lp, hostFloorBinDir())
+	sp = trace.span("host.resolve_target")
+	resolved, rc := resolveHostLaunchTarget(launch.packs, cmd[0], lp, errw, act)
+	sp.End()
+	if rc != 0 {
+		return rc
+	}
+	target := resolved.Path
+	// THE PROGRAM'S PRE-LAUNCH REFRESH (packdecl.Refresh; docs/design/host-tool-provisioning.md
+	// HP-D19, hostfloor/prelaunch.go): pi's `update --extensions`, run against the target that
+	// resolved — the floor's copy, a PATH copy or a path given — before the model menu and the
+	// OpenAI prelaunch, as the jail's launcher runs it, and before the blocked tools join the
+	// child's PATH, since the jail runs it with them bypassed. A failure is a line and the launch
+	// goes on; a SIGTERM or SIGHUP that stopped it ends the launch. Spanned only where it can run.
+	if prog, progs, ok := hostRefreshProgram(launch.packs, cmd[0]); ok {
+		sp = trace.span("host.prelaunch_refresh")
+		rc := hostPrelaunchRefresh(launch, prog, progs, target, childPath, errw)
+		sp.End()
+		if rc != 0 {
+			return rc
+		}
+	}
+	// THE BLOCKED TOOLS (HE-D11, hostblockers.go): the selected packs' and the user scope's
+	// blocked-tool shims, first on the child's PATH, once the target has resolved — its lookup
+	// above read the PATH without them, as the folders it skips include theirs — and before the
+	// model menu, so every reader of the child's environment below sees the PATH the child gets.
+	// With nothing blocked the PATH is OQ-HE10's exactly.
+	childPath = hostBlockedChildPath(launch, childPath, errw)
+	// argv[0] stays the name the user typed, not the resolved path: agents branch on it
+	// (usage text, `$0`), and handing them an absolute path changes what they print.
+	argv := injectHostLaunchFlags(launch.packs, append([]string{cmd[0]}, cmd[1:]...), errw)
+	// THE PROGRAM'S MODEL MENU (docs/design/model-lists-and-pickers.md §14.7, MM-D24 to MM-D28):
+	// the jail launcher's step, run here against the resolved target with the list this launch
+	// composed, for the provider the program runs on (MM-D30). After the
+	// binary resolves and the pack's flags are added, so the catalog is the program that runs;
+	// its flag goes right after argv[0], ahead of those flags, and is disclosed in their words.
+	// The menu's lock is held for the program's life: by this process where it stays resident
+	// (the deferred Close), and by the program itself across the exec below.
+	//
+	// THE PROGRAM'S LAUNCH SELECTION first (MM-D30, hostmodelmenu.go): a typed -p whose selection
+	// differs from the configured profile's is handed to a program whose provider lives in its own
+	// config file, as argv right after argv[0] or a variable, disclosed here and set in the
+	// environment below; the menu then follows the provider the program runs on.
+	sp = trace.span("host.model_menu")
+	selection := launch.launchSelection(cmd, launch.childEnviron(childPath), func(line string) {
+		fmt.Fprintf(errw, "yolo host: %s\n", line)
+	})
+	asked := argv
+	argv, selectionLines := selection.rewrite(argv)
+	printHostArgvDisclosure(errw, selectionLines, asked, argv)
+	printHostLines(errw, selection.varLines())
+	menu := launch.modelMenu(target, launch.childEnviron(childPath), selection, errw)
+	defer menu.Close()
+	asked = argv
+	argv, menuLines := menu.rewrite(argv)
+	sp.End()
+	printHostArgvDisclosure(errw, menuLines, asked, argv)
+	// THE DECLARATIVE OPENAI PRELAUNCH (notch-convergence item 15): what the launched command's
+	// pack declares, from the composition, logging in only where a human can answer the browser
+	// login. It used to switch on the command's name and log in regardless of profile or terminal.
+	sp = trace.span("host.openai_prelaunch")
+	managed, err := prepareOpenAIAuthHost(launch.prelaunch(hostGateCanPrompt()), errw)
+	sp.End()
+	if err != nil {
+		fmt.Fprintf(errw, "yolo host: prepare shared OpenAI authentication: %v\n", err)
+		return 1
+	}
+	// THE MANAGED LAUNCH'S OWN ARGV REWRITE (OQ-CDX1): a managed Codex launch runs with
+	// --no-daemon, so it never attaches to a background server an earlier launch left running
+	// with that launch's refresh address. Before both exec paths below, and disclosed like the
+	// pack flags above: a launch has no quiet mode.
+	if managed != nil {
+		asked := argv
+		var disclosure []string
+		argv, disclosure = managed.Argv(argv)
+		printHostArgvDisclosure(errw, disclosure, asked, argv)
+	}
+	// WHAT THIS NOTCH WITHHOLDS BECAUSE NOTHING HERE SERVES IT (notch convergence item 2),
+	// after the managed launch is prepared, because that launch serves one of them itself:
+	// `yolo host -- codex` runs its own refresh adapter and sets the URL the codex pack's
+	// pointer names, so that one is not missing and is not named. When that launch did not
+	// start (no login, no terminal), the URL is named with that reason, the launch's own.
+	printHostLines(errw, launch.unservedLines(managedHostVars(managed)))
+	// THE PURE WORKERS THIS LAUNCH DOES NOT START (hostPureWorkers, HS-D29), one line each and on
+	// every launch: a worker that runs only in a jail, one whose host half is refused, one no gate
+	// of this selection asks for. Silent when there are none.
+	for _, line := range launch.workerNotes {
+		fmt.Fprintf(errw, "yolo host: %s\n", line)
+	}
+	// THE WORKSPACE SKILLS LINK (OQ-WS5's B; docs/design/workspace-skills.md WS-D19 to WS-D23,
+	// hostworkspaceskills.go) is the launch's LAST write, made just before each hand-over below:
+	// after every pre-flight, the prelaunch and every launch-owned service and doorway, so a
+	// launch refused at any of them — a bridge that cannot bind included — writes nothing into
+	// the workspace (WS-D19).
+	linkWorkspaceSkills := func() { hostWorkspaceSkills(launch.packs, launch.agent, errw) }
+	environ := launch.childEnviron(childPath)
+	// THE CLAUDE CREDENTIAL VIEW AT THE HOST (CL-D27, hostclaudeview.go), behind the jails' own
+	// switch and off by default: set in environ here, so the exec and the resident path below
+	// both carry it.
+	environ = hostClaudeView(launch, environ, errw)
+	// The launch selection's variables (MM-D30), disclosed above with its argv.
+	environ = selection.applyEnv(environ)
+	// THE LAUNCH-OWNED SERVICES (docs/design/host-notch-services.md §4.4): started after the
+	// agent resolved on PATH and after the prelaunch, so a missing agent starts nothing and the
+	// OpenAI login exists before the bridge asks for a view; the agent starts only once each
+	// service is listening, and every one stops when the agent exits. Said on stderr, every
+	// time: this is host code yolo runs on the user's machine, and a launch has no quiet mode.
+	//
+	// THE DOORWAYS FIRST (HS-D15, HS-D21; run.HostDoorways.Start): the host service each one
+	// forwards to, fronted for this launch, then the doorway, as the macos-user arm orders them
+	// (HS-D19). The fronts and their session dir close after the agent's parent has stopped the
+	// doorways, when this function returns.
+	if len(launch.services) > 0 || len(launch.workers) > 0 || len(launch.doorways.Plans()) > 0 {
+		if managed != nil {
+			environ = managed.Environ(environ)
+		}
+		sp = trace.span("host.services_start")
+		running, stopHostServices, lines, err := launch.doorways.Start(launch.cfg, launch.workspace,
+			launch.agent, errw, startLaunchService)
+		for _, line := range lines {
+			fmt.Fprintf(errw, "yolo host: %s\n", line)
+		}
+		if err != nil {
+			sp.End()
+			fmt.Fprintf(errw, "yolo host: refusing to launch: %v\n", err)
+			return 1
+		}
+		defer stopHostServices()
+		// The bridged pairing's service, then the pure workers (HS-D29): each one a child of this
+		// process for the agent's life, a start that fails refusing the launch with the ones
+		// already open stopped. Code from a pack yolo does not ship is named, argv and all, BEFORE
+		// it runs (noteHostHalfFromALocalPack), as the doorways' packs are (run.HostDoorways.Start).
+		for _, plan := range append(append([]*launchservice.Plan(nil), launch.services...), launch.workers...) {
+			noteHostHalfFromALocalPack(errw, plan)
+			input := launch.serviceInput()
+			if slices.Contains(launch.workers, plan) {
+				input = launch.workerInput()
+			}
+			r, err := startLaunchService(plan, input)
+			if err != nil {
+				for _, started := range running {
+					started.Stop()
+				}
+				sp.End()
+				fmt.Fprintf(errw, "yolo host: refusing to launch: %v\n", err)
+				return 1
+			}
+			running = append(running, r)
+			if slices.Contains(launch.workers, plan) {
+				fmt.Fprintf(errw, "yolo host: started the %q service (pack %q, pid %d) for %s, %s; it is "+
+					"handed only this launch's caller token and stops when %s exits. Its log: %s\n",
+					plan.Service, plan.Pack, r.PID(), launch.agent, launch.workerPointedAt(plan.Service),
+					launch.agent, r.Log)
+				continue
+			}
+			// The addresses the agent's provider environment points it at, the only routes the
+			// service opens (HS-D24): never read out of environ, whose wire tables (FT-D2) name
+			// every address the plan moved.
+			fmt.Fprintf(errw, "yolo host: started the %q service (pack %q, pid %d) for %s on %s; "+
+				"it answers only this launch's caller token and stops when %s exits. Its log: %s\n",
+				plan.Service, plan.Pack, r.PID(), launch.agent,
+				strings.Join(plan.PointedAt(launch.scope.Agent(launch.agent)), ", "), launch.agent, r.Log)
+		}
+		// What the service is handed and the agent is not (HS-D32), on every launch that does it.
+		if line := launch.serviceOnlyLine(); line != "" {
+			fmt.Fprintf(errw, "yolo host: %s\n", line)
+		}
+		sp.End()
+		linkWorkspaceSkills()
+		// WHAT STARTS, AND FROM WHERE, the last line before the hand-over: a slow agent startup
+		// is then visibly the agent's, not yolo's.
+		trace.handOver()
+		printHostStartingLine(errw, cmd[0], resolved)
+		// The agent gets the caller's own stream, never the teed one (hostLaunchTrace).
+		return launchservice.RunAgent(target, argv, environ, stdin, out, rawErrw, running,
+			hostServiceSignals, "yolo host: ")
+	}
+	// The same line on the exec path — a managed launch that stays resident included, since it
+	// runs the same target.
+	linkWorkspaceSkills()
+	trace.handOver()
+	printHostStartingLine(errw, cmd[0], resolved)
+	if managed != nil {
+		environ = managed.Environ(environ)
+		if rc, handled := managed.Run(target, argv, environ, stdin, out, rawErrw); handled {
+			return rc
+		}
+	}
+	// Given back BEFORE the exec, because cli.Main's deferred release never runs once this
+	// process has been replaced — and every host wrapper launch comes through here. With the
+	// shared cache tree that closes a lease the exec would drop anyway (close-on-exec); with a
+	// per-process FALLBACK tree it is the only thing that deletes it. Nothing after the exec
+	// reads a Pack.Root: the host-apply sync above rendered copies out of it.
+	packload.ReleaseEmbedded()
+	// The menu's lock crosses the exec, so the program holds it for its own life (MM-D27): the
+	// deferred Close above never runs once this process is replaced.
+	menu.KeepAcrossExec(errw)
+	trace.log.HandedOver("exec")
+	if err := hostSyscallExec(target, argv, environ); err != nil {
+		fmt.Fprintf(errw, "yolo host: exec %s: %v\n", target, err)
+		return 126
+	}
+	return 0 // unreachable: a successful Exec never returns
+}
+
+// hostPreflight is the launch's pre-flights over its composition, in order, each refusing with
+// its own lines: the composition's own refusal, the OQ-SSO8 check, the platform-switch notice,
+// the credential and region pre-flights, then the disclosures they leave. 0 to go on.
+func hostPreflight(launch *hostComposition, errw io.Writer) int {
 	// THE PROVIDER COMPOSITION's own refusal, before anything else: a provider table this
 	// notch cannot compose is one no launch may exec from, and the credential pre-flight
 	// below would be answering a question about a table that was never built. Same exit
@@ -674,133 +1036,26 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 	for _, block := range [][]string{launch.regionLines(), launch.credentialScopeLines(), launch.grantLines()} {
 		printHostLines(errw, block)
 	}
-
-	// WHICH BINARY RUNS (HP-DIR4, host-agent-environment.md, which copy runs): a bare name of a program a
-	// selected pack delivers is the FLOOR's copy, installed first when missing; a path is exec'd
-	// as given; anything else is looked up on the child's PATH — the LAUNCH PATH (the caller's
-	// PATH, then `host_path`'s folders not already on it: HE-DIR1, HE-D3), then the floor's bin/
-	// (OQ-HE10 (c), HE-D1), which is also the PATH the child is handed below. The launch PATH is
-	// resolved once, here, for both.
-	lp := hostLaunchPath()
-	childPath := hostChildPath(lp, hostFloorBinDir())
-	resolved, rc := resolveHostLaunchTarget(launch.packs, cmd[0], lp, errw, act)
-	if rc != 0 {
-		return rc
-	}
-	target := resolved.Path
-	// argv[0] stays the name the user typed, not the resolved path: agents branch on it
-	// (usage text, `$0`), and handing them an absolute path changes what they print.
-	argv := injectHostLaunchFlags(launch.packs, append([]string{cmd[0]}, cmd[1:]...), errw)
-	// THE PROGRAM'S MODEL MENU (docs/design/model-lists-and-pickers.md §14.7, MM-D24 to MM-D28):
-	// the jail launcher's step, run here against the resolved target with the list this launch
-	// composed, and only where the launch's provider is the configured profile's. After the
-	// binary resolves and the pack's flags are added, so the catalog is the program that runs;
-	// its flag goes right after argv[0], ahead of those flags, and is disclosed in their words.
-	// The menu's lock is held for the program's life: by this process where it stays resident
-	// (the deferred Close), and by the program itself across the exec below.
-	menu := launch.modelMenu(target, launch.childEnviron(childPath), errw)
-	defer menu.Close()
-	argv, menuLines := menu.rewrite(argv)
-	printHostLines(errw, menuLines)
-	// THE DECLARATIVE OPENAI PRELAUNCH (notch-convergence item 15): what the launched command's
-	// pack declares, from the composition, logging in only where a human can answer the browser
-	// login. It used to switch on the command's name and log in regardless of profile or terminal.
-	managed, err := prepareOpenAIAuthHost(launch.prelaunch(hostGateCanPrompt()), errw)
-	if err != nil {
-		fmt.Fprintf(errw, "yolo host: prepare shared OpenAI authentication: %v\n", err)
-		return 1
-	}
-	// THE MANAGED LAUNCH'S OWN ARGV REWRITE (OQ-CDX1): a managed Codex launch runs with
-	// --no-daemon, so it never attaches to a background server an earlier launch left running
-	// with that launch's refresh address. Before both exec paths below, and disclosed like the
-	// pack flags above: a launch has no quiet mode.
-	if managed != nil {
-		var disclosure []string
-		argv, disclosure = managed.Argv(argv)
-		printHostLines(errw, disclosure)
-	}
-	// WHAT THIS NOTCH WITHHOLDS BECAUSE NOTHING HERE SERVES IT (notch convergence item 2),
-	// after the managed launch is prepared, because that launch serves one of them itself:
-	// `yolo host -- codex` runs its own refresh adapter and sets the URL the codex pack's
-	// pointer names, so that one is not missing and is not named. When that launch did not
-	// start (no login, no terminal), the URL is named with that reason, the launch's own.
-	printHostLines(errw, launch.unservedLines(managedHostVars(managed)))
-	environ := launch.childEnviron(childPath)
-	// THE LAUNCH-OWNED SERVICES (docs/design/host-notch-services.md §4.4): started after the
-	// agent resolved on PATH and after the prelaunch, so a missing agent starts nothing and the
-	// OpenAI login exists before the bridge asks for a view; the agent starts only once each
-	// service is listening, and every one stops when the agent exits. Said on stderr, every
-	// time: this is host code yolo runs on the user's machine, and a launch has no quiet mode.
-	//
-	// THE DOORWAYS FIRST (HS-D15, HS-D21; run.HostDoorways.Start): the host service each one
-	// forwards to, fronted for this launch, then the doorway, as the macos-user arm orders them
-	// (HS-D19). The fronts and their session dir close after the agent's parent has stopped the
-	// doorways, when this function returns.
-	if len(launch.services) > 0 || len(launch.doorways.Plans()) > 0 {
-		if managed != nil {
-			environ = managed.Environ(environ)
-		}
-		running, stopHostServices, lines, err := launch.doorways.Start(launch.cfg, launch.workspace,
-			launch.agent, errw, startLaunchService)
-		for _, line := range lines {
-			fmt.Fprintf(errw, "yolo host: %s\n", line)
-		}
-		if err != nil {
-			fmt.Fprintf(errw, "yolo host: refusing to launch: %v\n", err)
-			return 1
-		}
-		defer stopHostServices()
-		for _, plan := range launch.services {
-			r, err := startLaunchService(plan, launch.serviceInput())
-			if err != nil {
-				for _, started := range running {
-					started.Stop()
-				}
-				fmt.Fprintf(errw, "yolo host: refusing to launch: %v\n", err)
-				return 1
-			}
-			running = append(running, r)
-			// The addresses the agent's provider environment points it at, the only routes the
-			// service opens (HS-D24): never read out of environ, whose wire tables (FT-D2) name
-			// every address the plan moved.
-			fmt.Fprintf(errw, "yolo host: started the %q service (pack %q, pid %d) for %s on %s; "+
-				"it answers only this launch's caller token and stops when %s exits. Its log: %s\n",
-				plan.Service, plan.Pack, r.PID(), launch.agent,
-				strings.Join(plan.PointedAt(launch.scope.Agent(launch.agent)), ", "), launch.agent, r.Log)
-		}
-		// WHAT STARTS, AND FROM WHERE, the last line before the hand-over: a slow agent startup
-		// is then visibly the agent's, not yolo's.
-		fmt.Fprintln(errw, hostStartingLine(cmd[0], resolved))
-		return launchservice.RunAgent(target, argv, environ, stdin, out, errw, running,
-			hostServiceSignals, "yolo host: ")
-	}
-	// The same line on the exec path — a managed launch that stays resident included, since it
-	// runs the same target.
-	fmt.Fprintln(errw, hostStartingLine(cmd[0], resolved))
-	if managed != nil {
-		environ = managed.Environ(environ)
-		if rc, handled := managed.Run(target, argv, environ, stdin, out, errw); handled {
-			return rc
-		}
-	}
-	// Given back BEFORE the exec, because cli.Main's deferred release never runs once this
-	// process has been replaced — and every host wrapper launch comes through here. With the
-	// shared cache tree that closes a lease the exec would drop anyway (close-on-exec); with a
-	// per-process FALLBACK tree it is the only thing that deletes it. Nothing after the exec
-	// reads a Pack.Root: the host-apply sync above rendered copies out of it.
-	packload.ReleaseEmbedded()
-	// The menu's lock crosses the exec, so the program holds it for its own life (MM-D27): the
-	// deferred Close above never runs once this process is replaced.
-	menu.KeepAcrossExec(errw)
-	if err := hostSyscallExec(target, argv, environ); err != nil {
-		fmt.Fprintf(errw, "yolo host: exec %s: %v\n", target, err)
-		return 126
-	}
-	return 0 // unreachable: a successful Exec never returns
+	return 0
 }
 
 // startLaunchService starts one launch-owned service; a var so a test can observe what started.
 var startLaunchService = launchservice.Start
+
+// noteHostHalfFromALocalPack is the disclosure of a service's host half that a pack yolo does not
+// ship declares, printed BEFORE it starts: a local pack's (launchservice.Declared.Local; HS-D27,
+// the only other origin admission lets through), whose argv is the user's own code, run on their
+// machine outside every sandbox. On every launch that starts one, and never suppressible
+// (docs/reference/report-tiers.md OQ-RO3: the exec banner is the trust boundary). Silent for a
+// pack yolo ships, whose start line below names it.
+func noteHostHalfFromALocalPack(errw io.Writer, plan *launchservice.Plan) {
+	if !plan.Local {
+		return
+	}
+	fmt.Fprintf(errw, "yolo host: this launch runs pack code on your machine: the %q service's host "+
+		"half from pack %q, a local pack yolo does not ship: %s\n", plan.Service, plan.Pack,
+		shquote.Join(plan.Cmd))
+}
 
 // hostServiceSignals is the channel a launch with a service reads its signals from, nil for this
 // process's own; a var so a test can deliver one without signalling itself.
@@ -808,12 +1063,18 @@ var hostServiceSignals chan os.Signal
 
 // serviceInput is what every launch-owned service of this composition is handed
 // (launchservice.Input): the three wire tables for the one agent, the host broker's private
-// socket, and the env_sources the credential gate delivers to that agent for its provider
+// socket, the doorway pointers and region variables the gate composed for that agent
+// (serviceVars, HS-D32), and the env_sources the credential gate delivers to it for its provider
 // (AgentDelivery.EnvSources), so a service reaches exactly the credential of the provider it
 // serves and no other. The caller token is added by launchservice.Start.
 func (c *hostComposition) serviceInput() map[string]string {
 	env := c.wireTables()
 	env[openauthclient.HostSocketEnv] = openaiauthhost.HostSocketPath()
+	// The doorway pointers and region variables the gate composed for the agent (HS-D32), which
+	// the service signs a via or carrier route with: into the service's input alone.
+	for k, v := range c.serviceVars {
+		env[k] = v
+	}
 	if d := c.scope.Agent(c.agent); d != nil && d.EnvSources != nil {
 		for _, k := range d.EnvSources.Keys() {
 			if v, _ := d.EnvSources.Get(k); v != nil {
@@ -826,6 +1087,54 @@ func (c *hostComposition) serviceInput() map[string]string {
 	return env
 }
 
+// workerInput is what a pure worker of this composition is handed (hostPureWorkers; HS-D29): the
+// three wire tables and the host broker's private socket, as every launch-owned service is, and
+// no provider credential, since no pairing names one the worker serves. The caller token is
+// added by launchservice.Start.
+func (c *hostComposition) workerInput() map[string]string {
+	env := c.wireTables()
+	env[openauthclient.HostSocketEnv] = openaiauthhost.HostSocketPath()
+	return env
+}
+
+// servedSet is what this host launch serves (packload.ServedDaemons): its doorways, the bridged
+// pairing's service and the pure workers it starts (HS-D29), with workerWhy, the reason a pointer
+// at each worker it does not start is withheld (hostPureWorkers).
+func (c *hostComposition) servedSet(workerWhy map[string]string) packload.ServedDaemons {
+	served := c.doorways.Served()
+	if plans := append(append([]*launchservice.Plan(nil), c.services...), c.workers...); len(plans) > 0 {
+		served = launchservice.Served(plans).Plus(served)
+	}
+	return served.WithNotServedWhy(workerWhy)
+}
+
+// callerTokens is the gate's caller tokens for this launch (packload.ScopeInput.CallerTokens): the
+// bridged pairing's service's, each pure worker's and each doorway's, under its variable. nil when
+// the launch runs none.
+func (c *hostComposition) callerTokens() map[string]string {
+	var tokens map[string]string
+	for _, m := range []map[string]string{launchservice.CallerTokens(c.services),
+		launchservice.CallerTokens(c.workers), c.doorways.CallerTokens()} {
+		for k, v := range m {
+			if tokens == nil {
+				tokens = map[string]string{}
+			}
+			tokens[k] = v
+		}
+	}
+	return tokens
+}
+
+// workerPointedAt is how a pure worker's start line names who reaches it: the pack env variables
+// this launch composed into the agent's environment `served_by` it (packload.PointersAt), or, with
+// none, that no agent is pointed at it.
+func (c *hostComposition) workerPointedAt(service string) string {
+	if vars := packload.PointersAt(c.scope.FoldFor(c.agent), service); len(vars) > 0 {
+		return "a worker " + c.agent + " is pointed at through " + strings.Join(vars, ", ")
+	}
+	return "a worker no agent is pointed at"
+}
+
 // wireTables is this launch's three wire tables, serialized and keyed by the names in
 // entrypoint.WireTables: the composed provider table, the resolved profile table, and a
 // selection holding this one agent's entry alone ("{}" when it selected no profile). ONE
@@ -835,12 +1144,28 @@ func (c *hostComposition) serviceInput() map[string]string {
 // different tables for one launch. A jail's channel writes the same three names
 // (run's packChannel.wireTableValues). A fresh map each call.
 func (c *hostComposition) wireTables() map[string]string {
+	set := c.set
+	if c.profile != "" && len(set) == 0 {
+		set = []string{c.profile}
+	}
+	if c.profile == "" {
+		set = nil
+	}
+	return c.wireTablesFor(set)
+}
+
+// configuredWireTables is wireTables with the selection the configured `profile` key makes for this
+// agent in place of the launch's (configuredSet): what `yolo host apply` composes the agent's own
+// files from, over this launch's packs and provider table. The launch selection compares the two
+// (docs/design/model-lists-and-pickers.md MM-D30).
+func (c *hostComposition) configuredWireTables() map[string]string {
+	return c.wireTablesFor(c.configuredSet)
+}
+
+// wireTablesFor is the three wire tables with this agent's entry selecting set ("{}" when nil).
+func (c *hostComposition) wireTablesFor(set []string) map[string]string {
 	use := jsonx.NewOrderedMap()
-	if c.profile != "" {
-		set := c.set
-		if len(set) == 0 {
-			set = []string{c.profile}
-		}
+	if len(set) > 0 {
 		use.Set(c.agent, packload.ProfileSetWire(set))
 	}
 	return map[string]string{
@@ -854,13 +1179,23 @@ func (c *hostComposition) wireTables() map[string]string {
 // the first line after "yolo host: ", the rest as they are. The block's wording is packload's,
 // shared with the jail notch, so this prefix is the only part of it that is the host's.
 func printHostLines(errw io.Writer, lines []string) {
+	if len(lines) == 0 {
+		return
+	}
+	_, _ = io.WriteString(errw, hostLinesText(lines))
+}
+
+// hostLinesText is lines as printHostLines prints them: the first after the "yolo host: " prefix,
+// each on its own line.
+func hostLinesText(lines []string) string {
+	var b strings.Builder
 	for i, line := range lines {
 		if i == 0 {
-			fmt.Fprintf(errw, "yolo host: %s\n", line)
-			continue
+			b.WriteString("yolo host: ")
 		}
-		fmt.Fprintln(errw, line)
+		b.WriteString(line + "\n")
 	}
+	return b.String()
 }
 
 // injectHostLaunchFlags is the host notch's argv rewrite: the SAME injector the jail launcher
@@ -874,8 +1209,85 @@ func printHostLines(errw io.Writer, lines []string) {
 // was rewritten, which is every shipped pack today: none declares a guarded launch flag.
 func injectHostLaunchFlags(packs []*packload.Pack, argv []string, errw io.Writer) []string {
 	out, inj := packload.InjectLaunchFlags(packs, render.ProfileFor(render.KindHost).AgentAutonomy, argv)
-	printHostLines(errw, inj.DisclosureLines())
+	printHostArgvDisclosure(errw, inj.DisclosureLines(), argv, out)
 	return out
+}
+
+// hostLogRedacting is the host launch log's tee (run.HostLaunchLog.Writer): a line written to it
+// this way reaches the terminal as p and the log as logCopy.
+type hostLogRedacting interface {
+	WriteRedacted(p, logCopy []byte) (int, error)
+}
+
+// printHostLinesLogged prints lines as printHostLines does, and hands the host launch log logLines
+// in their place: what the user is shown stays whole, and the machine log keeps only what it may
+// (run.HostLaunchLog: nothing typed after the program). A stream with no log beneath it gets lines.
+func printHostLinesLogged(errw io.Writer, lines, logLines []string) {
+	if len(lines) == 0 {
+		return
+	}
+	writeHostLogged(errw, hostLinesText(lines), hostLinesText(logLines))
+}
+
+// writeHostLogged writes text to errw, and logText in its place to the host launch log beneath it
+// when there is one.
+func writeHostLogged(errw io.Writer, text, logText string) {
+	if r, ok := errw.(hostLogRedacting); ok {
+		_, _ = r.WriteRedacted([]byte(text), []byte(logText))
+		return
+	}
+	_, _ = io.WriteString(errw, text)
+}
+
+// printHostArgvDisclosure prints an argv rewrite's disclosure (lines, nil when nothing was
+// rewritten), which quotes asked, the argv as typed, and ran, the argv yolo runs, each whole. The
+// terminal gets it as written; the host launch log gets each argv as hostLoggedArgv names it.
+func printHostArgvDisclosure(errw io.Writer, lines, asked, ran []string) {
+	whole := []string{shquote.Join(ran), shquote.Join(asked)}
+	named := []string{hostLoggedArgv(ran), hostLoggedArgv(asked)}
+	logged := make([]string, len(lines))
+	for i, line := range lines {
+		logged[i] = line
+		// The longer argv first: ran holds every word asked does, so a line quoting ran would
+		// otherwise be matched by asked's prefix of it.
+		for j, w := range whole {
+			if strings.Contains(line, w) {
+				logged[i] = strings.Replace(line, w, named[j], 1)
+				break
+			}
+		}
+	}
+	printHostLinesLogged(errw, lines, logged)
+}
+
+// hostLoggedArgv is an argv as the host launch log names it: the program's base name and how many
+// arguments followed it, never the arguments.
+func hostLoggedArgv(argv []string) string {
+	if len(argv) == 0 {
+		return ""
+	}
+	switch n := len(argv) - 1; n {
+	case 0:
+		return filepath.Base(argv[0])
+	case 1:
+		return filepath.Base(argv[0]) + " <1 argument>"
+	default:
+		return fmt.Sprintf("%s <%d arguments>", filepath.Base(argv[0]), n)
+	}
+}
+
+// printHostStartingLine prints the starting line (hostStartingLine), the last line yolo says
+// before the hand-over. A program typed as a path is resolved against the directory it was typed
+// in, so the line's path names that directory: the host launch log gets the line with the program
+// by its base name and without the path.
+func printHostStartingLine(errw io.Writer, cmd0 string, t hostTarget) {
+	line := hostStartingLine(cmd0, t)
+	logged := line
+	if t.Origin == originGiven {
+		logged = strings.Replace(line, "starting "+cmd0+" (", "starting "+filepath.Base(cmd0)+" (", 1)
+		logged = strings.Replace(logged, ", "+homeTilde(t.Path)+")", ")", 1)
+	}
+	writeHostLogged(errw, line+"\n", logged+"\n")
 }
 
 // hostSyscallExec is the exec `yolo host` replaces itself with; a var so a test can pin
@@ -911,9 +1323,10 @@ func yoloManagedDirs() []string {
 type hostComposition struct {
 	// agent is the CLI name the profile table is keyed by (the target's basename).
 	agent string
-	// vars is the composition proper, in application order: the pack env fold (per pack,
-	// static then that pack's profile-gated entries), env_sources, the provider's env
-	// shape, the three wire tables (wireTables), and the removals last.
+	// vars is the composition proper, one var per name: the one ordered composition
+	// (packload's envcompose.go — the pack env fold, then env_sources and its removals, then the
+	// provider's env shape, each winning over the ones before it), then the three wire tables
+	// (wireTables).
 	vars []agentenv.Var
 	// packs and providers are the selected pack set and the composed provider table the
 	// vars were composed from.
@@ -944,6 +1357,17 @@ type hostComposition struct {
 	// unservedVias are the profiles whose via this notch cleared (packload.ViaServedAt),
 	// sorted, for the disclosure to name.
 	unservedVias []string
+	// viaWhy is, keyed by profile, this launch's own line for a via or carrier it cleared because
+	// the agent's own config files carry it (planHostViaService; docs/design/host-notch-services.md
+	// HS-D31), which the "Not set at this notch" block prints in place of the notch's line.
+	viaWhy map[string]string
+	// serviceVars is what the credential gate composed for the agent that its launch-owned service
+	// signs with (packload.ServiceCredentialVars, HS-D32): a doorway's pointer and token, and the
+	// region variables. serviceInput hands them to the service. serviceOnly is the names among them
+	// kept OUT of the agent's environment, a doorway's pointer the launch opened only for the
+	// service that carries the agent (run.HostDoorways.ForService), sorted.
+	serviceVars map[string]string
+	serviceOnly []string
 	// command is the command as the user typed it after `--`, for the remedy to spell back;
 	// empty for `yolo host env`, which launches nothing.
 	command string
@@ -970,15 +1394,24 @@ type hostComposition struct {
 	// with its grant widened must spell again (grantRemedy). profile can instead come from
 	// the config `profile` key, which the re-run picks up by itself.
 	typedProfile string
-	// configuredProfile is the primary profile the user-scope `profile` key selects for this
-	// agent, "" when it selects none: profile's value had no -p been typed, which is the one
-	// `yolo host apply` writes into the agent's own config. The model menu builds only where
-	// the two select one provider (docs/design/model-lists-and-pickers.md MM-D25).
-	configuredProfile string
+	// configuredSet is the active set the user-scope `profile` key selects for this agent, its
+	// primary first, nil when it selects none: set's value had no -p been typed, which is the one
+	// `yolo host apply` writes into the agent's own config. The launch selection hands the program
+	// the -p's only where the two compose differently (docs/design/model-lists-and-pickers.md
+	// MM-D30), over configuredWireTables.
+	configuredSet []string
 	// services are the launch-owned services this composition planned (hostServicesStart), or
 	// the one a pairing needs (hostServicesDetect, with no ports or token): zero or one, since
 	// one agent resolves one pairing (docs/design/host-notch-services.md §4.2).
 	services []*launchservice.Plan
+	// workers are the PURE WORKERS whose host half this launch starts beside its agent
+	// (hostPureWorkers; docs/design/host-notch-services.md §1.2, HS-D29), planned only by the
+	// front door that runs the agent, and workerNotes the line for every other worker the
+	// selection holds: one that runs only in a jail, one whose host half is refused, one no gate
+	// of the selection asks for, or, at a front door that runs no agent, one that only
+	// `yolo host --` starts.
+	workers     []*launchservice.Plan
+	workerNotes []string
 	// doorways are the credential doorways this launch opens for its agent
 	// (run.PlanHostDoorways; docs/design/host-notch-services.md HS-D15, HS-D21), planned only
 	// by the front door that runs the agent, and the reason each one it leaves closed is closed.
@@ -1033,7 +1466,8 @@ func (c *hostComposition) prelaunch(interactive bool) openaiauthhost.Prelaunch {
 	return p
 }
 
-// fromRemoval marks a var in hostComposition.origins that UNSETS its name: an env_sources null.
+// fromRemoval marks a var in hostComposition.origins that UNSETS its name: an env_sources null or
+// a shape var's tombstone (hostComposedVars marks every removal of the composition so).
 // It is never printed; envOverrideFindings' lookup reads it as "not delivered".
 const fromRemoval = "a removal"
 
@@ -1061,14 +1495,18 @@ func (c *hostComposition) profileLines() []string {
 	// so the clause never offers it, and the key's null works here through the same fold.
 	key := config.ConfigProfileSelection(c.cfg)
 	deselect := func(agent, _ string) string {
-		return config.HostProfileDeselection(key, c.typedProfile != "", c.configuredProfile != "", agent)
+		return config.HostProfileDeselection(key, c.typedProfile != "", len(c.configuredSet) > 0, agent)
 	}
 	// Over the agent's whole ACTIVE SET (docs/design/active-provider-sets.md): every entry says
 	// where it landed, beside the set's own line and the key's bare-list note.
 	for _, d := range packload.ProfileDisclosures(packload.ProfileDisclosureInput{
 		Table: table, Sets: sets, Packs: c.packs, Resolved: c.resolved, Providers: c.providers,
-		Scope:    c.scope,
-		Reaches:  func(agent, name string) bool { return agent == c.agent && env[name] != "" },
+		Scope: c.scope,
+		// A doorway pointer the launch hands its service alone reaches the agent's route all the
+		// same: the service signs the agent's requests with it (HS-D32).
+		Reaches: func(agent, name string) bool {
+			return agent == c.agent && (env[name] != "" || slices.Contains(c.serviceOnly, name))
+		},
 		Deselect: deselect,
 	}) {
 		out = append(append(out, d.Line()), d.Warnings()...)
@@ -1302,7 +1740,7 @@ func (c *hostComposition) regionLines() []string {
 //
 // byLaunch is the managed launch's word on each variable (managedHostVars), nil for none.
 func (c *hostComposition) unservedLines(byLaunch packload.LaunchServes) []string {
-	return packload.UnservedLines(c.scope, c.unservedVias, byLaunch)
+	return packload.UnservedLinesWith(c.scope, c.unservedVias, c.viaWhy, byLaunch)
 }
 
 // managedHostVars is a managed host launch's word on each withheld variable: served for one it
@@ -1371,6 +1809,15 @@ func (c *hostComposition) processHolds() (inherited, composed func(string) bool)
 // one the named command can run on (runsOn, ES-D10), so the line never names a launch that
 // refuses.
 //
+// AN AGENT HOLDING AN ACTIVE SET keeps it (docs/design/active-provider-sets.md AP-D19): when
+// its pack declares provider_sets and this launch selected a profile, the remedy ADDS the first
+// candidate profile whose widened set composes (widenedSet, runsOnSet) — `yolo host -p
+// pi=zai,openrouter,cerebras -- pi`, the pair form, which replaces pi's set whole for the launch
+// (AP-D4) — rather than naming a -p that would replace the set and hand the agent its other
+// entries' keys no more. Only when no widened set composes (a regional platform named twice,
+// AP-D12; a carried entry after the first, AP-D18; an entry the agent cannot speak) does it fall
+// through to the switch, which says it replaces the set.
+//
 // ON A RUN GIVEN --with-credentials the remedy is the grant widened instead (grantRemedy,
 // ES-D23). The run already chose the grant, and a named -p would replace the typed one and drop
 // it.
@@ -1403,11 +1850,23 @@ func (c *hostComposition) credentialRemedy(claimants []string) string {
 		}
 		// Asked of the profile the line tells the user to declare, resolved as that
 		// declaration would resolve: to the provider alone.
-		runs := c.runsOn(example, &packload.ResolvedProfile{Provider: example})
+		declared := &packload.ResolvedProfile{Provider: example}
+		action := ""
+		if widened := c.widenedSet(example); widened != nil && c.runsOnSet(widened, declared) {
+			action = c.addAction(example, widened, claimant)
+		} else {
+			action = c.remedyAction(example, c.runsOn(example, declared), claimant)
+		}
 		return fmt.Sprintf("No declared profile selects %s: declare one under `profiles` in %s "+
 			"(for example `%q: {\"provider\": %q}`), then %s",
-			strings.Join(claimants, " or "), paths.UserConfigPath(), example, example,
-			c.remedyAction(example, runs, claimant))
+			strings.Join(claimants, " or "), paths.UserConfigPath(), example, example, action)
+	}
+	// The set kept, the claiming profile added (AP-D19), whenever a widened set composes.
+	for _, name := range candidates {
+		if widened := c.widenedSet(name); widened != nil && c.runsOnSet(widened, nil) {
+			action := c.addAction(name, widened, claimant)
+			return strings.ToUpper(action[:1]) + action[1:]
+		}
 	}
 	profile, runs := candidates[0], false
 	for _, name := range candidates {
@@ -1498,6 +1957,64 @@ func (c *hostComposition) runsOn(profile string, extra *packload.ResolvedProfile
 	return err == nil
 }
 
+// widenedSet is this launch's active set with profile appended, the primary still first: what the
+// additive remedy names (AP-D19). nil when the launch selected no profile for its agent, or the
+// agent's pack does not declare provider_sets, so its one profile can only be switched.
+func (c *hostComposition) widenedSet(profile string) []string {
+	if c.profile == "" || !packload.HoldsProviderSets(c.packs, c.agent) {
+		return nil
+	}
+	set := slices.Clone(c.set)
+	if len(set) == 0 {
+		set = []string{c.profile}
+	}
+	return append(set, profile)
+}
+
+// runsOnSet is runsOn for a whole active set: whether `yolo host -p <agent>=<set> -- <this
+// command>` would compose rather than refuse, asked the way that launch asks — the set's own
+// rules first (packload.ProfileSetProblems: AP-D3, AP-D9, AP-D12), then the credential gate over
+// this launch's inputs with the set selected, whose AgentEnv asks the protocol gate of every
+// entry. extra, when set, is resolved as the set's last entry first: the declaration the line
+// tells the user to write.
+func (c *hostComposition) runsOnSet(set []string, extra *packload.ResolvedProfile) bool {
+	in := c.scopeInput
+	in.Profiles = map[string]string{c.agent: set[0]}
+	in.Sets = map[string][]string{c.agent: set}
+	if extra != nil {
+		resolved := make(map[string]packload.ResolvedProfile, len(in.Resolved)+1)
+		for k, v := range in.Resolved {
+			resolved[k] = v
+		}
+		resolved[set[len(set)-1]] = *extra
+		in.Resolved = resolved
+	}
+	if problems := packload.ProfileSetProblems(c.packs, c.providers, in.Sets, in.Resolved); len(problems) > 0 {
+		return false
+	}
+	_, err := packload.ScopeCredentials(in)
+	return err == nil
+}
+
+// addAction is the additive remedy's clause, starting "to …" (AP-D19): the launch that adds
+// profile to the agent's active set, spelled as the pair `-p <agent>=<set>` so it replaces the
+// set whole for the launch (AP-D4) and keeps what the set already delivers. At `yolo host env`,
+// which launches nothing, it follows the shell's grant spelling, as remedyAction's does.
+func (c *hostComposition) addAction(profile string, set []string, claimant string) string {
+	cmd := c.command
+	if cmd == "" {
+		cmd = c.agent
+	}
+	cmd = shquote.Quote(cmd)
+	launch := fmt.Sprintf("to add the %s profile to %s's active set for one launch, keeping %s: "+
+		"`yolo host -p %s -- %s`", profile, cmd, strings.Join(set[:len(set)-1], ", "),
+		shquote.Quote(c.agent+"="+strings.Join(set, ",")), cmd)
+	if c.command == "" {
+		return c.shellGrantAction(claimant) + "; " + launch
+	}
+	return launch
+}
+
 // remedyAction is an AGENT's remedy instruction for one profile, as a clause starting "to …";
 // runs is runsOn's answer for it, and claimant the provider the grant spelling names.
 //
@@ -1516,7 +2033,12 @@ func (c *hostComposition) remedyAction(profile string, runs bool, claimant strin
 	}
 	cmd = shquote.Quote(cmd)
 	replacing := ""
-	if c.profile != "" {
+	switch {
+	case len(c.set) > 1:
+		// A switch on an agent holding a set replaces every entry, which the line must say: the
+		// additive remedy (addAction) is the one named whenever a widened set composes.
+		replacing = fmt.Sprintf(", replacing its active set (%s)", strings.Join(c.set, ", "))
+	case c.profile != "":
 		replacing = fmt.Sprintf(", replacing its %s profile", c.profile)
 	}
 	shell := c.shellGrantAction(claimant)
@@ -1581,6 +2103,10 @@ func (c *hostComposition) credentialGaps(getenv func(string) string) []string {
 	consulted := append([]string(nil), c.consulted...)
 	return packload.ProviderCredentialGapsIn(c.packs, c.providers, c.scope, func(name string) (string, bool) {
 		if v := idx[name]; v != "" {
+			return v, true
+		}
+		// A pointer the launch hands its service alone is delivered to the agent's route (HS-D32).
+		if v := c.serviceVars[name]; v != "" && slices.Contains(c.serviceOnly, name) {
 			return v, true
 		}
 		if v := getenv(name); v != "" {
@@ -1666,14 +2192,18 @@ func composeHostEnv(bin, profile string, warn func(string)) ([]string, string, e
 // each step is there for a reason the previous one cannot cover:
 //
 //  1. os.Environ() — the user's own shell, which the agent should otherwise inherit whole.
-//  2. env_sources — the SECRET channel. This is the step that gives "env_sources
-//     hydrates your credentials" something to hydrate INTO on a host.
-//  3. the resolved profile's vars — the profile-gated env entries its pack declares,
-//     plus the provider environment the agent pack's derive composes (packload.AgentEnv,
-//     the same runner the jail's podman argv is built from), then YOLO_PROVIDERS,
-//     YOLO_PROFILES and YOLO_USE_PROFILES as this launch composed them (FT-D2).
-//  4. removals — a null in env_sources, i.e. `unset AWS_PROFILE`. Last, so a removal
-//     beats an assignment from any earlier step.
+//  2. the pack env fold — each selected pack's `kind: "env"`, the gated entries its own
+//     selection satisfies after each pack's static ones.
+//  3. env_sources — the SECRET channel, the step that gives "env_sources hydrates your
+//     credentials" something to hydrate INTO on a host — and its removals, a null in
+//     env_sources (`unset AWS_PROFILE`), which take out the shell's value and the fold's.
+//  4. the provider environment the agent pack's derive composes (packload.AgentEnv, the same
+//     runner the jail's channel is built from), which beats the three above, then
+//     YOLO_PROVIDERS, YOLO_PROFILES and YOLO_USE_PROFILES as this launch composed them (FT-D2).
+//
+// Steps 2 to 4 are the one ordered composition every vehicle serializes (packload's
+// envcompose.go), one winner per name; whether a value the shell already holds should beat it
+// is OQ-NC13 (hostHonorsIncomingValue).
 func composeHostLaunch(bin, profile string, grant *hostGrantRequest, warn func(string)) *hostComposition {
 	return composeHostLaunchWith(bin, profile, grant, warn, hostServicesRefuse)
 }
@@ -1696,20 +2226,21 @@ func composeHostLaunchWith(bin, profile string, grant *hostGrantRequest, warn fu
 // vars-only projection `yolo host env` reads, so the observe verb and the exec half
 // cannot disagree about what a launch would carry.
 //
-// The sources are docs/reference/host-agent-environment.md §5.4's, in order:
+// The sources are docs/reference/host-agent-environment.md §5.4's, composed by the one
+// ordered composition every vehicle serializes (packload's envcompose.go), lowest first:
 //
 //  1. the pack env fold, per pack — each pack's static `kind: "env"` contributions, then
 //     the ones the same pack gated on the launch's active profile, so a gated entry wins
 //     over its own pack's static (OQ-8). packload.EnvVarsFor's sequence, the same one the
-//     jail's env block reduces, so a cross-pack key has one winner;
+//     jail's channel reduces, so a cross-pack key has one winner;
 //  2. env_sources — the SECRET channel, and the step that gives "env_sources hydrates
-//     your credentials" something to hydrate INTO on a host;
+//     your credentials" something to hydrate INTO on a host — and its removals, which take
+//     out the fold's value and one inherited from the invoking shell;
 //  3. the resolved profile's provider vars — the env derive of the agent's own pack, run
-//     by packload.AgentEnv, the same runner the jail's podman argv is built from, then the
-//     three wire tables the launch composed for this agent (FT-D2), under a jail's names.
+//     by packload.AgentEnv, the same runner the jail's channel is built from, which beats
+//     both above, a tombstone included; then the three wire tables the launch composed for
+//     this agent (FT-D2), under a jail's names.
 //
-// Removals come last so an `unset` beats an assignment from any earlier source, including
-// one inherited from the invoking shell.
 // The config it reads is USER SCOPE ONLY (config.UserScopeConfig) — never the merged
 // config. This process runs on the host, outside every sandbox, and a workspace
 // yolo-jail.jsonc is agent-editable; composing a host process's environment from it would
@@ -1832,14 +2363,10 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 	c.profile = profileName
 	c.set = set
 	c.typedProfile = profile
-	c.configuredProfile = profileName
+	c.configuredSet = set
 	if profile != "" {
-		// The fold with no -p: what the config alone selects for this agent (MM-D25).
-		if cfgSet := packload.ProfileSets(hostProfileFold(cfg, packs, agent, "").Table)[agent]; len(cfgSet) > 0 {
-			c.configuredProfile = cfgSet[0]
-		} else {
-			c.configuredProfile = ""
-		}
+		// The fold with no -p: what the config alone selects for this agent (MM-D30).
+		c.configuredSet = packload.ProfileSets(hostProfileFold(cfg, packs, agent, "").Table)[agent]
 	}
 	// NO PROFILE KEYS A COMMAND NO PACK INSTALLS (docs/design/credential-sources-separation.md
 	// ES-D5, and OQ-NC5 for the typed -p below). A `profile` entry for `bash` delivered
@@ -1905,13 +2432,13 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 		c.err = err
 		return c
 	}
-	// VIA IS INERT AT THE HOST NOTCH (WG-I8, WG-I12): no jail daemon runs here, so no via
-	// route is served whatever the pack set holds. ResolveProfiles gives a via profile a
-	// via_address whenever its service pack is selected, and a user who lists wire-bridge in
-	// `packs` explicitly selects it at this notch too, so the env derive below would be handed
-	// a ctx.via_url nothing serves. packload.ViaServedAt clears the address of every via this
-	// notch does not serve, and ViaURLFor, the predicate both notches' derive paths ask,
-	// answers "" for those agents; the cleared profiles are named (credentialScopeLines).
+	// A VIA IS INERT UNTIL THIS LAUNCH SERVES ITS SERVICE (WG-I8, WG-I12, as WG-I46 narrowed them):
+	// no jail daemon runs here, so nothing serves a via route until the via trigger below starts its
+	// service's host half, which only `yolo host --` does (HS-D30). ResolveProfiles gives a via
+	// profile a via_address whenever its service pack is selected, so the env derive below would
+	// otherwise be handed a ctx.via_url nothing serves. packload.ViaServedAt clears the address of
+	// every via this notch does not serve, and ViaURLFor, the predicate both notches' derive paths
+	// ask, answers "" for those agents; the cleared profiles are named (credentialScopeLines).
 	resolvedProfiles, c.unservedVias = packload.ViaServedAt(resolvedProfiles, packs, packload.NothingServed())
 	c.resolved = resolvedProfiles
 	if profileName != "" {
@@ -1959,6 +2486,49 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 		return c
 	}
 
+	// THE VIA TRIGGER (docs/design/host-notch-services.md HS-D30, HS-D31; OQ-NC1 A: a selected pack's
+	// services run at every notch), beside the adapter trigger below and for `yolo host --` only,
+	// the front door that owns its command's lifetime (OQ-HS3): when serving a pack service would
+	// route this agent through it, by its profile's `via` or by the profile's carrier (WG-I44), the
+	// launch plans the service's host half and composes against it, so the via (or the carrier's
+	// adapter address) names the port this launch picked. An agent whose own config FILE carries the
+	// via (pi's models.json, opencode's, oh-omp's, codex's) keeps it cleared and is told why: a host
+	// launch renders no per-launch file. `yolo host env`, `yolo host apply` and the footer stay
+	// inert (WG-I12 as WG-I46 narrowed it); `yolo host env` asks the same what-if only to say where
+	// such a route does take effect (viaWhy), since it starts nothing.
+	if services == hostServicesStart || services == hostServicesRefuse {
+		plan, err := c.planHostViaService(cfg, packs, userProfiles, profileName, services)
+		if err != nil {
+			c.err = err
+			return c
+		}
+		if plan != nil {
+			c.services = append(c.services, plan)
+			if providers, unservedAdaptations, err = composedHostProviders(cfg, packs, c.services); err != nil {
+				c.err = err
+				return c
+			}
+			c.providers = providers
+			if resolvedProfiles, err = packload.ResolveProfiles(packs, userProfiles, providers); err != nil {
+				c.err = err
+				return c
+			}
+			resolvedProfiles, c.unservedVias = c.hostViaServedAt(resolvedProfiles, packs,
+				launchservice.Served(c.services).AtHost())
+			c.resolved = resolvedProfiles
+		} else {
+			// Nothing planned: the table ViaServedAt cleared above stands, and a via or carrier this
+			// launch keeps cleared for a reason of its own (viaWhy, a file-carried route) is named
+			// too, a carrier included, which ViaServedAt never names.
+			for profile := range c.viaWhy {
+				if !slices.Contains(c.unservedVias, profile) {
+					c.unservedVias = append(c.unservedVias, profile)
+				}
+			}
+			sort.Strings(c.unservedVias)
+		}
+	}
+
 	// The secret channel, hydrated BEFORE the fold because the credential gate below reads
 	// it. The loader anchors relative entries beside the file that declared them
 	// (config.AnchorEnvSources), so a user-config relative entry arrives here absolute and
@@ -1969,9 +2539,10 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 	// through the filesystem, the exact boundary the user-scope-only cfg closes;
 	// hostScopedEnvSources is the backstop.
 	scoped := hostScopedEnvSources(cfg, warn)
-	// ONE pass for (2) and (4): the assignments and the removals are the same ordered
-	// walk, and asking for them separately would read every dotenv file twice and warn
-	// twice — noise a missing host-only file used to produce on every `yolo host env`.
+	// ONE pass for the assignments and the removals: they are the same ordered walk, and asking
+	// for them separately would read every dotenv file twice and warn twice — noise a missing
+	// host-only file used to produce on every `yolo host env`. Both reach the gate, whose
+	// composition ranks the removals with env_sources (envcompose.go).
 	userEnv, removals := config.ResolveEnvSourcesFull(workspace, scoped, warn)
 	// What this launch consulted for credentials, recorded as it is consulted: the
 	// env_sources entries that survived the scope filter, plus the shell this process
@@ -2024,15 +2595,37 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 	// process plans none, and its reason rides the served set into the "Not set" line.
 	// Over the agent's whole ACTIVE SET (docs/design/active-provider-sets.md AP-P1): a Bedrock
 	// entry anywhere in pi's set asks for aws-auth's doorway as a Bedrock primary does.
-	doorways, err := run.PlanHostDoorways(cfg, packs,
+	// A clientless agent the via trigger's service carries is that doorway's client through the
+	// service (HS-D32), so its platform asks for the doorway as a client's would.
+	var carried []string
+	if len(c.services) > 0 && c.viaRoutes(resolvedProfiles, packs) {
+		carried = []string{agent}
+	}
+	doorways, err := run.PlanHostDoorwaysFor(cfg, packs,
 		packload.SelectionOfSets(setTable, resolvedProfiles, providers),
-		services == hostServicesStart, c.doorwayLaunchSpelling())
+		services == hostServicesStart, c.doorwayLaunchSpelling(), carried)
 	if err != nil {
 		c.err = err
 		return c
 	}
 	c.doorways = doorways
-	hostServed := doorways.Served()
+	// THE PURE WORKERS (docs/design/host-notch-services.md HS-D29): every held service no
+	// adaptation names, whose host half no pairing starts. `yolo host --` starts each one the
+	// gate asks for and admission admits, beside the agent; every other front door, and every
+	// worker this launch does not start, gets a line. BEFORE THE GATE, so a pack env pointer at a
+	// worker this launch starts is served here and composed with the worker's caller token, as a
+	// jail composes one at the worker's jail daemon, and a pointer at one it does not start is
+	// withheld with the worker's own reason. Over the selection the doorways were planned over,
+	// once: a pairing below adds adapter addresses to the provider table and moves no gate, since
+	// a gate reads the profile's name and its provider's declared platform.
+	var workerWhy map[string]string
+	c.workers, c.workerNotes, workerWhy, err = hostPureWorkers(packs,
+		packload.SelectionOfSets(setTable, resolvedProfiles, providers), services == hostServicesStart)
+	if err != nil {
+		c.err = err
+		return c
+	}
+	hostServed := c.servedSet(workerWhy)
 	c.scopeInput = packload.ScopeInput{
 		Packs:     packs,
 		Providers: providers,
@@ -2041,8 +2634,11 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 		Sets:       setTable,
 		Resolved:   resolvedProfiles,
 		EnvSources: userEnv,
-		Fallback:   os.LookupEnv,
-		Grants:     grants,
+		// The env_sources nulls, which the composition ranks with env_sources: each removes the
+		// shell's value and the fold's, never a shape var.
+		EnvSourceRemovals: removals,
+		Fallback:          os.LookupEnv,
+		Grants:            grants,
 		// What composedHostProviders left out, and the unselected shipped packs' adaptations
 		// of the same kind, so a pairing only one of them would resolve refuses once, naming
 		// why (ES-D18, ES-D19). It never refuses as a pairing nothing declares an adapter for,
@@ -2054,13 +2650,14 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 		// binds the port (notch convergence item 2). The jail's vehicles apply the same rule
 		// through the same gate.
 		Served:       &hostServed,
-		CallerTokens: doorways.CallerTokens(),
+		CallerTokens: c.callerTokens(),
 		// THE REGION FILE, the jail's rule (docs/design/bedrock-plumbing.md BR-DIR1): this
 		// agent could read ~/.aws/config itself, and is given its credential profile's region
 		// anyway, so the refusal and the disclosure are one at every notch. The invoking shell is
 		// Inherited here, since the exec'd agent receives it: a region or profile exported there
 		// counts, as it does for the agent — except a name an env_sources null removes, which
-		// (4) below takes out of the exec'd environment, so the agent never sees it.
+		// the composition takes out of the exec'd environment, so the agent never sees the
+		// shell's value.
 		RegionFiles: &packload.RegionFileSource{Getenv: os.Getenv, Inherited: inheritedExcept(removals),
 			Setting: packload.LoopholeSettingIn(cfg)},
 	}
@@ -2091,24 +2688,23 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 			c.err = err
 			return c
 		}
-		// Via stays inert at the host whatever this launch serves (WG-I12).
-		resolvedProfiles, c.unservedVias = packload.ViaServedAt(resolvedProfiles, packs, packload.NothingServed())
+		// The services beside the doorways and the workers: the host notch serves every kind of
+		// launch-owned process, and each has its own caller token.
+		hostServed = c.servedSet(workerWhy)
+		// A via the launch serves is served here too (HS-D30), one its agent's own config files carry
+		// stays cleared (HS-D31), and only `yolo host --` serves any: every other front door keeps
+		// every via inert (WG-I12 as WG-I46 narrowed it).
+		viaServed := packload.NothingServed()
+		if services == hostServicesStart {
+			viaServed = hostServed
+		}
+		resolvedProfiles, c.unservedVias = c.hostViaServedAt(resolvedProfiles, packs, viaServed)
 		c.resolved = resolvedProfiles
-		// The services beside the doorways: the host notch serves both kinds of launch-owned
-		// listener, and each has its own caller token.
-		hostServed = launchservice.Served(c.services).Plus(doorways.Served())
 		c.scopeInput.Providers = providers
 		c.scopeInput.Resolved = resolvedProfiles
 		c.scopeInput.UnservedAdaptations = unservedAdaptations
 		c.scopeInput.Served = &hostServed
-		tokens := map[string]string{}
-		for k, v := range launchservice.CallerTokens(c.services) {
-			tokens[k] = v
-		}
-		for k, v := range doorways.CallerTokens() {
-			tokens[k] = v
-		}
-		c.scopeInput.CallerTokens = tokens
+		c.scopeInput.CallerTokens = c.callerTokens()
 		scope, err = packload.ScopeCredentials(c.scopeInput)
 	}
 	if err != nil {
@@ -2121,68 +2717,56 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 	}
 	c.scope = scope
 	c.served = hostServed
-	delivery := scope.Agent(agent)
-
-	// (1) the pack env fold, PER PACK — each pack's static `kind: "env"` keys, then the
-	// keys of its `profile`-gated env contributions whose gate fires for THIS agent
-	// (providers.md#pv-oq-8). The sequence is packload.EnvFold's, the ONE fold the jail
-	// notch reduces through packload.EnvVarsFor: folding it here as
-	// all-static-then-all-gated instead gave a key that pack A's gated env and pack B's
-	// static both write two answers (the jail said the later pack's static wins, the host
-	// the earlier pack's gated value). hostFoldParity_test.go pins the two notches to the
-	// same winner.
-	//
-	// Keys are sorted within each pack, because a map has no order and an `export` script
-	// that reshuffles between runs is a diff nobody can read.
-	//
-	// Assignments only, and that is the OQ-PT8 shrink rather than a shortcut: the only
-	// env map here that could spell a removal was the profile body's, whose
-	// null-means-unset decoder died with the body. What a removal still has is (2)'s
-	// env_sources nulls, held for (4) below.
-	//
-	// The gate's fold (FoldFor), for an agent with or without a delivery: it withholds what
-	// this notch does not serve, which a fold of our own would not.
-	for _, e := range scope.FoldFor(agent) {
-		vars = append(vars, agentenv.Var{Key: e.Key, Value: e.Value})
-		c.origins = append(c.origins, packload.FromPackEnv)
-		c.originPacks = append(c.originPacks, e.Pack)
-	}
-
-	// (2) the secret channel, as the gate delivers it to this agent: every unclaimed entry
-	// and its own provider's claimed ones, in hydration order.
-	sources := scope.EnvSourcesFor(agent)
-	for _, k := range sources.Keys() {
-		v, _ := sources.Get(k)
-		if s, ok := v.(string); ok {
-			vars = append(vars, agentenv.Var{Key: k, Value: s})
-			c.origins = append(c.origins, packload.FromEnvSources)
-			c.originPacks = append(c.originPacks, "")
+	// WHAT THE LAUNCH-OWNED SERVICE SIGNS WITH (HS-D32): the doorway pointers and region variables
+	// the gate composed for this agent, handed to the service's input (serviceInput). A doorway the
+	// launch opened only for the service that carries a clientless agent stays out of the agent's
+	// environment: its pointer is the service's (run.HostDoorways.ForService).
+	if len(c.services) > 0 {
+		c.serviceVars = packload.ServiceCredentialVars(scope, providers, agent)
+		for _, door := range doorways.ForService() {
+			for _, name := range packload.PointersAt(scope.FoldFor(agent), door) {
+				if !slices.Contains(c.serviceOnly, name) {
+					c.serviceOnly = append(c.serviceOnly, name)
+				}
+			}
 		}
+		sort.Strings(c.serviceOnly)
 	}
 
-	// (3) the profile's provider vars, the env derive's output the gate composed. Each is its
-	// agent's own pack's, the pack whose derive produced it, which is what a reader keyed on the
-	// declaring pack needs: pi's OpenAI prelaunch comes from its derive since OQ-BR8, and the
-	// prelaunch keys its managed home on the pack that declared it (prelaunch).
-	if delivery != nil {
-		vars = append(vars, delivery.Shape...)
-		owner := installingPack(packs, agent)
-		for range delivery.Shape {
-			c.origins = append(c.origins, packload.FromProfileEnv)
-			c.originPacks = append(c.originPacks, owner)
-		}
-	}
+	// THE ONE ORDERED COMPOSITION (packload's envcompose.go; notch-convergence item 16, OQ-NC12
+	// decided on its leaning A), which the jail's shared file, its per-agent files and the
+	// macos-user session env serialize too, so a name has one winner at every vehicle: the pack
+	// env fold (EnvFold's per-pack order, as this notch serves it: a pointer at a daemon not
+	// served here is withheld), then the env_sources this agent receives (the unclaimed ones, its
+	// own provider's claimed ones and its grant's) and the removals (an env_sources null), then
+	// the env derive's shape vars, a tombstone included. One entry per name, so the vars below
+	// never hand agentenv.Apply two assignments to order. hostfoldparity_test.go and
+	// envwinnerparity_test.go pin the notches to the same winner.
+	//
+	// A removal ranks with env_sources: it beats the shell's value and the fold's, and never a
+	// shape var, so a null of ANTHROPIC_BASE_URL no longer leaves claude zai's token with no zai
+	// address.
+	vars, c.origins, c.originPacks = hostComposedVars(scope.EnvFor(agent), hostHonorsIncomingValue, os.LookupEnv)
+	vars, c.origins, c.originPacks = withoutNames(vars, c.origins, c.originPacks, c.serviceOnly)
 
-	// (3b) THE WIRE TABLES the launch composed for this agent (docs/design/agent-footer.md
-	// FT-D2, OQ-FT15), under the names a jail's channel uses: YOLO_PROVIDERS, YOLO_PROFILES and a
+	// THE WIRE TABLES the launch composed for this agent (docs/design/agent-footer.md FT-D2,
+	// OQ-FT15), under the names a jail's channel uses: YOLO_PROVIDERS, YOLO_PROFILES and a
 	// YOLO_USE_PROFILES holding this agent's entry alone. The footer renderer reads its own env
 	// first (OQ-FT6), so a one-launch `yolo host -p zai -- claude` names zai rather than the
 	// config's selection. ALL THREE ON EVERY LAUNCH, empty tables included, so a launch started
 	// inside another agent's launch replaces what it inherited instead of keeping that launch's
-	// selection. After the pack fold, env_sources and the shape, so none of those can write a
-	// table this launch did not compose (FT-D3); before the removals, whose "an unset beats every
-	// assignment" holds for these too. Ranged over entrypoint.WireTables, as every jail writer
-	// ranges (NC-D22), and attributed to the launch's own composition, since no pack declares them.
+	// selection. After the composition, so nothing in it — the pack fold, env_sources, a shape
+	// var or an env_sources null — can write or remove a table this launch did not compose, as
+	// no jail vehicle lets one: the shared file writes them plain-form, the per-agent file leaves
+	// them as the shared file set them, and the macos-user session env layers them last. That
+	// amends FT-D3, which put them before the removals (notch-convergence NC-D72): a null of
+	// YOLO_USE_PROFILES there handed the agent its parent launch's table, or none, which FT-D2's
+	// "every launch sets all three" exists to prevent. A composed entry under a table's name is
+	// dropped rather than left for the table to override, so the vars keep one entry per name and
+	// `yolo host env` prints no line its next one undoes. Ranged over entrypoint.WireTables, as
+	// every jail writer ranges (NC-D22), and attributed to the launch's own composition, since no
+	// pack declares them.
+	vars, c.origins, c.originPacks = withoutNames(vars, c.origins, c.originPacks, entrypoint.WireTables())
 	wire := c.wireTables()
 	for _, k := range entrypoint.WireTables() {
 		vars = append(vars, agentenv.Var{Key: k, Value: wire[k]})
@@ -2190,24 +2774,67 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 		c.originPacks = append(c.originPacks, "")
 	}
 
-	// (4) removals last, so an unset beats every assignment above no matter which source
-	// made it — the env_sources nulls from the same pass as (2) (the same scoped config,
-	// so an inline null's cancellation by a later dotenv cannot disagree with the
-	// assignments). The pack fold no longer contributes any: its only removal spelling
-	// died with the profile body. Sorted, because a set of removals has no order to
-	// preserve and the `export` script must not reshuffle between runs.
-	for _, k := range removals {
-		vars = append(vars, agentenv.Var{Key: k, Unset: true})
-		c.origins = append(c.origins, fromRemoval)
-		c.originPacks = append(c.originPacks, "")
-	}
 	c.vars = vars
 	return c
 }
 
+// hostHonorsIncomingValue is the host notch's answer to OQ-NC13
+// (docs/plans/notch-convergence.md): whether a value the invoking shell already holds beats the
+// one yolo composed for the same name, as a jail's per-agent file lets the user's value win
+// (OQ-CN8). false, pending that ruling: the composition is applied over the shell, so yolo's
+// value replaces one the shell exports, which TestComposeHostEnvOrdering pins. The one input the
+// ruling flips; hostComposedVars reads nothing else to decide it.
+const hostHonorsIncomingValue = false
+
+// hostComposedVars serializes one composition (packload's envcompose.go) for the host exec: one
+// var per name in the composition's order, a removal as an unset, with the channel each came from
+// (the packload.From* phrases, fromRemoval for an unset) and the pack it is attributed to, index
+// for index.
+//
+// When honorIncoming is set, an entry of yolo's whose name the invoking shell (incoming) already
+// holds non-empty is left out, so the shell's value passes through: an assignment, and a shape
+// var's tombstone, which is the derive's removal and not the user's. That is the jail's rule
+// with no record to compare against (the per-agent file writes a tombstone as `unset` only over
+// a value yolo set, CN-D21), so every shell value counts as the user's. An env_sources null IS
+// the user's own, the spelling that drops a name from the invoking shell, and is kept either way.
+func hostComposedVars(comp packload.EnvComposition, honorIncoming bool,
+	incoming func(string) (string, bool)) (vars []agentenv.Var, origins, originPacks []string) {
+	for _, e := range comp.Entries() {
+		if honorIncoming && (!e.Unset || e.Origin == packload.FromProfileEnv) {
+			if v, ok := incoming(e.Key); ok && v != "" {
+				continue
+			}
+		}
+		if e.Unset {
+			vars = append(vars, agentenv.Var{Key: e.Key, Unset: true})
+			origins = append(origins, fromRemoval)
+			originPacks = append(originPacks, "")
+			continue
+		}
+		vars = append(vars, agentenv.Var{Key: e.Key, Value: e.Value})
+		origins = append(origins, e.Origin)
+		originPacks = append(originPacks, e.Pack)
+	}
+	return vars, origins, originPacks
+}
+
+// withoutNames is vars, with the origins and packs index for index, minus every var whose name is
+// in names.
+func withoutNames(vars []agentenv.Var, origins, originPacks, names []string) ([]agentenv.Var, []string, []string) {
+	var kv []agentenv.Var
+	var ko, kp []string
+	for i, v := range vars {
+		if slices.Contains(names, v.Key) {
+			continue
+		}
+		kv, ko, kp = append(kv, v), append(ko, origins[i]), append(kp, originPacks[i])
+	}
+	return kv, ko, kp
+}
+
 // inheritedExcept is the invoking shell as the exec'd agent inherits it: os.LookupEnv, with every
 // name in removed answering nothing, because the composition's removals (an env_sources null)
-// are applied last and take that name out of the environment the agent receives.
+// take the shell's value of that name out of the environment the agent receives.
 func inheritedExcept(removed []string) func(string) (string, bool) {
 	return func(name string) (string, bool) {
 		if slices.Contains(removed, name) {
@@ -2326,7 +2953,7 @@ func hostAdapterAddresses() map[string]string {
 // hostServicesDetect, only the record of which service the pairing needs (detected true).
 //
 // THE FOUR REFUSALS HS-D5 NARROWS ES-D18 TO. A service with no host half and a service whose
-// pack yolo does not ship (launchservice.Admit) refuse with the reason; `yolo host env`, which
+// pack was fetched (launchservice.Admit; a local pack's runs, HS-D27) refuse with the reason; `yolo host env`, which
 // owns no process lifetime, refuses naming the launch that would start it (OQ-HS3); and a host
 // half that fails to start is hostExec's (launchservice.Start). A pairing through a pack nothing
 // selects, or a provider no selected pack ships, refuses as before.
@@ -2373,6 +3000,292 @@ func (c *hostComposition) planHostService(e *packload.UnservedAdapterError, pack
 		return nil, err, false
 	}
 	return plan, nil, false
+}
+
+// hostViaRoute is what THE VIA TRIGGER's what-if (packload.ViaRoutedServices, HS-D30) says of
+// one host agent on one profile: the service its via or carrier would route it through once
+// served ("" for none) and the pack holding it, which route that is ("via", or `carrier
+// "<pack>"`), the agent's own config files that carry it (packload.FileCarriedVia, HS-D31; nil when
+// its environment does), and whether the via re-points nothing of it (packload.ViaRouted.NoEffect,
+// HS-D33).
+type hostViaRoute struct {
+	service, pack string
+	route         string
+	files         []string
+	noEffect      bool
+}
+
+// hostViaWhatIf is the via trigger's what-if for agent on profile at the host notch, over the
+// user's providers, adapter overrides and profiles: the one reading `yolo host --` plans by,
+// `yolo host env` names where the route takes effect by, and `yolo host apply` says the same by
+// (hostinputs.go). Admission is launchservice.Admit's, a fetched pack's host half included, and a
+// service it refuses is no candidate. The zero value when no service would route the agent.
+func hostViaWhatIf(cfg *jsonx.OrderedMap, packs []*packload.Pack,
+	userProfiles map[string]packload.UserProfile, agent, profile string) (hostViaRoute, error) {
+	if profile == "" {
+		return hostViaRoute{}, nil
+	}
+	var user *jsonx.OrderedMap
+	if v, ok := cfg.Get("providers"); ok {
+		user, _ = v.(*jsonx.OrderedMap)
+	}
+	active := map[string]string{agent: profile}
+	routed, err := packload.ViaRoutedServices(packload.ViaWhatIf{User: user, Packs: packs,
+		Addresses: hostAdapterAddresses(), Served: packload.NothingServed().AtHost(), Profiles: userProfiles,
+		Active: active}, func(service string) bool {
+		_, aerr := launchservice.Admit(packs, service)
+		return aerr == nil
+	})
+	if err != nil {
+		return hostViaRoute{}, err
+	}
+	for _, r := range routed {
+		v := hostViaRoute{service: r.Service, pack: r.Pack, route: r.Route(profile)}
+		if slices.Contains(r.NoEffect, agent) {
+			v.noEffect = true
+			return v, nil
+		}
+		if !slices.Contains(r.Agents, agent) {
+			continue
+		}
+		if v.files, err = packload.FileCarriedVia(packs, r, agent, active); err != nil {
+			return hostViaRoute{}, err
+		}
+		return v, nil
+	}
+	return hostViaRoute{}, nil
+}
+
+// planHostViaService is the host half of THE VIA TRIGGER (docs/design/host-notch-services.md
+// HS-D30, HS-D31; hostViaWhatIf, the what-if macos-user asks too): for `yolo host --`
+// (hostServicesStart), the plan of the pack service that serving would route this launch's agent
+// through, by profile's `via` or by its carrier (WG-I44), nil when none would; for `yolo host env`
+// (hostServicesRefuse), nil always, with the line saying where such a route takes effect.
+//
+// WHICH AGENTS IT SERVES (HS-D31): the what-if's derives say where the agent's config carries the
+// via URL (packload.FileCarriedVia over packload.DerivedViaPointers). An agent whose own config FILE
+// carries it is not served here, since a host launch renders no per-launch file (OQ-HS3) and a URL
+// at this launch's port written into ~/.pi/agent/models.json would outlive the launch; its via stays
+// cleared and the "Not set at this notch" block says why (viaWhy). One whose environment alone
+// carries the route (claude and copilot, which ride the adapter address composed for the via, gated
+// on ctx.via_url) is served. One the via re-points nothing of (agy) starts nothing, and is told so.
+// `yolo host env` runs no process, so a route `yolo host --` would serve is named with the launch
+// that serves it.
+func (c *hostComposition) planHostViaService(cfg *jsonx.OrderedMap, packs []*packload.Pack,
+	userProfiles map[string]packload.UserProfile, profile string, mode hostServicesMode) (*launchservice.Plan, error) {
+	v, err := hostViaWhatIf(cfg, packs, userProfiles, c.agent, profile)
+	if err != nil && mode != hostServicesStart {
+		return nil, nil // a derive that cannot run is the launch's to refuse over; host env only names
+	}
+	if err != nil || v.service == "" {
+		return nil, err
+	}
+	why := ""
+	switch {
+	case v.noEffect:
+		why = fmt.Sprintf("profile %q's %s — %s", profile, v.route, packload.ViaNoEffect(v.route, c.agent, v.service))
+	case len(v.files) > 0:
+		why = fmt.Sprintf("profile %q's %s — %s reads its route from %s, its own "+
+			"config, and `yolo host --` renders no per-launch file, so the %q service is not started "+
+			"for it and %s keeps its own client (docs/design/host-notch-services.md HS-D31); a jail or "+
+			"a macos-user launch serves it: `yolo -p %s -- %s`", profile, v.route, c.agent,
+			strings.Join(v.files, ", "), v.service, c.agent, shquote.Quote(profile), shquote.Quote(c.agent))
+	case mode != hostServicesStart:
+		why = fmt.Sprintf("profile %q's %s — the %q service carries %s's route, and this command runs "+
+			"no process for it to live beside, so it is not started here and %s is not routed through "+
+			"it (docs/design/host-notch-services.md HS-D30, OQ-HS3). `%s` starts it for that launch and "+
+			"stops it when %s exits", profile, v.route, v.service, c.agent, c.agent,
+			c.viaLaunchSpelling(), c.agent)
+	}
+	if why != "" {
+		if c.viaWhy == nil {
+			c.viaWhy = map[string]string{}
+		}
+		c.viaWhy[profile] = why
+		return nil, nil
+	}
+	d, err := launchservice.Admit(packs, v.service)
+	if err != nil {
+		return nil, nil // hostViaWhatIf admitted it; nothing changed in between
+	}
+	return launchservice.NewPlan(packs, d)
+}
+
+// viaLaunchSpelling is the `yolo host --` launch of this composition's agent that serves its via
+// or carrier: the -p as typed, or none when the user's `profile` key selected the profile.
+func (c *hostComposition) viaLaunchSpelling() string {
+	if c.typedProfile != "" {
+		return "yolo host -p " + shquote.Quote(c.typedProfile) + " -- " + shquote.Quote(c.agent)
+	}
+	return "yolo host -- " + shquote.Quote(c.agent)
+}
+
+// hostViaServedAt is packload.ViaServedAt over this launch's served set, then the vias and carriers
+// planHostViaService keeps cleared because the agent's own config files carry them (viaWhy,
+// HS-D31) cleared too, whatever served: the bridge this launch starts for another reason (an adapter
+// pairing) does not make a file this launch cannot render carry its port. Each profile it clears is
+// named, sorted.
+func (c *hostComposition) hostViaServedAt(resolved map[string]packload.ResolvedProfile, packs []*packload.Pack,
+	served packload.ServedDaemons) (map[string]packload.ResolvedProfile, []string) {
+	resolved, cleared := packload.ViaServedAt(resolved, packs, served)
+	for profile := range c.viaWhy {
+		r, ok := resolved[profile]
+		if !ok {
+			continue
+		}
+		if r.Via != "" {
+			r.ViaBase = ""
+		} else {
+			r.Carrier, r.CarrierBase, r.Carried = "", "", nil
+		}
+		resolved[profile] = r
+		if !slices.Contains(cleared, profile) {
+			cleared = append(cleared, profile)
+		}
+	}
+	sort.Strings(cleared)
+	return resolved, cleared
+}
+
+// viaRoutes reports whether, over resolved, this launch's agent rides one of its launch-owned
+// services by its profile's via or carrier (ViaFor, ViaURLFor): the agent a doorway opens for through
+// the service it rides (HS-D32).
+func (c *hostComposition) viaRoutes(resolved map[string]packload.ResolvedProfile, packs []*packload.Pack) bool {
+	r := resolved[c.profile]
+	via, _ := r.ViaFor(c.agent)
+	if via == "" || packload.ViaURLFor(r, c.agent) == "" {
+		return false
+	}
+	for _, p := range c.services {
+		if p.Service == packload.ViaService(packs, via) {
+			return true
+		}
+	}
+	return false
+}
+
+// serviceOnlyLine is the disclosure for the doorway pointers this launch hands its launch-owned
+// service and not its agent (serviceOnly, HS-D32), "" when none: a clientless agent the service
+// carries has no client of the platform to use them with, so they reach the service alone.
+func (c *hostComposition) serviceOnlyLine() string {
+	if len(c.serviceOnly) == 0 || len(c.services) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%s go to the %q service alone, which signs %s's requests with them: %s has no "+
+		"client of its provider's platform of its own, so it is not handed them "+
+		"(docs/design/host-notch-services.md HS-D32)", strings.Join(c.serviceOnly, ", "),
+		c.services[0].Service, c.agent, c.agent)
+}
+
+// hostPureWorkers is a host composition's answer to the PURE WORKERS of packs
+// (docs/design/host-notch-services.md §1.2: a held service no adaptation names, so no pairing
+// starts it as §4.2 starts the bridge): the plans of the ones a `yolo host --` launch starts
+// beside its agent (starts), one line for every worker the launch does not start, in the order
+// the services are held (packload.HeldServices), and, keyed by worker, the clause a withheld pack
+// env pointer at one it does not start is named with (packload.ServedDaemons.WithNotServedWhy).
+//
+// A WORKER STARTS when it declares a host half, admission admits it (launchservice.Admit: a pack
+// yolo ships or a local one, an argv naming `yolo`), and the selection's gate asks for it: a
+// worker every pointer at which is gated on a profile or a provider platform runs only when sel
+// delivers one of those gates, as a jail's payload leaves the same daemon out
+// (packload.UnselectedProfileServedDaemons, OQ-CN7 (b)). Its plan reserves no port, since the
+// launch picks no address for it: a pointer at it is composed as its pack declares it, as in a
+// jail. It carries a caller token all the same, in its own input and in a pointer naming
+// `{caller_token}` (HS-D29).
+//
+// THE LINES, one per worker the launch does not start, each a disclosure no switch hides: one
+// declaring only a jail daemon runs only in a jail; a refused host half names why, the fetched
+// refusal's next step included; an ungated one names the selection that starts it; and at a
+// front door that runs no command (`yolo host env`), an admitted one is named as one only
+// `yolo host --` starts (OQ-HS3). A pointer at any of them but the ungated one, whose pointers the
+// gate withholds already, gets the matching clause, so it is never named with the doorway clause
+// that no selection opens it.
+func hostPureWorkers(packs []*packload.Pack, sel packload.GateSelection, starts bool) ([]*launchservice.Plan,
+	[]string, map[string]string, error) {
+	adapts := map[string]bool{}
+	for _, a := range packload.ServiceAdaptations(packs, nil) {
+		adapts[a.Service] = true
+	}
+	ungated := map[string]packload.ProfileServedDaemon{}
+	for _, u := range packload.UnselectedProfileServedDaemons(packs, sel) {
+		ungated[u.Name] = u
+	}
+	var plans []*launchservice.Plan
+	var lines []string
+	why := map[string]string{}
+	held, _ := packload.HeldServices(packs)
+	for _, h := range held {
+		s := h.Service
+		if adapts[s.Name] {
+			continue // a pairing starts it, or refuses for it (planHostService)
+		}
+		if s.HostDaemon == nil || len(s.HostDaemon.Cmd) == 0 {
+			if s.JailDaemon != nil && len(s.JailDaemon.Cmd) > 0 {
+				lines = append(lines, fmt.Sprintf("the %q service (pack %q) runs only in a jail: it "+
+					"declares no host half (`host_daemon`), so `yolo host` starts nothing for it; a "+
+					"container jail runs its jail daemon (`yolo -- <command>`)", s.Name, h.Pack))
+				why[s.Name] = "which runs only in a jail: the service declares no host half " +
+					"(`host_daemon`), so `yolo host` starts nothing for it"
+			}
+			continue
+		}
+		if u, gated := ungated[s.Name]; gated {
+			lines = append(lines, fmt.Sprintf("the %q service (pack %q) is not started: %s",
+				s.Name, h.Pack, workerGateClause(u)))
+			continue
+		}
+		d, err := launchservice.Admit(packs, s.Name)
+		if err != nil {
+			refused := err.Error()
+			var adm *launchservice.AdmissionError
+			if errors.As(err, &adm) {
+				refused = adm.Why
+			}
+			lines = append(lines, fmt.Sprintf("the %q service's host half (pack %q) is not started: %s",
+				s.Name, h.Pack, refused))
+			why[s.Name] = "whose host half this launch does not start: " + refused
+			continue
+		}
+		if !starts {
+			lines = append(lines, fmt.Sprintf("the %q service (pack %q) is a worker no agent's route "+
+				"names: `yolo host -- <command>` starts its host half for that command and stops it when "+
+				"the command exits, and this command runs none (docs/design/host-notch-services.md OQ-HS3)",
+				s.Name, h.Pack))
+			why[s.Name] = "which only a launch that runs a command starts, beside that command, and " +
+				"this command runs none: `yolo host -- <command>` starts it (docs/design/host-notch-services.md OQ-HS3)"
+			continue
+		}
+		plan, err := launchservice.NewPlan(packs, d)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		plans = append(plans, plan)
+	}
+	return plans, lines, why, nil
+}
+
+// workerGateClause is why a worker whose every pointer is gated is not started, and the selection
+// that starts it, in the jail's words (run's noteUnstartedProfileDaemons).
+func workerGateClause(u packload.ProfileServedDaemon) string {
+	var why []string
+	quote := func(names []string) string {
+		quoted := make([]string, len(names))
+		for i, n := range names {
+			quoted[i] = strconv.Quote(n)
+		}
+		return strings.Join(quoted, " or ")
+	}
+	if len(u.Platforms) > 0 {
+		why = append(why, "this agent's selected provider is not on platform "+quote(u.Platforms))
+	}
+	if len(u.Profiles) > 0 {
+		why = append(why, "its selected profile is not "+quote(u.Profiles))
+	}
+	remedy := "select a provider it serves to start it"
+	if len(u.Profiles) > 0 {
+		remedy = "`-p " + shquote.Quote(u.Profiles[0]) + "` starts it"
+	}
+	return "every pointer at it is gated, and " + strings.Join(why, ", and ") + "; " + remedy
 }
 
 // unservedAdapterRefusal words the gate's *packload.UnservedAdapterError for this notch when the
@@ -2496,8 +3409,8 @@ func hostScopedEnvSources(cfg *jsonx.OrderedMap, warn func(string)) *jsonx.Order
 // loadedHostPacks is the selection for one host launch of agent: the one selection function
 // (selectHostPacks) with the launch's resolver and, as the closure's table, the one profile this
 // launch selects for the one agent it runs (HS-D1). A host launch composes a single process, so
-// only that agent's profile can join a `via` service, and the host serves no via route anyway
-// (ViaServedAt, WG-I12).
+// only that agent's profile can join a `via` service, which only `yolo host --` serves, for that
+// agent (ViaServedAt, WG-I12, as WG-I46 narrowed it; HS-D30).
 //
 // IT APPLIES `needs`, which ES-D24 once measured it must not: with `"packs": ["claude"]`, claude
 // needs aws-auth, and aws-auth's Bedrock-gated env points AWS_CONTAINER_CREDENTIALS_FULL_URI at
@@ -2794,10 +3707,19 @@ func hostEnvDelta(agent, profile string, grant *hostGrantRequest, warn func(stri
 	blocks := [][]string{c.selectionLines(), c.profileLines(), refusal}
 	blocks = append(blocks, warnings...)
 	var disclosure []string
-	for _, block := range append(blocks, c.regionLines(), c.credentialScopeLines(), c.unservedLines(nil), c.grantLines()) {
+	for _, block := range append(blocks, c.regionLines(), c.credentialScopeLines(), c.unservedLines(nil),
+		c.workerNotes, c.grantLines()) {
 		disclosure = append(disclosure, block...)
 	}
-	return c.vars, disclosure, nil
+	// THE AGENT'S LAUNCH SELECTION (docs/design/model-lists-and-pickers.md MM-D30): a -p that moves
+	// an agent whose provider lives in its own config file. A selection handed in variables is
+	// exported with the rest; one that needs the agent's argv cannot be, and the line names the
+	// launch that carries it. Each line is a block of its own, as the composition's lines are.
+	var said []string
+	selection := c.launchSelection(nil, c.environ(), func(line string) { said = append(said, line) })
+	vars, lines := selection.scriptVars()
+	disclosure = append(append(disclosure, said...), lines...)
+	return append(append([]agentenv.Var(nil), c.vars...), vars...), disclosure, nil
 }
 
 // hostEnvDefaultAgent is the agent `yolo host env` composes for when no --agent is given:

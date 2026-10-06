@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -31,6 +32,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/openaiauthhost"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/packs"
 )
 
 // testFakeAgentArg makes a child of this test binary the fake agent (TestMain).
@@ -48,18 +50,24 @@ type fakeAgentReport struct {
 	Body        string `json:"body"`
 }
 
-// fakeAgentMain is the fake agent: it records the ANTHROPIC_* environment it was handed, sends
-// the bridge one canned request with the token claude would send and one with none, writes the
-// report, and then exits or, in mode "sleep", waits to be killed.
+// fakeAgentMain is the fake agent: it records the ANTHROPIC_*, COPILOT_* and AWS_* environment it
+// was handed, sends the bridge one canned request with the token claude (or copilot, on its
+// provider base URL and key) would send and one with none, writes the report, and then exits or,
+// in mode "sleep", waits to be killed.
 func fakeAgentMain() int {
 	rep := fakeAgentReport{Env: map[string]string{}, Path: os.Getenv("PATH"),
 		Copy: os.Getenv("YOLO_CLI_TEST_AGENT_COPY")}
 	for _, kv := range os.Environ() {
-		if k, v, ok := strings.Cut(kv, "="); ok && strings.HasPrefix(k, "ANTHROPIC_") {
+		if k, v, ok := strings.Cut(kv, "="); ok && (strings.HasPrefix(k, "ANTHROPIC_") ||
+			strings.HasPrefix(k, "COPILOT_") || strings.HasPrefix(k, "AWS_")) {
 			rep.Env[k] = v
 		}
 	}
-	if base := rep.Env["ANTHROPIC_BASE_URL"]; base != "" {
+	base, key := rep.Env["ANTHROPIC_BASE_URL"], rep.Env["ANTHROPIC_AUTH_TOKEN"]
+	if base == "" && rep.Env["COPILOT_PROVIDER_TYPE"] == "anthropic" {
+		base, key = rep.Env["COPILOT_PROVIDER_BASE_URL"], rep.Env["COPILOT_PROVIDER_API_KEY"]
+	}
+	if base != "" {
 		post := func(auth string) (int, string) {
 			req, _ := http.NewRequest(http.MethodPost, base+"/v1/messages",
 				strings.NewReader(`{"model":"m","max_tokens":8,"messages":[{"role":"user","content":"hi"}]}`))
@@ -75,7 +83,7 @@ func fakeAgentMain() int {
 			b, _ := io.ReadAll(resp.Body)
 			return resp.StatusCode, string(b)
 		}
-		rep.WithToken, rep.Body = post(rep.Env["ANTHROPIC_AUTH_TOKEN"])
+		rep.WithToken, rep.Body = post(key)
 		rep.WithoutAuth, _ = post("")
 	}
 	data, _ := json.Marshal(rep)
@@ -152,7 +160,9 @@ type serviceLaunch struct {
 	// listening is, for each started service, every address its plan moved that accepted a
 	// connection once the service said it was ready: what it opened, as against what it planned.
 	listening [][]string
-	execed    bool
+	// inputs is, index for index with started, the input each started service was handed.
+	inputs []map[string]string
+	execed bool
 }
 
 // runServiceLaunch runs `yolo host <flags> -- claude` over cfg, the fake agent in mode, and
@@ -167,6 +177,14 @@ func runServiceLaunch(t *testing.T, cfg string, flags []string, mode string, sig
 func runServiceLaunchWith(t *testing.T, cfg string, flags []string, mode string, signals chan os.Signal,
 	setup func(agentExec string)) serviceLaunch {
 	t.Helper()
+	return runServiceLaunchAs(t, cfg, flags, "claude", mode, signals, setup)
+}
+
+// runServiceLaunchAs is runServiceLaunchWith launching agent, a script of that name on PATH that
+// runs the fake agent.
+func runServiceLaunchAs(t *testing.T, cfg string, flags []string, agent, mode string, signals chan os.Signal,
+	setup func(agentExec string)) serviceLaunch {
+	t.Helper()
 	hostGateHome(t, cfg, wcShell(nil))
 	exe, err := os.Executable()
 	if err != nil {
@@ -175,7 +193,7 @@ func runServiceLaunchWith(t *testing.T, cfg string, flags []string, mode string,
 	agentExec := "exec '" + exe + "' " + testFakeAgentArg + " \"$@\"\n"
 	bin := t.TempDir()
 	script := "#!/bin/sh\n" + agentExec
-	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(script), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(bin, agent), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if setup != nil {
@@ -192,6 +210,7 @@ func runServiceLaunchWith(t *testing.T, cfg string, flags []string, mode string,
 		r, err := origStart(p, env)
 		if r != nil {
 			got.started = append(got.started, r)
+			got.inputs = append(got.inputs, env)
 			var open []string
 			for _, a := range p.Addresses() {
 				if c, derr := net.DialTimeout("tcp", a, 200*time.Millisecond); derr == nil {
@@ -212,7 +231,7 @@ func runServiceLaunchWith(t *testing.T, cfg string, flags []string, mode string,
 	t.Cleanup(func() { hostServiceSignals = origSignals })
 
 	var out, errw bytes.Buffer
-	got.rc = hostMain(append(append([]string{}, flags...), "--", "claude"), &out, &errw, false, nil)
+	got.rc = hostMain(append(append([]string{}, flags...), "--", agent), &out, &errw, false, nil)
 	got.errs = errw.String()
 	if data, err := os.ReadFile(dump); err == nil {
 		_ = json.Unmarshal(data, &got.report)
@@ -572,34 +591,146 @@ func TestHostApplyWritesNoBridgedAddressAndSaysWhy(t *testing.T) {
 	}
 }
 
-// ONLY AN OFFICIAL PACK'S HOST HALF RUNS (OQ-HS4): a local pack that takes the bridge's name and
-// declares the same service with a host half is refused by name at the launch, and nothing starts.
-func TestHostRefusesANonOfficialPacksHostHalfByName(t *testing.T) {
-	pack := filepath.Join(t.TempDir(), "wire-bridge")
-	if err := os.MkdirAll(pack, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	manifest := `{"contributes": [
-  {"kind": "adapter", "adapts": {"from": "openai-responses", "to": "anthropic"}, "address": "http://127.0.0.1:8215"},
-  {"kind": "service", "name": "wire-bridge", "host_daemon": {"cmd": ["yolo", "internal", "daemon", "wire-bridge"]}}]}`
-	if err := os.WriteFile(filepath.Join(pack, "pack.json"), []byte(manifest), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	cfg := `{"packs": ["claude", {"source": "file://` + pack + `", "name": "wire-bridge"}]}`
+// AND A VIA PROFILE (WG-I12 as WG-I46 narrowed it; host-notch-services.md HS-D30): `yolo host apply`
+// stays inert for a via, since the address `yolo host --` serves it at is picked per launch and no
+// file can name it. pi's config the apply renders on `bedrock-bridge` names no via route, and the
+// apply starts no service; pi there keeps its own client, as it does at `yolo host --`, where its
+// file-carried via is cleared too (HS-D31).
+func TestHostApplyWritesNoViaAddressForAViaProfile(t *testing.T) {
+	home := hostComputedHome(t, `{"packs": ["pi", "bedrock", "wire-bridge"], "profile": {"pi": "bedrock-bridge"}, `+
+		`"providers": {"bedrock": {"region": "eu-west-1"}}}`)
 	origStart := startLaunchService
 	startLaunchService = func(*launchservice.Plan, map[string]string) (*launchservice.Running, error) {
-		t.Fatal("a local pack's host half was started")
+		t.Fatal("yolo host apply started a service")
+		return nil, nil
+	}
+	t.Cleanup(func() { startLaunchService = origStart })
+	var out, errw bytes.Buffer
+	if rc := hostMain([]string{"apply", "--assert"}, &out, &errw, false, strings.NewReader("y\n")); rc != 0 {
+		t.Fatalf("yolo host apply --assert rc=%d\n%s%s", rc, out.String(), errw.String())
+	}
+	rendered := false
+	for _, rel := range []string{".pi/agent/models.json", ".pi/agent/settings.json"} {
+		data, err := os.ReadFile(filepath.Join(home, rel))
+		if err != nil {
+			continue
+		}
+		rendered = true
+		if strings.Contains(string(data), "/agent/pi") || strings.Contains(string(data), "127.0.0.1:8216") {
+			t.Errorf("%s names a via route:\n%s", rel, data)
+		}
+	}
+	if !rendered {
+		t.Fatalf("the apply rendered none of pi's config, so this proves nothing:\n%s%s", out.String(), errw.String())
+	}
+	// And it says why, as it does for a bridged selection: pi's route is file-carried, so only a jail
+	// or macos-user launch serves it (HS-D31).
+	report := out.String() + errw.String()
+	for _, want := range []string{"profile pi → bedrock-bridge renders no address for its via here",
+		"pi reads its route from ~/.pi/agent/models.json", "`yolo -p bedrock-bridge -- pi`"} {
+		if !strings.Contains(report, want) {
+			t.Errorf("the apply must say %q:\n%s", want, report)
+		}
+	}
+}
+
+// `yolo host apply` SAYS WHERE A VIA OR CARRIER TAKES EFFECT (HS-D33, OQ-HS3), as it does for a
+// bridged selection: copilot on bedrock-bridge (its via) and on plain bedrock (the carrier) rides
+// the bridge's adapter address at a port `yolo host --` picks per launch, so the apply renders no
+// address for it, starts nothing, and names `yolo host -- copilot` and the host wrappers, where
+// the selection does take effect. Deleting hostinputs' viaSelectionNote call fails this.
+func TestHostApplySaysWhereAViaOrCarrierTakesEffect(t *testing.T) {
+	for _, tc := range []struct{ profile, route string }{
+		{"bedrock-bridge", "its via"},
+		{"bedrock", `its carrier "wire-bridge"`},
+	} {
+		t.Run(tc.profile, func(t *testing.T) {
+			hostComputedHome(t, `{"packs": ["copilot", "bedrock", "wire-bridge"], "profile": {"copilot": "`+tc.profile+`"}, `+
+				`"providers": {"bedrock": {"region": "eu-west-1"}}}`)
+			origStart := startLaunchService
+			startLaunchService = func(*launchservice.Plan, map[string]string) (*launchservice.Running, error) {
+				t.Fatal("yolo host apply started a service")
+				return nil, nil
+			}
+			t.Cleanup(func() { startLaunchService = origStart })
+			var out, errw bytes.Buffer
+			if rc := hostMain([]string{"apply", "--assert"}, &out, &errw, false, strings.NewReader("y\n")); rc != 0 {
+				t.Fatalf("yolo host apply --assert rc=%d\n%s%s", rc, out.String(), errw.String())
+			}
+			report := out.String() + errw.String()
+			for _, want := range []string{"profile copilot → " + tc.profile + " renders no address for " + tc.route + " here",
+				`pack "wire-bridge"'s "wire-bridge" service`, "`yolo host -- copilot` or the host wrappers"} {
+				if !strings.Contains(report, want) {
+					t.Errorf("the apply must say %q:\n%s", want, report)
+				}
+			}
+		})
+	}
+}
+
+// A FETCHED PACK'S HOST HALF NEVER RUNS (OQ-HS4, HS-D27): a fetched pack that takes the bridge's
+// name and declares the same service with a host half is refused by name at the launch, with the
+// next step, and nothing starts.
+func TestHostRefusesAFetchedPacksHostHalfByName(t *testing.T) {
+	src := fetchedBridgeSource(t,
+		`{"kind": "adapter", "adapts": {"from": "openai-responses", "to": "anthropic"}, "address": "http://127.0.0.1:8215"}`)
+	cfg := `{"packs": ["claude", {"source": "` + src + `", "name": "wire-bridge"}]}`
+	origStart := startLaunchService
+	startLaunchService = func(*launchservice.Plan, map[string]string) (*launchservice.Running, error) {
+		t.Fatal("a fetched pack's host half was started")
 		return nil, nil
 	}
 	t.Cleanup(func() { startLaunchService = origStart })
 	rc, env, errs := hostGateRun(t, cfg, nil, []string{"-p", "codex"}, "claude")
 	if rc == 0 || env != nil {
-		t.Fatalf("rc = %d: a non-official pack's host half must refuse the launch\n%s", rc, errs)
+		t.Fatalf("rc = %d: a fetched pack's host half must refuse the launch\n%s", rc, errs)
 	}
 	for _, want := range []string{`profile "codex"`, `"wire-bridge" service, which this launch cannot start`,
-		"its pack is not one yolo ships", "`yolo -p claude=codex -- claude`, which is a jail launch"} {
+		"its pack was fetched", "select a local checkout of the pack by its file:// path",
+		"`yolo -p claude=codex -- claude`, which is a jail launch"} {
 		if !strings.Contains(errs, want) {
 			t.Errorf("the refusal must say %q:\n%s", want, errs)
 		}
 	}
+}
+
+// A LOCAL PACK'S HOST HALF RUNS, AND IS NAMED BEFORE IT DOES (HS-D27): a file:// fork of the bridge
+// pack, the user's own copy, holds the bridge's service under the later-wins rule, so `yolo host
+// -p codex -- claude` starts ITS host half, and the launch prints that argv as pack code it is
+// about to run on the machine before the start line. Through hostMain with the real start, the
+// test binary standing in for `yolo`, as the headline runs the shipped bridge.
+func TestHostRunsALocalPacksBridgeHostHalfAndNamesItBeforeItStarts(t *testing.T) {
+	upstream, _ := fakeUpstream(t)
+	fakeHostBroker(t)
+	manifest, err := fs.ReadFile(packs.FS, "wire-bridge/pack.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fork := filepath.Join(t.TempDir(), "wire-bridge")
+	if err := os.MkdirAll(fork, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fork, "pack.json"), manifest, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := `{"packs": ["claude", {"source": "file://` + fork + `", "name": "wire-bridge"}], ` +
+		`"providers": {"openai-codex": {"endpoints": {"openai-responses": {"base_url": "` + upstream.URL + `/codex"}}}}}`
+	l := runServiceLaunch(t, cfg, []string{"-p", "codex"}, "", nil)
+	if l.rc != 0 {
+		t.Fatalf("rc = %d: a local fork's bridge must run\n%s", l.rc, l.errs)
+	}
+	if len(l.started) != 1 || l.started[0].Plan.Service != "wire-bridge" || !l.started[0].Plan.Local {
+		t.Fatalf("started %d services, want the local fork's wire-bridge (Local)\n%s", len(l.started), l.errs)
+	}
+	if l.report.WithToken != http.StatusOK {
+		t.Errorf("the local fork's bridge did not serve claude: %d\n%s", l.report.WithToken, l.errs)
+	}
+	named := strings.Index(l.errs, `yolo host: this launch runs pack code on your machine: the "wire-bridge" `+
+		`service's host half from pack "wire-bridge", a local pack yolo does not ship: yolo internal daemon wire-bridge`)
+	started := strings.Index(l.errs, `yolo host: started the "wire-bridge" service`)
+	if named < 0 || started < 0 || named > started {
+		t.Errorf("the local pack's host argv must be named before its start line (named at %d, started at %d):\n%s",
+			named, started, l.errs)
+	}
+	assertServiceGone(t, l)
 }

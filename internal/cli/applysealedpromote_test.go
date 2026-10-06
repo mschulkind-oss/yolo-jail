@@ -73,6 +73,8 @@ func TestApplySealedNamesThePromoteVerb(t *testing.T) {
 // (TestGuestNotchSentenceHasExactlyOneHome). This is the behavioural half — it fails if
 // someone re-inlines the string here, even with the right words today.
 func TestApplyAtGuestReusesTheSharedNotchSentence(t *testing.T) {
+	// On Linux: on macOS the guest notch launches and apply points at it (guestnotch_test.go).
+	onPlatform(t, false)
 	_, repo := withHomeAndCwd(t)
 	writeFile(t, filepath.Join(repo, "yolo-jail.jsonc"), `{"confinement":"jail"}`)
 

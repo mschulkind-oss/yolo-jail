@@ -26,12 +26,12 @@ import (
 //     dies on one) — or when it carries `managed`/`defaults`, which the surface falls back
 //     to when the source is absent;
 //   - and a source-bearing DIRECTORY entry does only when dirsDeliver says this launch's
-//     backend delivers directories at all. Two do not, whether or not the source exists:
-//     macos-user copies host bytes and never copies a tree (run.buildMacosCtxTree reports
-//     the entry as undelivered), and Apple Container below the read-only-bind floor
-//     declines the bind (run.hostUserFileArgs). Which backend a launch runs on is the
-//     caller's to know, so the caller answers (run.hostFileDirsDeliver for the launch;
-//     `yolo check` answers for the platform it runs on).
+//     backend delivers directories at all. One does not, whether or not the source exists:
+//     Apple Container below the read-only-bind floor declines the bind
+//     (run.hostUserFileArgs). macos-user used to be the second, and copies the tree since
+//     2026-10-05 (run.buildMacosCtxTree). Which backend a launch runs on is the caller's to
+//     know, so the caller answers (run.hostFileDirsDeliver for the launch; `yolo check`
+//     answers for the platform it runs on).
 //
 // The source probe is safe in a jail, unlike LoadHostFiles' probeSource: that flag turns a
 // file/directory MISMATCH into a problem, and a host path absent from the jail's mount

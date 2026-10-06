@@ -93,6 +93,58 @@ func TestTheIOPriorityReachesTheArgvAndTheBriefingTogether(t *testing.T) {
 	}
 }
 
+// TestTheMacosUserLaunchBriefsTheDiskPolicyItSets is the run pipeline's half of build step 5
+// (io-priority.md §5.5): appliedIOPriority answers the declaration on macos-user, because the
+// orchestrator sets it as the launcher's disk policy before the session starts, and the
+// briefing the arm writes names that policy, in macOS words and never in Linux ones. The
+// macos-user arm's refreshJailBriefings call passing appliedIOPriority is pinned by
+// TestTheFreshLaunchNotesTheIOPriority; this row is what fails if the answer it reads is Normal.
+func TestTheMacosUserLaunchBriefsTheDiskPolicyItSets(t *testing.T) {
+	for _, tc := range []struct {
+		io      any
+		want    ioprio.Priority
+		inBrief string
+	}{
+		{"low", ioprio.Low, "`low` (IOPOL_UTILITY)"},
+		{"idle", ioprio.Idle, "`idle` (IOPOL_THROTTLE)"},
+		{"normal", ioprio.Normal, ""},
+		{nil, ioprio.Normal, ""},
+	} {
+		res := jsonx.NewOrderedMap()
+		if tc.io != nil {
+			res.Set("io", tc.io)
+		}
+		if got := appliedIOPriority("macos-user", true, res); got != tc.want {
+			t.Errorf("io=%v: appliedIOPriority on macos-user = %q, want %q", tc.io, got, tc.want)
+		}
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		emptyLoopholeDirs(t)
+		o := appliedOptions(t, t.TempDir(), home, false)
+		o.IsMacOS, o.IsLinux = true, false
+		o.Stderr = discardBuf()
+		cfg := appliedTestConfig()
+		if tc.io != nil {
+			cfg.Set("resources", res)
+		}
+		line := ioPriorityBriefingLine(appliedBriefing(t, o, "macos-user", cfg))
+		if tc.inBrief == "" {
+			if line != "" {
+				t.Errorf("io=%v: the briefing states a policy nothing set: %q", tc.io, line)
+			}
+			continue
+		}
+		if !strings.Contains(line, tc.inBrief) || !strings.Contains(line, "Advisory") {
+			t.Errorf("io=%v: briefing line %q, want it to state %q, advisory", tc.io, line, tc.inBrief)
+		}
+		for _, never := range []string{"scheduler", "writeback", "kernel-enforced", "best effort"} {
+			if strings.Contains(line, never) {
+				t.Errorf("io=%v: the macos-user line says %q: %q", tc.io, never, line)
+			}
+		}
+	}
+}
+
 // ioNoteOptions is a podman/Linux host whose workspace is wsPath inside the fake root sys.
 func ioNoteOptions(t *testing.T, sys *iopriotest.Sys, wsPath string) (*Options, *bytes.Buffer) {
 	t.Helper()

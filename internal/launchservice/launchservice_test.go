@@ -167,7 +167,7 @@ func TestAServiceEndsWhenItsLaunchIsGone(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(r.Stop)
-	_ = r.lifeline.Close() // what the kernel does when the launch process dies
+	_ = r.current().lifeline.Close() // what the kernel does when the launch process dies
 	waitGone(t, r, 5*time.Second)
 }
 
@@ -208,8 +208,9 @@ func TestStopKillsAServiceThatIgnoresTerm(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Keep the lifeline open, so only the signals can end it.
-	lifeline := r.lifeline
-	r.lifeline = os.NewFile(^uintptr(0), "none")
+	p := r.current()
+	lifeline := p.lifeline
+	p.lifeline = os.NewFile(^uintptr(0), "none")
 	r.Stop()
 	_ = lifeline.Close()
 	waitGone(t, r, time.Second)
@@ -236,7 +237,7 @@ func runAgent(t *testing.T, mode string, signals chan os.Signal) (int, *Running)
 	default:
 		t.Errorf("RunAgent returned with the service (pid %d) still running", r.PID())
 	}
-	if strings.Contains(stderr.String(), "exited while") {
+	if strings.Contains(stderr.String(), "exited") {
 		t.Errorf("a service stopped by its launch was reported as dying mid-session: %s", stderr.String())
 	}
 	return rc, r
@@ -267,8 +268,10 @@ func TestRunAgentForwardsTermToTheAgent(t *testing.T) {
 	}
 }
 
-// A service that dies while the agent runs is named once, and not restarted.
-func TestAServiceDyingMidSessionIsNamed(t *testing.T) {
+// A SERVICE THAT DIES BEFORE ITS LAUNCH SUPERVISES IT IS NAMED, AND NOT RESTARTED: nothing was
+// watching it when it died, so its sockets went free with it, and Supervise says so once, with
+// its exit and its log, instead of staying silent.
+func TestAServiceDeadBeforeItIsSupervisedIsNamedAndNotRestarted(t *testing.T) {
 	selfAsHostHalf(t)
 	t.Setenv(helperEnv, "serve")
 	plan, addr := testPlan(t)
@@ -276,21 +279,17 @@ func TestAServiceDyingMidSessionIsNamed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(r.Stop)
+	_ = syscall.Kill(r.PID(), syscall.SIGKILL)
+	waitGone(t, r, 2*time.Second)
 	var stderr lockedBuilder
-	WatchDeath([]*Running{r}, "claude", &stderr, "yolo host: ")
-	_ = r.cmd.Process.Kill()
-	waitGone(t, r, time.Second)
-	deadline := time.Now().Add(time.Second)
-	for !strings.Contains(stderr.String(), `the "svc" service exited while claude runs`) {
-		if time.Now().After(deadline) {
-			t.Fatalf("no line named the dead service: %q", stderr.String())
+	r.Supervise("claude", &stderr, "yolo host: ")
+	for _, want := range []string{`yolo host: the "svc" service (pack "p") exited (killed by SIGKILL) before claude started`,
+		"not restarted", r.Log} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Errorf("the line must say %q: %q", want, stderr.String())
 		}
-		time.Sleep(10 * time.Millisecond)
 	}
-	if !strings.Contains(stderr.String(), r.Log) {
-		t.Errorf("the line must name the log: %q", stderr.String())
-	}
-	r.Stop()
 }
 
 // packFrom loads a pack from a manifest written to a temp dir.
@@ -311,6 +310,15 @@ func packFrom(t *testing.T, name, manifest string, official bool) *packload.Pack
 	return p
 }
 
+// localPack is packFrom's pack as config.ResolvePack loads a file:// entry: not one yolo ships,
+// and Local.
+func localPack(t *testing.T, name, manifest string) *packload.Pack {
+	t.Helper()
+	p := packFrom(t, name, manifest, false)
+	p.Local = true
+	return p
+}
+
 const bridgeManifest = `{"name": "wire-bridge", "contributes": [
   {"kind": "adapter", "adapts": {"from": "openai", "to": "anthropic"}, "address": "http://127.0.0.1:8214"},
   {"kind": "adapter", "adapts": {"from": "openai-responses", "to": "anthropic"}, "address": "http://127.0.0.1:8215"},
@@ -318,27 +326,53 @@ const bridgeManifest = `{"name": "wire-bridge", "contributes": [
    "jail_daemon": {"cmd": ["yolo-jaild", "wire-bridge"]},
    "host_daemon": {"cmd": %s}}]}`
 
-// Only an official pack's host half runs: a fetched or local pack of the same name, declaring the
-// same service, is refused BY NAME (OQ-HS4).
+// An official or a LOCAL pack's host half runs; a FETCHED pack of the same name, declaring the
+// same service, is refused BY NAME (OQ-HS4, HS-D27), with the next step: a local checkout of it.
 func TestAdmitRefusesAFetchedPacksHostHalfByName(t *testing.T) {
-	fetched := packFrom(t, "wire-bridge", fmt.Sprintf(bridgeManifest, `["yolo", "internal", "daemon", "wire-bridge"]`), false)
+	manifest := fmt.Sprintf(bridgeManifest, `["yolo", "internal", "daemon", "wire-bridge"]`)
+	fetched := packFrom(t, "wire-bridge", manifest, false)
 	_, err := Admit([]*packload.Pack{fetched}, "wire-bridge")
 	if err == nil {
 		t.Fatal("a fetched pack's host half was admitted")
 	}
-	for _, want := range []string{`service "wire-bridge"`, `pack "wire-bridge"`, "not one yolo ships"} {
+	for _, want := range []string{`service "wire-bridge"`, `pack "wire-bridge"`, "its pack was fetched",
+		"not one yolo ships", "OQ-HS4", "select a local checkout of the pack by its file:// path"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("the refusal must say %q: %v", want, err)
 		}
 	}
-	official := packFrom(t, "wire-bridge", fmt.Sprintf(bridgeManifest, `["yolo", "internal", "daemon", "wire-bridge"]`), true)
+	official := packFrom(t, "wire-bridge", manifest, true)
 	d, err := Admit([]*packload.Pack{official}, "wire-bridge")
 	if err != nil || strings.Join(d.Cmd, " ") != "yolo internal daemon wire-bridge" {
 		t.Fatalf("the official pack's host half: %+v, %v", d, err)
 	}
-	// The later pack holds the service, and its origin decides.
+	local := localPack(t, "wire-bridge", manifest)
+	if d, err := Admit([]*packload.Pack{local}, "wire-bridge"); err != nil || d.Pack != "wire-bridge" ||
+		strings.Join(d.Cmd, " ") != "yolo internal daemon wire-bridge" {
+		t.Errorf("a local pack's host half, which only the user's own config selects, is refused: %+v, %v", d, err)
+	}
+	// The later pack holds the service, and its origin decides: a fetched one later than the
+	// official is refused, a local one later than a fetched one is admitted.
 	if _, err := Admit([]*packload.Pack{official, fetched}, "wire-bridge"); err == nil {
 		t.Error("a fetched pack holding the service by the later-wins rule was admitted")
+	}
+	if _, err := Admit([]*packload.Pack{fetched, local}, "wire-bridge"); err != nil {
+		t.Errorf("a local pack holding the service by the later-wins rule was refused: %v", err)
+	}
+}
+
+// THE SERVICE'S RESTART POLICY RIDES THE ADMISSION: Admit carries the held service's
+// `jail_daemon.restart` (HS-D28), "" when it declares none, which supervision reads as on-failure.
+func TestAdmitCarriesTheServicesRestartPolicy(t *testing.T) {
+	p := packFrom(t, "acme", `{"contributes": [{"kind": "service", "name": "acme-svc",
+		"jail_daemon": {"cmd": ["acme-svc"], "restart": "no"},
+		"host_daemon": {"cmd": ["yolo", "internal", "daemon", "acme-svc"]}},
+		{"kind": "service", "name": "acme-worker", "host_daemon": {"cmd": ["yolo", "internal", "daemon", "acme-worker"]}}]}`, true)
+	if d, err := Admit([]*packload.Pack{p}, "acme-svc"); err != nil || d.Restart != "no" {
+		t.Errorf("Admit(acme-svc) = %+v, %v; want its declared restart \"no\"", d, err)
+	}
+	if d, err := Admit([]*packload.Pack{p}, "acme-worker"); err != nil || d.Restart != "" {
+		t.Errorf("Admit(acme-worker) = %+v, %v; want no restart policy for a host-only service", d, err)
 	}
 }
 
@@ -416,5 +450,77 @@ func TestNewPlanMovesEveryDeclaredAddress(t *testing.T) {
 	if got := WithoutOverrides(map[string]string{"openai-responses->anthropic": "http://127.0.0.1:9999",
 		"x->y": "http://h"}, []*packload.Pack{p}, []string{"wire-bridge"}); len(got) != 1 || got["x->y"] == "" {
 		t.Errorf("the service's own overrides must be dropped, others kept: %v", got)
+	}
+}
+
+// viaBridgeManifest is bridgeManifest with the service's via address, as packs/wire-bridge
+// declares it, and a second service of the same pack that declares none.
+const viaBridgeManifest = `{"name": "wire-bridge", "contributes": [
+  {"kind": "adapter", "adapts": {"from": "openai", "to": "anthropic"}, "address": "http://127.0.0.1:8214"},
+  {"kind": "service", "name": "wire-bridge", "endpoint": "wire-bridge.endpoint", "via_address": "http://127.0.0.1:8216",
+   "jail_daemon": {"cmd": ["yolo-jaild", "wire-bridge"]},
+   "host_daemon": {"cmd": ["yolo", "internal", "daemon", "wire-bridge"]}},
+  {"kind": "service", "name": "wire-bridge-helper",
+   "host_daemon": {"cmd": ["yolo", "internal", "daemon", "wire-bridge-helper"]}}]}`
+
+// THE PLAN RESERVES THE VIA ADDRESS (docs/design/host-notch-services.md HS-D30): NewPlan moves the
+// service's declared `via_address` to a port of this launch's beside its adaptations, holds it from
+// the pick (no other listener can be given it), and the served set rebinds a via base to it, so a
+// profile's via names the port the host half listens on. Before it a macos-user launch that planned
+// the bridge for an adapter pairing left another agent's via at 127.0.0.1:8216, which nothing
+// reserved or served. Another service of the same pack, which serves no via, reserves none.
+func TestNewPlanReservesTheServicesViaAddress(t *testing.T) {
+	p := packFrom(t, "wire-bridge", viaBridgeManifest, true)
+	packs := []*packload.Pack{p}
+	d, err := Admit(packs, "wire-bridge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := NewPlan(packs, d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(plan.Release)
+	picked := plan.Moved["127.0.0.1:8216"]
+	if picked == "" || picked == "127.0.0.1:8216" || !strings.HasPrefix(picked, "127.0.0.1:") {
+		t.Fatalf("the via address moved to %q, want a port this launch picked: %v", picked, plan.Moved)
+	}
+	if other, err := net.Listen("tcp", picked); err == nil {
+		_ = other.Close()
+		t.Errorf("another listener was given %s, the port the plan picked for the via address", picked)
+	}
+	if got := Served([]*Plan{plan}).ServedURL("http://127.0.0.1:8216"); got != "http://"+picked {
+		t.Errorf("the served set rebinds the via base to %q, want http://%s", got, picked)
+	}
+	helper, err := Admit(packs, "wire-bridge-helper")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hp, err := NewPlan(packs, helper)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(hp.Release)
+	if _, moved := hp.Moved["127.0.0.1:8216"]; moved {
+		t.Errorf("a service that serves no via reserved the pack's via address: %v", hp.Moved)
+	}
+}
+
+// A VIA ROUTE THE AGENT'S CONFIG FILE CARRIES IS A ROUTE THE PLAN NAMES (RoutedAt, RoutesAny): pi's
+// via URL lives in its models.json, which no delivery's Shape holds, so the plan's address it
+// names is named by the via URL; a URL on a port the address only prefixes is not.
+func TestRoutedAtNamesTheAddressAViaURLNames(t *testing.T) {
+	p := &Plan{Moved: map[string]string{"127.0.0.1:8214": "127.0.0.1:4313", "127.0.0.1:8216": "127.0.0.1:38913"}}
+	if got := p.RoutedAt([]string{"http://127.0.0.1:38913/agent/pi"}); len(got) != 1 || got[0] != "127.0.0.1:38913" {
+		t.Errorf("RoutedAt(pi's via URL) = %v, want the via address alone", got)
+	}
+	if !p.RoutesAny([]string{"http://127.0.0.1:38913/agent/pi"}) {
+		t.Error("RoutesAny(pi's via URL) = false, want true")
+	}
+	if p.RoutesAny([]string{"http://127.0.0.1:43137/agent/pi"}) {
+		t.Error("RoutesAny counted a URL on a port 127.0.0.1:4313 only prefixes")
+	}
+	if p.RoutesAny(nil, &packload.AgentDelivery{Agent: "copilot"}) {
+		t.Error("RoutesAny counted an agent whose Shape names no address of the plan")
 	}
 }

@@ -25,6 +25,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/selfupdate"
+	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
 
 // runInternal dispatches the hidden `yolo internal <cmd>` family — debugging
@@ -34,7 +35,7 @@ import (
 // rewrite semantics.
 func runInternal(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: yolo internal <capture-materialize|capture-run|config-dump|fork-build-jail|daemon|darwin-bootstrap|footer|image-copy|installer-check|migrate-host|model-menu|no-terminal|node-floor-launchers|node-floor-satisfied|openai-auth|openai-auth-client|refresh-servers|bundle-dir|scratch-rm|update-check> [args...]")
+		fmt.Fprintln(os.Stderr, "usage: yolo internal <capture-materialize|capture-run|config-dump|fork-build-jail|daemon|darwin-bootstrap|footer|image-copy|installer-check|migrate-host|model-menu|no-terminal|node-floor-launchers|node-floor-satisfied|openai-auth|openai-auth-client|probe-services|refresh-servers|bundle-dir|scratch-rm|update-check> [args...]")
 		return 2
 	}
 	switch args[0] {
@@ -143,6 +144,23 @@ func runInternal(args []string) int {
 		// recipe never recomputes them — the drift that once aimed `rm -rf` at the
 		// state dir. See runBundleDir for the three forms.
 		return runBundleDir(args[1:])
+	case macosuser.SessionGuardVerb:
+		// resources.memory on macos-user (internal/macosuser/sessionguard.go): the sampled guard
+		// the launch argv runs inside the sandbox, between the env-file reader and the shell that
+		// execs the agent. Hidden: its caller is that argv, and it runs the command it is handed.
+		return macosuser.SessionGuardMain(args[1:])
+	case macosuser.ProbeServicesVerb:
+		// The macos-user launch's host-service witness (internal/macosuser/serviceprobe.go),
+		// the container boot's last step run as a confined stage of its own. Hidden: its caller
+		// is that stage's argv, inside the sandbox (probeservices.go).
+		return runProbeServices(args[1:], os.Environ(), os.Stderr)
+	case landlockExecVerb:
+		// The HOST CAPTURE's confinement on Linux (capturelandlock_linux.go,
+		// docs/design/host-tool-provisioning.md HP-D18): with --supervise, this process runs the
+		// confinement as a subreaper and kills what it leaves running; otherwise it restricts itself
+		// with Landlock and execs the capture driver. Either runs nothing it cannot. Hidden: its caller
+		// is `yolo capture` on a machine with no container runtime.
+		return runLandlockExec(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "yolo internal: unknown command %q\n", args[0])
 		return 2
@@ -268,7 +286,10 @@ func runBundleDir(args []string) int {
 // YOLO_DARWIN_WORKSPACE, YOLO_DARWIN_MACOS_LOG, YOLO_DARWIN_HOME_SIDECAR and
 // YOLO_DARWIN_LOGIN_PATH — the last two read off the Env rather than passed as options,
 // because the layout is derived from the staged packs and the login rc files now re-prepend
-// the variable itself instead of a value baked at generation time.
+// the variable itself instead of a value baked at generation time. YOLO_DARWIN_ENV_FILE names
+// the session env file, which the bootstrap reads into its Env and never into this process's
+// environment (entrypoint's hydrate_session_env step). The bootstrap writes
+// <workspace>/.yolo/boot.log as the container boot does.
 func runDarwinBootstrap(_ []string) int {
 	home := firstNonEmptyEnv("JAIL_HOME", "HOME")
 	if home == "" {
@@ -308,6 +329,9 @@ func runDarwinBootstrap(_ []string) int {
 	opts := entrypoint.DarwinBootstrapOptions{
 		MacosLog:      os.Getenv("YOLO_DARWIN_MACOS_LOG"),
 		YoloLogScript: macosuser.MacosLogWrapperScript(os.Getenv("YOLO_DARWIN_MACOS_LOG")),
+		// The boot log's version line, from this binary's own stamp. NEVER relayed as
+		// YOLO_VERSION: that variable is the jail marker, and this process is not in one.
+		Version: version.Baked(),
 	}
 	if err := entrypoint.RunDarwinBootstrap(e, opts); err != nil {
 		// A12: do NOT print "ok" over a failed bootstrap.

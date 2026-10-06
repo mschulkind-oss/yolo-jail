@@ -155,51 +155,46 @@ func (o *Options) refuseUnmetCapabilities(cfg *jsonx.OrderedMap, src *config.Sou
 		return false
 	}
 	missing, err := config.UnmetCapabilities(cfg, o.capabilityLaunch(cfg))
-	if len(missing) == 0 {
-		return false
-	}
-	named := "'" + strings.Join(missing, "', '") + "'"
+	// The words are config.UnmetCapabilityRefusal's, shared with `yolo host --` (the gate's host
+	// notch), so the two notches cannot come to say different things about one gap; the markup is
+	// this notch's own: a warning in yellow, a refusal's verdict in bold red and its next step dim.
+	lines, refuse := config.UnmetCapabilityRefusal(missing, err,
+		o.Getenv(AllowUnmetCapabilitiesEnv) != "", src.Locations("config.required_capabilities"))
 	out := o.pr(o.Stderr)
-	if err != nil {
-		out.printf("[yellow]Warning: cannot tell whether anything satisfies required capability "+
-			"%s: %s. Continuing: this launch reports that problem itself further on.[/yellow]",
-			named, err.Error())
-		return false
+	for i, line := range lines {
+		switch {
+		case !refuse:
+			out.print("[yellow]" + line + "[/yellow]")
+		case i == 0:
+			out.print("[bold red]" + line + "[/bold red]")
+		case i == len(lines)-1:
+			out.print("[dim]" + line + "[/dim]")
+		default:
+			out.print(line)
+		}
 	}
-	// The hatch is consulted only where it suppresses something — a launch with no gap never
-	// announces it (providerpreflight.go's rule), and when it DOES suppress, the notice says
-	// what: nothing was repaired.
-	if o.Getenv(AllowUnmetCapabilitiesEnv) != "" {
-		out.printf("[yellow]Warning: %s is set — CONTINUING with required capability %s "+
-			"that nothing in this launch satisfies. Nothing was repaired: whatever needed "+
-			"the capability still has to do without it.[/yellow]",
-			AllowUnmetCapabilitiesEnv, named)
-		return false
-	}
-	out.printf("[bold red]Refusing to launch: config.required_capabilities declares %s, "+
-		"and nothing this config or its selected packs declare satisfies it.[/bold red]", named)
-	if where := src.Locations("config.required_capabilities"); len(where) > 0 {
-		out.print("  config.required_capabilities is written at " + strings.Join(where, " and at ") + ".")
-	}
-	out.print("  A capability is satisfied by a declaration: `providers.<name>.capabilities` " +
-		"naming it (the agent has it natively there), an `mcp_servers.<name>` entry with " +
-		"\"provides\": \"<capability>\", or a selected agent whose pack declares it for the " +
-		"source the agent runs on: its built-in login, or the provider its profile selects.")
-	out.printf("[dim]Declare the satisfier, drop the name from required_capabilities, or "+
-		"launch anyway with %s=1.[/dim]", AllowUnmetCapabilitiesEnv)
-	return true
+	return refuse
 }
 
-// resolveRuntime returns the resolved container runtime
-// ('podman' or 'container'), or ("", false) when none is reachable (prints the
-// actionable message; the caller exits 1). YOLO_RUNTIME / config.runtime win
-// (validated against ALL_RUNTIMES) before platform auto-detection.
+// resolveRuntime returns the resolved runtime ('podman', 'container' or 'macos-user'), or
+// ("", false) when none is reachable (prints the actionable message; the caller exits 1).
+// The precedence is the one config.SelectedRuntime states for every runtime reader:
+// YOLO_RUNTIME, then config.runtime (each validated against ALL_RUNTIMES), then the notch's
+// own backend, then platform auto-detection.
+//
+// THE NOTCH'S OWN BACKEND is the guest notch's on macOS: `confinement: "guest"` or `--at
+// guest` selects macos-user with no `runtime` key (config.NotchRuntime; env-manager plan
+// EMP-D1). It ranks below the two explicit inputs, and refuseUnbuiltNotch has already refused
+// an explicit one that contradicts it, so reaching this step means nothing explicit was named.
 func (o *Options) resolveRuntime(cfg *jsonx.OrderedMap) (string, bool) {
 	if env := o.Getenv("YOLO_RUNTIME"); env != "" && inStrSlice(paths.AllRuntimes, env) {
 		return o.validateExplicitRuntime(env, "YOLO_RUNTIME")
 	}
 	if rt := configRuntime(cfg); rt != "" && inStrSlice(paths.AllRuntimes, rt) {
 		return o.validateExplicitRuntime(rt, "yolo-jail.jsonc")
+	}
+	if rt := config.NotchRuntime(o.launchNotch(cfg), o.IsMacOS); rt != "" {
+		return o.validateExplicitRuntime(rt, "confinement")
 	}
 	var candidates []string
 	if o.IsMacOS {
@@ -484,16 +479,23 @@ func printScopeBlock(out printer, block []string) {
 // UNDER THE SEAL the assembled copy is an empty object (assembledConfigFor, seal.go): the
 // merged config carries the user's inline env_sources, and a sealed build's workspace is the
 // one directory its jail writes. The baseline stays, being the workspace's own config.
-func (o *Options) writeLaunchConfigArtifacts(cfg *jsonx.OrderedMap) {
+//
+// It returns the digest of the baseline it wrote, "" when it wrote none. The macos-user arm
+// hands it to its session (config.BootBaselineDigestEnv says why that backend needs it); the
+// container arm ignores it, since its baseline cannot be replaced while its jail runs.
+func (o *Options) writeLaunchConfigArtifacts(cfg *jsonx.OrderedMap) (baselineDigest string) {
 	out := o.pr(o.Stdout)
 	if err := config.WriteAssembledConfig(o.Workspace, o.assembledConfigFor(cfg)); err != nil {
 		out.printf("[dim]Warning: could not write the assembled config for the jail: %s[/dim]", err.Error())
 	}
 	if wsCfg, wsErr := config.LoadWorkspaceConfig(o.Workspace, false, func(string) {}); wsErr == nil {
-		if err := config.WriteWorkspaceBootBaseline(o.Workspace, wsCfg); err != nil {
+		d, err := config.WriteWorkspaceBootBaseline(o.Workspace, wsCfg)
+		if err != nil {
 			out.printf("[dim]Warning: could not write config drift baseline: %s[/dim]", err.Error())
 		}
+		return d
 	}
+	return ""
 }
 
 // printConfigDiff renders a unified config diff in the launcher's colours. Shared

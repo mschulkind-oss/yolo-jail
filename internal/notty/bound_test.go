@@ -1,5 +1,3 @@
-//go:build linux
-
 package notty
 
 import (
@@ -181,19 +179,6 @@ func TestMainReadsTheBoundFromItsFlags(t *testing.T) {
 			t.Errorf("Main(%s) = %d, want %d", strings.Join(tc.args, " "), got, tc.want)
 		}
 	}
-}
-
-// procGone says whether pid has exited: no /proc entry, or a zombie its new parent has not reaped.
-func procGone(pid string) bool {
-	b, err := os.ReadFile("/proc/" + pid + "/stat")
-	if err != nil {
-		return true
-	}
-	// The state is the field after the parenthesized command name.
-	if i := strings.LastIndexByte(string(b), ')'); i >= 0 && i+2 < len(b) {
-		return b[i+2] == 'Z'
-	}
-	return false
 }
 
 // readPid waits for the command to have written a pid to path.

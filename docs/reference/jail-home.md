@@ -263,8 +263,17 @@ all:
 | a home-root file | symlink | a **relative, dangling** symlink in the skeleton pointing into the rw `.config` overlay — the same hatch `.bashrc` and `.claude.json` use |
 | a new top-level dir, including one only an **unselected** pack declares | writable subtree | the `writable_home_dirs` recipe: backing dir, skeleton mountpoint, nested rw bind |
 
-That table is podman's. Apple Container stages nothing: its whole home is the read-write
-workspace state dir, so every destination is writable as it stands.
+That table is podman's, and its symlink row holds on macos-user too: the home layout lays the same
+relative link in the sandbox account home, from the same `StagingFor` and `SymlinkTarget` calls, so
+a home-root file lands in the workspace's own `.config` on both
+([HT-D9](macos-user-home-tiers.md#ht-d9)). The exception is the three login rc files the
+macos-user bootstrap writes itself on every launch, `.zprofile`, `.zshrc` and `.bash_profile`:
+they stay real files in the account home, and an entry naming one is refused there with the next
+step ([HT-D12](macos-user-home-tiers.md#ht-d12), [HT-D13](macos-user-home-tiers.md#ht-d13)). The
+other two rows have no macos-user counterpart, because that home is writable as it stands: a
+destination under a layout link lands in the workspace, and one in a new top-level directory lands
+in the account home every workspace shares. Apple Container stages nothing: its whole home is the read-write workspace state dir, so every
+destination is writable as it stands.
 
 > [!WARNING]
 > **The dangling symlink is load-bearing and not interchangeable.** A directory bind makes
@@ -433,13 +442,15 @@ reaches the same names without moving this list — and keeps working for a cons
 scrubs PATH and spells `/bin/yolo`.
 
 > [!WARNING]
-> **Three copies of this order exist and they are independently written.** `BootPath` is
-> the authority; the `.bashrc` export in `internal/entrypoint/shell.go` is a second copy,
-> and `macosuser.SandboxPath` is a third for the no-container backend. The first two
-> disagreed about `$HOME/.local/bin` — second in one, fifth in the other — for months,
-> behind a test that only asserted "blockers first, launchers last" and nothing about the
-> middle. They are now compared **entry by entry**. Any change to the order changes all
-> three.
+> **Two copies of this order are written independently, and a third shares its head.**
+> `BootPath` is the authority; the `.bashrc` export in `internal/entrypoint/shell.go` is a
+> second copy. The two disagreed about `$HOME/.local/bin` (second in one, fifth in the
+> other) for months, behind a test that only asserted "blockers first, launchers last" and
+> nothing about the middle. They are now compared **entry by entry**. `macosuser.SandboxPath`,
+> the no-container backend's PATH, takes its head from `entrypoint.HomePathDirs`, the function
+> `BootPath` is built from, and keeps its own macOS tail
+> ([OQ-PD27](../design/program-delivery.md#decision-ledger)). Any change to the order changes
+> `BootPath` and the `.bashrc` export.
 
 > [!WARNING]
 > **What the launchers' old position bought is now a generation-time check, and it must
@@ -1049,7 +1060,8 @@ into, and its sandbox profile allows writes to the whole sandbox home except the
 and briefings, which it write-protects as the container backends' `:ro` binds do. Host files
 cross by copy too: a source-bearing `host_files` file and each pack's `reads-host` grant are
 copied into a root-owned `/ctx` tree the launch stages (`YOLO_CTX_ROOT`), and a directory
-`source` is skipped with a warning. It reaches the same two tiers by a different
+`source` is skipped with a warning; a home-root destination is the podman skeleton's link, laid in
+the account home. It reaches the same two tiers by a different
 primitive: every directory the podman argv binds from `<workspace>/.yolo/home` is a SYMLINK
 from the sandbox account home into that same sidecar, and each pack-declared `scope: machine`
 directory stays in the account home and is mirrored back into the sidecar so the relative

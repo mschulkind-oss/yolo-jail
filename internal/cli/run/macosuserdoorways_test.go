@@ -23,6 +23,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -32,6 +33,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/openauthclient"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // doorwaysSeen is what the stubbed doorway start observed.
@@ -193,18 +195,18 @@ func TestAMacosUserDoorwayThatCannotStartStopsTheOnesAlreadyOpen(t *testing.T) {
 	}
 }
 
-// A PACK YOLO DOES NOT SHIP CANNOT RUN HOST CODE THROUGH host_cmd (the launch-owned mechanism's
-// admission rule): its doorway runs as the jail daemon it also is, in the guest, and the launch
-// says why. Deleting admitDoorways from jailDaemonsFor fails this.
+// A FETCHED PACK CANNOT RUN HOST CODE THROUGH host_cmd (the launch-owned mechanism's admission
+// rule; a local pack's runs since HS-D27, macosuserlocalpacks_test.go): its doorway runs as the
+// jail daemon it also is, in the guest, and the launch says why. Deleting admitDoorways from
+// jailDaemonsFor fails this.
 func TestMacosUserRunsARefusedDoorwayInTheGuest(t *testing.T) {
 	home := packHome(t)
 	ws := t.TempDir()
-	writeLocalLoopholePack(t, home, "acme-proxy", `{"name": "acme-proxy",
-		"description": "acme proxy", "default_enabled": true, "transport": "loopback-tls",
-		"jail_daemon": {"cmd": ["yolo-jaild", "acme-adapter", "--listen", "{listen}"],
-		"listen": "127.0.0.1:1999", "caller_token": true,
-		"host_cmd": ["yolo", "internal", "daemon", "acme-adapter", "--listen", "{listen}"]}}`)
-	writeUserConfigJSON(t, home, `{"packs": []}`)
+	src := fetchedPackSource(t, map[string]string{
+		"pack.json":                           `{"name": "acme", "contributes": [{"kind": "loophole", "from": "loopholes/acme-proxy"}]}`,
+		"loopholes/acme-proxy/manifest.jsonc": acmeDoorwayManifest,
+	})
+	writeUserConfigJSON(t, home, `{"packs": [{"name": "acme", "source": "`+src+`"}]}`)
 	doors := observeDoorways(t)
 
 	got := macosUserLaunch(t, ws)
@@ -213,39 +215,44 @@ func TestMacosUserRunsARefusedDoorwayInTheGuest(t *testing.T) {
 	}
 	for _, p := range doors.plans {
 		if p.Service == "acme-proxy" {
-			t.Errorf("a local pack's host argv was run outside the sandbox: %v", p.Cmd)
+			t.Errorf("a fetched pack's host argv was run outside the sandbox: %v", p.Cmd)
 		}
 	}
 	specs := payloadOf(t, got.jailDaemons)
 	if len(specs) != 1 || specs[0].Name != "acme-proxy" || specs[0].Cmd[0] != "yolo-jaild" {
 		t.Errorf("the refused doorway's jail daemon was not handed to the guest: %+v", specs)
 	}
-	if !strings.Contains(got.out, `Not opened outside the sandbox: the "acme-proxy" doorway's host argv`) ||
-		!strings.Contains(got.out, "its pack is not one yolo ships") {
+	if !strings.Contains(got.out, `Not opened outside the sandbox: the "acme-proxy" doorway's host argv (pack "acme")`) ||
+		!strings.Contains(got.out, "its pack was fetched") {
 		t.Errorf("the launch does not say why the doorway runs in the guest:\n%s", got.out)
 	}
 	// And the host-execution disclosure does not name the argv it refused: that is code that runs
-	// nowhere (packload's moduleClaims claims host_cmd only for a pack yolo ships).
-	if strings.Contains(got.out, "RUNS yolo internal daemon acme-adapter") {
+	// nowhere (packload's moduleClaims claims host_cmd only for a pack whose host code runs).
+	if strings.Contains(got.out, "RUNS yolo internal daemon acme-adapter") ||
+		strings.Contains(got.out, "doorway's host argv from pack") {
 		t.Errorf("the launch discloses a refused host argv as running on your machine:\n%s", got.out)
 	}
 }
 
 // A REFUSED DOORWAY WHOSE JAIL DAEMON THE GUEST DECLINES TOO IS SAID TO RUN NOWHERE, not in the
-// sandbox: the user guide's own jail_daemon example names `{jail_loophole_dir}`, which the guest
-// declines by name, so the refusal line must follow the daemon to where it actually goes. Before
-// this, one launch printed that daemon's Declined: line and a line saying it ran in the sandbox
-// instead, while the guest was handed nothing. Deleting the decline lookup from
+// sandbox: this one's program is a Linux executable the pack ships in its module directory, which
+// the guest declines by name, so the refusal line must follow the daemon to where it actually
+// goes. Before this, one launch printed that daemon's Declined: line and a line saying it ran in
+// the sandbox instead, while the guest was handed nothing. Deleting the decline lookup from
 // noteRefusedDoorways fails this.
 func TestMacosUserSaysARefusedDoorwayTheGuestDeclinesRunsNowhere(t *testing.T) {
 	home := packHome(t)
 	ws := t.TempDir()
-	writeLocalLoopholePack(t, home, "acme-proxy", `{"name": "acme-proxy",
+	src := fetchedPackSource(t, map[string]string{
+		"pack.json": `{"name": "acme", "contributes": [{"kind": "loophole", "from": "loopholes/acme-proxy"}]}`,
+		"loopholes/acme-proxy/manifest.jsonc": `{"name": "acme-proxy",
 		"description": "acme proxy", "default_enabled": true, "transport": "loopback-tls",
 		"jail_daemon": {"cmd": ["{jail_loophole_dir}/my-agent", "--listen", "{listen}"],
 		"listen": "127.0.0.1:1999", "caller_token": true,
-		"host_cmd": ["yolo", "internal", "daemon", "acme-adapter", "--listen", "{listen}"]}}`)
-	writeUserConfigJSON(t, home, `{"packs": []}`)
+		"host_cmd": ["yolo", "internal", "daemon", "acme-adapter", "--listen", "{listen}"]}}`,
+		"loopholes/acme-proxy/my-agent": string(linuxProgram),
+	})
+	writeUserConfigJSON(t, home, `{"packs": [{"name": "acme", "source": "`+src+`"}]}`)
 	doors := observeDoorways(t)
 
 	got := macosUserLaunch(t, ws)
@@ -253,10 +260,10 @@ func TestMacosUserSaysARefusedDoorwayTheGuestDeclinesRunsNowhere(t *testing.T) {
 		t.Fatalf("Run() = %d, want 0\n%s", got.rc, got.out)
 	}
 	if len(doors.plans) != 0 {
-		t.Errorf("a local pack's host argv was run outside the sandbox: %v", doors.plans[0].Cmd)
+		t.Errorf("a fetched pack's host argv was run outside the sandbox: %v", doors.plans[0].Cmd)
 	}
 	if specs := payloadOf(t, got.jailDaemons); len(specs) != 0 {
-		t.Fatalf("the guest was handed %+v, want nothing: its argv names the container's loophole mount", specs)
+		t.Fatalf("the guest was handed %+v, want nothing: its program is a Linux executable", specs)
 	}
 	var refusal string
 	for _, line := range strings.Split(got.out, "\n") {
@@ -270,9 +277,17 @@ func TestMacosUserSaysARefusedDoorwayTheGuestDeclinesRunsNowhere(t *testing.T) {
 	if strings.Contains(refusal, "runs in the sandbox instead") {
 		t.Errorf("the refusal says the jail daemon runs in the sandbox, which declined it:\n%s", got.out)
 	}
+	guestProgram := filepath.Join(macosuser.StagedPackRoot(runtime.FromWorkspace(ws), ""), "acme",
+		"loopholes", "acme-proxy", "my-agent")
 	if !strings.Contains(refusal, "declined in the sandbox too") ||
-		!strings.Contains(got.out, "acme-proxy: /etc/yolo-jail/loopholes/acme-proxy/my-agent") {
+		!strings.Contains(got.out, "acme-proxy: "+guestProgram) || !strings.Contains(got.out, "a Linux executable") {
 		t.Errorf("the refusal does not point at the jail daemon's own Declined: line:\n%s", got.out)
+	}
+	// A daemon the user selected runs nowhere, so the line names the next step: a container
+	// backend runs it (docs/reference/happy-path-principle.md).
+	if !strings.Contains(refusal, "nothing serves it this launch; a container runtime runs it "+
+		"(`YOLO_RUNTIME=podman` or `YOLO_RUNTIME=container` for one launch)") {
+		t.Errorf("the refusal says the doorway runs nowhere and names no next step:\n%s", refusal)
 	}
 }
 

@@ -15,11 +15,12 @@ package cli
 // one disagreement that means one surface deletes what the other spares.
 //
 // IT IS A JAIL-SIDE COMMAND, and the discriminator is YOLO_PACK_ROOT rather than
-// YOLO_VERSION — refreshNpmProgramsFromOS's rule, for its reason: the question is not "am I
+// YOLO_VERSION — refreshProgramsFromOS's rule, for its reason: the question is not "am I
 // in a jail" but "can this process see the staged pack tree", which is the input the
 // declared set is computed from. On the host there is no npm prefix, no ~/.local/bin under a
 // per-workspace home and no staged tree, so every declaration would read as absent and every
-// installed thing as an orphan.
+// installed thing as an orphan. Both jail backends set it in the agent's environment: the
+// container's argv, and macos-user's session env file.
 
 import (
 	"fmt"
@@ -100,8 +101,12 @@ func programsMain(args []string, out, errw io.Writer, color bool) int {
 
 // programsEnv returns the jail environment this command reads, or nil (having said why) when
 // it is not looking at a jail. See the file header for why YOLO_PACK_ROOT is the test.
+//
+// The Env is the one THIS backend's boot built (entrypoint.JailEnvFromOS): on macos-user the
+// receipts live under the real workspace's .yolo, which only the darwin translation knows, and
+// the session names both that workspace and the staged pack tree for it.
 func programsEnv(pr richtext.Printer) *entrypoint.Env {
-	e := entrypoint.EnvFromOS()
+	e := entrypoint.JailEnvFromOS()
 	if e.Getenv("YOLO_PACK_ROOT") == "" {
 		pr.Printf("[dim]No staged packs here — a program is installed INSIDE a jail, into " +
 			"that jail's own home, so run `yolo programs` there.[/dim]")

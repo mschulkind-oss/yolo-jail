@@ -329,10 +329,11 @@ both duplication and too long to read.
 
 ### Why the host launch takes no approval
 
-The wrapper body is fixed — `exec yolo host -- <program> "$@"` — and `hostMain` splits on the
-first `--`, handing everything after it to the program, so a user typing `claude --print foo` has
-**no slot for a yolo-level flag**. [OQ-HS10](#why-its-this-way) answered that with an environment
-variable, `YOLO_ACCEPT_CONFIG_CHANGES`, honored on this path only. The zero-prompt auto-apply
+The wrapper body is fixed — `exec <yolo> host -- <program> "$@"`, `<yolo>` being the absolute path
+of the yolo that wrote it — and `hostMain` splits on the first `--`, handing everything after it to
+the program, so a user typing `claude --print foo` has **no slot for a yolo-level flag**.
+[OQ-HS10](#why-its-this-way) answered that with an environment variable,
+`YOLO_ACCEPT_CONFIG_CHANGES`, honored on this path only. The zero-prompt auto-apply
 ([OQ-2](#why-its-this-way)) then left it nothing to approve: a stale home is re-rendered without
 asking, and its last reader went with that change. The one question the gate still asks is the
 first-apply loss of undeclared MCP servers, a one-way door the gate keeps behind a terminal, and
@@ -450,17 +451,22 @@ redundant copy; the cost of a false negative is content nobody compared.
 ## The coverage boundary
 
 The gate sees a launch **only if it goes through a generated wrapper.** An agent started by its
-real binary (wrapper dir not on `PATH`), by an IDE extension, or by a desktop app is not observed
-and runs against whatever the last explicit apply left.
+real binary (wrapper dir not on `PATH`), or by an IDE extension or a desktop app configured with
+that binary, is not observed and runs against whatever the last explicit apply left. One
+configured with `<wrap dir>/<program>` goes through the wrapper, which names yolo by absolute
+path, so it starts from a launcher's `PATH` that lacks yolo and is observed like a terminal
+launch.
 
 That is the same boundary `host_wrappers` already has, and `yolo check` announces it through an
 existing channel. Since 2026-09-23 `sectionHostWrappers` warns in each state where the launch sync
 cannot fire: the wrapper dir is off `PATH`, a wrapper on `PATH` loses to an earlier entry
-(`hostwrap.Precedence`), or a program a selected pack installs has no wrapper yet. The gate row
-passes only when at least one wrapper wins; otherwise it prints nothing, and the row naming the
-cause says the sync cannot fire ([HE-D2](host-agent-environment.md#he-d2)). The coverage boundary
-is the price of the approach: a per-command notice would have caught drift *sometime*, just never
-at a moment tied to a launch (P1).
+(`hostwrap.Precedence`), or a program a selected pack installs has no wrapper yet. Since 2026-10-04
+it also warns about a wrapper naming a yolo that is gone or cannot run, or naming `yolo` bare as
+wrappers did before then, and that row is the cause when no wrapper that wins can start yolo. The
+gate row passes only when at least one wrapper wins and starts yolo; otherwise it prints nothing,
+and the row naming the cause says the sync cannot fire ([HE-D2](host-agent-environment.md#he-d2)).
+The coverage boundary is the price of the approach: a per-command notice would have caught drift
+*sometime*, just never at a moment tied to a launch (P1).
 
 What gets a wrapper is exactly the pack-declared `program` contributions — `hostwrap.Bins` folds
 the honored installs across the selected packs. That is agent launches: a human starting a session,
@@ -534,5 +540,5 @@ place the values themselves are stated.
 | Host provenance record | `<home>/.local/share/yolo-jail/host-provenance/<agent>-<name>.provenance` | `internal/render` target layout |
 | Surveyed destinations | the four written kinds plus the wrapper dir (`host_wrappers`) | `cli.hostApplySurvey`, `cli.noteWrapperPlan` |
 | Dry-run roll-up | `"N in sync, M would change"` | `cli.hostApplySurvey.Summary` |
-| Wrapper body | `exec yolo host -- <program> "$@"` | `hostwrap.Body` |
+| Wrapper body | `exec <yolo> host -- <program> "$@"`, where `<yolo>` is the applying yolo's absolute path: its `PATH` spelling when one names the running file, an existing wrapper's spelling of the same file when the directory has one | `hostwrap.BodyFor`, `hostwrap.Spelling`, `cli.hostWrapperYolo` |
 | TTY probe | stdin | `cli.hostGateCanPrompt` |

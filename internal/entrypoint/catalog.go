@@ -3,8 +3,10 @@ package entrypoint
 // catalog.go is OQ-PD4's INFORMATIONAL half (docs/design/program-delivery.md §10 step
 // four): "dropping a pack does not auto-delete its program. Orphans are cataloged
 // informationally at boot; removal happens only on an explicit act; autoprune exists as an
-// option, default off." Nothing in this file writes, unlinks or moves anything — it reads
-// two directories and prints what it found.
+// option, default off." Nothing in this file decides to write, unlink or move anything — it
+// reads the install directories and prints what it found. The one unlink here is the
+// confined filesystem's at the end of the file, which carries out on macos-user the removals
+// the act (orphanremove.go) planned, beneath roots the catalog opened (catalogConfinedOrphans).
 //
 // THE ACT IS orphanremove.go, and it is reachable from here only through the option OQ-PD4
 // rules default off: CatalogInstalledOrphans ends by calling autopruneOrphans, which returns
@@ -21,14 +23,17 @@ package entrypoint
 // there. Running it after the bootstrap would instead catalog a set the same boot had just
 // re-installed, which answers nothing.
 //
-// IT IS NOT RUN BY THE macos-user BOOTSTRAP, and the reason is about the report, not its
-// input. It was once left out on the premise that that backend stages no pack tree; it stages
-// one and names it with YOLO_PACK_ROOT, and the gate on InstalledOrphans (nothing without
-// YOLO_PACK_ROOT) keeps the rule under that premise: a boot that cannot state what it declared
-// is not asked what is undeclared. What that backend lacks is every place the summary line
-// points: it keeps no boot log (so the names e.note writes would be discarded), `yolo programs
-// ls` answers wrongly from inside its sandbox, and its launch relays no
-// YOLO_PROGRAMS_AUTOPRUNE. The exclusion is declared on the step in bootsteps.go.
+// IT RUNS ON BOTH BOOTS. The macos-user bootstrap left it out twice, for two different
+// reasons that are both gone: first on the premise that that backend stages no pack tree (it
+// stages one, named by YOLO_PACK_ROOT, and the gate on InstalledOrphans — nothing without
+// YOLO_PACK_ROOT — keeps the rule that a boot unable to state what it declared is not asked
+// what is undeclared), and then because every place the summary line points was missing there
+// (notch-convergence.md, NC-D26). Since then the bootstrap keeps the container's boot.log, so
+// the names e.note writes land where the line says; the session names the staged tree and the
+// workspace, so `yolo programs ls` reads this jail from inside the sandbox; and the launch
+// relays YOLO_PROGRAMS_AUTOPRUNE from the user's config as the container launch does. There it
+// is CONFINED (catalogConfinedOrphans, at the end of this file), because that bootstrap runs
+// outside the sandbox and reaches every directory below through the agent-writable sidecar.
 //
 // NO LSP RECIPE DECLARES ANYTHING ANY MORE. The three-entry table that mapped `lsp_servers`
 // names to packages (and the ~/.yolo-installed-lsps sentinel recording what it installed) is
@@ -40,7 +45,9 @@ package entrypoint
 // orphanremove.go's header measured losing its record.
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -48,6 +55,8 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // catalogPrefix heads every line so the lines read as one report rather than as unrelated
@@ -177,13 +186,19 @@ func InstalledOrphans(e *Env) []Orphan {
 // promotes from three docstrings that each reached it independently to the written rule.
 func CatalogInstalledOrphans(e *Env) {
 	orphans := InstalledOrphans(e)
-	if len(orphans) > 0 {
-		e.warn(catalogSummary(len(orphans)))
-		for _, o := range orphans {
-			e.note(catalogPrefix + catalogLine(o))
-		}
-	}
+	reportOrphans(e, orphans)
 	autopruneOrphans(e, orphans)
+}
+
+// reportOrphans is the catalog's report half: the one terminal line and the boot-log list.
+func reportOrphans(e *Env, orphans []Orphan) {
+	if len(orphans) == 0 {
+		return
+	}
+	e.warn(catalogSummary(len(orphans)))
+	for _, o := range orphans {
+		e.note(catalogPrefix + catalogLine(o))
+	}
 }
 
 // catalogSummary is the one line the launch terminal gets. It states the finding, the count
@@ -283,8 +298,9 @@ func catalogNpmOrphans(e *Env, packs []*packload.Pack) []string {
 // already uses this predicate (`find … -maxdepth 2 -name '.*' -type d`); this is the same
 // rule, read-only.
 func installedNpmPackages(e *Env) []string {
+	fsys := e.orphanFiles()
 	root := filepath.Join(e.NpmPrefix, "lib", "node_modules")
-	entries, err := os.ReadDir(root)
+	entries, err := fsys.ReadDir(root)
 	if err != nil {
 		return nil
 	}
@@ -296,7 +312,7 @@ func installedNpmPackages(e *Env) []string {
 			continue
 		}
 		if strings.HasPrefix(name, "@") {
-			scoped, err := os.ReadDir(filepath.Join(root, name))
+			scoped, err := fsys.ReadDir(filepath.Join(root, name))
 			if err != nil {
 				continue
 			}
@@ -437,7 +453,8 @@ func catalogGoBinOrphans(e *Env, packs []*packload.Pack) []pathOrphan {
 // finding. A dir that does not exist reads as empty — a jail that installed nothing there
 // has nothing to report, which is not the same as a finding.
 func catalogDirOrphans(e *Env, dir string, declared map[string]struct{}) []pathOrphan {
-	entries, err := os.ReadDir(dir)
+	fsys := e.orphanFiles()
+	entries, err := fsys.ReadDir(dir)
 	if err != nil {
 		return nil
 	}
@@ -449,7 +466,7 @@ func catalogDirOrphans(e *Env, dir string, declared map[string]struct{}) []pathO
 		full := filepath.Join(dir, ent.Name())
 		out = append(out, pathOrphan{
 			path: catalogPath(e, full),
-			size: catalogSize(full),
+			size: catalogSize(fsys, full),
 			abs:  full,
 		})
 	}
@@ -469,8 +486,8 @@ func catalogDirOrphans(e *Env, dir string, declared map[string]struct{}) []pathO
 // no size at all, except that it also reads as a measurement. Sub-KB sizes are whole bytes
 // (a one-decimal 0.1 KB says less than "84 B"); above that one decimal is plenty, since
 // nothing here turns on the second.
-func catalogSize(path string) string {
-	fi, err := os.Stat(path)
+func catalogSize(fsys orphanFS, path string) string {
+	fi, err := fsys.Stat(path)
 	if err != nil || !fi.Mode().IsRegular() {
 		return ""
 	}
@@ -494,4 +511,305 @@ func RenderSize(n int64) string {
 	default:
 		return fmt.Sprintf("%.1f GB", float64(n)/(1024*1024*1024))
 	}
+}
+
+// ---------------------------------------------------------------------------
+// The macos-user bootstrap's catalog, confined beneath the workspace sidecar
+// ---------------------------------------------------------------------------
+
+// catalogConfinedOrphans is the catalog step on the macos-user bootstrap: CatalogInstalledOrphans
+// with every read the finders make, and every unlink its autoprune makes, done beneath a root
+// opened on the directory the finder names, never through a path.
+//
+// WHY. This bootstrap runs as the sandbox account OUTSIDE Seatbelt (RunDarwinBootstrap), and on
+// this backend each directory the finders read is reached through a home-layout link into the
+// workspace sidecar (~/.local -> <workspace>/.yolo/home/local), which the agent writes. A link
+// the agent left below one — <sidecar>/local/bin pointing at a sibling workspace under the
+// shared root, which this account can write and the session's profile denies the agent — made
+// the catalog list that workspace's files as orphans and autoprune delete them (reproduced: a
+// sibling's src/main.go, deleted). In a container the boot sees only what the agent sees, so
+// only this boot needs it; `yolo programs` runs as the agent, inside the sandbox here, and keeps
+// the plain filesystem.
+//
+// HOW. Each finder directory is opened one component at a time (paths.OpenStateDirRoot, then
+// paths.OpenStateSubdirRoot), each refusing a symbolic link, from the workspace's `.yolo` along
+// the physical path the layout's own link names, and only when that link is the one this launch
+// laid (confinedOrphanChain). A launch that named no sidecar (an install capture's staging home,
+// a test) has no layout links, and is opened from the home the same way. The finders then read,
+// and the act unlinks, beneath those roots (confinedOrphanFS), so nothing swapped in after the
+// open redirects them. An absent directory is an empty one, the ordinary first-boot state.
+//
+// A REFUSED DIRECTORY IS SAID, naming the link and the next step, and while any is refused this
+// boot REMOVES NOTHING, autoprune or not: an npm package's bin links live in a second directory,
+// and an act that could reach only part of what its plan announces is not the act the plan
+// names. The other finders still catalog.
+func catalogConfinedOrphans(e *Env) {
+	if e.Getenv("YOLO_PACK_ROOT") == "" {
+		return // InstalledOrphans' own gate: no staged tree, nothing declared, no catalog
+	}
+	fsys := openDarwinOrphanFS(e)
+	defer fsys.close()
+	refusals := fsys.refusals(e)
+	for _, line := range refusals {
+		e.warnOnce(line)
+	}
+	saved := e.orphanFS
+	e.orphanFS = fsys
+	defer func() { e.orphanFS = saved }()
+
+	orphans := InstalledOrphans(e)
+	reportOrphans(e, orphans)
+	if len(refusals) == 0 {
+		autopruneOrphans(e, orphans)
+		return
+	}
+	if autopruneEnabled(e) && len(orphans) > 0 {
+		e.warn(autoprunePrefix + "programs.autoprune is ON, and this boot removes nothing: a " +
+			"symbolic link sits on the way to a directory it reads (above). Remove the link and " +
+			"relaunch, or remove the orphans with `yolo programs remove` inside a session")
+	}
+}
+
+// openDarwinOrphanFS opens every directory the finders and the act read, confined
+// (catalogConfinedOrphans says how).
+func openDarwinOrphanFS(e *Env) *confinedOrphanFS {
+	// The layout without the packs: every finder directory sits under a core link
+	// (paths.HomeSurfaces), laid for every launch whatever it selects, as gitGlobalConfigFile's
+	// ~/.config is.
+	layout, _ := darwinHomeLayoutFor(e, nil)
+	c := &confinedOrphanFS{}
+	for _, dir := range []string{filepath.Join(e.NpmPrefix, "lib", "node_modules"), e.NpmBin(),
+		e.LocalBin(), e.GoBin()} {
+		d := &confinedOrphanDir{path: dir}
+		d.root, d.err = openConfinedOrphanDir(e, layout, dir)
+		c.dirs = append(c.dirs, d)
+	}
+	return c
+}
+
+// openConfinedOrphanDir opens dir along confinedOrphanChain, one component at a time, refusing a
+// symbolic link at each. It returns a nil root and a nil error when a component is absent.
+func openConfinedOrphanDir(e *Env, layout DarwinHomeLayout, dir string) (*os.Root, error) {
+	base, chain, err := confinedOrphanChain(e, layout, dir)
+	if err != nil {
+		return nil, err
+	}
+	r, err := paths.OpenStateDirRoot(base)
+	if err != nil {
+		return nil, absentIsEmpty(err)
+	}
+	cur := base
+	for _, name := range chain {
+		cur = filepath.Join(cur, name)
+		next, err := paths.OpenStateSubdirRoot(r, name, cur)
+		r.Close()
+		if err != nil {
+			return nil, absentIsEmpty(err)
+		}
+		r = next
+	}
+	return r, nil
+}
+
+// absentIsEmpty maps a missing component to no error: a finder directory nothing has installed
+// into yet reads as empty, which is a state rather than a finding.
+func absentIsEmpty(err error) error {
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	return err
+}
+
+// confinedOrphanChain is where dir physically is: the directory to open first, and the
+// components below it, in order. Under the layout that is the workspace's `.yolo`, then the
+// sidecar's own name and the link target's subtree (home/local for ~/.local), then the rest of
+// dir — and only when the home's link is the one this launch laid, to the target it laid, the
+// rule DarwinHomeLayout.homeFileThroughLayout applies to a write. Under no layout link, the home
+// and the path below it. A dir outside the home cannot be confined, and is refused.
+func confinedOrphanChain(e *Env, layout DarwinHomeLayout, dir string) (string, []string, error) {
+	if layout.Sidecar != "" {
+		yolo := filepath.Dir(layout.Sidecar)
+		for _, ln := range layout.Links {
+			rest, ok := pathUnder(dir, ln.Path)
+			if !ok {
+				continue
+			}
+			if got, err := os.Readlink(ln.Path); err != nil || got != ln.Target {
+				return "", nil, fmt.Errorf("%s is not this launch's layout link to %s (the "+
+					"darwin_home_layout step says why)", ln.Path, ln.Target)
+			}
+			target, ok := pathUnder(ln.Target, yolo)
+			if !ok {
+				return "", nil, fmt.Errorf("%s links outside %s", ln.Path, yolo)
+			}
+			return yolo, append(pathParts(target), pathParts(rest)...), nil
+		}
+	}
+	rel, ok := pathUnder(dir, e.Home)
+	if !ok {
+		return "", nil, fmt.Errorf("%s is outside the sandbox home %s, so this bootstrap, which "+
+			"runs outside the sandbox, cannot confine what it reads there", dir, e.Home)
+	}
+	return e.Home, pathParts(rel), nil
+}
+
+// pathUnder reports whether p is dir or below it, and the part below ("" for dir itself).
+func pathUnder(p, dir string) (string, bool) {
+	if p == dir {
+		return "", true
+	}
+	rest, ok := strings.CutPrefix(p, dir+string(filepath.Separator))
+	return rest, ok && rest != ""
+}
+
+// pathParts splits a relative path into its components; "" has none.
+func pathParts(rel string) []string {
+	if rel == "" {
+		return nil
+	}
+	return strings.Split(filepath.ToSlash(rel), "/")
+}
+
+// confinedOrphanFS is the orphanFS the macos-user bootstrap's catalog reads and unlinks
+// through: a set of roots, each opened confined on one finder directory. A path below none of
+// them is refused, so the act cannot unlink anything the finders did not read.
+type confinedOrphanFS struct {
+	dirs []*confinedOrphanDir
+}
+
+// confinedOrphanDir is one finder directory: the path the finders name it by, and the root
+// opened on it, or why there is none (root and err both nil: the directory is absent).
+type confinedOrphanDir struct {
+	path string
+	root *os.Root
+	err  error
+}
+
+// errOutsideOrphanDirs refuses a path no finder directory holds.
+var errOutsideOrphanDirs = errors.New("not below any directory the boot catalog reads")
+
+// resolve finds the finder directory holding name, and name's path beneath its root.
+func (c *confinedOrphanFS) resolve(name string) (*confinedOrphanDir, string, error) {
+	var best *confinedOrphanDir
+	var rest string
+	for _, d := range c.dirs {
+		if r, ok := pathUnder(name, d.path); ok && (best == nil || len(d.path) > len(best.path)) {
+			best, rest = d, r
+		}
+	}
+	switch {
+	case best == nil:
+		return nil, "", &fs.PathError{Op: "open", Path: name, Err: errOutsideOrphanDirs}
+	case best.err != nil:
+		return nil, "", &fs.PathError{Op: "open", Path: name, Err: best.err}
+	case best.root == nil:
+		return nil, "", &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
+	}
+	if rest == "" {
+		rest = "."
+	}
+	return best, rest, nil
+}
+
+func (c *confinedOrphanFS) ReadDir(name string) ([]fs.DirEntry, error) {
+	d, rel, err := c.resolve(name)
+	if err != nil {
+		return nil, err
+	}
+	return fs.ReadDir(d.root.FS(), filepath.ToSlash(rel))
+}
+
+func (c *confinedOrphanFS) Stat(name string) (fs.FileInfo, error) {
+	d, rel, err := c.resolve(name)
+	if err != nil {
+		return nil, err
+	}
+	return d.root.Stat(rel)
+}
+
+func (c *confinedOrphanFS) Lstat(name string) (fs.FileInfo, error) {
+	d, rel, err := c.resolve(name)
+	if err != nil {
+		return nil, err
+	}
+	return d.root.Lstat(rel)
+}
+
+func (c *confinedOrphanFS) Readlink(name string) (string, error) {
+	d, rel, err := c.resolve(name)
+	if err != nil {
+		return "", err
+	}
+	return d.root.Readlink(rel)
+}
+
+// RemoveAll unlinks name beneath its root: a link there is removed, never followed, and a path
+// leaving the root through one is refused (os.Root's own rule). An absent directory holds
+// nothing to remove, which is os.RemoveAll's contract too. A finder directory itself is never
+// removed.
+func (c *confinedOrphanFS) RemoveAll(name string) error {
+	d, rel, err := c.resolve(name)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	if rel == "." {
+		return &fs.PathError{Op: "remove", Path: name, Err: fs.ErrInvalid}
+	}
+	return d.root.RemoveAll(rel)
+}
+
+func (c *confinedOrphanFS) WalkDir(name string, fn fs.WalkDirFunc) error {
+	d, rel, err := c.resolve(name)
+	if err != nil {
+		return fn(name, nil, err)
+	}
+	return fs.WalkDir(d.root.FS(), filepath.ToSlash(rel), func(p string, de fs.DirEntry, err error) error {
+		return fn(filepath.Join(d.path, filepath.FromSlash(p)), de, err)
+	})
+}
+
+// close closes every root.
+func (c *confinedOrphanFS) close() {
+	for _, d := range c.dirs {
+		if d.root != nil {
+			d.root.Close()
+		}
+	}
+}
+
+// refusals renders each refused directory as one terminal line, grouped by what refused it, so
+// a linked `.yolo` reads as one finding rather than four.
+func (c *confinedOrphanFS) refusals(e *Env) []string {
+	// why is the sentence a refusal ends with, keyed by itself so dirs sharing it group.
+	var whys []string
+	dirsBy := map[string][]string{}
+	for _, d := range c.dirs {
+		if d.err == nil {
+			continue
+		}
+		why := d.err.Error() + "."
+		var linked *paths.LinkedStateDirError
+		if errors.As(d.err, &linked) {
+			why = linked.Path + " is a symbolic link, and this bootstrap runs outside the " +
+				"sandbox, so reading or removing through it could reach a directory the " +
+				"session's sandbox profile protects. Remove the link (what it points at is left " +
+				"alone): sudo rm " + shquote.Quote(linked.Path) + "."
+		}
+		if _, seen := dirsBy[why]; !seen {
+			whys = append(whys, why)
+		}
+		dirsBy[why] = append(dirsBy[why], catalogPath(e, d.path))
+	}
+	out := make([]string, 0, len(whys))
+	for _, why := range whys {
+		dirs := dirsBy[why]
+		out = append(out, catalogPrefix+strings.Join(dirs, " and ")+" "+
+			catalogPlural(len(dirs), "is", "are")+" not cataloged, and this boot removes nothing: "+
+			why+" Inside a session, `yolo programs ls` and `yolo programs remove` still read and "+
+			"remove there, confined by its sandbox profile.")
+	}
+	return out
 }

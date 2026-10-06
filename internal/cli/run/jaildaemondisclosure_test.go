@@ -215,9 +215,9 @@ func writeLocalLoopholes(t *testing.T, home string, manifests map[string]string)
 }
 
 // THROUGH Run(), on the backend that runs some jail daemons and declines others: the line
-// names exactly what the guest's supervisor is handed. A daemon whose argv names the
-// container's loophole mount is declined there (loopholes.JailDaemonsRunIn) and said so by
-// the decline report, so naming it as running in the jail would contradict that report on
+// names exactly what the guest's supervisor is handed. A daemon whose program is a Linux
+// executable in its module directory is declined there (loopholes.JailDaemonsRunIn) and said so
+// by the decline report, so naming it as running in the jail would contradict that report on
 // the same screen.
 func TestMacosUserLaunchDisclosesTheJailDaemonsItsGuestRuns(t *testing.T) {
 	home := packHome(t)
@@ -226,6 +226,7 @@ func TestMacosUserLaunchDisclosesTheJailDaemonsItsGuestRuns(t *testing.T) {
 		"acme-relay":   jailOnlyLoophole("acme-relay", `["yolo-jaild", "acme-relay"]`),
 		"acme-mounted": jailOnlyLoophole("acme-mounted", `["{jail_loophole_dir}/bin/relay"]`),
 	})
+	writeLocalModuleFile(t, home, "acme-mounted", "bin/relay", linuxProgram)
 	writeUserConfigJSON(t, home, `{"packs": []}`)
 
 	got := macosUserLaunch(t, ws)

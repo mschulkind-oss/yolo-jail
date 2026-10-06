@@ -34,10 +34,12 @@ import (
 //     sandbox's settings.json must still be rendered and must LACK the key.
 //
 // ⚠ NO LINE IS ASSERTED. The handoff row expected the boot log to say "baseline and not a
-// layer". That note is written through Env.note, which writes only to Env.LogOnly, and the
-// macos-user bootstrap sets no LogOnly (internal/cli/internal.go, runDarwinBootstrap): this
-// backend keeps no boot log (the catalog step's notDarwin reason in bootsteps.go says the
-// same). So the only observable answer here is the bytes.
+// layer". That note is written through Env.note, which writes only to Env.LogOnly, and when
+// this test was written the macos-user bootstrap set no LogOnly, so the note was discarded.
+// The bootstrap now keeps the container's boot log, <workspace>/.yolo/boot.log
+// (entrypoint.attachDarwinBootLog; TestMacosUserBootstrapKeepsABootLog), so the note does land
+// there. This test still asks only the bytes, which answer the rule itself; the line is
+// commentary on it.
 //
 // THE MARK IS PLANTED IN A PRIVATE STATE DIR, never a shared one: privateHostProvenance first
 // replaces the isolated home's link to the shared state dir (this run's own, or the machine's)

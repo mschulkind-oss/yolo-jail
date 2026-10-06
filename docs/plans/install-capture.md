@@ -1,8 +1,8 @@
 ---
 title: "Plan: capture-and-repackage for the installer class"
 status: accepted
-stage: DECIDED
-next: "Ask the maintainer to rule H4 (a) the session profile reads the store, (b) a neutral machine store, or (c) retire macos-user materialize; the Linux claude capture measured 2026-10-01 is relocatable:true, so H4 would buy claude something"
+stage: BUILT
+next: "Dispatch macos-user.yml for TestMacosUserLaunchesMaterializeACapturedFixture and TestMacosUserAutoCapturesAFixtureOnFirstLaunch, then run slice 6's hardware item 6 with real claude; the maintainer may revisit H4's (b), an implementation decision"
 tags: [plan, capture, installers, program-delivery, macos-user]
 ---
 
@@ -12,26 +12,28 @@ tags: [plan, capture, installers, program-delivery, macos-user]
 (ruled [OQ-PD10](../design/program-delivery.md#decision-ledger)) ·
 Written 2026-09-03.
 
-**Status:** 2026-09-26 — **owed: slice 6's hand-off
-[H4](#hand-offs--what-is-not-wired-and-the-exact-line-that-wires-it), a capture store a
-`macos-user` launch can read**, so no launch on that backend materializes a capture yet. H4 needs a
-ruling before it is built: every way to wire it changes what that backend's sandbox may read.
-Hand-off H2, the relocation rewrite, **landed 2026-09-26** and is measured on Linux only, against
-temp dirs standing in for the two macOS homes. MEASURED 2026-10-01 on Linux, as the proxy for the
-fact H4 waits on: a real claude capture from this tree came out `relocatable:true`, with no
-reference to its home in any file ([H4](#hand-offs--what-is-not-wired-and-the-exact-line-that-wires-it)
-has the manifest), and it found the capture jail's daemon log in the entry, now excluded. Slices 1–5 and 7 are built and were measured in a
-nested jail on 2026-09-04; slice 6 built its recording half and, with H2, its rewrite. One
-confirmation of uid mapping on a real rootless host is still unrecorded
-([Verification](#verification-honestly)). The sequencing below was
-reversed by [OQ-CP1](../reference/agent-cli-copies.md#oq-cp1). On `macos-user`, hand-off H1 (wiring
-`yolo capture` to that backend) landed 2026-09-04 and the recording half was measured on hardware
-2026-09-11. The confinement denial probe (slice 6's hardware item 3) has no recorded run. H3 is a
-stated non-default, not a gap. **This is not a graduation candidate until H4 lands or is retired.**
-The doc owes work rather than a ruling although H4 wants one, because H4's question is about the
-`macos-user` sandbox's read set (the session Seatbelt profile), not one of this design's rulings;
-it is named here so that judgement can be checked
-([the tie-breaker](README.md#the-vocabulary--seven-words-and-the-word-names-what-is-owed)).
+**Status:** 2026-10-05 — every slice is built, and every hand-off but H3, a stated non-default.
+**Hand-off
+[H4](#hand-offs--what-is-not-wired-and-the-exact-line-that-wires-it), a capture store a `macos-user`
+launch can read, landed 2026-10-05 as (b)**: a root-owned copy of each selected program's entry
+under that backend's state dir, which its launchers materialize from, and auto-capture on that
+backend too. That answer is an implementation decision under the maintainer's 2026-10-04
+delegation, reversible, and the maintainer may revisit it. UNMEASURED: H4 on a Mac. Two cases
+wait on a dispatch of `macos-user.yml`, and slice 6's hardware item 6 is the human check with real
+claude.
+Hand-off H2, the relocation rewrite, landed 2026-09-26 and is measured on Linux only, against temp
+dirs standing in for the two macOS homes. MEASURED 2026-10-01 on Linux, as the proxy for the fact
+H4 waited on: a real claude capture from this tree came out `relocatable:true`, with no reference
+to its home in any file ([H4](#hand-offs--what-is-not-wired-and-the-exact-line-that-wires-it) has
+the manifest), and it found the capture jail's daemon log in the entry, now excluded. Slices 1–5
+and 7 are built and were measured in a nested jail on 2026-09-04; slice 6 built its recording half
+and, with H2, its rewrite. One confirmation of uid mapping on a real rootless host is still
+unrecorded ([Verification](#verification-honestly)). The sequencing below was reversed by
+[OQ-CP1](../reference/agent-cli-copies.md#oq-cp1). On `macos-user`, hand-off H1 (wiring `yolo
+capture` to that backend) landed 2026-09-04 and the recording half was measured on hardware
+2026-09-11. The confinement denial probe (slice 6's hardware item 3) has a case,
+`TestMacosUserCaptureSeatbeltProfileDeniesTheSharedHome`, and no green run recorded. **This is
+not a graduation candidate until a Mac has run H4.**
 Live designs cite this plan's relocation
 work: [`provisioner-sets.md`](../design/provisioner-sets.md) for the guest's materialize half, and
 [`OQ-WP11`](../design/workspace-path-mirroring.md#OQ-WP11) for relocation itself.
@@ -61,7 +63,7 @@ wrong one to sequence on.
 | :--- | :--- |
 | `internal/treedigest/` | **new** — `treeDigest`/`treeDigestSkipping` lifted out of `internal/hostskills/compose.go:958,964` verbatim |
 | `internal/hostskills/compose.go` | call the new package; delete the local copies |
-| `internal/capture/` | **new** — `store.go` (layout, admit, resolve, completion marker), `manifest.go` (delta manifest + capture receipt), `materialize.go` (~~hardlink, EXDEV → copy~~ ⚠ *reflink → hardlink → copy, per slice 4(a)*), `clone_linux.go`/`clone_other.go` (**new**, slice 4 — the `FICLONE` primitive and the statfs filesystem name a copy fallback owes its reader), `inner.go` (the backend-neutral driver), `gc.go` (~~`PruneUnreferencedCaptures(root, keep, olderThan, apply, now)`~~ ⚠ *shipped as `PruneSupersededCaptures(root, read, apply)` — no `keep`, no age floor, `K = 1`*), `select.go` (**new**, slice 5 — the selection rule `gc.go` is the complement of, moved out of `resolveCaptureFor` so there is one of it: see 5(a)/(b)) |
+| `internal/capture/` | **new** — `store.go` (layout, admit, resolve, completion marker), `manifest.go` (delta manifest + capture receipt), `materialize.go` (~~hardlink, EXDEV → copy~~ ⚠ *reflink → hardlink → copy, per slice 4(a)*), `clone_linux.go`/`clone_darwin.go` (**new**, slice 4 — the `FICLONE` primitive and the statfs filesystem name a copy fallback owes its reader; ⚠ *the darwin half, APFS's `clonefile(2)`, replaced the `clone_other.go` refusal 2026-10-05*), `inner.go` (the backend-neutral driver), `gc.go` (~~`PruneUnreferencedCaptures(root, keep, olderThan, apply, now)`~~ ⚠ *shipped as `PruneSupersededCaptures(root, read, apply)` — no `keep`, no age floor, `K = 1`*), `select.go` (**new**, slice 5 — the selection rule `gc.go` is the complement of, moved out of `resolveCaptureFor` so there is one of it: see 5(a)/(b)) |
 | `internal/paths/paths.go` | **new** `CapturesDir()` + `CapturesDirUnder(home)`, beside `PacksDir` (`:423`); **new** `HomeSurfaces()` — the capture/dedupe surface pair list, per slice 2's correction (a); **new** `GlobalStorageRel()` and `WorkspaceStateDir`/`WorkspaceHomeState`, per slice 3's corrections (a) and (b) |
 | `internal/prune/prune.go` | derive `dedupeSubtrees` from `paths.HomeSurfaces()` rather than re-typing it |
 | `internal/storage/ensure.go` | add `CapturesDir()` to the boot `MkdirAll` list (`:44`) |
@@ -365,6 +367,22 @@ wrong one to sequence on.
    take, not a theoretical arm, which is why it is LOUD and names both filesystems (`fsName`, by
    statfs magic). An arm that answers "not here" is retired for the whole run rather than retried
    per file: on ext4 that is one failed ioctl instead of one per file across thousands.
+   ⚠ *Added 2026-10-05: on macOS the reflink arm is APFS's `clonefile(2)` (`clone_darwin.go`),
+   tried first like `FICLONE`, and the clone is its own inode with the manifest's mode. It clones
+   within one APFS volume only: another volume is `EXDEV`, a filesystem without clones `ENOTSUP`,
+   and both retire the arm; `fsName` names the filesystem there too (statfs's `apfs`, `hfs`).
+   Implementation decisions, taken under the maintainer's 2026-10-04 delegation ("make them and
+   build it … adjust later"); reversible: `EPERM` also retires the arm, because Seatbelt answers a
+   denied operation that way and the hardlink or copy arm may still be allowed; the clone is made with
+   `CLONE_NOOWNERCOPY`, so even root gets a file of its own rather than the store owner's; and
+   `clone_other.go`, the refusal for every other GOOS, is deleted rather than kept for the GOOS
+   values beyond Linux and macOS, since the tree builds for none of them (MEASURED 2026-10-05
+   before the deletion: `go build ./...` fails for all eight tried, freebsd and windows among
+   them) and the lint gate analyzes neither. On darwin the arm is reached by `CopyTree`, a
+   patched extension's per-launch copy on a Mac running a container backend, and by
+   `Materialize` from a `macos-user` launch since
+   [H4](#hand-offs--what-is-not-wired-and-the-exact-line-that-wires-it) landed 2026-10-05,
+   and from the macOS host floor.*
 
    **(d) REFLINK DOWNGRADES THE PLAN'S SHARPEST TRAP.** The Traps section warns that a hardlinked
    CAS file *is* the running program's bytes, so an installer opening one for write corrupts every
@@ -525,7 +543,8 @@ wrong one to sequence on.
    keep their write bit, because GC has to be able to unlink the entry" promises.
 
 6. **`macos-user`. — RECORDING HALF LANDED 2026-09-04; THE REWRITE (hand-off H2) LANDED
-   2026-09-26; no launch there materializes yet (hand-off H4).** `SeatbeltCaptureProfile`:
+   2026-09-26; A LAUNCH THERE MATERIALIZES SINCE HAND-OFF H4 LANDED 2026-10-05, unmeasured on a
+   Mac.** `SeatbeltCaptureProfile`:
    `deny file-write* /` then allow only the staging dir + `/tmp` + `/var/folders` — the shared
    `/Users/_yolojail` home denied for the duration. Same inner driver, `HOME=<staging>`. Adds
    **relocation**: the manifest records every absolute reference to the staging prefix (symlink
@@ -645,7 +664,8 @@ wrong one to sequence on.
    > prefix through the file's bytes — or refuse. Until it does, a macos-user capture is a
    > recorded artifact nobody materializes.
 
-   The last sentence is still true, for a different reason: see H4. *Implementation decisions,
+   The last sentence held until H4 landed on 2026-10-05, for a different reason after H2: no
+   launch there could read the store. *Implementation decisions,
    and what building it found:*
 
    **(a) Every relocation refusal happens before the home is written.** `planRelocation` checks
@@ -747,11 +767,14 @@ wrong one to sequence on.
 
    NOT MEASURED: **no Mac has run any of it.** The two Linux temp dirs stand in for
    `/Users/Shared/yolo-captures/<bin>/home` and `/Users/_yolojail`. Also unmeasured on darwin:
-   whether `link(2)` from a store owned by the invoking user into the sandbox user's sidecar
-   succeeds, since darwin has no reflink wired (`clone_other.go`) and so takes the hardlink or
-   copy arm.
+   what a materialize from a store owned by the invoking user into the sandbox user's sidecar,
+   under Seatbelt, gets from `clonefile(2)`, which is tried first there since 2026-10-05
+   (`clone_darwin.go`), and then from `link(2)`. Either can succeed, answer `EPERM` (the chain
+   falls to the next arm) or answer `EXDEV` (a store on another volume). The clone's unit tests
+   run on check-macos's Mac, same-user and unsandboxed.
 
-   **H4. No `macos-user` launch can reach the store. — OPEN, needs a ruling.** Found while landing
+   **H4. No `macos-user` launch can reach the store. — ✅ LANDED 2026-10-05, as (b)**; the answer
+   and what building it found follow the question, which is kept as written. Found while landing
    H2. The generated launcher materializes only when a store path was baked into it
    (`_try_materialize` opens with `[ -n "$CAPTURES_DIR" ] || return 1`). On the container backends
    `capturesArgs` emits `YOLO_CAPTURES_DIR` beside a `:ro` bind of the store. macos-user's
@@ -827,6 +850,126 @@ wrong one to sequence on.
    with no further change. Slice 7(a)'s container-only placement of auto-capture should be
    revisited at the same time.
 
+   **Answered (b), 2026-10-05.** *Implementation decision, taken under the maintainer's 2026-10-04
+   delegation ("make them and build it … adjust later"); reversible, and the maintainer may
+   revisit it.* Each `macos-user` launch stages a root-owned, read-only copy of each selected
+   program's entry under `/var/yolo-jail/captures` (`macosuser.StagedCapturesRoot`). It names that
+   copy to the bootstrap as `entrypoint.CapturesDirEnv`, and the bootstrap bakes it into every
+   launcher. The reasons:
+
+   - **(b) changes no byte of the session Seatbelt profile.** Reads outside `/Users`, `/Volumes`
+     and the keychains fall on its `(allow default)`. Reads under `/var/yolo-jail` were MEASURED
+     on hardware 2026-09-13 (`macosuser.StagedCtxRoot`'s comment).
+     `TestTheSessionProfileIsTheSameWithAndWithoutCaptures` pins the bytes.
+   - **It is the pattern this backend already follows.** `StagedPackRoot` and `StageCtxCommands`
+     stage root-owned copies under `/var` for the same question, a host tree under the invoking
+     user's home that the sandbox account may not traverse.
+   - **The store is not a confidentiality boundary.** Every podman jail reads it whole through a
+     `:ro` bind (`internal/cli/run/captures.go`).
+   - **(a) is rejected.** An entry a `macos-user` capture made holds files the sandbox account
+     owns, under the shared-group ACL its staging tree carries. A hardlink of one into the
+     sandbox home would let the sandbox rewrite bytes every workspace runs (INFERRED from that
+     ownership; no Mac has tried it). Reading the store in place needs a profile allow under
+     `/Users` and a DAC grant into the user's home, which is what the `/Users` deny exists to
+     prevent.
+   - **(c) is rejected.** It contradicts the maintainer's "macos-user too" (2026-10-04).
+
+   *What was built, and the decisions building it took (each reversible, under the same
+   delegation):*
+
+   **(a) The host CLI picks; the plan builder stays pure.** `internal/cli`'s `macosUserCaptures`
+   (the `run.Options.MacosUserCaptures` seam, wired in `runRun`) asks `resolveCaptureFor`, the
+   resolver the sandbox's `capture-materialize` asks, for each selected `via: installer` program
+   (`installerBins`) at `darwin/<GOARCH>`, never a container jail's platform. The query carries no
+   source and no fork, so a fork's build of the same program is never picked. The pick crosses as
+   `HostContext.Captures`, composed in `internal/cli/run/macosctxtree.go`.
+
+   **(b) The copy is a root script per entry, made once per machine.** `StageCaptureCommands` runs
+   `cp -R` as root into `captures/staging/<key>`, then `chmod -R a+rX,go-w`, then `mv` into
+   `captures/entries/<key>`. It skips an entry already staged under its key, since a key is a
+   content address, and the plan cannot see the disk. The temp copy sits under `staging/`
+   rather than at `entries/<key>.new`, because a reader scanning `entries/` would meet the
+   half-copied tree and its tie-break would select it. The mode leaves write to root alone,
+   which owns every byte; the store froze its files at admit already.
+
+   *Revised 2026-10-05 after review: the copy is best-effort.* The capture commands are their own
+   field, `RunPlan.CaptureStageCommands`, not `StageCommands`, every one of which refuses the
+   launch when it fails. The launch runs them after those and warns about a failure (one line,
+   naming the program that installs the ordinary way and saying the next launch tries again).
+   The script removes its half-made copy before it exits non-zero. As first built, a full disk
+   during the copy, an I/O error, or the user's entry reaped between the host's pick and the copy
+   refused a launch that would have started before H4, which made a capture mandatory against the
+   [Blockers](#blockers). When one of the store's own commands fails (make it, open it, prune
+   it), no entry is copied, and every launcher misses and downloads. `PlanInvariants` refuses a
+   capture script among the fatal stage commands.
+
+   **(c) The prune keeps every current entry at the platform, not only this launch's.** A staged
+   entry goes once the user's store no longer selects it, superseded or reaped. The current
+   entries of programs this launch does not select stay (`HostContext.CapturesKept`), so
+   alternating between two workspaces' pack sets copies nothing twice. `internal/prune` is
+   unchanged: the next launch that stages an entry reconciles.
+
+   **(d) `PlanInvariants` refuses a wrong store.** It refuses a store named outside the state
+   dir, under any spelling of `/Users`, or with an entry nothing stages. It also refuses a store
+   named with nothing staged, and entries staged with no store named. The dry run prints a
+   `captures:` line either way.
+
+   **(e) Auto-capture runs on this backend too, and slice 7(a)'s container-only placement is
+   retired.** The arm calls the trigger before its signal arm, host services and launch lock,
+   since a capture is a nested launch of its own. It passes the darwin platform, never on a dry
+   run, and never in a capture's own launch, whose `CapturesDir` is `""`. A darwin platform runs
+   the `macos-user` capture act by name (`autoCaptureActFor`, as the Mac host floor names it,
+   HP-D2). Otherwise a workspace config choosing `macos-user` over a user config's `podman` would
+   record a linux entry and capture again at every launch.
+
+   *Revised 2026-10-05 after review: only for a launch the backend will not refuse at once.* That
+   placement put the capture before the backend's own first steps, its launch preconditions and
+   the account home's hold, so a launch about to be refused paid for a capture first. On a Mac
+   where `yolo macos-setup` never ran, the capture act's refusal was remembered as a failed
+   capture ([OQ-PD26](../design/program-delivery.md#decision-ledger)), and every launch for a day
+   after the setup downloaded. With the workspace under a home, the capture paid its sudo prompts
+   and an installer download before the refusal.
+   With another workspace's session live, it replaced the staged `yolo` under that session. The
+   arm now asks both first, through the backend's own walk (`macosuser.PreflightLaunch`, the same
+   list, workspace spelling and hold name as `RunMacosUser`), and skips the capture silently
+   when either would refuse, since the launch's own refusal follows at once with its next step.
+   It keeps the hold while the capture runs and lets it go before the backend takes its own. So
+   the capture act's setup refusal never reaches the failure memo from a launch: its four gates
+   (macOS, not root, Seatbelt, the sandbox account) are among the preconditions asked first.
+
+   **(f) The fork launcher reads the same baked `CAPTURES_DIR`** (`internal/entrypoint/forklauncher.go`).
+   This copy carries installer captures alone, so a fork's build still reaches no `macos-user`
+   launch (FP-D3). The fork route can reuse this staging when it is built for that backend.
+
+   **(g) No ACL is stripped from the copy, because plain `cp -R` carries none.** An entry a
+   `macos-user` capture made carries the shared group's inherited ACE (`group:_yolojail allow
+   read,write,append,…,writesecurity,chown`, from `CaptureStagingCommands`' provisioning of its
+   staging tree). The store's renames keep it, and `freezeTree` drops mode bits only. An ACE
+   grants what the mode bits deny, so the copy is safe only if it carries none. Its premise, read
+   from Apple's source: cp copies a file's ACL only under `-p` (file_cmds `cp/utils.c`,
+   `if (pflag && fcopyfile(…, COPYFILE_ACL)`) and a directory's only under `-p` (`cp.c`,
+   `preserve_dir_acls`). The extended attributes it copies without `-p` are what `flistxattr`
+   lists (copyfile's `copyfile_xattr`); that the kernel leaves the ACL out of that list is
+   INFERRED, not read. Nor can a copy inherit one: yolo sets no inheritable ACE on
+   `/var/yolo-jail` or under it, and the ACEs it does set there (the context tree's root, the
+   env-file directory and the files in it) carry no inherit flag. `chmod -R -N` was considered as a second guard and
+   rejected: under `-R`, Apple's chmod clears an ACL through `chmodx_np`, which follows a symlink
+   (`chmod/chmod.c`, `chmod/chmod_acl.c`), so run as root it would clear the ACL of whatever a
+   captured link names outside the tree, and fail on a dangling link. A Mac checks the outcome
+   instead: `checkStagedRootOwned` asserts `ls -leR` shows no ACE on the staged tree, and the
+   probe opens each staged copy of the program, and a hardlinked materialized file, for append,
+   expecting a refusal. The probe that creates a file in `entries/` cannot see an ACL on the
+   copied files, and the owner check cannot either, since every staged inode is root's.
+
+   MEASURED on Linux by the unit tests: the plan's bytes and invariants, the pick, the wiring,
+   the arm's calls and their order, the preflight that gates them, a launch going on past a copy
+   that fails, and the stage scripts themselves. The scripts are run against
+   temp dirs as the invoking user, not root, so ownership is the one property they cannot see;
+   `check-macos` runs the same test with macOS's own `cp`, `chmod` and `mv` on every push. NOT
+   MEASURED: any of it in a real `macos-user` launch. That is
+   `integration/macosusercapture_test.go`'s two cases, which wait on a dispatch of
+   `macos-user.yml`, and item 6 below.
+
    **H3. A capture does not materialize `packages:`.** `CaptureOptions.Darwin` exists and the
    caller passes nil, so an installer needing a `packages:`-declared tool fails inside the capture
    rather than finding it. Stated, not hidden: paying a native nix build to run one CDN shell
@@ -837,9 +980,11 @@ wrong one to sequence on.
    ✅ **Items 1 and 2 RAN on 2026-09-11** as the provisioner runbook's
    [M4](runbooks/mac-provisioner-measurements.md#m4--does-the-capture-recording-half-work-on-hardware):
    `yolo capture claude` loaded this profile, drove the vendor installer through the generated
-   launcher, and admitted an entry into the machine store, rc 0. Items 3–5 have no recorded run —
-   in particular the denial probe in item 3, the one check that tells a confined capture from one
-   that silently wrote to the shared home.
+   launcher, and admitted an entry into the machine store, rc 0. Items 3–5 have no recorded run.
+   Item 3, the denial probe and the one check that tells a confined capture from one that silently
+   wrote to the shared home, has a case: `TestMacosUserCaptureSeatbeltProfileDeniesTheSharedHome`
+   ([`macosusercaptureseatbelt_test.go`](../../integration/macosusercaptureseatbelt_test.go)),
+   which `macos-user.yml` runs on a Mac. No green run is recorded.
 
    As first written — unit tests pin the profile's BYTES, the argvs, the plan invariants and the
    relocation record, and no kernel had loaded this profile. After landing H1, on a Mac with
@@ -853,16 +998,21 @@ wrong one to sequence on.
    3. **The confinement itself, which is the only claim that matters:** with the capture profile
       loaded, `sandbox-exec -f <profile> -- /bin/sh -c 'touch /Users/_yolojail/PROBE'` must fail,
       and `log show --predicate 'sender == "Sandbox"' --last 5m` must show the denial. A capture
-      that silently wrote to the shared home would look identical to a successful one.
+      that silently wrote to the shared home would look identical to a successful one. A case
+      exists for this item, with no green run recorded: it loads a capture plan's profile as
+      `_yolojail` over a staging tree the plan's own prepare commands made, runs each probe bare
+      first, and checks that the shared home is neither written nor read, that the staging home
+      and out dir are written, and that a sibling under the capture root and a `/private/var/tmp`
+      path are refused. It logs `log show`'s Sandbox lines only when a case fails.
    4. Whether `getpwuid`-based home resolution (as opposed to `$HOME`) trips the `/Users` read deny
       for a vendor installer's shell — the one failure mode designed around rather than observed.
    5. Whether the `EXDEV` refusal in (b) ever fires in practice.
-   6. *Added 2026-09-26 with H2, and runnable only once H4 is ruled and wired:* a launch
+   6. *Added 2026-09-26 with H2, and runnable since H4 landed 2026-10-05:* a launch
       materializes the entry from item 2 into `/Users/_yolojail`. Check that
       `capture-materialize` prints its relocation line naming
       `/Users/Shared/yolo-captures/claude/home`, that `~/.local/bin/claude` links under
       `/Users/_yolojail`, that `claude --version` runs, and which arm placed the files (the line
-      names it; `hardlink` or `copy` on darwin, since no reflink is wired there).
+      names it: `reflink` where `clonefile(2)` succeeds, else `hardlink` or `copy`).
 
 7. **Auto-capture on first launch, DEFAULT ON. — LANDED 2026-09-04.** Ruled 2026-09-04 as
    [OQ-PD18](../design/program-delivery.md#decision-ledger) — *"I want (d) default on."* Until this
@@ -925,7 +1075,8 @@ wrong one to sequence on.
    the call site sits BELOW the macos-user return in `Run`, which makes the exclusion structural
    rather than a guard, and `yolo capture` stays available there as an explicit act.
    ⚠ *Since 2026-09-26 only the first reason holds: H2 landed, so a relocatable entry
-   materializes into another home. The empty `CAPTURES_DIR` is hand-off H4.*
+   materializes into another home. Since 2026-10-05 neither holds: H4 landed, and the
+   `macos-user` arm calls the trigger too, for darwin (H4's (e)).*
 
    **(b) The lock is captureHost's, and taking it again would have been self-contention.** The Map
    specifies `tryFlockAt`; `captureHost` already calls it, with exactly the disposition slice 7 asks
@@ -1010,11 +1161,12 @@ wrong one to sequence on.
   generated profile string and the relocation RECORD. On hardware, the backend's installer
   launchers and capture's recording half both ran on 2026-09-11 (M1 and
   [M4](runbooks/mac-provisioner-measurements.md#m4--does-the-capture-recording-half-work-on-hardware));
-  whether Seatbelt *denies* the shared home during a capture is still unrecorded (slice 6's item 3).
+  whether Seatbelt *denies* the shared home during a capture is still unrecorded (slice 6's item 3:
+  a case exists, and no green run is recorded).
   ⚠ *This line once said "the relocation rewrite" when there was none. Since 2026-09-26 there is
   one (hand-off H2), MEASURED on Linux against temp dirs standing in for the two macOS homes, and
-  run by no Mac: no launch on that backend reaches it until H4.* The hardware checklist that would
-  close the gap is in slice 6's own section.
+  run by no Mac. Since H4 landed 2026-10-05 a launch on that backend reaches it.* The hardware
+  checklist that would close the gap is in slice 6's own section.
 
 ## Ships with
 

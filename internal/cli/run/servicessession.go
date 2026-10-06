@@ -31,13 +31,13 @@ package run
 // never in the dir, and each session's front over it lives in that session's own yolo process.
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"syscall"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // servicesSession is one macos-user session's own host-services dir and the lock that says the
@@ -64,13 +64,21 @@ type servicesSession struct {
 // between the create and the flock, and another session's sweep could lock it in that gap,
 // read "gone", and remove the dir this session is about to publish into. A sweep reads the
 // final name only, so what it can see in the gap is a dir with no lock file, which it keeps.
-func (o *Options) openServicesSession(cname string) (*servicesSession, error) {
+//
+// THE RECORD IS WRITTEN BEFORE THE LOCK REACHES ITS NAME, for the same reason: a reader that
+// finds the lock held finds the record beside it. It names the notch that opened the session
+// (notch: "macos-user", or "host" for a `yolo host` launch's doorways) and the workspace, and it
+// is what `yolo ps` lists and `yolo prune` reads on macos-user, which has no container runtime to
+// ask (runtime.ListSessions). Not fatal: a session whose record could not be written still runs,
+// and a listing shows its notch and workspace as unknown, as it does for a dir an older yolo made.
+func (o *Options) openServicesSession(cname, notch string) (*servicesSession, error) {
 	base := paths.HostServicesBase(o.IsMacOS)
 	o.collectDeadServicesSessions(base)
 	dir, err := os.MkdirTemp(base, paths.HostServicesSessionPrefix(cname))
 	if err != nil {
 		return nil, err
 	}
+	_ = runtime.WriteSessionRecord(dir, runtime.SessionRecord{Notch: notch, Workspace: o.Workspace, Name: cname})
 	pending := filepath.Join(dir, servicesSessionLockPending)
 	f, err := os.OpenFile(pending, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o600)
 	if err != nil {
@@ -126,52 +134,33 @@ func (o *Options) endServicesSession(handles []loopholeDaemon) {
 	s.release()
 }
 
-// sessionLiveness is what a session dir's lock says about the session that made it.
-type sessionLiveness int
-
-const (
-	// sessionUnknown: the question could not be answered, so the dir is kept.
-	sessionUnknown sessionLiveness = iota
-	// sessionLive: another process holds the lock.
-	sessionLive
-	// sessionGone: nobody holds the lock, so the session that made the dir has ended.
-	sessionGone
-)
-
 // claimGoneServicesSession asks one session dir's lock whether its session is gone. On
-// sessionGone it returns the lock, now held by this process, so the dir can be removed while no
-// other sweeper can decide the same thing; the caller removes it and then closes the lock.
+// SessionGone it returns the lock, now held exclusively by this process, so the dir can be
+// removed while no other sweeper can decide the same thing; the caller removes it and then closes
+// the lock. The open and the flock are runtime.LockSession's, the one probe this collector shares
+// with the read-only listing behind `yolo ps` and `yolo prune`; the removal and the check below
+// stay here, with the only code that removes.
 //
-// A MISSING LOCK FILE IS NOT EVIDENCE. A session creates its dir and then its lock, which
-// reaches its name already held (openServicesSession), so a dir with no lock yet is a session
-// starting up, and removing it would take the dir a live session is about to publish into. The
-// leak this costs is a dir whose owner died in that window, which stays in /tmp until the
-// machine restarts.
+// A MISSING LOCK FILE IS NOT EVIDENCE (LockSession says why). The leak this costs is a dir whose
+// owner died between creating its dir and its lock, which stays in /tmp until the machine
+// restarts.
 //
 // THE LOCK MUST STILL BE THE FILE AT THE PATH once it is held. The owner removes its dir while
 // holding the lock and releases the lock afterwards, so a sweeper that opened the file before the
 // removal and locked it after holds an unlinked file. Removing by name at that point would remove
 // whatever dir now has the name, and a dir a new session created there is the one that matters.
-func claimGoneServicesSession(dir string) (*os.File, sessionLiveness) {
-	lockPath := filepath.Join(dir, paths.HostServicesSessionLockName)
-	f, err := os.OpenFile(lockPath, os.O_RDWR, 0)
-	if err != nil {
-		return nil, sessionUnknown
-	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		_ = f.Close()
-		if errors.Is(err, syscall.EWOULDBLOCK) {
-			return nil, sessionLive
-		}
-		return nil, sessionUnknown
+func claimGoneServicesSession(dir string) (*os.File, runtime.SessionLiveness) {
+	f, state := runtime.LockSession(dir, true)
+	if state != runtime.SessionGone {
+		return nil, state
 	}
 	held, herr := f.Stat()
-	atPath, perr := os.Lstat(lockPath)
+	atPath, perr := os.Lstat(filepath.Join(dir, paths.HostServicesSessionLockName))
 	if herr != nil || perr != nil || !os.SameFile(held, atPath) {
 		_ = f.Close()
-		return nil, sessionUnknown
+		return nil, runtime.SessionUnknown
 	}
-	return f, sessionGone
+	return f, runtime.SessionGone
 }
 
 // collectDeadServicesSessions removes every session dir under base whose session is known to be
@@ -190,7 +179,7 @@ func (o *Options) collectDeadServicesSessions(base string) {
 	matches, _ := filepath.Glob(paths.HostServicesSessionGlob(base))
 	for _, dir := range matches {
 		lock, state := claimGoneServicesSession(dir)
-		if state != sessionGone {
+		if state != runtime.SessionGone {
 			continue
 		}
 		retireFrontSockets(frontShortHash(dir))

@@ -162,11 +162,12 @@ Defects and unbuilt work behind some of the numbers above:
   [mounts.go](../../internal/cli/run/mounts.go#L124-L127)). A VM-local backing for such folders is
   [the file-cost research's sketch](../research/apple-container-file-cost.md#4-a-design-sketch-vm-local-volumes-for-chosen-workspace-folders),
   and is unbuilt.
-- **`macos-user`'s launch cannot be split into its parts.** It records no timing spans past the
-  backend dispatch (READ,
-  [perf logging](perf-logging.md#macos-user-native-runs-have-no-collector-past-dispatch)), and it
-  evaluates and builds its darwin floor at every launch, at a cost nobody has measured (READ,
-  [orchestrator.go](../../internal/macosuser/orchestrator.go#L458-L492)).
+- **`macos-user`'s launch has not been split into its parts on a Mac.** It records a span per
+  backend step since 2026-10-05, the floor's evaluation and build (`macos_user.materialize`)
+  among them (READ, [perf logging](perf-logging.md#what-is-spanned)), but no Mac run has
+  reported one, so the cost of evaluating and building its darwin floor at every launch is still
+  unmeasured. The first breakdown is `TestMacosUserTimingRecordsTheBackendsSteps`, run on the
+  macOS runner.
 - **The durable-dir size walk** runs on every boot pass: twice on a fresh launch (the jail's own
   boot and the first session's) and once on every attach, on both container backends, and in the
   `macos-user` bootstrap (READ: [boot.go](../../internal/entrypoint/boot.go#L595-L645),

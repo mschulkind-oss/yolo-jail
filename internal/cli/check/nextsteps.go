@@ -274,7 +274,14 @@ var entrypointPreflightNote = "A jail booting this config refuses on the same er
 
 // runtimeFindingNote is the next step for Merged Configuration's runtime finding: the runtime the
 // config or YOLO_RUNTIME selects is not usable here. The fix is the selection's own source.
+//
+// A runtime that contradicts the guest notch (guestRuntimeConflict) is the exception: its finding
+// already names both fixes, and installing or starting the runtime clears neither, because the
+// launch refuses the pair whatever that runtime does (env-manager plan EMP-D1).
 func (o *Options) runtimeFindingNote(merged *jsonx.OrderedMap) string {
+	if o.guestRuntimeConflict(merged) != "" {
+		return "Either change in the line above clears it, " + recheck
+	}
 	name := o.configuredRuntimeName(merged)
 	if name == "" {
 		return "Container Runtime, above, names the command that installs or starts one, " + recheck

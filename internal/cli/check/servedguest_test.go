@@ -3,11 +3,14 @@ package check
 // servedguest_test.go pins `yolo check` predicting what a macos-user launch SERVES since OQ-DP8
 // and OQ-DP9 (docs/design/declaration-parity.md): its Seatbelt guest runs a loophole's jail
 // daemon, so the prediction serves it and composes its pointer, exactly as the launch's
-// servedDaemons does; and it declines a pack service's jail daemon (the launch runs that
-// service's host half instead), so the prediction serves that one only on a container runtime.
-// Both halves go through loopholes.ServedJailDaemonNames, the one split the launch reads, so
-// deleting it from predictedServed fails this. A doorway's host argv passes the same admission
-// the launch applies (launchservice.AdmitDoorways) before either split reads it.
+// servedDaemons does; it declines the wire bridge's jail daemon (the launch runs that service's
+// host half instead, for its adaptation), so the prediction serves that one only on a container
+// runtime; and it runs every other pack service's daemon, so the prediction serves a service with
+// no host half the launch runs on both (docs/design/jail-daemon-on-macos-user-plan.md JD-9). Every
+// case goes through loopholes.ServedJailDaemonNames, the one split the launch reads, so deleting
+// it from predictedServed fails this. A doorway's host argv and a service's host half pass the
+// same admissions the launch applies (launchservice.AdmitDoorways, AdmitServiceHosts) before
+// either split reads them.
 
 import (
 	"os"
@@ -70,16 +73,20 @@ func TestCheckPredictsADoorwayServedOnMacosUser(t *testing.T) {
 
 // A DOORWAY YOLO WILL NOT OPEN IS PREDICTED AS THE LAUNCH TREATS IT: a pack yolo does not ship
 // may not run host code through host_cmd, so the launch clears the host argv
-// (launchservice.AdmitDoorways) and judges the jail daemon like any other. This one's argv names
-// the container's loophole mount, which the macos-user guest declines, so that launch serves it
-// nowhere, and the prediction must not serve it either: a `served_by` pointer at it would compose
-// in the prediction and be withheld at the launch. Deleting the admission from predictedServed
-// fails this.
+// (launchservice.AdmitDoorways) and judges the jail daemon like any other. This one's program is a
+// Linux executable it ships in its module directory, which the macos-user guest declines, so that
+// launch serves it nowhere, and the prediction must not serve it either: a `served_by` pointer at
+// it would compose in the prediction and be withheld at the launch. Deleting the admission from
+// predictedServed fails this.
 func TestCheckDoesNotPredictARefusedDoorwayServedOnMacosUser(t *testing.T) {
 	p := doorwayPack(t, "local", false,
 		`"name":"acme-door","description":"d","transport":"none","default_enabled":true,`+
 			`"jail_daemon":{"cmd":["{jail_loophole_dir}/acme","--listen","{listen}"],"listen":"127.0.0.1:1998",`+
 			`"caller_token":true,"host_cmd":["yolo","internal","daemon","acme","--listen","{listen}"]}`)
+	elf := []byte{0x7f, 'E', 'L', 'F', 2, 1, 1, 0}
+	if err := os.WriteFile(filepath.Join(p.Root, "loopholes", "acme-door", "acme"), elf, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	for _, tc := range []struct {
 		runtime string
 		served  bool
@@ -130,6 +137,39 @@ func TestCheckPredictsTheGuestDaemonsServedOnMacosUser(t *testing.T) {
 		if served.Serves("wire-bridge") != tc.serviceServed {
 			t.Errorf("runtime %s: predicted the wire bridge's jail daemon served = %v, want %v",
 				tc.runtime, served.Serves("wire-bridge"), tc.serviceServed)
+		}
+	}
+}
+
+// A PACK SERVICE WITH NO HOST HALF THE LAUNCH RUNS IS PREDICTED SERVED ON MACOS-USER, because the
+// guest runs its jail daemon as a container does (OQ-DP8; jail-daemon-on-macos-user-plan.md JD-9):
+// one with no host_daemon at all, and one whose host_daemon a pack yolo does not ship declares
+// (launchservice.AdmitServiceHosts clears it). Deleting the admission from predictedServed fails
+// the second case: the guest would decline the daemon for a host half that never starts.
+func TestCheckPredictsAServiceWithNoRunnableHostHalfServedOnMacosUser(t *testing.T) {
+	for _, body := range []string{
+		`{"name": "acme", "contributes": [{"kind": "service", "name": "acme-svc",
+			"jail_daemon": {"cmd": ["acme-svc"]}}]}`,
+		`{"name": "acme", "contributes": [
+			{"kind": "adapter", "adapts": {"from": "openai", "to": "anthropic"}, "address": "http://127.0.0.1:8299"},
+			{"kind": "service", "name": "acme-svc", "jail_daemon": {"cmd": ["acme-svc"]},
+			 "host_daemon": {"cmd": ["yolo", "internal", "daemon", "acme-svc"]}}]}`,
+	} {
+		root := t.TempDir()
+		if err := os.WriteFile(filepath.Join(root, "pack.json"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		p, problems := packload.LoadDir(root, "acme")
+		if len(problems) > 0 {
+			t.Fatalf("loading the acme pack: %v", problems)
+		}
+		for _, rt := range []string{"podman", "macos-user"} {
+			merged := useProfiles("claude", "cerebras")
+			merged.Set("runtime", rt)
+			if served := (&Options{}).predictedServed(merged, []*packload.Pack{p}); !served.Serves("acme-svc") {
+				t.Errorf("runtime %s: the guest-run service is not predicted served (serves %v)\n%s",
+					rt, served.Names(), body)
+			}
 		}
 	}
 }

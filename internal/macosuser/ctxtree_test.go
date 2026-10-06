@@ -8,6 +8,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // DP-L1's backend half: the host bytes the run pipeline composed have to be (a) copied
@@ -458,5 +459,70 @@ func TestPlanRenderNamesTheContextTreeEitherWay(t *testing.T) {
 	if regexp.MustCompile(`(^|[\s=:'"])` + regexp.QuoteMeta(packload.CtxRoot+"/")).MatchString(bare.String()) {
 		t.Errorf("the plan names a literal /ctx path, which cannot exist on macOS:\n%s",
 			bare.String())
+	}
+}
+
+// THE STAGED TREE'S ROOT IS OPENED TO THE SANDBOX ACCOUNT ALONE, through the plan: a composed
+// tree holds the user's own files (a directory host_files entry is routinely ~/.aws), so the
+// contents' a+rX is reachable only past a 0700 root carrying one `user:` ACE for the sandbox,
+// both set after the recursive chmod (which would otherwise reopen the root) and before the swap
+// (which would otherwise publish the tree open for a moment).
+func TestTheStagedContextTreeIsOpenedToTheSandboxAlone(t *testing.T) {
+	plan := planWithCtx(t, deliveredCtx())
+	tmp := plan.CtxRoot + ".new"
+	recursive, closed, ace, swap := -1, -1, -1, -1
+	for i, c := range plan.StageCommands {
+		switch {
+		case len(c) == 4 && c[0] == chmodBin && c[1] == "-R" && c[2] == "a+rX" && c[3] == tmp:
+			recursive = i
+		case len(c) == 3 && c[0] == chmodBin && c[1] == "0700" && c[2] == tmp:
+			closed = i
+		case len(c) == 4 && c[0] == chmodBin && c[1] == "+a" &&
+			c[2] == "user:"+SandboxUser+" allow list,search" && c[3] == tmp:
+			ace = i
+		case len(c) == 4 && c[0] == mvBin && c[2] == tmp && c[3] == plan.CtxRoot:
+			swap = i
+		}
+	}
+	if recursive < 0 || closed < 0 || ace < 0 || swap < 0 {
+		t.Fatalf("the staged context tree is not closed to other accounts and opened to %s "+
+			"(recursive=%d 0700=%d ace=%d swap=%d): %v", SandboxUser, recursive, closed, ace, swap,
+			plan.StageCommands)
+	}
+	if !(recursive < closed && closed < ace && ace < swap) {
+		t.Errorf("the root is closed out of order (recursive=%d 0700=%d ace=%d swap=%d): %v",
+			recursive, closed, ace, swap, plan.StageCommands)
+	}
+}
+
+// THE GLOBAL GITIGNORE IS NAMED TO THE BOOTSTRAP AT ITS STAGED PATH — the context root plus the
+// reserved name, a physical path because there is no /ctx on macOS — and only when the host CLI
+// copied one.
+func TestRunPlanNamesTheStagedGlobalGitignoreToTheBootstrap(t *testing.T) {
+	ctx := deliveredCtx()
+	ctx.GlobalGitignore = paths.ContextGlobalGitignore
+	plan := planWithCtx(t, ctx)
+	want := StagedCtxRoot(cnameFor("/Users/Shared/yolo/proj"), "") + "/host-user/_global-gitignore"
+	if !containsArg(plan.BootstrapArgv, GlobalGitignoreEnv+"="+want) {
+		t.Errorf("the bootstrap is not told %s=%s: %v", GlobalGitignoreEnv, want, plan.BootstrapArgv)
+	}
+	if probs := PlanInvariants(plan); len(probs) != 0 {
+		t.Errorf("a plan naming its staged gitignore fails its invariants: %v", probs)
+	}
+	for _, a := range planWithCtx(t, deliveredCtx()).BootstrapArgv {
+		if strings.HasPrefix(a, GlobalGitignoreEnv+"=") {
+			t.Errorf("a launch that copied no gitignore names one: %q", a)
+		}
+	}
+}
+
+// A gitignore named anywhere but the staged tree is a file the agent could write, and every git
+// in the sandbox would obey it.
+func TestPlanInvariantCatchesAGlobalGitignoreOutsideTheContextRoot(t *testing.T) {
+	plan := planWithCtx(t, deliveredCtx())
+	plan.BootstrapArgv = replaceEnvArg(plan.BootstrapArgv, GlobalGitignoreEnv, "/Users/Shared/yolo/proj/.gitignore-x")
+	probs := strings.Join(PlanInvariants(plan), "\n")
+	if !strings.Contains(probs, GlobalGitignoreEnv+"=/Users/Shared/yolo/proj/.gitignore-x is not under the staged context root") {
+		t.Errorf("PlanInvariants admitted a global gitignore outside the staged tree:\n%s", probs)
 	}
 }

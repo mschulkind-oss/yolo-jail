@@ -691,7 +691,13 @@ that writes a launch's environment for one notch or backend. There are three:
     in `packs` changes nothing. The line names
     `yolo host --with-credentials cerebras -- bash` instead, and says why. On an agent, the named
     `-p` replaces the agent's own profile, and the line says so ("run claude on the zai profile
-    for one launch, replacing its bedrock profile"). At `yolo host env` the shell spelling is
+    for one launch, replacing its bedrock profile"). An agent that holds an
+    [active set](#an-active-set-several-profiles-for-one-agent) keeps it: the line adds the
+    claiming profile to the set, as the pair that replaces the set for one launch ("add the
+    cerebras profile to pi's active set for one launch, keeping zai, openrouter:
+    `yolo host -p pi=zai,openrouter,cerebras -- pi`"). It names the switch, which says it replaces
+    the whole set, only when no such set would run, such as a second Bedrock entry
+    ([AP-D19](../design/active-provider-sets.md#AP-D19)). At `yolo host env` the shell spelling is
     always `eval "$(yolo host env --with-credentials <provider>)"`, never the verb's own agent
     with a `-p`, whose slice would export that agent's whole provider shape into the shell. A withheld name the
     invoking shell also exports is disclosed as not added by yolo, the shell's own value
@@ -739,7 +745,7 @@ Every arm discloses what it scoped or withheld, by name and never by value
 the shared file is: the gate decides what each agent's **environment** carries, and an agent
 started by another agent inherits that agent's environment, as any child does.
 
-Two consequences to know:
+Three consequences to know:
 
 - **The loopback credential services follow the selection** ([`OQ-CN7`](#oq-cn7),
   built). `aws-auth`'s adapter (`127.0.0.1:1461`, or a port the launch picked on a jail
@@ -762,9 +768,7 @@ Two consequences to know:
   win. A derive's tombstone removes only such a value, too. This is the per-agent file's rule.
   The host notch applies its composition over the shell it inherits, so there a profile's
   composed value replaces one your shell exports; whether the host should keep yours is
-  [OQ-NC13](../plans/notch-convergence.md#OQ-NC13), and which of yolo's own sources wins when two
-  set one variable, which the vehicles answer differently today, is
-  [OQ-NC12](../plans/notch-convergence.md#OQ-NC12). The menu half of
+  [OQ-NC13](../plans/notch-convergence.md#OQ-NC13). The menu half of
 [`OQ-CN4`](#oq-cn4) is each agent's own key:
 opencode's derive writes `enabled_providers: [<selected provider>]` beside its selected model,
 or every provider of its [active set](#an-active-set-several-profiles-for-one-agent), the primary
@@ -776,6 +780,19 @@ so for pi the only lever on what it can reach is the credential. For `openai-cod
 `enabledModels` at all: its extension registers exactly
 [the declared list](#the-openai-codex-model-list), so pi's view of that provider is the list
 ([ML-D2](../design/model-lists-and-pickers.md#ML-D2)).
+- **When two of yolo's own sources set one variable, the most specific wins, at every notch.**
+  The profile's value (what the agent's pack's env derive composes, the region fill included)
+  beats an `env_sources` value, which beats a pack's `env`. An `env_sources` null removes a
+  pack's value of that name, and at the host the shell's, but never the profile's, so a null
+  cannot leave claude zai's key with no zai address. The host exec, a jail's shared and
+  per-agent files and the macos-user session serialize one composition
+  (`CredentialScope.EnvFor`, [OQ-NC12](../plans/notch-convergence.md#OQ-NC12), decided on its
+  leaning on 2026-10-04 and open to revision), so a name has one winner wherever the agent
+  runs. A value meant to beat the profile has the per-command spelling above. In a jail, a name
+  the agent and every other process get the same value for is left in the agent's process as
+  the jail shell holds it, so an attach and a fresh launch agree. The three tables a launch
+  composes (`YOLO_PROVIDERS`, `YOLO_PROFILES`, `YOLO_USE_PROFILES`) are written after that
+  composition at every notch, so no `env_sources` value or null replaces or removes one.
 
 ## The canonical wire_api vocabulary
 
@@ -1138,12 +1155,14 @@ pack ships, and every agent that can use the provider renders that one list
   same step, over a list it composes for its own launch, with the menu kept under
   `~/.local/share/yolo-jail/model-menus/` for as long as a codex reading it runs and never in
   `~/.codex` ([MM-D24](../design/model-lists-and-pickers.md#MM-D24) to
-  [MM-D28](../design/model-lists-and-pickers.md#MM-D28)). It builds one only when the launch
-  names no `-p`, or a `-p` over the provider the config's `profile` selects for codex, because a
-  host `-p` does not choose codex's provider: `yolo host apply` writes that into codex's config
-  for the configured profile alone. A `-p` over another provider gets codex's own menu and a line
-  saying why, and which of the two should win is
-  [OQ-MM5](../design/model-lists-and-pickers.md#OQ-MM5);
+  [MM-D28](../design/model-lists-and-pickers.md#MM-D28)). A host `-p` moves codex onto its
+  provider for that launch: `yolo host -p codex -- codex` hands codex `-c model_provider="openai"`
+  and `-c model="<id>"` right after `codex`, and a `-p` over another provider hands that
+  provider's selection and its `model_providers` row the same way, so your own later `-c` still
+  wins and `~/.codex/config.toml` is never written. The menu follows the provider the `-p`
+  moved codex onto. With no `-p`, codex starts on what `yolo host apply` wrote into its config for
+  the configured profile ([MM-D30](../design/model-lists-and-pickers.md#MM-D30), which decided
+  [OQ-MM5](../design/model-lists-and-pickers.md#OQ-MM5));
 - **pi**'s extension registers exactly the list for `openai-codex`, read from a file yolo writes
   at every jail boot, with the cost, thinking and image facts taken from pi's own catalog. pi gets
   no model scope for it, and its sub-agents may use only the listed ids. A listed model pi's
@@ -1157,9 +1176,11 @@ pack ships, and every agent that can use the provider renders that one list
   `yolo host apply` writes the same list into that file, from the provider table it composes at
   user scope ([OQ-HC1](host-agent-environment.md#oq-hc1), which superseded
   [ML-D8](../design/model-lists-and-pickers.md#ML-D8)), with the switch of the profile the
-  config's `profile` names for pi. A launch's `-p` does not reach that file
-  ([OQ-HC3](host-agent-environment.md#oq-hc3)), so `yolo host -p <profile> -- pi` refuses
-  or not as the configured profile says;
+  config's `profile` names for pi. A launch's `-p` does not change that file
+  ([OQ-HC3](host-agent-environment.md#oq-hc3)): `yolo host -p <profile> -- pi` hands pi the list
+  composed for its own `-p` in `YOLO_PI_OPENAI_CODEX_MODELS`, which the extension reads before the
+  file, beside `--provider`, `--model` and `--models` for the session itself, so it refuses or not
+  as the `-p`'s profile says ([MM-D30](../design/model-lists-and-pickers.md#MM-D30));
 - **opencode** carries the list as rows of its own `openai` provider, a `[1m]` variant naming its
   base as the model it sends, and its menu is exactly the list while the profile's
   `enforce_models` is on, through the `whitelist` that also refuses any other model; off, the rows

@@ -162,3 +162,109 @@ func TestTheJailPrefixHasOneSpelling(t *testing.T) {
 		t.Errorf("paths.JailPrefixDir = %q, run.JailPrefixDir = %q", paths.JailPrefixDir, run.JailPrefixDir)
 	}
 }
+
+// THE REAL `yolo host apply --assert` WRITES oh-omp's YAML CATALOG, under the default contract,
+// and asks first when it would drop a provider you added by hand (HC-D8's first-apply prompt).
+// Until 2026-10-04 both oh-omp surfaces were refused there: "no RMW encoder for codec yaml".
+func TestYoloHostApplyAssertWritesTheOmpYAMLCatalog(t *testing.T) {
+	home := hostComputedHome(t, `{"packs":["omp","cerebras"]}`)
+	models := filepath.Join(home, ".oh-omp", "agent", "models.yml")
+	mine := "# my catalog\nproviders:\n  mine:\n    baseUrl: http://127.0.0.1:9/v1\n" +
+		"    api: openai-completions\n"
+	writeFile(t, models, mine)
+
+	var out, errw bytes.Buffer
+	if rc := hostMain([]string{"apply", "--assert"}, &out, &errw, false, strings.NewReader("n\n")); rc == 0 {
+		t.Fatalf("declining the first-apply prompt applied anyway:\n%s%s", out.String(), errw.String())
+	}
+	report := out.String() + errw.String()
+	if !strings.Contains(report, "First apply") || !strings.Contains(report, "providers.mine") {
+		t.Errorf("the first apply did not ask before dropping your provider:\n%s", report)
+	}
+	if got, _ := os.ReadFile(models); string(got) != mine {
+		t.Errorf("a declined apply rewrote models.yml:\n%s", got)
+	}
+
+	out.Reset()
+	errw.Reset()
+	if rc := hostMain([]string{"apply", "--assert"}, &out, &errw, false, strings.NewReader("y\n")); rc != 0 {
+		t.Fatalf("yolo host apply --assert rc=%d\n%s%s", rc, out.String(), errw.String())
+	}
+	raw, _ := os.ReadFile(models)
+	if !strings.Contains(string(raw), "cerebras:") || !strings.Contains(string(raw), "https://api.cerebras.ai/v1") {
+		t.Errorf("~/.oh-omp/agent/models.yml has no cerebras row:\n%s\n%s", raw, out.String()+errw.String())
+	}
+	if strings.Contains(out.String()+errw.String(), "no RMW") {
+		t.Errorf("an oh-omp surface is still refused for its codec:\n%s", out.String()+errw.String())
+	}
+}
+
+// A VALUE OF YOURS A COMPUTED LEAF REPLACES IS ITS OWN REMEDY GROUP, naming the input in your
+// config it is computed from, and — for a key the profile's selection writes — that a pick of
+// yours after the first activation stands (HC-D17). Before 2026-10-04 the profile replaced pi's
+// defaultModel and no group, no line and no count said so.
+func TestHostApplyGroupsAComputedOverwriteUnderItsInput(t *testing.T) {
+	home := hostComputedHome(t, `{"packs":["pi"],"profile":{"pi":"codex"}}`)
+	writeFile(t, filepath.Join(home, ".pi", "agent", "settings.json"),
+		`{"theme":"dark","defaultModel":"before-yolo"}`)
+	var out, errw bytes.Buffer
+	hostMain([]string{"apply"}, &out, &errw, false, strings.NewReader(""))
+	report := out.String() + errw.String()
+	for _, want := range []string{
+		"by what your profile selects: defaultModel in ~/.pi/agent/settings.json",
+		"change or remove `profile` in ~/.config/yolo-jail/config.jsonc",
+		"a pick of your own after that",
+	} {
+		if !strings.Contains(report, want) {
+			t.Errorf("the dry run's computed-overwrite group lacks %q:\n%s", want, report)
+		}
+	}
+}
+
+// A VALUE YOUR PROFILE RECOMPUTES ON EVERY APPLY IS NOT PROMISED TO STAND. pi-subagents'
+// subagents.defaultModel is computed from your profile and written on every apply, so a pick of
+// yours there is replaced each time; only the selection keys (defaultModel, defaultProvider) are
+// edge-triggered (HC-D17). MEASURED before 2026-10-05 (the reviewer's probe): the dry run named
+// subagents.defaultModel under "a pick of your own after that (your agent's /model) stands on
+// every later apply", and the apply then replaced it.
+func TestHostApplyDoesNotPromiseARecomputedValueStands(t *testing.T) {
+	home := hostComputedHome(t, `{"packs":["pi"],"profile":{"pi":"codex"}}`)
+	apply := func(args ...string) string {
+		t.Helper()
+		var out, errw bytes.Buffer
+		hostMain(append([]string{"apply"}, args...), &out, &errw, false, strings.NewReader("y\ny\ny\n"))
+		return out.String() + errw.String()
+	}
+	apply("--assert")
+	settings := filepath.Join(home, ".pi", "agent", "settings.json")
+	doc := readJSONAt(t, home, ".pi/agent/settings.json")
+	sub, _ := doc["subagents"].(map[string]any)
+	if sub == nil || sub["defaultModel"] == nil {
+		t.Fatalf("fixture: the apply wrote no subagents.defaultModel: %v", doc)
+	}
+	sub["defaultModel"] = "my-own-subagent-model"
+	raw, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, settings, string(raw))
+
+	report := apply()
+	for _, want := range []string{
+		"by what yolo computes from your profile: subagents.defaultModel in ~/.pi/agent/settings.json",
+		"change or remove `profile` in ~/.config/yolo-jail/config.jsonc",
+	} {
+		if !strings.Contains(report, want) {
+			t.Errorf("the dry run's recomputed-overwrite group lacks %q:\n%s", want, report)
+		}
+	}
+	if strings.Contains(report, "a pick of your own after that") {
+		t.Errorf("the dry run promises a recomputed value of yours stands:\n%s", report)
+	}
+	apply("--assert")
+	after, _ := readJSONAt(t, home, ".pi/agent/settings.json")["subagents"].(map[string]any)
+	if after["defaultModel"] == "my-own-subagent-model" {
+		t.Errorf("fixture: the derive no longer re-writes subagents.defaultModel, so this test "+
+			"no longer tells the two groups apart: %v", after)
+	}
+}

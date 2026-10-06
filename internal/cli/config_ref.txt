@@ -91,15 +91,21 @@
       • [bold]jail[/bold] — a container (podman / Apple Container): namespaces, a disposable
         home, a baked image, NONE of your credentials. The default and what
         `yolo -- <cmd>` gives you.
-      • [bold]guest[/bold] — a real home on the real filesystem, no image, an LSM boundary
-        (Seatbelt on macOS, bwrap+Landlock on Linux), its own separate identity.
+      • [bold]guest[/bold] — a real home on the real filesystem, no image, an LSM boundary.
+        On macOS this is the macos-user backend: a dedicated account under Seatbelt,
+        selected with no "runtime" key. Not built on Linux yet (bwrap+Landlock), where
+        a launch refuses it.
       • [bold]host[/bold] — you, your machine, your dotfiles, your credentials. EXPLICIT
         opt-in only: never inferred, never a fallback. `yolo host apply`
         renders your agent config into your real home.
     The three are presets over composable primitives (separate user / Seatbelt /
     bwrap / namespace); you pick a notch, not a hand-assembled policy.
-    NOTE: guest and host are being built out (env-manager plan); jail is fully
-    supported and is the default, so an absent key is exactly today's behavior.
+    NOTE: jail is the default, so an absent key is exactly today's behavior. A
+    launch runs jail everywhere and guest on macOS; host is not a launch (use
+    `yolo host -- <cmd>` and `yolo apply --at host`). `--at <notch>` on a launch
+    overrides this key for that launch. At guest on macOS, a "runtime" or
+    YOLO_RUNTIME naming podman or container contradicts the notch, and the launch
+    refuses until you drop one.
 
   [bold]runtime[/bold] (string): Isolation MECHANISM inside the jail notch (a hint, not policy).
     Values: "podman", "container", or "macos-user".
@@ -110,9 +116,11 @@
     agent as a dedicated macOS user under Seatbelt: NO VM, no Linux image,
     "packages:" materialized as native darwin nix for THIS Mac's arch (Apple
     Silicon or Intel — the system is derived, not assumed). Fastest startup,
-    but a WEAKER isolation boundary than a container/VM. (Under the confinement
-    dial this is the `guest` notch by another name; `runtime` stays for
-    compatibility and as the in-jail mechanism hint.)
+    but a WEAKER isolation boundary than a container/VM. `confinement: "guest"`
+    selects this same backend on macOS with no "runtime" key; `runtime:
+    "macos-user"` at the jail notch keeps working. The two launch the same
+    sandbox and differ only in the notch `yolo describe`, the agent's
+    briefing and its footer name.
 
   [bold]agents[/bold]: [bold yellow]REMOVED[/bold yellow] — which agents a jail gets is no longer a
     config key of its own.  An agent arrives as a pack, so name the pack that
@@ -289,6 +297,8 @@
         Must start with /run/yolo-services/.
         Default: /run/yolo-services/<name>.endpoint
         ("jail_socket" is accepted as an alias.)
+    An inline service runs only beside a jail, its one client: at the host notch no
+    verb starts it, and `yolo host apply` names each enabled one as not applying.
 
     OVERRIDING an existing loophole takes only "enabled", "env", "jail_env" and
     "settings" ("jail_env" being extra env vars set INSIDE the jail, merged over
@@ -467,8 +477,14 @@
       • an object — inline {"KEY": "VALUE"} map; a null value
         ("KEY": null) UNSETS the variable — the spelling
         `yolo host -- <cmd>` uses to drop e.g. AWS_PROFILE from the
-        invoking shell (a later entry assigning the key cancels it)
-    Later entries override earlier ones.  User-config list loads first,
+        invoking shell (a later entry assigning the key cancels it).
+        It removes a pack's `env` value of the name too, in a jail
+        as at the host, but never one the selected profile composes,
+        nor the YOLO_PROVIDERS, YOLO_PROFILES and YOLO_USE_PROFILES
+        tables a launch sets
+    Later entries override earlier ones.  A value here beats a
+    pack's `env` of the same name and loses to the selected
+    profile's.  User-config list loads first,
     then workspace-config list.  File paths support ~ expansion and
     absolute paths.  A RELATIVE path resolves beside the file that
     declared it — for the user config that is
@@ -619,16 +635,20 @@
     created for you.  A missing parent means a typo (/data/relcoated/...), and
     creating it silently would leave the bytes on the very disk you were
     trying to get off.
-    Runtime support: podman only.  "container" (Apple Container) warns and
-    skips it.  "macos-user" has no container and no bind mounts either, and
-    warns too.  [bold yellow]A plain host symlink is NOT a workaround there[/bold yellow] —
-    Seatbelt evaluates the symlink's TARGET rather than the link (measured
-    2026-09-13 on macOS 26.5, absolute and relative links alike: both came
-    back "Operation not permitted"), and that backend's profile denies writes
-    outside the workspace, the sandbox home, /tmp and /var/folders, and
-    denies reads under /Volumes.  A link onto other storage therefore
-    resolves to a path the sandbox cannot use, and the cache stays on the
-    boot volume — the one outcome this key exists to prevent.
+    Runtime support: podman mounts it.  "container" (Apple Container) warns
+    and skips it.  "macos-user" has no bind mounts, so ~/.cache/<subdir> in
+    the sandbox account's home becomes a LINK to the target, and the sandbox
+    profile opens the target for reading and writing; each launch names the
+    link.  The target may be on another volume under /Volumes; it may not be
+    inside a home, the workspace or a `mounts` source.  A folder yolo makes
+    for it is opened to the sandbox account as it is made; one that already
+    holds files needs `yolo macos-fix-permissions <folder>`, and the launch
+    refuses until the sandbox can write it.  Only ~/.cache moves there: a
+    macOS tool caching under ~/Library/Caches (Go's build cache, and likely
+    pip and playwright) is not relocated.  [bold yellow]A symlink you make yourself is
+    NOT a workaround[/bold yellow] on that backend: Seatbelt judges the link's TARGET
+    (measured 2026-09-13 on macOS 26.5), and only yolo's own relocation
+    opens one.
     Moving an EXISTING cache: stop all jails first, copy the bytes, then set
     the key — a running jail keeps its old, now-empty mount until restart.
     Full procedure: userguide/guides/storage.md, "Storage & Persistence".
@@ -747,12 +767,14 @@
     Runtime support: podman gets everything.  "macos-user" has no bind mounts,
     so host bytes arrive by COPY into a root-owned tree the sandbox reads
     instead (since 2026-09-13).  A `source` naming a single FILE is delivered
-    there normally.  A `source` naming a DIRECTORY is not — a copy does not
-    scale to an arbitrary tree — so it is skipped and NAMED in a warning; split
-    it into the files you need, or use the Apple Container runtime
-    (runtime: "container"), which binds it read-only from version 1.1.0 (older
-    versions, or one yolo cannot read, skip it with a warning naming the
-    reason).  Source-LESS entries are unaffected
+    there normally.  A `source` naming a DIRECTORY is copied too (since
+    2026-10-05), confined to the folder (a link leading outside it is left out),
+    each file keeping its permission bits, and capped at 32 MiB and 4096 files
+    and folders per entry, 64 MiB and 8192 per launch.  Over the cap the launch
+    stops, naming the entry: split it into the files you need, or use podman, or
+    the Apple Container runtime (runtime: "container"), which binds it read-only
+    from version 1.1.0 (older versions, or one yolo cannot read, skip it with a
+    warning naming the reason).  Source-LESS entries are unaffected
     on every backend: they copy nothing from the host to begin with.
     Example (~/.config/yolo-jail/config.jsonc):
       "host_files": [
@@ -783,7 +805,8 @@
     When on, `yolo host apply` writes one small wrapper per
     program your selected packs install into
     [bold]~/.local/share/yolo-jail/bin/wrap[/bold], each a three-line `exec` into
-    `yolo host -- <program>`.  Put that directory FIRST on your PATH and a bare
+    `yolo host -- <program>` that names yolo by its full path.  Put that directory
+    FIRST on your PATH and a bare
     `claude` (or `pi`, `codex`, …) composes its environment — Bedrock flags, the
     credentials from `env_sources`, any unsets — the same way `yolo -- claude`
     does inside a jail.
@@ -800,6 +823,11 @@
     directory is an addressable launch surface, so `<wrap dir>/claude` is a path
     a script or an IDE's "agent binary" setting can point at and rely on
     existing — which is also the answer whenever PATH is not consulted at all.
+    An IDE or desktop launcher never reads your shell rc, so give it that full
+    path: the wrapper starts yolo by its full path too.  For a program yolo
+    keeps no copy of (claude on a Mac before `yolo macos-setup`, for one), that
+    launcher also needs [bold]host_path[/bold] to name the program's folder;
+    `yolo check` says when.
     A pack that installs no program (a loophole-only pack) gets no wrapper.
 
     Enabling this makes yolo a runtime dependency of every wrapped launch: a
@@ -1015,12 +1043,17 @@
     printing what it does.  Selecting the pack is the consent; nothing asks.  An
     npm agent runs on the floor's own Node, the official release checked against
     its published checksum; an agent with its own installer comes from the
-    machine's `yolo capture` of it (Linux).  Where the floor cannot hold an agent
-    -- an installer agent on macOS, codex (its installer puts the program where a
-    capture cannot record it), no build for this machine, no container runtime to
-    capture with -- `yolo host` runs the one on your PATH, saying so.  The floor
-    keeps them current the way a jail does, at most once an hour when you start
-    one, and `agent_updates` freezes it the same way.
+    machine's `yolo capture` of it: a jail's, on a Mac the macos-user sandbox
+    account's, or on Linux with no container runtime one made on this machine
+    with its installer confined by Landlock.  Where the floor cannot hold an
+    agent -- an installer agent on a Mac before `yolo macos-setup`, or on Linux
+    with neither a container runtime nor Landlock, no build for this machine, or
+    a machine without the dynamic loader the agent needs (NixOS without nix-ld, a
+    musl system) -- `yolo host` runs the one on your PATH, saying why and what
+    changes it.  The floor keeps them current the way a jail does, at most once
+    an hour when you start one; an agent with its own installer is captured
+    again once its capture is a day old, and only a newer release is installed.
+    `agent_updates` freezes both the same way.
     A pack set to false here has no floor entry: `yolo host` looks for its agent on
     your PATH, saying so, and the next `yolo host apply --assert` removes the
     floor's copy.
@@ -1071,7 +1104,9 @@
   [bold]perf_logging[/bold] (boolean): Record every launch's timings, quietly.  Default FALSE.
     The persistent, SILENT form of `--timing`: every span (probes, image load,
     the child window, the whole shutdown chain) is appended to
-    <workspace>/.yolo/host-perf.log as it happens, and NO report is printed at
+    <workspace>/.yolo/host-perf.log as it happens (for `yolo host --` and `yolo host
+    apply`, to ~/.local/share/yolo-jail/logs/host-notch-perf.log, since a host
+    command has no workspace), and NO report is printed at
     exit -- one dim line names the file, and that is all.  Any span over a
     second still names itself on stderr the moment it ends, so a slow launch
     says who is holding it while you wait.
@@ -1081,8 +1116,9 @@
     because a ~25-line table at every jail quit scrolls away whatever was on
     screen.  To SEE a launch's table, ask for it on that launch: `yolo --timing
     -- ...` or the global `yolo --verbose -- ...`, which also turn on the
-    in-container breakdown.  Read the file any time for the launches you did
-    not ask about.
+    in-container breakdown; at the host, `yolo host --timing -- ...` or `yolo
+    host apply --timing`.  Read the file any time for the launches you did not
+    ask about.
 
     WHAT IT COSTS: about 2 KB and 35 lines per launch, capped at ~110 KB per
     workspace (the file keeps the last 50 runs and trims the rest at open), and
@@ -1147,7 +1183,8 @@
     writable.  So does the workspace config file, which the key also locks,
     and the warning does not mention it.  On macos-user there are no mounts
     at all, so entries are rendered as `(deny file-write* (subpath ...))` lines
-    in the Seatbelt profile instead -- same policy, different mechanism.
+    in the Seatbelt profile instead, the workspace config file among them --
+    same policy, different mechanism.
 
   [bold]per_side_paths[/bold] (array of strings): Workspace sub-paths kept per side.
     Each entry is a relative path inside the workspace (no leading /, no ..).
@@ -1166,7 +1203,10 @@
     Expect one extra install per side on the first launch after upgrading.
     BACKENDS: enforced on podman and Apple Container.  NOT enforced on
     macos-user -- per-side shadowing needs a mount namespace and that backend
-    has none, so host and sandbox share these paths; a warning is printed.
+    has none, so host and sandbox share these paths; a warning names your
+    entries and each default the project uses.  There, uv alone is pointed at
+    a venv of its own: UV_PROJECT_ENVIRONMENT=.venv-macos-user, unless you
+    set it yourself.
 
   [bold cyan]NETWORKING: WHICH WAY IS WHICH[/bold cyan]
     Read this before writing any port key.  There are two directions, one key
@@ -1219,6 +1259,9 @@
     A server bound to 127.0.0.1 inside the jail is NOT publishable — bind
     0.0.0.0 in here, which is safe: the published port is the only way in.
     Bridge mode only.
+    On macos-user every port the sandbox binds is already on the Mac's real
+    interfaces; a REMAP is relayed by the launch (TCP only), which publishes
+    whatever listens on the Mac's 127.0.0.1:JAIL, the sandbox's or yours.
 
   [bold]network.forward_host_ports[/bold] (array): [bold]JAIL → HOST[/bold], arriving on
     the jail's own localhost.  Makes a host service answer at `localhost:<port>`
@@ -1235,6 +1278,8 @@
     hardcoded client, a tool with no host setting.
     Implemented with socat, so it needs socat on the host.  Bridge mode only;
     ignored (with a `yolo check` warning) when network.mode is "host".
+    On macos-user a same-port entry needs nothing and a remap is relayed by
+    the launch itself, with no socat.
 
   [bold cyan]Reaching the host with no config at all[/bold cyan]
     `host.containers.internal` is written into the jail's /etc/hosts by podman
@@ -1257,7 +1302,8 @@
                     backend, explicit network.mode, YOLO_NO_HOST_LOOPBACK)
     Only "unsupported"/"unknown" mean the forwarding may genuinely be absent.
 
-  [bold]security.blocked_tools[/bold] (array): Tools to block inside the jail.
+  [bold]security.blocked_tools[/bold] (array): Tools to block inside the jail,
+    and in the program `yolo host --` starts (from your user config only there).
     Simple: ["curl", "wget"]
     Detailed: [{"name": "grep", "message": "Use rg", "suggestion": "rg <pattern>"}]
     A tool name is a BARE NAME — a single PATH segment, no "/", "..",
@@ -1306,6 +1352,16 @@
         ]
       }
     Bypass: Set YOLO_BYPASS_SHIMS=1 in scripts that need blocked tools.
+    AT THE HOST: `yolo host -- <program>` renders the same blockers — the
+    selected packs' and this list from your USER config, never a workspace's —
+    into a directory yolo keeps (~/.local/share/yolo-jail/bin/block/<digest>) and
+    puts it first on that program's PATH, saying so at every launch.  `replacement`
+    is checked against that PATH, and YOLO_BYPASS_SHIMS=1 runs the program found
+    behind each block on it (none found: the shim says so and exits 127).  Two
+    things never meet a block there: a shell that resets PATH (a login shell:
+    macOS's path_helper, Debian's /etc/profile) and an agent's own shell function
+    of the same name (Claude Code's Bash tool defines grep and find, in a jail
+    too).  `yolo host apply` starts nothing and blocks nothing.
 
   [bold]mise_tools[/bold] (object): Extra tools installed via mise in the jail.
     Keys are mise tool names, values are version strings.
@@ -1445,12 +1501,13 @@
                     git format-patch --base=$(git merge-base <upstream>/main HEAD) \
                         -o patches <upstream>/main..HEAD
       blocked-tool  {bin, message, suggestion, replacement, flags} — refuse a tool
-                    inside the jail and print an alternative.  `flags` limits the block
-                    to matching argv (absent = always); `replacement` names the binary
-                    the suggestion points at, and the block is generated ONLY when that
-                    binary is on the jail's PATH — so a jail without the alternative
-                    keeps the original tool instead of losing both.  Core blocks
-                    nothing by default; the `guardrails` pack ships grep/find.
+                    inside the jail, and in the program `yolo host --` starts, and
+                    print an alternative.  `flags` limits the block to matching argv
+                    (absent = always); `replacement` names the binary the suggestion
+                    points at, and the block is generated ONLY when that binary is on
+                    the agent's PATH — so an agent without the alternative keeps the
+                    original tool instead of losing both.  Core blocks nothing by
+                    default; the `guardrails` pack ships grep/find.
       intercept     {bin, forward} — route a command NAME in the jail to a forwarder
                     the pack declares: ~/.yolo/bin/block/<bin> becomes
                     `exec <forward…> "$@"`, first on PATH, so a bare `<bin>` runs the
@@ -1483,16 +1540,24 @@
                     pack addresses its tree to a name instead of a path — or names
                     neither, and it reaches every skills destination.  skills/ is ONE
                     unit: it broadcasts unless a contribution names it, so adding a
-                    narrower tree beside it keeps it broadcasting.
+                    narrower tree beside it keeps it broadcasting.  `project_dirs`, on a
+                    destination, names the workspace paths its agent reads skills from
+                    (".codex/skills").  A jail mirrors every such directory a repository
+                    has into every destination.  `yolo host -- <agent>`, which renders
+                    nothing into your home from a workspace, instead puts ONE link at
+                    the agent's first path when the repository has none of them,
+                    pointing at the first other agent's skills directory it does have
+                    (.codex/skills -> ../.claude/skills), adds that path to the
+                    workspace's .gitignore once, and says so at every launch.
       briefing      {from, into, after:"host:<path>" to prepend your own file first,
-                    agent, agents}.  A pack's prose is every *.md directly inside its
-                    briefing/ dir (filename order), plus any file a `from` names.  A root
-                    AGENTS.md, CLAUDE.md or GEMINI.md is NEVER read: it is the pack
-                    repository's own instructions.  A `from` with one of those basenames,
-                    or such a file inside briefing/, is refused.  `from` names exactly ONE
-                    file; one that is missing or blank delivers nothing (a launch warns),
-                    and no other file is read in its place.  Omitted, `from` means every
-                    briefing/ file no other contribution names.
+                    agent, agents, describes}.  A pack's prose is every *.md directly
+                    inside its briefing/ dir (filename order), plus any file a `from`
+                    names.  A root AGENTS.md, CLAUDE.md or GEMINI.md is NEVER read: it is
+                    the pack repository's own instructions.  A `from` with one of those
+                    basenames, or such a file inside briefing/, is refused.  `from` names
+                    exactly ONE file; one that is missing or blank delivers nothing (a
+                    launch warns), and no other file is read in its place.  Omitted, `from`
+                    means every briefing/ file no other contribution names.
                     `agent` is the IDENTITY a destination declares for itself — the
                     launcher command whose agent reads that `into`, declared by the pack
                     that OWNS the name.  A destination SOURCES NOTHING: `from` on one is
@@ -1505,6 +1570,11 @@
                     Each file has ONE governing contribution, so declarations only add:
                     {"from": "files/pi.md", "agents": ["pi"]} beside briefing/ delivers
                     both.  Two content contributions naming one source are refused.
+                    `describes` lists kinds of the pack's OWN contributions the prose is
+                    about, and delivers it only where the pack's contributions of each
+                    apply: {"kind": "briefing", "from": "briefing/gh.md", "describes":
+                    ["intercept"]} reaches every jail and no real home, since an intercept
+                    does not apply at the host.
                     One name has exactly ONE owning pack, across `program`, `launch`,
                     `briefing` and `skills`; two claimants is a launch error naming both.
                     The vocabulary is the packs you SELECTED and nothing wider: naming an
@@ -1702,8 +1772,10 @@
                     mount, one per SOCKET bind as its own read-write host-IPC class (`:ro`
                     is no boundary for an AF_UNIX socket — measured), and one per host
                     device.  `state_files` needs no claim (it stays inside yolo's own
-                    state tree).  Refused at the host notch: a loophole is a host daemon
-                    whose only client is a container, so with no jail there is no client.
+                    state tree).  At the host notch a credential loophole's doorway
+                    opens at `yolo host --` for the agent whose selection asks for it;
+                    any other loophole's only client is a container, so it does not
+                    apply there.
       service       {name, jail_daemon:{cmd, restart}, host_daemon:{cmd}, endpoint,
                     platforms, serves, settings} — a DAEMON the pack contributes to a
                     namespace: a yolo-jaild subcommand run in the jail (under the same
@@ -1716,58 +1788,114 @@
                     name-keyed).  The jail daemon runs under the existing supervisor.
                     The host_daemon half (argv `yolo internal daemon <name>`) runs at
                     `yolo host --` and on macos-user, as a child of the one launch whose
-                    agent is paired through the service, and stops when that agent exits;
-                    only a pack yolo ships may declare one that runs, and a fetched or
-                    local pack's is refused by name (host-notch-services.md OQ-HS4).
-    AT THE HOST NOTCH (`yolo host apply`) THE KINDS BELOW DO NOT APPLY, and this is
-    where the reason lives.  The report names them in one line and stops, because a
-    reason is for the person changing a rule and not the person meeting it; what
-    follows is that reason, per kind, once.  "Does not apply" means the kind has no meaning off-container
-    — it is never a refusal of your apply, which stops nothing and writes your other
-    surfaces normally.
-      blocked-tool  a blocker is a shim at the head of a JAIL's PATH.  Off-container yolo
-                    owns no PATH entry to put one in, and editing your shell rc to take
-                    one over is a far larger claim than a pack's contribution makes.
-      intercept     an intercept is a forwarding shim at the head of a JAIL's PATH, for
-                    blocked-tool's reason: off-container yolo owns no PATH entry to put
-                    one in.
+                    agent is paired through the service, or beside the command for a
+                    service no adapter names, and stops when that command exits; it runs
+                    for a pack yolo ships or a local one (a path or file:// entry in
+                    `packs`, or your local pack at ~/.config/yolo-jail/local); a fetched
+                    pack's, `git+file://` included, is refused by name
+                    (host-notch-services.md OQ-HS4, HS-D27, HS-D29).
+      mcp           {name, bin, config:{command, args, env, requires_env, provides}} —
+                    ONE MCP SERVER ENTRY composed into `mcp_servers`, which every
+                    selected agent's MCP file renders in its own dialect.  `config` is
+                    the entry in exactly the shape you write one under mcp_servers.  A
+                    `command` or `args` word starting "~/" is a path under the home of
+                    the agent it renders for — /home/agent in a container jail, the
+                    sandbox account's home on macos-user, yours at the host — and yolo
+                    writes it absolute, since an MCP client starts servers with a
+                    scrubbed environment.  `env` values are literal.  Your own
+                    `mcp_servers.<name>` entry merges over the pack's per field, and
+                    null removes it.  `bin` names the `program` the server runs, which
+                    `yolo host -- <agent>` installs into yolo's host floor beside the
+                    agent.  The name is sole-owned: two selected packs shipping one
+                    refuse a jail launch and `yolo check` (at the host the later pack
+                    in `packs` holds it).  At the host only a pack yolo ships or a local
+                    one (a path or file:// entry in `packs`, or your local pack at
+                    ~/.config/yolo-jail/local) has its entry written; a fetched pack's,
+                    `git+file://` included, is left out and named.  The `chrome-devtools`
+                    pack is the shipped instance.
+    AT LAUNCH ONLY (`yolo host -- <program>`): at the host notch the kinds below are
+    delivered to the program yolo starts, for that process only, and `yolo host apply`
+    writes no file for them: what each declares reaches an agent through its process
+    (an environment, a PATH, the providers table, a child daemon), never through a
+    config file.  The report names them in one clause; this is how each arrives.  An
+    env var, an adapter, a service and a loophole also have a shape the host delivers
+    nowhere, listed under the next heading, so one kind can be named in both.
+      env           an env var applies to a process yolo starts: `yolo host --
+                    <program>` delivers it to that process only, and `yolo host env`
+                    prints it.  Setting it for your whole session would mean editing
+                    your shell rc.
+      blocked-tool  a blocker is a shim first on the PATH of a process yolo starts:
+                    `yolo host -- <program>` puts them first on that program's PATH.
+                    Putting one at the head of your whole session's PATH would mean
+                    editing your shell rc.
+      adapter       an adapter's address is composed into the providers table a launch
+                    carries, so `yolo host -- <program>` points its agent there,
+                    starting the pack service that answers it when one does.
+      service       a service's host half (`host_daemon`, in a pack yolo ships or a
+                    local one: a path or file:// entry in `packs`, or your local pack at
+                    ~/.config/yolo-jail/local) runs at `yolo host -- <program>` beside the
+                    one agent paired through it, or beside the program when no adapter
+                    names the service, and stops when that program exits.  A fetched
+                    pack's, `git+file://` included, is refused by name.
+      loophole      a credential loophole's doorway (`jail_daemon.host_cmd`, in a pack
+                    yolo ships or a local one: a path or file:// entry in `packs`, or your
+                    local pack at ~/.config/yolo-jail/local) opens at `yolo host --
+                    <program>` for the agent whose selection asks for it, once the
+                    loophole is enabled, and closes when that agent exits.  A fetched
+                    pack's, `git+file://` included, is refused by name.
+    AT THE HOST NOTCH THE KINDS BELOW DO NOT APPLY: neither `yolo host apply` nor `yolo
+    host --` does anything with them, and this is where the reason lives.  The report
+    names them in one line and stops, because a reason is for the person changing a
+    rule and not the person meeting it; what follows is that reason, per kind, once.
+    "Does not apply" means the declaration has no meaning off-container — it is never
+    a refusal of your apply, which stops nothing and writes your other surfaces
+    normally.
+      intercept     an intercept layers a permission over a CLI by putting a forwarder
+                    first on a JAIL's PATH.  At the host the agent runs as you and can
+                    run the real program by its path, so the layer would govern
+                    nothing; `yolo host --` does not put one there either.
       state         state names a jail-writable home subtree — off-container the home
                     simply is writable, so there is nothing to declare.
       reads-host    reads-host carries a host file INTO a jail.  With no jail the file is
                     already where the reader is.
-      mount         a mount needs a mount namespace, which is unavailable without a
-                    container.
-      env           env vars apply to a process yolo starts, and `yolo host apply` only
-                    configures your tools — it never runs them.  Setting them for your
-                    whole session would mean editing your shell rc.  `yolo host --
-                    <program>` delivers them at launch instead, to that process only.
+      mount         a mount grants a jail a host folder through the jail's wall.  At
+                    the host there is no wall, and the folder is already where you are.
+      env           an env var `served_by` a daemon the host does not serve — a bound
+                    loophole's socket path, which only a jail binds (audio's), or a
+                    loophole with no doorway — is withheld at `yolo host --`, which
+                    names it: a client at the host reaches its own server instead.
+      adapter       an adapter whose address its own pack's service answers, when that
+                    service has no host half (`host_daemon`) or is in a fetched pack:
+                    nothing at the host serves the address, so `yolo host --` refuses a
+                    pairing through it and names the service.
       hook          the shipped hooks are jail provisioning steps — a credential or
                     package-store symlink into the machine tier, and per-jail history.
                     Off-container each is either meaningless or a mutation of real user
                     state that no pack should perform unprompted (the directory one would
-                    replace a real directory in your own home with a symlink), so this
-                    command runs none of them.
-      adapter       an adapter's address is composed into the providers table a LAUNCH
-                    carries, so it reaches an agent the moment one starts and never
-                    through a config file.  This command starts none, so nothing is
-                    pointed anywhere.
-      loophole      a loophole is a host daemon whose only client is a container: with no
-                    jail there is no client, no --add-host, no YOLO_JAIL_DAEMONS, and
-                    nothing for its endpoint file to be mounted into.  Launch a jail to
-                    run it.
-      service       a service is a daemon pair plus an endpoint file under the jail's
-                    /run.  With no jail there is nothing to supervise the jail half and
-                    nothing to read the endpoint.
+                    replace a real directory in your own home with a symlink), so no
+                    host verb runs any of them.
+      loophole      a loophole with no doorway for a notch without a jail
+                    (`jail_daemon.host_cmd`) is a host daemon whose only client is a
+                    container: with no jail there is no client, no --add-host, no
+                    YOLO_JAIL_DAEMONS, and nothing for its endpoint file to be mounted
+                    into.  An INLINE loophole of yours (a `loopholes.<name>` entry with a
+                    `command`) is one, and the report names it by entry.
+      service       a service with no host half (`host_daemon`), or one in a fetched
+                    pack, is a daemon pair plus an endpoint file under the jail's /run.  With
+                    no jail there is nothing to supervise the jail half and nothing to read
+                    the endpoint.
     WHAT A HOST APPLY COMPUTES, as a jail does: `yolo host apply`, and the automatic
     apply a wrapped launch runs, run each pack's derives over inputs composed from
     your USER config alone — the providers table (your `providers` over the selected
-    packs' provider facts), your `mcp_servers`, your `lsp_servers`, and the selection
-    your `profile` key names.  So the provider facts reach `pi/models`,
-    `pi/codex-models`, `codex/config`, `opencode/config` and `oh-omp/models` at the
-    host too, pi registers the declared openai-codex list, and every agent's MCP and
-    LSP files carry your servers.  Never an MCP preset (its command is a wrapper only
-    a jail writes), a pack's `mcp` declaration, a workspace's config, or a value naming
-    a path only a jail has: each is left out and named.  A table a derive declares in
+    packs' provider facts), the MCP servers (your `mcp_servers` over the selected
+    packs' `mcp` entries), your `lsp_servers`, and the selection your `profile` key
+    names.  So the provider facts reach `pi/models`, `pi/codex-models`,
+    `codex/config`, `opencode/config` and `oh-omp/models` at the host too, pi
+    registers the declared openai-codex list, and every agent's MCP and LSP files
+    carry those servers.  Never an MCP preset (its command is a wrapper only a jail
+    writes; the `chrome-devtools` pack carries that server to the host), a fetched
+    pack's `mcp` entry (its command would run unconfined as you), a workspace's
+    config, or a value naming a path only a jail has: each is left out and named.  A table a derive declares in
     full is yolo's there, as in a jail, so an entry you added by hand to one is
     dropped — confirmed first, the first time — unless your config declares it.
     That selection is applied edge-triggered: written when the chosen profile
@@ -2062,7 +2190,9 @@
     agent's list.  A `providers.<name>.capabilities` YOU write counts whether or not
     a profile selects that provider.
     The refusal runs above the backend dispatch, so it fires on every backend, and
-    `yolo check` predicts it.
+    `yolo check` predicts it.  `yolo host -- <cmd>` asks the same gate, over your
+    user config alone (a workspace config cannot refuse or satisfy a host launch),
+    before it auto-applies anything, and refuses in the same words.
     YOLO_ALLOW_UNMET_CAPABILITIES=1 launches anyway, loudly.  It is there for a
     capability you really have that nothing declares — an agent whose pack does not
     state what its login does, or a tool it reaches some way yolo does not deliver.
@@ -2100,7 +2230,9 @@
         whole table into the skills tree Claude loads plugins from.
     yolo installs no language server itself, on any backend.
     At the host notch `yolo host apply` writes the same translation into your real
-    home from your USER config, less any server naming a path only a jail has.
+    home from your USER config, less any server naming a path only a jail has:
+    Copilot's file, and the yolo-lsp plugin in the skills dir of every selected
+    pack that composes one.
     Example: {"rust": {"command": "rust-analyzer", "args": [],
               "fileExtensions": {".rs": "rust"}}}
 
@@ -2111,20 +2243,25 @@
     Invalid: enabling a preset here and null-removing it in the same config file.
     Jail only: a preset's command is a wrapper a jail's boot writes, so `yolo host
     apply` writes no preset into your real home and names each one it leaves out.
+    For chrome-devtools add "chrome-devtools" to `packs` instead: the pack gives the
+    same server at the host, in a jail and on macos-user, and where both are on its
+    entry replaces the preset's.
     Example: ["chrome-devtools", "sequential-thinking"]
 
   [bold]mcp_servers[/bold] (object): Custom MCP servers for Copilot, Claude, and Codex.
     Add custom servers, or set a preset/inherited server to [bold]null[/bold] to disable it.
+    A selected pack's `mcp` entry (the `chrome-devtools` pack's, say) is composed
+    under this table: an entry of yours with its name merges over it per field, and
+    [bold]null[/bold] removes it.
     Each key is a server name; value is an object with:
       • command (string, required): Binary name (on PATH) or absolute path.
       • args (array of strings): Args passed to the MCP server. Default: [].
       • env (object of string→string): Environment variables passed only to
         this MCP server's process. Use for per-server secrets and config so
         they don't leak into the jail-wide env. Default: {}.
-        [bold]${VAR}[/bold] references are expanded against the jail's startup env
-        (after [bold]env_sources[/bold] is loaded), so a secret can live in one
-        unsynced file and be scoped to a single server. Undefined names
-        are left as the literal [bold]${VAR}[/bold] and logged as a warning.
+        Values are written LITERALLY: yolo expands no [bold]${VAR}[/bold], so a
+        reference reaches the agent's config as written, for the agent to resolve
+        from its own environment (which [bold]env_sources[/bold] hydrates).
       • provides (string): the named JOB this server implements, e.g.
         "web_search".  Two things read it, and they are different questions.
         DELIVERY: the authentication source your launch resolves to — the
@@ -2181,6 +2318,10 @@
       {"cgroup_rule": "c 189:* rwm"}
       Grants access to all devices matching the major number.
     Missing devices produce a warning, not an error — the jail still starts.
+    On macos-user nothing is passed through: a raw path under /dev (a serial
+    adapter's /dev/cu.* node) has its device control calls allowed by the
+    sandbox, and the launch names it; raw disks stay refused, and USB and
+    cgroup entries are not read.  Not yet tried on a Mac.
     Subject to config change safety (human approval required).
 
   [bold]gpu[/bold] (object): GPU passthrough configuration (NVIDIA / AMD ROCm).
@@ -2279,13 +2420,19 @@
       Workspace configs cannot set this. A repo-committed, agent-editable file must
       not be able to authorise deleting your programs; a workspace-scoped `programs`
       is a validation error, not a silent no-op.
-      Container backends only (the boot catalog it hangs off does not run under
-      macos-user, which stages no pack tree to compare against).
+      Every backend: on macos-user the launch hands the switch to the sandbox's
+      bootstrap, which runs the same boot catalog (notch-convergence.md NC-D71).
+      Not yet run on a Mac.
 
   [bold]resources[/bold] (object): Container resource limits.
     Sets hard cgroup constraints on the jail container via podman flags.
     memory, cpus and pids_limit are enforced by the kernel — the jail cannot exceed them.
     io is not a limit, and is described on its own below.
+    On macos-user, which has no cgroups: memory is checked by sampling every two
+    seconds inside the sandbox, which stops the session's largest process when it is
+    over (not kernel-enforced); cpus sets GOMAXPROCS, CARGO_BUILD_JOBS,
+    RAYON_NUM_THREADS and OMP_NUM_THREADS, no higher than the Mac's CPU count, a
+    default programs may ignore; pids_limit is read and ignored. The launch says each.
     • [bold]memory[/bold] (string): Maximum memory. Format: number + suffix (b/k/m/g).
       Examples: "8g" (8 GB), "512m" (512 MB), "2g".
       Maps to --memory flag. OOM-killed if exceeded.
@@ -2310,10 +2457,11 @@
       the value, and `yolo check` grades that disk and names the host change.
       A `nix build` runs its builders in the host nix daemon, outside the jail, so it
       keeps that daemon's priority.
-      Applied on podman on Linux, nested jails included. Not applied on Apple
-      Container or podman on macOS, where the workspace reaches the Mac over VirtioFS,
-      which carries no priority, nor yet on macos-user; the launch says so on all
-      three. Frozen at the fresh launch, like every resources key.
+      Applied on podman on Linux, nested jails included, and on macos-user as the
+      session's macOS disk I/O policy ("low" is IOPOL_UTILITY, "idle" IOPOL_THROTTLE).
+      Not applied on Apple Container or podman on macOS, where the workspace reaches
+      the Mac over VirtioFS, which carries no priority; the launch says so on both.
+      Frozen at the fresh launch, like every resources key.
 
     [bold]In-jail sub-process limits (cgroup v2 delegation)[/bold]:
     A host-side cgroup delegate runs alongside the container and performs all
@@ -2350,26 +2498,27 @@
         against host free memory and can OOM the jail under pressure.
     /run and /dev/shm always stay on tmpfs in either mode (small + shared
     memory, respectively). Apple Container always uses tmpfs (its volume
-    syntax differs and isn't a drop-in replacement).
+    syntax differs and isn't a drop-in replacement). macos-user has no
+    container: the sandbox writes the machine's own /tmp and /var/folders, on
+    disk, and "tmpfs" is warned as not read there.
 
   [bold]macos_log[/bold] (string, default "off"): Apple unified-log access, through a
     generated [cyan]yolo-log[/cyan] helper.  [bold]macos-user backend only.[/bold]
     The macOS analog of the Linux jail's [cyan]yolo-journalctl[/cyan], and a much
     smaller thing than it: there is no loophole, no host daemon and no bridge here —
     the sandbox account runs the machine's own [cyan]/usr/bin/log[/cyan].  This key
-    decides only what the helper installed at [cyan]~/.local/bin/yolo-log[/cyan] does.
+    decides what the helper installed at [cyan]~/.local/bin/yolo-log[/cyan] does and,
+    under "off", whether the Seatbelt profile lets the sandbox read the log at all.
       • "off" (default) — the helper is a stub: it prints how to turn logging on
-        and exits 1.
+        and exits 1, and the Seatbelt profile denies the sandbox the log itself.
       • "user" — the helper wraps [cyan]log[/cyan].  Bare, it shows the last five
         minutes compact; the [cyan]show[/cyan], [cyan]stream[/cyan], [cyan]collect[/cyan],
         [cyan]config[/cyan] and [cyan]help[/cyan] subcommands pass straight through;
         anything else becomes arguments to [cyan]log show[/cyan].
       • "full" — the helper is [cyan]log[/cyan], argv for argv.
-    [yellow]It is a convenience, not a boundary.[/yellow] The Seatbelt profile is
-    [cyan](allow default)[/cyan] plus targeted write and read denials, and none of them
-    cover exec: an agent under "off" can still run [cyan]/usr/bin/log[/cyan] itself.
-    So "off" makes the helper refuse — it does not make the log unreadable.  Do not
-    read this key as a permission.
+    Under "off" the profile denies reads of the log's stores and the service a
+    live stream connects to, so running [cyan]/usr/bin/log[/cyan] directly reads
+    nothing either; "user" and "full" lift both rules.  Not yet tried on a Mac.
     On [cyan]podman[/cyan] and [cyan]container[/cyan] the key is inert (nothing there
     reads it), the same way [bold]kvm[/bold] is inert on macOS — declared so one config
     file can serve both of your machines.
@@ -2568,6 +2717,8 @@
     binary that did not exist.
     Once generated, a blocker is unconditional at run time — set
     YOLO_BYPASS_SHIMS=1 for installers and scripts that need the real tool.
+    `yolo host -- <program>` applies the same blockers, from your user config,
+    to the program it starts (see security.blocked_tools).
 
   [bold]Venvs & Python[/bold]
     Venvs are per side: /workspace/.venv (plus any venv path configured in

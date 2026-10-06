@@ -10,13 +10,16 @@ package cli
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
+	"github.com/mschulkind-oss/yolo-jail/internal/darwinpkg"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
@@ -274,25 +277,103 @@ func TestEveryForkCaptureStopNamesItsNextStep(t *testing.T) {
 	})
 }
 
-// On macos-user a fork's build is refused: it is yolo's to wire, and a podman jail builds and runs
-// one today.
-func TestTheMacosUserForkRefusalNamesWhoCanAct(t *testing.T) {
-	forkBuildHome(t)
+// ON macos-user A PLAIN FORK'S SEALED BUILD REACHES THE FORK-BUILD ACT (FP-D24), where it used to be
+// refused: `yolo capture <forked bin>` under macos-user names that runtime to its build, files the build
+// under darwin on this machine's architecture, and the arm the pipeline runs on that backend hands the
+// act the fork's build line, the build's id, the checkout beside the workspace, the flake root and the
+// pack tree — and the out dir and toolchain record where a container build jail leaves them, which the
+// admit and the receipt read.
+func TestASealedForkBuildOnMacosUserReachesTheForkBuildAct(t *testing.T) {
+	f := forkBuildHome(t)
+	t.Setenv("YOLO_RUNTIME", "macos-user")
 	var seen run.Options
 	withFakeCaptureJail(t, func(o run.Options) int { seen = o; return 1 })
+	var got macosuser.ForkBuildOptions
+	var deps macosuser.Deps
+	var dest, toolchain string
+	acts := 0
+	orig := macForkBuildAct
+	macForkBuildAct = func(d macosuser.Deps, o macosuser.ForkBuildOptions, out, tc string, _ bool) int {
+		acts++
+		deps, got, dest, toolchain = d, o, out, tc
+		return 0
+	}
+	t.Cleanup(func() { macForkBuildAct = orig })
+	var links []string
+	origMat := forkToolchainMaterialize
+	forkToolchainMaterialize = func(repoRoot string, _ []any, system, outLink string, _ io.Writer) (*darwinpkg.DarwinPackages, error) {
+		links = append(links, outLink)
+		return &darwinpkg.DarwinPackages{PathPrefix: []string{"/nix/store/floor/bin"}, ProfilePath: "/nix/store/floor"}, nil
+	}
+	t.Cleanup(func() { forkToolchainMaterialize = origMat })
 	var out, errw bytes.Buffer
 	captureHost([]string{"probetool"}, &out, &errw, false)
 	if seen.MacosUserRun == nil || !seen.Sealed {
-		t.Fatal("the fork's build jail carries no macos-user arm")
+		t.Fatal("the fork's build jail carries no sealed macos-user arm")
 	}
-	// The arm the pipeline runs on macos-user, driven as the pipeline would.
+	if seen.Getenv == nil || seen.Getenv("YOLO_RUNTIME") != "macos-user" {
+		t.Fatal("the build was not handed the macos-user runtime it was filed under")
+	}
+	rc := seen.MacosUserRun(jsonx.NewOrderedMap(), seen.Workspace, nil, nil, "/flake", "/packs",
+		macosuser.HomeOverlay{}, macosuser.HostContext{}, false, jsonx.NewOrderedMap(), nil, macosuser.JailDaemons{})
+	if rc != 0 || acts != 1 {
+		t.Fatalf("the sealed macos-user arm returned %d and ran the fork-build act %d times, want 0 and once\n%s",
+			rc, acts, errw.String())
+	}
+	b := forkBuild{Fork: f, Commit: forkTestCommit, Platform: "darwin/" + goruntime.GOARCH}
+	if got.Build != f.Build || got.BuildID != b.id() || got.Bin != "probetool" {
+		t.Errorf("the act was handed build %q id %q for %q, want %q, the darwin build's id %q", got.Build,
+			got.BuildID, got.Bin, f.Build, b.id())
+	}
+	if got.Source != filepath.Join(seen.Workspace, forkSourceLeaf) || got.RepoRoot != "/flake" ||
+		got.HostPackRoot != "/packs" || !strings.HasPrefix(got.Toolchain, "yolo ") {
+		t.Errorf("the act was handed source %q, flake %q, packs %q, toolchain %q", got.Source, got.RepoRoot,
+			got.HostPackRoot, got.Toolchain)
+	}
+	if dest != filepath.Join(seen.Workspace, captureOutLeaf) || toolchain != filepath.Join(seen.Workspace, forkToolchainLeaf) {
+		t.Errorf("the act leaves its result at %s and %s, not where the admit reads them", dest, toolchain)
+	}
+	// THE ACT IS HANDED THE NATIVE FLOOR BUILD, rooted at the build's own link in its staging
+	// workspace and never at the home's profile root a running macos-user session hangs from.
+	if deps.MaterializeDarwin == nil {
+		t.Fatal("the act was handed no darwin floor build, so every real build stops before its line")
+	}
+	if d, ok, err := deps.MaterializeDarwin("/flake", nil); !ok || err != nil || d == nil ||
+		d.ProfilePath != "/nix/store/floor" || len(d.PathPrefix) != 1 {
+		t.Errorf("the act's floor build returned %+v %v %v, want the native materializer's result", d, ok, err)
+	}
+	if want := filepath.Join(seen.Workspace, forkToolchainRootLeaf); len(links) != 1 || links[0] != want ||
+		links[0] == darwinpkg.ProfileRootLink(paths.Home()) {
+		t.Errorf("the floor build was rooted at %v, want the build's own link %s", links, want)
+	}
+}
+
+// A PATCHED FORK'S OR A PATCHED EXTENSION'S BUILD stays refused on macos-user, and the refusal names
+// whose it is and what builds one today.
+func TestAPatchedBuildOnMacosUserNamesWhoCanAct(t *testing.T) {
+	forkBuildHome(t)
+	var seen run.Options
+	withFakeCaptureJail(t, func(o run.Options) int { seen = o; return 1 })
+	orig := macForkBuildAct
+	macForkBuildAct = func(macosuser.Deps, macosuser.ForkBuildOptions, string, string, bool) int {
+		t.Error("a patched build reached the fork-build act")
+		return 0
+	}
+	t.Cleanup(func() { macForkBuildAct = orig })
+	var out, errw bytes.Buffer
+	// A patched build's seal names its packs and no build line (forkBuildRunJail, forkbuildchild.go).
+	runCaptureJail(t.TempDir(), "probetool", []string{"true"}, &captureSeal{only: []string{"forkpack", "basepack"}},
+		captureStreams{out: &out, errw: &errw}, false)
+	if seen.MacosUserRun == nil || !seen.Sealed {
+		t.Fatal("the patched build jail carries no sealed macos-user arm")
+	}
 	errw.Reset()
 	rc := seen.MacosUserRun(jsonx.NewOrderedMap(), "", nil, nil, "", "", macosuser.HomeOverlay{},
 		macosuser.HostContext{}, true, jsonx.NewOrderedMap(), nil, macosuser.JailDaemons{})
 	if rc == 0 {
-		t.Fatal("a fork build ran on macos-user")
+		t.Fatal("a patched build ran on macos-user")
 	}
-	if got, want := stepAfter(t, errw.String(), "yolo capture: a fork is built on a container backend only"),
+	if got, want := stepAfter(t, errw.String(), "yolo capture: a patched fork or a patched extension is built on a container backend only"),
 		"  That is yolo's to wire. A podman jail builds and runs it today: YOLO_RUNTIME=podman yolo -- probetool"; got != want {
 		t.Errorf("the step is\n%q\nwant\n%q", got, want)
 	}

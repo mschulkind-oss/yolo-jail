@@ -31,7 +31,9 @@ package run
 //	the host's network (resolveNetMode,    the runtime's own bridge, whatever `network.mode`
 //	assembleRunCmd)                        says, and no host-loopback forwarding (FP-D13); a
 //	                                       nested launch is still forced onto its launcher's
-//	                                       namespace, which is itself a jail's
+//	                                       namespace, which is itself a jail's. On macos-user,
+//	                                       which shares the host's stack, the sealed Seatbelt
+//	                                       profile denies the loopback instead (FP-D24)
 //	`mounts`, pack `mount`, reads-host     none, the surfaces' host layers included
 //	the host briefing prepend              none
 //	the host's global gitignore            not bound, nor named by the composed git config
@@ -54,12 +56,22 @@ package run
 //	                                       nix daemon or forwarded host loopback, and no
 //	                                       machine-wide store; and no `agents_md_extra`,
 //	                                       which is the user's own text
+//	the whole macos-user arm (Run)         left above its first crossing site
+//	                                       (runSealedMacosUser): no context mount, relocation,
+//	                                       host service, keeper, doorway, credential view, host
+//	                                       bytes or herdr pane; the backend's own seal is the
+//	                                       sealed capture profile, which also denies the nix
+//	                                       daemon's socket (FP-D24)
 //
 // WHAT THE LAUNCH PRINTS FOLLOWS WHAT CROSSES (FP-D21). The read disclosure (notePackHostAccess)
 // keeps only the claims about what the build itself fetches or runs (sealKeepsClaim), and says in
 // one counted line which declared env vars, host reads and loophole crossings it withheld
 // (sealedWithheldLine): a disclosure of a read that does not happen is worse than silence (DP-B2).
 // The host-execution disclosure is not printed at all, since nothing runs on the host.
+//
+// The exec disclosure's reader, hostServiceNames, stays seal-blind on purpose (keeper.go): on
+// macos-user the disclosure and the spawn are one call (startLoopholesDisclosed), which a sealed
+// launch never reaches.
 //
 // What stays is TOOLCHAIN, not credential (FP-D9): the image, `packages`, `mise_tools` and a
 // base's `node_floor` (installed into the private /mise, at the cost of that download once per
@@ -79,6 +91,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -175,11 +188,11 @@ func (o *Options) assembledConfigFor(cfg *jsonx.OrderedMap) *jsonx.OrderedMap {
 // server's `args` are literal strings the user writes, an API key among them, and a build runs
 // no agent to start a server for. An empty preset list is also what keeps the jail's bootstrap
 // from installing a preset's npm package (entrypoint.BootstrapScript).
-func agentServerTables(cfg *jsonx.OrderedMap, sealed bool) (lsp, mcp *jsonx.OrderedMap, presets []any) {
+func agentServerTables(cfg *jsonx.OrderedMap, sealed bool, packs []*packload.Pack) (lsp, mcp *jsonx.OrderedMap, presets []any) {
 	if sealed {
 		return nil, nil, nil
 	}
-	return cfgMap(cfg, "lsp_servers"), cfgMap(cfg, "mcp_servers"), cfgList(cfg, "mcp_presets")
+	return cfgMap(cfg, "lsp_servers"), jailMCPServers(cfg, packs), cfgList(cfg, "mcp_presets")
 }
 
 // sealedBriefingInput is in with every description of a crossing the seal withholds taken out
@@ -278,4 +291,52 @@ func (o *Options) narrowedPackEntries(entries []config.PackEntry) []config.PackE
 		}
 	}
 	return out
+}
+
+// runSealedMacosUser is a SEALED launch on macos-user: a fork's build (forked-programs-as-packs.md
+// FP-D24), which this backend runs in its capture act under the sealed Seatbelt profile
+// (macosuser.RunForkBuildAct, through the build act's MacosUserRun). It hands the backend nothing of
+// the host's, and does so by RETURNING ABOVE every crossing site of the macos-user arm rather than by
+// a check at each one, since that arm has a dozen and a build needs none of them:
+//
+//	the crossing site, on the arm it leaves        under the seal
+//	`mounts`, pack `mount`, cache_relocations      neither planned nor handed
+//	host loopholes and services, the workspace's   none started or joined, and no session recorded:
+//	keeper, the OpenAI service's fail-closed       the build's key is its own staging workspace's
+//	check
+//	the credential view, doorways, launch-owned    none
+//	services, port relays
+//	host_files, reads-host grants, the skills and  not composed: the backend gets an empty overlay
+//	briefing overlay, the capture store's entries  and an empty host context
+//	the jail-daemon payload                        none (Run withholds it above the dispatch)
+//	the herdr pane                                 not registered
+//	auto-capture, the reclaim offer, housekeeping, none runs
+//	the launch's config artifacts, the durable dir
+//
+// It keeps the config-change approval (which the build act grants up front, as a container build's
+// is), the pack tree the build's bootstrap renders from, the blocked tools, the arm's signal handling,
+// the launch's record line and the sealed channel's launch env: the wire tables, empty.
+func (o *Options) runSealedMacosUser(cfg *jsonx.OrderedMap, rt, repoRoot string, staged stagedPacks,
+	args []string, channel *packChannel) int {
+	o.releaseArrivalLock()
+	wsCfg, _ := config.LoadWorkspaceConfig(o.Workspace, false, func(string) {})
+	if !o.DryRun && !o.checkConfigChanges(wsCfg, cfg, rt) {
+		return 1
+	}
+	arm, disarm := o.armMacosUser()
+	defer disarm()
+	if status, ending := arm.Ending(); ending {
+		return status
+	}
+	launched := ""
+	if len(args) > 0 {
+		launched = filepath.Base(args[0])
+	}
+	// The launch's fate is known, as a container build's is once its jail starts (launchrecord.go).
+	if !o.DryRun {
+		o.recordLaunchOutcome(launchStarted, -1)
+	}
+	return o.MacosUserRun(cfg, o.Workspace, config.SelectedAgents(cfg), args, repoRoot, staged.root,
+		macosuser.HomeOverlay{}, macosuser.HostContext{}, o.DryRun, channel.launchEnv(launched),
+		packload.BlockedTools(staged.packs), macosuser.JailDaemons{})
 }

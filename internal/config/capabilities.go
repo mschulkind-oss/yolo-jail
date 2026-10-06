@@ -3,8 +3,11 @@ package config
 // capabilities.go is THE CAPABILITY CENSUS behind `required_capabilities`
 // (docs/design/agent-auth-modes.md §6.2, OQ-CAP2): which named jobs a launch can count as
 // done, so that a config declaring it needs one that nothing does is refused before any backend
-// starts. The launch's gate (`run.refuseUnmetCapabilities`) and `yolo check`'s prediction of it
-// both call UnmetCapabilities, so the two answer from one census.
+// starts. THREE CALLERS answer from this one census: a jail launch's gate
+// (`run.refuseUnmetCapabilities`), the same gate at the host notch, which `yolo host -- <cmd>`
+// asks over the user scope before anything else it does (cli's refuseHostUnmetCapabilities), and
+// `yolo check`'s prediction of the jail gate. Both gates print the one refusal
+// UnmetCapabilityRefusal words, so the two notches say the same thing about the same gap.
 //
 // FOUR SOURCES, and they are the whole census:
 //
@@ -48,6 +51,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -295,4 +299,61 @@ func capabilityStrings(m *jsonx.OrderedMap, key string) []string {
 		}
 	}
 	return out
+}
+
+// RequiredCapabilitiesProblems is the validator's verdict on cfg's `required_capabilities` alone:
+// the messages ValidateConfig would add for the key (a value that is not a list, an entry that is
+// not a string), nil when its shape is fine or it is absent. For a caller that judges the key
+// without validating the whole config: `yolo host --`, whose composition reads the user scope
+// directly and never runs ValidateConfig, would otherwise read `"required_capabilities":
+// "web_search"` as requiring nothing (capabilityStrings reads a non-list as empty) and launch.
+func RequiredCapabilitiesProblems(cfg *jsonx.OrderedMap) []string {
+	var errs []string
+	if cfg != nil {
+		validateRequiredCapabilities(cfg, &errs)
+	}
+	return errs
+}
+
+// UnmetCapabilityRefusal is the capability gate's whole message, the same at EVERY notch, in the
+// shape packload.ProviderCredentialRefusal gives the credential pre-flight: plain lines, the
+// verdict first, which each notch prints in its own way (the jail's launcher with its markup,
+// `yolo host` behind its prefix). missing and err are UnmetCapabilities' answer; held is whether
+// AllowUnmetCapabilitiesEnv is set; where locates the key in the files that wrote it
+// (Sources.Locations), nil for nowhere. refuse is whether the launch stops.
+//
+// A census that could not look warns and continues (UnmetCapabilities says why), and the hatch is
+// consulted only where it suppresses something, so a launch with no gap never announces it
+// (providerpreflight.go's rule); when it does suppress, the notice says what: nothing was
+// repaired. Only a refusal is more than one line, and its last line is the next step, naming the
+// hatch (docs/reference/happy-path-principle.md).
+func UnmetCapabilityRefusal(missing []string, err error, held bool, where []string) (lines []string, refuse bool) {
+	if len(missing) == 0 {
+		return nil, false
+	}
+	named := "'" + strings.Join(missing, "', '") + "'"
+	if err != nil {
+		return []string{"Warning: cannot tell whether anything satisfies required capability " +
+			named + ": " + err.Error() + ". Continuing: this launch reports that problem itself " +
+			"further on."}, false
+	}
+	if held {
+		return []string{"Warning: " + AllowUnmetCapabilitiesEnv + " is set — CONTINUING with " +
+			"required capability " + named + " that nothing in this launch satisfies. Nothing " +
+			"was repaired: whatever needed the capability still has to do without it."}, false
+	}
+	lines = []string{"Refusing to launch: config.required_capabilities declares " + named +
+		", and nothing this config or its selected packs declare satisfies it."}
+	if len(where) > 0 {
+		lines = append(lines, "  config.required_capabilities is written at "+
+			strings.Join(where, " and at ")+".")
+	}
+	lines = append(lines,
+		"  A capability is satisfied by a declaration: `providers.<name>.capabilities` "+
+			"naming it (the agent has it natively there), an `mcp_servers.<name>` entry with "+
+			"\"provides\": \"<capability>\", or a selected agent whose pack declares it for the "+
+			"source the agent runs on: its built-in login, or the provider its profile selects.",
+		"Declare the satisfier, drop the name from required_capabilities, or launch anyway "+
+			"with "+AllowUnmetCapabilitiesEnv+"=1.")
+	return lines, true
 }

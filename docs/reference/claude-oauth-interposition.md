@@ -21,6 +21,7 @@ covers:
   - internal/claudeview/
   - internal/cli/run/claudecredentialview.go
   - internal/cli/claudeauth.go
+  - internal/cli/hostclaudeview.go
 tags: [credentials, oauth, interception, broker, tls, claude, nested-jails]
 summary: "What yolo interposes on for Claude OAuth and what it leaves alone: exactly one hostname is
   routed to loopback, exactly one grant on it is terminated, everything else on that host is proxied,
@@ -1007,6 +1008,19 @@ precedent is [OQ-OA3](agent-credentials.md#oq-oa3): `yolo host -- codex` shares 
 a managed home, and a host Codex yolo did not launch is untouched. Whether host Claude on macOS
 would read such a view or its Keychain is unmeasured, as measure M11 is for `macos-user`.
 
+**Behind the switch, built 2026-10-04** ([CL-D27](../design/claude-login-without-interception.md#CL-D27),
+an implementation decision under the maintainer's delegation, reversible): with
+`YOLO_CLAUDE_CREDENTIAL_VIEW=1` in the shell, `yolo host -- claude` ensures the host broker,
+registers a view in a directory yolo manages, `~/.local/share/yolo-jail/host-agents/claude`, and
+points Claude's store at it with `CLAUDE_SECURESTORAGE_CONFIG_DIR`. The user's own `~/.claude` is
+never written, and nothing in it is copied in, so an MCP server's OAuth login is asked for again in
+such a session. A `/login` there enrolls the machine, as a jail's does. A broker that an older
+yolo started never refreshes such a view, so the launch then says the broker is too old, names
+`yolo host-daemon restart claude-oauth-broker`, and leaves Claude on its own login
+([CL-D28](../design/claude-login-without-interception.md#CL-D28)). Without the switch nothing
+changes, which is [OQ-NC7](../plans/notch-convergence.md#OQ-NC7)'s ruling for every default user; making the view host Claude's default is
+this question's answer to give.
+
 ### The maintainer's words, and one phrase that is not theirs
 
 - On [OQ-CL2](../design/claude-login-without-interception.md#OQ-CL2), whose leaning has `/login`
@@ -1135,6 +1149,6 @@ offset for re-measurement.
 | Broker error codes | `creds_unreadable`, `no_refresh_token`, `upstream_http`, `upstream_bad_response`, `upstream_unreachable` — **never** `invalid_grant` | `internal/oauthbroker/refresh.go` (`DoRefresh`) |
 | Client id, beta header | `9d1c250a-e61b-44d9-88ed-5944d1962f5e`; `oauth-2025-04-20` — byte-identical to the vendor's | `internal/oauthbroker/oauthbroker.go` (`ClientID`, `OAuthBetaHeader`); Claude Code 2.1.278 (offset 189496381) |
 | Backends carrying the interception | podman only, and only with the credential view off — Apple Container drops the record whole, `macos-user` declines the terminator by name | `internal/loopholes/runtime.go` (`admitsJailSideEffects`); `internal/cli/run/jaildaemondecline.go` |
-| Credential-view switch | `YOLO_CLAUDE_CREDENTIAL_VIEW`: off on every backend; `1` turns it on | `internal/claudeview/claudeview.go` (`SwitchEnv`, `DefaultOn`) |
+| Credential-view switch | `YOLO_CLAUDE_CREDENTIAL_VIEW`: off on every backend and at `yolo host --`; `1` turns it on. At the host it registers a view in `~/.local/share/yolo-jail/host-agents/<pack>` under runtime `host` and sets `CLAUDE_SECURESTORAGE_CONFIG_DIR` there ([CL-D27](../design/claude-login-without-interception.md#CL-D27)) | `internal/claudeview/claudeview.go` (`SwitchEnv`, `DefaultOn`, `HostLocation`); `internal/cli/hostclaudeview.go` |
 | Canonical login and view registrations | `claude-credentials.json` and `claude-views/` under `BrokerDir()`, never mounted | `internal/oauthbroker/store.go`, `internal/oauthbroker/views.go` |
 | Refresh floors and cadence | the two-floor pair and the background refresher | owned by [`agent-credentials.md`](agent-credentials.md#current-values), not restated here |

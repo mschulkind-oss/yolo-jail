@@ -19,10 +19,11 @@
 //
 // This package decides and acts on ONE program at a time: its disposition (Status), putting
 // it in place (Ensure: first install, the throttled evergreen refresh, a moved declaration),
-// and taking entries back out (Reconcile, Sweep). It knows no pack loader and no config: the
-// caller hands it the programs (Program) and every policy input as a field of Floor, so the
-// launch, `yolo host apply`, `yolo check` and `yolo prune` ask the same questions of the same
-// code without this package importing any of their worlds.
+// taking entries back out (Reconcile, Sweep), and running its declared pre-launch refresh just
+// before a launch execs it, whichever copy that is (PrelaunchRefresh). It knows no pack loader
+// and no config: the caller hands it the programs (Program) and every policy input as a field of
+// Floor, so the launch, `yolo host apply`, `yolo check` and `yolo prune` ask the same questions
+// of the same code without this package importing any of their worlds.
 //
 // Three recipes, per OQ-HP3 and OQ-HP4, and forked-programs-as-packs.md FP-D4:
 //
@@ -30,13 +31,17 @@
 //     against its published sha256 (node.go) — into a prefix-private npm prefix, and started
 //     by that Node's absolute path.
 //   - `via: installer`: materialized from the machine's `yolo capture` store, the same entry a
-//     jail materializes, where this host matches the capture jail (Linux). On macOS the entry is
-//     NO FLOOR ENTRY until the host capture (HP-D2) is measured on a Mac and ships.
+//     jail materializes, where this host matches the capture jail (Linux). A Linux host with no
+//     container runtime captures it itself, its installer confined by Landlock (HP-D18), and a Mac
+//     through the macos-user capture act, Seatbelt and the sandbox account (HP-D2): each fills the
+//     same store, and the floor materializes either the same way.
 //   - `via: source`, a FORK's program (built.go): the capture store's build of the fork's
-//     PINNED commit, the entry a jail launch materializes, relocated into the prefix, where this
-//     host matches the build jail (Linux). A Node script among them is started by the floor's own
-//     Node, as an npm program is. A PATCHED fork's (patched.go) is the build of its GOOD BUILD
-//     instead, and its install runs the fork's advance first (docs/design/patched-forks.md §9).
+//     PINNED commit, relocated into the prefix — on Linux the entry a jail launch materializes, its
+//     build jail's platform being the host's, and on a Mac a build of its own, made for darwin by the
+//     macos-user fork-build act, Seatbelt and the sandbox account under the seal (FP-D24). A Node
+//     script among them is started by the floor's own Node, as an npm program is. A PATCHED fork's
+//     (patched.go) is the build of its GOOD BUILD instead, and its install runs the fork's advance
+//     first (docs/design/patched-forks.md §9); it is Linux's alone.
 //
 // # The layout (every name below is this package's)
 //
@@ -47,6 +52,9 @@
 //	  records/<bin>.json          which install bin/<bin> runs, and when it was checked
 //	  receipts.jsonl              one line per install, update or removal
 //	  locks/<name>.lock           one install at a time per program (flock)
+//	  refresh/<bin>.stamp         when a launch last ran <bin>'s pre-launch refresh (prelaunch.go)
+//	  refresh/<bin>.seen/<key>    one per watched content a refresh of <bin> succeeded with
+//	  refresh/<bin>.lock          one pre-launch refresh at a time per program (flock)
 //	  cache/npm/                  npm's download cache
 //	  downloads/                  Node tarballs in flight
 package hostfloor
@@ -169,6 +177,11 @@ const (
 	// DefaultUpdateInterval is the jail launcher's UPDATE_INTERVAL: at most one evergreen
 	// poll per program per hour, at the program's own invocation.
 	DefaultUpdateInterval = time.Hour
+	// DefaultCaptureRefreshAge is how old the machine's newest capture of an installer program
+	// may be before the evergreen refresh runs the capture act again to look for a newer release
+	// (HP-D16). An npm poll is one registry request; a capture boots a jail and runs the vendor's
+	// installer, so it is asked for once a day rather than once an hour.
+	DefaultCaptureRefreshAge = 24 * time.Hour
 )
 
 // Floor is one host prefix and every input its decisions read. The zero values of the func
@@ -195,13 +208,24 @@ type Floor struct {
 	ResolveCapture func(bin string) (*capture.Entry, error)
 	// Capture runs `yolo capture <bin>`, filling the store. nil => this host cannot capture.
 	Capture func(bin string) error
-	// CaptureUnavailable says why this machine cannot run Capture or Build right now ("" when it
-	// can): a capture and a fork's build each boot a jail, so a host with no container runtime
-	// cannot make one. Asked only for an installer or source-built program that is neither
-	// provisioned nor in the store, which then has no floor entry HERE rather than an install
-	// bound to fail (a selected pack delivers a program the floor "holds, or can provision",
-	// host-agent-environment.md's launch PATH terms). nil => it can.
+	// CaptureUnavailable says why this machine cannot boot a capture or build JAIL right now ("" when
+	// it can): a Linux fork's build and a patched fork's advance each boot one, so a host with no
+	// container runtime cannot make one (a Mac's fork build boots none: BuildActUnavailable). Asked only for a program that is neither provisioned nor in the store,
+	// which then has no floor entry HERE rather than an install bound to fail (a selected pack
+	// delivers a program the floor "holds, or can provision", host-agent-environment.md's launch PATH
+	// terms), its reason ending with runtimeStep. It answers for an installer's capture too, unless
+	// CaptureActUnavailable does. nil => it can.
 	CaptureUnavailable func() string
+	// CaptureActUnavailable says why Capture cannot capture bin on this machine right now, as a whole
+	// clause that ends with the step that ends it — does is what the next launch then does ("captures
+	// it") — or "" when it can. It exists because an installer's capture need not boot a container: a
+	// Mac's is the macos-user capture act (HP-D2), and a Linux host with no runtime captures under
+	// Landlock (HP-D18), so its reasons and their steps are not a runtime's. nil => CaptureUnavailable
+	// answers, with runtimeStep.
+	CaptureActUnavailable func(bin, does string) string
+	// CaptureHow is how Capture runs its installer, for the line that starts one: a parenthetical,
+	// without its parentheses. nil, or "", is a capture jail's.
+	CaptureHow func() string
 	// ForkPin is the fork lock's pin of a source-built program (forked-programs-as-packs.md
 	// FP-D7): the full commit its fork's source is pinned to, or "" and why there is none, naming
 	// what pins it. nil => no pin can be read, so no source-built program has a floor
@@ -244,13 +268,20 @@ type Floor struct {
 	// fork, naming the act that does: the host apply `yolo pack update` runs (PF-D12, PF-D56). ""
 	// keeps the machine's reason.
 	NoAdvance string
-	// Build runs the fork's build act for p at commit (a sealed capture jail; never on the host),
-	// waiting, bounded, for a build of the same key another process is running, as a jail launch
-	// does (FP-D1), and returns the entry it admitted or the one that process did. The entry is
-	// taken from the act rather than looked up again: selection is newest-wins on a one-second
-	// receipt stamp, so a lookup straight after two builds in one second could answer with the
-	// other. nil => this host cannot build.
+	// Build runs the fork's build act for p at commit (a sealed capture jail, or on a Mac the sealed
+	// macos-user fork-build act; never unconfined on the host), waiting, bounded, for a build of the
+	// same key another process is running, as a jail launch does (FP-D1), and returns the entry it
+	// admitted or the one that process did. The entry is taken from the act rather than looked up
+	// again: selection is newest-wins on a one-second receipt stamp, so a lookup straight after two
+	// builds in one second could answer with the other. nil => this host cannot build.
 	Build func(p Program, commit string) (*capture.Entry, error)
+	// BuildActUnavailable says why Build cannot build bin on this machine right now, as a whole clause
+	// that ends with the step that ends it — does is what the next launch then does ("builds it") — or
+	// "" when it can. It exists because a fork's build need not boot a container: a Mac's is the
+	// macos-user fork-build act (FP-D24), whose reasons and steps are the sandbox account's, not a
+	// runtime's. On a Mac it is also what admits a plain fork's program at all: a floor given none has
+	// no darwin build to run. nil => CaptureUnavailable answers, with runtimeStep.
+	BuildActUnavailable func(bin, does string) string
 	// Environ is the environment the installers are derived from (installerEnv strips the
 	// parts that would steer where an install lands). nil => os.Environ().
 	Environ []string
@@ -264,8 +295,13 @@ type Floor struct {
 	Out io.Writer
 	// Prefix starts every line this package prints ("yolo host: ").
 	Prefix string
-	// InstallTimeout, PollTimeout and UpdateInterval override the defaults above.
-	InstallTimeout, PollTimeout, UpdateInterval time.Duration
+	// Root is the filesystem root a program's dynamic loader is looked up under (elfinterp.go,
+	// HP-D15). "" => "/". A test hands in a directory of its own, which also makes the check run
+	// where it otherwise would not: a Linux floor tested on a Mac.
+	Root string
+	// InstallTimeout, PollTimeout and UpdateInterval override the defaults above, and
+	// CaptureRefreshAge DefaultCaptureRefreshAge.
+	InstallTimeout, PollTimeout, UpdateInterval, CaptureRefreshAge time.Duration
 }
 
 func (f *Floor) now() time.Time {
@@ -306,6 +342,13 @@ func (f *Floor) updateInterval() time.Duration {
 		return f.UpdateInterval
 	}
 	return DefaultUpdateInterval
+}
+
+func (f *Floor) captureRefreshAge() time.Duration {
+	if f.CaptureRefreshAge > 0 {
+		return f.CaptureRefreshAge
+	}
+	return DefaultCaptureRefreshAge
 }
 
 // BinDir is the prefix's bin/: the one directory of it a host launch puts on the agent's PATH,
@@ -446,10 +489,40 @@ func buildVersion(commit string) string { return "commit " + shortCommit(commit)
 // ErrNoEntry wraps the refusal Ensure returns for a program the floor cannot hold.
 var ErrNoEntry = errors.New("no floor entry")
 
-// noEntryReason is why the floor cannot hold p on this machine, or "" when it can. It never
-// touches the prefix or the capture store: it is a fact about the declaration, the configuration
-// (a fork's pin, which ForkPin answers, among it) and the platform.
+// noEntryReason is why the floor cannot hold p on this machine, or "" when it can. It writes
+// nothing and never reads the capture store: it is a fact about the declaration, the configuration
+// (a fork's pin, which ForkPin answers, among it) and the platform, the dynamic loader the floor's
+// copy asks for included (HP-D15) — Node's official build's for an npm program, and for an
+// installed copy of any other the one its own file names, which is the one read of the prefix here.
+// So a copy whose loader went away has no floor entry, and `yolo host apply --assert` removes it
+// (Reconcile) as it does any other the floor can no longer hold.
 func (f *Floor) noEntryReason(p Program) string {
+	if why := f.recipeNoEntryReason(p); why != "" {
+		return why
+	}
+	return f.installedLoaderReason(p.Bin())
+}
+
+// installedLoaderReason is why the floor's installed copy of bin cannot start on this machine — the
+// dynamic loader the file its record starts asks for is missing, or is NixOS's stub — or "" when it
+// can, or when nothing is installed.
+func (f *Floor) installedLoaderReason(bin string) string {
+	if !f.probesLoaders() {
+		return ""
+	}
+	rec, err := f.readRecord(bin)
+	if err != nil || rec == nil || len(rec.Exec) == 0 {
+		return ""
+	}
+	if why := f.programLoaderProblem(rec.Exec[0]); why != "" {
+		return "its copy in yolo's floor (" + rec.Version + ") " + why
+	}
+	return ""
+}
+
+// recipeNoEntryReason is noEntryReason's half that reads nothing but the declaration, the
+// configuration and the platform.
+func (f *Floor) recipeNoEntryReason(p Program) string {
 	in := p.Install
 	if f.Include != nil && !f.Include(p.Pack) {
 		return "the user config's `host_floor` leaves pack " + p.Pack + " out of the floor"
@@ -466,27 +539,49 @@ func (f *Floor) noEntryReason(p Program) string {
 			return "Node publishes no official build for " + f.GOOS + "/" + f.GOARCH +
 				", so the floor has no interpreter to run it on"
 		}
-		return ""
+		// THE INTERPRETER'S LOADER, before any download (HP-D15): Node's official Linux build
+		// cannot start without it, so a machine that lacks it gets the copy on PATH, not a fetched
+		// tarball that exits 127.
+		return f.nodeLoaderProblem()
 	case "native":
-		if f.GOOS == "darwin" {
-			return "an installer agent on macOS comes from a host capture, which is not built " +
-				"yet: it must be measured on a Mac first (host-tool-provisioning.md HP-D2)"
+		switch f.GOOS {
+		case "linux":
+			return ""
+		case "darwin":
+			// A MAC CAPTURES ONLY THROUGH THE MACOS-USER ACT (HP-D2), so its entry is decided as Linux's
+			// is — the store's capture, the act, or why neither can be had here (provisionable) — on a
+			// floor that was given that act's predicate. One given none has no capture to run: a capture
+			// jail's runtime stands in for nothing here, its entry being a Linux one no Mac runs.
+			if f.CaptureActUnavailable == nil {
+				return "an installer agent on a Mac comes from the macos-user capture act, which this floor " +
+					"runs none of"
+			}
+			return ""
 		}
-		if f.GOOS != "linux" {
-			return "an installer agent comes from a `yolo capture`, which runs in a Linux jail, " +
-				"and this machine is " + f.GOOS + "/" + f.GOARCH
-		}
-		return ""
+		return "an installer agent comes from a `yolo capture`, which runs in a Linux jail or, on a Mac, " +
+			"as the macos-user sandbox account, and this machine is " + f.GOOS + "/" + f.GOARCH
 	case packdecl.InstallKindSource:
 		// A FORK (docs/design/forked-programs-as-packs.md): its host copy is the capture store's
-		// build of the fork's PINNED commit, relocated into the floor (FP-D4). The build runs in a
-		// Linux capture jail, and a notch gets a build made for its own platform or none (§1: no
-		// cross-compilation). With no pin there is no build to ask for, and an older build the
+		// build of the fork's PINNED commit, relocated into the floor (FP-D4). A notch gets a build
+		// made for its own platform or none (§1: no cross-compilation): on Linux the capture jail's,
+		// and on a Mac a darwin build of the macos-user fork-build act (FP-D24), which a floor given
+		// that act's predicate runs. With no pin there is no build to ask for, and an older build the
 		// floor still holds is a near-miss it never serves (§9), so that is no entry too — unless
 		// the install can make the pin (awaitsPin, FP-D18), which it does before it builds.
-		if f.GOOS != "linux" {
-			// The next step is a jail's: a build is of the jail's platform (FP-D16), and a jail
-			// launch on a container backend builds it, a patched fork's advance included.
+		switch {
+		case f.GOOS == "linux":
+		case f.GOOS == "darwin" && !in.IsPatchedFork():
+			// A MAC BUILDS A PLAIN FORK THROUGH THE MACOS-USER ACT ALONE: a container build jail's
+			// entry is a Linux one no Mac runs. Whether that act can run HERE is the build's question
+			// (cannotBuild, asked where the store holds no build), so only a floor given none is
+			// refused now.
+			if f.BuildActUnavailable == nil {
+				return "it is built from source by fork pack " + in.ForkedBy + ", which on a Mac the floor " +
+					"builds as the macos-user sandbox account, and this floor runs no such build"
+			}
+		default:
+			// The next step is a jail's: a patched fork's advance builds for a container's platform
+			// alone, and a jail launch on a container backend runs it.
 			return "it is built from source by fork pack " + in.ForkedBy + " in a Linux capture " +
 				"jail, and this machine is " + f.GOOS + "/" + f.GOARCH + ": the floor holds a build " +
 				"made for its own platform only — run it in a jail instead (`yolo -- " + in.Bin + "`, on " +
@@ -578,11 +673,12 @@ func (f *Floor) buildPending(p Program, rec *Record) string {
 }
 
 // provisionable turns a Missing installer or source-built program into NoEntry when this machine
-// can neither materialize it (the store has no entry for it) nor capture or build one (no
-// container runtime): the floor cannot provision it HERE, so a launch looks for it on PATH
-// (OQ-HE11) instead of failing an install. It reads the store offline, never the network. A
-// provisioned entry never comes through here: the floor already holds it, whatever the store says
-// now.
+// can neither materialize it (the store has no entry for it) nor capture or build one (cannotCapture,
+// cannotBuild): the floor cannot provision it HERE, so a launch looks for it on PATH
+// (OQ-HE11) instead of failing an install. So is one whose store entry holds no program that runs
+// here: none outside a jail, or one asking for a dynamic loader this machine lacks (HP-D15). It
+// reads the store offline, never the network. A provisioned entry never comes through here: the
+// floor already holds it, whatever the store says now.
 func (f *Floor) provisionable(st Status) Status {
 	if st.Program.Install.Kind == packdecl.InstallKindSource {
 		return f.buildProvisionable(st)
@@ -590,28 +686,40 @@ func (f *Floor) provisionable(st Status) Status {
 	if st.Program.Install.Kind != "native" || f.ResolveCapture == nil {
 		return st
 	}
-	entry, err := f.ResolveCapture(st.Program.Bin())
+	bin := st.Program.Bin()
+	entry, err := f.ResolveCapture(bin)
 	if err == nil {
-		if why := capturedProgram(entry, st.Program.Bin()); why != "" {
-			st.Disposition = NoEntry
-			st.Reason = "the capture of " + st.Program.Bin() + " on this machine cannot run outside a jail: " + why
+		// A CAPTURE THE INSTALL RECAPTURES is judged as that, BEFORE its program (HP-D17): an entry
+		// recorded before captures scanned their contents moves out of /home/agent only by being
+		// captured again (HP-D7), and one recorded before a capture surface existed may hold no
+		// program the recapture would not record — codex's, whose ~/.local/bin/codex links into
+		// ~/.codex/packages/standalone. The recapture needs what any capture needs.
+		if stale := recaptureReason(entry, bin); stale != "" {
+			if why := f.cannotCapture(bin, "recaptures it"); why != "" {
+				st.Disposition = NoEntry
+				st.Reason = "the capture of " + bin + " on this machine " + stale + ", and " + why
+				return st
+			}
+			st.Reason += "; the capture of " + bin + " on this machine " + stale + ", and the install " +
+				"recaptures it"
 			return st
 		}
-		// An entry recorded before captures scanned their contents moves out of /home/agent only
-		// by being captured again (HP-D7), which needs what any capture needs.
-		if !captureRelocatable(entry) {
-			if why := f.cannotCapture(); why != "" {
-				st.Disposition = NoEntry
-				st.Reason = "the capture of " + st.Program.Bin() + " on this machine was recorded for a " +
-					"jail's home only, and " + why + runtimeStep(f.Capture != nil, "recaptures it")
-			}
+		final, why := capturedProgram(entry, bin)
+		if why != "" {
+			st.Disposition = NoEntry
+			st.Reason = "the capture of " + bin + " on this machine cannot run outside a jail: " + why
+			return st
+		}
+		// Its program's dynamic loader, read from the store before anything is materialized.
+		if why := f.programLoaderProblem(filepath.Join(entry.Tree, filepath.FromSlash(final))); why != "" {
+			st.Disposition = NoEntry
+			st.Reason = "the capture of " + bin + " on this machine " + why
 		}
 		return st
 	}
-	if why := f.cannotCapture(); why != "" {
+	if why := f.cannotCapture(bin, "captures it"); why != "" {
 		st.Disposition = NoEntry
-		st.Reason = "there is no capture of " + st.Program.Bin() + " on this machine, and " + why +
-			runtimeStep(f.Capture != nil, "captures it")
+		st.Reason = "there is no capture of " + bin + " on this machine, and " + why
 	}
 	return st
 }
@@ -631,25 +739,53 @@ func runtimeStep(act bool, does string) string {
 	return " — install one (`yolo check` names how on this machine) and the next `yolo host` launch " + does
 }
 
-// cannotCapture says why this machine cannot run the capture act now, "" when it can.
-func (f *Floor) cannotCapture() string {
+// RuntimeStep is runtimeStep for an act this yolo has: the clause a reason about a missing container
+// runtime ends with, for a caller of CaptureActUnavailable that answers one.
+func RuntimeStep(does string) string { return runtimeStep(true, does) }
+
+// cannotCapture says why this machine cannot run the capture act for bin now, with the step that ends
+// it, "" when it can: CaptureActUnavailable's answer, or a capture jail's (CaptureUnavailable). It is
+// the capture's own question, never the build's (cannotBuild): a capture can run where no jail can
+// boot (HP-D2, HP-D18), and a fork's build cannot.
+func (f *Floor) cannotCapture(bin, does string) string {
 	switch {
 	case f.Capture == nil:
 		return "this machine cannot run `yolo capture`"
+	case f.CaptureActUnavailable != nil:
+		return f.CaptureActUnavailable(bin, does)
 	case f.CaptureUnavailable != nil:
-		return f.CaptureUnavailable()
+		if why := f.CaptureUnavailable(); why != "" {
+			return why + runtimeStep(true, does)
+		}
 	}
 	return ""
 }
 
-// cannotBuild says why this machine cannot run a fork's build act now, "" when it can: the build
-// boots a jail, as a capture does.
-func (f *Floor) cannotBuild() string {
+// captureHow is the parenthetical the line that starts a capture says how it runs.
+func (f *Floor) captureHow() string {
+	if f.CaptureHow != nil {
+		if how := f.CaptureHow(); how != "" {
+			return how
+		}
+	}
+	return "a throwaway jail runs its installer once, and every jail on this machine reuses the result"
+}
+
+// cannotBuild says why this machine cannot run a fork's build act for bin now, with the step that
+// ends it, "" when it can: BuildActUnavailable's answer — a Mac's macos-user act (FP-D24) — or the
+// build jail's runtime (CaptureUnavailable). It is never the capture's question (cannotCapture): a
+// Linux host captures under Landlock where no jail can boot, and a fork's build never runs that way.
+// does is what the next launch does once the step is taken.
+func (f *Floor) cannotBuild(bin, does string) string {
 	switch {
 	case f.Build == nil:
 		return "this machine cannot run a fork's build"
+	case f.BuildActUnavailable != nil:
+		return f.BuildActUnavailable(bin, does)
 	case f.CaptureUnavailable != nil:
-		return f.CaptureUnavailable()
+		if why := f.CaptureUnavailable(); why != "" {
+			return why + runtimeStep(true, does)
+		}
 	}
 	return ""
 }

@@ -378,9 +378,17 @@ will honor, so the claim set and the effect cannot disagree. The strict read bel
 ### Two module-dir tokens, and value sanitation
 
 `{loophole_dir}` resolves **host-side** to the staged module directory;
-`{jail_loophole_dir}` resolves to the container path the module directory is mounted at.
-Two tokens rather than one, each **refused in the wrong half at load**, because one token
-with two resolutions is the kind of asymmetry an author discovers by debugging.
+`{jail_loophole_dir}` resolves to the module directory **where the jail sees it**: in a container,
+the path the module directory is mounted at; on `macos-user`, its place in the sandbox's
+root-owned copy of the staged packs, which keeps each file's exec bit
+([JD-10](../design/jail-daemon-on-macos-user-plan.md#JD-10)). ⚠ That copy is one per workspace,
+and each launch of the workspace replaces it, where a container runs from its own launch's tree:
+a second session of the workspace swaps the folder under the first session's running daemon,
+which JD-10 records with its follow-up, a per-launch copy. Two tokens rather than one, each
+**refused in the wrong half at load**, because one token with two resolutions is the kind of
+asymmetry an author discovers by debugging; the jail token's per-backend place is one meaning
+(the jail's copy of the module directory), not two. The `macos-user` guest declines a daemon whose
+program there is a Linux executable, since the sandbox runs macOS programs.
 
 **Every value that feeds a claim is sanitized at load**, not escaped at display: control
 characters, DEL, the C1 range and invalid UTF-8 are refused in every field a claim is built
@@ -439,8 +447,9 @@ one. What each missing piece produces:
 
 The jail receives each build as **one read-only file bind**, never the cache directory, and the
 file carries the exec bit the pack's tree could not. The `macos-user` guest declines a jail
-daemon whose argv names a jail binary, as it declines `{jail_loophole_dir}`: that path exists
-only in a container. A host binary runs there as it does anywhere.
+daemon whose argv names a jail binary: that path exists only in a container, and the build is a
+Linux one (placing a darwin build there is deferred, [BP-D6](../design/broker-as-a-pack.md#BP-D6)).
+A host binary runs there as it does anywhere.
 
 **No pack yolo ships declares `binaries` yet.** When one does, yolo's own release builds the
 program from `cmd/<name>` for each platform the release ships `yolo` to that the loophole runs
@@ -898,23 +907,46 @@ The inert report hangs off the **same spawn boundary** as the execution disclosu
 everything a user must know before host code runs — *or before concluding that it did* — belongs
 in one place.
 
-### At the host target, there is no jail
+<a id="at-the-host-target-there-is-no-jail"></a>
 
-`yolo host apply` does not apply a loophole contribution — its report names `loophole` among
-the kinds that do not apply at the host notch and points at `yolo config-ref`, which carries the
-reason — and the **naive reason is backwards**: a loophole's effect *is* on the host, so "not
-applicable off-container" reads as obviously wrong. The honest reason is the inverse, and it is
-spelled out (in `config-ref`, and as the kind's entry in `render`'s refusal reasons) rather than
-left to a generic line:
+### At the host target, a credential doorway opens at launch
 
-> A loophole is a host daemon whose only client is a container. With no jail there is no client,
-> nothing to add a host entry for, no jail daemon payload, and nothing for the endpoint file to be
-> mounted into.
+`yolo host apply` writes no file for a loophole contribution, and its report names each one in
+one of two clauses, per contribution, pointing at `yolo config-ref` for the reason:
 
-Refused because its **counterparty** is missing, not because its mechanism is. **And the refusal
+- **At launch only.** A credential loophole whose `jail_daemon` declares a `host_cmd`, in a pack
+  yolo ships, has a client off-container, the agent `yolo host --` runs: its **doorway** opens at
+  `yolo host -- <program>` for the agent whose selection asks for it, and closes when that agent
+  exits ([HS-D15](../design/host-notch-services.md#HS-D15), built at the host by
+  [HS-D21](../design/host-notch-services.md#HS-D21)). *Doorway* is that ruling's word for the thin
+  adapter an agent's client talks to, which checks the launch's caller token and forwards to the
+  host daemon. The apply decides this with the launch's own composition and admission check
+  (`run.HostDoorwayLoopholes` re-runs `run.PlanHostDoorways`'), so it names what an enabled
+  loophole gets at `yolo host --` rather than what one launch opens. It differs from a launch in
+  two ways. Every selected pack's loophole is read as switched on, because the `enabled` switch
+  turns a loophole off at every notch alike, and a launch whose agent asks for a disabled one
+  names the switch. And there is no selection filter, since the apply runs no agent, so
+  `openai-auth-broker` is named: a launch opens its doorway for no selection
+  ([HS-D22](../design/host-notch-services.md#HS-D22)), and `yolo host -- codex` serves that
+  address from its own managed launch instead ([HS-D20](../design/host-notch-services.md#HS-D20)).
+- **Does not apply.** Every other loophole, and the reason is not the naive one. A loophole's
+  effect *is* on the host, so "not applicable off-container" reads as obviously wrong. The honest
+  reason is the inverse, and it is spelled out (in `config-ref`, and as the kind's entry in
+  `render`'s refusal reasons) rather than left to a generic line:
+
+  > A loophole with no doorway for a notch without a jail is a host daemon whose only client is a
+  > container. With no jail there is no client, nothing to add a host entry for, no jail daemon
+  > payload, and nothing for the endpoint file to be mounted into.
+
+  An **inline loophole** of the user's (a `loopholes.<name>` entry with a `command` and no
+  manifest) is one too, and since the `loopholes` key itself is honored at the host, the report
+  names each enabled one by entry (`run.HostInlineLoopholes`).
+
+Declined because its **counterparty** is missing, not because its mechanism is. **And the decline
 is a feature for the trust story**: the one command that mutates the real machine deliberately
-runs no pack hooks either, so *"selecting this pack runs a daemon"* stays a statement about
-launching a jail rather than about applying a config.
+runs no pack hooks either, and even a doorway lives only for the one agent a launch runs, so
+*"selecting this pack runs a daemon"* stays a statement about launching rather than about applying
+a config.
 
 > [!WARNING]
 > **The jail-side census must EXCLUDE `loophole` explicitly rather than derive it.** A
@@ -954,10 +986,11 @@ only place the values themselves are stated.
 | Retired manifest key (recognized, refused) | `enabled` | `loopholedecl.RetiredKeyEnabled` |
 | User's switch | `loopholes.<name>.enabled`, either scope, or the per-workspace file, which merges last; a brokered loophole's, the per-workspace file alone (added 2026-10-01) | `loopholes.ConfigEnabledOverride`, `config.WorkspaceFilePath` |
 | Setting scopes, and the default | `user` (default), `workspace` | `loopholedecl.SettingScopeUser`, `SettingScopeWorkspace`, `DefaultSettingScope` |
-| Module-dir tokens | `{loophole_dir}` (host), `{jail_loophole_dir}` (container) | `loopholedecl.TokenLoopholeDir`, `TokenJailLoopholeDir`; substituted in `internal/loopholes/load.go` |
+| Module-dir tokens | `{loophole_dir}` (host), `{jail_loophole_dir}` (the jail's copy: the container mount point, or on `macos-user` the module dir under the sandbox's staged-pack copy) | `loopholedecl.TokenLoopholeDir`, `TokenJailLoopholeDir`; substituted in `internal/loopholes/load.go`, and placed for `macos-user` by `loopholes.JailDaemonSpec.InGuest` |
 | Sources, in precedence order | `pack` < `config` | `loopholes.SourcePack`, `SourceConfig` |
 | Retired discovery directory (named only by the migration notice) | `~/.local/share/yolo-jail/loopholes/` | `loopholes.RetiredUserLoopholesDir` |
 | Module-dir mount point in the jail | `/etc/yolo-jail/loopholes/<name>` | `loopholedecl.JailLoopholeDir` |
+| The module dir in the `macos-user` sandbox (added 2026-10-04) | under `/var/yolo-jail/packs/<jail name>/`, at its path relative to the launch's staged pack tree; one copy per workspace, which each launch replaces | `macosuser.StagedPackRoot`; placed by `run.placeModuleDirsInGuest` |
 | Binary tokens (added 2026-09-30) | `{binary:<name>}` (host), `{jail_binary:<name>}` (container) | `loopholedecl.TokenBinary`, `TokenJailBinary`; substituted in `internal/loopholes/load.go` |
 | A jail binary's mount point (added 2026-09-30) | `/etc/yolo-jail/loophole-binaries/<loophole>/<name>` | `loopholedecl.JailBinaryPath` |
 | The downloaded-binary cache, and a build's mode (added 2026-09-30) | `<global storage>/pack-binaries/<sha256>/<name>`, `0555` | `paths.PackBinariesDir`, `packbin.Path` |

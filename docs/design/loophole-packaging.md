@@ -10,10 +10,10 @@ summary: "A stub. The loophole packaging design is built and its as-built accoun
 
 # Loophole packaging — the two questions still open
 
-**Status:** 2026-09-23 — a stub that owes two rulings and nothing else. The design itself
-graduated on 2026-08-13 and its as-built account is
-[`../reference/loophole-system.md`](../reference/loophole-system.md); what stays here is the two
-questions that never got a ruling.
+**Status:** 2026-10-04 — a stub that owes two rulings, plus one implementation decision taken
+beside the first ([LP-D1](#LP-D1)). The design itself graduated on 2026-08-13 and its as-built
+account is [`../reference/loophole-system.md`](../reference/loophole-system.md); what stays here is
+the two questions that never got a ruling.
 
 **Needs your ruling:** [OQ-LP5](#oq-lp5), [OQ-LP7](#oq-lp7).
 
@@ -63,10 +63,21 @@ are not detected — the footprint's collision key is `{kind, target}`, so two *
 kinds claiming one target can never collide. The refusal buys yolo out of a fourth bespoke
 collision pass.
 
-**The cost is no longer hypothetical: the shipped `audio` pack pays it.** A loophole's
+**The shipped `audio` pack paid this cost until 2026-10-04, and no longer does.** A loophole's
 `jail_env` is *conditional on the loophole being active*; the `env` kind is unconditional. So
-`PULSE_SERVER` and `PIPEWIRE_REMOTE` are declared through `env` and set on **every** launch
-that selects the pack, including on a machine where no socket ever crossed.
+`PULSE_SERVER` and `PIPEWIRE_REMOTE`, declared through `env`, were set on **every** launch that
+selected the pack, including on a machine where no socket ever crossed. That was worse than a dead
+pointer at the host: `yolo host -- claude` handed the agent `PULSE_SERVER=unix:/run/pulse/native`,
+and libpulse given that value never tries the host's own `$XDG_RUNTIME_DIR/pulse/native`, so
+selecting the pack broke the host's audio (MEASURED 2026-10-04 with `sox`). The macos-user
+sandbox got both variables too.
+
+[LP-D1](#LP-D1) closed that without `jail_env`: the pack's `env` names its loophole as
+`served_by`, and a loophole that binds sockets or devices into a jail counts as served exactly
+where a launch's container argv carries its binds. So the variables now follow the binds, which
+is the condition `jail_env` would have given them. What is left of the cost is narrower: a pack
+whose variables should follow a loophole that neither runs a jail daemon nor binds anything into
+the jail has no name to give `served_by`. No shipped pack has one.
 
 One tempting justification does **not** hold and should not be re-offered: the kinds'
 namespaces are not disjoint by luck. `program` and `blocked-tool` already share the bin-name
@@ -76,10 +87,10 @@ itself, which is purely additive. (This sentence used to name `launch` as `progr
 that kind was retired on 2026-09-12, its flags moving into the `autonomy` kind's postures, and
 the argument is unchanged by the substitution.)
 
-**Verified 2026-09-09, re-checked 2026-09-24.** The refusal is `packJailEnvProblems` in `internal/loopholedecl`
-(`packshipped.go`), whose own doc comment names this question and this resolution path;
-`packs/audio/pack.json` does declare both variables through the `env` kind, so the cost is
-paid in the shipped tree rather than in prospect.
+**Verified 2026-09-09, re-checked 2026-09-24 and 2026-10-04.** The refusal is
+`packJailEnvProblems` in `internal/loopholedecl` (`packshipped.go`), whose own doc comment names
+this question and this resolution path. `packs/audio/pack.json` declares both variables through
+the `env` kind, with `served_by: "audio"` since [LP-D1](#LP-D1).
 
 ### `guest` and `HostFields()`
 
@@ -133,6 +144,11 @@ _Leaning:_ **keep the refusal.** `audio` wants conditional env and tolerates the
 unconditional form, which is the whole evidence base — a cost one consumer absorbs is not yet
 a reason for a cross-kind collision pass. Revisit at the first pack that **cannot** absorb it.
 
+**Since 2026-10-04 that consumer no longer pays the cost at all** ([LP-D1](#LP-D1)): `audio`'s
+variables follow its binds through `served_by`, so the evidence base for the leaning is now no
+shipped consumer rather than one that tolerates it. The leaning is unchanged; what is left of the
+cost is in [the background](#jail_env-and-the-pack-shipped-subset).
+
 **Answer:**
 > _(empty — fill in when decided)_
 
@@ -157,3 +173,9 @@ meant to be ruled in one sitting.
 
 **Answer:**
 > _(empty — fill in when decided)_
+
+## Decision Ledger
+
+| ID | Decision | Date | Settled in | Built |
+| :--- | :--- | :--- | :--- | :--- |
+| <a id="LP-D1"></a>LP-D1 | *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible.* It extends [NC-D16](../plans/notch-convergence.md#NC-D16)'s **served at this notch** to a **bound loophole** (a term this ledger coins): a loophole that runs no `jail_daemon` but declares `host_bind_mounts` or `host_devices`. One is served at a notch when that notch's container command line carries its binds, decided by the predicate the bind loop already asks (`loopholes.Set.JailBoundNames`, over `admitsJailSideEffects`: active, the origin gate, the runtime's own skip). So it is never served at the host, which starts no jail, nor on macos-user, whose sandbox binds nothing. There is no new manifest field: a pack `env` contribution names the loophole with the existing `served_by`, which packdecl does not check against declared daemons. `packs/audio` declares it, so `PULSE_SERVER` and `PIPEWIRE_REMOTE` reach only a container jail that binds the loophole. Every other launch withholds them and names them, saying what they point at and why it has none (`packload.CredentialScope.UnservedEnvLines`), and `yolo check` predicts the same served set. That why is the notch's own, never a reason the launch gives for a daemon or a doorway: `yolo host --` gives a doorway's reason to every pointer a profile or platform gates, so a gated pointer at a bound loophole would otherwise tell the user that switching the loophole on opens a doorway, which no switch does for a bind. [OQ-LP5](#oq-lp5) stays open and `jail_env` stays refused. Known leftovers: a launch with the loophole on still sets a socket's variable on a host missing that socket (`PULSE_SERVER` with no pulse socket, `PIPEWIRE_REMOTE` with no `pipewire-0`), since that bind is skipped with a warning and the pointer is not; an attach composes from the current `loopholes` switch while the running jail's binds are the ones it started with; the macos-user launch still discloses the loophole's mounts, which that backend does not make; and a launch's pack-environment banner still lists both variables as set beside the line naming them withheld, as it does for every `served_by` pointer a launch withholds | 2026-10-04 | [Background](#jail_env-and-the-pack-shipped-subset) | ✅ `TestAudioPackPointersAreDeliveredOnlyWhereTheLoopholeBinds`, `TestABoundLoopholesPointerReachesOnlyTheJailThatBindsIt`, `TestMacosUserHandsTheSandboxNoAudioPointer`, `TestHostEnvWithholdsTheAudioPointers`, `TestCheckPredictsABoundLoopholeServedWhereItsBindsGo`, `TestOnlyABoundLoopholesWithheldPointerIsWordedAsBound`, `TestABoundPointersNotchClauseOutranksTheLaunchsReason`, `TestTheHostWordsAGatedBoundPointerAsTheHostsOwn` |

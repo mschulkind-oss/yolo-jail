@@ -20,6 +20,7 @@ package run
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -33,6 +34,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -348,7 +350,7 @@ func TestAConcurrentSweepNeverTakesASessionThatIsStartingUp(t *testing.T) {
 	defer func() { close(stop); <-done }()
 
 	for i := 0; i < 2000; i++ {
-		s, err := o.openServicesSession(cname)
+		s, err := o.openServicesSession(cname, "macos-user")
 		if err != nil {
 			t.Fatalf("open %d failed (%v). With a sweep running beside it, that is the sweep "+
 				"having locked the new session's lock before the session could, which it can only "+
@@ -478,4 +480,182 @@ func funcsCalling(t *testing.T, name string) map[string]bool {
 		}
 	}
 	return out
+}
+
+// sessionsOf lists the host-services sessions of cname's workspace that are live now.
+func sessionsOf(cname string) []yoloruntime.Session {
+	all, _ := yoloruntime.ListSessions(paths.HostServicesBase(paths.IsMacOS))
+	var out []yoloruntime.Session
+	for _, s := range all {
+		if s.Key == paths.JailShortHash(cname) && s.Liveness == yoloruntime.SessionLive {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// TestAMacosUserSessionsRecordNamesItsNotchAndWorkspace: a macos-user session's dir carries a
+// record of the notch that opened it and the workspace it serves, which is what `yolo ps` lists
+// and `yolo prune` reads on a backend with no container runtime to ask. While the backend runs,
+// the session is live, its record says macos-user and names the launch's workspace, and the
+// macos-user listing includes it; after the launch, it is gone.
+//
+// Through Run(), the real macos-user arm: the record is written where the session opens, which is
+// the spawn's first act, so passing the arm's runtime anywhere but through is what this catches.
+func TestAMacosUserSessionsRecordNamesItsNotchAndWorkspace(t *testing.T) {
+	home := packHome(t)
+	writeUserConfigJSON(t, home, `{"packs": []}`)
+	ws := t.TempDir()
+	cname := yoloruntime.FromWorkspace(ws)
+
+	var stdout, stderr bytes.Buffer
+	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
+	var during, listed []yoloruntime.Session
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay,
+		_ macosuser.HostContext, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool, _ macosuser.JailDaemons) int {
+		during = sessionsOf(cname)
+		listed, _ = yoloruntime.MacosUserSessions(paths.HostServicesBase(paths.IsMacOS))
+		return 0
+	}
+	if rc := Run(*o); rc != 0 {
+		t.Fatalf("Run() = %d\nstdout:\n%s\nstderr:\n%s", rc, stdout.String(), stderr.String())
+	}
+	if len(during) != 1 {
+		t.Fatalf("while the backend ran, this workspace had %d live sessions, want 1: %+v", len(during), during)
+	}
+	s := during[0]
+	if s.Notch != yoloruntime.NotchMacosUser || s.Name != cname || s.Workspace != o.Workspace {
+		t.Errorf("the session's record is %+v; want notch %q, name %q, workspace %q",
+			s, yoloruntime.NotchMacosUser, cname, o.Workspace)
+	}
+	found := false
+	for _, l := range listed {
+		found = found || l.Dir == s.Dir
+	}
+	if !found {
+		t.Errorf("the macos-user listing %+v does not include the running session %s", listed, s.Dir)
+	}
+	if after := sessionsOf(cname); len(after) != 0 {
+		t.Errorf("after the launch, sessions %+v are still live", after)
+	}
+}
+
+// TestAHostLaunchsDoorwaySessionIsRecordedAsTheHostNotch: a `yolo host` launch that opens a
+// doorway opens a session too (hostdoorways.go), and its record says host, so `yolo ps` on
+// macos-user does not list a `yolo host` command as a jail. Through HostDoorways.Start, the
+// host notch's one caller of the session open; the doorway's start is a seam that looks at the
+// session while it is up and then stops the launch.
+func TestAHostLaunchsDoorwaySessionIsRecordedAsTheHostNotch(t *testing.T) {
+	packHome(t)
+	ws := t.TempDir()
+	cname := yoloruntime.FromWorkspace(ws)
+	d := &HostDoorways{plans: []*launchservice.Plan{{Declared: launchservice.Declared{
+		Service: "yjtest-doorway", Pack: "yjtest-pack"}}}}
+	var during, listed []yoloruntime.Session
+	start := func(*launchservice.Plan, map[string]string) (*launchservice.Running, error) {
+		during = sessionsOf(cname)
+		listed, _ = yoloruntime.MacosUserSessions(paths.HostServicesBase(paths.IsMacOS))
+		return nil, errors.New("fixture: the doorway does not start")
+	}
+	var out bytes.Buffer
+	if _, _, _, err := d.Start(jsonx.NewOrderedMap(), ws, "pi", &out, start); err == nil {
+		t.Fatal("Start returned no error from a doorway that did not start")
+	}
+	if len(during) != 1 {
+		t.Fatalf("while the doorway started, this workspace had %d live sessions, want 1: %+v\n%s",
+			len(during), during, out.String())
+	}
+	if s := during[0]; s.Notch != yoloruntime.NotchHost || s.Workspace != ws || s.Name != cname {
+		t.Errorf("the host launch's session record is %+v; want notch %q, workspace %q, name %q",
+			s, yoloruntime.NotchHost, ws, cname)
+	}
+	for _, l := range listed {
+		if l.Dir == during[0].Dir {
+			t.Errorf("the macos-user listing includes the `yolo host` session %s", l.Dir)
+		}
+	}
+	if after := sessionsOf(cname); len(after) != 0 {
+		t.Errorf("after the refused start, sessions %+v are still live", after)
+	}
+}
+
+// TestHousekeepingKeepsALiveMacosUserSessionsStaging: a container launch's housekeeping slot
+// sweeps AGENTS_DIR, and a macos-user session on the same machine is neither a live container nor
+// a tracked one, so without the session term its staging would read as an orphan past the age floor.
+// INFERRED from the code, not measured on a Mac. A real orphan beside it must still go.
+func TestHousekeepingKeepsALiveMacosUserSessionsStaging(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	// In-jail the automatic classes return at once (the host's job); unset, as the sibling
+	// TestReapSmallClassesSparesTheLaunchingJail says.
+	t.Setenv("YOLO_VERSION", "")
+	t.Setenv(autoReapOptOutEnv, "")
+	o := &Options{Workspace: t.TempDir()}
+	fillDefaults(o)
+	o.Now = time.Now
+	o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
+		return ExecResult{Ran: true, RC: 0, Stdout: ""}
+	}
+
+	const session = "yolo-mu-cafe0001"
+	plantServicesSession(t, session, "live")
+	agents := filepath.Join(home, ".local", "share", "yolo-jail", "agents")
+	staged := filepath.Join(agents, session)
+	orphan := filepath.Join(agents, "yolo-gone-22222222")
+	old := time.Now().Add(-30 * 24 * time.Hour)
+	for _, d := range []string{staged, orphan} {
+		if err := os.MkdirAll(filepath.Join(d, "pack-trees"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(d, old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	o.reapSmallAutomaticClasses("podman", "yolo-launching-other", nil)
+
+	if !fileExists(staged) {
+		t.Errorf("the housekeeping slot removed %s, the staging of a live macos-user session", staged)
+	}
+	if fileExists(orphan) {
+		t.Error("a real orphan survived, so the sweep did not run and the keep above proves nothing")
+	}
+}
+
+// TestHousekeepingDeclinesTheStagingSweepWhenTheSessionsCannotBeListed: a session listing that
+// could not run is not one that found no sessions, so the slot's staging sweep deletes nothing,
+// as it does when the container runtime cannot be asked. A base the glob refuses (an unclosed
+// bracket in its path) is the one way the listing fails.
+func TestHousekeepingDeclinesTheStagingSweepWhenTheSessionsCannotBeListed(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("YOLO_VERSION", "")
+	t.Setenv(autoReapOptOutEnv, "")
+	bad := filepath.Join(t.TempDir(), "unlistable[")
+	if err := os.Mkdir(bad, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prev := paths.HostSingletonDir
+	paths.HostSingletonDir = bad
+	t.Cleanup(func() { paths.HostSingletonDir = prev })
+	o := &Options{Workspace: t.TempDir()}
+	fillDefaults(o)
+	o.Now = time.Now
+	o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
+		return ExecResult{Ran: true, RC: 0, Stdout: ""}
+	}
+	orphan := filepath.Join(home, ".local", "share", "yolo-jail", "agents", "yolo-gone-22222222")
+	if err := os.MkdirAll(filepath.Join(orphan, "pack-trees"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-30 * 24 * time.Hour)
+	if err := os.Chtimes(orphan, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	o.reapSmallAutomaticClasses("podman", "yolo-launching-other", nil)
+
+	if !fileExists(orphan) {
+		t.Errorf("the housekeeping slot removed %s although the sessions could not be listed", orphan)
+	}
 }

@@ -14,13 +14,16 @@ import (
 // programs_test.go covers `yolo programs` — the on-demand spelling of the boot's two
 // read-only reports, and OQ-PD4's explicit removal act.
 //
-// EVERY TEST HERE POINTS THE COMMAND AT A TEMPORARY HOME, and that is not hygiene, it is the
-// point: this command's job is to delete installed programs, and the real environment it
-// reads (HOME, NPM_CONFIG_PREFIX, GOPATH) is set inside a live jail. programsJail overrides
-// all four so a test can never reach the home the test process is running in.
+// EVERY TEST HERE POINTS THE COMMAND AT A TEMPORARY HOME AND WORKSPACE, and that is not
+// hygiene, it is the point: this command's job is to delete installed programs, and the real
+// environment it reads (HOME, NPM_CONFIG_PREFIX, GOPATH, the workspace whose .yolo holds the
+// receipts) is set inside a live jail. programsJail overrides all of them so a test can never
+// reach the home or the workspace the test process is running in. It once left the workspace
+// at the container default, and `ls` read the live jail's own /workspace/.yolo/receipts.jsonl.
 
-// programsJail stages a temp home with one pack declaring one npm and one native program,
-// points every path variable the command reads at it, and returns the home.
+// programsJail stages a temp home and workspace with one pack declaring one npm and one native
+// program, points every path variable the command reads at them, and returns the home. The
+// workspace is $YOLO_WORKSPACE.
 func programsJail(t *testing.T) string {
 	t.Helper()
 	// The command reads this tree through entrypoint.LoadJailPacks, which switches the process
@@ -47,6 +50,10 @@ func programsJail(t *testing.T) string {
 	t.Setenv("GOPATH", filepath.Join(home, "go"))
 	t.Setenv("YOLO_PACK_ROOT", packRoot)
 	t.Setenv("YOLO_MCP_PRESETS", "[]")
+	// A container session: the workspace is named the way NewEnv reads it, and no macos-user
+	// session variable leaks in from the environment running the tests.
+	t.Setenv("YOLO_WORKSPACE", t.TempDir())
+	t.Setenv("YOLO_DARWIN_WORKSPACE", "")
 	return home
 }
 
@@ -298,5 +305,55 @@ func TestProgramsRejectsUnknownTokens(t *testing.T) {
 		if rc, _, _ := runPrograms2(t, args...); rc != 2 {
 			t.Errorf("`programs %v` exit = %d, want 2", args, rc)
 		}
+	}
+}
+
+// writeReceipts seeds <ws>/.yolo/receipts.jsonl with body.
+func writeReceipts(t *testing.T, ws, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(ws, ".yolo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ws, ".yolo", "receipts.jsonl"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The fixture's workspace is the one `ls` reads: its receipts, never the live jail's.
+func TestProgramsLsReadsTheFixturesReceipts(t *testing.T) {
+	programsJail(t)
+	writeReceipts(t, os.Getenv("YOLO_WORKSPACE"), "not json\n")
+	rc, out, errw := runPrograms2(t, "ls")
+	if rc != 0 {
+		t.Fatalf("exit = %d (%s)", rc, errw)
+	}
+	if !strings.Contains(out, "unparseable receipt line") {
+		t.Errorf("`programs ls` did not read the fixture workspace's receipts:\n%s", out)
+	}
+}
+
+// ON macos-user THE SESSION NAMES THE WORKSPACE AS YOLO_DARWIN_WORKSPACE, never YOLO_WORKSPACE,
+// and the receipts are under that real workspace's .yolo (there is no /workspace in the
+// sandbox). `ls` reads them there, through the same translation the bootstrap used
+// (entrypoint.JailEnvFromOS), and still finds the orphan in the home.
+//
+// MUTATION: put programsEnv back on EnvFromOS and the receipts half goes red.
+func TestProgramsLsReadsAMacosUserSessionsWorkspace(t *testing.T) {
+	home := programsJail(t)
+	seedProgramsNpm(t, home, "leftover-agent", 64)
+	ws := t.TempDir()
+	writeReceipts(t, ws, "not json\n")
+	t.Setenv("YOLO_WORKSPACE", "")
+	t.Setenv("YOLO_DARWIN_WORKSPACE", ws)
+
+	rc, out, errw := runPrograms2(t, "ls")
+	if rc != 0 {
+		t.Fatalf("exit = %d (%s)", rc, errw)
+	}
+	if !strings.Contains(out, "unparseable receipt line") {
+		t.Errorf("`programs ls` in a macos-user session did not read %s/.yolo/receipts.jsonl:\n%s", ws, out)
+	}
+	if !strings.Contains(out, "leftover-agent") {
+		t.Errorf("`programs ls` in a macos-user session lost the orphan:\n%s", out)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
@@ -24,28 +25,52 @@ func (o *Options) runtimeForCheck(config *jsonx.OrderedMap) (string, string) {
 // avoid counting a cause twice: unavailable is true when the error is that a CONTAINER
 // runtime is not on PATH or not connected, which the Container Runtime section has already
 // probed and graded. A native-runtime error (macos-user named on a non-Mac) is a config
-// finding that section never makes, so it is not "unavailable".
+// finding that section never makes, so it is not "unavailable", and neither is a runtime that
+// contradicts the guest notch (guestRuntimeConflict), whose fix is in the config whatever
+// that section found.
 func (o *Options) resolveRuntimeForCheck(config *jsonx.OrderedMap) (rt, msg string, unavailable bool) {
 	rt, msg = o.resolveRuntime(config)
 	if msg == "" {
 		return rt, "", false
 	}
+	if o.guestRuntimeConflict(config) != "" {
+		return rt, msg, false
+	}
 	return rt, msg, !inStrSlice(paths.NativeRuntimes, o.configuredRuntimeName(config))
 }
 
-// configuredRuntimeName is the runtime YOLO_RUNTIME or the config names, "" when neither
-// names a known one — the same precedence resolveRuntime applies.
-func (o *Options) configuredRuntimeName(config *jsonx.OrderedMap) string {
-	if env := o.Getenv("YOLO_RUNTIME"); env != "" && inStrSlice(paths.AllRuntimes, env) {
-		return env
-	}
-	if cfg := configRuntime(config); cfg != "" && inStrSlice(paths.AllRuntimes, cfg) {
-		return cfg
-	}
-	return ""
+// configuredRuntimeName is the runtime YOLO_RUNTIME, the config, or the notch names, "" when
+// none names a known one — config.SelectedRuntime, the precedence resolveRuntime applies. The
+// notch names one only for a macOS guest (macos-user, env-manager plan EMP-D1).
+func (o *Options) configuredRuntimeName(merged *jsonx.OrderedMap) string {
+	rt, _ := config.SelectedRuntime(o.Getenv("YOLO_RUNTIME"), merged,
+		config.ResolveConfinement(merged), o.IsMacOS)
+	return rt
 }
 
-func (o *Options) resolveRuntime(config *jsonx.OrderedMap) (string, string) {
+// guestRuntimeConflict is the launch's notch-gate refusal predicted: on macOS the guest notch
+// runs on macos-user, and an explicit YOLO_RUNTIME or `runtime` naming a container runtime is a
+// launch refuseUnbuiltNotch refuses (internal/cli/run/run.go). It returns the finding, "" when
+// there is none. check has no `--at`, so the notch is the config's.
+func (o *Options) guestRuntimeConflict(merged *jsonx.OrderedMap) string {
+	rt, src, conflict := config.NotchRuntimeConflict(o.Getenv("YOLO_RUNTIME"), merged,
+		config.ResolveConfinement(merged), o.IsMacOS)
+	if !conflict {
+		return ""
+	}
+	named, keep := "`runtime: \""+rt+"\"` in the config", "remove that `runtime` key"
+	if src == config.RuntimeFromEnv {
+		named, keep = "YOLO_RUNTIME="+rt, "unset YOLO_RUNTIME"
+	}
+	return "`confinement: \"guest\"` runs on the " + config.GuestRuntime + " backend on macOS, " +
+		"and " + named + " asks for " + rt + " instead, so a launch refuses. Drop one: " + keep +
+		" to launch the guest notch, or set `confinement` to \"jail\" for a " + rt + " jail"
+}
+
+func (o *Options) resolveRuntime(merged *jsonx.OrderedMap) (string, string) {
+	if msg := o.guestRuntimeConflict(merged); msg != "" {
+		return "", msg
+	}
 	env := o.Getenv("YOLO_RUNTIME")
 	if env != "" && inStrSlice(paths.AllRuntimes, env) {
 		if rt, errMsg, native := o.nativeRuntimeCheck(env, "YOLO_RUNTIME"); native {
@@ -60,7 +85,7 @@ func (o *Options) resolveRuntime(config *jsonx.OrderedMap) (string, string) {
 		return "", "Configured runtime '" + env + "' from YOLO_RUNTIME is not on PATH"
 	}
 
-	cfg := configRuntime(config)
+	cfg := runtimeKey(merged)
 	if cfg != "" && inStrSlice(paths.AllRuntimes, cfg) {
 		if rt, errMsg, native := o.nativeRuntimeCheck(cfg, "yolo-jail.jsonc"); native {
 			return rt, errMsg
@@ -72,6 +97,13 @@ func (o *Options) resolveRuntime(config *jsonx.OrderedMap) (string, string) {
 			return "", "Configured runtime '" + cfg + "' from yolo-jail.jsonc is not connected"
 		}
 		return "", "Configured runtime '" + cfg + "' from yolo-jail.jsonc is not on PATH"
+	}
+
+	// THE NOTCH'S OWN BACKEND, the launch's next input (run's resolveRuntime): a macOS guest
+	// runs on macos-user with no `runtime` key. Platform-aware, so a Linux guest — which a
+	// launch refuses for its own reason — falls through to the probe as it always has.
+	if rt := config.NotchRuntime(config.ResolveConfinement(merged), o.IsMacOS); rt != "" {
+		return rt, ""
 	}
 
 	var candidates []string
@@ -320,14 +352,24 @@ func getFirst(m *jsonx.OrderedMap, key string) any {
 	return v
 }
 
-// configRuntime returns config["runtime"] as a string, or "".
-func configRuntime(config *jsonx.OrderedMap) string {
-	if config == nil {
-		return ""
+// configRuntime is the runtime the config NAMES, before any platform question: its `runtime`
+// key, else the guest notch's backend (config.GuestRuntime) when `confinement` is "guest", else
+// "". The guest half is platform-blind on purpose: its one reader that acts on a native answer,
+// sectionContainerRuntime's early read, gates that answer on o.IsMacOS itself, so a macOS guest
+// skips the container probes it does not need (env-manager plan EMP-D1) and a Linux guest is
+// probed as before. Readers that need the platform answered use configuredRuntimeName.
+func configRuntime(merged *jsonx.OrderedMap) string {
+	if rt := runtimeKey(merged); rt != "" {
+		return rt
 	}
-	v, _ := config.Get("runtime")
-	return asString(v)
+	if config.ResolveConfinement(merged) == config.ConfinementGuest {
+		return config.GuestRuntime
+	}
+	return ""
 }
+
+// runtimeKey is the config's `runtime` value alone (config.RuntimeKey).
+func runtimeKey(merged *jsonx.OrderedMap) string { return config.RuntimeKey(merged) }
 
 func asString(v any) string {
 	s, ok := v.(string)

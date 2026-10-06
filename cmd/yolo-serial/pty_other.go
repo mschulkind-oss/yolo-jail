@@ -1,4 +1,4 @@
-//go:build !linux
+//go:build !linux && !darwin
 
 package main
 
@@ -7,15 +7,13 @@ import (
 	"os"
 )
 
-// openPty refuses on every platform but linux. yolo-serial only ever RUNS in the jail,
-// which is linux; this half exists so the package still compiles when the host build
-// targets darwin (`go test -short ./...` on a Mac, and the cross-GOOS lint pass).
+// openPty refuses on every platform but linux and darwin, the two this client runs on: a
+// container jail (pty_linux.go) and the macos-user guest (pty_darwin.go). This half is the
+// completeness arm of the constraint set, so the package still has an openPty under a GOOS
+// nothing ships for.
 //
-// THE CALL SITE MUST STILL CHECK THE ERROR: pty_linux.go's openPty can succeed. That
-// makes `err != nil` provably true under GOOS=darwin and only there, which is why the
-// darwin lint pass in the Justfile's `lint` recipe drops SA4023 — the reasoning is
-// written out there. Nothing here needs changing for it, and nothing here may be
-// restructured to placate it.
+// No lint pass selects it (lintedGOOS is linux and darwin), which is recorded as a decision
+// in internal/capture/lintgate_pin_test.go's unanalyzedFiles rather than left as an oversight.
 func openPty() (*os.File, string, error) {
-	return nil, "", fmt.Errorf("virtual PTY bridge is only supported on linux")
+	return nil, "", fmt.Errorf("virtual PTY bridge is only supported on linux and macOS")
 }

@@ -49,10 +49,10 @@ package check
 //
 // ⚠ NOR CAN IT SEE THE BACKEND, for the cost the launch pays to learn it: a directory
 // `host_files` grant renders only where directories are delivered (run.hostFileDirsDeliver),
-// and on macOS that takes the runtime probe — macos-user never delivers one, and Apple
-// Container below its read-only-bind floor declines one. So a directory grant is counted
+// and on macOS that takes the runtime probe — Apple Container below its read-only-bind floor
+// declines one, while podman binds it and macos-user copies it. So a directory grant is counted
 // only off macOS, where the launch's one backend is podman, which binds it. On macOS that is
-// a false negative for podman and a current Apple Container, never a false positive.
+// a false negative for podman, macos-user and a current Apple Container, never a false positive.
 //
 // ⚠ AND IT CANNOT SEE `-p`, exactly as protocols.go cannot: a `-p <name>` is an argument to
 // a launch that has not happened. So a clean prediction means "the `profile` selection
@@ -116,7 +116,9 @@ func envOverrideGap(packs []*packload.Pack, merged *jsonx.OrderedMap, served pac
 	// The hydrated secret channel. A dotenv file that cannot be read degrades to "delivered
 	// nothing" with a warning on configWarn, which is the loader's own contract; it never
 	// changes the verdict, because an unreadable source delivers no variable at launch either.
-	userEnv := config.ResolveEnvSources(workspace, merged, configWarn)
+	// Its removals too (an inline null), which the composition below ranks with env_sources, as
+	// the launch does: a null takes a pack env value of its name out of every process.
+	userEnv, removals := config.ResolveEnvSourcesFull(workspace, merged, configWarn)
 	// The CONFIG's profile table — the `profile` selection, which is the only one a
 	// launch-less command has. See the `-p` note above.
 	profiles := config.ConfigProfileTable(merged, packs)
@@ -144,19 +146,18 @@ func envOverrideGap(packs []*packload.Pack, merged *jsonx.OrderedMap, served pac
 		Packs: packs, Providers: providers, Profiles: profiles, Resolved: resolved,
 		// Each agent's whole active set, as the launch hands the gate (active-provider-sets.md §4.5).
 		Sets:       packload.ProfileSets(config.ConfigProfileSets(merged, packs)),
-		EnvSources: userEnv, NoDerives: true, Served: &served,
+		EnvSources: userEnv, EnvSourceRemovals: removals, NoDerives: true, Served: &served,
 	})
 
 	findings := packload.EnvOverrideFindings(packs, scope.Selection(), func(name string) (string, bool) {
-		// The order is the launch's own (run/profilechannel.go's deliverySource, read through
-		// jailOriginLookup), minus the two channels named above. An EMPTY value is unset at
-		// every step, exactly as there: the launch drops an empty value rather than
-		// composing an empty token.
-		if str(userEnv, name) != "" && scope.DeliversEnvSource(name) {
-			return packload.FromEnvSources, true
-		}
-		if v, ok := scope.DeliveredPackEnv(name); ok && v != "" {
-			return packload.FromPackEnv, true
+		// THE LAUNCH'S OWN ANSWER (run/profilechannel.go's deliverySource, read through
+		// jailOriginLookup), minus the two channels named above: the winner of the one ordered
+		// composition in some process of the launch (CredentialScope.Delivered, packload's
+		// envcompose.go), so the prediction names the source that wins there — env_sources over
+		// the pack env fold, a null removing the fold's value. An EMPTY value is unset, exactly as
+		// there: the launch drops an empty value rather than composing an empty token.
+		if e, ok := scope.Delivered(name); ok {
+			return e.Origin, true
 		}
 		return "", false
 	}, config.RenderedHostFilePaths(merged, dirsDeliver), &served)

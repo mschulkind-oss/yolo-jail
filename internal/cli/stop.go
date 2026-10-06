@@ -43,6 +43,10 @@ Stopping IS the end of that jail's sessions; the next launch starts fresh. It
 returns once the jail's teardown is done, and prints it.
 Idempotent: with nothing running it says so and succeeds.
 
+On the macos-user backend there is no container: it ends the workspace's
+macos-user sessions and the keeper that holds their host services, and
+removes what a keeper that died left behind.
+
 Flags:
   --help, -h    Show this help.
 
@@ -133,9 +137,11 @@ func stopJail(stdout, stderr io.Writer, ws, rt string,
 		return 1
 	}
 	if rt == "macos-user" {
-		fmt.Fprintln(stdout, "The macos-user backend has no persistent jail to stop — "+
-			"every invocation is a fresh sandbox.")
-		return 0
+		// NO CONTAINER, AND STILL SOMETHING TO STOP (docs/design/jail-lifetime-last-session-wins.md
+		// JL-D44): the workspace's macos-user keeper and every session of it, the remedy a refused
+		// arrival at an unkept key names. It signals them, streams the keeper's teardown, and removes
+		// what a dead keeper left.
+		return stopMacosUser(stdout, stderr, ws)
 	}
 	cname := runtime.FromWorkspace(ws)
 
@@ -200,6 +206,10 @@ func stopJail(stdout, stderr io.Writer, ws, rt string,
 
 // finishStop is run.FinishStop behind a var, so a test can pin that the stop reaches it.
 var finishStop = run.FinishStop
+
+// stopMacosUser is run.StopMacosUser behind a var, so a test can pin that a macos-user stop reaches
+// it.
+var stopMacosUser = run.StopMacosUser
 
 // probeJailRunning asks rt whether cname is running. ran is false when the runtime could not be run, and
 // rc is its exit status. Podman answers a Go-template inspect, and a non-zero status there is "no

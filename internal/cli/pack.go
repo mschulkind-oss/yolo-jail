@@ -25,9 +25,11 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
@@ -35,6 +37,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/packstage"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
@@ -121,6 +124,10 @@ one file's audience never stops another file from shipping:
   service          contribute a daemon to a namespace — a yolo-jaild subcommand in the
                    jail and/or a host daemon — plus its endpoint file under
                    /run/yolo-services/; no host grant, no boundary crossing
+  mcp              {name, bin, config: {command, args, env, requires_env, provides}} —
+                   one MCP server entry composed into mcp_servers, which every agent's
+                   config renders; a "~/" word is a path under the agent's home, your
+                   own mcp_servers entry merges over it, and null removes it
 
 loophole is the sharpest kind: its module may declare a daemon that runs ON YOUR MACHINE,
 TLS intercepts (a CA every client in the jail trusts), host bind mounts and host devices.
@@ -1160,6 +1167,7 @@ func printPackDeliveries(pr richtext.Printer, p *packload.Pack, skills, briefing
 				where += fmt.Sprintf("  [dim](contributes[%d])[/dim]", i)
 			}
 		}
+		where += describesGate(src)
 		pr.Printf("  [cyan]%-14s[/cyan] %s → %s", string(src.By.Kind), rel, where)
 	}
 	for _, src := range briefing {
@@ -1181,6 +1189,45 @@ func deliveryAudience(c packdecl.Contribution, implicit bool) string {
 		return strings.Join(c.Agents, ", ")
 	}
 	return "every agent (declared broadcast)"
+}
+
+// describesGate is the listing's note for a source whose governor declares `describes`
+// (docs/design/boundary-broker.md BB-D69), "" for one that declares none: the kinds the prose is
+// delivered only beside, and what the host does with it.
+//
+// Lint takes no config and no pack set, so it has no per-contribution census (hostDelivery) and
+// asks the host composer's predicate with none (entrypoint.HostWithheldKinds over a nil
+// HostDelivery, the per-kind answer). That settles a kind no host verb delivers in any shape
+// ("not at the host"). For a kind whose host answer depends on the contribution
+// (hostDecidesPerContribution: a loophole with or without a doorway, an env var a jail-only daemon
+// serves or not) it cannot, so it says what the answer turns on and leaves it to `yolo host
+// apply`, whose notch line names the file when it is withheld.
+func describesGate(src packload.GovernedSource) string {
+	if len(src.By.Describes) == 0 {
+		return ""
+	}
+	names := make([]string, len(src.By.Describes))
+	for i, k := range src.By.Describes {
+		names[i] = string(k)
+	}
+	note := "only where " + strings.Join(names, ", ") + " " +
+		plural(len(names), "applies", "apply")
+	if withheld := entrypoint.HostWithheldKinds(nil, "", src); len(withheld) > 0 {
+		note += " — not at the host"
+	} else {
+		fields := render.HostFields()
+		var depends []string
+		for _, k := range src.By.Describes {
+			if hostDecidesPerContribution(fields, k) && !slices.Contains(depends, string(k)) {
+				depends = append(depends, string(k))
+			}
+		}
+		if len(depends) > 0 {
+			note += " — at the host, only if `yolo host --` delivers this pack's " +
+				strings.Join(depends, ", ")
+		}
+	}
+	return "  [dim](" + richtext.Escape(note) + ")[/dim]"
 }
 
 // governedDescription names what one content contribution governs, in the advisory's words.

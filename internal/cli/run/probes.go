@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
@@ -94,16 +95,12 @@ func homeDir() string {
 	return "/"
 }
 
-// configRuntime returns config["runtime"] as a string, or "".
+// configRuntime returns config["runtime"] as a string, or "" — config.RuntimeKey, the one
+// reader of the key that config.SelectedRuntime and every other runtime resolver share. It is
+// the key ALONE: the notch's own backend (config.NotchRuntime, macos-user for a macOS guest)
+// is the next input resolveRuntime weighs, below this one.
 func configRuntime(cfg *jsonx.OrderedMap) string {
-	if cfg == nil {
-		return ""
-	}
-	v, _ := cfg.Get("runtime")
-	if s, ok := v.(string); ok {
-		return s
-	}
-	return ""
+	return config.RuntimeKey(cfg)
 }
 
 func inStrSlice(list []string, s string) bool {

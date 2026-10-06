@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 )
 
 // capturematerialize.go is `yolo internal capture-materialize` — the IN-JAIL half of
@@ -244,6 +246,95 @@ func resolveCaptureFor(store *capture.Store, bin, platform string) (*capture.Ent
 		return nil, nil, err
 	}
 	return entry, &best.Record, nil
+}
+
+// macosUserCaptures is run.Options.MacosUserCaptures: the entries a macos-user launch stages for
+// its launchers (docs/plans/install-capture.md hand-off H4), picked HERE, by the resolver the
+// launcher's own `capture-materialize` asks (resolveCaptureFor) and the receipt adapter beside it,
+// so the host's pick and the sandbox's lookup over the staged copy are one answer.
+//
+// stage is, for each of bins the store holds an entry for at platform, that entry; a bin with
+// none is simply absent (its launcher downloads, and the launch's auto-capture has already had
+// its turn). Only an INSTALLER capture answers: resolveCaptureFor's query carries no source and no
+// fork, so a fork's build of the same bin is never picked (capture.Program). kept is every other
+// installer program's current entry at platform, the keys whose staged copies the launch leaves in
+// place. An unreadable store stages nothing, the materialize path's own answer to it.
+func macosUserCaptures(dir string, bins []string, platform string) (stage []macosuser.CaptureEntry, kept []string) {
+	store := &capture.Store{Dir: dir}
+	picked := map[string]bool{}
+	for _, bin := range bins {
+		entry, _, err := resolveCaptureFor(store, bin, platform)
+		if err != nil || picked[entry.Key] {
+			continue
+		}
+		picked[entry.Key] = true
+		stage = append(stage, macosuser.CaptureEntry{Bin: bin, Key: entry.Key, Source: entry.Root})
+	}
+	if len(stage) == 0 {
+		return nil, nil
+	}
+	selected, err := capture.Select(store, captureRecords)
+	if err != nil {
+		return stage, nil
+	}
+	for p, s := range selected {
+		if p.Platform != platform || p.Source != "" || p.Fork != "" || picked[s.Key] {
+			continue
+		}
+		picked[s.Key] = true
+		kept = append(kept, s.Key)
+	}
+	sort.Strings(kept)
+	return stage, kept
+}
+
+// hostOriginMark is what a HOST capture (host-tool-provisioning.md HP-D18) adds to the platform its
+// record receipt names: "linux/amd64+host". It is the capture's RECORDED ORIGIN, and it is in the
+// platform because the platform is what selection and its complement, the reap, key on
+// (capture.Program): a jail asks for its own platform (resolveCaptureFor, with capture.Platform()),
+// which no host capture's record can match, so a build the installer chose for THIS host — a musl
+// build on a musl system, one linked against this host's libraries — never runs in a jail's image;
+// and the reap keeps the newest capture of each origin, so neither origin's capture is ever reaped
+// as superseded by the other's. The manifest beside the entry still records the driver's own
+// platform, which materialize checks against the machine it runs on.
+const hostOriginMark = "+host"
+
+// hostCapturePlatform is the platform a host capture's record receipt names for a capture whose
+// driver observed platform.
+func hostCapturePlatform(platform string) string { return platform + hostOriginMark }
+
+// resolveFloorCapture is the HOST FLOOR's question of the store: the newest capture of bin for
+// platform, of either origin — a capture jail's, or this host's own (hostCapturePlatform). A jail
+// never asks it: its launcher's materialize asks resolveCaptureFor, which a host capture cannot
+// answer.
+func resolveFloorCapture(store *capture.Store, bin, platform string) (*capture.Entry, *capture.Record, error) {
+	selected, err := capture.Select(store, captureRecords)
+	if err != nil {
+		return nil, nil, err
+	}
+	jail, inJail := selected[capture.Program{Bin: bin, Platform: platform}]
+	host, onHost := selected[capture.Program{Bin: bin, Platform: hostCapturePlatform(platform)}]
+	switch {
+	case !inJail && !onHost:
+		return nil, nil, fmt.Errorf("nothing in %s records one (run `yolo capture %s` to make it)",
+			store.Dir, bin)
+	case !inJail || (onHost && newerSelection(host, jail)):
+		jail = host
+	}
+	entry, err := store.Resolve(jail.Key)
+	if err != nil {
+		return nil, nil, err
+	}
+	return entry, &jail.Record, nil
+}
+
+// newerSelection is selection's own order between two winners: the later record, the greater key on
+// a tie (capture.Select's tie-break).
+func newerSelection(a, b capture.Selected) bool {
+	if !a.Record.Time.Equal(b.Record.Time) {
+		return a.Record.Time.After(b.Record.Time)
+	}
+	return a.Key > b.Key
 }
 
 // captureRecords is THE ADAPTER between the receipt schema and the capture store's selection:

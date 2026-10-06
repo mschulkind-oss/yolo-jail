@@ -2,9 +2,11 @@ package entrypoint
 
 import (
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 // (empty) merged with the dict in YOLO_LSP_SERVERS. Returns an OrderedMap so
@@ -176,8 +178,13 @@ func (e *Env) mcpServersWith(lookup func(string) (string, bool)) (*jsonx.Ordered
 
 	servers := jsonx.NewOrderedMap()
 
-	// Expand requested presets (order follows the YOLO_MCP_PRESETS list).
-	if presetsJSON := e.Getenv("YOLO_MCP_PRESETS"); presetsJSON != "" {
+	// Expand requested presets (order follows the YOLO_MCP_PRESETS list) — UNLESS this
+	// environment does not generate the preset wrappers (Env.SkipMCPPresets, macos-user). Every
+	// preset's `command` is the mcp-wrappers `node`, so an entry here would send each agent to
+	// a file that is never written: the server is left out instead, and the bootstrap's
+	// mcp_presets_declined warning names it. The user's own mcp_servers below still merge,
+	// null-removals included.
+	if presetsJSON := e.Getenv("YOLO_MCP_PRESETS"); presetsJSON != "" && !e.SkipMCPPresets {
 		if decoded, err := jsonx.Decode([]byte(presetsJSON)); err == nil {
 			if arr, ok := decoded.([]any); ok {
 				for _, n := range arr {
@@ -273,12 +280,20 @@ type mcpTables struct {
 //
 // ONE NOTICE PER SERVER, jail-wide: skipped everywhere keeps the old line; configured for
 // some agents only names them.
+//
+// "The boot's environment" is scopedMCPView's, not e's own, and on the container the two are
+// the same. On macos-user the bootstrap also hydrated the session env file, which is the
+// LAUNCHED agent's environment and so carries that agent's scoped values too; the view is the
+// shared composition the container's boot environment holds, rebuilt from the per-agent files,
+// so a scoped value reaches the agents whose file sets it and no other, and a shared one every
+// agent.
 func loadMCPTables(e *Env) mcpTables {
-	shared, skipped := e.mcpServersWith(e.Lookup)
+	view := scopedMCPView(e)
+	shared, skipped := e.mcpServersWith(view.Lookup)
 	t := mcpTables{shared: shared, perAgent: map[string]*jsonx.OrderedMap{}}
 	agents := agentsWithEnvFiles(e)
 	for _, agent := range agents {
-		own, _ := e.mcpServersWith(agentEnvLookup(e, agent))
+		own, _ := e.mcpServersWith(agentEnvLookup(view, agent))
 		t.perAgent[agent] = own
 	}
 	for _, s := range skipped {
@@ -297,6 +312,121 @@ func loadMCPTables(e *Env) mcpTables {
 			") reaches only the agent that selected its provider")
 	}
 	return t
+}
+
+// scopedMCPView is the environment loadMCPTables asks, for the jail-wide table and under each
+// agent's own file: e itself, except on the macos-user bootstrap, which hydrated a session env
+// file (e.sessionEnvKeys). That file is the LAUNCHED agent's environment: the shared
+// composition a container's boot environment holds, plus everything the credential gate scoped
+// to that agent, which is also written to that agent's own env file (the launch writes every
+// profiled agent's file before the bootstrap runs). The view is the shared composition alone,
+// rebuilt from the files, so every table is the container's:
+//
+//   - A session key no agent's file names is the shared composition's, and stays.
+//   - A session key some agent's file names stays only where the files show the shared
+//     composition sets it, at the value it sets there (sharedValueInAgentFiles), and otherwise
+//     leaves the view: the session's value may be the launched agent's own. Each agent's table
+//     then asks its own file over the view, as its launcher will.
+//
+// Leaving a key out can only withhold a server, from the agents whose own file does not set
+// the key, never grant one. It withholds wrongly in one shape alone, where every value the
+// files' `case` lines list for the key is also some other agent's own, which needs two or more
+// profiles to set the key to the shared value itself (sharedValueInAgentFiles says why). Both
+// rules read the files the launch wrote, and that writer is best-effort: a profiled agent's file
+// it failed to write leaves that agent's values looking shared. The view is a separate Env
+// holding only what agentEnvLookup and Lookup read (the home and the variables), so nothing the
+// gate does writes through it.
+func scopedMCPView(e *Env) *Env {
+	if len(e.sessionEnvKeys) == 0 {
+		return e
+	}
+	files := map[string][]agentEnvLine{}
+	for _, agent := range agentsWithEnvFiles(e) {
+		files[agent] = readAgentEnvFile(e.Home, agent)
+	}
+	var vars map[string]string
+	for k := range e.sessionEnvKeys {
+		shared, named := sharedValueInAgentFiles(files, k)
+		if !named {
+			continue
+		}
+		if vars == nil {
+			vars = make(map[string]string, len(e.Vars))
+			for vk, vv := range e.Vars {
+				vars[vk] = vv
+			}
+		}
+		if shared != "" {
+			vars[k] = shared
+		} else {
+			delete(vars, k)
+		}
+	}
+	if vars == nil {
+		return e
+	}
+	return &Env{Home: e.Home, Vars: vars}
+}
+
+// sharedValueInAgentFiles is the value the shared composition sets key to, as the per-agent
+// env files show it, and whether any file names key at all ("" and true: named, and not shown
+// to be shared).
+//
+// It reads the writer's `case` line (agentEnvLine). The writer gives a composed value that form
+// when yolo set its name elsewhere this entry, and the line lists every value set there
+// (internal/cli/run's inheritedValues): the shared composition's, and the value each OTHER
+// agent's profile composes, which that agent's own file sets too. (Its third source, a running
+// container's environment on an attach, is never one here: this view is the macos-user
+// bootstrap's.) So a listed value that no other agent's file sets key to is the shared
+// composition's. A def-form line says yolo set the name nowhere else, and a claimed
+// env_sources value is never shared, so neither shows a shared value. Where every listed value
+// is also another agent's own, the shared value cannot be told from theirs, and none is
+// returned.
+func sharedValueInAgentFiles(files map[string][]agentEnvLine, key string) (string, bool) {
+	agents := make([]string, 0, len(files))
+	for agent := range files {
+		agents = append(agents, agent)
+	}
+	sort.Strings(agents)
+	named := false
+	setBy := map[string]map[string]bool{} // value → agents whose file sets key to it
+	for _, agent := range agents {
+		for _, l := range files[agent] {
+			if l.key != key {
+				continue
+			}
+			named = true
+			if !l.unset {
+				if setBy[l.value] == nil {
+					setBy[l.value] = map[string]bool{}
+				}
+				setBy[l.value][agent] = true
+			}
+		}
+	}
+	for _, agent := range agents {
+		for _, l := range files[agent] {
+			if l.key != key || !l.cased {
+				continue
+			}
+			for _, v := range l.guard {
+				if v != "" && !setByAnother(setBy[v], agent) {
+					return v, true
+				}
+			}
+		}
+	}
+	return "", named
+}
+
+// setByAnother reports whether an agent other than agent is in by.
+func setByAnother(by map[string]bool, agent string) bool {
+	for other := range by {
+		if other != agent {
+			return true
+		}
+	}
+	return false
 }
 
 // contains reports whether list holds s.
@@ -335,4 +465,21 @@ func (e *Env) LoadMCPPresetNames() []string {
 		}
 	}
 	return out
+}
+
+// MCPServersAt is the mcp_servers table a launch whose packs are staged at packRoot renders into
+// home: packload.ComposeMCPServers over the staged tree's packs, in the launch's order, under
+// user (the config's own `mcp_servers`). The macos-user plan builder asks it of the host-side
+// staged tree it copies into the sandbox (macosuser's bootstrap env), reading that tree strictly
+// as DeclaredNodeFloorsAt does, since this binary staged it. An empty packRoot is a launch that
+// staged no packs: the user's table alone.
+func MCPServersAt(packRoot string, user *jsonx.OrderedMap, home string) (*jsonx.OrderedMap, error) {
+	if packRoot == "" {
+		return packload.ComposeMCPServers(user, nil, home), nil
+	}
+	packs, err := loadPackRoot(&Env{}, packRoot)
+	if err != nil {
+		return nil, err
+	}
+	return packload.ComposeMCPServers(user, packs, home), nil
 }
