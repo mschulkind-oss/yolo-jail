@@ -622,6 +622,31 @@ func namesAsText(out, want string) bool {
 	return !strings.ContainsAny(out, "\x1b\a") && strings.Contains(out, want)
 }
 
+// WW-P3: the launch's own config messages print what the agent chose as text, written in an
+// include the agent named: the include's parse error, which names it; a warning and an error that
+// echo a value and a key; and a `brokered` key written twice there (WW-D24).
+func TestTheLaunchsConfigMessagesPrintTheAgentsTextAsText(t *testing.T) {
+	for name, c := range map[string]struct {
+		body, want string
+		ok         bool
+	}{
+		"a parse error": {`{"packages": `, "bold]y.jsonc", false},
+		"a warning":     {`{"devices": ["/dev/x\u001b]0;owned\u0007[bold]z"]}`, "bold]z", true},
+		"an error":      {`{"x\u001b]0;owned\u0007[bold]k": 1}`, "bold]k: unknown key", false},
+		"a key written twice": {`{"brokered": {"gbsrc": {"repos": ["a/a"]}}, "brokered": {"gbsrc": {"repos": ["b/b"]}}}`,
+			"bold]y.jsonc: config.brokered is written 2 times", false},
+	} {
+		o, buf, _ := brokeredFixture(t)
+		writeEvilInclude(t, o.Workspace, c.body)
+		if _, ok := o.loadAndValidateConfig(); ok != c.ok {
+			t.Errorf("%s: the launch's config gate returned ok=%v, want %v:\n%s", name, ok, c.ok, buf.String())
+		}
+		if !namesAsText(buf.String(), c.want) {
+			t.Errorf("%s: the agent's text did not reach the output as text (want %q):\n%q", name, c.want, buf.String())
+		}
+	}
+}
+
 // WW-D19: the decline line names the entry's agent-chosen file as text.
 func TestTheDeclineNamesAnAgentChosenFileAsText(t *testing.T) {
 	o, buf, _ := brokeredFixture(t)

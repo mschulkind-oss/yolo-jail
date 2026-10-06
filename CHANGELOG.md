@@ -89,6 +89,8 @@ an agent told a repository is out of scope is told how. See
   included.
 - A launch, or `yolo check`, no longer hangs for good, printing nothing, when nix prints one very
   long line while it builds the jail's image, yolo's own binaries, or a macOS sandbox's packages.
+- A config error or warning at a launch or in `yolo check` now shows a file name, key or value an
+  agent wrote as plain text, so it can no longer send your terminal escape sequences.
 
 ## [0.11.1] - 2026-10-02
 

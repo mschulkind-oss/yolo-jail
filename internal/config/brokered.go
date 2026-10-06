@@ -12,6 +12,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/json5"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/termsafe"
 )
 
 // brokered.go is the `brokered` key (docs/design/workspace-widening.md; boundary-broker.md §5.6):
@@ -485,7 +486,7 @@ func brokeredOutsideProblems(n *srcNode) []string {
 		}
 		how := "a link that leads out of this workspace, or an absolute one"
 		if w.file.via != "" {
-			how = w.file.via + ", which leads out of this workspace"
+			how = termsafe.Visible(w.file.via) + ", which leads out of this workspace"
 		}
 		out = append(out, w.String()+": config."+brokeredKey+": written in a file outside this "+
 			"workspace, reached through "+how+". A `brokered` key is read only from this workspace's own "+
@@ -520,7 +521,7 @@ func brokeredWrittenTwiceProblems(n *srcNode) []string {
 			if err == nil {
 				continue
 			}
-			out = append(out, tildePath(w.file.path)+": config."+strings.TrimPrefix(err.Error(), "json5: ")+
+			out = append(out, w.file.label()+": config."+strings.TrimPrefix(err.Error(), "json5: ")+
 				". Merge them into one: the repositories in the others are dropped.")
 			break
 		}

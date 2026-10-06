@@ -31,7 +31,7 @@ func (o *Options) loadAndValidateConfig() (*jsonx.OrderedMap, bool) {
 		// ConfigError → print the message; any other load error also surfaces
 		// (LoadConfig only returns ConfigError in strict mode for malformed
 		// config).
-		out.printf("[bold red]%s[/bold red]", err.Error())
+		out.printf("[bold red]%s[/bold red]", configMessageText(err.Error()))
 		return nil, false
 	}
 
@@ -57,12 +57,12 @@ func (o *Options) loadAndValidateConfig() (*jsonx.OrderedMap, bool) {
 	configErrors = append(configErrors, config.PresetNullConflicts(wsRaw, wsName, wsSrc)...)
 
 	for _, msg := range configWarnings {
-		out.printf("  [yellow]⚠ %s[/yellow]", msg)
+		out.printf("  [yellow]⚠ %s[/yellow]", configMessageText(msg))
 	}
 	if len(configErrors) > 0 {
 		out.print("[bold red]Invalid jail config:[/bold red]")
 		for _, msg := range configErrors {
-			out.print("  • " + msg)
+			out.print("  • " + configMessageText(msg))
 		}
 		out.print("\n[dim]Run `yolo check` for a full preflight before restarting.[/dim]")
 		return nil, false
@@ -87,6 +87,14 @@ func (o *Options) loadAndValidateConfig() (*jsonx.OrderedMap, bool) {
 		return nil, false
 	}
 	return cfg, true
+}
+
+// configMessageText is a config message as the launch prints it, through markup. It names the
+// file its key was written in and can echo a key or a value, and the agent writes a workspace's
+// includes and names them, so every rune a terminal acts on is escaped and so is any markup,
+// while the newlines yolo wrote stay (docs/design/workspace-widening.md WW-D30).
+func configMessageText(msg string) string {
+	return richtext.Escape(termsafe.VisibleLines(msg))
 }
 
 // AllowUnmetCapabilitiesEnv is the escape hatch out of the capability gate, in the style of

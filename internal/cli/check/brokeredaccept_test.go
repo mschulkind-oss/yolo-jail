@@ -98,3 +98,22 @@ func TestCheckListsEveryProjectsMoveAndWarnsOfAnUnbrokeredSource(t *testing.T) {
 		}
 	}
 }
+
+// WW-P3: host `yolo check` prints what the agent chose as text, written in an include the agent
+// named: the include's parse error, which names it, and the merged config's warning and error that
+// echo a value and a key.
+func TestCheckPrintsTheAgentsConfigTextAsText(t *testing.T) {
+	const evil = "x\x1b[2K\x1b]0;owned\ay.jsonc"
+	for name, c := range map[string]struct{ body, want string }{
+		"a parse error": {`{"packages": `, `x\x1b[2K\x1b]0;owned\ay.jsonc`},
+		"a warning":     {`{"devices": ["/dev/x\u001b]0;owned\u0007z"]}`, `may be skipped: /dev/x\x1b]0;owned\az`},
+		"an error":      {`{"x\u001b]0;owned\u0007k": 1}`, `x\x1b]0;owned\ak: unknown key`},
+	} {
+		brokeredCheckHome(t)
+		out := runCheckOverConfigWith(t, `{"include_if_found": ["x\u001b[2K\u001b]0;owned\u0007y.jsonc"]}`, false,
+			func(w string) { must(t, os.WriteFile(filepath.Join(w, evil), []byte(c.body), 0o644)) }, onTheHost)
+		if strings.ContainsAny(out, "\x1b\a") || !strings.Contains(out, c.want) {
+			t.Errorf("%s: the agent's text did not reach the check's output as text (want %q):\n%q", name, c.want, out)
+		}
+	}
+}

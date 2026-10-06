@@ -10,6 +10,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
+	"github.com/mschulkind-oss/yolo-jail/internal/termsafe"
 )
 
 // Warn is called for non-strict warnings. The loader factors this out so
@@ -67,7 +68,7 @@ func loadJSONCFile(path, label string, strict bool, warn Warn, record bool, at r
 	}
 	m, ok := asMap(parsed)
 	if !ok {
-		msg := label + " must contain a top-level JSON object"
+		msg := termsafe.Visible(label) + " must contain a top-level JSON object"
 		if strict {
 			return nil, nil, nil, configErr("%s", msg)
 		}
@@ -81,8 +82,10 @@ func loadJSONCFile(path, label string, strict bool, warn Warn, record bool, at r
 	return m, f, fileTree(f, m), nil
 }
 
+// handleParseFailure names the file by its label escaped (termsafe.Visible), since an include's
+// name is the agent's to choose (docs/design/workspace-widening.md WW-P3).
 func handleParseFailure(label string, err error, strict bool, warn Warn) (*jsonx.OrderedMap, error) {
-	msg := "Failed to parse " + label + ": " + err.Error()
+	msg := "Failed to parse " + termsafe.Visible(label) + ": " + err.Error()
 	if strict {
 		return nil, configErr("%s", msg)
 	}

@@ -41,6 +41,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/json5"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/termsafe"
 )
 
 // Sources is the provenance of a composed config: for each object member and list element,
@@ -390,13 +391,13 @@ func (n *srcNode) locations() []string {
 	return out
 }
 
-// String is the origin as a person types it: the file's path with the home as ~, then the
-// line and column the value starts at.
+// String is the origin as a person types it: the file's label, then the line and column the
+// value starts at.
 func (o srcOrigin) String() string {
 	if o.file == nil {
 		return ""
 	}
-	where := tildePath(o.file.path)
+	where := o.file.label()
 	span, ok := o.file.locate(o.steps)
 	if !ok {
 		return where
@@ -439,6 +440,11 @@ func includeProblem(f *srcFile, label, problem string, steps ...json5.Step) stri
 	}
 	return srcOrigin{file: f, steps: steps}.String() + ": config." + problem
 }
+
+// label is the file's path as a person types it, the home as ~, with every rune a terminal acts
+// on escaped (termsafe.Visible): an include's name is the agent's to choose, newlines included,
+// and every located message leads with it (docs/design/workspace-widening.md WW-P3).
+func (f *srcFile) label() string { return termsafe.Visible(tildePath(f.path)) }
 
 // tildePath writes a path under the home as ~/…, the spelling the config messages already use
 // for the user config (~/.config/yolo-jail/config.jsonc). The home is matched as given and as

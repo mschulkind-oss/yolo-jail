@@ -566,8 +566,9 @@ func (o *Options) sectionConfigFiles(r *reporter, workspace string) (*jsonx.Orde
 	workspaceConfig, wsSrc, err := config.LoadWorkspaceConfigWithSources(workspace, true, func(string) {})
 	src.workspace = wsSrc
 	if err != nil {
+		// It names the file it could not read, an include's name being the agent's to choose (WW-D30).
 		workspaceConfig = jsonx.NewOrderedMap()
-		r.fail(err.Error(), "Fix it in the file this names, "+recheck)
+		r.fail(termsafe.VisibleLines(err.Error()), "Fix it in the file this names, "+recheck)
 		failed = true
 	} else if o.PathExists(wsPath) || o.PathExists(localPath) {
 		// Name every file that was actually read: a local override that silently
@@ -660,15 +661,18 @@ func (o *Options) sectionMergedConfig(r *reporter, merged *jsonx.OrderedMap, wor
 	errors = located.merged.Annotate(errors)
 	warnings = located.merged.Annotate(warnings)
 
+	// Each names the file its key was written in and can echo a key or a value, and the agent
+	// writes a workspace's includes and names them, so every rune a terminal acts on is escaped
+	// (docs/design/workspace-widening.md WW-D30).
 	for _, msg := range warnings {
-		r.warn(msg, configNote(msg, workspace))
+		r.warn(termsafe.VisibleLines(msg), configNote(msg, workspace))
 	}
 	if len(errors) > 0 || runtimeBlocked || runtimeFinding != "" {
 		if runtimeFinding != "" {
 			r.fail(runtimeFinding, o.runtimeFindingNote(merged))
 		}
 		for _, msg := range errors {
-			r.fail(msg, configNote(msg, workspace))
+			r.fail(termsafe.VisibleLines(msg), configNote(msg, workspace))
 		}
 		o.printRetiredBrokeredMoves(r)
 		r.blank()

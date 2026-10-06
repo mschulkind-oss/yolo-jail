@@ -205,6 +205,59 @@ func TestABrokeredKeyWrittenTwiceInOneFileIsRefused(t *testing.T) {
 	}
 }
 
+// WW-P3: both `brokered` refusals name the files the agent chose as text, a newline in a name
+// included, since a printer keeps the newlines yolo writes: the file outside and the include that
+// reached it, and the file a key is written twice in.
+func TestABrokeredRefusalNamesAnAgentChosenFileAsText(t *testing.T) {
+	h := newBrokeredHost(t)
+	write(t, filepath.Join(h.ws, WorkspaceConfigName), `{"include_if_found": ["a\nb.jsonc", "t\nw.jsonc"]}`)
+	write(t, filepath.Join(h.ws, "a\nb.jsonc"), `{"include_if_found": ["../o\nut.jsonc"]}`)
+	write(t, filepath.Join(filepath.Dir(h.ws), "o\nut.jsonc"), `{"brokered": {"github": {"repos": ["acme/private"]}}}`)
+	write(t, filepath.Join(h.ws, "t\nw.jsonc"),
+		`{"brokered": {"github": {"repos": ["org/a"]}}, "brokered": {"github": {"repos": ["org/b"]}}}`)
+	cfg, err := LoadConfig(h.ws, true, func(string) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	errs, _ := ValidateConfig(cfg, h.ws, nil)
+	found := map[string]bool{}
+	for _, e := range errs {
+		for _, want := range []string{"written in a file outside this workspace", "is written 2 times"} {
+			if strings.Contains(e, want) {
+				found[want] = true
+				if strings.ContainsAny(e, "\n\x1b") {
+					t.Errorf("a file name reached the refusal unescaped: %q", e)
+				}
+			}
+		}
+	}
+	all := strings.Join(errs, "\n")
+	for _, want := range []string{`o\nut.jsonc:1:`, `a\nb.jsonc, which leads out`,
+		`t\nw.jsonc: config.brokered is written 2 times`} {
+		if !strings.Contains(all, want) {
+			t.Errorf("the refusals do not name %q as text:\n%s", want, all)
+		}
+	}
+	if len(found) != 2 {
+		t.Errorf("both refusals did not fire: %v\n%s", found, all)
+	}
+}
+
+// WW-P3: the loader's own refusals of an include, that it cannot be parsed and that it holds no
+// object, name the file the agent chose as text, a newline in its name included.
+func TestALoadRefusalNamesAnAgentChosenFileAsText(t *testing.T) {
+	h := newBrokeredHost(t)
+	for body, want := range map[string]string{`{"packages": `: "Failed to parse ", `[]`: "must contain a top-level JSON object"} {
+		write(t, filepath.Join(h.ws, WorkspaceConfigName), `{"include_if_found": ["p\nq.jsonc"]}`)
+		write(t, filepath.Join(h.ws, "p\nq.jsonc"), body)
+		_, err := LoadConfig(h.ws, true, func(string) {})
+		if err == nil || !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), `p\nq.jsonc`) ||
+			strings.Contains(err.Error(), "\n") {
+			t.Errorf("%s: the refusal does not name the file as text: %q", body, err)
+		}
+	}
+}
+
 // WW-D9: a user-scope `repos` list is refused, naming the workspace files instead, at the user
 // file's line; a jail, whose user scope is the host's, warns with the snapshot suffix.
 func TestAUserScopeReposListIsRefusedNamingTheWorkspaceFiles(t *testing.T) {
