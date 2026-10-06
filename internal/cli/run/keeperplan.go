@@ -112,6 +112,11 @@ type keeperPlan struct {
 	// (--reserved-fd): the keeper lets each go just before the doorway or service it was reserved
 	// for starts, so none of its own fronts can be handed one (keeper.releaseReservedFor).
 	ReservedAddrs []string `json:"reserved_addrs,omitempty"`
+
+	// Grant is the launch's --with-credentials grant, names only (jailgrant.go), which the keeper
+	// writes into its start record for an attach to read; nil without one. Never a value: the
+	// values are in the jail's grant file (stageJailGrant, ES-D37), which RunCmd binds.
+	Grant *jailGrant `json:"grant,omitempty"`
 }
 
 // keeperHeld is one doorway or launch-owned service a keeper runs at macos-user: its

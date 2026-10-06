@@ -134,8 +134,13 @@ func bootSteps() []bootStep {
 		{
 			// Hydrate env_sources values before any configure_* so MCP env ${VAR}
 			// interpolation sees them. bash sources the same file again at shell time.
+			// The jail's --with-credentials grant after it, from its own per-launch file
+			// (hydrateEnvFromGrantFile), which no entry rewrites.
 			name: "hydrate_user_env",
-			run:  func(b *bootRun) { hydrateEnvFromUserEnvFile(b.e) },
+			run: func(b *bootRun) {
+				hydrateEnvFromUserEnvFile(b.e)
+				hydrateEnvFromGrantFile(b.e)
+			},
 			notDarwin: "this backend writes no ~/.config/yolo-user-env.sh: its composed " +
 				"environment rides the root-owned session env file, which hydrate_session_env reads",
 		},

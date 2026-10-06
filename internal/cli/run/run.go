@@ -325,6 +325,8 @@ func Run(opts Options) (rc int) {
 	}
 	// This launch's pack tree goes at return unless a started container holds it (packtree.go).
 	defer o.discardUnheldPackTree(cname)
+	// And so does the --with-credentials grant file it staged (jailgrant.go, ES-D37).
+	defer o.discardUnheldJailGrant(cname, rt)
 
 	// THE FORK PINS, made for a fork the lock does not pin yet (never moved: FP-D18) and disclosed
 	// above the dispatch, so every backend and an attach say which revision each source-built
@@ -386,6 +388,14 @@ func Run(opts Options) (rc int) {
 		// itself about, so a composition that refuses refuses HERE — above the backend
 		// dispatch, before either arm starts a thing. printProviderRefusal is the same
 		// renderer the credential pre-flight uses, so both refusals read alike.
+		o.printProviderRefusal([]string{"Refusing to launch: " + err.Error()})
+		return 1
+	}
+	// THE --with-credentials GRANT, resolved over that one composition (jailgrant.go; OQ-ES5's jail
+	// half): above the dispatch, so an unknown provider refuses at every backend before either arm
+	// starts a thing, in the words the host refuses it with, and an attach below compares the same
+	// resolution against what the running jail holds.
+	if err := o.resolveJailGrant(channel); err != nil {
 		o.printProviderRefusal([]string{"Refusing to launch: " + err.Error()})
 		return 1
 	}
@@ -582,6 +592,11 @@ func Run(opts Options) (rc int) {
 		// starts (launchEnv's doc; noteMacosUserCredentialScope says so on the terminal).
 		launched := filepath.Base(agentArgv[0])
 		launchEnv := channel.launchEnv(launched)
+		// THE SESSION'S --with-credentials GRANT (jailgrant.go, ES-D32): on the launch env, which
+		// this backend writes into the root-owned per-session env file, and never through the
+		// channel, whose per-agent half the arm also writes under <workspace>/.yolo/home below.
+		o.jailGrant.applyTo(launchEnv)
+		o.heldGrant = o.jailGrant
 		// THE NOTCH, told to the session (config.NotchEnv; env-manager plan EMP-D4). YOLO_VERSION,
 		// which the backend sets on every launch, says jail; a guest says so beside it, so the
 		// agent footer names the notch the briefing names (docs/design/agent-footer.md §1.2), and
@@ -606,6 +621,7 @@ func Run(opts Options) (rc int) {
 			launchEnv.Set(k, v)
 		}
 		o.noteCredentialScope(channel)
+		o.noteHeldGrant(grantMacosUserSession, launched, channelProfiled(channel))
 		o.noteMacosUserCredentialScope(channel, launched)
 		// THE PORT REMAPS (macosuserportrelay.go): planned once, so the relays this launch opens,
 		// the plan a --dry-run prints and the port-key notice below read one answer.
@@ -1699,7 +1715,22 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// attach performs to deliver a different profile into a running jail.
 	userEnv := channel.userEnv
 	deliverChannel(wsState, rt, channel)
+	// THE JAIL'S --with-credentials GRANT FILE (jailgrant.go, ES-D37): written here, once, by the
+	// fresh launch alone, outside the workspace (and on Apple Container copied into the home it
+	// binds), never on the argv. An attach never reaches this line, so no later entry changes it.
+	if err := o.stageJailGrant(cname, rt, wsState); err != nil {
+		out.printf("[bold red]Refusing to launch: %s[/bold red]", richtext.Escape(err.Error()))
+		out.print("[dim]Free the disk or fix the directory's permissions, then launch again; or launch " +
+			"without --with-credentials.[/dim]")
+		lock.Close()
+		return 1
+	}
+	// THE JAIL THIS LAUNCH STARTS HOLDS ITS GRANT (jailgrant.go): named beside the gate's lines,
+	// which say a granted name is every process's. An attach that restarted the jail reaches here
+	// too, so the grant is this launch's own, never the stopped jail's.
+	o.heldGrant = o.jailGrant
 	o.noteCredentialScope(channel)
+	o.noteHeldGrant(grantFreshJail, "", channelProfiled(channel))
 	// What this launch's jail-daemon payload left out because no profile selects it (OQ-CN7
 	// (b)). Here, on the fresh path, because only a fresh launch starts daemons: an attach's
 	// selection starts none, and settles a daemon it needs and the jail lacks as skew instead.
@@ -2586,6 +2617,15 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	// is visible at a glance (audit §B#4.
 	baked, _ := runtime.BakedYoloVersionFromInspectEnv(envLines)
 	o.emitLaunchBanner(rt, cname, nil, baked)
+	// THE JAIL'S GRANT IS THE ONE IT WAS LAUNCHED WITH (jailgrant.go, ES-D33): this session holds
+	// it, and asks for no other. A request the running jail does not hold is refused before anything
+	// is written, naming the fresh launch; a subset of it, or the same set, or none, goes ahead.
+	runningGrant, grantKnown := runningJailGrant(cname)
+	if o.refuseGrantTheJailLacks(cname, runningGrant, grantKnown) {
+		releaseLock()
+		return 1, false
+	}
+	o.heldGrant = runningGrant
 	// THE RUNNING JAIL'S PACKS, before the gate: what this entry delivers is composed over
 	// them, and the gate asks whether the jail can receive what this entry delivers. A jail
 	// whose tree will not load, or whose packs cannot serve what this entry selects, is a known
@@ -2751,6 +2791,10 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	}
 	// The launch's fate is known: it attaches (launchrecord.go).
 	o.recordLaunchOutcome(launchAttached, -1)
+	// WHAT THIS SESSION HOLDS OF THE JAIL'S GRANT, on every attach to a jail launched with one,
+	// whether or not this entry typed the flag or delivers its channel (jailgrant.go).
+	// And, by the "OQ-ES5 (attach -p)" ruling, what this entry's profiles deliver beyond it.
+	o.noteHeldGrant(grantAttach, "", channelProfiled(channel), profileKeysBeyondGrant(channel, o.heldGrant, deliver)...)
 	// What this attach did NOT deliver: the configured packs, when they differ from the ones
 	// the jail booted with (OQ-PK2 (c)'s notice).
 	o.noteBootedPackSetDiffers(rt, cname, view)
@@ -2792,6 +2836,16 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 		// (inheritedValues, OQ-CN8): the agent files override it rather than defer to it.
 		if channel != nil {
 			channel.bootEnv = envLinesMap(envLines)
+			// And the jail's --with-credentials grant, which every session's boot reads into its
+			// environment from the grant file rather than from the frozen environment (ES-D37): its
+			// values are yolo's too, so an agent's file overrides them with its profile's as it
+			// overrode them when they were frozen (ES-D36).
+			for k, v := range grantFileValues(jailGrantHostFile(cname)) {
+				if channel.bootEnv == nil {
+					channel.bootEnv = map[string]string{}
+				}
+				channel.bootEnv[k] = v
+			}
 		}
 		if rc := o.deliverChannelOnAttach(cname, rt, cfg, view.staged, channel); rc != 0 {
 			return rc, false

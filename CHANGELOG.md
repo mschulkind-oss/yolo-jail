@@ -20,6 +20,10 @@ before you use it, and patch series need git 2.40 or newer on the host. A launch
 names, any part of a pack written for a newer yolo instead of failing, and `yolo features` lists
 what a yolo can read. See [Follow an upstream with a patch series](userguide/guides/patch-series.md).
 
+**Provider keys for a whole jail.** `yolo --with-credentials <provider>` now starts a jail holding
+those providers' keys from `env_sources`, as `yolo host --with-credentials` hands them to one
+command. See [Give a shell a provider's key](userguide/guides/providers-and-models.md#give-a-shell-a-providers-key).
+
 **Claude Code plugins and mods.** A new guide covers the ways to bring a Claude Code plugin or mod
 into a jail, and what each launch shows about the code it runs. See
 [Claude Code plugins and mods](userguide/guides/claude-plugins-and-mods.md).

@@ -152,6 +152,11 @@ type keeperRecord struct {
 	ServedAddresses map[string]string `json:"served_addresses,omitempty"`
 	Doorways        []keeperHeld      `json:"doorways,omitempty"`
 	LaunchServices  []keeperHeld      `json:"launch_services,omitempty"`
+	// Grant is the --with-credentials grant the jail was launched with, NAMES ONLY (jailGrant's
+	// exported fields; its values are unexported and never encoded), nil for a jail launched with
+	// none. An attach reads it to say what its session holds and to refuse a request the jail
+	// does not hold (refuseGrantTheJailLacks, ES-D33).
+	Grant *jailGrant `json:"grant,omitempty"`
 }
 
 // keeperRecordPath is cname's start record.

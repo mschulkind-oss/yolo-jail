@@ -58,6 +58,29 @@ the jail, does not see it, and the launch lists which keys went where. If the se
 key is empty, the launch stops and says which variable is missing. This holds on every runtime: on
 `macos-user`, an agent you start from the sandbox's shell gets its own profile's settings too.
 
+## Give a shell a provider's key
+
+To hand a shell, a script or every process in a jail some providers' keys, name them when you
+launch the jail:
+
+```bash
+yolo --with-credentials zai -- bash            # a jail whose every process holds ZAI_API_KEY
+yolo --with-credentials zai,cerebras -- bash   # several providers; `all` is every one with a key
+yolo -p bedrock --with-credentials zai -- claude   # claude stays on bedrock, and also holds zai's key
+```
+
+This hands over the keys only: no profile is selected and no agent is pointed at another service.
+The launch lists the keys by name, never their values. The jail keeps the keys it was launched with
+for as long as it runs, so every session you open in it later has them too, and they are removed
+when the jail stops. A running jail's grant cannot grow: running `yolo --with-credentials` with a
+provider the jail was not launched with stops, and tells you to run `yolo stop` and then launch
+again with the flag. A profile you select when you rejoin a jail, such as `yolo -p zai -- claude`,
+is not a grant: it still hands that agent its provider's key, and the launch says so when the
+jail's grant did not include that key. On `macos-user` each
+`yolo` is its own sandbox session, so each gets the keys its own command line names. No config key
+can do this; only the flag can. `yolo host --with-credentials zai -- <command>` does the same for
+one command on your own machine.
+
 A value you set yourself wins over the one a profile sets. `ANTHROPIC_MODEL=my-model claude`, or an
 `export` in the jail's shell before you start the agent, keeps your value for that run. On your own
 machine it does not: `yolo host -- claude` replaces a value your shell exports with the

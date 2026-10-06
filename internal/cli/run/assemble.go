@@ -436,6 +436,12 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 
 	// --- Common env block (frozen order) ---
 	runCmd = append(runCmd, o.commonEnvBlock(in, blockedConfigJSON, netMode)...)
+	// THE JAIL'S --with-credentials GRANT (jailgrant.go, ES-D37): on podman a `:ro` bind of the
+	// per-launch grant file the launch staged outside the workspace (stageJailGrant), which every
+	// boot and session reads into its environment; on Apple Container nothing here, the copy being
+	// in the home it binds. NEVER a granted name or value as `-e`: podman resolves an `-e` into the
+	// container's configuration, its inspect output and its database, which outlive the jail.
+	runCmd = append(runCmd, o.jailGrantBindArgs(rt)...)
 	// THE CONTEXT DIR (docs/design/context-mounts.md CX-D4), on both container backends and on
 	// EVERY launch: /ctx is where every context mount lands here, and the directory exists
 	// whether or not one was declared. macos-user exports its own value (its staged tree),

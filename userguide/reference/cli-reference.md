@@ -29,6 +29,7 @@ Launch flags, placed before `--`:
 | Flag | What it does |
 |---|---|
 | `-p <profile>`, `--profile <profile>` | Select a provider profile for this launch; see [Providers and Models](../guides/providers-and-models.md) |
+| `--with-credentials <provider,…\|all>` | Start the jail holding those providers' keys from `env_sources`, keys only, for every process and later session in it; see [Give a shell a provider's key](../guides/providers-and-models.md#give-a-shell-a-providers-key) |
 | `--accept-config-changes` | Approve a changed project config on a launch with no terminal, such as CI; see [Approving config changes](configuration.md#approving-config-changes) |
 | `--network bridge\|host` | Choose the network mode for a jail this launch starts, overriding the config's `network.mode` |
 | `--at jail\|host` | Choose where to run: `--at host` is the same as `yolo host` |

@@ -1202,11 +1202,6 @@ func runRun(args []string) int {
 	// The one refusal the fold used to make (a -p with no readable name) went with the heuristic
 	// that needed it — docs/reference/providers.md OQ-PT5.
 	parsed := parseRunArgs(args, &opts)
-	// A HOST-ONLY flag is named as one before the generic refusal would call it unknown: the
-	// grant exists, at `yolo host`, and the refusal says so (refuseHostOnlyFlags).
-	if refuseHostOnlyFlags(parsed, os.Stderr) {
-		return 2
-	}
 	// A value flag given no value, in the words and with the exit code `yolo host` uses for
 	// the same typo (readValueFlag, notch-convergence.md row A2).
 	if parsed.misuse != nil {

@@ -165,6 +165,25 @@ type Options struct {
 	// refused at launch (checkProfileTargets). A named CLI keeps its entry beside a bare
 	// -p, as a named entry of the config `profile` key keeps its own beside "*" (PP-D10).
 	UseProfiles map[string]string
+	// WithCredentials is --with-credentials as typed on THIS launch: provider names and `all`,
+	// every occurrence's comma list split, in order; nil when the flag was not given
+	// (docs/design/credential-sources-separation.md OQ-ES5's jail half, jailgrant.go). It is
+	// the grant's ONLY source: no config key, no environment variable, no -p and no
+	// use_profiles entry sets it, and nothing else in this struct implies it. The front door's
+	// parse is the one writer (internal/cli's parseRunArgs).
+	WithCredentials []string
+	// jailGrant is WithCredentials resolved over this launch's composition (resolveJailGrant),
+	// nil without the flag: what a fresh launch hands the jail it starts, and what an attach
+	// asks the running jail to hold already.
+	jailGrant *jailGrant
+	// jailGrantFile is the host copy of the grant file this FRESH launch staged (stageJailGrant),
+	// which the podman argv binds; "" when none was staged. Run's deferred discard removes it
+	// unless a container came to hold it (discardUnheldJailGrant).
+	jailGrantFile string
+	// heldGrant is the grant the processes this entry starts hold, for the disclosure: this
+	// launch's own on a fresh launch and on macos-user, the running jail's (its keeper's start
+	// record) on an attach. nil when they hold none.
+	heldGrant *jailGrant
 	// stagingCfg is the launch's merged config, handed to stagePacks so the `via` closure
 	// (OQ-WG6/WG7 (c)) sees the config's profile as well as -p. Set by Run before
 	// staging; nil in a caller that stages without a config (every such caller is a test),

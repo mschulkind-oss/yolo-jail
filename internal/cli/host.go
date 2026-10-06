@@ -84,8 +84,9 @@ Exec flags (yolo host -- ...):
                                 unknown provider refuses, naming the known ones; a named
                                 provider env_sources holds no value for is reported.
                                 Nothing else implies it: not -p, not the profile key, not
-                                any YOLO_ALLOW_* variable, and no config key. HOST ONLY:
-                                a jail launch refuses it.
+                                any YOLO_ALLOW_* variable, and no config key. A jail launch
+                                takes the same flag, and the jail holds the set for its
+                                whole life (` + "`yolo run --help`" + `).
   --timing                      Time this launch: record its stages' spans in
                                 ~/.local/share/yolo-jail/logs/host-notch-perf.log and
                                 print the table before the command starts, as a jail
@@ -295,8 +296,9 @@ type hostExecFlags struct {
 }
 
 // jailOnlyRunFlags are the launch flags `yolo run` takes and `yolo host --` has no meaning for:
-// runFlags less the three the host shares (the profile; `--at`, a no-op here; and `--timing`,
-// which times the host launch as it times a jail's: perf-logging.md D18). Derived, so a run flag
+// runFlags less the four the host shares (the profile; `--at`, a no-op here; `--timing`, which
+// times the host launch as it times a jail's: perf-logging.md D18; and the grant, the host's own
+// flag first, which a jail launch takes too since OQ-ES5's jail half). Derived, so a run flag
 // added later is named here as a jail-launch flag rather than called unknown.
 //
 // `--accept-config-changes` is among them, by the maintainer's ruling (notch-convergence.md
@@ -307,7 +309,7 @@ type hostExecFlags struct {
 func jailOnlyRunFlags() []string {
 	var out []string
 	for _, f := range runFlags {
-		if f != "--profile" && f != "--at" && f != hostTimingFlag {
+		if f != "--profile" && f != "--at" && f != hostTimingFlag && f != withCredentialsFlag {
 			out = append(out, f)
 		}
 	}
@@ -351,8 +353,9 @@ type hostGrantRequest struct {
 	names []string
 }
 
-// withCredentialsFlag is the grant's one spelling. A constant because the jail's refusal
-// (refuseHostOnlyFlags) names it too, and the two must not drift apart.
+// withCredentialsFlag is the grant's one spelling, at every notch. A constant because the host's
+// messages name it; the jail's parser spells it as a literal for its usage drift guard, and
+// TestTheJailGrantFlagIsTheHostsSpelling keeps the two one spelling.
 const withCredentialsFlag = "--with-credentials"
 
 // addGrantValue folds one --with-credentials value into the request: comma-separated, every
@@ -1627,47 +1630,17 @@ type hostGrant struct {
 }
 
 // resolveHostGrant resolves a --with-credentials request over the launch's composed provider
-// table and its hydrated env_sources. A name the table does not hold REFUSES, naming the known
-// ones, because a typo that silently granted nothing would read as "the provider has no key".
-// `all` is every provider that claims a name env_sources holds (packload.ClaimingProviders,
-// the gate's own claim model), and it may stand beside names.
+// table and its hydrated env_sources, through packload.ResolveGrant, the resolver a jail launch
+// reads the same flag with (so one request means one thing at every notch). A name the table does
+// not hold REFUSES, naming the known ones, because a typo that silently granted nothing would read
+// as "the provider has no key". `all` is every provider that claims a name env_sources holds
+// (packload.ClaimingProviders, the gate's own claim model), and it may stand beside names.
 func resolveHostGrant(req *hostGrantRequest, providers, envSources *jsonx.OrderedMap) (*hostGrant, error) {
-	var known []string
-	if providers != nil {
-		known = append(known, providers.Keys()...)
+	granted, err := packload.ResolveGrant(req.names, providers, envSources)
+	if err != nil {
+		return nil, err
 	}
-	sort.Strings(known)
-	var named, unknown []string
-	all := false
-	for _, n := range req.names {
-		switch {
-		case n == "all":
-			all = true
-		case slices.Contains(known, n):
-			named = append(named, n)
-		default:
-			unknown = append(unknown, n)
-		}
-	}
-	if len(unknown) > 0 {
-		quoted := make([]string, len(unknown))
-		for i, u := range unknown {
-			quoted[i] = fmt.Sprintf("%q", u)
-		}
-		if len(known) == 0 {
-			return nil, fmt.Errorf("%s names %s, and no provider is composed at this notch: no "+
-				"selected pack ships one and %s declares none under `providers`",
-				withCredentialsFlag, strings.Join(quoted, ", "), paths.UserConfigPath())
-		}
-		return nil, fmt.Errorf("%s names %s, which no composed provider is: the known providers "+
-			"are %s (or `all`, every one that claims a value in env_sources)",
-			withCredentialsFlag, strings.Join(quoted, ", "), strings.Join(known, ", "))
-	}
-	if all {
-		named = append(named, packload.ClaimingProviders(providers, envSources)...)
-	}
-	sort.Strings(named)
-	return &hostGrant{spelled: strings.Join(req.names, ","), providers: slices.Compact(named)}, nil
+	return &hostGrant{spelled: strings.Join(req.names, ","), providers: granted}, nil
 }
 
 // grantLines is the grant's disclosure, nil without one: a header saying what a grant is and
@@ -1692,21 +1665,9 @@ func (c *hostComposition) grantLines() []string {
 	}
 	lines := []string{header}
 	if len(c.grant.providers) == 0 {
-		return append(lines, "  nothing granted: no composed provider claims a value env_sources holds")
+		return append(lines, packload.GrantProviderLines(nil)...)
 	}
-	for _, g := range c.scope.GrantedTo(c.agent) {
-		switch {
-		case len(g.Delivered) > 0:
-			lines = append(lines, fmt.Sprintf("  %s: %s", g.Provider, strings.Join(g.Delivered, ", ")))
-		case len(g.Claims) == 0:
-			lines = append(lines, fmt.Sprintf("  %s: nothing granted — it claims no credential "+
-				"name (no api_key_env_name), so there is no value to hand over", g.Provider))
-		default:
-			lines = append(lines, fmt.Sprintf("  %s: nothing granted — env_sources holds no value "+
-				"for the names it claims (%s)", g.Provider, strings.Join(g.Claims, ", ")))
-		}
-	}
-	return lines
+	return append(lines, packload.GrantProviderLines(c.scope.GrantedTo(c.agent))...)
 }
 
 // credentialScopeLines is the gate's disclosure for this launch, nil when nothing the user

@@ -368,7 +368,9 @@ func (k *keeper) run() int {
 	k.record = keeperRecord{PID: k.pid, Started: time.Now(),
 		Workspace: p.Workspace, Runtime: p.Runtime, Skeleton: p.Skeleton, PackTree: p.PackTree,
 		ScratchVolumes: p.ScratchVolumes, ForwardDir: p.ForwardDir, SocketsDir: p.SocketsDir,
-		Scope: k.scope, Log: keeperLogPath(k.stateKey())}
+		Scope: k.scope, Log: keeperLogPath(k.stateKey()),
+		// What the jail is launched with, names only, for every attach to read (ES-D33).
+		Grant: p.Grant}
 	if p.Notch != "" {
 		k.record.Contract, k.record.Notch, k.record.Build = keeperRosterContract, p.Notch, p.Build
 	}
