@@ -36,7 +36,7 @@ type Contribution struct {
 	Kind Kind `json:"kind"`
 
 	// --- program (install) / requires (assertion) ---
-	Bin     string   `json:"bin,omitempty"`     // program/requires: the binary name
+	Bin     string   `json:"bin,omitempty"`     // program/requires: the binary name; mcp: the program the server runs
 	Via     string   `json:"via,omitempty"`     // program: "npm" | "installer" | "source"; profile: a service pack name (OQ-WG6)
 	Package string   `json:"package,omitempty"` // program via npm: the npm package
 	URL     string   `json:"url,omitempty"`     // program via installer: the curl-to-shell URL
@@ -282,8 +282,10 @@ type Contribution struct {
 	//
 	// Where an agent reads at project scope changes when the agent changes, and only its pack
 	// can keep that current — the rule `into` already follows for the home-scope half (P2 of
-	// the design, docs/reference/extension-point-principle.md). IGNORED AT THE HOST NOTCH, by
-	// ruling (OQ-WS5): `yolo host apply` never writes a workspace's skills into a real home.
+	// the design, docs/reference/extension-point-principle.md). IGNORED BY `yolo host apply`, by
+	// ruling (OQ-WS5): it never writes a workspace's skills into a real home. `yolo host --
+	// <agent>` reads it for one in-workspace link at the agent's first path
+	// (docs/design/workspace-skills.md WS-D20, internal/cli/hostworkspaceskills.go).
 	ProjectDirs []string `json:"project_dirs,omitempty"`
 	// NodeFloor is the MINIMUM Node version this program's entrypoint requires. `program` only.
 	//
@@ -355,15 +357,16 @@ type Contribution struct {
 	// docs/design/model-lists-and-pickers.md MM-D30). `program` only, any `via`.
 	LaunchSelection *LaunchSelection `json:"launch_selection,omitempty"`
 	// After, as `"host:<path>"` on a `briefing`, prepends the user's own host file to the
-	// jail's composed briefing (run.briefingHostOverlay → jailcontent.PrependHostBriefing) — so a
-	// personal AGENTS.md outranks anything a pack ships INSIDE A JAIL.
+	// destination's composed briefing — in a jail (run.briefingHostOverlay →
+	// jailcontent.PrependHostBriefing) and at `yolo host apply` (entrypoint.hostBriefingOverlay,
+	// the same bytes) — so a personal AGENTS.md outranks anything a pack ships.
 	//
-	// JAIL-ONLY, and after §6a that is a narrower claim than it looks. At the host notch the
-	// path it names is now the DESTINATION yolo generates wholesale, so there is no
-	// user-maintained file left to prepend: the host render ignores After entirely, and the user's
-	// own prose reaches every destination through the local pack instead. It survives because the
-	// jail case is still real (a `:ro`-mounted staging copy composed from a host file yolo does
-	// NOT OWN), not because it means something at both notches.
+	// AT THE HOST IT IS READ ONLY WHEN THE FILE IS THE USER'S (DP-B26). Every shipped agent pack's
+	// After names its own `into`, which at the host notch is the DESTINATION yolo generates
+	// wholesale, so that file is skipped and the user's own prose reaches every destination
+	// through the local pack instead; so is another pack's destination, and a file the briefing
+	// record lists as yolo's, by path or as the same file through a link. An After naming a file
+	// of the user's own (`host:mine.md`) opens the destination at both notches.
 	//
 	// "DOES NOT OWN" IS NOW CHECKED, not assumed. Once §6a made the host destination yolo's own
 	// output, this field named that output on every machine where `yolo host apply` had run: the
@@ -554,14 +557,16 @@ type Contribution struct {
 	// its rules and why the pack declares it rather than core are EnvOverride's doc
 	// (envoverride.go).
 	OverriddenBy []EnvOverride `json:"overridden_by,omitempty"`
-	// ServedBy names the jail daemon — a loophole's `jail_daemon` by the loophole's name, or a
-	// pack service's by the service's — whose address these vars point a client at. `env` only.
-	// Core then delivers them only where that daemon is SERVED AT THIS NOTCH (a container
-	// runtime that runs it; never the host, never macos-user), and names them where it drops
-	// them, because an address nothing serves is a dead pointer at best and, on a shared
-	// loopback, a credential handed to whoever binds the port first
-	// (docs/plans/notch-convergence.md §2.4). Absent means the vars do not point at a yolo
-	// daemon and are delivered everywhere, as before.
+	// ServedBy names what these vars point a client at: a jail daemon — a loophole's
+	// `jail_daemon` by the loophole's name, or a pack service's by the service's — or a BOUND
+	// LOOPHOLE, one that runs no jail daemon but binds host sockets or devices into the jail,
+	// by its name (docs/design/loophole-packaging.md LP-D1). `env` only. Core then delivers them
+	// only where that name is SERVED AT THIS NOTCH (packload.ServedDaemons: a daemon the notch
+	// runs, or a bound loophole its container argv binds, which the host and macos-user never
+	// do), and names them where it drops them, because an address nothing serves is a dead
+	// pointer at best and, on a shared loopback, a credential handed to whoever binds the port
+	// first (docs/plans/notch-convergence.md §2.4). Absent means the vars point at nothing yolo
+	// serves and are delivered everywhere, as before.
 	ServedBy string `json:"served_by,omitempty"`
 	// RegionProfileSetting names the setting of the `served_by` loophole that holds the profile
 	// the credential these vars point at is minted for — aws-auth's `profile`. An agent this
@@ -910,8 +915,13 @@ type Contribution struct {
 	JailDaemon *ServiceJailDaemon `json:"jail_daemon,omitempty"`
 	// HostDaemon is the service's HOST half: the argv a host launch (`yolo host --`, the
 	// wrappers) and a macos-user launch run as a launch-owned child when the one agent they
-	// start is paired through this service (internal/launchservice;
-	// docs/design/host-notch-services.md OQ-HS4). Only an official pack's host half runs.
+	// start is paired through this service, or, for a pure worker (a service no adaptation
+	// names), beside the command (internal/launchservice; docs/design/host-notch-services.md
+	// OQ-HS4, HS-D29). It runs for a pack yolo ships or a local one, never a fetched one
+	// (HS-D27), and is restarted under the jail daemon's `restart` when it dies (HS-D28). On
+	// macos-user an admitted host half that serves the pack's adaptation is why the guest
+	// declines the service's JailDaemon; a refused one, or one serving no adaptation, leaves
+	// the JailDaemon to run in the guest (docs/design/jail-daemon-on-macos-user-plan.md JD-9).
 	HostDaemon *ServiceHostDaemon `json:"host_daemon,omitempty"`
 	// Endpoint is the service's endpoint FILE NAME: the file lands at
 	// /run/yolo-services/<endpoint> (paths.ServiceEndpointExt, ".endpoint", is the
@@ -919,6 +929,8 @@ type Contribution struct {
 	// cannot aim the file somewhere else. Optional in the schema: a service that
 	// publishes nothing (a pure worker) declares none, and the wire-bridge pack
 	// — whose whole discovery story is the file — declares one.
+	// On macos-user a service declaring one has its jail daemon declined: the file's
+	// directory is a container path the sandbox has no counterpart of (JD-9).
 	Endpoint string `json:"endpoint,omitempty"`
 	// ViaAddress is the base URL a service serves `via` routes under (OQ-WG7 (b),
 	// docs/design/wire-bridge-gateway.md): a profile whose `via` names this service's pack
@@ -1003,8 +1015,9 @@ type Contribution struct {
 	Env    json.RawMessage `json:"env,omitempty"`
 
 	// Raw carries kind-specific structured payloads that do not fit a scalar field
-	// — today only a `config` contribution's surface definition (the agentcfg
-	// surface schema), decoded by internal/agentcfg/manifest, kept as RawMessage
+	// — a `config` contribution's surface definition (the agentcfg surface schema),
+	// decoded by internal/agentcfg/manifest, and an `mcp` contribution's server
+	// entry, in mcp_servers' shape (Manifest.MCPContributions, packdecl.go), kept as RawMessage
 	// so packdecl stays free of an engine dependency (same reason Manifest.Surfaces
 	// is RawMessage).
 	Raw json.RawMessage `json:"config,omitempty"`
@@ -1890,11 +1903,16 @@ type ServiceJailDaemon struct {
 }
 
 // ServiceHostDaemon is a service's HOST half, run by internal/launchservice as a child of the
-// one host or macos-user launch whose agent is paired through the service, for that launch's
-// lifetime (docs/design/host-notch-services.md OQ-HS3, OQ-HS4). The launch hands it its address
-// and caller token in a 0600 input file, never on the argv, and stops it when the agent exits.
-// Only an official pack's host half runs (packload.Pack.Official); a fetched or local pack's is
-// refused by name.
+// one host or macos-user launch whose agent is paired through the service (or, for a pure
+// worker, beside its command: HS-D29), for that launch's lifetime
+// (docs/design/host-notch-services.md OQ-HS3, OQ-HS4). The launch hands it its address and
+// caller token in a 0600 input file, never on the argv, and stops it when the command exits.
+// A host half runs for a pack yolo ships or a local one (packload.Pack.MayRunHostHalf); a
+// fetched pack's is refused by name (HS-D27, OQ-HS5), and on macos-user its service's jail
+// daemon then runs in the guest instead (launchservice.AdmitServiceHosts;
+// jail-daemon-on-macos-user-plan.md JD-9). One that dies while its agent runs is restarted on
+// its address under the service's `jail_daemon.restart`, "on-failure" when it declares none
+// (HS-D28).
 type ServiceHostDaemon struct {
 	// Cmd is the argv. Its first word must be `yolo`, which the launch resolves to its own
 	// binary (execx.SelfExecArgv): the host ships only `yolo`, and host daemons are

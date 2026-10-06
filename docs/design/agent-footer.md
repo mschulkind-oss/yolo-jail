@@ -53,7 +53,7 @@ away anything it already shows? Bedrock cost is a later design ([Later](#later-c
 [`bedrock-plumbing.md`](bedrock-plumbing.md) (the everything profile, [OQ-BR11](bedrock-plumbing.md#OQ-BR11)) and
 [`wire-bridge-gateway.md`](wire-bridge-gateway.md) (the bridge signer [OQ-BR10](wire-bridge-gateway.md#OQ-BR10) and
 subscription failover [OQ-BR17](wire-bridge-gateway.md#OQ-BR17));
-[`handoff-guest-notch-macos.md`](../plans/handoff-guest-notch-macos.md) (the three notches, and why `guest` is unbuilt).
+[`handoff-guest-notch-macos.md`](../plans/handoff-guest-notch-macos.md) (the three notches, and why `guest` was unbuilt; on macOS it launches since 2026-10-04).
 
 ## Settled questions
 
@@ -77,7 +77,7 @@ subscription failover [OQ-BR17](wire-bridge-gateway.md#OQ-BR17));
 - **Billing route** *(coined here)*: what the session is billed through, in the footer's words: the agent's own
   login (for example a Claude subscription) or a provider (for example Bedrock). Not a region and not an upstream.
 - **Notch**: one setting of yolo's `confinement` dial: `jail` (a container, the default), `guest` (a confined real
-  home, not built) or `host` (your real machine, where `yolo host apply` writes your agents' config and
+  home: on macOS the macos-user backend, not built on Linux) or `host` (your real machine, where `yolo host apply` writes your agents' config and
   `yolo host -- <agent>` launches one)
   ([the three notches](../plans/handoff-guest-notch-macos.md#1-what-the-three-notches-are-and-why-the-middle-one-matters)).
 - **Adapter** *(coined here)*: the per-agent piece an agent pack ships to connect the renderer to that agent's hook,
@@ -101,7 +101,7 @@ yolo version, backend, credential kind or jail name. One example per notch (the 
 |---|---|---|
 | jail | `Opus · yolo: Bedrock (env) · jail` | This jail: Bedrock switched on outside yolo's profiles |
 | host | `Opus · yolo: Claude subscription · host` | Your host Claude, with no profile selected in your user config |
-| guest | `Opus · yolo: Bedrock · guest` | Only once the guest notch is built and says so; until then no footer prints `guest` |
+| guest | `Opus · yolo: Bedrock · guest` | A macOS guest session, whose launch says so ([§1.2](#12-the-notch)); UNVERIFIED on a Mac |
 
 Other shapes: with a `bedrock` profile selected, `yolo: Bedrock · jail`; under the everything profile,
 `yolo: everything (bridge) · jail`; pi's status entry, `yolo: ChatGPT subscription (profile codex) · jail`.
@@ -139,7 +139,7 @@ The renderer reads the notch from what yolo already puts in the agent's environm
 |---|---|---|
 | jail | `YOLO_VERSION` is non-empty, asked through `config.InJail()`, which exists so there is *"one answer to 'am I in a jail?'"*. Every container launch sets it (`-e YOLO_VERSION=` in `commonEnvBlock`, `internal/cli/run/assemble.go`) | READ |
 | host | No marker. Bare `claude` has none, and neither does `yolo host -- claude`: `composeHostVarsWith` adds the pack env, `env_sources`, the provider derive's vars and, since 2026-09-30, the three wire tables ([FT-D2](#FT-D2)), and no `YOLO_VERSION` | READ |
-| guest | Nothing yet, because the notch is unbuilt: `render.KindGuest` has no constructor and `config.ConfinementGuest` is *"Not yet enforced"*. Its launcher (environment-manager Phase 7) must set a marker the renderer can tell from a jail's | READ |
+| guest | `YOLO_CONFINEMENT=guest` beside `YOLO_VERSION`. The macOS guest launch, the only one the notch has (environment-manager Phase 7.1), sets it in the session env file through its launch env (`config.NotchEnv`, [EMP-D4](../plans/environment-manager-plan.md#EMP-D4)); the renderer asks `config.SessionNotch` of it only when `config.InJail()` holds, so the variable alone never claims a sandbox. A jail-notch launch sets nothing | READ |
 
 **Absence reads as `host`, deliberately:** a missing marker can only under-claim confinement, never claim a jail
 that is not there. The renderer calls `config.InJail` and keeps no copy of the test; the copies already disagree
@@ -150,6 +150,9 @@ that is not there. The renderer calls `config.InJail` and keeps no copy of the t
 > though yolo renders that backend at the jail notch (`render.Jail`). [OQ-FT13](#OQ-FT13) ruled the fix and it is
 > built: the macos-user launch sets `YOLO_VERSION` to the launcher's version, last, in the session env file. What
 > else that moves on this backend is audited in [§2.2](#22-what-macos-users-marker-moves). UNVERIFIED on a Mac.
+> *2026-10-04:* the same backend is also the macOS guest notch, and that launch adds `YOLO_CONFINEMENT=guest`, so
+> its footer says `guest` while a `runtime: "macos-user"` launch at the jail notch still says `jail`
+> ([EMP-D4](../plans/environment-manager-plan.md#EMP-D4)). [OQ-FT13](#OQ-FT13)'s answer stands for the jail notch.
 
 Degenerate inputs:
 - Absent or malformed `YOLO_*` JSON is treated as empty.
@@ -373,7 +376,7 @@ host's answer was about that account, never about yours. Each row is READ, and e
 | The workspace-scope check in `internal/config/validate_loopholes.go` | Error or warning for a workspace file setting a user-scope loophole key | A warning, as in a container jail |
 | `InheritedLaunchPath` (`internal/config/userlayer.go`) | Whether the user scope folds in `~/.config/yolo-jail/inherited-launch.jsonc` | It looks for the file; only the container run writes one (`internal/cli/run/inheritscope.go`), so nothing changes |
 | `LoadCacheRelocations` (`internal/config/relocations.go`) | A launch's relocation binds | None from inside the sandbox; this backend does not implement relocations and warns about them anyway |
-| The assembled-snapshot read in `LoadConfig` (`internal/config/load.go`) | Whether config loading takes `<workspace>/.yolo/config-assembled.json` | Unchanged: it also needs the workspace to be `$YOLO_WORKSPACE` or `/workspace`, which a macos-user workspace is not |
+| The assembled-snapshot read in `LoadConfig` (`internal/config/load.go`) | Whether config loading takes `<workspace>/.yolo/config-assembled.json` | Taken: the launch writes the file (`writeLaunchConfigArtifacts`, on the macos-user arm since 2026-10-05) and the session names its workspace in `$YOLO_WORKSPACE`, so an in-sandbox `yolo config dump` reads the merged config of the workspace's latest launch (after a concurrent relaunch, the newer launch's, since only the baseline carries a session digest) |
 | `banner.Side` (`internal/banner`) | The startup banner's last field | `in-jail` instead of `host` |
 | `version.Get` (`internal/version`) | The version a `yolo` reports | The launcher's, because the variable wins; the staged binary is the launcher's own, so the value is the same |
 | `yolo check`'s `inJail` (`internal/cli/check`) | Which sections run | The host-only sections step aside with an "Inside jail" note: image, disk usage, macos-user readiness, loopholes, host-service liveness, GPU, KVM, host wrappers, the legacy base-home note, `--accept-config-changes`. The storage-layout migration is skipped. The one jail-only section, nix-ld, globs `/mise/installs/node`, which a Mac does not have, so it prints nothing |
@@ -667,7 +670,7 @@ date.
 | Where Claude keeps the plan | `~/.claude.json` `oauthAccount.organizationType` is `claude_team` in this jail; the credential file's `subscriptionType` was read by key name only | MEASURED |
 | Workspace trust pre-accepted in the jail | `packs/claude/pack.json`: `hasTrustDialogAccepted: true` for the workspace | READ |
 | No provider display name | `internal/packdecl/contributes.go` `ProviderContribution`: name, endpoints, key name, region, models, options, capabilities | READ |
-| The notch probe; guest unbuilt; backend not in env | `internal/config/load.go` `inJail` (`YOLO_VERSION != ""`) and `InJail`; `internal/loopholes/loopholes.go` `inJail` (`os.LookupEnv`, so empty counts); `internal/cli/run/assemble.go` `commonEnvBlock` emits `-e YOLO_VERSION=`, and `YOLO_RUNTIME=podman` unconditionally; `internal/render/target.go` `KindGuest`: *"It has NO constructor yet"*; `internal/config/confinement.go` `ConfinementGuest`: *"Not yet enforced"* | READ |
+| The notch probe; the guest marker; backend not in env | `internal/config/load.go` `inJail` (`YOLO_VERSION != ""`) and `InJail`; `internal/loopholes/loopholes.go` `inJail` (`os.LookupEnv`, so empty counts); `internal/cli/run/assemble.go` `commonEnvBlock` emits `-e YOLO_VERSION=`, and `YOLO_RUNTIME=podman` unconditionally; `internal/config/confinement.go` `NotchEnv` and `SessionNotch`, read by `internal/footer/footer.go` `Notch`; set by the macos-user arm of `internal/cli/run/run.go` when the launch's notch is guest | READ |
 | Host launches export the three tables (since 2026-09-30; none before) | `internal/cli/host.go` `composeHostVarsWith`: the one ordered composition (`hostComposedVars` over `CredentialScope.EnvFor`: pack env fold, `env_sources` and its removals, `packload.AgentEnv`'s shape vars), then the wire tables (`wireTables`), since 2026-10-04 ([NC-D72](../plans/notch-convergence.md#NC-D72)); `YOLO_USE_PROFILES` is read from the process env there only for the jail half of `overlayGateProfiles` | READ |
 | macos-user sets no marker | `rg YOLO_VERSION internal/macosuser` matches nothing; `packChannel.launchEnv` (`internal/cli/run/profilechannel.go`) sets pack env, provider shape vars and the three tables, and `commonEnvBlock`'s comment says the macos-user arm takes that channel instead of the container env block; `entrypoint.RunDarwinBootstrap` takes an `Env`, whose target is `render.Jail` (`internal/entrypoint/env.go`) | READ |
 | Layers merge per key, in this order | `internal/agentcfg/engine.go` `mergeValue`: "Arrays and scalars replace wholesale", objects recurse per key; `internal/agentcfg/compose.go`: "Every layer folds through RFC 7386", in the order defaults, host, workspace, `config-overlay:<pack>`, capture overlay, computed, managed | READ |

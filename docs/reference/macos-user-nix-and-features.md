@@ -505,9 +505,14 @@ A whole class of container features has no attachment point.
 - **`writable_home_dirs`** — **not applicable.** The knob carves writable subpaths out of an
   otherwise-read-only home mount; here the home is natively writable, so the concept has no
   target.
-- **`cache_relocations`** — **structurally impossible, and warned.** Relocation moves a cache
-  subdirectory onto other storage *by bind-mounting it in*. There is no mount, so a configured
-  relocation prints a per-key warning naming the subdirectories that stay put.
+- **`cache_relocations`** — **delivered by link, since 2026-10-05, unmeasured on a Mac.** There
+  is no mount, so a user-scope entry becomes a link the bootstrap lays at the sandbox home's
+  `~/.cache/<subdir>` to the target, and the Seatbelt profile opens the target read and write
+  after its `/Volumes` and `/Users` read denies. The target may be on another volume; it may not
+  be in a home, the workspace or a context source. A DAC preflight before the nix build and one
+  write under the session profile refuse a target the sandbox account cannot use, naming
+  `yolo macos-fix-permissions`. Only `~/.cache` moves: a tool caching under `~/Library/Caches`
+  keeps its cache in the sandbox home ([`cache-relocation.md`](../plans/cache-relocation.md#macos-user-a-link-plus-seatbelt-rules)).
 - **`per_side_paths`** — **structurally impossible, and warned.** It gives the host and the
   sandbox *different contents at the same path*, which is a mount-namespace capability.
   Seatbelt can deny a path; it cannot fork one. This matters more than it looks, because
@@ -574,8 +579,11 @@ sandbox that stops the largest process, and `pids_limit` is **not enforced, and 
 ### Networking, devices, GPU
 
 A native process runs on the host's real network, so the **network modes** have no namespace
-to switch and are not applied, and a host service is reachable directly. **Port forwarding**
-lives in the container launch path this backend returns before. **GPU** is unavailable on every
+to switch and are not applied, and a host service is reachable directly. **Port forwarding**'s
+container mechanism (`-p`, the host socat) lives in the launch path this backend returns before;
+here a remap in either port key is carried by a TCP relay the launch opens outside the sandbox
+when the session starts and closes with the command, and a same-port entry needs nothing
+([`declaration-parity.md` DP-I14](../design/declaration-parity.md#DP-I14), unmeasured on a Mac). **GPU** is unavailable on every
 macOS backend (Metal, no CUDA or ROCm). **Devices**: there is nothing to pass through, since the
 sandbox opens a `/dev` node under ordinary permissions, but the profile refuses `ioctl` on all but
 terminals, so a `devices` entry naming a `/dev` node re-allows that node's ioctls and is disclosed
@@ -598,7 +606,12 @@ publishes each endpoint and ACL-grants it to the sandbox account. Measured: a ba
 OpenAI loophole is active and whose broker did not start is refused. Each session publishes into
 a host-services directory of its own and removes only that one, so a second terminal in the same
 workspace neither replaces the first's endpoints nor removes them when it exits
-([`HSD-4`](jail-home.md#why-its-this-way)).
+([`HSD-4`](jail-home.md#why-its-this-way)). Since 2026-10-05 one keeper per workspace holds the
+fronts, doorways and launch-owned services for every macos-user session of it, in one
+host-services directory, and stops them when the last session ends; a launch that plans none of
+them starts no keeper and runs as before
+([JL-D86](../design/jail-lifetime-last-session-wins.md#JL-D86),
+[JL-D42](../design/jail-lifetime-last-session-wins.md#JL-D42)).
 
 **The JAIL half runs too**, in the sandbox ([above](#the-jail-daemons-run-in-the-sandbox)), except
 the jail daemons it declines by name. The launch says both things: one `Declined:` line per
@@ -696,7 +709,8 @@ The launch warnings for both keys were retired with it, on the rule this page ap
 elsewhere: a warning describing a closed gap teaches the reader to distrust the ones still
 true. What remains undelivered here is `mcp_presets`, whose preset *wrappers* hardcode Linux
 paths — so the stage does not install the npm packages behind them either, and the bootstrap
-still warns.
+still warns. The `chrome-devtools` pack is the delivered route for that server: its program
+installs through the launchers as any pack's does, and its wrapper uses the Mac's own browser.
 
 ⚠ **NOT MEASURED.** Half two was built from a Linux jail, like half one — no `sandbox-exec`,
 no `_yolojail`. Every sentence above about what the stage *does* is a description of code that

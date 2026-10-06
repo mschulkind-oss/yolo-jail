@@ -23,7 +23,7 @@ only, such as some database images; that is a property of the image, not of yolo
 | **`macos-user`** (in development) | The agent runs as a hidden macOS user inside Apple's built-in sandbox, with no container and no VM | You want a faster fresh start than Apple Container gives, and accept a weaker boundary and missing features |
 
 If both container runtimes are installed and running, yolo uses Apple Container. `macos-user` is
-used only when you ask for it. To choose, set the `runtime` key in your config or the
+used only when you ask for it. `"confinement": "guest"` asks for it too, with no `runtime` key. To choose, set the `runtime` key in your config or the
 `YOLO_RUNTIME` environment variable to `container`, `podman` or `macos-user`:
 
 ```bash
@@ -46,7 +46,7 @@ VM, so a Mac without it may show different ratios.
 | | Apple Container | `macos-user` |
 |---|---|---|
 | A fresh start | about 7 s, with install recording off (see below) | about 5.5 s, plus typing your password when `sudo` asks |
-| A second terminal in the same project | about 2 s: it joins the running jail | another fresh start, with `sudo` again |
+| A second terminal in the same project | about 2 s: it joins the running jail | another fresh start, with `sudo` again, which joins the host services the first one started |
 | Work on the project's files: `git status`, searching, `npm ci` | 3 to 5 times slower than on the Mac | as fast as on the Mac |
 | One-thread CPU work | as fast as on the Mac | as fast as on the Mac |
 | A parallel build | half your cores by default, and about 16% slower on the same number of cores | every core, as fast as on the Mac |
@@ -200,7 +200,7 @@ outside every user's home. Setup prepares `/Users/Shared/yolo` for this; put pro
 
 ```bash
 cd /Users/Shared/yolo/my-project
-YOLO_RUNTIME=macos-user yolo -- claude     # or "runtime": "macos-user" in the project config
+YOLO_RUNTIME=macos-user yolo -- claude     # or "runtime": "macos-user", or "confinement": "guest", in the project config
 ```
 
 A launch from a project inside your home stops before it builds anything, and prints the
@@ -243,7 +243,10 @@ What you give up:
 
 - **A weaker boundary.** The sandbox confines what the agent can read and write, but there is no VM
   and no separate network: the agent is on your Mac's own network, and a port it opens is open on
-  the Mac.
+  the Mac. A remap in `network.ports` or `network.forward_host_ports` (`"8000:3000"`) is relayed by
+  yolo while the command runs, TCP only, and a `network.ports` remap also publishes whatever else
+  listens on the Mac's `127.0.0.1` at that port; `127.0.0.1:8000:3000` keeps it on the Mac. Not
+  yet tried on a Mac.
 - **Soft resource limits.** `resources.memory` stops the session's largest process when the
   session goes over, `resources.cpus` sets common build tools' parallelism, and `resources.io`
   lowers the session's disk priority. None is enforced by the kernel, so a runaway build can still
@@ -256,9 +259,9 @@ What you give up:
 
 - **The shared Claude login is not coordinated between sessions.** Host services start on the
   Mac, so the ChatGPT login service and Bedrock through `aws-auth` work: the small helpers the
-  agent talks to for them run for each launch on the Mac, outside the sandbox, answer only
-  requests that carry that launch's token, which any program in its sandbox can read, and stop
-  when it exits. The Claude login's in-jail half needs a container, and
+  agent talks to for them run on the Mac, outside the sandbox, held by one background process per
+  project for every session in it, answer only requests that carry the session's token, which any
+  program in its sandbox can read, and stop when the project's last session ends. The Claude login's in-jail half needs a container, and
   the launch names it on one `Declined:` line.
 - **`mounts` only from folders outside every home.** A `mounts` entry, or a pack's `mount`, works
   when its folder is a read-only one under `/Users/Shared` or elsewhere on the startup disk (such as
@@ -267,18 +270,27 @@ What you give up:
   the real path, and a subfolder the sandbox account may not read stays unreadable. Any other
   folder, including one in your home, on another disk, in the project or under `/tmp`, stops the
   launch and says why: move it, or use a container setup for that workspace.
-  This has not yet been tried on a Mac. Folder sources in `host_files` are not delivered; single
-  files are.
+  This has not yet been tried on a Mac. A pack's `mount` of a single file is copied in at each
+  launch instead, and so is a folder in `host_files`, up to 32 MiB (64 MiB across a launch); a
+  larger one stops the launch and names the entry.
 - **No `per_side_paths`**: a `.venv` or `node_modules` in the project is shared between your Mac and
   the sandbox, and the launch says which. `uv` in the sandbox keeps its own `.venv-macos-user`, so
   your Mac's `.venv` survives it.
-- **No `cache_relocations`, `resources.pids_limit`, GPU settings, or USB device entries.** Each is
-  named at launch. `resources.memory` and `resources.cpus` work only as far as the launch says: the
+- **No `resources.pids_limit`, GPU settings, or USB device entries.** Each is named at launch.
+  `resources.memory` and `resources.cpus` work only as far as the launch says: the
   memory check runs every two seconds inside the sandbox, and the CPU number is a default the
   common build tools read, not a cap. A serial device should work: list its `/dev/cu.*` node in
   `devices` (not yet tried on a Mac).
+- **`cache_relocations` moves `~/.cache/<subdir>`, and only that.** The sandbox's
+  `~/.cache/<subdir>` becomes a link to your folder, which may be on another disk under
+  `/Volumes` but not in your home or the project; the launch names it. A folder yolo creates is
+  opened to the sandbox as it is created, and one that already holds files needs
+  `yolo macos-fix-permissions <folder>` first (the launch says so). A Mac tool that caches under
+  `~/Library/Caches`, such as Go's build cache, is not moved. Not yet tried on a Mac.
 - **MCP presets are not delivered**, although your own `mcp_servers` work if their commands exist on
-  your Mac.
+  your Mac. For Chrome DevTools, add `"chrome-devtools"` to `packs` instead: it uses the Chrome or
+  Chromium your Mac already has, and `sh ~/.local/share/yolo-chrome-devtools/chrome-devtools-mcp-wrapper --check`
+  inside the sandbox says which it found. Not yet tried on a Mac.
 - **Language servers**: as on every setup, you bring the server program yourself.
 
 Everything else in your config takes effect at every launch, since each `yolo` starts a fresh
@@ -334,9 +346,12 @@ export YOLO_NIX_HOST_STORE_LINUX=1  # and the store holds the jail's Linux progr
 ## Stopping a jail and reclaiming space
 
 A jail normally ends when you exit the terminal session that started it. For one left running,
-run `yolo stop` from the project folder. On `macos-user` there is nothing to stop; `yolo ps` lists
-each session that is still running and its project folder. To reclaim disk, use `yolo prune`, a
-dry run until you add `--apply`; see [Storage](storage.md). On `macos-user`, `yolo stores` also
+run `yolo stop` from the project folder. On `macos-user` it ends every session of the project and
+the background process that holds their host services, and removes what one that was killed left
+behind; `yolo ps` lists each session that is still running and its project folder. Not yet tried
+on a Mac. A `macos-user` launch reclaims old loophole state by itself, and offers to clear the
+shared build cache that container jails on the same Mac fill once it is large. To reclaim more
+disk, use `yolo prune`, a dry run until you add `--apply`; see [Storage](storage.md). On `macos-user`, `yolo stores` also
 lists what that backend keeps under `/var/yolo-jail` and in the sandbox account's home, and how to
 remove each one.
 

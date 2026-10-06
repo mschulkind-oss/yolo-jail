@@ -79,9 +79,9 @@ host or an outside account follows under [External waits](#external-waits).
     precondition it amends, which the two-jail test blocks, holds the Mac session (47). [The benchmark's remaining corrections](../research/macos-backend-performance.md#9-corrections-the-results-feed)
     and draft rewordings of [the direction's ruled sentences](../reference/macos-no-vm-direction.md#what-the-numbers-bear-on) for the maintainer ride with it,
     finishing [the comparison](../reference/macos-no-vm-direction.md#what-each-macos-path-costs-measured) he asked to see.
-15. [Time what a launch's spans leave out](../reference/perf-logging.md#known-gaps): `macos-user` past its dispatch, the provisioning stage in the
-    jail perf log, and the Apple Container delivery test's reader past `image.*` — without them [the comparison's refresh](../reference/macos-no-vm-direction.md#when-to-refresh-this)
-    cannot split `macos-user`'s 5.5 s launch, nor the delivery test show the build skip's saving on Apple Container.
+15. [Time what a launch's spans leave out](../reference/perf-logging.md#known-gaps): the provisioning stage in the
+    jail perf log, and the Apple Container delivery test's reader past `image.*` — without the second the delivery test cannot show the build skip's saving on Apple Container. `macos-user` records its backend's steps since 2026-10-05; the first Mac run of
+    `TestMacosUserTimingRecordsTheBackendsSteps` is what splits its 5.5 s launch for [the comparison's refresh](../reference/macos-no-vm-direction.md#when-to-refresh-this).
 16. Read the Mac runs of 2026-10-02 and 2026-10-03 into the docs that wait on them — agent work now, and ahead of the
     rulings below because two of the reads unblock work: [the AWS doorway](../design/host-notch-services.md) and
     [its Bedrock design](../design/sso-backed-bedrock.md), [A2's twin](macos-revival-and-distribution-plan.md),
@@ -146,7 +146,8 @@ host or an outside account follows under [External waits](#external-waits).
     would supersede [the traps design](../design/pack-declared-file-diagnostics.md), so rule it before building either.
 35. [Rule what triggers an in-jail build's GC root, and whether `gcroots/auto` may be bound in](../design/in-jail-nix-roots.md) — yolo's
     own in-jail roots are registered under the host's spelling now, and a root a user or an agent makes is still dead on arrival.
-36. [Rule how macos-user reaches the capture store](install-capture.md) and [whether integration sharding unparks](integration-parallelism.md)
+36. [Review H4's answer, a root-owned copy of the capture store on macos-user](install-capture.md#build-order)
+    (built 2026-10-05 as an implementation decision, reversible), [rule whether integration sharding unparks](integration-parallelism.md)
     with [the test suite's two other levers](test-suite-speed.md), and [name the real forked program](../design/forked-programs-as-packs.md)
     — the host notch's floor arms are built on a stand-in fork, and the real one is the last input step 7 needs.
 37. [Rule how a jail reaches a worktree's `.git` outside it](../research/herdr-integration.md#OQ-HR3), with [a jail pane after a herdr
@@ -176,10 +177,11 @@ host or an outside account follows under [External waits](#external-waits).
     [Group B of the CLI's color pass](cli-visual-polish.md); [the unit suite's clock waits](test-suite-speed.md#unit-tests-one-package-sets-the-wall-time-and-five-of-its-tests-are-waiting-on-clocks);
     [the Bedrock user-guide recipes](../design/bedrock-plumbing.md#12-what-i-would-build-in-order); [the disk levers' re-measure](../design/disk-levers-and-backfill.md),
     its jail half now; and graduating [the extension model defaults](../research/extension-model-defaults.md) into the provider reference.
-43. [Make the Chrome DevTools MCP server work at `yolo host`](../design/mcp-presets-removal.md#5-the-chrome-devtools-inventory--what-the-pack-carries-what-the-image-keeps)
-    — the maintainer wants it, after the week's work (2026-09-30); host apply expands no MCP preset
-    ([HC-D16](../design/host-computed-layer.md#HC-D16)), and the host agent floor now gives yolo a prefix to put one in.
-    Build one path for every host, per the [fill-the-matrix principle](../reference/fill-the-matrix-principle.md).
+43. [The Chrome DevTools MCP server at `yolo host`](../design/mcp-presets-removal.md#13-what-i-would-build-in-order)
+    — BUILT 2026-10-05 as the `chrome-devtools` pack, one path for the host, a jail and macos-user
+    ([MP-D1 to MP-D8](../design/mcp-presets-removal.md#decision-ledger), [HC-D26 to HC-D28](../design/host-computed-layer.md#HC-D26)).
+    Left: a real `yolo host -- claude` session driving host Chrome, and Chrome under the macos-user
+    sandbox account (human checks); retiring `mcp_presets` waits on [OQ-PK1](../reference/pack-system.md#oq-pk1).
 44. Rulings nothing shipped waits on. Gating one later step: [the host-file permission asymmetry](BACKLOG.md#E2) with [its host-side
     twin](pack-host-management-plan.md) in one sitting, [the jail's skills fan-out](BACKLOG.md#OQ-S4), [pack binary pins](../design/broker-as-a-pack.md),
     [loophole env and guest fields](../design/loophole-packaging.md), [workspace MCP files](../design/workspace-mcp-sources.md), [the backend census](../design/backend-parity.md),
@@ -205,8 +207,10 @@ host or an outside account follows under [External waits](#external-waits).
 48. A human with a subscription login clears [Claude's login without interception](../design/claude-login-without-interception.md)
     by running [its runbook](runbooks/claude-credential-view-measures.md), on a Mac and for a day on a rootless host,
     and [the OpenAI service](../design/openai-auth-broker-plan.md) by recording one browser login and one shared expiry.
-49. One session at a Mac clears [the host capture for installer agents](../design/host-tool-provisioning.md), which runs
-    each vendor installer under Seatbelt; the hosted Mac job runs no vendor install until [OQ-CI7](../reference/agent-install-in-ci.md#OQ-CI7) says it may.
+49. One session at a Mac clears [the host floor's installer agents](../design/host-tool-provisioning.md#HP-D2) with real
+    vendor bytes: `yolo host -- claude` and `yolo host -- agy` once from a terminal, each captured relocatable and run
+    from the floor. The fixture half is `TestMacosUserHostFloorMaterializesAFixtureInstallerCapture` (macos-user.yml);
+    the hosted Mac job runs no vendor install until [OQ-CI7](../reference/agent-install-in-ci.md#OQ-CI7) says it may.
 50. A real rootless Linux host, which a nested jail is not, clears [a real reboot](../design/podman-reboot-readiness.md#testing-and-the-real-host-check),
     [a low-space collection with a jail up](storage-lifecycle.md) and [the keeper's scope move and logout](../design/jail-lifetime-last-session-wins.md#8-what-done-looks-like).
 51. One live agent session per check, which no test may start, clears [the footer](../design/agent-footer.md#21-as-built),
@@ -239,7 +243,7 @@ host or an outside account follows under [External waits](#external-waits).
 - **Ids Vantage cannot index**, reached here by name: [Q1 to Q9](../design/environment-manager-user-stories.md#Q1), [9.2 and 9.6](../design/host-render-target.md#9.2),
   [CFP-1 to CFP-3](../design/composed-file-permissions.md#CFP-1), [Q2 and Q3](../design/macos-user-build-step-threat-model.md#Q2),
   [SS-6](../design/jail-state-separation-design.md#ss-6), [BP-1](../design/backend-parity.md#OQ-BP-1), [E1, E2, E5 and CO](BACKLOG.md#E1),
-  [the host-files mode](pack-host-management-plan.md#open-questions), [H4](install-capture.md#hand-offs--what-is-not-wired-and-the-exact-line-that-wires-it),
+  [the host-files mode](pack-host-management-plan.md#open-questions),
   and two outside this queue: [SH-1](macos-revival-and-distribution-plan.md#oq-sh-1--is-macos-user-self-hosting-worth-pursuing-at-all-maintainer),
   which blocks nothing, and [JD-4](../design/jail-daemon-on-macos-user-plan.md#decision-ledger), a maintainer follow-up.
 - **With no id at all:** [Go comments citing sections by number](README.md#the-dangling-n-citations-in-go-comments),

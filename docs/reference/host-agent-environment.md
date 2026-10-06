@@ -295,7 +295,10 @@ refused for naming no command, the host verb having no default one.
    on this machine (said on one line), is looked up on the child's PATH (step 3), **skipping
    yolo-managed directories** and the floor's own `bin/`: a name there that no selected pack
    delivers is an entry the floor no longer keeps, which is never run, and `yolo host apply
-   --assert` removes it.
+   --assert` removes it. A program whose pack declares a pre-launch `refresh` (pi's extension
+   update) then runs it against the copy that resolved, under the hourly rule a jail's launcher
+   keeps; a failure is a line and the launch goes on
+   ([HP-D19](../design/host-tool-provisioning.md#HP-D19)).
 2. **Resolve the pack configuration** — the active profile for the launched command, and its
    effective `env` for the active workspace. The profile is a typed `-p`, else the command's
    entry in the `profile` key, else its `"*"` (or the key's string form) when a selected pack
@@ -408,7 +411,7 @@ environment's variables, so the readers a jail's boot uses read the host composi
 | :--- | :--- |
 | `providers` | your `providers` entries over the selected packs' provider facts, the table `yolo host --` composes, with no address a pack's own service serves; the packs' `models` contributions shape the lists |
 | `profiles`, `profile` | your profiles resolved over that table, every `via` address cleared, since no jail daemon serves one here; the selection is the `profile` key alone, since host apply has no `-p`. A selection the host cannot serve (a profile only the wire bridge reaches, an active set one of whose entries the host refuses) is left out and named |
-| `mcp_servers`, `lsp_servers` | your own entries, less any whose command or arguments name a jail-only path, each named. An MCP preset is never expanded: its command is a wrapper only a jail's boot writes, and the report says to declare the server under `mcp_servers` instead. A pack's `mcp` declaration is never an input. The same `lsp_servers` table renders Claude's `yolo-lsp` plugin (below the surface table) |
+| `mcp_servers`, `lsp_servers` | your own entries, merged over the selected packs' `mcp` entries joined to your home (MCP only), less any whose command or arguments name a jail-only path, each named. A FETCHED pack's `mcp` entry is left out and named: its command would run unconfined as you ([HC-D26](../design/host-computed-layer.md#HC-D26)). An MCP preset is never expanded: its command is a wrapper only a jail's boot writes, and the report names the pack that ships a server of its name, `chrome-devtools` for that preset, or else says to declare the server under `mcp_servers` ([HC-D27](../design/host-computed-layer.md#HC-D27)). The same `lsp_servers` table renders Claude's `yolo-lsp` plugin (below the surface table) |
 
 <a id="what-each-surface-gets-at-the-host"></a>
 
@@ -488,6 +491,17 @@ outranked by the first activation, and a recorded key whose value differs is you
 Under `assert` the selection record lives beside the provenance record; under `own`, in the
 capture store.
 
+**A launch's `-p` is handed to the program, never written**
+([MM-D30](../design/model-lists-and-pickers.md#MM-D30)). The file above holds the `profile`
+key's selection alone. When `yolo host -p <profile> -- <agent>` selects differently, a program
+whose pack declares a `launch_selection` gets the `-p`'s selection for that process only: codex
+as `-c` overrides right after `codex`, opencode in `OPENCODE_CONFIG_CONTENT` (merged over a value
+you set there), pi and oh-omp as their own flags, with pi's two model-list files in the variables
+its extensions read first. Each is disclosed; your own later flag still wins. With no `-p`, or a
+`-p` that composes what the `profile` key does, the program starts on its file, so a model you
+picked in it since stands. `yolo host env -p` exports a selection carried in a variable and, for
+one that needs argv, names the `yolo host -p` launch instead.
+
 **Under `host_management: own`, a `computed` surface renders through `stateful`**
 ([`OQ-HC2`](#oq-hc2)), so the first owned render adopts the file rather than replacing it; a
 keyless `computed` surface is still refused.
@@ -549,7 +563,9 @@ unless it says otherwise:
   can provision, an entry for it on this machine. One the floor can provision but has not yet is
   delivered: the launch installs it first. One the floor cannot hold here (configured out of the
   floor, handed to another provisioner, unpublished for this OS and architecture, or an installer
-  agent on macOS before the host capture ships) is not.
+  agent this machine can capture neither in a jail nor on the host, for example on a Mac before
+  `yolo macos-setup` or on Linux with no container runtime and no Landlock; host-tool-provisioning.md
+  HP-D2 and HP-D18 name every case) is not.
 - **Decision input** and **carried variable**: a variable yolo reads to decide something, and one
   it only hands to the child.
 
@@ -773,7 +789,7 @@ line, pasted by the user. yolo offers no writer for it ([HE-D1](#he-d1)).
 | <a id="he-dir1"></a>[**HE-DIR1**](#he-dir1) — **at `yolo host`, yolo's checks read the PATH yolo was started with, when it has one, plus `host_path`, and no other folder** (maintainer, 2026-09-29: *"we can pick up the path if it's there because it's just not feasible to otherwise know these things … I just don't see any way around it. And then I think we just get things from [PATH]."*) | A fixed per-OS baseline replacing the caller's PATH was the design's own extension of [OQ-HE0](#oq-he0), never the maintainer's, and a folder yolo adds whenever it exists would be a source of yolo's own. A bare-PATH launcher getting a different answer from a terminal is the accepted cost, and the [miss line](#the-miss-line) is its fix. |
 | <a id="oq-he0"></a>[**OQ-HE0**](#oq-he0) — `yolo host` depends on the environment it was launched in only where a `YOLO_*` variable or explicit config names the dependence (maintainer, 2026-09-25: *"`yolo host` should be as predictable an environment as possible"*); **revised for PATH by [HE-DIR1](#he-dir1)** | It still bars a folder or input of yolo's own guessing, such as appending mise's shims directory whenever it exists, and a new decision input needs config or a `YOLO_*` variable. The keys, region and override variables the shell exports keep counting, by `HE-D10` (reversible). |
 | <a id="oq-he10"></a>[**OQ-HE10**](#oq-he10), ruled (c), 2026-09-29 — **the child's PATH is the launch PATH, then the floor's `bin/`**, and a bare name of a program a selected pack delivers execs from the floor by path | The commands a host agent runs see the user's own environment, and the floor's copy of a pack's agent runs from any launcher ([HP-DIR4](../design/host-tool-provisioning.md#HP-DIR4)). No baseline fills in for a bare launcher, because its contents were never ruled; one `host_path` line fixes the checks and the child at once. |
-| <a id="oq-he11"></a>[**OQ-HE11**](#oq-he11), ruled (a), 2026-09-29 — **a selected pack's program the floor cannot hold runs from the child's PATH, and the launch says on one line why the floor has none** | It keeps a Mac user's working `yolo host -- claude` working until the macOS host capture ships, departing from the floor rule only where the floor has nothing to run instead. |
+| <a id="oq-he11"></a>[**OQ-HE11**](#oq-he11), ruled (a), 2026-09-29 — **a selected pack's program the floor cannot hold runs from the child's PATH, and the launch says on one line why the floor has none** | It keeps `yolo host -- claude` working where the floor holds no copy of claude — a Mac before `yolo macos-setup`, a Linux machine with neither a container runtime nor Landlock (host-tool-provisioning.md [HP-D2](../design/host-tool-provisioning.md#HP-D2), [HP-D18](../design/host-tool-provisioning.md#HP-D18)) — departing from the floor rule only where the floor has nothing to run instead. |
 | <a id="oq-he1"></a><a id="oq-he2"></a><a id="oq-he3"></a><a id="oq-he4"></a><a id="oq-he5"></a><a id="oq-he6"></a><a id="oq-he7"></a><a id="oq-he8"></a><a id="oq-he9"></a>**[OQ-HE1](#oq-he1) to [OQ-HE9](#oq-he9)** — retired or answered by [HE-DIR1](#he-dir1) (2026-09-29): an unset `host_path` is the caller's PATH alone, no pack declares a folder, `host_path` takes plain folders only, there is no `YOLO_HOST_PATH` and no "inherit PATH" entry, a jail launch's own lookups are unchanged, there is no macOS or other baseline, and nothing is staged; [OQ-HE6](#oq-he6) (API keys in the shell) is answered by `HE-D10`, reversible | Each asked a question that only arose under the withdrawn reading of [OQ-HE0](#oq-he0). Their full text is in the design stub's history. |
 | <a id="oq-hc1"></a>[**OQ-HC1**](#oq-hc1) — **the host runs the jail's derives over user-scope inputs**, in `yolo host apply` and in a wrapped launch's automatic apply, with no per-surface opt-in and no notch branch (maintainer, 2026-09-28: *"yes of course host apply and the auto one in a wrapper should generate this content. we're trying for host parity with the same handling."*) | The obstacle was the inputs, not the derives: only the MCP presets carried a jail path, so composing host inputs and checking the output for a jail path answers what a per-surface opt-in would have guarded. It superseded the earlier "for now" ruling that host apply renders no `openai-codex` list ([ML-D8](../design/model-lists-and-pickers.md#ML-D8)). |
 | <a id="oq-hc2"></a>[**OQ-HC2**](#oq-hc2) — **under `own`, a `computed` surface renders through `stateful`**, adopting the file on the first owned render (2026-09-28, by [OQ-HC1](#oq-hc1)'s parity) | Without it those files have no host path once `assert` retires. |
