@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // darwinhomelayout_test.go covers the macos-user workspace tier
@@ -977,7 +978,9 @@ func TestTheCacheRelocationStepRefusesARealDirectoryAtALinkPath(t *testing.T) {
 	if err == nil {
 		t.Fatal("a real directory at a relocation's link path was not refused")
 	}
-	for _, want := range []string{held, target, "OQ-HT2", "cp -R " + held + "/. " + target + "/", "sudo rm -rf " + held} {
+	// The commands quote their paths (shquote), so a home under a folder with a space still pastes.
+	for _, want := range []string{held, target, "OQ-HT2", "cp -R " + shquote.Join([]string{held + "/.", target + "/"}),
+		"sudo rm -rf " + shquote.Quote(held)} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("the refusal does not say %q:\n%v", want, err)
 		}
@@ -1018,7 +1021,7 @@ func TestTheCacheRelocationStepRefusesALinkedCacheDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	err := InstallDarwinCacheRelocations(relocEnv(home, map[string]string{"hf": filepath.Join(t.TempDir(), "hf")}))
-	if err == nil || !strings.Contains(err.Error(), "sudo rm "+filepath.Join(home, ".cache")) {
+	if err == nil || !strings.Contains(err.Error(), "sudo rm "+shquote.Quote(filepath.Join(home, ".cache"))) {
 		t.Fatalf("a linked ~/.cache was not refused with the link's removal: %v", err)
 	}
 	if ents, _ := os.ReadDir(elsewhere); len(ents) > 0 {
