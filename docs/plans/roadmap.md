@@ -217,7 +217,9 @@ host or an outside account follows under [External waits](#external-waits).
     where no pack supplies one, with claude in its own Bedrock mode behind the bridge, to land no later than [the shipped
     Bedrock list's removal](../design/model-lists-and-pickers.md#MM-D32), since a launch with neither leaves claude on
     `-p bedrock-bridge` without prompt caching and starting on an id Bedrock refuses; [pi's package
-    folder](../design/pack-pi-resources.md), one entry per content pack in place of a list of files; [the jail's readiness
+    folder](../design/pack-pi-resources.md), one entry per content pack in place of a list of files, built with
+    the widening [the pack-file conventions](../design/pack-conventions.md) decide, so a patched extension landing
+    there needs no list entry either, where each of the maintainer's carries one today; [the jail's readiness
     act](../design/jail-notch-readiness.md#OQ-JR1), which installs every program a selected pack declares before your command
     runs and stops a launch that cannot, offline included, since `yolo -- true` still leaves every agent CLI uninstalled; and
     [the refusal of a host-wide daemon older than the launching yolo](../design/host-daemon-ownership.md#OQ-HD11), since an
