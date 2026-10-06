@@ -23,7 +23,7 @@ building.
 
 **`brokered.go`**
 
-- **Delete the user-scope reader**: `BrokeredWidening` and `brokeredWidening` (`:70-72`).
+- **Delete the user-scope reader**: `BrokeredWidening` (`:70-72`) and `brokeredWidening` (`:74-120`).
 - **Replace `validateBrokered`'s workspace-scope error** (`:290-301`) with the per-scope rules of
   the design's [§3.1](workspace-widening.md#31-the-entry). Keep its position in `ValidateConfig`'s
   append order, which is a frozen contract (`validate.go:62-64`).
@@ -44,6 +44,12 @@ building.
     at `config.go:48-52`, `:139` and `:199-200`.
   - **The message is printed into `.yolo/launch.log`**, which the jail reads (`run.go:103-115`).
     So a launch prints the full edit only for its own workspace. Host `yolo check` prints them all.
+  - **One form from the validator.** `ValidateConfig` (`validate.go:66`) has three callers, the
+    launch (`run/preflight.go:38`), `yolo check` (`check/check.go:628`) and `yolo internal
+    config-dump` (`cli/internal.go:423`), and no caller-mode parameter. It always emits the launch
+    form. The full list is a host-only section of `yolo check` that reads the user scope itself.
+    Test: the launch log names no other workspace.
+  - **The edit names the local file**, with the note that yolo does not git-ignore it.
 
 **Reading the entry**
 
@@ -52,20 +58,28 @@ building.
   merged result.
   - The re-read precedent is `workspaceLoopholeEntries` and `WorkspaceLoopholeOrigins`
     (`validate_loopholes.go:524-600`).
-- **Containment.** `brokered` is accepted only from files whose resolved path, symlinks followed, is
-  inside the workspace.
-  - `include_if_found` today refuses only `/` and `~` (`load.go:277-287`), and `readFile` follows
-    symlinks (`load.go:50`).
-  - The model to copy is `brokerscope/remotes.go:77-81` and `:139-143`.
-  - On macOS, resolve both sides: `/var` is a symlink to `/private/var`.
+- **Containment.** `brokered` is accepted only from files whose bytes came from inside the
+  workspace, decided on the open that read them.
+  - `include_if_found` today refuses only `/` and `~` (`load.go:277-287`), and `loadJSONCFile`
+    reads with `os.ReadFile`, which follows links (`load.go:50`). The top-level paths are
+    `filepath.Join(workspace, name)`, unresolved (`load.go:354`, `:359`); an include's is resolved
+    at join time and read later (`helpers.go:78-84`). Checking either before the read is a race.
+  - Read each workspace file beneath an `os.Root` on the workspace (`os.OpenRoot`, then
+    `Root.Open`): it follows links that stay inside and refuses ones that leave or are absolute,
+    in one step. Mark the file contained on that open; never re-resolve a path after reading it.
+  - The model is `brokerscope/remotes.go:77-81` (no link followed at the files it reads) and
+    `:140-144`.
+  - On macOS, the workspace path itself may run through `/var` → `/private/var`; compute the
+    relative name against both spellings.
 
 **`scopeapproval.go`**
 
 - **`ScopeSource`** (`:32-40`) carries only a remotes `Read` today. It needs the entry's
   repositories and their sources.
 - **`compareScope`** (`:139-163`) compares `s.Read.Repos()` alone. It needs the sources-record
-  comparison too.
-- **`scopeBlock`** (`:168-208`) builds the header and rows. Its labels need `termsafe.Visible`; the
+  comparison too, with the upgrade rule: no recorded sources and every current source a remote
+  records silently; a repository an entry lists asks.
+- **`scopeBlock`** (`:165-217`) builds the header and rows. Its labels need `termsafe.Visible`; the
   model is the `GitConfig` field's doc at `remotes.go:36-38`.
 - **`RecordApproval`** (`:223-241`) is the one writer shared by the y path, the flag and the host
   check. It also writes the new sources record.
@@ -86,7 +100,7 @@ building.
 **Other files in this package**
 
 - **`inherit.go:259-263`**: keep `brokered` in the "neither" class and rewrite its reason. The
-  census is exhaustive by test (`:44`, `:91`). Other comments cite this reason: `load.go:381-386`
+  census is exhaustive by test (`:44`, `:91`). Other comments cite this reason: `load.go:384-389`
   and `workspacefile.go:55-58`.
 - **`drift.go`**: no change. It keeps reporting the edit.
 
@@ -94,11 +108,17 @@ building.
 
 **The gate**
 
-- **`checkConfigChanges`** (`preflight.go:399-405`) is the one method both backends call:
+- **`checkConfigChanges`** (`preflight.go:391-421`) is the one method both backends call:
   macos-user at `run.go:449-450`, and the container fresh path at `run.go:1212-1216`.
   - `wsCfg` there is a second read, separate from the strict `cfg` at `run.go:175` and
     `preflight.go:27`.
-  - Its error is dropped today (`wsCfg, _ :=`). Make it refuse instead ([WW-D18](workspace-widening.md#WW-D18)).
+  - It reads non-strict with a discarding warn (`LoadWorkspaceConfig(ws, false, func(string) {})`),
+    and a non-strict read never errors: `handleParseFailure` and the include checks
+    (`load.go:50-87`, `:250-286`) return `{}` and nil. Keeping the error changes nothing.
+  - Read strict, once, at the call site: `LoadWorkspaceConfigWithSources(ws, true, …)`. Feed that
+    one result to the `brokered` projection (config part) and the entry reader (scope part), and
+    refuse with the error on failure ([WW-D18](workspace-widening.md#WW-D18)).
+  - Test: a file made unparseable after the launch's strict read refuses at the gate.
 
 **`brokeredscope.go`**
 
@@ -130,6 +150,8 @@ building.
 - **`brokeredscope.go:21-34`** is a second copy of the scope read. Share one helper with the
   launch.
 - **`check.go:672-691`**, the `--accept-config-changes` path:
+  - It reads non-strict at `:677` and skips recording without a word when `err != nil`. Read
+    strict through the same helper the launch uses, and fail naming the file.
   - It prints the block before recording.
   - Its *"recorded"* line uses `describeRepos(s.Read.Repos())`, the remotes alone; it should list
     the union.
@@ -155,21 +177,33 @@ building.
 
 ### Approval-record deletion
 
-- **`capturehost.go:741-744`** deletes `<cname>.json` and `<cname>.scope.json`. It must delete the
-  sources record too.
-- **Find every other path** that deletes the approval record: EW-D33's rule is that every such path
-  deletes each part.
+- **`cleanupCaptureWorkspace`** (`capturehost.go:737-745`) is the one deletion path today. It
+  deletes `<cname>.json` and `<cname>.scope.json`, and must delete `<cname>.scope-sources.json`
+  too. EW-D33's planned `<cname>.sidecars.json` joins the same list when it is built.
 
 ### Other
 
 - **`internal/render/configkeys.go:165-170`**: `brokered` stays not applicable at `yolo host`.
-  Rewrite the reason, which cites `BrokeredWidening`.
+  `yolo host apply` reads user scope only (`apply.go:336`, `:744`), where `brokered` is now
+  refused, so rewrite the reason to say so; it cites `BrokeredWidening`.
 - **`internal/loopholedecl/brokered.go:25-27` and `:43-46`**: the comments say "user config".
-- **`internal/cli/gh.go:32-33`**: the `--help` text.
+- **`internal/cli/gh.go:27-33`**: the `--help` text, which says the scope is *this workspace's own
+  GitHub repositories*.
+- **`packs/github/pack.json:13`** and **`manifest.jsonc:14`**: *"only against this workspace's own
+  GitHub repositories"*.
+- **`internal/cli/check/brokeredscope.go:45`**: `describeRepos` prints the empty case as *"none
+  (no remote on the forge)"*.
+- **Comments** naming the old scope: `brokerscope/file.go:17-22`, `ghbroker/daemon.go:131`,
+  `run/runcmd.go:241-244`.
 - **`internal/cli/config_ref.txt:374-410`**: the whole `brokered` entry.
 - **`packs/github/loopholes/github-broker/manifest.jsonc:31-38`**: the comment.
 - **`packs/github/briefing/gh.md`**: the new bullet goes after the exit-64 bullet.
 - **`internal/jailcontent/builtinskills/configuring-the-jail/SKILL.md:42-46`**: the contrast line.
+  **And `:55`**, which calls `yolo-jail.local.jsonc` *"gitignored"*; yolo appends only `.yolo/` to
+  `.gitignore` (`init.go:83-90`). Rewrite to *conventionally untracked; yolo does not git-ignore
+  it*, and pin it in the skill test.
+- **The same false claim**: `internal/cli/apply.go:1398` and `:1431` (the `--sealed` refusal says
+  *"(it is gitignored, machine-local)"*), and `internal/cli/config_ref.txt:167`, `:173`, `:196`.
 
 ## Tests that pin today's behavior
 
@@ -221,7 +255,12 @@ One test for each of these behaviors:
   reach this launch's broker.
 - **User-scope refusal:** a user-scope `repos` is refused.
 - **Source changes:** a source change asks, and so does a second source for an approved repository.
-- **Upgrade:** no sources record and an unchanged set records sources without asking.
+- **Upgrade:** no sources record, an unchanged set and only remotes records sources without
+  asking; a repository an entry lists asks.
+- **Strict gate read:** a file made unparseable after the launch's read refuses at the gate.
+- **Duplicate keys:** two `brokered` objects in one file fail validation, naming the key.
+- **No launch warning:** a launch with no pack brokering the source prints no `brokered` line;
+  host `yolo check` warns.
 - **Escaping:** an include whose name holds an escape sequence renders escaped in the block, the
   decline lines and the launch line.
 - **Containment:** a `brokered` key reached through `../` or a symlink outside the workspace is
