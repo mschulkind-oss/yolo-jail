@@ -31,18 +31,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
-// scratchRebaseLocks is the store a scratch rebase takes its rebase directory lock in: a directory
-// of this user's under the temporary directory, which every terminal of a jail, or of the host,
-// shares, so a second scratch rebase into one clone directory is refused as the keyed verb's second
-// run is, and nothing is written in yolo's state directory. A var so a test can place it.
-var scratchRebaseLocks = func() (*packsrc.Store, error) {
-	dir := filepath.Join(os.TempDir(), fmt.Sprintf("yolo-rebase-locks-%d", os.Getuid()))
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, err
-	}
-	return &packsrc.Store{Dir: dir}, nil
-}
-
 // packRebaseScratch is `yolo pack rebase … --pack <dir>`. See the file doc.
 func packRebaseScratch(ra rebaseArgs, args []string, out, errw io.Writer, color bool) int {
 	packDir, rc := rebasePackDir(ra, errw)
@@ -74,12 +62,8 @@ func packRebaseScratch(ra rebaseArgs, args []string, out, errw io.Writer, color 
 	if rc != 0 {
 		return rc
 	}
-	locks, err := scratchRebaseLocks()
-	if err != nil {
-		fmt.Fprintf(errw, "yolo pack rebase: the rebase directory lock: %v — set TMPDIR to a directory of yours\n", err)
-		return 1
-	}
-	unlock, rc, proceed := claimRebaseDir(pr, errw, locks, f, origin, dir, ra, args, site)
+	// No pack store behind it: the clone's own git reads are the default git's.
+	unlock, rc, proceed := claimRebaseDir(pr, errw, &packsrc.Store{}, f, origin, dir, ra, args, site)
 	if !proceed {
 		return rc
 	}
@@ -179,7 +163,7 @@ func rebasePackDir(ra rebaseArgs, errw io.Writer) (string, int) {
 			"pack's pack.json\n", abs)
 		return "", 1
 	}
-	if config.InJail() && !inJailWorkspace(abs) {
+	if notTheHostsCopy(abs) {
 		fmt.Fprintf(errw, "yolo pack rebase: --pack %s is outside this jail's workspace %s, and in a jail it reads "+
 			"only a pack inside the workspace, the host's own copy of it — run `%s` in a terminal on the host\n",
 			abs, config.JailWorkspace(), rebaseHostLine(ra))

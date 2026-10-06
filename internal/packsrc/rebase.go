@@ -183,7 +183,7 @@ func RebaseExportGuard(dir, target, applied string, quote func(string) string) s
 }
 
 // TryLockRebaseDir takes the REBASE DIRECTORY LOCK (a term coined here) for the rebase clone at
-// dir, an exclusive flock in the pack store keyed by the path, without waiting: held is true when
+// dir, an exclusive flock in s's locks directory keyed by the path, without waiting: held is true when
 // another process holds it. `yolo pack rebase` holds it from the inspection of its directory to its
 // end, so a second run on the same directory — a second terminal — neither takes the first run's
 // clone, half made, for its own nor removes it. dir should be resolved, so two spellings of one
@@ -193,7 +193,7 @@ func (s *Store) TryLockRebaseDir(dir string) (unlock func(), held bool, err erro
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, false, err
 	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0o600) // never through a planted link (PF-D73)
 	if err != nil {
 		return nil, false, err
 	}

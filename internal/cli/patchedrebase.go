@@ -270,13 +270,19 @@ func packRebase(args []string, out, errw io.Writer, color bool) int {
 }
 
 // claimRebaseDir is step 2, the clone's directory settled before anything reaches the network, and
-// held: the rebase directory lock, taken in locks' store, keeps a second run on it (another
-// terminal) from taking this run's clone, half made, for its own, or removing it. It says what dir
-// holds and acts on it: proceed is false when the verb ends here, with rc its exit status (a
-// directory it must not touch, or its own clone, whose next steps it prints again); otherwise the
-// caller defers unlock.
-func claimRebaseDir(pr richtext.Printer, errw io.Writer, locks *packsrc.Store, f packload.Fork, origin forkPackOrigin,
+// held: the rebase directory lock, taken where every rebase takes it, keyed or scratch
+// (rebaseDirLocks, PF-D73), keeps a second run on it (another terminal) from taking this run's
+// clone, half made, for its own, or removing it. It says what dir holds and acts on it: proceed is
+// false when the verb ends here, with rc its exit status (a directory it must not touch, or its own
+// clone, whose next steps it prints again); otherwise the caller defers unlock. store runs the git
+// that reads a clone already there.
+func claimRebaseDir(pr richtext.Printer, errw io.Writer, store *packsrc.Store, f packload.Fork, origin forkPackOrigin,
 	dir string, ra rebaseArgs, args []string, site rebaseSite) (unlock func(), rc int, proceed bool) {
+	locks, err := rebaseDirLocks()
+	if err != nil {
+		fmt.Fprintf(errw, "yolo pack rebase: the rebase directory lock: %v — %s\n", err, rebaseLockStep)
+		return nil, 1, false
+	}
 	unlock, held, err := locks.TryLockRebaseDir(resolveExistingPrefix(dir))
 	switch {
 	case err != nil:
@@ -300,7 +306,7 @@ func claimRebaseDir(pr richtext.Printer, errw io.Writer, locks *packsrc.Store, f
 			"directory with --into <dir>\n", dir, marker.Owner, f.Key())
 		return nil, 1, false
 	case state == packsrc.RebaseDirClone && !ra.restart:
-		for _, line := range ownCloneLines(locks, f, origin, dir, marker, rebaseRestartLine(ra, args), site) {
+		for _, line := range ownCloneLines(store, f, origin, dir, marker, rebaseRestartLine(ra, args), site) {
 			pr.Printf("%s", line)
 		}
 		unlock()

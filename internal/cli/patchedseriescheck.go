@@ -32,6 +32,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
@@ -61,7 +62,8 @@ var patchedScratchStore = func(dir string) *packsrc.Store {
 func scratchPatchedStore(packRoot string) (*packsrc.Store, func(), error) {
 	tmp, err := os.MkdirTemp("", "yolo-series-scratch-")
 	if err != nil {
-		return nil, nil, fmt.Errorf("making a scratch copy of the upstream: %w", err)
+		return nil, nil, fmt.Errorf("making a scratch copy of the upstream: %w — set TMPDIR to a writable directory "+
+			"(or unset it to use /tmp)", err)
 	}
 	remove := func() { _ = os.RemoveAll(tmp) }
 	resolved := resolveExistingPrefix(tmp)
@@ -390,7 +392,7 @@ func scratchRebaseStep(f packload.Fork, packDir string, e packsrc.ListEntry) str
 	if ref == "" {
 		ref = e.Commit
 	}
-	if config.InJail() && !inJailWorkspace(packDir) {
+	if notTheHostsCopy(packDir) {
 		return "rebase the series on the host: " + shquote.JoinDisplay([]string{"yolo", "pack", "rebase", f.Key(),
 			"--onto", ref})
 	}
@@ -402,4 +404,16 @@ func scratchRebaseStep(f packload.Fork, packDir string, e packsrc.ListEntry) str
 // resolved, so a link to it, or a darwin temporary directory, compares as the directory it is.
 func inJailWorkspace(p string) bool {
 	return underOrEqual(resolveExistingPrefix(p), resolveExistingPrefix(config.JailWorkspace()))
+}
+
+// jailMountsItsOwnFiles reports whether a jail process sees a mount namespace of its own, where only
+// the workspace is the host's own copy: true in a container, false in a macos-user sandbox (an
+// in-jail process on darwin), which has no mount namespace and no /workspace, so every path it can
+// read is the host's own file (PF-D74). A var so a test can be a macos-user sandbox.
+var jailMountsItsOwnFiles = func() bool { return goruntime.GOOS != "darwin" }
+
+// notTheHostsCopy reports whether p, read here, may not be the host's own copy of it, so a scratch
+// act may not write the host's pack from it: in a container jail, any path outside its workspace.
+func notTheHostsCopy(p string) bool {
+	return config.InJail() && jailMountsItsOwnFiles() && !inJailWorkspace(p)
 }
