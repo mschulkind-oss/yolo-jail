@@ -58,6 +58,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/setupcensus"
 )
 
 // backendInertReason says why a backend runs NO loophole host service, or "" when it does.
@@ -395,13 +396,12 @@ func (o *Options) noteMacosUserHostByteGaps(delivery macosCtxDelivery) {
 	for _, p := range delivery.undeliveredDirs {
 		named = append(named, "~/"+p)
 	}
-	o.pr(o.Stderr).print("[yellow]Warning: a host_files entry whose `source` is a DIRECTORY " +
-		"does not cross on macos-user[/yellow] — " + strings.Join(named, ", ") + ". This " +
-		"backend has no bind mounts, so host bytes arrive by COPY, and a copy does not " +
-		"scale to an arbitrary tree. Single FILE entries are delivered normally; split the " +
-		"directory into the files you need, or use the Apple Container runtime " +
-		"(runtime: \"container\"), which binds it read-only from Apple Container " +
-		acROBindsFloor + " (older versions skip it with a warning).")
+	// The words are the setup census's (internal/setupcensus): the cell that says this backend
+	// warns is the cell this line is read from. Its body names Apple Container's read-only bind
+	// floor, which TestMacosUserDirHostFileWarningQualifiesTheAppleContainerFloor holds to
+	// acROBindsFloor.
+	o.pr(o.Stderr).print(setupcensus.Warning(setupcensus.MacosUser, "host_files.directory_source").
+		Line(strings.Join(named, ", ")))
 }
 
 // noteMacosUserPlatformGaps names the three PLATFORM keys this backend reads nowhere:
@@ -429,28 +429,24 @@ func (o *Options) noteMacosUserHostByteGaps(delivery macosCtxDelivery) {
 // ONE LINE PER DECLARED KEY, and none for a key the config never mentions — so a user who
 // declares nothing sees nothing, which is what keeps this from being the warning
 // OQ-BP-3 says people learn to skip.
+//
+// THE WORDS ARE THE SETUP CENSUS'S (internal/setupcensus, OQ-BP-1: "the macos-user notice block
+// reads it"). Each line is the Notice of the cell that marks its key Warned here, so the table
+// decides what this backend says, and a cell edited there is a line edited here. What stays in
+// this function is the user's half: whether the key is declared, and which entries to name.
 func (o *Options) noteMacosUserPlatformGaps(cfg *jsonx.OrderedMap) {
 	out := o.pr(o.Stderr)
 
 	if devs := cfgList(cfg, "devices"); len(devs) > 0 {
-		out.print("[yellow]Warning: `devices` is not read on macos-user[/yellow] — " +
-			strings.Join(deviceLabels(devs), ", ") + ". Device passthrough attaches a host " +
-			"device to a CONTAINER, and this backend starts none; the sandboxed process " +
-			"reaches devices under ordinary macOS permissions instead, so yolo neither " +
-			"attaches nor restricts anything here.")
+		out.print(setupcensus.Warning(setupcensus.MacosUser, "devices").Line(strings.Join(deviceLabels(devs), ", ")))
 	}
 
 	if gpuSec := cfgMap(cfg, "gpu"); gpuSec != nil && mapBoolOr(gpuSec, "enabled", false) {
-		out.print("[yellow]Warning: `gpu.enabled` is not read on macos-user[/yellow] — " +
-			"GPU passthrough is a CDI device plus NVIDIA/ROCm environment on a container, " +
-			"and this backend starts none. yolo passes nothing through and gates nothing; " +
-			"whatever the sandboxed process can reach through macOS, it reaches.")
+		out.print(setupcensus.Warning(setupcensus.MacosUser, "gpu").Line(""))
 	}
 
 	if cfgTrue(cfg, "kvm") {
-		out.print("[yellow]Warning: `kvm` is not read on macos-user[/yellow] — it asks for " +
-			"/dev/kvm inside a container, and there is neither a container nor a /dev/kvm " +
-			"on macOS.")
+		out.print(setupcensus.Warning(setupcensus.MacosUser, "kvm").Line(""))
 	}
 }
 
@@ -507,12 +503,10 @@ func (o *Options) noteMacosUserPortKeys(cfg *jsonx.OrderedMap) {
 	}
 	out := o.pr(o.Stderr)
 
+	// The headline and body are the setup census's notices (noteMacosUserPlatformGaps says why);
+	// the remap sentence after each is this function's, since it reads the entries themselves.
 	if ports := asAnyList(mapGet(netSec, "ports")); len(ports) > 0 {
-		msg := "[yellow]Warning: `network.ports` is not honored on macos-user[/yellow] — " +
-			strings.Join(portLabels(ports), ", ") + ". The sandbox runs on the launcher's " +
-			"own network stack, so a port it binds IS published on this machine's real " +
-			"interfaces — listed here or not. Nothing is mapped and nothing is confined " +
-			"to a bind address."
+		msg := setupcensus.Warning(setupcensus.MacosUser, "network.ports").Line(strings.Join(portLabels(ports), ", "))
 		if remapped := remappedPorts(ports); len(remapped) > 0 {
 			msg += " " + strings.Join(remapped, ", ") + " asks for a port REMAP, which " +
 				"needs a second stack to land on and cannot be delivered at all: the " +
@@ -522,10 +516,7 @@ func (o *Options) noteMacosUserPortKeys(cfg *jsonx.OrderedMap) {
 	}
 
 	if fwd := asAnyList(mapGet(netSec, "forward_host_ports")); len(fwd) > 0 {
-		msg := "[yellow]Warning: `network.forward_host_ports` is not honored on " +
-			"macos-user[/yellow] — " + strings.Join(portLabels(fwd), ", ") + ". There is " +
-			"no hop to make: the sandbox is already on this machine's stack, so " +
-			"`localhost:<port>` inside it is this machine's port."
+		msg := setupcensus.Warning(setupcensus.MacosUser, "network.forward_host_ports").Line(strings.Join(portLabels(fwd), ", "))
 		if remapped := remappedPorts(fwd); len(remapped) > 0 {
 			msg += " " + strings.Join(remapped, ", ") + " asks for a port REMAP, which " +
 				"needs a second loopback to land on and is not delivered."

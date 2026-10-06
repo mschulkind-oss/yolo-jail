@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -114,6 +115,40 @@ func discloseImplicitProviderForwards(warn func(string), declared []any, sources
 				"so the jail reaches the service on YOUR machine at the same port",
 			src.Port, src.Provider))
 	}
+}
+
+// appleContainerForwardRefusal is the launch's refusal of a declared `network.forward_host_ports`
+// on Apple Container, or "" when there is nothing to refuse.
+//
+// THERE IS NO FORWARD TO DELIVER THERE, so the choice was never between a forward and a warning.
+// The key asks for a path from the jail to a service on this Mac, and Apple Container 1.1.0
+// carries no traffic from a container back to the Mac (backend-parity.md §5.5); the one flag it
+// has near this, `--publish-socket host:container`, forwards a HOST connection inward, the
+// opposite direction. Emitting it anyway failed the launch inside `container run`, after the
+// host-side socat had created the socket the flag names, with an error naming that socket and
+// not the key (measured 2026-09-16). Refusing here keeps the same outcome, a launch that does
+// not start, and makes it yolo's: before any host process starts, naming the key, each entry
+// and the two ways on. That is the setup census's `Refused` cell for this key
+// (internal/setupcensus), which before this read as a refusal nobody made.
+//
+// Read through hostForwardPorts, the one predicate both halves of a forward read, so an unhonored
+// `network.mode: "host"` (appliedNetMode answers bridge on this backend) still refuses. A sealed
+// build forwards nothing (seal.go), so it has nothing to refuse. The implicit forwards a
+// localhost provider asks for are not this key, and are not refused here.
+func (o *Options) appleContainerForwardRefusal(rt string, cfg *jsonx.OrderedMap) string {
+	if rt != "container" || o.Sealed { // parity: Refused — Apple Container carries no container-to-Mac traffic and its --publish-socket forwards the other way, so a declared forward refuses the launch naming the key
+		return ""
+	}
+	fwd := o.hostForwardPorts(cfg, rt)
+	if len(fwd) == 0 {
+		return ""
+	}
+	return "[bold red]Refusing to launch: `network.forward_host_ports` cannot be delivered on " +
+		"Apple Container[/bold red] — " + strings.Join(portLabels(fwd), ", ") + ". A forward lets " +
+		"the jail reach a service on this Mac, and Apple Container carries no traffic from a " +
+		"container back to the Mac; its own --publish-socket forwards the other way, so " +
+		"`container run` would reject the launch. Remove `network.forward_host_ports` from your " +
+		"config for this runtime, or launch with YOLO_RUNTIME=podman, which forwards it."
 }
 
 // mergeHostForwards appends implicit localhost-provider forwards to the user's

@@ -210,8 +210,8 @@ if yolo says the runtime is not running, run `container system start` again.
 > [!IMPORTANT]
 > **Apple Container does not run yolo's host services yet.** A host service is a helper yolo runs on
 > your Mac for the jail, such as the one that keeps a shared Claude login fresh. So on this runtime,
-> two jails sharing one Claude login can log each other out, `codex` and `pi` cannot use a ChatGPT
-> subscription login, and published ports do not work. If you need any of these, use Podman.
+> two jails sharing one Claude login can log each other out, and `codex` and `pi` cannot use a
+> ChatGPT subscription login. If you need either, use Podman.
 > [What Apple Container does not do →](guides/macos.md#apple-container-runtime-container--what-it-does-not-do)
 
 ### macOS: Podman

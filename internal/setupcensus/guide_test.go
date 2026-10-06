@@ -4,8 +4,10 @@ package setupcensus
 // "checked against the table or generated from it"; checked, for the reason
 // docs/design/backend-parity.md's BP-D18 gives). The page is prose for a user, at a finer grain
 // than the census and with footnotes the census does not hold, so it is not generated. What the
-// check pins is the part the two must agree on: every key and kind has a row, every row naming
-// one is claimed by the census, and each claimed cell's answer is the census's disposition.
+// check pins is the part the two must agree on: every key's own census entry claims a row that
+// names it, every row naming a key or kind is claimed by the census, each claimed cell's answer
+// is the census's disposition, a silent or refusing answer off the reference setup is a census
+// cell of its own, and no page repeats a claim the census contradicts.
 //
 // HOW A CELL IS READ. A guide cell answers in the page's own vocabulary — "works", "absent,
 // warns", "absent, silent", "refuses", "n/a" — and often says more than one thing ("works on
@@ -37,6 +39,10 @@ type guideRow struct {
 }
 
 var footnoteRef = regexp.MustCompile(`\[\^[^\]]+\]`)
+
+// refuses is a cell saying the launch refuses: "refuses", "refuse the launch", never "refused
+// by OS", which is a device the setup declines, not a launch that stops.
+var refuses = regexp.MustCompile(`\brefuses?\b`)
 
 // setupColumn maps a header cell to its setup: the four headers, backticks and spaces removed.
 func setupColumn(header string) (Setup, bool) {
@@ -131,7 +137,7 @@ func guideClasses(cell string) map[Disposition]bool {
 	if has("silent", "inert") {
 		out[Dropped] = true
 	}
-	if has("refuse", "stops the launch", "breaks the launch") {
+	if refuses.MatchString(c) || has("stops the launch", "breaks the launch") {
 		out[Refused] = true
 	}
 	if has("n/a") {
@@ -273,39 +279,94 @@ func TestEveryGuideRowNamingAKeyOrKindIsClaimed(t *testing.T) {
 	}
 }
 
-// TestEveryKeyAndKindHasAGuideRow: the page's summary says it covers every config key and pack
-// kind, so a key with no claimed row is a key the guide leaves out. A KIND with none is covered
-// by the pack section's sentence that every kind it does not list "is delivered on all four
-// setups", so such a kind must work on all four, or the sentence is false.
-func TestEveryKeyAndKindHasAGuideRow(t *testing.T) {
-	claimed := map[string]bool{}
-	for _, c := range claims() {
-		claimed[strings.SplitN(c.subject, ".", 2)[0]] = true
+// backticked is every backticked span of a guide label.
+var backticked = regexp.MustCompile("`([^`]+)`")
+
+// rowNames reports whether a guide row's label names a key or kind: one of its backticked spans,
+// cut as leadingName cuts it, is the name. So `host_management`, `host_wrappers`,
+// `host_apply_on_launch` names all three, and `network.mode: "bridge"` names network.
+func rowNames(label, name string) bool {
+	for _, m := range backticked.FindAllStringSubmatch(label, -1) {
+		span := m[1]
+		if i := strings.IndexAny(span, ".: "); i >= 0 {
+			span = span[:i]
+		}
+		if span == name {
+			return true
+		}
 	}
+	return false
+}
+
+// ownRowNaming reports whether the entry's OWN Guide list (not an aspect's) claims a row of the
+// guide that names name. An aspect's row checks the aspect's cells; the parent's cells are
+// checked against the parent's rows alone, so a parent with none is checked against nothing.
+func ownRowNaming(rows []guideRow, e Entry, name string) bool {
+	for _, l := range e.Guide {
+		for _, r := range rowsFor(rows, l) {
+			if rowNames(r.label, name) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// TestEveryKeyAndKindHasAGuideRow: the page's summary says it covers every config key and pack
+// kind, so a key whose own census entry claims no row NAMING it is a key the guide leaves out,
+// or one whose cells the guide check compares with a row about something else. A KIND with none
+// is covered by the pack section's sentence that every kind it does not list "is delivered on
+// all four setups", so such a kind's own cells must work on all four, or the sentence is false.
+// Both are read from the entry's own Guide list: an aspect's row says what the aspect does, and
+// never vouches for its parent (program's own cells are not program.patches' row).
+func TestEveryKeyAndKindHasAGuideRow(t *testing.T) {
+	rows := guideRows(t)
 	var missing []string
 	for _, k := range config.TopLevelConfigKeys() {
-		if !claimed["config key "+k] {
+		if e, _ := ConfigKey(k); !ownRowNaming(rows, e, k) {
 			missing = append(missing, k)
 		}
 	}
 	sort.Strings(missing)
 	if len(missing) > 0 {
-		t.Errorf("config keys with no row in %s: %v — add a row naming each to one of its "+
-			"per-setup tables, and name the row in the key's census entry (Guide)", guideRel, missing)
+		t.Errorf("config keys whose census entry claims no row of %s naming them: %v — add a row "+
+			"naming each to one of the page's per-setup tables (a row may name several keys), and "+
+			"name that row in the key's own census entry (Guide)", guideRel, missing)
 	}
 	for _, k := range packdecl.KnownKinds() {
-		if claimed["pack kind "+string(k)] {
+		e, _ := Kind(k)
+		if ownRowNaming(rows, e, string(k)) {
 			continue
 		}
-		e, _ := Kind(k)
 		for _, s := range Setups() {
 			if c := e.Cell(s); !c.Disposition.Works() {
-				t.Errorf("pack kind %s is %s on %s (%s), and %s lists it in no row, so its "+
-					"sentence that every unlisted kind is delivered on all four setups is false: "+
-					"add a row to the pack table and name it in the kind's census entry",
-					k, c.Disposition, s, c.Reason, guideRel)
+				t.Errorf("pack kind %s is %s on %s (%s), and its census entry claims no row of %s "+
+					"naming it, so the page's sentence that every unlisted kind is delivered on all "+
+					"four setups is false: add a row to the pack table and name it in the kind's own "+
+					"census entry", k, c.Disposition, s, c.Reason, guideRel)
 			}
 		}
+	}
+}
+
+func TestRowNamesReadsBacktickedNames(t *testing.T) {
+	for label, want := range map[string][]string{
+		"`host_management`, `host_wrappers`, `host_apply_on_launch`": {"host_management", "host_apply_on_launch"},
+		"`network.mode: \"bridge\"` (default)":                       {"network"},
+		"`programs: { autoprune: true }`":                            {"programs"},
+		"`profile` † / `-p <name>`, a list for pi":                   {"profile"},
+	} {
+		for _, name := range want {
+			if !rowNames(label, name) {
+				t.Errorf("rowNames(%q, %q) = false, want true", label, name)
+			}
+		}
+	}
+	if rowNames("`loophole` — a host service", "loopholes") {
+		t.Error("rowNames matched loopholes in a row that names only the loophole kind")
+	}
+	if rowNames("`include_if_found`", "prune") {
+		t.Error("rowNames matched a key the row does not name")
 	}
 }
 
@@ -322,6 +383,8 @@ func TestGuideClassesReadsThePagesVocabulary(t *testing.T) {
 		"**breaks the launch — measured**":                   {Refused},
 		"not delivered, and the launch says where it is":     {Warned},
 		"absent, warns — runs bridged; port keys still work": {Warned},
+		"absent, warns — refused by OS, never probed":        {Warned},
+		"works — elsewhere refuses the launch":               {Honored, HonoredBy, Refused},
 	} {
 		got := guideClasses(cell)
 		if len(got) != len(want) {
@@ -333,5 +396,115 @@ func TestGuideClassesReadsThePagesVocabulary(t *testing.T) {
 				t.Errorf("guideClasses(%q) = %v, want %v", cell, got, want)
 			}
 		}
+	}
+}
+
+// TestEverySilentOrRefusingGuideAnswerIsACensusCell is the leniency's limit. A guide cell may
+// give several answers, and the census need give only one of them, which is right for a
+// QUALIFICATION ("works on 1.1.0+; older: absent, warns") and wrong for a sub-mechanism that
+// parts from its key: the guide's "home-root files shared, silent" beside "works under
+// ~/.config" is a silent drop with no census cell, and the lenient check reads it as agreement
+// because the same cell also says "works". So the two answers the ruling exists for, a silent
+// drop and a refused launch, must each be a census cell on that row and setup — the entry's
+// own, or an aspect's claiming the same row (BP-D17).
+//
+// Two kinds of answer are exempt, both because they are not a setup parting from its key. A
+// cell that qualifies a version or a value (below a version floor; a request clipped to a VM's
+// size) qualifies the setup's support, not its mechanism. And podman on Linux is the reference
+// the census measures the others against ("Everything in this guide works here"), so a refusal
+// in its column is the key's own (an unbuildable package, a `-p` nothing provides, a notch not
+// built), which the other columns share and the key's cell already states.
+func TestEverySilentOrRefusingGuideAnswerIsACensusCell(t *testing.T) {
+	rows := guideRows(t)
+	byRow := map[int][]claim{}
+	for _, c := range claims() {
+		if got := rowsFor(rows, c.label); len(got) == 1 {
+			byRow[got[0].line] = append(byRow[got[0].line], c)
+		}
+	}
+	for _, r := range rows {
+		cs := byRow[r.line]
+		if len(cs) == 0 {
+			continue
+		}
+		for _, s := range Setups() {
+			cell := r.cells[s]
+			if s == PodmanLinux || qualified.MatchString(cell) {
+				continue
+			}
+			for _, d := range []Disposition{Dropped, Refused} {
+				if !guideClasses(cell)[d] {
+					continue
+				}
+				found := false
+				var have []string
+				for _, c := range cs {
+					have = append(have, c.subject+"="+c.entry.Cell(s).Disposition.String())
+					if c.entry.Cell(s).Disposition == d {
+						found = true
+					}
+				}
+				if !found {
+					t.Errorf("%s:%d (%s) on %s says %q, and no census cell claiming the row is %s "+
+						"there (%s): give the sub-mechanism that parts from its key an aspect "+
+						"(BP-D17) claiming this row, or fix the guide cell", guideRel, r.line,
+						r.label, s, cell, d, strings.Join(have, ", "))
+				}
+			}
+		}
+	}
+}
+
+// qualified spots a cell that qualifies its answer by a backend version or by a value's size.
+var qualified = regexp.MustCompile(`\d+\.\d+\.\d+\+|below|older:|clipped`)
+
+// contradictedClaims are sentences the user guide has carried that a census cell now
+// contradicts, each saying the cell's mechanism does not work there. The per-setup page's tables
+// are checked cell by cell above, but its footnotes and every other page of the guide are
+// prose, and a correction made in one table cell left four pages still giving the old answer
+// (network.ports on Apple Container, corrected 2026-10-05). An entry stays while the census
+// still contradicts it, so the old sentence cannot come back on any page.
+var contradictedClaims = []struct {
+	path   string
+	setup  Setup
+	phrase string
+}{
+	{"network.ports", AppleContainer, "published ports do not work"},
+	{"network.ports", AppleContainer, "carries no data"},
+	{"network.ports", AppleContainer, "accepted and inert"},
+}
+
+func TestNoUserGuidePageMakesAClaimTheCensusContradicts(t *testing.T) {
+	root := filepath.Join(repoRoot(t), "userguide")
+	for _, c := range contradictedClaims {
+		if e, ok := Find(c.path); !ok || !e.Cell(c.setup).Disposition.Works() {
+			t.Errorf("contradictedClaims lists %q for %s on %s, which the census no longer says "+
+				"works: drop the entry", c.phrase, c.path, c.setup)
+		}
+	}
+	err := filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".md") {
+			return err
+		}
+		raw, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(repoRoot(t), p)
+		for i, line := range strings.Split(string(raw), "\n") {
+			low := strings.ToLower(line)
+			for _, c := range contradictedClaims {
+				if strings.Contains(low, c.phrase) {
+					e, _ := Find(c.path)
+					t.Errorf("%s:%d says %q of %s on %s, and the census says %s there — %s",
+						rel, i+1, c.phrase, c.path, c.setup, e.Cell(c.setup).Disposition,
+						e.Cell(c.setup).Reason)
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }

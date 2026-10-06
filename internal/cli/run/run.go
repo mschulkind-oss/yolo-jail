@@ -1752,6 +1752,15 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		lock.Close()
 		return 1
 	}
+	// A declared forward_host_ports on Apple Container, which that backend cannot deliver and
+	// whose argv `container run` rejects: refused here, naming the key, rather than there,
+	// naming a socket the host-side socat below would already have made (hostports.go).
+	if msg := o.appleContainerForwardRefusal(rt, cfg); msg != "" {
+		o.pr(o.Stderr).print(msg)
+		discardUnheldSkeleton(cname, in.homeSkeleton)
+		lock.Close()
+		return 1
+	}
 
 	// THE SEVENTH bespoke pre-flight (docs/reference/providers.md#the-credential-preflight, #pv-oq-13), at the
 	// one point in the pipeline where the assembled launch environment exists to check it

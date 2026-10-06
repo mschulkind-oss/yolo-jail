@@ -71,19 +71,21 @@ var kinds = map[packdecl.Kind]Entry{
 			"patches": {
 				PodmanLinux: honored("the fork is built in a capture jail and seeded from the " +
 					"store (internal/cli/run forkbuild.go)"),
-				PodmanMac: honored("the same capture build (forkbuild.go)"),
+				PodmanMac: honored("the same capture build (internal/cli/run forkbuild.go)"),
 				AppleContainer: honored("the same build from Apple Container 1.1.0, waiting for " +
 					"the other jails to stop; below it forkbuild.go's roBindsUnsupported gate " +
 					"builds nothing and each fork's launcher prints why"),
-				MacosUser: warned("noteMacosUserForks (internal/cli/run run.go's macos-user " +
-					"arm) names each fork and a container backend's launch that has it (FP-D3)"),
+				MacosUser: warned("noteMacosUserForks (internal/cli/run forkbuild.go), called from " +
+					"run.go's macos-user arm, names each fork and a container backend's launch that " +
+					"has it (FP-D3)"),
 				Guide: []string{"`program` with `patches`"},
 			},
 		},
 	},
 	packdecl.KindSkills: {
-		PodmanLinux: honored("assembleRunCmd's skills loop binds each staged tree read-only at " +
-			"its destination (packSkillTargets, internal/cli/run assemble.go)"),
+		PodmanLinux: honored("assembleRunCmd's skills loop (internal/cli/run assemble.go) binds " +
+			"each staged tree read-only at its destination (packSkillTargets, " +
+			"internal/cli/run prepare.go)"),
 		PodmanMac: honored("the same read-only binds (packSkillTargets)"),
 		AppleContainer: honored("the same read-only binds, with no branch for this backend " +
 			"(packSkillTargets); below Apple Container 1.1.0 the suffix is ignored and the " +
@@ -121,8 +123,9 @@ var kinds = map[packdecl.Kind]Entry{
 				AppleContainer: honored("the same from Apple Container 1.1.0, a build waiting " +
 					"for the other jails; below it patchedtrees.go builds nothing and copies a " +
 					"good build already on this machine"),
-				MacosUser: warned("noteMacosUserTrees (internal/cli/run run.go's macos-user " +
-					"arm) names each tree it does not deliver (FP-D3's shape)"),
+				MacosUser: warned("noteMacosUserTrees (internal/cli/run patchedtrees.go), called " +
+					"from run.go's macos-user arm, names each tree it does not deliver (FP-D3's " +
+					"shape)"),
 				Guide: []string{"`files` with `source` and `patches`"},
 			},
 		},

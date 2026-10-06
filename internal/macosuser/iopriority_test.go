@@ -41,14 +41,14 @@ func TestMacosUserResourcesLineLeavesOutANormalIo(t *testing.T) {
 		}
 		res.Set("memory", "8g")
 		line := resourcesLine(t, res)
-		if !strings.Contains(line, "so memory are read") || strings.Contains(line, "io, memory") {
+		if !strings.Contains(line, "— memory.") {
 			t.Errorf("io=%v beside memory: %q, want memory named and io left out", normal, line)
 		}
 	}
 	for _, declared := range []string{"low", "idle"} {
 		res := jsonx.NewOrderedMap()
 		res.Set("io", declared)
-		if line := resourcesLine(t, res); !strings.Contains(line, "so io are read") {
+		if line := resourcesLine(t, res); !strings.Contains(line, "— io.") {
 			t.Errorf("io=%q must be named: %q", declared, line)
 		}
 	}

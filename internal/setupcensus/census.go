@@ -32,6 +32,15 @@
 // says the same thing in the user's words. Where the code could not settle a cell, the
 // reason says "unverified" and says what would settle it, rather than guessing.
 //
+// THE NOTICE IS FOR THE USER, AND THE LAUNCH READS IT. A Warned cell asserts a launch line, and
+// on macos-user, and for Apple Container's cache_relocations, the cell also holds that line
+// (Notice): the printers that say it read their words from here at run time (Warning), so the
+// table decides what a launch prints, the ruling's "the macos-user notice block reads it"
+// (OQ-BP-1). The reason stays a maintainer's: the notice is a separate field because the two
+// are written for different readers, which is why render's host census prints no reason
+// either. A Notice names its printer (By), and each printing package's tests drive every
+// notice it owns through its call site.
+//
 // WHAT IT CANNOT CATCH is §4's list, unchanged: a mechanism that emits an argv the backend
 // then fails to run is a cell that reads Honored and is wrong. internal/cli/run's
 // backendparity_test.go stays beside this table for the code sites the table cannot see.
@@ -136,6 +145,62 @@ type Cell struct {
 	// Required for every cell, Honored ones included: a classification with no stated reason
 	// cannot be re-decided when its code moves (internal/config/inherit.go's argument).
 	Reason string
+	// Notice is the line a Warned cell's launch prints, for a printer that reads it from here.
+	// The zero Notice is none.
+	Notice Notice
+}
+
+// Notice is a Warned cell's launch line in the words the launch prints: a headline, the
+// entries the config declared (supplied by the printer, since they are the user's), then the
+// rest. Written for the user, as Reason is for a maintainer.
+type Notice struct {
+	// Says is the headline, printed as the warning: "`devices` is not read on macos-user".
+	Says string
+	// Then is the rest of the line, after the entries when the printer names any.
+	Then string
+	// By is the printer that reads this notice, as package.Identifier: a function, or a
+	// darwin boot step's name (`entrypoint.mcp_presets_declined`). The package's own tests
+	// drive every notice it owns through that printer's call site.
+	By string
+}
+
+// Line renders the notice for the entries a config declared ("" when the line names none), in
+// the launch printers' rich markup (internal/richtext): the headline as a yellow warning, then
+// the entries, then the rest.
+func (n Notice) Line(entries string) string {
+	return "[yellow]Warning: " + n.Says + "[/yellow]" + n.tail(entries)
+}
+
+// Plain is Line without markup, for a printer that writes raw text (the darwin bootstrap's).
+func (n Notice) Plain(entries string) string {
+	return "Warning: " + n.Says + n.tail(entries)
+}
+
+func (n Notice) tail(entries string) string {
+	var parts []string
+	if entries != "" {
+		parts = append(parts, entries+".")
+	}
+	if n.Then != "" {
+		parts = append(parts, n.Then)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return " — " + strings.Join(parts, " ")
+}
+
+// Warning is the notice a setup's Warned cell holds for a census path, the one call every
+// printer that reads the census makes. A path or cell with no notice still yields a true line,
+// naming the path and the setup, so a table edit cannot silence a printer at run time; the
+// tests fail on it first (census_test.go's notice tests, and each printer's own).
+func Warning(s Setup, path string) Notice {
+	if e, ok := Find(path); ok {
+		if n := e.Cell(s).Notice; n.Says != "" {
+			return n
+		}
+	}
+	return Notice{Says: "`" + path + "` is not honored on " + s.String()}
 }
 
 // Entry is one key's or kind's four cells.
@@ -250,13 +315,18 @@ func Paths() []string {
 
 // The constructors keep the tables readable: one call per cell, the disposition first.
 
-func honored(reason string) Cell   { return Cell{Honored, reason} }
-func honoredBy(reason string) Cell { return Cell{HonoredBy, reason} }
-func warned(reason string) Cell    { return Cell{Warned, reason} }
-func dropped(reason string) Cell   { return Cell{Dropped, reason} }
-func refused(reason string) Cell   { return Cell{Refused, reason} }
+func honored(reason string) Cell   { return Cell{Disposition: Honored, Reason: reason} }
+func honoredBy(reason string) Cell { return Cell{Disposition: HonoredBy, Reason: reason} }
+func warned(reason string) Cell    { return Cell{Disposition: Warned, Reason: reason} }
+func dropped(reason string) Cell   { return Cell{Disposition: Dropped, Reason: reason} }
+func refused(reason string) Cell   { return Cell{Disposition: Refused, Reason: reason} }
 func notApplicable(reason string) Cell {
-	return Cell{NotApplicable, reason}
+	return Cell{Disposition: NotApplicable, Reason: reason}
+}
+
+// warnedSaying is a Warned cell whose launch line its printer reads from here.
+func warnedSaying(reason string, n Notice) Cell {
+	return Cell{Disposition: Warned, Reason: reason, Notice: n}
 }
 
 // everywhere is an entry whose four cells are one cell: a key read before the backend

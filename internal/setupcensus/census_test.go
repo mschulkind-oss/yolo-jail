@@ -7,6 +7,11 @@ package setupcensus
 // fails the moment the schema grows: that is the call site this test pins.
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
@@ -237,5 +242,217 @@ func TestEveryPathResolves(t *testing.T) {
 	}
 	if _, ok := Find("resources.no_such_aspect"); ok {
 		t.Error("Find resolved an aspect the census does not have")
+	}
+}
+
+// noticePackages maps a Notice's By prefix to the package whose printer reads it. A printer
+// elsewhere is a reader no package's tests drive, so it is refused here until one does.
+var noticePackages = map[string]string{
+	"run":        "internal/cli/run",
+	"macosuser":  "internal/macosuser",
+	"entrypoint": "internal/entrypoint",
+}
+
+// TestEveryMacosUserWarnedKeyCarriesItsLine is the ruling's "the macos-user notice block reads
+// it" made total: every config key, and every aspect of one, that the census marks Warned on
+// macos-user holds the line its launch prints, so the printer reads its words from the table
+// and a Warned cell cannot stand without the line that makes it true. An aspect may lean on its
+// parent's line where the parent is Warned there with one, because that line names the aspect
+// among its entries (`resources.pids_limit` in the resources line). A pack KIND's line names
+// the pack's own item — a fork's program, an extension — which is not the census's to hold, so
+// a kind's Warned cell is routed to its printer by internal/cli/run's tests instead.
+func TestEveryMacosUserWarnedKeyCarriesItsLine(t *testing.T) {
+	for _, k := range ConfigKeys() {
+		e, _ := ConfigKey(k)
+		check := func(path string, c Cell, parent *Cell) {
+			if c.Disposition != Warned || c.Notice.Says != "" {
+				return
+			}
+			if parent != nil && parent.Disposition == Warned && parent.Notice.Says != "" {
+				return
+			}
+			t.Errorf("%s is Warned on macos-user (%s) and holds no Notice: give the cell the line "+
+				"its printer prints (warnedSaying), and have the printer read it with "+
+				"setupcensus.Warning", path, c.Reason)
+		}
+		check(k, e.MacosUser, nil)
+		for name, a := range e.Aspects {
+			check(k+"."+name, a.MacosUser, &e.MacosUser)
+		}
+	}
+}
+
+// TestEveryNoticeIsReadByItsPrinter: a notice sits on a Warned cell, says something, renders
+// cleanly through the launch printers' markup, and the printer its By names READS it — its body
+// calls setupcensus.Warning with this setup and this path — so the line a launch prints is the
+// table's and not a copy that agrees with it today. Each printing package's own tests then drive
+// the printer through its call site (internal/cli/run's setupcensusnotices_test.go,
+// internal/macosuser's setupcensus_test.go, internal/entrypoint's darwin tests).
+func TestEveryNoticeIsReadByItsPrinter(t *testing.T) {
+	root := repoRoot(t)
+	reads := map[string]map[string]bool{} // package dir -> "<By ident> <Setup> <path>" read
+	readsIn := func(pkg string) map[string]bool {
+		if r, ok := reads[pkg]; ok {
+			return r
+		}
+		r, err := censusReads(filepath.Join(root, pkg))
+		if err != nil {
+			t.Fatalf("parse %s: %v", pkg, err)
+		}
+		reads[pkg] = r
+		return r
+	}
+	seen := 0
+	eachCell(func(path string, s Setup, c Cell) {
+		n := c.Notice
+		if n == (Notice{}) {
+			return
+		}
+		seen++
+		where := path + " on " + s.String()
+		if c.Disposition != Warned {
+			t.Errorf("%s holds a Notice and is %s: only a Warned cell has a launch line", where, c.Disposition)
+		}
+		if n.Says == "" {
+			t.Errorf("%s holds a Notice with no headline", where)
+		}
+		if strings.ContainsAny(n.Says+n.Then, "[]") {
+			t.Errorf("%s's notice holds a bracket, which the launch printers read as markup: %q", where, n)
+		}
+		pkgName, ident, ok := strings.Cut(n.By, ".")
+		pkg := noticePackages[pkgName]
+		if !ok || pkg == "" {
+			t.Errorf("%s's notice names its printer %q: name it as one of %v, then the identifier", where,
+				n.By, noticePackages)
+			return
+		}
+		censusPath := strings.TrimPrefix(path, "config key ")
+		if rest, isKind := strings.CutPrefix(path, "pack kind "); isKind {
+			censusPath = KindPathPrefix + rest
+		}
+		if want := ident + " " + setupConst(s) + " " + censusPath; !readsIn(pkg)[want] {
+			t.Errorf("%s's notice names printer %s, and %s does not call setupcensus.Warning(setupcensus.%s, %q) "+
+				"inside it: the printer must read its line from the census, not keep its own copy",
+				where, n.By, pkg, setupConst(s), censusPath)
+		}
+	})
+	if seen == 0 {
+		t.Fatal("no census cell holds a Notice: the launch reads nothing from the table")
+	}
+}
+
+// setupConst is the setup's identifier in this package, as a reader spells it.
+func setupConst(s Setup) string {
+	switch s {
+	case PodmanLinux:
+		return "PodmanLinux"
+	case PodmanMac:
+		return "PodmanMac"
+	case AppleContainer:
+		return "AppleContainer"
+	case MacosUser:
+		return "MacosUser"
+	}
+	return ""
+}
+
+// censusReads parses one package's non-test sources and lists every setupcensus.Warning call it
+// makes, as "<enclosing printer> <Setup> <path>". The enclosing printer is the function the call
+// sits in, or, for a call inside a composite literal carrying `name: "<step>"` (a boot step),
+// that step's name, so the darwin boot's mcp_presets_declined step is a printer by its own name.
+func censusReads(dir string) (map[string]bool, error) {
+	fset := token.NewFileSet()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]bool{}
+	for _, ent := range entries {
+		name := ent.Name()
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, filepath.Join(dir, name), nil, 0)
+		if err != nil {
+			return nil, err
+		}
+		for _, decl := range f.Decls {
+			fd, ok := decl.(*ast.FuncDecl)
+			if !ok || fd.Body == nil {
+				continue
+			}
+			var walk func(n ast.Node, owner string)
+			walk = func(n ast.Node, owner string) {
+				ast.Inspect(n, func(m ast.Node) bool {
+					if m == n {
+						return true
+					}
+					if cl, ok := m.(*ast.CompositeLit); ok {
+						if step := stepName(cl); step != "" {
+							walk(cl, step)
+							return false
+						}
+					}
+					if call, ok := m.(*ast.CallExpr); ok {
+						if setup, path, ok := warningCall(call); ok {
+							out[owner+" "+setup+" "+path] = true
+						}
+					}
+					return true
+				})
+			}
+			walk(fd.Body, fd.Name.Name)
+		}
+	}
+	return out, nil
+}
+
+// stepName is a composite literal's `name: "<step>"` field, or "".
+func stepName(cl *ast.CompositeLit) string {
+	for _, el := range cl.Elts {
+		kv, ok := el.(*ast.KeyValueExpr)
+		if !ok {
+			continue
+		}
+		if k, ok := kv.Key.(*ast.Ident); ok && k.Name == "name" {
+			if lit, ok := kv.Value.(*ast.BasicLit); ok && lit.Kind == token.STRING {
+				return strings.Trim(lit.Value, `"`)
+			}
+		}
+	}
+	return ""
+}
+
+// warningCall reads `setupcensus.Warning(setupcensus.<Setup>, "<path>")`.
+func warningCall(call *ast.CallExpr) (setup, path string, ok bool) {
+	sel, isSel := call.Fun.(*ast.SelectorExpr)
+	if !isSel || sel.Sel.Name != "Warning" || len(call.Args) != 2 {
+		return "", "", false
+	}
+	if pkg, isIdent := sel.X.(*ast.Ident); !isIdent || pkg.Name != "setupcensus" {
+		return "", "", false
+	}
+	s, isSel := call.Args[0].(*ast.SelectorExpr)
+	lit, isLit := call.Args[1].(*ast.BasicLit)
+	if !isSel || !isLit || lit.Kind != token.STRING {
+		return "", "", false
+	}
+	return s.Sel.Name, strings.Trim(lit.Value, `"`), true
+}
+
+func TestANoticeRendersAsTheLaunchPrintsIt(t *testing.T) {
+	n := Notice{Says: "`kvm` is not read on macos-user", Then: "it asks for /dev/kvm."}
+	if got, want := n.Line(""), "[yellow]Warning: `kvm` is not read on macos-user[/yellow] — it asks for /dev/kvm."; got != want {
+		t.Errorf("Line(\"\") = %q, want %q", got, want)
+	}
+	if got, want := n.Plain("a, b"), "Warning: `kvm` is not read on macos-user — a, b. it asks for /dev/kvm."; got != want {
+		t.Errorf("Plain(\"a, b\") = %q, want %q", got, want)
+	}
+	if got, want := (Notice{Says: "x"}).Line(""), "[yellow]Warning: x[/yellow]"; got != want {
+		t.Errorf("a bare headline renders %q, want %q", got, want)
+	}
+	// A path the census holds no notice for still yields a true line.
+	if got := Warning(MacosUser, "no_such_key").Says; !strings.Contains(got, "no_such_key") {
+		t.Errorf("Warning for an unknown path = %q, want it to name the path", got)
 	}
 }

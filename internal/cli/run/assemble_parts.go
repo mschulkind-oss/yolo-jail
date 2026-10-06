@@ -13,6 +13,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
+	"github.com/mschulkind-oss/yolo-jail/internal/setupcensus"
 )
 
 // appleContainerBaseMounts builds the Apple Container base mounts: single
@@ -48,11 +49,11 @@ import (
 // because that is a different directory on the host and no bind here reaches it.
 func appleContainerBaseMounts(rt string, runFlags []string, workspace string, in *assembleInput, out printer) []string {
 	wsState := in.wsState
+	// The line is the setup census's notice for this cell (internal/setupcensus), backend-parity.md
+	// §4's second call site beside the macos-user notice block.
 	if len(in.cacheRelocations) > 0 {
-		out.print("[yellow]Skipping cache_relocations (" + cacheRelocationSubdirs(in.cacheRelocations) +
-			"): cache_relocations are not implemented on Apple Container, " +
-			"so the cache stays on its original filesystem. " +
-			"Use `YOLO_RUNTIME=podman` for cache relocation.[/yellow]")
+		out.print(setupcensus.Warning(setupcensus.AppleContainer, "cache_relocations").
+			Line(cacheRelocationSubdirs(in.cacheRelocations)))
 	}
 	runCmd := append([]string{rt, "run"}, runFlags...)
 	runCmd = append(runCmd,

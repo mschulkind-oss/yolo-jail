@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/setupcensus"
 )
 
 // TestInstallYoloLog writes an executable helper to ~/.local/bin/yolo-log.
@@ -128,9 +130,17 @@ func TestDarwinBootstrapSkipsLinuxMCPWrappers(t *testing.T) {
 			"/usr/bin/chromium, which this backend never provisions")
 	}
 	// And the skip must be reported: an agent told an MCP server exists, whose wrapper
-	// is silently absent, is the same lie in the other direction.
-	if !strings.Contains(warnings.String(), "mcp_presets are not delivered on macos-user") {
-		t.Errorf("skipped the wrappers without saying so:\n%s", warnings.String())
+	// is silently absent, is the same lie in the other direction. In the setup census's words,
+	// naming the preset: the census cell that marks mcp_presets Warned here is the line's source
+	// (internal/setupcensus), so a boot that printed words of its own fails as surely as one that
+	// printed none.
+	want := setupcensus.Warning(setupcensus.MacosUser, "mcp_presets").Plain("chrome-devtools")
+	if !strings.Contains(warnings.String(), want) {
+		t.Errorf("skipped the wrappers without the census's line %q:\n%s", want, warnings.String())
+	}
+	if n := setupcensus.Warning(setupcensus.MacosUser, "mcp_presets"); n.By != "entrypoint.mcp_presets_declined" {
+		t.Errorf("the census names %q as the printer of the mcp_presets notice, and this boot step "+
+			"prints it", n.By)
 	}
 }
 

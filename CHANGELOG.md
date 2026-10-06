@@ -93,6 +93,9 @@ into a jail, and what each launch shows about the code it runs. See
 - A missing `mounts` source now names the file and line that declare it, and the fix.
 - Host service logs now record each request's real exit code.
 - npm in a jail no longer prints update or funding notices.
+- On Apple Container, a config with `network.forward_host_ports` now stops the launch before
+  anything starts, naming the key and how to go on, instead of failing inside Apple Container with
+  an error about a socket.
 
 ## [0.11.1] - 2026-10-02
 
