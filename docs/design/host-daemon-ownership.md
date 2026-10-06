@@ -3,16 +3,16 @@ title: "No singleton: a host-side daemon belongs to the jail that asked for it"
 date: 2026-09-19
 status: in-review
 stage: DESIGN
-next: "Rule OQ-HD10, which three Mac runs have now measured: the HD-R1 retirement, not built, waits on what replaces the spawn lock"
+next: "Rule OQ-HD10, which three Mac runs have now measured: the HD-R1 retirement, not built, waits on what replaces the spawn lock; OQ-HD11 (filed 2026-10-05), whether a launch restarts a singleton older than itself, can be ruled and built before it"
 tags: [design, loopholes, daemons, lifecycle, ownership, credentials, host]
-summary: "RULED 2026-09-20 and BUILT NOWHERE: retire host_daemon.scope 'host'. The scope's own stated justification — that a second broker would race the single-use refresh token — is false in the code: each host-scoped daemon serializes on a flock whose path is a function of the home or the state file, never of the process, so N copies in one home take the same kernel lock. What genuinely forces a credential daemon host-side is that the vendor's own refresh lock is per-jail and cannot be shared portably, plus lifetime and a hostname pin — and none of the three needs exactly one. Most of this doc's open questions dissolve with the singleton; what remains is the reclaimer's hard kill, the mid-session silence, who refreshes when no jail runs, and what serializes spawn on macos-user."
+summary: "RULED 2026-09-20 and BUILT NOWHERE: retire host_daemon.scope 'host'. The scope's own stated justification — that a second broker would race the single-use refresh token — is false in the code: each host-scoped daemon serializes on a flock whose path is a function of the home or the state file, never of the process, so N copies in one home take the same kernel lock. What genuinely forces a credential daemon host-side is that the vendor's own refresh lock is per-jail and cannot be shared portably, plus lifetime and a hostname pin — and none of the three needs exactly one. Most of this doc's open questions dissolve with the singleton; what remains is the reclaimer's hard kill, the mid-session silence, who refreshes when no jail runs, what serializes spawn on macos-user, and, until the singleton goes, whether a launch restarts one older than itself."
 vantage:
   status-chip: true
 ---
 
 # No singleton: a host-side daemon belongs to the jail that asked for it
 
-**Status:** 2026-09-20 — four questions still owe a ruling ([OQ-HD4](#OQ-HD4), [OQ-HD5](#OQ-HD5), [OQ-HD9](#OQ-HD9), [OQ-HD10](#OQ-HD10)), and **NOTHING IS BUILT.** The central ruling is in: retire
+**Status:** 2026-09-20 — five questions still owe a ruling ([OQ-HD4](#OQ-HD4), [OQ-HD5](#OQ-HD5), [OQ-HD9](#OQ-HD9), [OQ-HD10](#OQ-HD10), and [OQ-HD11](#OQ-HD11), filed 2026-10-05), and **NOTHING IS BUILT.** The central ruling is in: retire
 `host_daemon.scope: "host"` and give every host-side daemon the lifetime of the jail that
 asked for it. Nothing in the tree has changed. One earlier ruling IS built — the
 management surface ([§5.1](#51-the-management-surface-one-verb-over-the-host-scoped-set))
@@ -61,7 +61,7 @@ shared credential fresh when **no jail is running**. That is a lifetime problem,
 locking one, and it is [OQ-HD9](#OQ-HD9) — the question that decides whether this ruling
 is complete on its own.
 
-**Needs your ruling:** [OQ-HD4](#OQ-HD4) (the reclaimer's hard kill), [OQ-HD5](#OQ-HD5) (silent mid-session death), [OQ-HD9](#OQ-HD9) (**new** — who keeps the shared credential fresh with no jail running), [OQ-HD10](#OQ-HD10) (**new** — what serializes spawn on macos-user, the one objection the ruling did not answer).
+**Needs your ruling:** [OQ-HD4](#OQ-HD4) (the reclaimer's hard kill), [OQ-HD5](#OQ-HD5) (silent mid-session death), [OQ-HD9](#OQ-HD9) (**new** — who keeps the shared credential fresh with no jail running), [OQ-HD10](#OQ-HD10) (**new** — what serializes spawn on macos-user, the one objection the ruling did not answer), [OQ-HD11](#OQ-HD11) (**new** — whether a launch restarts a singleton older than the yolo launching it, until the singleton goes).
 
 **Reads with:** [`host-daemon-ownership-plan.md`](host-daemon-ownership-plan.md) (the
 implementation sketch, pruned against the tree on 2026-10-01: what the spawn flock covers today,
@@ -929,6 +929,24 @@ claim, relocated from the process to the file. Nothing in this doc designs that;
 in [§9](#9-what-this-doc-does-not-cover) so the next reader does not mistake the ruling for a
 claim that all version skew went away.
 
+<a id="oq-hd11-background"></a>**The same skew reaches the launch check, and
+[OQ-HD11](#OQ-HD11) asks whether the launch restarts it.** On 2026-10-05 the maintainer's first
+fresh launch of a patched fork found the `aws-auth` singleton older than the yolo launching it:
+its [launch check](../reference/loophole-protocol.md#the-launch-check) answered
+`unknown action: launch-check`, and the launch printed that the host-wide daemon predates this
+yolo, so the launch cannot warn about what would fail its agents' requests, ending in
+`Fix it with: yolo host-daemon restart aws-auth`. The
+[no-kill rule](../reference/loophole-transport.md#scope--one-daemon-per-jail-or-one-per-host) names
+that command because two yolos on one host would otherwise restart each other's daemon at every
+launch. Two built facts weigh against stopping there. [`HD-D2`](#HD-D2) already restarts this
+daemon when its settings change, at the same cost to the other jails, and restarts one with no
+settings record, which is what a yolo older than HD-D2 left. And
+[rung 1](../reference/happy-path-principle.md#the-next-step-ladder) of the next-step ladder asks
+yolo to make a safe, cheap, undoable fix itself and say so. Nothing records which yolo started a
+singleton today ([§4](#4-the-version-boundary-that-is-not-there-and-why-it-stops-applying-here)),
+so "older" is known only from the one historical break the launch check's answer shows. Under
+[`HD-R1`](#HD-R1) the question dissolves with the singleton.
+
 ### Mode 5: nobody is using it
 
 **Today** only its pack leaving `packs` stops it. A singleton spawned once for a jail that
@@ -1173,7 +1191,7 @@ retiring `scope: "host"` removes one instance of it rather than the shape.
 ## 10. Open Questions
 
 **Live:** [OQ-HD4](#OQ-HD4), [OQ-HD5](#OQ-HD5), [OQ-HD9](#OQ-HD9) (new),
-[OQ-HD10](#OQ-HD10) (new).
+[OQ-HD10](#OQ-HD10) (new), [OQ-HD11](#OQ-HD11) (new, 2026-10-05).
 **Dissolved by [`HD-R1`](#HD-R1):** [OQ-HD1](#OQ-HD1), [OQ-HD3](#OQ-HD3),
 [OQ-HD6](#OQ-HD6), [OQ-HD7](#OQ-HD7), [OQ-HD8](#OQ-HD8) — kept below with what dissolved
 each, because a deleted question is one the next reader re-derives.
@@ -1273,6 +1291,32 @@ each, because a deleted question is one the next reader re-derives.
    **Answer:**
    > _(empty — fill in when decided)_
 
+5. <a id="OQ-HD11"></a>💬 **[OQ-HD11](#OQ-HD11) (NEW, 2026-10-05, until [`HD-R1`](#HD-R1)):
+   may a launch restart a singleton older than the yolo launching it, and say so?**
+   [Background](#oq-hd11-background).
+
+   - **A — Name the command, as today.** *Cost:* every upgrade, each singleton waits for a
+     restart typed by hand, and its launch check reports nothing until then.
+   - **B — Restart one provably older.** The spawn records its yolo beside
+     [`HD-D2`](#HD-D2)'s settings record; a newer yolo's launch restarts it in the spawn flock,
+     naming both versions. Builds it cannot order keep A's line. *Cost:* the other jails lose
+     requests in flight, as under HD-D2.
+   - **C — Restart on any difference.** *Cost:* two yolos on one host restart each other's daemon
+     at every launch, the loop the no-kill rule prevents.
+
+   <!-- vantage: question id=OQ-HD11 leaning="B: HD-D2 already restarts aws-auth for a settings change at the same cost to the other jails, and restarts one with no settings record, which is what an older yolo's is; restarting only toward the newer yolo is one-way, so C's loop cannot form. A difference must never stand in for older; the restart declines when it cannot take the spawn flock, as HD-D2's does; and the Claude broker is restarted only between refreshes, since its three-second grace can cut a refresh the upstream has already redeemed, which burns the single-use refresh token." -->
+
+   _Leaning:_ **B** — [`HD-D2`](#HD-D2) already restarts `aws-auth` for a settings change at the
+   same cost to the other jails, and restarts one with no settings record, which is what an older
+   yolo's is; restarting only toward the newer yolo is one-way, so C's loop cannot form. ⚠ A
+   difference must never stand in for "older"; the restart declines when it cannot take the spawn
+   flock, as HD-D2's does; and the Claude broker is restarted only between refreshes, since its
+   three-second grace can cut a refresh the upstream has already redeemed, which burns the
+   single-use refresh token ([mode 6](#mode-6-the-detached-straggler-new-and-only-under-the-ruling)).
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
 ### Dissolved by the ruling
 
 Each keeps its original text. The leanings are preserved as they were written, including
@@ -1339,7 +1383,7 @@ pinned through `BrokerSpawn` by `TestSpawnSaysWhyItCouldNotTakeTheLock`). The pa
 carry no user component, and the reachability witness's later refusal is unchanged;
 retiring the singleton is [`HD-R1`](#HD-R1)'s, and not built.
 
-5. <a id="OQ-HD1"></a>✅ **[OQ-HD1](#OQ-HD1) — DISSOLVED 2026-09-20 by [`HD-R1`](#HD-R1):
+6. <a id="OQ-HD1"></a>✅ **[OQ-HD1](#OQ-HD1) — DISSOLVED 2026-09-20 by [`HD-R1`](#HD-R1):
    should a daemon rendezvous carry a version?**
    Why it dissolved, and its context: [above](#oq-hd1-context).
 
@@ -1360,7 +1404,7 @@ retiring the singleton is [`HD-R1`](#HD-R1)'s, and not built.
    > build — the in-jail supervisor across a `just install`, and anything
    > [OQ-HD9](#OQ-HD9) installs as a timer.
 
-6. <a id="OQ-HD3"></a>✅ **[OQ-HD3](#OQ-HD3) — DISSOLVED 2026-09-20 by [`HD-R1`](#HD-R1):
+7. <a id="OQ-HD3"></a>✅ **[OQ-HD3](#OQ-HD3) — DISSOLVED 2026-09-20 by [`HD-R1`](#HD-R1):
    does the no-kill ruling still hold, now that one path already kills?**
    Why it dissolved, and its context: [above](#oq-hd3-context).
 
@@ -1376,7 +1420,7 @@ retiring the singleton is [`HD-R1`](#HD-R1)'s, and not built.
    > built*, since both branches ship today and a reader meeting the second after the first
    > will still read it as a mistake.
 
-7. <a id="OQ-HD6"></a>✅ **[OQ-HD6](#OQ-HD6) — DISSOLVED 2026-09-20 by [`HD-R1`](#HD-R1):
+8. <a id="OQ-HD6"></a>✅ **[OQ-HD6](#OQ-HD6) — DISSOLVED 2026-09-20 by [`HD-R1`](#HD-R1):
    should anything ever stop an unused singleton, and on what predicate?**
    Why it dissolved, and its context: [above](#oq-hd6-context).
 
@@ -1395,7 +1439,7 @@ retiring the singleton is [`HD-R1`](#HD-R1)'s, and not built.
    > ([§1.3](#13-the-disposition-detach-do-not-drain-do-not-reap)). The visibility half of the
    > leaning survives as ordinary per-jail service reporting.
 
-8. <a id="OQ-HD7"></a>✅ **[OQ-HD7](#OQ-HD7) — DISSOLVED 2026-09-20 by [`HD-R1`](#HD-R1): may
+9. <a id="OQ-HD7"></a>✅ **[OQ-HD7](#OQ-HD7) — DISSOLVED 2026-09-20 by [`HD-R1`](#HD-R1): may
    a pack declare `scope: "host"` freely?**
    Why it dissolved, and its context: [above](#oq-hd7-context).
 
@@ -1414,24 +1458,24 @@ retiring the singleton is [`HD-R1`](#HD-R1)'s, and not built.
    > documents in [§8](#8-one-became-three-and-the-ruling-makes-the-population-stop-mattering)
    > are wrong about the tree *today* and stay wrong until this is built.
 
-9. <a id="OQ-HD8"></a>✅ **[OQ-HD8](#OQ-HD8) — MOSTLY DISSOLVED 2026-09-20 by
-   [`HD-R1`](#HD-R1): is one user per host a supported assumption or a documented non-goal?**
-   Why it mostly dissolved, its context and the fix built since: [above](#oq-hd8-context).
+10. <a id="OQ-HD8"></a>✅ **[OQ-HD8](#OQ-HD8) — MOSTLY DISSOLVED 2026-09-20 by
+    [`HD-R1`](#HD-R1): is one user per host a supported assumption or a documented non-goal?**
+    Why it mostly dissolved, its context and the fix built since: [above](#oq-hd8-context).
 
-   <!-- vantage: question id=OQ-HD8 -->
+    <!-- vantage: question id=OQ-HD8 -->
 
-   _Leaning (preserved):_ Declare it a non-goal and fix the *message*. A uid in the rendezvous
-   is a small change and it would work, but it promises a multi-user-host story nothing else
-   here has been designed against — the state dir, the pack approvals and the flake bundle are
-   all single-user assumptions already.
+    _Leaning (preserved):_ Declare it a non-goal and fix the *message*. A uid in the rendezvous
+    is a small change and it would work, but it promises a multi-user-host story nothing else
+    here has been designed against — the state dir, the pack approvals and the flake bundle are
+    all single-user assumptions already.
 
-   **Answer (2026-09-20): mostly dissolved; one fragment survives and moves.**
-   > Per-jail paths are keyed by `paths.JailShortHash` of a container name that hashes the
-   > resolved workspace path, so two users launching *different* workspaces stop colliding in
-   > `/tmp` at all. The state dir was always under each user's own `$HOME`. What survives is
-   > two users launching the **same workspace path**, which is the same per-workspace identity
-   > question as [OQ-HD10](#OQ-HD10) and belongs there. ⚠ The leaning's message fix is still
-   > worth doing while the singleton ships, since it is a one-line refusal today.
+    **Answer (2026-09-20): mostly dissolved; one fragment survives and moves.**
+    > Per-jail paths are keyed by `paths.JailShortHash` of a container name that hashes the
+    > resolved workspace path, so two users launching *different* workspaces stop colliding in
+    > `/tmp` at all. The state dir was always under each user's own `$HOME`. What survives is
+    > two users launching the **same workspace path**, which is the same per-workspace identity
+    > question as [OQ-HD10](#OQ-HD10) and belongs there. ⚠ The leaning's message fix is still
+    > worth doing while the singleton ships, since it is a one-line refusal today.
 
 ---
 

@@ -28,6 +28,10 @@ summary: "How yolo decides what to print: a report tier is assigned where a fact
 the footer) was re-verified on 2026-10-02 against `fe504e58` and the changes landed with this
 revision; the rest was last verified in full against `71e86789`, 2026-09-13.
 
+**Needs your ruling:** [OQ-RO8](#oq-ro8) (whether the dry run's exit follows its ruling or its
+code), [OQ-RO9](#OQ-RO9) (**new** — whether the launch's disclosure block may name a fork's build
+line by digest once the build prints it).
+
 Two commands in yolo produce long output for three different readers: `yolo host apply`, which
 renders pack surfaces into a real `$HOME`, and a container launch. A **report tier** *(coined
 here)* is the class of fact a line states, assigned **where the fact is produced** — in the result
@@ -369,6 +373,41 @@ verdict block, and the report does not get a progress stream.
 > lines. `TestTheLaunchHasNoQuietFlag` is P4 as a gate: it fails if such a flag appears on
 > `runFlags`, the list an author would reach for. `YOLO_NO_BANNER` is the one hatch and it is
 > narrow on purpose (the version line, nothing else).
+
+<a id="oq-ro9-background"></a>**A fork's build line is a disclosure, printed whole on every
+launch.** A fork's footprint claim, and a patched extension's, names its build line verbatim
+(`forkClaimDetail` and `patchedTreeClaimDetail` in `internal/packload`), and the claim prints in
+the launch's *Pack environment this launch* block, so tier 4's "unchanged" keeps it at full length.
+The maintainer's patched pi fork has a build line of about 600 characters of inline JavaScript,
+which his first patched launch printed there in full on 2026-10-05. Today the build's own start
+line names the fork and the version it builds, not the build line (`cli/patchedadvance.go`). Once
+it names the build line before the sealed jail runs it, which is when the line matters,
+[OQ-RO9](#OQ-RO9) asks whether the block may stop repeating it. **Truncation is no answer**: a
+payload can sit at character 590.
+
+- 💬 <a id="OQ-RO9"></a>**[`OQ-RO9`](#OQ-RO9) — once a build's start line prints its build line,
+  may the launch's disclosure block name that line instead of printing it again?**
+
+  Decides whether tier 4's "unchanged" admits a reference ([background](#oq-ro9-background)).
+
+  - **(a) Unchanged.** *You pay:* about 600 characters a launch for the maintainer's fork, twice
+    on a launch that builds.
+  - **(b) "Built by the build line above"** on a launch that built; others print it whole.
+    *You pay:* the common launch, which builds nothing, is unchanged.
+  - **(c) The recipe's digest** on every launch, naming `yolo pack status <key>`, which prints the
+    line (it does not today). *You pay:* tier 4 gains an exception; a changed line shows as a new
+    digest, and whole at its build.
+
+  <!-- vantage: question id=OQ-RO9 leaning="(c): the digest moves when any character of the line does, a new or changed build line is a new recipe that is built before anything runs it and whose start line prints it whole, and (b) leaves the launch that builds nothing, the common one, as it is. The digest must cover the whole line, never a prefix, and (c) holds only if every act that builds (a launch, yolo capture, yolo host) prints the full line first." -->
+
+  _Leaning:_ (c) — the digest moves when any character of the line does, a new or changed build
+  line is a new recipe that is built before anything runs it and whose start line prints it whole,
+  and (b) leaves the launch that builds nothing, the common one, as it is. ⚠ The digest must cover
+  the whole line, never a prefix, and (c) holds only if every act that builds (a launch,
+  `yolo capture`, `yolo host`) prints the full line first.
+
+  **Answer:**
+  > _(empty — fill in when decided)_
 
 ### Progress lines
 

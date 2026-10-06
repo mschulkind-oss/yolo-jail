@@ -1,11 +1,11 @@
 ---
 title: "A patched fork can follow a pi extension's upstream — the same ratchet, ending in a read-only tree pi loads in place"
 date: 2026-10-04
-status: accepted
-stage: DECIDED
+status: in-review
+stage: DESIGN
 tags: [design, packs, files, pi, extensions, forks, evergreen, git]
 summary: "The maintainer asked on 2026-10-04 for the patched-fork mode to cover pi extensions. A `files` contribution may name an upstream `source` and a `patches` series in place of `from`. yolo checks the upstream at most hourly, replays the series on the host exactly as a patched fork does, takes the newest upstream version the series fits, builds it in the sealed capture jail and admits the result as a tree. Each fresh jail launch mounts its own copy of this machine's good build read-only, and pi loads it as a local package through a list entry the pack author writes, so pi never installs or updates it. Two calls were new and the maintainer's, what pi starts with when no build serves and whether the version is pinned in packs.lock.json; they and the four patched-fork questions were decided on their leanings under his delegation of 2026-10-04."
-next: "Steps 2 to 5 of §16 built 2026-10-04 (PPX-D20 to PPX-D31) and integrated at e87f1ba88 on 2026-10-05 (PPX-D32, PPX-D33); step 6, migrating the five with the migration kit and checking that a real pi loads a built tree, is the maintainer's, who may overrule PPX-D18 and PPX-D19"
+next: "Rule OQ-PPX3 (filed 2026-10-05), whether a launch whose only program the tree gate will stop may stop before booting, while the host-side line saying pi will not start is built; steps 2 to 5 of §16 built 2026-10-04 (PPX-D20 to PPX-D31) and integrated at e87f1ba88 on 2026-10-05 (PPX-D32, PPX-D33); step 6, migrating the five with the migration kit and checking that a real pi loads a built tree, is the maintainer's, who may overrule PPX-D18 and PPX-D19"
 depends-on:
   - patched-forks.md
 ---
@@ -23,7 +23,8 @@ installed in this jail. MEASURED the same day in fresh blobless clones with git 
 and node v24.19.0: the maintainer's five extension forks replayed onto their upstreams, the
 [newest-fit walk](#6-detection-and-the-newest-fit-walk) over each, two trees built, one fork's
 `dist/` rebuilt from a series without it, and pi's dependency command run on a toy package.
-UNMEASURED: no pi has loaded a tree built this way.
+UNMEASURED: no pi has loaded a tree built this way. One ruling is owed, [OQ-PPX3](#OQ-PPX3), filed
+2026-10-05 from the maintainer's first patched launch.
 
 > **In short.** An extension is a tree, not a program. So a patched extension keeps a patched fork's
 > whole ratchet and changes only what the build leaves and where it goes: an admitted tree, copied for
@@ -59,6 +60,9 @@ places it cannot, which [§7](#7-the-build-and-the-admit) and [§8](#8-delivery)
 [OQ-PPX2](#OQ-PPX2) A, each on its leaning. Patched forks' [OQ-PFK1](patched-forks.md#OQ-PFK1),
 [OQ-PFK3](patched-forks.md#OQ-PFK3) and [OQ-PFK4](patched-forks.md#OQ-PFK4), decided the same day, bind
 this mode as written ([§12](#12-dependencies)).
+
+**Needs your ruling:** [OQ-PPX3](#OQ-PPX3) (**new** — whether a launch whose only program the tree
+gate will stop may stop before booting, which amends [PPX-D12](#PPX-D12)).
 
 **Reads with:** [`patched-forks.md`](patched-forks.md) (the mode this extends; every PF term and PF-D
 row cited here is its), [`pi-git-extension-caching.md`](pi-git-extension-caching.md) (pi git
@@ -504,6 +508,15 @@ extension, so a build that keeps failing costs every fresh launch a rebuild, and
 **The jail launch itself is never refused**, so [PF §6.7](patched-forks.md#67-what-the-mode-never-does)
 holds.
 
+<a id="oq-ppx3-background"></a>**What that costs when pi is all the launch runs.** The host decides
+every tree before the image step (`treeDeliveriesFor`, ahead of `autoLoadImage` in
+`cli/run/run.go`), so it knows pi will stop before any jail exists. Under [PPX-D12](#PPX-D12) a
+`yolo -- pi` still builds or loads the image, boots and provisions, and pi's launcher installs or
+refreshes pi before the gate prints its lines and exits 1 ([PPX-D24](#PPX-D24)), and `yolo -- pi`
+returns with it. One host-side line saying pi will not start, printed right after the trees are
+decided, is being built either way. [OQ-PPX3](#OQ-PPX3) asks whether the launch may do more than
+say it.
+
 ## 10. Trust and disclosure
 
 - **The series is data on the host** ([P3](patched-forks.md#1-the-verdict-and-five-principles)). An
@@ -742,6 +755,31 @@ mode as written, and one ruling of each covers both routes ([§12](#12-dependenc
    > **A**, decided 2026-10-04 on the leaning under the maintainer's delegation of that day:
    > "I want to get the patched forks and patched extensions out as soon as possible. So if there's design decisions you can make, make them and build it. And we can always adjust later."
    > No pin: the good build is machine-local, and a hold is a tag ref or `agent_updates`. Adjustable: his to overrule once he has tested the build.
+
+3. 💬 <a id="OQ-PPX3"></a>**OQ-PPX3: When the launch's only program is one the tree gate will stop,
+   may the launch stop before booting, saying why?**
+
+   Amends [PPX-D12](#PPX-D12) and [PF §6.7](patched-forks.md#67-what-the-mode-never-does)
+   ([background](#oq-ppx3-background)).
+
+   - **A — Never refused, as built.** The host line, the boot, then the gate's stop. *Cost:* the
+     image step, boot, provisioning and pi's install, spent on a jail that exits 1.
+   - **B — Stop before booting** when the command is the gated program, naming the extension and
+     the next step. *Cost:* yolo decides from the command, which
+     [HP-DIR2](host-tool-provisioning.md#HP-DIR2) rules out at the host.
+   - **C — Boot into the jail's shell instead.** *Cost:* the same reading of the command, and a
+     scripted `yolo -- pi -p …` gets a shell where it expected pi to exit.
+
+   <!-- vantage: question id=OQ-PPX3 leaning="A: the host line arrives before the image step, where B would stop, so a Ctrl-C there saves what B saves; B and C buy that saving by reading the command, which the maintainer ruled out at the host (we do not sniff the command line, HP-DIR2), and a stop keyed on the command catches a bare pi but not bash -lc pi or a wrapper." -->
+
+   _Leaning:_ **A** — the host line arrives before the image step, where B would stop, so a Ctrl-C
+   there saves what B saves; B and C buy that saving by reading the command, which the maintainer
+   ruled out at the host (*"We do not sniff the command line"*,
+   [HP-DIR2](host-tool-provisioning.md#HP-DIR2)), and a stop keyed on the command catches a bare
+   `pi` but not `bash -lc pi` or a wrapper.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
 
 ## Decision Ledger
 

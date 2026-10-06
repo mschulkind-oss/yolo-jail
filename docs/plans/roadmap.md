@@ -70,6 +70,17 @@ host or an outside account follows under [External waits](#external-waits).
     extensions](../design/patched-extensions.md), at every notch — the maintainer asked on 2026-10-04
     for both "out as soon as possible" so he can test them, and delegated their open questions, which
     were decided on their leanings.
+
+    His first patched launch (2026-10-05) left four rulings for the same sitting as his test, each
+    changing what his next launch prints or spends: [whether the disclosure block may name a fork's
+    build line by digest](../reference/report-tiers.md#OQ-RO9), since every launch prints his whole
+    build line, about 600 characters; [whether a sealed build drops the user config's
+    `mise_tools`](../design/forked-programs-as-packs.md#OQ-FP10), since every build of his fork
+    downloads his neovim nightly; [whether a launch whose only program the tree gate will stop may
+    stop before booting](../design/patched-extensions.md#OQ-PPX3), since the host line saying pi will
+    not start is being built now and a stop would land with it; and [whether a launch restarts a host
+    daemon older than itself](../design/host-daemon-ownership.md#OQ-HD11), since after every upgrade
+    each singleton otherwise waits for a restart typed by hand.
 13. [Build pack-declared pi extensions as host builds, one read-only copy per jail](../design/pi-git-extension-caching.md), with
     [what the background update mode moves](../design/pi-extension-store-builds.md) — next, since the maintainer
     asked on 2026-10-05 to be led through them, and the capture of unmodified extensions (or the held store) and

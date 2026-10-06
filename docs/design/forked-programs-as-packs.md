@@ -1,11 +1,11 @@
 ---
 title: "A fork is a package with no registry — distributing source-built programs through a pack"
 date: 2026-09-21
-status: accepted
+status: in-review
 tags: [design, packs, programs, capture, notches, forks, build]
 summary: "A pack can declare a program from npm or from a vendor installer, and neither can express a fork the maintainer builds themselves. The proposal adds a third delivery route — a pinned source address plus a build recipe, built once in a throwaway capture jail and delivered from the capture store — and the load-bearing problem is not the build but relocation: capture is cheap today only because the capture home and the materialize home are the same string, which a host-and-jail artifact breaks by definition."
-stage: DECIDED
-next: "Rerun the plan's step-7 measurement on the motivating fork once the maintainer names it (its address, build line and produces); the host notch's floor arms are built on the stand-in's shape"
+stage: DESIGN
+next: "Rule OQ-FP10, whether a sealed build drops the user config's mise_tools (filed 2026-10-05 from the maintainer's first patched launch); then rerun the plan's step-7 measurement on the motivating fork once the maintainer names it (its address, build line and produces); the host notch's floor arms are built on the stand-in's shape"
 depends-on:
   - ../plans/install-capture.md
   - host-tool-provisioning.md
@@ -13,7 +13,8 @@ depends-on:
 
 # A fork is a package with no registry — distributing source-built programs through a pack
 
-**Status:** 2026-10-02 — no ruling is owed. Since 2026-10-02 a launch pins an unpinned fork
+**Status:** 2026-10-05 — one ruling is owed, [OQ-FP10](#OQ-FP10), filed from the maintainer's
+first patched launch; everything else is decided. Since 2026-10-02 a launch pins an unpinned fork
 itself, with no `yolo pack install` ([FP-D18](#FP-D18), which supersedes [FP-D7](#FP-D7)'s
 read-only launch under the maintainer's
 [`OQ-PF1`](../reference/pack-system.md#oq-pf1)). Building: the
@@ -26,7 +27,7 @@ nested jail: `relocatable:true`, and no `/nix/store`, home or Linux `/lib` path 
 ([the plan's run](forked-programs-as-packs-plan.md#steps-1-to-3-on-a-stand-in-fork-2026-10-01)).
 The host agent floor's source arms were built on 2026-10-01 to that shape
 ([FP-D16](#FP-D16), [FP-D17](#FP-D17)): on a Linux host, `yolo host -- <bin>` runs the floor's
-copy of the store's build at the pin. What stays open is an input, not a ruling: the motivating
+copy of the store's build at the pin. Besides that ruling, what stays open is an input: the motivating
 fork, which no file names, still wants the measurement rerun on it once a maintainer names it, and
 a fork compiling a native addon in the jail is unmeasured. The original six
 questions were ruled 2026-09-22; the three that came out of ruling them
@@ -56,9 +57,10 @@ a path that has never run outside unit tests. Every consumer pays a local build.
 
 **Start at [§5](#5-relocation-is-the-design-not-the-build)** — the build is the easy half.
 
-**Needs your ruling:** nothing. The original six were ruled 2026-09-22; [OQ-FP7](#OQ-FP7),
-[OQ-FP8](#OQ-FP8) and [OQ-FP9](#OQ-FP9) came out of ruling them and were decided as implementation
-choices ([FP-D1](#FP-D1)–[FP-D3](#FP-D3)).
+**Needs your ruling:** [OQ-FP10](#OQ-FP10) (**new** — whether a sealed build drops the user
+config's `mise_tools`, which reverses part of [FP-D9](#FP-D9)). The original six were ruled
+2026-09-22; [OQ-FP7](#OQ-FP7), [OQ-FP8](#OQ-FP8) and [OQ-FP9](#OQ-FP9) came out of ruling them and
+were decided as implementation choices ([FP-D1](#FP-D1)–[FP-D3](#FP-D3)).
 
 **Reads with:** [`forked-programs-as-packs-plan.md`](forked-programs-as-packs-plan.md) (the
 implementation plan, promoted against the tree 2026-09-30),
@@ -423,8 +425,8 @@ the existing hard case, not a new one — which makes it the best place to find 
 
 ## 13. Open Questions
 
-None is open. All three were raised by ruling the original six, and all three were decided as
-implementation choices on 2026-09-30.
+One is open, [OQ-FP10](#OQ-FP10), filed 2026-10-05. The other three were raised by ruling the
+original six, and all three were decided as implementation choices on 2026-09-30.
 
 **See also** [`patched-forks.md`](patched-forks.md), in design since 2026-10-03: a fork that names
 its upstream and a patch series instead of a fork repository, and follows the upstream while the
@@ -500,6 +502,42 @@ holds as its own ruling.
    > [§11](#11-sequencing)'s order, container backends first, and a `macos-user` launch with a fork
    > pack selected says that it delivered no program and why, until H4 is ruled and the eager slot
    > reaches that backend.
+
+<a id="oq-fp10-background"></a>**Background to [OQ-FP10](#OQ-FP10), below.** [FP-D9](#FP-D9)
+keeps `packages` and `mise_tools` in a sealed build *"as toolchain rather than credential"*. A
+build's workspace is a fresh staging directory with no config of its own, so the `mise_tools` that
+reach it are the user config's, and its `/mise` is a private directory of that workspace, deleted
+with it when the build ends (`sealedStores` in `cli/run/seal.go`, `cleanupCaptureWorkspace`). So
+every build installs each user-scope tool again before its build line runs. The maintainer's user
+config declares a neovim nightly, and his first patched pi build downloaded it on 2026-10-05,
+though no pack the build selects asks for it. No pack kind declares a mise tool: the one mise install a
+pack declares is the base's `node_floor`, which is not a `mise_tools` entry. A patched fork
+rebuilds once per upstream version it takes, about one a day for pi
+([`patched-forks.md` §7](patched-forks.md#7-the-build-and-the-launch)), so the download recurs.
+
+4. 💬 <a id="OQ-FP10"></a>**[OQ-FP10](#OQ-FP10): should a sealed build drop the user config's
+   `mise_tools`, which no pack it builds declares?**
+
+   Decides a build's toolchain, reversing part of [FP-D9](#FP-D9)
+   ([background](#oq-fp10-background)).
+
+   - **A — Keep them, as FP-D9 rules.** *Cost:* every build downloads every user-scope tool, the
+     maintainer's neovim nightly included, and a build line leaning on one builds nowhere else.
+   - **B — Drop them.** The build keeps the image, `packages` and the base's `node_floor`. *Cost:*
+     a fork needing a mise tool cannot declare one, so its build line fetches it.
+   - **C — Drop them, and let a fork declare its build tools**, installed into the private
+     `/mise`. *Cost:* a new manifest field, which lint checks and an older yolo skips
+     ([PF-D68](patched-forks.md#PF-D68)).
+
+   <!-- vantage: question id=OQ-FP10 leaning="B: FP-D9 narrows the build's packs so a build does not depend on what else this machine selects, and a user-scope tool is the same dependency; C can wait for the first fork that needs one. The base's node_floor is installed through mise too and must survive the drop, or every Node fork loses its Node." -->
+
+   _Leaning:_ **B** — [FP-D9](#FP-D9) narrows the build's packs so a build does not depend on what
+   else this machine selects, and a user-scope tool is the same dependency; C can wait for the
+   first fork that needs one. ⚠ The base's `node_floor` is installed through mise too and must
+   survive the drop, or every Node fork loses its Node.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
 
 ## 14. Decision Ledger
 
