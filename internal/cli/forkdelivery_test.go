@@ -63,7 +63,8 @@ func TestAFailedLaunchBuildIsTheForksReason(t *testing.T) {
 			Platform: "linux/arm64"},
 			&bytes.Buffer{}, &bytes.Buffer{}, false)
 	})
-	if d := got["probetool"]; d.Key != "" || !strings.Contains(d.Reason, "failed on the host") {
+	// The fake jail writes no toolchain record, so its build line never ran: its jail stopped first.
+	if d := got["probetool"]; d.Key != "" || !strings.Contains(d.Reason, "its build jail exited 5 before its build line ran") {
 		t.Errorf("a failed build answered %+v", d)
 	}
 }

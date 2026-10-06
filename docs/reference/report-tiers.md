@@ -380,12 +380,13 @@ launch.** A fork's footprint claim, and a patched extension's, names its build l
 (`forkClaimDetail` and `patchedTreeClaimDetail` in `internal/packload`), and the claim prints in
 the launch's *Pack environment this launch* block, so tier 4's "unchanged" keeps it at full length.
 The maintainer's patched pi fork has a build line of about 600 characters of inline JavaScript,
-which his first patched launch printed there in full on 2026-10-05. Today the build's own start
-line names the fork and the version it builds, not the build line (`cli/patchedadvance.go`). Once
-it names the build line before the sealed jail runs it, which is when the line matters,
-[OQ-RO9](#OQ-RO9) asked whether the block may stop repeating it. **Truncation is no answer**: a
-payload can sit at character 590. Ruled 2026-10-05: the block shows the digest, as the answer
-below records.
+which his first patched launch printed there in full on 2026-10-05. Every act that builds now
+names the build line whole, under the seal it runs in, before the sealed jail runs it, which is
+when the line matters: a jail launch on the build's start line, `yolo capture` and `yolo host` on
+the line under the build's own (`cli/buildreport.go`,
+[PF-D78](../design/patched-forks.md#PF-D78)). So [OQ-RO9](#OQ-RO9) asked whether the block may stop
+repeating it. **Truncation is no answer**: a payload can sit at character 590. Ruled 2026-10-05:
+the block shows the digest, as the answer below records.
 
 - ✅ <a id="OQ-RO9"></a>**[`OQ-RO9`](#OQ-RO9) — once a build's start line prints its build line,
   may the launch's disclosure block name that line instead of printing it again?**
@@ -424,7 +425,8 @@ below records.
 A **progress line** *(coined here)* is how a launch step that can run for more than a couple of
 seconds says it is still running: the image build and copy, the copier build, the archive load
 on the macOS backends, the lock waits, the pack fetch, the host-service start, the in-jail
-readiness and reachability waits, and the macos-user native build. One renderer,
+readiness and reachability waits, the macos-user native build, and a launch's fork and patched
+builds and their upstream checks. One renderer,
 `internal/progress`, draws all of them, and the rules are its:
 
 - **A step that ends within two seconds prints nothing**, so a warm launch prints what it
@@ -440,6 +442,15 @@ readiness and reachability waits, and the macos-user native build. One renderer,
   `failed`).
 
 A progress line is not a density control and hides nothing, so P4 and [`OQ-RO3`](#why-its-this-way) are untouched.
+
+**A build is one progress line, its jail's output in the file**
+([PF-D78](../design/patched-forks.md#PF-D78)). A launch's fork or patched build runs a whole
+nested launch, whose provenance, provisioning and build output used to land among the launch's
+own lines. Now the terminal shows the build's start line, which carries its disclosures (the
+seal, and the build line whole, before it runs), its progress line, and its result, the move
+line; the nested launch's warnings and refusals are repeated under it; and every line of the
+build jail goes to `launch.log` (the stream's log half alone, `run.LaunchLogOnly`) and to the
+build's own `<workspace>/.yolo/build-<slug>.log`, whose last lines a failed build prints.
 
 **The launcher persists its half.** Everything the launcher prints is appended to
 `<workspace>/.yolo/launch.log` (`launchLog`, `LaunchLogName`), beside the entrypoint's `boot.log`,

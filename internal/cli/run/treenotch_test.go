@@ -96,6 +96,7 @@ func TestATreeListedForJailsIsDeliveredAndAnEntryUnderItLoadsIt(t *testing.T) {
 		treeLaunchHomeListing(t, list)
 		var req TreeBuildRequest
 		argv, printed := fakePodmanLaunch(t, func(o *Options) {
+			allowMissingPrograms(o) // the launch goes on, to the launchers' stop (PPX-D40)
 			o.BuildTrees = func(r TreeBuildRequest) map[string]TreeDelivery {
 				req = r
 				return deliverNoTree(r)

@@ -137,9 +137,12 @@ func TestALaunchRunsTheTreeArmAndMountsItsCopy(t *testing.T) {
 
 // NOTHING SERVES (PPX-D18): nothing is mounted at `into` — never the pack's whole staged tree, which
 // a `from` of "" joined onto the root would name — and the owning agent's launchers are told to stop.
+// The launch is refused unless the bypass is set (PPX-D40, missingbuilds_test.go), which it is here:
+// the launchers' stop is the backstop it leaves.
 func TestATreeWithNoBuildMountsNothingAndStopsItsOwner(t *testing.T) {
 	treeLaunchHome(t, true)
 	argv, printed := fakePodmanLaunch(t, func(o *Options) {
+		allowMissingPrograms(o)
 		o.BuildTrees = func(r TreeBuildRequest) map[string]TreeDelivery {
 			return map[string]TreeDelivery{treeKey: {Reason: "extension " + treeKey + " has no build on this machine yet"}}
 		}

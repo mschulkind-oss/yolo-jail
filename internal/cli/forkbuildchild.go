@@ -1,16 +1,19 @@
 package cli
 
 // forkbuildchild.go runs a fork's BUILD JAIL as a CHILD yolo process, `yolo internal
-// fork-build-jail`, for the one build a Ctrl-C must end without ending its launch: a patched
-// fork's advance while a good build serves (docs/design/patched-forks.md §7, PF-D25).
+// fork-build-jail`, for every build a jail launch runs (buildreport.go) and for the one build a
+// Ctrl-C must end without ending its launch, a patched advance's while a good build serves, at
+// `yolo host` too (docs/design/patched-forks.md §7, PF-D25, PF-D78).
 //
 // WHY A CHILD. A build jail is a whole launch, run through the same pipeline (runCaptureJail), and
 // a launch run in this process installs signal arms of its own whose exit ends the process
 // (run's armstack.go): in-process, a Ctrl-C during the build tears the build jail down and ends the
-// user's launch with it, which is right for a plain fork's build and a first advance, and is the
-// one thing PF-D25 rules out here. A child takes the arms with it: the terminal's SIGINT reaches
-// the child's arms, which tear its build jail down and exit, while this process's interrupt scope
-// (run.InterruptScope) ends the advance, and the launch goes on with the good build.
+// user's launch with it, which is the one thing PF-D25 rules out while a good build serves. A child
+// takes the arms with it: the terminal's SIGINT reaches the child's arms, which tear its build jail
+// down and exit, while this process's interrupt scope (run.InterruptScope) ends the advance, and
+// the launch goes on with the good build. And a child's streams are pipes this process reads,
+// where an in-process build jail's session, its build line's output, writes this process's own
+// stdout and stderr, so only a child's output can be kept off the launch's terminal (PF-D78).
 //
 // THE CHILD IS TOLD, NOT TRUSTED: a SIGINT that reached this process alone (`kill -INT`) is sent on
 // to the child, and a child that has not exited a grace period after it is killed — its keeper
@@ -22,7 +25,9 @@ package cli
 // (--jail-streams), which this process copies to the act's jail writers, and says on fd 5 that the
 // jail's boot is done. So the act keeps the two apart in a child as it does in its own process, and
 // a jail that stopped before its build line is relayed with what the jail said rather than its
-// keeper's last lines (jailTail, PPX-D39).
+// keeper's last lines (jailTail, PPX-D39). And the launch reading them can tell the nested launch's
+// own lines, its warnings and refusals among them, from the jail's (buildreport.go): until the
+// ready, the child's stdout and stderr carry the launch's lines alone.
 
 import (
 	"context"

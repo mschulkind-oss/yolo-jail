@@ -79,12 +79,14 @@ const (
 // RunPackHooks honors each pack's requested hooks. Failures go through genStep, so a
 // broken hook fails the boot with every other problem reported alongside it (A12).
 func RunPackHooks(e *Env, packs []*packload.Pack) {
+	writable := writableHomeDirs(packs)
 	for _, p := range packs {
 		for _, h := range p.Decl.HookContributions() {
 			hook, pack := h, p
-			genStep(e, "hook_"+pack.Name+"_"+hook.Name, func() error {
-				return runPackHook(e, pack, hook)
-			})
+			genStepAbout(e, "hook_"+pack.Name+"_"+hook.Name,
+				genAbout{doing: "running the " + hook.Name + " hook", pack: pack.Name, writable: writable}, func() error {
+					return runPackHook(e, pack, hook)
+				})
 		}
 	}
 }

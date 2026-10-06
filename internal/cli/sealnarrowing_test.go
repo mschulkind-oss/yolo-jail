@@ -30,9 +30,10 @@ func refusingBuildJail(o run.Options) int {
 	return 1
 }
 
-// A launch's tree arm relays the refusal in its warning and in the reason the jail is handed, names
-// the step that follows from it, and says nothing about a runtime or doubled parentheses. Red if the
-// build act stops teeing the jail's writers or stops relaying what it kept.
+// A launch's tree arm relays the refusal in the cause it hands the launch, which says it once
+// (run's missingbuilds.go), and its build's result says the jail stopped; nothing says a runtime or
+// doubled parentheses. Red if the build act stops teeing the jail's writers or stops relaying what
+// it kept.
 func TestATreeBuildJailThatRefusedIsRelayedWithItsRefusal(t *testing.T) {
 	fx := newTreeFixture(t, `"f.txt"`)
 	withFakeCaptureJail(t, refusingBuildJail)
@@ -40,25 +41,19 @@ func TestATreeBuildJailThatRefusedIsRelayedWithItsRefusal(t *testing.T) {
 	if d.Dir != "" {
 		t.Fatalf("a jail that never ran its build line delivered %+v\n%s", d, out)
 	}
-	relayed := "the build jail exited 1 before its build line ran, saying: " + sealRefusal
-	for _, w := range []string{
-		"extension " + treeKeyCLI + ": " + relayed + " — this jail has no extension " + treeKeyCLI,
-		"  Fix what it names, then `yolo capture " + treeKeyCLI + "` builds it; the next fresh launch tries too",
-	} {
-		if !strings.Contains(out, w) {
-			t.Errorf("the lines lack %q:\n%s", w, out)
-		}
+	if !strings.Contains(out, "Building extension "+treeKeyCLI+": its build jail exited 1 before its build line ran") {
+		t.Errorf("the build's result does not say its jail stopped:\n%s", out)
 	}
-	if want := "extension " + treeKeyCLI + " was not built on the host: " + relayed; !strings.Contains(d.Reason, want) {
-		t.Errorf("the reason the jail is handed is %q, want it to relay %q", d.Reason, want)
+	if d.Cause == nil || !slices.Equal(d.Cause.Lines, []string{sealRefusal}) {
+		t.Errorf("the cause the launch is handed is %+v, want the refusal", d.Cause)
 	}
 	for _, w := range []string{"runtime", "did not start", "((", "))"} {
 		if strings.Contains(out, w) || strings.Contains(d.Reason, w) {
 			t.Errorf("the lines or the reason still say %q:\n%s\nreason: %s", w, out, d.Reason)
 		}
 	}
-	if strings.Contains(out, "saying: Flake source") {
-		t.Errorf("the relay took a line the jail printed before its refusal:\n%s", out)
+	if d.Cause != nil && slices.ContainsFunc(d.Cause.Lines, func(l string) bool { return strings.Contains(l, "Flake source") }) {
+		t.Errorf("the relay took a line the jail printed before its refusal: %q", d.Cause.Lines)
 	}
 }
 
@@ -75,10 +70,11 @@ func TestATreeBuildJailsSeveralLineRefusalIsRelayedFromItsStream(t *testing.T) {
 		return 1
 	})
 	d, out := fx.deliver(t, true)
-	want := "saying: Invalid jail config: / • ~/.config/yolo-jail/config.jsonc:2:22: config.network.mode: " +
-		"expected 'bridge' or 'host' / Run `yolo check` for a full preflight before restarting. — "
-	if !strings.Contains(out, want) || !strings.Contains(d.Reason, strings.TrimSuffix(want, " — ")) {
-		t.Errorf("the refusal is not relayed whole (%q):\n%s\nreason: %s", want, out, d.Reason)
+	want := []string{"Invalid jail config:",
+		"• ~/.config/yolo-jail/config.jsonc:2:22: config.network.mode: expected 'bridge' or 'host'",
+		"Run `yolo check` for a full preflight before restarting."}
+	if d.Cause == nil || !slices.Equal(d.Cause.Lines, want) {
+		t.Errorf("the refusal is not relayed whole, a line each (%q):\n%s\ncause: %+v", want, out, d.Cause)
 	}
 }
 
@@ -92,10 +88,11 @@ func TestCaptureOfATreeWhoseJailRefusedRelaysTheRefusal(t *testing.T) {
 		t.Fatalf("captureTree = %d, %v\n%s%s", rc, handled, out.String(), errw.String())
 	}
 	all := out.String() + errw.String()
-	want := "yolo capture: extension " + treeKeyCLI + " was not built on the host: the build jail exited 1 " +
-		"before its build line ran, saying: " + sealRefusal
-	if !strings.Contains(errw.String(), want) {
-		t.Errorf("the capture's stop does not relay the refusal (%q):\n%s", want, all)
+	for _, want := range []string{"⚠ extension " + treeKeyCLI + ": its build jail exited 1 before its build line ran",
+		"\n    " + sealRefusal + "\n", "yolo capture: extension " + treeKeyCLI + ": its build jail refused to start"} {
+		if !strings.Contains(errw.String(), want) {
+			t.Errorf("the capture's stop does not relay the refusal (%q):\n%s", want, all)
+		}
 	}
 	if !strings.Contains(all, "Fix what it names, then `yolo capture "+treeKeyCLI+"` builds it") {
 		t.Errorf("the capture names no step that follows from the refusal:\n%s", all)

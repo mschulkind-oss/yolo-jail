@@ -46,6 +46,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
+	"github.com/mschulkind-oss/yolo-jail/internal/progress"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
@@ -77,8 +78,11 @@ type TreeBuildRequest struct {
 	Runtime string
 	// Workspace is the launch's workspace, whose launch.log a failed build's line names.
 	Workspace string
-	// Stdout and Stderr are the launch's own writers, teed into its launch.log.
+	// Stdout and Stderr are the launch's own writers, teed into its launch.log, as the fork
+	// builds' are (ForkBuildRequest.Stdout).
 	Stdout, Stderr io.Writer
+	// Progress is the rendering of this launch's stream, for each build's progress line.
+	Progress progress.Config
 	// Build is false where this launch may check and build nothing — below Apple Container's
 	// read-only floor (BuildFloor says why) — and a good build already on this machine is delivered
 	// all the same.
@@ -104,6 +108,12 @@ type TreeDelivery struct {
 	Series      string
 	// Reason is why there is no copy, naming what to do; "" when Dir is set.
 	Reason string
+	// Cause is the build's cause in plain words, when its act found one, which the launch's refusal
+	// says once for every key that shares it (missingbuilds.go) and the jail's gate is handed.
+	Cause *entrypoint.BuildCause
+	// Unsaid says the build act said nothing of Reason, leaving it to the launch's refusal or warning
+	// (missingbuilds.go), as entrypoint.ForkDelivery.Unsaid.
+	Unsaid bool
 }
 
 // goodLabelOf is a build as lines name it: its tag and short commit, or the commit alone.
@@ -214,7 +224,8 @@ func inJailTreeReason(f packload.Fork) string {
 
 // treeDeliveriesFor is THE TREE ARM, in the fork-build slot beside the fork builds: for every
 // patched extension this launch carries, the per-launch copy its jail mounts, or why there is none.
-// Nothing here can fail the launch (§9: "The jail launch itself is never refused").
+// Nothing here fails the launch; with nothing to serve a needed tree, the launch refuses right
+// after this slot (missingbuilds.go, patched-extensions.md PPX-D40).
 func (o *Options) treeDeliveriesFor(rt string) map[string]TreeDelivery {
 	if len(o.patchedTrees) == 0 || o.CapturesDir() == "" {
 		return nil
@@ -235,7 +246,8 @@ func (o *Options) treeDeliveriesFor(rt string) map[string]TreeDelivery {
 		return out
 	}
 	req := TreeBuildRequest{Trees: o.patchedTrees, Platform: containerJailPlatform(), Runtime: rt,
-		Workspace: o.Workspace, Stdout: o.Stdout, Stderr: o.Stderr, Build: floor == "", BuildFloor: floor,
+		Workspace: o.Workspace, Stdout: o.Stdout, Stderr: o.Stderr, Progress: o.progressConfig(),
+		Build: floor == "", BuildFloor: floor,
 		CopyRoot: patchedCopiesDir(o.packTree), Interrupt: o.actInterrupt()}
 	for key, d := range o.BuildTrees(req) {
 		out[key] = d
@@ -283,7 +295,7 @@ func (o *Options) patchedTreesWire(rt string) map[string]entrypoint.TreeDelivery
 		if d.Dir != "" {
 			w.Build, w.Label = d.Entry, d.label()
 		} else {
-			w.Reason = d.Reason
+			w.Reason, w.Cause = d.Reason, d.Cause
 			// A FALLBACK NEVER STOPS the agent (XB-D7): the jail's boot puts its raw entry in the
 			// list in the tree's place (entrypoint.withTreeFallbacks), and the agent installs it.
 			w.Stop = builds && f.Owner != "" && f.ListedInJail && f.Fallback == ""
@@ -320,6 +332,13 @@ func (o *Options) noteTreeDeliveries(rt string) {
 		}
 		if fb := fallbacks[k]; fb != "" {
 			o.pr(o.Stderr).print("[dim]" + richtext.Escape(FallbackLine(k, d.Reason, fb)) + "[/dim]")
+			if d.Cause != nil {
+				// THE BUILD'S CAUSE, ONCE, under the one line that says what replaced it: the launch's
+				// refusal of a missing build passes over a key with a fallback (missingbuilds.go).
+				for _, l := range d.Cause.Lines {
+					o.pr(o.Stderr).print("[dim]    " + richtext.Escape(l) + "[/dim]")
+				}
+			}
 			continue
 		}
 		if !builds {

@@ -311,6 +311,11 @@ const HoldExecEnv = "YOLO_HOLD_EXEC"
 // that reads it runs in the jail, and the user it exists for is the one whose jail will not
 // start. The entrypoint BAKES its value into the generated bootstrap rather than leaving the
 // script to read it, the way every other value there is baked.
+//
+// The same variable keeps a launch going past its refusal of a missing patched build
+// (docs/design/patched-extensions.md PPX-D40, internal/cli/run's missingbuilds.go), so one
+// hatch covers every program a launch cannot deliver. That refusal reads it host-side,
+// before any jail exists.
 const AllowMissingProgramsEnv = "YOLO_ALLOW_MISSING_PROGRAMS"
 
 // NoProgramReadinessEnv turns the jail's readiness act OFF for a launch: any non-empty value

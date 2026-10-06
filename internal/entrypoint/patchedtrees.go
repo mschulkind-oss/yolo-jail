@@ -10,8 +10,9 @@ package entrypoint
 // mounts the build's per-launch copy read-only at `~/<into>` and says, per key, what it handed or
 // why there is none, and whether the owning agent's launchers stop (PPX-D18: the good build
 // serves; with none, the owning agent pack's launchers stop before exec and say why, at a notch
-// that builds trees and that the agent's list entry reaches). The jail launch itself is never
-// refused, and the shell stays up.
+// that builds trees and that the agent's list entry reaches), and the shell stays up. A fresh
+// launch with such a tree refuses before booting (PPX-D40), so this gate is the backstop for an
+// attach, a nested launch and a launch with YOLO_ALLOW_MISSING_PROGRAMS set.
 
 import (
 	"encoding/json"
@@ -45,6 +46,9 @@ type TreeDelivery struct {
 	Label string `json:"label,omitempty"`
 	// Reason is why none was mounted, naming what to do; "" when Build is set.
 	Reason string `json:"reason,omitempty"`
+	// Cause is the build's cause in plain words, when its act found one (BuildCause), which the gate
+	// says once for every extension that shares it; nil leaves Reason to say it.
+	Cause *BuildCause `json:"cause,omitempty"`
 	// Owner is the owning agent pack (PPX-D4), "" when no list entry names the tree.
 	Owner string `json:"owner,omitempty"`
 	// Stop says the owner's launchers stop before exec (PPX-D18): nothing serves, at a notch that
@@ -93,8 +97,12 @@ func withTreeFallbacks(e *Env, packs []*packload.Pack) []*packload.Pack {
 	return out
 }
 
-// treeGateFor is the gate the launchers of pack carry: one line per patched extension that pack
-// owns which the host says stops them, in key order, "" when nothing does.
+// treeGateFor is the gate the launchers of pack carry: "" when no patched extension that pack owns
+// stops them, else ONE SHORT LINE PER EXTENSION, in key order, then why ONCE — the host's reason and
+// its cause in plain words when every one shares a cause (BuildCause), as a launch that met one
+// refusal hands each extension it left without a build — and the next step once. An extension
+// whose why is its own says it on its line. The maintainer's first launch with patched extensions
+// printed the whole relayed refusal on each extension's line, four times (PPX-D42).
 func treeGateFor(d map[string]TreeDelivery, pack string) string {
 	keys := make([]string, 0, len(d))
 	for k, t := range d {
@@ -102,23 +110,111 @@ func treeGateFor(d map[string]TreeDelivery, pack string) string {
 			keys = append(keys, k)
 		}
 	}
-	sort.Strings(keys)
-	var lines []string
-	for _, k := range keys {
-		t := d[k]
-		why := t.Reason
-		if why == "" {
-			why = "the host handed this jail no build of it"
-		}
-		lines = append(lines, "  ⚠ extension "+k+" (~/"+strings.TrimSuffix(t.Into, "/")+"), which pack "+pack+
-			" loads, has no build in this jail: "+why)
-	}
-	if len(lines) == 0 {
+	if len(keys) == 0 {
 		return ""
 	}
-	return strings.Join(lines, "\n") + "\n  So this program does not start rather than start without it (the shell " +
-		"is unaffected); once a fresh launch on the host has built it, launch again — or drop the list " +
-		"entry naming it to run without it."
+	sort.Strings(keys)
+	// One cause for all is said once, below them; otherwise each line says its own why.
+	shared := d[keys[0]].Cause
+	for _, k := range keys[1:] {
+		if !d[k].Cause.Same(shared) {
+			shared = nil
+			break
+		}
+	}
+	var lines []string
+	// With no cause every extension shares, each cause is said under the first extension it left
+	// without a build, and a later one it left names that one, so a cause is still said, and once.
+	var said []string
+	for _, k := range keys {
+		t := d[k]
+		line := "  ⚠ extension " + k + " (~/" + strings.TrimSuffix(t.Into, "/") + ") has no build in this jail"
+		if shared != nil {
+			lines = append(lines, line)
+			continue
+		}
+		why := treeGateWhy(t)
+		if !t.Cause.says() {
+			lines = append(lines, line+": "+why)
+			continue
+		}
+		if first := firstSaidWith(d, said, t.Cause); first != "" {
+			head, _, _ := strings.Cut(why, " — ")
+			lines = append(lines, line+": "+strings.TrimSuffix(head, ".")+", as extension "+first+"'s did")
+			continue
+		}
+		said = append(said, k)
+		c := causeSaid(why, t.Cause, "    ")
+		lines = append(lines, line+": "+c[0])
+		lines = append(lines, c[1:]...)
+	}
+	them, one := "them", "one"
+	if len(keys) == 1 {
+		them, one = "it", "it"
+	}
+	if shared != nil {
+		// The reason's own next step ("— the next fresh launch tries again") is the gate's last line.
+		why, _, _ := strings.Cut(treeGateWhy(d[keys[0]]), " — ")
+		if len(keys) > 1 {
+			why = strings.Replace(why, "its build jail", "their build jail", 1)
+		}
+		lines = append(lines, "    Why: "+strings.TrimSuffix(why, ".")+colonAfter(len(shared.Lines) > 0))
+		for _, l := range shared.Lines {
+			lines = append(lines, "      "+l)
+		}
+		if shared.YoloBug {
+			lines = append(lines, "    This is a bug in yolo, not in the pack: report it at "+IssuesURL+".")
+		}
+	}
+	return strings.Join(lines, "\n") + "\n  So pack " + pack + "'s program does not start rather than start without " +
+		them + " (the shell is unaffected); once a fresh launch on the host has built " + them + ", launch " +
+		"again — or drop the list entry naming " + one + " to run without it."
+}
+
+// firstSaidWith is the extension among said, the keys whose causes the gate has said, whose cause is
+// c; "" when none is.
+func firstSaidWith(d map[string]TreeDelivery, said []string, c *BuildCause) string {
+	for _, k := range said {
+		if d[k].Cause.Same(c) {
+			return k
+		}
+	}
+	return ""
+}
+
+// causeSaid is a why and its cause as the jail's lines say them: the why without the act that
+// tries again (" — …", which the gate's own last line or the launcher's says), a colon when lines
+// follow, then each of the cause's lines indented under it, then whose bug it is when it is
+// yolo's. why alone when there is no cause to say (BuildCause.says).
+func causeSaid(why string, c *BuildCause, indent string) []string {
+	if !c.says() {
+		return []string{why}
+	}
+	head, _, _ := strings.Cut(why, " — ")
+	out := []string{strings.TrimSuffix(head, ".") + colonAfter(len(c.Lines) > 0)}
+	for _, l := range c.Lines {
+		out = append(out, indent+"  "+l)
+	}
+	if c.YoloBug {
+		out = append(out, indent+"This is a bug in yolo, not in the pack: report it at "+IssuesURL+".")
+	}
+	return out
+}
+
+// colonAfter is ":" when lines follow.
+func colonAfter(more bool) string {
+	if more {
+		return ":"
+	}
+	return ""
+}
+
+// treeGateWhy is one extension's why, the host's reason, or that the host handed nothing.
+func treeGateWhy(t TreeDelivery) string {
+	if t.Reason != "" {
+		return t.Reason
+	}
+	return "the host handed this jail no build of it"
 }
 
 // treeGateShell is the gate every agent launcher carries FIRST, right after its update mode's exit

@@ -47,9 +47,12 @@ var treeCopied = func(key string) {}
 func deliverTreesForLaunch(req run.TreeBuildRequest, out, errw io.Writer, color bool) map[string]run.TreeDelivery {
 	got := make([]run.TreeDelivery, len(req.Trees))
 	later := make([]bool, len(req.Trees))
+	// EACH BUILD IS ONE PROGRESS LINE on the launch's stream (buildreport.go), as the fork builds'.
+	report := newBuildReport(req.Workspace, errw, req.Progress, color)
 	runTreesInParallel(req.Trees, req.Runtime, req.Interrupt, out, errw, func(i int, f packload.Fork, lane treeLane) {
-		got[i], later[i] = deliverTree(f, req, lane, color)
+		got[i], later[i] = deliverTree(f, req, lane, report, color)
 	})
+	report.flush()
 	m := map[string]run.TreeDelivery{}
 	var background []packload.Fork
 	for i, f := range req.Trees {
@@ -97,11 +100,12 @@ var backgroundTreeAdvance = func(trees []packload.Fork, _ run.TreeBuildRequest, 
 // FOR THE NEXT LAUNCH (treeUpdateTiming, XB-D19): a key with a good build is handed it with no check,
 // one with none but a fallback takes the fallback this once, and only a key with neither builds in
 // front, since there is nothing to hand; the first two are left to the background advance.
-func deliverTree(f packload.Fork, req run.TreeBuildRequest, lane treeLane, color bool) (_ run.TreeDelivery, later bool) {
+func deliverTree(f packload.Fork, req run.TreeBuildRequest, lane treeLane, report *buildReport,
+	color bool) (_ run.TreeDelivery, later bool) {
 	errw := lane.errw
 	pr := richtext.Printer{W: errw, Color: color}
 	o := lane.options(advanceOptions{platform: req.Platform, runtime: req.Runtime, workspace: req.Workspace,
-		color: color, launch: true, act: req.Interrupt})
+		color: color, launch: true, act: req.Interrupt, report: report})
 	nextLaunch := req.Build && treeUpdateTiming(f) == timingNextLaunch
 	for attempt := 0; ; attempt++ {
 		var r advanceResult
@@ -122,7 +126,7 @@ func deliverTree(f packload.Fork, req run.TreeBuildRequest, lane treeLane, color
 			r = servingTree(f, o, req.BuildFloor)
 		}
 		if r.delivery.Key == "" {
-			return run.TreeDelivery{Reason: r.delivery.Reason}, later
+			return run.TreeDelivery{Reason: r.delivery.Reason, Cause: r.delivery.Cause, Unsaid: r.delivery.Unsaid}, later
 		}
 		if req.CopyRoot == "" {
 			return run.TreeDelivery{Reason: f.Label() + " has a build on this machine, and this launch staged no pack " +

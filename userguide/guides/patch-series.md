@@ -144,12 +144,19 @@ Patched extensions this launch:
 The pack banner also says, for each one, that the upstream's new code arrives unreviewed and is
 built on your machine.
 
-When yolo builds something new, it says so, once:
+When yolo builds something new, the launch shows the build as one line while it runs, and then
+says what the jail runs, once. Before the build starts, it names what it builds, the exact build
+command and what the sealed jail is denied:
 
 ```text
-built fork pi-mine/pi: v1.0.0 (a13d35a7) + 7 patches; this jail runs it
-updated fork pi-mine/pi: v1.0.0 (a13d35a7) → v1.0.2 (cd32f772), 7 patches; this jail runs the new build
+build fork pi-mine/pi: v1.0.0 (a13d35a7) + 7 patches (series 2544fe91), the first build of it on this machine; log: .yolo/build-pi-mine--pi-5b0e2d1c.log
+  sealed: no credential, no host file, no env_sources, and a bridged network, never the host's; it runs: npm ci && npm run build && npm install -g "$(npm pack --silent)"
+built fork pi-mine/pi: v1.0.0 (a13d35a7) + 7 patches; this jail runs it — store key 0ef427ce4a347926, 4210 paths, 138 MB (52.0s)
 ```
+
+A later launch that moves to a new version says `updated fork pi-mine/pi: v1.0.0 (a13d35a7) →
+v1.0.2 (cd32f772), 7 patches; this jail runs the new build`. Everything the build printed is in
+the build's own log, named on its first line, and in `.yolo/launch.log`.
 
 - **The first build** happens at the first launch, which waits for it. A Ctrl-C during a patched
   program's first build ends that launch; during an extension's, the launch goes on without it.
@@ -226,14 +233,29 @@ To keep running what you have, turn `agent_updates` off for the pack, or put a t
 
 ## When a build fails
 
-- **A build of a new version fails:** the good build keeps running, the failure is said once, and
-  yolo tries again after a wait. `yolo capture` retries at once.
+- **A build of a new version fails:** the good build keeps running, the failure is said once with
+  the build's last lines and where its whole output is, and yolo tries again after a wait.
+  `yolo capture` retries at once.
 - **Your own edit fails:** if you change the series, `build` or `produces` and the result does not
-  build, yolo tries your series on its base version. If that fails too, the program is missing
-  until you fix or revert the edit, and the launch says so.
-- **A pi extension with no build:** pi does not start without an extension it is set to load. In
-  the jail, running `pi` says which extension has no build and why, and that you can drop its list
-  entry to run without it. The shell is unaffected.
+  build, yolo tries your series on its base version. If that fails too, nothing is left to run.
+- **Nothing to run:** when a patched program, or a pi extension a pack loads, has no build at all,
+  the launch stops before the jail starts, whatever you asked it to run. It says why once, for
+  every build the same cause left without one, says whether the fix is yours or a bug in yolo to
+  report, and names the ways on: `yolo capture <key>` to build it again,
+  `yolo pack series check` and `yolo pack rebase <key>` when a series no longer applies, or dropping
+  the list entry or the pack. `YOLO_ALLOW_MISSING_PROGRAMS=1` starts the jail anyway: the shell
+  works, and pi says which extension has no build if you run it.
+
+```text
+Refusing to launch: 2 patched extensions pack pi loads have no build on this machine.
+  extensions mine/ext-a and mine/ext-b: their build jail refused to start on the host:
+      writing pi's automode file (~/.pi/agent/extensions/automode/settings.json), which pack mine declares, failed:
+        ~/.pi is mounted read-only in that jail
+    This is a bug in yolo, not in pack mine: the build jail refused a config your own launch accepts.
+    Report it at https://github.com/mschulkind-oss/yolo-jail/issues, with /home/you/project/.yolo/build-mine--ext-a-1a2b3c4d.log; once it is fixed, the next fresh launch builds them, or `yolo capture mine/ext-a`, `yolo capture mine/ext-b` now.
+  To launch without them now: YOLO_ALLOW_MISSING_PROGRAMS=1, and what loads them stops in the jail while the shell works.
+  To run without one for good: drop the list entry naming it, or its pack.
+```
 
 ## Where it works
 

@@ -65,7 +65,7 @@ func TestAnUnmodifiedGitExtensionIsBuiltAtItsTipWithTheDefaultBuild(t *testing.T
 		rec.Good.Recipe != packdecl.TreeSourceRecipe(f.Source, packdecl.UnmodifiedGitBuild, nil, empty) {
 		t.Fatalf("the good build = %+v, want the tip under the empty series' recipe", rec.Good)
 	}
-	if !strings.Contains(out, "no build of it on this machine yet; building its upstream") ||
+	if !strings.Contains(out, "build extension "+treeKeyCLI+": "+tip[:8]+", the first build of it on this machine") ||
 		!strings.Contains(out, "built extension "+treeKeyCLI+": "+tip[:8]+"; this jail runs it") ||
 		strings.Contains(out, "0 patches") || strings.Contains(out, "takes the series") {
 		t.Errorf("the advance's lines speak of a series:\n%s", out)

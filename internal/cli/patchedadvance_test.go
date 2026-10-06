@@ -69,6 +69,7 @@ type patchedAdvanceFixture struct {
 	ran    bool     // whether the fake build jail writes the toolchain record (its build line ran)
 	said   string   // a line the fake build jail's runtime prints on the jail's stderr before it exits, "" for none
 	child  int      // how many builds went through the child-process runner
+	scoped []bool   // per child build, whether an interrupt scope's context could cancel it
 	// platform is what the fake build jail's manifest reports: a container capture jail's, unless a
 	// host floor test makes it the floor's own (capture.Platform), which a materialize on the host
 	// requires.
@@ -87,9 +88,10 @@ func newPatchedAdvanceFixture(t *testing.T, follow string) *patchedAdvanceFixtur
 	t.Cleanup(func() { patchedNow = prevNow })
 	withFakeCaptureJail(t, fx.buildJail(t))
 	prevChild := forkBuildChild
-	forkBuildChild = func(_ context.Context, _ time.Duration, staging string, b forkBuild, s captureStreams,
+	forkBuildChild = func(ctx context.Context, _ time.Duration, staging string, b forkBuild, s captureStreams,
 		color bool) (int, bool) {
 		fx.child++
+		fx.scoped = append(fx.scoped, ctx.Done() != nil)
 		return forkBuildRunJail(staging, b, s, color), false
 	}
 	t.Cleanup(func() { forkBuildChild = prevChild })
@@ -396,8 +398,9 @@ func TestAFailedBuildBacksOffWhileTheGoodBuildServes(t *testing.T) {
 }
 
 // A BUILD JAIL THAT NEVER RAN THE BUILD LINE is not a failed build (PF-D21): nothing is recorded,
-// the good build serves, the line relays what the jail said last and names the step (Apple
-// Container's own besides), and the next launch tries again with no back-off. The jail runs as the
+// the good build serves, the line relays what the jail said last, on a line of its own (PPX-D42),
+// and names the step (Apple Container's own besides), and the next launch tries again with no
+// back-off. The jail runs as the
 // child a serving advance runs (forkBuildChild), so this is red if that closure stops handing the
 // child the act's teed writers, as well as if the act stops relaying (PPX-D39).
 func TestABuildJailThatNeverRanRecordsNothing(t *testing.T) {
@@ -413,8 +416,9 @@ func TestABuildJailThatNeverRanRecordsNothing(t *testing.T) {
 	if fx.child == children {
 		t.Fatalf("the build did not run as a child, which this test is about:\n%s", out)
 	}
-	for _, w := range []string{"fork forkpack/tool: the build jail exited 125 before its build line ran, saying: " +
-		"Error: the fixture's runtime refused the container — still running v1.1.0",
+	for _, w := range []string{"fork forkpack/tool: its build jail exited 125 before its build line ran — still " +
+		"running v1.1.0",
+		"\n    Error: the fixture's runtime refused the container\n",
 		"  Fix what it names, then `yolo capture tool` builds it; the next fresh launch tries too",
 		"On Apple Container a capture jail cannot start beside a running jail: if that is what stopped it, " +
 			"`yolo capture tool` builds it once the other jails stop"} {
@@ -526,8 +530,8 @@ func TestCaptureOfAPatchedForkBuildsThroughTheSwap(t *testing.T) {
 // THE LAUNCH'S WIRED TRIGGER RUNS THE ADVANCE for a patched fork (TestALaunchWiresTheForkBuildTrigger's
 // shape): red if runRun stops wiring Options.BuildForks, if buildForksForLaunch stops sending a
 // patched fork to its advance, or if the wiring stops writing the advance to the launch's own
-// writers (the request's Stdout and Stderr, teed into its launch.log, which a failed build's line
-// names).
+// stream (the request's Stderr, teed into its launch.log), or writes any of it on the jail
+// command's stdout (PF-D78).
 func TestTheWiredTriggerRunsAPatchedForksAdvance(t *testing.T) {
 	fx := newPatchedAdvanceFixture(t, "")
 	fx.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
@@ -550,8 +554,8 @@ func TestTheWiredTriggerRunsAPatchedForksAdvance(t *testing.T) {
 	if got["tool"].Key == "" || len(fx.builds) != 1 {
 		t.Errorf("the wired trigger answered %+v after %d builds, want the advance's build", got, len(fx.builds))
 	}
-	if !strings.Contains(launchOut.String(), "built fork forkpack/tool") {
-		t.Errorf("the advance's lines did not reach the launch's writers:\nstdout: %s\nstderr: %s", launchOut.String(),
+	if !strings.Contains(launchErr.String(), "built fork forkpack/tool") || launchOut.String() != "" {
+		t.Errorf("the advance's lines did not reach the launch's stream alone:\nstdout: %s\nstderr: %s", launchOut.String(),
 			launchErr.String())
 	}
 }

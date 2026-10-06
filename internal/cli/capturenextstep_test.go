@@ -252,8 +252,9 @@ func TestEveryForkCaptureStopNamesItsNextStep(t *testing.T) {
 		}
 	})
 	// A JAIL THAT STOPPED BEFORE ITS BUILD LINE (PPX-D39) is relayed with the last line it printed,
-	// its own refusal, through the writers the build act handed it: no runtime is blamed, and the
-	// step points at that line. Red if the act stops teeing the jail's writers.
+	// its own refusal, through the writers the build act handed it, on a line of its own under the
+	// stop (PPX-D42): no runtime is blamed, and the step follows it. Red if the act stops teeing the
+	// jail's writers.
 	t.Run("a build jail that refused before its build line", func(t *testing.T) {
 		forkBuildHome(t)
 		withFakeCaptureJail(t, func(o run.Options) int {
@@ -262,10 +263,13 @@ func TestEveryForkCaptureStopNamesItsNextStep(t *testing.T) {
 			return 1
 		})
 		_, stderr := runCaptureFor(t, "probetool")
-		const lead = "yolo capture: the build jail exited 1 before its build line ran, saying: packs: pack forkpack: " +
-			"briefing `agents` names \"nope\", which no pack in `packs` provides"
+		const lead = "yolo capture: its build jail exited 1 before its build line ran"
+		const said = "    packs: pack forkpack: briefing `agents` names \"nope\", which no pack in `packs` provides"
 		const want = "  Fix what it names, then run `yolo capture probetool` again."
-		if got := stepAfter(t, stderr, lead); got != want {
+		if got := stepAfter(t, stderr, lead); got != said {
+			t.Errorf("the jail's line is\n%q\nwant\n%q", got, said)
+		}
+		if got := stepAfter(t, stderr, said); got != want {
 			t.Errorf("the step is\n%q\nwant\n%q", got, want)
 		}
 		if strings.Contains(stderr, "runtime") {

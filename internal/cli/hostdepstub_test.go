@@ -81,6 +81,10 @@ func TestMain(m *testing.M) {
 	// A CHILD BUILD JAIL RUN IN THIS PROCESS (runForkBuildJail with --jail-streams) never takes fds 3
 	// to 5, which are this test binary's own: a test that means them hands its own.
 	forkBuildJailStreams = func() (*os.File, *os.File, *os.File, bool) { return nil, nil, nil, false }
+	// EVERY BUILD A JAIL LAUNCH RUNS IS THE fork-build-jail CHILD (buildreport.go), and a test binary
+	// never self-execs as one (forkBuildChildCommand): the package's builds run in this process,
+	// through the fake capture jail a test installs, unless a test stands in a child of its own.
+	forkBuildChild = inProcessForkBuildChild
 	// A fixture's git reads no machine configuration (testsupport.HermeticGitEnv), and the
 	// tripwire makes one that does fail here and on CI, not only on a machine that signs.
 	testsupport.ArmGitConfigTripwire()

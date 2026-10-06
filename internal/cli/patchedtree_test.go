@@ -91,7 +91,11 @@ func (fx *treeFixture) buildJail(t *testing.T) func(run.Options) int {
 		fx.builds = append(fx.builds, string(data))
 		writeFile(t, filepath.Join(o.Workspace, forkToolchainLeaf), "image-identity node v24 npm 11\n")
 		out := filepath.Join(o.Workspace, captureOutLeaf)
-		reserved := packdecl.TreeReservedDir("tool-ext")
+		name := o.SealedTree // the tree this jail builds, one of several a test may declare
+		if name == "" {
+			name = "tool-ext"
+		}
+		reserved := packdecl.TreeReservedDir(name)
 		entries := []capture.ManifestEntry{
 			{Path: ".local", Kind: capture.KindDir, Mode: "0755"},
 			{Path: ".local/share", Kind: capture.KindDir, Mode: "0755"},
@@ -238,7 +242,8 @@ func TestATreesAdmitRefusesStraysMissingProducesAndHomeReferences(t *testing.T) 
 			fx := newTreeFixture(t, `"f.txt"`)
 			tc.edit(fx)
 			d, out := fx.deliver(t, true)
-			if d.Dir != "" || !strings.Contains(out, tc.reason) {
+			// The reason is the launch's to say (missingbuilds.go), which says it once.
+			if d.Dir != "" || !strings.Contains(d.Reason, tc.reason) {
 				t.Errorf("delivered %+v; want a failed build naming %q:\n%s", d, tc.reason, out)
 			}
 			if rec := patchedRecordOf(t, treeKeyCLI); rec.Good != nil {

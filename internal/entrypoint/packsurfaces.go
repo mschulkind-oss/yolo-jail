@@ -213,6 +213,7 @@ func loadJailPack(e *Env, dir, name string, disclosed []string) (*packload.Pack,
 // no per-pack branching at all. Failures are collected through genStep, so one boot
 // reports every broken surface rather than one per restart (A12).
 func ConfigurePackSurfaces(e *Env, packs []*packload.Pack) {
+	about := surfaceStepsAbout(packs)
 	// THE ONE LOOP (surfaceloop.go), with the boot's failure disposition: every step through
 	// genStep, so one boot reports every broken surface rather than one per restart (A12).
 	_ = renderPackSet(e, packs, func(autonomy bool, profiles map[string]string) *packoverlay.OverlaySet {
@@ -225,9 +226,36 @@ func ConfigurePackSurfaces(e *Env, packs []*packload.Pack) {
 		reportOverlayResolution(e, overlays)
 		return overlays
 	}, func(name string, run func() error) error {
-		genStep(e, name, run)
+		genStepAbout(e, name, about[name], run)
 		return nil
 	})
+}
+
+// surfaceStepsAbout is what each step of the render loop is about, by the step's name
+// (renderPackSet names a pack's surface problems "pack_<pack>_surfaces" and a surface's render
+// "configure_<agent>_<surface>"): the pack, and the file in plain words, for a refused boot's
+// record (bootrefusal.go). Read from the packs' declarations here, beside the loop, rather than
+// from the name, which an underscore in an agent's or a surface's name would make ambiguous; the
+// first pack to declare a key names it, as the loop renders them in that order. It names surfaces
+// and plans none: the render's own plan is the loop's alone (planPackSurfaces).
+func surfaceStepsAbout(packs []*packload.Pack) map[string]genAbout {
+	about := map[string]genAbout{}
+	writable := writableHomeDirs(packs)
+	for _, p := range packs {
+		if p == nil || p.Decl == nil {
+			continue
+		}
+		about["pack_"+p.Name+"_surfaces"] = genAbout{doing: "reading the config files", pack: p.Name, writable: writable}
+		surfaces, _ := manifest.DecodeSurfaces(p.Decl.SurfaceContributions())
+		for _, s := range surfaces {
+			name := "configure_" + s.Agent + "_" + s.Name
+			if _, seen := about[name]; !seen {
+				about[name] = genAbout{doing: "writing " + s.Agent + "'s " + s.Name + " file (" + s.Path + ")", pack: p.Name,
+					writable: writable}
+			}
+		}
+	}
+	return about
 }
 
 // reportOverlayResolution surfaces what the overlay collection found, per rulings R2

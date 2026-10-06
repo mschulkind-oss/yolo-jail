@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 )
 
 const fallbackRaw = "npm:tree-ext"
@@ -90,5 +92,34 @@ func TestANestedLaunchNamesAnUnmodifiedExtensionWithNoSeries(t *testing.T) {
 		"the host delivers it; the agent installs " + fallbackRaw + " itself, in this workspace"
 	if !strings.Contains(printed, want) || strings.Contains(printed, "series is replayed") {
 		t.Errorf("a nested launch does not name the unmodified extension's reason (%q):\n%s", want, printed)
+	}
+}
+
+// A FALLBACK IS NOT A MISSING BUILD (missingbuilds.go): an extension whose build left nothing, with a
+// fallback declared, never reaches the launch's refusal of a missing patched build — the agent
+// installs its raw entry — and the build's cause, which its act left to the launch, is said once,
+// under the fallback's line. Red if missingBuilds stops passing over a key with a fallback (the
+// launch refuses), or if noteTreeDeliveries stops printing the cause.
+func TestAFailedBuildWithAFallbackIsNotRefusedAndSaysItsCauseOnce(t *testing.T) {
+	fallbackLaunchHome(t)
+	t.Setenv("YOLO_ALLOW_MISSING_PROGRAMS", "")
+	cause := "writing tool's settings file failed: ~/.tool is mounted read-only in that jail"
+	argv, printed := fakePodmanLaunch(t, func(o *Options) {
+		o.BuildTrees = func(TreeBuildRequest) map[string]TreeDelivery {
+			return map[string]TreeDelivery{treeKey: {Reason: "its build jail refused to start on the host",
+				Unsaid: true, Cause: &entrypoint.BuildCause{Lines: []string{cause}}}}
+		}
+	})
+	if strings.Contains(printed, "Refusing to launch") || strings.Contains(printed, "no build on this machine") {
+		t.Errorf("a key with a fallback reached the missing-build refusal:\n%s", printed)
+	}
+	if d := patchedTreesInArgv(t, argv)[treeKey]; d.Stop {
+		t.Errorf("the jail is handed %+v, want no stop", d)
+	}
+	if n := strings.Count(printed, cause); n != 1 {
+		t.Errorf("the launch says the build's cause %d times, want once under the fallback's line:\n%s", n, printed)
+	}
+	if !strings.Contains(printed, "the agent installs "+fallbackRaw+" itself") {
+		t.Errorf("the launch does not say the fallback:\n%s", printed)
 	}
 }
