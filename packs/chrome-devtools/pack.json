@@ -5,15 +5,20 @@
   // for what each notch gets. Four contributions, each a claim the footprint names:
   "contributes": [
     // The server itself. Installed by the jail's lazy launcher on first use (and kept current
-    // by it), and into yolo's host floor by `yolo host apply --assert` or the first
-    // `yolo host -- <agent>`. The floor is the vendor's own: its package.json asks for
+    // by it), and into yolo's host floor by the first `yolo host -- <agent>` (or, under
+    // host_management "own", `yolo host apply --assert`). The floor is the vendor's own: its package.json asks for
     // Node ^20.19 || ^22.12 || >=23, and one floor covers the newer two.
     {
       "kind": "program",
       "bin": "chrome-devtools-mcp",
       "via": "npm",
       "package": "chrome-devtools-mcp",
-      "node_floor": "22.12"
+      "node_floor": "22.12",
+      // A version probe answers at once (pi-extension-store-builds.md XB-D24): the word the
+      // per-pack install matrix runs (integration/agents_test.go).
+      "probe_args": [
+        "--version"
+      ]
     },
     // The wrapper the entry runs. OFF PATH on purpose (a `files` tree may not land on a PATH
     // directory; the program above is what owns a name there), and run through /bin/sh,

@@ -461,7 +461,7 @@ func TestHostFloorInstallsTheVendorsRelease(t *testing.T) {
 	requireJail(t)
 	requireRealPackInstalls(t)
 	if runtime.GOOS == "darwin" {
-		t.Skip("vendor installs on a Mac are OQ-CI7's open question (docs/reference/agent-install-in-ci.md#oq-ci7)")
+		t.Skip("vendor installs on a Mac are OQ-CI7's open question (docs/reference/agent-install-in-ci.md#OQ-CI7)")
 	}
 	for _, tc := range packMatrix {
 		t.Run(tc.pack, func(t *testing.T) {

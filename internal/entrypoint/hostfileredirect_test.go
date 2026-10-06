@@ -477,8 +477,8 @@ func TestTheZshenvTheLoginRCRefusalOffersIsDelivered(t *testing.T) {
 // A DESTINATION AT OR BELOW A LINK A SELECTED PACK'S HOOK LAYS IS WRITTEN THROUGH THAT LINK, as
 // it is on podman and was on this backend before the host_files walk. The hooks run in
 // configure_pack_surfaces, before the host_files step, and lay their links below the layout's:
-// claude's shared credential and per-workspace history, agy's shared credential, pi's shared
-// npm store. Config validation reserves none of those paths, so an entry there is a valid config.
+// claude's shared credential and per-workspace history, agy's shared credential (pi's npm store,
+// shared until 2026-10-05, is per workspace since XB-D14 and laid by no hook). Config validation reserves none of those paths, so an entry there is a valid config.
 // Refusing it as "a link the layout did not lay" named `sudo rm <link>`, and the hook laid the
 // link again on the next launch, so the named step led to the same refusal forever.
 //
@@ -509,9 +509,6 @@ func TestAHostFileAtOrBelowAPackHooksLinkIsWrittenThroughIt(t *testing.T) {
 			func(f *homeRootFixture) string {
 				return filepath.Join(f.home, ".gemini-shared-credentials", "antigravity-oauth-token")
 			}},
-		"a file in pi's shared npm store": {"pi", ".pi/agent/npm/yolo-it-extra", config.HostFileModeCopy,
-			func(f *homeRootFixture) string { return filepath.Join(f.sidecar("a"), "pi", "agent", "npm") },
-			func(f *homeRootFixture) string { return filepath.Join(f.home, ".pi-shared-npm", "yolo-it-extra") }},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -596,10 +593,11 @@ func TestPackHookLinksAreTheLinksTheHooksLay(t *testing.T) {
 			total += len(laid)
 		})
 	}
-	// claude's credential and history, agy's credential, pi's npm store: a vacuous pass (no pack
-	// staged, no hook run) must not read as agreement.
-	if total < 4 {
-		t.Errorf("the shipped packs' hooks laid %d links, want at least the 4 this test was written against", total)
+	// claude's credential and history, agy's credential (pi's npm store is per workspace since
+	// XB-D14, and no hook links it): a vacuous pass (no pack staged, no hook run) must not read as
+	// agreement.
+	if total < 3 {
+		t.Errorf("the shipped packs' hooks laid %d links, want at least the 3 this test was written against", total)
 	}
 	claude, err := embeddedPack("claude")
 	if err != nil {
