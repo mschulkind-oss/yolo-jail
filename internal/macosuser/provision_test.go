@@ -431,10 +431,21 @@ func TestProgramReadinessDoesNotReuseThePreviousWorkspaceHome(t *testing.T) {
 	}
 }
 
+// Match the physical home and sidecar roots supplied by production, including on macOS where
+// t.TempDir returns a path beneath the /var symlink. Keep intentional home aliases separate.
+func readinessPhysicalTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
 func TestProgramReadinessMapsConfiguredPrefixesThroughTheIncomingHomeLayout(t *testing.T) {
-	accountHome := t.TempDir()
-	workspaceA := t.TempDir()
-	workspaceB := t.TempDir()
+	accountHome := readinessPhysicalTempDir(t)
+	workspaceA := readinessPhysicalTempDir(t)
+	workspaceB := readinessPhysicalTempDir(t)
 	packRoot := readinessPackRootWithWorkspaceState(t, ".claude")
 	layout := entrypoint.DeriveDarwinHomeLayout(accountHome, paths.WorkspaceHomeState(workspaceA),
 		[]string{".claude"}, nil)

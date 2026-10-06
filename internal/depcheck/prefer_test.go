@@ -78,20 +78,27 @@ func TestAnOrderSkipsWhatThisHostLacks(t *testing.T) {
 // holds the first manager's tokens alone; the other's command is printed beside it (Unbundled),
 // so the file, its install command and the list of what it leaves out still agree.
 func TestABundleHoldsOneManager(t *testing.T) {
-	res := Check([]Requirement{
-		{Bin: "aaa", Hints: map[string]string{"brew": "aaa"}, Prefer: []string{"brew"}},
-		{Bin: "bbb", Hints: map[string]string{"apt": "bbb"}},
-	}, only("apt", "brew"))
-	name, body := Manifest(res)
-	if name != "Brewfile" || body != "brew \"aaa\"\n" {
-		t.Errorf("Manifest = %q %q, want a Brewfile of aaa alone", name, body)
-	}
-	if cmd := BundleInstall(res, "/b"); !strings.HasPrefix(cmd, "brew bundle") {
-		t.Errorf("BundleInstall = %q, want brew's", cmd)
-	}
-	left := Unbundled(res)
-	if len(left) != 1 || left[0].Bin != "bbb" || left[0].Remedy != "sudo apt install -y bbb" {
-		t.Errorf("Unbundled = %+v, want bbb's apt command", left)
+	for _, detected := range []string{"apt", "brew"} {
+		t.Run(detected+" default", func(t *testing.T) {
+			original := DetectManager
+			t.Cleanup(func() { DetectManager = original })
+			DetectManager = func(Lookup) string { return detected }
+			res := Check([]Requirement{
+				{Bin: "aaa", Hints: map[string]string{"brew": "aaa"}, Prefer: []string{"brew"}},
+				{Bin: "bbb", Hints: map[string]string{"apt": "bbb"}, Prefer: []string{"apt"}},
+			}, only("apt", "brew"))
+			name, body := Manifest(res)
+			if name != "Brewfile" || body != "brew \"aaa\"\n" {
+				t.Errorf("Manifest = %q %q, want a Brewfile of aaa alone", name, body)
+			}
+			if cmd := BundleInstall(res, "/b"); !strings.HasPrefix(cmd, "brew bundle") {
+				t.Errorf("BundleInstall = %q, want brew's", cmd)
+			}
+			left := Unbundled(res)
+			if len(left) != 1 || left[0].Bin != "bbb" || left[0].Remedy != "sudo apt install -y bbb" {
+				t.Errorf("Unbundled = %+v, want bbb's apt command", left)
+			}
+		})
 	}
 }
 
