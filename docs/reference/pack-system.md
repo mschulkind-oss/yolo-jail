@@ -30,7 +30,7 @@ covers:
   - packs/
 tags: [packs, config, kinds, manifest, prism, trust, disclosure]
 stage: DESIGN
-next: "Rule OQ-PK1, whose options and leaning were drafted 2026-10-01 (the leaning: shipped packs whose contributions all stay inside the jail, executable kinds included); mcp-presets-removal.md's build steps 1-3 wait on the ruling"
+next: "Rule OQ-PK1, whose options and leaning were drafted 2026-10-01 (the leaning: shipped packs whose contributions all stay inside the jail, executable kinds included); mcp-presets-removal.md's step 3, the key's retirement, waits on the ruling (steps 1 and 2 were built 2026-10-05, MP-D8)"
 ---
 
 # The pack system — how a jail gets everything in it
@@ -486,7 +486,7 @@ the semantic axis, and it is short:
 
 | Combine | Meaning | Kinds that use it |
 | :--- | :--- | :--- |
-| **Exclusive** | one owner per target; a second claim is an error | `program` (by bin) · `files` (by path) · `config` (by surface identity) · `autonomy` · `loophole` (by loophole name) · `service` (by service name) · `provider` (by provider name) · `adapter` (by `from → to` pair) · `blocked-tool` (by bin) · `intercept` (by bin) · `profile` (by pack + name) |
+| **Exclusive** | one owner per target; a second claim is an error | `program` (by bin) · `files` (by path) · `config` (by surface identity) · `autonomy` · `loophole` (by loophole name) · `service` (by service name) · `provider` (by provider name) · `mcp` (by server name) · `adapter` (by `from → to` pair) · `blocked-tool` (by bin) · `intercept` (by bin) · `profile` (by pack + name) |
 | **Shared** | many independent claimants are the ordinary case | `requires` · `reads-host` · `mount` |
 | **Merge** | many inputs into one target is the feature | `skills` · `env` (a key claimed twice collides) |
 | **Concat** | ordered concatenation | `briefing` |
@@ -606,7 +606,12 @@ It is an object: `argv`, the program's own argv with the bin omitted, and `lock`
 home-relative lock directory whose parent is the store the refresh writes. Pi declares
 `{"argv": ["update", "--extensions"], "lock": ".pi-shared-npm/.yolo-update.lock"}`. The launcher
 runs it right before the exec, at most once an hour on a machine-global stamp, and only when
-`agent_updates` lets the pack move. It is bounded by the same timeout as an update, reads
+`agent_updates` lets the pack move. `yolo host -- <bin>` runs it too, before its own exec,
+against whichever copy it starts (the floor's, one on the launch PATH, or a path given), under the
+same hourly rule, `due_on_change` and `agent_updates`. Its stamp and its lock there are the host
+floor's own, a `flock` under the floor prefix, never `lock`: that names the jails' shared store,
+which a host program does not write ([HP-D19](../design/host-tool-provisioning.md#HP-D19)). A
+`yolo host` inside a jail leaves it to the jail's launcher. It is bounded by the same timeout as an update, reads
 nothing from the terminal, writes its stdout to stderr, and runs only while it holds `lock`.
 `lock` is a non-blocking `mkdir`: a lock another jail holds skips the refresh, and so does a
 store that is missing or read-only. The holder touches the lock while it runs, so only a lock
@@ -710,13 +715,41 @@ menu. `YOLO_NO_LAUNCH_FLAGS=1` skips it with the launch flags
 `yolo host -- <bin>` runs the same build against the program it is about to exec, with no file at
 `list`: it runs the derive of the surface at that path over its own launch's provider tables, and
 writes the menu under `~/.local/share/yolo-jail/model-menus/<pack>/<bin>/`, one file per cache
-key, kept while a program reading it runs, instead of at `into`. It builds one only when the
-launch's `-p`, if any, selects the provider the config's `profile` selects for the program, and
-discloses the flag the way it discloses a pack's launch flags
+key, kept while a program reading it runs, instead of at `into`. It follows the provider the
+program runs on: a `-p`'s, when the program's `launch_selection` moved it there, and otherwise
+only a `-p` over the provider the config's `profile` selects
+([MM-D30](../design/model-lists-and-pickers.md#MM-D30)); and it discloses the flag the way it
+discloses a pack's launch flags
 ([MM-D24](../design/model-lists-and-pickers.md#MM-D24) to
 [MM-D28](../design/model-lists-and-pickers.md#MM-D28)). On `program` alone, any `via`. `packdecl` refuses a missing `catalog` or an empty word in it, a
 `list` or `into` that is empty, absolute, unclean or escaping the home, the two at one path, a
 `flag` that never spells `{into}`, a missing `entries` or `id`, and an entry key given two roles.
+
+<a id="launch_selection"></a>`launch_selection` is the program's **launch selection**, a term
+coined for this field (2026-10-05): how one `yolo host -p` launch hands the program the selection
+its config surface's derive composes, as argv or a variable, instead of a file only `yolo host
+apply` writes. It is an object. `surface` is the home-relative path of the program's config
+surface whose derive's `selection` is handed. Exactly one form: `each`, argv words repeated per
+leaf of the selection and its rows, `{key}` the dotted path and `{value}` the value in the
+surface's codec (`packs/codex`: `["-c", "{key}={value}"]`); `flags`, a list of `{"key", "argv"}`
+handing one selection key each, `{value}` the plain value, a list's items joined by commas
+(`packs/pi`: `--provider`, `--model`, `--models`; `packs/omp`: `--models`); or `env`, one
+variable receiving the selection and rows as one document (`packs/opencode`:
+`OPENCODE_CONFIG_CONTENT`), merged over a value already set. `rows`, optional (`table` and
+`named_by`), hands each row of a table the selection names; `defaults` gives a key the
+selection omits a value (codex: `model_provider` `openai`); `surfaces`, optional, maps a computed
+surface's path to the variable that carries its content for the launch (pi's two model-list
+files); `subcommands`, optional on the argv forms only, lists the words the program reads as a
+subcommand only as `argv[1]` (pi: `update`, `install`, …), and a launch whose typed first word
+is one hands nothing of the selection, argv or variables, says so, and runs as typed. The launch
+hands it only when a `-p` was typed and what it composes differs from the
+configured profile's, right after `argv[0]`, disclosed, never in a jail, and skipped with
+`YOLO_NO_LAUNCH_FLAGS=1`. On `program` alone, any `via`. `packdecl` refuses a surface that is not
+a clean home-relative file path, no form or more than one, words that never carry `{value}`
+(or, for `each`, `{key}`), `rows` with `flags`, an empty key or default, a bad variable name, a
+surface naming the selection's own, two surfaces in one variable, `subcommands` on the `env`
+form, and a subcommand word that is empty, a flag, holds a space or is named twice
+([MM-D30](../design/model-lists-and-pickers.md#MM-D30)).
 
 <a id="exact_menu_refuses"></a>`exact_menu_refuses` says the program's model menu can show
 exactly a list only through a filter that also refuses every model off it, so its pack's derive
@@ -806,8 +839,8 @@ programs, the launcher generator and the host floor included, sees the fork's. I
 selection function (`config.SelectPacks`), which every host verb and the launch read, and in the
 jail's pack loader over the staged tree, whose base `pack.json` is unchanged. The rewrite keeps the
 base's `refresh`, `protocols`, `provider_sets`, `platform_switches`, `capabilities`,
-`platform_regions`, `unlisted_background_models`, `exact_menu_refuses` and `node_floor` (a
-fork's own `node_floor` replaces it). It drops every other delivery field of the base: `package`, `url`, `flags`, `update`,
+`platform_regions`, `unlisted_background_models`, `exact_menu_refuses`, `model_menu`,
+`launch_selection` and `node_floor` (a fork's own `node_floor` replaces it). It drops every other delivery field of the base: `package`, `url`, `flags`, `update`,
 `versions_dir`, `install_hints`, `model_catalog`, and `platforms` unless the fork declares its own.
 
 A fork brings its base into the launch the way an unconditional [`needs`](wire-bridge.md#needs--a-conditional-pack-dependency)
@@ -889,7 +922,9 @@ home, and has no update step: `yolo pack update` in the jail says the pin moves 
 
 Two backends deliver no fork yet. A `macos-user` launch carrying one says that its program is not
 delivered there and names hand-off H4
-([FP-D3](../design/forked-programs-as-packs.md#FP-D3)). Apple Container below its read-only floor
+([FP-D3](../design/forked-programs-as-packs.md#FP-D3)); H4 itself landed on 2026-10-05 for
+installer captures ([`install-capture.md`](../plans/install-capture.md#build-order)),
+and what keeps a fork off this backend is that its build is a container one. Apple Container below its read-only floor
 mounts no capture store, so the launch builds nothing and each fork's launcher says why.
 
 **`yolo host` runs the same build, on Linux**
@@ -1179,8 +1214,23 @@ pack-relative path, joined with one blank line, which is also the spacing betwee
 routed elsewhere is simply absent and does not split the section. `briefing_provenance: true`
 heads each pack's section with one label, never one per file. The jail
 (`jailcontent.ComposePackBriefings`) and the host (`entrypoint.ComposeHostBriefings`) produce the
-same bytes, pinned against each other by
-[`briefingparity_test.go`](../../internal/cli/run/briefingparity_test.go).
+same bytes for every pack set that declares no `describes` (below), pinned against each other
+by [`briefingparity_test.go`](../../internal/cli/run/briefingparity_test.go).
+
+<a id="briefing-describes"></a>**A content contribution may say what its prose is about**, with
+`describes`: the kinds of its own pack's contributions the files it governs explain, delivered
+only where every named kind applies ([BB-D69](../design/boundary-broker.md#BB-D69)). The github
+pack's `{"kind": "briefing", "from": "briefing/gh.md", "describes": ["intercept"]}` is the
+shipped case: the file explains the jail's `gh` forwarder, so `yolo host apply` leaves it out of
+every destination in a real home, where `gh` is the user's own, and names it once in its notch
+line; a jail delivers it as before. The field names a kind, never a notch ([§6c](#batch-6c)),
+and whether the kind applies at the host is decided for the pack's own contributions of it, by
+the outcome the apply's notch line prints for each: prose about a loophole with no doorway at
+the host is withheld, though a loophole with one is delivered at launch. A pack whose every file
+in a destination it only borrowed is withheld is not that destination's owner at the host.
+`describes` is refused off briefing content, on a destination, naming `briefing`, and, on the
+strict path only, naming an unknown kind or one the manifest does not declare. `yolo pack lint`
+names the gate on the file's delivery line.
 
 <a id="briefing-lint-listing"></a>**`yolo pack lint` lists every delivery before any launch**
 ([P6 (briefing defaults)](#briefing-p6)). Under a `delivers:` header it prints each `briefing`
@@ -1217,6 +1267,14 @@ addressed contributions in the scaffold's `README.md`, which ships nowhere.
 > a declaration is never widened into every other agent's directory. A jail carries no `into` for
 > pack content and composes it into every destination, as a broadcast. `ResolveDestinations`
 > records the asymmetry as deliberate. Name an audience with `agents` to narrow at both notches.
+
+> [!NOTE]
+> **`describes` withholds at the host notch only.** The jail composer does not read it
+> (`run.packBriefingProses`), because every kind a shipped pack describes applies in a jail. At
+> the host the answer is the pack's contribution's, the one `yolo host apply`'s notch line
+> prints, so prose about a loophole with no doorway there is withheld while prose about a plain
+> env var is delivered. `yolo pack lint`, which has no pack set, settles only a kind no host
+> verb delivers in any shape ([BB-D69](../design/boundary-broker.md#BB-D69)).
 
 `after: "host:<path>"` prepends the user's own briefing at that host path ahead of the
 composed content, so the user's own file still outranks the pack's. `yolo host apply` honors it
@@ -1628,6 +1686,22 @@ name resolves to behind the block dir. Exclusive by bin, for `blocked-tool`'s re
 blocked-tool entry for the same name wins, with a warning at boot, since a refusal is the more
 specific statement. Not review-worthy: the shim is in the jail, and what the forwarder reaches is
 reviewed where it is declared. It does not apply at the host notch.
+
+#### `mcp`
+
+One MCP server entry, composed into yolo's own `mcp_servers` table the way `provider` composes
+into `providers` ([`mcp-presets-removal.md` OQ-MP3](../design/mcp-presets-removal.md#OQ-MP3)):
+`{"kind": "mcp", "name": "chrome-devtools", "bin": "chrome-devtools-mcp", "config": {"command":
+"/bin/sh", "args": ["~/.local/share/yolo-chrome-devtools/chrome-devtools-mcp-wrapper"]}}`.
+`config` is the entry in exactly the shape a user writes under `mcp_servers`; a `command` or
+`args` word starting `~/` is joined to the home of the notch it renders for. The user's own
+entry of the same name merges over it per field, and `null` removes it. Exclusive by server
+name, so two selected packs shipping one name are refused by validation; `bin` names the
+`program` the server runs, which `yolo host -- <agent>` installs into the host floor. Not
+review-worthy: the entry is data in the agent's config file, and the program behind it is its
+own `program` contribution. At the host only a pack yolo ships or one at a path on this machine
+has its entry written ([HC-D26](../design/host-computed-layer.md#HC-D26)). How the table reaches
+each agent is [`mcp-configuration.md`](mcp-configuration.md#a-packs-servers-the-mcp-kind)'s.
 
 #### `autonomy`
 
@@ -2886,10 +2960,12 @@ credentials, so the rule has to say why that is acceptable or admit content kind
 leave executable kinds to a second ruling. The ruling asks for
 [`OQ-WS1`](agent-briefings.md#oq-ws1) (the same question for skills) to be ruled in
 the same sitting, and names R5 in [`loophole-system.md`](loophole-system.md#principles) as the
-wording it amends. It blocks building
-[`mcp-presets-removal.md`](../design/mcp-presets-removal.md): that doc's
-[§13](../design/mcp-presets-removal.md#13-what-i-would-build-in-order) steps 1–3 wait on it,
-because that ruling moved the workspace-scope boundary they build against. Its answer also
+wording it amends. It blocks
+[`mcp-presets-removal.md`](../design/mcp-presets-removal.md)'s
+[§13](../design/mcp-presets-removal.md#13-what-i-would-build-in-order) step 3, the retirement of
+`mcp_presets`, because that ruling moved the workspace-scope boundary a workspace-writable key
+would retire across; steps 1 and 2, the `mcp` kind and `packs/chrome-devtools`, were built ahead
+of it on 2026-10-05 ([MP-D8](../design/mcp-presets-removal.md#MP-D8)). Its answer also
 decides whether the compose engine's `workspace` layer, which nothing fills today, ever gets a
 producer ([the layer](#config-surfaces-and-the-compose-engine)). *PK* stands for the `packs`
 key; the prefix is new with this question.
@@ -2938,7 +3014,8 @@ The options:
   adds. Refused: `loophole`, `reads-host`, `mount`, `intercept` (a forwarder into a loophole),
   `provider`, `profile`, `machine`-scope `state`, and the `shared_credentials` and
   `shared_directory` hooks, which reach every other workspace through a machine-wide store.
-  *You see:* a repository commits `chrome-devtools` (once it exists), `copilot` or `omp`, and
+  *You see:* a repository commits `chrome-devtools` (shipped since 2026-10-05: a `program`,
+  `files`, an `mcp` entry and an `autonomy` posture, all in this option's set), `copilot` or `omp`, and
   every collaborator's jail gets it. *You lose:* nothing a workspace has today. The cost is a
   workspace verdict every new kind must carry, as each already carries `MayBeReviewWorthy`.
 - **(c) (b), plus a pack the repository carries.** A path inside the workspace names a pack in

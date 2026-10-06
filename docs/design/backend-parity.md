@@ -261,7 +261,7 @@ residue 1 of this section, unmoved.
 | 6 | Inert loopholes never reported | macos-user | second call site | `35448719` |
 | 7 | Config-declared loopholes never reported | AC + macos-user | report both sources | `6a53a2a3` |
 | 8 | Briefing advertised loopholes that never started | AC + macos-user | backend gate | `a639394d` |
-| 9 | `resources`, `cache_relocations`, machine-wide workspace state | macos-user | warn | `8ab03d2e` |
+| 9 | `resources`, `cache_relocations`, machine-wide workspace state | macos-user | warn; `cache_relocations` delivered by link + Seatbelt rules since 2026-10-05 ([`cache-relocation.md`](../plans/cache-relocation.md#macos-user-a-link-plus-seatbelt-rules)) | `8ab03d2e` |
 | 10 | Explicit `network.mode: host` silently worse than the default | AC | warn | `8ab03d2e` |
 | 11 | Pack `mount` grants land WRITABLE — a `:ro` the backend ignored, on a grant a human approved as read-only | AC | refuse + reason | `0d7e8f58` ⚠ [§5.3](#53-the-premise-under-defects-11-and-13-was-measured-and-inverted) |
 | 12 | …and a single-FILE pack `mount` cannot arrive at all, silently | AC | same seam | `0d7e8f58` |

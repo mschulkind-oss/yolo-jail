@@ -178,7 +178,9 @@ conditional sections that appear only when their data exists. Emission order, fr
 11. **Additional Context Mounts** — conditional, and filtered to the mounts the backend will
    actually bind (`run.briefedCtxMounts`): config `mounts` entries and pack `mount` grants, each
    labelled read-only or read-write, a grant with its pack, under a line naming what
-   `$YOLO_CONTEXT_DIR` is on this backend.
+   `$YOLO_CONTEXT_DIR` is on this backend. On macos-user a pack's single-file `mount` is a copy,
+   and its entry says "copied at launch; host edits arrive at the next launch"
+   ([`context-mounts.md` CX-D23](../design/context-mounts.md#CX-D23)).
 12. **Limitations**, **Packages & Resource Limits**, **Skills** — the three standing
     sections. On a backend with no container the middle one is **Packages**: it offers no
     resource cap and says outright that `resources` is not enforced there.
@@ -209,6 +211,13 @@ never a root `AGENTS.md`, `CLAUDE.md` or `GEMINI.md`, which is the pack reposito
 prose of their own, each addressed to its own agent alone: the claude and pi packs say where
 their agent's own workflow tools put worktrees
 ([DS-D33](../design/durable-scratch-space.md#DS-D33)).
+
+**At the host notch, prose about a jail-only kind is left out.** A contribution that declares
+`describes` reaches a destination only where every kind it names applies
+([`pack-system.md`](pack-system.md#briefing-describes)). The github pack's `briefing/gh.md`
+describes its `intercept`, the jail's `gh` forwarder, so `yolo host apply` composes it into no
+file in a real home and says so once in its notch line, while every jail that selects the pack
+still delivers it.
 
 **`briefing_provenance: true` labels each pack's section** with `<!-- from pack: NAME -->`, once
 per section however many files it joins, as a debugging aid. It is off by default, for two measured reasons:
@@ -516,7 +525,8 @@ broadcast them to all of them or drop them. Two consequences:
   contributions naming one source are refused at launch
   ([`OQ-PB5`](pack-system.md#oq-pb5)); one `agents` list names
   several audiences. The host notch composes the same bytes from the same predicate
-  (`packload.GovernedSources`), and
+  (`packload.GovernedSources`), less any file whose contribution `describes` a kind of its
+  pack's own the host does not deliver ([BB-D69](../design/boundary-broker.md#BB-D69)), and
   [`briefingparity_test.go`](../../internal/cli/run/briefingparity_test.go) compares the two.
 
 #### Where each notch narrows

@@ -8,7 +8,7 @@ is one setting, not the whole product.
 |---|---|---|
 | **Jail** | Only your project and what you allow, inside an isolated container | Supported, and the default |
 | **Your own machine** (`yolo host`) | Everything you can, as you | Supported: configuration and launch |
-| **Guest** | A separate user account on your machine, with a real home and no container | In development |
+| **Guest** | A separate user account on your machine, with a real home and no container | In development on a Mac, as the `macos-user` sandbox; not yet on Linux |
 
 ## The jail
 
@@ -77,16 +77,24 @@ in `~/.local/share/yolo-jail/host-floor`:
   is doing; `yolo host apply --assert` installs every one that is missing. Selecting the pack is the
   consent: nothing asks. An agent installed with npm (copilot or opencode, for example) runs on the
   floor's own Node, the official release, checked against its published checksum. An agent with its
-  own installer (claude, for example) comes from the machine's `yolo capture` of that installer, the
-  same copy your jails use, so on Linux the first one may run a capture if the machine has none yet.
+  own installer (claude, for example) comes from the machine's `yolo capture` of that installer, so
+  the first one may run a capture if the machine has none yet. On Linux with a container runtime that
+  is the same capture your jails use. With none, yolo runs the installer on your machine instead,
+  confined by Landlock to a throwaway home, and that capture serves yolo's own copy alone: your jails
+  capture their own. On a Mac the installer runs as the sandbox account `yolo macos-setup` makes, and
+  sudo may ask for your password once.
 - **Keeping it current.** The floor updates an agent the way a jail does: at most once an hour, when
   you start it, unless `agent_updates` freezes that pack. It says when it is checking for a newer
-  version, so a slow package registry is not a launch that hangs saying nothing.
-- **What it cannot hold yet.** On a Mac, yolo has no copy yet of an agent with its own installer;
-  `yolo host` runs the one on your PATH and says so. The same happens on Linux for codex, whose
-  installer puts its program where a capture cannot record it, for any agent whose vendor
-  publishes no build for your machine, and for an installer agent on a machine with no container
-  runtime to capture it with.
+  version, so a slow package registry is not a launch that hangs saying nothing. An agent with its
+  own installer is captured again once its capture is a day old, and the floor moves only to a newer
+  release, never back to an older one.
+- **What it cannot hold yet.** On a Mac before `yolo macos-setup`, yolo has no copy of an agent with
+  its own installer; `yolo host` runs the one on your PATH and names that step. The same happens for
+  any agent whose vendor publishes no build for your machine, and on Linux for an installer agent
+  on a machine with neither a container runtime nor Landlock to capture it with. On NixOS without
+  nix-ld, or on a musl system such as Alpine, the agents yolo copies cannot start, because they
+  need a dynamic loader those systems do not have: `yolo host` runs your own copy and names the fix,
+  `programs.nix-ld.enable = true;` on NixOS.
 - **Choosing.** Set `"host_floor": false` in your user config for a floor of nothing, or
   `"host_floor": {"*": true, "claude": false}` to leave one pack out; `yolo host` then runs that
   agent from your PATH. `yolo host apply --assert` removes the floor's copy of an agent you no
@@ -150,9 +158,17 @@ command you start is looked up either way, and a miss prints the line.
 
 ## Guest (in development)
 
-**Guest** is planned as a middle ground: the agent would run as a separate user account on your
-machine, with its own real home and no container, inside the operating system's own sandbox. It is
-not available yet; `yolo --at guest` is refused with a message saying so. Until then, use the jail.
+**Guest** is the middle ground: the agent runs as a separate user account on your machine, with
+its own real home and no container, inside the operating system's own sandbox.
+
+- **On a Mac** it is the `macos-user` sandbox, which is still in development. Set
+  `"confinement": "guest"` in your config, or run `yolo --at guest -- claude` for one launch; no
+  `runtime` setting is needed. It works as `macos-user` does, with the same limits
+  ([macOS](macos.md#the-macos-user-backend)), and the agent's footer says `guest`. If your
+  config's `runtime` or `YOLO_RUNTIME` names Podman or Apple Container, the launch stops and asks
+  you to drop one of the two.
+- **On Linux** it is not available yet. A guest launch stops and suggests the jail, or
+  `yolo host -- <cmd>` to run on your own machine.
 
 ## Choosing for one launch
 
@@ -162,4 +178,5 @@ for one launch:
 ```bash
 yolo -- claude              # the jail
 yolo --at host -- claude    # your own machine, the same as `yolo host -- claude`
+yolo --at guest -- claude   # on a Mac: the macos-user sandbox
 ```
