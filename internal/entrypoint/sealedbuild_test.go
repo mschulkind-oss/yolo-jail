@@ -52,7 +52,10 @@ func bootStepNamed(t *testing.T, name string) bootStep {
 
 func TestASealedBuildJailRendersNoPackSurfaceAndRunsNoPackHook(t *testing.T) {
 	steps := []bootStep{bootStepNamed(t, "configure_pack_surfaces"), bootStepNamed(t, "generate_mise_config")}
-	pack := droppedDirPack(t)
+	// An overlay onto a surface no selected pack owns: the user's own jail names the orphan, and a
+	// sealed build jail, whose seal leaves a contributing pack's overlays and lists ownerless by
+	// construction, composes nothing onto a surface and so names none.
+	packs := []*packload.Pack{droppedDirPack(t), overlayContributorPack(t, "acme-fzf", map[string]any{"k": 1})}
 	for _, tc := range []struct {
 		name   string
 		vars   map[string]string
@@ -73,9 +76,12 @@ func TestASealedBuildJailRendersNoPackSurfaceAndRunsNoPackHook(t *testing.T) {
 			var stderr, log bytes.Buffer
 			e := &Env{Home: home, Workspace: t.TempDir(), Vars: tc.vars, Stderr: &stderr, LogOnly: &log}
 			withCtxRoot(t, t.TempDir(), "matt")
-			runSteps(&bootRun{e: e, target: bootContainer, packsLoaded: true, packs: []*packload.Pack{pack}}, steps)
+			runSteps(&bootRun{e: e, target: bootContainer, packsLoaded: true, packs: packs}, steps)
 
 			fails := strings.Join(e.GenFailures(), "\n")
+			if named := strings.Contains(stderr.String(), "no effect"); named == tc.sealed {
+				t.Errorf("the orphaned overlay is named %v, want %v:\n%s", named, !tc.sealed, stderr.String())
+			}
 			if !tc.sealed {
 				// The fixture reproduces the refusal wherever the boot renders the pack.
 				for _, w := range []string{"configure_pi_automode", "hook_matt_shared_directory"} {
