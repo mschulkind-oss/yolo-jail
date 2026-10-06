@@ -167,6 +167,60 @@ func requireNothingLeft(t *testing.T, j *lateJail, cname string) {
 	}
 }
 
+// keeperExecObservationGate admits fixture Exec callbacks until shutdown starts, then drains every
+// admitted callback and rejects later ones without letting them touch testing.T or fixture resources.
+type keeperExecObservationGate struct {
+	mu            sync.Mutex
+	open          bool
+	active        int
+	rejected      int
+	drained       chan struct{}
+	drainedClosed bool
+}
+
+func newKeeperExecObservationGate() *keeperExecObservationGate {
+	return &keeperExecObservationGate{open: true, drained: make(chan struct{})}
+}
+
+func (g *keeperExecObservationGate) admit() bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if !g.open {
+		g.rejected++
+		return false
+	}
+	g.active++
+	return true
+}
+
+func (g *keeperExecObservationGate) leave() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.active--
+	if !g.open && g.active == 0 && !g.drainedClosed {
+		close(g.drained)
+		g.drainedClosed = true
+	}
+}
+
+func (g *keeperExecObservationGate) closeAdmission() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.open {
+		g.open = false
+	}
+	if g.active == 0 && !g.drainedClosed {
+		close(g.drained)
+		g.drainedClosed = true
+	}
+}
+
+func (g *keeperExecObservationGate) rejectedCalls() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.rejected
+}
+
 // TestAKeeperEndedBeforeItsContainerStartsNeverStartsIt: the launch's lifeline closing, which is
 // what a Ctrl-C to the launch does, or a signal that ends the jail, received while the keeper was
 // still starting the jail's host services, ends the launch there. The container's main process is
@@ -411,7 +465,44 @@ func TestAKeeperEndingBeforeReadyHoldsTheLaunchLockUntilItsContainerIsGone(t *te
 			// container running while the lock is free is one it attaches to.
 			var mu sync.Mutex
 			var runningUnlocked, stopUnlocked bool
+			probeEntered := make(chan struct{})
+			releaseProbe := make(chan struct{})
+			var firstProbeMu sync.Mutex
+			probeDelayed := false
+			var releaseOnce sync.Once
+			releaseObservation := func() { releaseOnce.Do(func() { close(releaseProbe) }) }
+			observations := newKeeperExecObservationGate()
+			closeObservations := func() {
+				observations.closeAdmission()
+				releaseObservation()
+				select {
+				case <-observations.drained:
+				case <-time.After(30 * time.Second):
+					t.Error("admitted running-probe observations did not drain before fixture cleanup")
+					<-observations.drained
+				}
+			}
 			exec := func(argv []string, dir string, env []string, timeout time.Duration) ExecResult {
+				if !observations.admit() {
+					return ExecResult{}
+				}
+				defer observations.leave()
+				delayedProbe := false
+				if len(argv) > 2 && argv[1] == "ps" && argv[2] == "-q" {
+					firstProbeMu.Lock()
+					if !probeDelayed {
+						probeDelayed = true
+						delayedProbe = true
+					}
+					firstProbeMu.Unlock()
+					if delayedProbe {
+						// awaitRunning is independent of runKeeper's main goroutine. Hold its
+						// observation across the keeper's end so this test deterministically
+						// exercises the callback after runKeeper has returned.
+						close(probeEntered)
+						<-releaseProbe
+					}
+				}
 				res := jail.exec(argv, dir, env, timeout)
 				if len(argv) > 1 {
 					free := launchLockFree(t, lockPath)
@@ -440,7 +531,10 @@ func TestAKeeperEndingBeforeReadyHoldsTheLaunchLockUntilItsContainerIsGone(t *te
 			if err != nil {
 				t.Fatal(err)
 			}
-			t.Cleanup(func() { _ = lifeW.Close() })
+			t.Cleanup(func() {
+				_ = lifeW.Close()
+				closeObservations()
+			})
 			signals := make(chan os.Signal, 2)
 			done := make(chan int, 1)
 			go func() {
@@ -456,7 +550,15 @@ func TestAKeeperEndingBeforeReadyHoldsTheLaunchLockUntilItsContainerIsGone(t *te
 			}()
 			var out, errOut, jailOut, jailErr lockedBuffer
 			if relayKeeper(progR, &out, &errOut, &jailOut, &jailErr, keeperEvents{
-				spawned: func() { tc.end(lifeW, signals) },
+				spawned: func() {
+					select {
+					case <-probeEntered:
+						tc.end(lifeW, signals)
+					case <-time.After(30 * time.Second):
+						t.Error("the keeper did not start its running probe")
+						tc.end(lifeW, signals)
+					}
+				},
 			}) {
 				t.Fatal("the relay saw ready from a boot that never finished")
 			}
@@ -464,6 +566,19 @@ func TestAKeeperEndingBeforeReadyHoldsTheLaunchLockUntilItsContainerIsGone(t *te
 			case <-done:
 			case <-time.After(30 * time.Second):
 				t.Fatal("the keeper did not end")
+			}
+			closeObservations()
+			// The real awaitRunning waiter may make another ps after its prior observation returns.
+			// Repeat its callback after shutdown to pin that no later observation can touch the fixture.
+			const lateProbeRepeats = 3
+			for range lateProbeRepeats {
+				if res := exec([]string{"podman", "ps", "-q"}, "", nil, 0); res.Ran || res.RC != 0 {
+					t.Errorf("a late fixture probe ran after observation shutdown: %+v", res)
+				}
+			}
+			if rejected := observations.rejectedCalls(); rejected < lateProbeRepeats {
+				t.Errorf("the fixture admitted late probe callbacks after shutdown (%d rejected, want at least %d)",
+					rejected, lateProbeRepeats)
 			}
 			if stops, _ := jail.stopsSeen(); stops != 1 {
 				t.Errorf("%d stops ended the container, want 1", stops)
