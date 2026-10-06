@@ -5,7 +5,7 @@ status: draft
 stage: SKETCH
 tags: [plan, packs, programs, forks, build]
 summary: "Where the patched-fork mode's code would land, for programs and for pi extensions, read against the tree at 026fca672 and 48491fd4a, and the traps found while designing it. A parking lot for the designs, not a hand-off: nothing here may be built from while it is a sketch."
-next: "Built and integrated at e87f1ba88 (2026-10-05); what is left is the maintainer's: his test with the migration kit, OQ-PFK5, PPX-D16's lint, and graduating this map into a system reference once the build is on main"
+next: "Built and integrated at e87f1ba88 (2026-10-05), and the 2026-10-05 requests built after it; what is left is the maintainer's: the release request 1 asks for, his test with the migration kit, OQ-PFK5, PPX-D16's lint, and graduating this map into a system reference once the build is on main"
 depends-on:
   - patched-forks.md
   - patched-extensions.md
@@ -15,8 +15,10 @@ depends-on:
 
 **Status:** 2026-10-03, extended 2026-10-04 to patched extensions. Built 2026-10-04: patched forks'
 steps 1 to 4 and patched extensions' steps 2 to 5, each recorded below as it landed, and integrated
-on 2026-10-05 at `e87f1ba88` ([Integration](#integration-landed-2026-10-05)). Open:
-[OQ-PFK5](patched-forks.md#OQ-PFK5), macos-user delivery, which is the maintainer's.
+on 2026-10-05 at `e87f1ba88` ([Integration](#integration-landed-2026-10-05)). The maintainer's
+eight patch-series requests of 2026-10-05 were built after it
+([Status](#status-of-the-2026-10-05-requests)). Open: [OQ-PFK5](patched-forks.md#OQ-PFK5),
+macos-user delivery, and the release request 1 asks for, both the maintainer's.
 
 **Designs:** [`patched-forks.md`](patched-forks.md), and [`patched-extensions.md`](patched-extensions.md),
 which shares its implementation through the owner key ([PF-D22](patched-forks.md#PF-D22)).
@@ -346,6 +348,30 @@ two of its own branches (his `pi-dynamic-workflows`), the series does not apply 
 migration kit exports such a fork as its first-parent chain, each merge one member, and for the pi
 fork the integration merge's whole diff against the upstream release as the first; both then
 apply at their base and reproduce the fork's tree.
+
+## Status of the 2026-10-05 requests
+
+The maintainer's patch-series requests of 2026-10-05, eight items found planning to move his pi
+CLI fork and five pi extension forks onto patch series, were built in five parallel lanes, A to E,
+each from `a191fe606`, and merged in that order. Each lane's ledger rows took the same free ids, so
+the merges renumbered B, C, D and E's (PF-D63 to PF-D71, PPX-D35 and PPX-D36). Reviewing the merged
+tree found defects no single lane could, fixed in the commits named below with their rows (PF-D72
+to PF-D76, PPX-D37 and PPX-D38).
+
+| # | Request | Built | Left |
+| :--- | :--- | :--- | :--- |
+| 1 | A release with patch series, and a probe for a host | Lane E, `22f47c916`: `yolo features` ([PF-D71](patched-forks.md#PF-D71)), and the host's use read, which skips and names a contribution this yolo cannot read ([PF-D68](patched-forks.md#PF-D68) to [PF-D70](patched-forks.md#PF-D70)); `fc4be4e12` ([PF-D75](patched-forks.md#PF-D75), [PF-D76](patched-forks.md#PF-D76)) | The release itself, the maintainer's `just release <version>`, and each host updated to it: the use read helps only a yolo from this build on, so a host still on 0.11.1 fails every launch over `patches` until then |
+| 2 | Check and rebase a series from inside a jail | Lane C, `ed4909ecd`: `yolo pack series check` ([PF-D65](patched-forks.md#PF-D65)), `yolo pack rebase --pack` ([PF-D66](patched-forks.md#PF-D66)), the export with `--no-signature` ([PF-D67](patched-forks.md#PF-D67)); `2ef9f28fa`, `437a1da56` ([PF-D72](patched-forks.md#PF-D72)), `4326cabfb` ([PF-D73](patched-forks.md#PF-D73), [PF-D74](patched-forks.md#PF-D74)) | Nothing in yolo |
+| 3 | `yolo pack lint` reads the series | Lane B, `c01ec2559`: the read ([PF-D63](patched-forks.md#PF-D63)), `--online` ([PF-D64](patched-forks.md#PF-D64)), the duplicate-load warning ([PPX-D34](patched-extensions.md#PPX-D34)); `68df6d0af`, `3648b625d` ([PPX-D37](patched-extensions.md#PPX-D37)) | Nothing in yolo |
+| 4 | A tagless upstream builds its base | Lane A, `46449695e` ([PF-D60](patched-forks.md#PF-D60)); `2ef9f28fa`, which has the rebase and the series check say it too | Nothing in yolo |
+| 5 | A re-export of the same patches is no edit | Lane A, `46449695e` ([PF-D61](patched-forks.md#PF-D61), [PF-D62](patched-forks.md#PF-D62)), with lane C's export line ([PF-D67](patched-forks.md#PF-D67)); `0f94f780d` | A re-export from a much larger clone can still abbreviate the `index` lines' blob ids differently, which `--full-index` avoids ([PF-D61](patched-forks.md#PF-D61)) |
+| 6 | No build or mount where no list loads the tree | Lane D, `ee98e5c33` ([PPX-D35](patched-extensions.md#PPX-D35)); `bce46595f` ([PPX-D38](patched-extensions.md#PPX-D38)) | Nothing in yolo |
+| 7 | An entry under `~/<into>/` loads the tree | Lane D, `ee98e5c33` ([PPX-D36](patched-extensions.md#PPX-D36)); `68df6d0af`, whose duplicate-load warning reads the same rule | The pi pack's subagents MCP render still matches only the entry with no slash at the end, which the guide says |
+| 8 | `config-ref` documents patch series; the guide's compatibility note | Lane E, `22f47c916`; the integration's last commit adds the series check, `--pack` and lint to `config-ref` | Nothing in yolo |
+
+Verified at the integration: the unit gate, `just check-ci`, and the integration tests that read
+patched forks and extensions. Not run, by this build's rules: a nested jail, and a launch on a
+rootless or macOS host, which are the landing's.
 
 ## Measurements to make
 

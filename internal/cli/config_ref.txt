@@ -1437,7 +1437,11 @@
                     commit holds it.  `follow` is refused without `patches`.  `yolo pack
                     status` shows the series, the good build and what is pending; `yolo
                     pack rebase <pack>/<bin>` sets up the fix for a series that stopped
-                    fitting.  Needs git 2.40 on the host.  Export a series from a fork:
+                    fitting; `yolo pack series check [<pack dir>]` says whether a local
+                    pack's series still applies, and `yolo pack rebase <pack>/<bin> --pack
+                    <pack dir>` rebases it, both in a jail too.  `yolo pack lint` reads the
+                    series, and `--online` checks its upstream.  Needs git 2.40 on the
+                    host.  Export a series from a fork:
                     git format-patch --base=$(git merge-base <upstream>/main HEAD) \
                         -o patches <upstream>/main..HEAD
       blocked-tool  {bin, message, suggestion, replacement, flags} — refuse a tool

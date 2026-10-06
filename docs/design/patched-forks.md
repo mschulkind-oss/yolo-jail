@@ -1210,7 +1210,7 @@ reason ([PF-D54](#PF-D54)).
 
 Every row is reversible, and the Built column says what has been built of each.
 [PF-D1](#PF-D1)–[PF-D22](#PF-D22) are implementation decisions made in drafting, and
-[PF-D27](#PF-D27)–[PF-D58](#PF-D58) and [PF-D60](#PF-D60)–[PF-D71](#PF-D71) are implementation
+[PF-D27](#PF-D27)–[PF-D58](#PF-D58) and [PF-D60](#PF-D60)–[PF-D76](#PF-D76) are implementation
 decisions made building it. [PF-D23](#PF-D23)–[PF-D26](#PF-D26) are the four questions that were the
 maintainer's, [OQ-PFK1](#OQ-PFK1)–[OQ-PFK4](#OQ-PFK4), decided on their leanings on 2026-10-04 under
 his delegation, and still his to overrule. [PF-D8](#PF-D8),

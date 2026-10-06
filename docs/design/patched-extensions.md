@@ -747,7 +747,7 @@ mode as written, and one ruling of each covers both routes ([§12](#12-dependenc
 
 Every row is reversible, and the Built column says what has been built of each.
 [PPX-D1](#PPX-D1)–[PPX-D17](#PPX-D17) are implementation decisions made in drafting, and
-[PPX-D20](#PPX-D20)–[PPX-D31](#PPX-D31) are implementation decisions made building it. [PPX-D18](#PPX-D18) and [PPX-D19](#PPX-D19) are the two questions that were
+[PPX-D20](#PPX-D20)–[PPX-D38](#PPX-D38) are implementation decisions made building it. [PPX-D18](#PPX-D18) and [PPX-D19](#PPX-D19) are the two questions that were
 the maintainer's, [OQ-PPX1](#OQ-PPX1) and [OQ-PPX2](#OQ-PPX2), decided on their leanings on 2026-10-04
 under his delegation, and still his to overrule. The two core
 changes this design makes to patched forks are recorded there:
