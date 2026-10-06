@@ -2,19 +2,30 @@
   "contributes": [
     // Where the install hint's name came from, checked 2026-10-02. A cask, so "brew-cask".
     //   brew-cask: https://formulae.brew.sh/api/cask/copilot-cli.json (binary artifact `copilot`)
+    // GitHub's own installer (OQ-NI1, ruled 2026-10-05). It installs into $PREFIX/bin and, run as
+    // root as it is in a container jail, defaults PREFIX to a /usr/local the read-only rootfs cannot
+    // create, so PREFIX names the directory the launcher looks in. copilot's own updater stays on:
+    // it replaces this binary on its own schedule, as Claude Code's does, and
+    // `agent_updates: false` does not stop it.
     {
       "bin": "copilot",
       "install_hints": {
         "brew-cask": "copilot-cli"
       },
+      "installer_env": {
+        "PREFIX": "~/.local"
+      },
       "kind": "program",
-      "package": "@github/copilot",
       "protocols": [
         "anthropic",
         "openai"
       ],
       "unlisted_background_models": true,
-      "via": "npm"
+      "update": [
+        "update"
+      ],
+      "url": "https://gh.io/copilot-install",
+      "via": "installer"
     },
     {
       "after": "host:.copilot/copilot-instructions.md",

@@ -40,6 +40,11 @@ type loopholeDaemon struct {
 	launchCheck   bool
 	hasJailDaemon bool
 	hostWide      bool
+	// predatesPreamble is a host-wide daemon that is alive but that no yolo since the front started
+	// (broker.SingletonSpeaksPreamble false): it would read the front's preamble as the request and
+	// fail every one. Set by startHostSingleton; a fresh launch refuses on it (HD-D5 (3),
+	// launchcheck.go's olderDaemonRefusal).
+	predatesPreamble bool
 	// end is how the keeper sees this service go, by its own fault or by its stop, and log the file
 	// the service writes, which the keeper's record of an end it did not cause names
 	// (keeperwatch.go, JL-D19). A zero end watches nothing; log is "" for none.
@@ -1093,28 +1098,21 @@ func (o *Options) startHostSingleton(
 			return loopholeDaemon{}, false
 		}
 	}
-	if broker.BrokerIsAlive(deps) && !broker.SingletonSpeaksPreamble(deps) {
-		// ALIVE BUT INCOMPATIBLE — the one state every other surface calls healthy.
-		// A daemon started before this loophole moved behind a front is still
-		// listening at the same path, and it will consume the front's preamble as
-		// the client's request: every refresh fails while connect-based liveness,
-		// including the in-jail witness, reports green. We do not kill it (two yolo
-		// versions on one host would take turns restarting each other's daemon);
-		// we say so, and name the one command that fixes it.
-		//
-		// THE COMMAND IS DERIVED FROM THE NAME, and that is the defect OQ-HD2 was
-		// ruled to close. This sentence interpolated `name` into every clause but
-		// the last, which read `Fix it with: yolo broker restart` — a wrong
-		// instruction inside the sentence presenting itself as the fix, since for
-		// any singleton but the Claude one that command cycles a DIFFERENT daemon
-		// and leaves the broken one running. broker.CycleCommand is the one place
-		// that spelling lives now.
-		o.pr(o.Stdout).print("[yellow]Warning: the host-wide daemon for '" + name +
-			"' predates this yolo and does not speak the connection preamble.\n" +
-			"  It will accept connections and fail every request — for a credential daemon\n" +
-			"  that means token refresh is broken on this host, silently.\n" +
-			"  Fix it with: " + broker.CycleCommand(name) + "[/yellow]")
-	}
+	// ALIVE BUT INCOMPATIBLE — the one state every other surface calls healthy. A daemon started
+	// before this loophole moved behind a front is still listening at the same path, and it will
+	// consume the front's preamble as the client's request: every refresh fails while
+	// connect-based liveness, including the in-jail witness, reports green. We do not kill it (two
+	// yolo versions on one host would take turns restarting each other's daemon).
+	//
+	// THE HANDLE SAYS SO, AND THE LAUNCH REFUSES ON IT (HD-D5 (3), docs/design/
+	// host-daemon-ownership.md): a launch that fronts it is missing the whole feature, as one whose
+	// daemon predates the launch check is missing the check (OQ-HD11). The refusal is the caller's,
+	// beside the launch check's (olderDaemonRefusal: the keeper, the macos-user arm, `yolo host`'s
+	// HostDoorways.Start), and it names the command that cycles THIS daemon, broker.CycleCommand,
+	// which is the defect OQ-HD2 was ruled to close: the warning this replaced once named
+	// `yolo broker restart` for every singleton, which cycles a different daemon. The front still
+	// starts, so the refusal's unwind is every other refusal's.
+	predatesPreamble := broker.BrokerIsAlive(deps) && !broker.SingletonSpeaksPreamble(deps)
 	frontStop := make(chan struct{})
 	frontDone, frontFailed := frontRun(hostPath, advertiseHost, daemonPath, frontStop,
 		svcendpoint.FrontOptions{
@@ -1132,9 +1130,10 @@ func (o *Options) startHostSingleton(
 		return loopholeDaemon{}, false
 	}
 	return loopholeDaemon{
-		name:     name,
-		hostPath: hostPath,
-		jailPath: hostServiceEndpointPath(name),
+		name:             name,
+		hostPath:         hostPath,
+		jailPath:         hostServiceEndpointPath(name),
+		predatesPreamble: predatesPreamble,
 		// THE FRONT'S END, and only the front's: the daemon behind it is the machine's, serving
 		// other jails, and no keeper's child, so a keeper watches only the half it runs.
 		end: frontEnd(frontDone, frontFailed),

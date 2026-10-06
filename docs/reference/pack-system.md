@@ -609,6 +609,19 @@ the rest ([the V-axis prune](agent-cli-copies.md#the-v-axis-prune)). Absent, it 
 refused by name everywhere else. `packdecl` refuses a path that is absolute, escapes the home, is
 unclean, or names the home itself.
 
+`installer_env` is the environment the jail's launcher gives an installer-delivered program's
+**vendor installer**, and nothing else it runs, the program included. It is an object of variable
+names to string values. A value of `~` or one starting `~/` is a path in the home the installer
+runs with, expanded from the same `$HOME` as the launcher's `~/.local/bin/<bin>`; any other value
+is a literal. Copilot declares `{"PREFIX": "~/.local"}`: GitHub's script installs into
+`$PREFIX/bin`, and run as root, as it is in a container jail, it picks a `/usr/local` the jail's
+read-only root filesystem cannot create. A pack's `env` contribution is no substitute, because it
+sets the variable for every process in the jail. The host's dependency remedy does not read it,
+since on the host the vendor's default is the one your PATH expects. It is read on a `program` with
+`via: "installer"` alone and refused by name everywhere else. `packdecl` refuses an empty object, a
+name that is not an environment variable name, `HOME`, `PATH`, a `YOLO_` or `_YOLO_` name, and a
+value holding a NUL byte.
+
 `refresh` is the program's **pre-launch refresh**, a term coined for this field (2026-09-25).
 It is an object: `argv`, the program's own argv with the bin omitted, and `lock`, a
 home-relative lock directory whose parent is the store the refresh writes. Pi declares
@@ -766,9 +779,9 @@ has (an implementation choice, recorded 2026-10-01 by the maintainer's orchestra
 > with brew, apt, dnf or pacman cannot select it deliberately anyway. A PATH with no manager
 > names none, so no hint is offered there. `nix` hints belong on genuine third-party dependencies where the
 > user's own package manager is the right answer. A `via: installer` program's remedy is a
-> download-check-run command, never a pipe into `sh`: it fetches the script to a temporary file,
+> download-check-run command, never a pipe into a shell: it fetches the script to a temporary file,
 > `yolo internal installer-check` refuses a web page or a binary naming the URL, and only then
-> does `sh` run it ([`PS-D4`](../design/provisioner-sets.md#PS-D4)). `yolo check-deps` only
+> does `bash` run it, as the jail's launcher does ([`PS-D4`](../design/provisioner-sets.md#PS-D4)). `yolo check-deps` only
 > prints it; `yolo host apply --assert` runs it behind its one prompt, with no terminal
 > ([`PS-D1`](../design/provisioner-sets.md#PS-D1)).
 
@@ -816,7 +829,7 @@ jail's pack loader over the staged tree, whose base `pack.json` is unchanged. Th
 base's `refresh`, `protocols`, `provider_sets`, `platform_switches`, `capabilities`,
 `platform_regions`, `unlisted_background_models`, `exact_menu_refuses` and `node_floor` (a
 fork's own `node_floor` replaces it). It drops every other delivery field of the base: `package`, `url`, `flags`, `update`,
-`versions_dir`, `install_hints`, `model_catalog`, and `platforms` unless the fork declares its own.
+`versions_dir`, `installer_env`, `install_hints`, `model_catalog`, and `platforms` unless the fork declares its own.
 
 A fork brings its base into the launch the way an unconditional [`needs`](wire-bridge.md#needs--a-conditional-pack-dependency)
 entry does, with a cause line (`+ pi (forked by pi-matt)`), when the base is a pack yolo ships. A

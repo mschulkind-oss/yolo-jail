@@ -55,6 +55,15 @@ func runNativeLauncher(t *testing.T, url string) (int, string) {
 // developer's real /workspace/.yolo.
 func runNativeLauncherWithReceipts(t *testing.T, url string) (int, string, []map[string]any) {
 	t.Helper()
+	rc, out, receipts, _ := runNativeInstall(t, &packdecl.Install{Kind: "native", Bin: "probetool",
+		InstallerURL: url})
+	return rc, out, receipts
+}
+
+// runNativeInstall is runNativeLauncherWithReceipts for a whole install declaration, and also
+// returns the temp home the launcher ran with, which is its cwd as well.
+func runNativeInstall(t *testing.T, inst *packdecl.Install) (int, string, []map[string]any, string) {
+	t.Helper()
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("bash not found")
 	}
@@ -65,14 +74,13 @@ func runNativeLauncherWithReceipts(t *testing.T, url string) (int, string, []map
 	// A parent that does not exist yet: the receipt writer must create it, because
 	// macos-user stages no <ws>/.yolo.
 	receipts := filepath.Join(home, "ws", ".yolo", "receipts.jsonl")
-	body := nativeAgentLauncher("probe",
-		&packdecl.Install{Kind: "native", Bin: "probetool", InstallerURL: url},
+	body := nativeAgentLauncher("probe", inst,
 		filepath.Join(home, "stamps"),
 		receipts,
 		"", // no capture store: these cells are about the DOWNLOAD path
 		true, launcherServers{},
 		nil)
-	script := filepath.Join(home, "probetool")
+	script := filepath.Join(home, inst.Bin)
 	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -80,6 +88,8 @@ func runNativeLauncherWithReceipts(t *testing.T, url string) (int, string, []map
 	// A clean env with HOME pointed at the temp dir, so a real install would land there
 	// and nothing touches the developer's home.
 	cmd.Env = []string{"HOME=" + home, "PATH=" + os.Getenv("PATH")}
+	// The cwd too, so a spliced value that ran as code leaves its witness where a test looks.
+	cmd.Dir = home
 	out, err := cmd.CombinedOutput()
 	rc := 0
 	if err != nil {
@@ -89,7 +99,75 @@ func runNativeLauncherWithReceipts(t *testing.T, url string) (int, string, []map
 		}
 		rc = ee.ExitCode()
 	}
-	return rc, string(out), readReceipts(t, receipts)
+	return rc, string(out), readReceipts(t, receipts), home
+}
+
+// TestNativeLauncherGivesTheInstallerItsDeclaredEnv is the call-site cell for installer_env, and
+// copilot's flip in miniature (OQ-NI1). The served installer behaves as GitHub's does: it
+// installs into $PREFIX/bin, and with no PREFIX it picks a directory of its own, here one the
+// launcher never looks in, as /usr/local is for copilot under a container jail's uid 0.
+//
+// With the declaration the binary lands at REAL_BIN and runs; without it the same installer
+// lands it elsewhere and the launcher says the program is not available. So the cell goes red if
+// the splice, the projection or `_run_installer`'s `env` is deleted. Three more properties ride
+// on it: a home-relative value expands from the launcher's own $HOME, a hostile literal reaches
+// the installer as DATA (the splice contract, launchersplice_test.go), and the variables reach
+// the installer ALONE, never the program the launcher then execs.
+func TestNativeLauncherGivesTheInstallerItsDeclaredEnv(t *testing.T) {
+	installer := strings.Join([]string{
+		"#!/bin/bash",
+		"set -eu",
+		`printf 'LITERAL=[%s]\n' "${LITERAL-unset}"`,
+		`printf 'HOMEREL=[%s]\n' "${HOMEREL-unset}"`,
+		`dest="${PREFIX:-$HOME/vendor-default}/bin"`,
+		`mkdir -p "$dest"`,
+		`printf '#!/bin/bash\necho "PROGRAM_RAN PREFIX=[${PREFIX-unset}] LITERAL=[${LITERAL-unset}]"\n' > "$dest/probetool"`,
+		`chmod +x "$dest/probetool"`,
+	}, "\n") + "\n"
+	hostile := hostileValue("-installer-env")
+
+	t.Run("declared", func(t *testing.T) {
+		url := serveBody(t, 200, "application/x-sh", installer)
+		rc, out, receipts, home := runNativeInstall(t, &packdecl.Install{Kind: "native", Bin: "probetool",
+			InstallerURL: url, InstallerEnv: map[string]string{
+				"PREFIX": "~/.local", "LITERAL": hostile, "HOMEREL": "~/" + hostile}})
+		if rc != 0 {
+			t.Fatalf("an installer handed its PREFIX must land the program at REAL_BIN, rc=%d\n%s", rc, out)
+		}
+		if !strings.Contains(out, "LITERAL=["+hostile+"]") {
+			t.Errorf("the literal value did not reach the installer intact:\n%s", out)
+		}
+		if !strings.Contains(out, "HOMEREL=["+home+"/"+hostile+"]") {
+			t.Errorf("a ~/ value must expand from the launcher's $HOME (%s):\n%s", home, out)
+		}
+		assertNoWitness(t, home, "-installer-env", "installer_env")
+		if _, err := os.Stat(filepath.Join(home, ".local", "bin", "probetool")); err != nil {
+			t.Errorf("the program is not at REAL_BIN: %v", err)
+		}
+		if !strings.Contains(out, "PROGRAM_RAN PREFIX=[unset] LITERAL=[unset]") {
+			t.Errorf("the installer's environment must reach the installer alone, never the "+
+				"program the launcher execs:\n%s", out)
+		}
+		if len(receipts) != 1 {
+			t.Errorf("an install that landed must leave one receipt, got %v", receipts)
+		}
+	})
+
+	t.Run("absent", func(t *testing.T) {
+		url := serveBody(t, 200, "application/x-sh", installer)
+		rc, out, _, home := runNativeInstall(t, &packdecl.Install{Kind: "native", Bin: "probetool",
+			InstallerURL: url})
+		if rc != 1 || !strings.Contains(out, "probetool not available") {
+			t.Errorf("with no PREFIX the installer lands elsewhere, which must fail the "+
+				"invocation, rc=%d\n%s", rc, out)
+		}
+		if !strings.Contains(out, "LITERAL=[unset]") {
+			t.Errorf("a program declaring no installer_env must hand its installer none:\n%s", out)
+		}
+		if _, err := os.Stat(filepath.Join(home, "vendor-default", "bin", "probetool")); err != nil {
+			t.Errorf("the fixture installer did not take its own default: %v", err)
+		}
+	})
 }
 
 // TestNativeLauncherRejectsAWebPage is the observed agy failure, reduced.
@@ -198,7 +276,8 @@ func TestNativeLauncherAcceptsAScriptWithoutAShebang(t *testing.T) {
 // is 0 and to $HOME/.local otherwise; a container-backend jail runs as root under an
 // unconditional `--read-only` rootfs, so the installer's own `mkdir -p "$INSTALL_DIR"`
 // fails and it exits 1 having downloaded nothing (measured 2026-09-04, which is why
-// packs/copilot stayed on npm while packs/codex flipped). Both shapes are covered below,
+// packs/copilot stayed on npm until its recipe could name PREFIX: installer_env, and
+// TestNativeLauncherGivesTheInstallerItsDeclaredEnv). Both shapes are covered below,
 // because a flip can fail either way round — an installer can also succeed loudly while
 // putting the binary somewhere the launcher will never look.
 //

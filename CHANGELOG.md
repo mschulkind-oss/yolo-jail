@@ -27,9 +27,33 @@ for a newer yolo instead of failing, and `yolo features` lists what a yolo can r
 into a jail, and what each launch shows about the code it runs. See
 [Claude Code plugins and mods](userguide/guides/claude-plugins-and-mods.md).
 
+**Settings for a vendor installer.** A pack whose program comes from its vendor's install script can
+give that script the variables it needs, such as where to install, with `installer_env`. See
+[the pack system reference](docs/reference/pack-system.md).
+
+### Changed
+
+- A jail now installs every agent and tool your selected packs declare when it starts, once
+  per project, and `yolo apply` does exactly that and exits. If one cannot be installed,
+  offline included, the launch stops and names it: to start without it, set
+  `YOLO_ALLOW_MISSING_PROGRAMS=1`, and it installs the first time you run it. See the
+  [CLI reference](userguide/reference/cli-reference.md#run-agents).
+- Copilot now comes from GitHub's own installer. It updates itself, as Claude Code does, and yolo
+  cannot say which version ran: to freeze it, set `agent_updates` to false for `copilot` and add
+  `{"COPILOT_AUTO_UPDATE": "false"}` to `env_sources`. See
+  [Keep agents and packs up to date](userguide/guides/packs-and-skills.md#keep-agents-and-packs-up-to-date).
+- On a Mac, and on Linux with no container runtime, `yolo host -- copilot` now runs the copilot on
+  your PATH, as it does for Claude Code: on a Mac install it with `brew install --cask copilot-cli`;
+  on Linux install Podman, and the next `yolo host -- copilot` installs it.
+- A host-wide service an older yolo started, such as `aws-auth`, now stops a new launch that uses
+  it instead of warning: run the `yolo host-daemon restart <name>` it names, which jails already
+  running survive.
+
 ### Fixed
 
 - When `yolo host` has no container runtime to capture an agent with, it now says to install one.
+- On a host whose `/bin/sh` is dash, such as Debian or Ubuntu, the Claude Code install command that
+  `yolo check-deps` prints and `yolo host apply --assert` runs now installs it.
 - A Ctrl-C in one of a jail's terminals now says the jail stays up for the others.
 - A Ctrl-C as a terminal's session starts no longer leaves that session's command running in the
   jail.
@@ -96,6 +120,9 @@ into a jail, and what each launch shows about the code it runs. See
 - A missing `mounts` source now names the file and line that declare it, and the fix.
 - Host service logs now record each request's real exit code.
 - npm in a jail no longer prints update or funding notices.
+- On Apple Container, a config with `network.forward_host_ports` now stops the launch before
+  anything starts, naming the key and how to go on, instead of failing inside Apple Container with
+  an error about a socket.
 
 ## [0.11.1] - 2026-10-02
 

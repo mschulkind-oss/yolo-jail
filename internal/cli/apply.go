@@ -8,10 +8,10 @@ package cli
 //
 // Scope of THIS phase: the verb, its flags, and the notch routing. The heavy lifting
 // differs by notch:
-//   - jail: provision (build image, stage packs, render config) then exit. That is the
-//     existing run pipeline minus the exec, and wiring a no-exec mode through it is
-//     deferred (noted below) rather than stubbed — so at jail `apply` currently reports
-//     what a launch WOULD provision and directs to `yolo` / `yolo apply --at host`.
+//   - jail: provision (build image, stage packs, render config, install every program the
+//     selected packs declare) then exit. That is the launch `yolo -- true` performs, and the
+//     verb runs exactly that launch (JR-D1, docs/design/jail-notch-readiness.md) rather than
+//     a second provisioner beside it; `--dry-run` prints the description instead.
 //   - host: render the applicable config into the real home. That is Phase 4
 //     (`yolo host apply`), gated on the host-render work; here it is recognized and routed
 //     with an honest "not yet" rather than silently doing nothing.
@@ -119,13 +119,13 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 	// THE FLAG BELONGS TO ONE ROUTE, and every other one refuses it rather than answering a
 	// request for data with prose — which is the failure the flag exists to prevent, and the
 	// shape `yolo broker` already uses for its acting verbs. `--sealed` is a refusal verb,
-	// the guest notch is unbuilt, and the jail notch's apply is a stub pointing at launch:
-	// none of the three has a document to emit, and each would otherwise print a human
-	// report to something that asked for JSON.
+	// the guest notch is unbuilt, and the jail notch's apply is a launch (JR-D1): none of the
+	// three has a document to emit, and each would otherwise print a human report to
+	// something that asked for JSON.
 	if outfmt.IsJSON(format) && (sealed || notch != config.ConfinementHost) {
 		fmt.Fprintln(errw, "yolo apply: --format json is the HOST notch's dry run "+
 			"(`yolo apply --at host`, or `yolo host apply`). No other notch has a document "+
-			"to emit: guest is unbuilt, and at jail this verb points at launch.")
+			"to emit: guest is unbuilt, and at jail this verb is a launch.")
 		return 2
 	}
 	if sealed {
@@ -174,30 +174,39 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 		pr.Printf("[yellow]%s[/yellow]", render.NotchUnbuilt("apply"))
 		return 1
 	default: // jail
-		_ = dryRun
 		pr.Printf("[bold]apply[/bold] at confinement [cyan]jail[/cyan].")
-		// ⚠ THE LAUNCH DOES NOT INSTALL DECLARED PROGRAMS, so this must not say it does: each
-		// `program` a selected pack declares installs from its lazy launcher on first
-		// invocation (entrypoint.GenerateAgentLaunchers). This line once told the reader
-		// `yolo -- true` would "provision and exit", which exits 0 with no agent CLI
-		// installed. docs/design/jail-notch-readiness.md has ruled that a launch will install
-		// them, and stop when it cannot (OQ-JR1..3, JR-D1: this verb then runs that act with no
-		// target). That readiness act is not built, so until it is, say what happens.
-		pr.Printf("[dim]At the jail notch, `yolo apply` provisions nothing itself: that work " +
-			"happens when a jail launches. `yolo -- <cmd>` builds the image (on a container " +
-			"runtime; macos-user has none), stages the selected packs and renders their " +
-			"config, then runs <cmd>. The programs those " +
-			"packs declare (agent CLIs included) are NOT installed by the launch — each " +
-			"installs from its launcher in ~/.yolo/bin/launch the first time its name is run " +
-			"in the jail, so `yolo -- true` leaves them uninstalled and " +
-			"`yolo -- <program> --version` installs one. A dedicated provision-without-launch " +
-			"path is a follow-up " +
-			"(env-manager plan Phase 3 leaves the no-exec jail provision to a later " +
-			"increment).[/dim]")
-		pr.Printf("")
-		return describeMain(nil, out, errw, color)
+		if dryRun {
+			// The observe posture: what the act would stage, and nothing launched.
+			pr.Printf("[dim]--dry-run: nothing is launched. `yolo apply` runs the jail's readiness " +
+				"act, the launch `yolo -- true` performs; this is the description it would " +
+				"provision.[/dim]")
+			pr.Printf("")
+			return describeMain(nil, out, errw, color)
+		}
+		// THE JAIL NOTCH'S READINESS ACT IS THE LAUNCH, with no target (JR-D1,
+		// docs/design/jail-notch-readiness.md): the same path `yolo -- true` takes, never a
+		// second provisioner, now that the launch installs every program a selected pack
+		// declares (OQ-JR1). An attach is the one launch that provisions nothing, so it is said
+		// before the launch rather than left to be inferred from its banner.
+		pr.Printf("[dim]Running the jail's readiness act, the launch `yolo -- true` performs: it " +
+			"builds the image (on a container runtime; macos-user has none), stages the selected " +
+			"packs, renders their config and installs every program they declare (on a container " +
+			"runtime; on macos-user each installs the first time it is run), then exits. A " +
+			"jail already running for this workspace is attached to instead, and that installs " +
+			"nothing: its readiness act ran when it started (`yolo stop`, then `yolo apply`, " +
+			"runs it again).[/dim]")
+		return applyJailLaunch()
 	}
 }
+
+// applyJailLaunch is the launch `yolo apply` at the jail notch runs (JR-D1): run's own
+// pipeline with `true` as its command, exactly `yolo -- true`. A package var so a test can
+// assert the verb reaches it without starting a container.
+//
+// It carries `--at jail` because the verb has already decided the notch: the launch otherwise
+// re-reads `confinement` (run.refuseUnbuiltNotch), so `yolo apply --at jail` under a
+// `confinement: host` config was refused, and told to edit a key the flag had overridden.
+var applyJailLaunch = func() int { return runRun([]string{"run", "--at", "jail", "--", "true"}) }
 
 // applyHost renders the configured packs' config surfaces into the invoking user's REAL
 // home (env-manager plan Phase 4). Default posture is OBSERVE (dry-run): it prints what
@@ -1498,8 +1507,10 @@ func hasPrefix(s, p string) bool { return len(s) >= len(p) && s[:len(p)] == p }
 const applyUsage = `yolo apply — make this environment match its description, without running anything
 
   yolo apply                provision the environment at its configured confinement
-                            (at jail: a pointer to the launch, plus what it would stage —
-                            declared programs still install on first use, not at launch)
+                            (at jail: the launch ` + "`yolo -- true`" + ` performs — builds the
+                            image, stages the packs, installs every program they declare
+                            (not yet on macos-user) — then exits; a jail already running is
+                            attached to, installing nothing)
   yolo apply --at <level>   … at a different notch (jail|guest|host) for this run
   yolo apply --at host      render your config into your real home
                             (yolo host apply is the same thing, more typeable)
@@ -1514,6 +1525,7 @@ const applyUsage = `yolo apply — make this environment match its description, 
                             (yolo-jail.local.jsonc, an outstanding capture overlay,
                             an unset host_management)
   yolo apply --dry-run      show what would change, write nothing
+                            (at jail: the description the launch would provision, and no launch)
 
 Machine-readable output, at the HOST notch's dry run only (` + "`yolo apply --at host --format json`" + `):
 the asserting posture acts, and an acting verb refuses the flag rather than growing a
@@ -1524,7 +1536,7 @@ apply splits "make it so" from "run something in it": ` + "`yolo -- <cmd>`" + ` 
 "apply, then exec." Every notch has both halves — the host's exec half is
 ` + "`yolo host -- <cmd>`" + `, which composes the environment a config file cannot carry.
 Examples:
-  yolo apply                          # at jail: where provisioning happens, and the description
+  yolo apply                          # at jail: provision the jail, run nothing
   yolo apply --at host                # what would change in your real home?
   yolo apply --at host --assert       # write it
   yolo apply --at host --revert       # what would withdrawing yolo remove?

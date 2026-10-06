@@ -2,10 +2,10 @@
 title: "Plan: agent CLIs from npm to their vendors' native installers"
 date: 2026-09-03
 status: accepted
-stage: DECIDED
-next: "Build OQ-NI1 (A), ruled 2026-10-05: put PREFIX on copilot's install recipe, flip copilot to GitHub's native installer with its own updater left on, run TestPackInstallsVersionsAndConfigures/copilot on both arches, and say in the user guide's agent-updates section that yolo cannot name the copilot version that ran and agent_updates: false does not freeze it"
+stage: BUILT
+next: "Read the Pack Installs workflow's copilot cell on linux/arm64 for the pushed commit that flips copilot (OQ-NI1, built 2026-10-05); linux/x86_64 passed locally in a nested jail that day"
 tags: [packs, program-delivery, installers, evergreen]
-summary: "Implementation plan for OQ-PD13. Shipped 2026-09-04: codex flipped and claude's dead autoUpdaterStatus is gone. copilot did NOT flip — its installer picks PREFIX=/usr/local under root and the jail's rootfs is read-only, so the flip would make it uninstallable. Its --no-auto-update question was ruled separately on 2026-09-12 (option A: the flag is dropped, without the flip). The flip itself was ruled on 2026-10-05 (OQ-NI1, option A): copilot moves to GitHub's installer with its own updater on. opencode stays deferred; pi's 'native installer' is an npm wrapper and must not be flipped."
+summary: "Implementation plan for OQ-PD13. Shipped 2026-09-04: codex flipped and claude's dead autoUpdaterStatus is gone. copilot did NOT flip — its installer picks PREFIX=/usr/local under root and the jail's rootfs is read-only, so the flip would make it uninstallable. Its --no-auto-update question was ruled separately on 2026-09-12 (option A: the flag is dropped, without the flip). The flip itself was ruled on 2026-10-05 (OQ-NI1, option A) and built the same day: copilot comes from GitHub's installer, with PREFIX on its recipe (installer_env) and its own updater on. opencode stays deferred; pi's 'native installer' is an npm wrapper and must not be flipped."
 ---
 
 # Plan: agent CLIs from npm to their vendors' native installers
@@ -26,7 +26,13 @@ needs in order to succeed … to the recipe when a flip needs one (copilot's `PR
 flip is no longer blocked on mechanism, and this plan's *Don't* about an env field is spent. What
 still stands before it is the question the Blockers section says the flip re-opens — whether
 copilot's own updater may replace its binary unobserved — filed on 2026-10-01 as
-[OQ-NI1](#OQ-NI1) and ruled in review on 2026-10-05: yes (A), so the flip is ready to build.
+[OQ-NI1](#OQ-NI1) and ruled in review on 2026-10-05: yes (A). **Built 2026-10-05:** the
+program contribution gained `installer_env`, copilot's recipe sets `{"PREFIX": "~/.local"}` and
+declares `update: ["update"]`, and the user guide and `yolo config-ref` say what `agent_updates:
+false` does not freeze. One premise above had already lapsed when it was built: npm's
+`@github/copilot` 1.0.92 is a loader that starts the single-executable build from
+`@github/copilot-linux-x64`, so `isSea()` was true under npm too, and the updater that replaces its
+own executable was already on there (read in the 1.0.92 bundle, 2026-10-05).
 Re-checked against the tree 2026-09-24: both sibling rulings this plan waited on
 ([OQ-PD12a](../design/program-delivery.md#decision-ledger) and
 [OQ-PD14](../design/program-delivery.md#decision-ledger)) shipped 2026-09-04, and codex's
@@ -429,4 +435,4 @@ What each option shows and costs, as the question stated it:
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| [OQ-NI1](#OQ-NI1) | **Ruled in review, as leaned (A):** flip copilot to GitHub's native installer, `PREFIX` on its install recipe, with copilot's own updater left on and `--no-auto-update` still dropped. The user guide's agent-updates section says that yolo cannot name the copilot version that ran and that `agent_updates: false` does not freeze it | 2026-10-05 | [OQ-NI1](#OQ-NI1), [the self-updater after the flip](#the-self-updater-after-the-flip) | pending |
+| [OQ-NI1](#OQ-NI1) | **Ruled in review, as leaned (A):** flip copilot to GitHub's native installer, `PREFIX` on its install recipe, with copilot's own updater left on and `--no-auto-update` still dropped. The user guide's agent-updates section says that yolo cannot name the copilot version that ran and that `agent_updates: false` does not freeze it | 2026-10-05 | [OQ-NI1](#OQ-NI1), [the self-updater after the flip](#the-self-updater-after-the-flip) | ✅ 2026-10-05: `installer_env` on the program contribution, `{"PREFIX": "~/.local"}` and `update: ["update"]` on copilot's recipe, the user guide and `yolo config-ref`; on linux/x86_64 the cold install, the capture jail's install and `TestPackInstallsVersionsAndConfigures/copilot` passed in a nested jail. linux/arm64 is the Pack Installs workflow's to show |

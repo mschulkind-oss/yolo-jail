@@ -210,8 +210,8 @@ if yolo says the runtime is not running, run `container system start` again.
 > [!IMPORTANT]
 > **Apple Container does not run yolo's host services yet.** A host service is a helper yolo runs on
 > your Mac for the jail, such as the one that keeps a shared Claude login fresh. So on this runtime,
-> two jails sharing one Claude login can log each other out, `codex` and `pi` cannot use a ChatGPT
-> subscription login, and published ports do not work. If you need any of these, use Podman.
+> two jails sharing one Claude login can log each other out, and `codex` and `pi` cannot use a
+> ChatGPT subscription login. If you need either, use Podman.
 > [What Apple Container does not do →](guides/macos.md#apple-container-runtime-container--what-it-does-not-do)
 
 ### macOS: Podman
@@ -428,7 +428,8 @@ yolo init-user-config    # writes the file, full of commented examples
 
 The shipped agent packs are `claude`, `copilot`, `codex`, `opencode`, `pi`, `agy` and `omp`; list as
 many as you like. `omp`'s vendor publishes no ARM Linux build, so it does not run in a jail on an Apple
-silicon Mac. An agent installs inside the jail the first time you run it. Only your user config can
+silicon Mac. A jail installs each selected agent when it first starts, before your command runs (on
+`macos-user`, the first time you run it). Only your user config can
 select packs; a project's own config cannot. [How packs work →](guides/packs-and-skills.md)
 
 ### Check the setup

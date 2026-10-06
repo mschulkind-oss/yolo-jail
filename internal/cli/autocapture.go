@@ -47,13 +47,13 @@ import (
 //     itself exits 1 under YOLO_INSTALL_ONLY when $REAL_BIN is not executable
 //     afterwards, so an installer that lands nothing fails its jail; capture.Run
 //     propagates a non-zero installer as an error, so the driver writes no manifest; and
-//     captureHost refuses an empty delta by name. The live case is copilot, whose
-//     installer takes PREFIX="${PREFIX:-/usr/local}" on its root branch and exits 1 under
-//     the jail's uid 0 + --read-only (program-delivery.md §3.5: *"self-updates once
-//     native" is necessary and never sufficient*). It is `via: "npm"` today and so is not
-//     a candidate at all — but the day it is flipped, an auto-capture of it stores
-//     nothing and warns, rather than filing an entry that materializes a program that
-//     is not there.
+//     captureHost refuses an empty delta by name. The case that showed it is copilot,
+//     whose installer takes PREFIX="${PREFIX:-/usr/local}" on its root branch and exits 1
+//     under the jail's uid 0 + --read-only (program-delivery.md §3.5: *"self-updates once
+//     native" is necessary and never sufficient*). Its recipe now sets PREFIX
+//     (`installer_env`, OQ-NI1), so it is captured like claude; an installer that lands
+//     nothing still stores nothing and warns, rather than filing an entry that
+//     materializes a program that is not there.
 //
 // # Failure is never fatal, and it is remembered
 //

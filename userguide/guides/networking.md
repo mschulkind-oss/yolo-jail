@@ -58,7 +58,7 @@ leave it unset unless you need it. The default is `"bridge"`, the private networ
 
 | | Podman on Linux | Podman on a Mac | Apple Container | `macos-user` |
 |---|---|---|---|---|
-| `network.ports` | Works | Works, for a server on `0.0.0.0` | **Carries no data.** Connect to the jail's own address instead; `container ls` shows it | Not needed: a port the agent opens is already open on the Mac |
+| `network.ports` | Works | Works, for a server on `0.0.0.0` | Works, for a server on `0.0.0.0`, at `127.0.0.1` on the Mac; measured once | Not needed: a port the agent opens is already open on the Mac |
 | `host.containers.internal` | Works | Works | Does not work | Use `localhost`: the sandbox is on the Mac's own network |
 | `network.forward_host_ports` | Works, with `socat` on the host | Should work, with `socat` on the Mac; not yet tested | **Stops the launch.** Leave it unset | Same-port entries already work; `"8080:9090"` is not supported |
 | `"mode": "host"` | Works | Applies to the Podman Machine, not the Mac | Not supported; leave it unset | Always the case |

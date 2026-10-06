@@ -594,9 +594,8 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 			}
 			out.print("[yellow]Warning: " + asked + " is NOT honored on Apple Container[/yellow] — " +
 				"the backend manages networking itself, so the jail does not share your host's " +
-				"network stack (published ports and forward_host_ports still apply: this backend " +
-				"runs bridged either way). " + remedy + ", or use YOLO_RUNTIME=podman for host " +
-				"networking.")
+				"network stack (published ports still apply: this backend runs bridged either " +
+				"way). " + remedy + ", or use YOLO_RUNTIME=podman for host networking.")
 		}
 	} else if rt == "podman" && inContainer {
 		// Podman-in-podman: netavark cannot create a netns without NET_ADMIN, so the
@@ -672,6 +671,10 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// this one keeps it and only delays the teardown that erases the evidence
 	// (holdonrefusal.go, internal/entrypoint/hold.go).
 	runCmd = append(runCmd, o.holdOnRefusalArgs(rt, in.cname)...)
+
+	// The readiness act's hatch and its off-switch, forwarded from the host for the same
+	// reason: the stage that reads them runs in the jail (programreadiness.go).
+	runCmd = append(runCmd, o.programReadinessArgs()...)
 
 	// --- git identity + global gitignore (host-composed, :ro-mounted) ---
 	runCmd = append(runCmd, o.gitIdentityMountArgs(rt, in.wsState, in.mountTargets)...)

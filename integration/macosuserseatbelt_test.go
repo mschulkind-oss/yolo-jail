@@ -888,7 +888,7 @@ func requireMacosUserSeatbelt(t *testing.T) {
 			"`-run '^%s'` and a test outside that pattern never runs",
 			t.Name(), macosUserTestPrefix, macosUserTestPrefix)
 	}
-	reason := "the test skipped after passing the gate — see its own skip message"
+	reason := macosUserSkippedPastGate
 	t.Cleanup(func() {
 		macosUserTests.record(macosUserOutcomeFor(t.Name(), t.Skipped(), reason, macosUserGateSeatbelt))
 	})

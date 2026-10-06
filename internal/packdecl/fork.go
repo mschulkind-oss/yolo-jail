@@ -160,6 +160,8 @@ func forkBaseFields(c Contribution) []forkBaseField {
 			"a fork that drifts from its lock is reported, never silently refreshed (§12)", c.Update != nil},
 		{"versions_dir", "it is where a vendor installer keeps its releases, which a build has none of",
 			c.VersionsDir != ""},
+		{"installer_env", "it is the environment of a vendor installer, and a fork's bytes come from its build",
+			c.InstallerEnv != nil},
 		{"install_hints", "a host package manager's package is the UPSTREAM program, which a " +
 			"`yolo check-deps` remedy would then install in the fork's place", c.InstallHints != nil},
 		{"model_catalog", "its entries name files inside an npm package's directory, and a fork " +

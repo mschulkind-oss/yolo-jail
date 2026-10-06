@@ -407,7 +407,7 @@ func TestSelfInstallCommandDerivation(t *testing.T) {
 		// command the prompt prints is pinned byte for byte.
 		{"installer", Contribution{Kind: KindProgram, Bin: "x", Via: "installer", URL: "https://h/i.sh"},
 			`(f=$(mktemp) && trap 'rm -f "$f"' EXIT && curl -fsSL https://h/i.sh -o "$f" && ` +
-				`yolo internal installer-check https://h/i.sh "$f" && sh "$f" </dev/null)`},
+				`yolo internal installer-check https://h/i.sh "$f" && bash "$f" </dev/null)`},
 		{"npm with no package", Contribution{Kind: KindProgram, Bin: "x", Via: "npm"}, ""},
 		{"installer with no url", Contribution{Kind: KindProgram, Bin: "x", Via: "installer"}, ""},
 		{"requires", Contribution{Kind: KindRequires, Bin: "x"}, ""},
@@ -420,7 +420,7 @@ func TestSelfInstallCommandDerivation(t *testing.T) {
 }
 
 // The installer remedy RUNS as its spelling says (PS-D4), with a fake curl and a fake yolo on
-// PATH: a script body reaches `sh` with a /dev/null stdin, a body the check refuses never does
+// PATH: a script body reaches `bash` with a /dev/null stdin, a body the check refuses never does
 // and the command fails, and the temp file is gone either way. A URL carrying shell syntax stays
 // one word. Nothing here reaches a network.
 func TestTheInstallerRemedyDownloadsChecksThenRuns(t *testing.T) {
@@ -479,6 +479,59 @@ func TestTheInstallerRemedyDownloadsChecksThenRuns(t *testing.T) {
 				t.Errorf("the temp file %s outlived the command: %v", temp, err)
 			}
 		})
+	}
+}
+
+// The installer remedy runs the vendor's script with BASH, as the jail's launcher does
+// (_run_installer), and not with whatever `sh` is. GitHub's copilot installer is a bash script
+// whose line 40 is a bash array, and on a host whose /bin/sh is dash (Debian, Ubuntu) `sh "$f"`
+// stopped there with `Syntax error: "(" unexpected` and installed nothing. The `sh` on this PATH
+// stands for dash: it runs the remedy's own POSIX command line, as the dependency gate's
+// `sh -c` does, and refuses a script with a bash array, as dash does. The remedy is the one the
+// dependency probe reads, taken from DepRequirements, so a call site dropping InstallerRemedy
+// fails here too.
+func TestTheInstallerRemedyRunsABashOnlyInstallerWhereShIsNotBash(t *testing.T) {
+	realSh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("no sh")
+	}
+	bashDir := ""
+	for _, d := range []string{"/bin", "/usr/bin"} {
+		if _, err := os.Stat(filepath.Join(d, "bash")); err == nil {
+			bashDir = d
+			break
+		}
+	}
+	if bashDir == "" {
+		t.Skip("no bash in /bin or /usr/bin")
+	}
+	dir := t.TempDir()
+	for name, body := range map[string]string{
+		// dash: the command line runs, a bash array does not.
+		"sh": "#!" + realSh + "\nif [ \"$1\" != -c ] && [ -f \"$1\" ]; then\n" +
+			"  case \"$(cat \"$1\")\" in *'=()'*) echo \"$1: 40: Syntax error: \\\"(\\\" unexpected\" >&2; exit 2;; esac\n" +
+			"fi\nexec " + shquote.Quote(realSh) + " \"$@\"\n",
+		// GitHub's installer, in the one respect that matters here: line 40 is `CURL_AUTH=()`.
+		"curl": "#!" + realSh + "\nout=\nwhile [ $# -gt 0 ]; do [ \"$1\" = -o ] && out=$2; shift; done\n" +
+			"printf '#!/usr/bin/env bash\\nCURL_AUTH=()\\nCURL_AUTH+=(-H x)\\necho INSTALLED-${#CURL_AUTH[@]}\\n' > \"$out\"\n",
+		"yolo": "#!" + realSh + "\nexit 0\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m := &Manifest{Contributes: []Contribution{
+		{Kind: KindProgram, Bin: "copilot", Via: "installer", URL: "https://gh.io/copilot-install"},
+	}}
+	reqs := m.DepRequirements()
+	if len(reqs) != 1 || reqs[0].SelfInstall == "" {
+		t.Fatalf("DepRequirements = %+v, want one requirement with a remedy", reqs)
+	}
+	cmd := exec.Command(filepath.Join(dir, "sh"), "-c", reqs[0].SelfInstall)
+	cmd.Env = []string{"PATH=" + dir + ":" + bashDir + ":/bin:/usr/bin", "TMPDIR=" + dir}
+	out, err := cmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(out), "INSTALLED-2") {
+		t.Errorf("a bash-only installer did not run where sh is dash (err = %v):\n%s", err, out)
 	}
 }
 

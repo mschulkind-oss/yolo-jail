@@ -135,7 +135,7 @@ func depInstallEnviron(lp *hostpath.Launch) []string {
 // point 3). A `via: installer` remedy carries the check the jail's launcher makes before it runs
 // an installer (docs/design/provisioner-sets.md PS-D4): it downloads to a temp file, `yolo
 // internal installer-check` refuses a web page, a binary or non-text bytes naming the URL, and
-// only then does `sh` run the file. It used to pipe the body into `sh`, so an ELF body surfaced
+// only then does `bash` run the file. It used to pipe the body into `sh`, so an ELF body surfaced
 // as a shell error that did not name the URL.
 //
 // noTerminal runs it with NO CONTROLLING TERMINAL and a /dev/null stdin (internal/notty, PS-D1):

@@ -8,6 +8,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/provision"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
@@ -335,6 +336,11 @@ func BootstrapScript(e *Env) string {
 		// same reason as the checks.
 		"__YOLO_FLOOR_PENDING_DIR__", shquote.Quote(e.FloorPendingDir()),
 		"__YOLO_LAUNCH_DIR__", shquote.Quote(e.LaunchDir()),
+		// The readiness act (readiness.go, OQ-JR1): one install-only call per declared program,
+		// and the launch's hatch, both baked for the floor checks' reason.
+		"__YOLO_PROGRAM_READINESS__", readinessChecks(e),
+		"__YOLO_ALLOW_MISSING_PROGRAMS__", shquote.Quote(allowMissingPrograms(e)),
+		"__YOLO_ALLOW_MISSING_ENV__", paths.AllowMissingProgramsEnv,
 		// The one status the stage's wrapper passes through as a refusal. Spelled by
 		// provision, the package that tests for it, and never here.
 		"__YOLO_REFUSED_STATUS__", strconv.Itoa(provision.RefusedStatus),
@@ -405,11 +411,12 @@ _yolo_npm_version() {
 # fonts dir, a changed one) and returns in ~4 ms when none is.
 fc-cache >/dev/null 2>&1
 
-# Agent CLIs (copilot, claude, codex) are NOT installed here.
-# Lazy-install launchers in ~/.yolo/bin/launch/ install them on first use, keeping boot
-# fast.  They no longer update themselves on a timer — "yolo pack update" is the act that
-# resolves a new version.  Only the MCP preset tools agents depend on are installed here —
-# never a language server: a configured lsp_servers command must already be on PATH.
+# Every program a selected pack declares (agent CLIs included) is installed by the readiness
+# act at the END of this script, through its own launcher in ~/.yolo/bin/launch, so it is
+# there before the command runs (OQ-JR1).  The launchers still refresh a program at
+# invocation, at most once per UPDATE_INTERVAL, and still install one that a failed or
+# skipped readiness left absent.  Never a language server: a configured lsp_servers command
+# must already be on PATH.
 
 # --- MCP preset tools (gated on the ENABLED presets, D6) ----------------
 # Empty when no preset needs an npm package, so a jail that wants none installs
@@ -465,9 +472,10 @@ fi
 # one distinct floor and, as its second argument, every program and pack declaring it —
 # the two things the refusal must name that only the generator knows.
 #
-# LAST IN THE SCRIPT, AND THE REFUSAL IS AN EXIT STATUS, NOT AN EARLY EXIT.  A floor
-# nothing satisfies must stop the launch, but must not cost the installs above, which
-# are for other programs.  The status is the one the stage's wrapper passes through
+# LAST BUT FOR THE READINESS ACT, AND THE REFUSAL IS AN EXIT STATUS, NOT AN EARLY EXIT.  A
+# floor nothing satisfies must stop the launch, but must not cost the installs around it,
+# which are for other programs, so the one exit for both refusals is at the end of the
+# script.  The status is the one the stage's wrapper passes through
 # unconditionally (provision.RefusedStatus): every other failure in this stage degrades,
 # and until this status existed the refusal degraded with them, so the target ran anyway.
 #
@@ -533,7 +541,102 @@ _yolo_node_floor() {
     _yolo_floor_refused=1
 }
 __YOLO_NODE_FLOOR_CHECKS__
-if [ -n "$_yolo_floor_refused" ]; then
+
+# --- Readiness: install every program a selected pack declares, then REFUSE if one is missing --
+# OQ-JR1 (docs/design/jail-notch-readiness.md; readiness.go renders the calls).  Each program's
+# OWN LAUNCHER installs it, in install-only mode (YOLO_INSTALL_ONLY=1): it installs a program
+# that is absent, never refreshes one that is present, and never runs it, so a warm home does
+# nothing here and says nothing.  AFTER the floors, so a launcher a floor install has just
+# finished (AR-L5) is the one that runs.
+#
+# A program this could not install REFUSES the launch, offline included, through the floor's
+# exit status below; no install above is undone by it.  The hatch is BAKED, for the floor
+# checks' reason: the launch's own __YOLO_ALLOW_MISSING_ENV__, forwarded from the host.  Under
+# it the jail starts and this lists what it could not install; each then installs from its
+# launcher the first time it is run, as every program did before this act.
+_YOLO_ALLOW_MISSING_PROGRAMS=__YOLO_ALLOW_MISSING_PROGRAMS__
+_yolo_ready_failed=""
+_yolo_ready_refused=""
+# The words by which a line of an install's output says what failed and why, and, weaker, the
+# ones by which it only names an error.
+_yolo_ready_why='[Ff]ail|FAIL|reason:|not available|[Rr]efus|[Dd]enied|[Cc]annot|[Cc]ould not'
+_yolo_ready_pat='[Ee][Rr][Rr]'
+# _yolo_ready_error FILE prints the lines of an install's output that say what went wrong,
+# never the launcher's own closing "its install failed, above", which names nothing: the first
+# two that say what failed and why ("… failed, reason: getaddrinfo EAI_AGAIN …", "download
+# failed: <url>"); else the first three naming an error (npm's "npm error code …" block); else
+# the output's last line.
+_yolo_ready_error() {
+    local _line _last="" _why="" _nw=0 _err="" _ne=0
+    while IFS= read -r _line || [ -n "$_line" ]; do
+        [ -n "$_line" ] || continue
+        case "$_line" in
+            *"its install failed, above"*) continue ;;
+        esac
+        _last="$_line"
+        if [[ "$_line" =~ $_yolo_ready_why ]]; then
+            if [ "$_nw" -lt 2 ]; then _why="$_why$_line"$'\n'; _nw=$((_nw + 1)); fi
+        elif [[ "$_line" =~ $_yolo_ready_pat ]]; then
+            if [ "$_ne" -lt 3 ]; then _err="$_err$_line"$'\n'; _ne=$((_ne + 1)); fi
+        fi
+    done < "$1"
+    if [ -n "$_why" ]; then
+        printf '%s' "$_why"
+    elif [ -n "$_err" ]; then
+        printf '%s' "$_err"
+    elif [ -n "$_last" ]; then
+        printf '%s\n' "$_last"
+    fi
+    return 0
+}
+# _yolo_ready BIN WHO runs BIN's launcher in install-only mode, its output shown as it comes,
+# and records WHO and the install's error when it leaves nothing to run.
+_yolo_ready() {
+    local _bin="$1" _who="$2" _out _rc=0 _err="" _line
+    _out=$(mktemp "${TMPDIR:-/tmp}/yolo-ready.XXXXXX" 2>/dev/null) || _out=""
+    if [ -n "$_out" ]; then
+        YOLO_INSTALL_ONLY=1 "$_YOLO_LAUNCH_DIR/$_bin" </dev/null 2>&1 | tee "$_out" >&2
+        _rc=${PIPESTATUS[0]}
+    else
+        YOLO_INSTALL_ONLY=1 "$_YOLO_LAUNCH_DIR/$_bin" </dev/null >&2 2>&1 || _rc=$?
+    fi
+    if [ "$_rc" = 0 ]; then
+        if [ -n "$_out" ]; then rm -f "$_out"; fi
+        return 0
+    fi
+    if [ -n "$_out" ]; then
+        _err=$(_yolo_ready_error "$_out")
+        rm -f "$_out"
+    fi
+    _yolo_ready_failed="${_yolo_ready_failed}      $_who: its install exited $_rc"$'\n'
+    if [ -n "$_err" ]; then
+        while IFS= read -r _line; do
+            _yolo_ready_failed="${_yolo_ready_failed}          $_line"$'\n'
+        done <<YOLO_READY_EOF
+$_err
+YOLO_READY_EOF
+    fi
+    return 0
+}
+__YOLO_PROGRAM_READINESS__
+if [ -n "$_yolo_ready_failed" ]; then
+    if [ "$_YOLO_ALLOW_MISSING_PROGRAMS" = 1 ]; then
+        echo "  ⚠ __YOLO_ALLOW_MISSING_ENV__ is set, so this jail starts WITHOUT what a selected pack declares:" >&2
+        printf '%s' "$_yolo_ready_failed" >&2
+        echo "    Each installs the first time it is run; its install output is above." >&2
+    else
+        # REFUSAL, not a warning: a jail started without a program its own config selected is
+        # not the environment that config promised.
+        echo "yolo: REFUSING to start this jail: a program a selected pack declares could not be installed." >&2
+        printf '%s' "$_yolo_ready_failed" >&2
+        echo "      The full install output is above.  Fix what stopped it (an install needs the" >&2
+        echo "      network), or drop the pack from your packs list.  To start the jail without it:" >&2
+        echo "          __YOLO_ALLOW_MISSING_ENV__=1 yolo <your command>" >&2
+        echo "      and each missing program installs the first time it is run." >&2
+        _yolo_ready_refused=1
+    fi
+fi
+if [ -n "$_yolo_floor_refused" ] || [ -n "$_yolo_ready_refused" ]; then
     exit __YOLO_REFUSED_STATUS__
 fi
 

@@ -1,23 +1,25 @@
 ---
 title: "Nested nixpkgs attribute paths in `packages`"
 date: 2026-08-22
-status: in-review
+status: accepted
 tags: [config, nix, packages, flake]
 summary: "A `packages` entry like `rocmPackages.clr` fails because yolo reads any dot as an output selection. In Nix both are the same attribute walk, so one path-walking resolver supports nested collections and output selection alike — provided it keeps the base derivation for the /lib symlink farm."
-stage: DESIGN
-next: "Rule OQ-1 — the resolver's disambiguation rule decides the whole build; the 2026-10-01 probe found the collision real in one family (texlivePackages.*.texsource) and absent at top level"
+stage: DECIDED
+next: "Build the resolver under OQ-1's (C), decided 2026-10-05 by the agent under the maintainer's delegation: a packages entry installs what nix build nixpkgs#<path> builds for the same dotted path, so §5.1's output-first walk is replaced; record which reading Nix gives on the colliding paths (one texsource path measured 2026-10-05 builds its own derivation, so there (A) and (C) differ), keeping §4.2's base derivation for the /lib farm"
 ---
 
 # Nested nixpkgs attribute paths in `packages` — and why output selection is the same operation
 
-**Status:** 2026-09-24 — sketched 2026-08-22, and it owes one ruling,
-[OQ-1](#OQ-1), which decides the resolver's central rule. Nothing built: re-checked 2026-09-24,
-`packageNameRe` is still the single-optional-dot pattern and `flake.nix` still has no
-`attrByPath`, `hasAttrByPath` or `resolvePackagePath`. `60376fed` does not invalidate any premise
+**Status:** 2026-10-05 — sketched 2026-08-22. [OQ-1](#OQ-1), the resolver's central rule, was
+decided on 2026-10-05 by the agent under the maintainer's delegation: follow Nix exactly. Nothing
+built: re-checked 2026-10-05, `packageNameRe` is still the single-optional-dot pattern and
+`flake.nix` still has no `attrByPath`, `hasAttrByPath` or `resolvePackagePath`. `60376fed` does not invalidate any premise
 below — see the postscript. Code is cited by symbol throughout, never by line: the line anchors
 this doc used to carry had drifted by hundreds of lines.
 
-**Needs your ruling:** [OQ-1](#OQ-1).
+**Needs your ruling:** none. [OQ-1](#OQ-1) was decided in review on 2026-10-05 by the agent,
+under the maintainer's delegation (*"I have no idea you decide"*): yolo installs what
+`nix build nixpkgs#<path>` builds for the same dotted path.
 
 > [!NOTE]
 > **Postscript, 2026-08-23 — audit against the tree, and against `60376fed`.**
@@ -201,11 +203,26 @@ contents the question warns of, on a real path. The `throw` alternative would re
 UNMEASURED: sets nested more than one level deep, and whether anyone wants such a path in
 `packages`.
 
+**Decided 2026-10-05: neither of those two readings by rule — Nix's own.**
+[OQ-1](#OQ-1) went to (C): a dotted path resolves to what `nix build nixpkgs#<path>` builds.
+MEASURED the same day on one colliding path, at the nixpkgs `flake.lock` pins (`e158d9ed`):
+`nix build --dry-run --json` of `texlivePackages.12many.texsource` builds the `out` of
+`12many-0.3-texsource.drv`, a derivation separate from `12many-0.3.drv`. So on that path Nix gives
+the member reading, and the leaning's output-first rule would have installed something else.
+
 ---
 
 ## 5. Proposed Solution
 
 ### 5.1 Resolution Algorithm (`flake.nix`)
+
+> [!WARNING]
+> **The walk below encodes [OQ-1](#OQ-1)'s leaning, which was not taken.** It tests the
+> output list before it tries the attribute, so on a colliding path it installs the output where
+> Nix installs the attribute. [OQ-1](#OQ-1) decided (C) on 2026-10-05: resolve each path to what
+> `nix build nixpkgs#<path>` builds. The builder replaces that branch; the rest of the sketch
+> (the base derivation, the error messages) stands.
+
 We replace `parseDottedSpec` with a path-walking parser that walks `lib.attrByPath` from head to tail:
 
 ```nix
@@ -288,7 +305,7 @@ Update `noncontainerResolved` in `flake.nix` to use `pkgs.lib.hasAttrByPath` and
 
 ## 8. Open Questions
 
-1. 💬 <a id="OQ-1"></a>**OQ-1: Namespace collision between collection members and derivation outputs.** If package
+1. ✅ <a id="OQ-1"></a>**OQ-1: Namespace collision between collection members and derivation outputs.** If package
    `foo` has an output named `bar` AND nixpkgs has an attrset `foo.bar` containing package `baz`, how
    should `foo.bar` resolve — to the `bar` *output* of the `foo` derivation, or to the `bar` *member*
    of the `foo` collection?
@@ -296,8 +313,6 @@ Update `noncontainerResolved` in `flake.nix` to use `pkgs.lib.hasAttrByPath` and
    **What it decides:** the resolver's central disambiguation rule, and therefore the whole feature.
    Why, and the 2026-10-01 measurement that found a real collision:
    [§4.3](#43-the-collision-between-a-collection-member-and-an-output).
-
-   <!-- vantage: question id=OQ-1 leaning="Output wins on the leaf; a deeper path wins over both — if the remaining path is exactly one component and it is in `curr.outputs`, resolve it as an output, otherwise keep walking. Held loosely: refusing the ambiguity with a throw that names both candidate resolutions is the alternative worth ruling for instead." -->
 
    _Leaning:_ **output wins on the leaf; a deeper path wins over both.** Concretely: if the remaining
    path is exactly one component and that component is in `curr.outputs`, resolve it as an output;
@@ -311,7 +326,24 @@ Update `noncontainerResolved` in `flake.nix` to use `pkgs.lib.hasAttrByPath` and
    resolver to have no surprising cases at all, that is the ruling to make.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Decided in review 2026-10-05 by the agent under delegation, against the leaning: (C),
+   > follow Nix exactly.** The maintainer delegated it: *"I have no idea you decide."* A
+   > `packages` entry installs what `nix build nixpkgs#<path>` builds for the same dotted path.
+   > This keeps the doc's first principle, match Nix ([§1.2](#12-principles) P1), and gives a
+   > user one command that checks yolo's answer. [§4.2](#42-the-base-derivation-vs-output-trap-in-lib-farm-extraction)'s
+   > contract still holds: where Nix's answer is an output of the derivation one step up
+   > (`gtk4.dev`), that derivation stays the base for the `/lib` farm; where it is a derivation of
+   > its own, it is the base. If evaluation shows Nix's answer on the colliding paths is the
+   > output reading, (A) and (C) coincide there, and the builder records which. On the one path
+   > measured, `texlivePackages.12many.texsource`, Nix builds the separate derivation
+   > ([§4.3](#43-the-collision-between-a-collection-member-and-an-output)), so there they differ;
+   > the builder records the rest of that family and `cygwin.newlib-cygwin-nobin.bin`. Not built.
+
+## Decision Ledger
+
+| ID | Ruling / Decision | Date | Settled in | Built |
+| :--- | :--- | :--- | :--- | :--- |
+| [OQ-1](#OQ-1) | **Follow Nix exactly (C), decided by the agent under the maintainer's delegation** (*"I have no idea you decide"*), against the leaning's output-first rule: a dotted `packages` entry installs what `nix build nixpkgs#<path>` builds for that path, and [§4.2](#42-the-base-derivation-vs-output-trap-in-lib-farm-extraction)'s base derivation still feeds the `/lib` farm. Where Nix gives the output reading on a colliding path, (A) and (C) coincide and the builder records it; on `texlivePackages.12many.texsource` Nix builds the separate derivation (MEASURED 2026-10-05) | 2026-10-05 | [OQ-1](#OQ-1), [§4.3](#43-the-collision-between-a-collection-member-and-an-output) | pending |
 
 ## Appendix: re-running the collision probe
 

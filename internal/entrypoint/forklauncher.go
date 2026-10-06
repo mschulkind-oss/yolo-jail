@@ -217,6 +217,16 @@ if [ ! -x "$REAL_BIN" ] || [ "$(cat "$KEY_STAMP" 2>/dev/null || true)" != "$KEY"
     printf '%s\n' "$KEY" > "$KEY_STAMP"
 fi
 
+# INSTALL AND STOP (InstallOnlyEnv): the readiness act materializes the host's build above and
+# runs nothing.
+if [ "${` + InstallOnlyEnv + `:-}" = "1" ]; then
+    if [ -x "$REAL_BIN" ]; then
+        exit 0
+    fi
+    echo "  ⚠ $BIN not available: fork $FORKED_BY's build ($KEY) holds no runnable $REAL_BIN" >&2
+    exit 1
+fi
+
 _refresh_servers() {
     command -v yolo >/dev/null 2>&1 || return 0
     YOLO_BYPASS_SHIMS=1 yolo internal refresh-servers \

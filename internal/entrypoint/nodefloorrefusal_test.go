@@ -110,7 +110,18 @@ exit 0
 	if manifests != nil {
 		vars["YOLO_PACK_ROOT"] = stageFloorPacks(t, manifests)
 	}
-	b.script = BootstrapScript(NewEnv(vars))
+	e := NewEnv(vars)
+	b.script = BootstrapScript(e)
+	// A real boot writes each declared program's launcher before this script runs, and the
+	// readiness act at the script's end runs it install-only (readiness.go). These cases are
+	// about the floor block, so each launcher is a fake whose install succeeds and is recorded.
+	for _, p := range declaredReadyPrograms(e) {
+		writeTestFile(t, filepath.Join(e.LaunchDir(), p.Bin),
+			"#!/bin/bash\necho \"launcher "+p.Bin+" install-only=${YOLO_INSTALL_ONLY:-}\" >> \"$FAKE_LOG\"\nexit 0\n")
+		if err := os.Chmod(filepath.Join(e.LaunchDir(), p.Bin), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
 	return b
 }
 

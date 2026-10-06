@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	goruntime "runtime"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -147,14 +148,12 @@ func TestACaptureJailDoesNotAutoCapture(t *testing.T) {
 // set that declares no `via: "installer"` program, rather than calling the seam with an
 // empty list and making internal/cli decide.
 //
-// copilot is the fixture because it is the live npm-declared agent CLI, and because it is
-// the one program-delivery.md §3.5 warns about by name: its installer takes
-// PREFIX="${PREFIX:-/usr/local}" on its root branch and exits 1 under the jail's uid 0 +
-// --read-only, so an auto-capture of it would download, fail and store nothing. It is not
-// a candidate at all while it stays `via: "npm"`, and this is what says so.
+// opencode is the fixture because it is a live npm-declared agent CLI. copilot was, until it
+// moved to GitHub's installer (OQ-NI1); TestInstallerBinsReadsTheGrantedInstallsOnly now
+// counts it among the candidates.
 func TestAJailWithNoInstallerProgramsTriggersNothing(t *testing.T) {
 	home := packHome(t)
-	writeUserPacks(t, home, `["copilot"]`)
+	writeUserPacks(t, home, `["opencode"]`)
 
 	var gotBins []string
 	called := 0
@@ -178,7 +177,7 @@ func TestAJailWithNoInstallerProgramsTriggersNothing(t *testing.T) {
 // so this drives the predicate against the loaded pack set the launch would hand it.
 func TestInstallerBinsReadsTheGrantedInstallsOnly(t *testing.T) {
 	home := packHome(t)
-	writeUserPacks(t, home, `["claude", "copilot", "guardrails"]`)
+	writeUserPacks(t, home, `["claude", "copilot", "opencode", "guardrails"]`)
 	ws := t.TempDir()
 
 	var stdout, stderr bytes.Buffer
@@ -188,9 +187,11 @@ func TestInstallerBinsReadsTheGrantedInstallsOnly(t *testing.T) {
 		t.Fatalf("staging failed\nstdout:\n%s", stdout.String())
 	}
 	got := installerBins(staged.packs)
-	if len(got) != 1 || got[0] != "claude" {
-		t.Errorf("installerBins = %v, want [claude]: copilot installs via npm and "+
-			"guardrails installs no program at all", got)
+	sorted := append([]string(nil), got...)
+	sort.Strings(sorted)
+	if strings.Join(sorted, ",") != "claude,copilot" {
+		t.Errorf("installerBins = %v, want claude and copilot: both install with their vendor's "+
+			"installer, opencode installs via npm and guardrails installs no program at all", got)
 	}
 	// And the list must be free of duplicates and of empty names, which is what makes it
 	// safe to hand straight to a per-program lock keyed by the bin.

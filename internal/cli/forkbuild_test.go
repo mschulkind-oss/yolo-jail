@@ -101,6 +101,11 @@ func TestCaptureOfAForkBuildsItSealedAndRecordsTheBuild(t *testing.T) {
 	if seen.CapturesDir() != "" || !seen.NeverAttach {
 		t.Error("the build jail is not the capture jail (no store mount, never attach)")
 	}
+	// NO READINESS ACT: the base's program is rewritten to the fork's source launcher, which a
+	// build jail has no build for yet, so the act refused the jail before the build could run.
+	if !seen.NoProgramReadiness {
+		t.Error("the build jail runs the readiness act, which refuses it for the very program it builds")
+	}
 	store := &capture.Store{Dir: paths.CapturesDir()}
 	b := forkBuild{Fork: f, Commit: forkTestCommit, Platform: captureJailPlatform()}
 	entry, rec, err := resolveForkBuild(store, "probetool", "linux/arm64", forkTestSource, forkTestCommit, b.recipe())

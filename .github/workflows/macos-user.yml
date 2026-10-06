@@ -291,6 +291,13 @@ jobs:
       # The rest of ./integration is NOT selected, and must not be: every container
       # test needs an image this job deliberately never loads.
       #
+      # It does select TestMacosUserPackInstallsVersionsAndConfigures, whose subtests
+      # SKIP here and are listed as skipped in the gate's end-of-run report: this step sets no
+      # YOLO_TEST_REAL_PACK_INSTALLS, because the `install` job below asks that
+      # question, one pack per job. Both halves are pinned on Linux: no job but `install`
+      # may set the variable (TestMacosUserPackInstallsWorkflowMirrorsPackMatrix), and
+      # without it every subtest skips (TestMacosUserPackInstallsSkipInTheBackendJob).
+      #
       # No `-failfast`. Items 6-9 of the runbook are a dependency chain and a human
       # reading the results is told to stop at the first failure — but `go test` orders
       # tests by source position, not by that chain, so failing fast would stop at an
@@ -343,3 +350,95 @@ jobs:
       #
       # No teardown either. The runner is ephemeral, and removing the account would
       # delete the evidence any post-mortem step would want to look at.
+
+  # REAL VENDOR INSTALLS ON darwin: OQ-CI7, ruled 2026-10-05 as the doc's option (c)
+  # (docs/reference/agent-install-in-ci.md#oq-ci7). darwin is the one platform whose
+  # vendor builds no other CI job installs: Pack Installs (packs.yml) installs the
+  # linux-x64 and linux-arm64 builds, and the podman nightly's jail is linux-x64 in a
+  # VM. A macos-user launch installs the vendor's DARWIN build through the same
+  # generated launcher, and the `via: npm` half of that had never run on a Mac.
+  #
+  # ONE JOB PER PACK, failing hard, as Pack Installs' cells do (OQ-CI3): a single
+  # sequential job dies on the first bad install and masks every vendor after it, so a
+  # red cell names its vendor in the job name. `fail-fast: false` and no
+  # `continue-on-error` anywhere in this job, the account step included: with no
+  # Seatbelt tests here, a failed setup has nothing left to report and should stop the
+  # cell with its own error.
+  #
+  # A job of its own beside the one above, not steps inside it, and with no `needs:`.
+  # One job's red must not hide the other's result: the job above answers whether the
+  # backend works, and a vendor's darwin release cannot decide that. The steps
+  # duplicate the job above's on purpose; change one, check the other.
+  #
+  # The schedule is this workflow's, so a vendor's darwin release turns a scheduled run
+  # red and no push waits on it, which is what keeps the push gate a pure function of
+  # the repository (agent-install-in-ci.md, P1). That is the second reason, beside the
+  # cost one at the top of this file, never to put this workflow on push or
+  # pull_request without first moving this job out of it.
+  install:
+    strategy:
+      fail-fast: false
+      matrix:
+        # THE `via: npm` PACKS FIRST, as ruled: they are listed, and so queued, ahead
+        # of the installer packs, because the npm half is the one never measured on a
+        # Mac. A hand-maintained mirror of integration/agents_test.go's packMatrix,
+        # less any pack whose manifest `platforms` exclude darwin/arm64, and
+        # TestMacosUserPackInstallsWorkflowMirrorsPackMatrix fails `just check-ci`
+        # when it drifts: a pack missing or extra, a pack its runner's platform cannot
+        # install, an npm pack listed after an installer one, or a cell that would
+        # select another pack's subtest. `rg -n '"via"' packs/*/pack.json` is the split.
+        pack: [opencode, pi, omp, copilot, claude, codex, agy]
+    # The job above says why macos-latest (Apple Silicon, floating). The pin test
+    # derives the list above from this label's platform (macosUserRunnerPlatforms), so
+    # a move to another label fails `just check-ci` until the list matches that
+    # label's platform.
+    runs-on: macos-latest
+    name: install ${{ matrix.pack }} from its vendor (macos-user, darwin)
+    # A CEILING ON WASTE, as in Pack Installs. One launch here builds the floor and
+    # installs one agent; the suite's own per-launch deadline (macosUserTimeout,
+    # YOLO_TEST_MACOS_USER_TIMEOUT) fires first on a wedged install.
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # As above: the harness's plain `go build` reports a live `git describe`.
+          fetch-depth: 0
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      # For correlating a vendor's darwin break with an OS bump, and for the `sudo -n`
+      # fact the account step below needs, as in the job above. Informational only.
+      # TestMacosUserWorkflowRecordsSudoBeforeAccountSetup fails `just check-ci` if a job
+      # runs macos-setup without recording that fact first.
+      - name: Runner facts
+        run: |
+          sw_vers
+          uname -m
+          sudo -n true && echo "sudo -n: passwordless" || echo "sudo -n: WOULD PROMPT"
+
+      # As above, and NOT under sudo, for the same reason.
+      - name: Create the sandbox account
+        run: go run ./cmd/yolo macos-setup
+
+      # -run selects this pack's subtest and no other, so a red cell names its vendor in
+      # the job name. YOLO_TEST_REAL_PACK_INSTALLS un-skips the install
+      # (requireRealPackInstalls); YOLO_TEST_MACOS_USER declares this a macos-user job,
+      # so a cell whose subtest SKIPPED exits non-zero instead of passing as green
+      # (integration/macosusergate_test.go). No YOLO_RUNTIME, for the reason the job
+      # above gives. The probe is the Linux cell's own (packInstallProbe): `<bin>
+      # --version` and file reads only, never an agent session or an API call.
+      - name: Install ${{ matrix.pack }} from its vendor
+        run: |
+          go test -count=1 -timeout 0 -v ./integration \
+            -run '^TestMacosUserPackInstallsVersionsAndConfigures$/^${{ matrix.pack }}$'
+        env:
+          YOLO_TEST_MACOS_USER: "1"
+          YOLO_TEST_REAL_PACK_INSTALLS: "1"

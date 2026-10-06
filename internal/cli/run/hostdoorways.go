@@ -39,6 +39,7 @@ package run
 // loopback-forwarding question: the doorway binds 127.0.0.1 on the one stack the agent uses.
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"slices"
@@ -355,6 +356,14 @@ func (d *HostDoorways) Start(cfg *jsonx.OrderedMap, workspace, agent string, std
 	handles := o.startLoopholesMatching(d.set, runtime.FromWorkspace(workspace), hostNotchRuntime, cfg,
 		func(name string) bool { return slices.Contains(names, name) })
 	stopServices := func() { o.endServicesSession(handles) }
+	// A HOST-WIDE DAEMON THAT PREDATES THE PREAMBLE REFUSES THIS LAUNCH TOO (HD-D5 (3)): its doorway
+	// would forward every request through a front it misreads, so the agent would start without the
+	// service. This notch asks no launch check, so the preamble is the only half of the jail
+	// launch's refusal it owes (olderDaemonRefusal).
+	if refused := preambleRefusal(handles); refused != nil {
+		stopServices()
+		return nil, func() {}, nil, errors.New(refused.text())
+	}
 	// The two routes a doorway reaches its host daemon by (doorwayInput's, for macos-user): the
 	// endpoint file of each host service this session published, and the OpenAI service's
 	// private socket.

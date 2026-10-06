@@ -88,6 +88,7 @@ func TestAttachRestartsAnOlderJailAtATerminal(t *testing.T) {
 	cmd.Env = append(os.Environ(), "TERM=dumb")
 	cmd.Env = append(cmd.Env, childRepoRootEnv()...)
 	cmd.Env = append(cmd.Env, autoCaptureEnvForSuite()...)
+	cmd.Env = append(cmd.Env, readinessEnvForSuite()...)
 	awaitDetachedWriters(t, dir, launchHome(cmd.Env))
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = slave, slave, slave
 	if err := cmd.Start(); err != nil {

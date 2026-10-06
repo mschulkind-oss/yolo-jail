@@ -84,9 +84,16 @@ func TestEveryCaptureStopNamesItsNextStep(t *testing.T) {
 		{"a program a pack yolo ships installs from npm", func(t *testing.T) {
 			captureFixtureHome(t, captureFixtureInstaller)
 			noJail(t)
+		}, "opencode", `yolo capture: no selected pack installs "opencode"`,
+			`  The opencode pack yolo ships installs opencode from npm, which a launch does itself, so ` +
+				`it needs no capture: add "opencode" to "packs" in <config>, then: yolo -- opencode`},
+		// copilot moved to its vendor's installer (OQ-NI1), so it is codex's case now: a capture.
+		{"a program a pack yolo ships installs with an installer", func(t *testing.T) {
+			captureFixtureHome(t, captureFixtureInstaller)
+			noJail(t)
 		}, "copilot", `yolo capture: no selected pack installs "copilot"`,
-			`  The copilot pack yolo ships installs copilot from npm, which a launch does itself, so ` +
-				`it needs no capture: add "copilot" to "packs" in <config>, then: yolo -- copilot`},
+			`  The copilot pack yolo ships installs copilot: add "copilot" to "packs" in ` +
+				"<config>, then: yolo capture copilot"},
 		{"an npm program", func(t *testing.T) {
 			captureFixtureHome(t, `{"kind":"program","bin":"probetool","via":"npm","package":"probetool@1.0.0"}`)
 			noJail(t)

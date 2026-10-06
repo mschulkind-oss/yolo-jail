@@ -17,7 +17,10 @@ package entrypoint
 // of which only a container boot has, and which bracket the table rather than sit in it.
 
 import (
+	"strings"
+
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/setupcensus"
 )
 
 // bootTarget names which boot a step table run is: the container entrypoint or the
@@ -318,13 +321,14 @@ func bootSteps() []bootStep {
 			// provision, and guess wrong on most of them. An absent wrapper that says so beats
 			// a present one that lies — the ruling `workspace_readonly` got on this backend
 			// (d0961f2c).
+			//
+			// The line is the setup census's notice for mcp_presets on macos-user
+			// (internal/setupcensus, OQ-BP-1: the macos-user notice block reads the census), naming
+			// each preset the config enabled.
 			name: "mcp_presets_declined",
 			run: func(b *bootRun) {
-				if len(b.e.LoadMCPPresetNames()) > 0 {
-					b.e.warn("mcp_presets are not delivered on macos-user: the preset wrappers hardcode " +
-						"Linux paths (/usr/bin/chromium, /bin/node, /etc/fonts) that this backend does " +
-						"not provision. Configure the MCP server directly in `mcp_servers` if you need " +
-						"it here.")
+				if names := b.e.LoadMCPPresetNames(); len(names) > 0 {
+					b.e.warn(setupcensus.Warning(setupcensus.MacosUser, "mcp_presets").Plain(strings.Join(names, ", ")))
 				}
 			},
 			noMark:       true,

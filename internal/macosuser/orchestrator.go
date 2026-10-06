@@ -16,6 +16,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/provision"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	"github.com/mschulkind-oss/yolo-jail/internal/setupcensus"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
@@ -310,10 +311,13 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 	// config to hint at the difference. Shipping that silently would repeat exactly
 	// the defect the workspace_readonly wiring above exists to fix.
 	// See docs/reference/host-execution-from-the-workspace.md §5.5.
+	//
+	// THE WORDS OF THIS LINE AND THE TWO BELOW ARE THE SETUP CENSUS'S (internal/setupcensus,
+	// OQ-BP-1: "the macos-user notice block reads it"): each is the Notice of the cell that marks
+	// its key Warned on this backend. This function decides whether the key is declared and
+	// which entries to name; the census decides what is said about them.
 	if perSide := cfgStrList(opts.Config, "per_side_paths"); len(perSide) > 0 {
-		out.print("[yellow]Warning: per_side_paths is NOT enforced on macos-user[/yellow] — " +
-			"per-side shadowing needs a mount namespace and this backend has none, so " +
-			"the host and the sandbox share these paths: " + strings.Join(perSide, ", "))
+		out.print(setupcensus.Warning(setupcensus.MacosUser, "per_side_paths").Line(strings.Join(perSide, ", ")))
 	}
 	// THE REST OF WHAT THIS BACKEND CANNOT DO, said at the same boundary and for the
 	// same reason as per_side_paths above. Each of these renders, validates and reads
@@ -326,9 +330,7 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 	// shared _yolojail account. A cap a user believes in but that does not hold is worse
 	// than a documented absence, so this warns and will keep warning.
 	if keys := unenforcedResourceKeys(cfgSection(opts.Config, "resources")); len(keys) > 0 {
-		out.print("[yellow]Warning: resources are NOT enforced on macos-user[/yellow] — " +
-			"macOS has no cgroups and there is no VM to size, so " + strings.Join(keys, ", ") +
-			" are read and ignored. The agent runs with your user's own limits.")
+		out.print(setupcensus.Warning(setupcensus.MacosUser, "resources").Line(strings.Join(keys, ", ")))
 	}
 	// cache_relocations: the container path nests a bind inside ~/.cache. There are no
 	// binds here, and the documented "just symlink it yourself" workaround does NOT
@@ -337,10 +339,7 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 	// cold cache stays on the boot volume, which is the one outcome the feature exists
 	// to prevent.
 	if relocs := cfgSection(opts.Config, "cache_relocations"); relocs != nil && len(relocs.Keys()) > 0 {
-		out.print("[yellow]Warning: cache_relocations are NOT implemented on macos-user[/yellow] — " +
-			strings.Join(relocs.Keys(), ", ") + " stay on their original filesystem. " +
-			"A host symlink is not a workaround here: the sandbox profile denies writes " +
-			"outside the workspace and sandbox home, and denies reads under /Volumes.")
+		out.print(setupcensus.Warning(setupcensus.MacosUser, "cache_relocations").Line(strings.Join(relocs.Keys(), ", ")))
 	}
 	// NO env_sources HYDRATION HERE ANY MORE. This backend used to call
 	// config.ResolveEnvSources itself and layer EVERY hydrated value — the second delivery

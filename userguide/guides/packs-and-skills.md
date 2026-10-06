@@ -219,8 +219,11 @@ user config:
 }
 ```
 
-This controls yolo's updater only. An agent with its own built-in updater, such as Copilot, still
-follows its own setting.
+This controls yolo's updater only. An agent with its own updater runs it on its own schedule:
+Claude Code, Copilot and Antigravity (`agy`) all do, so `agent_updates: false` does not freeze
+them, and yolo cannot tell you which version of any of them ran. To freeze Copilot too, add
+`{"COPILOT_AUTO_UPDATE": "false"}` to `env_sources`; for Claude Code, add
+`{"DISABLE_AUTOUPDATER": "1"}`.
 
 **Packs move only when you say so**, apart from a branch ref as described above:
 

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -668,6 +669,11 @@ func nativeAgentLauncher(pack string, inst *packdecl.Install, stampDir, receipts
 		// same treatment npmAgentLauncher gives `flags`. It lands inside `UPDATE_VERB=(…)`,
 		// which is a bare position: nothing here is inside quotes.
 		"__YOLO_UPDATE_VERB__", shquote.Join(inst.UpdateVerb),
+		// The installer's environment, a LIST of argv words for env(1) inside
+		// `INSTALLER_ENV=(…)`, for the verb's reason. installerEnvWords carries the one shell
+		// expansion these splices make on purpose.
+		"__YOLO_HAS_INSTALLER_ENV__", shquote.Quote(boolFlag(len(inst.InstallerEnv) > 0)),
+		"__YOLO_INSTALLER_ENV__", installerEnvWords(inst.InstallerEnv),
 		// Where the version prune looks: the pack's declaration, or the default layout.
 		"__YOLO_VERSIONS_DIR__", shquote.Quote(inst.VersionsDirOrDefault()),
 		"__YOLO_RECEIPT_HEAD__", shquote.Quote(receiptPrefix("installer", binName, installerURL)),
@@ -683,6 +689,42 @@ func nativeAgentLauncher(pack string, inst *packdecl.Install, stampDir, receipts
 		"__YOLO_TREE_GATE__", shquote.Quote(inst.Gate),
 	}, append(append(launchFlagSplices(flags), refreshSplices(inst.Refresh)...), modelMenuSplices(inst.ModelMenu)...)...)...)
 	return r.Replace(nativeLauncherTemplate)
+}
+
+// installerEnvWords renders a program's installer_env as the words of the native launcher's
+// INSTALLER_ENV array: one `NAME=value` argv word per variable, for env(1), in name order so a
+// launcher stays a pure function of its declaration. "" for none.
+//
+// A literal value is quoted whole. A HOME-RELATIVE one (packdecl.InstallerEnvHomePath) is the
+// quoted `NAME=`, then "$HOME", then the quoted rest, so it is still ONE word and its only
+// expansion is the home. That is the one deliberate departure from the splice contract (every
+// other sentinel is a pure literal), and the reason is the variable's whole job: copilot's
+// PREFIX must name the directory REAL_BIN="$HOME/.local/bin/$BIN" is in, and expanding it from
+// the launcher's own $HOME at run time makes the two agree by construction, where baking the
+// generator's home would make them agree only while the two homes do.
+func installerEnvWords(env map[string]string) string {
+	if len(env) == 0 {
+		return ""
+	}
+	names := make([]string, 0, len(env))
+	for k := range env {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	words := make([]string, 0, len(names))
+	for _, k := range names {
+		rest, home := packdecl.InstallerEnvHomePath(env[k])
+		if !home {
+			words = append(words, shquote.Quote(k+"="+env[k]))
+			continue
+		}
+		w := shquote.Quote(k+"=") + `"$HOME"`
+		if rest != "" {
+			w += shquote.Quote(rest)
+		}
+		words = append(words, w)
+	}
+	return strings.Join(words, " ")
 }
 
 // boolFlag renders a Go bool as the "1"/"0" a generated launcher tests with `[ "$X" = "1" ]`.
@@ -1463,6 +1505,24 @@ if [ "${YOLO_PACK_UPDATE:-}" = "1" ]; then
     exit "$_rc"
 fi
 
+# INSTALL AND STOP (InstallOnlyEnv): the readiness act installs an absent program here and runs
+# nothing. A present one is left as it is — readiness is about presence, and a refresh stays the
+# invocation's (OQ-PD12a) — and the status says whether there is a program to run.
+if [ "${` + InstallOnlyEnv + `:-}" = "1" ]; then
+    if [ ! -x "$REAL_BIN" ]; then
+        _do_install || true
+    fi
+    if [ -x "$REAL_BIN" ]; then
+        exit 0
+    fi
+    if [ "$_YOLO_MISPLACED" = 1 ]; then
+        ` + npmMisplacedCall + `
+    else
+        echo "  ⚠ $BIN not available: its install failed, above." >&2
+    fi
+    exit 1
+fi
+
 if [ ! -x "$REAL_BIN" ]; then
     # Cold home: the FIRST install is not a poll, and the no-evergreen ruling does not
     # touch it. There is no version here to keep — without this branch a fresh jail would
@@ -1555,9 +1615,12 @@ fi
 // into an entry and hardlinked into every workspace on the machine — §6.3's "an installer
 // that personalizes at install time … defeats the sharing", arrived at by accident.
 //
-// NATIVE LAUNCHERS ONLY. The npm and package-manager launchers ignore it, because capture is
-// the INSTALLER resolver's mechanism and nothing else has a reason to install-without-running
-// (npm's refresh path already has YOLO_PACK_UPDATE, which is a different question).
+// IT HAS A SECOND CALLER NOW: the jail's readiness act (readiness.go, OQ-JR1), which runs every
+// declared program's launcher with it in the provisioning stage, so that each is installed
+// before the command runs. So the npm and source launchers honor it too, and in all three it
+// means the same thing: install the program if it is absent, refresh nothing that is present,
+// never run it, and exit 0 only when there is a program to run. The package-manager launcher
+// (pnpm) still ignores it: no pack declares pnpm, so neither caller ever reaches it.
 const InstallOnlyEnv = "YOLO_INSTALL_ONLY"
 
 // NoTerminalVerb is the `yolo internal` verb the native launcher runs a vendor installer
@@ -1643,6 +1706,12 @@ UPDATES_ENABLED=__YOLO_UPDATES_ENABLED__
 # these launchers against a stock /bin/bash 3.2.
 HAS_UPDATE_VERB=__YOLO_HAS_UPDATE_VERB__
 UPDATE_VERB=(__YOLO_UPDATE_VERB__)
+# The pack's declared installer environment (installer_env): NAME=value words env(1) puts in
+# front of the vendor's script, so they reach that one process and nothing else this launcher
+# runs, the program included. A home-relative value expands from the same $HOME as REAL_BIN
+# (installerEnvWords). HAS_INSTALLER_ENV gates the expansion for HAS_UPDATE_VERB's reason.
+HAS_INSTALLER_ENV=__YOLO_HAS_INSTALLER_ENV__
+INSTALLER_ENV=(__YOLO_INSTALLER_ENV__)
 # Baked, never read from the environment: see receiptsFile.
 _YOLO_RECEIPTS=__YOLO_RECEIPTS_FILE__
 # The machine's install-capture store, as this jail sees it. Empty when there is none —
@@ -1980,7 +2049,11 @@ _run_installer() {
         return 1
     fi
     local irc=0
-    _run_without_terminal bash "$script" 2>&1 || irc=$?
+    if [ "$HAS_INSTALLER_ENV" = "1" ]; then
+        _run_without_terminal env "${INSTALLER_ENV[@]}" bash "$script" 2>&1 || irc=$?
+    else
+        _run_without_terminal bash "$script" 2>&1 || irc=$?
+    fi
     rm -f "$script"
     touch "$STAMP"
     # A Ctrl-C stopped the installer partway, so what it left is not an install a receipt may
@@ -2149,7 +2222,9 @@ if [ ! -x "$REAL_BIN" ]; then
     # bottom is, because it answers the question this path actually has (is there something
     # to exec?).
     _do_install || true
-elif _update_due; then
+elif [ "${` + InstallOnlyEnv + `:-}" != "1" ] && _update_due; then
+    # Never in install-only mode: the readiness act asks only that the program be present, and
+    # a refresh stays the invocation's (OQ-PD12a). A capture's home is cold, so it never got here.
     _locked_update || true
 fi
 # Whatever ran above, or nothing: see _locked_prune.

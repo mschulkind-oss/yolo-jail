@@ -15,6 +15,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/setupcensus"
 	"github.com/mschulkind-oss/yolo-jail/internal/storage"
 	officialpacks "github.com/mschulkind-oss/yolo-jail/packs"
 )
@@ -317,7 +318,7 @@ func TestAssembleCacheRelocationsAppleContainerSkips(t *testing.T) {
 		t.Errorf("Apple Container emitted relocation mounts: %v", mounts)
 	}
 	warning := buf.String()
-	if strings.Count(warning, "Skipping cache_relocations") != 1 {
+	if strings.Count(warning, setupcensus.Warning(setupcensus.AppleContainer, "cache_relocations").Says) != 1 {
 		t.Errorf("want exactly one skip warning, got:\n%s", warning)
 	}
 	for _, want := range []string{"huggingface, uv", "YOLO_RUNTIME=podman"} {

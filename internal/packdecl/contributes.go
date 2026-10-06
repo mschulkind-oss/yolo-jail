@@ -164,6 +164,28 @@ type Contribution struct {
 	// every link on the way (codex's goes through the vendor's `current` selector), to an entry
 	// of this directory — so a wrong declaration deletes nothing; it just prunes nothing.
 	VersionsDir string `json:"versions_dir,omitempty"`
+	// InstallerEnv is the environment the jail's launcher gives the program's VENDOR INSTALLER,
+	// and nothing else it runs: `{"PREFIX": "~/.local"}` for copilot. Read only on a `program`
+	// delivered `via: "installer"`, and refused everywhere else, because the native launcher is
+	// its one reader. Each key is a variable name; each value is a literal string, except that a
+	// value of `~` or one starting `~/` names a path in the home the installer runs with, which
+	// the launcher expands at run time from the same $HOME its `~/.local/bin/<bin>` is built from.
+	//
+	// IT EXISTS FOR AN INSTALLER WHOSE DEFAULT LANDING PATH IS NOT THE LAUNCHER'S, and copilot's
+	// is the case that needed it (docs/design/provisioner-sets.md PS-D1, which adds such a
+	// variable to the recipe of the flip that needs one): GitHub's script installs into
+	// `$PREFIX/bin`, and takes `PREFIX=/usr/local` when it runs as root, as it does in a
+	// container jail, whose read-only rootfs has no /usr/local to create. A pack's `env`
+	// contribution cannot carry it,
+	// because that sets the variable for every process in the jail, and every build tool there
+	// reads `PREFIX` too.
+	//
+	// The host's dependency remedy (InstallerRemedy) does NOT read it: on the host the vendor's
+	// default is the one the user asked for, and only the launcher looks for the program at a
+	// path of its own choosing. installerEnvProblems refuses a name that is not an environment
+	// variable name, the launcher's own names (HOME, which says where the program lands, and
+	// PATH, which is how the installer finds its tools) and yolo's (YOLO_* and _YOLO_*).
+	InstallerEnv map[string]string `json:"installer_env,omitempty"`
 	// InstallHints maps a host package manager ("brew"|"apt"|"dnf"|"pacman"|"nix") to
 	// the package name that provides Bin on that manager (env-manager plan Phase 6). Read
 	// from a `program` AND from a `requires` contribution — a pack that only ASSERTS a
@@ -1198,6 +1220,14 @@ func (m *Manifest) InstallContributions() []Install {
 			// Inside the switch, unlike the verb: only the native launcher prunes, and
 			// validation refuses the field on every other via.
 			in.VersionsDir = c.VersionsDir
+			// Inside the switch for VersionsDir's reason: only the native launcher runs an
+			// installer. Copied, for Refresh's reason.
+			if len(c.InstallerEnv) > 0 {
+				in.InstallerEnv = make(map[string]string, len(c.InstallerEnv))
+				for k, v := range c.InstallerEnv {
+					in.InstallerEnv[k] = v
+				}
+			}
 		case ViaSource:
 			// A base program the fork rewrite replaced the delivery of: the fork's address,
 			// recipe and outputs, and the fork pack's name for every line that says whose
@@ -1290,10 +1320,16 @@ func selfInstallCommand(c Contribution) string {
 const InstallerCheckVerb = "installer-check"
 
 // InstallerRemedy is the host's remedy for a `via: installer` program: DOWNLOAD, CHECK, RUN, in
-// one subshell, never a pipe into `sh` (docs/design/provisioner-sets.md PS-D4):
+// one subshell, never a pipe into a shell (docs/design/provisioner-sets.md PS-D4):
 //
 //	(f=$(mktemp) && trap 'rm -f "$f"' EXIT && curl -fsSL <url> -o "$f" &&
-//	 yolo internal installer-check <url> "$f" && sh "$f" </dev/null)
+//	 yolo internal installer-check <url> "$f" && bash "$f" </dev/null)
+//
+// BASH runs the script, as the jail's launcher runs it (_run_installer), and not `sh`: GitHub's
+// copilot installer and Claude Code's are bash scripts (a bash array, `[[ =~ ]]`), and where
+// /bin/sh is dash (Debian, Ubuntu) `sh "$f"` stopped at the first bash-only line and installed
+// nothing. A POSIX installer runs under bash unchanged. The command line around the script stays
+// POSIX, because the dependency gate runs it with `sh -c`.
 //
 // The check (internal/installerbody) refuses a web page, a binary or non-text bytes naming the
 // URL, as the jail's launcher refuses them, where a pipe handed an ELF body to `sh` for a shell
@@ -1309,7 +1345,7 @@ const InstallerCheckVerb = "installer-check"
 func InstallerRemedy(url string) string {
 	u := shquote.Quote(url)
 	return `(f=$(mktemp) && trap 'rm -f "$f"' EXIT && curl -fsSL ` + u + ` -o "$f" && yolo internal ` +
-		InstallerCheckVerb + ` ` + u + ` "$f" && sh "$f" </dev/null)`
+		InstallerCheckVerb + ` ` + u + ` "$f" && bash "$f" </dev/null)`
 }
 
 // DepRequirements returns every program AND requires contribution as the host-dep
@@ -3067,6 +3103,73 @@ func versionsDirProblems(label string, c Contribution) []string {
 	return problems
 }
 
+// installerEnvProblems validates Contribution.InstallerEnv. It is refused off a `program`
+// delivered `via: "installer"` for versions_dir's reason: the native launcher is its one reader.
+// A present-but-empty object is refused for due_on_change's reason (omitting the key is the way
+// to set nothing), and so is a name a process environment cannot carry, the launcher's own
+// names, and a value with a NUL byte, which no environment can hold.
+func installerEnvProblems(label string, c Contribution) []string {
+	if c.InstallerEnv == nil {
+		return nil
+	}
+	field := label + ".installer_env"
+	if c.Kind != KindProgram || c.Via != "installer" {
+		return []string{fmt.Sprintf(
+			"%s: only a \"program\" with via \"installer\" takes \"installer_env\" — the native "+
+				"launcher runs the vendor's installer with it, and nothing else would read it", field)}
+	}
+	if len(c.InstallerEnv) == 0 {
+		return []string{field + ": an empty object sets nothing — omit the key, or name the " +
+			"variables the installer needs, e.g. {\"PREFIX\": \"~/.local\"}"}
+	}
+	var problems []string
+	for _, k := range sortedKeys(c.InstallerEnv) {
+		switch {
+		case !validEnvName(k):
+			problems = append(problems, fmt.Sprintf(
+				"%s: %q is not an environment variable name — use letters, digits and _, not "+
+					"starting with a digit", field, k))
+		case k == "HOME":
+			problems = append(problems, fmt.Sprintf(
+				"%s: %q is the launcher's to set — it decides where the launcher looks for the "+
+					"program; name the installer's own variable for where it installs instead "+
+					"(copilot's is PREFIX)", field, k))
+		case k == "PATH":
+			problems = append(problems, fmt.Sprintf(
+				"%s: %q is the launcher's to set — it is how the installer finds curl, tar and "+
+					"the rest of its tools; remove it", field, k))
+		case strings.HasPrefix(k, "YOLO_") || strings.HasPrefix(k, "_YOLO_"):
+			problems = append(problems, fmt.Sprintf(
+				"%s: %q is one of yolo's own variables, which a pack may not set for an installer — "+
+					"remove it", field, k))
+		}
+		if strings.ContainsRune(c.InstallerEnv[k], 0) {
+			problems = append(problems, fmt.Sprintf(
+				"%s.%s: the value holds a NUL byte, which no process environment can carry — "+
+					"remove it", field, k))
+		}
+	}
+	return problems
+}
+
+// validEnvName reports whether s is a POSIX environment variable name as a shell spells one:
+// an ASCII letter or _, then letters, digits and _. The launcher splices it as part of one
+// argv word for env(1), and a name outside this set is one no shell could export either.
+func validEnvName(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i, r := range s {
+		switch {
+		case r == '_', r >= 'A' && r <= 'Z', r >= 'a' && r <= 'z':
+		case i > 0 && r >= '0' && r <= '9':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 // dueOnChangeProblems validates Refresh.DueOnChange: each entry is a clean home-relative FILE
 // path the launcher hashes. A present-but-empty list is refused for platforms' reason: it
 // declares a trigger that can never fire, where omitting the key is the stated way to have
@@ -3472,6 +3575,7 @@ func validateContribution(label string, c Contribution) []string {
 		problems = append(problems, refreshProblems(label+".refresh", c.Refresh)...)
 	}
 	problems = append(problems, versionsDirProblems(label, c)...)
+	problems = append(problems, installerEnvProblems(label, c)...)
 	// fork_of, source, build and produces are a fork's alone (fork.go): refused on every other
 	// kind and every other via, in `update`'s position and for its reason.
 	problems = append(problems, forkFieldPlacementProblems(label, c)...)

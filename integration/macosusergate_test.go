@@ -125,7 +125,14 @@ func (l *macosUserLedger) snapshot() []macosUserOutcome {
 // macosUserTests is the run's ledger. Package-level because TestMain has no other way
 // to reach it, which is also why the verdict below takes a snapshot rather than
 // reading this: the decision stays testable without touching global state.
-var macosUserTests macosUserLedger
+//
+// A pointer so that fakeReadyMacosUserHost can stand a ledger of its own in for one test:
+// nothing else assigns it.
+var macosUserTests = &macosUserLedger{}
+
+// macosUserSkippedPastGate is the reason a gate records for a test that passed it and
+// then skipped for a reason of its own, which its own skip message gives.
+const macosUserSkippedPastGate = "the test skipped after passing the gate — see its own skip message"
 
 // macosUserVacuityVerdict decides whether a run may pass, and what to say about it.
 // PURE — no globals, no env, no clock — because this is the guard, and a guard that
@@ -338,15 +345,46 @@ func requireMacosUser(t *testing.T) {
 			"pattern never runs and every job stays green, which is the exact failure "+
 			"this gate exists to remove.", t.Name(), macosUserTestPrefix, macosUserTestPrefix)
 	}
-	reason := "the test skipped after passing the gate — see its own skip message"
+	reason := macosUserSkippedPastGate
 	t.Cleanup(func() {
 		macosUserTests.record(macosUserOutcomeFor(t.Name(), t.Skipped(), reason, macosUserGateLaunch))
 	})
-	if why, ok := probeMacosUserHost().gate(); !ok {
+	if why, ok := macosUserHostProbe().gate(); !ok {
 		reason = why
 		t.Skip("macos-user: " + why)
 	}
 	isolateHome(t, "{}")
+}
+
+// macosUserHostProbe is what requireMacosUser asks about the host. A variable only so that
+// fakeReadyMacosUserHost can answer for one test: nothing else assigns it.
+var macosUserHostProbe = probeMacosUserHost
+
+// fakeReadyMacosUserHost makes requireMacosUser's gate PASS for the rest of t, on any
+// machine and under -short, so a test can check what a gated test does once it is past
+// the gate without a Mac. Three things are swapped until t ends:
+//
+//   - the probe, for a host that has every fact the gate asks for;
+//   - the ledger, for a fresh one, which it returns. A faked pass is not an execution, and
+//     the run's own ledger feeds the vacuity verdict, so it must never see one;
+//   - HOME, for a temp dir. A passing gate isolates HOME (isolateHome), which re-links the
+//     stores of the home it finds; this keeps those links, and the directories they need,
+//     inside the test's own temp dirs instead of the machine's home.
+func fakeReadyMacosUserHost(t *testing.T) *macosUserLedger {
+	t.Helper()
+	ready := macosUserHost{goos: "darwin", euid: 501, sandboxExec: true, sandboxUser: true,
+		sharedRoot: true, sudoQuiet: true}
+	if why, ok := ready.gate(); !ok {
+		t.Fatalf("fakeReadyMacosUserHost's host does not pass the gate, which now also asks "+
+			"for something it lacks: %s", why)
+	}
+	probe, ledger := macosUserHostProbe, macosUserTests
+	scratch := &macosUserLedger{}
+	macosUserHostProbe = func() macosUserHost { return ready }
+	macosUserTests = scratch
+	t.Cleanup(func() { macosUserHostProbe, macosUserTests = probe, ledger })
+	t.Setenv("HOME", resolvedTempDir(t))
+	return scratch
 }
 
 // macosUserTestNameOK is the name rule, split out so it is testable without a test

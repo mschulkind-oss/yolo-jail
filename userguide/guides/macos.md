@@ -93,8 +93,11 @@ are announced when a jail starts; the ones that are not are marked **silent**.
 
 **Networking.**
 
-- `network.ports` is accepted but carries no data: opening `localhost:3000` on the Mac connects and
-  receives nothing (**silent**). Connect to the jail's own address instead; `container ls` shows it.
+- `network.ports` works for a server bound to `0.0.0.0` in the jail, measured once on a Mac. Open
+  `127.0.0.1:3000` on the Mac rather than `localhost:3000`, since the port listens on IPv4 only. If
+  a connection is accepted and returns nothing, look under System Settings → Privacy & Security →
+  Local Network for Apple Container's helper programs, or connect to the jail's own address, which
+  `container ls` shows.
 - `network.forward_host_ports` stops the launch. Leave it unset on Apple Container.
 - `network.mode: "host"` is not supported; leave the key unset.
 - The jail has outbound internet. On macOS 15 there are two network faults, fixed below in
