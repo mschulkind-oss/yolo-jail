@@ -68,10 +68,11 @@ in `~/.local/share/yolo-jail/host-floor`:
   does not run.
 - **How it gets there.** The first `yolo host -- <agent>` installs the agent it names, saying what it
   is doing; `yolo host apply --assert` installs every one that is missing. Selecting the pack is the
-  consent: nothing asks. An agent installed with npm (copilot or opencode, for example) runs on the
+  consent: nothing asks. An agent installed with npm (opencode or pi, for example) runs on the
   floor's own Node, the official release, checked against its published checksum. An agent with its
-  own installer (claude, for example) comes from the machine's `yolo capture` of that installer, the
-  same copy your jails use, so on Linux the first one may run a capture if the machine has none yet.
+  own installer (claude or copilot, for example) comes from the machine's `yolo capture` of that
+  installer, the same copy your jails use, so on Linux the first one may run a capture if the
+  machine has none yet.
 - **Keeping it current.** The floor updates an agent the way a jail does: at most once an hour, when
   you start it, unless `agent_updates` freezes that pack. It says when it is checking for a newer
   version, so a slow package registry is not a launch that hangs saying nothing.

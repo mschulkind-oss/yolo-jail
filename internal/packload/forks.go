@@ -330,12 +330,12 @@ func copyPackDecl(p *Pack) *Pack {
 // forkedProgram is FP-D6, one field at a time: the base's program with the fork's delivery.
 //
 // THE FORK'S (each absent unless the fork sets it, and packdecl refuses all but two on a fork):
-// `via`, `package`, `url`, `flags`, `update`, `versions_dir`, `install_hints`, `platforms` and
-// `model_catalog`, plus the fork's own `source`, `build` and `produces`. Those say how the bytes
-// ARRIVE. An inherited `update` would let the launcher's hourly self-update replace the pinned
-// build with the vendor's release; an inherited install hint would tell `yolo check-deps` to
-// install the upstream program; an inherited `model_catalog` names files inside an npm package a
-// fork does not install.
+// `via`, `package`, `url`, `flags`, `update`, `versions_dir`, `installer_env`, `install_hints`,
+// `platforms` and `model_catalog`, plus the fork's own `source`, `build` and `produces`. Those
+// say how the bytes ARRIVE. An inherited `update` would let the launcher's hourly self-update
+// replace the pinned build with the vendor's release; an inherited install hint would tell
+// `yolo check-deps` to install the upstream program; an inherited `model_catalog` names files
+// inside an npm package a fork does not install.
 //
 // THE BASE'S: `refresh`, `protocols`, `provider_sets`, `platform_switches`, `capabilities`,
 // `platform_regions`, `unlisted_background_models` and `exact_menu_refuses`. Those say what the
@@ -349,6 +349,7 @@ func forkedProgram(base, fork packdecl.Contribution, forkPack string) packdecl.C
 	out.Via = packdecl.ViaSource
 	out.Package, out.URL, out.VersionsDir = "", "", ""
 	out.Flags, out.Update, out.InstallHints, out.ModelCatalog = nil, nil, nil, nil
+	out.InstallerEnv = nil
 	out.Platforms = append([]string(nil), fork.Platforms...)
 	if len(out.Platforms) == 0 {
 		out.Platforms = nil

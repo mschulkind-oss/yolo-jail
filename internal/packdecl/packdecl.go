@@ -249,6 +249,11 @@ type Install struct {
 	// Contribution field of the same name carries the reasoning; read it through
 	// VersionsDirOrDefault, which is the one place the default is spelled.
 	VersionsDir string `json:"versions_dir,omitempty"`
+	// InstallerEnv is the environment the native launcher gives the vendor installer (kind ==
+	// "native"), nil when the program declares none. The Contribution field of the same name
+	// carries the reasoning; read a value through InstallerEnvHomePath, which is the one place
+	// its `~` grammar is spelled.
+	InstallerEnv map[string]string `json:"installer_env,omitempty"`
 	// Platforms is WHERE THE VENDOR PUBLISHES A BUILD: `<goos>` or `<goos>/<goarch>`
 	// entries, absent meaning every platform. The Contribution field of the same name
 	// carries the grammar and the reasoning; this is its projection, and
@@ -446,6 +451,17 @@ func (in Install) VersionsDirOrDefault() string {
 		return in.VersionsDir
 	}
 	return DefaultVersionsDirFor(in.Bin)
+}
+
+// InstallerEnvHomePath reads one InstallerEnv value: for `~` or a value starting `~/` it returns
+// the part after the `~` ("" or "/<rest>") and true, meaning the value is that path under the
+// home the installer runs with; for anything else it returns v and false, a literal. The one
+// spelling of the grammar, so the launcher that expands it and any reader that reports it agree.
+func InstallerEnvHomePath(v string) (string, bool) {
+	if v == "~" || strings.HasPrefix(v, "~/") {
+		return v[1:], true
+	}
+	return v, false
 }
 
 // Mount stages one of the pack's own files or directories and mounts it read-only.

@@ -12,11 +12,12 @@ package entrypoint
 // or teaching the generator to ignore the field.
 //
 // Why it is worth pinning at all (docs/design/program-delivery.md §3.5, OQ-PD13): an
-// npm-installed agent CLI structurally cannot self-update — copilot's updater refuses with
-// "Update not supported when running js directly" behind a `node:sea.isSea()` gate,
-// measured in @github/copilot 1.0.48's app.js — while the vendors' own installers both
-// self-update and accept a version. So `via` is not a packaging detail; it decides whether
-// a jail's agent can ever move. A silent revert is a freeze nobody would notice.
+// npm-installed agent CLI could not self-update when this was written — copilot's updater
+// refused with "Update not supported when running js directly" behind a `node:sea.isSea()`
+// gate, measured in @github/copilot 1.0.48's app.js — while the vendors' own installers both
+// self-update and accept a version. So `via` is not a packaging detail; it decides how a
+// jail's agent moves, and who can say which version ran. A silent revert is a change of
+// delivery nobody would notice.
 //
 // THE TABLE IS DELIBERATELY EXHAUSTIVE. Every program contribution any shipped pack makes
 // must appear below, and the set is compared both ways: a new agent pack, or a seventh
@@ -41,6 +42,9 @@ import (
 // on 2026-09-04: gh.io/copilot-install and chatgpt.com/codex/install.sh both answer 200
 // with a shell script.
 //
+// `env` is the launcher's INSTALLER_ENV array as it must be emitted (installer_env, PS-D1),
+// spelled out by hand for `source`'s reason, or "" for a program that declares none.
+//
 // `update` is the pack's declared update verb (OQ-PD14), spelled here as the whole argv the
 // program is run with. EMPTY means the pack declares none and the launcher falls back per
 // `via` — `npm install -g <package>`, or a re-run of the installer — which is a real answer
@@ -51,23 +55,24 @@ var shippedDelivery = map[string]struct {
 	mechanism string // "installer" or "npm"
 	source    string
 	update    string // the declared verb's argv, or "" for the via fallback
+	env       string // the INSTALLER_ENV words, or "" for none
 }{
-	"claude": {"claude", "installer", "https://claude.ai/install.sh", "install"},
-	"agy":    {"agy", "installer", "https://antigravity.google/cli/install.sh", "update"},
+	"claude": {"claude", "installer", "https://claude.ai/install.sh", "install", ""},
+	"agy":    {"agy", "installer", "https://antigravity.google/cli/install.sh", "update", ""},
 	// FLIPPED FROM npm 2026-09-04 (OQ-PD13). codex's installer takes
 	// `${CODEX_INSTALL_DIR:-$HOME/.local/bin}` with no root branch, so its default landing
 	// path is exactly nativeLauncherTemplate's REAL_BIN — which is the constraint the flip
-	// turns on, and the one copilot fails (see the comment on its row).
-	"codex": {"codex", "installer", "https://chatgpt.com/codex/install.sh", "update"},
-	// NOT FLIPPED, and not for want of an installer. gh.io/copilot-install picks
-	// `PREFIX=/usr/local` when `id -u` is 0 and `$HOME/.local` otherwise; a container-backend
-	// jail runs as root under an unconditional `--read-only` rootfs (assemble.go), so its
-	// `mkdir -p /usr/local/bin` fails and the installer exits 1 having landed nothing.
-	// Measured in this jail 2026-09-04. The manifest cannot pass `PREFIX=`, so the flip has
-	// to wait for a way to say it.
-	"copilot":  {"copilot", "npm", "@github/copilot", ""},
-	"opencode": {"opencode", "npm", "opencode-ai", ""},
-	"oh-omp":   {"omp", "npm", "@oh-labs/oh-omp@0.15.3", ""},
+	// turns on, and the one copilot's installer misses by default (see the comment on its row).
+	"codex": {"codex", "installer", "https://chatgpt.com/codex/install.sh", "update", ""},
+	// FLIPPED FROM npm 2026-10-05 (OQ-NI1). gh.io/copilot-install picks `PREFIX=/usr/local`
+	// when `id -u` is 0 and `$HOME/.local` otherwise; a container-backend jail runs as root
+	// under an unconditional `--read-only` rootfs (assemble.go), so with no PREFIX its
+	// `mkdir -p /usr/local/bin` fails and it exits 1 having landed nothing (measured
+	// 2026-09-04). The pack's installer_env names PREFIX, so the binary lands at REAL_BIN on
+	// every backend. `copilot update` is its own verb, read in 1.0.92's bundle.
+	"copilot":  {"copilot", "installer", "https://gh.io/copilot-install", "update", `PREFIX="$HOME"/.local`},
+	"opencode": {"opencode", "npm", "opencode-ai", "", ""},
+	"oh-omp":   {"omp", "npm", "@oh-labs/oh-omp@0.15.3", "", ""},
 	// pi's "native installer" IS npm — pi.dev/install.sh runs `npm install -g
 	// @earendil-works/pi-coding-agent` into npm's global prefix — so a flip would change
 	// nothing about delivery and would break the launcher's REAL_BIN.
@@ -78,7 +83,7 @@ var shippedDelivery = map[string]struct {
 	// the launcher's own `npm install -g <pkg>` resolves the registry's latest, which is the
 	// same channel `pi update --self` would reach and the one measured to work here. Running
 	// the verb on top would be an unmeasured second path to one answer.
-	"pi": {"pi", "npm", "@earendil-works/pi-coding-agent", ""},
+	"pi": {"pi", "npm", "@earendil-works/pi-coding-agent", "", ""},
 }
 
 // stageShippedPacks materializes the embedded official packs where the boot path expects
@@ -154,6 +159,7 @@ func TestShippedAgentLaunchersUseTheDeclaredMechanism(t *testing.T) {
 		}
 		checkLauncherMechanism(t, bin, want.mechanism, want.source, string(body))
 		checkLauncherUpdateVerb(t, bin, want.update, string(body))
+		checkLauncherInstallerEnv(t, bin, want.env, string(body))
 	}
 	for bin := range got {
 		if _, expected := shippedDelivery[bin]; !expected {
@@ -243,5 +249,28 @@ func checkLauncherUpdateVerb(t *testing.T, bin, verb, body string) {
 	if want := "UPDATE_VERB=(" + verb + ")"; !strings.Contains(body, want) {
 		t.Errorf("%s launcher should carry %q — the pack's declared verb did not reach it",
 			bin, want)
+	}
+}
+
+// checkLauncherInstallerEnv is the call-site cell for installer_env on the shipped packs: the
+// pack's declaration must reach the launcher's INSTALLER_ENV array, with the flag that lets
+// `_run_installer` use it, and a pack declaring none must carry neither. For copilot this is
+// the difference between a binary at REAL_BIN and an installer that fails on a read-only
+// /usr/local (the comment on its row). The behaviour of the array is pinned by
+// TestNativeLauncherGivesTheInstallerItsDeclaredEnv.
+func checkLauncherInstallerEnv(t *testing.T, bin, env, body string) {
+	t.Helper()
+	if env == "" {
+		if strings.Contains(body, "HAS_INSTALLER_ENV=1") {
+			t.Errorf("%s declares no installer_env, but its launcher carries one", bin)
+		}
+		return
+	}
+	if !strings.Contains(body, "\nHAS_INSTALLER_ENV=1\n") {
+		t.Errorf("%s declares an installer_env, but its launcher does not enable it — the "+
+			"declaration reached nothing", bin)
+	}
+	if want := "INSTALLER_ENV=(" + env + ")"; !strings.Contains(body, want) {
+		t.Errorf("%s launcher should carry %q — the pack's installer_env did not reach it", bin, want)
 	}
 }

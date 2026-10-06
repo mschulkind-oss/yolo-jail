@@ -167,9 +167,14 @@ func TestLauncherTemplatesParseWithHostileValues(t *testing.T) {
 		&packdecl.Install{Kind: "npm", Bin: v, Package: v, Flags: []string{v, "--plain"},
 			UpdateVerb: []string{v, "--self"}, Refresh: refresh, ModelMenu: menu},
 		v, v, true, srv, inj), "npm launcher")
+	// The installer's environment (installer_env) is spliced as argv words, one of them built
+	// around the one expansion the splices make on purpose ("$HOME", installerEnvWords). Its
+	// names are refused at decode unless they are variable names, so a hostile name here is the
+	// generator's quoting standing alone.
 	assertParses(t, nativeAgentLauncher(v,
 		&packdecl.Install{Kind: "native", Bin: v, InstallerURL: v, UpdateVerb: []string{v, "--self"},
-			Refresh: refresh, ModelMenu: menu},
+			Refresh: refresh, ModelMenu: menu,
+			InstallerEnv: map[string]string{v: v, "HOMEREL": "~/" + v, "PREFIX": "~"}},
 		v, v, v, true, srv, inj), "native launcher")
 	// The wrapper is the fourth carrier and obeys the same contract; its own two values
 	// (the dir it must skip and the fallback it may exec) are paths derived from $HOME,

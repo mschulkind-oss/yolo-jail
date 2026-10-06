@@ -24,6 +24,19 @@ what a yolo can read. See [Follow an upstream with a patch series](userguide/gui
 into a jail, and what each launch shows about the code it runs. See
 [Claude Code plugins and mods](userguide/guides/claude-plugins-and-mods.md).
 
+**Settings for a vendor installer.** A pack whose program comes from its vendor's install script can
+give that script the variables it needs, such as where to install, with `installer_env`. See
+[the pack system reference](docs/reference/pack-system.md).
+
+### Changed
+
+- Copilot now comes from GitHub's own installer and updates itself, as Claude Code does, so
+  `agent_updates: false` no longer freezes it and yolo cannot say which version ran: add
+  `{"COPILOT_AUTO_UPDATE": "false"}` to `env_sources` to freeze it. See
+  [Keep agents and packs up to date](userguide/guides/packs-and-skills.md#keep-agents-and-packs-up-to-date).
+- On a Mac, `yolo host -- copilot` now runs the copilot on your PATH, as it does for Claude Code:
+  install it with `brew install --cask copilot-cli`.
+
 ### Fixed
 
 - When `yolo host` has no container runtime to capture an agent with, it now says to install one.

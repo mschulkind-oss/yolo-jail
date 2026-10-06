@@ -17,6 +17,7 @@ func richBase(t *testing.T) *Pack {
 	return claimPack(t, "pi", packdecl.Contribution{
 		Kind: packdecl.KindProgram, Bin: "pi", Via: "npm", Package: "@earendil/pi-coding-agent@1.2.3",
 		Flags: []string{"--omit=dev"}, Update: []string{"update", "--self"},
+		InstallerEnv: map[string]string{"PREFIX": "~/.local"},
 		InstallHints: map[string]string{"brew": "pi"}, Platforms: []string{"linux", "darwin"},
 		ModelCatalog: []string{"dist/models.json"}, NodeFloor: "22.19",
 		Refresh:                  &packdecl.Refresh{Argv: []string{"update", "--extensions"}, Lock: ".s/.yolo-update.lock"},
@@ -43,7 +44,7 @@ func TestTheForkRewriteKeepsAndReplacesExactlyFPD6sFields(t *testing.T) {
 	prog := got[0].Decl.Contributes[0]
 	// REPLACED: the delivery fields are the fork's, so absent unless it sets them.
 	if prog.Via != packdecl.ViaSource || prog.Package != "" || prog.URL != "" || prog.Flags != nil ||
-		prog.Update != nil || prog.VersionsDir != "" || prog.InstallHints != nil ||
+		prog.Update != nil || prog.VersionsDir != "" || prog.InstallerEnv != nil || prog.InstallHints != nil ||
 		prog.Platforms != nil || prog.ModelCatalog != nil {
 		t.Errorf("a delivery field survived from the base: %+v", prog)
 	}

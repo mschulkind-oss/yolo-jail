@@ -79,6 +79,8 @@ func TestForkRefusals(t *testing.T) {
 		{"url", func(c *Contribution) { c.URL = "https://x/i.sh" }, `does not take "url"`},
 		{"flags", func(c *Contribution) { c.Flags = []string{"--x"} }, `does not take "flags"`},
 		{"update", func(c *Contribution) { c.Update = []string{"update"} }, `does not take "update"`},
+		{"installer_env", func(c *Contribution) { c.InstallerEnv = map[string]string{"PREFIX": "~/.local"} },
+			`does not take "installer_env"`},
 		{"refresh", func(c *Contribution) {
 			c.Refresh = &Refresh{Argv: []string{"update"}, Lock: ".s/.yolo-update.lock"}
 		}, `does not take "refresh"`},
