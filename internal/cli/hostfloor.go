@@ -222,10 +222,18 @@ func floorPatchedState(p hostfloor.Program) hostfloor.PatchedState {
 	platform := floorPatchedPlatform()
 	store := &capture.Store{Dir: paths.CapturesDir()}
 	var g *packsrc.GoodBuild
+	lookup := recipe // the recipe the store entry's receipt names, for the exact lookup below
 	if rec, err := run.LoadPatchedRecord(patchedForkStore(), f, series); err == nil && rec.Good != nil {
 		g = rec.Good
-	} else {
-		g = recoverGoodBuild(store, f.Key(), platform, recipe, series.Len())
+	} else if g = recoverGoodBuild(store, f.Key(), platform, recipe, series.Len()); g == nil &&
+		series.LegacyDigest != "" && series.LegacyDigest != series.Digest {
+		// A BUILD RECEIPTED UNDER THE SERIES' LEGACY DIGEST is a build of these files (PF-D62): it
+		// serves, found under the recipe its receipt names. This read writes nothing; the next advance
+		// re-keys it, as its own recovery does.
+		legacy := run.PatchedRecipe(f, series.LegacyDigest)
+		if g = recoverGoodBuild(store, f.Key(), platform, legacy, series.Len()); g != nil {
+			g.Series, g.Recipe, lookup = series.Digest, recipe, legacy
+		}
 	}
 	switch {
 	case g == nil:
@@ -240,7 +248,7 @@ func floorPatchedState(p hostfloor.Program) hostfloor.PatchedState {
 	ps.Good = &hostfloor.PatchedBuild{Commit: g.Commit, Recipe: g.Recipe,
 		Label: run.GoodBuildLabel(g) + " + " + run.PatchCount(g.Patches)}
 	if e, _, err := resolvePatchedBuild(store, f.Key(), f.Bin, platform, patchedBuildSource(f.Source), g.Commit,
-		recipe); err == nil {
+		lookup); err == nil {
 		ps.Good.Entry = e
 	}
 	return ps

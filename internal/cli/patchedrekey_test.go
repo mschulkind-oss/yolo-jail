@@ -196,3 +196,37 @@ func TestTheFloorsReadServesALegacyDigestGoodBuild(t *testing.T) {
 	}
 	assertReKeyed(t, f, s, built.Good.Entry.Key, newRecipe)
 }
+
+// THE HOST FLOOR'S OFFLINE READ WITH NO RECORD finds a build receipted under the series' legacy
+// digest, as the advance's own recovery does, and serves it with its entry; it writes nothing, so
+// the receipt still names the legacy recipe alone until an advance re-keys it.
+func TestTheFloorsReadWithNoRecordFindsALegacyDigestBuild(t *testing.T) {
+	fx := patchedFloorFixture(t)
+	fx.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
+	progs := floorPrograms(selectConfiguredHostPacks().packs)
+	p, ok := floorProgram(progs, "tool")
+	if !ok {
+		t.Fatalf("the selection's floor has no patched tool: %+v", progs)
+	}
+	floor := productionHostFloor(io.Discard, progs)
+	built := floor.Advance(context.Background(), p, nil)
+	if built.Good == nil || built.Good.Entry == nil {
+		t.Fatalf("the floor's advance built nothing: %+v", built)
+	}
+	f := fx.fork(t)
+	_, oldRecipe, newRecipe := legacyGood(t, f)
+	if err := os.Remove((&packsrc.Store{Dir: paths.PacksDir()}).CheckRecordPath(f.Key())); err != nil {
+		t.Fatal(err)
+	}
+	ps := floor.Patched(p)
+	if ps.Good == nil || ps.Good.Entry == nil || ps.Good.Entry.Key != built.Good.Entry.Key || ps.Good.Recipe != ps.Recipe {
+		t.Fatalf("the floor's offline read with no record = %+v (reason %q), want the legacy build serving", ps.Good,
+			ps.Reason)
+	}
+	if n := receiptsUnder(t, built.Good.Entry.Key, newRecipe); n != 0 {
+		t.Errorf("the floor's offline read wrote %d receipts under the recipe as it stands, want none", n)
+	}
+	if n := receiptsUnder(t, built.Good.Entry.Key, oldRecipe); n == 0 {
+		t.Errorf("the legacy receipt is gone")
+	}
+}
