@@ -13,12 +13,20 @@ package entrypoint
 // and a patched extension's alike (run.Options.Sealed). Additive across the host↔jail contract,
 // whose two halves deploy on different cadences: an entrypoint that predates it renders every
 // staged pack's surfaces, as before, and a host that predates it still tells a patched extension's
-// build jail TreeBuildEnv, which sealedBuild reads too.
+// build jail TreeBuildEnv, which launchedSealed reads too.
 const SealedBuildEnv = "YOLO_SEALED_BUILD"
 
-// sealedBuild reports whether this boot is a sealed build jail's: told so (SealedBuildEnv), or told
-// which patched extension it builds (TreeBuildEnv, PPX-D30), which only a sealed build jail is.
-func (e *Env) sealedBuild() bool {
+// launchedSealed reports whether the launcher made this boot a sealed build jail's: told so
+// (SealedBuildEnv), or told which patched extension it builds (TreeBuildEnv, PPX-D30), which only
+// a sealed build jail is. The launcher's word is its own `-e` argv, so runSteps asks before
+// hydrate_user_env folds ~/.config/yolo-user-env.sh into Vars: that file carries a selected pack's
+// ungated `env` vars and the user's env_sources, neither of which may switch a jail's agents off.
+// A macos-user boot is never one, since that backend runs no sealed build (FP-D3), and its
+// environment relays the same channel, so a gate name in it is never the launcher's.
+func (e *Env) launchedSealed(target bootTarget) bool {
+	if target != bootContainer {
+		return false
+	}
 	return e.Getenv(SealedBuildEnv) != "" || e.Getenv(TreeBuildEnv) != ""
 }
 

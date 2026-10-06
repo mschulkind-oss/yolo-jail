@@ -98,3 +98,60 @@ func TestASealedBuildJailRendersNoPackSurfaceAndRunsNoPackHook(t *testing.T) {
 		})
 	}
 }
+
+// ONLY THE LAUNCHER SAYS A JAIL IS A SEALED BUILD: the boot reads the gate from the environment
+// the jail was started with, before hydrate_user_env folds ~/.config/yolo-user-env.sh into it.
+// That file carries a selected pack's ungated `env` vars and the user's env_sources, so a pack
+// declaring YOLO_SEALED_BUILD (or YOLO_TREE_BUILD), or an env_sources entry of either name, would
+// otherwise switch off every pack's surfaces and hooks in the user's own jail, and the boot would
+// say a sealed build ran. Nor can the file clear a gate the launcher set. The macos-user boot runs
+// no sealed build (FP-D3), and its environment relays the same channel, so it never reads one.
+func TestOnlyTheLauncherCanMakeABootASealedBuild(t *testing.T) {
+	steps := []bootStep{bootStepNamed(t, "hydrate_user_env"), bootStepNamed(t, "configure_pack_surfaces")}
+	pack := droppedDirPack(t)
+	for _, tc := range []struct {
+		name    string
+		target  bootTarget
+		launch  map[string]string
+		envFile string
+		sealed  bool
+	}{
+		{"a pack env var naming the gate", bootContainer, map[string]string{}, "export YOLO_SEALED_BUILD='1'\n", false},
+		{"an env_sources entry naming the gate", bootContainer, map[string]string{},
+			"export YOLO_SEALED_BUILD=${YOLO_SEALED_BUILD:-'1'}\n", false},
+		{"a pack env var naming the tree gate", bootContainer, map[string]string{}, "export YOLO_TREE_BUILD='ext'\n", false},
+		{"a channel line clearing the launcher's gate", bootContainer, map[string]string{SealedBuildEnv: "1"},
+			"export YOLO_SEALED_BUILD=''\nexport YOLO_TREE_BUILD=''\n", true},
+		{"a macos-user boot whose relayed environment names the gate", bootDarwin,
+			map[string]string{SealedBuildEnv: "1"}, "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			if err := os.WriteFile(filepath.Join(home, ".pi"), nil, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(filepath.Join(home, ".config"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(home, ".config", "yolo-user-env.sh"), []byte(tc.envFile), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			for _, k := range []string{SealedBuildEnv, TreeBuildEnv} {
+				t.Setenv(k, os.Getenv(k)) // hydration os.Setenv's what it reads; restore it after
+			}
+			var stderr, log bytes.Buffer
+			e := &Env{Home: home, Workspace: t.TempDir(), Vars: tc.launch, Stderr: &stderr, LogOnly: &log}
+			withCtxRoot(t, t.TempDir(), "matt")
+			runSteps(&bootRun{e: e, target: tc.target, packsLoaded: true, packs: []*packload.Pack{pack}}, steps)
+
+			fails := strings.Join(e.GenFailures(), "\n")
+			skipped := strings.Contains(log.String(), sealedBuildSkipNote)
+			if skipped != tc.sealed {
+				t.Errorf("the boot skipped the pack surfaces = %v, want %v:\n%s", skipped, tc.sealed, log.String())
+			}
+			if rendered := strings.Contains(fails, "configure_pi_automode"); rendered == tc.sealed {
+				t.Errorf("the boot rendered the pack surface = %v, want %v:\n%s", rendered, !tc.sealed, fails)
+			}
+		})
+	}
+}

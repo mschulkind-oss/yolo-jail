@@ -81,6 +81,12 @@ type bootRun struct {
 	packsLoaded bool
 	packs       []*packload.Pack
 	packErr     error
+
+	// sealed is whether the launcher made this boot a sealed build jail's (sealedbuild.go),
+	// read by runSteps before any step runs: hydrate_user_env, the first, folds a channel a
+	// selected pack and the user's env_sources write into the same Vars, and only the launcher
+	// may say a jail is a sealed build.
+	sealed bool
 }
 
 // jailPacks loads the staged packs once per run, on first use. The macos-user bootstrap
@@ -102,6 +108,7 @@ func runBootSteps(b *bootRun) { runSteps(b, bootSteps()) }
 // runSteps is runBootSteps over a given table, split out so the runner's own rules can be
 // driven over a synthetic table.
 func runSteps(b *bootRun, steps []bootStep) {
+	b.sealed = b.e.launchedSealed(b.target)
 	for _, s := range steps {
 		if s.excludedFrom(b.target) != "" {
 			continue
@@ -362,7 +369,7 @@ func bootSteps() []bootStep {
 				if err != nil {
 					genStep(b.e, "load_packs", func() error { return err })
 				}
-				if b.e.sealedBuild() {
+				if b.sealed {
 					b.e.note(sealedBuildSkipNote)
 					return
 				}
