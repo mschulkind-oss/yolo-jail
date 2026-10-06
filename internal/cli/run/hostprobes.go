@@ -3,6 +3,7 @@ package run
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -142,9 +143,13 @@ func (o *Options) gpuHostAvailable(rt string) (bool, string) {
 }
 
 // rocmHostAvailable probes whether AMD ROCm
-// passthrough will work (amdgpu module + /dev/kfd + a render node; functional
-// rocminfo when present).
-func (o *Options) rocmHostAvailable(rt string) (bool, string) {
+// passthrough will work (amdgpu module + /dev/kfd + a render node; in `mode: "cdi"` an AMD
+// CDI spec; functional rocminfo when present). mode is the config's gpu.mode.
+//
+// A missing spec declines passthrough rather than refusing the launch: the
+// warn-and-start-without-GPU every other unavailable-GPU verdict takes, NVIDIA's missing
+// spec included (gpuHostAvailable). The reason carries the command that writes the spec.
+func (o *Options) rocmHostAvailable(rt, mode string) (bool, string) {
 	if o.IsMacOS || rt == "container" {
 		return false, "runtime does not support ROCm/AMD passthrough"
 	}
@@ -157,8 +162,13 @@ func (o *Options) rocmHostAvailable(rt string) (bool, string) {
 	if !o.PathExists("/dev/kfd") {
 		return false, "no /dev/kfd on host"
 	}
-	if !hasRenderNode("/dev/dri") {
+	if !hasRenderNode(driDir) {
 		return false, "no /dev/dri render node on host"
+	}
+	if mode == "cdi" && FindAMDCDISpec(o.PathExists) == "" {
+		return false, "gpu.mode is \"cdi\" and there is no AMD CDI spec at " +
+			strings.Join(AMDCDISpecPaths, " or ") + " (write one with `" + AMDCDISpecGenerate +
+			"`, or set gpu.mode to \"devices\", which needs none)"
 	}
 	if rocminfo, ok := o.LookPath("rocminfo"); ok {
 		res := o.Exec([]string{rocminfo}, "", nil, 5*time.Second)
@@ -170,6 +180,33 @@ func (o *Options) rocmHostAvailable(rt string) (bool, string) {
 		}
 	}
 	return true, ""
+}
+
+// driDir is where the launch's probe looks for render nodes. A variable only so a test can
+// point the probe at a fixture directory; production never assigns it.
+var driDir = "/dev/dri"
+
+// AMDCDISpecPaths are where podman's CDI registry finds an AMD spec, in the order both
+// readers report them. ONE list for the launch's probe (rocmHostAvailable) and `yolo check`'s
+// AMD section, because the two disagreeing is G28 (docs/plans/setup-support-gaps.md): check
+// looked here, the launch looked nowhere, so its probe passed and podman died on
+// `unresolvable CDI devices amd.com/gpu=all`.
+var AMDCDISpecPaths = []string{"/etc/cdi/amd.json", "/var/run/cdi/amd.json"}
+
+// AMDCDISpecGenerate is the command that writes the spec AMDCDISpecPaths looks for. Both
+// readers name it as the next step when there is none.
+const AMDCDISpecGenerate = "sudo amd-ctk cdi generate --output=/etc/cdi/amd.json"
+
+// FindAMDCDISpec returns the first of AMDCDISpecPaths that pathExists reports, or "" when
+// none does. It is THE AMD CDI spec probe: the launch and `yolo check` both call it, each
+// with its own PathExists seam.
+func FindAMDCDISpec(pathExists func(string) bool) string {
+	for _, p := range AMDCDISpecPaths {
+		if pathExists(p) {
+			return p
+		}
+	}
+	return ""
 }
 
 // hasRenderNode reports whether driDir has any renderD* node (glob renderD*).

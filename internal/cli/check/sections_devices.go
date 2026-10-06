@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
@@ -179,21 +180,16 @@ func (o *Options) sectionGPUAmd(r *reporter, merged *jsonx.OrderedMap) {
 		// The spec lives under /etc on the HOST — the same class as the module and node
 		// checks above, and it was the one FAIL this section still produced in a jail.
 		r.hostFact("AMD CDI spec check",
-			"The spec is at /etc/cdi/amd.json on the host; run `yolo check` there.")
+			"The spec is at "+strings.Join(run.AMDCDISpecPaths, " or ")+" on the host; run `yolo check` there.")
 	} else if mode == "cdi" {
-		cdiFound := ""
-		for _, p := range []string{"/etc/cdi/amd.json", "/var/run/cdi/amd.json"} {
-			if o.PathExists(p) {
-				cdiFound = p
-				break
-			}
-		}
-		if cdiFound != "" {
+		// The launch's probe (run.rocmHostAvailable) asks this same function, so this
+		// verdict and whether a launch passes the GPU through cannot disagree (G28).
+		if cdiFound := run.FindAMDCDISpec(o.PathExists); cdiFound != "" {
 			r.ok("AMD CDI spec found: " + cdiFound)
 		} else {
 			r.fail("No AMD CDI spec found (mode: cdi)",
-				"Generate with: sudo amd-ctk cdi generate "+
-					"--output=/etc/cdi/amd.json")
+				"Generate with: "+run.AMDCDISpecGenerate+
+					" — until then a launch starts without GPU passthrough")
 		}
 	}
 	r.blank()

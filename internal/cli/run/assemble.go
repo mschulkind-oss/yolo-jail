@@ -501,6 +501,7 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// --- GPU availability probe (gates the uidmap/runc branch below) ---
 	gpuRequested := false
 	gpuVendor := "nvidia"
+	gpuMode := ""
 	gpuUnavailableReason := ""
 	gpuEnabled := false
 	// A sealed build requests no GPU (seal.go), so neither the passthrough nor the userns branch
@@ -508,12 +509,15 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	if gpuSec := cfgMap(cfg, "gpu"); gpuSec != nil && !in.sealed {
 		gpuRequested = mapBoolOr(gpuSec, "enabled", false)
 		gpuVendor = mapStrOr(gpuSec, "vendor", "nvidia")
+		// The same read, default included, as gpuArgs' choice of flags: the probe has to
+		// vet the mode whose flags the launch will emit.
+		gpuMode = mapStrOr(gpuSec, "mode", "devices")
 	}
 	if gpuRequested {
 		var okGPU bool
 		switch {
 		case gpuVendor == "amd":
-			okGPU, gpuUnavailableReason = o.rocmHostAvailable(rt)
+			okGPU, gpuUnavailableReason = o.rocmHostAvailable(rt, gpuMode)
 		case inContainer:
 			// NESTED NVIDIA IS DECLINED HERE RATHER THAN HALF-EMITTED BELOW. The
 			// nesting branch of podmanNestingArgs is chosen FIRST — it has to be, a

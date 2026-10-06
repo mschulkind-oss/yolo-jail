@@ -28,7 +28,7 @@ defaults to `nvidia` — so every pre-existing config keeps working untouched.
 | Component | Lives in |
 | :--- | :--- |
 | Argv construction — device nodes, groups, env, the memlock clamp | `internal/cli/run` (`gpuArgs` in `helpers.go`) |
-| The host probe | `internal/cli/run` (`rocmHostAvailable`, `hasRenderNode`) |
+| The host probe | `internal/cli/run` (`rocmHostAvailable`, `hasRenderNode`, `FindAMDCDISpec`) |
 | The host memlock ceiling | `internal/cli/run` (`syscalls_linux.go`) |
 | Config shape and the vendor-exclusivity rules | `internal/config` (`knownGPUKeys`, `validate.go`) |
 | Diagnostics | `internal/cli/check` (`sectionGPUAmd`, `checkDeviceNode`, `checkRocmEnumeration`) |
@@ -124,6 +124,14 @@ crun+CDI failure for AMD in either mode, so constraint 3 holds for CDI too.
 host without it starts the jail without GPU flags rather than refusing, which is what let the whole
 implementation land before any hardware existed to verify it on.
 
+**In CDI mode, a host without an AMD CDI spec is a host without it.** The launch's probe requires a
+spec at one of the two spec paths ([Current values](#current-values)) before it lets the CDI flags
+through, and otherwise takes that same warn-and-continue path, its warning naming the command that
+writes the spec. The probe and `yolo check` ask one function (`run.FindAMDCDISpec`), so the two
+cannot disagree. Until 2026-10-06 only `yolo check` looked: the launch passed its probe, emitted
+`--device amd.com/gpu=all`, and podman died on `unresolvable CDI devices amd.com/gpu=all`
+([G28](../plans/setup-support-gaps.md)).
+
 ### VA-API
 
 `vaapi: true` (AMD only, default off, inert without `enabled`) adds a driver-search-path variable
@@ -214,6 +222,7 @@ without SELinux.
 | **`mode` set for `vendor: "nvidia"` is an ERROR, not ignored** | A consistency call with no hardware bearing: a key that means nothing for the selected vendor is a mistake worth naming, exactly as `capabilities` is for AMD. |
 | **The gfx-version override stays a best-effort, same-architecture-family knob** | It is a pure userspace variable, so it is safe to set from inside a jail, and it is unsupported by AMD. Cross-architecture mappings are unreliable, and the value table is not adversarially verified. The verification card needed no override at all. |
 | **No host/image version-window warning** | A mismatch inside AMD's window works, and no auto-refresh exists to make the warning actionable. Not worth the complexity. |
+| **A CDI-mode launch with no AMD CDI spec warns and starts without the GPU; it does not refuse** | Decided 2026-10-06 when the launch's probe began requiring the spec (G28). It is the verdict every other unavailable GPU gets, NVIDIA's missing spec included, and the warning names the fix. Refusing would make AMD's CDI mode the one GPU configuration that can stop a jail. |
 | **No image steering beyond documentation** | Confirmed on hardware that a generic image gets nodes and no HIP — and yolo cannot tell what an image ships, so a warn or refuse would fire on correct configurations. |
 
 ## Current values
@@ -229,9 +238,10 @@ place the values themselves are stated.
 | Compute device node | `/dev/kfd` | `internal/cli/run/helpers.go`, `rocmHostAvailable` |
 | Render nodes | `/dev/dri/renderD*` (whole `/dev/dri` for `devices: "all"`) | `internal/cli/run/helpers.go`, `hasRenderNode` |
 | Group flag | `--group-add keep-groups`, podman only, both modes | `internal/cli/run/helpers.go` |
-| CDI device namespace and spec paths | `amd.com/gpu=…`; `/etc/cdi/amd.json`, `/var/run/cdi/amd.json` | `internal/cli/run/helpers.go`, `internal/cli/check/sections_devices.go` |
+| CDI device namespace | `amd.com/gpu=…` | `internal/cli/run/helpers.go` |
+| CDI spec paths, and the command that writes the spec | `/etc/cdi/amd.json`, `/var/run/cdi/amd.json`; `sudo amd-ctk cdi generate --output=/etc/cdi/amd.json` | `run.AMDCDISpecPaths`, `run.AMDCDISpecGenerate` (`internal/cli/run/hostprobes.go`) |
 | Visible-device selectors | `ROCR_VISIBLE_DEVICES`, `HIP_VISIBLE_DEVICES` — emitted only for an explicit selection | `internal/cli/run/helpers.go` |
 | Gfx override | `HSA_OVERRIDE_GFX_VERSION` | `internal/cli/run/helpers.go` |
 | VA-API variable | `LIBVA_DRIVERS_PATH=/lib/dri:/usr/lib/dri` | `internal/cli/run/helpers.go` |
 | Locked-memory clamp | `--ulimit memlock=<host hard>:<host hard>`, or `-1:-1` when the host is unlimited | `internal/cli/run/helpers.go`, `internal/cli/run/syscalls_linux.go` |
-| Host probe order | module ⇒ compute node ⇒ a render node ⇒ a functional enumerator when present | `run.rocmHostAvailable` |
+| Host probe order | module ⇒ compute node ⇒ a render node ⇒ in CDI mode, a CDI spec ⇒ a functional enumerator when present | `run.rocmHostAvailable` |

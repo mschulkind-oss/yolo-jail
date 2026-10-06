@@ -28,6 +28,8 @@ highlight headings, verbs and flags; piped output and `NO_COLOR` stay plain.
   in the jail and asks you to apply a config change, instead of failing to write it; an in-jail
   `yolo check` says so too.
 - An MCP server left out because its `requires_env` variable is unset is no longer reported as "not in config" at launch or by `yolo host apply`; the notice names the variable and how to deliver it.
+- An AMD GPU in `mode: "cdi"` on a host with no AMD CDI spec no longer fails the launch: the jail
+  starts without the GPU and the warning names the command that writes the spec.
 
 ## [0.12.1] - 2026-10-06
 
