@@ -496,4 +496,5 @@ on the motivating fork waits on a maintainer naming that fork ([Step 7 needs](#s
 `macos-user` session's own fork ([FP-D3](forked-programs-as-packs.md#FP-D3): the slot sits below
 that arm's return, and the staged capture store carries installer captures alone), a patched fork
 at a Mac's host floor (the patched-forks workstream's), and a base's `node_floor` above the darwin
-floor's Node inside the build. Step 5 (`guest`) waits on env-manager Phase 7.
+floor's Node, or the config's `mise_tools`, inside the build, which waits on
+[OQ-FP10](forked-programs-as-packs.md#OQ-FP10). Step 5 (`guest`) waits on env-manager Phase 7.

@@ -45,7 +45,8 @@ func (e *MaterializeError) Error() string { return e.msg }
 // the macos-user launch, which has no image: mise, node, git and ripgrep reach
 // the agent here or nowhere (docs/design/macos-user-provisioning.md, OQ-P1).
 // MaterializeAt's caller is a CONTAINER whose image already bakes the core, so it
-// takes ProfileAttr.
+// takes ProfileAttr. A macos-user FORK BUILD takes the floor too, rooted elsewhere:
+// MaterializeFloorAt.
 //
 // The skip list is unaffected by the split — `yoloUnavailablePackages` reports on
 // the DECLARED packages only, because a floor entry with no build for this system
@@ -82,6 +83,32 @@ func MaterializeAt(repoRoot string, packages []any, system, outLink string, errS
 	}
 	return materializeWithArgv(repoRoot, packages, system,
 		BuildProfileArgv(system, outLink), errStderr)
+}
+
+// MaterializeFloorAt is Materialize — the floor PLUS the declared `packages:` — with its GC-root
+// out-link named by the caller, for a build that runs on the floor but is not the launch whose
+// closure ProfileRootLink roots.
+//
+// Its caller is a macos-user FORK BUILD (docs/design/forked-programs-as-packs.md FP-D19), whose
+// package list is the sealed build's own (the user scope's alone) rather than a launch's merged
+// one. Rooted at the home's fixed link, a build would retarget the link a RUNNING macos-user
+// session's closure hangs from, which a `nix store gc` could then collect under it, and
+// `describe`, `check` and `yolo host apply`, which read that link as the closure a launch uses,
+// would report the build's instead. So the build roots its toolchain at a link of its own,
+// removed with its staging tree.
+//
+// outLink "" is REFUSED rather than turned into `--no-link`: the floor is what the build
+// executes from, and an unrooted closure under a running build is the N1 defect.
+func MaterializeFloorAt(repoRoot string, packages []any, system, outLink string, errStderr io.Writer) (*DarwinPackages, error) {
+	if outLink == "" {
+		return nil, &MaterializeError{msg: "no GC-root link for the floor build: the closure a build " +
+			"runs from must be rooted while it runs"}
+	}
+	if system == "" {
+		system = NativeSystem()
+	}
+	return materializeWithArgv(repoRoot, packages, system,
+		BuildFloorProfileArgv(system, outLink), errStderr)
 }
 
 // materializeWithArgv is the shared impure body: refuse an empty repoRoot, read the skip

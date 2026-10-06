@@ -369,9 +369,15 @@ func captureFork(f packload.Fork, out, errw io.Writer, color bool) int {
 		return 1
 	}
 	// THE BUILD'S PLATFORM IS ITS JAIL'S (FP-D19): a capture under macos-user builds for this Mac, as
-	// the Mac's host floor does, and every container backend for Linux. The runtime is named to the
-	// build so the jail it boots is the one the platform was read from.
+	// the Mac's host floor does, and every container backend for Linux. Only macos-user is named to
+	// the build, so the jail it boots is the one the darwin platform was read from. A container
+	// backend is left to the run pipeline's own resolution (which skips a `container` that is not
+	// Apple's or does not answer, and honors the guest notch), and a refusal there then names what
+	// the user set rather than a YOLO_RUNTIME they did not.
 	rt := captureRuntime()
+	if rt != "macos-user" {
+		rt = ""
+	}
 	b := forkBuild{Fork: f, Commit: pin.Commit, Platform: forkBuildPlatform(rt)}
 	if _, err := buildFork(b, buildMode{force: true, lock: pidlock.NoWait, runtime: rt}, out, errw, color); err != nil {
 		fmt.Fprintf(errw, "yolo capture: %v\n", err)
@@ -819,7 +825,9 @@ func runCaptureJail(workspace, bin string, argv []string, seal *captureSeal, out
 			// under the sealed capture profile, on the darwin floor's tools. It leaves the proto-entry and
 			// the toolchain record where a container build jail leaves them, so buildFork's admit, its
 			// checks and its receipt are the same for both.
-			deps.MaterializeDarwin = materializeDarwinNative
+			// Its toolchain rooted at a link of the build's own, in this staging workspace and removed
+			// with it, never at the home's profile root a running macos-user session hangs from.
+			deps.MaterializeDarwin = materializeDarwinNativeAt(filepath.Join(workspace, forkToolchainRootLeaf))
 			return macForkBuildAct(deps, macosuser.ForkBuildOptions{
 				CaptureOptions: macosuser.CaptureOptions{Bin: bin, Config: cfg, HostPackRoot: packRoot,
 					SandboxEnv: packEnv, BlockedTools: blocked},
@@ -864,12 +872,33 @@ func forkBuildToolchainHead() string {
 	return "yolo " + v
 }
 
-// materializeDarwinNative builds the darwin floor and `packages` with native nix, for this machine's
-// system (darwinpkg.NativeSystem) — the toolchain a macos-user fork build runs on, the floor every
-// macos-user launch builds (macosuser.Deps.MaterializeDarwin).
-func materializeDarwinNative(nixRoot string, packages []any) (*macosuser.Darwin, bool, error) {
+// forkToolchainRootLeaf is the GC-root link a macos-user fork build's toolchain is rooted at, in the
+// build's host staging workspace: a sibling of out/ and the toolchain record, so the admit never
+// reads it, and removed with the workspace when the build ends (cleanupCaptureWorkspace).
+const forkToolchainRootLeaf = "toolchain-root"
+
+// forkToolchainMaterialize is the darwin floor build a macos-user fork build's toolchain comes from
+// (darwinpkg.MaterializeFloorAt), behind a package var so a test reads which link it is rooted at.
+var forkToolchainMaterialize = darwinpkg.MaterializeFloorAt
+
+// materializeDarwinNativeAt is the macos-user fork build's macosuser.Deps.MaterializeDarwin: the
+// darwin floor and `packages` built with native nix for this machine's system
+// (darwinpkg.NativeSystem), the floor every macos-user launch builds, ROOTED AT outLink. Not the
+// home's profile root (darwinpkg.ProfileRootLink), which a launch roots its own closure at: the
+// build's package list is the sealed capture's, the user scope's alone, so building there would
+// unroot a running session's closure whenever its workspace declares `packages:` of its own, and
+// `describe`, `check` and `yolo host apply` would report the build's closure as the launch's.
+func materializeDarwinNativeAt(outLink string) func(string, []any) (*macosuser.Darwin, bool, error) {
+	return func(nixRoot string, packages []any) (*macosuser.Darwin, bool, error) {
+		return materializeDarwinWith(nixRoot, packages, outLink)
+	}
+}
+
+// materializeDarwinWith is materializeDarwinNativeAt's body: the build, then its result as the
+// backend's Darwin.
+func materializeDarwinWith(nixRoot string, packages []any, outLink string) (*macosuser.Darwin, bool, error) {
 	system := darwinpkg.NativeSystem()
-	pkgs, err := darwinpkg.Materialize(nixRoot, packages, system, os.Stderr)
+	pkgs, err := forkToolchainMaterialize(nixRoot, packages, system, outLink, os.Stderr)
 	if err != nil {
 		return nil, false, err
 	}

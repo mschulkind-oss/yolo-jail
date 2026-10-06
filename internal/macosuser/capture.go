@@ -71,6 +71,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/nixchildren"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
@@ -978,10 +979,11 @@ func (p CapturePlan) envFileCommands() ([][]string, [][]string) {
 //   - THE TOOLCHAIN RECORD names yolo, the darwin floor's store path and the macOS release, where a
 //     container build names its image's identity; the script writes it first, beside out/.
 //   - THE TOOLCHAIN IS THE DARWIN FLOOR every launch on this backend materializes (mise, node, git
-//     and the rest), the config's darwin `packages:` with it, built before the plan. The provisioning
-//     stage, which installs a pack's higher `node_floor` and `mise_tools` into the account home, does
-//     not run: it needs the home's tier layout, whose links would put the capture surfaces outside
-//     the tree the driver walks.
+//     and the rest), the config's darwin `packages:` with it, built before the plan. A base's
+//     `node_floor` above the floor's Node and the config's `mise_tools` are not installed: whether
+//     they should be is forked-programs-as-packs.md OQ-FP10, open. The provisioning stage is not
+//     the way in any case: its tier layout links the capture surfaces out of the home the driver
+//     walks.
 
 const (
 	// forkBuildLeafPrefix starts a fork build's staging tree's name under the capture root, the build's
@@ -1301,6 +1303,15 @@ func materializeForkToolchain(deps Deps, out printer, opts ForkBuildOptions) (*D
 		out.print("[bold red]No yolo-jail flake was found to build the sandbox's tools from.[/bold red] " +
 			"Every macos-user act builds them from it; `yolo check` names the flake a launch would use.")
 		return nil, 1
+	}
+	// A SIGNAL SENT TO YOLO ALONE WHILE THIS NIX RUNS STOPS IT (internal/nixchildren), as RunMacosUser
+	// stops the same build: `yolo capture` and the host floor call this act with no launch arm
+	// (Deps.Ending nil), so without the stop a SIGTERM, a SIGHUP or a Ctrl-C ended yolo by the
+	// signal's default action and left a build of up to half an hour running with no parent. The
+	// stop covers this build alone and is removed when it returns: from the privileged steps on, a
+	// signal is theirs. Never with an arm wired: two handlers on one signal race to the exit.
+	if deps.Ending == nil {
+		defer nixchildren.StopOnSignal()()
 	}
 	build := deps.Progress.Start(deps.Out, "Building the fork build's tools with nix (the floor a "+
 		"macos-user launch runs on)")

@@ -9,6 +9,7 @@ package cli
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	goruntime "runtime"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
+	"github.com/mschulkind-oss/yolo-jail/internal/darwinpkg"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
@@ -254,15 +256,23 @@ func TestASealedForkBuildOnMacosUserReachesTheForkBuildAct(t *testing.T) {
 	var seen run.Options
 	withFakeCaptureJail(t, func(o run.Options) int { seen = o; return 1 })
 	var got macosuser.ForkBuildOptions
+	var deps macosuser.Deps
 	var dest, toolchain string
 	acts := 0
 	orig := macForkBuildAct
-	macForkBuildAct = func(_ macosuser.Deps, o macosuser.ForkBuildOptions, out, tc string, _ bool) int {
+	macForkBuildAct = func(d macosuser.Deps, o macosuser.ForkBuildOptions, out, tc string, _ bool) int {
 		acts++
-		got, dest, toolchain = o, out, tc
+		deps, got, dest, toolchain = d, o, out, tc
 		return 0
 	}
 	t.Cleanup(func() { macForkBuildAct = orig })
+	var links []string
+	origMat := forkToolchainMaterialize
+	forkToolchainMaterialize = func(repoRoot string, _ []any, system, outLink string, _ io.Writer) (*darwinpkg.DarwinPackages, error) {
+		links = append(links, outLink)
+		return &darwinpkg.DarwinPackages{PathPrefix: []string{"/nix/store/floor/bin"}, ProfilePath: "/nix/store/floor"}, nil
+	}
+	t.Cleanup(func() { forkToolchainMaterialize = origMat })
 	var out, errw bytes.Buffer
 	captureHost([]string{"probetool"}, &out, &errw, false)
 	if seen.MacosUserRun == nil || !seen.Sealed {
@@ -289,6 +299,19 @@ func TestASealedForkBuildOnMacosUserReachesTheForkBuildAct(t *testing.T) {
 	}
 	if dest != filepath.Join(seen.Workspace, captureOutLeaf) || toolchain != filepath.Join(seen.Workspace, forkToolchainLeaf) {
 		t.Errorf("the act leaves its result at %s and %s, not where the admit reads them", dest, toolchain)
+	}
+	// THE ACT IS HANDED THE NATIVE FLOOR BUILD, rooted at the build's own link in its staging
+	// workspace and never at the home's profile root a running macos-user session hangs from.
+	if deps.MaterializeDarwin == nil {
+		t.Fatal("the act was handed no darwin floor build, so every real build stops before its line")
+	}
+	if d, ok, err := deps.MaterializeDarwin("/flake", nil); !ok || err != nil || d == nil ||
+		d.ProfilePath != "/nix/store/floor" || len(d.PathPrefix) != 1 {
+		t.Errorf("the act's floor build returned %+v %v %v, want the native materializer's result", d, ok, err)
+	}
+	if want := filepath.Join(seen.Workspace, forkToolchainRootLeaf); len(links) != 1 || links[0] != want ||
+		links[0] == darwinpkg.ProfileRootLink(paths.Home()) {
+		t.Errorf("the floor build was rooted at %v, want the build's own link %s", links, want)
 	}
 }
 
