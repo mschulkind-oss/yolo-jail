@@ -33,7 +33,7 @@ func envOf(t *testing.T, log, name string) map[string]string {
 
 // A GOPROXY or GOSUMDB the user set with `go env -w` lives in the go env file, which the download
 // runs with GOENV=off to keep out every setting that could skip the checksum database. So the
-// download asks the go on PATH for the effective two first, and passes them explicitly (BP-D22):
+// download asks the go on PATH for the effective two first, and passes them explicitly (BP-D27):
 // a user behind goproxy.cn, or a corporate proxy, downloads through it. GOSUMDB=off is still
 // overridden, and GONOSUMDB, GOPRIVATE, GOINSECURE and GOFLAGS are still dropped.
 //

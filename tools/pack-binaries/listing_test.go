@@ -1,6 +1,6 @@
 package main
 
-// listing_test.go pins WHICH manifests the tool reads (BP-D20): the ones the packs embed carries,
+// listing_test.go pins WHICH manifests the tool reads (BP-D25): the ones the packs embed carries,
 // which is what `go install` builds into yolo from the same tree, rather than every directory on
 // disk under packs/ — so a pack the embed does not list, half-written or not, cannot stop
 // `just install` — and a seed that skips, rather than refuses, a loophole directory it cannot

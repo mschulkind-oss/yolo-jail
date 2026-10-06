@@ -27,7 +27,7 @@ import (
 )
 
 // A program added since the last release has no file on any release yet, so its fetch fails
-// with a 404 rather than a digest mismatch, and it needs the same next step (BP-D24).
+// with a 404 rather than a digest mismatch, and it needs the same next step (BP-D29).
 func TestPackInstallNamesJustInstallForAnOfficialBuildNoReleasePublishes(t *testing.T) {
 	srv := httptest.NewTLSServer(http.NotFoundHandler())
 	t.Cleanup(srv.Close)

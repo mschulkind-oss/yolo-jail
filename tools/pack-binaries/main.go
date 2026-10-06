@@ -98,7 +98,7 @@ type deps struct {
 	// something to build.
 	toolchain func() (string, error)
 	// pathGo is the go on PATH, which seed alone may build with when toolchain fails and it
-	// reports exactly Toolchain (BP-D21).
+	// reports exactly Toolchain (BP-D26).
 	pathGo func() (string, error)
 	// goos and goarch are the machine seed builds for: a host reference's build for this pair,
 	// a jail reference's for linux on goarch, which is what a launch here asks the cache for
@@ -291,7 +291,7 @@ func (t *task) prepare() error {
 	}
 	// THE EMBED'S MANIFESTS, not every directory under packs/: what `go install` builds into
 	// yolo from this same tree, uncommitted edits included, and nothing it would leave out — a
-	// pack the embed does not list cannot stop an install (BP-D20). Pins are still written to
+	// pack the embed does not list cannot stop an install (BP-D25). Pins are still written to
 	// the tree's files, at the same paths.
 	var all []releasematrix.Entry
 	var err error
@@ -582,7 +582,7 @@ func (t *task) machineNeeds(stdout io.Writer) ([]want, []releasematrix.Problem) 
 }
 
 // repinStale writes, for each stale build, the digest this machine just built for it — and
-// NOTHING ELSE (BP-D25): not another platform's digest, which this machine did not build, and
+// NOTHING ELSE (BP-D30): not another platform's digest, which this machine did not build, and
 // not a url. A Mac whose native build did not reproduce a Linux-made pin rewrites only its own
 // two, and the landing gate refuses the rest until `just pin-pack-binaries` re-pins every
 // platform. It returns 0, or 1 having said why.
@@ -606,7 +606,7 @@ func (t *task) repinStale(stale []want, stdout io.Writer) int {
 	for _, n := range stale {
 		repinned[n.e.Path+" "+buildKey(n.name, n.platform)] = true
 		// The commit moves HEAD through packs/, which version.SourceSkew compares this
-		// install's stamp against, so the step after it is another install (BP-D23).
+		// install's stamp against, so the step after it is another install (BP-D28).
 		fmt.Fprintf(stdout, "%s: re-pinned binary %s (%s) to this machine's build, sha256 %s (was "+
 			"%s): this tree's program has moved since it was pinned — commit the manifest "+
 			"(`just check-ci` refuses the old pin), then re-run `just install`, since a launch "+
@@ -642,7 +642,7 @@ func (t *task) repinStale(stale []want, stdout io.Writer) int {
 
 // seedToolchain is the go seed builds with: the pinned toolchain, fetched or already in the
 // module cache, or — when it cannot be had, offline or after a Toolchain bump — the go on PATH,
-// if that reports exactly Toolchain (BP-D21). Falling back cannot admit a wrong build, because
+// if that reports exactly Toolchain (BP-D26). Falling back cannot admit a wrong build, because
 // packbin.Seed admits only bytes whose digest is the pin, and §14.2 measured a go1.26.7 not
 // fetched as the module building the same bytes; what it does lose is the right to re-pin, which
 // seed refuses then (t.unfetched).
@@ -676,7 +676,7 @@ func (t *task) seedToolchain(stdout io.Writer) error {
 // A build whose digest is not the pin is a program this tree has changed since it was pinned.
 // Without repin it is not seeded, and the run fails naming the pin command, the integration
 // harness's case; with repin, `just install`'s, the tree is re-pinned first — the sha256 of
-// each build this machine made, and nothing else (repinStale, BP-D25) — so the manifest the
+// each build this machine made, and nothing else (repinStale, BP-D30) — so the manifest the
 // install then embeds pins the build it seeds, and the fork that changed a program runs it.
 func (t *task) seed(tmp, dir string, repin bool, stdout io.Writer) int {
 	needs, problems := t.machineNeeds(stdout)

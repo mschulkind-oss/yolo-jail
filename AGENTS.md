@@ -236,8 +236,8 @@ live, so edits are visible on the host instantly — there is no sync step.
   refuses the stale digest, naming `just pin-pack-binaries` (no version: digests only, urls kept). A host
   `just install` re-pins only the builds THIS machine made and seeds them into the pack-binary cache, so a
   from-source jail runs the tree's program with no download; the other platforms still need the pin before
-  landing ([BP-D25](docs/design/broker-as-a-pack.md#BP-D25)). `yolo update` never re-pins: it deploys the
-  pulled tree as is ([BP-D26](docs/design/broker-as-a-pack.md#BP-D26)). No hatch: the fix is the pin.
+  landing ([BP-D30](docs/design/broker-as-a-pack.md#BP-D30)). `yolo update` never re-pins: it deploys the
+  pulled tree as is ([BP-D31](docs/design/broker-as-a-pack.md#BP-D31)). No hatch: the fix is the pin.
 
 ## Testing
 

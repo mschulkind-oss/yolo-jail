@@ -295,7 +295,7 @@ func TestSeedRepinsAProgramEditedAfterThePin(t *testing.T) {
 		t.Errorf("seed --repin did not say it re-pinned, and what to commit:\n%s", r.stdout)
 	}
 	// Committing moves HEAD through packs/, which version.SourceSkew compares the installed
-	// binary's stamp against, so the step after the commit is another install (BP-D23).
+	// binary's stamp against, so the step after the commit is another install (BP-D28).
 	if !strings.Contains(r.stdout, "then re-run `just install`") {
 		t.Errorf("seed --repin does not say to re-run `just install` after the commit:\n%s", r.stdout)
 	}
@@ -332,7 +332,7 @@ func TestSeedRepinsAProgramEditedAfterThePin(t *testing.T) {
 	mustRun(t, root, "check")
 }
 
-// A RE-PIN WRITES ONLY WHAT THIS MACHINE BUILT AND VERIFIED (BP-D25): its host build and its
+// A RE-PIN WRITES ONLY WHAT THIS MACHINE BUILT AND VERIFIED (BP-D30): its host build and its
 // jail build. A Mac whose native build did not reproduce a Linux-made pin must not rewrite every
 // platform's digest from its own toolchain, so another platform's pin is left as it was, for
 // `just pin-pack-binaries` and the landing gate. The fixture ships to both architectures, so on

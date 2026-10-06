@@ -57,15 +57,15 @@ install:
     # and admitted to the pack-binary cache every launch reads, as yolo's own binaries are staged
     # below: NOTHING IS DOWNLOADED but the pinned Go toolchain, once, into the module cache —
     # and when even that cannot be fetched, a go on PATH reporting the pinned version seeds
-    # instead, re-pinning nothing (BP-D21)
+    # instead, re-pinning nothing (BP-D26)
     # (docs/design/broker-as-a-pack.md BP-D15, OQ-BP7 ruled 2026-10-05: "it has to be built all
     # together, installed all together"). So a from-source or forked tree's jail runs that tree's
     # programs. --repin: a program this tree changed since its pin is re-pinned first (the
-    # sha256 of each build this machine made, and no other platform's, urls kept; BP-D25), so
+    # sha256 of each build this machine made, and no other platform's, urls kept; BP-D30), so
     # the manifest `go install` embeds below pins the build it seeds; the
     # tool names the manifest and says: commit it, then re-run `just install` — `just check-ci`
     # refuses the old pin, and the commit moves HEAD through packs/, so version.SourceSkew then
-    # refuses a YOLO_REPO_ROOT launch by this install's stamp until the next one (BP-D23). FIRST, before
+    # refuses a YOLO_REPO_ROOT launch by this install's stamp until the next one (BP-D28). FIRST, before
     # VERSION, so a re-pin shows in the stamp as -dirty, and before anything is installed, so a
     # failure installs nothing. With no official binary declared it says so and fetches nothing.
     #
@@ -73,7 +73,7 @@ install:
     # one it just pulled, and it is deployed EXACTLY: the seed never re-pins, so the checkout stays
     # clean for the next update and an autostash pops back onto it, and a build it cannot seed is
     # reported without failing the deploy, which would leave the pulled tree with the old binary.
-    # That build's loophole stays off here until a plain `just install` re-pins it (BP-D26).
+    # That build's loophole stays off here until a plain `just install` re-pins it (BP-D31).
     if [ -n "${YOLO_INSTALL_KEEP_TREE:-}" ]; then
         if ! go run ./tools/pack-binaries seed; then
             echo "" >&2

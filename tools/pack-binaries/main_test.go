@@ -411,7 +411,7 @@ func TestUsageAndRefusals(t *testing.T) {
 	}
 }
 
-// The tool lists the embed, as the census does (BP-D20), and writes each pin into the checkout's
+// The tool lists the embed, as the census does (BP-D25), and writes each pin into the checkout's
 // file at the entry's path, so every manifest the embed carries must be that file, byte for
 // byte. A pack on disk that the embed does not list is nothing either of them reads.
 func TestTheToolReadsTheManifestsTheEmbedCarries(t *testing.T) {

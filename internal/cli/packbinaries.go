@@ -45,7 +45,7 @@ var packBinaryFetcher = func() packbin.Fetcher {
 // checkout ("" otherwise). Between releases main pins ITS OWN build of each official program,
 // while each url still names the last release (docs/design/broker-as-a-pack.md BP-D15): for a
 // program the tree has changed, the release's file is expected not to match, and for one added
-// since, no release has a file at all (BP-D24). Either way the tree's build is what this yolo's
+// since, no release has a file at all (BP-D29). Either way the tree's build is what this yolo's
 // manifests pin, and `just install` in that checkout builds it into the cache with no download.
 func fromSourceHint(p *packload.Pack) string {
 	if !p.Official || version.SourceDir == "" {

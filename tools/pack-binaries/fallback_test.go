@@ -1,7 +1,7 @@
 package main
 
 // fallback_test.go pins `just install`'s seed when the pinned toolchain cannot be fetched
-// (BP-D21): offline, after `go clean -modcache`, or after a Toolchain bump. Seeding falls back to
+// (BP-D26): offline, after `go clean -modcache`, or after a Toolchain bump. Seeding falls back to
 // the go on PATH when that go reports exactly Toolchain — packbin.Seed admits only bytes whose
 // digest is the pin, so a toolchain that builds other bytes seeds nothing — and only a re-pin,
 // which would write digests that go made, is refused.

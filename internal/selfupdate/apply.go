@@ -36,7 +36,7 @@ func (s Step) String() string {
 // InstallKeepTreeEnv tells `just install` that it is deploying the tree `yolo update` just
 // pulled, which it must leave exactly as it found it: it seeds the official pack programs into
 // the cache WITHOUT re-pinning one into the checkout, and reports a build it cannot seed rather
-// than failing the deploy (docs/design/broker-as-a-pack.md BP-D26). A re-pin there would ship a
+// than failing the deploy (docs/design/broker-as-a-pack.md BP-D31). A re-pin there would ship a
 // local edit as if it were upstream's, leave the checkout dirty for the next update, and make an
 // autostash's `git stash pop` fail after a deploy that worked. The Justfile reads the name; a
 // test in tools/pack-binaries holds the two spellings together.

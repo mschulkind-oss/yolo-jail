@@ -86,7 +86,7 @@ then runs the checkout's `Justfile` through `just deploy`, with
 never re-pins an official pack program into the checkout, and a program it
 cannot build to its pin is reported, its loophole left off on this machine, rather
 than failing the update
-([BP-D26](../design/broker-as-a-pack.md#BP-D26)). All of it
+([BP-D31](../design/broker-as-a-pack.md#BP-D31)). All of it
 runs on the host, as you. yolo ends Git's options before the remote, refuses an
 upstream whose name starts with `-`, and never lets Git prompt, but a
 repository's configuration can still name programs Git runs, such as a hook or

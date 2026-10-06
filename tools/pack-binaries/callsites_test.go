@@ -165,7 +165,7 @@ func TestJustInstallSeedsTheTreesProgramsBeforeItInstalls(t *testing.T) {
 	}
 }
 
-// `yolo update` DEPLOYS UPSTREAM'S TREE AS PULLED (BP-D26): its deploy step sets
+// `yolo update` DEPLOYS UPSTREAM'S TREE AS PULLED (BP-D31): its deploy step sets
 // selfupdate.InstallKeepTreeEnv, and under it `just install` seeds without --repin, so nothing
 // writes the checkout, and a build it cannot seed is reported rather than failing the deploy —
 // which would leave a pulled tree with the old binary. The two spellings of the name are held

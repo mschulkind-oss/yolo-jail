@@ -35,7 +35,7 @@ func toolchainModule(goos, goarch string) string {
 // override a setting in that file, so it is the only way to be sure no GONOSUMDB, GOPRIVATE,
 // GOINSECURE or GOFLAGS there weakens the check. GOSUMDB=off is overridden for the same
 // reason; a GOSUMDB naming another database, and GOPROXY, are honored — from the environment or
-// from that file, read first with `go env` and passed explicitly (effectiveProxy, BP-D22).
+// from that file, read first with `go env` and passed explicitly (effectiveProxy, BP-D27).
 func fetchToolchain(hostGo string, environ []string) (string, error) {
 	tmp, err := os.MkdirTemp("", "pack-binaries-toolchain-")
 	if err != nil {
@@ -91,7 +91,7 @@ func checkToolchainVersion(goBin string, environ []string) error {
 
 // effectiveProxy is the GOPROXY and GOSUMDB the go on PATH would use — the environment first,
 // then the go env file `go env -w` writes — asked of it with `go env`, because the download runs
-// with GOENV=off and so would otherwise ignore a proxy set there (BP-D22). The question runs
+// with GOENV=off and so would otherwise ignore a proxy set there (BP-D27). The question runs
 // outside every module, never switches toolchains to answer (GOTOOLCHAIN=local), and carries no
 // GOFLAGS that could fail it. "" for either when it cannot be answered, and downloadEnv falls back
 // to the environment's.
