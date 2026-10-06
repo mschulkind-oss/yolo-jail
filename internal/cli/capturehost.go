@@ -16,6 +16,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/darwinpkg"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
@@ -25,6 +26,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/pidlock"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
+	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
 
 // capturehost.go is `yolo capture <bin>` — the HOST act of install-capture
@@ -366,8 +368,18 @@ func captureFork(f packload.Fork, out, errw io.Writer, color bool) int {
 		fmt.Fprintf(errw, "  then: yolo capture %s\n", f.Bin)
 		return 1
 	}
-	b := forkBuild{Fork: f, Commit: pin.Commit, Platform: captureJailPlatform()}
-	if _, err := buildFork(b, buildMode{force: true, lock: pidlock.NoWait}, out, errw, color); err != nil {
+	// THE BUILD'S PLATFORM IS ITS JAIL'S (FP-D19): a capture under macos-user builds for this Mac, as
+	// the Mac's host floor does, and every container backend for Linux. Only macos-user is named to
+	// the build, so the jail it boots is the one the darwin platform was read from. A container
+	// backend is left to the run pipeline's own resolution (which skips a `container` that is not
+	// Apple's or does not answer, and honors the guest notch), and a refusal there then names what
+	// the user set rather than a YOLO_RUNTIME they did not.
+	rt := captureRuntime()
+	if rt != "macos-user" {
+		rt = ""
+	}
+	b := forkBuild{Fork: f, Commit: pin.Commit, Platform: forkBuildPlatform(rt)}
+	if _, err := buildFork(b, buildMode{force: true, lock: pidlock.NoWait, runtime: rt}, out, errw, color); err != nil {
 		fmt.Fprintf(errw, "yolo capture: %v\n", err)
 		var exit captureJailExit
 		switch {
@@ -786,15 +798,16 @@ func runCaptureJail(workspace, bin string, argv []string, seal *captureSeal, out
 	// DROPPED too: an installer run in a throwaway home is no client of any of them, and a
 	// supervisor started for it would bind the launch's ports for nothing.
 	opts.MacosUserRun = func(cfg *jsonx.OrderedMap, _ string, _, _ []string,
-		_, packRoot string, _ macosuser.HomeOverlay, _ macosuser.HostContext, dryRun bool,
+		repoRoot, packRoot string, _ macosuser.HomeOverlay, _ macosuser.HostContext, dryRun bool,
 		packEnv *jsonx.OrderedMap, blocked []packload.BlockedTool, _ macosuser.JailDaemons) int {
-		// A FORK BUILD DOES NOT RUN ON THIS BACKEND (FP-D3): the eager slot and the capture
-		// store's reach there wait on hand-off H4, and the sealed capture act is container-only.
-		if seal != nil {
+		// A PATCHED FORK'S OR A PATCHED EXTENSION'S BUILD DOES NOT RUN ON THIS BACKEND: only a plain
+		// fork's does (FP-D19, below), for the Mac's host floor, and a patched one's advance and its
+		// record are built for a container's platform.
+		if seal != nil && seal.build == "" {
 			// Rung 4: no step of the user's makes macos-user build one, so the line names whose it
-			// is and what builds and runs a fork today, the container route FP-D3 ships first.
-			fmt.Fprintln(errw, "yolo capture: a fork is built on a container backend only — on "+
-				"macos-user no launch can read the capture store yet (install-capture.md hand-off H4)")
+			// is and what builds and runs one today, a container backend.
+			fmt.Fprintln(errw, "yolo capture: a patched fork or a patched extension is built on a container "+
+				"backend only — on macos-user only a plain fork's build runs, for yolo's host floor")
 			fmt.Fprintf(errw, "  That is yolo's to wire. A podman jail builds and runs it today: "+
 				"YOLO_RUNTIME=podman yolo -- %s\n", bin)
 			return 1
@@ -805,6 +818,22 @@ func runCaptureJail(workspace, bin string, argv []string, seal *captureSeal, out
 		// runs — inherit this process's stdout, unless the caller named the jail's (the Mac floor).
 		if jailStdout != nil {
 			deps.Run = macosuser.RunStdoutTo(jailStdout)
+		}
+		if seal != nil {
+			// A PLAIN FORK'S BUILD, SEALED, FOR THIS MAC (FP-D19): the capture act running the build line
+			// in a staging tree keyed by the build, the checkout in workspace/src copied beside its home,
+			// under the sealed capture profile, on the darwin floor's tools. It leaves the proto-entry and
+			// the toolchain record where a container build jail leaves them, so buildFork's admit, its
+			// checks and its receipt are the same for both.
+			// Its toolchain rooted at a link of the build's own, in this staging workspace and removed
+			// with it, never at the home's profile root a running macos-user session hangs from.
+			deps.MaterializeDarwin = materializeDarwinNativeAt(filepath.Join(workspace, forkToolchainRootLeaf))
+			return macForkBuildAct(deps, macosuser.ForkBuildOptions{
+				CaptureOptions: macosuser.CaptureOptions{Bin: bin, Config: cfg, HostPackRoot: packRoot,
+					SandboxEnv: packEnv, BlockedTools: blocked},
+				BuildID: seal.id, Build: seal.build, Source: filepath.Join(workspace, forkSourceLeaf),
+				RepoRoot: repoRoot, Toolchain: forkBuildToolchainHead(),
+			}, filepath.Join(workspace, captureOutLeaf), filepath.Join(workspace, forkToolchainLeaf), dryRun)
 		}
 		return macCaptureAct(deps, macosuser.CaptureOptions{
 			Bin: bin, Config: cfg, HostPackRoot: packRoot, SandboxEnv: packEnv,
@@ -827,6 +856,64 @@ var captureRunPipeline = run.Run
 // captureRunPipeline's reason: a test drives runCaptureJail's own macos-user closure and reads the
 // account runner it composed, without sudo or Seatbelt.
 var macCaptureAct = macosuser.RunCaptureAct
+
+// macForkBuildAct is the macos-user fork-build act (macosuser.RunForkBuildAct) behind a package var,
+// for macCaptureAct's reason: a test drives the sealed closure and reads the options it composed.
+var macForkBuildAct = macosuser.RunForkBuildAct
+
+// forkBuildToolchainHead is what this process knows of a macos-user build's toolchain, the head of
+// its record (macosuser.ForkBuildOptions.Toolchain): the yolo that ran it. The act adds the darwin
+// floor's store path and the macOS release, where a container build records its image's identity.
+func forkBuildToolchainHead() string {
+	v := version.Baked()
+	if v == "" {
+		v = "unstamped"
+	}
+	return "yolo " + v
+}
+
+// forkToolchainRootLeaf is the GC-root link a macos-user fork build's toolchain is rooted at, in the
+// build's host staging workspace: a sibling of out/ and the toolchain record, so the admit never
+// reads it, and removed with the workspace when the build ends (cleanupCaptureWorkspace).
+const forkToolchainRootLeaf = "toolchain-root"
+
+// forkToolchainMaterialize is the darwin floor build a macos-user fork build's toolchain comes from
+// (darwinpkg.MaterializeFloorAt), behind a package var so a test reads which link it is rooted at.
+var forkToolchainMaterialize = darwinpkg.MaterializeFloorAt
+
+// materializeDarwinNativeAt is the macos-user fork build's macosuser.Deps.MaterializeDarwin: the
+// darwin floor and `packages` built with native nix for this machine's system
+// (darwinpkg.NativeSystem), the floor every macos-user launch builds, ROOTED AT outLink. Not the
+// home's profile root (darwinpkg.ProfileRootLink), which a launch roots its own closure at: the
+// build's package list is the sealed capture's, the user scope's alone, so building there would
+// unroot a running session's closure whenever its workspace declares `packages:` of its own, and
+// `describe`, `check` and `yolo host apply` would report the build's closure as the launch's.
+func materializeDarwinNativeAt(outLink string) func(string, []any) (*macosuser.Darwin, bool, error) {
+	return func(nixRoot string, packages []any) (*macosuser.Darwin, bool, error) {
+		return materializeDarwinWith(nixRoot, packages, outLink)
+	}
+}
+
+// materializeDarwinWith is materializeDarwinNativeAt's body: the build, then its result as the
+// backend's Darwin.
+func materializeDarwinWith(nixRoot string, packages []any, outLink string) (*macosuser.Darwin, bool, error) {
+	system := darwinpkg.NativeSystem()
+	pkgs, err := forkToolchainMaterialize(nixRoot, packages, system, outLink, os.Stderr)
+	if err != nil {
+		return nil, false, err
+	}
+	env := jsonx.NewOrderedMap()
+	keys := make([]string, 0, len(pkgs.Env))
+	for k := range pkgs.Env {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		env.Set(k, pkgs.Env[k])
+	}
+	return &macosuser.Darwin{PathPrefix: pkgs.PathPrefix, Env: env, Skipped: pkgs.Skipped, System: system,
+		ProfilePath: pkgs.ProfilePath}, true, nil
+}
 
 // cleanupCaptureWorkspace removes what the capture jail left on the host.
 //

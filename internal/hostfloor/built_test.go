@@ -13,11 +13,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
+	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor/floortest"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 )
 
@@ -546,7 +548,22 @@ func TestNoFloorEntryForAFork(t *testing.T) {
 			f.ForkPinnable = func(Program) bool { return true }
 		}, []string{"built from source by fork pack forkpack", "it has no pin yet"}},
 		{"no pin reader", func(f *Floor, _ *string) { f.ForkPin = nil }, []string{"fork pack forkpack", "reads no fork pin"}},
-		{"a Mac", func(f *Floor, _ *string) { f.GOOS = "darwin" }, []string{"in a Linux capture jail", "darwin/"}},
+		// A MAC (FP-D19): a floor given no macos-user build act holds no fork's build, and one whose
+		// act cannot run here says why in that act's words, with its step — and never names a
+		// container runtime, which a Mac's build does not use.
+		{"a Mac with no build act", func(f *Floor, _ *string) { f.GOOS = "darwin" },
+			[]string{"built from source by fork pack forkpack", "macos-user sandbox account"}},
+		{"a Mac whose sandbox account is missing", func(f *Floor, _ *string) {
+			f.GOOS = "darwin"
+			f.BuildActUnavailable = func(bin, does string) string {
+				if bin != "forkcli" {
+					t.Errorf("BuildActUnavailable asked about %q", bin)
+				}
+				return "the sandbox account _yolojail, which a fork's build on a Mac runs as, does not exist — run " +
+					"the one-time setup, `yolo macos-setup`, and the next `yolo host` launch " + does
+			}
+		}, []string{"there is no build of forkcli at commit 111111111111", "run the one-time setup, `yolo macos-setup`",
+			"and the next `yolo host` launch builds it"}},
 		{"no build and no runtime", func(f *Floor, _ *string) {
 			f.CaptureUnavailable = func() string { return "no container runtime (podman) is on PATH" }
 		}, []string{"there is no build of forkcli at commit 111111111111", "podman",
@@ -566,9 +583,9 @@ func TestNoFloorEntryForAFork(t *testing.T) {
 				}
 			}
 			// The runtime step is only for a missing runtime: with no build act, installing one
-			// would change nothing.
-			if c.name == "no build act" && strings.Contains(st.Reason, "install one") {
-				t.Errorf("a floor with no build act names a runtime to install: %s", st.Reason)
+			// would change nothing, and a Mac's build needs none.
+			if (c.name == "no build act" || strings.HasPrefix(c.name, "a Mac")) && strings.Contains(st.Reason, "install one") {
+				t.Errorf("%s names a runtime to install: %s", c.name, st.Reason)
 			}
 			if _, _, err := w.floor.Ensure(context.Background(), p); !errors.Is(err, ErrNoEntry) {
 				t.Errorf("Ensure = %v, want ErrNoEntry", err)
@@ -778,5 +795,77 @@ func TestAForkBuildThatIsNotANodeScriptIsStartedAsItself(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(w.floor.Dir, "node")); err == nil {
 		t.Error("a program that is not a Node script fetched the floor's Node")
+	}
+}
+
+// macForkWorld is forkWorld on a Mac (FP-D19): a darwin floor over a darwin Node distribution, the
+// fork pinned at *pin, and the macos-user build act's predicate answering blocked. CaptureUnavailable
+// says no container runtime is here, which a Mac's build must never ask: its act is the sandbox
+// account's (C2's split of the two predicates).
+func macForkWorld(t *testing.T, pin *string, blocked string) (*world, *buildStore) {
+	t.Helper()
+	w := newWorldOn(t, floortest.NewDistOn(t, "darwin", runtime.GOARCH))
+	bs := newBuildStore(t)
+	w.floor.ForkPin = func(Program) (string, string) { return *pin, "" }
+	w.floor.ResolveBuild = bs.resolve
+	w.floor.Build = func(p Program, commit string) (*capture.Entry, error) {
+		bs.builds = append(bs.builds, commit)
+		return bs.addFor(p, commit, true), nil
+	}
+	w.floor.BuildActUnavailable = func(string, string) string { return blocked }
+	w.floor.CaptureUnavailable = func() string { return "no container runtime (podman) is on PATH" }
+	return w, bs
+}
+
+// A MAC'S FLOOR HOLDS A PLAIN FORK'S PROGRAM (FP-D19): with the macos-user build act able to run, the
+// program is missing rather than no floor entry, and the install builds the pin through that act —
+// on a Mac with no container runtime — says it builds as the sandbox account, and runs the floor's
+// copy on the floor's own Node.
+func TestAMacFloorBuildsAPlainForkThroughTheMacosUserAct(t *testing.T) {
+	pin := forkCommitOne
+	w, bs := macForkWorld(t, &pin, "")
+	p := forkProgram()
+	if st := w.floor.Status(p); st.Disposition != Missing || !strings.Contains(st.Reason, "not installed yet") {
+		t.Fatalf("before any install on a Mac: %s (%s), want missing", st.Disposition, st.Reason)
+	}
+	st, outcome, err := w.floor.Ensure(context.Background(), p)
+	if err != nil {
+		t.Fatalf("Ensure on a Mac: %v\n%s", err, w.out.String())
+	}
+	if outcome != Installed || len(bs.builds) != 1 || bs.builds[0] != forkCommitOne {
+		t.Fatalf("outcome %s, builds %v: want one build at the pin", outcome, bs.builds)
+	}
+	if !strings.Contains(w.out.String(), "as the macos-user sandbox account, sealed under Seatbelt") {
+		t.Errorf("the line that starts the build does not say the sandbox account builds it:\n%s", w.out.String())
+	}
+	if strings.Contains(w.out.String(), "every jail on this machine reuses it") {
+		t.Errorf("a Mac's build is described as one every jail reuses, which a darwin build is not:\n%s",
+			w.out.String())
+	}
+	rec := st.Record
+	if rec.Via != "source" || rec.Revision != forkCommitOne || rec.Version != "commit 111111111111" || rec.Node == "" {
+		t.Errorf("record = %+v", rec)
+	}
+	cmd := exec.Command(st.Launcher, "--version")
+	cmd.Env = []string{}
+	got, err := cmd.CombinedOutput()
+	if err != nil || string(got) != "node:"+rec.Entry+" --version\n" {
+		t.Fatalf("running the Mac floor's forkcli with no environment: %q %v", got, err)
+	}
+}
+
+// A PATCHED FORK STAYS LINUX'S on a Mac whose build act could run: its advance builds for a
+// container's platform alone, so it is no floor entry, naming a jail, and nothing is built.
+func TestAMacFloorHoldsNoPatchedForkEvenWithItsBuildAct(t *testing.T) {
+	pin := forkCommitOne
+	w, bs := macForkWorld(t, &pin, "")
+	p := forkProgram()
+	p.Install.Patches = "patches"
+	st, _, err := w.floor.Ensure(context.Background(), p)
+	if !errors.Is(err, ErrNoEntry) || !strings.Contains(st.Reason, "in a Linux capture jail, and this machine is darwin/") {
+		t.Errorf("a patched fork on a Mac: %s (%s), %v", st.Disposition, st.Reason, err)
+	}
+	if len(bs.builds) != 0 {
+		t.Errorf("a patched fork on a Mac was built: %v", bs.builds)
 	}
 }

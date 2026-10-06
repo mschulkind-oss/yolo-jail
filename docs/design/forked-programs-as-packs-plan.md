@@ -482,15 +482,19 @@ selection refusals [FP-D5](forked-programs-as-packs.md#FP-D5) names are the only
 - **Don't seal `yolo capture` of an installer** in this work
   ([FP-D9](forked-programs-as-packs.md#FP-D9)), and don't add a notch component to the key
   ([FP-D4](forked-programs-as-packs.md#FP-D4)).
-- **Don't wire `macos-user` past [FP-D3](forked-programs-as-packs.md#FP-D3)'s line**: the slot sits
-  below that arm's return, and the store's reach there is a pending ruling.
+- **Don't wire a `macos-user` JAIL launch past [FP-D3](forked-programs-as-packs.md#FP-D3)'s line**:
+  the slot sits below that arm's return. The Mac's host floor builds a plain fork there since
+  2026-10-05 ([FP-D19](forked-programs-as-packs.md#FP-D19)), for the host and not for a session.
 
 ## Blockers
 
 None for steps 1–6. Step 7's `hostfloor` arms are built on the stand-in's measurement; its rerun
 on the motivating fork waits on a maintainer naming that fork ([Step 7 needs](#step-7-needs)). Past it,
-[§11](forked-programs-as-packs.md#11-sequencing) step 4
-(`macos-user`) waits on hand-off H4, a ruling
-[`install-capture.md`](../plans/install-capture.md#hand-offs--what-is-not-wired-and-the-exact-line-that-wires-it)
-holds, and on the macOS host capture ([HP-D2](host-tool-provisioning.md#HP-D2)); step 5 (`guest`)
-waits on env-manager Phase 7.
+[§11](forked-programs-as-packs.md#11-sequencing) step 4 (`macos-user`) is half built: since
+2026-10-05 the Mac's host floor builds a plain fork for darwin as the sandbox account
+([FP-D19](forked-programs-as-packs.md#FP-D19)), and no Mac has run it. Still unbuilt there: a
+`macos-user` session's own fork ([FP-D3](forked-programs-as-packs.md#FP-D3): the slot sits below
+that arm's return, and the staged capture store carries installer captures alone), a patched fork
+at a Mac's host floor (the patched-forks workstream's), and a base's `node_floor` above the darwin
+floor's Node, or the config's `mise_tools`, inside the build, which waits on
+[OQ-FP10](forked-programs-as-packs.md#OQ-FP10). Step 5 (`guest`) waits on env-manager Phase 7.

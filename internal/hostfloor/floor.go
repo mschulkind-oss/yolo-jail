@@ -36,10 +36,12 @@
 //     through the macos-user capture act, Seatbelt and the sandbox account (HP-D2): each fills the
 //     same store, and the floor materializes either the same way.
 //   - `via: source`, a FORK's program (built.go): the capture store's build of the fork's
-//     PINNED commit, the entry a jail launch materializes, relocated into the prefix, where this
-//     host matches the build jail (Linux). A Node script among them is started by the floor's own
-//     Node, as an npm program is. A PATCHED fork's (patched.go) is the build of its GOOD BUILD
-//     instead, and its install runs the fork's advance first (docs/design/patched-forks.md §9).
+//     PINNED commit, relocated into the prefix — on Linux the entry a jail launch materializes, its
+//     build jail's platform being the host's, and on a Mac a build of its own, made for darwin by the
+//     macos-user fork-build act, Seatbelt and the sandbox account under the seal (FP-D19). A Node
+//     script among them is started by the floor's own Node, as an npm program is. A PATCHED fork's
+//     (patched.go) is the build of its GOOD BUILD instead, and its install runs the fork's advance
+//     first (docs/design/patched-forks.md §9); it is Linux's alone.
 //
 // # The layout (every name below is this package's)
 //
@@ -207,8 +209,8 @@ type Floor struct {
 	// Capture runs `yolo capture <bin>`, filling the store. nil => this host cannot capture.
 	Capture func(bin string) error
 	// CaptureUnavailable says why this machine cannot boot a capture or build JAIL right now ("" when
-	// it can): a fork's build and a patched fork's advance each boot one, so a host with no container
-	// runtime cannot make one. Asked only for a program that is neither provisioned nor in the store,
+	// it can): a Linux fork's build and a patched fork's advance each boot one, so a host with no
+	// container runtime cannot make one (a Mac's fork build boots none: BuildActUnavailable). Asked only for a program that is neither provisioned nor in the store,
 	// which then has no floor entry HERE rather than an install bound to fail (a selected pack
 	// delivers a program the floor "holds, or can provision", host-agent-environment.md's launch PATH
 	// terms), its reason ending with runtimeStep. It answers for an installer's capture too, unless
@@ -266,13 +268,20 @@ type Floor struct {
 	// fork, naming the act that does: the host apply `yolo pack update` runs (PF-D12, PF-D56). ""
 	// keeps the machine's reason.
 	NoAdvance string
-	// Build runs the fork's build act for p at commit (a sealed capture jail; never on the host),
-	// waiting, bounded, for a build of the same key another process is running, as a jail launch
-	// does (FP-D1), and returns the entry it admitted or the one that process did. The entry is
-	// taken from the act rather than looked up again: selection is newest-wins on a one-second
-	// receipt stamp, so a lookup straight after two builds in one second could answer with the
-	// other. nil => this host cannot build.
+	// Build runs the fork's build act for p at commit (a sealed capture jail, or on a Mac the sealed
+	// macos-user fork-build act; never unconfined on the host), waiting, bounded, for a build of the
+	// same key another process is running, as a jail launch does (FP-D1), and returns the entry it
+	// admitted or the one that process did. The entry is taken from the act rather than looked up
+	// again: selection is newest-wins on a one-second receipt stamp, so a lookup straight after two
+	// builds in one second could answer with the other. nil => this host cannot build.
 	Build func(p Program, commit string) (*capture.Entry, error)
+	// BuildActUnavailable says why Build cannot build bin on this machine right now, as a whole clause
+	// that ends with the step that ends it — does is what the next launch then does ("builds it") — or
+	// "" when it can. It exists because a fork's build need not boot a container: a Mac's is the
+	// macos-user fork-build act (FP-D19), whose reasons and steps are the sandbox account's, not a
+	// runtime's. On a Mac it is also what admits a plain fork's program at all: a floor given none has
+	// no darwin build to run. nil => CaptureUnavailable answers, with runtimeStep.
+	BuildActUnavailable func(bin, does string) string
 	// Environ is the environment the installers are derived from (installerEnv strips the
 	// parts that would steer where an install lands). nil => os.Environ().
 	Environ []string
@@ -553,14 +562,26 @@ func (f *Floor) recipeNoEntryReason(p Program) string {
 			"as the macos-user sandbox account, and this machine is " + f.GOOS + "/" + f.GOARCH
 	case packdecl.InstallKindSource:
 		// A FORK (docs/design/forked-programs-as-packs.md): its host copy is the capture store's
-		// build of the fork's PINNED commit, relocated into the floor (FP-D4). The build runs in a
-		// Linux capture jail, and a notch gets a build made for its own platform or none (§1: no
-		// cross-compilation). With no pin there is no build to ask for, and an older build the
+		// build of the fork's PINNED commit, relocated into the floor (FP-D4). A notch gets a build
+		// made for its own platform or none (§1: no cross-compilation): on Linux the capture jail's,
+		// and on a Mac a darwin build of the macos-user fork-build act (FP-D19), which a floor given
+		// that act's predicate runs. With no pin there is no build to ask for, and an older build the
 		// floor still holds is a near-miss it never serves (§9), so that is no entry too — unless
 		// the install can make the pin (awaitsPin, FP-D18), which it does before it builds.
-		if f.GOOS != "linux" {
-			// The next step is a jail's: a build is of the jail's platform (FP-D16), and a jail
-			// launch on a container backend builds it, a patched fork's advance included.
+		switch {
+		case f.GOOS == "linux":
+		case f.GOOS == "darwin" && !in.IsPatchedFork():
+			// A MAC BUILDS A PLAIN FORK THROUGH THE MACOS-USER ACT ALONE: a container build jail's
+			// entry is a Linux one no Mac runs. Whether that act can run HERE is the build's question
+			// (cannotBuild, asked where the store holds no build), so only a floor given none is
+			// refused now.
+			if f.BuildActUnavailable == nil {
+				return "it is built from source by fork pack " + in.ForkedBy + ", which on a Mac the floor " +
+					"builds as the macos-user sandbox account, and this floor runs no such build"
+			}
+		default:
+			// The next step is a jail's: a patched fork's advance builds for a container's platform
+			// alone, and a jail launch on a container backend runs it.
 			return "it is built from source by fork pack " + in.ForkedBy + " in a Linux capture " +
 				"jail, and this machine is " + f.GOOS + "/" + f.GOARCH + ": the floor holds a build " +
 				"made for its own platform only — run it in a jail instead (`yolo -- " + in.Bin + "`, on " +
@@ -750,14 +771,21 @@ func (f *Floor) captureHow() string {
 	return "a throwaway jail runs its installer once, and every jail on this machine reuses the result"
 }
 
-// cannotBuild says why this machine cannot run a fork's build act now, "" when it can: the build
-// boots a jail, which an installer's capture need not (cannotCapture), so this asks the runtime alone.
-func (f *Floor) cannotBuild() string {
+// cannotBuild says why this machine cannot run a fork's build act for bin now, with the step that
+// ends it, "" when it can: BuildActUnavailable's answer — a Mac's macos-user act (FP-D19) — or the
+// build jail's runtime (CaptureUnavailable). It is never the capture's question (cannotCapture): a
+// Linux host captures under Landlock where no jail can boot, and a fork's build never runs that way.
+// does is what the next launch does once the step is taken.
+func (f *Floor) cannotBuild(bin, does string) string {
 	switch {
 	case f.Build == nil:
 		return "this machine cannot run a fork's build"
+	case f.BuildActUnavailable != nil:
+		return f.BuildActUnavailable(bin, does)
 	case f.CaptureUnavailable != nil:
-		return f.CaptureUnavailable()
+		if why := f.CaptureUnavailable(); why != "" {
+			return why + runtimeStep(true, does)
+		}
 	}
 	return ""
 }

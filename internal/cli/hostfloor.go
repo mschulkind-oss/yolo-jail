@@ -124,15 +124,8 @@ var newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Flo
 			}
 			return pin.Commit, pin.Reason
 		},
-		ResolveBuild: func(p hostfloor.Program, commit string) (*capture.Entry, error) {
-			b := floorForkBuild(p, commit)
-			entry, _, err := resolveForkBuild(store, b.Fork.Bin, b.Platform, b.Fork.Source, commit, b.recipe())
-			return entry, err
-		},
-		Build: func(p hostfloor.Program, commit string) (*capture.Entry, error) {
-			return buildFork(floorForkBuild(p, commit), buildMode{lock: pidlock.Mode{Wait: true, Bound: forkBuildWaitBound},
-				jailStdout: hostJailStdout()}, out, out, false)
-		},
+		// The store's build at that pin and the build act (ResolveBuild, Build) are wired below, by
+		// the floor's platform (wireFloorBuild).
 		// A PATCHED FORK's program (docs/design/patched-forks.md §9, PF-D14): no pin, so the floor reads
 		// the GOOD BUILD where a plain fork's reads the pin — offline, from this machine's check record
 		// and capture store — and its install runs the fork's ADVANCE first, the one a fresh jail launch
@@ -147,7 +140,47 @@ var newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Flo
 		Prefix: "yolo host: ",
 	}
 	wireFloorCapture(f, out)
+	wireFloorBuild(f, store, out)
 	return f
+}
+
+// wireFloorBuild gives f its fork builds — the hit check, the build act, and why the act cannot run —
+// by the FLOOR'S platform (f.GOOS, read at each call, the one its dispositions are decided for), as
+// wireFloorCapture gives it its captures, since the two platforms build differently:
+//
+//   - LINUX: the build act a jail launch runs on a miss, in the sealed capture jail of the runtime a
+//     launch resolves. Its blocker is that runtime's absence (CaptureUnavailable), asked of the
+//     ambient PATH.
+//   - A MAC: the macos-user fork-build act (forked-programs-as-packs.md FP-D19), named for this one
+//     build whatever `runtime` is configured: a container build here is a Linux build, which no floor
+//     on a Mac runs. Its blockers are the act's own refusals, asked first (macBuildBlocked).
+//
+// Either way the build is filed under this host's platform (floorForkBuild), which is the one its act
+// makes: a container jail's on Linux, and on a Mac darwin, as the sandbox account runs it there.
+func wireFloorBuild(f *hostfloor.Floor, store *capture.Store, out io.Writer) {
+	f.ResolveBuild = func(p hostfloor.Program, commit string) (*capture.Entry, error) {
+		b := floorForkBuild(p, commit)
+		entry, _, err := resolveForkBuild(store, b.Fork.Bin, b.Platform, b.Fork.Source, commit, b.recipe())
+		return entry, err
+	}
+	f.Build = func(p hostfloor.Program, commit string) (*capture.Entry, error) {
+		mode := buildMode{lock: pidlock.Mode{Wait: true, Bound: forkBuildWaitBound}, jailStdout: hostJailStdout()}
+		if f.GOOS == "darwin" {
+			mode.runtime = "macos-user"
+		}
+		return buildFork(floorForkBuild(p, commit), mode, out, out, false)
+	}
+	f.BuildActUnavailable = func(bin, does string) string {
+		if f.GOOS == "darwin" {
+			return macBuildBlocked(hostFloorMacProbes(), bin, does)
+		}
+		if f.CaptureUnavailable != nil {
+			if why := f.CaptureUnavailable(); why != "" {
+				return why + hostfloor.RuntimeStep(does)
+			}
+		}
+		return ""
+	}
 }
 
 // wireFloorCapture gives f its installer capture — the act, why it cannot run, and how it runs — by
@@ -244,19 +277,36 @@ var hostFloorMacProbes = func() macCaptureProbes {
 // make after the jail's preparation began, asked here first so the floor says it as no floor entry —
 // the launch then runs the PATH copy (OQ-HE11) — rather than failing an install.
 func macCaptureBlocked(p macCaptureProbes, bin, does string) string {
+	return macActBlocked(p, macActWords{act: "a capture", confines: "a capture's installer",
+		runsAs: "a capture on a Mac runs its installer as"}, bin, does)
+}
+
+// macBuildBlocked is a Mac floor's BuildActUnavailable: why the macos-user fork-build act
+// (macosuser.RunForkBuildAct, FP-D19) cannot build bin here now, with its step, or "" when it can —
+// the capture act's own refusals, since the build is that act running a build line.
+func macBuildBlocked(p macCaptureProbes, bin, does string) string {
+	return macActBlocked(p, macActWords{act: "a fork's build", confines: "a fork's build",
+		runsAs: "a fork's build on a Mac runs as"}, bin, does)
+}
+
+// macActWords is how a refusal of macActBlocked names its act: the act ("a capture"), what Seatbelt
+// confines in it, and the clause the sandbox account's sentence runs on.
+type macActWords struct{ act, confines, runsAs string }
+
+// macActBlocked is the macos-user capture act's refusals, asked before it runs, in w's words.
+func macActBlocked(p macCaptureProbes, w macActWords, bin, does string) string {
 	switch {
 	case p.Geteuid() == 0:
-		return "yolo is running as root, and a capture on a Mac runs as your own user, asking for sudo " +
+		return "yolo is running as root, and " + w.act + " on a Mac runs as your own user, asking for sudo " +
 			"itself at each step that needs it — run `yolo host` without sudo, and it " + does
 	case !p.Which("sandbox-exec"):
-		return "sandbox-exec (Apple Seatbelt), which confines a capture's installer on a Mac, is not on PATH " +
+		return "sandbox-exec (Apple Seatbelt), which confines " + w.confines + " on a Mac, is not on PATH " +
 			"— put /usr/bin back on it, and the next `yolo host` launch " + does
 	case !p.SandboxUserExists():
-		return "the sandbox account " + macosuser.SandboxUser + ", which a capture on a Mac runs its " +
-			"installer as, does not exist — run the one-time setup, `yolo macos-setup`, and the next " +
-			"`yolo host` launch " + does
+		return "the sandbox account " + macosuser.SandboxUser + ", which " + w.runsAs + ", does not exist " +
+			"— run the one-time setup, `yolo macos-setup`, and the next `yolo host` launch " + does
 	case !p.StdinIsTerminal() && !p.SudoWithoutPassword():
-		return "a capture on a Mac asks for sudo, and this launch has no terminal to ask on — run " +
+		return w.act + " on a Mac asks for sudo, and this launch has no terminal to ask on — run " +
 			"`YOLO_RUNTIME=macos-user yolo capture " + bin + "` once in a terminal, and every later " +
 			"`yolo host` launch uses its result"
 	}
@@ -282,8 +332,8 @@ func floorForkBuild(p hostfloor.Program, commit string) forkBuild {
 
 // floorPatchedPlatform is the platform a patched fork's floor build is of: this host's, as a plain
 // fork's floor build is (floorForkBuild), the only one a materialize on the host takes. The floor
-// holds a fork's build on Linux only (noEntryReason refuses every other host first), where it is a
-// capture jail's too, so the floor's lookups and a jail launch's name one build.
+// holds a PATCHED fork's build on Linux only (noEntryReason refuses every other host first), where it
+// is a capture jail's too, so the floor's lookups and a jail launch's name one build.
 func floorPatchedPlatform() string { return capture.Platform() }
 
 // floorAdvance is the floor's advance of a patched fork (hostfloor.Floor.Advance): the fresh

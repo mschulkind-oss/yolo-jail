@@ -3,7 +3,7 @@ title: "A host agent floor: yolo keeps its own agents installed on the host, so 
 date: 2026-09-25
 status: accepted
 tags: [host, provisioning, floor, program, npm, capture, mise, path, evergreen]
-summary: "yolo host should run every agent a selected pack declares from any launcher, a Waybar widget included, without the user having arranged a PATH. The design is a host agent floor: the program binaries of the user-scope selected packs, installed with no prompt into a yolo-owned host prefix (selecting the pack is the consent), kept current the way the jail's launchers keep them, and exec'd from there by path, so the floor's copy runs even where the user installed their own. The prefix is on no PATH of the user's, and a launch appends its bin/ last to the agent's PATH. npm agents run on the prefix's own Node; the installer-recipe agents come from a yolo capture, which on a Mac is the macos-user capture act and on a Linux host with no container runtime a capture on the host confined by Landlock; a fork's program comes, on Linux, from the capture store's build of its pinned commit. yolo never runs mise install at the host. Every question here is ruled; what runs for a selected pack's program the floor cannot hold is OQ-HE11 in host-launch-environment.md. Built 2026-09-29 on Linux, and on 2026-10-05 for a Mac (HP-D2) and for a Linux host with no container runtime (HP-D18); the Built column of the ledger says what each ruling's code is and what is not yet measured."
+summary: "yolo host should run every agent a selected pack declares from any launcher, a Waybar widget included, without the user having arranged a PATH. The design is a host agent floor: the program binaries of the user-scope selected packs, installed with no prompt into a yolo-owned host prefix (selecting the pack is the consent), kept current the way the jail's launchers keep them, and exec'd from there by path, so the floor's copy runs even where the user installed their own. The prefix is on no PATH of the user's, and a launch appends its bin/ last to the agent's PATH. npm agents run on the prefix's own Node; the installer-recipe agents come from a yolo capture, which on a Mac is the macos-user capture act and on a Linux host with no container runtime a capture on the host confined by Landlock; a fork's program comes from the capture store's build of its pinned commit, which on a Mac the macos-user sandbox account builds for darwin under a sealed Seatbelt profile. yolo never runs mise install at the host. Every question here is ruled; what runs for a selected pack's program the floor cannot hold is OQ-HE11 in host-launch-environment.md. Built 2026-09-29 on Linux, and on 2026-10-05 for a Mac (HP-D2, and a plain fork's build by forked-programs-as-packs.md FP-D19) and for a Linux host with no container runtime (HP-D18); the Built column of the ledger says what each ruling's code is and what is not yet measured."
 stage: DECIDED
 next: "Dispatch macos-user.yml for TestMacosUserHostFloorMaterializesAFixtureInstallerCapture and TestMacosUserHostFloorIsTheHostUsersAlone, and packs.yml for TestHostFloorInstallsTheVendorsRelease, then on a Mac run `yolo host -- claude` and `yolo host -- agy` once from a terminal; on a Linux host with no container runtime run `yolo host -- claude`; on Linux and on a Mac, with a real pi and an npm extension, run `yolo host -- pi` twice inside an hour and see one refresh line"
 ---
@@ -108,7 +108,9 @@ the launch says why the floor has no copy. Ruled 2026-09-29: [OQ-HP1](#OQ-HP1) (
   selected is not installed, or none is selected or on PATH and the kernel cannot confine a capture
   on the host ([HP-D18](#HP-D18)); or a capture that holds no runnable program and that a new
   capture would not change; or, by [FP-D16](forked-programs-as-packs.md#FP-D16), a fork's program
-  with no usable pin, whose build cannot move out of the jail's home, or on a macOS host; or, by
+  with no usable pin or whose build cannot move out of its build home, and on a Mac a patched fork's,
+  or a plain fork's the macos-user act cannot build here for one of the capture act's reasons
+  ([FP-D19](forked-programs-as-packs.md#FP-D19)); or, by
   [HP-D15](#HP-D15), a program asking for a dynamic loader this machine lacks, as on NixOS without
   nix-ld or a musl system). A copy of the program the user installed
   elsewhere is not a disposition: under [HP-DIR4](#HP-DIR4) it never stands in for the floor's, and
@@ -228,7 +230,7 @@ while `node` in its shell children is still the project's
 | :--- | :--- |
 | `via: npm` | **Yes**, on Linux and macOS. It installs into a prefix-private npm prefix with a prefix-private interpreter ([OQ-HP4](#OQ-HP4)) |
 | `via: installer` | **Yes**, by [OQ-HP3](#OQ-HP3)'s ruling: materialized from the jail's `yolo capture` where the host matches the capture jail, from the macos-user capture act on a Mac ([HP-D2](#HP-D2)), and on a Linux host with no container runtime from a capture on the host, its installer confined by Landlock ([HP-D18](#HP-D18)). A machine that can run none of them has **no floor entry** for it |
-| `via: source` (a fork's build) | **Yes, on Linux**, by [FP-D4](forked-programs-as-packs.md#FP-D4): the capture store's build of the fork's pinned commit, the entry a jail launch materializes, relocated into the prefix by the same confined materialize as an installer's capture. A miss runs the fork's sealed build act, as a jail launch does; a Node script runs on the prefix's interpreter. A fork with no usable pin, a build that cannot move out of the jail's home, and every macOS host are **no floor entry** ([FP-D16](forked-programs-as-packs.md#FP-D16)) |
+| `via: source` (a fork's build) | **Yes**, by [FP-D4](forked-programs-as-packs.md#FP-D4): the capture store's build of the fork's pinned commit, relocated into the prefix by the same confined materialize as an installer's capture. On Linux it is the entry a jail launch materializes, and a miss runs the fork's sealed build act, as a jail launch does. On a Mac a miss runs that act as the macos-user sandbox account, sealed, for darwin ([FP-D19](forked-programs-as-packs.md#FP-D19)). A Node script runs on the prefix's interpreter. A fork with no usable pin, a build that cannot move out of its build home, and a patched fork on a Mac are **no floor entry** ([FP-D16](forked-programs-as-packs.md#FP-D16)) |
 
 **Install atomicity.** A program installs into a fresh versioned directory, and its `bin/` entry is
 switched only once the install exits 0 and the entry binary exists. A failed or killed install
@@ -485,8 +487,11 @@ What only a real host can still confirm is said per row.
   `TestHostLaunchRunsTheBuildAJailLaunchMadeOnAMachineThatCannotBuild` runs the build a jail
   launch's own build call made, with no second build;
   `TestHostApplyProvisionsAPinnedForkAndRemovesItWhenThePinGoes` and the floor's own
-  `built_test.go` cover the rest. **Needs a real host:** a real fork's build, made in a real
-  sealed jail, running from the prefix. The 2026-10-01 stand-in
+  `built_test.go` cover the rest. On a Mac ([FP-D19](forked-programs-as-packs.md#FP-D19), 2026-10-05)
+  the build is the macos-user act's, for darwin: `TestAMacHostLaunchOfAForkBuildsItAsTheSandboxAccount`
+  drives the same chain with that act stood in for, and `TestMacosUserHostFloorBuildsAForkFixtureForTheMac`
+  runs it on a Mac (`macos-user.yml`, no green run recorded). **Needs a real host:** a real fork's
+  build, made in a real sealed jail or as the sandbox account, running from the prefix. The 2026-10-01 stand-in
   ([the plan's run](forked-programs-as-packs-plan.md#steps-1-to-3-on-a-stand-in-fork-2026-10-01))
   measured its build relocatable; nothing has run it outside the jail.
 - `yolo check` lists every floor entry with a disposition. Every file yolo wrote is under the

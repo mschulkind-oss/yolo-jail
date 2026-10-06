@@ -31,7 +31,9 @@ package run
 //	the host's network (resolveNetMode,    the runtime's own bridge, whatever `network.mode`
 //	assembleRunCmd)                        says, and no host-loopback forwarding (FP-D13); a
 //	                                       nested launch is still forced onto its launcher's
-//	                                       namespace, which is itself a jail's
+//	                                       namespace, which is itself a jail's. On macos-user,
+//	                                       which shares the host's stack, the sealed Seatbelt
+//	                                       profile denies the loopback instead (FP-D19)
 //	`mounts`, pack `mount`, reads-host     none, the surfaces' host layers included
 //	the host briefing prepend              none
 //	the host's global gitignore            not bound, nor named by the composed git config
@@ -42,6 +44,16 @@ package run
 //	the host nvim config                   not bound
 //	the inherited user config              not bound
 //	env_sources' MISE_DISABLE_TOOLS        not hydrated
+//	the whole macos-user arm (Run)         left above its first crossing site
+//	                                       (runSealedMacosUser): no context mount, relocation,
+//	                                       host service, keeper, doorway, credential view, host
+//	                                       bytes or herdr pane; the backend's own seal is the
+//	                                       sealed capture profile, which also denies the nix
+//	                                       daemon's socket (FP-D19)
+//
+// The exec disclosure's reader, hostServiceNames, stays seal-blind on purpose (keeper.go): on
+// macos-user the disclosure and the spawn are one call (startLoopholesDisclosed), which a sealed
+// launch never reaches.
 //
 // What stays is TOOLCHAIN, not credential (FP-D9): the image, `packages`, `mise_tools` and a
 // base's `node_floor` (installed into the private /mise, at the cost of that download once per
@@ -57,6 +69,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -125,4 +138,52 @@ func (o *Options) narrowedPackEntries(entries []config.PackEntry) []config.PackE
 		}
 	}
 	return out
+}
+
+// runSealedMacosUser is a SEALED launch on macos-user: a fork's build (forked-programs-as-packs.md
+// FP-D19), which this backend runs in its capture act under the sealed Seatbelt profile
+// (macosuser.RunForkBuildAct, through the build act's MacosUserRun). It hands the backend nothing of
+// the host's, and does so by RETURNING ABOVE every crossing site of the macos-user arm rather than by
+// a check at each one, since that arm has a dozen and a build needs none of them:
+//
+//	the crossing site, on the arm it leaves        under the seal
+//	`mounts`, pack `mount`, cache_relocations      neither planned nor handed
+//	host loopholes and services, the workspace's   none started or joined, and no session recorded:
+//	keeper, the OpenAI service's fail-closed       the build's key is its own staging workspace's
+//	check
+//	the credential view, doorways, launch-owned    none
+//	services, port relays
+//	host_files, reads-host grants, the skills and  not composed: the backend gets an empty overlay
+//	briefing overlay, the capture store's entries  and an empty host context
+//	the jail-daemon payload                        none (Run withholds it above the dispatch)
+//	the herdr pane                                 not registered
+//	auto-capture, the reclaim offer, housekeeping, none runs
+//	the launch's config artifacts, the durable dir
+//
+// It keeps the config-change approval (which the build act grants up front, as a container build's
+// is), the pack tree the build's bootstrap renders from, the blocked tools, the arm's signal handling,
+// the launch's record line and the sealed channel's launch env: the wire tables, empty.
+func (o *Options) runSealedMacosUser(cfg *jsonx.OrderedMap, rt, repoRoot string, staged stagedPacks,
+	args []string, channel *packChannel) int {
+	o.releaseArrivalLock()
+	wsCfg, _ := config.LoadWorkspaceConfig(o.Workspace, false, func(string) {})
+	if !o.DryRun && !o.checkConfigChanges(wsCfg, cfg, rt) {
+		return 1
+	}
+	arm, disarm := o.armMacosUser()
+	defer disarm()
+	if status, ending := arm.Ending(); ending {
+		return status
+	}
+	launched := ""
+	if len(args) > 0 {
+		launched = filepath.Base(args[0])
+	}
+	// The launch's fate is known, as a container build's is once its jail starts (launchrecord.go).
+	if !o.DryRun {
+		o.recordLaunchOutcome(launchStarted, -1)
+	}
+	return o.MacosUserRun(cfg, o.Workspace, config.SelectedAgents(cfg), args, repoRoot, staged.root,
+		macosuser.HomeOverlay{}, macosuser.HostContext{}, o.DryRun, channel.launchEnv(launched),
+		packload.BlockedTools(staged.packs), macosuser.JailDaemons{})
 }

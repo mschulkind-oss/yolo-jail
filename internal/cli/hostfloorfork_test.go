@@ -25,6 +25,8 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor/floortest"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -110,10 +112,8 @@ func forkFloorHome(t *testing.T) (repo string, commit func(msg string) string, f
 }
 
 // forkFloorBuildJail stands in for the sealed build jail: it checks the seal and the checkout,
-// then files what `sh build.sh` would leave — the package, its bin a relative link into it, and a
-// config file naming the build home absolutely — with the manifest a full reference scan writes.
-// The checked-out build.sh is copied into the package, so the floor's copy shows which commit was
-// built. relocatable false records the package as embedding /home/agent in a binary.
+// then files what `sh build.sh` would leave (writeForkFloorBuild) under the container jail's home.
+// relocatable false records the package as embedding /home/agent in a binary.
 func forkFloorBuildJail(t *testing.T, runs *int, relocatable bool) func(run.Options) int {
 	t.Helper()
 	return func(o run.Options) int {
@@ -121,51 +121,60 @@ func forkFloorBuildJail(t *testing.T, runs *int, relocatable bool) func(run.Opti
 		if !o.Sealed {
 			t.Error("the floor's build ran in an unsealed jail")
 		}
-		built, err := os.ReadFile(filepath.Join(o.Workspace, forkSourceLeaf, "build.sh"))
-		if err != nil {
-			t.Errorf("the pinned commit is not checked out in the build workspace: %v", err)
-		}
-		out := filepath.Join(o.Workspace, captureOutLeaf)
-		tree := capture.TreeDir(out)
-		pkg := ".npm-global/lib/node_modules/forkcli"
-		script := "#!/usr/bin/env node\n" + string(built)
-		config := `{"root":"/home/agent/` + pkg + `"}` + "\n"
-		writeFile(t, filepath.Join(tree, filepath.FromSlash(pkg), "config.json"), config)
-		writeFile(t, filepath.Join(tree, filepath.FromSlash(pkg), "cli.js"), script)
-		if err := os.Chmod(filepath.Join(tree, filepath.FromSlash(pkg), "cli.js"), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.MkdirAll(filepath.Join(tree, ".npm-global", "bin"), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		link := "../lib/node_modules/forkcli/cli.js"
-		if err := os.Symlink(link, filepath.Join(tree, ".npm-global", "bin", "forkcli")); err != nil {
-			t.Fatal(err)
-		}
-		m := &capture.Manifest{
-			Schema: capture.ManifestSchema, Home: "/home/agent", Platform: capture.Platform(),
-			Surfaces: []string{".npm-global", ".local", "go"}, Excluded: capture.DefaultExcludes(),
-			Entries: []capture.ManifestEntry{
-				{Path: ".npm-global", Kind: capture.KindDir, Mode: "0755"},
-				{Path: ".npm-global/bin", Kind: capture.KindDir, Mode: "0755"},
-				{Path: ".npm-global/bin/forkcli", Kind: capture.KindSymlink, Target: link},
-				{Path: ".npm-global/lib", Kind: capture.KindDir, Mode: "0755"},
-				{Path: ".npm-global/lib/node_modules", Kind: capture.KindDir, Mode: "0755"},
-				{Path: pkg, Kind: capture.KindDir, Mode: "0755"},
-				{Path: pkg + "/cli.js", Kind: capture.KindFile, Mode: "0755", Size: int64(len(script))},
-				{Path: pkg + "/config.json", Kind: capture.KindFile, Mode: "0644", Size: int64(len(config))},
-			},
-			AbsoluteRefs: []capture.AbsoluteRef{{Path: pkg + "/config.json", Kind: capture.RefFileContent,
-				Value: "/home/agent"}},
-			RefScan: capture.RefScanFull, Relocatable: relocatable,
-		}
-		if !relocatable {
-			m.NotRelocatable = []string{pkg + "/addon.node is not text and embeds /home/agent"}
-		}
-		if err := capture.WriteManifest(out, m); err != nil {
-			t.Fatal(err)
-		}
+		writeForkFloorBuild(t, filepath.Join(o.Workspace, forkSourceLeaf), filepath.Join(o.Workspace, captureOutLeaf),
+			"/home/agent", capture.Platform(), relocatable)
 		return 0
+	}
+}
+
+// writeForkFloorBuild files into out what `sh build.sh` in checkout would leave, built under home on
+// platform — the package, its bin a relative link into it, and a config file naming home absolutely
+// — with the manifest a full reference scan writes. The checked-out build.sh is copied into the
+// package, so the floor's copy shows which commit was built.
+func writeForkFloorBuild(t *testing.T, checkout, out, home, platform string, relocatable bool) {
+	t.Helper()
+	built, err := os.ReadFile(filepath.Join(checkout, "build.sh"))
+	if err != nil {
+		t.Errorf("the pinned commit is not checked out in the build workspace: %v", err)
+	}
+	tree := capture.TreeDir(out)
+	pkg := ".npm-global/lib/node_modules/forkcli"
+	script := "#!/usr/bin/env node\n" + string(built)
+	config := `{"root":"` + home + `/` + pkg + `"}` + "\n"
+	writeFile(t, filepath.Join(tree, filepath.FromSlash(pkg), "config.json"), config)
+	writeFile(t, filepath.Join(tree, filepath.FromSlash(pkg), "cli.js"), script)
+	if err := os.Chmod(filepath.Join(tree, filepath.FromSlash(pkg), "cli.js"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(tree, ".npm-global", "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := "../lib/node_modules/forkcli/cli.js"
+	if err := os.Symlink(link, filepath.Join(tree, ".npm-global", "bin", "forkcli")); err != nil {
+		t.Fatal(err)
+	}
+	m := &capture.Manifest{
+		Schema: capture.ManifestSchema, Home: home, Platform: platform,
+		Surfaces: []string{".npm-global", ".local", "go"}, Excluded: capture.DefaultExcludes(),
+		Entries: []capture.ManifestEntry{
+			{Path: ".npm-global", Kind: capture.KindDir, Mode: "0755"},
+			{Path: ".npm-global/bin", Kind: capture.KindDir, Mode: "0755"},
+			{Path: ".npm-global/bin/forkcli", Kind: capture.KindSymlink, Target: link},
+			{Path: ".npm-global/lib", Kind: capture.KindDir, Mode: "0755"},
+			{Path: ".npm-global/lib/node_modules", Kind: capture.KindDir, Mode: "0755"},
+			{Path: pkg, Kind: capture.KindDir, Mode: "0755"},
+			{Path: pkg + "/cli.js", Kind: capture.KindFile, Mode: "0755", Size: int64(len(script))},
+			{Path: pkg + "/config.json", Kind: capture.KindFile, Mode: "0644", Size: int64(len(config))},
+		},
+		AbsoluteRefs: []capture.AbsoluteRef{{Path: pkg + "/config.json", Kind: capture.RefFileContent,
+			Value: home}},
+		RefScan: capture.RefScanFull, Relocatable: relocatable,
+	}
+	if !relocatable {
+		m.NotRelocatable = []string{pkg + "/addon.node is not text and embeds " + home}
+	}
+	if err := capture.WriteManifest(out, m); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -537,4 +546,126 @@ func assertFloorRuns(t *testing.T, launcher, entry, want string) {
 	if err != nil || !strings.Contains(string(body), want) {
 		t.Errorf("the floor's program is %q (%v), want the build of the commit whose build.sh says %q", body, err, want)
 	}
+}
+
+// withMacForkFloor is withForkFloor on a Mac (FP-D19): the PRODUCTION floor, its build wiring
+// included, with darwin as its platform over a darwin Node distribution, no capture act, and a Mac
+// whose sandbox account is set up, at a terminal.
+func withMacForkFloor(t *testing.T) *floortest.Dist {
+	t.Helper()
+	dist := floortest.NewDistOn(t, "darwin", goruntime.GOARCH)
+	orig := newHostFloor
+	newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Floor {
+		f := productionHostFloor(out, progs)
+		f.GOOS, f.GOARCH = dist.GOOS, dist.GOARCH
+		f.Node = hostfloor.NodeDist{BaseURL: dist.URL, Shipped: floortest.Shipped,
+			Pinned: map[string]string{dist.Platform: dist.SHA256}}
+		f.Environ = append(os.Environ(), dist.Environ()...)
+		f.Capture = nil
+		return f
+	}
+	t.Cleanup(func() { newHostFloor = orig })
+	withMac(t, macSetup{account: true, terminal: true})
+	return dist
+}
+
+// THE MAC'S FLOOR BUILDS A FORK THROUGH THE MACOS-USER ACT (FP-D19), at its call site: on a Mac whose
+// runtime is podman, `yolo host -- forkcli` hands its build to the macos-user runtime for this one
+// build, sealed; the pipeline's macos-user arm runs the fork-build act with the build's id for
+// this host's platform (darwin/<arch> on a Mac); the floor admits what the act left, under a receipt
+// naming its toolchain record, relocates it out of the build's staging home and runs it. The next
+// launch finds that build and builds nothing. Drop the Mac's runtime from the Build wiring and the
+// container build runs instead.
+func TestAMacHostLaunchOfAForkBuildsItAsTheSandboxAccount(t *testing.T) {
+	repo, _, _ := forkFloorHome(t)
+	head := strings.TrimSpace(gitOut(t, repo, "rev-parse", "HEAD"))
+	var out, errw bytes.Buffer
+	if rc := packMain([]string{"install"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("pack install rc=%d\n%s\n%s", rc, out.String(), errw.String())
+	}
+	withMacForkFloor(t)
+	t.Setenv("YOLO_RUNTIME", "podman")
+	const record = "yolo 9.9.9, darwin floor /nix/store/test-profile macOS 26.0"
+	var acts []macosuser.ForkBuildOptions
+	origAct := macForkBuildAct
+	macForkBuildAct = func(_ macosuser.Deps, o macosuser.ForkBuildOptions, dest, toolchain string, _ bool) int {
+		acts = append(acts, o)
+		home := macosuser.CaptureStagingHome(macosuser.ForkBuildStagingRoot("", o.BuildID))
+		writeForkFloorBuild(t, o.Source, dest, home, capture.Platform(), true)
+		writeFile(t, toolchain, record)
+		return 0
+	}
+	t.Cleanup(func() { macForkBuildAct = origAct })
+	jails := 0
+	withFakeCaptureJail(t, func(o run.Options) int {
+		jails++
+		if !o.Sealed || o.Getenv == nil || o.Getenv("YOLO_RUNTIME") != "macos-user" {
+			t.Errorf("the Mac's build jail is sealed=%v under runtime %q, want a sealed macos-user build",
+				o.Sealed, func() string {
+					if o.Getenv == nil {
+						return ""
+					}
+					return o.Getenv("YOLO_RUNTIME")
+				}())
+			return 1
+		}
+		// The arm the pipeline runs on macos-user, driven as the pipeline would.
+		return o.MacosUserRun(jsonx.NewOrderedMap(), o.Workspace, nil, o.Args, "/flake", "", macosuser.HomeOverlay{},
+			macosuser.HostContext{}, false, jsonx.NewOrderedMap(), nil, macosuser.JailDaemons{})
+	})
+	got := captureHostExec(t)
+	launcher := filepath.Join(paths.HostFloorDir(), "bin", "forkcli")
+
+	errw.Reset()
+	if rc := hostExec(nil, []string{"forkcli"}, io.Discard, &errw, nil); rc != 0 || got.target != launcher {
+		t.Fatalf("rc=%d target=%s, want the floor's copy %s\n%s", rc, got.target, launcher, errw.String())
+	}
+	if jails != 1 || len(acts) != 1 {
+		t.Fatalf("%d build jails and %d fork-build acts, want one of each\n%s", jails, len(acts), errw.String())
+	}
+	// THE HOST'S PLATFORM, which on a Mac is darwin/<arch>: the one the act builds for and the floor
+	// looks its builds up under.
+	b := forkBuild{Fork: floorForkBuild(forkFloorProgram(t), head).Fork, Commit: head, Platform: capture.Platform()}
+	if acts[0].BuildID != b.id() || acts[0].Build != "sh build.sh" {
+		t.Errorf("the act built %q under id %q, want `sh build.sh` under the host platform's build id %q",
+			acts[0].Build, acts[0].BuildID, b.id())
+	}
+	if !strings.Contains(errw.String(), "as the macos-user sandbox account, sealed under Seatbelt") {
+		t.Errorf("the launch does not say the sandbox account builds it:\n%s", errw.String())
+	}
+	rec := floorRecord(t, "forkcli")
+	if rec.Revision != head {
+		t.Errorf("the floor runs %s, want the build at the pin %s", rec.Revision, head)
+	}
+	assertFloorRuns(t, launcher, rec.Entry, "# first")
+	entry, err := (&capture.Store{Dir: paths.CapturesDir()}).Resolve(rec.Capture)
+	if err != nil {
+		t.Fatalf("the record names no store entry: %v", err)
+	}
+	if builds, _ := entrypoint.ReadBuildReceipts(capture.ReceiptsPath(entry.Root)); len(builds) != 1 ||
+		builds[0].Platform != capture.Platform() || builds[0].Toolchain != record {
+		t.Errorf("build receipts = %+v, want one build for this host naming its toolchain record", builds)
+	}
+	installHome := filepath.Dir(filepath.Dir(filepath.Dir(rec.Entry)))
+	if cfg, _ := os.ReadFile(filepath.Join(installHome, ".npm-global", "lib", "node_modules", "forkcli",
+		"config.json")); !strings.Contains(string(cfg), installHome) {
+		t.Errorf("the floor's copy was not relocated out of the build's staging home: %s", cfg)
+	}
+
+	errw.Reset()
+	if rc := hostExec(nil, []string{"forkcli"}, io.Discard, &errw, nil); rc != 0 || got.target != launcher || jails != 1 {
+		t.Fatalf("second launch: rc=%d target=%s jails=%d, want the darwin build found and nothing built\n%s",
+			rc, got.target, jails, errw.String())
+	}
+}
+
+// forkFloorProgram is forkcli as the floor reads it from forkFloorHome's selection.
+func forkFloorProgram(t *testing.T) hostfloor.Program {
+	t.Helper()
+	sel := selectConfiguredHostPacks()
+	p, ok := floorProgram(floorPrograms(sel.packs), "forkcli")
+	if !ok {
+		t.Fatal("the selection delivers no forkcli")
+	}
+	return p
 }
