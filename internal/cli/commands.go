@@ -1384,7 +1384,11 @@ func macosUserRun(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []s
 		macosuser.Options{
 			// The session-start hook the run pipeline registered on its arm, run by the backend
 			// just before the session's command and on no other path.
-			OnAgentStart:    arm.AgentStarting,
+			OnAgentStart: arm.AgentStarting,
+			// The endpoint files of the workspace's macos-user keeper a session granted already, and the
+			// record of what this session's stage grants (run's macosUserGrants, carried by the arm).
+			SkipGrant:       arm.SkipGrant,
+			OnStaged:        arm.Staged,
 			Workspace:       workspace,
 			Config:          cfg,
 			Agents:          agents,

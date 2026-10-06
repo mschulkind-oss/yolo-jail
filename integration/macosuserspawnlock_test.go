@@ -42,26 +42,27 @@ import (
 //     the test refuses rather than kill it (hd10PreBrokerPlan; awsauth_test.go's precedent).
 //     Whatever the answer, the broker the pair spawned is stopped at cleanup, because it runs
 //     under this test's temp HOME but answers on the machine-wide socket.
-//   - WORKSPACE-LOCK: whether either launch printed the per-workspace lock's waiting notice.
-//     READ FROM CODE: since per-launch pack trees (docs/reference/pack-system.md#oq-pk2) that
-//     lock is taken on this backend AFTER run.go's native arm's startLoopholesDisclosed and
-//     before its content staging (refreshJailBriefings), and held until the orchestrator
-//     releases it before the agent. Each launch's host daemons run from that launch's own pack
-//     tree, so nothing they read is shared, and the two launches' spawns CAN contend the spawn
-//     flock again, as they could before the staging-race fix (2026-09-26) put the lock ahead of
-//     staging. A launch that printed the notice waited on the other's content staging and
-//     sandbox bootstrap, not on its daemon start. It is still the courtesy lock that warns and
-//     continues when it cannot be taken, which is why it does not by itself answer OQ-HD10.
+//   - WORKSPACE-LOCK: whether either launch printed a lock's waiting notice. READ FROM CODE: a
+//     launch first takes its key's ARRIVAL LOCK (internal/cli/run's keeperspawn.go), which the
+//     launch that spawns the workspace's keeper hands it and the keeper lets go once its host
+//     services are up, so the second launch waits there for the first one's keeper and then joins
+//     it. The workspace launch lock comes after, before the content staging (refreshJailBriefings),
+//     and is held until the orchestrator releases it before the agent. Both are courtesy locks
+//     that warn and continue when they cannot be taken, which is why neither answers OQ-HD10 alone.
 //   - ENDPOINT DURING: what each session's claude-oauth-broker endpoint variable named, and
 //     whether the file was readable and its host:port dialable while both sessions were up.
 //   - ENDPOINT AFTER: the same probe in the LONGER session after the shorter one's `yolo`
 //     process had exited. This one is ASSERTED, below. The second run (scheduled macos-user run
 //     36319436117, f937d0fd) measured it GONE: both sessions published into ONE per-workspace
 //     host-services dir, the second session's front replaced the first's endpoint file, and the
-//     shorter session's teardown removed the dir under the survivor. Each session now publishes
-//     into a dir of its own and tears down only that one (internal/cli/run/servicessession.go),
-//     so the survivor's endpoint must still answer: its own front, in its own yolo process, over
-//     the host-wide broker that no session's teardown stops.
+//     shorter session's teardown removed the dir under the survivor. Since the keeper
+//     (docs/design/jail-lifetime-last-session-wins.md §9.9) the workspace's macos-user host
+//     services are ONE KEEPER'S, for every session of the workspace: so the survivor's endpoint
+//     must still answer, the keeper's front, which ends with the last session.
+//   - KEEPER: ASSERTED too (hd10KeeperFailure). One launch spawned the keeper and said so, the
+//     other joined it and said so, both sandboxes were told the one endpoint file and its token
+//     (§8 item 14's pointers and tokens, compared without an agent turn), and after the last
+//     session nothing of the keeper is left: its process, and its host-services dir.
 //   - SESSION FILES: which session env file each session read ($YOLO_DARWIN_ENV_FILE), and
 //     whether the longer session's was still there after the shorter one's `yolo` had exited.
 //     ASSERTED too (hd10SessionFileFailure). Until each session named its files by a session id
@@ -211,8 +212,8 @@ func TestMacosUserTwoConcurrentLaunchesOfOneWorkspace(t *testing.T) {
 		"once); alive after both exited: %v; pid file now: %q",
 		spawn, stopNote, samples.distinct(), samples.max, final, strings.TrimSpace(string(pidFile)))
 	t.Logf("HD10 WORKSPACE-LOCK: A printed the waiting notice: %v; B printed it: %v "+
-		"(taken after the host-daemon start, before content staging: a wait means one launch "+
-		"waited for the other's staging and bootstrap, not for its spawn)", waited(rA), waited(rB))
+		"(a key's arrival lock and the workspace launch lock both print it: a wait means one launch "+
+		"waited for the other's keeper to be ready, or for its staging and bootstrap)", waited(rA), waited(rB))
 	t.Logf("HD10 ENDPOINT DURING: A %s | B %s | one file for both: %v", hd10Probe(fa, "A_DURING"),
 		hd10Probe(fb, "B_DURING"), fa["A_DURING_VAR"] != "" && fa["A_DURING_VAR"] == fb["B_DURING_VAR"])
 	t.Logf("HD10 ENDPOINT AFTER B EXITED: A saw the exit marker: %s; A %s",
@@ -233,6 +234,74 @@ func TestMacosUserTwoConcurrentLaunchesOfOneWorkspace(t *testing.T) {
 		t.Errorf("%s\nA rc=%d:\n%s\nB rc=%d:\n%s", failure,
 			rA.rc, lastLines(rA.combined(), 40), rB.rc, lastLines(rB.combined(), 40))
 	}
+	// ONE KEEPER FOR BOTH, AND NOTHING OF IT AFTER THE LAST (JL-D37 to JL-D41).
+	t.Logf("HD10 KEEPER: A %s | B %s | endpoint A %s B %s | token A %s B %s",
+		hd10KeeperRole(rA.combined()), hd10KeeperRole(rB.combined()), orNone(fa["A_DURING_VAR"]),
+		orNone(fb["B_DURING_VAR"]), orNone(fa["A_DURING_TOKENHASH"]), orNone(fb["B_DURING_TOKENHASH"]))
+	if failure := hd10KeeperFailure(rA.combined(), rB.combined(), fa, fb); failure != "" {
+		t.Errorf("%s\nA rc=%d:\n%s\nB rc=%d:\n%s", failure,
+			rA.rc, lastLines(rA.combined(), 40), rB.rc, lastLines(rB.combined(), 40))
+	}
+	if ep := fa["A_DURING_VAR"]; ep != "" && ep != "UNSET" {
+		if _, err := os.Stat(filepath.Dir(ep)); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("HD10: the keeper's host-services dir %s outlived the last session (%v)", filepath.Dir(ep), err)
+		}
+	}
+	for _, out := range []string{rA.combined(), rB.combined()} {
+		if pid := hd10KeeperPID(out); pid > 0 && processAlive(pid) {
+			t.Errorf("HD10: the keeper (pid %d) is still running after the last session", pid)
+		}
+	}
+}
+
+// hd10KeeperRole is what one launch's output says it did about the workspace's keeper: "spawned",
+// "joined", or "none".
+func hd10KeeperRole(out string) string {
+	switch {
+	case strings.Contains(out, "keeper: yolo internal daemon jail-keeper will hold this workspace's macos-user host services"):
+		return "spawned"
+	case strings.Contains(out, "keeper: joined yolo internal daemon jail-keeper (pid "):
+		return "joined"
+	}
+	return "none"
+}
+
+// hd10KeeperPID is the pid the spawning launch's "keeper: started, pid N" line names, 0 for none.
+func hd10KeeperPID(out string) int {
+	const lead = "keeper: started, pid "
+	i := strings.Index(out, lead)
+	if i < 0 {
+		return 0
+	}
+	n, _ := strconv.Atoi(strings.Fields(out[i+len(lead):] + " ")[0])
+	return n
+}
+
+// processAlive reports whether pid names a live process.
+func processAlive(pid int) bool {
+	return exec.Command("kill", "-0", strconv.Itoa(pid)).Run() == nil
+}
+
+// hd10KeeperFailure is the experiment's assertion about the keeper: "" when one launch spawned it
+// and the other joined it, and both sessions were told the one endpoint file and the one token, and
+// otherwise why that is a failure. PURE, and pinned with the verdicts.
+func hd10KeeperFailure(outA, outB string, fa, fb map[string]string) string {
+	roles := hd10KeeperRole(outA) + "+" + hd10KeeperRole(outB)
+	if roles != "spawned+joined" && roles != "joined+spawned" {
+		return "HD10: the two launches did not share one keeper (A " + hd10KeeperRole(outA) + ", B " +
+			hd10KeeperRole(outB) + "): one must spawn the workspace's macos-user keeper and the other join it " +
+			"(docs/design/jail-lifetime-last-session-wins.md JL-D41)"
+	}
+	a, b := fa["A_DURING_VAR"], fb["B_DURING_VAR"]
+	if a == "" || a == "UNSET" || a != b {
+		return fmt.Sprintf("HD10: the two sandboxes were told different endpoint files (A %q, B %q); every "+
+			"session of a workspace is told its keeper's (JL-D38)", a, b)
+	}
+	ta, tb := fa["A_DURING_TOKENHASH"], fb["B_DURING_TOKENHASH"]
+	if ta == "" || ta != tb {
+		return fmt.Sprintf("HD10: the two sandboxes read different tokens from the endpoint file (A %q, B %q)", ta, tb)
+	}
+	return ""
 }
 
 // hd10SessionFileFailure is the experiment's assertion about the per-session files: "" when the
@@ -276,9 +345,9 @@ func hd10SurvivorFailure(fa map[string]string) string {
 	}
 	return "HD10: after the shorter session exited, the longer session's " + hd10Broker +
 		" endpoint was " + verdict + ". One macos-user session's exit must never remove or " +
-		"invalidate an endpoint another live session of the same workspace uses: each session " +
-		"publishes into a host-services dir of its own and removes only that one " +
-		"(internal/cli/run/servicessession.go; docs/design/host-daemon-ownership.md#OQ-HD10)"
+		"invalidate an endpoint another live session of the same workspace uses: the workspace's " +
+		"keeper holds them until its last session leaves " +
+		"(docs/design/jail-lifetime-last-session-wins.md §9.9; docs/design/host-daemon-ownership.md#OQ-HD10)"
 }
 
 // hd10Broker is the host-scoped loophole whose spawn this measures.
@@ -312,6 +381,8 @@ func hd10Script(dir, envVar, self, other string, longer bool) string {
 		`  if ! head -c 1 "$ep" >/dev/null 2>&1; then echo "$1_FILE=UNREADABLE"; return; fi`,
 		`  echo "$1_FILE=READABLE"`,
 		`  hp="$(cut -d' ' -f1 "$ep")"; echo "$1_HOSTPORT=$hp"`,
+		// The token is the file's last field; only a checksum of it is printed.
+		`  th="$(awk '{print $NF}' "$ep" | cksum | cut -d' ' -f1)"; echo "$1_TOKENHASH=$th"`,
 		`  if [ -n "$hp" ] && (exec 3<>"/dev/tcp/${hp%:*}/${hp##*:}") 2>/dev/null; then echo "$1_DIAL=OK"; else echo "$1_DIAL=FAILED"; fi`,
 		`}`,
 		fmt.Sprintf(`touch %s/%s-up`, dir, self),
@@ -479,10 +550,10 @@ func hd10SpawnVerdict(exercised bool, distinct []int, maxAtOnce int) string {
 		return "NO BROKER — neither launch left a claude-oauth-broker running long enough to " +
 			"sample, so the spawn itself failed or was skipped; read the WARNINGS line"
 	case len(distinct) == 1:
-		return "ONE BROKER — exactly one daemon was ever seen; each launch starts its host " +
-			"daemons BEFORE it takes the workspace launch lock (per-launch pack trees moved the " +
-			"lock after the daemon start), so the spawn flock (paths.HostSingletonLock) or the " +
-			"liveness re-check inside it kept the pair to one"
+		return "ONE BROKER — exactly one daemon was ever seen; the workspace's macos-user keeper " +
+			"starts the host services for every session of the workspace, and a launch that joins it " +
+			"starts none (docs/design/jail-lifetime-last-session-wins.md §9.9), so the pair needed " +
+			"one spawn, which the spawn flock (paths.HostSingletonLock) still guards"
 	case maxAtOnce >= 2:
 		return fmt.Sprintf("TWO SPAWNS AT ONCE — %d brokers were alive together: the spawn was "+
 			"NOT serialized, and two daemons share one single-use refresh token", maxAtOnce)
@@ -639,6 +710,34 @@ func TestMacosUserHD10VerdictsNameEachCase(t *testing.T) {
 	if s := hd10Script("/s", "V", "A", "B", true); !strings.Contains(s, "_ENVFILE=${ef:-UNSET}") ||
 		!strings.Contains(s, "_ENVFILE_EXISTS=") {
 		t.Errorf("the probe does not record the session env file:\n%s", s)
+	}
+
+	// The keeper assertion: one spawns and one joins, and the two are told one file and one token.
+	spawned := "keeper: yolo internal daemon jail-keeper will hold this workspace's macos-user host services (x)"
+	joined := "keeper: joined yolo internal daemon jail-keeper (pid 7), which holds"
+	same := map[string]string{"A_DURING_VAR": "/tmp/s/x.endpoint", "A_DURING_TOKENHASH": "11"}
+	sameB := map[string]string{"B_DURING_VAR": "/tmp/s/x.endpoint", "B_DURING_TOKENHASH": "11"}
+	for _, tc := range []struct {
+		name, a, b string
+		fb         map[string]string
+		want       string
+	}{
+		{"one keeper, one file", spawned, joined, sameB, ""},
+		{"two keepers", spawned, spawned, sameB, "did not share one keeper"},
+		{"no keeper", "", "", sameB, "did not share one keeper"},
+		{"two files", joined, spawned, map[string]string{"B_DURING_VAR": "/tmp/t/x.endpoint", "B_DURING_TOKENHASH": "11"}, "different endpoint files"},
+		{"two tokens", spawned, joined, map[string]string{"B_DURING_VAR": "/tmp/s/x.endpoint", "B_DURING_TOKENHASH": "22"}, "different tokens"},
+	} {
+		got := hd10KeeperFailure(tc.a, tc.b, same, tc.fb)
+		if (tc.want == "") != (got == "") || !strings.Contains(got, tc.want) {
+			t.Errorf("%s: hd10KeeperFailure = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+	if pid := hd10KeeperPID("x\nkeeper: started, pid 4242\ny"); pid != 4242 {
+		t.Errorf("hd10KeeperPID = %d, want 4242", pid)
+	}
+	if s := hd10Script("/s", "V", "A", "B", true); !strings.Contains(s, "_TOKENHASH=") {
+		t.Errorf("the probe does not record the endpoint's token:\n%s", s)
 	}
 
 	if got := hd10ParsePIDs("123\n45\n\n"); len(got) != 2 || got[0] != 45 || got[1] != 123 {

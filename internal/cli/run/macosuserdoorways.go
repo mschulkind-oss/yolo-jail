@@ -120,35 +120,56 @@ func doorwayInput(launchEnv *jsonx.OrderedMap) map[string]string {
 
 // startMacosUserDoorways opens every planned doorway and says so, one line each, on every
 // launch: this is host code running outside Seatbelt, and a launch has no quiet mode. It returns
-// the stop for the arm to defer, or the refusal naming the doorway that did not start, which the
-// launch-owned mechanism's contract makes a refusal before the command runs (§4.5).
+// the stop for the arm to defer and what it started, or the refusal naming the doorway that did not
+// start, which the launch-owned mechanism's contract makes a refusal before the command runs (§4.5).
+// before, when not nil, is called with each plan just before its start: a keeper hands each its
+// reserved sockets there (keeper.adoptReservedFor).
 //
 // EACH ONE IS SUPERVISED FROM ITS START (launchservice.Running.Supervise, HS-D28), as a service's
 // host half is (startMacosUserServices): a doorway that dies while the command runs is named and
 // restarted on the address its clients were composed with. A local pack's doorway is named, argv
-// and all, before it opens.
-func (o *Options) startMacosUserDoorways(plans []*launchservice.Plan, launchEnv *jsonx.OrderedMap) (func(), error) {
-	var running []launchedService
+// and all, before it opens: by this launch, or, when the doorways are a keeper's, by the launch
+// that spawned it, before the spawn (JL-D6), so a keeper names none itself.
+//
+// IN A KEEPER (keeperMode, docs/design/jail-lifetime-last-session-wins.md JL-D38) the doorways are
+// the workspace's macos-user sessions', not one launch's: the line says so, and the keeper stops
+// them when the last session leaves.
+func (o *Options) startMacosUserDoorways(plans []*launchservice.Plan, launchEnv *jsonx.OrderedMap,
+	before func(*launchservice.Plan)) (func(), []launchedHeld, error) {
+	var running []launchedHeld
 	stop := func() {
 		for _, r := range running {
-			r.Stop()
+			r.r.Stop()
 		}
 	}
 	for _, plan := range plans {
-		o.noteMacosUserLocalHostCode(plan, fmt.Sprintf("the %q doorway's host argv", plan.Service))
+		if !o.keeperMode {
+			o.noteMacosUserLocalHostCode(plan, fmt.Sprintf("the %q doorway's host argv", plan.Service))
+		}
+		if before != nil {
+			before(plan)
+		}
 		r, log, err := startMacosUserDoorway(plan, doorwayInput(launchEnv))
 		if err != nil {
 			stop()
-			return func() {}, err
+			return func() {}, nil, err
 		}
-		running = append(running, r)
-		o.pr(o.Stderr).print(fmt.Sprintf("Opened the %q doorway (pack %q, pid %d) on %s for this "+
-			"launch, outside the sandbox: it answers only this launch's caller token, forwards to "+
-			"the host's %q service, and stops when the command exits. Its log: %s", plan.Service,
-			plan.Pack, r.PID(), strings.Join(plan.Addresses(), ", "), plan.Service, log))
+		running = append(running, launchedHeld{what: fmt.Sprintf("the %q doorway", plan.Service), r: r, log: log})
+		if o.keeperMode {
+			o.pr(o.Stderr).print(fmt.Sprintf("Opened the %q doorway (pack %q, pid %d) on %s for this "+
+				"launch, outside the sandbox: it serves every macos-user session of this workspace, answers "+
+				"only their caller token, forwards to the host's %q service, and stops when the last of them "+
+				"leaves. Its log: %s", plan.Service, plan.Pack, r.PID(), strings.Join(plan.Addresses(), ", "),
+				plan.Service, log))
+		} else {
+			o.pr(o.Stderr).print(fmt.Sprintf("Opened the %q doorway (pack %q, pid %d) on %s for this "+
+				"launch, outside the sandbox: it answers only this launch's caller token, forwards to "+
+				"the host's %q service, and stops when the command exits. Its log: %s", plan.Service,
+				plan.Pack, r.PID(), strings.Join(plan.Addresses(), ", "), plan.Service, log))
+		}
 		r.Supervise(o.macosUserCommandName(), o.Stderr, macosUserSupervisionPrefix)
 	}
-	return stop, nil
+	return stop, running, nil
 }
 
 // launchDoorwayPlanned reports whether this launch opens the named loophole's doorway outside the

@@ -78,6 +78,14 @@ type MacosUserArm struct {
 	perf       *perf.Log
 	notice     func(string)
 	starts     []func()
+	// endings run once, when a signal first ends the launch in setup: a keeper's lifeline, closed so
+	// the keeper this launch spawned unwinds before it is ready (onEnding).
+	endings []func()
+	// skipGrant and staged are the endpoint-file grants of the launch's keeper (Run's
+	// macosUserGrants), which the backend's stage asks and records through SkipGrant and Staged:
+	// the arm is the one value the front door's handler and Run share for a launch.
+	skipGrant func(string) bool
+	staged    func([]string)
 }
 
 // NewMacosUserArm makes an arm, not yet installed: it handles no signal until Run installs it.
@@ -173,6 +181,13 @@ func (a *MacosUserArm) take(s os.Signal) {
 		notice(fmt.Sprintf("yolo: %s — ending this macos-user launch before its session starts, "+
 			"and removing what it set up. Run `yolo` again to launch.", sigName(sig)))
 	}
+	a.mu.Lock()
+	endings := a.endings
+	a.endings = nil
+	a.mu.Unlock()
+	for _, f := range endings {
+		f()
+	}
 	// The nix this process runs, which a signal sent to yolo alone does not reach. Its goroutine
 	// goes on at once (the hand-off is immediate), so its step returns and the launch ends at the
 	// boundary after it rather than here.
@@ -227,6 +242,58 @@ func (a *MacosUserArm) RunSession(argv []string) int {
 	}
 	a.mu.Unlock()
 	return exitCodeOf(err)
+}
+
+// onEnding registers f to run once when a signal ends the launch in setup, or at once when one
+// already has. Nil-safe.
+func (a *MacosUserArm) onEnding(f func()) {
+	if a == nil {
+		return
+	}
+	a.mu.Lock()
+	if a.phase == macosUserSetup && a.ending != 0 {
+		a.mu.Unlock()
+		f()
+		return
+	}
+	a.endings = append(a.endings, f)
+	a.mu.Unlock()
+}
+
+// setGrants hands the arm the grant answers of the launch's keeper (Run's macosUserGrants).
+func (a *MacosUserArm) setGrants(skip func(string) bool, staged func([]string)) {
+	if a == nil {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.skipGrant, a.staged = skip, staged
+}
+
+// SkipGrant reports whether the backend's stage need not grant the sandbox account read on path,
+// an endpoint file of the launch's keeper a session of the workspace granted already
+// (macosuser.Options.SkipGrant). False for any path of a launch with no keeper.
+func (a *MacosUserArm) SkipGrant(path string) bool {
+	if a == nil {
+		return false
+	}
+	a.mu.Lock()
+	skip := a.skipGrant
+	a.mu.Unlock()
+	return skip != nil && skip(path)
+}
+
+// Staged records the paths the backend's stage granted or found granted (macosuser.Options.OnStaged).
+func (a *MacosUserArm) Staged(paths []string) {
+	if a == nil {
+		return
+	}
+	a.mu.Lock()
+	staged := a.staged
+	a.mu.Unlock()
+	if staged != nil {
+		staged(paths)
+	}
 }
 
 // OnAgentStart registers f to run once when the session's command is about to start

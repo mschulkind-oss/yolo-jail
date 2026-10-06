@@ -301,6 +301,9 @@ func Run(opts Options) (rc int) {
 	// And every loopback port this launch reserved and did not hand on (servedaddresses.go), for
 	// the same reason: a refused launch, a dry run, an attach.
 	defer o.releaseReservedPorts()
+	// And a macos-user launch's place at its key (keeperspawn.go): the arrival lock it still holds and
+	// its session record, at every return before its quit removes them.
+	defer o.endMacosUserKeying()
 	// THE HERDR PANE's slot, made here, before any signal arm exists, so an arm's teardown can
 	// release it from its own goroutine. Each arm registers into it only once its arm is
 	// installed, just before its session starts, and releases it when the session returns
@@ -316,7 +319,7 @@ func Run(opts Options) (rc int) {
 	// holds and gives the terminal back, where the default action ran no cleanup at all. The
 	// keeper's arm or an attach's takes over from it; this is its retirement at every other return,
 	// after the discard below.
-	if rt != "macos-user" { // parity: HonoredBy — macos-user has no keeper to hand the tree to, so its own arm (macosuserarm.go) ends a signaled launch through Run's defers, the tree's discard among them, from its first host service on; before that arm, at its config prompt, a signal still leaves the tree for the reaper (JL-D75)
+	if rt != "macos-user" { // parity: HonoredBy — macos-user's own arm (macosuserarm.go) ends a signaled launch through Run's defers, the tree's discard among them, from its first host service on, and a launch that spawns the workspace's keeper hands it the tree (JL-D86); before that arm, at its config prompt, a signal still leaves the tree for the reaper (JL-D75)
 		o.armLaunchGuard(cname, rt)
 		defer o.endLaunchGuard()
 	}
@@ -331,6 +334,14 @@ func Run(opts Options) (rc int) {
 	// backend and an attach say what each one is at (docs/design/patched-extensions.md §10).
 	o.patchedTrees = o.notePatchedTrees(staged.packs)
 
+	// THE ARRIVAL AT A macos-user KEY (keeperspawn.go's arriveMacosUser; docs/design/
+	// jail-lifetime-last-session-wins.md JL-D44), before the channel composes, because a launch that
+	// joins the workspace's keeper composes against its roster: the keeper's caller tokens, its
+	// doorways' addresses and its launch-owned services, so every session of the workspace points
+	// its agents at the one set. An unkept key refuses here, before anything is asked or started.
+	if !o.arriveMacosUser(rt, cname) {
+		return 1
+	}
 	// PACK LAUNCH FLAGS, ABOVE THE DISPATCH — the same B-0 move pack staging made, for
 	// the same reason. The injection used to sit inside runContainer, which the
 	// macos-user arm returns before reaching, so on that backend a pack's declared
@@ -604,7 +615,40 @@ func Run(opts Options) (rc int) {
 					filepath.Join(servicesSessionPlanDir(cname, o.IsMacOS),
 						openAIAuthBrokerName+paths.ServiceEndpointExt))
 			}
+			// And the keeper this launch would join or start (§9.9.7).
+			o.noteMacosUserKeeperDryRun(rt, cname, cfg, doorways)
+		} else if m := o.macosUserKey; m != nil && (m.joined != nil || o.macosUserKeeps(rt, cfg, doorways)) {
+			// THE WORKSPACE'S KEEPER HOLDS THEM (docs/design/jail-lifetime-last-session-wins.md §9.9;
+			// keeperspawn.go): every host service, doorway and launch-owned service this launch would
+			// start outside the sandbox, for every macos-user session of the workspace. A fresh launch
+			// discloses them and spawns it; a joining one names the keeper it joined and starts
+			// nothing. Either way the sandbox is told the endpoints the keeper's roster names, which
+			// every session of the workspace is told.
+			var rec keeperRecord
+			if m.joined != nil {
+				if !o.joinMacosUserKeeper(rt, cname, cfg, staged.packs, jailDaemons, doorways) {
+					return 1
+				}
+				rec = *m.joined
+			} else {
+				var status int
+				var started bool
+				rec, status, started = o.startMacosUserKeeper(arm, cfg, rt, cname, staged, jailDaemons, doorways, channel)
+				if !started {
+					return status
+				}
+			}
+			setRosterEndpoints(launchEnv, rec)
+			if o.claudeCredentialView(rt, cfg) {
+				launchEnv.Set(claudeview.SwitchEnv, claudeview.ResolvedValue(true))
+			}
+			// The keeper's endpoint files a session of the workspace granted already, which this
+			// session's stage does not grant again, and the record of those its own stage grants.
+			arm.setGrants(o.macosUserGrants(rec))
 		} else {
+			// NOTHING A KEEPER HOLDS (JL-D42): this launch runs as it always did, with no keeper and
+			// no count, and lets the arrival lock go.
+			o.releaseArrivalLock()
 			// THE SESSION'S OWN DIR, created by the spawn and removed by this teardown alone
 			// (servicessession.go). Two sessions of one workspace used to share the dir the
 			// workspace's cname selects, and this deferred teardown, which takes no container
@@ -646,7 +690,7 @@ func Run(opts Options) (rc int) {
 			// and their endpoint files are on launchEnv, and stopped when the command returns. One
 			// that does not start refuses the launch before the command runs.
 			sp = o.Perf.Span("launch.start_doorways")
-			stopDoorways, err := o.startMacosUserDoorways(doorways, launchEnv)
+			stopDoorways, _, err := o.startMacosUserDoorways(doorways, launchEnv, nil)
 			sp.End()
 			if err != nil {
 				o.pr(o.Stderr).printf("[bold red]Refusing the macos-user launch: %s[/bold red]", err.Error())
@@ -662,7 +706,7 @@ func Run(opts Options) (rc int) {
 			// it may ask for a view, and stopped when the sandboxed command exits. One that does
 			// not start refuses the launch before the command runs.
 			sp = o.Perf.Span("launch.start_services")
-			stopServices, err := o.startMacosUserServices(channel)
+			stopServices, _, err := o.startMacosUserServices(o.macosUserServiceStarts(channel), nil)
 			sp.End()
 			if err != nil {
 				o.pr(o.Stderr).printf("[bold red]Refusing the macos-user launch: %s[/bold red]", err.Error())
@@ -944,7 +988,9 @@ func Run(opts Options) (rc int) {
 		// backend never starts (the arm's Ending; RunMacosUser asks the same at each of its steps).
 		dispatched = true
 		if status, ending := arm.Ending(); ending {
-			return status
+			// A session that never began still quits as one at its key (endMacosUserSession), so its
+			// keeper, when this was the key's only session, ends with its teardown streamed here.
+			return o.endMacosUserSession(rt, status)
 		}
 		// THE HOUSEKEEPING SLOT (OQ-BF5), on this arm too (runMacosUserHousekeeping says which
 		// classes): on its own goroutine, never waited on, and never after the backend returns,
@@ -974,7 +1020,10 @@ func Run(opts Options) (rc int) {
 		if !o.DryRun {
 			o.captureMacosUserConfig(cname, rt)
 		}
-		return rc
+		// ITS QUIT, a session's of its key (keeperspawn.go's endMacosUserSession; JL-D40): one line
+		// while other sessions of the workspace keep its keeper's services up, the keeper's teardown
+		// streamed when this was the last, or the reap of a key whose keeper died.
+		return o.endMacosUserSession(rt, rc)
 	}
 	// AUTO-CAPTURE is not in this slot any more: it runs on the fresh-launch path inside
 	// runContainer, below every attach decision, beside the fork builds (OQ-PD25).

@@ -49,6 +49,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -203,6 +204,13 @@ type keeper struct {
 	liveness *os.File
 	mu       sync.Mutex
 	sessions *os.File // the session lock, held exclusively once the keeper drained
+	// key is what this keeper holds (keeperKey): its jail's name at a container backend, and the
+	// workspace's container name with the notch appended at macos-user. Every file of the keeper's
+	// state is named by it.
+	key string
+	// launched are the doorways and launch-owned services a keeper at macos-user started
+	// (holdKey, below), in start order, for its watch and its teardown.
+	launched []launchedHeld
 
 	socat   []*forwardProc
 	handles []loopholeDaemon
@@ -229,7 +237,8 @@ type keeper struct {
 func newKeeper(plan *keeperPlan, seams KeeperSeams, progress, lifeline, lock *os.File,
 	signals <-chan os.Signal) *keeper {
 	k := &keeper{plan: plan, progress: progress, launchLock: lock, signals: signals,
-		lifelineGone: make(chan struct{}), running: make(chan struct{}), ending: make(chan struct{})}
+		lifelineGone: make(chan struct{}), running: make(chan struct{}), ending: make(chan struct{}),
+		key: keeperKey(plan.Cname, plan.Notch)}
 	k.sink = &keeperSink{}
 	if progress != nil {
 		k.sink.pipe = progress
@@ -270,6 +279,8 @@ func newKeeper(plan *keeperPlan, seams KeeperSeams, progress, lifeline, lock *os
 	// one: a sealed keeper plans no host service, and so refuses a plan naming one (checkPlan).
 	o.Sealed = plan.Sealed
 	o.keeperMode = true
+	// What a held service's supervision names: the fresh launch's command (macosUserCommandName).
+	o.keeperCommand = plan.Command
 	k.o = &o
 	return k
 }
@@ -325,29 +336,36 @@ func (k *keeper) run() int {
 	scope, line := o.moveKeeperIntoScope(p.Cname)
 	k.scope = scope
 
-	live, err := awaitLivenessLock(p.Cname, keeperLivenessWait)
+	live, err := awaitLivenessLock(k.stateKey(), keeperLivenessWait)
 	if err != nil {
 		o.pr(o.Stderr).printf("[bold red]Refusing to start this jail's keeper: %v. The keeper of the "+
 			"previous jail named %s is still running; %s, then a launch, ends it.[/bold red]",
-			err, p.Cname, stopRemedy(p.Runtime, p.Cname))
+			err, k.stateKey(), stopRemedy(p.Runtime, p.Cname))
 		return k.unwindUnstarted(1)
 	}
 	k.liveness = live
 	defer releaseLock(live)
 	// THE LOG, only now that this keeper holds the name: opening truncates it, and a keeper that
 	// refused above could have met a live one, whose log its last session may be streaming.
-	if f, err := openKeeperLog(p.Cname); err == nil {
+	if f, err := openKeeperLog(k.stateKey()); err == nil {
 		k.sink.setLog(f)
 	}
 	k.sink.logOnlyf("%s", line)
-	o.writeOwnerPID(p.Cname)
+	// The owner-PID file names a CONTAINER's owner, which the orphan reaper reads; a key at
+	// macos-user has no container, and its record alone says who holds it.
+	if p.Notch == "" {
+		o.writeOwnerPID(p.Cname)
+	}
 	k.recMu.Lock()
 	k.record = keeperRecord{PID: k.pid, Started: time.Now(),
 		Workspace: p.Workspace, Runtime: p.Runtime, Skeleton: p.Skeleton, PackTree: p.PackTree,
 		ScratchVolumes: p.ScratchVolumes, ForwardDir: p.ForwardDir, SocketsDir: p.SocketsDir,
-		Scope: k.scope, Log: keeperLogPath(p.Cname)}
+		Scope: k.scope, Log: keeperLogPath(k.stateKey())}
+	if p.Notch != "" {
+		k.record.Contract, k.record.Notch, k.record.Build = keeperRosterContract, p.Notch, p.Build
+	}
 	k.recorded = true
-	err = writeKeeperRecord(p.Cname, k.record)
+	err = writeKeeperRecord(k.stateKey(), k.record)
 	k.recMu.Unlock()
 	if err != nil {
 		k.sink.logf("keeper: could not write its start record (%v); if it dies, its jail's last session cannot reap what only it knew the names of", err)
@@ -371,6 +389,12 @@ func (k *keeper) run() int {
 		k.handles = o.startPlannedLoopholes(p.Cname, p.Runtime, cfg, p.Payload)
 		sp.End()
 		o.registerClaudeCredentialView(p.Runtime, p.Cname, cfg)
+	}
+	// A KEY AT macos-user HOLDS NO CONTAINER (§9.9): from here it opens the doorways and starts the
+	// launch-owned services, writes its roster, and holds them all until the key's last session
+	// leaves (holdKey, below).
+	if p.Notch != "" {
+		return k.holdKey(cfg)
 	}
 	// Each of them is watched from here on: one that ends while the jail is up is recorded, for the
 	// sessions in it and the arrivals after (keeperwatch.go, JL-D19).
@@ -673,20 +697,26 @@ func (k *keeper) awaitRunning() {
 // returned channel once it holds it: zero sessions. A lock it cannot open is never zero (JL-D3,
 // JL-P3): the channel is nil, which never fires, and the jail ends only when its container does.
 func (k *keeper) watchSessions() <-chan struct{} {
+	// What the keeper ends with when the count cannot say: its container at a container backend, and
+	// at macos-user, which has none, only `yolo stop` or a signal.
+	endsWith := "this jail ends only when its container does"
+	if k.plan.Notch != "" {
+		endsWith = "this workspace's macos-user host services end only when the keeper is signalled"
+	}
 	if k.plan.Uncounted {
-		k.sink.logf("keeper: the launch that started %s could not count its first session, so the count cannot say when the last session leaves; this jail ends only when its container does, and %s ends it",
-			k.plan.Cname, stopRemedy(k.plan.Runtime, k.plan.Cname))
+		k.sink.logf("keeper: the launch that started %s could not count its first session, so the count cannot say when the last session leaves; %s, and %s ends it",
+			k.stateKey(), endsWith, stopRemedy(k.plan.Runtime, k.plan.Cname))
 		return nil
 	}
-	f, err := openSessionLock(k.plan.Cname)
+	f, err := openSessionLock(k.stateKey())
 	if err != nil {
-		k.sink.logf("keeper: cannot open the session lock (%v), so this jail ends only when its container does; `yolo stop` ends it", err)
+		k.sink.logf("keeper: cannot open the session lock (%v), so %s; `yolo stop` ends it", err, endsWith)
 		return nil
 	}
 	drained := make(chan struct{})
 	go func() {
 		if err := flockSyscall(int(f.Fd()), syscall.LOCK_EX); err != nil {
-			k.sink.logf("keeper: cannot take the session lock (%v), so this jail ends only when its container does", err)
+			k.sink.logf("keeper: cannot take the session lock (%v), so %s", err, endsWith)
 			_ = f.Close()
 			return
 		}
@@ -868,7 +898,7 @@ func (k *keeper) finish(rc int, drained <-chan struct{}) int {
 		}
 	}
 	if !k.jailLeft {
-		removeKeeperRecord(p.Cname, k.pid)
+		removeKeeperRecord(k.stateKey(), k.pid)
 	}
 	k.sink.logf("keeper: done")
 	k.mu.Lock()
@@ -883,6 +913,9 @@ func (k *keeper) finish(rc int, drained <-chan struct{}) int {
 // runtime-not-found branch did (JL-D31: release the lock, then clean up).
 func (k *keeper) unwindUnstarted(rc int) int {
 	o, p := k.o, k.plan
+	if p.Notch != "" {
+		return k.unwindKey(rc)
+	}
 	k.beginStopping()
 	k.releaseLaunchLock()
 	cleanupPortForwarding(k.socat, p.ForwardDir)
@@ -893,7 +926,7 @@ func (k *keeper) unwindUnstarted(rc int) int {
 	o.forgetGoneContainer(p.Cname, p.Runtime, p.Skeleton)
 	if k.liveness != nil {
 		clearOwnerPIDIf(p.Cname, k.pid)
-		removeKeeperRecord(p.Cname, k.pid)
+		removeKeeperRecord(k.stateKey(), k.pid)
 	}
 	return rc
 }
@@ -952,4 +985,239 @@ func bootClientGoneReason(pid int) string {
 
 func launchGoneReason(pid int) string {
 	return fmt.Sprintf("the launch that started it was gone before it was ready, so its keeper (pid %d) ended it", pid)
+}
+
+// THE KEEPER AT macos-user (docs/design/jail-lifetime-last-session-wins.md §9.9; JL-D37 to JL-D45).
+// One per KEY: the workspace's container name with its notch appended (keeperKey). It holds what
+// every macos-user session of the workspace uses outside the sandbox, which the arm used to start
+// once per session: the fronts and fronted daemons (run, above, through startPlannedLoopholes, into
+// the one host-services dir of the key), the credential view's registration, the doorways and the
+// launch-owned services. What runs as the sandbox account stays each session's: a keeper has no
+// terminal to authenticate sudo against (JL-D38). It has no container, so it ends on two of §9.5's
+// observations: before ready its lifeline's EOF or a failed start, and after ready its exclusive
+// take of the key's session lock; a SIGTERM or SIGINT ends it in order (§9.9.6).
+
+// holdKey is a keeper at macos-user from its host services' start to its end: it opens the plan's
+// doorways and starts its launch-owned services, each handed the reserved socket its clients were
+// composed at, writes the ROSTER a joining launch composes from, says ready, and holds everything
+// until the key's last session leaves.
+func (k *keeper) holdKey(cfg *jsonx.OrderedMap) int {
+	o, p := k.o, k.plan
+	// THE CREDENTIAL SERVICE IS FAIL-CLOSED, as the arm's own start is (run.go): a launch whose OpenAI
+	// loophole is active and whose broker did not start hands its agent a subscription it cannot
+	// refresh, silently.
+	if !p.Sealed && openAIAuthLoopholeActive(cfg) && !startedLoophole(k.handles, openAIAuthBrokerName) {
+		o.pr(o.Stderr).print(openAIServiceRefusal())
+		return k.unwindKey(1)
+	}
+	// What the sessions are told: each service's endpoint file, at its host path (run.go's arm says
+	// why the host path), which the doorways forward through too.
+	endpoints := map[string]string{}
+	launchEnv := jsonx.NewOrderedMap()
+	for _, h := range k.handles {
+		endpoints[hostServiceLaunchEnvVar(h)] = h.hostPath
+		launchEnv.Set(hostServiceLaunchEnvVar(h), h.hostPath)
+	}
+	k.recMu.Lock()
+	if o.servicesSession != nil {
+		k.record.SocketsDir = o.servicesSession.dir
+	}
+	_ = writeKeeperRecord(k.stateKey(), k.record)
+	k.recMu.Unlock()
+
+	refuse := func(err error) int {
+		o.pr(o.Stderr).printf("[bold red]Refusing the macos-user launch: %s[/bold red]", err.Error())
+		return k.unwindKey(1)
+	}
+	var doorways []*launchservice.Plan
+	for _, h := range p.Doorways {
+		doorways = append(doorways, h.plan())
+	}
+	sp := o.Perf.Span("launch.start_doorways")
+	_, started, err := o.startMacosUserDoorways(doorways, launchEnv, k.adoptReservedFor)
+	sp.End()
+	if err != nil {
+		return refuse(err)
+	}
+	k.launched = append(k.launched, started...)
+	var starts []serviceStart
+	for _, h := range p.LaunchServices {
+		starts = append(starts, serviceStart{plan: h.plan(), input: h.Input, pointedAt: h.PointedAt, worker: h.Worker})
+	}
+	sp = o.Perf.Span("launch.start_services")
+	_, started, err = o.startMacosUserServices(starts, k.adoptReservedFor)
+	sp.End()
+	if err != nil {
+		return refuse(err)
+	}
+	k.launched = append(k.launched, started...)
+	// Each of them is watched from here on (keeperwatch.go, JL-D71), and the reserved ports none of
+	// them took go now.
+	k.watchServices()
+	k.releaseReservedPorts()
+	if rc, ended := k.endedBeforeReady(); ended {
+		return k.unwindKey(rc)
+	}
+
+	// THE ROSTER (JL-D38, JL-D45): what the keeper started, where, behind which tokens, so a
+	// joining launch composes against it and starts nothing of its own. Written whole before the
+	// arrival lock goes, so no joiner reads a roster short of a service.
+	k.recMu.Lock()
+	k.record.Ready = true
+	k.record.Services = p.Services
+	k.record.Endpoints = endpoints
+	k.record.CallerTokens = p.CallerTokens
+	k.record.ServedAddresses = p.ServedAddresses
+	k.record.Doorways, k.record.LaunchServices = nil, nil
+	for _, h := range p.Doorways {
+		k.record.Doorways = append(k.record.Doorways, h.rostered())
+	}
+	for _, h := range p.LaunchServices {
+		k.record.LaunchServices = append(k.record.LaunchServices, h.rostered())
+	}
+	err = writeKeeperRecord(k.stateKey(), k.record)
+	k.recMu.Unlock()
+	if err != nil {
+		return refuse(fmt.Errorf("its keeper could not write the roster every session of this workspace "+
+			"reads its host services from (%v)", err))
+	}
+	k.sink.logOnlyf("keeper: pid %d holds %s until its last session leaves", k.pid, k.stateKey())
+	mirror, _ := paths.OpenExistingWorkspaceStateFile(p.Workspace, LaunchLogName, os.O_WRONLY|os.O_APPEND, 0)
+	var mirrorW io.Writer
+	if mirror != nil {
+		defer mirror.Close()
+		mirrorW = mirror
+	}
+	// READY: the arrival lock goes, as the container keeper lets the launch lock go once its jail
+	// runs (JL-D31), and the frame ends the relay (JL-D78).
+	k.releaseLaunchLock()
+	k.sink.sayReady(mirrorW)
+
+	drained := k.watchSessions()
+	for {
+		select {
+		case <-drained:
+			k.sink.logf("keeper: the last macos-user session of this workspace left; ending its host services")
+			k.endKey()
+			return k.finishKey(0, nil)
+		case s := <-k.signals:
+			if s == syscall.SIGHUP || s == syscall.SIGPIPE {
+				continue
+			}
+			k.sink.logf("keeper: sent %v; ending this workspace's macos-user host services in order", s)
+			k.endKey()
+			return k.finishKey(128+int(s.(syscall.Signal)), drained)
+		}
+	}
+}
+
+// adoptReservedFor hands plan the reserved socket of each of its served addresses the launch handed
+// this keeper (keeperPlan.ReservedAddrs), just before its start, so the service listens on the
+// socket its clients were composed at and its Running holds it for the service's life (HS-D28). A
+// socket adopted here is no longer this keeper's to release.
+func (k *keeper) adoptReservedFor(plan *launchservice.Plan) {
+	for _, addr := range plan.Moved {
+		for i, a := range k.plan.ReservedAddrs {
+			if a != addr || i >= len(k.reserved) || k.reserved[i] == nil {
+				continue
+			}
+			plan.Hold(addr, launchservice.AdoptReserved(addr, k.reserved[i]))
+			k.reserved[i] = nil
+		}
+	}
+}
+
+// endedBeforeReady reports whether the launch that spawned this keeper is gone, or a signal that ends
+// a key arrived, while its services started; it never waits, and drops a SIGHUP or a SIGPIPE.
+func (k *keeper) endedBeforeReady() (int, bool) {
+	for {
+		select {
+		case <-k.lifelineGone:
+			k.o.pr(k.o.Stderr).print("keeper: the launch that started this workspace's macos-user host " +
+				"services is gone before they were ready; ending them")
+			return 1, true
+		case s := <-k.signals:
+			if s == syscall.SIGHUP || s == syscall.SIGPIPE {
+				continue
+			}
+			k.o.pr(k.o.Stderr).printf("keeper: sent %v before this workspace's macos-user host services "+
+				"were ready; ending them", s)
+			return 128 + int(s.(syscall.Signal)), true
+		default:
+			return 0, false
+		}
+	}
+}
+
+// endKey is a keeper at macos-user ending what it holds: its roster marked ending first, so no
+// arrival joins services being stopped, then each doorway and service in reverse order of start, and
+// the fronts with the host-services dir last (endServicesSession), which takes no workspace lock: the
+// keeper's exclusive session lock and its liveness lock already keep every arrival out (§9.9.3).
+func (k *keeper) endKey() {
+	o := k.o
+	k.beginStopping()
+	k.recMu.Lock()
+	k.record.Ending = true
+	_ = writeKeeperRecord(k.stateKey(), k.record)
+	k.recMu.Unlock()
+	for i := len(k.launched) - 1; i >= 0; i-- {
+		sp := o.Perf.Span("shutdown.stop_held")
+		k.launched[i].r.Stop()
+		sp.End()
+	}
+	sp := o.Perf.Span("shutdown.stop_loopholes")
+	o.endServicesSession(k.handles)
+	sp.End()
+}
+
+// finishKey is a keeper at macos-user's last act: it waits, when drained is still pending, for the
+// sessions a signal is ending to let the session lock go (bounded, as finish waits), then removes
+// the pack tree the launch handed it, its roster and the grant record, and lets the session lock go.
+// The liveness lock goes last, with run's return.
+func (k *keeper) finishKey(rc int, drained <-chan struct{}) int {
+	p := k.plan
+	if drained != nil {
+		select {
+		case <-drained:
+		case <-time.After(keeperSessionsWait):
+			k.sink.logf("keeper: a macos-user session of this workspace still holds the session lock after %s; leaving it", keeperSessionsWait)
+		}
+	}
+	k.endingOnce.Do(func() { close(k.ending) })
+	discardPackTree(p.Cname, p.PackTree)
+	removeKeeperRecord(k.stateKey(), k.pid)
+	_ = os.Remove(keeperGrantedPath(k.stateKey()))
+	k.sink.logf("keeper: done")
+	k.mu.Lock()
+	releaseLock(k.sessions)
+	k.sessions = nil
+	k.mu.Unlock()
+	return rc
+}
+
+// unwindKey is a keeper at macos-user that ends before ready: it lets the arrival lock go, stops what
+// it started, and removes the pack tree, the services dir and its roster, so the launch that spawned
+// it, which reports its status, leaves nothing of it behind.
+func (k *keeper) unwindKey(rc int) int {
+	o, p := k.o, k.plan
+	k.beginStopping()
+	k.releaseLaunchLock()
+	for i := len(k.launched) - 1; i >= 0; i-- {
+		k.launched[i].r.Stop()
+	}
+	o.endServicesSession(k.handles)
+	discardPackTree(p.Cname, p.PackTree)
+	if k.liveness != nil {
+		removeKeeperRecord(k.stateKey(), k.pid)
+	}
+	return rc
+}
+
+// stateKey is the key every file of this keeper's state is named by: its key, or for a keeper a
+// test built by hand with none, the one its plan names (keeperKey).
+func (k *keeper) stateKey() string {
+	if k.key != "" {
+		return k.key
+	}
+	return keeperKey(k.plan.Cname, k.plan.Notch)
 }
