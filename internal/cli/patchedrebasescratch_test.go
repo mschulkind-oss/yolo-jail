@@ -142,7 +142,7 @@ func TestPackRebaseInAJailRefusesAPackOutsideTheWorkspace(t *testing.T) {
 func TestPackRebaseScratchNamesThePacksForks(t *testing.T) {
 	f := newPatchedFixture(t, "")
 	bad := filepath.Join(f.packs, "bad")
-	writeFile(t, filepath.Join(bad, "pack.json"), `{"name":"bad","contributes":[{"kind":"no-such-kind"}]}`)
+	writeFile(t, filepath.Join(bad, "pack.json"), `{"name":"bad","contributes":[{"kind":"files"}]}`)
 	inAJail(t, f.packs)
 	cwd := t.TempDir()
 	t.Chdir(cwd)

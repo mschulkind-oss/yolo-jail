@@ -81,14 +81,25 @@ func scratchPatchedStore(packRoot string) (*packsrc.Store, func(), error) {
 // one resolver, its directory read in place in declaration mode (config.ResolvePackForProcess), with
 // no fallback to a tree a launch delivered (YOLO_PACK_ROOT), since a scratch act reads the directory
 // it was named and never a copy of it. The caller has made sure dir is a directory.
-func loadPatchedPackDir(dir, name string) (*packload.Pack, error) {
+//
+// It is a USE READ (packload.LoadDirForUse), as a launch's is, so a contribution this yolo cannot
+// read is skipped, and each skip is said on errw as a launch says it (PF-D72): without the line, a
+// patched fork skipped for a field this yolo does not know reads as a pack that declares none.
+func loadPatchedPackDir(dir, name string, errw io.Writer, color bool) (*packload.Pack, error) {
 	e := config.PackEntry{Source: "file://" + dir, Name: name}
 	res, err := config.ResolvePackForProcess(e, config.ResolvePackSpec{ReadOnlyStore: true,
 		Getenv: func(string) string { return "" }})
 	if err != nil {
 		return nil, err
 	}
-	return resolvedOrProblems(e, res)
+	p, err := resolvedOrProblems(e, res)
+	if p != nil {
+		pr := richtext.Printer{W: errw, Color: color}
+		for _, note := range p.SkewNotes {
+			pr.Printf("[yellow]%s[/yellow]", richtext.Escape("Warning: "+note))
+		}
+	}
+	return p, err
 }
 
 // packForks is every fork and patched extension the pack p declares, as the keyed verbs read the
@@ -166,7 +177,7 @@ func packSeriesCheck(args []string, out, errw io.Writer, color bool) int {
 		return 1
 	}
 	// Named as a `packs` entry for the directory names it (its last segment), as `yolo pack lint` does.
-	p, err := loadPatchedPackDir(abs, filepath.Base(abs))
+	p, err := loadPatchedPackDir(abs, filepath.Base(abs), errw, color)
 	if err != nil {
 		fmt.Fprintf(errw, "yolo pack series check: %v — `yolo pack lint %s` names every problem\n", err,
 			shquote.QuoteDisplay(abs))

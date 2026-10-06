@@ -194,7 +194,7 @@ func TestSeriesCheckRefusesWhatItCannotCheck(t *testing.T) {
 	plain := filepath.Join(t.TempDir(), "plain")
 	writeFile(t, filepath.Join(plain, "pack.json"), `{"name":"plain","contributes":[]}`)
 	bad := filepath.Join(t.TempDir(), "bad")
-	writeFile(t, filepath.Join(bad, "pack.json"), `{"name":"bad","contributes":[{"kind":"no-such-kind"}]}`)
+	writeFile(t, filepath.Join(bad, "pack.json"), `{"name":"bad","contributes":[{"kind":"files"}]}`)
 	for _, tc := range []struct {
 		args []string
 		rc   int

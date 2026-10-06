@@ -55,7 +55,7 @@ func packRebaseScratch(ra rebaseArgs, args []string, out, errw io.Writer, color 
 	if !keyed || name == "" {
 		name = filepath.Base(packDir)
 	}
-	p, err := loadPatchedPackDir(packDir, name)
+	p, err := loadPatchedPackDir(packDir, name, errw, color)
 	if err != nil {
 		fmt.Fprintf(errw, "yolo pack rebase: %v — `yolo pack lint %s` names every problem\n", err,
 			shquote.QuoteDisplay(packDir))
