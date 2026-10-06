@@ -137,30 +137,25 @@ func TestHostLaunchStillGetsNVIDIAPassthrough(t *testing.T) {
 // rather than a side effect: reorder the switch so `inContainer` is tested first and the
 // AMD verdict stops being the ROCm probe's.
 //
-// It asserts the VERDICT'S AUTHOR, not the verdict. rocmHostAvailable globs the real
-// /dev/dri for a render node — no seam injects that — so whether AMD passthrough is
-// available here depends on the machine running the test, while "who decided" does not.
+// It asserts both the verdict's author and the verdict. The fixture is amdHostOptions' host,
+// whose ROCm probe passes (its render node is a fixture directory, through driDir), plus the
+// nested marker o.inContainer() reads: so the ROCm probe deciding means passthrough, and a
+// nested gate that answered instead shows up as both its reason and a missing device.
 func TestNestedAMDStillAsksTheROCmProbe(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	emptyLoopholeDirs(t)
-	o := goldenOptions("/ws", home)
-	o.PathExists = func(p string) bool {
-		switch p {
-		// The ROCm probe's own facts, plus the nested marker o.inContainer() reads.
-		case "/sys/module/amdgpu", "/dev/kfd", "/dev/dri", "/run/.containerenv":
-			return true
-		}
-		return false
-	}
-	var stdout, stderr bytes.Buffer
-	o.Stdout = &stdout
-	o.Stderr = &stderr
+	o, _, stderr := amdHostOptions(t, nil)
+	hostFacts := o.PathExists
+	o.PathExists = func(p string) bool { return p == "/run/.containerenv" || hostFacts(p) }
 
-	o.assembleRunCmd(gpuInput(t, "amd"))
+	got := strings.Join(o.assembleRunCmd(gpuInput(t, "amd")), " ")
 	if strings.Contains(stderr.String(), "nested podman-in-podman") {
 		t.Errorf("the nested gate swallowed an AMD launch: the NVIDIA-only reason answered a "+
 			"vendor whose path needs neither `--runtime runc` nor the identity maps, so the "+
 			"drop is unmeasured rather than known\nstderr: %s", stderr.String())
+	}
+	for _, want := range []string{"--device /dev/kfd", "--device /dev/dri"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("a nested launch on a host whose ROCm probe passes lacks %q:\nargv: %s\nstderr: %s",
+				want, got, stderr.String())
+		}
 	}
 }
