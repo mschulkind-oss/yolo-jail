@@ -1,16 +1,17 @@
 package run
 
 // launchcheckrefusal_test.go pins OQ-HD11's ruling (docs/design/host-daemon-ownership.md, ruled
-// 2026-10-05) and HD-D5 THROUGH Run(): a host-wide daemon that predates the launching yolo, which
-// answers the launch check `unknown action: launch-check`, REFUSES a fresh launch on both arms
-// that start host services, and refuses an attach before it delivers its channel. No launch
-// restarts the daemon.
+// 2026-10-05) and HD-D5 THROUGH Run(): a host-wide daemon that predates the launching yolo REFUSES
+// a fresh launch on both arms that start host services, whether it answers the launch check
+// `unknown action: launch-check` or does not speak the connection preamble at all. An attach keeps
+// the yellow line and enters the jail (HD-D5 (1)), and a daemon this yolo started whose program
+// lacks the check keeps the line too (HD-D6). No launch restarts the daemon.
 //
 // Each test drives a whole launch, not the boundary launchcheck_test.go drives, so deleting the
-// refusal at one call site fails the test for that site: the keeper's (the container arm), the
-// macos-user arm's, or attachExisting's. Each has a control beside it, the same launch against a
-// daemon that does answer the check, which proceeds; without it the refusal tests would pass on a
-// harness that never reached the check at all.
+// refusal at one call site fails the test for that site: the keeper's (the container arm) or the
+// macos-user arm's. Each has a control beside it, the same launch against a daemon that does
+// answer the check, which proceeds; without it the refusal tests would pass on a harness that
+// never reached the check at all.
 //
 // The daemon is launchcheck_test.go's fixture, served at the host-wide singleton path with a pid
 // file naming this process, so every launch ENSURES it rather than spawning one. Its loophole
@@ -77,7 +78,7 @@ func launchCheckRefusalHome(t *testing.T) string {
 
 // assertTheRefusal checks the refusal's words: who refused, the daemon, the one command that fixes
 // it, and that the jails already running are safe from that command.
-func assertTheRefusal(t *testing.T, out, headline, again string) {
+func assertTheRefusal(t *testing.T, out, headline string) {
 	t.Helper()
 	line := ""
 	for _, l := range strings.Split(out, "\n") {
@@ -90,13 +91,25 @@ func assertTheRefusal(t *testing.T, out, headline, again string) {
 	}
 	for _, want := range []string{"'" + launchCheckFixtureName + "'", "predates this yolo",
 		"does not answer the launch check", broker.CycleCommand(launchCheckFixtureName),
-		"reconnect", again} {
+		"reconnect", "Then launch again"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the refusal does not say %q:\n%s", want, out)
 		}
 	}
 	if strings.Contains(out, "Restarting the host-wide daemon") {
 		t.Errorf("the launch restarted the daemon itself, which no launch may do:\n%s", out)
+	}
+}
+
+// assertThePreambleRefusal is assertTheRefusal's twin for a daemon that predates the preamble.
+func assertThePreambleRefusal(t *testing.T, out, headline string) {
+	t.Helper()
+	for _, want := range []string{headline, "'" + launchCheckFixtureName + "' predates this yolo",
+		"does not speak the connection preamble", broker.CycleCommand(launchCheckFixtureName),
+		"reconnect", "Then launch again"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the refusal does not say %q:\n%s", want, out)
+		}
 	}
 }
 
@@ -115,10 +128,15 @@ func assertTheDaemonWasNotRestarted(t *testing.T) {
 
 // containerLaunch runs a fresh podman launch, its keeper in-process, to its container's start, and
 // reports what it printed, its status, and whether the runtime was asked to run the container.
-func containerLaunch(t *testing.T, handler hostservice.Handler) (out string, rc int, ranContainer bool) {
+// Each of prep runs once the daemon is up (spawnedByThisYolo, predatesThePreamble).
+func containerLaunch(t *testing.T, handler hostservice.Handler,
+	prep ...func(*testing.T)) (out string, rc int, ranContainer bool) {
 	t.Helper()
 	launchCheckRefusalHome(t)
 	serveLaunchCheckDaemon(t, handler)
+	for _, p := range prep {
+		p(t)
+	}
 	ws := t.TempDir()
 	cname := yoloruntime.FromWorkspace(ws)
 	bin, ran := t.TempDir(), filepath.Join(t.TempDir(), "ran")
@@ -163,7 +181,7 @@ func TestAFreshContainerLaunchRefusesADaemonOlderThanTheLaunchCheck(t *testing.T
 	if rc != 1 {
 		t.Errorf("Run() = %d, want 1 for a refused launch:\n%s", rc, out)
 	}
-	assertTheRefusal(t, out, "Refusing this launch", "launch again")
+	assertTheRefusal(t, out, "Refusing this launch")
 	assertTheDaemonWasNotRestarted(t)
 }
 
@@ -182,12 +200,49 @@ func TestAFreshContainerLaunchProceedsPastADaemonThatAnswers(t *testing.T) {
 	}
 }
 
+// TestAFreshContainerLaunchRefusesADaemonThatPredatesThePreamble is HD-D5 (3) on the container
+// arm: a host-wide daemon started before yolo's front would accept the jail's connections and fail
+// every request, so the keeper refuses before the container, as it does for the launch check.
+func TestAFreshContainerLaunchRefusesADaemonThatPredatesThePreamble(t *testing.T) {
+	out, rc, ran := containerLaunch(t, answersTheCheck, predatesThePreamble)
+	if ran {
+		t.Errorf("the launch started its container past a daemon that predates the preamble:\n%s", out)
+	}
+	if rc != 1 {
+		t.Errorf("Run() = %d, want 1 for a refused launch:\n%s", rc, out)
+	}
+	assertThePreambleRefusal(t, out, "Refusing this launch")
+	assertTheDaemonWasNotRestarted(t)
+}
+
+// TestAFreshContainerLaunchWarnsWhenThisYolosDaemonLacksTheCheck is HD-D6 through Run(): the
+// daemon this yolo spawned answers `unknown action: launch-check` because its program lacks what
+// its manifest declares. A restart starts the same program, so a refusal naming it would refuse
+// again after it, with no step that works; the launch warns and starts its container.
+func TestAFreshContainerLaunchWarnsWhenThisYolosDaemonLacksTheCheck(t *testing.T) {
+	out, _, ran := containerLaunch(t, olderThanTheCheck, spawnedByThisYolo)
+	if strings.Contains(out, "Refusing") {
+		t.Errorf("the launch refused a daemon no restart can fix:\n%s", out)
+	}
+	if !ran {
+		t.Errorf("the launch did not start its container:\n%s", out)
+	}
+	if !strings.Contains(out, "loophole "+launchCheckFixtureName+": its daemon does not answer the "+
+		"launch check its manifest declares") {
+		t.Errorf("the launch does not say the manifest declares a check its program lacks:\n%s", out)
+	}
+}
+
 // macosUserLaunchAgainst runs a macos-user launch against a stub backend and reports whether the
 // sandboxed command was started.
-func macosUserLaunchAgainst(t *testing.T, handler hostservice.Handler) (out string, rc int, started bool) {
+func macosUserLaunchAgainst(t *testing.T, handler hostservice.Handler,
+	prep ...func(*testing.T)) (out string, rc int, started bool) {
 	t.Helper()
 	launchCheckRefusalHome(t)
 	serveLaunchCheckDaemon(t, handler)
+	for _, p := range prep {
+		p(t)
+	}
 	ws := t.TempDir()
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
@@ -210,7 +265,7 @@ func TestAMacosUserLaunchRefusesADaemonOlderThanTheLaunchCheck(t *testing.T) {
 	if rc != 1 {
 		t.Errorf("Run() = %d, want 1 for a refused launch:\n%s", rc, out)
 	}
-	assertTheRefusal(t, out, "Refusing the macos-user launch", "launch again")
+	assertTheRefusal(t, out, "Refusing the macos-user launch")
 	assertTheDaemonWasNotRestarted(t)
 }
 
@@ -223,6 +278,19 @@ func TestAMacosUserLaunchProceedsPastADaemonThatAnswers(t *testing.T) {
 	if !started || rc != 0 {
 		t.Errorf("a launch whose daemon answers the check did not run its command (rc %d):\n%s", rc, out)
 	}
+}
+
+// TestAMacosUserLaunchRefusesADaemonThatPredatesThePreamble is HD-D5 (3) on the macos-user arm.
+func TestAMacosUserLaunchRefusesADaemonThatPredatesThePreamble(t *testing.T) {
+	out, rc, started := macosUserLaunchAgainst(t, answersTheCheck, predatesThePreamble)
+	if started {
+		t.Errorf("the macos-user launch ran its command past a daemon that predates the preamble:\n%s", out)
+	}
+	if rc != 1 {
+		t.Errorf("Run() = %d, want 1 for a refused launch:\n%s", rc, out)
+	}
+	assertThePreambleRefusal(t, out, "Refusing the macos-user launch")
+	assertTheDaemonWasNotRestarted(t)
 }
 
 // attachAgainst runs an attach into a running jail whose launch published a front to the fixture
@@ -270,26 +338,27 @@ func attachAgainst(t *testing.T, handler hostservice.Handler) packSkewRun {
 	return runPackSkew(t, ws, current, false, "", nil, nil)
 }
 
-// TestAnAttachRefusesADaemonOlderThanTheLaunchCheckBeforeItDelivers is HD-D5: an attach starts an
-// agent the check was promised to, so it refuses as a launch does. It refuses BEFORE it delivers
-// its channel (deliverChannelOnAttach's rule for a refusal), so the running jail keeps what its
-// last entry gave it, and nothing is exec'd into it.
-func TestAnAttachRefusesADaemonOlderThanTheLaunchCheckBeforeItDelivers(t *testing.T) {
+// TestAnAttachKeepsTheLineAndEntersPastADaemonOlderThanTheLaunchCheck is HD-D5 (1) through Run():
+// an attach starts nothing and restarts nothing, and refusing it would leave the running jail as
+// it is, so it prints the yellow line naming the restart, delivers its channel and enters the jail.
+func TestAnAttachKeepsTheLineAndEntersPastADaemonOlderThanTheLaunchCheck(t *testing.T) {
 	r := attachAgainst(t, olderThanTheCheck)
 	out := r.stdout + r.stderr
-	if r.execed {
-		t.Errorf("the attach entered the jail past a daemon that predates the check:\n%s", out)
+	if !r.execed || r.rc != 0 {
+		t.Errorf("the attach did not enter the jail (rc %d):\n%s", r.rc, out)
 	}
-	if r.rc != 1 {
-		t.Errorf("Run() = %d, want 1 for a refused attach:\n%s", r.rc, out)
+	if strings.Contains(out, "Refusing") {
+		t.Errorf("the attach refused, which HD-D5 (1) keeps a warning:\n%s", out)
 	}
-	if _, err := os.Stat(r.envFile); !os.IsNotExist(err) {
-		t.Errorf("the refused attach delivered its channel to the running jail (%v)", err)
+	if _, err := os.Stat(r.envFile); err != nil {
+		t.Errorf("the attach did not deliver its channel (%v)", err)
 	}
-	if len(r.rt.stops) != 0 {
-		t.Errorf("the refused attach stopped the running jail: %v", r.rt.stops)
+	for _, want := range []string{"loophole " + launchCheckFixtureName + ": ", "predates this yolo",
+		broker.CycleCommand(launchCheckFixtureName)} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the attach does not say %q:\n%s", want, out)
+		}
 	}
-	assertTheRefusal(t, out, "Refusing to attach", "run this command again")
 	assertTheDaemonWasNotRestarted(t)
 }
 
@@ -299,13 +368,12 @@ func TestAnAttachProceedsPastADaemonThatAnswers(t *testing.T) {
 	r := attachAgainst(t, answersTheCheck)
 	out := r.stdout + r.stderr
 	if !strings.Contains(out, controlNote) {
-		t.Fatalf("the attach never asked the daemon, so its refusal twin proves nothing:\n%s", out)
+		t.Fatalf("the attach never asked the daemon, so its twin's line proves nothing:\n%s", out)
 	}
 	if !r.execed || r.rc != 0 {
 		t.Errorf("an attach whose daemon answers the check did not enter the jail (rc %d):\n%s", r.rc, out)
 	}
 	if _, err := os.Stat(r.envFile); err != nil {
-		t.Errorf("the attach did not deliver its channel (%v), so the refusal twin's absent file "+
-			"proves nothing", err)
+		t.Errorf("the attach did not deliver its channel (%v)", err)
 	}
 }

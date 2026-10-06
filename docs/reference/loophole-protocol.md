@@ -476,19 +476,30 @@ The answer is one JSON object on stdout, exit `0`, either list absent when empty
 ```
 
 The launch prints each warning as a yellow `loophole <name>: <text>` line and each note as a dim
-one, with control characters replaced and style markup escaped, and then proceeds: nothing a
-daemon answers refuses a launch, and no flag hides what it prints. `budget_ms` is how long the
+one, with control characters replaced and style markup escaped, and then proceeds: no answer a
+daemon gives refuses a launch, and no flag hides what it prints. `budget_ms` is how long the
 launch waits for the answer. The daemon answers within it, from what it already knows when that is
 enough, and clamps it to a cap whoever sends it. A non-zero exit, a malformed answer or no answer
 within the budget plus a short margin prints one dim line saying the daemon could not be asked.
 
-**One non-zero exit refuses the launch**: a `scope: "host"` daemon whose first stderr line starts
-`unknown action:` and names `launch-check`, the answer yolo's daemons give an action they do not
-know. That daemon was started by an earlier yolo and kept running through the upgrade, since
-nothing restarts one when yolo changes, so the yellow line says it predates this yolo and names
-`yolo host-daemon restart <name>`. Ruled 2026-10-05 and not built
-([OQ-HD11](../design/host-daemon-ownership.md#OQ-HD11)): a fresh launch is to refuse on that
-answer instead, naming the same command; an attach keeps the line.
+**One non-zero exit refuses a fresh launch**: a `scope: "host"` daemon whose first stderr line
+starts `unknown action:` and names `launch-check`, the answer yolo's daemons give an action they do
+not know, when an earlier yolo started it. Nothing restarts a host-wide daemon when yolo changes,
+so it kept running through the upgrade. The launch stops before the jail starts, says the daemon
+predates this yolo, and names `yolo host-daemon restart <name>`, which is safe for the jails
+already running: each one's front dials the daemon's socket for every connection, so it reaches
+the new daemon on its next request. No launch restarts the daemon itself
+([OQ-HD11](../design/host-daemon-ownership.md#OQ-HD11)). A host-wide daemon that does not speak
+the connection preamble refuses the launch the same way, and is not asked
+([`HD-D5`](../design/host-daemon-ownership.md#HD-D5)).
+
+Three cases keep a yellow line instead. An attach prints the line naming the same command and
+enters the jail. A `scope: "jail"` daemon that gives the same answer was just started by this
+launch, and a host-wide one that this yolo, or another that knows the check, started gives it
+too; either way the manifest declares a check its program does not answer, and no restart
+changes the program, so the line says that and names no command. Which yolo started a host-wide
+daemon is read from the `<pid file>.launch-check` stamp its spawn writes
+([`HD-D6`](../design/host-daemon-ownership.md#HD-D6)).
 The first daemon to declare it is `aws-auth`
 ([`agent-credentials.md`](agent-credentials.md#when-the-sso-session-lapses)).
 

@@ -41,9 +41,10 @@ import (
 // The action-protocol handlers of the credential daemons (aws-auth's, openai-auth's and the
 // Claude broker's) answer an action they do not know with a non-zero exit and
 // `unknown action: <action>` on stderr, and a host-wide daemon outlives the yolo that started
-// it: nothing restarts one on an upgrade. So a launch reads that answer to its launch check as
-// a daemon older than itself (IsUnknownLaunchCheck), rather than as a check that merely failed,
-// and REFUSES, naming the restart command (internal/cli/run/launchcheck.go; OQ-HD11 in
+// it: nothing restarts one on an upgrade. So a launch reads that answer to its launch check
+// (IsUnknownLaunchCheck) as a daemon that lacks the check rather than as a check that merely
+// failed, and a fresh launch REFUSES, naming the restart command, when the daemon is host-wide
+// and an older yolo started it (internal/cli/run/launchcheck.go; OQ-HD11, HD-D5 and HD-D6 in
 // docs/design/host-daemon-ownership.md).
 //
 // First consumer: packs/aws-auth, whose daemon answers with the mint failure that would fail

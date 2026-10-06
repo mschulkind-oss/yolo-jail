@@ -50,6 +50,11 @@ func TestMain(m *testing.M) {
 	if len(os.Args) >= 4 && os.Args[1] == "-settings-echo-child" {
 		os.Exit(settingsEchoChildMain(os.Args[2], os.Args[3]))
 	}
+	// `<test-binary> -launch-check-older-child <socket>` is a per-launch daemon behind yolo's front
+	// that does not know the launch check (launchcheck_test.go).
+	if len(os.Args) >= 3 && os.Args[1] == "-launch-check-older-child" {
+		os.Exit(launchCheckOlderChildMain(os.Args[2]))
+	}
 	// `<test-binary> -bind-probe-child <host:port>` binds the address once, as a jail daemon does
 	// at boot, and says whether it could (keeperreservedports_test.go).
 	if len(os.Args) >= 3 && os.Args[1] == "-bind-probe-child" {

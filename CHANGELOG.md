@@ -26,9 +26,9 @@ into a jail, and what each launch shows about the code it runs. See
 
 ### Changed
 
-- A host-wide service an older yolo started, such as `aws-auth`, now stops a launch that uses it,
-  or a new terminal joining such a jail, instead of warning: run the
-  `yolo host-daemon restart <name>` it names, which jails already running survive.
+- A host-wide service an older yolo started, such as `aws-auth`, now stops a new launch that uses
+  it instead of warning: run the `yolo host-daemon restart <name>` it names, which jails already
+  running survive.
 
 ### Fixed
 

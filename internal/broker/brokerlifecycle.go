@@ -346,6 +346,7 @@ func BrokerKill(deps Deps, sig syscall.Signal, timeout time.Duration) bool {
 	removeIgnoreMissing(deps.PIDFilePath)
 	removeIgnoreMissing(deps.SocketPath)
 	removeIgnoreMissing(singletonStampPath(deps))
+	removeIgnoreMissing(launchCheckStampPath(deps))
 	removeIgnoreMissing(settingsRecordPath(deps))
 	return true
 }
@@ -507,9 +508,11 @@ func EnsureSingleton(deps Deps) Ensured {
 	done.Started = true
 	_ = os.WriteFile(deps.PIDFilePath, []byte(strconv.Itoa(pid)+"\n"), 0o644)
 	// Stamp the singleton as one THIS build started, so a later launch can tell a
-	// compatible daemon from one predating the fronted conversion. See
-	// SingletonSpeaksPreamble.
-	_ = os.WriteFile(singletonStampPath(deps), []byte(singletonStamp+"\n"), 0o644)
+	// compatible daemon from one predating the fronted conversion (SingletonSpeaksPreamble),
+	// and one an older yolo left running from one whose program lacks the launch check its
+	// manifest declares (SpawnedKnowingLaunchCheck).
+	StampPreamble(deps)
+	StampLaunchCheck(deps, pid)
 	writeSettingsRecord(deps, spawnSettings)
 	if !brokerWaitForSocket(deps, deps.SocketPath, BrokerSpawnTimeout, exited) {
 		reportFailedSpawn(deps, exited)

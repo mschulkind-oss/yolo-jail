@@ -81,7 +81,7 @@ host or an outside account follows under [External waits](#external-waits).
     the host line saying pi will not start is being built now and the refusal lands at the same
     point. The fourth, [whether a launch restarts a host daemon older than
     itself](../design/host-daemon-ownership.md#OQ-HD11), was ruled the same day: no, and a fresh launch
-    refuses instead, naming the restart; that build is queued with the day's other builds below.
+    refuses instead, naming the restart; that refusal is built.
 13. [Build pack-declared pi extensions as host builds, one read-only copy per jail](../design/pi-git-extension-caching.md), with
     [what the background update mode moves](../design/pi-extension-store-builds.md) — next, since the maintainer
     asked on 2026-10-05 to be led through them, and the capture of unmodified extensions (or the held store) and
@@ -213,17 +213,16 @@ host or an outside account follows under [External waits](#external-waits).
     with the npm packs first, since no CI job installs a vendor's Mac build before a user does; [copilot from GitHub's own
     installer](native-installer-migration.md), its own updater left on; and [the per-setup census](../design/backend-parity.md),
     whose test fails when a config key or pack kind has no answer for one of the four setups. Four more of that day's rulings
-    released builds placed here for the same reason: [the Bedrock list yolo fetches](../design/model-lists-and-pickers.md#OQ-MM6)
+    released builds placed here for the same reason ([the fourth](../design/host-daemon-ownership.md#OQ-HD11), the refusal
+    of a host-wide daemon older than the launching yolo, is built): [the Bedrock list yolo fetches](../design/model-lists-and-pickers.md#OQ-MM6)
     where no pack supplies one, with claude in its own Bedrock mode behind the bridge, to land no later than [the shipped
     Bedrock list's removal](../design/model-lists-and-pickers.md#MM-D32), since a launch with neither leaves claude on
     `-p bedrock-bridge` without prompt caching and starting on an id Bedrock refuses; [pi's package
     folder](../design/pack-pi-resources.md), one entry per content pack in place of a list of files, built with
     the widening [the pack-file conventions](../design/pack-conventions.md) decide, so a patched extension landing
-    there needs no list entry either, where each of the maintainer's carries one today; [the jail's readiness
+    there needs no list entry either, where each of the maintainer's carries one today; and [the jail's readiness
     act](../design/jail-notch-readiness.md#OQ-JR1), which installs every program a selected pack declares before your command
-    runs and stops a launch that cannot, offline included, since `yolo -- true` still leaves every agent CLI uninstalled; and
-    [the refusal of a host-wide daemon older than the launching yolo](../design/host-daemon-ownership.md#OQ-HD11), since an
-    upgraded launch still proceeds without the check that warns what would fail its agents' requests.
+    runs and stops a launch that cannot, offline included, since `yolo -- true` still leaves every agent CLI uninstalled.
 46. [Make the Chrome DevTools MCP server work at `yolo host`](../design/mcp-presets-removal.md#5-the-chrome-devtools-inventory--what-the-pack-carries-what-the-image-keeps)
     — the maintainer wants it, after the week's work (2026-09-30); host apply expands no MCP preset
     ([HC-D16](../design/host-computed-layer.md#HC-D16)), and the host agent floor now gives yolo a prefix to put one in.
