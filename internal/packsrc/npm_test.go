@@ -6,6 +6,7 @@ package packsrc
 // replays nothing.
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -108,6 +109,49 @@ func TestAnNpmCheckResolvesEachSpecAsNpmsPickManifestDoes(t *testing.T) {
 	}
 	if got := atomic.LoadInt64(hits); got != 6 {
 		t.Errorf("the registry was asked %d times for six checks, want one each", got)
+	}
+}
+
+// A RANGE PICKS AS npm's PICK-MANIFEST DOES (npm 11's bundled npm-pick-manifest 11.0.3, XB-D36,
+// XB-D47): the `latest` tag only when the registry lists it and it is not deprecated, and for the
+// range `*` whatever it is, a pre-release included. No spec is `*`, since npm-package-arg reads
+// `npm install <name>` as that range, which is the install pi runs for `npm:<name>`; an explicit
+// dist-tag is that tag's version, deprecated or not, but only a version the registry lists.
+func TestAnNpmRangePicksAsNpmPickManifestDoes(t *testing.T) {
+	for _, c := range []struct{ name, src, body, want, wantErr string }{
+		{"a deprecated latest is passed over for a range", "npm:x@^1.0.0",
+			`{"dist-tags":{"latest":"1.5.0"},"versions":{"1.4.0":{},"1.5.0":{"deprecated":"use 1.4"}}}`, "1.4.0", ""},
+		{"* takes a pre-release latest", "npm:x@*",
+			`{"dist-tags":{"latest":"2.0.0-beta.1"},"versions":{"1.4.0":{},"2.0.0-beta.1":{}}}`, "2.0.0-beta.1", ""},
+		{"no spec is *, so it takes a pre-release latest", "npm:x",
+			`{"dist-tags":{"latest":"2.0.0-beta.1"},"versions":{"1.4.0":{},"2.0.0-beta.1":{}}}`, "2.0.0-beta.1", ""},
+		{"no spec passes over a deprecated latest", "npm:x",
+			`{"dist-tags":{"latest":"1.5.0"},"versions":{"1.4.0":{},"1.5.0":{"deprecated":"use 1.4"}}}`, "1.4.0", ""},
+		{"a latest the registry does not list is passed over", "npm:x@^1.0.0",
+			`{"dist-tags":{"latest":"1.6.0"},"versions":{"1.4.0":{},"1.5.0":{}}}`, "1.5.0", ""},
+		{"an explicit latest is the tag's version, deprecated or not", "npm:x@latest",
+			`{"dist-tags":{"latest":"1.5.0"},"versions":{"1.4.0":{},"1.5.0":{"deprecated":"use 1.4"}}}`, "1.5.0", ""},
+		{"a dist-tag naming an unlisted version resolves to nothing", "npm:x@next",
+			`{"dist-tags":{"next":"3.0.0"},"versions":{"1.4.0":{}}}`, "", "names 3.0.0, which the registry does not list"},
+	} {
+		var p npmPackument
+		if err := json.Unmarshal([]byte(c.body), &p); err != nil {
+			t.Fatal(err)
+		}
+		n, err := ParseNpm(c.src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := p.pick(n)
+		if c.wantErr != "" {
+			if err == nil || !strings.Contains(err.Error(), c.wantErr) {
+				t.Errorf("%s: %s picks %q (%v), want an error naming %q", c.name, c.src, got, err, c.wantErr)
+			}
+			continue
+		}
+		if err != nil || got != c.want {
+			t.Errorf("%s: %s picks %q (%v), npm installs %s", c.name, c.src, got, err, c.want)
+		}
 	}
 }
 

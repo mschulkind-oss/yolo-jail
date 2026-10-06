@@ -105,7 +105,8 @@ as above, or an npm package:
 
 - **An npm source** is `npm:<name>`, optionally with `@` and a version, a range or a dist-tag, as
   npm reads them. yolo picks the version npm would install, on your machine, and installs it in the
-  jail with pi's own npm command. The list entry is `~/` plus `into`, then `/node_modules/<name>`.
+  jail with pi's own npm command. One difference: yolo does not pass over a version whose
+  `engines` field rules out the jail's Node, which npm would. The list entry is `~/` plus `into`, then `/node_modules/<name>`.
 - **A git source** follows its branch's newest commit, as pi does with the same `git:` entry. A tag
   or a commit as the `?ref=` holds it there. With no `build`, yolo runs npm's install of the
   extension's dependencies when it has a `package.json`, as pi would.

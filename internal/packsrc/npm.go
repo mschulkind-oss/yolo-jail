@@ -8,9 +8,11 @@ package packsrc
 //
 //   - THE SPEC is what npm itself reads after the `@` (npm-package-arg's rules): an exact version
 //     names that version and needs no request at all; a dist-tag names whatever the registry's tag
-//     says; anything node-semver reads as a range names its highest match, as npm's own
-//     pick-manifest chooses it (the `latest` tag when it satisfies the range, else the highest
-//     satisfying version that is not deprecated, else the highest). No spec is the `latest` tag.
+//     says; anything node-semver reads as a range, and no spec, which npm reads as `*`, names the
+//     version npm's own pick-manifest chooses (pick: the `latest` tag when it is listed, not
+//     deprecated and satisfies the range, else the highest satisfying version that is not
+//     deprecated, else the highest). A version's `engines` is not read, which npm's pick does
+//     (XB-D47).
 //   - THE REGISTRY is the public one. The request asks for the abbreviated metadata npm's own
 //     installer reads, once per package name per check, through one keep-alive client per process.
 //     No credential is sent, so a private registry is not covered (XB-D5).
@@ -70,7 +72,8 @@ func CheckRepo(source string) string {
 type NpmSpecKind int
 
 const (
-	// NpmTag is a dist-tag; no spec at all is the `latest` tag.
+	// NpmTag is a dist-tag; no spec at all is one too, for its hourly check and its lines (Ref
+	// says `latest`), though it picks as the range `*` does, as npm reads it (pick).
 	NpmTag NpmSpecKind = iota
 	// NpmVersion is one exact version.
 	NpmVersion
@@ -247,17 +250,42 @@ func fetchNpmPackument(ctx context.Context, name string) (*npmPackument, error) 
 	return &p, nil
 }
 
-// pick is the version npm's pick-manifest takes from p for n's spec, or why there is none.
+// pick is the version npm's pick-manifest takes from p for n's spec, or why there is none
+// (npm 11's bundled npm-pick-manifest, XB-D36 and XB-D47):
+//
+//   - an explicit dist-tag is that tag's version, deprecated or not, if the registry lists it;
+//   - anything else is a range, no spec being `*` (npm-package-arg reads `npm install <name>` as
+//     that range, and it is the install pi runs for `npm:<name>`): the `latest` tag's version when
+//     the registry lists it, it is not deprecated, and it satisfies the range or the range is
+//     literally `*`, a pre-release included; else the highest satisfying version that is not
+//     deprecated; else the highest.
+//
+// Not read, so a tree may differ from pi's install there: a version's `engines`, which npm weighs
+// against the installing node and npm, and a registry's staged or restricted versions, which the
+// public registry's abbreviated metadata does not carry.
 func (p *npmPackument) pick(n NpmSource) (string, error) {
-	if n.Kind == NpmTag {
-		v, ok := p.DistTags[n.Ref()]
+	if n.Kind == NpmTag && n.Spec != "" {
+		v, ok := p.DistTags[n.Spec]
 		if !ok || v == "" {
-			return "", fmt.Errorf("the registry has no dist-tag %q for %s", n.Ref(), n.Name)
+			return "", fmt.Errorf("the registry has no dist-tag %q for %s", n.Spec, n.Name)
+		}
+		if _, listed := p.Versions[v]; !listed {
+			return "", fmt.Errorf("the registry's dist-tag %q for %s names %s, which the registry does not list",
+				n.Spec, n.Name, v)
 		}
 		return v, nil
 	}
+	rng, star := n.Range, n.Spec == "" || n.Spec == "*"
+	if n.Spec == "" {
+		var err error
+		if rng, err = nodesemver.ParseRange("*"); err != nil {
+			return "", err
+		}
+	}
 	if latest, ok := p.DistTags["latest"]; ok {
-		if v, ok := nodesemver.Parse(latest); ok && n.Range.Satisfies(v) {
+		meta, listed := p.Versions[latest]
+		if v, ok := nodesemver.Parse(latest); ok && listed && !npmDeprecated(meta.Deprecated) &&
+			(star || rng.Satisfies(v)) {
 			return v.String(), nil
 		}
 	}
@@ -272,13 +300,13 @@ func (p *npmPackument) pick(n NpmSource) (string, error) {
 			live = append(live, v)
 		}
 	}
-	if v, ok := n.Range.MaxSatisfying(live); ok {
+	if v, ok := rng.MaxSatisfying(live); ok {
 		return v.String(), nil
 	}
-	if v, ok := n.Range.MaxSatisfying(all); ok {
+	if v, ok := rng.MaxSatisfying(all); ok {
 		return v.String(), nil
 	}
-	return "", fmt.Errorf("no version of %s satisfies %q", n.Name, n.Spec)
+	return "", fmt.Errorf("no version of %s satisfies %q", n.Name, n.Ref())
 }
 
 // npmDeprecated reads a version's `deprecated`: a non-empty message deprecates it; false, "" or
