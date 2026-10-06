@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/setupcensus"
 )
 
 // THE CENSUS IN docs/design/backend-parity.md IS PROSE, AND PROSE CANNOT FAIL.
@@ -64,7 +65,9 @@ import (
 const parityScope = "."
 
 // The dispositions, all six of them docs/design/backend-parity.md §3's — the census there is
-// per CONFIG KEY, and these are the same vocabulary applied to a code site.
+// per CONFIG KEY and pack kind (internal/setupcensus, built 2026-10-05), and these are the same
+// vocabulary applied to a code site. TestParityMarkersSpeakTheCensusVocabulary keeps the two
+// word lists one list.
 //
 // Dropped and NotApplicable are the two this census DROVE INTO §3, which had four: §3 classifies
 // a mechanism a user asked for, and every one of those is in one of four states. A code site is a
@@ -93,6 +96,21 @@ var parityDispositions = map[string]string{
 	"Dropped": "absent elsewhere, silently, on purpose",
 	// The capability question does not arise on the other backends.
 	"NotApplicable": "not a capability question",
+}
+
+// TestParityMarkersSpeakTheCensusVocabulary: a `// parity:` marker and a census cell are the
+// same judgement at two grains (a code site, a config key or kind), so a word one accepts and
+// the other does not would let the two censuses disagree about what a disposition is.
+func TestParityMarkersSpeakTheCensusVocabulary(t *testing.T) {
+	var census []string
+	for _, d := range setupcensus.Dispositions() {
+		census = append(census, d.String())
+	}
+	sort.Strings(census)
+	if got := sortedDispositions(); strings.Join(got, " ") != strings.Join(census, " ") {
+		t.Errorf("parityDispositions accepts %v and internal/setupcensus defines %v: they are "+
+			"backend-parity.md §3's one vocabulary, so change both or neither", got, census)
+	}
 }
 
 // parityGate matches a line that branches on the RUNTIME'S IDENTITY. One line is one site,

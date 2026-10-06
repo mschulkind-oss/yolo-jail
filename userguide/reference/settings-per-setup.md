@@ -12,6 +12,8 @@ covers:
   - internal/cli/run/loopholeinert.go
   - internal/cli/run/backendlimits.go
   - internal/macosuser/runplan.go
+  - internal/setupcensus/configkeys.go
+  - internal/setupcensus/kinds.go
 tags: [config, backends, setups, podman, apple-container, macos-user]
 summary: "Every config key and every pack contribution kind, and what each of the four setups (a backend paired with a host OS) does with it. Also which edits a running jail picks up when you run yolo again and which need a fresh launch."
 ---
@@ -65,7 +67,7 @@ yet* means they have not. The subsections and tables further down have the detai
 | **Use yolo's host services** (shared logins, AWS Bedrock credentials, a USB serial port…) | Yes. The login services run by themselves; you turn the others on. | Should work, apart from the Linux-only ones.[^lh-mac] | No: the jail cannot connect back to the Mac.[^lh-ac] | Partly. yolo starts them, and the helpers that must run inside the sandbox run there too, so the OpenAI login service and Bedrock (`aws-auth`) work.[^login-mu] Sharing one Claude login between sandboxes does not.[^musrefresh] |
 | **Reach a service running on your host** | Yes. List the port in `network.forward_host_ports` (for example `[5432]`) and it appears on the jail's `localhost`; this needs `socat` on the host. Or connect to `host.containers.internal`.[^lh-rootful] | Yes, at `host.containers.internal`. | No; not planned yet. Do not set `forward_host_ports` here: it stops the launch. | Yes. The sandbox is on the Mac's own network, so `localhost` is the Mac and `forward_host_ports` is not needed. A remapped port (`"8080:9090"`) is not supported. |
 | **Reach the internet** | Yes. | Yes. | Yes. On macOS 15, run `yolo check` first.[^cap-mac15] | Yes, and your local network too. |
-| **Open a jail's dev server from your host** | Yes. Add the port to `network.ports` (for example `"ports": ["3000:3000"]`) and bind the server to `0.0.0.0`, then open `localhost:3000` on your host. | Yes, the same. | Not through `network.ports`, which carries no data here (not planned yet). Connect to the container's own address and port instead; `container ls` shows the address. | Yes. A port the agent opens is already open on the Mac. |
+| **Open a jail's dev server from your host** | Yes. Add the port to `network.ports` (for example `"ports": ["3000:3000"]`) and bind the server to `0.0.0.0`, then open `localhost:3000` on your host. | Yes, the same. | Yes, the same, measured once on a Mac.[^acports] | Yes. A port the agent opens is already open on the Mac. |
 | **Use a GPU** | Yes, with `gpu` (NVIDIA or AMD). | No. | No. | No setting, but Metal should work as it does for any Mac program. |
 | **Use a USB or serial device** | Yes, with `devices`, or a serial port through the `serial` host service. | Not with `devices`. A serial port through the `serial` host service should work.[^lh-mac] | No. | No. |
 | **Run containers inside the jail** | Yes. podman is built in. | Should work (same image). | No. | No. |
@@ -349,8 +351,8 @@ Two things to read before the table:
 | `kvm` | works — needs host group membership [^kvmhost] | absent, warns — not built yet [^kvmmac] | absent, warns [^acdev] | absent, warns — no Linux kernel to ask | fresh launch [^muentry] |
 | `network.mode: "bridge"` (default) | works — own network namespace | works — namespace inside the VM [^vm-limits] | works — own network per container | absent, **silent** — no isolation at all [^mubridge] | fresh launch |
 | `network.mode: "host"` | works — and drops both port keys [^hostdrop] | **applies to the VM, not the Mac — silent** [^hostmac] | absent, warns — runs bridged; port keys still work [^achost] | works — the only mode it has | fresh launch |
-| `network.ports` (HOST:JAIL) | works — passed to podman [^dnat] | works for a `0.0.0.0` listener — **measured** [^vm-limits] [^dnat] | **accepted and inert — measured** [^acports] | absent, warns — every bound port is already open [^muports] | fresh launch |
-| `network.forward_host_ports` (JAIL:HOST) | works — needs `socat` on the host [^socat] | works — TCP to the VM gateway, unmeasured [^vm-limits] | **breaks the launch — measured** [^acfwd] | same-port entries already true; a remap is not built [^mufwd] | fresh launch |
+| `network.ports` (HOST:JAIL) | works — passed to podman [^dnat] | works for a `0.0.0.0` listener — **measured** [^vm-limits] [^dnat] | works — measured once on a Mac [^acports] | absent, warns — every bound port is already open [^muports] | fresh launch |
+| `network.forward_host_ports` (JAIL:HOST) | works — needs `socat` on the host [^socat] | works — TCP to the VM gateway, unmeasured [^vm-limits] | **breaks the launch — measured** [^acfwd] | absent, warns — a same-port entry already holds; a remap is not built [^mufwd] | fresh launch |
 
 Terms: **rootless podman** runs as your own user with no root daemon; **Podman Machine** is the Linux VM podman uses on macOS; **CDI** is the Container Device Interface, a host-side YAML/JSON file describing a GPU; a **remap** is a port entry whose two numbers differ (`5432:3306`).
 
@@ -379,13 +381,13 @@ The `--network` CLI flag overrides `network.mode` for a jail that launch starts,
 [^mubridge]: A written `"mode": "bridge"` is not read: the sandboxed process shares the launcher's network stack and every port it binds is on the Mac's real interfaces. The agent's briefing says so; the human who wrote the key is told nothing. A warning on an explicit key is the small missing piece — the isolation itself the sandbox cannot provide.
 [^hostdrop]: By design: under host networking yolo stops requesting host-loopback forwarding and drops **both** port keys, because there is nothing left to map. It also tells the jail that the namespace is shared, which makes an unreachable yolo service refuse the launch rather than warn.
 [^hostmac]: The flag is applied — to the VM's network namespace. Two silent consequences: the agent is told "localhost resolves directly to the host", which is false (it is the VM's loopback); and the jail is told the launcher's namespace is shared, which **escalates** — with a loopback service enabled, the launch can be refused for a boundary that was never crossed.
-[^achost]: Apple Container accepts no network selector, so the key cannot be honored as written; the warning names the key and the consequence. It was thought to withhold nothing because the port keys still worked here — **measured 2026-09-16, neither does** [^acports] [^acfwd]. The *goal* remains reachable and unbuilt, and the raw material is the one transport that does cross this boundary: a published UNIX socket, which carries data both ways in the host→container direction.
+[^achost]: Apple Container accepts no network selector, so the key cannot be honored as written; the warning names the key and the consequence. The port keys are unaffected by the mode: `network.ports` works here [^acports], and `network.forward_host_ports` stops the launch in either mode [^acfwd]. The *goal* remains reachable and unbuilt, and the raw material is the one transport that does cross this boundary: a published UNIX socket, which carries data both ways in the host→container direction.
 [^dnat]: A jail service bound to `127.0.0.1` (rather than `0.0.0.0`) is *meant* to stay publishable: yolo installs an address translation at boot for each published port. **On podman/macOS it does not work, and that is now measured** — with the rule installed, `route_localnet=1` and the listener confirmed, the Mac's dial to the published port connects and receives nothing, while an identical `0.0.0.0` listener answers. So **bind `0.0.0.0` in the jail**, and the two documentation surfaces that say a `127.0.0.1` listener is not publishable (including the agent briefing) are RIGHT rather than stale. The mechanism is that rootless port forwarding hands the connection over inside the network namespace, which never traverses the `PREROUTING` chain the fixup writes — so expect the same on **rootless Linux**, where it remains unmeasured. Your deciding host fact: `podman info --format '{{.Host.Security.Rootless}} {{.Host.RootlessNetworkCmd}}'`. On `container` none of this machinery is emitted at all, and published ports do not work there for any bind address [^acports].
 [^socat]: `socat` must be installed **on the host**; absent, you get one warning and no forwarding. This is the one network key with an end-to-end test, and that test runs only on Linux.
-[^acports]: **Measured on `container` 1.1.0 / macOS 26.5:** the mapping is recorded — `container inspect` shows `{"hostAddress": "0.0.0.0", "hostPort": …}` — and carries nothing. Dialling the Mac's `127.0.0.1:<hostPort>` connects and returns no data (the jail-side listener sees the connection arrive and reset), while dialling the container's own vmnet IP on the container port works normally. This is the same shape as the container→host outage: on this backend host↔container TCP establishes in both directions and carries data in neither. Nothing warns; `-p` is emitted as if it worked.
+[^acports]: **Measured on `container` 1.1.0 / macOS 26.5, on 2026-10-03:** a published port answered the Mac at `127.0.0.1:<host port>`, under the default network mode and under `network.mode: "host"` alike. Earlier runs on the same Mac, in September, got nothing back, and what changed in between is not recorded. On those runs macOS Local Network privacy was blocking the Mac's own connections to the container, so if a published port accepts a connection and returns nothing, look under System Settings → Privacy & Security → Local Network for Apple Container's helper programs; whether allowing them fixes it has not been tested. The launch says nothing either way. The port listens on IPv4 only, so dial `127.0.0.1`, not `[::1]`.
 [^acfwd]: **Measured on `container` 1.1.0 — this one fails the launch.** yolo starts host-side `socat` *before* creating the container, and Apple Container then refuses the flag naming that socket: `Error: host socket <path> already exists and may be in use`. Even with no `socat` installed, the direction is inverted — AC's `--publish-socket host_path:container_path` creates the host socket and forwards a *host* connection inward to a container-side listener, which is the opposite of what this key needs. A published unix socket is nonetheless the one transport measured to cross this boundary at all, so it is the raw material for a fix rather than a dead end.
 [^muports]: There is nothing to publish and nothing to confine: a port the sandboxed agent binds is on the Mac's real interfaces whether you list it or not. A launch prints one line per declared key saying so. A **remap** (differing numbers) is named as undeliverable — and that half is unbuilt rather than impossible: a small host-side relay would deliver it, at the cost of leaving the inner port exposed too.
-[^mufwd]: A same-port entry (`5432:5432`) is already satisfied — the sandbox is on the Mac's stack. A remap (`5432:3306`) is warned and not delivered; a loopback relay in the launcher would deliver it, which is why this is a gap rather than a limit.
+[^mufwd]: The launch prints one line naming every entry. A same-port entry (`5432:5432`) is already satisfied — the sandbox is on the Mac's stack. A remap (`5432:3306`) is named as not delivered; a loopback relay in the launcher would deliver it, which is why this is a gap rather than a limit.
 
 ## Packages, tools, and agent configuration
 
@@ -450,6 +452,21 @@ Two things cut across the whole table. First, **`macos-user` has no re-entry**: 
 
 [^clt]: Without Xcode Command Line Tools there is no `cc` or `make` in the `macos-user` sandbox and yolo does not say so; with them installed, the Mac's own toolchain is what you get. Check with `xcode-select -p`. Linux-only tools such as `strace` are absent either way.
 
+## Other keys
+
+The keys the tables above leave out. Most of them do the same thing on every setup. When an edit to one reaches a running jail is covered in [When a change takes effect](configuration.md#when-a-change-takes-effect).
+
+| Key | `podman` / Linux | `podman` / macOS | `container` / macOS | `macos-user` / macOS |
+|---|---|---|---|---|
+| `runtime` — which setup a launch uses | works | works — without it, yolo picks Apple Container when it is installed | works — the Mac default | works — only this key or `YOLO_RUNTIME` picks it |
+| `confinement` — how confined the agent is | works — `jail`, the default, launches; `guest` and `host` refuse the launch and say what to use instead | works — the same | works — the same | works — the same |
+| `required_capabilities` — what the jail must be able to do | works — a capability nothing in your config or its packs provides refuses the launch | works — the same | works — the same | works — the same |
+| `adapters` — where an adapted provider is reached | works | works | works | works — except for a helper the launch starts itself, which uses the port that launch picked |
+| `brokered` — more repositories for the GitHub host service in one project | works | works | absent, warns — the GitHub host service does not start here, and the launch names it[^lh-ac] | works |
+| `macos_log` — what the sandbox may read from the Mac's log | `n/a` — no macOS log | `n/a` — the jail is Linux and cannot read the Mac's log | `n/a` — the same | works |
+| `agents_md_extra`, `briefing_provenance` — your text in the agent's briefing | works | works | works — a running jail keeps the briefing it started with | works |
+| `include_if_found`, `prune`, `perf_logging`, `update_check` | works | works | works | works |
+
 ## What a running jail picks up when you run `yolo` again
 
 Re-running `yolo` in a workspace whose jail is still running does **not** start a new jail — it *re-enters* the one you have (the banner says `Attaching to existing jail`). Settings passed when the container was created stay as they were, and so do its packs. Skills and briefings are rebuilt on every entry from the packs the jail started with, so you see the boot run again, yet some edits still wait for a restart. This table says which.
@@ -484,18 +501,18 @@ Re-running `yolo` in a workspace whose jail is still running does **not** start 
 
 ## What a pack can contribute, per setup
 
-Every contribution kind is delivered on all four setups — config files and their overlays, autonomy postures, hooks, blocked-tool and intercept shims, skills trees, workspace and machine-scope state dirs, read-only host-file grants, providers and the `models` lists that shape them, `requires` assertions, briefings, and `program` launchers[^capture] — **except these**:
+Every contribution kind is delivered on all four setups — config files and their overlays, autonomy postures, hooks, blocked-tool and intercept shims, skills trees, workspace and machine-scope state dirs, read-only host-file grants, providers, the `models` lists that shape them and the `adapter` conversions they route through, `requires` assertions, briefings, and `program` launchers[^capture] — **except these**:
 
 | Contribution | podman/Linux | podman/macOS | container/macOS | macos-user/macOS |
 |---|---|---|---|---|
 | `env` — static vars | works | works | works — a pack edit needs a restart[^acfreeze] | works — carried in the launch env[^servedby] |
-| `files` — a tree in the agent's home | works | works | works — writable copy | works — protected copy[^files] |
+| `files` — a tree in the agent's home | works | works | works — read-only, but a single file arrives as a writable copy | works — protected copy[^files] |
 | `program` with `patches` — a patched fork, built from its upstream and your patch series | works | works | works on 1.1.0+; a new build waits for the other jails to stop[^patchedac] | not delivered, and the launch says where it is[^patched] |
 | `files` with `source` and `patches` — a patched pi extension | works — read-only copy | works — read-only copy | works on 1.1.0+, with the same wait; below 1.1.0 no new build, and a good build already on this Mac is copied in[^patchedac] | not delivered, and the launch says where it is[^patched] |
 | `mount` — host dir read-only at `/ctx/<into>` | works | works | works — needs Apple Container 1.1.0+[^acver-mount] | refuses the launch[^mountmu] |
 | `service` — an in-jail daemon (the wire bridge) | works | works | works | works — its host half runs for the launch that needs it[^svc] |
 | `profile` — a named `-p` selection | works | works | works — a pack edit needs a restart[^acfreeze] | works[^profmu] |
-| `loophole` — a host service | works | works — the jail-to-Mac connection is tested[^machop] | one starts, none usable[^theone] | all start, none fully usable[^theone] |
+| `loophole` — a host service | works | works — the jail-to-Mac connection is tested[^machop] | absent, warns — one starts, and the jail cannot reach it[^theone] | works — every one starts, and the launch says which halves the sandbox declines; the loophole table says which are usable[^theone] |
 
 On **macos-user** every launch is fresh, so a pack edit reaches your next command. On **podman** and **Apple Container** a running jail keeps the packs it started with: a pack edit arrives at the next fresh launch, and a re-entry says which packs differ. On Apple Container a fresh `.yolo/handover.md` waits for the restart too.[^acfreeze]
 
