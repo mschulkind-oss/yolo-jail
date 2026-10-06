@@ -43,6 +43,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -216,6 +217,9 @@ type buildRun struct {
 type tailLine struct {
 	text string
 	warn bool
+	// build is a line printed once the build jail's boot was done: the build's own output, and the
+	// end of its session.
+	build bool
 }
 
 // buildLogName is the name of the build log of fork key under the workspace's .yolo: readable,
@@ -337,7 +341,7 @@ func (b *buildRun) endLine(i int) {
 			b.inWarn[i] = false
 		}
 	}
-	if b.tail = append(b.tail, tailLine{text: text, warn: warned}); len(b.tail) > buildTailLines {
+	if b.tail = append(b.tail, tailLine{text: text, warn: warned, build: b.booted}); len(b.tail) > buildTailLines {
 		b.tail = b.tail[len(b.tail)-buildTailLines:]
 	}
 }
@@ -478,11 +482,18 @@ func (b *buildRun) failureLines() []string {
 		return nil
 	}
 	b.mu.Lock()
+	// THE BUILD'S OWN LINES, once its jail booted, when it printed any: a nested launch's
+	// disclosures and provisioning, printed before, would otherwise fill the window and push the
+	// build line's own error out of it.
+	built := slices.ContainsFunc(b.tail, func(l tailLine) bool { return l.build })
 	var tail []string
 	repeated := false
 	for _, l := range b.tail {
 		if l.warn {
 			repeated = true
+			continue
+		}
+		if built && !l.build {
 			continue
 		}
 		tail = append(tail, l.text)

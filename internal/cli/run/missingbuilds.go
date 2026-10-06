@@ -235,7 +235,13 @@ func (o *Options) printMissingGroups(builds []missingBuild) {
 			labels[i] = m.label
 		}
 		if first.cause == nil {
-			out.print("  " + richtext.Escape(first.label+": "+first.reason))
+			// A reason that names its build already ("extension a/x's build of v1 failed …") is said as
+			// it is; any other follows the build's label.
+			line := first.label + ": " + first.reason
+			if strings.HasPrefix(first.reason, first.label) {
+				line = first.reason
+			}
+			out.print("  " + richtext.Escape(line))
 			continue
 		}
 		head := missingHeadline(first.reason)

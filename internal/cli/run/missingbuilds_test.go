@@ -294,4 +294,9 @@ func TestAPooledBuildsFailureReachesTheRefusalOnce(t *testing.T) {
 	if n := strings.Count(printed, "failed on the host (exit 2)"); n != 1 {
 		t.Errorf("the launch says the pooled build's reason %d times, want once:\n%s", n, printed)
 	}
+	// The reason names its build already, so the label is not said twice before it.
+	if !strings.Contains(printed, "\n  extension "+treeKey+"'s build of v1.0.0") ||
+		strings.Contains(printed, treeKey+": extension "+treeKey) {
+		t.Errorf("the refusal does not say the reason as it is, its build named once:\n%s", printed)
+	}
 }

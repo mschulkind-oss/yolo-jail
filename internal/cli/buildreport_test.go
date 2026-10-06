@@ -537,3 +537,40 @@ func TestAKeyStoppedWaitingForACheckSlotSaysSoOnce(t *testing.T) {
 		t.Errorf("the stopped key said its Ctrl-C %d times, want once:\n%s", n, term)
 	}
 }
+
+// A FAILED BUILD'S TAIL IS ITS OWN OUTPUT: a nested launch that printed more lines before its jail
+// booted than the tail holds, and a build line that printed two, shows the build's two — its error
+// — and none of the launch's, which are in the logs. Red with failureLines keeping every stream's
+// last lines alike, which then shows the launch's lines and loses the error.
+func TestAFailedBuildsTailIsItsOwnOutput(t *testing.T) {
+	fx := newTreeFixture(t, `"f.txt"`)
+	prev := forkBuildChild
+	forkBuildChild = func(_ context.Context, _ time.Duration, staging string, b forkBuild, s captureStreams,
+		color bool) (int, bool) {
+		for i := 1; i <= 30; i++ {
+			fmt.Fprintf(s.errw, "nested launch line %d\n", i)
+		}
+		s.jailReady()
+		fmt.Fprintln(s.jailOut, "compiling the extension")
+		fmt.Fprintln(s.jailErr, "error: the extension does not compile")
+		writeFile(t, filepath.Join(staging, forkToolchainLeaf), "image-identity\n")
+		return 3, false
+	}
+	t.Cleanup(func() { forkBuildChild = prev })
+	d, stream := fx.deliverWithStream(t, t.TempDir())
+	term := stream.terminal()
+	if d.Dir != "" {
+		t.Fatalf("a failed build delivered %+v", d)
+	}
+	for _, w := range []string{"  its last 2 lines:", "    compiling the extension", "    error: the extension does not compile"} {
+		if !strings.Contains(term, w) {
+			t.Errorf("the failure lacks %q:\n%s", w, term)
+		}
+	}
+	if strings.Contains(term, "nested launch line") {
+		t.Errorf("the failure's tail shows the nested launch's lines, not the build's:\n%s", term)
+	}
+	if !strings.Contains(stream.logged(), "nested launch line 1") {
+		t.Errorf("launch.log lacks the nested launch's lines:\n%s", stream.logged())
+	}
+}
