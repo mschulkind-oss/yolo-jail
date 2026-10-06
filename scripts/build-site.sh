@@ -27,3 +27,8 @@ else
   "$tmp/venv/bin/pip" install --upgrade vantage-md
   "$tmp/venv/bin/vantage" build userguide/ -o dist/docs -n "YOLO Jail User Guide"
 fi
+
+# The export loads its scripts and its page data by relative path (./assets/, ./api/), which
+# resolve only at the site root, while the Worker answers every path with the same index.html. So
+# without a base, a page opened by a path such as /guides/macos rendered blank (2026-10-05).
+python3 scripts/site-base-href.py dist/docs

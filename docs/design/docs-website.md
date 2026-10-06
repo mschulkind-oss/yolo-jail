@@ -22,6 +22,10 @@ question the design left open, filed with an id on 2026-10-01. The design's argu
 alternatives and its measurement of Vantage's setup are in git history
 (`git log --follow -- docs/design/docs-website.md`).
 
+2026-10-05: a finding beside [OQ-DW3](#OQ-DW3) records that a page's address on the site loads in
+a browser, and that a path-shaped address no longer draws a blank page once the fix it names
+reaches `main`. The question itself is unchanged.
+
 **Needs your ruling:** [OQ-DW3](#OQ-DW3) (whether runtime messages name the guide's URL).
 
 ## Open Questions
@@ -52,6 +56,19 @@ alternatives and its measurement of Vantage's setup are in git history
    `docs.vantageapp.dev` fails the same way. So (a) and (c) need a page address shown to load
    first, and a check that each named page exists under `userguide/`, since the closed-tree check
    reads links, not message strings.
+
+   _Finding (agent, 2026-10-05; it rules nothing):_ the 500 is gone, but in a browser a path-shaped
+   link then drew a blank page while curl got 200, because the export names its scripts and its
+   page data by relative path. The build now pins the export's pages to the site root and the
+   Worker answers a missing file with a 404
+   ([the reference's build and serving sections](../reference/docs-website.md#the-build)),
+   verified locally only until it reaches `main`. Two facts follow. A page's own address on the
+   site is its hash route, such as `https://docs.yolo-jail.mschulkind.dev/#/guides/macos.md`, and
+   that loaded the macOS page in headless Chromium on 2026-10-05: on the live site, without the
+   fix, and locally with it. A path-shaped address such as `/guides/macos` loads with the fix, but
+   shows the guide's index rather than the page it names, because the viewer routes by the part of
+   the address after `#`; making a path name its page would be a further change, on the site or in
+   Vantage. So an address that (a) or (c) could print loads today, in the hash form.
 
    <!-- vantage: question id=OQ-DW3 leaning="(a), once a page's own address is shown to load; until then (b) ships, since a URL that returns an error is worse than a path." -->
 

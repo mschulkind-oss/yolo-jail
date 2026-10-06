@@ -8,12 +8,13 @@ covers:
   - scripts/build-site.sh
   - scripts/check-userguide-closed-tree.py
   - scripts/check-site-output-dir.py
+  - scripts/site-base-href.py
   - docs-wrangler.toml
   - docs-worker.js
   - Justfile
   - .github/workflows/ci.yml
 tags: [docs, website, userguide, vantage, cloudflare, deploy]
-summary: "How the user guide is published: userguide/ is a closed tree of Markdown, scripts/build-site.sh turns it into a static Vantage export with the latest vantage-md, a static-assets Cloudflare Worker serves that export, and Cloudflare Workers Builds is the one thing that deploys it, on every push to main. The local gate refuses a guide link that leaves the tree and a build script whose output the Worker does not serve."
+summary: "How the user guide is published: userguide/ is a closed tree of Markdown, scripts/build-site.sh turns it into a static Vantage export with the latest vantage-md, a static-assets Cloudflare Worker serves that export, and Cloudflare Workers Builds is the one thing that deploys it, on every push to main. The local gate refuses a guide link that leaves the tree, and a build script whose output the Worker does not serve or that leaves its pages' relative URLs unpinned to the site root."
 ---
 
 # The docs website — how the user guide is built, served and deployed
@@ -26,8 +27,16 @@ to `main` that morning, so a push reaches the live site with nobody running anyt
 2026-10-01: the index still returns 200 and its recent-commits list names a guide change of that
 morning, but a path-shaped deep link (`/guides/macos`, `/README.md`) returns HTTP 500 with
 Cloudflare's error 1101, a Worker exception, and so does a deep link on `docs.vantageapp.dev`,
-the setup this one copies. UNMEASURED: whether a browser reaches a page by its own address, and
-whether the site's history view follows the `git mv` renames that created the tree.
+the setup this one copies. MEASURED 2026-10-05, on the live site: that 500 is gone (the binding
+fix below), but `/guides/macos` drew a **blank page** in headless Chromium while curl got
+200, because the page's scripts are named by relative path ([A root base](#the-build)). Fixed in
+the build and the Worker the same day, and verified locally only (a
+[Miniflare](https://developers.cloudflare.com/workers/testing/miniflare/) server, the simulator
+`wrangler dev` runs, configured as `docs-wrangler.toml`, and headless Chromium); the live site
+changes when the fix reaches `main`.
+A page's own address on the site is its hash route (`/#/guides/macos.md`), which loaded in the
+browser on 2026-10-05. UNMEASURED: whether the site's history view follows the `git mv` renames
+that created the tree.
 
 The user guide is published as a website by copying [Vantage](https://github.com/mschulkind-oss/vantage)'s
 own setup whole. `userguide/` holds the content. One build script turns it into a static export of
@@ -39,9 +48,10 @@ and deploys it on every push to `main`. The one rule this repository adds is tha
 | :--- | :--- |
 | The content, in Vantage's four parts: an index, getting started, a feature tour, `guides/`, `reference/` | `userguide/` |
 | The build, the one entry point Cloudflare runs | `scripts/build-site.sh` |
+| The step that pins the export's pages to the site root, and its tests | `scripts/site-base-href.py`, `scripts/test-site-base-href.py` |
 | The Worker that serves the export | `docs-wrangler.toml`, `docs-worker.js` |
 | The closed-tree check, and its tests | `scripts/check-userguide-closed-tree.py`, `scripts/test-check-userguide-closed-tree.py` |
-| The check that the build writes what the Worker serves, and its tests | `scripts/check-site-output-dir.py`, `scripts/test-check-site-output-dir.py` |
+| The check that the build writes what the Worker serves and pins it to the root, and its tests, which also run the Worker | `scripts/check-site-output-dir.py`, `scripts/test-check-site-output-dir.py` |
 | The gate that runs them | `lint-ci` in the `Justfile`, run by `just check-ci` locally and in `ci.yml` |
 | The deploy | the Cloudflare dashboard, not this repository |
 
@@ -60,7 +70,11 @@ and deploys it on every push to `main`. The one rule this repository adds is tha
   Cloudflare dashboard, which stores a build command and a deploy command. Cloudflare runs them on
   push and reports the result as a GitHub check named `Workers Builds: <worker name>`.
 - **Static-assets Worker**: a Cloudflare Worker whose `wrangler` config names an `[assets]`
-  directory. Cloudflare serves the files, and the Worker's own code does nothing else.
+  directory. Cloudflare serves the files, and the Worker's own code runs only for a request that
+  matches none.
+- **Single-page-application fallback**: what `not_found_handling = "single-page-application"`
+  makes Cloudflare do with a request that matches no file: answer it with `index.html` and a 200,
+  so the app can route it.
 
 ## The closed-tree rule
 
@@ -105,6 +119,15 @@ an absolute link.
 - **Full history.** The export includes each page's git history, so a shallow clone is unshallowed
   first rather than silently showing one commit per file.
 - **A clean output.** `dist/docs` is deleted before each build, and `dist/` is gitignored.
+- **A root base.** The export names its scripts and styles (`./assets/…`) and its pre-rendered
+  page data (`./api/…`) by relative path, which resolve only at the site root, while the
+  single-page-application fallback answers every other path with the same `index.html`. So after
+  the build, `scripts/site-base-href.py` puts `<base href="/">` first in the `<head>` of each HTML
+  file at the top of `dist/docs`, and fails the build if one has no `<head>` or names another
+  base. Without it, `/guides/macos` asked for `/guides/assets/…`, got `index.html` back with a
+  200, refused it as a script and drew a blank page (MEASURED on the live site, 2026-10-05).
+  Rewriting the asset URLs alone is not enough: a local build with only those rewritten loaded its
+  scripts and still failed to load its page data (`Not found: ./api/repos.json`).
 
 What the export holds: every file, directory listing, commit and diff under the root,
 pre-rendered as JSON beside the same React UI the live Vantage server uses. It has no search, no
@@ -115,10 +138,10 @@ A local preview needs no build: `uvx --from vantage-md vantage userguide/` serve
 
 ## Serving
 
-`docs-wrangler.toml` and `docs-worker.js` are Vantage's, with the Worker's name changed and the
-`[assets]` table's `binding = "ASSETS"` added. The Worker is one line that hands each request to its
-static assets through that binding. An unmatched path is meant to be served
-as the app, with a 200 (`not_found_handling = "single-page-application"`), so the viewer can
+`docs-wrangler.toml` and `docs-worker.js` are Vantage's, with three changes: the Worker's name, the
+`[assets]` table's `binding = "ASSETS"`, and a 404 for a missing file (below). The Worker hands
+each request that reaches it to its static assets through that binding. An unmatched path is meant
+to be served as the app, with a 200 (`not_found_handling = "single-page-application"`), so the viewer can
 route it. The `workers.dev` address stays enabled beside the custom domain, as Vantage keeps its
 own. Branch preview URLs are off: a branch build is a check, not a published preview.
 
@@ -131,6 +154,23 @@ a plain GET and 200 with the navigate header, here and on `docs.vantageapp.dev`;
 showed `TypeError: Cannot read properties of undefined (reading 'fetch')` at `docs-worker.js:3`, and
 200 for both once the binding was added. `scripts/check-site-output-dir.py` now refuses a Worker
 that reads a binding its config does not declare.
+
+**A missing file is a 404, not the app.** The fallback answers any unmatched request with
+`index.html` and a 200, and the binding does the same when the Worker calls it. For a page path
+that is what lets the viewer route it. For a script, a stylesheet or page data it reports a
+missing file as success, which is how a blank page passed every curl. So the Worker turns an HTML
+answer for a path under `assets/` or `api/`, at any depth, into a 404: neither tree holds HTML, so
+HTML there is the fallback. A browser's navigation never reaches the Worker, so typing such a path
+still shows the app. MEASURED locally 2026-10-05, on Miniflare configured as `docs-wrangler.toml`:
+`/guides/assets/<a real name>.js` and `/assets/nonexistent.js` get a 404 where the live site
+answers 200 with HTML, files and page paths are served as before, and the macOS page renders the
+same text under the old Worker and the new one. The viewer already treats a missing data file as
+missing, whether it gets HTML or a 404 back.
+
+**A path-shaped address shows the guide's index, not the page it names.** The viewer routes by the
+part of the address after `#`, so with the root base, `/guides/macos` loads and shows the index
+page, and the macOS page's own address is `/#/guides/macos.md`. Whether a path should name a page
+bears on [`OQ-DW3`](../design/docs-website.md#OQ-DW3).
 
 ## Deploying
 
@@ -156,12 +196,15 @@ them.**
 
 ## The gate
 
-`lint-ci`, and so `just check-ci` locally and in CI, runs three site checks on every landing:
+`lint-ci`, and so `just check-ci` locally and in CI, runs these site checks on every landing:
 
 - `vantage-check` over `userguide/`, for links and anchors;
 - the closed-tree check, after its own tests;
 - the output-directory check, after its own tests: every `vantage build` invocation in the build
-  script writes the directory `docs-wrangler.toml` serves, so the two files cannot drift apart.
+  script writes the directory `docs-wrangler.toml` serves, so the two files cannot drift apart, and
+  the root-base step runs on that directory after the last build. Its tests also run the shipped
+  Worker under node, when node is on `PATH`, against a stand-in for the fallback;
+- the root-base step's own tests.
 
 Running `vantage-check` over the rest of `docs/` is the corpus convention
 ([`../plans/README.md`](../plans/README.md#keeping-this-corpus-honest--the-five-checks-so-they-are-re-runnable))
@@ -192,8 +235,8 @@ Each row is a ruling a maintainer could undo on purpose, kept under its original
 
 ## Current values
 
-Verified at `d4e435a3`. The prose above explains what each of these is for; this table is the only
-place the values themselves are stated.
+Verified at `d4e435a3`, and the last two rows on 2026-10-05. The prose above explains what each of
+these is for; this table is the only place the values themselves are stated.
 
 | Value | Setting | Defined in |
 | :--- | :--- | :--- |
@@ -206,4 +249,6 @@ place the values themselves are stated.
 | The export's display name | `YOLO Jail User Guide` | `scripts/build-site.sh` |
 | The export directory | `dist/docs` | `scripts/build-site.sh`; `[assets] directory`, `docs-wrangler.toml` |
 | Unmatched paths, `workers.dev`, previews | `single-page-application`; on; off | `docs-wrangler.toml` |
+| The export's base | `/` | `scripts/site-base-href.py` |
+| The trees whose missing files get a 404 | `assets/`, `api/` | `docs-worker.js` |
 | The gate's `vantage-check` | the latest `vantage-check` release | `lint-ci`, `Justfile` |

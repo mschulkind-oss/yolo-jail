@@ -395,6 +395,7 @@ lint-ci: lint
     python3 scripts/check-userguide-closed-tree.py userguide
     python3 scripts/test-check-site-output-dir.py
     python3 scripts/check-site-output-dir.py
+    python3 scripts/test-site-base-href.py
     uvx vantage-check@latest userguide/
 
 # Format code (Go: gofmt on tracked files)
