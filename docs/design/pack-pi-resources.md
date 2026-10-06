@@ -216,6 +216,11 @@ It then folds exactly as a hand-written `config-list` does: pack order, first oc
 per-entry capture, and the host's inserted-entries record. Core knows a slot, a surface, a pointer
 and a template, and nothing about pi.
 
+Addressed trees only. Whether a patched extension whose written `into` is a direct child of the
+slot is registered too is [`pack-conventions.md`](pack-conventions.md)'s
+[OQ-PC3](pack-conventions.md#OQ-PC3), open; it amends [`pi-pack-extensions.md`](pi-pack-extensions.md)'s
+per-pack landing, and nothing here waits on it.
+
 Both notches do the same thing:
 - **In the jail**, the tree is mounted `:ro` at the landing and `settings.json` composes with the
   entry.

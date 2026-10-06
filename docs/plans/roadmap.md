@@ -69,7 +69,11 @@ host or an outside account follows under [External waits](#external-waits).
 12. [Build the patched-fork mode](../design/patched-forks.md), with [its companion for pi
     extensions](../design/patched-extensions.md), at every notch — the maintainer asked on 2026-10-04
     for both "out as soon as possible" so he can test them, and delegated their open questions, which
-    were decided on their leanings.
+    were decided on their leanings. The one step of his first patch-series request still open is a
+    tagged release carrying the patched mode and the launch's skip of what a yolo cannot read, so each
+    of his hosts can be put on a known build: until a host leaves a build older than the mode,
+    `patches` in `matt` or `pi-fork` refuses every launch there
+    ([what an older yolo does](../design/pack-conventions.md#2-what-an-older-yolo-does-with-a-convention)).
 
     His first patched launch (2026-10-05) left four questions, each changing what his next launch
     prints or spends. Three were ruled that day and build with the patched mode: [a build line shown
@@ -207,7 +211,9 @@ host or an outside account follows under [External waits](#external-waits).
     [the `boot.log` half of TP10's disclosure](../design/trust-paths.md#outstanding-work); [macos-user's item 2 twin](handoff-macos-user-open-threads.md);
     [Group B of the CLI's color pass](cli-visual-polish.md); [the unit suite's clock waits](test-suite-speed.md#unit-tests-one-package-sets-the-wall-time-and-five-of-its-tests-are-waiting-on-clocks);
     [the Bedrock user-guide recipes](../design/bedrock-plumbing.md#12-what-i-would-build-in-order); [the disk levers' re-measure](../design/disk-levers-and-backfill.md),
-    its jail half now; and graduating [the extension model defaults](../research/extension-model-defaults.md) into the provider reference.
+    its jail half now; [a shared-dir hook whose `at` names no machine `state` of its pack](../design/pack-conventions.md#7-considered-and-not-proposed),
+    which `yolo pack lint` and `yolo check` pass and the boot then refuses, starting with the failing lint test; and graduating
+    [the extension model defaults](../research/extension-model-defaults.md) into the provider reference.
 45. The builds the 2026-10-05 CI and testing rulings released, beside those, since none holds other work either:
     [real vendor installs on the macos-user nightly](../reference/agent-install-in-ci.md#oq-ci7), one hard-failing job per pack
     with the npm packs first, since no CI job installs a vendor's Mac build before a user does; [copilot from GitHub's own
@@ -217,9 +223,9 @@ host or an outside account follows under [External waits](#external-waits).
     where no pack supplies one, with claude in its own Bedrock mode behind the bridge, to land no later than [the shipped
     Bedrock list's removal](../design/model-lists-and-pickers.md#MM-D32), since a launch with neither leaves claude on
     `-p bedrock-bridge` without prompt caching and starting on an id Bedrock refuses; [pi's package
-    folder](../design/pack-pi-resources.md), one entry per content pack in place of a list of files, built with
-    the widening [the pack-file conventions](../design/pack-conventions.md) decide, so a patched extension landing
-    there needs no list entry either, where each of the maintainer's carries one today; [the jail's readiness
+    folder](../design/pack-pi-resources.md), one entry per content pack in place of a list of files, registering
+    addressed trees only, since whether a patched extension there may drop its list entry is
+    [OQ-PC3](../design/pack-conventions.md#OQ-PC3), open and not gating the patch-series work; [the jail's readiness
     act](../design/jail-notch-readiness.md#OQ-JR1), which installs every program a selected pack declares before your command
     runs and stops a launch that cannot, offline included, since `yolo -- true` still leaves every agent CLI uninstalled; and
     [the refusal of a host-wide daemon older than the launching yolo](../design/host-daemon-ownership.md#OQ-HD11), since an
