@@ -74,6 +74,25 @@ then deleted in turn to watch its tests go red: the placement loop in `Collect`,
 | `yolo host apply` lists the folder beside your own entry under both ownerships, a drop removes it, `--revert` removes it | same file |
 | The shipped pi pack binds the folder `:ro` at the landing it lists, and the host writes it there | `internal/cli/run/pifolderslot_test.go` |
 | `expects`: `pack lint`, `pack footprint` and `yolo check` warn on a misshapen folder and are silent on a good one | `internal/cli/packexpects_test.go`, `internal/cli/check/packs_test.go` |
+| A pack named `my_pack` is listed where the launch mounts it, through the real stager and the boot's loader; a folder a filter dropped is not listed | `internal/cli/run/pifolderslot_test.go` |
+| A tree with no source registers nothing; a jail-loaded pack lands under the launch's name | `internal/packload/registration_test.go` |
+| `pack lint` notes a folder's `skills/`, and is silent on a folder without one | `internal/cli/packexpects_test.go` |
+| A slot's bad `register` is refused at `yolo host apply` as `files`, and the verdict says so | `internal/cli/hostapplystagefailure_test.go` |
+
+## Fixed in review
+
+Review of the build on 2026-10-05 found four defects, each fixed with a test that failed first:
+
+- **A pack whose name a staged directory escapes was listed where nothing was mounted.** The jail
+  named the landing after the staged directory (`my_5fpack`) while the launch mounted the folder
+  under the name in `packs` (`my_pack`). The jail now reads the launch's name from the staged
+  tree's record ([PR-D10](pack-pi-resources.md#decision-ledger)).
+- **A folder that was not delivered was still listed**, for a `from` naming nothing or a folder an
+  only/exclude filter dropped ([PR-D11](pack-pi-resources.md#decision-ledger)).
+- **`pack lint` did not note a folder's `skills/`**, which [§3.4](pack-pi-resources.md#34-behavior-in-every-case)
+  rules ([PR-D12](pack-pi-resources.md#decision-ledger)).
+- **`yolo host apply` refused a slot's bad `register` as `config-overlay`**, a declaration the
+  author never wrote. It now leads with `files`, in the line and in the verdict.
 
 ## The nested jail
 

@@ -119,7 +119,9 @@ func loadPackRootAsStaged(e *Env, root string) ([]*packload.Pack, error) {
 	//
 	// A pack is still NAMED by its directory, as the walk below names it: the jail has always
 	// named a configured pack by its staged slug (Pack.StagedSlug), and the host keys what it
-	// hands the jail on that too, so only the order comes from the record.
+	// hands the jail on that too, so the order comes from the record. So does the launch's name
+	// for the pack, kept beside Name as Pack.LaunchName for the one reader that must spell a path
+	// the launch built from it: a `files` tree's landing, which the launch mounts under that name.
 	rec, recorded, err := packload.ReadPackTreeRecord(root)
 	if err != nil {
 		return nil, fmt.Errorf("pack root %s: %w", root, err)
@@ -132,6 +134,7 @@ func loadPackRootAsStaged(e *Env, root string) ([]*packload.Pack, error) {
 			if err != nil {
 				return nil, err
 			}
+			p.LaunchName = entry.Name
 			packs = append(packs, p)
 		}
 		return packs, nil

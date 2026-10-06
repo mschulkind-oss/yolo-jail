@@ -796,6 +796,11 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 		pr.Printf("[yellow]⚠[/yellow] %s", richtext.Escape(w))
 	}
 	printExpectsNotes(pr, []*packload.Pack{pack})
+	// A tree shipping skills/ for one agent: a note, lint's alone (pack-pi-resources.md §3.4), since
+	// giving skills to one agent is a choice and the route to every agent is the author's to take.
+	for _, n := range packload.SkillsInTreeNotes([]*packload.Pack{pack}, withShippedSlots(pack)) {
+		pr.Printf("[yellow]ℹ[/yellow] %s. %s", richtext.Escape(n.Msg), richtext.Escape(n.Fix))
+	}
 	printLines(pr, onlineLines)
 
 	// Advice: a custom pack whose CONTENT contribution names an `into` an AGENT PACK already
@@ -878,17 +883,25 @@ func overlayProblems(p *packload.Pack) []string {
 // reads them: a content pack addresses an agent whose slot is in another pack, and which packs a
 // launch selects is not a single-pack view's to know.
 func printExpectsNotes(pr richtext.Printer, packs []*packload.Pack) {
-	set := append([]*packload.Pack(nil), packs...)
+	set := packs
 	if len(packs) == 1 {
-		for _, shipped := range packload.Embedded() {
-			if shipped.Name != packs[0].Name {
-				set = append(set, shipped)
-			}
-		}
+		set = withShippedSlots(packs[0])
 	}
 	for _, n := range packload.ExpectsNotes(packs, set) {
 		pr.Printf("[yellow]⚠[/yellow] %s. %s", richtext.Escape(n.Msg), richtext.Escape(n.Fix))
 	}
+}
+
+// withShippedSlots is the set a single-pack view reads one pack's addressed trees against: the
+// pack, and every pack yolo ships but one of its name, where the slots it addresses are declared.
+func withShippedSlots(pack *packload.Pack) []*packload.Pack {
+	set := []*packload.Pack{pack}
+	for _, shipped := range packload.Embedded() {
+		if shipped.Name != pack.Name {
+			set = append(set, shipped)
+		}
+	}
+	return set
 }
 
 // printPackFootprint prints one pack's declared claims, flagging the ones a human

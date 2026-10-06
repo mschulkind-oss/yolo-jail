@@ -1403,14 +1403,19 @@ inside it is the nested-mount conflict `files` was reshaped to remove
 > two DIFFERENT agents, or two trees addressed to different agents, are fine.
 
 **A slot may REGISTER the trees that land in it**, with `register`: `{"surface": "<agent>/<name>",
-"path": "<pointer>"}`. For each tree landing there, core appends `~/<landing>` to that array as a
+"path": "<pointer>"}`. For each tree delivered there, core appends `~/<landing>` to that array as a
 `config-list` entry of the CONTRIBUTING pack, so the entry sits beside the user's own, is captured
 per entry in a jail, is recorded as inserted at the host, and leaves when its pack is dropped or
 `yolo host apply --revert` runs. `surface` must be one the slot's own pack declares (anything else
 is a manifest problem), `path` takes config-list's pointer rules, and an optional `entry` template
 replaces the default `~/{landing}`, holding `{landing}` and no other token. `expects` names the
 top-level entries a well-formed tree holds, and a tree holding none of them is warned about by
-`pack lint`, `pack footprint` and `yolo check`, never refused. Both fields are a slot's alone.
+`pack lint`, `pack footprint` and `yolo check`, never refused; when `expects` names `skills`,
+`pack lint` also notes a tree holding a `skills/` folder, whose skills reach that one agent, while
+the `skills` kind reaches every agent. Both fields are a slot's alone. A tree whose `from` is not
+in the staged pack (a typo, or an only/exclude filter that dropped it) is neither mounted nor
+listed. The landing is spelled with the pack's name in `packs` at both notches, even in a jail,
+which otherwise names a configured pack by its staged directory.
 `packs/pi` is the one user: its slot at `.pi/agent/yolo-packs` registers into `pi/settings`
 `/packages`, because pi loads a listed folder as a package, every file in its `extensions/`,
 `themes/` and `prompts/` with no list, so a pack gives pi one

@@ -515,7 +515,7 @@ func borrowedDestinations(src packdecl.Contribution, p *Pack, set []*Pack) []pac
 		// property that keeps every downstream reader free of an inference branch. A slot's
 		// `register` is not copied either: Registrations reads it off the slot itself.
 		out = append(out, packdecl.Contribution{
-			Kind: src.Kind, Into: SlotLanding(src.Kind, m.dest.Into, p.Name), From: src.From,
+			Kind: src.Kind, Into: SlotLanding(src.Kind, m.dest.Into, p.landingName()), From: src.From,
 		})
 	}
 	return out
@@ -583,7 +583,8 @@ func matchedDestinations(src packdecl.Contribution, set []*Pack) []slotMatch {
 //     reads (a briefing FILE; a skills dir whose tier, not its contributor, decides namespacing).
 //
 // Kind-dispatched and never agent-dispatched: core does not know what an agent is, and nothing
-// here may learn. `pack` is the CONTRIBUTING pack's name, never the owner's.
+// here may learn. `pack` is the CONTRIBUTING pack's name, never the owner's, and the name the
+// launch mounted its tree under (Pack.landingName), which in the jail need not be Pack.Name.
 func SlotLanding(kind packdecl.Kind, slot, pack string) string {
 	if kind != packdecl.KindFiles || slot == "" || pack == "" {
 		return slot

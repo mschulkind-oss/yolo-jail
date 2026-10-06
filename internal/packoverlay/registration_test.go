@@ -7,6 +7,8 @@ package packoverlay
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -28,9 +30,14 @@ func slotOwner(surface string) *packload.Pack {
 	}}}
 }
 
-// folderPack addresses pi with one tree, and appends one entry of its own.
-func folderPack(name string) *packload.Pack {
-	return &packload.Pack{Name: name, Decl: &packdecl.Manifest{Contributes: []packdecl.Contribution{
+// folderPack addresses pi with one tree, which it carries, and appends one entry of its own.
+func folderPack(t *testing.T, name string) *packload.Pack {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "files", "pi", "extensions"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return &packload.Pack{Name: name, Root: root, Decl: &packdecl.Manifest{Contributes: []packdecl.Contribution{
 		{Kind: packdecl.KindFiles, Agents: []string{"pi"}, From: "files/pi"},
 		{Kind: packdecl.KindConfigList, Surface: "pi/settings", Path: "/packages",
 			Add: json.RawMessage(`["npm:own"]`)},
@@ -38,7 +45,7 @@ func folderPack(name string) *packload.Pack {
 }
 
 func TestATreeInARegisteringSlotIsAConfigListEntryOfItsPack(t *testing.T) {
-	set := Collect([]*packload.Pack{slotOwner("pi/settings"), folderPack("matt")}, false, nil)
+	set := Collect([]*packload.Pack{slotOwner("pi/settings"), folderPack(t, "matt")}, false, nil)
 	if len(set.Problems) != 0 {
 		t.Fatalf("problems: %v", set.Problems)
 	}
@@ -64,7 +71,7 @@ func TestADroppedTreeIsNotListed(t *testing.T) {
 
 func TestASlotRegisteringIntoAnotherPacksSurfaceIsAProblem(t *testing.T) {
 	for _, surface := range []string{"claude/settings", "not-an-identity"} {
-		set := Collect([]*packload.Pack{slotOwner(surface), folderPack("matt")}, false, nil)
+		set := Collect([]*packload.Pack{slotOwner(surface), folderPack(t, "matt")}, false, nil)
 		if len(set.Problems) != 1 || !strings.Contains(set.Problems[0], "files slot .pi/agent/yolo-packs") {
 			t.Errorf("register on %q: problems = %v, want one naming the slot", surface, set.Problems)
 		}

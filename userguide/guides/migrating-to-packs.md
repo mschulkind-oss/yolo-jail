@@ -125,7 +125,7 @@ The folder needs no `package.json`. If you add one, for npm dependencies say, ei
 `pi` key or list every folder in it, because a `pi` key tells pi to load only what it lists.
 `yolo pack lint` warns about a folder holding none of `extensions/`, `themes/`, `skills/`,
 `prompts/` or a `package.json`. Skills are better shipped in the pack's `skills/` folder, which
-reaches every agent.
+reaches every agent, and `yolo pack lint` says so when the folder holds a `skills/` of its own.
 
 ### Step 3: check it
 

@@ -507,6 +507,9 @@ type placedRegistration struct {
 // The slot's OWN pack's surface, because only that is the owner's to promise: an entry written into
 // another pack's settings would make the slot work or not depending on a pack the slot cannot name.
 // Checked per slot whether or not any tree addresses it, so `pack lint` of the owner alone says it.
+// Each problem leads with `files slot`, the kind as written, for the reader that labels a problem
+// by it (apply.go's collectProblemKind): "config-overlay" there would name a declaration the
+// author never made.
 func registrationsOf(packs []*packload.Pack, ownKeys map[*packload.Pack]map[manifest.SurfaceKey]bool,
 	set *OverlaySet) map[string][]placedRegistration {
 	owned := map[string]manifest.SurfaceKey{}

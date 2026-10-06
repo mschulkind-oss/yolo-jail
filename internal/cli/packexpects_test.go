@@ -58,3 +58,27 @@ func TestPackLintAndFootprintWarnAboutAPiFolderPiCannotLoad(t *testing.T) {
 		})
 	}
 }
+
+// A PI FOLDER SHIPPING skills/ (docs/design/pack-pi-resources.md §3.4): pi loads those skills for
+// pi alone, so `yolo pack lint` notes that the `skills` kind reaches every agent, and how to move
+// them there. A note, never a failure; and nothing is said of a folder with no skills/.
+func TestPackLintNotesThatAPiFoldersSkillsReachPiAlone(t *testing.T) {
+	var out, errw bytes.Buffer
+	if rc := packMain([]string{"lint", writePiFolderPack(t, "extensions", "skills/review")}, &out, &errw, false); rc != 0 {
+		t.Fatalf("lint rc = %d, want 0 (a note, not a failure)\n%s%s", rc, out.String(), errw.String())
+	}
+	if !hasLine(out.String(), "pack matt", `"files/pi"`, "skills/", "every agent") {
+		t.Errorf("`pack lint` does not note that the folder's skills reach pi alone:\n%s", out.String())
+	}
+	if !hasLine(out.String(), "files/pi/skills/", "skills/ at the pack's root") {
+		t.Errorf("`pack lint` does not say where to move the skills:\n%s", out.String())
+	}
+
+	out.Reset()
+	if rc := packMain([]string{"lint", writePiFolderPack(t, "extensions", "themes")}, &out, &errw, false); rc != 0 {
+		t.Fatalf("lint rc = %d on a folder with no skills/\n%s", rc, out.String())
+	}
+	if strings.Contains(out.String(), "every agent") {
+		t.Errorf("`pack lint` noted skills for a folder with none:\n%s", out.String())
+	}
+}

@@ -70,6 +70,18 @@ type Pack struct {
 	// the directory name so it cannot drift into a second spelling
 	// (TestEmbeddedPackManifestNamesMatchTheirDirs).
 	Name string
+	// LaunchName is the name the host LAUNCH loaded this pack under, set only by the jail's
+	// loader, which reads it from the staged tree's record (PackTreeEntry.Name); "" everywhere
+	// else, where Name is that name already.
+	//
+	// The jail keeps naming a configured pack by its staged DIRECTORY, the name's slug
+	// (StagedSlug), because every jail-side key on Name was built on that. One thing in the jail
+	// must spell the launch's name instead: a `files` tree's LANDING (SlotLanding), which the
+	// launch mounts under the name it loaded the pack by. A registering slot's entry built from
+	// the slug listed ~/.pi/agent/yolo-packs/my_5fpack for a pack named `my_pack`, mounted at
+	// .../my_pack, and pi skips a listed path that does not exist without a word (measured
+	// 2026-10-05). Read through landingName, never directly.
+	LaunchName string
 	// Root is the directory its files live in. For an embedded pack this is the
 	// materialized copy, so every consumer sees a real path either way.
 	Root string
@@ -483,6 +495,16 @@ func retiredSurfaceHostGrants(decl *packdecl.Manifest) []string {
 // built it with filepath.Join), while CtxPath's other half reads a slash-separated
 // manifest string.
 func (p *Pack) StagedSlug() string { return filepath.Base(p.Root) }
+
+// landingName is the name this pack's `files` trees land under in a slot (SlotLanding's `pack`):
+// the name the launch mounted them under. That is Name, except for a pack the jail loaded out of a
+// recorded tree, whose Name is its staged directory (LaunchName says why the two differ).
+func (p *Pack) landingName() string {
+	if p.LaunchName != "" {
+		return p.LaunchName
+	}
+	return p.Name
+}
 
 // SourcePath maps a path under Root to the same path under SourceRoot, for a message naming a
 // file the user edits. A path outside Root, or a pack loaded in place, comes back unchanged.

@@ -241,6 +241,8 @@ Both notches do the same thing:
 | A tree lands and registers | pi loads every extension in `extensions/`, every theme and prompt, as a user-scope package. No project trust involved |
 | Two packs address pi | Two landings and two entries, in pack order. Same-named files in different packs are different paths, so both load. A clash in what they *register* (a command or tool name, a theme name) is pi's to resolve. **UNVERIFIED** how pi resolves it |
 | A tree with none of `expects` | `pack lint`, `pack footprint` and `yolo check` **warn**, naming the tree and the expected names. It still lands and registers. pi would load the directory as one extension and fail, since that is pi's rule |
+| The tree's `from` names nothing, or an only/exclude filter in `packs` dropped it | Nothing is mounted and nothing is registered ([PR-D11](#decision-ledger)). The launch warns that it skipped the tree, and `yolo host apply` reports the source missing |
+| The pack's name has a character a staged directory escapes (`my_pack`) | The entry names the landing under the name in `packs`, `~/.pi/agent/yolo-packs/my_pack`, where the tree is mounted ([PR-D10](#decision-ledger)) |
 | One extension fails to load | pi's startup error. yolo does nothing extra. **UNVERIFIED** that pi loads the rest |
 | A pack leaves `packs` | Jail: the tree is unstaged and its entry is not re-contributed, so it is gone next boot. Host: the inserted entry is removed, and `yolo host apply --assert` retires the tree with the rest of a dropped pack's `files` output, archived, behind the one confirmation a dropped pack gets (`applyhostprune.go`). `yolo host apply --revert` removes the entry and leaves the tree, which is inert because nothing lists it |
 | The user runs `pi install` in the jail | Their entries are captured per entry, beside the registrations, and survive |
@@ -354,6 +356,9 @@ because each has one workable answer:
 | PR-D7 | A `register` naming a surface its own pack does not declare is a problem from `Collect`: fatal at a boot and at `yolo host apply`, and a `yolo pack lint` failure | The slot owner promises the list, so the list must be the owner's; and a malformed manifest is fatal at a boot like every other | 2026-10-05 |
 | PR-D8 | `expects` is checked against the selected packs at `yolo check`, and against the packs yolo ships at `yolo pack lint` and `yolo pack footprint` of one pack | A content pack's slot is in another pack, and a single-pack view knows no selection, which is how `reportShippedSurfaceClash` reads the same question | 2026-10-05 |
 | PR-D9 | `yolo features` lists `registered-files-slots` | A yolo without the field skips a slot that declares it, which is the case the list exists to name (PF-D71) | 2026-10-05 |
+| PR-D10 | In the jail, a tree's landing is spelled with the name the launch loaded its pack under, read from the staged tree's record (`Pack.LaunchName`), not with the jail's own name for the pack, which is its staged directory | The launch mounts the tree under the name in `packs`, and a staged directory escapes that name (`my_pack` is staged as `my_5fpack`), so an entry spelled with the directory listed a path where nothing was mounted, which pi skips without a word | 2026-10-05 |
+| PR-D11 | A tree is registered only when its source is in its pack's tree, as a directory or a file (`filesSourceDelivered`) | That is what every renderer checks before delivering a tree, so it keeps PR-D6's promise for a `from` naming nothing or a folder an only/exclude filter dropped, which the renderers skip and report | 2026-10-05 |
+| PR-D12 | The note for a tree shipping `skills/` is `pack lint`'s alone, an information line, and fires only in a slot whose `expects` names `skills` (`packload.SkillsInTreeNotes`) | §3.4 rules a note, not a warning, since skills for one agent can be a choice; and gating on the slot's own `expects` keeps core agent-blind, because the slot says its agent reads that folder and `skills` is the kind's own name | 2026-10-05 |
 
 ## Appendix A: evidence
 
@@ -376,7 +381,10 @@ because each has one workable answer:
     [pack-system.md](../reference/pack-system.md)), and before this build there was no files slot.
 - yolo, as built 2026-10-05:
   - `packdecl.FilesRegister` and `filesSlotProblems` (`internal/packdecl/filesregister.go`);
-  - `packload.Registrations`, `packload.ExpectsNotes` and the shared matcher `matchedDestinations`
-    (`internal/packload/registration.go`, `internal/packload/mergedest.go`);
+  - `packload.Registrations`, `packload.ExpectsNotes`, `packload.SkillsInTreeNotes` and the shared
+    matcher `matchedDestinations` (`internal/packload/registration.go`,
+    `internal/packload/mergedest.go`);
+  - `packload.Pack.LaunchName`, set by the jail's loader from the staged tree's record
+    (`internal/entrypoint/packsurfaces.go`);
   - `registrationsOf`, called from `packoverlay.Collect` (`internal/packoverlay/packoverlay.go`);
   - the slot itself, in `packs/pi/pack.json`.
