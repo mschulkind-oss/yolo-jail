@@ -173,3 +173,16 @@ func hostManagementVerdict(mode config.HostManagement, declared, retired bool) s
 			`would be written.`
 	}
 }
+
+// hostApplyStep is "`yolo host apply --assert` <does>" as a NEXT STEP that holds at every
+// host-management mode. Under "own" that apply does it. Under "none", the unset default since the
+// `assert` retirement (OQ-CO14), the same apply refuses before every stage and writes nothing
+// (refuseHostManagement), so a bare "`yolo host apply --assert` <does>" would name a step that
+// fails: there the step names the setting first.
+func hostApplyStep(does string) string {
+	if config.HostManagementMode() == config.HostManagementOwn {
+		return "`yolo host apply --assert` " + does
+	}
+	return "`yolo host apply --assert` " + does + " once `\"host_management\": \"own\"` is set (under " +
+		"\"none\", the default, it writes nothing)"
+}

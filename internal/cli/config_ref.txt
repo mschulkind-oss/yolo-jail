@@ -1076,8 +1076,9 @@
     installed yourself (~/.local/bin/claude, Homebrew's), are left alone, and
     `yolo check` names such a copy as not run by `yolo host`.
     WHEN IT INSTALLS: the first `yolo host -- <agent>` installs the agent it
-    names, and `yolo host apply --assert` installs every one that is missing,
-    printing what it does.  Selecting the pack is the consent; nothing asks.  An
+    names, and under `"host_management": "own"` `yolo host apply --assert`
+    installs every one that is missing, printing what it does (under "none" that
+    apply writes nothing).  Selecting the pack is the consent; nothing asks.  An
     npm agent runs on the floor's own Node, the official release checked against
     its published checksum; an agent with its own installer comes from the
     machine's `yolo capture` of it: a jail's, on a Mac the macos-user sandbox
@@ -1092,8 +1093,9 @@
     again once its capture is a day old, and only a newer release is installed.
     `agent_updates` freezes both the same way.
     A pack set to false here has no floor entry: `yolo host` looks for its agent on
-    your PATH, saying so, and the next `yolo host apply --assert` removes the
-    floor's copy.
+    your PATH, saying so.  Under "own" the next `yolo host apply --assert` removes
+    the floor's copy; under "none" `yolo check` and the launch name the command
+    that removes it by hand.
     USER SCOPE ONLY.  It decides which programs yolo installs on your machine, so
     a workspace value is a `yolo check` error, and is never read.
     Example (~/.config/yolo-jail/config.jsonc):

@@ -61,8 +61,14 @@ func TestADeselectedFloorEntryIsNeverRun(t *testing.T) {
 				t.Fatalf("rc=%d execed=%v (target %s), want 127 and no exec: the deselected entry ran\n%s",
 					rc, got.execed, got.target, errw.String())
 			}
-			if !strings.Contains(errw.String(), "`yolo host apply --assert` removes it") {
+			// Unset host_management is "none" (OQ-CO14), under which `yolo host apply --assert`
+			// writes nothing: the step is the removal by hand, never that apply by itself.
+			if !strings.Contains(errw.String(), "yolo host does not run it: remove it by hand with `rm -rf ") {
 				t.Errorf("the refusal does not say what the entry is and what removes it:\n%s", errw.String())
+			}
+			if strings.Contains(errw.String(), "`yolo host apply --assert` removes it\n") {
+				t.Errorf("under none the refusal names `yolo host apply --assert`, which writes nothing there:\n%s",
+					errw.String())
 			}
 
 			t.Setenv("PATH", handDir+string(os.PathListSeparator)+t.TempDir())
@@ -79,5 +85,19 @@ func TestADeselectedFloorEntryIsNeverRun(t *testing.T) {
 				t.Errorf("the hand-over line does not name the PATH copy:\n%s", errw.String())
 			}
 		})
+	}
+}
+
+// UNDER "own" THE DESELECTED ENTRY'S STEP IS THE APPLY, which runs Reconcile there.
+func TestADeselectedFloorEntryNamesTheApplyUnderOwn(t *testing.T) {
+	deselectedFixture(t, func(string) string { return `{"packs":[],"host_management":"own"}` })
+	captureHostExec(t)
+	var errw bytes.Buffer
+	if rc := hostExec(nil, []string{"floorcli"}, io.Discard, &errw, nil); rc != 127 {
+		t.Fatalf("rc=%d, want 127\n%s", rc, errw.String())
+	}
+	if !strings.Contains(errw.String(), "yolo host does not run it: `yolo host apply --assert` removes it") ||
+		strings.Contains(errw.String(), "by hand") {
+		t.Errorf("under own the refusal does not name the apply:\n%s", errw.String())
 	}
 }

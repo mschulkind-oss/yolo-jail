@@ -97,9 +97,9 @@ in `~/.local/share/yolo-jail/host-floor`:
   `programs.nix-ld.enable = true;` on NixOS.
 - **Choosing.** Set `"host_floor": false` in your user config for a floor of nothing, or
   `"host_floor": {"*": true, "claude": false}` to leave one pack out; `yolo host` then runs that
-  agent from your PATH. `yolo host apply --assert` removes the floor's copy of an agent you no
-  longer select, or have left out; until it does, `yolo host` does not run that copy, and says so
-  when it finds no other.
+  agent from your PATH. The floor's copy of an agent you no longer select, or have left out, is never
+  run, and stays until it is removed: under `"host_management": "own"` `yolo host apply --assert`
+  removes it, and otherwise `yolo check` names the command that removes it by hand.
 
 Just before it hands over, `yolo host` prints one line naming what it starts and where it came from,
 so a slow start is visibly the agent's.

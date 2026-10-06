@@ -140,7 +140,7 @@ func hostTreeGate(errw io.Writer, bin, home string) bool {
 		}
 		_, _, why := hostTreeServing(f)
 		if why == "" {
-			why = "~/" + strings.TrimSuffix(f.Into, "/") + " names no build — `yolo host apply --assert` renders it"
+			why = "~/" + strings.TrimSuffix(f.Into, "/") + " names no build — " + hostApplyStep("renders it")
 		}
 		if ok {
 			fmt.Fprintf(errw, "yolo host: refusing to launch %s — a patched extension it loads is not here:\n", bin)
@@ -195,10 +195,10 @@ func hostTreeServing(f packload.Fork) (*capture.Entry, *packsrc.GoodBuild, strin
 		return nil, nil, early.delivery.Reason
 	}
 	if a.serving == nil {
-		why := f.Label() + " has no build on this machine yet — `yolo host apply --assert` builds it"
+		why := f.Label() + " has no build on this machine yet — " + hostApplyStep("builds it")
 		if g := a.rec.Good; g != nil && g.Recipe != a.recipe {
-			why = f.Label() + "'s series or build recipe changed and the edit has no build yet — `yolo host apply " +
-				"--assert` builds it"
+			why = f.Label() + "'s series or build recipe changed and the edit has no build yet — " +
+				hostApplyStep("builds it")
 		}
 		return nil, nil, why
 	}
@@ -484,7 +484,7 @@ func hostTreeLine(f packload.Fork, home string) string {
 		return f.Label() + " at " + run.WithPatches(run.GoodBuildLabel(g), g.Patches)
 	case entry != nil:
 		return f.Label() + " at " + linkedTreeLabel(linked) + "; " + run.WithPatches(run.GoodBuildLabel(g), g.Patches) +
-			" is built, and `yolo host apply --assert` renders it"
+			" is built, and " + hostApplyStep("renders it")
 	default:
 		return f.Label() + " at " + linkedTreeLabel(linked) + "; " + why
 	}

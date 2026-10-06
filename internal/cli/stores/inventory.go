@@ -294,7 +294,7 @@ var stateReclaimers = map[string]Reclaimer{
 	// program's current and previous version, and `yolo host apply --assert` removes an entry no
 	// selected pack delivers (hostfloor.Floor.Reconcile) — so prune's reach is only what a killed
 	// install left, lock-gated.
-	"host-floor": {Func: "PruneHostFloor", Detail: "interrupted installs, lock-gated; each program keeps current + previous, deselected ones go at `yolo host apply --assert`", Trigger: "yolo prune --apply"},
+	"host-floor": {Func: "PruneHostFloor", Detail: "interrupted installs, lock-gated; each program keeps current + previous, deselected ones go at `yolo host apply --assert` under host_management \"own\", and by hand under \"none\" (`yolo check` names the command)", Trigger: "yolo prune --apply"},
 	// The model menus `yolo host --` hands the programs it runs (paths.HostModelMenusDir;
 	// docs/design/model-lists-and-pickers.md MM-D27). Self-bounded, collected by liveness: a launch
 	// that writes a new menu removes a program's others once no program holding one runs
@@ -306,7 +306,7 @@ var stateReclaimers = map[string]Reclaimer{
 	// one before (pruneHostTreeVersions), `yolo host apply --assert` removes a dropped extension's
 	// copies once no recorded link names them (sweepDroppedHostTrees), and `--revert` removes them
 	// all — so no sweep of prune's has anything to add, and a user deleting them leaves dangling links.
-	"host-trees": {Detail: "self-bounded: each patched extension keeps the build its link names and the one before; a dropped extension's copies go at `yolo host apply --assert`, all of them at `yolo host apply --revert`", Trigger: "yolo host apply --assert"},
+	"host-trees": {Detail: "self-bounded: each patched extension keeps the build its link names and the one before; a dropped extension's copies go at `yolo host apply --assert` under host_management \"own\", all of them at `yolo host apply --revert`", Trigger: "yolo host apply --assert"},
 }
 
 // macosUserContainerOnlyState names the state dir's children whose reclaimer is a pass

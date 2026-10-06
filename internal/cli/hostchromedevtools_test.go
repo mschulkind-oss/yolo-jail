@@ -250,7 +250,7 @@ func TestAHostAgentLaunchSaysWhenItsMCPServersProgramCannotBeInstalled(t *testin
 			if !strings.Contains(errw.String(), tc.want) {
 				t.Errorf("no line %q:\n%s", tc.want, errw.String())
 			}
-			if tc.name == "install fails" && !strings.Contains(errw.String(), "`yolo host apply --assert` installs it") {
+			if tc.name == "install fails" && !strings.Contains(errw.String(), "the next `yolo host` launch tries the install again") {
 				t.Errorf("the failure names no next step:\n%s", errw.String())
 			}
 		})

@@ -392,6 +392,9 @@ func TestTheHostStopIsOffUnderHostManagementNone(t *testing.T) {
 // a good build serves beside, and the line of a Ctrl-C that ends it, whose next step is the host's.
 func TestAHostAdvancesLinesNameTheHost(t *testing.T) {
 	fx := newTreeFixture(t, `"f.txt"`)
+	// An owned host: under "none", the unset default, the apply named as the next step writes
+	// nothing, so the line names the setting too (hostApplyStep).
+	fx.writeHostConfig(t, treeHostOwn)
 	advanceHostTrees(io.Discard, false, "", nil)
 	if len(fx.builds) != 1 {
 		t.Fatalf("the first host advance built %d trees", len(fx.builds))

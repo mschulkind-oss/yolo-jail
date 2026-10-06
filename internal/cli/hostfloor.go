@@ -519,8 +519,12 @@ func floorDepClause(st hostfloor.Status) string {
 		// clause is that refusal, whose next step is `yolo update`.
 		return "yolo's floor will not install it: " + richtext.Escape(st.Reason)
 	}
-	return "yolo's floor installs it (`yolo host apply --assert`, or the first `yolo host -- " +
-		st.Program.Bin() + "`)"
+	// The launch installs at every host-management mode; the apply only under "own" (hostApplyStep).
+	if config.HostManagementMode() == config.HostManagementOwn {
+		return "yolo's floor installs it (`yolo host apply --assert`, or the first `yolo host -- " +
+			st.Program.Bin() + "`)"
+	}
+	return "yolo's floor installs it (the first `yolo host -- " + st.Program.Bin() + "`)"
 }
 
 // floorDepMark is the mark a dependency line gives a program the floor answers for: a pass,
@@ -727,9 +731,10 @@ func resolveHostLaunchTarget(packs []*packload.Pack, cmd0 string, lp *hostpath.L
 			fmt.Fprintf(errw, "yolo host: %s\n", line)
 			if !config.InJail() && !strings.ContainsRune(cmd0, os.PathSeparator) {
 				if _, lerr := os.Lstat(filepath.Join(floorBin, cmd0)); lerr == nil {
+					floor := &hostfloor.Floor{Dir: filepath.Dir(floorBin)}
 					fmt.Fprintf(errw, "yolo host: yolo's floor still holds a copy of %s that it no longer "+
-						"keeps (no selected pack delivers it here); yolo host does not run it, and "+
-						"`yolo host apply --assert` removes it\n", cmd0)
+						"keeps (no selected pack delivers it here); yolo host does not run it: %s\n", cmd0,
+						floor.StaleCopyStep(config.HostManagementMode() == config.HostManagementOwn, cmd0))
 				}
 			}
 			return hostTarget{}, 127
@@ -819,8 +824,8 @@ func ensureMCPPrograms(packs []*packload.Pack, progs []hostfloor.Program, floor 
 				st.Reason, server)
 		case err != nil:
 			fmt.Fprintf(errw, "yolo host: could not install %s, which MCP server %s runs, into yolo's "+
-				"floor: %v — the agent starts without that server; `yolo host apply --assert` "+
-				"installs it\n", bin, server, err)
+				"floor: %v — the agent starts without that server, and the next `yolo host` launch "+
+				"tries the install again\n", bin, server, err)
 		}
 	}
 }
