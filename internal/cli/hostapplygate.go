@@ -303,9 +303,13 @@ func surveyOnlyNeedsLossPrompt(survey *hostApplySurvey) bool {
 // reportHostApplyGateIncompleteSet is the hook's refusal to render an incomplete pack set: every
 // unresolvable pack with the resolver's reason, and the remedy.
 func reportHostApplyGateIncompleteSet(errw io.Writer, bin string, unresolved []unresolvedPack) {
+	why := "could not be resolved"
+	if anySkipped(unresolved) {
+		why = "could not be resolved or read whole"
+	}
 	fmt.Fprintf(errw, "yolo host: did not render your host configuration — %d configured %s "+
-		"could not be resolved, and an incomplete pack set is never applied:\n",
-		len(unresolved), plural(len(unresolved), "pack", "packs"))
+		"%s, and an incomplete pack set is never applied:\n",
+		len(unresolved), plural(len(unresolved), "pack", "packs"), why)
 	for _, u := range unresolved {
 		fmt.Fprintf(errw, "  ✗ %s: %s\n", u.Name, u.Reason)
 	}
@@ -325,6 +329,17 @@ func skewOnly(list []unresolvedPack) bool {
 		}
 	}
 	return len(list) > 0
+}
+
+// anySkipped reports whether any record in list is a pack that resolved but holds contributions
+// this yolo cannot read, so a sentence naming the set says "or read whole".
+func anySkipped(list []unresolvedPack) bool {
+	for _, u := range list {
+		if len(u.Skipped) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // reportHostApplyGateSkewedSet is the hook's line for a pack set it does not render because a

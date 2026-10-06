@@ -52,6 +52,7 @@ func DecodeForUse(data []byte) (m *Manifest, problems, skipped []string) {
 	fields, skipped := unknownFields(clean)
 	kept := make([]Contribution, 0, len(man.Contributes))
 	index := make([]int, 0, len(man.Contributes))
+	skippedService := -1
 	for i, c := range man.Contributes {
 		if c.Kind != "" && !KnownKind(c.Kind) && RetiredKind(c.Kind) == "" {
 			skipped = append(skipped, unknownKindNote(i, c.Kind))
@@ -64,6 +65,7 @@ func DecodeForUse(data []byte) (m *Manifest, problems, skipped []string) {
 		if note, keep := unknownFieldSkip(i, c, fieldAt(fields, i)); note != "" {
 			skipped = append(skipped, note)
 			if !keep {
+				skippedService = serviceSkipped(skippedService, i, c)
 				continue
 			}
 		}
@@ -74,12 +76,55 @@ func DecodeForUse(data []byte) (m *Manifest, problems, skipped []string) {
 		kept = append(kept, c)
 		index = append(index, i)
 	}
+	kept, index, notes := dependentSkips(kept, index, skippedService)
+	skipped = append(skipped, notes...)
 	if len(kept) != len(man.Contributes) {
 		man.Contributes = kept
 	}
 	problems = append(man.retiredFieldProblems(), man.installHintProblems()...)
 	problems = append(problems, man.Validate()...)
 	return &man, relabelContributions(problems, index), skipped
+}
+
+// serviceSkipped is the index of the first `service` contribution a read skipped: was, or i when
+// it is none yet and the skipped contribution c is a service.
+func serviceSkipped(was, i int, c Contribution) int {
+	if was < 0 && c.Kind == KindService {
+		return i
+	}
+	return was
+}
+
+// dependentSkips drops from kept, and from index (each one's position in pack.json), every
+// contribution that cannot work without a sibling the read skipped, and returns one note for each
+// (PF-D76). Skipping one contribution must not make a readable sibling fail a check that needs the
+// skipped one present, which would refuse the whole pack at every launch for want of what a newer
+// yolo reads, nor leave the sibling claiming what nothing runs. Today that is one dependence: an
+// adapter whose `adapts.from_platforms` is reached through the pack's own service
+// (validateAdapterPairs), when the read skipped every service the pack declares. Shared by the
+// host's use read and the jail's tolerant read, so the two keep the same contributions.
+func dependentSkips(kept []Contribution, index []int, skippedService int) ([]Contribution, []int, []string) {
+	if skippedService < 0 {
+		return kept, index, nil
+	}
+	for _, c := range kept {
+		if c.Kind == KindService {
+			return kept, index, nil
+		}
+	}
+	var notes []string
+	outC, outI := make([]Contribution, 0, len(kept)), make([]int, 0, len(index))
+	for n, c := range kept {
+		if c.Kind == KindAdapter && c.Adapts != nil && len(c.Adapts.FromPlatforms) > 0 {
+			notes = append(notes, fmt.Sprintf("contributes[%d]: skipping %s — its `adapts.from_platforms` "+
+				"is reached through the pack's own service, which this yolo skipped (contributes[%d]), so "+
+				"nothing would run to reach those platforms; update yolo, and the two are used together",
+				index[n], describeContribution(c), skippedService))
+			continue
+		}
+		outC, outI = append(outC, c), append(outI, index[n])
+	}
+	return outC, outI, notes
 }
 
 // restrictingKind reports whether a contribution of kind k only RESTRICTS the agent, so that

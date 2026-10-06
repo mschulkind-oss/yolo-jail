@@ -638,6 +638,8 @@ func DecodeTolerant(data []byte) (m *Manifest, problems, skipped []string) {
 	problems = append(man.validateSkillsTier(), man.validateSupersedes()...)
 	problems = append(problems, man.validateNeeds()...)
 	kept := make([]Contribution, 0, len(man.Contributes))
+	index := make([]int, 0, len(man.Contributes))
+	skippedService := -1
 	firstAutonomy := -1
 	for i, c := range man.Contributes {
 		if c.Kind != "" && !KnownKind(c.Kind) {
@@ -674,6 +676,7 @@ func DecodeTolerant(data []byte) (m *Manifest, problems, skipped []string) {
 		if note, keep := unknownFieldSkip(i, c, fieldAt(fields, i)); note != "" {
 			skipped = append(skipped, note)
 			if !keep {
+				skippedService = serviceSkipped(skippedService, i, c)
 				continue
 			}
 		}
@@ -694,7 +697,12 @@ func DecodeTolerant(data []byte) (m *Manifest, problems, skipped []string) {
 		}
 		problems = append(problems, validateContributionAt(i, c)...)
 		kept = append(kept, c)
+		index = append(index, i)
 	}
+	// A sibling that cannot work without a skipped contribution is skipped too, as the host's use
+	// read skips it (dependentSkips, PF-D76).
+	kept, _, notes := dependentSkips(kept, index, skippedService)
+	skipped = append(skipped, notes...)
 	if len(skipped) > 0 {
 		man.Contributes = kept
 	}

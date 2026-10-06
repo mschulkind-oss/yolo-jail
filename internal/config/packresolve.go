@@ -72,7 +72,8 @@ type ResolvedPack struct {
 	// Problems are LoadDirForUse's problems over the tree the filters leave, each prefixed
 	// "pack <name>: ". A launch refuses a pack that has any; each caller keeps its own
 	// disposition. A contribution this build cannot read is no problem: it is skipped and
-	// named in Pack.SkewNotes.
+	// named in Pack.SkewNotes. When the pack has problems anyway, its SkewNotes follow them
+	// here, so a refusal names what was skipped (PF-D75).
 	Problems []string
 	// Staged is what the filters kept and dropped: the copy's in STAGE mode, the check's in
 	// DECLARATION mode. Nil only for an embedded pack read in place (unfiltered, declaration).
@@ -162,6 +163,13 @@ func ResolvePack(entry PackEntry, spec ResolvePackSpec) (ResolvedPack, error) {
 	// contribution this build cannot read is skipped and named in Pack.SkewNotes rather than
 	// failing the pack (docs/design/patched-forks.md PF-D68). Each caller says so its own way.
 	out.Pack, out.Problems = packload.LoadDirForUse(loadFrom, entry.Name)
+	if out.Pack != nil && len(out.Problems) > 0 && len(out.Pack.SkewNotes) > 0 {
+		// A REFUSED PACK SAYS WHAT WAS SKIPPED TOO (PF-D75): every caller's refusal prints Problems
+		// alone, and a problem may be one only the skip left, such as a restriction kept without the
+		// field it could not read that no longer validates. The notes name the field and `update
+		// yolo`, the step the problem alone does not.
+		out.Problems = append(out.Problems, out.Pack.SkewNotes...)
+	}
 	if out.Pack != nil && loadFrom != root {
 		out.Pack.SourceRoot = root
 	}
