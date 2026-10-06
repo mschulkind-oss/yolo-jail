@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/execx"
 	"github.com/mschulkind-oss/yolo-jail/internal/image"
 )
 
@@ -206,7 +207,7 @@ func TestARootlessCopyLandsInPodmansStoreWhateverStorageConfSays(t *testing.T) {
 	}
 
 	bare := launchArgv(image.ContainersStorageDest(ref))
-	if out, err := exec.Command(bare[0], bare[1:]...).CombinedOutput(); err == nil ||
+	if out, err := execx.NixClosureCommand(bare[0], bare[1:]...).CombinedOutput(); err == nil ||
 		!strings.Contains(string(out), "Invalid destination name") {
 		t.Fatalf("the bare destination did not fail on the storage.conf's store (err=%v), so "+
 			"this setup does not reproduce issue #47:\n%s", err, out)
@@ -215,7 +216,7 @@ func TestARootlessCopyLandsInPodmansStoreWhateverStorageConfSays(t *testing.T) {
 	if !strings.Contains(strings.Join(argv, " "), "containers-storage:[") {
 		t.Fatalf("the launch's argv names no store: %q", argv)
 	}
-	if out, err := exec.Command(argv[0], argv[1:]...).CombinedOutput(); err != nil {
+	if out, err := execx.NixClosureCommand(argv[0], argv[1:]...).CombinedOutput(); err != nil {
 		t.Fatalf("the launch's copy failed with a hostile storage.conf: %v\nargv: %q\n%s", err, argv, out)
 	}
 	if err := exec.Command(rt, "image", "exists", ref).Run(); err != nil {
@@ -277,7 +278,7 @@ func copierRunner(t *testing.T, copier string) func(storageConf string, args ...
 		argv = append(argv, markers...)
 		argv = append(argv, "CONTAINERS_STORAGE_CONF="+storageConf, copier, "--insecure-policy")
 		argv = append(argv, args...)
-		out, err := exec.Command(argv[0], argv[1:]...).CombinedOutput()
+		out, err := execx.NixClosureCommand(argv[0], argv[1:]...).CombinedOutput()
 		return string(out), err
 	}
 }

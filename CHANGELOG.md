@@ -174,6 +174,8 @@ Bedrock serves; a launch that still leaves Copilot no model says what to add. Se
   no longer reports it as a failed config generator.
 - A config error or warning at a launch or in `yolo check` now shows a file name, key or value an
   agent wrote as plain text, so it can no longer send your terminal escape sequences.
+- With `LD_LIBRARY_PATH` or `LD_PRELOAD` set, a launch no longer fails to load the jail image with
+  "stack smashing detected".
 
 ## [0.11.1] - 2026-10-02
 

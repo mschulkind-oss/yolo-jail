@@ -39,6 +39,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/execx"
 	"github.com/mschulkind-oss/yolo-jail/internal/image"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
@@ -589,7 +590,9 @@ func ensureJailImage() {
 		return string(out), err == nil
 	}, copier, manifest)
 	log.Printf("[integration] image copy: %s", strings.Join(argv, " "))
-	copy := exec.Command(argv[0], argv[1:]...)
+	// Started as a launch starts it, without the caller's LD_LIBRARY_PATH/LD_PRELOAD:
+	// the copier is a Nix closure a jail's own libc crashes (image-staging-vs-baking.md, LI-D1).
+	copy := execx.NixClosureCommand(argv[0], argv[1:]...)
 	if out, err := copy.CombinedOutput(); err != nil {
 		degraded("%s image copy failed (integration tests may be skipped): %v\n%s",
 			rt, err, strings.TrimSpace(string(out)))

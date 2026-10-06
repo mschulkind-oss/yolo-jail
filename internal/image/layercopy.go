@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/execx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/progress"
 )
@@ -352,8 +352,16 @@ type copyWatch func() (onLine func(string), end func(ok bool))
 //
 // The attempt's line is closed BEFORE the failure report below, so the report is
 // never written across a live line.
+//
+// THE COPIER RUNS WITHOUT THE CALLER'S LD_LIBRARY_PATH AND LD_PRELOAD
+// (execx.NixClosureCommand; image-staging-vs-baking.md, LI-D1). It is a Nix store
+// closure, and a jail's baked LD_LIBRARY_PATH handed it the image's older glibc,
+// which crashed it at startup ("stack smashing detected") once flake.lock moved it
+// to a newer one. A `podman unshare --` prefix runs under the same scrub: podman
+// passes its own environment to the command it runs, so the copier's environment
+// is the prefix's.
 func copyImageWatched(argv []string, out io.Writer, watch copyWatch) (bool, []string) {
-	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd := execx.NixClosureCommand(argv[0], argv[1:]...)
 	tail := &tailWriter{max: copyTailLines}
 	cmd.Stderr = tail
 	end := func(bool) {}
