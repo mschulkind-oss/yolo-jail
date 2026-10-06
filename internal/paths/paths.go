@@ -235,14 +235,23 @@ const (
 	HostLoopbackUnknown = "unknown"
 )
 
-// AllowUnreachableServicesEnv is the escape hatch out of the in-jail reachability
-// witness, mirroring YOLO_ALLOW_STALE_IMAGE (internal/image): any non-empty value
-// keeps the jail launching, loudly, and says what it is suppressing.
+// AllowUnreachableServicesEnv is the escape hatch out of the two boot refusals about
+// services, mirroring YOLO_ALLOW_STALE_IMAGE (internal/image): any non-empty value
+// keeps the jail launching, loudly, and says what it is suppressing. It reaches
 //
-// It exists because the witness is on its way to being FATAL (OQ-R2), and a hard
-// fatal with no override leaves a user unable to open a shell to fix the very
-// daemon that is failing. The user types it on the HOST, so the launcher forwards
-// it into the container — an escape hatch nobody can reach is not one.
+//   - the in-jail reachability witness (internal/entrypoint/reachability.go), which
+//     refuses a jail-facing service the jail cannot use where the launcher asked for
+//     loopback forwarding (OQ-R2, OQ-R3), and
+//   - the readiness refusal of a REQUIRED in-jail service that did not start, such as a
+//     wire bridge that cannot bind its port (internal/entrypoint/requiredservice.go,
+//     OQ-R8 in docs/reference/loopback-tls-reachability.md).
+//
+// It does not reach the orphan refusal beside the second, which names the pid to kill.
+//
+// It exists because both refusals stop the launch, and a hard fatal with no override leaves
+// a user unable to open a shell to fix the very daemon that is failing. The user types
+// it on the HOST, so the launcher forwards it into the container — an escape hatch
+// nobody can reach is not one.
 const AllowUnreachableServicesEnv = "YOLO_ALLOW_UNREACHABLE_SERVICES"
 
 // AllowMissingProvidersEnv is the escape hatch out of the selected-pack credential
