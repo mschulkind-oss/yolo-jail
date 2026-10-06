@@ -485,7 +485,9 @@ One non-zero exit is a warning instead: a `scope: "host"` daemon whose first std
 `unknown action:` and names `launch-check`, the answer yolo's daemons give an action they do not
 know. That daemon was started by an earlier yolo and kept running through the upgrade, since
 nothing restarts one when yolo changes, so the yellow line says it predates this yolo and names
-`yolo host-daemon restart <name>`.
+`yolo host-daemon restart <name>`. Ruled 2026-10-05 and not built
+([OQ-HD11](../design/host-daemon-ownership.md#OQ-HD11)): a fresh launch is to refuse on that
+answer instead, naming the same command; an attach keeps the line.
 The first daemon to declare it is `aws-auth`
 ([`agent-credentials.md`](agent-credentials.md#when-the-sso-session-lapses)).
 

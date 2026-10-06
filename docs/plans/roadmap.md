@@ -79,8 +79,9 @@ host or an outside account follows under [External waits](#external-waits).
     since every build of his fork downloads his neovim nightly; and [a launch refused before it
     boots when a patched build it needs is missing](../design/patched-extensions.md#PPX-D40), since
     the host line saying pi will not start is being built now and the refusal lands at the same
-    point. Whether a launch restarts a host daemon older than itself now leans to waiting for
-    per-jail daemons, so it moved to item 28.
+    point. The fourth, [whether a launch restarts a host daemon older than
+    itself](../design/host-daemon-ownership.md#OQ-HD11), was ruled the same day: no, and a fresh launch
+    refuses instead, naming the restart; that build is queued with the day's other builds below.
 13. [Build pack-declared pi extensions as host builds, one read-only copy per jail](../design/pi-git-extension-caching.md), with
     [what the background update mode moves](../design/pi-extension-store-builds.md) — next, since the maintainer
     asked on 2026-10-05 to be led through them, and the capture of unmodified extensions (or the held store) and
@@ -152,8 +153,7 @@ host or an outside account follows under [External waits](#external-waits).
 28. [Rule who keeps Claude's login fresh with no jail running](../design/host-daemon-ownership.md), then [plan per-jail host
     daemons](../design/host-daemon-ownership-plan.md) — three Mac runs answered what serializes their spawn (2026-10-05: a
     per-workspace guard on macos-user), so retiring the machine-wide credential daemons, the OpenAI legacy-state migration
-    and the `yolo host -- codex|pi` spawns included, waits on whether it adds that refresh. [Whether a launch restarts a
-    daemon older than itself](../design/host-daemon-ownership.md#OQ-HD11) rides along, since its leaning now waits for that build.
+    and the `yolo host -- codex|pi` spawns included, waits on whether it adds that refresh.
 29. [Rule the provisioner override's grain](../design/provisioner-sets.md) — the user-scope preference that re-ranks the
     recipes packs ship waits on it, and macos-user's corporate-CA trust rides in the same design.
 30. [Rule what the environment manager promises at each notch](../design/environment-manager-user-stories.md) — Q1b
@@ -164,9 +164,9 @@ host or an outside account follows under [External waits](#external-waits).
 32. [Rule what the keeper holds at `yolo host`](../design/jail-lifetime-last-session-wins.md), with [the sidecars and doorbell](../design/agent-event-watchers.md)
     — each design's host half waits on the other, and the keeper at `yolo host` and macos-user waits on both. [Whether an interrupt before
     ready spares a jail another session entered](../design/jail-lifetime-last-session-wins.md#OQ-JL10) goes in the same sitting.
-33. Jail-boot rulings: [what a failed agent install does to a launch](../design/jail-notch-readiness.md), since provisioning leaves every
-    declared agent CLI uninstalled until first use, and [the boot snapshot and diagnostic dial](../design/diagnostics-past-the-boundary.md),
-    since a refused boot keeps no record of the jail's state when it gave up.
+33. Jail-boot rulings: [the boot snapshot and diagnostic dial](../design/diagnostics-past-the-boundary.md), since a refused boot
+    keeps no record of the jail's state when it gave up, and the 2026-10-05 ruling that a launch which cannot install a declared
+    program stops adds one more refusal of that kind.
 34. [Rule the add-only model lists, then whether a list refuses without `only`](../design/model-lists-and-pickers.md), and
     [web search on Bedrock](../design/bedrock-web-search.md) — what most agents' menus show turns on the first two, and the 2026-10-01
     reading found no agent gets search from Bedrock on runtime, so the search questions now decide whether yolo supplies one.
@@ -212,12 +212,16 @@ host or an outside account follows under [External waits](#external-waits).
     [real vendor installs on the macos-user nightly](../reference/agent-install-in-ci.md#oq-ci7), one hard-failing job per pack
     with the npm packs first, since no CI job installs a vendor's Mac build before a user does; [copilot from GitHub's own
     installer](native-installer-migration.md), its own updater left on; and [the per-setup census](../design/backend-parity.md),
-    whose test fails when a config key or pack kind has no answer for one of the four setups. Two more of that day's rulings
+    whose test fails when a config key or pack kind has no answer for one of the four setups. Four more of that day's rulings
     released builds placed here for the same reason: [the Bedrock list yolo fetches](../design/model-lists-and-pickers.md#OQ-MM6)
     where no pack supplies one, with claude in its own Bedrock mode behind the bridge, to land no later than [the shipped
     Bedrock list's removal](../design/model-lists-and-pickers.md#MM-D32), since a launch with neither leaves claude on
-    `-p bedrock-bridge` without prompt caching and starting on an id Bedrock refuses; and [pi's package
-    folder](../design/pack-pi-resources.md), one entry per content pack in place of a list of files.
+    `-p bedrock-bridge` without prompt caching and starting on an id Bedrock refuses; [pi's package
+    folder](../design/pack-pi-resources.md), one entry per content pack in place of a list of files; [the jail's readiness
+    act](../design/jail-notch-readiness.md#OQ-JR1), which installs every program a selected pack declares before your command
+    runs and stops a launch that cannot, offline included, since `yolo -- true` still leaves every agent CLI uninstalled; and
+    [the refusal of a host-wide daemon older than the launching yolo](../design/host-daemon-ownership.md#OQ-HD11), since an
+    upgraded launch still proceeds without the check that warns what would fail its agents' requests.
 46. [Make the Chrome DevTools MCP server work at `yolo host`](../design/mcp-presets-removal.md#5-the-chrome-devtools-inventory--what-the-pack-carries-what-the-image-keeps)
     — the maintainer wants it, after the week's work (2026-09-30); host apply expands no MCP preset
     ([HC-D16](../design/host-computed-layer.md#HC-D16)), and the host agent floor now gives yolo a prefix to put one in.
