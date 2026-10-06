@@ -352,11 +352,19 @@ func bootSteps() []bootStep {
 			// parsed on the host and not here means the mounted tree disagrees with what was
 			// staged: fatal (A12), because rendering a subset would yield a jail whose config
 			// is quietly incomplete.
+			//
+			// Neither in a sealed build jail (sealedbuild.go, PPX-D41), which runs a build line
+			// and no agent: its narrowed selection can leave a pack's surface for another pack's
+			// agent, or a hook's link, under a home directory only a dropped pack makes writable.
 			name: "configure_pack_surfaces",
 			run: func(b *bootRun) {
 				packs, err := b.jailPacks()
 				if err != nil {
 					genStep(b.e, "load_packs", func() error { return err })
+				}
+				if b.e.sealedBuild() {
+					b.e.note(sealedBuildSkipNote)
+					return
 				}
 				ConfigurePackSurfaces(b.e, packs)
 				RunPackHooks(b.e, packs)

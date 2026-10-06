@@ -152,8 +152,8 @@ Bedrock serves; a launch that still leaves Copilot no model says what to add. Se
 - A launch, or `yolo check`, no longer hangs for good, printing nothing, when nix prints one very
   long line while it builds the jail's image, yolo's own binaries, or a macOS sandbox's packages.
 - A fork's build no longer refuses over something only another of your packs provides, such as the
-  agent a pack's prose is addressed to or a capability your config requires, and a build that stops
-  before it starts now quotes why.
+  agent a pack's prose is addressed to, the settings a pack writes for that agent, or a capability
+  your config requires, and a build that stops before it starts now quotes why.
 - A fork's build no longer gets a copy of your config, your MCP servers' settings or your
   `agents_md_extra` text, and neither its launch nor its briefing lists credentials, host files or
   host connections the build does not get.

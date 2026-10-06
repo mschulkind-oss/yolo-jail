@@ -964,6 +964,11 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	if in.sealed && in.sealedTree != "" {
 		runCmd = append(runCmd, "-e", entrypoint.TreeBuildEnv+"="+in.sealedTree)
 	}
+	// And in every sealed build jail, a fork's too, that it is one: it runs no agent, so its boot
+	// renders no pack-declared surface and runs no pack hook (PPX-D41).
+	if in.sealed {
+		runCmd = append(runCmd, "-e", entrypoint.SealedBuildEnv+"=1")
+	}
 
 	// --- host files (pack-declared, origin-gated) ---
 	// --- pack `mount` contributions: host-home dir/file :ro under /ctx ---
