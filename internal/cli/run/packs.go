@@ -912,14 +912,14 @@ func (o *Options) stagePackEntry(entry config.PackEntry, dest string) (*packload
 			"[yellow]Warning: pack %s staged 0 files (%d excluded by only/exclude) — "+
 				"check its filters[/yellow]", entry.Name, len(res.Staged.Excluded)))
 	}
-	for _, prob := range res.Problems {
+	if len(res.Problems) > 0 {
 		// A REFUSED PACK'S SKIPS ARE SAID FIRST (PF-D75): the refusal names one problem, and that
 		// problem may be one only a skip left, so the lines naming the field and `update yolo` go
 		// before it.
 		if res.Pack != nil {
 			o.noteSkippedContributions(res.Pack)
 		}
-		return nil, fmt.Errorf("packs: %s", prob)
+		return nil, fmt.Errorf("packs: %s", res.Problems[0])
 	}
 	if res.Pack == nil {
 		return nil, fmt.Errorf("packs: %s: could not be loaded", entry.Name)
