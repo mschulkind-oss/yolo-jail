@@ -3,7 +3,7 @@ title: "Which macOS VM runs a Python, Django and Postgres workload best? Apple C
 date: 2026-10-03
 status: in-review
 stage: DESIGN
-next: "The maintainer decides between a Docker-API backend aimed at OrbStack (closed source, paid for commercial use, and the fastest shared folders and the only memory return measured here) and VM-local volumes for chosen workspace folders on the backends yolo already has (apple-container-file-cost.md §4); no open shared-folder stack tried in §6 beat VZ, and NFS, the one candidate left, needs sudo"
+next: "The maintainer decides between OrbStack as a podman host (closed source, paid for commercial use, and the fastest shared folders and the only memory return measured here; it needs no Docker-API backend, orbstack-as-a-podman-host.md) and VM-local volumes for chosen workspace folders on the backends yolo already has (apple-container-file-cost.md §4); no open shared-folder stack tried in §6 beat VZ, and NFS, the one candidate left, needs sudo"
 tags: [research, macos, apple-container, podman, libkrun, orbstack, virtiofs, memory, postgres, benchmark]
 summary: "The maintainer asked whether re-adding a Docker-style backend on macOS would make development faster, and whether keeping hot files on the VM's own disk would. The same Python, Django and Postgres workload ran natively and in four VMs, each on a shared Mac folder and on a VM-local disk, without yolo. On a VM-local disk every VM beat native macOS at the Python steps (pytest 0.9 s against 1.85 s, pip install 1.8 to 2.0 s against 4.0 s). On a shared folder, the two Virtualization.framework VMs took 2 to 5 times native on file-heavy steps and libkrun up to 9 times slower again, while OrbStack came within 1.3 to 2.6 times native on all but one step and ran Postgres's reads at 90 percent of native. OrbStack was also the only VM to give a freed 2 GiB back to macOS, within 10 s; libkrun's free page reporting returned nothing even under pressure. No open alternative tried beat VZ's shared folder: libkrun with permissionSemantics=complete tied it, and QEMU with a macOS virtiofsd port was slower even at its most aggressive caching. OrbStack is closed source and paid for commercial use; Docker Desktop was not run, its licence ruling it out for the maintainer's commercial work."
 vantage:
@@ -12,7 +12,7 @@ vantage:
 
 # Which macOS VM runs a Python, Django and Postgres workload best?
 
-**Status:** 2026-10-03; [§6.2](#62-measured-two-of-them) added 2026-10-04.
+**Status:** 2026-10-03; [§6.2](#62-measured-two-of-them) added 2026-10-04. Since 2026-10-06, [orbstack-as-a-podman-host.md](orbstack-as-a-podman-host.md) shows OrbStack needs no Docker-API backend.
 - **MEASURED** on one Mac for native, Apple Container, Podman Machine on libkrun and on applehv,
   and OrbStack (a trial install, which the maintainer made). [§6.2](#62-measured-two-of-them) adds libkrun with
   `permissionSemantics=complete`, and QEMU with a macOS virtiofsd port.
@@ -52,8 +52,9 @@ whatever we can, without yolo support yet."*
 >   catches up with VZ, but for about 1 s a file renamed on the Mac looks missing. QEMU with a macOS
 >   virtiofsd port at `--cache=always` is slower, and never shows Mac edits to existing files ([§6](#6-is-there-an-open-stack-with-faster-shared-folders)).
 > - **Two ways forward, both inferred** ([§5](#5-what-this-means-for-the-maintainers-question)):
->   - a Docker-API backend aimed at OrbStack, which fixes both of Apple Container's weaknesses
->     but is closed source and paid for commercial use;
+>   - OrbStack, which fixes both of Apple Container's weaknesses but is closed source and paid
+>     for commercial use. It needs no Docker-API backend: podman inside an OrbStack machine ran a
+>     yolo jail ([orbstack-as-a-podman-host.md](orbstack-as-a-podman-host.md));
 >   - [VM-local volumes](apple-container-file-cost.md#4-a-design-sketch-vm-local-volumes-for-chosen-workspace-folders)
 >     on the backends yolo already has, which fixes file speed for chosen folders and not memory.
 
@@ -315,7 +316,9 @@ INFERRED from [§3](#3-results) and [§4](#4-memory-does-a-vm-give-a-freed-2-gib
 - **OrbStack is the one runtime that fixes both of Apple Container's weaknesses**: its shared
   folder is near native, so a workspace needs no relocation, and it gives memory back. Using it
   means:
-  - re-adding a Docker-API backend, which yolo removed;
+  - running podman inside an OrbStack Linux machine, measured since in
+    [orbstack-as-a-podman-host.md](orbstack-as-a-podman-host.md), rather than re-adding the
+    Docker-API backend yolo removed;
   - one shared VM for every jail, as on Podman Machine, rather than one VM per jail;
   - a closed-source, paid dependency for commercial use, with this Mac's trial lasting 30 days.
 - **VM-local volumes on the backends yolo has** fix file speed for the folders a user names
@@ -368,14 +371,14 @@ each).
 | A freed 2 GiB returned to macOS | no, until the jail stops | no, even under host memory pressure | yes, within 10 s |
 | A Mac rename seen in the guest | not measured | the file is missing for about 1 s | not measured |
 | Licence | Apache-2.0 | Apache-2.0 | closed source, paid for commercial use |
-| yolo support | yes | yes as podman; `complete` needs a krunkit wrapper | none; needs a Docker-API backend |
+| yolo support | yes | yes as podman; `complete` needs a krunkit wrapper | none yet; runs as podman in an OrbStack machine ([orbstack-as-a-podman-host.md](orbstack-as-a-podman-host.md)) |
 | VMs | one per jail | one per machine, shared by every jail | one, shared by every jail |
 
 Reading it (INFERRED):
 - **Staying open means Apple Container plus VM-local volumes.** Volumes make the folders a user
   names faster than native. Source in a shared folder stays 1.5 to 9 times slower than OrbStack on
   file-heavy steps, and memory is still not returned.
-- **OrbStack fixes both** at the price of a closed, paid dependency and a new backend. Its own
+- **OrbStack fixes both** at the price of a closed, paid dependency. It needs no new backend: podman in an OrbStack Linux machine ran a yolo jail at the same speed ([orbstack-as-a-podman-host.md](orbstack-as-a-podman-host.md)). Its own
   disk's Postgres write rate, 2,940 tps, is its one row behind the open VMs.
 
 ## 6. Is there an open stack with faster shared folders?
