@@ -34,6 +34,7 @@ import (
 	"path/filepath"
 	goruntime "runtime"
 	"sync"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -131,11 +132,14 @@ func runTreesInParallel(trees []packload.Fork, runtime string, act *run.ActInter
 				log := treeBuildLog(f)
 				lane := treeLane{out: lo, errw: le, pool: pool, ctx: ctx}
 				lane.started = func() {
+					// The log opens HERE, under the build's own lock and slot, and is appended to:
+					// a launch that builds nothing of the key never touches it (XB-D50).
+					ord.logTo(i, log, fmt.Sprintf("=== %s: build started %s (yolo pid %d)\n", f.Label(),
+						time.Now().Format(time.RFC3339), os.Getpid()))
 					ord.startLine(i, fmt.Sprintf("%s: its build has started — its lines follow once every extension "+
 						"listed before it has ended, and its output is in %s as it runs", f.Label(), log))
 				}
 				defer ord.end(i)
-				defer ord.logTo(i, log)()
 				fn(i, f, lane)
 			}()
 		}
@@ -143,11 +147,19 @@ func runTreesInParallel(trees []packload.Fork, runtime string, act *run.ActInter
 	})
 }
 
-// treeBuildLog is where a key's lines are written as they come, for a key whose lines the launch
-// holds: one file per key under yolo's host log directory, truncated at each launch.
+// treeBuildLog is where a key's lines are written as they come once its build starts, for a key
+// whose lines the launch holds: one file per key under yolo's host log directory, APPENDED to by
+// every build of the key, each opening with a header line (XB-D50). One file per key keeps it the
+// one path a start line can name; appending, and opening it only once a build starts, means no
+// launch truncates the log another launch's start line pointed its user at.
 func treeBuildLog(f packload.Fork) string {
 	return filepath.Join(paths.GlobalStorage(), "logs", "tree-build-"+run.PatchedCopySlug(f.Key())+".log")
 }
+
+// treeBuildLogRotateAt is the size past which a build's log is moved to <log>.1 before a new build
+// appends to it, so the file stays bounded. A rename, never a truncation: a build still writing to
+// the old file keeps writing to it under its new name.
+const treeBuildLogRotateAt = 1 << 20
 
 // orderedOutput gives each of n keys its own writers for the two streams and writes what they
 // receive to the real ones in key order: the HEAD — the first key that has not ended — writes
@@ -163,8 +175,8 @@ type orderedOutput struct {
 type orderedSlot struct {
 	held []heldWrite
 	done bool
-	// log, when set, receives every write of the slot as it comes (logTo).
-	log io.Writer
+	// log, when set, receives every write of the slot as it comes (logTo), until end closes it.
+	log io.WriteCloser
 }
 
 type heldWrite struct {
@@ -230,6 +242,10 @@ func (o *orderedOutput) end(i int) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.slots[i].done = true
+	if l := o.slots[i].log; l != nil {
+		_ = l.Close()
+		o.slots[i].log = nil
+	}
 	for o.head < len(o.slots) && o.slots[o.head].done {
 		o.head++
 		if o.head < len(o.slots) {
@@ -242,23 +258,29 @@ func (o *orderedOutput) end(i int) {
 	}
 }
 
-// logTo tees key i's writes into the file at path from now on, and returns what closes it. A file
-// that cannot be made logs nothing: the launch's own lines are unaffected.
-func (o *orderedOutput) logTo(i int, path string) func() {
+// logTo tees key i's writes into the file at path from now on, until end, appending to it after
+// header; a second call for the same key (a build of the series' base after the first) keeps the
+// file already open. A file that cannot be made logs nothing: the launch's own lines are
+// unaffected.
+func (o *orderedOutput) logTo(i int, path, header string) {
+	o.mu.Lock()
+	open := o.slots[i].log != nil
+	o.mu.Unlock()
+	if open {
+		return
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return func() {}
+		return
 	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	if fi, err := os.Stat(path); err == nil && fi.Size() > treeBuildLogRotateAt {
+		_ = os.Rename(path, path+".1")
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
-		return func() {}
+		return
 	}
+	_, _ = io.WriteString(f, header)
 	o.mu.Lock()
 	o.slots[i].log = f
 	o.mu.Unlock()
-	return func() {
-		o.mu.Lock()
-		o.slots[i].log = nil
-		o.mu.Unlock()
-		_ = f.Close()
-	}
 }

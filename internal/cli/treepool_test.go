@@ -281,3 +281,51 @@ func TestAKeyThatUpdatesForTheNextLaunchIsHandedWhatItHas(t *testing.T) {
 		t.Errorf("the background advance was handed %v, want both keys", queued)
 	}
 }
+
+// A HELD KEY'S BUILD LOG, the file its start line names, receives the key's lines as its build
+// runs; it is opened only once the key's build starts and appended to, so a launch that builds
+// nothing of the key never touches it, and another launch's build of it is never truncated. Red if
+// the pool stops teeing a lane into its log, or opens it truncating, or before the build.
+func TestAHeldKeysBuildLogHoldsItsLinesAndNoOtherLaunchTruncatesIt(t *testing.T) {
+	pf := newPoolFixture(t)
+	trees := packload.PatchedTrees(selectConfiguredHostPacks().packs)
+	var logB string
+	for _, f := range trees {
+		if f.Key() == poolKeyB {
+			logB = treeBuildLog(f)
+		}
+	}
+	if logB == "" {
+		t.Fatal("the selection carries no " + poolKeyB)
+	}
+	// What another launch's build of the key has written so far, while it still runs.
+	const other = "ANOTHER LAUNCH'S BUILD OF THIS KEY, STILL RUNNING\n"
+	writeFile(t, logB, other)
+	pf.child = pf.bothRunning(t)
+	got, out := pf.launch(t, "podman", &run.ActInterrupt{})
+	if got[poolKeyA].Dir == "" || got[poolKeyB].Dir == "" {
+		t.Fatalf("delivered %+v\n%s", got, out)
+	}
+	if !strings.Contains(out, "its output is in "+logB) {
+		t.Fatalf("the held key's start line does not name %s:\n%s", logB, out)
+	}
+	data, err := os.ReadFile(logB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(data), other) {
+		t.Errorf("the build truncated another launch's log of the key:\n%s", data)
+	}
+	if !strings.Contains(string(data), "built extension "+poolKeyB) || strings.Contains(string(data), poolKeyA+":") {
+		t.Errorf("the held key's log does not hold its own lines alone:\n%s", data)
+	}
+	// A launch inside the hour checks and builds nothing, and leaves the log as it is.
+	pf.child = nil
+	writeFile(t, logB, other)
+	if again, out := pf.launch(t, "podman", &run.ActInterrupt{}); again[poolKeyB].Entry != got[poolKeyB].Entry {
+		t.Fatalf("the second launch was not handed the good build: %+v\n%s", again, out)
+	}
+	if data, _ := os.ReadFile(logB); string(data) != other {
+		t.Errorf("a launch that built nothing of the key rewrote its log:\n%s", data)
+	}
+}
