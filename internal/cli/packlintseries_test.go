@@ -220,16 +220,17 @@ func TestPackLintOnlineFailsAMissingRef(t *testing.T) {
 }
 
 // --ONLINE REPORTS A TAGLESS UPSTREAM under the default release rule, naming `follow: "head"`.
-// Whether that fails lint is the check's verdict (onlineVerdict): this build's check records it as a
-// problem, so lint fails.
+// Whether that fails lint is the check's verdict (onlineVerdict): the check builds the series' base
+// there and records a note, not a problem (PF-D60), so lint warns and passes.
 func TestPackLintOnlineReportsATaglessUpstream(t *testing.T) {
 	f, _ := lintOnlineHome(t)
 	upstreamGit(t, f.repo, "tag", "-d", "v1.0.0")
 	f.commitMsg(t, "untagged", "", map[int]string{14: "fourteen"})
-	_, out := lintArgs(t, "--online", f.forkDir)
-	if !strings.Contains(out, "online: fork forkpack/tool: ?ref=main of ") ||
+	// A launch builds the series' base there (PF-D60), so lint passes and warns, as the check agrees.
+	rc, out := lintArgs(t, "--online", f.forkDir)
+	if rc != 0 || !strings.Contains(out, "⚠ online: fork forkpack/tool: ?ref=main of ") ||
 		!strings.Contains(out, "carries no version tag") || !strings.Contains(out, "`follow: \"head\"`") {
-		t.Errorf("lint --online of a tagless upstream does not name it:\n%s", out)
+		t.Errorf("lint --online of a tagless upstream: rc %d, want 0 and a warning naming it:\n%s", rc, out)
 	}
 }
 
@@ -407,5 +408,45 @@ func TestPackLintWarnsOfAnExtensionLoadedTwice(t *testing.T) {
 	rc, out := lintArgs(t, dir)
 	if rc != 0 || !strings.Contains(out, `"git:github.com/x/pi-foo", the same package by its name, so the agent loads it twice`) {
 		t.Errorf("lint of a list loading pi-foo twice: rc %d\n%s", rc, out)
+	}
+}
+
+// A `follow` OR `source` THE MANIFEST REFUSES is said once, by the manifest's problem, and --online
+// does not offer "run it again" as the next step for a value only an edit fixes.
+func TestPackLintOnlineSaysABadFollowOrSourceOnce(t *testing.T) {
+	for _, c := range []struct{ name, from, to, said string }{
+		{"follow", `"patches":"patches"`, `"patches":"patches","follow":"bogus"`, "is not a follow rule"},
+		{"source", "git+https://example.invalid/up/tool?ref=main", "git+https://", "missing host/repository"},
+	} {
+		dir := lintSeriesPack(t, "forkpack", false, func(dir string) {
+			writeFile(t, filepath.Join(dir, "0001-x.patch"), lintMember(lintBase))
+		})
+		m := filepath.Join(dir, "pack.json")
+		data, err := os.ReadFile(m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, m, strings.Replace(string(data), c.from, c.to, 1))
+		rc, out := lintArgs(t, "--online", dir)
+		if rc == 0 || strings.Count(out, c.said) != 1 || strings.Contains(out, lintOnlineAgain) {
+			t.Errorf("lint --online of a bad %s: rc %d, want %q said once and no %q\n%s", c.name, rc, c.said,
+				lintOnlineAgain, out)
+		}
+	}
+}
+
+// --ONLINE NAMES WHAT A TAG, A COMMIT AND A HEAD RULE HOLD THE SERIES AT (PF-D64): the commit a tag
+// or a commit holds, and the head a `follow: "head"` branch follows.
+func TestPackLintOnlineNamesATagACommitAndAHeadRule(t *testing.T) {
+	f, _ := lintOnlineHome(t)
+	for _, c := range []struct{ ref, follow, want string }{
+		{"v1.0.0", "", "?ref=v1.0.0 is a tag, which holds the series at v1.0.0 (" + shortSHA(f.base) + ")"},
+		{f.base, "", "?ref=" + f.base + " is a commit, which holds the series at " + shortSHA(f.base)},
+		{"main", "head", "?ref=main is a branch, and `follow: \"head\"` follows its head, "},
+	} {
+		f.writeManifest(t, c.ref, c.follow)
+		if rc, out := lintArgs(t, "--online", f.forkDir); rc != 0 || !strings.Contains(out, "✓ online: fork forkpack/tool: "+c.want) {
+			t.Errorf("lint --online of ?ref=%s follow %q: rc %d, want %q\n%s", c.ref, c.follow, rc, c.want, out)
+		}
 	}
 }

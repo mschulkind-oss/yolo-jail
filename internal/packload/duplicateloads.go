@@ -21,8 +21,8 @@ package packload
 //
 // THE SAME LIST is one surface and path, across every list body of the pack whose notches meet: a
 // `config-list` reaches every notch, so it meets either posture's list, and the autonomous and
-// guarded postures never meet each other. A list holds the tree when an entry is `~/<into>` or
-// names a folder inside it.
+// guarded postures never meet each other. A list holds the tree when an entry loads it, as an owner
+// reads one (loadsTree, PPX-D36): `~/<into>`, or a path inside it.
 //
 // A warning, never a failure, at `yolo pack lint`: the agent still starts, with the extension
 // loaded twice.
@@ -81,10 +81,12 @@ func LintDuplicateLoads(p *Pack) []string {
 	return out
 }
 
-// holdsTree reports whether a list body's `add` array holds tree, `~/<into>`, or a folder inside it.
+// holdsTree reports whether a list body's `add` array holds an entry that loads tree, `~/<into>`:
+// the entry itself, or a path inside it, by the one rule the owner and the lint read (loadsTree,
+// PPX-D36), so `~/<into>/../x` holds no part of it.
 func holdsTree(add json.RawMessage, tree string) bool {
 	for _, src := range listSources(add) {
-		if src == tree || strings.HasPrefix(src, tree+"/") {
+		if loadsTree(src, tree) {
 			return true
 		}
 	}
@@ -146,18 +148,21 @@ func remotePackageName(src string) (string, bool) {
 		name, _, _ := strings.Cut(spec, "@")
 		return name, name != ""
 	case strings.HasPrefix(src, "git:"), strings.Contains(src, "://"):
-		rest := src
+		rest := strings.TrimSpace(strings.TrimPrefix(src, "git:"))
+		// The path after the host, whose first "@" opens the ref, as pi splits it: a ref may hold a
+		// slash, so the ref goes before the last segment is taken.
 		if _, after, ok := strings.Cut(rest, "://"); ok {
+			_, rest, _ = strings.Cut(after, "/")
+		} else if host, after, ok := strings.Cut(rest, ":"); ok && strings.HasPrefix(host, "git@") && !strings.Contains(host, "/") {
 			rest = after
 		} else {
-			rest = strings.TrimPrefix(rest, "git:")
+			_, rest, _ = strings.Cut(rest, "/")
 		}
+		rest, _, _ = strings.Cut(rest, "@")
 		rest, _, _ = strings.Cut(rest, "?")
 		rest, _, _ = strings.Cut(rest, "#")
 		rest = strings.TrimRight(rest, "/")
-		last := rest[strings.LastIndex(rest, "/")+1:]
-		last, _, _ = strings.Cut(last, "@")
-		last = strings.TrimSuffix(last, ".git")
+		last := strings.TrimSuffix(rest[strings.LastIndex(rest, "/")+1:], ".git")
 		return last, last != ""
 	}
 	return "", false

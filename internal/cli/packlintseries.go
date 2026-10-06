@@ -111,6 +111,9 @@ func lintOnline(pr richtext.Printer, read []lintedSeries) (problems, lines []str
 		if ctx.Err() != nil {
 			break
 		}
+		if _, _, _, err := r.fork.CheckWant(r.series).Inputs(); err != nil {
+			continue // the manifest's own problem names the source or follow rule, and only an edit fixes it
+		}
 		pr.Printf("[dim]%s[/dim]", richtext.Escape("checking "+r.fork.Label()+"'s upstream "+r.fork.Source+
 			" in a scratch mirror"))
 		p := store.ProbeSeries(r.fork.CheckWant(r.series), r.series, waiting)
