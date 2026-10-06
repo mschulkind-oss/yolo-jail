@@ -1968,7 +1968,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// arm runs releases it, and so does this launch before each disarm below.
 	o.registerHerdrAgent(loadedPacks, injectedArgs)
 	keeperStarted := false
-	ready := kp.relay(o.Stdout, o.Stderr, os.Stdout, os.Stderr, keeperEvents{
+	ready := kp.relay(o.Stdout, o.Stderr, o.JailStdout, o.JailStderr, keeperEvents{
 		started: func(pid int) {
 			keeperStarted = true
 			o.pr(o.Stderr).printf("[dim]keeper: started, pid %d[/dim]", pid)
@@ -1984,6 +1984,11 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		// delays the jail. It dies at this launch's exit, restartable by design.
 		running: func() {
 			housekeepingSlots.Go(func() { safeRun(func() { o.runHousekeeping(rt, reclaimConsent, cname) }) })
+		},
+		ready: func(int64, bool) {
+			if o.OnJailReady != nil {
+				o.OnJailReady()
+			}
 		},
 	})
 	_ = kp.progress.Close()

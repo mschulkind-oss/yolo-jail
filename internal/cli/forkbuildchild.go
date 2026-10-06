@@ -16,6 +16,13 @@ package cli
 // to the child, and a child that has not exited a grace period after it is killed — its keeper
 // then unwinds the build jail as its lifeline closes. A build past forkBuildWaitBound is ended the
 // same way, and that one is a failed build (§8.1).
+//
+// THE JAIL'S OWN STREAMS CROSS APART. The child's launch prints its own lines on the child's stdout
+// and stderr, and relays its jail's — the runtime client's and pid 1's — to the child's fds 3 and 4
+// (--jail-streams), which this process copies to the act's jail writers, and says on fd 5 that the
+// jail's boot is done. So the act keeps the two apart in a child as it does in its own process, and
+// a jail that stopped before its build line is relayed with what the jail said rather than its
+// keeper's last lines (jailTail, PPX-D39).
 
 import (
 	"context"
@@ -23,8 +30,10 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -36,6 +45,22 @@ const forkBuildJailVerb = "fork-build-jail"
 
 // forkBuildChildGrace is how long a child told to stop has before it is killed.
 const forkBuildChildGrace = 60 * time.Second
+
+// forkBuildChildDrain bounds the wait, once the child has exited, for the last of its jail's lines
+// to be copied (childJailPipes.drain): a process the child handed its descriptors to by mistake
+// would otherwise hold the copy open for as long as it lives.
+const forkBuildChildDrain = 5 * time.Second
+
+// The child's descriptors for its jail (--jail-streams), ExtraFiles' three after stdin, stdout and
+// stderr: its own stdout and stderr, and the one byte that says its boot is done
+// (run.Options.OnJailReady).
+const childJailStdoutFD, childJailStderrFD, childJailReadyFD = 3, 4, 5
+
+// childJailFDs are the three, in ExtraFiles order.
+var childJailFDs = []int{childJailStdoutFD, childJailStderrFD, childJailReadyFD}
+
+// forkBuildJailStreamsFlag tells the child that fds 3 to 5 carry its jail's (childJailFDs).
+const forkBuildJailStreamsFlag = "--jail-streams"
 
 // forkBuildChild runs b's build jail in a child process: a var so a test can stand in for the
 // child.
@@ -72,26 +97,46 @@ func forkBuildChildArgv(staging string, b forkBuild, color bool) []string {
 	if color {
 		argv = append(argv, "--color")
 	}
+	// runForkBuildChild hands every child its jail's descriptors, fds 3 to 5.
+	argv = append(argv, forkBuildJailStreamsFlag)
 	return append(argv, "--", b.Fork.Build)
 }
 
 // runForkBuildChild runs b's build jail as a child and returns its exit status, and whether it was
 // stopped for running past bound. A cancelled ctx (the interrupt scope's Ctrl-C) stops it too, and
 // the caller reads that off ctx.
-func runForkBuildChild(ctx context.Context, bound time.Duration, staging string, b forkBuild, out, errw io.Writer,
+//
+// s's out and errw take the child's stdout and stderr, which carry its launch's own lines, and s's
+// jail writers what the child relays its jail's own lines to, its fds 3 and 4, a nil one being this
+// process's own stream; s.jailReady is called when the child says on fd 5 that the jail's boot is
+// done (childJailPipes).
+func runForkBuildChild(ctx context.Context, bound time.Duration, staging string, b forkBuild, s captureStreams,
 	color bool) (int, bool) {
+	errw := s.errw
 	cmd, err := forkBuildChildCommand(forkBuildChildArgv(staging, b, color))
 	if err != nil {
 		fmt.Fprintf(errw, "yolo: could not start the build jail of %s: %v\n", b.Fork.Key(), err)
 		return 1, false
 	}
-	cmd.Stdout, cmd.Stderr = out, errw
-	if err := cmd.Start(); err != nil {
+	jail, err := newChildJailPipes()
+	if err != nil {
 		fmt.Fprintf(errw, "yolo: could not start the build jail of %s: %v\n", b.Fork.Key(), err)
 		return 1, false
 	}
+	cmd.Stdout, cmd.Stderr, cmd.ExtraFiles = s.out, errw, jail.child
+	if err := cmd.Start(); err != nil {
+		jail.abandon()
+		fmt.Fprintf(errw, "yolo: could not start the build jail of %s: %v\n", b.Fork.Key(), err)
+		return 1, false
+	}
+	jail.copyTo(s.jailOut, s.jailErr, s.jailReady)
 	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
+	go func() {
+		err := cmd.Wait()
+		// Every line the jail printed is copied before the child's status is read.
+		jail.drain(forkBuildChildDrain)
+		done <- err
+	}()
 	timer := time.NewTimer(bound)
 	defer timer.Stop()
 	timedOut := false
@@ -112,6 +157,98 @@ func runForkBuildChild(ctx context.Context, bound time.Duration, staging string,
 	return exitStatus(<-done), timedOut
 }
 
+// childJailPipes are the three pipes a child build jail is handed for its jail (childJailFDs), and
+// what this process reads from them.
+type childJailPipes struct {
+	child  []*os.File // the write ends, the child's ExtraFiles, closed here once it started
+	read   []*os.File
+	copied sync.WaitGroup
+}
+
+// newChildJailPipes makes the three pipes.
+func newChildJailPipes() (*childJailPipes, error) {
+	p := &childJailPipes{}
+	for range childJailFDs {
+		r, w, err := os.Pipe()
+		if err != nil {
+			p.abandon()
+			return nil, err
+		}
+		p.read, p.child = append(p.read, r), append(p.child, w)
+	}
+	return p, nil
+}
+
+// copyTo closes this process's copies of the child's ends, so a read ends when the child's own end
+// closes, and copies the child's jail stdout to out and its jail stderr to errw, this process's own
+// streams when nil, and calls ready, when non-nil, when the child says the boot is done.
+func (p *childJailPipes) copyTo(out, errw io.Writer, ready func()) {
+	for _, f := range p.child {
+		_ = f.Close()
+	}
+	if out == nil {
+		out = os.Stdout
+	}
+	if errw == nil {
+		errw = os.Stderr
+	}
+	for i, w := range []io.Writer{out, errw} {
+		r := p.read[i]
+		p.copied.Go(func() { _, _ = io.Copy(w, r) })
+	}
+	said := p.read[2]
+	p.copied.Go(func() {
+		var b [1]byte
+		if n, _ := said.Read(b[:]); n == 1 && ready != nil {
+			ready()
+		}
+	})
+}
+
+// drain waits, at most bound, for the copies to reach the end of the child's lines, then closes
+// the read ends, which ends a copy something else still holds open.
+func (p *childJailPipes) drain(bound time.Duration) {
+	copied := make(chan struct{})
+	go func() { p.copied.Wait(); close(copied) }()
+	select {
+	case <-copied:
+	case <-time.After(bound):
+	}
+	for _, f := range p.read {
+		_ = f.Close()
+	}
+	<-copied
+}
+
+// abandon closes every end, for a child that never started.
+func (p *childJailPipes) abandon() {
+	for _, f := range append(p.child, p.read...) {
+		_ = f.Close()
+	}
+}
+
+// forkBuildJailStreams is the jail's descriptors a child build jail was handed (--jail-streams):
+// its stdout, its stderr and its ready, and whether it was handed them. A var so a test, whose own
+// fds 3 to 5 are not its to take, can stand in for them.
+var forkBuildJailStreams = inheritedJailStreams
+
+// inheritedJailStreams is fds 3 to 5, when all three are the pipes runForkBuildChild hands a child.
+// They are not handed on: the keeper and the runtime client this child starts would hold the
+// parent's reads open past the child's own exit.
+func inheritedJailStreams() (out, errw, ready *os.File, ok bool) {
+	for _, fd := range childJailFDs {
+		var st syscall.Stat_t
+		if syscall.Fstat(fd, &st) != nil || uint32(st.Mode)&syscall.S_IFMT != syscall.S_IFIFO {
+			return nil, nil, nil, false
+		}
+	}
+	for _, fd := range childJailFDs {
+		syscall.CloseOnExec(fd)
+	}
+	return os.NewFile(childJailStdoutFD, "jail-stdout"), os.NewFile(childJailStderrFD, "jail-stderr"),
+		os.NewFile(childJailReadyFD, "jail-ready"), true
+}
+
 // exitStatus is a child's exit status, 128+N for a signal, 1 for anything else that is not 0.
 func exitStatus(err error) int {
 	if err == nil {
@@ -129,14 +266,15 @@ func exitStatus(err error) int {
 	return 1
 }
 
-// runForkBuildJail is `yolo internal fork-build-jail --workspace=W --bin=B --only=P... [--color] --
-// <build>`: the build jail of one fork, in the staged workspace W, under the seal and narrowed to
-// the packs named (forkBuildRunJail's jail, run here as a child of the launch that staged it).
-// Hidden: its caller is the advance.
+// runForkBuildJail is `yolo internal fork-build-jail --workspace=W --bin=B --only=P... [--color]
+// [--jail-streams] -- <build>`: the build jail of one fork, in the staged workspace W, under the
+// seal and narrowed to the packs named (forkBuildRunJail's jail, run here as a child of the launch
+// that staged it), relaying its jail's own lines to fds 3 and 4 and its boot's end to fd 5 with
+// --jail-streams. Hidden: its caller is the advance.
 func runForkBuildJail(args []string, out, errw io.Writer) int {
 	var workspace, bin, build, tree string
 	var only []string
-	color := false
+	color, jailStreams := false, false
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
@@ -153,6 +291,8 @@ func runForkBuildJail(args []string, out, errw io.Writer) int {
 			only = append(only, strings.TrimPrefix(a, "--only="))
 		case a == "--color":
 			color = true
+		case a == forkBuildJailStreamsFlag:
+			jailStreams = true
 		default:
 			fmt.Fprintf(errw, "fork-build-jail: unexpected argument %q\n", a)
 			return 2
@@ -167,5 +307,17 @@ func runForkBuildJail(args []string, out, errw io.Writer) int {
 	if tree != "" {
 		argv = treeBuildJailArgv(build, tree)
 	}
-	return runCaptureJail(workspace, bin, argv, &captureSeal{only: only, tree: tree}, out, errw, color)
+	s := captureStreams{out: out, errw: errw}
+	if jailStreams {
+		// Without them, the jail's lines go to this process's own streams, mixed with the launch's
+		// as they cross to the parent, and the build still runs.
+		if jo, je, jr, ok := forkBuildJailStreams(); ok {
+			defer jo.Close()
+			defer je.Close()
+			defer jr.Close()
+			s.jailOut, s.jailErr = jo, je
+			s.jailReady = func() { _, _ = jr.Write([]byte{'R'}); _ = jr.Close() }
+		}
+	}
+	return runCaptureJail(workspace, bin, argv, &captureSeal{only: only, tree: tree}, s, color)
 }

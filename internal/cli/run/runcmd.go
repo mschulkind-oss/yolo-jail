@@ -381,6 +381,19 @@ type Options struct {
 	// nil => os.Stdout / os.Stderr.
 	Stdout io.Writer
 	Stderr io.Writer
+	// JailStdout/JailStderr receive the JAIL'S OWN lines up to its ready: what the runtime client
+	// starting the container and pid 1 print, which the keeper relays apart from its own
+	// (keeperframe.go's frameJailStdout and frameJailStderr) — a runtime that refused the
+	// container, a boot that failed. nil => os.Stdout / os.Stderr, the process's own streams, where
+	// they always went. A build jail's act hands writers of its own, so that a jail that stopped
+	// before its build line can be relayed with what it said (cli's jailTail, PPX-D39).
+	JailStdout io.Writer
+	JailStderr io.Writer
+	// OnJailReady, when non-nil, is called once, when the keeper relays the jail's boot done (its
+	// ready frame): after the last of the jail's lines that reaches JailStdout and JailStderr. nil on
+	// every launch but a build jail's, whose act tells a boot that went on to be done from one that
+	// stopped by it (cli's jailTail).
+	OnJailReady func()
 	// Stdin is read for the config-change approval prompt. nil => os.Stdin.
 	Stdin io.Reader
 	// Color enables ANSI styling in the human output.
@@ -882,6 +895,12 @@ func fillDefaults(o *Options) {
 	}
 	if o.Stderr == nil {
 		o.Stderr = os.Stderr
+	}
+	if o.JailStdout == nil {
+		o.JailStdout = os.Stdout
+	}
+	if o.JailStderr == nil {
+		o.JailStderr = os.Stderr
 	}
 	if o.Stdin == nil {
 		o.Stdin = os.Stdin

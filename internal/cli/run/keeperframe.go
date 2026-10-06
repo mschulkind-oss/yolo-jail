@@ -7,7 +7,8 @@ package run
 // UNTIL READY, everything the keeper prints crosses the pipe, and the launch prints it through its
 // own writers, so the terminal and launch.log have every line a launch printed before there was a
 // keeper: the services' warnings, the launch checks, and pid 1's boot, which the launch writes to
-// the process's own streams as it always did (what the jail prints is not what the launcher said,
+// its jail writers (Options.JailStdout and JailStderr), the process's own streams as it always did
+// unless a build jail's act hands its own (what the jail prints is not what the launcher said,
 // launchlog.go). The pipe also carries the four moments the launch acts on: the keeper started,
 // the main process spawned, the container is running (the launch lock is released), and the boot
 // is done. Framed, one tag byte and a length, so a partial line or a byte the boot printed never
@@ -44,8 +45,8 @@ import (
 const (
 	frameStdout     byte = 'o' // the keeper's own stdout: the launch's o.Stdout
 	frameStderr     byte = 'e' // the keeper's own stderr: the launch's o.Stderr
-	frameJailStdout byte = 'J' // pid 1's stdout: the launch process's own stdout
-	frameJailStderr byte = 'j' // pid 1's stderr: the launch process's own stderr
+	frameJailStdout byte = 'J' // pid 1's and its runtime client's stdout: the launch's o.JailStdout
+	frameJailStderr byte = 'j' // pid 1's and its runtime client's stderr: the launch's o.JailStderr
 	frameStarted    byte = 'S' // the keeper holds its liveness lock; payload is its pid
 	frameSpawned    byte = 'C' // the main process's runtime client is started
 	frameRunning    byte = 'V' // the container is seen running, and the launch lock is released
@@ -111,8 +112,10 @@ func readyLogOffset(payload []byte) (int64, bool) {
 }
 
 // relayKeeper reads the keeper's frames from r until the ready frame or the pipe's end, writing
-// the keeper's lines to out/errOut (the launch's teed writers) and pid 1's to jailOut/jailErr (the
-// process's own streams), and calling ev at each moment. It returns true when it saw ready.
+// the keeper's lines to out/errOut (the launch's teed writers) and the jail's own, pid 1's and its
+// runtime client's, to jailOut/jailErr (the launch's Options.JailStdout and JailStderr, the
+// process's own streams unless its caller handed others), and calling ev at each moment. It returns
+// true when it saw ready.
 func relayKeeper(r io.Reader, out, errOut, jailOut, jailErr io.Writer, ev keeperEvents) (ready bool) {
 	br := bufio.NewReader(r)
 	for {

@@ -917,8 +917,8 @@ func (a *advance) build(b forkBuild, base baseWhy, edited bool) advanceResult {
 		mode.lock = pidlock.Mode{Wait: true, Bound: forkBuildWaitBound, Cancel: a.ctx.Done()}
 		mode.afterLock = func() (*capture.Entry, error, bool) { return a.afterLock(b, startGood, startFail) }
 		if a.serves() {
-			mode.runJail = func(staging string, b forkBuild, out, errw io.Writer) int {
-				rc, bound := forkBuildChild(a.ctx, forkBuildWaitBound, staging, b, out, errw, a.o.color)
+			mode.runJail = func(staging string, b forkBuild, s captureStreams) int {
+				rc, bound := forkBuildChild(a.ctx, forkBuildWaitBound, staging, b, s, a.o.color)
 				a.boundHit = bound
 				return rc
 			}
