@@ -1326,6 +1326,21 @@ end)
 -- chat-completions). pi's own Bedrock client has no row, and the extension reads that api from
 -- pi's catalog, which this derive cannot see.
 yolo.derive("pi", "model-lists", function(ctx)
+  -- modelAliasFor is the alias whose declared id a rendered row is: the alias spelled as the
+  -- id first (the convention every other reader gives the id's own facts), then the first
+  -- other alias naming it in sorted alias order (codexModelList's rule). A rendered row carries
+  -- an id, not an alias, and an object-form user entry's facts — `base` and `openrouter_routing`
+  -- included — are keyed by the alias, so a row's own facts have to be found through this.
+  local function modelAliasFor(p, id)
+    if type(p) ~= "table" or type(p.models) ~= "table" or id == nil then return nil end
+    if p.models[id] == id then return id end
+    local aliases = {}
+    for alias, target in pairs(p.models) do
+      if type(alias) == "string" and target == id then table.insert(aliases, alias) end
+    end
+    table.sort(aliases)
+    return aliases[1]
+  end
   local lists = {}
   for name, prov in pairs(ctx.providers or {}) do
     -- A provider pi has built in (piOwn, OQ-3) has no models.json row and no via row: its list is
@@ -1340,7 +1355,14 @@ yolo.derive("pi", "model-lists", function(ctx)
     -- method configured").
     local usable = type(prov) == "table" and own ~= false and
       (type(own) == "table" or viaRow or nativeBedrock or piReachable(prov) ~= nil)
-    if name ~= "openai-codex" and usable and prov.models_only == true then
+    -- A routing declaration makes a provider render a registered list even with no `only`:
+    -- the registration is the only channel that reaches a provider pi ships its own catalog for
+    -- (OQ-3), and `base`/`openrouter_routing` are facts only it can carry. The provider's whole
+    -- declared list is registered, exactly as an `only` list is, so the menu becomes the
+    -- declared rows and a model outside it is refused while `enforce_models` is on.
+    local hasRouting = type(prov) == "table" and type(prov.model_routing) == "table" and
+      next(prov.model_routing) ~= nil
+    if name ~= "openai-codex" and usable and (prov.models_only == true or hasRouting) then
       local piID = nativeBedrock and "amazon-bedrock" or name
       local rowApi, rowUrl = nil, nil
       if type(own) == "table" then
@@ -1365,7 +1387,8 @@ yolo.derive("pi", "model-lists", function(ctx)
       local provOpts = type(prov.options) == "table" and prov.options or {}
       local models = {}
       for _, e in ipairs(codexModelList(prov)) do
-        local mopts = type(prov.model_options) == "table" and prov.model_options[e.base or e.id] or nil
+        local alias = modelAliasFor(prov, e.base or e.id)
+        local mopts = alias and type(prov.model_options) == "table" and prov.model_options[alias] or nil
         local m = {
           id = sent(e.id),
           base = sent(e.base),
@@ -1374,6 +1397,17 @@ yolo.derive("pi", "model-lists", function(ctx)
         }
         if type(mopts) == "table" then
           m.maxTokens = tonumber(mopts.max_tokens)
+          -- `base` is the catalog row this variant inherits from, read from the same alias-keyed
+          -- facts; the [1m] variant above carries its base from codexModelList and keeps it.
+          if m.base == nil and type(mopts.base) == "string" and mopts.base ~= "" then
+            m.base = sent(mopts.base)
+          end
+        end
+        -- The routing object rides the row verbatim; the extension lowers it into pi's
+        -- `compat.openRouterRouting`, which pi sends as the request's `provider` field.
+        local routing = alias and type(prov.model_routing) == "table" and prov.model_routing[alias] or nil
+        if type(routing) == "table" then
+          m.openrouter_routing = routing
         end
         local facts = piModelFacts(mopts, prov, ctx, name)
         if facts then

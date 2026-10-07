@@ -222,7 +222,16 @@ var (
 	// serves several makers' models, where an agent's own client can call only some of them
 	// (claude's Bedrock client serves Anthropic models alone). Core interprets none of it, and
 	// an entry with no vendor is offered to every agent.
-	knownModelKeys = set("id", "name", "description", "vendor", "reasoning", "input", "cost", "context_window", "max_tokens")
+	//
+	// `base` and `openrouter_routing` are the two pi model-list facts (docs/reference/
+	// providers.md §"Per-model OpenRouter routing"): `base` names the model id whose pi CATALOG
+	// entry this row inherits from, so a variant id (`deepseek/…:floor`) keeps the catalog's
+	// `thinkingLevelMap` and the rest; `openrouter_routing` is an OBJECT sent verbatim as
+	// OpenRouter's request `provider` field, which is why it is the one object-valued model
+	// fact while `model_options` stays flat strings. Both are read by packs/pi's model-lists
+	// render, and by the extension that registers it; core only checks their shape.
+	knownModelKeys = set("id", "name", "description", "vendor", "reasoning", "input", "cost", "context_window", "max_tokens",
+		"base", "openrouter_routing")
 	// knownModelCostKeys is the closed set of rates inside that `cost` object. Canonical
 	// snake; the consuming derive translates to its agent's spelling (pi's cacheRead/...).
 	knownModelCostKeys = set("input", "output", "cache_read", "cache_write")

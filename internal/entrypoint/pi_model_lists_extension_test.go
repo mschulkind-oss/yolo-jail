@@ -16,9 +16,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
@@ -379,5 +381,192 @@ export function builtinProviders() {
 	}
 	if len(run.Calls) != 1 || run.Calls[0].Via != "builtin" || run.Calls[0].Model != "global.openai.gpt-6-astra" {
 		t.Errorf("delegate calls = %+v, want the listed id to pi's own Bedrock provider", run.Calls)
+	}
+}
+
+// piOpenRouterCatalogStub stands in for pi-ai's catalog on openrouter: it knows the DeepSeek
+// V4.1 Flash BASE the two routing variants inherit from, with the thinkingLevelMap a real
+// catalog row carries for a model whose minimal and medium levels are unsupported (the nulls
+// acceptance 3 is about), and an openai-completions stream, so a list whose entries base to it
+// resolves to one api and registers with the refusing wrapper.
+const piOpenRouterCatalogStub = `
+export const calls = [];
+export function getBuiltinModel(provider, id) {
+	if (provider !== "openrouter" || id !== "deepseek/deepseek-v4.1-flash") return undefined;
+	return { id, name: "DeepSeek V4.1 Flash", api: "openai-completions", provider,
+		baseUrl: "https://openrouter.ai/api/v1", reasoning: true, input: ["text", "image"],
+		maxTokens: 131072, contextWindow: 163840,
+		thinkingLevelMap: { off: null, minimal: null, low: "low", medium: null, high: "high", max: "max" },
+		cost: { input: 0.1, output: 0.4, cacheRead: 0.01, cacheWrite: 0 } };
+}
+export function getBuiltinModels(provider) {
+	return provider === "openrouter" ? [getBuiltinModel("openrouter", "deepseek/deepseek-v4.1-flash")] : [];
+}
+export function builtinProviders() {
+	return [{ id: "openrouter", getModels: () => getBuiltinModels("openrouter"),
+		streamSimple: (model, context, options) => { calls.push({ via: "builtin", model: model.id, options }); return "builtin-stream"; } }];
+}
+`
+
+// renderedOpenRouterLists is the pi/model-lists file a real boot render writes for a USER
+// config that declares two OpenRouter routing variants on the built-in openrouter provider and
+// selects a profile on it. The rows are the shipped ids; the routing objects are the two the
+// task names, and both variants base to the one catalog row.
+func renderedOpenRouterLists(t *testing.T) []byte {
+	t.Helper()
+	decoded, err := jsonx.Decode([]byte(`{"openrouter":{"models":{
+	  "deepseek-floor":{"id":"deepseek/deepseek-v4.1-flash:floor","base":"deepseek/deepseek-v4.1-flash",
+	    "openrouter_routing":{"order":["streamlake","morph","deepinfra"],"allow_fallbacks":false}},
+	  "deepseek-nitro":{"id":"deepseek/deepseek-v4.1-flash:nitro","base":"deepseek/deepseek-v4.1-flash",
+	    "openrouter_routing":{"order":["together","streamlake","morph"],"allow_fallbacks":false}}
+	}}}`))
+	if err != nil {
+		t.Fatalf("fixture providers: %v", err)
+	}
+	user, _ := decoded.(*jsonx.OrderedMap)
+	providers, err := packload.ComposeProviders(user, testPacksForAgent(t, "pi"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := newPioencodeRender(t, mustCompactJSON(t, providers))
+	// The shipped openrouter profile selects the built-in openrouter provider; enforce_models
+	// defaults on, so the registration carries the wrapper too.
+	r.wireProfiles(`{"openrouter":{"provider":"openrouter"}}`)
+	r.render(t, `{"pi":"openrouter"}`)
+	raw, err := os.ReadFile(filepath.Join(r.e.Home, filepath.FromSlash(piModelListsRel(t))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+// piModelListRouting is one rendered entry's routing facts, decoded from the JSON the boot
+// render wrote, so the test asserts on the file's bytes and not on a Go value the render never
+// produced.
+type piModelListRouting struct {
+	Models []struct {
+		ID      string         `json:"id"`
+		Base    string         `json:"base"`
+		Routing map[string]any `json:"openrouter_routing"`
+	} `json:"models"`
+}
+
+// A USER CONFIG DECLARES OPENROUTER ROUTING; THE BUILT-IN PROVIDER'S MENU IS THE DECLARED LIST
+// (acceptance 1-4). The boot render writes a model-lists entry for openrouter even without an
+// `only`, each row carries its `base` and its `openrouter_routing`, and the shipped extension
+// lowers the routing into pi's `compat.openRouterRouting` (the request's `provider` field)
+// while the catalog row's thinkingLevelMap survives — nulls included. WITHOUT routing the
+// surface stays empty (acceptance 4), which the last assertion pins.
+func TestPiRendersOpenRouterRoutingFromAUserConfig(t *testing.T) {
+	raw := renderedOpenRouterLists(t)
+	var file struct {
+		Providers map[string]piModelListRouting `json:"providers"`
+	}
+	if err := json.Unmarshal(raw, &file); err != nil {
+		t.Fatalf("the rendered model-lists file is not JSON: %v\n%s", err, raw)
+	}
+	or, ok := file.Providers["openrouter"]
+	if !ok {
+		t.Fatalf("the boot render wrote no openrouter list:\n%s", raw)
+	}
+	want := []struct {
+		id      string
+		base    string
+		routing map[string]any
+	}{
+		{"deepseek/deepseek-v4.1-flash:floor", "deepseek/deepseek-v4.1-flash",
+			map[string]any{"order": []any{"streamlake", "morph", "deepinfra"}, "allow_fallbacks": false}},
+		{"deepseek/deepseek-v4.1-flash:nitro", "deepseek/deepseek-v4.1-flash",
+			map[string]any{"order": []any{"together", "streamlake", "morph"}, "allow_fallbacks": false}},
+	}
+	if len(or.Models) != len(want) {
+		t.Fatalf("rendered openrouter models = %+v, want the two declared routes", or.Models)
+	}
+	for i, w := range want {
+		m := or.Models[i]
+		if m.ID != w.id || m.Base != w.base {
+			t.Errorf("rendered model %d = %+v, want id %s base %s", i, m, w.id, w.base)
+		}
+		if !reflect.DeepEqual(m.Routing, w.routing) {
+			t.Errorf("rendered %s routing = %v, want %v", m.ID, m.Routing, w.routing)
+		}
+	}
+
+	// The shipped extension, under node, reading the file the boot render wrote: the routing is
+	// pi's compat.openRouterRouting and the catalog's thinkingLevelMap survives whole (nulls
+	// included), so a request built from the registered model carries `provider: {order, …,
+	// allow_fallbacks: false}` — pi's buildParams does exactly this for a model whose compat
+	// carries openRouterRouting — while the row still declares no address of its own.
+	run := runPiModelListsExtension(t, raw, piOpenRouterCatalogStub, piCompatStub)
+	if len(run.Registrations) != 1 || run.Registrations[0].Name != "openrouter" {
+		t.Fatalf("registrations = %+v, want one, for openrouter", run.Registrations)
+	}
+	reg := run.Registrations[0]
+	if len(reg.Models) != 2 {
+		t.Fatalf("registered models = %+v, want the two declared routes", reg.Models)
+	}
+	for i, w := range want {
+		m := reg.Models[i]
+		if m["id"] != w.id {
+			t.Errorf("registered model %d id = %v, want %s", i, m["id"], w.id)
+		}
+		if _, stray := m["openrouter_routing"]; stray {
+			t.Errorf("registered %s carries a top-level openrouter_routing; definition() must lower it into compat", m["id"])
+		}
+		if _, stray := m["base"]; stray {
+			t.Errorf("registered %s carries `base`; it is a lookup key, not a pi model field", m["id"])
+		}
+		compat, _ := m["compat"].(map[string]any)
+		if !reflect.DeepEqual(compat["openRouterRouting"], w.routing) {
+			t.Errorf("registered %s compat.openRouterRouting = %v, want %v", m["id"], compat["openRouterRouting"], w.routing)
+		}
+		// The catalog facts the variant inherits: the nulls must be PRESENT as nulls, not absent.
+		levels, _ := m["thinkingLevelMap"].(map[string]any)
+		if levels == nil {
+			t.Fatalf("registered %s lost the catalog's thinkingLevelMap: %v", m["id"], m)
+		}
+		for _, level := range []string{"off", "minimal", "medium"} {
+			got, present := levels[level]
+			if !present || got != nil {
+				t.Errorf("registered %s thinkingLevelMap.%s = %v (present %v), want an explicit null", m["id"], level, got, present)
+			}
+		}
+		if levels["high"] != "high" || levels["max"] != "max" {
+			t.Errorf("registered %s thinkingLevelMap = %v, want the catalog's supported levels kept", m["id"], levels)
+		}
+		for _, k := range []string{"api", "baseUrl", "provider"} {
+			if _, has := m[k]; has {
+				t.Errorf("registered %s carries the catalog's %s: the registration must never repoint the provider", m["id"], k)
+			}
+		}
+	}
+
+	// NO ROUTING DECLARED, NO CHANGE (acceptance 4): the same openrouter provider with no
+	// routing fact renders no model-lists entry at all, so nothing is registered over pi's own
+	// catalog. The user's list here is an ordinary models map, which the catalog derive owns.
+	decoded, err := jsonx.Decode([]byte(`{"openrouter":{"models":{"deepseek-floor":"deepseek/deepseek-v4.1-flash"}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, _ := decoded.(*jsonx.OrderedMap)
+	providers, err := packload.ComposeProviders(plain, testPacksForAgent(t, "pi"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := newPioencodeRender(t, mustCompactJSON(t, providers))
+	r.wireProfiles(`{"openrouter":{"provider":"openrouter"}}`)
+	r.render(t, `{"pi":"openrouter"}`)
+	unchanged, err := os.ReadFile(filepath.Join(r.e.Home, filepath.FromSlash(piModelListsRel(t))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var noRouting struct {
+		Providers map[string]json.RawMessage `json:"providers"`
+	}
+	if err := json.Unmarshal(unchanged, &noRouting); err != nil {
+		t.Fatalf("the no-routing model-lists file is not JSON: %v\n%s", err, unchanged)
+	}
+	if _, present := noRouting.Providers["openrouter"]; present {
+		t.Errorf("a provider with no routing declared registered a list anyway:\n%s", unchanged)
 	}
 }

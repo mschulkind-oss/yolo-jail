@@ -596,6 +596,10 @@ func TestValidateProviderModelObjects(t *testing.T) {
 		// model-lists-and-pickers.md §7.3): a pack's `models` entry carries one, and a user's
 		// own entry must be able to say what a pack's can.
 		`{"kilo": {"models": {"smart": {"id": "glm-5.3", "description": "Balanced"}}}}`,
+		// The pi model-list pair (docs/reference/providers.md §"Per-model OpenRouter routing"):
+		// `base` is a catalog id, `openrouter_routing` an object sent verbatim to OpenRouter.
+		`{"openrouter": {"models": {"floor": {"id": "deepseek/deepseek-v4.1-flash:floor", "base": "deepseek/deepseek-v4.1-flash", "openrouter_routing": {"order": ["streamlake", "morph"], "allow_fallbacks": false}}}}}`,
+		`{"openrouter": {"models": {"plain": {"id": "x", "openrouter_routing": {}}}}}`,
 	}
 	for _, body := range valid {
 		if errs := providerErrors(t, body); len(errs) != 0 {
@@ -619,6 +623,10 @@ func TestValidateProviderModelObjects(t *testing.T) {
 		{`{"bedrock": {"models": {"x": {"id": "m", "vendor": "open ai"}}}}`, ".models.x.vendor: expected the model's maker"},
 		{`{"bedrock": {"models": {"x": {"id": "m", "vendor": 7}}}}`, ".models.x.vendor: expected the model's maker"},
 		{`{"kilo": {"models": {"default": {"id": "m", "description": ""}}}}`, ".models.default.description: expected a non-empty string"},
+		{`{"kilo": {"models": {"default": {"id": "m", "base": 5}}}}`, ".models.default.base: expected a non-empty model id string"},
+		{`{"kilo": {"models": {"default": {"id": "m", "base": ""}}}}`, ".models.default.base: expected a non-empty model id string"},
+		{`{"kilo": {"models": {"default": {"id": "m", "openrouter_routing": []}}}}`, ".models.default.openrouter_routing: expected an object"},
+		{`{"kilo": {"models": {"default": {"id": "m", "openrouter_routing": "order"}}}}`, ".models.default.openrouter_routing: expected an object"},
 	}
 	for _, tc := range invalid {
 		errs := providerErrors(t, tc.body)

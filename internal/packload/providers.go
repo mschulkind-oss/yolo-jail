@@ -193,6 +193,14 @@ func liftModelFacts(providers *jsonx.OrderedMap) {
 		if prior, ok := entry.Get("model_options"); ok {
 			lifted, _ = prior.(*jsonx.OrderedMap)
 		}
+		// model_routing is the one SIBLING map, not a member of the flat model_options: its
+		// values are OBJECTS (pi's openRouterRouting, sent verbatim), where model_options is
+		// the string-valued vocabulary every scalar fact lowers into. Keyed by the same alias,
+		// which is where the pi model-lists derive reads a row's facts.
+		var routing *jsonx.OrderedMap
+		if prior, ok := entry.Get("model_routing"); ok {
+			routing, _ = prior.(*jsonx.OrderedMap)
+		}
 		for _, alias := range models.Keys() {
 			raw, _ := models.Get(alias)
 			obj, ok := raw.(*jsonx.OrderedMap)
@@ -204,6 +212,14 @@ func liftModelFacts(providers *jsonx.OrderedMap) {
 				// Malformed (config validation refuses a missing/non-string id); leave the
 				// entry alone rather than lowering it to a null model id.
 				continue
+			}
+			if rv, ok := obj.Get("openrouter_routing"); ok {
+				if rm, isMap := rv.(*jsonx.OrderedMap); isMap && rm.Len() > 0 {
+					if routing == nil {
+						routing = jsonx.NewOrderedMap()
+					}
+					routing.Set(alias, jsonx.DeepCopy(rm))
+				}
 			}
 			models.Set(alias, id)
 			facts := flattenModelFacts(obj)
@@ -223,6 +239,9 @@ func liftModelFacts(providers *jsonx.OrderedMap) {
 		}
 		if lifted != nil {
 			entry.Set("model_options", lifted)
+		}
+		if routing != nil {
+			entry.Set("model_routing", routing)
 		}
 	}
 }
@@ -285,6 +304,13 @@ func flattenModelFacts(obj *jsonx.OrderedMap) *jsonx.OrderedMap {
 	// one helper in each derive that filters on it.
 	if v, ok := obj.Get("vendor"); ok {
 		facts.Set("vendor", v)
+	}
+	// The pi CATALOG base a variant row inherits from (docs/reference/providers.md §"Per-model
+	// OpenRouter routing"): a string, so it rides the same flat map the derives read.
+	if v, ok := obj.Get("base"); ok {
+		if s, isString := v.(string); isString && s != "" {
+			facts.Set("base", s)
+		}
 	}
 	return facts
 }

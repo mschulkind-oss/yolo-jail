@@ -8,6 +8,15 @@ one per patch release.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+**OpenRouter routing per model.** A model entry can carry `openrouter_routing`, an object sent
+verbatim as OpenRouter's request `provider` field, and `base` to inherit the pi catalog row's
+facts for a variant id. See
+[Per-model OpenRouter routing](docs/reference/providers.md#per-model-openrouter-routing).
+
 ## [0.12.1] - 2026-10-06
 
 Homebrew installations build in place, nested Podman jails inherit Bedrock access, and macos-user

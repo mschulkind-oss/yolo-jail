@@ -122,14 +122,26 @@ async function piAI() {
 // variant). The catalog's address fields are dropped so the registration never repoints the
 // provider. An id pi's catalog lacks gets the defaults pi's own models.json loader applies,
 // because registerProvider applies none of its own; what yolo declares always wins.
+//
+// `openrouter_routing`, when declared, is lowered into pi's `compat.openRouterRouting`, which pi
+// sends verbatim as the request's `provider` field (openai-completions' buildParams:
+// `model.compat?.openRouterRouting&&(params.provider=model.compat.openRouterRouting)`). It is
+// MERGED over the catalog entry's own compat rather than replacing it, and is removed from the
+// model's top-level fields so no stray `openrouter_routing` reaches pi.
 function definition(provider, entry, lookup) {
-	const { base, ...declared } = entry;
+	const { base, openrouter_routing, ...declared } = entry;
+	const withRouting = (model) => {
+		if (openrouter_routing === null || typeof openrouter_routing !== "object" || Array.isArray(openrouter_routing)) {
+			return model;
+		}
+		return { ...model, compat: { ...(model.compat ?? {}), openRouterRouting: openrouter_routing } };
+	};
 	const builtin = lookup(provider, base ?? entry.id);
 	if (builtin) {
 		const { api: _api, provider: _provider, baseUrl: _baseUrl, headers: _headers, ...facts } = builtin;
-		return { ...facts, ...declared, name: declared.name ?? builtin.name };
+		return withRouting({ ...facts, ...declared, name: declared.name ?? builtin.name });
 	}
-	return {
+	return withRouting({
 		name: entry.id,
 		reasoning: false,
 		input: ["text"],
@@ -137,7 +149,7 @@ function definition(provider, entry, lookup) {
 		contextWindow: 128000,
 		maxTokens: DEFAULT_MAX_TOKENS,
 		...declared,
-	};
+	});
 }
 
 // listApi is the ONE api every model of the list runs on, the api the refusing registration

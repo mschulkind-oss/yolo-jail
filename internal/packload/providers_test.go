@@ -335,6 +335,28 @@ func TestComposeProvidersLowersAUserModelsVendor(t *testing.T) {
 	}
 }
 
+// TestComposeProvidersLowersAPerModelRoutingObject pins the one OBJECT-valued model fact
+// (docs/reference/providers.md §"Per-model OpenRouter routing"): `openrouter_routing` lands in the
+// sibling `model_routing.<alias>` map, because `model_options` is the flat string vocabulary
+// every scalar lowers into, and `base`, a string, rides `model_options` like the rest. The pi
+// model-lists derive reads both to render the row packs/pi's extension registers.
+func TestComposeProvidersLowersAPerModelRoutingObject(t *testing.T) {
+	pack := shippedZaiPack(t)
+	user := userProviders(t, `{"openrouter":{"models":{"floor":{"id":"deepseek/deepseek-v4.1-flash:floor",
+	  "base":"deepseek/deepseek-v4.1-flash",
+	  "openrouter_routing":{"order":["streamlake","morph","deepinfra"],"allow_fallbacks":false}}}}}`)
+	s := dump(t, compose(t, user, []*Pack{pack}))
+	if !strings.Contains(s, `"floor": "deepseek/deepseek-v4.1-flash:floor"`) {
+		t.Errorf("the routing row must lower to its bare id, got %s", s)
+	}
+	if !strings.Contains(s, `"model_options": {"floor": {"base": "deepseek/deepseek-v4.1-flash"}}`) {
+		t.Errorf("`base` must lower into the flat model_options, got %s", s)
+	}
+	if !strings.Contains(s, `"model_routing": {"floor": {"order": ["streamlake", "morph", "deepinfra"], "allow_fallbacks": false}}`) {
+		t.Errorf("the routing object must land in model_routing keyed by alias, got %s", s)
+	}
+}
+
 // TestComposeProvidersRefusesAManufacturedAddressPair pins D2 (docs/reference/providers.md
 // §4.1, OQ-PT2): the shorthand and the endpoint map are each legal alone, and the config
 // validator refuses them together in an entry a user wrote — but this merge is PER FIELD,

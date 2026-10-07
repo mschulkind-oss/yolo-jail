@@ -1439,6 +1439,24 @@ func validateModelEntry(entry *jsonx.OrderedMap, path string, errs *[]string) {
 			}
 		}
 	}
+	// `base` names the pi CATALOG model this row inherits facts from (docs/reference/
+	// providers.md §"Per-model OpenRouter routing"): a non-empty wire id, checked here for
+	// the same reason `id` is — a variant id the catalog lacks would otherwise lose every
+	// catalog fact silently, and pi's menu would show a bare default row.
+	if v, ok := entry.Get("base"); ok && v != nil {
+		if s, isString := asStr(v); !isString || s == "" {
+			add(errs, path+".base: expected a non-empty model id string")
+		}
+	}
+	// `openrouter_routing` is the one OBJECT-valued model fact, because it is sent VERBATIM as
+	// OpenRouter's request `provider` field (packs/pi/extensions/yolo-model-lists.js). Core
+	// checks the object shape only; pi's own openRouterRouting schema is the content's
+	// authority, and transcribing it here would be a second copy to keep true.
+	if v, ok := entry.Get("openrouter_routing"); ok && v != nil {
+		if _, isMap := asMap(v); !isMap {
+			add(errs, path+".openrouter_routing: expected an object (sent verbatim as OpenRouter's request `provider` field)")
+		}
+	}
 }
 
 // validateModelInput checks the modality list: a non-empty array of "text"/"image". The

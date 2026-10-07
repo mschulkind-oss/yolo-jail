@@ -1444,6 +1444,54 @@ it. Restating the pack's own id keeps the pack's vendor. `packload.dropRepointed
 rule; `TestARepointedAliasDropsTheShippedVendor` and
 `TestARepointedAliasKeepsTheVendorTheUserDeclares` pin it.
 
+<a id="per-model-openrouter-routing"></a>
+
+**Per-model OpenRouter routing: `openrouter_routing`, and `base` to keep the catalog row's
+facts.** OpenRouter accepts a `provider` object in the request body that names which upstreams
+may serve it — `order`, `allow_fallbacks`, `only`, `sort` and the rest of [its routing
+vocabulary](https://openrouter.ai/docs/features/provider-routing). A model entry can carry that
+object as `openrouter_routing`, and it is sent **verbatim**: it is the one object-valued model
+fact, and core checks only that it is an object.
+
+```jsonc
+"providers": {
+  "openrouter": {
+    "models": {
+      "deepseek-floor": {
+        "id": "deepseek/deepseek-v4.1-flash:floor",
+        "base": "deepseek/deepseek-v4.1-flash",
+        "openrouter_routing": { "order": ["streamlake", "morph", "deepinfra"], "allow_fallbacks": false }
+      },
+      "deepseek-nitro": {
+        "id": "deepseek/deepseek-v4.1-flash:nitro",
+        "base": "deepseek/deepseek-v4.1-flash",
+        "openrouter_routing": { "order": ["together", "streamlake", "morph"], "allow_fallbacks": false }
+      }
+    }
+  }
+}
+```
+
+`base` names the pi **catalog** model the row inherits from, and it is what keeps a variant id
+from losing facts pi already publishes. `openrouter` is one of pi's own providers, so yolo
+writes no `models.json` row for it ([OQ-3](../design/pi-codex-provider-shadowing.md#OQ-3), which
+is also why the `:floor` and `:nitro` ids carry no facts of their own in the example). Instead
+packs/pi renders a **model list** for a provider whose rows carry routing, and its extension
+registers that list with pi's `registerProvider` — the same channel a pack's `only` uses, which
+replaces pi's menu for the provider and makes `base` a lookup into pi's catalog rather than a
+restatement of it. The lookup inherits `thinkingLevelMap` (the nulls that mark an unsupported
+thinking level included), `inputLimits`, `compat` and every other catalog fact, and the routing
+is merged into the registered model's `compat.openRouterRouting`, which pi sends as the
+request's `provider` field.
+
+Two consequences follow from a registration replacing the menu. **The declared rows are the
+menu**: with the example above, `pi --list-models` offers those two models under `openrouter`,
+not pi's whole gateway catalog. And **`enforce_models` applies**: while it is on — the default
+— `pi --model openrouter/<unlisted>` ends its turn with yolo's refusal. Set
+`"enforce_models": false` on the profile to make the registration only shape the menu. Nothing
+here is a pack's: a plain user config declares the routes, and a config with no routing fact
+renders and registers nothing at all.
+
 The provider's `options` is the **fallback**: a fact common to every model is declared once
 there, and a per-model value overrides it for that alias. The facts are **additive** — an alias
 that declares none renders the same `models.json` row it did before, leaving pi's own defaults
@@ -2192,6 +2240,7 @@ above explains what each is for; this table is the only place the exact spelling
 | The Bedrock model list | none ships ([MM-D32](../design/model-lists-and-pickers.md#MM-D32), 2026-10-05, withdrawing [BR-D19](../design/bedrock-plumbing.md#BR-D19)'s three entries): each agent starts on its own Bedrock default; a pack's `models` contribution or the user's `providers.bedrock.models` supplies one | `packs/bedrock/pack.json`, `packs/bedrock/README.md` |
 | copilot's Bedrock start model | `openai.gpt-oss-120b-1:0`, through the bridge, when no profile and no list names one ([MM-D34](../design/model-lists-and-pickers.md#MM-D34)) | `packs/copilot/derive.lua` (`bedrockStartModel`) |
 | Model vendor | `vendor`, one lowercase token (`[a-z0-9][a-z0-9._-]*`), in a pack's `model_options.<alias>` or a user's object-form `models.<alias>`; an entry with none is offered to every agent | `packdecl.ValidModelVendor`, `config.validateModelEntry`, `packload.flattenModelFacts` |
+| Per-model OpenRouter routing | `openrouter_routing`, an object sent verbatim as OpenRouter's request `provider` field, and `base`, the pi catalog model id a variant row inherits its facts from. Declared on a user's object-form `models.<alias>` only. Both lower into the composed entry (`openrouter_routing` into the sibling `model_routing.<alias>`, `base` into `model_options.<alias>.base`) and reach pi through the `pi/model-lists` registration, whose extension lowers the routing into `compat.openRouterRouting` | `config.validateModelEntry`, `packload.liftModelFacts`, `packs/pi/derive.lua` (`model-lists`), `packs/pi/extensions/yolo-model-lists.js` (`definition`); [§Per-model OpenRouter routing](#per-model-openrouter-routing) |
 | Makers each Bedrock client calls | claude `anthropic`; codex `openai`; opencode and pi every maker | `packs/{claude,codex,opencode,pi}/derive.lua` (`callableModels`) |
 | Bedrock built-in provider ids | codex `amazon-bedrock-runtime`; opencode `amazon-bedrock`; pi `amazon-bedrock` | `packs/{codex,opencode,pi}/derive.lua` |
 | The bridge-forcing Bedrock profile | `bedrock-bridge` = `{provider: bedrock, via: wire-bridge}` | `packs/bedrock/pack.json` |

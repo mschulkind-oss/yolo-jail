@@ -2111,6 +2111,17 @@
                      models (`bedrock`), each agent is offered only the entries its own
                      client can call (claude's Bedrock client, Anthropic's alone), and an
                      entry with no vendor is offered to every agent.
+                     Two keys are read by PI's model-list render alone.  `base` names the
+                     pi CATALOG model id this row INHERITS from, so a variant id such as
+                     "deepseek/deepseek-v4.1-flash:floor" keeps the catalog's thinking
+                     levels (nulls included), inputs, limits and cost instead of
+                     restating them.  `openrouter_routing` is an OBJECT sent verbatim as
+                     OpenRouter's request `provider` field, e.g. {"order": ["streamlake",
+                     "morph"], "allow_fallbacks": false}, so two rows for one model can
+                     name different upstream orders.  A list carrying one is registered
+                     with pi as that provider's menu: its declared models are what pi
+                     offers there, and `enforce_models` decides whether a model outside
+                     it is refused.
                      Example: {"bedrock": {"models": {"kimi":
                      {"id": "global.moonshotai.kimi-k3", "vendor": "moonshotai"}}}}
       capabilities   the named jobs this provider performs for itself, e.g.
