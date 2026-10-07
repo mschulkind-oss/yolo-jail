@@ -76,6 +76,29 @@ func TestHostRunsPiOnItsWholeSet(t *testing.T) {
 	if got, _ := os.ReadFile(filepath.Join(home, ".pi", "agent", "settings.json")); string(got) != own {
 		t.Errorf("pi's settings.json changed:\n%s", got)
 	}
+	// A profile with no explicit model still scopes Pi to its provider. Pi's CLI couples
+	// --provider to --model, so this production host path must hand only the declared scope.
+	deepseekCfg := `{"packs": ["claude", "pi"], ` +
+		`"providers": {"deepseek": {"endpoints": {"openai": {"base_url": "https://deepseek.example/v1"}}, ` +
+		`"api_key_env_name": "DEEPSEEK_API_KEY"}}, ` +
+		`"profiles": {"deepseek": {"provider": "deepseek"}}, ` +
+		`"env_sources": [{"DEEPSEEK_API_KEY": "tok-deepseek"}]}`
+	deepseekHome := hostGateHome(t, deepseekCfg, nil)
+	deepseekSettings := filepath.Join(deepseekHome, ".pi", "agent", "settings.json")
+	deepseekOwn := `{"theme":"native"}`
+	writeFile(t, deepseekSettings, deepseekOwn)
+	providerOnly := hostSelectionRun(t, deepseekHome, []string{"-p", "pi=deepseek"}, "pi")
+	if want := []string{"pi", "--models", "deepseek/*"}; !reflect.DeepEqual(providerOnly.argv, want) {
+		t.Errorf("yolo host -p pi=deepseek handed pi %q, want %q\n%s", providerOnly.argv, want, providerOnly.errs)
+	}
+	for _, name := range []string{"YOLO_PI_OPENAI_CODEX_MODELS", "YOLO_PI_MODEL_LISTS"} {
+		if providerOnly.env[name] == "" {
+			t.Errorf("provider-only launch lost Pi's declared list variable %s", name)
+		}
+	}
+	if got, _ := os.ReadFile(deepseekSettings); string(got) != deepseekOwn {
+		t.Errorf("provider-only host selection changed Pi settings.json: %s", got)
+	}
 	// From the profile key, with no -p, pi starts on its file: nothing is handed.
 	hostGateHome(t, `{"packs": ["claude", "pi", "zai", "openrouter"], `+
 		`"profile": {"pi": ["zai", "openrouter"]}, "env_sources": [`+

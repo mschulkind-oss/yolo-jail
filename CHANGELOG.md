@@ -17,6 +17,10 @@ verbatim as OpenRouter's request `provider` field, and `base` to inherit the pi 
 facts for a variant id. See
 [Per-model OpenRouter routing](docs/reference/providers.md#per-model-openrouter-routing).
 
+### Fixed
+
+- A provider-only Pi profile no longer fails at startup because of a provider flag without a model selection.
+
 ## [0.12.1] - 2026-10-06
 
 Homebrew installations build in place, nested Podman jails inherit Bedrock access, and macos-user

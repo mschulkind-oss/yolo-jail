@@ -1,196 +1,93 @@
 ---
-title: "Simultaneous Auth and Cross-Agent Pack Dependency Drag"
+title: "Pi profile selection is not an authentication boundary"
 date: 2026-10-06
 status: in-review
 stage: DESIGN
-next: "Rule OQ-1 on command-scoped pack pruning and OQ-2 on broker/extension credential gating"
-tags: [packs, host, jail, credentials, openai-auth, pi, claude, needs, provider-scope]
-summary: "When launching a specific agent CLI (e.g. yolo host -p deepseek -- pi or yolo -p deepseek -- pi), yolo resolves the entire workspace pack set including unrelated agents (claude), dragging in claude's transitive needs (openai-auth, bedrock, wire-bridge, aws-auth). Furthermore, broker-backed auth (openai-codex) bypasses env-var credential scoping, registering Codex alongside DeepSeek in pi and defeating profile isolation. This document designs command-scoped pack selection and broker/extension credential gating."
+next: "Rule OQ-PAS1 on whether an active Pi profile restricts calls made with saved credentials"
+tags: [pi, profiles, credentials, openai-auth, packs]
+summary: "Corrects the diagnosis of simultaneous Pi provider use: rendered selection, pack closure, broker preparation, and credentials already stored by Pi are separate authorities."
 ---
 
-# Simultaneous Auth and Cross-Agent Pack Dependency Drag
+# Pi profile selection is not an authentication boundary
 
-**Status:** 2026-10-06. Drafted following live observation of `yolo host -p deepseek -- pi`
-dragging in `claude`'s dependencies (`bedrock`, `openai-auth`, `wire-bridge`, `aws-auth`) and
-leaving `openai-codex` active alongside `deepseek`.
-[OQ-1](#OQ-1) and [OQ-2](#OQ-2) are open for ruling.
+**Status:** 2026-10-06. The earlier diagnosis and its proposed guarantees were rejected by a read-only source audit. The installed Pi source inspected was version 1.0.4, build `7db4cad252707bfe04180f0068579ba855aa1d148be55345446d1fc671264b43`; its fork commit and dirty state are unknown. The incident occurred on another machine, whose Pi build and actual authentication state were not inspected. This document does not attribute an authentication path to that incident.
 
-> **In short.** A workspace configuring multiple agent packs (e.g. `packs: ["claude", "pi"]`)
-> currently evaluates `packs` as a flat union for every launch. When executing `pi`, `claude`
-> is resolved, pulling in `claude`'s unconditional `needs`: `openai-auth`, `bedrock`,
-> `wire-bridge`, and `aws-auth`. Because `openai-auth` delivers the `openai-codex` provider via
-> a background daemon rather than an env-var API key, yolo's credential scope does not withhold
-> it. Pi's extension registers Codex, and Pi's soft shortlist exposes both DeepSeek and Codex
-> simultaneously. The fix requires: (1) pruning the host pack set to the executed command's
-> own dependency tree, and (2) gating broker doorways and extension provider registrations on
-> the active provider profile.
+> **In short.** A Pi profile controls what yolo renders and which credentials yolo newly delivers; it is not a runtime deny rule for credentials Pi already has. Pack closure, broker preparation, and Pi's saved native login are separate facts.
 
-**Why it matters.** Running `yolo host -p deepseek -- pi` explicitly requested the `deepseek`
-profile for `pi`. The user expects:
-1. Only the packs and dependencies relevant to `pi` and `deepseek` to be engaged.
-2. Only `deepseek` credentials and models to be reachable by the agent process.
-Instead, the launch logs four unneeded joined packs, opens routes to OpenAI auth brokers, and
-leaves Pi with both DeepSeek and ChatGPT subscription models active.
+**Why it matters.** A model shown outside the selected profile does not prove a broker grant was made, and the absence of a new grant does not prove Pi cannot authenticate with a saved credential.
+
+**The shape.** Keep four authorities distinct: rendered model selection, selected-pack dependency closure, launch-scoped broker preparation, and Pi's persistent native credentials.
+
+**Cost.** This design leaves provider-use policy open; it does not remove logins, change pack manifests, or claim confinement of same-user processes.
+
+**Start at [§1](#1-four-different-authorities)** — the distinction that replaces the original diagnosis.
+
+**Needs your ruling:** [OQ-PAS1](#OQ-PAS1).
+
+**Reads with:** [`active-provider-sets.md`](active-provider-sets.md) (what an active Pi profile set means), [`providers.md`](../reference/providers.md) (profile credential delivery), and [`pi-host-openai-auth.md`](pi-host-openai-auth.md) (host-side Pi broker preparation and stored-login behavior).
 
 ---
 
-## 1. The Diagnosis: Two Independent Leakage Paths
+## 1. Four different authorities
 
-The simultaneous auth bug is the compounding result of two architectural gaps:
-pack selection granularity (what is loaded) and credential gate coverage (what is withheld).
+### 1.1 Rendered selection is presentation and model policy, not provider denial
 
-### 1.1 Door 1: Workspace-Wide Pack Closure on Single-Command Exec
+Pi's `enabledModels` scopes its initial model view; it is not an access-control list. Pi can show models outside that view, and switching to one checks whether it can authenticate rather than whether yolo selected its provider. The Pi pack's OpenAI extension also registers `openai-codex` when its rendered model data is absent or empty; an empty model list does not disable Pi's built-in provider.
 
-In [`internal/cli/host.go`](file:///workspace/internal/cli/host.go#L3476-L3478), `loadedHostPacks`:
-```go
-func loadedHostPacks(cfg *jsonx.OrderedMap, agent, typed string) hostPackSet {
-    return selectHostPacks(resolveConfiguredPack, hostLaunchSelection(cfg, agent, typed))
-}
-```
-calls [`selectHostPacks`](file:///workspace/internal/cli/hostselection.go#L53-L59), which reads
-[`config.LoadPackEntries()`](file:///workspace/internal/config/packselection.go).
+Yolo may render profile-specific default models, lists, and model-level enforcement. Those are not a rule that forbids every call to a provider absent from the active profile. In particular, a provider/model shortlist must not be described as a provider ACL.
 
-`LoadPackEntries()` loads every entry in the workspace's `packs` list. If the workspace config
-declares:
-```jsonc
-"packs": ["claude", "pi"]
-```
-both packs are handed to `config.SelectPacks`.
+### 1.2 Pack closure describes selected contributions, not per-launch authorization
 
-`SelectPacks` then resolves the transitive dependency closure (`packload.Selection.Close`) over
-all configured entries:
-- `packs/claude` declares unconditional `needs: ["bedrock", "openai-auth", "wire-bridge"]`.
-- `packs/bedrock` declares `needs: ["aws-auth"]`.
+The workspace's configured packs are selected and their declared dependencies are closed. The Pi pack itself unconditionally needs `bedrock` and `openai-auth` ([`packs/pi/pack.json`](../../packs/pi/pack.json)); selecting Pi therefore includes those dependencies without Claude. Claude can add dependencies of its own, but removing Claude does not remove Pi's `openai-auth` or Bedrock needs. Pi does not declare `wire-bridge` as a need.
 
-Even though the invocation was `yolo host -- pi` (or `yolo host -p deepseek -- pi`), `yolo`
-evaluates the closure over `claude`. This causes the launch to announce and join:
-```text
-yolo host: + bedrock (needed by claude)
-yolo host: + openai-auth (needed by claude)
-yolo host: + wire-bridge (needed by claude)
-yolo host: + aws-auth (needed by bedrock)
-```
+The presence of `openai-auth` in the selected pack closure means its declared contributions participate. It does not by itself establish that this Pi launch received a fresh broker-backed login or made a broker request.
 
-At the host notch, `pi` is running, but the launch composition includes `openai-auth`,
-`wire-bridge`, and `bedrock`.
+### 1.3 Broker preparation is launch-scoped; a service route is a separate doorway
 
-### 1.2 Door 2: Daemon/Broker Auth Bypasses Env-Var Credential Scoping
+At the host notch, Pi's derive declares the OpenAI auth prelaunch only when `openai-codex` is the selected provider or an entry in Pi's active set ([`packs/pi/derive.lua`](../../packs/pi/derive.lua)). Host preparation follows those composed declarations rather than treating every Pi launch as a broker grant ([`internal/cli/host.go`](../../internal/cli/host.go), [`internal/openaiauthhost/host.go`](../../internal/openaiauthhost/host.go)). A host launch on DeepSeek alone therefore does not declare that Pi prelaunch.
 
-yolo's credential scope ([`docs/reference/providers.md` §2.4](file:///workspace/docs/reference/providers.md#the-credential-gate),
-[`OQ-CN1`](file:///workspace/docs/reference/providers.md#oq-cn1) through [`OQ-CN9`](file:///workspace/docs/reference/providers.md#oq-cn9))
-gates environment variable credentials per launch:
-```text
-yolo host: Credential scope: a provider's credential reaches only the agents whose profile selects it.
-  DEEPSEEK_API_KEY (provider deepseek): pi only
-  OPENROUTER_API_KEY (provider openrouter): withheld from every process...
-  CEREBRAS_API_KEY (provider cerebras): withheld from every process...
-```
+The broker service and the jail-facing endpoint are distinct from the host prelaunch: selected and enabled loophole contributions can make a route available independently of whether a particular Pi profile declares a new login preparation. The OpenAI broker is a machine-wide refresh owner ([its manifest](../../packs/openai-auth/loopholes/openai-auth-broker/manifest.jsonc)); route availability alone does not prove that Pi used it or that a new credential was issued.
 
-However, **`openai-codex` does not authenticate via an environment variable API key**. It
-authenticates through the `openai-auth-broker` service/doorway and Pi's
-[`packs/pi/extensions/yolo-openai-auth.js`](file:///workspace/packs/pi/extensions/yolo-openai-auth.js).
+### 1.4 Pi's saved native login can work without a new broker grant
 
-When `openai-auth` is pulled into the pack set:
-1. `openai-auth` contributes the `openai-codex` provider definition to `ctx.providers`.
-2. `packs/pi/derive.lua` composes `codex-models` (`~/.pi/agent/yolo-openai-codex-models.json` or
-   `YOLO_PI_OPENAI_CODEX_MODELS`) because `ctx.providers["openai-codex"]` is present.
-3. `yolo-openai-auth.js` executes inside Pi at startup. It reads the model list and unconditionally
-   registers the provider via `pi.registerProvider("openai-codex", ...)`.
-4. In a jail container, the `openai-auth-broker` daemon is running. On host, if the host broker
-   socket is active, Pi talks to it.
-5. In Pi, `enabledModels: ["deepseek/*"]` is only an initial filter on the picker. Pressing `Tab`
-   in `/model` switches to `all` models, where `openai-codex` is registered and fully functional.
+The installed Pi 1.0.4 source creates persistent credential storage and loads built-in providers. Its credential resolver checks stored credentials before ambient authentication; a usable stored OAuth token can authenticate a request without first asking yolo's broker. Yolo's OpenAI extension also returns a stored access token directly and calls the broker for login or refresh, not for every request ([`packs/pi/extensions/yolo-openai-auth.js`](../../packs/pi/extensions/yolo-openai-auth.js)).
 
-Thus, the credential gate successfully withholds `OPENROUTER_API_KEY`, but fails to withhold
-`openai-codex`, because `openai-codex` is delivered through a daemon doorway and a pack extension.
+Accordingly, a native Pi login or a broker-seeded credential already in Pi's auth store may remain usable when a later launch does not declare a broker prelaunch. If that stored token needs refresh, its registered refresh path may still involve the broker. Neither possibility was inspected on the incident machine, and neither is evidence of the incident's actual authentication state.
 
----
+Pi retains built-in providers independently of yolo's provider override. In the inspected Pi source, unregistering an extension provider removes the override and recomposes the provider; it does not remove Pi's built-in definition. Therefore, omitting or removing yolo's registration is not a reliable way to disable native authentication.
 
-## 2. Invariants
+## 2. What this design does not claim
 
-1. **Command Pack Purity:** Running `yolo host -- <agent>` or `yolo host -p <prof> -- <agent>`
-   must only load the pack delivering `<agent>` and any non-program utility/guardrail packs.
-   Packs delivering *other* agent CLIs (`kind: "program"` where `bin != agent`) and their
-   exclusive `needs` closures must not be loaded.
-2. **Profile-Bound Service Doorways:** A background daemon or broker doorway (such as
-   `openai-auth-broker` or `wire-bridge`) must only be exposed or connected if the active
-   profile or active provider set for the running agent selects it.
-3. **No Unselected Provider Registration:** A pack extension (like `yolo-openai-auth.js` or
-   `yolo-model-lists.js`) must not register a provider or models in the agent's runtime if that
-   provider is withheld from the launch.
+- Removing Claude is not a fix for Pi's OpenAI authority: Pi itself needs `openai-auth`.
+- Joining `openai-auth` does not prove host Pi received a new broker login view. The host prelaunch is gated by Pi's active provider set.
+- A profile's picker selection, rendered model list, or model-level enforcement is not a general provider access-control boundary.
+- Masking `YOLO_SERVICE_OPENAI_AUTH_BROKER_ENDPOINT` or `YOLO_OPENAI_AUTH_HOST_SOCKET` can affect yolo's broker client route. It does not erase saved credentials, disable Pi's native provider, or confine arbitrary same-UID code. Clearing one route alone also does not establish the other is absent.
+- No claim here establishes which path the other machine's Pi used. This is a source/design audit, not an inspection of the incident's environment, Pi settings, auth files, credential store, process state, or network traffic.
+- No saved login should be deleted or rewritten to implement a launch policy. Arbitrary host code and same-UID jail processes are outside a Pi profile-selection guarantee.
 
----
+## 3. Scope and outstanding policy
 
-## 3. Architecture & Alternatives
+The policy boundary under discussion is **normal Pi model calls made through Pi's supported provider runtime**. It is not filesystem confinement against a user who can read the same auth store, nor a claim that a jail process cannot inspect another readable file. Login files remain untouched under either answer.
 
-### 3.1 Pack Selection Scoping at Host (`loadedHostPacks`)
+1. 💬 **OQ-PAS1: Should an active Pi profile set restrict every normal model call to its selected providers, even when Pi has saved native credentials?**
 
-When `yolo host -- <cmd0>` runs, `cmd0` identifies the target program.
+   This would make provider selection an actual runtime policy for Pi rather than only a rendered selection and yolo credential-delivery decision. It must not delete, rewrite, or revoke Pi's saved native or broker-seeded credentials.
 
-Instead of passing all workspace entries to `SelectPacks`:
-- **Filter entries before closure:**
-  Identify which pack delivers `cmd0` (`targetPack`).
-  Partition configured packs into:
-  - Agent packs (`kind: "program"` where `bin != cmd0`): **dropped**.
-  - Target pack (`kind: "program"` where `bin == cmd0`): **kept**.
-  - Non-program packs (guardrails, shared files, loopholes without programs): **kept**.
-- **Close only over kept packs:**
-  Run `SelectPacks` over the filtered set.
-  When running `pi`, `claude` is dropped before `needs` resolution. `claude`'s `needs`
-  (`openai-auth`, `wire-bridge`, `bedrock`, `aws-auth`) are never evaluated or added.
+   - **Yes:** calls through Pi's supported runtime are limited to the active provider set, despite saved credentials.
+   - **No:** profiles continue to control rendered selection and yolo's new credential delivery, while a saved credential may keep another native provider usable.
 
-### 3.2 Gating Extension Provider Registrations
+   With no active profile, the policy also needs a defined behavior rather than an accidental fallback.
 
-In `packs/pi/extensions/yolo-openai-auth.js`:
-- Currently, `readCodexModelList()` reads the model list and calls `pi.registerProvider("openai-codex", ...)`.
-- It should check whether `openai-codex` is an active provider for this launch.
-- If the launch was `-p deepseek`, `yolo` should not emit `YOLO_PI_OPENAI_CODEX_MODELS`, or should
-  set an explicit disablement marker (`YOLO_PI_OPENAI_CODEX_MODELS=""` or `disabled: true`).
-- When disabled, `yolo-openai-auth.js` skips calling `pi.registerProvider`. Pi's runtime never
-  sees `openai-codex`, even if the user hits `Tab`.
+   <!-- vantage: question id=OQ-PAS1 leaning="Yes — make an active profile set constrain normal Pi calls, while leaving saved login files untouched; with no profile, preserve Pi's native behavior." -->
 
-### 3.3 What happens in container jails?
+   _Leaning:_ Yes: an active profile set should constrain normal Pi model calls even with saved native credentials; no profile should preserve native behavior. Leave login files untouched.
 
-In a jail, a single container is booted for the workspace, holding all selected packs.
-However, per-command executions inside the jail (`yolo -p deepseek -- pi`):
-- Write per-command environment files (`~/.config/yolo-agent-env/pi.sh`).
-- If `pi` is started under `-p deepseek`, the per-agent environment should mask the broker
-  endpoint variable (`YOLO_SERVICE_OPENAI_AUTH_BROKER_ENDPOINT=""`) so `pi` cannot reach the
-  broker, and `codex-models` derive should omit models for unselected profiles.
+   **Answer:**
 
----
+   > _(Awaiting the owner's ruling.)_
 
-## 4. Open Questions
+## 4. Evidence checked
 
-### 💬 OQ-1: How should `yolo host` prune packs for a specific agent command?
+The repository claims above were checked read-only at base `d5bc7a4188badeb56e1a2cb5591916bf69249723` against the Pi pack's declared needs, the Pi derive's prelaunch predicate, host prelaunch composition, Pi's extension registration and broker client, and the broker loophole manifest. The installed Pi source read was limited to provider composition, registration/unregistration, and credential resolution. No credential values, Pi settings, auth files, keychain, broker state, or incident-machine data were read; no agent, provider API, or model was invoked.
 
-- **Option A (Filter before closure):** In `loadedHostPacks`, when `agent` is non-empty,
-  filter the configured pack entries to remove any `kind: "program"` pack whose `bin != agent`
-  before running `SelectPacks`.
-- **Option B (Conditional needs on when_bins):** Change `packs/claude`'s `needs` to be conditional:
-  `when_bins: ["claude"]`. If `claude` is not selected by the command, the need does not fire.
-
-**Leaning:** Option A. Option B requires modifying every pack author's `needs` declarations,
-whereas Option A enforces the architectural principle that launching one agent at the host
-should never load another agent's pack.
-
-### 💬 OQ-2: How should loophole/broker credentials be withheld from non-selecting profiles?
-
-- **Option A (Withhold registration data):** When a profile does not select `openai-codex`,
-  the derive layer emits an empty/disabled payload for `pi/codex-models`, and the extension
-  skips `registerProvider`.
-- **Option B (Unset broker endpoint variables in per-agent env):** In the per-agent environment
-  script, unset `YOLO_SERVICE_OPENAI_AUTH_BROKER_ENDPOINT` and `YOLO_OPENAI_AUTH_HOST_SOCKET`
-  unless the agent's profile selects `openai-codex`.
-
-**Leaning:** Both (A and B). Option A prevents the models from cluttering Pi's UI/Tab view;
-Option B enforces the security boundary preventing token requests.
-
----
-
-## 5. Decision Ledger
-
-| ID | Summary | Ruling | Date |
-|:---|:---|:---|:---|
-| OQ-1 | Pack pruning scope for single-agent host launches | Open | 2026-10-06 |
-| OQ-2 | Withholding broker-backed auth from unselected agent profiles | Open | 2026-10-06 |
+The installed source confirms only what that installed 1.0.4 build supports: persistent credential storage, built-in providers surviving removal of an extension override, and stored credentials being considered before ambient auth. The installed fork commit and dirty state are unknown. This cannot establish the other machine's installed build or the incident's actual auth route.

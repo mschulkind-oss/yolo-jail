@@ -219,6 +219,54 @@ func TestHostLaunchSelectionHandsPiItsFlagsAndItsLists(t *testing.T) {
 	}
 }
 
+func TestHostLaunchSelectionPiRequiresModelBeforeHandingItsProvider(t *testing.T) {
+	f := newSelectionFixture(t, "pi", nil, nil, "zai")
+	if len(f.spec.Flags) != 3 || f.spec.Flags[0].Key != "defaultProvider" ||
+		!slices.Equal(f.spec.Flags[0].Requires, []string{"defaultModel"}) {
+		t.Fatalf("Pi's provider flag = %+v, want it declared to require defaultModel", f.spec.Flags)
+	}
+
+	providerOnly := &LaunchSelection{Spec: f.spec, Selection: map[string]any{
+		"defaultProvider": "deepseek",
+		"enabledModels":   []any{"deepseek/*"},
+	}}
+	argv, err := providerOnly.Argv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"--models", "deepseek/*"}; !reflect.DeepEqual(argv, want) {
+		t.Errorf("provider-only selection hands pi %q, want only its declared scope %q", argv, want)
+	}
+
+	explicit := &LaunchSelection{Spec: f.spec, Selection: map[string]any{
+		"defaultProvider": "openai",
+		"defaultModel":    "shared-model",
+		"enabledModels":   []any{"openai/shared-model", "openai-codex/shared-model"},
+	}}
+	argv, err = explicit.Argv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"--provider", "openai", "--model", "shared-model",
+		"--models", "openai/shared-model,openai-codex/shared-model"}
+	if !reflect.DeepEqual(argv, want) {
+		t.Errorf("explicit selection with overlapping provider/model IDs hands pi %q, want %q", argv, want)
+	}
+
+	absent := &LaunchSelection{Spec: f.spec, Selection: map[string]any{
+		"defaultProvider": "deepseek",
+		"enabledModels":   []any{"deepseek/*"},
+	}}
+	argv, err = absent.Argv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(argv, "--provider") || slices.Contains(argv, "--model") ||
+		!slices.Contains(argv, "--models") {
+		t.Errorf("an absent prerequisite must suppress only --provider, preserving --models: %q", argv)
+	}
+}
+
 // AN ARGV FORM REFUSES WHAT IT CANNOT SPELL, rather than handing a word the program would misread:
 // a key holding a dot for a dotted {key}, an item holding the comma that joins a list.
 func TestALaunchSelectionRefusesWhatItsWordsCannotSpell(t *testing.T) {

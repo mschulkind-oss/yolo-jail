@@ -21,7 +21,9 @@ func TestLaunchSelectionIsProjectedFromAProgramOfAnyVia(t *testing.T) {
 	  {"kind":"program","bin":"codex","via":"installer","url":"https://example.test/i.sh",
 	   "launch_selection":` + validLaunchSelection + `},
 	  {"kind":"program","bin":"tool","via":"npm","package":"tool","launch_selection":
-	   {"surface":".t/settings.json","flags":[{"key":"defaultProvider","argv":["--provider","{value}"]}]}},
+	   {"surface":".t/settings.json","flags":[
+	    {"key":"defaultProvider","argv":["--provider","{value}"],"requires":["defaultModel"]},
+	    {"key":"defaultModel","argv":["--model","{value}"]}]}},
 	  {"kind":"program","bin":"other","via":"npm","package":"q"}]}`))
 	if len(problems) != 0 {
 		t.Fatal(problems)
@@ -39,7 +41,8 @@ func TestLaunchSelectionIsProjectedFromAProgramOfAnyVia(t *testing.T) {
 		t.Errorf("codex's LaunchSelection = %+v, want %+v", installs[0].LaunchSelection, want)
 	}
 	flags := &LaunchSelection{Surface: ".t/settings.json",
-		Flags: []LaunchSelectionFlag{{Key: "defaultProvider", Argv: []string{"--provider", "{value}"}}}}
+		Flags: []LaunchSelectionFlag{{Key: "defaultProvider", Argv: []string{"--provider", "{value}"},
+			Requires: []string{"defaultModel"}}, {Key: "defaultModel", Argv: []string{"--model", "{value}"}}}}
 	if !reflect.DeepEqual(installs[1].LaunchSelection, flags) {
 		t.Errorf("tool's LaunchSelection = %+v, want %+v", installs[1].LaunchSelection, flags)
 	}
@@ -53,6 +56,7 @@ func TestLaunchSelectionIsProjectedFromAProgramOfAnyVia(t *testing.T) {
 	installs[0].LaunchSelection.Surfaces[".x/list.json"] = "EDITED"
 	installs[0].LaunchSelection.Subcommands[0] = "edited"
 	installs[1].LaunchSelection.Flags[0].Argv[0] = "edited"
+	installs[1].LaunchSelection.Flags[0].Requires[0] = "edited"
 	again := m.InstallContributions()
 	if !reflect.DeepEqual(again[0].LaunchSelection, want) || !reflect.DeepEqual(again[1].LaunchSelection, flags) {
 		t.Errorf("editing a projected LaunchSelection reached the manifest: %+v, %+v",
@@ -102,6 +106,23 @@ func TestLaunchSelectionIsRefusedWhereNoLaunchCouldHandIt(t *testing.T) {
 		{"a flag with no argv", with(func(ls *LaunchSelection) {
 			ls.Each, ls.Flags = nil, []LaunchSelectionFlag{{Key: "m"}}
 		}), `has no "argv"`},
+		{"a flag requirement with no declared key", with(func(ls *LaunchSelection) {
+			ls.Each, ls.Flags = nil, []LaunchSelectionFlag{
+				flag("p", "--provider", "{value}"),
+				{Key: "p", Requires: []string{"missing"}, Argv: []string{"--other", "{value}"}},
+			}
+		}), `requires key "missing", which no "flags" entry names`},
+		{"an empty flag requirement", with(func(ls *LaunchSelection) {
+			ls.Each, ls.Flags = nil, []LaunchSelectionFlag{
+				{Key: "p", Requires: []string{""}, Argv: []string{"--provider", "{value}"}},
+			}
+		}), `has an empty "requires" key`},
+		{"a repeated flag requirement", with(func(ls *LaunchSelection) {
+			ls.Each, ls.Flags = nil, []LaunchSelectionFlag{
+				flag("p", "--provider", "{value}"),
+				{Key: "m", Requires: []string{"p", "p"}, Argv: []string{"--model", "{value}"}},
+			}
+		}), `requires key "p" a second time`},
 		{"a bad env name", with(func(ls *LaunchSelection) { ls.Each, ls.Env = nil, "X-CONFIG" }), "not a variable name"},
 		{"rows with no table", with(func(ls *LaunchSelection) {
 			ls.Rows = &LaunchSelectionRows{NamedBy: []string{"model_provider"}}

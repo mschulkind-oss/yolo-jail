@@ -1005,7 +1005,8 @@ const (
 //     dotted path and `{value}` its value in Surface's codec: `["-c", "{key}={value}"]` for codex,
 //     whose `-c` takes a dotted TOML path and a TOML value.
 //   - Flags: argv words per selection key, `{value}` the value as a plain word, an array's items
-//     joined by commas: `--provider {value}` for pi. A key no entry names is not handed.
+//     joined by commas: `--provider {value}` for pi. A key no entry names is not handed; a flag's
+//     optional `requires` keys must also be present before it is handed.
 //   - Env: one variable that receives the selection and the rows as one document in Surface's
 //     codec: OPENCODE_CONFIG_CONTENT for opencode.
 //
@@ -1054,6 +1055,8 @@ type LaunchSelectionFlag struct {
 	Key string `json:"key"`
 	// Argv is the words, one holding LaunchSelectionValue: `["--provider", "{value}"]`.
 	Argv []string `json:"argv"`
+	// Requires are selection keys that must be present before this flag is handed.
+	Requires []string `json:"requires,omitempty"`
 }
 
 // LaunchSelectionRows names the rows a selection points at.
@@ -1068,9 +1071,10 @@ type LaunchSelectionRows struct {
 // launchSelectionProblems refuses a `launch_selection` no launch could hand: on a kind with no
 // program, with a surface path that is not a clean home-relative file path, with no form or more
 // than one, a form whose words never carry a value (or, for `each`, never name the leaf), a row
-// declaration the Flags form has no word for, an empty key or variable name, two surfaces
-// handed in one variable, or a subcommand word that is empty, a flag, named twice, or declared
-// for the Env form, which moves no word.
+// declaration the Flags form has no word for, an empty key or variable name, a flag requirement
+// that names no declared flag key or names one twice, two surfaces handed in one variable, or a
+// subcommand word that is empty, a flag, named twice, or declared for the Env form, which moves no
+// word.
 func launchSelectionProblems(label string, c Contribution) []string {
 	ls := c.LaunchSelection
 	if ls == nil {
@@ -1121,19 +1125,37 @@ func launchSelectionProblems(label string, c Contribution) []string {
 		words("\"each\"", ls.Each, true)
 	}
 	flagged := map[string]bool{}
+	for _, f := range ls.Flags {
+		if f.Key != "" {
+			flagged[f.Key] = true
+		}
+	}
+	seen := map[string]bool{}
 	for i, f := range ls.Flags {
 		field := fmt.Sprintf("\"flags\"[%d]", i)
 		if f.Key == "" {
 			add("%s names no \"key\"", field)
-		} else if flagged[f.Key] {
+		} else if seen[f.Key] {
 			add("%s hands key %q a second time", field, f.Key)
 		}
-		flagged[f.Key] = true
+		seen[f.Key] = true
 		if len(f.Argv) == 0 {
 			add("%s has no \"argv\"", field)
 			continue
 		}
 		words(field+".argv", f.Argv, false)
+		requires := map[string]bool{}
+		for _, required := range f.Requires {
+			switch {
+			case required == "":
+				add("%s has an empty \"requires\" key", field)
+			case requires[required]:
+				add("%s requires key %q a second time", field, required)
+			case !flagged[required]:
+				add("%s requires key %q, which no \"flags\" entry names", field, required)
+			}
+			requires[required] = true
+		}
 	}
 	if ls.Env != "" && !ValidEnvName(ls.Env) {
 		add("\"env\" %q is not a variable name (must match [A-Za-z_][A-Za-z0-9_]*)", ls.Env)
@@ -1219,7 +1241,8 @@ func (ls *LaunchSelection) clone() *LaunchSelection {
 		out.Each = nil
 	}
 	for _, f := range ls.Flags {
-		out.Flags = append(out.Flags, LaunchSelectionFlag{Key: f.Key, Argv: append([]string(nil), f.Argv...)})
+		out.Flags = append(out.Flags, LaunchSelectionFlag{Key: f.Key, Argv: append([]string(nil), f.Argv...),
+			Requires: append([]string(nil), f.Requires...)})
 	}
 	if ls.Rows != nil {
 		out.Rows = &LaunchSelectionRows{Table: ls.Rows.Table, NamedBy: append([]string(nil), ls.Rows.NamedBy...)}

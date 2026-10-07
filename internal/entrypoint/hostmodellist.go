@@ -300,6 +300,16 @@ func (l *LaunchSelection) Argv() ([]string, error) {
 			if !ok {
 				continue
 			}
+			requirementsMet := true
+			for _, required := range f.Requires {
+				if _, present := sel[required]; !present {
+					requirementsMet = false
+					break
+				}
+			}
+			if !requirementsMet {
+				continue
+			}
 			value, err := flagValue(v)
 			if err != nil {
 				return nil, fmt.Errorf("%s: %v", f.Key, err)
