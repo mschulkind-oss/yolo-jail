@@ -84,6 +84,11 @@ under [External waits](#external-waits).
     build sandbox](../design/macos-user-build-step-threat-model.md), [the context mounts](../design/context-mounts.md#4-staging-and-the-tests-that-pin-each-piece),
     [Cachix](handoff-cachix-cache.md), [the in-VM copier](../research/macos-layer-reusing-image-delivery.md), [the login
     seed](../design/base-home-legacy-state.md) and [the storage classes](../design/durable-scratch-space.md).
+
+    Assess [SandVault's setup-authorized macOS privileges](../research/sandvault-macos-privileges.md)
+    with the native readiness work: reported startup denials and exit prompts expose prerequisites
+    that account existence and compilation do not establish. Borrowing its setup/runtime split
+    must not authorize arbitrary root operations or account-wide termination of sibling workspaces.
 16. [Rule the macos-user workspace root](../design/configurable-workspace-root.md), [its whitelist](../design/configurable-workspace-root.md#OQ-CW2)
     first — a `/var/root` home passes until it replaces the blacklist, and tightening later withdraws what users rely on.
 17. [Decide whether a workspace config may feed host dotenvs and mounts into a jail](../research/agent-safehouse.md#OQ-AS3)
