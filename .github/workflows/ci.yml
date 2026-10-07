@@ -128,7 +128,31 @@ jobs:
           }
 
       - name: Quality gate (vet + staticcheck + gofmt + short tests)
-        run: just check-ci
+        id: quality_gate
+        run: |
+          set -o pipefail
+          just check-ci 2>&1 | tee "$RUNNER_TEMP/check-go-output.log"
+
+      # Keep a second, explicitly labeled diagnostic trace: per-test JSON
+      # events avoid another opaque package-sized output write. This is not
+      # a replacement gate; a passing diagnostic cannot erase the original failure.
+      - name: Capture CLI/run test events after a quality-gate failure
+        if: ${{ failure() && steps.quality_gate.outcome == 'failure' }}
+        run: go test -short -count=1 -timeout=8m -json ./internal/cli/run > "$RUNNER_TEMP/check-go-cli-run.jsonl" 2>&1
+
+      # A failed package can print its entire buffered output in one write;
+      # retain the file too, so a missing console tail cannot hide its cause.
+      # pipefail above keeps the original gate failure fatal even if tee succeeds.
+      - name: Preserve failed quality-gate output
+        if: ${{ failure() && steps.quality_gate.outcome == 'failure' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: check-go-output-attempt-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/check-go-output.log
+            ${{ runner.temp }}/check-go-cli-run.jsonl
+          retention-days: 7
+          if-no-files-found: error
 
   # Deliberately tests only — no lint.  The darwin STATIC analysis a from-source
   # macOS contributor would hit runs in check-go under `GOOS=darwin` (Justfile,
