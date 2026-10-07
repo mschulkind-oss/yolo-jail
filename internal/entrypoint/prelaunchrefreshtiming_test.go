@@ -12,6 +12,7 @@ package entrypoint
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -544,61 +545,75 @@ func TestNextLaunchFallsBackToTheLaunchWhenYoloCannotDetach(t *testing.T) {
 
 // TestABackgroundRefreshOutlivesTheLaunchersSignals: the job is no child the program inherits a
 // signal from. The launch runs in a process group of its own, as a terminal's foreground job does;
-// once it has exec'd the program, the group gets the Ctrl-C and the hangup a terminal sends (the
-// user quitting, the terminal closing), and the program dies of them. The refresh behind it must
-// not: it finishes, stamps and releases the lock. A job started with a plain `&` would be in that
-// group, and the hangup would end it with the lock released and nothing stamped.
+// once it has exec'd the program, its group gets one terminal signal and the program dies of it.
+// Each signal uses a fresh launch: after Ctrl-C the old group may already have no live members,
+// so a second signal could target a group that has already exited.
+// The refresh behind each launch must survive: it finishes, stamps and releases the lock.
+// A job started with a plain `&` would share the group, and hangup would end it without stamping.
 func TestABackgroundRefreshOutlivesTheLaunchersSignals(t *testing.T) {
-	p := newTimingProbe(t, false, false)
-	release := filepath.Join(p.home, "release")
-	launchGate := filepath.Join(p.home, "launch-gate")
-	t.Cleanup(func() {
-		_ = os.WriteFile(release, nil, 0o644)
-		_ = os.WriteFile(launchGate, nil, 0o644)
-	})
-	p.write(t)
-	cmd := exec.Command(p.script)
-	cmd.Dir = p.home
-	cmd.Env = []string{"HOME=" + p.home, "PATH=" + p.path,
-		"FAKE_REFRESH_WAIT=" + release, "FAKE_LAUNCH_WAIT=" + launchGate}
-	var out bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &out
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	mustAppear(t, launchGate+".started", "the program starting")
-	mustAppear(t, release+".started", "the background refresh starting")
-
 	for _, sig := range []syscall.Signal{syscall.SIGINT, syscall.SIGHUP} {
-		if err := syscall.Kill(-cmd.Process.Pid, sig); err != nil {
-			t.Fatalf("signal the launch's group: %v", err)
-		}
-	}
-	waited := make(chan error, 1)
-	go func() { waited <- cmd.Wait() }()
-	select {
-	case <-waited:
-	case <-time.After(20 * time.Second):
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		t.Fatalf("the program outlived its group's hangup:\n%s", out.String())
-	}
+		t.Run(sig.String(), func(t *testing.T) {
+			p := newTimingProbe(t, false, false)
+			release := filepath.Join(p.home, "release")
+			launchGate := filepath.Join(p.home, "launch-gate")
+			t.Cleanup(func() {
+				_ = os.WriteFile(release, nil, 0o644)
+				_ = os.WriteFile(launchGate, nil, 0o644)
+			})
+			p.write(t)
+			cmd := exec.Command(p.script)
+			cmd.Dir = p.home
+			cmd.Env = []string{"HOME=" + p.home, "PATH=" + p.path,
+				"FAKE_REFRESH_WAIT=" + release, "FAKE_LAUNCH_WAIT=" + launchGate}
+			var out bytes.Buffer
+			cmd.Stdout, cmd.Stderr = &out, &out
+			cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+			if err := cmd.Start(); err != nil {
+				t.Fatal(err)
+			}
+			mustAppear(t, launchGate+".started", "the program starting")
+			mustAppear(t, release+".started", "the background refresh starting")
 
-	if _, err := os.Stat(p.lockPath()); err != nil {
-		t.Fatalf("the hangup ended the background refresh: its lock is gone (%v)\n%s", err, out.String())
-	}
-	if err := os.WriteFile(release, nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	jobLog := waitForJobs(t, p, 1)
-	if !strings.Contains(jobLog, "ended (status 0)") {
-		t.Errorf("the background refresh must finish after the program is gone:\n%s", jobLog)
-	}
-	if _, err := os.Stat(p.stampPath()); err != nil {
-		t.Errorf("the surviving refresh must stamp: %v", err)
-	}
-	if _, err := os.Stat(p.lockPath()); !os.IsNotExist(err) {
-		t.Errorf("the surviving refresh must release the lock (err=%v)", err)
+			if err := syscall.Kill(-cmd.Process.Pid, sig); err != nil {
+				t.Fatalf("signal the launch's group with %v: %v", sig, err)
+			}
+			waited := make(chan error, 1)
+			go func() { waited <- cmd.Wait() }()
+			select {
+			case err := <-waited:
+				if err == nil {
+					t.Fatalf("the program exited successfully after %v instead of being interrupted", sig)
+				}
+				var exited *exec.ExitError
+				if !errors.As(err, &exited) {
+					t.Fatalf("wait for the program after %v: %v", sig, err)
+				}
+				status, ok := exited.Sys().(syscall.WaitStatus)
+				if !ok || !(status.Signaled() && status.Signal() == sig || status.Exited() && status.ExitStatus() == 128+int(sig)) {
+					t.Fatalf("the program must end from %v, got %v", sig, exited)
+				}
+			case <-time.After(20 * time.Second):
+				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+				t.Fatalf("the program outlived its group's %v:\n%s", sig, out.String())
+			}
+
+			if _, err := os.Stat(p.lockPath()); err != nil {
+				t.Fatalf("%v ended the background refresh: its lock is gone (%v)\n%s", sig, err, out.String())
+			}
+			if err := os.WriteFile(release, nil, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			jobLog := waitForJobs(t, p, 1)
+			if !strings.Contains(jobLog, "ended (status 0)") {
+				t.Errorf("the background refresh must finish after the program is gone:\n%s", jobLog)
+			}
+			if _, err := os.Stat(p.stampPath()); err != nil {
+				t.Errorf("the surviving refresh must stamp: %v", err)
+			}
+			if _, err := os.Stat(p.lockPath()); !os.IsNotExist(err) {
+				t.Errorf("the surviving refresh must release the lock (err=%v)", err)
+			}
+		})
 	}
 }
 
