@@ -3,7 +3,7 @@ title: "Copilot's keychain, from a jail: a Secret Service inside, the real keych
 date: 2026-09-29
 status: in-review
 stage: DESIGN
-next: "Rule OQ-KC1, whether a jail's Copilot shares the host's own login; the plan sketch opens once all four are ruled, and OQ-KC4's leaning first asks for a measurement on a Mac"
+next: "Rule OQ-KC1–OQ-KC4 with the broader native-credential-store direction and reported macos-user first-login failure in view; verify the dedicated-account candidate with harmless native items before choosing its unlock and sharing policy"
 tags: [design, copilot, credentials, keychain, secret-service, d-bus, loopholes, macos-user]
 summary: "Copilot CLI stores its login in the system keychain first and falls back to plain text only after asking. A container jail has no keychain, so every workspace gets a fresh login and a plain-text prompt. This design gives the jail a small Secret Service that yolo writes itself. It runs inside the jail, and its entries live in sealed files on the host, locked by keys in the macOS login keychain or the desktop keyring. The host side only touches items yolo created for that jail, and the launch says what it stored and where. Where no keychain can be reached, yolo copies only Copilot's copilotTokens entry between workspaces, and says so on every launch that copies. Four questions are open: whether jails share the host's own Copilot login, which Copilot entries are machine-wide, which programs in a jail get the keychain, and whether the macos-user sandbox account gets a keychain of its own."
 vantage:
@@ -12,9 +12,12 @@ vantage:
 
 # Copilot's keychain, from a jail: a Secret Service inside, the real keychain outside
 
-**Status:** 2026-09-29. Nothing is built, and four rulings are owed. The repository
-evidence was verified at `232e4dcd`. The Copilot evidence comes from the published 1.0.89 packages
-([Appendix A](#appendix-a--evidence)). No agent CLI was run.
+**Status:** Original design and artifact evidence: 2026-09-29 at `232e4dcd`, using published
+Copilot 1.0.89 packages ([Appendix A](#appendix-a--evidence)). Targeted update 2026-10-07:
+broader native credential-store direction, macos-user setup source and first-login reports,
+and SandVault's dedicated-keychain source. The older artifact and transport claims are not a
+whole-design re-verification. Nothing in this design is built, and four rulings remain open.
+No agent CLI or native keychain operation was run for this update.
 
 > **In short.** Copilot already stores its login the responsible way. It asks the operating
 > system's password store first and writes plain text only with consent. So yolo should not route
@@ -59,6 +62,45 @@ other planned D-Bus client, which sets the no-fallback rule for the host bus). T
 sketch yet. One opens once the questions are ruled.
 
 ---
+
+## 0. Native credential storage beyond Copilot
+
+**Maintainer direction, 2026-10-07:** prefer the operating system's credential store for suitable
+persistent credentials and tokens yolo holds, not only Copilot's login. This extends the
+keychain-first direction; it does not authorize importing every host credential into a jail.
+
+On macOS, [Keychain Services](https://developer.apple.com/documentation/security/keychain_services)
+is the operating-system API for storing secrets with access controls. The phrase “system
+keychain” must not obscure three distinct storage choices:
+
+| Store | Ownership and intended role | What this direction does not imply |
+| :--- | :--- | :--- |
+| Host user's account keychain | The human's host-side credential store; a candidate for yolo-owned host credentials and keys | A jail may read the user's unrelated entries |
+| Sandbox account's dedicated keychain | An account-owned store for native clients running as `_yolojail` | Secrets are private per workspace merely because they are in a keychain |
+| Machine-wide System keychain | The system-domain store, commonly at `/Library/Keychains/System.keychain`; a distinct administrative and access-control choice | Every application token belongs there, or administrator writes and unattended access have been approved |
+
+The preferred direction is native credential storage, **not an automatic selection of the
+machine-wide store**. [The macos-user question](#OQ-KC4) still owns account-keychain lifetime,
+and [the scoping questions](#7-open-questions) still own who may receive entries.
+
+Before extending the proposed storage beyond Copilot, inventory each candidate: its owner,
+consumers, persistence needs, refresh behavior, native format and deletion semantics. Agent
+login/refresh tokens, provider API keys and persistent MCP credentials are candidates—not a
+blanket migration list. Per-launch caller tokens and short-lived AWS credentials need their
+existing bounded lifecycle; moving them into persistent storage requires its own justification.
+
+An encrypted credential store does not replace
+[refresh serialization and the credential boundary](../reference/agent-credentials.md).
+Existing single-writer refresh ownership must survive any change in backing storage. No secret
+should move through argv, disclosure text or logs, and a failed store must not silently become
+successful plaintext storage.
+
+The proposed [sealed-file adapter](#33-the-host-side-the-doorway-into-the-real-keychain) puts
+namespace keys in the native store rather than one item per secret. Its command-input bound is
+an adapter constraint, not a universal Keychain Services limit. Reassess direct native items
+versus that adapter for additional credential types; this direction does not approve a second
+bespoke store without that comparison. Container clients still need a scoped bridge, while
+native macOS clients may already use Keychain Services directly.
 
 ## 1. The short answer
 
@@ -652,40 +694,40 @@ is listed here for its size rather than left to the build ([§6](#6-build-order)
 
 ## 4. macos-user and yolo host
 
-### 4.1 macos-user: no seam, and probably no keychain
+<a id="41-macos-user-no-seam-and-probably-no-keychain"></a>
 
-- **There is no D-Bus seam.** darwin Copilot calls Security.framework directly
+### 4.1 macos-user: no seam, and no keychain provisioning
+
+- **There is no D-Bus seam.** The inspected darwin Copilot calls Security.framework directly
   ([§2.2](#22-copilot-on-macos)).
-- **The user's own keychain is not reached from the sandbox.** The Seatbelt profile denies reads
-  under `/Users`, re-allowing only the workspace, the path to it and the sandbox account's own
-  home (MEASURED, [E22](#E22)), so the user's `~/Library/Keychains` is not readable there. And
-  Copilot asks only for the calling account's default keychain
-  ([§2.2](#22-copilot-on-macos)), which for `_yolojail` is not the user's. Whether
-  Security.framework would open another account's keychain file by path on a caller's behalf is
-  not measured (INFERRED no).
-- **The sandbox account most likely has no keychain at all** (INFERRED, not tried on a Mac). The
-  account `_yolojail` is created with `dscl` and `createhomedir`. It gets a random password that
-  yolo never stores, and it never logs in at the login window. A macOS account that has never
-  logged in has no keychain, because the login keychain is created at first login
-  ([E17](#E17), [E22](#E22)). A probe for this exists and has no recorded run:
-  `TestMacosUserKeychainProbe` ([background](#background-to-oq-kc4)).
-- **So Copilot falls back to plain text.** Copilot asks for the User domain's default keychain.
-  The store's error table has no entry for "no default keychain", so that error becomes a generic
-  platform failure, and Copilot shows its plain-text consent prompt ([E17](#E17)).
-- **If the account had a keychain, it would already be machine-wide.** Every workspace runs as that
-  one account, and nothing under `~/Library` is linked per workspace
+- **Setup does not provision an account keychain.** Current
+  [account setup](../../internal/macosuser/commands.go) creates the account, home and shared
+  workspace root, but no keychain. The account has a random password that yolo does not store
+  and is not a normal login-window account.
+- **The missing-keychain failure is now reported, not merely hypothetical.** First-login
+  reports on macOS 15.6 describe a dialog saying no keychain can be found to store the native
+  client's credential. This is human evidence of the setup gap, not a passing automated probe
+  or proof of Copilot's exact behavior in every version. Copilot's older fallback analysis
+  remains [E17](#E17).
+- **The human's own keychain is not the account's default.** Giving `_yolojail` a usable store
+  is not permission to mount or search another account's keychain. Filesystem access alone is
+  also not proof of a usable Security.framework session or item access control.
+- **An account-owned keychain is not automatically workspace-private.** All native workspaces
+  use `_yolojail`, and its `~/Library` is not linked separately for each workspace
   ([the three tiers](../reference/macos-user-home-tiers.md#the-three-tiers-and-where-each-one-lives)).
-  The Seatbelt profile is `(allow default)` with no Mach-lookup deny. Of the keychain
-  directories, it denies reads of only `/Library/Keychains` and `/System/Library/Keychains`, and
-  the sandbox account's own home, where its keychain would live, stays readable. Copilot searches
-  only the keychain it names, so nothing in the profile should block it (INFERRED, [E22](#E22)).
+  Actual API access, locking and multi-workspace behavior require native verification.
 
-Giving the account a keychain would move more than Copilot. Claude on macOS keeps its login in the
-keychain first and uses a file only as a fallback. That would take Claude's login on this backend
-out of the machine-tier shared file that CL-D22's bridge manages
-([`claude-login-without-interception.md`](claude-login-without-interception.md#CL-D22)). It would
-also move `gh` and Codex's MCP logins. This is [OQ-KC4](#OQ-KC4). Until it is ruled, the login copy
-covers this backend ([§5](#5-the-fallback-copy-only-copilottokens-and-say-so)).
+A dedicated account keychain is the concrete candidate from
+[the SandVault comparison](../research/sandvault-macos-privileges.md#the-dedicated-keychain-addresses-missing-keychain-startup-failures).
+Upstream moved away from the login keychain because macOS could resynchronize its password
+after reboot. Do not assume an empty-password login keychain is a durable solution.
+
+Native clients other than Copilot may select the new store too. In particular, Claude's
+keychain-first behavior can change the backing store used by
+[its shared credential bridge](claude-login-without-interception.md#CL-D22). Inventory and test
+that interaction before migrating anything; keychain storage does not eliminate refresh races.
+[OQ-KC4](#OQ-KC4) still owns the policy. A safe probe uses harmless items, including repeated
+launch and reboot tests, not a real agent login or copied host credentials.
 
 ### 4.2 yolo host: already right
 
@@ -879,20 +921,19 @@ What I would build, in order:
 
 4. 💬 **OQ-KC4: On macos-user, should yolo give the sandbox account a keychain?**
 
-   The account `_yolojail` has probably never had a keychain (not measured), and macos-user has no
-   D-Bus seam, so the only keychain Copilot can use is the account's own. The setup story and each
-   option's consequences: [background](#background-to-oq-kc4).
+   Setup does not provision an account keychain, and first-login reports now describe the
+   missing-keychain dialog. Native account clients have no D-Bus seam. The consequences and
+   dedicated-account candidate are in [the background](#background-to-oq-kc4).
 
-   - **A: Leave the account without a keychain.**
-   - **B: yolo creates and unlocks a keychain for `_yolojail` at every launch.** Claude, `gh` and
-     Codex's MCP logins move into it too.
+   - **A: Leave the account without a yolo-provisioned keychain.**
+   - **B: Provision a dedicated account keychain**, with an explicit unlock, locking, sharing
+     and migration policy rather than assuming a permanently unlocked login keychain.
 
-   <!-- vantage: question id=OQ-KC4 leaning="Measure first: run security default-keychain as _yolojail, then create, unlock and add a test item as that account from a Terminal launch. If the account can hold an unlocked keychain without a login session, choose B and settle Claude's store on this backend in the same change; otherwise A." -->
+   <!-- vantage: question id=OQ-KC4 leaning="B, a dedicated sandbox-account keychain, subject to harmless native tests of item access, repeated launches and reboot behavior, plus an explicit unlock and workspace-sharing policy. Do not import the human's unrelated credentials or silently move Claude's refresh ownership." -->
 
-   _Leaning:_ Measure first. Run `sudo -u _yolojail security default-keychain`, then create,
-   unlock and add a test item as that account from a Terminal launch. If the account can hold an
-   unlocked keychain without a login session, choose B and settle Claude's store on this backend in
-   the same change. Otherwise, A.
+   _Leaning:_ B, subject to harmless native tests of item access, repeated launches and reboot
+   behavior, plus an explicit unlock and workspace-sharing policy. Do not import the human's
+   unrelated credentials or silently move Claude's refresh ownership.
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -917,7 +958,7 @@ does ([the credential boundary](../reference/agent-credentials.md#the-credential
   to use … in your keychain"* (Deny / Allow / Always Allow, [E11](#E11)). "Always Allow" then
   lets any program that runs `/usr/bin/security` read that token with no dialog (INFERRED). On
   Linux there is no dialog at all, since the Secret Service has no per-application access rules
-  ([E4](#E4)). It does not reach macos-user either way ([§4.1](#41-macos-user-no-seam-and-probably-no-keychain)).
+  ([E4](#E4)). It does not reach macos-user either way ([§4.1](#41-macos-user-no-seam-and-no-keychain-provisioning)).
 
 #### Background to [OQ-KC2](#OQ-KC2)
 
@@ -966,19 +1007,18 @@ jail's.
 
 #### Background to [OQ-KC4](#OQ-KC4)
 
-**Setup story.** A Mac user runs `yolo` with the macos-user backend and logs Copilot in. The
-account `_yolojail` has probably never had a keychain (not measured), so Copilot's keychain
-write fails and it asks for plain-text storage. There is no D-Bus seam on this backend, so the
-only keychain Copilot can use is the account's own ([§4.1](#41-macos-user-no-seam-and-probably-no-keychain)).
+**Setup story.** A Mac user enters the native account environment and a client tries to store
+its login. Setup provisions no keychain, and first-login reports describe a missing-keychain
+dialog. The [current account analysis](#41-macos-user-no-seam-and-probably-no-keychain) separates
+that reported failure from unverified Copilot-specific fallback and native session behavior.
 
-- **A: Leave the account without a keychain.** Copilot asks for plain text, and the login copy
-  shares that one plain-text login across workspaces
-  ([§5](#5-the-fallback-copy-only-copilottokens-and-say-so)).
-- **B: yolo creates and unlocks a keychain for `_yolojail` at every launch,** keeping its
-  password in the user's own keychain and feeding it through `security -i` on stdin. Copilot
-  logs in once per machine, stored encrypted. But Claude, `gh` and Codex's MCP logins move into
-  that keychain too, so Claude's login on this backend stops living in the shared file that
-  CL-D22's bridge manages.
+- **A: Leave the account without a yolo-provisioned keychain.** Native clients must use whatever
+  fallback they actually support; no generic plaintext success should be assumed.
+- **B: Provision a dedicated `_yolojail` keychain.** Define its password/unlock source, lock
+  lifecycle, search list and workspace scope, and verify access after reboot. A host-account
+  keychain may hold an unlock secret, but that is not a choice made here. Clients may switch
+  storage automatically, so coordinate Claude's shared credential bridge and refresh ownership
+  rather than silently migrating its file.
 
 **The probe for the leaning's measurement.** `TestMacosUserKeychainProbe`
 ([`macosuserkeychain_test.go`](../../integration/macosuserkeychain_test.go)), which
@@ -993,8 +1033,9 @@ this question rather than the whole measurement. No run is recorded.
 
 ## 8. Decision Ledger
 
-These are implementation decisions within the maintainer's direction on
-[OQ-CT1](../research/copilot-token-storage.md#OQ-CT1). None is built.
+These include the implementation decisions within the maintainer's direction on
+[OQ-CT1](../research/copilot-token-storage.md#OQ-CT1) and the broader native-storage direction
+recorded on 2026-10-07. None is built.
 
 | ID | Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
@@ -1013,6 +1054,7 @@ These are implementation decisions within the maintainer's direction on
 | <a id="KC-D13"></a>[`KC-D13`](#8-decision-ledger) | *Implementation decision.* The launch learns the key fetch's outcome from the host half's readiness line, not from a second channel. A loophole manifest may declare that its host daemon writes that line, with a budget above the default 5 s, and the line gains a third kind, `waiting <name> <what>`, which the launch prints. The host half publishes its endpoint only once it has its keys, so an endpoint that answers means the route is on | 2026-09-29 | [§3.14](#314-what-yolo-itself-must-change) | — |
 | <a id="KC-D14"></a>[`KC-D14`](#8-decision-ledger) | *Implementation decision.* An attach probes the running jail's keychain endpoint and writes the bus address only when it answers. An attach never merges or harvests the login copy | 2026-09-29 | [§3.5](#35-who-gets-the-bus-address) | — |
 | <a id="KC-D15"></a>[`KC-D15`](#8-decision-ledger) | *Implementation decision.* A key is created only under the namespace lock, after reading the keychain again. Each sealed file's header names its key id. Only a starting host half that finds no key item, or a key that cannot open the file, sets the file aside. A running host half fails the request instead, and never renames a file or creates a key | 2026-09-29 | [§3.3](#33-the-host-side-the-doorway-into-the-real-keychain) | — |
+| <a id="KC-D16"></a>[`KC-D16`](#8-decision-ledger) | *Maintainer direction.* Prefer operating-system credential stores for suitable persistent credentials beyond Copilot. Inventory ownership, consumers, refresh and deletion before extending storage; this does not choose the machine-wide System keychain, import unrelated host items, expose the route to all programs or settle the four scoping/lifetime questions | 2026-10-07 | [Native credential storage](#0-native-credential-storage-beyond-copilot) | — |
 
 ## Appendix A — Evidence
 

@@ -1196,7 +1196,7 @@ func TestPinnedRealGoReleaserReadonlyPreparationFeedsActualPackagingCaller(t *te
 	}
 }
 
-func buildTrustedHelper(t *testing.T) string {
+func buildProductionCLI(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "release-wiring")
 	cmd := exec.Command("go", "build", "-o", path, "./tools/release-wiring")
@@ -1205,6 +1205,14 @@ func buildTrustedHelper(t *testing.T) string {
 		t.Fatalf("build trusted CLI: %v %s", err, out)
 	}
 	return path
+}
+
+func buildTrustedHelper(t *testing.T) string {
+	t.Helper()
+	// Preserve the standalone build check; the process-local TLS fixture runs
+	// the same production main through the test-only entry point.
+	buildProductionCLI(t)
+	return fixtureCLIExecutable(t)
 }
 
 // The real claim/version/provenance CLI is run from the real workflow step,
@@ -1303,7 +1311,7 @@ esac
 			if err := os.WriteFile(filepath.Join(bin, "git"), []byte(gitScript), 0o755); err != nil {
 				t.Fatal(err)
 			}
-			env := []string{"RELEASE_VERSION=9.8.7", "RELEASE_SHA=" + testSHA, "REQUEST_RUN_ID=101", "RELEASE_RUN_ID=202", "GITHUB_RUN_ID=303", "RELEASE_ORDER_CHECK=1", "RELEASE_ORDER_ALLOW_CURRENT=1", "GH_TOKEN=offline-test-token", "GITHUB_API_URL=" + server.URL, "GITHUB_UPLOADS_URL=" + server.URL, "SSL_CERT_FILE=" + cert, "HELPER=" + helper}
+			env := []string{"RELEASE_VERSION=9.8.7", "RELEASE_SHA=" + testSHA, "REQUEST_RUN_ID=101", "RELEASE_RUN_ID=202", "GITHUB_RUN_ID=303", "RELEASE_ORDER_CHECK=1", "RELEASE_ORDER_ALLOW_CURRENT=1", "GH_TOKEN=offline-test-token", "GITHUB_API_URL=" + server.URL, "GITHUB_UPLOADS_URL=" + server.URL, "YOLO_TEST_FIXTURE_CA=" + cert, "HELPER=" + helper}
 			runPipeline := func() (string, error) {
 				out, e := runWorkflowCommand(t, claimStep, repositoryRoot(t), bin, trace, env...)
 				if e != nil {
@@ -1472,7 +1480,7 @@ func runCachedPublisherJob(t *testing.T, job workflowJob, attempt, root, bin, tr
 			t.Fatalf("fixture has no cached successful prerequisite %s", need)
 		}
 	}
-	replacements := strings.NewReplacer("${{ github.run_attempt }}", attempt, "${{ inputs.version }}", "9.8.7", "${{ github.repository_owner }}", "owner", "${{ github.actor }}", "fixture", "${{ github.token }}", "offline-token", "${{ secrets.CACHIX_AUTH_TOKEN }}", "offline-cachix", "${{ needs.cache-eligibility.outputs.cache }}", "fixture-cache")
+	replacements := strings.NewReplacer("${{ github.run_attempt }}", attempt, "${{ inputs.version }}", "9.8.7", "${{ github.repository_owner }}", "OwNeR", "${{ github.actor }}", "fixture", "${{ github.token }}", "offline-token", "${{ secrets.CACHIX_AUTH_TOKEN }}", "offline-cachix", "${{ needs.cache-eligibility.outputs.cache }}", "fixture-cache")
 	for _, step := range job.Steps {
 		if step.Uses != "" {
 			f, e := os.OpenFile(trace, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
@@ -1547,6 +1555,11 @@ func TestFailedJobsOnlyPublisherRerunRefusesAtEachActualMutationJobEntry(t *test
 			lines := readTrace(t, trace)
 			if traceIndex(lines, "registry ") < 0 {
 				t.Fatalf("first attempt skipped actual mutation command: %v", lines)
+			}
+			if id == "push-builder-image" || id == "publish-builder-index" {
+				if traceIndex(lines, "ghcr.io/owner/yolo-jail-builder") < 0 || traceIndex(lines, "OwNeR") >= 0 {
+					t.Fatalf("mixed-case repository owner was not normalized: %v", lines)
+				}
 			}
 			if id == "push-builder-image" {
 				for _, tag := range []string{"9.8.7-amd64", "9.8.7-arm64", "latest-amd64", "latest-arm64"} {
