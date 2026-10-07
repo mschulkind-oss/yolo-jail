@@ -55,7 +55,9 @@ under [External waits](#external-waits).
    since its first refresh replaces yours, with its catalog-refresh question; and [a leftover `mcp-adapter.json` at the
    host](../reference/mcp-configuration.md#OQ-MC2), which host apply never deletes and pi keeps loading, with
    [OQ-MC1](../reference/mcp-configuration.md#OQ-MC1).
-9. [Rule whether a successful `yolo host apply --assert` names a next command](../reference/happy-path-principle.md#the-rules)
+9. [Restore the original cause and remedy for host-service startup failures](../research/host-service-startup-diagnostics.md)
+   — a configuration refusal is currently buried beneath socket and reachability errors; fix the failed-launch path
+   before polishing a successful apply's footer. [Rule whether a successful `yolo host apply --assert` names a next command](../reference/happy-path-principle.md#the-rules)
    — rule 2 calls such a success a dead end, `--assert` ends at its counts, and the line waits on a ruling against [the
    verdict block](../reference/report-tiers.md#the-verdict-block)'s "Only the dry run has a footer"; this entry is the
    work's only home. Rule [the dry run's exit](../reference/report-tiers.md#OQ-RO8) with it: the code exits 1 where
@@ -109,7 +111,9 @@ under [External waits](#external-waits).
 23. [Rule what the environment manager promises at each notch](../design/environment-manager-user-stories.md) — Q1b
     decides [`yolo check --at`](../design/yolo-as-environment-manager.md) and Q7 [the Linux guest notch](environment-manager-plan.md).
 24. [Rule the keychain from a jail](../design/keychain-from-a-jail.md), which settles [Copilot's machine-wide
-    login](../research/copilot-token-storage.md) — until then every workspace asks for its own Copilot login.
+    login](../research/copilot-token-storage.md). Review its broader native-credential-store direction with the
+    sandbox account's missing-keychain reports: storing suitable tokens responsibly must not wait on Copilot alone,
+    and the account's unlock, workspace scope and migration choices need to be considered together.
 25. [Rule what the keeper holds at `yolo host`](../design/jail-lifetime-last-session-wins.md), with [the sidecars and
     doorbell](../design/agent-event-watchers.md) — each design's host half waits on the other.
 26. [The boot snapshot and diagnostic dial](../design/diagnostics-past-the-boundary.md) — a refused boot keeps no record

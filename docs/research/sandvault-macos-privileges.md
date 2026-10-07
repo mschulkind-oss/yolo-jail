@@ -4,7 +4,7 @@ stage: SKETCH
 next: "Draft a bounded macos-user privilege contract that covers setup, user switching, session-file installation and cleanup; keep keychain policy in its existing design"
 verified: 2026-10-07
 tags: [macos-user, sandvault, privileges, sudo, keychain]
-summary: "SandVault authorizes passwordless runtime operations during privileged setup. Its pattern can address yolo's repeated prompts, but its rules do not cover yolo's dynamic session artifacts and must not be copied as broad root access. Its dedicated-keychain fix also directly informs the reported first-login dialog."
+summary: "SandVault authorizes passwordless runtime operations during privileged setup. Its pattern can address yolo's repeated prompts, but its rules do not cover yolo's dynamic session artifacts and must not be copied as broad root access. Its dedicated-keychain fix also informs reported first-login failures."
 ---
 
 # SandVault's macOS privileges and what yolo can reuse
@@ -93,11 +93,11 @@ This is relevant to yolo's [last-session service lifetime](../design/jail-lifeti
 but copying an account-wide kill would be wrong: yolo's `_yolojail` account can serve multiple
 workspaces. Stopping one session must not terminate another workspace's processes.
 
-### The dedicated keychain directly addresses Svet's report
+### The dedicated keychain addresses missing-keychain startup failures
 
 SandVault's [guest configuration](https://github.com/webcoyote/sandvault/blob/ad05889e9f5f7d63460d6e56a2586c724b14bcd0/guest/home/configure#L42-L104)
-explicitly addresses the same missing-keychain dialog recorded in
-[Svet's setup report](../../scratch/yolo-macos-user-setup-report.md). It creates a dedicated
+explicitly addresses a first-login dialog that says a keychain cannot be found to store a
+credential. It creates a dedicated
 account-owned keychain, unlocks it with an empty password, disables automatic locking, and
 sets it as both the default and the sole entry in the account's keychain search list.
 
@@ -129,7 +129,7 @@ Yolo's [root-file installer](../../internal/macosuser/real.go) uses privileged d
 creation, writing and mode changes. Its [session cleanup](../../internal/macosuser/sessionfiles.go)
 removes root-owned profiles and environment files; those files can carry credentials. They are
 per-session, unlike SandVault's reusable account profile. Authorizing the account switch alone
-would leave Svet's profile-write denial and exit prompt unresolved.
+would leave reported profile-write denials and exit prompts unresolved.
 
 An installed management program could perform a small set of root-only operations on behalf
 of an authenticated host caller, rather than accepting general commands to execute. For yolo,
