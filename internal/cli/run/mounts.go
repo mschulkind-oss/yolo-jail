@@ -38,11 +38,7 @@ func (o *Options) workspaceReadonlyMountArgs(cfg *jsonx.OrderedMap, rt string) [
 	}
 
 	var args []string
-	// The config the loader READ, under the name it read it under: `yolo-jail.json` where that
-	// is the file (config.ResolveWorkspaceConfigPath). Joining the `.jsonc` name here left a
-	// workspace configured in `yolo-jail.json` with no lock at all.
-	wsConfigFile, wsConfigName := config.ResolveWorkspaceConfigPath(o.Workspace, config.WorkspaceConfigName)
-	if fileExists(wsConfigFile) {
+	if wsConfigFile, wsConfigName, ok := o.workspaceConfigLockTarget(cfg); ok {
 		args = append(args, "-v", wsConfigFile+":/workspace/"+wsConfigName+":ro")
 	}
 	workspaceRoot := resolvePath(o.Workspace)
@@ -59,6 +55,28 @@ func (o *Options) workspaceReadonlyMountArgs(cfg *jsonx.OrderedMap, rt string) [
 		args = append(args, "-v", hostSubpath+":/workspace/"+rel+":ro")
 	}
 	return args
+}
+
+// workspaceConfigLockTarget is the workspace config file a `workspace_readonly` launch locks: the
+// config the loader READ, under the name it read it under — `yolo-jail.json` where that is the file
+// (config.ResolveWorkspaceConfigPath). Joining the `.jsonc` name here left a workspace configured in
+// `yolo-jail.json` with no lock at all. ok is false when no entry is declared or there is no file.
+// macosuser.workspaceReadonlyRels applies the same trigger on that backend.
+func (o *Options) workspaceConfigLockTarget(cfg *jsonx.OrderedMap) (file, name string, ok bool) {
+	if len(cfgStrList(cfg, "workspace_readonly")) == 0 {
+		return "", "", false
+	}
+	file, name = config.ResolveWorkspaceConfigPath(o.Workspace, config.WorkspaceConfigName)
+	return file, name, fileExists(file)
+}
+
+// workspaceConfigLocked reports whether the agent in this launch finds its workspace config
+// read-only, which the briefing must say so it proposes an edit rather than attempting one
+// (jailcontent.BriefingInput.ConfigLocked). The lock target exists AND the backend honors it: an
+// Apple Container below acROBindsFloor binds it writable whatever the argv asks.
+func (o *Options) workspaceConfigLocked(cfg *jsonx.OrderedMap, rt string) bool {
+	_, _, ok := o.workspaceConfigLockTarget(cfg)
+	return ok && o.roBindsUnsupported(rt) == ""
 }
 
 // venvShadowMountArgs builds per-side shadow mounts over

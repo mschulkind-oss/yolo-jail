@@ -216,6 +216,9 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	// (config.ResolveWorkspaceConfigPath): `yolo-jail.json` in a workspace that keeps that file,
 	// where naming `yolo-jail.jsonc` sent the agent to create a file read in its place.
 	_, in.ConfigName = config.ResolveWorkspaceConfigPath(o.Workspace, config.WorkspaceConfigName)
+	// And whether it can edit that file at all: `workspace_readonly` locks it, and a briefing that
+	// says "edit it" sends the agent into a read-only file system error.
+	in.ConfigLocked = o.workspaceConfigLocked(cfg, rt)
 	// Under the seal (seal.go, FP-D23) the briefing describes only what crosses, and carries none
 	// of the user's own text: it is staged where the build reads it.
 	extra := cfgStr(cfg, "agents_md_extra")

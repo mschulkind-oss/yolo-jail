@@ -20,6 +20,9 @@ facts for a variant id. See
 ### Fixed
 
 - A provider-only Pi profile no longer fails at startup because of a provider flag without a model selection.
+- In a project that sets `workspace_readonly`, the agent is told the project config is read-only
+  in the jail and asks you to apply a config change, instead of failing to write it; an in-jail
+  `yolo check` says so too.
 
 ## [0.12.1] - 2026-10-06
 
