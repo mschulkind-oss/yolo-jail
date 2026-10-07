@@ -10,7 +10,12 @@ summary: "Corrects the diagnosis of simultaneous Pi provider use: rendered selec
 
 # Pi profile selection is not an authentication boundary
 
-**Status:** 2026-10-06. The earlier diagnosis and its proposed guarantees were rejected by a read-only source audit. The installed Pi source inspected was version 1.0.4, build `7db4cad252707bfe04180f0068579ba855aa1d148be55345446d1fc671264b43`; its fork commit and dirty state are unknown. The incident occurred on another machine, whose Pi build and actual authentication state were not inspected. This document does not attribute an authentication path to that incident.
+**Status:** 2026-10-07. Provider visibility and use outside the active profile remain unfixed.
+The [provider-only startup flag repair](pi-launch-selection-flags.md) is a separate change:
+it does not restrict provider visibility or calls. [OQ-PAS1](#OQ-PAS1) still needs the owner's
+policy ruling, including no-profile behavior; saved logins remain untouched.
+
+The earlier diagnosis and its proposed guarantees were rejected by a read-only source audit. The installed Pi source inspected was version 1.0.4, build `7db4cad252707bfe04180f0068579ba855aa1d148be55345446d1fc671264b43`; its fork commit and dirty state are unknown. The incident occurred on another machine, whose Pi build and actual authentication state were not inspected. This document does not attribute an authentication path to that incident.
 
 > **In short.** A Pi profile controls what yolo renders and which credentials yolo newly delivers; it is not a runtime deny rule for credentials Pi already has. Pack closure, broker preparation, and Pi's saved native login are separate facts.
 

@@ -10,7 +10,7 @@ vantage:
 
 # Roadmap
 
-**Reconciled:** 2026-10-06
+**Reconciled:** 2026-10-07
 
 This page owns the order in which open work is taken up, and why. Each linked document owns its state, next step and
 gates; read it before starting, because a place on this list is not permission to build.
@@ -22,6 +22,30 @@ ahead of fixes awaiting a ruling. **Then work that unblocks other work**: a ruli
 **Then smaller independent steps**: builds, measurements, re-verification, graduation. **A ruling that only closes a
 document ranks last.** Work needing a Mac, a live human session, a real rootless host or an outside account follows
 under [External waits](#external-waits).
+
+## Immediate continuation
+
+Take these current launch problems before the older queue below. Each source document owns
+candidate state, acceptance gaps and verification; a place here does not make its code landed.
+
+1. [Finish host-service startup diagnostics](../design/host-service-startup-diagnostics.md),
+   with [its plan](host-service-startup-diagnostics.md) — preserve the real safe refusal before
+   socket symptoms so configuration failures stop sending users toward networking workarounds.
+2. [Finish parallel startup-build cancellation](../design/pi-startup-cancellation.md), with
+   [its plan](../design/pi-startup-cancellation-plan.md) — an interrupted compiler must neither
+   admit partial output nor delete staging still held by a detached capture.
+3. [Finish read-only workspace configuration guidance](workspace-config-lock-briefing.md) —
+   complete the wanted contribution as maintainer without shifting local polish to its author
+   or bypassing the required remote check.
+4. [Rule active-profile provider visibility and use](../design/simultaneous-auth-and-pack-isolation.md)
+   — settle the intended runtime policy before implementing restrictions; picker rendering and
+   startup argument fixes do not establish provider isolation.
+
+Native readiness and credential-store work retain their places below: assess
+[the privilege prerequisites](../research/sandvault-macos-privileges.md) without broad root
+cleanup, and rule [keychain scope/unlock/migration](../design/keychain-from-a-jail.md) without
+sharing host credentials. Keep [storage relocation](shared-tool-store-relocation.md) and
+[OrbStack](../research/orbstack-as-a-podman-host.md) separate from these urgent launch repairs.
 
 ## The queue
 
@@ -55,9 +79,7 @@ under [External waits](#external-waits).
    since its first refresh replaces yours, with its catalog-refresh question; and [a leftover `mcp-adapter.json` at the
    host](../reference/mcp-configuration.md#OQ-MC2), which host apply never deletes and pi keeps loading, with
    [OQ-MC1](../reference/mcp-configuration.md#OQ-MC1).
-9. [Restore the original cause and remedy for host-service startup failures](../research/host-service-startup-diagnostics.md)
-   — a configuration refusal is currently buried beneath socket and reachability errors; fix the failed-launch path
-   before polishing a successful apply's footer. [Rule whether a successful `yolo host apply --assert` names a next command](../reference/happy-path-principle.md#the-rules)
+9. [Rule whether a successful `yolo host apply --assert` names a next command](../reference/happy-path-principle.md#the-rules)
    — rule 2 calls such a success a dead end, `--assert` ends at its counts, and the line waits on a ruling against [the
    verdict block](../reference/report-tiers.md#the-verdict-block)'s "Only the dry run has a footer"; this entry is the
    work's only home. Rule [the dry run's exit](../reference/report-tiers.md#OQ-RO8) with it: the code exits 1 where

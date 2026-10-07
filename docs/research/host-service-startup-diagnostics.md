@@ -1,8 +1,8 @@
 ---
-status: in-review
-stage: SKETCH
+status: accepted
+stage: GRADUATED
 date: 2026-10-07
-next: "Design a bounded, attempt-specific host-daemon refusal channel and an early configuration check; add regression tests through the actual launch caller before changing behavior"
+next: "Follow the accepted host-service startup diagnostics design and incomplete implementation checklist; runtime acceptance remains open"
 tags: [diagnostics, host-services, aws-auth, launch, happy-path]
 summary: "A missing AWS narrowing produces the right daemon error but the launch shows generic socket and reachability failures instead. Preserve disclosures while promoting the original cause and the user-scope remedy; do not turn the service bypass into the normal fix."
 ---
@@ -14,7 +14,9 @@ service refuses its configuration, the operator should see that refusal and the 
 step—not infer it from the service's missing socket inside a jail.
 
 **Source checked:** 2026-10-07 at `10f90ba3e`. This records an observed reporting shape and
-requirements for a repair. It does not claim a new launch diagnostic has been implemented.
+requirements for a repair. The [design](../design/host-service-startup-diagnostics.md) now owns
+that repair, with its [implementation plan](../plans/host-service-startup-diagnostics.md).
+Candidate work is stopped outside main; it has not passed whole-feature acceptance.
 The AWS policy remains the pack's; core must not learn AWS setting names to special-case it.
 
 ## The observed failure
@@ -77,8 +79,11 @@ permissions alongside a role is refused, and a session policy without a role is 
 The alternative is to set a suitable `role_arn`, adding `session_policy` if needed.
 
 After editing the host user's configuration, run the host's `yolo check --no-build`, then
-retry the intended launch. The runtime diagnostic must still disclose unchanged permissions.
-Nothing in this investigation changed configuration or chose this widening for the operator.
+retry the intended launch. The explicit setting selects the configured permission-set/profile
+policy as-is; it does not mean unrestricted AWS access. The 2026-10-07 ruling removes routine
+`unnarrowed` notices entirely, not merely their warning color. That runtime change remains
+unlanded; required pack read/exec disclosures and real refusals/errors must remain.
+Nothing in this investigation changed configuration or chose this route for the operator.
 
 `YOLO_ALLOW_UNREACHABLE_SERVICES=1` is for an intentionally service-less debugging shell.
 It neither acknowledges unchanged AWS permissions nor repairs the daemon. It must not become
@@ -120,8 +125,8 @@ A useful final failure block belongs near the point of refusal, after any requir
 It should repeat the original reason and remedy even when earlier output has scrolled away.
 The [happy-path principle](../reference/happy-path-principle.md) already requires a next step;
 [report tiers](../reference/report-tiers.md) owns disclosure density and the launch's no-quiet
-rule. This repair must honor both. It is not permission to remove trust disclosures or silently
-accept unchanged credentials.
+rule. This repair must honor both. Removing only the expected `unnarrowed` notice does not
+remove pack trust disclosures, silently opt a user in, or alter the profile's permission policy.
 
 ## Repair requirements
 
