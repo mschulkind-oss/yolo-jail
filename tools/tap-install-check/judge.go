@@ -24,6 +24,8 @@ import (
 // rather than compared, so a trigger that hands over a branch name instead of a tag
 // fails naming the value rather than as a confusing version mismatch.
 var releaseVersion = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$`)
+var mainReleaseTitle = regexp.MustCompile(`^Release v([0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?) @ ([0-9a-f]{40}) / request ([1-9][0-9]{0,19})$`)
+var mainHomebrewTitle = regexp.MustCompile(`^Homebrew-only v([0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?)$`)
 
 // normalizeExpect turns a tag or version ("v0.11.0", "0.11.0") into the version the
 // formula carries, or "" for no expectation.
@@ -41,12 +43,12 @@ func normalizeExpect(raw string) (string, error) {
 // expectFromGitHubEvent reads the version a run is meant to verify out of the
 // triggering event, so the workflow passes no expression into a shell.
 //
-//   - workflow_run: the Release run that finished. One started by a v* tag push names
-//     that tag in head_branch, and the tap must now carry it — that is the whole
-//     point of running after a release. One started by hand (release.yml's formula
-//     backfill) carries its version only as a dispatch input, which the payload does
-//     not include, so it is checked against the tap alone. A run that did not succeed
-//     is refused: the job's `if:` should have skipped it.
+//   - workflow_run: the successful Release run that finished. A tag push or
+//     legacy tag-scoped dispatch carries its version in head_branch. The new
+//     trusted-main Release dispatch carries it in the anchored display_title;
+//     a Homebrew-only backfill has its own explicit title and no expectation.
+//     A main ref without one of those exact titles is refused, never treated as
+//     a versionless normal release.
 //   - workflow_dispatch: the optional `version` input.
 //   - anything else (the weekly schedule): no expectation; the tap is checked
 //     against itself.
@@ -55,10 +57,11 @@ func expectFromGitHubEvent(eventName string, payload []byte) (string, error) {
 	case "workflow_run":
 		var ev struct {
 			WorkflowRun *struct {
-				Event      string `json:"event"`
-				HeadBranch string `json:"head_branch"`
-				Conclusion string `json:"conclusion"`
-				Name       string `json:"name"`
+				Event        string `json:"event"`
+				HeadBranch   string `json:"head_branch"`
+				Conclusion   string `json:"conclusion"`
+				Name         string `json:"name"`
+				DisplayTitle string `json:"display_title"`
 			} `json:"workflow_run"`
 		}
 		if err := json.Unmarshal(payload, &ev); err != nil {
@@ -71,17 +74,28 @@ func expectFromGitHubEvent(eventName string, payload []byte) (string, error) {
 		if run.Conclusion != "success" {
 			return "", fmt.Errorf("the triggering %q run concluded %q; only a successful release has a formula to verify", run.Name, run.Conclusion)
 		}
+		if run.Event == "workflow_dispatch" {
+			if strings.HasPrefix(run.HeadBranch, "v") {
+				return normalizeRunTag(run.Name, run.HeadBranch)
+			}
+			if run.HeadBranch != "main" {
+				return "", fmt.Errorf("the triggering %q dispatch ran on unexpected ref %q", run.Name, run.HeadBranch)
+			}
+			if match := mainReleaseTitle.FindStringSubmatch(run.DisplayTitle); match != nil {
+				return normalizeRunTag(run.Name, "v"+match[1])
+			}
+			if match := mainHomebrewTitle.FindStringSubmatch(run.DisplayTitle); match != nil {
+				return "", nil
+			}
+			return "", fmt.Errorf("the main-scoped %q dispatch has missing or malformed display_title %q; normal releases must carry their exact version", run.Name, run.DisplayTitle)
+		}
 		if run.Event != "push" {
-			return "", nil
+			return "", fmt.Errorf("the triggering %q run came from unsupported event %q", run.Name, run.Event)
 		}
 		if run.HeadBranch == "" {
 			return "", fmt.Errorf("the triggering %q run was a push but names no tag, so there is no release to hold the tap to", run.Name)
 		}
-		v, err := normalizeExpect(run.HeadBranch)
-		if err != nil {
-			return "", fmt.Errorf("the triggering %q run's ref: %w", run.Name, err)
-		}
-		return v, nil
+		return normalizeRunTag(run.Name, run.HeadBranch)
 	case "workflow_dispatch":
 		var ev struct {
 			Inputs map[string]any `json:"inputs"`
@@ -94,6 +108,17 @@ func expectFromGitHubEvent(eventName string, payload []byte) (string, error) {
 	default:
 		return "", nil
 	}
+}
+
+func normalizeRunTag(runName, raw string) (string, error) {
+	version, err := normalizeExpect(raw)
+	if err != nil {
+		return "", fmt.Errorf("the triggering %q run's release ref: %w", runName, err)
+	}
+	if version == "" {
+		return "", fmt.Errorf("the triggering %q run's release ref is empty", runName)
+	}
+	return version, nil
 }
 
 // brewFormula is the part of `brew info --json=v2 <formula>` this tool reads.

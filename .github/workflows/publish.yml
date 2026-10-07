@@ -1,251 +1,239 @@
-# Publish — PyPI wheels + image-cache/builder pushes for a release.
-# The PyPI package is per-platform wheels wrapping the Go host binary (built by
-# tools/build-wheels), which keeps the pipx/uvx channel and its one console
-# script (yolo). The Homebrew formula is release.yml's.
-#
-# ⚠ Trigger: the v* TAG PUSH is the load-bearing trigger, NOT the GitHub
-# release. goreleaser (release.yml) creates the release with the
-# workflow-scoped GITHUB_TOKEN, and GitHub's recursion guard means
-# bot-token-created events NEVER trigger `on: release` workflows — a
-# release-only trigger would silently never fire on the documented flow, where
-# `just release <version>` pushes the v* tag. The release trigger is kept as well so a
-# HUMAN-published release (UI/gh — e.g. re-publishing after a failure) also
-# works; `uv publish --check-url` and the image pushes are idempotent, and the
-# concurrency group collapses double-fires.
-#
-# ⚠ Gate: every job here waits on `release-notes`, which refuses a tag whose
-# CHANGELOG.md has no written section for its version, or whose official pack
-# binaries are not the builds its manifests pin. `just release` runs the same
-# checks before it creates a tag, so this only fires on a tag pushed by hand,
-# and then it stops PyPI and the image pushes from shipping a version whose
-# GitHub release (release.yml) refused to exist.
-#
-# PyPI auth is Trusted Publishing (OIDC): pinned to THIS workflow filename +
-# the `pypi` environment — renaming either breaks the publisher config.
+# All publisher runs are sourced from main. The exact tag/SHA is data; target
+# builds are read-only and use no registry/OIDC credential. The direct uv
+# publisher keeps the existing filename, pypi environment and trusted-publishing
+# identity. A release asset create-only claim precedes every build job.
 name: Publish to PyPI
+run-name: Publish v${{ inputs.version }} @ ${{ inputs.sha }} / request ${{ inputs.request_run_id }} / release ${{ inputs.release_run_id }}
 
 on:
-  push:
-    tags:
-      - "v*"
-  release:
-    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Exact release version (X.Y.Z or X.Y.Z-pre; do not include v)"
+        required: true
+        type: string
+      sha:
+        description: "Exact full tag commit SHA"
+        required: true
+        type: string
+      request_run_id:
+        description: "Originating trusted-main release-request Actions run id"
+        required: true
+        type: string
+      release_run_id:
+        description: "Successful original trusted-main GoReleaser run id"
+        required: true
+        type: string
 
-permissions:
-  contents: read
-  id-token: write
-  packages: write  # push the container builder image to GHCR
+permissions: {}
 
+# Shared with release.yml across workflows: version checks and latest-tag writes
+# are serialized rather than racing newer/older releases.
 concurrency:
-  group: publish-${{ github.ref_name }}
+  group: release-publication-global
   cancel-in-progress: false
 
 jobs:
-  # The same extractor release.yml uses for the release body, run here only as
-  # a gate: its output is discarded, its refusal fails the run.
-  #
-  # And the pin tool's check (docs/design/broker-as-a-pack.md BP-D9): this workflow
-  # runs beside release.yml, not after it, so without its own check PyPI could
-  # ship a yolo whose official pack binaries the release refused to publish. It
-  # rebuilds each one with the release recipe and compares it with the digest the
-  # tag's manifests pin; with no official binary declared it builds nothing.
-  release-notes:
+  publisher-preflight:
     runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@v7
-
-      - name: Require a CHANGELOG.md section for this tag
-        run: |
-          set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
-          if ! sh scripts/changelog-section.sh "$version" > /dev/null; then
-            echo "::error::${GITHUB_REF_NAME} has no usable CHANGELOG.md section — it was not cut with 'just release'. Nothing is published."
-            exit 1
-          fi
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
 
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
-      - name: Require the official pack binaries to be pinned for this tag
+      - name: Validate exact tag, CI, version order and original-run provenance
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REF_TYPE: ${{ github.ref_type }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+          WORKFLOW_SHA: ${{ github.sha }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_SHA: ${{ inputs.sha }}
+          RELEASE_PRETAG: "0"
+          RELEASE_ORDER_CHECK: "1"
+          RELEASE_ORDER_ALLOW_CURRENT: "1"
+          REQUEST_RUN_ID: ${{ inputs.request_run_id }}
+          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
-          if ! go run ./tools/pack-binaries check "$version"; then
-            echo "::error::${GITHUB_REF_NAME}'s official pack binaries are not the builds its manifests pin — it was not cut with 'just release'. Nothing is published."
+          tools/release-wiring/preflight.sh
+          GITHUB_REPOSITORY="$GITHUB_REPOSITORY" RELEASE_TAG="v${RELEASE_VERSION}" tools/release-wiring/ensure-release-present.sh
+          go run ./tools/release-wiring verify-publisher-provenance
+
+  claim-publication:
+    needs: publisher-preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Refuse publication replay at job entry
+        env:
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          if [ "$GITHUB_RUN_ATTEMPT" != 1 ]; then
+            echo "::error::Publication reruns are refused before credential actions or writes; inspect the original run and partial state read-only with the owner. Do not replay or remove the claim."
             exit 1
           fi
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Reverify trusted provenance and atomically claim the release before building
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REF_TYPE: ${{ github.ref_type }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+          WORKFLOW_SHA: ${{ github.sha }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_SHA: ${{ inputs.sha }}
+          RELEASE_PRETAG: "0"
+          RELEASE_ORDER_CHECK: "1"
+          RELEASE_ORDER_ALLOW_CURRENT: "1"
+          REQUEST_RUN_ID: ${{ inputs.request_run_id }}
+          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tools/release-wiring/preflight.sh
+          go run ./tools/release-wiring verify-publisher-provenance
+          go run ./tools/release-wiring check-version-order
+          go run ./tools/release-wiring claim-publication
 
   build-wheels:
-    needs: release-notes
+    needs: claim-publication
     runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ inputs.sha }}
+          path: target
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: target/go.mod
+
+      - name: Build exact target wheels with no publication credentials
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        working-directory: target
+        run: go run ./tools/build-wheels --version "$RELEASE_VERSION" --output-dir dist
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-wheels
+          path: target/dist/
+          if-no-files-found: error
+
+  publish-wheels:
+    needs: build-wheels
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    environment: pypi
+    steps:
+      - name: Refuse publication replay at job entry
+        env:
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          if [ "$GITHUB_RUN_ATTEMPT" != 1 ]; then
+            echo "::error::Publication reruns are refused before credential actions or writes; inspect the original run and partial state read-only with the owner. Do not replay or remove the claim."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
 
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
-      - name: Build wheels (Go binaries, all platforms)
-        run: |
-          version="${GITHUB_REF_NAME#v}"
-          go run ./tools/build-wheels --version "$version" --output-dir dist
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
-          name: dist
-          path: dist/
+          name: release-wheels
+          path: dist
 
-  publish:
-    needs: build-wheels
-    runs-on: ubuntu-latest
-    environment: pypi
-    steps:
-      - name: Download build artifacts
-        uses: actions/download-artifact@v8
-        with:
-          name: dist
-          path: dist/
+      - name: Validate all six inert wheels before asking for PyPI identity
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: go run ./tools/release-wiring validate-wheels --version "$RELEASE_VERSION" --dir dist
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
+      - uses: astral-sh/setup-uv@v7
 
-      # `always`, not uv's default `automatic`: on an OIDC failure (this file or the
-      # `pypi` environment renamed) `automatic` falls back to an unauthenticated upload
-      # and reports "Missing credentials", which points at a token this repository never
-      # had. tools/build-wheels/publishworkflow_test.go pins the flag.
+      # Preserve direct Trusted Publishing from this named workflow/environment.
+      # The claim, exact release-run provenance and artifact validation happen before upload.
       - name: Publish to PyPI
-        run: uv publish dist/* --check-url https://pypi.org/simple/ --trusted-publishing always
+        run: uv publish dist/*.whl --check-url https://pypi.org/simple/ --trusted-publishing always
 
-  # Build both OCI image variants on Linux and push them to the Cachix cache
-  # so macOS users download the prebuilt image instead of needing a Linux
-  # builder.  Release-gated only.
-  #
-  # NO-OP UNTIL SET UP (see docs/plans/handoff-cachix-cache.md): the job skips
-  # entirely unless the CACHIX_AUTH_TOKEN secret is configured — so releases
-  # stay green before the Cachix account exists. The cache NAME is not a secret
-  # and defaults to `yolo-jail` (the CACHIX_CACHE variable only overrides it,
-  # e.g. for a fork pushing to its own cache).
-  push-image-cache:
-    needs: release-notes
-    # Push BOTH x86_64-linux and aarch64-linux closures — each matrix cell
-    # builds + pushes its own native arch.  The aarch64-linux closure is the
-    # SAME one Apple Silicon Macs consume, so this also serves the mac/arm
-    # audience (previously the x86-only push left them building from source).
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm]
-    runs-on: ${{ matrix.os }}
+  cache-eligibility:
+    needs: claim-publication
+    runs-on: ubuntu-latest
+    permissions: {}
+    outputs:
+      enabled: ${{ steps.gate.outputs.enabled }}
+      cache: ${{ steps.gate.outputs.cache }}
     steps:
-      - name: Check Cachix is configured
+      - name: Check whether optional Cachix publishing is configured
         id: gate
+        env:
+          CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          CACHE_NAME: ${{ vars.CACHIX_CACHE || 'yolo-jail' }}
         run: |
-          # Gate on the auth token alone — the cache NAME is not a secret and
-          # defaults to `yolo-jail`. Publish the resolved name for later steps.
-          if [ -n "${{ secrets.CACHIX_AUTH_TOKEN }}" ]; then
+          set -euo pipefail
+          if [ -n "$CACHIX_AUTH_TOKEN" ]; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
-            echo "cache=${{ vars.CACHIX_CACHE || 'yolo-jail' }}" >> "$GITHUB_OUTPUT"
+            echo "cache=$CACHE_NAME" >> "$GITHUB_OUTPUT"
           else
             echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "Cachix not configured (no CACHIX_AUTH_TOKEN secret). Skipping — see docs/plans/handoff-cachix-cache.md."
+            echo "Cachix not configured; its optional release cache publication is skipped."
           fi
 
-      - uses: actions/checkout@v7
-        if: steps.gate.outputs.enabled == 'true'
-        with:
-          fetch-depth: 0
-
-      # Same disk pressure as the build-image job in ci.yml.
-      - name: Free disk space
-        if: steps.gate.outputs.enabled == 'true'
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
-                      /opt/hostedtoolcache/CodeQL /usr/local/share/boost \
-                      "$AGENT_TOOLSDIRECTORY" || true
-          sudo docker image prune --all --force || true
-          sudo apt-get clean
-
-      - name: Install Nix
-        if: steps.gate.outputs.enabled == 'true'
-        uses: cachix/install-nix-action@v31
-        with:
-          extra_nix_config: |
-            experimental-features = nix-command flakes
-
-      - name: Set up Cachix
-        if: steps.gate.outputs.enabled == 'true'
-        uses: cachix/cachix-action@v17
-        with:
-          name: ${{ steps.gate.outputs.cache }}
-          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
-
-      # cachix-action auto-pushes every path built while it's active, so a
-      # `nix build` of both variants populates the cache.
-      #
-      # --accept-flake-config IS LOAD-BEARING, and its absence was a real defect
-      # (fixed 2026-09-02). Without it nix prints `ignoring untrusted flake
-      # configuration setting 'extra-substituters'` and the flake's own
-      # yolo-jail.cachix.org declaration (flake.nix nixConfig) is DISCARDED — so
-      # this job read the cache only by cachix-action's grace, which adds the
-      # substituter to nix.conf itself. Measured on the v0.8.0 run
-      # (31749547095): the four yolo-jail paths were substituted, and the two
-      # warnings were printed in the same log. It worked, for a reason that
-      # would vanish silently if this step were reordered or the action swapped.
-      # Every other nix invocation this project makes passes the flag
-      # (internal/image/nixflags.go, internal/darwinpkg/darwinpkg.go).
-      # THE COPIER IS PUSHED TOO, and it is the one attr here that is a SOURCE
-      # BUILD: nix2container's `nix:` transport is a fetchpatch2 over nixpkgs'
-      # skopeo, so cache.nixos.org has never seen it and every consumer would
-      # otherwise compile it (~2m against our nixpkgs, measured 2026-09-09).
-      #
-      # ⚠ THIS MAY NEVER BECOME LOAD-BEARING (docs/reference/image-staging-vs-baking.md#why-its-this-way,
-      # OQ-LI1). The cache makes the copier FAST to obtain; a miss means the
-      # consumer builds it, and that is the whole consequence — no path may
-      # degrade, no path may require --accept-flake-config to FUNCTION, and
-      # losing this cache must cost time only.
-      - name: Build + push both image variants and the copier
-        if: steps.gate.outputs.enabled == 'true'
-        run: |
-          nix build --impure --accept-flake-config .#ociImage
-          nix build --impure --accept-flake-config .#ociImageMinimal
-          nix build --impure --accept-flake-config .#imageCopier
-          echo "Pushed image closures to ${{ steps.gate.outputs.cache }}.cachix.org"
-
-  # Build the macOS container-Linux-builder image and push it to GHCR, so
-  # macOS users (Apple Container / Podman) `pull` a ready nix+sshd builder
-  # instead of building a Linux image on a Mac (chicken-and-egg: a Mac needs a
-  # Linux builder to build the builder).
-  # See docs/research/macos-container-builder-exploration.md + the AC runbook.
-  #
-  # BOTH ARCHES, and x86_64 is NOT Intel-Mac support (BACKLOG E8).  This job
-  # used to push `aarch64-linux` only — "it's the arch Apple Silicon runs; an
-  # x86_64 mac (rare, and Podman-only) can build locally or use QEMU".  That
-  # reasoning was about USERS, and CI is not a user: `nightly-macos.yml` has to
-  # run on `macos-26-intel` because GitHub's Apple Silicon runners cannot nest
-  # a VM for Podman Machine, so the ONLY hosted runner that exercises the macOS
-  # code paths at all is x86_64.  With an arm64-only builder it pulled the wrong
-  # arch and TestExtraPackageLibFarm / TestDevPackageLinksRuntimeLib failed with
-  # "image platform (linux/arm64) does not match the expected platform
-  # (linux/amd64)" — the lib farm never materialized.  Publishing multi-arch
-  # makes the nightly test what it claims to test; it does not add Intel Macs to
-  # the support matrix.
-  #
-  # Each arch builds NATIVELY on its own runner — no QEMU, no binfmt.  The
-  # builder image's trivial derivations (writeText / writeShellScript /
-  # runCommand for /etc) have to RUN on the target arch, so a cross-arch
-  # `nix build .#packages.x86_64-linux.builderImage` on the arm runner cannot
-  # substitute its way out of a build.  Same shape as push-image-cache above.
-  push-builder-image:
-    needs: release-notes
+  build-image-cache:
+    needs: [claim-publication, cache-eligibility]
+    if: needs.cache-eligibility.outputs.enabled == 'true'
     strategy:
-      # Both cells run even when one fails, so a release reports BOTH arch
-      # results instead of hiding the second.  publish-builder-index `needs:`
-      # this job, so a failed cell means the multi-arch `:VERSION` / `:latest`
-      # tags simply do not advance — consumers keep resolving the previous
-      # release's index rather than a half-populated one.  Only the surviving
-      # cell's per-arch tag moves, and nothing pulls those by name.
       fail-fast: false
       matrix:
         include:
@@ -256,107 +244,257 @@ jobs:
             system: aarch64-linux
             arch: arm64
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@v7
         with:
+          repository: ${{ github.repository }}
+          ref: ${{ inputs.sha }}
           fetch-depth: 0
+          persist-credentials: false
 
-      - name: Install Nix
-        uses: cachix/install-nix-action@v31
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /opt/hostedtoolcache/CodeQL /usr/local/share/boost \
+                      "$AGENT_TOOLSDIRECTORY" || true
+          sudo docker image prune --all --force || true
+          sudo apt-get clean
+
+      - uses: cachix/install-nix-action@v31
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
 
-      - name: Log in to GHCR
-        run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | \
-            skopeo login ghcr.io -u "${{ github.actor }}" --password-stdin
-
-      # The flake output is a *streamer* that writes a docker-archive tar to
-      # stdout (KEYLESS — the ssh key is injected at container-run time).
-      # skopeo copies that tar straight to GHCR.
-      #
-      # PER-ARCH TAGS ONLY here (`:<version>-<arch>`, `:latest-<arch>`).  The
-      # arch-free `:VERSION` / `:latest` are a manifest LIST composed by
-      # publish-builder-index below — a naive second skopeo copy to the same tag
-      # would not "add" an arch, it would OVERWRITE the first cell's push, and
-      # which arch survived would be a matrix race.  A per-arch tag also keeps
-      # each arch manifest permanently TAGGED, so the index cannot be broken by
-      # an untagged-manifest cleanup policy later.
-      #
-      # `.#packages.${{ matrix.system }}` on its NATIVE runner: the image config's
-      # `architecture` comes from nixpkgs' defaultArchitecture (go.GOARCH of the
-      # dockerTools pkgs set), so the streamer stamps amd64/arm64 from the same
-      # `system` attribute path — which is what makes the index entries truthful
-      # rather than two copies of one arch under different tags.
-      - name: Build + push builder image to GHCR
+      - name: Build the target closures without the Cachix credential
+        env:
+          CACHE_ARCH: ${{ matrix.arch }}
+          CACHE_SYSTEM: ${{ matrix.system }}
         run: |
           set -euo pipefail
-          VERSION="${GITHUB_REF_NAME#v}"
-          REPO="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/yolo-jail-builder"
-          ARCH="${{ matrix.arch }}"
-          # --accept-flake-config: honor the flake's cachix substituter.
-          STREAMER=$(nix build --impure --accept-flake-config --no-link \
-            --print-out-paths .#packages.${{ matrix.system }}.builderImage)
-          "$STREAMER" > /tmp/builder.tar
-          skopeo copy "docker-archive:/tmp/builder.tar" \
-            "docker://${REPO}:${VERSION}-${ARCH}"
-          skopeo copy "docker-archive:/tmp/builder.tar" \
-            "docker://${REPO}:latest-${ARCH}"
-          echo "Pushed ${REPO}:${VERSION}-${ARCH} and :latest-${ARCH}"
-          # Visibility is a persistent, per-PACKAGE property — set ONCE (already
-          # done for yolo-jail-builder) and inherited by every future tag push.
-          # No per-release flip needed.  If the package is ever renamed, the new
-          # name is created PRIVATE by the first push; flip it to Public once in
-          # GHCR → Packages → yolo-jail-builder → Settings → Change visibility.
-          # (No auto-PATCH here: the default GITHUB_TOKEN can't admin a
-          # just-created org package, so it always 404'd — the step was a no-op
-          # after the one-time manual flip and dead weight on every release.)
+          mkdir -p "$RUNNER_TEMP/nix-binary-cache" nix-cache/store
+          : > nix-cache/store-paths.txt
+          for attr in ociImage ociImageMinimal imageCopier; do
+            path=$(nix build --impure --accept-flake-config --no-link --print-out-paths ".#${attr}")
+            printf '%s\n' "$path" >> nix-cache/store-paths.txt
+          done
+          mapfile -t paths < nix-cache/store-paths.txt
+          if [ "${#paths[@]}" -ne 3 ]; then
+            echo "Expected exactly three Nix output paths; no cache upload is allowed." >&2
+            exit 1
+          fi
+          nix copy --to "file://$RUNNER_TEMP/nix-binary-cache" "${paths[@]}"
+          cp -a "$RUNNER_TEMP/nix-binary-cache/." nix-cache/store/
 
-  # Compose the two per-arch builder manifests into ONE multi-arch index and put
-  # the arch-free tags on it: `:<version>` and `:latest`.
-  #
-  # `:latest` is the string frozen in containerbuilder.BuilderImage and in the
-  # mac-ac-container-builder runbook, so making it an INDEX (rather than teaching
-  # the CLI to append an arch suffix) is what lets every consumer keep pulling one
-  # name and get its own arch: an Apple Silicon Mac resolves arm64, the x86_64
-  # nightly runner resolves amd64, and no Go code learns about arches.
-  #
-  # `imagetools create` is a REGISTRY-side operation — it reads the source
-  # descriptors and writes a new index, pulling no layers and needing no daemon —
-  # so this job is seconds long and does not rebuild anything.  buildx ships
-  # preinstalled on the hosted ubuntu images; skopeo can copy a multi-arch image
-  # but cannot COMPOSE an index out of two single-arch ones, which is the one
-  # thing needed here.
-  #
-  # On the `docker` token: yolo-jail removed Docker as a RUNTIME (validate.go
-  # hard-errors on `runtime: docker`) and the flake aliases dockerTools as
-  # ociTools to keep the product free of it.  Neither applies to a hosted GitHub
-  # runner's preinstalled buildx, which is CI plumbing and never ships — the same
-  # standing as the `sudo docker image prune` disk-freeing step above and the
-  # `docker://` transport skopeo already uses.  Nothing here reaches a user's
-  # machine or a jail.
-  publish-builder-index:
-    needs: push-builder-image
-    runs-on: ubuntu-latest
+      - uses: actions/upload-artifact@v7
+        with:
+          name: nix-cache-${{ matrix.arch }}
+          path: nix-cache/
+          include-hidden-files: true
+          if-no-files-found: error
+
+  publish-image-cache:
+    needs: [build-image-cache, cache-eligibility]
+    if: needs.cache-eligibility.outputs.enabled == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: amd64
+          - os: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
     steps:
-      - name: Log in to GHCR
+      - name: Refuse publication replay at job entry
+        env:
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | \
-            docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          if [ "$GITHUB_RUN_ATTEMPT" != 1 ]; then
+            echo "::error::Publication reruns are refused before credential actions or writes; inspect the original run and partial state read-only with the owner. Do not replay or remove the claim."
+            exit 1
+          fi
 
-      - name: Compose the multi-arch index
+      - uses: actions/download-artifact@v8
+        with:
+          name: nix-cache-${{ matrix.arch }}
+          path: nix-cache
+
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - uses: cachix/cachix-action@v17
+        with:
+          name: ${{ needs.cache-eligibility.outputs.cache }}
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      - name: Import inert Nix paths and push the validated closure names
+        env:
+          CACHE_NAME: ${{ needs.cache-eligibility.outputs.cache }}
         run: |
           set -euo pipefail
-          VERSION="${GITHUB_REF_NAME#v}"
-          REPO="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/yolo-jail-builder"
+          mapfile -t paths < nix-cache/store-paths.txt
+          if [ "${#paths[@]}" -ne 3 ]; then
+            echo "Nix cache artifact has an unexpected path count; refuse upload." >&2
+            exit 1
+          fi
+          for path in "${paths[@]}"; do
+            if [[ ! "$path" =~ ^/nix/store/[0-9a-z]{32}-[A-Za-z0-9._+?=-]+$ ]]; then
+              echo "Nix cache artifact contains an unsafe store path; refuse upload." >&2
+              exit 1
+            fi
+          done
+          nix copy --from "file://$GITHUB_WORKSPACE/nix-cache/store" "${paths[@]}"
+          cachix push "$CACHE_NAME" "${paths[@]}"
+
+  build-builder-image:
+    needs: claim-publication
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            system: x86_64-linux
+            arch: amd64
+          - os: ubuntu-24.04-arm
+            system: aarch64-linux
+            arch: arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ inputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Build the exact target builder image without registry credentials
+        env:
+          BUILDER_SYSTEM: ${{ matrix.system }}
+        run: |
+          set -euo pipefail
+          streamer=$(nix build --impure --accept-flake-config --no-link --print-out-paths ".#packages.${BUILDER_SYSTEM}.builderImage")
+          test -x "$streamer"
+          "$streamer" > "$RUNNER_TEMP/builder.tar"
+          if [ ! -s "$RUNNER_TEMP/builder.tar" ] || [ -L "$RUNNER_TEMP/builder.tar" ]; then
+            echo "Target builder image did not produce a regular non-empty archive." >&2
+            exit 1
+          fi
+          mkdir -p builder-output
+          cp "$RUNNER_TEMP/builder.tar" builder-output/builder.tar
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: builder-image-${{ matrix.arch }}
+          path: builder-output/builder.tar
+          if-no-files-found: error
+
+  push-builder-image:
+    needs: [build-builder-image, publisher-preflight]
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Refuse publication replay at job entry
+        env:
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          if [ "$GITHUB_RUN_ATTEMPT" != 1 ]; then
+            echo "::error::Publication reruns are refused before credential actions or writes; inspect the original run and partial state read-only with the owner. Do not replay or remove the claim."
+            exit 1
+          fi
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: builder-image-amd64
+          path: builder-amd64
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: builder-image-arm64
+          path: builder-arm64
+
+      - name: Log in to GHCR
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: echo "$GHCR_TOKEN" | skopeo login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Push the validated target images to version and latest-arch tags
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          GHCR_REPOSITORY="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/yolo-jail-builder"
+          for arch in amd64 arm64; do
+            archive="builder-${arch}/builder.tar"
+            if [ ! -f "$archive" ] || [ -L "$archive" ] || [ ! -s "$archive" ]; then
+              echo "Missing/unsafe builder artifact for ${arch}; no registry copy is safe." >&2
+              exit 1
+            fi
+            expected_arch="$arch"
+            image="docker-archive:${archive}"
+            actual_platform=$(skopeo inspect --format '{{.Os}}/{{.Architecture}}' "$image")
+            if [ "$actual_platform" != "linux/${expected_arch}" ]; then
+              echo "Builder artifact ${arch} identifies as ${actual_platform}; refuse registry upload." >&2
+              exit 1
+            fi
+            skopeo copy "$image" "docker://${GHCR_REPOSITORY}:${RELEASE_VERSION}-${arch}"
+            skopeo copy "$image" "docker://${GHCR_REPOSITORY}:latest-${arch}"
+          done
+
+  publish-builder-index:
+    needs: [push-builder-image, publisher-preflight]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Refuse publication replay at job entry
+        env:
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          if [ "$GITHUB_RUN_ATTEMPT" != 1 ]; then
+            echo "::error::Publication reruns are refused before credential actions or writes; inspect the original run and partial state read-only with the owner. Do not replay or remove the claim."
+            exit 1
+          fi
+
+      - name: Log in to GHCR
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Compose the exact version and monotonic latest multi-arch index
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          GHCR_REPOSITORY="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/yolo-jail-builder"
           docker buildx imagetools create \
-            --tag "${REPO}:${VERSION}" \
-            --tag "${REPO}:latest" \
-            "${REPO}:${VERSION}-amd64" \
-            "${REPO}:${VERSION}-arm64"
-          # Print what a consumer will actually resolve — both platforms must be
-          # listed, or a puller silently falls back to the wrong-arch failure this
-          # whole job exists to remove ("image platform (linux/arm64) does not
-          # match the expected platform (linux/amd64)").
-          docker buildx imagetools inspect "${REPO}:latest"
+            --tag "${GHCR_REPOSITORY}:${RELEASE_VERSION}" \
+            --tag "${GHCR_REPOSITORY}:latest" \
+            "${GHCR_REPOSITORY}:${RELEASE_VERSION}-amd64" \
+            "${GHCR_REPOSITORY}:${RELEASE_VERSION}-arm64"
+          docker buildx imagetools inspect "${GHCR_REPOSITORY}:latest"

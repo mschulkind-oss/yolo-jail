@@ -1,0 +1,122 @@
+# This workflow is dispatched only from main. Its trusted source validates the
+# frozen SHA before any target code runs, then builds target preparation in a
+# read-only job. Only the later trusted job receives tag/actions write.
+name: Release request
+run-name: Release request v${{ inputs.version }} @ ${{ inputs.sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Unreserved release version (X.Y.Z or X.Y.Z-pre; do not include v)"
+        required: true
+        type: string
+      sha:
+        description: "Exact full commit SHA to release; never replaced with latest main"
+        required: true
+        type: string
+
+permissions: {}
+
+# A same-version pending request may replace an older pending request; no ref is
+# created until the surviving run completes its read-only gates.
+concurrency:
+  group: release-request-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  eligibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Validate trusted source, immutable input, main ancestry and exact regular CI
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REF_TYPE: ${{ github.ref_type }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          WORKFLOW_SHA: ${{ github.sha }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_SHA: ${{ inputs.sha }}
+          RELEASE_PRETAG: "1"
+          RELEASE_ORDER_CHECK: "1"
+          GH_TOKEN: ${{ github.token }}
+        run: tools/release-wiring/preflight.sh
+
+  prepare-target:
+    needs: eligibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ inputs.sha }}
+          path: target
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: target/go.mod
+
+      - name: Prepare exact target source without publication credentials
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_SHA: ${{ inputs.sha }}
+          TARGET_ROOT: target
+        run: tools/release-wiring/prepare.sh
+
+  create-tag-and-dispatch:
+    needs: [eligibility, prepare-target]
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Create immutable tag and await the exact original Release run
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REF_TYPE: ${{ github.ref_type }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+          WORKFLOW_SHA: ${{ github.sha }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_SHA: ${{ inputs.sha }}
+          RELEASE_PRETAG: "1"
+          RELEASE_ORDER_CHECK: "1"
+          GH_TOKEN: ${{ github.token }}
+        run: tools/release-wiring/request.sh

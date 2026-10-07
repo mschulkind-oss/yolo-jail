@@ -277,30 +277,45 @@ func TestCheckVersionLine(t *testing.T) {
 }
 
 func TestExpectFromGitHubEvent(t *testing.T) {
-	run := func(event, headBranch, conclusion string) []byte {
+	run := func(event, headBranch, displayTitle, conclusion string) []byte {
 		b, _ := json.Marshal(map[string]any{"workflow_run": map[string]any{
-			"name": "Release", "event": event, "head_branch": headBranch, "conclusion": conclusion,
+			"name": "Release", "event": event, "head_branch": headBranch,
+			"display_title": displayTitle, "conclusion": conclusion,
 		}})
 		return b
 	}
+	sha := "0123456789abcdef0123456789abcdef01234567"
 	for _, tc := range []struct {
 		name, event string
 		payload     []byte
 		want        string
 		wantErr     string
 	}{
-		{"a release cut by a tag push names its tag", "workflow_run", run("push", "v0.12.0", "success"), "0.12.0", ""},
-		{"a prerelease tag", "workflow_run", run("push", "v0.12.0-rc.1", "success"), "0.12.0-rc.1", ""},
-		{"release.yml's formula backfill carries no version in the payload", "workflow_run", run("workflow_dispatch", "main", "success"), "", ""},
-		{"a push that names no tag is refused, not waved through", "workflow_run", run("push", "", "success"), "", "names no tag"},
-		{"a branch where a tag belongs is refused", "workflow_run", run("push", "main", "success"), "", "not a release version"},
-		{"a failed release is refused", "workflow_run", run("push", "v0.12.0", "failure"), "", `concluded "failure"`},
-		{"a payload with no run", "workflow_run", []byte(`{}`), "", "no workflow_run object"},
-		{"a dispatch naming a version", "workflow_dispatch", []byte(`{"inputs":{"version":"0.11.0"}}`), "0.11.0", ""},
-		{"a dispatch naming a tag", "workflow_dispatch", []byte(`{"inputs":{"version":"v0.11.0"}}`), "0.11.0", ""},
-		{"a dispatch naming nothing", "workflow_dispatch", []byte(`{"inputs":{"version":""}}`), "", ""},
-		{"a dispatch naming garbage", "workflow_dispatch", []byte(`{"inputs":{"version":"latest"}}`), "", "not a release version"},
-		{"the weekly schedule", "schedule", []byte(`{"schedule":"0 8 * * 3"}`), "", ""},
+		{"legacy tag push names its tag", "workflow_run", run("push", "v0.12.0", "Release", "success"), "0.12.0", ""},
+		{"legacy prerelease tag push", "workflow_run", run("push", "v0.12.0-rc.1", "Release", "success"), "0.12.0-rc.1", ""},
+		{"legacy tag-scoped dispatch names its version", "workflow_run", run("workflow_dispatch", "v0.12.0", "Release", "success"), "0.12.0", ""},
+		{"legacy tag-scoped prerelease dispatch", "workflow_run", run("workflow_dispatch", "v0.12.0-rc.1", "Release", "success"), "0.12.0-rc.1", ""},
+		{"trusted-main prerelease dispatch", "workflow_run", run("workflow_dispatch", "main", "Release v0.12.0-rc.1 @ "+sha+" / request 123", "success"), "0.12.0-rc.1", ""},
+		{"explicit Homebrew-only backfill carries no release expectation", "workflow_run", run("workflow_dispatch", "main", "Homebrew-only v0.12.0", "success"), "", ""},
+		{"main branch alone cannot waive a normal release version", "workflow_run", run("workflow_dispatch", "main", "Release", "success"), "", "missing or malformed display_title"},
+		{"missing main-scoped display title is refused", "workflow_run", run("workflow_dispatch", "main", "", "success"), "", "missing or malformed display_title"},
+		{"malformed main-scoped release title is refused", "workflow_run", run("workflow_dispatch", "main", "Release vlatest @ "+sha+" / request 123", "success"), "", "missing or malformed display_title"},
+		{"main-scoped release title with malformed SHA is refused", "workflow_run", run("workflow_dispatch", "main", "Release v0.12.0 @ short / request 123", "success"), "", "missing or malformed display_title"},
+		{"main-scoped release title with zero request id is refused", "workflow_run", run("workflow_dispatch", "main", "Release v0.12.0 @ "+sha+" / request 0", "success"), "", "missing or malformed display_title"},
+		{"main-scoped release title does not accept trailing data", "workflow_run", run("workflow_dispatch", "main", "Release v0.12.0 @ "+sha+" / request 123; echo unsafe", "success"), "", "missing or malformed display_title"},
+		{"Homebrew-only backfill title is also anchored", "workflow_run", run("workflow_dispatch", "main", "Homebrew-only v0.12.0 extra", "success"), "", "missing or malformed display_title"},
+		{"main release metadata on a non-main ref is refused", "workflow_run", run("workflow_dispatch", "release/0.12.0", "Release v0.12.0 @ "+sha+" / request 123", "success"), "", "unexpected ref"},
+		{"failed main-scoped release is refused", "workflow_run", run("workflow_dispatch", "main", "Release v0.12.0 @ "+sha+" / request 123", "failure"), "", `concluded "failure"`},
+		{"failed legacy tag dispatch is refused", "workflow_run", run("workflow_dispatch", "v0.12.0", "Release", "failure"), "", `concluded "failure"`},
+		{"push with no tag is refused", "workflow_run", run("push", "", "Release", "success"), "", "names no tag"},
+		{"branch push where a tag belongs is refused", "workflow_run", run("push", "main", "Release", "success"), "", "not a release version"},
+		{"unrecognized release event is refused", "workflow_run", run("schedule", "main", "Release", "success"), "", "unsupported event"},
+		{"payload without run is refused", "workflow_run", []byte(`{}`), "", "no workflow_run object"},
+		{"manual tap-check dispatch naming a version", "workflow_dispatch", []byte(`{"inputs":{"version":"0.11.0"}}`), "0.11.0", ""},
+		{"manual tap-check dispatch naming a tag", "workflow_dispatch", []byte(`{"inputs":{"version":"v0.11.0"}}`), "0.11.0", ""},
+		{"manual tap-check dispatch naming nothing", "workflow_dispatch", []byte(`{"inputs":{"version":""}}`), "", ""},
+		{"manual tap-check dispatch naming garbage", "workflow_dispatch", []byte(`{"inputs":{"version":"latest"}}`), "", "not a release version"},
+		{"weekly schedule", "schedule", []byte(`{"schedule":"0 8 * * 3"}`), "", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := expectFromGitHubEvent(tc.event, tc.payload)

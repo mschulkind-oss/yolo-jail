@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"gopkg.in/yaml.v3"
 )
 
 func repoFile(t *testing.T, rel string) string {
@@ -48,6 +49,34 @@ func listIn(t *testing.T, body string, re *regexp.Regexp, what string) []string 
 	}
 	sort.Strings(out)
 	return out
+}
+
+// trustedHomebrewFormula pins both production workflow callers as well as the
+// helper containing the formula. Moving the formula out of workflow YAML must
+// not make deleting either real caller invisible to the bundle/host-set checks.
+func trustedHomebrewFormula(t *testing.T) string {
+	t.Helper()
+	var workflow struct {
+		Jobs map[string]struct {
+			Steps []struct {
+				Run string `yaml:"run"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal([]byte(repoFile(t, ".github/workflows/release.yml")), &workflow); err != nil {
+		t.Fatalf("decode release workflow: %v", err)
+	}
+	caller := regexp.MustCompile(`(?m)^\s*VERSION="\$RELEASE_VERSION" RELEASE_TAG="v\$\{RELEASE_VERSION\}" tools/release-wiring/update-homebrew\.sh\s*$`)
+	for _, job := range []string{"publish-release", "homebrew-only"} {
+		found := false
+		for _, step := range workflow.Jobs[job].Steps {
+			found = found || caller.MatchString(step.Run)
+		}
+		if !found {
+			t.Errorf("release workflow job %s no longer invokes the trusted formula helper with the frozen version/tag", job)
+		}
+	}
+	return repoFile(t, "tools/release-wiring/update-homebrew.sh")
 }
 
 // THE GO SPELLING AGREES WITH THE TWO THAT BUILD THE BINARIES. GuestBinaries decides what a
@@ -94,7 +123,7 @@ func TestTheBundleStagesDarwinGuestDirsForBothArchesUnderItsShareDir(t *testing.
 			t.Errorf(".goreleaser.yaml no longer says %q", want)
 		}
 	}
-	rel := repoFile(t, ".github/workflows/release.yml")
+	rel := trustedHomebrewFormula(t)
 	if !strings.Contains(rel, `system "scripts/stage-source-bundle.sh", pkgshare.to_s`) {
 		t.Error("the Homebrew formula no longer stages the bundle into pkgshare")
 	}
@@ -107,7 +136,7 @@ func TestTheHostShipSetStaysYoloAlone(t *testing.T) {
 	if len(mains) != 1 || mains[0][1] != "./cmd/yolo" {
 		t.Errorf("goreleaser builds %v; the host ship set is ./cmd/yolo alone", mains)
 	}
-	rel := repoFile(t, ".github/workflows/release.yml")
+	rel := trustedHomebrewFormula(t)
 	bins := regexp.MustCompile(`bin/"([^"]+)"`).FindAllStringSubmatch(rel, -1)
 	for _, b := range bins {
 		if b[1] != "yolo" {

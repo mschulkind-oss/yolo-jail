@@ -506,15 +506,12 @@ done: check
 pin-pack-binaries *version:
     go run ./tools/pack-binaries pin {{version}}
 
-# Cut a release: refuse unless CHANGELOG.md has a written section for VERSION and the tree is
-# clean, then tag v<VERSION> and push the tag. The tag push is the whole release: release.yml
-# runs goreleaser (archives, the GitHub release, the Homebrew formula) and publish.yml the PyPI
-# wheels and image pushes, and both run the same extractor against the tag's tree, publishing its
-# section as the release body. Rename [Unreleased] to `[VERSION] - YYYY-MM-DD` and commit that
-# first; `sh scripts/changelog-section.sh VERSION` previews exactly what will be published.
-#
-# THIS IS THE ONE PATH. A hand-pushed tag whose section is missing fails both workflows before
-# anything is built or published, and the fix is a new tag, since a tag is never moved.
+# Request a release for one frozen commit. The host performs the cheap local gates, then
+# dispatches release-request.yml on main with that exact SHA. Trusted-main eligibility and
+# target-source preparation run in read-only jobs; a separate trusted mutation job creates the
+# immutable tag, waits for the exact original Release/GoReleaser run to succeed, then dispatches
+# publish.yml on main. Dispatch acceptance is not publication success; inspect Actions. See
+# docs/design/pre-tag-release-gate.md for capability boundaries and fail-closed partial state.
 release version:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -525,44 +522,30 @@ release version:
         exit 2
     fi
     if [ -n "$(git status --porcelain)" ]; then
-        echo "✗ the working tree is dirty — commit or stash first. Nothing has been tagged." >&2
+        echo "✗ the working tree is dirty — commit or stash first. No release request was sent." >&2
         git status --short >&2
         exit 1
     fi
-    if git rev-parse -q --verify "refs/tags/v$v" >/dev/null; then
-        echo "✗ tag v$v already exists — a tag is never moved; pick another version." >&2
+    sha="$(git rev-parse HEAD)"
+    if ! git fetch --quiet --prune origin main; then
+        echo "✗ could not refresh origin/main — restore connectivity and retry. No release request was sent." >&2
         exit 1
     fi
-    # The notes are written before the tag exists, and this is where that is enforced. The
-    # script is the only definition of "the section exists and says something", and it is the
-    # same one release.yml and publish.yml run, so what refuses here is what CI would refuse.
-    # Its stdout is the section and its reasons go to stderr, so discarding one keeps the other.
-    if ! sh scripts/changelog-section.sh "{{version}}" >/dev/null; then
-        echo "" >&2
-        echo "✗ refusing to cut v$v until CHANGELOG.md has a section for it that reads as release" >&2
-        echo "  notes. Nothing has been tagged." >&2
+    if ! git merge-base --is-ancestor "$sha" FETCH_HEAD; then
+        echo "✗ HEAD ($sha) is not contained in origin/main — push/merge this exact commit first." >&2
+        echo "  No release request was sent and no newer main commit will be substituted." >&2
         exit 1
     fi
-    # Every official pack binary's url and sha256 are committed in the tree the tag names, so
-    # they are checked here, before the tag, by rebuilding each one: the same check the release's
-    # goreleaser run makes before it uploads and publish.yml makes before PyPI (BP-D9). It prints
-    # each disagreement, naming the binary, the platform and both digests.
+    if ! sh scripts/changelog-section.sh "$v" >/dev/null; then
+        echo "✗ CHANGELOG.md has no usable section for $v — write and commit it, then retry. No release request was sent." >&2
+        exit 1
+    fi
     if ! go run ./tools/pack-binaries check "$v"; then
-        echo "" >&2
-        echo "✗ refusing to cut v$v until the official pack binaries are pinned for it: run" >&2
-        echo "  'just pin-pack-binaries $v' and commit the result. Nothing has been tagged." >&2
+        echo "✗ official pack binaries are not pinned for $v — run 'just pin-pack-binaries $v', commit, and retry. No release request was sent." >&2
         exit 1
     fi
-    # The tag names HEAD, so HEAD must be a commit other people can already see: a tag pushed
-    # ahead of its branch releases a commit that main does not contain. Only ORIGIN's branches
-    # count, since the tag is pushed there, and `--prune` drops the tracking ref of a branch
-    # origin has since deleted, which would otherwise vouch for a commit nobody can see.
-    git fetch --quiet --prune origin
-    if [ -z "$(git branch -r --contains HEAD --list 'origin/*')" ]; then
-        echo "✗ HEAD ($(git rev-parse --short HEAD)) is on no branch of origin — push it first." >&2
-        echo "  Nothing has been tagged." >&2
+    if ! gh workflow run release-request.yml --ref main -f "version=$v" -f "sha=$sha"; then
+        echo "✗ could not submit the release request — check gh authentication and Actions permissions, then retry. No tag was created by this command." >&2
         exit 1
     fi
-    git tag -a "v$v" -m "yolo-jail $v"
-    git push origin "v$v"
-    echo "pushed v$v — release.yml and publish.yml take it from here"
+    echo "release request submitted for v$v at $sha; inspect the release-request Actions run, then both publisher runs."

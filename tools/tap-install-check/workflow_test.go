@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -35,6 +36,7 @@ type workflowStep struct {
 
 type workflowFile struct {
 	Name        string               `yaml:"name"`
+	RunName     string               `yaml:"run-name"`
 	On          map[string]yaml.Node `yaml:"on"`
 	Permissions map[string]string    `yaml:"permissions"`
 	Jobs        map[string]struct {
@@ -203,23 +205,55 @@ func TestTheWorkflowCarriesNoSecrets(t *testing.T) {
 	}
 }
 
-// TestReleasePushesTheFormulaTheDocsInstall holds the other end: the tap release.yml
-// pushes to and the formula file it writes are the ones `brew install <owner>/<tap>/<name>`
-// resolves (Homebrew maps owner/tap to github.com/owner/homebrew-tap and the name to
-// Formula/<name>.rb), and the formula has the `test do` block `brew test` runs, asserting
-// the line checkVersionLine expects.
+// TestReleasePushesTheFormulaTheDocsInstall holds the release helper to the formula
+// the docs install. Homebrew maps owner/tap to github.com/owner/homebrew-tap and the
+// formula name to Formula/<name>.rb; its test block is the production version check.
 func TestReleasePushesTheFormulaTheDocsInstall(t *testing.T) {
 	parts := strings.Split(docsFormula(t), "/")
 	owner, tap, name := parts[0], parts[1], parts[2]
-	rel := repoFile(t, ".github/workflows/release.yml")
+	helper := repoFile(t, "tools/release-wiring/update-homebrew.sh")
 	for _, want := range []string{
 		"github.com/" + owner + "/homebrew-" + tap + ".git",
 		"tap/Formula/" + name + ".rb",
 		"test do",
 		`assert_match "` + versionLinePrefix + `#{version}", shell_output("#{bin}/yolo --version")`,
 	} {
-		if !strings.Contains(rel, want) {
-			t.Errorf("release.yml's formula push no longer says %q", want)
+		if !strings.Contains(helper, want) {
+			t.Errorf("trusted Homebrew update helper no longer says %q", want)
 		}
+	}
+}
+
+// Render the actual Actions format() call rather than inventing an unrelated
+// parser title. This pins inputs/order/grammar through the production checker.
+func TestReleaseRunNameTransportReachesTheProductionTapCaller(t *testing.T) {
+	release := parseWorkflow(t, ".github/workflows/release.yml")
+	re := regexp.MustCompile(`format\('([^']+)', inputs\.version, inputs\.sha, inputs\.request_run_id\)`)
+	match := re.FindStringSubmatch(release.RunName)
+	if len(match) != 2 {
+		t.Fatalf("normal Release lost its real version/SHA/request format() call: %q", release.RunName)
+	}
+	for _, version := range []string{"0.11.0", "0.12.0", "0.12.0-rc.1"} {
+		t.Run(version, func(t *testing.T) {
+			title := strings.NewReplacer("{0}", version, "{1}", strings.Repeat("a", 40), "{2}", "123").Replace(match[1])
+			m := newStubMachine(t)
+			m.install(t)
+			payload := filepath.Join(m.root, "event.json")
+			data, err := json.Marshal(map[string]any{"workflow_run": map[string]string{"name": release.Name, "event": "workflow_dispatch", "head_branch": "main", "conclusion": "success", "display_title": title}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, payload, string(data), 0o600)
+			t.Setenv("GITHUB_EVENT_NAME", "workflow_run")
+			t.Setenv("GITHUB_EVENT_PATH", payload)
+			rc, out := runChecker(t, "-formula", testFormula, "-expect-from-github-event")
+			if version == "0.11.0" {
+				if rc != 0 {
+					t.Fatalf("actual run-name/checker match failed: %s", out)
+				}
+			} else if rc != 1 || !strings.Contains(out, "but this run verifies release "+version) {
+				t.Fatalf("actual production title waived exact version: rc=%d title=%q output=%s", rc, title, out)
+			}
+		})
 	}
 }

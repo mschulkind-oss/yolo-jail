@@ -596,9 +596,9 @@ fi
 
 # --- the real file, through the default path ---------------------------------
 
-# No file argument: the default is the changelog at the repository root, which
-# is what every caller relies on — `just release` runs from the repo root and
-# the workflows from a checkout of the tag, and none of them passes a path.
+# No file argument: the default is the changelog at the repository root. The
+# host request uses that path, readonly preparation uses the isolated target,
+# and trusted release upload re-renders the target blob in a temporary directory.
 #
 # Which sections are asked for is read off the file rather than written here, so
 # a release that renames [Unreleased] or folds a section into a retrospective
@@ -676,30 +676,56 @@ expect_file() {
     fi
 }
 
-# `just release` runs the gate, and runs it BEFORE it tags anything.
+# `just release` validates notes BEFORE dispatch; it no longer reserves a local
+# tag. Target preparation and exact-CI/tag creation are pinned below and by the
+# actual workflow/caller fixtures in tools/release-wiring.
 awk '
     /^release[[:space:]]/ { inside = 1; next }
     inside && /^[^[:space:]#]/ { inside = 0 }
     inside { print }
 ' "$root/Justfile" >"$tmp/release-recipe"
-gate_line=$(grep -n 'scripts/changelog-section.sh "{{version}}"' "$tmp/release-recipe" | head -1 | cut -d: -f1)
-tag_line=$(grep -n 'git tag ' "$tmp/release-recipe" | head -1 | cut -d: -f1)
-if [ -n "$gate_line" ] && [ -n "$tag_line" ] && [ "$gate_line" -lt "$tag_line" ]; then
+gate_line=$(grep -n 'sh scripts/changelog-section.sh "\$v"' "$tmp/release-recipe" | head -1 | cut -d: -f1)
+dispatch_line=$(grep -n 'gh workflow run release-request.yml --ref main' "$tmp/release-recipe" | head -1 | cut -d: -f1)
+if [ -n "$gate_line" ] && [ -n "$dispatch_line" ] && [ "$gate_line" -lt "$dispatch_line" ] \
+    && ! grep -Eq 'git tag |git push ' "$tmp/release-recipe"; then
     pass=$((pass + 1))
 else
     fail=$((fail + 1))
-    echo "FAIL [just release gates before tagging]: gate at line '${gate_line:-none}', tag at line '${tag_line:-none}' of the recipe"
+    echo "FAIL [just release gates before dispatch without tagging]: gate at line '${gate_line:-none}', dispatch at line '${dispatch_line:-none}' of the recipe"
 fi
+expect_file "request workflow calls readonly target preparation" "$root/.github/workflows/release-request.yml" \
+    'run: tools/release-wiring/prepare.sh'
+expect_file "release workflow calls readonly target preparation" "$root/.github/workflows/release.yml" \
+    'run: tools/release-wiring/validate-target.sh'
+expect_file "readonly release verification requires the target section" "$root/tools/release-wiring/validate-target.sh" \
+    'sh scripts/changelog-section.sh "\$RELEASE_VERSION"'
+expect_file "readonly preparation requires the target section" "$root/tools/release-wiring/prepare.sh" \
+    'sh scripts/changelog-section.sh "\$RELEASE_VERSION"'
 
-# release.yml publishes the extracted section as the body, links pinned to the tag.
-expect_file "release.yml extracts the section" "$root/.github/workflows/release.yml" \
-    'sh scripts/changelog-section.sh --link-base "\$base" --unwrap "\$version" > "\$RUNNER_TEMP/notes.md"'
-expect_file "release.yml hands it to goreleaser" "$root/.github/workflows/release.yml" \
-    'args: release --clean --release-notes \$\{\{ runner.temp \}\}/notes.md'
+# Trusted release upload loads the target Git blob as inert notes and renders
+# tag-pinned links. The pinned GoReleaser preparation consumes those notes with
+# publishing disabled; the write job never executes target hooks or GoReleaser.
+expect_file "release.yml extracts the exact target notes blob" "$root/.github/workflows/release.yml" \
+    'git show "\$\{RELEASE_SHA\}:CHANGELOG.md"'
+expect_file "release.yml renders the tag-pinned section" "$root/.github/workflows/release.yml" \
+    'scripts/changelog-section.sh" --link-base "\$base" --unwrap "\$RELEASE_VERSION" > "\$RELEASE_NOTES_FILE"'
+expect_file "release.yml hands notes to readonly GoReleaser" "$root/.github/workflows/release.yml" \
+    'args: release --clean --skip=publish --release-notes \$\{\{ runner.temp \}\}/release-notes.md'
+expect_file "trusted upload reads rendered release notes as JSON data" "$root/tools/release-wiring/publish-release.sh" \
+    'notes_json=\$\(jq -Rs \. < "\$RELEASE_NOTES_FILE"\)'
+expect_file "trusted upload embeds notes as the release body" "$root/tools/release-wiring/publish-release.sh" \
+    '--argjson body "\$notes_json"'
+expect_file "trusted upload posts only its generated release payload" "$root/tools/release-wiring/publish-release.sh" \
+    'gh api --method POST .*--input "\$payload_file"'
 
-# publish.yml refuses to ship PyPI wheels or images for a tag with no section.
-expect_file "publish.yml gates on the section" "$root/.github/workflows/publish.yml" \
-    'sh scripts/changelog-section.sh "\$version"'
+# Registry publication does not re-extract notes from target code. It requires
+# provenance of the exact original successful Release run, whose trusted write
+# stage rendered those notes. That actual refusal path and writer dependencies
+# are exercised by tools/release-wiring's production YAML/API fixtures.
+expect_file "publish.yml requires original successful Release provenance" "$root/.github/workflows/publish.yml" \
+    'go run ./tools/release-wiring verify-publisher-provenance'
+expect_file "publisher provenance requires completed successful Release" "$root/tools/release-wiring/provenance.go" \
+    'release.Status != "completed" \|\| release.Conclusion != "success"'
 
 # ungated_jobs <workflow> <gate-job> — print every job whose `needs:` chain does
 # not reach <gate-job>. The gate job existing is not the gate: a job that does
@@ -757,11 +783,15 @@ expect_all_gated() {
     fi
 }
 
-expect_all_gated "every publish.yml job waits on release-notes" \
-    "$root/.github/workflows/publish.yml" release-notes
-# release.yml extracts the notes inside its goreleaser job, so that job is the gate.
-expect_all_gated "every release.yml job waits on goreleaser" \
-    "$root/.github/workflows/release.yml" goreleaser
+# Every job must transitively reach trusted eligibility, including any new root
+# job. Readonly notes/build gates and each mutation job's dependencies are also
+# pinned structurally and executed by the Go production-caller fixtures.
+expect_all_gated "every publish.yml job waits on trusted publisher preflight" \
+    "$root/.github/workflows/publish.yml" publisher-preflight
+expect_all_gated "every release.yml job waits on trusted eligibility" \
+    "$root/.github/workflows/release.yml" eligibility
+expect_all_gated "every release-request.yml job waits on trusted eligibility" \
+    "$root/.github/workflows/release-request.yml" eligibility
 
 # The reachability reader itself, on fixtures: it must see a job that waits on
 # nothing, and must accept all three `needs:` spellings as waiting.
@@ -867,7 +897,9 @@ done
 # The recipe's refusals are behavior, not text, so they are exercised: the real
 # Justfile and extractor in a scratch repo whose `origin` is a local bare repo.
 # The case that matters most is the one a text check cannot see: a commit that
-# some OTHER remote has, but origin does not, must not be tagged on origin.
+# only on another remote, or only on origin's deleted branch, must not dispatch.
+# Successful submission carries exact HEAD as inert data to trusted main, without
+# reserving a local or remote tag. gh is an offline recording stub.
 if command -v just >/dev/null 2>&1 && command -v git >/dev/null 2>&1; then
     rr="$tmp/release"
     mkdir -p "$rr/work/scripts"
@@ -898,6 +930,10 @@ if command -v just >/dev/null 2>&1 && command -v git >/dev/null 2>&1; then
         printf '#!/bin/sh\nprintf "%%s\\n" "$*" >>"%s/go-calls"\nexit "${PIN_CHECK_EXIT:-0}"\n' \
             "$rr" >"$rr/bin/go"
         chmod +x "$rr/bin/go"
+        printf '#!/bin/sh\nprintf "%%s\\n" "$*" >>"%s/gh-calls"\nexit "${GH_DISPATCH_EXIT:-0}"\n' \
+            "$rr" >"$rr/bin/gh"
+        chmod +x "$rr/bin/gh"
+        : >"$rr/gh-calls"
         export PATH="$rr/bin:$PATH"
         cat >CHANGELOG.md <<'EOF'
 # Changelog
@@ -964,7 +1000,7 @@ EOF
             echo "TAGGED-pins"
         elif ! grep -qx 'run ./tools/pack-binaries check 0.11.1' "$rr/go-calls"; then
             echo "UNASKED-pins"
-        elif ! grep -q 'Nothing has been tagged' "$rr/out"; then
+        elif ! grep -q 'No release request was sent' "$rr/out"; then
             echo "UNSAID-pins"
         else
             echo "ok-pins"
@@ -972,15 +1008,35 @@ EOF
         git tag -d v0.11.1 >/dev/null 2>&1 || true
         git push -q origin --delete v0.11.1 >/dev/null 2>&1 || true
 
-        # 4. On origin's main: tagged, and the tag is on origin.
+        # Every refusal above must occur before the dispatch stub is invoked.
+        if [ ! -s "$rr/gh-calls" ]; then echo "ok-nodispatch"; else echo "DISPATCHED-refusal"; fi
+
+        # 4. On origin's main: submit exact HEAD to the main-sourced workflow,
+        # but create neither a local tag nor a remote tag.
+        requested_sha=$(git rev-parse HEAD)
         if just release 0.11.1 >"$rr/out" 2>&1 \
-            && git ls-remote --tags origin | grep -q 'refs/tags/v0.11.1'; then
+            && grep -qx "workflow run release-request.yml --ref main -f version=0.11.1 -f sha=$requested_sha" "$rr/gh-calls" \
+            && [ "$(wc -l <"$rr/gh-calls")" -eq 1 ] \
+            && [ -z "$(git tag -l)" ] && [ -z "$(git ls-remote --tags origin)" ]; then
             echo "ok-origin"
         else
             echo "REFUSED-origin"
         fi
+
+        # 5. A dispatch failure cannot reserve the version either. Its refusal
+        # must name the failed boundary rather than claiming publication.
+        : >"$rr/gh-calls"
+        if GH_DISPATCH_EXIT=1 just release 0.11.1 >"$rr/out" 2>&1; then
+            echo "UNGATED-dispatchfailure"
+        elif [ -n "$(git tag -l)" ] || [ -n "$(git ls-remote --tags origin)" ]; then
+            echo "TAGGED-dispatchfailure"
+        elif ! grep -q 'could not submit the release request' "$rr/out"; then
+            echo "UNSAID-dispatchfailure"
+        else
+            echo "ok-dispatchfailure"
+        fi
     ) >"$tmp/release-results" 2>"$tmp/release-err"
-    for _case in nosection other stale pins origin; do
+    for _case in nosection other stale pins nodispatch origin dispatchfailure; do
         if grep -qx "ok-$_case" "$tmp/release-results"; then
             pass=$((pass + 1))
         else

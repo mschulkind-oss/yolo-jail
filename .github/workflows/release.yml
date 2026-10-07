@@ -1,215 +1,376 @@
-# Release — tag-triggered goreleaser + homebrew tap update (shape copied from
-# mschulkind-oss/swarf).
-#
-# Releasing = `just release <version>`, which refuses unless CHANGELOG.md has a
-# written section for that version and the tree is clean, then pushes the v* tag
-# this workflow runs on. goreleaser builds the host-facing yolo binary, creates
-# the GitHub release, and uploads archives. The release BODY is that CHANGELOG.md
-# section, extracted from the tag's own tree by scripts/changelog-section.sh and
-# handed to goreleaser as --release-notes (see the goreleaser job); goreleaser's
-# commit-subject changelog is never published. goreleaser's before-hooks
-# (.goreleaser.yaml) also run the pin tool's `stage`, which rebuilds every
-# official pack binary, refuses unless each is the digest the tag pins, and
-# stages the builds that goreleaser uploads beside the archives
-# (docs/design/broker-as-a-pack.md BP-D8, BP-D9). The tool runs on the Go the
-# goreleaser job sets up, which only downloads the pinned toolchain every one
-# of those builds is made with.
-# publish.yml
-# (PyPI wheels + image pushes) runs off the SAME tag push — NOT off the
-# release event: goreleaser creates the release with the workflow-scoped
-# GITHUB_TOKEN, and GitHub's recursion guard means bot-created events never
-# trigger other workflows. The homebrew formula is a SOURCE-BUILD formula
-# (depends_on go), regenerated here by hand — no homebrew-pypi-poet, no PyPI
-# dependency.
-#
-# Divergences from swarf, on purpose:
-#   - the standalone host-daemon binaries were retired — their logic is reached
-#     via the hidden `yolo internal daemon <name>` subcommands; yolo-ps (the
-#     in-jail host-processes client) ships only in the nix image, not the host
-#     channels, so the host ship set is just yolo;
-#   - the formula is a SOURCE-BUILD formula that produces the PREBUILT "two
-#     files and a binary" bundle at install time: it `go build`s the host yolo,
-#     then runs scripts/stage-source-bundle.sh (cross-compiling both Linux
-#     arches, CGO off) into pkgshare/. The flake's prebuilt short-circuit then
-#     builds the jail image from that bundle with no toolchain at runtime;
-#   - no Utils.git_short_head in the formula ldflags — the source tarball has
-#     no .git, so only the version is stamped (internal/version.GitCommit
-#     stays empty for brew builds; goreleaser archives carry it);
-#   - workflow_dispatch backfill input kept from the old publish.yml brew job
-#     so a formula push can be re-run without re-releasing.
+# Normal releases and legacy Homebrew backfills are orchestrated from trusted
+# main. Target source is checked/built with read-only credentials; only the
+# trusted-main upload jobs can write release/tap state.
 name: Release
+run-name: ${{ inputs.mode == 'homebrew-only' && format('Homebrew-only v{0}', inputs.version) || format('Release v{0} @ {1} / request {2}', inputs.version, inputs.sha, inputs.request_run_id) }}
 
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
     inputs:
+      mode:
+        description: "publish is only dispatched after a release request; homebrew-only is the existing version-only formula backfill"
+        required: true
+        default: homebrew-only
+        type: choice
+        options: [homebrew-only, publish]
       version:
-        description: "Existing release version to re-run the homebrew formula push for, e.g. 0.7.0. The goreleaser job is skipped — the GitHub release must already exist."
+        description: "Immutable release version (X.Y.Z or X.Y.Z-pre; do not include v)"
         required: true
         type: string
+      sha:
+        description: "Exact tag commit SHA (required for the initial publish request)"
+        required: false
+        type: string
+      request_run_id:
+        description: "Originating trusted-main release-request Actions run id"
+        required: false
+        type: string
 
-permissions:
-  contents: write
+permissions: {}
+
+# Shared with publish.yml so Homebrew/Release creation and registry `latest`
+# writes cannot race across workflows or regress to an older version.
+concurrency:
+  group: release-publication-global
+  cancel-in-progress: false
 
 jobs:
-  goreleaser:
-    if: github.event_name == 'push'
+  eligibility:
     runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      sha: ${{ steps.target.outputs.sha }}
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
-      # The release body is the tag's own CHANGELOG.md section, never a commit
-      # list. `just release` runs this same script before it will create a tag,
-      # so on a release cut that way this cannot fail. It fails loudly when it
-      # does: a tag pushed by hand skipped the gate, and the fix is a new tag,
-      # because a tag is never moved.
-      #
-      # `--link-base` turns the file's repository-relative links into absolute
-      # ones pinned to this tag: the release page is /releases/tag/<tag>, where a
-      # relative href resolves under /releases/tag/ and 404s. `--unwrap` joins the
-      # file's hard-wrapped paragraphs, because GitHub renders every newline in a
-      # release body as a line break.
-      #
-      # The notes are written to $RUNNER_TEMP, OUTSIDE the checkout: goreleaser
-      # refuses to release from a dirty tree, and a notes file in the workspace
-      # would make it one.
-      - name: Extract the release notes from the tag's CHANGELOG.md
+      - name: Resolve only the immutable tag and prove trusted exact-CI eligibility
+        id: target
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REF_TYPE: ${{ github.ref_type }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+          WORKFLOW_SHA: ${{ github.sha }}
+          INPUT_MODE: ${{ inputs.mode }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_SHA: ${{ inputs.sha }}
+          INPUT_REQUEST_RUN_ID: ${{ inputs.request_run_id }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
-          base="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/${GITHUB_REF_NAME}"
-          if ! sh scripts/changelog-section.sh --link-base "$base" --unwrap "$version" > "$RUNNER_TEMP/notes.md"; then
-            echo "::error::${GITHUB_REF_NAME} has no usable CHANGELOG.md section — it was not cut with 'just release'."
-            echo "Nothing was built or published. A tag is never moved, so ${GITHUB_REF_NAME} is not reused:"
-            echo "write the section for the next version and cut that with: just release <next version>"
+          if [ "$GITHUB_REF_TYPE" != branch ] || [ "$GITHUB_REF_NAME" != main ] || [ "$GITHUB_EVENT_NAME" != workflow_dispatch ]; then
+            echo "::error::Release workflow source must be a main-scoped dispatch."
             exit 1
           fi
-          echo "Release notes: $(wc -l < "$RUNNER_TEMP/notes.md") lines from the [${version}] section"
+          version="$INPUT_VERSION"
+          if [ "$INPUT_MODE" = publish ]; then
+            if ! printf '%s\n' "$INPUT_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+              echo "::error::initial publish requires a full frozen SHA."
+              exit 1
+            fi
+            if ! printf '%s\n' "$INPUT_REQUEST_RUN_ID" | grep -Eq '^[1-9][0-9]{0,19}$'; then
+              echo "::error::initial publish requires its originating release-request run id."
+              exit 1
+            fi
+            sha="$INPUT_SHA"
+            order_check=1
+          elif [ "$INPUT_MODE" = homebrew-only ]; then
+            sha=$(RELEASE_VERSION="$version" EXPECTED_SHA="$INPUT_SHA" tools/release-wiring/resolve-tag.sh)
+            order_check=0
+          else
+            echo "::error::unknown release mode."
+            exit 1
+          fi
+          GITHUB_REPOSITORY="$GITHUB_REPOSITORY" GITHUB_REF_TYPE="$GITHUB_REF_TYPE" GITHUB_REF_NAME="$GITHUB_REF_NAME" \
+            WORKFLOW_SHA="$WORKFLOW_SHA" GITHUB_RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT" \
+            RELEASE_VERSION="$version" RELEASE_SHA="$sha" RELEASE_PRETAG=0 RELEASE_ORDER_CHECK="$order_check" \
+            tools/release-wiring/preflight.sh
+          if [ "$INPUT_MODE" = publish ]; then
+            GITHUB_REPOSITORY="$GITHUB_REPOSITORY" GITHUB_REF_TYPE="$GITHUB_REF_TYPE" GITHUB_REF_NAME="$GITHUB_REF_NAME" \
+              GITHUB_EVENT_NAME="$GITHUB_EVENT_NAME" GITHUB_RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT" GH_TOKEN="$GH_TOKEN" \
+              RELEASE_VERSION="$version" RELEASE_SHA="$sha" REQUEST_RUN_ID="$INPUT_REQUEST_RUN_ID" \
+              go run ./tools/release-wiring verify-release-request
+          fi
+          if [ "$INPUT_MODE" = publish ]; then
+            GITHUB_REPOSITORY="$GITHUB_REPOSITORY" RELEASE_TAG="v${version}" tools/release-wiring/ensure-release-absent.sh
+          else
+            GITHUB_REPOSITORY="$GITHUB_REPOSITORY" RELEASE_TAG="v${version}" GH_TOKEN="$GH_TOKEN" tools/release-wiring/ensure-release-present.sh
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
-      # --release-notes replaces goreleaser's generated changelog with the file:
-      # goreleaser's changelog pipe loads the file and returns before it builds
-      # the commit list (internal/pipe/changelog, Run). Do NOT set
-      # `changelog.disable: true` in .goreleaser.yaml to get the same effect —
-      # that skips the whole pipe, including the load, and the release would go
-      # out with an empty body.
+  prepare-target:
+    needs: eligibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ needs.eligibility.outputs.sha }}
+          path: target
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: target/go.mod
+
+      - name: Verify target notes and official binary pins without write credentials
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_SHA: ${{ needs.eligibility.outputs.sha }}
+          TARGET_ROOT: target
+        run: tools/release-wiring/validate-target.sh
+
+  goreleaser-prepare:
+    if: inputs.mode == 'publish'
+    needs: [eligibility, prepare-target]
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ needs.eligibility.outputs.sha }}
+          path: target
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: target/go.mod
+
+      - name: Render target changelog as inert release data
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_SHA: ${{ needs.eligibility.outputs.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/target-notes"
+          git show "${RELEASE_SHA}:CHANGELOG.md" > "$RUNNER_TEMP/target-notes/CHANGELOG.md"
+          base="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/v${RELEASE_VERSION}"
+          (cd "$RUNNER_TEMP/target-notes" && "$GITHUB_WORKSPACE/scripts/changelog-section.sh" --link-base "$base" --unwrap "$RELEASE_VERSION" > "$RUNNER_TEMP/release-notes.md")
+
+      - name: Refuse a target-selected GoReleaser configuration
+        run: cmp --silent target/.goreleaser.yaml .goreleaser.yaml || { echo "::error::Target GoReleaser config differs from the trusted release config."; exit 1; }
+
+      # GoReleaser v2.18.2 is checksum-verified and documented in the repair handoff.
+      # --skip=publish performs the supported preparation pipes only. No GITHUB_TOKEN
+      # or registry credential is present in this target-controlled build job.
       - uses: goreleaser/goreleaser-action@v7
         with:
-          version: "~> v2"
-          args: release --clean --release-notes ${{ runner.temp }}/notes.md
+          version: v2.18.2
+          workdir: target
+          args: release --clean --skip=publish --release-notes ${{ runner.temp }}/release-notes.md
+
+      - name: Package only the supported inert GoReleaser output contract
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, re, shutil, stat, sys
+          version = os.environ["RELEASE_VERSION"]
+          target = pathlib.Path("target")
+          dist = target / "dist"
+          out = pathlib.Path("release-assets")
+          if out.exists() or out.is_symlink():
+              raise SystemExit("release-assets output path already exists")
+          out.mkdir()
+          platforms = {
+              "darwin_amd64_v1": ("darwin", "amd64"),
+              "darwin_arm64_v8.0": ("darwin", "arm64"),
+              "linux_amd64_v1": ("linux", "amd64"),
+              "linux_arm64_v8.0": ("linux", "arm64"),
+          }
+          archives = {f"yolo-jail_{version}_{os_name}_{arch}.tar.gz" for os_name, arch in platforms.values()}
+          expected_top = archives | {"checksums.txt", "artifacts.json", "metadata.json", "config.yaml"} | {"yolo_" + name for name in platforms}
+          if not dist.is_dir() or dist.is_symlink():
+              raise SystemExit("GoReleaser dist output is not a real directory")
+          top = {p.name for p in dist.iterdir()}
+          if top != expected_top:
+              raise SystemExit(f"unexpected GoReleaser dist paths: missing={sorted(expected_top-top)} extra={sorted(top-expected_top)}")
+          for name in top:
+              p = dist / name
+              mode = p.lstat().st_mode
+              if name in {"yolo_" + n for n in platforms}:
+                  if not stat.S_ISDIR(mode) or p.is_symlink():
+                      raise SystemExit(f"unexpected GoReleaser output type: {name}")
+                  files = list(p.iterdir())
+                  if len(files) != 1 or files[0].name != "yolo" or not stat.S_ISREG(files[0].lstat().st_mode) or files[0].is_symlink():
+                      raise SystemExit(f"unexpected build directory content: {name}")
+              elif not stat.S_ISREG(mode) or p.is_symlink() or p.stat().st_size <= 0:
+                  raise SystemExit(f"unexpected GoReleaser output type: {name}")
+          artifacts = json.loads((dist / "artifacts.json").read_text())
+          expected_records = {("Metadata", "metadata.json", "dist/metadata.json"), ("Checksum", "checksums.txt", "dist/checksums.txt")}
+          for name in archives:
+              expected_records.add(("Archive", name, "dist/" + name))
+          for slug in platforms:
+              expected_records.add(("Binary", "yolo", f"dist/yolo_{slug}/yolo"))
+          records = set()
+          for record in artifacts:
+              key = (record.get("type"), record.get("name"), record.get("path"))
+              if key in records or key not in expected_records:
+                  raise SystemExit(f"unexpected/duplicate GoReleaser metadata record: {key}")
+              records.add(key)
+          if records != expected_records:
+              raise SystemExit(f"GoReleaser artifact manifest incomplete: missing={sorted(expected_records-records)}")
+          lines = (dist / "checksums.txt").read_text().splitlines()
+          checks = {}
+          for line in lines:
+              m = re.fullmatch(r"([0-9a-f]{64})  ([A-Za-z0-9][A-Za-z0-9._+-]*)", line)
+              if not m or m.group(2) in checks:
+                  raise SystemExit("malformed or duplicate checksums.txt entry")
+              checks[m.group(2)] = m.group(1)
+          pack_dir = target / "bundle/pack-binaries"
+          extras = set(checks) - archives
+          if set(checks) != archives | extras:
+              raise SystemExit("checksum asset set is malformed")
+          pack_files = {}
+          if pack_dir.exists():
+              if not pack_dir.is_dir() or pack_dir.is_symlink():
+                  raise SystemExit("pack-binaries output is not a real directory")
+              for item in pack_dir.iterdir():
+                  mode = item.lstat().st_mode
+                  if not stat.S_ISREG(mode) or item.is_symlink() or item.name in pack_files:
+                      raise SystemExit(f"unsafe pack-binary output: {item.name}")
+                  pack_files[item.name] = item
+          if set(pack_files) != extras:
+              raise SystemExit(f"pack-binary output/checksum mismatch: missing={sorted(extras-set(pack_files))} extra={sorted(set(pack_files)-extras)}")
+          for name, expected in checks.items():
+              source = dist / name if name in archives else pack_files[name]
+              digest = hashlib.sha256(source.read_bytes()).hexdigest()
+              if digest != expected:
+                  raise SystemExit(f"checksum mismatch for {name}")
+              shutil.copyfile(source, out / name)
+          shutil.copyfile(dist / "checksums.txt", out / "checksums.txt")
+          PY
 
-  update-homebrew:
-    # `always()` so the job still runs when goreleaser is skipped (manual
-    # dispatch); the inner condition then gates on either the release having
-    # succeeded, or the event being manual.
-    if: |
-      always() &&
-      (github.event_name == 'workflow_dispatch' ||
-       needs.goreleaser.result == 'success')
-    needs: [goreleaser]
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-assets
+          path: release-assets/
+          if-no-files-found: error
+
+  publish-release:
+    if: inputs.mode == 'publish'
+    needs: [eligibility, goreleaser-prepare]
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      actions: read
     steps:
-      - name: Determine version
-        id: version
+      - name: Refuse publication replay at job entry
+        env:
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
-          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
-            VERSION="${GITHUB_REF_NAME#v}"
-          else
-            VERSION="${{ github.event.inputs.version }}"
-          fi
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "Updating homebrew formula for yolo-jail ${VERSION}"
-
-      - name: Generate formula
-        run: |
-          set -euo pipefail
-          VERSION="${{ steps.version.outputs.version }}"
-          TAG="v${VERSION}"
-          TARBALL="https://github.com/mschulkind-oss/yolo-jail/archive/refs/tags/${TAG}.tar.gz"
-          # -f is load-bearing: without it a 404 (typo'd dispatch version) or
-          # transient 5xx exits 0 and the ERROR BODY's sha gets baked into a
-          # formula that every `brew install` then fails to verify.
-          SHA256=$(curl -fsSL --retry 3 "$TARBALL" | sha256sum | cut -d' ' -f1)
-          if ! echo "$SHA256" | grep -Eq '^[0-9a-f]{64}$'; then
-            echo "Bad sha256 for ${TARBALL}: ${SHA256}" >&2
+          if [ "$GITHUB_RUN_ATTEMPT" != 1 ]; then
+            echo "::error::Publication reruns are refused before credential actions or writes; inspect the original run and partial state read-only with the owner. Do not replay or remove the claim."
             exit 1
           fi
 
-          cat > yolo-jail.rb <<FORMULA
-          class YoloJail < Formula
-            desc "Declarative agentic development environments, from a sealed jail to your host"
-            homepage "https://github.com/mschulkind-oss/yolo-jail"
-            url "${TARBALL}"
-            sha256 "${SHA256}"
-            license "Apache-2.0"
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
 
-            depends_on "go" => :build
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-assets
+          path: release-assets
 
-            def install
-              ldflags = %W[
-                -s -w
-                -X github.com/mschulkind-oss/yolo-jail/internal/version.buildVersion=#{version}
-              ]
-              system "go", "build", *std_go_args(output: bin/"yolo", ldflags: ldflags.join(" ")), "./cmd/yolo"
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
 
-              # Produce the PREBUILT "two files and a binary" bundle beside the
-              # binary so a checkout-less install builds the jail image
-              # (nix build .#ociImage) with NO Go toolchain and NO source tree at
-              # runtime — the flake's prebuilt short-circuit consumes
-              # bin/linux-<arch>. The script cross-compiles both Linux arches
-              # (CGO off; needs no C toolchain), stamping the release version so
-              # the image binaries self-identify. It writes flake.nix, flake.lock
-              # and bin/linux-{amd64,arm64}/ into pkgshare; BundledSourceDir finds
-              # it at ../share/yolo-jail relative to bin/yolo. See
-              # internal/reporoot + scripts/stage-source-bundle.sh.
-              with_env("VERSION" => version.to_s) do
-                system "scripts/stage-source-bundle.sh", pkgshare.to_s
-              end
-            end
-
-            def caveats
-              <<~EOS
-                The first \`yolo\` run in a workspace builds or pulls the jail's
-                container image (nix), which takes a while; later runs reuse it.
-              EOS
-            end
-
-            test do
-              assert_match "yolo-jail #{version}", shell_output("#{bin}/yolo --version")
-            end
-          end
-          FORMULA
-
-          # Remove leading whitespace from heredoc
-          sed -i 's/^          //' yolo-jail.rb
-          echo "--- Generated formula ---"
-          cat yolo-jail.rb
-
-      - name: Push to tap
+      - name: Render notes and publish only validated files from trusted main
         env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REF_TYPE: ${{ github.ref_type }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+          WORKFLOW_SHA: ${{ github.sha }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_SHA: ${{ needs.eligibility.outputs.sha }}
+          REQUEST_RUN_ID: ${{ inputs.request_run_id }}
+          RELEASE_PRETAG: "0"
+          RELEASE_ORDER_CHECK: "1"
+          RELEASE_ASSETS_DIR: release-assets
+          RELEASE_NOTES_FILE: ${{ runner.temp }}/release-notes.md
+          GH_TOKEN: ${{ github.token }}
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           set -euo pipefail
-          VERSION="${{ steps.version.outputs.version }}"
-          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/mschulkind-oss/homebrew-tap.git" tap
-          mkdir -p tap/Formula
-          cp yolo-jail.rb tap/Formula/yolo-jail.rb
-          cd tap
-          git config user.name "yolo-jail release bot"
-          git config user.email "noreply@github.com"
-          git add Formula/yolo-jail.rb
-          if git diff --cached --quiet; then
-            echo "Formula unchanged; nothing to commit."
-            exit 0
-          fi
-          git commit -m "yolo-jail ${VERSION}"
-          git push
+          mkdir -p "$RUNNER_TEMP/target-notes"
+          git show "${RELEASE_SHA}:CHANGELOG.md" > "$RUNNER_TEMP/target-notes/CHANGELOG.md"
+          base="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/v${RELEASE_VERSION}"
+          (cd "$RUNNER_TEMP/target-notes" && "$GITHUB_WORKSPACE/scripts/changelog-section.sh" --link-base "$base" --unwrap "$RELEASE_VERSION" > "$RELEASE_NOTES_FILE")
+          go run ./tools/release-wiring verify-release-request
+          tools/release-wiring/publish-release.sh
+          VERSION="$RELEASE_VERSION" RELEASE_TAG="v${RELEASE_VERSION}" tools/release-wiring/update-homebrew.sh
+
+  homebrew-only:
+    if: inputs.mode == 'homebrew-only'
+    needs: [eligibility, prepare-target]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Recheck immutable old source and publish only the formula update
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REF_TYPE: ${{ github.ref_type }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+          WORKFLOW_SHA: ${{ github.sha }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_SHA: ${{ needs.eligibility.outputs.sha }}
+          RELEASE_PRETAG: "0"
+          GH_TOKEN: ${{ github.token }}
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          tools/release-wiring/preflight.sh
+          GITHUB_REPOSITORY="$GITHUB_REPOSITORY" RELEASE_TAG="v${RELEASE_VERSION}" tools/release-wiring/ensure-release-present.sh
+          VERSION="$RELEASE_VERSION" RELEASE_TAG="v${RELEASE_VERSION}" tools/release-wiring/update-homebrew.sh

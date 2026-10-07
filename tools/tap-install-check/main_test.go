@@ -332,6 +332,104 @@ func TestRunReadsTheExpectationFromTheEvent(t *testing.T) {
 	}
 }
 
+// TestRunReadsTrustedMainReleaseDispatch pins the production caller to the
+// main-sourced Release metadata: normal releases must hold the tap to the exact
+// title version, while only the explicitly labeled Homebrew backfill stays
+// versionless. These exercise run() through runChecker, not only the decoder.
+func TestRunReadsTrustedMainReleaseDispatch(t *testing.T) {
+	m := newStubMachine(t)
+	m.install(t)
+	payload := filepath.Join(m.root, "event.json")
+	t.Setenv("GITHUB_EVENT_NAME", "workflow_run")
+	t.Setenv("GITHUB_EVENT_PATH", payload)
+	sha := "0123456789abcdef0123456789abcdef01234567"
+	run := func(ref, title, conclusion string, includeTitle bool) string {
+		workflowRun := map[string]string{
+			"name": "Release", "event": "workflow_dispatch", "head_branch": ref,
+			"conclusion": conclusion,
+		}
+		if includeTitle {
+			workflowRun["display_title"] = title
+		}
+		body, err := json.Marshal(map[string]any{"workflow_run": workflowRun})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(body)
+	}
+	for _, tc := range []struct {
+		name, payload, want string
+		rc                  int
+	}{
+		{
+			name:    "main release mismatch fails against the requested version",
+			payload: run("main", "Release v0.12.0 @ "+sha+" / request 123", "success", true),
+			rc:      1, want: "but this run verifies release 0.12.0",
+		},
+		{
+			name:    "main release match passes",
+			payload: run("main", "Release v0.11.0 @ "+sha+" / request 123", "success", true),
+			rc:      0,
+		},
+		{
+			name:    "main prerelease is parsed as its exact version",
+			payload: run("main", "Release v0.11.0-rc.1 @ "+sha+" / request 123", "success", true),
+			rc:      1, want: "but this run verifies release 0.11.0-rc.1",
+		},
+		{
+			name:    "missing main release title is refused",
+			payload: run("main", "", "success", false),
+			rc:      2, want: "missing or malformed display_title",
+		},
+		{
+			name:    "malformed main release title is refused",
+			payload: run("main", "Release v0.12.0 @ short / request 123", "success", true),
+			rc:      2, want: "missing or malformed display_title",
+		},
+		{
+			name:    "failed main release is refused",
+			payload: run("main", "Release v0.12.0 @ "+sha+" / request 123", "failure", true),
+			rc:      2, want: `concluded "failure"`,
+		},
+		{
+			name:    "normal release metadata on a non-main ref is refused",
+			payload: run("release/0.12.0", "Release v0.12.0 @ "+sha+" / request 123", "success", true),
+			rc:      2, want: `unexpected ref "release/0.12.0"`,
+		},
+		{
+			name:    "explicitly labeled legacy Homebrew backfill stays versionless",
+			payload: run("main", "Homebrew-only v0.11.0", "success", true),
+			rc:      0,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			writeFile(t, payload, tc.payload, 0o644)
+			rc, out := runChecker(t, "-formula", testFormula, "-expect-from-github-event")
+			if rc != tc.rc || (tc.want != "" && !strings.Contains(out, tc.want)) {
+				t.Errorf("runChecker = %d, want %d containing %q:\n%s", rc, tc.rc, tc.want, out)
+			}
+		})
+	}
+}
+
+// Tag-scoped publisher dispatches must reach the production checker with the
+// requested version, not silently fall back to checking the tap against itself.
+func TestRunReadsTagScopedReleaseDispatch(t *testing.T) {
+	m := newStubMachine(t)
+	m.install(t)
+	payload := filepath.Join(m.root, "event.json")
+	t.Setenv("GITHUB_EVENT_NAME", "workflow_run")
+	t.Setenv("GITHUB_EVENT_PATH", payload)
+	writeFile(t, payload, `{"workflow_run":{"name":"Release","event":"workflow_dispatch","head_branch":"v0.12.0","conclusion":"success"}}`, 0o644)
+	if rc, out := runChecker(t, "-formula", testFormula, "-expect-from-github-event"); rc != 1 || !strings.Contains(out, "but this run verifies release 0.12.0") {
+		t.Errorf("dispatch must fail for the version the tap does not carry, got %d:\n%s", rc, out)
+	}
+	writeFile(t, payload, `{"workflow_run":{"name":"Release","event":"workflow_dispatch","head_branch":"v0.11.0","conclusion":"success"}}`, 0o644)
+	if rc, out := runChecker(t, "-formula", testFormula, "-expect-from-github-event"); rc != 0 {
+		t.Errorf("dispatch must pass for the matching release, got %d:\n%s", rc, out)
+	}
+}
+
 // TestRunRefusesAMalformedInvocation requires each refusal to be the one its case is
 // about, so a case cannot pass on another guard's refusal: the exclusivity case runs
 // under a valid GitHub event, where only the exclusivity check stands between the
