@@ -3,9 +3,9 @@ title: "Running yolo on OrbStack without a Docker backend: podman inside an OrbS
 date: 2026-10-06
 status: in-review
 stage: DESIGN
-next: "After 0.12.0, prepare a checked plan for a working OrbStack setup through Podman and verify it on the existing Mac runner before considering a Docker fallback"
+next: "Rule [OQ-ORB1](#OQ-ORB1) for setup ownership; then build the independent stdin slice from the checked handoff"
 tags: [research, macos, orbstack, podman, backend]
-summary: "The maintainer asked what official OrbStack support in yolo would take. The runtime comparison assumed it meant a Docker-API backend, reversing Docker's removal. It does not: podman installed in an OrbStack Linux machine and driven from the Mac as a podman connection ran the benchmark workload at OrbStack's own speed, gave a freed 2 GiB back to macOS within 60 s, and ran a full yolo jail with all three host services reachable, with no yolo code change. Two faults needed workarounds: OrbStack's SSH proxy drops a container's output once the client closes stdin, which yolo always does, and the jail must be told to reach host services at host.orb.internal. Support would be five small changes on yolo's existing podman path plus a self-hosted CI Mac."
+summary: "Checked post-release build handoff for yolo's environment on OrbStack: keep Podman, split setup, jail I/O, daemon reachability and native CI, and require an OrbStack-specific Mac proof."
 vantage:
   status-chip: true
 ---
@@ -30,9 +30,7 @@ in yolo officially?"*
 > - **A real yolo jail already runs on it**, through yolo's existing podman path, with all three
 >   host services reachable ([§3](#3-a-yolo-jail-on-it-today)). It needed a manual machine setup
 >   and two workarounds.
-> - **Official support is five changes plus CI** ([§4](#4-what-official-support-would-take)), all on
->   the podman path. The alternative, a Docker-API backend, would undo
->   [Docker's removal](../reference/fill-the-matrix-principle.md) for no measured gain.
+> - **Official support is several bounded changes plus a native CI proof** ([checked build handoff](orbstack-as-a-podman-host-plan.md)); it does not require restoring Docker as a backend.
 > - **Unchanged:** OrbStack is closed source and paid for commercial use.
 
 ## Terms
@@ -143,38 +141,83 @@ Follow the [happy-path principle](../reference/happy-path-principle.md). Prefer 
 at the expense of a reliable setup. Docker is allowed as a fallback if the Podman route cannot
 deliver that result; the ruling does not restore the removed runtime or change the default.
 
-The five steps below remain proposed work, not measured fixes. The preferred route uses the
-existing Podman runtime. A Docker fallback would require its own checked design and coverage
-under [the fill-the-matrix rule](../reference/fill-the-matrix-principle.md).
+The implementation is split into independently testable owners in the
+[checked build handoff](orbstack-as-a-podman-host-plan.md). Current-tree checks establish these
+boundaries, not that any proposed change already works:
 
-1. **Keep the main process's stdin open.** Give `startJailMain` a pipe nobody writes instead of
-   `/dev/null`. The hold reads nothing either way, and the [SSH comparison](#31-orbstacks-ssh-proxy-drops-output-after-stdin-closes) shows an open stdin gets the
-   output through OrbStack's proxy. That makes OrbStack's own connection on port 32222 usable and
-   removes the sshd and the tunnel. Checking every other `-i` with a closed stdin yolo runs is
-   part of it. Report the proxy fault to OrbStack as well.
-2. **Advertise `host.orb.internal` on OrbStack.** Recognise the host (the machine's kernel name
-   is `7.0.14-orbstack-…`, which `podman info` reports) and advertise that name, recording a
-   loopback disposition for it. `TestEveryBackendDeclaresALoopbackDisposition` and the
-   reachability witness's severity rule
-   ([`OQ-R3`](../reference/loopback-tls-reachability.md#oq-r3)) then apply as on any backend.
-3. **Set the machine up for the user.** Provide a working setup path that creates the machine,
-   installs podman, writes `/etc/subuid`, enables the socket and adds the connection. A manual
-   workaround recipe alone does not satisfy the ruling. A `yolo check` section must name missing
-   prerequisites and the command that fixes them. Exact command shape and machine ownership
-   belong in the build plan rather than assumptions hidden in implementation.
-4. **Check what assumes `podman machine`.** `ReadMachineShares` returns no answer under
-   `CONTAINER_CONNECTION` ([`runtime/machineshares.go`](../../internal/runtime/machineshares.go)),
-   and memory sizing reads `podman machine inspect`. Neither failed the launch above, but neither
-   was checked: OrbStack shares more than `/Users` (a workspace under `/tmp` was not tried), and
-   the nix daemon socket mount was not tested.
-5. **CI.** Use the existing self-hosted Mac for dispatch-only verification: the maintainer
-   confirmed on 2026-10-06 that it already has OrbStack. Check its machine, connection and license
-   prerequisites; installation alone is not a passing launch test. Verify closed-stdin output,
-   workspace mounts and enabled host-service reachability there.
+1. **Setup, runtime selection and image delivery.** `YOLO_RUNTIME=podman` selects yolo's existing
+   Podman path, and `CONTAINER_CONNECTION` makes Podman target a named endpoint. On a Mac that
+   path already chooses `deliverViaArchive` and `podman load -i`, because `containers-storage:`
+   belongs inside the Podman VM; retain it unless a native OrbStack test fails. `ReadMachineShares`
+   declines to guess when a remote connection is selected, and macOS `yolo check` currently labels
+   `podman machine info` as Podman Machine readiness. The happy path still needs an owner ruling
+   about the first-party setup surface and who owns the machine/connection; see [OQ-ORB1](#OQ-ORB1).
+2. **Mounts and jail I/O.** [`startJailMain`](../../internal/cli/run/jailmain.go) passes nil stdin
+   (therefore `/dev/null`) to the Podman run client; a regression unit test can distinguish an open,
+   unwritten pipe from EOF, then the OrbStack runner must prove output survives the SSH half-close.
+   Audit the other bounded `-i` callers in [`assemble.go`](../../internal/cli/run/assemble.go),
+   [`jailmain.go`](../../internal/cli/run/jailmain.go) and [`run.go`](../../internal/cli/run/run.go),
+   plus stdin forwarding in [`proxy_other.go`](../../internal/cli/run/proxy_other.go): the first-session
+   and attach `exec -i` paths must retain their intentional EOF behavior. Native proof includes a fresh
+   launch and attach with closed invoking stdin. The connection-specific share probe returns unknown,
+   not pass, so native mount evidence must come from an actual jail bind and write.
+3. **Host daemon reachability.** [`hostloopback.go`](../../internal/cli/run/hostloopback.go) owns
+   the assembled in-jail loopback disposition, but currently returns empty host-loopback facts on
+   macOS. [`podmanready.go`](../../internal/cli/run/podmanready.go) stores Podman readiness facts only
+   for the non-machine case, so the selected remote endpoint's answer must be carried into this
+   path. The daemon's published hostname is selected separately by `advertiseHostFor` in
+   [`loopholesruntime.go`](../../internal/cli/run/loopholesruntime.go), called by
+   `startLoopholesMatching` and passed as `YOLO_SVC_ADVERTISE_HOST` to a loopback-TLS child;
+   [`svcendpoint/listen.go`](../../internal/svcendpoint/listen.go) consumes that explicit override
+   or uses its existing default. Those host services start in a separate keeper with fresh
+   `Options` ([`keeper.go`](../../internal/cli/run/keeper.go)), so any launch facts for advertisement
+   must cross [`keeperplan.go`](../../internal/cli/run/keeperplan.go) / [`keeperspawn.go`](../../internal/cli/run/keeperspawn.go).
+   ORB-D2 proposes positive OrbStack identification, `host.orb.internal` advertisement and a
+   matching disposition; no such automatic behavior is built. Caller-level regressions must prove
+   the assembled disposition and actual daemon publication agree. Unit logic does not establish
+   the Mac-to-jail network hop.
+4. **Native CI.** Use the existing self-hosted Mac already used by
+   [`apple-container.yml`](../../.github/workflows/apple-container.yml), with an OrbStack-specific
+   dispatch-only workflow and integration test. The job must prove it used the requested named
+   Podman connection, not a default Podman Machine. `workflow_dispatch`, read-only contents
+   permission and the repository guard are the established self-hosted safety pattern.
 
-**The alternative**, a Docker-API backend, is permitted as a fallback rather than the first build.
-Restoring it requires complete runtime coverage; there is no measured reason to prefer it yet.
-Establish whether the Podman fixes deliver a normal working setup before taking that larger path.
+**Native verification is required, not claimed.** The existing self-hosted Mac already used by
+[`apple-container.yml`](../../.github/workflows/apple-container.yml) has OrbStack per the maintainer;
+this Linux checkout has not run OrbStack, inspected the Mac's account, license, machine, connection
+or credentials, or dispatched a workflow. The [handoff](orbstack-as-a-podman-host-plan.md) specifies
+the dispatch boundary, exact runner command, explicit Podman-connection/kernel assertion and the
+jail outcomes required. No Linux/nested Podman run stands in for native proof of the SSH proxy,
+shared-folder behavior or host loopback. Functional success does not establish commercial-license
+compliance; the maintainer remains responsible for that prerequisite.
+
+The [handoff](orbstack-as-a-podman-host-plan.md) gives the current-source map, exclusive owners,
+test cases and build order. The first buildable slice is the failing-before-fix stdin regression and
+lifetime fix; setup implementation stops on [OQ-ORB1](#OQ-ORB1). A Docker-API backend remains an alternative
+only if native Podman support cannot meet ORB-D1; it needs its own bounded design and complete
+coverage rather than an automatic reversion to the retired backend.
+
+## Open questions
+
+1. 🔒 **OQ-ORB1: Should OrbStack setup create a yolo-owned machine or use a user-selected one?**
+
+   The happy path needs a first-party way to reach a working setup. A public setup/repair command
+   and its authority to create, claim or change a machine and Podman connection are not ruled.
+   A helper script may implement the command but is not itself a product decision.
+
+   - **A — Create a separate yolo-owned machine and connection.** A first-party command asks before
+     creation or configuration; `yolo check` stays read-only.
+   - **B — Use an explicitly selected existing machine and connection.** A first-party command
+     configures only what the user authorizes; it never claims or rewrites unrelated state.
+
+   <!-- vantage: question id=OQ-ORB1 leaning="A — create a separate yolo-owned machine and connection only after explicit consent; keep yolo check non-mutating and never claim existing state." -->
+
+   _Leaning:_ A — prefer a separate yolo-owned machine and connection, with explicit consent for
+   creation/configuration and a read-only `yolo check`; never claim existing state automatically.
+
+   **Answer:**
+
+   > _(awaiting maintainer ruling)_
 
 ## Decision Ledger
 

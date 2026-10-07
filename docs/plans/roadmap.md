@@ -34,11 +34,9 @@ under [External waits](#external-waits).
    is every boot pass's largest step (0.95 s on 2026-10-04 in the maintainer's workspace).
 4. [Refuse at lint a shared-dir hook whose `at` names no machine `state` of its pack](../design/pack-conventions.md#7-considered-and-not-proposed)
    — `yolo pack lint` and `yolo check` pass it and the boot refuses it; start with the failing lint test.
-5. [Release 0.12.0 and finish the patched-fork mode](../design/patched-forks.md), with [its pi-extension
-   companion](../design/patched-extensions.md) — first of the unblockers: the maintainer asked for both "out as soon as
-   possible", and `patches` in `matt` or `pi-fork` refuses every launch on a host older than the mode ([what an older
-   yolo does](../design/pack-conventions.md#2-what-an-older-yolo-does-with-a-convention)). The changelog is cut and no
-   pack binary needs pinning, so the maintainer runs `just release 0.12.0`. Beside it: [the build line shown by its
+5. [Finish the patched-fork mode's verification](../design/patched-forks.md), with [its pi-extension
+   companion](../design/patched-extensions.md) — the compatibility release is published; keep the remaining
+   verification ahead of dependent work. Beside it: [the build line shown by its
    digest](../reference/report-tiers.md#why-its-this-way), ruled 2026-10-05 and not built; [whether a Mac fork build
    installs its base's `node_floor` first](../design/forked-programs-as-packs.md#OQ-FP11); his test with the migration kit.
 6. [Per-jail host daemons (HD-R1)](../design/host-daemon-ownership.md) — built on branch
@@ -125,7 +123,8 @@ under [External waits](#external-waits).
 32. Calls left at one decision each, each with its facts and a leaning: [the `:ro` degradation rows](../design/composed-file-permissions.md),
     [whether messages name the guide's URL](../design/docs-website.md#OQ-DW3), [the macOS nix build sandbox](../design/macos-user-build-step-threat-model.md),
     [array-append pinning](BACKLOG.md#E5), [the pack system's other calls](../reference/pack-system.md), [relocating
-    `.yolo` by a link](../reference/jail-home.md#OQ-JH1), and, once item 15 records its cases, [context sources inside a
+    `.yolo` by a link](../reference/jail-home.md#OQ-JH1), [the shared tool store's relocation contract](../design/shared-tool-store-relocation.md)
+    with [its build handoff](shared-tool-store-relocation.md), and, once item 15 records its cases, [context sources inside a
     home](../design/context-mounts.md).
 33. [Rule whether yolo may hold an editor preference](../design/baked-editor-preference.md) — the maintainer asked for
     it, and its first ruling decides an image change every jail pays.
@@ -136,8 +135,9 @@ under [External waits](#external-waits).
     declaring `packages:`](../reference/image-staging-vs-baking.md), as a nix build that finds nothing to do is 3.2 to
     3.5 s of a 6.9 s fresh launch; and [Podman Machines pinned to applehv](../research/macos-vm-runtime-comparison.md#32-on-a-shared-mac-folder),
     as Podman's installer gives libkrun, the slowest shared folder measured. Then
-    [make OrbStack a working Podman host](../research/orbstack-as-a-podman-host.md), as its measured
-    shared-folder speed and memory return offer another Mac option without restoring Docker first.
+    [make OrbStack a working Podman host](../research/orbstack-as-a-podman-host.md), with [its native verification
+    plan](../research/orbstack-as-a-podman-host-plan.md), as its measured shared-folder speed and memory return offer
+    another Mac option without restoring Docker first.
 36. Builds no ruling holds: [the provisioner override](../design/provisioner-sets.md#9-what-i-would-build-in-order),
     whose grain was ruled 2026-10-05; [the readiness act on macos-user](../design/jail-notch-readiness.md#JR-D2) — **built 2026-10-06**: host-side admission starts the existing confined stage for an absent/unknown selected program and its generated bootstrap runs the shared readiness act; fixture tests are in `integration/macosuserprogramreadiness_test.go`, with native macOS execution pending; [a provider set's overlay modifier](../design/active-provider-sets.md#13-what-was-built-2026-09-29), which reads only the
     primary; [the empty-list line in `yolo check`](../design/model-lists-and-pickers.md#72-composition-rules); [TP10's
@@ -145,7 +145,9 @@ under [External waits](#external-waits).
     [the color pass's Group B](cli-visual-polish.md); [the unit suite's clock waits](test-suite-speed.md#unit-tests-one-package-sets-the-wall-time-and-five-of-its-tests-are-waiting-on-clocks);
     [the Bedrock user-guide recipes](../design/bedrock-plumbing.md#12-what-i-would-build-in-order); [the disk levers'
     re-measure](../design/disk-levers-and-backfill.md); and the pi guide's line on [a package the refresh missed](../design/pi-extension-lifecycle.md).
-37. What the 2026-10-05 and 2026-10-06 builds still owe: read the first scheduled macos-user nightly with [the vendor
+37. Verify [the exact-commit release gate](../design/pre-tag-release-gate.md) before the next publication request,
+    because offline fixtures do not prove live Actions or publisher permissions. What the 2026-10-05 and 2026-10-06
+    builds still owe: read the first scheduled macos-user nightly with [the vendor
     installs](../reference/agent-install-in-ci.md), and the linux/arm64 copilot cell for [GitHub's own installer](native-installer-migration.md);
     rule the silent drops [the setup census](../design/backend-parity.md#42-what-was-built-2026-10-05-and-what-it-found)
     found; graduate into system docs [config ownership](../design/config-ownership-and-promotion.md), [pi's package
@@ -193,7 +195,9 @@ under [External waits](#external-waits).
     [a Kilo session](../design/gateway-provider-packs.md), [the restart prompt](../design/attach-skew-and-contract-guardrails.md),
     [pi loading a pack's folder](../design/pack-pi-resources.md), [host Chrome from `yolo host -- claude` and under
     macos-user](../design/mcp-presets-removal.md#13-what-i-would-build-in-order), and [codex, opencode and pi on
-    Bedrock](../design/bedrock-plumbing.md#8-behaviour-this-design-fixes) under SSO.
+    Bedrock](../design/bedrock-plumbing.md#8-behaviour-this-design-fixes) under SSO. Check [Pi launch selection](../design/pi-launch-selection-flags.md)
+    and [simultaneous native authentication](../design/simultaneous-auth-and-pack-isolation.md) in a live session;
+    launch arguments and source inspection do not establish authentication isolation.
 46. A human with the cloud account clears [a Bedrock API key or static key pair](../design/bedrock-plumbing.md#64-the-credential-three-are-supported),
     [an SSO lapse mid-turn](../design/sso-backed-bedrock.md#11-evidence-and-how-to-re-check-it), [settings-only Bedrock mode](../reference/providers.md#two-channels-split-by-payload-type),
     [an AgentCore gateway](../design/bedrock-web-search.md) and [a Claude usage-limit response](../design/wire-bridge-gateway.md#5-part-4--the-subscription-arm-and-opt-in-failover-ruled).
