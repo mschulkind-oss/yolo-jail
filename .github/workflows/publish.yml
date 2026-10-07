@@ -281,7 +281,10 @@ jobs:
             path=$(nix build --impure --accept-flake-config --no-link --print-out-paths ".#${attr}")
             printf '%s\n' "$path" >> nix-cache/store-paths.txt
           done
-          mapfile -t paths < nix-cache/store-paths.txt
+          paths=()
+          while IFS= read -r path || [ -n "$path" ]; do
+            paths+=("$path")
+          done < nix-cache/store-paths.txt
           if [ "${#paths[@]}" -ne 3 ]; then
             echo "Expected exactly three Nix output paths; no cache upload is allowed." >&2
             exit 1
@@ -342,7 +345,10 @@ jobs:
           CACHE_NAME: ${{ needs.cache-eligibility.outputs.cache }}
         run: |
           set -euo pipefail
-          mapfile -t paths < nix-cache/store-paths.txt
+          paths=()
+          while IFS= read -r path || [ -n "$path" ]; do
+            paths+=("$path")
+          done < nix-cache/store-paths.txt
           if [ "${#paths[@]}" -ne 3 ]; then
             echo "Nix cache artifact has an unexpected path count; refuse upload." >&2
             exit 1
@@ -445,7 +451,8 @@ jobs:
           GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
         run: |
           set -euo pipefail
-          GHCR_REPOSITORY="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/yolo-jail-builder"
+          owner=$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
+          GHCR_REPOSITORY="ghcr.io/${owner}/yolo-jail-builder"
           for arch in amd64 arm64; do
             archive="builder-${arch}/builder.tar"
             if [ ! -f "$archive" ] || [ -L "$archive" ] || [ ! -s "$archive" ]; then
@@ -491,7 +498,8 @@ jobs:
           GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
         run: |
           set -euo pipefail
-          GHCR_REPOSITORY="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/yolo-jail-builder"
+          owner=$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
+          GHCR_REPOSITORY="ghcr.io/${owner}/yolo-jail-builder"
           docker buildx imagetools create \
             --tag "${GHCR_REPOSITORY}:${RELEASE_VERSION}" \
             --tag "${GHCR_REPOSITORY}:latest" \
