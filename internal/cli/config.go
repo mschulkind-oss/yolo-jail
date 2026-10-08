@@ -311,7 +311,9 @@ func writeConfigUsage(out io.Writer, color bool) {
 			continue
 		}
 		start := strings.IndexFunc(line, func(r rune) bool { return r != ' ' && r != '\t' })
-		if start < 0 {
+		// Entries are indented exactly two spaces; a deeper line is wrapped prose, even
+		// when it happens to start with a flag.
+		if start != 2 {
 			continue
 		}
 		end := start

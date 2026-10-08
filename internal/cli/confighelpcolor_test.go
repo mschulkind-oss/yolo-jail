@@ -97,7 +97,7 @@ func TestConfigHelpStylesBothHelpFlagAliases(t *testing.T) {
 // Each verb's own --help prints the same usage, so it goes through the same colorizer. A verb
 // may print its target disclosure on stderr first; only stdout is the help.
 func TestConfigVerbHelpIsColoredLikeTheTopLevel(t *testing.T) {
-	for _, verb := range []string{"render", "ls", "diff", "promote", "drift", "dump"} {
+	for _, verb := range []string{"render", "ls", "diff", "reset", "capture", "promote", "drift", "dump"} {
 		t.Run(verb, func(t *testing.T) {
 			t.Setenv("HOME", t.TempDir())
 			t.Chdir(t.TempDir())
@@ -119,6 +119,18 @@ func TestConfigVerbHelpIsColoredLikeTheTopLevel(t *testing.T) {
 				t.Errorf("config %s --help under NO_COLOR = %q, want plain usage", verb, out)
 			}
 		})
+	}
+}
+
+// A wrapped prose line that starts with a flag is not an entry and stays unstyled.
+func TestConfigHelpLeavesWrappedProseUnstyled(t *testing.T) {
+	var out bytes.Buffer
+	writeConfigUsage(&out, true)
+	for _, line := range strings.Split(out.String(), "\n") {
+		plain := configHelpANSI.ReplaceAllString(line, "")
+		if strings.HasPrefix(plain, "   ") && strings.Contains(line, "\x1b[36m") {
+			t.Errorf("a continuation line was styled as an entry: %q", line)
+		}
 	}
 }
 
