@@ -18,6 +18,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/openaiauth"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
 
@@ -1205,6 +1206,7 @@ func (o *Options) startHostSingleton(
 		frozen := append([]byte(nil), snapshot.bytes...)
 		settingsPath := snapshot.path
 		deps.PublishSettings = func() error { return loopholes.WriteSettingsBytes(settingsPath, frozen) }
+		deps.DesiredSettings = frozen
 	}
 	if name == openaiauth.LoopholeName {
 		deps.PrepareLocked = prepareLegacyOpenAIAuthState(o.Workspace, deps)
@@ -1703,6 +1705,15 @@ func (o *Options) startExternalService(
 		if o.startupRefusal == nil {
 			// Not fatal — ordinary reachability failures keep their established severity. A typed
 			// configuration refusal is returned to the caller below, before this derived symptom.
+			// Any other cooperative refusal is the daemon's own cause, so it is printed FIRST, as
+			// the singleton owner does (reportCooperativeSpawnRefusal), and literal, never markup.
+			if outcome.Kind == hostservice.StartupKindCooperativeRefusal {
+				line := "[yellow]Warning: host service '" + name + "' refused startup: " + richtext.Escape(outcome.Reason)
+				if outcome.Remedy != "" {
+					line += " Fix: " + richtext.Escape(outcome.Remedy)
+				}
+				o.pr(o.Stdout).print(line + "[/yellow]")
+			}
 			o.pr(o.Stdout).print("[yellow]Warning: host service '" + name + "' " + failure +
 				" — " + o.unreachableBy() + " cannot reach it. Expected " + awaited +
 				"; see " + logPath + "[/yellow]")

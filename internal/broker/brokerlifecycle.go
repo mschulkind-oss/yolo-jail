@@ -179,6 +179,11 @@ type Deps struct {
 	// PublishSettings atomically publishes the caller's already-validated frozen settings bytes
 	// while this singleton's flock is held, before drift comparison or any stop/spawn transition.
 	PublishSettings func() error
+	// DesiredSettings is the frozen snapshot PublishSettings would publish. When set, a lock
+	// failure judges the running daemon's drift against these bytes rather than the stable
+	// settings file, which the failed ensure never got to write (so it may still hold the
+	// previous launch's settings and would hide the drift).
+	DesiredSettings []byte
 
 	// SettingsPath is the settings file the daemon's argv hands it (the manifest's
 	// `{settings}` token), or "" when it is handed none. The spawn RECORDS what that file
@@ -747,6 +752,13 @@ func staleUnreplaceable(deps Deps) *SettingsDrift {
 		return nil
 	}
 	drift, judged := RunningSettingsDrift(deps)
+	if deps.DesiredSettings != nil && deps.SettingsPath != "" {
+		values, err := parseFlatSettings(deps.DesiredSettings)
+		if err != nil {
+			return &SettingsDrift{Unrecorded: true}
+		}
+		drift, judged = compareRecorded(deps, values), true
+	}
 	if !judged || len(drift.Changed) == 0 {
 		return nil
 	}

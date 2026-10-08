@@ -184,6 +184,28 @@ func TestEnsureThatCannotLockReportsTheStaleDaemon(t *testing.T) {
 	}
 }
 
+// TestEnsureThatCannotLockJudgesDriftAgainstTheFrozenSnapshot: a validated singleton launch
+// publishes its settings only under the flock, so when the lock fails the stable file still
+// holds the previous settings. The drift must be judged against the frozen snapshot, or the
+// caller fronts a daemon serving settings its config no longer says (HD-D2).
+func TestEnsureThatCannotLockJudgesDriftAgainstTheFrozenSnapshot(t *testing.T) {
+	deps, st, _ := settingsFixture(t, `{"profile":"old"}`, `{"profile":"old"}`)
+	deps.DesiredSettings = []byte(`{"profile":"new"}`)
+	deps.PublishSettings = func() error { t.Fatal("published without the lock"); return nil }
+	if err := os.Mkdir(deps.LockPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	got := EnsureSingleton(deps)
+
+	if len(st.killed) != 0 {
+		t.Errorf("killed %v without holding the spawn lock", st.killed)
+	}
+	if got.Stale == nil || !reflect.DeepEqual(got.Stale.Changed, []string{"profile"}) {
+		t.Fatalf("Stale = %+v, want the frozen snapshot's changed key", got.Stale)
+	}
+}
+
 // TestSettingsRecordHoldsKeysNotValues: the record answers "which keys differ" and nothing
 // more. It is 0600, and no value's bytes appear in it — a setting can be a credential, and
 // this file sits in the machine-wide singleton directory.

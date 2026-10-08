@@ -19,6 +19,7 @@ import (
 
 const perJailReasonChildModeEnv = "YJ_PER_JAIL_REASON_CHILD_MODE"
 const perJailReasonChildDelayEnv = "YJ_PER_JAIL_REASON_CHILD_DELAY"
+const perJailReasonChildClassEnv = "YJ_PER_JAIL_REASON_CHILD_CLASS"
 
 // TestPerJailReasonChild is the harmless subprocess fixture used by the actual
 // per-jail start path below. The parent filters the child to this test only.
@@ -34,8 +35,12 @@ func TestPerJailReasonChild(t *testing.T) {
 		}
 		time.Sleep(duration)
 	}
+	class := os.Getenv(perJailReasonChildClassEnv)
+	if class == "" {
+		class = "configuration"
+	}
 	if err := hostservice.WriteStartupReasonFromEnv(hostservice.StartupReason{
-		Class: "configuration", Reason: "fixture settings were refused",
+		Class: class, Reason: "fixture settings were refused",
 		Remedy: "correct the user settings and retry",
 	}); err != nil {
 		t.Fatalf("write fixture startup reason: %v", err)
@@ -147,6 +152,25 @@ func TestPerJailStartupReasonEarlyExitRetainsQueuedRefusal(t *testing.T) {
 		refusal.reason != "fixture settings were refused" ||
 		refusal.remedy != "correct the user settings and retry" {
 		t.Fatalf("early child exit discarded an already-sent reason: handles=%d refusal=%+v output=%s", len(handles), refusal, output)
+	}
+}
+
+// TestPerJailNonConfigurationRefusalIsPrintedBeforeTheDerivedSymptom: a cooperative refusal
+// of another class is not fatal, but it is the daemon's own cause, so the launch prints it
+// ahead of the generic exit warning instead of keeping it only in the typed outcome.
+func TestPerJailNonConfigurationRefusalIsPrintedBeforeTheDerivedSymptom(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("spawns a host process")
+	}
+	t.Setenv(perJailReasonChildClassEnv, "dependency")
+	_, handles, refusal, output := runPerJailReasonFixture(t, "exit", 2*time.Second, false, 0)
+	if len(handles) != 0 || refusal != nil {
+		t.Fatalf("a dependency refusal changed severity: handles=%d refusal=%+v", len(handles), refusal)
+	}
+	cause := strings.Index(output, "refused startup: fixture settings were refused Fix: correct the user settings and retry")
+	symptom := strings.Index(output, "cannot reach it")
+	if cause < 0 || symptom < 0 || cause > symptom {
+		t.Fatalf("the daemon's own cause is not printed before the derived symptom:\n%s", output)
 	}
 }
 
