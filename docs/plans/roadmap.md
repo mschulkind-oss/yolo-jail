@@ -29,19 +29,12 @@ Take these current launch problems before the older queue below. Each source doc
 candidate state, acceptance gaps and verification; a place here does not make its code landed.
 
 1. [Finish host-service startup diagnostics](../design/host-service-startup-diagnostics.md),
-   with [its plan](host-service-startup-diagnostics.md) — preserve the real safe refusal before
-   socket symptoms so configuration failures stop sending users toward networking workarounds.
-2. [Finish parallel startup-build cancellation](../design/pi-startup-cancellation.md), with
-   [its plan](../design/pi-startup-cancellation-plan.md) — an interrupted compiler must neither
-   admit partial output nor delete staging still held by a detached capture.
-3. [Finish read-only workspace configuration guidance](workspace-config-lock-briefing.md) —
-   complete the wanted contribution as maintainer without shifting local polish to its author
-   or bypassing the required remote check.
-4. [Implement active-profile provider-use policy](../design/simultaneous-auth-and-pack-isolation.md)
-   — enforce the accepted policy without altering saved logins; picker rendering and
-   startup argument fixes do not establish provider isolation.
-   Read [the source/API handoff](../design/simultaneous-auth-and-pack-isolation-plan.md)
-   for source ownership and test-first steps before projection/transport work.
+   with [its plan](host-service-startup-diagnostics.md) — the preflight, deadlines and typed
+   startup outcomes are built; S1 lifetime cleanup and carrying the typed causes through the
+   keeper, native and doorway paths remain.
+2. [Enforce the active Pi profile set with a yolo-shipped extension](../design/simultaneous-auth-and-pack-isolation.md)
+   — [OQ-PAS2](../design/simultaneous-auth-and-pack-isolation.md#OQ-PAS2) rules out a Pi fork;
+   a stock-Pi extension that replaces out-of-set providers is in review.
 
 Native readiness and credential-store work retain their places below: assess
 [the privilege prerequisites](../research/sandvault-macos-privileges.md) without broad root
