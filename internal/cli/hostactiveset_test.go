@@ -772,3 +772,27 @@ func TestHostLeavesASubcommandWhereTheUserTypedIt(t *testing.T) {
 		t.Errorf("the launch must say why oh-omp commit was not moved:\n%s", omp.errs)
 	}
 }
+
+// THE PROVIDER POLICY AT THE HOST (docs/design/simultaneous-auth-and-pack-isolation.md
+// §3.1): every `yolo host -- pi` with an active set hands pi the set's provider IDs in
+// YOLO_PI_PROVIDER_POLICY, a -p's set rather than the file's, the configured set without one;
+// and a launch with no profile hands none, so pi keeps its native behavior. Nothing is written.
+func TestHostHandsPiItsSetsProviderRequestPolicy(t *testing.T) {
+	const name = "YOLO_PI_PROVIDER_POLICY"
+	doc := func(ids, profiles string) string {
+		return `{"schemaVersion":1,"mode":"allowlist","allowedProviderIds":[` + ids + `],"profiles":[` + profiles + `]}`
+	}
+	hostGateHome(t, `{"packs": ["claude", "pi", "zai", "openrouter"], `+
+		`"profile": {"pi": "zai"}, "env_sources": [`+
+		`{"ZAI_API_KEY": "tok-zai", "OPENROUTER_API_KEY": "tok-router"}]}`, nil)
+	if got := hostSelectionRun(t, "", []string{"-p", "pi=zai,openrouter"}, "pi").env[name]; got != doc(`"openrouter","zai"`, `"zai","openrouter"`) {
+		t.Errorf("yolo host -p pi=zai,openrouter handed %s=%q", name, got)
+	}
+	if got := hostSelectionRun(t, "", nil, "pi").env[name]; got != doc(`"zai"`, `"zai"`) {
+		t.Errorf("the configured profile must hand its policy too, got %s=%q", name, got)
+	}
+	hostGateHome(t, `{"packs": ["claude", "pi"]}`, nil)
+	if got, set := hostSelectionRun(t, "", nil, "pi").env[name]; set {
+		t.Errorf("pi with no profile must get no %s (native behavior), got %q", name, got)
+	}
+}

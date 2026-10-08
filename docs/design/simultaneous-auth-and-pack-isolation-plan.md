@@ -1,13 +1,18 @@
 ---
 title: "Implementation handoff: Pi active-provider request policy"
 date: 2026-10-07
-status: accepted
-stage: DECIDED
-next: "Pin/replay the declared Pi source and patch series, then add failing supported-runtime denial tests before the policy seam"
+status: deprecated
+stage: SUPERSEDED
+next: "None: OQ-PAS2 ruled out a Pi fork; the policy is enforced by yolo's Pi extension (design §3.2)"
 tags: [pi, implementation-plan, providers]
 ---
 
 # Implementation handoff: Pi active-provider request policy
+
+> **Superseded 2026-10-08.** [OQ-PAS2](simultaneous-auth-and-pack-isolation.md#OQ-PAS2) ruled out
+> carrying a Pi patch series. The policy is enforced by an extension yolo ships instead
+> ([design §3.2](simultaneous-auth-and-pack-isolation.md#32-how-the-extension-holds-the-boundary)).
+> This plan is kept as the record of the Pi-side seams it mapped.
 
 **Status:** 2026-10-07. Policy ruled; runtime enforcement unbuilt. Yolo map checked at
 `931489400b4ce7334a0731a47a47c116f6e44ab2`; installed Pi 1.0.4 docs/declarations/dispatch inspected read-only.

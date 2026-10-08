@@ -896,6 +896,22 @@ local function piSetRun(ctx, out)
   return run
 end
 
+-- piEntryCtx is a copy of ctx whose selection is the later active-set entry e. It carries no via:
+-- a via entry may sit only first (AP-D9), and its route is the primary's.
+local function piEntryCtx(ctx, e)
+  local ectx = {}
+  for k, v in pairs(ctx) do
+    ectx[k] = v
+  end
+  ectx.selected_provider = e.provider
+  ectx.selected_platform = e.platform
+  ectx.profile_name = e.profile_name
+  ectx.profile = e.profile
+  ectx.via_url = ""
+  ectx.via_api_key_env_name = ""
+  return ectx
+end
+
 -- piSetSettings widens the primary's settings (out) to pi's whole active set: enabledModels is
 -- the primary's run, then each later entry's run in set order (§4.4), and pi-subagents'
 -- modelScope allows the union of every entry's scope, so a child may run on any provider in the
@@ -932,17 +948,7 @@ local function piSetSettings(ctx, out, settingsFor)
   add(piSetRun(ctx, out), enabled, seenRun)
   add(scopeOf(out), allow, seenAllow)
   for i = 2, #set do
-    local e = set[i]
-    local ectx = {}
-    for k, v in pairs(ctx) do
-      ectx[k] = v
-    end
-    ectx.selected_provider = e.provider
-    ectx.selected_platform = e.platform
-    ectx.profile_name = e.profile_name
-    ectx.profile = e.profile
-    ectx.via_url = ""
-    ectx.via_api_key_env_name = ""
+    local ectx = piEntryCtx(ctx, set[i])
     local eo = settingsFor(ectx)
     if type(eo) == "table" and type(eo.selection) == "table" then
       add(piSetRun(ectx, eo), enabled, seenRun)
@@ -1490,6 +1496,54 @@ local function piSetHas(ctx, provider)
   return false
 end
 
+-- THE PROVIDER POLICY (docs/design/simultaneous-auth-and-pack-isolation.md §3): with an active
+-- profile set, pi may call only the set's providers, saved logins or not. yolo's own pi extension
+-- enforces it (extensions/yolo-provider-policy.js), reading this document from
+-- YOLO_PI_PROVIDER_POLICY. Each entry's pi provider ID is the defaultProvider the settings derive
+-- answers for it (piSettingsFor), so a built-in mapping (a native Bedrock entry is pi's
+-- `amazon-bedrock`) is decided in one place. Duplicate entries deduplicate. An entry with no ID
+-- makes the policy INVALID, never absent: an empty allow list, which the extension reads as
+-- "block every provider" rather than run unrestricted. `profiles` names the set's profiles in
+-- set order, for the denial's wording only. With no profile the env derive does not run
+-- (packload.AgentEnv), and pi keeps its native behavior.
+local policyToken = "^[%w][%w._:-]*$"
+
+local function piProviderPolicy(ctx)
+  if ctx.selected_provider == nil or ctx.selected_provider == "" then return nil end
+  local entries = { ctx }
+  if type(ctx.active_set) == "table" then
+    for i = 2, #ctx.active_set do
+      table.insert(entries, piEntryCtx(ctx, ctx.active_set[i]))
+    end
+  end
+  local ids, seen, valid = {}, {}, true
+  local profiles, seenProfile = {}, {}
+  for _, ectx in ipairs(entries) do
+    local out = piSettingsFor(ectx)
+    local id = type(out) == "table" and type(out.selection) == "table" and out.selection.defaultProvider or nil
+    if type(id) ~= "string" or not id:match(policyToken) or #id > 128 then
+      valid = false
+    elseif not seen[id] then
+      seen[id] = true
+      table.insert(ids, id)
+    end
+    local name = ectx.profile_name
+    if type(name) == "string" and name:match(policyToken) and #name <= 128 and not seenProfile[name] then
+      seenProfile[name] = true
+      table.insert(profiles, name)
+    end
+  end
+  if not valid then ids = {} end
+  table.sort(ids)
+  local function quote(list)
+    local quoted = {}
+    for _, v in ipairs(list) do table.insert(quoted, '"' .. v .. '"') end
+    return table.concat(quoted, ",")
+  end
+  return '{"schemaVersion":1,"mode":"allowlist","allowedProviderIds":[' .. quote(ids) ..
+    '],"profiles":[' .. quote(profiles) .. ']}'
+end
+
 yolo.env("pi", function(ctx)
   local env = {}
   -- The set's Bedrock entry wherever it sits (piNativeBedrockEntry): the region pre-flight counts
@@ -1504,6 +1558,10 @@ yolo.env("pi", function(ctx)
   if piSetHas(ctx, "openai-codex") then
     env.YOLO_AUTH_PRELAUNCH_PI_FLAG = "--pi-auth"
     env.YOLO_AUTH_PRELAUNCH_PI_PATH = ".pi/agent/auth.json"
+  end
+  local policy = piProviderPolicy(ctx)
+  if policy then
+    env.YOLO_PI_PROVIDER_POLICY = policy
   end
   return env
 end)

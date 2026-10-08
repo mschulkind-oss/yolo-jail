@@ -186,6 +186,13 @@
       "kind": "files"
     },
     {
+      // The active profile set's provider policy (docs/design/simultaneous-auth-and-pack-isolation.md
+      // §3): reads YOLO_PI_PROVIDER_POLICY, which the env derive sets only with a profile.
+      "from": "extensions/yolo-provider-policy.js",
+      "into": ".pi/agent/extensions/yolo-provider-policy.js",
+      "kind": "files"
+    },
+    {
       "from": "extensions/yolo-durable-worktrees.js",
       "into": ".pi/agent/extensions/yolo-durable-worktrees.js",
       "kind": "files"

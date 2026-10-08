@@ -17,6 +17,11 @@ verbatim as OpenRouter's request `provider` field, and `base` to inherit the pi 
 facts for a variant id. See
 [Per-model OpenRouter routing](docs/reference/providers.md#per-model-openrouter-routing).
 
+**Pi keeps to the active profile set.** With a profile set active, Pi refuses every provider
+outside it, saved logins included, hides those providers from `/model`, and says which set to
+relaunch with. See
+[the provider policy](docs/design/simultaneous-auth-and-pack-isolation.md#3-accepted-provider-use-policy).
+
 **Colored `yolo config` help.** On a terminal, `yolo config --help` and each verb's `--help`
 highlight headings, verbs and flags; piped output and `NO_COLOR` stay plain.
 

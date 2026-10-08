@@ -2,31 +2,33 @@
 title: "An active Pi profile must constrain supported model calls, not saved logins"
 date: 2026-10-06
 status: in-review
-stage: DESIGN
-next: "Agent investigation: can a yolo-shipped Pi extension deny out-of-set providers (e.g. a denying provider override)? If not, drop enforcement (OQ-PAS2)"
+stage: BUILT
+next: "Maintainer review of the extension's leaks (§3.4); then graduate to a reference doc"
 tags: [pi, profiles, credentials, openai-auth, packs]
-summary: "Corrects the diagnosis of simultaneous Pi provider use: rendered selection, pack closure, broker preparation, and credentials already stored by Pi are separate authorities."
+summary: "An active Pi profile set is enforced by a Pi extension yolo ships, which puts a blocking provider in place of every provider outside the set; rendered selection, pack closure, broker preparation and Pi's saved logins are separate authorities."
 ---
 
 # An active Pi profile must constrain supported model calls, not saved logins
 
-**Status:** 2026-10-08. Owner policy is settled ([OQ-PAS1](#decision-ledger)); enforcement is unbuilt.
-Where it is enforced is open again: the maintainer wants it contained in yolo ([OQ-PAS2](#OQ-PAS2)).
+**Status:** 2026-10-08. Owner policy is settled ([OQ-PAS1](#decision-ledger)); the enforcement point
+is ruled ([OQ-PAS2](#OQ-PAS2): an extension yolo ships, never a Pi fork) and built as
+[`yolo-provider-policy.js`](../../packs/pi/extensions/yolo-provider-policy.js) ([PAS-D1](#decision-ledger)).
+It was measured inside stock Pi 1.0.4's own runtime, offline, with no model called.
 The [startup flag repair](pi-launch-selection-flags.md) remains separate and does not restrict calls.
-Installed Pi 1.0.4 source was rechecked without reading auth/settings files or invoking a model.
 
 > **In short.** An active profile set must deny normal supported Pi calls to other providers even
 > with saved credentials. With no active profile, preserve Pi's native behavior and login files.
 
 **Why it matters.** Picker selection and absence of a new broker grant cannot deny an already-saved login.
 
-**The shape.** Yolo supplies launch-scoped provider IDs; Pi checks the final dispatch provider before
-request authentication, independently of model menus and credential storage.
+**The shape.** Yolo hands Pi the set's provider IDs in `YOLO_PI_PROVIDER_POLICY`. Yolo's Pi
+extension registers a *blocking provider* (this doc's term: a provider object whose every auth
+method and stream refuses) in place of each provider outside the set. Pi resolves a provider's
+auth before every request, so each one ends with yolo's denial.
 
-**Cost.** As written, a Pi runtime/API change: existing extension notification hooks cannot enforce
-this rule. [OQ-PAS2](#OQ-PAS2) asks whether a yolo-only route is preferable.
+**Cost.** No Pi change. What it cannot close is listed in [§3.4](#34-what-the-extension-cannot-close).
 
-**Start at [§3](#3-accepted-provider-use-policy)** — the supported-call boundary and denial behavior.
+**Start at [§3](#3-accepted-provider-use-policy)** — the boundary, how the extension holds it, and its leaks.
 
 **Needs your ruling:** none; [OQ-PAS2](#OQ-PAS2) was ruled 2026-10-08 (no Pi fork).
 
@@ -89,9 +91,8 @@ saved native or broker-seeded credentials. With no active profile, preserve Pi's
 Do not delete, rewrite, or revoke saved login files to enforce the launch policy.
 
 This is not filesystem confinement against a user who can read the same auth store, nor a claim
-that a jail process cannot inspect another readable file. Runtime enforcement and verification
-are still owed; rendered selection and broker-route masking alone do not satisfy this policy.
-This closes [OQ-PAS1](#decision-ledger), not the implementation.
+that a jail process cannot inspect another readable file. Rendered selection and broker-route
+masking alone do not satisfy this policy; the extension in [§3.2](#32-how-the-extension-holds-the-boundary) does.
 
 ### 3.1 The request boundary
 
@@ -105,46 +106,83 @@ This closes [OQ-PAS1](#decision-ledger), not the implementation.
   calls and extension/SDK/codemode chat, image and classifier calls through its model runtime. Deferred
   fetch/cancel of a model request uses the same provider boundary. A router's classifier is itself a
   model call; allowing the final chat route does not exempt its auxiliary provider.
-- **Before request authentication:** deny without invoking that request's credential resolver, token
-  refresh, credential command or provider network transport. Native startup catalog/auth availability
-  discovery and explicit login/logout are not request dispatch; do not claim this policy suppresses all
-  auth activity or network traffic in the process.
-- **Failure:** invalid/empty active-set policy is an error, not no-profile fallback. Missing enforcement
-  capability under an active-set launch refuses the managed launch and names the compatible Pi build.
-  Policy-hook errors deny; denials are non-retryable with the provider and the next profile-selection
-  step, never tokens/headers. Do not silently switch to another provider or grant.
+- **Before request authentication:** deny without running the provider's own credential resolver,
+  token refresh or provider network transport. As built, Pi still *reads* the saved credential to
+  choose which auth method receives it, and an expired OAuth login takes Pi's credential lock
+  ([§3.4](#34-what-the-extension-cannot-close)). Native startup availability discovery is not
+  request dispatch; the policy does not suppress all auth activity in the process.
+- **Failure:** invalid/empty active-set policy is an error, not no-profile fallback: the extension
+  blocks every provider. A Pi too old to take a provider object is warned at session start, not
+  refused ([PAS-D5](#decision-ledger)); an extension cannot refuse a launch. Denials are worded to
+  be non-retryable, name the provider, the set and the way out, and never tokens or headers.
 
-The policy belongs to the process invocation. Host `-p` overrides must not write persistent Pi
-settings; ordinary child Pi/SDK runtimes inherit and validate the same launch policy. Reload/session
-replacement keeps it. Explicitly disabling extensions must not silently disable the request boundary.
-A snapshot of one launch does not retroactively change another process already running.
+The policy belongs to the process invocation. Host `-p` overrides write no persistent Pi settings:
+the policy travels in the environment. Child `pi` processes inherit it and load the same extension.
+Reload re-runs the extension, and a new or resumed session re-checks every block. A launch does not change another process
+already running. Explicitly disabling extensions disables the block ([§3.4](#34-what-the-extension-cannot-close)).
 
-### 3.2 What does not enforce the rule
+### 3.2 How the extension holds the boundary
 
-The inspected supported `before_provider_request` event carries a payload, not a dispatch identity
-or deny result. `ExtensionRunner.emitBeforeProviderRequest` catches handler errors and continues.
-Throwing from that handler is therefore **not enforcement**. `before_agent_start`/`model_select`
-likewise cannot cover nested runtime calls, warming or later routed requests. Provider unregister
-restores built-ins; `streamSimple` overrides only registered providers/APIs. None is a universal gate.
+The extension registers, for each provider ID outside the set, a **native provider** (Pi's
+one-argument `registerProvider`). Pi then dispatches that ID to it instead of to its built-in
+provider. The candidates are Pi's built-in providers, `models.json` rows, and any provider the
+live registry knows at session start.
 
-The grounded dispatch seam is Pi's common `ModelRuntime.prepareRequest`, **before its `getAuth`**.
-Its supported `ModelRegistry` facade delegates model calls there; no existing public policy-registration
-API was found in the inspected declarations. But this gate alone is not a zero-auth-work guarantee:
-`AgentSession._getRequiredRequestAuth` and `_getSummarizationRequestAuth` resolve runtime `getAuth`
-earlier. Guard those preflight resolutions before credential lookup/refresh too; summarization's
-ordinary-auth fallback must propagate policy denial. Add dedicated fail-closed supported source
-seams, not monkeypatches or changed notification semantics. Source map and repo ownership are in
-the [plan](simultaneous-auth-and-pack-isolation-plan.md).
+Every runtime call runs `ModelRuntime.prepareRequest`, which resolves the provider's auth before
+it calls any provider method. Pi's preflights (`AgentSession._getRequiredRequestAuth`,
+`ModelRegistry.getApiKeyAndHeaders`) resolve the same auth. So the blocking provider refuses from
+**auth**:
+
+- Its key method resolves by throwing yolo's denial. Pi reports
+  `API key auth failed for provider <id>: yolo: provider "<id>" is outside …`, since pi-ai keeps
+  the cause in the message.
+- Its OAuth method exists so a saved OAuth login also reaches the denial: pi-ai hands a stored
+  OAuth credential only to an OAuth method. `toAuth` and `refresh` both refuse.
+- Its key `check` reports the provider configured. Pi therefore gets as far as the denial instead
+  of its own "No API key found … /login".
+- `filterModels` returns nothing, so `/model` and the available list hide the provider. The
+  catalog stays, so a resumed or `--model` selection meets the denial instead of an unknown model.
+- Both login methods refuse, so `/login` stores nothing for a blocked provider.
+- It has no `refreshModels`, so no catalog is fetched with the provider's credential.
+- Its streams refuse too. When `models.json` overlays a row on it, Pi composes auth through the
+  blocking provider's methods, so a composed row is refused the same way.
+
+The extension re-checks on `session_start`, `model_select`, `input`, `before_agent_start` and
+`turn_start`. Another extension that put its own provider in a block's place gets it blocked
+again there. `model_select` also warns when the chosen model's provider is outside the set.
+
+**What was rejected.** A `ProviderConfig` override with a refusing `streamSimple` keeps Pi's
+built-in auth, so the saved credential is resolved, and refreshed, before the refusal. The
+`before_provider_request` hook carries no deny result, and Pi catches handler errors and
+continues. `model_select` and `before_agent_start` cannot reach nested calls, so they only warn.
+Filtering credentials or environment at launch (option A) cannot reach Pi's saved logins or ambient
+cloud credentials, and is not built.
 
 ### 3.3 Explicit exclusions
 
 No saved login is deleted, rewritten, revoked, or widened to enforce selection. Ordinary allowed
-Pi authentication keeps its native behavior; the policy does not install an alternative credential
-store (unless [OQ-PAS2](#OQ-PAS2) chooses the yolo-only route, which leaves saved files untouched
-but hands Pi a per-launch view). This is not a same-UID filesystem/network boundary. Deliberate standalone `pi-ai` calls,
+Pi authentication keeps its native behavior; the policy installs no alternative credential store.
+This is not a same-UID filesystem/network boundary. Deliberate standalone `pi-ai` calls,
 arbitrary HTTP clients, trusted code bypassing the managed runtime, or a manually unconfigured
 process are outside the supported-call guarantee. Menus may aid discovery but their contents are
 not acceptance evidence. No incident-machine repair or live provider/account proof is claimed.
+
+### 3.4 What the extension cannot close
+
+Measured or read in stock Pi 1.0.4 (upstream `70759f48`):
+
+- **Credential reads.** Pi reads a blocked provider's saved credential before the refusal, to pick
+  the auth method. For an expired OAuth login Pi also takes its credential-store lock, and the
+  refusal happens inside it. Nothing is written or sent.
+- **`models.json` key commands.** A row's `apiKey` written as a `!command` runs before the block's
+  resolve. Yolo writes only `${VAR}` references and literals there.
+- **Disabled extensions.** `pi --no-extensions` loads no block.
+- **Another extension's late registration.** It wins until the next re-check event above.
+  Trusted extension code is outside the guarantee ([§3.3](#33-explicit-exclusions)).
+- **In-process SDK runtimes** created without loading extensions, and direct `pi-ai` calls.
+- **Auth status.** Pi's auth status shows a blocked provider as configured
+  ("blocked by yolo's profile set").
+- **An old Pi** without `registerNativeProvider` (before 0.81.0) cannot take the block, and is warned.
 
 ## Open questions
 
@@ -176,9 +214,26 @@ not acceptance evidence. No incident-machine repair or live provider/account pro
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| OQ-PAS1 | Owner: yes, an active profile set constrains normal supported Pi calls despite saved credentials; no-profile launches preserve native behavior and saved login files remain untouched. Vantage comment `e5b4ea51`, round 0 | 2026-10-07 | [§3](#3-accepted-provider-use-policy) | — |
+| OQ-PAS1 | Owner: yes, an active profile set constrains normal supported Pi calls despite saved credentials; no-profile launches preserve native behavior and saved login files remain untouched. Vantage comment `e5b4ea51`, round 0 | 2026-10-07 | [§3](#3-accepted-provider-use-policy) | ✅ |
+| OQ-PAS2 | Owner: no Pi fork; a Pi extension yolo ships, or no enforcement | 2026-10-08 | [OQ-PAS2](#OQ-PAS2) | ✅ |
+| PAS-D1 | Agent: enforce with a native blocking provider per out-of-set ID that refuses from auth, so every runtime call and preflight is refused before the provider's own credential code runs | 2026-10-08 | [§3.2](#32-how-the-extension-holds-the-boundary) | ✅ |
+| PAS-D2 | Agent: the policy travels as `YOLO_PI_PROVIDER_POLICY` (allowed IDs plus profile names, for the wording); an unreadable one blocks every provider | 2026-10-08 | [§3.1](#31-the-request-boundary) | ✅ |
+| PAS-D3 | Agent: a blocked provider counts configured but lists no available model, so `/model` hides it and a selection meets yolo's denial, not Pi's `/login` advice | 2026-10-08 | [§3.2](#32-how-the-extension-holds-the-boundary) | ✅ |
+| PAS-D4 | Agent: `model_select` warns only; launch-time credential filtering (option A) is not built | 2026-10-08 | [§3.2](#32-how-the-extension-holds-the-boundary) | ✅ |
+| PAS-D5 | Agent: a Pi too old for provider objects is warned at session start, not refused; an extension cannot refuse a launch | 2026-10-08 | [§3.1](#31-the-request-boundary) | ✅ |
 
 ## 4. Evidence checked
+
+**2026-10-08, the extension.** Upstream Pi `70759f48` was read for `ModelRuntime`
+(`composeProvider`, `prepareRequest`, `registerNativeProvider`), pi-ai's `resolveProviderAuth`,
+the provider composer and `AgentSession`'s preflights.
+[`pi_provider_policy_extension_test.go`](../../internal/entrypoint/pi_provider_policy_extension_test.go)
+loads the shipped extension into the installed stock Pi 1.0.4, offline. The home holds saved
+logins outside the set and a `models.json` row, and the policy comes from Pi's real env derive.
+Every out-of-set call ends with the denial, the set's own key still resolves, the expired login is
+not refreshed, `auth.json` is unchanged and nothing is fetched. A session prompt ends with the
+denial once, unretried. Run by hand with the policy unset, the same harness reached the network
+and refreshed the expired login.
 
 The repository claims above were checked read-only at base `d5bc7a4188badeb56e1a2cb5591916bf69249723` against the Pi pack's declared needs, the Pi derive's prelaunch predicate, host prelaunch composition, Pi's extension registration and broker client, and the broker loophole manifest. The installed Pi source read was limited to provider composition, registration/unregistration, and credential resolution. No credential values, Pi settings, auth files, keychain, broker state, or incident-machine data were read; no agent, provider API, or model was invoked.
 
