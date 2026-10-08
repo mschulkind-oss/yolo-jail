@@ -14,8 +14,9 @@ summary: "One translator reads an existing SandVault or Agent Safehouse setup, r
 ([`ad05889`](https://github.com/webcoyote/sandvault/tree/ad05889e9f5f7d63460d6e56a2586c724b14bcd0)),
 Agent Safehouse `v0.12.0` plus 12 commits
 ([`398d67f`](https://github.com/eugene1g/agent-safehouse/tree/398d67ff25c3d85daf2f7bc57ed34f59dd1dcacd)).
-The yolo side was checked against `d50a833d9` the same day. Revised the same day after an
-independent review.
+The yolo side was checked against `d50a833d9` the same day. Revised the same day after two
+independent reviews. Guest compatibility is declined pending separate boundary and migration
+work; no native compatibility measurements have been performed.
 
 > **In short.** A user with a working SandVault or Safehouse setup can get yolo's environment
 > without writing a yolo configuration: that setup is almost entirely a description of the
@@ -62,6 +63,9 @@ sketch, which is incomplete while questions are open).
 - **No mapping makes the boundary wider than the source made it**, checked per mapping and per
   backend. Where yolo could only approximate a grant by allowing more, the translator reports a
   gap or refuses ([P5](#p5-never-wider-than-the-source)).
+- **Guest compatibility is deferred.** Neither source gets a trial or import on today's
+  `macos-user` boundary. Copying a SandVault project elsewhere is not an import route: it loses
+  the shared-area provenance this translator requires ([§7](#7-per-backend-support)).
 - **Four rulings are owed** ([§10](#10-open-questions)). [OQ-NB1](#OQ-NB1) (how a trial starts)
   and [OQ-NB2](#OQ-NB2) (which backend a SandVault setup gets) change the design; the other two
   set scope.
@@ -163,7 +167,7 @@ describes the policy that these settings produce.
 | Part | Where | Notes |
 | :--- | :--- | :--- |
 | Flags on each run | `safehouse [flags] [--] <command> [args]` | flags end at the first standalone `--` or the first positional argument. `NAME=VALUE` words right after `--` become the command's environment |
-| Environment defaults | `SAFEHOUSE_ADD_DIRS`, `SAFEHOUSE_ADD_DIRS_RO`, `SAFEHOUSE_WORKDIR`, `SAFEHOUSE_ENV_PASS`, `SAFEHOUSE_TRUST_WORKDIR_CONFIG` (a boolean: `1`/`0`, `true`/`false`, `yes`/`no`, `on`/`off`) | the ones that shape the policy. `SAFEHOUSE_CLAUDE_VSCODE_MODE` is also read, for an editor shim. `SAFEHOUSE_APPEND_PROFILE` in their README is a convention their shell functions use, not a variable Safehouse reads |
+| Environment defaults | `SAFEHOUSE_ADD_DIRS`, `SAFEHOUSE_ADD_DIRS_RO`, `SAFEHOUSE_WORKDIR`, `SAFEHOUSE_ENV_PASS`, `SAFEHOUSE_TRUST_WORKDIR_CONFIG` | the ones that shape the policy. Trust values and precedence are in [§4.4](#44-safehouse-trust-is-a-precedence-rule-not-an-or). `SAFEHOUSE_CLAUDE_VSCODE_MODE` is also read, for an editor shim. `SAFEHOUSE_APPEND_PROFILE` in their README is a convention their shell functions use, not a variable Safehouse reads |
 | The project's own file | `<workdir>/.safehouse`, with `add-dirs-ro=`, `add-dirs=`, `enable=` and `append-profile=` | **ignored unless trusted**; a malformed line or unknown key fails the launch; the sandbox may not write it unless `--allow-workdir-config-writes` |
 | Trust record | `~/.config/safehouse/trusted-workdirs`, one absolute path per line | written by `--always-trust-workdir-config` |
 | Appended profiles | any `.sb` file named by `--append-profile`, often `~/.config/agent-safehouse/local-overrides.sb` | loaded last, so their denies win; the sandbox may not write them unless `--allow-profile-writes` |
@@ -211,10 +215,10 @@ the source ([P5](#p5-never-wider-than-the-source)).
 | `shell`/`s` | `yolo -- bash` | mirrored | — |
 | `build`, `uninstall` | — | refusal | these are SandVault's own commands; run them with `sv` |
 | current directory or `[PATH]` under `/Users/Shared/sv-$USER` | the workspace, which must be the current directory ([NB-D4](#NB-D4)) | approximated: yolo shows the agent that one folder, where SandVault showed the whole shared area | `cd PATH && <the same command>` |
-| a directory outside the shared area, or a `~` `PATH` | — | refusal: `sv` would never have shown the agent that folder | `cd` into the shared area, or [A1](#9-what-yolo-should-adopt-from-each-tool)'s clone step once built |
+| a directory outside the shared area, or a `~` `PATH` | — | refusal: `sv` would never have shown the agent that folder | `cd` into the original shared area and use a container; no copy-to-guest import route is defined |
 | `-- ARGS` | passed to the agent | mirrored | — |
 | the agent's skip-permissions flag | set by the pack | mirrored | — |
-| account plus Seatbelt | depends on the backend ([OQ-NB2](#OQ-NB2), [§7](#7-per-backend-support)) | approximated | — |
+| account plus Seatbelt | container only in this design; guest deferred ([OQ-NB2](#OQ-NB2), [§7](#7-per-backend-support)) | approximated on a container; declined on guest | — |
 | `-b` / `--browser` / `--chrome` | `packs: ["chrome-devtools"]`, a DevTools MCP server rather than a `SV_BROWSER_ENDPOINT` URL | approximated | — |
 | `--lightpanda`, `-e`, `-i`, `-I` | none | not mirrored | none planned. The report says `--ios` needs a host bridge yolo does not ship |
 | `-x` / `--no-sandbox` | none; `macos-user` always uses Seatbelt | declined | a container backend, where Seatbelt does not apply |
@@ -249,9 +253,12 @@ the source ([P5](#p5-never-wider-than-the-source)).
 | `--append-profile=FILE.sb` containing a `deny` | — | refusal: dropping a deny widens the boundary | express it as `workspace_readonly` (writes) or by leaving the folder out (reads), then rerun with `--without-profile FILE` ([NB-D19](#NB-D19)) |
 | `--enable=…` | per feature, [§4.3](#43-safehouse---enable-features) | — | — |
 | `.safehouse` untrusted | not read ([NB-D5](#NB-D5)) | not mirrored | `--trust-workdir-config` on the trial or import |
-| `--trust-workdir-config[=BOOL]`, `--always-trust-workdir-config[=BOOL]` | read as trust for this run only; yolo never writes `trusted-workdirs` | mirrored | — |
+| `--trust-workdir-config[=BOOL]` | honor the explicit true **or false** value for this run ([§4.4](#44-safehouse-trust-is-a-precedence-rule-not-an-or)) | mirrored | — |
+| `--always-trust-workdir-config[=BOOL]` | honor its effect on this run only; yolo never writes `trusted-workdirs` ([§4.4](#44-safehouse-trust-is-a-precedence-rule-not-an-or)) | approximated: persistence is not mirrored | use Safehouse itself to change its trust record |
 | `--allow-workdir-config-writes`, `--allow-profile-writes` | — | declined ([P7](#p7-the-source-cannot-be-edited-by-the-jail)) | — |
-| `--output`, `--stdout`, `--explain` | yolo always discloses | not needed | `yolo describe` |
+| `--stdout` (with or without a wrapped command) | — | refusal: this requests policy output, not execution | remove `--stdout` and use `yolo import safehouse --dry-run -- <remaining arguments>` for a non-executing translation report; use Safehouse for SBPL output |
+| `--output` | no SBPL artifact is written | not mirrored | use Safehouse for an SBPL artifact |
+| `--explain` | yolo always discloses; this flag alone does not prohibit execution | not needed | `yolo import safehouse --dry-run` for a non-executing report |
 | shell functions | not read (P2) | not mirrored | `yolo import safehouse -- <the function's safehouse arguments>` ([NB-D15](#NB-D15)) |
 | agent login in the real home | not read | declined | a one-time `/login` in the jail ([OQ-NB3](#OQ-NB3)) |
 
@@ -270,6 +277,35 @@ the source ([P5](#p5-never-wider-than-the-source)).
 | `all-agents` | the agent packs that exist ([§4.2](#42-safehouse--yolo)) | approximated |
 | `all-apps` | — | not mirrored |
 | a name not in this table | — | reported as unknown, with the Safehouse version the table was written against ([NB-D8](#NB-D8)) |
+
+### 4.4 Safehouse trust is a precedence rule, not an OR
+
+The translator follows the source's [trust resolver](https://github.com/eugene1g/agent-safehouse/blob/398d67ff25c3d85daf2f7bc57ed34f59dd1dcacd/bin/lib/policy/request.sh#L368-L432)
+without its writes. A trusted-workdir record does not override an explicit false value.
+
+1. Parse CLI booleans by Safehouse's [boolean rules](https://github.com/eugene1g/agent-safehouse/blob/398d67ff25c3d85daf2f7bc57ed34f59dd1dcacd/bin/lib/policy/constants.sh#L16-L41):
+   trim whitespace and ignore case; `1`, `true`, `yes`, `on` are true; `0`, `false`, `no`,
+   `off` and the empty string are false. Invalid CLI values refuse the request. The combination
+   `--always-trust-workdir-config=true` and `--trust-workdir-config=false` also refuses, as
+   Safehouse's [parser](https://github.com/eugene1g/agent-safehouse/blob/398d67ff25c3d85daf2f7bc57ed34f59dd1dcacd/bin/lib/cli/parse.sh#L219-L229)
+   does; the step names the conflicting flags to remove.
+2. `--always-trust-workdir-config=true` trusts this run. With an explicit false value, ignore
+   this workdir's stored trust **for this run**, then continue down this list. Neither case
+   changes Safehouse's trust file; the report names the unmirrored persistence.
+3. An explicit `--trust-workdir-config` value wins next, including false.
+4. If `SAFEHOUSE_TRUST_WORKDIR_CONFIG` is set, use the same boolean rules. An effective invalid
+   value **refuses** the trial or import, naming the variable and its supported values to set
+   (or to unset); it never means "continue untrusted." A higher-priority CLI choice bypasses
+   this variable, as upstream does.
+5. Only with no CLI or environment decision does the canonical workdir's `trusted-workdirs`
+   entry apply (unless excluded in step 2). Otherwise the default is untrusted.
+
+Read `.safehouse` only when the result is trusted. Copied policy-only requests also retain
+Safehouse's no-execution meaning: `--stdout` is refused before a trial or import does anything;
+a copied argument list with no wrapped command must never become a default trial launch. Such
+a trial refuses and names `yolo import safehouse --dry-run -- <the copied arguments>` instead.
+The import can report that policy-only setup in dry-run, but does not write it without a
+wrapped command. The next step is a translation report, not a launch or an SBPL export.
 
 ---
 
@@ -291,21 +327,26 @@ $ yolo import --remove
   name stem as the per-workspace switch file
   ([BB-D53](boundary-broker.md#BB-D53)), with its own header and key set ([NB-D2](#NB-D2)). It
   holds `workspace`, an `imported` provenance object (tool, version, date, each source path and
-  the hash of each workspace file read) and only these configuration keys: `packs`, `mounts`,
+  the hash of each workspace file read, whose paths supply the required lock targets) and only
+  these configuration keys: `packs`, `mounts`,
   `env_sources`, `workspace_readonly` and `confinement`. The loader refuses any other key with a
   next step. A file whose `workspace` does not resolve to the workspace is ignored with a warning,
   as BB-D53's is.
 - **How it is read:** as a user layer for that one workspace, at the precedence `--user-layer`
-  has today, so every reader of user scope sees it: the merged configuration, `LoadPacks` and
-  `LoadRWMounts` (which read user scope directly, not the merged configuration), `yolo check`,
-  `describe` and `config dump` ([NB-D14](#NB-D14)). Packs and read-write mounts are allowed in it
-  because a human ran the command and the file is outside every jail
-  ([BB-D56](boundary-broker.md#BB-D56)). A nested launch never inherits it, for BB-D56's reason.
+  has today, for jail launches and their inspection commands: the merged configuration,
+  `LoadPacks` and `LoadRWMounts` (which read user scope directly, not the merged configuration),
+  `yolo check`, `describe` and `config dump` ([NB-D14](#NB-D14)). Translator-required source
+  locks are applied **after** this composition, independently of workspace overrides
+  ([NB-D17](#NB-D17)). Packs and read-write mounts are allowed in the layer because a human ran
+  the command and the file is outside every jail ([BB-D56](boundary-broker.md#BB-D56)). A nested
+  launch never inherits it, for BB-D56's reason. Host-notch commands, including `yolo host --`
+  and `yolo host apply`, do not consume the imported layer or trial inputs in this design;
+  host consumption is an unbuilt expansion, not an implementer's choice.
 - **Which confinement it writes.** A Safehouse import writes none: the jail, the default
-  ([§7](#7-per-backend-support)). A SandVault import writes what `--at` says, defaulting per
-  [OQ-NB2](#OQ-NB2). `--at guest` is written only when `yolo check`'s `macos-user` checks pass
-  for this workspace, and it refuses when a configured `runtime` or `YOLO_RUNTIME` names a
-  container (the launch would refuse that combination), naming the setting to drop.
+  ([§7](#7-per-backend-support)). A SandVault import defaults per [OQ-NB2](#OQ-NB2), subject
+  always to the backend refusal. `--at guest`, or a composed configuration that selects
+  `macos-user` for either source, refuses; the report names a container route and the setting
+  to change. Passing ordinary `macos-user` preflight does not establish source-boundary parity.
 - **Every launch that reads the file names it on one line**, with the tool it was imported from
   ([NB-D10](#NB-D10)).
 - **An existing file is never overwritten silently.** Without `--replace`, an import over an
@@ -317,6 +358,14 @@ $ yolo import --remove
   A setup whose result has no configuration keys writes no file and says so. If both tools are
   detected, the user must name one ([NB-D13](#NB-D13)). Duplicates against the user's own
   configuration are dropped and named ([NB-D14](#NB-D14)).
+
+**Source locks are not ordinary layer precedence.** Today's [merge](../../internal/config/load.go#L175-L198)
+lets a workspace `null` replace a list, [validation](../../internal/config/validate.go#L371-L375)
+accepts it, and the [mount builder](../../internal/cli/run/mounts.go#L22-L25) then emits no locks.
+The proposed translator must carry its required targets separately and restore them after all
+workspace, local and included configuration is composed. This is required for the import's
+preflight and every later imported launch, not just the trial; ordinary configuration remains
+overrideable, source locks do not ([NB-D17](#NB-D17)). No current enforcement is claimed.
 
 The import is per workspace. A machine-wide import is decided by standing rulings rather than
 asked: `--global` prints a `config.jsonc` block to paste and writes nothing
@@ -382,8 +431,8 @@ last line do not.
 - `yolo import <tool>` writes what the trial ran, up to [NB-D16](#NB-D16)'s two deltas
   ([P1](#p1-one-translator)).
 - When the import keeps the trial's backend, it keeps the trial's jail home, so a `/login` made
-  during the trial survives. Where that home lives is [OQ-NB5](#OQ-NB5). When the import moves
-  to another backend (`--at guest`), the agent logs in once more there, and the import says so.
+  during the trial survives. Where that home lives is [OQ-NB5](#OQ-NB5). Moving to guest is not
+  offered by this design ([§7](#7-per-backend-support)); no login-migration route is promised.
 - After an import, editing yolo's configuration is ordinary yolo use. yolo never syncs the file
   again on its own ([§8](#8-non-goals)).
 
@@ -393,15 +442,34 @@ last line do not.
 
 | | `macos-user` | Apple Container | podman (macOS) | podman (Linux) |
 | :--- | :--- | :--- | :--- | :--- |
-| **SandVault trial** | per [OQ-NB2](#OQ-NB2). Under the leaning: not offered, because `_yolojail` cannot read `/Users/Shared/sv-$USER` without an ACL in SandVault's tree, which is a modification `sv --rebuild` would also strip. The report names the container trial | ✅ the workspace is bind-mounted; the host user owns it | ✅ | n/a: SandVault is macOS-only |
-| **SandVault import** | `--at guest` under the leaning. Its steps, in order: `yolo macos-setup`; copy or clone the project under `/Users/Shared/yolo`; run the import from the new folder (an import is keyed by the folder, so one made before the move would be ignored). Sharing SandVault's own tree in place is not offered | ✅ writes no `confinement` | ✅ | n/a |
-| **Safehouse trial** | not offered: yolo's profile is allow-default with network, exec and mach lookup open, wider in kind than Safehouse's deny-default ([P5](#p5-never-wider-than-the-source), [OQ-AS1](../research/agent-safehouse.md#OQ-AS1)). The report names the container trial | ✅. Read-only mounts and the [P7](#p7-the-source-cannot-be-edited-by-the-jail) lock need Apple Container 1.1.0 or later; below that a trial that read a workspace file refuses, naming the upgrade | ✅ | ✅ from a `.safehouse` file or passed arguments |
-| **Safehouse import** | not offered, as above | ✅ | ✅ | ✅ |
-| Mount paths | the real host folder, through a link in `$YOLO_CONTEXT_DIR` | `/ctx/<name>` | `/ctx/<name>` | `/ctx/<name>` |
-| How close the boundary is | SandVault: the same account-plus-allow-default shape, approximated, because yolo's profile lacks SandVault's mount and mach-lookup denies | a VM boundary, stronger in kind than both tools; the paths differ | as Apple Container | as Apple Container |
+| **SandVault trial** | declined: yolo lacks SandVault's mount and mach-lookup denies; granting `_yolojail` access in place would also modify SandVault's ACLs. The report names the container trial | ✅ the workspace is bind-mounted; the host user owns it | ✅ | n/a: SandVault is macOS-only |
+| **SandVault import** | declined, including `--at guest`, until the missing denies are implemented and proven separately and a provenance-preserving migration is designed. No copy-then-import route is offered | ✅ under [OQ-NB2](#OQ-NB2)'s container option | ✅ | n/a |
+| **Safehouse trial** | not offered: yolo's profile is allow-default with network, exec and mach lookup open, wider in kind than Safehouse's deny-default ([P5](#p5-never-wider-than-the-source), [OQ-AS1](../research/agent-safehouse.md#OQ-AS1)). The report names the container trial | ✅ subject to the read-only gate below | ✅ | ✅ from a `.safehouse` file or passed arguments |
+| **Safehouse import** | not offered, as above | ✅ subject to the read-only gate below, including every later imported launch | ✅ | ✅ |
+| Mount paths | not offered for either source | `/ctx/<name>` | `/ctx/<name>` | `/ctx/<name>` |
+| How close the boundary is | wider than either source in the ways above, so P5 refuses it rather than calling it approximated | a VM boundary, stronger in kind than both tools; the paths differ | as Apple Container | as Apple Container |
 
-`macos-user` is never auto-detected, so a trial reaches it only through [OQ-NB2](#OQ-NB2) or the
-user's own `runtime` setting; a trial that would land there for Safehouse refuses as above.
+**Read-only gate:** any trial, import or later imported launch needing a read-only grant or
+source lock requires Apple Container **1.1.0 or later with a known version**. An older or
+unreadable version refuses before writing or launching, naming the upgrade or
+`YOLO_RUNTIME=podman`; a warning followed by writable delivery is not allowed. This uses the
+existing [backend capability floor](../../internal/cli/run/backendcaps.go#L38-L87), not a
+new native measurement.
+
+**Guest boundary evidence:** SandVault emits the
+[mount and service-lookup denies](https://github.com/webcoyote/sandvault/blob/ad05889e9f5f7d63460d6e56a2586c724b14bcd0/sv#L1617-L1627);
+yolo's [allow-default profile](../../internal/macosuser/seatbelt.go) has no counterparts for
+those rules. A successful account/workspace preflight cannot supply them.
+
+**No guest migration is specified.** The translator still requires the original workspace
+under `/Users/Shared/sv-$USER`. A copy under `/Users/Shared/yolo` does not satisfy that predicate,
+and neither widening it nor adding an ACL to SandVault's tree is licensed here. A future route
+must validate original provenance while targeting the new workspace, in addition to proving
+the missing denies. Until then, use a container from the original shared area, or keep `sv`.
+
+`macos-user` is never auto-detected; any trial or imported launch that would reach it through
+configuration refuses for either source. [OQ-NB2](#OQ-NB2)'s guest option is a deferred choice,
+not an exception to these gates.
 
 ---
 
@@ -419,7 +487,12 @@ user's own `runtime` setting; a trial that would land there for Safehouse refuse
 - **No shell parsing.** yolo does not read shell functions or startup files ([P2](#p2-read-never-run)).
 - **No new agent packs in this design.** A gap's next step may say to ask for a pack.
 - **No new `macos-user` profile rules.** Closing the SandVault deny gap in [§7](#7-per-backend-support)
-  is [OQ-AS1](../research/agent-safehouse.md#OQ-AS1)'s subject.
+  is [OQ-AS1](../research/agent-safehouse.md#OQ-AS1)'s subject. Guest import and workspace
+  migration stay deferred; recommending [A1](#9-what-yolo-should-adopt-from-each-tool) is not a
+  provenance contract or permission to modify SandVault's tree.
+- **No host-notch compatibility.** The imported layer is not consumed by `yolo host --` or
+  `yolo host apply`. Adding unconfined host consumption would need its own design; the shared
+  user-scope loader must not activate it accidentally.
 
 ---
 
@@ -469,20 +542,19 @@ This table lists only what that comparison and the SandVault privileges note do 
 
 2. 💬 **OQ-NB2: Which backend does a SandVault setup get?**
 
-   <!-- vantage: question id=OQ-NB2 leaning="A — a container for the trial, so nothing of SandVault's is modified; --at guest as the import's default, whose steps name macos-setup and a copy under /Users/Shared/yolo." -->
+   SandVault's guest match has two gates: missing denies and a provenance-preserving migration
+   ([§7](#7-per-backend-support)). Today's translator cannot offer it.
 
-   SandVault is a separate account with Seatbelt, which is yolo's `guest` setting on macOS. Using
-   that setting requires changes to the Mac.
+   - **A — Container trial, guest import deferred.** Keep the intended guest default, but
+     offer no SandVault import until parity and migration are proven separately.
+   - **B — Container for both.** One login; guest compatibility remains separate deferred work.
+   - **C — Reuse SandVault's account.** Not viable under P2/P3: rendering into its home and
+     installing yolo's profile would modify the source setup.
 
-   - **A — Container for the trial, guest for the import.** The trial modifies nothing. The import
-     names `yolo macos-setup` and a copy of the project; the agent logs in again there.
-   - **B — Container for both.** Simplest, one login, but the closest match is never the default.
-   - **C — Run as `sandvault-$USER` through SandVault's own sudo rule.** The closest match, and
-     the user's existing logins work. yolo would render configuration into SandVault's account
-     home and install its profile with root, both of which modify the user's SandVault setup.
+   <!-- vantage: question id=OQ-NB2 leaning="B — container for both; guest compatibility waits for separately proven denies and a provenance-preserving migration." -->
 
-   _Leaning:_ A — a container for the trial, so nothing of SandVault's is modified; `--at guest`
-   as the import's default, whose steps name `macos-setup` and a copy under `/Users/Shared/yolo`.
+   _Leaning:_ B — container for both; guest compatibility waits for separately proven denies
+   and a provenance-preserving migration.
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -540,7 +612,7 @@ Implementation decisions, made here and reversible, plus one question closed by 
 | <a id="NB-D2"></a>NB-D2 | The import writes a separate `.imported.jsonc` beside the per-workspace switch file and adds no keys to that file. BB-D53's file holds switches and merges last, over the agent-editable workspace files, because a switch must beat them. This file holds configuration and is read as a user layer ([NB-D14](#NB-D14)); one file in two positions would be harder to reason about. Both sit in the folder [OQ-BB12](boundary-broker.md#OQ-BB12) ruled generic for per-project properties. Unlike the withdrawn `config.local.jsonc`, it is named by the workspace it governs, written only by a command that names it, and disclosed at every launch | 2026-10-08 | [§5](#5-the-import) | — |
 | <a id="NB-D3"></a>NB-D3 | Neither tool is ever executed; versions are read as text from their scripts ([P2](#p2-read-never-run)) | 2026-10-08 | [§6.1](#61-detection) | — |
 | <a id="NB-D4"></a>NB-D4 | A `PATH` or `--workdir` other than the current directory is refused, naming `cd <it> && <the same command>`. This keeps yolo's rule that a launch has no `--workspace` flag | 2026-10-08 | [§4.1](#41-sandvault--yolo) | — |
-| <a id="NB-D5"></a>NB-D5 | `.safehouse` is read only when Safehouse itself would trust it: a `trusted-workdirs` entry, or `SAFEHOUSE_TRUST_WORKDIR_CONFIG` with a true value by Safehouse's boolean rules (a false or invalid value means untrusted, reported), or `--trust-workdir-config` passed to yolo. Without this, a cloned project's grants would become user-scope grants with nobody choosing them | 2026-10-08 | [§4.2](#42-safehouse--yolo) | — |
+| <a id="NB-D5"></a>NB-D5 | `.safehouse` is read only when the ordered trust resolution in [§4.4](#44-safehouse-trust-is-a-precedence-rule-not-an-or) trusts it. Explicit false beats a stored record; an effective invalid environment value refuses, never continues untrusted. CLI boolean failures and conflicts refuse too. No trust-file writes occur | 2026-10-08 | [§4.4](#44-safehouse-trust-is-a-precedence-rule-not-an-or) | — |
 | <a id="NB-D6"></a>NB-D6 | The agent's own skip-permissions flags (`--dangerously-skip-permissions`, `--dangerously-bypass-approvals-and-sandbox`, `--yolo`, `--dangerously-allow-all` and similar) are removed from the arguments, because the pack sets that mode; other arguments pass unchanged | 2026-10-08 | [§4.2](#42-safehouse--yolo) | — |
 | <a id="NB-D7"></a>NB-D7 | An import over an existing file prints the diff and exits 1 unless `--replace`; `--replace` writes the whole file through a temporary file and one rename; `--remove` deletes it whichever tool wrote it; `--dry-run` writes nothing. yolo is the file's one writer; a hand edit is allowed and is lost on `--replace`, which the header says | 2026-10-08 | [§5](#5-the-import) | — |
 | <a id="NB-D8"></a>NB-D8 | The mapping tables are one table in the code, including each tool's command aliases (Safehouse's from its agent profiles' command lines), stamped with the tool versions they were written against. A flag, feature or agent the table does not know is reported as unknown, naming that version. Nothing is guessed | 2026-10-08 | [§4.3](#43-safehouse---enable-features) | — |
@@ -549,10 +621,10 @@ Implementation decisions, made here and reversible, plus one question closed by 
 | <a id="NB-D11"></a>NB-D11 | `SANDVAULT_ARGS` is split with SandVault's quoting rules (one `xargs` word per argument) and placed before the command line, as `sv` does | 2026-10-08 | [§4.1](#41-sandvault--yolo) | — |
 | <a id="NB-D12"></a>NB-D12 | An `--env=FILE` is recorded as its absolute path. A line in it that uses `$`-expansion or command substitution, or that sets `PATH`, `HOME`, `SHELL`, `USER` or a `YOLO_*` name, is reported as not mirrored by name: Safehouse runs the file with bash, a yolo dotenv is not evaluated, and a literal `${PATH}` would break every command in the jail. When any such line exists the import refuses to name the file as is, and the step is a copy without those lines | 2026-10-08 | [§4.2](#42-safehouse--yolo) | — |
 | <a id="NB-D13"></a>NB-D13 | When both tools are detected, the import and the trial refuse and name both spellings; the empty-packs pointer names both | 2026-10-08 | [§5](#5-the-import) | — |
-| <a id="NB-D14"></a>NB-D14 | The imported file is read as a user layer for its one workspace, at `--user-layer`'s precedence (after `config.jsonc` and its includes; the workspace configuration still wins where it may set a key). Because `LoadPacks` and `LoadRWMounts` read user scope directly, they must read the layer too; a test that deletes either call site fails. Lists append after the user configuration's, with exact duplicates dropped and named: a pack already selected, a mount with the same source and destination. A mount whose destination another entry already uses gets a distinct `at` ([NB-D18](#NB-D18)) | 2026-10-08 | [§5](#5-the-import) | — |
-| <a id="NB-D15"></a>NB-D15 | `yolo import safehouse -- <args>` accepts a Safehouse argument list the user copied from their shell function, parsed with Safehouse's grammar: flags end at the first standalone `--` or the first positional word, and `NAME=VALUE` words after `--` are reported, never written | 2026-10-08 | [§4.2](#42-safehouse--yolo) | — |
+| <a id="NB-D14"></a>NB-D14 | For jail launches and their inspection commands only, the imported file is read as a user layer for its one workspace, at `--user-layer`'s precedence (after `config.jsonc` and its includes; the workspace configuration still wins where it may set a key, except for [NB-D17](#NB-D17)'s required locks). `LoadPacks` and `LoadRWMounts` must see that layer; deleting either call site must fail a test. Host-notch readers must not consume it. Lists append after the user configuration's, with exact duplicates dropped and named: a pack already selected, a mount with the same source and destination. A mount whose destination another entry already uses gets a distinct `at` ([NB-D18](#NB-D18)) | 2026-10-08 | [§5](#5-the-import) | — |
+| <a id="NB-D15"></a>NB-D15 | `yolo import safehouse -- <args>` accepts a copied Safehouse argument list using its grammar: flags end at the first standalone `--` or positional word; `NAME=VALUE` words after `--` are reported, never written. Policy-only requests never launch: `--stdout` refuses with the import's `--dry-run` report as its step; `--explain` alone is not policy-only | 2026-10-08 | [§4.2](#42-safehouse--yolo) | — |
 | <a id="NB-D16"></a>NB-D16 | The trial and the import may differ in exactly two ways: `confinement`, when [OQ-NB2](#OQ-NB2) sends them to different backends, and the trial-only `--env-pass` grant of [OQ-NB3](#OQ-NB3). Provenance fields are not configuration. `yolo try … --dry-run` prints the in-memory layer, so the comparison can be checked by hand | 2026-10-08 | [P1](#p1-one-translator) | — |
-| <a id="NB-D17"></a>NB-D17 | Every workspace file the translator read (`.safehouse`, an appended profile or env file inside the workspace) is added to the launch's `workspace_readonly`, for a trial and for every launch of an import. The import records each file's hash; a re-import or trial whose file changed since prints the diff first. Where the lock cannot be enforced (Apple Container before 1.1.0), a trial that read a workspace file refuses, naming the upgrade | 2026-10-08 | [P7](#p7-the-source-cannot-be-edited-by-the-jail) | — |
+| <a id="NB-D17"></a>NB-D17 | Every workspace file the translator read (`.safehouse`, an appended profile or env file) is a **required source lock**, taken from the trusted detected setup or imported provenance, not from the workspace configuration. After all configuration composition, union these targets into the effective `workspace_readonly` before validation and delivery; `null` or `[]` in any workspace file, local override or include cannot remove them. A trial, import or later imported launch that cannot enforce any required lock refuses, never warns and skips; the step names the unsupported backend to change or source path to restore and re-import. On Apple Container this includes unknown versions or versions below 1.1.0. The import records lock targets and hashes; a changed source on re-import or trial prints the diff first | 2026-10-08 | [P7](#p7-the-source-cannot-be-edited-by-the-jail) | — |
 | <a id="NB-D18"></a>NB-D18 | Each grant becomes a mount at `/ctx/<basename>`; two grants with one basename get `/ctx/<basename>-2` and so on, in source order, and the report names the paths. A grant naming one file maps to a read-only mount of that file where the backend binds files, otherwise to a `host_files` entry (checked in the sketch) | 2026-10-08 | [§4.2](#42-safehouse--yolo) | — |
 | <a id="NB-D19"></a>NB-D19 | An appended profile is scanned as text for a `(deny` form. One that contains any refuses the trial and import, naming the file; `--without-profile FILE` drops it and the report then names it as dropped with its denies quoted. No other SBPL is interpreted | 2026-10-08 | [§4.2](#42-safehouse--yolo) | — |
 
@@ -564,7 +636,7 @@ Implementation decisions, made here and reversible, plus one question closed by 
 | :--- | :--- |
 | Either tool changes its flags or paths (both changed within the last month) | [NB-D8](#NB-D8): unknown inputs are reported with the version the tables were written against, and nothing is guessed |
 | An import makes a cloned project's grants permanent user-scope grants | [NB-D5](#NB-D5); every grant is listed in the report before the file is written |
-| An agent edits the source to widen its next trial | [P7](#p7-the-source-cannot-be-edited-by-the-jail), [NB-D17](#NB-D17) |
+| An agent edits the source to widen its next trial, or a workspace override removes its locks | [P7](#p7-the-source-cannot-be-edited-by-the-jail), [NB-D17](#NB-D17): required locks survive composition, including `null`; inability to lock refuses |
 | Imported packs or mounts merge but never take effect | [NB-D14](#NB-D14)'s call-site test |
 | The trial is read as "yolo is another sandbox" | The order of [§6.2](#62-the-disclosure): what yolo adds comes first |
 | A trial that works only on a container is read as a `macos-user` claim | Every trial names its backend; [§7](#7-per-backend-support) is the user-guide table |
