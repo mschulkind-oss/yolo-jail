@@ -406,18 +406,19 @@ var storePathRe = regexp.MustCompile(`/nix/store/[0-9a-z]{32}-[A-Za-z0-9+._?=-]+
 
 // nixBuildWouldBuild asks Nix which store paths `nix build <installable>` builds, against
 // THIS flake's nixpkgs pin (--inputs-from), without building or substituting anything.
+// It asks for the IMAGE's system (imageInstallable), because that is what the image holds.
 func nixBuildWouldBuild(t *testing.T, installable string) []string {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), nixEvalTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "nix", "--extra-experimental-features", "nix-command flakes",
 		"build", "--dry-run", "--json", "--no-link", "--option", "substitute", "false",
-		"--inputs-from", repoRoot, installable)
+		"--inputs-from", repoRoot, imageInstallable(installable))
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		t.Fatalf("nix build --dry-run %s: %v\n--- stderr ---\n%s", installable, err, stderr.String())
+		t.Fatalf("nix build --dry-run %s: %v\n--- stderr ---\n%s", imageInstallable(installable), err, stderr.String())
 	}
 	var built []struct {
 		Outputs map[string]string `json:"outputs"`
@@ -442,7 +443,7 @@ func nixGetLib(t *testing.T, attrPath string) string {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "nix", "--extra-experimental-features", "nix-command flakes",
 		"eval", "--raw", "--inputs-from", repoRoot,
-		"nixpkgs#legacyPackages."+nixSystem(),
+		"nixpkgs#legacyPackages."+imageNixSystem(nixSystem()),
 		"--apply", "p: (p.lib.getLib p."+attrPath+").outPath")
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
@@ -508,9 +509,55 @@ func nixSystem() string {
 	return arch + "-" + runtime.GOOS
 }
 
+// imageNixSystem is the system the jail image's packages are built for when this machine
+// evaluates the flake: the flake's `imageSystem`, which maps a darwin host to the Linux system
+// of the same architecture because the image is always a Linux container. On Linux it is the
+// host's own system.
+//
+// The Nix oracle in TestPackagesEntryInstallsWhatNixBuildBuilds has to ask about that system.
+// Asked about the host's, it named darwin store paths no Linux image can hold, and on an Intel
+// Mac it failed outright: nixpkgs 26.11 throws "has dropped support for x86_64-darwin".
+func imageNixSystem(system string) string {
+	return strings.Replace(system, "-darwin", "-linux", 1)
+}
+
+// imageInstallable spells a `nixpkgs#<attr>` installable for the image's system, so nix
+// resolves the attribute in legacyPackages.<image system> instead of the host's.
+func imageInstallable(installable string) string {
+	attr, ok := strings.CutPrefix(installable, "nixpkgs#")
+	if !ok {
+		return installable
+	}
+	return "nixpkgs#legacyPackages." + imageNixSystem(nixSystem()) + "." + attr
+}
+
 func requireNix(t *testing.T) {
 	t.Helper()
 	if _, err := exec.LookPath("nix"); err != nil {
 		t.Skip("nix is not on PATH")
+	}
+}
+
+// The Nix oracle asks about the system the image is built for, which is Linux on every host:
+// a darwin host evaluates the flake with its imageSystem mapped to Linux, so a darwin
+// installable names store paths no image can hold (and x86_64-darwin throws in nixpkgs 26.11).
+func TestThePackageOracleAsksAboutTheImagesSystem(t *testing.T) {
+	for host, want := range map[string]string{
+		"x86_64-linux":   "x86_64-linux",
+		"aarch64-linux":  "aarch64-linux",
+		"x86_64-darwin":  "x86_64-linux",
+		"aarch64-darwin": "aarch64-linux",
+	} {
+		if got := imageNixSystem(host); got != want {
+			t.Errorf("imageNixSystem(%q) = %q, want %q", host, got, want)
+		}
+	}
+	got := imageInstallable("nixpkgs#texlivePackages.abc.texsource")
+	want := "nixpkgs#legacyPackages." + imageNixSystem(nixSystem()) + ".texlivePackages.abc.texsource"
+	if got != want {
+		t.Errorf("imageInstallable = %q, want %q", got, want)
+	}
+	if !strings.HasSuffix(imageNixSystem(nixSystem()), "-linux") {
+		t.Errorf("the image system on this host is %q, not a Linux system", imageNixSystem(nixSystem()))
 	}
 }
