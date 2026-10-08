@@ -217,6 +217,10 @@ yolo pack install or yolo pack update re-fetches a tag its author re-pointed.
                               to what its ref names now. Run the npm half inside the jail —
                               that is where an agent CLI is installed
   yolo pack status            show locked commits and fork pins, and flag config/lock drift
+  yolo pack status <pack>/<name>
+                              print one selected fork's or built tree's full build line and
+                              its recipe digest, the digest a launch's disclosure shows in the
+                              line's place
   yolo pack rebase <pack>/<bin> [--onto <ref>] [--into <dir>] [--restart] [--pack <dir>]
                               rebase a PATCHED fork's series (a fork that declares "patches"),
                               or a patched extension's, named <pack>/<name>, when an upstream
@@ -285,7 +289,7 @@ func packMain(args []string, out, errw io.Writer, color bool) int {
 		return 0
 	}
 	switch args[0] {
-	case "ls", "install", "update", "status":
+	case "ls", "install", "update":
 		if rc := packRefuseArguments(args[0], args[1:], errw); rc != 0 {
 			return rc
 		}
@@ -309,6 +313,9 @@ func packMain(args []string, out, errw io.Writer, color bool) int {
 	case "update":
 		return packUpdate(out, errw, color)
 	case "status":
+		if len(args) > 1 {
+			return packStatusKey(args[1:], out, errw, color)
+		}
 		return packStatus(out, errw, color)
 	case "rebase":
 		return packRebase(args[1:], out, errw, color)

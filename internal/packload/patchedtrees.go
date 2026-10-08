@@ -265,7 +265,7 @@ func unmodifiedTreeClaimDetail(c packdecl.Contribution) string {
 		}
 		detail += ", following " + rule
 	}
-	detail += ", built by `" + c.TreeBuild() + "`"
+	detail += ", " + BuildLineQuote(c.TreeBuild())
 	if c.Fallback != "" {
 		detail += ", falling back to " + c.Fallback + " where no tree is handed"
 	}
@@ -288,7 +288,7 @@ func patchedTreeClaimDetail(root string, c packdecl.Contribution) string {
 	}
 	build := "no build line"
 	if strings.TrimSpace(c.Build) != "" {
-		build = "built by `" + c.Build + "`"
+		build = BuildLineQuote(c.Build)
 	}
 	return patchedTreeClaimDetailPrefix + c.Source + " + " + series + ", following " + rule + ", " + build
 }

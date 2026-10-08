@@ -10,6 +10,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+**Shorter fork disclosures.** A launch now names a fork's or built extension's build line by a
+short digest instead of printing it each time, and `yolo pack status <pack>/<name>` prints the
+line in full. See [the ruling](docs/reference/report-tiers.md#OQ-RO9).
+
+**Plugin code itemized in the launch log.** `.yolo/launch.log` lists each wrapped plugin that runs
+code in the jail, by component, beside the one counted line the terminal shows.
+
 ## [0.12.2] - 2026-10-08
 
 Pi keeps to the active profile set, Nix builds made in a jail survive host garbage collection,

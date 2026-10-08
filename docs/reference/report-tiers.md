@@ -440,9 +440,18 @@ the block shows the digest, as the answer below records.
   > whole line, never over a prefix of it. It is the one exception to tier 4's *"always,
   > unchanged"*, and it holds because a changed line is always built before anything runs it, and
   > that build's start line shows it in full, so new text is always seen whole once, and on demand
-  > after that. Not built: the build's start line does not print the line yet
-  > (`cli/patchedadvance.go`), nor does `yolo pack status <key>`, and the digest may not land
-  > before both do.
+  > after that.
+
+  **Built 2026-10-08.** The build's start line prints the line whole (`cli/buildreport.go`,
+  `buildRuns`); `yolo pack status <pack>/<name>` prints it with its digest
+  (`cli/packstatuskey.go`); and the launch's disclosure block renders each fork's and built tree's
+  claim through `packload.Claim.LaunchDisclosureSentence`, which replaces the claim's quoted line
+  with ``built by recipe <digest> (`yolo pack status <key>` prints its build line)``.
+  `yolo pack footprint` keeps the line whole, since the claim's Detail is unchanged. Two
+  implementation choices, reversible: the digest is the first 12 hex characters of the line's
+  SHA-256 (`packload.BuildLineDigest`), and a built npm tree's digest is of its recipe, the install
+  line with the version left out, so one digest serves every version, as the build's recipe does.
+  A sentence that does not quote the line exactly is printed whole rather than rewritten.
 
 ### Progress lines
 
@@ -681,7 +690,7 @@ comments and sibling docs, and this is where they resolve.
 | `OQ-RO5` | **The dry run exits 0 — it is information.** `--assert` carries an accurate exit code: 0 only when the apply completed. Recorded with it: *observe* undersells what the posture is for — it is a **dry run**, and the report says so in those words. |
 | `OQ-RO6` | **Offer to install, with a confirm — and a decline is fatal at the prompt**, not at the end of the run. The dry run reports and never prompts. Silence is NO. |
 | `OQ-RO7` | **Both kinds are fatal; only `program` gets the install offer.** A missing `requires` is the more clear-cut blocker — `guardrails` removes `grep`/`find` in favour of binaries that must be present, and a block may never leave a jail with neither the tool nor its replacement — while offering to install one would contradict the kind's own definition. |
-| `OQ-RO9` | **A build line is disclosed by its recipe's short digest and `yolo pack status <key>`, which prints it in full; every act that builds (a launch, `yolo capture`, `yolo host`) prints the full line before it runs; truncation is never used.** Ruled in review 2026-10-05, (c). Tier 4's one exception to *"always, unchanged"*, and it holds only because a changed line always builds before it runs and its start line shows it whole. Built: pending |
+| `OQ-RO9` | **A build line is disclosed by its recipe's short digest and `yolo pack status <key>`, which prints it in full; every act that builds (a launch, `yolo capture`, `yolo host`) prints the full line before it runs; truncation is never used.** Ruled in review 2026-10-05, (c). Tier 4's one exception to *"always, unchanged"*, and it holds only because a changed line always builds before it runs and its start line shows it whole. Built 2026-10-08 |
 | — | **Tier 3 has two members, not two tiers.** A tier is a rendering decision and a loss and a blocker want the same rendering, so `tierLoss` carries both. Splitting them would be severity creeping back in. |
 
 > [!WARNING]

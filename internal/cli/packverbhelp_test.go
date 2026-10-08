@@ -69,7 +69,8 @@ func TestAPackVerbsHelpFlagPrintsTheUsageAndRunsNothing(t *testing.T) {
 // pack. The refusal names the argument and where the usage is, and runs nothing.
 func TestAPackVerbTakingNoArgumentRefusesOneAndRunsNothing(t *testing.T) {
 	refreshes, applies, _ := packActsFixture(t)
-	for _, verb := range []string{"ls", "install", "update", "status"} {
+	// `status` takes a <pack>/<name> key since OQ-RO9 (packstatuskey_test.go), so it is not here.
+	for _, verb := range []string{"ls", "install", "update"} {
 		var out, errw bytes.Buffer
 		rc := packMain([]string{verb, "claude"}, &out, &errw, false)
 		if rc != 2 || out.Len() != 0 {

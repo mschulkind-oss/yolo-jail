@@ -71,6 +71,7 @@ yolo pack footprint <pack>   # everything a pack claims, before you select it
 yolo pack install            # fetch every git pack now
 yolo pack update             # re-fetch git packs, and update agents installed from npm
 yolo pack status             # the commits you are pinned to
+yolo pack status <pack>/<name>  # a fork's or built tree's full build line
 yolo pack init <dir>         # start a pack of your own
 yolo pack lint <dir>         # check it
 yolo features                # what this yolo can read in a pack, such as patch-series

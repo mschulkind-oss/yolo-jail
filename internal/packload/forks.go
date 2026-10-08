@@ -56,7 +56,7 @@ const patchedForkClaimDetailPrefix = "patched fork build: "
 // render identically.
 func forkClaimDetail(root string, c packdecl.Contribution) string {
 	if !c.IsPatchedFork() {
-		return forkClaimDetailPrefix + c.Source + ", built by `" + c.Build + "`"
+		return forkClaimDetailPrefix + c.Source + ", " + BuildLineQuote(c.Build)
 	}
 	follow, err := packsrc.ParseFollow(c.Follow)
 	rule := c.Follow
@@ -69,7 +69,7 @@ func forkClaimDetail(root string, c packdecl.Contribution) string {
 			c.Patches, s.ShortDigest())
 	}
 	return patchedForkClaimDetailPrefix + c.Source + " + " + series + ", following " + rule +
-		", built by `" + c.Build + "`"
+		", " + BuildLineQuote(c.Build)
 }
 
 // Fork is one fork a pack set carries: the fork pack's own `via: "source"` contribution, read off

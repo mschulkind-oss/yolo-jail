@@ -59,6 +59,13 @@ type Claim struct {
 	// review-worthy and neither is the user's machine. Widening this to them would make the
 	// marker mean "code runs somewhere", which is true of nearly every pack.
 	RunsHostCode bool
+	// BuildLine is the build line a fork's or a built tree's claim names in its Detail, verbatim,
+	// as "built by `<line>`" (forkClaimDetail, patchedTreeClaimDetail, unmodifiedTreeClaimDetail);
+	// "" for every other claim and for a patched tree with no build line. BuildKey is the key
+	// `yolo pack status` takes for it, "<pack>/<name>" (Fork.Key). Together they let a launch name
+	// the line by its digest (LaunchDisclosureSentence, OQ-RO9) while `yolo pack footprint` keeps
+	// the Detail whole.
+	BuildLine, BuildKey string
 }
 
 // Footprint is every claim one pack makes, in declaration order.
@@ -458,6 +465,15 @@ func FootprintOf(p *Pack) Footprint {
 	add := func(k packdecl.Kind, target, detail string, review bool) {
 		fp.Claims = append(fp.Claims, Claim{Kind: k, Target: target, Pack: p.Name, Detail: detail, ReviewWorthy: review})
 	}
+	// withBuildLine marks the claim just added as naming line, a build line its Detail quotes whole,
+	// under key. A blank line names none ("no build line"), so it marks nothing.
+	withBuildLine := func(key, line string) {
+		if strings.TrimSpace(line) == "" {
+			return
+		}
+		last := &fp.Claims[len(fp.Claims)-1]
+		last.BuildLine, last.BuildKey = line, key
+	}
 
 	for _, c := range p.Decl.Contributions() {
 		switch c.Kind {
@@ -468,6 +484,7 @@ func FootprintOf(p *Pack) Footprint {
 			// pack names rather than a registry's or a vendor's release (OQ-FP6).
 			if c.IsFork() {
 				add(packdecl.KindProgram, ForkClaimTarget(c.Bin, c.ForkOf), forkClaimDetail(p.Root, c), true)
+				withBuildLine(p.Name+"/"+c.Bin, c.Build)
 				continue
 			}
 			detail := c.Via
@@ -520,12 +537,14 @@ func FootprintOf(p *Pack) Footprint {
 			// source, the ref, the follow rule, the series, the build and the landing.
 			if c.IsPatchedExtension() {
 				add(packdecl.KindFiles, c.Into, patchedTreeClaimDetail(p.Root, c), true)
+				withBuildLine(p.Name+"/"+c.ExtensionName(), c.Build)
 				continue
 			}
 			// An UNMODIFIED EXTENSION is review-worthy for the same reason: an upstream's code, built
 			// from source, that the agent loading the tree runs (pi-extension-store-builds.md §4.1).
 			if c.IsUnmodifiedExtension() {
 				add(packdecl.KindFiles, c.Into, unmodifiedTreeClaimDetail(c), true)
+				withBuildLine(p.Name+"/"+c.ExtensionName(), c.TreeBuild())
 				continue
 			}
 			// audienceDetail's THIRD case ("declares no `agent`, so no `agents` selector can

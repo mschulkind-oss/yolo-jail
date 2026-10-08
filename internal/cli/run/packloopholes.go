@@ -432,7 +432,7 @@ func disclosedClaimsWhere(packs []*packload.Pack, class disclosureClass,
 			// machine-comparable identity stay visible beside the prose — it is what a
 			// reader matches a banner line to in `yolo pack footprint` and in
 			// `yolo config-ref`'s per-kind reference.
-			sentence := c.DisclosureSentence()
+			sentence := c.LaunchDisclosureSentence()
 			// Footprints stay machine-independent and therefore retain manifest
 			// tokens. A launch disclosure describes the argv about to execute on
 			// this machine, so its name-derived state path must match the resolved
