@@ -176,11 +176,12 @@ func commandExitCode(state *os.ProcessState) int {
 	return state.ExitCode()
 }
 
-// SafeCommandText collapses control and terminal markup characters, then caps user-visible text.
+// SafeCommandText collapses control, format (Unicode Cf: bidi overrides, zero-width characters)
+// and terminal markup characters, then caps user-visible text.
 func SafeCommandText(value string) string {
 	var clean strings.Builder
 	for _, r := range value {
-		if unicode.IsControl(r) || r == '[' || r == ']' {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == '[' || r == ']' {
 			r = ' '
 		}
 		clean.WriteRune(r)

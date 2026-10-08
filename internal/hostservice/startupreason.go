@@ -12,6 +12,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 	"unicode"
 )
@@ -49,14 +50,56 @@ func NewStartupReasonChannel() (parent net.Conn, child *os.File, attempt string,
 	return parent, child, hex.EncodeToString(token[:]), nil
 }
 
-// WriteStartupReasonFromEnv writes one framed refusal to the inherited fd. It never waits for a
-// reader or writes a second record; callers should invoke it before declaring service readiness.
-func WriteStartupReasonFromEnv(reason StartupReason) error {
-	fdText := os.Getenv(StartupReasonFDEnv)
-	attempt := os.Getenv(StartupReasonAttemptEnv)
-	service := os.Getenv(StartupReasonServiceEnv)
-	fd, err := strconv.Atoi(fdText)
+// startupReasonChannelFromEnv reads the inherited channel's three variables. When they name a
+// usable fd it marks that fd close-on-exec, so nothing the daemon starts from here on (an `aws
+// --version` probe, a credential helper) inherits the owner's channel.
+func startupReasonChannelFromEnv() (fd int, attempt, service string, ok bool) {
+	fd, err := strconv.Atoi(os.Getenv(StartupReasonFDEnv))
+	attempt = os.Getenv(StartupReasonAttemptEnv)
+	service = os.Getenv(StartupReasonServiceEnv)
 	if err != nil || fd < 3 || attempt == "" || service == "" {
+		return 0, "", "", false
+	}
+	syscall.CloseOnExec(fd)
+	return fd, attempt, service, true
+}
+
+// forgetStartupReasonEnv removes the channel's variables from this process's environment, so a
+// descendant neither inherits them nor reads them as naming an fd that is no longer the channel.
+func forgetStartupReasonEnv() {
+	for _, name := range []string{StartupReasonFDEnv, StartupReasonAttemptEnv, StartupReasonServiceEnv} {
+		_ = os.Unsetenv(name)
+	}
+}
+
+// ProtectStartupReason marks the inherited startup-reason fd close-on-exec without writing or
+// closing it. A daemon calls it first, before it starts any child of its own, so the channel
+// stays private to it until it writes a refusal (WriteStartupReasonFromEnv) or reports itself
+// serving (ReleaseStartupReason). A no-op when no channel is configured.
+func ProtectStartupReason() {
+	_, _, _, _ = startupReasonChannelFromEnv()
+}
+
+// ReleaseStartupReason ends this process's use of the startup-reason channel without writing a
+// record: it closes the inherited fd and unsets the three variables. A daemon calls it once it is
+// serving. A no-op when no channel is configured, and safe to call twice, since the first call
+// removes the variables that name the fd.
+func ReleaseStartupReason() {
+	fd, _, _, ok := startupReasonChannelFromEnv()
+	if !ok {
+		return
+	}
+	_ = os.NewFile(uintptr(fd), "host-service-startup-reason").Close()
+	forgetStartupReasonEnv()
+}
+
+// WriteStartupReasonFromEnv writes one framed refusal to the inherited fd, then closes the fd and
+// unsets the channel's variables (ReleaseStartupReason's effect), so a second call reports the
+// channel unconfigured instead of writing a second record. It never waits for a reader; callers
+// should invoke it before declaring service readiness.
+func WriteStartupReasonFromEnv(reason StartupReason) error {
+	fd, attempt, service, ok := startupReasonChannelFromEnv()
+	if !ok {
 		return errors.New("host-service startup reason channel is not configured")
 	}
 	reason.Version, reason.Service, reason.Attempt = 1, service, attempt
@@ -76,6 +119,7 @@ func WriteStartupReasonFromEnv(reason StartupReason) error {
 		return errors.New("host-service startup reason exceeds the size limit")
 	}
 	file := os.NewFile(uintptr(fd), "host-service-startup-reason")
+	defer forgetStartupReasonEnv()
 	defer file.Close()
 	var prefix [4]byte
 	binary.BigEndian.PutUint32(prefix[:], uint32(len(body)))
@@ -221,7 +265,9 @@ func validStartupReasonClass(class string) bool {
 
 func safeStartupText(text string) string {
 	plain := strings.Join(strings.Fields(strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) {
+		// Format characters (Cf) too: a bidi override (U+202E) or a zero-width space (U+200B)
+		// reorders or hides what a reader sees without being a control character.
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
 			return ' '
 		}
 		return r

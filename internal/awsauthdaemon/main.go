@@ -110,6 +110,9 @@ func Main(argv []string) int {
 		return 2
 	}
 
+	// The startup-reason channel is the owner's and this process's alone: close-on-exec before
+	// prepare runs `aws --version`, and released once nothing is left to refuse.
+	hostservice.ProtectStartupReason()
 	broker, rc := prepare(spawnOptions{
 		SettingsPath: *settingsPath, StatePath: *statePath, AWSBinary: *awsBinary,
 		ConfigPath: awsauth.DefaultConfigPath(), Runner: runner,
@@ -117,6 +120,10 @@ func Main(argv []string) int {
 	if rc != 0 {
 		return rc
 	}
+	// No cooperative refusal follows prepare, so the channel closes here (the owner reads EOF, no
+	// record) and its variables leave the environment before the proactive minter's `aws`
+	// children could inherit them.
+	hostservice.ReleaseStartupReason()
 	// The state dir is created HERE, once, and never again: the daemon exits when it goes
 	// (hostservice.WatchStateDir says why), and NoCreateDir stops a mint in the meantime
 	// from bringing it back.
