@@ -54,6 +54,8 @@ func RunSettingsCheck(lp *Loophole, frozen []byte) SettingsCheckResult {
 
 	case hostservice.CommandStartFailed:
 		out.Reason = "The settings validator could not be started."
+		// Not the settings either: the pack's validator program is missing or not executable.
+		out.Remedy = "Report it to the maintainer of the pack that ships " + lp.Name + ", then retry the launch."
 	case hostservice.CommandRefused:
 		out.Reason, out.Remedy = settingsCheckDiagnostic(result.Stdout, result.Stderr)
 	}

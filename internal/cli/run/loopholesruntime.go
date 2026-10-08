@@ -1042,6 +1042,10 @@ func (o *Options) waitServiceReadyUntil(deadline time.Time, reachable func() boo
 		}
 		select {
 		case <-refused:
+			// Socket acceptance stays the authority (§4.1): one more look before judging.
+			if reachable() {
+				return ""
+			}
 			return serviceRefusedStartup
 		case <-exited:
 			// One more look before judging: the daemon may have published and
@@ -1060,6 +1064,9 @@ func (o *Options) waitServiceReadyUntil(deadline time.Time, reachable func() boo
 				}
 				select {
 				case <-refused:
+					if reachable() {
+						return ""
+					}
 					return serviceRefusedStartup
 				case <-time.After(servicePollInterval):
 				}
@@ -1080,7 +1087,7 @@ const serviceRefusedStartup = "refused startup before it became reachable"
 func startupDiagnosticsFailure(name string, err error) string {
 	return "Failed to prepare host service '" + name + "' startup diagnostics: " + err.Error() +
 		" — the service was not started. Retry the launch; if this repeats, the host may be out of " +
-		"file descriptors (compare `ulimit -n` with what yolo has open)."
+		"file descriptors: raise the limit `ulimit -n` shows in the shell you launch from, then retry."
 }
 
 // refusalExitGrace bounds how long a start that received a refusal waits for the daemon's own
@@ -1328,8 +1335,12 @@ func (o *Options) startHostSingleton(
 			o.pr(o.Stdout).print("[yellow]Warning: the host-wide daemon for '" + name +
 				"' " + hostSingletonRefusal(daemonPath, attempt, ensured.Started) + " — " +
 				o.unreachableBy() + " cannot reach it. See " + deps.LogPath + "[/yellow]")
-			current.startupOutcome.Kind = hostservice.StartupKindTransportFailed
-			current.startupOutcome.Phase = hostservice.StartupPhaseEndpoint
+			// A cooperative refusal of another class is the daemon's own cause (section 4.2), and
+			// keeps its kind; the unreachable socket is its consequence.
+			if ensured.StartupReason == nil {
+				current.startupOutcome.Kind = hostservice.StartupKindTransportFailed
+				current.startupOutcome.Phase = hostservice.StartupPhaseEndpoint
+			}
 			// The accepting connect failed, so nothing was accepted. Keep only what the ensure
 			// itself established (a socket path it saw appear), never a stronger claim.
 			if current.startupOutcome.Readiness != hostservice.StartupReadinessObserved {

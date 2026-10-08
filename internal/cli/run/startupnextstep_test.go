@@ -6,6 +6,7 @@ import (
 	"testing"
 	"unicode"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -28,12 +29,35 @@ func TestHostStartupRefusalAlwaysEndsWithTheRetry(t *testing.T) {
 }
 
 func TestLoopholeSettingsFixStepNamesTheKeyItsFileAndThePreflight(t *testing.T) {
-	step := LoopholeSettingsFixStep("aws-auth")
-	for _, want := range []string{"`loopholes.aws-auth.settings`", paths.UserConfigPath(), "yolo-jail.jsonc",
-		"`yolo check --no-build`"} {
+	// A user-scope setting is refused in the workspace file, so its step names the user config alone.
+	user := &loopholes.Loophole{Name: "aws-auth", Settings: []loopholes.Setting{
+		{Key: "profile", Scope: loopholes.SettingScopeUser}}}
+	step := LoopholeSettingsFixStep(user)
+	for _, want := range []string{"`loopholes.aws-auth.settings`", paths.UserConfigPath(), "`yolo check --no-build`"} {
 		if !strings.Contains(step, want) {
 			t.Errorf("settings fix step lacks %q: %s", want, step)
 		}
+	}
+	if strings.Contains(step, "yolo-jail.jsonc") {
+		t.Errorf("a user-scope setting's fix step names the workspace file, where it is refused: %s", step)
+	}
+	workspace := &loopholes.Loophole{Name: "svc", Settings: []loopholes.Setting{
+		{Key: "mode", Scope: loopholes.SettingScopeWorkspace}}}
+	if step := LoopholeSettingsFixStep(workspace); !strings.Contains(step, "yolo-jail.jsonc") {
+		t.Errorf("a workspace-scope setting's fix step does not name the workspace file: %s", step)
+	}
+}
+
+// A refusal that is not about the settings (a validator timeout) never tells the user to correct
+// them, and still ends with the retry.
+func TestANonConfigurationStartupRefusalDoesNotBlameTheSettings(t *testing.T) {
+	text := (&hostStartupRefusal{name: "svc", class: "timeout", reason: "The settings validator did not finish.",
+		remedy: "Retry the launch; if it times out again, report it."}).Error()
+	if strings.Contains(text, "Correct the settings") {
+		t.Errorf("a timeout refusal blames the settings:\n%s", text)
+	}
+	if !strings.HasSuffix(strings.TrimSpace(text), "retry the launch.") {
+		t.Errorf("a timeout refusal does not end with the retry:\n%s", text)
 	}
 }
 

@@ -238,7 +238,7 @@ func (o *Options) checkLoopholes(r *reporter) {
 			frozen, _, err := loopholes.FrozenSettingsBytes(lp, suppliedLoopholeSettings(userSwitches, lp.Name))
 			if err != nil {
 				r.fail("loophole "+lp.Name+": settings validation failed",
-					"Could not resolve the declared settings snapshot: "+err.Error()+"\n"+run.LoopholeSettingsFixStep(lp.Name))
+					"Could not resolve the declared settings snapshot: "+err.Error()+"\n"+run.LoopholeSettingsFixStep(lp))
 				continue
 			}
 			packName := settingsValidatorPackName(o.selectedPacks, lp)
@@ -257,8 +257,12 @@ func (o *Options) checkLoopholes(r *reporter) {
 				case hostservice.CommandStartFailed:
 					label = "settings validator could not start"
 				}
-				r.fail("loophole "+lp.Name+": "+label,
-					checked.Reason+"\nRemedy: "+checked.Remedy+"\nThe launch will refuse these settings; correct them and run `yolo check --no-build` again.")
+				next := "\nThe launch will refuse these settings; correct them and run `yolo check --no-build` again."
+				if checked.Outcome != hostservice.CommandRefused {
+					// A timeout or a validator that cannot start says nothing about the settings.
+					next = "\nThe launch will refuse until the validator completes; its remedy above is the next step."
+				}
+				r.fail("loophole "+lp.Name+": "+label, checked.Reason+"\nRemedy: "+checked.Remedy+next)
 				continue
 			}
 			r.ok("loophole " + lp.Name + ": settings accepted")

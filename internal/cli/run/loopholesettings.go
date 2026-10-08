@@ -39,10 +39,10 @@ func (o *Options) prepareLoopholeSettings(discovered []*loopholes.Loophole, cfg 
 		if err != nil {
 			o.pr(o.Stdout).print("[red]Could not resolve settings for loophole " + richtext.Escape(lp.Name) +
 				": " + richtext.Escape(err.Error()) + " — its daemon will not start. " +
-				richtext.Escape(LoopholeSettingsFixStep(lp.Name)) + "[/red]")
+				richtext.Escape(LoopholeSettingsFixStep(lp)) + "[/red]")
 			o.startupRefusal = &hostStartupRefusal{name: lp.Name, class: "settings-resolution",
 				reason: "The declared settings could not be resolved.",
-				remedy: LoopholeSettingsFixStep(lp.Name)}
+				remedy: LoopholeSettingsFixStep(lp)}
 			return nil
 		}
 		for _, problem := range problems {
@@ -73,9 +73,17 @@ func (o *Options) prepareLoopholeSettings(discovered []*loopholes.Loophole, cfg 
 
 // LoopholeSettingsFixStep is the next step for settings that could not be resolved: where they
 // are set, and the preflight that re-checks them.
-func LoopholeSettingsFixStep(name string) string {
-	return "Correct `loopholes." + name + ".settings` in " + paths.UserConfigPath() +
-		" or the workspace's yolo-jail.jsonc, then run `yolo check --no-build`."
+func LoopholeSettingsFixStep(lp *loopholes.Loophole) string {
+	where := paths.UserConfigPath() + " or the workspace's yolo-jail.jsonc"
+	for _, s := range lp.Settings {
+		// A user-scope setting is refused in the workspace file, so naming that file would be a
+		// step that fails: name the user-scope path alone where scope matters.
+		if s.Scope == loopholes.SettingScopeUser {
+			where = paths.UserConfigPath()
+			break
+		}
+	}
+	return "Correct `loopholes." + lp.Name + ".settings` in " + where + ", then run `yolo check --no-build`."
 }
 
 // publishLoopholeSettings publishes a previously validated plan, without rereading config or the

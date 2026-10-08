@@ -89,8 +89,8 @@ func ReleaseStartupReason() {
 	if !ok {
 		return
 	}
-	_ = os.NewFile(uintptr(fd), "host-service-startup-reason").Close()
 	forgetStartupReasonEnv()
+	_ = os.NewFile(uintptr(fd), "host-service-startup-reason").Close()
 }
 
 // WriteStartupReasonFromEnv writes one framed refusal to the inherited fd, then closes the fd and
@@ -119,8 +119,10 @@ func WriteStartupReasonFromEnv(reason StartupReason) error {
 		return errors.New("host-service startup reason exceeds the size limit")
 	}
 	file := os.NewFile(uintptr(fd), "host-service-startup-reason")
-	defer forgetStartupReasonEnv()
+	// Unset before the close (defers run last-in first-out), so nothing reading the variables
+	// between the two can act on a descriptor number the close is about to free.
 	defer file.Close()
+	defer forgetStartupReasonEnv()
 	var prefix [4]byte
 	binary.BigEndian.PutUint32(prefix[:], uint32(len(body)))
 	if _, err := file.Write(prefix[:]); err != nil {

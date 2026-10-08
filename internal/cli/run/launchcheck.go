@@ -217,11 +217,12 @@ func (r *hostStartupRefusal) Error() string {
 	if r.remedy != "" {
 		text += "\nRemedy: " + r.remedy
 	}
-	// Every refusal ends with the retry, and names `yolo check --no-build` once: a remedy that
-	// already names it gets only the retry.
-	if strings.Contains(text, "yolo check --no-build") {
+	// Every refusal ends with the retry. Only a configuration refusal blames the settings, and
+	// `yolo check --no-build` is named once: a remedy that already names it gets only the retry.
+	switch {
+	case r.class != "configuration" || strings.Contains(text, "yolo check --no-build"):
 		text += "\nThen retry the launch."
-	} else {
+	default:
 		text += "\nCorrect the settings, run `yolo check --no-build`, then retry the launch."
 	}
 	return text

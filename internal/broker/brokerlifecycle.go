@@ -729,7 +729,7 @@ func EnsureSingleton(deps Deps) Ensured {
 	if !ready && done.Outcome.Kind == hostservice.StartupKindCooperativeRefusal &&
 		done.Outcome.Process == hostservice.StartupProcessAlive {
 		BrokerKill(deps, syscall.SIGTERM, BrokerKillTimeout)
-		if exited == nil || exited() {
+		if !deps.Alive(pid) {
 			done.Outcome.Process = hostservice.StartupProcessExited
 		}
 	}
@@ -915,7 +915,8 @@ func brokerWaitForSocketUntil(deps Deps, sock string, deadline time.Time, exited
 		}
 		select {
 		case <-refused:
-			return false
+			// Socket existence stays the authority (§4.1): one more look before judging.
+			return deps.PathExists(sock)
 		default:
 		}
 		deps.Sleep(SocketPollInterval)
