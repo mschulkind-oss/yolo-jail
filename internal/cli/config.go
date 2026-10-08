@@ -199,7 +199,7 @@ func configRunW(args []string, out, errw io.Writer) int {
 	if len(args) == 0 || isHelpToken(args[0]) {
 		// Bare `yolo config` and `yolo config --help` print help to stdout
 		// (exit 0); this is a self-documenting request, not an error.
-		io.WriteString(out, configUsage+"\n")
+		writeConfigUsage(out, colorForWriter(out))
 		return 0
 	}
 	verb := args[0]
@@ -296,6 +296,60 @@ func extractAtFlag(verb string, args []string, errw io.Writer) (rest []string, a
 		}
 	}
 	return rest, at, 0
+}
+
+func writeConfigUsage(out io.Writer, color bool) {
+	lines := strings.Split(configUsage, "\n")
+	for i, line := range lines {
+		if strings.HasPrefix(line, "Usage:") {
+			lines[i] = "[bold]Usage:[/bold]" + strings.TrimPrefix(line, "Usage:")
+			continue
+		}
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(line, " ") && strings.HasSuffix(trimmed, ":") {
+			lines[i] = "[bold]" + line + "[/bold]"
+			continue
+		}
+		start := strings.IndexFunc(line, func(r rune) bool { return r != ' ' && r != '\t' })
+		if start < 0 {
+			continue
+		}
+		end := start
+		for end < len(line) && line[end] != ' ' && line[end] != '\t' {
+			end++
+		}
+		token := line[start:end]
+		trimmedToken := strings.TrimSuffix(token, ",")
+		if !configHelpToken(token) && !configHelpToken(trimmedToken) {
+			continue
+		}
+		if trimmedToken != token {
+			aliasStart := end
+			for aliasStart < len(line) && (line[aliasStart] == ' ' || line[aliasStart] == '\t') {
+				aliasStart++
+			}
+			aliasEnd := aliasStart
+			for aliasEnd < len(line) && line[aliasEnd] != ' ' && line[aliasEnd] != '\t' {
+				aliasEnd++
+			}
+			if aliasStart < aliasEnd && configHelpToken(line[aliasStart:aliasEnd]) {
+				end = aliasEnd
+			}
+		}
+		lines[i] = line[:start] + "[cyan]" + line[start:end] + "[/cyan]" + line[end:]
+	}
+	io.WriteString(out, richtext.Render(strings.Join(lines, "\n")+"\n", color))
+}
+
+func configHelpToken(token string) bool {
+	switch token {
+	case "ls", "render", "diff", "reset", "promote", "capture", "drift", "dump",
+		"--help", "-h", "--all", "--explain", "--at", "--force", "--keys", "--to",
+		"--plan", "--json", "--accept-promotion":
+		return true
+	default:
+		return false
+	}
 }
 
 // isHelpToken reports whether tok requests help.

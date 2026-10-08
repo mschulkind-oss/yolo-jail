@@ -72,6 +72,7 @@ var noColorEntryPoints = []struct {
 		t.Cleanup(loopholes.ResetPackModules)
 	}, run: func() int { return runLoopholes([]string{"loopholes", "list"}) }},
 	// No boot baseline in a fresh cwd, which drift reports in color.
+	{name: "config help", run: func() int { return runConfig([]string{"config", "--help"}) }},
 	{name: "config", run: func() int { return runConfig([]string{"config", "drift"}) }},
 	// A configured pack that cannot resolve is reported in color, before any probe.
 	{name: "check-deps", setup: func(t *testing.T) {
