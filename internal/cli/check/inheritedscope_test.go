@@ -96,15 +96,28 @@ func maskTempPaths(s string) string {
 	// os.TempDir() already ends in a trailing slash on macOS (TMPDIR is
 	// /var/folders/.../T/), so appending "/" there yields a double-slash prefix
 	// that never matches and the subtest name leaks through the temp path.
-	tmp := strings.TrimRight(os.TempDir(), "/") + "/"
+	//
+	// Since Go 1.26 t.TempDir() roots at GOTMPDIR when that is set, so a split
+	// TMPDIR/GOTMPDIR environment puts the test's own paths outside os.TempDir():
+	// mask both roots.
+	roots := []string{strings.TrimRight(os.TempDir(), "/") + "/"}
+	if g := strings.TrimRight(os.Getenv("GOTMPDIR"), "/"); g != "" {
+		roots = append(roots, g+"/")
+	}
 	var b strings.Builder
 	for i := 0; i < len(s); {
-		if strings.HasPrefix(s[i:], tmp) {
+		matched := ""
+		for _, tmp := range roots {
+			if strings.HasPrefix(s[i:], tmp) && len(tmp) > len(matched) {
+				matched = tmp
+			}
+		}
+		if matched != "" {
 			b.WriteString("<tmp>")
 			// Past the temp dir first: TMPDIR may itself contain a space, so the path
 			// ends at the first one AFTER it. What follows is built from the test's
 			// name, in which t.Run has already turned every space into an underscore.
-			i += len(tmp)
+			i += len(matched)
 			for i < len(s) && s[i] != ' ' && s[i] != '\n' {
 				i++
 			}

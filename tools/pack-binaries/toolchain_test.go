@@ -127,7 +127,10 @@ func TestFetchToolchainDownloadsTheModuleAndChecksIt(t *testing.T) {
 func TestFetchToolchainKeepsAChecksumDatabaseItWasGiven(t *testing.T) {
 	g, log := stubGo(t, map[string]string{"Dir": fakeToolchain(t, Toolchain), "Sum": "h1:fake="})
 	custom := "sum.golang.org+033de0ae+Ac4zctda0e5eza+HJyk9SxEdh+s3Ux18htTTAD8OuAn8 https://proxy.example/sumdb"
-	if _, err := fetchToolchain(g, append(os.Environ(), "GOSUMDB="+custom)); err != nil {
+	// Replace any inherited GOSUMDB (an offline shell exports "off") rather than appending a
+	// second entry: main passes os.Environ(), which never carries a name twice.
+	t.Setenv("GOSUMDB", custom)
+	if _, err := fetchToolchain(g, os.Environ()); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(stubLog(t, log, "env"), "GOSUMDB="+custom+"\n") {
