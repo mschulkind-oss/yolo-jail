@@ -15,12 +15,27 @@ package run
 // the last one goes, so a signal after the last disarm has its default effect, as it always had,
 // and a signal is routed under the stack's lock, so an arm installed or removed while one is in
 // flight cannot leave it with two arms or none.
+//
+// THE HANDLER CATCHES SIGCONT TOO, AND ROUTES IT NOWHERE: catching it is what makes a signal sent
+// while this process was STOPPED reach it on macOS. XNU's psignal hands a caught signal sent to a
+// stopped process to one thread and returns without waking that thread (bsd/kern/kern_sig.c, "else
+// if (sig_proc->p_stat == SSTOP) goto sigout_locked;"), and a SIGCONT left at its default resumes
+// the task without waking any thread either ("If it's sleeping on an event, it remains so"). A Go
+// thread parked in the kernel then holds the signal until something else wakes it, which for an
+// idle one can be never: a SIGINT sent to a ^Z'd launch, or bash's `kill %1` on it (a SIGTERM and
+// then a SIGCONT), was lost, and the launch ran its session to the end and exited 0 (the Nightly
+// macOS Integration run that failed TestASIGINTInTheReadyWindowLeavesTheJailUpForAnotherSession).
+// A CAUGHT SIGCONT takes psignal's other path, which aborts the chosen thread's wait, and the thread
+// it chooses is the one the pending signal went to, the first thread whose mask admits it; the
+// thread then takes both on its way back to user space. Linux wakes a stopped task's pending signal
+// on SIGCONT itself, so there this changes nothing.
 
 import (
 	"os"
 	"os/signal"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"syscall"
 )
 
@@ -39,18 +54,27 @@ func pushLaunchArm(a *launchSignalArm) {
 	if launchArms.sigs == nil {
 		sigs, stop := make(chan os.Signal, 4), make(chan struct{})
 		launchArms.sigs, launchArms.stop = sigs, stop
-		signal.Notify(sigs, syscall.SIGINT, syscall.SIGHUP, syscall.SIGTERM)
+		signal.Notify(sigs, syscall.SIGINT, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGCONT)
 		go routeLaunchSignals(sigs, stop)
 	}
 	launchArms.arms = append(launchArms.arms, a)
 }
 
+// launchArmsResumed counts the SIGCONTs the handler took, which it routes to no arm (the file's
+// comment says why it takes them at all). Read by a test only.
+var launchArmsResumed atomic.Int64
+
 // routeLaunchSignals hands each signal to the innermost arm, until stop. An arm whose channel is
 // full has signals it has not read: it is ending the process already, and one more changes nothing.
+// A SIGCONT goes to no arm: it is taken only for the wakeup its being caught buys.
 func routeLaunchSignals(sigs <-chan os.Signal, stop <-chan struct{}) {
 	for {
 		select {
 		case s := <-sigs:
+			if s == syscall.SIGCONT {
+				launchArmsResumed.Add(1)
+				continue
+			}
 			launchArms.mu.Lock()
 			if n := len(launchArms.arms); n > 0 {
 				select {
