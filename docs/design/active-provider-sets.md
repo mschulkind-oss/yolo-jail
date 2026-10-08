@@ -1,9 +1,9 @@
 ---
 title: "Several providers in one agent session: an ordered set per agent, and the first entry decides where it starts"
 date: 2026-09-29
-status: accepted
-stage: BUILT
-next: "§8 step 5 (several via routes per agent) waits on a user asking for two via entries in one set; nothing else is unbuilt"
+status: in-review
+stage: DESIGN
+next: "Rule OQ-AP4 (two set members overlay one key); otherwise built except §8 step 5 (several via routes), which waits on a user asking for two"
 tags: [design, providers, profiles, selection, models, credentials, pi, opencode, notches, wire-bridge]
 summary: "Today each agent runs on exactly one profile, so one provider. The maintainer wants several active at once, switched freely inside pi. The proposal: an agent's selection becomes an ordered list of profiles (`-p pi=zai,openrouter`, `profile: {pi: [\"zai\", \"openrouter\"]}`); the picker offers the union of their models; the session starts, per OQ-ML2, only where it must, on the first entry's default; each listed provider's key reaches that agent alone; child agents stay inside the set. Only agents whose pack declares it may hold a set: pi, opencode and oh-omp can, claude, codex and copilot cannot. OQ-AP1 to OQ-AP3 were ruled 2026-09-29 and BUILT the same day for pi at every notch (the grammar, the config list, both refusals, the bare-list narrowing, the gate, the pre-flights, the contract tag and pi's render), and re-expressed on the `profile` key that replaced `use_profiles` (PP-D10, AP-D13); opencode's slice (§8 step 3) was BUILT 2026-09-30 (AP-D15, AP-D16), and oh-omp's on 2026-10-01 (AP-D18). Measured by tests and by integration launches that render pi's, opencode's and oh-omp's files for a set; no pi, opencode or oh-omp session was run."
 vantage:
@@ -50,7 +50,7 @@ first slice.
 **Start at [§4](#4-the-proposed-shape).** [§3](#3-what-each-agent-can-hold) is the per-agent
 finding it rests on.
 
-**Needs your ruling:** none; [OQ-AP1](#OQ-AP1), [OQ-AP2](#OQ-AP2) and [OQ-AP3](#OQ-AP3) were ruled 2026-09-29 and are built, for pi and, since 2026-09-30, for opencode.
+**Needs your ruling:** [OQ-AP4](#OQ-AP4) (two set members overlay the same key). [OQ-AP1](#OQ-AP1), [OQ-AP2](#OQ-AP2) and [OQ-AP3](#OQ-AP3) were ruled 2026-09-29 and are built, for pi and, since 2026-09-30, for opencode.
 
 **Reads with:** [`model-lists-and-pickers.md`](model-lists-and-pickers.md) (the parent: its
 [OQ-ML1](model-lists-and-pickers.md#OQ-ML1) ruling split this doc off, and its
@@ -525,6 +525,26 @@ and [declaration parity](declaration-parity.md#1-the-principle-and-what-it-does-
    > contradict [OQ-AP2](#OQ-AP2): a list NAMED at a single-provider agent is refused, because
    > the user asked that agent for something it cannot do; a bare list asked no agent in
    > particular.
+
+4. <a id="OQ-AP4"></a>💬 **OQ-AP4: When two profiles in one active set overlay the same config key, which wins?**
+
+   Since 2026-10-08 a profile-gated config overlay applies for any member of the set, not only
+   the primary. Say `pi=zai,openrouter`, and the zai and openrouter profiles' packs both set pi's
+   `compaction.model`. Today the later pack in pack order wins; set order plays no part. No
+   shipped pack hits this yet.
+
+   - **A — The primary wins** (then set order). **You'd see:** reordering `-p` changes the value.
+   - **B — Pack order wins** (as built). **You'd see:** `-p` order never changes it.
+   - **C — Refuse the launch,** naming both packs and the key. **You'd see:** a refusal until one
+     pack drops it.
+
+   <!-- vantage: question id=OQ-AP4 leaning="A: the set's order already means 'this one first', so the primary's value is the least surprising." -->
+
+   _Leaning:_ A. Set order already means "this one first"; the cost is one ordering rule in
+   the overlay merge and a test.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
 
 ## 11. Decision Ledger
 
