@@ -210,6 +210,11 @@ type Options struct {
 	// completeness fact when it has one.
 	selectedPacks      []*packload.Pack
 	selectedPacksKnown bool
+	// loopholeRuntime is the runtime the next launch would use, as far as check resolved it, so
+	// the loopholes section skips the settings validator of a host service that backend does not
+	// start (run.HostServiceAdmittedOn). "" when unknown, which admits every service. Not a seam:
+	// Check writes it, never a caller.
+	loopholeRuntime string
 }
 
 func fillDefaults(o *Options) {

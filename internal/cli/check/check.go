@@ -243,6 +243,10 @@ func Check(opts Options) int {
 
 	// --- Host-side loopholes ---
 	r.sectionHeader("Loopholes")
+	o.loopholeRuntime = runtimeSel
+	if o.loopholeRuntime == "" {
+		o.loopholeRuntime = o.configuredRuntimeName(merged)
+	}
 	o.checkLoopholes(r)
 	r.blank()
 

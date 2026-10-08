@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/broker"
+	"github.com/mschulkind-oss/yolo-jail/internal/claudeview"
+	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -36,6 +38,14 @@ func (o *Options) checkLoopholes(r *reporter) {
 		r.warn("retired loopholes directory still holds "+
 			fmt.Sprintf("%d module(s): %s", len(stranded), strings.Join(stranded, ", ")),
 			loopholes.RetiredUserLoopholeNotice())
+	}
+	// The backend the next launch would use, for the per-backend admission below: what Check
+	// resolved, else what the environment or config names, else "" (admit every service).
+	admitRuntime := o.loopholeRuntime
+	if admitRuntime == "" {
+		if cfg := loadConfigLoose(o.Workspace); cfg != nil {
+			admitRuntime = o.configuredRuntimeName(cfg)
+		}
 	}
 	// ValidateSet, not ValidateLoopholes: the SAME walk, plus the ORIGIN GATE the
 	// entries cannot carry — a ValidateEntry is a manifest, not a set. Both halves are
@@ -200,23 +210,35 @@ func (o *Options) checkLoopholes(r *reporter) {
 			r.ok("loophole " + lp.Name + ": inactive (" + reason + ")")
 			continue
 		}
-		if !set.MayRunHostCode(lp) {
-			// A settings_check is host execution just like doctor_cmd. Never invoke an
-			// unapproved pack's validator; the ordinary doctor gate below will report it.
-			if lp.HostDaemon != nil && len(lp.HostDaemon.SettingsCheck) > 0 {
-				r.warn("loophole "+lp.Name+": settings validator not run",
-					"A pack-shipped validator is host execution and this pack is not approved to run host code.")
-				continue
-			}
+		validates := lp.HostDaemon != nil && len(lp.HostDaemon.SettingsCheck) > 0
+		if validates && !set.MayRunHostCode(lp) {
+			// A settings_check is host execution just like doctor_cmd, so an ungated record's
+			// validator is never invoked. Since OQ-TP9 deleted the fetched-pack approval, every
+			// pack module a real caller resolves is approved (run.packLoopholeModules), so this
+			// is the caller-resolved-no-packs case: the doctor gate calls the same refusal a yolo
+			// bug. It skips the doctor_cmd too, which would only repeat it.
+			r.warn("loophole "+lp.Name+": settings validator not run",
+				"A pack-shipped validator is host execution, and nothing vouched for this pack's module "+
+					"(a yolo bug, not a config problem). Report it at "+issuesURL+
+					" with the output of `yolo --version`.")
+			continue
 		}
-		if lp.HostDaemon != nil && len(lp.HostDaemon.SettingsCheck) > 0 {
+		if validates && admitRuntime != "" &&
+			!run.HostServiceAdmittedOn(admitRuntime, lp.Name, claudeview.Selected(admitRuntime, o.Getenv)) {
+			// The launch on this backend does not start the service, so it never runs the
+			// validator either; running it here would grade settings nothing reads.
+			r.ok("loophole " + lp.Name + ": not started on " + admitRuntime + " (settings validator not run)")
+			validates = false
+		}
+		if validates {
 			if problems := lp.PlacementProblems(o.Workspace); len(problems) > 0 {
 				r.warn("loophole "+lp.Name+": settings validator not run", strings.Join(problems, "\n"))
 				continue
 			}
 			frozen, _, err := loopholes.FrozenSettingsBytes(lp, suppliedLoopholeSettings(userSwitches, lp.Name))
 			if err != nil {
-				r.fail("loophole "+lp.Name+": settings validation failed", "Could not resolve the declared settings snapshot: "+err.Error())
+				r.fail("loophole "+lp.Name+": settings validation failed",
+					"Could not resolve the declared settings snapshot: "+err.Error()+"\n"+run.LoopholeSettingsFixStep(lp.Name))
 				continue
 			}
 			packName := settingsValidatorPackName(o.selectedPacks, lp)
