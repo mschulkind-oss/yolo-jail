@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/heldchildren"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -54,65 +55,81 @@ func TestIsolateReusesAnInheritedDir(t *testing.T) {
 	}
 }
 
-// TestSweepStopsAndRemovesAnAbandonedDir: a dir whose owner process is gone is removed,
-// and a daemon still running in it (named by a PID file, its argv mentioning the dir) is
-// stopped. A dir whose owner is alive is left alone.
-func TestSweepStopsAndRemovesAnAbandonedDir(t *testing.T) {
-	abandoned, err := os.MkdirTemp("/tmp", dirPrefix)
+// TestReleaseLeavesEveryOtherDirAlone: another run's directory under /tmp is never
+// touched, however abandoned it looks — no owner record, older than any age threshold,
+// and a PID file naming a live process whose argv mentions it. The machine is shared,
+// so only what this process created is this process's to remove or stop.
+func TestReleaseLeavesEveryOtherDirAlone(t *testing.T) {
+	t.Setenv(inheritEnv, "")
+	other, err := os.MkdirTemp("/tmp", dirPrefix)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = os.RemoveAll(abandoned) })
-	dead := exec.Command("true")
-	if err := dead.Run(); err != nil {
-		t.Fatal(err)
-	}
-	writeFile(t, filepath.Join(abandoned, ownerFile), strconv.Itoa(dead.Process.Pid))
-	daemon := exec.Command("sh", "-c", "while :; do sleep 1; done; : "+abandoned)
+	t.Cleanup(func() { _ = os.RemoveAll(other) })
+	daemon := exec.Command("sh", "-c", "while :; do sleep 1; done; : "+other)
 	if err := daemon.Start(); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = daemon.Process.Kill(); _, _ = daemon.Process.Wait() })
-	writeFile(t, filepath.Join(abandoned, "yolo-x.pid"), strconv.Itoa(daemon.Process.Pid))
-
-	live, err := os.MkdirTemp("/tmp", dirPrefix)
-	if err != nil {
+	writeFile(t, filepath.Join(other, "yolo-x.pid"), strconv.Itoa(daemon.Process.Pid))
+	old := time.Now().Add(-24 * time.Hour)
+	if err := os.Chtimes(other, old, old); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = os.RemoveAll(live) })
-	writeFile(t, filepath.Join(live, ownerFile), strconv.Itoa(os.Getpid()))
 
-	sweepAbandoned()
+	release := IsolateHostSingletons()
+	release()
 
-	if _, err := os.Stat(abandoned); !os.IsNotExist(err) {
-		t.Errorf("the abandoned dir %s survived the sweep: %v", abandoned, err)
+	if _, err := os.Stat(other); err != nil {
+		t.Errorf("another run's dir %s was removed: %v", other, err)
 	}
-	done := make(chan struct{})
-	go func() { _, _ = daemon.Process.Wait(); close(done) }()
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Errorf("the daemon in the abandoned dir is still running")
-	}
-	if _, err := os.Stat(live); err != nil {
-		t.Errorf("the sweep removed a dir whose owner is alive: %v", err)
+	if err := syscall.Kill(daemon.Process.Pid, 0); err != nil {
+		t.Errorf("a process this test process does not hold was signalled: %v", err)
 	}
 }
 
-// TestStopSkipsAPIDWhoseArgvIsSomethingElse: a stale PID file can name a PID the kernel
-// has since reused; a process whose argv does not mention the dir is never signalled.
-func TestStopSkipsAPIDWhoseArgvIsSomethingElse(t *testing.T) {
-	dir := t.TempDir()
-	other := exec.Command("sleep", "30")
-	if err := other.Start(); err != nil {
+// TestReleaseStopsOnlyTheDaemonsItHolds: the release stops a daemon this process spawned
+// and handed to heldchildren, and leaves a process a PID file in its own directory names,
+// because a PID file is not a handle.
+func TestReleaseStopsOnlyTheDaemonsItHolds(t *testing.T) {
+	t.Setenv(inheritEnv, "")
+	release := IsolateHostSingletons()
+	dir := paths.HostSingletonDir
+
+	held := startHeld(t)
+	named := exec.Command("sh", "-c", "while :; do sleep 1; done; : "+dir)
+	if err := named.Start(); err != nil {
+		release()
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = other.Process.Kill(); _, _ = other.Process.Wait() })
-	writeFile(t, filepath.Join(dir, "yolo-x.pid"), strconv.Itoa(other.Process.Pid))
-	stopSingletonsIn(dir)
-	if err := syscall.Kill(other.Process.Pid, 0); err != nil {
-		t.Errorf("stopSingletonsIn signalled a process whose argv never mentioned %s", dir)
+	t.Cleanup(func() { _ = named.Process.Kill(); _, _ = named.Process.Wait() })
+	writeFile(t, filepath.Join(dir, "yolo-x.pid"), strconv.Itoa(named.Process.Pid))
+
+	release()
+
+	select {
+	case <-held:
+	case <-time.After(5 * time.Second):
+		t.Errorf("the daemon this process holds is still running after the release")
 	}
+	if err := syscall.Kill(named.Process.Pid, 0); err != nil {
+		t.Errorf("the release signalled a PID it read from a file: %v", err)
+	}
+}
+
+// startHeld starts a long-running child, reaps it, and hands it to heldchildren, as
+// broker's realSpawn does. The returned channel closes when it exits.
+func startHeld(t *testing.T) <-chan struct{} {
+	t.Helper()
+	cmd := exec.Command("sleep", "60")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(done) }()
+	t.Cleanup(func() { _ = cmd.Process.Kill(); <-done })
+	heldchildren.Hold(cmd.Process, done)
+	return done
 }
 
 func writeFile(t *testing.T, p, content string) {

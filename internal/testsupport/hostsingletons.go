@@ -4,13 +4,9 @@ package testsupport
 
 import (
 	"os"
-	"os/exec"
-	"path/filepath"
-	"strconv"
-	"strings"
-	"syscall"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/heldchildren"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -27,30 +23,37 @@ import (
 // still serving the machine path, so every later test that ensured a broker adopted a
 // stale one.
 //
+// THE CLEANUP TOUCHES ONLY WHAT THIS PROCESS MADE: the one directory it created, and the
+// daemons this process spawned and holds the handles of (heldchildren). It never looks
+// at another directory under /tmp and never signals a PID read from a file, because the
+// machine is shared — other agents, other test runs and nested jails run beside it, and
+// a PID file can outlive its process and name one the kernel has reused.
+//
 // The directory is short on purpose (os.MkdirTemp("/tmp", "ys-")): the socket path must
 // stay under darwin's 104-byte sun_path. The spawned daemon learns its socket from its
 // argv, so the redirect reaches the child process with no environment variable.
 func IsolateHostSingletons() (cleanup func()) {
 	// A helper child (a test that re-execs this binary with -test.run) inherits its
-	// parent's directory, so any daemon it spawns is stopped with the parent's, and the
-	// child, which may exit from inside its test, owns nothing to clean up.
+	// parent's directory and owns nothing to clean up: it may exit from inside its test,
+	// and the parent removes the directory. A daemon the child spawned is the child's,
+	// not the parent's, so the parent cannot stop it; it exits once its state directory,
+	// under the test's temporary HOME, is removed (hostservice.WatchStateDir).
 	if dir := os.Getenv(inheritEnv); dir != "" {
 		if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
 			paths.HostSingletonDir = dir
 			return func() {}
 		}
 	}
-	sweepAbandoned()
 	dir, err := os.MkdirTemp("/tmp", dirPrefix)
 	if err != nil {
 		panic("testsupport: creating a private host-singleton dir: " + err.Error())
 	}
-	_ = os.WriteFile(filepath.Join(dir, ownerFile), []byte(strconv.Itoa(os.Getpid())), 0o644)
+	heldchildren.Enable()
 	prev := paths.HostSingletonDir
 	paths.HostSingletonDir = dir
 	_ = os.Setenv(inheritEnv, dir)
 	return func() {
-		stopSingletonsIn(dir)
+		heldchildren.StopAll(stopGrace)
 		paths.HostSingletonDir = prev
 		_ = os.Unsetenv(inheritEnv)
 		_ = os.RemoveAll(dir)
@@ -62,61 +65,6 @@ const (
 	// and nowhere else, never by production code, so it is not a yolo dial.
 	inheritEnv = "TESTSUPPORT_HOST_SINGLETON_DIR"
 	dirPrefix  = "ys-"
-	ownerFile  = "owner.pid"
+	// stopGrace is how long a held daemon has to exit on SIGTERM before SIGKILL.
+	stopGrace = 2 * time.Second
 )
-
-// sweepAbandoned removes the private directories of test processes that are gone:
-// one whose owner.pid names no live process, or that has no owner record and is more
-// than ten minutes old. Daemons still running in one are stopped first. A live
-// package's directory is never touched, because its owner is alive.
-func sweepAbandoned() {
-	dirs, _ := filepath.Glob(filepath.Join("/tmp", dirPrefix+"*"))
-	for _, d := range dirs {
-		fi, err := os.Lstat(d)
-		if err != nil || !fi.IsDir() {
-			continue
-		}
-		if data, err := os.ReadFile(filepath.Join(d, ownerFile)); err == nil {
-			pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-			if err == nil && pid > 1 && syscall.Kill(pid, 0) == nil {
-				continue
-			}
-		} else if time.Since(fi.ModTime()) < 10*time.Minute {
-			continue
-		}
-		stopSingletonsIn(d)
-		_ = os.RemoveAll(d)
-	}
-}
-
-// stopSingletonsIn stops every daemon a PID file in dir names, but only a process whose
-// argv mentions dir: a PID file can outlive its process, and the kernel may have handed
-// that PID to something unrelated since. SIGTERM first, then SIGKILL after two seconds.
-func stopSingletonsIn(dir string) {
-	pidFiles, _ := filepath.Glob(filepath.Join(dir, "yolo-*.pid"))
-	for _, f := range pidFiles {
-		data, err := os.ReadFile(f)
-		if err != nil {
-			continue
-		}
-		pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-		if err != nil || pid <= 1 || !processArgvMentions(pid, dir) {
-			continue
-		}
-		_ = syscall.Kill(pid, syscall.SIGTERM)
-		deadline := time.Now().Add(2 * time.Second)
-		for time.Now().Before(deadline) && syscall.Kill(pid, 0) == nil {
-			time.Sleep(50 * time.Millisecond)
-		}
-		if syscall.Kill(pid, 0) == nil {
-			_ = syscall.Kill(pid, syscall.SIGKILL)
-		}
-	}
-}
-
-// processArgvMentions reports whether pid's command line contains needle. ps is used
-// rather than /proc so the check also runs on darwin.
-func processArgvMentions(pid int, needle string) bool {
-	out, err := exec.Command("ps", "-o", "args=", "-p", strconv.Itoa(pid)).Output()
-	return err == nil && strings.Contains(string(out), needle)
-}

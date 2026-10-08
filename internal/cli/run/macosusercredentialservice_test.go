@@ -8,30 +8,31 @@ package run
 // That instant is real for a user: a concurrent `yolo host-daemon restart openai-auth-broker`,
 // another launch replacing the daemon, or the daemon leaving because its state directory was
 // retired (hostservice.WatchStateDir) all stop it while a launch is between those two steps, and
-// a slow or loaded Mac widens the gap. It is also how check-macos failed on bd9527733:
-// reapTestSpawnedOpenAIBroker reads /proc, which darwin lacks, so each test there adopts the
-// broker an earlier test spawned, and that broker exits within two seconds of the earlier test's
-// temp HOME (its state dir) being deleted. A launch that adopted it in its last instant refused
-// with "OpenAI credential service did not start" in 0.04 s.
+// a slow or loaded Mac widens the gap. It is also how check-macos failed on bd9527733: the
+// test-side reaper then read /proc, which darwin lacks, so each test there adopted the broker an
+// earlier test spawned, and that broker exits within two seconds of the earlier test's temp HOME
+// (its state dir) being deleted. A launch that adopted it in its last instant refused with
+// "OpenAI credential service did not start" in 0.04 s.
 
 import (
 	"bytes"
-	"errors"
 	"net"
 	"os"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/broker"
+	"github.com/mschulkind-oss/yolo-jail/internal/heldchildren"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// stopHostSingletonNow SIGTERMs the host-wide daemon the PID file names and returns once its
-// socket refuses a connect, so the caller observes a daemon that has stopped accepting. It
-// returns the stopped PID, or 0 (after reporting why) when there was nothing to stop.
+// stopHostSingletonNow stops the host-wide daemon the PID file names, through the handle this
+// test process holds for it (heldchildren), and returns once its socket refuses a connect, so
+// the caller observes a daemon that has stopped accepting. It returns the stopped PID, or 0
+// (after reporting why) when there was nothing to stop. The PID file only SELECTS among the
+// daemons this process spawned: a PID it does not hold is never signalled.
 func stopHostSingletonNow(t *testing.T, name string) int {
 	t.Helper()
 	raw, err := os.ReadFile(paths.HostSingletonPIDFile(name))
@@ -40,14 +41,29 @@ func stopHostSingletonNow(t *testing.T, name string) int {
 		t.Errorf("no live %s to stop (PID file: %q, %v): the premise is gone", name, raw, err)
 		return 0
 	}
-	// ESRCH is the daemon having left on its own, which is the state this helper exists to
-	// produce: the socket check below then finds it refusing at once.
-	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
-		t.Errorf("SIGTERM %s (pid %d): %v", name, pid, err)
+	// Not held and not accepting is the daemon having left on its own, which is the state
+	// this helper exists to produce. Not held and still accepting is one this process did
+	// not spawn, which it may not signal.
+	if !heldchildren.Stop(pid, hostSingletonStopGrace) && hostSingletonAccepts(name) {
+		t.Errorf("%s (pid %d) is still accepting and is not a daemon this test process spawned; "+
+			"refusing to signal it", name, pid)
 		return 0
 	}
 	awaitHostSingletonRefusing(t, name, pid)
 	return pid
+}
+
+// hostSingletonStopGrace is how long a held daemon has to exit on SIGTERM before SIGKILL.
+const hostSingletonStopGrace = 5 * time.Second
+
+// hostSingletonAccepts reports whether the host-wide daemon's socket accepts a connect now.
+func hostSingletonAccepts(name string) bool {
+	conn, err := net.Dial("unix", paths.HostSingletonSocket(name))
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
 }
 
 // awaitHostSingletonRefusing returns once the host-wide daemon's socket refuses a connect,
@@ -69,14 +85,15 @@ func awaitHostSingletonRefusing(t *testing.T, name string, pid int) {
 }
 
 // stopAnyHostSingleton is stopHostSingletonNow for a test that must start from NO running
-// daemon, where there being none to stop is fine. On darwin an earlier test's daemon is usually
-// still running (reapTestSpawnedOpenAIBroker reads /proc), and a launch would reuse it.
+// daemon, where there being none to stop is fine: an earlier test's daemon may still be
+// running, and a launch would reuse it. Like stopHostSingletonNow it signals only a daemon
+// this test process holds; one it does not hold fails the refusal wait instead.
 func stopAnyHostSingleton(t *testing.T, name string) {
 	t.Helper()
 	raw, err := os.ReadFile(paths.HostSingletonPIDFile(name))
 	pid, _ := strconv.Atoi(strings.TrimSpace(string(raw)))
 	if err == nil && pid > 1 {
-		_ = syscall.Kill(pid, syscall.SIGTERM)
+		heldchildren.Stop(pid, hostSingletonStopGrace)
 	}
 	awaitHostSingletonRefusing(t, name, pid)
 }

@@ -44,11 +44,11 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/execx"
+	"github.com/mschulkind-oss/yolo-jail/internal/heldchildren"
 	"github.com/mschulkind-oss/yolo-jail/internal/logcap"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
@@ -790,11 +790,20 @@ func realSpawn(argv []string, logPath string) (int, func() bool, error) {
 	if err := cmd.Start(); err != nil {
 		return 0, nil, err
 	}
-	var done int32
-	go func() { _ = cmd.Wait(); atomic.StoreInt32(&done, 1) }()
-	pid := cmd.Process.Pid
-	exited := func() bool { return atomic.LoadInt32(&done) == 1 }
-	return pid, exited, nil
+	done := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(done) }()
+	// A test binary stops the daemons it started through this handle (heldchildren); in
+	// production nothing is held.
+	heldchildren.Hold(cmd.Process, done)
+	exited := func() bool {
+		select {
+		case <-done:
+			return true
+		default:
+			return false
+		}
+	}
+	return cmd.Process.Pid, exited, nil
 }
 
 // removeIgnoreMissing unlinks p, ignoring a not-exist error (Python's
