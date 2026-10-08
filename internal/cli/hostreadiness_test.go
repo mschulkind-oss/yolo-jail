@@ -110,6 +110,37 @@ func TestAHostLaunchRefusesWhenADeclaredProgramCannotBeInstalled(t *testing.T) {
 	}
 }
 
+// A declared program whose floor record a NEWER yolo wrote is not an install failure: the refusal
+// says the act will not install over that copy and names `yolo update`, and the newer record stays
+// as it was.
+func TestAHostLaunchSaysItWillNotInstallOverANewerYolosCopy(t *testing.T) {
+	dist, _ := twoProgramFixture(t, "")
+	recDir := filepath.Join(paths.HostFloorDir(), "records")
+	if err := os.MkdirAll(recDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	rec := filepath.Join(recDir, "othercli.json")
+	newer := []byte(`{"schema": 99, "bin": "othercli"}`)
+	if err := os.WriteFile(rec, newer, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dist.Publish("othercli-pkg", "1.0.0", "bin=othercli")
+	got := captureHostExec(t)
+	var errw bytes.Buffer
+	rc := hostExec(nil, []string{"sometool"}, io.Discard, &errw, nil)
+	if rc != 1 || got.execed {
+		t.Fatalf("rc=%d execed=%v, want the refusal (1) and no exec\n%s", rc, got.execed, errw.String())
+	}
+	for _, want := range []string{"will not install over a newer yolo's copy", "yolo update"} {
+		if !strings.Contains(errw.String(), want) {
+			t.Errorf("the refusal lacks %q:\n%s", want, errw.String())
+		}
+	}
+	if after, err := os.ReadFile(rec); err != nil || !bytes.Equal(after, newer) {
+		t.Errorf("the newer record changed: err=%v\n%s", err, after)
+	}
+}
+
 // HNR-D3: with YOLO_ALLOW_MISSING_PROGRAMS set the launch goes on and lists what it could not install.
 func TestTheBypassStartsTheLaunchAndListsWhatIsMissing(t *testing.T) {
 	dist, sometool := twoProgramFixture(t, "")

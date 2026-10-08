@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -112,7 +113,13 @@ func hostReadinessAct(packs []*packload.Pack, cmd []string, errw io.Writer, act 
 	var leaveOut []string
 	seenPack := map[string]bool{}
 	for _, f := range failed {
-		fmt.Fprintf(&list, "      %s: %v\n", f.who, f.err)
+		// A newer yolo's record is not an install failure: Ensure refused to install over it, and
+		// its error already names `yolo update`.
+		if errors.Is(f.err, hostfloor.ErrNewerRecord) {
+			fmt.Fprintf(&list, "      %s: will not install over a newer yolo's copy: %v\n", f.who, f.err)
+		} else {
+			fmt.Fprintf(&list, "      %s: %v\n", f.who, f.err)
+		}
 		if !seenPack[f.pack] {
 			seenPack[f.pack] = true
 			leaveOut = append(leaveOut, fmt.Sprintf("%q: false", f.pack))
