@@ -955,7 +955,9 @@ func materializeDarwinWith(nixRoot string, packages []any, outLink string) (*mac
 //
 // Best-effort throughout: a capture that succeeded must not be reported as failed because
 // its litter could not be swept. The next capture of the same bin clears the same paths
-// anyway (Store.Stage removes its staging dir before creating it).
+// anyway (Store.Stage removes its staging dir before creating it) — except where the litter is a
+// container user's, which only `podman unshare` can remove: Stage refuses then, naming that
+// command, rather than stopping on a bare unlinkat error.
 func cleanupCaptureWorkspace(workspace, cname string) {
 	_ = os.RemoveAll(workspace)
 	runtime.CleanupContainerTracking(cname)

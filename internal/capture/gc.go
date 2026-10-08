@@ -74,7 +74,8 @@ import (
 // flight lives, there is no marker to tell a live one from an abandoned one, and unlike an entry a
 // staging dir CAN be a correctness event to delete — it would break the running capture that owns
 // it. Reclaiming it needs a liveness or age rule this sweep deliberately does not have; today
-// Store.Stage clears the previous one when the same id is captured again.
+// Store.Stage clears the previous one when the same id is captured again — and REFUSES, naming
+// `podman unshare rm -rf <dir>`, when what it holds is a container user's and cannot be cleared.
 //
 // # The reclaimer invariants, by ID (minimal-disk-footprint.md §5)
 //

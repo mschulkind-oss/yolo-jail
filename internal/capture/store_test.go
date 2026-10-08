@@ -262,6 +262,36 @@ func TestStageClearsLeftoverScratch(t *testing.T) {
 	}
 }
 
+// An old staging dir the store's owner cannot clear names the command that removes it, rather than
+// the bare unlinkat error a rootless capture leaves — the sibling of admit's unfinished entry.
+//
+// Non-root only: this stands in for a container user's files with a mode bit, and root unlinks a
+// directory it cannot write to, so the fixture proves nothing under root. CI runs the package as
+// uid 65534 as well, where it does.
+func TestStageNamesTheCommandWhenAnOldStagingDirIsNotOursToRemove(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("needs a non-root store owner: root unlinks a directory it cannot write to")
+	}
+	s := &Store{Dir: t.TempDir()}
+	dir, err := s.Stage("run-1")
+	must(t, err)
+	stuck := filepath.Join(dir, "home", "stuck")
+	must(t, os.MkdirAll(stuck, 0o755))
+	must(t, os.WriteFile(filepath.Join(stuck, "bwrap"), []byte("x"), 0o755))
+	must(t, os.Chmod(stuck, 0o555))
+	t.Cleanup(func() { _ = os.Chmod(stuck, 0o755) })
+
+	if _, err := s.Stage("run-1"); err == nil {
+		t.Fatal("Stage must refuse while an old staging dir cannot be cleared")
+	} else {
+		for _, want := range []string{dir, "podman unshare rm -rf " + dir} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("Stage's refusal does not name %q:\n%s", want, err)
+			}
+		}
+	}
+}
+
 // One key convention across the repo's content-addressed directories, not two. `entries/3f2a…`
 // and `build/roots/3f2a…` mean the same kind of thing because they are computed the same way.
 func TestKeyIsTheImageStoreKeyConvention(t *testing.T) {

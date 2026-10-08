@@ -157,6 +157,11 @@ func (s *Store) StagingDir(id string) string { return filepath.Join(s.Dir, stagi
 // inherited a dead run's files would admit an entry whose key describes a tree no single installer
 // run ever produced.
 //
+// A leftover the store's owner cannot clear is REFUSED with the command that removes it, as
+// admit's unfinished entry is: a rootless podman capture that extracted a vendor archive as root
+// leaves the archive's uid on the files, a subordinate uid on the host, and a redo would otherwise
+// stop here with a bare unlinkat error every time. Only a `podman unshare` can delete them.
+//
 // The returned path is inside the store, which is the whole reason this method exists rather than
 // a caller reaching for os.MkdirTemp: see the package comment on admission being a rename.
 func (s *Store) Stage(id string) (string, error) {
@@ -165,6 +170,12 @@ func (s *Store) Stage(id string) (string, error) {
 	}
 	dir := s.StagingDir(id)
 	if err := os.RemoveAll(dir); err != nil {
+		if errors.Is(err, fs.ErrPermission) {
+			return "", fmt.Errorf("capture staging: %s, an unfinished capture an earlier run left, "+
+				"holds files that are not yours to remove (%w) — on a rootless podman an installer "+
+				"that extracts a vendor archive as root leaves the archive's uid behind; remove the "+
+				"staging dir with `podman unshare rm -rf %s`", dir, err, dir)
+		}
 		return "", err
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
