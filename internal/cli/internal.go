@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
@@ -291,6 +292,17 @@ func runBundleDir(args []string) int {
 // environment (entrypoint's hydrate_session_env step). The bootstrap writes
 // <workspace>/.yolo/boot.log as the container boot does.
 func runDarwinBootstrap(_ []string) int {
+	// ONLY AS THE SANDBOX ACCOUNT. A launch and a capture both run this through
+	// `sudo --user=_yolojail`; a human hand-running it would generate the sandbox layout into
+	// their OWN home, and the scope check below guards the account's home, not theirs.
+	if err := darwinBootstrapIdentityRefusal(); err != nil {
+		fmt.Fprintln(os.Stderr, "yolo internal darwin-bootstrap:", err)
+		return 1
+	}
+	// Every creator of <workspace>/.yolo in this process (the boot log, the boot refusal record)
+	// judges by the same boundary as the check below, not by the rebound HOME's layout.
+	defer paths.GuardScopeUnder(darwinBootstrapScopeHome())()
+
 	home := firstNonEmptyEnv("JAIL_HOME", "HOME")
 	if home == "" {
 		home = macosuser.SandboxHome()
@@ -350,6 +362,32 @@ func runDarwinBootstrap(_ []string) int {
 // darwinBootstrapScopeHome is the home whose boundary runDarwinBootstrap guards: the sandbox
 // account's. A var so a test can stand a temporary directory in for /Users/_yolojail.
 var darwinBootstrapScopeHome = macosuser.SandboxHome
+
+// darwinBootstrapEuid is os.Geteuid, a var so a test can stand in another identity.
+var darwinBootstrapEuid = os.Geteuid
+
+// darwinBootstrapIdentityRefusal refuses unless this process runs as the account that owns the
+// sandbox home: the uid is read off the home itself, because os/user falls back to $HOME in this
+// cgo-free build. A home that cannot be read is refused too.
+func darwinBootstrapIdentityRefusal() error {
+	home := darwinBootstrapScopeHome()
+	fi, err := os.Stat(home)
+	if err != nil {
+		return fmt.Errorf("cannot read the sandbox account's home %s (%v); this command runs only "+
+			"as that account, inside a macos-user launch — run `yolo` in the workspace instead", home, err)
+	}
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return fmt.Errorf("cannot tell who owns the sandbox account's home %s; run `yolo` in the "+
+			"workspace instead", home)
+	}
+	if euid := darwinBootstrapEuid(); uint32(euid) != st.Uid {
+		return fmt.Errorf("refusing to run as uid %d: this command runs only as the sandbox account "+
+			"that owns %s (uid %d), which a macos-user launch does for you — run `yolo` in the "+
+			"workspace instead", euid, home, st.Uid)
+	}
+	return nil
+}
 
 // darwinBootstrapScopeBreach is runDarwinBootstrap's refusal: why this workspace may not take a
 // .yolo, judged against the sandbox account's boundary, or nil.

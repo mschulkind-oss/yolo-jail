@@ -42,6 +42,7 @@ package paths
 import (
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 )
 
 // ScopeRootKind names the boundary root a workspace collided with. Callers key their own
@@ -130,8 +131,31 @@ func (b *ScopeBreach) Error() string {
 //
 // The three roots are derived from ONE home — home(), which every path helper in this
 // package resolves through — so they cannot disagree about which home this is.
+//
+// In a process that called GuardScopeUnder, it is WorkspaceScopeBreachUnder against that home
+// instead, so every creator of <workspace>/.yolo in that process judges by the same boundary.
 func WorkspaceScopeBreach(workspace string) *ScopeBreach {
+	if h := scopeHomeOverride.Load(); h != nil {
+		return WorkspaceScopeBreachUnder(workspace, *h)
+	}
 	return scopeBreach(workspace, true)
+}
+
+// scopeHomeOverride is GuardScopeUnder's home, or nil.
+var scopeHomeOverride atomic.Pointer[string]
+
+// GuardScopeUnder makes WorkspaceScopeBreach, for the rest of this process, judge a workspace
+// against home's roots (WorkspaceScopeBreachUnder) rather than the process HOME's. It returns a
+// function restoring the previous rule, for tests.
+//
+// Its one caller is `yolo internal darwin-bootstrap`, which runs with HOME rebound to the sandbox
+// account's layout. Without it, its own creators of <workspace>/.yolo (the boot log, the boot
+// refusal record) followed that layout's ~/.config link into the workspace's sidecar and refused
+// the workspace the bootstrap had just admitted, so a relaunch or a capture lost its boot.log
+// without a word.
+func GuardScopeUnder(home string) (restore func()) {
+	prev := scopeHomeOverride.Swap(&home)
+	return func() { scopeHomeOverride.Store(prev) }
 }
 
 // WritableSourceScopeBreach is the SAME rule for a host path a jail would WRITE through a

@@ -13,8 +13,10 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -104,4 +106,73 @@ func resolvedDir(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return d
+}
+
+// TestDarwinBootstrapRunsOnlyAsTheSandboxAccount pins the identity gate. The scope check above
+// guards the SANDBOX account's home, so a human hand-running the bootstrap with their own home as
+// the workspace would pass it, and the generators would plant a .yolo there. Run as any uid other
+// than the one owning the sandbox home, the bootstrap must refuse before it creates anything.
+func TestDarwinBootstrapRunsOnlyAsTheSandboxAccount(t *testing.T) {
+	sandboxAccountHome(t)
+	human := resolvedDir(t)
+	t.Setenv("HOME", human)
+	t.Setenv("JAIL_HOME", "")
+	t.Setenv("YOLO_DARWIN_WORKSPACE", human)
+
+	saved := darwinBootstrapEuid
+	darwinBootstrapEuid = func() int { return os.Geteuid() + 1 }
+	t.Cleanup(func() { darwinBootstrapEuid = saved })
+
+	if rc := runDarwinBootstrap(nil); rc != 1 {
+		t.Errorf("runDarwinBootstrap as a uid that does not own the sandbox home returned %d, want 1", rc)
+	}
+	if _, err := os.Stat(paths.WorkspaceStateDir(human)); !os.IsNotExist(err) {
+		t.Errorf("%s exists: the bootstrap generated into the invoking user's home (stat err: %v)",
+			paths.WorkspaceStateDir(human), err)
+	}
+}
+
+// TestDarwinBootstrapKeepsTheBootLogOfARelaunch is the second launch of a workspace: the account
+// home's ~/.config links into that workspace's sidecar, which by then holds a yolo-jail directory.
+// The bootstrap admits the workspace, and its boot log must still be written: the log's creator
+// asks the process-wide scope rule, which followed that link and refused, so every relaunch lost
+// its boot.log silently.
+func TestDarwinBootstrapKeepsTheBootLogOfARelaunch(t *testing.T) {
+	home := sandboxAccountHome(t)
+	ws := filepath.Join(resolvedDir(t), "ws")
+	sidecarConfig := filepath.Join(paths.WorkspaceStateDir(ws), "home", "config")
+	if err := os.MkdirAll(filepath.Join(sidecarConfig, "yolo-jail"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(sidecarConfig, filepath.Join(home, ".config")); err != nil {
+		t.Fatal(err)
+	}
+	clearLaunchEnv(t)
+	// The bootstrap's generators switch this process to the jail's tolerant manifest decoder;
+	// restore it so later tests' strict-load refusals still bite.
+	t.Cleanup(packload.OverrideSkewTolerance(false))
+	t.Setenv("HOME", home)
+	t.Setenv("JAIL_HOME", home)
+	t.Setenv("YOLO_DARWIN_WORKSPACE", ws)
+
+	runDarwinBootstrap(nil) // the generation's own result does not matter here; the log does
+	if _, err := os.Stat(filepath.Join(paths.WorkspaceStateDir(ws), "boot.log")); err != nil {
+		t.Errorf("a relaunch's bootstrap wrote no boot.log: %v", err)
+	}
+	if paths.WorkspaceScopeBreach(home) == nil {
+		t.Error("the bootstrap's scope rule outlived the call: the process-HOME rule admits HOME itself")
+	}
+}
+
+// clearLaunchEnv unsets the generator contract a jail or a CI runner may carry (YOLO_*, and the
+// install prefixes the bootstrap catalogs), so a full bootstrap run reads only what the test set.
+func clearLaunchEnv(t *testing.T) {
+	t.Helper()
+	for _, kv := range os.Environ() {
+		k, _, _ := strings.Cut(kv, "=")
+		if strings.HasPrefix(k, "YOLO_") || strings.HasPrefix(k, "MISE_") || k == "NPM_CONFIG_PREFIX" || k == "GOPATH" {
+			t.Setenv(k, "")
+			os.Unsetenv(k)
+		}
+	}
 }
