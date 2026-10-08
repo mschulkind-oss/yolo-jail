@@ -254,24 +254,16 @@ func (s *OverlaySet) For(agent, name string) []agentcfg.Overlay {
 // gate, never by changing which identities exist. The owner pass still takes no table,
 // because ownership is a property of the packs alone.
 //
-// profiles is the ACTIVE profile table the CALLER's render resolved — packload.ProfileTable's
-// lowering of YOLO_USE_PROFILES in the jail, of the config's profile at the host —
-// keyed by CLI name, and it gates the `profile` MODIFIER (docs/reference/providers.md#the-profile-modifier):
-// an overlay declaring a profile contributes only while that name is the one active for the
-// surface's OWNING agent, which is the target identity's agent segment (an "agent/name"
-// identity's agent half IS a CLI name, the namespace the table keys on). Taking the table
-// as a parameter rather than re-deriving it is what keeps the gate from answering the
-// "which profile is selected" question differently than the other profile consumers in the
-// same render — the caller already resolved it once for all of them.
+// activeProfiles is the ACTIVE profile set resolved by the caller's render — keyed by CLI
+// name. An overlay declaring a profile contributes only while that name occurs in the set
+// for the surface's OWNING agent. Taking the resolved set rather than re-deriving it keeps
+// this gate aligned with the launch's single profile resolution.
 //
 // An inactive profile is a CLEAN SKIP — no error, no orphan report, no applied notice —
-// because selection is the optionality (providers.md#the-profile-modifier, the same rule that makes an unselected owner
-// a skip rather than a refusal) and profile VALUES were free-form (providers.md#pv-oq-3, since superseded by #oq-cs6): a name
-// nothing selected is inert, and reporting it would be a launch that second-guesses the
-// user's `-p`. A profile-gated overlay whose target has no owner while the profile IS
-// active is still an orphan — R2's report fires for the reason that actually stopped the
-// contribution.
-func Collect(packs []*packload.Pack, autonomy bool, profiles map[string]string) *OverlaySet {
+// because selection is the optionality. A profile-gated overlay whose target has no owner
+// while its profile IS active is still an orphan — R2's report fires for the reason that
+// actually stopped the contribution.
+func Collect(packs []*packload.Pack, autonomy bool, activeProfiles map[string][]string) *OverlaySet {
 	set := &OverlaySet{
 		byTarget:           map[manifest.SurfaceKey][]agentcfg.Overlay{},
 		listsByTarget:      map[manifest.SurfaceKey][]agentcfg.ListContribution{},
@@ -376,7 +368,7 @@ func Collect(packs []*packload.Pack, autonomy bool, profiles map[string]string) 
 			// and R2's report exists to name the remedy ("select that pack"), which here
 			// would be a remedy the user deliberately declined. (A posture overlay carries no
 			// profile: its one gate is the posture's, above.)
-			if ov.Profile != "" && profiles[key.Agent] != ov.Profile {
+			if ov.Profile != "" && !profileActive(activeProfiles[key.Agent], ov.Profile) {
 				continue
 			}
 			if _, owned := owners[key]; !owned {
@@ -486,6 +478,17 @@ func Collect(packs []*packload.Pack, autonomy bool, profiles map[string]string) 
 		return set.Orphans[i].kindName() < set.Orphans[j].kindName()
 	})
 	return set
+}
+
+// profileActive reports membership without changing the ordered set used by other profile
+// consumers; overlays need only the set-membership question.
+func profileActive(profiles []string, name string) bool {
+	for _, profile := range profiles {
+		if profile == name {
+			return true
+		}
+	}
+	return false
 }
 
 // placedRegistration is one registering slot's entry for one landed tree, ready to fold: the

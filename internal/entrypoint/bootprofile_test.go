@@ -107,6 +107,15 @@ func TestBootRenderDeliversTheSelectedProfileOverlay(t *testing.T) {
 	}
 }
 
+// The boot passes the whole resolved active set to overlay collection: the gate may name a
+// non-primary member without changing the separately resolved primary profile selection.
+func TestBootRenderDeliversASecondaryProfileOverlay(t *testing.T) {
+	got := renderAcmeSettings(t, `{"acme":["zai","bedrock"]}`)
+	if got["gated"] != "yes" {
+		t.Errorf("the secondary active profile's overlay must reach the boot render, got:\n%v", got)
+	}
+}
+
 // No selection (or a name this pack does not declare): the overlay is a clean skip, and a
 // launch that selected no profile must not render one.
 func TestBootRenderWithoutAProfileSelectionRendersNoOverlay(t *testing.T) {

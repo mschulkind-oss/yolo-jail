@@ -53,7 +53,7 @@ func TestShrunkenProfileDeliversBothChannelsTheOldBodyDid(t *testing.T) {
 	}
 
 	// Channel 2: the overlay slot, folded by the same collector every other overlay uses.
-	set := packoverlay.Collect(packs, true, bedrock)
+	set := packoverlay.Collect(packs, true, map[string][]string{"claude": {"bedrock"}})
 	if len(set.Problems) != 0 {
 		t.Fatalf("overlay problems: %v", set.Problems)
 	}
@@ -83,7 +83,7 @@ func TestShrunkenProfileDeliversBothChannelsTheOldBodyDid(t *testing.T) {
 	if got := packload.EnvVarsFor(packs, packload.ProfilesOnly(map[string]string{"claude": "nobody"}), "claude"); got["CLAUDE_CODE_USE_BEDROCK"] != "" {
 		t.Errorf("an undeclared profile selected: the env half must not deliver, got %v", got)
 	}
-	if got := packoverlay.Collect(packs, true, map[string]string{"claude": "nobody"}).
+	if got := packoverlay.Collect(packs, true, map[string][]string{"claude": {"nobody"}}).
 		For("claude", "settings"); len(got) != 0 {
 		t.Errorf("an undeclared profile selected: the overlay half must not be placed, got %+v", got)
 	}
@@ -111,7 +111,7 @@ func TestGatedOverlayMissSurfacesAsAnOrphanNotAFoldNote(t *testing.T) {
 				problems, notes)
 		}
 	}
-	set := packoverlay.Collect(packs, true, map[string]string{"claude": "bedrock"})
+	set := packoverlay.Collect(packs, true, map[string][]string{"claude": {"bedrock"}})
 	if len(set.Orphans) != 1 || set.Orphans[0].Target != "claude/setings" {
 		t.Fatalf("the typo'd target must surface as an orphan once the profile is active, got %+v", set.Orphans)
 	}

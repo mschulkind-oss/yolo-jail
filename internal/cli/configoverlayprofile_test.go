@@ -51,7 +51,7 @@ func gatedFixture(t *testing.T, profilesJSON string, packs map[string]string) st
 // launch, `yolo check` and `yolo host apply` refuse `{"acme": ...}` as naming no CLI, and "*"
 // (or the string form) reaches no agent the gate could key acme/settings on.
 const acmeAgentOwnerPackJSON = `{"name":"acme","contributes":[
-  {"kind":"program","bin":"acme","via":"npm","package":"acme"},
+  {"kind":"program","bin":"acme","via":"npm","package":"acme","provider_sets":true},
   {"kind":"config","config":[{"agent":"acme","name":"settings","codec":"json",
     "path":"~/.acme/settings.json","defaults":{"theme":"system"},
     "managed":{"telemetry":false}}]}]}`
@@ -65,10 +65,18 @@ const acmeGatedPackJSON = `{"name":"acme-zai","contributes":[
 // overlay's key into the real home and names the contributing pack — R3 holding for a
 // gated contribution exactly as it holds for an ungated one.
 func TestApplyHostRendersGatedOverlayWhenProfileSelected(t *testing.T) {
-	gatedFixture(t, `{"acme":"zai"}`, map[string]string{
+	home := gatedFixture(t, `{"acme":["bedrock","zai"]}`, map[string]string{
 		"acme":     acmeAgentOwnerPackJSON,
 		"acme-zai": acmeGatedPackJSON,
 	})
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "yolo-jail.jsonc"),
+		[]byte(`{"profile":{"acme":"bedrock"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(workspace)
+	// Host durable rendering is user-scope only: the conflicting workspace selection must
+	// not suppress the secondary profile from the user config.
 	// R3's contribution line is the --verbose view's since §4.5 (see TestApplyHostNamesThe
 	// ContributingPack); the KEY landing in the file is asserted on the file itself below.
 	verboseReport(t)
@@ -87,6 +95,21 @@ func TestApplyHostRendersGatedOverlayWhenProfileSelected(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "zai-dark") {
 		t.Errorf("the gated overlay's key is absent from the host render with the profile selected:\n%s", data)
+	}
+	provenancePath := render.Host(home, nil, render.OwnershipOwn).ProvenancePath("acme", "settings")
+	provenance, err := os.ReadFile(provenancePath)
+	if err != nil {
+		t.Fatalf("read the actual host provenance record %s: %v", provenancePath, err)
+	}
+	if !strings.Contains(string(provenance), "theme\tconfig-overlay:acme-zai\n") {
+		t.Errorf("the persisted host winner for theme must name the secondary-profile overlay:\n%s", provenance)
+	}
+	var listed, listErr bytes.Buffer
+	if rc := configLs(hostNotchTarget(t), []string{"--all"}, &listed, &listErr, false); rc != 0 {
+		t.Fatalf("configLs after the real host apply rc=%d, stderr=%s", rc, listErr.String())
+	}
+	if !strings.Contains(listed.String(), "set by acme-zai") {
+		t.Errorf("the host provenance reader must report the winner written by this apply:\n%s", listed.String())
 	}
 }
 
@@ -164,7 +187,7 @@ func TestOverlayGateProfilesReadsEachNotchesOwnTable(t *testing.T) {
 	// lowering exists to drop) beside a real selection.
 	t.Setenv("YOLO_USE_PROFILES", `{"acme":"zai","pi":null}`)
 	jail := overlayGateProfiles(render.KindJail, nil)
-	if jail["acme"] != "zai" {
+	if len(jail["acme"]) != 1 || jail["acme"][0] != "zai" {
 		t.Errorf("jail table = %v, want acme=zai", jail)
 	}
 	if _, present := jail["pi"]; present {
@@ -188,12 +211,12 @@ func TestOverlayGateProfilesReadsEachNotchesOwnTable(t *testing.T) {
 	}
 	writeUserProfiles(`{"acme":"zai"}`)
 	host := overlayGateProfiles(render.KindHost, nil)
-	if host["acme"] != "zai" {
+	if len(host["acme"]) != 1 || host["acme"][0] != "zai" {
 		t.Errorf("host table = %v, want acme=zai from the user config", host)
 	}
 	// A jail-side env var must NOT leak into the host branch.
 	t.Setenv("YOLO_USE_PROFILES", `{"acme":"bedrock"}`)
-	if again := overlayGateProfiles(render.KindHost, nil); again["acme"] != "zai" {
+	if again := overlayGateProfiles(render.KindHost, nil); len(again["acme"]) != 1 || again["acme"][0] != "zai" {
 		t.Errorf("the host branch read the jail's env table: %v", again)
 	}
 	// The key's "*" gates for the agents the caller's packs install (PP-D10), as a jail's
@@ -205,7 +228,7 @@ func TestOverlayGateProfilesReadsEachNotchesOwnTable(t *testing.T) {
 			claude = append(claude, p)
 		}
 	}
-	if host := overlayGateProfiles(render.KindHost, claude); host["claude"] != "zai" || len(host) != 1 {
+	if host := overlayGateProfiles(render.KindHost, claude); len(host["claude"]) != 1 || host["claude"][0] != "zai" || len(host) != 1 {
 		t.Errorf("host table over the claude pack = %v, want claude=zai alone", host)
 	}
 	if host := overlayGateProfiles(render.KindHost, nil); len(host) != 0 {

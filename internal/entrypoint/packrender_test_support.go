@@ -53,7 +53,7 @@ func configureOnePack(e *Env, p *packload.Pack) error {
 	// to know whether that pack worked. Everything else — the posture from the target's
 	// profile, the profile table, the resolved selection, the per-agent MCP table — is the
 	// boot's own, so the parity proofs this entry serves measure the render the boot produces.
-	if err := renderPackSet(e, single, func(autonomy bool, profiles map[string]string) *packoverlay.OverlaySet {
+	if err := renderPackSet(e, single, func(autonomy bool, activeProfiles map[string][]string) *packoverlay.OverlaySet {
 		// Overlays over the ONE pack asked for, so a pack that overlays a surface it owns
 		// itself still renders. A cross-pack overlay cannot resolve from a single-pack view
 		// and is reported ownerless (R2) — correct here rather than a limitation, since this
@@ -61,7 +61,7 @@ func configureOnePack(e *Env, p *packload.Pack) error {
 		// selection's BUILT-IN capability half reads the same single-pack view: it answers
 		// for a surface whose agent this pack installs — every shipped one — and nothing for
 		// a surface an agent pack elsewhere would speak for.
-		return packoverlay.Collect(single, autonomy, profiles)
+		return packoverlay.Collect(single, autonomy, activeProfiles)
 	}, func(_ string, run func() error) error {
 		return run()
 	}); err != nil {

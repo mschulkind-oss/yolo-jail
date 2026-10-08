@@ -20,6 +20,7 @@ facts for a variant id. See
 ### Fixed
 
 - A provider-only Pi profile no longer fails at startup because of a provider flag without a model selection.
+- A profile's config overlay now applies when that profile is any member of an agent's active profile set, not only the first.
 
 ## [0.12.1] - 2026-10-06
 

@@ -3529,7 +3529,7 @@ func hostProfileFold(cfg *jsonx.OrderedMap, packs []*packload.Pack, agent, typed
 	return config.FoldProfiles(config.ReceiversOf(packs), config.ConfigProfileSelection(cfg), flag)
 }
 
-// overlayGateProfiles is the ACTIVE profile table the config-overlay `profile` modifier
+// overlayGateProfiles is the ACTIVE profile sets the config-overlay `profile` modifier
 // gates on, for the notch being rendered or described — the shared source for `yolo host
 // apply`'s render and `yolo config diff`'s report, so the two cannot describe a different
 // selection than the render either of them is reasoning about.
@@ -3550,7 +3550,7 @@ func hostProfileFold(cfg *jsonx.OrderedMap, packs []*packload.Pack, agent, typed
 // there. No `-p` is honored because neither caller takes one — the flag exists on `yolo
 // host --` and `yolo --`, which compose per-process and read this same table through their
 // own channels.
-func overlayGateProfiles(notch render.Kind, packs []*packload.Pack) map[string]string {
+func overlayGateProfiles(notch render.Kind, packs []*packload.Pack) map[string][]string {
 	if notch == render.KindJail {
 		raw := os.Getenv("YOLO_USE_PROFILES")
 		if raw == "" {
@@ -3561,11 +3561,11 @@ func overlayGateProfiles(notch render.Kind, packs []*packload.Pack) map[string]s
 			return nil
 		}
 		if m, ok := decoded.(*jsonx.OrderedMap); ok {
-			return packload.ProfileTable(m)
+			return packload.ProfileSets(m)
 		}
 		return nil
 	}
-	return packload.ProfileTable(effectiveHostProfiles(config.UserScopeConfigOrEmpty(), packs, "", ""))
+	return packload.ProfileSets(effectiveHostProfiles(config.UserScopeConfigOrEmpty(), packs, "", ""))
 }
 
 // hostEnv prints the composed environment instead of exec'ing into it — the third front

@@ -291,7 +291,7 @@ func TestGatedOverlayResolvesWhenProfileIsActiveForTheOwner(t *testing.T) {
 	set := Collect([]*packload.Pack{
 		ownerPack("claude"),
 		gatedOverlayPack("zai", "claude/settings", "zai", map[string]any{"env": map[string]any{"A": "b"}}),
-	}, true, map[string]string{"claude": "zai"})
+	}, true, map[string][]string{"claude": {"zai"}})
 
 	if len(set.Problems) != 0 || len(set.Orphans) != 0 {
 		t.Fatalf("an active, well-formed overlay must be clean: problems=%v orphans=%+v",
@@ -309,6 +309,23 @@ func TestGatedOverlayResolvesWhenProfileIsActiveForTheOwner(t *testing.T) {
 	}
 }
 
+// A modifier names any active profile in the target agent's ordered set, not only its primary.
+func TestGatedOverlayResolvesForASecondaryActiveProfile(t *testing.T) {
+	set := Collect([]*packload.Pack{
+		ownerPack("claude"),
+		gatedOverlayPack("bedrock", "claude/settings", "bedrock", map[string]any{"env": map[string]any{"A": "b"}}),
+		gatedOverlayPack("zai", "claude/settings", "zai", map[string]any{"env": map[string]any{"B": "c"}}),
+	}, true, map[string][]string{"claude": {"zai", "bedrock"}})
+
+	if len(set.Problems) != 0 || len(set.Orphans) != 0 {
+		t.Fatalf("secondary-active overlay must be clean: problems=%v orphans=%+v", set.Problems, set.Orphans)
+	}
+	got := set.For("claude", "settings")
+	if len(got) != 2 || got[0].Pack != "bedrock" || got[1].Pack != "zai" {
+		t.Fatalf("both active profiles should resolve in pack order with attribution, got %+v", got)
+	}
+}
+
 // THE GATE'S NEGATIVE HALF, three ways to be inactive: another name active at that agent,
 // NO name active at that agent, and the name active at a DIFFERENT agent (the table keys
 // on the surface's owner, not on the contributor). All three are a clean skip — no keys,
@@ -317,11 +334,11 @@ func TestGatedOverlayResolvesWhenProfileIsActiveForTheOwner(t *testing.T) {
 func TestGatedOverlaySkipsCleanlyWhenProfileIsNotActive(t *testing.T) {
 	cases := []struct {
 		name     string
-		profiles map[string]string
+		profiles map[string][]string
 	}{
-		{"another name active", map[string]string{"claude": "bedrock"}},
+		{"another name active", map[string][]string{"claude": {"bedrock"}}},
 		{"nothing active", nil},
-		{"active at another agent", map[string]string{"pi": "zai"}},
+		{"active at another agent", map[string][]string{"pi": {"zai"}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -361,7 +378,7 @@ func TestUngatedOverlayIgnoresTheProfileTable(t *testing.T) {
 	set := Collect([]*packload.Pack{
 		ownerPack("claude"),
 		overlayPack("claude-fzf", "claude/settings", map[string]any{"fileSuggestion": "cmd"}),
-	}, true, map[string]string{"claude": "bedrock"})
+	}, true, map[string][]string{"claude": {"bedrock"}})
 	if got := set.For("claude", "settings"); len(got) != 1 {
 		t.Errorf("an ungated overlay must render regardless of the active profile, got %d", len(got))
 	}
@@ -373,7 +390,7 @@ func TestUngatedOverlayIgnoresTheProfileTable(t *testing.T) {
 func TestGatedOverlayStillReportsOrphanWhenProfileIsActive(t *testing.T) {
 	set := Collect([]*packload.Pack{
 		gatedOverlayPack("zai", "claude/settings", "zai", map[string]any{"k": 1}),
-	}, true, map[string]string{"claude": "zai"})
+	}, true, map[string][]string{"claude": {"zai"}})
 	if len(set.Orphans) != 1 {
 		t.Fatalf("want the active-but-ownerless overlay reported as an orphan, got %+v", set.Orphans)
 	}

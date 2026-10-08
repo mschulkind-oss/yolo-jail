@@ -190,7 +190,7 @@ func writeSurfaceThrough(e *Env, mechanism string, s manifest.Surface, l surface
 // (ConfigurePackSurfaces, over every staged pack) and `yolo check`'s probe (configureOnePack,
 // over one). packs is the set the derive's selection resolves over — the built-in capability
 // half answers by which pack installs a surface's agent. collect gathers the cross-pack
-// contributions at the target's posture and the launch's active profile table (both handed to
+// contributions at the target's posture and the launch's active profile set (both handed to
 // it, so the gate and the derive read one resolution); it runs after the MCP table loads, the
 // order the boot's notices have always come in.
 //
@@ -199,7 +199,7 @@ func writeSurfaceThrough(e *Env, mechanism string, s manifest.Surface, l surface
 // reports every broken surface (A12); the check probe runs each step and stops at the first
 // error. A non-nil return from step ends the walk with that error.
 func renderPackSet(e *Env, packs []*packload.Pack,
-	collect func(autonomy bool, profiles map[string]string) *packoverlay.OverlaySet,
+	collect func(autonomy bool, activeProfiles map[string][]string) *packoverlay.OverlaySet,
 	step func(name string, run func() error) error) error {
 	// The MCP table is PER AGENT (loadMCPTables): a server whose requires_env names a
 	// provider-claimed variable is written only for the agents whose own env file carries it.
@@ -221,7 +221,7 @@ func renderPackSet(e *Env, packs []*packload.Pack,
 	// render.ProfileFor table the host render reads (plan §6c step 1) — never a literal. It
 	// resolves to ON for a jail target, so the render is byte-identical
 	// (TestRenderFingerprintStable). planPackSurfaces folds the posture from the same target.
-	overlays := collect(e.renderTarget().Profile().AgentAutonomy, profiles)
+	overlays := collect(e.renderTarget().Profile().AgentAutonomy, sets)
 	for _, p := range packs {
 		plans, problems := planPackSurfaces(e, p, overlays)
 		for _, prob := range problems {

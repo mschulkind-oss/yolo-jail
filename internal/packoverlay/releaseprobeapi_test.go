@@ -13,8 +13,8 @@ import (
 // next tag; the probe must learn the new spelling first.
 func TestReleaseDecodeProbeAPIIsStable(t *testing.T) {
 	var (
-		collect  func([]*packload.Pack, bool, map[string]string) *OverlaySet = Collect
-		problems []string                                                    = (&OverlaySet{}).Problems
+		collect  func([]*packload.Pack, bool, map[string][]string) *OverlaySet = Collect
+		problems []string                                                      = (&OverlaySet{}).Problems
 	)
 	if collect == nil || problems != nil {
 		t.Fatal("unreachable: a nil function value, or a zero set with problems")

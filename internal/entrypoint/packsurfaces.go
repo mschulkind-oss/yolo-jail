@@ -219,13 +219,13 @@ func ConfigurePackSurfaces(e *Env, packs []*packload.Pack) {
 	about := surfaceStepsAbout(packs)
 	// THE ONE LOOP (surfaceloop.go), with the boot's failure disposition: every step through
 	// genStep, so one boot reports every broken surface rather than one per restart (A12).
-	_ = renderPackSet(e, packs, func(autonomy bool, profiles map[string]string) *packoverlay.OverlaySet {
+	_ = renderPackSet(e, packs, func(autonomy bool, activeProfiles map[string][]string) *packoverlay.OverlaySet {
 		// config-overlay contributions are collected BEFORE the walk and across the whole
 		// set, because an overlay in pack B targets a surface pack A owns — the only case the
 		// kind exists for. Collecting per-pack would find, for that case, exactly none
 		// (docs/reference/pack-system.md §6). Since OQ-PT8 the gated overlay IS the profile's
-		// config channel, so the active profile table is that gate's whole input.
-		overlays := packoverlay.Collect(withTreeFallbacks(e, packs), autonomy, profiles)
+		// config channel, so membership in the active profile set is that gate's whole input.
+		overlays := packoverlay.Collect(withTreeFallbacks(e, packs), autonomy, activeProfiles)
 		reportOverlayResolution(e, overlays)
 		return overlays
 	}, func(name string, run func() error) error {

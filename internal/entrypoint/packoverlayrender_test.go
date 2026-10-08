@@ -580,7 +580,7 @@ func TestHostRenderGatedOverlayAppliesWhenProfileActive(t *testing.T) {
 	owner := overlayOwnerPack(t, "")
 	contributor := gatedOverlayContributorPack(t, "acme-zai", "zai", map[string]any{"theme": "dark"})
 	overlays := packoverlay.Collect([]*packload.Pack{owner, contributor}, false,
-		map[string]string{"acme": "zai"})
+		map[string][]string{"acme": {"zai"}})
 
 	if _, err := RenderHostPack(owner, home, render.OwnershipOwn, false, overlays, nil); err != nil {
 		t.Fatalf("RenderHostPack: %v", err)
