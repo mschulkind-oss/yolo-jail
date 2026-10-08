@@ -1,16 +1,17 @@
 ---
 title: "An active Pi profile must constrain supported model calls, not saved logins"
 date: 2026-10-06
-status: accepted
-stage: DECIDED
-next: "Implement and verify active-provider enforcement in Pi's supported runtime without changing saved logins"
+status: in-review
+stage: DESIGN
+next: "Rule OQ-PAS2: enforce the active set inside yolo alone, or with a Pi runtime change"
 tags: [pi, profiles, credentials, openai-auth, packs]
 summary: "Corrects the diagnosis of simultaneous Pi provider use: rendered selection, pack closure, broker preparation, and credentials already stored by Pi are separate authorities."
 ---
 
 # An active Pi profile must constrain supported model calls, not saved logins
 
-**Status:** 2026-10-07. Owner policy is settled ([OQ-PAS1](#decision-ledger)); enforcement is unbuilt.
+**Status:** 2026-10-08. Owner policy is settled ([OQ-PAS1](#decision-ledger)); enforcement is unbuilt.
+Where it is enforced is open again: the maintainer wants it contained in yolo ([OQ-PAS2](#OQ-PAS2)).
 The [startup flag repair](pi-launch-selection-flags.md) remains separate and does not restrict calls.
 Installed Pi 1.0.4 source was rechecked without reading auth/settings files or invoking a model.
 
@@ -22,11 +23,12 @@ Installed Pi 1.0.4 source was rechecked without reading auth/settings files or i
 **The shape.** Yolo supplies launch-scoped provider IDs; Pi checks the final dispatch provider before
 request authentication, independently of model menus and credential storage.
 
-**Cost.** A Pi runtime/API change: existing extension notification hooks cannot enforce this rule.
+**Cost.** As written, a Pi runtime/API change: existing extension notification hooks cannot enforce
+this rule. [OQ-PAS2](#OQ-PAS2) asks whether a yolo-only route is preferable.
 
 **Start at [§3](#3-accepted-provider-use-policy)** — the supported-call boundary and denial behavior.
 
-**Needs your ruling:** None.
+**Needs your ruling:** [OQ-PAS2](#OQ-PAS2).
 
 **Reads with:** [implementation handoff](simultaneous-auth-and-pack-isolation-plan.md),
 [`active-provider-sets.md`](active-provider-sets.md) (active-set semantics),
@@ -138,10 +140,32 @@ the [plan](simultaneous-auth-and-pack-isolation-plan.md).
 
 No saved login is deleted, rewritten, revoked, or widened to enforce selection. Ordinary allowed
 Pi authentication keeps its native behavior; the policy does not install an alternative credential
-store. This is not a same-UID filesystem/network boundary. Deliberate standalone `pi-ai` calls,
+store (unless [OQ-PAS2](#OQ-PAS2) chooses the yolo-only route, which leaves saved files untouched
+but hands Pi a per-launch view). This is not a same-UID filesystem/network boundary. Deliberate standalone `pi-ai` calls,
 arbitrary HTTP clients, trusted code bypassing the managed runtime, or a manually unconfigured
 process are outside the supported-call guarantee. Menus may aid discovery but their contents are
 not acceptance evidence. No incident-machine repair or live provider/account proof is claimed.
+
+## Open questions
+
+1. 💬 **OQ-PAS2: Enforce the active set inside yolo alone, or by changing Pi?** <a id="OQ-PAS2"></a>
+
+   With the `codex` profile active and a saved Anthropic login, you pick a Claude model in Pi.
+
+   - **A — Yolo only.** A per-launch view of Pi's login store holds only the active set's
+     providers; other providers' key variables are dropped. Pi is unchanged. **You'd see:** Pi's
+     own "not logged in". **Cost:** Pi's message, not ours; `/login` in the jail needs a rule.
+   - **B — Patch Pi** (as written). **You'd see:** a yolo denial naming the profile. **Cost:** a
+     Pi patch series to carry; a Pi build without it must refuse.
+
+   <!-- vantage: question id=OQ-PAS2 leaning="A: it keeps Pi unmodified as the maintainer wanted; the weaker message is the price." -->
+
+   _Leaning:_ A. It keeps Pi unmodified; the price is Pi's own message. B is already built on a
+   lane branch, so it stays cheap to pick.
+
+   **Answer:**
+
+   > _(empty — fill in when decided)_
 
 ## Decision Ledger
 
