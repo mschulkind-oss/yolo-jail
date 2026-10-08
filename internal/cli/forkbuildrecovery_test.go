@@ -564,3 +564,36 @@ func TestAMacosUserBuildThatReturnedIsReusedOnRetry(t *testing.T) {
 		})
 	}
 }
+
+// The run-returned witness skips the probe for macos-user alone: a container backend's build that
+// returned is still probed, so a jail still present there keeps its workspace.
+func TestARetainedContainerBuildThatReturnedIsStillProbed(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	f := forkBuildHome(t)
+	b := forkBuild{Fork: f, Commit: forkTestCommit, Platform: captureJailPlatform()}
+	staging, cname, marker := seedRetainedForkBuildWorkspace(t, b, "podman")
+	if err := runtime.WriteContainerTracking(cname, staging); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeForkBuildRuntime(staging, "podman"); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeForkBuildRunReturned(staging); err != nil {
+		t.Fatal(err)
+	}
+	previousProbe := probeForkBuildContainer
+	probes := 0
+	probeForkBuildContainer = func(string, string, time.Duration) (bool, bool) {
+		probes++
+		return true, true // still present
+	}
+	t.Cleanup(func() { probeForkBuildContainer = previousProbe })
+	runCalls := 0
+	entry, err := buildFork(b, buildMode{lock: pidlock.NoWait, runtime: "podman",
+		runJail: func(string, forkBuild, captureStreams) int { runCalls++; return 0 }}, io.Discard, io.Discard, false)
+	if err == nil || !strings.Contains(err.Error(), "still present") || entry != nil || runCalls != 0 || probes != 1 {
+		t.Fatalf("retry of a returned podman build whose jail is present: entry=%v runCalls=%d probes=%d err=%v; "+
+			"want one probe and the still-present refusal", entry, runCalls, probes, err)
+	}
+	assertForkRecoveryStateRetained(t, staging, cname, marker)
+}

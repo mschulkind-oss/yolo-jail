@@ -26,9 +26,9 @@ import (
 // check that only asks whether the loader exists misses NixOS's own default.
 //
 // Such a program has NO FLOOR ENTRY on that machine, so a launch refuses it and says why, with the
-// step that changes it (host-notch-readiness.md HNR-D2, which replaced OQ-HE11 (a)'s PATH copy). The floor reads PT_INTERP itself: the
-// header, the program headers and the string, and not debug/elf, which also reads the section
-// headers at the far end of the file. It resolves the loader under Floor.Root as the kernel would,
+// step that changes it (host-notch-readiness.md HNR-D2, which replaced OQ-HE11 (a)'s PATH copy).
+// The floor reads PT_INTERP itself: the header, the program headers and the string, and not
+// debug/elf, which also reads the section headers at the far end of the file. It resolves the loader under Floor.Root as the kernel would,
 // an absolute link target read from that root too.
 //
 // It checks only on a Linux floor on a Linux machine, or under a Root a test chose: a darwin

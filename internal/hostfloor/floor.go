@@ -704,9 +704,9 @@ func (f *Floor) buildPending(p Program, rec *Record) string {
 // provisionable turns a Missing installer or source-built program into NoEntry when this machine
 // can neither materialize it (the store has no entry for it) nor capture or build one (cannotCapture,
 // cannotBuild): the floor cannot provision it HERE, so a launch refuses it with that reason
-// (host-notch-readiness.md HNR-D2) instead of failing an install. So is one whose store entry holds no program that runs
-// here: none outside a jail, or one asking for a dynamic loader this machine lacks (HP-D15). It
-// reads the store offline, never the network. A provisioned entry never comes through here: the
+// (host-notch-readiness.md HNR-D2) instead of failing an install. So is one whose store entry
+// holds no program that runs here: none outside a jail, or one asking for a dynamic loader this
+// machine lacks (HP-D15). It reads the store offline, never the network. A provisioned entry never comes through here: the
 // floor already holds it, whatever the store says now.
 func (f *Floor) provisionable(st Status) Status {
 	if st.Program.Install.Kind == packdecl.InstallKindSource {

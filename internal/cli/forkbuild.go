@@ -788,9 +788,10 @@ func buildForkUnderLock(b forkBuild, mode buildMode, store *capture.Store, pr ri
 			return nil, forkBuildWorkspaceOwnershipError(b, staging, cname,
 				"the original capture runtime cannot be established", "Have a host operator verify this specific capture has ended before clearing only these retained paths, then retry.")
 		}
-		// A macos-user build that returned is proven ended by the same evidence forkBuildWorkspaceReclaimable
-		// accepts: the lock is held and the keeper is not alive (checked above), and the host-side
-		// returned witness exists. Native capture has no container probe, so asking it would only answer unknown.
+		// A macos-user build that returned is proven ended by the same evidence
+		// forkBuildWorkspaceReclaimable accepts: the lock is held and the keeper is not alive
+		// (checked above), and the host-side returned witness exists. Native capture has no
+		// container probe, so asking it would only answer unknown.
 		if !(oldRuntime == "macos-user" && forkBuildRunReturned(staging)) {
 			present, known := probeForkBuildContainer(cname, oldRuntime, forkBuildProbeTimeout)
 			if !known || present {
@@ -808,7 +809,11 @@ func buildForkUnderLock(b forkBuild, mode buildMode, store *capture.Store, pr ri
 	}
 	cname = runtime.FromWorkspace(staging)
 	retained := false
-	_ = os.Remove(forkBuildRunReturnedPath(staging))
+	// A witness left from an earlier run must not outlive into this one: it licenses reuse of a
+	// retained workspace (the retry above) and admission (forkBuildWorkspaceReclaimable).
+	if err := os.Remove(forkBuildRunReturnedPath(staging)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("clearing the previous run's witness for build %s: %w", b.id(), err)
+	}
 	if mode.retainWorkspace == nil {
 		mode.retainWorkspace = &retained
 	}
