@@ -634,6 +634,9 @@ func EnsureSingleton(deps Deps) Ensured {
 		// owns cancellation, connection close, and joining it on every readiness disposition.
 		go func() {
 			defer close(reasonReadDone)
+			// The reader's own return closes the parent end too, whichever deadline fired first, so no
+			// path leaves it open for a descendant holding the child end (§4.1).
+			defer reasonConn.Close()
 			read := hostservice.ReadStartupReasonOutcome(readCtx, reasonConn, deps.Name, reasonAttempt, readyDeadline)
 			result := startupReasonResult{read: read}
 			if read.Kind == hostservice.StartupReasonReadRecord {
@@ -715,6 +718,19 @@ func EnsureSingleton(deps Deps) Ensured {
 			done.Outcome.Kind = hostservice.StartupKindProcessExited
 		default:
 			done.Outcome.Kind = hostservice.StartupKindReadinessTimedOut
+		}
+	}
+	// A DAEMON THAT REFUSED THIS ATTEMPT AND STAYS ALIVE IS THIS ATTEMPT'S TO END. It was spawned
+	// under this flock and its pid file names it, so nothing else owns it; left running it holds the
+	// pid file of a singleton that will never bind, and the next ensure, which stops nothing it finds
+	// alive without a socket, could not replace it after the user fixes the cause (§4.1: the parent
+	// closes on refusal; a refusal is terminal for the attempt). A readiness timeout stays as it was:
+	// that daemon may still bind.
+	if !ready && done.Outcome.Kind == hostservice.StartupKindCooperativeRefusal &&
+		done.Outcome.Process == hostservice.StartupProcessAlive {
+		BrokerKill(deps, syscall.SIGTERM, BrokerKillTimeout)
+		if exited == nil || exited() {
+			done.Outcome.Process = hostservice.StartupProcessExited
 		}
 	}
 	if !ready {

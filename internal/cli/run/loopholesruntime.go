@@ -1654,6 +1654,9 @@ func (o *Options) startExternalService(
 		recordAccepted = make(chan struct{})
 		go func() {
 			defer close(reasonReadDone)
+			// The reader's own return closes the parent end too, whichever deadline fired first, so no
+			// path leaves it open for a descendant holding the child end (§4.1).
+			defer reasonConn.Close()
 			read := hostservice.ReadStartupReasonOutcome(readCtx, reasonConn, name, reasonAttempt, readyDeadline)
 			reasonResults <- reasonReadResult{read: read}
 			if read.Kind == hostservice.StartupReasonReadRecord {

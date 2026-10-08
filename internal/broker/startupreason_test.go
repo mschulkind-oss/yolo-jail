@@ -339,4 +339,17 @@ func TestEnsureSingletonAcceptedRefusalEndsTheReadinessWait(t *testing.T) {
 		got.Outcome.Kind != hostservice.StartupKindCooperativeRefusal {
 		t.Fatalf("ensure lost the refusal: reason=%+v outcome=%+v", got.StartupReason, got.Outcome)
 	}
+	// The refusing daemon this attempt spawned is this attempt's to end: left alive it would hold
+	// the pid file of a singleton that never binds, which the next ensure cannot replace.
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	killed := false
+	for _, k := range st.killed {
+		if k.pid == 77 {
+			killed = true
+		}
+	}
+	if !killed {
+		t.Fatalf("ensure left the refusing daemon it spawned running: kills=%v", st.killed)
+	}
 }
