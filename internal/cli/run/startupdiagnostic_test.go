@@ -279,7 +279,9 @@ s.sendall(struct.pack(">I", len(data)) + data)
 	fillDefaults(o)
 	o.Stderr, o.Stdout = &output, &output
 	o.PathExists = func(string) bool { return false }
-	o.ServiceReadyTimeout = 250 * time.Millisecond
+	// This checks refusal propagation, not Python cold-start speed under the whole-tree gate.
+	// Keep the production's bounded 5s allowance; deadline behavior is tested separately.
+	o.ServiceReadyTimeout = 5 * time.Second
 	loopCfg := jsonx.NewOrderedMap()
 	settings := jsonx.NewOrderedMap()
 	settings.Set("value", "fixture-only")
@@ -292,11 +294,14 @@ s.sendall(struct.pack(">I", len(data)) + data)
 	allow := func(name string) bool { return name == "diagnostic-fixture" }
 	o.discloseSettingsCheckHostExec([]*packload.Pack{p}, set, cfg, allow)
 	if !o.prepareLoopholeSettingsForStart(set, cfg, allow) {
-		t.Fatalf("generic fixture settings check refused: %v", o.startupRefusal)
+		t.Fatalf("generic fixture settings check refused: refusal=%+v outcomes=%+v\noutput:\n%s",
+			o.startupRefusal, o.startupOutcomes, output.String())
 	}
 	handles, refused := o.startLoopholesDisclosed(cname, "podman", cfg, []*packload.Pack{p}, nil)
-	if refused == nil || refused.startup == nil {
-		t.Fatalf("selected service refusal was not returned through the start boundary: handles=%v", handles)
+	if refused == nil || refused.startup == nil || len(handles) != 0 {
+		log, logErr := os.ReadFile(logPath)
+		t.Fatalf("selected service refusal was not returned through the start boundary: refusal=%+v handles=%v outcomes=%+v\noutput:\n%s\nfixture daemon log (read error %v):\n%s",
+			refused, handles, o.startupOutcomes, output.String(), logErr, log)
 	}
 	output.WriteString(refused.markup("Refusing this launch"))
 

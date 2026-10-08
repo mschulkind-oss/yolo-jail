@@ -1520,6 +1520,20 @@ func (o *Options) endMacosUserSession(rt string, rc int) int {
 			"them all.[/dim]", pid, others, stopRemedy(rt, cname))
 	case quitLast:
 		o.streamKeeperTeardown(m.key, m.logFrom)
+	case quitNoKeeper:
+		// A ready keeper can finish and remove its roster before the first quit probe. Replay
+		// its completed log only for a session that joined it or observed its ready frame.
+		ready := m.joined != nil
+		if m.kp != nil {
+			select {
+			case <-m.kp.ready:
+				ready = true
+			default:
+			}
+		}
+		if ready {
+			o.printKeeperRecords(m.key, m.logFrom)
+		}
 	case quitUnkeptLast:
 		if rec, ok := readKeeperRecord(m.key); ok {
 			o.pr(o.Stderr).printf("[yellow]This workspace's macos-user keeper (pid %d) is gone, and this was its "+

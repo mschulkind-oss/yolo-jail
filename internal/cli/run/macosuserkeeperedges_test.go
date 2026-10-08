@@ -52,9 +52,125 @@ func plantRoster(t *testing.T, ws, key string, pid int, edit func(*keeperRecord)
 	}
 }
 
-// A KEEPER CAN END BEFORE ITS LAST SESSION FIRST LOOKS (JL-D40): at macos-user its teardown holds no
-// container, so it can take the session lock, end its services and let both locks go before the
-// quitting session's first read of the session lock, which then finds nobody. The probe asks the
+// A READY SESSION REPLAYS ITS KEEPER EVEN IF IT FINISHED BEFORE THE QUIT PROBE BEGINS: the
+// roster and liveness hold are already gone here, not removed by a racing goroutine. Drive the
+// session's real quit, including its deferred second call, so deleting the already-finished
+// replay loses the post-ready marker and replaying the whole log repeats the pre-ready line.
+func TestEndMacosUserSessionReplaysAKeeperAlreadyGoneBeforeTheProbe(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		joined     bool
+		spawned    bool
+		ready      bool
+		wantReplay bool
+	}{
+		{name: "joined-ready", joined: true, wantReplay: true},
+		{name: "spawned-ready", spawned: true, ready: true, wantReplay: true},
+		{name: "spawned-before-ready", spawned: true},
+		{name: "no-keeper"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			packHome(t)
+			ws := t.TempDir()
+			key := macosUserKeyOf(ws)
+			var output lockedBuffer
+			o := &Options{Workspace: ws, Stdout: &output, Stderr: &output}
+			fillDefaults(o)
+			o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
+				t.Errorf("quit ran an unexpected stop or reap command: %v", argv)
+				return ExecResult{RC: 1}
+			}
+			m := &macosUserKeying{key: key}
+			o.macosUserKey = m
+			if tc.joined {
+				m.joined = &keeperRecord{PID: 4260, Ready: true}
+			}
+			if tc.spawned {
+				m.kp = &keeperProcess{ready: make(chan struct{})}
+				if tc.ready {
+					close(m.kp.ready)
+				}
+			}
+			o.holdSessionLock(key)
+			if o.sessionLock == nil {
+				t.Fatal("fixture could not count its session")
+			}
+			o.recordKeyedSession(key, tc.wantReplay)
+			if m.record == nil {
+				t.Fatal("fixture could not record its session")
+			}
+			t.Cleanup(func() {
+				closeKeyedSessionRecord(m.record)
+				o.releaseSessionLock()
+			})
+
+			const before = "pre-ready line already relayed\n"
+			const marker = "yolo: the \"fixture\" service died while the command runs"
+			logPath := keeperLogPath(key)
+			if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(logPath, []byte(before+marker+"\nkeeper: done\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			m.logFrom = int64(len(before))
+			if tc.wantReplay {
+				live, err := holdLivenessLock(key)
+				if err != nil {
+					t.Fatal(err)
+				}
+				plantRoster(t, ws, key, 4260, nil)
+				removeKeeperRecord(key, 4260)
+				releaseLock(live)
+			}
+			if keeperRosterPresent(key) || probeKeeper(key) != keeperGone {
+				t.Fatal("fixture keeper must have removed its roster and released liveness before quit")
+			}
+			// Gone is not an instruction to reap any other state left at this key.
+			grantPath := keeperGrantedPath(key)
+			if err := os.MkdirAll(filepath.Dir(grantPath), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(grantPath, []byte("untouched grant\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			start := time.Now()
+			if rc := o.endMacosUserSession("macos-user", 7); rc != 7 {
+				t.Errorf("quit returned %d, want the command's status 7", rc)
+			}
+			if took := time.Since(start); took > time.Second {
+				t.Errorf("quit of an already-finished keeper took %s; want prompt return", took)
+			}
+			o.endMacosUserKeying()
+			o.endMacosUserSession("macos-user", 7)
+			got := output.String()
+			if tc.wantReplay {
+				if n := strings.Count(got, marker); n != 1 {
+					t.Errorf("post-ready marker replayed %d times, want exactly once:\n%s", n, got)
+				}
+				if n := strings.Count(got, "keeper: done"); n != 1 {
+					t.Errorf("completed teardown replayed %d times, want exactly once:\n%s", n, got)
+				}
+			} else if got != "" {
+				t.Errorf("a session with no ready keeper must stay silent:\n%s", got)
+			}
+			for _, not := range []string{strings.TrimSpace(before), "removing", "stays up", "is gone"} {
+				if strings.Contains(got, not) {
+					t.Errorf("quit replayed an old line or initiated another teardown (%q):\n%s", not, got)
+				}
+			}
+			if data, err := os.ReadFile(grantPath); err != nil || string(data) != "untouched grant\n" {
+				t.Errorf("quit reaped unrelated state: grant=%q error=%v", data, err)
+			}
+			assertKeyEnded(t, key, "")
+		})
+	}
+}
+
+// A KEEPER CAN END AFTER THE PROBE'S INITIAL LIVENESS CHECK (JL-D40): at macos-user its teardown
+// holds no container, so it can take the session lock, end its services and let both locks go before
+// the quitting session's next read of the session lock, which then finds nobody. The probe asks the
 // liveness lock again on each such read: a keeper gone that removed its record is the last session's
 // teardown done (quitLast, whose stream replays the log), and one gone leaving its record died, read
 // as a probe begun then reads it, its roster marked ending before the reap (markKeyEnding). Asked
