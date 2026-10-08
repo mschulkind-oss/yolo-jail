@@ -9,8 +9,9 @@ import { join } from "node:path";
 // absent and this extension does nothing, so pi keeps its native behavior.
 //
 // The document: {"schemaVersion":1,"mode":"allowlist","allowedProviderIds":[...],"profiles":[...]}.
-// A document this file cannot read is INVALID, never absent: every provider is blocked, because
-// the launch asked for a restriction and an unreadable one must not run unrestricted.
+// An empty allow list is a set none of whose entries pi can call. A document this file cannot read,
+// or one the derive marked `"mode":"invalid"`, is INVALID, never absent: every provider is blocked,
+// because the launch asked for a restriction and an unreadable one must not run unrestricted.
 const POLICY_ENV = "YOLO_PI_PROVIDER_POLICY";
 
 // The name every blocking provider's key method carries. pi's composer keeps the base provider's
@@ -37,7 +38,6 @@ export function readPolicy(env = process.env) {
 		doc?.schemaVersion === 1 &&
 		doc?.mode === "allowlist" &&
 		Array.isArray(ids) &&
-		ids.length > 0 &&
 		ids.every((id) => typeof id === "string" && id.length > 0);
 	const profiles = Array.isArray(doc?.profiles) ? doc.profiles.filter((p) => typeof p === "string" && p) : [];
 	return valid ? { allowed: new Set(ids), profiles, invalid: false } : { allowed: new Set(), profiles, invalid: true };
@@ -55,6 +55,13 @@ export function denial(policy, provider) {
 	}
 	const allowed = [...policy.allowed].sort().join(", ");
 	const set = policy.profiles.length > 0 ? `profile set (${policy.profiles.join(", ")})` : "profile set";
+	if (policy.allowed.size === 0) {
+		return (
+			`yolo: provider "${provider}" is outside this launch's ${set}, and pi can call none of that set's ` +
+			`providers. Relaunch with a profile pi can use (\`yolo host -p pi=<profile> -- pi\`, or the ` +
+			`workspace's "profile").`
+		);
+	}
 	return (
 		`yolo: provider "${provider}" is outside this launch's ${set}, which allows only ${allowed}. ` +
 		`Pick a model of those providers with /model, or relaunch with a set that includes "${provider}" ` +
@@ -68,8 +75,9 @@ export function denial(policy, provider) {
 // built-in). Every request pi makes goes through ModelRuntime.prepareRequest, which resolves this
 // provider's auth before it calls any provider method, as do pi's own pre-flights
 // (AgentSession._getRequiredRequestAuth, ModelRegistry.getApiKeyAndHeaders): so the denial is
-// thrown from AUTH, before any request is built and before pi's own credential code for the
-// provider runs. pi wraps it as "API key auth failed for provider <id>: <denial>" (pi-ai
+// thrown from AUTH, before any request is built and before pi's own credential resolver or
+// refresh for the provider runs. (pi's startup availability pass, which runs before extensions
+// are applied, still asks each built-in's read-only check.) pi wraps it as "API key auth failed for provider <id>: <denial>" (pi-ai
 // ModelsError keeps the cause in the message).
 //
 //   - The key method reports the provider configured, so pi gets as far as asking for the auth
@@ -142,7 +150,12 @@ async function builtinProviders() {
 // provider pi has no built-in for (yolo's own catalogue of a configured provider, say), which
 // needs its block before the first request as much as a built-in does.
 function modelsJsonProviderIds() {
-	const dir = process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent");
+	// pi expands a leading ~ in the variable (config.js, getAgentDir), so this does too.
+	const fromEnv = process.env.PI_CODING_AGENT_DIR;
+	let dir = join(homedir(), ".pi", "agent");
+	if (fromEnv === "~") dir = homedir();
+	else if (fromEnv?.startsWith("~/")) dir = join(homedir(), fromEnv.slice(2));
+	else if (fromEnv) dir = fromEnv;
 	try {
 		const providers = JSON.parse(readFileSync(join(dir, "models.json"), "utf8"))?.providers;
 		return providers && typeof providers === "object" ? Object.keys(providers) : [];
@@ -172,8 +185,9 @@ async function lacksNativeProviders() {
 //
 // THEN AGAIN ON EVERY session_start, model_select, input, before_agent_start and turn_start: a
 // provider another extension registered (or registered again) after this one, or one only the
-// live registry knows, gets its block there, before the prompt or turn that would use it. A virtual model is never blocked by its own
-// provider ID: its request is checked at the physical model it routes to.
+// live registry knows, gets its block there, before the prompt or turn that would use it. A provider of
+// virtual models alone is never blocked: a virtual model's request is checked at the physical
+// model it routes to.
 export default async function registerYoloProviderPolicy(pi) {
 	const policy = readPolicy();
 	if (!policy) return;
@@ -189,7 +203,9 @@ export default async function registerYoloProviderPolicy(pi) {
 		if (!registry) return;
 		const ids = new Set();
 		try {
-			for (const model of registry.getAll?.() ?? []) ids.add(model?.provider);
+			for (const model of registry.getAll?.() ?? []) {
+				if (model?.api !== VIRTUAL_API) ids.add(model?.provider);
+			}
 			for (const id of registry.getRegisteredProviderIds?.() ?? []) ids.add(id);
 		} catch {
 			return;

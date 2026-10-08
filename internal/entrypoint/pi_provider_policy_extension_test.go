@@ -147,13 +147,20 @@ const current = {
 };
 for (const p of registrations) if (p.id === "myproxy") current.myproxy = p;
 const ctx = { hasUI: false, modelRegistry: {
-	getAll: () => [{ provider: "anthropic" }, { provider: "zai" }, { provider: "myproxy" }],
+	getAll: () => [{ provider: "anthropic" }, { provider: "zai" }, { provider: "myproxy" }, { provider: "router", api: "pi-virtual" }],
 	getRegisteredProviderIds: () => ["late"],
 	getProvider: (id) => current[id],
 	registerProvider: (p) => { reregistered.push(p.id); current[p.id] = p; },
 } };
 for (const fn of handlers.session_start ?? []) await fn({ type: "session_start" }, ctx);
 out.reregistered = [...reregistered].sort();
+out.rechecked = {};
+for (const event of ["input", "before_agent_start", "turn_start"]) {
+	current.anthropic = { id: "anthropic", auth: { apiKey: { name: "another extension's" } } };
+	reregistered.length = 0;
+	for (const fn of handlers[event] ?? []) await fn({ type: event }, ctx);
+	out.rechecked[event] = [...reregistered];
+}
 out.lateResolve = current.late ? await settle(() => current.late.auth.apiKey.resolve({})) : "none";
 for (const fn of handlers.model_select ?? []) await fn({ type: "model_select", model: { provider: "late", api: "openai-completions" } }, ctx);
 for (const fn of handlers.model_select ?? []) await fn({ type: "model_select", model: { provider: "late", api: "pi-virtual" } }, ctx);
@@ -179,11 +186,12 @@ type piPolicyProvider struct {
 }
 
 type piPolicyRun struct {
-	Registrations []piPolicyProvider `json:"registrations"`
-	Handlers      []string           `json:"handlers"`
-	Reregistered  []string           `json:"reregistered"`
-	LateResolve   string             `json:"lateResolve"`
-	Warnings      []string           `json:"warnings"`
+	Registrations []piPolicyProvider  `json:"registrations"`
+	Handlers      []string            `json:"handlers"`
+	Reregistered  []string            `json:"reregistered"`
+	Rechecked     map[string][]string `json:"rechecked"`
+	LateResolve   string              `json:"lateResolve"`
+	Warnings      []string            `json:"warnings"`
 }
 
 // runPiPolicyExtension runs the SHIPPED yolo-provider-policy.js under node with env added to a
@@ -308,7 +316,13 @@ func TestPiProviderPolicyBlocksEveryProviderOutsideTheSet(t *testing.T) {
 		}
 	}
 	if !slices.Equal(run.Reregistered, []string{"anthropic", "late"}) {
-		t.Errorf("session_start re-blocked %v, want the replaced anthropic and the registry-only late", run.Reregistered)
+		t.Errorf("session_start re-blocked %v, want the replaced anthropic and the registry-only late, "+
+			"and never the virtual-only router", run.Reregistered)
+	}
+	for _, event := range []string{"input", "before_agent_start", "turn_start"} {
+		if !slices.Equal(run.Rechecked[event], []string{"anthropic"}) {
+			t.Errorf("%s re-blocked %v, want the replaced anthropic", event, run.Rechecked[event])
+		}
 	}
 	if !strings.HasPrefix(run.LateResolve, `ERR yolo: provider "late" is outside`) {
 		t.Errorf("late's re-registered block resolves %q, want the denial", run.LateResolve)
@@ -318,10 +332,13 @@ func TestPiProviderPolicyBlocksEveryProviderOutsideTheSet(t *testing.T) {
 	}
 }
 
-// AN UNREADABLE POLICY BLOCKS EVERY PROVIDER, the set's included: the launch asked for a
-// restriction, and one the extension cannot read must not run unrestricted.
+// AN UNREADABLE POLICY BLOCKS EVERY PROVIDER, the set's included, and the first session says so:
+// the launch asked for a restriction, and one the extension cannot read must not run unrestricted.
 func TestPiProviderPolicyThatCannotBeReadBlocksEverything(t *testing.T) {
 	run := runPiPolicyExtension(t, []string{"YOLO_PI_PROVIDER_POLICY={\"schemaVersion\":1}"})
+	if len(run.Warnings) == 0 || !strings.Contains(run.Warnings[0], "is unreadable, so pi may call no provider") {
+		t.Errorf("the first session warned %q, want the unreadable-policy denial", run.Warnings)
+	}
 	var ids []string
 	for _, p := range run.Registrations {
 		ids = append(ids, p.ID)
@@ -355,6 +372,21 @@ func TestPiProviderPolicyWarnsWhereThisPiCannotTakeTheBlock(t *testing.T) {
 	for _, w := range current.Warnings {
 		if strings.Contains(w, "too old") {
 			t.Errorf("a pi with registerNativeProvider was warned %q", w)
+		}
+	}
+}
+
+// A SET PI CAN CALL NONE OF blocks every provider and says why, not that the policy is
+// unreadable: here a set whose one entry has no address pi can reach.
+func TestPiProviderPolicyForASetPiCannotCallSaysSo(t *testing.T) {
+	run := runPiPolicyExtension(t, []string{`YOLO_PI_PROVIDER_POLICY={"schemaVersion":1,"mode":"allowlist",` +
+		`"allowedProviderIds":[],"profiles":["nowhere"]}`})
+	if len(run.Registrations) != 3 {
+		t.Errorf("blocked %d providers, want every one of the 3", len(run.Registrations))
+	}
+	for _, p := range run.Registrations {
+		if !strings.Contains(p.Resolve, "pi can call none of that set's providers") {
+			t.Errorf("%s resolves %q, want the empty-set denial", p.ID, p.Resolve)
 		}
 	}
 }
@@ -468,6 +500,7 @@ func TestPiProviderPolicyUnderPisOwnRuntime(t *testing.T) {
 	denial := func(provider string) string {
 		return `yolo: provider "` + provider + `" is outside this launch's profile set (zai), which allows only zai.`
 	}
+	t.Logf("measured under pi %s at %s", run.Version, pkg)
 	if len(run.Diagnostics) != 0 {
 		t.Errorf("pi %s reported %v loading the extension", run.Version, run.Diagnostics)
 	}

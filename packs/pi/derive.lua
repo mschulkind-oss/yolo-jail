@@ -1499,14 +1499,27 @@ end
 -- THE PROVIDER POLICY (docs/design/simultaneous-auth-and-pack-isolation.md §3): with an active
 -- profile set, pi may call only the set's providers, saved logins or not. yolo's own pi extension
 -- enforces it (extensions/yolo-provider-policy.js), reading this document from
--- YOLO_PI_PROVIDER_POLICY. Each entry's pi provider ID is the defaultProvider the settings derive
--- answers for it (piSettingsFor), so a built-in mapping (a native Bedrock entry is pi's
--- `amazon-bedrock`) is decided in one place. Duplicate entries deduplicate. An entry with no ID
--- makes the policy INVALID, never absent: an empty allow list, which the extension reads as
--- "block every provider" rather than run unrestricted. `profiles` names the set's profiles in
--- set order, for the denial's wording only. With no profile the env derive does not run
+-- YOLO_PI_PROVIDER_POLICY. Each entry's pi provider ID is the one pi dispatches its requests to:
+--   - a via primary's is its own catalog row, which the models derive writes under the provider's
+--     name whenever pi has no built-in for it (the viaRow rule there);
+--   - every other entry's is the defaultProvider the settings derive answers for it
+--     (piSettingsFor), so a built-in mapping (a native Bedrock entry is pi's `amazon-bedrock`) is
+--     decided in one place.
+-- An entry with no ID is one pi cannot call at all (no address, or a built-in for another plan),
+-- so it adds nothing and blocks nothing else. Duplicates deduplicate. An ID that is not a plain
+-- token makes the policy INVALID (`mode: "invalid"`), never absent, which the extension reads as
+-- "block every provider" rather than run unrestricted. `profiles` names the set's profiles in set
+-- order, for the denial's wording only. With no profile the env derive does not run
 -- (packload.AgentEnv), and pi keeps its native behavior.
 local policyToken = "^[%w][%w._:-]*$"
+
+local function piPolicyProviderID(ectx, primary)
+  if primary and ectx.via_url ~= nil and ectx.via_url ~= "" and piOwn(ectx, ectx.selected_provider) == nil then
+    return ectx.selected_provider
+  end
+  local out = piSettingsFor(ectx)
+  return type(out) == "table" and type(out.selection) == "table" and out.selection.defaultProvider or nil
+end
 
 local function piProviderPolicy(ctx)
   if ctx.selected_provider == nil or ctx.selected_provider == "" then return nil end
@@ -1518,10 +1531,11 @@ local function piProviderPolicy(ctx)
   end
   local ids, seen, valid = {}, {}, true
   local profiles, seenProfile = {}, {}
-  for _, ectx in ipairs(entries) do
-    local out = piSettingsFor(ectx)
-    local id = type(out) == "table" and type(out.selection) == "table" and out.selection.defaultProvider or nil
-    if type(id) ~= "string" or not id:match(policyToken) or #id > 128 then
+  for i, ectx in ipairs(entries) do
+    local id = piPolicyProviderID(ectx, i == 1)
+    if id == nil or id == "" then
+      -- pi cannot call this entry: nothing to allow.
+    elseif type(id) ~= "string" or not id:match(policyToken) or #id > 128 then
       valid = false
     elseif not seen[id] then
       seen[id] = true
@@ -1540,8 +1554,8 @@ local function piProviderPolicy(ctx)
     for _, v in ipairs(list) do table.insert(quoted, '"' .. v .. '"') end
     return table.concat(quoted, ",")
   end
-  return '{"schemaVersion":1,"mode":"allowlist","allowedProviderIds":[' .. quote(ids) ..
-    '],"profiles":[' .. quote(profiles) .. ']}'
+  return '{"schemaVersion":1,"mode":"' .. (valid and "allowlist" or "invalid") ..
+    '","allowedProviderIds":[' .. quote(ids) .. '],"profiles":[' .. quote(profiles) .. ']}'
 end
 
 yolo.env("pi", function(ctx)

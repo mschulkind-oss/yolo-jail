@@ -7,16 +7,21 @@ import "testing"
 // deduplicated and sorted, a built-in mapped to pi's own ID, and nothing at all without a
 // profile, so pi keeps its native behavior. The shipped pi pack, through the gate that runs it.
 func TestPiHandsItsActiveSetAsAProviderRequestPolicy(t *testing.T) {
-	packs := embeddedNamed(t, "pi", "bedrock", "openai-auth")
+	packs := embeddedNamed(t, "pi", "bedrock", "openai-auth", "wire-bridge")
 	providers := userProviders(t, `{
 	  "zai":{"endpoints":{"openai":{"base_url":"https://api.z.ai/v4"}}},
 	  "openai-codex":{"endpoints":{"openai-responses":{"base_url":"https://chatgpt.example/codex"}}},
-	  "bedrock":{"platform":"aws-bedrock","region":"us-west-2"}}`)
+	  "bedrock":{"platform":"aws-bedrock","region":"us-west-2"},
+	  "nowhere":{}}`)
 	resolved := map[string]ResolvedProfile{
 		"zai":     {Provider: "zai"},
 		"zai-two": {Provider: "zai"},
 		"codex":   {Provider: "openai-codex"},
 		"bedrock": {Provider: "bedrock"},
+		// The shipped bedrock-bridge profile: Bedrock through the wire bridge, which pi reaches
+		// on the via row the models derive writes under the provider's own name.
+		"bedrock-bridge": {Provider: "bedrock", Via: "wire-bridge", ViaBase: "http://127.0.0.1:8216"},
+		"nowhere":        {Provider: "nowhere"},
 	}
 	policy := func(profile string, sets map[string][]string) (string, bool) {
 		t.Helper()
@@ -53,6 +58,8 @@ func TestPiHandsItsActiveSetAsAProviderRequestPolicy(t *testing.T) {
 		{"two profiles on one provider deduplicate", "zai", map[string][]string{"pi": {"zai", "zai-two"}}, doc(`"zai"`, `"zai","zai-two"`)},
 		{"native Bedrock is pi's own amazon-bedrock", "bedrock", nil, doc(`"amazon-bedrock"`, `"bedrock"`)},
 		{"Bedrock later in the set", "zai", map[string][]string{"pi": {"zai", "bedrock"}}, doc(`"amazon-bedrock","zai"`, `"zai","bedrock"`)},
+		{"a via primary is its own row", "bedrock-bridge", nil, doc(`"bedrock"`, `"bedrock-bridge"`)},
+		{"an entry pi cannot call allows nothing and blocks nothing", "zai", map[string][]string{"pi": {"zai", "nowhere"}}, doc(`"zai"`, `"zai","nowhere"`)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, ok := policy(tc.profile, tc.sets)
