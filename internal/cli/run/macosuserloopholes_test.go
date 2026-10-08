@@ -92,10 +92,11 @@ type macosUserLaunchResult struct {
 	published []string
 	// sessionDirs is every host-services dir of this workspace's sessions that existed while the
 	// handler ran: this launch's own, since it is the only session (servicessession.go).
-	sessionDirs []string
-	out         string
-	rc          int
-	dryRun      bool
+	sessionDirs  []string
+	out          string
+	rc           int
+	dryRun       bool
+	hostPackRoot string
 	// jailDaemons is what the arm handed the guest's supervisor (OQ-DP8/DP9).
 	jailDaemons macosuser.JailDaemons
 }
@@ -119,9 +120,10 @@ func macosUserLaunchWithOptions(t *testing.T, ws string, during func(macosuser.J
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
 	cname := runtime.FromWorkspace(ws)
 	got := macosUserLaunchResult{}
-	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay,
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, hostPackRoot string, _ macosuser.HomeOverlay,
 		_ macosuser.HostContext, dryRun bool, launchEnv *jsonx.OrderedMap, _ []packload.BlockedTool, jd macosuser.JailDaemons) int {
 		got.dryRun = dryRun
+		got.hostPackRoot = hostPackRoot
 		got.env = launchEnv
 		got.jailDaemons = jd
 		if during != nil {

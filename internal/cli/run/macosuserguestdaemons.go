@@ -29,22 +29,15 @@ package run
 //
 // # Where a loophole's own files are
 //
-// A container bind-mounts a loophole's module directory at /etc/yolo-jail/loopholes/<name>,
-// which is what `{jail_loophole_dir}` resolves to at load. The sandbox has no such mount, but it
-// has a copy of the whole staged pack tree: the orchestrator copies this launch's tree to the
-// root-owned macosuser.StagedPackRoot, world-readable and keeping each file's exec bits
-// (macosuser.StagePackCommands), for the bootstrap to render from. So the module directory is in
-// the sandbox at the same place under that copy as it is under the host tree, and
-// placeModuleDirsInGuest resolves the token there (docs/design/jail-daemon-on-macos-user-plan.md
-// JD-10).
+// The sandbox copies this launch's staged pack tree to a distinct root-owned guest path, world-readable
+// and keeping each file's exec bits (macosuser.StagePackCommands), for the bootstrap to render from.
+// So the module directory is in the sandbox at the same place under this launch's copy as it is
+// under the host tree, and placeModuleDirsInGuest resolves the token there (JD-10).
 //
-// ⚠ THAT COPY IS ONE PER WORKSPACE, NOT PER LAUNCH, unlike a container's pack tree (OQ-PK2):
-// StagedPackRoot is keyed by the jail name alone, and every launch of the workspace replaces it.
-// The bootstrap reads it once; a guest daemon runs from it for the whole session. So a second
-// session of the workspace swaps the folder under the first one's module-dir daemon, whose next
-// restart runs the second launch's copy, or finds nothing when that launch dropped the pack.
-// JD-10 records it and its follow-up, a per-launch copy reaped once no session holds it, which
-// needs internal/macosuser's pack staging.
+// A GUEST PACK TREE IS PER HOST TREE, not per workspace: the root is derived from the exact
+// immutable host staged tree passed to the pipeline. Another terminal therefore cannot replace
+// bytes this session's daemon or its restart argv reads. Unknown post-consumer liveness retains
+// the tree rather than guessing it is safe to remove.
 
 import (
 	"os"
@@ -78,7 +71,7 @@ func (o *Options) placeModuleDirsInGuest(rt string, specs []loopholes.JailDaemon
 		return specs
 	}
 	out := append([]loopholes.JailDaemonSpec(nil), specs...)
-	guestRoot := macosuser.StagedPackRoot(runtime.FromWorkspace(o.Workspace), "")
+	guestRoot := macosuser.StagedPackTreeRoot(runtime.FromWorkspace(o.Workspace), o.packTree, "")
 	for i, s := range out {
 		if !s.NamesModuleDir() {
 			continue

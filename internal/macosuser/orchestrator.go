@@ -1184,6 +1184,15 @@ func RunMacosUser(deps Deps, opts Options) int {
 		}
 	}
 	steps.begin("stage")
+	// A pack tree becomes ours only at its successful exclusive mkdir. Mark any copy or chmod
+	// writer before dispatch: the returned sudo status does not prove its command stopped. Before
+	// that first writer, cleanup can remove only this reservation; afterward retain and disclose
+	// because writer completion is unknown. Bootstrap is the first guest consumer, and after its
+	// dispatch yolo also cannot prove readers and restart capability ended.
+	packTreeOwned, packTreeWriterDispatched, packConsumerDispatched := false, false, false
+	defer func() {
+		finishPackTree(deps, out, plan.PackRoot, packTreeOwned, packTreeWriterDispatched, packConsumerDispatched)
+	}()
 	// A GRANT ANOTHER SESSION OF THE WORKSPACE MADE is not made again (Options.SkipGrant): the
 	// keeper's endpoint files are every session's (§9.9.5).
 	var granted []string
@@ -1194,12 +1203,22 @@ func RunMacosUser(deps Deps, opts Options) int {
 				continue
 			}
 		}
+		if isPackTreeWriterCommand(cmd, plan.PackRoot) {
+			packTreeWriterDispatched = true
+		}
 		if deps.Run(append([]string{"sudo"}, cmd...)) != 0 {
 			if rc, ending := deps.ending(); ending {
 				return rc
 			}
-			out.printf("[bold red]Could not stage entrypoint (%s).[/bold red]", shquote.JoinDisplay(cmd))
+			if isPackTreeReservationCommand(cmd, plan.PackRoot) {
+				printPackTreeReservationFailure(out, plan.PackRoot)
+			} else {
+				out.printf("[bold red]Could not stage entrypoint (%s).[/bold red]", shquote.JoinDisplay(cmd))
+			}
 			return 1
+		}
+		if isPackTreeReservationCommand(cmd, plan.PackRoot) {
+			packTreeOwned = true
 		}
 	}
 	if opts.OnStaged != nil {
@@ -1252,6 +1271,7 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// So the line says how to tell (the log's first line carries the time it started) and where
 	// the output is otherwise.
 	steps.begin("bootstrap")
+	packConsumerDispatched = true
 	bootRC := deps.Run(plan.BootstrapArgv)
 	if rc, ending := deps.ending(); ending {
 		return rc
@@ -1368,6 +1388,40 @@ func (d Deps) endingOr(rc int) int {
 		return status
 	}
 	return rc
+}
+
+// finishPackTree removes only a tree this launch exclusively reserved when no pack writer or
+// guest consumer was dispatched. Once a writer is dispatched, the returned sudo status cannot
+// prove its child ended; once bootstrap is dispatched, no current artifact proves guest readers
+// and restart capability ended. Both cases disclose and retain the exact path.
+func finishPackTree(deps Deps, out printer, packRoot string, owned, writerDispatched, consumerDispatched bool) {
+	if !owned || packRoot == "" {
+		return
+	}
+	path := shquote.QuoteDisplay(packRoot)
+	if writerDispatched || consumerDispatched {
+		reason := ""
+		if writerDispatched {
+			reason = "a pack-tree writer was dispatched and yolo cannot prove it has stopped"
+		}
+		if consumerDispatched {
+			if reason != "" {
+				reason += "; "
+			}
+			reason += "a guest consumer was dispatched and yolo cannot prove its readers or restart capability ended"
+		}
+		out.printf("[yellow]Retaining guest pack tree %s[/yellow] because %s. Inspect this exact "+
+			"path with `sudo ls -la -- %s`; do not remove it while a writer or guest process may "+
+			"still access it.", path, reason, path)
+		return
+	}
+	cleanup := teardownDeps(deps)
+	if cleanup.Run != nil && cleanup.Run([]string{"sudo", rmBin, "-rf", "--", packRoot}) == 0 {
+		return
+	}
+	out.printf("[yellow]Could not remove unused reserved guest pack tree %s[/yellow] before any "+
+		"consumer was dispatched. Inspect this exact path with `sudo ls -la -- %s`, then remove "+
+		"only this path with `sudo rm -rf -- %s` before retrying.", path, path, path)
 }
 
 // teardownDeps is deps for the session's removal of its own files (sessionTeardown). Once a signal

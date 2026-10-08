@@ -37,6 +37,54 @@ func testCaptureOptions() CaptureOptions {
 	}
 }
 
+func TestBuildCapturePlanHandlesNilSandboxEnv(t *testing.T) {
+	opts := testCaptureOptions()
+	opts.SandboxEnv = nil
+	plan := BuildCapturePlan(opts)
+	if plan.PackRoot == "" || !SandboxEnvFileSets(plan.EnvFileContent, "YOLO_PACK_ROOT", plan.PackRoot) {
+		t.Fatalf("nil SandboxEnv did not produce an env file naming the pack tree %q: %s",
+			plan.PackRoot, plan.EnvFileContent)
+	}
+}
+
+func TestBuildCapturePlanDoesNotMutateSandboxEnv(t *testing.T) {
+	opts := testCaptureOptions()
+	opts.SandboxEnv.Set("YOLO_PACK_ROOT", "/caller/owned/value")
+	before := SandboxEnvFileContent(opts.SandboxEnv)
+	plan := BuildCapturePlan(opts)
+	if got := SandboxEnvFileContent(opts.SandboxEnv); got != before {
+		t.Fatalf("BuildCapturePlan mutated its caller's SandboxEnv:\nbefore: %s\nafter:  %s", before, got)
+	}
+	if !SandboxEnvFileSets(plan.EnvFileContent, "YOLO_PACK_ROOT", plan.PackRoot) {
+		t.Fatalf("capture env file does not name its copied guest tree %q: %s",
+			plan.PackRoot, plan.EnvFileContent)
+	}
+}
+
+func TestRepeatedCapturePackTreesHaveDifferentGuestRoots(t *testing.T) {
+	ao, bo := testCaptureOptions(), testCaptureOptions()
+	ao.HostPackRoot = "/host/pack-trees/20261008T120000Z-1111111111"
+	bo.HostPackRoot = "/host/pack-trees/20261008T120000Z-2222222222"
+	a, b := BuildCapturePlan(ao), BuildCapturePlan(bo)
+	if a.Cname != b.Cname || a.StagingRoot != b.StagingRoot {
+		t.Fatal("fixture must represent repeated capture of one program")
+	}
+	if a.PackRoot == b.PackRoot {
+		t.Fatalf("repeated capture reuses guest root: %s", a.PackRoot)
+	}
+	for _, p := range []CapturePlan{a, b} {
+		if !containsArg(p.BootstrapArgv, "YOLO_PACK_ROOT="+p.PackRoot) {
+			t.Fatal("capture bootstrap lost its own tree")
+		}
+		if !SandboxEnvFileSets(p.EnvFileContent, "YOLO_PACK_ROOT", p.PackRoot) {
+			t.Fatal("capture session lost its own tree")
+		}
+		if problems := CapturePlanInvariants(p); len(problems) != 0 {
+			t.Fatalf("invalid capture plan: %v", problems)
+		}
+	}
+}
+
 // The plan is viable as built. Every later test mutates one thing and expects a refusal, so this
 // is the baseline that makes those meaningful rather than vacuous.
 func TestBuildCapturePlanIsViable(t *testing.T) {
@@ -382,6 +430,157 @@ func TestRunCapturePlanRunsTheStepsInOrder(t *testing.T) {
 	if strings.Count(joined, "-rf "+plan.StagingRoot) != 1 {
 		t.Errorf("RunCapturePlan cleaned up its own staging tree; the proto-entry is still "+
 			"in it at that point:\n%s", joined)
+	}
+}
+
+func TestCaptureActsRetainGuestPackTreesAfterConsumerDispatch(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		run  func(Deps) (string, int)
+	}{
+		{"installer capture", func(d Deps) (string, int) {
+			plan := BuildCapturePlan(testCaptureOptions())
+			return plan.PackRoot, RunCapturePlan(d, plan)
+		}},
+		{"fork build", func(d Deps) (string, int) {
+			plan := BuildForkBuildPlan(testForkBuildOptions())
+			return plan.CapturePlan.PackRoot, RunForkBuildPlan(d, plan)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &captureDeps{}
+			root, rc := tc.run(c.deps())
+			if rc != 0 {
+				t.Fatalf("capture act = %d, want 0\n%s", rc, c.out.String())
+			}
+			joined := strings.Join(c.ran, "\n")
+			if strings.Contains(joined, "sudo "+rmBin+" -rf -- "+root) {
+				t.Errorf("consumer-dispatched tree was removed: %s", joined)
+			}
+			if !strings.Contains(c.out.String(), "Retaining guest pack tree") ||
+				!strings.Contains(c.out.String(), root) || !strings.Contains(c.out.String(), "restart capability") {
+				t.Errorf("the retained exact tree was not disclosed: %s", c.out.String())
+			}
+		})
+	}
+}
+
+func TestCapturePackTreeWriterFailureRetainsAndReservationCollisionIsUntouched(t *testing.T) {
+	plan := BuildCapturePlan(testCaptureOptions())
+	t.Run("failed copy retains owned tree", func(t *testing.T) {
+		c := &captureDeps{failOn: cpBin + " -R " + testCaptureOptions().HostPackRoot}
+		if rc := RunCapturePlan(c.deps(), plan); rc == 0 {
+			t.Fatal("a failed pack copy returned success")
+		}
+		joined := strings.Join(c.ran, "\n")
+		if strings.Contains(joined, "sudo "+rmBin+" -rf -- "+plan.PackRoot) {
+			t.Errorf("a possibly active writer's tree was removed: %s", joined)
+		}
+		if !strings.Contains(c.out.String(), "Retaining guest pack tree") ||
+			!strings.Contains(c.out.String(), plan.PackRoot) || !strings.Contains(c.out.String(), "writer was dispatched") {
+			t.Errorf("unknown writer outcome was not disclosed: %s", c.out.String())
+		}
+	})
+	t.Run("failed reservation is not cleaned", func(t *testing.T) {
+		c := &captureDeps{failOn: "mkdir " + plan.PackRoot}
+		if rc := RunCapturePlan(c.deps(), plan); rc == 0 {
+			t.Fatal("a failed exclusive reservation returned success")
+		}
+		joined := strings.Join(c.ran, "\n")
+		if strings.Contains(joined, "sudo "+rmBin+" -rf -- "+plan.PackRoot) {
+			t.Errorf("the unowned collision path was removed: %s", joined)
+		}
+		for _, want := range []string{"Could not reserve guest pack tree", plan.PackRoot,
+			"fresh invocation", "sudo ls -la --"} {
+			if !strings.Contains(c.out.String(), want) {
+				t.Errorf("reservation refusal does not name %q: %s", want, c.out.String())
+			}
+		}
+	})
+}
+
+func TestCaptureExecutorRetainsPartialTreeAfterFailedWriter(t *testing.T) {
+	opts := testCaptureOptions()
+	opts.HostPackRoot = writeFixturePackTree(t, "#!/bin/sh\necho capture\n", "capture-writer")
+	plan := BuildCapturePlan(opts)
+	state := t.TempDir()
+	privateRoot := StagedPackTreeRoot(plan.Cname, opts.HostPackRoot, state)
+	var ran []string
+	var out bytes.Buffer
+	d := mockDeps(&ran)
+	d.Out = &out
+	d.Run = func(argv []string) int {
+		joined := strings.Join(argv, " ")
+		ran = append(ran, joined)
+		if len(argv) == 3 && argv[0] == "sudo" && argv[1] == mkdirBin && argv[2] == plan.PackRoot {
+			if err := os.MkdirAll(filepath.Dir(privateRoot), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Mkdir(privateRoot, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			return 0
+		}
+		if len(argv) == 5 && argv[0] == "sudo" && argv[1] == cpBin && argv[2] == "-R" && argv[4] == plan.PackRoot {
+			if err := os.WriteFile(filepath.Join(privateRoot, "partial-copy"), []byte("writer may remain active"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			return 1
+		}
+		return 0
+	}
+	if rc := RunCapturePlan(d, plan); rc == 0 {
+		t.Fatal("failed capture pack writer returned success")
+	}
+	if got, err := os.ReadFile(filepath.Join(privateRoot, "partial-copy")); err != nil || string(got) != "writer may remain active" {
+		t.Errorf("capture removed or lost the partial writer sentinel: %q, err %v", got, err)
+	}
+	if !strings.Contains(out.String(), plan.PackRoot) || !strings.Contains(out.String(), "Retaining guest pack tree") {
+		t.Errorf("capture did not disclose its retained production path %s: %s", plan.PackRoot, out.String())
+	}
+	if strings.Contains(strings.Join(ran, "\n"), "sudo "+rmBin+" -rf -- "+plan.PackRoot) {
+		t.Errorf("capture executor removed a tree while writer completion was unknown: %v", ran)
+	}
+}
+
+func TestCaptureExecutorDoesNotRemoveExistingReservationCollision(t *testing.T) {
+	opts := testCaptureOptions()
+	opts.HostPackRoot = writeFixturePackTree(t, "#!/bin/sh\necho collision\n", "capture-collision")
+	plan := BuildCapturePlan(opts)
+	state := t.TempDir()
+	privateRoot := StagedPackTreeRoot(plan.Cname, opts.HostPackRoot, state)
+	if err := os.MkdirAll(privateRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sentinel := filepath.Join(privateRoot, "prior-owner")
+	if err := os.WriteFile(sentinel, []byte("do not delete"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var ran []string
+	var out bytes.Buffer
+	d := mockDeps(&ran)
+	d.Out = &out
+	d.Run = func(argv []string) int {
+		ran = append(ran, strings.Join(argv, " "))
+		if len(argv) == 3 && argv[0] == "sudo" && argv[1] == mkdirBin && argv[2] == plan.PackRoot {
+			return 1
+		}
+		return 0
+	}
+	if rc := RunCapturePlan(d, plan); rc == 0 {
+		t.Fatal("existing capture destination did not refuse reservation")
+	}
+	if got, err := os.ReadFile(sentinel); err != nil || string(got) != "do not delete" {
+		t.Errorf("capture changed the prior owner's collision sentinel: %q, err %v", got, err)
+	}
+	if strings.Contains(strings.Join(ran, "\n"), "sudo "+rmBin+" -rf -- "+plan.PackRoot) {
+		t.Errorf("capture cleanup removed an unowned collision: %v", ran)
+	}
+	for _, want := range []string{"Could not reserve guest pack tree", plan.PackRoot,
+		"fresh invocation", "sudo ls -la --"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("collision refusal does not name %q: %s", want, out.String())
+		}
 	}
 }
 

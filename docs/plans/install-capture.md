@@ -861,7 +861,7 @@ wrong one to sequence on.
      and the keychains fall on its `(allow default)`. Reads under `/var/yolo-jail` were MEASURED
      on hardware 2026-09-13 (`macosuser.StagedCtxRoot`'s comment).
      `TestTheSessionProfileIsTheSameWithAndWithoutCaptures` pins the bytes.
-   - **It is the pattern this backend already follows.** `StagedPackRoot` and `StageCtxCommands`
+   - **It is the pattern this backend already follows.** `StagedPackTreeRoot` and `StageCtxCommands`
      stage root-owned copies under `/var` for the same question, a host tree under the invoking
      user's home that the sandbox account may not traverse.
    - **The store is not a confidentiality boundary.** Every podman jail reads it whole through a

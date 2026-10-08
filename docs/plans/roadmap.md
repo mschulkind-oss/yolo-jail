@@ -31,9 +31,6 @@ candidate state, acceptance gaps and verification; a place here does not make it
 1. [Enable profile-served daemons on attach without ending sibling sessions](../design/attach-daemon-activation.md)
    — the reported late Bedrock selection reaches a restart prompt; settle additive activation
    before treating restart as the remedy for an already-authorized missing daemon.
-2. [Keep each macos-user launch's guest pack bytes immutable](../design/jail-daemon-guest-pack-tree-plan.md)
-   — a second workspace session currently replaces a first daemon's module directory; close
-   that destination-lifetime defect independently of privileged setup and held host-daemon work.
 
 Pi's profile-set extension is built, children of pi-subagents included; what it cannot close is
 listed as accepted limits in
@@ -251,6 +248,7 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
 47. The maintainer files the upstream reports drafted with the VM-local design, on [VZ's virtio-fs cache policy](../research/apple-container-file-cost.md#21-per-file-cost-not-bandwidth)
     and [VZ keeping freed guest memory](../research/macos-vm-memory-reclaim.md#5-adding-it-to-apple-container-ourselves)
     — last, since only Apple can ship either fix.
+48. Native macOS verification of [JD-10's guest pack-tree lifetime](../design/jail-daemon-on-macos-user-plan.md#JD-10): observe root ownership and modes and Seatbelt execution while overlapping launches use distinct trees, A's daemon restarts from A's unchanged module after B changes or drops its module, and capture leaves both trees unchanged. The source gates passed, but no native execution has established these properties; they remain **UNMEASURED**.
 
 ## Boundaries
 

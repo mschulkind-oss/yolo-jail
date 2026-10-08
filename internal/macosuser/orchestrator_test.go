@@ -3,6 +3,9 @@ package macosuser
 import (
 	"bytes"
 	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -94,6 +97,207 @@ func newOpts(ws string) Options {
 		Agents:    []string{"claude"},
 		AgentArgv: []string{"claude"},
 		RepoRoot:  "/opt/yolo-jail",
+	}
+}
+
+// fixtureStateDeps executes the pure staging argv against a private temp root, replacing the
+// production state dir inside argv. Bootstrap is a fake boundary: it returns successfully but
+// does not start a guest. Darwin ACL commands are skipped on Linux; all mkdir/copy/chmod/remove
+// commands retain their real filesystem effects.
+func fixtureStateDeps(t *testing.T, state string, rec *[]string, fail func([]string) bool) Deps {
+	t.Helper()
+	d := mockDeps(rec)
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.SelfExe = func() string { return exe }
+	d.Run = func(argv []string) int {
+		original := append([]string(nil), argv...)
+		joined := strings.Join(original, " ")
+		if rec != nil {
+			*rec = append(*rec, "run:"+joined)
+		}
+		if fail != nil && fail(original) {
+			return 1
+		}
+		if strings.Contains(joined, "internal darwin-bootstrap") ||
+			strings.Contains(joined, "internal darwin-provision") {
+			return 0
+		}
+		if len(argv) > 0 && argv[0] == "sudo" {
+			argv = argv[1:]
+			if len(argv) > 0 && argv[0] == "-n" {
+				argv = argv[1:]
+			}
+		}
+		if len(argv) == 0 {
+			return 0
+		}
+		if argv[0] == chmodBin && strings.Contains(strings.Join(argv[1:], " "), "+a") {
+			return 0
+		}
+		mapped := make([]string, len(argv))
+		for i, arg := range argv {
+			mapped[i] = strings.ReplaceAll(arg, stateDir, state)
+		}
+		cmd := exec.Command(mapped[0], mapped[1:]...)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Errorf("fixture command %v failed: %v\n%s", mapped, err, output)
+			return 1
+		}
+		return 0
+	}
+	return d
+}
+
+func writeFixturePackTree(t *testing.T, body string, suffix ...string) string {
+	t.Helper()
+	label := strings.TrimSpace(strings.TrimPrefix(body, "#!/bin/sh\necho "))
+	if len(suffix) != 0 {
+		label += "-" + suffix[0]
+	}
+	root := filepath.Join(t.TempDir(), "pack-tree-"+label)
+	module := filepath.Join(root, "local", "loopholes", "hello", "bin", "hello")
+	if err := os.MkdirAll(filepath.Dir(module), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(module, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+// TestRunMacosUserPackTreeOwnershipBoundaries checks the actual call site: an exclusive
+// reservation establishes ownership, but only before any pack writer is dispatched can that
+// owned tree be removed. Writer or consumer dispatch requires conservative exact-path retention.
+func TestRunMacosUserPackTreeOwnershipBoundaries(t *testing.T) {
+	workspace := filepath.Join(t.TempDir(), "project")
+	cname := cnameFor(workspace)
+	state := t.TempDir()
+	hostA := writeFixturePackTree(t, "#!/bin/sh\necho A\n")
+	sibling := StagedPackTreeRoot(cname, hostA, state)
+	legacy := StagedPackRoot(cname, state)
+	for _, dir := range []string{sibling, legacy} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "sentinel"), []byte(dir), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	t.Run("writer failure retains only the owned tree", func(t *testing.T) {
+		hostB := writeFixturePackTree(t, "#!/bin/sh\necho B\n")
+		owned := StagedPackTreeRoot(cname, hostB, state)
+		var rec []string
+		d := fixtureStateDeps(t, state, &rec, func(argv []string) bool {
+			if len(argv) < 5 || argv[0] != "sudo" || argv[1] != cpBin || argv[2] != "-R" ||
+				!strings.Contains(argv[3], hostB) {
+				return false
+			}
+			privateRoot := strings.ReplaceAll(argv[4], stateDir, state)
+			if err := os.WriteFile(filepath.Join(privateRoot, "partial-copy"), []byte("writer may still be active"), 0o644); err != nil {
+				t.Errorf("write partial fixture payload: %v", err)
+			}
+			return true
+		})
+		var out bytes.Buffer
+		d.Out = &out
+		opts := newOpts(workspace)
+		opts.HostPackRoot = hostB
+		if rc := RunMacosUser(d, opts); rc == 0 {
+			t.Fatal("the injected pack copy failure returned success")
+		}
+		if got, err := os.ReadFile(filepath.Join(owned, "partial-copy")); err != nil || string(got) != "writer may still be active" {
+			t.Errorf("an unknown writer outcome did not preserve its sentinel: %q, err %v", got, err)
+		}
+		for _, dir := range []string{sibling, legacy} {
+			if _, err := os.Stat(filepath.Join(dir, "sentinel")); err != nil {
+				t.Errorf("cleanup changed sibling %s: %v", dir, err)
+			}
+		}
+		if !strings.Contains(out.String(), "Could not stage entrypoint") ||
+			!strings.Contains(out.String(), StagedPackTreeRoot(cname, hostB, "")) ||
+			!strings.Contains(out.String(), "Retaining guest pack tree") {
+			t.Errorf("unknown writer outcome was not disclosed: %s", out.String())
+		}
+	})
+
+	t.Run("failed reservation does not claim collision", func(t *testing.T) {
+		hostC := writeFixturePackTree(t, "#!/bin/sh\necho C\n")
+		collision := StagedPackTreeRoot(cname, hostC, state)
+		if err := os.MkdirAll(collision, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		sentinel := filepath.Join(collision, "sentinel")
+		if err := os.WriteFile(sentinel, []byte("other owner"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		var rec []string
+		d := fixtureStateDeps(t, state, &rec, func(argv []string) bool {
+			return len(argv) == 3 && argv[0] == "sudo" && argv[1] == mkdirBin && argv[2] ==
+				StagedPackTreeRoot(cname, hostC, "")
+		})
+		var out bytes.Buffer
+		d.Out = &out
+		opts := newOpts(workspace)
+		opts.HostPackRoot = hostC
+		if rc := RunMacosUser(d, opts); rc == 0 {
+			t.Fatal("the failed exclusive reservation returned success")
+		}
+		if got, err := os.ReadFile(sentinel); err != nil || string(got) != "other owner" {
+			t.Errorf("the unowned collision tree was changed: %q, err %v", got, err)
+		}
+		if !strings.Contains(out.String(), "Could not reserve guest pack tree") ||
+			!strings.Contains(out.String(), StagedPackTreeRoot(cname, hostC, "")) ||
+			!strings.Contains(out.String(), "fresh invocation") ||
+			!strings.Contains(out.String(), "sudo ls -la --") || !strings.Contains(out.String(), "Do not remove") {
+			t.Errorf("reservation refusal omitted safe retry/inspection guidance: %s", out.String())
+		}
+		for _, call := range rec {
+			if strings.Contains(call, "sudo "+rmBin+" -rf -- "+StagedPackTreeRoot(cname, hostC, "")) {
+				t.Errorf("the existing collision was removed: %s", call)
+			}
+		}
+	})
+
+	for _, agentRC := range []int{0, 42} {
+		t.Run("consumer return "+strconv.Itoa(agentRC)+" retains", func(t *testing.T) {
+			hostD := writeFixturePackTree(t, "#!/bin/sh\necho D\n", strconv.Itoa(agentRC))
+			retainedProduction := StagedPackTreeRoot(cname, hostD, "")
+			retainedFixture := StagedPackTreeRoot(cname, hostD, state)
+			var rec []string
+			d := fixtureStateDeps(t, state, &rec, nil)
+			d.RunWithProxy = func(argv []string) int {
+				rec = append(rec, "proxy:"+strings.Join(argv, " "))
+				return agentRC
+			}
+			var out bytes.Buffer
+			d.Out = &out
+			opts := newOpts(workspace)
+			opts.HostPackRoot = hostD
+			if rc := RunMacosUser(d, opts); rc != agentRC {
+				t.Fatalf("RunMacosUser = %d, want agent status %d\n%s", rc, agentRC, out.String())
+			}
+			if _, err := os.Stat(filepath.Join(retainedFixture, "local", "loopholes", "hello", "bin", "hello")); err != nil {
+				t.Errorf("the consumer's pack tree was not retained: %v", err)
+			}
+			for _, dir := range []string{sibling, legacy} {
+				if _, err := os.Stat(filepath.Join(dir, "sentinel")); err != nil {
+					t.Errorf("launch changed sibling %s: %v", dir, err)
+				}
+			}
+			if !strings.Contains(out.String(), "Retaining guest pack tree") ||
+				!strings.Contains(out.String(), retainedProduction) || !strings.Contains(out.String(), "restart capability") {
+				t.Errorf("the retained path was not disclosed: %s", out.String())
+			}
+			for _, call := range rec {
+				if strings.Contains(call, "sudo "+rmBin+" -rf -- "+StagedPackTreeRoot(cname, hostD, "")) {
+					t.Errorf("post-consumer tree was removed: %s", call)
+				}
+			}
+		})
 	}
 }
 

@@ -113,11 +113,17 @@ launch itself is pinned by
 that log line is the part only a real jail can produce.
 
 On **`macos-user`** the same config runs it in the sandbox. There is no mount there:
-`{jail_loophole_dir}` resolves to the module dir's place in yolo's root-owned copy of the
-staged packs (one per workspace, which each launch replaces), so the line names `/var/yolo-jail/packs/<jail>/…/bin/hello` instead, and
-the log is at `<workspace>/.yolo/home/local/state/yolo-jail-daemons/hello-daemon.log` on the Mac
-([JD-10](../../docs/design/jail-daemon-on-macos-user-plan.md#JD-10)). A script runs there; a Linux
-binary would not, and the launch declines one by name and names a container runtime that runs it.
+`{jail_loophole_dir}` resolves to the module dir's place in this launch's root-owned copy of
+the staged packs. Its guest root uses this host tree's unique directory leaf and is reserved
+exclusively, so a later launch cannot replace it. For the embedded `hello-daemon` pack, the
+illustrative guest path is `/var/yolo-jail/packs/<jail>.<host-tree-leaf>/_official/hello-daemon/loopholes/hello-daemon/bin/hello`.
+The bootstrap and session environments name that same root with `YOLO_PACK_ROOT`
+([JD-10](../../docs/design/jail-daemon-on-macos-user-plan.md#JD-10)). The log remains at
+`<workspace>/.yolo/home/local/state/yolo-jail-daemons/hello-daemon.log` on the Mac. This describes
+source behavior, not a native run: root ownership and modes, Seatbelt execution and
+overlapping-session restart behavior remain **UNMEASURED**. The code allows a macOS script there;
+a Linux binary would not run, and the launch declines one by name and names a container runtime
+that runs it.
 
 ## Retiring it
 

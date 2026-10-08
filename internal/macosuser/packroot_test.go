@@ -29,13 +29,35 @@ func planWithPacks(t *testing.T, hostPackRoot string) RunPlan {
 		jsonx.NewOrderedMap(), nil, nil)
 }
 
+func TestTwoLaunchPackTreesHaveDifferentGuestRoots(t *testing.T) {
+	a := planWithPacks(t, "/host/pack-trees/20261008T120000Z-1111111111")
+	b := planWithPacks(t, "/host/pack-trees/20261008T120000Z-2222222222")
+	if a.Cname != b.Cname {
+		t.Fatal("fixture must represent the same workspace")
+	}
+	if a.PackRoot == b.PackRoot {
+		t.Fatalf("second launch replaces first launch's pack root: %s", a.PackRoot)
+	}
+	for _, p := range []RunPlan{a, b} {
+		if !containsArg(p.BootstrapArgv, "YOLO_PACK_ROOT="+p.PackRoot) {
+			t.Fatal("bootstrap lost its own tree")
+		}
+		if !SandboxEnvFileSets(p.EnvFileContent, "YOLO_PACK_ROOT", p.PackRoot) {
+			t.Fatal("session lost its own tree")
+		}
+		if problems := PlanInvariants(p); len(problems) != 0 {
+			t.Fatalf("invalid plan: %v", problems)
+		}
+	}
+}
+
 // TestRunPlanStagesAndNamesThePackRoot: the end-to-end shape of the fix, at the plan
 // level. Before it, a macos-user launch had NO pack root anywhere in it — no stage
 // command, no env var — and reported a successful bootstrap regardless.
 func TestRunPlanStagesAndNamesThePackRoot(t *testing.T) {
 	plan := planWithPacks(t, hostStaged)
 
-	want := StagedPackRoot(cnameFor("/Users/Shared/yolo/proj"), "")
+	want := StagedPackTreeRoot(cnameFor("/Users/Shared/yolo/proj"), hostStaged, "")
 	if plan.PackRoot != want {
 		t.Fatalf("plan.PackRoot = %q, want %q", plan.PackRoot, want)
 	}
@@ -43,26 +65,20 @@ func TestRunPlanStagesAndNamesThePackRoot(t *testing.T) {
 		t.Errorf("pack root %q is not under the root-owned state dir %q — the sandbox "+
 			"could rewrite a manifest it renders from", plan.PackRoot, stateDir)
 	}
-	// The tree is copied from the host staging root, made world-readable, and moved
-	// into place (the sandbox uid is not the invoking user, so a+rX is load-bearing).
-	var sawCopy, sawChmod, sawMove bool
+	var sawCopy, sawChmod, sawReserve bool
 	for _, c := range plan.StageCommands {
 		switch {
-		case len(c) >= 4 && c[0] == cpBin && c[2] == hostStaged:
+		case len(c) == 4 && c[0] == cpBin && c[1] == "-R" && strings.TrimSuffix(c[2], string(os.PathSeparator)+".") == hostStaged && c[3] == plan.PackRoot:
 			sawCopy = true
-		case len(c) >= 3 && c[0] == chmodBin && c[2] == "a+rX":
+		case len(c) == 4 && c[0] == chmodBin && c[1] == "-R" && c[2] == "a+rX" && c[3] == plan.PackRoot:
 			sawChmod = true
-		case len(c) >= 3 && c[0] == mvBin && c[len(c)-1] == plan.PackRoot:
-			sawMove = true
+		case isPackTreeReservationCommand(c, plan.PackRoot):
+			sawReserve = true
 		}
 	}
-	if !sawCopy || !sawMove {
-		t.Errorf("the pack tree is never staged into %s (copy=%v move=%v): %v",
-			plan.PackRoot, sawCopy, sawMove, plan.StageCommands)
-	}
-	if !sawChmod {
-		t.Errorf("the staged pack tree is never made readable to the sandbox uid: %v",
-			plan.StageCommands)
+	if !sawCopy || !sawChmod || !sawReserve {
+		t.Errorf("the pack tree is not exclusively copied into %s and made readable (copy=%v chmod=%v reserve=%v): %v",
+			plan.PackRoot, sawCopy, sawChmod, sawReserve, plan.StageCommands)
 	}
 	// And the bootstrap is told where it is — the container's YOLO_PACK_ROOT contract,
 	// which LoadJailPacks reads on both backends.
@@ -135,10 +151,10 @@ func TestPlanInvariantCatchesAnUnannouncedPackRoot(t *testing.T) {
 func TestPlanInvariantCatchesAnUnstagedPackRoot(t *testing.T) {
 	plan := planWithPacks(t, hostStaged)
 
-	// Drop the pack staging commands, leaving the env var in place.
+	// Drop the pack content copy while leaving reservation and permissions in place.
 	var kept [][]string
 	for _, c := range plan.StageCommands {
-		if len(c) >= 3 && c[0] == mvBin && c[len(c)-1] == plan.PackRoot {
+		if len(c) == 4 && c[0] == cpBin && c[1] == "-R" && c[3] == plan.PackRoot {
 			continue
 		}
 		kept = append(kept, c)
@@ -154,43 +170,32 @@ func TestPlanInvariantCatchesAnUnstagedPackRoot(t *testing.T) {
 	}
 }
 
-// TestStagePackCommandsReplaceRatherThanNest: `mv src dst` moves src INSIDE dst when dst
-// is an existing directory, so a stage that skipped the destination removal would bury
-// the pack tree one level deeper on every launch — and the bootstrap would find an empty
-// root from the second launch onward. Pinned because the failure is invisible on a first
-// run, which is the only run a Mac-side smoke test is likely to do.
-func TestStagePackCommandsReplaceRatherThanNest(t *testing.T) {
+// TestStagePackCommandsReserveWithoutReplacing: every pack stage owns one destination derived
+// from the existing host tree leaf. It reserves that path exclusively before copying the
+// source contents and makes the finished copy readable without granting guest writes.
+func TestStagePackCommandsReserveWithoutReplacing(t *testing.T) {
 	cmds := StagePackCommands(hostStaged, "proj", "")
-	dst := StagedPackRoot("proj", "")
-
-	removedDst, moved := -1, -1
-	for i, c := range cmds {
-		if len(c) >= 3 && c[0] == rmBin && c[2] == dst {
-			removedDst = i
-		}
-		if len(c) >= 3 && c[0] == mvBin && c[len(c)-1] == dst {
-			moved = i
-		}
+	dst := StagedPackTreeRoot("proj", hostStaged, "")
+	if len(cmds) != 4 || !isPackTreeReservationCommand(cmds[1], dst) ||
+		!stagesPackTreeAt(cmds, dst) {
+		t.Fatalf("stage commands do not exclusively reserve, copy and protect %s: %v", dst, cmds)
 	}
-	if removedDst < 0 || moved < 0 {
-		t.Fatalf("stage commands do not remove-then-move the destination: %v", cmds)
-	}
-	if removedDst > moved {
-		t.Errorf("the destination is removed AFTER the move (%d > %d) — the tree would "+
-			"nest one level deeper each launch: %v", removedDst, moved, cmds)
-	}
-	// Everything it touches stays under the root-owned state dir; the two `rm -rf`s
-	// are the reason that is asserted rather than assumed.
 	for _, c := range cmds {
+		if c[0] == rmBin || c[0] == mvBin {
+			t.Errorf("pack staging must not remove or replace an existing guest tree: %v", c)
+		}
 		for _, a := range c[1:] {
-			if strings.HasPrefix(a, "/") && !strings.HasPrefix(a, stateDir+"/") && a != hostStaged {
-				t.Errorf("stage command touches %q, outside the state dir %q: %v",
-					a, stateDir, c)
+			if strings.HasPrefix(a, "/") && !strings.HasPrefix(a, stateDir+"/") && a != hostStaged+"/." {
+				t.Errorf("stage command touches %q, outside the state dir %q and host source %q: %v",
+					a, stateDir, hostStaged, c)
 			}
 		}
 	}
 	if got := StagePackCommands("", "proj", ""); got != nil {
 		t.Errorf("no host tree should stage nothing, got %v", got)
+	}
+	if got := StagedPackTreeRoot("proj", "", ""); got != "" {
+		t.Errorf("an empty host tree names guest artifacts: %q", got)
 	}
 }
 

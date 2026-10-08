@@ -279,8 +279,8 @@ func TestMacosUserSaysARefusedDoorwayTheGuestDeclinesRunsNowhere(t *testing.T) {
 	if strings.Contains(refusal, "runs in the sandbox instead") {
 		t.Errorf("the refusal says the jail daemon runs in the sandbox, which declined it:\n%s", got.out)
 	}
-	guestProgram := filepath.Join(macosuser.StagedPackRoot(runtime.FromWorkspace(ws), ""), "acme",
-		"loopholes", "acme-proxy", "my-agent")
+	guestProgram := filepath.Join(macosuser.StagedPackTreeRoot(runtime.FromWorkspace(ws), got.hostPackRoot, ""),
+		"acme", "loopholes", "acme-proxy", "my-agent")
 	if !strings.Contains(refusal, "declined in the sandbox too") ||
 		!strings.Contains(got.out, "acme-proxy: "+guestProgram) || !strings.Contains(got.out, "a Linux executable") {
 		t.Errorf("the refusal does not point at the jail daemon's own Declined: line:\n%s", got.out)

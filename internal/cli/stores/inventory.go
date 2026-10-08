@@ -1146,31 +1146,28 @@ func macosUserStores(o Options) []Store {
 	return append(state, homeRows...)
 }
 
-// macosUserPerWorkspaceLeaves are the state dir's children that hold one copy per workspace,
-// keyed by the workspace's container name: what each copy is, and the command that removes one
-// workspace's copy, spelled from the same internal/macosuser functions that build the paths a
-// launch writes.
+// macosUserPerWorkspaceLeaves names the state dir's children whose entries are keyed by a
+// workspace or launch: what each copy is, its useful count label, and a safe exact-path
+// removal command when one exists. A nil remove means paths are retained by identity and no
+// workspace-wide removal is safe to recommend.
 //
 // THE REMOVAL NAMES EACH PATH LITERALLY, NEVER A GLOB. The user's own shell expands a glob before
 // sudo runs, and env/ is a dir only root can list (SandboxEnvDirCommands makes it 0700), so a
 // pattern there matches nothing: zsh, macOS's default shell, refuses with "no matches found", and
 // bash hands rm the literal pattern, which -f then ignores with exit 0.
 var macosUserPerWorkspaceLeaves = map[string]struct {
-	what string
-	// perDir says each workspace's copy is one dir, so the child's entries count workspaces.
-	perDir bool
-	remove func(stateDir string) string
+	what       string
+	countLabel string
+	remove     func(stateDir string) string
 }{
-	"packs": {"each workspace's staged pack tree", true, func(sd string) string {
-		return "sudo rm -rf " + macosuser.StagedPackRoot(cnamePlaceholder, sd)
-	}},
-	"home-overlay": {"each workspace's staged skills and briefings", true, func(sd string) string {
+	"packs": {"per-launch immutable guest trees and legacy workspace trees", "entries", nil},
+	"home-overlay": {"each workspace's staged skills and briefings", "workspaces", func(sd string) string {
 		return "sudo rm -rf " + macosuser.StagedHomeOverlay(cnamePlaceholder, sd)
 	}},
-	"ctx": {"each workspace's staged context tree (its /ctx)", true, func(sd string) string {
+	"ctx": {"each workspace's staged context tree (its /ctx)", "workspaces", func(sd string) string {
 		return "sudo rm -rf " + macosuser.StagedCtxRoot(cnamePlaceholder, sd)
 	}},
-	"env": {"each workspace's session environment files", false, func(sd string) string {
+	"env": {"each workspace's session environment files", "", func(sd string) string {
 		return "sudo rm -f " + macosuser.SandboxEnvFile(cnamePlaceholder, sd) + " " +
 			macosuser.SandboxDaemonEnvFile(cnamePlaceholder, sd)
 	}},
@@ -1216,13 +1213,20 @@ func macosUserStateRows(o Options, stateDir string) (rows []Store, exists bool) 
 		leaf, perWorkspace := macosUserPerWorkspaceLeaves[name]
 		switch {
 		case perWorkspace:
-			s.Reclaimer = Reclaimer{Detail: "a launch replaces its own workspace's copy; nothing removes another's"}
-			if n, ok := countEntries(path); ok && leaf.perDir {
-				s.Count, s.CountLabel = n, "workspaces"
+			if leaf.remove == nil {
+				s.Reclaimer = Reclaimer{Detail: "no automatic reclaimer; a guest consumer may still hold a launch tree"}
+				s.Note = leaf.what + ", root-owned. A tree is retained after a pack writer or guest consumer is dispatched because yolo cannot prove all writers, readers and restart capability ended; yolo does not reclaim it. Use the exact " +
+					"retained path printed by the launch and inspect it with `sudo ls -la -- <exact-path>` " +
+					"before any manual removal; " + teardown
+			} else {
+				s.Reclaimer = Reclaimer{Detail: "a launch replaces its own workspace's copy; nothing removes another's"}
+				s.Note = leaf.what + ", root-owned and replaced in place by that workspace's next launch. A " +
+					"workspace you no longer launch keeps its copy until you remove it: `" + leaf.remove(stateDir) +
+					"`; " + teardown
 			}
-			s.Note = leaf.what + ", root-owned and replaced in place by that workspace's next launch. A " +
-				"workspace you no longer launch keeps its copy until you remove it: " +
-				"`" + leaf.remove(stateDir) + "`; " + teardown
+			if n, ok := countEntries(path); ok && leaf.countLabel != "" {
+				s.Count, s.CountLabel = n, leaf.countLabel
+			}
 		case name == "bin":
 			s.Reclaimer = Reclaimer{Detail: "every launch replaces it"}
 			s.Note = "the staged yolo binary and the sandbox's own yolo binaries, one copy for the " +

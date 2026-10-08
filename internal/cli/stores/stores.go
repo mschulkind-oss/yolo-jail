@@ -83,7 +83,8 @@ and why.
 
 On a Mac, a macos-user section lists that backend's own storage: the root-owned
 copies each launch stages under /var/yolo-jail, and the sandbox account's mise
-store and cache. Nothing in yolo reclaims them; each row says what removes it.
+store and cache. Nothing in yolo reclaims them; each row says whether a safe
+reclaimer exists and how to inspect or recover the bytes.
 
 Sizes are apparent sizes (the sum of file sizes), and each store's walk is
 bounded to 60s: a store that runs out of budget reports what it had summed so

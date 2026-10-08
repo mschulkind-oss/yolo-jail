@@ -416,13 +416,97 @@ func TestMacosUserRunsAModuleDirJailDaemonFromTheStagedCopy(t *testing.T) {
 	if got.rc != 0 {
 		t.Fatalf("Run() = %d, want 0\n%s", got.rc, got.out)
 	}
-	dir := filepath.Join(macosuser.StagedPackRoot(runtime.FromWorkspace(ws), ""), "local", "loopholes", "hello")
+	dir := filepath.Join(macosuser.StagedPackTreeRoot(runtime.FromWorkspace(ws), got.hostPackRoot, ""),
+		"local", "loopholes", "hello")
 	specs := payloadOf(t, got.jailDaemons)
 	if len(specs) != 1 || len(specs[0].Cmd) != 3 || specs[0].Cmd[0] != dir+"/bin/hello" || specs[0].Cmd[2] != dir+"/hello.conf" {
 		t.Fatalf("the guest was handed %+v, want the program at %s/bin/hello\n%s", specs, dir, got.out)
 	}
 	if strings.Contains(got.out, "Declined: these jail daemons") {
 		t.Errorf("a module-dir daemon the guest runs was declined:\n%s", got.out)
+	}
+}
+
+func TestMacosUserModuleDirPayloadUsesEachLaunchPackTree(t *testing.T) {
+	home := packHome(t)
+	ws := t.TempDir()
+	writeUserConfigJSON(t, home, `{"packs": []}`)
+
+	type launch struct {
+		hostRoot  string
+		plan      macosuser.RunPlan
+		specs     []supervisor.Spec
+		module    []byte
+		moduleErr error
+	}
+	var launches []launch
+	run := func(body []byte, pack bool) {
+		t.Helper()
+		if pack {
+			writeLocalLoopholePack(t, home, "hello", jailOnlyLoophole("hello", ` ["{jail_loophole_dir}/bin/hello", "--conf", "{jail_loophole_dir}/hello.conf"]`))
+			writeLocalModuleFile(t, home, "hello", "bin/hello", body)
+		} else {
+			writeLocalPackJSON(t, home, `{"contributes": []}`)
+			if err := os.RemoveAll(filepath.Join(home, ".config", "yolo-jail", "local", "loopholes", "hello")); err != nil {
+				t.Fatal(err)
+			}
+		}
+		var stdout, stderr bytes.Buffer
+		o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
+		o.MacosUserRun = func(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []string,
+			_, hostRoot string, overlay macosuser.HomeOverlay, hostCtx macosuser.HostContext, _ bool,
+			packEnv *jsonx.OrderedMap, blocked []packload.BlockedTool, jd macosuser.JailDaemons) int {
+			plan := macosuser.BuildRunPlan(workspace, cfg, agents, agentArgv, "/usr/local/bin/yolo",
+				hostRoot, overlay, hostCtx, packEnv, nil, blocked)
+			hostModule, moduleErr := os.ReadFile(filepath.Join(hostRoot, "local", "loopholes", "hello", "bin", "hello"))
+			launches = append(launches, launch{hostRoot: hostRoot, plan: plan, specs: payloadOf(t, jd),
+				module: hostModule, moduleErr: moduleErr})
+			return 0
+		}
+		if rc := Run(*o); rc != 0 {
+			t.Fatalf("Run() = %d, want 0\nstdout:\n%s\nstderr:\n%s", rc, stdout.String(), stderr.String())
+		}
+	}
+
+	run([]byte("#!/bin/sh\necho A\n"), true)
+	run([]byte("#!/bin/sh\necho B\n"), true)
+	run(nil, false)
+	if len(launches) != 3 {
+		t.Fatalf("observed %d macos-user launches, want A/B/C", len(launches))
+	}
+	for i, launch := range launches {
+		if i > 0 && launch.plan.PackRoot == launches[i-1].plan.PackRoot {
+			t.Fatalf("launch %d reuses guest pack root %s", i+1, launch.plan.PackRoot)
+		}
+		if launch.plan.PackRoot == "" || filepath.Base(launch.plan.PackRoot) == runtime.FromWorkspace(ws) {
+			t.Errorf("launch %d did not derive its root from its host tree %s: %s", i+1,
+				launch.hostRoot, launch.plan.PackRoot)
+		}
+	}
+	for i, body := range [][]byte{[]byte("#!/bin/sh\necho A\n"), []byte("#!/bin/sh\necho B\n")} {
+		launch := launches[i]
+		if len(launch.specs) != 1 || len(launch.specs[0].Cmd) != 3 {
+			t.Fatalf("launch %d payload = %+v, want the module-dir daemon", i+1, launch.specs)
+		}
+		want := filepath.Join(launch.plan.PackRoot, "local", "loopholes", "hello", "bin", "hello")
+		if launch.specs[0].Cmd[0] != want || launch.specs[0].Cmd[2] != filepath.Join(launch.plan.PackRoot,
+			"local", "loopholes", "hello", "hello.conf") {
+			t.Errorf("launch %d payload = %v, plan root %s", i+1, launch.specs[0].Cmd, launch.plan.PackRoot)
+		}
+		if launch.moduleErr != nil || !bytes.Equal(launch.module, body) {
+			t.Errorf("launch %d host tree has module bytes %q, want %q (err %v)", i+1,
+				launch.module, body, launch.moduleErr)
+		}
+	}
+	if len(launches[2].specs) != 0 {
+		t.Errorf("launch C kept a dropped module daemon in its payload: %+v", launches[2].specs)
+	}
+	if !os.IsNotExist(launches[2].moduleErr) {
+		t.Errorf("launch C host tree retained the dropped module (err %v)", launches[2].moduleErr)
+	}
+	firstTarget := launches[0].specs[0].Cmd[0]
+	if firstTarget != filepath.Join(launches[0].plan.PackRoot, "local", "loopholes", "hello", "bin", "hello") {
+		t.Errorf("launch A's stored restart target changed after B/C: %s", firstTarget)
 	}
 }
 
@@ -448,7 +532,8 @@ func TestAModuleDirOutsideTheStagedPacksIsDeclinedNotPlaced(t *testing.T) {
 	o := &Options{Workspace: base, packTree: link}
 	out := o.placeModuleDirsInGuest("macos-user", []loopholes.JailDaemonSpec{
 		spec("hello", inside), spec("stray", filepath.Join(base, "elsewhere", "stray"))})
-	want := filepath.Join(macosuser.StagedPackRoot(runtime.FromWorkspace(base), ""), "local", "loopholes", "hello", "bin", "hello")
+	want := filepath.Join(macosuser.StagedPackTreeRoot(runtime.FromWorkspace(base), link, ""),
+		"local", "loopholes", "hello", "bin", "hello")
 	if out[0].Cmd[0] != want {
 		t.Errorf("the staged module dir is placed at %q, want %q", out[0].Cmd[0], want)
 	}

@@ -79,42 +79,122 @@ func TestStageBinaryCommandsExecuteAndReStage(t *testing.T) {
 	}
 }
 
-// Pack and overlay staging both REPLACE their destination rather than merging, so
-// content a pack stopped shipping actually disappears.
+// The home overlay still replaces its workspace destination rather than merging, so content
+// a workspace stopped shipping disappears. Pack trees have a separate immutable per-launch
+// contract in TestStagedPackTreesAreImmutableAndDistinct.
 func TestStagedTreesReplaceRatherThanMerge(t *testing.T) {
-	for _, tc := range []struct {
-		name  string
-		build func(src, sd string) [][]string
-		dest  func(sd string) string
-	}{
-		{"packs", func(src, sd string) [][]string { return StagePackCommands(src, "proj", sd) },
-			func(sd string) string { return StagedPackRoot("proj", sd) }},
-		{"home overlay", func(src, sd string) [][]string { return StageHomeOverlayCommands(src, "proj", sd) },
-			func(sd string) string { return StagedHomeOverlay("proj", sd) }},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			sd, src := t.TempDir(), t.TempDir()
-			if err := os.WriteFile(filepath.Join(src, "current"), []byte("x"), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			runStaged(t, tc.build(src, sd))
-
-			// Plant a file from a "previous launch" that the source no longer has.
-			stale := filepath.Join(tc.dest(sd), "removed-by-a-config-change")
-			if err := os.WriteFile(stale, []byte("x"), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			runStaged(t, tc.build(src, sd))
-
-			if _, err := os.Stat(stale); !os.IsNotExist(err) {
-				t.Error("a file the source no longer ships survived re-staging — the " +
-					"destination must be replaced, not merged into")
-			}
-			if _, err := os.Stat(filepath.Join(tc.dest(sd), "current")); err != nil {
-				t.Errorf("the current content is missing after re-staging: %v", err)
-			}
-		})
+	sd, src := t.TempDir(), t.TempDir()
+	if err := os.WriteFile(filepath.Join(src, "current"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
 	}
+	runStaged(t, StageHomeOverlayCommands(src, "proj", sd))
+	stale := filepath.Join(StagedHomeOverlay("proj", sd), "removed-by-a-config-change")
+	if err := os.WriteFile(stale, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runStaged(t, StageHomeOverlayCommands(src, "proj", sd))
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Error("a file the source no longer ships survived home-overlay re-staging")
+	}
+	if _, err := os.Stat(filepath.Join(StagedHomeOverlay("proj", sd), "current")); err != nil {
+		t.Errorf("the current home-overlay content is missing after re-staging: %v", err)
+	}
+}
+
+func TestStagedPackTreesAreImmutableAndDistinct(t *testing.T) {
+	sd := t.TempDir()
+	sourceA, sourceB, sourceC := t.TempDir(), t.TempDir(), t.TempDir()
+	legacy := StagedPackRoot("proj", sd)
+	if err := os.MkdirAll(legacy, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	legacyFile := filepath.Join(legacy, "old-session")
+	if err := os.WriteFile(legacyFile, []byte("legacy"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	legacyInode := inodeOf(t, legacyFile)
+	writeModule := func(root string, script []byte) {
+		t.Helper()
+		target := filepath.Join(root, "local", "loopholes", "hello", "bin", "hello")
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(target, script, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "local", "data"), []byte("data"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeModule(sourceA, []byte("#!/bin/sh\necho A\n"))
+	writeModule(sourceB, []byte("#!/bin/sh\necho B\n"))
+	rootA := StagedPackTreeRoot("proj", sourceA, sd)
+	rootB := StagedPackTreeRoot("proj", sourceB, sd)
+	rootC := StagedPackTreeRoot("proj", sourceC, sd)
+	if rootA == rootB || rootA == rootC || rootB == rootC {
+		t.Fatalf("distinct host tree identities produced reused roots: %s %s %s", rootA, rootB, rootC)
+	}
+	runStaged(t, StagePackCommands(sourceA, "proj", sd))
+	stagedA := filepath.Join(rootA, "local", "loopholes", "hello", "bin", "hello")
+	firstBytes, err := os.ReadFile(stagedA)
+	if err != nil || string(firstBytes) != "#!/bin/sh\necho A\n" {
+		t.Fatalf("A staged bytes = %q, err %v", firstBytes, err)
+	}
+	firstInode := inodeOf(t, stagedA)
+	if mode := fileMode(t, stagedA); mode&0o111 != 0o111 {
+		t.Errorf("A's executable mode = %o, want execute bits preserved", mode)
+	}
+	if mode := fileMode(t, filepath.Join(rootA, "local", "data")); mode&0o111 != 0 {
+		t.Errorf("non-executable data gained execute bits: %o", mode)
+	}
+
+	runStaged(t, StagePackCommands(sourceB, "proj", sd))
+	runStaged(t, StagePackCommands(sourceC, "proj", sd))
+	if got, err := os.ReadFile(stagedA); err != nil || string(got) != string(firstBytes) || inodeOf(t, stagedA) != firstInode {
+		t.Errorf("B/C changed A's stored script bytes or inode: bytes %q, err %v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(rootB, "local", "loopholes", "hello", "bin", "hello")); err != nil {
+		t.Errorf("B's changed module is missing from B's tree: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(rootC, "local", "loopholes", "hello")); !os.IsNotExist(err) {
+		t.Errorf("C retained the dropped module: %v", err)
+	}
+	if out, err := exec.Command(stagedA).CombinedOutput(); err != nil || string(out) != "A\n" {
+		t.Errorf("A's restart target after B/C returned %q, err %v", out, err)
+	}
+
+	// A duplicate reservation fails before it can modify this launch or a legacy tree.
+	var reserveFailed bool
+	for _, cmd := range StagePackCommands(sourceA, "proj", sd) {
+		out, err := exec.Command(cmd[0], cmd[1:]...).CombinedOutput()
+		if err == nil {
+			continue
+		}
+		if isPackTreeReservationCommand(cmd, rootA) {
+			reserveFailed = true
+			break
+		}
+		t.Fatalf("duplicate A staging failed before exclusive reservation: %v (%s)\n%s", err,
+			strings.Join(cmd, " "), out)
+	}
+	if !reserveFailed {
+		t.Fatal("reusing A's destination did not fail its exclusive reservation")
+	}
+	if got, err := os.ReadFile(stagedA); err != nil || string(got) != string(firstBytes) || inodeOf(t, stagedA) != firstInode {
+		t.Errorf("a failed duplicate reservation changed A: bytes %q, err %v", got, err)
+	}
+	if got, err := os.ReadFile(legacyFile); err != nil || string(got) != "legacy" || inodeOf(t, legacyFile) != legacyInode {
+		t.Errorf("new stages changed the legacy workspace tree: bytes %q, err %v", got, err)
+	}
+}
+
+func fileMode(t *testing.T, path string) os.FileMode {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return info.Mode().Perm()
 }
 
 // Empty source → no commands at all, so a launch with nothing to stage pays nothing

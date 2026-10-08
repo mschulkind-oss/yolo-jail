@@ -522,7 +522,7 @@ func BuildRunPlanWithStages(workspace string, cfg *jsonx.OrderedMap, agents, age
 	// StageCommands below for the copies that put them there.
 	packRoot := ""
 	if hostPackRoot != "" {
-		packRoot = StagedPackRoot(cname, "")
+		packRoot = StagedPackTreeRoot(cname, hostPackRoot, "")
 	}
 	homeOverlay := ""
 	// WHAT THAT TREE DELIVERS IS WRITE-PROTECTED, and resolved here for the reason the
@@ -1260,7 +1260,7 @@ func PlanInvariants(plan RunPlan) []string {
 					plan.StagedDir+"; the sandbox could rewrite a pack manifest and grant "+
 					"itself host access on the next launch")
 		}
-		if !stagesTreeAt(plan.StageCommands, plan.PackRoot) {
+		if !stagesPackTreeAt(plan.StageCommands, plan.PackRoot) {
 			problems = append(problems,
 				"nothing stages the pack tree at "+plan.PackRoot+
 					"; the bootstrap would render zero pack surfaces")
@@ -1938,16 +1938,35 @@ func containsArgRun(argv, words []string) bool {
 	return false
 }
 
+// stagesPackTreeAt reports whether the commands reserve the exact destination exclusively,
+// copy this tree's contents into it, then make them readable without granting guest writes.
+// This is separate from stagesTreeAt: overlay and context trees still use their existing
+// replace-by-rename shape and keep that invariant unchanged.
+func stagesPackTreeAt(cmds [][]string, dest string) bool {
+	reserveAt, copyAt, chmodAt := -1, -1, -1
+	for i, cmd := range cmds {
+		if isPackTreeReservationCommand(cmd, dest) {
+			reserveAt = i
+		}
+		if len(cmd) == 4 && cmd[0] == cpBin && cmd[1] == "-R" && cmd[2] != "" && cmd[3] == dest {
+			copyAt = i
+		}
+		if len(cmd) == 4 && cmd[0] == chmodBin && cmd[1] == "-R" &&
+			cmd[2] == "a+rX" && cmd[3] == dest {
+			chmodAt = i
+		}
+	}
+	return reserveAt >= 0 && copyAt > reserveAt && chmodAt > copyAt
+}
+
 // stagesTreeAt reports whether the stage commands finish by moving a tree INTO dest —
-// the last command each of the three tree stagers emits (StagePackCommands,
-// StageHomeOverlayCommands, StageCtxCommands). Checking the destination of the final `mv`
-// rather than merely "dest appears somewhere" is what makes the invariant meaningful: the
-// path also appears in the preceding `rm -rf`, so a substring test would pass for a plan
-// that deleted the tree and staged nothing.
+// the last command the home-overlay and context tree stagers emit. Checking the destination
+// of the final `mv` rather than merely "dest appears somewhere" is what makes the invariant
+// meaningful: the path also appears in the preceding `rm -rf`, so a substring test would pass
+// for a plan that deleted the tree and staged nothing.
 //
-// It was stagesPackRoot until the context tree joined the list. One predicate for all
-// three deliberately: they share a shape, and a per-tree copy is three places for the
-// `rm -rf` confusion above to be reintroduced one at a time.
+// Pack trees deliberately use stagesPackTreeAt instead: a replace-by-rename could mutate a
+// guest copy whose previous consumer is not proved gone.
 func stagesTreeAt(cmds [][]string, dest string) bool {
 	for _, c := range cmds {
 		if len(c) >= 4 && c[0] == mvBin && c[len(c)-1] == dest {

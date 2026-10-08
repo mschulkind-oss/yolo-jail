@@ -124,17 +124,21 @@ func TestTheMacosUserSectionListsTheStateDirAndTheHomesStores(t *testing.T) {
 	if len(rows) != len(want) {
 		t.Errorf("the section has %d rows, want %d: %v", len(rows), len(want), keysIn(rows))
 	}
-	if s := rows["macos.state.packs"]; s.Count != 2 || s.CountLabel != "workspaces" {
-		t.Errorf("packs counts %d %s, want 2 workspaces", s.Count, s.CountLabel)
+	if s := rows["macos.state.packs"]; s.Count != 2 || s.CountLabel != "entries" {
+		t.Errorf("packs counts %d %s, want 2 entries including retained launch trees", s.Count, s.CountLabel)
 	}
 	if s := rows["macos.state._files"]; s.Count != 2 || !strings.Contains(s.Note, "profile-<cname>.sb") {
 		t.Errorf("the loose-files row = %+v, want the two Seatbelt profiles named", s)
 	}
 	packs := rows["macos.state.packs"]
-	for _, want := range []string{"sudo rm -rf " + filepath.Join(stateDir, "packs", "<cname>"), "yolo macos-teardown"} {
+	for _, want := range []string{"per-launch immutable guest trees", "exact retained path printed by the launch",
+		"sudo ls -la -- <exact-path>", "yolo macos-teardown"} {
 		if !strings.Contains(packs.Note, want) {
-			t.Errorf("the packs row's note does not name %q: %s", want, packs.Note)
+			t.Errorf("the packs row does not name %q: %s", want, packs.Note)
 		}
+	}
+	if strings.Contains(packs.Note, "sudo rm -rf "+filepath.Join(stateDir, "packs", "<cname>")) {
+		t.Errorf("the packs row recommends workspace-wide removal of possibly held trees: %s", packs.Note)
 	}
 	// env/ is root's and 0700, so the user's own shell cannot list it: a glob there is expanded
 	// before sudo runs and matches nothing (zsh refuses "no matches found"; bash hands rm the

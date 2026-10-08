@@ -266,7 +266,11 @@ func buildCapturePlanAt(opts CaptureOptions, stagingRoot string) CapturePlan {
 
 	packRoot := ""
 	if opts.HostPackRoot != "" {
-		packRoot = StagedPackRoot(cname, "")
+		packRoot = StagedPackTreeRoot(cname, opts.HostPackRoot, "")
+	}
+	captureEnv := opts.SandboxEnv
+	if captureEnv == nil {
+		captureEnv = jsonx.NewOrderedMap()
 	}
 	// THE STAGING HOME, NOT SandboxHome(). This is the one argument that makes the whole
 	// slice work: the bootstrap generates ~/.yolo/bin/launch/<bin> into the home the capture
@@ -299,7 +303,7 @@ func buildCapturePlanAt(opts CaptureOptions, stagingRoot string) CapturePlan {
 	// capture jail is handed only yolo's defaults, as the container arm's is, so the staging home's
 	// mise config names no tool of the user's for the installer to set off.
 	captureMiseTools, _ := config.JailMiseTools(opts.Config, true)
-	bootstrapEnv := buildBootstrapEnv(stagingRoot, opts.Config, gitIdentity, opts.SandboxEnv,
+	bootstrapEnv := buildBootstrapEnv(stagingRoot, opts.Config, gitIdentity, captureEnv,
 		packRoot, "", "", "", HostContext{}, "", stagingHome, darwinPrefix, opts.BlockedTools, captureMiseTools)
 	stagedYolo := StagedYoloPath("")
 	offendingHome, offendingSet := HomeContaining(stagingRoot)
@@ -311,7 +315,10 @@ func buildCapturePlanAt(opts CaptureOptions, stagingRoot string) CapturePlan {
 	//
 	// THE TLS VARIABLES, as a launch sets them (cabundle.go): defaults under the composed env, and
 	// the capture's own CA files beside its env file, keyed on the same cname.
-	sandboxEnv, caBundleFile, caExtrasFile, caFollows := applyCATrust(opts.SandboxEnv, opts.CATrust, cname)
+	sandboxEnv, caBundleFile, caExtrasFile, caFollows := applyCATrust(captureEnv, opts.CATrust, cname)
+	if packRoot != "" {
+		sandboxEnv = withEnvVar(sandboxEnv, "YOLO_PACK_ROOT", packRoot)
+	}
 	caBundleContent, caExtrasContent := caTrustContents(opts.CATrust, caBundleFile, caExtrasFile)
 	envFile := ""
 	envFileContent := SandboxEnvFileContent(sandboxEnv)
@@ -608,7 +615,7 @@ func capturePlanProblems(plan CapturePlan) []string {
 				"staged pack root "+plan.PackRoot+" is not under the root-owned state dir "+
 					plan.StagedDir+"; the sandbox could rewrite a pack manifest")
 		}
-		if !stagesTreeAt(plan.StageCommands, plan.PackRoot) {
+		if !stagesPackTreeAt(plan.StageCommands, plan.PackRoot) {
 			problems = append(problems,
 				"nothing stages the pack tree at "+plan.PackRoot+
 					"; the bootstrap would render zero pack surfaces and no launcher for "+
@@ -708,6 +715,10 @@ func runCaptureSteps(deps Deps, plan CapturePlan, problems []string, asUser [][]
 		return 1
 	}
 
+	packTreeOwned, packTreeWriterDispatched, packConsumerDispatched := false, false, false
+	defer func() {
+		finishPackTree(deps, out, plan.PackRoot, packTreeOwned, packTreeWriterDispatched, packConsumerDispatched)
+	}()
 	out.printf("[dim]Preparing the capture sandbox at %s — sudo may prompt once.[/dim]",
 		plan.StagingRoot)
 	for _, group := range [][2]any{
@@ -715,10 +726,20 @@ func runCaptureSteps(deps Deps, plan CapturePlan, problems []string, asUser [][]
 		{"stage the capture binary and packs", plan.StageCommands},
 	} {
 		for _, cmd := range group[1].([][]string) {
+			if isPackTreeWriterCommand(cmd, plan.PackRoot) {
+				packTreeWriterDispatched = true
+			}
 			if deps.Run(append([]string{"sudo"}, cmd...)) != 0 {
-				out.printf("[bold red]Could not %s (%s).[/bold red]",
-					group[0].(string), shquote.JoinDisplay(cmd))
+				if isPackTreeReservationCommand(cmd, plan.PackRoot) {
+					printPackTreeReservationFailure(out, plan.PackRoot)
+				} else {
+					out.printf("[bold red]Could not %s (%s).[/bold red]",
+						group[0].(string), shquote.JoinDisplay(cmd))
+				}
 				return 1
+			}
+			if isPackTreeReservationCommand(cmd, plan.PackRoot) {
+				packTreeOwned = true
 			}
 		}
 	}
@@ -745,6 +766,7 @@ func runCaptureSteps(deps Deps, plan CapturePlan, problems []string, asUser [][]
 	if !installCATrustFiles(deps, out, plan.caTrustFilePlans()) {
 		return 1
 	}
+	packConsumerDispatched = true
 	if deps.Run(plan.BootstrapArgv) != 0 {
 		out.print("[bold red]capture bootstrap failed[/bold red] — the staging home has no " +
 			"generated launcher, so there is nothing for the capture to run. Aborting.")

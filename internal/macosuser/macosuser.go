@@ -228,21 +228,9 @@ func StageBinaryCommands(selfExe, sd string) [][]string {
 // ---------------------------------------------------------------------------
 // Staging the pack trees into the root-owned state dir
 // ---------------------------------------------------------------------------
-// StagedPackRoot returns where this session's pack trees are staged for the
-// sandbox user to read: <stateDir>/packs/<cname>. This is the macos-user analogue
-// of the container's `:ro` /ctx/packs mount, and it is root-owned for the same
-// reason that mount is read-only — a pack manifest is an INPUT to composition, so
-// an agent able to rewrite one could grant its own pack a host file on the next
-// launch.
-//
-// It is a COPY under /var rather than the host-side staging tree itself, which
-// lives under the invoking user's ~/.local/share/yolo-jail. Two reasons, both
-// structural: the sandbox uid has no business traversing the admin user's home
-// (that home is what this backend isolates the agent FROM, and the same state dir
-// holds the agent credential store), and it could not reliably do so anyway —
-// a macOS home is not required to be world-traversable, so pointing the sandbox at
-// one is a permission failure waiting to read as "packs silently did nothing",
-// which is the exact defect this whole path exists to end.
+// StagedPackRoot returns the legacy workspace-keyed root in the root-owned state dir.
+// Live launches use StagedPackTreeRoot so a later launch cannot replace bytes a guest
+// supervisor may still read or restart from.
 func StagedPackRoot(cname, sd string) string {
 	if sd == "" {
 		sd = stateDir
@@ -250,19 +238,33 @@ func StagedPackRoot(cname, sd string) string {
 	return filepath.Join(sd, packsLeaf, cname)
 }
 
-// StagePackCommands returns the sudo argv that copy the host-side staged pack tree
-// (stagePacks' root) into the root-owned state dir, world-readable, for the
-// bootstrap to render from. Empty when there is no host tree to copy — a launch
-// with no packs stages nothing rather than an empty directory.
+// StagedPackTreeRoot returns this host pack tree's immutable guest copy. The host
+// staging directory leaf is already unique per launch and stays one local path
+// component; an empty source names no destination.
+func StagedPackTreeRoot(cname, hostPackRoot, sd string) string {
+	if hostPackRoot == "" {
+		return ""
+	}
+	if sd == "" {
+		sd = stateDir
+	}
+	treeID := filepath.Base(filepath.Clean(hostPackRoot))
+	if treeID == "." || treeID == string(os.PathSeparator) || cname == "" ||
+		filepath.Base(cname) != cname || cname == "." || cname == ".." {
+		return ""
+	}
+	return filepath.Join(sd, packsLeaf, cname+"."+treeID)
+}
+
+// StagePackCommands returns the sudo argv that exclusively create and fill this host pack
+// tree's root-owned guest destination, world-readable, for the bootstrap to render from.
+// Empty when there is no host tree to copy — a launch with no packs stages nothing rather
+// than an empty directory.
 //
-// Replace-by-rename, like StageBinaryCommands and for a related reason: the tree
-// must flip atomically from the previous launch's pack set to this one, and a `cp`
-// over a live directory would leave a union of the two — a pack the user dropped
-// from `packs` would keep rendering, which is precisely the bug a fresh pack tree per launch
-// rules out on the host side (docs/reference/pack-system.md#oq-pk2). The destination is removed BEFORE the rename
-// because `mv src dst` moves src INSIDE dst when dst is an existing directory; that
-// one is not a nicety, it is the difference between replacing the tree and nesting
-// it one level deeper every launch.
+// The final destination is reserved with plain mkdir before contents are copied. It is never
+// removed, replaced or merged: an existing destination belongs to another launch or an
+// unknown prior attempt and makes this stage fail without changing it. Filling the directory
+// before dispatching consumers means the guest sees a complete immutable tree.
 func StagePackCommands(hostPackRoot, cname, sd string) [][]string {
 	if hostPackRoot == "" {
 		return nil
@@ -270,16 +272,42 @@ func StagePackCommands(hostPackRoot, cname, sd string) [][]string {
 	if sd == "" {
 		sd = stateDir
 	}
-	dst := StagedPackRoot(cname, sd)
-	tmp := dst + ".new"
+	dst := StagedPackTreeRoot(cname, hostPackRoot, sd)
+	if dst == "" {
+		return nil
+	}
+	sourceContents := filepath.Clean(hostPackRoot) + string(os.PathSeparator) + "."
 	return [][]string{
 		{mkdirBin, "-p", filepath.Join(sd, packsLeaf)},
-		{rmBin, "-rf", tmp},
-		{cpBin, "-R", hostPackRoot, tmp},
-		{chmodBin, "-R", "a+rX", tmp},
-		{rmBin, "-rf", dst},
-		{mvBin, "-f", tmp, dst},
+		{mkdirBin, dst},
+		{cpBin, "-R", sourceContents, dst},
+		{chmodBin, "-R", "a+rX", dst},
 	}
+}
+
+// isPackTreeReservationCommand identifies the exclusive mkdir whose successful return gives
+// the current executor ownership of exactly this guest tree.
+func isPackTreeReservationCommand(cmd []string, packRoot string) bool {
+	return packRoot != "" && len(cmd) == 2 && cmd[0] == mkdirBin && cmd[1] == packRoot
+}
+
+// isPackTreeWriterCommand identifies a command that may still be changing this launch's
+// reserved tree after its sudo parent returns.
+func isPackTreeWriterCommand(cmd []string, packRoot string) bool {
+	if packRoot == "" || len(cmd) != 4 || cmd[3] != packRoot {
+		return false
+	}
+	return (cmd[0] == cpBin && cmd[1] == "-R") ||
+		(cmd[0] == chmodBin && cmd[1] == "-R" && cmd[2] == "a+rX")
+}
+
+// printPackTreeReservationFailure names an untouched collision and gives the only safe
+// recovery: retry the action with a fresh staged-tree identity, then inspect this exact path.
+func printPackTreeReservationFailure(out printer, packRoot string) {
+	path := shquote.QuoteDisplay(packRoot)
+	out.printf("[bold red]Could not reserve guest pack tree %s; the existing destination was not changed.[/bold red] "+
+		"Retry this action as a fresh invocation so yolo stages a new tree identity, and inspect the "+
+		"collision with `sudo ls -la -- %s`. Do not remove it.", path, path)
 }
 
 // StagedHomeOverlay is where a session's composed CONTENT tree lands, root-owned and

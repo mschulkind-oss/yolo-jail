@@ -3519,11 +3519,17 @@ longer waits for the other launch's staging.
   packs. So pack content in them does not change on attach, but yolo's built-in skills, the LSP
   plugin `lsp_servers` renders, and the config-driven parts of the briefing still do, as before.
   None of that is read by the jail's binaries, so it is not pack-contract skew.
-- **macos-user copies its tree into one per-workspace destination**, `<stateDir>/packs/<cname>`,
-  which the next launch's stage replaces. A running session read it at its bootstrap only:
-  `YOLO_PACK_ROOT` is set in the bootstrap's environment and in no session environment
-  (`macosuser.buildBootstrapEnv`). So a second session does not change what the first rendered.
-  READ FROM CODE, not run on a Mac.
+- **macos-user copies each run's host pack tree into a unique guest sibling**,
+  `/var/yolo-jail/packs/<cname>.<host-tree-leaf>`. `macosuser.StagedPackTreeRoot` derives the suffix
+  from that run's staged host-tree leaf; `macosuser.StagePackCommands` reserves the destination
+  exclusively and copies into it before guest consumers start. It never merges with or replaces
+  an existing destination, and the legacy workspace-keyed tree is untouched. The bootstrap
+  environment and the session environment both set `YOLO_PACK_ROOT` to this run's tree, so a
+  later run does not redirect an existing session to new module bytes. Once a staging writer or
+  guest consumer has been dispatched, the exact tree is retained and disclosed, even on
+  ordinary return, because completion is not proof that every writer or reader ended. This is
+  source behavior, not a Mac observation: native ownership and modes, Seatbelt execution, and
+  real overlapping-session/restart behavior remain **UNMEASURED**.
 - **A lock file that cannot be opened** warns and leaves the launch unserialised, because the
   workspace lock is a courtesy (`acquireWorkspaceLock`).
 - <a id="oq-pk3-background"></a>**Background to [`OQ-PK3`](#oq-pk3), below: what a host-scoped

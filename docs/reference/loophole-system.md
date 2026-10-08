@@ -380,16 +380,23 @@ will honor, so the claim set and the effect cannot disagree. The strict read bel
 
 `{loophole_dir}` resolves **host-side** to the staged module directory;
 `{jail_loophole_dir}` resolves to the module directory **where the jail sees it**: in a container,
-the path the module directory is mounted at; on `macos-user`, its place in the sandbox's
+the path the module directory is mounted at; on `macos-user`, its place in this launch's
 root-owned copy of the staged packs, which keeps each file's exec bit
-([JD-10](../design/jail-daemon-on-macos-user-plan.md#JD-10)). ⚠ That copy is one per workspace,
-and each launch of the workspace replaces it, where a container runs from its own launch's tree:
-a second session of the workspace swaps the folder under the first session's running daemon,
-which JD-10 records with its follow-up, a per-launch copy. Two tokens rather than one, each
-**refused in the wrong half at load**, because one token with two resolutions is the kind of
-asymmetry an author discovers by debugging; the jail token's per-backend place is one meaning
-(the jail's copy of the module directory), not two. The `macos-user` guest declines a daemon whose
-program there is a Linux executable, since the sandbox runs macOS programs.
+([JD-10](../design/jail-daemon-on-macos-user-plan.md#JD-10)). The guest destination is keyed by
+the workspace name and the supplied host pack tree's unique directory leaf, so another launch
+cannot replace the first launch's module bytes or restart target. Staging reserves the path
+exclusively, fills it before a guest consumer starts, and never changes a collision. A collision
+is left untouched; the refusal recommends a fresh invocation and a `sudo ls -la -- <exact-path>`
+inspection, not removal. Once a writer or consumer may be active, yolo retains and discloses the
+exact tree; even an ordinary return is not proof it is unused. The legacy workspace-keyed tree
+is not read, replaced or collected. The capture plan accepts nil environment input and adds its
+tree root without mutating the caller's environment. **Source behavior is implemented; native
+ownership and modes, Seatbelt execution, overlapping-session/restart and capture behavior remain
+UNMEASURED.** Two tokens rather than one, each **refused in the wrong half at load**, because
+one token with two resolutions is the kind of asymmetry an author discovers by debugging; the
+jail token's per-backend place is one meaning (the jail's copy of the module directory), not two.
+The `macos-user` guest declines a daemon whose program there is a Linux executable, since the
+sandbox runs macOS programs.
 
 **Every value that feeds a claim is sanitized at load**, not escaped at display: control
 characters, DEL, the C1 range and invalid UTF-8 are refused in every field a claim is built
@@ -1036,7 +1043,7 @@ only place the values themselves are stated.
 | Sources, in precedence order | `pack` < `config` | `loopholes.SourcePack`, `SourceConfig` |
 | Retired discovery directory (named only by the migration notice) | `~/.local/share/yolo-jail/loopholes/` | `loopholes.RetiredUserLoopholesDir` |
 | Module-dir mount point in the jail | `/etc/yolo-jail/loopholes/<name>` | `loopholedecl.JailLoopholeDir` |
-| The module dir in the `macos-user` sandbox (added 2026-10-04) | under `/var/yolo-jail/packs/<jail name>/`, at its path relative to the launch's staged pack tree; one copy per workspace, which each launch replaces | `macosuser.StagedPackRoot`; placed by `run.placeModuleDirsInGuest` |
+| The module dir in the `macos-user` sandbox (added 2026-10-04) | under `/var/yolo-jail/packs/`, keyed by the jail name and this launch's host pack-tree leaf, at the module's path relative to that host tree | `macosuser.StagedPackTreeRoot`; placed by `run.placeModuleDirsInGuest` |
 | Binary tokens (added 2026-09-30) | `{binary:<name>}` (host), `{jail_binary:<name>}` (container) | `loopholedecl.TokenBinary`, `TokenJailBinary`; substituted in `internal/loopholes/load.go` |
 | A jail binary's mount point (added 2026-09-30) | `/etc/yolo-jail/loophole-binaries/<loophole>/<name>` | `loopholedecl.JailBinaryPath` |
 | The downloaded-binary cache, and a build's mode (added 2026-09-30) | `<global storage>/pack-binaries/<sha256>/<name>`, `0555` | `paths.PackBinariesDir`, `packbin.Path` |

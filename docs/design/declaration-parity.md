@@ -801,11 +801,13 @@ write policy the profile already has**, and that Seatbelt was never the blocker.
   reboot — the repo already knows this for `/nix` (`check.checkNixStore`'s hint,
   `internal/cli/check/sections_macos_platform.go`). Per-machine root-dir creation is off the
   table.
-- **The analogue ships.** `macosuser.StagedPackRoot` → `/var/yolo-jail/packs/<cname>`, staged by
-  `macosuser.StagePackCommands` (root-owned copy, `a+rX`, replace-by-rename) and named to the
-  jail as `YOLO_PACK_ROOT`. Its own doc comment says what it is: *"the macos-user analogue of the
-  container's `:ro` /ctx/packs mount, and it is root-owned for the same reason that mount is
-  read-only."* `macosuser.StagedHomeOverlay` is the sibling; a context tree is one more leaf.
+- **The analogue ships.** `macosuser.StagedPackTreeRoot` derives a guest pack copy under
+  `/var/yolo-jail/packs/<cname>.<tree-id>`, keyed by the supplied host tree's unique leaf, and
+  `StagePackCommands` exclusively reserves and fills it before consumers start; it never
+  replaces an existing destination. The run and capture plans name that copy to the jail as
+  `YOLO_PACK_ROOT`. The legacy `StagedPackRoot` remains workspace-keyed but is not a live
+  launch destination. `macosuser.StagedHomeOverlay` is the sibling; a context tree is one more
+  leaf.
 - ⚠ **The home-tier design is the wrong home for this, and the row should say so.**
   [`../reference/macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md) resolves the per-workspace tier to
   `<workspace>/.yolo/home`, which is inside `(subpath ws)` and therefore **agent-writable**.
@@ -837,11 +839,10 @@ skills-and-briefings cell and none of the `/ctx`-shaped ones.
 > profile-generation time and could emit an allow, as the profile already does twice. **The DAC
 > half is not fixable by any profile**: the sandbox runs as a foreign uid
 > (`macosuser.SandboxUser` = `_yolojail`, via `macosuser.LaunchArgv`'s `sudo -u`), and a macOS
-> home is not required to be world-traversable. `macosuser.StagedPackRoot`'s doc comment already
-> ruled this exact question for the neighbouring feature — *"pointing the sandbox at one is a
-> permission failure waiting to read as 'packs silently did nothing', which is the exact defect
-> this whole path exists to end"* — and the runbook's measured `/Users/<host>/.ssh` **EACCES**
-> is the same layer, *"the POSIX layer refusing before the profile was ever consulted."*
+> home is not required to be world-traversable. `macosuser.StagedPackTreeRoot` instead places each
+> launch's root-owned copy under `/var`, so the sandbox does not need to traverse the invoking
+> user's home — and the runbook's measured `/Users/<host>/.ssh` **EACCES** is the same layer,
+> *"the POSIX layer refusing before the profile was ever consulted."*
 
 **The residue, stated rather than hidden.** A copy is a snapshot, and that is not uniformly
 equivalent:
@@ -1533,19 +1534,23 @@ approval, not a decision — see [§3](#3-the-four-dispositions-and-how-to-walk-
 
    <!-- vantage: question id=OQ-DP5 -->
 
-   _Leaning:_ **(a) for what yolo decides, (b) wherever the USER can decide it, (c) for anything
-   genuinely unbuilt.** (c) has the best track record of the three: four of its five entries were
-   found by the no-silent-skip test rather than by a human. On the second half, **yes, extend to
-   config keys** — `internal/config/inherit.go` already maintains a per-key classification table
-   with a drift test, which is the shape to copy.
+   _Leaning:_ Use a coded decline for what yolo decides, a user-declarable expected absence
+   wherever the user can decide it, and a third data disposition for anything genuinely
+   unbuilt. The third has the best track record: four of its five entries were found by the
+   no-silent-skip test rather than by a human. On the second half, extend the census to config
+   keys — `internal/config/inherit.go` already maintains a per-key classification table with a
+   drift test, which is the shape to copy.
 
    **Answer:**
    > **RULED, as the leaning stands — no warning, and the census vocabulary extends to config
-   > keys.** (a) a coded decline with one banner line for what yolo decides, (b) a
-   > user-declarable expected absence wherever the USER can decide it, (c) a third disposition
-   > held as data for anything genuinely unbuilt. The three ship already, so this adopts shapes
-   > rather than inventing one, and it keeps faith with
-   > [`OQ-BP-3`](backend-parity.md#OQ-BP-3) — *"a warning people learn to skip is worse
+   > keys.** The three dispositions are:
+   >
+   > - A coded decline with one banner line for what yolo decides.
+   > - A user-declarable expected absence wherever the user can decide it.
+   > - A third disposition held as data for anything genuinely unbuilt.
+   >
+   > The three ship already, so this adopts shapes rather than inventing one, and it keeps faith
+   > with [`OQ-BP-3`](backend-parity.md#OQ-BP-3) — *"a warning people learn to skip is worse
    > than none"* — which every "add a line" in
    > [§6](#6-alignable-with-the-mechanism-and-its-cost) would have collided with.
    >

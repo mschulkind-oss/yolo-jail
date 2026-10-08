@@ -21,9 +21,9 @@ summary: "The macos-user backend as built: nix materializing packages: natively 
 
 **Status:** verified 2026-09-09 against `d14bdab7`. The
 [jail-daemon section](#the-jail-daemons-run-in-the-sandbox) and its rows in
-[Why it's this way](#why-its-this-way) were rewritten against `d4e435a3` on 2026-10-01, when the
-plan that built them (`jail-daemon-on-macos-user-plan.md`) graduated into them; the rest was not
-re-verified then.
+[Why it's this way](#why-its-this-way) were updated against the JD-10 source implementation on
+2026-10-08. Its native macOS behavior remains **UNMEASURED**; the rest of this reference was
+not re-verified.
 
 `macos-user` runs the agent as a **real macOS process** — the hidden `_yolojail` account,
 confined by an Apple Seatbelt profile — with **no container, no VM and no OCI image**. nix's
@@ -353,14 +353,15 @@ this backend runs them the way a container does, in the sandbox:
     since 2026-09-29, so no shipped pack hands the sandbox a daemon today, and the supervisor
     runs only for a pack that declares a jail daemon without a host argv;
   - a program in the loophole's folder that is a **Linux executable** (its first bytes are ELF
-    magic): `{jail_loophole_dir}` resolves here to the folder's place in the sandbox's
-    root-owned copy of the staged packs, under `/var/yolo-jail/packs/<cname>/`, so a script or
-    a macOS program the pack ships runs, `hello-daemon` included
-    ([JD-10](../design/jail-daemon-on-macos-user-plan.md#JD-10)). ⚠ Unlike a container's
-    per-launch pack tree, that copy is one per workspace and each launch of the workspace
-    replaces it, so a second session swaps the folder under the first session's running
-    daemon, whose next restart runs the newer copy (JD-10 names the follow-up, a per-launch
-    copy);
+    magic): `{jail_loophole_dir}` resolves here to the folder's place in this launch's
+    root-owned copy of the staged packs, at the same relative path as in the host tree
+    ([JD-10](../design/jail-daemon-on-macos-user-plan.md#JD-10)). The guest destination is
+    unique to the supplied host tree's directory leaf; the bootstrap, session and daemon argv
+    use the same tree. Staging reserves it exclusively and copies before starting consumers,
+    never replacing an existing destination. The prior workspace-keyed tree and its `.new`
+    sibling are left untouched. Source behavior is implemented; native ownership and modes,
+    Seatbelt execution, overlapping sessions and restart behavior, and capture isolation remain
+    **UNMEASURED**.
   - a command naming a path that exists only in a container: a jail binary's container path
     (`{jail_binary:<name>}`, deferred by
     [BP-D6](../design/broker-as-a-pack.md#BP-D6)), or a loophole folder the launch did not
@@ -819,6 +820,7 @@ drifts from its owner is worse than no mirror.
 | <a id="jd-6"></a>`JD-6` | **The supervisor starts after the provisioning stage and before the agent, under `sudo -n`, in its own process group, and stops after the agent** | `sudo -n` fails rather than prompting beside the agent's terminal. Killing the group, as container teardown does, is what leaves no daemon behind; the grace is longer than the supervisor's own wait so it can stop its children first. |
 | <a id="jd-7"></a>`JD-7` | **macos-user picks served addresses** for the daemons it runs | The sandbox shares the Mac's loopback, so a declared port is the machine's real one and two concurrent launches of one workspace would collide on it. |
 | <a id="jd-8"></a>`JD-8` | **The supervisor's stdout and stderr go to `supervisor.log`, and the launch says it started the daemons only after this start's readiness line** | With both on `/dev/null`, a `sudo -n` refusal, a `sandbox-exec` denial or an exec failure left no trace while the launch still printed that it started them. The log is appended, not truncated, and the per-workspace launch lock covers the start, so the launch reads only the bytes this start added. Every failure the bound exists for exits within milliseconds, so the bound only limits a start that is alive and silent, and that case continues rather than refusing. |
+| <a id="jd-10"></a>`JD-10` | **The sandbox resolves each `{jail_loophole_dir}` into the root-owned guest copy of that launch's staged pack tree.** The destination is keyed by the workspace name and supplied host tree's unique directory leaf; the run/capture environment and module-dir argv share it. Staging reserves the destination exclusively, fills it before guest consumers start, and never replaces a collision. An exact-path collision is left untouched; the refusal recommends a fresh invocation and `sudo ls -la -- <path>`, not removal. Only an owned reservation with no writer or consumer dispatched is eligible for cleanup; once either may still be active, the exact tree is retained and disclosed. The legacy workspace-keyed tree is left untouched. **Source behavior is implemented; native ownership, modes, Seatbelt execution, overlapping-session/restart and capture behavior remain UNMEASURED.** | This preserves the first guest's restart target when later launches change or drop a module. No current lifecycle proof establishes that dispatched writers or guest consumers have ended, so retention applies even after ordinary return. The workspace keeper, privileges, keychain behavior and daemon-decline rules are unchanged; see [the design record](../design/jail-daemon-on-macos-user-plan.md#JD-10) for the decision's scope. |
 | <a id="jd-11"></a>`JD-11` | **The reachability witness runs as a confined stage of the launch**, after the jail daemons and before the agent: `yolo internal probe-services` as the sandbox account, under the session profile, reading the session env file, with plain `sudo`. Status 78 refuses; any other status warns and launches. *Implementation decision, taken under the maintainer's 2026-10-04 delegation; reversible.* (`JD-9` and `JD-10` are [the plan stub's](../design/jail-daemon-on-macos-user-plan.md#JD-9).) | The bootstrap runs outside the profile, so a probe there could pass where the agent's client is refused. Plain `sudo`, unlike the supervisor's `-n`, because the stage is in the foreground and a long provisioning stage can outlive sudo's credential cache. A stage that never answered learned nothing about the services, so it cannot refuse (provisioning's rule). See [loopback-tls-reachability.md, On macos-user](loopback-tls-reachability.md#on-macos-user). |
 | [`OQ-BP-2`](../design/backend-parity.md#decision-ledger) | Briefings and skills **are delivered**, composed above the dispatch and copied into the sandbox home | Answered by code. The part of the leaning that did **not** hold is the hardware half: it asked to land with a Mac session, and it landed without one — so the ruling is answered and the verification is still owed. |
 | [`OQ-BP-3`](../design/backend-parity.md#decision-ledger) | Whether a warned disposition needs suppressing is owned there, not here | Several launch warnings exist now, most of them on this backend. A warning people learn to skip is worse than none, which is why the question is real — and why answering it per-backend rather than per-key would be the wrong shape. |
