@@ -79,3 +79,39 @@ func TestASentenceThatDoesNotQuoteTheLineKeepsItWhole(t *testing.T) {
 		t.Error("a sentence that does not quote its line was rewritten")
 	}
 }
+
+// TestEveryBuildClaimNamesWhatPackStatusPrints: a claim's BuildKey and BuildLine are the key and
+// line `yolo pack status` resolves through Forks and PatchedTrees, for a fork, an unmodified git
+// tree and an npm tree, so the digest a launch shows is always the digest status prints.
+func TestEveryBuildClaimNamesWhatPackStatusPrints(t *testing.T) {
+	root := t.TempDir()
+	body := `{"contributes":[` +
+		`{"kind":"program","bin":"tool","via":"source","fork_of":"basepack","source":"git+https://example.invalid/t.git?ref=main","build":"make","produces":[".local/bin/tool"]},` +
+		`{"kind":"files","into":".tool/ext/git-ext","source":"git+https://example.invalid/e.git?ref=main","build":"npm ci"},` +
+		`{"kind":"files","into":".tool/ext/npm-ext","source":"npm:npm-ext"}]}`
+	if err := os.WriteFile(filepath.Join(root, "pack.json"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, probs := LoadDir(root, "multi")
+	if len(probs) > 0 {
+		t.Fatalf("fixture: %v", probs)
+	}
+	want := map[string]string{}
+	for _, f := range append(Forks([]*Pack{p}), PatchedTrees([]*Pack{p})...) {
+		want[f.Key()] = f.Build
+	}
+	got := map[string]string{}
+	for _, c := range FootprintOf(p).Claims {
+		if c.BuildKey != "" {
+			got[c.BuildKey] = c.BuildLine
+		}
+	}
+	if len(want) != 3 || len(got) != len(want) {
+		t.Fatalf("claims %v, forks and trees %v: want the same three keys", got, want)
+	}
+	for k, line := range want {
+		if got[k] != line {
+			t.Errorf("key %s: claim names %q, pack status prints %q", k, got[k], line)
+		}
+	}
+}

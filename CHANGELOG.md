@@ -14,7 +14,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 **Shorter fork disclosures.** A launch now names a fork's or built extension's build line by a
 short digest instead of printing it each time, and `yolo pack status <pack>/<name>` prints the
-line in full. See [the ruling](docs/reference/report-tiers.md#OQ-RO9).
+line in full. See [the CLI reference](userguide/reference/cli-reference.md#packs).
 
 **Plugin code itemized in the launch log.** `.yolo/launch.log` lists each wrapped plugin that runs
 code in the jail, by component, beside the one counted line the terminal shows.

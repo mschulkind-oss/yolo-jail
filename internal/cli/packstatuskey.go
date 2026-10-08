@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
@@ -36,7 +37,47 @@ func packStatusKey(args []string, out, errw io.Writer, color bool) int {
 		return 1
 	}
 	forks := append(packload.Forks(sel.packs), packload.PatchedTrees(sel.packs)...)
+	for _, f := range forks {
+		if f.Key() == key {
+			return printBuildLine(richtext.Printer{W: out, Color: color}, errw, forks, key)
+		}
+	}
+	// Not in what resolved: before saying nothing selected builds it, say so when its pack is
+	// configured but did not resolve HERE, which is the ordinary case in a jail (a host path the
+	// jail does not have) and a store miss or manifest problem on the host.
+	if rc, said := packStatusKeyUnresolved(errw, sel, key); said {
+		return rc
+	}
 	return printBuildLine(richtext.Printer{W: out, Color: color}, errw, forks, key)
+}
+
+// packStatusKeyUnresolved reports a key whose pack the user configured but this process could not
+// resolve, or a selection whose closure or entries failed, with the reason and the next command.
+// said is false when neither applies, and the caller's own refusal stands.
+func packStatusKeyUnresolved(errw io.Writer, sel hostPackSet, key string) (rc int, said bool) {
+	pack, _, _ := strings.Cut(key, "/")
+	where := "fix what it names, then run `yolo pack status " + key + "` again"
+	if config.InJail() {
+		where = "this jail cannot read it; run `yolo pack status " + key + "` in a terminal on the host, " +
+			"where the launch disclosed it"
+	}
+	for _, u := range sel.unresolved {
+		if u.Name == pack {
+			fmt.Fprintf(errw, "yolo pack status: the pack %s is configured but did not resolve here: %s — %s\n",
+				pack, u.Reason, where)
+			return 1, true
+		}
+	}
+	if sel.closureErr != nil {
+		fmt.Fprintf(errw, "yolo pack status: the selection is incomplete: %v — %s\n", sel.closureErr, where)
+		return 1, true
+	}
+	if len(sel.entryProblems) > 0 {
+		fmt.Fprintf(errw, "yolo pack status: a `packs` entry did not load (%s), so %s may be missing — %s\n",
+			strings.Join(sel.entryProblems, "; "), key, where)
+		return 1, true
+	}
+	return 0, false
 }
 
 // printBuildLine prints the build line of the fork or built tree forks names key, whole, with its

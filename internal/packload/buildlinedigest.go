@@ -45,5 +45,8 @@ func (c Claim) LaunchDisclosureSentence() string {
 	if !strings.Contains(s, q) {
 		return s
 	}
-	return strings.Replace(s, q, BuildLineReference(c.BuildKey, c.BuildLine), 1)
+	// The LAST occurrence: every Detail quotes the build line after its source, so a source that
+	// happened to contain the same text is never the one rewritten.
+	i := strings.LastIndex(s, q)
+	return s[:i] + BuildLineReference(c.BuildKey, c.BuildLine) + s[i+len(q):]
 }

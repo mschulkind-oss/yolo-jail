@@ -537,7 +537,7 @@ func FootprintOf(p *Pack) Footprint {
 			// source, the ref, the follow rule, the series, the build and the landing.
 			if c.IsPatchedExtension() {
 				add(packdecl.KindFiles, c.Into, patchedTreeClaimDetail(p.Root, c), true)
-				withBuildLine(p.Name+"/"+c.ExtensionName(), c.Build)
+				withBuildLine(p.Name+"/"+c.ExtensionName(), c.TreeBuild())
 				continue
 			}
 			// An UNMODIFIED EXTENSION is review-worthy for the same reason: an upstream's code, built

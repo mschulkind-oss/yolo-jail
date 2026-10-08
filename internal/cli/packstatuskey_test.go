@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"os"
 	"strings"
 	"testing"
 
@@ -43,5 +44,39 @@ func TestPackStatusKeyNamesTheKeysThatExist(t *testing.T) {
 	if rc := packMain([]string{"status", "a/b", "c"}, &out, &errw, false); rc != 2 ||
 		!strings.Contains(errw.String(), `unexpected argument "c"`) {
 		t.Errorf("two arguments: rc=%d\n%s", rc, errw.String())
+	}
+}
+
+// TestPackStatusKeySaysWhenItsPackDidNotResolve: a key whose pack is configured but did not resolve
+// here (a store miss, a local path this process cannot read: the ordinary case in a jail) is not
+// "nothing selected builds it" — it says the pack did not resolve, why, and what to run next.
+func TestPackStatusKeySaysWhenItsPackDidNotResolve(t *testing.T) {
+	f := newPatchedFixture(t, "")
+	if err := os.Rename(f.forkDir, f.forkDir+".gone"); err != nil {
+		t.Fatal(err)
+	}
+	var out, errw bytes.Buffer
+	rc := packMain([]string{"status", "forkpack/tool"}, &out, &errw, false)
+	if rc != 1 || !strings.Contains(errw.String(), "the pack forkpack is configured but did not resolve here") ||
+		!strings.Contains(errw.String(), "then run `yolo pack status forkpack/tool` again") {
+		t.Errorf("rc=%d, want 1 and the unresolved pack named with the next step:\n%s", rc, errw.String())
+	}
+	if strings.Contains(errw.String(), "no selected pack builds") {
+		t.Errorf("an unresolved pack was reported as one that builds nothing:\n%s", errw.String())
+	}
+}
+
+// TestPackStatusKeyInAJailPointsAtTheHost: in a jail, the unresolved pack's next step is the host,
+// where the launch disclosed the digest.
+func TestPackStatusKeyInAJailPointsAtTheHost(t *testing.T) {
+	f := newPatchedFixture(t, "")
+	if err := os.Rename(f.forkDir, f.forkDir+".gone"); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("YOLO_VERSION", "test")
+	var out, errw bytes.Buffer
+	rc := packMain([]string{"status", "forkpack/tool"}, &out, &errw, false)
+	if rc != 1 || !strings.Contains(errw.String(), "run `yolo pack status forkpack/tool` in a terminal on the host") {
+		t.Errorf("rc=%d, want 1 and the host named as the next step:\n%s", rc, errw.String())
 	}
 }
