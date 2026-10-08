@@ -98,7 +98,7 @@ func (f *Floor) Ensure(ctx context.Context, p Program) (Status, Outcome, error) 
 		// THE PIN FIRST, as a launch makes it (forked-programs-as-packs.md FP-D18): a fork the lock
 		// does not pin for its declared source is pinned now, once, and the install builds that
 		// commit. A pin that cannot be made is no floor entry — nothing names a build to serve — so
-		// a launch runs the copy on PATH with the reason, and an installed older build stays unrun
+		// a launch refuses with the reason (host-notch-readiness.md HNR-D2), and an installed older build stays unrun
 		// until the next `yolo host apply --assert` removes it (FP-D17).
 		f.pinFork(p)
 		st = f.Status(p) // reads the pin just made, or why it could not be (forkPin)

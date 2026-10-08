@@ -172,7 +172,8 @@ func (f *Floor) installFromBuild(ctx context.Context, p Program, dir string) (*R
 		// NO BUILD AND NOTHING TO BUILD ONE WITH is no floor entry here, as provisionable answers
 		// for a fork the floor does not hold yet. It is asked again because a reinstall at a moved
 		// pin never comes through provisionable, and a build act started with no runtime would
-		// only fail, turning "the PATH copy, with the reason" into a refused launch.
+		// only fail, turning a no-floor-entry refusal that names its reason (host-notch-readiness.md
+		// HNR-D2) into a failed build.
 		if why := f.cannotBuild(bin, "builds it"); why != "" {
 			return nil, &noEntryError{reason: f.noBuildReason(bin, commit, why)}
 		}

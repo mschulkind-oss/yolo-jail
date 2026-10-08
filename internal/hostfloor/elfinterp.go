@@ -25,8 +25,8 @@ import (
 // loader's path: a program that prints a pointer to nix.dev/permalink/stub-ld and exits 127. So a
 // check that only asks whether the loader exists misses NixOS's own default.
 //
-// Such a program has NO FLOOR ENTRY on that machine, so a launch runs the copy on the user's PATH
-// and says why, with the step that changes it (OQ-HE11 (a)). The floor reads PT_INTERP itself: the
+// Such a program has NO FLOOR ENTRY on that machine, so a launch refuses it and says why, with the
+// step that changes it (host-notch-readiness.md HNR-D2, which replaced OQ-HE11 (a)'s PATH copy). The floor reads PT_INTERP itself: the
 // header, the program headers and the string, and not debug/elf, which also reads the section
 // headers at the far end of the file. It resolves the loader under Floor.Root as the kernel would,
 // an absolute link target read from that root too.
