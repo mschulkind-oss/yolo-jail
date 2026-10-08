@@ -386,7 +386,7 @@ func holdForkBuildFileLock(t *testing.T, path string) {
 }
 
 func TestMacosUserForkBuildHasNoContainerCompletionWitness(t *testing.T) {
-	present, known := probeForkBuildContainer("unused", "macos-user", time.Millisecond)
+	present, known := runtimeForkBuildContainerProbe("unused", "macos-user", time.Millisecond)
 	if present || known {
 		t.Fatalf("macos-user container probe = present %v, known %v; without a native completion witness it must stay unknown", present, known)
 	}

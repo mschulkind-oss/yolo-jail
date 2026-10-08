@@ -193,7 +193,9 @@ func awaitForkBuildContainerGone(cname, rt string) bool {
 // retry can reuse its deterministic staging path. Tests replace it with a detached-keeper fixture;
 // production uses run's tri-state probe. macos-user has no container listing or completion witness,
 // so it must remain unknown rather than interpreting the absence of a container as proof of teardown.
-var probeForkBuildContainer = func(cname, rt string, timeout time.Duration) (bool, bool) {
+var probeForkBuildContainer = runtimeForkBuildContainerProbe
+
+func runtimeForkBuildContainerProbe(cname, rt string, timeout time.Duration) (bool, bool) {
 	if rt == "macos-user" {
 		return false, false
 	}

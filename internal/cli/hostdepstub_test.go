@@ -24,6 +24,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/internaldaemon"
 	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
@@ -85,6 +86,11 @@ func TestMain(m *testing.M) {
 	// never self-execs as one (forkBuildChildCommand): the package's builds run in this process,
 	// through the fake capture jail a test installs, unless a test stands in a child of its own.
 	forkBuildChild = inProcessForkBuildChild
+	// A FAKE CAPTURE JAIL STARTS NO CONTAINER, so the original backend answers "absent" for it. The
+	// real probe asks the machine's podman, which is absent on the macOS runner (and any host
+	// without podman) and answers "unknown", making every fake build wait out forkBuildGoneWait and
+	// then refuse its output. A test about ownership installs a probe of its own.
+	probeForkBuildContainer = func(string, string, time.Duration) (bool, bool) { return false, true }
 	// THE TESTS RUN AS ON THE HOST, wherever the package runs. A jail sets YOLO_VERSION, and with
 	// it every host apply refuses (hostapplyinjail.go) — so run inside this repo's own jail the
 	// package's host-notch tests would test the refusal instead of the apply, and stay green on
