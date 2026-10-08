@@ -153,7 +153,7 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
     it, and its first ruling decides an image change every jail pays. Beside it, also asked for by the
     maintainer: [how a SandVault or Safehouse user tries yolo on their existing setup](../design/sandvault-safehouse-compat.md#OQ-NB1),
     then [which backend a SandVault setup gets](../design/sandvault-safehouse-compat.md#OQ-NB2) and
-    [the design's three scope calls](../design/sandvault-safehouse-compat.md) — the first decides the command
+    its two scope calls, [credentials](../design/sandvault-safehouse-compat.md#OQ-NB3) and [the trial's `.yolo/`](../design/sandvault-safehouse-compat.md#OQ-NB5) — the first decides the command
     surface the import and trial build on.
 30. [Build the rest of the broker's step 2](../design/boundary-broker.md#11-recommendation-and-the-first-build-slice) —
     first among the builds, as the maintainer put the broker on the plate for the week of 2026-09-28. Beside it,

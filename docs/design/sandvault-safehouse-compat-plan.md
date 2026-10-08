@@ -29,10 +29,17 @@ This file only holds settled material that is below the design's level.
 - **Safehouse's `.safehouse` grammar** fails on a malformed line or unknown key. The translator
   should do the same: report the file as unreadable rather than translating part of it.
 - **The loader for `.imported.jsonc`** reuses the per-workspace file's name stem
-  (`config.WorkspaceFilePath`) and its resolver; the merge position is
-  [NB-D14](sandvault-safehouse-compat.md#NB-D14). Every reader that composes user scope
-  (`LoadConfig`, `yolo check`, `config dump`) must read it, and the in-jail inherited scope must
-  leave it out, as `LoadConfigWithoutWorkspaceFile` does for the switch file.
+  (`config.WorkspaceFilePath`) and its resolver, and is read wherever `--user-layer` is
+  ([NB-D14](sandvault-safehouse-compat.md#NB-D14)). Readers to cover: `config.LoadConfig`;
+  `config.LoadPacks` and `config.LoadRWMounts` (`internal/config/mounts.go`), which read user
+  scope from `paths.UserConfigPath()` directly and would otherwise drop imported packs and
+  read-write mounts silently; `validateMountScope`'s provenance (a read-write element from this
+  file is user scope); `yolo check`, `describe` and `config dump`. Decide whether `yolo host
+  apply` reads it (it should not select packs at the host notch without saying so). The in-jail
+  inherited scope must leave it out, as `LoadConfigWithoutWorkspaceFile` does for the switch file.
+  Each call site gets a test that fails when it is deleted.
+- **The trial's in-memory layer** should travel the same path as `--user-layer` (a generated
+  layer handed to the same readers), not a second merge.
 - **The empty-packs pointer** ([OQ-NB1](sandvault-safehouse-compat.md#OQ-NB1) C) lands in
   `(*Options).warnIfNoPacks` in `internal/cli/run/run.go`, and the `yolo check` Packs section
   shares its text (`config.NoPacksGuidance`).
