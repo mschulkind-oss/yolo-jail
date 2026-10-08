@@ -48,7 +48,13 @@ var startNixRootWatcherFn = func(bin, logPath string) error {
 	if err := cmd.Start(); err != nil {
 		return err
 	}
-	return cmd.Process.Release()
+	// REAPED, not released: the watcher exits at once in a jail with nothing to watch (a
+	// workspace the host cannot see, a watcher already running), and a released child of the
+	// jail's main process stays a zombie for the jail's life. A zombie has dropped its I/O
+	// context, so it also read as an unset `resources.io.priority` to every probe of the
+	// jail. The Wait outlives nothing it needs: after a session's execBash the shell reaps it.
+	go func() { _ = cmd.Wait() }()
+	return nil
 }
 
 // startNixRootWatcher is the boot step. It never fails the boot.

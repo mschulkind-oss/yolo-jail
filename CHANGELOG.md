@@ -19,6 +19,10 @@ line in full. See [the CLI reference](userguide/reference/cli-reference.md#packs
 **Plugin code itemized in the launch log.** `.yolo/launch.log` lists each wrapped plugin that runs
 code in the jail, by component, beside the one counted line the terminal shows.
 
+### Fixed
+
+- A podman jail with nothing for the Nix root watcher to do no longer keeps a defunct `yolo-jaild` process for its whole life.
+
 ## [0.12.2] - 2026-10-08
 
 Pi keeps to the active profile set, Nix builds made in a jail survive host garbage collection,

@@ -2,8 +2,13 @@ package entrypoint
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/nixroots"
 )
@@ -56,4 +61,42 @@ func TestAWatcherThatCannotStartNamesTheHandRunForm(t *testing.T) {
 	e.Vars[nixroots.MapEnv] = nixroots.HostMap{"/workspace": "/host/proj"}.Encode()
 	startNixRootWatcher(e)
 	mustContain(t, "stderr", stderr, "boom", "yolo nix-roots keep")
+}
+
+// A watcher that exits — at once, as it does in a jail with nothing to watch, or later, when it
+// dies — is REAPED by the process that started it, never left a zombie. A zombie is not
+// harmless here: it has no I/O context left, so it reads as an unset priority to every probe
+// of `resources.io.priority`, and the jail's main process keeps one for the jail's life.
+func TestAWatcherThatExitsIsReapedNotLeftAZombie(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("reads /proc")
+	}
+	dir := t.TempDir()
+	pidFile := filepath.Join(dir, "pid")
+	bin := filepath.Join(dir, "watcher")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho $$ > "+pidFile+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := startNixRootWatcherFn(bin, filepath.Join(dir, "logs", "nix-roots.log")); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	pid := 0
+	for pid == 0 && time.Now().Before(deadline) {
+		if b, err := os.ReadFile(pidFile); err == nil && strings.HasSuffix(string(b), "\n") {
+			pid, _ = strconv.Atoi(strings.TrimSpace(string(b)))
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if pid == 0 {
+		t.Fatal("the watcher stand-in never ran")
+	}
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat("/proc/" + strconv.Itoa(pid)); errors.Is(err, os.ErrNotExist) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	stat, _ := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	t.Fatalf("the exited watcher (pid %d) was never reaped: %s", pid, stat)
 }
