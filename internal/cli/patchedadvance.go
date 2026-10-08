@@ -1224,6 +1224,11 @@ func (a *advance) settle(b forkBuild, entry *capture.Entry, err error, base base
 		a.warn("%s: %v", f.Label(), err)
 		a.dim("  %s", captureWaitStep(f.CaptureArg()))
 		return a.serveOr(fmt.Sprintf("%s: %v", f.Label(), err))
+	case errors.Is(err, errForkBuildWorkspaceRetained):
+		// A PREVIOUS OR THIS BUILD'S JAIL IS NOT YET KNOWN GONE: no verdict on the commit, so nothing
+		// is recorded, no back-off starts, and the next launch tries again (pi-startup-cancellation §3).
+		a.warn("%s: %v — %s", f.Label(), err, a.runsNow())
+		return a.serveOr(fmt.Sprintf("%s: %v", f.Label(), err))
 	case errors.Is(err, errForkBuildNotStarted):
 		// THE BUILD JAIL STOPPED BEFORE ITS BUILD LINE RAN (PF-D21): not a failed build, so nothing is
 		// recorded and the candidate stays pending. What stopped it is the jail's to say, and the

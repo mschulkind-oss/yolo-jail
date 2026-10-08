@@ -21,9 +21,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
-// TestCancelledForkBuildRetainsWorkspaceThroughProductionCaller is deliberately compatible with
-// the pre-repair production APIs so this exact regression can run against pristine baseline source.
-// It enters buildFork -> buildForkUnderLock -> captureStaged and the real child runner; a detached
+// TestCancelledForkBuildRetainsWorkspaceThroughProductionCaller enters buildFork -> buildForkUnderLock -> captureStaged and the real child runner; a detached
 // keeper in a separate session remains alive after that child group receives SIGINT.
 func TestCancelledForkBuildRetainsWorkspaceThroughProductionCaller(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
@@ -126,15 +124,8 @@ func TestForkBuildLifecycleChildFixture(t *testing.T) {
 	if cname == "" {
 		t.Fatal("fixture has no container name")
 	}
-	agentState := filepath.Join(paths.AgentsDir(), cname)
-	if err := os.MkdirAll(agentState, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(agentState, "detached-keeper-retention"), nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := runtime.WriteContainerTracking(cname, workspace); err != nil {
-		t.Fatal(err)
+	if os.Getenv("YOLO_TEST_FORK_LIFECYCLE_NOTHING_DISPATCHED") == "" {
+		forkBuildLifecycleDispatch(t, workspace, cname)
 	}
 	if err := os.WriteFile(filepath.Join(workspace, "child-ready"), nil, 0o600); err != nil {
 		t.Fatal(err)
@@ -148,6 +139,25 @@ func TestForkBuildLifecycleChildFixture(t *testing.T) {
 	signal.Notify(interrupt, syscall.SIGINT)
 	defer signal.Stop(interrupt)
 	<-interrupt
+}
+
+// forkBuildLifecycleDispatch is what a child that got as far as dispatching a backend leaves.
+func forkBuildLifecycleDispatch(t *testing.T, workspace, cname string) {
+	agentState := filepath.Join(paths.AgentsDir(), cname)
+	if err := os.MkdirAll(agentState, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agentState, "detached-keeper-retention"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// run.Run records the resolved runtime before it dispatches any backend; the fixture's
+	// "dispatched" keeper therefore comes with that record, as in production.
+	if err := writeForkBuildRuntime(workspace, "podman"); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.WriteContainerTracking(cname, workspace); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // The keeper is an inert process in a separate session, stopped explicitly after cleanup assertions.
@@ -175,4 +185,64 @@ func waitForLifecycleFile(t *testing.T, path string, timeout time.Duration) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("fixture did not create %s", path)
+}
+
+// A Ctrl-C that stops a build child before run.Run recorded a runtime, its whole group confirmed
+// gone, dispatched no backend: the workspace is cleaned, not retained, and the next build of the
+// same key runs instead of refusing for an operator check (pi-startup-cancellation §3).
+func TestACancelledForkBuildThatDispatchedNothingIsNotRetained(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	f := forkBuildHome(t)
+	b := forkBuild{Fork: f, Commit: forkTestCommit, Platform: captureJailPlatform()}
+	store := &capture.Store{Dir: paths.CapturesDir()}
+	staging := store.StagingDir("fork-" + b.id())
+	cname := runtime.FromWorkspace(staging)
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	prevCommand := forkBuildChildCommand
+	forkBuildChildCommand = func(argv []string) (*exec.Cmd, error) {
+		workspace := ""
+		for _, arg := range argv {
+			if strings.HasPrefix(arg, "--workspace=") {
+				workspace = strings.TrimPrefix(arg, "--workspace=")
+			}
+		}
+		return &exec.Cmd{Path: exe, Args: []string{exe, "-test.run=^TestForkBuildLifecycleChildFixture$"},
+			Env: append(os.Environ(), "YOLO_TEST_FORK_LIFECYCLE_WORKSPACE="+workspace,
+				"YOLO_TEST_FORK_LIFECYCLE_CNAME="+cname, "YOLO_TEST_FORK_LIFECYCLE_NOTHING_DISPATCHED=1")}, nil
+	}
+	t.Cleanup(func() { forkBuildChildCommand = prevCommand })
+	prevRunner := forkBuildChild
+	forkBuildChild = runForkBuildChild
+	t.Cleanup(func() { forkBuildChild = prevRunner })
+
+	ctx, cancel := context.WithCancel(t.Context())
+	buildDone := make(chan error, 1)
+	go func() {
+		_, err := buildFork(b, buildMode{lock: pidlock.NoWait, runtime: "podman",
+			runJail: childJail(ctx, false, nil)}, io.Discard, io.Discard, false)
+		buildDone <- err
+	}()
+	waitForLifecycleFile(t, filepath.Join(staging, "child-ready"), 3*time.Second)
+	cancel()
+	select {
+	case err := <-buildDone:
+		if err == nil {
+			t.Fatal("cancelled build unexpectedly succeeded")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the cancelled build did not return")
+	}
+	if _, err := os.Lstat(staging); !os.IsNotExist(err) {
+		t.Errorf("a cancelled build that dispatched nothing retained its staging: %v", err)
+	}
+
+	runCalls := 0
+	_, err = buildFork(b, buildMode{lock: pidlock.NoWait, runtime: "podman",
+		runJail: func(string, forkBuild, captureStreams) int { runCalls++; return 1 }}, io.Discard, io.Discard, false)
+	if runCalls != 1 {
+		t.Fatalf("the next build of the same key did not run (err=%v); a cancel that dispatched nothing fenced it", err)
+	}
 }

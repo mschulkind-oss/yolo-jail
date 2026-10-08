@@ -247,6 +247,7 @@ func TestForkBuildDoesNotAdmitMutableOutputOrDeleteWorkspaceAfterUnknownKeeperWa
 							t.Fatal(err)
 						}
 					}
+					withForkBuildGoneWait(t, 0)
 					probePresent, probeKnown := false, true
 					if keeperState == "backend-present" {
 						probePresent = true

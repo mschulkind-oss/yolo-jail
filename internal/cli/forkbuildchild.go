@@ -189,9 +189,8 @@ func runForkBuildChild(ctx context.Context, bound time.Duration, staging string,
 			// An externally handled signal exits normally, but bypasses runCaptureJail's return witness.
 			// A resolved backend plus no witness therefore retains the workspace and stops any same-group
 			// helper without guessing from 129/130/143. Group exit still is not keeper completion.
-			markBuildWorkspaceCleanupUnconfirmed(s)
 			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-			waitForkBuildChildGroup(cmd.Process.Pid, time.Second)
+			retainUnlessNothingDispatched(s, staging, waitForkBuildChildGroup(cmd.Process.Pid, time.Second))
 		}
 		return status(result), false
 	case <-ctx.Done():
@@ -199,7 +198,6 @@ func runForkBuildChild(ctx context.Context, bound time.Duration, staging string,
 		timedOut = true
 	}
 	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGINT)
-	markBuildWorkspaceCleanupUnconfirmed(s)
 	var result forkBuildChildResult
 	select {
 	case result = <-done:
@@ -210,8 +208,21 @@ func runForkBuildChild(ctx context.Context, bound time.Duration, staging string,
 	// done includes bounded pipe drainage. Even if an output-drain bound expired, no member of
 	// this owned process group may keep compiling after the launch has stopped waiting.
 	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-	waitForkBuildChildGroup(cmd.Process.Pid, time.Second)
+	retainUnlessNothingDispatched(s, staging, waitForkBuildChildGroup(cmd.Process.Pid, time.Second))
 	return status(result), timedOut
+}
+
+// retainUnlessNothingDispatched marks a stopped build's workspace retained unless its whole process
+// group is confirmed gone AND it never recorded a resolved runtime. run.Run records the runtime
+// before it dispatches any backend, so a dead group with no record had started no capture jail or
+// keeper, and its workspace is safe to clean; anything else keeps it fenced for the retry check.
+func retainUnlessNothingDispatched(s captureStreams, staging string, groupGone bool) {
+	if groupGone {
+		if _, err := readForkBuildRuntime(staging); errors.Is(err, os.ErrNotExist) {
+			return
+		}
+	}
+	markBuildWorkspaceCleanupUnconfirmed(s)
 }
 
 func markBuildWorkspaceCleanupUnconfirmed(s captureStreams) {
@@ -291,13 +302,16 @@ func (p *forkBuildChildOutput) abandon() {
 	}
 }
 
-// waitForkBuildChildGroup waits briefly for SIGKILLed descendants to leave the process table.
-func waitForkBuildChildGroup(pid int, bound time.Duration) {
+// waitForkBuildChildGroup waits briefly for SIGKILLed descendants to leave the process table and
+// reports whether the group is confirmed gone (ESRCH); a lingering member or zombie reads as false.
+func waitForkBuildChildGroup(pid int, bound time.Duration) bool {
 	deadline := time.Now().Add(bound)
-	for time.Now().Before(deadline) {
-		err := syscall.Kill(-pid, 0)
-		if errors.Is(err, syscall.ESRCH) {
-			return
+	for {
+		if errors.Is(syscall.Kill(-pid, 0), syscall.ESRCH) {
+			return true
+		}
+		if !time.Now().Before(deadline) {
+			return false
 		}
 		time.Sleep(10 * time.Millisecond)
 	}

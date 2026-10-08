@@ -112,8 +112,27 @@ func writeForkBuildRuntime(staging, rt string) error {
 	return os.WriteFile(forkBuildRuntimeRecordPath(staging), []byte(rt+"\n"), 0o600)
 }
 
+// errForkBuildWorkspaceRetained marks a build that did not run, or whose output was not admitted,
+// because an earlier or the same build's jail is not yet known gone. It is not a failed build: a
+// patched advance records nothing against the commit (settle) and the next launch tries again.
+var errForkBuildWorkspaceRetained = errors.New("a fork build's workspace is retained until its jail is known gone")
+
+// forkBuildRetained carries the user-facing refusal and matches errForkBuildWorkspaceRetained.
+type forkBuildRetained struct{ msg string }
+
+func (e forkBuildRetained) Error() string        { return e.msg }
+func (e forkBuildRetained) Is(target error) bool { return target == errForkBuildWorkspaceRetained }
+
 func cleanupForkBuildWorkspace(staging, cname string) {
 	cleanupCaptureWorkspace(staging, cname)
+	// The records are the only evidence of who owned what remains: drop them only once the
+	// staging tree and the host-side jail state are actually gone, so a partial removal (a
+	// rootless tree the host user cannot delete, say) keeps Stage's own remedy reachable.
+	for _, path := range []string{staging, filepath.Join(paths.AgentsDir(), cname)} {
+		if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+			return
+		}
+	}
 	_ = os.Remove(forkBuildRuntimeRecordPath(staging))
 	_ = os.Remove(forkBuildRunReturnedPath(staging))
 }
@@ -143,11 +162,31 @@ func forkBuildWorkspaceReclaimable(staging, cname string) (func(), bool) {
 	if rt == "macos-user" {
 		return release, true
 	}
-	present, known := probeForkBuildContainer(cname, rt, forkBuildProbeTimeout)
-	if !known || present {
+	if !awaitForkBuildContainerGone(cname, rt) {
 		return fail()
 	}
 	return release, true
+}
+
+// forkBuildGoneWait bounds how long a finished build waits for its jail's container to leave the
+// runtime: `--rm` removal can trail the keeper's exit (Apple Container removes asynchronously), and
+// a good build must not fail for teardown that is merely late.
+var forkBuildGoneWait = 30 * time.Second
+
+// awaitForkBuildContainerGone polls the original backend until it answers "absent", or the bound
+// passes; only a known absence returns true.
+func awaitForkBuildContainerGone(cname, rt string) bool {
+	deadline := time.Now().Add(forkBuildGoneWait)
+	for {
+		present, known := probeForkBuildContainer(cname, rt, forkBuildProbeTimeout)
+		if known && !present {
+			return true
+		}
+		if !time.Now().Before(deadline) {
+			return false
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
 }
 
 // probeForkBuildContainer is the conservative runtime-presence probe used before a same-key
@@ -187,6 +226,10 @@ func forkBuildWorkspacePaths(staging, cname string) (string, string) {
 }
 
 func forkBuildWorkspaceNotReusable(b forkBuild, staging, cname, rt string, present, known bool) error {
+	return forkBuildRetained{forkBuildWorkspaceNotReusableMsg(b, staging, cname, rt, present, known).Error()}
+}
+
+func forkBuildWorkspaceNotReusableMsg(b forkBuild, staging, cname, rt string, present, known bool) error {
 	stagePath, agentsPath := forkBuildWorkspacePaths(staging, cname)
 	if !known {
 		if rt == "macos-user" {
@@ -202,7 +245,7 @@ func forkBuildWorkspaceNotReusable(b forkBuild, staging, cname, rt string, prese
 
 func forkBuildWorkspaceOwnershipError(b forkBuild, staging, cname, detail, next string) error {
 	stagePath, agentsPath := forkBuildWorkspacePaths(staging, cname)
-	return fmt.Errorf("cannot safely reuse fork build jail %s for build %s: %s; retaining staging %s and jail state %s. %s", cname, b.id(), detail, stagePath, agentsPath, next)
+	return forkBuildRetained{fmt.Sprintf("cannot safely reuse fork build jail %s for build %s: %s; retaining staging %s and jail state %s. %s", cname, b.id(), detail, stagePath, agentsPath, next)}
 }
 
 // forkBuild is one build: the fork, the commit it is pinned to, and the platform it is built for.
@@ -842,6 +885,7 @@ func buildForkUnderLock(b forkBuild, mode buildMode, store *capture.Store, pr ri
 	streams = tail.tee(streams)
 	// THE BUILD'S OWN WORKSPACE, as the build saw it: a link into it dangles once the build ends.
 	workspace := forkBuildWorkspace(mode.runtime, b.id())
+	ownershipUnproven := false
 	entry, m, err := captureStaged(store, staging,
 		func() int {
 			if releaseWorkspaceLaunch != nil {
@@ -864,12 +908,13 @@ func buildForkUnderLock(b forkBuild, mode buildMode, store *capture.Store, pr ri
 				return 1
 			}
 			if _, runtimeErr := readForkBuildRuntime(staging); runtimeErr != nil {
-				fmt.Fprintln(errw, "The build capture has no trustworthy original-backend record; its workspace is retained and no output was admitted.")
+				fmt.Fprintln(errw, "The build capture has no trustworthy original-backend record; no output was admitted.")
 				return 1
 			}
 			release, safe := forkBuildWorkspaceReclaimable(staging, cname)
 			if !safe {
 				*mode.retainWorkspace = true
+				ownershipUnproven = true
 				fmt.Fprintln(errw, "The build output may still be owned by its capture keeper or original backend; no output was admitted and its workspace is retained.")
 				return 1
 			}
@@ -893,6 +938,14 @@ func buildForkUnderLock(b forkBuild, mode buildMode, store *capture.Store, pr ri
 			}
 			return linksIntoTheBuild(m, workspace)
 		})
+	if err != nil && ownershipUnproven {
+		// The build itself ran; what is unproven is that its jail is gone. That is no verdict on the
+		// commit, so it is not reported as a failed build.
+		recorded, _ := readForkBuildRuntime(staging)
+		return nil, forkBuildRetained{fmt.Sprintf("the build of %s finished, but its capture jail %s is not yet known gone on %s; "+
+			"its output was not admitted and its staging %s is retained. Retry the launch once that jail has stopped",
+			f.Key(), cname, runtimeLabel(recorded), staging)}
+	}
 	toolchain, terr := os.ReadFile(filepath.Join(staging, forkToolchainLeaf))
 	var exit captureJailExit
 	if err != nil && errors.As(err, &exit) && terr != nil {
