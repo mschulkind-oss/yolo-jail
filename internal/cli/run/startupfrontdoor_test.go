@@ -13,10 +13,12 @@ package run
 //
 // Deleting the forwarding call at any of these sites fails its test here: the keeper's
 // `refused` print (keeper.go), the container arm's and the macos-user arm's preflight refusal
-// (run.go), and startPlannedLoopholes' hand-back of o.startupRefusal (packloopholes.go).
+// (run.go), startPlannedLoopholes' hand-back of o.startupRefusal (packloopholes.go), and
+// HostDoorways.Start's hand-back after its services start (hostdoorways.go).
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -27,6 +29,8 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/image"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -198,7 +202,7 @@ func TestAFreshContainerLaunchRelaysADaemonRefusalThroughItsKeeper(t *testing.T)
 	if r.rc != 1 {
 		t.Errorf("Run() = %d, want 1 for a refused launch:\n%s", r.rc, r.out)
 	}
-	if !strings.Contains(r.out, "keeper") {
+	if !strings.Contains(r.out, "keeper: started") {
 		t.Fatalf("the launch never reached its keeper, so this proves nothing about its relay:\n%s", r.out)
 	}
 	assertFrontDoorRefusal(t, r.out, "Refusing this launch", frontDoorReason, frontDoorRemedy)
@@ -286,4 +290,49 @@ func TestAFreshMacosUserLaunchRefusesInvalidSettingsBeforeItsKeeper(t *testing.T
 	}
 	assertFrontDoorRefusal(t, out, "Refusing to launch", "The AWS profile is not usable.",
 		"Run aws sso login --profile <profile>.")
+}
+
+// TestAHostDoorwayStartReturnsADaemonRefusal is the `yolo host` front door: HostDoorways.Start
+// ensures the doorway's host service, which refuses over the attempt channel, and Start returns
+// that refusal as its error before any doorway starts.
+func TestAHostDoorwayStartReturnsADaemonRefusal(t *testing.T) {
+	frontDoorHome(t, "{}")
+	t.Setenv(perJailReasonChildModeEnv, "exit")
+	t.Setenv(perJailReasonChildDelayEnv, "")
+	t.Setenv(perJailReasonChildClassEnv, "configuration")
+	packRoot := t.TempDir()
+	module := filepath.Join(packRoot, "loopholes", frontDoorFixtureName)
+	if err := os.MkdirAll(module, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(module, "manifest.jsonc"), []byte(cooperativeRefusalManifest()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(packRoot, "pack.json"), []byte(`{"name":"fixture-pack","contributes":`+
+		`[{"kind":"loophole","from":"loopholes/`+frontDoorFixtureName+`"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pack, problems := packload.LoadDir(packRoot, "fixture-pack")
+	if len(problems) != 0 {
+		t.Fatalf("fixture pack: %v", problems)
+	}
+	set := loopholes.NewSet(loopholes.DiscoverOptions{
+		PackModules: []loopholes.PackModule{{Dir: module, HostExecApproved: true}},
+	})
+	plan := &launchservice.Plan{Declared: launchservice.Declared{Service: frontDoorFixtureName, Pack: "fixture-pack"}}
+	d := &HostDoorways{plans: []*launchservice.Plan{plan}, set: set, packs: []*packload.Pack{pack}}
+	var output bytes.Buffer
+	startCalled := false
+	_, stop, _, err := d.Start(newConfig(), t.TempDir(), "pi", &output,
+		func(*launchservice.Plan, map[string]string) (*launchservice.Running, error) {
+			startCalled = true
+			return nil, errors.New("fixture must not start after a refused service")
+		})
+	if stop != nil {
+		stop()
+	}
+	if err == nil || startCalled {
+		t.Fatalf("the doorway started past a refused host service: err=%v started=%v\n%s", err, startCalled, output.String())
+	}
+	assertFrontDoorRefusal(t, output.String()+"\n"+err.Error(), "refused startup", frontDoorReason, frontDoorRemedy)
 }
