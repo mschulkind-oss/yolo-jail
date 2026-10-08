@@ -211,6 +211,7 @@ Two more come with the agent packs, with no extra pack to add:
   `-p` that fixes it; yolo leaves a key you wrote alone. `yolo host apply` writes that key itself
   while your host selection puts Claude Code on Bedrock, and removes it again once the selection
   moves off Bedrock; until then the line says the key is yolo's.
+
 - **`codex`**, in the `claude`, `codex`, `opencode` and `pi` packs: your ChatGPT subscription,
   through yolo's shared OpenAI login. `codex` and `pi` use this login by default;
   `yolo -p codex -- claude` runs Claude Code against it, and `yolo -p codex -- opencode` runs
@@ -235,6 +236,96 @@ you want in your user config and make profiles for them:
   "profile": { "claude": "router-coding", "pi": "kilo-economy" }
 }
 ```
+
+### Use a manual Bedrock API-key provider
+
+The shipped `bedrock` provider targets `bedrock-runtime` through agents' native Bedrock clients. If you need a plain OpenAI-compatible endpoint instead, define a separate provider in your **user** config. This example gives Codex the Responses endpoint and Pi and OpenCode the Chat Completions endpoint. Copilot is outside the validated scope of this recipe; no live Copilot-to-Bedrock request is claimed here.
+
+```jsonc
+// ~/.config/yolo-jail/config.jsonc
+{
+  "env_sources": ["~/.config/yolo-jail/secrets.env"],
+  "providers": {
+    "bedrock-runtime-key": {
+      "endpoints": {
+        "openai": {
+          "base_url": "https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1",
+          "wire_api": "openai-chat-completions"
+        },
+        "openai-responses": {
+          "base_url": "https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1",
+          "wire_api": "openai-responses"
+        }
+      },
+      "api_key_env_name": "BEDROCK_RUNTIME_API_KEY",
+      "models": { "gpt": "global.openai.gpt-5.6-sol" }
+    }
+  },
+  "profiles": {
+    "runtime-api-key": { "provider": "bedrock-runtime-key", "model": "gpt" }
+  }
+}
+```
+
+Put the Bedrock API key in the referenced file, not in JSONC or a workspace file:
+
+```bash
+# ~/.config/yolo-jail/secrets.env
+BEDROCK_RUNTIME_API_KEY=replace-with-your-bedrock-runtime-api-key
+```
+
+The value above is a fake placeholder. A Bedrock API key is a Bedrock-specific bearer token, not an AWS access-key pair. `api_key_env_name` names the variable the provider claims; the [credential gate](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/reference/providers.md#the-credential-gate) delivers a claimed variable to agents selecting any provider that claims the same name. The shipped native `bedrock` provider claims `AWS_BEARER_TOKEN_BEDROCK`, so these dedicated Runtime and Mantle names keep the manual keys separate from native Bedrock. If you deliberately reuse `AWS_BEARER_TOKEN_BEDROCK`, agents selecting native `bedrock` receive that shared value too. The existing bearer/SSO credential-pointer conflict is unchanged; do not combine a bearer key with the `aws-auth` pointer for the same Bedrock client. You do not need `--with-credentials` for this profile-gated delivery. Keep the provider and endpoint in user scope: a workspace config cannot declare an external `base_url`. Leave out `platform: "aws-bedrock"`: that marker selects the native Bedrock derive, not this generic endpoint route.
+
+After saving the user config, run `yolo check` to validate it. Then use this profile with an agent that speaks one of the configured protocols:
+
+```bash
+yolo -p runtime-api-key -- pi       # OpenAI Chat Completions
+yolo -p runtime-api-key -- opencode # OpenAI Chat Completions
+yolo -p runtime-api-key -- codex    # OpenAI Responses
+```
+
+The launch checks the selected profile's credential before starting the agent. Use a model ID enabled for your account and runtime Region; the sample ID is only an example. Put a literal Region in each URL—yolo does not interpolate `${region}` into endpoint URLs. Have your AWS administrator confirm that the API key allows `bedrock:CallWithBearerToken` and the IAM policy grants `bedrock:InvokeModel` on the selected model or inference-profile ARN (or `bedrock:InvokeModelWithResponseStream` when the client streams). Confirm that the model is enabled in that Region.
+
+**Keep the endpoint, credential channel and model ID together (P1).** Runtime model IDs use the runtime spelling—often a `us.` or `global.` inference-profile prefix—while Mantle uses its own bare IDs. Changing only the URL or only the model can turn a valid selection into a request-time model error. Keep separate provider/profile entries when you use both endpoint families; see [why the endpoint family and model ID move together](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/design/bedrock-plumbing.md#5-one-endpoint-family--runtime-ships-and-why-not-mantle).
+
+### Use Bedrock Mantle manually
+
+Yolo ships the `bedrock-runtime` family, not a Mantle provider or profile. For the generic OpenAI-compatible paths covered above, copy the manual provider into a second provider and profile rather than changing the runtime entry. Change its name to `bedrock-mantle-key`, its profile to `mantle-api-key`, its API-key variable to `BEDROCK_MANTLE_API_KEY`, and use a Mantle URL and model ID, for example:
+
+```jsonc
+"bedrock-mantle-key": {
+  "endpoints": {
+    "openai": {
+      "base_url": "https://bedrock-mantle.us-east-1.api.aws/openai/v1",
+      "wire_api": "openai-chat-completions"
+    },
+    "openai-responses": {
+      "base_url": "https://bedrock-mantle.us-east-1.api.aws/openai/v1",
+      "wire_api": "openai-responses"
+    }
+  },
+  "api_key_env_name": "BEDROCK_MANTLE_API_KEY",
+  "models": { "gpt": "openai.gpt-5.6-sol" }
+}
+```
+
+Add this profile beside the runtime profile:
+
+```jsonc
+"mantle-api-key": { "provider": "bedrock-mantle-key", "model": "gpt" }
+```
+
+If you use Mantle, add its separate key to the same `secrets.env` file; this is a fake placeholder:
+
+```bash
+BEDROCK_MANTLE_API_KEY=replace-with-your-bedrock-mantle-api-key
+```
+
+AWS's [Bedrock endpoints page](https://docs.aws.amazon.com/bedrock/latest/userguide/endpoints.html) currently describes OpenAI-compatible routes under `/openai/v1`; other AWS Mantle API pages have used `/v1`. Confirm the base path in the current AWS documentation for the API and Region you use, and put that exact URL in the provider. Yolo does not rewrite it. Mantle has its own IAM actions: confirm access for `bedrock-mantle:CallWithBearerToken` and `bedrock-mantle:CreateInference`. Mantle model IDs do not take runtime's `us.` or `global.` prefix.
+
+Claude Code's native Mantle mode is a separate client path, not this generic OpenAI provider: its Mantle switch is `CLAUDE_CODE_USE_MANTLE=1` and its Anthropic model IDs use the `anthropic.` prefix. The shipped `bedrock` profile is for runtime; this guide does not claim that selecting it configures native Mantle for Claude Code. The generic recipe also does not add a Bedrock Converse via route for Pi: the implementation direction in [WG-I36](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/design/wire-bridge-gateway.md#WG-I36) is not evidence that such a route has shipped.
+
+For the shipped Bedrock provider's AWS credential chain, region handling and bridge profiles, use the `bedrock` instructions above rather than this generic API-key recipe. The existing bearer/SSO credential-pointer conflict still applies there.
 
 ## Several providers in one session
 

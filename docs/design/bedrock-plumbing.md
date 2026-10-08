@@ -3,7 +3,7 @@ title: "Bedrock plumbing: which transport reaches Bedrock in each agent, and wha
 date: 2026-09-04
 status: in-review
 stage: DESIGN
-next: "Write §12 step 7: the hand-written API-key provider and mantle recipes in the user guide, with P1 stated where users hit it"
+next: "Build pi's Bedrock Converse via route for §12 step 8.3 only after its implementation lands; WG-I36 records a direction, not shipped support"
 depends-on:
   - wire-bridge-gateway.md
 tags: [packs, providers, profiles, bedrock, aws, codex, opencode, pi, wire-bridge]
@@ -873,7 +873,7 @@ R6 to R11 moved with the bridge, model-list and search designs.
    [`providers-and-profiles-redesign.md`](providers-and-profiles-redesign.md). The D2 half is
    BUILT (2026-09-26, the credential gate); the D5 half is BUILT too (2026-09-29,
    [OQ-BR8](providers-and-profiles-redesign.md#OQ-BR8)).
-7. **The hand-written API-key provider and mantle recipes** in the user guide, with P1 stated where users hit it.
+7. ~~**The hand-written API-key provider and mantle recipes** in the user guide, with P1 stated where users hit it.~~ Documented in [the providers and models guide](../../userguide/guides/providers-and-models.md#use-a-manual-bedrock-api-key-provider), with the endpoint/model pairing, credential boundary and current route limits.
 8. **The direction**, once [OQ-BR9](#OQ-BR9) rules:
    1. the signer ([`wire-bridge-gateway.md`](wire-bridge-gateway.md));
    2. ~~**the shared provider with per-entry `vendor` and the derive filters**~~, built
@@ -975,21 +975,7 @@ R6 to R11 moved with the bridge, model-list and search designs.
 
    <!-- vantage: question id=OQ-BR11 -->
 
-   Both profiles, with the everything
-   profile routing by model id; [`wire-bridge-gateway.md`](wire-bridge-gateway.md) owns the routing
-   mechanism. It touched [OQ-BR8](providers-and-profiles-redesign.md#OQ-BR8): the everything
-   profile must not set claude's `CLAUDE_CODE_USE_BEDROCK`, yet the credential pointer must reach
-   the bridge. Built 2026-09-29 as a transport check
-   ([PP-D4](providers-and-profiles-redesign.md#PP-D4)): claude's derive sets the switch only for a
-   profile that routes through no via service, and aws-auth's pointer keys on the platform alone.
-   ⚠ **Since 2026-10-05** ([`model-lists-and-pickers.md` OQ-MM6](model-lists-and-pickers.md#OQ-MM6),
-   which amended only the transport) the everything profile runs claude's own Bedrock client
-   pointed at the bridge, so the launched process does carry `CLAUDE_CODE_USE_BEDROCK`, with
-   `ANTHROPIC_BEDROCK_BASE_URL` at the bridge and its own signing skipped; the settings file's
-   switch is still the native profile's alone. The routing by model id stands on the bridge's
-   invoke routes: an Anthropic id passes through, and one the list declares another maker's is
-   translated ([MM-D39](model-lists-and-pickers.md#MM-D39)), so one session still reaches every
-   model.
+   Both profiles: native `bedrock` handles Anthropic ids; the everything profile uses Claude's Bedrock client through the bridge and routes by model id. Anthropic ids pass through; other makers' ids are translated. See [§6.2](#62-what-each-derive-emits) and [OQ-MM6](model-lists-and-pickers.md#OQ-MM6) for the current switch and transport details.
 
 7. 💬 <a id="OQ-BR24"></a>[**OQ-BR24**](#OQ-BR24): **Do copilot and oh-omp need `bedrock` and `wire-bridge`,
    so either alone gets `-p bedrock`?** Since 2026-09-30 the bridge carries both on plain
