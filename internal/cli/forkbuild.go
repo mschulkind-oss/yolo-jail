@@ -235,7 +235,7 @@ func forkBuildWorkspaceNotReusableMsg(b forkBuild, staging, cname, rt string, pr
 	stagePath, agentsPath := forkBuildWorkspacePaths(staging, cname)
 	if !known {
 		if rt == "macos-user" {
-			return fmt.Errorf("cannot prove macos-user build %s (%s) has ended; retaining staging %s and jail state %s without same-ID reuse. A host operator or maintainer must verify this specific native capture has ended before clearing its retained state, then retry the launch", b.id(), b.Fork.Key(), stagePath, agentsPath)
+			return fmt.Errorf("cannot prove macos-user build %s (%s) has ended; retaining staging %s, its native build tree %s and jail state %s without same-ID reuse. A host operator or maintainer must verify this specific native capture has ended before clearing its retained state, then retry the launch", b.id(), b.Fork.Key(), stagePath, macosuser.ForkBuildStagingRoot("", b.id()), agentsPath)
 		}
 		return fmt.Errorf("could not confirm whether previous fork build jail %s for build %s is gone on %s; retaining staging %s and jail state %s. Restore runtime access, then retry the launch", cname, b.id(), runtimeLabel(rt), stagePath, agentsPath)
 	}
@@ -788,12 +788,17 @@ func buildForkUnderLock(b forkBuild, mode buildMode, store *capture.Store, pr ri
 			return nil, forkBuildWorkspaceOwnershipError(b, staging, cname,
 				"the original capture runtime cannot be established", "Have a host operator verify this specific capture has ended before clearing only these retained paths, then retry.")
 		}
-		present, known := probeForkBuildContainer(cname, oldRuntime, forkBuildProbeTimeout)
-		if !known || present {
-			releaseWorkspaceLaunch()
-			releaseWorkspaceLaunch = nil
-			workspaceLaunchHeld = false
-			return nil, forkBuildWorkspaceNotReusable(b, staging, cname, oldRuntime, present, known)
+		// A macos-user build that returned is proven ended by the same evidence forkBuildWorkspaceReclaimable
+		// accepts: the lock is held and the keeper is not alive (checked above), and the host-side
+		// returned witness exists. Native capture has no container probe, so asking it would only answer unknown.
+		if !(oldRuntime == "macos-user" && forkBuildRunReturned(staging)) {
+			present, known := probeForkBuildContainer(cname, oldRuntime, forkBuildProbeTimeout)
+			if !known || present {
+				releaseWorkspaceLaunch()
+				releaseWorkspaceLaunch = nil
+				workspaceLaunchHeld = false
+				return nil, forkBuildWorkspaceNotReusable(b, staging, cname, oldRuntime, present, known)
+			}
 		}
 		cleanupForkBuildWorkspace(staging, cname)
 	}

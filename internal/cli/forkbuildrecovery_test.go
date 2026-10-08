@@ -11,6 +11,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
+	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/pidlock"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
@@ -480,5 +481,86 @@ func assertForkRecoveryStateRetained(t *testing.T, staging, cname, marker string
 		if _, err := os.Lstat(path); err != nil {
 			t.Errorf("refused retry removed or lost retained state %s: %v", path, err)
 		}
+	}
+}
+
+// A macos-user build whose run returned has the same proof forkBuildWorkspaceReclaimable accepts, so a
+// retry reuses its workspace without asking the native backend, which can only answer unknown.
+func TestAMacosUserBuildThatReturnedIsReusedOnRetry(t *testing.T) {
+	tests := []struct {
+		name     string
+		returned bool
+	}{
+		{name: "returned", returned: true},
+		{name: "not returned"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			f := forkBuildHome(t)
+			b := forkBuild{Fork: f, Commit: forkTestCommit, Platform: captureJailPlatform()}
+			staging, cname, marker := seedRetainedForkBuildWorkspace(t, b, "podman")
+			if err := runtime.WriteContainerTracking(cname, staging); err != nil {
+				t.Fatal(err)
+			}
+			if err := writeForkBuildRuntime(staging, "macos-user"); err != nil {
+				t.Fatal(err)
+			}
+			if tc.returned {
+				if err := writeForkBuildRunReturned(staging); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			previousProbe := probeForkBuildContainer
+			probeByRuntime := map[string]int{}
+			probeForkBuildContainer = func(gotName, gotRuntime string, _ time.Duration) (bool, bool) {
+				if gotName != cname {
+					t.Errorf("probe cname = %q, want %q", gotName, cname)
+				}
+				probeByRuntime[gotRuntime]++
+				// The new run's own completion check on its runtime may answer known-absent; native stays unknown.
+				return false, gotRuntime != "macos-user"
+			}
+			t.Cleanup(func() { probeForkBuildContainer = previousProbe })
+
+			var seen run.Options
+			fake := fakeBuildJail(t, &seen, probetoolBuilt)
+			runCalls := 0
+			entry, err := buildFork(b, buildMode{lock: pidlock.NoWait, runtime: "podman",
+				runJail: func(workspace string, _ forkBuild, _ captureStreams) int {
+					runCalls++
+					return fake(run.Options{Workspace: workspace, Getenv: func(key string) string {
+						if key == "YOLO_RUNTIME" {
+							return "podman"
+						}
+						return ""
+					}, OnRuntimeResolved: func(rt string) error {
+						return writeForkBuildRuntime(workspace, rt)
+					}})
+				}}, io.Discard, io.Discard, false)
+
+			if probeByRuntime["macos-user"] != 0 && tc.returned {
+				t.Errorf("returned macos-user build was probed on macos-user %d times; the run-returned proof must skip it", probeByRuntime["macos-user"])
+			}
+			if !tc.returned {
+				nativeTree := macosuser.ForkBuildStagingRoot("", b.id())
+				if err == nil || !strings.Contains(err.Error(), "cannot prove macos-user build") ||
+					!strings.Contains(err.Error(), nativeTree) {
+					t.Fatalf("unreturned macos-user retry error = %v, want refusal naming native tree %s", err, nativeTree)
+				}
+				if entry != nil || runCalls != 0 {
+					t.Fatalf("refused retry entry=%v runCalls=%d; want no dispatch", entry, runCalls)
+				}
+				if probeByRuntime["macos-user"] != 1 {
+					t.Errorf("unreturned macos-user probed %d times, want 1", probeByRuntime["macos-user"])
+				}
+				assertForkRecoveryStateRetained(t, staging, cname, marker)
+				return
+			}
+			if err != nil || entry == nil || runCalls != 1 {
+				t.Fatalf("returned macos-user retry: entry=%v runCalls=%d err=%v; want one dispatch and an entry", entry, runCalls, err)
+			}
+		})
 	}
 }
