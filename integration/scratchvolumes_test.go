@@ -274,8 +274,15 @@ func TestTheSlotReapsLeftoverScratchVolumes(t *testing.T) {
 	mkvol(young)
 
 	dir := writeProject(t, `{}`)
-	// Long enough for the slot to run on the proxy goroutine before the jail exits.
-	res := runYolo(t, dir, "sleep 8", withAutoReapers())
+	// The slot dies at the launch's exit and the scratch class is its last, so the jail must
+	// outlive every class ahead of it. A fixed sleep did not: on a CI runner the image class
+	// had a stale image to reclaim and the jail quit before the slot reached the scratch class
+	// (run 37819753351). So the jail waits for the slot's own note that it started the removal,
+	// in the workspace's housekeeping log, bounded so a slot that never notes still ends.
+	res := runYolo(t, dir, `for i in $(seq 1 90); do
+  grep -q 'scratch: removing' /workspace/.yolo/housekeeping.log 2>/dev/null && exit 0
+  sleep 1
+done`, withAutoReapers())
 	if res.rc != 0 {
 		t.Fatalf("rc=%d\n%s", res.rc, res.combined())
 	}
