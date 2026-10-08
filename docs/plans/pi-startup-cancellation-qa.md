@@ -3,12 +3,12 @@ title: "QA: Pi startup cancellation candidate"
 status: accepted
 stage: CURRENT
 tags: [qa, pi, cancellation, startup]
-summary: "Preserved regression evidence, blocking teardown findings and the audit required for the interrupted actual-backend repair."
+summary: "Regression evidence, the review findings and their fixes, and the checks left for the parent."
 ---
 
 # QA: Pi startup cancellation candidate
 
-The implementation is outside main and stopped for an environment restart on 2026-10-07.
+The implementation is on the local branch `lane/pi-cancel`, not on main (2026-10-08).
 The [design](../design/pi-startup-cancellation.md) owns the repair contract and the
 [plan](../design/pi-startup-cancellation-plan.md) owns its next work.
 
@@ -33,6 +33,31 @@ The interrupted final repair contains resolver callback wiring and candidate tes
 actual backend persistence. It has no final worker report or independent rereview. Its QA
 claims and any new mutation/restoration artifacts must be checked against the final tree;
 none supersedes the latest blocking review.
+
+## Review and lane verification, 2026-10-08
+
+One independent review of the repair commit found one blocker and two majors, all fixed
+with tests that fail when the fix is removed:
+
+- A Ctrl-C before the child recorded a runtime fenced that build key for good. Now a child
+  whose process group is confirmed gone with no runtime record is not retained.
+- A retained workspace was recorded as a failed build with back-off. It is now its own
+  error, which a patched advance records nothing for.
+- A good build failed when container removal trailed the keeper. Admission now polls the
+  original backend for up to 30 seconds.
+
+Two minors are fixed (records survive a partial cleanup; a wrong "retained" message). The
+partial-cleanup fix has no test, because the suite runs as root, where `RemoveAll` cannot be
+made to fail. A corrupt runtime record still falls back to a valid keeper record, as a
+deliberate existing test pins. macos-user's retry ignoring its run-returned record is open.
+
+Green on Linux after rebasing onto main: `go test -short` for `internal/cli` and
+`internal/cli/run`, `just lint-ci`, `GOOS=darwin go vet ./internal/cli/`, and the four
+integration tests `TestForkBuildDeliversTheForkInPlaceOfItsBase`,
+`TestPatchedForkFollowsItsUpstreamAndHoldsAtAConflict`,
+`TestPatchedExtensionIsBuiltMountedReadOnlyAndHeldAtAConflict` and
+`TestAnUnmodifiedNpmExtensionIsBuiltOnTheHostAndMountedReadOnly`. Those four had failed
+in-jail before main's change running the suite with `YOLO_VERSION` unset.
 
 ## Next acceptance checks
 

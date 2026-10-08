@@ -3,14 +3,14 @@ title: "Implementation plan: Pi startup build cancellation"
 date: 2026-10-07
 status: in-review
 stage: DECIDED
-next: "Audit the interrupted actual-backend repair against the latest blocking review, verify restored source and regressions, then obtain independent rereview"
+next: "Parent: combined just check-ci, a fresh-binary nested-jail smoke, the full integration suite, and macOS/Apple Container runtime verification"
 tags: [pi, startup, builds, cancellation, implementation]
 summary: "Record the bounded process-group repair and its fail-first regression without expanding into Pi's separate in-jail refresh or TTY-proxy design."
 ---
 
 # Implementation plan: Pi startup build cancellation
 
-**Status:** 2026-10-07. Candidate implementation only, outside main; development stopped for an environment restart. The latest independent review blocks acceptance: cleanup and retry must use the backend actually resolved by the capture launch, not a prediction. A repair added resolver wiring and candidate tests/docs before stopping, but has no final report or rereview. Treat its completeness and claimed greens as unaudited; parent combined gates and native verification remain outstanding.
+**Status:** 2026-10-08. Built on the local branch `lane/pi-cancel` (two commits, not on main). The repair and one independent review's fixes are in: a cancel that dispatched no backend is not retained, a retained workspace is never a failed build, and admission waits out late container removal. Targeted unit, race and mutation checks and the four fork/patched-extension integration tests are green on Linux. The parent's combined gates and non-Linux runtime verification remain.
 
 ## Work items
 
@@ -19,8 +19,10 @@ summary: "Record the bounded process-group repair and its fail-first regression 
 - [x] Isolate each build child in its own process group; make the act the sole owner of interrupt forwarding; signal and escalate against the group.
 - [x] Preserve Ctrl-C as exit status 130 even when the child handles SIGINT and exits zero, so partial output is not reported as a successful build.
 - [x] Cover an interrupt-ignoring descendant, ordinary compiler failure, parallel successful retry, queued work, bounded stdout/stderr and jail-stream drainage, and torn capture-store publication.
-- [ ] Audit the interrupted repair: preserve interrupted fork-build staging and jail state; gate same-ID cleanup and `Store.Stage` reuse on workspace-lock ownership, keeper completion, and the actual resolved backend from the ordinary capture pipeline, failing closed if that evidence was never recorded or changes before the original backend is known absent.
-- [ ] Re-verify the final interrupted tree: run targeted tests, targeted race tests, and the docs checker; preserve fail-first, mutation-red and restored-green evidence.
+- [x] Audit the interrupted repair: preserve interrupted fork-build staging and jail state; gate same-ID cleanup and `Store.Stage` reuse on workspace-lock ownership, keeper completion, and the actual resolved backend from the ordinary capture pipeline, failing closed if that evidence was never recorded or changes before the original backend is known absent.
+- [x] Re-verify the final interrupted tree: run targeted tests, targeted race tests, and the docs checker; preserve fail-first, mutation-red and restored-green evidence.
+- [x] Independent review (2026-10-08): its blocker (a pre-dispatch Ctrl-C fenced the key for good) and two majors (retention recorded as a failed build; no wait for late container removal) are fixed with tests; two minors are fixed; a corrupt-sidecar fail-closed change was declined because the keeper-record fallback is pinned deliberately; macos-user's run-returned record on retry stays open as a minor.
+- [x] Lane: the four fork/patched-extension integration tests pass in-jail on the rebased tree.
 - [ ] Parent: run `just check-ci`, `just build-go`, a fresh-binary nested-jail smoke test from a throwaway workspace, and the applicable integration suite on the combined tree.
 - [ ] Verify actual macOS/XNU and runtime-specific behavior on supported hosts; Linux pty tests are not evidence for those platforms.
 
