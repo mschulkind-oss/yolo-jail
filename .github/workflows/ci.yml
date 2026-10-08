@@ -421,6 +421,7 @@ jobs:
           echo "pattern=^($(paste -sd'|' /tmp/shard/my-tests))$" >> "$GITHUB_OUTPUT"
 
       - name: Integration tests
+        id: integration
         # Serial by construction: the `integration` package uses no
         # t.Parallel(), so container tests run one at a time (real
         # containers; session image load must not race).  -count=1
@@ -444,9 +445,17 @@ jobs:
           PATTERN: ${{ steps.shard.outputs.pattern }}
 
       # Top-level tests only: a subtest runs wherever its parent does.
+      # This also runs after a failed test command so the artifact can retain
+      # the executed-test record from a partial JSON stream. No JSON means no
+      # record; do not turn a missing stream into an empty successful listing.
       - name: Record which tests this shard ran
+        if: ${{ always() && (steps.integration.outcome == 'success' || steps.integration.outcome == 'failure') }}
         run: |
           set -euo pipefail
+          if [ ! -s /tmp/shard/integration.json ]; then
+            echo "::error::integration.json was not produced; refusing to fabricate an executed-test record" >&2
+            exit 1
+          fi
           jq -Rr 'fromjson? | select(type == "object" and .Test != null and (.Test | contains("/") | not)
               and (.Action == "pass" or .Action == "fail" or .Action == "skip")) | .Test' \
             /tmp/shard/integration.json | sort -u > /tmp/shard/ran-tests
@@ -462,6 +471,22 @@ jobs:
             /tmp/shard/ran-tests
             /tmp/shard/total
           retention-days: 1
+
+      # This is diagnostic-only: the Integration tests step remains failed, so
+      # neither an artifact upload nor partial test records can make the shard green.
+      - name: Upload failed integration shard diagnostics
+        if: ${{ always() && failure() && steps.integration.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: integration-failure-attempt-${{ github.run_attempt }}-${{ matrix.os }}-shard-${{ matrix.shard }}
+          path: |
+            /tmp/shard/integration.json
+            /tmp/shard/all-tests
+            /tmp/shard/my-tests
+            /tmp/shard/ran-tests
+            /tmp/shard/total
+          retention-days: 7
+          if-no-files-found: warn
 
   # THE CHECK THAT A COMPUTED PARTITION STILL NEEDS. Every shard's bucket comes
   # from one deterministic listing, so the union is exhaustive by construction —

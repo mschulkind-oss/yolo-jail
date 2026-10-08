@@ -18,7 +18,10 @@ package integration
 // internal/prune/scratchvolumes_test.go) pins each callee.
 
 import (
+	"bytes"
 	"context"
+	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -31,24 +34,223 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
+	"gopkg.in/yaml.v3"
 )
 
-// scratchVolumesOf lists the scratch volumes the runtime holds for cname.
-func scratchVolumesOf(t *testing.T, cname string) []string {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, detectRuntime(), "volume", "ls", "--format", "{{.Name}}").Output()
-	if err != nil {
-		t.Fatalf("volume ls: %v", err)
+// scratchVolumesOf lists the scratch volumes the runtime holds for cname. stdout alone is parsed;
+// a failed runtime call returns an error with its argv, context state and captured stderr.
+func scratchVolumesOf(ctx context.Context, runtime, cname string) ([]string, error) {
+	args := []string{"volume", "ls", "--format", "{{.Name}}"}
+	command := strings.Join(append([]string{runtime}, args...), " ")
+	cmd := exec.CommandContext(ctx, runtime, args...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("runtime=%q command=%q ctx.Err()=%v stderr=%q: %w",
+			runtime, command, ctx.Err(), stderr.String(), err)
 	}
 	var mine []string
-	for _, line := range strings.Split(string(out), "\n") {
+	for _, line := range strings.Split(stdout.String(), "\n") {
 		if n := strings.TrimSpace(line); strings.HasPrefix(n, cname+".scratch.") {
 			mine = append(mine, n)
 		}
 	}
-	return mine
+	return mine, nil
+}
+
+const scratchDiagnosticLogTailBytes = 8 * 1024
+
+func scratchRemovalFailureMessage(dir, problem string) string {
+	stateDir := filepath.Join(dir, ".yolo")
+	return fmt.Sprintf("%s\nworkspace diagnostics (each log capped at the last %d bytes):\n"+
+		"housekeeping.log:\n%s\nlaunch.log:\n%s",
+		problem, scratchDiagnosticLogTailBytes,
+		scratchDiagnosticLog(filepath.Join(stateDir, "housekeeping.log")),
+		scratchDiagnosticLog(filepath.Join(stateDir, "launch.log")))
+}
+
+func scratchDiagnosticLog(path string) string {
+	file, err := os.Open(path)
+	if err != nil {
+		return fmt.Sprintf("[unavailable: %v]", err)
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return fmt.Sprintf("[unavailable: %v]", err)
+	}
+	truncated := info.Size() > scratchDiagnosticLogTailBytes
+	if truncated {
+		if _, err := file.Seek(info.Size()-scratchDiagnosticLogTailBytes, io.SeekStart); err != nil {
+			return fmt.Sprintf("[unavailable: %v]", err)
+		}
+	}
+	contents, err := io.ReadAll(io.LimitReader(file, scratchDiagnosticLogTailBytes))
+	if err != nil {
+		return fmt.Sprintf("[unavailable: %v]", err)
+	}
+	if truncated {
+		return fmt.Sprintf("[truncated to last %d bytes]\n%s", scratchDiagnosticLogTailBytes, contents)
+	}
+	return string(contents)
+}
+
+func TestScratchVolumeListFailureIncludesRuntimeDiagnostics(t *testing.T) {
+	runtime := fakeScratchRuntime(t,
+		"diagnostic-workspace.scratch.partial.tmp\n",
+		"fake podman volume-list failure: store is unavailable",
+		125,
+	)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	volumes, err := scratchVolumesOf(ctx, runtime, "diagnostic-workspace")
+	if err == nil {
+		t.Fatal("fake volume-list failure unexpectedly succeeded")
+	}
+	if len(volumes) != 0 {
+		t.Fatalf("failed volume listing returned entries that could be mistaken for a complete list: %q", volumes)
+	}
+	for _, want := range []string{
+		"runtime=\"" + runtime + "\"",
+		"volume ls --format {{.Name}}",
+		"ctx.Err()=<nil>",
+		"exit status 125",
+		"fake podman volume-list failure: store is unavailable",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("listing error does not contain %q: %v", want, err)
+		}
+	}
+}
+
+func TestScratchVolumeListFailureIncludesContextError(t *testing.T) {
+	runtime := fakeScratchRuntime(t, "", "", 0)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := scratchVolumesOf(ctx, runtime, "diagnostic-workspace")
+	if err == nil || !strings.Contains(err.Error(), "ctx.Err()=context canceled") {
+		t.Fatalf("canceled volume listing error = %v, want its context error", err)
+	}
+}
+
+func TestScratchRemovalFailureIncludesRetainedLogs(t *testing.T) {
+	dir := t.TempDir()
+	state := filepath.Join(dir, ".yolo")
+	if err := os.MkdirAll(state, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, contents := range map[string]string{
+		"housekeeping.log": "fixture housekeeping diagnostic",
+		"launch.log":       "fixture retained launch output",
+	} {
+		if err := os.WriteFile(filepath.Join(state, name), []byte(contents), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runtime := fakeScratchRuntime(t, "", "fake podman volume-list failure: store is unavailable", 125)
+	_, err := waitForScratchRemoval(dir, "diagnostic-workspace", 1, runtime)
+	if err == nil {
+		t.Fatal("fake volume-list failure unexpectedly succeeded")
+	}
+	for _, want := range []string{
+		"runtime=\"" + runtime + "\"",
+		"volume ls --format {{.Name}}",
+		"ctx.Err()=<nil>",
+		"exit status 125",
+		"fake podman volume-list failure: store is unavailable",
+		"housekeeping.log:\nfixture housekeeping diagnostic",
+		"launch.log:\nfixture retained launch output",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("scratch-removal failure does not contain %q: %v", want, err)
+		}
+	}
+}
+
+func TestScratchRemovalDiagnosticLogTailIsBounded(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "housekeeping.log")
+	contents := strings.Repeat("x", scratchDiagnosticLogTailBytes+1) + "tail-marker"
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := scratchDiagnosticLog(path)
+	if !strings.Contains(got, "truncated to last") || !strings.HasSuffix(got, "tail-marker") ||
+		len(got) > scratchDiagnosticLogTailBytes+80 {
+		t.Fatalf("diagnostic log tail is not bounded or does not retain the end: length=%d suffix=%q",
+			len(got), got[len(got)-min(len(got), 32):])
+	}
+}
+
+func TestScratchVolumeListingParsesStdoutOnly(t *testing.T) {
+	runtime := fakeScratchRuntime(t,
+		"other-volume\ndiagnostic-workspace.scratch.0123456789abcdef.tmp\n",
+		"diagnostic-workspace.scratch.must-not-be-parsed.tmp",
+		0,
+	)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	got, err := scratchVolumesOf(ctx, runtime, "diagnostic-workspace")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"diagnostic-workspace.scratch.0123456789abcdef.tmp"}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("scratch volume listing = %q, want only stdout scratch entry %q", got, want)
+	}
+}
+
+func TestCIUploadsFailedIntegrationShardDiagnostics(t *testing.T) {
+	workflow, err := os.ReadFile(filepath.Join("..", ".github", "workflows", "ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(workflow)
+	var document yaml.Node
+	if err := yaml.Unmarshal(workflow, &document); err != nil {
+		t.Fatalf("ci.yml is not valid YAML: %v", err)
+	}
+	start := strings.Index(text, "      - name: Integration tests\n")
+	if start < 0 {
+		t.Fatal("could not locate integration-test workflow step")
+	}
+	end := strings.Index(text[start:], "  # THE CHECK THAT A COMPUTED PARTITION STILL NEEDS.")
+	if end < 0 {
+		t.Fatal("could not locate executed-test-record workflow step")
+	}
+	steps := text[start : start+end]
+	for _, want := range []string{
+		"id: integration",
+		"- name: Record which tests this shard ran\n        if: ${{ always() && (steps.integration.outcome == 'success' || steps.integration.outcome == 'failure') }}",
+		"if [ ! -s /tmp/shard/integration.json ]; then",
+		"refusing to fabricate an executed-test record",
+		"- name: Upload failed integration shard diagnostics\n        if: ${{ always() && failure() && steps.integration.outcome != 'skipped' }}",
+		"integration-failure-attempt-${{ github.run_attempt }}-${{ matrix.os }}-shard-${{ matrix.shard }}",
+		"/tmp/shard/integration.json",
+		"/tmp/shard/all-tests",
+		"/tmp/shard/my-tests",
+		"/tmp/shard/ran-tests",
+		"/tmp/shard/total",
+		"if-no-files-found: warn",
+	} {
+		if !strings.Contains(steps, want) {
+			t.Errorf("CI integration workflow does not route failed-shard diagnostics as required; missing %q", want)
+		}
+	}
+	if !strings.Contains(steps, "go test -count=1 -timeout 0 -json -run \"$PATTERN\" ./integration") ||
+		!strings.Contains(text, "result='${{ needs.integration.result }}'") {
+		t.Fatal("workflow no longer runs the integration gate or preserves aggregate shard completeness checking")
+	}
+}
+
+func fakeScratchRuntime(t *testing.T, stdout, stderr string, exitCode int) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "fake-podman")
+	script := "#!/bin/sh\nprintf '%s\\n' '" + stdout + "'\nprintf '%s\\n' '" + stderr + "' >&2\nexit " + strconv.Itoa(exitCode) + "\n"
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func requirePodman(t *testing.T) {
@@ -217,29 +419,45 @@ echo "EXIT_AT=$(date +%s.%N)"`
 // must have left the remover's record of its run.
 func awaitScratchRemoval(t *testing.T, dir, cname string, runs int) string {
 	t.Helper()
+	log, err := waitForScratchRemoval(dir, cname, runs, detectRuntime())
+	if err != nil {
+		t.Fatalf("%s", err)
+	}
+	return log
+}
+
+func waitForScratchRemoval(dir, cname string, runs int, runtime string) (string, error) {
 	logPath := filepath.Join(dir, ".yolo", "housekeeping.log")
 	deadline := time.Now().Add(2 * time.Minute)
 	for {
-		left := scratchVolumesOf(t, cname)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		left, err := scratchVolumesOf(ctx, runtime, cname)
+		cancel()
+		if err != nil {
+			return "", fmt.Errorf("%s", scratchRemovalFailureMessage(dir,
+				fmt.Sprintf("could not list scratch volumes after quit: %v", err)))
+		}
 		if len(left) == 0 {
 			break
 		}
 		if time.Now().After(deadline) {
-			log, _ := os.ReadFile(logPath)
-			t.Fatalf("scratch volumes still present 2 min after the quit: %v\nhousekeeping.log:\n%s", left, log)
+			return "", fmt.Errorf("%s", scratchRemovalFailureMessage(dir,
+				fmt.Sprintf("scratch volumes still present 2 min after the quit: %v", left)))
 		}
 		time.Sleep(time.Second)
 	}
 	// The volumes going is not the remover being done: its log line follows the last
 	// `volume rm`. Wait for the remover itself (its in-flight lock) before reading it.
 	if err := run.WaitForScratchRemovers(dir, detachedWriterWait); err != nil {
-		t.Fatal(err)
+		return "", fmt.Errorf("%s", scratchRemovalFailureMessage(dir,
+			fmt.Sprintf("waiting for scratch removers failed: %v", err)))
 	}
 	log, _ := os.ReadFile(logPath)
 	if got := strings.Count(string(log), "scratch: removed 4 volume(s)"); got < runs {
-		t.Fatalf("after %d quits the remover left %d records of its runs:\n%s", runs, got, log)
+		return "", fmt.Errorf("%s", scratchRemovalFailureMessage(dir,
+			fmt.Sprintf("after %d quits the remover left %d records of its runs", runs, got)))
 	}
-	return string(log)
+	return string(log), nil
 }
 
 // What no remover reached — a launcher SIGKILLed before its teardown, a host that went
