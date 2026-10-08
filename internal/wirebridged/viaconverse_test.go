@@ -38,7 +38,10 @@ func postConverse(t *testing.T, client *http.Client, addr, escapedPath string) (
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
-	b, _ := io.ReadAll(resp.Body)
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("reading Converse response: %v", err)
+	}
 	return resp, string(b)
 }
 
@@ -144,14 +147,36 @@ func TestAConverseModelOffANarrowedListIsRefusedInAWSsShape(t *testing.T) {
 	}
 }
 
+// converseEventStream is synthetic, valid AWS framing with Converse's event names and payloads
+// (AWS SDK 3.1127 ConverseStreamOutput). It is not an AWS capture or an InvokeModel `chunk`.
+func converseEventStream() string {
+	var stream []byte
+	for _, event := range [][2]string{
+		{"messageStart", `{"role":"assistant"}`},
+		{"contentBlockDelta", `{"contentBlockIndex":0,"delta":{"text":"hi"}}`},
+		{"messageStop", `{"stopReason":"end_turn"}`},
+		{"metadata", `{"usage":{"inputTokens":1,"outputTokens":1,"totalTokens":2},"metrics":{"latencyMs":3}}`},
+	} {
+		stream = append(stream, eventStreamMessage([][2]string{{":message-type", "event"},
+			{":event-type", event[0]}, {":content-type", "application/json"}}, []byte(event[1]))...)
+	}
+	return string(stream)
+}
+
+func converseStreamResponse() *http.Response {
+	resp := eventStreamResponse()
+	resp.Body = io.NopCloser(strings.NewReader(converseEventStream()))
+	return resp
+}
+
 // TestTheConverseEventStreamIsRelayedByteForByte: runtime's binary event stream reaches pi
 // untouched under its own type, with AWS's request id and Bedrock's own response facts, and
 // nothing else of the upstream's headers.
 func TestTheConverseEventStreamIsRelayedByteForByte(t *testing.T) {
 	up, _, via, _ := servedShippedBedrockBridge(t, "eu-west-1", "us-east-1")
-	up.responses = []func() *http.Response{eventStreamResponse}
+	up.responses = []func() *http.Response{converseStreamResponse}
 	resp, body := postConverse(t, bridgeClient, via, "/agent/pi/model/us.anthropic.claude-opus-5-5%3A0/converse-stream")
-	if resp.StatusCode != http.StatusOK || body != eventStreamBytes {
+	if resp.StatusCode != http.StatusOK || body != converseEventStream() {
 		t.Fatalf("relayed %d %q, want the event stream untouched", resp.StatusCode, body)
 	}
 	if ct := resp.Header.Get("Content-Type"); ct != "application/vnd.amazon.eventstream" {
@@ -163,13 +188,13 @@ func TestTheConverseEventStreamIsRelayedByteForByte(t *testing.T) {
 	}
 	// Each chunk is flushed as it arrives, which a served connection cannot show: the handler
 	// itself, over a recorder.
-	up.responses = append(up.responses, eventStreamResponse)
+	up.responses = append(up.responses, converseStreamResponse)
 	h := newConversePassthrough("pi", "bedrock", bedrockBase,
 		&bedrockSigner{region: "us-east-1", chain: &sigv4.Chain{Env: sigv4.Env{AccessKeyID: "AKID", SecretAccessKey: "s"}}})
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/model/us.anthropic.claude-opus-5-5%3A0/converse-stream",
 		strings.NewReader(converseBody)))
-	if rec.Body.String() != eventStreamBytes || !rec.Flushed {
+	if rec.Body.String() != converseEventStream() || !rec.Flushed {
 		t.Errorf("the handler relayed %q (flushed %v), want the stream untouched and flushed", rec.Body.String(), rec.Flushed)
 	}
 }
@@ -190,11 +215,20 @@ func TestAConverseStreamCutShortAbortsTheAgentsConnection(t *testing.T) {
 	}()
 	req, _ := http.NewRequest(http.MethodPost, "http://"+via+"/agent/pi/model/us.anthropic.claude-opus-5-5%3A0/converse-stream",
 		strings.NewReader(converseBody))
-	resp, err := bridgeClient.Do(req)
+	req.Header.Set("Authorization", "Bearer "+testCallerToken)
+	var protocols http.Protocols
+	protocols.SetUnencryptedHTTP2(true)
+	transport := &http.Transport{Protocols: &protocols}
+	t.Cleanup(transport.CloseIdleConnections)
+	client := &http.Client{Transport: transport}
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
+	if resp.ProtoMajor != 2 {
+		t.Fatalf("Converse stream used %s, want pi's h2c transport", resp.Proto)
+	}
 	got, rerr := io.ReadAll(resp.Body)
 	if rerr == nil {
 		t.Errorf("pi read %q and then a clean end; want a failed read, so a truncated reply is never taken as finished", got)
@@ -230,9 +264,12 @@ func TestTheViaListenerSpeaksHTTP2WithoutTLS(t *testing.T) {
 	up, _, via, _ := servedShippedBedrockBridge(t, "eu-west-1", "us-east-1")
 	var only http.Protocols
 	only.SetUnencryptedHTTP2(true)
-	h2only := &http.Client{Transport: &http.Transport{Protocols: &only}}
+	transport := &http.Transport{Protocols: &only}
+	t.Cleanup(transport.CloseIdleConnections)
+	h2only := &http.Client{Transport: transport}
+	up.responses = []func() *http.Response{converseStreamResponse}
 	resp, body := postConverse(t, h2only, via, "/agent/pi/model/us.anthropic.claude-opus-5-5%3A0/converse-stream")
-	if resp.StatusCode != http.StatusOK || resp.ProtoMajor != 2 || up.calls() != 1 {
+	if resp.StatusCode != http.StatusOK || resp.ProtoMajor != 2 || up.calls() != 1 || body != converseEventStream() {
 		t.Fatalf("over h2c: %s %d, upstream calls %d: %s", resp.Proto, resp.StatusCode, up.calls(), body)
 	}
 	resp, body = postTo(t, "http://"+via+"/agent/pi/chat/completions", `{"model":"us.openai.gpt-6.1-sol","messages":[]}`, nil)
@@ -268,6 +305,241 @@ func TestABedrockConverseRouteWithNoCredentialIdlesInAWSsShape(t *testing.T) {
 		"AWS_ACCESS_KEY_ID", "AWS_CONTAINER_CREDENTIALS_FULL_URI", "AWS_BEARER_TOKEN_BEDROCK"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("the idle message lacks %q: %s", want, msg)
+		}
+	}
+}
+
+// TestConverseToAProxyKeepsItsPrefixAndOnlyTheAllowedHeaders pins WG-I48's destination and
+// header boundary through the production boot, not just the URL builder.
+func TestConverseToAProxyKeepsItsPrefixAndOnlyTheAllowedHeaders(t *testing.T) {
+	up, _, via, _ := servedShippedBedrockBridgeOver(t, `{"bedrock":{"region":"eu-west-1","endpoints":{
+		"openai":{"base_url":"https://proxy.example/bedrock/openai/v1"}}}}`, "eu-west-1", "us-east-1")
+	req, err := http.NewRequest(http.MethodPost, "http://"+via+"/agent/pi/model/test%3A0/converse?discard=this",
+		strings.NewReader(converseBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key, value := range map[string]string{
+		"Content-Type": "application/json", "Accept": "application/json",
+		"X-Amzn-Bedrock-Trace": "ENABLED", "Authorization": "Bearer " + testCallerToken,
+		"X-Api-Key": "inbound-not-an-upstream-key", "X-Amz-Security-Token": "inbound-not-a-session",
+		"X-Amz-User-Agent": "aws-sdk-js/3.1127.0", "Amz-Sdk-Invocation-Id": "inv-1", "Amz-Sdk-Request": "attempt=1",
+	} {
+		req.Header.Set(key, value)
+	}
+	resp, err := bridgeClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || up.calls() != 1 {
+		t.Fatalf("status %d, upstream calls %d", resp.StatusCode, up.calls())
+	}
+	sent := up.requests[0]
+	if got, want := sent.URL.String(), "https://proxy.example/bedrock/model/test%3A0/converse"; got != want {
+		t.Errorf("target = %q, want %q with no inbound query", got, want)
+	}
+	for _, key := range []string{"Content-Type", "Accept", "X-Amzn-Bedrock-Trace"} {
+		if sent.Header.Get(key) != req.Header.Get(key) {
+			t.Errorf("allowed header %s = %q, want %q", key, sent.Header.Get(key), req.Header.Get(key))
+		}
+	}
+	for _, key := range []string{"X-Api-Key", "X-Amz-Security-Token", "X-Amz-User-Agent", "Amz-Sdk-Invocation-Id", "Amz-Sdk-Request"} {
+		if sent.Header.Get(key) != "" {
+			t.Errorf("inbound-only header %s crossed: %q", key, sent.Header.Get(key))
+		}
+	}
+	if auth := sent.Header.Get("Authorization"); !strings.HasPrefix(auth, "AWS4-HMAC-SHA256 Credential=AKIDPI/") ||
+		!strings.Contains(auth, "/eu-west-1/bedrock/") || strings.Contains(auth, testCallerToken) {
+		t.Errorf("Authorization = %q, want pi's own pair signed for the provider's region", auth)
+	}
+}
+
+// TestConverseWithABedrockAPIKeyRelaysAnUpstreamRefusal covers the other authorization arm
+// and AWS's JSON error wire: the bridge adds only the upstream bearer and keeps the refusal.
+func TestConverseWithABedrockAPIKeyRelaysAnUpstreamRefusal(t *testing.T) {
+	clearAWS(t)
+	up := withUpstream(t)
+	const refusal = `{"message":"fixture quota exceeded"}`
+	up.responses = []func() *http.Response{func() *http.Response {
+		resp := jsonResponse(http.StatusTooManyRequests, refusal)
+		resp.Header.Set("X-Amzn-Errortype", "ThrottlingException")
+		resp.Header.Set("X-Amzn-Requestid", "fixture-request")
+		resp.Header.Set("Retry-After", "2")
+		return resp
+	}}
+	providers, resolved := shippedBridgeTables(t, `{"bedrock":{"region":"us-east-1"}}`)
+	p := planFor(providers, map[string]string{"pi": "bedrock-bridge"}, resolved)
+	if p.adapter != nil {
+		p.adapter.ListenAddr = freeLoopback(t)
+	}
+	home := t.TempDir()
+	writeAgentKey(t, home, "pi", "export AWS_BEARER_TOKEN_BEDROCK=${AWS_BEARER_TOKEN_BEDROCK:-'fixture-upstream-key'}")
+	p.via.ListenAddr = freeLoopback(t)
+	startPlan(t, p, home)
+	resp, body := postConverse(t, bridgeClient, p.via.ListenAddr, "/agent/pi/model/test/converse-stream")
+	if resp.StatusCode != http.StatusTooManyRequests || body != refusal || up.calls() != 1 {
+		t.Fatalf("status %d, upstream calls %d, body %q: want an unchanged upstream refusal", resp.StatusCode, up.calls(), body)
+	}
+	for key, want := range map[string]string{"X-Amzn-Errortype": "ThrottlingException", "X-Amzn-Requestid": "fixture-request", "Retry-After": "2"} {
+		if resp.Header.Get(key) != want {
+			t.Errorf("response %s = %q, want %q", key, resp.Header.Get(key), want)
+		}
+	}
+	sent := up.requests[0]
+	if sent.Header.Get("Authorization") != "Bearer fixture-upstream-key" || sent.Header.Get("X-Amz-Date") != "" {
+		t.Errorf("upstream headers = %v, want only the Bedrock API key and no signature", sent.Header)
+	}
+}
+
+// TestConverseRelaysANonExpiry403LargerThanTheExpiryProbe pins refusal pass-through beyond
+// expiredRejection's 64 KiB inspection window. A non-expiry refusal must not be truncated or
+// retried, even though it passes through that helper before the body is relayed.
+func TestConverseRelaysANonExpiry403LargerThanTheExpiryProbe(t *testing.T) {
+	up, _, via, _ := servedShippedBedrockBridge(t, "eu-west-1", "us-east-1")
+	const envelope = `{"message":""}`
+	refusal := `{"message":"` + strings.Repeat("x", (64<<10)+1-len(envelope)) + `"}`
+	up.responses = []func() *http.Response{func() *http.Response {
+		resp := jsonResponse(http.StatusForbidden, refusal)
+		resp.Header.Set("X-Amzn-Errortype", "AccessDeniedException")
+		return resp
+	}}
+	resp, body := postConverse(t, bridgeClient, via, "/agent/pi/model/test/converse-stream")
+	if resp.StatusCode != http.StatusForbidden || body != refusal || up.calls() != 1 {
+		t.Fatalf("status %d, body bytes %d (want %d), upstream calls %d: want the entire non-expiry 403 without retry",
+			resp.StatusCode, len(body), len(refusal), up.calls())
+	}
+	if resp.Header.Get("X-Amzn-Errortype") != "AccessDeniedException" {
+		t.Errorf("response headers lost the upstream error type: %v", resp.Header)
+	}
+}
+
+// TestConverseDoesNotHideANonExpiry403BodyReadFailure exercises the production boot on
+// pi's h2c transport. A failure consumed by the expiry probe must still abort the agent's
+// read, retain the already-read bytes and be logged with the original upstream error.
+func TestConverseDoesNotHideANonExpiry403BodyReadFailure(t *testing.T) {
+	up, _, via, logs := servedShippedBedrockBridge(t, "eu-west-1", "us-east-1")
+	stream, pw := newStubStream()
+	up.responses = []func() *http.Response{func() *http.Response {
+		return &http.Response{StatusCode: http.StatusForbidden,
+			Header: http.Header{"Content-Type": {"application/json"}, "X-Amzn-Errortype": {"AccessDeniedException"}}, Body: stream}
+	}}
+	const part = `{"message":"fixture permission denied`
+	go func() {
+		_, _ = io.WriteString(pw, part)
+		_ = pw.CloseWithError(fmt.Errorf("fixture non-expiry response read failure"))
+	}()
+	var protocols http.Protocols
+	protocols.SetUnencryptedHTTP2(true)
+	transport := &http.Transport{Protocols: &protocols}
+	t.Cleanup(transport.CloseIdleConnections)
+	client := &http.Client{Transport: transport}
+	req, err := http.NewRequest(http.MethodPost, "http://"+via+"/agent/pi/model/test/converse-stream", strings.NewReader(converseBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+testCallerToken)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, readErr := io.ReadAll(resp.Body)
+	if resp.ProtoMajor != 2 || resp.StatusCode != http.StatusForbidden || string(body) != part || readErr == nil || up.calls() != 1 {
+		t.Errorf("%s %d, body %q, read error %v, upstream calls %d: want the partial 403 and a failed read, without retry",
+			resp.Proto, resp.StatusCode, body, readErr, up.calls())
+	}
+	waitClosed(t, stream)
+	wantLines(t, logs(), fmt.Sprintf("Converse stream for model test ended early after %d bytes", len(part)),
+		"fixture non-expiry response read failure")
+}
+
+// TestConverseExpiryStillRefreshesAndRetriesOnlyOnce pins the existing retry contract
+// through the production boot: the first expiry refreshes the fixture credential, and a
+// second expiry is relayed unchanged rather than starting another retry.
+func TestConverseExpiryStillRefreshesAndRetriesOnlyOnce(t *testing.T) {
+	const refusal = `{"message":"Signature expired: fixture"}`
+	for _, secondExpiry := range []bool{false, true} {
+		t.Run(fmt.Sprintf("second-expiry=%v", secondExpiry), func(t *testing.T) {
+			clearAWS(t)
+			up := withUpstream(t)
+			expired := func() *http.Response { return jsonResponse(http.StatusForbidden, refusal) }
+			up.responses = []func() *http.Response{expired}
+			if secondExpiry {
+				up.responses = append(up.responses, expired)
+			}
+			adapter, fetches := credAdapter(t)
+			providers, resolved := shippedBridgeTables(t, `{"bedrock":{"region":"us-east-1"}}`)
+			p := planFor(providers, map[string]string{"pi": "bedrock-bridge"}, resolved)
+			if p.adapter != nil {
+				p.adapter.ListenAddr = freeLoopback(t)
+			}
+			home := t.TempDir()
+			writeAgentKey(t, home, "pi", "export AWS_CONTAINER_CREDENTIALS_FULL_URI=${AWS_CONTAINER_CREDENTIALS_FULL_URI:-'"+adapter.URL+"/credentials'}")
+			p.via.ListenAddr = freeLoopback(t)
+			startPlan(t, p, home)
+			resp, body := postConverse(t, bridgeClient, p.via.ListenAddr, "/agent/pi/model/test/converse-stream")
+			wantStatus := http.StatusOK
+			if secondExpiry {
+				wantStatus = http.StatusForbidden
+				if body != refusal {
+					t.Errorf("second expiry body = %q, want %q unchanged", body, refusal)
+				}
+			}
+			if resp.StatusCode != wantStatus || up.calls() != 2 || *fetches != 2 {
+				t.Fatalf("status %d, upstream calls %d, credential fetches %d: want status %d after one refresh/retry",
+					resp.StatusCode, up.calls(), *fetches, wantStatus)
+			}
+			if !strings.Contains(up.requests[1].Header.Get("Authorization"), "Credential=ASIA2/") {
+				t.Errorf("retry did not use refreshed fixture credential: %v", up.requests[1].Header)
+			}
+		})
+	}
+}
+
+// TestConverseOverHTTP2RefusesAnUnauthenticatedCallerBeforeTheRoute pins the common caller
+// gate on pi's h2c transport. Its 401 remains OpenAI-shaped as WG-I48 states; an authenticated
+// non-POST reaches the Converse route and is refused in AWS's shape. Neither reaches upstream.
+func TestConverseOverHTTP2RefusesAnUnauthenticatedCallerBeforeTheRoute(t *testing.T) {
+	up, _, via, _ := servedShippedBedrockBridge(t, "eu-west-1", "us-east-1")
+	var protocols http.Protocols
+	protocols.SetUnencryptedHTTP2(true)
+	transport := &http.Transport{Protocols: &protocols}
+	t.Cleanup(transport.CloseIdleConnections)
+	client := &http.Client{Transport: transport}
+	for _, c := range []struct {
+		method, token string
+		status        int
+		message       string
+	}{
+		{http.MethodPost, "", http.StatusUnauthorized, "carried no caller token"},
+		{http.MethodPost, "fixture-wrong-token", http.StatusUnauthorized, "not this launch's"},
+		{http.MethodGet, testCallerToken, http.StatusMethodNotAllowed, "route takes POST"},
+	} {
+		req, err := http.NewRequest(c.method, "http://"+via+"/agent/pi/model/test/converse-stream", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.token != "" {
+			req.Header.Set("Authorization", "Bearer "+c.token)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, err := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resp.ProtoMajor != 2 || resp.StatusCode != c.status || !strings.Contains(string(body), c.message) || up.calls() != 0 {
+			t.Errorf("%s with token %q: %s %d, %q, upstream calls %d", c.method, c.token, resp.Proto, resp.StatusCode, body, up.calls())
+		}
+		if c.status == http.StatusUnauthorized && (resp.Header.Get("WWW-Authenticate") == "" || !strings.Contains(string(body), `"error":`)) {
+			t.Errorf("caller refusal lacks OpenAI error or bearer challenge: %v %s", resp.Header, body)
+		}
+		if c.status == http.StatusMethodNotAllowed && resp.Header.Get("X-Amzn-Errortype") != "ValidationException" {
+			t.Errorf("method refusal lacks AWS error type: %v", resp.Header)
 		}
 	}
 }

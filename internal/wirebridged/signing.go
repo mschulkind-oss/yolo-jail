@@ -142,15 +142,16 @@ func signingFailure(err error) error {
 // expiredRejection reports whether resp is AWS refusing the request because the
 // signature or the session token it carried has expired: a 403 whose error type or
 // message says so. Such a request did not run, so the handler refreshes the credential
-// and retries once (docs/design/wire-bridge-gateway.md §2.1). The body is buffered and
-// put back, so a response that is NOT an expiry is relayed untouched.
+// and retries once (docs/design/wire-bridge-gateway.md §2.1). Only the first 64 KiB is
+// inspected; the body replays that prefix and any read error before its unread remainder,
+// so a response that is NOT an expiry is relayed untouched. The caller still owns Close.
 func expiredRejection(resp *http.Response) bool {
 	if resp.StatusCode != http.StatusForbidden {
 		return false
 	}
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-	_ = resp.Body.Close()
-	resp.Body = io.NopCloser(bytes.NewReader(body))
+	original := resp.Body
+	body, err := io.ReadAll(io.LimitReader(original, 64<<10))
+	resp.Body = &expiryProbeBody{ReadCloser: original, prefix: bytes.NewReader(body), readErr: err}
 	evidence := resp.Header.Get("X-Amzn-ErrorType") + " " + string(body)
 	for _, marker := range []string{"ExpiredToken", "Signature expired",
 		"security token included in the request is expired"} {
@@ -159,4 +160,24 @@ func expiredRejection(resp *http.Response) bool {
 		}
 	}
 	return false
+}
+
+// expiryProbeBody restores bytes and a non-EOF error consumed by the expiry probe. Keeping
+// the original ReadCloser also keeps the request's cancellation-on-close (sendHeaderBounded).
+type expiryProbeBody struct {
+	io.ReadCloser
+	prefix  *bytes.Reader
+	readErr error
+}
+
+func (b *expiryProbeBody) Read(p []byte) (int, error) {
+	if b.prefix.Len() > 0 {
+		return b.prefix.Read(p)
+	}
+	if b.readErr != nil {
+		err := b.readErr
+		b.readErr = nil
+		return 0, err
+	}
+	return b.ReadCloser.Read(p)
 }

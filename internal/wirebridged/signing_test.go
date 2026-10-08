@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -249,6 +250,66 @@ func TestANonExpiry403IsRelayedWithoutARetry(t *testing.T) {
 	if rec.Code != http.StatusForbidden || up.calls() != 1 ||
 		!strings.Contains(fmt.Sprint(doc["error"]), "not authorized") {
 		t.Fatalf("status %d, calls %d, body %s; want AWS's 403 relayed once", rec.Code, up.calls(), rec.Body)
+	}
+}
+
+// expiryProbeFixtureBody returns its error only once, possibly with the final bytes, so
+// replaying just the original reader would lose a failure consumed during inspection.
+type expiryProbeFixtureBody struct {
+	reader *strings.Reader
+	err    error
+	closes int
+}
+
+func (b *expiryProbeFixtureBody) Read(p []byte) (int, error) {
+	n, err := b.reader.Read(p)
+	if b.reader.Len() == 0 && b.err != nil {
+		err, b.err = b.err, nil
+	}
+	return n, err
+}
+
+func (b *expiryProbeFixtureBody) Close() error {
+	b.closes++
+	return nil
+}
+
+// TestExpiredRejectionPreservesTheOriginalBodyAndClose covers the shared probe's bounded
+// inspection and one-shot read error, independent of a caller's error translation policy.
+func TestExpiredRejectionPreservesTheOriginalBodyAndClose(t *testing.T) {
+	readErr := errors.New("fixture one-shot upstream read failure")
+	for _, c := range []struct {
+		name, body, errorType string
+		readErr               error
+		expired               bool
+	}{
+		{"small refusal", `{"message":"permission denied"}`, "AccessDeniedException", nil, false},
+		{"large refusal", strings.Repeat("x", (64<<10)+1), "AccessDeniedException", nil, false},
+		{"error within probe", "partial refusal", "AccessDeniedException", readErr, false},
+		{"error beyond probe", strings.Repeat("x", (64<<10)+1), "AccessDeniedException", readErr, false},
+		{"header expiry", "refusal", "ExpiredTokenException", nil, true},
+		{"body expiry", "Signature expired", "InvalidSignatureException", nil, true},
+		{"expiry despite read error", "security token included in the request is expired", "", readErr, true},
+		{"expiry beyond probe is not inspected", strings.Repeat("x", 64<<10) + "ExpiredToken", "", nil, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			original := &expiryProbeFixtureBody{reader: strings.NewReader(c.body), err: c.readErr}
+			resp := &http.Response{StatusCode: http.StatusForbidden, Header: http.Header{}, Body: original}
+			resp.Header.Set("X-Amzn-Errortype", c.errorType)
+			if got := expiredRejection(resp); got != c.expired {
+				t.Errorf("expired = %v, want %v", got, c.expired)
+			}
+			if original.closes != 0 || original.reader.Size()-int64(original.reader.Len()) > 64<<10 {
+				t.Errorf("probe closed %d times or read beyond its bound: %d bytes left", original.closes, original.reader.Len())
+			}
+			body, err := io.ReadAll(resp.Body)
+			if string(body) != c.body || !errors.Is(err, c.readErr) {
+				t.Errorf("body bytes %d (want %d), error %v (want %v)", len(body), len(c.body), err, c.readErr)
+			}
+			if err := resp.Body.Close(); err != nil || original.closes != 1 {
+				t.Errorf("caller close = %v, original closes = %d, want exactly one close", err, original.closes)
+			}
+		})
 	}
 }
 
