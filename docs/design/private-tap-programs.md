@@ -97,11 +97,11 @@ Constraints this design does not reopen:
 | :--- | :--- |
 | A `program` is delivered `via` `npm`, `installer` or `source`; nothing names Homebrew | [`contributes.go`](../../internal/packdecl/contributes.go) (`Via`) |
 | The user-scope `provisioners` order can rank `brew` first **at the host** to install an agent. It covers only host installs, and no jail reads it | [`provisioners.go`](../../internal/config/provisioners.go), [`PS-D9`](provisioner-sets.md#PS-D9) |
-| `install_hints` may name `owner/tap/name`. It is printed advice, not an install | [`installhints.go`](../../internal/packdecl/installhints.go) |
+| `install_hints` may name `owner/tap/name`. With `provisioners.host` ranking `brew` first, `hostfloor.Outranking` hands that program to brew at the host: the floor keeps no entry, a host launch runs brew's copy, and the stop names `brew install <hint>`. This is the exception [`HNR-D2`](host-notch-readiness.md#HNR-D2) allows | [`installhints.go`](../../internal/packdecl/installhints.go), [`hostfloor/provisioners.go`](../../internal/hostfloor/provisioners.go) |
 | The GitHub broker refuses `gh release download`, *"it writes files on the host"*, and every verb outside the workspace's approved repositories | [`policy.go`](../../internal/ghbroker/policy.go) |
 | A loophole's `binaries` are downloaded **host-side** by `yolo pack install` and checked against a pinned sha256. They are kept in a content-addressed cache that no jail mounts whole, and delivered as one read-only file bind per build | [`loophole-system.md`](../reference/loophole-system.md#a-program-the-loophole-downloads) |
 | macos-user has no bind mounts. Its launchers run captured programs from a **root-owned copy** under the backend's state directory | [`install-capture.md` H4](../plans/install-capture.md#hand-offs--what-is-not-wired-and-the-exact-line-that-wires-it) |
-| macos-user's Seatbelt profile allows by default and denies `/Users`. The sandbox account can therefore read `/opt/homebrew` but not the host user's home, Homebrew cache or keychain. `SandboxPath` leaves `/opt/homebrew/bin` out on purpose | [`seatbelt.go`](../../internal/macosuser/seatbelt.go), [`macosuser.go`](../../internal/macosuser/macosuser.go) (`SandboxPath`) |
+| macos-user's Seatbelt profile allows by default and denies `/Users`, `/Volumes`, the keychains and raw disks. The sandbox account can therefore read **all of** `/opt/homebrew`, including every tap's clone and its `.git/config`, and `/etc/homebrew/brew.env`, but not the host user's home, Homebrew cache or keychain. `SandboxPath` does not include `/opt/homebrew/bin` | [`seatbelt.go`](../../internal/macosuser/seatbelt.go), [`macosuser.go`](../../internal/macosuser/macosuser.go) (`SandboxPath`) |
 | Apple Container 1.1.0 binds a single regular file intact (measured 2026-09-14) | [`helpers.go`](../../internal/cli/run/helpers.go) |
 | The image's `/lib64` interpreter is nix-ld, so a dynamically linked FHS glibc binary runs in a container jail | [`flake.nix`](../../flake.nix) (`nixLd`), [`mise-node-dynamic-linking.md`](../reference/mise-node-dynamic-linking.md) |
 
@@ -141,7 +141,9 @@ are rejected in [§6](#6-alternatives-considered).
 - <a id="PT-P2"></a>**PT-P2. yolo never handles the credential, even on the host.** It runs the
   user's `brew` as the user, in the environment the launch was given, and brew's own rules find the
   token. yolo reads, stores and forwards no token. The same `brew` command the user would type is
-  what runs.
+  what runs. That environment is yolo's own process environment, never the one composed for the
+  jail from `env_sources`. A `HOMEBREW_GITHUB_API_TOKEN` the user puts in an `env_sources` file is
+  forwarded into the jail by the user's own config, which this design does not change.
 - <a id="PT-P3"></a>**PT-P3. One store, every backend.** All four jail backends take their bytes
   from the tap store. Only the final step differs: a read-only bind, or a root-owned copy.
 - <a id="PT-P4"></a>**PT-P4. A jail never fetches.** Not on boot, and not from a nested launch. It
@@ -181,11 +183,21 @@ A pack declares a tap program:
 
 ### 4.2 The tap fetch
 
-**Trigger.** The fetch runs on the host. It runs in a jail launch's pre-flight, before the container
-or sandbox starts and in the place packs are staged. It also runs in the host readiness act
+**Trigger.** The fetch runs on the host, in a jail launch, **after the attach decision and only on
+the branch that starts a fresh container or sandbox**. An attach runs the pre-flights to compare
+trees, but it never fetches: it joins a jail whose bytes are already delivered, and a running jail's
+bytes never change ([§4.3](#43-delivery-per-backend)). So an offline attach always succeeds. When
+the attach's staged tree has a tap program the running jail lacks, the existing "trees differ" line
+names it. If [OQ-PT2](#OQ-PT2) rules for a floor copy, the fetch also runs in the host readiness act
 ([`HNR-D1`](host-notch-readiness.md#HNR-D1)). Each launch fetches only the jail platform it is
-starting. An attach fetches nothing: it joins a jail whose bytes are already delivered, and a
-running jail's bytes never change ([§4.3](#43-delivery-per-backend)).
+starting.
+
+**Why at launch.** The loophole `binaries` cache it resembles is filled only by `yolo pack install`,
+and its launches never fetch, because a manifest pins those digests ahead of time. Here the digest
+comes from the formula at fetch time, and the version moves with the tap
+([OQ-PT3](#OQ-PT3)), so an install-time-only fetch would make every update a manual step. If
+[OQ-PT3](#OQ-PT3) rules for a pinned version, the fetch can move to `yolo pack install` with the
+pin.
 
 **Steps, per tap program:**
 
@@ -207,15 +219,33 @@ running jail's bytes never change ([§4.3](#43-delivery-per-backend)).
 6. **Record** the admitted digest against `(formula, platform)` together with the version, as the
    last good build for that pair.
 
-**Environment.** yolo runs `brew` from the host's `brew` on the launch PATH, as the user, in the
-launch's own environment. It never adds a variable that holds a credential. brew's `env -i` then
-keeps what brew keeps. That `brew` path is read from the PATH the launch was given, by the same
-rule as [`HE-DIR1`](../reference/host-agent-environment.md#he-dir1). The case where that
-environment has no token is [OQ-PT5](#OQ-PT5).
+**Environment.** yolo runs `brew` from the host's `brew` on the launch PATH, as the user, in
+yolo's own process environment ([PT-P2](#PT-P2)). It adds exactly two variables,
+`HOMEBREW_NO_AUTO_UPDATE=1` and `HOMEBREW_NO_INSTALL_CLEANUP=1`, so that a fetch never updates
+every tap or prunes the user's Cellar as a side effect. It never adds a variable that holds a
+credential. brew's `env -i` then keeps what brew keeps. That `brew` path is read from the PATH the
+launch was given, by the same rule as
+[`HE-DIR1`](../reference/host-agent-environment.md#he-dir1), so `host_path` is the fix when a
+desktop launcher's PATH lacks `/opt/homebrew/bin`. The case where that environment has no token is
+[OQ-PT5](#OQ-PT5).
+
+**Output.** brew's raw stdout and stderr go to a host-only log under yolo's state directory, never
+to the launch stream. The launch stream is teed to `<workspace>/.yolo/launch.log`, which every jail
+can read, and a copied private-repo strategy can put the token in a URL's userinfo, which curl's
+errors print. A refusal therefore carries a summary of brew's error with URL userinfo and
+`Authorization` values redacted, and names the host log for the full text.
+
+**Where the store lives.** The tap store and its records sit in yolo's state directory beside the
+pack-binaries cache, `~/.local/share/yolo-jail/tap-programs/`. They are **never under `cache/`**,
+which every jail mounts read-write: a jail that could write there could hand the host a binary to
+run on the next launch. On the macOS podman machine that path is inside the user's home, which the
+machine's default shares already cover, so a bind from it reaches the VM.
 
 **Concurrency.** One host lock per `(formula, platform)` covers steps 2 to 6. A second launch waits,
-then finds the record written and does not download again. brew's own download lock covers anything
-else that runs brew at the same time. Admission is a rename of content-addressed bytes, so two
+then finds the record written and does not download again. brew does not wait on its own locks: it
+exits with *"Another active Homebrew process"* when the user, or another yolo fetching a different
+formula, is running brew. yolo retries that exit three times, two seconds apart, then treats it as a
+fetch failure ([§4.7](#47-failure-paths)). Admission is a rename of content-addressed bytes, so two
 admissions of the same digest cannot disagree.
 
 ### 4.3 Delivery per backend
@@ -233,8 +263,15 @@ already provides. A blocker of the same name still wins, because it sits ahead o
 - **macos-user:** the file is copied into a root-owned directory under the backend's state directory
   that the sandbox account can read, as for H4's captures. Delivery does not go through
   `/opt/homebrew`, for two reasons:
-  - `SandboxPath` leaves `/opt/homebrew/bin` out on purpose.
+  - `SandboxPath` does not include `/opt/homebrew/bin`, and adding it would expose every brew tool.
   - `brew upgrade` changes the kegs there while a session is running.
+- **macos-user's existing exposure.** The sandbox account can already read every tap's clone under
+  `$(brew --prefix)/Library/Taps`, including a `.git/config` whose remote URL may embed a token, and
+  both `brew.env` files where users commonly set `HOMEBREW_GITHUB_API_TOKEN`. That is true today,
+  with or without this design. Every macos-user launch therefore adds Seatbelt read-denies for
+  `$(brew --prefix)/Library/Taps`, `$(brew --prefix)/etc/homebrew/brew.env` and
+  `/etc/homebrew/brew.env` ([PT-D9](#PT-D9)). Each deny carries a `#seatbelt-test-id`, as every deny
+  in that profile does.
 
 A running jail keeps the bytes it was launched with. A newer fetch changes only the next launch,
 which matches how pack trees behave.
@@ -244,10 +281,15 @@ which matches how pack trees behave.
 On the host there is already a Homebrew that the private tap works in. What a host launch does with
 a tap program is [OQ-PT2](#OQ-PT2):
 
-- **brew install.** yolo runs `brew install org/tap/tool` into the user's Homebrew, and the floor
-  records the keg's `opt` path as the program's entry. That is an explicit path, not a PATH lookup,
-  so [`HNR-D2`](host-notch-readiness.md#HNR-D2) holds.
-- **Floor copy.** yolo places the tap store's host-platform file in the floor prefix.
+- **brew's copy.** The program takes the hand-off the `provisioners` order already performs
+  (`hostfloor.Outranking`): the floor keeps no entry, and a host launch runs brew's copy, which
+  [`HNR-D2`](host-notch-readiness.md#HNR-D2) already excepts. The new part is that the readiness act
+  runs `brew install org/tap/tool` for a missing one, where today it only names the command.
+- **Floor copy.** yolo places the tap store's host-platform file in the floor prefix, and the
+  readiness act fetches it.
+
+`formula` is the only spelling. yolo derives the program's `brew` install hint from it, so the
+formula is written once ([PT-D11](#PT-D11)).
 
 ### 4.5 Updates and offline
 
@@ -261,10 +303,13 @@ a tap program is [OQ-PT2](#OQ-PT2):
   starts and lists the missing program.
 - **Retention.** The tap store keeps two kinds of entry:
   - the current and the previous build for each `(formula, platform)`;
-  - every digest a container yolo can see is running with.
+  - every digest a live jail was launched with.
 
-  Anything else is reclaimed by liveness, never by age. A reaper that cannot ask the runtime
-  declines rather than sweeping (the tri-state rule in [`AGENTS.md`](../../AGENTS.md#architecture)).
+  Each fresh launch writes the digests it delivered beside its pack tree's `.live` marker. An entry
+  goes only once every container that recorded it is known gone, by the same tri-state check that
+  retires a pack tree (`forgetGoneContainer`). A reaper that cannot ask the runtime declines rather
+  than sweeping (the tri-state rule in [`AGENTS.md`](../../AGENTS.md#architecture)). Never by age.
+  macos-user's root-owned copies follow the same rule against that backend's session record.
   `yolo stores` lists the tap store as yolo's.
 
 ### 4.6 Trust and disclosure
@@ -273,11 +318,17 @@ a tap program is [OQ-PT2](#OQ-PT2):
   host. `brew fetch` evaluates the formula, which is Ruby from the tap. The tap is code the user
   already runs whenever they `brew install` from it. [OQ-PT4](#OQ-PT4) keeps that true by never
   tapping anything new: a pack can only name formulae from a tap the user added themselves.
+- **Who can select one.** `packs` is user-scope only today, so a jail agent cannot select a pack and
+  make the host run brew. If [`OQ-PK1`](../reference/pack-system.md#oq-pk1) admits packs from a
+  workspace config, which an agent can edit, `via: "brew"` stays honored only from user-scope packs,
+  as `provisioners` is ([PT-D10](#PT-D10)). Otherwise an agent could pull any formula from a tapped
+  private tap into the next jail.
 - **Disclosure.** Every launch prints one line per tap program. Like the pack read and exec
   banners, the line cannot be suppressed. `yolo pack footprint` lists `brew` as a host-execution
   crossing that names the tap.
-- **What the jail can learn.** It gets the bytes of one build of each declared formula. It gets no
-  formula source, no tap clone, no release listing and no other asset. A program that has its own
+- **What the jail can learn.** It gets the bytes of one build of each declared formula. With
+  [PT-D9](#PT-D9)'s denies on macos-user, it gets no formula source, no tap clone, no release listing
+  and no other asset on any backend. A program that has its own
   secrets compiled in carries them into the jail, as it would onto the host. That property belongs
   to the program, not to this channel.
 
@@ -285,14 +336,15 @@ a tap program is [OQ-PT2](#OQ-PT2):
 
 | Case | What happens |
 | :--- | :--- |
-| No `brew` on the launch PATH | Readiness refusal naming `brew` and the formula. A Linux host without Linuxbrew falls in this case |
+| No `brew` on the launch PATH | Readiness refusal naming `brew`, the formula and `host_path` as the fix when brew is installed but off this launch's PATH. A Linux host without Linuxbrew falls in this case |
+| brew busy (*"Another active Homebrew process"*) after three retries | A fetch failure: the last good build if one exists, with a line, otherwise the readiness refusal |
 | Tap not tapped | Refusal naming `brew tap org/tap` ([OQ-PT4](#OQ-PT4)) |
-| brew download fails with 401/404 and no token is in the environment | Refusal naming `HOMEBREW_GITHUB_API_TOKEN` and the environment yolo was started from ([OQ-PT5](#OQ-PT5)). A last good build is used if one exists, with a line saying so |
+| brew download fails with 401/404 and no token is in the environment | Refusal naming `HOMEBREW_GITHUB_API_TOKEN` and the environment yolo was started from ([OQ-PT5](#OQ-PT5)). A last good build is used if one exists, with a line saying so. Either way brew's text is redacted and the full text is in the host log |
 | The formula has no build for the jail platform | Refusal naming the formula and the platform. The other backends are unaffected. Per the maintainer's fact this should not happen |
 | `bin` not found, or found more than once, in the archive | Refusal listing the candidates and naming the pack's `path` key |
 | Wrong executable format, or an interpreter under a brew prefix | Refusal naming what was found |
 | Checksum mismatch (brew's own check) | Refusal with brew's message. Nothing is admitted |
-| A nested launch (yolo run inside a jail) | It never fetches ([PT-P4](#PT-P4)). It re-delivers the outer jail's copy when the platforms match, and otherwise reports the program as unavailable in a nested jail |
+| A nested launch (yolo run inside a jail) | It never fetches ([PT-P4](#PT-P4)). The outer launch binds, beside each delivered file, a read-only record of its formula, version and platform. The inner launch delivers that file when the record's formula and platform match. Otherwise the program is missing, which is the ordinary readiness refusal, and `YOLO_ALLOW_MISSING_PROGRAMS=1` applies |
 | `formula` on a non-brew route, or not fully qualified | Pack validation error |
 | Zero tap programs | Nothing runs. There is no brew probe and no line |
 
@@ -301,8 +353,9 @@ a tap program is [OQ-PT2](#OQ-PT2):
 - A pack declares `org/tap/tool`. In a podman jail on a Mac, `tool --version` prints the Linux arm64
   build's version.
 - In the same jail, nothing holds a GitHub credential: neither `env`, nor `/proc/1/environ`, nor
-  `~/.config`, nor any mounted file.
-- On macos-user, the same command runs the darwin build from the root-owned copy.
+  `~/.config`, nor any mounted file, nor `<workspace>/.yolo/launch.log` after a failed fetch.
+- On macos-user, the same command runs the darwin build from the root-owned copy, and reading
+  `$(brew --prefix)/Library/Taps` or either `brew.env` is refused by the kernel.
 - With the network down, a second launch starts and prints the last-good line. A first launch on a
   clean machine refuses and names the bypass.
 - A tap that was never tapped refuses with the `brew tap` command, and yolo has run no `brew tap`.
@@ -380,9 +433,12 @@ Columns are the four options in [§6](#6-alternatives-considered). Recommended i
 2. **The declaration**, with its validation: `via: "brew"`, `formula`, `path`.
 3. **The tap fetch and the tap store**: the lock, the format checks, admission, the last-good
    record and retention.
-4. **Container delivery**: a file bind plus a launcher, measured in a nested jail and on Apple
+4. **Container delivery**: a file bind plus a launcher. A nested jail can never exercise a fetch
+   ([PT-P4](#PT-P4)), so the integration case drives a fake `brew` on the launching side that prints
+   a fixture archive's path, and a real Mac run with the real tap closes it, on podman and on Apple
    Container.
-5. **macos-user delivery**: the root-owned copy. This needs a Mac run.
+5. **macos-user delivery**: the root-owned copy, and [PT-D9](#PT-D9)'s denies with their
+   `macosuserseatbelt_test.go` cases. This needs a Mac run.
 6. **The host notch**, as [OQ-PT2](#OQ-PT2) rules.
 7. **Disclosure and footprint**, and the user-guide page for a private tap.
 
@@ -405,27 +461,28 @@ Columns are the four options in [§6](#6-alternatives-considered). Recommended i
    **Answer:**
    > _(empty — fill in when decided)_
 
-2. 💬 **OQ-PT2: At the host, does yolo `brew install` the formula or place its own floor copy?**
+2. 💬 **OQ-PT2: At the host, does a tap program run brew's copy or a yolo floor copy?**
 
    Settles who owns the host's copy, and whether `brew upgrade` updates it.
 
-   - **brew install.** The user's Homebrew owns the copy. `brew upgrade`, `brew list` and
-     `brew uninstall` behave as usual, and the floor records the keg's `opt` path. yolo writes into
-     the user's Homebrew.
+   - **brew's copy.** The existing `provisioners` hand-off, with the readiness act running
+     `brew install` for a missing one. The user's Homebrew owns the copy, and `brew upgrade`,
+     `brew list` and `brew uninstall` behave as usual. yolo writes into the user's Homebrew.
    - **Floor copy.** yolo places the tap store's host build in its floor prefix. The host and jail
      versions are identical by construction. A brew-installed copy, if the user has one, becomes a
      second copy.
 
-   <!-- vantage: question id=OQ-PT2 leaning="brew install — the host is where this tap already works, and a second copy beside the user's Homebrew helps nobody." -->
+   <!-- vantage: question id=OQ-PT2 leaning="brew's copy — the host is where this tap already works, and a second copy beside the user's Homebrew helps nobody." -->
 
-   _Leaning:_ brew install — the host is where this tap already works, and a second copy beside the user's Homebrew helps nobody.
+   _Leaning:_ brew's copy — the host is where this tap already works, and a second copy beside the user's Homebrew helps nobody.
 
    **Answer:**
    > _(empty — fill in when decided)_
 
 3. 💬 **OQ-PT3: Which version does a launch deliver, and who refreshes the tap?**
 
-   Settles evergreen versus reproducible, and whether yolo runs `brew update`.
+   Settles evergreen versus reproducible, and whether yolo runs `brew update`, which updates
+   every tap and homebrew/core, not only this one.
 
    - **Evergreen.** On the floor's update interval yolo runs `brew update`, which brew's own
      auto-update would also run on the user's next brew command, and delivers the tap's current
@@ -481,14 +538,17 @@ Implementation decisions made while designing. Each one is reversible, and none 
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| <a id="PT-D1"></a>PT-D1 | The fetch runs host-side only: in the jail launch's pre-flight and in the host readiness act. An attach and a nested launch never fetch | 2026-10-08 | [§4.2](#42-the-tap-fetch), [§4.7](#47-failure-paths) | — |
-| <a id="PT-D2"></a>PT-D2 | yolo runs the launch PATH's `brew` as the user, in the launch's environment, and adds no credential to it | 2026-10-08 | [§4.2](#42-the-tap-fetch) | — |
-| <a id="PT-D3"></a>PT-D3 | The tap store is content-addressed (`<sha256>/<bin>`, `0555`), admits by atomic rename, and is never mounted whole | 2026-10-08 | [§4.2](#42-the-tap-fetch), [§4.3](#43-delivery-per-backend) | — |
+| <a id="PT-D1"></a>PT-D1 | The fetch runs host-side only, on a launch's fresh-container branch after the attach decision (and in the host readiness act if [OQ-PT2](#OQ-PT2) picks a floor copy). An attach and a nested launch never fetch | 2026-10-08 | [§4.2](#42-the-tap-fetch), [§4.7](#47-failure-paths) | — |
+| <a id="PT-D2"></a>PT-D2 | yolo runs the launch PATH's `brew` as the user, in yolo's own process environment plus `HOMEBREW_NO_AUTO_UPDATE=1` and `HOMEBREW_NO_INSTALL_CLEANUP=1`, and adds no credential. brew's output goes to a host-only log, and the launch stream gets a redacted summary | 2026-10-08 | [§4.2](#42-the-tap-fetch) | — |
+| <a id="PT-D3"></a>PT-D3 | The tap store is content-addressed (`<sha256>/<bin>`, `0555`), lives in the state directory beside `pack-binaries` and never under `cache/`, admits by atomic rename, and is never mounted whole | 2026-10-08 | [§4.2](#42-the-tap-fetch), [§4.3](#43-delivery-per-backend) | — |
 | <a id="PT-D4"></a>PT-D4 | yolo checks every admitted file: the executable format matches the jail platform, and a Linux interpreter is not under a Homebrew prefix | 2026-10-08 | [§4.2](#42-the-tap-fetch) | — |
 | <a id="PT-D5"></a>PT-D5 | Container jails get one read-only file bind per program, and macos-user gets a root-owned copy. Each is reached through a generated launcher, and no PATH entry is added | 2026-10-08 | [§4.3](#43-delivery-per-backend) | — |
-| <a id="PT-D6"></a>PT-D6 | One host lock per `(formula, platform)`. A last-good record per pair. Retention keeps current, previous and live digests, by liveness | 2026-10-08 | [§4.2](#42-the-tap-fetch), [§4.5](#45-updates-and-offline) | — |
+| <a id="PT-D6"></a>PT-D6 | One host lock per `(formula, platform)`, and three retries two seconds apart when brew reports another active process. A last-good record per pair. Retention keeps current, previous and live digests, live meaning recorded beside a pack tree's `.live` by a container not known gone | 2026-10-08 | [§4.2](#42-the-tap-fetch), [§4.5](#45-updates-and-offline) | — |
 | <a id="PT-D7"></a>PT-D7 | Offline: use the last good build and print a line. With nothing fetched, the readiness refusal with `YOLO_ALLOW_MISSING_PROGRAMS=1` | 2026-10-08 | [§4.5](#45-updates-and-offline) | — |
 | <a id="PT-D8"></a>PT-D8 | One disclosure line per tap program on every launch, and a `brew` host-execution row in `yolo pack footprint` | 2026-10-08 | [§4.6](#46-trust-and-disclosure) | — |
+| <a id="PT-D9"></a>PT-D9 | Every macos-user launch denies reads of `$(brew --prefix)/Library/Taps`, `$(brew --prefix)/etc/homebrew/brew.env` and `/etc/homebrew/brew.env`, whether or not a tap program is selected. This closes an exposure that exists today | 2026-10-08 | [§4.3](#43-delivery-per-backend) | — |
+| <a id="PT-D10"></a>PT-D10 | `via: "brew"` is honored only from user-scope packs, whatever [`OQ-PK1`](../reference/pack-system.md#oq-pk1) later admits from a workspace config | 2026-10-08 | [§4.6](#46-trust-and-disclosure) | — |
+| <a id="PT-D11"></a>PT-D11 | `formula` is the one spelling. The `brew` install hint is derived from it, never written beside it | 2026-10-08 | [§4.4](#44-the-host-notch) | — |
 
 ## Appendix A. Homebrew sources
 
