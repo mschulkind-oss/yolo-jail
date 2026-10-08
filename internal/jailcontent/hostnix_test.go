@@ -12,7 +12,7 @@ import (
 // daemon deletes it as stale at the next GC or root query (§3, M1).
 func TestBriefingStatesThatInJailNixLinksAreNotRoots(t *testing.T) {
 	with := BriefingContent(BriefingInput{Workspace: "/w", HostNix: true})
-	for _, want := range []string{"NIX_REMOTE=daemon", "NOT a GC root", "rebuild it"} {
+	for _, want := range []string{"NIX_REMOTE=daemon", "yolo nix-roots list", "rebuild it"} {
 		if !strings.Contains(with, want) {
 			t.Errorf("a host-nix briefing is missing %q:\n%s", want, with)
 		}

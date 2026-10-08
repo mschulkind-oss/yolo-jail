@@ -67,6 +67,26 @@ func translatedRooter(reg nixroots.Registrar) image.Rooter {
 	}
 }
 
+// hostGCRootsAutoMountArgs binds the host's /nix/var/nix/gcroots/auto read-only at
+// nixroots.HostAutoDir, for the in-jail root watcher (nixroots/watch.go). It is the only
+// view the watcher needs: the entries' NAMES and the path strings they point at, never a
+// host file's contents (OQ-NR2, ruled with no launch line of its own).
+//
+// The caller emits it only with the host nix daemon mounted and never under the seal. A
+// launcher in a jail binds its OWN view of the directory on, so a nested jail watches the
+// same host directory through its composed map. No directory, no mount: the watcher then
+// finds nothing bound and exits, the jail as it was without it.
+func (o *Options) hostGCRootsAutoMountArgs() []string {
+	src := nixroots.HostAutoSource
+	if o.inJail() {
+		src = nixroots.HostAutoDir
+	}
+	if !o.PathExists(src) {
+		return nil
+	}
+	return []string{"-v", src + ":" + nixroots.HostAutoDir + ":ro"}
+}
+
 // hostPathMapEnvArgs is the `-e` pair stating this launch's host path map, computed from
 // the argv itself — every mount the assembler emitted before the image ref — so the map
 // cannot name a mount the jail does not have, or miss one it does.

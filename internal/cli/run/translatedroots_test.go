@@ -508,3 +508,51 @@ func TestTheBuildDirIsUnderTheHomesLocal(t *testing.T) {
 		t.Errorf("paths.BuildDir() = %s is not under %s/.local", paths.BuildDir(), home)
 	}
 }
+
+// The root watcher's view: a launch with the host nix daemon binds the host's gcroots/auto
+// read-only, a sealed one does not, and a launch whose host has no such directory binds
+// nothing. These read the ASSEMBLED argv, so deleting the call site fails them.
+func TestALaunchBindsTheHostsAutoRootsReadOnlyForTheWatcher(t *testing.T) {
+	want := nixroots.HostAutoSource + ":" + nixroots.HostAutoDir + ":ro"
+	for _, c := range []struct {
+		name          string
+		sealed, exist bool
+		bound         bool
+	}{
+		{"daemon mounted", false, true, true},
+		{"sealed", true, true, false},
+		{"no auto dir on the host", false, false, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			emptyLoopholeDirs(t)
+			o := goldenOptions("/home/u/code/proj", home)
+			o.PathExists = func(p string) bool {
+				return p == hostNixSocket || p == hostNixStore || (c.exist && p == nixroots.HostAutoSource)
+			}
+			o.Getenv = func(string) string { return "" }
+			argv := o.assembleRunCmd(&assembleInput{
+				cfg: newConfig("security", newConfig("blocked_tools", []any{})), rt: "podman",
+				cname: "yolo-proj-abcd1234", imageRef: goldenImageRef, jailPrefix: goldenJailPrefix,
+				packs: claudePackFixture(t), agentsPath: "/a", homeSkeleton: goldenHomeSkeleton,
+				wsState: "/home/u/code/proj/.yolo/home", miseStore: "/m", yoloVersion: "9.9.9-test",
+				mountTargets: map[string]struct{}{}, sealed: c.sealed,
+			})
+			if got := slices.Contains(argv, want); got != c.bound {
+				t.Errorf("argv binds %s: %v, want %v", want, got, c.bound)
+			}
+		})
+	}
+}
+
+// A nested launcher binds its own jail's view on, so the nested watcher sees the same host dir.
+func TestANestedLaunchBindsItsOwnViewOfTheAutoRoots(t *testing.T) {
+	o := goldenOptions("/tmp/yolo-nested", t.TempDir())
+	o.Getenv = func(k string) string { return map[string]string{"YOLO_VERSION": "9.9.9"}[k] }
+	o.PathExists = func(p string) bool { return p == nixroots.HostAutoDir }
+	got := o.hostGCRootsAutoMountArgs()
+	if !slices.Equal(got, []string{"-v", nixroots.HostAutoDir + ":" + nixroots.HostAutoDir + ":ro"}) {
+		t.Errorf("nested bind = %q", got)
+	}
+}

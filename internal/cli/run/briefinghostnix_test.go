@@ -45,7 +45,7 @@ func TestBriefingNixLineFollowsTheHostNixMount(t *testing.T) {
 			if err != nil {
 				t.Fatalf("no briefing was written for the claude pack: %v", err)
 			}
-			if got := strings.Contains(string(body), "NOT a GC root"); got != tc.want {
+			if got := strings.Contains(string(body), "yolo nix-roots list"); got != tc.want {
 				t.Errorf("nix line present = %v, want %v:\n%s", got, tc.want, body)
 			}
 		})

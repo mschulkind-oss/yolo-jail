@@ -560,6 +560,10 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 			"-v", hostNixSocket+":"+hostNixSocket,
 			"-v", hostNixStore+":"+hostNixStore+":ro",
 			"-e", "NIX_REMOTE=daemon")
+		// The host's gcroots/auto, read-only, for the in-jail root watcher
+		// (docs/design/in-jail-nix-roots.md §5, option C; OQ-NR2 permits it with no launch
+		// line of its own). Not under the seal: a fork build has no daemon to root through.
+		runCmd = append(runCmd, o.hostGCRootsAutoMountArgs()...)
 	} else if msg := o.nixDelegationSkipNotice(rt); msg != "" {
 		out.print(msg)
 	}

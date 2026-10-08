@@ -15,13 +15,16 @@ package jailcontent
 // mount depends on.
 
 import (
+	"fmt"
 	"os"
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
+	"github.com/mschulkind-oss/yolo-jail/internal/nixroots"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
@@ -755,9 +758,13 @@ func BriefingContent(in BriefingInput) string {
 	if in.HostNix {
 		lines = append(lines,
 			"- **Nix** uses the host's daemon and store (`NIX_REMOTE=daemon`). A `result`",
-			"  link, `--out-link`, `nix profile` or `.direnv` root made here is NOT a GC root",
-			"  the host honors, so a host garbage collection can delete its target between",
-			"  commands (a running process keeps what it uses). If a link dangles, rebuild it.",
+			"  link, `--out-link`, `nix profile` or `.direnv` root made under the workspace or",
+			fmt.Sprintf("  your home is kept for the host by a yolo-owned copy, for %d days after its last",
+				int(nixroots.DefaultLease/(24*time.Hour))),
+			fmt.Sprintf("  build and at most %d per workspace: `yolo nix-roots list` shows them, `keep",
+				nixroots.DefaultCap),
+			"  <link>` renews one, `release` gives one back. A link under /tmp is NOT a GC",
+			"  root the host honors. If a link dangles anyway, rebuild it.",
 		)
 	}
 	lines = append(lines,

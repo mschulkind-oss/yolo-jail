@@ -7,6 +7,7 @@
 //	yolo-jaild openai-auth-adapter # in-jail Codex refresh adapter
 //	yolo-jaild aws-credential-adapter # in-jail AWS container-credentials endpoint
 //	yolo-jaild wire-bridge        # anthropic→openai wire bridge (selection-lazy)
+//	yolo-jaild nix-roots          # the root watcher (docs/design/in-jail-nix-roots.md §5)
 //
 // This is a plain subcommand dispatch on args[0]; it is NOT argv[0]/symlink
 // dispatch. Unknown or missing subcommands print usage and exit 2.
@@ -17,6 +18,7 @@ import (
 	"os"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/awscredadapter"
+	"github.com/mschulkind-oss/yolo-jail/internal/nixroots"
 	"github.com/mschulkind-oss/yolo-jail/internal/oauthterminator"
 	"github.com/mschulkind-oss/yolo-jail/internal/openaiauthadapter"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -50,6 +52,8 @@ func run(args []string) int {
 		return awscredadapter.Main(rest)
 	case "wire-bridge":
 		return wirebridged.Main(rest)
+	case "nix-roots":
+		return nixroots.WatchMain(rest)
 	default:
 		return usage()
 	}
@@ -57,6 +61,6 @@ func run(args []string) int {
 
 func usage() int {
 	fmt.Fprintln(os.Stderr, "usage: yolo-jaild <supervise|oauth-terminator|openai-auth-adapter|"+
-		"aws-credential-adapter|wire-bridge> [args...]")
+		"aws-credential-adapter|wire-bridge|nix-roots> [args...]")
 	return 2
 }

@@ -520,6 +520,14 @@ func bootSteps() []bootStep {
 			notDarwin: "the macos-user launch starts the guest's supervisor itself, confined by its Seatbelt profile, after this bootstrap exits (macosuser.JailDaemonArgv)",
 		},
 		{
+			// The nix root watcher (nixrootwatcher.go): keeps, for the host, the roots the
+			// jail's nix asks for. Best-effort; it never fails the boot.
+			name:      "start_nix_root_watcher",
+			run:       func(b *bootRun) { startNixRootWatcher(b.e) },
+			noMark:    true,
+			notDarwin: "macos-user shares the host's filesystem, so a root nix makes there is already one the host honors; no watcher is needed (in-jail-nix-roots.md §5.2)",
+		},
+		{
 			// The in-jail reachability witness runs LAST, and both halves of that are
 			// deliberate. Its finding is then the closest thing to the agent's first prompt
 			// instead of being buried under pack rendering; and it sits immediately above

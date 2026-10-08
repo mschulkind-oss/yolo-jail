@@ -11,6 +11,7 @@ package main
 // through to usage() and returns 2, and the test fails.
 
 import (
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -71,5 +72,17 @@ func TestDispatchRoutesAWSCredentialAdapter(t *testing.T) {
 	if rc := run([]string{"aws-credential-adapter", "--listen", "bad address"}); rc != 1 {
 		t.Fatalf("aws-credential-adapter dispatch rc = %d, want adapter failure 1 "+
 			"(2 means it fell through to usage — the case is missing or misspelled)", rc)
+	}
+}
+
+// The root watcher's row: the entrypoint starts ["yolo-jaild", "nix-roots"], and with no
+// auto dir bound (this test process has none) the watcher exits 0, where a missing row
+// would fall through to usage and exit 2.
+func TestNixRootsIsDispatched(t *testing.T) {
+	if _, err := os.Stat("/run/yolo/nix-gcroots-auto"); err == nil {
+		t.Skip("this process has the auto dir bound; the watcher would run")
+	}
+	if rc := run([]string{"nix-roots"}); rc != 0 {
+		t.Fatalf("run(nix-roots) = %d, want 0 (nothing to watch)", rc)
 	}
 }

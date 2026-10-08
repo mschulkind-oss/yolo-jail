@@ -111,7 +111,7 @@ func TestTheContainerBootRunsItsStepsInOrder(t *testing.T) {
 		"cgroup_delegation", "cleanup_stale_wrappers",
 		"published_port_localnet", "port_forwarding",
 		"note_service_caller_auth", "write_caller_token_files", "start_jail_daemon_supervisor",
-		"probe_service_reachability",
+		"start_nix_root_watcher", "probe_service_reachability",
 	}
 	if got := bootStepNames(bootContainer); !slices.Equal(got, want) {
 		t.Errorf("container boot steps:\n got %v\nwant %v", got, want)
