@@ -34,7 +34,10 @@ on:
   # run completing is the first moment the tap can carry the new version. Not
   # `release: published`: goreleaser creates the release with GITHUB_TOKEN, and events
   # that token creates never start another workflow (publish.yml states the same trap).
-  # The Release run itself was started by a human's tag push, so workflow_run fires.
+  # This trigger fires only for a Release run a human started (a homebrew-only
+  # backfill). A normal release's Release run is started by release-request.yml
+  # with GITHUB_TOKEN, which fires no workflow_run, so tools/release-wiring/request.sh
+  # dispatches this workflow with the released version once that run succeeds.
   workflow_run:
     workflows: [Release]
     types: [completed]

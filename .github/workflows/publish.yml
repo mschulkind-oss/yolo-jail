@@ -359,7 +359,10 @@ jobs:
               exit 1
             fi
           done
-          nix copy --from "file://$GITHUB_WORKSPACE/nix-cache/store" "${paths[@]}"
+          # The build job's runner-built paths carry no signature, and nix copy
+          # refuses unsigned paths into the daemon store by default. Their trust
+          # is this run's own artifact plus the store-path checks above.
+          nix copy --no-check-sigs --from "file://$GITHUB_WORKSPACE/nix-cache/store" "${paths[@]}"
           cachix push "$CACHE_NAME" "${paths[@]}"
 
   build-builder-image:

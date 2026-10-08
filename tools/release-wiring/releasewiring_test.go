@@ -16,6 +16,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -48,6 +50,7 @@ type workflowJob struct {
 	Needs       yaml.Node         `yaml:"needs"`
 	If          string            `yaml:"if"`
 	Environment string            `yaml:"environment"`
+	Timeout     int               `yaml:"timeout-minutes"`
 	Steps       []workflowStep    `yaml:"steps"`
 }
 
@@ -293,6 +296,10 @@ case "$*" in
     printf '202\t%s\t%s\t1\n' "$status" "$conclusion"
     if [ "${FAKE_DUPLICATE_RELEASE_RUNS:-}" = 1 ]; then printf '203\t%s\t%s\t1\n' "$status" "$conclusion"; fi
     ;;
+  *"workflow run tap-install.yml"*)
+    if [ "${FAIL_TAP_DISPATCH:-}" = 1 ]; then exit 1; fi
+    echo "fake-tap-dispatch-accepted" >> "$TRACE"
+    ;;
   *"workflow run publish.yml"*)
     if [ "${FAIL_PUBLISH_DISPATCH:-}" = 1 ]; then exit 1; fi
     echo "fake-publish-dispatch-accepted" >> "$TRACE"
@@ -393,6 +400,7 @@ func TestRequestMainCallerWaitsForExactOriginalReleaseSuccessBeforePublishDispat
 		{name: "ref conflict does not dispatch", extra: []string{"FAIL_REF=1"}, wantError: "Could not create v9.8.7"},
 		{name: "release dispatch refusal does not create publisher run", extra: []string{"FAIL_RELEASE_DISPATCH=1"}, wantError: "Release dispatch failed"},
 		{name: "publisher dispatch refusal is not retried", extra: []string{"FAIL_PUBLISH_DISPATCH=1"}, wantError: "Publish dispatch failed"},
+		{name: "tap check dispatch refusal names the manual dispatch", extra: []string{"FAIL_TAP_DISPATCH=1"}, wantError: "gh workflow run tap-install.yml"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			bin, trace := fakeCommands(t)
@@ -422,6 +430,20 @@ func TestRequestMainCallerWaitsForExactOriginalReleaseSuccessBeforePublishDispat
 				}
 				if !strings.Contains(lines[tag], "object="+testSHA) || !strings.Contains(lines[releaseRun], "sha="+testSHA) || !strings.Contains(lines[publishRun], "sha="+testSHA) {
 					t.Fatalf("frozen target SHA was not bound through writes: %v", lines)
+				}
+				// A Release run started with GITHUB_TOKEN fires no workflow_run
+				// event, so the request must start the tap check itself, after
+				// the Release run that pushed the formula succeeded.
+				tapRun := traceIndex(lines, "workflow run tap-install.yml")
+				if tapRun <= releaseRun || traceIndex(lines, "fake-tap-dispatch-accepted") < 0 ||
+					!strings.Contains(lines[tapRun], "--ref main") || !strings.Contains(lines[tapRun], "version=9.8.7") {
+					t.Fatalf("request did not dispatch the tap check for the released version: %v", lines)
+				}
+				return
+			}
+			if tc.wantError == "gh workflow run tap-install.yml" {
+				if traceIndex(lines, "fake-publish-dispatch-accepted") < 0 || traceIndex(lines, "workflow run tap-install.yml") < 0 {
+					t.Fatalf("tap dispatch refusal must follow an accepted publisher dispatch: %v", lines)
 				}
 				return
 			}
@@ -1657,5 +1679,45 @@ func TestHomebrewFormulaHeredocNeverExecutesLiteralYoloForNormalOrBackfill(t *te
 				t.Fatal("variable-expanding formula/publication baseline was lost")
 			}
 		})
+	}
+}
+
+// The request job holds the CI wait (preflight.sh's release-gate --timeout) and
+// then the Release wait (request.sh's RELEASE_WAIT_SECONDS default) in one job,
+// so its timeout must exceed both or GitHub kills it mid-wait.
+func TestRequestJobTimeoutExceedsItsWaits(t *testing.T) {
+	ciMinutes := regexp.MustCompile(`release-gate [^\n]*--timeout ([0-9]+)m`).FindSubmatch(mustRead(t, "tools/release-wiring/preflight.sh"))
+	releaseSeconds := regexp.MustCompile(`RELEASE_WAIT_SECONDS:-([0-9]+)`).FindSubmatch(mustRead(t, "tools/release-wiring/request.sh"))
+	if ciMinutes == nil || releaseSeconds == nil {
+		t.Fatal("cannot find the CI wait in preflight.sh or the Release wait in request.sh")
+	}
+	ci, _ := strconv.Atoi(string(ciMinutes[1]))
+	release, _ := strconv.Atoi(string(releaseSeconds[1]))
+	const slackMinutes = 15 // checkout, setup-go, the tag writes and the dispatches
+	job := readWorkflow(t, ".github/workflows/release-request.yml").Jobs["create-tag-and-dispatch"]
+	if want := ci + release/60 + slackMinutes; job.Timeout < want {
+		t.Fatalf("create-tag-and-dispatch timeout-minutes = %d, want at least %d (CI wait %dm + Release wait %dm + %dm)", job.Timeout, want, ci, release/60, slackMinutes)
+	}
+}
+
+// The cache build job hands runner-built, unsigned store paths to the push job
+// through a file:// cache. nix copy refuses unsigned paths into the daemon store
+// unless told not to check signatures; the paths' trust comes from the
+// same-run artifact and the store-path validation before the import.
+func TestImageCacheImportAcceptsUnsignedRunnerBuiltPaths(t *testing.T) {
+	steps := readWorkflow(t, ".github/workflows/publish.yml").Jobs["publish-image-cache"].Steps
+	found := false
+	for _, step := range steps {
+		for _, line := range strings.Split(step.Run, "\n") {
+			if strings.Contains(line, "nix copy") && strings.Contains(line, "--from") {
+				found = true
+				if !strings.Contains(line, "--no-check-sigs") {
+					t.Fatalf("publish-image-cache imports without --no-check-sigs: %q", strings.TrimSpace(line))
+				}
+			}
+		}
+	}
+	if !found {
+		t.Fatal("publish-image-cache has no nix copy --from import step")
 	}
 }

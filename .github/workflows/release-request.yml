@@ -91,7 +91,9 @@ jobs:
   create-tag-and-dispatch:
     needs: [eligibility, prepare-target]
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    # Holds the CI wait (preflight.sh, 60m) and then the Release wait
+    # (request.sh, 90m) in one job; TestRequestJobTimeoutExceedsItsWaits pins it.
+    timeout-minutes: 170
     permissions:
       contents: write
       actions: write

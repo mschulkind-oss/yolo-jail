@@ -108,3 +108,13 @@ if ! gh workflow run publish.yml --repo "$GITHUB_REPOSITORY" --ref main \
   exit 1
 fi
 echo "Publish dispatch accepted for ${tag} (${RELEASE_SHA}); its workflow must atomically claim the release asset before any wheel/image build. Dispatch acceptance is not registry publication success."
+
+# The successful Release run pushed the formula. It was started with this job's
+# GITHUB_TOKEN, and events that token causes start no workflow, so
+# tap-install.yml's workflow_run trigger never fires for it: start the tap
+# check here, holding the tap to this version. It reads only the public tap.
+if ! gh workflow run tap-install.yml --repo "$GITHUB_REPOSITORY" --ref main -f "version=${RELEASE_VERSION}"; then
+  echo "✗ ${tag} is released and its publisher was dispatched, but the Homebrew tap check could not be started. Publication is unaffected; start the check by hand: gh workflow run tap-install.yml --repo ${GITHUB_REPOSITORY} --ref main -f version=${RELEASE_VERSION}" >&2
+  exit 1
+fi
+echo "Homebrew tap check dispatched for ${tag}."
