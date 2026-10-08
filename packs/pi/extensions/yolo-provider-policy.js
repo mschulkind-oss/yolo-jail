@@ -1,6 +1,7 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 // THE ACTIVE SET'S PROVIDER POLICY (docs/design/simultaneous-auth-and-pack-isolation.md §3). With
 // an active profile set, pi may call only the set's providers, even where pi holds a saved login
@@ -164,6 +165,59 @@ function modelsJsonProviderIds() {
 	}
 }
 
+// EVERY pi-subagents CHILD LOADS THIS FILE TOO. A child that runs with extensions off (an agent that
+// lists its own `extensions`, `extensions: []`) would otherwise start a model runtime with no
+// block. pi-subagents keeps a registry of REQUIRED child extensions per parent session, which it
+// loads into every child it launches after every agent default and override, foreground,
+// background, nested and recovered alike, and refuses a launch whose `denyExtensions` ceiling
+// conflicts with one (pi-subagents docs/agents.md, "Required host extensions"). Its public entry
+// is a module import this file cannot resolve from pi's extension directory, so this writes the
+// registry it keeps: globalThis[Symbol.for("pi-subagents.required-child-extensions.v1")], version
+// 1, a Map from session id to a frozen [{id, path}] snapshot, path absolute and canonical. Another
+// host's entries for the session are kept. The child inherits YOLO_PI_PROVIDER_POLICY with the
+// rest of the environment. External runners are outside it (§3.4).
+const REQUIRED_CHILD_KEY = Symbol.for("pi-subagents.required-child-extensions.v1");
+const REQUIRED_CHILD_ID = "yolo-provider-policy";
+
+function ownPath() {
+	try {
+		return realpathSync(fileURLToPath(import.meta.url));
+	} catch {
+		return undefined;
+	}
+}
+
+// requireInChildren adds this file to the session's required child extensions, once.
+export function requireInChildren(sessionId, path = ownPath()) {
+	if (typeof sessionId !== "string" || !sessionId) return undefined;
+	if (!path) return "this extension's own path could not be read";
+	const root = globalThis;
+	let registry = root[REQUIRED_CHILD_KEY];
+	if (registry === undefined) {
+		registry = { version: 1, bySession: new Map() };
+		root[REQUIRED_CHILD_KEY] = registry;
+	}
+	if (!registry || registry.version !== 1 || !(registry.bySession instanceof Map)) {
+		return "pi-subagents' required child extension registry has an unknown shape";
+	}
+	const current = registry.bySession.get(sessionId) ?? [];
+	if (current.some((entry) => entry?.path === path || entry?.id === REQUIRED_CHILD_ID)) return undefined;
+	registry.bySession.set(sessionId, Object.freeze([...current, Object.freeze({ id: REQUIRED_CHILD_ID, path })]));
+	return undefined;
+}
+
+// releaseInChildren removes this file's entry for a session that ended, keeping any other host's.
+export function releaseInChildren(sessionId) {
+	const registry = globalThis[REQUIRED_CHILD_KEY];
+	if (!registry || !(registry.bySession instanceof Map) || typeof sessionId !== "string") return;
+	const current = registry.bySession.get(sessionId);
+	if (!Array.isArray(current)) return;
+	const rest = current.filter((entry) => entry?.id !== REQUIRED_CHILD_ID);
+	if (rest.length === current.length) return;
+	if (rest.length === 0) registry.bySession.delete(sessionId);
+	else registry.bySession.set(sessionId, Object.freeze(rest));
+}
+
 // lacksNativeProviders says whether this pi is KNOWN to be unable to take a provider object: its
 // package root imports and its ModelRuntime has no registerNativeProvider, which pi 0.81.0 added
 // (extensions/yolo-openai-auth.js, piTakesNativeProviders, measured there). Such a pi queues the
@@ -223,8 +277,14 @@ export default async function registerYoloProviderPolicy(pi) {
 	};
 
 	let told = false;
+	let session;
 	pi.on?.("session_start", (_event, ctx) => {
 		reassert(ctx);
+		const id = ctx?.sessionManager?.getSessionId?.();
+		if (session && session !== id) releaseInChildren(session);
+		session = id;
+		const problem = requireInChildren(id);
+		if (problem) warn(ctx, `yolo: pi-subagents children may run without the profile-set provider block (${problem}).`);
 		if (told) return;
 		told = true;
 		if (unenforceable) {
@@ -242,6 +302,10 @@ export default async function registerYoloProviderPolicy(pi) {
 		if (model && model.api !== VIRTUAL_API && blocked(model.provider)) {
 			warn(ctx, denial(policy, model.provider));
 		}
+	});
+	pi.on?.("session_shutdown", () => {
+		if (session) releaseInChildren(session);
+		session = undefined;
 	});
 	for (const event of ["input", "before_agent_start", "turn_start"]) {
 		pi.on?.(event, (_event, ctx) => {

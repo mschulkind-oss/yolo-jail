@@ -117,8 +117,9 @@ masking alone do not satisfy this policy; the extension in [§3.2](#32-how-the-e
   be non-retryable, name the provider, the set and the way out, and never tokens or headers.
 
 The policy belongs to the process invocation. Host `-p` overrides write no persistent Pi settings:
-the policy travels in the environment. A child `pi` process inherits it and loads the same extension
-unless it runs with extensions off; some pi-subagents children do ([§3.4](#34-what-the-extension-cannot-close)).
+the policy travels in the environment. A child `pi` process inherits it and loads the same extension.
+A pi-subagents child loads it even with its own extensions off, because the extension registers itself
+as a required child extension ([PAS-D6](#decision-ledger)).
 Reload re-runs the extension, and a new or resumed session re-checks every block. A launch does not change another process
 already running. Explicitly disabling extensions disables the block ([§3.4](#34-what-the-extension-cannot-close)).
 
@@ -178,11 +179,12 @@ Measured in stock Pi 1.0.1 or read in upstream `70759f48`:
   refusal happens inside it. Nothing is written or sent.
 - **`models.json` key commands.** A row's `apiKey` written as a `!command` runs before the block's
   resolve. Yolo writes only `${VAR}` references and literals there.
-- **Disabled extensions.** `pi --no-extensions` loads no block. Neither do pi-subagents children
-  that run in their own process with extensions off: a background child whose agent lists its own
-  `extensions`, or one under a `denyExtensions` ceiling. Such a child builds a fresh model runtime
-  with no blocks, and only pi-subagents' `modelScope` narrows what it picks. Children hosted in the
-  parent's process inherit the parent's providers, blocks included.
+- **Disabled extensions.** `pi --no-extensions` typed by hand loads no block. pi-subagents children
+  are covered: the extension adds itself to pi-subagents' required child extensions for the
+  session, which pi-subagents loads into every child after agent defaults and `extensions: []`, and
+  a `denyExtensions` ceiling then refuses the child instead of running it unblocked. Left open:
+  pi-subagents' external runners (children on another machine), which it excludes from that
+  registry, and a pi-subagents too old to have it.
 - **Pi's own CLI subcommands** build a model runtime without loading extensions:
   `pi auth print-api-key`, `pi auth print-bearer-token` and `pi auth check --credentials` read (and
   for an expired OAuth login, refresh) a blocked provider's saved credential, and `pi update models`
@@ -233,6 +235,7 @@ Measured in stock Pi 1.0.1 or read in upstream `70759f48`:
 | PAS-D3 | Agent: a blocked provider counts configured but lists no available model, so `/model` hides it and a selection meets yolo's denial, not Pi's `/login` advice | 2026-10-08 | [§3.2](#32-how-the-extension-holds-the-boundary) | ✅ |
 | PAS-D4 | Agent: `model_select` warns only; launch-time credential filtering (option A) is not built | 2026-10-08 | [§3.2](#32-how-the-extension-holds-the-boundary) | ✅ |
 | PAS-D5 | Agent: a Pi too old for provider objects is warned at session start, not refused; an extension cannot refuse a launch | 2026-10-08 | [§3.1](#31-the-request-boundary) | ✅ |
+| PAS-D6 | Agent: the extension writes itself into pi-subagents' required child extension registry each session (keeping other hosts' entries, removed at shutdown), so children with extensions off still load the block | 2026-10-08 | [§3.4](#34-what-the-extension-cannot-close) | ✅ |
 
 ## 4. Evidence checked
 

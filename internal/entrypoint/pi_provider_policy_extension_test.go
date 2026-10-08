@@ -146,7 +146,9 @@ const current = {
 	late: { id: "late", name: "Late", auth: { apiKey: { name: "late key" } }, getModels: () => [{ id: "late-model" }] },
 };
 for (const p of registrations) if (p.id === "myproxy") current.myproxy = p;
-const ctx = { hasUI: false, modelRegistry: {
+const REQUIRED = Symbol.for("pi-subagents.required-child-extensions.v1");
+globalThis[REQUIRED] = { version: 1, bySession: new Map([["s1", Object.freeze([{ id: "other-host", path: "/other.js" }])]]) };
+const ctx = { hasUI: false, sessionManager: { getSessionId: () => "s1" }, modelRegistry: {
 	getAll: () => [{ provider: "anthropic" }, { provider: "zai" }, { provider: "myproxy" }, { provider: "router", api: "pi-virtual" }],
 	getRegisteredProviderIds: () => ["late"],
 	getProvider: (id) => current[id],
@@ -154,6 +156,9 @@ const ctx = { hasUI: false, modelRegistry: {
 } };
 for (const fn of handlers.session_start ?? []) await fn({ type: "session_start" }, ctx);
 out.reregistered = [...reregistered].sort();
+out.required = (globalThis[REQUIRED].bySession.get("s1") ?? []).map((e) => e.id + "=" + e.path);
+for (const fn of handlers.session_start ?? []) await fn({ type: "session_start" }, ctx);
+out.requiredAgain = (globalThis[REQUIRED].bySession.get("s1") ?? []).length;
 out.rechecked = {};
 for (const event of ["input", "before_agent_start", "turn_start"]) {
 	current.anthropic = { id: "anthropic", auth: { apiKey: { name: "another extension's" } } };
@@ -165,6 +170,9 @@ out.lateResolve = current.late ? await settle(() => current.late.auth.apiKey.res
 for (const fn of handlers.model_select ?? []) await fn({ type: "model_select", model: { provider: "late", api: "openai-completions" } }, ctx);
 for (const fn of handlers.model_select ?? []) await fn({ type: "model_select", model: { provider: "late", api: "pi-virtual" } }, ctx);
 for (const fn of handlers.model_select ?? []) await fn({ type: "model_select", model: { provider: "zai", api: "openai-completions" } }, ctx);
+for (const fn of handlers.session_shutdown ?? []) await fn({ type: "session_shutdown" }, ctx);
+out.requiredAfter = (globalThis[REQUIRED].bySession.get("s1") ?? []).map((e) => e.id);
+out.self = (await import("node:fs")).realpathSync("./extension.mjs");
 out.warnings = warnings;
 console.log(JSON.stringify(out));
 `
@@ -190,6 +198,10 @@ type piPolicyRun struct {
 	Handlers      []string            `json:"handlers"`
 	Reregistered  []string            `json:"reregistered"`
 	Rechecked     map[string][]string `json:"rechecked"`
+	Required      []string            `json:"required"`
+	RequiredAgain int                 `json:"requiredAgain"`
+	RequiredAfter []string            `json:"requiredAfter"`
+	Self          string              `json:"self"`
 	LateResolve   string              `json:"lateResolve"`
 	Warnings      []string            `json:"warnings"`
 }
@@ -319,6 +331,17 @@ func TestPiProviderPolicyBlocksEveryProviderOutsideTheSet(t *testing.T) {
 		t.Errorf("session_start re-blocked %v, want the replaced anthropic and the registry-only late, "+
 			"and never the virtual-only router", run.Reregistered)
 	}
+	// pi-subagents' children load this extension even with their own extensions off: the session
+	// requires it in pi-subagents' registry, beside another host's entry, once, until it ends.
+	if !slices.Equal(run.Required, []string{"other-host=/other.js", "yolo-provider-policy=" + run.Self}) {
+		t.Errorf("session_start required %v of pi-subagents' children, want the other host's entry and this file", run.Required)
+	}
+	if run.RequiredAgain != 2 {
+		t.Errorf("a second session_start left %d required entries, want 2", run.RequiredAgain)
+	}
+	if !slices.Equal(run.RequiredAfter, []string{"other-host"}) {
+		t.Errorf("session_shutdown left %v, want only the other host's entry", run.RequiredAfter)
+	}
 	for _, event := range []string{"input", "before_agent_start", "turn_start"} {
 		if !slices.Equal(run.Rechecked[event], []string{"anthropic"}) {
 			t.Errorf("%s re-blocked %v, want the replaced anthropic", event, run.Rechecked[event])
@@ -391,6 +414,80 @@ func TestPiProviderPolicyForASetPiCannotCallSaysSo(t *testing.T) {
 	}
 }
 
+// piSubagentsPlanHarness asks pi-subagents' OWN launch planner what a child runs with, after the
+// shipped extension registered itself for a session: a child whose agent lists `extensions: []`
+// (extensions off) and one under a capability ceiling that denies extensions.
+const piSubagentsPlanHarness = `
+const ext = await import(process.env.EXTENSION);
+const S = process.env.PI_SUBAGENTS;
+ext.requireInChildren("s1");
+const req = await import(S + "/src/shared/required-child-extensions.ts");
+const plan = await import(S + "/src/runs/shared/child-tool-plan.ts");
+const off = plan.resolvePiLaunchToolPlan({ extensions: [], requiredExtensions: req.resolveRequiredChildExtensions("s1"), cwd: process.cwd() });
+let denied = "";
+try {
+	plan.resolvePiLaunchToolPlan({ requiredExtensions: req.resolveRequiredChildExtensions("s1"),
+		capabilityCeiling: { denyExtensions: true, sources: ["test"] }, cwd: process.cwd() });
+} catch (e) { denied = e.message; }
+console.log(JSON.stringify({ disabled: off.disableAmbientExtensions, args: off.extensionArgs, denied }));
+`
+
+// A pi-subagents CHILD WITH ITS EXTENSIONS OFF STILL LOADS THE BLOCK, and one whose ceiling denies
+// every extension is refused rather than run without it: measured with pi-subagents' own launch
+// planner, from YOLO_TEST_PI_SUBAGENTS or pi's git checkout of it. Skips where neither exists.
+func TestPiSubagentsChildrenLoadTheProviderPolicy(t *testing.T) {
+	src := os.Getenv("YOLO_TEST_PI_SUBAGENTS")
+	if src == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			src = filepath.Join(home, ".pi", "agent", "git", "github.com", "mschulkind", "pi-subagents")
+		}
+	}
+	if _, err := os.Stat(filepath.Join(src, "src", "shared", "required-child-extensions.ts")); err != nil {
+		t.Skipf("pi-subagents' source with its required child extension registry is not at %q, so its "+
+			"launch planner was not asked; set YOLO_TEST_PI_SUBAGENTS to a checkout to run this", src)
+	}
+	p := shippedPiPack(t)
+	source, err := os.ReadFile(filepath.Join(p.Root, "extensions", "yolo-provider-policy.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	ext := filepath.Join(dir, "yolo-provider-policy.mjs")
+	for path, body := range map[string]string{ext: string(source), filepath.Join(dir, "harness.mjs"): piSubagentsPlanHarness} {
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	self, err := filepath.EvalSymlinks(ext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	node := requireNode(t, "pi-subagents' launch planner")
+	cmd := exec.Command(node, "harness.mjs")
+	cmd.Dir = dir
+	cmd.Env = []string{"HOME=" + t.TempDir(), "PATH=" + filepath.Dir(node), "EXTENSION=" + ext, "PI_SUBAGENTS=" + src}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("running pi-subagents' planner: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+	}
+	var run struct {
+		Disabled bool     `json:"disabled"`
+		Args     []string `json:"args"`
+		Denied   string   `json:"denied"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &run); err != nil {
+		t.Fatalf("decoding %s: %v", stdout.String(), err)
+	}
+	if !run.Disabled || !slices.Contains(run.Args, self) {
+		t.Errorf("a child with extensions: [] runs with ambient extensions disabled=%v and -e %v, want this extension %s among them",
+			run.Disabled, run.Args, self)
+	}
+	if !strings.Contains(run.Denied, "requires: yolo-provider-policy") {
+		t.Errorf("a child under a deny-extensions ceiling was planned with %q, want pi-subagents' refusal naming the block", run.Denied)
+	}
+}
+
 // piPolicyNativeHarness loads the shipped extension into the installed pi's own runtime
 // (createAgentSessionServices, then a session) over a home holding saved logins for providers
 // outside the set, and reports what each kind of call ends with. Every network call is refused
@@ -419,12 +516,16 @@ for (const p of ["anthropic", "openai", "openai-codex", "github-copilot", "mypro
 out.zai = await rt.getAuth(first("zai")).then((a) => a?.auth?.apiKey ?? "none", (e) => "ERR " + e.message);
 out.login = await rt.login("anthropic", "api_key", { prompt: async () => "sk-new", notify() {} }).then(() => "LOGGED IN", (e) => "ERR " + e.message);
 const { session } = await pi.createAgentSession({ cwd: process.env.WORKDIR, agentDir, model: first("anthropic") });
+// Every pi mode binds the session's extensions, which emits session_start, before any prompt.
+await session.bindExtensions({});
 out.session = [];
 session.subscribe((e) => {
 	if (e.type === "auto_retry_start") out.session.push("RETRY");
 	if (e.type === "message_end" && e.message?.role === "assistant") out.session.push(e.message.errorMessage ?? "NO ERROR");
 });
 await session.prompt("hello").catch((e) => out.session.push("THROW " + e.message));
+const registry = globalThis[Symbol.for("pi-subagents.required-child-extensions.v1")];
+out.requiredInChildren = (registry?.bySession?.get(session.sessionManager.getSessionId()) ?? []).map((e) => e.id + "=" + e.path);
 out.authUnchanged = Buffer.compare(before, readFileSync(authPath)) === 0;
 out.fetched = fetched;
 console.log("RESULT " + JSON.stringify(out));
@@ -489,6 +590,7 @@ func TestPiProviderPolicyUnderPisOwnRuntime(t *testing.T) {
 		Session       []string          `json:"session"`
 		AuthUnchanged bool              `json:"authUnchanged"`
 		Fetched       []string          `json:"fetched"`
+		Required      []string          `json:"requiredInChildren"`
 	}
 	for _, line := range strings.Split(stdout.String(), "\n") {
 		if raw, ok := strings.CutPrefix(line, "RESULT "); ok {
@@ -529,5 +631,13 @@ func TestPiProviderPolicyUnderPisOwnRuntime(t *testing.T) {
 	}
 	if len(run.Fetched) != 0 {
 		t.Errorf("pi fetched %v under the policy", run.Fetched)
+	}
+	self, err := filepath.EvalSymlinks(filepath.Join(agent, "extensions", "yolo-provider-policy.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(run.Required, []string{"yolo-provider-policy=" + self}) {
+		t.Errorf("the session requires %v of pi-subagents' children, want this extension at its own path %s",
+			run.Required, self)
 	}
 }
