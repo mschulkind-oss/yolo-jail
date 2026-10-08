@@ -88,6 +88,7 @@ func TestForkBuildDeliversTheForkInPlaceOfItsBase(t *testing.T) {
 		`"build":"`+buildJSON+`","produces":[".local/bin/`+forkFixtureBin+`"]}]}`)
 	packHome(t, `{"packs": [{"source": "file://`+base+`", "name": "`+forkFixtureBasePack+`"}, `+
 		`{"source": "file://`+fork+`", "name": "`+forkFixtureForkPack+`"}]}`)
+	withPrivateFixtureYoloStore(t)
 
 	// THE PIN IS WRITTEN TO THE FORK LOCK BESIDE THE USER CONFIG, NEVER TO THE CONFIG ITSELF.
 	userConfig := filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail", "config.jsonc")
@@ -109,7 +110,7 @@ func TestForkBuildDeliversTheForkInPlaceOfItsBase(t *testing.T) {
 	// THE PIN IS THE FIRST LAUNCH'S (FP-D18, applying OQ-PF1): no `yolo pack install` runs here.
 	launch := func(what string) string {
 		t.Helper()
-		r := runYoloDirect(t, t.TempDir(), forkFixtureBin)
+		r := runCommand(t, t.TempDir(), append(jailRunArgs(), "--", forkFixtureBin), withHostSemantics())
 		out := r.combined()
 		if r.rc != 0 {
 			t.Fatalf("%s: rc %d\n%s", what, r.rc, out)
@@ -150,7 +151,7 @@ func TestForkBuildDeliversTheForkInPlaceOfItsBase(t *testing.T) {
 
 	// A NEW COMMIT, AND `yolo pack update` MOVES THE PIN: the next launch builds a new entry.
 	commit("2")
-	if r := runYoloCLI(t, t.TempDir(), "pack", "update"); !strings.Contains(r.combined(), forkFixtureForkPack) {
+	if r := runCommand(t, t.TempDir(), []string{"pack", "update"}, withHostSemantics()); !strings.Contains(r.combined(), forkFixtureForkPack) {
 		t.Fatalf("yolo pack update did not re-resolve the fork:\n%s", r.combined())
 	}
 	out = launch("the launch after the pin moved")

@@ -50,12 +50,12 @@ func TestACacheRelocationReceivesTheJailsWrites(t *testing.T) {
 	dir := writeProject(t, `{}`)
 
 	in := "~/.cache/" + subdir
-	r := runYolo(t, dir, strings.Join([]string{
+	r := runCommand(t, dir, append(jailRunArgs(), "--", "bash", "-lc", strings.Join([]string{
 		`echo "=== SEED ==="`,
 		`cat ` + in + `/seed`,
 		`echo "=== END ==="`,
 		`echo written-in-the-jail > ` + in + `/from-jail`,
-	}, "; "))
+	}, "; ")), withHostSemantics())
 	if r.rc != 0 {
 		t.Fatalf("launch: rc %d\nstdout: %s\nstderr: %s", r.rc, r.stdout, r.stderr)
 	}

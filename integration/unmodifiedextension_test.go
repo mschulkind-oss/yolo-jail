@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,8 +21,8 @@ import (
 // NOT HERMETIC, unlike patchedextension_test.go: the build jail installs from the public npm
 // registry, as every integration cell that installs an npm agent does. The version is exact, so the
 // host's check asks the registry nothing (XB-D5), and the package is one with no dependencies and no
-// install script. ⚠ THE PACK AND CAPTURE STORES ARE SHARED with the machine
-// (packHomeSharedStores), so the test removes the capture entries it added and its check record.
+// install script. The fixture uses a private HOME-derived capture/pack store, linking only the run's
+// explicitly shared children.
 
 const (
 	npmTreeAgentPack = "utree-agent"
@@ -61,6 +62,7 @@ func TestAnUnmodifiedNpmExtensionIsBuiltOnTheHostAndMountedReadOnly(t *testing.T
 		`"add":["`+npmTreeEntry+`"]}]}`)
 	packHome(t, `{"packs": [{"source": "file://`+agent+`", "name": "`+npmTreeAgentPack+`"}, `+
 		`{"source": "file://`+ext+`", "name": "`+npmTreeExtPack+`"}]}`)
+	withPrivateFixtureYoloStore(t)
 
 	state := filepath.Join(os.Getenv("HOME"), ".local", "share", "yolo-jail")
 	store := filepath.Join(state, "captures")
@@ -83,7 +85,7 @@ echo "SETTINGS=$(tr -d ' \n' < "$HOME/.utreeagent/settings.json")"`
 	launch := func(what string) string {
 		t.Helper()
 		r := runCommand(t, t.TempDir(), append(jailRunArgs(), "--", "bash", "-c", probe),
-			withoutFixtureProgramInstall())
+			withoutFixtureProgramInstall(), withHostSemantics())
 		out := r.combined()
 		if r.rc != 0 {
 			t.Fatalf("%s: rc %d\n%s", what, r.rc, out)
@@ -115,8 +117,18 @@ echo "SETTINGS=$(tr -d ' \n' < "$HOME/.utreeagent/settings.json")"`
 	if strings.Contains(out, `"`+npmTreeSource+`"`) {
 		t.Errorf("the fallback was taken though a tree was handed:\n%s", out)
 	}
-	if live := liveCaptureEntries(t, store, newCaptureEntries(t, store, before, npmTreeName)); len(live) != 1 {
-		t.Errorf("the first launch added %d live entries, want the tree's one: %v", len(live), live)
+	added := newCaptureEntries(t, store, before, npmTreeName)
+	if live := liveCaptureEntries(t, store, added); len(live) != 1 || len(added) != 1 {
+		t.Fatalf("the first launch added %d live tree entries, want one: %v", len(live), live)
+	}
+	receipts, receiptIdentity := buildReceiptSnapshot(t, store, added[0])
+	if receipts[0].Bin != npmTreeName || !strings.HasPrefix(receipts[0].Source, "npm:"+npmTreeName) || receipts[0].Revision != "7.0.0" {
+		t.Fatalf("the first npm tree build receipt does not identify its executed build: %+v", receipts[0])
+	}
+	t.Logf("npm tree build execution receipt: count=1 key=%s digest=%s source=%s revision=%s",
+		receipts[0].Key, receipts[0].Digest, receipts[0].Source, receipts[0].Revision)
+	if got := newCaptureEntries(t, store, before, npmTreeAgentBin); len(got) != 0 {
+		t.Fatalf("the owning installer's disabled auto-capture added entries: %v", got)
 	}
 
 	// A SECOND LAUNCH builds nothing: an exact version is checked only until it first resolves
@@ -124,5 +136,16 @@ echo "SETTINGS=$(tr -d ' \n' < "$HOME/.utreeagent/settings.json")"`
 	out = launch("the second launch")
 	if strings.Contains(out, "build extension "+owner+":") || !strings.Contains(out, `PKG="version":"7.0.0"`) {
 		t.Errorf("the second launch built again, or mounts no tree:\n%s", out)
+	}
+	if got := newCaptureEntries(t, store, before, npmTreeName); len(got) != 1 || got[0] != receipts[0].Key {
+		t.Fatalf("the second launch changed the built tree entry identity: %v, original %s", got, receipts[0].Key)
+	}
+	secondReceipts, secondIdentity := buildReceiptSnapshot(t, store, receipts[0].Key)
+	if !bytes.Equal(secondIdentity, receiptIdentity) || secondReceipts[0] != receipts[0] {
+		t.Errorf("the second launch changed the build receipt identity/count: before=%+v after=%+v", receipts, secondReceipts)
+	}
+	t.Logf("second launch kept build identity: key=%s build-receipt-count=%d", secondReceipts[0].Key, len(secondReceipts))
+	if got := newCaptureEntries(t, store, before, npmTreeAgentBin); len(got) != 0 {
+		t.Errorf("the second launch captured the owning installer despite both fixture suppression dials: %v", got)
 	}
 }

@@ -86,7 +86,7 @@ func newGitHubBrokerFixture(t *testing.T) githubBrokerFixture {
 	packHome(t, `{"packs": ["github"]}`)
 	macArchivePrivateState(t)
 	if r := runCommand(t, dir, []string{"loopholes", "enable", "github-broker"},
-		withEnv("YOLO_VERSION=")); r.rc != 0 ||
+		withHostSemantics()); r.rc != 0 ||
 		!strings.Contains(r.stdout, "github-broker is on for ") {
 		t.Fatalf("yolo loopholes enable github-broker: rc %d\n%s", r.rc, r.combined())
 	}
@@ -140,7 +140,8 @@ func writeFakeHostGH(t *testing.T, bin string) string {
 // aside (foreignJailFails); any other failure still fails the test, with its own message.
 func (fx githubBrokerFixture) recordScope(t *testing.T, want string) {
 	t.Helper()
-	r := runCommand(t, fx.dir, []string{"check", "--no-build", config.AcceptConfigChangesFlag}, fx.opts...)
+	r := runCommand(t, fx.dir, []string{"check", "--no-build", config.AcceptConfigChangesFlag},
+		append(fx.opts, withHostSemantics())...)
 	if line := "github-broker repository scope recorded: " + want; !strings.Contains(r.combined(), line) {
 		t.Fatalf("yolo check --accept-config-changes did not record %q:\nrc %d\n%s", line, r.rc, r.combined())
 	}
@@ -404,7 +405,7 @@ func assertGitHubBrokerRead(t *testing.T, r result, dir, argvLog, workspace stri
 	if workspace != "" {
 		args = append(args, "--workspace", workspace)
 	}
-	a := runYoloCLI(t, dir, args...)
+	a := runCommand(t, dir, args, withHostSemantics())
 	var n int
 	for _, line := range strings.Split(strings.TrimSpace(a.stdout), "\n") {
 		var e brokeraudit.Event
@@ -440,7 +441,8 @@ func assertGitHubBrokerRead(t *testing.T, r result, dir, argvLog, workspace stri
 func TestGitHubBrokerRecordsTheScopeBesideAnotherWorkspacesJail(t *testing.T) {
 	fx, foreign, otherWorkspace := newGitHubBrokerFixture(t).withForeignJail(t)
 
-	r := runCommand(t, fx.dir, []string{"check", "--no-build", config.AcceptConfigChangesFlag}, fx.opts...)
+	r := runCommand(t, fx.dir, []string{"check", "--no-build", config.AcceptConfigChangesFlag},
+		append(fx.opts, withHostSemantics())...)
 	out := r.combined()
 	if line := "github-broker repository scope recorded: yolo-it/app"; !strings.Contains(out, line) {
 		t.Fatalf("the check did not record %q:\nrc %d\n%s", line, r.rc, out)

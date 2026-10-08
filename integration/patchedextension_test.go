@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -31,8 +32,8 @@ import (
 //     in a clone of the upstream.
 //
 // HERMETIC, like patchedfork_test.go, whose upstream fixture it shares: the upstream is a local git
-// repository (git+file://). ⚠ THE PACK AND CAPTURE STORES ARE SHARED with the machine
-// (packHomeSharedStores), so the test removes the capture entries it added and its check record.
+// repository (git+file://). The fixture uses a private HOME-derived capture/pack store, linking
+// only the run's explicitly shared children.
 
 const (
 	patchTreeAgentPack = "ptree-agent"
@@ -98,6 +99,7 @@ func TestPatchedExtensionIsBuiltMountedReadOnlyAndHeldAtAConflict(t *testing.T) 
 		`"path":"~/`+patchTreeAutomode+`","readsHost":true,"managed":{"autoMode":true}}]}]}`)
 	packHome(t, `{"packs": [{"source": "file://`+agent+`", "name": "`+patchTreeAgentPack+`"}, `+
 		`{"source": "file://`+ext+`", "name": "`+patchTreeExtPack+`"}]}`)
+	withPrivateFixtureYoloStore(t)
 
 	state := filepath.Join(os.Getenv("HOME"), ".local", "share", "yolo-jail")
 	store := filepath.Join(state, "captures")
@@ -121,7 +123,7 @@ echo "AUTOMODE=$(tr -d ' \n' < "$HOME/` + patchTreeAutomode + `")"`
 	launch := func(what string) string {
 		t.Helper()
 		r := runCommand(t, t.TempDir(), append(jailRunArgs(), "--", "bash", "-c", probe),
-			withoutFixtureProgramInstall())
+			withoutFixtureProgramInstall(), withHostSemantics())
 		out := r.combined()
 		if r.rc != 0 {
 			t.Fatalf("%s: rc %d\n%s", what, r.rc, out)
@@ -147,8 +149,18 @@ echo "AUTOMODE=$(tr -d ' \n' < "$HOME/` + patchTreeAutomode + `")"`
 	if !strings.Contains(out, "TREES=") || !strings.Contains(out[strings.Index(out, "TREES="):], owner) {
 		t.Errorf("the jail was not handed the extension's build in YOLO_PATCHED_TREES:\n%s", out)
 	}
-	if live := liveCaptureEntries(t, store, newCaptureEntries(t, store, before, patchTreeName)); len(live) != 1 {
-		t.Errorf("the first launch added %d live entries, want the tree's one: %v", len(live), live)
+	added := newCaptureEntries(t, store, before, patchTreeName)
+	if live := liveCaptureEntries(t, store, added); len(live) != 1 || len(added) != 1 {
+		t.Fatalf("the first launch added %d live tree entries, want one: %v", len(live), live)
+	}
+	receipts, receiptIdentity := buildReceiptSnapshot(t, store, added[0])
+	if receipts[0].Bin != patchTreeName || receipts[0].Fork != owner || receipts[0].Series == "" || receipts[0].Revision != v11 {
+		t.Fatalf("the first tree build receipt does not identify its executed patch build: %+v", receipts[0])
+	}
+	t.Logf("tree build execution receipt: count=1 key=%s digest=%s revision=%s series=%s",
+		receipts[0].Key, receipts[0].Digest, receipts[0].Revision, receipts[0].Series)
+	if got := newCaptureEntries(t, store, before, patchTreeAgentBin); len(got) != 0 {
+		t.Fatalf("the owning installer's disabled auto-capture added entries: %v", got)
 	}
 	userConfig := filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail", "config.jsonc")
 	if data, err := os.ReadFile(packsrc.ForkLockPath(userConfig)); err == nil && strings.Contains(string(data), owner) {
@@ -157,7 +169,7 @@ echo "AUTOMODE=$(tr -d ' \n' < "$HOME/` + patchTreeAutomode + `")"`
 
 	// 2. A VERSION THE SERIES DOES NOT FIT is held, and the conflict names the rebase that fixes it.
 	v12 := up.release("1.2.0", "upstream-ten", "v1.2.0")
-	upd := runYoloCLI(t, t.TempDir(), "pack", "update").combined()
+	upd := runCommand(t, t.TempDir(), []string{"pack", "update"}, withHostSemantics()).combined()
 	rebase := "yolo pack rebase " + owner
 	if !strings.Contains(upd, "does not take the patch series") || !strings.Contains(upd, "rebase the series: "+rebase) {
 		t.Fatalf("yolo pack update did not report the conflict at v1.2.0 with its rebase:\n%s", upd)
@@ -170,8 +182,19 @@ echo "AUTOMODE=$(tr -d ' \n' < "$HOME/` + patchTreeAutomode + `")"`
 		"0001-patch-line-ten.patch — `" + rebase + "`"; !strings.Contains(out, want) {
 		t.Errorf("the held launch's extension line lacks %q:\n%s", want, out)
 	}
+	if got := newCaptureEntries(t, store, before, patchTreeName); len(got) != 1 || got[0] != receipts[0].Key {
+		t.Fatalf("the held launch changed the built tree entry identity: %v, original %s", got, receipts[0].Key)
+	}
+	heldReceipts, heldIdentity := buildReceiptSnapshot(t, store, receipts[0].Key)
+	if !bytes.Equal(heldIdentity, receiptIdentity) || heldReceipts[0] != receipts[0] {
+		t.Errorf("the held launch changed the build receipt identity/count: before=%+v after=%+v", receipts, heldReceipts)
+	}
+	t.Logf("held build identity unchanged: key=%s build-receipt-count=%d", heldReceipts[0].Key, len(heldReceipts))
+	if got := newCaptureEntries(t, store, before, patchTreeAgentBin); len(got) != 0 {
+		t.Errorf("the held launch captured the owning installer despite both fixture suppression dials: %v", got)
+	}
 	clone := filepath.Join(t.TempDir(), "clone")
-	r := runYoloCLI(t, t.TempDir(), append(strings.Fields(rebase)[1:], "--into", clone)...)
+	r := runCommand(t, t.TempDir(), append(strings.Fields(rebase)[1:], "--into", clone), withHostSemantics())
 	if r.rc != 1 || !strings.Contains(r.combined(), "extension "+owner+": upstream v1.2.0 ("+v12[:8]+
 		") does not take the patch series — the rebase stopped in "+clone) {
 		t.Errorf("the conflict line's own command did not stop at the conflict: rc %d\n%s", r.rc, r.combined())

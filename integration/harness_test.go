@@ -752,6 +752,14 @@ func withEnv(pairs ...string) runOption {
 	return func(c *runConfig) { c.env = append(c.env, pairs...) }
 }
 
+// withHostSemantics opts ONE child command into host-only product policy by appending the
+// same empty marker runCommand already lets a named caller supply withEnv. It changes
+// YOLO_VERSION's semantic context only; physical container detection and runtime capabilities
+// remain those of the actual process environment.
+func withHostSemantics() runOption {
+	return withEnv("YOLO_VERSION=")
+}
+
 // autoReapersOffEnv turns off every automatic reaper a launch's housekeeping runs: superseded
 // images, yolo's own store outputs, flake-bundle generations, image tars, leftover scratch volumes
 // and the small classes (autoReapOptOutEnv, internal/cli/run/autoreapimages.go). TestMain sets it
@@ -824,11 +832,7 @@ func runLaunch(t *testing.T, dir string, args []string, opts ...runOption) (resu
 	name, argv := launchCommand(cfg, yoloBin, args)
 	cmd := exec.CommandContext(ctx, name, argv...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "TERM=dumb")
-	cmd.Env = append(cmd.Env, childRepoRootEnv()...)
-	cmd.Env = append(cmd.Env, autoCaptureEnvForSuite()...)
-	cmd.Env = append(cmd.Env, readinessEnvForSuite()...)
-	cmd.Env = append(cmd.Env, cfg.env...)
+	cmd.Env = launchEnvironment(cfg)
 	awaitDetachedWriters(t, dir, launchHome(cmd.Env))
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -860,6 +864,66 @@ func runLaunch(t *testing.T, dir string, args []string, opts ...runOption) (resu
 	// skew check). Every run* helper funnels through here, so no test opts in.
 	failIfImageBuildFailed(t, args, res)
 	return res, nil
+}
+
+// launchEnvironment is the child environment every harness launch gets: the suite's own, then
+// the run's repo root, auto-capture and readiness dials, then the call's withEnv pairs, so a
+// later entry for a name wins.
+func launchEnvironment(cfg runConfig) []string {
+	env := append(os.Environ(), "TERM=dumb")
+	env = append(env, childRepoRootEnv()...)
+	env = append(env, autoCaptureEnvForSuite()...)
+	env = append(env, readinessEnvForSuite()...)
+	return append(env, cfg.env...)
+}
+
+// withPrivateFixtureYoloStore re-homes one fixture's HOME on the harness's supported
+// HOME-derived yolo state path, keeping captures and pack state private while linking only
+// runStoreShared back to the run's established shared children. It refuses to run without
+// the suite-owned run store rather than falling back to machine capture/pack state.
+func withPrivateFixtureYoloStore(t *testing.T) string {
+	t.Helper()
+	if hostHome == "" || runStore.dir == "" {
+		t.Fatal("a private fixture yolo store requires the integration run store; refusing to use shared machine capture state")
+	}
+	configPath := filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail", "config.jsonc")
+	configBytes, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("reading the fixture user config for its private yolo store: %v", err)
+	}
+	home := resolvedTempDir(t)
+	if err := seedPackHome(home, hostHome, string(configBytes)); err != nil {
+		t.Fatalf("seeding the private fixture HOME: %v", err)
+	}
+	state := paths.GlobalStorageUnder(home)
+	sharedTarget, err := os.Readlink(state)
+	if err != nil || sharedTarget != runStore.dir {
+		t.Fatalf("fixture HOME's yolo state link = %q (%v), want the run's state store %q", sharedTarget, err, runStore.dir)
+	}
+	if err := os.Remove(state); err != nil {
+		t.Fatalf("replacing the fixture HOME's yolo state link: %v", err)
+	}
+	if err := os.Mkdir(state, 0o755); err != nil {
+		t.Fatalf("creating the private fixture yolo state directory: %v", err)
+	}
+	for _, name := range runStoreShared {
+		target := filepath.Join(runStore.dir, name)
+		if _, err := os.Stat(target); err != nil {
+			t.Fatalf("the run store's shared %s is unavailable: %v", name, err)
+		}
+		if err := os.Symlink(target, filepath.Join(state, name)); err != nil {
+			t.Fatalf("linking the private fixture store's shared %s: %v", name, err)
+		}
+	}
+	t.Logf("private fixture HOME=%s yolo-state=%s; shared links only=%v -> %s", home, state, runStoreShared, runStore.dir)
+	t.Setenv("HOME", home)
+	captures := paths.CapturesDirUnder(home)
+	rel, err := filepath.Rel(state, captures)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		t.Fatalf("the supported capture path %q is not under private fixture state %q", captures, state)
+	}
+	t.Cleanup(func() { removeWorkspaceTree(t, home) })
+	return home
 }
 
 // runYolo runs a shell script inside the jail via a login shell:
@@ -1167,9 +1231,9 @@ func readinessEnvForSuite() []string {
 	return []string{paths.NoProgramReadinessEnv + "=1"}
 }
 
-// withoutFixtureProgramInstall keeps boot-time installation and auto-capture out of tests
-// that supply their own fake program, even in a real-vendor-install run. The actual launcher
-// still runs when the test invokes it; only the unrelated boot-time installer acts are skipped.
+// withoutFixtureProgramInstall keeps readiness and installer-program auto-capture off for a
+// fixture that supplies its own fake program, even in a real-vendor-install run. YOLO_NO_AUTO_CAPTURE
+// suppresses only that installer auto-capture trigger; explicit extension tree builds still run.
 func withoutFixtureProgramInstall() runOption {
 	return withEnv(paths.NoProgramReadinessEnv+"=1", "YOLO_NO_AUTO_CAPTURE=1")
 }

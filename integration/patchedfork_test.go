@@ -129,6 +129,7 @@ func TestPatchedForkFollowsItsUpstreamAndHoldsAtAConflict(t *testing.T) {
 		`"patches":"patches","build":"`+buildJSON+`","produces":[".local/bin/`+patchFixtureBin+`"]}]}`)
 	packHome(t, `{"packs": [{"source": "file://`+basePack+`", "name": "`+patchFixtureBasePack+`"}, `+
 		`{"source": "file://`+fork+`", "name": "`+patchFixtureForkPack+`"}]}`)
+	withPrivateFixtureYoloStore(t)
 
 	state := filepath.Join(os.Getenv("HOME"), ".local", "share", "yolo-jail")
 	store := filepath.Join(state, "captures")
@@ -146,7 +147,7 @@ func TestPatchedForkFollowsItsUpstreamAndHoldsAtAConflict(t *testing.T) {
 	launch := func(what string) string {
 		t.Helper()
 		lastWorkspace = t.TempDir()
-		r := runYoloDirect(t, lastWorkspace, patchFixtureBin)
+		r := runCommand(t, lastWorkspace, append(jailRunArgs(), "--", patchFixtureBin), withHostSemantics())
 		out := r.combined()
 		if r.rc != 0 {
 			t.Fatalf("%s: rc %d\n%s", what, r.rc, out)
@@ -193,7 +194,7 @@ func TestPatchedForkFollowsItsUpstreamAndHoldsAtAConflict(t *testing.T) {
 	// replaced reaped (no running jail holds it).
 	jailGone()
 	v12 := up.release("1.2.0", "ten", "v1.2.0")
-	if r := runYoloCLI(t, t.TempDir(), "pack", "update"); !strings.Contains(r.combined(), "takes the series") {
+	if r := runCommand(t, t.TempDir(), []string{"pack", "update"}, withHostSemantics()); !strings.Contains(r.combined(), "takes the series") {
 		t.Fatalf("yolo pack update did not replay the series at v1.2.0:\n%s", r.combined())
 	}
 	out = launch("the launch after v1.2.0")
@@ -211,7 +212,7 @@ func TestPatchedForkFollowsItsUpstreamAndHoldsAtAConflict(t *testing.T) {
 	// 3. A VERSION THE SERIES DOES NOT FIT is held: the next launch's jail runs v1.2.0's build, and
 	// the fork's line names what stopped v1.3.0.
 	v13 := up.release("1.3.0", "upstream-ten", "v1.3.0")
-	if r := runYoloCLI(t, t.TempDir(), "pack", "update"); !strings.Contains(r.combined(), "does not take the patch series") {
+	if r := runCommand(t, t.TempDir(), []string{"pack", "update"}, withHostSemantics()); !strings.Contains(r.combined(), "does not take the patch series") {
 		t.Fatalf("yolo pack update did not report the conflict at v1.3.0:\n%s", r.combined())
 	}
 	out = launch("the launch after v1.3.0")

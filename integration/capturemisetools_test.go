@@ -6,19 +6,23 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/capture"
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // capturemisetools_test.go is the container-level cell for FP-D19
 // (docs/design/forked-programs-as-packs.md, OQ-FP10 ruled 2026-10-05): the user config's
-// `mise_tools` reach no capture jail. Two `yolo capture` acts run against a user config declaring
-// a mise tool no registry has, a fork's build (a sealed jail) and an installer program's capture
-// (an unsealed one). Each jail's command refuses when the jail's global mise config, the file its
-// `mise install` installs from, is missing or names that tool, so a capture fails if the tool
-// crossed. No launch runs, so no ordinary jail meets the tool's failing install.
+// a mise tool no registry has, a fork's build (a sealed jail) and an installer's explicit capture
+// (an unsealed one). Each jail's command refuses when its global mise config, the file `mise install`
+// installs from, is missing or names that tool, so a capture fails if the tool crossed. These two
+// handoff cases make no ordinary launch; the separate opt-in test below exercises the launch's
+// installer auto-capture trigger.
 //
-// HERMETIC as forkbuild_test.go and capture_test.go are. ⚠ THE CAPTURE STORE IS THE DEVELOPER'S
-// OWN (capture_test.go says why), so each test captures under a bin no other test uses and removes
-// only the new entries whose receipt names that bin (newCaptureEntries), never another capture's.
+// HERMETIC as forkbuild_test.go and capture_test.go are. Each fixture uses a private HOME-derived
+// capture/pack store linked only to the run's explicitly shared children, so cleanup cannot see
+// or remove another test's capture.
 
 const (
 	miseFixtureTool   = "capturefixture-user-tool"
@@ -36,16 +40,67 @@ func miseFixturePacks(t *testing.T, packs string) {
 // stored an entry.
 func miseFixtureCapture(t *testing.T, bin, what string) string {
 	t.Helper()
+	withPrivateFixtureYoloStore(t)
 	store := filepath.Join(os.Getenv("HOME"), ".local", "share", "yolo-jail", "captures")
 	before := captureEntryNames(t, store)
 	t.Cleanup(func() { removeNewCaptureEntries(t, store, before, bin) })
 	t.Cleanup(func() { _ = os.RemoveAll(filepath.Join(store, "staging", bin)) })
-	r := runYoloCLI(t, t.TempDir(), "capture", bin)
+	r := runCommand(t, t.TempDir(), []string{"capture", bin}, withHostSemantics())
 	if r.rc != 0 {
 		t.Fatalf("%s failed, rc %d: its jail was handed the user's mise tool %s, or could not "+
 			"read its mise config\n%s", what, r.rc, miseFixtureTool, r.combined())
 	}
 	return r.combined()
+}
+
+func TestAnInstallerAutoCaptureRunsForAChildThatOptsIn(t *testing.T) {
+	requireJail(t)
+	const bin, packName = "yolo-autocapture-host-context-fixture", "autocapture-host-context-fixture"
+	pack := t.TempDir()
+	installer := "#!/bin/bash\nset -euo pipefail\n" +
+		"mkdir -p \"$HOME/.local/bin\"\n" +
+		"printf '#!/bin/sh\\necho AUTOCAPTURE_TOOL_RAN\\necho AUTO_HOST_LOOPBACK=$YOLO_HOST_LOOPBACK\\n' > \"$HOME/.local/bin/" + bin + "\"\n" +
+		"chmod +x \"$HOME/.local/bin/" + bin + "\"\necho AUTOCAPTURE_INSTALLER_RAN\n"
+	if err := os.WriteFile(filepath.Join(pack, "install.sh"), []byte(installer), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"name":"` + packName + `","contributes":[{"kind":"program","bin":"` +
+		bin + `","via":"installer","url":"file:///ctx/packs/` + packName + `/install.sh"}]}`
+	if err := os.WriteFile(filepath.Join(pack, "pack.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	packHome(t, `{"packs": [{"source": "file://`+pack+`", "name": "`+packName+`"}]}`)
+	withPrivateFixtureYoloStore(t)
+	store := filepath.Join(os.Getenv("HOME"), ".local", "share", "yolo-jail", "captures")
+	before := captureEntryNames(t, store)
+	t.Cleanup(func() { removeNewCaptureEntries(t, store, before, bin) })
+	t.Cleanup(func() { _ = os.RemoveAll(filepath.Join(store, "staging", bin)) })
+
+	workspace := writeProject(t, `{}`)
+	recordPodman, podmanLog := podmanRunArgumentRecorder(t)
+	r := runCommand(t, workspace, append(jailRunArgs(), "--", bin),
+		withEnv(paths.NoProgramReadinessEnv+"=1", "YOLO_NO_AUTO_CAPTURE="), withHostSemantics(), recordPodman)
+	if r.rc != 0 {
+		t.Fatalf("the opt-in auto-capture launch failed: rc %d\n%s", r.rc, r.combined())
+	}
+	assertPhysicalNestedPodmanControls(t, workspace, r.combined(), podmanLog)
+	for _, want := range []string{"auto-capture", "AUTOCAPTURE_INSTALLER_RAN", "AUTOCAPTURE_TOOL_RAN"} {
+		if !strings.Contains(r.combined(), want) {
+			t.Errorf("the opt-in installer auto-capture launch lacks %q:\n%s", want, r.combined())
+		}
+	}
+	added := newCaptureEntries(t, store, before, bin)
+	if len(added) != 1 {
+		t.Fatalf("the opt-in launch recorded %d installer captures, want exactly one: %v", len(added), added)
+	}
+	entry, err := (&capture.Store{Dir: store}).Resolve(added[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipts, err := entrypoint.ReadCaptureReceipts(capture.ReceiptsPath(entry.Root))
+	if err != nil || len(receipts) != 1 || receipts[0].Bin != bin || receipts[0].Act != entrypoint.ReceiptActRecord {
+		t.Fatalf("the auto-capture did not write one installer record receipt: %+v (%v)", receipts, err)
+	}
 }
 
 // A FORK'S SEALED BUILD is handed none of the user's mise_tools, and its launch says how many it

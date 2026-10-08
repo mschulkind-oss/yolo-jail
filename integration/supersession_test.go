@@ -55,7 +55,7 @@ func TestLaunchRefusesAnUnmatchedSupersession(t *testing.T) {
 			"warning):\n%s", n, r.combined())
 	}
 
-	c := runYoloCLI(t, dir, "check", "--no-build")
+	c := runCommand(t, dir, []string{"check", "--no-build"}, withHostSemantics())
 	if c.rc == 0 {
 		t.Errorf("`yolo check` exited 0 on a config the launch just refused:\n%s", c.combined())
 	}
@@ -71,7 +71,7 @@ func TestLaunchRefusesAnUnmatchedSupersession(t *testing.T) {
 	// And the host notch refuses the same claim through the same gate (RM-D5): `yolo host env`
 	// composes what `yolo host --` would exec, so it refuses with nothing on stdout to eval.
 	// YOLO_VERSION blanked because the suite may run inside a jail, and this is the host's verb.
-	h := runCommand(t, dir, []string{"host", "env", "--agent", "claude"}, withEnv("YOLO_VERSION="))
+	h := runCommand(t, dir, []string{"host", "env", "--agent", "claude"}, withHostSemantics())
 	if h.rc == 0 || strings.TrimSpace(h.stdout) != "" {
 		t.Errorf("`yolo host env` composed an environment over a claim the jail launch refused "+
 			"(rc %d):\n%s", h.rc, h.combined())
