@@ -317,11 +317,16 @@ func runDarwinBootstrap(_ []string) int {
 	//
 	// ⚠ IT CHECKS THE SANDBOX IDENTITY'S ROOTS, NOT THE INVOKING HUMAN'S, and it cannot do
 	// otherwise. `sudo --user=_yolojail` without --set-home is an unreliable HOME source —
-	// the reason this function rebinds HOME above — so the home in scope here is
-	// /Users/_yolojail whichever way it resolved. Refusing to plant a .yolo inside the
-	// SANDBOX's own home or state dir is what this can honestly promise. The human's home
-	// is the launch guard's promise, upstream, where their HOME is what paths resolves.
-	if breach := paths.WorkspaceScopeBreach(e.WorkspaceDir()); breach != nil {
+	// the reason this function rebinds HOME above. Refusing to plant a .yolo inside the
+	// SANDBOX ACCOUNT's own home or state dir is what this can honestly promise. The human's
+	// home is the launch guard's promise, upstream, where their HOME is what paths resolves.
+	//
+	// THE ACCOUNT'S HOME, NOT THE HOME THIS RUN WAS HANDED (darwinBootstrapScopeHome): an install
+	// capture or fork build hands the bootstrap a throwaway staging home INSIDE the staging tree
+	// it names as the workspace (macosuser.CaptureStagingHome), so checking HOME refused every
+	// capture. And its ~/.config and ~/.local are this workspace's own sidecar by design, which is
+	// why the roots below the home are compared lexically (paths.WorkspaceScopeBreachUnder).
+	if breach := darwinBootstrapScopeBreach(e.WorkspaceDir()); breach != nil {
 		fmt.Fprintln(os.Stderr, "yolo internal darwin-bootstrap:", breach)
 		return 1
 	}
@@ -340,6 +345,16 @@ func runDarwinBootstrap(_ []string) int {
 	}
 	fmt.Println("yolo-jail macos-user bootstrap ok")
 	return 0
+}
+
+// darwinBootstrapScopeHome is the home whose boundary runDarwinBootstrap guards: the sandbox
+// account's. A var so a test can stand a temporary directory in for /Users/_yolojail.
+var darwinBootstrapScopeHome = macosuser.SandboxHome
+
+// darwinBootstrapScopeBreach is runDarwinBootstrap's refusal: why this workspace may not take a
+// .yolo, judged against the sandbox account's boundary, or nil.
+func darwinBootstrapScopeBreach(workspace string) *paths.ScopeBreach {
+	return paths.WorkspaceScopeBreachUnder(workspace, darwinBootstrapScopeHome())
 }
 
 // firstNonEmptyEnv returns the first environment variable in keys with a

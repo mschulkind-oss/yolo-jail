@@ -146,18 +146,47 @@ func WritableSourceScopeBreach(source string) *ScopeBreach {
 	return scopeBreach(source, false)
 }
 
+// WorkspaceScopeBreachUnder is the same rule against the roots of an EXPLICIT home, for the
+// one caller whose boundary is not the process HOME's: `yolo internal darwin-bootstrap`, which
+// guards the macos-user SANDBOX account's home (internal/cli/internal.go says why it cannot
+// guard the human's).
+//
+// THE HOME IS RESOLVED, ITS TWO yolo DIRECTORIES ARE NOT. They are joined onto the resolved home
+// lexically, because on that backend the home layout links ~/.config and ~/.local into the
+// launching workspace's own sidecar, <ws>/.yolo/home (entrypoint.DeriveDarwinHomeLayout). Followed,
+// those links put the sandbox's config dir inside every workspace that has launched before, as soon
+// as its sidecar holds a config/yolo-jail (a missing one fails to resolve and falls back to the
+// lexical path, which is why the refusal waited for one to appear). The sidecar is the workspace's own overlay, the same tier a container binds at
+// /home/agent/.config, not a boundary the workspace could breach. No capture exemption: that one
+// is for a workspace inside the process HOME's state dir, which this caller does not check.
+func WorkspaceScopeBreachUnder(workspace, home string) *ScopeBreach {
+	h := resolveScopePath(home)
+	return scopeBreachAgainst(workspace, false, []scopeRoot{
+		{h, RootHome},
+		{GlobalStorageUnder(h), RootStateDir},
+		{filepath.Join(h, filepath.Dir(filepath.FromSlash(userConfigSuffix))), RootUserConfigDir},
+	})
+}
+
+// scopeRoot is one boundary root, already resolved.
+type scopeRoot struct {
+	path string
+	kind ScopeRootKind
+}
+
 // scopeBreach is WorkspaceScopeBreach's rule; exemptCaptures applies scopeExempt.
 func scopeBreach(workspace string, exemptCaptures bool) *ScopeBreach {
-	ws := resolveScopePath(workspace)
-	roots := []struct {
-		path string
-		kind ScopeRootKind
-	}{
+	return scopeBreachAgainst(workspace, exemptCaptures, []scopeRoot{
 		// Home first: the broadest breach, and the one an accidental cd produces.
 		{resolveScopePath(home()), RootHome},
 		{resolveScopePath(GlobalStorage()), RootStateDir},
 		{resolveScopePath(filepath.Dir(UserConfigPath())), RootUserConfigDir},
-	}
+	})
+}
+
+// scopeBreachAgainst is the containment rule over a given set of roots, home first.
+func scopeBreachAgainst(workspace string, exemptCaptures bool, roots []scopeRoot) *ScopeBreach {
+	ws := resolveScopePath(workspace)
 
 	// Direction 1 — the workspace IS or CONTAINS a root.
 	for _, r := range roots {

@@ -191,3 +191,56 @@ func TestEnsureWorkspaceStateDirStillServesAnOrdinaryWorkspace(t *testing.T) {
 		t.Errorf("the state dir is committable: %v", err)
 	}
 }
+
+// TestWorkspaceScopeBreachUnderComparesTheHomesDirectoriesLexically pins the explicit-home rule
+// darwin-bootstrap uses. The home is resolved (here it is reached through a symlink, the darwin
+// /var/folders shape), but its ~/.config is a link into the workspace's own sidecar holding a
+// yolo-jail directory — the macos-user layout after one launch — and that must not make the
+// workspace "contain" the config dir. The process-HOME predicate, which follows the link,
+// refuses the same workspace; that contrast is what the explicit-home rule exists for.
+func TestWorkspaceScopeBreachUnderComparesTheHomesDirectoriesLexically(t *testing.T) {
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	real := filepath.Join(base, "real-home")
+	if err := os.MkdirAll(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	home := filepath.Join(base, "link-home")
+	if err := os.Symlink(real, home); err != nil {
+		t.Fatal(err)
+	}
+	ws := filepath.Join(base, "ws")
+	sidecarConfig := filepath.Join(WorkspaceStateDir(ws), "home", "config")
+	if err := os.MkdirAll(filepath.Join(sidecarConfig, "yolo-jail"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(sidecarConfig, filepath.Join(real, ".config")); err != nil {
+		t.Fatal(err)
+	}
+
+	if b := WorkspaceScopeBreachUnder(ws, home); b != nil {
+		t.Errorf("WorkspaceScopeBreachUnder followed the home's ~/.config link into the workspace: %v", b)
+	}
+	t.Setenv("HOME", home)
+	if WorkspaceScopeBreach(ws) == nil {
+		t.Error("the process-HOME predicate no longer follows ~/.config's link; this pin's contrast is gone")
+	}
+
+	for _, tc := range []struct {
+		ws   string
+		kind ScopeRootKind
+		rel  ScopeRelation
+	}{
+		{real, RootHome, ScopeIsRoot},
+		{home, RootHome, ScopeIsRoot},
+		{base, RootHome, ScopeContainsRoot},
+		{filepath.Join(real, GlobalStorageRel(), "x"), RootStateDir, ScopeInsideRoot},
+	} {
+		b := WorkspaceScopeBreachUnder(tc.ws, home)
+		if b == nil || b.Kind != tc.kind || b.Relation != tc.rel {
+			t.Errorf("WorkspaceScopeBreachUnder(%q) = %+v, want kind %v relation %v", tc.ws, b, tc.kind, tc.rel)
+		}
+	}
+}
