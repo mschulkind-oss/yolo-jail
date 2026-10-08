@@ -3,7 +3,7 @@ title: "Tools from a private Homebrew tap: the host fetches, the jail receives b
 date: 2026-10-08
 status: in-review
 stage: DESIGN
-next: "Rule OQ-PT1 to OQ-PT5, then name the first two formulae so the build can measure brew fetch --os=linux against them"
+next: "Rule OQ-PT1 to OQ-PT5, then run §9 step 1: brew fetch --os/--arch against the public mschulkind-oss/homebrew-tap swarf and polyclav formulae on a Mac"
 tags: [design, programs, homebrew, credentials, packs, provisioning, notches]
 summary: "The maintainer's tools come from a Homebrew tap in a private GitHub repository, and the credential that reads that repository must stay on the host. The design adds one program delivery route: a pack declares a tap formula, the host runs the user's own brew to fetch the build for the jail's platform, yolo keeps the verified bytes in a content-addressed store, and each backend receives them read-only. No credential, tap clone or brew reaches a jail."
 ---
@@ -51,6 +51,16 @@ well as on the hosts … they come from Homebrew from a tap which is in a GitHub
 private. So the hosts get credentials are required for grabbing these tools from Homebrew and I
 want to get them into the jail."*
 
+**Maintainer ask (2026-10-08, his words):** *"on Mac we want to be careful if we're on the guest
+or the host or the jail and install the right version of things. It'll be cross-compiled for all
+… the choices here of architecture and operating system."* That is the per-notch platform table in
+[§4.2](#42-the-tap-fetch).
+
+**Maintainer fact (2026-10-08, his words):** *"I don't actually have any of these homebrew
+packages ready in the tap yet, so we'll have to test this with a public repo we can use, the one
+that YoloJail has hosted in for a test."* That is yolo's own public tap, which
+[§9](#9-what-i-would-build-in-order) uses for the first measurement and the fixtures.
+
 **Maintainer fact (2026-10-08, his words):** *"These homebrew tap stuff, they will be
 cross-compiled for both Mac and Linux. So they will be able to just pull their own native stuff.
 You don't have to deal with cross-compilation in that area."* Each formula therefore publishes a
@@ -82,7 +92,8 @@ Constraints this design does not reopen:
   binary.
 - **Jail platform** *(coined here)*. The `<goos>/<goarch>` a jail runs: `linux/<arch of the VM or
   host>` on the container backends, and the host's own `darwin/<arch>` on macos-user. Not the
-  host's platform, which differs on podman on macOS and on Apple Container.
+  host's platform, which differs on podman on macOS and on Apple Container. Each notch's value, and
+  where yolo learns it, is the table in [§4.2](#42-the-tap-fetch).
 - **Tap fetch** *(coined here)*. The host-side act: run the user's `brew` to download one formula's
   build for one platform, without installing it.
 - **Tap store** *(coined here)*. A yolo-owned host directory of fetched builds, keyed by sha256. Not
@@ -199,15 +210,36 @@ comes from the formula at fetch time, and the version moves with the tap
 [OQ-PT3](#OQ-PT3) rules for a pinned version, the fetch can move to `yolo pack install` with the
 pin.
 
+**Which platform each notch gets.** The maintainer's ask is that each notch install its own
+build. Every notch gets exactly one `<os>/<arch>` pair:
+
+| Notch | Platform | Where yolo learns it |
+| :--- | :--- | :--- |
+| Mac host (`yolo host`) | `darwin/<host arch>` | Host brew's own native platform. No `--os`/`--arch` flags: the host notch is brew's own install or floor copy ([§4.4](#44-the-host-notch)) |
+| macos-user guest | `darwin/<host arch>`. It is the same machine, but a separate account and a separate root-owned copy | `macosUserJailPlatform`, the authority the capture store already uses for this backend ([`autocapture.go`](../../internal/cli/run/autocapture.go)) |
+| podman on a Mac (the podman machine's VM) | `linux/<VM arch>`: `arm64` on Apple silicon, `amd64` on Intel | `containerJailPlatform`, the authority shared with captures and fork delivery, which is also the arch of the `bin/linux-<arch>` jail prefix the launch mounts ([`jailprefix.go`](../../internal/cli/run/jailprefix.go)). It is checked against `host.arch` in the `podman info` the launch already reads, which reports the VM's arch |
+| Apple Container | `linux/arm64` | `containerJailPlatform`, as above |
+| podman on a Linux host | `linux/<host arch>` | `containerJailPlatform`, as above |
+| A nested jail | None. It inherits nothing | It never fetches ([PT-P4](#PT-P4)) |
+
+The OS is the backend's, **never the launcher's `runtime.GOOS`**: on a Mac a container jail is
+`linux`. The arch comes from the one authority that already names the jail prefix's binaries. A
+launcher whose arch differs from the VM's could not start that jail at all, because its own jail
+binaries would not run there. The `podman info` check turns that case into a refusal that names
+both arches before anything is fetched ([PT-D12](#PT-D12)). A formula with no build for the notch's
+pair is a refusal naming the formula and the pair. A macOS build never stands in for a Linux one,
+and an amd64 build never stands in for an arm64 one.
+
 **Steps, per tap program:**
 
 1. **Check that the tap exists** (`brew tap` lists it). If it is missing the launch fails and names
    `brew tap org/tap`. yolo does not tap it ([OQ-PT4](#OQ-PT4)).
 2. **Resolve the version** under the policy [OQ-PT3](#OQ-PT3) rules.
 3. **Fetch for the jail platform:** `brew fetch --formula --os=<goos> --arch=<goarch> org/tap/tool`,
-   then `brew --cache` with the same flags for the path. When the jail platform is the host's own
-   (macos-user, and podman on a Linux host of the same arch), the flags are omitted and a host that
-   already installed the formula hits brew's cache with no download.
+   then `brew --cache` with the same flags for the path. The flags are always passed for a jail
+   notch, even when the pair is the host's own, so the table above is the only source of the pair.
+   When the pair is the host's own and the formula is already installed, brew's cache serves it with
+   no download.
 4. **Check the bytes:** brew has verified the formula's sha256. yolo then hashes the file itself,
    extracts it if it is an archive, and finds `bin`. It checks that the file is an executable for
    the jail platform (ELF for linux with the right machine, Mach-O for darwin with the right CPU).
@@ -340,11 +372,13 @@ formula is written once ([PT-D11](#PT-D11)).
 | brew busy (*"Another active Homebrew process"*) after three retries | A fetch failure: the last good build if one exists, with a line, otherwise the readiness refusal |
 | Tap not tapped | Refusal naming `brew tap org/tap` ([OQ-PT4](#OQ-PT4)) |
 | brew download fails with 401/404 and no token is in the environment | Refusal naming `HOMEBREW_GITHUB_API_TOKEN` and the environment yolo was started from ([OQ-PT5](#OQ-PT5)). A last good build is used if one exists, with a line saying so. Either way brew's text is redacted and the full text is in the host log |
-| The formula has no build for the jail platform | Refusal naming the formula and the platform. The other backends are unaffected. Per the maintainer's fact this should not happen |
+| The formula has no build for the notch's pair | Refusal naming the formula and the `<os>/<arch>` pair. The other notches are unaffected. Per the maintainer's fact this should not happen with his tap |
+| The formula's download for the pair is a source tarball, not a build | Refusal: no executable named `bin` is in the archive. yolo never builds it ([§7](#7-non-goals)) |
 | `bin` not found, or found more than once, in the archive | Refusal listing the candidates and naming the pack's `path` key |
 | Wrong executable format, or an interpreter under a brew prefix | Refusal naming what was found |
 | Checksum mismatch (brew's own check) | Refusal with brew's message. Nothing is admitted |
-| A nested launch (yolo run inside a jail) | It never fetches ([PT-P4](#PT-P4)). The outer launch binds, beside each delivered file, a read-only record of its formula, version and platform. The inner launch delivers that file when the record's formula and platform match. Otherwise the program is missing, which is the ordinary readiness refusal, and `YOLO_ALLOW_MISSING_PROGRAMS=1` applies |
+| A nested launch (yolo run inside a jail) | It never fetches and inherits nothing from the outer jail ([PT-P4](#PT-P4)). The program is missing, which is the ordinary readiness refusal, and `YOLO_ALLOW_MISSING_PROGRAMS=1` applies |
+| The launcher's arch differs from the VM's that `podman info` reports | Refusal naming both arches, before any fetch ([PT-D12](#PT-D12)) |
 | `formula` on a non-brew route, or not fully qualified | Pack validation error |
 | Zero tap programs | Nothing runs. There is no brew probe and no line |
 
@@ -420,27 +454,65 @@ Columns are the four options in [§6](#6-alternatives-considered). Recommended i
 | :--- | :--- |
 | A launch started without the token (a desktop launcher, a cron job) fails to fetch | The last good build covers later launches. The refusal names the variable. [OQ-PT5](#OQ-PT5) decides whether yolo does more |
 | A tap's custom strategy breaks on a brew upgrade, as these strategies historically have | It breaks the host first, and in the same way. The refusal carries brew's own error |
-| `brew fetch --os=linux` from a Mac fails on a tap's strategy for reasons a Linux host would not hit | The first build step measures it on the maintainer's two named formulae before anything else is built |
+| `brew fetch --os=linux` from a Mac fails on a tap's strategy for reasons a Linux host would not hit | The first build step measures it on the public tap's formulae, and a real private tap repeats it once one exists |
+| The public tap proves no token path | A fixture `brew` proves the token stays host-side ([§9](#9-what-i-would-build-in-order)). A real private tap closes it later |
 | A pack names a formula from a tap the user did not intend to expose to a jail | Disclosure on every launch, and only already-tapped taps ([OQ-PT4](#OQ-PT4)) |
 | The tap store grows with every release | Retention keeps two builds per pair plus the live ones ([§4.5](#45-updates-and-offline)) |
 
 ## 9. What I would build, in order
 
-1. **Measure first.** On a Mac, run `brew fetch --os=linux --arch=arm64` and `brew --cache` with the
-   same flags on two of the maintainer's formulae, from a terminal and from a launch without the
-   token. That settles [§2.2](#22-how-a-private-tap-authenticates) step 4 for these taps, and the
-   [OQ-PT5](#OQ-PT5) failure.
+1. **Measure first, on yolo's own public tap.** The maintainer's private tap has no formulae yet, so
+   the first measurement and every fixture use the public
+   [`mschulkind-oss/homebrew-tap`](https://github.com/mschulkind-oss/homebrew-tap). Read 2026-10-08:
+   - **Its `yolo-jail` formula does not fit.** It downloads one source tarball for every platform
+     and builds yolo with Go. It publishes no bottle and names no release asset, so a fetch yields
+     source and no binary. It is the fixture for the source-tarball refusal and nothing else.
+   - **`swarf` is the fixture.** It is GoReleaser-generated, the shape the private tools are
+     expected to take, with a release asset for each of `darwin/amd64`, `darwin/arm64`,
+     `linux/amd64` and `linux/arm64`. `waxon` has the same shape and is the second case.
+   - **`polyclav` is the missing-pair fixture.** It has only `darwin/arm64` and `linux/amd64`, so a
+     podman jail on Apple silicon must refuse it, naming `linux/arm64`.
+
+   On a Mac, run `brew fetch --formula --os=linux --arch=arm64` and `brew --cache` with the same
+   flags on `swarf`, then the same with `--os=darwin`. That settles
+   [§2.2](#22-how-a-private-tap-authenticates) step 4 for this shape. The tap is public, so this
+   proves the fetch, the store and the delivery for each notch, and **not** the token path. The token
+   path is proven in two ways:
+   - **Now:** a fixture `brew` that downloads only when `HOMEBREW_GITHUB_API_TOKEN` is in its
+     environment, run while the test asserts the token's value appears in no jail file, environment
+     or log.
+   - **Later:** a real private tap, once the maintainer publishes one. That run also settles the
+     [OQ-PT5](#OQ-PT5) failure.
 2. **The declaration**, with its validation: `via: "brew"`, `formula`, `path`.
 3. **The tap fetch and the tap store**: the lock, the format checks, admission, the last-good
    record and retention.
 4. **Container delivery**: a file bind plus a launcher. A nested jail can never exercise a fetch
    ([PT-P4](#PT-P4)), so the integration case drives a fake `brew` on the launching side that prints
-   a fixture archive's path, and a real Mac run with the real tap closes it, on podman and on Apple
-   Container.
+   a fixture archive's path. A real Mac run with the public `swarf` formula closes it, on podman and
+   on Apple Container.
 5. **macos-user delivery**: the root-owned copy, and [PT-D9](#PT-D9)'s denies with their
    `macosuserseatbelt_test.go` cases. This needs a Mac run.
 6. **The host notch**, as [OQ-PT2](#OQ-PT2) rules.
 7. **Disclosure and footprint**, and the user-guide page for a private tap.
+
+**Tests to write.** Each fails if its call site is deleted, not only its callee:
+
+- **The pair per notch.** A launch on each backend asks the fake `brew` for exactly the
+  [§4.2](#42-the-tap-fetch) pair: `linux/<arch>` from podman and Apple Container even when the
+  launcher is darwin, `darwin/<arch>` from macos-user, and no flags at the host. The test asserts
+  the fetch's pair equals `containerJailPlatform`, and is not derived from `runtime.GOOS`.
+- **Missing pair.** A formula offering only `darwin/arm64` and `linux/amd64` refuses a
+  `linux/arm64` jail, naming the formula and the pair, and still serves a `darwin/arm64` macos-user
+  launch.
+- **No substitution.** A darwin file, or a file of the other arch, handed back for a linux pair is
+  refused by the format check and never admitted.
+- **Arch disagreement.** `podman info` reporting a `host.arch` other than the launcher's refuses,
+  naming both, before any `brew` runs.
+- **Nested.** A launch inside a jail runs no `brew`, and the tap program reports as missing.
+- **Token stays host-side.** With the fixture `brew` requiring the token, the token's value
+  appears in no jail environment, mounted file, `launch.log` or refusal text.
+- **Source tarball.** The public `yolo-jail` formula's fetch is refused with the no-executable
+  message.
 
 ## Open Questions
 
@@ -549,6 +621,7 @@ Implementation decisions made while designing. Each one is reversible, and none 
 | <a id="PT-D9"></a>PT-D9 | Every macos-user launch denies reads of `$(brew --prefix)/Library/Taps`, `$(brew --prefix)/etc/homebrew/brew.env` and `/etc/homebrew/brew.env`, whether or not a tap program is selected. This closes an exposure that exists today | 2026-10-08 | [§4.3](#43-delivery-per-backend) | — |
 | <a id="PT-D10"></a>PT-D10 | `via: "brew"` is honored only from user-scope packs, whatever [`OQ-PK1`](../reference/pack-system.md#oq-pk1) later admits from a workspace config | 2026-10-08 | [§4.6](#46-trust-and-disclosure) | — |
 | <a id="PT-D11"></a>PT-D11 | `formula` is the one spelling. The `brew` install hint is derived from it, never written beside it | 2026-10-08 | [§4.4](#44-the-host-notch) | — |
+| <a id="PT-D12"></a>PT-D12 | Each notch's pair comes from the [§4.2](#42-the-tap-fetch) table: host brew's native platform at the host, `macosUserJailPlatform` on macos-user, `containerJailPlatform` on the container backends. On podman the arch is checked against `podman info`'s `host.arch` and a disagreement refuses. Nested jails get no pair | 2026-10-08 | [§4.2](#42-the-tap-fetch) | — |
 
 ## Appendix A. Homebrew sources
 
