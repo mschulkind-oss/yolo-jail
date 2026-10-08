@@ -81,6 +81,10 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
    with [the probe that checks its premise](../research/apple-container-file-cost.md#5-a-planned-probe-on-the-mac-runner)
    and [VZ's memory request](../research/macos-vm-memory-reclaim.md#6-draft-feedback-assistant-request) to file — the
    largest Mac speedup measured waits on it (pip install 8.35 s on a shared folder, 2.01 s on Apple Container's own disk).
+   Beside it, the maintainer's 2026-10-08 request: [tools from a private Homebrew tap in every jail](../design/private-tap-programs.md),
+   whose build waits on [a pack or a config key](../design/private-tap-programs.md#OQ-PT1),
+   [brew install at the host](../design/private-tap-programs.md#OQ-PT2), [the version policy](../design/private-tap-programs.md#OQ-PT3),
+   [never `brew tap`](../design/private-tap-programs.md#OQ-PT4) and [a launch without the token](../design/private-tap-programs.md#OQ-PT5).
 9. Approve [the drafted rewordings](../research/macos-backend-performance.md#9-corrections-the-results-feed) of
    [the direction's ruled sentences](../reference/macos-no-vm-direction.md#what-the-numbers-bear-on) — the
    benchmark's other corrections are made, and the two-jail test passes in CI again.
