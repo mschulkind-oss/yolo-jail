@@ -27,6 +27,8 @@ var gateCommands = map[string]string{
 	"go":          "go",
 	"staticcheck": "go:honnef.co/go/tools/cmd/staticcheck",
 	"uvx":         "uv",
+	// lint-ci runs vantage-check through this wrapper, which calls uvx.
+	"scripts/vantage-check.sh": "uv",
 }
 
 // gateRecipes are the recipes `just check-ci` reaches: check-ci -> lint-ci (-> lint) and

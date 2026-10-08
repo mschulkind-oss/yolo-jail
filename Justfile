@@ -427,13 +427,16 @@ lint-ci: lint
     sh scripts/test-changelog-section.sh
     # CHANGELOG.md's links become the release body's, and a release is never edited after its
     # tag, so a dead link or anchor there has to fail here, before it can ship.
-    uvx vantage-check@latest CHANGELOG.md
+    scripts/vantage-check.sh CHANGELOG.md
     python3 scripts/test-check-userguide-closed-tree.py
     python3 scripts/check-userguide-closed-tree.py userguide
     python3 scripts/test-check-site-output-dir.py
     python3 scripts/check-site-output-dir.py
     python3 scripts/test-site-base-href.py
-    uvx vantage-check@latest userguide/
+    # vantage-check runs through a wrapper that keeps it off the output pipe it would share with
+    # test-fast under check-ci's [parallel]; the script says why.
+    python3 scripts/test-vantage-check.py
+    scripts/vantage-check.sh userguide/
 
 # Format code (Go: gofmt on tracked files)
 format:
