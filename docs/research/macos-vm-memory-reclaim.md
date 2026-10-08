@@ -3,7 +3,7 @@ title: "Can a macOS VM give memory back while it runs? Apple Container's missing
 date: 2026-10-03
 status: accepted
 stage: DECIDED
-next: "Draft a Feedback Assistant request, for the maintainer to file and §5 to record, that VZ return guest-freed memory while a VM runs, from this Mac's own runs (Apple Container and applehv held a freed 2 GiB, OrbStack returned it within 10 s, and libkrun's free page reporting returned nothing); find out why libkrun's reporting returned nothing (macos-vm-runtime-comparison.md §4): that doc's planned krun-complete arm runs krunkit 1.3.2 at its debug log level, which may show whether reports reach the device without a debug build, failing which the Lima krunkit driver; Docker Desktop is not tested, its licence ruling it out for commercial work"
+next: "The maintainer files the Feedback Assistant request drafted in §6 and records its FB number there; find out why libkrun's reporting returned nothing (macos-vm-runtime-comparison.md §4): that doc's planned krun-complete arm runs krunkit 1.3.2 at its debug log level, which may show whether reports reach the device without a debug build, failing which the Lima krunkit driver; Docker Desktop is not tested, its licence ruling it out for commercial work"
 tags: [research, macos, apple-container, memory, balloon, libkrun, podman]
 summary: "The maintainer asked whether Apple Container has a balloon that returns memory, whether yolo could add one, and whether another macOS VM does it. Apple Container is Apache-2.0 and takes outside contributions, but attaches no balloon. The one proposal was an outside contributor's issue and two PRs, closed in a sweep of that contributor's 30 or so PRs, not on their merits. Virtualization.framework offers only a traditional balloon with no free page reporting, and the one published measurement saw the host's footprint rise, not fall, when it was driven. libkrun, the default Podman Machine provider on macOS, does report free pages and one third party saw memory come back; yolo already supports podman on macOS, so that is the path to test first."
 vantage:
@@ -166,12 +166,74 @@ is shared by every jail rather than kept per jail.
   pages. Before writing a patch, reproduce that with incompressible data (from `/dev/urandom`) and
   read host memory pressure and the compressor, not footprint.
 - **What would actually help is a free page reporting device in VZ**, which only Apple can add.
-  Asking through Feedback Assistant, with lima #4220's measurement, is the cheap step. WWDC26
+  Asking through Feedback Assistant, with lima #4220's measurement, is the cheap step; the request
+  is drafted in [§6](#6-draft-feedback-assistant-request). WWDC26
   session 224's custom Virtio devices for apps (macOS 27) might allow a third party to supply one;
   not checked.
 
 Until then the levers on Apple Container are the ones the benchmark already names: stop jails
 sooner, and lower the memory cap yolo passes (half of host RAM, at least 4 GB).
+
+## 6. Draft: Feedback Assistant request
+
+**A draft for the maintainer to file**, written 2026-10-08 from this Mac's own runs
+([the runtime comparison, §4](macos-vm-runtime-comparison.md#4-memory-does-a-vm-give-a-freed-2-gib-back)
+and [the benchmark's memory session](macos-backend-performance.md#memory-m4-apple-container)).
+Nothing below has been sent. Feedback Assistant asks for a title, an area, a type and a
+description; the area and type are suggestions. Attach the runtime comparison's
+[`memsess.sh`](macos-vm-runtime-comparison.md#appendix-a-the-scripts) and its output, and a
+sysdiagnose taken while the VM holds the freed memory.
+
+**Filed:** not yet. Record the FB number and the date here once filed.
+
+- **Title:** Virtualization: support free page reporting so a running Linux guest can return
+  freed memory to macOS
+- **Area:** Virtualization framework
+- **Type:** Suggestion
+
+> **Summary.** A Linux guest under Virtualization.framework never gives freed memory back to macOS
+> while it runs. Once the guest touches a page, the VM process keeps it until the VM stops, even
+> after the guest has freed it. Please add a virtio-balloon free page reporting device
+> (`VIRTIO_BALLOON_F_REPORTING`), or an equivalent, so a guest can tell the host which pages it
+> has freed and the host can reclaim them without a policy loop.
+>
+> **Why it matters.** Container tools on macOS, Apple's `container` among them, run a Linux VM
+> per container or per machine. A developer workload (a build, a test run, a database) touches a
+> few GiB for a few minutes. With no reclaim, the VM keeps that memory for as long as it runs,
+> which for a development container is hours, and several VMs add up on a 16 or 32 GB Mac.
+>
+> **What we measured.** Apple M1 Max, 32 GB, macOS 26.5 (25F71). In each VM a process held 2 GiB
+> of random bytes for 20 seconds and exited, and we read the VM process's resident size 120
+> seconds later:
+>
+> | VM | Idle | Holding 2 GiB | 120 s after exit |
+> | :--- | ---: | ---: | ---: |
+> | Apple `container` 1.1.0 | 617 MiB | 2,751 MiB | 2,752 MiB |
+> | Podman Machine on Virtualization.framework (applehv) | 1,636 MiB | 3,725 MiB | 3,725 MiB |
+> | OrbStack 2.2.3, for comparison | 1,181 MiB | 3,118 MiB | 1,066 MiB |
+>
+> Inside the guests the memory was free again within 30 seconds. On the Virtualization.framework
+> VMs the host never got it back; it returned only when the VM stopped. OrbStack returned it
+> within 10 seconds, so prompt reclaim is possible on this hardware. In a separate run through
+> `container`, a guest that loaded and freed 2 GiB was still charged 104% of it 120 seconds
+> later.
+>
+> **What we tried.** `VZVirtioTraditionalMemoryBalloonDevice` is the only reclaim device
+> available. It needs the host to set a target, and a public report on macOS 26.5.2 (Lima issue
+> 4220) found that lowering the target from 8 GiB to 1 GiB made the guest give up 7 GiB while the
+> host's footprint rose by about 2 GB and did not fall. The device offered only
+> `VIRTIO_BALLOON_F_MUST_TELL_HOST` and `VIRTIO_BALLOON_F_DEFLATE_ON_OOM`. The guest kernels we
+> use already enable `CONFIG_PAGE_REPORTING`, so only the host side is missing.
+>
+> **What we are asking for.** A free page reporting device, or a documented way for the host to
+> drop guest pages the guest has reported free, so that memory a running guest frees comes back
+> to macOS. If the traditional balloon is meant to do this already, please document how, since
+> lowering its target did not reduce the host's footprint in the report above.
+
+Before filing, check two things the draft states from others' runs: that VZ on the current macOS
+release still offers no reporting feature bit (read the guest's
+`/sys/bus/virtio/devices/*/features` in an Apple Container jail), and that lima #4220's
+measurement still stands.
 
 ## Sources
 
