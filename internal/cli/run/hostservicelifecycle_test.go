@@ -556,8 +556,9 @@ func reasonHoldingGrandchildMain() int {
 	return 0
 }
 
-// daemonizingWrapperMain is a clean daemonizing wrapper: it starts the real service in its own
-// process group, waits until that service's socket accepts, and exits 0 without a record.
+// daemonizingWrapperMain is a clean daemonizing wrapper: it starts the real service as a child that
+// stays in the wrapper's session (so the launch's group teardown still reaches it), waits until that
+// service's socket accepts, and exits 0 without a record.
 func daemonizingWrapperMain() int {
 	socket := os.Args[len(os.Args)-1]
 	cmd := exec.Command(os.Args[0], "-front-upstream-child", "line", socket)
