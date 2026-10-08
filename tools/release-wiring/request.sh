@@ -113,8 +113,10 @@ echo "Publish dispatch accepted for ${tag} (${RELEASE_SHA}); its workflow must a
 # GITHUB_TOKEN, and events that token causes start no workflow, so
 # tap-install.yml's workflow_run trigger never fires for it: start the tap
 # check here, holding the tap to this version. It reads only the public tap.
-if ! gh workflow run tap-install.yml --repo "$GITHUB_REPOSITORY" --ref main -f "version=${RELEASE_VERSION}"; then
-  echo "✗ ${tag} is released and its publisher was dispatched, but the Homebrew tap check could not be started. Publication is unaffected; start the check by hand: gh workflow run tap-install.yml --repo ${GITHUB_REPOSITORY} --ref main -f version=${RELEASE_VERSION}" >&2
-  exit 1
+# A failure here must not fail this run: the publisher re-checks that this
+# request is still running or succeeded, so a red request would stop it.
+if gh workflow run tap-install.yml --repo "$GITHUB_REPOSITORY" --ref main -f "version=${RELEASE_VERSION}"; then
+  echo "Homebrew tap check dispatched for ${tag}."
+else
+  echo "::warning::${tag} is released and its publisher was dispatched, but the Homebrew tap check could not be started. Publication is unaffected; start the check by hand: gh workflow run tap-install.yml --repo ${GITHUB_REPOSITORY} --ref main -f version=${RELEASE_VERSION}"
 fi
-echo "Homebrew tap check dispatched for ${tag}."

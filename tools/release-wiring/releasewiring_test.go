@@ -400,7 +400,6 @@ func TestRequestMainCallerWaitsForExactOriginalReleaseSuccessBeforePublishDispat
 		{name: "ref conflict does not dispatch", extra: []string{"FAIL_REF=1"}, wantError: "Could not create v9.8.7"},
 		{name: "release dispatch refusal does not create publisher run", extra: []string{"FAIL_RELEASE_DISPATCH=1"}, wantError: "Release dispatch failed"},
 		{name: "publisher dispatch refusal is not retried", extra: []string{"FAIL_PUBLISH_DISPATCH=1"}, wantError: "Publish dispatch failed"},
-		{name: "tap check dispatch refusal names the manual dispatch", extra: []string{"FAIL_TAP_DISPATCH=1"}, wantError: "gh workflow run tap-install.yml"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			bin, trace := fakeCommands(t)
@@ -438,12 +437,6 @@ func TestRequestMainCallerWaitsForExactOriginalReleaseSuccessBeforePublishDispat
 				if tapRun <= releaseRun || traceIndex(lines, "fake-tap-dispatch-accepted") < 0 ||
 					!strings.Contains(lines[tapRun], "--ref main") || !strings.Contains(lines[tapRun], "version=9.8.7") {
 					t.Fatalf("request did not dispatch the tap check for the released version: %v", lines)
-				}
-				return
-			}
-			if tc.wantError == "gh workflow run tap-install.yml" {
-				if traceIndex(lines, "fake-publish-dispatch-accepted") < 0 || traceIndex(lines, "workflow run tap-install.yml") < 0 {
-					t.Fatalf("tap dispatch refusal must follow an accepted publisher dispatch: %v", lines)
 				}
 				return
 			}
@@ -1685,6 +1678,25 @@ func TestHomebrewFormulaHeredocNeverExecutesLiteralYoloForNormalOrBackfill(t *te
 // The request job holds the CI wait (preflight.sh's release-gate --timeout) and
 // then the Release wait (request.sh's RELEASE_WAIT_SECONDS default) in one job,
 // so its timeout must exceed both or GitHub kills it mid-wait.
+// The publisher refuses a request run that completed without success, so a
+// failed tap check dispatch, the request's last act, must warn and exit 0.
+func TestRequestTapDispatchFailureLeavesTheRequestGreen(t *testing.T) {
+	root := repositoryRoot(t)
+	bin, trace := fakeCommands(t)
+	out, err := runScript(t, root, filepath.Join(root, "tools", "release-wiring", "request.sh"), bin, trace,
+		"RELEASE_VERSION=9.8.7", "RELEASE_SHA="+testSHA, "GITHUB_RUN_ID=101", "RELEASE_WAIT_SECONDS=1", "FAIL_TAP_DISPATCH=1")
+	if err != nil {
+		t.Fatalf("a failed tap check dispatch failed the request, which would stop the publisher: %v output=%s", err, out)
+	}
+	lines := readTrace(t, trace)
+	if traceIndex(lines, "fake-publish-dispatch-accepted") < 0 || traceIndex(lines, "workflow run tap-install.yml") < 0 {
+		t.Fatalf("tap dispatch must follow the accepted publisher dispatch: %v", lines)
+	}
+	if !strings.Contains(out, "::warning::") || !strings.Contains(out, "gh workflow run tap-install.yml --repo") {
+		t.Fatalf("failed tap dispatch did not warn with the manual command: %s", out)
+	}
+}
+
 func TestRequestJobTimeoutExceedsItsWaits(t *testing.T) {
 	ciMinutes := regexp.MustCompile(`release-gate [^\n]*--timeout ([0-9]+)m`).FindSubmatch(mustRead(t, "tools/release-wiring/preflight.sh"))
 	releaseSeconds := regexp.MustCompile(`RELEASE_WAIT_SECONDS:-([0-9]+)`).FindSubmatch(mustRead(t, "tools/release-wiring/request.sh"))
