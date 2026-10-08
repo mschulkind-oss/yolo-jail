@@ -233,12 +233,21 @@ func TestMacosUserProvisioningStageRunsAndRecordsItself(t *testing.T) {
 func macosUserSeedStageLog(t *testing.T, ws string) string {
 	t.Helper()
 	logPath := provision.StartupLog(ws)
+	_, statErr := os.Stat(filepath.Dir(logPath))
+	created := os.IsNotExist(statErr)
 	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
 		t.Fatalf("creating the workspace sidecar %s: %v", filepath.Dir(logPath), err)
 	}
 	const sentinel = "yolo-integration-sentinel: a PREVIOUS launch wrote this line"
 	if err := os.WriteFile(logPath, []byte(sentinel+"\n"), 0o644); err != nil {
 		t.Fatalf("seeding %s: %v", logPath, err)
+	}
+	// Only when this helper made the directory. After a launch it already holds files the
+	// sandbox account owns, which the invoking user cannot re-ACL: the grant's run over them
+	// fails (run 37790269472, a mise tracked-configs entry), and is not needed: the launch that
+	// made the directory left it writable to the sandbox account, whose stage logged there.
+	if !created {
+		return sentinel
 	}
 	if r := runCommand(t, ws, []string{"macos-fix-permissions", ws}); r.rc != 0 {
 		t.Fatalf("`yolo macos-fix-permissions %s` failed (rc %d) after this test created "+
