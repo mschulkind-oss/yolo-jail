@@ -2,8 +2,8 @@
 title: "Several providers in one agent session: an ordered set per agent, and the first entry decides where it starts"
 date: 2026-09-29
 status: accepted
-stage: DECIDED
-next: "Close §13's remaining gap: the config-overlay profile modifier gates on the set's primary alone (packoverlay.Collect takes the primary table); §8 step 5 waits on a user asking for two via entries in one set"
+stage: BUILT
+next: "§8 step 5 (several via routes per agent) waits on a user asking for two via entries in one set; nothing else is unbuilt"
 tags: [design, providers, profiles, selection, models, credentials, pi, opencode, notches, wire-bridge]
 summary: "Today each agent runs on exactly one profile, so one provider. The maintainer wants several active at once, switched freely inside pi. The proposal: an agent's selection becomes an ordered list of profiles (`-p pi=zai,openrouter`, `profile: {pi: [\"zai\", \"openrouter\"]}`); the picker offers the union of their models; the session starts, per OQ-ML2, only where it must, on the first entry's default; each listed provider's key reaches that agent alone; child agents stay inside the set. Only agents whose pack declares it may hold a set: pi, opencode and oh-omp can, claude, codex and copilot cannot. OQ-AP1 to OQ-AP3 were ruled 2026-09-29 and BUILT the same day for pi at every notch (the grammar, the config list, both refusals, the bare-list narrowing, the gate, the pre-flights, the contract tag and pi's render), and re-expressed on the `profile` key that replaced `use_profiles` (PP-D10, AP-D13); opencode's slice (§8 step 3) was BUILT 2026-09-30 (AP-D15, AP-D16), and oh-omp's on 2026-10-01 (AP-D18). Measured by tests and by integration launches that render pi's, opencode's and oh-omp's files for a set; no pi, opencode or oh-omp session was run."
 vantage:
@@ -20,8 +20,8 @@ that key the same day ([PP-D10](providers-and-profiles-redesign.md#PP-D10)), as 
 form ([AP-D13](#AP-D13)). opencode (step 3) was built on 2026-09-30
 ([§14](#14-what-was-built-2026-09-30-opencode), [AP-D15](#AP-D15), [AP-D16](#AP-D16)), and oh-omp
 on 2026-10-01 ([§15](#15-what-was-built-2026-10-01-oh-omp), [AP-D18](#AP-D18)). Not built: several
-via routes (step 5), which wait on a user asking for two, and the config-overlay gap
-[§13](#13-what-was-built-2026-09-29) lists. The host remedy line, the other gap listed there, adds
+via routes (step 5), which wait on a user asking for two. The config-overlay gap
+[§13](#13-what-was-built-2026-09-29) listed is closed since 2026-10-08. The host remedy line, the other gap listed there, adds
 a profile to the set since 2026-10-04 ([AP-D19](#AP-D19)). MEASURED: unit tests pin each rule, every call site the review
 cut to the set's first entry now fails one, and integration launches rendered pi's,
 opencode's and oh-omp's files for a set in a real jail ([§13](#13-what-was-built-2026-09-29),
@@ -628,8 +628,10 @@ Not built, and each is a known gap rather than a silent one:
   ([§15](#15-what-was-built-2026-10-01-oh-omp)), as opencode, which this bullet named beside it,
   has since 2026-09-30 ([§14](#14-what-was-built-2026-09-30-opencode)).
 - **Several via routes per agent** (step 5), and so a via entry after the first.
-- **The config-overlay `profile` modifier** still gates on the primary alone
-  (`packoverlay.Collect` takes the primary table); an `env` gate reads every entry.
+- ~~**The config-overlay `profile` modifier** still gates on the primary alone
+  (`packoverlay.Collect` takes the primary table).~~ Since 2026-10-08 it gates on membership in
+  the whole active set at every notch (`TestGatedOverlayResolvesForASecondaryActiveProfile`,
+  `TestBootRenderDeliversASecondaryProfileOverlay`), as an `env` gate already did.
 - ~~**The host remedy line** ("run pi on the zai profile for one launch, replacing its … profile")
   names the primary only.~~ Since 2026-10-04 it adds the claiming profile to the set, keeping the
   entries it has (`yolo host -p pi=zai,openrouter,cerebras -- pi`), and says a switch replaces the
