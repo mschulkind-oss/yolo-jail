@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
@@ -67,6 +68,9 @@ func brokeredFixtureWith(t *testing.T, hostExecApproved bool) (o *Options, buf *
 	o.IsTTYStdin = func() bool { return false }
 	o.IsTTYStdout = func() bool { return false }
 	o.IsMacOS = false
+	// The fixture's daemon never answers readiness; without this each test waits out the 5 s
+	// production default (loopholesruntime.go).
+	o.ServiceReadyTimeout = 300 * time.Millisecond
 	return o, buf, marker
 }
 

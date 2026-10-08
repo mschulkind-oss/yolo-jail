@@ -89,6 +89,11 @@ func TestARuntimeThatNeverStartedLeavesNoPackTree(t *testing.T) {
 // jail may still be using it. Run's own deferred discard must keep it too, since it is the last
 // thing that runs and the only one left that could remove it.
 func TestATreeTheTeardownCannotProveGoneOutlivesRun(t *testing.T) {
+	// The runtime here always lists the container, so the keeper's confirmGone would poll its
+	// whole bound (restartPollAttempts x restartPollInterval, 15 s) before leaving it unkept.
+	saved := keeperGoneAttempts
+	keeperGoneAttempts = 2
+	t.Cleanup(func() { keeperGoneAttempts = saved })
 	bin, started := t.TempDir(), filepath.Join(t.TempDir(), "started")
 	if err := os.WriteFile(filepath.Join(bin, "podman"), []byte("#!/bin/sh\n: > '"+started+"'\n"), 0o755); err != nil {
 		t.Fatal(err)

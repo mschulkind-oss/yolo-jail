@@ -3,7 +3,7 @@ title: "Test suite speed"
 date: 2026-09-27
 status: in-review
 stage: DESIGN
-next: "Cut the waits the 2026-10-01 retake names (a 15 s and two 5 s tests in internal/cli/run, six refresh-timeout tests in internal/packsrc), then retake recipe 1 and three idle runs of recipe 3"
+next: "Cut the six refresh-timeout tests in internal/packsrc the 2026-10-01 retake names, without weakening an assertion, then retake recipe 1 and three idle runs of recipe 3"
 tags: [testing, ci, performance, plan]
 summary: "Why the unit gate doubled and the integration suite grew by half in three weeks, what is being cut, the targets, and four questions for the maintainer, two of them answered."
 ---
@@ -112,6 +112,13 @@ says, since `internal/cli/run` alone took 70.7 s of it.
 
 So the unit target now waits on a new round of the cli-run and misc-unit items, over the tests
 named above; nothing in the five items as written is left to build.
+
+**Cut 2026-10-08:** the 15 s and both 5 s `internal/cli/run` tests, and
+`TestReadAckTimeoutIsNotARejection`, each now take under half a second, with no assertion changed.
+The 15 s was the keeper's `confirmGone` polling its whole bound (`keeperGoneAttempts`, 75 polls
+200 ms apart) against a fixture runtime that always lists the container; the two 5 s tests were
+`serviceReadyTimeoutDefault`, as inferred above; the svcendpoint test waited out
+`handshakeTimeout`, now a variable. The six `internal/packsrc` refresh-timeout tests remain.
 
 **A flake seen once in four unit runs**, the second:
 `TestEnvOverrideRefusesTheMacosUserLaunch` failed with `Refusing the macos-user launch: the

@@ -32,11 +32,12 @@ const (
 	// It leaks nothing: the server sends NOTHING on failure, so a port scanner
 	// learns only that it was hung up on.
 	authAck = 0x01
-
-	// handshakeTimeout bounds the pre-request exchange (token frame in, ack out)
-	// at both ends. It is deliberately NOT a session deadline — see Dial.
-	handshakeTimeout = 5 * time.Second
 )
+
+// handshakeTimeout bounds the pre-request exchange (token frame in, ack out)
+// at both ends. It is deliberately NOT a session deadline — see Dial.
+// A var so a test need not wait it out.
+var handshakeTimeout = 5 * time.Second
 
 // errBadTokenFrame / errBadToken are internal: a rejected connection is closed by
 // the accept loop and never reaches a caller, so these exist to be logged and

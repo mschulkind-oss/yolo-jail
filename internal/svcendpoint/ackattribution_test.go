@@ -73,6 +73,9 @@ func TestReadAckCleanEOFIsARejection(t *testing.T) {
 // A relay restart: the listener accepted TCP and then went away mid-handshake,
 // leaving the client's read to hit its deadline. Not a verdict on the token.
 func TestReadAckTimeoutIsNotARejection(t *testing.T) {
+	saved := handshakeTimeout
+	handshakeTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { handshakeTimeout = saved })
 	client, server := ackPair(t)
 	// Hold the connection open and never write. The handshake deadline fires.
 	defer func() { _ = server.Close() }()
