@@ -14,7 +14,7 @@ vantage:
 
 # Plan: carry host-service startup causes to the caller
 
-**Status:** 2026-10-08. Landed: the `settings_check` preflight and its `yolo check` phase, the opt-in `startup_reason` channel with its singleton and per-jail readiness deadlines, private per-jail settings snapshots, the AWS pack's safe validator, and removal of the routine `unnarrowed` launch notice. Open: the typed owner-local startup outcome (O1), the lifetime cleanup items, and carrying typed outcomes through keeper, native and host-doorway callers; the unchecked rows in the [tasks](host-service-startup-diagnostics-tasks.md) are the list.
+**Status:** 2026-10-08. Landed: the `settings_check` preflight and its `yolo check` phase, the opt-in `startup_reason` channel with its singleton and per-jail readiness deadlines, private per-jail settings snapshots, the AWS pack's safe validator, removal of the routine `unnarrowed` launch notice, and a typed owner-local startup outcome from both owners (collected per launch, not yet rendered or sent to a keeper). Open: the lifetime cleanup items, and carrying typed outcomes through keeper, native and host-doorway callers; the unchecked rows in the [tasks](host-service-startup-diagnostics-tasks.md) are the list.
 
 **Design:** [`host-service-startup-diagnostics.md`](../design/host-service-startup-diagnostics.md). **Precedence:** design wins on behavior; the tree wins on fact; this plan is advice and the first thing to correct if the tree moves.
 

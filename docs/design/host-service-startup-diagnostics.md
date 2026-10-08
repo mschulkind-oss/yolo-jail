@@ -11,7 +11,7 @@ vantage:
 
 # Host-service startup failures should carry their cause, not its aftermath
 
-**Status:** 2026-10-08. Landed: the `settings_check` preflight and its `yolo check` phase, the opt-in `startup_reason` channel with its singleton and per-jail readiness deadlines, private per-jail settings snapshots, the AWS pack's safe validator, and removal of the routine `unnarrowed` launch notice. Open: the typed owner-local startup outcome (O1), the lifetime cleanup items, and carrying typed outcomes through keeper, native and host-doorway callers; the unchecked rows in the [tasks](../plans/host-service-startup-diagnostics-tasks.md) are the list.
+**Status:** 2026-10-08. Landed: the `settings_check` preflight and its `yolo check` phase, the opt-in `startup_reason` channel with its singleton and per-jail readiness deadlines, private per-jail settings snapshots, the AWS pack's safe validator, removal of the routine `unnarrowed` launch notice, and a typed owner-local startup outcome from both owners (collected per launch, not yet rendered or sent to a keeper). Open: the lifetime cleanup items, and carrying typed outcomes through keeper, native and host-doorway callers; the unchecked rows in the [tasks](../plans/host-service-startup-diagnostics-tasks.md) are the list.
 
 > **In short.** A failed host service should explain the refusal that prevented startup, with the pack's safe remedy, before socket and reachability symptoms obscure it. Validate the immutable settings this launch intends to use before touching a working shared service, and accept daemon-provided reasons only through a bounded channel tied to the exact spawn attempt.
 

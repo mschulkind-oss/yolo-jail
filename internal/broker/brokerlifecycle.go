@@ -34,6 +34,7 @@
 package broker
 
 import (
+	"context"
 	"errors"
 	"io"
 	"io/fs"
@@ -419,6 +420,9 @@ type Ensured struct {
 	SettingsErr error
 	// StartupReason is the current spawn's bounded cooperative refusal, never a shared-log read.
 	StartupReason *hostservice.StartupReason
+	// Outcome is value-based evidence from this EnsureSingleton call. Legacy fields above remain
+	// unchanged; this outcome never interprets socket-path readiness as an accepted connection.
+	Outcome hostservice.StartupOutcome
 }
 
 // EnsureSingleton is BrokerSpawn with the outcome a caller can act on.
@@ -437,7 +441,14 @@ type Ensured struct {
 // requests in flight past the drain grace, and the connections refused in the gap before the
 // new daemon binds.
 func EnsureSingleton(deps Deps) Ensured {
-	done := Ensured{Socket: deps.SocketPath}
+	done := Ensured{Socket: deps.SocketPath, Outcome: hostservice.StartupOutcome{
+		// One EnsureSingleton call is one owner-local attempt, attributed from entry so every known
+		// exit (lock, publication, preparation, migration, reuse, spawn) carries it. A caller
+		// retrying the ensure renumbers its own attempts (startHostSingleton).
+		Owner: hostservice.StartupOwnerSingleton, Service: deps.Name, Attempt: 1, Kind: hostservice.StartupKindUnknown,
+		Phase:      hostservice.StartupPhaseLock,
+		ReasonRead: hostservice.StartupReasonReadOutcome{Kind: hostservice.StartupReasonReadNotEnabled},
+	}}
 	_ = os.MkdirAll(filepath.Dir(deps.LockPath), 0o755)
 	lockF, err := os.OpenFile(deps.LockPath, os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
@@ -447,6 +458,7 @@ func EnsureSingleton(deps Deps) Ensured {
 		// reachability witness to fail later naming the socket (host-daemon-ownership.md
 		// OQ-HD8).
 		reportLockFailure(deps, "open", err)
+		done.Outcome.Kind = hostservice.StartupKindLockFailed
 		done.Stale = staleUnreplaceable(deps)
 		return done
 	}
@@ -456,12 +468,15 @@ func EnsureSingleton(deps Deps) Ensured {
 		// LOCK_EX on a descriptor just opened fails for an interrupted wait (EINTR) or a
 		// kernel out of lock records (ENOLCK), and a unit test can arrange neither.
 		reportLockFailure(deps, "lock", err)
+		done.Outcome.Kind = hostservice.StartupKindLockFailed
 		done.Stale = staleUnreplaceable(deps)
 		return done
 	}
 	if deps.PublishSettings != nil {
 		if err := deps.PublishSettings(); err != nil {
 			done.SettingsErr = err
+			done.Outcome.Kind = hostservice.StartupKindPublicationFailed
+			done.Outcome.Phase = hostservice.StartupPhasePublication
 			if deps.Out != nil {
 				richtext.Printer{W: deps.Out, Color: deps.Color}.Print(
 					"[yellow]Could not publish the validated settings for host-wide daemon '" +
@@ -473,6 +488,8 @@ func EnsureSingleton(deps Deps) Ensured {
 	if deps.PrepareLocked != nil {
 		afterStop, prepErr := deps.PrepareLocked()
 		if prepErr != nil {
+			done.Outcome.Kind = hostservice.StartupKindPreparationFailed
+			done.Outcome.Phase = hostservice.StartupPhasePreparation
 			if deps.Out != nil {
 				richtext.Printer{W: deps.Out, Color: deps.Color}.Print(
 					"[yellow]Warning: could not prepare host-wide daemon '" + deps.Name +
@@ -480,8 +497,19 @@ func EnsureSingleton(deps Deps) Ensured {
 			}
 			return done
 		} else if afterStop != nil {
+			oldPID, oldPIDKnown := BrokerReadPID(deps)
 			BrokerKill(deps, syscall.SIGTERM, BrokerKillTimeout)
+			done.Outcome.PreviousStopRequested = true
+			if oldPIDKnown {
+				if deps.Alive(oldPID) {
+					done.Outcome.PreviousProcess = hostservice.StartupProcessAlive
+				} else {
+					done.Outcome.PreviousProcess = hostservice.StartupProcessExited
+				}
+			}
 			if err := afterStop(); err != nil {
+				done.Outcome.Kind = hostservice.StartupKindMigrationFailed
+				done.Outcome.Phase = hostservice.StartupPhaseMigration
 				if deps.Out != nil {
 					richtext.Printer{W: deps.Out, Color: deps.Color}.Print(
 						"[yellow]Warning: could not migrate state for host-wide daemon '" + deps.Name +
@@ -495,6 +523,10 @@ func EnsureSingleton(deps Deps) Ensured {
 	if BrokerIsAlive(deps) {
 		drift, judged := RunningSettingsDrift(deps)
 		if !judged || !drift.Stale() {
+			done.Outcome.Kind = hostservice.StartupKindReused
+			done.Outcome.Phase = hostservice.StartupPhaseReadiness
+			done.Outcome.Reused = true
+			done.Outcome.Process = hostservice.StartupProcessAlive
 			// THE REUSE BOUNDS THE LOG TOO. A daemon whose settings still match is never
 			// respawned, so its log is never reopened, and the spawn's own trim would leave
 			// a daemon that outlives weeks of launches writing to an unbounded file. Trimmed
@@ -513,6 +545,8 @@ func EnsureSingleton(deps Deps) Ensured {
 	// reachable only through a hand-built Deps (both constructors fill the field),
 	// so the report is for whoever built one, not for a user.
 	if len(deps.Argv) == 0 {
+		done.Outcome.Kind = hostservice.StartupKindDaemonStartFailed
+		done.Outcome.Phase = hostservice.StartupPhaseSpawn
 		if deps.Out != nil {
 			richtext.Printer{W: deps.Out, Color: deps.Color}.Print(
 				"[yellow]Warning: the host-wide daemon at " + deps.SocketPath +
@@ -533,6 +567,7 @@ func EnsureSingleton(deps Deps) Ensured {
 	// Read BEFORE the spawn, as close as yolo can get to the read the daemon makes at its
 	// own startup; recorded only once there is a PID for the record to describe.
 	spawnSettings := readSpawnSettings(deps)
+	done.Outcome.Phase = hostservice.StartupPhaseSpawn
 	var reasonConn net.Conn
 	var reasonAttempt string
 	var pid int
@@ -542,15 +577,24 @@ func EnsureSingleton(deps Deps) Ensured {
 	} else {
 		pid, exited, err = deps.Spawn(deps.Argv, deps.LogPath)
 	}
+	if deps.StartupReason && reasonConn == nil && err == nil {
+		done.Outcome.ReasonRead = hostservice.StartupReasonReadOutcome{Kind: hostservice.StartupReasonReadChannelFault,
+			Phase: hostservice.StartupReasonReadPhaseUnknown, Fault: hostservice.StartupReasonFaultUnavailable}
+	}
 	if err != nil {
 		if reasonConn != nil {
 			_ = reasonConn.Close()
 		}
+		done.Outcome.Kind = hostservice.StartupKindDaemonStartFailed
+		done.Outcome.Phase = hostservice.StartupPhaseSpawn
 		// Return the socket path anyway: the caller's liveness re-check is
 		// what reports a daemon that never started.
 		return done
 	}
 	done.Started = true
+	done.Outcome.Spawned = true
+	done.Outcome.Process = hostservice.StartupProcessAlive
+	done.Outcome.Readiness = hostservice.StartupReadinessNotReady
 	_ = os.WriteFile(deps.PIDFilePath, []byte(strconv.Itoa(pid)+"\n"), 0o644)
 	// Stamp the singleton as one THIS build started, so a later launch can tell a
 	// compatible daemon from one predating the fronted conversion (SingletonSpeaksPreamble),
@@ -560,46 +604,97 @@ func EnsureSingleton(deps Deps) Ensured {
 	StampLaunchCheck(deps, pid)
 	writeSettingsRecord(deps, spawnSettings)
 	readyDeadline := deps.Now().Add(BrokerSpawnTimeout)
-	var reasonResult chan startupReasonResult
+	var reasonResults chan startupReasonResult
+	var reasonReadDone chan struct{}
+	var reasonReadCancel context.CancelFunc
 	if reasonConn != nil {
-		results := make(chan startupReasonResult, 1)
-		reasonResult = results
-		// Share the readiness budget: an absent or malformed record cannot add another
-		// timeout to a failed singleton start, and a successful endpoint remains the
-		// only definition of readiness.
+		readCtx, cancel := context.WithCancel(context.Background())
+		reasonReadCancel = cancel
+		reasonResults = make(chan startupReasonResult, 1)
+		reasonReadDone = make(chan struct{})
+		// The reader owns no process or log state. It publishes one value, while this function
+		// owns cancellation, connection close, and joining it on every readiness disposition.
 		go func() {
-			reason, err := hostservice.ReadStartupReason(reasonConn, deps.Name, reasonAttempt, readyDeadline)
-			results <- startupReasonResult{reason: reason, err: err}
+			defer close(reasonReadDone)
+			read := hostservice.ReadStartupReasonOutcome(readCtx, reasonConn, deps.Name, reasonAttempt, readyDeadline)
+			result := startupReasonResult{read: read}
+			if read.Kind == hostservice.StartupReasonReadRecord {
+				result.reason = &hostservice.StartupReason{Version: 1, Service: deps.Name, Attempt: reasonAttempt,
+					Class: read.ReasonClass, Reason: read.Reason, Remedy: read.Remedy}
+			} else {
+				result.err = startupReasonReadError(read)
+			}
+			reasonResults <- result
 		}()
+	} else if deps.StartupReason {
+		done.Outcome.ReasonRead = hostservice.StartupReasonReadOutcome{Kind: hostservice.StartupReasonReadChannelFault,
+			Phase: hostservice.StartupReasonReadPhaseUnknown, Fault: hostservice.StartupReasonFaultUnavailable}
 	}
 	var ready bool
 	if deps.waitForSocketUntil != nil {
-		ready = deps.waitForSocketUntil(deps.SocketPath, readyDeadline, exited, reasonResult)
+		ready = deps.waitForSocketUntil(deps.SocketPath, readyDeadline, exited, reasonResults)
 	} else {
 		ready = brokerWaitForSocketUntil(deps, deps.SocketPath, readyDeadline, exited)
 	}
-	if reasonConn != nil {
-		if !ready {
-			// Readiness owns the deadline. If the process exited before it, finish
-			// collecting this attempt's record only within that original budget; at
-			// timeout, preserve a result already buffered without waiting again.
-			remaining := readyDeadline.Sub(deps.Now())
-			if remaining > 0 {
-				result, received := waitForStartupReason(deps, reasonResult, remaining)
-				if received && result.err == nil && result.reason != nil {
-					done.StartupReason = result.reason
-				}
-			} else {
-				select {
-				case result := <-reasonResult:
-					if result.err == nil && result.reason != nil {
-						done.StartupReason = result.reason
-					}
-				default:
-				}
+	var result startupReasonResult
+	resultReceived := false
+	if !ready && reasonResults != nil {
+		// Readiness owns the deadline. An early terminal process may leave time to finish
+		// this attempt's reader, but the reason can never add a new budget.
+		remaining := readyDeadline.Sub(deps.Now())
+		if remaining > 0 {
+			result, resultReceived = waitForStartupReason(deps, reasonResults, remaining)
+		} else {
+			select {
+			case result = <-reasonResults:
+				resultReceived = true
+			default:
 			}
 		}
+	}
+	if reasonReadCancel != nil {
+		reasonReadCancel()
 		_ = reasonConn.Close()
+		<-reasonReadDone
+		if !resultReceived {
+			select {
+			case result = <-reasonResults:
+				resultReceived = true
+			default:
+			}
+		}
+	}
+	if resultReceived {
+		done.Outcome.ReasonRead = result.read
+		if result.read.Kind == hostservice.StartupReasonReadRecord {
+			done.Outcome.ReasonClass = result.read.ReasonClass
+			done.Outcome.Reason = result.read.Reason
+			done.Outcome.Remedy = result.read.Remedy
+			if !ready {
+				// Preserve the legacy refusal carrier only on the existing failed-readiness path.
+				done.StartupReason = result.reason
+			}
+		}
+	}
+	if exited != nil && exited() {
+		done.Outcome.Process = hostservice.StartupProcessExited
+	} else {
+		done.Outcome.Process = hostservice.StartupProcessAlive
+	}
+	done.Outcome.Phase = hostservice.StartupPhaseReadiness
+	if ready {
+		done.Outcome.Kind = hostservice.StartupKindSocketObserved
+		done.Outcome.Readiness = hostservice.StartupReadinessObserved
+	} else {
+		done.Outcome.Readiness = hostservice.StartupReadinessNotReady
+		switch {
+		case resultReceived && result.read.Kind == hostservice.StartupReasonReadRecord:
+			done.Outcome.Kind = hostservice.StartupKindCooperativeRefusal
+		case done.Outcome.Process == hostservice.StartupProcessExited:
+			done.Outcome.Kind = hostservice.StartupKindProcessExited
+		default:
+			done.Outcome.Kind = hostservice.StartupKindReadinessTimedOut
+		}
 	}
 	if !ready {
 		if done.StartupReason == nil {
@@ -614,6 +709,20 @@ func EnsureSingleton(deps Deps) Ensured {
 type startupReasonResult struct {
 	reason *hostservice.StartupReason
 	err    error
+	read   hostservice.StartupReasonReadOutcome
+}
+
+func startupReasonReadError(read hostservice.StartupReasonReadOutcome) error {
+	if read.Kind == hostservice.StartupReasonReadNoRecord {
+		return errors.New("startup reason record absent")
+	}
+	if read.Kind == hostservice.StartupReasonReadCancelled {
+		return errors.New("startup reason read cancelled by owner")
+	}
+	if read.Kind == hostservice.StartupReasonReadChannelFault {
+		return errors.New("startup reason channel fault")
+	}
+	return errors.New("startup reason read returned no record")
 }
 
 func waitForStartupReason(deps Deps, results chan startupReasonResult, remaining time.Duration) (startupReasonResult, bool) {
@@ -693,9 +802,11 @@ func reportCooperativeSpawnRefusal(deps Deps, reason *hostservice.StartupReason)
 	if deps.Out == nil || reason == nil {
 		return
 	}
-	line := "[yellow]Warning: " + singletonSubject(deps) + " refused startup: " + reason.Reason
+	line := "[yellow]Warning: " + singletonSubject(deps) + " refused startup: " + richtext.Escape(reason.Reason)
 	if reason.Remedy != "" {
-		line += " Fix: " + reason.Remedy
+		// The pack's text is sanitized to one bounded line but may still hold brackets: it is
+		// literal here, never markup (host-service-startup-diagnostics.md §3.1).
+		line += " Fix: " + richtext.Escape(reason.Remedy)
 	}
 	line += "; see " + deps.LogPath + "[/yellow]"
 	richtext.Printer{W: deps.Out, Color: deps.Color}.Print(line)

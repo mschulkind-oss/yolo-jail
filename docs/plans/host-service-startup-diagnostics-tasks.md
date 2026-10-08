@@ -14,7 +14,7 @@ vantage:
 
 # Tasks: host-service startup diagnostics
 
-**Status:** 2026-10-08. Landed: the `settings_check` preflight and its `yolo check` phase, the opt-in `startup_reason` channel with its singleton and per-jail readiness deadlines, private per-jail settings snapshots, the AWS pack's safe validator, and removal of the routine `unnarrowed` launch notice. Open: the typed owner-local startup outcome (O1), the lifetime cleanup items, and carrying typed outcomes through keeper, native and host-doorway callers; the unchecked rows in the [tasks](host-service-startup-diagnostics-tasks.md) are the list.
+**Status:** 2026-10-08. Landed: the `settings_check` preflight and its `yolo check` phase, the opt-in `startup_reason` channel with its singleton and per-jail readiness deadlines, private per-jail settings snapshots, the AWS pack's safe validator, removal of the routine `unnarrowed` launch notice, and a typed owner-local startup outcome from both owners (collected per launch, not yet rendered or sent to a keeper). Open: the lifetime cleanup items, and carrying typed outcomes through keeper, native and host-doorway callers; the unchecked rows in the [tasks](host-service-startup-diagnostics-tasks.md) are the list.
 
 ## 1. Capture the missing-cause regression first
 
@@ -60,7 +60,7 @@ vantage:
 ## 6. Return typed outcomes from both service ownership paths
 
 - [x] Wire the host-wide singleton spawn and launch/keeper-owned child spawn to capture the attempt reason; keep shared singleton alive on failed preflight and kill only a process this attempt owns on a terminal failed startup when existing lifecycle rules require it.
-- [ ] Keep configuration refusal, validator exec failure/timeout, missing daemon executable, cooperative refusal, process exit, live readiness timeout, channel fault and front/socket/endpoint transport failure distinguishable in tests and output.
+- [ ] Keep configuration refusal, validator exec failure/timeout, missing daemon executable, cooperative refusal, process exit, live readiness timeout, channel fault and front/socket/endpoint transport failure distinguishable in tests and output. (Owner-local: `hostservice.StartupOutcome` keeps them distinct in both owners' results, with tests in `internal/broker` and `internal/cli/run`; output and validator-category bridging remain.)
 - [x] Confirm old shared log contents cannot replace any current attempt outcome; the log path remains manual follow-up only.
 - [ ] Run `internal/cli/run` tests proving service cause appears before derived socket/reachability symptoms; old-daemon and front refusal behavior remains accurate.
 

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -39,8 +40,13 @@ func TestPerJailReasonChild(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("write fixture startup reason: %v", err)
 	}
-	if mode == "exit" {
+	switch mode {
+	case "exit":
 		os.Exit(2)
+	case "exit0":
+		os.Exit(0)
+	case "signal":
+		_ = syscall.Kill(os.Getpid(), syscall.SIGKILL)
 	}
 	time.Sleep(time.Hour)
 }

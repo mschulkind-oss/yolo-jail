@@ -18,9 +18,11 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/awsauthdaemon"
+	"github.com/mschulkind-oss/yolo-jail/internal/broker"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostcas"
+	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/image"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -240,12 +242,18 @@ type Options struct {
 	// startupRefusal is an attempt-specific fatal configuration refusal captured while a per-jail
 	// service was starting. The lifecycle caller returns it through the same unwind boundary as
 	// olderDaemonRefusal, while never treating historical log text as evidence.
-	startupRefusal    *hostStartupRefusal
-	settingsSnapshots map[string]*ownedSettingsSnapshot
-	settingsPrepared  bool
-	settingsPlan      *preparedLoopholeSettings
-	settingsFrozen    map[string][]byte
-	hostExecDisclosed map[string]bool
+	startupRefusal *hostStartupRefusal
+	// startupOutcomes holds this launch's owner-local evidence and is never serialized to a keeper.
+	startupOutcomes []hostservice.StartupOutcome
+	startupAttempt  uint64
+	// singletonDepsForStart is nil in production; it lets owner tests inject lifecycle failures
+	// through the actual startHostSingleton and selected-loop consumption edges.
+	singletonDepsForStart func(string, []string) broker.Deps
+	settingsSnapshots     map[string]*ownedSettingsSnapshot
+	settingsPrepared      bool
+	settingsPlan          *preparedLoopholeSettings
+	settingsFrozen        map[string][]byte
+	hostExecDisclosed     map[string]bool
 	// reachSubject is who a host service's failure leaves unable to reach it, in the warnings
 	// that say so (unreachableBy): "" for a jail launch, which says "the jail", and the agent's
 	// name for a `yolo host` launch opening a doorway (HostDoorways.Start), which runs no jail.
