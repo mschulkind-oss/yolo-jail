@@ -3,7 +3,7 @@ title: "An active Pi profile must constrain supported model calls, not saved log
 date: 2026-10-06
 status: in-review
 stage: DESIGN
-next: "Rule OQ-PAS2: enforce the active set inside yolo alone, or with a Pi runtime change"
+next: "Agent investigation: can a yolo-shipped Pi extension deny out-of-set providers (e.g. a denying provider override)? If not, drop enforcement (OQ-PAS2)"
 tags: [pi, profiles, credentials, openai-auth, packs]
 summary: "Corrects the diagnosis of simultaneous Pi provider use: rendered selection, pack closure, broker preparation, and credentials already stored by Pi are separate authorities."
 ---
@@ -28,7 +28,7 @@ this rule. [OQ-PAS2](#OQ-PAS2) asks whether a yolo-only route is preferable.
 
 **Start at [§3](#3-accepted-provider-use-policy)** — the supported-call boundary and denial behavior.
 
-**Needs your ruling:** [OQ-PAS2](#OQ-PAS2).
+**Needs your ruling:** none; [OQ-PAS2](#OQ-PAS2) was ruled 2026-10-08 (no Pi fork).
 
 **Reads with:** [implementation handoff](simultaneous-auth-and-pack-isolation-plan.md),
 [`active-provider-sets.md`](active-provider-sets.md) (active-set semantics),
@@ -148,7 +148,7 @@ not acceptance evidence. No incident-machine repair or live provider/account pro
 
 ## Open questions
 
-1. 💬 **OQ-PAS2: Enforce the active set inside yolo alone, or by changing Pi?** <a id="OQ-PAS2"></a>
+1. ✅ **OQ-PAS2: Enforce the active set inside yolo alone, or by changing Pi?** <a id="OQ-PAS2"></a>
 
    With the `codex` profile active and a saved Anthropic login, you pick a Claude model in Pi.
 
@@ -166,7 +166,11 @@ not acceptance evidence. No incident-machine repair or live provider/account pro
 
    **Answer:**
 
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-10-08: not B.** In the maintainer's words: *"if we can ship a Pi extension to do
+   > this, great. Shipped with YoloJail. I can't rely on a fork of Pi. That's unworkable. But if this
+   > is just not doable with Pi, that's fine. We just won't do it."* Enforcement must be an extension
+   > yolo ships (or yolo-only launch shaping, A); a Pi fork is ruled out. If neither works, the policy
+   > is dropped rather than half-enforced. Pi's own credential store is outside yolo's management.
 
 ## Decision Ledger
 
