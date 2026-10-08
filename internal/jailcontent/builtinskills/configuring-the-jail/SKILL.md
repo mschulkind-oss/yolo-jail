@@ -22,6 +22,18 @@ The always-on briefing already states the rule: **edit → `yolo check --no-buil
 restart this jail from inside it). Assume that. This skill covers the parts that
 rule leaves out.
 
+### When the config file is read-only
+
+If the project sets `workspace_readonly` at all, yolo also makes the workspace
+config file **read-only inside the jail**, so an agent cannot edit its own
+sandbox. Your briefing says so, and `yolo check --no-build` prints a line naming
+the file. Then the loop is different: write out the exact edit and ask the human
+to apply it on the host, run `yolo check` there, and restart. Do not route the
+change through `yolo-jail.local.jsonc`, an included file, or a new config file
+beside the locked one: those are not locked, and using them to get round the
+lock undoes the protection the human chose, and the config diff at the next
+launch shows it to them.
+
 ### Rebuild vs. restart — which changes are slow
 
 Most changes take effect on the **next restart** (config is re-read at launch).
@@ -57,7 +69,8 @@ Three layers merge, later wins:
 
 - `~/.config/yolo-jail/config.jsonc` — user/machine defaults.
 - `<workspace>/yolo-jail.jsonc` — the committed per-project config. **Edit this
-  one** unless told otherwise.
+  one** unless told otherwise, or unless it is read-only in here (see above:
+  then propose the edit to the human instead).
 - `<workspace>/yolo-jail.local.jsonc` — per-machine tweaks, auto-merged when
   present. Conventionally untracked, but yolo does not git-ignore it: run
   `git check-ignore yolo-jail.local.jsonc` before trusting it to stay out of a

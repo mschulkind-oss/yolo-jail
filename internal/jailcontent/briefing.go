@@ -206,6 +206,12 @@ type BriefingInput struct {
 	// `.jsonc` file beside a `yolo-jail.json` told the agent to create a file the next launch
 	// reads in its place, dropping every key the user's own file sets.
 	ConfigName string
+
+	// ConfigLocked is true when this launch made that file read-only to the agent: any
+	// `workspace_readonly` entry locks it (run.workspaceConfigLocked), so the agent cannot edit its
+	// own protection out. The packages section then tells the agent to propose the edit to the human
+	// instead of making it, which is the only edit open to it.
+	ConfigLocked bool
 }
 
 // configName is the workspace config file name the briefing names (BriefingInput.ConfigName).
@@ -893,7 +899,7 @@ func BriefingContent(in BriefingInput) string {
 		noSudoLine,
 		"",
 	)
-	lines = append(lines, packagesSection(in.Mechanism, in.configName())...)
+	lines = append(lines, packagesSection(in.Mechanism, in.configName(), in.ConfigLocked)...)
 	lines = append(lines,
 		"## Skills",
 		"",
@@ -936,15 +942,20 @@ func BriefingContent(in BriefingInput) string {
 // a second spelling here would fork the convention that bullet exists to establish, and this
 // section is not the one place an agent learns its paths.
 //
-// configName is the workspace config file the agent edits (BriefingInput.ConfigName).
-func packagesSection(mechanism, configName string) []string {
+// configName is the workspace config file the agent edits (BriefingInput.ConfigName), and locked
+// is BriefingInput.ConfigLocked: a locked file cannot be edited from in here, so the request becomes
+// a proposal the human applies on the host.
+func packagesSection(mechanism, configName string, locked bool) []string {
 	if MechanismHasNoContainer(mechanism) {
-		return []string{
-			"## Packages",
-			"",
+		request := []string{
 			"To request a tool: edit `/workspace/" + configName + "` (`packages`), ALWAYS run",
 			"`yolo check` after every config edit (`yolo check --no-build` is fine inside a",
 			"running jail), then ask the human to restart the jail. Reference: `yolo config-ref`.",
+		}
+		if locked {
+			request = lockedConfigRequest(configName, "a tool", "`packages`")
+		}
+		return append(append([]string{"## Packages", ""}, request...),
 			"⚠ `resources` is not enforced here the way a container enforces it: there is no",
 			"container, so no key is a kernel cap. What each one does on this backend: `io`",
 			"lowers the session's macOS disk I/O priority; `memory` is checked by sampling (not",
@@ -954,16 +965,30 @@ func packagesSection(mechanism, configName string) []string {
 			"RAYON_NUM_THREADS and OMP_NUM_THREADS defaults, so a program that ignores them is",
 			"not limited; and `pids_limit` is read and ignored.",
 			"",
-		}
+		)
 	}
-	return []string{
-		"## Packages & Resource Limits",
-		"",
+	request := []string{
 		"To request a tool or a container-limit change: edit `/workspace/" + configName + "`",
 		"(`packages` / `resources`), ALWAYS run `yolo check` after every config edit",
 		"(`yolo check --no-build` is fine inside a running jail), then ask the human to",
 		"restart the jail. Reference: `yolo config-ref`.",
-		"",
+	}
+	if locked {
+		request = lockedConfigRequest(configName, "a tool or a container-limit change", "`packages` / `resources`")
+	}
+	return append(append([]string{"## Packages & Resource Limits", ""}, request...), "")
+}
+
+// lockedConfigRequest is the request paragraph for a jail whose workspace config is read-only
+// (BriefingInput.ConfigLocked). It names no way round the lock — `yolo-jail.local.jsonc` is not
+// locked, and the config-change approval at the next launch is what catches an edit there — because
+// a briefing that pointed at the unlocked file would be teaching the agent to unpick its protection.
+func lockedConfigRequest(configName, what, keys string) []string {
+	return []string{
+		"To request " + what + ": `/workspace/" + configName + "` is **read-only** in",
+		"here (`workspace_readonly` locks it, so you cannot edit your own sandbox). Write",
+		"out the edit (" + keys + ") and ask the human to apply it on the host, run",
+		"`yolo check` there, and restart the jail. Reference: `yolo config-ref`.",
 	}
 }
 

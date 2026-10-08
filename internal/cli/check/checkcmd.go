@@ -178,6 +178,10 @@ type Options struct {
 	// and returns (storePath, stderrTail). storePath is "" on failure. nil =>
 	// real implementation.
 	BuildImage func(repoRoot string, extraPackages []any) (string, []string)
+	// Writable reports whether this process may write path — access(2) W_OK, which answers
+	// EROFS for a read-only bind and is consulted by the macOS sandbox. Read for the in-jail
+	// workspace-config lock line. nil => real syscall.
+	Writable func(string) bool
 	// AccessRW tests read+write access for device-node checks (KVM /
 	// ROCm). nil => real syscall (Linux). Injected so device sections golden.
 	AccessRW func(string) bool
@@ -278,6 +282,9 @@ func fillDefaults(o *Options) {
 	}
 	if o.AccessRW == nil {
 		o.AccessRW = accessRW
+	}
+	if o.Writable == nil {
+		o.Writable = writableReal
 	}
 	if o.NodeGID == nil {
 		o.NodeGID = nodeGIDReal

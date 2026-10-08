@@ -585,6 +585,7 @@ func (o *Options) sectionConfigFiles(r *reporter, workspace string) (*jsonx.Orde
 		r.ok("No workspace yolo-jail.jsonc found")
 	}
 	o.reportWorkspaceFile(r, workspace)
+	o.reportWorkspaceConfigLock(r, workspace)
 	r.blank()
 	return userConfig, workspaceConfig, src, failed
 }

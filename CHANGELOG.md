@@ -24,6 +24,9 @@ highlight headings, verbs and flags; piped output and `NO_COLOR` stay plain.
 
 - A provider-only Pi profile no longer fails at startup because of a provider flag without a model selection.
 - A profile's config overlay now applies when that profile is any member of an agent's active profile set, not only the first.
+- In a project that sets `workspace_readonly`, the agent is told the project config is read-only
+  in the jail and asks you to apply a config change, instead of failing to write it; an in-jail
+  `yolo check` says so too.
 
 ## [0.12.1] - 2026-10-06
 
