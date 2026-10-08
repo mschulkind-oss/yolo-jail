@@ -19,6 +19,11 @@ line in full. See [the CLI reference](userguide/reference/cli-reference.md#packs
 **Plugin code itemized in the launch log.** `.yolo/launch.log` lists each wrapped plugin that runs
 code in the jail, by component, beside the one counted line the terminal shows.
 
+**Pi reaches Bedrock through the bridge's own signing.** On the `bedrock-bridge` profile Pi now
+speaks Bedrock's own API through the wire bridge, which signs each request, including requests
+for Claude models. Supply a Bedrock model list to use this route.
+See [the wire bridge](docs/reference/wire-bridge.md#converse-on-a-via-route).
+
 ### Fixed
 
 - A podman jail with nothing for the Nix root watcher to do no longer keeps a defunct `yolo-jaild` process for its whole life.

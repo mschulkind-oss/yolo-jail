@@ -131,6 +131,11 @@ func TestBedrockRendersEachAgentsOwnClient(t *testing.T) {
 // that build this launch was refused. No request leaves the jail: no AWS credential is delivered,
 // so pi's route answers with a 503 that names the upstream it composed and the credential
 // sources it needs, which shows the composed URL without calling AWS.
+//
+// pi's own row speaks Bedrock's Converse to that route (WG-I49), so the test also reads the row
+// the jail rendered and sends what pi's AWS SDK would: Converse over HTTP/2 with prior knowledge,
+// the SDK's default to an http:// address, which the bridge passes through to runtime's own
+// Converse route (WG-I48) and, with no credential, answers in AWS's error shape.
 func TestBedrockBridgeCarriesPiToRuntimeInItsRegion(t *testing.T) {
 	requireJail(t)
 
@@ -145,10 +150,37 @@ addr=$(cat "$YOLO_SERVICE_WIRE_BRIDGE_ENDPOINT")
 code=$(curl -sS -o /workspace/bedrock-bridge-pi.json -w '%{http_code}' \
   "http://$addr/agent/pi/chat/completions" -H 'content-type: application/json' \
   -H "authorization: Bearer $YOLO_SERVICE_WIRE_BRIDGE_TOKEN" -d '{"model":"m","messages":[]}')
-echo "CODE=$code"`
+echo "CODE=$code"
+echo "ADDR=$addr"
+conv=$(curl -sS --http2-prior-knowledge -o /workspace/bedrock-bridge-pi-converse.json -D /workspace/bedrock-bridge-pi-converse.headers \
+  -w '%{http_code} %{http_version}' "http://$addr/agent/pi/model/us.anthropic.claude-opus-5-5%3A0/converse-stream" \
+  -H 'content-type: application/json' -H "authorization: Bearer $YOLO_SERVICE_WIRE_BRIDGE_TOKEN" \
+  -d '{"messages":[{"role":"user","content":[{"text":"hi"}]}]}')
+echo "CONVERSE=$conv"`
 	r := runCommand(t, dir, append(jailRunArgs(), "-p", "bedrock-bridge", "--", "bash", "-lc", script))
 	if r.rc != 0 {
 		t.Fatalf("-p bedrock-bridge -- pi must start now that the bridge composes Bedrock's URL:\n%s", r.combined())
+	}
+	addr := regexp.MustCompile(`ADDR=(\S+)`).FindStringSubmatch(r.stdout)
+	if addr == nil {
+		t.Fatalf("the script printed no via address:\n%s", r.combined())
+	}
+	models := readPioencodeSurface(t, dir, "pi", "agent", "models.json")
+	provs, _ := models.raw["providers"].(map[string]any)
+	row, _ := provs["bedrock"].(map[string]any)
+	if row["api"] != "bedrock-converse-stream" || row["baseUrl"] != "http://"+addr[1]+"/agent/pi" {
+		t.Errorf("pi's bedrock row = %v, want bedrock-converse-stream at http://%s/agent/pi", row, addr[1])
+	}
+	conv, err := os.ReadFile(filepath.Join(dir, "bedrock-bridge-pi-converse.json"))
+	if err != nil {
+		t.Fatalf("pi's Converse request to its via route wrote nothing (%v):\n%s", err, r.combined())
+	}
+	headers, _ := os.ReadFile(filepath.Join(dir, "bedrock-bridge-pi-converse.headers"))
+	if !strings.Contains(r.stdout, "CONVERSE=503 2") ||
+		!strings.Contains(strings.ToLower(string(headers)), "x-amzn-errortype: serviceunavailableexception") ||
+		!strings.Contains(string(conv), `"message":"wire-bridge: the via route for pi goes to Bedrock (https://bedrock-runtime.us-east-1.amazonaws.com)`) {
+		t.Errorf("pi's Converse over h2c must answer an AWS-shaped 503 naming runtime's Converse host in us-east-1: %s\n%s\n%s",
+			conv, headers, r.combined())
 	}
 	if strings.Contains(r.combined(), `remove "via" from profile "bedrock-bridge"`) {
 		t.Errorf("the launch still names the via as a problem:\n%s", r.combined())

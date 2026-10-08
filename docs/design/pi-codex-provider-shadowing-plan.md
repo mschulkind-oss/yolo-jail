@@ -99,7 +99,8 @@ departed from a step, the step says so.
    omp's own zai serves the plan, so only opencode declares one.
 4. **Via stops for those providers** in that agent: no via row, and the launch's existing "the via
    has no effect" line says so (`viapack_test.go`). [WG-I36](wire-bridge-gateway.md#WG-I36)'s
-   Converse row may not sit on pi's `amazon-bedrock`; that route is wire-bridge-gateway.md's build.
+   Converse row may not sit on pi's `amazon-bedrock`; it is built under yolo's own provider key
+   ([WG-I49](wire-bridge-gateway.md#WG-I49), 2026-10-08).
    *Built*: the notice now names the rule and the next step
    ([BI-D7](pi-codex-provider-shadowing.md#BI-D7)); the via gate's test is
    `TestShippedViaOverABuiltInProviderRepointsNothing`.

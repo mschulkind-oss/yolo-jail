@@ -463,9 +463,9 @@ read. The serve line says which variable the region came from.
 such as the shipped `bedrock`, is reached at runtime's own
 `https://bedrock-runtime.<region>.amazonaws.com/openai/v1`, composed from that region:
 
-- **On a via route** that one base carries both wires, so pi's, opencode's and oh-omp's
-  chat-completions and codex's Responses reach it alike. Bedrock's own Converse goes to the same
-  host's root ([Converse on a via route](#converse-on-a-via-route)).
+- **On a via route** that one base carries both wires, so opencode's and oh-omp's
+  chat-completions and codex's Responses reach it alike. pi's row speaks Bedrock's own Converse,
+  which goes to the same host's root ([Converse on a via route](#converse-on-a-via-route)).
 - **On the adapter route**, which claude and copilot reach, the provider needs an anthropic
   address to be routed at. `packs/wire-bridge`'s `openai → anthropic` adapter declares
   `"from_platforms": ["aws-bedrock"]`, so composition gives such a provider the adapter's address
@@ -643,7 +643,8 @@ declared `via_address`, under the path prefix `/agent/<agent>/`. The design and 
   `/chat/completions` and below to the chat-completions one, and any other path to the
   chat-completions endpoint, or the Responses one when that is all there is. A path naming a wire
   the provider does not declare gets a 404 naming the provider, and is never translated or sent to
-  the other endpoint. pi, oh-omp and opencode send chat-completions; codex sends Responses.
+  the other endpoint. pi, oh-omp and opencode send chat-completions, except pi on a Bedrock
+  provider, which sends Converse; codex sends Responses.
 - **The credential is per upstream.** A route reads its provider's `api_key_env_name` from the
   same key channel as the adapter route ([WB-D4](#wb-d4)). A Bedrock upstream
   ([which upstream is Bedrock's](#which-upstream-is-bedrocks)) is signed with SigV4 instead,
@@ -677,7 +678,10 @@ declared `via_address`, under the path prefix `/agent/<agent>/`. The design and 
 On a route whose upstream is Bedrock's, the bridge also passes through Bedrock's own **Converse**
 API, which pi's own Bedrock client speaks
 ([`WG-I48`](../design/wire-bridge-gateway.md#WG-I48)). Converse is Bedrock's API, not a third
-OpenAI wire.
+OpenAI wire. pi's derive puts its via row on it for a Bedrock provider, the shipped
+`bedrock-bridge` profile among them: `api: "bedrock-converse-stream"` at its via URL, with the
+caller token as its key, so pi signs nothing and the bridge signs
+([`WG-I49`](../design/wire-bridge-gateway.md#WG-I49)).
 
 - **What is classified as Converse.** A path after the prefix that starts `/model/` and ends
   `/converse` or `/converse-stream`. The last segment is the operation and everything between is

@@ -579,9 +579,27 @@ end
 --
 -- The models are every entry of the list (Converse serves each shipped maker's), the session
 -- starts on the list's first or the one a profile names, and only the selected provider, on pi's
--- own transport, is bound: a via profile (`bedrock-bridge`) gets the ordinary via row, whose
--- upstream the bridge composes from the region (docs/design/wire-bridge-gateway.md WG-I39).
+-- own transport, is bound: a via profile (`bedrock-bridge`) gets the via row instead, which speaks
+-- the same Converse to the bridge (piViaApi below), and the bridge signs it for the region it
+-- composes runtime's URL from (docs/design/wire-bridge-gateway.md WG-I36, WG-I39, WG-I48).
 local piBedrockProvider = "amazon-bedrock"
+
+-- piViaApi is the api pi's via row speaks to its via route (docs/design/wire-bridge-gateway.md
+-- WG-I49). On a Bedrock provider it is pi's own Converse client, `bedrock-converse-stream`, which
+-- the bridge signs and passes through to runtime's Converse route (WG-I48): every maker Bedrock
+-- serves, Claude models included, reaches pi on the API pi's own amazon-bedrock provider uses, and
+-- the row's apiKey (the caller token) goes as a bearer, so pi signs nothing (WG-I36). It replaces
+-- chat-completions on that row rather than sitting beside it: a row has one api. Every other
+-- provider's via row stays on chat-completions, the wire the route passes through to its
+-- `openai` endpoint. Read from pi 1.0.4's source (core/provider-composer.js, which dispatches a row
+-- with this api and no built-in base provider; api/bedrock-converse-stream.js, which sends the key
+-- as `Authorization: Bearer` and takes a non-runtime baseUrl as its endpoint), not measured.
+local function piViaApi(prov)
+  if type(prov) == "table" and prov.platform == "aws-bedrock" then
+    return "bedrock-converse-stream"
+  end
+  return "openai-completions"
+end
 
 local function piNativeBedrock(ctx)
   return ctx.selected_platform == "aws-bedrock" and (ctx.via_url or "") == ""
@@ -631,20 +649,22 @@ yolo.derive("pi", "models", function(ctx)
     end
     -- VIA (docs/design/wire-bridge-gateway.md OQ-WG6/WG7): when this agent's active profile
     -- routes through a service, the SELECTED provider's row points at the per-agent route the
-    -- service serves, and speaks chat-completions there, the protocol the via route passes
-    -- through to the provider's own `openai` endpoint. Every other row is untouched: via is
+    -- service serves, and speaks there what the route passes through (piViaApi): chat-completions
+    -- to the provider's own `openai` endpoint, or, on a Bedrock provider, Bedrock's own Converse
+    -- (WG-I49). Every other row is untouched: via is
     -- one profile's choice, and only the selected provider rides it. A provider pi has built in
     -- gets no via row either, since the row would be a model entry over pi's own (OQ-3), and
     -- the launch says the via has no effect on pi (wirebridged.ViaRouteGate).
     local viaRow = (not native and ctx.via_url ~= nil and ctx.via_url ~= "" and
       name == ctx.selected_provider)
     if viaRow then
-      baseUrl, api = ctx.via_url, "openai-completions"
+      baseUrl, api = ctx.via_url, piViaApi(prov)
     end
     -- A BEDROCK PROVIDER GETS NO GENERIC ROW, even one a user gave an `openai` endpoint: the row
     -- carries one key, and Bedrock's credential is the AWS chain, which only pi's own
     -- amazon-bedrock client signs with (the native row below). A via row still rides the
-    -- bridge, which signs for it.
+    -- bridge, which signs for it: pi's Converse client sends the row's key, the bridge's caller
+    -- token, as a bearer, and the bridge signs with its own chain (WG-I36).
     if baseUrl and not viaRow and type(prov) == "table" and prov.platform == "aws-bedrock" then
       baseUrl = nil
     end
@@ -1136,7 +1156,12 @@ local function piSettingsFor(ctx)
       selection = sel,
     }
   end
-  if not piReachable(p) then
+  -- A VIA PRIMARY IS REACHABLE whatever it declares: the models derive writes its row at the via
+  -- route (its viaRow rule), so the selection names that row. A Bedrock provider named by region
+  -- alone declares no address pi could reach, and before its via row spoke Converse
+  -- (docs/design/wire-bridge-gateway.md WG-I49) pi on `-p bedrock-bridge` was selected nothing.
+  local viaPrimary = ctx.via_url ~= nil and ctx.via_url ~= ""
+  if not viaPrimary and not piReachable(p) then
     return {}
   end
   local isKilo = (ctx.selected_provider == "kilo" or (type(p) == "table" and type(p.endpoints) == "table" and type(p.endpoints.openai) == "table" and isKiloEndpoint(p.endpoints.openai.base_url or "")))
@@ -1374,7 +1399,7 @@ yolo.derive("pi", "model-lists", function(ctx)
       if type(own) == "table" then
         piID = own.id
       elseif viaRow then
-        rowApi, rowUrl = "openai-completions", ctx.via_url
+        rowApi, rowUrl = piViaApi(prov), ctx.via_url
       elseif not nativeBedrock then
         local reachableUrl, reachableApi = piReachable(prov)
         rowApi, rowUrl = reachableApi, reachableUrl
@@ -1486,6 +1511,10 @@ end)
 -- region the provider declares reaches pi as AWS_REGION, because pi reads its region from its
 -- environment and has no config field for it (api/bedrock-converse-stream.js, pi 0.99.1). A
 -- region the environment already carries needs nothing: the launch delivers it to pi itself.
+-- The same holds on a Bedrock via primary (piViaBedrockEntry): the row speaks Converse to the
+-- bridge, and pi's AWS SDK refuses to build a client with no region ("Region is missing",
+-- api/bedrock-converse-stream.js, pi 1.0.4) even though the bridge, not pi, picks the host
+-- (docs/design/wire-bridge-gateway.md WG-I49).
 local function piSetHas(ctx, provider)
   if ctx.selected_provider == provider then return true end
   if type(ctx.active_set) == "table" then
@@ -1558,11 +1587,27 @@ local function piProviderPolicy(ctx)
     '","allowedProviderIds":[' .. quote(ids) .. '],"profiles":[' .. quote(profiles) .. ']}'
 end
 
+-- piViaBedrockEntry is the provider name of a Bedrock primary pi reaches through its via row, or
+-- nil: the via row's provider is the selected one (AP-D9: a via entry may sit only first), and pi
+-- has no built-in of its own for it (piOwn), exactly the models derive's viaRow rule.
+local function piViaBedrockEntry(ctx)
+  local name = ctx.selected_provider
+  if ctx.via_url == nil or ctx.via_url == "" or name == nil or piOwn(ctx, name) ~= nil then
+    return nil
+  end
+  local p = ctx.providers and ctx.providers[name] or nil
+  if type(p) == "table" and p.platform == "aws-bedrock" then
+    return name
+  end
+  return nil
+end
+
 yolo.env("pi", function(ctx)
   local env = {}
   -- The set's Bedrock entry wherever it sits (piNativeBedrockEntry): the region pre-flight counts
-  -- a provider's `region` as delivered because this derive relays it, for a later entry too.
-  local bedrockName = piNativeBedrockEntry(ctx)
+  -- a provider's `region` as delivered because this derive relays it, for a later entry too. A
+  -- Bedrock via primary's region rides the same relay (piViaBedrockEntry).
+  local bedrockName = piNativeBedrockEntry(ctx) or piViaBedrockEntry(ctx)
   if bedrockName then
     local p = ctx.providers and ctx.providers[bedrockName] or nil
     if type(p) == "table" and type(p.region) == "string" and p.region ~= "" then

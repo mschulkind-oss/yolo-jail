@@ -3,7 +3,7 @@ title: "Why a bridge endpoint shadowed Pi's Codex provider — and how ambient k
 date: 2026-09-25
 status: in-review
 stage: DESIGN
-next: "Rule OQ-4: whether the ruling reaches a list a pack declares for a provider an agent has built in (the openai-codex list, a pack's Bedrock list, and a `models` only on zai and the like, which the 2026-10-05 build of OQ-3 left as they were). Pi's Converse route (wire-bridge-gateway.md WG-I36) may no longer sit on amazon-bedrock"
+next: "Rule OQ-4: whether the ruling reaches a list a pack declares for a provider an agent has built in (the openai-codex list, a pack's Bedrock list, and a `models` only on zai and the like, which the 2026-10-05 build of OQ-3 left as they were). Pi's Converse route (wire-bridge-gateway.md WG-I36) is built off amazon-bedrock, under yolo's own provider key (WG-I49)"
 tags: [providers, codex, pi, openai-auth, shadowing, credentials]
 summary: "Adding an openai-responses endpoint to the openai-codex provider allowed wire-bridge to route to ChatGPT, but caused Pi's derive to shadow its built-in subscription provider with a third-party models.json row. When Pi treated openai-codex as a generic OpenAI platform endpoint, it picked up the workspace's ambient OPENAI_API_KEY, resulting in 401 errors against the Codex backend. On 2026-10-05 the maintainer ruled that the rule this led to covers every provider an agent has built in: yolo writes no model entry over any of them and keeps only their names. That is built: pi's, omp's and opencode's packs declare their own providers, and their derives write no row under one."
 ---
@@ -48,11 +48,13 @@ and a profile routing one of them through the wire bridge stops doing so in that
 declares for a provider an agent has built in? [OQ-3](#OQ-3) was ruled in review on 2026-10-05:
 the rule covers every provider an agent has built in.
 
-**Releases:** pi's Converse route through the wire bridge. [OQ-WG8](wire-bridge-gateway.md#OQ-WG8)
+**Released:** pi's Converse route through the wire bridge. [OQ-WG8](wire-bridge-gateway.md#OQ-WG8)
 was decided on 2026-09-30 as [WG-I36](wire-bridge-gateway.md#WG-I36), which left where pi's
 override row lives to [OQ-3](#OQ-3). Under the ruling it may not sit on pi's built-in
-`amazon-bedrock`, so the route puts its row under a key pi does not implement, which nobody has
-checked pi's Converse client still serves, or it is not built.
+`amazon-bedrock`, so it sits under yolo's own provider key (the shipped `bedrock`) with
+`api: "bedrock-converse-stream"`, which pi 1.0.4's source shows pi dispatches to its Converse
+client with no built-in provider behind it. Built 2026-10-08 as
+[WG-I49](wire-bridge-gateway.md#WG-I49), not yet run.
 
 **Reads with:** [`pi-codex-provider-shadowing-plan.md`](pi-codex-provider-shadowing-plan.md) (the companion sketch — incomplete while questions are open),
 [`providers.md`'s credential gate](../reference/providers.md#the-credential-gate) (the ambient environment delivery boundary),
