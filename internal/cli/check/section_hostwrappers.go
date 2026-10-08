@@ -304,7 +304,9 @@ func (o *Options) launcherHostPathLines(st wrapperState) []string {
 	var lines []string
 	for _, p := range progs {
 		bin := p.Bin()
-		if !wrapped[bin] || floor.Status(p).Disposition != hostfloor.NoEntry {
+		// Only a program `yolo host` looks up on a PATH: one that is not the floor's to hold
+		// (HNR-D4). Any other no-entry program is refused, which no folder changes (HNR-D2).
+		if !wrapped[bin] || floor.Status(p).Disposition != hostfloor.NoEntry || !floor.OutsideTheFloor(p) {
 			continue
 		}
 		found, err := lp.LookPath(bin)

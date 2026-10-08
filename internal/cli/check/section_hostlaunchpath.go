@@ -97,8 +97,10 @@ type launchPathDep struct {
 }
 
 // launchPathDeps is every binary the selected packs' `requires` and `program` contributions
-// declare, sorted, less the programs the floor answers for (a disposition other than no floor
-// entry): those run from the floor whatever a PATH holds, and sectionHostFloor reports them.
+// declare, sorted, less the programs the floor answers for: those run from the floor whatever a PATH
+// holds, or, with no floor entry on this machine, are refused rather than looked up on a PATH
+// (host-notch-readiness.md HNR-D2), and sectionHostFloor reports them. A program that is not the
+// floor's to hold (Floor.OutsideTheFloor, HNR-D4) is looked up on the PATH, so it stays.
 func (o *Options) launchPathDeps() []launchPathDep {
 	var in []hostfloor.PackPrograms
 	for _, p := range o.selectedPacks {
@@ -110,7 +112,7 @@ func (o *Options) launchPathDeps() []launchPathDep {
 	if len(progs) > 0 {
 		floor := o.hostFloor(progs)
 		for _, p := range progs {
-			if floor.Status(p).Disposition != hostfloor.NoEntry {
+			if floor.Status(p).Disposition != hostfloor.NoEntry || !floor.OutsideTheFloor(p) {
 				floorAnswers[p.Bin()] = true
 			}
 		}
