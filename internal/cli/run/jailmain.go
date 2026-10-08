@@ -122,7 +122,9 @@ func writeAll(w io.Writer, p []byte) error {
 // Its OWN PROCESS GROUP (Setpgid): the terminal's Ctrl-C, Ctrl-Z and hangup go to the
 // launcher's foreground group and never to this client, so the launcher's signal arm alone
 // decides what a signal does to the jail. Not its own session: it stays a child of the
-// launcher, which waits for it. stdin is /dev/null: the hold reads nothing.
+// launcher, which waits for it. Its stdin is an open, unwritten pipe: the `run -i` client must
+// keep the runtime's input side open for its lifetime, even though the hold itself reads nothing.
+// First-session and attach execs keep their own invoking stdin, including EOF.
 //
 // onExit runs the moment the client is reaped, before its output is flushed, so the moment
 // Window A ends is recorded as it happens. May be nil.
@@ -135,16 +137,24 @@ func writeAll(w io.Writer, p []byte) error {
 // at most relayDrainWait, so a refusal's last lines are printed before the teardown's first.
 func startJailMain(argv []string, stdout, stderr io.Writer, onExit func()) (*jailMain, error) {
 	c := exec.Command(argv[0], argv[1:]...)
-	c.Stdin = nil
+	stdinR, stdinW, err := os.Pipe()
+	if err != nil {
+		return nil, err
+	}
+	c.Stdin = stdinR
 	m := &jailMain{cmd: c, ready: make(chan struct{}), exited: make(chan struct{})}
 	var once sync.Once
 	relay := &readyRelay{w: stderr, onReady: func() { once.Do(func() { close(m.ready) }) }}
 	outR, outW, err := os.Pipe()
 	if err != nil {
+		_ = stdinR.Close()
+		_ = stdinW.Close()
 		return nil, err
 	}
 	errR, errW, err := os.Pipe()
 	if err != nil {
+		_ = stdinR.Close()
+		_ = stdinW.Close()
 		_ = outR.Close()
 		_ = outW.Close()
 		return nil, err
@@ -152,12 +162,13 @@ func startJailMain(argv []string, stdout, stderr io.Writer, onExit func()) (*jai
 	c.Stdout, c.Stderr = outW, errW
 	c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := c.Start(); err != nil {
-		for _, f := range []*os.File{outR, outW, errR, errW} {
+		for _, f := range []*os.File{stdinR, stdinW, outR, outW, errR, errW} {
 			_ = f.Close()
 		}
 		return nil, err
 	}
-	_ = outW.Close() // the child's copies are the only writers now
+	_ = stdinR.Close() // the child's copy is the only reader now; keep stdinW until it exits
+	_ = outW.Close()   // the child's copies are the only writers now
 	_ = errW.Close()
 	var copies sync.WaitGroup
 	copies.Add(2)
@@ -174,7 +185,9 @@ func startJailMain(argv []string, stdout, stderr io.Writer, onExit func()) (*jai
 	drained := make(chan struct{})
 	go func() { copies.Wait(); close(drained) }()
 	go func() {
-		m.exitCode = exitCodeOf(c.Wait())
+		err := c.Wait()
+		_ = stdinW.Close() // close the unwritten input only after the runtime client exits
+		m.exitCode = exitCodeOf(err)
 		if onExit != nil {
 			onExit()
 		}

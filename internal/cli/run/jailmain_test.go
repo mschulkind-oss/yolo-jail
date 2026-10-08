@@ -2,10 +2,14 @@ package run
 
 import (
 	"bytes"
+	"encoding/json"
+	"fmt"
 	"go/ast"
 	"go/token"
 	"os"
+	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -120,6 +124,226 @@ func TestTheMainProcessClientRunsDetachedFromTheTerminalsSignals(t *testing.T) {
 	}
 }
 
+// TestTheMainProcessClientKeepsOpenUnwrittenStdinUntilExit drives the main-process client with a
+// Go helper that probes stdin nonblockingly, then a reader helper that observes EOF only after the
+// client exits. It does not depend on the host shell's read options or timeout exit statuses.
+func TestTheMainProcessClientKeepsOpenUnwrittenStdinUntilExit(t *testing.T) {
+	testsupport.UnsetLCAll(t)
+	dir := t.TempDir()
+	spec := jailMainStdinProbeSpec{
+		Mode:     "main",
+		Probe:    filepath.Join(dir, "stdin-probe"),
+		Reader:   filepath.Join(dir, "stdin-reader-state"),
+		Observed: filepath.Join(dir, "stdin-reader-result"),
+		Release:  filepath.Join(dir, "release"),
+	}
+	if err := setJailMainStdinProbeSpec(t, spec); err != nil {
+		t.Fatal(err)
+	}
+	var stderr lockedBuffer
+	m, err := startJailMain([]string{os.Args[0], "-test.run=^TestJailMainStdinProbeHelperProcess$", "-test.count=1"},
+		&bytes.Buffer{}, &stderr, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.WriteFile(spec.Release, nil, 0o600)
+		select {
+		case <-m.exited:
+		case <-time.After(10 * time.Second):
+			t.Errorf("the main-process helper did not exit during cleanup")
+		}
+	})
+	if !m.awaitReady() {
+		t.Fatalf("awaitReady reported a helper that never finished probing; stderr: %q", stderr.String())
+	}
+	if got, err := os.ReadFile(spec.Probe); err != nil || string(got) != "open" {
+		t.Fatalf("main-process stdin probe = %q (err %v), want open-but-unwritten stdin; /dev/null reports EOF", got, err)
+	}
+	if got, err := os.ReadFile(spec.Reader); err != nil || string(got) != "open" {
+		t.Fatalf("reader helper's stdin probe = %q (err %v), want open-but-unwritten stdin", got, err)
+	}
+	if _, err := os.Stat(spec.Observed); !os.IsNotExist(err) {
+		t.Fatalf("the stdin reader observed %v before the main-process client exited; want its pipe held open", err)
+	}
+	if err := os.WriteFile(spec.Release, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-m.exited:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the client never exited")
+	}
+	if got, err := waitForJailMainStdinProbeFile(spec.Observed, 10*time.Second); err != nil || string(got) != "eof" {
+		t.Errorf("the retained stdin pipe after client exit = %q (err %v), want EOF", got, err)
+	}
+}
+
+const jailMainStdinProbeHelperEnv = "YOLO_TEST_JAIL_MAIN_STDIN_PROBE_HELPER"
+
+type jailMainStdinProbeSpec struct {
+	Mode     string
+	Probe    string
+	Reader   string
+	Observed string
+	Release  string
+}
+
+// TestJailMainStdinProbeHelperProcess is the child started by
+// TestTheMainProcessClientKeepsOpenUnwrittenStdinUntilExit. Its main mode records whether stdin is
+// open or EOF, starts a second process that waits for EOF on the same pipe, reports readiness, and
+// holds until released. Its reader mode records the pipe state and reports EOF after the client
+// holding the write side exits.
+func TestJailMainStdinProbeHelperProcess(t *testing.T) {
+	raw := os.Getenv(jailMainStdinProbeHelperEnv)
+	if raw == "" {
+		t.Skip("helper process only")
+	}
+	var spec jailMainStdinProbeSpec
+	if err := json.Unmarshal([]byte(raw), &spec); err != nil {
+		t.Fatal(err)
+	}
+	switch spec.Mode {
+	case "main":
+		if err := writeJailMainStdinProbe(spec.Probe, nonblockingStdinState(t)); err != nil {
+			t.Fatal(err)
+		}
+		readerSpec := spec
+		readerSpec.Mode = "reader"
+		cmd := exec.Command(os.Args[0], "-test.run=^TestJailMainStdinProbeHelperProcess$", "-test.count=1")
+		cmdEnv, err := jailMainStdinProbeEnv(readerSpec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cmd.Env = cmdEnv
+		cmd.Stdin = os.Stdin
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := waitForJailMainStdinProbeFile(spec.Reader, 10*time.Second); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stderr.WriteString(entrypoint.BootReadyLine + "\n"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := waitForJailMainStdinProbeFile(spec.Release, 30*time.Second); err != nil {
+			t.Fatal(err)
+		}
+	case "reader":
+		state := nonblockingStdinState(t)
+		if err := writeJailMainStdinProbe(spec.Reader, state); err != nil {
+			t.Fatal(err)
+		}
+		if state == "open" {
+			state = waitForStdinEOF(t, 8*time.Second)
+		}
+		if err := writeJailMainStdinProbe(spec.Observed, state); err != nil {
+			t.Fatal(err)
+		}
+	default:
+		t.Fatalf("unknown stdin probe helper mode %q", spec.Mode)
+	}
+}
+
+func nonblockingStdinState(t *testing.T) string {
+	t.Helper()
+	fd := int(os.Stdin.Fd())
+	if err := syscall.SetNonblock(fd, true); err != nil {
+		t.Fatalf("make stdin nonblocking: %v", err)
+	}
+	var b [1]byte
+	for {
+		n, err := syscall.Read(fd, b[:])
+		if err == syscall.EINTR {
+			continue
+		}
+		if err == syscall.EAGAIN || err == syscall.EWOULDBLOCK {
+			return "open"
+		}
+		if err != nil {
+			return "error: " + err.Error()
+		}
+		if n == 0 {
+			return "eof"
+		}
+		return "data"
+	}
+}
+
+func waitForStdinEOF(t *testing.T, timeout time.Duration) string {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	fd := int(os.Stdin.Fd())
+	var b [1]byte
+	for {
+		n, err := syscall.Read(fd, b[:])
+		if err == syscall.EINTR {
+			continue
+		}
+		if err == syscall.EAGAIN || err == syscall.EWOULDBLOCK {
+			if time.Now().After(deadline) {
+				return "timeout"
+			}
+			time.Sleep(10 * time.Millisecond)
+			continue
+		}
+		if err != nil {
+			return "error: " + err.Error()
+		}
+		if n == 0 {
+			return "eof"
+		}
+		return "data"
+	}
+}
+
+func writeJailMainStdinProbe(path, state string) error {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(state), 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+func waitForJailMainStdinProbeFile(path string, timeout time.Duration) ([]byte, error) {
+	deadline := time.Now().Add(timeout)
+	for {
+		got, err := os.ReadFile(path)
+		if err == nil || !os.IsNotExist(err) {
+			return got, err
+		}
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("timed out waiting for %s", path)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func jailMainStdinProbeEnv(spec jailMainStdinProbeSpec) ([]string, error) {
+	data, err := json.Marshal(spec)
+	if err != nil {
+		return nil, err
+	}
+	prefix := jailMainStdinProbeHelperEnv + "="
+	env := make([]string, 0, len(os.Environ())+1)
+	for _, value := range os.Environ() {
+		if !strings.HasPrefix(value, prefix) {
+			env = append(env, value)
+		}
+	}
+	return append(env, prefix+string(data)), nil
+}
+
+func setJailMainStdinProbeSpec(t *testing.T, spec jailMainStdinProbeSpec) error {
+	t.Helper()
+	data, err := json.Marshal(spec)
+	if err != nil {
+		return err
+	}
+	t.Setenv(jailMainStdinProbeHelperEnv, string(data))
+	return nil
+}
+
 // TestAMainProcessThatExitsBeforeReadyIsARefusal: awaitReady is false, the status is the
 // client's, and the refusal's lines are all printed by the time exited closes, a last line with
 // no newline included (the relay's flush, which startJailMain must call at the stream's end).
@@ -142,6 +366,37 @@ func TestAMainProcessThatExitsBeforeReadyIsARefusal(t *testing.T) {
 	}
 	if !strings.HasSuffix(stderr.String(), "and its last words") {
 		t.Errorf("the refusal's partial last line was lost: %q", stderr.String())
+	}
+}
+
+// TestArmedSessionExecReceivesInvokingStdinEOF pins the distinct exec-session path: unlike the
+// held main-process client's open pipe, a session receives the invoking stdin as-is.
+func TestArmedSessionExecReceivesInvokingStdinEOF(t *testing.T) {
+	stdinR, stdinW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stdinR.Close()
+	if err := stdinW.Close(); err != nil {
+		t.Fatal(err)
+	}
+	originalStdin := os.Stdin
+	os.Stdin = stdinR
+	defer func() { os.Stdin = originalStdin }()
+
+	var stdout bytes.Buffer
+	arm := armLaunchSignalsWith(nil, func(int) {})
+	defer func() {
+		_ = arm.detach()
+		_ = arm.disarm()
+	}()
+	code, err := runArmedSession([]string{"sh", "-c", `if IFS= read -r _; then printf data; else printf eof; fi`},
+		arm, &Options{SessionStdout: &stdout})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code != 0 || stdout.String() != "eof" {
+		t.Errorf("session exec returned %d with output %q, want successful EOF observation", code, stdout.String())
 	}
 }
 
