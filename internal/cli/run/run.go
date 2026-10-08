@@ -761,6 +761,18 @@ func Run(opts Options) (rc int) {
 				// reason — its consumer reads the bind destination.
 				launchEnv.Set(hostServiceLaunchEnvVar(h), h.hostPath)
 			}
+			// THE START'S OWN REFUSAL FIRST, as the keeper orders it (keeper.go, then holdKey): a host
+			// service's typed startup refusal stops the start loop, so a service after it, the OpenAI
+			// one included, never starts, and the credential refusal below would otherwise name a
+			// consequence instead of the cause. A host-wide daemon older than this yolo, which does
+			// not answer the launch check or does not speak the connection preamble, refuses here
+			// too, as the keeper refuses it on the container arm (OQ-HD11, HD-D5, launchcheck.go).
+			// The deferred session teardown closes this launch's fronts and leaves that daemon
+			// running for the jails using it.
+			if refused != nil {
+				o.pr(o.Stderr).print(refused.markup("Refusing the macos-user launch"))
+				return 1
+			}
 			// THE CREDENTIAL SERVICE IS STILL FAIL-CLOSED HERE, and it is deliberately the only
 			// one refused at this point: a launch whose OpenAI loophole is active and whose
 			// broker did not start hands the agent a subscription it cannot refresh, silently.
@@ -771,15 +783,6 @@ func Run(opts Options) (rc int) {
 			// disposition the macos-user plan builder writes (loopholesruntime.go).
 			if openAIAuthLoopholeActive(cfg) && !startedLoophole(handles, openAIAuthBrokerName) {
 				o.pr(o.Stderr).print(openAIServiceRefusal())
-				return 1
-			}
-			// A HOST-WIDE DAEMON OLDER THAN THIS YOLO, which does not answer the launch check or does
-			// not speak the connection preamble, refuses the launch before the sandboxed command
-			// runs, as the keeper refuses it on the container arm (OQ-HD11, HD-D5, launchcheck.go).
-			// The deferred session teardown closes this launch's fronts and leaves that daemon
-			// running for the jails using it.
-			if refused != nil {
-				o.pr(o.Stderr).print(refused.markup("Refusing the macos-user launch"))
 				return 1
 			}
 			// THE DOORWAYS (macosuserdoorways.go), once the host services they forward to are up

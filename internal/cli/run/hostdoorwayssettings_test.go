@@ -76,6 +76,13 @@ func TestHostDoorwaysStartPropagatesSettingsRefusalBeforeStartingDoorway(t *test
 			t.Errorf("host doorway refusal lacks %q: output=%s err=%v", want, output.String(), err)
 		}
 	}
+	// A refusal at Start's own preflight comes before the daemon's exec disclosure, which names
+	// a daemon this launch will not start. Without that preflight the lower one in
+	// startLoopholesMatching still refuses, but only after this disclosure: the line is what
+	// tells the two apart.
+	if strings.Contains(output.String(), "This launch runs pack code on your machine") {
+		t.Errorf("the refused doorway start disclosed the daemon it will not run:\n%s", output.String())
+	}
 	for _, secret := range []string{"sentinel-profile", "-settings-refusal-child", "{settings}"} {
 		if strings.Contains(output.String()+err.Error(), secret) {
 			t.Errorf("host doorway refusal disclosed validator input/argv %q: output=%s err=%v", secret, output.String(), err)
