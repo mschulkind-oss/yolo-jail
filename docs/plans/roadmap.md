@@ -31,6 +31,9 @@ candidate state, acceptance gaps and verification; a place here does not make it
 1. [Enable profile-served daemons on attach without ending sibling sessions](../design/attach-daemon-activation.md)
    — the reported late Bedrock selection reaches a restart prompt; settle additive activation
    before treating restart as the remedy for an already-authorized missing daemon.
+2. [Keep each macos-user launch's guest pack bytes immutable](../design/jail-daemon-guest-pack-tree-plan.md)
+   — a second workspace session currently replaces a first daemon's module directory; close
+   that destination-lifetime defect independently of privileged setup and held host-daemon work.
 
 Pi's profile-set extension is built, children of pi-subagents included; what it cannot close is
 listed as accepted limits in
