@@ -32,6 +32,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	goruntime "runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -726,6 +727,8 @@ func (r result) combined() string { return r.stdout + r.stderr }
 type runConfig struct {
 	timeout time.Duration
 	env     []string
+	// unset names variables removed from the inherited environment (withHostSemantics).
+	unset []string
 	// prefix is a wrapper argv the yolo binary runs UNDER (withLauncherPrefix). Empty runs
 	// yolo directly, which is every caller but one.
 	prefix []string
@@ -752,12 +755,22 @@ func withEnv(pairs ...string) runOption {
 	return func(c *runConfig) { c.env = append(c.env, pairs...) }
 }
 
-// withHostSemantics opts ONE child command into host-only product policy by appending the
-// same empty marker runCommand already lets a named caller supply withEnv. It changes
-// YOLO_VERSION's semantic context only; physical container detection and runtime capabilities
-// remain those of the actual process environment.
+// withHostSemantics opts ONE child command into host-only product policy by REMOVING
+// YOLO_VERSION from its environment (and any earlier withEnv entry for it). Unset, not empty:
+// some readers treat a set-but-empty YOLO_VERSION as in-jail. Physical container detection and
+// runtime capabilities remain those of the actual process environment; a later withEnv for the
+// name still wins.
 func withHostSemantics() runOption {
-	return withEnv("YOLO_VERSION=")
+	return func(c *runConfig) {
+		c.unset = append(c.unset, "YOLO_VERSION")
+		kept := c.env[:0:0]
+		for _, kv := range c.env {
+			if !strings.HasPrefix(kv, "YOLO_VERSION=") {
+				kept = append(kept, kv)
+			}
+		}
+		c.env = kept
+	}
 }
 
 // autoReapersOffEnv turns off every automatic reaper a launch's housekeeping runs: superseded
@@ -870,7 +883,14 @@ func runLaunch(t *testing.T, dir string, args []string, opts ...runOption) (resu
 // the run's repo root, auto-capture and readiness dials, then the call's withEnv pairs, so a
 // later entry for a name wins.
 func launchEnvironment(cfg runConfig) []string {
-	env := append(os.Environ(), "TERM=dumb")
+	var env []string
+	for _, kv := range os.Environ() {
+		name, _, _ := strings.Cut(kv, "=")
+		if !slices.Contains(cfg.unset, name) {
+			env = append(env, kv)
+		}
+	}
+	env = append(env, "TERM=dumb")
 	env = append(env, childRepoRootEnv()...)
 	env = append(env, autoCaptureEnvForSuite()...)
 	env = append(env, readinessEnvForSuite()...)

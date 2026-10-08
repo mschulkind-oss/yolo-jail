@@ -49,8 +49,14 @@ func TestHostSemanticsOptionIsChildScopedAndUsesWithEnvPrecedence(t *testing.T) 
 	}
 	opted := runConfig{}
 	withHostSemantics()(&opted)
-	if got := launchEnvValue(launchEnvironment(opted), "YOLO_VERSION"); got != "" {
-		t.Fatalf("the opted-in host-semantic child marker = %q, want empty", got)
+	if got := launchEnvValue(launchEnvironment(opted), "YOLO_VERSION"); got != "<unset>" {
+		t.Fatalf("the opted-in host-semantic child marker = %q, want it unset", got)
+	}
+	earlier := runConfig{}
+	withEnv("YOLO_VERSION=earlier")(&earlier)
+	withHostSemantics()(&earlier)
+	if got := launchEnvValue(launchEnvironment(earlier), "YOLO_VERSION"); got != "<unset>" {
+		t.Fatalf("host semantics after an earlier withEnv = %q, want it unset", got)
 	}
 	if got := launchEnvValue(launchEnvironment(runConfig{env: []string{"YOLO_VERSION=caller-value"}}), "YOLO_VERSION"); got != "caller-value" {
 		t.Fatalf("a call-specific withEnv marker = %q, want caller-value", got)
