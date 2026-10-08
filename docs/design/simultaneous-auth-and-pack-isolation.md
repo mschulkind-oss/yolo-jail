@@ -182,9 +182,18 @@ Measured in stock Pi 1.0.1 or read in upstream `70759f48`:
 - **Disabled extensions.** `pi --no-extensions` typed by hand loads no block. pi-subagents children
   are covered: the extension adds itself to pi-subagents' required child extensions for the
   session, which pi-subagents loads into every child after agent defaults and `extensions: []`, and
-  a `denyExtensions` ceiling then refuses the child instead of running it unblocked. Left open:
-  pi-subagents' external runners (children on another machine), which it excludes from that
-  registry, and a pi-subagents too old to have it.
+  a `denyExtensions` ceiling then refuses the child instead of running it unblocked. A native
+  child placed on a Herdr machine is refused too, because a remote pane cannot take a required
+  extension. Left open:
+  - pi-subagents' external runners, local commands it excludes from that registry, one of which may
+    run `pi --no-extensions` with the policy in its environment and no block;
+  - a pi-subagents without the `v1` registry (older, or one that changed it), which ignores the
+    entry silently;
+  - another extension that registers required child extensions through pi-subagents' own
+    `registerRequiredChildExtensions`: it allows one registration per session, so that extension's
+    call fails if yolo wrote first, and its entries outlive its `dispose()` if yolo wrote after.
+    No such extension ships with yolo; a pi-subagents API that takes several owners per session
+    would close it.
 - **Pi's own CLI subcommands** build a model runtime without loading extensions:
   `pi auth print-api-key`, `pi auth print-bearer-token` and `pi auth check --credentials` read (and
   for an expired OAuth login, refresh) a blocked provider's saved credential, and `pi update models`
@@ -235,7 +244,7 @@ Measured in stock Pi 1.0.1 or read in upstream `70759f48`:
 | PAS-D3 | Agent: a blocked provider counts configured but lists no available model, so `/model` hides it and a selection meets yolo's denial, not Pi's `/login` advice | 2026-10-08 | [§3.2](#32-how-the-extension-holds-the-boundary) | ✅ |
 | PAS-D4 | Agent: `model_select` warns only; launch-time credential filtering (option A) is not built | 2026-10-08 | [§3.2](#32-how-the-extension-holds-the-boundary) | ✅ |
 | PAS-D5 | Agent: a Pi too old for provider objects is warned at session start, not refused; an extension cannot refuse a launch | 2026-10-08 | [§3.1](#31-the-request-boundary) | ✅ |
-| PAS-D6 | Agent: the extension writes itself into pi-subagents' required child extension registry each session (keeping other hosts' entries, removed at shutdown), so children with extensions off still load the block | 2026-10-08 | [§3.4](#34-what-the-extension-cannot-close) | ✅ |
+| PAS-D6 | Agent: the extension writes itself into pi-subagents' required child extension registry each session (keeping other hosts' entries, removed at shutdown), so children with extensions off still load the block; it conflicts with a second host using pi-subagents' one-per-session API ([§3.4](#34-what-the-extension-cannot-close)) | 2026-10-08 | [§3.4](#34-what-the-extension-cannot-close) | ✅ |
 
 ## 4. Evidence checked
 

@@ -174,7 +174,9 @@ function modelsJsonProviderIds() {
 // is a module import this file cannot resolve from pi's extension directory, so this writes the
 // registry it keeps: globalThis[Symbol.for("pi-subagents.required-child-extensions.v1")], version
 // 1, a Map from session id to a frozen [{id, path}] snapshot, path absolute and canonical. Another
-// host's entries for the session are kept. The child inherits YOLO_PI_PROVIDER_POLICY with the
+// host's entries for the session are kept, but pi-subagents' own registerRequiredChildExtensions
+// allows ONE registration per session, so a host that registers through it conflicts with this
+// entry (design doc §3.4). The child inherits YOLO_PI_PROVIDER_POLICY with the
 // rest of the environment. External runners are outside it (§3.4).
 const REQUIRED_CHILD_KEY = Symbol.for("pi-subagents.required-child-extensions.v1");
 const REQUIRED_CHILD_ID = "yolo-provider-policy";
@@ -284,9 +286,17 @@ export default async function registerYoloProviderPolicy(pi) {
 		if (session && session !== id) releaseInChildren(session);
 		session = id;
 		const problem = requireInChildren(id);
-		if (problem) warn(ctx, `yolo: pi-subagents children may run without the profile-set provider block (${problem}).`);
+		if (problem) {
+			warn(ctx, `yolo: pi-subagents children may run without the profile-set provider block (${problem}). ` +
+				"Update pi-subagents (`pi update`) and yolo, then restart pi.");
+		}
 		if (told) return;
 		told = true;
+		// A copy of this file pi loads a second time in one process (a path reached through a symlink
+		// in a child pi-subagents launches) warns nothing the first copy already said.
+		const once = Symbol.for("yolo.provider-policy.warned.v1");
+		if (globalThis[once] === id && id !== undefined) return;
+		globalThis[once] = id;
 		if (unenforceable) {
 			warn(
 				ctx,
