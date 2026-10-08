@@ -2,13 +2,13 @@
 title: "CLI visual polish — color to guide the eye"
 status: accepted
 stage: DECIDED
-next: "Land the in-flight config --help coloring and extend it to `yolo config render --help`, which still prints configUsage plain. Then color init/init-user-config's status lines, after adding red to markup.go or routing them through richtext"
+next: "With config help and init statuses colored additively, choose the next remaining Group C item; frozen run/banner updates still need human sign-off"
 tags: [plan, cli, color, polish]
 ---
 
 # Plan: CLI visual polish — color to guide the eye
 
-**Status:** 2026-07-20 — in progress. **Group A is done as of 2026-10-01**: `yolo loopholes
+**Status:** 2026-10-08 — in progress. **Group A is done as of 2026-10-01**: `yolo loopholes
 status` and then `yolo loopholes list` color through `Deps.Color` and a `richtext.Printer` now,
 `ps` having landed earlier. Before 2026-10-01 no item had moved since 2026-07-21 (re-checked
 2026-09-24, when this doc's line-number anchors were replaced by symbol names because they had
@@ -22,9 +22,9 @@ through the renderer (bold headers, cyan command names); `config render
 --explain` is syntax-highlighted provenance (one hue per layer); `yolo ps` is
 colored (dim/red/yellow, bold header, TTY-gated, byte-parity locked). `check`
 keeps its own richer private ANSI (background/inverse badges richtext lacks) —
-left as-is per the palette-gaps note. Remaining: `init`/`init-user-config`
-status lines, `broker`/`builder` polish, and the run-boot frozen lines (golden
-updates needing sign-off). The invariant's `NO_COLOR` clause, unbuilt until then, is
+left as-is per the palette-gaps note. Config help and `init`/`init-user-config`
+status lines are now colored additively (2026-10-08); the remaining candidates are
+listed below, with run-boot frozen lines still needing sign-off. The invariant's `NO_COLOR` clause, unbuilt until then, is
 enforced by one gate since 2026-09-26 — see
 [Implementation decisions](#implementation-decisions--no_color-2026-09-26), which also names
 the one gap left. This is the *content* follow-on to the color-*rendering*
@@ -159,10 +159,9 @@ names) and is rendered at the print site via
 `wantsTopLevelHelp` branch) — the plain path strips the tags so `help_test.go`'s
 substring assertions keep passing.
 
-- **Still plain:** the same mechanism cost applies to `config --help` /
-  `configUsage` (`config.go`, a pure-plain string written via `io.WriteString`
-  with no color path). `config.go` otherwise has a color path now (`colorForWriter`
-  + a `richtext.Printer` in `renderSurface`); only the usage string is uncolored.
+- **DONE (2026-10-08): `config --help` / `configUsage`.** The usage remains
+  plain data and `writeConfigUsage` renders its existing text through the color
+  path; its terminal and `NO_COLOR` output retain byte parity.
 
 ## Per-command checklist
 
@@ -230,22 +229,14 @@ Highest value, low risk (text stays byte-identical after strip).
   command NAME (the scan target), the literal `yolo --`/subcommand usage
   tokens, and the trailing `yolo <subcommand> --help` pointer. The
   print site is TTY-gated so stripped output stays byte-identical.
-- [ ] **`config --help` / `configUsage`** (`config.go`) —
-  **Impact: med · Effort: med** (same config.go color path). Headers
-  `Usage:`/`Subcommands:`/`render flags:`→bold; `render <agent>` token and each
-  canonical surface identity (`pi/settings`) and flags (`--explain`,
-  `--help, -h`)→cyan; file paths→cyan or dim.
-  (Written when `configUsage` named the two `config.lua` files; both are gone
-  with the Lua transform — [`OQ-LT1`](../reference/pack-system.md#oq-lt1) — so the paths left to
-  color are whatever the help text names today.)
-- [ ] **`yolo init` / `init-user-config`** (the status lines in `init.go`) —
-  **Impact: med · Effort: low-med.** Color the scaffolder's own status lines to
-  match the richly-styled briefing that follows: `Created …`→green,
-  `already exists`→yellow, the two error paths→`[bold red]`. **Blocker:** init.go
-  uses cli/markup.go's closed-set replacer (bold/cyan/green/yellow only — **no
-  red**). Either add `red`/`dim` to `markupANSI`+`markupStrip`, or route init's
-  status lines through `internal/richtext.Printer` (which has red). Flag this
-  missing-tag gap.
+- [x] **`config --help` / `configUsage`** (`config.go`) — **DONE
+  (2026-10-08).** `writeConfigUsage` colors the existing headers, command tokens
+  and flags on a terminal; `TestConfigHelpColorsWithoutChangingItsPlainBytes`
+  and the verb-help tests pin byte parity and `NO_COLOR` at the caller.
+- [x] **`yolo init` / `init-user-config`** (the status lines in `init.go`) —
+  **DONE (2026-10-08).** Created lines are green, `already exists` is yellow and
+  errors are bold red. The richtext tags are rendered around trusted style text,
+  leaving paths and filesystem errors literal and preserving stripped bytes.
 - [ ] **`yolo run` progress sub-steps** (`setupScript` in `run/command.go`) —
   **Impact: med · Effort: med, FROZEN BYTES.** The `↳ mise install / mise
   upgrade / bootstrap` phase lines render as flat plain text against mise's own
@@ -312,9 +303,9 @@ golden update — call it out for human sign-off, don't fold it in silently.
 2. ~~Group A (loopholes status → loopholes list → ps)~~: highest value, self-
    contained plumbing, no goldens. **DONE** (`ps` — d71dba3; `loopholes status`
    and `loopholes list` — 2026-10-01.)
-3. ~~`--help`~~ + config surfaces (the structural renderer-routing change), then
-   ~~`--explain`~~ — `--help` and `--explain` both landed (59568e4); the
-   `config --help`/`configUsage` string remains plain.
-4. init status lines (resolve the markup.go red gap or route to richtext).
+3. ~~`--help` + config surfaces (the structural renderer-routing change), then
+   `--explain`~~ — all are colored with byte parity; config help completed
+   2026-10-08.
+4. ~~init status lines~~ — colored additively through richtext (2026-10-08).
 5. Group C polish + cross-cutting path/glyph passes.
 6. Frozen-byte surfaces (run sub-steps, banner) last, each with human sign-off.

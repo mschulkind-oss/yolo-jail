@@ -39,6 +39,7 @@ var noColorEntryPoints = []struct {
 	{name: "--help", run: func() int { return Main([]string{"yolo", "--help"}) }},
 	{name: "config-ref", run: func() int { return runConfigRef([]string{"config-ref"}) }},
 	{name: "init", run: func() int { return runInit([]string{"init"}) }},
+	{name: "init-user-config", run: func() int { return runInitUserConfig([]string{"init-user-config"}) }},
 	{name: "host", run: func() int { return runHost([]string{"host", "wrappers", "status"}) }},
 	// programsJail points every variable the command reads (the pack root, npm prefix,
 	// GOPATH) at the fixture, never at the environment the suite runs in. The command

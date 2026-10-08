@@ -818,7 +818,7 @@ func runInitUserConfig(args []string) int {
 	if answerHelp("init-user-config", args, os.Stdout) {
 		return 0
 	}
-	return InitUserConfig(os.Stdout)
+	return InitUserConfig(os.Stdout, colorForWriter(os.Stdout))
 }
 
 // isTTYStdout reports whether os.Stdout is a real terminal. It is the IsTTYStdout

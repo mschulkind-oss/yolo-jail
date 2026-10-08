@@ -15,6 +15,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
 //go:embed template_head.txt
@@ -68,17 +69,17 @@ func Init(cwd string, mounts []string, out io.Writer, color bool) int {
 	// in its place at every launch.
 	configPath, configName := config.ResolveWorkspaceConfigPath(cwd, config.WorkspaceConfigName)
 	if _, err := os.Stat(configPath); err == nil {
-		fmt.Fprintln(out, configName+" already exists.")
+		fmt.Fprint(out, configName, " ", richtext.Render("[yellow]already exists.[/yellow]\n", color))
 		printBriefing(out, configPath, color)
 		return 0
 	}
 
 	content := templateHead + mountsBlock(mounts) + templateTail
 	if err := os.WriteFile(configPath, []byte(content), 0o644); err != nil {
-		fmt.Fprintf(out, "Error writing config: %v\n", err)
+		printInitStatus(out, color, "bold red", fmt.Sprintf("Error writing config: %v", err))
 		return 1
 	}
-	fmt.Fprintln(out, "Created "+configName)
+	printInitStatus(out, color, "green", "Created "+configName)
 
 	// Append .yolo/ to .gitignore (create if absent).
 	gitignore := filepath.Join(cwd, ".gitignore")
@@ -96,14 +97,14 @@ func Init(cwd string, mounts []string, out io.Writer, color bool) int {
 
 // InitUserConfig runs `yolo init-user-config`. Writes the user-level defaults at
 // USER_CONFIG_PATH unless it exists.
-func InitUserConfig(out io.Writer) int {
+func InitUserConfig(out io.Writer, color bool) int {
 	p := paths.UserConfigPath()
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		fmt.Fprintf(out, "Error creating config dir: %v\n", err)
+		printInitStatus(out, color, "bold red", fmt.Sprintf("Error creating config dir: %v", err))
 		return 1
 	}
 	if _, err := os.Stat(p); err == nil {
-		fmt.Fprintf(out, "%s already exists.\n", p)
+		fmt.Fprint(out, p, " ", richtext.Render("[yellow]already exists.[/yellow]\n", color))
 		// The likeliest reason to run this again is a jail with no agent, so an existing
 		// file that selects no pack gets the same steps a new one does. One that cannot
 		// be read says nothing more here: `yolo check` reports that, in its own words.
@@ -115,13 +116,20 @@ func InitUserConfig(out io.Writer) int {
 		return 0
 	}
 	if err := os.WriteFile(p, []byte(userConfigContent), 0o644); err != nil {
-		fmt.Fprintf(out, "Error writing config: %v\n", err)
+		printInitStatus(out, color, "bold red", fmt.Sprintf("Error writing config: %v", err))
 		return 1
 	}
-	fmt.Fprintf(out, "Created %s\n", p)
+	printInitStatus(out, color, "green", "Created "+p)
 	// The template selects no pack, so this is always the case for a file just written.
 	printUserConfigNextSteps(out, nil)
 	return 0
+}
+
+// printInitStatus styles only the scaffolder's status line. The message is
+// never passed to the markup renderer: paths and filesystem errors stay literal
+// without richtext.Escape's zero-width joiner, preserving their stripped bytes.
+func printInitStatus(out io.Writer, color bool, style, message string) {
+	fmt.Fprint(out, richtext.Render("["+style+"]", color), message, richtext.Render("[/"+style+"]\n", color))
 }
 
 // printUserConfigNextSteps ends `yolo init-user-config` with what to do next, for a user
@@ -153,8 +161,16 @@ func printUserConfigNextSteps(out io.Writer, packsAt []string) {
 // printBriefing renders the post-init agent briefing with {config_path}
 // interpolated. Rich markup → ANSI when color, stripped otherwise (info-parity).
 func printBriefing(out io.Writer, configPath string, color bool) {
-	text := strings.ReplaceAll(briefingContent, "{config_path}", configPath)
-	io.WriteString(out, renderMarkup(text, color)+"\n")
+	parts := strings.Split(briefingContent, "{config_path}")
+	for i, part := range parts {
+		io.WriteString(out, renderMarkup(part, color))
+		if i < len(parts)-1 {
+			// The path is user-controlled text. Keep it outside the markup renderer so
+			// brackets stay literal without richtext.Escape's zero-width joiner.
+			io.WriteString(out, configPath)
+		}
+	}
+	io.WriteString(out, "\n")
 }
 
 func appendFile(path, s string) {
