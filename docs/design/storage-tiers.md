@@ -8,7 +8,7 @@ summary: "Keep code and working trees on fast storage; expose a separate workspa
 
 # Keep code fast, and give large agent files somewhere else to go
 
-**Status:** 2026-10-08. Proposal only; current storage paths and scope rules checked against `ab6ee853`. No runtime or disk-performance measurement made.
+**Status:** 2026-10-08. Proposal only; current storage paths and scope rules re-checked against `ee7401d43`. No disk-performance measurement made. The Linux filesystem-identity probes in [Which identity a non-root launcher can read](#which-identity-a-non-root-launcher-can-read-on-linux) were measured in a jail on the maintainer's host (btrfs on LUKS, Linux 7.2).
 
 > **In short.** Storage placement and storage lifetime are different decisions. Give agents an explicit bulk scratch path on an owner-selected disk, without moving their code, changing restart survival, or automatically shuffling files.
 
@@ -21,6 +21,8 @@ summary: "Keep code and working trees on fast storage; expose a separate workspa
 **Start at [The proposed split](#3-the-proposed-split)** — two destinations, not a storage migration engine.
 
 **Needs your ruling:** [OQ-BS1](#OQ-BS1), [OQ-BS2](#OQ-BS2), [OQ-BS3](#OQ-BS3), [OQ-BS4](#OQ-BS4).
+
+**Rule together with:** [OQ-STR2](shared-tool-store-relocation.md#OQ-STR2) and [OQ-STR4](shared-tool-store-relocation.md#OQ-STR4). [OQ-BS3](#OQ-BS3) and [OQ-BS4](#OQ-BS4) ask the same two questions of a different directory, and shipped `cache_relocations` already has the gap [OQ-BS3](#OQ-BS3) is about; see [Rule these together](#rule-these-together).
 
 **Reads with:** [implementation sketch](storage-tiers-plan.md) (incomplete, not a build handoff), [tool-store relocation](shared-tool-store-relocation.md) (separate store selection), [existing durable scratch](durable-scratch-space.md) (lifetime and guidance).
 
@@ -51,16 +53,16 @@ Yolo manages the agent's environment first: it supplies a usable path and truthf
 
 ## 2. What exists, and what is missing
 
-Source claims below were checked on 2026-10-08 against the header's commit; links are evidence, not an edit plan.
+Source claims below were checked against the header's commit; links are evidence, not an edit plan.
 
 | Existing capability | What it solves | What it does not solve |
 | :--- | :--- | :--- |
-| `YOLO_DURABLE_DIR` at `<workspace>/.yolo/durable` | Restart-safe agent scratch, reached through the workspace bind; launcher exports it only when available. [Directory contract](../../internal/durable/durable.go#L31-L93), [launch behavior](../../internal/cli/run/durabledir.go#L31-L55) | Choosing another physical filesystem while code stays put. |
-| `cache_relocations` | User-scope host directories behind selected cache subdirectories, loaded directly from trusted host config. [Loader](../../internal/config/relocations.go#L26-L103) | A discoverable destination for arbitrary agent-generated files. |
-| Read-write context mounts | Explicit host directory access with fixed destination and scope checks. [Mount schema](../../internal/config/mounts.go#L33-L53) | A standard storage role, per-workspace allocation, or automatic agent guidance. |
+| `YOLO_DURABLE_DIR` at `<workspace>/.yolo/durable` | Restart-safe agent scratch, reached through the workspace bind; the launcher exports it only when it could make the directory, and a failure never refuses the launch. [Directory contract](../../internal/durable/durable.go) (`Ensure`), [launch behavior](../../internal/cli/run/durabledir.go) (`ensureDurableDir`) | Choosing another physical filesystem while code stays put. |
+| `cache_relocations` | User-scope host directories behind selected cache subdirectories, loaded directly from trusted host config. [Loader](../../internal/config/relocations.go) (`LoadCacheRelocations`) | A discoverable destination for arbitrary agent-generated files. Its only presence check is that the target's parent exists, and [`EnsureCacheRelocations`](../../internal/storage/ensure.go) then creates the last component, so a relocation under an unmounted drive's mountpoint lands on the filesystem beneath it today. It does not run the writable-source scope guard either. |
+| Read-write context mounts | A user-scope-only grant of one host directory at a chosen jail path, refused by the [§2.3 refusal set](context-mounts.md#23-refusal-set), disclosed on every launch, and listed in the briefing as read-write with its host path. [Schema, trust predicate and refusal set](../../internal/config/mounts.go) (`ContextMount`, `rwMountTrusted`, `rwMountRefusal`) | Per-workspace allocation: one user-scope element mounts the **same** directory into every workspace. No placement guidance beyond the path, and no drive-presence check. |
 | Shared tool-store relocation proposal | Selecting the jail's shared mise/Rust/Cargo store while preserving `/mise`. [Design](shared-tool-store-relocation.md#3-one-selected-store-everywhere) | Agent scratch placement; that proposal is not built. |
 
-The missing capability is **an agent-neutral place to put capacity-heavy scratch without putting it beside code**. Ordinary read-write mounts can supply the bytes today, but each owner must invent the layout and instructions.
+The missing capability is **an agent-neutral place to put capacity-heavy scratch without putting it beside code**. An ordinary read-write mount supplies the bytes and the path today, but it is shared by every workspace, says nothing about what belongs there, and has the same missing-drive gap.
 
 ### Existing rulings this does not reopen
 
@@ -68,6 +70,13 @@ The missing capability is **an agent-neutral place to put capacity-heavy scratch
 - [DS-D35](durable-scratch-space.md#DS-D35), ruled 2026-10-02, says durable scratch is temporary agent work that must survive reboots, not project content or a place the user must browse. Apply that purpose to bulk scratch too.
 - [Cache relocation's scope boundary](../plans/cache-relocation.md#threat-model-why-user-scope-is-the-whole-design) places arbitrary writable host-path grants in trusted user scope. A committed project file cannot install the proposed destination.
 - The tool-store proposal's [availability question](shared-tool-store-relocation.md#OQ-STR2) is still open. Its missing-drive counterexample applies here too; this document proposes a concrete policy rather than treating that question as settled.
+
+### Rule these together
+
+Three directories now face the same two questions: the bulk root here, the [tool store](shared-tool-store-relocation.md), and every shipped `cache_relocations` target.
+
+- **How does yolo know the drive is mounted?** [OQ-BS3](#OQ-BS3) and [OQ-STR2](shared-tool-store-relocation.md#OQ-STR2) both ask it. Ruling them apart risks two identity checks with two config shapes. Whatever is ruled, `cache_relocations` keeps its parent-exists heuristic unless the ruling also covers it.
+- **Which setups get the first delivery?** [OQ-BS4](#OQ-BS4) leans rootless and rootful Podman; [OQ-STR4](shared-tool-store-relocation.md#OQ-STR4) leans rootless only. Rootful is where agent writes land host-root-owned ([Ownership and exposure](#ownership-and-exposure)), which matters most for a directory only the owner cleans.
 
 ## 3. The proposed split
 
@@ -105,7 +114,7 @@ Exact key names remain proposed until the shape is ruled. The directory and envi
 ### Ownership and exposure
 
 1. The owner creates a dedicated, empty root on the intended drive and supplies configuration. Yolo never creates a missing root or its parents, adopts arbitrary existing trees, formats a disk, or mounts a host filesystem.
-2. At each fresh launch, yolo resolves the workspace's canonical host path and keys its child by the full SHA-256 digest of that path. Renaming or moving the workspace selects a different child; two path spellings resolving to the same workspace select the same child.
+2. At each fresh launch, yolo resolves the workspace's canonical host path and keys its child by the full SHA-256 digest of that path. Renaming or moving the workspace selects a different child; two path spellings resolving to the same workspace select the same child. Cost: a bare digest does not tell the owner, cleaning up by hand, which workspace a child belonged to. The [per-workspace file](../../internal/config/workspacefile.go) already names its files `<folder name>-<12 hex digits of the same hash>`, a readable precedent; the name scheme is the implementer's choice once [OQ-BS2](#OQ-BS2) is ruled.
 3. Yolo creates `<root>/workspaces/<digest>` and binds only that child at `/bulk` on supported container backends. It exports `YOLO_BULK_DIR=/bulk` only after successful exposure.
 4. Agents own the contents and choose their own subdirectories, such as `downloads/` or `jobs/<task>/`. Shared sessions in the same workspace see the same files and must coordinate their own writers.
 5. Host yolo owns allocation only. Allocation is serialized for the same root/workspace, creates directories idempotently, refuses links at managed components, and never empties or recursively changes ownership of an existing directory.
@@ -114,6 +123,14 @@ The prepared root may contain only the managed `workspaces` tree after first use
 
 Permissions must allow the actual mapped jail user to read and write the child without world-writable modes or recursive `chown`. An unsuitable filesystem or ownership mapping fails preflight and names the directory and host-side permission correction. No automatic permission widening is permitted.
 
+What a separately mounted drive changes, from the [ownership table](context-mounts.md#25-ownership) (the agent runs as root on both container backends):
+
+- **Rootless Podman:** in-jail root is the host user, so an owner-created root on any local POSIX filesystem works with no setup, and the drive being separate changes nothing. A file a non-root process in the jail writes lands as a subuid, which the owner deletes only through `podman unshare`.
+- **Rootful Podman:** in-jail root is host root, so every file lands host-root-owned and manual cleanup needs `sudo`.
+- **Filesystems without Unix ownership** (exFAT, NTFS, FAT32; common on external USB drives) take writes but refuse `chown` and symlinks, and FAT32 refuses any file of 4 GiB or more. Archive extraction as root, git checkouts and language environments then fail in ways that look like agent errors. The preflight has to admit or refuse by filesystem type; which types is unruled and belongs with [OQ-BS3](#OQ-BS3).
+- **A `noexec` mount option**, frequent on data drives, stops agents running anything they unpack there. The briefing should say so when the preflight sees it.
+- **SELinux labels** need no handling: the run path passes `label=disable` and never relabels a bind.
+
 ## 4. Safety, availability, and lifecycle
 
 ### Resolve and validate before creating anything
@@ -121,11 +138,27 @@ Permissions must allow the actual mapped jail user to read and write the child w
 - Canonicalize the owner-configured existing root once, then use the same resolved directory for validation, allocation, delivery, and reporting. A resolvable owner-created root symlink is allowed; dangling links fail.
 - Apply the existing [writable-source boundary](../../internal/paths/workspacescope.go) and [context-source refusal set](context-mounts.md#23-refusal-set), including either-direction workspace overlap. No exception permits a configured root inside yolo's host state directory.
 - Refuse managed-component symlinks and races that change the selected root or child during allocation/delivery. Bind the directory that was validated; if its identity cannot be preserved through setup, refuse and ask for a retry after stopping other directory changes.
-- With the UUID policy, identify the mounted filesystem actually containing the canonical root, compare its UUID before allocation and again before delivery, and refuse unknown/mismatched identity. Comparing its device with the workspace's device is **not** equivalent.
+- With the UUID policy, identify the mounted filesystem actually containing the canonical root, compare its UUID before allocation and again before delivery, and refuse unknown/mismatched identity. Comparing its device with the workspace's device is **not** equivalent. [Below](#which-identity-a-non-root-launcher-can-read-on-linux) is what that lookup can use without root.
 - `yolo check` validates without creating directories. A real fresh launch creates managed descendants only after validation. No content walk is needed for admission.
 
 > [!WARNING]
 > A missing drive can leave `/mnt/bulk` as an ordinary directory on the SSD. “The path exists” is not proof the drive is mounted. A marker file is not sufficient either: a copied marker can exist on the wrong filesystem.
+
+### Which identity a non-root launcher can read on Linux
+
+Host yolo runs as the owner, without root, so the lookup cannot read a disk's superblock or rely on `blkid` probing the device. What it can use:
+
+| Source | What it gives | Measured on the maintainer's host (btrfs on LUKS, Linux 7.2) |
+| :--- | :--- | :--- |
+| `FS_IOC_GETFSUUID` ioctl on an open directory | The filesystem UUID, with no privilege, where the filesystem publishes one to the kernel | **Fails on btrfs** (`ENOTTY`); succeeded on tmpfs. ext4 and XFS publish one; not measured here. |
+| `stat` device number of the root | A number only | On btrfs it names the subvolume (`0:59` for `/workspace`), not the filesystem `/proc/self/mountinfo` lists (`0:28`), so a device match against mountinfo fails. |
+| `/proc/self/mountinfo` | Mount point, filesystem type and mount source (such as `/dev/mapper/root`) for every mount | Readable; the source device can then be looked up in `/dev/disk/by-uuid`. |
+| `/dev/disk/by-uuid` | Links from filesystem UUID to block device, kept by udev | Not visible in a jail, so not measured. Normally world-readable on udev-based distributions. |
+| `/sys/fs/btrfs/<uuid>/` | One directory per mounted btrfs, named by its UUID, listing its devices | Readable; names the host filesystem's UUID. |
+
+So a UUID can be found without root for local filesystems on a block device, but **not through one call**: the lookup goes mount point, then mount source, then device, then UUID, with a btrfs special case. Filesystems with no block device have no UUID to find: ZFS datasets, mergerfs pools, NFS and SMB shares. ZFS and mergerfs are common ways to run a large HDD pool, so a UUID requirement refuses a share of exactly the owners this feature is for.
+
+A cheaper check exists that the proposal did not consider: **the owner names the expected mount point, and yolo requires `/proc/self/mountinfo` to list a mount at exactly that path containing the root.** An absent drive leaves no mount entry there, so it catches the missing-drive case for every filesystem type, ZFS, mergerfs and network shares included. It does not catch a different drive mounted at the same place. A systemd automount point shows as `autofs` until the first access mounts it, so the check runs after the root is opened. [OQ-BS3](#OQ-BS3) offers it as option C.
 
 ### Failures and changes
 
@@ -168,7 +201,8 @@ Initial inventory does not enumerate every former workspace or offer deletion co
 
 | Alternative | Benefit | Cost / verdict |
 | :--- | :--- | :--- |
-| Ordinary read-write mount plus handwritten instructions | Works as an owner-managed workaround with current mechanisms. | No standardized allocation, role, or drive-presence contract. **Useful today, not the full feature.** |
+| Ordinary read-write mount plus handwritten instructions | Works as an owner-managed workaround with current mechanisms; the briefing already lists the path as read-write. | One directory shared by every workspace; no role, placement guidance or drive-presence contract. **Useful today, not the full feature.** |
+| Extend read-write `mounts` with a per-workspace child, instead of a new key | Reuses the existing user-scope grant, refusal set, disclosure and briefing entry; the new code is the per-workspace allocation and a presence check. | The briefing would describe it as a context mount, not as bulk scratch, unless it also gains a role. Presence checking would then belong to every rw mount, which is arguably right. **Not evaluated by the proposal; a real option under [OQ-BS1](#OQ-BS1).** |
 | Move all `.yolo` or durable scratch to the HDD | One scratch destination. | Moves worktrees and possibly latency-sensitive state; links are not transparent across jail mounts. **Rejected as the default; prior durable placement remains.** |
 | Named destinations such as `fast`, `bulk`, `archive` | More than two disks and explicit project selection. | More grants, selection rules, availability states, and guidance. **Viable extension, not my recommended first slice; rule in [OQ-BS1](#OQ-BS1).** |
 | Move files automatically above a size threshold | Agents need no explicit placement. | Open handles, path stability, cross-filesystem moves, concurrent writers, and mistaken workload classification become yolo's problem. **Rejected for v1.** |
@@ -203,18 +237,19 @@ A completed implementation must demonstrate:
 
 ## 8. Open questions
 
-The body specifies the recommended branch; these rulings may change it. Nothing is authorized for implementation until they are resolved.
+The body specifies the recommended branch; these rulings may change it. Nothing is authorized for implementation until they are resolved. Each question opens with the situation it decides; the background is in the linked sections.
 
 1. 💬 **OQ-BS1: Start with one bulk destination, or a general named-tier model?**
 
-   This decides whether v1 solves SSD-plus-capacity-drive placement or also introduces tier selection and multiple grants.
+   An owner has an SSD and one large HDD and wants agents to put a 40 GB dataset download on the HDD.
 
-   - **A — One optional bulk destination.** Small surface; more disks require a later extension.
-   - **B — Named destinations now.** Flexible, but needs a follow-up design for selection, exposure, and per-tier failures.
+   - **A — One optional `bulk_storage` key.** They see `/bulk` in every jail. A second large drive needs a later extension.
+   - **B — Named destinations now** (`fast`, `bulk`, `archive`). Several paths per jail; needs a follow-up design for selection, exposure and per-tier failures before anything is built.
+   - **C — A per-workspace child on read-write `mounts`** ([§6](#6-alternatives-and-costs)). The same `/bulk` path, built on the grant that already exists; the briefing calls it a context mount unless it also gains a role.
 
    <!-- vantage: question id=OQ-BS1 leaning="A — one bulk destination solves the stated need without turning yolo into a file-placement engine." -->
 
-   _Leaning:_ A — one bulk destination solves the stated need without turning yolo into a file-placement engine.
+   _Leaning:_ A — one bulk destination solves the stated need without turning yolo into a file-placement engine. Cost: a second key beside `mounts` that grants a writable host directory, each with its own validation; C avoids that and was not weighed by the proposal.
 
    **Answer:**
 
@@ -222,29 +257,30 @@ The body specifies the recommended branch; these rulings may change it. Nothing 
 
 2. 💬 **OQ-BS2: Does configuring the root grant bulk scratch to every workspace?**
 
-   User scope already owns the host-path grant. Decide whether that grant automatically allocates a private child for every fresh jail or needs an additional trusted per-workspace switch.
+   An owner configures the HDD for one data project. They also launch jails on a dotfiles repository and a throwaway clone of an unfamiliar project.
 
-   - **A — All workspaces.** One setup; each gets only its own child.
-   - **B — Owner-enabled workspaces only.** Narrower grants; needs a separate enable/disable flow and no allocation when disabled.
+   - **A — All workspaces.** Every fresh jail gets its own empty child on the HDD and a briefing pointing at it, and each workspace leaves a directory behind there.
+   - **B — Owner-enabled workspaces only.** Only the data project gets `/bulk`, after one command run on the host. The [per-workspace file](../../internal/config/workspacefile.go) and its `yolo loopholes enable` flow are the precedent; it would gain one new key.
 
    <!-- vantage: question id=OQ-BS2 leaning="A — automatic workspace-private allocation makes the configured disk useful without another setup step; the root remains a deliberate user-scope grant." -->
 
-   _Leaning:_ A — automatic workspace-private allocation makes the configured disk useful without another setup step; the root remains a deliberate user-scope grant.
+   _Leaning:_ A — automatic workspace-private allocation makes the configured disk useful without another setup step; the root remains a deliberate user-scope grant. Cost: an empty directory on the HDD per workspace ever launched, which only the owner cleans; B is cheaper than "a new flow", since the per-workspace file already exists.
 
    **Answer:**
 
    > _(empty — fill in when decided)_
 
-3. 💬 **OQ-BS3: Require filesystem identity, or allow unverified directory-only placement?**
+3. 💬 **OQ-BS3: How does yolo know the drive is mounted?**
 
-   The [missing-drive failure](#resolve-and-validate-before-creating-anything) can defeat an existing-directory check. This revisits the still-open [tool-store availability question](shared-tool-store-relocation.md#OQ-STR2) for scratch, not a prior ruling.
+   The HDD fails to mount after a reboot; `/mnt/bulk` is now an empty directory on the SSD. Background: [the identity sources](#which-identity-a-non-root-launcher-can-read-on-linux). Rule with [OQ-STR2](shared-tool-store-relocation.md#OQ-STR2).
 
-   - **A — Required filesystem UUID on Linux.** Refuse unknown/mismatched identity and unidentified filesystems; strongest initial protection.
-   - **B — Existing directory only.** Simpler and broader, but an offline drive can silently consume the wrong filesystem.
+   - **A — Required filesystem UUID.** The launch refuses, naming the drive. ZFS, mergerfs and network shares are refused outright, and btrfs needs a lookup of its own.
+   - **B — Existing directory only.** The launch succeeds and agents fill the SSD; today's `cache_relocations` behavior.
+   - **C — Required mount point.** The owner names `/mnt/bulk`; the launch refuses when no mount sits there. Works for every filesystem type; a different drive mounted there passes.
 
    <!-- vantage: question id=OQ-BS3 leaning="A — require the expected filesystem UUID; silent SSD fallback defeats the purpose of the feature." -->
 
-   _Leaning:_ A — require the expected filesystem UUID; silent SSD fallback defeats the purpose of the feature.
+   _Leaning:_ A — require the expected filesystem UUID; silent SSD fallback defeats the purpose of the feature. Cost: owners with ZFS or mergerfs pools cannot use the feature, and the lookup is several steps with a btrfs special case. C, not in the original proposal, also prevents the SSD fallback.
 
    **Answer:**
 
@@ -252,14 +288,15 @@ The body specifies the recommended branch; these rulings may change it. Nothing 
 
 4. 💬 **OQ-BS4: Which host/backend setups must the first delivery support?**
 
-   A capacity path must be genuinely writable and persistent on the chosen host drive, not quietly replaced by a VM-local volume.
+   One owner runs rootless Podman on Linux, one rootful Podman, one macOS with an external drive under `/Volumes`. Rule with [OQ-STR4](shared-tool-store-relocation.md#OQ-STR4), which leans rootless only.
 
-   - **A — Linux Podman, rootless and rootful.** Refuse explicit settings on other ordinary host setups; no-setting behavior is unchanged.
-   - **B — All jail backends at launch.** Requires a follow-up macOS identity, filesystem-sharing, and sandbox-account permission design before building.
+   - **A — Linux Podman, rootless and rootful.** The macOS owner's setting is refused with a reason; with no setting, nothing changes anywhere. The rootful owner's files land host-root-owned, so cleaning up needs `sudo` ([Ownership and exposure](#ownership-and-exposure)).
+   - **A′ — Rootless Linux Podman only.** The rootful owner is refused too.
+   - **B — All jail backends.** Waits on macOS designs, including the `/Volumes` refusal still in force for read-write context sources ([CX-D5](context-mounts.md#CX-D5)).
 
    <!-- vantage: question id=OQ-BS4 leaning="A — verify the SSD/HDD use case on Linux first, with explicit refusals elsewhere rather than unmeasured parity claims." -->
 
-   _Leaning:_ A — verify the SSD/HDD use case on Linux first, with explicit refusals elsewhere rather than unmeasured parity claims.
+   _Leaning:_ A — verify the SSD/HDD use case on Linux first, with explicit refusals elsewhere rather than unmeasured parity claims. Cost: rootful owners get root-owned scratch they clean with `sudo`, and the answer differs from the tool store's leaning unless both are ruled together.
 
    **Answer:**
 
