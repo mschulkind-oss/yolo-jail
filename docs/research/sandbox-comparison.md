@@ -434,8 +434,10 @@ about it.
 
 - **More setup:** Requires Podman (Linux) or Podman Machine / Apple Container
   (macOS). The Claude Code sandbox requires only bubblewrap.
-- **Startup latency:** ~1s on Linux, ~2-3s on macOS. The Claude Code sandbox
-  has near-zero overhead.
+- **Startup latency:** ~1s on Linux. On macOS, measured on one Mac in 2026-10, a fresh Apple
+  Container jail took 6.9 s and a second terminal's attach 1.8 s, and a `macos-user` jail 5.5 s
+  ([the macOS backend benchmark](macos-backend-performance.md#the-two-backends-side-by-side)). The
+  Claude Code sandbox has near-zero overhead.
 - **No native Windows support:** yolo-jail requires Linux or macOS (via WSL is
   theoretically possible but untested).
 - **Max bind mounts on Apple Container:** ~22 (Virtualization.framework limit).

@@ -678,8 +678,12 @@ marker in the log and the red console line — before the verdict.
 
 ### The one unmeasured claim — what a first stage costs
 
-**Nobody has recorded what a first macos-user launch costs**, and this is the residue that
-survives everything above. An LSP-configured workspace's first launch builds the whole native
+**Nobody has recorded what a first macos-user launch costs when it has a stage to run**, and
+this is the residue that survives everything above. CI has recorded one cold first launch, and
+only of the floor: `TestMacosUserFloorReachesTheSandboxPath` took 73.61 s on a hosted
+`macos-latest` runner, building the floor from the binary cache
+([the benchmark's CI section](../research/macos-backend-performance.md#26-what-ci-logs-already-hold)).
+It says nothing of a developer's Mac or of the stage below. An LSP-configured workspace's first launch builds the whole native
 floor closure, then runs `mise install` plus an `npm install -g` per server, **in series**,
 before the agent starts. The floor comes from `cache.nixos.org` — this project's own
 substituter serves Linux closures only — so whatever part of it has no darwin build compiles

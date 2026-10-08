@@ -1279,8 +1279,10 @@ proceed independently since it's just transport plumbing.
   `just test-fast`, and reaches the nix daemon (`Trusted: 1`).
 - ~~`dscl` empty-password semantics (finding 6) unknown until M1~~ — **CLOSED
   2026-07-21**: the password is actually set (matrix [§1](../research/macos-support-matrix.md#1-the-three-macos-runtimes-where-the-agent-runs)).
-- **sandbox-exec deprecation and AC's non-reclaiming memory balloon:** accepted,
-  on record, no action. *(Unchanged.)*
+- **sandbox-exec deprecation and AC's memory that is not reclaimed:** accepted,
+  on record, no action. *(Unchanged; corrected 2026-10-08: Apple Container attaches no memory
+  balloon at all, and memory its VM touches stays with it until the jail stops,
+  [the benchmark's §2.2](../research/macos-backend-performance.md#22-memory-backed-on-first-touch-kept-until-the-container-stops).)*
 - **NEW — `x86_64-darwin` is on a clock.** nixpkgs 26.11 has **dropped** it, so
   the flake pins `nixpkgs-26.05-darwin` for that one system (`flake.nix`,
   `927fb9f`). 26.05 is the last supporting branch and is security-fixed only to

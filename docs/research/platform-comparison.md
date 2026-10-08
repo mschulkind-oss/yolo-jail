@@ -260,15 +260,19 @@ local compilation is needed — Nix downloads the aarch64-linux binaries.
 
 | Aspect | Linux | macOS |
 |---|---|---|
-| Container startup | ~1s | ~2-3s (VM overhead) |
-| File I/O (`/workspace`) | Native bind mount | VirtioFS (near-native) |
+| Container startup | ~1s | Apple Container: a fresh launch 6.9 s, an attach 1.8 s; `macos-user`: 5.5 s, with no attach |
+| File I/O (`/workspace`) | Native bind mount | VirtioFS: 3 to 5 times native for `git status`, ripgrep and `npm ci` over 100,000 files |
 | Network I/O | Native bridge/host | VM NAT (negligible overhead) |
-| CPU-bound workloads | Native | ~95-98% native (thin VM) |
+| CPU-bound workloads | Native | One thread native; a parallel `go build` 16 to 21% slower, on half the cores by default |
 | First `nix build` | ~2-5 min (download) | ~5-10 min (download + evaluation) |
 | Subsequent `nix build` | Instant (cached) | Instant (cached) |
 
-VirtioFS on Apple Silicon provides near-native file performance. The VM
-layer adds minimal overhead for compute-bound AI agent tasks.
+**Corrected 2026-10-08.** The macOS column above is now the measured one, from one Apple silicon
+Mac on 2026-10-02 and 2026-10-03 ([the macOS backend benchmark](macos-backend-performance.md#8-results)),
+and replaces "~2-3s", "near-native" and "~95-98% native", which cited no source. VirtioFS is not
+near-native: each small-file operation is a round trip to the Mac
+([why file work is slow](apple-container-file-cost.md)). CPU work is native on one thread. The
+Network and `nix build` rows were not measured.
 
 ## Container Runtime Comparison (macOS)
 
