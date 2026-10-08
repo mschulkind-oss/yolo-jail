@@ -18,7 +18,8 @@ import "github.com/mschulkind-oss/yolo-jail/internal/config"
 
 // PlacementProblems applies the PLACEMENT rule
 // (docs/reference/loophole-system.md#the-placement-rule) to this loophole's MANIFEST
-// faces: its module dir, its `host_daemon.cmd` and its `doctor_cmd`.
+// faces: its module dir, its `host_daemon.cmd` and `host_daemon.settings_check`, and its
+// `doctor_cmd`.
 //
 // The rule's config faces (an inline entry's `command`/`doctor_cmd`) were already
 // wired; the manifest faces followed in the next batch, and they
@@ -36,6 +37,7 @@ func (l *Loophole) PlacementProblems(workspace string) []string {
 		Name:          l.Name,
 		ModuleDir:     l.moduleDirForPlacement(),
 		HostDaemonCmd: l.hostDaemonCmd(),
+		SettingsCheck: l.settingsCheckCmd(),
 		DoctorCmd:     l.DoctorCmd,
 	}, workspace)
 }
@@ -83,4 +85,11 @@ func (l *Loophole) hostDaemonCmd() []string {
 		return nil
 	}
 	return l.HostDaemon.Cmd
+}
+
+func (l *Loophole) settingsCheckCmd() []string {
+	if l.HostDaemon == nil {
+		return nil
+	}
+	return l.HostDaemon.SettingsCheck
 }

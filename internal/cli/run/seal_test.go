@@ -29,6 +29,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor/floortest"
 	"github.com/mschulkind-oss/yolo-jail/internal/image"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	yoloruntime "github.com/mschulkind-oss/yolo-jail/internal/runtime"
@@ -61,6 +62,10 @@ type sealFixture struct {
 	config string
 	// only is Options.OnlyPacks under the seal, as the fork build act sets it; nil for none.
 	only []string
+	// moduleNames is the selected pack closure whose loophole declarations should be visible to
+	// config validation before Run stages its private tree. Isolated fixtures must not inherit a
+	// previous test's process-wide PackModules record.
+	moduleNames []string
 	// hostPaths are the host paths PathExists answers true for, beyond the jail's own binaries.
 	hostPaths []string
 }
@@ -70,6 +75,21 @@ type sealFixture struct {
 func (f sealFixture) launch(t *testing.T, sealed bool) (argv []string, ws, home, printed string) {
 	t.Helper()
 	home = packHome(t)
+	previousModules := loopholes.SnapshotPackModules()
+	t.Cleanup(previousModules)
+	byName := make(map[string]*packload.Pack)
+	for _, p := range packload.Embedded() {
+		byName[p.Name] = p
+	}
+	var modules []*packload.Pack
+	for _, name := range f.moduleNames {
+		p := byName[name]
+		if p == nil {
+			t.Fatalf("fixture pack %q is not embedded", name)
+		}
+		modules = append(modules, p)
+	}
+	loopholes.SetPackModules(packLoopholeModules(modules))
 	for _, d := range f.dirs {
 		if err := os.MkdirAll(filepath.Join(home, d), 0o755); err != nil {
 			t.Fatal(err)
@@ -103,6 +123,10 @@ func (f sealFixture) launch(t *testing.T, sealed bool) (argv []string, ws, home,
 	script := "#!/bin/sh\nif [ \"$1\" = run ]; then printf '%s\\n' \"$@\" > '" + argvFile + "'; " +
 		"if [ -e '" + hostServiceSocketsDir(cname, false) + "' ]; then : > '" + servicesAtRun(ws) + "'; fi; fi\nexit 3\n"
 	if err := os.WriteFile(filepath.Join(bin, "podman"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fakeAWS := "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'aws-cli/2.99.0 fake'; exit 0; fi\nexit 2\n"
+	if err := os.WriteFile(filepath.Join(bin, "aws"), []byte(fakeAWS), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+":/bin:/usr/bin")
@@ -153,7 +177,8 @@ func (f sealFixture) launch(t *testing.T, sealed bool) (argv []string, ws, home,
 // device node and /dev/kvm, so each of those crossings is one an unsealed launch makes
 // (TestTheSealFixtureCrossesUnsealed).
 var sealCrossingsFixture = sealFixture{
-	dirs: []string{"sealtest-notes", ".config/nvim", ".config/git", ".claude", "bigdisk/hf"},
+	moduleNames: []string{"claude", "openai-auth", "wire-bridge"},
+	dirs:        []string{"sealtest-notes", ".config/nvim", ".config/git", ".claude", "bigdisk/hf"},
 	files: map[string]string{
 		".config/git/ignore":    "sealtest-host-ignore-pattern\n",
 		".npmrc":                "//registry.example/:_authToken=npm-secret-token\n",
@@ -163,7 +188,7 @@ var sealCrossingsFixture = sealFixture{
 	config: `{
   "packs": ["claude"],
   "env_sources": [{"SEALTEST_SECRET": "sealtest-secret-value"}],
-  "host_files": ["~/.npmrc"],
+  "host_files": ["~/.npmrc", "~/.claude/CLAUDE.md"],
   "mounts": ["~/sealtest-notes"],
   "agents_md_extra": "sealtest-extra-secret",
   "cache_relocations": {"huggingface": "~/bigdisk/hf"},
@@ -482,8 +507,13 @@ func TestTheSealFixtureCrossesUnsealed(t *testing.T) {
 	if !strings.Contains(string(body), "sealtest-secret-value") {
 		t.Error("the unsealed fixture's env_sources never reach the channel file")
 	}
-	if !stagedBriefingsHold(t, yoloruntime.FromWorkspace(ws), "the user's own house rules") {
-		t.Error("the unsealed fixture's briefing never prepends the host CLAUDE.md")
+	wantClaude := filepath.Join(home, ".claude", "CLAUDE.md")
+	var claudeBound bool
+	for _, src := range srcs {
+		claudeBound = claudeBound || src == wantClaude
+	}
+	if !claudeBound {
+		t.Errorf("the unsealed fixture does not bind the user's CLAUDE.md host file: %v", srcs)
 	}
 	// Every crossing the sealed briefing must not describe is described unsealed, with the user's
 	// agents_md_extra and the machine-wide stores, so the seal's withholding each is its doing.

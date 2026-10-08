@@ -167,11 +167,11 @@ type LoopholeManifestPlacement struct {
 	// ModuleDir is the module dir's HOST-side path — what {loophole_dir} resolves
 	// to. Empty skips the dir face.
 	ModuleDir string
-	// HostDaemonCmd and DoctorCmd are the manifest's host-side argvs, with
-	// {loophole_dir} ALREADY SUBSTITUTED. Passing them raw would let every element
-	// carrying the token be skipped as a placeholder, which is exactly the case the
-	// rule is here for.
+	// HostDaemonCmd, SettingsCheck, and DoctorCmd are the manifest's host-side argvs,
+	// with {loophole_dir} ALREADY SUBSTITUTED. Passing them raw would let elements
+	// carrying the token be skipped as placeholders.
 	HostDaemonCmd []string
+	SettingsCheck []string
 	DoctorCmd     []string
 }
 
@@ -195,6 +195,7 @@ func LoopholeManifestPlacementProblems(p LoopholeManifestPlacement, workspace st
 	label := "loophole " + pytext.Repr(p.Name) + ": "
 	var out []string
 	out = append(out, LoopholePlacementProblems(label+"host_daemon.cmd", p.HostDaemonCmd, workspace)...)
+	out = append(out, LoopholePlacementProblems(label+"host_daemon.settings_check", p.SettingsCheck, workspace)...)
 	out = append(out, LoopholePlacementProblems(label+"doctor_cmd", p.DoctorCmd, workspace)...)
 	return out
 }

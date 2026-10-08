@@ -2,12 +2,15 @@ package broker
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 )
@@ -203,6 +206,155 @@ func TestSettingsRecordHoldsKeysNotValues(t *testing.T) {
 	}
 	if fi.Mode().Perm() != 0o600 {
 		t.Errorf("record mode = %o, want 0600", fi.Mode().Perm())
+	}
+}
+
+func TestEnsurePublishesValidatedSettingsUnderSingletonLockBeforeDriftCheck(t *testing.T) {
+	deps, st, _ := settingsFixture(t, `{"profile":"old"}`, `{"profile":"old"}`)
+	candidate := []byte(`{"profile":"new"}` + "\n")
+	deps.PublishSettings = func() error {
+		probe, err := os.OpenFile(deps.LockPath, os.O_CREATE|os.O_RDWR, 0o600)
+		if err != nil {
+			return err
+		}
+		defer probe.Close()
+		if err := syscall.Flock(int(probe.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err == nil {
+			_ = syscall.Flock(int(probe.Fd()), syscall.LOCK_UN)
+			return errors.New("publication callback ran without the singleton flock")
+		}
+		return os.WriteFile(deps.SettingsPath, candidate, 0o600)
+	}
+
+	got := EnsureSingleton(deps)
+	if got.SettingsErr != nil {
+		t.Fatalf("settings publication failed: %v", got.SettingsErr)
+	}
+	if len(st.killed) == 0 || len(st.spawnArgv) == 0 {
+		t.Fatalf("validated changed settings were not applied: killed=%v spawn=%v", st.killed, st.spawnArgv)
+	}
+	if raw, err := os.ReadFile(deps.SettingsPath); err != nil || !bytes.Equal(raw, candidate) {
+		t.Fatalf("published settings = %q, err=%v; want exact frozen candidate %q", raw, err, candidate)
+	}
+}
+
+func TestConcurrentSingletonSettingsTransactionsSerializeSnapshotsWithRestart(t *testing.T) {
+	st := &fakeState{alive: map[int]bool{}, reachOK: false, spawnPID: 77}
+	first := newFakeDeps(t, st)
+	second := first
+	first.Name, second.Name = "fixture-singleton", "fixture-singleton"
+	first.SettingsPath = filepath.Join(t.TempDir(), "settings.json")
+	second.SettingsPath = first.SettingsPath
+	first.LogPath, second.LogPath = filepath.Join(t.TempDir(), "daemon.log"), filepath.Join(t.TempDir(), "daemon.log")
+	entered := make(chan string, 2)
+	releaseFirst := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(releaseFirst) }) }
+	t.Cleanup(release)
+	var mu sync.Mutex
+	var spawned [][]byte
+	first.PublishSettings = func() error {
+		entered <- "first"
+		<-releaseFirst
+		return os.WriteFile(first.SettingsPath, []byte(`{"profile":"first-frozen"}`+"\n"), 0o600)
+	}
+	second.PublishSettings = func() error {
+		entered <- "second"
+		return os.WriteFile(second.SettingsPath, []byte(`{"profile":"second-frozen"}`+"\n"), 0o600)
+	}
+	spawn := func(_ []string, _ string) (int, func() bool, error) {
+		data, err := os.ReadFile(first.SettingsPath)
+		if err != nil {
+			return 0, nil, err
+		}
+		st.mu.Lock()
+		st.alive[77] = true
+		st.reachOK = true
+		st.mu.Unlock()
+		mu.Lock()
+		spawned = append(spawned, append([]byte(nil), data...))
+		mu.Unlock()
+		if err := os.WriteFile(first.SocketPath, nil, 0o600); err != nil {
+			return 0, nil, err
+		}
+		return 77, func() bool { return false }, nil
+	}
+	first.Spawn, second.Spawn = spawn, spawn
+	first.Kill = func(pid int, _ syscall.Signal) error {
+		st.mu.Lock()
+		defer st.mu.Unlock()
+		st.alive[pid] = false
+		return nil
+	}
+	second.Kill = first.Kill
+	firstDone, secondDone := make(chan Ensured, 1), make(chan Ensured, 1)
+	firstReceived, secondReceived := false, false
+	t.Cleanup(func() {
+		release()
+		if !firstReceived {
+			select {
+			case <-firstDone:
+			case <-time.After(5 * time.Second):
+				t.Error("first singleton ensure did not finish during cleanup")
+			}
+		}
+		if !secondReceived {
+			select {
+			case <-secondDone:
+			case <-time.After(5 * time.Second):
+				t.Error("second singleton ensure did not finish during cleanup")
+			}
+		}
+	})
+	go func() { firstDone <- EnsureSingleton(first) }()
+	if got := <-entered; got != "first" {
+		t.Fatalf("first publisher entered as %q", got)
+	}
+	go func() { secondDone <- EnsureSingleton(second) }()
+	select {
+	case got := <-entered:
+		t.Fatalf("second publication %q interleaved while the first transaction held the flock", got)
+	case <-time.After(75 * time.Millisecond):
+	}
+	release()
+	firstResult := <-firstDone
+	firstReceived = true
+	if got := <-entered; got != "second" {
+		t.Fatalf("second publisher entered as %q after first transaction", got)
+	}
+	secondResult := <-secondDone
+	secondReceived = true
+	if firstResult.SettingsErr != nil || !firstResult.Started {
+		t.Fatalf("first transaction result = %+v", firstResult)
+	}
+	if secondResult.SettingsErr != nil || !secondResult.Started {
+		t.Fatalf("second transaction result = %+v", secondResult)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(spawned) != 2 || !bytes.Contains(spawned[0], []byte("first-frozen")) ||
+		!bytes.Contains(spawned[1], []byte("second-frozen")) {
+		t.Fatalf("spawned settings snapshots = %q, want serialized first then second", spawned)
+	}
+}
+
+func TestEnsurePublicationFailureLeavesCurrentSingletonAndSettingsUntouched(t *testing.T) {
+	deps, st, _ := settingsFixture(t, `{"profile":"current"}`, `{"profile":"current"}`)
+	before, err := os.ReadFile(deps.SettingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deps.PublishSettings = func() error { return errors.New("fixture publication failure") }
+
+	got := EnsureSingleton(deps)
+	if got.SettingsErr == nil {
+		t.Fatal("publication error was not returned to the caller")
+	}
+	if len(st.killed) != 0 || len(st.spawnArgv) != 0 {
+		t.Fatalf("failed candidate changed singleton lifecycle: killed=%v spawn=%v", st.killed, st.spawnArgv)
+	}
+	after, err := os.ReadFile(deps.SettingsPath)
+	if err != nil || !bytes.Equal(after, before) {
+		t.Fatalf("settings changed after failed publication: before=%q after=%q err=%v", before, after, err)
 	}
 }
 

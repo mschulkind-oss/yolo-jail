@@ -237,6 +237,15 @@ type Options struct {
 	// arm's deferred endServicesSession. nil on every other backend, before the spawn, and after
 	// the teardown.
 	servicesSession *servicesSession
+	// startupRefusal is an attempt-specific fatal configuration refusal captured while a per-jail
+	// service was starting. The lifecycle caller returns it through the same unwind boundary as
+	// olderDaemonRefusal, while never treating historical log text as evidence.
+	startupRefusal    *hostStartupRefusal
+	settingsSnapshots map[string]*ownedSettingsSnapshot
+	settingsPrepared  bool
+	settingsPlan      *preparedLoopholeSettings
+	settingsFrozen    map[string][]byte
+	hostExecDisclosed map[string]bool
 	// reachSubject is who a host service's failure leaves unable to reach it, in the warnings
 	// that say so (unreachableBy): "" for a jail launch, which says "the jail", and the agent's
 	// name for a `yolo host` launch opening a doorway (HostDoorways.Start), which runs no jail.

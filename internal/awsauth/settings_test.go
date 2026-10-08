@@ -2,6 +2,7 @@ package awsauth
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,6 +30,10 @@ func TestAbsentNarrowingRefusesAndNamesBothKeys(t *testing.T) {
 	_, err := Settings{Profile: "bedrock"}.Resolve()
 	if err == nil {
 		t.Fatal("a profile with no narrowing resolved; OQ-SSO1 requires a narrowing by default")
+	}
+	var refusal *ResolveRefusal
+	if !errors.As(err, &refusal) || refusal.Kind != RefusalMissingNarrowing {
+		t.Fatalf("refusal type = %#v, want typed missing-narrowing outcome", refusal)
 	}
 	for _, want := range []string{
 		settingsScope(SettingRoleARN), settingsScope(SettingUnnarrowed),
@@ -65,8 +70,8 @@ func TestSessionPolicyArmIsN2(t *testing.T) {
 	if cfg.Narrowing.Kind != NarrowSessionPolicy {
 		t.Errorf("kind = %q, want %q", cfg.Narrowing.Kind, NarrowSessionPolicy)
 	}
-	if cfg.Narrowing.DisclosureLine(cfg.Profile) != "" {
-		t.Error("a narrowed configuration produced an un-narrowed disclosure line")
+	if got := cfg.Narrowing.Describe(); strings.Contains(got, "UN-NARROWED") {
+		t.Errorf("a narrowed configuration used alarming permission-mode wording: %q", got)
 	}
 }
 
@@ -83,7 +88,7 @@ func TestRoleOnlyArmIsN3(t *testing.T) {
 	}
 }
 
-func TestUnnarrowedByNameServesAndDisclosesOnce(t *testing.T) {
+func TestUnnarrowedByNameServesPermissionSetAsConfigured(t *testing.T) {
 	cfg, err := Settings{Profile: "wide", Unnarrowed: true}.Resolve()
 	if err != nil {
 		t.Fatalf("un-narrowed asked for BY NAME must be servable: %v", err)
@@ -91,14 +96,9 @@ func TestUnnarrowedByNameServesAndDisclosesOnce(t *testing.T) {
 	if cfg.Narrowing.Kind != NarrowNone {
 		t.Fatalf("kind = %q, want %q", cfg.Narrowing.Kind, NarrowNone)
 	}
-	line := cfg.Narrowing.DisclosureLine(cfg.Profile)
-	if line == "" {
-		t.Fatal("serving un-narrowed produced no disclosure line; OQ-SSO1 discloses at every launch")
-	}
-	for _, want := range []string{"UN-NARROWED", "wide", settingsScope(SettingUnnarrowed)} {
-		if !strings.Contains(line, want) {
-			t.Errorf("disclosure line does not contain %q: %s", want, line)
-		}
+	description := cfg.Narrowing.Describe()
+	if !strings.Contains(description, "permission set is served as-is") {
+		t.Fatalf("explicit un-narrowed configuration is not described as a valid as-configured mode: %q", description)
 	}
 }
 

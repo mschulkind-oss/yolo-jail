@@ -214,8 +214,10 @@ func TestTheMacosUserArmStartsTheBridgeForAViaOrCarrierAndStopsIt(t *testing.T) 
 // jail's bridge reads them from copilot's env file.
 // Deleting the ServiceCredentialVars call in launchServiceInput fails this.
 func TestTheMacosUserBridgeIsHandedTheAWSDoorwaysPointerForTheAgentItCarries(t *testing.T) {
+	installFakeAWSCLI(t)
 	o, stderr, _ := overrideNativeLaunch(t, `{"packs": ["copilot", "bedrock", "wire-bridge"], `+
-		`"loopholes": {"aws-auth": {"enabled": true}}, "env_sources": [{"AWS_REGION": "us-test-2"}]}`, shellWith(nil))
+		`"loopholes": {"aws-auth": {"enabled": true, "settings": {"profile": "yolo-unit", "unnarrowed": true}}}, `+
+		`"env_sources": [{"AWS_REGION": "us-test-2"}]}`, shellWith(nil))
 	o.Args = []string{"copilot"}
 	o.ProfileName = "bedrock"
 	doors := observeDoorways(t)

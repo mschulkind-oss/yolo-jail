@@ -188,6 +188,76 @@ func SettingsPayload(lp *Loophole, supplied *jsonx.OrderedMap) (string, []string
 	return payload, problems, err
 }
 
+// FrozenSettingsBytes returns the exact newline-terminated bytes used for a settings file.
+// Callers retain this slice and must never replace it with bytes reread from a validator input.
+func FrozenSettingsBytes(lp *Loophole, supplied *jsonx.OrderedMap) ([]byte, []string, error) {
+	payload, problems, err := SettingsPayload(lp, supplied)
+	if err != nil {
+		return nil, problems, err
+	}
+	return []byte(payload + "\n"), problems, nil
+}
+
+// WritePrivateSettingsSnapshot writes frozen settings bytes to a unique 0600 file in the
+// loophole's private state directory. The caller owns cleanup and, for a running daemon,
+// keeps the path until that owned service has fully stopped.
+func WritePrivateSettingsSnapshot(lp *Loophole, frozen []byte) (string, func(), error) {
+	if lp == nil {
+		return "", func() {}, os.ErrInvalid
+	}
+	dir := StateDirFor(lp.Name)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", func() {}, err
+	}
+	file, err := os.CreateTemp(dir, "settings-"+SettingsFileName+"-*")
+	if err != nil {
+		return "", func() {}, err
+	}
+	path := file.Name()
+	cleanup := func() { _ = os.Remove(path) }
+	if err := file.Chmod(0o600); err != nil {
+		_ = file.Close()
+		cleanup()
+		return "", func() {}, err
+	}
+	if _, err := file.Write(frozen); err != nil {
+		_ = file.Close()
+		cleanup()
+		return "", func() {}, err
+	}
+	if err := file.Close(); err != nil {
+		cleanup()
+		return "", func() {}, err
+	}
+	return path, cleanup, nil
+}
+
+// WriteSettingsBytes atomically replaces path with the exact frozen bytes. A caller that
+// coordinates shared singleton publication must hold its lifecycle lock around this call.
+func WriteSettingsBytes(path string, frozen []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), SettingsFileName+".*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer func() { _ = os.Remove(tmpName) }()
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(frozen); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, path)
+}
+
 // settingKeyList renders the declared keys for an error message.
 func settingKeyList(settings []Setting) string {
 	keys := loopholedecl.SettingKeys(settings)

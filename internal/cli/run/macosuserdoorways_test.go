@@ -167,8 +167,10 @@ func TestTheMacosUserArmRefusesWhenADoorwayCannotStart(t *testing.T) {
 // opens two, the Codex refresh doorway and the AWS one; the first start succeeds and the second
 // fails. Deleting the stop() in startMacosUserDoorways' error branch fails this.
 func TestAMacosUserDoorwayThatCannotStartStopsTheOnesAlreadyOpen(t *testing.T) {
+	installFakeAWSCLI(t)
 	o, stderr, seen := overrideNativeLaunch(t,
-		awsAuthUserConfig(`, "loopholes": {"aws-auth": {"enabled": true}}`), shellWith(nil))
+		awsAuthUserConfig(`, "loopholes": {"aws-auth": {"enabled": true,
+		"settings": {"profile": "yolo-unit", "unnarrowed": true}}}`), shellWith(nil))
 	stopped, starts := 0, 0
 	var first string
 	orig := startMacosUserDoorway

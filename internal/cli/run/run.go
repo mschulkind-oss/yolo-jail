@@ -525,6 +525,20 @@ func Run(opts Options) (rc int) {
 		// either, and the native backend is where a "where is my agent?" is hardest to
 		// diagnose (no image, no provisioning output to read back).
 		o.warnIfNoPacks()
+		// Validate the exact host-service settings this fresh native launch will use before
+		// capture/provisioning can execute pack code. The frozen plan is later consumed by
+		// the session or its keeper, after the ordinary execution disclosure.
+		if !o.DryRun && !o.Sealed && (o.macosUserKey == nil || o.macosUserKey.joined == nil) &&
+			len(o.plannedLoopholeNames(rt, cfg)) > 0 {
+			settingsSet := loopholes.NewHostSet(cfgMap(cfg, "loopholes"))
+			allowSettings := o.loopholeAllow(rt, cfg)
+			o.discloseSettingsCheckHostExec(staged.packs, settingsSet, cfg, allowSettings)
+			if !o.prepareLoopholeSettingsForStart(settingsSet, cfg, allowSettings) {
+				o.pr(o.Stderr).printf("[bold red]Refusing to launch: %s[/bold red]",
+					richtext.Escape(o.startupRefusal.Error()))
+				return 1
+			}
+		}
 		// AUTO-CAPTURE ON THIS ARM TOO (OQ-PD18; install-capture.md hand-off H4): every selected
 		// `via: "installer"` program the machine's store has no darwin entry for is captured now,
 		// by the macos-user capture act, so this launch stages it below (macosUserCaptures) and
@@ -1577,6 +1591,19 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// shared staging tree a jail launched before per-launch pack trees bound can go, once the
 	// runtime answers that no container of the name exists (packtree.go).
 	o.retireLegacyPackStaging(cname, rt)
+
+	// Settings checks are pure launch preflight. Run them after the attach decision, but before
+	// auto-capture, fork builds, image work or any shared service publication. The exact frozen
+	// bytes travel in the keeper plan and are published only after the terminal disclosure.
+	if !o.Sealed {
+		settingsSet := loopholes.NewHostSet(cfgMap(cfg, "loopholes"))
+		allowSettings := o.loopholeAllow(rt, cfg)
+		o.discloseSettingsCheckHostExec(staged.packs, settingsSet, cfg, allowSettings)
+		if !o.prepareLoopholeSettingsForStart(settingsSet, cfg, allowSettings) {
+			out.printf("[bold red]Refusing to launch: %s[/bold red]", richtext.Escape(o.startupRefusal.Error()))
+			return 1
+		}
+	}
 
 	// AUTO-CAPTURE (OQ-PD18, install-capture.md slice 7): every selected pack's `via: "installer"`
 	// program this machine has never recorded is captured now, in a throwaway jail of its own, so

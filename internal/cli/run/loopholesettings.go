@@ -1,97 +1,184 @@
 package run
 
 import (
+	"path/filepath"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 // loopholesettings.go is the LAUNCH half of docs/reference/pack-system.md:
 // internal/loopholedecl declared the keys, internal/config validated the values,
 // and here core resolves them once and writes the file the daemon is handed.
-//
-// # Once, at launch, is the whole point (OQ-K3)
-//
-// The host-processes daemon used to re-read the raw workspace config on EVERY
-// REQUEST. That is what made the retired `host_processes.visible` editable without a
-// restart — a real affordance, and indistinguishable from the hole: the same
-// property let an AGENT widen its own allowlist mid-session, with no launch and
-// therefore no approval gate, while the config diff was not in that causal path at
-// all.
-//
-// # There is no legacy fold-in any more (2026-08-18)
-//
-// This file briefly carried one: the retired top-level `host_processes` block was
-// merged into the settings supplied to the `host-processes` loophole, per key, so
-// the key kept WORKING while its replacement landed. It was deleted in the step that
-// moved the loophole into a pack, which is the step it was always scheduled for.
-// The key is now a REFUSAL (config.validateHostProcessesRetired), which is the only
-// alternative to honoring it that does not silently deny a capability someone asked
-// for.
-//
-// Resolving here freezes it. Changing what a loophole may do now needs a restart,
-// which is exactly where the config-approval gate lives — and that gate is a control
-// rather than a courtesy only because the approval snapshot moved to host-side state
-// the jail never mounts, and a non-interactive launch stopped auto-accepting.
-//
-// # Not gated on the pack origin gate, deliberately
-//
-// The file is written by yolo, from values yolo validated, into yolo's own state
-// dir. It crosses nothing: an unapproved pack's daemon is never spawned, so its
-// settings file is inert. The origin gate governs what REACHES the host or the jail
-// (RuntimeArgsFor, ManifestHostDaemonSpecs, RunDoctorChecks), and adding a fourth
-// face to it here would imply this write is a crossing, which would be the wrong
-// thing to teach the next reader.
 
-// writeLoopholeSettings resolves and writes the settings file for every enabled
-// loophole that declares settings, so the argv about to be spawned names a file
-// that exists and holds this launch's values.
-//
-// Problems are PRINTED, never fatal. Every one of them is something ValidateConfig
-// already refuses host-side; the ones that can still arrive here are the in-jail
-// downgrades, where refusing would break every nested launch over the live-mounted
-// workspace file. The declaration wins in each case (ResolveSettings keeps the
-// declared default), so a printed problem always describes a value that did NOT
-// reach the daemon.
-func (o *Options) writeLoopholeSettings(discovered []*loopholes.Loophole, cfg *jsonx.OrderedMap) {
+type preparedLoopholeSettings struct {
+	candidates []*loopholes.Loophole
+	bytes      map[string][]byte
+	values     map[string]*jsonx.OrderedMap
+	checked    map[string]bool
+}
+
+// prepareLoopholeSettings resolves and validates the exact settings this launch intends to use.
+// It has no publication side effects; its bytes can be carried across a keeper boundary and are
+// published only after the launch has disclosed the host code it is about to run.
+func (o *Options) prepareLoopholeSettings(discovered []*loopholes.Loophole, cfg *jsonx.OrderedMap) *preparedLoopholeSettings {
+	plan := &preparedLoopholeSettings{
+		bytes: make(map[string][]byte), values: make(map[string]*jsonx.OrderedMap), checked: make(map[string]bool),
+	}
 	loopCfg := cfgMap(cfg, "loopholes")
 	for _, lp := range discovered {
 		if len(lp.Settings) == 0 {
 			continue
 		}
 		supplied := suppliedSettings(loopCfg, lp.Name)
-		o.discloseLoopholeSettings(lp, supplied)
-		_, problems, err := loopholes.WriteSettings(lp, supplied)
-		for _, prob := range problems {
-			o.pr(o.Stdout).print("[yellow]Warning: " + prob + "[/yellow]")
-		}
+		frozen, problems, err := loopholes.FrozenSettingsBytes(lp, supplied)
 		if err != nil {
-			// Named rather than swallowed: the daemon is about to be spawned with a
-			// --settings path, and a missing file is the difference between "the
-			// allowlist is empty" and "the allowlist could not be written". A daemon
-			// that reads an absent file falls back to the type zeros, which is the
-			// fail-closed direction — but silently, which is what this line prevents.
+			o.pr(o.Stdout).print("[red]Could not resolve settings for loophole " + lp.Name +
+				": " + err.Error() + " — its daemon will not start[/red]")
+			o.startupRefusal = &hostStartupRefusal{name: lp.Name, class: "settings-resolution",
+				reason: "The declared settings could not be resolved.",
+				remedy: "Correct the host service settings and run `yolo check --no-build` again."}
+			return nil
+		}
+		for _, problem := range problems {
+			o.pr(o.Stdout).print("[yellow]Warning: " + problem + "[/yellow]")
+		}
+		values, _ := loopholes.ResolveSettings(lp, supplied)
+		o.discloseLoopholeSettingsResolved(lp, values)
+		checked := lp.HostDaemon != nil && len(lp.HostDaemon.SettingsCheck) > 0
+		if checked {
+			result := loopholes.RunSettingsCheck(lp, frozen)
+			if result.Outcome != hostservice.CommandAccepted {
+				class := string(result.Outcome)
+				if result.Outcome == hostservice.CommandRefused {
+					class = "configuration"
+				}
+				o.startupRefusal = &hostStartupRefusal{name: lp.Name, class: class,
+					reason: result.Reason, remedy: result.Remedy}
+				return nil
+			}
+		}
+		plan.candidates = append(plan.candidates, lp)
+		plan.bytes[lp.Name] = append([]byte(nil), frozen...)
+		plan.values[lp.Name] = values
+		plan.checked[lp.Name] = checked
+	}
+	return plan
+}
+
+// publishLoopholeSettings publishes a previously validated plan, without rereading config or the
+// validator input. The settings disclosure already preceded the validator during preparation.
+func (o *Options) publishLoopholeSettings(plan *preparedLoopholeSettings) {
+	if plan == nil {
+		return
+	}
+	o.settingsSnapshots = make(map[string]*ownedSettingsSnapshot)
+	for _, lp := range plan.candidates {
+		if plan.checked[lp.Name] && lp.HostDaemon != nil && lp.HostDaemon.Scope != loopholes.ScopeHost {
+			path, cleanup, err := loopholes.WritePrivateSettingsSnapshot(lp, plan.bytes[lp.Name])
+			if err != nil {
+				o.cleanupSettingsSnapshots()
+				o.startupRefusal = &hostStartupRefusal{name: lp.Name, class: "settings-publication",
+					reason: "The validated settings snapshot could not be prepared for the daemon.",
+					remedy: "Check host storage permissions and run `yolo check --no-build` again."}
+				return
+			}
+			o.settingsSnapshots[lp.Name] = &ownedSettingsSnapshot{
+				path: path, bytes: append([]byte(nil), plan.bytes[lp.Name]...), cleanup: cleanup,
+			}
+			continue
+		}
+		if plan.checked[lp.Name] {
+			o.settingsSnapshots[lp.Name] = &ownedSettingsSnapshot{
+				path: loopholes.SettingsFileFor(lp.Name), bytes: append([]byte(nil), plan.bytes[lp.Name]...),
+			}
+			continue
+		}
+		if err := loopholes.WriteSettingsBytes(loopholes.SettingsFileFor(lp.Name), plan.bytes[lp.Name]); err != nil {
 			o.pr(o.Stdout).print("[red]Could not write settings for loophole " + lp.Name +
 				": " + err.Error() + " — it will start with its declared defaults[/red]")
 		}
 	}
 }
 
+// writeLoopholeSettings is retained for direct lifecycle callers and tests: resolve once, then
+// publish the exact bytes that were resolved.
+func (o *Options) writeLoopholeSettings(discovered []*loopholes.Loophole, cfg *jsonx.OrderedMap) {
+	plan := o.prepareLoopholeSettings(discovered, cfg)
+	if o.startupRefusal != nil {
+		return
+	}
+	o.publishLoopholeSettings(plan)
+}
+
+func (o *Options) discloseSettingsCheckHostExec(packs []*packload.Pack, set loopholes.Set,
+	cfg *jsonx.OrderedMap, allow func(string) bool) {
+	discovered := set.Enabled()
+	kept := discovered[:0]
+	for _, lp := range discovered {
+		if allow(lp.Name) && len(lp.PlacementProblems(o.Workspace)) == 0 && lp.HostDaemon != nil &&
+			len(lp.HostDaemon.SettingsCheck) > 0 {
+			kept = append(kept, lp)
+		}
+	}
+	order, _ := hostDaemonOrder(set, kept, cfg, allow)
+	for _, name := range order {
+		lp, ok := set.Lookup(name)
+		if !ok {
+			continue
+		}
+		pack := sourcePackName(packs, lp)
+		if pack == "" {
+			pack = "selected pack"
+		}
+		o.pr(o.Stderr).printf("[bold yellow]Running the settings validator from pack %q for host service %q on your machine[/bold yellow]", pack, name)
+	}
+}
+
+func sourcePackName(packs []*packload.Pack, lp *loopholes.Loophole) string {
+	if lp == nil {
+		return ""
+	}
+	moduleDir := filepath.Clean(lp.Path)
+	for _, pack := range packs {
+		if pack == nil {
+			continue
+		}
+		mods, _, _ := pack.LoopholeModules()
+		for _, mod := range mods {
+			if filepath.Clean(mod.Dir) == moduleDir {
+				return pack.Name
+			}
+		}
+	}
+	return ""
+}
+
+func (o *Options) frozenLoopholeSettings() map[string][]byte {
+	if o.settingsPlan == nil {
+		return nil
+	}
+	out := make(map[string][]byte, len(o.settingsPlan.bytes))
+	for name, b := range o.settingsPlan.bytes {
+		out[name] = append([]byte(nil), b...)
+	}
+	return out
+}
+
+func (o *Options) cleanupSettingsSnapshots() {
+	for name, snapshot := range o.settingsSnapshots {
+		if snapshot != nil && snapshot.cleanup != nil {
+			snapshot.cleanup()
+		}
+		delete(o.settingsSnapshots, name)
+	}
+}
+
 // discloseLoopholeSettings prints `loophole <name>: <sentence>` for every bool setting
-// whose declaration carries a `disclose` sentence and whose RESOLVED value is true
-// (docs/design/sso-backed-bedrock.md OQ-SSO10).
-//
-// Keyed on the DECLARATION, never on a loophole's name: the launch path renders every
-// loophole in one loop with no switch on a tool name (AGENTS.md), and this is how a key
-// that widens what a loophole hands out says so without one. It runs at every launch
-// because a host-singleton daemon's own spawn line prints once and then serves every
-// later launch in silence.
-//
-// A DISCLOSURE, so it has no quiet switch (docs/reference/report-tiers.md, OQ-RO3), and it
-// goes to stderr like every other launch notice. It reads the same resolution the file
-// write below uses (loopholes.ResolveSettings, which is pure), so what it says is what the
-// daemon is handed; the resolution's problems are printed once, by the write.
-func (o *Options) discloseLoopholeSettings(lp *loopholes.Loophole, supplied *jsonx.OrderedMap) {
-	values, _ := loopholes.ResolveSettings(lp, supplied)
+// whose declaration carries a `disclose` sentence and whose RESOLVED value is true.
+func (o *Options) discloseLoopholeSettingsResolved(lp *loopholes.Loophole, values *jsonx.OrderedMap) {
 	out := o.pr(o.Stderr)
 	for _, decl := range lp.Settings {
 		if decl.Disclose == "" {
@@ -103,8 +190,8 @@ func (o *Options) discloseLoopholeSettings(lp *loopholes.Loophole, supplied *jso
 	}
 }
 
-// suppliedSettings returns the `loopholes.<name>.settings` object from the merged
-// config, or nil when nothing supplied any.
+// suppliedSettings returns the `loopholes.<name>.settings` object from the merged config,
+// or nil when nothing supplied any.
 func suppliedSettings(loopCfg *jsonx.OrderedMap, name string) *jsonx.OrderedMap {
 	if loopCfg == nil {
 		return nil

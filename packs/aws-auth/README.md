@@ -80,24 +80,13 @@ the pointer as a credential; so do opencode and, by its AWS SDK's chain, codex a
 | `profile` | the AWS profile the service resolves — the one you `aws sso login --profile`. Absent: the daemon refuses at spawn and names this key. Its `region` in `~/.aws/config` is also the region an agent this service serves is given when nothing else names one ([the bedrock pack](../bedrock/README.md#what-the-provider-declares)) |
 | `role_arn` | a role to assume before serving, so the jail holds that role's permissions rather than your whole permission set |
 | `session_policy` | an inline IAM session policy attached to that AssumeRole, narrowing **inside** Bedrock. Needs `role_arn` |
-| `unnarrowed` | serve the permission set as-is. The one widening, and it has to be asked for by name |
+| `unnarrowed` | explicitly use the configured profile's permission set as-is, without an extra AssumeRole or session policy. This is a valid choice when that assigned permission set is the intended policy boundary |
 
-**A narrowing is required, and absence is never un-narrowed.** With neither `role_arn`
-nor `unnarrowed` set the daemon refuses at spawn and names both. That is deliberate and
-it is the whole security argument: a credential this service mints is readable by
-**any process in the jail that reads the token beside it**, so the narrowing is not defence in depth — it is the only
-defence. If you genuinely have nothing to narrow with, `"unnarrowed": true` is supported
-and is disclosed everywhere this service reports, **every launch** included:
+**A permission mode must be selected, and absence never selects the profile-as-configured route.** With neither `role_arn` nor `unnarrowed` set the daemon refuses at spawn and names both; the explicit user-only setting defaults to false. An assigned Identity Center permission set used as configured is a supported, expected mode, and the role/session-policy arms remain optional additional restrictions.
 
-```
-loophole aws-auth: serving UN-NARROWED credentials — the jail holds whatever the configured profile's permission set grants (settings.unnarrowed is true)
-```
+The credential is available to processes in the jail, and AWS enforces the permissions attached to the configured profile/session. In organizations that activate IAM-principal cost allocation, AWS supports using federated session attributes to distinguish users who share a role. Using the profile's current session without an extra role hop can preserve that existing attribution context; verify role/tag propagation for any assumed-role route rather than assuming it is lost or retained. See AWS's [Bedrock IAM-principal tracking guidance](https://docs.aws.amazon.com/bedrock/latest/userguide/cost-mgmt-iam-principal-tracking.html) and [IAM-principal cost-allocation dimensions](https://docs.aws.amazon.com/awsaccountbilling/latest/aboutv2/iam-principal-cost-allocation.html).
 
-No flag hides that line. The daemon prints its own version at spawn, and the self-check
-grades it as a `NOTE:`.
-
-`yolo check` mints once and tells you what it resolved, including which SSO config form
-your profile uses and how much session lifetime is left.
+`yolo check` explicitly verifies the settings and credential path. It reports a valid profile-permissions-as-configured selection as healthy; launches do not print a routine warning for this expected choice. Ordinary selected-pack trust banners and actionable configuration/runtime failures remain visible.
 
 ## What is NOT here, and must not be
 
@@ -161,8 +150,9 @@ SDK would read the file instead. A request without the token gets `401` with a m
 yolo
 ([notch convergence §2.3](../../docs/plans/notch-convergence.md#23-the-fix-every-service-authenticates-its-caller-at-every-notch)).
 The token is still a same-uid file read away inside the jail, in that agent's env file and in
-an unexported record the adapter reads its token from, so the narrowing above is still the
-only defence there.
+an unexported record the adapter reads its token from. It authenticates the adapter hop but
+does not isolate jail processes; AWS permissions attached to the selected profile or role govern
+the actions available through the credential.
 
 ## Properties worth knowing before you are surprised by them
 

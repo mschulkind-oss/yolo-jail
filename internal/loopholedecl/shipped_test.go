@@ -725,8 +725,7 @@ func TestShippedAWSAuthFields(t *testing.T) {
 			"state dir, and this one holds the minted-credential cache", m.StateFiles)
 	}
 	if !m.DoctorCmdSet || len(m.DoctorCmd) == 0 {
-		t.Fatalf("doctor_cmd = %v (set=%v) — `yolo check` grades its OK:/NOTE:/FAIL: lines, "+
-			"and the un-narrowed disclosure is one of them", m.DoctorCmd, m.DoctorCmdSet)
+		t.Fatalf("doctor_cmd = %v (set=%v) — `yolo check` grades its OK:/NOTE:/FAIL: lines", m.DoctorCmd, m.DoctorCmdSet)
 	}
 
 	// THE FOUR KEYS, AND THE SCOPE ON EVERY ONE OF THEM.

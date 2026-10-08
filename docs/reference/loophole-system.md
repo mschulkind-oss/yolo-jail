@@ -1,10 +1,11 @@
 ---
 status: current
-verified: 2026-09-24
-verified_commit: f491d192
+verified: 2026-10-07
+verified_commit: 31312f66
 covers:
   - internal/loopholes/
   - internal/loopholedecl/
+  - internal/hostservice/boundedcommand.go
   - internal/packload/loopholesource.go
   - internal/packbin/
   - internal/cli/packbinaries.go
@@ -26,7 +27,7 @@ summary: "How a loophole gets onto a machine and how it turns on: the `loophole`
 
 # The loophole system — packaging, activation and disclosure
 
-**Status:** CURRENT as of 2026-09-24, verified against `f491d192`.
+**Status:** CURRENT as of 2026-10-07, checked against the worktree based on `31312f66`.
 
 A **loophole** is a single controlled permeability point between a jail and the host: a
 declared, narrow passage through the wall, and the only extension point that can put a
@@ -809,6 +810,32 @@ loophole-specific and belong here.
 > silently WIDENS host access is the shape this whole design deletes.** The journal bridge's
 > old three-valued `off | user | full` was two questions wearing one key: the declared key is a
 > boolean and `off` is `enabled: false`.
+
+`host_daemon.settings_check` is an optional non-empty argv vector, executed directly (not
+through a shell). It requires declared `settings`, a `{settings}` argument in both the
+validator and `host_daemon.cmd`, and is resolved using the manifest's ordinary host-side
+binary and `{loophole_dir}` tokens. The validator receives its own private file containing
+the declaration-total, default-filled settings for this invocation. It must be a pure check:
+exit zero accepts the candidate; nonzero refuses it. A manifest that omits the field keeps its
+legacy start behavior.
+
+A settings-check-enabled per-jail daemon receives a unique private settings file containing
+the exact validated bytes, retained until the owned service is torn down; a validator cannot
+change the bytes later published to its daemon by rewriting its own input. For a
+settings-check-enabled host-wide singleton, those bytes are atomically published under the
+existing singleton lifecycle lock, before drift handling or restart. Manifests without
+`settings_check` keep the legacy path and behavior. The validator runner bounds execution to
+2 seconds and combined captured output to 4 KiB, and emits bounded sanitized diagnostics.
+
+A validator refusal prevents only its own `doctor_cmd` during `yolo check --no-build`; a
+successful validation preserves the existing doctor as a separate health check. Other service
+checks continue, and validation itself never publishes daemon settings or replaces a running
+service.
+
+The validator is host code. Its source pack, service and settings-validation execution are
+disclosed before it runs; it is invoked only when the selected, active, placement-valid service
+is eligible to start. A launch refusal identifies the validator result and the user's next
+configuration step rather than treating a host-service bypass as repair.
 
 ## A brokered loophole's repository scope
 

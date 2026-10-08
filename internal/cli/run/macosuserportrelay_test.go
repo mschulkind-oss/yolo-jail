@@ -43,6 +43,34 @@ func freeLoopbackPort(t *testing.T) int {
 	return port
 }
 
+func freeDistinctLoopbackPorts(t *testing.T, count int) []int {
+	t.Helper()
+	listeners := make([]net.Listener, 0, count)
+	t.Cleanup(func() {
+		for _, ln := range listeners {
+			_ = ln.Close()
+		}
+	})
+	ports := make([]int, 0, count)
+	for i := 0; i < count; i++ {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			for _, held := range listeners {
+				_ = held.Close()
+			}
+			t.Fatal(err)
+		}
+		listeners = append(listeners, ln)
+		ports = append(ports, ln.Addr().(*net.TCPAddr).Port)
+	}
+	for _, ln := range listeners {
+		if err := ln.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return ports
+}
+
 // loopback is 127.0.0.1:port.
 func loopback(port int) string { return net.JoinHostPort("127.0.0.1", strconv.Itoa(port)) }
 
@@ -468,7 +496,8 @@ func TestMacosUserLaunchRelaysAPublishedPortRemap(t *testing.T) {
 // port is closed while the stand-in for the sandbox runs, and the arm hands the backend no hook to
 // open one with.
 func TestMacosUserDryRunNamesTheRelaysAndOpensNone(t *testing.T) {
-	j, h := freeLoopbackPort(t), freeLoopbackPort(t)
+	ports := freeDistinctLoopbackPorts(t, 2)
+	j, h := ports[0], ports[1]
 	entry := fmt.Sprintf("%d:%d", j, h)
 	var listening, hooked bool
 	rc, stderr := relayRun(t, `{"forward_host_ports": ["`+entry+`"], "ports": ["8000:3000"]}`,
@@ -504,7 +533,8 @@ func TestMacosUserDryRunNamesTheRelaysAndOpensNone(t *testing.T) {
 // `--network host` drops both keys at launch as it does in the plan: nothing listens at J during
 // the command, and the notice says why with the step that has it relayed.
 func TestMacosUserLaunchRelaysNothingUnderHostNetworking(t *testing.T) {
-	j, h := freeLoopbackPort(t), freeLoopbackPort(t)
+	ports := freeDistinctLoopbackPorts(t, 2)
+	j, h := ports[0], ports[1]
 	entry := fmt.Sprintf("%d:%d", j, h)
 	var listening bool
 	rc, stderr := relayRun(t, `{"forward_host_ports": ["`+entry+`"]}`,
@@ -559,7 +589,8 @@ func TestMacosUserLaunchWarnsAndContinuesWhenARelayPortIsTaken(t *testing.T) {
 // relaying nothing. Fails if the arm opens the relays itself anywhere before the dispatch, which
 // is where they were first written and where every one of the backend's refusals saw them open.
 func TestMacosUserRefusedLaunchOpensNoRelay(t *testing.T) {
-	h, j := freeLoopbackPort(t), freeLoopbackPort(t)
+	ports := freeDistinctLoopbackPorts(t, 2)
+	h, j := ports[0], ports[1]
 	entry := fmt.Sprintf("127.0.0.1:%d:%d", h, j)
 	var listening, hooked bool
 	rc, stderr := relayRun(t, `{"ports": ["`+entry+`"]}`, nil, func(jd macosuser.JailDaemons) int {

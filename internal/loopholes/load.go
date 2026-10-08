@@ -249,14 +249,18 @@ func resolve(m *loopholedecl.Manifest, modulePath string) *Loophole {
 		cmd = substituteAll(cmd, loopholedecl.TokenSettings, settingsPath)
 		cmd = substituteAll(cmd, loopholedecl.TokenState, statePath)
 		cmd = loopholedecl.ReplaceBinaryTokens(cmd, false, hostBinary)
+		settingsCheck := substituteAll(m.HostDaemon.SettingsCheck, loopholedecl.TokenLoopholeDir, hostDir)
+		settingsCheck = loopholedecl.ReplaceBinaryTokens(settingsCheck, false, hostBinary)
 		hostDaemon = &HostDaemon{
-			Cmd:         cmd,
-			Env:         m.HostDaemon.Env,
-			Publishes:   m.HostDaemon.Publishes,
-			RequestEnd:  m.HostDaemon.RequestEnd,
-			Preamble:    m.HostDaemon.Preamble,
-			Scope:       m.HostDaemon.Scope,
-			LaunchCheck: m.HostDaemon.LaunchCheck,
+			Cmd:           cmd,
+			SettingsCheck: settingsCheck,
+			StartupReason: m.HostDaemon.StartupReason,
+			Env:           m.HostDaemon.Env,
+			Publishes:     m.HostDaemon.Publishes,
+			RequestEnd:    m.HostDaemon.RequestEnd,
+			Preamble:      m.HostDaemon.Preamble,
+			Scope:         m.HostDaemon.Scope,
+			LaunchCheck:   m.HostDaemon.LaunchCheck,
 		}
 	}
 

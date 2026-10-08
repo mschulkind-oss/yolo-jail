@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/awsauthdaemon"
 	"github.com/mschulkind-oss/yolo-jail/internal/internaldaemon"
 	"github.com/mschulkind-oss/yolo-jail/internal/journald"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -34,6 +35,9 @@ import (
 // shared this process's host-singleton dir and killed its daemons.
 // TestNoShippedDaemonSelfExecRunsTheSuite says what that cost and pins the fix.
 func TestMain(m *testing.M) {
+	if len(os.Args) >= 2 && os.Args[1] == "-aws-auth-refusal-child" {
+		os.Exit(awsauthdaemon.Main(os.Args[2:]))
+	}
 	if internaldaemon.IsDaemonArgv(os.Args) {
 		os.Exit(internaldaemon.Run(os.Args[3:]))
 	}
@@ -49,6 +53,21 @@ func TestMain(m *testing.M) {
 	// ONCE, at startup, as every real one does, and answers each connection with it.
 	if len(os.Args) >= 4 && os.Args[1] == "-settings-echo-child" {
 		os.Exit(settingsEchoChildMain(os.Args[2], os.Args[3]))
+	}
+	if len(os.Args) >= 4 && os.Args[1] == "-settings-check-child" {
+		os.Exit(settingsCheckChildMain(os.Args[2], os.Args[3], "validator"))
+	}
+	if len(os.Args) >= 4 && os.Args[1] == "-settings-rewrite-check-child" {
+		os.Exit(settingsRewriteCheckChildMain(os.Args[2], os.Args[3]))
+	}
+	if len(os.Args) >= 3 && os.Args[1] == "-settings-refusal-child" {
+		os.Exit(settingsRefusalChildMain(os.Args[2]))
+	}
+	if len(os.Args) >= 5 && os.Args[1] == "-settings-interleave-child" {
+		os.Exit(settingsInterleaveDaemonChildMain(os.Args[2], os.Args[3], os.Args[4]))
+	}
+	if len(os.Args) >= 5 && os.Args[1] == "-settings-snapshot-daemon" {
+		os.Exit(settingsSnapshotDaemonChildMain(os.Args[2], os.Args[3], os.Args[4]))
 	}
 	// `<test-binary> -launch-check-older-child <socket>` is a per-launch daemon behind yolo's front
 	// that does not know the launch check (launchcheck_test.go).

@@ -10,9 +10,11 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/broker"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/nixdiag"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
@@ -198,6 +200,47 @@ func (o *Options) checkLoopholes(r *reporter) {
 			r.ok("loophole " + lp.Name + ": inactive (" + reason + ")")
 			continue
 		}
+		if !set.MayRunHostCode(lp) {
+			// A settings_check is host execution just like doctor_cmd. Never invoke an
+			// unapproved pack's validator; the ordinary doctor gate below will report it.
+			if lp.HostDaemon != nil && len(lp.HostDaemon.SettingsCheck) > 0 {
+				r.warn("loophole "+lp.Name+": settings validator not run",
+					"A pack-shipped validator is host execution and this pack is not approved to run host code.")
+				continue
+			}
+		}
+		if lp.HostDaemon != nil && len(lp.HostDaemon.SettingsCheck) > 0 {
+			if problems := lp.PlacementProblems(o.Workspace); len(problems) > 0 {
+				r.warn("loophole "+lp.Name+": settings validator not run", strings.Join(problems, "\n"))
+				continue
+			}
+			frozen, _, err := loopholes.FrozenSettingsBytes(lp, suppliedLoopholeSettings(userSwitches, lp.Name))
+			if err != nil {
+				r.fail("loophole "+lp.Name+": settings validation failed", "Could not resolve the declared settings snapshot: "+err.Error())
+				continue
+			}
+			packName := settingsValidatorPackName(o.selectedPacks, lp)
+			if packName == "" {
+				packName = "selected pack"
+			}
+			r.dim(fmt.Sprintf("Running the settings validator from pack %q for host service %q on your machine", packName, lp.Name))
+			checked := loopholes.RunSettingsCheck(lp, frozen)
+			if checked.Outcome != hostservice.CommandAccepted {
+				label := "settings validator failed"
+				switch checked.Outcome {
+				case hostservice.CommandRefused:
+					label = "settings validation refused"
+				case hostservice.CommandTimedOut:
+					label = "settings validator timed out"
+				case hostservice.CommandStartFailed:
+					label = "settings validator could not start"
+				}
+				r.fail("loophole "+lp.Name+": "+label,
+					checked.Reason+"\nRemedy: "+checked.Remedy+"\nThe launch will refuse these settings; correct them and run `yolo check --no-build` again.")
+				continue
+			}
+			r.ok("loophole " + lp.Name + ": settings accepted")
+		}
 		// BEFORE the doctor_cmd gate, so a host-wide daemon that declares no self-check is
 		// still graded on whether it runs the configured settings (HD-D2).
 		reportSingletonSettings(r, lp, userSwitches)
@@ -253,6 +296,25 @@ func (o *Options) checkLoopholes(r *reporter) {
 			o.reportBrokerDaemon(r)
 		}
 	}
+}
+
+func settingsValidatorPackName(packs []*packload.Pack, lp *loopholes.Loophole) string {
+	if lp == nil {
+		return ""
+	}
+	moduleDir := filepath.Clean(lp.Path)
+	for _, pack := range packs {
+		if pack == nil {
+			continue
+		}
+		mods, _, _ := pack.LoopholeModules()
+		for _, mod := range mods {
+			if filepath.Clean(mod.Dir) == moduleDir {
+				return pack.Name
+			}
+		}
+	}
+	return ""
 }
 
 // reportSingletonSettings grades a RUNNING host-wide daemon against the settings the merged
@@ -349,6 +411,26 @@ func loopholeConfigBlock(workspace string) *jsonx.OrderedMap {
 		return nil
 	}
 	return block
+}
+
+func suppliedLoopholeSettings(configBlock *jsonx.OrderedMap, name string) *jsonx.OrderedMap {
+	if configBlock == nil {
+		return nil
+	}
+	entryValue, ok := configBlock.Get(name)
+	if !ok {
+		return nil
+	}
+	entry, ok := entryValue.(*jsonx.OrderedMap)
+	if !ok {
+		return nil
+	}
+	settingsValue, ok := entry.Get("settings")
+	if !ok {
+		return nil
+	}
+	settings, _ := settingsValue.(*jsonx.OrderedMap)
+	return settings
 }
 
 // reportSelfCheckLines renders a self-check's own graded output — "FAIL:" as a

@@ -16,16 +16,21 @@ more than Bedrock out of it — and still keep working after the human logs in a
 
 > **2026-10-07 amendment:** the owner removed the routine `unnarrowed` notice requirement.
 > Explicit user-only opt-in/default false, conflicts and permissions stay unchanged. The
-> runtime removal is unlanded; [host-service startup diagnostics](host-service-startup-diagnostics.md#7-aws-permission-mode-presentation)
-> owns that work. The historical body below retains its original wording, not the current
+> runtime removal landed 2026-10-08; [host-service startup diagnostics](host-service-startup-diagnostics.md#7-aws-permission-mode-presentation)
+> owns that contract. The historical body below retains its original wording, not the current
 > presentation contract; unrelated trust disclosures and actual errors remain mandatory.
 
 **Status:** 2026-09-29 — the delivered behavior is described in
 [`agent-credentials.md`'s SSO-backed Bedrock section](../reference/agent-credentials.md#sso-backed-bedrock-credentials-aws-auth),
 which is now the authority for what a user configures, what crosses into the jail, the
-narrowing, the [OQ-SSO8](#OQ-SSO8) refusals and the un-narrowed disclosure. This file stays
-whole, as the argument: the reference links its [Decision Ledger](#13-decision-ledger) for the
-reasoning, and other docs and Go comments cite its sections and `OQ-SSO` ids. All ten questions
+permission modes, and the [OQ-SSO8](#OQ-SSO8) refusals. This file stays whole, as the
+argument: the reference links its [Decision Ledger](#13-decision-ledger) for the reasoning,
+and other docs and Go comments cite its sections and `OQ-SSO` ids. On 2026-10-07 the owner
+explicitly superseded the routine per-launch unnarrowed disclosure required by
+[OQ-SSO1](#13-decision-ledger)/[OQ-SSO10](#OQ-SSO10):
+using the configured profile permissions is a valid expected route, so the launch prints no
+unnarrowed-only notice. The explicit user-only opt-in, false default, conflict refusals and
+credential policy are unchanged. All ten questions
 are ruled and every step of [§12](#12-what-i-would-build-in-order) is built, step 7 having been
 deleted by [OQ-SSO9](#OQ-SSO9). **MEASURED:** the refusal's code, the AWS credential chain order
 in the shipped claude, codex, opencode and pi, and, on 2026-09-29, the live-login try-out: the
@@ -85,9 +90,10 @@ pending.
 - **Ruled:** six questions on 2026-09-17 and [`OQ-SSO7`](#13-decision-ledger) (the three
   supported credentials) on 2026-09-24 — all in [§13](#13-decision-ledger).
 - **Built 2026-09-25:** the consumers' `needs` (`packs/claude` needs `aws-auth`) and the
-  launch-side disclosure of an un-narrowed session ([OQ-SSO10](#OQ-SSO10)). ⚠ **Moved 2026-09-29**: the
-  need is `packs/bedrock`'s now, the pack that ships the provider it serves, and claude, codex,
-  opencode and pi reach it through their own need on that pack
+  launch-side disclosure initially ruled by [`OQ-SSO10`](#OQ-SSO10). **Superseded 2026-10-07:** the owner
+  removed the routine permission-mode notice; pack `needs` moved on 2026-09-29: the need is
+  `packs/bedrock`'s now, the pack that ships the provider it serves, and claude, codex, opencode
+  and pi reach it through their own need on that pack
   ([`bedrock-plumbing.md` BR-D15](bedrock-plumbing.md#BR-D15)).
 - **Tried on a live login, 2026-09-29:** step 5's done-conditions 1 and 4 are met, 4 through
   the maintainer's four-hourly logout and login on the host
@@ -448,11 +454,11 @@ surface, no per-agent code — and it is worth being plain that it is also the w
 > **The boundary is positional, and the position is the network namespace.** The SDK speaks
 > plain `http` only to `127.0.0.0/8` or those two link-local addresses (`checkUrl.js`), so the
 > endpoint is unreachable from outside the jail, and *that* is what protects it. **Inside the
-> jail there is no boundary at all**: every MCP server, every command the agent runs, every
-> `curl` can `GET` the same credentials. Nothing can change that — see the token paragraph
-> below — so the blast radius of this endpoint is exactly *"whatever the credential can do."*
-> That is the reason [OQ-SSO1](#13-decision-ledger) is the closure question for the design rather than a
-> configuration detail: the narrowing is not defence in depth here, it is the only defence.
+> jail there is no per-process boundary for this credential:** each process running as the
+> jail's user can fetch and use the same credential. Its effective authority is still controlled
+> by the AWS policy attached to the selected profile or assumed role; choose that permission
+> source for the work the jail is meant to do. The caller token authenticates the adapter hop,
+> but does not isolate same-user jail processes from one another.
 
 **What lands in the jail environment** is two pointers and a region, through the pack's
 `kind: "env"` contribution — the loophole cannot set them itself
@@ -600,14 +606,16 @@ There you choose: Bedrock-scoped and relaunch every 12 hours, or refreshing and 
 your permission set. That is the one genuinely forced trade in this design, and it is forced
 by the AWS account, not by the architecture.
 
-**A narrowing scope is required, and un-narrowed is spelled out loud.** Ruled 2026-09-17: the
-service takes a narrowing setting and **refuses to start without one** — pointing it at a bare
-profile and hoping is not a configuration. Serving the whole permission set stays available,
-but only when it is *asked for by name*, and the launch discloses that choice every time.
-Both halves matter: the default protects the person who never thought about it, and the
-explicit setting keeps the feature usable for someone whose permission set is already narrow
-enough, or who has nothing to narrow with yet. It is the ordinary shape for a widening in
-this repo — allowed, never silent.
+**A permission mode must be selected; absence is not profile-as-configured.** Ruled
+2026-09-17: the service refuses without an explicit `role_arn` or `unnarrowed: true`, so a
+missing setting cannot silently choose a route. Both role-based AssumeRole and session-policy
+narrowing remain supported optional restrictions. The profile-permissions-as-configured route
+is also a valid deliberate choice when that assigned permission set is the intended authority.
+By owner ruling on 2026-10-07, selecting it is normal healthy configuration and gets no routine
+per-launch alarm or note; the older [OQ-SSO1](#13-decision-ledger)/[OQ-SSO10](#OQ-SSO10)
+disclosure requirement is superseded.
+All four settings remain user-only, the default stays false, and existing conflict refusals
+remain unchanged.
 
 **What does not exist**, at any row: a **chained** credential that lasts longer than an hour.
 That cell is empty and no configuration fills it.
@@ -1214,9 +1222,9 @@ delays nothing. It only sharpens step 2.
    the credential elided. Nothing crosses a boundary yet, and it is the half that can be
    wrong about AWS.
 2. **The narrowing surface**, per the [Decision Ledger](#13-decision-ledger): a required
-   setting, an explicit un-narrowed value that cannot be reached by omission, and the launch
-   disclosure. It rides step 1 rather than following it, because retrofitting a default that
-   widens is the one direction that breaks a working setup.
+   explicit permission mode, an opt-in profile-permissions-as-configured value that cannot be
+   reached by omission, and conflicting modes refused rather than silently chosen. It rides step
+   1 because retrofitting a default that changes existing access breaks working setups.
 3. **The adapter and the manifest.** `yolo-jaild aws-credential-adapter`, `publishes: "socket"`,
    `scope` per [OQ-SSO2](#13-decision-ledger). Done-condition 2 (a `curl` inside the jail) is reachable
    here and proves the whole transport without an agent.
@@ -1474,14 +1482,14 @@ Bedrock credential comes from. Two terms both use:
    as API-key-only. Ruled 2026-09-25.
 
 <a id="OQ-SSO10"></a>The historical launch-disclosure decision and its 2026-10-07 amendment are
-recorded in the [Decision Ledger](#13-decision-ledger). The active unlanded repair contract
+recorded in the [Decision Ledger](#13-decision-ledger). The repair contract
 is [host-service startup diagnostics](host-service-startup-diagnostics.md#7-aws-permission-mode-presentation).
 
 ## 13. Decision Ledger
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| OQ-SSO1 | **Require explicit narrowing or `unnarrowed: true`; absence never selects unchanged permissions.** The user-only opt-in and false default remain. **Amended 2026-10-07:** using the configured permission-set/profile policy as-is is a valid route; the routine-disclosure clause is superseded by [OQ-SSO10](#OQ-SSO10). No permission widening or conflict-rule change | 2026-09-17; amended 2026-10-07 | [§6](#6-narrowing--shape-scoped-and-policy-scoped) | Original opt-in shipped; notice removal unlanded |
+| OQ-SSO1 | **Require explicit narrowing or `unnarrowed: true`; absence never selects unchanged permissions.** The user-only opt-in and false default remain. **Amended 2026-10-07:** using the configured permission-set/profile policy as-is is a valid route; the routine-disclosure clause is superseded by [OQ-SSO10](#OQ-SSO10). No permission widening or conflict-rule change | 2026-09-17; amended 2026-10-07 | [§6](#6-narrowing--shape-scoped-and-policy-scoped) | Original opt-in shipped; notice removed 2026-10-08 |
 | OQ-SSO2 | **Host singleton**, `scope: "host"`, cache keyed **by profile** so one process still serves several AWS identities | 2026-09-17 | [§5](#5-the-recommended-shape) | — |
 | OQ-SSO3 | **The daemon refreshes the access token wherever a refresh token exists; it never runs a login.** Transparent operation while the session is valid *is* the requirement, so a daemon that waits for someone else to refresh is not implementing it. Refreshing is what every AWS client on the machine already does against the same cache; the rotation race is recoverable, unlike the single-use-token case the Claude broker exists for (R2). On a legacy profile there is no refresh token and nothing to refresh, which changes the human's login cadence and not the jail's behaviour, since every mint re-reads the cache ([§8](#8-behaviour-this-design-specifies)) | 2026-09-17 | [§1](#1-verdict-and-principles) P2 | — |
 | OQ-SSO4 | **User config scope only** for the profile, role and session policy. The allowlist-plus-workspace-choice variant is strictly additive later; shipping it first invents a second scope grammar for one feature | 2026-09-17 | [§8](#8-behaviour-this-design-specifies) | — |
@@ -1490,7 +1498,7 @@ is [host-service startup diagnostics](host-service-startup-diagnostics.md#7-aws-
 | OQ-SSO7 | **Three Bedrock credentials are supported**, ruled by the maintainer: *"We will support bearer tokens, we will support secret and key, and we also need to support sessions through single sign-on. That's the big one."* (1) a Bedrock API key as `AWS_BEARER_TOKEN_BEDROCK` — option B's push channel; (2) a static access key and secret as `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`, for example through `env_sources` — the maintainer's current setup, and not one of [§4](#4-five-options)'s five options, which all start from an SSO login; (3) an SSO session through an assumed role, served by `packs/aws-auth` over the container-credentials endpoint — option C, **the primary one**. Supporting (1) and (2) changes nothing in this design: both are existing channels, frozen at launch. [`bedrock-plumbing.md` §6.4](bedrock-plumbing.md#64-the-credential-three-are-supported) records what the ruling means for the endpoint side, including that (2) beside (3) is the same silent wrong answer as (1) beside (3) and was not refused then (it is since 2026-09-25, [OQ-SSO8](#OQ-SSO8)) | 2026-09-24 | [§4](#4-five-options) | (1) and (2): existing channels; (3): `packs/aws-auth` |
 | OQ-SSO8 | **Refuse, fatal, no hatch**, when a bearer or both halves of the static key pair are delivered beside `aws-auth`'s pointer. The maintainer's conditions: the rule is **declared by the pack**, and core hardcodes no AWS variable (the existing bearer refusal moves out of `internal/awschain`); fatal whenever the configured auth will certainly be overridden; **never a false positive**, false negatives accepted. A second ruling the same day, on the `~/.aws` grant: an override that only MAY happen is a **warning**, never a refusal | 2026-09-25 | [OQ-SSO8](#OQ-SSO8) | 2026-09-25: `overridden_by` in `packs/aws-auth/pack.json`, evaluated by `packload.EnvOverrideFindings`; `internal/awschain` deleted. Review fixes the same day: only what reaches the jail counts, and directory grants count per backend. Also 2026-09-25, on the last false positive: an entry may be `certain: false`, which warns instead of refusing, and the `~/.aws` entry is declared so |
 | OQ-SSO9 | **Retire option D**: yolo mints no Bedrock API key. The signing wire bridge covers every shipped agent; the gateway route is documented as API-key-only | 2026-09-25 | [OQ-SSO9](#OQ-SSO9) | — |
-| OQ-SSO10 | **Historical ruling:** a bool setting's declared `disclose` sentence avoids a tool-name switch. **Superseded 2026-10-07:** remove routine AWS `unnarrowed` notices entirely, not merely their color. Preserve opt-in/default false, conflict refusals, permissions, actual errors and unrelated pack read/exec trust disclosures; add no AWS-name branch or new severity feature solely for this request | 2026-09-25; amended 2026-10-07 | [Active repair contract](host-service-startup-diagnostics.md#7-aws-permission-mode-presentation) | Original notice shipped; removal unlanded |
+| OQ-SSO10 | **Historical ruling:** a bool setting's declared `disclose` sentence avoids a tool-name switch. **Superseded 2026-10-07:** remove routine AWS `unnarrowed` notices entirely, not merely their color. Preserve opt-in/default false, conflict refusals, permissions, actual errors and unrelated pack read/exec trust disclosures; add no AWS-name branch or new severity feature solely for this request | 2026-09-25; amended 2026-10-07 | [Active repair contract](host-service-startup-diagnostics.md#7-aws-permission-mode-presentation) | Original notice shipped; removed 2026-10-08 |
 | <a id="SSO-D1"></a>SSO-D1 | *Implementation decision, on [§8](#8-behaviour-this-design-specifies)'s degenerate inputs.* **The launch asks the running service whether its agents' first fetch would be served, and prints the answer.** A new manifest key, `host_daemon.launch_check`, declares that a daemon answers the **launch check** (a term coined here): one framed `launch-check` request the launch sends through the front it just published, after starting or ensuring the daemon, and only when it serves the loophole's jail daemon, which for aws-auth means some agent's provider is Bedrock ([OQ-CN7](../reference/providers.md#oq-cn7) (b)). The daemon answers from its cache when that is warm, running no `aws`; when it is cold it runs, or joins, the one mint the agent's first fetch would otherwise make inside the SDK's one-second budget (R1), and waits for it within a 2 s budget; past that it reports the previous mint's failure with its age, or a note that it could not tell. Each failure is one warning in the classifier's `Message`, the words the `4xx` and `yolo check` already use, which names `aws sso login --profile X` for a lapsed or never-established session and now names how to fix a profile missing from `~/.aws/config`. It never refuses. Rejected: reading the SSO token cache from the launcher, a second classifier that cannot tell an assumable role from a lapsed session; a fresh `aws` call from the launcher at every launch, a CLI start even on a warm cache; and a test of the loophole's name, for [OQ-SSO10](#OQ-SSO10)'s reason. Covers container jails and `macos-user`, whose arms share the one spawn boundary; `yolo host` starts no aws-auth service ([`host-notch-services.md` HS-D20](host-notch-services.md#HS-D20)). *Amended 2026-09-29:* **an attach asks too, and still starts nothing.** It was first ruled to ask nothing because it starts no service, but the service its jail's launch started is running and that launch's front still publishes its endpoint, and attaching is how a user re-enters a long-lived jail, so a session that lapsed after the launch went unwarned until the new agent's first request. An attach that delivers its channel now asks each enabled declarer whose endpoint the running jail's launch published, through that front, when the entry's own selection serves its jail daemon; it starts, ensures and restarts nothing, and asks nothing where no endpoint is published | 2026-09-29 | [§8](#8-behaviour-this-design-specifies) | 2026-09-29: the manifest key, the daemon's answer and the launch's question, pinned through the spawn boundary on podman and `macos-user`, and end to end with a fake `aws` by `TestAWSAuthLapsedSessionIsA4xxNamingTheLogin`; the attach's question through a published front, and its call site, in `internal/cli/run`'s `launchcheck_test.go` |
 | <a id="SSO-D2"></a>SSO-D2 | *Implementation decision, on the maintainer's request of 2026-10-06 ("is there any way to have nested aws auth somehow? it'd be great to be able to still test this stuff").* **A podman jail launched from inside a jail takes aws-auth's pointer from the launching jail and starts neither of its daemons.** A jail has no `aws` CLI and no SSO session, so a nested launch's host service could never mint, and a nested launch could not boot without `YOLO_ALLOW_UNREACHABLE_SERVICES=1`. A podman launched inside a container is forced onto that container's network namespace (`--net=host`, `appliedNetMode`), so the launching jail's adapter, at the address its own `AWS_CONTAINER_CREDENTIALS_FULL_URI` names, answers on the nested jail's loopback: that is the one setup where the reach is provable from the launcher, so it is the only one that inherits. Conditions, all required: the launcher runs inside a container, the runtime is podman, the loophole is enabled, and every variable the block names is set and non-empty in the launching environment. Effects: no host daemon, front, settings file or endpoint variable (so the reachability witness waits on nothing); no jail daemon in the nested payload and no caller token minted for it; the launching jail's values delivered verbatim, in place of the declared pointer, to exactly the agents the pointer's gate reaches, with a pointer variable the block does not carry withheld; and one launch line, `<loophole>: <disclose>`. **Declared, not named:** the loophole manifest's `inherit_from_parent_jail` block (`vars`, `disclose`) is the permission, `packs/aws-auth` declares it, and core names no AWS variable. Rejected: hard-coding `aws-auth` in the launcher, which [OQ-SSO10](#OQ-SSO10)'s rule forbids; putting the block on the pack's `env` contribution beside the variables, since what it switches off is the loophole's two daemons, and the spawn, the keeper's plan and the endpoint emission all read the loophole's record rather than the pack's contributions (the variable list is then a second copy of the contribution's, pinned against it by `TestAWSAuthInheritsExactlyItsPointer`); and inheriting on every backend, where nothing proves the address answers. [`hostScopedEndpointIsUnpublishable`](../../internal/cli/run/assemble_parts.go)'s ruling that a nested jail runs its own broker ([`OQ-2`](../reference/claude-oauth-interposition.md#a-nested-jail-runs-its-own-broker)) is unchanged for every other loophole: this is an affordance a loophole's author opts into, for the one service a jail cannot run | 2026-10-06 | [`agent-credentials.md`](../reference/agent-credentials.md#a-nested-jail-uses-its-launching-jails-pointer) | 2026-10-06: `internal/loopholedecl/parentjail.go`, `internal/cli/run/parentjailpointers.go`, `packload.ServedDaemons.WithInherited`; pinned by `parentjailpointers_test.go` and the nested-Podman fixture tests; the Linux rootful-Podman smoke confirmed the env-file pointer and absence of the nested endpoint. No credentials request or AWS API call was made; live nested credential fetch and inference remain unmeasured. |
 | <a id="SSO-D3"></a>SSO-D3 | *Implementation decision.* **The nested jail's credentials are exactly as narrow as the launching jail's, or narrower, and never broader.** It holds the launching jail's own pointer, so every credential it can fetch is one the host already minted and narrowed for the launching jail; the nested config's `profile`, `role_arn`, `session_policy` and `unnarrowed` settings are not applied, so a nested config asking for more, `unnarrowed: true` included, gets nothing more. It can be narrower only by reaching less: a nested agent not on a Bedrock provider receives no pointer at all | 2026-10-06 | SSO-D2 | 2026-10-06, with SSO-D2 |

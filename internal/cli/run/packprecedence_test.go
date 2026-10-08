@@ -69,15 +69,15 @@ func TestTheLaunchOrdersPacksAsTheConfigListsThem(t *testing.T) {
 // fails if either side stops using the record: the boot names a configured pack by its directory
 // (StagedSlug, which is the name for every pack here), so only the order is compared.
 func TestTheBootReadsThePackOrderTheLaunchRecorded(t *testing.T) {
+	strictPackloadReads(t)
 	precedenceHome(t)
 	o := &Options{Workspace: t.TempDir(), Stdout: discardBuf(), Stderr: discardBuf()}
 	tree, loaded, _, err := o.stagePacks("yolo-test-precedence-boot")
 	if err != nil {
 		t.Fatal(err)
 	}
-	// LoadJailPacks switches the process to tolerant manifest reads (TolerateSkew); restore the
-	// host's strict reads for every later test in this package.
-	t.Cleanup(packload.OverrideSkewTolerance(false))
+	// LoadJailPacks switches the process to tolerant manifest reads; strictPackloadReads
+	// restores the host-side test process to strict reads when this test ends.
 	e := entrypoint.NewEnv(map[string]string{"JAIL_HOME": t.TempDir(), "YOLO_PACK_ROOT": tree})
 	e.Stderr = discardBuf()
 	booted, err := entrypoint.LoadJailPacks(e)

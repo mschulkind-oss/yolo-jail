@@ -113,9 +113,9 @@ func stagedPiFolderPack(t *testing.T, name, entry string) (string, []*packload.P
 // the list entries packoverlay.Collect places over them.
 func bootedPiPackages(t *testing.T, tree string) []any {
 	t.Helper()
-	// LoadJailPacks switches the process to tolerant manifest reads; restore the host's strict
-	// reads for every later test in this package.
-	t.Cleanup(packload.OverrideSkewTolerance(false))
+	strictPackloadReads(t)
+	// LoadJailPacks switches the process to tolerant manifest reads; strictPackloadReads
+	// leaves the host-side test process strict after cleanup.
 	e := entrypoint.NewEnv(map[string]string{"JAIL_HOME": t.TempDir(), "YOLO_PACK_ROOT": tree})
 	e.Stderr = discardBuf()
 	booted, err := entrypoint.LoadJailPacks(e)

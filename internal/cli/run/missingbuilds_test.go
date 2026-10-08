@@ -246,6 +246,7 @@ func TestAnUnneededMissingBuildOnAppleContainerNamesItsLimit(t *testing.T) {
 // takes — is said by the launch even when no agent pack loads it: the act printed nothing of it.
 // Red with refuseMissingBuilds reading the cause alone for its warning.
 func TestAnUnsaidBuildNoPackLoadsIsWarned(t *testing.T) {
+	t.Setenv("YOLO_VERSION", "") // this predicate describes a host-only build act
 	o := goldenOptions("/ws", t.TempDir())
 	var stderr bytes.Buffer
 	o.Stderr = &stderr

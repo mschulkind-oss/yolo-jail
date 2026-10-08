@@ -365,7 +365,7 @@ func TestBrokerSpawnHappy(t *testing.T) {
 	st := &fakeState{spawnPID: 4321}
 	deps := newFakeDeps(t, st)
 	// The spawned daemon binds its socket "immediately": create it so
-	// brokerWaitForSocket returns on the first poll.
+	// brokerWaitForSocketUntil returns on the first poll.
 	touch(t, deps.SocketPath)
 	sock := BrokerSpawn(deps)
 	if sock != deps.SocketPath {
@@ -420,7 +420,7 @@ func TestBrokerSpawnStaleSocketCleared(t *testing.T) {
 }
 
 func TestBrokerSpawnDeadChildFast(t *testing.T) {
-	// A child that exits immediately without binding → brokerWaitForSocket
+	// A child that exits immediately without binding → brokerWaitForSocketUntil
 	// returns fast (exited() true), no full-deadline burn.
 	st := &fakeState{spawnPID: 8, spawnExited: true}
 	deps := newFakeDeps(t, st)
@@ -434,7 +434,7 @@ func TestBrokerSpawnDeadChildFast(t *testing.T) {
 }
 
 // The three tests below pin the ONE property the 2,549-failure incident turned
-// on: brokerWaitForSocket's answer must reach a human at spawn time. Before
+// on: brokerWaitForSocketUntil's answer must reach a human at spawn time. Before
 // this, every one of these cases printed nothing at all — the detector was
 // right and silent (docs/reference/claude-oauth-interposition.md#a-failed-spawn-reports-itself).
 

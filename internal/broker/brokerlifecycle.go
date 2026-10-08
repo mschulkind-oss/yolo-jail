@@ -49,6 +49,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/execx"
 	"github.com/mschulkind-oss/yolo-jail/internal/heldchildren"
+	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/logcap"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
@@ -159,6 +160,14 @@ type Deps struct {
 	// close_fds=True) + proc.poll().
 	Spawn func(argv []string, logPath string) (pid int, exited func() bool, err error)
 
+	// SpawnWithReason launches an opted-in daemon with a private startup-reason channel.
+	// The returned connection and attempt token are consumed only during this spawn's readiness wait.
+	SpawnWithReason func(argv []string, logPath, service string) (pid int, exited func() bool,
+		reasonConn net.Conn, attempt string, err error)
+	// StartupReason enables reason transport for this manifest-declared daemon only; the
+	// default false preserves the existing spawn contract for legacy singletons.
+	StartupReason bool
+
 	// PrepareLocked runs after the singleton flock is acquired and before the
 	// liveness check. A non-nil returned action makes the lifecycle stop an
 	// existing singleton, run the action, and only then continue to the normal
@@ -166,6 +175,9 @@ type Deps struct {
 	// the daemon using the old path has stopped, with the singleton lock held
 	// across the entire transition.
 	PrepareLocked func() (afterStop func() error, err error)
+	// PublishSettings atomically publishes the caller's already-validated frozen settings bytes
+	// while this singleton's flock is held, before drift comparison or any stop/spawn transition.
+	PublishSettings func() error
 
 	// SettingsPath is the settings file the daemon's argv hands it (the manifest's
 	// `{settings}` token), or "" when it is handed none. The spawn RECORDS what that file
@@ -192,6 +204,11 @@ type Deps struct {
 	// before setting, exactly as CLIDeps does: this layer never probes the
 	// terminal, so a redirected launch log stays clean by the caller's choice.
 	Color bool
+
+	// These package-private hooks make the deadline/result handoff deterministic in
+	// tests; production leaves them unset and uses the real readiness poll and timer.
+	waitForSocketUntil   func(string, time.Time, func() bool, chan startupReasonResult) bool
+	waitForStartupReason func(chan startupReasonResult, time.Duration) (startupReasonResult, bool)
 }
 
 // RealDeps returns Deps backed by the real singleton paths and OS effects.
@@ -232,9 +249,10 @@ func SingletonDeps(name string, argv []string) Deps {
 		// Scoped to THIS singleton's socket, never to a spawn form: every singleton got
 		// the Claude broker's pattern here, so stopping any of them without a PID file
 		// SIGTERMed every Claude broker on the machine (strayscope_test.go).
-		Pgrep: func() []int { return RealPgrepStrays(sock) },
-		Spawn: realSpawn,
-		Out:   os.Stdout,
+		Pgrep:           func() []int { return RealPgrepStrays(sock) },
+		Spawn:           realSpawn,
+		SpawnWithReason: realSpawnWithReason,
+		Out:             os.Stdout,
 		// Resolved here, through the one gate, because this layer never probes
 		// the terminal again (see Deps.Color).
 		Color: tty.Color(nil, true, isTTYStdoutReal()),
@@ -396,6 +414,11 @@ type Ensured struct {
 	// while one this ensure just started may still be coming up, and ensuring again would start
 	// a second copy beside it (nothing here stops a live process whose socket is not bound).
 	Started bool
+	// SettingsErr is a failed frozen-settings publication. EnsureSingleton leaves the current
+	// daemon and its settings record untouched when this is non-nil.
+	SettingsErr error
+	// StartupReason is the current spawn's bounded cooperative refusal, never a shared-log read.
+	StartupReason *hostservice.StartupReason
 }
 
 // EnsureSingleton is BrokerSpawn with the outcome a caller can act on.
@@ -435,6 +458,17 @@ func EnsureSingleton(deps Deps) Ensured {
 		reportLockFailure(deps, "lock", err)
 		done.Stale = staleUnreplaceable(deps)
 		return done
+	}
+	if deps.PublishSettings != nil {
+		if err := deps.PublishSettings(); err != nil {
+			done.SettingsErr = err
+			if deps.Out != nil {
+				richtext.Printer{W: deps.Out, Color: deps.Color}.Print(
+					"[yellow]Could not publish the validated settings for host-wide daemon '" +
+						deps.Name + "'; the current daemon was left untouched.[/yellow]")
+			}
+			return done
+		}
 	}
 	if deps.PrepareLocked != nil {
 		afterStop, prepErr := deps.PrepareLocked()
@@ -499,8 +533,19 @@ func EnsureSingleton(deps Deps) Ensured {
 	// Read BEFORE the spawn, as close as yolo can get to the read the daemon makes at its
 	// own startup; recorded only once there is a PID for the record to describe.
 	spawnSettings := readSpawnSettings(deps)
-	pid, exited, err := deps.Spawn(deps.Argv, deps.LogPath)
+	var reasonConn net.Conn
+	var reasonAttempt string
+	var pid int
+	var exited func() bool
+	if deps.StartupReason && deps.SpawnWithReason != nil {
+		pid, exited, reasonConn, reasonAttempt, err = deps.SpawnWithReason(deps.Argv, deps.LogPath, deps.Name)
+	} else {
+		pid, exited, err = deps.Spawn(deps.Argv, deps.LogPath)
+	}
 	if err != nil {
+		if reasonConn != nil {
+			_ = reasonConn.Close()
+		}
 		// Return the socket path anyway: the caller's liveness re-check is
 		// what reports a daemon that never started.
 		return done
@@ -514,10 +559,75 @@ func EnsureSingleton(deps Deps) Ensured {
 	StampPreamble(deps)
 	StampLaunchCheck(deps, pid)
 	writeSettingsRecord(deps, spawnSettings)
-	if !brokerWaitForSocket(deps, deps.SocketPath, BrokerSpawnTimeout, exited) {
-		reportFailedSpawn(deps, exited)
+	readyDeadline := deps.Now().Add(BrokerSpawnTimeout)
+	var reasonResult chan startupReasonResult
+	if reasonConn != nil {
+		results := make(chan startupReasonResult, 1)
+		reasonResult = results
+		// Share the readiness budget: an absent or malformed record cannot add another
+		// timeout to a failed singleton start, and a successful endpoint remains the
+		// only definition of readiness.
+		go func() {
+			reason, err := hostservice.ReadStartupReason(reasonConn, deps.Name, reasonAttempt, readyDeadline)
+			results <- startupReasonResult{reason: reason, err: err}
+		}()
+	}
+	var ready bool
+	if deps.waitForSocketUntil != nil {
+		ready = deps.waitForSocketUntil(deps.SocketPath, readyDeadline, exited, reasonResult)
+	} else {
+		ready = brokerWaitForSocketUntil(deps, deps.SocketPath, readyDeadline, exited)
+	}
+	if reasonConn != nil {
+		if !ready {
+			// Readiness owns the deadline. If the process exited before it, finish
+			// collecting this attempt's record only within that original budget; at
+			// timeout, preserve a result already buffered without waiting again.
+			remaining := readyDeadline.Sub(deps.Now())
+			if remaining > 0 {
+				result, received := waitForStartupReason(deps, reasonResult, remaining)
+				if received && result.err == nil && result.reason != nil {
+					done.StartupReason = result.reason
+				}
+			} else {
+				select {
+				case result := <-reasonResult:
+					if result.err == nil && result.reason != nil {
+						done.StartupReason = result.reason
+					}
+				default:
+				}
+			}
+		}
+		_ = reasonConn.Close()
+	}
+	if !ready {
+		if done.StartupReason == nil {
+			reportFailedSpawn(deps, exited)
+		} else if done.StartupReason.Class != "configuration" && deps.Out != nil {
+			reportCooperativeSpawnRefusal(deps, done.StartupReason)
+		}
 	}
 	return done
+}
+
+type startupReasonResult struct {
+	reason *hostservice.StartupReason
+	err    error
+}
+
+func waitForStartupReason(deps Deps, results chan startupReasonResult, remaining time.Duration) (startupReasonResult, bool) {
+	if deps.waitForStartupReason != nil {
+		return deps.waitForStartupReason(results, remaining)
+	}
+	timer := time.NewTimer(remaining)
+	defer timer.Stop()
+	select {
+	case result := <-results:
+		return result, true
+	case <-timer.C:
+		return startupReasonResult{}, false
+	}
 }
 
 // staleUnreplaceable is the drift an ensure that could not take the spawn lock leaves
@@ -534,7 +644,7 @@ func staleUnreplaceable(deps Deps) *SettingsDrift {
 	return &drift
 }
 
-// reportFailedSpawn writes the line brokerWaitForSocket's return value exists
+// reportFailedSpawn writes the line brokerWaitForSocketUntil's return value exists
 // FOR. The detector has always been able to separate a dead singleton from a
 // slow one in milliseconds — its own doc comment below says exactly that — and
 // the caller here threw the answer away. That is how a broker which died at
@@ -579,6 +689,18 @@ func reportFailedSpawn(deps Deps, exited func() bool) {
 			deps.SocketPath + "; see " + deps.LogPath + "[/yellow]")
 }
 
+func reportCooperativeSpawnRefusal(deps Deps, reason *hostservice.StartupReason) {
+	if deps.Out == nil || reason == nil {
+		return
+	}
+	line := "[yellow]Warning: " + singletonSubject(deps) + " refused startup: " + reason.Reason
+	if reason.Remedy != "" {
+		line += " Fix: " + reason.Remedy
+	}
+	line += "; see " + deps.LogPath + "[/yellow]"
+	richtext.Printer{W: deps.Out, Color: deps.Color}.Print(line)
+}
+
 // singletonSubject names the daemon a warning is about: the record's loophole when the
 // Deps carries one, the generic phrase otherwise (see reportFailedSpawn for why it is never
 // a hardcoded loophole name).
@@ -620,11 +742,10 @@ func lockFailureLine(deps Deps, step string, err error) string {
 	return line
 }
 
-// brokerWaitForSocket ports _broker_wait_for_socket: poll until the socket
-// appears or the deadline elapses; a dead child (exited() true) is a genuine
+// brokerWaitForSocketUntil ports _broker_wait_for_socket: poll until the socket
+// appears or the absolute deadline elapses; a dead child (exited() true) is a genuine
 // failure detected in milliseconds. Returns whether the socket exists at the end.
-func brokerWaitForSocket(deps Deps, sock string, timeout time.Duration, exited func() bool) bool {
-	deadline := deps.Now().Add(timeout)
+func brokerWaitForSocketUntil(deps Deps, sock string, deadline time.Time, exited func() bool) bool {
 	for deps.Now().Before(deadline) {
 		if deps.PathExists(sock) {
 			return true
@@ -804,6 +925,43 @@ func realSpawn(argv []string, logPath string) (int, func() bool, error) {
 		}
 	}
 	return cmd.Process.Pid, exited, nil
+}
+
+func realSpawnWithReason(argv []string, logPath, service string) (int, func() bool, net.Conn, string, error) {
+	parent, child, attempt, err := hostservice.NewStartupReasonChannel()
+	if err != nil {
+		return 0, nil, nil, "", err
+	}
+	_ = os.MkdirAll(filepath.Dir(logPath), 0o755)
+	cmd := exec.Command(argv[0], argv[1:]...)
+	if lf, err := logcap.Open(logPath, 0o644); err == nil {
+		cmd.Stdout, cmd.Stderr = lf, lf
+	}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	cmd.ExtraFiles = append(cmd.ExtraFiles, child)
+	cmd.Env = append(os.Environ(),
+		hostservice.StartupReasonFDEnv+"=3",
+		hostservice.StartupReasonAttemptEnv+"="+attempt,
+		hostservice.StartupReasonServiceEnv+"="+service)
+	if err := cmd.Start(); err != nil {
+		_ = parent.Close()
+		_ = child.Close()
+		return 0, nil, nil, "", err
+	}
+	_ = child.Close()
+	done := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(done) }()
+	// As realSpawn: a test binary stops the daemons it started through this handle.
+	heldchildren.Hold(cmd.Process, done)
+	exited := func() bool {
+		select {
+		case <-done:
+			return true
+		default:
+			return false
+		}
+	}
+	return cmd.Process.Pid, exited, parent, attempt, nil
 }
 
 // removeIgnoreMissing unlinks p, ignoring a not-exist error (Python's

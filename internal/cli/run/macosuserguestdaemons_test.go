@@ -44,9 +44,21 @@ func TestMacosUserPicksNoPortForADaemonItsGuestDeclines(t *testing.T) {
 	}
 }
 
+func installFakeAWSCLI(t *testing.T) {
+	t.Helper()
+	bin := t.TempDir()
+	fakeAWS := "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'aws-cli/2.99.0 fake'; exit 0; fi\nexit 2\n"
+	if err := os.WriteFile(filepath.Join(bin, "aws"), []byte(fakeAWS), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
 func TestMacosUserServesTheBedrockPointerThroughALaunchOwnedDoorway(t *testing.T) {
+	installFakeAWSCLI(t)
 	o, stderr, seen := overrideNativeLaunch(t,
-		awsAuthUserConfig(`, "loopholes": {"aws-auth": {"enabled": true}}`), shellWith(nil))
+		awsAuthUserConfig(`, "loopholes": {"aws-auth": {"enabled": true,
+		"settings": {"profile": "yolo-unit", "unnarrowed": true}}}`), shellWith(nil))
 	doors := observeDoorways(t)
 	if rc := Run(*o); rc != 0 {
 		t.Fatalf("Run() = %d\n%s", rc, stderr.String())
@@ -154,8 +166,14 @@ func TestMacosUserHandsTheAWSDoorwayTheEndpointItForwardsTo(t *testing.T) {
 // selects the profile it serves (OQ-CN7 (b)), so a launch on no profile opens only the OpenAI
 // refresh doorway.
 func TestMacosUserOpensNoAWSDoorwayWithoutBedrock(t *testing.T) {
+	installFakeAWSCLI(t)
 	o, stderr, _ := overrideNativeLaunch(t,
-		awsAuthUserConfig(`, "loopholes": {"aws-auth": {"enabled": true}}`), shellWith(nil))
+		awsAuthUserConfig(`, "loopholes": {"aws-auth": {"enabled": true,
+		"settings": {"profile": "yolo-unit", "unnarrowed": true}}}`), shellWith(nil))
+	t.Cleanup(func() {
+		broker.BrokerKill(broker.SingletonDeps(awscredadapter.LoopholeName, nil), syscall.SIGTERM, 2*time.Second)
+		_ = os.Remove(paths.HostSingletonLock(awscredadapter.LoopholeName))
+	})
 	o.ProfileName = ""
 	doors := observeDoorways(t)
 	if rc := Run(*o); rc != 0 {

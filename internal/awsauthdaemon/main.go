@@ -28,6 +28,7 @@ package awsauthdaemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -76,8 +77,17 @@ func Main(argv []string) int {
 	awsBinary := fs.String("aws-binary", "aws", "The AWS CLI v2 executable to run")
 	selfCheckFlag := fs.Bool("self-check", false,
 		"Report configuration and mint once, printing the four keys with the secret elided")
+	settingsCheckFlag := fs.Bool("settings-check", false,
+		"Validate settings without starting the daemon or contacting AWS")
 	if err := fs.Parse(argv); err != nil {
 		return 2
+	}
+	if *settingsCheckFlag {
+		if !filepath.IsAbs(*settingsPath) {
+			return writeSettingsCheckRefusal(os.Stdout, "The AWS settings snapshot could not be read.",
+				"Check the host service settings file and run `yolo check --no-build` again.")
+		}
+		return SettingsCheck(*settingsPath, os.Stdout)
 	}
 	// A RELATIVE state path is refused before anything is created, for
 	// openaiauthdaemon's reason: the manifest substitutes an absolute {state}, so a
@@ -145,6 +155,60 @@ func Main(argv []string) int {
 	return 0
 }
 
+// SettingsCheck is a resolver-only validator. It reads the supplied frozen snapshot, runs no
+// AWS executable, performs no network/mint work, and projects typed refusals to fixed safe text.
+func SettingsCheck(settingsPath string, out io.Writer) int {
+	settings, err := awsauth.LoadSettings(settingsPath)
+	if err != nil {
+		return writeSettingsCheckRefusal(out, "The AWS settings snapshot could not be read.",
+			"Check the host service settings file and run `yolo check --no-build` again.")
+	}
+	if _, err := settings.Resolve(); err == nil {
+		return 0
+	} else {
+		var refusal *awsauth.ResolveRefusal
+		if !errors.As(err, &refusal) {
+			return writeSettingsCheckRefusal(out, "The AWS settings could not be resolved.",
+				"Correct the user-scope AWS service settings and run `yolo check --no-build` again.")
+		}
+		reason, remedy := safeSettingsRefusal(refusal.Kind)
+		return writeSettingsCheckRefusal(out, reason, remedy)
+	}
+}
+
+func safeSettingsRefusal(kind awsauth.ResolveRefusalKind) (string, string) {
+	scope := "loopholes.aws-auth.settings"
+	switch kind {
+	case awsauth.RefusalMissingProfile:
+		return "No AWS profile is configured.", "Set " + scope + ".profile in ~/.config/yolo-jail/config.jsonc."
+	case awsauth.RefusalMissingNarrowing:
+		return "No AWS credential mode is configured.", "Set " + scope + ".role_arn (optionally with " + scope +
+			".session_policy) to add restrictions, or explicitly set " + scope +
+			".unnarrowed to true to use the assigned permission set as configured in ~/.config/yolo-jail/config.jsonc."
+	case awsauth.RefusalPolicyWithoutRole:
+		return "A session policy is configured without a role to assume.", "Set " + scope +
+			".role_arn in ~/.config/yolo-jail/config.jsonc, or remove the session policy."
+	case awsauth.RefusalConflictingNarrowing:
+		return "AWS narrowing settings conflict.", "Choose either a role-based narrowing or " + scope +
+			".unnarrowed in ~/.config/yolo-jail/config.jsonc."
+	case awsauth.RefusalInvalidPolicy:
+		return "The AWS session policy is not valid JSON.", "Correct " + scope +
+			".session_policy in ~/.config/yolo-jail/config.jsonc."
+	default:
+		return "The AWS settings were refused.", "Correct the user-scope AWS service settings and run `yolo check --no-build` again."
+	}
+}
+
+func writeSettingsCheckRefusal(out io.Writer, reason, remedy string) int {
+	message, _ := json.Marshal(struct {
+		Reason string `json:"reason"`
+		Remedy string `json:"remedy"`
+	}{reason, remedy})
+	_, _ = out.Write(message)
+	_, _ = out.Write([]byte("\n"))
+	return 1
+}
+
 // spawnOptions is what prepare needs, named rather than passed as six strings.
 type spawnOptions struct {
 	SettingsPath string
@@ -166,13 +230,21 @@ type spawnOptions struct {
 func prepare(opts spawnOptions, log io.Writer) (awsauth.Broker, int) {
 	settings, err := awsauth.LoadSettings(opts.SettingsPath)
 	if err != nil {
-		fmt.Fprintln(log, "yolo-aws-auth:", err)
+		refuseStartup(log, "configuration", "The AWS settings file could not be read.",
+			"Check the user-scope AWS service settings file and run `yolo check --no-build` again.")
 		return awsauth.Broker{}, 2
 	}
 	// STEP 2'S REFUSAL, at spawn, naming the key. Absence is never un-narrowed.
 	config, err := settings.Resolve()
 	if err != nil {
-		fmt.Fprintln(log, "yolo-aws-auth: refusing to serve —", err)
+		var refusal *awsauth.ResolveRefusal
+		if errors.As(err, &refusal) {
+			reason, remedy := safeSettingsRefusal(refusal.Kind)
+			refuseStartup(log, "configuration", reason, remedy)
+		} else {
+			refuseStartup(log, "configuration", "The AWS settings were refused.",
+				"Correct the user-scope AWS service settings and run `yolo check --no-build` again.")
+		}
 		return awsauth.Broker{}, 2
 	}
 
@@ -182,10 +254,8 @@ func prepare(opts spawnOptions, log io.Writer) (awsauth.Broker, int) {
 	// for why this is a spawn refusal and not a manifest probe.
 	if out := opts.Runner(context.Background(),
 		[]string{opts.AWSBinary, "--version"}); !out.Spawned {
-		fmt.Fprintln(log, "yolo-aws-auth: cannot run the `aws` CLI ("+opts.AWSBinary+"): "+
-			"install AWS CLI v2 on the HOST. This loophole depends on it and deliberately does "+
-			"not probe for it in its manifest — a loophole that vanishes when its program is "+
-			"missing is worse than one that says so.")
+		refuseStartup(log, "dependency", "The AWS CLI v2 is not available on the host.",
+			"Install AWS CLI v2 on the host, then retry the launch.")
 		return awsauth.Broker{}, 1
 	}
 
@@ -196,6 +266,13 @@ func prepare(opts spawnOptions, log io.Writer) (awsauth.Broker, int) {
 		Config:    config,
 		Minter:    awsauth.Minter{Run: opts.Runner, Binary: opts.AWSBinary},
 	}, 0
+}
+
+func refuseStartup(log io.Writer, class, reason, remedy string) {
+	_ = hostservice.WriteStartupReasonFromEnv(hostservice.StartupReason{
+		Class: class, Reason: reason, Remedy: remedy,
+	})
+	fmt.Fprintf(log, "yolo-aws-auth: refusing to serve — %s Fix: %s\n", reason, remedy)
 }
 
 // modelListSourceFor is the `bedrock-models` action's source for broker: its cache beside the
@@ -222,24 +299,24 @@ func serveSockets(handler hostservice.Handler, frontedSocket, hostSocket string,
 	return err
 }
 
-// reportStartup writes what this daemon resolved: the profile, the narrowing, the
-// SSO config form (so the LOGIN CADENCE a user is signing up for is visible rather
-// than discovered — §8), and the un-narrowed disclosure when it applies.
+// reportStartup writes what this daemon resolved: the profile and any narrowing mode
+// (the explicitly configured permission-set mode is reserved for requested inspection),
+// plus the SSO config form (so the LOGIN CADENCE is visible rather than discovered — §8).
 //
 // It goes to stderr, which the run pipeline redirects to
 // ~/.local/share/yolo-jail/logs/host-service-aws-auth.log and names in every
 // warning it prints about this service.
 func reportStartup(w io.Writer, config awsauth.Config, configPath string) {
-	fmt.Fprintf(w, "aws-auth: serving AWS profile %q; narrowing: %s\n",
-		config.Profile, config.Narrowing.Describe())
+	fmt.Fprintf(w, "aws-auth: serving AWS profile %q", config.Profile)
+	if config.Narrowing.Kind != awsauth.NarrowNone {
+		fmt.Fprintf(w, "; narrowing: %s", config.Narrowing.Describe())
+	}
+	fmt.Fprintln(w)
 	form, err := awsauth.DetectForm(configPath, config.Profile)
 	if err != nil {
 		fmt.Fprintf(w, "aws-auth: could not read %s: %v\n", configPath, err)
 	} else {
 		fmt.Fprintf(w, "aws-auth: %s form — %s\n", form, form.Cadence())
-	}
-	if line := config.Narrowing.DisclosureLine(config.Profile); line != "" {
-		fmt.Fprintln(w, line)
 	}
 }
 
@@ -325,12 +402,6 @@ func SelfCheck(opts SelfCheckOptions, out io.Writer) int {
 		config.Narrowing.Describe())
 	if form, formErr := awsauth.DetectForm(opts.ConfigPath, config.Profile); formErr == nil {
 		fmt.Fprintf(out, "OK: %s form — %s\n", form, form.Cadence())
-	}
-	// A WIDENING IS A NOTE, not a pass. It is the one line `yolo check` should
-	// surface every time (OQ-SSO1's "disclosed at every launch"), and a warn is how
-	// this report says "working as configured, and you should know".
-	if line := config.Narrowing.DisclosureLine(config.Profile); line != "" {
-		fmt.Fprintln(out, "NOTE: "+line)
 	}
 
 	broker := awsauth.Broker{

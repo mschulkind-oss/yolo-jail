@@ -61,6 +61,10 @@ type keeperPlan struct {
 	// Services are the loopholes whose host daemons the launch disclosed the start of
 	// (plannedLoopholeNames). The keeper starts none it does not find here.
 	Services []string `json:"services"`
+	// Settings are the exact frozen settings-check inputs resolved by the launching yolo. The
+	// keeper publishes these bytes after the launch's disclosure instead of rereading config.
+	Settings         map[string][]byte `json:"settings,omitempty"`
+	SettingsPrepared bool              `json:"settings_prepared,omitempty"`
 	// Payload is the launch's jail-daemon payload (jailDaemonsFor), which the launch check reads
 	// to know whose jail daemon this launch serves.
 	Payload []loopholes.JailDaemonSpec `json:"payload"`

@@ -532,32 +532,29 @@ func TestHostEnvNamesTheLaunchThatOpensTheDoorway(t *testing.T) {
 	}
 }
 
-// A HOST SERVICE THAT DOES NOT START IS WORDED FOR THE HOST. The doorway still opens and answers
-// each request with the reason (HS-D19), so the launch goes ahead; what it and the doorway say
-// must name the agent this launch runs, not a jail there is none of, and must not ask whether a
-// loophole is enabled that is. The settings name a profile and no narrowing, which the aws-auth
-// service refuses at spawn (its own tests pin that refusal), so no `aws` decides the result.
+// A HOST SERVICE WHOSE SETTINGS ARE REFUSED STOPS THE HOST LAUNCH, WORDED FOR THE HOST. The
+// settings name a profile and no permission mode, which aws-auth's pure settings validator refuses
+// before anything starts (host-service-startup-diagnostics.md §3.2): the launch is refused with
+// the pack's cause and remedy and the host check to run next, opens no doorway, and says nothing
+// about a jail there is none of. No `aws` runs, so no AWS state decides the result.
 func TestHostWordsAFailedDoorwayServiceForTheHost(t *testing.T) {
 	cfg := `{"packs": ["pi"], "profile": {"pi": "bedrock"}, "providers": {"bedrock": {"region": "eu-west-1"}}, ` +
 		`"loopholes": {"aws-auth": {"enabled": true, "settings": {"profile": "` + doorwayProfile + `"}}}}`
 	l := runDoorwayLaunch(t, cfg, nil, nil, "pi")
-	if l.rc != 0 || len(l.started) != 1 {
-		t.Fatalf("rc = %d, started %d: a doorway whose service refused still opens and answers "+
-			"with the reason\n%s", l.rc, len(l.started), l.errs)
+	if l.rc == 0 || len(l.started) != 0 {
+		t.Fatalf("rc = %d, started %d: a host launch whose service settings are refused must stop "+
+			"before opening a doorway\n%s", l.rc, len(l.started), l.errs)
 	}
-	for _, not := range []string{"in-jail", "the jail cannot reach it"} {
-		if strings.Contains(l.errs, not) {
-			t.Errorf("a host launch's service failure says %q:\n%s", not, l.errs)
+	for _, want := range []string{"refused startup (configuration)", "No AWS credential mode is configured",
+		"Remedy:", "yolo check --no-build", "retry"} {
+		if !strings.Contains(l.errs, want) {
+			t.Errorf("the refusal must say %q:\n%s", want, l.errs)
 		}
 	}
-	if want := "pi cannot reach it"; !strings.Contains(l.errs, want) {
-		t.Errorf("the failure must say %q:\n%s", want, l.errs)
-	}
-	msg, _ := l.report.Body["Message"].(string)
-	if strings.Contains(msg, "this jail") || strings.Contains(msg, "is the `aws-auth` loophole enabled") ||
-		!strings.Contains(msg, "did not start") {
-		t.Errorf("the doorway's answer must say its host service did not start, with no jail and "+
-			"no question about an enabled loophole: %q", msg)
+	for _, not := range []string{"in-jail", "the jail cannot reach it", doorwayProfile} {
+		if strings.Contains(l.errs, not) {
+			t.Errorf("a host launch's settings refusal says %q:\n%s", not, l.errs)
+		}
 	}
 }
 

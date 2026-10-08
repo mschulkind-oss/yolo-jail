@@ -223,6 +223,7 @@ func TestJailBriefingDeliversBothOfAPacksTwoProseFiles(t *testing.T) {
 // refused naming both — and its one-contribution spelling (silence: every agent) composes each
 // file exactly once into every destination.
 func TestJailBriefingComposesIdenticalProseOnce(t *testing.T) {
+	strictPackloadReads(t)
 	home := packHome(t)
 	packDir := filepath.Join(t.TempDir(), "twice")
 	if err := os.MkdirAll(filepath.Join(packDir, "briefing"), 0o755); err != nil {

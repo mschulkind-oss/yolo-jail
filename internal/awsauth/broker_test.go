@@ -163,8 +163,8 @@ func TestACredentialInsideTheRemintWindowIsRemintedRatherThanServed(t *testing.T
 
 // TestACacheEntryFromADifferentNarrowingIsAMiss is the guard the narrowing digest
 // exists for. Removing the digest comparison in warm() makes this fail by serving a
-// WIDER credential to a narrower configuration — the one outcome this feature cannot
-// afford, since the narrowing is the only defence the endpoint has.
+// WIDER credential to a different mode — a cache entry is usable only under the configuration
+// that minted it, regardless of whether that mode adds an extra role/session-policy restriction.
 func TestACacheEntryFromADifferentNarrowingIsAMiss(t *testing.T) {
 	var calls atomic.Int32
 	wide, now := testBroker(t, unnarrowed("p"), nil)

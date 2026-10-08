@@ -773,14 +773,15 @@ needs code of its own, and the wire bridge's SigV4 signer reads the same pointer
 Everything goes in the **user** config. Each setting is declared `scope: "user"` and a
 workspace value is refused, because a workspace `yolo-jail.jsonc` is a file the jail's own agent
 can rewrite. A user enables the loophole, which ships off, and gives it a profile and a
-narrowing:
+permission mode:
 
 - `profile` is the host AWS profile the service resolves: the one `aws sso login --profile`
   logs in.
 - `role_arn` is a role the service assumes before serving, optionally with `session_policy`,
   an inline IAM policy attached to that `AssumeRole`.
-- `unnarrowed: true` serves the profile's permission set as it is. It is the one setting that
-  widens, and it is a bool so that no misspelling can grant.
+- `unnarrowed: true` uses the configured profile's permission set as-is, without an extra
+  AssumeRole or session policy. This is a supported route when that assigned permission set is
+  the intended authority; it is a bool so that no misspelling can select it.
 
 Then an agent selects a Bedrock provider, a provider whose `platform` is `aws-bedrock`: the
 shipped `bedrock` profile (`yolo -p bedrock -- claude`, or `-p <agent>=bedrock` for another
@@ -844,8 +845,9 @@ its own, so the credential's short life is invisible to the agent.
 > [!WARNING]
 > **Inside the jail the caller token is not a boundary.** It sits in the selecting agent's env
 > file, which any process running as the jail's user can read, and anything that reads it can
-> `GET` the same credential. So the narrowing is the only defense inside the jail, which is why
-> the service will not start without one.
+> `GET` the same credential. AWS still enforces the permissions configured for the profile or
+> assumed role; the credential's same-user availability does not grant actions beyond those
+> permissions. Choose the permission mode appropriate to the jail's work.
 
 #### A nested jail uses its launching jail's pointer
 
@@ -855,7 +857,7 @@ yolo launches a podman jail from inside a jail whose environment carries both
 `AWS_CONTAINER_CREDENTIALS_FULL_URI` and `AWS_CONTAINER_AUTHORIZATION_TOKEN`, it starts neither
 the host service nor the adapter. It hands those two values to the nested agents whose provider is
 a Bedrock one, in place of the pointer it would have composed. It prints one line:
-`aws-auth: the nested jail uses this jail's own Bedrock credentials (narrowed by the host; no
+`aws-auth: the nested jail uses this jail's own Bedrock credentials (selected by the host; no
 daemon started)`. This works because a podman launched inside a container shares that
 container's network namespace (`--net=host`), so the launching jail's adapter answers on the
 nested jail's loopback too. Everywhere else the launch is the ordinary one, and so is its refusal
@@ -863,9 +865,9 @@ when no service can mint: a launch from the host, another backend, or a launchin
 environment lacks either variable.
 
 - **Never broader than the launching jail.** The nested agent fetches the launching jail's own
-  credential, which the host narrowed for it. The nested config's `profile`, `role_arn`,
-  `session_policy` and `unnarrowed` are not applied, so a nested config cannot widen what it
-  gets.
+  credential, under the same profile/role permission mode the host selected. The nested config's
+  `profile`, `role_arn`, `session_policy` and `unnarrowed` are not applied, so it cannot change
+  the credential or request a broader mode.
 - **The region comes with the credential when the parent supplies a valid one.** A nested agent
   whose provider names no region, and that receives no region variable, gets the launching jail's
   `AWS_REGION` (or `AWS_DEFAULT_REGION`) when it is a valid region; that valid parent value bypasses
@@ -873,10 +875,10 @@ environment lacks either variable.
   missing or empty, the existing region-file fallback still reads `~/.aws/config`. A non-empty but
   invalid parent region remains stranded by the existing rule: the file is not used in its place,
   and the region pre-flight reports the problem.
-- **No model list is fetched.** The narrowed credential cannot list Bedrock's models, so the
-  [fetched model list](../design/model-lists-and-pickers.md#OQ-MM6) fails as a real fetch failure
-  does: an agent that has a list of its own keeps it, and one that needs a fetched list is
-  refused with the reason and the ways to supply one.
+- **Model-list access follows the inherited AWS permission.** A nested agent's model-list request
+  is made with the same inherited credential, not with a host-only credential. If the selected
+  profile/role policy does not permit the required listing action, the fetch fails as a normal
+  AWS authorization error; if it does, this credential route does not remove that permission.
 
 The declaration is the loophole manifest's `inherit_from_parent_jail` block, which names the
 variables that carry the pointer and the launch line. Core names no AWS variable for it. The
@@ -889,7 +891,7 @@ a credentials request or any Bedrock/model API call. The permanent macos-user do
 test injects parent-pointer sentinels and checks the backend opens its own doorway; its hosted-Mac
 execution remains pending.
 
-#### The narrowing
+#### Permission modes
 
 The service serves one of three arms, chosen by the settings:
 
@@ -897,20 +899,26 @@ The service serves one of three arms, chosen by the settings:
 | :--- | :--- | :--- |
 | `role_arn` | `AssumeRole` from the SSO session, with no additional session policy | what that role's own policy allows |
 | `role_arn` and `session_policy` | the same `AssumeRole`, with the inline policy attached | the intersection of the role's policy and the session policy, which can narrow inside Bedrock to named actions |
-| `unnarrowed: true` | no `AssumeRole`: the profile's own credentials, as the `aws` CLI resolves them | whatever the profile's permission set grants |
+| `unnarrowed: true` | no `AssumeRole`: the configured profile's credentials, as the `aws` CLI resolves them | whatever that profile's assigned permission set grants |
 
 An SSO session is already a role session, so both `AssumeRole` arms are **role chaining**, and
 STS caps a chained session at one hour whatever the role's own maximum says. The re-minting
 above makes that cap cost nothing. The cache is keyed by profile, so one service serves several
 AWS identities. Each entry records the arm that minted it, so an entry minted under a different
-narrowing is a miss rather than a wider credential served.
+mode is a miss rather than a credential served under stale settings.
 
-**An un-narrowed service is disclosed at every launch.** The `unnarrowed` setting declares a
-`disclose` sentence, and the launch prints it on stderr as `loophole aws-auth: …` whenever the
-resolved value is true. The launch prints any bool setting's `disclose` sentence the same way,
-and knows no loophole's name. The service also prints its own disclosure when it starts, and its
-self-check, which `yolo check` runs, reports it as a `NOTE` rather than a pass. No flag hides the
-launch line ([`OQ-RO3`](report-tiers.md#why-its-this-way)).
+In organizations that activate IAM-principal cost allocation, AWS documents using federated
+session attributes to distinguish users sharing a role. Using the current profile session without
+an additional role hop can preserve that existing attribution context. A role-based route has its
+own tag-propagation behavior: do not assume tags are universally lost or retained without checking
+the actual role-chain configuration. See AWS's [Bedrock IAM-principal tracking guidance](https://docs.aws.amazon.com/bedrock/latest/userguide/cost-mgmt-iam-principal-tracking.html)
+and [IAM-principal cost-allocation dimensions](https://docs.aws.amazon.com/awsaccountbilling/latest/aboutv2/iam-principal-cost-allocation.html).
+
+The profile-permissions-as-configured choice is valid, healthy configuration, not a routine
+launch warning. Its explicit user-only opt-in, false default, and conflict checks are unchanged.
+Selected-pack host read/exec trust banners and actual settings, credential, or runtime failure
+diagnostics remain disclosed. `yolo check` and ordinary host-service logs can identify the
+configured mode when a user asks to inspect it without grading it as a warning.
 
 #### What refuses the launch, and what only warns
 
@@ -1240,7 +1248,7 @@ Rulings a future change would otherwise undo, kept with their original IDs.
 | <a id="oa-d1"></a>[`OA-D1`](#oa-d1) (OpenAI), decided 2026-10-01: **opencode gets Pi's view, and yolo's plugin replaces opencode's request `fetch` on that entry** | opencode's refresh address is hard-coded and no config or variable moves it (read from opencode 1.18.34's source, not run), so the only way to keep it from redeeming is to own the fetch. MEASURED by unit tests only; no opencode session has sent a request on the subscription. |
 | **`env_sources` over the settings `env` block, as shipped** | The `env` block is the right long-term target — it is the one channel that renders at *both* the jail and host notches — but nothing shipped uses it for a secret today, and a doc that said otherwise was measured wrong against a live jail. State the mechanism that runs. |
 | **MCP `${VAR}` is passed through verbatim** | An interpolated secret entered the file without passing through any provenance layer, and sourced config content from process env at render time. Resolution one step later, by the consumer, loses nothing. |
-| **[OQ-SSO1](../design/sso-backed-bedrock.md#13-decision-ledger), [OQ-SSO10](../design/sso-backed-bedrock.md#OQ-SSO10)**: `aws-auth` requires a narrowing, serves un-narrowed only when asked by name, and discloses that at every launch through a declared `disclose` sentence | Any process in the jail can read the served credential, so the narrowing is the only defense there. A default that widened could not be tightened later without breaking working setups. The service is a singleton, so its own spawn line prints once and then serves every later launch in silence; and a launch that tested the loophole's name would be a switch on a tool name in the one loop that renders every pack. |
+| **[OQ-SSO1](../design/sso-backed-bedrock.md#13-decision-ledger), [OQ-SSO10](../design/sso-backed-bedrock.md#OQ-SSO10)**: explicit user-only permission-mode choice; `unnarrowed: true` is false by default and valid when the assigned profile permissions are intended. The 2026-10-07 owner ruling supersedes the older per-launch notice requirement: no unnarrowed-only launch warning is printed | The credential is available to same-user processes in the jail, while AWS policies on the selected profile or role still define its permitted actions. Explicit opt-in preserves the distinction between omission and this route; role/session-policy restriction remains optional. Repeated mode notices obscure failures, so the valid mode is not an alarm. Generic pack disclosures, selected-pack trust banners and actual configuration/credential/runtime failures remain visible. |
 | **[§8](../design/sso-backed-bedrock.md#8-behaviour-this-design-specifies), [SSO-D1](../design/sso-backed-bedrock.md#SSO-D1)**: a session that is missing, lapsed or for a profile the host lacks is a launch WARNING, never a refusal, asked through a declared `launch_check` | The human may be about to log in, and a jail that will not start is worse than a first request that fails clearly. The launch asks the daemon rather than probing AWS itself so the words are the one classifier's, and it asks by declaration because a test of the loophole's name would be a switch on a tool name in the loop that renders every pack. |
 | **[OQ-SSO2](../design/sso-backed-bedrock.md#13-decision-ledger)**: one `aws-auth` service per machine, its cache keyed by profile | The mint is the slow step and a fetch has about a second, so a warm shared cache is what keeps fetches inside the budget. Keying by profile keeps a distinct AWS identity per jail without a second daemon. |
 | **[OQ-SSO4](../design/sso-backed-bedrock.md#13-decision-ledger)**: the profile, role and session policy are user-scope settings only | The workspace config is writable from inside the jail, so a workspace value would let the agent choose its own profile or swap the narrowing for one of its own. |

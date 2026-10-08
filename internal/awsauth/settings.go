@@ -27,14 +27,11 @@ import (
 // reads an environment variable, and never takes any of the three from a request: the
 // jail does not get to name the profile, role or policy it wants.
 //
-// # Absence never means un-narrowed
+// # No credential mode is inferred from absence
 //
-// OQ-SSO1: a narrowing scope is REQUIRED by default and un-narrowed is available only
-// when asked for BY NAME. That is a property of the key names as much as of the code —
-// every key here defaults to the zero that refuses, and the one key that widens is a
-// BOOL, for the reason packs/journal's manifest states at length: the settings type set
-// is closed with no `enum`, so core cannot refuse a misspelled string, and a typo must
-// never be the spelling that grants. A bool cannot spell itself wrong.
+// OQ-SSO1: the role/session-policy arms are optional additional restrictions, and the
+// explicitly selected profile-permissions-as-configured arm is available only when asked
+// for BY NAME. That choice remains user-scope-only and never follows from omission.
 
 // Setting key names, as declared in the loophole manifest under
 // `loopholes.aws-auth.settings`. Spelled as constants because the refusals below
@@ -47,8 +44,9 @@ const (
 	SettingRoleARN = "role_arn"
 	// SettingSessionPolicy is the inline session policy JSON the N2 arm attaches.
 	SettingSessionPolicy = "session_policy"
-	// SettingUnnarrowed is the ONE widening key: serve the permission set as-is.
-	// Bool, default false, disclosed at every launch when true.
+	// SettingUnnarrowed is the explicit user-only choice to use the assigned profile's
+	// permission set as configured, without an extra AssumeRole or session policy.
+	// Bool, default false, so absence never selects this route.
 	SettingUnnarrowed = "unnarrowed"
 )
 
@@ -125,23 +123,6 @@ func (n Narrowing) Digest() string {
 	return Fingerprint(string(n.Kind) + "\x00" + n.RoleARN + "\x00" + n.SessionPolicy)
 }
 
-// DisclosureLine is the one line a launch prints when this service will serve
-// UN-NARROWED credentials, and "" when it will not.
-//
-// OQ-SSO1's second half: "the explicit setting is disclosed at every launch". A
-// widening that is silent after the first read is a widening nobody re-consents to,
-// which is why this is a function of the RESOLVED values rather than a comment in a
-// manifest. The daemon prints it at spawn and grades it as a NOTE in its self-check;
-// a launch-side caller has the resolved values in hand in writeLoopholeSettings.
-func (n Narrowing) DisclosureLine(profile string) string {
-	if n.Kind != NarrowNone {
-		return ""
-	}
-	return fmt.Sprintf("aws-auth: serving UN-NARROWED credentials for profile %q — the jail "+
-		"holds whatever that permission set grants (%s is true)",
-		profile, settingsScope(SettingUnnarrowed))
-}
-
 // Describe is the one-line summary of what is in force, for a startup line and for
 // the self-check. It names no secret and no policy body.
 func (n Narrowing) Describe() string {
@@ -165,36 +146,51 @@ type Config struct {
 	Narrowing Narrowing
 }
 
+type ResolveRefusalKind string
+
+const (
+	RefusalMissingProfile       ResolveRefusalKind = "missing-profile"
+	RefusalPolicyWithoutRole    ResolveRefusalKind = "policy-without-role"
+	RefusalConflictingNarrowing ResolveRefusalKind = "conflicting-narrowing"
+	RefusalInvalidPolicy        ResolveRefusalKind = "invalid-policy"
+	RefusalMissingNarrowing     ResolveRefusalKind = "missing-narrowing"
+)
+
+// ResolveRefusal keeps the machine-readable cause separate from its legacy detailed error text.
+// Pack diagnostics must project Kind to fixed safe text rather than forwarding Error().
+type ResolveRefusal struct {
+	Kind    ResolveRefusalKind
+	Message string
+}
+
+func (r *ResolveRefusal) Error() string { return r.Message }
+
 // Resolve turns settings into a servable Config, or REFUSES and says which key to
 // write. Every refusal names a full config path, because the person reading it is
 // about to edit a file.
 //
 // # This is the step the design calls expensive if late
 //
-// Requiring the narrowing is cheap now and breaking later: a default that served
-// un-narrowed credentials and was tightened afterwards would break every setup that
-// had come to depend on it, so the widening has to be explicit from the first
-// release. Read the refusals in that order — the absent case is the one that matters.
+// The permission mode is explicit now rather than a changed default later: the user chooses
+// whether to add role/session-policy restrictions or use the profile permissions as configured.
+// Read the refusals in that order — the absent case is the one that matters.
 func (s Settings) Resolve() (Config, error) {
 	profile := strings.TrimSpace(s.Profile)
 	if profile == "" {
-		return Config{}, fmt.Errorf("no AWS profile is configured: set %s in your USER config "+
+		return Config{}, &ResolveRefusal{Kind: RefusalMissingProfile, Message: fmt.Sprintf("no AWS profile is configured: set %s in your USER config "+
 			"(~/.config/yolo-jail/config.jsonc) to the profile this service should resolve. It is "+
 			"user-scope on purpose — a workspace yolo-jail.jsonc is a file the jail's own agent can "+
-			"rewrite", settingsScope(SettingProfile))
+			"rewrite", settingsScope(SettingProfile))}
 	}
 	role := strings.TrimSpace(s.RoleARN)
 	policy := strings.TrimSpace(s.SessionPolicy)
 
-	// A POLICY WITH NOTHING TO ATTACH IT TO is refused rather than ignored. An
-	// inline session policy is an argument to AssumeRole; with no role there is no
-	// call to attach it to, so honouring the half that parsed would serve a credential
-	// the user believes is policy-narrowed and is not.
+	// A policy without a role would be silently unused. Refuse it rather than
+	// suggesting that it narrowed the credential when no AssumeRole call can attach it.
 	if policy != "" && role == "" {
-		return Config{}, fmt.Errorf("%s is set but %s is not: an inline session policy is an "+
-			"argument to AssumeRole, so without a role there is nothing to attach it to and the "+
-			"credential would be served un-narrowed",
-			settingsScope(SettingSessionPolicy), settingsScope(SettingRoleARN))
+		return Config{}, &ResolveRefusal{Kind: RefusalPolicyWithoutRole, Message: fmt.Sprintf("%s is set but %s is not: an inline session policy is an "+
+			"argument to AssumeRole, so without a role there is nothing to attach it to",
+			settingsScope(SettingSessionPolicy), settingsScope(SettingRoleARN))}
 	}
 
 	// BOTH ARMS AT ONCE cannot be resolved in the direction that grants. Preferring
@@ -202,18 +198,18 @@ func (s Settings) Resolve() (Config, error) {
 	// narrower (confusing); preferring un-narrowed would silently discard a narrowing
 	// they configured (unsafe). Neither is a guess worth making.
 	if s.Unnarrowed && role != "" {
-		return Config{}, fmt.Errorf("%s is true AND %s is set — drop one: the role is a narrowing "+
+		return Config{}, &ResolveRefusal{Kind: RefusalConflictingNarrowing, Message: fmt.Sprintf("%s is true AND %s is set — drop one: the role is a narrowing "+
 			"and %s asks for none, so which wins is not something this service should guess",
 			settingsScope(SettingUnnarrowed), settingsScope(SettingRoleARN),
-			settingsScope(SettingUnnarrowed))
+			settingsScope(SettingUnnarrowed))}
 	}
 
 	switch {
 	case role != "" && policy != "":
 		if err := validPolicyJSON(policy); err != nil {
-			return Config{}, fmt.Errorf("%s is not a JSON policy document: %w — STS would refuse "+
+			return Config{}, &ResolveRefusal{Kind: RefusalInvalidPolicy, Message: fmt.Sprintf("%s is not a JSON policy document: %v — STS would refuse "+
 				"every mint, so this is refused at spawn instead",
-				settingsScope(SettingSessionPolicy), err)
+				settingsScope(SettingSessionPolicy), err)}
 		}
 		return Config{Profile: profile, Narrowing: Narrowing{
 			Kind: NarrowSessionPolicy, RoleARN: role, SessionPolicy: policy,
@@ -223,14 +219,13 @@ func (s Settings) Resolve() (Config, error) {
 	case s.Unnarrowed:
 		return Config{Profile: profile, Narrowing: Narrowing{Kind: NarrowNone}}, nil
 	default:
-		// THE REFUSAL OQ-SSO1 IS. Absence is never un-narrowed.
-		return Config{}, fmt.Errorf("no narrowing is configured for AWS profile %q: set %s to a "+
-			"role this service should assume (add %s to narrow inside Bedrock), or set %s to true "+
-			"to serve that permission set as-is. Serving it as-is is available and is never the "+
-			"default: a credential this service mints is readable by every process in the jail, so "+
-			"the narrowing is the only defence and it has to be asked for",
+		// OQ-SSO1: absence never selects the profile-permissions-as-configured route.
+		return Config{}, &ResolveRefusal{Kind: RefusalMissingNarrowing, Message: fmt.Sprintf("no AWS permission mode is configured for profile %q: set %s to a "+
+			"role this service should assume (optionally add %s to restrict it), or set %s to true "+
+			"to use the assigned permission set as configured. This choice is explicit and is never "+
+			"the default",
 			profile, settingsScope(SettingRoleARN), settingsScope(SettingSessionPolicy),
-			settingsScope(SettingUnnarrowed))
+			settingsScope(SettingUnnarrowed))}
 	}
 }
 

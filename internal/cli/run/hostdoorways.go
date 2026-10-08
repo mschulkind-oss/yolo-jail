@@ -420,6 +420,11 @@ func (d *HostDoorways) Start(cfg *jsonx.OrderedMap, workspace, agent string, std
 	o := &Options{Stdout: stderr, Stderr: stderr, Workspace: workspace, IsMacOS: paths.IsMacOS,
 		reachSubject: agent}
 	fillDefaults(o)
+	allow := func(name string) bool { return slices.Contains(launchservice.Names(d.plans), name) }
+	o.discloseSettingsCheckHostExec(d.packs, d.set, cfg, allow)
+	if !o.prepareLoopholeSettingsForStart(d.set, cfg, allow) {
+		return nil, func() {}, nil, o.startupRefusal
+	}
 	// THE EXEC DISCLOSURE BEFORE THE SPAWN (§4.3 G4: the read/exec banners are the trust
 	// boundary, and a launch has no quiet mode), for the packs whose host code this start runs:
 	// the ones shipping the doorways it opens, whose claims name both the host service and the
@@ -428,10 +433,16 @@ func (d *HostDoorways) Start(cfg *jsonx.OrderedMap, workspace, agent string, std
 	// Narrowed to the loopholes this start runs, the doorways' own services (the allow the spawn
 	// below is handed), so another loophole those packs ship is not announced.
 	names := launchservice.Names(d.plans)
-	o.notePackHostExec(d.packs, func(name string) bool { return slices.Contains(names, name) })
+	o.notePackHostExec(d.packs, func(name string) bool {
+		return slices.Contains(names, name) && !o.hostExecDisclosed[name]
+	})
 	handles := o.startLoopholesMatching(d.set, runtime.FromWorkspace(workspace), hostNotchRuntime, cfg,
-		func(name string) bool { return slices.Contains(names, name) })
+		allow)
 	stopServices := func() { o.endServicesSession(handles) }
+	if o.startupRefusal != nil {
+		stopServices()
+		return nil, func() {}, lines, o.startupRefusal
+	}
 	// A HOST-WIDE DAEMON THAT PREDATES THE PREAMBLE REFUSES THIS LAUNCH TOO (HD-D5 (3)): its doorway
 	// would forward every request through a front it misreads, so the agent would start without the
 	// service. This notch asks no launch check, so the preamble is the only half of the jail

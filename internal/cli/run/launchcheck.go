@@ -27,11 +27,9 @@ import (
 // `host_daemon.launch_check` (internal/loopholedecl). After the host services start, the launch
 // asks each daemon that declares it what this launch should warn about, and prints the answer.
 //
-// KEYED ON THE DECLARATION, never on a loophole's name, as the un-narrowed disclosure is
-// (loopholesettings.go, docs/design/sso-backed-bedrock.md OQ-SSO10): the launch path renders
-// every loophole with no switch on a tool name (AGENTS.md). Its first declarer is aws-auth,
-// whose daemon answers with the mint failure that would fail the agent's first Bedrock request
-// (design §8, "the launch warns with the `aws sso login` command and proceeds"; SSO-D1).
+// It is keyed on each daemon's `host_daemon.launch_check` declaration, never on a
+// loophole's name. A healthy configuration is silent here; current service failures and
+// indeterminate checks are rendered from this attempt's bounded response.
 //
 // # Who is asked
 //
@@ -199,7 +197,30 @@ type olderDaemon struct {
 // olderDaemonRefusal is the refusal of a fresh launch whose host-wide daemons predate this yolo
 // (see the file comment): each by loophole name, in the order they started.
 type olderDaemonRefusal struct {
-	older []olderDaemon
+	older   []olderDaemon
+	startup *hostStartupRefusal
+}
+
+// hostStartupRefusal is an attempt-attributed configuration refusal from an opted-in daemon.
+type hostStartupRefusal struct {
+	name   string
+	class  string
+	reason string
+	remedy string
+}
+
+func (r *hostStartupRefusal) Error() string {
+	if r == nil {
+		return ""
+	}
+	text := "host service '" + r.name + "' refused startup (" + r.class + "): " + r.reason
+	if r.remedy != "" {
+		text += "\nRemedy: " + r.remedy
+	}
+	if !strings.Contains(text, "yolo check --no-build") {
+		text += "\nCorrect the settings, run `yolo check --no-build`, then retry the launch."
+	}
+	return text
 }
 
 // olderDaemonsIn is the refusal for the daemons in started that lacks names, in start order, or
@@ -240,6 +261,9 @@ func preambleLacks(started []loopholeDaemon) map[string]string {
 // text is the refusal after its headline: the daemons, that they predate this yolo and what each
 // lacks, the one command line that restarts them, and that the jails already running survive it.
 func (r *olderDaemonRefusal) text() string {
+	if r.startup != nil {
+		return r.startup.Error()
+	}
 	quoted := make([]string, len(r.older))
 	cmds := make([]string, len(r.older))
 	for i, d := range r.older {

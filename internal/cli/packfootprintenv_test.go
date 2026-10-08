@@ -15,7 +15,7 @@ import (
 
 // TestPackFootprintAWSAuthGolden is the golden for the shipped aws-auth pack's footprint:
 // each env line once, carrying its gate, the loophole with its host argvs (the host daemon, its
-// self-check, and the doorway a macos-user launch opens outside its sandbox), and the three
+// settings check, its self-check, and the doorway a macos-user launch opens outside its sandbox), and the three
 // `overridden_by` lines, the ~/.aws one worded as a warning (its entry is `certain: false`).
 func TestPackFootprintAWSAuthGolden(t *testing.T) {
 	var out, errw bytes.Buffer
@@ -31,6 +31,7 @@ func TestPackFootprintAWSAuthGolden(t *testing.T) {
 		"  env            AWS_CONTAINER_CREDENTIALS_FULL_URI  =http://{listen}/credentials when the selected provider's platform is \"aws-bedrock\"\n" +
 		"  loophole       aws-auth  RUNS yolo internal daemon aws-auth --socket '{socket}' " +
 		"--state-file '{state}/credentials.json' --settings '{settings}' and yolo internal daemon " +
+		"aws-auth --settings-check --settings '{settings}' and yolo internal daemon " +
 		"aws-auth --self-check --state-file '{state}/credentials.json' --settings '{settings}' " +
 		"and yolo internal daemon aws-credential-adapter --listen '{listen}' " +
 		"on your machine ⚠ RUNS CODE ON YOUR MACHINE\n" +

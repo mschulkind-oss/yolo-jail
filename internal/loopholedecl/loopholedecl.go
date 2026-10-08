@@ -137,6 +137,9 @@ type HostDaemon struct {
 	// Cmd is the argv, RAW: {loophole_dir} is still a token, and {socket} /
 	// {endpoint} belong to the run pipeline, which substitutes them per launch.
 	Cmd []string
+	// SettingsCheck is an optional pure, directly executed validator argv. {settings}
+	// resolves to a private immutable snapshot for each validation attempt.
+	SettingsCheck []string
 	// Env is the daemon's environment, in the manifest's key order.
 	Env *EnvMap
 	// Publishes is what the daemon itself brings up: PublishesEndpoint (the
@@ -195,6 +198,8 @@ type HostDaemon struct {
 	// declares it, so a launch says when its SSO session cannot mint
 	// (docs/design/sso-backed-bedrock.md SSO-D1).
 	LaunchCheck bool
+	// StartupReason opts this daemon into one bounded, attempt-specific refusal record over fd 3.
+	StartupReason bool
 }
 
 // HostBindMount is one host path made visible in the container. Readonly
@@ -656,6 +661,9 @@ func walk(data *jsonx.OrderedMap, manifestPath, dirName string) (*Manifest, erro
 	if err != nil {
 		return nil, err
 	}
+	if hostDaemon != nil && len(hostDaemon.SettingsCheck) > 0 && len(settings) == 0 {
+		return nil, Errorf("%s: 'host_daemon.settings_check' requires at least one declared 'settings' entry", manifestPath)
+	}
 	brokered, err := parseBrokered(manifestPath, getOrNil(data, keyBrokered))
 	if err != nil {
 		return nil, err
@@ -963,6 +971,34 @@ func parseHostDaemon(manifestPath string, raw any) (*HostDaemon, error) {
 	if !isList || len(cmdList) == 0 || !AllStrings(cmdList) {
 		return nil, Errorf("%s: 'host_daemon.cmd' must be a non-empty list of strings", manifestPath)
 	}
+	var settingsCheck []string
+	if checkV, present := m.Get(keySettingsCheck); present {
+		checkList, isList := checkV.([]any)
+		if !isList || len(checkList) == 0 || !AllStrings(checkList) {
+			return nil, Errorf("%s: 'host_daemon.settings_check' must be a non-empty list of strings", manifestPath)
+		}
+		settingsCheck = StringSlice(checkList)
+		if err := refuseControlCharsIn(manifestPath, "'host_daemon.settings_check'", settingsCheck); err != nil {
+			return nil, err
+		}
+		if err := refuseJailTokenInHostField(manifestPath, "'host_daemon.settings_check'", settingsCheck); err != nil {
+			return nil, err
+		}
+		hasSettingsToken := false
+		for _, arg := range settingsCheck {
+			hasSettingsToken = hasSettingsToken || strings.Contains(arg, TokenSettings)
+		}
+		if !hasSettingsToken {
+			return nil, Errorf("%s: 'host_daemon.settings_check' must name the private snapshot with '%s'", manifestPath, TokenSettings)
+		}
+		daemonUsesSettings := false
+		for _, arg := range StringSlice(cmdList) {
+			daemonUsesSettings = daemonUsesSettings || strings.Contains(arg, TokenSettings)
+		}
+		if !daemonUsesSettings {
+			return nil, Errorf("%s: 'host_daemon.settings_check' requires 'host_daemon.cmd' to consume '%s'", manifestPath, TokenSettings)
+		}
+	}
 	env, err := parseEnvMap(manifestPath, orEmptyMapValue(getOrNil(m, keyEnv)), "'host_daemon.env' must be a mapping")
 	if err != nil {
 		return nil, err
@@ -1036,6 +1072,14 @@ func parseHostDaemon(manifestPath string, raw any) (*HostDaemon, error) {
 			"the launch check is one framed request", manifestPath,
 			pytext.Repr(RequestEndFramed), pytext.Repr(requestEnd))
 	}
+	startupReason := false
+	if rv, ok := m.Get(keyStartupReason); ok {
+		b, isBool := rv.(bool)
+		if !isBool {
+			return nil, Errorf("%s: 'host_daemon.startup_reason' must be a boolean", manifestPath)
+		}
+		startupReason = b
+	}
 	scope := ScopeJail
 	if sv, ok := m.Get(keyScope); ok {
 		scope = Str(sv)
@@ -1082,8 +1126,9 @@ func parseHostDaemon(manifestPath string, raw any) (*HostDaemon, error) {
 		}
 	}
 	return &HostDaemon{
-		Cmd: cmd, Env: env, Publishes: publishes, RequestEnd: requestEnd,
+		Cmd: cmd, SettingsCheck: settingsCheck, Env: env, Publishes: publishes, RequestEnd: requestEnd,
 		Preamble: preamble, Scope: scope, LaunchCheck: launchCheck,
+		StartupReason: startupReason,
 	}, nil
 }
 

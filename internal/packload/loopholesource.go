@@ -295,9 +295,10 @@ func moduleClaims(mod LoopholeModule, hostHalf bool) []loopholeClaim {
 	m := mod.Decl
 	var out []loopholeClaim
 
-	// The base claim: HOST EXECUTION. `doctor_cmd` folds in here rather than getting its
-	// own line because it is host execution too (RunDoctorChecks runs it from `yolo check`
-	// and `yolo loopholes status`), and one claim per program is the honest unit.
+	// The base claim: HOST EXECUTION. `doctor_cmd` and `settings_check` fold in here rather
+	// than getting their own lines because they are host execution too: the doctor runs from
+	// `yolo check` and `yolo loopholes status`, and the validator runs before publication or
+	// startup. One claim per program is the honest unit.
 	//
 	// "RUNS" and "on your machine" are SPELLED OUT rather than left to the ⚠ marker,
 	// following pluginClaimDetail's "RUNS CODE" precedent. ReviewWorthy is one boolean —
@@ -315,6 +316,9 @@ func moduleClaims(mod LoopholeModule, hostHalf bool) []loopholeClaim {
 	var runs []string
 	if m.HostDaemon != nil && len(m.HostDaemon.Cmd) > 0 {
 		runs = append(runs, shquote.Join(m.HostDaemon.Cmd))
+	}
+	if m.HostDaemon != nil && len(m.HostDaemon.SettingsCheck) > 0 {
+		runs = append(runs, shquote.Join(m.HostDaemon.SettingsCheck))
 	}
 	if len(m.DoctorCmd) > 0 {
 		runs = append(runs, shquote.Join(m.DoctorCmd))

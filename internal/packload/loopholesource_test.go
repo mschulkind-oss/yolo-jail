@@ -157,7 +157,9 @@ func TestInterceptClaimsWithNoDaemon(t *testing.T) {
 func TestDaemonClaimSpellsOutHostExecution(t *testing.T) {
 	root := writeLoopholePack(t, map[string]string{"acme-proxy": `{
 	  "name": "acme-proxy",
-	  "host_daemon": {"cmd": ["python3", "{loophole_dir}/acme-daemon.py", "--socket", "{socket}"],
+	  "settings": {"profile": {"type":"string", "scope":"user", "default":"default-profile"}},
+	  "host_daemon": {"cmd": ["python3", "{loophole_dir}/acme-daemon.py", "--socket", "{socket}", "--settings", "{settings}"],
+	                  "settings_check": ["python3", "{loophole_dir}/validate.py", "--snapshot file", "{settings}"],
 	                  "publishes": "socket"},
 	  "doctor_cmd": ["python3", "{loophole_dir}/doctor.py"]
 	}`})
@@ -167,7 +169,7 @@ func TestDaemonClaimSpellsOutHostExecution(t *testing.T) {
 			"joins the daemon's claim rather than getting its own line", claims)
 	}
 	c := claims[0]
-	for _, want := range []string{"RUNS", "on your machine", "acme-daemon.py", "doctor.py"} {
+	for _, want := range []string{"RUNS", "on your machine", "acme-daemon.py", "python3 '{loophole_dir}/validate.py' '--snapshot file' '{settings}'", "doctor.py"} {
 		if !strings.Contains(c, want) {
 			t.Errorf("base claim %q is missing %q", c, want)
 		}

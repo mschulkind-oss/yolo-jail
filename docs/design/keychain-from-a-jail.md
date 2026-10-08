@@ -692,6 +692,8 @@ is listed here for its size rather than left to the build ([§6](#6-build-order)
 | **An attach rule** ([KC-D14](#KC-D14)) | An attach rewrites every agent env file but starts no host half ([§3.5](#35-who-gets-the-bus-address)), and must not merge into a `config.json` a running Copilot may write ([§5](#5-the-fallback-copy-only-copilottokens-and-say-so)) | An attach rewrites every agent env file ([`agentenvfiles.go`](../../internal/cli/run/agentenvfiles.go#L7-L20)) and starts no loophole host daemon: it returns before the launch reaches that step ([`run.go`](../../internal/cli/run/run.go#L1448-L1455), [`run.go`](../../internal/cli/run/run.go#L1584)) |
 | **A host-side step when a jail ends**, for the login copy's harvest | [§5](#5-the-fallback-copy-only-copilottokens-and-say-so) step 3 | A pack's hooks come from a closed set and run in the jail at boot ([`packhooks.go`](../../internal/entrypoint/packhooks.go#L1-L37)). At a jail's end, the host only stops its loophole daemons |
 
+The generic [host-service startup-diagnostics design](host-service-startup-diagnostics.md) now specifies a bounded failure-only reason channel and pure settings preflight within the existing readiness window. It does **not** add `ready`/`waiting` messages or extend that window for a keychain unlock prompt. [KC-D13](#KC-D13) remains a separate, unbuilt requirement; this handoff does not make the keychain route buildable on its own.
+
 ## 4. macos-user and yolo host
 
 <a id="41-macos-user-no-seam-and-probably-no-keychain"></a>

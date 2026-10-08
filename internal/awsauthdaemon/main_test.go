@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/awsauth"
+	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 )
 
 // main_test.go covers what the daemon decides AT SPAWN, and the order it decides it
@@ -67,6 +70,108 @@ func TestMainRequiresASocketOutsideSelfCheck(t *testing.T) {
 	if rc := mainRC(t, "--state-file", absState(t)); rc != 2 {
 		t.Errorf("rc = %d, want 2", rc)
 	}
+}
+
+func TestSettingsCheckProjectsTypedRefusalsWithoutSettingsValues(t *testing.T) {
+	profile := "SENTINEL_PROFILE_DO_NOT_RENDER"
+	policyKey := "SENTINEL_POLICY_KEY_DO_NOT_RENDER"
+	policyValue := "SENTINEL_POLICY_VALUE_DO_NOT_RENDER"
+	settings := settingsFileWith(t, `{"profile":"`+profile+`","role_arn":"","session_policy":"","unnarrowed":false}`)
+	var out strings.Builder
+	if rc := SettingsCheck(settings, &out); rc == 0 {
+		t.Fatal("missing narrowing passed settings validation")
+	}
+	for _, want := range []string{"No AWS credential mode is configured", "loopholes.aws-auth.settings.role_arn", "~/.config/yolo-jail/config.jsonc", "unnarrowed"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("safe diagnostic lacks %q: %s", want, out.String())
+		}
+	}
+	for _, secret := range []string{profile, policyKey, policyValue} {
+		if strings.Contains(out.String(), secret) {
+			t.Errorf("validator output leaked %q: %s", secret, out.String())
+		}
+	}
+}
+
+func TestSettingsRefusalStartupReasonAndLaunchTextDoNotRenderAWSValues(t *testing.T) {
+	profile := "SENTINEL_AWS_PROFILE_DO_NOT_RENDER"
+	policyKey := "SENTINEL_POLICY_KEY_DO_NOT_RENDER"
+	policyValue := "SENTINEL_POLICY_VALUE_DO_NOT_RENDER"
+	policy := `{"Statement":[{"Effect":"Allow","Action":["` + policyKey + `"],"Resource":"` + policyValue + `"}]}`
+	settings := settingsFileWith(t, `{"profile":"`+profile+`","role_arn":"","session_policy":`+
+		string(mustJSON(t, policy))+`,"unnarrowed":false}`)
+	parent, child, attempt, err := hostservice.NewStartupReasonChannel()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fd, err := syscall.Dup(int(child.Fd()))
+	if err != nil {
+		_ = parent.Close()
+		_ = child.Close()
+		t.Fatal(err)
+	}
+	syscall.CloseOnExec(fd)
+	_ = child.Close()
+	defer parent.Close()
+	t.Setenv(hostservice.StartupReasonFDEnv, strconv.Itoa(fd))
+	t.Setenv(hostservice.StartupReasonAttemptEnv, attempt)
+	t.Setenv(hostservice.StartupReasonServiceEnv, "aws-auth")
+	var log strings.Builder
+	_, rc := prepare(spawnOptions{SettingsPath: settings, StatePath: absState(t),
+		AWSBinary: "/must-not-run/aws"}, &log)
+	if rc != 2 {
+		t.Fatalf("prepare returned %d, want typed configuration refusal", rc)
+	}
+	reason, err := hostservice.ReadStartupReason(parent, "aws-auth", attempt, time.Now().Add(time.Second))
+	if err != nil {
+		t.Fatalf("current AWS startup refusal record: %v", err)
+	}
+	if !strings.Contains(reason.Reason, "session policy is configured without a role") ||
+		!strings.Contains(reason.Remedy, "loopholes.aws-auth.settings.role_arn") {
+		t.Fatalf("AWS refusal projection lost its safe reason or setting remedy: %+v", reason)
+	}
+	rendered := reason.Reason + " " + reason.Remedy + " " + log.String()
+	for _, secret := range []string{profile, policyKey, policyValue} {
+		if strings.Contains(rendered, secret) {
+			t.Errorf("AWS startup cause rendered sentinel %q: %s", secret, rendered)
+		}
+	}
+}
+
+func TestSettingsCheckAcceptsValidSnapshotWithoutRunningAws(t *testing.T) {
+	fakeBin := t.TempDir()
+	called := filepath.Join(t.TempDir(), "aws-called")
+	fakeAWS := filepath.Join(fakeBin, "aws")
+	t.Setenv("FAKE_AWS_CALLED", called)
+	if err := os.WriteFile(fakeAWS, []byte("#!/bin/sh\nprintf called > \"$FAKE_AWS_CALLED\"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", fakeBin)
+	policyKey := "SENTINEL_POLICY_KEY_DO_NOT_RENDER"
+	policyValue := "SENTINEL_POLICY_VALUE_DO_NOT_RENDER"
+	policy := `{"Statement":[{"Action":["` + policyKey + `"],"Resource":"` + policyValue + `"}]}`
+	settings := settingsFileWith(t, `{"profile":"SENTINEL_PROFILE","role_arn":"arn:aws:iam::123456789012:role/bedrock","session_policy":`+string(mustJSON(t, policy))+`,"unnarrowed":false}`)
+	var out strings.Builder
+	if rc := SettingsCheck(settings, &out); rc != 0 || out.Len() != 0 {
+		t.Fatalf("settings check rc=%d output=%q", rc, out.String())
+	}
+	for _, secret := range []string{"SENTINEL_PROFILE", policyKey, policyValue} {
+		if strings.Contains(out.String(), secret) {
+			t.Errorf("valid validator output leaked %q: %s", secret, out.String())
+		}
+	}
+	if _, err := os.Stat(called); !os.IsNotExist(err) {
+		t.Fatalf("settings validator invoked the AWS CLI shim: %v", err)
+	}
+}
+
+func mustJSON(t *testing.T, value any) []byte {
+	t.Helper()
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return encoded
 }
 
 // TestAbsentNarrowingRefusesAtSpawnNamingTheKey is STEP 2. A widening default
@@ -225,17 +330,21 @@ func TestSelfCheckMintsOnceAndPrintsTheFourKeysElided(t *testing.T) {
 	}
 }
 
-// TestSelfCheckGradesAnUnnarrowedConfigurationAsANote: working as configured, and
-// you should know. OQ-SSO1's disclosure half, on the `yolo check` surface.
-func TestSelfCheckGradesAnUnnarrowedConfigurationAsANote(t *testing.T) {
+// TestSelfCheckGradesAnUnnarrowedConfigurationAsHealthy: permission-set-as-configured is
+// an explicit, valid mode. yolo check must not frame that user choice as a warning.
+func TestSelfCheckGradesAnUnnarrowedConfigurationAsHealthy(t *testing.T) {
 	run := cannedRunner(processOutput(time.Now().Add(time.Hour), "ASIA1"), nil)
 	settings := settingsFileWith(t, `{"profile":"wide","unnarrowed":true}`)
 	var out strings.Builder
 	if rc := SelfCheck(selfCheckOpts(t, settings, run), &out); rc != 0 {
 		t.Fatalf("rc = %d: %s", rc, out.String())
 	}
-	if !strings.Contains(out.String(), "NOTE: aws-auth: serving UN-NARROWED") {
-		t.Errorf("no NOTE line for an un-narrowed configuration:\n%s", out.String())
+	text := out.String()
+	if !strings.Contains(text, `OK: AWS profile "wide"; narrowing: none — the permission set is served as-is`) {
+		t.Errorf("the selected permission-set mode is not reported as healthy configuration:\n%s", text)
+	}
+	if strings.Contains(text, "NOTE:") || strings.Contains(text, "UN-NARROWED") {
+		t.Errorf("the valid permission-set mode was turned into an alarm or warning:\n%s", text)
 	}
 }
 
@@ -251,6 +360,45 @@ func TestSelfCheckFailsWithTheLoginCommandOnALapsedSession(t *testing.T) {
 	if !strings.Contains(out.String(), "FAIL:") ||
 		!strings.Contains(out.String(), "aws sso login --profile bedrock") {
 		t.Errorf("output does not fail with the login command:\n%s", out.String())
+	}
+}
+
+func TestPrepareDoesNotReportRoutineUnnarrowedMode(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config")
+	configBody := "[profile wide]\nsso_start_url = https://x/start\nsso_account_id = 1\n" +
+		"sso_role_name = PowerUser\n"
+	if err := os.WriteFile(configPath, []byte(configBody), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var seen [][]string
+	run := func(_ context.Context, argv []string) awsauth.Output {
+		seen = append(seen, append([]string(nil), argv...))
+		return awsauth.Output{Spawned: true}
+	}
+	settings := settingsFileWith(t, `{"profile":"wide","unnarrowed":true}`)
+	opts := prepareOpts(t, settings, run)
+	opts.ConfigPath = configPath
+	var log strings.Builder
+	broker, rc := prepare(opts, &log)
+	if rc != 0 {
+		t.Fatalf("prepare rc = %d: %s", rc, log.String())
+	}
+	if broker.Config.Profile != "wide" || broker.Config.Narrowing.Kind != awsauth.NarrowNone {
+		t.Fatalf("prepare changed the explicitly selected assigned profile mode: %+v", broker.Config)
+	}
+	if len(seen) != 1 || strings.Join(seen[0], " ") != "aws --version" {
+		t.Fatalf("prepare dependency probes = %v, want only aws --version", seen)
+	}
+	text := log.String()
+	for _, want := range []string{`profile "wide"`, string(awsauth.FormLegacy), "8 hours"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("routine startup facts lack %q:\n%s", want, text)
+		}
+	}
+	for _, notice := range []string{"narrowing:", "permission set is served as-is", "UN-NARROWED"} {
+		if strings.Contains(text, notice) {
+			t.Errorf("routine startup log contains mode notice %q:\n%s", notice, text)
+		}
 	}
 }
 
@@ -281,8 +429,9 @@ func TestReportStartupNamesTheLoginCadence(t *testing.T) {
 	out.Reset()
 	reportStartup(&out, awsauth.Config{Profile: "wide",
 		Narrowing: awsauth.Narrowing{Kind: awsauth.NarrowNone}}, configPath)
-	if !strings.Contains(out.String(), "UN-NARROWED") {
-		t.Errorf("an un-narrowed configuration did not disclose:\n%s", out.String())
+	if !strings.Contains(out.String(), `profile "wide"`) || strings.Contains(out.String(), "narrowing:") ||
+		strings.Contains(out.String(), "permission set is served as-is") {
+		t.Errorf("routine startup report did not retain profile facts without a routine mode notice:\n%s", out.String())
 	}
 }
 
@@ -433,29 +582,35 @@ func prepareOpts(t *testing.T, settingsPath string, run awsauth.Runner) spawnOpt
 	}
 }
 
-// TestPrepareReportsTheStartupFactsAfterBothRefusalsPass pins the ONE call site of
-// reportStartup. Deleting that call leaves the broker correct and this test failing,
-// which is the point: a test that exercised reportStartup alone would keep passing
-// with the disclosure switched off.
-func TestPrepareReportsTheStartupFactsAfterBothRefusalsPass(t *testing.T) {
+// TestPrepareReportsNarrowedStartupFactsAfterRefusalsPass exercises the real prepare
+// path and keeps narrowed-mode details in routine startup diagnostics.
+func TestPrepareReportsNarrowedStartupFactsAfterRefusalsPass(t *testing.T) {
 	var log strings.Builder
-	settings := settingsFileWith(t, `{"profile":"wide","unnarrowed":true}`)
+	settings := settingsFileWith(t, `{"profile":"wide","role_arn":"arn:aws:iam::123456789012:role/bedrock"}`)
 	opts := prepareOpts(t, settings, cannedRunner(awsauth.Output{Spawned: true}, nil))
+	configBody := "[profile wide]\nsso_start_url = https://x/start\nsso_account_id = 1\n" +
+		"sso_role_name = PowerUser\n"
+	if err := os.WriteFile(opts.ConfigPath, []byte(configBody), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	broker, rc := prepare(opts, &log)
 	if rc != 0 {
 		t.Fatalf("rc = %d: %s", rc, log.String())
 	}
-	if broker.Config.Profile != "wide" || broker.Config.Narrowing.Kind != awsauth.NarrowNone {
+	if broker.Config.Profile != "wide" || broker.Config.Narrowing.Kind != awsauth.NarrowRole {
 		t.Errorf("broker config = %+v", broker.Config)
 	}
 	if filepath.Dir(broker.LockPath) != filepath.Dir(broker.StatePath) {
 		t.Error("the lock is not beside the state file")
 	}
 	text := log.String()
-	for _, want := range []string{`profile "wide"`, "narrowing:", "UN-NARROWED"} {
+	for _, want := range []string{`profile "wide"`, "AssumeRole arn:aws:iam::123456789012:role/bedrock", string(awsauth.FormLegacy)} {
 		if !strings.Contains(text, want) {
-			t.Errorf("the startup report does not contain %q:\n%s", want, text)
+			t.Errorf("startup facts do not contain %q:\n%s", want, text)
 		}
+	}
+	if strings.Contains(text, "permission set is served as-is") || strings.Contains(text, "UN-NARROWED") {
+		t.Errorf("routine startup report described an as-configured mode:\n%s", text)
 	}
 }
 
@@ -470,14 +625,14 @@ func TestPrepareRefusesInTheOrderTheLogReaderNeeds(t *testing.T) {
 		wantRC     int
 		wantText   string
 	}{
-		{"no narrowing outranks a missing CLI", `{"profile":"bedrock"}`, unrunnable, 2,
-			"no narrowing is configured"},
+		{"no permission mode outranks a missing CLI", `{"profile":"bedrock"}`, unrunnable, 2,
+			"No AWS credential mode is configured"},
 		{"no profile outranks a missing CLI", `{"unnarrowed":true}`, unrunnable, 2,
-			"no AWS profile is configured"},
+			"No AWS profile is configured"},
 		{"a missing CLI with a good configuration", `{"profile":"bedrock","unnarrowed":true}`,
-			unrunnable, 1, "cannot run the `aws` CLI"},
+			unrunnable, 1, "AWS CLI v2 is not available"},
 		{"an unparseable settings file", "{ not json",
-			cannedRunner(awsauth.Output{Spawned: true}, nil), 2, "decode aws-auth settings"},
+			cannedRunner(awsauth.Output{Spawned: true}, nil), 2, "AWS settings file could not be read"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

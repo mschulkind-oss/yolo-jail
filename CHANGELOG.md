@@ -40,6 +40,7 @@ per workspace; `yolo nix-roots` lists and releases them. See
 - An AMD GPU in `mode: "cdi"` on a host with no AMD CDI spec no longer fails the launch: the jail starts without the GPU and the warning names the command that writes the spec.
 - A second terminal opened on a running jail no longer repeats the durable-dir line, and opens faster.
 - A pack declaring one `state` path at both workspace and machine scope is now refused by name, instead of failing the launch with a duplicate-mount error.
+- Bedrock credential startup now explains invalid profile settings without printing their values; an explicit choice to use the profile's assigned permissions no longer triggers a routine warning.
 
 ## [0.12.1] - 2026-10-06
 

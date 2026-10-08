@@ -871,7 +871,9 @@ func (o *Options) discloseLoopholes(rt string, cfg *jsonx.OrderedMap, packs []*p
 	// What the spawn starts, by its own selection (hostServiceNames): a daemon whose loophole is
 	// switched off is declared by its pack and started by nobody, so it is not announced.
 	starting := o.hostServiceNames(rt, cfg)
-	o.notePackHostExec(packs, func(name string) bool { return slices.Contains(starting, name) })
+	o.notePackHostExec(packs, func(name string) bool {
+		return slices.Contains(starting, name) && !o.hostExecDisclosed[name]
+	})
 	// The JAIL half of the same question — pack code that runs, on the other side of the
 	// boundary — and it prints here because this wrapper is the last host-side moment before
 	// the container takes the terminal. A hook fires on the agent's lifecycle, and a jail
@@ -926,5 +928,8 @@ func (o *Options) startPlannedLoopholes(cname, rt string, cfg *jsonx.OrderedMap,
 		started = o.startLoopholes(cname, rt, cfg)
 		return true
 	})
+	if o.startupRefusal != nil {
+		return started, &olderDaemonRefusal{startup: o.startupRefusal}
+	}
 	return started, o.runLaunchChecks(rt, started, payload, freshLaunchCheck)
 }

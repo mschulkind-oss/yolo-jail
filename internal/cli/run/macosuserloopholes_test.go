@@ -95,6 +95,7 @@ type macosUserLaunchResult struct {
 	sessionDirs []string
 	out         string
 	rc          int
+	dryRun      bool
 	// jailDaemons is what the arm handed the guest's supervisor (OQ-DP8/DP9).
 	jailDaemons macosuser.JailDaemons
 }
@@ -108,13 +109,19 @@ func macosUserLaunch(t *testing.T, ws string) macosUserLaunchResult {
 // macosUserLaunchDuring is macosUserLaunch with during, when non-nil, run inside the stub
 // handler: where the sandbox would be starting, before any deferred teardown of Run's.
 func macosUserLaunchDuring(t *testing.T, ws string, during func(macosuser.JailDaemons)) macosUserLaunchResult {
+	return macosUserLaunchWithOptions(t, ws, during, nil)
+}
+
+func macosUserLaunchWithOptions(t *testing.T, ws string, during func(macosuser.JailDaemons),
+	configure func(*Options)) macosUserLaunchResult {
 	t.Helper()
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
 	cname := runtime.FromWorkspace(ws)
 	got := macosUserLaunchResult{}
 	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay,
-		_ macosuser.HostContext, _ bool, launchEnv *jsonx.OrderedMap, _ []packload.BlockedTool, jd macosuser.JailDaemons) int {
+		_ macosuser.HostContext, dryRun bool, launchEnv *jsonx.OrderedMap, _ []packload.BlockedTool, jd macosuser.JailDaemons) int {
+		got.dryRun = dryRun
 		got.env = launchEnv
 		got.jailDaemons = jd
 		if during != nil {
@@ -128,6 +135,9 @@ func macosUserLaunchDuring(t *testing.T, ws string, during func(macosuser.JailDa
 			}
 		}
 		return 0
+	}
+	if configure != nil {
+		configure(o)
 	}
 	got.rc = Run(*o)
 	got.out = stdout.String() + stderr.String()

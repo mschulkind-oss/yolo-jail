@@ -82,6 +82,7 @@ func launchGateJail(t *testing.T, packNames []string, tune func(*Options)) (*gat
 func launchGateJailWith(t *testing.T, packNames []string, config func([]*packload.Pack) *jsonx.OrderedMap,
 	creds *jsonx.OrderedMap, tune func(*Options)) (*gateJail, *packChannel, string) {
 	t.Helper()
+	strictPackloadReads(t)
 	home := packHome(t)
 	o := goldenOptions(t.TempDir(), home)
 	var stderr bytes.Buffer
@@ -122,8 +123,7 @@ func launchGateJailWith(t *testing.T, packNames []string, config func([]*packloa
 		entrypoint.AgentUpdatesEnv: "false",
 	})
 	// The jail's generator switches this process to tolerant manifest reads, as the boot
-	// does; hand the next test a strict host process back.
-	t.Cleanup(packload.OverrideSkewTolerance(false))
+	// does; strictPackloadReads leaves the host-side run test process strict after cleanup.
 	// The image's bin dirs are an empty folder this test made, not the machine's /bin and
 	// /usr/bin: a host whose /usr/bin holds claude, codex or pi otherwise gets no launcher for
 	// it, and every gate test reading that launcher fails there.

@@ -81,12 +81,12 @@ The alternative is to set a suitable `role_arn`, adding `session_policy` if need
 After editing the host user's configuration, run the host's `yolo check --no-build`, then
 retry the intended launch. The explicit setting selects the configured permission-set/profile
 policy as-is; it does not mean unrestricted AWS access. The 2026-10-07 ruling removes routine
-`unnarrowed` notices entirely, not merely their warning color. That runtime change remains
-unlanded; required pack read/exec disclosures and real refusals/errors must remain.
+`unnarrowed` notices entirely, not merely their warning color. That runtime change landed
+2026-10-08; required pack read/exec disclosures and real refusals/errors must remain.
 Nothing in this investigation changed configuration or chose this route for the operator.
 
 `YOLO_ALLOW_UNREACHABLE_SERVICES=1` is for an intentionally service-less debugging shell.
-It neither acknowledges unchanged AWS permissions nor repairs the daemon. It must not become
+It neither changes the selected AWS permission mode nor repairs a daemon. It must not become
 the headline remedy for this configuration error.
 
 ## Where the cause is lost
@@ -102,9 +102,7 @@ the headline remedy for this configuration error.
   [the jail reachability check](../../internal/entrypoint/reachability.go) report subsequent
   consequences. Those checks are not the original configuration validator.
 
-The missing channel is already identified by
-[the keychain design's host-daemon readiness work](../design/keychain-from-a-jail.md#314-what-yolo-itself-must-change).
-Reuse or extend that design instead of adding an AWS-only error parser.
+The missing channel was first identified by [the keychain design's host-daemon readiness work](../design/keychain-from-a-jail.md#314-what-yolo-itself-must-change). The bounded failure-only channel and early pure-settings validation for this incident are now specified in [`host-service-startup-diagnostics.md`](../design/host-service-startup-diagnostics.md); do not add an AWS-only error parser.
 
 ## What better output should say
 

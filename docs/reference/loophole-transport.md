@@ -1,13 +1,14 @@
 ---
 status: current
-verified: 2026-09-09
-verified_commit: 158e269e
+verified: 2026-10-07
+verified_commit: 31312f66
 covers:
   - internal/svcendpoint/
   - internal/loopholedecl/enums.go
   - internal/cli/run/loopholesruntime.go
   - internal/hostservice/hostservice.go
-  - internal/journald/journaldcmd.go
+  - internal/hostservice/startupreason.go
+  - internal/broker/brokerlifecycle.go
   - internal/macosuser/macosuser.go
   - cmd/yolo-cglimit/
   - cmd/yolo-journalctl/
@@ -17,7 +18,7 @@ summary: "How a jail reaches a host loophole daemon: `loopback-tls`, a TCP conne
 
 # The loophole transport — `loopback-tls`
 
-**Status:** CURRENT as of 2026-09-09, verified against `158e269e`.
+**Status:** CURRENT as of 2026-10-07, checked against the worktree based on `31312f66`.
 
 A jail reaches a host loophole daemon over **`loopback-tls`**: a TCP connection to
 `127.0.0.1` that behaves like an owner-only Unix socket. It is the framework's only real
@@ -318,9 +319,35 @@ macOS + podman for the virtiofs reason above. Its jail-side variable is the `_SO
 spelling precisely because the value *is* a socket path, and the delegate itself is
 yolo's own in-process goroutine on the launcher side rather than a spawned daemon.
 
+## Cooperative host-daemon startup refusal
+
+The jail-facing transport is separate from a host daemon's optional startup diagnostic
+channel. A `host_daemon` may declare `"startup_reason": true`; absent or false preserves
+legacy startup behavior. For an opted-in spawn, yolo passes a private socketpair's child end
+as fd 3 and supplies `YOLO_HOST_SERVICE_REASON_FD`, `YOLO_HOST_SERVICE_ATTEMPT`, and
+`YOLO_HOST_SERVICE_NAME`. The attempt token is random, supplied in the environment rather
+than argv, and identifies exactly one spawn.
+
+The daemon can write one length-prefixed JSON record with `version`, `service`, `attempt`,
+`class`, `reason`, and optional `remedy`. Version is 1, the total record is at most 4096
+bytes, and the supported classes are `configuration`, `dependency`, `permission`, and
+`internal`. Both ends require matching service and attempt attribution; control characters
+are removed and each rendered text field is bounded. A producer should send only fixed,
+safe text—never settings values, secrets, argv, environment or log excerpts. The Go producer
+helper is `hostservice.WriteStartupReasonFromEnv`.
+
+This record is not readiness. The host daemon must still satisfy the existing socket/endpoint
+readiness test; an absent, late or malformed record cannot make a service ready. The reader
+uses a deadline and closes the channel without waiting for EOF, so a descendant retaining
+the descriptor cannot stall startup cleanup. A matching `configuration` record is returned
+as the current launch refusal before derived socket symptoms; other records and channel
+faults do not currently replace the existing startup/transport failure report. Shared logs
+are not parsed for current causes.
+
 ## Failure modes
 
 | Symptom | What it actually is |
+| :--- | :--- |
 | :--- | :--- |
 | EOF immediately after the token frame, before any response | **auth rejected.** The server writes nothing on failure; the ack byte exists so this is distinguishable from "the daemon is down" |
 | The endpoint file parses but `Probe` returns false | a malformed field — most often a token that is not exactly 64 lowercase hex. The daemon is SIGKILLed after the readiness deadline with a log that looks perfectly healthy |
@@ -346,8 +373,8 @@ restrict, peer credentials only verify, and restriction is the half a boundary n
 
 ## Current values
 
-Verified at `158e269e`. The prose above explains what each of these is for; this table is
-the only place the values themselves are stated.
+This table lists the canonical values for the jail-facing service transport. The distinct
+startup-reason channel's version, limits and classes are documented above.
 
 | Value | Setting | Defined in |
 | :--- | :--- | :--- |

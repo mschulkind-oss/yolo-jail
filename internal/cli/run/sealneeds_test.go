@@ -22,6 +22,7 @@ import (
 // secret, pi's host settings and host briefing holding secrets, an inline env_sources value and
 // the aws-auth loophole enabled.
 var sealNeedsFixture = sealFixture{
+	moduleNames: []string{"pi", "claude", "bedrock", "openai-auth", "aws-auth", "wire-bridge"},
 	files: map[string]string{
 		".aws/config":             "[profile sealtest-profile]\nregion = us-sealtest-8\n",
 		".aws/credentials":        "[default]\naws_access_key_id = AKIASEALTEST\naws_secret_access_key = sealtest-aws-secret\n",
@@ -31,8 +32,9 @@ var sealNeedsFixture = sealFixture{
 	config: `{
   "packs": ["pi", "claude"],
   "profile": {"pi": "bedrock"},
+  "host_files": ["~/.pi/agent/AGENTS.md"],
   "env_sources": [{"AWS_PROFILE": "sealtest-profile", "AWS_REGION": "us-sealtest-9"}],
-  "loopholes": {"aws-auth": {"enabled": true, "settings": {"profile": "sealtest-profile"}}}
+  "loopholes": {"aws-auth": {"enabled": true, "settings": {"profile": "sealtest-profile", "unnarrowed": true}}}
 }
 `,
 	only: []string{"pi-fork", "pi"},
@@ -130,7 +132,7 @@ func TestTheNeedsFixtureCrossesUnsealed(t *testing.T) {
 		crossed = append(crossed, grepTree(t, root, sealNeedsSecrets...)...)
 	}
 	crossed = append(crossed, argvCarrying(argv, sealNeedsSecrets...)...)
-	for _, secret := range []string{"sealtest-profile", "us-sealtest-9", "the user's own pi house rules"} {
+	for _, secret := range []string{"sealtest-profile", "us-sealtest-9"} {
 		if !strings.Contains(strings.Join(crossed, "\n"), secret) {
 			t.Errorf("the unsealed fixture hands the jail no %q, so that crossing is unexercised:\n%s",
 				secret, strings.Join(crossed, "\n"))
@@ -138,12 +140,18 @@ func TestTheNeedsFixtureCrossesUnsealed(t *testing.T) {
 	}
 	// pi's reads-host settings cross as a bind of the host file, not as bytes the launch writes.
 	settings := filepath.Join(home, ".pi", "agent", "settings.json")
-	var bound bool
+	houseRules := filepath.Join(home, ".pi", "agent", "AGENTS.md")
+	var settingsBound, houseRulesBound bool
 	for _, src := range sealedBindSources(argv) {
-		bound = bound || src == settings
+		settingsBound = settingsBound || src == settings
+		houseRulesBound = houseRulesBound || src == houseRules
 	}
-	if !bound {
+	if !settingsBound {
 		t.Errorf("the unsealed fixture does not bind %s, so the reads-host site is unexercised: %v",
 			settings, sealedBindSources(argv))
+	}
+	if !houseRulesBound {
+		t.Errorf("the unsealed fixture does not bind %s, so the user's host file is unexercised: %v",
+			houseRules, sealedBindSources(argv))
 	}
 }

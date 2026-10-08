@@ -893,8 +893,9 @@ func TestEnvOverrideCountsADirectoryGrantOnlyWhereItIsBound(t *testing.T) {
 // warning, the grant absent from the sandbox's host files), when the backend dropped a directory
 // entry; the premise that test guarded is gone, and this is the warning it said would be owed.
 func TestEnvOverrideLetsAMacosUserDirectoryGrantThrough(t *testing.T) {
+	installFakeAWSCLI(t)
 	o, stderr, seen := overrideNativeLaunch(t, awsAuthUserConfig(`, "host_files": ["~/.aws/"], `+
-		`"loopholes": {"aws-auth": {"enabled": true}}`), shellWith(nil))
+		`"loopholes": {"aws-auth": {"enabled": true, "settings": {"profile": "yolo-unit", "unnarrowed": true}}}`), shellWith(nil))
 	observeDoorways(t)
 	if err := os.MkdirAll(filepath.Join(seen.home, ".aws"), 0o755); err != nil {
 		t.Fatal(err)

@@ -68,7 +68,7 @@ long answer that lives in the vendor binary, not in this tree.
 | The in-jail TLS terminator | `internal/oauthterminator` (`makeHandler`, `IsRefreshGrant`, `Refresh`, `ProxyUpstream`) |
 | The host daemon: refresh, proxy, mirror | `internal/oauthbroker` (`DoRefresh`, `DoProxy`, `maybePropagateTokenResponse`) |
 | The broker's CA and leaf: mint, serialization, legacy sweep | `internal/oauthbroker` (`EnsureCAAndLeaf`, `withCertLock`, `caAndLeafAreCurrent`) |
-| The failed-spawn warning | `internal/broker` (`BrokerSpawn`, `reportFailedSpawn`, `brokerWaitForSocket`) |
+| The failed-spawn warning | `internal/broker` (`BrokerSpawn`, `reportFailedSpawn`, `brokerWaitForSocketUntil`) |
 | `yolo check`'s `[SKIP]` level | `internal/cli/check` (`reporter.skip`, `reporter.hostFact`) |
 | The shared-credentials symlink | `internal/entrypoint/packhooks.go` (`linkSharedCredential`); `packs/claude/pack.json` |
 | The OpenSSL-family CA bundle | `internal/entrypoint/system.go` (`GenerateCABundle`), `boot.go`, `shell.go` |
@@ -406,7 +406,7 @@ a real host gets.
 
 #### A failed spawn reports itself
 
-`BrokerSpawn` in `internal/broker` waits for the new daemon's socket with `brokerWaitForSocket`, which
+`BrokerSpawn` in `internal/broker` waits for the new daemon's socket with `brokerWaitForSocketUntil`, which
 tells a **dead** child from a **slow** one in milliseconds and returns whether the socket appeared.
 When it did not, `reportFailedSpawn` prints a warning into the launch output naming the loophole, the
 fault class, the socket path it expected and the log that holds the reason. The two classes send the

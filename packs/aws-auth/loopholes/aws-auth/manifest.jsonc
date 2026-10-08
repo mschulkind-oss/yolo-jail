@@ -88,19 +88,14 @@
     // grants. A bool cannot spell itself wrong.
     //
     // OQ-SSO1: absence is NEVER un-narrowed. With neither this nor `role_arn` set the
-    // daemon refuses and names both, because the credential it would otherwise mint
-    // is readable by every process in the jail and the narrowing is the only defence
-    // there is.
+    // daemon refuses and names both. The explicit setting is a valid route when the
+    // configured profile's own permission set is the intended authority; role and session
+    // policy narrowing remain optional additional restrictions.
     "unnarrowed": {
       "type": "bool",
       "scope": "user",
       "default": false,
-      "description": "serve the profile's permission set as-is, with no AssumeRole. The one widening, asked for by name and disclosed wherever this service reports",
-      // Printed by EVERY launch while this is true (OQ-SSO10): the daemon is a host
-      // singleton, so its own spawn line prints once and then serves later launches in
-      // silence. Wording kept beside awsauth.Narrowing.DisclosureLine's, which the daemon
-      // prints at spawn and the self-check grades as a NOTE.
-      "disclose": "serving UN-NARROWED credentials — the jail holds whatever the configured profile's permission set grants (settings.unnarrowed is true)"
+      "description": "serve the configured profile's permission set as-is, without an additional AssumeRole or session policy"
     }
   },
 
@@ -142,9 +137,14 @@
       "--state-file", "{state}/credentials.json",
       "--settings", "{settings}"
     ],
+    "settings_check": [
+      "yolo", "internal", "daemon", "aws-auth",
+      "--settings-check", "--settings", "{settings}"
+    ],
     "publishes": "socket",
     "scope": "host",
-    "launch_check": true
+    "launch_check": true,
+    "startup_reason": true
   },
 
   // The jail half: an HTTP endpoint on jail loopback speaking the protocol every AWS
@@ -173,8 +173,9 @@
   // `Authorization` (docs/plans/notch-convergence.md §2.3). And the adapter STARTS only
   // when some agent's profile selects `bedrock` (OQ-CN7 (b)). INSIDE the jail that is
   // still no boundary against a same-uid file read: any process can read the agent's env
-  // file or the record and GET the same credentials. That is why the narrowing above is
-  // not defence in depth but the only defence.
+  // file or the record and GET the same credentials. The caller token authenticates the adapter
+  // hop, but it does not isolate same-user processes; AWS permissions on the selected profile
+  // or role govern the actions available through those credentials.
   //
   // `host_cmd` is the same DOORWAY (this adapter: it checks the launch's caller token and
   // forwards to the host service) opened on the HOST instead, for a launch whose agent shares
@@ -229,11 +230,11 @@
   ],
 
   // `yolo check` runs this and grades its lines (OK:/NOTE:/FAIL:). It reports the
-  // resolved profile, the narrowing, which SSO config form the profile uses — so the
-  // LOGIN CADENCE a user signed up for is visible rather than discovered — and then
+  // resolved profile, the configured permission mode, which SSO config form the profile uses —
+  // so the LOGIN CADENCE a user signed up for is visible rather than discovered — and then
   // MINTS ONCE, which is the only thing short of an agent turn that proves the host's
-  // session is live and the role assumable. An un-narrowed configuration comes back as
-  // a NOTE rather than a pass: it is working as configured, and you should know.
+  // session is live and the role assumable. A valid profile-permissions-as-configured mode
+  // reports as OK; it is not a warning by itself.
   "doctor_cmd": [
     "yolo", "internal", "daemon", "aws-auth",
     "--self-check",

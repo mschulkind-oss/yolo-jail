@@ -13,7 +13,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
-	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -153,8 +152,8 @@ func TestMacosUserDirectoryHostFileKeepsEachFilesPermissions(t *testing.T) {
 	var said bytes.Buffer
 	e.Stderr = &said
 	// The bootstrap reads the pack tree through LoadJailPacks, which switches the process to the
-	// tolerant manifest decoder; restore the host's strict reads for every later test here.
-	t.Cleanup(packload.OverrideSkewTolerance(false))
+	// tolerant manifest decoder; strictPackloadReads restores strict host reads at test cleanup.
+	strictPackloadReads(t)
 	if err := entrypoint.RunDarwinBootstrap(e, entrypoint.DarwinBootstrapOptions{MacosLog: "off"}); err != nil {
 		for _, step := range []string{"darwin_home_layout", "configure_host_files"} {
 			if strings.Contains(err.Error(), step) {

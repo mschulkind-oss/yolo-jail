@@ -177,6 +177,8 @@ var launchScopedPackRecords = map[string]string{
 var processWidePackRecords = map[string]bool{
 	"loopholes.SetPackModuleResolver":       true,
 	"loopholes.SetPackSupersessionResolver": true,
+	// The static path helper is not a mutable pack record; its Set- prefix is a regex false positive.
+	"loopholes.SettingsFileFor": true,
 }
 
 // TestEveryPerLaunchPackRecordIsScoped is the tripwire for the NEXT one.

@@ -155,6 +155,63 @@ func TestWriteSettingsProducesAFlatFile(t *testing.T) {
 	}
 }
 
+func TestPrivateSettingsSnapshotsAreUniquePrivateAndOwnedByCaller(t *testing.T) {
+	redirectState(t)
+	lp := declaredLoophole("acme", Setting{Key: "profile", Type: SettingTypeString, Default: "original"})
+	stable, _, err := WriteSettings(lp, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stableBefore, err := os.ReadFile(stable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	frozen, _, err := FrozenSettingsBytes(lp, supplied("profile", "candidate"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, cleanupFirst, err := WritePrivateSettingsSnapshot(lp, frozen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, cleanupSecond, err := WritePrivateSettingsSnapshot(lp, frozen)
+	if err != nil {
+		cleanupFirst()
+		t.Fatal(err)
+	}
+	if first == second || first == stable || second == stable {
+		t.Fatalf("snapshot paths are not unique and separate from stable settings: %q %q %q", first, second, stable)
+	}
+	for _, path := range []string{first, second} {
+		fi, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fi.Mode().Perm() != 0o600 {
+			t.Errorf("snapshot mode = %o, want 0600", fi.Mode().Perm())
+		}
+		got, err := os.ReadFile(path)
+		if err != nil || !reflect.DeepEqual(got, frozen) {
+			t.Errorf("snapshot bytes = %q, err=%v; want frozen %q", got, err, frozen)
+		}
+	}
+	if err := os.WriteFile(first, []byte("validator mutation"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stableAfter, err := os.ReadFile(stable)
+	if err != nil || !reflect.DeepEqual(stableAfter, stableBefore) {
+		t.Fatalf("preflight snapshot changed stable settings: before=%q after=%q err=%v", stableBefore, stableAfter, err)
+	}
+	cleanupFirst()
+	if _, err := os.Stat(first); !os.IsNotExist(err) {
+		t.Fatalf("cleanup left validator snapshot: %v", err)
+	}
+	cleanupSecond()
+	if _, err := os.Stat(second); !os.IsNotExist(err) {
+		t.Fatalf("cleanup left second snapshot: %v", err)
+	}
+}
+
 // TestWriteSettingsRevokesADroppedValue: the file is rewritten whole on every
 // launch, so dropping a key from the config puts the declared default back. Same
 // rule env_sources has — dropping a key REVOKES it — and it is the reason the file

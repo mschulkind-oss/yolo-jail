@@ -11,6 +11,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/broker"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/logcap"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
@@ -50,6 +51,12 @@ type loopholeDaemon struct {
 	// (keeperwatch.go, JL-D19). A zero end watches nothing; log is "" for none.
 	end serviceEnd
 	log string
+}
+
+type ownedSettingsSnapshot struct {
+	path    string
+	bytes   []byte
+	cleanup func()
 }
 
 // markLaunchCheck copies the two facts the launch check reads from lp onto h.
@@ -305,8 +312,102 @@ func (o *Options) unreachableBy() string {
 // (loopholes.NewHostSet, startLoopholes), and a `yolo host` launch the set of the packs its own
 // selection function chose (hostdoorways.go), since that notch stages no pack tree for the
 // converged set to read.
+func (o *Options) prepareLoopholeSettingsForStart(set loopholes.Set, cfg *jsonx.OrderedMap,
+	allow func(string) bool) bool {
+	if o.settingsPrepared && o.settingsPlan != nil {
+		return o.startupRefusal == nil
+	}
+	if !o.settingsPrepared {
+		o.startupRefusal = nil
+		o.cleanupSettingsSnapshots()
+	}
+	discovered := set.Enabled()
+	kept := discovered[:0]
+	for _, lp := range discovered {
+		if allow(lp.Name) {
+			kept = append(kept, lp)
+		}
+	}
+	discovered = kept
+	placements := map[string]bool{}
+	for _, lp := range discovered {
+		if len(lp.PlacementProblems(o.Workspace)) != 0 {
+			placements[lp.Name] = true
+		}
+	}
+	order, _ := hostDaemonOrder(set, discovered, cfg, allow)
+	startable := make(map[string]bool, len(order))
+	for _, name := range order {
+		if !placements[name] {
+			startable[name] = true
+		}
+	}
+	candidates := make([]*loopholes.Loophole, 0, len(discovered))
+	for _, lp := range discovered {
+		if placements[lp.Name] {
+			continue
+		}
+		// Legacy loopholes without an external daemon may still own a resolved settings file
+		// (for example, a doctor_cmd). Do not validate a daemon that this launch will not start.
+		if lp.HostDaemon == nil || startable[lp.Name] {
+			candidates = append(candidates, lp)
+		}
+	}
+	if o.settingsPrepared {
+		plan := &preparedLoopholeSettings{bytes: make(map[string][]byte), values: make(map[string]*jsonx.OrderedMap),
+			checked: make(map[string]bool)}
+		for _, lp := range candidates {
+			if len(lp.Settings) == 0 {
+				continue
+			}
+			frozen, ok := o.settingsFrozen[lp.Name]
+			if !ok {
+				o.startupRefusal = &hostStartupRefusal{name: lp.Name, class: "settings-snapshot",
+					reason: "The launch's validated settings snapshot is unavailable to its keeper.",
+					remedy: "Retry the launch so its settings can be validated again."}
+				return false
+			}
+			decoded, err := jsonx.Decode(frozen)
+			if err != nil {
+				o.startupRefusal = &hostStartupRefusal{name: lp.Name, class: "settings-snapshot",
+					reason: "The launch's validated settings snapshot could not be read by its keeper.",
+					remedy: "Retry the launch so its settings can be validated again."}
+				return false
+			}
+			values, ok := decoded.(*jsonx.OrderedMap)
+			if !ok {
+				o.startupRefusal = &hostStartupRefusal{name: lp.Name, class: "settings-snapshot",
+					reason: "The launch's validated settings snapshot has an invalid shape.",
+					remedy: "Retry the launch so its settings can be validated again."}
+				return false
+			}
+			plan.candidates = append(plan.candidates, lp)
+			plan.bytes[lp.Name] = append([]byte(nil), frozen...)
+			plan.values[lp.Name] = values
+			plan.checked[lp.Name] = lp.HostDaemon != nil && len(lp.HostDaemon.SettingsCheck) > 0
+		}
+		o.settingsPlan = plan
+	} else {
+		o.settingsPlan = o.prepareLoopholeSettings(candidates, cfg)
+	}
+	o.settingsPrepared = true
+	return o.startupRefusal == nil
+}
+
 func (o *Options) startLoopholesMatching(set loopholes.Set, cname, rt string, cfg *jsonx.OrderedMap,
 	allow func(string) bool) []loopholeDaemon {
+	if !o.prepareLoopholeSettingsForStart(set, cfg, allow) {
+		o.cleanupSettingsSnapshots()
+		return nil
+	}
+	o.publishLoopholeSettings(o.settingsPlan)
+	o.settingsPlan = nil
+	o.settingsPrepared = false
+	o.settingsFrozen = nil
+	if o.startupRefusal != nil {
+		o.cleanupSettingsSnapshots()
+		return nil
+	}
 	// ONE DIR PER SESSION ON macos-user, one per jail everywhere else (servicessession.go). A
 	// container jail has one set of fronts however many terminals attach to it, so its
 	// workspace-keyed dir has one publisher; a macos-user session is a sandbox of its own, and
@@ -363,10 +464,8 @@ func (o *Options) startLoopholesMatching(set loopholes.Set, cname, rt string, cf
 			handles = append(handles, h)
 		}
 	}
-	// BEFORE the spawn, because a daemon's argv already names the file: {settings}
-	// resolved to a real path at record-load time, so by the time this loop reaches
-	// exec.Command the file has to hold this launch's values (loopholesettings.go).
-	o.writeLoopholeSettings(discovered, cfg)
+	// BEFORE the spawn, because the opted-in files were frozen and the per-jail snapshots are
+	// already private to this launch (loopholesettings.go).
 	// placementRefused: a loophole whose MANIFEST names host code living where an agent
 	// can rewrite it (the placement rule, landing item 1a's manifest faces). The
 	// config faces are refused earlier, at validation; a manifest's own host_daemon.cmd
@@ -447,6 +546,9 @@ func (o *Options) startLoopholesMatching(set loopholes.Set, cname, rt string, cf
 			if h, ok := o.startHostSingleton(name, external[name], socketsDir, advertise, hd); ok {
 				handles = append(handles, markLaunchCheck(h, recordOf[name]))
 			}
+			if o.startupRefusal != nil {
+				break
+			}
 			continue
 		}
 		h, ok := o.startExternalService(name, external[name], socketsDir, transportOf[name], advertise, daemonOf[name])
@@ -465,7 +567,11 @@ func (o *Options) startLoopholesMatching(set loopholes.Set, cname, rt string, cf
 		if ok {
 			handles = append(handles, markLaunchCheck(h, recordOf[name]))
 		}
+		if o.startupRefusal != nil {
+			break
+		}
 	}
+	o.cleanupSettingsSnapshots()
 	return handles
 }
 
@@ -873,6 +979,13 @@ func (o *Options) serviceReadyTimeout() time.Duration {
 // wrapper exits 0 while its detached child comes up shortly after, and failing
 // on the wrapper's exit would break every daemon of that shape.
 func (o *Options) waitServiceReady(reachable func() bool, exited <-chan struct{}, cmd *exec.Cmd) string {
+	return o.waitServiceReadyUntil(time.Now().Add(o.serviceReadyTimeout()), reachable, exited, cmd)
+}
+
+// waitServiceReadyUntil applies the caller's absolute readiness deadline. A per-jail
+// startup-reason reader uses this same deadline so observing a refusal cannot extend it.
+func (o *Options) waitServiceReadyUntil(deadline time.Time, reachable func() bool,
+	exited <-chan struct{}, cmd *exec.Cmd) string {
 	// REAL WALL CLOCK, deliberately NOT o.Now(), and this is the one place the reason
 	// is written down — the two other readiness deadlines in this file used to point at
 	// relayKill for it, and relayKill went with internal/brokerrelay.
@@ -885,7 +998,6 @@ func (o *Options) waitServiceReady(reachable func() bool, exited <-chan struct{}
 	// only the clock SOURCE is pinned to the wall, which is what keeps the frozen-clock
 	// regression catchable. internal/prune's own kill path takes time.Now() for the
 	// identical reason.
-	deadline := time.Now().Add(o.serviceReadyTimeout())
 	for {
 		if reachable() {
 			return ""
@@ -1061,6 +1173,12 @@ func (o *Options) startHostSingleton(
 	}
 	deps := broker.SingletonDeps(name, cmdArgs)
 	deps.Out = o.Stdout
+	deps.StartupReason = hd != nil && hd.StartupReason
+	if snapshot := o.settingsSnapshots[name]; snapshot != nil && hd != nil && hd.Scope == loopholes.ScopeHost {
+		frozen := append([]byte(nil), snapshot.bytes...)
+		settingsPath := snapshot.path
+		deps.PublishSettings = func() error { return loopholes.WriteSettingsBytes(settingsPath, frozen) }
+	}
 	if name == openaiauth.LoopholeName {
 		deps.PrepareLocked = prepareLegacyOpenAIAuthState(o.Workspace, deps)
 	}
@@ -1090,6 +1208,17 @@ func (o *Options) startHostSingleton(
 	// and the other runs on unreachable, with the PID file naming only the second.
 	for attempt := 1; ; attempt++ {
 		ensured := broker.EnsureSingleton(deps)
+		if ensured.SettingsErr != nil {
+			o.startupRefusal = &hostStartupRefusal{name: name, class: "settings-publication",
+				reason: "The validated settings could not be published while the host-wide daemon lock was held.",
+				remedy: "Check host storage permissions and run `yolo check --no-build` again."}
+			return loopholeDaemon{}, false
+		}
+		if ensured.StartupReason != nil && ensured.StartupReason.Class == "configuration" {
+			o.startupRefusal = &hostStartupRefusal{name: name, class: ensured.StartupReason.Class,
+				reason: ensured.StartupReason.Reason, remedy: ensured.StartupReason.Remedy}
+			return loopholeDaemon{}, false
+		}
 		if ensured.Stale != nil {
 			// THE ONE OUTCOME THAT REFUSES THE FRONT: a daemon known to be serving other
 			// settings, which the ensure could not replace (it could not take the spawn lock,
@@ -1252,12 +1381,39 @@ func (o *Options) startExternalService(
 	if !ok {
 		return loopholeDaemon{}, false
 	}
+	var snapshotCleanup func()
+	snapshotOwned := false
+	if snapshot := o.settingsSnapshots[name]; snapshot != nil && snapshot.cleanup != nil {
+		stable := loopholes.SettingsFileFor(name)
+		for i, arg := range cmdArgs {
+			cmdArgs[i] = strings.ReplaceAll(arg, stable, snapshot.path)
+		}
+		snapshotCleanup = snapshot.cleanup
+		delete(o.settingsSnapshots, name)
+	}
+	defer func() {
+		if !snapshotOwned && snapshotCleanup != nil {
+			snapshotCleanup()
+		}
+	}()
 	logDir := filepath.Join(paths.GlobalStorage(), "logs")
 	// Discarded deliberately: a failed MkdirAll surfaces as the OpenFile below
 	// failing, which IS reported — one fault, one line.
 	_ = os.MkdirAll(logDir, 0o755)
 	logPath := filepath.Join(logDir, "host-service-"+name+".log")
 	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
+	var reasonConn net.Conn
+	var reasonChild *os.File
+	var reasonAttempt string
+	if hd != nil && hd.StartupReason {
+		var channelErr error
+		reasonConn, reasonChild, reasonAttempt, channelErr = hostservice.NewStartupReasonChannel()
+		if channelErr != nil {
+			o.pr(o.Stdout).printf("[red]Failed to prepare host service '%s' startup diagnostics: %v[/red]", name, channelErr)
+			return loopholeDaemon{}, false
+		}
+		cmd.ExtraFiles = append(cmd.ExtraFiles, reasonChild)
+	}
 	serviceLog := ""
 	// Bounded at open (internal/logcap): past the cap the log moves to one archived
 	// generation. Trimmed in place, because the same log is held open by this loophole's
@@ -1303,12 +1459,27 @@ func (o *Options) startExternalService(
 		}
 		envSet = true
 	}
-	if envSet {
+	if envSet || reasonConn != nil {
+		if reasonConn != nil {
+			env = append(env,
+				hostservice.StartupReasonFDEnv+"=3",
+				hostservice.StartupReasonAttemptEnv+"="+reasonAttempt,
+				hostservice.StartupReasonServiceEnv+"="+name)
+		}
 		cmd.Env = env
 	}
 	if err := cmd.Start(); err != nil {
+		if reasonChild != nil {
+			_ = reasonChild.Close()
+		}
+		if reasonConn != nil {
+			_ = reasonConn.Close()
+		}
 		o.pr(o.Stdout).print("[red]Failed to launch host service '" + name + "': " + err.Error() + "[/red]")
 		return loopholeDaemon{}, false
+	}
+	if reasonChild != nil {
+		_ = reasonChild.Close()
 	}
 	// Reap the child from a goroutine so the readiness wait can see an exit the
 	// moment it happens. The check this replaces read cmd.ProcessState inline,
@@ -1337,20 +1508,75 @@ func (o *Options) startExternalService(
 		reachable = func() bool { return socketConnectable(daemonPath, time.Second) }
 		awaited = daemonPath
 	}
-	if failure := o.waitServiceReady(reachable, exited, cmd); failure != "" {
+	var failure string
+	if reasonConn == nil {
+		// Preserve the legacy readiness path and its caller-owned timeout for services
+		// that did not opt into startup reasons.
+		failure = o.waitServiceReady(reachable, exited, cmd)
+	} else {
+		readyDeadline := time.Now().Add(o.serviceReadyTimeout())
+		type reasonRead struct {
+			reason *hostservice.StartupReason
+			err    error
+		}
+		reasonResults := make(chan reasonRead, 1)
+		go func() {
+			reason, err := hostservice.ReadStartupReason(reasonConn, name, reasonAttempt, readyDeadline)
+			reasonResults <- reasonRead{reason: reason, err: err}
+		}()
+		failure = o.waitServiceReadyUntil(readyDeadline, reachable, exited, cmd)
+		if failure != "" {
+			var result reasonRead
+			received := false
+			if remaining := time.Until(readyDeadline); remaining > 0 {
+				timer := time.NewTimer(remaining)
+				select {
+				case result = <-reasonResults:
+					received = true
+				case <-timer.C:
+					// The deadline and a just-completed read can become selectable together.
+					// Drain once more so the timer arm cannot discard an enqueued refusal.
+					select {
+					case result = <-reasonResults:
+						received = true
+					default:
+					}
+				}
+				timer.Stop()
+			} else {
+				// At the exhausted readiness bound, consume evidence already delivered to the
+				// channel but never add a second reason-only wait.
+				select {
+				case result = <-reasonResults:
+					received = true
+				default:
+				}
+			}
+			if received && result.err == nil && result.reason != nil && result.reason.Class == "configuration" {
+				o.startupRefusal = &hostStartupRefusal{
+					name: name, class: result.reason.Class, reason: result.reason.Reason, remedy: result.reason.Remedy,
+				}
+			}
+		}
+		// Closing cancels a reader on readiness success/early exit; on deadline expiry
+		// its absolute read deadline is already exhausted and the buffered result was
+		// checked above. The channel is private to this spawned attempt.
+		_ = reasonConn.Close()
+	}
+	if failure != "" {
 		// SIGKILL the GROUP (Setsid at spawn), not just the direct child: a
 		// daemon that failed readiness may still have forked something. The error is
 		// discarded because SIGKILL cannot be blocked: the only way it fails is ESRCH,
 		// meaning the group is already gone — which the failure clause below is about
 		// to report in its own words.
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		// Not fatal — the jail still starts. But it IS the state in which every
-		// in-jail client of this loophole fails, and the failure is otherwise
-		// silent until the agent hits it, so say so here and name the log that
-		// has the reason (the same shape startHostSingleton's two warnings take).
-		o.pr(o.Stdout).print("[yellow]Warning: host service '" + name + "' " + failure +
-			" — " + o.unreachableBy() + " cannot reach it. Expected " + awaited +
-			"; see " + logPath + "[/yellow]")
+		if o.startupRefusal == nil {
+			// Not fatal — ordinary reachability failures keep their established severity. A typed
+			// configuration refusal is returned to the caller below, before this derived symptom.
+			o.pr(o.Stdout).print("[yellow]Warning: host service '" + name + "' " + failure +
+				" — " + o.unreachableBy() + " cannot reach it. Expected " + awaited +
+				"; see " + logPath + "[/yellow]")
+		}
 		return loopholeDaemon{}, false
 	}
 	// WHAT THE KEEPER WATCHES (keeperwatch.go): the process, and below, for a fronted daemon, the
@@ -1448,6 +1674,14 @@ func (o *Options) startExternalService(
 			// both report what they cannot remove.
 			_ = os.Remove(daemonPath)
 		}
+	}
+	if snapshotCleanup != nil {
+		priorStop := stop
+		stop = func() {
+			priorStop()
+			snapshotCleanup()
+		}
+		snapshotOwned = true
 	}
 	return loopholeDaemon{
 		name:       name,

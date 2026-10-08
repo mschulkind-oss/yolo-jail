@@ -64,6 +64,7 @@ func TestStagePacksRefusesProviderNameCollision(t *testing.T) {
 // and this pins that the refusal still reaches the launch rather than degrading to a
 // last-writer-wins table.
 func TestStagePacksRefusesProviderNameDeclaredTwice(t *testing.T) {
+	strictPackloadReads(t)
 	home := packHome(t)
 	root := filepath.Join(t.TempDir(), "twice")
 	if err := os.MkdirAll(root, 0o755); err != nil {

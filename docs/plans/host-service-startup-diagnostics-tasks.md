@@ -14,7 +14,7 @@ vantage:
 
 # Tasks: host-service startup diagnostics
 
-**Status:** 2026-10-07. Candidate implementation only, outside main; development stopped for an environment restart. Bounded ordering/isolation and lifecycle/channel workers completed, but the contract/docs/final audit stopped without a final report. Candidate reference edits are drafts, not graduation. Previous incomplete implementations were rejected. No whole-feature acceptance or parent combined landing gates have completed. Re-audit the candidate and every unchecked task before independent review.
+**Status:** 2026-10-08. Landed: the `settings_check` preflight and its `yolo check` phase, the opt-in `startup_reason` channel with its singleton and per-jail readiness deadlines, private per-jail settings snapshots, the AWS pack's safe validator, and removal of the routine `unnarrowed` launch notice. Open: the typed owner-local startup outcome (O1), the lifetime cleanup items, and carrying typed outcomes through keeper, native and host-doorway callers; the unchecked rows in the [tasks](host-service-startup-diagnostics-tasks.md) are the list.
 
 ## 1. Capture the missing-cause regression first
 

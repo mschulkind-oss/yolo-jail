@@ -2,6 +2,7 @@ package run
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -254,11 +255,10 @@ func TestWriteLoopholeSettingsDisclosesATrueWideningKey(t *testing.T) {
 	}
 }
 
-// TestShippedAWSAuthDisclosesUnnarrowed is the shipped instance: packs/aws-auth declares
-// the sentence on `unnarrowed`, so a launch with `"unnarrowed": true` names it, and the
-// ordinary narrowed configuration prints nothing. Fails if the manifest's `disclose` is
-// removed.
-func TestShippedAWSAuthDisclosesUnnarrowed(t *testing.T) {
+// TestShippedAWSAuthKeepsUnnarrowedAsAnExplicitUserChoice is the shipped manifest contract:
+// the profile-permissions-as-configured route remains user-only and false by default, but
+// does not declare the routine launch notice removed by the 2026-10-07 owner ruling.
+func TestShippedAWSAuthKeepsUnnarrowedAsAnExplicitUserChoice(t *testing.T) {
 	mods := packLoopholeModules([]*packload.Pack{officialPack(t, "aws-auth")})
 	if len(mods) != 1 {
 		t.Fatalf("aws-auth loophole modules = %d, want 1", len(mods))
@@ -268,48 +268,29 @@ func TestShippedAWSAuthDisclosesUnnarrowed(t *testing.T) {
 		t.Fatalf("loading the shipped aws-auth loophole: %v", err)
 	}
 	decl, ok := loopholedecl.SettingByKey(lp.Settings, "unnarrowed")
-	if !ok || decl.Disclose == "" {
-		t.Fatalf("packs/aws-auth's `unnarrowed` declares no `disclose` sentence (decl=%+v) — "+
-			"OQ-SSO10 rules that an un-narrowed session is disclosed at every launch", decl)
-	}
-	for _, tc := range []struct {
-		name       string
-		unnarrowed bool
-		want       bool
-	}{{"unnarrowed", true, true}, {"narrowed", false, false}} {
-		t.Run(tc.name, func(t *testing.T) {
-			redirectState(t)
-			o := &Options{}
-			fillDefaults(o)
-			var stderr strings.Builder
-			o.Stdout, o.Stderr = &strings.Builder{}, &stderr
-			o.writeLoopholeSettings([]*loopholes.Loophole{lp},
-				settingsCfg(t, lp.Name, "profile", "p", "unnarrowed", tc.unnarrowed))
-			got := strings.Contains(stderr.String(), "loophole "+lp.Name+": "+decl.Disclose)
-			if got != tc.want {
-				t.Errorf("unnarrowed=%v: disclosed=%v, want %v (stderr %q)",
-					tc.unnarrowed, got, tc.want, stderr.String())
-			}
-		})
+	if !ok || decl.Disclose != "" || decl.Scope != loopholedecl.SettingScopeUser || decl.Default != false {
+		t.Fatalf("packs/aws-auth unnarrowed declaration = %+v, want user-only, false by default, no routine disclosure", decl)
 	}
 }
 
-// TestStartLoopholesDisclosesAWideningSetting is OQ-SSO10 through the launch's real path:
-// startLoopholes → startLoopholesMatching → writeLoopholeSettings prints a true widening
-// setting's `disclose` sentence on the launch's stderr. The unit test above drives
-// writeLoopholeSettings directly; this one fails if the path from startLoopholes stops
-// reaching it. Same no-daemon fixture as TestStartLoopholesWritesTheSettingsFile.
+// TestStartLoopholesDisclosesAWideningSetting is a generic pack regression: the ordinary
+// manifest-declared disclosure still crosses startLoopholes → startLoopholesMatching →
+// writeLoopholeSettings. The AWS owner ruling removes only the AWS declaration, not this
+// generic capability. The fixture starts a harmless local frame-protocol child.
 func TestStartLoopholesDisclosesAWideningSetting(t *testing.T) {
 	redirectState(t)
 	mod := filepath.Join(t.TempDir(), "acme")
 	if err := os.MkdirAll(mod, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(mod, "manifest.jsonc"), []byte(`{
+	manifest := fmt.Sprintf(`{
 		"name": "acme", "default_enabled": true, "transport": "none",
 		"settings": {"wide": {"type": "bool", "scope": "user", "default": false,
-			"disclose": "serving everything, un-narrowed"}}
-	}`), 0o644); err != nil {
+			"disclose": "serving everything, un-narrowed"}},
+		"host_daemon": {"cmd": [%q, "-front-upstream-child", "line", "{socket}"],
+			"publishes": "socket"}
+	}`, os.Args[0])
+	if err := os.WriteFile(filepath.Join(mod, "manifest.jsonc"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	origR := loopholes.RetiredUserLoopholesDir
@@ -336,7 +317,7 @@ func TestStartLoopholesDisclosesAWideningSetting(t *testing.T) {
 		}
 	}
 	if !strings.Contains(stderr.String(), "loophole acme: serving everything, un-narrowed") {
-		t.Errorf("stderr = %q: a launch with a true widening setting must disclose it (OQ-SSO10)",
+		t.Errorf("stderr = %q: the generic pack disclosure disappeared from the launch boundary",
 			stderr.String())
 	}
 }

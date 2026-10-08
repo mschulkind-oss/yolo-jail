@@ -221,9 +221,9 @@ func TestAnAttachWhoseJailLacksTheSelectedPackTakesTheDisposition(t *testing.T) 
 	}
 }
 
-// legacyTreeThisBuildRefuses leaves what a jail an older yolo launched binds, the shared tree,
-// holding a pack whose manifest this build's loader refuses: the retired `launch` kind, the
-// same class as v0.10.0's claude, whose `claude_plugins` hook this build removed.
+// legacyTreeThisBuildRefuses leaves what an attach encounters on disk: a pack tree whose manifest
+// is structurally incomplete (the program contribution has no required `via`). This remains
+// unreadable under both strict host reads and the jail's version-tolerant unknown-field read.
 func legacyTreeThisBuildRefuses(t *testing.T, cname string) string {
 	t.Helper()
 	legacy := paths.LegacyPackStagingDir(cname)
@@ -231,7 +231,7 @@ func legacyTreeThisBuildRefuses(t *testing.T, cname string) string {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writePack(t, dir, `{"name":"claude","contributes":[{"kind":"launch","bin":"claude","flags":["--x"]}]}`)
+	writePack(t, dir, `{"name":"claude","contributes":[{"kind":"program","bin":"claude"}]}`)
 	if _, err := loadUnrecordedPackTree(legacy); err == nil {
 		t.Fatal("this build reads the fixture's manifest, so it no longer stands for one it refuses")
 	}
@@ -246,6 +246,7 @@ func legacyTreeThisBuildRefuses(t *testing.T, cname string) string {
 // channel, and no skills or briefing refreshed from the configured packs. The jail's tree is left
 // byte-identical either way.
 func TestAnAttachToAJailWhoseTreeWillNotLoadTakesTheDisposition(t *testing.T) {
+	strictPackloadReads(t)
 	for _, tc := range []struct {
 		name   string
 		getenv map[string]string
