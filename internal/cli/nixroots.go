@@ -78,20 +78,21 @@ type nixRootsEnv struct {
 // registry builds the workspace's registry for this side. In a jail it can register a
 // root only when the launcher stated a host path map (nixroots.MapEnv); register reports
 // whether it can.
-func (e nixRootsEnv) registry() (reg *nixroots.Registry, m nixroots.HostMap, canRegister bool) {
+func (e nixRootsEnv) registry() (reg *nixroots.Registry, m nixroots.HostMap, registrar *nixroots.Registrar) {
 	reg = &nixroots.Registry{Workspace: e.workspace, Now: e.now, StoreDir: e.getenv("NIX_STORE_DIR"),
 		SourceSide: nixroots.SideHost}
 	if !e.inJail {
-		return reg, nil, false
+		return reg, nil, nil
 	}
 	reg.SourceSide = nixroots.SideJail
 	m, err := nixroots.ParseHostMap(e.getenv(nixroots.MapEnv))
 	if err != nil || !m.Translates() {
-		return reg, nil, false
+		return reg, nil, nil
 	}
-	reg.Register = nixroots.Registrar{Map: m, Socket: e.getenv("NIX_DAEMON_SOCKET_PATH"),
-		StoreDir: e.getenv("NIX_STORE_DIR")}.Register
-	return reg, m, true
+	registrar = &nixroots.Registrar{Map: m, Socket: e.getenv("NIX_DAEMON_SOCKET_PATH"),
+		StoreDir: e.getenv("NIX_STORE_DIR")}
+	reg.Register = registrar.Register
+	return reg, m, registrar
 }
 
 func nixRootsMain(args []string, env nixRootsEnv, out, errw io.Writer) int {
@@ -110,7 +111,7 @@ func nixRootsMain(args []string, env nixRootsEnv, out, errw io.Writer) int {
 		return 1
 	}
 	sub, flags := rest[0], rest[1:]
-	reg, m, canRegister := env.registry()
+	reg, m, registrar := env.registry()
 	switch sub {
 	case "list", "ls":
 		format, ok := parseOutputFormat("nix-roots", flags, errw)
@@ -131,14 +132,14 @@ func nixRootsMain(args []string, env nixRootsEnv, out, errw io.Writer) int {
 				"honors; make one with `nix-store --add-root <link> -r <store-path>`. keep is for a jail.")
 			return 2
 		}
-		if !canRegister {
+		if registrar == nil {
 			fmt.Fprintln(errw, "yolo nix-roots keep: this jail's launcher stated no host path map, "+
 				"so no root made here can be spelled for the host. That is a jail without the host "+
 				"nix daemon, a macos-user jail (where `nix-store --add-root` already makes a root "+
 				"the host honors), or a launcher older than the map: restart the jail with a current yolo.")
 			return 1
 		}
-		return nixRootsKeep(reg, m, flags, out, errw)
+		return nixRootsKeep(reg, registrar, m, flags, out, errw)
 	case "release", "rm":
 		if refuseUnknownFlags("nix-roots release", flags, []string{"--all"}, errw) {
 			return 2
@@ -254,7 +255,7 @@ func humanLease(d time.Duration) string {
 
 // nixRootsKeep admits each link: a symlink straight into the store, under a mount the map
 // can spell for the host.
-func nixRootsKeep(reg *nixroots.Registry, m nixroots.HostMap, links []string, out, errw io.Writer) int {
+func nixRootsKeep(reg *nixroots.Registry, registrar *nixroots.Registrar, m nixroots.HostMap, links []string, out, errw io.Writer) int {
 	rc := 0
 	for _, l := range links {
 		src, err := filepath.Abs(l)
@@ -289,7 +290,7 @@ func nixRootsKeep(reg *nixroots.Registry, m nixroots.HostMap, links []string, ou
 			rc = 1
 			continue
 		}
-		adm, err := reg.Admit(src, host, target, nixroots.ByKeep)
+		adm, err := keepOne(reg, registrar, src, host, target)
 		printReleased(out, adm.Released)
 		if err != nil {
 			var rej *nixroots.RejectedError
@@ -314,4 +315,17 @@ func nixRootsKeep(reg *nixroots.Registry, m nixroots.HostMap, links []string, ou
 			adm.Root.Expires(reg.EffectiveLease()).Local().Format("2006-01-02 15:04"))
 	}
 	return rc
+}
+
+// keepOne admits one link with its target pinned for the whole admission (nixroots.Pin), the
+// same handoff the watcher makes.
+func keepOne(reg *nixroots.Registry, registrar *nixroots.Registrar, src, host, target string) (nixroots.Admission, error) {
+	pin, err := registrar.Pin(target)
+	if err != nil {
+		return nixroots.Admission{}, err
+	}
+	defer pin.Close()
+	pinned := *reg
+	pinned.Register = pin.Register
+	return pinned.Admit(src, host, target, nixroots.ByKeep)
 }

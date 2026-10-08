@@ -42,15 +42,12 @@ func WatchMain(args []string) int {
 	if ws == "" {
 		ws = "/workspace"
 	}
-	reg := &Registry{
-		Workspace: ws,
-		StoreDir:  os.Getenv("NIX_STORE_DIR"),
-		Register: Registrar{Map: m, Socket: os.Getenv("NIX_DAEMON_SOCKET_PATH"),
-			StoreDir: os.Getenv("NIX_STORE_DIR")}.Register,
-	}
+	registrar := &Registrar{Map: m, Socket: os.Getenv("NIX_DAEMON_SOCKET_PATH"),
+		StoreDir: os.Getenv("NIX_STORE_DIR")}
+	reg := &Registry{Workspace: ws, StoreDir: os.Getenv("NIX_STORE_DIR"), Register: registrar.Register}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
-	w := &Watcher{AutoDir: HostAutoDir, Map: m, Registry: reg, Log: os.Stderr}
+	w := &Watcher{AutoDir: HostAutoDir, Map: m, Registry: reg, Registrar: registrar, Log: os.Stderr}
 	if err := w.Run(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "nix-roots: %v\n", err)
 		return 1

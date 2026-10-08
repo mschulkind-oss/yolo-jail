@@ -116,3 +116,53 @@ func (r Registrar) Register(link string) (string, error) {
 	}
 	return host, nil
 }
+
+// Pin is a temp root on target, held on a connection of its own until Close: the HANDOFF
+// FENCE of in-jail-nix-roots.md §2.4 and §4. A caller pins the store path the moment it
+// learns of it, makes and registers its managed link through Pin.Register on the same
+// connection, and only then closes. Register re-adds the temp root after the permanent root
+// is acknowledged, so a GC already running — whose permanent-root scan may predate the new
+// link — still receives the pin through its synchronization before the connection closes.
+type Pin struct {
+	r      Registrar
+	conn   *Conn
+	target string
+}
+
+// Pin dials the daemon and adds a temp root on target.
+func (r Registrar) Pin(target string) (*Pin, error) {
+	conn, err := Dial(r.Socket, r.Timeout)
+	if err != nil {
+		return nil, err
+	}
+	if err := conn.AddTempRoot(target); err != nil {
+		conn.Close()
+		return nil, err
+	}
+	return &Pin{r: r, conn: conn, target: target}, nil
+}
+
+// Register is Registrar.Register on the pin's connection, followed by the fence.
+func (p *Pin) Register(link string) (string, error) {
+	if !filepath.IsAbs(link) {
+		return "", fmt.Errorf("GC-root link %q is not absolute", link)
+	}
+	dir, err := filepath.EvalSymlinks(filepath.Dir(link))
+	if err != nil {
+		return "", err
+	}
+	host, ok := p.r.Map.Translate(filepath.Join(dir, filepath.Base(link)))
+	if !ok {
+		return "", ErrUntranslatable
+	}
+	if err := p.conn.AddIndirectRoot(host); err != nil {
+		return "", err
+	}
+	if err := p.conn.AddTempRoot(p.target); err != nil {
+		return "", err
+	}
+	return host, nil
+}
+
+// Close releases the temp root.
+func (p *Pin) Close() error { return p.conn.Close() }

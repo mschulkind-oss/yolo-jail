@@ -4,6 +4,8 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -116,5 +118,28 @@ func TestAScanAdmitsButDoesNotRenew(t *testing.T) {
 	renewed, _ := f.reg.List()
 	if !renewed[0].Renewed.Equal(f.now) {
 		t.Error("an event did not renew")
+	}
+}
+
+// THE HANDOFF FENCE (NR-D7): the watcher pins the target before it registers the managed
+// link, registers it on the pin's connection, and pins again after the registration is
+// acknowledged — all on one connection, so the temp root spans the whole handoff.
+func TestTheWatcherPinsRegistersAndFencesOnOneConnection(t *testing.T) {
+	f, w := watchFixture(t)
+	w.Registrar = &Registrar{Map: w.Map, Socket: f.daemon.Socket, StoreDir: f.store}
+	src := f.userLink(t, "result", f.paths[0])
+	autoEntry(t, w, "e", src)
+	if !w.Consider("e", false) {
+		t.Fatal("not kept")
+	}
+	link := "/host/proj/.yolo/nix-roots/links/" + RootID(src)
+	ops := f.daemon.Ops()
+	if len(ops) != 3 {
+		t.Fatalf("ops = %v, want pin, register, fence", ops)
+	}
+	conn := ops[0][:strings.Index(ops[0], ":")]
+	want := []string{conn + ":temp:" + f.paths[0], conn + ":indirect:" + link, conn + ":temp:" + f.paths[0]}
+	if !slices.Equal(ops, want) {
+		t.Errorf("ops = %v\nwant %v", ops, want)
 	}
 }

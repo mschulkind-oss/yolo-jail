@@ -36,6 +36,7 @@ const (
 	stderrStopActivity  = 0x53544f50
 	stderrResult        = 0x52534c54
 
+	opAddTempRoot     = 11
 	opAddIndirectRoot = 12
 
 	clientProtocol = 1<<8 | 37
@@ -70,38 +71,77 @@ func (e *RejectedError) Error() string { return "the nix daemon refused: " + e.M
 // a closed connection, a deadline, a frame this client does not expect — is returned as a
 // plain error, and a caller treats it as "no root", today's behavior in a jail.
 func AddIndirectRoot(socket, path string, timeout time.Duration) error {
+	c, err := Dial(socket, timeout)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	return c.AddIndirectRoot(path)
+}
+
+// Conn is one handshaken connection to the daemon, for a caller that must send more than one
+// operation on it: a TEMP ROOT lasts exactly as long as the connection that added it
+// (in-jail-nix-roots.md §2.3), so the pin and the registration it guards share one.
+type Conn struct {
+	nc      net.Conn
+	c       *wire
+	timeout time.Duration
+}
+
+// Dial connects to the daemon at socket ("" is DefaultSocket) and completes the handshake.
+// timeout ("<= 0" is DefaultTimeout) bounds the dial and each operation.
+func Dial(socket string, timeout time.Duration) (*Conn, error) {
 	if socket == "" {
 		socket = DefaultSocket
 	}
 	if timeout <= 0 {
 		timeout = DefaultTimeout
 	}
-	conn, err := net.DialTimeout("unix", socket, timeout)
+	nc, err := net.DialTimeout("unix", socket, timeout)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	defer conn.Close()
-	if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
-		return err
+	if err := nc.SetDeadline(time.Now().Add(timeout)); err != nil {
+		nc.Close()
+		return nil, err
 	}
-	c := &wire{r: bufio.NewReader(conn), w: bufio.NewWriter(conn)}
+	c := &wire{r: bufio.NewReader(nc), w: bufio.NewWriter(nc)}
 	if err := c.handshake(); err != nil {
+		nc.Close()
+		return nil, err
+	}
+	return &Conn{nc: nc, c: c, timeout: timeout}, nil
+}
+
+// Close ends the connection, and with it every temp root it added.
+func (k *Conn) Close() error { return k.nc.Close() }
+
+// AddTempRoot pins path for as long as this connection stays open.
+func (k *Conn) AddTempRoot(path string) error { return k.op(opAddTempRoot, "AddTempRoot", path) }
+
+// AddIndirectRoot is the package's AddIndirectRoot on this connection.
+func (k *Conn) AddIndirectRoot(path string) error {
+	return k.op(opAddIndirectRoot, "AddIndirectRoot", path)
+}
+
+func (k *Conn) op(op uint64, name, path string) error {
+	if err := k.nc.SetDeadline(time.Now().Add(k.timeout)); err != nil {
 		return err
 	}
-	c.writeU64(opAddIndirectRoot)
-	c.writeString(path)
-	if err := c.flush(); err != nil {
+	k.c.writeU64(op)
+	k.c.writeString(path)
+	if err := k.c.flush(); err != nil {
 		return err
 	}
-	if err := c.processStderr(); err != nil {
+	if err := k.c.processStderr(); err != nil {
 		return err
 	}
-	result, err := c.readU64()
+	result, err := k.c.readU64()
 	if err != nil {
 		return err
 	}
 	if result != 1 {
-		return fmt.Errorf("nix daemon: AddIndirectRoot answered %d, want 1", result)
+		return fmt.Errorf("nix daemon: %s answered %d, want 1", name, result)
 	}
 	return nil
 }

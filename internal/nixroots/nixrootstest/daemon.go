@@ -15,6 +15,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"testing"
 )
@@ -26,6 +27,7 @@ type Daemon struct {
 
 	mu    sync.Mutex
 	roots []string
+	ops   []string
 	conns int
 }
 
@@ -69,12 +71,13 @@ func Start(t testing.TB, opts Options) *Daemon {
 			}
 			d.mu.Lock()
 			d.conns++
+			id := d.conns
 			d.mu.Unlock()
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
 				defer conn.Close()
-				d.serve(conn, opts)
+				d.serve(conn, opts, id)
 			}()
 		}
 	}()
@@ -91,6 +94,14 @@ func (d *Daemon) Roots() []string {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return append([]string(nil), d.roots...)
+}
+
+// Ops is every operation the daemon served, in order, as "<conn>:temp:<path>" or
+// "<conn>:indirect:<path>", <conn> numbering the connections from 1.
+func (d *Daemon) Ops() []string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([]string(nil), d.ops...)
 }
 
 // Connections is how many clients connected.
@@ -110,6 +121,7 @@ const (
 	stderrStartActivity = 0x53545254
 	stderrStopActivity  = 0x53544f50
 
+	opAddTempRoot     = 11
 	opAddIndirectRoot = 12
 )
 
@@ -119,7 +131,7 @@ type conn struct {
 	proto uint64
 }
 
-func (d *Daemon) serve(nc net.Conn, opts Options) {
+func (d *Daemon) serve(nc net.Conn, opts Options, id int) {
 	c := &conn{r: bufio.NewReader(nc), w: bufio.NewWriter(nc)}
 	if c.u64() != magic1 {
 		return
@@ -155,12 +167,21 @@ func (d *Daemon) serve(nc net.Conn, opts Options) {
 		if err != nil {
 			return
 		}
-		if op != opAddIndirectRoot {
+		if op != opAddIndirectRoot && op != opAddTempRoot {
 			c.fail("invalid operation")
 			c.w.Flush()
 			return
 		}
 		path := c.str()
+		if op == opAddTempRoot {
+			// daemon.cc: addTempRoot, stopWork, then 1. A temp root is never refused.
+			d.mu.Lock()
+			d.ops = append(d.ops, strconv.Itoa(id)+":temp:"+path)
+			d.mu.Unlock()
+			c.put(stderrLast, 1)
+			c.w.Flush()
+			continue
+		}
 		if opts.Chatter {
 			c.put(stderrNext)
 			c.putStr("adding an indirect root")
@@ -181,6 +202,7 @@ func (d *Daemon) serve(nc net.Conn, opts Options) {
 		}
 		d.mu.Lock()
 		d.roots = append(d.roots, path)
+		d.ops = append(d.ops, strconv.Itoa(id)+":indirect:"+path)
 		d.mu.Unlock()
 		c.put(stderrLast, 1)
 		c.w.Flush()

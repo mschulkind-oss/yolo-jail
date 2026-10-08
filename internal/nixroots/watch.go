@@ -40,7 +40,11 @@ type Watcher struct {
 	AutoDir  string
 	Map      HostMap
 	Registry *Registry
-	Log      io.Writer
+	// Registrar, when set, pins each target the moment the watcher learns of it and
+	// registers the managed link on the pin's connection (Pin). Nil registers through
+	// Registry.Register with no pin, which only a test wants.
+	Registrar *Registrar
+	Log       io.Writer
 	// Housekeeping is DefaultHousekeeping when zero.
 	Housekeeping time.Duration
 }
@@ -75,9 +79,6 @@ func (w *Watcher) Consider(name string, scan bool) bool {
 	if err != nil || !w.Registry.isStorePath(target) {
 		return false
 	}
-	if _, err := os.Lstat(target); err != nil {
-		return false
-	}
 	dir, err := filepath.EvalSymlinks(filepath.Dir(x))
 	if err != nil {
 		return false
@@ -95,7 +96,25 @@ func (w *Watcher) Consider(name string, scan bool) bool {
 			}
 		}
 	}
-	adm, err := w.Registry.Admit(x, host, target, ByWatch)
+	// PIN FIRST (NR-D7): the target is held from here until the managed root is registered
+	// and fenced, so the only unguarded interval left is the one before this line.
+	reg := w.Registry
+	if w.Registrar != nil {
+		pin, err := w.Registrar.Pin(target)
+		if err != nil {
+			w.logf("could not pin %s for %s: %v", target, x, err)
+			return false
+		}
+		defer pin.Close()
+		pinned := *w.Registry
+		pinned.Register = pin.Register
+		reg = &pinned
+	}
+	if _, err := os.Lstat(target); err != nil {
+		w.logf("%s -> %s: the store path is already gone; a rebuild re-roots it", x, target)
+		return false
+	}
+	adm, err := reg.Admit(x, host, target, ByWatch)
 	for _, r := range adm.Released {
 		w.logf("released %s %s: %s", r.Root.ID, r.Root.Source, r.Reason)
 	}

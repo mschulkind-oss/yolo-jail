@@ -56,6 +56,11 @@ func TestNixRootsKeepListRelease(t *testing.T) {
 	if !slices.Contains(d.Roots(), "/host/proj/.yolo/nix-roots/links/"+id) {
 		t.Errorf("daemon got %v", d.Roots())
 	}
+	// keep makes the watcher's handoff: pin, register, fence, on one connection.
+	if ops := d.Ops(); len(ops) != 3 || !strings.HasSuffix(ops[0], ":temp:"+sp) ||
+		!strings.HasSuffix(ops[2], ":temp:"+sp) || !strings.Contains(ops[1], ":indirect:") {
+		t.Errorf("keep's daemon ops = %v", ops)
+	}
 
 	rc, out, _ = runNR(t, env, "list", "--format", "json")
 	var rows []map[string]any
