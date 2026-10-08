@@ -31,9 +31,11 @@ candidate state, acceptance gaps and verification; a place here does not make it
 1. [Enable profile-served daemons on attach without ending sibling sessions](../design/attach-daemon-activation.md)
    — the reported late Bedrock selection reaches a restart prompt; settle additive activation
    before treating restart as the remedy for an already-authorized missing daemon.
-2. [Enforce the active Pi profile set with a yolo-shipped extension](../design/simultaneous-auth-and-pack-isolation.md)
-   — [OQ-PAS2](../design/simultaneous-auth-and-pack-isolation.md#OQ-PAS2) rules out a Pi fork;
-   a stock-Pi extension that replaces out-of-set providers is in review.
+
+Pi's profile-set extension is built, children of pi-subagents included; what it cannot close is
+listed as accepted limits in
+[its design's §3.4](../design/simultaneous-auth-and-pack-isolation.md#34-what-the-extension-cannot-close),
+and the one call left there, a pi-subagents registry several extensions can share, is in item 28.
 
 Native readiness and credential-store work retain their places below: assess
 [the privilege prerequisites](../research/sandvault-macos-privileges.md) without broad root
@@ -147,7 +149,8 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
 28. Calls left at one decision each, each with its facts and a leaning: [the `:ro` degradation rows](../design/composed-file-permissions.md),
     [whether messages name the guide's URL](../design/docs-website.md#OQ-DW3), [the macOS nix build sandbox](../design/macos-user-build-step-threat-model.md),
     [array-append pinning](BACKLOG.md#E5), [the pack system's other calls](../reference/pack-system.md), [relocating
-    `.yolo` by a link](../reference/jail-home.md#OQ-JH1), [the shared tool store's relocation contract](../design/shared-tool-store-relocation.md)
+    `.yolo` by a link](../reference/jail-home.md#OQ-JH1), [whether to ask pi-subagents for a registry several
+    extensions can share](../design/simultaneous-auth-and-pack-isolation.md#34-what-the-extension-cannot-close), [the shared tool store's relocation contract](../design/shared-tool-store-relocation.md)
     with [its build handoff](shared-tool-store-relocation.md), and, once item 11 records its cases, [context sources inside a
     home](../design/context-mounts.md).
     Beside the storage rulings, [choose bulk scratch placement](../design/storage-tiers.md), with its
