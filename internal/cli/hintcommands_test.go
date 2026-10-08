@@ -102,6 +102,7 @@ var verbDispatchers = map[string]verbDispatcher{
 	"host-daemon": {"internal/cli", "hostDaemonDispatch", "sub", ""},
 	"claude-auth": {"internal/cli", "claudeAuthMain", "args[0]", ""},
 	"openai-auth": {"internal/openaiauthhost", "runOperator", "args[0]", ""},
+	"nix-roots":   {"internal/cli", "nixRootsMain", "sub", ""},
 	// Not in the registry: Main routes `yolo internal` before the front door.
 	"internal": {"internal/cli", "runInternal", "args[0]", ""},
 }

@@ -292,3 +292,14 @@ func TestListOfAWorkspaceWithNoRegistryIsEmpty(t *testing.T) {
 		t.Error("List created the state directory")
 	}
 }
+
+func TestAdmitRefusesAStorePathThatIsGone(t *testing.T) {
+	f := newRegFixture(t, 0)
+	gone := filepath.Join(f.store, "0123456789abcdfghijklmnpqrsvwxyz-gone")
+	if _, err := f.reg.Admit(f.userLink(t, "result", gone), "/host/proj/result", gone, ByKeep); err == nil {
+		t.Fatal("admitted a store path that is not there")
+	}
+	if roots, _ := f.reg.List(); len(roots) != 0 {
+		t.Errorf("recorded %+v", roots)
+	}
+}

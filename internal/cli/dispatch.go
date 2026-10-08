@@ -49,6 +49,7 @@ var registry = map[string]func(args []string) int{
 	"claude-auth":           runClaudeAuth,
 	"prune":                 runPrune,
 	"stores":                runStores,
+	"nix-roots":             runNixRoots,
 	"programs":              runPrograms,
 	"macos-setup":           runMacosSetup,
 	"macos-teardown":        runMacosTeardown,

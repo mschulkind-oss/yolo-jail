@@ -36,6 +36,9 @@ var commandHelp = []struct{ name, blurb string }{
 	// disk: prune prices what it WOULD delete, stores prices what EXISTS — including
 	// the stores nothing reclaims, which prune cannot show by construction.
 	{"stores", "Inventory every store: size, growth, what reclaims it (and what nothing does)"},
+	// Beside the disk verbs: a managed nix root holds host disk, and this is where it is seen
+	// and given back.
+	{"nix-roots", "Nix roots a jail's links hold on the host: 'list', 'keep <link>', 'release', 'prune'"},
 	// The host-daemon verb, with `broker` DIRECTLY BELOW IT and saying it is an
 	// alias — the same reason `host` sits directly under `run`: a reader looking
 	// for "how do I restart the broker" reads both lines at once and learns that

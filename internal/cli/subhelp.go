@@ -101,6 +101,7 @@ var subcommandUsage = map[string]subUsage{
 	// The text lives with the command, in internal/cli/stores, because that package
 	// owns the flags it documents; this table stays the one complete inventory.
 	"stores":      {text: stores.Usage},
+	"nix-roots":   {text: nixRootsUsage, valueFlags: []string{"--format"}},
 	"update":      {text: updateUsage, valueFlags: []string{"--from"}},
 	"gh":          {text: ghUsage},
 	"audit":       {text: auditUsage, valueFlags: []string{"--since", "--jail", "--workspace", "--set", "--grant"}},

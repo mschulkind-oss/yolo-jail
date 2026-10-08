@@ -157,6 +157,10 @@ func (g *Registry) cap() int {
 	return DefaultCap
 }
 
+// EffectiveLease and EffectiveCap are the lease and cap this registry applies.
+func (g *Registry) EffectiveLease() time.Duration { return g.lease() }
+func (g *Registry) EffectiveCap() int             { return g.cap() }
+
 func (g *Registry) now() time.Time {
 	if g.Now != nil {
 		return g.Now()
@@ -420,6 +424,10 @@ func (g *Registry) Admit(source, sourceHost, target, by string) (Admission, erro
 	}
 	if !g.isStorePath(target) {
 		return Admission{}, fmt.Errorf("%s does not point into the store %s", source, g.storeDir())
+	}
+	// A root for a path the store no longer has would protect nothing and read as kept.
+	if _, err := os.Lstat(target); err != nil {
+		return Admission{}, fmt.Errorf("%s points at %s, which is no longer in the store; rebuild it, then keep it", source, target)
 	}
 	s, err := g.open(true)
 	if err != nil {
