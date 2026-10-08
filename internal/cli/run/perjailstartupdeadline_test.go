@@ -77,11 +77,14 @@ func TestPerJailStartupReasonAvailableWithinReadinessBudgetIsReturnedByProductio
 	if runtime.GOOS != "linux" {
 		t.Skip("spawns a host process and binds an AF_UNIX socket")
 	}
-	const timeout = 180 * time.Millisecond
+	// The fixture writes its refusal and then stays alive. An accepted record ends the readiness
+	// wait (design §4.1), so the start returns well inside a window long enough to tell the two
+	// apart; waiting the window out was the defect.
+	const timeout = 5 * time.Second
 	started := time.Now()
 	o, handles, refusal, output := runPerJailReasonFixture(t, "reason", timeout, false, 0)
-	if elapsed := time.Since(started); elapsed < timeout-30*time.Millisecond || elapsed > timeout+160*time.Millisecond {
-		t.Fatalf("actual start elapsed %s for %s readiness bound; want one bounded readiness wait", elapsed, timeout)
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Fatalf("actual start elapsed %s for %s readiness bound; an alive daemon's accepted refusal must end the wait", elapsed, timeout)
 	}
 	if len(handles) != 0 || refusal == nil {
 		t.Fatalf("startup reason was not returned through the actual per-jail start path: handles=%d refusal=%+v output=%s", len(handles), refusal, output)
@@ -181,6 +184,9 @@ func TestPerJailNonConfigurationRefusalIsPrintedBeforeTheDerivedSymptom(t *testi
 func runPerJailReasonFixture(t *testing.T, mode string, timeout time.Duration, ready bool,
 	delay time.Duration) (*Options, []loopholeDaemon, *hostStartupRefusal, string) {
 	t.Helper()
+	// Under -race a child's exit with status 0 sleeps a second in the race runtime first
+	// (atexit_sleep_ms), which would read as a refusing daemon still alive after its record.
+	t.Setenv("GORACE", strings.TrimSpace(os.Getenv("GORACE")+" atexit_sleep_ms=0"))
 	t.Setenv(perJailReasonChildModeEnv, mode)
 	if delay > 0 {
 		t.Setenv(perJailReasonChildDelayEnv, delay.String())

@@ -217,7 +217,11 @@ func (r *hostStartupRefusal) Error() string {
 	if r.remedy != "" {
 		text += "\nRemedy: " + r.remedy
 	}
-	if !strings.Contains(text, "yolo check --no-build") {
+	// Every refusal ends with the retry, and names `yolo check --no-build` once: a remedy that
+	// already names it gets only the retry.
+	if strings.Contains(text, "yolo check --no-build") {
+		text += "\nThen retry the launch."
+	} else {
 		text += "\nCorrect the settings, run `yolo check --no-build`, then retry the launch."
 	}
 	return text
@@ -330,7 +334,9 @@ func launchCheckText(s string) string {
 			b.WriteString("…")
 			break
 		}
-		if unicode.IsControl(r) {
+		// Format characters (Cf) too: a bidi override or zero-width character from a daemon
+		// would reorder or hide the launch-check text a reader sees.
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
 			r = ' '
 		}
 		b.WriteRune(r)

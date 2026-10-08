@@ -936,7 +936,7 @@ func (o *Options) discloseLoopholes(rt string, cfg *jsonx.OrderedMap, packs []*p
 	// switched off is declared by its pack and started by nobody, so it is not announced.
 	starting := o.hostServiceNames(rt, cfg)
 	o.notePackHostExec(packs, func(name string) bool {
-		return slices.Contains(starting, name) && !o.hostExecDisclosed[name]
+		return slices.Contains(starting, name)
 	})
 	// The JAIL half of the same question — pack code that runs, on the other side of the
 	// boundary — and it prints here because this wrapper is the last host-side moment before

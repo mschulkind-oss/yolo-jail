@@ -173,10 +173,12 @@ func TestAppleContainerStartsTheBrokerOnlyForAView(t *testing.T) {
 		t.Fatal(err)
 	}
 	src := string(body)
-	if !strings.Contains(src, "if o.claudeCredentialView(rt, cfg) {") ||
-		!strings.Contains(src, "name == openAIAuthBrokerName || name == broker.BrokerLoopholeName") {
+	if !strings.Contains(src, "view := o.claudeCredentialView(rt, cfg)") ||
+		!strings.Contains(src, "return HostServiceAdmittedOn(rt, name, view)") ||
+		!HostServiceAdmittedOn("container", broker.BrokerLoopholeName, true) ||
+		HostServiceAdmittedOn("container", broker.BrokerLoopholeName, false) {
 		t.Error("Apple Container's allow list no longer admits the claude broker for a view " +
-			"launch: nothing would write the view on the backend where it is the default")
+			"launch (and only for one): nothing would write the view on the backend where it is the default")
 	}
 	// And its endpoint stays unpublished to the jail, which dials nothing.
 	if !hostScopedEndpointIsUnpublishable("container", broker.BrokerLoopholeName) {

@@ -620,7 +620,12 @@ func EnsureSingleton(deps Deps) Ensured {
 	var reasonResults chan startupReasonResult
 	var reasonReadDone chan struct{}
 	var reasonReadCancel context.CancelFunc
+	// recordAccepted closes once the reader holds an accepted record, which ends the readiness
+	// wait as a failure (docs/design/host-service-startup-diagnostics.md §4.1), so a daemon that
+	// refuses and stays alive does not hold the launch for the whole spawn window.
+	var recordAccepted chan struct{}
 	if reasonConn != nil {
+		recordAccepted = make(chan struct{})
 		readCtx, cancel := context.WithCancel(context.Background())
 		reasonReadCancel = cancel
 		reasonResults = make(chan startupReasonResult, 1)
@@ -638,6 +643,9 @@ func EnsureSingleton(deps Deps) Ensured {
 				result.err = startupReasonReadError(read)
 			}
 			reasonResults <- result
+			if read.Kind == hostservice.StartupReasonReadRecord {
+				close(recordAccepted)
+			}
 		}()
 	} else if deps.StartupReason {
 		done.Outcome.ReasonRead = hostservice.StartupReasonReadOutcome{Kind: hostservice.StartupReasonReadChannelFault,
@@ -647,7 +655,7 @@ func EnsureSingleton(deps Deps) Ensured {
 	if deps.waitForSocketUntil != nil {
 		ready = deps.waitForSocketUntil(deps.SocketPath, readyDeadline, exited, reasonResults)
 	} else {
-		ready = brokerWaitForSocketUntil(deps, deps.SocketPath, readyDeadline, exited)
+		ready = brokerWaitForSocketUntil(deps, deps.SocketPath, readyDeadline, exited, recordAccepted)
 	}
 	var result startupReasonResult
 	resultReceived := false
@@ -876,13 +884,23 @@ func lockFailureLine(deps Deps, step string, err error) string {
 // brokerWaitForSocketUntil ports _broker_wait_for_socket: poll until the socket
 // appears or the absolute deadline elapses; a dead child (exited() true) is a genuine
 // failure detected in milliseconds. Returns whether the socket exists at the end.
-func brokerWaitForSocketUntil(deps Deps, sock string, deadline time.Time, exited func() bool) bool {
+//
+// refused closes when the daemon's startup-reason record was accepted; the wait then ends as not
+// ready. A socket seen before the record keeps its authority (it is checked first). nil never
+// closes.
+func brokerWaitForSocketUntil(deps Deps, sock string, deadline time.Time, exited func() bool,
+	refused <-chan struct{}) bool {
 	for deps.Now().Before(deadline) {
 		if deps.PathExists(sock) {
 			return true
 		}
 		if exited != nil && exited() {
 			return deps.PathExists(sock)
+		}
+		select {
+		case <-refused:
+			return false
+		default:
 		}
 		deps.Sleep(SocketPollInterval)
 	}

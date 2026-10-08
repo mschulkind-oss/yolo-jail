@@ -282,18 +282,9 @@ func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loop
 // whether a brokered loophole's repository scope is in play (brokeredscope.go).
 func (o *Options) loopholeAllow(rt string, cfg *jsonx.OrderedMap) func(string) bool {
 	allow := func(string) bool { return true }
-	if rt == "container" { // parity: HonoredBy — Apple Container starts only OpenAI authentication
-		allow = func(name string) bool { return name == openAIAuthBrokerName }
-		// AND THE CLAUDE BROKER WHEN THE LAUNCH DELIVERS THE CREDENTIAL VIEW (CL-D11). Nothing
-		// in an Apple Container jail dials it, and nothing needs to: the singleton is the host
-		// process that writes this workspace's view into the wsState the guest binds, so its
-		// endpoint stays unpublished to the jail (hostScopedEndpointIsUnpublishable), which is
-		// right rather than a gap.
-		if o.claudeCredentialView(rt, cfg) {
-			allow = func(name string) bool {
-				return name == openAIAuthBrokerName || name == broker.BrokerLoopholeName
-			}
-		}
+	if rt == "container" { // parity: HonoredBy — Apple Container starts only OpenAI authentication (HostServiceAdmittedOn)
+		view := o.claudeCredentialView(rt, cfg)
+		allow = func(name string) bool { return HostServiceAdmittedOn(rt, name, view) }
 	}
 	// A LOOPHOLE WHOSE POINTER THIS NESTED LAUNCH INHERITS STARTS NOTHING HERE
 	// (parentjailpointers.go, SSO-D2): the launching jail's own service answers its pointer, so
@@ -309,6 +300,23 @@ func (o *Options) loopholeAllow(rt string, cfg *jsonx.OrderedMap) func(string) b
 		}
 	}
 	return allow
+}
+
+// HostServiceAdmittedOn is the BACKEND half of loopholeAllow: whether a launch on runtime rt
+// starts the host service name at all. One predicate, exported, so `yolo check` asks the same
+// question before it runs a service's settings validator.
+//
+// Apple Container (parity: HonoredBy) starts only OpenAI authentication, AND THE CLAUDE BROKER WHEN
+// THE LAUNCH DELIVERS THE CREDENTIAL VIEW (CL-D11; claudeCredentialView is that decision). Nothing
+// in an Apple Container jail dials the broker, and nothing needs to: the singleton is the host
+// process that writes this workspace's view into the wsState the guest binds, so its endpoint
+// stays unpublished to the jail (hostScopedEndpointIsUnpublishable), which is right rather than a
+// gap. Every other backend admits every service.
+func HostServiceAdmittedOn(rt, name string, claudeCredentialView bool) bool {
+	if rt != "container" { // parity: HonoredBy — Apple Container starts only OpenAI authentication, and the Claude broker for a view
+		return true
+	}
+	return name == openAIAuthBrokerName || (claudeCredentialView && name == broker.BrokerLoopholeName)
 }
 
 // unreachableBy is who a host service's failure leaves unable to reach it: the jail, or at a
@@ -1000,13 +1008,19 @@ func (o *Options) serviceReadyTimeout() time.Duration {
 // wrapper exits 0 while its detached child comes up shortly after, and failing
 // on the wrapper's exit would break every daemon of that shape.
 func (o *Options) waitServiceReady(reachable func() bool, exited <-chan struct{}, cmd *exec.Cmd) string {
-	return o.waitServiceReadyUntil(time.Now().Add(o.serviceReadyTimeout()), reachable, exited, cmd)
+	return o.waitServiceReadyUntil(time.Now().Add(o.serviceReadyTimeout()), reachable, exited, nil, cmd)
 }
 
 // waitServiceReadyUntil applies the caller's absolute readiness deadline. A per-jail
 // startup-reason reader uses this same deadline so observing a refusal cannot extend it.
+//
+// refused closes when the daemon's startup-reason channel delivered an accepted record, and ENDS
+// THE WAIT as a failure (docs/design/host-service-startup-diagnostics.md §4.1: the parent stops
+// waiting on readiness, a refusal, an exit or the timeout). A daemon that refuses and stays alive
+// would otherwise hold the launch for the whole window. Readiness keeps its authority: a service
+// found reachable before the record is ready. nil, for a service without the channel, never closes.
 func (o *Options) waitServiceReadyUntil(deadline time.Time, reachable func() bool,
-	exited <-chan struct{}, cmd *exec.Cmd) string {
+	exited <-chan struct{}, refused <-chan struct{}, cmd *exec.Cmd) string {
 	// REAL WALL CLOCK, deliberately NOT o.Now(), and this is the one place the reason
 	// is written down — the two other readiness deadlines in this file used to point at
 	// relayKill for it, and relayKill went with internal/brokerrelay.
@@ -1027,6 +1041,8 @@ func (o *Options) waitServiceReadyUntil(deadline time.Time, reachable func() boo
 			return "did not become reachable within " + o.serviceReadyTimeout().String()
 		}
 		select {
+		case <-refused:
+			return serviceRefusedStartup
 		case <-exited:
 			// One more look before judging: the daemon may have published and
 			// then exited deliberately.
@@ -1042,7 +1058,11 @@ func (o *Options) waitServiceReadyUntil(deadline time.Time, reachable func() boo
 				if reachable() {
 					return ""
 				}
-				time.Sleep(servicePollInterval)
+				select {
+				case <-refused:
+					return serviceRefusedStartup
+				case <-time.After(servicePollInterval):
+				}
 			}
 			return "exited (status 0) and its service never became reachable within " +
 				o.serviceReadyTimeout().String()
@@ -1050,6 +1070,22 @@ func (o *Options) waitServiceReadyUntil(deadline time.Time, reachable func() boo
 		}
 	}
 }
+
+// serviceRefusedStartup is the readiness failure for a daemon whose startup-reason record arrived
+// before it became reachable. The record itself is what the launch reports.
+const serviceRefusedStartup = "refused startup before it became reachable"
+
+// startupDiagnosticsFailure is the line for a startup-reason channel that could not be made: a
+// socketpair or the attempt token failed, which on a working host means it is out of descriptors.
+func startupDiagnosticsFailure(name string, err error) string {
+	return "Failed to prepare host service '" + name + "' startup diagnostics: " + err.Error() +
+		" — the service was not started. Retry the launch; if this repeats, the host may be out of " +
+		"file descriptors (compare `ulimit -n` with what yolo has open)."
+}
+
+// refusalExitGrace bounds how long a start that received a refusal waits for the daemon's own
+// exit before recording it as alive and killing it.
+const refusalExitGrace = time.Second
 
 // transportLegacySocket is GONE, and its absence is the fact worth recording.
 //
@@ -1301,6 +1337,15 @@ func (o *Options) startHostSingleton(
 			}
 			return current, false
 		}
+		// THIS ATTEMPT IS EVIDENCE TOO: the reused daemon refused the accepting connect, which is
+		// why the ensure runs again. The caller collects only the outcome this returns, the last
+		// attempt's, so an attempt that retries is collected here, under its own attempt number.
+		current.startupOutcome.Kind = hostservice.StartupKindTransportFailed
+		current.startupOutcome.Phase = hostservice.StartupPhaseEndpoint
+		if current.startupOutcome.Readiness != hostservice.StartupReadinessObserved {
+			current.startupOutcome.Readiness = hostservice.StartupReadinessNotReady
+		}
+		o.collectStartupOutcome(current.startupOutcome)
 	}
 	// ALIVE BUT INCOMPATIBLE — the one state every other surface calls healthy. A daemon started
 	// before this loophole moved behind a front is still listening at the same path, and it will
@@ -1478,7 +1523,7 @@ func (o *Options) startExternalService(
 		var channelErr error
 		reasonConn, reasonChild, reasonAttempt, channelErr = hostservice.NewStartupReasonChannel()
 		if channelErr != nil {
-			o.pr(o.Stdout).printf("[red]Failed to prepare host service '%s' startup diagnostics: %v[/red]", name, channelErr)
+			o.pr(o.Stdout).print("[red]" + richtext.Escape(startupDiagnosticsFailure(name, channelErr)) + "[/red]")
 			outcome.ReasonRead = hostservice.StartupReasonReadOutcome{Kind: hostservice.StartupReasonReadChannelFault,
 				Phase: hostservice.StartupReasonReadPhaseUnknown, Fault: hostservice.StartupReasonFaultUnavailable}
 			return failed(hostservice.StartupKindChannelSetupFailed, hostservice.StartupPhaseChannel)
@@ -1597,16 +1642,23 @@ func (o *Options) startExternalService(
 	var reasonResults chan reasonReadResult
 	var reasonReadDone chan struct{}
 	var reasonReadCancel context.CancelFunc
+	// recordAccepted closes once the reader holds an accepted record, which ends the readiness
+	// wait (waitServiceReadyUntil). The result itself still travels on reasonResults.
+	var recordAccepted chan struct{}
 	if reasonConn != nil {
 		readyDeadline = time.Now().Add(o.serviceReadyTimeout())
 		readCtx, cancel := context.WithCancel(context.Background())
 		reasonReadCancel = cancel
 		reasonResults = make(chan reasonReadResult, 1)
 		reasonReadDone = make(chan struct{})
+		recordAccepted = make(chan struct{})
 		go func() {
 			defer close(reasonReadDone)
-			reasonResults <- reasonReadResult{read: hostservice.ReadStartupReasonOutcome(
-				readCtx, reasonConn, name, reasonAttempt, readyDeadline)}
+			read := hostservice.ReadStartupReasonOutcome(readCtx, reasonConn, name, reasonAttempt, readyDeadline)
+			reasonResults <- reasonReadResult{read: read}
+			if read.Kind == hostservice.StartupReasonReadRecord {
+				close(recordAccepted)
+			}
 		}()
 	}
 	failure := ""
@@ -1615,7 +1667,7 @@ func (o *Options) startExternalService(
 		// the opt-in startup-reason channel.
 		failure = o.waitServiceReady(reachable, exited, cmd)
 	} else {
-		failure = o.waitServiceReadyUntil(readyDeadline, reachable, exited, cmd)
+		failure = o.waitServiceReadyUntil(readyDeadline, reachable, exited, recordAccepted, cmd)
 	}
 	var readResult reasonReadResult
 	readReceived := false
@@ -1665,6 +1717,19 @@ func (o *Options) startExternalService(
 					reason: readResult.read.Reason, remedy: readResult.read.Remedy,
 				}
 			}
+		}
+	}
+	if failure == serviceRefusedStartup {
+		// A refusing daemon ordinarily exits right after its record. A short look, inside the
+		// readiness deadline, lets the outcome carry that exit and its status rather than the
+		// instant between the write and the exit; one that stays alive is killed below.
+		if grace := min(refusalExitGrace, time.Until(readyDeadline)); grace > 0 {
+			timer := time.NewTimer(grace)
+			select {
+			case <-exited:
+			case <-timer.C:
+			}
+			timer.Stop()
 		}
 	}
 	select {

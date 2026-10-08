@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/broker"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 )
@@ -362,7 +363,14 @@ func TestAppleContainerAllowListHasOneSpelling(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(body), `allow = func(name string) bool { return name == openAIAuthBrokerName }`) {
+	// The allow list is HostServiceAdmittedOn (loopholeAllow calls it), and without a credential
+	// view it admits exactly one service on Apple Container.
+	admitsOnlyOpenAI := HostServiceAdmittedOn("container", openAIAuthBrokerName, false)
+	for _, other := range []string{broker.BrokerLoopholeName, "aws-auth", "journal", "github-broker"} {
+		admitsOnlyOpenAI = admitsOnlyOpenAI && !HostServiceAdmittedOn("container", other, false)
+	}
+	if !strings.Contains(string(body), "return HostServiceAdmittedOn(rt, name, view)") || !admitsOnlyOpenAI ||
+		!strings.Contains(string(body), "return name == openAIAuthBrokerName || (claudeCredentialView && name == broker.BrokerLoopholeName)") {
 		t.Error("startLoopholes' Apple Container allow list is no longer the single-member " +
 			"list hostScopedEndpointIsUnpublishable's `name != openAIAuthBrokerName` mirrors " +
 			"(assemble_parts.go). Change both together, or AC either promises an endpoint " +

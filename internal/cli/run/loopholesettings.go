@@ -7,6 +7,8 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
 // loopholesettings.go is the LAUNCH half of docs/reference/pack-system.md:
@@ -35,11 +37,12 @@ func (o *Options) prepareLoopholeSettings(discovered []*loopholes.Loophole, cfg 
 		supplied := suppliedSettings(loopCfg, lp.Name)
 		frozen, problems, err := loopholes.FrozenSettingsBytes(lp, supplied)
 		if err != nil {
-			o.pr(o.Stdout).print("[red]Could not resolve settings for loophole " + lp.Name +
-				": " + err.Error() + " — its daemon will not start[/red]")
+			o.pr(o.Stdout).print("[red]Could not resolve settings for loophole " + richtext.Escape(lp.Name) +
+				": " + richtext.Escape(err.Error()) + " — its daemon will not start. " +
+				richtext.Escape(LoopholeSettingsFixStep(lp.Name)) + "[/red]")
 			o.startupRefusal = &hostStartupRefusal{name: lp.Name, class: "settings-resolution",
 				reason: "The declared settings could not be resolved.",
-				remedy: "Correct the host service settings and run `yolo check --no-build` again."}
+				remedy: LoopholeSettingsFixStep(lp.Name)}
 			return nil
 		}
 		for _, problem := range problems {
@@ -66,6 +69,13 @@ func (o *Options) prepareLoopholeSettings(discovered []*loopholes.Loophole, cfg 
 		plan.checked[lp.Name] = checked
 	}
 	return plan
+}
+
+// LoopholeSettingsFixStep is the next step for settings that could not be resolved: where they
+// are set, and the preflight that re-checks them.
+func LoopholeSettingsFixStep(name string) string {
+	return "Correct `loopholes." + name + ".settings` in " + paths.UserConfigPath() +
+		" or the workspace's yolo-jail.jsonc, then run `yolo check --no-build`."
 }
 
 // publishLoopholeSettings publishes a previously validated plan, without rereading config or the

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
@@ -72,6 +73,16 @@ func TestRunSettingsCheckClassifiesTimeoutAndEmptyRefusal(t *testing.T) {
 	result := RunSettingsCheck(lp, frozen)
 	if result.Outcome != hostservice.CommandTimedOut || result.Reason == "" || result.Remedy == "" {
 		t.Fatalf("timeout result = %+v", result)
+	}
+	// A timeout says nothing about the settings, so its next step is a retry and the command that
+	// switches the loophole off, never "correct the settings".
+	for _, want := range []string{"Retry the launch", "`yolo loopholes disable fixture`"} {
+		if !strings.Contains(result.Remedy, want) {
+			t.Errorf("timeout remedy %q lacks the next step %q", result.Remedy, want)
+		}
+	}
+	if strings.Contains(result.Remedy, "Correct the host service settings") {
+		t.Errorf("timeout remedy blames the settings: %q", result.Remedy)
 	}
 	if entries, err := os.ReadDir(StateDirFor(lp.Name)); err != nil || len(entries) != 0 {
 		t.Fatalf("timeout left a validator snapshot behind: entries=%v err=%v", entries, err)

@@ -156,3 +156,86 @@ func TestSelectedLoopCollectsSingletonPreparationOutcomeBeforeFalseBranch(t *tes
 		t.Fatalf("terminal preparation failure was hidden by an accepting old singleton; a new front exists at %s", frontPath)
 	}
 }
+
+// EVERY ENSURE ATTEMPT IS COLLECTED. A reused singleton that refuses the accepting connect is
+// ensured once more; both attempts are evidence, each under its own attempt number, and the
+// caller's collection of the returned (last) outcome does not count either one twice.
+func TestSelectedLoopCollectsEverySingletonEnsureAttempt(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
+	emptyLoopholeDirs(t)
+	isolatePackModules(t)
+	oldSingletonDir := paths.HostSingletonDir
+	singletonDir := fmt.Sprintf("/tmp/o3s-%d", os.Getpid())
+	if err := os.MkdirAll(singletonDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	paths.HostSingletonDir = singletonDir
+	t.Cleanup(func() {
+		paths.HostSingletonDir = oldSingletonDir
+		_ = os.RemoveAll(singletonDir)
+	})
+	origAccepting := hostSingletonAccepting
+	hostSingletonAccepting = func(string, time.Duration) bool { return false }
+	t.Cleanup(func() { hostSingletonAccepting = origAccepting })
+
+	const name = "o3-singleton-retry-fixture"
+	manifest := fmt.Sprintf(`{
+		"name":%q,"default_enabled":true,"transport":"loopback-tls",
+		"host_daemon":{"cmd":[%q,"-test.run=^$","{socket}"],
+			"scope":"host","publishes":"socket"}
+	}`, name, os.Args[0])
+	p := writeRealLoopholePack(t, "o3", name, manifest)
+	startingLoopholePacks(p)
+	entry := jsonx.NewOrderedMap()
+	entry.Set("enabled", true)
+	loopCfg := jsonx.NewOrderedMap()
+	loopCfg.Set(name, entry)
+	cfg := newConfig()
+	cfg.Set("loopholes", loopCfg)
+
+	var output bytes.Buffer
+	o := &Options{Workspace: t.TempDir(), Stdout: &output, Stderr: &output, ServiceReadyTimeout: time.Second}
+	fillDefaults(o)
+	ensures := 0
+	o.singletonDepsForStart = func(name string, argv []string) broker.Deps {
+		deps := broker.SingletonDeps(name, argv)
+		if err := os.WriteFile(deps.PIDFilePath, []byte(fmt.Sprintf("%d\n", os.Getpid())), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		// A live daemon the ensure reuses every time, whose socket then refuses this launch.
+		deps.Alive = func(int) bool { return true }
+		deps.PathExists = func(string) bool { return true }
+		deps.Reachable = func(string, time.Duration) bool { ensures++; return true }
+		deps.Spawn = func([]string, string) (int, func() bool, error) {
+			t.Error("spawn was invoked for a daemon the ensure reuses")
+			return 0, nil, errors.New("no spawn")
+		}
+		return deps
+	}
+	cname := "o3-singleton-retry"
+	handles, _ := o.startLoopholesDisclosed(cname, "podman", cfg, []*packload.Pack{p}, nil)
+	t.Cleanup(func() { o.stopLoopholes(handles, hostServiceSocketsDir(cname, false), cname, "podman") })
+	if len(handles) != 0 {
+		t.Fatalf("a singleton that never accepts was started: %d handles\n%s", len(handles), output.String())
+	}
+	if len(o.startupOutcomes) != 2 {
+		t.Fatalf("collected %d outcomes, want one per ensure attempt (2): %+v\n%s",
+			len(o.startupOutcomes), o.startupOutcomes, output.String())
+	}
+	first, second := o.startupOutcomes[0], o.startupOutcomes[1]
+	if first.Attempt == 0 || first.Attempt == second.Attempt {
+		t.Fatalf("attempt numbers are not distinct: %d, %d", first.Attempt, second.Attempt)
+	}
+	for _, got := range o.startupOutcomes {
+		if got.Owner != hostservice.StartupOwnerSingleton || got.Service != name || !got.Reused ||
+			got.Kind != hostservice.StartupKindTransportFailed || got.Phase != hostservice.StartupPhaseEndpoint {
+			t.Errorf("ensure attempt outcome = %+v, want a reused singleton that refused its endpoint", got)
+		}
+	}
+	if ensures == 0 {
+		t.Fatal("the fixture's reuse probe never ran, so this test checked nothing")
+	}
+}

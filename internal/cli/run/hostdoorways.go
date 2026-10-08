@@ -434,7 +434,7 @@ func (d *HostDoorways) Start(cfg *jsonx.OrderedMap, workspace, agent string, std
 	// below is handed), so another loophole those packs ship is not announced.
 	names := launchservice.Names(d.plans)
 	o.notePackHostExec(d.packs, func(name string) bool {
-		return slices.Contains(names, name) && !o.hostExecDisclosed[name]
+		return slices.Contains(names, name)
 	})
 	handles := o.startLoopholesMatching(d.set, runtime.FromWorkspace(workspace), hostNotchRuntime, cfg,
 		allow)

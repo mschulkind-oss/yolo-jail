@@ -45,7 +45,12 @@ func RunSettingsCheck(lp *Loophole, frozen []byte) SettingsCheckResult {
 	case hostservice.CommandAccepted:
 		return out
 	case hostservice.CommandTimedOut:
-		out.Reason = "The settings validator timed out."
+		out.Reason = "The settings validator did not finish within " + hostservice.SettingsCheckTimeout.String() + "."
+		// Not "correct the settings": nothing says they are wrong. A validator reads one file, so a
+		// second timeout on an idle host is the pack's to fix, and the loophole can be switched off
+		// meanwhile.
+		out.Remedy = "Retry the launch; if the validator times out again, report it to the pack that ships " +
+			lp.Name + ", and run `yolo loopholes disable " + lp.Name + "` in this project to launch without it meanwhile."
 	case hostservice.CommandStartFailed:
 		out.Reason = "The settings validator could not be started."
 	case hostservice.CommandRefused:

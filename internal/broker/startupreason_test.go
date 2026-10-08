@@ -300,3 +300,43 @@ func TestEnsureSingletonReturnsOnlyCurrentAttemptStartupReason(t *testing.T) {
 		})
 	}
 }
+
+// AN ACCEPTED REFUSAL ENDS THE SPAWN WAIT. The daemon writes its record and stays alive with no
+// socket; the real readiness wait (no waitForSocketUntil seam, a real clock) returns as soon as the
+// record is accepted, well inside BrokerSpawnTimeout, and the refusal is the ensure's answer.
+// Dropping the record channel from brokerWaitForSocketUntil makes this wait the full window.
+func TestEnsureSingletonAcceptedRefusalEndsTheReadinessWait(t *testing.T) {
+	st := &fakeState{alive: map[int]bool{}, reachOK: false, spawnPID: 77}
+	deps := newFakeDeps(t, st)
+	deps.Name = "aws-auth"
+	deps.StartupReason = true
+	deps.Out = &bytes.Buffer{}
+	deps.Now = time.Now
+	deps.Sleep = time.Sleep
+	deps.PathExists = func(string) bool { return false }
+	deps.SpawnWithReason = func(_ []string, _ string, service string) (int, func() bool, net.Conn, string, error) {
+		const attempt = "alive-refusal"
+		body, err := json.Marshal(hostservice.StartupReason{Version: 1, Service: service, Attempt: attempt,
+			Class: "configuration", Reason: "Safe refusal.", Remedy: "Correct the setting."})
+		if err != nil {
+			return 0, nil, nil, "", err
+		}
+		frame := make([]byte, 4+len(body))
+		binary.BigEndian.PutUint32(frame[:4], uint32(len(body)))
+		copy(frame[4:], body)
+		parent, child := net.Pipe()
+		go func() { _, _ = child.Write(frame) }() // and then stays open, as an alive daemon would
+		t.Cleanup(func() { _ = child.Close() })
+		return 77, func() bool { return false }, parent, attempt, nil
+	}
+	started := time.Now()
+	got := EnsureSingleton(deps)
+	defer os.Remove(deps.PIDFilePath)
+	if elapsed := time.Since(started); elapsed > BrokerSpawnTimeout/2 {
+		t.Fatalf("EnsureSingleton waited %s after an accepted refusal (window %s)", elapsed, BrokerSpawnTimeout)
+	}
+	if got.StartupReason == nil || got.StartupReason.Reason != "Safe refusal." ||
+		got.Outcome.Kind != hostservice.StartupKindCooperativeRefusal {
+		t.Fatalf("ensure lost the refusal: reason=%+v outcome=%+v", got.StartupReason, got.Outcome)
+	}
+}
