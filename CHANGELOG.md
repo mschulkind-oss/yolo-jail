@@ -20,6 +20,11 @@ facts for a variant id. See
 **Colored `yolo config` help.** On a terminal, `yolo config --help` and each verb's `--help`
 highlight headings, verbs and flags; piped output and `NO_COLOR` stay plain.
 
+**Nix builds in a jail survive host garbage collection.** A `result` link, profile or nix-direnv
+cache made in a podman jail is now kept for the host for a week after its last build, at most 64
+per workspace; `yolo nix-roots` lists and releases them. See
+[In-jail Nix roots](docs/design/in-jail-nix-roots.md#8-what-is-built).
+
 ### Changed
 
 - A pack whose `shared_credentials` or `shared_directory` hook names an `at` that is not a machine-scope `state` of the pack is refused by `yolo pack lint`, `yolo check` and every launch, `yolo host` included: declare that path as a machine-scope `state` in the pack.

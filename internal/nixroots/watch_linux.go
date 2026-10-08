@@ -71,3 +71,13 @@ func (w *Watcher) Run(ctx context.Context) error {
 		}
 	}
 }
+
+func (w *Watcher) housekeep() {
+	released, err := w.Registry.Prune()
+	for _, r := range released {
+		w.logf("released %s %s: %s", r.Root.ID, r.Root.Source, r.Reason)
+	}
+	if err != nil {
+		w.logf("lifecycle pass failed: %v", err)
+	}
+}
