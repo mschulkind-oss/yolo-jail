@@ -71,7 +71,7 @@ func TestStartupDiagnosticsFailureNamesTheNextStep(t *testing.T) {
 }
 
 func TestLaunchCheckTextReplacesFormatCharacters(t *testing.T) {
-	got := launchCheckText("ok‮evil​hidden")
+	got := launchCheckText("ok\u202eevil\u200bhidden")
 	for _, r := range got {
 		if unicode.Is(unicode.Cf, r) {
 			t.Fatalf("launchCheckText kept format character %U: %q", r, got)

@@ -1,6 +1,7 @@
 package awsauthdaemon
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -79,7 +80,7 @@ func TestMainKeepsTheStartupReasonChannelFromItsChildrenAndReleasesItOnceServing
 			t.Errorf("%s is still set (%q) after the daemon began serving", name, v)
 		}
 	}
-	got := hostservice.ReadStartupReasonOutcome(nil, parent, LoopholeName, attempt, time.Now().Add(2*time.Second))
+	got := hostservice.ReadStartupReasonOutcome(context.TODO(), parent, LoopholeName, attempt, time.Now().Add(2*time.Second))
 	if got.Kind != hostservice.StartupReasonReadNoRecord {
 		t.Errorf("owner read = %+v, want no record (the serving daemon closed its end)", got)
 	}

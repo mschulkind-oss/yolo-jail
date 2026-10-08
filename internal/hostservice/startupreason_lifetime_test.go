@@ -1,6 +1,7 @@
 package hostservice
 
 import (
+	"context"
 	"errors"
 	"os"
 	"strconv"
@@ -40,7 +41,7 @@ func inheritedStartupReasonChannel(t *testing.T) (parentRead func() StartupReaso
 	t.Setenv(StartupReasonAttemptEnv, attempt)
 	t.Setenv(StartupReasonServiceEnv, "fixture")
 	return func() StartupReasonReadOutcome {
-		return ReadStartupReasonOutcome(nil, parent, "fixture", attempt, time.Now().Add(2*time.Second))
+		return ReadStartupReasonOutcome(context.TODO(), parent, "fixture", attempt, time.Now().Add(2*time.Second))
 	}, fd, attempt
 }
 
@@ -100,7 +101,7 @@ func TestReleaseStartupReasonClosesWithoutWriting(t *testing.T) {
 }
 
 func TestStartupTextSanitizersReplaceFormatCharacters(t *testing.T) {
-	const input = "safe‮evil​hidden⁦iso⁩end"
+	const input = "safe\u202eevil\u200bhidden\u2066iso\u2069end"
 	for name, sanitize := range map[string]func(string) string{
 		"safeStartupText": safeStartupText,
 		"SafeCommandText": SafeCommandText,
