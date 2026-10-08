@@ -522,11 +522,17 @@ func (g *sessionGate) abandon() {
 // provisionThisSession runs the recorded provisioning stage for the session that holds its lock
 // (gate.provision, through run), and hands the session's shell how long it took, as
 // ProvisionMillisEnv, for the in-container timing block that used to time the stage itself.
-// Its status is the stage's.
+// A stage that ran is also written into the jail perf log (appendProvisionPerf), so the duration
+// outlives the session's environment. Its status is the stage's.
 func provisionThisSession(e *Env, gate *sessionGate, run func(*Env, string) int) int {
 	start := time.Now()
-	rc := gate.provision(func(stage string) int { return run(e, stage) })
-	setEnvBoth(e, ProvisionMillisEnv, strconv.FormatInt(time.Since(start).Milliseconds(), 10))
+	ran := false
+	rc := gate.provision(func(stage string) int { ran = true; return run(e, stage) })
+	ms := time.Since(start).Milliseconds()
+	setEnvBoth(e, ProvisionMillisEnv, strconv.FormatInt(ms, 10))
+	if ran {
+		appendProvisionPerf(e.Home, ms, rc)
+	}
 	return rc
 }
 

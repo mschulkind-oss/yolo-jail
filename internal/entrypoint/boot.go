@@ -46,6 +46,24 @@ func (p *perfLog) mark(label string) {
 	})
 }
 
+// appendProvisionPerf adds the provisioning stage's duration and exit status to ~/.yolo-perf.log,
+// as one line under the block this session's boot pass just dumped. It writes NO block header:
+// the in-container profile prints the log's last `=== YOLO` block (buildSessionCmd), so a header
+// here would hide the boot checkpoints that block holds. The stage runs after that dump, so the
+// line lands in the same block. A sink, like dump: every error is dropped, and an empty home (no
+// jail home known) writes nothing rather than a file in the working directory.
+func appendProvisionPerf(home string, ms int64, rc int) {
+	if home == "" {
+		return
+	}
+	f, err := os.OpenFile(filepath.Join(home, ".yolo-perf.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	_, _ = fmt.Fprintf(f, "  provisioning stage: %dms (exit %d)\n", ms, rc)
+	_ = f.Close()
+}
+
 // dump writes the perf log to ~/.yolo-perf.log. Best-
 // effort — all errors swallowed. This log is deliberately excluded from the
 // tree-parity golden (it is wall-clock timing); the format is for human

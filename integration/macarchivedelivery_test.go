@@ -442,10 +442,12 @@ func printedSizeBytes(s string) int64 {
 	return -1
 }
 
-var perfEndRe = regexp.MustCompile(`(?m) end +(image\.[a-z_]+) +dur=([0-9.]+)s`)
+var perfEndRe = regexp.MustCompile(`(?m) end +([a-z_]+\.[a-z_.]+) +dur=([0-9.]+)s`)
 
-// launchSpans reads the image.* span durations a YOLO_TIMING launch recorded in
-// <workspace>/.yolo/host-perf.log.
+// launchSpans reads every span duration a YOLO_TIMING launch recorded in
+// <workspace>/.yolo/host-perf.log, by name: image.*, and the launch.* spans around them
+// (launch.auto_load_image, launch.run_with_proxy), without which the delivery table cannot show
+// what a skipped build saved of the whole launch.
 func launchSpans(ws string) map[string]string {
 	spans := map[string]string{}
 	b, err := os.ReadFile(filepath.Join(ws, ".yolo", "host-perf.log"))
@@ -456,6 +458,35 @@ func launchSpans(ws string) map[string]string {
 		spans[m[1]] = m[2] + "s"
 	}
 	return spans
+}
+
+// TestLaunchSpansReadsEverySpanByName pins perfEndRe and launchSpans against the line shape
+// perf.formatLine writes (a pure parse, so it runs under -short): the delivery table reads the
+// launch.* spans beside image.*, and the concurrent-launch test reads image.copy_lock through the
+// same expression.
+func TestLaunchSpansReadsEverySpanByName(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(ws, ".yolo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	log := "2026-10-08T00:00:00.000Z start  launch.auto_load_image\n" +
+		"2026-10-08T00:00:01.000Z end    image.nix_build  dur=3.250s\n" +
+		"2026-10-08T00:00:02.000Z end    launch.auto_load_image  dur=4.100s\n" +
+		"2026-10-08T00:00:03.000Z note   image.copy_lock  waited\n" +
+		"2026-10-08T00:00:09.000Z end    launch.run_with_proxy  dur=6.900s\n"
+	if err := os.WriteFile(filepath.Join(ws, ".yolo", "host-perf.log"), []byte(log), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := launchSpans(ws)
+	want := map[string]string{"image.nix_build": "3.250s", "launch.auto_load_image": "4.100s", "launch.run_with_proxy": "6.900s"}
+	if len(got) != len(want) {
+		t.Errorf("launchSpans = %v, want %v", got, want)
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("span %s = %q, want %q (all: %v)", k, got[k], v, got)
+		}
+	}
 }
 
 func spanOr(spans map[string]string, name string) string {
@@ -727,15 +758,17 @@ func TestMacArchiveDeliveryReusesLayers(t *testing.T) {
 		"| --- | --- | --- | --- | --- |",
 		strings.Join(imgs.realize, "\n"),
 		"",
-		"| delivery | layers sent | layers reused | archive | `image.layer_copy` (copy+tar+load) | `image.nix_build` | whole launch |",
-		"| --- | --- | --- | --- | --- | --- | --- |",
-		fmt.Sprintf("| A — stock, first | %d (%s) | %d (%s) | %s | %s | %s | %s |",
+		"| delivery | layers sent | layers reused | archive | `image.layer_copy` (copy+tar+load) | `image.nix_build` | `launch.auto_load_image` | `launch.run_with_proxy` | whole launch |",
+		"| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+		fmt.Sprintf("| A — stock, first | %d (%s) | %d (%s) | %s | %s | %s | %s | %s | %s |",
 			a.report.sentLayers, a.report.sent, a.report.reusedLayers, a.report.reused,
-			a.report.archive, spanOr(a.spans, "image.layer_copy"), spanOr(a.spans, "image.nix_build"), a.wall),
-		fmt.Sprintf("| B — `packages: %s` | %d (%s) | %d (%s) | %s | %s | %s | %s |",
+			a.report.archive, spanOr(a.spans, "image.layer_copy"), spanOr(a.spans, "image.nix_build"),
+			spanOr(a.spans, "launch.auto_load_image"), spanOr(a.spans, "launch.run_with_proxy"), a.wall),
+		fmt.Sprintf("| B — `packages: %s` | %d (%s) | %d (%s) | %s | %s | %s | %s | %s | %s |",
 			macArchivePackagesJSON, b.report.sentLayers, b.report.sent, b.report.reusedLayers,
 			b.report.reused, b.report.archive, spanOr(b.spans, "image.layer_copy"),
-			spanOr(b.spans, "image.nix_build"), b.wall),
+			spanOr(b.spans, "image.nix_build"), spanOr(b.spans, "launch.auto_load_image"),
+			spanOr(b.spans, "launch.run_with_proxy"), b.wall),
 		"",
 		note,
 		"",

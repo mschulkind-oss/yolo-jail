@@ -1,6 +1,6 @@
 ---
 status: current
-next: "Read the first macos-user breakdown (TestMacosUserTimingRecordsTheBackendsSteps on the macOS runner) into What has been measured; on the container backends, write the provisioning stage's duration into the jail perf log after the stage, not only into YOLO_PROVISION_MS; widen the Apple Container delivery test's span reader past image.* and add one relaunch that delivers nothing"
+next: "Read the first macos-user breakdown (TestMacosUserTimingRecordsTheBackendsSteps on the macOS runner) into What has been measured; add one relaunch that delivers nothing to the Apple Container delivery test, whose reader now takes the launch.* spans (unrun until the Mac runner runs it)"
 verified: 2026-09-19
 verified_commit: 16ef96cb
 covers:
@@ -782,7 +782,11 @@ the provisioning stage runs before that command, in a shell of its own on the fi
 session's terminal, so the block's `mise install + bootstrap` line reads the stage's duration
 from `YOLO_PROVISION_MS`, which the entrypoint sets for that session. Its
 `--- Entrypoint (config generation) ---` section is the first session's own boot pass, the
-jail's second: the last run block in the jail's perf log.
+jail's second: the last run block in the jail's perf log. The stage's duration and exit status are also written into that
+block, as one `provisioning stage: <ms>ms (exit <rc>)` line appended after the stage
+(`appendProvisionPerf`, from `provisionThisSession`), so the number survives the session's
+environment; the line carries no block header, because a header would make it the last block
+and hide the boot checkpoints. A jail with no recorded stage writes no line.
 
 **Both halves of this switch are host-side.** Nothing in the image or the
 entrypoint reads the variable — the launcher emits it and also generates the bash

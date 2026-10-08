@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -486,6 +487,73 @@ func TestProvisioningHandsTheShellItsDuration(t *testing.T) {
 		if ms, err := strconv.Atoi(v); err != nil || ms < 30 {
 			t.Errorf("%s carries %s=%q, want the stage's duration in milliseconds (at least 30)", where, ProvisionMillisEnv, v)
 		}
+	}
+}
+
+// TestProvisioningWritesItsDurationIntoTheJailPerfLog: a stage that ran leaves its duration and
+// status in ~/.yolo-perf.log, inside the block the session's boot pass dumped, and adds no block
+// header of its own: the in-container profile prints only the log's last `=== YOLO` block, so a
+// header would hide the boot checkpoints. Deleting the write in provisionThisSession fails here.
+func TestProvisioningWritesItsDurationIntoTheJailPerfLog(t *testing.T) {
+	withJailMainDir(t)
+	t.Setenv(ProvisionMillisEnv, "")
+	home := t.TempDir()
+	logPath := filepath.Join(home, ".yolo-perf.log")
+	boot := "=== YOLO Jail Entrypoint Perf (2026-10-08 00:00:00) ===\n    0.010s             a step\n  Total: 0.010s\n\n"
+	if err := os.WriteFile(logPath, []byte(boot), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	announceReady("the stage", &bytes.Buffer{})
+	g := newSessionGate(true, &bytes.Buffer{})
+	if p, err := g.claim(); err != nil || !p {
+		t.Fatalf("claim: %v %v", p, err)
+	}
+	e := NewEnv(map[string]string{})
+	e.Home = home
+	if rc := provisionThisSession(e, g, func(*Env, string) int { return 3 }); rc != 3 {
+		t.Fatalf("rc %d, want the stage's 3", rc)
+	}
+	raw, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(raw)
+	if n := strings.Count(got, "=== YOLO"); n != 1 {
+		t.Errorf("the log has %d block headers, want the boot pass's one:\n%s", n, got)
+	}
+	last := got[strings.LastIndex(got, "=== YOLO"):]
+	if !strings.Contains(last, "a step") || !regexp.MustCompile(`(?m)^  provisioning stage: [0-9]+ms \(exit 3\)$`).MatchString(last) {
+		t.Errorf("the last block lacks the boot checkpoints or the stage's line:\n%s", got)
+	}
+}
+
+// TestNoStageWritesNoProvisioningLine: a jail whose recorded stage is empty ran nothing, so the
+// perf log gains no provisioning line (and an empty home writes no file anywhere).
+func TestNoStageWritesNoProvisioningLine(t *testing.T) {
+	withJailMainDir(t)
+	t.Setenv(ProvisionMillisEnv, "")
+	home := t.TempDir()
+	announceReady("", &bytes.Buffer{})
+	g := newSessionGate(true, &bytes.Buffer{})
+	if p, err := g.claim(); err != nil || !p {
+		t.Fatalf("claim: %v %v", p, err)
+	}
+	e := NewEnv(map[string]string{})
+	e.Home = home
+	if rc := provisionThisSession(e, g, func(*Env, string) int {
+		t.Error("an empty stage was run")
+		return 0
+	}); rc != 0 {
+		t.Fatalf("rc %d, want 0", rc)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".yolo-perf.log")); !os.IsNotExist(err) {
+		t.Errorf("a stage that never ran wrote the perf log (%v)", err)
+	}
+	cwd := t.TempDir()
+	t.Chdir(cwd)
+	appendProvisionPerf("", 1, 0)
+	if _, err := os.Stat(filepath.Join(cwd, ".yolo-perf.log")); !os.IsNotExist(err) {
+		t.Errorf("an empty home wrote a perf log in the working directory (%v)", err)
 	}
 }
 
