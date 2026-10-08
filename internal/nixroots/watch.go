@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -60,7 +61,13 @@ func (w *Watcher) logf(format string, a ...any) {
 // root that is missing but renews none, since seeing an old entry is not a new request.
 // It reports whether a root was admitted or renewed.
 func (w *Watcher) Consider(name string, scan bool) bool {
-	x, err := os.Readlink(filepath.Join(w.AutoDir, name))
+	// nix writes an entry as <hash>.tmp-… and renames it into place, so the temp name is
+	// seen first and is not the request.
+	if strings.Contains(name, ".tmp-") {
+		return false
+	}
+	entry := filepath.Join(w.AutoDir, name)
+	x, err := os.Readlink(entry)
 	if err != nil || !filepath.IsAbs(x) {
 		return false
 	}
@@ -88,6 +95,15 @@ func (w *Watcher) Consider(name string, scan bool) bool {
 		return false
 	}
 	if scan {
+		// A release sticks (NR-D8): an entry no newer than the source's last release is the
+		// request that release answered, still waiting for the host's GC to prune it. The
+		// daemon renames a fresh entry into place on every request, so its mtime is when the
+		// link was last asked for.
+		if at, ok := w.Registry.ReleasedAt(x); ok {
+			if fi, err := os.Lstat(entry); err == nil && !fi.ModTime().After(at) {
+				return false
+			}
+		}
 		if roots, err := w.Registry.List(); err == nil {
 			for _, r := range roots {
 				if r.Source == x && r.Target == target {

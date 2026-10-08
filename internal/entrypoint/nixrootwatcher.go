@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/nixroots"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -42,6 +43,8 @@ var startNixRootWatcherFn = func(bin, logPath string) error {
 	cmd := exec.Command(bin, "nix-roots")
 	cmd.Env = os.Environ()
 	cmd.Stdout, cmd.Stderr = log, log
+	// Its own process group, so a signal meant for the jail's foreground (a Ctrl-C) is not.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
 		return err
 	}

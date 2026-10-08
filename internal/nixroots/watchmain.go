@@ -42,15 +42,29 @@ func WatchMain(args []string) int {
 	if ws == "" {
 		ws = "/workspace"
 	}
-	registrar := &Registrar{Map: m, Socket: os.Getenv("NIX_DAEMON_SOCKET_PATH"),
-		StoreDir: os.Getenv("NIX_STORE_DIR")}
-	reg := &Registry{Workspace: ws, StoreDir: os.Getenv("NIX_STORE_DIR"), Register: registrar.Register}
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	w := newWatcher(HostAutoDir, ws, m, os.Getenv)
+	w.Log = os.Stderr
+	if _, ok := m.Translate(w.resolvedRegistryDir()); !ok {
+		fmt.Fprintf(os.Stderr, "nix-roots: %s is under no mount the host can see (a workspace under "+
+			"/tmp, or a read-only one), so no managed root can be made here; nothing to watch\n", w.Registry.Dir())
+		return 0
+	}
+	// SIGINT is ignored: the watcher shares the boot's process group, and a Ctrl-C typed at the
+	// jail's shell is not meant for it. SIGTERM, which the jail's stop sends, ends it.
+	signal.Ignore(syscall.SIGINT)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM)
 	defer stop()
-	w := &Watcher{AutoDir: HostAutoDir, Map: m, Registry: reg, Registrar: registrar, Log: os.Stderr}
 	if err := w.Run(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "nix-roots: %v\n", err)
 		return 1
 	}
 	return 0
+}
+
+// newWatcher is the watcher WatchMain runs: the workspace registry, registering through a
+// Registrar that the watcher also PINS through, so every admission is fenced (NR-D7).
+func newWatcher(autoDir, workspace string, m HostMap, getenv func(string) string) *Watcher {
+	registrar := &Registrar{Map: m, Socket: getenv("NIX_DAEMON_SOCKET_PATH"), StoreDir: getenv("NIX_STORE_DIR")}
+	reg := &Registry{Workspace: workspace, StoreDir: getenv("NIX_STORE_DIR"), Register: registrar.Register}
+	return &Watcher{AutoDir: autoDir, Map: m, Registry: reg, Registrar: registrar}
 }

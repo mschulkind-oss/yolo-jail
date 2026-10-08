@@ -14,6 +14,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/nixroots"
 	"github.com/mschulkind-oss/yolo-jail/internal/outfmt"
+	"github.com/mschulkind-oss/yolo-jail/internal/termsafe"
 )
 
 // nixroots.go is `yolo nix-roots`: the inspection and release surface of a workspace's
@@ -205,7 +206,7 @@ func printReleased(out io.Writer, released []nixroots.Released) {
 		if name == "" {
 			name = "(unrecorded link " + r.Root.ID + ")"
 		}
-		fmt.Fprintf(out, "Released %s %s: %s\n", r.Root.ID, name, r.Reason)
+		fmt.Fprintf(out, "Released %s %s: %s\n", r.Root.ID, termsafe.Visible(name), r.Reason)
 	}
 }
 
@@ -239,8 +240,9 @@ func nixRootsList(reg *nixroots.Registry, format string, out, errw io.Writer) in
 	fmt.Fprintf(out, "%d of %d managed nix roots (each lives %s after its last renewal):\n",
 		len(roots), reg.EffectiveCap(), humanLease(lease))
 	for _, r := range roots {
+		// Every string here is from roots.json, which the jail writes (termsafe).
 		fmt.Fprintf(out, "  %s  %s\n      -> %s\n      by %s, renewed %s, expires %s\n",
-			r.ID, r.Source, r.Target, r.By, r.Renewed.Local().Format("2006-01-02 15:04"),
+			r.ID, termsafe.Visible(r.Source), termsafe.Visible(r.Target), termsafe.Visible(r.By), r.Renewed.Local().Format("2006-01-02 15:04"),
 			r.Expires(lease).Local().Format("2006-01-02 15:04"))
 	}
 	return 0
@@ -270,7 +272,7 @@ func nixRootsKeep(reg *nixroots.Registry, registrar *nixroots.Registrar, m nixro
 			rc = 1
 			continue
 		}
-		if !filepath.IsAbs(target) {
+		if !filepath.IsAbs(target) || !reg.IsStorePath(target) {
 			fmt.Fprintf(errw, "yolo nix-roots keep: %s points at %s, not straight into the store; "+
 				"keep the link it names instead (for a profile, its numbered generation link)\n", l, target)
 			rc = 1

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -227,16 +228,46 @@ func TestPruneReleasesGoneSourcesFollowsRetargetsAndSweepsStrayLinks(t *testing.
 	}
 }
 
-// The host checks the HOST spelling of a source, which is all it can see.
-func TestPruneOnTheHostReadsTheHostSpelling(t *testing.T) {
+// The host checks the HOST spelling of a source, which is all it can see, and only when that
+// spelling lies in the workspace: the record is jail-written, and a source anywhere else would
+// let a jail make the host stat a path of its choosing.
+func TestPruneOnTheHostReadsTheHostSpellingOnlyInTheWorkspace(t *testing.T) {
+	f := newRegFixture(t, 2)
+	inWS := f.userLink(t, "a", f.paths[0])
+	gone, err := f.reg.Admit(inWS, filepath.Join(f.ws, "not-on-the-host"), f.paths[0], ByWatch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	elsewhere, err := f.reg.Admit(f.userLink(t, "b", f.paths[1]), "/nonexistent/host/path", f.paths[1], ByWatch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	host := &Registry{Workspace: f.ws, StoreDir: f.store, Now: f.reg.Now, SourceSide: SideHost}
+	rel, err := host.Prune()
+	if err != nil || len(rel) != 1 || rel[0].Root.ID != gone.Root.ID || rel[0].Reason != ReasonGone {
+		t.Fatalf("host prune = %+v, %v; want only the in-workspace source released", rel, err)
+	}
+	roots, _ := host.List()
+	if len(roots) != 1 || roots[0].ID != elsewhere.Root.ID {
+		t.Errorf("left %+v, want the out-of-workspace root untouched", roots)
+	}
+}
+
+// A release sticks: the registry remembers it, so a scan can tell an old auto entry from a
+// new request.
+func TestAReleaseIsRemembered(t *testing.T) {
 	f := newRegFixture(t, 1)
 	adm := f.admit(t, "result", f.paths[0])
-	host := &Registry{Workspace: f.ws, StoreDir: f.store, Now: f.reg.Now, SourceSide: SideHost}
-	// The recorded host spelling (/host/proj/result) does not exist here, so to the host
-	// the link is gone.
-	rel, err := host.Prune()
-	if err != nil || len(rel) != 1 || rel[0].Root.ID != adm.Root.ID || rel[0].Reason != ReasonGone {
-		t.Fatalf("host prune = %+v, %v", rel, err)
+	if _, _, err := f.reg.Release([]string{adm.Root.ID}, false); err != nil {
+		t.Fatal(err)
+	}
+	at, ok := f.reg.ReleasedAt(adm.Root.Source)
+	if !ok || !at.Equal(f.now) {
+		t.Fatalf("ReleasedAt = %v, %v", at, ok)
+	}
+	f.admit(t, "result", f.paths[0])
+	if _, ok := f.reg.ReleasedAt(adm.Root.Source); ok {
+		t.Error("a re-admission kept the tombstone")
 	}
 }
 
@@ -301,5 +332,66 @@ func TestAdmitRefusesAStorePathThatIsGone(t *testing.T) {
 	}
 	if roots, _ := f.reg.List(); len(roots) != 0 {
 		t.Errorf("recorded %+v", roots)
+	}
+}
+
+func TestPruneSweepsACrashsTempLeftovers(t *testing.T) {
+	f := newRegFixture(t, 1)
+	f.admit(t, "result", f.paths[0])
+	dir := filepath.Join(f.ws, ".yolo", "nix-roots")
+	tmpLink := filepath.Join(dir, "links", "0123456789abcdef.tmp-42")
+	if err := os.Symlink(f.paths[0], tmpLink); err != nil {
+		t.Fatal(err)
+	}
+	tmpFile := filepath.Join(dir, "roots.json.tmp-42")
+	if err := os.WriteFile(tmpFile, []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A temp-shaped name that is not a symlink is not the registry's, and stays.
+	notALink := filepath.Join(dir, "links", "fedcba9876543210.tmp-7")
+	if err := os.WriteFile(notALink, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.reg.Prune(); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{tmpLink, tmpFile} {
+		if _, err := os.Lstat(p); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("%s survived prune: %v", p, err)
+		}
+	}
+	if _, err := os.Lstat(notALink); err != nil {
+		t.Errorf("prune removed a regular file in links/: %v", err)
+	}
+	if roots, _ := f.reg.List(); len(roots) != 1 {
+		t.Errorf("prune changed the roots: %v", roots)
+	}
+}
+
+func TestTheRegistryLockWaitIsBounded(t *testing.T) {
+	p := filepath.Join(t.TempDir(), ".lock")
+	held, err := os.Create(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+	if err := flockTimeout(held, time.Second); err != nil {
+		t.Fatal(err)
+	}
+	other, err := os.Open(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close()
+	start := time.Now()
+	err = flockTimeout(other, 200*time.Millisecond)
+	if err == nil {
+		t.Fatal("a second holder got the lock")
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Errorf("waited %s for a 200ms bound", d)
+	}
+	if !strings.Contains(err.Error(), "try again") {
+		t.Errorf("refusal names no next step: %v", err)
 	}
 }

@@ -143,3 +143,45 @@ func TestTheWatcherPinsRegistersAndFencesOnOneConnection(t *testing.T) {
 		t.Errorf("ops = %v\nwant %v", ops, want)
 	}
 }
+
+// The CALL SITE of the fence: the watcher WatchMain builds pins through its registrar.
+func TestTheProductionWatcherIsFenced(t *testing.T) {
+	w := newWatcher("/auto", "/workspace", HostMap{"/workspace": "/h"}, func(string) string { return "" })
+	if w.Registrar == nil || w.Registry.Register == nil {
+		t.Fatal("the production watcher registers without a pin")
+	}
+}
+
+// A release sticks across a rescan: the old entry is the request the release answered.
+func TestAScanDoesNotReviveAReleasedRoot(t *testing.T) {
+	f, w := watchFixture(t)
+	src := f.userLink(t, "result", f.paths[0])
+	autoEntry(t, w, "e", src)
+	old := time.Now().Add(-time.Hour)
+	_ = lchtimes(filepath.Join(w.AutoDir, "e"), old)
+	if w.Scan() != 1 {
+		t.Fatal("first scan did not keep the root")
+	}
+	f.now = time.Now()
+	if _, _, err := f.reg.Release(nil, true); err != nil {
+		t.Fatal(err)
+	}
+	if n := w.Scan(); n != 0 {
+		t.Errorf("a rescan revived a released root (%d)", n)
+	}
+	// A fresh request after the release is honored.
+	if !w.Consider("e", false) {
+		t.Error("a fresh event after a release was not kept")
+	}
+}
+
+func TestTheWatcherIgnoresNixsTempNames(t *testing.T) {
+	f, w := watchFixture(t)
+	src := f.userLink(t, "result", f.paths[0])
+	if err := os.Symlink(src, filepath.Join(w.AutoDir, "abc.tmp-123-456")); err != nil {
+		t.Fatal(err)
+	}
+	if w.Consider("abc.tmp-123-456", false) {
+		t.Error("kept a temp name")
+	}
+}

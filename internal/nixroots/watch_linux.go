@@ -38,8 +38,17 @@ func (w *Watcher) Run(ctx context.Context) error {
 			w.housekeep()
 			next = time.Now().Add(every)
 		}
+		// Sleep until the next housekeeping, but wake at least every few seconds to see a
+		// cancelled context: the process ends on SIGTERM.
+		wait := time.Until(next)
+		if wait > 5*time.Second {
+			wait = 5 * time.Second
+		}
+		if wait < 0 {
+			wait = 0
+		}
 		fds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}
-		if _, err := unix.Poll(fds, 500); err != nil && !errors.Is(err, unix.EINTR) {
+		if _, err := unix.Poll(fds, int(wait/time.Millisecond)); err != nil && !errors.Is(err, unix.EINTR) {
 			return fmt.Errorf("poll: %w", err)
 		}
 		if fds[0].Revents&unix.POLLIN == 0 {

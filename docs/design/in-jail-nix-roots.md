@@ -17,7 +17,7 @@ and release, and `yolo nix-roots` ([§8](#8-what-is-built)). Owner rulings: auto
 with a mandatory lifecycle, cap, inspection and release ([OQ-NR1](#decision-ledger)), and a
 read-only view of the host's `gcroots/auto` with no launch line of its own
 ([OQ-NR2](#decision-ledger)). The mechanism and the numbers are implementation decisions
-[NR-D3](#NR-D3) to [NR-D7](#NR-D7). MEASURED against the host daemon: a kept link is a root
+[NR-D3](#NR-D3) to [NR-D8](#NR-D8). MEASURED against the host daemon: a kept link is a root
 the host lists under its own spelling, and releasing it removes that root. UNMEASURED: the watcher
 receiving a real daemon's entries through the bind, because this jail's launcher predates the bind.
 
@@ -262,8 +262,13 @@ next GC may then collect the store path, exactly as it would after a host user d
 - **One record per jail link.** A record holds the jail link's path in both spellings, the store
   path, the managed link's host spelling, and when it was admitted and last renewed. A link that is
   repointed (P to Q) moves its managed link to Q. P stays only if another root holds it.
-- **Renewal.** A fresh entry from the daemon for the same link (a rebuild), or a `keep`. Seeing an
-  entry again in a scan does not renew it.
+- **Renewal.** A fresh entry from the daemon for the same link (a rebuild), or a `keep`. A scan
+  that finds an unchanged link already kept does not renew it. A scan that finds the link
+  repointed admits the new target, which counts as a renewal.
+- **A release sticks** ([NR-D8](#NR-D8)). The jail-spelled entry outlives a release until the
+  host's next GC or root query, so the registry remembers when each link's root was released. A
+  scan skips an entry that is no newer than that. A fresh request (a rebuild) is newer, and is
+  kept again.
 - **Release.** Explicit (`yolo nix-roots release <id|link>…` or `--all`), or by the lifecycle:
   the lease lapsed, the cap was exceeded, or the jail's link was deleted or no longer points into
   the store. A managed link that no record names (left by a crash between link and record) is
@@ -273,7 +278,10 @@ next GC may then collect the store path, exactly as it would after a host user d
 - **The host deletes in a jail-writable directory**, so every access goes through an `os.Root` on
   a directory checked not to be a link (`paths.OpenStateDirRoot`). The only names it deletes are
   16-hex-digit ids, and only when they are symlinks. A record is data: no path in it is a path
-  the host deletes. A `roots.json` yolo cannot parse is reported and never overwritten.
+  the host deletes. A `roots.json` yolo cannot parse is reported and never overwritten, and only a
+  regular file is read. On the host, `prune` checks a record's link only when its host spelling
+  lies in the workspace, so a record cannot make the host stat a path of the jail's choosing; any
+  other root is left to its lease and the cap. The lock is waited on for at most 30 seconds.
 
 ### 4.2 The numbers, and when they apply
 
@@ -283,8 +291,9 @@ least-recently-renewed released first ([NR-D4](#NR-D4)). They are constants
 
 - The cap is a **count, not bytes**. It bounds how many distinct closures a forgotten workspace
   can pin, not how large one is. `list` does not price closures.
-- The lifecycle runs when the watcher starts, once an hour while it runs, at every admission, and
-  on `yolo nix-roots prune`, on either side. **No host process enforces it while no jail of the
+- The lease and the cap are applied at every admission. The full pass, which also releases roots
+  whose link is gone or no longer points into the store and removes stray links, runs when the
+  watcher starts, once an hour while it runs, and on `yolo nix-roots prune`, on either side. **No host process enforces it while no jail of the
   workspace runs**, so a lease can outlast 7 days on an idle workspace until the next launch or
   `prune`. `release` and `prune` work on the host with no jail running.
 - It is a cooperative retention policy, **not a hostile-agent quota**: an untrusted daemon client
@@ -357,7 +366,7 @@ the map exists.
 
 ## 8. What is built
 
-**The user-root protection** ([NR-D3](#NR-D3) to [NR-D7](#NR-D7), built 2026-10-08):
+**The user-root protection** ([NR-D3](#NR-D3) to [NR-D8](#NR-D8), built 2026-10-08):
 
 - **The bind.** A podman launch that mounts the host nix daemon, and is not sealed, binds the
   host's `/nix/var/nix/gcroots/auto` read-only at `/run/yolo/nix-gcroots-auto`
@@ -450,9 +459,11 @@ jail's own launcher predates the map, so every run that needed one was handed
 the jail's spelling, dead as before. The prefix root above backs the same store path, so a
 translated copy of it would root nothing more.
 
-The prefix's jail-spelled `--out-link` lies under a mapped bind and points into the store, so the
-watcher now admits it as a managed root too: a second root on the same store path, costing one
-place under the cap.
+yolo's own jail-spelled out-links in a nested launch (the prefix's `--out-link`, the image build's
+and the image copier's) lie under a mapped bind and point into the store, so the watcher admits
+them as managed roots too. That is a second root on a store path the translated roots above
+already hold, costing places under the cap. The nested jail's image closure is then also held
+for the lease after its own roots go.
 
 ## Known limit
 
@@ -478,14 +489,14 @@ If the watcher was not running, the next boot's scan admits the jail-path entrie
 ## Decision Ledger
 
 Owner policy ([OQ-NR1](#decision-ledger), [OQ-NR2](#decision-ledger)) is built. The mechanism
-and its numbers are implementation decisions [NR-D3](#NR-D3) to [NR-D7](#NR-D7), each reversible.
+and its numbers are implementation decisions [NR-D3](#NR-D3) to [NR-D8](#NR-D8), each reversible.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| OQ-NR1 | Owner aligned with automatic translated roots, with mandatory lifecycle, cap, workspace inspection and explicit release/cleanup; not indefinite retention dependent on agent memory. Numeric cap/lease and a reliable watcher were not chosen. Vantage comment `b6072a1d`, round 0 | 2026-10-07 | [§1](#1-verdict), [§4](#4-the-translated-root), [§5](#5-what-registers-the-translated-root) | 2026-10-08: [NR-D3](#NR-D3) to [NR-D7](#NR-D7) ([§8](#8-what-is-built)) |
+| OQ-NR1 | Owner aligned with automatic translated roots, with mandatory lifecycle, cap, workspace inspection and explicit release/cleanup; not indefinite retention dependent on agent memory. Numeric cap/lease and a reliable watcher were not chosen. Vantage comment `b6072a1d`, round 0 | 2026-10-07 | [§1](#1-verdict), [§4](#4-the-translated-root), [§5](#5-what-registers-the-translated-root) | 2026-10-08: [NR-D3](#NR-D3) to [NR-D8](#NR-D8) ([§8](#8-what-is-built)) |
 | OQ-NR2 | Owner permits a read-only host `gcroots/auto` mount; no extra routine launch line. Unrelated trust banners unchanged. Vantage comment `51b328aa`, round 0 | 2026-10-07 | [§1](#1-verdict) | 2026-10-08: the bind at `/run/yolo/nix-gcroots-auto`, no launch line ([§8](#8-what-is-built)) |
 | OQ-NR3 | Reversible implementation choice: binds only; anonymous `/tmp` and `/var/tmp` volumes do not translate. Provenance: [NR-D1](#NR-D1) | 2026-09-30 | [§4](#4-the-translated-root), [§7](#7-non-goals) | ✅; [§8](#8-what-is-built) |
-| OQ-NR4 | Reversible implementation choice: yolo's own in-jail roots use translation as the first consumer; existing reapers remain responsible where links live. Provenance: [NR-D2](#NR-D2) | 2026-09-30 | [§8](#8-what-is-built) | ✅; user-root lifecycle remains unbuilt |
+| OQ-NR4 | Reversible implementation choice: yolo's own in-jail roots use translation as the first consumer; existing reapers remain responsible where links live. Provenance: [NR-D2](#NR-D2) | 2026-09-30 | [§8](#8-what-is-built) | ✅; user roots are [NR-D3](#NR-D3)'s |
 | <a id="NR-D1"></a>NR-D1 | *Implementation decision, [OQ-NR3](#decision-ledger).* **Binds only: the map holds the binds the launcher itself wrote, and the anonymous `/tmp` and `/var/tmp` volumes do not translate.** Those volumes are per-launch scratch that yolo deletes once the jail exits, so a root there could outlive nothing but the launch. A running process that uses the store path is already kept by runtime and temp roots ([§2.3](#23-what-already-protects-a-jail)). A nested launcher cannot learn a volume's host path, while the host launcher could from `podman volume inspect`, so translating volumes would give one link two answers depending on who launched. A nested jail's own roots are [NR-D2](#NR-D2)'s. Reversible: the host launcher can add its volumes to the map later | 2026-09-30 | [§4](#4-the-translated-root), [§7](#7-non-goals) | 2026-10-01: the map holds every mount the argv makes, and a volume, a tmpfs or a read-only bind is a mask, so a link under `/tmp` or `/var/tmp` translates to nothing ([§8](#8-what-is-built)). MEASURED in a nested launch: its `/tmp` workspace was a mask |
 | <a id="NR-D2"></a>NR-D2 | *Implementation decision, [OQ-NR4](#decision-ledger).* **Yes: yolo's own in-jail roots become translated roots, the first consumer of the protocol client in [§4](#4-the-translated-root).** Three skips go, not the two the question names: `rootImageFn` (the image root, [`imageload.go`](../../internal/cli/run/imageload.go)), the in-jail skip of `image.RegisterPrefixRoot` ([`jailprefix.go`](../../internal/cli/run/jailprefix.go)), and the in-jail skip of `rootExtrasProfile` for the store-delivered packages' extras profile ([`storepackages.go`](../../internal/cli/run/storepackages.go)). All three root under `paths.BuildDir()`, which in a jail is inside `/home/agent/.local`, a mapped bind, so each one translates. This consumer needs no trigger from [OQ-NR1](#decision-ledger), because yolo registers its own links directly. **Reaping stays with the existing reapers, run where the links live.** A translated root dies with its link. A nested launcher's `yolo prune` sweeps its own `build/roots` and `build/prefix-roots` under the same retention rules the host's sweep follows ([`OQ-LS1`](../reference/image-retention.md#why-its-this-way)'s week, [`OQ-LS4`](../reference/image-retention.md#why-its-this-way)'s liveness), so nothing new reaps. The leaning's concern holds, and it is why this is so: the host's reapers never walk a workspace's home overlay, so the jail that made a link reaps it. What remains is [§4](#4-the-translated-root)'s *who can hold host disk*: a nested jail's root holds its closure until that jail's own sweep removes the link. Reversible: keep the skips | 2026-09-30 | [§8](#8-what-is-built) | 2026-10-01: `internal/nixroots` and `gcRooter` ([§8](#8-what-is-built)). Four skips went, not three: the store-delivered packages' own profile root (`storeProfileRootLink`) was skipped in-jail too. A fifth root is the same principle: the image copier's out-link, dead in a jail, is registered again as a translated root after an in-jail build (`AutoLoadOptions.RootCopier`). MEASURED for the image and prefix roots in a nested launch, and for the copier's root with its build driven directly; the two profile roots are pinned by the unit tests only. Nothing reaps `build/package-roots`, on the host or in a jail, so a nested jail's two profile roots last until their links are deleted, as the host's do |
 
@@ -493,6 +504,7 @@ and its numbers are implementation decisions [NR-D3](#NR-D3) to [NR-D7](#NR-D7),
 | <a id="NR-D4"></a>NR-D4 | *Implementation decision, [OQ-NR1](#decision-ledger).* **A 7-day lease from the last renewal and a 64-root cap per workspace, least recently renewed released first.** A week covers a weekly revisit and matches the image roots' age floor ([`OQ-LS1`](../reference/image-retention.md#why-its-this-way)). 64 leaves room for a few projects' nix-direnv profiles and a profile's recent generations while bounding how many closures a forgotten workspace pins. The cap is a count, not bytes. Renewal is a new request for the same link, never a scan. Constants, not configuration. Reversible: change the constants | 2026-10-08 | [§4.2](#42-the-numbers-and-when-they-apply) | 2026-10-08 |
 | <a id="NR-D5"></a>NR-D5 | *Implementation decision.* **The residual window of [Known limit](#known-limit) is accepted.** Closing it would need the producing client itself to wait for yolo (option E), which this design rejects. A lost root costs a rebuild, and the outcome is no worse than the state without the watcher | 2026-10-08 | [Known limit](#known-limit) | — |
 | <a id="NR-D6"></a>NR-D6 | *Implementation decision.* **The boot starts the watcher directly, not through `YOLO_JAIL_DAEMONS`.** That payload is the host's composed list of loophole and pack-service daemons, with readiness, orphan and disclosure handling those need. The watcher serves no endpoint and holds no credential, and a jail without it is the jail it was before. Its own lock keeps it to one process per jail; a watcher that dies stays down until the next boot, whose scan catches up. Reversible: compose it into the payload | 2026-10-08 | [§8](#8-what-is-built) | 2026-10-08 |
+| <a id="NR-D8"></a>NR-D8 | *Implementation decision, [OQ-NR1](#decision-ledger).* **A release is remembered, so a scan cannot revive it.** Each release records the link and the time (at most 1,024 links, for 30 days). A scan skips an auto entry whose own modification time is no newer: the daemon renames a fresh entry into place on every request, so an older entry is the request the release already answered. Without this, the jail's next restart would re-admit every released root whose entry the host had not yet pruned. Reversible: drop the record | 2026-10-08 | [§4.1](#41-workspace-ownership-caps-and-release) | 2026-10-08 |
 | <a id="NR-D7"></a>NR-D7 | *Implementation decision.* **The handoff is pinned and fenced on one connection:** `AddTempRoot(P)` when the watcher reads the entry (or `keep` reads the link), the managed link registered on that connection, `AddTempRoot(P)` again after the registration is acknowledged, then close. This is [§2.4](#24-a-new-permanent-root-does-not-update-an-active-gc-snapshot)'s order. The pin starts at discovery, not at the client's own `AddTempRoot`, so it narrows the window but does not close it ([NR-D5](#NR-D5)) | 2026-10-08 | [§4](#4-the-translated-root) | 2026-10-08: the order is pinned against a fake daemon; the real daemon accepted it ([§8](#8-what-is-built)) |
 
 ## Appendix: reproducing M4 and M6

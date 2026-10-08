@@ -64,7 +64,11 @@ const (
 	ByKeep  = "keep"
 )
 
-var idPattern = regexp.MustCompile(`^[0-9a-f]{16}$`)
+var (
+	idPattern      = regexp.MustCompile(`^[0-9a-f]{16}$`)
+	tmpLinkPattern = regexp.MustCompile(`^[0-9a-f]{16}\.tmp-[0-9]+$`)
+	tmpFilePattern = regexp.MustCompile(`^roots\.json\.tmp-[0-9]+$`)
+)
 
 // Root is one managed root as the registry records it.
 type Root struct {
@@ -97,7 +101,19 @@ func RootID(source string) string {
 type registryState struct {
 	Version int    `json:"version"`
 	Roots   []Root `json:"roots"`
+	// Released is when each source's root was last released, by source (jail spelling). A
+	// scan reads it so a release sticks: the jail-spelled auto entry outlives the release
+	// until the host's next GC or root query, and without this a restart's scan would admit
+	// the root again (NR-D8). Bounded by tombstoneMax and tombstoneAge.
+	Released map[string]time.Time `json:"released,omitempty"`
 }
+
+// Tombstone bounds: a tombstone older than the entries it could match is useless, and the
+// map must not become a store of its own.
+const (
+	tombstoneMax = 1024
+	tombstoneAge = 30 * 24 * time.Hour
+)
 
 // Released is one root a registry operation released, and why.
 type Released struct {
@@ -246,7 +262,7 @@ func (g *Registry) open(create bool) (*session, error) {
 		s.close()
 		return nil, err
 	}
-	if err := syscall.Flock(int(s.lock.Fd()), syscall.LOCK_EX); err != nil {
+	if err := flockTimeout(s.lock, lockWait); err != nil {
 		s.close()
 		return nil, err
 	}
@@ -257,11 +273,34 @@ func (g *Registry) open(create bool) (*session, error) {
 	return s, nil
 }
 
+// lockWait bounds how long an operation waits for the registry's lock. Every holder does a
+// few file operations and at most one daemon round trip, so a lock held longer is a stuck
+// or hostile holder (the directory is jail-writable), and the host's command must not hang.
+const lockWait = 30 * time.Second
+
+func flockTimeout(f *os.File, wait time.Duration) error {
+	deadline := time.Now().Add(wait)
+	for {
+		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			return nil
+		}
+		if !errors.Is(err, syscall.EWOULDBLOCK) {
+			return err
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("the registry lock %s has been held for %s; if no yolo is using it, "+
+				"stop the jail's root watcher (or restart the jail) and try again", f.Name(), wait)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
 // load reads roots.json. A missing file is an empty registry. An unreadable or malformed
 // one is an error naming the file: overwriting it would release every root it holds without
 // deleting their links, and the links would then pin their closures with nothing to list them.
 func (s *session) load() error {
-	b, err := s.dir.ReadFile(registryFile)
+	b, err := paths.ReadRegularFileBeneath(s.dir, registryFile)
 	if errors.Is(err, fs.ErrNotExist) {
 		s.state = registryState{Version: 1}
 		return nil
@@ -362,12 +401,43 @@ func (s *session) drop(pred func(Root) (bool, string)) ([]Released, error) {
 				continue
 			}
 			out = append(out, Released{Root: r, Reason: why})
+			s.tombstone(r.Source)
 			continue
 		}
 		kept = append(kept, r)
 	}
 	s.state.Roots = kept
 	return out, firstErr
+}
+
+// tombstone records that source's root was released now, and bounds the map.
+func (s *session) tombstone(source string) {
+	if source == "" {
+		return
+	}
+	if s.state.Released == nil {
+		s.state.Released = map[string]time.Time{}
+	}
+	now := s.g.now()
+	s.state.Released[source] = now
+	type kv struct {
+		k string
+		t time.Time
+	}
+	var all []kv
+	for k, t := range s.state.Released {
+		if now.Sub(t) > tombstoneAge {
+			delete(s.state.Released, k)
+			continue
+		}
+		all = append(all, kv{k, t})
+	}
+	if len(all) > tombstoneMax {
+		sort.Slice(all, func(i, j int) bool { return all[i].t.Before(all[j].t) })
+		for _, e := range all[:len(all)-tombstoneMax] {
+			delete(s.state.Released, e.k)
+		}
+	}
 }
 
 func (s *session) expire() ([]Released, error) {
@@ -397,6 +467,9 @@ func (s *session) enforceCap(keep string) ([]Released, error) {
 	}
 	return s.drop(func(r Root) (bool, string) { return evict[r.ID], ReasonCap })
 }
+
+// IsStorePath reports whether p is a direct child of this registry's store directory.
+func (g *Registry) IsStorePath(p string) bool { return g.isStorePath(p) }
 
 // isStorePath reports whether p is a direct child of the store directory.
 func (g *Registry) isStorePath(p string) bool {
@@ -476,6 +549,7 @@ func (g *Registry) Admit(source, sourceHost, target, by string) (Admission, erro
 			r.By = ByKeep
 		}
 	}
+	delete(s.state.Released, source)
 	adm.Root = s.state.Roots[idx]
 	released, err = s.enforceCap(id)
 	adm.Released = append(adm.Released, released...)
@@ -483,6 +557,17 @@ func (g *Registry) Admit(source, sourceHost, target, by string) (Admission, erro
 		return adm, serr
 	}
 	return adm, err
+}
+
+// ReleasedAt is when source's root was last released, if it was and the tombstone is kept.
+func (g *Registry) ReleasedAt(source string) (time.Time, bool) {
+	s, err := g.open(false)
+	if err != nil {
+		return time.Time{}, false
+	}
+	defer s.close()
+	t, ok := s.state.Released[source]
+	return t, ok
 }
 
 // List returns the workspace's managed roots, sorted by source. A workspace with no
@@ -567,7 +652,13 @@ func (g *Registry) Prune() ([]Released, error) {
 		r := &s.state.Roots[i]
 		src := r.Source
 		if g.SourceSide == SideHost {
+			// The record is jail-written, so on the host its source is consulted only when it
+			// lies in the workspace: anywhere else, a jail could make the host stat and read
+			// a path of its choosing. Such a root is left to its lease and the cap.
 			src = r.SourceHost
+			if !within(filepath.Clean(src), filepath.Clean(g.Workspace)) {
+				continue
+			}
 		}
 		if !filepath.IsAbs(src) {
 			why[r.ID] = ReasonGone
@@ -605,6 +696,24 @@ func (g *Registry) Prune() ([]Released, error) {
 	out = append(out, capped...)
 	if err == nil {
 		err = cerr
+	}
+	// Leftovers of a crash mid-write: under the lock nothing is in flight, so every temp name
+	// is stale. Only symlinks among the links, only regular files beside the registry.
+	if s.links != nil {
+		if ents, rerr := fs.ReadDir(s.links.FS(), "."); rerr == nil {
+			for _, e := range ents {
+				if tmpLinkPattern.MatchString(e.Name()) && e.Type()&fs.ModeSymlink != 0 {
+					_ = s.links.Remove(e.Name())
+				}
+			}
+		}
+	}
+	if ents, rerr := fs.ReadDir(s.dir.FS(), "."); rerr == nil {
+		for _, e := range ents {
+			if tmpFilePattern.MatchString(e.Name()) && e.Type().IsRegular() {
+				_ = s.dir.Remove(e.Name())
+			}
+		}
 	}
 	if s.links != nil {
 		named := map[string]bool{}

@@ -13,7 +13,7 @@ tags: [nix, implementation-plan, storage]
 **Status:** 2026-10-08. Superseded by the build. The design was built as the root watcher with
 managed roots ([in-jail-nix-roots.md §8](in-jail-nix-roots.md#8-what-is-built)), not as the
 producer hook this sketch proposed. The design doc's ledger ([NR-D3](in-jail-nix-roots.md#NR-D3)
-to [NR-D7](in-jail-nix-roots.md#NR-D7)) records why. This page records only where each part of the
+to [NR-D8](in-jail-nix-roots.md#NR-D8)) records why. This page records only where each part of the
 sketch went.
 
 | The sketch proposed | What was built |

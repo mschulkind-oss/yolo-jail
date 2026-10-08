@@ -88,12 +88,15 @@ func TestNixRootsKeepRefusesWhatCannotBeARoot(t *testing.T) {
 	_ = os.WriteFile(plain, nil, 0o644)
 	alias := filepath.Join(ws, "alias")
 	_ = os.Symlink("profile-1-link", alias)
+	etc := filepath.Join(ws, "etc")
+	_ = os.Symlink("/etc/hosts", etc)
 	outside, _ := filepath.EvalSymlinks(t.TempDir())
 	scratch := filepath.Join(outside, "result")
 	_ = os.Symlink(sp, scratch)
 	for _, c := range []struct{ link, want string }{
 		{plain, "not a symlink"},
 		{alias, "not straight into the store"},
+		{etc, "not straight into the store"},
 		{scratch, "under no directory the host can see"},
 	} {
 		rc, _, errs := runNR(t, env, "keep", c.link)
@@ -155,5 +158,27 @@ func TestNixRootsWithoutAWorkspaceRefuses(t *testing.T) {
 func TestNixRootsIsRegistered(t *testing.T) {
 	if _, ok := registry["nix-roots"]; !ok {
 		t.Fatal("nix-roots is not in the dispatch registry")
+	}
+}
+
+// roots.json is jail-written; the host prints none of its control characters.
+func TestNixRootsListEscapesWhatTheJailWrote(t *testing.T) {
+	env, ws, sp, _ := nixRootsFixture(t)
+	link := filepath.Join(ws, "result")
+	_ = os.Symlink(sp, link)
+	if rc, _, errs := runNR(t, env, "keep", link); rc != 0 {
+		t.Fatal(errs)
+	}
+	file := filepath.Join(ws, ".yolo", "nix-roots", "roots.json")
+	b, _ := os.ReadFile(file)
+	b = []byte(strings.Replace(string(b), `"by": "keep"`, `"by": "\u001b]52;c;cGF5bG9hZA==\u0007"`, 1))
+	if err := os.WriteFile(file, b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	host := env
+	host.inJail = false
+	_, out, _ := runNR(t, host, "list")
+	if strings.ContainsRune(out, 0x1b) || strings.ContainsRune(out, 0x07) {
+		t.Errorf("list printed a raw control character: %q", out)
 	}
 }
