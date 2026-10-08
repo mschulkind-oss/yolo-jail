@@ -216,6 +216,13 @@ func Run(opts Options) (rc int) {
 		}
 		return 1
 	}
+	if o.OnRuntimeResolved != nil {
+		if err := o.OnRuntimeResolved(rt); err != nil {
+			o.pr(o.Stderr).printf("[bold red]Cannot record the resolved capture runtime: %s[/bold red]", err)
+			o.pr(o.Stderr).print("No capture jail was started. Fix the named host-state error, then retry.")
+			return 1
+		}
+	}
 	o.runtime = rt
 	o.Perf.Mark("probes.done")
 

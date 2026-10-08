@@ -7,10 +7,12 @@ package cli
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -21,6 +23,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/pidlock"
+	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 const (
@@ -33,6 +36,9 @@ const (
 // fork as the selection reads it.
 func forkBuildHome(t *testing.T) packload.Fork {
 	t.Helper()
+	previousProbe := probeForkBuildContainer
+	probeForkBuildContainer = func(string, string, time.Duration) (bool, bool) { return false, true }
+	t.Cleanup(func() { probeForkBuildContainer = previousProbe })
 	forkHostFixture(t, "probetool", captureFixtureInstaller)
 	l := &packsrc.ForkLock{}
 	l.Set(packsrc.ForkLockEntry{Key: "forkpack/probetool", Source: forkTestSource, Ref: "main", Commit: forkTestCommit})
@@ -126,6 +132,356 @@ func TestCaptureOfAForkBuildsItSealedAndRecordsTheBuild(t *testing.T) {
 	}
 	if caps, _ := entrypoint.ReadCaptureReceipts(capture.ReceiptsPath(entry.Root)); len(caps) != 0 {
 		t.Errorf("the capture receipt reader reads a build line: %+v", caps)
+	}
+}
+
+func TestForkBuildRetryWaitsForDetachedKeeperEvenWhenContainerIsAbsent(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	f := forkBuildHome(t)
+	b := forkBuild{Fork: f, Commit: forkTestCommit, Platform: captureJailPlatform()}
+	staging, cname, marker := seedRetainedForkBuildWorkspace(t, b, "podman")
+	holdForkBuildFileLock(t, filepath.Join(paths.GlobalStorage(), "locks", cname+".keeper"))
+
+	prevProbe := probeForkBuildContainer
+	probes := 0
+	probeForkBuildContainer = func(gotName, gotRuntime string, _ time.Duration) (bool, bool) {
+		probes++
+		if gotName != cname || gotRuntime != "podman" {
+			t.Errorf("retry probed %q on %q; want %q on the retained podman backend", gotName, gotRuntime, cname)
+		}
+		return false, true
+	}
+	t.Cleanup(func() { probeForkBuildContainer = prevProbe })
+
+	runs := 0
+	_, err := buildFork(b, buildMode{lock: pidlock.NoWait, runtime: "podman",
+		runJail: func(string, forkBuild, captureStreams) int { runs++; return 0 }}, io.Discard, io.Discard, false)
+	if err == nil || !strings.Contains(err.Error(), "keeper") || !strings.Contains(err.Error(), "retaining staging") {
+		t.Fatalf("retry with a live keeper and absent container = %v; want a fail-closed keeper refusal", err)
+	}
+	if probes != 0 || runs != 0 {
+		t.Errorf("container probes=%d, build launches=%d; live-keeper gate must precede both", probes, runs)
+	}
+	if got, err := os.ReadFile(marker); err != nil || string(got) != "retained" {
+		t.Errorf("live keeper's staging was cleared: %q (%v)", got, err)
+	}
+	if _, err := os.Stat(staging); err != nil {
+		t.Errorf("live keeper's workspace disappeared: %v", err)
+	}
+}
+
+func TestForkBuildRetryRequiresWorkspaceLaunchOwnership(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	f := forkBuildHome(t)
+	b := forkBuild{Fork: f, Commit: forkTestCommit, Platform: captureJailPlatform()}
+	staging, cname, marker := seedRetainedForkBuildWorkspace(t, b, "podman")
+	holdForkBuildFileLock(t, filepath.Join(paths.GlobalStorage(), "locks", cname+".lock"))
+	prevProbe := probeForkBuildContainer
+	probeForkBuildContainer = func(string, string, time.Duration) (bool, bool) {
+		t.Error("a busy workspace launch was followed by a runtime absence probe")
+		return false, true
+	}
+	t.Cleanup(func() { probeForkBuildContainer = prevProbe })
+
+	_, err := buildFork(b, buildMode{lock: pidlock.NoWait, runtime: "podman",
+		runJail: func(string, forkBuild, captureStreams) int {
+			t.Error("build started under an active workspace launch")
+			return 1
+		}},
+		io.Discard, io.Discard, false)
+	if err == nil || !strings.Contains(err.Error(), "workspace launch ownership") {
+		t.Fatalf("retry with a busy workspace lock = %v, want an ownership refusal", err)
+	}
+	if got, err := os.ReadFile(marker); err != nil || string(got) != "retained" {
+		t.Errorf("busy workspace launch's staging was cleared: %q (%v)", got, err)
+	}
+	if _, err := os.Stat(staging); err != nil {
+		t.Errorf("busy workspace launch's workspace disappeared: %v", err)
+	}
+}
+
+func TestForkBuildRetryUsesRetainedBackendWhenRuntimeIsUnspecified(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("YOLO_RUNTIME", "container")
+	f := forkBuildHome(t)
+	b := forkBuild{Fork: f, Commit: forkTestCommit, Platform: captureJailPlatform()}
+	_, cname, _ := seedRetainedForkBuildWorkspace(t, b, "podman")
+	prevProbe := probeForkBuildContainer
+	probes := 0
+	var probeRuntimes []string
+	probeForkBuildContainer = func(gotName, gotRuntime string, _ time.Duration) (bool, bool) {
+		probes++
+		if gotName != cname {
+			t.Errorf("retry probed %q; want %q", gotName, cname)
+		}
+		probeRuntimes = append(probeRuntimes, gotRuntime)
+		return false, true
+	}
+	t.Cleanup(func() { probeForkBuildContainer = prevProbe })
+
+	var seen run.Options
+	fake := fakeBuildJail(t, &seen, probetoolBuilt)
+	withFakeCaptureJail(t, func(o run.Options) int {
+		if o.OnRuntimeResolved == nil {
+			t.Fatal("capture pipeline did not receive the resolved-runtime recorder")
+		}
+		if err := o.OnRuntimeResolved("container"); err != nil {
+			t.Fatalf("record resolved current runtime: %v", err)
+		}
+		o.Getenv = func(key string) string {
+			if key == "YOLO_RUNTIME" {
+				return "container"
+			}
+			return ""
+		}
+		got, err := readForkBuildRuntime(o.Workspace)
+		if err != nil || got != "container" {
+			t.Errorf("fresh capture runtime = %q (%v), want actual selected backend container after old podman was proven absent", got, err)
+		}
+		return fake(o)
+	})
+	entry, err := buildFork(b, buildMode{lock: pidlock.NoWait}, io.Discard, io.Discard, false)
+	if err != nil || entry == nil {
+		t.Fatalf("same-ID retry after old backend is absent: entry=%v err=%v", entry, err)
+	}
+	if probes != 2 || len(probeRuntimes) != 2 || probeRuntimes[0] != "podman" || probeRuntimes[1] != "container" {
+		t.Errorf("runtime probes = %v; want original podman reuse probe then fresh container completion probe", probeRuntimes)
+	}
+}
+
+func TestForkBuildRuntimeRecordMatchesChildResolution(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("YOLO_RUNTIME", "podman")
+	f := forkBuildHome(t)
+	b := forkBuild{Fork: f, Commit: forkTestCommit, Platform: captureJailPlatform()}
+	var seen run.Options
+	fake := fakeBuildJail(t, &seen, probetoolBuilt)
+	withFakeCaptureJail(t, func(o run.Options) int {
+		if o.OnRuntimeResolved == nil {
+			t.Fatal("ordinary capture pipeline has no resolved-runtime callback")
+		}
+		if err := o.OnRuntimeResolved("podman"); err != nil {
+			t.Fatalf("record actual child selection: %v", err)
+		}
+		got, err := readForkBuildRuntime(o.Workspace)
+		if err != nil || got != "podman" {
+			t.Errorf("recorded child runtime = %q (%v), want the pipeline-selected podman backend", got, err)
+		}
+		return fake(o)
+	})
+	entry, err := buildFork(b, buildMode{lock: pidlock.NoWait, runtime: "container",
+		runJail: func(staging string, b forkBuild, streams captureStreams) int {
+			// In the production child path the parent's project runtime is not forwarded; the child
+			// ordinary pipeline resolves the staging workspace and invokes the recorder itself.
+			return forkBuildRunJail(staging, b, streams, false)
+		}}, io.Discard, io.Discard, false)
+	if err != nil || entry == nil {
+		t.Fatalf("child runtime record build: entry=%v err=%v", entry, err)
+	}
+}
+
+func TestForkBuildRetryWithoutResolvedBackendEvidenceFailsClosed(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	f := forkBuildHome(t)
+	b := forkBuild{Fork: f, Commit: forkTestCommit, Platform: captureJailPlatform()}
+	staging, cname, _ := seedRetainedForkBuildWorkspace(t, b, "podman")
+	if err := os.Remove(forkBuildRuntimeRecordPath(staging)); err != nil {
+		t.Fatal(err)
+	}
+	prevProbe := probeForkBuildContainer
+	probeForkBuildContainer = func(string, string, time.Duration) (bool, bool) {
+		t.Error("runtime was probed without actual resolved-backend evidence")
+		return false, true
+	}
+	t.Cleanup(func() { probeForkBuildContainer = prevProbe })
+	marker := filepath.Join(staging, "retained")
+	_, err := buildFork(b, buildMode{lock: pidlock.NoWait, runtime: "podman",
+		runJail: func(string, forkBuild, captureStreams) int {
+			t.Error("build started without backend evidence")
+			return 1
+		}},
+		io.Discard, io.Discard, false)
+	if err == nil || !strings.Contains(err.Error(), "original capture runtime cannot be established") {
+		t.Fatalf("retry without selected-backend evidence = %v; want fail-closed refusal", err)
+	}
+	if got, err := os.ReadFile(marker); err != nil || string(got) != "retained" {
+		t.Errorf("retry without backend evidence removed staging: %q (%v)", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(paths.AgentsDir(), cname)); err != nil {
+		t.Errorf("retry without backend evidence removed jail state: %v", err)
+	}
+}
+
+func TestForkBuildRetryDoesNotProbeTheNewBackendForOldOwnership(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("YOLO_RUNTIME", "container")
+	f := forkBuildHome(t)
+	b := forkBuild{Fork: f, Commit: forkTestCommit, Platform: captureJailPlatform()}
+	staging, cname, marker := seedRetainedForkBuildWorkspace(t, b, "podman")
+	prevProbe := probeForkBuildContainer
+	probes := 0
+	probeForkBuildContainer = func(gotName, gotRuntime string, _ time.Duration) (bool, bool) {
+		probes++
+		if gotName != cname || gotRuntime != "podman" {
+			t.Errorf("retry probed %q on %q; must check old ownership on podman", gotName, gotRuntime)
+		}
+		return true, true
+	}
+	t.Cleanup(func() { probeForkBuildContainer = prevProbe })
+	runs := 0
+	_, err := buildFork(b, buildMode{lock: pidlock.NoWait,
+		runJail: func(string, forkBuild, captureStreams) int { runs++; return 0 }}, io.Discard, io.Discard, false)
+	if err == nil || !strings.Contains(err.Error(), "still present") || !strings.Contains(err.Error(), "podman") {
+		t.Fatalf("retry after backend change while old jail remains = %v; want refusal naming old backend", err)
+	}
+	if probes != 1 || runs != 0 {
+		t.Errorf("old-backend probes=%d, new builds=%d; want one old-backend probe and no new build", probes, runs)
+	}
+	if got, err := os.ReadFile(marker); err != nil || string(got) != "retained" {
+		t.Errorf("live old backend's staging was cleared: %q (%v)", got, err)
+	}
+	if _, err := os.Stat(staging); err != nil {
+		t.Errorf("live old backend's workspace disappeared: %v", err)
+	}
+}
+
+func seedRetainedForkBuildWorkspace(t *testing.T, b forkBuild, rt string) (staging, cname, marker string) {
+	t.Helper()
+	store := &capture.Store{Dir: paths.CapturesDir()}
+	staging = store.StagingDir("fork-" + b.id())
+	cname = runtime.FromWorkspace(staging)
+	if err := os.MkdirAll(staging, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	marker = filepath.Join(staging, "retained")
+	writeFile(t, marker, "retained")
+	if err := writeForkBuildRuntime(staging, rt); err != nil {
+		t.Fatal(err)
+	}
+	agentMarker := filepath.Join(paths.AgentsDir(), cname, "retained")
+	if err := os.MkdirAll(filepath.Dir(agentMarker), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, agentMarker, "retained")
+	return staging, cname, marker
+}
+
+func holdForkBuildFileLock(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		_ = f.Close()
+		t.Fatalf("hold %s: %v", path, err)
+	}
+	t.Cleanup(func() {
+		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		_ = f.Close()
+	})
+}
+
+func TestMacosUserForkBuildHasNoContainerCompletionWitness(t *testing.T) {
+	present, known := probeForkBuildContainer("unused", "macos-user", time.Millisecond)
+	if present || known {
+		t.Fatalf("macos-user container probe = present %v, known %v; without a native completion witness it must stay unknown", present, known)
+	}
+}
+
+// macos-user has no container listing or process-ownership witness for an interrupted native build.
+// An absent container record is therefore unknown, not known-gone: retain the exact build state and
+// refuse same-ID reuse until a host operator verifies this native capture has ended.
+func TestMacosUserForkBuildUnknownLivenessRetainsAndFencesWorkspace(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	f := forkBuildHome(t)
+	b := forkBuild{Fork: f, Commit: forkTestCommit, Platform: captureJailPlatform()}
+	store := &capture.Store{Dir: paths.CapturesDir()}
+	staging := store.StagingDir("fork-" + b.id())
+	if err := os.MkdirAll(staging, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeForkBuildRuntime(staging, "macos-user"); err != nil {
+		t.Fatal(err)
+	}
+	cname := runtime.FromWorkspace(staging)
+	agentState := filepath.Join(paths.AgentsDir(), cname)
+	marker := filepath.Join(agentState, "native-capture-still-unverified")
+	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, marker, "retained")
+
+	prevProbe := probeForkBuildContainer
+	probes := 0
+	probeForkBuildContainer = func(gotName, gotRuntime string, _ time.Duration) (bool, bool) {
+		probes++
+		if gotName != cname || gotRuntime != "macos-user" {
+			t.Errorf("native retry probed %q on %q; want %q on macos-user", gotName, gotRuntime, cname)
+		}
+		return false, false
+	}
+	t.Cleanup(func() { probeForkBuildContainer = prevProbe })
+
+	var runCalls int
+	_, err := buildFork(b, buildMode{lock: pidlock.NoWait, runtime: "macos-user",
+		runJail: func(string, forkBuild, captureStreams) int { runCalls++; return 0 }}, io.Discard, io.Discard, false)
+	if err == nil || !strings.Contains(err.Error(), "macos-user") || !strings.Contains(err.Error(), b.id()) ||
+		!strings.Contains(err.Error(), staging) || !strings.Contains(err.Error(), agentState) ||
+		!strings.Contains(err.Error(), "verify this specific native capture") {
+		t.Fatalf("unknown macos-user teardown refusal = %v", err)
+	}
+	if probes != 1 || runCalls != 0 {
+		t.Errorf("probe calls=%d, build calls=%d; want one liveness check and no same-ID reuse", probes, runCalls)
+	}
+	if got, err := os.ReadFile(marker); err != nil || string(got) != "retained" {
+		t.Errorf("unknown native teardown removed its retained state: %q (%v)", got, err)
+	}
+}
+
+// An ordinary completed macos-user build has no old staging path to probe and keeps its existing
+// cleanup behavior; the new fail-closed branch applies only when teardown is uncertain.
+func TestMacosUserForkBuildSuccessStillCleansItsWorkspace(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	f := forkBuildHome(t)
+	b := forkBuild{Fork: f, Commit: forkTestCommit, Platform: captureJailPlatform()}
+	store := &capture.Store{Dir: paths.CapturesDir()}
+	staging := store.StagingDir("fork-" + b.id())
+	cname := runtime.FromWorkspace(staging)
+	agentState := filepath.Join(paths.AgentsDir(), cname)
+	marker := filepath.Join(agentState, "ordinary-build")
+	prevProbe := probeForkBuildContainer
+	probeForkBuildContainer = func(string, string, time.Duration) (bool, bool) {
+		t.Error("ordinary first build unexpectedly probed a previous jail")
+		return false, false
+	}
+	t.Cleanup(func() { probeForkBuildContainer = prevProbe })
+	fake := fakeBuildJail(t, new(run.Options), probetoolBuilt)
+	entry, err := buildFork(b, buildMode{lock: pidlock.NoWait, runtime: "macos-user",
+		runJail: func(workspace string, _ forkBuild, _ captureStreams) int {
+			if err := os.MkdirAll(agentState, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, marker, "completed")
+			rc := fake(run.Options{Workspace: workspace})
+			if err := writeForkBuildRuntime(workspace, "macos-user"); err != nil {
+				t.Fatal(err)
+			}
+			if err := writeForkBuildRunReturned(workspace); err != nil {
+				t.Fatal(err)
+			}
+			return rc
+		}}, io.Discard, io.Discard, false)
+	if err != nil || entry == nil {
+		t.Fatalf("ordinary macos-user build: entry=%v err=%v", entry, err)
+	}
+	for _, path := range []string{staging, agentState, forkBuildRuntimeRecordPath(staging)} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("ordinary successful build retained %s: %v", path, err)
+		}
 	}
 }
 

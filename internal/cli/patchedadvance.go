@@ -1048,7 +1048,8 @@ func (a *advance) build(b forkBuild, base baseWhy, edited bool) advanceResult {
 	startFail := a.buildFailure(b.Commit)
 	startGood := a.goodBuild()
 	a.boundHit, a.ownLock = false, b.lockPath()
-	mode := buildMode{force: a.o.force, packs: a.packs, lock: pidlock.NoWait, replaySpent: a.replaySpent}
+	mode := buildMode{force: a.o.force, packs: a.packs, lock: pidlock.NoWait, replaySpent: a.replaySpent,
+		runtime: a.o.runtime}
 	if a.o.report != nil {
 		// THE BUILD'S START LINE (PF-D79): what the lines above say without a report, before the build
 		// line runs — what is built, why, the wait, the log and the build's disclosures.

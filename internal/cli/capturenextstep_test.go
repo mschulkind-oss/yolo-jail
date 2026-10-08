@@ -381,4 +381,21 @@ func TestAPatchedBuildOnMacosUserNamesWhoCanAct(t *testing.T) {
 		"  That is yolo's to wire. A podman jail builds and runs it today: YOLO_RUNTIME=podman yolo -- probetool"; got != want {
 		t.Errorf("the step is\n%q\nwant\n%q", got, want)
 	}
+
+	// A patched tree carries the same native eligibility refusal even though its seal also names
+	// the extension destination. Its empty native build line must not become eligible here.
+	seen = run.Options{}
+	errw.Reset()
+	runCaptureJail(t.TempDir(), "tool-ext", []string{"true"},
+		&captureSeal{only: []string{"treepack"}, tree: "tool-ext"},
+		captureStreams{out: &out, errw: &errw}, false)
+	if seen.MacosUserRun == nil || !seen.Sealed {
+		t.Fatal("the patched tree build jail carries no sealed macos-user arm")
+	}
+	errw.Reset()
+	rc = seen.MacosUserRun(jsonx.NewOrderedMap(), "", nil, nil, "", "", macosuser.HomeOverlay{},
+		macosuser.HostContext{}, true, jsonx.NewOrderedMap(), nil, macosuser.JailDaemons{})
+	if rc == 0 || !strings.Contains(errw.String(), "a patched fork or a patched extension is built on a container backend only") {
+		t.Fatalf("patched tree native act returned %d without its container-only refusal: %s", rc, errw.String())
+	}
 }

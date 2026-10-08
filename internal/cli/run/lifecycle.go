@@ -152,6 +152,17 @@ func (o *Options) probeExistingContainer(cname, rt string, timeout time.Duration
 	return id, id != "" || (!res.Timeout && res.RC == 0)
 }
 
+// ProbeExistingContainer asks the selected runtime whether cname exists, including stopped
+// containers. It keeps the tri-state result: false/true means the runtime answered and the
+// container is absent; true/true means it exists; either state with known=false means the caller
+// must not reuse resources that a still-live container may hold.
+func ProbeExistingContainer(cname, rt string, timeout time.Duration) (exists, known bool) {
+	o := NewDefaultOptions()
+	o.Exec = realExec
+	id, known := o.probeExistingContainer(cname, rt, timeout)
+	return id != "", known
+}
+
 // removeStaleContainer force-removes a container and clears its tracking.
 func (o *Options) removeStaleContainer(cname, rt string) bool {
 	var res ExecResult

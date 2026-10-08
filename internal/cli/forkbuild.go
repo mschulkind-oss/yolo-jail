@@ -73,6 +73,138 @@ const (
 // than a timeout, and bounded so a build that hangs cannot hold every later launch of its fork.
 const forkBuildWaitBound = 20 * time.Minute
 
+const forkBuildProbeTimeout = 30 * time.Second
+
+const forkBuildRuntimeRecordSuffix = ".fork-build-runtime"
+
+// forkBuildRunReturnedSuffix is a host-side witness that sealed runCaptureJail returned normally;
+// the jail cannot write this sibling path, and signal-arm os.Exit bypasses the write.
+const forkBuildRunReturnedSuffix = ".fork-build-run-returned"
+
+func forkBuildRuntimeRecordPath(staging string) string { return staging + forkBuildRuntimeRecordSuffix }
+func forkBuildRunReturnedPath(staging string) string   { return staging + forkBuildRunReturnedSuffix }
+
+func forkBuildRunReturned(staging string) bool {
+	data, err := os.ReadFile(forkBuildRunReturnedPath(staging))
+	return err == nil && strings.TrimSpace(string(data)) == "returned"
+}
+
+func writeForkBuildRunReturned(staging string) error {
+	return os.WriteFile(forkBuildRunReturnedPath(staging), []byte("returned\n"), 0o600)
+}
+
+func readForkBuildRuntime(staging string) (string, error) {
+	data, err := os.ReadFile(forkBuildRuntimeRecordPath(staging))
+	if err != nil {
+		return "", err
+	}
+	rt := strings.TrimSpace(string(data))
+	if rt == "" || !slices.Contains(paths.AllRuntimes, rt) {
+		return "", fmt.Errorf("invalid retained runtime %q", rt)
+	}
+	return rt, nil
+}
+
+func writeForkBuildRuntime(staging, rt string) error {
+	if rt == "" {
+		return errors.New("the capture jail runtime was not resolved")
+	}
+	return os.WriteFile(forkBuildRuntimeRecordPath(staging), []byte(rt+"\n"), 0o600)
+}
+
+func cleanupForkBuildWorkspace(staging, cname string) {
+	cleanupCaptureWorkspace(staging, cname)
+	_ = os.Remove(forkBuildRuntimeRecordPath(staging))
+	_ = os.Remove(forkBuildRunReturnedPath(staging))
+}
+
+// forkBuildWorkspaceReclaimable takes the final workspace launch lock and joins keeper completion
+// with the capture's resolved original backend. The returned release closure stays held through
+// admission and cleanup, so this one proof covers both without a status-code guess or second probe.
+func forkBuildWorkspaceReclaimable(staging, cname string) (func(), bool) {
+	release, locked := run.TryWorkspaceLaunchLockFor(cname)
+	if !locked {
+		return nil, false
+	}
+	fail := func() (func(), bool) {
+		release()
+		return nil, false
+	}
+	if run.KeeperAlive(staging) {
+		return fail()
+	}
+	rt, err := readForkBuildRuntime(staging)
+	if errors.Is(err, os.ErrNotExist) {
+		return release, true // Run never resolved a backend, so it never dispatched a capture owner.
+	}
+	if err != nil || !forkBuildRunReturned(staging) {
+		return fail()
+	}
+	if rt == "macos-user" {
+		return release, true
+	}
+	present, known := probeForkBuildContainer(cname, rt, forkBuildProbeTimeout)
+	if !known || present {
+		return fail()
+	}
+	return release, true
+}
+
+// probeForkBuildContainer is the conservative runtime-presence probe used before a same-key
+// retry can reuse its deterministic staging path. Tests replace it with a detached-keeper fixture;
+// production uses run's tri-state probe. macos-user has no container listing or completion witness,
+// so it must remain unknown rather than interpreting the absence of a container as proof of teardown.
+var probeForkBuildContainer = func(cname, rt string, timeout time.Duration) (bool, bool) {
+	if rt == "macos-user" {
+		return false, false
+	}
+	return run.ProbeExistingContainer(cname, rt, timeout)
+}
+
+func captureWorkspaceArtifactsExist(staging, cname string) bool {
+	for _, path := range []string{
+		staging,
+		filepath.Join(paths.AgentsDir(), cname),
+		filepath.Join(paths.ContainerDir(), cname),
+		forkBuildRuntimeRecordPath(staging),
+	} {
+		if _, err := os.Lstat(path); err == nil || !errors.Is(err, os.ErrNotExist) {
+			return true
+		}
+	}
+	return false
+}
+
+func runtimeLabel(rt string) string {
+	if rt == "" {
+		return "the selected"
+	}
+	return rt
+}
+
+func forkBuildWorkspacePaths(staging, cname string) (string, string) {
+	return staging, filepath.Join(paths.AgentsDir(), cname)
+}
+
+func forkBuildWorkspaceNotReusable(b forkBuild, staging, cname, rt string, present, known bool) error {
+	stagePath, agentsPath := forkBuildWorkspacePaths(staging, cname)
+	if !known {
+		if rt == "macos-user" {
+			return fmt.Errorf("cannot prove macos-user build %s (%s) has ended; retaining staging %s and jail state %s without same-ID reuse. A host operator or maintainer must verify this specific native capture has ended before clearing its retained state, then retry the launch", b.id(), b.Fork.Key(), stagePath, agentsPath)
+		}
+		return fmt.Errorf("could not confirm whether previous fork build jail %s for build %s is gone on %s; retaining staging %s and jail state %s. Restore runtime access, then retry the launch", cname, b.id(), runtimeLabel(rt), stagePath, agentsPath)
+	}
+	if present {
+		return fmt.Errorf("previous fork build jail %s for build %s is still present on %s; retaining staging %s and jail state %s. Let that jail finish stopping, then retry the launch", cname, b.id(), runtimeLabel(rt), stagePath, agentsPath)
+	}
+	return fmt.Errorf("could not confirm whether previous fork build jail %s for build %s is gone on %s; retaining staging %s and jail state %s. Restore runtime access, then retry the launch", cname, b.id(), runtimeLabel(rt), stagePath, agentsPath)
+}
+
+func forkBuildWorkspaceOwnershipError(b forkBuild, staging, cname, detail, next string) error {
+	stagePath, agentsPath := forkBuildWorkspacePaths(staging, cname)
+	return fmt.Errorf("cannot safely reuse fork build jail %s for build %s: %s; retaining staging %s and jail state %s. %s", cname, b.id(), detail, stagePath, agentsPath, next)
+}
+
 // forkBuild is one build: the fork, the commit it is pinned to, and the platform it is built for.
 type forkBuild struct {
 	Fork     packload.Fork
@@ -204,6 +336,10 @@ type buildMode struct {
 	// `yolo capture <forked bin>` names the runtime a capture resolves, so the platform its build is
 	// filed under is the one that jail makes (forkBuildPlatform).
 	runtime string
+	// retainWorkspace is set by the child runner when cancellation or incomplete stream drainage
+	// means its detached keeper may still be stopping. Until a runtime probe confirms the old jail
+	// is gone, the staging tree and its host-side jail state must not be removed or reused.
+	retainWorkspace *bool
 	// packs is the pack store a PATCHED build replays its series in (the launch's, under the
 	// advance's context); nil reads the machine's with the store's default budget.
 	packs *packsrc.Store
@@ -307,6 +443,8 @@ func (e forkBuildNotStarted) Unwrap() error        { return e.exit }
 type captureStreams struct {
 	out, errw, jailOut, jailErr, sessionOut io.Writer
 	jailReady                               func()
+	cleanupUnconfirmed                      *bool
+	lifetimeReturned                        *bool
 }
 
 // notStartedLines are the lines that say why a build jail stopped before its build line, each
@@ -409,6 +547,8 @@ func (t *jailTail) tee(s captureStreams) captureStreams {
 				s.jailReady()
 			}
 		},
+		cleanupUnconfirmed: s.cleanupUnconfirmed,
+		lifetimeReturned:   s.lifetimeReturned,
 	}
 }
 
@@ -557,12 +697,87 @@ func buildForkUnderLock(b forkBuild, mode buildMode, store *capture.Store, pr ri
 			return entry, nil
 		}
 	}
-	staging, err := store.Stage("fork-" + b.id())
+	stagingID := "fork-" + b.id()
+	staging := store.StagingDir(stagingID)
+	cname := runtime.FromWorkspace(staging)
+	var releaseWorkspaceLaunch func()
+	workspaceLaunchHeld := false
+	defer func() {
+		if releaseWorkspaceLaunch != nil {
+			releaseWorkspaceLaunch()
+		}
+	}()
+	if captureWorkspaceArtifactsExist(staging, cname) {
+		var locked bool
+		releaseWorkspaceLaunch, locked = run.TryWorkspaceLaunchLockFor(cname)
+		workspaceLaunchHeld = locked
+		if !locked {
+			return nil, forkBuildWorkspaceOwnershipError(b, staging, cname,
+				"workspace launch ownership is busy or could not be checked", "Wait for that workspace launch to finish, then retry the launch.")
+		}
+		if run.KeeperAlive(staging) {
+			releaseWorkspaceLaunch()
+			releaseWorkspaceLaunch = nil
+			workspaceLaunchHeld = false
+			return nil, forkBuildWorkspaceOwnershipError(b, staging, cname,
+				"the previous capture keeper is still running or its liveness could not be checked", "Wait for keeper teardown to finish, restore runtime access if needed, then retry the launch.")
+		}
+		oldRuntime, runtimeErr := readForkBuildRuntime(staging)
+		// A keeper record contributes only a recognized runtime. An unsupported value is not a
+		// conflict with a valid sidecar; it is unusable provenance, and cannot become a probe target.
+		if launchedRuntime, ok := run.LaunchedRuntime(staging); ok && slices.Contains(paths.AllRuntimes, launchedRuntime) {
+			if runtimeErr == nil && oldRuntime != launchedRuntime {
+				releaseWorkspaceLaunch()
+				releaseWorkspaceLaunch = nil
+				workspaceLaunchHeld = false
+				return nil, forkBuildWorkspaceOwnershipError(b, staging, cname,
+					fmt.Sprintf("retained runtime record %q disagrees with the keeper's original backend %q", oldRuntime, launchedRuntime),
+					"Have a host operator verify this specific capture and its original backend are gone before clearing only these retained paths, then retry.")
+			}
+			oldRuntime, runtimeErr = launchedRuntime, nil
+		}
+		if runtimeErr != nil || !slices.Contains(paths.AllRuntimes, oldRuntime) {
+			releaseWorkspaceLaunch()
+			releaseWorkspaceLaunch = nil
+			workspaceLaunchHeld = false
+			return nil, forkBuildWorkspaceOwnershipError(b, staging, cname,
+				"the original capture runtime cannot be established", "Have a host operator verify this specific capture has ended before clearing only these retained paths, then retry.")
+		}
+		present, known := probeForkBuildContainer(cname, oldRuntime, forkBuildProbeTimeout)
+		if !known || present {
+			releaseWorkspaceLaunch()
+			releaseWorkspaceLaunch = nil
+			workspaceLaunchHeld = false
+			return nil, forkBuildWorkspaceNotReusable(b, staging, cname, oldRuntime, present, known)
+		}
+		cleanupForkBuildWorkspace(staging, cname)
+	}
+	staging, err := store.Stage(stagingID)
 	if err != nil {
 		return nil, err
 	}
-	cname := runtime.FromWorkspace(staging)
-	defer cleanupCaptureWorkspace(staging, cname)
+	cname = runtime.FromWorkspace(staging)
+	retained := false
+	_ = os.Remove(forkBuildRunReturnedPath(staging))
+	if mode.retainWorkspace == nil {
+		mode.retainWorkspace = &retained
+	}
+	defer func() {
+		if !*mode.retainWorkspace {
+			if !workspaceLaunchHeld {
+				release, safe := forkBuildWorkspaceReclaimable(staging, cname)
+				if safe {
+					releaseWorkspaceLaunch = release
+					workspaceLaunchHeld = true
+				} else {
+					*mode.retainWorkspace = true
+				}
+			}
+			if !*mode.retainWorkspace {
+				cleanupForkBuildWorkspace(staging, cname)
+			}
+		}
+	}()
 	src := filepath.Join(staging, forkSourceLeaf)
 	tree := ""
 	if b.Series != nil {
@@ -611,9 +826,12 @@ func buildForkUnderLock(b forkBuild, mode buildMode, store *capture.Store, pr ri
 	// WHERE THE JAIL'S OUTPUT GOES: a jail launch's report sends it to the launch's log and the
 	// build's own, never the terminal (buildreport.go); `yolo capture` streams it, the jail's own
 	// lines where any launch relays them, the process's own streams.
-	streams := captureStreams{out: out, errw: errw, jailOut: mode.jailStdout, sessionOut: mode.jailStdout}
+	streams := captureStreams{out: out, errw: errw, jailOut: mode.jailStdout, sessionOut: mode.jailStdout,
+		cleanupUnconfirmed: mode.retainWorkspace, lifetimeReturned: new(bool)}
 	if mode.run != nil {
 		streams = mode.run.streams()
+		streams.cleanupUnconfirmed = mode.retainWorkspace
+		streams.lifetimeReturned = new(bool)
 	}
 	mode.run.phase("in its sealed jail")
 	// THE JAIL'S LAST LINES, kept as they stream past, the launch's and the jail's own apart: a jail
@@ -625,7 +843,40 @@ func buildForkUnderLock(b forkBuild, mode buildMode, store *capture.Store, pr ri
 	// THE BUILD'S OWN WORKSPACE, as the build saw it: a link into it dangles once the build ends.
 	workspace := forkBuildWorkspace(mode.runtime, b.id())
 	entry, m, err := captureStaged(store, staging,
-		func() int { return runJail(staging, b, streams) },
+		func() int {
+			if releaseWorkspaceLaunch != nil {
+				releaseWorkspaceLaunch()
+				releaseWorkspaceLaunch = nil
+				workspaceLaunchHeld = false
+			}
+			rc := runJail(staging, b, streams)
+			*streams.lifetimeReturned = forkBuildRunReturned(staging)
+			if !*streams.lifetimeReturned {
+				if _, runtimeErr := readForkBuildRuntime(staging); runtimeErr == nil {
+					*mode.retainWorkspace = true
+				}
+			}
+			if rc != 0 {
+				return rc
+			}
+			if !*streams.lifetimeReturned {
+				fmt.Fprintln(errw, "The build capture did not return with trustworthy lifetime evidence; its workspace is retained and no output was admitted.")
+				return 1
+			}
+			if _, runtimeErr := readForkBuildRuntime(staging); runtimeErr != nil {
+				fmt.Fprintln(errw, "The build capture has no trustworthy original-backend record; its workspace is retained and no output was admitted.")
+				return 1
+			}
+			release, safe := forkBuildWorkspaceReclaimable(staging, cname)
+			if !safe {
+				*mode.retainWorkspace = true
+				fmt.Fprintln(errw, "The build output may still be owned by its capture keeper or original backend; no output was admitted and its workspace is retained.")
+				return 1
+			}
+			releaseWorkspaceLaunch = release
+			workspaceLaunchHeld = true
+			return 0
+		},
 		func(m *capture.Manifest) string {
 			if f.IsTree() {
 				return fmt.Sprintf("%s's build left no tree at ~/%s", f.Label(), packdecl.TreeReservedDir(f.Bin))
@@ -699,7 +950,7 @@ func buildForksForLaunch(req run.ForkBuildRequest, _, errw io.Writer, color bool
 // — the entry the jail materializes, or why there is none, with the build's last lines under the
 // warning. After a Ctrl-C ended the launch's wait (PF-D57) it begins no build, since each would be a
 // new wait the user had just declined, and one the Ctrl-C reached mid-build is stopped.
-func buildPlainForkForLaunch(b forkBuild, report *buildReport, it *poolItem, color bool) entrypoint.ForkDelivery {
+func buildPlainForkForLaunch(b forkBuild, rt string, report *buildReport, it *poolItem, color bool) entrypoint.ForkDelivery {
 	epr := richtext.Printer{W: it.stream(), Color: color}
 	stopped := func(what string) entrypoint.ForkDelivery {
 		epr.Printf("[yellow]%s[/yellow]", richtext.Escape(fmt.Sprintf("Warning: %s was not built at %s — a Ctrl-C "+
@@ -728,7 +979,7 @@ func buildPlainForkForLaunch(b forkBuild, report *buildReport, it *poolItem, col
 	r := report.begin(buildStart{fork: b.Fork, what: b.Fork.Source + " at " + shortSHA(b.Commit), line: b.buildLine()}, it)
 	bound := false
 	entry, err := buildFork(b, buildMode{lock: pidlock.Mode{Wait: true, Bound: forkBuildWaitBound, Cancel: ctx.Done()},
-		run: r, runJail: childJail(ctx, color, &bound)}, it.stream(), it.stream(), color)
+		run: r, runJail: childJail(ctx, color, &bound), runtime: rt}, it.stream(), it.stream(), color)
 	switch {
 	case err != nil && ctx.Err() != nil:
 		r.fail("interrupted")

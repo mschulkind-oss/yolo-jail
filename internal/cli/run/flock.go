@@ -238,6 +238,17 @@ func (r *launchLockRegistry) forget(path string, l *workspaceLock) {
 	}
 }
 
+// TryWorkspaceLaunchLockFor takes the per-workspace launch lock without waiting and returns its
+// release and whether it was acquired. A false result means a launch may own the workspace, or the
+// lock could not be checked; callers that protect reusable state must treat both as unknown.
+func TryWorkspaceLaunchLockFor(cname string) (func(), bool) {
+	lock, ok := tryWorkspaceLock(cname)
+	if !ok {
+		return func() {}, false
+	}
+	return lock.Close, true
+}
+
 // holdLaunchLock takes the per-workspace launch lock for this launch, unless it already holds
 // it.
 //

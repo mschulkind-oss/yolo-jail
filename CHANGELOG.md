@@ -31,6 +31,7 @@ per workspace; `yolo nix-roots` lists and releases them. See
 
 ### Fixed
 
+- Ctrl-C during startup extension builds now stops compilers promptly without reusing their workspaces before jail teardown finishes.
 - A provider-only Pi profile no longer fails at startup because of a provider flag without a model selection.
 - A profile's config overlay now applies when that profile is any member of an agent's active profile set, not only the first.
 - In a project that sets `workspace_readonly`, the agent is told the project config is read-only

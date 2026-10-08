@@ -110,6 +110,17 @@ func newPatchedAdvanceFixture(t *testing.T, follow string) *patchedAdvanceFixtur
 // sees no .git and holds no record or mirror lock, and leaves a program whose bytes are that f.txt's.
 func (fx *patchedAdvanceFixture) buildJail(t *testing.T) func(run.Options) int {
 	return func(o run.Options) int {
+		if o.OnRuntimeResolved != nil {
+			rt := "podman"
+			if o.Getenv != nil {
+				if selected := o.Getenv("YOLO_RUNTIME"); selected != "" {
+					rt = selected
+				}
+			}
+			if err := o.OnRuntimeResolved(rt); err != nil {
+				t.Fatalf("record fixture runtime: %v", err)
+			}
+		}
 		src := filepath.Join(o.Workspace, forkSourceLeaf)
 		data, err := os.ReadFile(filepath.Join(src, "f.txt"))
 		if err != nil {

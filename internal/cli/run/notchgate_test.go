@@ -305,9 +305,10 @@ func TestTheFlagOutranksTheConfigWhenBothAreJail(t *testing.T) {
 // macosGuestReach is what the macos-user handler saw, read inside the call because the
 // launch's staging is its own.
 type macosGuestReach struct {
-	reached  bool
-	dryRun   bool
-	briefing string
+	reached         bool
+	dryRun          bool
+	briefing        string
+	runtimeResolved string
 	// notchEnv is config.NotchEnv in the launch env handed to the backend, and hasNotchEnv
 	// whether it was set at all.
 	notchEnv    string
@@ -334,10 +335,17 @@ func runMacosGuest(t *testing.T, wsConfig, notch string, env map[string]string, 
 	o.AcceptConfigChanges = true
 	o.Getenv = func(k string) string { return env[k] }
 	var got macosGuestReach
+	o.OnRuntimeResolved = func(rt string) error {
+		got.runtimeResolved = rt
+		return nil
+	}
 	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string,
 		overlay macosuser.HomeOverlay, _ macosuser.HostContext, dryRun bool,
 		launchEnv *jsonx.OrderedMap, _ []packload.BlockedTool, _ macosuser.JailDaemons) int {
 		got.reached, got.dryRun = true, dryRun
+		if got.runtimeResolved == "" {
+			t.Error("macos-user backend started before the actual runtime was recorded")
+		}
 		if launchEnv != nil {
 			if v, ok := launchEnv.Get(config.NotchEnv); ok {
 				got.notchEnv, got.hasNotchEnv = v.(string), true
@@ -379,6 +387,9 @@ func TestMacosGuestNotchLaunchesTheMacosUserBackend(t *testing.T) {
 		t.Fatalf("a macOS guest launch did not reach the macos-user backend (rc %d) — the notch "+
 			"gate refused it, or resolveRuntime did not take the notch's own backend:\n%s", rc, out)
 	}
+	if got.runtimeResolved != "macos-user" {
+		t.Errorf("resolved-runtime hook observed %q, want the actual confinement-selected macos-user backend", got.runtimeResolved)
+	}
 	if strings.Contains(out, "No container runtime found") {
 		t.Errorf("the launch probed for a container runtime, so the notch did not select "+
 			"macos-user:\n%s", out)
@@ -390,6 +401,49 @@ func TestMacosGuestNotchLaunchesTheMacosUserBackend(t *testing.T) {
 	if !strings.Contains(got.briefing, "shared by every workspace on this machine") {
 		t.Errorf("the macOS guest briefing does not say the account is shared, which every "+
 			"macos-user launch is:\n%s", got.briefing)
+	}
+}
+
+// TestResolvedRuntimeHookSeesAutomaticFallback runs the ordinary resolver with an Apple Container
+// binary that is valid but offline and an answering Podman. The hook must record the backend Run
+// actually selected after fallback, not the first PATH candidate.
+func TestResolvedRuntimeHookSeesAutomaticFallback(t *testing.T) {
+	ws := notchGateWorkspace(t, "")
+	var stdout, stderr bytes.Buffer
+	o := notchGateOptions(t, ws, &stdout, &stderr)
+	o.IsMacOS, o.IsLinux = true, false
+	o.Getenv = func(string) string { return "" }
+	o.LookPath = func(name string) (string, bool) {
+		switch name {
+		case "container", "podman":
+			return "/usr/bin/" + name, true
+		default:
+			return "", false
+		}
+	}
+	o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
+		if len(argv) >= 2 && argv[0] == "/usr/bin/container" && argv[1] == "--version" {
+			return ExecResult{Ran: true, Stdout: "Apple container CLI version 1.0"}
+		}
+		if len(argv) >= 3 && argv[0] == "container" && argv[1] == "system" && argv[2] == "status" {
+			return ExecResult{Ran: true, RC: 1, Stderr: "not running"}
+		}
+		return ExecResult{Ran: false}
+	}
+	answeringPodman(o, minimalPodmanInfo)
+	resolved := ""
+	o.OnRuntimeResolved = func(rt string) error {
+		resolved = rt
+		return nil
+	}
+
+	rc := Run(*o)
+	if rc != 1 || !strings.Contains(stderr.String(), "Cannot find yolo-jail repo root") {
+		t.Fatalf("fallback fixture did not reach the expected post-resolution repo-root refusal (rc=%d):\nstdout:\n%s\nstderr:\n%s",
+			rc, stdout.String(), stderr.String())
+	}
+	if resolved != "podman" {
+		t.Fatalf("resolved-runtime hook observed %q, want podman after the container candidate was offline", resolved)
 	}
 }
 

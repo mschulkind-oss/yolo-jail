@@ -9,16 +9,17 @@ package cli
 // a launch run in this process installs signal arms of its own whose exit ends the process
 // (run's armstack.go): in-process, a Ctrl-C during the build tears the build jail down and ends the
 // user's launch with it, which is the one thing PF-D25 rules out while a good build serves. A child
-// takes the arms with it: the terminal's SIGINT reaches the child's arms, which tear its build jail
-// down and exit, while this process's interrupt scope (run.InterruptScope) ends the advance, and
-// the launch goes on with the good build. And a child's streams are pipes this process reads,
-// where an in-process build jail's session, its build line's output, writes this process's own
-// stdout and stderr, so only a child's output can be kept off the launch's terminal (PF-D79).
+// takes the arms with it, but it must not share the launch's process group: otherwise one terminal
+// Ctrl-C reaches the pool and every child independently, and the pool's later signal reaches only
+// a child's pid, not compiler descendants holding its stdout/stderr pipes. The launch's act scope
+// owns the interrupt; each build child gets its own process group, which the scope signals and then
+// kills as a unit. The child retains its own launch signal arms for teardown, and its streams are
+// pipes this process reads, so only its output can be kept off the launch's terminal (PF-D79).
 //
-// THE CHILD IS TOLD, NOT TRUSTED: a SIGINT that reached this process alone (`kill -INT`) is sent on
-// to the child, and a child that has not exited a grace period after it is killed — its keeper
-// then unwinds the build jail as its lifeline closes. A build past forkBuildWaitBound is ended the
-// same way, and that one is a failed build (§8.1).
+// THE CHILD IS TOLD, NOT TRUSTED: a SIGINT that reached this process alone (`kill -INT`) is sent to
+// the child's process group. If the child or a descendant has not exited after the five-second
+// grace, the whole group is killed; the child then unwinds its build jail as its lifeline closes. A
+// build past forkBuildWaitBound is ended the same way, and that one is a failed build (§8.1).
 //
 // THE JAIL'S OWN STREAMS CROSS APART. The child's launch prints its own lines on the child's stdout
 // and stderr, and relays its jail's — the runtime client's and pid 1's — to the child's fds 3 and 4
@@ -48,13 +49,12 @@ import (
 // forkBuildJailVerb is the hidden subcommand: `yolo internal fork-build-jail`.
 const forkBuildJailVerb = "fork-build-jail"
 
-// forkBuildChildGrace is how long a child told to stop has before it is killed.
-const forkBuildChildGrace = 60 * time.Second
+// forkBuildChildGrace is how long a child told to stop has before its process group is killed.
+var forkBuildChildGrace = 5 * time.Second
 
-// forkBuildChildDrain bounds the wait, once the child has exited, for the last of its jail's lines
-// to be copied (childJailPipes.drain): a process the child handed its descriptors to by mistake
-// would otherwise hold the copy open for as long as it lives.
-const forkBuildChildDrain = 5 * time.Second
+// forkBuildChildDrain bounds the drain of a child's stdout/stderr and jail streams after its root
+// process exits; a detached descendant must not keep the startup launch waiting on an inherited fd.
+var forkBuildChildDrain = 5 * time.Second
 
 // The child's descriptors for its jail (--jail-streams), ExtraFiles' three after stdin, stdout and
 // stderr: its own stdout and stderr, and the one byte that says its boot is done
@@ -118,6 +118,9 @@ func forkBuildChildArgv(staging string, b forkBuild, color bool) []string {
 func runForkBuildChild(ctx context.Context, bound time.Duration, staging string, b forkBuild, s captureStreams,
 	color bool) (int, bool) {
 	errw := s.errw
+	if errw == nil {
+		errw = io.Discard
+	}
 	cmd, err := forkBuildChildCommand(forkBuildChildArgv(staging, b, color))
 	if err != nil {
 		fmt.Fprintf(errw, "yolo: could not start the build jail of %s: %v\n", b.Fork.Key(), err)
@@ -128,38 +131,176 @@ func runForkBuildChild(ctx context.Context, bound time.Duration, staging string,
 		fmt.Fprintf(errw, "yolo: could not start the build jail of %s: %v\n", b.Fork.Key(), err)
 		return 1, false
 	}
-	cmd.Stdout, cmd.Stderr, cmd.ExtraFiles = s.out, errw, jail.child
-	if err := cmd.Start(); err != nil {
+	output, err := newForkBuildChildOutput()
+	if err != nil {
 		jail.abandon()
 		fmt.Fprintf(errw, "yolo: could not start the build jail of %s: %v\n", b.Fork.Key(), err)
 		return 1, false
 	}
+	cmd.Stdout, cmd.Stderr, cmd.ExtraFiles = output.writers[0], output.writers[1], jail.child
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	// A launch build child owns its process group. Ctrl-C is caught by the launch's one act
+	// interrupt and forwarded to this group, not delivered independently by the terminal to
+	// several nested yolo/runtime processes with competing teardown arms.
+	cmd.SysProcAttr.Setpgid = true
+	if err := cmd.Start(); err != nil {
+		jail.abandon()
+		output.abandon()
+		fmt.Fprintf(errw, "yolo: could not start the build jail of %s: %v\n", b.Fork.Key(), err)
+		return 1, false
+	}
+	output.copyTo(s.out, errw)
 	jail.copyTo(s.jailOut, s.jailErr, s.jailReady)
-	done := make(chan error, 1)
+	done := make(chan forkBuildChildResult, 1)
 	go func() {
 		err := cmd.Wait()
-		// Every line the jail printed is copied before the child's status is read.
-		jail.drain(forkBuildChildDrain)
-		done <- err
+		var drains sync.WaitGroup
+		jailDrained, outputDrained := true, true
+		drains.Go(func() { jailDrained = jail.drain(forkBuildChildDrain) })
+		drains.Go(func() { outputDrained = output.drain(forkBuildChildDrain) })
+		drains.Wait()
+		done <- forkBuildChildResult{err: err, streamsDrained: jailDrained && outputDrained}
 	}()
 	timer := time.NewTimer(bound)
 	defer timer.Stop()
 	timedOut := false
+	status := func(result forkBuildChildResult) int {
+		if ctx.Err() != nil || timedOut {
+			// A child may handle SIGINT and exit 0 after leaving half-written staging output. An
+			// interrupted or bound-stopped child is never a successful build, whichever status it chose.
+			return 128 + int(syscall.SIGINT)
+		}
+		if !result.streamsDrained {
+			return 1
+		}
+		return exitStatus(result.err)
+	}
 	select {
-	case err := <-done:
-		return exitStatus(err), false
+	case result := <-done:
+		returned := forkBuildRunReturned(staging)
+		if s.lifetimeReturned != nil {
+			*s.lifetimeReturned = returned
+		}
+		_, runtimeErr := readForkBuildRuntime(staging)
+		lifetimeUnknown := !returned && runtimeErr == nil
+		if ctx.Err() != nil || !result.streamsDrained || childExitWasSignalled(result.err) || lifetimeUnknown {
+			// An externally handled signal exits normally, but bypasses runCaptureJail's return witness.
+			// A resolved backend plus no witness therefore retains the workspace and stops any same-group
+			// helper without guessing from 129/130/143. Group exit still is not keeper completion.
+			markBuildWorkspaceCleanupUnconfirmed(s)
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			waitForkBuildChildGroup(cmd.Process.Pid, time.Second)
+		}
+		return status(result), false
 	case <-ctx.Done():
 	case <-timer.C:
 		timedOut = true
 	}
-	_ = cmd.Process.Signal(syscall.SIGINT)
+	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGINT)
+	markBuildWorkspaceCleanupUnconfirmed(s)
+	var result forkBuildChildResult
 	select {
-	case err := <-done:
-		return exitStatus(err), timedOut
+	case result = <-done:
 	case <-time.After(forkBuildChildGrace):
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		result = <-done
 	}
-	_ = cmd.Process.Kill()
-	return exitStatus(<-done), timedOut
+	// done includes bounded pipe drainage. Even if an output-drain bound expired, no member of
+	// this owned process group may keep compiling after the launch has stopped waiting.
+	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	waitForkBuildChildGroup(cmd.Process.Pid, time.Second)
+	return status(result), timedOut
+}
+
+func markBuildWorkspaceCleanupUnconfirmed(s captureStreams) {
+	if s.cleanupUnconfirmed != nil {
+		*s.cleanupUnconfirmed = true
+	}
+}
+
+// forkBuildChildResult is the child status and whether both output paths drained before their
+// bound. An incomplete drain is a build failure, never a success whose output was truncated.
+type forkBuildChildResult struct {
+	err            error
+	streamsDrained bool
+}
+
+// forkBuildChildOutput gives the process tree explicit stdout/stderr pipes, which lets this parent
+// close a reader after a bounded drain instead of os/exec.Wait waiting forever on an inherited fd.
+type forkBuildChildOutput struct {
+	readers [2]*os.File
+	writers [2]*os.File
+	copied  sync.WaitGroup
+}
+
+func newForkBuildChildOutput() (*forkBuildChildOutput, error) {
+	p := &forkBuildChildOutput{}
+	for i := range p.readers {
+		r, w, err := os.Pipe()
+		if err != nil {
+			p.abandon()
+			return nil, err
+		}
+		p.readers[i], p.writers[i] = r, w
+	}
+	return p, nil
+}
+
+// copyTo closes the parent's writer copies, then relays the child's stdout and stderr.
+func (p *forkBuildChildOutput) copyTo(out, errw io.Writer) {
+	if out == nil {
+		out = io.Discard
+	}
+	if errw == nil {
+		errw = io.Discard
+	}
+	for _, w := range p.writers {
+		_ = w.Close()
+	}
+	for i, dst := range []io.Writer{out, errw} {
+		r := p.readers[i]
+		p.copied.Go(func() { _, _ = io.Copy(dst, r) })
+	}
+}
+
+// drain returns false if descendants kept stdout/stderr open past the bound. Closing the readers
+// ends those copies, and the caller treats their incomplete output as a failed build.
+func (p *forkBuildChildOutput) drain(bound time.Duration) bool {
+	done := make(chan struct{})
+	go func() { p.copied.Wait(); close(done) }()
+	complete := true
+	select {
+	case <-done:
+	case <-time.After(bound):
+		complete = false
+	}
+	for _, r := range p.readers {
+		_ = r.Close()
+	}
+	<-done
+	return complete
+}
+
+func (p *forkBuildChildOutput) abandon() {
+	for _, f := range append(p.readers[:], p.writers[:]...) {
+		if f != nil {
+			_ = f.Close()
+		}
+	}
+}
+
+// waitForkBuildChildGroup waits briefly for SIGKILLed descendants to leave the process table.
+func waitForkBuildChildGroup(pid int, bound time.Duration) {
+	deadline := time.Now().Add(bound)
+	for time.Now().Before(deadline) {
+		err := syscall.Kill(-pid, 0)
+		if errors.Is(err, syscall.ESRCH) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 // childJailPipes are the three pipes a child build jail is handed for its jail (childJailFDs), and
@@ -212,17 +353,20 @@ func (p *childJailPipes) copyTo(out, errw io.Writer, ready func()) {
 
 // drain waits, at most bound, for the copies to reach the end of the child's lines, then closes
 // the read ends, which ends a copy something else still holds open.
-func (p *childJailPipes) drain(bound time.Duration) {
+func (p *childJailPipes) drain(bound time.Duration) bool {
 	copied := make(chan struct{})
 	go func() { p.copied.Wait(); close(copied) }()
+	complete := true
 	select {
 	case <-copied:
 	case <-time.After(bound):
+		complete = false
 	}
 	for _, f := range p.read {
 		_ = f.Close()
 	}
 	<-copied
+	return complete
 }
 
 // abandon closes every end, for a child that never started.
@@ -252,6 +396,17 @@ func inheritedJailStreams() (out, errw, ready *os.File, ok bool) {
 	}
 	return os.NewFile(childJailStdoutFD, "jail-stdout"), os.NewFile(childJailStderrFD, "jail-stderr"),
 		os.NewFile(childJailReadyFD, "jail-ready"), true
+}
+
+// childExitWasSignalled distinguishes a child killed by an external signal from an ordinary
+// compiler failure, whose workspace is safe to clean after the child and its streams have ended.
+func childExitWasSignalled(err error) bool {
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) {
+		return false
+	}
+	ws, ok := exit.Sys().(syscall.WaitStatus)
+	return ok && ws.Signaled()
 }
 
 // exitStatus is a child's exit status, 128+N for a signal, 1 for anything else that is not 0.

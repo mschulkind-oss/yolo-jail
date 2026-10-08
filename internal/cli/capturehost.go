@@ -766,6 +766,14 @@ func runCaptureJail(workspace, bin string, argv []string, seal *captureSeal, s c
 	// property is unrepresentable instead of conditional: there is nothing in that jail to
 	// resolve a capture against.
 	opts.CapturesDir = func() string { return "" }
+	// A non-nil seal identifies a fork-build capture. seal.build is only the plain-native-build
+	// eligibility field and stays empty for patched forks and trees, which still need provenance.
+	if seal != nil {
+		// The actual runtime is selected inside the ordinary pipeline, where confinement, backend
+		// validation and automatic fallback are all applied. Persist that answer before its backend
+		// starts; a PATH-based prediction here could name a different owner of this staging tree.
+		opts.OnRuntimeResolved = func(rt string) error { return writeForkBuildRuntime(workspace, rt) }
+	}
 	// Never attach. A capture must run its installer in a home the BOOT just made,
 	// and attaching to a live container for this workspace would run it in whatever state
 	// that container is in. The scratch workspace is fresh per capture, so there is nothing
@@ -873,7 +881,19 @@ func runCaptureJail(workspace, bin string, argv []string, seal *captureSeal, s c
 			BlockedTools: blocked,
 		}, filepath.Join(workspace, captureOutLeaf), dryRun)
 	}
-	return captureRunPipeline(opts)
+	rc := captureRunPipeline(opts)
+	if seal != nil {
+		// This host-side witness is outside the jail's writable workspace. A signal arm exits the
+		// process directly and therefore cannot create it; the caller must not infer teardown from
+		// an ordinary-looking 128+signal status.
+		if _, err := os.Stat(workspace); err == nil {
+			if err := writeForkBuildRunReturned(workspace); err != nil {
+				fmt.Fprintf(errw, "yolo capture: cannot record that the fork-build run returned: %v\n", err)
+				return 1
+			}
+		}
+	}
+	return rc
 }
 
 // captureRunPipeline is run.Run behind a package var, so a test can drive the WHOLE host act

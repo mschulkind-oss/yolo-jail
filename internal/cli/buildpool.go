@@ -451,7 +451,9 @@ func addForkKeys(pool *buildPool, req run.ForkBuildRequest, color bool, answer f
 			continue
 		}
 		missing++
-		pool.add(p.Fork.Label(), func(it *poolItem) { answer(p.Fork.Bin, buildPlainForkForLaunch(b, pool.report, it, color)) })
+		pool.add(p.Fork.Label(), func(it *poolItem) {
+			answer(p.Fork.Bin, buildPlainForkForLaunch(b, req.Runtime, pool.report, it, color))
+		})
 	}
 	if missing > 0 && !req.Interrupt.Interrupted() {
 		pool.say(fmt.Sprintf("[bold]fork builds[/bold]  %d %s never built at %s on this machine[dim] — each is built "+

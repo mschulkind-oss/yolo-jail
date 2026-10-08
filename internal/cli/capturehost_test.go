@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path"
@@ -73,6 +74,17 @@ func fakeCaptureJail(t *testing.T, seen *run.Options, entries []capture.Manifest
 	t.Helper()
 	return func(o run.Options) int {
 		*seen = o
+		if o.OnRuntimeResolved != nil {
+			rt := "podman"
+			if o.Getenv != nil {
+				if selected := o.Getenv("YOLO_RUNTIME"); selected != "" {
+					rt = selected
+				}
+			}
+			if err := o.OnRuntimeResolved(rt); err != nil {
+				t.Fatalf("record fake capture runtime: %v", err)
+			}
+		}
 		out := filepath.Join(o.Workspace, captureOutLeaf)
 		tree := capture.TreeDir(out)
 		if err := os.MkdirAll(tree, 0o755); err != nil {
@@ -101,6 +113,11 @@ func fakeCaptureJail(t *testing.T, seen *run.Options, entries []capture.Manifest
 		if err := capture.WriteManifest(out, m); err != nil {
 			t.Fatal(err)
 		}
+		if o.OnRuntimeResolved != nil {
+			if err := writeForkBuildRunReturned(o.Workspace); err != nil {
+				t.Fatal(err)
+			}
+		}
 		return 0
 	}
 }
@@ -108,7 +125,34 @@ func fakeCaptureJail(t *testing.T, seen *run.Options, entries []capture.Manifest
 func withFakeCaptureJail(t *testing.T, fn func(run.Options) int) {
 	t.Helper()
 	prev := captureRunPipeline
-	captureRunPipeline = fn
+	captureRunPipeline = func(o run.Options) int {
+		rc := fn(o)
+		// A successful fake sealed-capture pipeline stands in for run.Run after runtime resolution.
+		// Older fixture callbacks only materialized manifests, so supply the production witness when
+		// they did not explicitly exercise the resolver callback themselves.
+		if rc == 0 && o.OnRuntimeResolved != nil {
+			if _, workspaceErr := os.Stat(o.Workspace); workspaceErr == nil {
+				if _, err := readForkBuildRuntime(o.Workspace); errors.Is(err, os.ErrNotExist) {
+					rt := "podman"
+					selected := os.Getenv("YOLO_RUNTIME")
+					if o.Getenv != nil {
+						selected = o.Getenv("YOLO_RUNTIME")
+					}
+					for _, supported := range paths.AllRuntimes {
+						if selected == supported {
+							rt = selected
+							break
+						}
+					}
+					if err := o.OnRuntimeResolved(rt); err != nil {
+						t.Errorf("record fake capture runtime: %v", err)
+						return 1
+					}
+				}
+			}
+		}
+		return rc
+	}
 	t.Cleanup(func() { captureRunPipeline = prev })
 }
 

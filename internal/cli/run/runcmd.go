@@ -719,6 +719,10 @@ type Options struct {
 	// backend must not do (macosuser.HostContext states why), so the backend cannot be
 	// dispatched without the host CLI having decided what crosses.
 	MacosUserRun func(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []string, repoRoot, packRoot string, homeOverlay macosuser.HomeOverlay, hostCtx macosuser.HostContext, dryRun bool, packEnv *jsonx.OrderedMap, blocked []packload.BlockedTool, jailDaemons macosuser.JailDaemons) int
+	// OnRuntimeResolved is called once after Run selects and validates its actual backend, before
+	// backend launch/provisioning begins. An error stops the launch; callers that must preserve the
+	// exact backend for teardown can record it without predicting from env or PATH. nil is normal.
+	OnRuntimeResolved func(runtime string) error
 	// CaptureOnTerminate folds this session's in-jail edits to capture-mode surfaces
 	// into their overlay sidecars once the jail is down (E3). It receives the
 	// workspace and the resolved runtime, and reads only HOST-side dirs — by
