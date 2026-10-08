@@ -17,6 +17,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // capturehost_test.go drives the WHOLE `yolo capture` host act with the run pipeline
@@ -535,7 +536,8 @@ func TestCaptureWiresTheMacosUserBackend(t *testing.T) {
 func TestCaptureStagingInNamespaceRunsPodmanUnshare(t *testing.T) {
 	dir := t.TempDir()
 	argvFile := filepath.Join(dir, "argv")
-	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + argvFile + "\n"
+	// Quoted: the temp dir may hold a space (a spaced TMPDIR is one of the gate's conditions).
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + shquote.Quote(argvFile) + "\n"
 	if err := os.WriteFile(filepath.Join(dir, "podman"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
