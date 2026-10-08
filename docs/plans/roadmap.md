@@ -37,9 +37,11 @@ candidate state, acceptance gaps and verification; a place here does not make it
 3. [Finish read-only workspace configuration guidance](workspace-config-lock-briefing.md) —
    complete the wanted contribution as maintainer without shifting local polish to its author
    or bypassing the required remote check.
-4. [Rule active-profile provider visibility and use](../design/simultaneous-auth-and-pack-isolation.md)
-   — settle the intended runtime policy before implementing restrictions; picker rendering and
+4. [Implement active-profile provider-use policy](../design/simultaneous-auth-and-pack-isolation.md)
+   — enforce the accepted policy without altering saved logins; picker rendering and
    startup argument fixes do not establish provider isolation.
+   Read [the source/API handoff](../design/simultaneous-auth-and-pack-isolation-plan.md)
+   for source ownership and test-first steps before projection/transport work.
 5. [Make a host launch a readiness act that installs every declared program, and never a PATH
    copy](../design/host-notch-readiness.md) — the maintainer's parity ruling of 2026-10-07: `yolo host
    -- <cmd>` installs every program a selected pack declares before the command, refuses a declared
@@ -150,8 +152,10 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
     — what most agents' menus show turns on the first, and no agent gets search from Bedrock on runtime.
 28. [Decide whether pack-declared traps fold into the agent directory map](../design/agent-directory-map.md) — the map
     would supersede [the traps design](../design/pack-declared-file-diagnostics.md), so rule it before building either.
-29. [Rule what triggers an in-jail build's GC root](../design/in-jail-nix-roots.md) — a root a user or an agent makes in
-    a jail is still dead on arrival.
+29. [Refine automatic in-jail GC-root protection](../design/in-jail-nix-roots.md) — resolve discovery/GC races
+    and bounded-lifecycle defaults before building; ordinary user/agent links remain unprotected.
+    Use [the implementation sketch](../design/in-jail-nix-roots-plan.md) for producer synchronization,
+    workspace accounting and isolated proof; this is engineering research, not another owner card.
 30. [Review H4's root-owned capture store on macos-user](install-capture.md#build-order), [rule whether integration
     sharding unparks](integration-parallelism.md) with [the test suite's other levers](test-suite-speed.md), and [name
     the real forked program](../design/forked-programs-as-packs.md), the last input its step 7 needs.

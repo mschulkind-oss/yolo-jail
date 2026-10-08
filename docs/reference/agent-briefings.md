@@ -263,11 +263,12 @@ asked for. This is one rule with several call sites, and each was a real defect:
   no longer says the home is "persistent across sessions", which was false of podman's
   read-only home.
 - **Nix** gets a line only where the launch mounts the host's nix daemon and store, decided by
-  the predicate that emits those mounts. There, every GC root the jail asks for is recorded
-  under the jail's spelling of the link, which the host daemon cannot resolve and deletes as
-  stale, so the agent is told its `result` links and profiles are not roots
-  ([`in-jail-nix-roots.md`](../design/in-jail-nix-roots.md)). `macos-user` shares the host's
-  paths, so its roots are real and it never gets the line.
+  the predicate that emits those mounts. Ordinary user-created result/profile links request roots
+  under jail-only spellings, which the host cannot resolve and can prune as stale; the warning
+  remains. Yolo's own controlled launch roots are separately translated when the launcher provides
+  its map ([the current design](../design/in-jail-nix-roots.md#8-what-is-built)); this does not
+  establish automatic user-root or concurrent-GC safety. `macos-user` shares host paths and never
+  gets the namespace-gap warning.
 
 > [!WARNING]
 > **No host probe belongs in the composer.** The fuller truth about networking is one

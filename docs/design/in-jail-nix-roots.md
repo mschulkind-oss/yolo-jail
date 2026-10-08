@@ -1,86 +1,72 @@
 ---
-title: "Why an in-jail nix build is never a GC root, and the one string that fixes it"
+title: "In-jail Nix roots need a synchronized handoff and bounded workspace retention"
 date: 2026-09-28
 status: in-review
 tags: [nix, gc-roots, podman, mount-namespaces, storage, design]
-summary: "A podman jail builds through the host nix daemon, and every root it asks for is recorded under the jail's own spelling of the out-link path. The host daemon resolves that spelling on the HOST filesystem, where it does not exist, so the root is deleted as stale at the next GC or root query and the build is unprotected. Measured end to end from an untrusted jail: an indirect root registered under the HOST spelling of the same link is honored, and dies when the link does, exactly as host nix behaves. The design question is what registers that string: an explicit verb, a nix wrapper, or a watcher on a read-only view of the host's gcroots/auto."
+summary: "Host-path translation fixes the namespace mismatch, not asynchronous discovery or retention. Automatic user roots need producer synchronization, workspace accounting, finite retention and explicit release."
 stage: DESIGN
-next: "Rule OQ-NR1, what triggers a translated root for a link a user or an agent makes, and OQ-NR2, the read-only bind of the host's gcroots/auto that OQ-NR1's leaning needs. The map and the one-operation daemon client that trigger would use are built (§8)"
+next: "Agent investigation: resolve discovery loss and concurrent-GC safety, then specify bounded lifecycle, cap and cleanup defaults before a build-ready design"
 vantage:
   status-chip: true
 ---
 
-# Why an in-jail nix build is never a GC root, and the one string that fixes it
+# In-jail Nix roots need a synchronized handoff and bounded workspace retention
 
-**Status:** 2026-10-01; questions triaged 2026-09-30. yolo's own in-jail roots are translated
-roots, [NR-D2](#NR-D2)'s consumer, which needed only [§4](#4-the-translated-root): a launch that
-mounts the host nix daemon states the map, and an in-jail `yolo` registers its image, prefix,
-store-delivered profile and image-copier roots under the host's spelling
-([§8](#8-what-is-built)). A link a user or an agent makes is still not a root, and the briefing
-still says so. That needs a trigger, which is [OQ-NR1](#OQ-NR1)'s. Two questions are open, [OQ-NR1](#OQ-NR1) and [OQ-NR2](#OQ-NR2).
-[OQ-NR3](#OQ-NR3) and [OQ-NR4](#OQ-NR4) were decided as implementation choices
-([NR-D1](#NR-D1), [NR-D2](#NR-D2)), and both are built. MEASURED: every mechanism claim in
-[§3](#3-measured-in-this-jail), against the maintainer's host daemon (Nix 2.35.2) from an
-untrusted jail client (Nix 2.34.8). MEASURED 2026-10-01 against the same daemon: a nested launch
-handed a map registered its image and prefix roots, the host's `nix-store --query --roots` listed
-both under the host's spelling, and both died with their links ([§8](#8-what-is-built)).
-UNMEASURED: a jail whose own host launcher states the map, because this jail's launcher predates
-it and every measurement handed the map over by hand; and the root watcher of
-[§5](#5-what-registers-the-translated-root) on a real host, because the host's `gcroots/auto`
-cannot be mounted into this jail.
+**Status:** 2026-10-07. The map and yolo-owned consumers are built; automatic user-root protection
+is not. Owner replies settle automatic protection with bounded lifecycle/cap/inspection/release
+([OQ-NR1](#decision-ledger)) and read-only host-auto visibility without a new routine launch line
+([OQ-NR2](#decision-ledger)). Reliable mechanism and lifecycle/default refinement remain agent work,
+not reopened owner questions. Source audit withdraws the observer's completeness claim; historical
+measurements remain in [§3](#3-measured-in-this-jail) and [§8](#8-what-is-built), not concurrent-GC proof.
 
-> **In short.** The host daemon records whatever path string the client sends for an indirect root
-> and later resolves it on the host. So a jail is protected if it sends the **host's** spelling of
-> its own link, and it can already do that: no trust, no new mount, and the root's lifetime is the
-> link's, the same as host nix.
+> **In short.** Translation fixes which path the host roots. Safe automatic retention also needs
+> an acknowledged producer handoff and workspace-owned roots that yolo can inspect and release.
 
-**Why it matters.** A `result` link, a `nix profile` install, a `nix develop --profile` or a
-nix-direnv cache made in a jail is not protected from the host's garbage collector. A host
-`nix-collect-garbage`, or the daemon's own `min-free` auto-GC, can delete it between two commands
-of a running session. The host's `gcroots/auto` held more than a hundred dead links from jails and test runs
-when this was measured, and every one was a root someone asked for and did not get.
+**Why it matters.** Durable result/profile links can lose dependencies between commands; retaining
+every old link indefinitely would instead let forgotten workspaces pin host disk.
 
-**The shape.** A *translated root* *(coined here)*: an indirect GC root registered under the host
-path of a link the jail created, over the existing daemon socket. A launcher-written map turns jail
-paths into host paths. [OQ-NR1](#OQ-NR1) decides what triggers the registration.
+**The shape.** Supported producers hand root intent to a bounded workspace ledger; managed links
+hold admitted targets, while active-use pins guard registration and release.
 
-**Cost.** One daemon-protocol operation implemented in Go, and one map the launcher already has the
-facts for. The watcher option adds a read-only mount of the host's `gcroots/auto` and a daemon
-inside the jail.
+**Cost.** Client integration and lifecycle accounting; an async observer alone cannot deliver the promise.
 
-**Start at [§2](#2-the-mechanism-why-the-root-is-lost).** Everything else follows once it is clear
-which process resolves the path, and on which filesystem.
+**Start at [§1](#1-verdict)** — the settled direction and remaining engineering investigation.
 
-**Needs your ruling:** [OQ-NR1](#OQ-NR1), [OQ-NR2](#OQ-NR2). [OQ-NR3](#OQ-NR3) and
-[OQ-NR4](#OQ-NR4) were decided as implementation choices ([NR-D1](#NR-D1), [NR-D2](#NR-D2)).
+**Needs your ruling:** None. Mechanism and lifecycle/default refinement remain agent work.
 
-**Reads with:** [`workspace-path-mirroring.md`](workspace-path-mirroring.md) (the ruled-against way
-to make paths agree; this fix does not need it),
-[`../reference/nix-across-backends.md`](../reference/nix-across-backends.md) (the host-side roots
-yolo already holds), [`../plans/setup-support-gaps.md`](../plans/setup-support-gaps.md#2-ranked-gap-backlog)
-(G21, the open "who reaps an in-jail build's output" row this answers).
+**Reads with:** [implementation sketch](in-jail-nix-roots-plan.md) (not a build authorization),
+[`workspace-path-mirroring.md`](workspace-path-mirroring.md) (no mirroring needed),
+[`nix-across-backends.md`](../reference/nix-across-backends.md) (backend boundaries).
 
 ---
 
 ## 1. Verdict
 
-Build the translated root, and trigger it with a watcher on a read-only view of the host's
-`gcroots/auto` ([§5](#5-what-registers-the-translated-root), option C). My reasons, in order:
+Build automatic translated-root protection with **bounded lifecycle, a cap, workspace inspection
+and explicit release/cleanup** ([OQ-NR1](#decision-ledger)). Retention must not depend on an
+agent remembering to delete links. Exact numeric cap/lease defaults and a reliable registration
+mechanism are not settled; agent investigation must resolve them before this is build-ready.
 
-1. **It is exactly host semantics.** The root lives as long as the link exists on disk and dies when
-   the link is deleted. It survives the jail stopping, because the link lives in the workspace or
-   the home overlay, both of which are host directories.
-2. **It cannot break a nix command.** Nothing sits in nix's path: no wrapper, no proxy, no changed
-   `NIX_REMOTE`. If the watcher is down, the jail is exactly as it is today.
-3. **It covers every tool at once.** `nix build`, `nix-build`, `nix profile`, `nix develop --profile`,
-   nix-direnv and the flake-registry cache all create their roots through the same daemon call
-   ([§2.2](#22-what-the-client-sends)), and the watcher sees that call's result, not the tool's argv.
-4. **It adds no capability.** An untrusted jail can already register an indirect root at any host
-   path it likes ([§3](#3-measured-in-this-jail), M6). The fix only makes it register the right one.
+A read-only view of the host's `gcroots/auto` is permitted ([OQ-NR2](#decision-ledger)), with
+**no new routine launch line**. It exposes root-link paths, including stale entries and changes;
+it does not grant host-file contents or write access. Unrelated pack read/exec trust banners and
+other trust disclosures remain unchanged.
 
-What I did **not** build, and why: every trigger is new product surface (a verb, a wrapper, or a
-mount plus a daemon), and the mount exposes a host directory listing. That is a ruling, not an
-implementation detail.
+**Recommend synchronized producer integration, with explicit keep/release as its diagnostic surface.**
+This is an engineering recommendation under that settled direction, not another owner question.
+
+1. **Producer participation closes the discovery gap.** Admit a managed root while the producing
+   client still holds demonstrable temporary protection; acknowledge before reporting protected success.
+2. **Managed roots separate retention from user links.** A workspace owns yolo-created links and
+   intent records. Expiration/release removes only those links, never result/profile files or store bytes.
+3. **Caps constrain retention, not build size or hostile code.** Charge closure unions, share overlaps,
+   and refuse new retention when safe eviction cannot make room; never evict an active root for a quota.
+4. **Option C is only a recovery adjunct.** A read-only host-auto view is permitted with **no new routine
+   launch line** ([OQ-NR2](#decision-ledger)); unrelated read/exec trust banners remain unchanged.
+   Permission is not authorization to implement a new mount or service in this documentation pass.
+
+The map and indirect-root capability already exist. Metadata exposure and durable disk retention
+still change behavior. This proposal makes neither a new service nor a full Nix protocol proxy a prerequisite.
 
 ## 2. The mechanism: why the root is lost
 
@@ -103,8 +89,8 @@ is present, the out-link must be a symlink whose single target is inside the sto
 
 So a jail's `/workspace/result` becomes `gcroots/auto/<sha1("/workspace/result")> → /workspace/result`,
 and on the host `/workspace` does not exist. The root is deleted at the next walk. The auto entry is
-named by the path string alone, so every jail's `/workspace/result` shares one auto entry. That
-collision is harmless, because the entry is dead either way.
+named by the path string alone, so every jail's `/workspace/result` shares one auto entry. Those
+collisions can also lose observation/origin information; they are not an accounting key.
 
 ### 2.2 What the client sends
 
@@ -122,7 +108,7 @@ check**.
   and [`daemon.cc` `AddIndirectRoot`](https://github.com/NixOS/nix/blob/c621c2b3727700e439d4c3e5bff3ce5b35a24851/src/libstore/daemon.cc#L745-L756).
 - **`absPath` does not resolve symlinks.** A path reached through a symlink is sent as spelled
   ([§3](#3-measured-in-this-jail), M7).
-- **Every root-making tool goes through this call.** `nix profile` and `nix develop --profile`
+- **Standard root-making clients use this call.** `nix profile` and `nix develop --profile`
   create each generation link with `addPermRoot` (`profiles.cc` `createGeneration`), and nix-direnv
   roots its `.direnv/flake-profile-*` with `nix build --out-link`.
 - **Non-root profiles have no other root.** `~/.local/state/nix/profiles` is rooted only through
@@ -159,6 +145,29 @@ live process is using right now.
 > host, so an image bump can open a window *during* a build that nothing here would notice. That
 > matters to whoever bumps the image's nix, and it is independent of this design.
 
+### 2.4 A new permanent root does not update an active GC snapshot
+
+The pinned upstream [GC implementation](https://github.com/NixOS/nix/blob/c621c2b3727700e439d4c3e5bff3ce5b35a24851/src/libstore/gc.cc#L531-L548)
+scans permanent roots before temporary roots. `AddIndirectRoot` creates an auto entry; it does not
+notify a collection already using an earlier permanent-root snapshot. Temporary roots instead
+participate in the [GC lock/socket synchronization](https://github.com/NixOS/nix/blob/c621c2b3727700e439d4c3e5bff3ce5b35a24851/src/libstore/gc.cc#L84-L173).
+
+A legal failure schedule is: GC scans/prunes the jail-spelled entry; producer exits; observer
+registers a translated entry; GC retains its earlier snapshot and collects the target. A temporary
+pin acquired **after discovery** protects only from that point, not the preceding interval.
+A successful daemon reply acknowledges registration, not path correspondence or future retention.
+
+**Holding an earlier temp pin is not itself a complete handoff fence.** GC can start after that
+pin was added, miss the later permanent link in its scan, then find the connection already closed
+when scanning temporary roots. Reassert the temporary pin **after permanent registration is
+acknowledged**, before closing its connection: an already-running GC receives that pin through
+its synchronization socket; a later GC can see the already-created permanent root. Alternatively,
+a proven transaction holding the GC lock across the handoff can supply the same ordering.
+This fence and validity/path checks require disposable-store verification before implementation.
+
+These are source-grounded limits, checked 2026-10-07, not a new host-GC experiment. The historical
+runtime-root observations apply to the measured Linux daemon mode, not every backend/version.
+
 ## 3. Measured in this jail
 
 All of these were run 2026-09-28 from a podman jail on Linux: host daemon Nix 2.35.2, protocol
@@ -177,8 +186,9 @@ All of these were run 2026-09-28 from a podman jail on Linux: host daemon Nix 2.
 | M7 | `nix-store --add-root /tmp/lnk/p` where `/tmp/lnk → /workspace/.yolo` | the daemon recorded `/tmp/lnk/p` verbatim: the client does not resolve symlinks |
 | M8 | nested `podman run --read-only -v …:/home/matt/.local/share/…/x` | the mountpoint was created on the read-only root fs |
 
-**M6 is the design.** It needs no mount, no trust and no change to how nix is invoked. `YOLO_HOST_DIR`
-already tells the jail the workspace's host path. M5 proves the same property the mount-based way.
+**M6 proves host-path translation.** It needs no additional mount or trust; the measured registration
+alone changes no nix invocation. It does not prove automatic discovery, concurrent-GC handoff or bounded
+retention. `YOLO_HOST_DIR` already names the workspace's host path; M5 proves the namespace property by binding.
 
 The first root query also deleted more than a hundred stale auto links. They pointed into jail homes, test
 temp dirs, `/workspace/.claude/worktrees/…`, and `/home/agent/.cache/nix/flake-registry.json`, which
@@ -199,7 +209,7 @@ launcher knows. The launcher states that set; the jail does not derive it (the `
 - The **home overlay binds** map `/home/agent/.local`, `.config`, `.cache` and the rest to their
   sources under `<workspace>/.yolo/home/` and the machine state dir.
 - **A path under no mapped bind is not translated.** That covers the container root fs, the
-  anonymous `/tmp` and `/var/tmp` volumes ([OQ-NR3](#OQ-NR3), decided as [NR-D1](#NR-D1)), and
+  anonymous `/tmp` and `/var/tmp` volumes ([OQ-NR3](#decision-ledger), decided as [NR-D1](#NR-D1)), and
   `/nix/store` itself. The root
   stays exactly as dead as it is today, and nothing is reported.
 - **Longest destination prefix wins**, because the home binds nest (`/home/agent/.claude/skills`
@@ -212,56 +222,152 @@ target is a literal `/nix/store/…` path. Anything else would be two hops or no
 ([§2.1](#21-who-resolves-the-path-and-where)). The registration is idempotent: the auto entry is
 named by the path's hash, so sending twice creates one entry.
 
-**Failure.** Every failure is silent to the nix command and degrades to today's behavior. That
-covers an unreachable socket, a protocol error and an untranslatable path. The daemon rejecting
-the operation is the one case worth a line in the launch or boot log, because it would mean a host
-nix changed the rule in [§2.2](#22-what-the-client-sends).
+**Failure and the existing client.** Current yolo-owned callers degrade to today's behavior
+([§8](#8-what-is-built)). `internal/nixroots` negotiates protocol 1.37 and sends only
+`AddIndirectRoot`; it has no temporary-pin or lifetime API. `Registrar.Root` **replaces** its
+owned link. It must not be reused to observe an arbitrary result or profile generation: a delayed
+P observation could overwrite the user's newer Q link.
 
-**Lifetime and reaping.** Nothing in yolo reaps translated roots. The root is the link: deleting the
-`result` frees the closure at the next GC, as on the host. A jail that leaves links behind pins host
-disk the way a host user's forgotten `result` does. Today's jail cannot do that, so it is a real, if
-small, change in who can hold host disk.
+**Proposed handoff.** Keep creation of yolo-owned links separate from preservation-only observation.
+For a supported producer, the sequence is:
 
-**The protocol client.** yolo speaks one operation: the handshake, then `AddIndirectRoot`. It
-advertises an old client version (1.37 in the measurement) so it never negotiates the 1.38 feature
-set. The daemon keeps backward compatibility with old clients as a matter of course; this is the
-same op the nix CLI has used since `IndirectRootStore` landed in 2.17.
+1. Keep the producer's temporary protection alive; use an explicit compatible temporary pin where
+   client/daemon feature negotiation does not establish it.
+2. Validate the still-live direct store target and actual parent under the mapped writable bind.
+   Classify aliases before lexical translation; descriptor-relative no-follow traversal and
+   identity/target revalidation reject retargets, masks and escapes. Never resolve the final link
+   into a multi-hop profile alias or rewrite the source link/mtime.
+3. Serialize admission/accounting; create a **managed root** *(coined here)*, a yolo-owned indirect
+   root link under the workspace's durable state, not the user's result/profile link. Register
+   that link's host spelling while temporary protection remains held.
+4. After permanent registration acknowledgment, **reassert the compatible temporary pin on the
+   still-held connection** to fence any GC that began since the first pin. Only then acknowledge
+   protected admission and release the handoff pin. Ledger/root acknowledgment without this fence
+   is insufficient. Crash recovery retains pending entries rather than treating them as released.
+
+The initial temporary pin guards validity/registration; the post-registration fence protects a GC
+whose permanent snapshot preceded the new managed link. The link covers later scans.
+This relies on pinned-source Nix synchronization and on the host spelling naming the same link.
+A fake daemon can verify ordering, not prove these premises. Host-side ancestor replacement is
+still a coverage limit to investigate. Producer failure disposition is engineering work: prefer a
+clear refusal of protected success over silently promising retention that admission could not establish.
+
+### 4.1 Workspace ownership, caps and release
+
+**Recommended model, not built:** durable intent records under each workspace's state name the
+original direct leaf, current target, admission/last-use time, lease expiry and active operation
+identity. One serialized workspace coordinator writes the records and managed links; producer
+hooks submit intent, not competing root-file writes. A **proposed host-owned workspace index** records
+canonical workspace/state identity at fresh host launch, without exposing a shared writable index to
+jails. Current runtime-derived workspace inventory loses stopped `--rm` jails; it is insufficient for
+this lifecycle. The host inventory validates every record/path before cleanup. Jail-written metadata
+is not host deletion authority; missing/moved workspaces remain explicit unknowns, not broad searches.
+
+- **One target, one workspace root.** Multiple leaves/generations referencing the same target share
+  one managed link and distinct intent records. Retarget P→Q admits Q before dropping P's association;
+  P persists only if another intent or active operation owns it, not as unlimited hidden history.
+- **Closure accounting uses set unions.** Sum each referenced store object's recorded NAR size once
+  per workspace; a user-wide inventory sums the union across workspaces once. Charge each workspace
+  its full union even when another also needs it. Show shared bytes separately from potentially
+  exclusive bytes; neither is a promise of disk space reclaimed by GC. Compression/hardlinks and
+  roots outside yolo make physical/reclaimable bytes different.
+- **Finite passive retention.** Renew on acknowledged producer/use intent, not observation, attach,
+  scanning, or every launch. Deletion of an original leaf releases its intent; profile generations
+  are individual direct leaves, not an alias resolved recursively. Passive expiry/cap eviction removes
+  only managed links and records; original links can later dangle and require rebuild/re-admission.
+- **Cap before admission.** Expire eligible passive entries, then evict least-recently-used passive
+  intents until the proposed closure union fits the workspace budget. Reject an oversized target or an
+  unknown/incomplete size calculation; never pretend an entry-count cap is a byte cap. Identical
+  duplicate intent does not spend budget twice. No active root is removed to satisfy the cap.
+- **Active-use safety.** A participating operation holds a synchronized temporary pin plus an active
+  ledger claim; renewal/release serialize with eviction. Unknown process/backend identity, lost keeper
+  connection or contradictory teardown evidence fences cleanup; a timestamp alone is not proof of
+  non-use. This can leave existing roots over budget: report the fenced bytes and decline growth,
+  not revoke protection. Arbitrary nonparticipating users remain outside this guarantee.
+- **Inspection and explicit release.** Proposed workspace inspection lists intents, targets, union/
+  shared bytes, expiry, active/fenced state and the exact next cleanup action. Explicit single/workspace
+  release uses the same lock/liveness checks, returns pending when active/unknown, and names the next
+  verification step. It never deletes user links, profiles, other workspaces' claims or store objects.
+
+### 4.2 Defaults and stopped workspaces
+
+**Reversible engineering recommendations, not owner-selected values:** start evaluation with a
+**7-day passive idle lease**, **10 GiB workspace NAR-union budget**, **30 GiB user-wide union warning
+threshold** and **1,024 intent records per workspace**. A 7-day lease covers a weekly revisit; the workspace
+budget accommodates multi-GiB development closures while limiting distinct environments; the record
+limit bounds metadata/observer load separately. The aggregate threshold is **inspection advice**, not
+an atomic machine quota: current mounts provide no shared user-wide admission ledger. Per-workspace
+locks cannot enforce an aggregate cap across simultaneous jails. A hard aggregate cap would require a
+separately reviewed common admission authority; do not smuggle in its mount/service. Existing image measurements in
+[`minimal-disk-footprint.md`](minimal-disk-footprint.md#2-measured-2026-08-25) are scale evidence only,
+not measured agent-closure distributions or authority to copy the image reaper's week.
+Validate these candidates using fixture closure graphs and later authorized workload measurements.
+Numeric/default tuning and passive eviction are agent investigation. Recommend automatic bounded
+retention for supported mapped producers, with active-use vetoes and inspection/release; prove the
+lease/cap behavior and user-visible dangling-link consequences before selecting shipped defaults.
+
+Recommended housekeeping: reconcile on explicit inspection/release, before admission, on fresh
+start/restart, and in a host lifecycle slot at most once per 24 hours of **host yolo activity**.
+No always-on host service is proposed. While all yolo processes are stopped, deadlines do not unlink
+roots: the next host invocation enforces them. **Finite policy is not a wall-clock deletion guarantee
+on an idle host.** Stopping releases proven completed active claims, not passive leases; failed stop
+or unknown runtime fences them. Restart recovers pending/expired state before admitting new targets.
+
+No-profile/native root paths, preexisting unmanaged roots and yolo's owned image/prefix/package
+roots are not silently migrated. Classify/report legacy entries; never unlink arbitrary auto entries
+or original links. Initially empty ledgers retain nothing. Invalid/oversized records decline admission
+and cleanup with a repair step. A reduced budget does not evict active claims. Clock rollback cannot
+extend passive retention silently; preserve last observed time and surface uncertainty for reconciliation.
+A shared writable bind needs workspace intent ownership; an unattributable auto event cannot assign it.
+A stopped workspace removed/moved outside yolo is reported missing, not a reason to follow a new path.
+
+Caps are a cooperative retention policy, **not a hostile-agent quota**: an untrusted daemon client
+already can register other permanent roots. A strict adversarial disk boundary would need a different
+host enforcement/trust design. Bounded accepted state and admission refusal do not bound all Nix bytes.
 
 ## 5. What registers the translated root
 
-| | Trigger | Covers | Can it break nix? | New surface |
-|---|---|---|---|---|
-| **A** | An explicit verb (`yolo nix keep <link>…`), taught by the briefing | whatever an agent remembers to keep | no | one verb |
-| **B** | A `nix`/`nix-build` wrapper that registers `result*` and `--out-link` after a successful run | `nix build` and `nix-build`; not `nix profile`, nix-direnv or `--profile` without per-subcommand parsing | yes: argv parsing, exit codes and signals all pass through it | a wrapper class on PATH |
-| **C** | A **root watcher** *(coined here)*: an in-jail daemon watching a read-only bind of the host's `/nix/var/nix/gcroots/auto`, translating each new entry whose target is a jail path | every tool, because it watches the daemon call's result ([§2.2](#22-what-the-client-sends)) | no, it is outside nix's path | a read-only mount and an in-jail daemon |
-| **D** | A *mirrored roots directory* *(coined here)*: one host dir bound at its identical absolute path, exported as a variable, with tools steered into it (`NIX_STATE_HOME`, `direnv_layout_dir`) | only what is steered; never the default `./result` | no | a host-spelled path inside the jail |
+| Option | Achievable coverage | Limits / recommendation |
+| :--- | :--- | :--- |
+| **A — explicit keep** | A currently valid direct leaf admitted under temporary protection | Diagnostic/fallback; cannot repair build→keep GC loss and is not the automatic product |
+| **B — CLI wrapper** | A finite parsed command set and named output leaves | Post-exit registration still races; absolute binaries/library clients bypass it. Reject as universal fix |
+| **C — host-auto observer** | Eventually observes some standard root requests, then validates this jail's local candidate | Best effort only; new read-only mount/observer not built or selected |
+| **D — mirrored root dir** | Steered tools writing host-identical paths | Default `result` remains uncovered; do not add path mirroring for this fix |
+| **E — producer integration** | Supported Nix permanent-root creation while its temporary pin remains alive | Recommended investigation: acknowledge managed-root admission before protected success; version/client range must be enumerated |
+| **F — local intent reconciliation** | Declared durable root locations or cooperative intent records | Recovery adjunct; bounded watches/scans cannot discover every arbitrary path or close producer races |
 
-How option C behaves, completely:
+### 5.1 What option C can actually observe
 
-- **Trigger.** An inotify create or rename on the bound `auto/` directory. Watching the inode
-  delivers host-side creations through a bind mount. At startup it makes one pass over the existing
-  entries, to catch links made while it was down.
-- **Filter.** Translate only if the entry's target is a jail path that exists **in this jail** as a
-  symlink into the store. That also drops other jails' identically-spelled entries
-  ([§2.1](#21-who-resolves-the-path-and-where)), unless this jail has the same link, in which case
-  rooting it is correct anyway.
-- **Race.** The creating client holds a temp root until it exits ([§2.2](#22-what-the-client-sends)
-  step 1), so the window between its exit and the watcher's registration is milliseconds. Deletion
-  of the jail-spelled entry by a GC is irrelevant: the watcher needs to see the creation, not the
-  entry's survival.
-- **One writer.** Only the watcher registers translated roots. It never writes into `auto/`; the
-  bind is read-only, and the daemon does the write.
-- **Where it runs.** A container jail with the host nix mounted, which is the one place the mount
-  namespaces differ. `macos-user` needs none of this: it shares the host's filesystem, and an
-  indirect root made there is already valid (measured: [`setup-support-gaps.md`](../plans/setup-support-gaps.md) row 12 of its measurement table).
+[Inotify](https://man7.org/linux/man-pages/man7/inotify.7.html) queues a filename/mask, **not a
+symlink target**. If GC or `FindRoots` unlinks `auto/<hash>` before processing, `readlink` fails;
+the path hash cannot recover the original request. A startup scan cannot recover a vanished entry.
+The fixture-only experiment on 2026-10-07 observed exactly that schedule, with the local result
+still present. No Nix store/daemon was involved; it proves information loss, not GC behavior.
 
-Option A comes free with C: the verb is the watcher's translation step run by hand. So "C" means
-"C, with A as its test surface and escape hatch".
+If later selected, the observer must watch **before** its initial scan, drain events, reconcile on
+queue overflow/watch invalidation, and report an incomplete/degraded state when recovery is not
+possible. Scans, queues and watch counts need finite limits; local intent reconciliation must stay
+within declared writable mapped roots. Translated managed-link events must be excluded to prevent
+feedback loops. Missing permissions/view/watch is no broader-mount or privilege fallback.
 
-Option D is why the measurement exists (M5), and it is worse than C on every axis. It protects
-nothing by default. It puts a host-home-spelled path into the jail's filesystem, which is the
-credential-boundary signal [`workspace-path-mirroring.md` §12.5](workspace-path-mirroring.md#125-the-credential-boundary--the-argument-that-could-have-killed-it-and-does)
-weighs heavily. And the steering it needs changes where `nix profile` keeps its state.
+Raw entries identify neither producer nor target. Two jails with `/workspace/result` share an auto
+key; each may inspect its own P or Q and register a distinct managed host link. This is opportunistic
+local recovery, not attribution. Deduplicate by workspace intent/canonical leaf and target, never
+by raw auto filename across jails. A shared host leaf needs distinct claims before either is released.
+Observer discovery never rewrites source symlinks and never renews leases simply by seeing them.
+
+### 5.2 Supported producers and explicit limits
+
+Investigate the permanent-root creation boundary rather than reconstructing argv. It must cover
+standard `nix build`/`nix-build`, profile **generation leaves**, `nix develop --profile`, direnv's
+chosen client and the registry cache call sites **only if they use the supported implementation**.
+Rootless deployment and mixed Nix versions need separate proof of temporary-root behavior.
+Alternative binaries, direct library clients, rootless/unprivileged daemon modes and unmapped scratch
+remain explicitly outside any unproved coverage. A build requesting no permanent root creates no intent.
+
+`macos-user` shares host paths and needs no namespace translation; this proposal does not intercept
+its valid native roots or apply managed expiry there by accident. Apple/VM stores remain deferred.
+An attached container acquires no new mount/client hook; restart is required for a changed contract.
 
 ## 6. Alternatives rejected
 
@@ -271,14 +377,15 @@ weighs heavily. And the steering it needs changes where `nix profile` keeps its 
 | **Mirror the workspace at its host path** | Out of scope here, and not needed. [`workspace-path-mirroring.md`](workspace-path-mirroring.md#OQ-WP1) asks whether a fourth absolute-path problem exists. This is one, but translated roots fix it without mirroring, so it does not move that verdict |
 | **Trust the jail** (`trusted-users`) for `AddPermRoot` | Rejected. The root would still be created in the daemon's namespace at a path the jail must spell for the host, so translation is still needed. And a trusted client is root-equivalent on the host |
 | **Temp-root keeper**: an in-jail process holding one connection and `AddTempRoot`ing what the jail references | Rejected as the primary mechanism. It protects only while the jail runs, needs a list of what to keep, and has no way to drop one root short of reconnecting |
-| **Host-side reconciler** reading `gcroots/auto` and re-rooting jail-spelled entries | Rejected. It cannot tell which jail an entry came from (one auto entry per path string), and it races the stale deletion that any root query performs |
+| **Host-side reconciler** reading only `gcroots/auto` | Rejected as a complete trigger. Raw entries contain no producing-jail identity and can be pruned before read. An explicit per-workspace producer protocol is different and remains investigable; it is not authorized here |
 | **`keep-outputs` / `keep-derivations`** | Irrelevant. They widen what an existing root keeps; they create no roots |
 
 ## 7. Non-goals
 
 - **Rooting jail-only paths.** `/tmp` in a jail is scratch. A link there stays unrooted
-  ([OQ-NR3](#OQ-NR3), decided as [NR-D1](#NR-D1)).
-- **Reaping.** No yolo reaper for translated roots; the link is the root ([§4](#4-the-translated-root)).
+  ([OQ-NR3](#decision-ledger), decided as [NR-D1](#NR-D1)).
+- **Deleting user state or running host GC.** Expiry/release removes only validated yolo-managed links.
+  No profile-generation deletion, credential/config cleanup, shared-store GC or broad root scan is licensed.
 - **Apple Container and the container Macs.** In-jail nix there is ruled "possible, but not planned"
   ([`setup-support-gaps.md`](../plans/setup-support-gaps.md#2-ranked-gap-backlog) G21). Everything here applies unchanged if that ever changes.
 - **The unprivileged-daemon mode.** Runtime roots stop protecting jail processes under it
@@ -288,10 +395,15 @@ weighs heavily. And the steering it needs changes where `nix profile` keeps its 
 ## 8. What is built
 
 The briefing states the gap, wherever the launch mounts the host nix daemon. It says that nix here
-uses the host daemon and store, that a link made here is not a root the host honors, that a running
-process keeps what it uses, and to rebuild a dangling link. That line is true today and remains true
-for anything a translated root cannot cover, so it outlives this design. Its wording changes when
-[OQ-NR1](#OQ-NR1) is built.
+uses the host daemon and store, that ordinary jail-spelled result/profile links are not roots the
+host honors, and to rebuild a dangling link. The historical Linux runtime-root observation has the
+mode/version limits in [§2.3](#23-what-already-protects-a-jail). Keep the live warning until a supported
+trigger actually ships; translated yolo-owned roots do not make arbitrary user roots safe.
+
+**Current safety limit:** [`Registrar.Root`](../../internal/nixroots/register.go) replaces an owned
+link and sends only indirect registration. The controlled consumers have build→root windows;
+none establishes the synchronized handoff proposed in [§4](#4-the-translated-root). Fake-daemon
+caller tests establish strings/ordering at those callers, not concurrent-GC or observer completeness.
 
 **yolo's own roots are translated roots** ([NR-D2](#NR-D2), built 2026-10-01). Three pieces, and
 none of them is a trigger for a user's links:
@@ -343,98 +455,43 @@ jail's own launcher predates the map, so every run that needed one was handed
   listed it beside the host's own copier root for the same store path, and dropped it once the
   link was deleted.
 
+**Unmeasured deployment:** the historical runs above handed the map over manually. No fresh
+host-launcher map deployment, observer mount, managed lifecycle/cap or synchronized-GC handoff was
+measured in this documentation pass. Neither Linux fixture/nested evidence nor source inspection
+establishes native/rootless/AWS behavior.
+
 **Not translated:** the prefix's `--out-link` (`image.JailPrefixOutLink`) still registers under
 the jail's spelling, dead as before. The prefix root above backs the same store path, so a
 translated copy of it would root nothing more.
 
-## Open Questions
+## Remaining engineering investigation
 
-1. 💬 <a id="OQ-NR1"></a>**OQ-NR1: What triggers a translated root?** This decides whether in-jail nix is protected
-   by default or on request, and how much new surface ships. The options are compared in the
-   [§5](#5-what-registers-the-translated-root) table.
-
-   - **A — An explicit verb.** Cheapest. It protects only what an agent remembers to keep.
-   - **B — A `nix` wrapper.** Automatic for `nix build`, blind to profiles and nix-direnv, and it
-     sits in the path of every nix command.
-   - **C — The root watcher, with A as its hand-run form.** Automatic for every tool, and outside
-     nix's path. Costs a read-only mount ([OQ-NR2](#OQ-NR2)) and an in-jail daemon.
-   - **D — A mirrored roots directory.** Protects only what is steered into it, and puts a
-     host-spelled path in the jail.
-
-   <!-- vantage: question id=OQ-NR1 leaning="C with A as its hand-run form: it is host nix's own semantics, covers every root-making tool because it watches the daemon call rather than argv, and cannot break a nix command because nothing sits in nix's path." -->
-
-   _Leaning:_ C, with A as its hand-run form. It gives host nix's own semantics, covers every
-   root-making tool because it watches the daemon call rather than argv, and cannot break a nix
-   command because nothing sits in nix's path.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 <a id="OQ-NR2"></a>**OQ-NR2: May the host's `/nix/var/nix/gcroots/auto` be bound read-only into a jail?** This
-   gates option C. The jail would see the names of every host user's indirect-root links (the
-   entries are hashes; their targets are host paths). An untrusted jail can already read most of
-   that through the daemon's `FindRoots`, which returned host paths such as
-   `/home/matt/sysadmin/obsrec` uncensored in [§3](#3-measured-in-this-jail). The difference is
-   that the mount also shows dead entries and shows changes as they happen.
-
-   <!-- vantage: question id=OQ-NR2 leaning="Yes, with a launch line of its own: it exposes paths, not contents, and FindRoots already hands an untrusted jail most of the same list." -->
-
-   _Leaning:_ Yes, with a launch line of its own. It exposes paths, not contents, and
-   `FindRoots` already hands an untrusted jail most of the same list. The line would be new: no
-   read-only bind of yolo's own prints one today, not the host nix store or daemon socket every
-   jail already gets, and neither does a read-only `mounts` entry. Only a read-write `mounts`
-   entry gets a line of its own (`rwMountDisclosure`), and a pack's `mount` is named in the
-   pack's host-read banner.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-3. ✅ <a id="OQ-NR3"></a>**OQ-NR3: Do the anonymous `/tmp` and `/var/tmp` volumes translate?** The host launcher can
-   learn their host paths from `podman volume inspect`, but a nested launcher cannot, and the
-   documented nested-jail workspace is `/tmp/yolo-nested`. Translating them would root builds made
-   under nested workspaces; leaving them out keeps the map to binds the launcher itself wrote.
-
-   _Leaning:_ Binds only in the first version. `/tmp` is scratch, and a nested jail's own roots are
-   better handled by [OQ-NR4](#OQ-NR4) than by translating volumes.
-
-   <!-- vantage: question id=OQ-NR3 -->
-
-   **Answer:**
-   > Decided as an implementation choice ([NR-D1](#NR-D1)), reversible: binds only. The map holds
-   > the binds the launcher wrote, and a link under `/tmp` or `/var/tmp` stays unrooted, as it is
-   > today.
-
-4. ✅ <a id="OQ-NR4"></a>**OQ-NR4: Should yolo's own in-jail roots use translated roots?** A nested launch skips
-   `image.RegisterImageRoot` and `image.RegisterPrefixRoot` in-jail
-   ([`imageload.go`](../../internal/cli/run/imageload.go) `rootImageFn`,
-   [`jailprefix.go`](../../internal/cli/run/jailprefix.go)), because such a root was dead. Those
-   links live under `/home/agent/.local/share/yolo-jail/build`, which is a mapped bind, so they
-   would translate. The prefix is protected by runtime roots while a nested jail runs, but not
-   between nested launches.
-
-   _Leaning:_ Yes, as the first consumer. It replaces two skips with the real root. One detail to
-   check when building it: the host's reapers enumerate the host's own `build/roots` directories,
-   so a nested jail's roots under a workspace's home overlay would need their own reaping story.
-
-   <!-- vantage: question id=OQ-NR4 -->
-
-   **Answer:**
-   > Decided as an implementation choice ([NR-D2](#NR-D2)), reversible: yes, as the first
-   > consumer. There are three skips to replace, not two: the store-delivered packages' extras
-   > profile skips its root in-jail too. Their reaping is the existing reapers', run by the jail
-   > that made the links.
+The automatic direction and lifecycle/cap/inspection/release requirements are answered, not open
+owner choices. Compare synchronized producer admission with observer-only recovery, establish
+failure behavior and version/path coverage, and test the passive lease/cap/eviction recommendations.
+Do not re-ask [OQ-NR1](#decision-ledger) or fabricate an owner selection of numeric defaults.
+No new owner question is raised by this revision; a genuinely new product choice would need its
+own new ID and evidence, rather than reusing a settled card.
 
 ## Decision Ledger
 
-No rulings yet: [OQ-NR1](#OQ-NR1) and [OQ-NR2](#OQ-NR2) are open. The two rows below are
-implementation decisions, and both are built.
+Owner policy is settled; reliable discovery/GC handoff and bounded-lifecycle defaults remain
+agent investigation. The automatic user-root feature is not build-ready or built.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| <a id="NR-D1"></a>NR-D1 | *Implementation decision, [OQ-NR3](#OQ-NR3).* **Binds only: the map holds the binds the launcher itself wrote, and the anonymous `/tmp` and `/var/tmp` volumes do not translate.** Those volumes are per-launch scratch that yolo deletes once the jail exits, so a root there could outlive nothing but the launch. A running process that uses the store path is already kept by runtime and temp roots ([§2.3](#23-what-already-protects-a-jail)). A nested launcher cannot learn a volume's host path, while the host launcher could from `podman volume inspect`, so translating volumes would give one link two answers depending on who launched. A nested jail's own roots are [NR-D2](#NR-D2)'s. Reversible: the host launcher can add its volumes to the map later | 2026-09-30 | [§4](#4-the-translated-root), [§7](#7-non-goals) | 2026-10-01: the map holds every mount the argv makes, and a volume, a tmpfs or a read-only bind is a mask, so a link under `/tmp` or `/var/tmp` translates to nothing ([§8](#8-what-is-built)). MEASURED in a nested launch: its `/tmp` workspace was a mask |
-| <a id="NR-D2"></a>NR-D2 | *Implementation decision, [OQ-NR4](#OQ-NR4).* **Yes: yolo's own in-jail roots become translated roots, the first consumer of the protocol client in [§4](#4-the-translated-root).** Three skips go, not the two the question names: `rootImageFn` (the image root, [`imageload.go`](../../internal/cli/run/imageload.go)), the in-jail skip of `image.RegisterPrefixRoot` ([`jailprefix.go`](../../internal/cli/run/jailprefix.go)), and the in-jail skip of `rootExtrasProfile` for the store-delivered packages' extras profile ([`storepackages.go`](../../internal/cli/run/storepackages.go)). All three root under `paths.BuildDir()`, which in a jail is inside `/home/agent/.local`, a mapped bind, so each one translates. This consumer needs no trigger from [OQ-NR1](#OQ-NR1), because yolo registers its own links directly. **Reaping stays with the existing reapers, run where the links live.** A translated root dies with its link. A nested launcher's `yolo prune` sweeps its own `build/roots` and `build/prefix-roots` under the same retention rules the host's sweep follows ([`OQ-LS1`](../reference/image-retention.md#why-its-this-way)'s week, [`OQ-LS4`](../reference/image-retention.md#why-its-this-way)'s liveness), so nothing new reaps. The leaning's concern holds, and it is why this is so: the host's reapers never walk a workspace's home overlay, so the jail that made a link reaps it. What remains is [§4](#4-the-translated-root)'s *who can hold host disk*: a nested jail's root holds its closure until that jail's own sweep removes the link. Reversible: keep the skips | 2026-09-30 | [OQ-NR4](#OQ-NR4) | 2026-10-01: `internal/nixroots` and `gcRooter` ([§8](#8-what-is-built)). Four skips went, not three: the store-delivered packages' own profile root (`storeProfileRootLink`) was skipped in-jail too. A fifth root is the same principle: the image copier's out-link, dead in a jail, is registered again as a translated root after an in-jail build (`AutoLoadOptions.RootCopier`). MEASURED for the image and prefix roots in a nested launch, and for the copier's root with its build driven directly; the two profile roots are pinned by the unit tests only. Nothing reaps `build/package-roots`, on the host or in a jail, so a nested jail's two profile roots last until their links are deleted, as the host's do |
+| OQ-NR1 | Owner aligned with automatic translated roots, with mandatory lifecycle, cap, workspace inspection and explicit release/cleanup; not indefinite retention dependent on agent memory. Numeric cap/lease and a reliable watcher were not chosen. Vantage comment `b6072a1d`, round 0 | 2026-10-07 | [§1](#1-verdict), [§4](#4-the-translated-root), [§5](#5-what-registers-the-translated-root) | — |
+| OQ-NR2 | Owner permits a read-only host `gcroots/auto` mount; no extra routine launch line. Unrelated trust banners unchanged. Vantage comment `51b328aa`, round 0 | 2026-10-07 | [§1](#1-verdict) | — |
+| OQ-NR3 | Reversible implementation choice: binds only; anonymous `/tmp` and `/var/tmp` volumes do not translate. Provenance: [NR-D1](#NR-D1) | 2026-09-30 | [§4](#4-the-translated-root), [§7](#7-non-goals) | ✅; [§8](#8-what-is-built) |
+| OQ-NR4 | Reversible implementation choice: yolo's own in-jail roots use translation as the first consumer; existing reapers remain responsible where links live. Provenance: [NR-D2](#NR-D2) | 2026-09-30 | [§8](#8-what-is-built) | ✅; user-root lifecycle remains unbuilt |
+| <a id="NR-D1"></a>NR-D1 | *Implementation decision, [OQ-NR3](#decision-ledger).* **Binds only: the map holds the binds the launcher itself wrote, and the anonymous `/tmp` and `/var/tmp` volumes do not translate.** Those volumes are per-launch scratch that yolo deletes once the jail exits, so a root there could outlive nothing but the launch. A running process that uses the store path is already kept by runtime and temp roots ([§2.3](#23-what-already-protects-a-jail)). A nested launcher cannot learn a volume's host path, while the host launcher could from `podman volume inspect`, so translating volumes would give one link two answers depending on who launched. A nested jail's own roots are [NR-D2](#NR-D2)'s. Reversible: the host launcher can add its volumes to the map later | 2026-09-30 | [§4](#4-the-translated-root), [§7](#7-non-goals) | 2026-10-01: the map holds every mount the argv makes, and a volume, a tmpfs or a read-only bind is a mask, so a link under `/tmp` or `/var/tmp` translates to nothing ([§8](#8-what-is-built)). MEASURED in a nested launch: its `/tmp` workspace was a mask |
+| <a id="NR-D2"></a>NR-D2 | *Implementation decision, [OQ-NR4](#decision-ledger).* **Yes: yolo's own in-jail roots become translated roots, the first consumer of the protocol client in [§4](#4-the-translated-root).** Three skips go, not the two the question names: `rootImageFn` (the image root, [`imageload.go`](../../internal/cli/run/imageload.go)), the in-jail skip of `image.RegisterPrefixRoot` ([`jailprefix.go`](../../internal/cli/run/jailprefix.go)), and the in-jail skip of `rootExtrasProfile` for the store-delivered packages' extras profile ([`storepackages.go`](../../internal/cli/run/storepackages.go)). All three root under `paths.BuildDir()`, which in a jail is inside `/home/agent/.local`, a mapped bind, so each one translates. This consumer needs no trigger from [OQ-NR1](#decision-ledger), because yolo registers its own links directly. **Reaping stays with the existing reapers, run where the links live.** A translated root dies with its link. A nested launcher's `yolo prune` sweeps its own `build/roots` and `build/prefix-roots` under the same retention rules the host's sweep follows ([`OQ-LS1`](../reference/image-retention.md#why-its-this-way)'s week, [`OQ-LS4`](../reference/image-retention.md#why-its-this-way)'s liveness), so nothing new reaps. The leaning's concern holds, and it is why this is so: the host's reapers never walk a workspace's home overlay, so the jail that made a link reaps it. What remains is [§4](#4-the-translated-root)'s *who can hold host disk*: a nested jail's root holds its closure until that jail's own sweep removes the link. Reversible: keep the skips | 2026-09-30 | [§8](#8-what-is-built) | 2026-10-01: `internal/nixroots` and `gcRooter` ([§8](#8-what-is-built)). Four skips went, not three: the store-delivered packages' own profile root (`storeProfileRootLink`) was skipped in-jail too. A fifth root is the same principle: the image copier's out-link, dead in a jail, is registered again as a translated root after an in-jail build (`AutoLoadOptions.RootCopier`). MEASURED for the image and prefix roots in a nested launch, and for the copier's root with its build driven directly; the two profile roots are pinned by the unit tests only. Nothing reaps `build/package-roots`, on the host or in a jail, so a nested jail's two profile roots last until their links are deleted, as the host's do |
 
 ## Appendix: reproducing M4 and M6
+
+**Historical probes, not this task's acceptance commands.** `FindRoots`/root queries can prune
+shared stale links; even the GC dry-run below is not authorized for a shared host store in this
+pass. Keep the original measurement/reproduction record; use disposable fixtures for new experiments.
 
 The measurement client, verbatim. It speaks the worker-protocol handshake, sends one
 `AddTempRoot` (`temp`) or `AddIndirectRoot` (`indirect`), and holds the connection for the given

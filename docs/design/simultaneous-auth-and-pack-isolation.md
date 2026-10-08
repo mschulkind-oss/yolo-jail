@@ -1,35 +1,44 @@
 ---
-title: "Pi profile selection is not an authentication boundary"
+title: "An active Pi profile must constrain supported model calls, not saved logins"
 date: 2026-10-06
-status: in-review
-stage: DESIGN
-next: "Rule OQ-PAS1 on whether an active Pi profile restricts calls made with saved credentials"
+status: accepted
+stage: DECIDED
+next: "Implement and verify active-provider enforcement in Pi's supported runtime without changing saved logins"
 tags: [pi, profiles, credentials, openai-auth, packs]
 summary: "Corrects the diagnosis of simultaneous Pi provider use: rendered selection, pack closure, broker preparation, and credentials already stored by Pi are separate authorities."
 ---
 
-# Pi profile selection is not an authentication boundary
+# An active Pi profile must constrain supported model calls, not saved logins
 
-**Status:** 2026-10-07. Provider visibility and use outside the active profile remain unfixed.
-The [provider-only startup flag repair](pi-launch-selection-flags.md) is a separate change:
-it does not restrict provider visibility or calls. [OQ-PAS1](#OQ-PAS1) still needs the owner's
-policy ruling, including no-profile behavior; saved logins remain untouched.
+**Status:** 2026-10-07. Owner policy is settled ([OQ-PAS1](#decision-ledger)); enforcement is unbuilt.
+The [startup flag repair](pi-launch-selection-flags.md) remains separate and does not restrict calls.
+Installed Pi 1.0.4 source was rechecked without reading auth/settings files or invoking a model.
 
-The earlier diagnosis and its proposed guarantees were rejected by a read-only source audit. The installed Pi source inspected was version 1.0.4, build `7db4cad252707bfe04180f0068579ba855aa1d148be55345446d1fc671264b43`; its fork commit and dirty state are unknown. The incident occurred on another machine, whose Pi build and actual authentication state were not inspected. This document does not attribute an authentication path to that incident.
+> **In short.** An active profile set must deny normal supported Pi calls to other providers even
+> with saved credentials. With no active profile, preserve Pi's native behavior and login files.
 
-> **In short.** A Pi profile controls what yolo renders and which credentials yolo newly delivers; it is not a runtime deny rule for credentials Pi already has. Pack closure, broker preparation, and Pi's saved native login are separate facts.
+**Why it matters.** Picker selection and absence of a new broker grant cannot deny an already-saved login.
 
-**Why it matters.** A model shown outside the selected profile does not prove a broker grant was made, and the absence of a new grant does not prove Pi cannot authenticate with a saved credential.
+**The shape.** Yolo supplies launch-scoped provider IDs; Pi checks the final dispatch provider before
+request authentication, independently of model menus and credential storage.
 
-**The shape.** Keep four authorities distinct: rendered model selection, selected-pack dependency closure, launch-scoped broker preparation, and Pi's persistent native credentials.
+**Cost.** A Pi runtime/API change: existing extension notification hooks cannot enforce this rule.
 
-**Cost.** This design leaves provider-use policy open; it does not remove logins, change pack manifests, or claim confinement of same-user processes.
+**Start at [§3](#3-accepted-provider-use-policy)** — the supported-call boundary and denial behavior.
 
-**Start at [§1](#1-four-different-authorities)** — the distinction that replaces the original diagnosis.
+**Needs your ruling:** None.
 
-**Needs your ruling:** [OQ-PAS1](#OQ-PAS1).
+**Reads with:** [implementation handoff](simultaneous-auth-and-pack-isolation-plan.md),
+[`active-provider-sets.md`](active-provider-sets.md) (active-set semantics),
+[`providers.md`](../reference/providers.md) (credential delivery),
+[`pi-host-openai-auth.md`](pi-host-openai-auth.md) (stored-login behavior).
 
-**Reads with:** [`active-provider-sets.md`](active-provider-sets.md) (what an active Pi profile set means), [`providers.md`](../reference/providers.md) (profile credential delivery), and [`pi-host-openai-auth.md`](pi-host-openai-auth.md) (host-side Pi broker preparation and stored-login behavior).
+---
+
+The earlier diagnosis and proposed guarantees were rejected by a read-only source audit. The prior
+installed Pi source was version 1.0.4, build `7db4cad252707bfe04180f0068579ba855aa1d148be55345446d1fc671264b43`;
+its fork commit/dirty state are unknown. The incident machine's build and authentication state were
+not inspected. Neither the original audit nor this design attributes an auth path to that incident.
 
 ---
 
@@ -70,29 +79,87 @@ Pi retains built-in providers independently of yolo's provider override. In the 
 - No claim here establishes which path the other machine's Pi used. This is a source/design audit, not an inspection of the incident's environment, Pi settings, auth files, credential store, process state, or network traffic.
 - No saved login should be deleted or rewritten to implement a launch policy. Arbitrary host code and same-UID jail processes are outside a Pi profile-selection guarantee.
 
-## 3. Scope and outstanding policy
+## 3. Accepted provider-use policy
 
-The policy boundary under discussion is **normal Pi model calls made through Pi's supported provider runtime**. It is not filesystem confinement against a user who can read the same auth store, nor a claim that a jail process cannot inspect another readable file. Login files remain untouched under either answer.
+The policy boundary is **normal Pi model calls made through Pi's supported provider runtime**.
+An active Pi profile set must restrict those calls to its selected providers even when Pi has
+saved native or broker-seeded credentials. With no active profile, preserve Pi's native behavior.
+Do not delete, rewrite, or revoke saved login files to enforce the launch policy.
 
-1. 💬 **OQ-PAS1: Should an active Pi profile set restrict every normal model call to its selected providers, even when Pi has saved native credentials?**
+This is not filesystem confinement against a user who can read the same auth store, nor a claim
+that a jail process cannot inspect another readable file. Runtime enforcement and verification
+are still owed; rendered selection and broker-route masking alone do not satisfy this policy.
+This closes [OQ-PAS1](#decision-ledger), not the implementation.
 
-   This would make provider selection an actual runtime policy for Pi rather than only a rendered selection and yolo credential-delivery decision. It must not delete, rewrite, or revoke Pi's saved native or broker-seeded credentials.
+### 3.1 The request boundary
 
-   - **Yes:** calls through Pi's supported runtime are limited to the active provider set, despite saved credentials.
-   - **No:** profiles continue to control rendered selection and yolo's new credential delivery, while a saved credential may keep another native provider usable.
+- **With an active set:** allow only its normalized Pi provider IDs. Duplicate profiles on one
+  provider deduplicate; existing per-provider model policy remains additional, not a substitute.
+- **Without a profile:** no yolo provider restriction. Do not infer one from selected pack closure,
+  saved credentials, rendered catalog rows or a previous invocation's persistent selection.
+- **At dispatch:** check the actual physical provider after virtual routing on every request, retry
+  and continuation. A previously selected/resumed out-of-set model cannot bypass this check.
+- **Supported calls:** Pi's normal runtime dispatch, including assistant/compaction/summary/cache-warm
+  calls and extension/SDK/codemode chat, image and classifier calls through its model runtime. Deferred
+  fetch/cancel of a model request uses the same provider boundary. A router's classifier is itself a
+  model call; allowing the final chat route does not exempt its auxiliary provider.
+- **Before request authentication:** deny without invoking that request's credential resolver, token
+  refresh, credential command or provider network transport. Native startup catalog/auth availability
+  discovery and explicit login/logout are not request dispatch; do not claim this policy suppresses all
+  auth activity or network traffic in the process.
+- **Failure:** invalid/empty active-set policy is an error, not no-profile fallback. Missing enforcement
+  capability under an active-set launch refuses the managed launch and names the compatible Pi build.
+  Policy-hook errors deny; denials are non-retryable with the provider and the next profile-selection
+  step, never tokens/headers. Do not silently switch to another provider or grant.
 
-   With no active profile, the policy also needs a defined behavior rather than an accidental fallback.
+The policy belongs to the process invocation. Host `-p` overrides must not write persistent Pi
+settings; ordinary child Pi/SDK runtimes inherit and validate the same launch policy. Reload/session
+replacement keeps it. Explicitly disabling extensions must not silently disable the request boundary.
+A snapshot of one launch does not retroactively change another process already running.
 
-   <!-- vantage: question id=OQ-PAS1 leaning="Yes — make an active profile set constrain normal Pi calls, while leaving saved login files untouched; with no profile, preserve Pi's native behavior." -->
+### 3.2 What does not enforce the rule
 
-   _Leaning:_ Yes: an active profile set should constrain normal Pi model calls even with saved native credentials; no profile should preserve native behavior. Leave login files untouched.
+The inspected supported `before_provider_request` event carries a payload, not a dispatch identity
+or deny result. `ExtensionRunner.emitBeforeProviderRequest` catches handler errors and continues.
+Throwing from that handler is therefore **not enforcement**. `before_agent_start`/`model_select`
+likewise cannot cover nested runtime calls, warming or later routed requests. Provider unregister
+restores built-ins; `streamSimple` overrides only registered providers/APIs. None is a universal gate.
 
-   **Answer:**
+The grounded dispatch seam is Pi's common `ModelRuntime.prepareRequest`, **before its `getAuth`**.
+Its supported `ModelRegistry` facade delegates model calls there; no existing public policy-registration
+API was found in the inspected declarations. But this gate alone is not a zero-auth-work guarantee:
+`AgentSession._getRequiredRequestAuth` and `_getSummarizationRequestAuth` resolve runtime `getAuth`
+earlier. Guard those preflight resolutions before credential lookup/refresh too; summarization's
+ordinary-auth fallback must propagate policy denial. Add dedicated fail-closed supported source
+seams, not monkeypatches or changed notification semantics. Source map and repo ownership are in
+the [plan](simultaneous-auth-and-pack-isolation-plan.md).
 
-   > _(Awaiting the owner's ruling.)_
+### 3.3 Explicit exclusions
+
+No saved login is deleted, rewritten, revoked, or widened to enforce selection. Ordinary allowed
+Pi authentication keeps its native behavior; the policy does not install an alternative credential
+store. This is not a same-UID filesystem/network boundary. Deliberate standalone `pi-ai` calls,
+arbitrary HTTP clients, trusted code bypassing the managed runtime, or a manually unconfigured
+process are outside the supported-call guarantee. Menus may aid discovery but their contents are
+not acceptance evidence. No incident-machine repair or live provider/account proof is claimed.
+
+## Decision Ledger
+
+| ID | Ruling / Decision | Date | Settled in | Built |
+| :--- | :--- | :--- | :--- | :--- |
+| OQ-PAS1 | Owner: yes, an active profile set constrains normal supported Pi calls despite saved credentials; no-profile launches preserve native behavior and saved login files remain untouched. Vantage comment `e5b4ea51`, round 0 | 2026-10-07 | [§3](#3-accepted-provider-use-policy) | — |
 
 ## 4. Evidence checked
 
 The repository claims above were checked read-only at base `d5bc7a4188badeb56e1a2cb5591916bf69249723` against the Pi pack's declared needs, the Pi derive's prelaunch predicate, host prelaunch composition, Pi's extension registration and broker client, and the broker loophole manifest. The installed Pi source read was limited to provider composition, registration/unregistration, and credential resolution. No credential values, Pi settings, auth files, keychain, broker state, or incident-machine data were read; no agent, provider API, or model was invoked.
 
 The installed source confirms only what that installed 1.0.4 build supports: persistent credential storage, built-in providers surviving removal of an extension override, and stored credentials being considered before ambient auth. The installed fork commit and dirty state are unknown. This cannot establish the other machine's installed build or the incident's actual auth route.
+
+On 2026-10-07, the installed public extension docs/declarations, request-event runner, SDK wiring,
+model-registry facade, agent-session auth preflights and model-runtime dispatch were rechecked. Package metadata names the source
+repository [earendil-works/pi](https://github.com/earendil-works/pi). The configured `pi-fork` source
+pack independently declares that upstream's `main` plus a format-patch series; it is not a distinct
+GitHub fork. Its first patch's base is recorded in the [plan](simultaneous-auth-and-pack-isolation-plan.md),
+not assumed to identify installed bytes. A scout must pin/replay the declared source and series in a
+writable candidate before assigning the API writer. No installed Pi file was edited; no auth/settings
+file, account endpoint or live model was used.
