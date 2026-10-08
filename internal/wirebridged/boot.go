@@ -328,6 +328,9 @@ type listener struct {
 	what    string // for the log: "provider \"x\" (from its anthropic base_url)" or "via routes"
 	handler http.Handler
 	ln      net.Listener
+	// h2c: the listener also speaks unencrypted HTTP/2 with prior knowledge, which the via
+	// address needs for pi's AWS SDK (viaconverse.go, WG-I48). HTTP/1 is served either way.
+	h2c bool
 }
 
 // servePlan serves every route in p (OQ-WG7): the adapter route on its own port and the
@@ -401,7 +404,7 @@ func servePlan(ctx context.Context, p plan, e *entrypoint.Env) int {
 	if len(p.via.Routes) > 0 {
 		handler, lines := viaHandlerFor(p.via, e, allow.via)
 		ls = append(ls, &listener{addr: p.via.ListenAddr, what: "via routes",
-			handler: requireOpenAICaller(token, "the via address", handler)})
+			handler: requireOpenAICaller(token, "the via address", handler), h2c: true})
 		serving = append(serving, "via routes on {addr} (endpoint {endpoint}): "+strings.Join(lines, "; "))
 		for _, skip := range p.via.Skipped {
 			logf("a via profile is not served: %s", skip)
@@ -483,6 +486,14 @@ func servePlan(ctx context.Context, p plan, e *entrypoint.Env) int {
 	errCh := make(chan error, len(ls))
 	for i, l := range ls {
 		servers[i] = &http.Server{Handler: l.handler}
+		if l.h2c {
+			// An AWS SDK's default Node handler opens HTTP/2 to an http:// address with prior
+			// knowledge (WG-I48), so the via listener answers that as well as HTTP/1.
+			var protocols http.Protocols
+			protocols.SetHTTP1(true)
+			protocols.SetUnencryptedHTTP2(true)
+			servers[i].Protocols = &protocols
+		}
 		go func(srv *http.Server, ln net.Listener) { errCh <- srv.Serve(ln) }(servers[i], l.ln)
 	}
 	select {

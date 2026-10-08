@@ -122,7 +122,8 @@ bridge exists, and should not.
 | Implicit localhost-provider forwards, their merge and their disclosure | `internal/cli/run` (`localProviderForwardSources`, `mergeHostForwards`, `discloseImplicitProviderForwards`, `briefingPortsFor`) |
 | In-jail forwarders, the readiness wait, the orphan refusal | `internal/entrypoint` (`startContainerPortForwarding`, `startJailDaemonSupervisor`, `refuseOnOrphanedJailDaemons`) |
 | The pack itself — the first `kind: "service"`, and the two `adapter` contributions that declare its addresses | `packs/wire-bridge` |
-| The via route: the per-agent table, the prefix mux, the wire split, the pass-through, per-upstream credentials | `internal/wirebridged` (`via.go`: `viaRoutesFor`, `viaUpstreams`, `viaMux`, `viaWireSplit`, `passthroughHandler`, `viaHandlerFor`); the serve plan in `boot.go` (`planFor`, `servePlan`) |
+| The via route: the per-agent table, the prefix mux, the wire split, the pass-through, per-upstream credentials | `internal/wirebridged` (`via.go`: `viaRoutesFor`, `viaUpstreams`, `viaMux`, `viaWireSplit`, `passthroughHandler`, `bedrockViaUpstream`, `viaHandlerFor`); the serve plan in `boot.go` (`planFor`, `servePlan`) |
+| Bedrock's Converse on a via route: the path parse, the re-encoded id, the signed forward and relay, the HTTP/2 listener | `internal/wirebridged` (`viaconverse.go`: `parseConversePath`, `conversePassthrough`, `converseHandlerFor`; `listener.h2c` in `boot.go`) |
 | The Messages pass-through on a Bedrock upstream: the list's Anthropic ids, the split by model, the untranslated forward and relay | `internal/wirebridged` (`messages.go`: `anthropicModelIDs`, `messagesPassthrough`; `route.AnthropicModels` in `boot.go`; the split in `bridgeHandler.ServeHTTP`) |
 | The via selection: the profile field, the address, the pack closure, the per-agent URL | `internal/packdecl` (`ProfileContribution.Via`, `ServiceContribution.ViaAddress`); `internal/packload` (`via.go`: `ResolveVias`; `profiles.go`: `ViaURLFor`) |
 | Which upstream is Bedrock's, its region, and runtime's URL composed from it | `internal/wirebridged` (`bedrockroute.go`: `bedrockSigning`, `regionalBedrock`, `envRegion`, `route.resolveRegion`); `internal/sigv4` (`RegionVars`, `ValidRegion`, `BedrockRuntimeHost`) |
@@ -463,7 +464,8 @@ such as the shipped `bedrock`, is reached at runtime's own
 `https://bedrock-runtime.<region>.amazonaws.com/openai/v1`, composed from that region:
 
 - **On a via route** that one base carries both wires, so pi's, opencode's and oh-omp's
-  chat-completions and codex's Responses reach it alike.
+  chat-completions and codex's Responses reach it alike. Bedrock's own Converse goes to the same
+  host's root ([Converse on a via route](#converse-on-a-via-route)).
 - **On the adapter route**, which claude and copilot reach, the provider needs an anthropic
   address to be routed at. `packs/wire-bridge`'s `openai → anthropic` adapter declares
   `"from_platforms": ["aws-bedrock"]`, so composition gives such a provider the adapter's address
@@ -657,7 +659,7 @@ declared `via_address`, under the path prefix `/agent/<agent>/`. The design and 
   naming the variable (or, for Bedrock, the credential sources) it needs, and the other routes
   still serve. The daemon log states each route's upstream and credential source, or why it idles.
 - **Errors are OpenAI-shaped** (`{"error": {"message", "type", "code"}}`), because a via agent
-  speaks OpenAI. An unreachable upstream is a 502, and one that sends no response headers within
+  speaks OpenAI. The one exception is Bedrock's Converse, below. An unreachable upstream is a 502, and one that sends no response headers within
   ten minutes a 504; an upstream's own error status and body pass through.
 - **A stream the upstream cuts short fails at the agent.** Once the status line has gone out, an
   upstream read error is logged with the byte count and cause, and the agent's connection is
@@ -667,6 +669,40 @@ declared `via_address`, under the path prefix `/agent/<agent>/`. The design and 
 - **What is skipped.** A provider offering neither wire is skipped, and so is `openai-codex`, the
   ChatGPT subscription, whose credential a via route does not carry; each skip is logged with its
   reason.
+
+<a id="converse-on-a-via-route"></a>
+
+### Converse on a via route
+
+On a route whose upstream is Bedrock's, the bridge also passes through Bedrock's own **Converse**
+API, which pi's own Bedrock client speaks
+([`WG-I48`](../design/wire-bridge-gateway.md#WG-I48)). Converse is Bedrock's API, not a third
+OpenAI wire.
+
+- **What is classified as Converse.** A path after the prefix that starts `/model/` and ends
+  `/converse` or `/converse-stream`. The last segment is the operation and everything between is
+  the model id, so an inference-profile ARN's `/` stays in the id whether the agent encoded it or
+  not.
+- **Where it goes.** `POST` to the same route on the Bedrock upstream's host: runtime's root, or
+  the path prefix in front of a provider address's `/openai/v1`. The model id is re-encoded as the
+  AWS SDKs encode it (`:` as `%3A`, `/` as `%2F`), and that is the path the SigV4 signature covers.
+  No query crosses. The body, the `Content-Type` and `Accept` headers and Bedrock's own
+  `X-Amzn-Bedrock-*` request headers cross unchanged. The credential is the route's own, signed
+  for the same region as its OpenAI-shaped requests.
+- **What comes back.** The status and the binary `application/vnd.amazon.eventstream` body,
+  byte for byte and flushed as they arrive, with `Content-Type`, `Retry-After`,
+  `X-Amzn-Requestid`, `X-Amzn-Errortype`, `X-Should-Retry` and `X-Amzn-Bedrock-*`. A stream the
+  upstream cuts short aborts the agent's connection, as on the other wires.
+- **The model allowlist reads the path**, since a Converse body names no model. A model off a
+  narrowed list gets a `400` `ValidationException`.
+- **Errors are AWS-shaped**: a JSON `message` and the type in `X-Amzn-Errortype`, which the
+  agent's AWS SDK reads. A route whose provider is not Bedrock answers a Converse path `404`
+  `UnknownOperationException` and sends nothing. A Bedrock route with no credential or no region
+  answers `503` `ServiceUnavailableException`, naming what is missing.
+- **The via listener also speaks HTTP/2 without TLS**, with prior knowledge, because the AWS SDK
+  for JavaScript opens HTTP/2 to an `http://` address. HTTP/1 is served as before.
+- **The serve line** names it: `/agent/pi/ Converse → https://bedrock-runtime.<region>.amazonaws.com
+  (provider bedrock, SigV4 …)`.
 
 **Selecting a via profile brings the pack in.** An active via profile adds the pack its `via`
 names, the way a live [`needs`](#needs--a-conditional-pack-dependency) entry does, and the launch
@@ -1239,8 +1275,8 @@ only place the values themselves are stated.
 | Address override key | `adapters.<from>-><to>.address`, **user scope only** | `internal/config/adapters.go`, `yolo config-ref` |
 | Caller token | `YOLO_SERVICE_WIRE_BRIDGE_TOKEN`: 64 lowercase hex characters, 256 bits from `crypto/rand`, one per launch; accepted as `Authorization: Bearer` or `x-api-key`; anything else is `401` | `paths.ServiceCallerTokenEnv`, `run.launchCallerTokens`, `svcendpoint.NewToken`; checked in `wirebridged/auth.go` |
 | Restart policy | on failure | `packs/wire-bridge/pack.json` |
-| Served path | adapter routes: `POST /v1/messages`, and on a Bedrock upstream Bedrock's own `POST /model/{id}/invoke`, `/invoke-with-response-stream` and `/count-tokens` ([`WG-I47`](../design/wire-bridge-gateway.md#WG-I47)); via routes: any canonical path under `/agent/<agent>/` (no `.`, `..` or empty segment, no encoded `?` or `#`) | `internal/wirebridged/handler.go`; `wirebridged.viaMux`, `wirebridged.canonicalViaTail` |
-| Upstream path | the provider's `openai` base URL plus `/chat/completions`; on the Codex route, the composed `openai-codex` entry's `openai-responses` base URL (the subscription's, as shipped) plus `/responses`; on a via route, the provider's chat-completions or Responses base URL (the one the path names) plus the path after the prefix | `wirebridged.NewHandler`, `wirebridged.CodexResponsesBaseURL`, `wirebridged.viaUpstreams`, `wirebridged.passthroughHandler` |
+| Served path | adapter routes: `POST /v1/messages`, and on a Bedrock upstream Bedrock's own `POST /model/{id}/invoke`, `/invoke-with-response-stream` and `/count-tokens` ([`WG-I47`](../design/wire-bridge-gateway.md#WG-I47)); via routes: any canonical path under `/agent/<agent>/` (no `.`, `..` or empty segment, no encoded `?` or `#`), and on a Bedrock upstream Bedrock's own `POST /model/{id}/converse` and `/converse-stream` ([`WG-I48`](../design/wire-bridge-gateway.md#WG-I48)) | `internal/wirebridged/handler.go`; `wirebridged.viaMux`, `wirebridged.canonicalViaTail`, `wirebridged.requestWire` |
+| Upstream path | the provider's `openai` base URL plus `/chat/completions`; on the Codex route, the composed `openai-codex` entry's `openai-responses` base URL (the subscription's, as shipped) plus `/responses`; on a via route, the provider's chat-completions or Responses base URL (the one the path names) plus the path after the prefix, and for Converse the Bedrock upstream's host root (or its prefix before `/openai/v1`) plus `/model/<re-encoded id>/<op>` | `wirebridged.NewHandler`, `wirebridged.CodexResponsesBaseURL`, `wirebridged.viaUpstreams`, `wirebridged.passthroughHandler`, `wirebridged.conversePassthrough` |
 | Via request body limit | 64 MiB; larger is a 413 | `wirebridged.maxViaBody` |
 | Upstream timeout | 10 minutes, the one timeout the daemon adds. The adapter routes bound the whole exchange; a via route bounds only the wait for response headers, and a timeout there is a 504 | `wirebridged.upstreamTimeout`; `wirebridged.viaHeaderTimeout` |
 | Streamed-usage request field, chat-completions route | `"stream_options": {"include_usage": true}` on every streamed request; left off when the selected profile's `supports_usage_in_streaming` is `"false"` | `wirebridge.TranslateRequestWith`, `wirebridge.ChatOptions`; the option read in `wirebridged.routeFor` |

@@ -88,16 +88,28 @@ func parseInvokePath(escaped string) (id, op string, ok bool) {
 		return "", "", false
 	}
 	id, err := url.PathUnescape(parts[2])
-	if err != nil || id == "" || len(id) > 2048 {
+	if err != nil || !validModelID(id) {
 		return "", "", false
+	}
+	return id, parts[3], true
+}
+
+// validModelID reports whether a decoded model id from a Bedrock route's path holds only bytes a
+// model or inference profile id has (an ARN's `:` and `/` among them), and is neither empty nor
+// longer than any id AWS mints. Both of Bedrock's own pass-throughs ask it before the id is
+// re-encoded into the upstream path: InvokeModel's here and the via route's Converse
+// (viaconverse.go).
+func validModelID(id string) bool {
+	if id == "" || len(id) > 2048 {
+		return false
 	}
 	for _, r := range id {
 		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' ||
 			strings.ContainsRune(".-_:/[]", r)) {
-			return "", "", false
+			return false
 		}
 	}
-	return id, parts[3], true
+	return true
 }
 
 // awsEscape percent-encodes every byte of s outside RFC 3986's unreserved set, as the AWS SDKs
@@ -152,9 +164,10 @@ func invokeResponseHeader(k string) bool {
 	return strings.HasPrefix(k, "X-Amzn-Bedrock-")
 }
 
-// writeAWSError renders one of the bridge's own refusals on this route in the shape an AWS SDK
-// reads: a JSON `message` and the error's type in X-Amzn-Errortype.
-func writeAWSError(rec *statusRecorder, status int, typ, msg string) {
+// writeAWSError renders one of the bridge's own refusals on a Bedrock route in the shape an AWS
+// SDK reads: a JSON `message` and the error's type in X-Amzn-Errortype. The adapter route's invoke
+// pass-through writes it, and so does the via route's Converse (viaconverse.go).
+func writeAWSError(rec http.ResponseWriter, status int, typ, msg string) {
 	rec.Header().Set("Content-Type", "application/json")
 	rec.Header().Set("X-Amzn-Errortype", typ)
 	rec.WriteHeader(status)
@@ -251,14 +264,29 @@ func (p *invokePassthrough) do(in *http.Request, target *url.URL, body []byte) (
 // no fault.
 func (p *invokePassthrough) relay(rec *statusRecorder, in *http.Request, resp *http.Response, id string) bool {
 	flusher, _ := rec.ResponseWriter.(http.Flusher)
+	copied, cut := relayFlushing(rec, flusher, in.Context(), resp.Body)
+	if cut == nil {
+		return false
+	}
+	logf("upstream: the Bedrock answer for model %s ended early after %d bytes: %v — aborting the "+
+		"agent's connection so it sees a failure, not a finished reply", id, copied, cut)
+	return true
+}
+
+// relayFlushing copies body to w chunk by chunk, flushing each, and returns how many bytes it
+// copied and, when the body's read failed before its end while the agent was still listening, that
+// failure: the cut the caller answers by aborting the agent's connection. A write failure (the
+// agent went away) and the agent's own close are no cut. Both Bedrock pass-throughs relay through
+// it: InvokeModel's and the via route's Converse (viaconverse.go).
+func relayFlushing(w io.Writer, flusher http.Flusher, ctx context.Context, body io.Reader) (int64, error) {
 	buf := make([]byte, 32<<10)
 	var copied int64
 	for {
-		n, rerr := resp.Body.Read(buf)
+		n, rerr := body.Read(buf)
 		if n > 0 {
 			copied += int64(n)
-			if _, werr := rec.Write(buf[:n]); werr != nil {
-				return false
+			if _, werr := w.Write(buf[:n]); werr != nil {
+				return copied, nil
 			}
 			if flusher != nil {
 				flusher.Flush()
@@ -267,12 +295,10 @@ func (p *invokePassthrough) relay(rec *statusRecorder, in *http.Request, resp *h
 		if rerr == nil {
 			continue
 		}
-		if errors.Is(rerr, io.EOF) || in.Context().Err() != nil {
-			return false
+		if errors.Is(rerr, io.EOF) || ctx.Err() != nil {
+			return copied, nil
 		}
-		logf("upstream: the Bedrock answer for model %s ended early after %d bytes: %v — aborting the "+
-			"agent's connection so it sees a failure, not a finished reply", id, copied, rerr)
-		return true
+		return copied, rerr
 	}
 }
 

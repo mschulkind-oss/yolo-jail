@@ -495,6 +495,10 @@ func TestTheShippedBedrockBridgeProfileMeetsEachAgentAsItCan(t *testing.T) {
 		if !r.Chat.Regional || r.Chat != r.Responses || !r.Chat.RegionFromEnv {
 			t.Errorf("%s's via route %+v, want one region-composed upstream for both wires", r.Agent, r)
 		}
+		// Bedrock's own Converse rides the same upstream (WG-I48): pi's row speaks it.
+		if !r.Converse.Regional || !r.Converse.RegionFromEnv {
+			t.Errorf("%s's via route has Converse upstream %+v, want the region-composed Bedrock one", r.Agent, r.Converse)
+		}
 	}
 	for _, agent := range []string{"codex", "pi", "oh-omp", "opencode"} {
 		if !served[agent] {

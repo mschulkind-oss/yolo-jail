@@ -15,6 +15,12 @@ package wirebridged
 // one its path names. Nothing in a request can name a destination the provider row did
 // not declare; the path only picks between the two it did.
 //
+// AND BEDROCK'S OWN CONVERSE (WG-I36, WG-I48): on a route whose upstream is Bedrock, a
+// request to /model/{id}/converse or /converse-stream — pi's own Bedrock client, the AWS SDK,
+// pointed at the route — is signed and passed through to bedrock-runtime's own Converse
+// route (viaconverse.go). That is Bedrock's API, not a third OpenAI wire, so a route whose
+// provider is not Bedrock refuses it rather than translating it.
+//
 // One daemon, several routes (WG7): the adapter routes keep the root of their own ports
 // (claude's ANTHROPIC_BASE_URL is unchanged), and every via route shares the via
 // address, told apart by the /agent/<name>/ prefix. A request with no known prefix is
@@ -56,6 +62,10 @@ type viaRoute struct {
 	// wire_api or openai-responses — the same preference packs/codex/derive.lua reads,
 	// so codex and the route agree on which address is the provider's Responses one.
 	Responses viaUpstream
+	// Converse is the Bedrock upstream Bedrock's own Converse API is passed through to
+	// (viaconverse.go, WG-I48): whichever of Chat and Responses is signed for Bedrock, and
+	// empty for a provider that is not Bedrock, whose route refuses Converse.
+	Converse viaUpstream
 }
 
 // viaUpstream is one upstream base URL and, for a Bedrock one (bedrockSigning, WG-I37), the
@@ -200,6 +210,12 @@ func viaRoutesFor(providers *jsonx.OrderedMap, useProfiles map[string]string,
 				") cannot be served: "+why)
 			continue
 		}
+		switch {
+		case rt.Chat.bedrock():
+			rt.Converse = rt.Chat
+		case rt.Responses.bedrock():
+			rt.Converse = rt.Responses
+		}
 		plan.Routes = append(plan.Routes, rt)
 	}
 	if len(plan.Routes) == 0 {
@@ -255,13 +271,19 @@ const (
 	viaWireOther viaWire = iota
 	viaWireChatCompletions
 	viaWireResponses
+	// viaWireConverse is Bedrock's own Converse API (WG-I48), not an OpenAI wire.
+	viaWireConverse
 )
 
 // requestWire classifies a path after the prefix: /responses and below is Responses,
-// /chat/completions and below is chat-completions, anything else (/models, /embeddings)
-// names neither.
+// /chat/completions and below is chat-completions, /model/{id}/converse and
+// /model/{id}/converse-stream are Bedrock's Converse, anything else (/models, /embeddings)
+// names neither. The model id is whatever lies between, an ARN's '/' included.
 func requestWire(path string) viaWire {
 	switch {
+	case strings.HasPrefix(path, "/model/") &&
+		(strings.HasSuffix(path, "/converse") || strings.HasSuffix(path, "/converse-stream")):
+		return viaWireConverse
 	case path == "/responses" || strings.HasPrefix(path, "/responses/"):
 		return viaWireResponses
 	case path == "/chat/completions" || strings.HasPrefix(path, "/chat/completions/"):
@@ -278,11 +300,24 @@ func requestWire(path string) viaWire {
 type viaWireSplit struct {
 	agent, provider string
 	chat, responses http.Handler
+	// converse serves Bedrock's own Converse API, nil on a route whose provider is not Bedrock.
+	converse http.Handler
 }
 
 func (s viaWireSplit) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h := s.chat
 	switch requestWire(r.URL.Path) {
+	case viaWireConverse:
+		if s.converse == nil {
+			// The agent speaks AWS's SDK here, so the refusal is in the shape that SDK reads.
+			writeAWSError(w, http.StatusNotFound, "UnknownOperationException",
+				fmt.Sprintf("wire-bridge: %s is a Bedrock Converse request, and provider %s (the via route "+
+					"for %s) is not Bedrock's; Converse is Bedrock's own API and a via route never translates "+
+					"it. Point %s at a Bedrock profile, such as bedrock-bridge, or at this provider's own "+
+					"chat-completions endpoint", r.URL.Path, s.provider, s.agent, s.agent))
+			return
+		}
+		h = s.converse
 	case viaWireResponses:
 		if s.responses == nil {
 			s.refuse(w, r, "a Responses", "chat-completions")
@@ -628,9 +663,71 @@ func viaHandlerFor(plan viaPlan, e *entrypoint.Env, allow map[string]*modelAllow
 				lines = append(lines, "/agent/"+rt.Agent+"/ Responses "+line)
 			}
 		}
+		if rt.Converse.served() {
+			h, line := converseHandlerFor(rt, func(name string) (string, string) {
+				return keyFor(e, name, rt.Agent)
+			}, keySources(e, rt.Agent))
+			if cp, ok := h.(*conversePassthrough); ok && allow[rt.Agent] != nil {
+				cp.allow = allow[rt.Agent]
+				line += allowlistNote(allow[rt.Agent])
+			}
+			split.converse = h
+			lines = append(lines, "/agent/"+rt.Agent+"/ Converse "+line)
+		}
 		mux.routes[rt.Agent] = split
 	}
 	return mux, lines
+}
+
+// bedrockVia is one Bedrock upstream as the boot completed it: the base URL its requests go to,
+// the signer for the served agent's region and credential, and the serve line's parenthesis; or,
+// when the route cannot be served, idle, the reason naming what is missing and where.
+type bedrockVia struct {
+	base   string
+	signer *bedrockSigner
+	desc   string
+	// idle is why the upstream cannot be served when that is its region; noCredential says it is
+	// the credential instead, which noBedrockCredential words for the address the caller dials.
+	idle         string
+	noCredential bool
+}
+
+// noBedrockCredential is the idle reason of a Bedrock upstream at base with no credential source.
+func noBedrockCredential(agent, base string) string {
+	return "the via route for " + agent + " goes to Bedrock (" + base +
+		"), and none of its credential sources is set — AWS_ACCESS_KEY_ID + " +
+		"AWS_SECRET_ACCESS_KEY, the aws-auth pointer AWS_CONTAINER_CREDENTIALS_FULL_URI, " +
+		"or AWS_BEARER_TOKEN_BEDROCK"
+}
+
+// bedrockViaUpstream completes a Bedrock upstream at boot, through lookup (the key channel where
+// names): its region, the served agent's when the tables named none (WG-I38), runtime's URL in it
+// for a region-composed upstream (WG-I39), and the credential chain. The OpenAI-shaped
+// pass-through and the Converse one both build from it, so the two cannot disagree on where a
+// route's requests go or whose credential signs them.
+func bedrockViaUpstream(rt viaRoute, up viaUpstream, lookup func(name string) (string, string), where string) bedrockVia {
+	region, regionSource := up.SignRegion, ""
+	if region == "" {
+		var why string
+		region, regionSource, why = envRegion(lookup)
+		if why != "" {
+			return bedrockVia{idle: "the via route for " + rt.Agent + " goes to Bedrock (provider " + rt.ProviderName +
+				"), and " + why + " in " + where}
+		}
+	}
+	base := up.BaseURL
+	if up.Regional && base == "" {
+		base = runtimeBaseURL(region)
+	}
+	env := sigv4.EnvFrom(func(name string) string {
+		v, _ := lookup(name)
+		return v
+	})
+	if !hasAWSCredentialSource(env) {
+		return bedrockVia{base: base, noCredential: true}
+	}
+	return bedrockVia{base: base, signer: &bedrockSigner{region: region, chain: &sigv4.Chain{Env: env}},
+		desc: "provider " + rt.ProviderName + ", " + signingDescription(region, regionSource) + ", from " + env.String()}
 }
 
 // viaUpstreamHandler is viaUpstreamHandlerKeyed over a jail's key channel at home (resolveKey).
@@ -647,36 +744,14 @@ func viaUpstreamHandler(rt viaRoute, up viaUpstream, home string) (http.Handler,
 func viaUpstreamHandlerKeyed(rt viaRoute, up viaUpstream, lookup func(name string) (string, string),
 	where string) (http.Handler, string) {
 	if up.bedrock() {
-		region, regionSource := up.SignRegion, ""
-		if region == "" {
-			// The served agent's region (WG-I38), from the key channel its credential comes from.
-			var why string
-			region, regionSource, why = envRegion(lookup)
-			if why != "" {
-				reason := "the via route for " + rt.Agent + " goes to Bedrock (provider " + rt.ProviderName +
-					"), and " + why + " in " + where
-				return idleViaHandler{reason: reason}, "idle: " + reason
-			}
+		b := bedrockViaUpstream(rt, up, lookup, where)
+		if b.noCredential {
+			b.idle = noBedrockCredential(rt.Agent, b.base)
 		}
-		base := up.BaseURL
-		if up.Regional && base == "" {
-			base = runtimeBaseURL(region)
+		if b.idle != "" {
+			return idleViaHandler{reason: b.idle}, "idle: " + b.idle
 		}
-		env := sigv4.EnvFrom(func(name string) string {
-			v, _ := lookup(name)
-			return v
-		})
-		if !hasAWSCredentialSource(env) {
-			reason := "the via route for " + rt.Agent + " goes to Bedrock (" + base +
-				"), and none of its credential sources is set — AWS_ACCESS_KEY_ID + " +
-				"AWS_SECRET_ACCESS_KEY, the aws-auth pointer AWS_CONTAINER_CREDENTIALS_FULL_URI, " +
-				"or AWS_BEARER_TOKEN_BEDROCK"
-			return idleViaHandler{reason: reason}, "idle: " + reason
-		}
-		return newPassthroughHandler(rt.Agent, base, "",
-				&bedrockSigner{region: region, chain: &sigv4.Chain{Env: env}}),
-			"→ " + base + " (provider " + rt.ProviderName + ", " + signingDescription(region, regionSource) +
-				", from " + env.String() + ")"
+		return newPassthroughHandler(rt.Agent, b.base, "", b.signer), "→ " + b.base + " (" + b.desc + ")"
 	}
 	key, source := lookup(rt.KeyEnvName)
 	if key == "" && rt.KeyEnvName != "" {

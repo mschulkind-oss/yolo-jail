@@ -340,6 +340,8 @@ func TestViaRefusesAPathItWouldClassifyAsOneWireAndServeAsAnother(t *testing.T) 
 		"/agent/codex/../../../etc",                // out of the provider's base path
 		"/agent/codex/./responses",                 // a '.' segment
 		"/agent/pi/../codex/responses",             // one agent's prefix reaching another's
+		"/agent/pi/model/x/../converse-stream",     // a Converse path the upstream would normalize
+		"/agent/pi/model//converse-stream",         // a Converse path with an empty model id
 	} {
 		req, _ := http.NewRequest(http.MethodPost, "http://"+addr+p, strings.NewReader(`{}`))
 		resp, err := bridgeClient.Do(req)

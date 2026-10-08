@@ -155,6 +155,16 @@ func TestCanonicalURIEncodesTheWirePathAgain(t *testing.T) {
 	if got, want := canonicalURI(u, false), "/model/anthropic.claude-sonnet%253A0/invoke"; got != want {
 		t.Errorf("canonicalURI = %s, want %s", got, want)
 	}
+	// An inference-profile ARN in a Converse path: its ':' and '/' were each sent encoded as one
+	// segment, and each is encoded a second time, so the '/' never splits the segment it is in.
+	arn, err := url.Parse("https://bedrock-runtime.us-east-1.amazonaws.com/model/arn%3Aaws%3Abedrock%3Aus-east-1%3A1%3Ainference-profile%2Fx/converse-stream")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := canonicalURI(arn, false),
+		"/model/arn%253Aaws%253Abedrock%253Aus-east-1%253A1%253Ainference-profile%252Fx/converse-stream"; got != want {
+		t.Errorf("canonicalURI = %s, want %s", got, want)
+	}
 	u2, _ := url.Parse("https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1/chat/completions")
 	if got := canonicalURI(u2, false); got != "/openai/v1/chat/completions" {
 		t.Errorf("a plain path must sign as itself, got %s", got)
