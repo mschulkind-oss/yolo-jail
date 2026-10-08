@@ -1,5 +1,5 @@
 ---
-status: current
+status: in-review
 verified: 2026-10-01
 verified_commit: d4e435a3
 covers:
@@ -43,8 +43,11 @@ summary: "How /home/agent is composed: a per-jail read-only skeleton, per-worksp
 # The jail home — how `/home/agent` is composed
 
 **Status:** verified 2026-10-01 against `d4e435a3`, the whole doc. One question is open,
-[`OQ-JH1`](#OQ-JH1), on relocating `.yolo` with a symbolic link. The Apple Container seed fix is
-UNMEASURED on hardware, as [the claude.json seed](#the-claudejson-seed) says.
+[`OQ-JH1`](#OQ-JH1), on relocating `.yolo` with a symbolic link. The whole-document
+verification stamp above is unchanged; the seed evidence below was reconciled separately
+2026-10-07 against `931489400b`. MEASURED: historical Apple Container fake-seed delivery
+and directory layout. UNMEASURED: real Claude authentication and current target-host
+acceptance; see [the claude.json seed](#the-claudejson-seed).
 
 `/home/agent` is not a directory that exists anywhere as a whole. It is composed at
 container create out of four ingredients: a **read-only home skeleton of this jail's own**
@@ -610,14 +613,14 @@ Two things are not pack names and stay reserved in every workspace: core's own d
 files, and `.claude` as a `writable_home_dirs` segment, because core's `~/.claude.json`
 redirect targets `.claude/claude.json`.
 
-Two lists are still read from every *shipped* pack:
+**Only the machine store's shared-dir creation reads every shipped pack.**
 
 - **The machine store's directories.** `EnsureGlobalStorage` creates every shipped pack's
   shared dir in `<global storage>/home`, because it runs before the config is loaded. That
   makes a bind source, which a jail mounts only when it selects the pack. The fresh launch
   then creates the selected packs' own, on both container backends, so a configured pack's
   shared dir has a source too (`ensureSharedDirSources`).
-- **The `host_files` surface reservation** covers only the SELECTED packs' surfaces, plus core's
+- **The `host_files` surface reservation**, in contrast, covers only the SELECTED packs' surfaces, plus core's
   own ([`OQ-BH15`](../design/base-home-legacy-state.md#OQ-BH15), built 2026-09-25): a destination
   such as `~/.codex/config.toml` is refused only when a selected pack composes it. A collision
   between two selected writers is still refused at launch (`config.SurfaceCollisions`).
@@ -709,7 +712,25 @@ The workspace side is the file the jail reads as `~/.claude.json`, which differs
 the skeleton's redirect, and `<workspace>/.yolo/home/.claude.json` on Apple Container, whose
 whole home is that directory. Apple Container synced the podman path until the design's
 [`OQ-BH12`](../design/base-home-legacy-state.md#OQ-BH12) fix, so the seed never reached one
-of its jails. The fix is unmeasured on hardware.
+of its jails.
+
+**Seed evidence, reconciled 2026-10-07 against `931489400b`.**
+[TestAppleContainerFreshWorkspaceBootsWithTheLoginSeed](../../integration/applecontainerhome_test.go)
+recorded `AC-PARITY login-seed VERDICT: HOLDS` on the self-hosted Mac in
+[run 37133569003](https://github.com/mschulkind-oss/yolo-jail/actions/runs/37133569003),
+2026-10-03, at `5ca9b74856b1a181e91b0c30022f578382d54204`. The fake account arrived in
+both the host copy and the jail's `~/.claude.json`; `~/.claude` existed and the undotted
+`~/claude` and `~/npm-global` did not. The test uses a private machine store, starts no
+agent and makes no authentication request. This is **fake-seed delivery and layout**,
+not proof that Claude is logged in. Real authentication and reverse learning after a
+real login remain UNMEASURED on that backend.
+
+> [!WARNING]
+> **Read the experiment verdict, not PASS.** Both HOLDS and DOES NOT HOLD still pass
+> through `acParityRecord`; the [promotion rule](../../integration/applecontainerparity_test.go)
+> has not yet been applied to this experiment. Its [live plan](../design/base-home-legacy-state-plan.md#remaining-gate--seed-regression-promotion)
+> owns the regression-promotion and target gate. This historical observation does not
+> establish current target acceptance or repair any later native failure.
 
 ### History isolation
 
@@ -1038,7 +1059,8 @@ separately.
   packs' dirs at their dotted names (`.claude`, not podman's `claude`) and syncs the login
   seed with `.claude.json`, and creates none of podman's dot-stripped bind sources, which on
   this backend were stray entries in the jail's home (`~/claude`, `~/npm-global`)
-  ([`OQ-BH12`](../design/base-home-legacy-state.md#OQ-BH12), unmeasured on hardware). The
+  ([`OQ-BH12`](../design/base-home-legacy-state.md#OQ-BH12)); fake-seed delivery and layout
+  were [observed on hardware](#the-claudejson-seed), without testing real authentication. The
   one-time legacy migrations write to the dotted paths too.
 - **Machine-scope shared dirs still need their own mounts**, nested inside that bind exactly
   as the cache is. Leaving them to the single bind is a **silent degradation**, not a

@@ -733,6 +733,23 @@ machine that develops this repo, and a skip reads as a pass.
 > test-fast` and `just done` red for the whole tree — which costs every unrelated commit the
 > ability to tell *"I broke something"* from *"the known red"*. Reverted in `efe7282c`.
 
+## Concurrent-workspace choice: background and full options
+
+Filed 2026-10-05 with [HT-D15](#ht-d15), which refuses today. The account home holds one
+workspace's links, and every session runs as the one account in it, so a second workspace's
+launch would repoint the first session's links under it.
+
+- **(a) Keep refusing** while a session of another workspace holds the home (today), naming it,
+  with "quit that session, or use a container runtime for this project".
+- **(b) Wait instead of refusing**, as a second launch of one workspace waits for the workspace
+  lock, until the other session ends. Nothing is lost, but the second terminal hangs for as long
+  as the first session runs, which may be hours.
+- **(c) A home per workspace**: `HOME` under the account (say `/Users/_yolojail/w/<cname>`),
+  each holding its own links. It ends the contention; it reopens
+  [OQ-HT4](#oq-ht4)'s one-`HOME` ruling and the profile's home rules.
+- **(d) An account per workspace**, from a pool `yolo macos-setup` makes: the uid split per
+  workspace as well, at the cost of provisioning and of every grant naming one account.
+
 ## Open questions
 
 - 💬 <a id="oq-ht5"></a>**[`OQ-HT5`](#oq-ht5) — may the layout replace a real home-root file
@@ -764,20 +781,13 @@ machine that develops this repo, and a skip reads as a pass.
 
   <!-- vantage: question id=OQ-HT6 leaning="(a): keep refusing (HT-D15) until someone needs two at once; then (c), a home per workspace, which ends the contention instead of scheduling it." -->
 
-  Filed 2026-10-05 with [HT-D15](#ht-d15), which refuses today. The account home holds one
-  workspace's links, and every session runs as the one account in it, so a second workspace's
-  launch would repoint the first session's links under it.
+  Choose whether to retain the current refusal or permit concurrent workspaces; see the
+  [full unchanged options and trade-offs](#concurrent-workspace-choice-background-and-full-options).
 
-  - **(a) Keep refusing** while a session of another workspace holds the home (today), naming it,
-    with "quit that session, or use a container runtime for this project".
-  - **(b) Wait instead of refusing**, as a second launch of one workspace waits for the workspace
-    lock, until the other session ends. Nothing is lost, but the second terminal hangs for as long
-    as the first session runs, which may be hours.
-  - **(c) A home per workspace**: `HOME` under the account (say `/Users/_yolojail/w/<cname>`),
-    each holding its own links. It ends the contention; it reopens
-    [OQ-HT4](#oq-ht4)'s one-`HOME` ruling and the profile's home rules.
-  - **(d) An account per workspace**, from a pool `yolo macos-setup` makes: the uid split per
-    workspace as well, at the cost of provisioning and of every grant naming one account.
+  - **(a) Keep refusing:** explicit remedy, no concurrent workspaces.
+  - **(b) Wait:** preserves state, but may hang for hours.
+  - **(c) A home per workspace:** ends contention, reopens the one-`HOME` ruling.
+  - **(d) An account per workspace:** uid isolation, provisioning and grant costs.
 
   _Leaning:_ **(a)** until someone needs two at once, then **(c)**: it removes the shared state
   rather than scheduling around it, where (b) turns a clear refusal into a silent hang.

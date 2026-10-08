@@ -5,29 +5,40 @@ status: accepted
 tags: [base-home, jail-home, storage, backend-parity, design]
 summary: "Podman mounts ONE machine-wide base, <state>/home, read-only at /home/agent in every jail. A jail needs nothing in it: it holds empty mountpoints, three redirect links, the machine's shared credential dirs and a login seed only the host reads. Sharing it is the defect: one workspace's pack dirs, host_files links and old bytes show up in every jail, and a jail that did not select claude can read the machine's Claude credential file. The design: mount a per-jail read-only skeleton built from the SELECTED packs, keep <state>/home as the machine store for the shared dirs and the Claude login seed, delete seedAgentDir, and leave legacy bytes unmounted and unread."
 stage: BUILT
-next: "Record the AC-PARITY login-seed verdict in §3 and the OQ-BH12 ledger row: the 2026-10-03 apple-container.yml run (GitHub Actions run 37133569003, at 5ca9b7485) logged HOLDS for TestAppleContainerFreshWorkspaceBootsWithTheLoginSeed"
+next: "Complete the seed regression-promotion gate in base-home-legacy-state-plan.md before retirement; retain jail-home.md's live OQ-JH1 rather than hiding it in a completed reference"
 ---
 
 # Why does every podman jail share one home? It should not — a per-jail skeleton instead
 
-**Status:** 2026-09-25 — every question is ruled, and every step of
+**Status:** reconciled 2026-10-07 against `931489400b`. The skeleton and seed-path
+implementation are built; the original build and rootless observations below remain
+historical evidence. MEASURED: the Apple Container fake login seed reached the jail and
+the dotted directory layout held in [run 37133569003](https://github.com/mschulkind-oss/yolo-jail/actions/runs/37133569003)
+at `5ca9b74856b1a181e91b0c30022f578382d54204`, 2026-10-03. UNMEASURED: authentic
+Claude login, seed learning after a real login on that backend, and current target-host
+acceptance. [The seed experiment](#3-the-apple-container-seed-defect) still accepts both
+verdicts; [its regression-promotion gate](base-home-legacy-state-plan.md#remaining-gate--seed-regression-promotion)
+is unfinished. No design ruling is reopened. Graduation into the existing reference is
+held while [OQ-JH1](../reference/jail-home.md#OQ-JH1) remains live there.
+
+**Original build evidence, 2026-09-25:** every question is ruled, and every step of
 [§8](#8-build-order-and-done-conditions) is built, [OQ-BH15](#OQ-BH15) and
-[OQ-BH16](#OQ-BH16), the last two, the same day; only the Apple Container seed's Mac
-run is still owed, and its experiment was written on 2026-10-01 for `apple-container.yml`, which
-runs on the maintainer's self-hosted Mac. The doc was rewritten around a new premise after the maintainer's review,
+[OQ-BH16](#OQ-BH16), the last two, the same day. The Apple Container experiment was
+written on 2026-10-01 for `apple-container.yml`, which runs on the maintainer's self-hosted Mac. The doc was rewritten around a new premise after the maintainer's review,
 then every open question settled the same day. **Steps 1–3 of [§8](#8-build-order-and-done-conditions)
 built 2026-09-25** (the seed fixes, the podman skeleton, the refusal's deletion and the reworded
 `yolo check` report); `integration/homeskeleton_test.go` PASSED in a nested, rootful jail the
 same day, and ROOTLESS in CI on both arches the same evening (`ci.yml` run 36167524940). **Steps 4, 4a and 5 built 2026-09-25**: the
-Apple Container seed paths ([OQ-BH12](#OQ-BH12), host side only; a Mac run is still owed), name
+Apple Container seed paths ([OQ-BH12](#OQ-BH12), initially host-side only), name
 reservation over the selected packs only ([OQ-BH14](#OQ-BH14)), and the reference docs and code
 comments. **Review follow-ups built 2026-09-25** ([§8](#8-build-order-and-done-conditions),
 last bullet): the reaper can now reach a jail's skeletons, a refused launch leaves none, and a
 configured pack's shared dir gets its bind source.
 MEASURED: what the base holds on two bases, EROFS on the home root, the jail writing through `/workspace/.yolo/home`, the machine credential file sitting in the base, and a
 host `rmdir` detaching a bind (in a user+mount namespace; `internal/prune/shadowed.go` records
-the same failure in a real jail, 2026-07-04). UNMEASURED: the Apple Container seed defect (no
-Mac) and a jail without claude actually reading the credential file (inferred from the mounts).
+the same failure in a real jail, 2026-07-04). UNMEASURED in that investigation: the Apple
+Container seed defect and a jail without claude actually reading the credential file
+(inferred from the mounts). The fake-seed delivery observation above is later and narrower.
 Rootless ID mapping of a host-built skeleton was MEASURED in CI, 2026-09-25. Evidence: [Appendix A](#appendix-a-evidence).
 
 > **In short.** The shared base home is left over from an older design, and sharing it is the
@@ -344,29 +355,38 @@ refusal and `yolo check` say about the bytes is [OQ-BH13](#OQ-BH13).
 
 ## 3. The Apple Container seed defect
 
-A separate defect, there today whatever happens to podman. `prepareWsState` strips the dot
-(`strings.TrimPrefix`) with no runtime branch, so on `rt=container` it seeds and syncs
-`wsState/claude/claude.json`. But Apple Container binds `wsState` whole at `/home/agent`, so its
-`~/.claude` is `wsState/.claude` and its `~/.claude.json` is `wsState/.claude.json`. The login
-seed never reaches an Apple Container jail and never learns from one, and that backend's homes
-carry unused undotted dirs (`~/claude`, `~/npm-global`). MEASURED in a `/tmp` copy of HEAD;
-**UNMEASURED on hardware.** The fix is [OQ-BH12](#OQ-BH12).
+The old defect was a backend-path mismatch: `prepareWsState` synced podman's
+`wsState/claude/claude.json`, but Apple Container binds `wsState` whole at `/home/agent`
+and reads `wsState/.claude.json`. Creating podman's bind sources there also left unused
+undotted `~/claude` and `~/npm-global` entries. [OQ-BH12](#OQ-BH12) keeps runtime-aware
+paths rather than adding podman's many mounts to a backend limited by mount count.
 
-**Built 2026-09-25, host side.** On `rt=container`, `prepareWsState` syncs the seed with
-`wsState/.claude.json` (`claudeJSONInWsState`), creates the selected packs' dirs at their
-dotted names plus `go`, and creates none of podman's dot-stripped bind sources
-(`preparePodmanBindSources`). The one-time legacy migrations (`claude-projects` and the
-rest) write to the dotted paths there too (`wsStateHomePath`). Unit tests pin the paths
-(`internal/cli/run/acseed_test.go`). Whether a real Apple Container jail then boots logged in
-is still unmeasured; it needs a Mac, and the Apple Container parity CI workflow is the
-instrument. **Its experiment is written** (2026-10-01):
-`TestAppleContainerFreshWorkspaceBootsWithTheLoginSeed`
-([`applecontainerhome_test.go`](../../integration/applecontainerhome_test.go)) plants a seed with
-a per-run fake login in a private machine store (never the Mac's own), launches a fresh
-workspace, and reads the jail's `~/.claude.json` and whether `~/.claude` exists and `~/claude` and
-`~/npm-global` do not. Both answers pass; it logs one `AC-PARITY login-seed VERDICT:` line, with
-whether the host-side copy in `<ws>/.yolo/home/.claude.json` carries the login, so a miss says
-which side lost it.
+On `rt=container`, `prepareWsState` syncs the seed with `wsState/.claude.json`
+(`claudeJSONInWsState`), creates the selected packs' dotted dirs plus `go`, and does not
+create podman's dot-stripped bind sources (`preparePodmanBindSources`). Legacy layout
+migrations follow the same backend-specific paths (`wsStateHomePath`). These host-side
+paths are pinned by [`acseed_test.go`](../../internal/cli/run/acseed_test.go).
+
+**MEASURED, 2026-10-03:** [run 37133569003](https://github.com/mschulkind-oss/yolo-jail/actions/runs/37133569003),
+checkout `5ca9b74856b1a181e91b0c30022f578382d54204`, recorded
+`AC-PARITY login-seed VERDICT: HOLDS`. The saved log reports the fake login in both the
+host's `<ws>/.yolo/home/.claude.json` and the jail's `~/.claude.json`, with
+`.claude:DIR`, `claude:ABSENT` and `npm-global:ABSENT`.
+
+The experiment, `TestAppleContainerFreshWorkspaceBootsWithTheLoginSeed` in
+[`applecontainerhome_test.go`](../../integration/applecontainerhome_test.go), plants a
+per-run fake account in a private machine store, never the Mac's real store. It starts no
+agent and tests no authentication. The entrypoint adds workspace settings to the delivered
+JSON; their presence is not evidence that the seed forwarded non-login keys.
+
+> [!WARNING]
+> **A passing experiment is not a regression check or a successful login.** Both HOLDS and
+> DOES NOT HOLD pass through `acParityRecord`. Read the verdict and its controls, not just
+> PASS. The [promotion rule](../../integration/applecontainerparity_test.go) requires the
+> negative branch to become a test failure after HOLDS is recorded; that promotion is
+> still unbuilt at `931489400b`. The [companion's remaining gate](base-home-legacy-state-plan.md#remaining-gate--seed-regression-promotion)
+> owns it. UNMEASURED: real Claude authentication, reverse learning after a real login,
+> and current target-host acceptance; this historical observation closes none of those.
 
 **Found in review, 2026-09-25: the seed wrote through links.** `SyncClaudeJSONSeed` read and
 wrote the workspace file with calls that follow a symlink, and that file is one the jail can
@@ -498,13 +518,15 @@ a temp file renamed over the path. MEASURED as a unit test on both backends' pat
   write to the home root fails with EROFS. `/home/agent` and `/home/agent/.config` stat
   `0:0 755`, the jail user's own, because jail root maps to the host user who built the skeleton.
   The `writable_home_dirs` subtest wrote through its rw bind nested in the `:ro` skeleton.*
-- **Step 4:** a new Apple Container workspace boots logged in from the seed, and its home has
-  no undotted `~/claude` or `~/npm-global`. *Met on the host side only:
+- **Step 4:** a fresh Apple Container jail reads the fake seed at `~/.claude.json`, and
+  its home has no undotted `~/claude` or `~/npm-global`. *Host-side path and link defenses:
   `TestAppleContainerSeedReachesTheJailsClaudeJSON`, `TestAppleContainerLoginIsLearnedByTheSeed`,
   `TestPrepareWsStateLaysOutEachBackendsOwnPaths`, `TestLegacyMigrationsLandInEachBackendsLayout`,
-  `TestTheSeedDoesNotWriteThroughAJailPlantedLink`, and `runContainer`'s `rt` argument is pinned
-  by `TestRunContainerHandsTheSelectionToTheReservationReaders`. The boot is not run; it needs a
-  Mac.*
+  `TestTheSeedDoesNotWriteThroughAJailPlantedLink`, and the runtime argument pinned by
+  `TestRunContainerHandsTheSelectionToTheReservationReaders`. Hardware fake-seed delivery:
+  [the recorded HOLDS](#3-the-apple-container-seed-defect), 2026-10-03. A real login and
+  regression enforcement are not established; [the companion](base-home-legacy-state-plan.md#remaining-gate--seed-regression-promotion)
+  retains the next gate.*
 - **Step 4a:** `writable_home_dirs: [".codex"]` passes in a claude-only workspace and is
   refused once codex is selected, naming codex; a `host_files` entry under `~/.codex/` works
   in a claude-only jail. *Met: `TestWritableHomeDirCodexIsLegalUntilCodexIsSelected` (through
@@ -736,7 +758,7 @@ a temp file renamed over the path. MEASURED as a unit test on both backends' pat
 | OQ-BH7 | **Superseded by DIR-BH2 for the container base**: no migration, so nothing to reuse [`OQ-HT2`](../reference/macos-user-home-tiers.md#oq-ht2)'s discard for; macos-user never mounts `<state>/home` or reaches `prepareWsState`. **Its macos-user half is dropped from this doc**: reopening [`OQ-HT2`](../reference/macos-user-home-tiers.md#oq-ht2) for an account used for real work belongs to [`../reference/macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md) | 2026-09-25 | [§4](#4-what-this-does-not-cover) | — |
 | OQ-BH9 | **Delegated to the build:** the skeleton lives under `paths.AgentsDir()/<cname>/`, reaped by `PruneOrphanAgentStaging` | 2026-09-25 | [§2.2](#22-where-it-lives-host-only-never-in-wsstate) | yes, 2026-09-25 (`paths.HomeSkeletonRoot`) |
 | OQ-BH10 | **The maintainer's ruling:** a new skeleton per fresh launch, never modified afterwards | 2026-09-25 | [§2.4](#24-the-three-rules-the-shared-base-obeys-by-accident) | yes, 2026-09-25 (`buildHomeSkeleton`); the reaping half became true the same day, when a launch started removing a gone jail's tracking file (`forgetGoneContainer`, [§2.2](#22-where-it-lives-host-only-never-in-wsstate)). What the reaper still cannot reach is [OQ-BH16](#OQ-BH16) |
-| OQ-BH12 | **Delegated to the build:** runtime-aware seed paths in `prepareWsState`, verified on a Mac, landing separately | 2026-09-25 | [§3](#3-the-apple-container-seed-defect) | host side, 2026-09-25 (`claudeJSONInWsState`, `preparePodmanBindSources`); the Mac run is owed, and its experiment is written (`TestAppleContainerFreshWorkspaceBootsWithTheLoginSeed`, 2026-10-01) |
+| OQ-BH12 | **Delegated to the build:** runtime-aware seed paths in `prepareWsState`, verified on a Mac, landing separately | 2026-09-25 | [§3](#3-the-apple-container-seed-defect) | host paths built 2026-09-25; fake-seed delivery recorded HOLDS on a Mac in run 37133569003, 2026-10-03, at `5ca9b74856b1a181e91b0c30022f578382d54204`. Real authentication is unmeasured; the experiment's regression promotion remains [unfinished](base-home-legacy-state-plan.md#remaining-gate--seed-regression-promotion) |
 | OQ-BH13 | **The maintainer's ruling:** delete the launch refusal and `YOLO_ALLOW_LEGACY_BASE_HOME` with the skeleton; keep `yolo check`'s report, reworded | 2026-09-25 | [§8](#8-build-order-and-done-conditions) | yes, 2026-09-25 |
 | OQ-BH14 | **The maintainer's ruling:** reserve only the selected packs' directories; an unselected pack is treated as nonexistent | 2026-09-25 | [§2.8](#28-reservation-is-a-rule-about-config-names-not-about-directories) | yes, 2026-09-25 (`resolveSelectedPacks`, `reservedHomeSegments`, `StagingFor`; AGENTS.md's bullet rewritten) |
 | OQ-BH15 | **`host_files`' surface-path reservation covers only the selected packs**, by DIR-BH1; the launch's collision check still refuses two writers | 2026-09-25 | [OQ-BH15](#OQ-BH15) | yes, 2026-09-25 (`selectedSurfacePaths` over `resolveSelectedPacks`) |

@@ -1,8 +1,8 @@
 ---
 title: "A pack's service runs wherever its agent runs"
 date: 2026-09-28
-status: accepted
-stage: BUILT
+status: in-review
+stage: DESIGN
 next: "Have OQ-HS5 ruled (does a fetched pack's host half run?). Record the AWS doorway's first Mac verdict in this doc: the 2026-10-03 scheduled macos-user.yml run (GitHub Actions run 37121866798, at 0e34798c6) passed TestMacosUserOpensTheAWSDoorwayOutsideTheSandbox with its config naming a region"
 tags: [design, services, wire-bridge, host, notches, profiles, credentials, macos-user]
 summary: "Built 2026-09-28: yolo host and the macos-user launch start each needed pack service's host half as a child of that one launch, on a loopback port it picked, answering only that launch's caller token, and stop it when the agent exits (OQ-NC1 ruled A, OQ-HS3 per launch, OQ-HS4 as leaned). Built 2026-09-29: the doorway rule (HS-D15), so macos-user opens the Codex and AWS credential doorways the same way, and yolo host opens the AWS one for an agent on Bedrock. This doc holds the shape, the rulings, and the implementation decisions under them."
@@ -12,7 +12,9 @@ vantage:
 
 # A pack's service runs wherever its agent runs
 
-**Status:** 2026-09-28: the mechanism, pinned by `TestStartWaitsForReadinessAndStopEndsTheService`
+**Status:** 2026-10-07 — [OQ-HS5](#OQ-HS5) still needs the maintainer's ruling;
+the implemented admission boundary and the evidence below do not settle it.
+2026-09-28: the mechanism, pinned by `TestStartWaitsForReadinessAndStopEndsTheService`
 and `TestTheHostHalfServesFromItsInputAndPublishesNoFile`; the host launch,
 `TestHostCodexClaudeRunsThroughALaunchOwnedBridge`; macos-user,
 `TestTheMacosUserArmStartsTheServiceAndStopsItAfterTheCommand`; and the disclosure's address
@@ -79,6 +81,7 @@ a bridged profile.
 
 **Start at [§4](#4-the-proposed-shape)**, the shape. The questions fall out of it.
 
+**Needs your ruling:** [OQ-HS5](#OQ-HS5), whether a fetched pack's host half runs.
 **Rulings:** [OQ-HS3](#OQ-HS3), per launch (the maintainer, 2026-09-28), [OQ-HS4](#OQ-HS4), decided as leaned and widened to a local pack by [HS-D27](#HS-D27), and [HS-D15](#HS-D15), the doorway rule (the maintainer, 2026-09-29). All three are built, HS-D15 for macos-user and, for the AWS doorway, at `yolo host`. One question awaits the maintainer: [OQ-HS5](#OQ-HS5), whether a fetched pack's host half runs.
 
 **Reads with:** [`notch-convergence.md`](../plans/notch-convergence.md) (the plan this doc is

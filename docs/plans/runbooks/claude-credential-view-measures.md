@@ -2,10 +2,10 @@
 title: "RUNBOOK — the Claude credential view's measures, M1 to M11 and H1 to H5, on a real host"
 status: accepted
 stage: CURRENT
-next: "The maintainer runs Part A on the host (M1, M2 and M4 to M6 against a hand-made view), then Parts B and C"
+next: "The maintainer runs isolated Part A (M1, M2, M4 and M6); M5 remains a separate pending shared-store enrollment measure, then Parts B and C"
 date: 2026-09-29
 tags: [runbook, host, claude, credentials, oauth, broker, measures]
-summary: "The measures the Claude credential view owes before the interception can be deleted, written as one sitting's procedure for the maintainer: Part A runs M1, M2 and M4 to M6 in an ordinary interception jail against a hand-made view, with the terminator's log as the witness for any token request; Part B turns the view on for one throwaway workspace and runs M3 and M7 to M10 against the broker's own rewrites; Part C exercises /login, /logout and yolo claude-auth logout; Part D is the Mac measure M11 and the day on a rootless host; Part H runs the same switch at `yolo host -- claude` (H1 to H5, CL-D27). Nothing here prints a token."
+summary: "The measures the Claude credential view owes before the interception can be deleted, written as one sitting's procedure for the maintainer: isolated Part A runs M1, M2, M4 and M6 against a private hand-made view; M5 remains a separate pending shared-store enrollment measure; Part B turns the view on for one throwaway workspace and runs M3 and M7 to M10 against the broker's own rewrites; Part C exercises /login, /logout and yolo claude-auth logout; Part D is the Mac measure M11 and the day on a rootless host; Part H runs the same switch at `yolo host -- claude` (H1 to H5, CL-D27). Nothing here prints a token."
 ---
 
 # RUNBOOK — the Claude credential view's measures, M1 to M11 and H1 to H5, on a real host
@@ -24,17 +24,19 @@ agent tests").
 **Time:** about ninety minutes for Parts A to C; Part D is a Mac session and a day of ordinary use.
 **Needs:** a host `yolo` built from this commit or later (`just install`), a working Claude
 subscription login on the machine, and `jq` (it is in the jail image).
-**Writes:** two throwaway workspaces under `~/tmp`. Part A replaces one jail's credential link with
-a file and Part C signs this machine out once; each part says how to put things back.
+**Writes:** throwaway workspaces under `~/tmp`. Part A keeps its direct fixture edits in a fresh
+private directory under `/tmp` and does not replace the jail's credential link. Interception is
+still active, so a successful token-response mirror may independently update broker state. Part C
+signs this machine out once; each part says how to put things back.
 
 ## Terms
 
 - **Credential view** (the design's term) — a per-workspace `~/.claude/.credentials.json` the host
   broker writes: the current access token and its real expiry, and no refresh token
   ([§2](../../design/claude-login-without-interception.md#2-terms)).
-- **Hand-made view** *(coined here)* — a view you make yourself, in an interception jail, by
-  deleting the refresh token from a copy of the shared file. Part A uses one so the terminator's
-  log can witness whether Claude ever asks for a token.
+- **Hand-made view** *(coined here)* — a credential file made from a copy of the shared file
+  with its refresh token removed. Part A puts it in a private temporary store and explicitly
+  points Claude at that file; it does not replace the jail's credential link.
 - **The switch** — `YOLO_CLAUDE_CREDENTIAL_VIEW`, read by the host launcher
   ([CL-D10](../../design/claude-login-without-interception.md#CL-D10)). `1` turns the view on for a
   launch; on podman it is off unless set.
@@ -43,65 +45,91 @@ a file and Part C signs this machine out once; each part says how to put things 
 
 ## Rules for the whole sitting
 
-- **Never print a token.** Read credential files only through `yolo claude-auth inspect <file>`
-  (field names, expiry, fingerprints) or `jq 'keys'`. Every `jq` below writes to a file, never to
-  the terminal.
+- **Never print a token.** Use `yolo claude-auth inspect <file>` for credential facts and
+  `jq 'keys'` for structure. Part A's shown `jq` transformations redirect directly to private
+  files; never print credential JSON or token-bearing output to the terminal.
 - **Two logs are the witnesses:**
   - In a jail, the terminator's log, `~/.local/state/yolo-jail-daemons/claude-oauth-broker.log`.
-    Every request to the token endpoint leaves a line ending `is_refresh=True` or
-    `is_refresh=False`.
+    Every request to the token endpoint has a line containing the lowercase field
+    `is_refresh=true` or `is_refresh=false` (followed by `ua=…`).
   - On the host, the broker's log, `~/.local/share/yolo-jail/logs/host-service-claude-oauth-broker.log`
     (or `yolo host-daemon logs claude-oauth-broker`). It logs each refresh, each view write
     (`view: wrote`), each enrollment and each `/logout`, with fingerprints.
 - **Record each result** in the table at the end, with the Claude Code version the jail ran
   (`claude --version`).
 
-## Part A — M1, M2, M4, M5 and M6, in an interception jail against a hand-made view
+## Part A — M1, M2, M4 and M6, in an interception jail against an isolated hand-made view
 
 This is how [§7](../../design/claude-login-without-interception.md#7-what-must-be-measured-before-building)
 means them to run: the interception is still in place, so any request Claude makes to the token
-endpoint reaches the terminator and is logged.
+endpoint reaches the terminator and is logged. An ordinary view-off jail sets
+`CLAUDE_SECURESTORAGE_CONFIG_DIR` to `~/.claude-shared-credentials` ([launcher source](../../../internal/cli/run/claudesecurestorage.go#L61-L81)), so Claude does **not** read
+`~/.claude/.credentials.json`. Part A instead gives each Claude process an explicit override to a
+private temporary store. The override controls Claude's local file lookup only; it does not
+isolate the host broker. With interception still active, a successful matching Claude
+`POST /v1/oauth/token` response may be mirrored into broker canonical and shared state regardless
+of Claude's local store path. Part A does not run `/login`; its direct fixture edits stay in its
+private store, but that is not a guarantee that the broker cannot change independently. M5 is
+separate below because its login/enrollment observations may affect broker state and need separate
+operational authorization.
 
 ### A0. Set up
 
-1. On the host, give the machine a fresh access token first, so the hand-made view has hours to
-   live and no background refresh interrupts the part:
+1. On the host, check that the existing login has enough lifetime for Part A:
 
    ```console
-   $ yolo claude-auth refresh
    $ yolo claude-auth status
    ```
 
-   **Observe:** the canonical login's `refresh token: PRESENT` and `expires: … (in 7h5…)`.
+   **Observe:** a canonical login with `refresh token: PRESENT` and enough time remaining to
+   finish. Do not refresh as part of Part A; if the login is too near expiry, stop and arrange a
+   separately authorized refresh before starting the measurements.
 2. Launch an ordinary jail in a throwaway workspace. Leave the switch unset:
 
    ```console
    $ mkdir -p ~/tmp/cv-a && cd ~/tmp/cv-a && yolo -- bash
    ```
 
-3. In the jail, replace the credential link with a hand-made view:
+3. In the jail, create a fresh private directory and make the handmade store there. `mktemp -d`
+   creates a new, mode-700 directory; `umask 077` protects files created inside it. The fail
+   handler removes only this generated directory and exits if setup or a transform fails.
 
    ```console
-   $ ls -l ~/.claude/.credentials.json            # a link to ../.claude-shared-credentials/…
-   $ jq 'del(.claudeAiOauth.refreshToken)' ~/.claude/.credentials.json > /tmp/cv-view.json
-   $ rm ~/.claude/.credentials.json && install -m 600 /tmp/cv-view.json ~/.claude/.credentials.json
-   $ cp ~/.claude/.credentials.json /tmp/cv-good.json
-   $ yolo claude-auth inspect ~/.claude/.credentials.json
+   $ umask 077
+   $ CV_DIR=$(mktemp -d /tmp/cv-a.XXXXXXXX) || exit 1
+   $ export CV_DIR
+   $ part_a_fail() { rm -rf -- "$CV_DIR"; unset CV_DIR; exit 1; }
+   $ test -d "$CV_DIR" && test ! -L "$CV_DIR" || part_a_fail
+   $ printf 'Part A private directory: %s\n' "$CV_DIR"
+   $ jq 'del(.claudeAiOauth.refreshToken)' ~/.claude-shared-credentials/.credentials.json > "$CV_DIR/.credentials.json" || part_a_fail
+   $ test -f "$CV_DIR/.credentials.json" && test ! -L "$CV_DIR/.credentials.json" && test "$(stat -c '%a' "$CV_DIR/.credentials.json")" = 600 || part_a_fail
+   $ cp -- "$CV_DIR/.credentials.json" "$CV_DIR/good.json" || part_a_fail
+   $ test -f "$CV_DIR/good.json" && test ! -L "$CV_DIR/good.json" && test "$(stat -c '%a' "$CV_DIR/good.json")" = 600 || part_a_fail
+   $ yolo claude-auth inspect "$CV_DIR/.credentials.json" || part_a_fail
    ```
 
-   **Observe:** a regular file, `refresh token: absent`, and `scopes`, `subscriptionType` and
-   `rateLimitTier` listed.
+   **Observe:** `inspect` reports a regular file with `refresh token: absent`, and lists `scopes`,
+   `subscriptionType` and `rateLimitTier`. All credential-bearing scratch copies stay inside the
+   fresh private directory. Record the exact absolute path printed for use in M4's second shell.
+   Do not remove or replace `~/.claude/.credentials.json` or edit the shared source file.
 4. Note the terminator log's length, so each measure can read only its own lines:
 
    ```console
-   $ LOG=~/.local/state/yolo-jail-daemons/claude-oauth-broker.log; wc -l < $LOG
+   $ LOG=~/.local/state/yolo-jail-daemons/claude-oauth-broker.log; wc -l < "$LOG"
+   ```
+
+   Record the jail's version with the same local store override used for all Part A Claude
+   invocations:
+
+   ```console
+   $ CLAUDE_SECURESTORAGE_CONFIG_DIR="$CV_DIR" claude --version
    ```
 
 ### M1. A view with no refresh token counts as logged in
 
 ```console
-$ claude -p 'Reply with the single word: ok'
-$ tail -n +<the count from A0.4> $LOG | grep -c 'oauth/token'
+$ CLAUDE_SECURESTORAGE_CONFIG_DIR="$CV_DIR" claude -p 'Reply with the single word: ok'
+$ tail -n +<the count from A0.4> "$LOG" | grep -c 'oauth/token'
 ```
 
 **Pass:** Claude prints `ok`, and the count is `0`. A success on a subscription access token is the
@@ -111,12 +139,13 @@ OAuth beta header" is inferred from the success rather than observed.
 ### M2. An expired view gets no refresh attempt, and fails loud
 
 ```console
-$ jq '.claudeAiOauth.expiresAt = 0' /tmp/cv-good.json > /tmp/cv-expired.json
-$ install -m 600 /tmp/cv-expired.json ~/.claude/.credentials.json
-$ claude -p 'Reply with the single word: ok'; echo "rc=$?"
-$ tail -n +<count> $LOG | grep -c 'oauth/token'
-$ yolo claude-auth inspect ~/.claude/.credentials.json
-$ install -m 600 /tmp/cv-good.json ~/.claude/.credentials.json     # put the good view back
+$ jq '.claudeAiOauth.expiresAt = 0' "$CV_DIR/good.json" > "$CV_DIR/expired.json" || part_a_fail
+$ test -f "$CV_DIR/expired.json" && test ! -L "$CV_DIR/expired.json" && test "$(stat -c '%a' "$CV_DIR/expired.json")" = 600 || part_a_fail
+$ mv -fT -- "$CV_DIR/expired.json" "$CV_DIR/.credentials.json" || part_a_fail
+$ CLAUDE_SECURESTORAGE_CONFIG_DIR="$CV_DIR" claude -p 'Reply with the single word: ok'; echo "rc=$?"
+$ tail -n +<count> "$LOG" | grep -c 'oauth/token'
+$ yolo claude-auth inspect "$CV_DIR/.credentials.json"
+$ cp -- "$CV_DIR/good.json" "$CV_DIR/m2-restore.json" && mv -fT -- "$CV_DIR/m2-restore.json" "$CV_DIR/.credentials.json" || part_a_fail
 ```
 
 **Pass:** no `oauth/token` line; Claude reports the login as expired (or asks for `/login`) rather
@@ -131,57 +160,84 @@ Claude re-reads the file only when its modification time changes
 file's time.
 
 ```console
-$ jq '.claudeAiOauth.accessToken = "sk-ant-oat01-deliberately-wrong"' /tmp/cv-good.json > /tmp/cv-wrong.json
-$ install -m 600 /tmp/cv-wrong.json ~/.claude/.credentials.json
-$ claude                                     # interactive; leave it open
+$ jq '.claudeAiOauth.accessToken = "sk-ant-oat01-deliberately-wrong"' "$CV_DIR/good.json" > "$CV_DIR/wrong.json" || part_a_fail
+$ test -f "$CV_DIR/wrong.json" && test ! -L "$CV_DIR/wrong.json" && test "$(stat -c '%a' "$CV_DIR/wrong.json")" = 600 || part_a_fail
+$ mv -fT -- "$CV_DIR/wrong.json" "$CV_DIR/.credentials.json" || part_a_fail
+$ CLAUDE_SECURESTORAGE_CONFIG_DIR="$CV_DIR" claude                       # interactive; leave it open
 ```
 
 1. Send `say ok`. **Expect:** an authentication error (Claude read the wrong token).
-2. In a second shell in the same jail (`yolo -- bash` from `~/tmp/cv-a` attaches), restore the good
-   bytes under the wrong file's time:
+2. In a second shell in the same jail (`yolo -- bash` from `~/tmp/cv-a` attaches), set `CV_DIR` to
+   the exact absolute path printed in A0.3. Replace the example suffix before running the commands;
+   the guard refuses a value outside the generated `/tmp/cv-a.*` directory.
 
    ```console
-   $ touch -r ~/.claude/.credentials.json /tmp/cv-stamp
-   $ install -m 600 /tmp/cv-good.json ~/.claude/.credentials.json && touch -r /tmp/cv-stamp ~/.claude/.credentials.json
+   $ CV_DIR='/tmp/cv-a.REPLACE_WITH_THE_SUFFIX_PRINTED_IN_A0.3'
+   $ case "$CV_DIR" in /tmp/cv-a.*) ;; *) exit 1 ;; esac
+   $ test -d "$CV_DIR" && test ! -L "$CV_DIR" || exit 1
+   $ touch -r "$CV_DIR/.credentials.json" "$CV_DIR/stamp" && cp -- "$CV_DIR/good.json" "$CV_DIR/m4-restore.json" && touch -r "$CV_DIR/stamp" "$CV_DIR/m4-restore.json" && test -f "$CV_DIR/m4-restore.json" && test ! -L "$CV_DIR/m4-restore.json" && mv -fT -- "$CV_DIR/m4-restore.json" "$CV_DIR/.credentials.json" || { printf 'M4 restore failed; stop the session and clean up from the original jail shell.\n' >&2; exit 1; }
    ```
 
-3. Send `say ok` again in the open session.
+3. Send `say ok` again in the open session. If the second-shell restore command fails, do not
+   prompt Claude again; quit the session and clean up from the original jail shell.
 
 **Pass:** the second prompt is answered with no restart and no `/login`. The design's reading is
 that the 401 handler re-reads the store, finds a different token and retries
 (`tengu_oauth_401_recovered_from_keychain`). If step 1 already succeeded, Claude never used the
 wrong token; record that and treat M4 as not exercised.
 
-### M5. /login in a view jail writes a credential that carries a refresh token
-
-⚠ In Part A the interception is on, so this `/login` also re-enrolls the machine through the proxy
-mirror, exactly as a jail `/login` does today. Do it only if a fresh login is acceptable.
-
-```console
-$ claude            # then /login, and complete the manual paste in the host browser
-$ yolo claude-auth inspect ~/.claude/.credentials.json
-$ tail -n +<count> $LOG | grep 'oauth/token'
-```
-
-**Pass:** `inspect` shows `refresh token: PRESENT`: Claude wrote a whole credential into the view,
-which is what [CL-D4](../../design/claude-login-without-interception.md#CL-D4)'s enrollment adopts.
-The log shows one `is_refresh=False` line (the code exchange) and no `is_refresh=True` one.
-
 ### M6. /status and /usage show the subscription on a view
 
-Put the view back first if M5 ran (repeat A0.3), then in an interactive `claude`, run `/status` and
-`/usage`.
+Start an interactive Claude process with the isolated store, then run `/status` and `/usage` in it:
+
+```console
+$ CLAUDE_SECURESTORAGE_CONFIG_DIR="$CV_DIR" claude
+```
 
 **Pass:** `/status` names the subscription (Team, Max or Pro, not "Claude API"), and `/usage` shows
 the plan's usage.
 
-### A9. Put Part A back
+### A9. Put the isolated Part A store back
+
+Quit any interactive Claude session first. Validate that `CV_DIR` still names the generated
+private directory, then remove only that directory; do not use a wildcard or remove paths outside it.
 
 ```console
-$ rm ~/.claude/.credentials.json        # in the jail; the next boot's hook relinks it
+$ case "$CV_DIR" in /tmp/cv-a.*) ;; *) exit 1 ;; esac
+$ test -d "$CV_DIR" && test ! -L "$CV_DIR" || exit 1
+$ rm -rf -- "$CV_DIR" && unset CV_DIR
 $ exit
 $ yolo stop                             # on the host, in ~/tmp/cv-a
 ```
+
+## Separate pending measure — M5 /login and the two enrollment routes
+
+M5 remains owed by [§7](../../design/claude-login-without-interception.md#7-what-must-be-measured-before-building):
+a `/login` in a jail whose view has no refresh token should produce a credential/view carrying a
+refresh token, which the broker then enrolls. It is **unrun and outside Part A**. No command here
+authorizes a `/login` or a change to canonical/shared broker state.
+
+Two source routes must not be conflated:
+
+- **Intercepted token-response mirror:** the terminator forwards a non-refresh token request
+  upstream and logs the lowercase `is_refresh=false` field ([terminator source](../../../internal/oauthterminator/oauthterminatorcmd.go#L109-L128)). After a successful matching Claude
+  Code token response, the broker dispatches to its proxy-mirror logic
+  ([caller](../../../internal/oauthbroker/handler.go#L144-L153), [response gates and mirror](../../../internal/oauthbroker/handler.go#L219-L305)), which can update canonical and legacy shared
+  credentials through [`saveLocked`](../../../internal/oauthbroker/store.go#L218-L235), regardless of `CLAUDE_SECURESTORAGE_CONFIG_DIR`. That request/log and any
+  `proxy mirror: wrote shared creds` evidence describe this route; the local store override is
+  not broker isolation.
+- **CL-D4 registered-view enrollment:** separately, the broker observes a registered view that
+  contains a refresh token ([view maintenance](../../../internal/oauthbroker/views.go#L375-L403)),
+  redeems it once, updates canonical state and rewrites views without the refresh token
+  ([enrollment](../../../internal/oauthbroker/views.go#L410-L478)). The view's
+  registration/enrollment evidence describes this route; it is not the proxy response-mirror event.
+
+Any future authorized M5 operation must preserve the owed `/login` write, code-exchange and
+no-refresh-request observations where the interception route is exercised, and separately verify
+CL-D4's registered-view enrollment/redeem/rewrite behavior where that route is exercised. Neither
+route proves the other. A separately reviewed operational procedure must cover ownership,
+concurrent broker/jail activity, potential canonical/shared writes and restoration before live
+credential operations. This runbook records no outcome, pass, failure or waiver for M5.
 
 ## Part B — the switch on, end to end: M3, M7, M8, M9 and M10
 

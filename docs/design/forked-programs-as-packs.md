@@ -1,11 +1,11 @@
 ---
 title: "A fork is a package with no registry — distributing source-built programs through a pack"
 date: 2026-09-21
-status: accepted
+status: in-review
 tags: [design, packs, programs, capture, notches, forks, build]
 summary: "A pack can declare a program from npm or from a vendor installer, and neither can express a fork the maintainer builds themselves. The proposal adds a third delivery route — a pinned source address plus a build recipe, built once in a throwaway capture jail and delivered from the capture store — and the load-bearing problem is not the build but relocation: capture is cheap today only because the capture home and the materialize home are the same string, which a host-and-jail artifact breaks by definition."
-stage: DECIDED
-next: "Rerun the plan's step-7 measurement on the motivating fork once the maintainer names it (its address, build line and produces); the host notch's floor arms are built on the stand-in's shape. Dispatch macos-user.yml for the Mac floor's fork build (FP-D24), then run `yolo host -- <forked bin>` on a Mac with a real fork. Rule OQ-FP11 (a Mac build's node_floor)"
+stage: DESIGN
+next: "Rule OQ-FP11 (a Mac build's node_floor). Rerun the plan's step-7 measurement once the maintainer names the motivating fork (address, build line and produces); the host notch's floor arms are built on the stand-in's shape. Dispatch macos-user.yml for the Mac floor's fork build (FP-D24), then run `yolo host -- <forked bin>` on a Mac with a real fork"
 depends-on:
   - ../plans/install-capture.md
   - host-tool-provisioning.md
@@ -13,7 +13,8 @@ depends-on:
 
 # A fork is a package with no registry — distributing source-built programs through a pack
 
-**Status:** 2026-10-05 — no ruling is owed. [OQ-FP10](#OQ-FP10), filed from the maintainer's
+**Status:** 2026-10-07 — [OQ-FP11](#OQ-FP11) still needs the maintainer's ruling;
+the implemented route and its measurement limits remain recorded below. [OQ-FP10](#OQ-FP10), filed from the maintainer's
 first patched launch, was ruled the same day and built ([FP-D19](#FP-D19)): the user config's
 `mise_tools` reach no sealed build and no capture jail, which supersedes [FP-D9](#FP-D9)'s
 keeping them. Since 2026-10-02 a launch pins an unpinned fork
@@ -563,41 +564,55 @@ rebuilds once per upstream version it takes, about one a day for pi
    > are usually installed already, so there the ruling buys isolation, not a saved download.
 
 5. <a id="OQ-FP11"></a>**[OQ-FP11](#OQ-FP11): does a Mac's fork build install its base's `node_floor` before the build line?**
-   ⚠ **Narrowed by [OQ-FP10](#OQ-FP10)'s ruling ([FP-D19](#FP-D19)), recorded at the landing merge:** the
-   user config's `mise_tools` reach no sealed build at either backend, so the `mise_tools` half below
-   is answered (they are not installed) and what stays open is the base's `node_floor`. Filed as
-   OQ-FP10 by the parity build, renumbered OQ-FP11 at the landing merge, since OQ-FP10 is the
-   ruled question above.
-   [FP-D24](#FP-D24)'s build on a Mac runs on the darwin floor (Node 24, mise, git and the rest)
-   plus the config's darwin `packages:`, and on nothing else. A container build installs the
-   base's `node_floor` into its private `/mise` and runs `mise_tools` ([FP-D9](#FP-D9)), so the two
-   differ in one case: a fork whose base declares a `node_floor` above the darwin floor's Node, or
-   whose build needs a tool only `mise_tools` declares, builds in a container jail and fails on a
-   Mac with the build's own error, as a build missing its toolchain does ([§9](#9-failure-modes)).
-   No pack yolo ships hits it today: the highest shipped floor is pi's `22.19`, below Node 24.
-   Stakes: whether a Mac build is the same build a container makes for every fork, or for every
-   fork whose toolchain the floor and `packages:` cover.
+   The user config's `mise_tools` are already excluded by [OQ-FP10](#OQ-FP10).
+   A base's floor above the darwin floor's Node remains the parity question.
+   [Background and full option mechanics](#mac-fork-toolchain-background) preserve the original
+   proposal and its narrowing.
 
-   - **(a) Install them in the build, outside the capture.** The build's script runs
-     `mise install` for the base's floor and the config's `mise_tools` before the build line, with
-     `MISE_DATA_DIR` a sibling of the staging home (`<capture root>/fork-<id>/mise`), so the driver
-     never walks it and the entry never carries it, and puts what it installed ahead of the darwin
-     floor on the build's PATH. That is the container's private `/mise` carried to this backend,
-     at the cost of one download per build. The macos-user provisioning stage is not reused: its
-     tier layout links the capture surfaces out of the home the driver walks.
-   - **(b) Refuse before the build.** The host checks the base's floor against the darwin floor's
-     Node, and a `mise_tools` entry, before it builds, and a fork that needs either has no floor
-     entry on a Mac, the reason naming the floor it needs. Nothing new runs in the build.
-   - **(c) Leave it as built.** The build fails with its own error in the rare case.
+   - **(a) Install the base's floor before building**, outside the capture, ahead of the darwin
+     floor on PATH; one download per build, with sealed-profile mise behavior unmeasured.
+   - **(b) Refuse before building** when the floor is insufficient; no new build tool runs.
+   - **(c) Leave it as built**; a missing toolchain fails with the build's own error.
+
+   <!-- vantage: question id=OQ-FP11 leaning="(a): install the base's node_floor before building, outside the capture, as in a container; no added host-side read, but sealed-profile mise behavior on a Mac remains unmeasured." -->
 
    _Leaning:_ **(a).** It is what [FP-D9](#FP-D9) already does in a container, so a fork that builds
    in one builds on a Mac, and it adds no host-side read. It is left unbuilt here because nothing
    on a Mac has run it, and how `mise` behaves under the sealed profile there is unmeasured.
 
-   <!-- vantage: question id=OQ-FP11 -->
-
    **Answer:**
    > *(open)*
+
+### Mac fork toolchain background
+
+Full context and option mechanics for [OQ-FP11](#OQ-FP11), retained without a ruling:
+
+⚠ **Narrowed by [OQ-FP10](#OQ-FP10)'s ruling ([FP-D19](#FP-D19)), recorded at the landing merge:** the
+user config's `mise_tools` reach no sealed build at either backend, so the `mise_tools` half below
+is answered (they are not installed) and what stays open is the base's `node_floor`. Filed as
+[OQ-FP10](#OQ-FP10) by the parity build, renumbered [OQ-FP11](#OQ-FP11) at the landing merge, since [OQ-FP10](#OQ-FP10) is the
+ruled question above.
+[FP-D24](#FP-D24)'s build on a Mac runs on the darwin floor (Node 24, mise, git and the rest)
+plus the config's darwin `packages:`, and on nothing else. A container build installs the
+base's `node_floor` into its private `/mise` and runs `mise_tools` ([FP-D9](#FP-D9)), so the two
+differ in one case: a fork whose base declares a `node_floor` above the darwin floor's Node, or
+whose build needs a tool only `mise_tools` declares, builds in a container jail and fails on a
+Mac with the build's own error, as a build missing its toolchain does ([§9](#9-failure-modes)).
+No pack yolo ships hits it today: the highest shipped floor is pi's `22.19`, below Node 24.
+Stakes: whether a Mac build is the same build a container makes for every fork, or for every
+fork whose toolchain the floor and `packages:` cover.
+
+- **(a) Install them in the build, outside the capture.** The build's script runs
+  `mise install` for the base's floor and the config's `mise_tools` before the build line, with
+  `MISE_DATA_DIR` a sibling of the staging home (`<capture root>/fork-<id>/mise`), so the driver
+  never walks it and the entry never carries it, and puts what it installed ahead of the darwin
+  floor on the build's PATH. That is the container's private `/mise` carried to this backend,
+  at the cost of one download per build. The macos-user provisioning stage is not reused: its
+  tier layout links the capture surfaces out of the home the driver walks.
+- **(b) Refuse before the build.** The host checks the base's floor against the darwin floor's
+  Node, and a `mise_tools` entry, before it builds, and a fork that needs either has no floor
+  entry on a Mac, the reason naming the floor it needs. Nothing new runs in the build.
+- **(c) Leave it as built.** The build fails with its own error in the rare case.
 
 ## 14. Decision Ledger
 

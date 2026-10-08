@@ -4,23 +4,29 @@ date: 2026-09-20
 status: accepted
 tags: [plan, sketch, base-home, jail-home, storage]
 summary: "Build sketch for the per-jail read-only skeleton that replaces podman's shared base home: the seed fixes that ship first, the skeleton builder and the writers it takes over, the tests and fixtures that move, and the traps found in the tree. No design decision lives here."
-stage: BUILT
-next: "Step 4's Mac check held: the 2026-10-03 apple-container.yml run (GitHub Actions run 37133569003, at 5ca9b7485) passed TestAppleContainerFreshWorkspaceBootsWithTheLoginSeed; once base-home-legacy-state.md records it, nothing here is left to verify"
+stage: DECIDED
+next: "Promote TestAppleContainerFreshWorkspaceBootsWithTheLoginSeed into a regression check using the recorded fake-seed HOLDS, proving its actual negative branch red and restored target green without an agent or API call"
 ---
 
 # Per-jail home skeleton — build sketch
 
-**Status:** 2026-09-25 — a build sketch; every design question it builds is settled,
+**Status:** reconciled 2026-10-07 against `931489400b`. The original implementation
+steps are built. MEASURED: [the fake-seed delivery HOLDS](base-home-legacy-state.md#3-the-apple-container-seed-defect)
+on the self-hosted Mac, 2026-10-03. UNMEASURED: authentic login and current target-host
+acceptance. The [regression-promotion gate](#remaining-gate--seed-regression-promotion)
+is unbuilt, so this companion remains a live work owner, not a completed plan to delete.
+
+**Original build record, 2026-09-25:** every design question is settled,
 including the two found in the build, [OQ-BH15](base-home-legacy-state.md#OQ-BH15) and
 [OQ-BH16](base-home-legacy-state.md#OQ-BH16), both built the same day. **Every step built 2026-09-25**: 1, 2 and 3 first, then 4, 4a and 5, then the review
 fixes and follow-ups below. `integration/homeskeleton_test.go` passed in a nested, rootful jail
 the same day, and **ROOTLESS in CI** on both arches (`ci.yml` run 36167524940 at `e56d871e`,
 `integration (ubuntu-latest)` and `integration (ubuntu-24.04-arm)`, the same jobs' concurrency
 test reporting `podman rootless=true`), its anywhere-under-`~` search included: the codex-only jail
-found no Claude credential file. MEASURED: the podman skeleton, rootful in a nested jail and
-rootless in CI. UNMEASURED: step 4, the Apple Container seed, which a Mac run still owes.
-Rewritten with the design; the previous quarantine sketch is superseded and lives in git
-history.
+found no Claude credential file. MEASURED in that build: the podman skeleton, rootful in
+a nested jail and rootless in CI. Step 4's later hardware observation proves fake-seed
+bytes and layout only, not a logged-in agent. The previous quarantine sketch is
+superseded and lives in git history.
 
 **Where the build departed from this sketch** (2026-09-25):
 
@@ -89,6 +95,30 @@ wins on behavior; this file is the first thing here to be wrong.
 
 **Reads with:** [`base-home-legacy-state.md`](base-home-legacy-state.md) (the design this
 sketches) and [`jail-home.md`](../reference/jail-home.md) (the home layout it changes).
+
+---
+
+## Remaining gate — seed regression promotion
+
+The [design's seed evidence](base-home-legacy-state.md#3-the-apple-container-seed-defect)
+records the exact HOLDS and controls from [run 37133569003](https://github.com/mschulkind-oss/yolo-jail/actions/runs/37133569003),
+checkout `5ca9b74856b1a181e91b0c30022f578382d54204`. PASS alone is not the evidence:
+[`acParityRecord`](../../integration/applecontainerparity_test.go) accepts both answers.
+Its promotion rule requires a recorded HOLDS to become a regression check. That work
+has not been built into [`applecontainerhome_test.go`](../../integration/applecontainerhome_test.go).
+
+The next bounded source/test writer promotes **only the login-seed experiment**, keeping
+its private machine store, fake account, directory controls and no-agent/no-API boundary.
+Before the assertion change, observe that the existing negative branch remains green;
+afterward it must be red. Then a precise mutation of the actual backend seed-path caller
+must make the promoted check fail, with the restored path green on Apple Container.
+Linux unit greens cannot stand in for that target result. Parent owns this future writer,
+target authorization and acceptance; this docs reconciliation executes none of them.
+
+Graduation remains held: the destination's [OQ-JH1](../reference/jail-home.md#OQ-JH1)
+is live, and neither this unfinished gate nor real-login limitations may disappear in a
+reference move. Leave the existing [roadmap](../plans/roadmap.md) link to the design in
+place; no priority change or whole-roadmap replacement is needed for this reconciliation.
 
 ---
 

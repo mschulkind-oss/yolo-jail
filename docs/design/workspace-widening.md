@@ -1,9 +1,9 @@
 ---
 title: "The agent asks for a repository, the human says yes: GitHub scope widening moves into the workspace config"
 date: 2026-10-05
-status: accepted
-stage: BUILT
-next: "Rule OQ-WW1; then graduate into a system doc and delete the plan"
+status: in-review
+stage: DESIGN
+next: "Rule OQ-WW1; keep the built-on-leaning mechanism and its completed plan pending that ruling, then reconcile them before graduation"
 tags: [design, github, broker, config, approvals, scope, workspace, migration]
 summary: "The github-broker's extra repositories move from a user-config entry keyed by the workspace's host path to a `brokered.<source>.repos` list in the workspace's own config. The config-change gate that already approves the workspace's remotes approves them too. An agent can already widen the scope with `git remote add` and one y, so the user-scope entry protected nothing an agent could not already reach, and it cost the human a host-side edit. The entry joins the gate's scope part and its labeled block, never the JSON diff. The broker gets only what was approved. The out-of-scope refusal and the github briefing tell the agent to add the entry and ask the user to restart. The user-scope form shipped in 0.11.1; it is deleted and becomes a refusal that names the edit to make. This re-rules boundary-broker.md's OQ-BB6 to its option (d), which makes OQ-BB11 moot."
 vantage:
@@ -12,7 +12,9 @@ vantage:
 
 # The agent asks for a repository, the human says yes: GitHub scope widening moves into the workspace config
 
-**Status:** 2026-10-05. The rulings are the maintainer's, from conversation that day. The
+**Status:** 2026-10-07 — [OQ-WW1](#OQ-WW1) still needs the maintainer's ruling;
+the implemented-on-leaning behavior is not an answer. The direction and shape were ruled by
+the maintainer in conversation on 2026-10-05. The
 mechanism decisions are this doc's, recorded as implementation decisions in
 [§10](#10-decision-ledger). **Built 2026-10-05** in one landing, on
 [OQ-WW1](#OQ-WW1)'s leaning; the ledger's last column names each decision's code and the test
@@ -799,8 +801,8 @@ The rootless-host carve-out does not apply, because nothing here touches reachab
 
 The maintainer ruled the direction and its shape on 2026-10-05. The mechanism decisions, each
 with one right answer, are in the ledger below. One question the review raised is a trade the
-maintainer owns, and it is filed here. It blocks nothing: the build follows its leaning, which is
-what [WW-D11](#WW-D11) already said.
+maintainer owns, and it is filed here. The implementation already follows its leaning, which is
+what [WW-D11](#WW-D11) said; graduation and the companion plan wait for the ruling.
 
 1. <a id="OQ-WW1"></a>**[OQ-WW1](#OQ-WW1): Should renaming a remote ask?**
    Raised in review, 2026-10-05. The sources record keys a remote by its name
