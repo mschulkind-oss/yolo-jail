@@ -836,10 +836,11 @@
     a script or an IDE's "agent binary" setting can point at and rely on
     existing — which is also the answer whenever PATH is not consulted at all.
     An IDE or desktop launcher never reads your shell rc, so give it that full
-    path: the wrapper starts yolo by its full path too.  For a program yolo
-    keeps no copy of (claude on a Mac before `yolo macos-setup`, for one), that
+    path: the wrapper starts yolo by its full path too.  For a program outside
+    yolo's floor (one whose pack [bold]host_floor[/bold] leaves out, for one), that
     launcher also needs [bold]host_path[/bold] to name the program's folder;
-    `yolo check` says when.
+    `yolo check` says when.  Any other program a pack declares runs from the
+    floor or the launch stops, so no folder changes it.
     A pack that installs no program (a loophole-only pack) gets no wrapper.
 
     Enabling this makes yolo a runtime dependency of every wrapped launch: a
@@ -1082,27 +1083,33 @@
     a PATH of its own.  It is on no PATH of yours: your shell, and any copy you
     installed yourself (~/.local/bin/claude, Homebrew's), are left alone, and
     `yolo check` names such a copy as not run by `yolo host`.
-    WHEN IT INSTALLS: the first `yolo host -- <agent>` installs the agent it
-    names, and under `"host_management": "own"` `yolo host apply --assert`
-    installs every one that is missing, printing what it does (under "none" that
-    apply writes nothing).  Selecting the pack is the consent; nothing asks.  An
-    npm agent runs on the floor's own Node, the official release checked against
-    its published checksum; an agent with its own installer comes from the
+    WHEN IT INSTALLS: every `yolo host -- <command>` first installs every
+    program your selected packs declare that is missing, as a jail does, and
+    stops (exit 1) when one cannot install; YOLO_ALLOW_MISSING_PROGRAMS=1 starts
+    the command anyway and lists what is missing.  Under
+    `"host_management": "own"` `yolo host apply --assert` installs them too,
+    printing what it does (under "none" that apply writes nothing).  Selecting
+    the pack is the consent; nothing asks.  An npm agent runs on the floor's own
+    Node, the official release checked against its published checksum; an
+    agent with its own installer comes from the
     machine's `yolo capture` of it: a jail's, on a Mac the macos-user sandbox
     account's, or on Linux with no container runtime one made on this machine
     with its installer confined by Landlock.  Where the floor cannot hold an
     agent -- an installer agent on a Mac before `yolo macos-setup`, or on Linux
-    with neither a container runtime nor Landlock, no build for this machine, or
-    a machine without the dynamic loader the agent needs (NixOS without nix-ld, a
-    musl system) -- `yolo host` runs the one on your PATH, saying why and what
-    changes it.  The floor keeps them current the way a jail does, at most once
+    with neither a container runtime nor Landlock, or a machine without the
+    dynamic loader the agent needs (NixOS without nix-ld, a musl system) -- the
+    launch stops, saying why and what changes it; it never runs a copy from your
+    PATH instead.  An agent whose vendor publishes no build for this machine is
+    not the floor's to hold, and `yolo host` looks for it on your PATH, saying
+    so.  The floor keeps them current the way a jail does, at most once
     an hour when you start one; an agent with its own installer is captured
     again once its capture is a day old, and only a newer release is installed.
     `agent_updates` freezes both the same way.
-    A pack set to false here has no floor entry: `yolo host` looks for its agent on
-    your PATH, saying so.  Under "own" the next `yolo host apply --assert` removes
-    the floor's copy; under "none" `yolo check` and the launch name the command
-    that removes it by hand.
+    A pack set to false here has no floor entry: `yolo host` installs nothing for
+    it and looks for its agent on your PATH, saying so -- the way to keep using
+    a copy you installed yourself.  Under "own" the next
+    `yolo host apply --assert` removes the floor's copy; under "none"
+    `yolo check` and the launch name the command that removes it by hand.
     USER SCOPE ONLY.  It decides which programs yolo installs on your machine, so
     a workspace value is a `yolo check` error, and is never read.
     Example (~/.config/yolo-jail/config.jsonc):
@@ -1112,10 +1119,11 @@
   [bold]host_path[/bold] (list of folders): Folders `yolo host` searches after the PATH it was
     started with.  Default: none.
     yolo looks for the programs your packs need (`rg` for the guardrails pack, a
-    pack's `requires`, an agent yolo keeps no copy of) and for the command you
-    name with `yolo host --` on the PATH it was started with -- it cannot know
-    where you keep your tools any other way.  A terminal's PATH usually has them;
-    a Waybar button, a cron job or a hotkey launcher often hands yolo only
+    pack's `requires`, an agent outside the floor -- see [bold]host_floor[/bold]) and
+    for the command you name with `yolo host --` on the PATH it was started
+    with -- it cannot know where you keep your tools any other way.  A
+    terminal's PATH usually has them; a Waybar button, a cron job or a hotkey
+    launcher often hands yolo only
     /usr/bin:/bin.  Each folder listed here is added AFTER that PATH, in the order
     written, unless it is already on it, so it fills in for a launcher that lacks
     it and never changes what your own PATH finds first.  The same folders reach

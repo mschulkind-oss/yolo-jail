@@ -25,9 +25,11 @@ import (
 // (hostfloor.Floor.Status), so `yolo check` stays an observe verb.
 //
 // Grading: a provisioned entry passes; a missing one is ungraded — it is not broken, the next
-// launch installs it (HP-D3) — and so is a program the floor cannot hold, which is a fact about
-// this machine, not a fault. Only an interrupted install's leftover warns, because it is disk
-// nothing but `yolo prune --apply` will reclaim.
+// launch installs it (HP-D3) — and so is a program that is not the floor's to hold
+// (Floor.OutsideTheFloor, HNR-D4), which the launch looks up on its PATH. A program the floor
+// cannot hold on this machine warns, because every `yolo host` launch refuses on it (HNR-D2), and
+// so does an interrupted install's leftover, because it is disk nothing but `yolo prune --apply`
+// will reclaim.
 func (o *Options) sectionHostFloor(r *reporter) {
 	if o.inJail() || !o.selectedPacksKnown {
 		// A jail provisions its agents through its own launchers and has no host prefix; a
@@ -84,8 +86,10 @@ func (o *Options) sectionHostFloor(r *reporter) {
 				// THIS MACHINE cannot hold it: `yolo host` refuses to launch it rather than run a PATH
 				// copy, and every launch's readiness act stops on it (host-notch-readiness.md HNR-D1,
 				// HNR-D2). The reason carries its own fix.
-				r.dim(fmt.Sprintf("%s — no floor entry: %s. `yolo host` refuses to launch until the floor "+
-					"holds it, or until `host_floor` leaves pack %s out", p.Bin(), st.Reason, p.Pack))
+				// A WARNING, not a fact about the machine: every `yolo host` launch refuses on it.
+				r.warn(fmt.Sprintf("%s — no floor entry: %s", p.Bin(), st.Reason),
+					fmt.Sprintf("`yolo host` refuses to launch until the floor holds it, or until `host_floor` "+
+						"leaves pack %s out (`\"host_floor\": {\"%s\": false}` in the user config)", p.Pack, p.Pack))
 				if _, left := records[p.Bin()]; left {
 					r.dim(fmt.Sprintf("%s: yolo's floor still holds a copy it no longer keeps, which `yolo host` "+
 						"does not run — %s", p.Bin(), floor.StaleCopyStep(hostOwned(), p.Bin())))

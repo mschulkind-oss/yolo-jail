@@ -489,10 +489,13 @@ func captureRuntime() string {
 // PATH (HE-D1).
 func hostFloorBinDir() string { return (&hostfloor.Floor{Dir: paths.HostFloorDir()}).BinDir() }
 
-// floorDeliveredBins is every program of packs the floor holds or can provision on this machine
-// — the programs those packs DELIVER (host-agent-environment.md's launch PATH terms) — with its status, keyed by
-// bin. A dependency probe answers these from the floor rather than from any PATH
-// (host-agent-environment.md, one resolver). It reads the prefix and nothing else, and it is empty in a jail,
+// floorDeliveredBins is every program of packs the floor answers for on this machine — the
+// programs those packs DELIVER (host-agent-environment.md's launch PATH terms) — with its status,
+// keyed by bin. A dependency probe answers these from the floor rather than from any PATH
+// (host-agent-environment.md, one resolver). That includes a program with no floor entry here
+// that is still the floor's to hold: `yolo host` refuses it rather than look it up on a PATH
+// (host-notch-readiness.md HNR-D2), so a PATH copy says nothing about it. Only a program outside
+// the floor (Floor.OutsideTheFloor, HNR-D4) is left to the PATH probe. It reads the prefix and nothing else, and it is empty in a jail,
 // whose own launchers answer for its programs.
 func floorDeliveredBins(packs []*packload.Pack) map[string]hostfloor.Status {
 	out := map[string]hostfloor.Status{}
@@ -505,7 +508,7 @@ func floorDeliveredBins(packs []*packload.Pack) map[string]hostfloor.Status {
 	}
 	floor := newHostFloor(io.Discard, progs)
 	for _, p := range progs {
-		if st := floor.Status(p); st.Disposition != hostfloor.NoEntry {
+		if st := floor.Status(p); st.Disposition != hostfloor.NoEntry || !floor.OutsideTheFloor(p) {
 			out[p.Bin()] = st
 		}
 	}
@@ -522,17 +525,28 @@ func floorDepClause(st hostfloor.Status) string {
 		// clause is that refusal, whose next step is `yolo update`.
 		return "yolo's floor will not install it: " + richtext.Escape(st.Reason)
 	}
-	// The launch installs at every host-management mode; the apply only under "own" (hostApplyStep).
-	if config.HostManagementMode() == config.HostManagementOwn {
-		return "yolo's floor installs it (`yolo host apply --assert`, or the first `yolo host -- " +
-			st.Program.Bin() + "`)"
+	if st.Disposition == hostfloor.NoEntry {
+		// HNR-D2: no PATH copy stands in for it, so every `yolo host` launch refuses until the
+		// floor can hold it or `host_floor` leaves its pack out.
+		return "yolo's floor cannot hold it here (" + richtext.Escape(st.Reason) + "), so `yolo host` " +
+			"refuses to launch; to run your own copy, leave pack " + st.Program.Pack + " out with " +
+			"`\"host_floor\": {\"" + st.Program.Pack + "\": false}` in the user config"
 	}
-	return "yolo's floor installs it (the first `yolo host -- " + st.Program.Bin() + "`)"
+	// Every launch's readiness act installs it at every host-management mode (HNR-D1); the apply
+	// only under "own" (hostApplyStep).
+	if config.HostManagementMode() == config.HostManagementOwn {
+		return "yolo's floor installs it (`yolo host apply --assert`, or the next `yolo host` launch)"
+	}
+	return "yolo's floor installs it (the next `yolo host` launch)"
 }
 
 // floorDepMark is the mark a dependency line gives a program the floor answers for: a pass,
-// except for a newer yolo's record, which nothing here installs (floorDepClause says why).
+// except for a newer yolo's record, which nothing here installs, and a program the floor cannot
+// hold here, which `yolo host` refuses (floorDepClause says why of each).
 func floorDepMark(st hostfloor.Status) string {
+	if st.Disposition == hostfloor.NoEntry {
+		return "[red]✗[/red]"
+	}
 	if st.Newer {
 		return "[yellow]![/yellow]"
 	}
@@ -549,8 +563,8 @@ func floorDepMark(st hostfloor.Status) string {
 // otherwise look deselected, and its agent would be deleted over a network blip, so removal waits
 // for a run that can see the whole selection.
 //
-// Never reached from the launch gate's apply (hostApplySurvey.floorStage): a launch installs the
-// one agent it starts, and removes nothing.
+// Never reached from the launch gate's apply (hostApplySurvey.floorStage): a launch's readiness
+// act installs what the selected packs declare (HNR-D1), and removes nothing.
 func applyHostFloor(pr richtext.Printer, out io.Writer, packs []*packload.Pack, write, complete bool,
 	survey *hostApplySurvey) int {
 	if config.InJail() {
@@ -578,14 +592,22 @@ func applyHostFloor(pr richtext.Printer, out io.Writer, packs []*packload.Pack, 
 			Action: "none", Reason: st.Reason, Launcher: st.Launcher}
 		switch {
 		case st.Disposition == hostfloor.NoEntry && floor.NoAdvance != "" && strings.Contains(st.Reason, floor.NoAdvance):
-			// A patched fork this act builds none of (PF-D56): not the floor's NoEntry, whose launch
-			// runs the copy on the PATH, since a `yolo host` launch of it builds it.
+			// A patched fork this act builds none of (PF-D56): not the floor's NoEntry, which a launch
+			// refuses (HNR-D2), since a `yolo host` launch of it builds it.
 			pr.Printf("  [cyan]%-20s[/cyan] %s: not installed yet — %s", "host_floor", p.Bin(), st.Reason)
 			note(row)
 			continue
-		case st.Disposition == hostfloor.NoEntry:
+		case st.Disposition == hostfloor.NoEntry && floor.OutsideTheFloor(p):
+			// Not the floor's to hold (HNR-D4): the launch looks it up on its PATH.
 			pr.Printf("  [cyan]%-20s[/cyan] %s: no floor entry — %s; `yolo host -- %s` runs the one on "+
 				"your PATH", "host_floor", p.Bin(), st.Reason, p.Bin())
+			note(row)
+			continue
+		case st.Disposition == hostfloor.NoEntry:
+			// HNR-D2: no PATH copy stands in for it, and every launch's readiness act stops on it.
+			pr.Printf("  [cyan]%-20s[/cyan] %s: no floor entry — %s; `yolo host` refuses to launch until "+
+				"the floor holds it, or until `host_floor` leaves pack %s out", "host_floor", p.Bin(),
+				st.Reason, p.Pack)
 			note(row)
 			continue
 		case !write && st.Newer:
@@ -769,8 +791,9 @@ func resolveHostLaunchTarget(packs []*packload.Pack, cmd0 string, lp *hostpath.L
 	}
 	floor := newHostFloor(errw, progs)
 	st, _, err := floor.Ensure(withActInterrupt(context.Background(), act), prog)
-	if err == nil || errors.Is(err, hostfloor.ErrNoEntry) {
-		// The agent starts: so do the MCP servers its config names (HC-D28).
+	if err == nil || (errors.Is(err, hostfloor.ErrNoEntry) && floor.OutsideTheFloor(prog)) {
+		// The agent starts: so do the MCP servers its config names (HC-D28). A no-entry agent the
+		// floor answers for is refused below (HNR-D2), so nothing is installed for it.
 		ensureMCPPrograms(packs, progs, floor, cmd0, errw, act, ready)
 	}
 	if errors.Is(err, hostfloor.ErrNoEntry) && st.Reason != "" {

@@ -126,7 +126,7 @@ func hostReadinessAct(packs []*packload.Pack, cmd []string, errw io.Writer, act 
 	// REFUSAL, not a warning, in the jail's words: a launch without a program its own config
 	// selected is not the environment that config promised.
 	fmt.Fprintf(errw, "yolo host: REFUSING to launch: a program a selected pack declares could not be installed.\n%s"+
-		"      Fix what stopped it (an install needs the network), drop the pack from your packs list, or\n"+
+		"      Fix what each line names (an install needs the network), drop the pack from your packs list, or\n"+
 		"      leave it out of yolo's floor with `\"host_floor\": {%s}` in the user config.\n"+
 		"      To launch without it:\n"+
 		"          %s=1 yolo host -- %s\n", list.String(), strings.Join(leaveOut, ", "),

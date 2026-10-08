@@ -135,12 +135,15 @@ ends, so yolo refuses that build and says why.
   falls back to the original program under your fork's name.
 - `yolo capture <program>` rebuilds it on demand, for example after an image update.
 - `yolo host -- <program>` runs the same build outside a jail, on Linux. yolo keeps its own copy for
-  host agents, moved out of the jail's home, and pins and builds it first if nothing has yet. A build that can only run in a jail, such as one that compiles the jail's home path
-  into a binary, stays in jails: `yolo host` says so and runs the copy on your PATH instead.
+  host agents, moved out of the jail's home, and pins and builds it first if nothing has yet. A
+  build that can only run in a jail, such as one that compiles the jail's home path into a binary,
+  stays in jails: `yolo host` stops and says so, rather than running a copy from your PATH. To use
+  your own copy at the host, leave the pack out with `"host_floor": {"<pack>": false}` in your user
+  config.
 
 This works on podman and on Apple Container 1.1.0 or later. On `macos-user`, and on older Apple
 Container, the fork's program is not delivered yet, and the launch says so. On a Mac, `yolo host`
-runs the copy on your PATH and says why.
+stops and says why; `"host_floor": {"<pack>": false}` lets it run your own copy instead.
 
 If your fork is a few changes on top of someone else's project, yolo can keep them on its newest
 release for you instead: see [Follow an Upstream with a Patch Series](patch-series.md).

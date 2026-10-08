@@ -73,9 +73,11 @@ in `~/.local/share/yolo-jail/host-floor`:
   PATH of yours: your shell and any copy you installed yourself (`~/.local/bin/claude`, Homebrew's)
   are left alone. `yolo check` lists each agent, and names any other copy it finds as one `yolo host`
   does not run.
-- **How it gets there.** The first `yolo host -- <agent>` installs the agent it names, saying what it
-  is doing; `yolo host apply --assert` installs every one that is missing. Selecting the pack is the
-  consent: nothing asks. An agent installed with npm (opencode or pi, for example) runs on the
+- **How it gets there.** Every `yolo host -- <command>` first installs every program your selected
+  packs declare that is missing, as a jail does, saying what it is doing; `yolo host apply --assert`
+  installs them too. Selecting the pack is the consent: nothing asks. When one cannot install, the
+  launch stops and names the fix; set `YOLO_ALLOW_MISSING_PROGRAMS=1` to start the command anyway
+  ([host-notch-readiness.md](../../docs/design/host-notch-readiness.md)). An agent installed with npm (opencode or pi, for example) runs on the
   floor's own Node, the official release, checked against its published checksum. An agent with its
   own installer (claude or copilot, for example) comes from the machine's `yolo capture` of that
   installer, so the first one may run a capture if the machine has none yet. On Linux with a
@@ -89,15 +91,17 @@ in `~/.local/share/yolo-jail/host-floor`:
   own installer is captured again once its capture is a day old, and the floor moves only to a newer
   release, never back to an older one.
 - **What it cannot hold yet.** On a Mac before `yolo macos-setup`, yolo has no copy of an agent with
-  its own installer; `yolo host` runs the one on your PATH and names that step. The same happens for
-  any agent whose vendor publishes no build for your machine, and on Linux for an installer agent
-  on a machine with neither a container runtime nor Landlock to capture it with. On NixOS without
-  nix-ld, or on a musl system such as Alpine, the agents yolo copies cannot start, because they
-  need a dynamic loader those systems do not have: `yolo host` runs your own copy and names the fix,
-  `programs.nix-ld.enable = true;` on NixOS.
+  its own installer, and the launch stops and names that step. The same happens on Linux for an
+  installer agent on a machine with neither a container runtime nor Landlock to capture it with. On
+  NixOS without nix-ld, or on a musl system such as Alpine, the agents yolo copies cannot start,
+  because they need a dynamic loader those systems do not have: the launch stops and names the
+  fix, `programs.nix-ld.enable = true;` on NixOS. yolo never runs a copy from your PATH in their
+  place. An agent whose vendor publishes no build for your machine is the one exception: `yolo host`
+  runs the copy on your PATH and says so.
 - **Choosing.** Set `"host_floor": false` in your user config for a floor of nothing, or
-  `"host_floor": {"*": true, "claude": false}` to leave one pack out; `yolo host` then runs that
-  agent from your PATH. The floor's copy of an agent you no longer select, or have left out, is never
+  `"host_floor": {"*": true, "claude": false}` to leave one pack out; `yolo host` then installs
+  nothing for that agent and runs it from your PATH. This is how to keep using a copy you
+  installed yourself. The floor's copy of an agent you no longer select, or have left out, is never
   run, and stays until it is removed: under `"host_management": "own"` `yolo host apply --assert`
   removes it, and otherwise `yolo check` names the command that removes it by hand.
 - **Getting an agent from your package manager instead.** List the ways you prefer under
@@ -118,7 +122,8 @@ so a slow start is visibly the agent's.
 
 Everything yolo does not keep a copy of, `yolo host` looks for on the PATH it was started with: a
 tool a pack needs (`rg` and `fd` for the guardrails pack, anything a pack lists under `requires`),
-an agent yolo keeps no copy of, and any other command you run with `yolo host -- <command>`. yolo
+an agent yolo keeps no copy of because you left its pack out of `host_floor`, gave it to a package
+manager or its vendor publishes no build for your machine, and any other command you run with `yolo host -- <command>`. yolo
 has no other way to know where you keep your tools. A terminal's PATH usually has them. A Waybar
 button, a cron job or a hotkey launcher often starts yolo with only `/usr/bin:/bin`, so from there a
 tool in `~/.cargo/bin` or behind mise's shims is not found.

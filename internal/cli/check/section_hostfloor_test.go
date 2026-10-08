@@ -223,8 +223,8 @@ func TestCheckNamesADeselectedEntryOfAProgramWithNoFloorEntry(t *testing.T) {
 // TestCheckNamesTheLoaderAProgramLacksAndTheNixLDStep: on a Linux host with no dynamic loader for
 // Node's official build (NixOS without nix-ld, a musl system), an npm agent has no floor entry, and
 // the row says why — the loader, the two kinds of host, the nix-ld step — and that `yolo host`
-// refuses to launch it (HNR-D2) rather than run a copy on the PATH. Ungraded, as every
-// no-floor-entry row is: a fact about this machine.
+// refuses to launch it (HNR-D2) rather than run a copy on the PATH. A warning, since every
+// `yolo host` launch refuses on it.
 func TestCheckNamesTheLoaderAProgramLacksAndTheNixLDStep(t *testing.T) {
 	o, floor, _, hand := hostFloorCheckFixture(t, `{}`)
 	floor.GOOS, floor.Root = "linux", floortest.ResolvedTemp(t)
@@ -236,8 +236,8 @@ func TestCheckNamesTheLoaderAProgramLacksAndTheNixLDStep(t *testing.T) {
 			t.Errorf("section lacks %q:\n%s", want, out)
 		}
 	}
-	if r.warned != 0 || r.failed != 0 {
-		t.Errorf("a program this machine cannot start graded (%d warn, %d fail)", r.warned, r.failed)
+	if r.warned != 1 || r.failed != 0 {
+		t.Errorf("a program every launch refuses on graded %d warn, %d fail, want one warning", r.warned, r.failed)
 	}
 	if strings.Contains(out, hand) {
 		t.Errorf("the row names the PATH copy %s, which `yolo host` no longer runs for a declared program:\n%s",

@@ -72,18 +72,21 @@ func checkDepsMain(args []string, out, errw io.Writer, color bool) int {
 	// problem the user acts on, with its step on its line, and the run exits 1 and ends with the
 	// re-check as it does for a missing dep. It exited 0 under its `!`.
 	floorBins := make([]string, 0, len(floor))
-	newerRecord := false
+	floorProblem := false
 	for bin := range floor {
 		floorBins = append(floorBins, bin)
-		newerRecord = newerRecord || floor[bin].Newer
+		// A program the floor cannot hold here refuses every `yolo host` launch (HNR-D2), so it is
+		// a problem the same way, its step on its line (floorDepClause).
+		floorProblem = floorProblem || floor[bin].Newer || floor[bin].Disposition == hostfloor.NoEntry
 	}
 	sort.Strings(floorBins)
 	for _, bin := range floorBins {
 		pr.Printf("%s %-16s %s", floorDepMark(floor[bin]), bin, floorDepClause(floor[bin]))
 	}
-	// What makes a run with nothing missing a failure: a pack it could not probe, or a floor
-	// program whose record a newer yolo wrote. Each is named above with its step.
-	problem := len(unresolved) > 0 || newerRecord
+	// What makes a run with nothing missing a failure: a pack it could not probe, a floor
+	// program whose record a newer yolo wrote, or one the floor cannot hold here. Each is named
+	// above with its step.
+	problem := len(unresolved) > 0 || floorProblem
 	if len(reqs) == 0 && len(floor) > 0 {
 		if problem {
 			printRecheck(pr)
