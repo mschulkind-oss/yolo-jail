@@ -3,7 +3,7 @@ title: "Why file work is slow in an Apple Container jail, and what it means for 
 date: 2026-10-03
 status: accepted
 stage: DECIDED
-next: "Write docs/design/vm-local-volumes.md from §4 with the design-doc skill: VM-local named volumes behind the per-side folders (.venv, node_modules, the mise venv path and per_side_paths) on Apple Container and Podman Machine, with no new key, its mechanism decided in a ledger and three calls filed as numbered questions (default or opt-in; ~/.cache, ruled with the backend benchmark's /mise question; database data folders); write §5's Mac-runner probe workflow for the maintainer to push and dispatch, and record its results in §5; draft a Feedback Assistant report asking for a cache policy on VZ's virtio-fs, led by the runtime comparison's run without yolo with OrbStack's row as the control, and a comment for apple/container discussion #1516, for the maintainer to file"
+next: "Write §5's Mac-runner probe workflow for the maintainer to push and dispatch, and record its results in §5 (the design in docs/design/vm-local-volumes.md waits on its first two answers); draft a Feedback Assistant report asking for a cache policy on VZ's virtio-fs, led by the runtime comparison's run without yolo with OrbStack's row as the control, and a comment for apple/container discussion #1516, for the maintainer to file"
 tags: [research, macos, apple-container, virtiofs, performance, python, postgres]
 summary: "A follow-up to the macOS backend benchmark. File work in an Apple Container jail is slow because every file costs a round trip to the Mac through virtiofs, not because bytes move slowly: 20,000 small files take 12 to 115 times as long to create, stat, read or delete on the shared workspace as on the VM's own ext4 disk, which beats even native APFS. A large Python and Django monorepo keeps its virtualenv, node_modules and build caches in the workspace, so it pays that cost on every import and every test run. The fix that the numbers point to is keeping those trees on a VM-local disk; yolo has no key for that today."
 vantage:
@@ -45,8 +45,10 @@ slow in VMs."*
   (`/home/agent`) and its cache (`/home/agent/.cache`)
   ([assemble_parts.go](../../internal/cli/run/assemble_parts.go)).
 - **VM-local ext4** — a disk image attached to the VM as a block device and formatted ext4 inside
-  it, so the guest's own kernel serves every file operation. yolo mounts one, the named volume
-  `yolo-mise-data-v2` at `/mise`, for mise's tool installs.
+  it, so the guest's own kernel serves every file operation. yolo mounts one at `/mise` for
+  mise's tool installs: when this was measured, the named volume `yolo-mise-data-v2` that every
+  jail shared, and since 2026-10-05 a tool disk per workspace
+  ([the benchmark's ledger](macos-backend-performance.md#10-decision-ledger)).
 - **tmpfs** — a filesystem held in RAM. Every scratch folder of an Apple Container jail (`/tmp`,
   `/var/tmp` and the rest) is one, and in a VM its pages are kept until the jail stops
   ([§2.2 of the benchmark](macos-backend-performance.md#22-memory-backed-on-first-touch-kept-until-the-container-stops)).
@@ -159,7 +161,9 @@ Linux, and needs `sudo` at every launch.
 
 ## 4. A design sketch: VM-local volumes for chosen workspace folders
 
-Not a plan; what the numbers suggest. A per-workspace setting naming workspace-relative folders
+**The design is now [vm-local-volumes.md](../design/vm-local-volumes.md)**, which backs each
+per-side path with a volume and adds no key; the sketch below is what it started from. Not a
+plan; what the numbers suggest. A per-workspace setting naming workspace-relative folders
 (`.venv`, `node_modules`, the build tool's folders, a database's data folder) and `~/.cache`. On
 Apple Container each would be backed by a named ext4 volume mounted over that path inside the jail.
 Its costs:
@@ -170,8 +174,10 @@ Its costs:
 - **A volume can be attached to only one running VM**
   ([§7 of the benchmark](macos-backend-performance.md#7-found-on-the-way-two-apple-container-jails-may-mount-one-ext4-disk)),
   so two jails of one workspace would need separate volumes or a refusal.
-- **Today no key does this.** The `mounts` key accepts writable entries only under `/ctx`, and
-  only at user scope, and the only VM-local volume yolo mounts is `/mise`.
+- **`per_side_paths` already names these folders.** It gives the jail its own `.venv`,
+  `node_modules` and any listed path, but backs each with a Mac folder shared into the VM, so on
+  Apple Container they cost what the workspace costs. The `mounts` key accepts writable entries
+  only under `/ctx`, and only at user scope, and the only VM-local volume yolo mounts is `/mise`.
 
 On podman these folders are already on the Linux host's own filesystem, so the setting would do
 nothing there.

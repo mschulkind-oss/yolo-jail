@@ -76,13 +76,15 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
 7. [Rule how the Claude footer moves into a Claude Code plugin](../research/claude-code-extensions-footer.md), with [how
    yolo manages Claude Code mods](../research/claude-code-mods-management.md) — the plugin ends a process per refresh,
    and the mods rulings rest on that route.
-8. [Design VM-local disks behind the folders only a jail uses](../research/apple-container-file-cost.md), with [the
-   probe that fixes its shape](../research/apple-container-file-cost.md#5-a-planned-probe-on-the-mac-runner) and [VZ's
-   memory request](../research/macos-vm-memory-reclaim.md) — the largest Mac speedup measured waits on it (pip install
-   8.35 s on a shared folder, 2.01 s on Apple Container's own disk).
-9. [Amend the harness's green-run precondition](../research/macos-backend-performance.md#appendix-a--the-harness), which
-   the two-jail test blocks and the Mac session below waits on, with [the benchmark's remaining corrections](../research/macos-backend-performance.md#9-corrections-the-results-feed)
-   and draft rewordings of [the direction's ruled sentences](../reference/macos-no-vm-direction.md#what-the-numbers-bear-on).
+8. Rule [the VM-local disks design](../design/vm-local-volumes.md): [default or opt-in](../design/vm-local-volumes.md#OQ-VL1),
+   [`~/.cache`](../design/vm-local-volumes.md#OQ-VL2), [database folders](../design/vm-local-volumes.md#OQ-VL3) and
+   [how a new disk fills](../design/vm-local-volumes.md#OQ-VL4),
+   with [the probe that checks its premise](../research/apple-container-file-cost.md#5-a-planned-probe-on-the-mac-runner)
+   and [VZ's memory request](../research/macos-vm-memory-reclaim.md#6-draft-feedback-assistant-request) to file — the
+   largest Mac speedup measured waits on it (pip install 8.35 s on a shared folder, 2.01 s on Apple Container's own disk).
+9. Approve [the drafted rewordings](../research/macos-backend-performance.md#9-corrections-the-results-feed) of
+   [the direction's ruled sentences](../reference/macos-no-vm-direction.md#what-the-numbers-bear-on) — the
+   benchmark's other corrections are made, and the two-jail test passes in CI again.
 10. [Time what a launch's spans leave out](../reference/perf-logging.md) — the provisioning stage in the jail perf log,
     and the Apple Container delivery test's reader past `image.*`, without which it cannot show the build skip's saving.
 11. Record the Mac runs of 2026-10-02 and 2026-10-03 where each doc's `next` names them — agent work now, ahead of the
