@@ -1,51 +1,39 @@
 ---
-title: "QA: host-service startup diagnostics candidate"
+title: "QA: host-service startup diagnostics"
 status: accepted
 stage: CURRENT
 tags: [qa, diagnostics, host-services]
-summary: "Bounded candidate results and the remaining acceptance checks; none establishes a landed startup-diagnostics feature."
+summary: "What the landed startup diagnostics were verified by, and what only a real Mac, rootless host or live AWS login can show."
 ---
 
-# QA: host-service startup diagnostics candidate
+# QA: host-service startup diagnostics
 
-The implementation is outside main and stopped for an environment restart on 2026-10-07.
-This record distinguishes completed bounded work from incomplete whole-feature acceptance.
 The [design](../design/host-service-startup-diagnostics.md) owns behavior; the
-[task checklist](host-service-startup-diagnostics-tasks.md) owns remaining implementation work.
+[task checklist](host-service-startup-diagnostics-tasks.md) names the test behind each row.
+Status 2026-10-08: every task row is checked.
 
-## Completed bounded work
+## Verified
 
-- The ordering/isolation worker reported a passing full CLI/run package suite after repairing
-  seal-fixture isolation, plus related package suites and production-call ordering mutations.
-- The lifecycle/channel worker reported passing focused package and race suites, per-jail
-  interleaving and validator-input overwrite regressions, keeper snapshot consumption,
-  real host-doorway refusal, singleton publication serialization, attempt attribution and
-  bounded inherited-output tests. Its temporary mutations were reported restored.
-- AWS fixture tests exercised the actual refusal producer and launch renderer with sentinel
-  profile and policy values, without invoking AWS APIs, credentials or an agent CLI.
+- Whole launches through `Run()`, with the keeper running in-process, show a cooperative
+  configuration refusal reaching the terminal through the container and macos-user keepers,
+  a non-configuration refusal staying a warning printed before its derived symptom, and a
+  settings-preflight refusal stopping both arms before keeper, image and daemon work. Deleting
+  each forwarding call (the keeper's relay, either arm's preflight refusal, the start
+  boundary's hand-back, `HostDoorways.Start`'s own preflight) fails a test.
+- Lifecycle: private validator and daemon snapshots are `0600` and removed on pass, refusal,
+  timeout, spawn failure and teardown; a legacy manifest keeps the stable settings path; a
+  valid changed snapshot restarts the singleton onto exactly the validated bytes; a failed
+  validator or preparation leaves a live singleton, its settings file, record and fronts
+  unchanged; record-less exits and timeouts return within their bounds even when a grandchild
+  holds the channel; a daemonizing wrapper stays ready.
+- An accepted refusal ends the readiness wait, and a refusing daemon the attempt spawned is
+  stopped. Text sanitizers drop control and format characters. `yolo check` skips validators
+  of services its backend does not start and, for a refused, timed-out or unstartable
+  validator, only that service's doctor.
+- AWS fixtures use sentinel profile and policy values and never call AWS.
 
-These reports cover bounded slices, not the final interrupted tree. Two earlier attempts
-reported incomplete required criteria and were rejected. The final contract/documentation
-worker stopped without its final report. Its reference edits, checklist marks and additional
-claimed results require audit; they are not independent acceptance or reference graduation.
-
-## Remaining acceptance
-
-- Exercise full native launch output and an external keeper's frames/final client result;
-  immutable plan consumption alone does not prove refusal propagation to the terminal.
-- Complete dynamic validator admission, private-file permissions/cleanup, legacy stable-path,
-  valid singleton replacement and existing-client/front preservation cases.
-- Cover validator timeout/executable failure doctor skipping while unrelated doctors continue.
-- Complete the outcome/readiness matrix for both ownership paths, including clean daemonizing
-  wrappers, absent/late/malformed records, process exit, timeouts and transport faults.
-- Preserve exact mutation patches and restored greens. A source-order deletion check is not
-  a substitute for a behavior-level caller regression. Host-doorway refusal can remain green
-  when its preflight is deleted because a lower-level preflight masks that deletion.
-- Reconcile every candidate reference/changelog statement with accepted behavior, then obtain
-  fresh independent correctness and safety review.
-- Parent runs the final combined quality gate, Go build, fresh-binary isolated nested smoke
-  and applicable full integration suite before integrating runtime source.
+## Not shown by these tests
 
 Linux fixtures and Darwin compilation do not establish native Mac behavior, real rootless
-loopback forwarding, live AWS authentication or billing-tag propagation. No permission
-widening, live configuration change or publication is authorized by these candidate results.
+loopback forwarding, live AWS authentication or billing-tag propagation. A nested jail cannot
+show the first two (see the carve-outs in the repository's agent guide).

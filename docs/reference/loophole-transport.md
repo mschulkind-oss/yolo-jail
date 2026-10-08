@@ -332,17 +332,25 @@ The daemon can write one length-prefixed JSON record with `version`, `service`, 
 `class`, `reason`, and optional `remedy`. Version is 1, the total record is at most 4096
 bytes, and the supported classes are `configuration`, `dependency`, `permission`, and
 `internal`. Both ends require matching service and attempt attribution; control characters
-are removed and each rendered text field is bounded. A producer should send only fixed,
-safe text—never settings values, secrets, argv, environment or log excerpts. The Go producer
-helper is `hostservice.WriteStartupReasonFromEnv`.
+and format characters are replaced and each rendered text field is bounded. A producer should
+send only fixed, safe text—never settings values, secrets, argv, environment or log excerpts.
+The Go producer helper is `hostservice.WriteStartupReasonFromEnv`, which closes the descriptor
+and unsets the three variables after writing; `hostservice.ProtectStartupReason` marks the
+descriptor close-on-exec so the daemon's own children do not inherit it, and
+`hostservice.ReleaseStartupReason` closes and unsets it without writing once the daemon is
+serving.
 
 This record is not readiness. The host daemon must still satisfy the existing socket/endpoint
 readiness test; an absent, late or malformed record cannot make a service ready. The reader
 uses a deadline and closes the channel without waiting for EOF, so a descendant retaining
-the descriptor cannot stall startup cleanup. A matching `configuration` record is returned
-as the current launch refusal before derived socket symptoms; other records and channel
-faults do not currently replace the existing startup/transport failure report. Shared logs
-are not parsed for current causes.
+the descriptor cannot stall startup cleanup. An accepted record ends the readiness wait at
+once, unless the service became reachable first, and a daemon still alive after refusing is
+stopped by the attempt that spawned it. A matching `configuration` record refuses the launch,
+at every front door (the terminal, the keeper's relayed output, the macos-user arm and
+`yolo host`), and no derived socket symptom is printed for it. A record of another class is
+printed first as the daemon's own cause, then the existing startup/transport warning, with
+the launch's reachability severity unchanged; channel faults keep the existing report. Shared
+logs are not parsed for current causes.
 
 ## Failure modes
 

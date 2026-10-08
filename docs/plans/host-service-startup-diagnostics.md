@@ -1,8 +1,8 @@
 ---
 title: "Plan: carry host-service startup causes to the caller"
 status: accepted
-stage: DECIDED
-next: "Audit the interrupted final-worker changes and complete unchecked caller, lifecycle and outcome cases before independent review and parent landing gates"
+stage: BUILT
+next: "None: built. Graduate the remaining contract text into the references when this design is next touched"
 depends-on:
   - ../design/host-service-startup-diagnostics.md
   - ../research/host-service-startup-diagnostics.md
@@ -14,7 +14,7 @@ vantage:
 
 # Plan: carry host-service startup causes to the caller
 
-**Status:** 2026-10-08. Landed: the `settings_check` preflight and its `yolo check` phase, the opt-in `startup_reason` channel with its singleton and per-jail readiness deadlines, private per-jail settings snapshots, the AWS pack's safe validator, removal of the routine `unnarrowed` launch notice, and a typed owner-local startup outcome from both owners (collected per launch, not yet rendered or sent to a keeper). Open: the lifetime cleanup items, and carrying typed outcomes through keeper, native and host-doorway callers; the unchecked rows in the [tasks](host-service-startup-diagnostics-tasks.md) are the list.
+**Status:** 2026-10-08. Landed, every task row checked: the `settings_check` preflight and its `yolo check` phase (backend-aware, skipping only the refused service's doctor), the opt-in `startup_reason` channel with its readiness deadlines, private per-jail settings snapshots and their cleanup, the singleton's prepare-then-publish transaction, the AWS pack's safe validator, removal of the routine `unnarrowed` launch notice, and typed startup outcomes carried to every front door: the terminal, the keeper's relayed output, the macos-user arm and `yolo host`. Open: none; the [QA record](host-service-startup-diagnostics-qa.md) lists what only a real Mac or rootless host can show.
 
 **Design:** [`host-service-startup-diagnostics.md`](../design/host-service-startup-diagnostics.md). **Precedence:** design wins on behavior; the tree wins on fact; this plan is advice and the first thing to correct if the tree moves.
 

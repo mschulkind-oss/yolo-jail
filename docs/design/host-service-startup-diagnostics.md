@@ -1,8 +1,8 @@
 ---
 title: "Host-service startup failures should carry their cause, not its aftermath"
 status: accepted
-stage: DECIDED
-next: "Audit the interrupted final-worker changes and complete unchecked caller, lifecycle and outcome cases before independent review and parent landing gates"
+stage: BUILT
+next: "None: built. Graduate the remaining contract text into the references when this design is next touched"
 tags: [design, diagnostics, host-services, loopholes, launch, credentials]
 summary: "A selected host service must validate the exact desired settings before replacing shared state, and cooperative daemons can return a bounded, attempt-specific refusal without log scraping."
 vantage:
@@ -11,7 +11,7 @@ vantage:
 
 # Host-service startup failures should carry their cause, not its aftermath
 
-**Status:** 2026-10-08. Landed: the `settings_check` preflight and its `yolo check` phase, the opt-in `startup_reason` channel with its singleton and per-jail readiness deadlines, private per-jail settings snapshots, the AWS pack's safe validator, removal of the routine `unnarrowed` launch notice, and a typed owner-local startup outcome from both owners (collected per launch, not yet rendered or sent to a keeper). Open: the lifetime cleanup items, and carrying typed outcomes through keeper, native and host-doorway callers; the unchecked rows in the [tasks](../plans/host-service-startup-diagnostics-tasks.md) are the list.
+**Status:** 2026-10-08. Landed, every task row checked: the `settings_check` preflight and its `yolo check` phase (backend-aware, skipping only the refused service's doctor), the opt-in `startup_reason` channel with its readiness deadlines, private per-jail settings snapshots and their cleanup, the singleton's prepare-then-publish transaction, the AWS pack's safe validator, removal of the routine `unnarrowed` launch notice, and typed startup outcomes carried to every front door: the terminal, the keeper's relayed output, the macos-user arm and `yolo host`. Open: none; the [QA record](../plans/host-service-startup-diagnostics-qa.md) lists what only a real Mac or rootless host can show.
 
 > **In short.** A failed host service should explain the refusal that prevented startup, with the pack's safe remedy, before socket and reachability symptoms obscure it. Validate the immutable settings this launch intends to use before touching a working shared service, and accept daemon-provided reasons only through a bounded channel tied to the exact spawn attempt.
 
@@ -61,7 +61,7 @@ The runner caps execution at **2 seconds** and captured stdout/stderr at **4 KiB
 
 For a launch, validate only a service that is selected, enabled, active on this host, admitted for this backend, passes the pack-origin gate and the manifest placement rule, and will actually be started for that launch. For `yolo check --no-build`, use its current configured pack selection and existing activity/origin/placement gates, without requiring a particular launch to be underway. These gates are evaluated before invoking pack code. Because launch preflight moves ahead of the ordinary daemon-start disclosure, print a separate non-suppressible line naming the source pack, service and settings-validator execution before invoking it; keep the complete existing host-code disclosure before the daemon itself starts. `yolo check` likewise names the selected pack's validator before invoking it.
 
-Resolve once from the current merged configuration into frozen serialized settings bytes. Create the validator's private input file from those bytes. On a fresh launch, run the pure validator before expensive image/provisioning work and before publishing shared settings, killing/replacing a singleton, starting a per-jail child, or publishing a front. If validation passes, publish/launch from the frozen bytes held by yolo—not by rereading the validator's file. A settings-check-enabled singleton publishes those bytes atomically while holding the singleton lifecycle flock, before drift evaluation or any stop; it must consume them before making its socket ready, and may not lazily reread the shared path afterward. A settings-check-enabled per-jail spawn gets a separate unique private settings file written from those same bytes after validation; a concurrent workspace launch cannot replace it. Keep it until that owned service can no longer read it. Services without the opt-in retain the legacy name-keyed settings path. A validator result for `yolo check` never writes either daemon settings path.
+Resolve once from the current merged configuration into frozen serialized settings bytes. Create the validator's private input file from those bytes. On a fresh launch, run the pure validator before expensive image/provisioning work and before publishing shared settings, killing/replacing a singleton, starting a per-jail child, or publishing a front. If validation passes, publish/launch from the frozen bytes held by yolo—not by rereading the validator's file. A settings-check-enabled singleton publishes those bytes atomically while holding the singleton lifecycle flock, after any locked preparation succeeds (a failed preparation publishes nothing) and before drift evaluation or any stop; it must consume them before making its socket ready, and may not lazily reread the shared path afterward. A settings-check-enabled per-jail spawn gets a separate unique private settings file written from those same bytes after validation; a concurrent workspace launch cannot replace it. Keep it until that owned service can no longer read it. Services without the opt-in retain the legacy name-keyed settings path. A validator result for `yolo check` never writes either daemon settings path.
 
 A preflight refusal is fatal to that new launch and names the service, original reason, pack-provided remedy, `yolo check --no-build` on the host, and retry. It does not spawn a front or fall back to a currently running service. A valid already-running singleton and its current clients remain untouched on this refusal; they continue with the previous settings. A later valid settings change retains existing host-wide behavior: it may restart the singleton and affects every front using it, as the disclosure already states.
 
@@ -118,9 +118,8 @@ AWS access. Keep explicit user-scope opt-in, default false, conflict refusals, a
 and unrelated pack read/exec trust disclosures. Keep the route inspectable on request.
 Do not add an AWS-name branch or a new generic severity feature solely for this request.
 
-This change remains unaccepted outside main, alongside the startup-diagnostics candidate.
-The published runtime still has the older notice; the ruling does not change credentials,
-configuration scope or permission policy.
+This change shipped in 0.12.2 with the startup diagnostics. The ruling does not change
+credentials, configuration scope or permission policy.
 
 ## 8. Decisions and deferred work
 

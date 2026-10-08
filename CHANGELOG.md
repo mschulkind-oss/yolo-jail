@@ -22,6 +22,7 @@ code in the jail, by component, beside the one counted line the terminal shows.
 ### Fixed
 
 - A podman jail with nothing for the Nix root watcher to do no longer keeps a defunct `yolo-jaild` process for its whole life.
+- A host service that refuses its settings now stops the launch at once with its own cause and fix, instead of holding it for the whole startup window and staying running afterwards.
 
 ## [0.12.2] - 2026-10-08
 

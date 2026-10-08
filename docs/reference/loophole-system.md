@@ -823,14 +823,18 @@ A settings-check-enabled per-jail daemon receives a unique private settings file
 the exact validated bytes, retained until the owned service is torn down; a validator cannot
 change the bytes later published to its daemon by rewriting its own input. For a
 settings-check-enabled host-wide singleton, those bytes are atomically published under the
-existing singleton lifecycle lock, before drift handling or restart. Manifests without
+existing singleton lifecycle lock, after any locked preparation succeeds and before drift
+handling or restart, so a failed preparation leaves the running daemon's settings file as it
+was. Manifests without
 `settings_check` keep the legacy path and behavior. The validator runner bounds execution to
 2 seconds and combined captured output to 4 KiB, and emits bounded sanitized diagnostics.
 
-A validator refusal prevents only its own `doctor_cmd` during `yolo check --no-build`; a
-successful validation preserves the existing doctor as a separate health check. Other service
-checks continue, and validation itself never publishes daemon settings or replaces a running
-service.
+A validator refusal, timeout or start failure prevents only its own `doctor_cmd` during
+`yolo check --no-build`; a successful validation preserves the existing doctor as a separate
+health check. Other service checks continue, and validation itself never publishes daemon
+settings or replaces a running service. A service the configured backend would not start (on
+Apple Container, everything but the services that backend admits) is reported as not started
+there, and its validator is not run.
 
 The validator is host code. Its source pack, service and settings-validation execution are
 disclosed before it runs; it is invoked only when the selected, active, placement-valid service
