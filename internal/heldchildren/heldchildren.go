@@ -7,8 +7,14 @@
 // file is unsafe on a machine many test runs share: the file can be another run's, and
 // the kernel may have handed the PID to an unrelated process since. So the spawner
 // hands its *os.Process here, and a test stops only what is held. Signalling through the
-// handle cannot reach a reused PID: Go refuses to signal a process it has already reaped
-// (and on Linux it signals through a pidfd).
+// handle cannot reach a reused PID on Linux, where Go signals through a pidfd; elsewhere
+// it narrows the risk to Go's own window between reaping a child and marking it done.
+//
+// Two limits, accepted. A child stopped by StopAll is any child held since Enable, which
+// is sticky, so a nested isolation's release stops its enclosing scope's children too.
+// And a test binary that is killed runs no cleanup, so what it held is stopped by nothing
+// here; a singleton daemon exits once its state directory, under the test's temporary
+// HOME, is removed (hostservice.WatchStateDir).
 //
 // Nothing is held until Enable is called, which only tests do, so in production Hold is
 // a no-op and the package holds no references.

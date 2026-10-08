@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -66,11 +65,7 @@ func TestReleaseLeavesEveryOtherDirAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(other) })
-	daemon := exec.Command("sh", "-c", "while :; do sleep 1; done; : "+other)
-	if err := daemon.Start(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = daemon.Process.Kill(); _, _ = daemon.Process.Wait() })
+	daemon, daemonDone := startUnheld(t, other)
 	writeFile(t, filepath.Join(other, "yolo-x.pid"), strconv.Itoa(daemon.Process.Pid))
 	old := time.Now().Add(-24 * time.Hour)
 	if err := os.Chtimes(other, old, old); err != nil {
@@ -83,8 +78,8 @@ func TestReleaseLeavesEveryOtherDirAlone(t *testing.T) {
 	if _, err := os.Stat(other); err != nil {
 		t.Errorf("another run's dir %s was removed: %v", other, err)
 	}
-	if err := syscall.Kill(daemon.Process.Pid, 0); err != nil {
-		t.Errorf("a process this test process does not hold was signalled: %v", err)
+	if !stillRunning(daemonDone) {
+		t.Errorf("a process this test process does not hold was stopped")
 	}
 }
 
@@ -97,12 +92,7 @@ func TestReleaseStopsOnlyTheDaemonsItHolds(t *testing.T) {
 	dir := paths.HostSingletonDir
 
 	held := startHeld(t)
-	named := exec.Command("sh", "-c", "while :; do sleep 1; done; : "+dir)
-	if err := named.Start(); err != nil {
-		release()
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = named.Process.Kill(); _, _ = named.Process.Wait() })
+	named, namedDone := startUnheld(t, dir)
 	writeFile(t, filepath.Join(dir, "yolo-x.pid"), strconv.Itoa(named.Process.Pid))
 
 	release()
@@ -112,8 +102,34 @@ func TestReleaseStopsOnlyTheDaemonsItHolds(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Errorf("the daemon this process holds is still running after the release")
 	}
-	if err := syscall.Kill(named.Process.Pid, 0); err != nil {
-		t.Errorf("the release signalled a PID it read from a file: %v", err)
+	if !stillRunning(namedDone) {
+		t.Errorf("the release stopped a PID it read from a file")
+	}
+}
+
+// startUnheld starts a long-running child whose argv mentions dir, reaped as soon as it
+// exits, and does NOT hand it to heldchildren. Reaping matters: an unreaped child that was
+// signalled is a zombie, which kill(pid, 0) still finds, so only the exit channel can tell.
+func startUnheld(t *testing.T, dir string) (*exec.Cmd, <-chan struct{}) {
+	t.Helper()
+	cmd := exec.Command("sh", "-c", "while :; do sleep 1; done; : "+dir)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(done) }()
+	t.Cleanup(func() { _ = cmd.Process.Kill(); <-done })
+	return cmd, done
+}
+
+// stillRunning reports whether done stays open for a moment: long enough for a SIGTERM the
+// release sent to have ended the child.
+func stillRunning(done <-chan struct{}) bool {
+	select {
+	case <-done:
+		return false
+	case <-time.After(300 * time.Millisecond):
+		return true
 	}
 }
 
