@@ -163,6 +163,20 @@ func TestCheckDoesNotReadAFloorCopyYoloHostDoesNotRun(t *testing.T) {
 	}
 }
 
+// A program the floor cannot hold for this machine (Node publishes no build for riscv64, so there
+// is no interpreter to run it on) is not one the user left out: `yolo host -- agentx` refuses to
+// launch it until the floor holds it (host-notch-readiness.md HNR-D2), and the row must say so.
+func TestCheckSaysYoloHostRefusesAProgramTheFloorCannotHold(t *testing.T) {
+	out, _ := runHostCatalogCheck(t, &hostfloor.Floor{Dir: t.TempDir(), GOOS: "linux", GOARCH: "riscv64", Root: checkLoaderRoot(t)})
+	if !strings.Contains(out, "agentx: no floor entry:") ||
+		!strings.Contains(out, "refuses to launch until the floor holds it") {
+		t.Errorf("a program the floor cannot hold must say `yolo host` refuses to launch it:\n%s", out)
+	}
+	if strings.Contains(out, "runs the one on the PATH") {
+		t.Errorf("a program the floor cannot hold must not say `yolo host` runs the PATH copy:\n%s", out)
+	}
+}
+
 // A floor record a newer yolo wrote is one no launch of this yolo installs over
 // (hostfloor.Floor.Ensure refuses), so the skip names `yolo update`, never a launch that installs.
 func TestCheckSendsANewerYolosFloorRecordToTheUpdateForItsCatalog(t *testing.T) {
