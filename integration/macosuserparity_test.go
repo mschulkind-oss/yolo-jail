@@ -11,6 +11,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/setupcensus"
 )
 
 // THE macos-user BACKEND-PARITY FIXES, ASSERTED ON THE HARDWARE — docs/design/backend-parity.md
@@ -235,7 +236,9 @@ func TestMacosUserSaysResourcesAreIgnoredAndRelocatesTheCache(t *testing.T) {
 	out := r.combined()
 
 	for _, want := range []string{
-		"resources are NOT enforced on macos-user", "so pids_limit is read and ignored",
+		// The census's own notice, as the launch prints it (printResourceDispositions): a copy
+		// of its words here drifted once already, when the census reworded the line.
+		setupcensus.Warning(setupcensus.MacosUser, "resources.pids_limit").Plain("pids_limit"),
 		"Cache relocation: ~/.cache/" + subdir + " → " + target,
 	} {
 		if !strings.Contains(out, want) {
