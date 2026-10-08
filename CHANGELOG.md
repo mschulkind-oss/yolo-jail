@@ -20,6 +20,10 @@ facts for a variant id. See
 **Colored `yolo config` help.** On a terminal, `yolo config --help` and each verb's `--help`
 highlight headings, verbs and flags; piped output and `NO_COLOR` stay plain.
 
+### Changed
+
+- A pack whose `shared_credentials` or `shared_directory` hook names an `at` that is not a machine-scope `state` of the pack is refused by `yolo pack lint`, `yolo check` and every launch, `yolo host` included: declare that path as a machine-scope `state` in the pack.
+
 ### Fixed
 
 - A provider-only Pi profile no longer fails at startup because of a provider flag without a model selection.
@@ -28,10 +32,8 @@ highlight headings, verbs and flags; piped output and `NO_COLOR` stay plain.
   in the jail and asks you to apply a config change, instead of failing to write it; an in-jail
   `yolo check` says so too.
 - An MCP server left out because its `requires_env` variable is unset is no longer reported as "not in config" at launch or by `yolo host apply`; the notice names the variable and how to deliver it.
-- An AMD GPU in `mode: "cdi"` on a host with no AMD CDI spec no longer fails the launch: the jail
-  starts without the GPU and the warning names the command that writes the spec.
+- An AMD GPU in `mode: "cdi"` on a host with no AMD CDI spec no longer fails the launch: the jail starts without the GPU and the warning names the command that writes the spec.
 - A second terminal opened on a running jail no longer repeats the durable-dir line, and opens faster.
-- `yolo pack lint`, `yolo check` and every launch, `yolo host` included, now refuse a `shared_credentials` or `shared_directory` hook whose `at` is not a machine-scope `state` of its pack, and say how to fix it; a jail launch of such a pack used to fail at boot.
 - A pack declaring one `state` path at both workspace and machine scope is now refused by name, instead of failing the launch with a duplicate-mount error.
 
 ## [0.12.1] - 2026-10-06
