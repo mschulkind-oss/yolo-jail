@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 )
 
@@ -113,8 +114,12 @@ func verifyResume(ctx context.Context, src resumeSources, repo, version, sha, re
 		if run.Status != "completed" {
 			return fmt.Errorf("release.yml run %d for %s is still %s; wait for it to finish", run.ID, tag, run.Status)
 		}
-		if run.Conclusion == "success" {
+		switch run.Conclusion {
+		case "success":
 			return fmt.Errorf("release.yml run %d for %s succeeded, so publication already started", run.ID, tag)
+		case "failure", "cancelled", "timed_out", "action_required", "neutral", "skipped", "stale", "startup_failure":
+		default:
+			return fmt.Errorf("release.yml run %d has conclusion %q, so unsuccessful completion is unproven", run.ID, run.Conclusion)
 		}
 	}
 
@@ -172,7 +177,11 @@ func verifyResume(ctx context.Context, src resumeSources, repo, version, sha, re
 	if status != http.StatusOK {
 		return fmt.Errorf("the Homebrew formula returned HTTP %d, so the tap's state is unproven", status)
 	}
-	if strings.Contains(string(body), "/refs/tags/"+tag+".tar.gz") {
+	formulaTags := regexp.MustCompile(`(?m)^\s*url\s+"https://github\.com/[^/"\s]+/[^/"\s]+/archive/refs/tags/(v[^/"\s]+)\.tar\.gz"`).FindAllStringSubmatch(string(body), -1)
+	if len(formulaTags) != 1 {
+		return fmt.Errorf("the Homebrew formula has no single recognizable tag URL, so the tap's state is unproven")
+	}
+	if formulaTags[0][1] == tag {
 		return fmt.Errorf("the Homebrew tap's formula already carries %s", tag)
 	}
 	return nil
@@ -184,19 +193,36 @@ func workflowRuns(ctx context.Context, gh claimClient, repo, path string) ([]res
 		return nil, err
 	}
 	var all []resumeRun
-	for page := 1; ; page++ {
+	var expected *int
+	for page := 1; page <= 1000; page++ {
 		var response struct {
-			Runs []resumeRun `json:"workflow_runs"`
+			Total *int        `json:"total_count"`
+			Runs  []resumeRun `json:"workflow_runs"`
 		}
 		address := fmt.Sprintf("%s/repos/%s/actions/workflows/%d/runs?per_page=%d&page=%d", gh.apiURL, repo, workflow.ID, resumePageSize, page)
 		if err := gh.getJSON(ctx, address, &response); err != nil {
 			return nil, fmt.Errorf("cannot list %s runs: %w", path, err)
 		}
+		if response.Total == nil || *response.Total < 0 || response.Runs == nil {
+			return nil, fmt.Errorf("%s run listing is missing its count or array, so its completeness is unproven", path)
+		}
+		if expected == nil {
+			expected = response.Total
+		} else if *expected != *response.Total {
+			return nil, fmt.Errorf("%s run count changed during pagination, so its completeness is unproven", path)
+		}
 		all = append(all, response.Runs...)
-		if len(response.Runs) < resumePageSize {
+		if len(all) > *expected || len(response.Runs) > resumePageSize {
+			return nil, fmt.Errorf("%s run pagination is inconsistent, so its completeness is unproven", path)
+		}
+		if len(all) == *expected {
 			return all, nil
 		}
+		if len(response.Runs) < resumePageSize {
+			return nil, fmt.Errorf("%s run pagination was incomplete", path)
+		}
 	}
+	return nil, fmt.Errorf("%s run pagination exceeded the safety limit; inspect the history before resuming", path)
 }
 
 func publicGet(ctx context.Context, client *http.Client, address string, limit int64) ([]byte, int, error) {

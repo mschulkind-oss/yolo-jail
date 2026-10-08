@@ -28,6 +28,7 @@ type resumeState struct {
 	pypiBody           string
 	formulaStatus      int
 	formula            string
+	workflowResponse   string
 }
 
 const resumeTagObject = "abcdefabcdefabcdefabcdefabcdefabcdefabcd"
@@ -70,6 +71,13 @@ func resumeHTTPServer(t *testing.T, state resumeState) *httptest.Server {
 	// Pages honor per_page, as GitHub's do, so a run beyond the first page is
 	// only seen by a caller that follows the pages.
 	runs := func(w http.ResponseWriter, r *http.Request, list []resumeRun) {
+		if state.workflowResponse != "" {
+			fmt.Fprint(w, state.workflowResponse)
+			return
+		}
+		if list == nil {
+			list = []resumeRun{}
+		}
 		size, page := 0, 0
 		fmt.Sscan(r.URL.Query().Get("per_page"), &size)
 		fmt.Sscan(r.URL.Query().Get("page"), &page)
@@ -129,6 +137,14 @@ func TestResumeIsAcceptedOnlyForTagOnlyState(t *testing.T) {
 		wantErr string
 	}{
 		{name: "tag only, after a failed Release run", mutate: func(*resumeState) {}},
+		{name: "missing workflow listing", mutate: func(s *resumeState) { s.workflowResponse = `{}` }, wantErr: "unproven"},
+		{name: "null workflow listing", mutate: func(s *resumeState) { s.workflowResponse = `{"total_count":0,"workflow_runs":null}` }, wantErr: "unproven"},
+		{name: "incomplete workflow listing", mutate: func(s *resumeState) { s.workflowResponse = `{"total_count":1,"workflow_runs":[]}` }, wantErr: "incomplete"},
+		{name: "missing workflow count", mutate: func(s *resumeState) { s.workflowResponse = `{"workflow_runs":[]}` }, wantErr: "unproven"},
+		{name: "unknown Release conclusion", mutate: func(s *resumeState) { s.releaseRuns[0].Conclusion = "future-state" }, wantErr: "unproven"},
+		{name: "empty Release conclusion", mutate: func(s *resumeState) { s.releaseRuns[0].Conclusion = "" }, wantErr: "unproven"},
+		{name: "empty formula response", mutate: func(s *resumeState) { s.formula = "" }, wantErr: "unproven"},
+		{name: "HTML formula response", mutate: func(s *resumeState) { s.formula = "<html>upstream error</html>" }, wantErr: "unproven"},
 		{name: "tag only, project not yet on PyPI", mutate: func(s *resumeState) { s.pypiStatus, s.pypiBody = http.StatusNotFound, "" }},
 		{name: "tag at another commit", mutate: func(s *resumeState) { s.tagTarget = strings.Repeat("f", 40) }, wantErr: "not the requested commit"},
 		{name: "lightweight tag", mutate: func(s *resumeState) { s.refType = "commit" }, wantErr: "not an annotated tag"},
