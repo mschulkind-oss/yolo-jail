@@ -163,6 +163,9 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
     `.yolo` by a link](../reference/jail-home.md#OQ-JH1), [the shared tool store's relocation contract](../design/shared-tool-store-relocation.md)
     with [its build handoff](shared-tool-store-relocation.md), and, once item 15 records its cases, [context sources inside a
     home](../design/context-mounts.md).
+    Beside the storage rulings, [choose bulk scratch placement](../design/storage-tiers.md), with its
+    [implementation sketch](../design/storage-tiers-plan.md) — settle the capacity-storage contract before
+    widening storage abstractions; this does not move code or the existing durable directory.
 33. [Rule whether yolo may hold an editor preference](../design/baked-editor-preference.md) — the maintainer asked for
     it, and its first ruling decides an image change every jail pays.
 34. [Build the rest of the broker's step 2](../design/boundary-broker.md#11-recommendation-and-the-first-build-slice) —
