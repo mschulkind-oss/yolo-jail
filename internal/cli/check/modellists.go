@@ -201,8 +201,9 @@ type declaredCatalog struct {
 //
 // THE HOST'S COPY IS THE ONE THE FLOOR'S DISPOSITION SAYS `yolo host` RUNS (hostfloor.Status, the
 // answer the Host agent floor section prints), never whatever record the prefix still holds: a
-// program with no floor entry (`host_floor` leaves its pack out, or this machine cannot hold it)
-// runs from the launch's PATH (OQ-HE11), so a record left from before is a copy no launch runs,
+// program with no floor entry runs from the launch's PATH when it is not the floor's to hold
+// (`host_floor` leaves its pack out: HNR-D4) and not at all when this machine cannot hold it
+// (HNR-D2), so a record left from before is a copy no launch runs,
 // and a program not yet provisioned is one the check could not ask.
 func (o *Options) declaredCatalogs(packs []*packload.Pack) []declaredCatalog {
 	inJail := o.getenv("YOLO_VERSION") != ""
@@ -268,6 +269,11 @@ func (o *Options) declaredCatalogs(packs []*packload.Pack) []declaredCatalog {
 			default:
 				c.missing = "no floor entry: " + st.Reason + ". `yolo host -- " + inst.Bin +
 					"` runs the one on the PATH it is started with, whose catalog this check does not read"
+				if !floor.OutsideTheFloor(prog) {
+					// This machine cannot hold it, and `yolo host` refuses to launch it (HNR-D2).
+					c.missing = "no floor entry: " + st.Reason + ". `yolo host -- " + inst.Bin +
+						"` refuses to launch until the floor holds it"
+				}
 			}
 			out = append(out, c)
 		}

@@ -196,13 +196,14 @@ func TestHostLaunchOfAnInstallerAgentOnAMachineThatCannotCaptureNamesTheRuntimeS
 	got := captureHostExec(t)
 	var errw bytes.Buffer
 	stub := filepath.Join(stubDir, "nativecli")
-	if rc := hostExec(nil, []string{"nativecli"}, io.Discard, &errw, nil); rc != 0 || got.target != stub {
-		t.Fatalf("rc=%d target=%s, want the PATH copy %s\n%s", rc, got.target, stub, errw.String())
+	if rc := hostExec(nil, []string{"nativecli"}, io.Discard, &errw, nil); rc != 127 || got.execed {
+		t.Fatalf("rc=%d target=%s, want 127 and no exec, never the PATH copy %s (HNR-D2)\n%s", rc, got.target,
+			stub, errw.String())
 	}
 	want := "yolo host: yolo has no copy of nativecli on this machine (there is no capture of nativecli on " +
 		"this machine, and no container runtime (podman) is on PATH to run `yolo capture` with — install " +
-		"one (`yolo check` names how on this machine) and the next `yolo host` launch captures it); " +
-		"looking for it on your PATH\n"
+		"one (`yolo check` names how on this machine) and the next `yolo host` launch captures it)" +
+		declaredNoCopyRefusal
 	if !strings.Contains(errw.String(), want) {
 		t.Errorf("stderr lacks the no-copy line with its step\n  %s\n%s", want, errw.String())
 	}

@@ -235,9 +235,11 @@ func TestAHostAgentLaunchInstallsTheProgramItsMCPServerRuns(t *testing.T) {
 	}
 }
 
-// A failed install, and a program the floor may not hold, each cost the server and never the
-// agent, and each says so with its next step — on a Linux floor and on a Mac's, whatever machine runs
-// the test, since the no-copy line names the floor's machine as its platform does (noCopyWhere).
+// A failed install of the server's program is the launch's READINESS ACT failing (HNR-D1): the
+// launch refuses, naming the program and YOLO_ALLOW_MISSING_PROGRAMS, and with that set the agent
+// starts and the program is listed. A program the user's `host_floor` leaves out costs the server and
+// never the agent, and says so with its next step. On a Linux floor and on a Mac's, whatever machine
+// runs the test, since the no-copy line names the floor's machine as its platform does (noCopyWhere).
 func TestAHostAgentLaunchSaysWhenItsMCPServersProgramCannotBeInstalled(t *testing.T) {
 	t.Run("linux", func(t *testing.T) {
 		testMCPProgramCannotBeInstalledOn(t, floortest.NewLinuxDist, "machine")
@@ -252,28 +254,47 @@ func TestAHostAgentLaunchSaysWhenItsMCPServersProgramCannotBeInstalled(t *testin
 func testMCPProgramCannotBeInstalledOn(t *testing.T, newDist func(*testing.T) *floortest.Dist, machine string) {
 	for _, tc := range []struct {
 		name, extra, want string
+		bypass, refused   bool
 	}{
-		{"install fails", "", "could not install chrome-devtools-mcp, which MCP server chrome-devtools runs, " +
-			"into yolo's floor"},
-		{"floor leaves it out", `,"host_floor":{"chrome-devtools":false}`,
-			"yolo has no copy of chrome-devtools-mcp on this {machine} (the user config's `host_floor` leaves pack " +
-				"chrome-devtools out of the floor), which MCP server chrome-devtools runs; the server looks for " +
-				"it on the agent's PATH"},
+		{name: "install fails", want: "yolo host: REFUSING to launch: a program a selected pack declares could " +
+			"not be installed.\n      program chrome-devtools-mcp (pack chrome-devtools): ", refused: true},
+		{name: "install fails, bypass set", bypass: true, want: "yolo host: ⚠ YOLO_ALLOW_MISSING_PROGRAMS is set, " +
+			"so this launch starts WITHOUT what a selected pack declares:\n      program chrome-devtools-mcp " +
+			"(pack chrome-devtools): "},
+		{name: "floor leaves it out", extra: `,"host_floor":{"chrome-devtools":false}`, want: "yolo has no copy of chrome-devtools-mcp on this {machine} (the user config's `host_floor` leaves pack " +
+			"chrome-devtools out of the floor), which MCP server chrome-devtools runs; the server looks for " +
+			"it on the agent's PATH"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dist := agentWithChromeFixtureOn(t, tc.extra, newDist)
 			tc.want = strings.ReplaceAll(tc.want, "{machine}", machine)
 			dist.Publish("chrome-devtools-mcp", "1.2.3", "bin=chrome-devtools-mcp", "fail=1")
+			if tc.bypass {
+				t.Setenv(paths.AllowMissingProgramsEnv, "1")
+			}
 			got := captureHostExec(t)
 			var errw bytes.Buffer
-			if rc := hostExec(nil, []string{"floorcli"}, io.Discard, &errw, nil); rc != 0 || !got.execed {
+			rc := hostExec(nil, []string{"floorcli"}, io.Discard, &errw, nil)
+			switch {
+			case tc.refused && (rc == 0 || got.execed):
+				t.Fatalf("the launch started without a program a selected pack declares: rc=%d\n%s", rc, errw.String())
+			case !tc.refused && (rc != 0 || !got.execed):
 				t.Fatalf("the agent did not start: rc=%d execed=%v\n%s", rc, got.execed, errw.String())
 			}
 			if !strings.Contains(errw.String(), tc.want) {
 				t.Errorf("no line %q:\n%s", tc.want, errw.String())
 			}
-			if tc.name == "install fails" && !strings.Contains(errw.String(), "the next `yolo host` launch tries the install again") {
-				t.Errorf("the failure names no next step:\n%s", errw.String())
+			if tc.refused && !strings.Contains(errw.String(), "YOLO_ALLOW_MISSING_PROGRAMS=1 yolo host -- floorcli") {
+				t.Errorf("the refusal names no way to launch anyway:\n%s", errw.String())
+			}
+			if tc.bypass {
+				if !strings.Contains(errw.String(), "The next `yolo host` launch tries each install again") {
+					t.Errorf("the bypass names no next step:\n%s", errw.String())
+				}
+				if n := strings.Count(errw.String(), "installing chrome-devtools-mcp into yolo's floor"); n != 1 {
+					t.Errorf("one launch tried the server's program %d times, want once (the act, not the MCP step "+
+						"again):\n%s", n, errw.String())
+				}
 			}
 		})
 	}
@@ -326,9 +347,11 @@ func TestYoloHostApplyLeavesAFetchedPacksMCPServerOutOfEveryAgentsFile(t *testin
 	}
 }
 
-// A `yolo host -- <agent>` launch installs no program for a fetched pack's server, even one a
-// selected local pack declares and the floor would hold: the server is not written at the host,
-// so nothing starts it. Pinned at ensureMCPPrograms' call of hostMCPPacks.
+// A `yolo host -- <agent>` launch asks the floor for no program on behalf of a fetched pack's server:
+// the server is not written at the host, so nothing starts it. The local pack that declares the
+// program is left out of the floor here, so the readiness act (HNR-D1), which would install it as a
+// declared program, does not, and only ensureMCPPrograms could ask. Pinned at its call of
+// hostMCPPacks.
 func TestAHostAgentLaunchInstallsNothingForAFetchedPacksMCPServer(t *testing.T) {
 	home := floortest.ResolvedTemp(t)
 	t.Setenv("HOME", home)
@@ -340,7 +363,8 @@ func TestAHostAgentLaunchInstallsNothingForAFetchedPacksMCPServer(t *testing.T) 
 		`{"kind":"program","bin":"floorcli","via":"npm","package":"floorcli-pkg"},`+
 		`{"kind":"program","bin":"acme-mcp-bin","via":"npm","package":"acme-mcp-pkg"}]}`)
 	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
-		`{"packs":[{"source":"file://`+pack+`","name":"floorpack"},`+fetchedMCPPackSource(t)+`]}`)
+		`{"packs":[{"source":"file://`+pack+`","name":"floorpack"},`+fetchedMCPPackSource(t)+`],`+
+			`"host_floor":{"floorpack":false}}`)
 	installGitPack(t)
 	orig := prepareOpenAIAuthHost
 	prepareOpenAIAuthHost = func(hostPrelaunch, io.Writer) (managedOpenAIHostLaunch, error) { return nil, nil }
@@ -348,13 +372,14 @@ func TestAHostAgentLaunchInstallsNothingForAFetchedPacksMCPServer(t *testing.T) 
 	dist := withTestFloor(t)
 	dist.Publish("floorcli-pkg", "1.0.0", "bin=floorcli")
 	dist.Publish("acme-mcp-pkg", "1.0.0", "bin=acme-mcp-bin")
+	stubBins(t, "floorcli")
 	got := captureHostExec(t)
 	var errw bytes.Buffer
 	if rc := hostExec(nil, []string{"floorcli"}, io.Discard, &errw, nil); rc != 0 || !got.execed {
 		t.Fatalf("rc=%d execed=%v\n%s", rc, got.execed, errw.String())
 	}
-	if _, err := os.Stat(filepath.Join(paths.HostFloorDir(), "bin", "floorcli")); err != nil {
-		t.Fatalf("premise: the agent itself was not installed into the floor: %v\n%s", err, errw.String())
+	if !strings.Contains(errw.String(), "yolo has no copy of floorcli") {
+		t.Fatalf("premise: the agent had a floor copy after all:\n%s", errw.String())
 	}
 	if _, err := os.Stat(filepath.Join(paths.HostFloorDir(), "bin", "acme-mcp-bin")); err == nil {
 		t.Errorf("the launch installed the program of a server it does not write:\n%s", errw.String())

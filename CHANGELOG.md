@@ -28,6 +28,12 @@ per workspace; `yolo nix-roots` lists and releases them. See
 ### Changed
 
 - A pack whose `shared_credentials` or `shared_directory` hook names an `at` that is not a machine-scope `state` of the pack is refused by `yolo pack lint`, `yolo check` and every launch, `yolo host` included: declare that path as a machine-scope `state` in the pack.
+- `yolo host -- <command>` now installs every program your selected packs declare before the command
+  runs, as a jail does, and stops when one cannot install. To launch anyway, set
+  `YOLO_ALLOW_MISSING_PROGRAMS=1`. See [host-notch-readiness.md](docs/design/host-notch-readiness.md).
+- `yolo host -- <agent>` no longer runs a copy from your PATH when yolo cannot install that agent on
+  this machine; it stops and names the step that fixes it. To keep using your own copy, leave the
+  pack out with `"host_floor": {"<pack>": false}` in your user config.
 
 ### Fixed
 

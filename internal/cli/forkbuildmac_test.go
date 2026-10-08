@@ -52,7 +52,7 @@ func TestACaptureOfAForkOnAContainerBackendNamesNoRuntime(t *testing.T) {
 // A MAC'S FLOOR REFUSES A FORK'S BUILD IT CANNOT RUN, AT ITS CALL SITE (FP-D24): with the macos-user
 // act unable to run here, `yolo host -- forkcli` says why as no floor entry, naming the step, runs the
 // PATH copy, and builds nothing. Drop macBuildBlocked from the Mac's floor wiring and the act runs.
-func TestAMacFloorThatCannotRunTheBuildActRunsThePathCopy(t *testing.T) {
+func TestAMacFloorThatCannotRunTheBuildActRefusesNamingTheStep(t *testing.T) {
 	for name, tc := range map[string]struct {
 		mac  macSetup
 		want string
@@ -84,10 +84,12 @@ func TestAMacFloorThatCannotRunTheBuildActRunsThePathCopy(t *testing.T) {
 			stub := filepath.Join(stubBins(t, "forkcli"), "forkcli")
 			got := captureHostExec(t)
 			errw.Reset()
-			if rc := hostExec(nil, []string{"forkcli"}, io.Discard, &errw, nil); rc != 0 || got.target != stub {
-				t.Fatalf("rc=%d target=%s, want the PATH copy %s\n%s", rc, got.target, stub, errw.String())
+			if rc := hostExec(nil, []string{"forkcli"}, io.Discard, &errw, nil); rc != 127 || got.execed {
+				t.Fatalf("rc=%d target=%s, want 127 and no exec, never the PATH copy %s (HNR-D2)\n%s", rc, got.target,
+					stub, errw.String())
 			}
 			if !strings.Contains(errw.String(), "yolo has no copy of forkcli on this Mac") ||
+				!strings.Contains(errw.String(), declaredNoCopyRefusal) ||
 				!strings.Contains(errw.String(), tc.want) {
 				t.Errorf("the no-copy line does not say %q:\n%s", tc.want, errw.String())
 			}

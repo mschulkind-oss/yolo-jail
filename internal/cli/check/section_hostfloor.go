@@ -80,7 +80,19 @@ func (o *Options) sectionHostFloor(r *reporter) {
 			}
 			r.dim(fmt.Sprintf("%s — not in the floor yet (%s): %s", p.Bin(), st.Reason, by))
 		case hostfloor.NoEntry:
-			// With no floor entry, the copy on the launch's PATH IS what runs (OQ-HE11 (a)), so it
+			if !floor.OutsideTheFloor(p) {
+				// THIS MACHINE cannot hold it: `yolo host` refuses to launch it rather than run a PATH
+				// copy, and every launch's readiness act stops on it (host-notch-readiness.md HNR-D1,
+				// HNR-D2). The reason carries its own fix.
+				r.dim(fmt.Sprintf("%s — no floor entry: %s. `yolo host` refuses to launch until the floor "+
+					"holds it, or until `host_floor` leaves pack %s out", p.Bin(), st.Reason, p.Pack))
+				if _, left := records[p.Bin()]; left {
+					r.dim(fmt.Sprintf("%s: yolo's floor still holds a copy it no longer keeps, which `yolo host` "+
+						"does not run — %s", p.Bin(), floor.StaleCopyStep(hostOwned(), p.Bin())))
+				}
+				break
+			}
+			// Not the floor's to hold (HNR-D4), so the copy on the launch's PATH IS what runs, and it
 			// is named as that rather than as a copy `yolo host` does not run. The PATH is the
 			// launch PATH as read here — the one this check was started with, then host_path's
 			// folders — through the exec's own lookup: a launcher with another PATH may find

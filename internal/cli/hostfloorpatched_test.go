@@ -255,8 +255,8 @@ func TestTheHostFloorsAdvanceRunsAfterTheRenderGatesObservePass(t *testing.T) {
 	}
 }
 
-// ON A MAC `yolo host` HOLDS NO FORK'S BUILD (§9, FP-D16): the launch runs no advance, says the copy
-// on PATH runs, and names the next step — a jail on a container backend, whose fresh launch builds it.
+// ON A MAC `yolo host` HOLDS NO FORK'S BUILD (§9, FP-D16): the launch runs no advance, refuses rather
+// than run a copy on PATH (HNR-D2), and names the next step — a jail on a container backend, whose fresh launch builds it.
 // The floor's platform decides, so this runs on every CI host.
 func TestHostLaunchOfAPatchedForkOnAMacNamesTheJailThatRunsIt(t *testing.T) {
 	fx := patchedFloorFixture(t)
@@ -269,10 +269,11 @@ func TestHostLaunchOfAPatchedForkOnAMacNamesTheJailThatRunsIt(t *testing.T) {
 	t.Cleanup(func() { floorAdvance = prevAdvance })
 	stub := filepath.Join(stubBins(t, "tool"), "tool")
 	rc, target, out := fx.hostLaunch(t)
-	if rc != 0 || target != stub || len(fx.builds) != 0 {
-		t.Fatalf("rc=%d target=%s builds=%d, want the PATH copy and no build\n%s", rc, target, len(fx.builds), out)
+	if rc != 127 || target != "" || len(fx.builds) != 0 {
+		t.Fatalf("rc=%d target=%s builds=%d, want 127, no exec (never the PATH copy %s) and no build\n%s", rc,
+			target, len(fx.builds), stub, out)
 	}
-	for _, w := range []string{"yolo host: yolo has no copy of tool on this Mac (",
+	for _, w := range []string{"yolo host: yolo has no copy of tool on this Mac (", declaredNoCopyRefusal,
 		"run it in a jail instead (`yolo -- tool`, on a container backend: Apple Container or podman), whose fresh " +
 			"launch builds it"} {
 		if !strings.Contains(out, w) {

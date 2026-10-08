@@ -213,11 +213,11 @@ func TestHostLaunchRunsTheFloorsCopyOfASelectedPacksAgent(t *testing.T) {
 	}
 }
 
-// TestHostLaunchOfAProgramTheFloorCannotHoldRunsThePATHCopyAndSaysSo is OQ-HE11's interim
-// behavior (the ruling is open; the task keeps today's behavior): a selected pack's program with
-// no floor entry — here `host_floor` leaves the pack out — is looked up on the caller's PATH, and
-// one line says the copy is not yolo's. Nothing is installed.
-func TestHostLaunchOfAProgramTheFloorCannotHoldRunsThePATHCopyAndSaysSo(t *testing.T) {
+// TestHostLaunchOfAProgramTheUserLeavesOutOfTheFloorRunsThePATHCopyAndSaysSo is HNR-D4: a selected
+// pack's program the user-scope `host_floor` leaves out of the floor is the user's own decision, so
+// it is looked up on the caller's PATH, and one line says the copy is not yolo's. Nothing is
+// installed.
+func TestHostLaunchOfAProgramTheUserLeavesOutOfTheFloorRunsThePATHCopyAndSaysSo(t *testing.T) {
 	dist, handInstalled := floorLaunchFixture(t, `,"host_floor":{"floorpack":false}`)
 	got := captureHostExec(t)
 	var errw bytes.Buffer
@@ -236,12 +236,12 @@ func TestHostLaunchOfAProgramTheFloorCannotHoldRunsThePATHCopyAndSaysSo(t *testi
 	}
 }
 
-// TestHostLaunchOnAMachineWithoutTheFloorsLoaderRunsThePATHCopyAndNamesTheStep is HP-D15 at the call
-// site: on a Linux host whose filesystem has no dynamic loader for Node's official build (NixOS
-// without nix-ld, a musl system), the floor has no entry for an npm agent, so `yolo host` runs the
-// copy on the caller's PATH — the no-copy line naming the loader and the nix-ld step, the hand-over
-// line saying where the copy came from — and downloads nothing.
-func TestHostLaunchOnAMachineWithoutTheFloorsLoaderRunsThePATHCopyAndNamesTheStep(t *testing.T) {
+// TestHostLaunchOnAMachineWithoutTheFloorsLoaderRefusesAndNamesTheStep is HP-D15 at the call site,
+// under HNR-D2: on a Linux host whose filesystem has no dynamic loader for Node's official build
+// (NixOS without nix-ld, a musl system), the floor has no entry for an npm agent, so `yolo host`
+// refuses rather than run the copy on the caller's PATH — the no-copy line naming the loader and the
+// nix-ld step — and downloads nothing.
+func TestHostLaunchOnAMachineWithoutTheFloorsLoaderRefusesAndNamesTheStep(t *testing.T) {
 	dist, handInstalled := floorLaunchFixture(t, "")
 	withLinuxTestFloor(t)
 	bare := floortest.ResolvedTemp(t)
@@ -254,13 +254,14 @@ func TestHostLaunchOnAMachineWithoutTheFloorsLoaderRunsThePATHCopyAndNamesTheSte
 	t.Cleanup(func() { newHostFloor = orig })
 	got := captureHostExec(t)
 	var errw bytes.Buffer
-	if rc := hostExec(nil, []string{"floorcli"}, io.Discard, &errw, nil); rc != 0 || got.target != handInstalled {
-		t.Fatalf("rc=%d target=%s, want the PATH copy %s\n%s", rc, got.target, handInstalled, errw.String())
+	if rc := hostExec(nil, []string{"floorcli"}, io.Discard, &errw, nil); rc != 127 || got.execed {
+		t.Fatalf("rc=%d target=%s, want 127 and no exec, never the PATH copy %s\n%s", rc, got.target, handInstalled,
+			errw.String())
 	}
 	for _, want := range []string{"yolo host: yolo has no copy of floorcli on this machine (the floor runs it on " +
 		"Node's official linux-", "needs the dynamic loader ", "a NixOS host without nix-ld, or a musl system",
-		"programs.nix-ld.enable = true;", "; looking for it on your PATH\n",
-		"yolo host: starting floorcli (from your PATH, "} {
+		"programs.nix-ld.enable = true;", declaredNoCopyRefusal,
+		"leave pack floorpack out of the floor with `\"host_floor\": {\"floorpack\": false}`"} {
 		if !strings.Contains(errw.String(), want) {
 			t.Errorf("stderr lacks %q:\n%s", want, errw.String())
 		}

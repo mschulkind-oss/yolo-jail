@@ -54,8 +54,9 @@ func nativeFloorFixture(t *testing.T) (pack string) {
 
 // TestTheNoCopyLineNamesTheFloorsPlatform: an installer agent on a Mac whose sandbox account is not
 // set up has no floor copy, its reason naming `yolo macos-setup` (HP-D2's act cannot run), an npm
-// agent `host_floor` leaves out has none on a Mac or on Linux, and in every case the copy on the
-// caller's PATH is what runs, said by the hand-over line. No case says "yet": every reason names
+// agent `host_floor` leaves out has none on a Mac or on Linux. The installer agent's launch refuses
+// (HNR-D2); the agent `host_floor` leaves out runs the copy on the caller's PATH (HNR-D4), said by
+// the hand-over line. No case says "yet": every reason names
 // what ends it, or says nothing does.
 func TestTheNoCopyLineNamesTheFloorsPlatform(t *testing.T) {
 	for _, c := range []struct {
@@ -63,14 +64,15 @@ func TestTheNoCopyLineNamesTheFloorsPlatform(t *testing.T) {
 		setup           func(t *testing.T)
 		want            []string
 		never           string
+		refused         bool
 	}{
 		{name: "an installer agent on a Mac before macos-setup", goos: "darwin", bin: "nativecli",
 			setup: func(t *testing.T) { nativeFloorFixture(t); withMac(t, macSetup{terminal: true}) },
 			want: []string{"yolo host: yolo has no copy of nativecli on this Mac (there is no capture of nativecli " +
 				"on this machine, and the sandbox account _yolojail",
-				"run the one-time setup, `yolo macos-setup`, and the next `yolo host` launch captures it); " +
-					"looking for it on your PATH"},
-			never: "yet"},
+				"run the one-time setup, `yolo macos-setup`, and the next `yolo host` launch captures it)" +
+					declaredNoCopyRefusal},
+			never: "yet", refused: true},
 		{name: "an npm agent host_floor leaves out, on a Mac", goos: "darwin", bin: "floorcli",
 			setup: func(t *testing.T) { floorHostFixture(t, `,"host_floor":{"floorpack":false}`) },
 			want:  []string{"yolo host: yolo has no copy of floorcli on this Mac (the user config's `host_floor`"},
@@ -85,10 +87,20 @@ func TestTheNoCopyLineNamesTheFloorsPlatform(t *testing.T) {
 			stub := filepath.Join(stubBins(t, c.bin), c.bin)
 			got := captureHostExec(t)
 			var errw bytes.Buffer
-			if rc := hostExec(nil, []string{c.bin}, io.Discard, &errw, nil); rc != 0 || got.target != stub {
-				t.Fatalf("rc=%d target=%s, want the PATH copy %s\n%s", rc, got.target, stub, errw.String())
+			rc := hostExec(nil, []string{c.bin}, io.Discard, &errw, nil)
+			want := c.want
+			if c.refused {
+				if rc != 127 || got.execed {
+					t.Fatalf("rc=%d target=%s, want 127 and no exec, never the PATH copy %s\n%s", rc, got.target,
+						stub, errw.String())
+				}
+			} else {
+				if rc != 0 || got.target != stub {
+					t.Fatalf("rc=%d target=%s, want the PATH copy %s\n%s", rc, got.target, stub, errw.String())
+				}
+				want = append(want, "yolo host: starting "+c.bin+" (from your PATH, "+stub+")")
 			}
-			for _, want := range append(c.want, "yolo host: starting "+c.bin+" (from your PATH, "+stub+")") {
+			for _, want := range want {
 				if !strings.Contains(errw.String(), want) {
 					t.Errorf("stderr lacks %q:\n%s", want, errw.String())
 				}

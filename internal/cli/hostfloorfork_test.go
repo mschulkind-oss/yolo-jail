@@ -440,9 +440,9 @@ func TestHostLaunchRunsTheBuildAJailLaunchMadeOnAMachineThatCannotBuild(t *testi
 }
 
 // A build that cannot move out of the jail's home is not the floor's copy: the launch says so,
-// naming that home, runs the copy on PATH (OQ-HE11), and does not rebuild on the next launch — the
+// naming that home, refuses rather than run a copy on PATH (HNR-D2), and does not rebuild on the next launch — the
 // same commit and recipe would build the same bytes.
-func TestHostLaunchOfAForkWhoseBuildCannotLeaveTheJailRunsThePathCopy(t *testing.T) {
+func TestHostLaunchOfAForkWhoseBuildCannotLeaveTheJailRefuses(t *testing.T) {
 	forkFloorHome(t)
 	var out, errw bytes.Buffer
 	if rc := packMain([]string{"install"}, &out, &errw, false); rc != 0 {
@@ -455,10 +455,11 @@ func TestHostLaunchOfAForkWhoseBuildCannotLeaveTheJailRunsThePathCopy(t *testing
 	got := captureHostExec(t)
 	for launch := 1; launch <= 2; launch++ {
 		errw.Reset()
-		if rc := hostExec(nil, []string{"forkcli"}, io.Discard, &errw, nil); rc != 0 || got.target != stub {
-			t.Fatalf("launch %d: rc=%d target=%s, want the PATH copy %s\n%s", launch, rc, got.target, stub, errw.String())
+		if rc := hostExec(nil, []string{"forkcli"}, io.Discard, &errw, nil); rc != 127 || got.execed {
+			t.Fatalf("launch %d: rc=%d target=%s, want 127 and no exec, never the PATH copy %s\n%s", launch, rc,
+				got.target, stub, errw.String())
 		}
-		for _, want := range []string{"yolo has no copy of forkcli on this machine",
+		for _, want := range []string{"yolo has no copy of forkcli on this machine", declaredNoCopyRefusal,
 			"built for the jail's home, /home/agent", "runs in a jail only"} {
 			if !strings.Contains(errw.String(), want) {
 				t.Errorf("launch %d: stderr lacks %q:\n%s", launch, want, errw.String())

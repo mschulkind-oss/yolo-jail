@@ -50,9 +50,9 @@ func forkHostFixture(t *testing.T, bin, baseProgram string) string {
 
 // `yolo host -- <forked bin>` of a fork with no pin THAT IT CANNOT PIN (FP-D18: its source cannot be
 // fetched): the floor has no build to ask for, so the no-copy line names the fork, why the pin
-// failed and the next step, and the launch looks on PATH (OQ-HE11) — never installing the base's
+// failed and the next step, and the launch refuses (HNR-D2) — never installing the base's
 // npm package into the floor in the fork's place.
-func TestHostLaunchOfAForkItCannotPinNamesWhyAndRunsThePathCopy(t *testing.T) {
+func TestHostLaunchOfAForkItCannotPinNamesWhyAndRefuses(t *testing.T) {
 	forkHostFixture(t, "floorcli", `{"kind":"program","bin":"floorcli","via":"npm","package":"floorcli-pkg"}`)
 	orig := prepareOpenAIAuthHost
 	prepareOpenAIAuthHost = func(hostPrelaunch, io.Writer) (managedOpenAIHostLaunch, error) { return nil, nil }
@@ -63,10 +63,11 @@ func TestHostLaunchOfAForkItCannotPinNamesWhyAndRunsThePathCopy(t *testing.T) {
 	stub := filepath.Join(stubBins(t, "floorcli"), "floorcli")
 	got := captureHostExec(t)
 	var errw bytes.Buffer
-	if rc := hostExec(nil, []string{"floorcli"}, io.Discard, &errw, nil); rc != 0 || got.target != stub {
-		t.Fatalf("rc=%d target=%s, want the PATH copy %s\n%s", rc, got.target, stub, errw.String())
+	if rc := hostExec(nil, []string{"floorcli"}, io.Discard, &errw, nil); rc != 127 || got.execed {
+		t.Fatalf("rc=%d target=%s, want 127 and no exec, never the PATH copy %s (HNR-D2)\n%s", rc, got.target, stub,
+			errw.String())
 	}
-	for _, want := range []string{"yolo has no copy of floorcli on this machine",
+	for _, want := range []string{"yolo has no copy of floorcli on this machine", declaredNoCopyRefusal,
 		"built from source by fork pack forkpack", "it has no pin, and pinning it failed",
 		"fix what that names and launch again"} {
 		if !strings.Contains(errw.String(), want) {
@@ -82,7 +83,7 @@ func TestHostLaunchOfAForkItCannotPinNamesWhyAndRunsThePathCopy(t *testing.T) {
 // runtime on PATH, as on the macOS CI runner): the floor does not pin it — a pin fetches the fork's
 // source, and nothing could build what it named — so the no-copy line names the missing runtime
 // and the step that ends it (the next launch pins and builds the fork itself, FP-D18), and the
-// launch runs the PATH copy (OQ-HE11), installing nothing of the base's.
+// launch refuses (HNR-D2), installing nothing of the base's.
 func TestHostLaunchOfAnUnpinnedForkOnAMachineThatCannotBuildNamesTheRuntimeAndDoesNotPin(t *testing.T) {
 	forkHostFixture(t, "floorcli", `{"kind":"program","bin":"floorcli","via":"npm","package":"floorcli-pkg"}`)
 	orig := prepareOpenAIAuthHost
@@ -107,10 +108,11 @@ func TestHostLaunchOfAnUnpinnedForkOnAMachineThatCannotBuildNamesTheRuntimeAndDo
 	got := captureHostExec(t)
 	var errw bytes.Buffer
 	stub := filepath.Join(stubDir, "floorcli")
-	if rc := hostExec(nil, []string{"floorcli"}, io.Discard, &errw, nil); rc != 0 || got.target != stub {
-		t.Fatalf("rc=%d target=%s, want the PATH copy %s\n%s", rc, got.target, stub, errw.String())
+	if rc := hostExec(nil, []string{"floorcli"}, io.Discard, &errw, nil); rc != 127 || got.execed {
+		t.Fatalf("rc=%d target=%s, want 127 and no exec, never the PATH copy %s (HNR-D2)\n%s", rc, got.target, stub,
+			errw.String())
 	}
-	for _, want := range []string{"yolo has no copy of floorcli on this machine",
+	for _, want := range []string{"yolo has no copy of floorcli on this machine", declaredNoCopyRefusal,
 		"built from source by fork pack forkpack, which has no pin yet",
 		"no container runtime (podman) is on PATH",
 		"install one (`yolo check` names how on this machine) and the next `yolo host` launch pins the fork and builds it"} {

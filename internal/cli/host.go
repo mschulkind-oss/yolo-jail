@@ -756,10 +756,21 @@ func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, ra
 	// PATH, then `host_path`'s folders not already on it: HE-DIR1, HE-D3), then the floor's bin/
 	// (OQ-HE10 (c), HE-D1), which is also the PATH the child is handed below. The launch PATH is
 	// resolved once, here, for both.
+	//
+	// THE READINESS ACT first (docs/design/host-notch-readiness.md HNR-D1, hostreadiness.go):
+	// every program a selected pack declares is installed into the floor before the target
+	// resolves, whatever the command, and one that cannot be STOPS the launch unless
+	// YOLO_ALLOW_MISSING_PROGRAMS is set — the jail's readiness act, at the host.
+	sp = trace.span("host.readiness")
+	ready, rc := hostReadinessAct(launch.packs, cmd, errw, act)
+	sp.End()
+	if rc != 0 {
+		return rc
+	}
 	lp := hostLaunchPath()
 	childPath := hostChildPath(lp, hostFloorBinDir())
 	sp = trace.span("host.resolve_target")
-	resolved, rc := resolveHostLaunchTarget(launch.packs, cmd[0], lp, errw, act)
+	resolved, rc := resolveHostLaunchTarget(launch.packs, cmd[0], lp, errw, act, ready)
 	sp.End()
 	if rc != 0 {
 		return rc

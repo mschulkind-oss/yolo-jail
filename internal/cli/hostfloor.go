@@ -673,7 +673,7 @@ const (
 	// originFloor: yolo's floor copy of a program a selected pack delivers (HP-DIR4).
 	originFloor hostTargetOrigin = iota
 	// originPath: looked up on this launch's PATH — a program no selected pack delivers, or one
-	// the floor cannot hold here (OQ-HE11, until it is ruled).
+	// the user's own config keeps out of the floor (`host_floor`, `provisioners`: HNR-D4).
 	originPath
 	// originGiven: the target was given as a path and is exec'd as given.
 	originGiven
@@ -697,8 +697,12 @@ type hostTarget struct {
 //     HP-D3, with progress lines: a launch has no quiet mode);
 //   - a target GIVEN AS A PATH is exec'd as given;
 //   - anything else is looked up on the child's PATH, as the user's shell would find it — and so
-//     is a selected pack's program the floor cannot hold on this machine, with one line saying
-//     so, which keeps today's behavior while OQ-HE11 is open.
+//     is a selected pack's program that is not the floor's to hold (Floor.OutsideTheFloor: the
+//     user's `host_floor` leaves its pack out, the `provisioners` order gives it to a manager, or
+//     its vendor publishes no build here), with one line saying so (HNR-D4);
+//   - a selected pack's program the floor cannot hold on THIS MACHINE is refused, naming the
+//     floor's reason: a PATH copy is never its substitute (host-notch-readiness.md HNR-D2, which
+//     reversed OQ-HE11 (a)).
 //
 // That lookup is the launch PATH's (lp, host-agent-environment.md, the launch PATH: the PATH yolo was started
 // with, then `host_path`'s folders not already on it) through its one lookup (HE-D5), as the
@@ -716,7 +720,7 @@ type hostTarget struct {
 // The second return is the exit code of a launch this refuses (127: the program is not
 // available), 0 otherwise. In a jail there is no floor: the jail's own launchers are on PATH.
 func resolveHostLaunchTarget(packs []*packload.Pack, cmd0 string, lp *hostpath.Launch, errw io.Writer,
-	act *run.ActInterrupt) (hostTarget, int) {
+	act *run.ActInterrupt, ready hostReadiness) (hostTarget, int) {
 	floorBin := hostFloorBinDir()
 	child := hostChildLaunch(lp)
 	// ranked is set when the user's provisioner order gives cmd0 to a manager (PS-D12): the lookup
@@ -767,10 +771,9 @@ func resolveHostLaunchTarget(packs []*packload.Pack, cmd0 string, lp *hostpath.L
 	st, _, err := floor.Ensure(withActInterrupt(context.Background(), act), prog)
 	if err == nil || errors.Is(err, hostfloor.ErrNoEntry) {
 		// The agent starts: so do the MCP servers its config names (HC-D28).
-		ensureMCPPrograms(packs, progs, floor, cmd0, errw, act)
+		ensureMCPPrograms(packs, progs, floor, cmd0, errw, act, ready)
 	}
-	switch {
-	case errors.Is(err, hostfloor.ErrNoEntry) && st.Reason != "":
+	if errors.Is(err, hostfloor.ErrNoEntry) && st.Reason != "" {
 		if via, remedy := hostOutranking()(prog); via != "" && st.Reason == hostfloor.OutrankedReason(via, cmd0) {
 			// The user's order gives cmd0 to a manager: run that manager's copy, which the PATH
 			// lookup finds — or, right after the order is written, does not yet.
@@ -778,16 +781,26 @@ func resolveHostLaunchTarget(packs []*packload.Pack, cmd0 string, lp *hostpath.L
 			fmt.Fprintf(errw, "yolo host: %s; looking for it on your PATH\n", st.Reason)
 			return onPath()
 		}
-		fallthrough
-	case errors.Is(err, hostfloor.ErrNoEntry):
-		// OQ-HE11 is open: keep today's behavior — the launch's PATH — and say, once, that the
-		// copy about to run is not yolo's.
+	}
+	switch {
+	case errors.Is(err, hostfloor.ErrNoEntry) && floor.OutsideTheFloor(prog):
+		// NOT THE FLOOR'S TO HOLD (HNR-D4): the user left the pack out (`host_floor`), or its vendor
+		// publishes no build here, so the launch's PATH — and one line saying the copy is not yolo's.
 		fmt.Fprintf(errw, "yolo host: yolo has no copy of %s %s (%s); looking for it on your PATH\n",
 			cmd0, noCopyWhere(floor.GOOS, prog), st.Reason)
 		// The same lookup as any other name's, the floor's own bin/ skipped: an entry left there
 		// from before `host_floor` left the pack out is a deselected entry, not what "no copy" may
 		// run.
 		return onPath()
+	case errors.Is(err, hostfloor.ErrNoEntry):
+		// HNR-D2: a program a selected pack declares runs from the floor or not at all. The floor's
+		// reason carries its own fix; the line adds the two ways out that are always there.
+		fmt.Fprintf(errw, "yolo host: yolo has no copy of %s %s (%s); yolo host runs a program a selected "+
+			"pack declares only from yolo's floor, never a copy on your PATH. Fix what the floor needs "+
+			"(`yolo host apply` shows the whole floor), or, to run your own copy, leave pack %s out of the "+
+			"floor with `\"host_floor\": {%q: false}` in the user config\n",
+			cmd0, noCopyWhere(floor.GOOS, prog), st.Reason, prog.Pack, prog.Pack)
+		return hostTarget{}, 127
 	case errors.Is(err, hostfloor.ErrNewerRecord):
 		// Refused, not failed: the floor holds a newer yolo's copy, and the refusal names the
 		// update that runs it.
@@ -840,7 +853,7 @@ func (o *orderedCopy) missLine(bin string) string {
 // and the agent starts without that server rather than not at all — a missing MCP server is no
 // reason to refuse an agent (mcp-presets-removal.md §9.1).
 func ensureMCPPrograms(packs []*packload.Pack, progs []hostfloor.Program, floor *hostfloor.Floor,
-	cmd0 string, errw io.Writer, act *run.ActInterrupt) {
+	cmd0 string, errw io.Writer, act *run.ActInterrupt, ready hostReadiness) {
 	composed, _ := hostMCPPacks(packs)
 	seen := map[string]bool{cmd0: true}
 	for _, held := range packload.HeldMCPServers(composed) {
@@ -849,6 +862,10 @@ func ensureMCPPrograms(packs []*packload.Pack, progs []hostfloor.Program, floor 
 			continue
 		}
 		seen[bin] = true
+		if ready.done(bin) {
+			// The launch's readiness act already installed it, or already reported why not.
+			continue
+		}
 		prog, ok := floorProgram(progs, bin)
 		if !ok {
 			fmt.Fprintf(errw, "yolo host: MCP server %s runs %s, which no selected pack installs; it "+

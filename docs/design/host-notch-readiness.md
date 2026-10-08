@@ -2,8 +2,8 @@
 title: "A host launch is a readiness act, and a declared program is never a PATH copy"
 date: 2026-10-07
 status: accepted
-stage: DECIDED
-next: "Build HNR-D1 and HNR-D2: call Floor.Ensure over every floor program before the host launch resolves its target, and refuse a declared program with no floor entry"
+stage: BUILT
+next: "Graduate into docs/reference/host-agent-environment.md once a release ships it"
 tags: [host, provisioning, readiness, floor, path, program-delivery, notches]
 summary: "`yolo host -- <cmd>` installs only the one program it starts and falls back to the caller's PATH for a program the floor cannot hold. A jail installs every program a selected pack declares before the command runs and stops when one cannot install. This makes the host launch the same readiness act: install every declared program first, refuse on a failure unless YOLO_ALLOW_MISSING_PROGRAMS=1, and never run a PATH copy for a program a selected pack declares. It reverses HP-D3 and OQ-HE11 (a), and the costs of doing so are recorded below."
 vantage:
@@ -12,10 +12,13 @@ vantage:
 
 # A host launch is a readiness act, and a declared program is never a PATH copy
 
-**Status:** 2026-10-07. **Nothing built.** The direction was ruled the same day (*"host should act
-just like a jail and not sniff the path"*); [§3](#3-the-host-readiness-act-hnr-d1) and
-[§4](#4-a-declared-program-is-never-a-path-copy-hnr-d2) carry it. The behavior it replaces is
-`resolveHostLaunchTarget` and `hostLaunch` (`internal/cli/hostfloor.go`), read at `afab7bea`.
+**Status:** ruled 2026-10-07 (*"host should act just like a jail and not sniff the path"*), **built
+2026-10-08**: the act is `hostReadinessAct` ([`hostreadiness.go`](../../internal/cli/hostreadiness.go)),
+called by `hostLaunch` before `resolveHostLaunchTarget`, which now refuses a declared program with no
+floor entry. [§3](#3-the-host-readiness-act-hnr-d1) and
+[§4](#4-a-declared-program-is-never-a-path-copy-hnr-d2) carry the decisions; the build added
+[HNR-D4](#HNR-D4) to [HNR-D7](#HNR-D7), the questions the build had to answer. §2 describes the
+behavior before the build, read at `afab7bea`.
 
 > **In short.** The jail and the host should answer *"is this environment ready?"* the same way,
 > and today they answer it oppositely: a jail installs every program a selected pack declares
@@ -68,7 +71,7 @@ Two consequences, and they are independent enough to be two decisions:
 Neither is built. Both reverse a ruled decision, and each reversal is recorded in
 [§11](#11-decision-ledger).
 
-## 2. What exists today, and the asymmetry
+## 2. What existed before the build, and the asymmetry
 
 **The jail** has a launch readiness act since 2026-10-05 ([`jail-notch-readiness.md`](jail-notch-readiness.md),
 [`OQ-JR1`](jail-notch-readiness.md#OQ-JR1)): the boot's provisioning stage installs every program
@@ -256,6 +259,10 @@ rather than running a PATH copy.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| <a id="HNR-D1"></a>HNR-D1 | **Every host launch is a readiness act: install every program a user-scope selected pack declares, before resolving the target. A failure refuses the launch unless `YOLO_ALLOW_MISSING_PROGRAMS=1`; `cmd0` is exempt from the bypass.** Reverses [`HP-D3`](host-tool-provisioning.md#HP-D3). The maintainer's direction, 2026-10-07: *"host should act just like a jail."* | 2026-10-07 | [§3](#3-the-host-readiness-act-hnr-d1) | — |
-| <a id="HNR-D2"></a>HNR-D2 | **A bare name a selected pack declares runs only from the floor. A declared program with no floor entry refuses, naming the floor's reason and its fix; a PATH copy is never a substitute.** The user's `provisioners` order is excepted, being explicit. Reverses [`OQ-HE11`](../reference/host-agent-environment.md#oq-he11) (a). Maintainer: *"not sniff the path."* | 2026-10-07 | [§4](#4-a-declared-program-is-never-a-path-copy-hnr-d2) | — |
-| <a id="HNR-D3"></a>HNR-D3 | **The bypass is `paths.AllowMissingProgramsEnv` (`YOLO_ALLOW_MISSING_PROGRAMS`), the jail's one spelling and any-non-empty semantics ([`JR-D3`](jail-notch-readiness.md#JR-D3)); it never applies to `cmd0`.** | 2026-10-07 | [§3](#3-the-host-readiness-act-hnr-d1), [§5](#5-failure-ordering-and-existing-state) | — |
+| <a id="HNR-D1"></a>HNR-D1 | **Every host launch is a readiness act: install every program a user-scope selected pack declares, before resolving the target. A failure refuses the launch unless `YOLO_ALLOW_MISSING_PROGRAMS=1`; `cmd0` is exempt from the bypass.** Reverses [`HP-D3`](host-tool-provisioning.md#HP-D3). The maintainer's direction, 2026-10-07: *"host should act just like a jail."* | 2026-10-07 | [§3](#3-the-host-readiness-act-hnr-d1) | ✅ 2026-10-08, `hostReadinessAct`; `TestEveryHostLaunchInstallsEveryDeclaredProgramBeforeTheCommand`, `TestAHostLaunchRefusesWhenADeclaredProgramCannotBeInstalled`, `TestAHostLaunchWithNoDeclaredProgramsHasNoAct` |
+| <a id="HNR-D2"></a>HNR-D2 | **A bare name a selected pack declares runs only from the floor. A declared program with no floor entry refuses, naming the floor's reason and its fix; a PATH copy is never a substitute.** The user's `provisioners` order is excepted, being explicit. Reverses [`OQ-HE11`](../reference/host-agent-environment.md#oq-he11) (a). Maintainer: *"not sniff the path."* | 2026-10-07 | [§4](#4-a-declared-program-is-never-a-path-copy-hnr-d2) | ✅ 2026-10-08, `resolveHostLaunchTarget`; `TestHostLaunchOnAMachineWithoutTheFloorsLoaderRefusesAndNamesTheStep`, `TestTheNoCopyLineNamesTheFloorsPlatform` and the fork and patched-fork cases |
+| <a id="HNR-D3"></a>HNR-D3 | **The bypass is `paths.AllowMissingProgramsEnv` (`YOLO_ALLOW_MISSING_PROGRAMS`), the jail's one spelling and any-non-empty semantics ([`JR-D3`](jail-notch-readiness.md#JR-D3)); it never applies to `cmd0`.** | 2026-10-07 | [§3](#3-the-host-readiness-act-hnr-d1), [§5](#5-failure-ordering-and-existing-state) | ✅ 2026-10-08; `TestTheBypassStartsTheLaunchAndListsWhatIsMissing`, `TestTheBypassNeverRunsTheLaunchsOwnMissingProgram` |
+| <a id="HNR-D4"></a>HNR-D4 | *Implementation decision, from the build:* **a program that is not the floor's to hold is not a readiness failure and keeps the PATH lookup: a pack the user-scope `host_floor` leaves out, a program the `provisioners` order gives to a manager (already excepted by [HNR-D2](#HNR-D2)), and a program whose vendor publishes no build for this platform.** The act skips them without a line, and a launch of one still runs the PATH copy with the no-copy line. Refusing on `host_floor` would make `host_floor: false`, documented as "a floor of nothing" ([HP-D5](host-tool-provisioning.md#HP-D5)), a way to make every declared agent unlaunchable at the host; the unpublished case is the jail's own rule, which writes no launcher for such a program and so finds it on the PATH. The act also skips a kind the jail's act does not install (only npm, installer and source programs count). `yolo check`'s host-floor and model-list rows now say a launch refuses for every other no-entry program | 2026-10-08 | [§4](#4-a-declared-program-is-never-a-path-copy-hnr-d2) | ✅ `hostfloor.Floor.OutsideTheFloor`; `TestTheActSkipsWhatTheUserLeavesOutOfTheFloor`, `TestHostLaunchOfAProgramTheUserLeavesOutOfTheFloorRunsThePATHCopyAndSaysSo`, `TestAnUnpublishedProgramRunsThePATHCopyAndIsNotAReadinessFailure`, `TestCheckNamesTheLoaderAProgramLacksAndTheNixLDStep` |
+| <a id="HNR-D5"></a>HNR-D5 | *Implementation decision, from the build:* **the act never installs the program the launch itself runs.** A bare name's install stays target resolution's, with its own refusal (so it is installed once, and [HNR-D3](#HNR-D3) keeps the bypass off it). A target given as a path is the user's own copy of its base name's program ([HP-DIR4](host-tool-provisioning.md#HP-DIR4)), so the floor's copy of that name is not installed for it; the other declared programs still are | 2026-10-08 | [§3](#3-the-host-readiness-act-hnr-d1) | ✅ `TestAnAgentLaunchInstallsTheOtherDeclaredProgramsAndItselfOnce`, `TestAPathTargetsOwnProgramIsNotInstalledByTheAct` |
+| <a id="HNR-D6"></a>HNR-D6 | *Implementation decision, from the build:* **an MCP server's program a selected pack declares is a declared program like any other, so a failed install of it refuses the launch**, as the jail's act does for the same program. This narrows [HC-D28](host-computed-layer.md#HC-D28)'s "the agent starts either way" to the programs the act does not cover (one the user leaves out of the floor). `ensureMCPPrograms` skips a program the act already settled, so one launch never tries an install twice | 2026-10-08 | [§3](#3-the-host-readiness-act-hnr-d1) | ✅ `TestAHostAgentLaunchSaysWhenItsMCPServersProgramCannotBeInstalled` |
+| <a id="HNR-D7"></a>HNR-D7 | *Implementation decision, from the build:* **the act installs one program at a time, in pack order, and its refusal exits 1** (the target's own refusal keeps exit 127, "not available"). Running installs in parallel would interleave their progress lines; the per-program lock already serializes concurrent launches. No act runs in a jail, which has no floor and whose boot already ran its own | 2026-10-08 | [§3](#3-the-host-readiness-act-hnr-d1), [§5](#5-failure-ordering-and-existing-state) | ✅ `hostReadinessAct` |

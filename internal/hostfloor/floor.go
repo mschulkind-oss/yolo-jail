@@ -98,10 +98,28 @@ const (
 	// `yolo host apply --assert` installs it (HP-D3), unless a newer yolo wrote its record
 	// (Status.Newer), which nothing here installs over.
 	Missing Disposition = "missing"
-	// NoEntry: the floor cannot hold it on this machine. Status.Reason says why; what
-	// `yolo host` runs instead is OQ-HE11's question, and today it is the launch's PATH.
+	// NoEntry: the floor cannot hold it on this machine. Status.Reason says why. `yolo host`
+	// refuses to launch it (host-notch-readiness.md HNR-D2), unless OutsideTheFloor says the
+	// launch's PATH answers for it instead.
 	NoEntry Disposition = "no floor entry"
 )
+
+// OutsideTheFloor reports whether the floor holds no entry for p because it is not the floor's to
+// hold at all, rather than because this machine cannot: the user-scope `host_floor` leaves its pack
+// out, the user's `provisioners` order gives it to another manager, or its vendor publishes no build
+// for this platform (host-notch-readiness.md HNR-D4). For such a program `yolo host -- <bin>` runs
+// the copy on the launch's PATH, and the launch's readiness act does not install it; for every other
+// no-entry program a launch refuses (HNR-D2). The first two are the user's own decisions; the last is
+// the jail's own rule, which writes no launcher for an unpublished program.
+func (f *Floor) OutsideTheFloor(p Program) bool {
+	if f.Include != nil && !f.Include(p.Pack) {
+		return true
+	}
+	if f.Outranked != nil && f.Outranked(p) != "" {
+		return true
+	}
+	return p.Install.UnpublishedReason(f.GOOS, f.GOARCH) != ""
+}
 
 // Status is one entry's disposition, with what a report needs to say about it.
 type Status struct {
