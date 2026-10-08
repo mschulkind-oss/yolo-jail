@@ -46,7 +46,8 @@ type gitRef struct {
 }
 
 type gitTag struct {
-	Object struct {
+	Message string `json:"message"`
+	Object  struct {
 		SHA  string `json:"sha"`
 		Type string `json:"type"`
 	} `json:"object"`

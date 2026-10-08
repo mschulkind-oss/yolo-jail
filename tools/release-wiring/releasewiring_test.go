@@ -1677,9 +1677,6 @@ func TestHomebrewFormulaHeredocNeverExecutesLiteralYoloForNormalOrBackfill(t *te
 	}
 }
 
-// The request job holds the CI wait (preflight.sh's release-gate --timeout) and
-// then the Release wait (request.sh's RELEASE_WAIT_SECONDS default) in one job,
-// so its timeout must exceed both or GitHub kills it mid-wait.
 // The publisher refuses a request run that completed without success, so a
 // failed tap check dispatch, the request's last act, must warn and exit 0.
 func TestRequestTapDispatchFailureLeavesTheRequestGreen(t *testing.T) {
@@ -1713,8 +1710,8 @@ func TestRequestResumesATagOnlyReleaseWithoutTouchingTheTag(t *testing.T) {
 	}{
 		{name: "tag-only state resumes", extra: []string{atTarget}},
 		{name: "any later state refuses before dispatch", extra: []string{atTarget, "FAIL_RESUME=1"}, wantError: "cannot resume"},
-		{name: "tag at another commit refuses", extra: []string{"FAKE_TAG_REFS=" + resumeTagObject + "\\trefs/tags/v9.8.7\\n" + strings.Repeat("f", 40) + "\\trefs/tags/v9.8.7^{}"}, wantError: "only the request's own annotated tag"},
-		{name: "lightweight tag refuses", extra: []string{"FAKE_TAG_REFS=" + testSHA + "\\trefs/tags/v9.8.7"}, wantError: "only the request's own annotated tag"},
+		{name: "tag at another commit refuses", extra: []string{"FAKE_TAG_REFS=" + resumeTagObject + "\\trefs/tags/v9.8.7\\n" + strings.Repeat("f", 40) + "\\trefs/tags/v9.8.7^{}"}, wantError: "only an annotated tag at exactly"},
+		{name: "lightweight tag refuses", extra: []string{"FAKE_TAG_REFS=" + testSHA + "\\trefs/tags/v9.8.7"}, wantError: "only an annotated tag at exactly"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			bin, trace := fakeCommands(t)
@@ -1748,6 +1745,9 @@ func TestRequestResumesATagOnlyReleaseWithoutTouchingTheTag(t *testing.T) {
 	}
 }
 
+// The request job holds the CI wait (preflight.sh's release-gate --timeout) and
+// then the Release wait (request.sh's RELEASE_WAIT_SECONDS default) in one job,
+// so its timeout must exceed both or GitHub kills it mid-wait.
 func TestRequestJobTimeoutExceedsItsWaits(t *testing.T) {
 	ciMinutes := regexp.MustCompile(`release-gate [^\n]*--timeout ([0-9]+)m`).FindSubmatch(mustRead(t, "tools/release-wiring/preflight.sh"))
 	releaseSeconds := regexp.MustCompile(`RELEASE_WAIT_SECONDS:-([0-9]+)`).FindSubmatch(mustRead(t, "tools/release-wiring/request.sh"))

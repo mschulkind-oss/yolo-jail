@@ -17,15 +17,16 @@ fi
 if ! GITHUB_REPOSITORY="$GITHUB_REPOSITORY" RELEASE_VERSION="$RELEASE_VERSION" \
   RELEASE_SHA="$RELEASE_SHA" GITHUB_REF_TYPE="$GITHUB_REF_TYPE" GITHUB_REF_NAME="$GITHUB_REF_NAME" \
   WORKFLOW_SHA="${WORKFLOW_SHA:-}" RELEASE_PRETAG=1 RELEASE_ORDER_CHECK=1 RELEASE_ALLOW_RESUME=1 tools/release-wiring/preflight.sh; then
-  echo "✗ Final exact-SHA eligibility proof refused ${RELEASE_VERSION}; correct the issue and request this still-unreserved version again. No tag was created." >&2
+  echo "✗ Final exact-SHA eligibility proof refused ${RELEASE_VERSION}; correct the issue and request this version again. No tag was created or changed." >&2
   exit 1
 fi
 
 tag="v${RELEASE_VERSION}"
-if ! existing=$(git ls-remote origin "refs/tags/${tag}"); then
+if ! refs=$(git ls-remote origin "refs/tags/${tag}"); then
   echo "✗ Could not read the remote tag ref for ${tag}; retry once connectivity is restored. No tag was created." >&2
   exit 1
 fi
+existing=$(printf '%s\n' "$refs" | awk -v ref="refs/tags/${tag}" '$2 == ref { print $1 }')
 if [ -n "$existing" ]; then
   # Resume: the tag exists (preflight proved it is annotated and at exactly
   # this commit). Never move, delete or recreate it; prove nothing after the
@@ -59,7 +60,7 @@ fi
 if ! gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref main \
   -f mode=publish -f "version=${RELEASE_VERSION}" -f "sha=${RELEASE_SHA}" \
   -f "request_run_id=${GITHUB_RUN_ID}"; then
-  echo "✗ ${tag} exists for ${RELEASE_SHA}, but Release dispatch failed. Do not rerun release-request. Inspect the tag and run read-only with the owner." >&2
+  echo "✗ ${tag} exists for ${RELEASE_SHA}, but Release dispatch failed. Nothing after the tag was written, so once the cause is fixed, request ${RELEASE_VERSION} at ${RELEASE_SHA} again (just release ${RELEASE_VERSION}) to resume it; never move the tag. Inspect this run and the tag read-only first." >&2
   exit 1
 fi
 
@@ -102,7 +103,7 @@ while :; do
     fi
     if [ "$status" = completed ]; then
       if [ "$conclusion" != success ]; then
-        echo "✗ ${tag} exists, but its exact original GoReleaser/Release run concluded ${conclusion:-unknown}. Do not redispatch or reuse artifacts; inspect the original run read-only with the owner." >&2
+        echo "✗ ${tag} exists, but its exact original GoReleaser/Release run concluded ${conclusion:-unknown}. Do not redispatch or reuse artifacts; inspect the original run read-only with the owner. If it wrote nothing (no GitHub Release, draft or published), a new request for ${RELEASE_VERSION} at ${RELEASE_SHA} resumes it; the resume proves that state itself." >&2
         exit 1
       fi
       release_run_id=$candidate_id

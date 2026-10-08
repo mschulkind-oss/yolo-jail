@@ -23,6 +23,10 @@ const (
 	homebrewFormulaURL = "https://raw.githubusercontent.com/mschulkind-oss/homebrew-tap/main/Formula/yolo-jail.rb"
 )
 
+// A run listing costs about 15 KB a run and a release about 10 KB, against
+// getJSON's 1 MiB cap, so pages stay small enough to never truncate.
+const resumePageSize = 30
+
 type resumeSources struct {
 	github     claimClient
 	public     *http.Client
@@ -60,6 +64,9 @@ func verifyResume(ctx context.Context, src resumeSources, repo, version, sha, re
 	if err := gh.getJSON(ctx, gh.apiURL+"/repos/"+repo+"/git/tags/"+ref.Object.SHA, &annotated); err != nil {
 		return fmt.Errorf("cannot read the %s tag object: %w", tag, err)
 	}
+	if strings.TrimSpace(annotated.Message) != "yolo-jail "+version {
+		return fmt.Errorf("%s has message %q, not the %q a release request writes; only a request's own tag can resume", tag, strings.TrimSpace(annotated.Message), "yolo-jail "+version)
+	}
 	if annotated.Object.Type != "commit" || annotated.Object.SHA != sha {
 		return fmt.Errorf("%s peels to %s %s, not the requested commit %s; the tag is never moved, so this version cannot resume at that commit", tag, annotated.Object.Type, annotated.Object.SHA, sha)
 	}
@@ -69,7 +76,7 @@ func verifyResume(ctx context.Context, src resumeSources, repo, version, sha, re
 	// the release assets and the publication claim live only on a release.
 	for page := 1; ; page++ {
 		var releases []claimRelease
-		if err := gh.getJSON(ctx, fmt.Sprintf("%s/repos/%s/releases?per_page=100&page=%d", gh.apiURL, repo, page), &releases); err != nil {
+		if err := gh.getJSON(ctx, fmt.Sprintf("%s/repos/%s/releases?per_page=%d&page=%d", gh.apiURL, repo, resumePageSize, page), &releases); err != nil {
 			return fmt.Errorf("cannot list releases: %w", err)
 		}
 		for _, release := range releases {
@@ -81,7 +88,7 @@ func verifyResume(ctx context.Context, src resumeSources, repo, version, sha, re
 				return fmt.Errorf("a %s GitHub Release exists for %s (id %d); a release, its assets or its claim may be partial publication", kind, tag, release.ID)
 			}
 		}
-		if len(releases) < 100 {
+		if len(releases) < resumePageSize {
 			break
 		}
 	}
@@ -181,12 +188,12 @@ func workflowRuns(ctx context.Context, gh claimClient, repo, path string) ([]res
 		var response struct {
 			Runs []resumeRun `json:"workflow_runs"`
 		}
-		address := fmt.Sprintf("%s/repos/%s/actions/workflows/%d/runs?per_page=100&page=%d", gh.apiURL, repo, workflow.ID, page)
+		address := fmt.Sprintf("%s/repos/%s/actions/workflows/%d/runs?per_page=%d&page=%d", gh.apiURL, repo, workflow.ID, resumePageSize, page)
 		if err := gh.getJSON(ctx, address, &response); err != nil {
 			return nil, fmt.Errorf("cannot list %s runs: %w", path, err)
 		}
 		all = append(all, response.Runs...)
-		if len(response.Runs) < 100 {
+		if len(response.Runs) < resumePageSize {
 			return all, nil
 		}
 	}
@@ -212,9 +219,9 @@ func publicGet(ctx context.Context, client *http.Client, address string, limit i
 	return body, response.StatusCode, nil
 }
 
-// pep440Loose folds the spellings PEP 440 treats as one version (case, and
-// the separators around a pre-release label) so 0.13.0-rc.1 matches 0.13.0rc1.
-// It errs toward matching, which only ever refuses a resume.
+// pep440Loose folds the spellings PEP 440 treats as one version: case, the
+// separators around a pre-release label, and the label's long forms (alpha,
+// beta, c, pre, preview), so 0.13.0-alpha.1 matches 0.13.0a1.
 func pep440Loose(version string) string {
 	version = strings.ToLower(strings.TrimPrefix(version, "v"))
 	core, rest, found := strings.Cut(version, "-")
@@ -226,7 +233,14 @@ func pep440Loose(version string) string {
 			}
 		}
 	}
-	return core + strings.NewReplacer("-", "", ".", "", "_", "").Replace(rest)
+	rest = strings.NewReplacer("-", "", ".", "", "_", "").Replace(rest)
+	for _, label := range []struct{ long, short string }{{"preview", "rc"}, {"alpha", "a"}, {"beta", "b"}, {"pre", "rc"}, {"c", "rc"}} {
+		if strings.HasPrefix(rest, label.long) && !strings.HasPrefix(rest, "rc") {
+			rest = label.short + strings.TrimPrefix(rest, label.long)
+			break
+		}
+	}
+	return core + rest
 }
 
 func verifyResumeFromEnv(ctx context.Context, out io.Writer) error {
