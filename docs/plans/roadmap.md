@@ -40,6 +40,12 @@ candidate state, acceptance gaps and verification; a place here does not make it
 4. [Rule active-profile provider visibility and use](../design/simultaneous-auth-and-pack-isolation.md)
    — settle the intended runtime policy before implementing restrictions; picker rendering and
    startup argument fixes do not establish provider isolation.
+5. [Make a host launch a readiness act that installs every declared program, and never a PATH
+   copy](../design/host-notch-readiness.md) — the maintainer's parity ruling of 2026-10-07: `yolo host
+   -- <cmd>` installs every program a selected pack declares before the command, refuses a declared
+   program with no floor entry, and reverses [`HP-D3`](../design/host-tool-provisioning.md#HP-D3) and
+   [`OQ-HE11`](../reference/host-agent-environment.md#oq-he11) (a). It sits here because it
+   changes every host launch and it is unblocked — the design is settled, only the build is owed.
 
 Native readiness and credential-store work retain their places below: assess
 [the privilege prerequisites](../research/sandvault-macos-privileges.md) without broad root
