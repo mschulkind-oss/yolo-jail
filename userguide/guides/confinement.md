@@ -77,7 +77,7 @@ in `~/.local/share/yolo-jail/host-floor`:
   packs declare that is missing, as a jail does, saying what it is doing; `yolo host apply --assert`
   installs them too. Selecting the pack is the consent: nothing asks. When one cannot install, the
   launch stops and names the fix; set `YOLO_ALLOW_MISSING_PROGRAMS=1` to start the command anyway
-  ([host-notch-readiness.md](../../docs/design/host-notch-readiness.md)). An agent installed with npm (opencode or pi, for example) runs on the
+  ([host-notch-readiness.md](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/design/host-notch-readiness.md)). An agent installed with npm (opencode or pi, for example) runs on the
   floor's own Node, the official release, checked against its published checksum. An agent with its
   own installer (claude or copilot, for example) comes from the machine's `yolo capture` of that
   installer, so the first one may run a capture if the machine has none yet. On Linux with a
