@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 )
 
@@ -424,5 +425,76 @@ func TestSingletonDepsDerivesTheSettingsPathFromTheArgv(t *testing.T) {
 	}
 	if got := SingletonDeps("yjtest-x", []string{"d", "--socket", "/s"}).SettingsPath; got != "" {
 		t.Errorf("SettingsPath = %q for an argv handing the daemon no settings, want empty", got)
+	}
+}
+
+// A preparation failure aborts the singleton settings transaction before it publishes: the
+// live daemon, its settings record and the stable settings file all stay as they were, so a
+// candidate the launch could not prepare is never left standing as the configured snapshot.
+func TestEnsurePreparationFailureLeavesLiveSingletonAndSettingsUntouched(t *testing.T) {
+	deps, st, _ := settingsFixture(t, `{"profile":"current"}`, `{"profile":"current"}`)
+	before, err := os.ReadFile(deps.SettingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	published := false
+	deps.PublishSettings = func() error {
+		published = true
+		return os.WriteFile(deps.SettingsPath, []byte(`{"profile":"candidate"}`+"\n"), 0o600)
+	}
+	deps.PrepareLocked = func() (func() error, error) { return nil, errors.New("fixture preparation failure") }
+
+	got := EnsureSingleton(deps)
+	if got.Outcome.Kind != hostservice.StartupKindPreparationFailed || got.Started {
+		t.Fatalf("outcome = %s started=%v, want preparation-failed and nothing started", got.Outcome.Kind, got.Started)
+	}
+	if published {
+		t.Fatal("the candidate snapshot was published although its preparation failed")
+	}
+	if len(st.killed) != 0 || len(st.spawnArgv) != 0 {
+		t.Fatalf("failed preparation changed the singleton lifecycle: killed=%v spawn=%v", st.killed, st.spawnArgv)
+	}
+	if after, err := os.ReadFile(deps.SettingsPath); err != nil || !bytes.Equal(after, before) {
+		t.Fatalf("stable settings changed after failed preparation: before=%q after=%q err=%v", before, after, err)
+	}
+	if drift, ok := RunningSettingsDrift(deps); !ok || drift.Stale() {
+		t.Fatalf("live daemon's settings record no longer matches its settings: drift=%+v ok=%v", drift, ok)
+	}
+	if pid, _ := BrokerReadPID(deps); pid != 42 {
+		t.Fatalf("pid file names %d, want the untouched live daemon 42", pid)
+	}
+}
+
+// A migration that fails after preparation stopped the old daemon still published the validated
+// snapshot BEFORE that stop (the transaction's publication precedes any stop), and stamps no
+// record for a daemon that was never started.
+func TestEnsureMigrationFailurePublishesBeforeStopAndStartsNothing(t *testing.T) {
+	deps, st, _ := settingsFixture(t, `{"profile":"current"}`, `{"profile":"current"}`)
+	candidate := []byte(`{"profile":"candidate"}` + "\n")
+	var order []string
+	deps.PublishSettings = func() error {
+		order = append(order, "publish")
+		return os.WriteFile(deps.SettingsPath, candidate, 0o600)
+	}
+	kill := deps.Kill
+	deps.Kill = func(pid int, sig syscall.Signal) error {
+		order = append(order, "kill")
+		return kill(pid, sig)
+	}
+	deps.PrepareLocked = func() (func() error, error) {
+		order = append(order, "prepare")
+		return func() error { return errors.New("fixture migration failure") }, nil
+	}
+
+	got := EnsureSingleton(deps)
+	if got.Outcome.Kind != hostservice.StartupKindMigrationFailed || got.Started || len(st.spawnArgv) != 0 {
+		t.Fatalf("outcome = %s started=%v spawn=%v, want migration-failed and nothing started",
+			got.Outcome.Kind, got.Started, st.spawnArgv)
+	}
+	if len(order) < 3 || order[0] != "prepare" || order[1] != "publish" || order[2] != "kill" {
+		t.Fatalf("transaction order = %v, want prepare, publish, then the migration's stop", order)
+	}
+	if _, err := os.Stat(settingsRecordPath(deps)); !os.IsNotExist(err) {
+		t.Fatalf("a settings record survived for a daemon that is no longer running: %v", err)
 	}
 }

@@ -477,6 +477,26 @@ func EnsureSingleton(deps Deps) Ensured {
 		done.Stale = staleUnreplaceable(deps)
 		return done
 	}
+	// PREPARATION BEFORE PUBLICATION, and publication before any stop. A preparation that fails
+	// aborts the whole settings transaction, so it must not leave the candidate snapshot published
+	// as the configured settings beside a live daemon still running the previous ones; and the
+	// validated bytes are published before the migration's stop or the drift restart below, so
+	// neither can respawn from the previous file.
+	var afterStop func() error
+	if deps.PrepareLocked != nil {
+		var prepErr error
+		afterStop, prepErr = deps.PrepareLocked()
+		if prepErr != nil {
+			done.Outcome.Kind = hostservice.StartupKindPreparationFailed
+			done.Outcome.Phase = hostservice.StartupPhasePreparation
+			if deps.Out != nil {
+				richtext.Printer{W: deps.Out, Color: deps.Color}.Print(
+					"[yellow]Warning: could not prepare host-wide daemon '" + deps.Name +
+						"': " + prepErr.Error() + "[/yellow]")
+			}
+			return done
+		}
+	}
 	if deps.PublishSettings != nil {
 		if err := deps.PublishSettings(); err != nil {
 			done.SettingsErr = err
@@ -490,38 +510,26 @@ func EnsureSingleton(deps Deps) Ensured {
 			return done
 		}
 	}
-	if deps.PrepareLocked != nil {
-		afterStop, prepErr := deps.PrepareLocked()
-		if prepErr != nil {
-			done.Outcome.Kind = hostservice.StartupKindPreparationFailed
-			done.Outcome.Phase = hostservice.StartupPhasePreparation
+	if afterStop != nil {
+		oldPID, oldPIDKnown := BrokerReadPID(deps)
+		BrokerKill(deps, syscall.SIGTERM, BrokerKillTimeout)
+		done.Outcome.PreviousStopRequested = true
+		if oldPIDKnown {
+			if deps.Alive(oldPID) {
+				done.Outcome.PreviousProcess = hostservice.StartupProcessAlive
+			} else {
+				done.Outcome.PreviousProcess = hostservice.StartupProcessExited
+			}
+		}
+		if err := afterStop(); err != nil {
+			done.Outcome.Kind = hostservice.StartupKindMigrationFailed
+			done.Outcome.Phase = hostservice.StartupPhaseMigration
 			if deps.Out != nil {
 				richtext.Printer{W: deps.Out, Color: deps.Color}.Print(
-					"[yellow]Warning: could not prepare host-wide daemon '" + deps.Name +
-						"': " + prepErr.Error() + "[/yellow]")
+					"[yellow]Warning: could not migrate state for host-wide daemon '" + deps.Name +
+						"': " + err.Error() + "[/yellow]")
 			}
 			return done
-		} else if afterStop != nil {
-			oldPID, oldPIDKnown := BrokerReadPID(deps)
-			BrokerKill(deps, syscall.SIGTERM, BrokerKillTimeout)
-			done.Outcome.PreviousStopRequested = true
-			if oldPIDKnown {
-				if deps.Alive(oldPID) {
-					done.Outcome.PreviousProcess = hostservice.StartupProcessAlive
-				} else {
-					done.Outcome.PreviousProcess = hostservice.StartupProcessExited
-				}
-			}
-			if err := afterStop(); err != nil {
-				done.Outcome.Kind = hostservice.StartupKindMigrationFailed
-				done.Outcome.Phase = hostservice.StartupPhaseMigration
-				if deps.Out != nil {
-					richtext.Printer{W: deps.Out, Color: deps.Color}.Print(
-						"[yellow]Warning: could not migrate state for host-wide daemon '" + deps.Name +
-							"': " + err.Error() + "[/yellow]")
-				}
-				return done
-			}
 		}
 	}
 

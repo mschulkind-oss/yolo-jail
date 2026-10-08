@@ -129,7 +129,7 @@ func TestEnsureSingletonReturnsTypedOwnerOutcomeForActualReadinessAndReason(t *t
 }
 
 func TestEnsureSingletonDistinguishesPreparationAndPostStopMigrationFailures(t *testing.T) {
-	t.Run("preparation after publication", func(t *testing.T) {
+	t.Run("preparation failure publishes nothing", func(t *testing.T) {
 		state := &fakeState{alive: map[int]bool{42: true}, reachOK: true, spawnPID: 77}
 		deps := newFakeDeps(t, state)
 		writePID(t, deps, 42)
@@ -138,7 +138,7 @@ func TestEnsureSingletonDistinguishesPreparationAndPostStopMigrationFailures(t *
 		deps.PrepareLocked = func() (func() error, error) { return nil, os.ErrPermission }
 		deps.Spawn = func([]string, string) (int, func() bool, error) { spawned = true; return 77, nil, nil }
 		outcome := outcomeFromEnsured(t, EnsureSingleton(deps))
-		if !published || spawned || outcome.Kind != hostservice.StartupKindPreparationFailed ||
+		if published || spawned || outcome.Kind != hostservice.StartupKindPreparationFailed ||
 			outcome.Phase != hostservice.StartupPhasePreparation || outcome.Spawned {
 			t.Fatalf("preparation outcome/publish/spawn = %+v published=%v spawned=%v", outcome, published, spawned)
 		}
