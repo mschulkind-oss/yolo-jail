@@ -50,7 +50,7 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
 1. [Finish the patched-fork mode's verification](../design/patched-forks.md), with [its pi-extension
    companion](../design/patched-extensions.md) — the compatibility release is published; keep the remaining
    verification ahead of dependent work. Beside it: [the build line shown by its
-   digest](../reference/report-tiers.md#why-its-this-way), ruled 2026-10-05 and not built; [whether a Mac fork build
+   digest](../reference/report-tiers.md#why-its-this-way), built 2026-10-08 with `yolo pack status`; [whether a Mac fork build
    installs its base's `node_floor` first](../design/forked-programs-as-packs.md#OQ-FP11); his test with the migration kit.
 2. [Per-jail host daemons (HD-R1)](../design/host-daemon-ownership.md) — built on branch
    `worktree-agent-a1e0c197b66474918` and held, not landed: it awaits the maintainer's choice of how old jails coexist
@@ -88,8 +88,9 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
 9. Approve [the drafted rewordings](../research/macos-backend-performance.md#9-corrections-the-results-feed) of
    [the direction's ruled sentences](../reference/macos-no-vm-direction.md#what-the-numbers-bear-on) — the
    benchmark's other corrections are made, and the two-jail test passes in CI again.
-10. [Time what a launch's spans leave out](../reference/perf-logging.md) — the provisioning stage in the jail perf log,
-    and the Apple Container delivery test's reader past `image.*`, without which it cannot show the build skip's saving.
+10. [Time what a launch's spans leave out](../reference/perf-logging.md) — built 2026-10-08: the provisioning stage
+    writes its duration to the jail perf log, and the Apple Container delivery test reads every dotted span. That test's
+    Mac half is compiled, not yet run; one Mac run shows the build skip's saving.
 11. Record the Mac runs of 2026-10-02 and 2026-10-03 where each doc's `next` names them — agent work now, ahead of the
     rulings below because the context-mount cases free one: [the AWS doorway](../design/host-notch-services.md), [its
     Bedrock design](../design/sso-backed-bedrock.md), [A2's twin](macos-revival-and-distribution-plan.md), [the
@@ -168,11 +169,10 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
     [make OrbStack a working Podman host](../research/orbstack-as-a-podman-host.md), with [its native verification
     plan](../research/orbstack-as-a-podman-host-plan.md), as its measured shared-folder speed and memory return offer
     another Mac option without restoring Docker first.
-32. Builds no ruling holds: [the provisioner override](../design/provisioner-sets.md#9-what-i-would-build-in-order),
-    whose grain was ruled 2026-10-05; [the readiness act on macos-user](../design/jail-notch-readiness.md#JR-D2) — **built 2026-10-06**: host-side admission starts the existing confined stage for an absent/unknown selected program and its generated bootstrap runs the shared readiness act; fixture tests are in `integration/macosuserprogramreadiness_test.go`, with native macOS execution pending; [a provider set's overlay modifier](../design/active-provider-sets.md#13-what-was-built-2026-09-29), which reads only the
-    primary; [the empty-list line in `yolo check`](../design/model-lists-and-pickers.md#72-composition-rules); [TP10's
-    `boot.log` half](../design/trust-paths.md#outstanding-work); [macos-user's item 2 twin](handoff-macos-user-open-threads.md);
-    [the color pass's Group B](cli-visual-polish.md); [the unit suite's clock waits](test-suite-speed.md#unit-tests-one-package-sets-the-wall-time-and-five-of-its-tests-are-waiting-on-clocks);
+32. Builds no ruling holds: [the readiness act on macos-user](../design/jail-notch-readiness.md#JR-D2) — **built 2026-10-06**: host-side admission starts the existing confined stage for an absent/unknown selected program and its generated bootstrap runs the shared readiness act; fixture tests are in `integration/macosuserprogramreadiness_test.go`, with native macOS execution pending; [a provider set's overlay modifier](../design/active-provider-sets.md#13-what-was-built-2026-09-29), which reads only the
+    primary; [the empty-list line in `yolo check`](../design/model-lists-and-pickers.md#72-composition-rules);
+    [macos-user's item 2 twin](handoff-macos-user-open-threads.md);
+    [the color pass's Group B](cli-visual-polish.md); [the unit suite's clock waits](test-suite-speed.md#retaken-2026-10-01-and-which-targets-hold);
     [the Bedrock user-guide recipes](../design/bedrock-plumbing.md#12-what-i-would-build-in-order); [the disk levers'
     re-measure](../design/disk-levers-and-backfill.md); and the pi guide's line on [a package the refresh missed](../design/pi-extension-lifecycle.md).
 33. Verify [the exact-commit release gate](../design/pre-tag-release-gate.md) before the next publication request,
