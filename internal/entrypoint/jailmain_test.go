@@ -427,6 +427,9 @@ func TestMainWiresTheHoldAndTheGateInOrder(t *testing.T) {
 		"gate.await()",
 		"blog := attachPassLog(e, mode, gate != nil, os.Stderr)",
 		"runBootSteps(&bootRun{e: e, target: bootContainer",
+		// The pass's dump precedes the stage, whose perf line (appendProvisionPerf) joins the
+		// block the dump wrote: the profile prints only the log's last block.
+		"p.dump(e.Home)",
 		"if err := genFailuresError(e); err != nil {",
 		"gate.abandon()",
 		"markBoot(bootRefused)",
