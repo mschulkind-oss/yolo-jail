@@ -192,7 +192,8 @@ func TestWrappedPluginCodeDisclosureCannotBeSuppressed(t *testing.T) {
 			// terminal before it spawns the keeper that starts the services.
 			boundary = fn
 		case "notePackJailCode", "packJailCodeLines", "jailCodeSummary", "pluginJailCodeSummary",
-			"packJailDaemonNames", "jailDaemonSummary":
+			"packJailDaemonNames", "jailDaemonSummary", "disclosedJailCodePlugins",
+			"pluginJailCodeItems", "logPackJailCodeItems":
 			// A dial read anywhere in the disclosure's own body is a quiet mode with no
 			// flag — the shape P4 forbids, reached without touching runFlags at all.
 			ast.Inspect(fn, func(n ast.Node) bool {

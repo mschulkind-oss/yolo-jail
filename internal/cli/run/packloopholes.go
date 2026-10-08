@@ -36,6 +36,8 @@ package run
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -580,8 +582,11 @@ func packJailCodeLines(packs []*packload.Pack, inJail []loopholes.JailDaemonSpec
 	return lines
 }
 
-// pluginJailCodeSummary is the wrapped-plugin half of p's line, "" when no plugin of p runs code.
-func pluginJailCodeSummary(p *packload.Pack) string {
+// disclosedJailCodePlugins is p's wrapped plugins whose claim is disclosed as jail code
+// (disclosureJailExec), in p.Plugins' order, and how many claims that is. It is the ONE set both
+// the counted terminal line (pluginJailCodeSummary) and its launch.log itemization
+// (pluginJailCodeItems) read, so the itemization can never name a different set than the count.
+func disclosedJailCodePlugins(p *packload.Pack) (plugins []*pluginpack.Plugin, claims int) {
 	disclosed := map[string]bool{}
 	for _, c := range packload.FootprintOf(p).Claims {
 		if disclosureClassOfClaim(c) != disclosureJailExec {
@@ -589,15 +594,50 @@ func pluginJailCodeSummary(p *packload.Pack) string {
 		}
 		disclosed[strings.TrimPrefix(c.Target, pluginClaimTargetPrefix)] = true
 	}
-	if len(disclosed) == 0 {
+	for _, pl := range p.Plugins() {
+		if disclosed[pl.Name()] {
+			plugins = append(plugins, pl)
+		}
+	}
+	return plugins, len(disclosed)
+}
+
+// pluginJailCodeItems is the itemization behind p's counted line: one entry per disclosed plugin,
+// naming each component that runs code and where the plugin carries it (pluginpack.Component's
+// Sources), "acme-tools — hooks (hooks/hooks.json), mcpServers (.claude-plugin/plugin.json)". nil
+// when no plugin of p runs code. The OQ-TP10 ruling puts this in the launch's record, never on
+// the terminal (notePackJailCode).
+func pluginJailCodeItems(p *packload.Pack) []string {
+	plugins, _ := disclosedJailCodePlugins(p)
+	var items []string
+	for _, pl := range plugins {
+		var comps []string
+		for _, comp := range pl.Components() {
+			if comp.RunsCode {
+				comps = append(comps, comp.Name+" ("+strings.Join(comp.Sources, ", ")+")")
+			}
+		}
+		item := pl.Name()
+		if len(comps) > 0 {
+			item += " — " + strings.Join(comps, ", ")
+		}
+		if pluginLoadsHooksModule(pl) {
+			item += "; a hooks module Claude Code loads into its own process, from " + p.SourcePath(pl.Dir)
+		}
+		items = append(items, item)
+	}
+	return items
+}
+
+// pluginJailCodeSummary is the wrapped-plugin half of p's line, "" when no plugin of p runs code.
+func pluginJailCodeSummary(p *packload.Pack) string {
+	plugins, claims := disclosedJailCodePlugins(p)
+	if claims == 0 {
 		return ""
 	}
 	var order, modules []string
 	counts := map[string]int{}
-	for _, pl := range p.Plugins() {
-		if !disclosed[pl.Name()] {
-			continue
-		}
+	for _, pl := range plugins {
 		for _, comp := range pl.Components() {
 			if !comp.RunsCode {
 				continue
@@ -611,7 +651,7 @@ func pluginJailCodeSummary(p *packload.Pack) string {
 			modules = append(modules, p.SourcePath(pl.Dir))
 		}
 	}
-	return jailCodeSummary(len(disclosed), order, counts) + hooksModuleSummary(modules)
+	return jailCodeSummary(claims, order, counts) + hooksModuleSummary(modules)
 }
 
 // hooksModuleSummary is the clause a pack's line gains when some of its plugins' hooks include a
@@ -826,6 +866,30 @@ func (o *Options) notePackJailCode(rt string, packs []*packload.Pack, payload []
 	out.print("[yellow]" + header + "[/yellow]")
 	for _, l := range lines {
 		out.print("[yellow]  " + l.pack + ": " + l.claim + "[/yellow]")
+	}
+	o.logPackJailCodeItems(packs)
+}
+
+// logPackJailCodeItems writes the itemization the counted lines leave out — each wrapped plugin
+// that runs code, by component and source — to the launch.log alone (LaunchLogOnly), the
+// detail-only half of the OQ-TP10 ruling: "one line per pack naming counts by kind, with the
+// itemization landing in the record". The ruling said boot.log, which is the entrypoint's; the
+// host-side record of the same launch is launch.log beside it (trust-paths.md, TP-I1). A stream
+// with no launch.log writes nothing, and the terminal never gets these lines.
+func (o *Options) logPackJailCodeItems(packs []*packload.Pack) {
+	log := LaunchLogOnly(o.Stderr)
+	if log == io.Discard {
+		return
+	}
+	wrote := false
+	for _, p := range packs {
+		for _, item := range pluginJailCodeItems(p) {
+			if !wrote {
+				_, _ = fmt.Fprintln(log, "Pack plugins that run code inside the jail, itemized:")
+				wrote = true
+			}
+			_, _ = fmt.Fprintln(log, "  "+p.Name+": "+item)
+		}
 	}
 }
 
