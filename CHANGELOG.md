@@ -10,6 +10,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.12.2] - 2026-10-08
+
+Pi keeps to the active profile set, Nix builds made in a jail survive host garbage collection,
+and `yolo host` installs every declared program instead of running a copy from your PATH.
+
 ### Added
 
 **OpenRouter routing per model.** A model entry can carry `openrouter_routing`, an object sent
