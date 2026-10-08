@@ -32,7 +32,10 @@ candidate state, acceptance gaps and verification; a place here does not make it
    with [its plan](host-service-startup-diagnostics.md) — the preflight, deadlines and typed
    startup outcomes are built; S1 lifetime cleanup and carrying the typed causes through the
    keeper, native and doorway paths remain.
-2. [Enforce the active Pi profile set with a yolo-shipped extension](../design/simultaneous-auth-and-pack-isolation.md)
+2. [Enable profile-served daemons on attach without ending sibling sessions](../design/attach-daemon-activation.md)
+   — the reported late Bedrock selection reaches a restart prompt; settle additive activation
+   before treating restart as the remedy for an already-authorized missing daemon.
+3. [Enforce the active Pi profile set with a yolo-shipped extension](../design/simultaneous-auth-and-pack-isolation.md)
    — [OQ-PAS2](../design/simultaneous-auth-and-pack-isolation.md#OQ-PAS2) rules out a Pi fork;
    a stock-Pi extension that replaces out-of-set providers is in review.
 
