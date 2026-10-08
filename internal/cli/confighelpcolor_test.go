@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -131,6 +132,44 @@ func TestConfigHelpLeavesWrappedProseUnstyled(t *testing.T) {
 		if strings.HasPrefix(plain, "   ") && strings.Contains(line, "\x1b[36m") {
 			t.Errorf("a continuation line was styled as an entry: %q", line)
 		}
+	}
+}
+
+// The three verbs that take the caller's color decision print their --help with it, not with a
+// decision re-derived from out. A *bytes.Buffer is not a terminal, so re-deriving says "plain".
+func TestConfigVerbsPrintHelpInTheColorTheyWereGiven(t *testing.T) {
+	verbs := map[string]func(out io.Writer, color bool) int{
+		"ls": func(out io.Writer, color bool) int {
+			return configLs(configTarget{}, []string{"--help"}, out, io.Discard, color)
+		},
+		"render": func(out io.Writer, color bool) int {
+			return configRender(configTarget{}, []string{"--help"}, out, io.Discard, color)
+		},
+		"drift": func(out io.Writer, color bool) int {
+			return configDrift([]string{"--help"}, out, io.Discard, color)
+		},
+	}
+	for name, run := range verbs {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("NO_COLOR", "")
+			os.Unsetenv("NO_COLOR")
+
+			var colored bytes.Buffer
+			if rc := run(&colored, true); rc != 0 {
+				t.Fatalf("%s --help with color = %d, want 0", name, rc)
+			}
+			if !strings.Contains(colored.String(), "\x1b[") {
+				t.Errorf("%s --help given color=true printed no ANSI escape:\n%s", name, colored.String())
+			}
+
+			var plain bytes.Buffer
+			if rc := run(&plain, false); rc != 0 {
+				t.Fatalf("%s --help without color = %d, want 0", name, rc)
+			}
+			if strings.Contains(plain.String(), "\x1b[") {
+				t.Errorf("%s --help given color=false printed an ANSI escape:\n%s", name, plain.String())
+			}
+		})
 	}
 }
 

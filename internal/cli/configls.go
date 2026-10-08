@@ -123,7 +123,7 @@ func configLs(t configTarget, args []string, out, errw io.Writer, color bool) (r
 	for _, a := range args {
 		switch {
 		case isHelpToken(a):
-			writeConfigUsage(out, colorForWriter(out))
+			writeConfigUsage(out, color)
 			return 0
 		case a == "--all":
 			all = true

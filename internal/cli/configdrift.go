@@ -45,7 +45,7 @@ import (
 func configDrift(args []string, out, errw io.Writer, color bool) int {
 	if len(args) > 0 {
 		if isHelpToken(args[0]) {
-			writeConfigUsage(out, colorForWriter(out))
+			writeConfigUsage(out, color)
 			return 0
 		}
 		fmt.Fprintf(errw, "yolo config drift: unexpected argument %q\n", args[0])
