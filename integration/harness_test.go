@@ -851,6 +851,7 @@ func runLaunch(t *testing.T, dir string, args []string, opts ...runOption) (resu
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	hang := armHangReport(cmd)
+	cmd.WaitDelay = launchWaitDelay // a survivor holding the pipes must not outlast the deadline
 
 	err := cmd.Run()
 	if ctx.Err() == context.DeadlineExceeded {
@@ -861,6 +862,13 @@ func runLaunch(t *testing.T, dir string, args []string, opts ...runOption) (resu
 		}
 	}
 
+	if errors.Is(err, exec.ErrWaitDelay) {
+		return result{}, &launchTimeout{
+			summary: fmt.Sprintf("yolo exited (rc %d), but a process it left still held its stdout or stderr %s later: yolo %s",
+				cmd.ProcessState.ExitCode(), launchWaitDelay, strings.Join(args, " ")),
+			detail: timeoutDetail(stdout.String(), stderr.String(), hang),
+		}
+	}
 	rc := 0
 	if err != nil {
 		var exitErr *exec.ExitError

@@ -250,3 +250,65 @@ func TestANixEvalThatOverrunsSaysWhatItWaitedOn(t *testing.T) {
 		}
 	}
 }
+
+// launchWaitDelay bounds how long runLaunch waits for the launch's stdout and stderr to close
+// once the launcher has exited or its deadline has ended it (exec.Cmd.WaitDelay).
+//
+// WITHOUT IT A DEADLINE BOUNDS NOTHING. Wait returns only when every holder of the two pipes has
+// closed them, and armHangReport can kill only what the test's user may signal and can see in the
+// launch's tree. A macos-user launch runs its sandbox through sudo as another user, and a daemon
+// leaves the tree by design, so a survivor of either kind held the pipes open and the scheduled
+// macos-user job sat in TestMacosUserSerialClientDrivesAHostPtyFromTheSandbox for nearly two hours
+// past its 30-minute launch deadline until the job's own 120-minute bound cancelled it, saying
+// nothing (runs 37522721810, 37558742862, 37790269472). A var so the regression test below need not
+// wait out the real value.
+var launchWaitDelay = 30 * time.Second
+
+// TestALaunchWhoseOutputOutlivesItStillEnds is that bound, under -short: a fake launcher that
+// leaves an ORPHAN (outside its tree, so the hang report cannot kill it) holding its stdout and
+// stderr, then never ends. runLaunch must report the timeout once its deadline and the wait delay
+// have passed, not wait for the orphan; and a launcher that EXITS while such an orphan holds its
+// output must be reported too, rather than read as a launch that failed to start.
+func TestALaunchWhoseOutputOutlivesItStillEnds(t *testing.T) {
+	for _, tc := range []struct {
+		name, tail, want string
+		timeout          time.Duration
+	}{
+		{"deadline", "exec sleep 7355\n", "yolo timed out after 1s", time.Second},
+		// A deadline well past the wait delay, so it is the delay that ends this one.
+		{"exited", "echo 'launch done'; exit 0\n", "still held its stdout or stderr", 20 * time.Second},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := resolvedTempDir(t)
+			pidFile := filepath.Join(dir, "orphan.pid")
+			fake := filepath.Join(dir, "fake-yolo")
+			// The subshell exits at once, so its sleep is reparented away from the launcher's tree
+			// while still holding the launch's two pipes.
+			script := "#!/bin/sh\n" +
+				"(sleep 7354 & echo $! > " + shquote.Quote(pidFile) + ")\n" + tc.tail
+			if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			savedBin, savedDelay := yoloBin, launchWaitDelay
+			yoloBin, launchWaitDelay = fake, time.Second
+			t.Cleanup(func() { yoloBin, launchWaitDelay = savedBin, savedDelay })
+			t.Cleanup(func() {
+				if pid := readPid(pidFile); pid > 0 && !processGone(pid) {
+					_ = syscall.Kill(pid, syscall.SIGKILL)
+				}
+			})
+
+			start := time.Now()
+			_, failed := runLaunch(t, dir, []string{"run", "--", "true"}, withTimeout(tc.timeout))
+			if took := time.Since(start); took > 30*time.Second {
+				t.Fatalf("runLaunch took %s to return while an orphan held its output", took)
+			}
+			if failed == nil {
+				t.Fatal("runLaunch reported a clean result while an orphan still held the launch's output")
+			}
+			if msg := failed.String(); !strings.Contains(msg, tc.want) {
+				t.Errorf("the report does not say %q:\n%s", tc.want, msg)
+			}
+		})
+	}
+}
