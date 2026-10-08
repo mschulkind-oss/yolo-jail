@@ -597,8 +597,10 @@ func TestManifestSettingsCheckUsesAndRetainsLaunchPrivateSnapshot(t *testing.T) 
 		strings.Contains(parts[2], `"profile": "validator-mutated"`) {
 		t.Fatalf("daemon received validator-mutated or stale settings: %q", parts[2])
 	}
-	if _, err := os.Stat(parts[1]); err != nil {
+	if fi, err := os.Stat(parts[1]); err != nil {
 		t.Fatalf("owned private snapshot was removed before service teardown: %v", err)
+	} else if fi.Mode().Perm() != 0o600 {
+		t.Fatalf("owned private snapshot mode = %o while its daemon runs, want 0600", fi.Mode().Perm())
 	}
 	o.stopLoopholes(handles, hostServiceSocketsDir(cname, false), cname, "podman")
 	handles = nil

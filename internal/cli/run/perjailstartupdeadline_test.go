@@ -35,6 +35,10 @@ func TestPerJailReasonChild(t *testing.T) {
 		}
 		time.Sleep(duration)
 	}
+	// The record-less modes (hostservicelifecycle_test.go) never write a reason.
+	if code, ok := perJailSilentChildMain(mode); ok {
+		os.Exit(code)
+	}
 	class := os.Getenv(perJailReasonChildClassEnv)
 	if class == "" {
 		class = "configuration"
