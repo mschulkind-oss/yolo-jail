@@ -26,7 +26,9 @@ import (
 // the host nothing short of the runtime's own user namespace is. So the driver hands the delta it
 // moved out to the owner of the directory the host made for it — the capture act's scratch dir,
 // which is the store owner's, seen through whatever uid mapping the backend applies (on a
-// rootless podman, the jail's own uid 0). What the driver itself creates afterwards, the
+// rootless podman, the jail's own uid 0). A capture that FAILS hands back the surfaces as well
+// (Run's defer): the delta move never drained them, so the files an archive left would otherwise
+// sit where the store's owner cannot clear them. What the driver itself creates afterwards, the
 // manifest, is root's and so already that user's.
 //
 // # Why only as root

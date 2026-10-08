@@ -145,6 +145,22 @@ func Run(opts Options) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A CAPTURE THAT FAILS STILL HANDS BACK WHAT IT LEFT. The delta move normally carries the
+	// installer's files out of the surfaces and into the store's out tree, which the success path
+	// below gives to the store's owner; a failure before or during it leaves them where the
+	// installer wrote them — in a surface an archive owned by a subordinate uid, which the store's
+	// owner cannot unlink and which would stop the next capture at Store.Stage (ownership.go).
+	// Best-effort: the failure is already being reported, and the surfaces are the throwaway home.
+	ok := false
+	defer func() {
+		if ok {
+			return
+		}
+		_ = d.giveToStoreOwner(d.opts.Out)
+		for _, s := range d.surfaces {
+			_ = d.giveToStoreOwner(d.surfacePath(s))
+		}
+	}()
 	baseline, err := d.walk()
 	if err != nil {
 		return nil, fmt.Errorf("capture baseline: %w", err)
@@ -219,6 +235,7 @@ func Run(opts Options) (*Result, error) {
 			"surfaces, so every capture pays for the bytes twice\n",
 			res.Copied, res.Copied+res.Renamed, d.tree)
 	}
+	ok = true
 	return res, nil
 }
 

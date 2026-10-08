@@ -224,6 +224,37 @@ func TestARootCaptureOfAnArchivesFilesIsTheStoreOwnersToAdmitAndReap(t *testing.
 	}
 }
 
+// A capture that FAILS still hands back what it left. The delta move is what normally carries the
+// installer's files into the out tree, and the success path gives THAT to the store's owner; a
+// failure before or during the move leaves them in a surface, where a root capture's archive uid
+// would be one the store's owner cannot clear — and the next capture would stop at Store.Stage.
+func TestAFailedRootCaptureStillHandsItsLeftoversToTheStoreOwner(t *testing.T) {
+	requireRootForOwnership(t)
+	if _, err := exec.LookPath("chown"); err != nil {
+		t.Skip("the fixture installer needs chown")
+	}
+	base := ownershipBase(t)
+	store := &Store{Dir: filepath.Join(base, "store")}
+	staged, err := store.Stage("vendor")
+	must(t, err)
+	// The host user's store, as a rootless jail's root sees it: the jail's root is that user.
+	chownAll(t, store.Dir, storeOwnerUID)
+	home := filepath.Join(base, "home")
+	fixtureHome(t, home)
+	out := filepath.Join(staged, "out")
+
+	if _, err := Run(Options{Home: home, Out: out,
+		Command: writeInstaller(t, foreignOwnedInstaller+"\nexit 1\n")}); err == nil {
+		t.Fatal("the fixture installer exits 1, so Run must fail")
+	}
+
+	stuck := filepath.Join(home, ".local", "share", "vendor", "1.0", "codex-path", "rg")
+	if uid := ownerOfPath(t, stuck); uid != storeOwnerUID {
+		t.Errorf("%s is owned by uid %d after a failed capture, want the store owner's %d",
+			stuck, uid, storeOwnerUID)
+	}
+}
+
 // A capture driver that is not root changes nobody's ownership: on macos-user it runs as the
 // sandbox account, whose files reach the host user through the staging tree's ACLs, and a chown
 // there would fail the capture for a file that is fine as it is.

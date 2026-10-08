@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -231,7 +232,8 @@ func captureHostWith(args []string, out, errw io.Writer, color bool, act capture
 	}
 	defer lock.Close()
 
-	store := &capture.Store{Dir: paths.CapturesDir()}
+	store := &capture.Store{Dir: paths.CapturesDir(),
+		InNamespace: captureStagingInNamespace(arm.runtime, errw)}
 	staging, err := store.Stage(bin)
 	if err != nil {
 		fmt.Fprintf(errw, "yolo capture: %v\n", err)
@@ -946,6 +948,38 @@ func materializeDarwinWith(nixRoot string, packages []any, outLink string) (*mac
 		ProfilePath: pkgs.ProfilePath}, true, nil
 }
 
+// captureStagingInNamespace is capture.Store.InNamespace for a capture: it clears a staging dir the
+// store's owner cannot, from inside podman's user namespace, where the subordinate uids a rootless
+// capture leaves are its own. podman only — it is the runtime that maps /etc/subuid, and the one
+// whose tarball extraction leaves the uids behind — and nil for every other runtime, which leaves
+// Store's own refusal naming the command for a person to run.
+//
+// rt is the runtime the capture arm resolved ("" when none was named, so the launch's own choice is
+// consulted). The disclosure line is printed before the removal, not after: it explains a pause that
+// can be tens of seconds on a gigabyte-scale tree.
+func captureStagingInNamespace(rt string, errw io.Writer) func(string) error {
+	if rt == "" {
+		rt = captureRuntime()
+	}
+	if filepath.Base(rt) != "podman" {
+		return nil
+	}
+	return func(dir string) error {
+		if _, err := exec.LookPath("podman"); err != nil {
+			return err
+		}
+		fmt.Fprintf(errw, "yolo capture: %s holds files an earlier capture left owned by a container "+
+			"user; removing it inside podman's user namespace\n", dir)
+		cmd := exec.Command("podman", "unshare", "--", "rm", "-rf", dir) //nolint:gosec // argv, not a string
+		var buf bytes.Buffer
+		cmd.Stdout, cmd.Stderr = &buf, &buf
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("%w: %s", err, strings.TrimSpace(buf.String()))
+		}
+		return nil
+	}
+}
+
 // cleanupCaptureWorkspace removes what the capture jail left on the host.
 //
 // A capture boots a whole jail, so the scratch workspace ends up holding a provisioned home
@@ -955,9 +989,9 @@ func materializeDarwinWith(nixRoot string, packages []any, outLink string) (*mac
 //
 // Best-effort throughout: a capture that succeeded must not be reported as failed because
 // its litter could not be swept. The next capture of the same bin clears the same paths
-// anyway (Store.Stage removes its staging dir before creating it) — except where the litter is a
-// container user's, which only `podman unshare` can remove: Stage refuses then, naming that
-// command, rather than stopping on a bare unlinkat error.
+// anyway: Store.Stage removes its staging dir before creating it, and where that dir holds a
+// container user's files it clears them too (captureStagingInNamespace), so a failure here
+// never becomes a staging dir no later capture can start from.
 func cleanupCaptureWorkspace(workspace, cname string) {
 	_ = os.RemoveAll(workspace)
 	runtime.CleanupContainerTracking(cname)

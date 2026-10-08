@@ -90,6 +90,11 @@ type Store struct {
 	// Dir is the store root. Every path this type touches is under it — including the
 	// staging area, which is what makes admission a rename.
 	Dir string
+	// InNamespace removes a path from inside the container runtime's user namespace, where the
+	// subordinate uids a rootless capture leaves on disk are the user's own, and so the only place
+	// they can be unlinked from. Nil when no such helper is wired: Store.Stage then names the
+	// `podman unshare` command itself instead of clearing the dir (clearStaging).
+	InNamespace func(dir string) error
 }
 
 // Entry is an admitted capture.
@@ -151,16 +156,38 @@ func (s *Store) EntryDir(key string) string { return filepath.Join(s.Dir, entrie
 // StagingDir is the scratch directory for a capture in flight, whether or not it exists.
 func (s *Store) StagingDir(id string) string { return filepath.Join(s.Dir, stagingLeaf, id) }
 
+// clearStaging removes dir, or the refusal naming the command that does.
+//
+// A rootless podman capture that extracted a vendor archive as root leaves the archive's uid on the
+// files, a subordinate uid on the host, and the store's owner cannot unlink them. InNamespace is
+// the one way through; when it is not wired, or it fails, the refusal names `podman unshare` so the
+// next capture does not stop on a bare unlinkat error every time.
+func (s *Store) clearStaging(dir string) error {
+	err := os.RemoveAll(dir)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, fs.ErrPermission) {
+		return err
+	}
+	if s.InNamespace != nil {
+		if nerr := s.InNamespace(dir); nerr == nil {
+			if rerr := os.RemoveAll(dir); rerr == nil {
+				return nil
+			}
+		}
+	}
+	return fmt.Errorf("capture staging: %s, an unfinished capture an earlier run left, "+
+		"holds files that are not yours to remove (%w) — on a rootless podman an installer "+
+		"that extracts a vendor archive as root leaves the archive's uid behind; remove the "+
+		"staging dir with `podman unshare rm -rf %s`", dir, err, dir)
+}
+
 // Stage creates an EMPTY scratch directory for a capture in flight and returns it.
 //
 // Any leftover from an interrupted capture under the same id is cleared first: a redo that
 // inherited a dead run's files would admit an entry whose key describes a tree no single installer
 // run ever produced.
-//
-// A leftover the store's owner cannot clear is REFUSED with the command that removes it, as
-// admit's unfinished entry is: a rootless podman capture that extracted a vendor archive as root
-// leaves the archive's uid on the files, a subordinate uid on the host, and a redo would otherwise
-// stop here with a bare unlinkat error every time. Only a `podman unshare` can delete them.
 //
 // The returned path is inside the store, which is the whole reason this method exists rather than
 // a caller reaching for os.MkdirTemp: see the package comment on admission being a rename.
@@ -169,13 +196,7 @@ func (s *Store) Stage(id string) (string, error) {
 		return "", fmt.Errorf("capture staging id: %w", err)
 	}
 	dir := s.StagingDir(id)
-	if err := os.RemoveAll(dir); err != nil {
-		if errors.Is(err, fs.ErrPermission) {
-			return "", fmt.Errorf("capture staging: %s, an unfinished capture an earlier run left, "+
-				"holds files that are not yours to remove (%w) — on a rootless podman an installer "+
-				"that extracts a vendor archive as root leaves the archive's uid behind; remove the "+
-				"staging dir with `podman unshare rm -rf %s`", dir, err, dir)
-		}
+	if err := s.clearStaging(dir); err != nil {
 		return "", err
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {

@@ -292,6 +292,41 @@ func TestStageNamesTheCommandWhenAnOldStagingDirIsNotOursToRemove(t *testing.T) 
 	}
 }
 
+// Stage clears a leftover it cannot remove itself by entering the runtime's user namespace, rather
+// than making the user run the command (a rootless capture left the files a container user's).
+// InNamespace stands in for `podman unshare` here; the refusal when it is absent is the test above.
+// Non-root for the same reason as its sibling.
+func TestStageClearsAnUnremovableLeftoverThroughInNamespace(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("needs a non-root store owner: root unlinks a directory it cannot write to")
+	}
+	s := &Store{Dir: t.TempDir()}
+	dir, err := s.Stage("run-1")
+	must(t, err)
+	stuck := filepath.Join(dir, "home", "stuck")
+	must(t, os.MkdirAll(stuck, 0o755))
+	must(t, os.WriteFile(filepath.Join(stuck, "bwrap"), []byte("x"), 0o755))
+	must(t, os.Chmod(stuck, 0o555))
+	called := ""
+	s.InNamespace = func(d string) error {
+		called = d
+		// What `podman unshare` gives: the files are the namespace's own, so they can be unlinked.
+		must(t, os.Chmod(stuck, 0o755))
+		return os.RemoveAll(d)
+	}
+
+	again, err := s.Stage("run-1")
+	must(t, err)
+	if called != dir {
+		t.Errorf("InNamespace called with %q, want the staging dir %q", called, dir)
+	}
+	entries, err := os.ReadDir(again)
+	must(t, err)
+	if len(entries) != 0 {
+		t.Errorf("Stage must clear the leftover through InNamespace, found %v", entries)
+	}
+}
+
 // One key convention across the repo's content-addressed directories, not two. `entries/3f2a…`
 // and `build/roots/3f2a…` mean the same kind of thing because they are computed the same way.
 func TestKeyIsTheImageStoreKeyConvention(t *testing.T) {

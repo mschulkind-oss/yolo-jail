@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path"
 	"path/filepath"
@@ -525,5 +526,47 @@ func TestCaptureWiresTheMacosUserBackend(t *testing.T) {
 	if !strings.Contains(plan, "probeblocker") {
 		t.Errorf("the pipeline's blocked tools did not reach the capture's bootstrap env; "+
 			"the staging home would carry no shims.\nplan: %q", plan)
+	}
+}
+
+// The self-clean a rootless capture needs is wired to podman and to nothing else: it is the
+// runtime that maps /etc/subuid, and only it can unlink the files an archive left a container
+// user's. The argv is what `Store.InNamespace` will run, so it is pinned here.
+func TestCaptureStagingInNamespaceRunsPodmanUnshare(t *testing.T) {
+	dir := t.TempDir()
+	argvFile := filepath.Join(dir, "argv")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + argvFile + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "podman"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	var errw bytes.Buffer
+	fn := captureStagingInNamespace("podman", &errw)
+	if fn == nil {
+		t.Fatal("podman must get an in-namespace remover")
+	}
+	target := filepath.Join(dir, "staging", "codex")
+	if err := fn(target); err != nil {
+		t.Fatalf("the fake podman should have succeeded: %v", err)
+	}
+	got, err := os.ReadFile(argvFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "unshare\n--\nrm\n-rf\n" + target + "\n"; string(got) != want {
+		t.Errorf("podman argv = %q, want %q", got, want)
+	}
+	if !strings.Contains(errw.String(), target) {
+		t.Errorf("the removal is not disclosed with the dir it clears: %q", errw.String())
+	}
+}
+
+// Every other runtime gets no in-namespace remover, so Store's own refusal stands and names the
+// command for a person to run (capture.Store.clearStaging).
+func TestCaptureStagingInNamespaceIsNilForOtherRuntimes(t *testing.T) {
+	for _, rt := range []string{"container", "macos-user"} {
+		if fn := captureStagingInNamespace(rt, io.Discard); fn != nil {
+			t.Errorf("captureStagingInNamespace(%q) must be nil", rt)
+		}
 	}
 }
