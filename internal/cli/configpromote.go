@@ -146,7 +146,7 @@ func parsePromoteArgs(args []string, out, errw io.Writer) (promoteOptions, int) 
 		}
 		switch {
 		case isHelpToken(a):
-			io.WriteString(out, configUsage+"\n")
+			writeConfigUsage(out, colorForWriter(out))
 			return o, 0
 		case a == "--surface" || strings.HasPrefix(a, "--surface="):
 			fmt.Fprintln(errw, "yolo config promote: --surface was removed; use the canonical positional identity <agent>/<surface> (for example, pi/settings)")

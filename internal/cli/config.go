@@ -385,7 +385,7 @@ func configRender(t configTarget, args []string, out, errw io.Writer, color bool
 		a := args[i]
 		switch {
 		case isHelpToken(a):
-			io.WriteString(out, configUsage+"\n")
+			writeConfigUsage(out, colorForWriter(out))
 			return 0
 		case a == "--explain":
 			explain = true

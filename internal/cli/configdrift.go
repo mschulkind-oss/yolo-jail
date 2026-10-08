@@ -45,7 +45,7 @@ import (
 func configDrift(args []string, out, errw io.Writer, color bool) int {
 	if len(args) > 0 {
 		if isHelpToken(args[0]) {
-			io.WriteString(out, configUsage+"\n")
+			writeConfigUsage(out, colorForWriter(out))
 			return 0
 		}
 		fmt.Fprintf(errw, "yolo config drift: unexpected argument %q\n", args[0])
@@ -137,7 +137,7 @@ func printUserScopeDriftLimit(pr richtext.Printer) {
 func configDump(args []string, out, errw io.Writer) int {
 	if len(args) > 0 {
 		if isHelpToken(args[0]) {
-			io.WriteString(out, configUsage+"\n")
+			writeConfigUsage(out, colorForWriter(out))
 			return 0
 		}
 		fmt.Fprintf(errw, "yolo config dump: unexpected argument %q\n", args[0])

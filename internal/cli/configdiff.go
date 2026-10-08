@@ -43,7 +43,7 @@ func surfaceArgs(cmd string, args []string, out, errw io.Writer) (agent, surface
 		a := args[i]
 		switch {
 		case isHelpToken(a):
-			io.WriteString(out, configUsage+"\n")
+			writeConfigUsage(out, colorForWriter(out))
 			return "", "", false, 0
 		case a == "--surface" || strings.HasPrefix(a, "--surface="):
 			fmt.Fprintf(errw, "yolo config %s: --surface was removed; use the canonical positional identity <agent>/<surface> (for example, %s/settings)\n", cmd, firstNonFlag(args))

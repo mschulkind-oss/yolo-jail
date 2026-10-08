@@ -94,6 +94,34 @@ func TestConfigHelpStylesBothHelpFlagAliases(t *testing.T) {
 	}
 }
 
+// Each verb's own --help prints the same usage, so it goes through the same colorizer. A verb
+// may print its target disclosure on stderr first; only stdout is the help.
+func TestConfigVerbHelpIsColoredLikeTheTopLevel(t *testing.T) {
+	for _, verb := range []string{"render", "ls", "diff", "promote", "drift", "dump"} {
+		t.Run(verb, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			t.Chdir(t.TempDir())
+			standInTerminal(t)
+			t.Setenv("NO_COLOR", "")
+			var rc int
+			out, _ := captureBoth(t, func() { rc = runConfig([]string{"config", verb, "--help"}) })
+			if rc != 0 {
+				t.Fatalf("config %s --help = %d", verb, rc)
+			}
+			if !strings.Contains(out, "\x1b[1m") || !strings.Contains(out, "\x1b[36m") {
+				t.Errorf("config %s --help was not colored on a terminal:\n%s", verb, out)
+			}
+			if plain := configHelpANSI.ReplaceAllString(out, ""); plain != configUsage+"\n" {
+				t.Errorf("config %s --help changed plain bytes: %q", verb, plain)
+			}
+			t.Setenv("NO_COLOR", "1")
+			if out, _ = captureBoth(t, func() { rc = runConfig([]string{"config", verb, "--help"}) }); out != configUsage+"\n" {
+				t.Errorf("config %s --help under NO_COLOR = %q, want plain usage", verb, out)
+			}
+		})
+	}
+}
+
 func entries(t *testing.T, dir string) []string {
 	t.Helper()
 	got, err := os.ReadDir(dir)
