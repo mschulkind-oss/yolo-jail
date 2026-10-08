@@ -151,6 +151,14 @@ func hostGateHome(t *testing.T, cfg string, shell map[string]string) string {
 	// The shell `yolo host` inherits is the USER's, and passes through untouched; blank the
 	// names under test so what the agent receives is what yolo composed.
 	blankHostGateShell(t)
+	// This fixture represents the host's invoking shell, not the current Pi jail's
+	// provider selection. Absence matters here: a blank inherited value is still
+	// forwarded as a set variable by the host's pass-through environment.
+	const piPolicy = "YOLO_PI_PROVIDER_POLICY"
+	t.Setenv(piPolicy, "") // register restoration before unsetting the fixture value
+	if err := os.Unsetenv(piPolicy); err != nil {
+		t.Fatal(err)
+	}
 	// A REGION IN THE INVOKING SHELL, by default, and never the one this test process happens
 	// to run under (a jail's own AWS_REGION would otherwise decide the region pre-flight here
 	// and not in CI). Every cell selecting `bedrock` is about something else, and without a
@@ -167,6 +175,16 @@ func hostGateHome(t *testing.T, cfg string, shell map[string]string) string {
 	prepareOpenAIAuthHost = func(hostPrelaunch, io.Writer) (managedOpenAIHostLaunch, error) { return nil, nil }
 	t.Cleanup(func() { prepareOpenAIAuthHost = orig })
 	return home
+}
+
+// A host-policy fixture starts without the current Pi jail's inherited selection.
+func TestHostGateHomeUnsetsInheritedPiPolicy(t *testing.T) {
+	const name = "YOLO_PI_PROVIDER_POLICY"
+	t.Setenv(name, `{"schemaVersion":1,"mode":"allowlist","allowedProviderIds":["fixture-provider"]}`)
+	hostGateHome(t, claudeAlone, nil)
+	if _, set := os.LookupEnv(name); set {
+		t.Fatal("hostGateHome left an inherited Pi policy in the fixture's invoking shell")
+	}
 }
 
 // THE FIXTURE OWNS EVERY CREDENTIAL IT READS. A host cell asserts what yolo composed, so a
