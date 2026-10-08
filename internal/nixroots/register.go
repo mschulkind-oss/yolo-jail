@@ -94,3 +94,25 @@ func replaceSymlink(target, link string) error {
 	}
 	return nil
 }
+
+// Register registers an EXISTING link, which must point into the store, under the host's
+// spelling, and returns that spelling. It is Root without the link-making half, for a caller
+// that made the link itself (the workspace registry, which makes its links beneath an
+// os.Root).
+func (r Registrar) Register(link string) (string, error) {
+	if !filepath.IsAbs(link) {
+		return "", fmt.Errorf("GC-root link %q is not absolute", link)
+	}
+	dir, err := filepath.EvalSymlinks(filepath.Dir(link))
+	if err != nil {
+		return "", err
+	}
+	host, ok := r.Map.Translate(filepath.Join(dir, filepath.Base(link)))
+	if !ok {
+		return "", ErrUntranslatable
+	}
+	if err := AddIndirectRoot(r.Socket, host, r.Timeout); err != nil {
+		return "", err
+	}
+	return host, nil
+}
