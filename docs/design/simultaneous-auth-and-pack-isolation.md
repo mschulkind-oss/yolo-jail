@@ -154,14 +154,15 @@ not acceptance evidence. No incident-machine repair or live provider/account pro
 
    - **A — Yolo only.** A per-launch view of Pi's login store holds only the active set's
      providers; other providers' key variables are dropped. Pi is unchanged. **You'd see:** Pi's
-     own "not logged in". **Cost:** Pi's message, not ours; `/login` in the jail needs a rule.
+     own "No API key found" or "run /login". **Cost:** an auth failure, not a denial; `/login`,
+     Bedrock/Vertex ambient credentials and keys in `models.json` get around it.
    - **B — Patch Pi** (as written). **You'd see:** a yolo denial naming the profile. **Cost:** a
-     Pi patch series to carry; a Pi build without it must refuse.
+     Pi patch series to carry; a stock npm Pi must refuse every profile launch.
 
-   <!-- vantage: question id=OQ-PAS2 leaning="A: it keeps Pi unmodified as the maintainer wanted; the weaker message is the price." -->
+   <!-- vantage: question id=OQ-PAS2 leaning="None yet: A keeps Pi unmodified but only narrows access; B enforces the ruled policy but ties profiles to yolo's Pi build." -->
 
-   _Leaning:_ A. It keeps Pi unmodified; the price is Pi's own message. B is already built on a
-   lane branch, so it stays cheap to pick.
+   _Leaning:_ none yet. A keeps Pi unmodified but only narrows access; B enforces the ruled
+   policy but ties profiles to yolo's Pi build. B is already built, so either is cheap.
 
    **Answer:**
 
