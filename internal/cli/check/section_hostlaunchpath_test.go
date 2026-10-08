@@ -176,6 +176,33 @@ func TestCheckHostLaunchPathIsSilentWithNothingToSay(t *testing.T) {
 	}
 }
 
+// TestCheckHostLaunchPathLeavesARefusedProgramToTheFloorSection: a program with no floor entry on a
+// machine the floor still answers for is refused by `yolo host`, never looked up on a PATH
+// (host-notch-readiness.md HNR-D2), so this section does not resolve it; one `host_floor` leaves out
+// is looked up there (HNR-D4), so it does. Drop the OutsideTheFloor half of launchPathDeps' filter,
+// and the first half fails.
+func TestCheckHostLaunchPathLeavesARefusedProgramToTheFloorSection(t *testing.T) {
+	const decl = `{"kind":"program","bin":"yolo-hp-nofloor","via":"npm","package":"yolo-hp-nofloor-pkg"}`
+	onUnbuiltPlatform := func(o *Options) {
+		inner := o.HostFloor
+		o.HostFloor = func(progs []hostfloor.Program) *hostfloor.Floor {
+			f := inner(progs)
+			f.GOOS = "plan9" // Node publishes no build here, so the floor holds no npm program
+			return f
+		}
+	}
+	o, _, _ := launchPathCheckFixture(t, `{}`, decl)
+	onUnbuiltPlatform(o)
+	if out, _ := runLaunchPathSection(o); strings.Contains(out, "yolo-hp-nofloor") {
+		t.Errorf("a program yolo host refuses was resolved on the PATH:\n%s", out)
+	}
+	o, _, _ = launchPathCheckFixture(t, `{"host_floor": {"needpack": false}}`, decl)
+	onUnbuiltPlatform(o)
+	if out, _ := runLaunchPathSection(o); !strings.Contains(out, "yolo-hp-nofloor") {
+		t.Errorf("a program host_floor leaves out was not resolved on the PATH:\n%s", out)
+	}
+}
+
 // TestCheckFloorSectionFindsANoFloorEntryProgramInHostPath: a program `host_floor` leaves out runs
 // from the launch PATH, so the floor section names the copy a host_path folder holds as the one that
 // runs — the exec's own lookup, host_path included.

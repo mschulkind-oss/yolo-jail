@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -1108,6 +1109,21 @@ func floorOn(t *testing.T, goos string) func([]hostfloor.Program) *hostfloor.Flo
 	}
 }
 
+// floorLeavingOut is floorOn with the user-scope host_floor leaving the named packs out, which makes
+// their programs not the floor's to hold (hostfloor.Floor.OutsideTheFloor): `yolo host -- <bin>` looks
+// such a program up on the launch's PATH (host-notch-readiness.md HNR-D4), so it is the only kind a
+// launcher can need host_path for. A no-entry program the floor does answer for is refused instead
+// (HNR-D2), which no folder changes.
+func floorLeavingOut(t *testing.T, goos string, packs ...string) func([]hostfloor.Program) *hostfloor.Floor {
+	t.Helper()
+	base := floorOn(t, goos)
+	return func(progs []hostfloor.Program) *hostfloor.Floor {
+		f := base(progs)
+		f.Include = func(pack string) bool { return !slices.Contains(packs, pack) }
+		return f
+	}
+}
+
 // TestHostWrappersOKRowSaysALauncherNeedsHostPathForAProgramYoloKeepsNoCopyOf: on macOS the floor
 // holds no installer agent, so `yolo host -- claude` finds claude on the PATH it was started with,
 // then host_path. An IDE pointed at the wrapper hands it the IDE's PATH, which the rc that put
@@ -1116,7 +1132,7 @@ func floorOn(t *testing.T, goos string) func([]hostfloor.Program) *hostfloor.Flo
 // already names the folder.
 func TestHostWrappersOKRowSaysALauncherNeedsHostPathForAProgramYoloKeepsNoCopyOf(t *testing.T) {
 	const lead = "yolo keeps no copy of claude on this machine, so that launcher also needs host_path"
-	run := func(t *testing.T, goos, userConfig string) (string, string) {
+	run := func(t *testing.T, floor func(*testing.T, string) func([]hostfloor.Program) *hostfloor.Floor, goos, userConfig string) (string, string) {
 		t.Helper()
 		t.Setenv("YOLO_VERSION", "")
 		claudeDir := fakeProgram(t, "claude")
@@ -1127,15 +1143,18 @@ func TestHostWrappersOKRowSaysALauncherNeedsHostPathForAProgramYoloKeepsNoCopyOf
 		}
 		o, _, _ := hostManagementFixture(t, userConfig, []string{"claude"}, "")
 		setPath(o, wrapDirIn(t)+string(os.PathListSeparator)+claudeDir)
-		o.HostFloor = floorOn(t, goos)
+		o.HostFloor = floor(t, goos)
 		r, out := runPacksThenWrappers(t, o)
 		if r.warned != 0 {
 			t.Errorf("warned = %d, want 0:\n%s", r.warned, out)
 		}
 		return out, claudeDir
 	}
-	t.Run("darwin", func(t *testing.T) {
-		out, claudeDir := run(t, "darwin", "")
+	leftOut := func(t *testing.T, goos string) func([]hostfloor.Program) *hostfloor.Floor {
+		return floorLeavingOut(t, goos, "claude")
+	}
+	t.Run("darwin, host_floor leaves claude out", func(t *testing.T) {
+		out, claudeDir := run(t, leftOut, "darwin", "")
 		want := lead + " in " + filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail", "config.jsonc") +
 			" to name " + claudeDir + ", the folder this PATH finds it in"
 		if !strings.Contains(out, want) {
@@ -1143,12 +1162,19 @@ func TestHostWrappersOKRowSaysALauncherNeedsHostPathForAProgramYoloKeepsNoCopyOf
 		}
 	})
 	t.Run("linux", func(t *testing.T) {
-		if out, _ := run(t, "linux", ""); strings.Contains(out, lead) {
+		if out, _ := run(t, floorOn, "linux", ""); strings.Contains(out, lead) {
 			t.Errorf("the floor holds claude here, so no launcher needs host_path for it:\n%s", out)
 		}
 	})
+	// With no floor entry the floor still answers for, `yolo host -- claude` refuses (HNR-D2), so
+	// no folder on host_path would start it and the row must not ask for one.
+	t.Run("darwin, the floor answers for claude", func(t *testing.T) {
+		if out, _ := run(t, floorOn, "darwin", ""); strings.Contains(out, lead) {
+			t.Errorf("yolo host refuses claude here, so no launcher needs host_path for it:\n%s", out)
+		}
+	})
 	t.Run("darwin, host_path names the folder", func(t *testing.T) {
-		out, _ := run(t, "darwin", `{"host_wrappers": true, "host_management": "own", "packs": ["claude"], "host_path": ["<CLAUDE>"]}`)
+		out, _ := run(t, leftOut, "darwin", `{"host_wrappers": true, "host_management": "own", "packs": ["claude"], "host_path": ["<CLAUDE>"]}`)
 		if strings.Contains(out, lead) {
 			t.Errorf("host_path already names claude's folder:\n%s", out)
 		}
@@ -1167,14 +1193,14 @@ func TestHostWrappersOffPathAndShadowedRowsSayALauncherNeedsHostPath(t *testing.
 	const lead = "yolo keeps no copy of claude on this machine, so that launcher also needs host_path"
 	const pointer = "A wrapper still starts by its absolute path, which is what to give an IDE or " +
 		"desktop launcher that does not read your shell rc."
-	run := func(t *testing.T, goos string, pathFor func(wrap, claude string) string) (string, string) {
+	run := func(t *testing.T, floor func(*testing.T, string) func([]hostfloor.Program) *hostfloor.Floor, goos string, pathFor func(wrap, claude string) string) (string, string) {
 		t.Helper()
 		t.Setenv("YOLO_VERSION", "")
 		claudeDir := fakeProgram(t, "claude")
 		o, _, _ := hostManagementFixture(t, `{"host_wrappers": true, "host_management": "own", "packs": ["claude"]}`,
 			[]string{"claude"}, "")
 		setPath(o, pathFor(wrapDirIn(t), claudeDir))
-		o.HostFloor = floorOn(t, goos)
+		o.HostFloor = floor(t, goos)
 		r, out := runPacksThenWrappers(t, o)
 		if r.warned != 1 {
 			t.Errorf("warned = %d, want 1 — one cause, one row:\n%s", r.warned, out)
@@ -1192,7 +1218,9 @@ func TestHostWrappersOffPathAndShadowedRowsSayALauncherNeedsHostPath(t *testing.
 			func(wrap, claude string) string { return claude + sep + wrap }},
 	} {
 		t.Run(tc.name+", darwin", func(t *testing.T) {
-			out, claudeDir := run(t, "darwin", tc.pathFor)
+			out, claudeDir := run(t, func(t *testing.T, goos string) func([]hostfloor.Program) *hostfloor.Floor {
+				return floorLeavingOut(t, goos, "claude")
+			}, "darwin", tc.pathFor)
 			note := strings.Join(noteLinesAfter(t, out, tc.headline), "\n")
 			want := lead + " in " + filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail", "config.jsonc") +
 				" to name " + claudeDir + ", the folder this PATH finds it in"
@@ -1209,7 +1237,7 @@ func TestHostWrappersOffPathAndShadowedRowsSayALauncherNeedsHostPath(t *testing.
 			}
 		})
 		t.Run(tc.name+", linux", func(t *testing.T) {
-			out, _ := run(t, "linux", tc.pathFor)
+			out, _ := run(t, floorOn, "linux", tc.pathFor)
 			if !strings.Contains(strings.Join(noteLinesAfter(t, out, tc.headline), "\n"), pointer) {
 				t.Errorf("the row must still point a launcher at the wrapper's absolute path:\n%s", out)
 			}
@@ -1264,9 +1292,9 @@ func TestHostWrappersPointsNoLauncherAtAWrapperThatCannotStartYolo(t *testing.T)
 			}
 			claudeDir, yoloDir := fakeProgram(t, "claude"), fakeProgram(t, "yolo")
 			setPath(o, tc.pathFor(wrapDirIn(t), claudeDir, yoloDir))
-			// darwin's floor keeps no copy of claude, so a launcher pointed at a wrapper that could
-			// start yolo would also be told it needs host_path.
-			o.HostFloor = floorOn(t, "darwin")
+			// With host_floor leaving claude out, `yolo host` looks claude up on PATH, so a launcher
+			// pointed at a wrapper that could start yolo would also be told it needs host_path.
+			o.HostFloor = floorLeavingOut(t, "darwin", "claude")
 			_, out := runPacksThenWrappers(t, o)
 			if !strings.Contains(out, staleHeadline) {
 				t.Fatalf("the stale-yolo row is missing:\n%s", out)
@@ -1327,7 +1355,7 @@ func TestHostWrappersPointsALauncherOnlyAtTheWrappersThatStartYolo(t *testing.T)
 		o, _, _ := setUp(t, `{"host_wrappers": true, "host_management": "own", "packs": ["claude", "pi"]}`, "")
 		claudeDir := fakeProgram(t, "claude")
 		setPath(o, wrapDirIn(t)+string(os.PathListSeparator)+claudeDir)
-		o.HostFloor = floorOn(t, "darwin")
+		o.HostFloor = floorLeavingOut(t, "darwin", "claude")
 		_, out := runPacksThenWrappers(t, o)
 		if !strings.Contains(out, "point an IDE or desktop launcher that does not read your shell rc at "+
 			filepath.Join(wrapDirIn(t), "pi")) {
