@@ -278,7 +278,18 @@ case "$*" in
   *actions/workflows/release.yml*) echo 55 ;;
   *"/runs?per_page=100"*)
     status=${FAKE_RELEASE_STATUS:-completed}
-    conclusion=${FAKE_RELEASE_CONCLUSION:-success}
+    if [ -n "${FAKE_RELEASE_STATUS_SEQUENCE:-}" ]; then
+      # One status per poll, the last repeating: the run GitHub reports while
+      # request.sh waits on it.
+      polls=$(cat "$TRACE.polls" 2>/dev/null || echo 0)
+      echo $((polls + 1)) > "$TRACE.polls"
+      status=$(printf '%s\n' "$FAKE_RELEASE_STATUS_SEQUENCE" | tr , '\n' | sed -n "$((polls + 1))p")
+      [ -n "$status" ] || status=$(printf '%s\n' "$FAKE_RELEASE_STATUS_SEQUENCE" | tr , '\n' | tail -n 1)
+    fi
+    # GitHub reports conclusion null until a run completes, which the
+    # script's jq filter renders as an empty field.
+    conclusion=
+    if [ "$status" = completed ]; then conclusion=${FAKE_RELEASE_CONCLUSION:-success}; fi
     printf '202\t%s\t%s\t1\n' "$status" "$conclusion"
     if [ "${FAKE_DUPLICATE_RELEASE_RUNS:-}" = 1 ]; then printf '203\t%s\t%s\t1\n' "$status" "$conclusion"; fi
     ;;
@@ -376,6 +387,7 @@ func TestRequestMainCallerWaitsForExactOriginalReleaseSuccessBeforePublishDispat
 		{name: "successful exact original Release run", wantPublish: true},
 		{name: "CI failure before any tag write", extra: []string{"FAIL_GATE=1"}, wantError: "No tag or publisher write was made"},
 		{name: "failed original Release run", extra: []string{"FAKE_RELEASE_CONCLUSION=failure"}, wantError: "exact original GoReleaser/Release run concluded"},
+		{name: "Release run seen running, then successful", extra: []string{"FAKE_RELEASE_STATUS_SEQUENCE=queued,in_progress,completed", "RELEASE_WAIT_SECONDS=600"}, wantPublish: true},
 		{name: "still-running original Release run is not success", extra: []string{"FAKE_RELEASE_STATUS=in_progress", "RELEASE_WAIT_SECONDS=1"}, wantError: "did not complete within"},
 		{name: "duplicate matching original runs are ambiguous", extra: []string{"FAKE_DUPLICATE_RELEASE_RUNS=1"}, wantError: "Multiple Release runs match"},
 		{name: "ref conflict does not dispatch", extra: []string{"FAIL_REF=1"}, wantError: "Could not create v9.8.7"},

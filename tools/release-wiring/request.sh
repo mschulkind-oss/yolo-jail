@@ -74,7 +74,11 @@ while :; do
     exit 1
   fi
   if [ "$line_count" -eq 1 ]; then
-    IFS=$'\t' read -r candidate_id status conclusion attempt <<< "$matches"
+    # Tab is IFS whitespace, so splitting on it would merge the empty
+    # conclusion of a run that has not completed (GitHub reports null) into
+    # its neighbor and misread the attempt. Split on a non-whitespace
+    # separator, which keeps every empty field in place.
+    IFS='|' read -r candidate_id status conclusion attempt <<< "${matches//$'\t'/|}"
     if ! printf '%s\n' "$candidate_id" | grep -Eq '^[1-9][0-9]*$' || [ "$attempt" != 1 ]; then
       echo "✗ The matching Release run has invalid identity or is a rerun. Preserve the tag and inspect the original run read-only." >&2
       exit 1
