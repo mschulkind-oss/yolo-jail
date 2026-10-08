@@ -2,7 +2,7 @@
 title: "Handoff — publish the prebuilt image to a Cachix cache"
 status: accepted
 stage: BUILT
-next: "Record the CACHIX lines in the status line and Final test: the 2026-10-03 scheduled macOS nightly (37118791671, shard 11, at 0e34798c6) passed TestMacImageSubstitutesFromCachix, but each case would build 13 to 15 derivations no substituter serves, and only 2 of about 600 fetched paths came from yolo-jail.cachix.org. Find out which derivations those are and why the pushed closure does not cover them"
+next: "Decide whether the 13 to 15 darwin-system helper derivations a Mac builds locally are worth pushing (Proposed fix, option B, after a timed build); change TestMacImageSubstitutesFromCachix to report host-system builds apart from Linux builds (option A); run the human Final test on an Apple silicon Mac, which no CI job covers"
 ---
 
 # Handoff — publish the prebuilt image to a Cachix cache
@@ -17,7 +17,10 @@ UNMEASURED: the Mac-side download — no Mac, human or CI runner, has been shown
 paths rather than building them ("Final test" below). The instrument for it was written on
 2026-10-01 and has not run yet: `TestMacImageSubstitutesFromCachix`
 ([`maccachixsubstitution_test.go`](../../integration/maccachixsubstitution_test.go)), which falls
-into one shard of the macOS nightly's computed partition.
+into one shard of the macOS nightly's computed partition. **It has run since** (2026-10-03, see
+[What the Mac nightly measured](#what-the-mac-nightly-measured-2026-10-03)): an Intel Mac fetches
+every Linux path the image needs and builds no Linux derivation; what it builds is 13 to 15 small
+darwin derivations that no CI job pushes.
 **Settled 2026-09-02 from the Actions log**, which closes the disagreement this doc
 carried against [`README.md`](README.md): README's *"CI has already pushed data"* was
 the correct sentence.
@@ -57,7 +60,9 @@ the correct sentence.
 > release's cached image stays current until `flake.nix`, `flake.lock` or a `packages:`
 > list changes it.
 
-**Why:** the OCI image contains a few `aarch64-linux` derivations built from
+**Why** (as first written; the image has changed since, and
+[the Mac nightly](#what-the-mac-nightly-measured-2026-10-03) found that a Mac now needs no Linux
+builder for it): the OCI image contains a few `aarch64-linux` derivations built from
 *this repo's* flake (`yolo-jail-conf`, the bin-path links, the stream script, the
 customisation layer) that are **never** on `cache.nixos.org`. (The entrypoint used to be one;
 since the image stopped containing yolo, it is mounted rather than baked.) So building the image on
@@ -83,6 +88,76 @@ VM.
 - **Proven end to end in CI** (run `31749547095`, `v0.8.0`, 2026-08-13, both arches):
   both variants built, the closures pushed, and the four this-repo-source paths were
   **substituted back from the cache** in the same run. Only the Mac download proof remains.
+
+## What the Mac nightly measured (2026-10-03)
+
+MEASURED by the scheduled macOS nightly, run `37118791671` at `0e34798c6`, shard 11 (job
+`111191164571`, `macos-26-intel`, so `x86_64-darwin`), whose `TestMacImageSubstitutesFromCachix`
+passed in 163.6 s:
+
+| Variant | Would build | Would fetch | Of those, from yolo-jail.cachix.org |
+| :--- | ---: | ---: | ---: |
+| stock | 13 | 579 | 2 |
+| `zbar` | 15 | 617 | 2 |
+| `libsodium.dev` | 15 | 580 | 2 |
+
+**Every derivation in the "would build" column is `x86_64-darwin`.** None is Linux. The stock
+list is nix2container's own tool (`nix2container-1.0.0`), its JSON metadata (`layers.json` twice,
+`closure-graph.json` twice, `rewrites.json` twice, `config.json`, `history.json`,
+`image-yolo-jail.json`) and three symlink trees (`bin-path-links`, `yolo-jail-prefix-links`,
+`yolo-jail-root`). A `packages:` variant adds one more `layers.json` and `closure-graph.json`, its
+extra layer. A dry run of `.#packages.x86_64-darwin.ociImage` at `337086f64`, evaluated on Linux on
+2026-10-08, lists the same 13 (MEASURED).
+
+**Why no cache serves them** (READ, [`flake.nix`](../../flake.nix) and
+[`nightly-macos.yml`](../../.github/workflows/nightly-macos.yml)):
+
+- The flake builds these with the **host** `pkgs`, on purpose: nix2container is imported with the
+  host's `pkgs` because its generator runs at build time on the host, and `bin-path-links`,
+  `yolo-jail-prefix-links` and `yolo-jail-root` are `pkgs.runCommand` and `pkgs.symlinkJoin`. Only
+  the image's contents come from `imagePkgs`, the Linux package set.
+- So a Mac's helper derivations have the system `x86_64-darwin` or `aarch64-darwin`, and their
+  store paths differ from the ones a Linux runner builds and pushes. Every push in CI runs on a
+  Linux runner (`publish.yml`, and the nightly's `build-image` and `push-arm-image-cache`).
+- The Mac jobs that do realize them push nothing: `archive-delivery-macos` sets `skipPush: true`
+  by an earlier decision (its comment: the darwin paths "would only grow the cache"), and the
+  `integration-macos` shards configure no Cachix action at all.
+
+**What the 2 hits are.** The Linux image's own closure at `337086f64` is 578 paths. Every one of
+them is on `cache.nixos.org` except four, and all four are on yolo-jail.cachix.org (MEASURED, each
+path's `.narinfo` asked of both caches): `nix-ld-2.0.6`, the flake's `overrideAttrs` of nixpkgs'
+nix-ld, and the three host-built paths a Linux build makes (`image-yolo-jail.json`,
+`yolo-jail-root`, `bin-path-links`). A Mac builds its own copies of the host-built three, so of
+the four only nix-ld is one it fetches from our cache. The log names no paths, so which path is
+the second hit is not established; INFERRED: a Linux path outside the stock closure, such as one
+a Linux helper pulls in.
+
+**What this changes.** The handoff's premise was that a Mac without a Linux builder cannot build
+the image. Measured, it does not need one: every Linux path is fetched, and the remaining builds
+run on the Mac's own darwin `stdenv`. What they cost on a Mac is **not measured**; the dry run
+builds nothing. The largest is nix2container's Go build; `yolo-jail-root` is about 27 MB of links,
+and each `layers.json` hashes its layer's store paths.
+
+### Proposed fix
+
+Two changes, neither made here (`flake.nix` stays as it is; both are CI or test edits):
+
+- **A — Report the truth.** `TestMacImageSubstitutesFromCachix` prints "WOULD BUILD 13
+  derivation(s) no substituter serves", which reads as a gap. Split the list by system: a
+  host-system build needs no Linux builder, and only an image-system (`*-linux`) build does. A
+  `WOULD BUILD` verdict would then name the Linux builds alone, and this run would have reported a
+  substitution, with the 13 darwin helpers listed apart as built locally. The test already names
+  each derivation's system.
+- **B — Push the darwin helpers.** Let one Mac job push what it realizes, by dropping
+  `skipPush: true` in `archive-delivery-macos` (or adding `cachix/cachix-action` to one
+  `integration-macos` shard that builds `.#ociImage`). The cost is the growth the earlier
+  decision named: the JSON files and `yolo-jail-root` change with every image change, and the job
+  would also push the per-commit install prefix unless a `pushFilter` excludes it. ⚠ It covers
+  only `x86_64-darwin`: the nightly's Mac shards run on `macos-26-intel`, and an Apple silicon
+  Mac would need a push from a `macos-latest` job too.
+
+Recommended: A, now; B only if a timed build on an Apple silicon Mac shows these builds cost
+more than a few seconds.
 
 ## Setup runbook (wiring done; only the Mac proof remains)
 
@@ -137,6 +212,8 @@ from `flake.nix`'s `nixConfig`). It logs one `CACHIX <variant>:` line each (SUBS
 BUILD, NOTHING TO DO when an earlier test already realized it, or VOID when nix ignored the cache
 for an untrusted user) and builds nothing. A measurement: only a dry run that planned nothing
 fails it. It does not replace the run below, which is the one a user's own Mac makes.
+Its first result, from the 2026-10-03 nightly, is in
+[What the Mac nightly measured](#what-the-mac-nightly-measured-2026-10-03).
 
 This is the whole point — a macOS user with NO builder should get the image
 by download (if it *did* have to build, it would offload to a container on the
