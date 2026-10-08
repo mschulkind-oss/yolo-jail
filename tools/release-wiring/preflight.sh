@@ -47,7 +47,15 @@ tag="v${RELEASE_VERSION}"
 refs=$(git ls-remote origin "refs/tags/${tag}" "refs/tags/${tag}^{}") || fail "Could not read the remote tag ref for ${tag}; no write is safe."
 if [ "${RELEASE_PRETAG:-0}" = 1 ]; then
   if [ -n "$refs" ]; then
-    fail "${tag} is already reserved; do not replay the request or move the ref. Inspect the tag and original publisher runs read-only with the owner."
+    # A request may resume a tag-only release: the request's own annotated tag,
+    # already at exactly this commit. The write job then proves nothing after
+    # the tag left any state (verify-resume) before it dispatches anything.
+    tag_object=$(printf '%s\n' "$refs" | awk -v ref="refs/tags/${tag}" '$2 == ref { print $1 }')
+    peeled=$(printf '%s\n' "$refs" | awk -v ref="refs/tags/${tag}^{}" '$2 == ref { print $1 }')
+    if [ "${RELEASE_ALLOW_RESUME:-0}" != 1 ] || [ -z "$tag_object" ] || [ "$peeled" != "$RELEASE_SHA" ]; then
+      fail "${tag} is already reserved${peeled:+ at ${peeled}}, and only the request's own annotated tag at exactly ${RELEASE_SHA} can resume. Never move the ref; inspect it read-only: git ls-remote origin refs/tags/${tag} 'refs/tags/${tag}^{}', and the release.yml and publish.yml runs, with the owner."
+    fi
+    echo "${tag} already exists at ${RELEASE_SHA}; this request may resume it if nothing after the tag left any state."
   fi
 else
   tag_object=$(printf '%s\n' "$refs" | awk -v ref="refs/tags/${tag}" '$2 == ref { print $1 }')

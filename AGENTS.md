@@ -559,7 +559,7 @@ the leading dot stripped) and on macos-user (the account home's links point ther
 **[`CHANGELOG.md`](CHANGELOG.md)'s section for a version IS its GitHub release body, word for word**,
 and `just release <version>` is the one path to a tag: rename `[Unreleased]` to
 `[<version>] - <YYYY-MM-DD>`, run `just pin-pack-binaries <version>`, and commit both first, and the
-recipe refuses a bad version, a dirty tree, an existing tag, a HEAD origin cannot see, an official pack
+recipe refuses a bad version, a dirty tree, an existing tag (a request may only [resume a tag-only release](docs/design/pre-tag-release-gate.md#resuming-a-tag-only-release)), a HEAD origin cannot see, an official pack
 binary whose pinned digest the tree does not rebuild (`tools/pack-binaries` checks that, and
 `release.yml` and `publish.yml` run it too: [BP-D9](docs/design/broker-as-a-pack.md#BP-D9)), or a section
 [`scripts/changelog-section.sh`](scripts/changelog-section.sh) rejects. That script is the gate

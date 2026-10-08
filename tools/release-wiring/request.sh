@@ -16,29 +16,46 @@ if [ "${GITHUB_RUN_ATTEMPT:-1}" != 1 ]; then
 fi
 if ! GITHUB_REPOSITORY="$GITHUB_REPOSITORY" RELEASE_VERSION="$RELEASE_VERSION" \
   RELEASE_SHA="$RELEASE_SHA" GITHUB_REF_TYPE="$GITHUB_REF_TYPE" GITHUB_REF_NAME="$GITHUB_REF_NAME" \
-  WORKFLOW_SHA="${WORKFLOW_SHA:-}" RELEASE_PRETAG=1 RELEASE_ORDER_CHECK=1 tools/release-wiring/preflight.sh; then
+  WORKFLOW_SHA="${WORKFLOW_SHA:-}" RELEASE_PRETAG=1 RELEASE_ORDER_CHECK=1 RELEASE_ALLOW_RESUME=1 tools/release-wiring/preflight.sh; then
   echo "✗ Final exact-SHA eligibility proof refused ${RELEASE_VERSION}; correct the issue and request this still-unreserved version again. No tag was created." >&2
   exit 1
 fi
 
 tag="v${RELEASE_VERSION}"
-if ! tag_object=$(gh api --method POST "repos/${GITHUB_REPOSITORY}/git/tags" \
-  -f "tag=${tag}" -f "message=yolo-jail ${RELEASE_VERSION}" \
-  -f "object=${RELEASE_SHA}" -f type=commit --jq .sha); then
-  echo "✗ Could not create the annotated tag object for ${tag}. Inspect API permissions/connectivity and retry only while the version remains unreserved; no tag ref was requested." >&2
+if ! existing=$(git ls-remote origin "refs/tags/${tag}"); then
+  echo "✗ Could not read the remote tag ref for ${tag}; retry once connectivity is restored. No tag was created." >&2
   exit 1
 fi
-if ! printf '%s\n' "$tag_object" | grep -Eq '^[0-9a-f]{40}$'; then
-  echo "✗ GitHub returned an invalid tag object for ${tag}. Inspect ${RELEASE_SHA}; no tag ref was requested." >&2
-  exit 1
-fi
-if ! gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
-  -f "ref=refs/tags/${tag}" -f "sha=${tag_object}"; then
-  echo "✗ Could not create ${tag}; it may already exist. Do not rerun this request. Inspect the tag and original request read-only with the owner." >&2
-  exit 1
-fi
+if [ -n "$existing" ]; then
+  # Resume: the tag exists (preflight proved it is annotated and at exactly
+  # this commit). Never move, delete or recreate it; prove nothing after the
+  # tag left any state, then continue from the Release dispatch.
+  if ! GITHUB_REPOSITORY="$GITHUB_REPOSITORY" RELEASE_VERSION="$RELEASE_VERSION" RELEASE_SHA="$RELEASE_SHA" \
+    GITHUB_RUN_ID="$GITHUB_RUN_ID" GITHUB_REF_TYPE="$GITHUB_REF_TYPE" GITHUB_REF_NAME="$GITHUB_REF_NAME" \
+    GITHUB_RUN_ATTEMPT="${GITHUB_RUN_ATTEMPT:-1}" GH_TOKEN="${GH_TOKEN:-}" go run ./tools/release-wiring verify-resume; then
+    echo "✗ ${tag} exists, but this state cannot resume; nothing was dispatched and the tag is untouched. Inspect read-only with the owner: gh release view ${tag} --repo ${GITHUB_REPOSITORY}; gh run list --repo ${GITHUB_REPOSITORY} --workflow release.yml; gh run list --repo ${GITHUB_REPOSITORY} --workflow publish.yml." >&2
+    exit 1
+  fi
+  echo "Resuming ${tag} at ${RELEASE_SHA} under request ${GITHUB_RUN_ID}; dispatching the trusted-main Release workflow."
+else
+  if ! tag_object=$(gh api --method POST "repos/${GITHUB_REPOSITORY}/git/tags" \
+    -f "tag=${tag}" -f "message=yolo-jail ${RELEASE_VERSION}" \
+    -f "object=${RELEASE_SHA}" -f type=commit --jq .sha); then
+    echo "✗ Could not create the annotated tag object for ${tag}. Inspect API permissions/connectivity and retry only while the version remains unreserved; no tag ref was requested." >&2
+    exit 1
+  fi
+  if ! printf '%s\n' "$tag_object" | grep -Eq '^[0-9a-f]{40}$'; then
+    echo "✗ GitHub returned an invalid tag object for ${tag}. Inspect ${RELEASE_SHA}; no tag ref was requested." >&2
+    exit 1
+  fi
+  if ! gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+    -f "ref=refs/tags/${tag}" -f "sha=${tag_object}"; then
+    echo "✗ Could not create ${tag}; it may already exist. Do not rerun this request. Inspect the tag and original request read-only with the owner." >&2
+    exit 1
+  fi
 
-echo "Created immutable ${tag} for ${RELEASE_SHA}; dispatching the trusted-main Release workflow."
+  echo "Created immutable ${tag} for ${RELEASE_SHA}; dispatching the trusted-main Release workflow."
+fi
 if ! gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref main \
   -f mode=publish -f "version=${RELEASE_VERSION}" -f "sha=${RELEASE_SHA}" \
   -f "request_run_id=${GITHUB_RUN_ID}"; then

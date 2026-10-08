@@ -245,7 +245,8 @@ case "$*" in
   "rev-parse $TEST_SHA^{commit}") echo "$TEST_SHA" ;;
   "fetch --quiet origin main") exit 0 ;;
   "merge-base --is-ancestor $TEST_SHA FETCH_HEAD") exit 0 ;;
-  "ls-remote origin refs/tags/v9.8.7 refs/tags/v9.8.7^{}") if [ "${FAIL_TAG_LOOKUP:-}" = 1 ]; then exit 1; fi ;;
+  "ls-remote origin refs/tags/v9.8.7 refs/tags/v9.8.7^{}") if [ "${FAIL_TAG_LOOKUP:-}" = 1 ]; then exit 1; fi; [ -z "${FAKE_TAG_REFS:-}" ] || printf '%b\n' "$FAKE_TAG_REFS" ;;
+  "ls-remote origin refs/tags/v9.8.7") [ -z "${FAKE_TAG_REFS:-}" ] || printf '%b\n' "$FAKE_TAG_REFS" | head -n 1 ;;
   "-C */target rev-parse HEAD") echo "${TARGET_SHA:-$TEST_SHA}" ;;
 esac
 `)
@@ -256,6 +257,7 @@ case "$*" in
     echo '{"sha":"'"$TEST_SHA"'"}'
     ;;
   *tools/release-wiring\ check-version-order*) exit 0 ;;
+  *tools/release-wiring\ verify-resume*) if [ "${FAIL_RESUME:-}" = 1 ]; then echo "verify-resume: a draft GitHub Release exists" >&2; exit 1; fi ;;
   *tools/pack-binaries\ check*) if [ "${FAIL_PINS:-}" = 1 ]; then exit 1; fi ;;
   *tools/build-wheels*)
     if [ "${FAIL_PREPARE:-}" = 1 ]; then exit 1; fi
@@ -1697,6 +1699,55 @@ func TestRequestTapDispatchFailureLeavesTheRequestGreen(t *testing.T) {
 	}
 }
 
+// A request for a version whose request-created tag already sits at the
+// requested commit resumes: it never writes a tag, proves the tag-only state
+// before any dispatch, and goes on to the Release and publisher dispatches.
+func TestRequestResumesATagOnlyReleaseWithoutTouchingTheTag(t *testing.T) {
+	root := repositoryRoot(t)
+	script := filepath.Join(root, "tools", "release-wiring", "request.sh")
+	atTarget := "FAKE_TAG_REFS=" + resumeTagObject + "\\trefs/tags/v9.8.7\\n" + testSHA + "\\trefs/tags/v9.8.7^{}"
+	for _, tc := range []struct {
+		name      string
+		extra     []string
+		wantError string
+	}{
+		{name: "tag-only state resumes", extra: []string{atTarget}},
+		{name: "any later state refuses before dispatch", extra: []string{atTarget, "FAIL_RESUME=1"}, wantError: "cannot resume"},
+		{name: "tag at another commit refuses", extra: []string{"FAKE_TAG_REFS=" + resumeTagObject + "\\trefs/tags/v9.8.7\\n" + strings.Repeat("f", 40) + "\\trefs/tags/v9.8.7^{}"}, wantError: "only the request's own annotated tag"},
+		{name: "lightweight tag refuses", extra: []string{"FAKE_TAG_REFS=" + testSHA + "\\trefs/tags/v9.8.7"}, wantError: "only the request's own annotated tag"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			bin, trace := fakeCommands(t)
+			out, err := runScript(t, root, script, bin, trace,
+				append([]string{"RELEASE_VERSION=9.8.7", "RELEASE_SHA=" + testSHA, "GITHUB_RUN_ID=101", "RELEASE_WAIT_SECONDS=1"}, tc.extra...)...)
+			lines := readTrace(t, trace)
+			if traceIndex(lines, "git/tags") >= 0 || traceIndex(lines, "git/refs") >= 0 {
+				t.Fatalf("a resume wrote a tag: %v", lines)
+			}
+			releaseRun := traceIndex(lines, "workflow run release.yml")
+			if tc.wantError != "" {
+				if err == nil || !strings.Contains(out, tc.wantError) {
+					t.Fatalf("request did not refuse: err=%v output=%s", err, out)
+				}
+				if releaseRun >= 0 {
+					t.Fatalf("refused resume still dispatched Release: %v", lines)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("tag-only resume failed: %v output=%s", err, out)
+			}
+			resume := traceIndex(lines, "verify-resume")
+			if resume < 0 || releaseRun <= resume || traceIndex(lines, "fake-publish-dispatch-accepted") < 0 {
+				t.Fatalf("resume did not prove state before the Release dispatch and then publish: %v", lines)
+			}
+			if !strings.Contains(lines[releaseRun], "request_run_id=101") || !strings.Contains(lines[releaseRun], "sha="+testSHA) {
+				t.Fatalf("resume did not bind the fresh request and the tagged commit: %s", lines[releaseRun])
+			}
+		})
+	}
+}
+
 func TestRequestJobTimeoutExceedsItsWaits(t *testing.T) {
 	ciMinutes := regexp.MustCompile(`release-gate [^\n]*--timeout ([0-9]+)m`).FindSubmatch(mustRead(t, "tools/release-wiring/preflight.sh"))
 	releaseSeconds := regexp.MustCompile(`RELEASE_WAIT_SECONDS:-([0-9]+)`).FindSubmatch(mustRead(t, "tools/release-wiring/request.sh"))
@@ -1732,4 +1783,19 @@ func TestImageCacheImportAcceptsUnsignedRunnerBuiltPaths(t *testing.T) {
 	if !found {
 		t.Fatal("publish-image-cache has no nix copy --from import step")
 	}
+}
+
+// Without the eligibility job's opt-in, its preflight refuses the existing tag
+// and a resume never reaches the write job.
+func TestReleaseRequestEligibilityAllowsAResumeToReachTheWriteJob(t *testing.T) {
+	workflow := readWorkflow(t, ".github/workflows/release-request.yml")
+	for _, step := range workflow.Jobs["eligibility"].Steps {
+		if strings.Contains(step.Run, "preflight.sh") {
+			if step.Env["RELEASE_ALLOW_RESUME"] != "1" || step.Env["RELEASE_PRETAG"] != "1" {
+				t.Fatalf("eligibility preflight env = %v, want RELEASE_PRETAG=1 and RELEASE_ALLOW_RESUME=1", step.Env)
+			}
+			return
+		}
+	}
+	t.Fatal("release-request eligibility runs no preflight")
 }

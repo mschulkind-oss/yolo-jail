@@ -6,7 +6,7 @@
 
 Each workflow checks out its own main dispatch SHA for orchestration, with checkout credentials unpersisted. `preflight.sh` requires a main branch context, exact commit identity, refreshed main ancestry and the regular `ci.yml` main/push run for the exact repository/SHA. The CI gate checks workflow identity, attempt-specific required jobs and architectures/shards, and refreshes its proof. Missing, failed, cancelled or timed-out proof refuses.
 
-Only after eligibility does a separate **read-only** job check out target source under `target/`. Its notes, official binary pins, source bundle and wheels are checked/built without publication secrets. A new trusted-main job, which checks out no target source, refreshes exact CI, main/tag identity and version order immediately before creating the annotated tag and its create-only ref. A preparation or final-CI failure leaves the version unreserved. An existing ref, even at the same SHA, refuses; no force, delete or move operation is provided.
+Only after eligibility does a separate **read-only** job check out target source under `target/`. Its notes, official binary pins, source bundle and wheels are checked/built without publication secrets. A new trusted-main job, which checks out no target source, refreshes exact CI, main/tag identity and version order immediately before creating the annotated tag and its create-only ref. A preparation or final-CI failure leaves the version unreserved. An existing ref refuses, except for the [tag-only resume](#resuming-a-tag-only-release) below; no force, delete or move operation is provided.
 
 The request concurrency group is per version, without cancelling a running request. GitHub can replace a pending request with another pending request; this is not durable deduplication. The immutable ref creation is the final conflict boundary. Release and registry workflows share a global concurrency group to serialize release-order checks and `latest` writes. That group also has only one retained pending run, not a durable queue. Different-version requests can still leave a reserved tag if subsequent publication refuses or a pending publisher is replaced; the system is not transactional.
 
@@ -34,9 +34,25 @@ Target wheels, Nix closures and builder images are built in separate read-only j
 
 The retained version-only `release.yml` dispatch defaults to `homebrew-only` on **main**, labeled `Homebrew-only vVERSION`. Trusted current tools resolve the immutable old tag and require a non-draft published release, exact main/CI/tag proof and read-only target notes/pin checks. The old source need not contain the new release-wiring tools. The formula write runs from a separate trusted main checkout; GoReleaser and the registry publisher are skipped. This explicit legacy backfill preserves the tap checker's versionless behavior; only normal Release titles carry its required expected version. A historical target still must satisfy the current eligibility gate; this is not a waiver for missing CI or unreadable release state.
 
+## Resuming a tag-only release
+
+A request whose tag was created but whose publication never started may **resume** under a fresh request run. "Tag-only" means all of these hold, each proved read-only, and any other state refuses as before:
+
+1. `vVERSION` is an annotated tag whose commit is exactly the requested SHA. The eligibility preflight checks this from `git ls-remote` (`RELEASE_ALLOW_RESUME=1`), and the write job checks it again through the API. A lightweight tag, or a tag at any other commit, refuses.
+2. No GitHub Release exists for the tag, draft or published. The write job's token lists drafts. Release assets and the publication claim exist only on a release, so their absence follows.
+3. Every earlier Release run for this version targeted this SHA, has completed and did not succeed. No `Homebrew-only vVERSION` run and no tag-push run exists for it.
+4. No `publish.yml` run exists for this version, and no other release request for it is still running.
+5. PyPI lists no `yolo-jail` release equal to the version. Pre-release spellings are folded, and an unreadable answer refuses.
+6. The Homebrew tap's formula does not name the tag, and an unreadable formula refuses.
+7. The requested SHA's regular `ci.yml` push proof passes, as for any request.
+
+A resume never creates, moves or deletes the tag. It skips tag creation and goes on from the Release dispatch. The new request's run ID goes into the Release `run-name`, and the Release run checks that this request is still in progress, exactly as for a first request. The publisher and claim bind that same request ID. The trigger is `just release VERSION` run from a checkout whose `HEAD` is the tagged commit. Orchestration is always the `main` workflow source, and every target build checks out the requested SHA, so the published content is the tagged commit whatever `main` holds. The write job's timeout covers a resume's waits as well as a first request's (`TestRequestJobTimeoutExceedsItsWaits`).
+
+**Ledger.** PTG-D1 (2026-10-08, maintainer ruling: *"let's rollback and redo 12.2 add the resume now"*). 0.12.2's first live request created the tag and then failed before any Release run did anything. The version is not abandoned. A request may resume exactly that tag-only state, under the preconditions above. Everything else stays fail-closed.
+
 ## Partial state and validation limits
 
-After tag creation, any dispatch, build, upload, claim or registry failure can leave partial state. Do not rerun the request, delete/move the tag or claim, clobber assets, or use generic `gh run rerun --failed`. Inspect the immutable SHA and original runs read-only, then ask the owner to review the outcome before any further write:
+After tag creation, any dispatch, build, upload, claim or registry failure can leave partial state. Apart from a [tag-only resume](#resuming-a-tag-only-release), do not rerun the request, delete/move the tag or claim, clobber assets, or use generic `gh run rerun --failed`. Inspect the immutable SHA and original runs read-only, then ask the owner to review the outcome before any further write:
 
 ```console
 git ls-remote origin refs/tags/vVERSION

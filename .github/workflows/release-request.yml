@@ -52,6 +52,7 @@ jobs:
           RELEASE_SHA: ${{ inputs.sha }}
           RELEASE_PRETAG: "1"
           RELEASE_ORDER_CHECK: "1"
+          RELEASE_ALLOW_RESUME: "1"
           GH_TOKEN: ${{ github.token }}
         run: tools/release-wiring/preflight.sh
 

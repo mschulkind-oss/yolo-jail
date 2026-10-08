@@ -8,7 +8,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: release-wiring validate-assets [flags] | claim-publication | check-version-order | verify-release-request | verify-publisher-provenance | validate-wheels [flags]")
+		fmt.Fprintln(os.Stderr, "usage: release-wiring validate-assets [flags] | claim-publication | check-version-order | verify-release-request | verify-resume | verify-publisher-provenance | validate-wheels [flags]")
 		os.Exit(2)
 	}
 	var code int
@@ -37,6 +37,14 @@ func main() {
 			code = 2
 		} else if err := verifyReleaseRequestFromEnv(context.Background(), os.Stdout); err != nil {
 			fmt.Fprintf(os.Stderr, "verify-release-request: %v\n", err)
+			code = 1
+		}
+	case "verify-resume":
+		if len(os.Args) != 2 {
+			fmt.Fprintln(os.Stderr, "verify-resume takes no arguments")
+			code = 2
+		} else if err := verifyResumeFromEnv(context.Background(), os.Stdout); err != nil {
+			fmt.Fprintf(os.Stderr, "verify-resume: %v\n", err)
 			code = 1
 		}
 	case "verify-publisher-provenance":
