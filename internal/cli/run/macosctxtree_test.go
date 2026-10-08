@@ -534,7 +534,13 @@ func sitingWritable(t *testing.T, sharedRoot string, writable ...string) *macosu
 // test made refuses as "which the sandbox may write" — the state every source was in before
 // delivery existed, now for a stated reason.
 func refusingSiting(t *testing.T) func(*Options) {
-	return func(o *Options) { o.macosCtxSiting = sitingWritable(t, "", os.TempDir()) }
+	// The fixtures' sources live under t.TempDir(), which since Go 1.26 roots at GOTMPDIR
+	// when that is set, so both roots are declared writable.
+	roots := []string{os.TempDir()}
+	if g := os.Getenv("GOTMPDIR"); g != "" {
+		roots = append(roots, g)
+	}
+	return func(o *Options) { o.macosCtxSiting = sitingWritable(t, "", roots...) }
 }
 
 // deliveringSiting puts nothing in the writable set and the shared root at sharedRoot, so a

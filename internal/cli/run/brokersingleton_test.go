@@ -306,12 +306,14 @@ func shortSocketDir(t *testing.T) string {
 // check-macos break: it reproduces darwin's long TMPDIR on any platform, proves
 // the reproduction is real, and then proves the helper is immune to it.
 func TestSocketDirIgnoresALongTMPDIR(t *testing.T) {
-	long := filepath.Join("/tmp", "yj-tmpdir-"+strings.Repeat("x", 60))
-	if err := os.MkdirAll(long, 0o700); err != nil {
+	long, err := os.MkdirTemp("/tmp", "yj-tmpdir-"+strings.Repeat("x", 60)+"-")
+	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(long) })
 	t.Setenv("TMPDIR", long)
+	// Since Go 1.26 t.TempDir() roots at GOTMPDIR when that is set, so the control moves it too.
+	t.Setenv("GOTMPDIR", long)
 
 	// The control. Without it this test would still pass if sunPathMax were
 	// raised to something no path can exceed, proving nothing.
