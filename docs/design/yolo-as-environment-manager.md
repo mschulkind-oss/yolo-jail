@@ -2,7 +2,7 @@
 title: "yolo as an environment manager — the shape I would want"
 status: accepted
 stage: DECIDED
-next: "Rule Q1b in environment-manager-user-stories.md — whether the inert-key handoff lands in yolo check --at <notch>, which this design specifies and nothing builds yet"
+next: "Rule Q1b and Q7 in environment-manager-user-stories.md: Q1b decides whether the inert-key handoff lands in a yolo check --at <notch> (yolo check parses no --at yet), and Q7 decides the Linux guest, which has no code (plan Phase 7.2)"
 depends-on:
   - environment-manager-user-stories.md
 ---

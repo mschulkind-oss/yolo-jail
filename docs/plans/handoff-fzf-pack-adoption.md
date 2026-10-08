@@ -1,7 +1,7 @@
 ---
 title: "Handoff — finishing the fzf pack, and what changed under it"
 status: accepted
-stage: DECIDED
+stage: BUILT
 next: "The maintainer, on the host: copy the real finder over bin/file-suggestion.sh, then copy the pack out and select it at user scope (§6); nothing is left in the tree"
 ---
 

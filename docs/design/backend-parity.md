@@ -4,8 +4,8 @@ date: 2026-08-24
 status: accepted
 tags: [backends, apple-container, macos-user, parity, silent-drop]
 summary: "Issue #39 was not one bug. A 48-agent sweep found 42 candidates and confirmed 31, deduping to 17 distinct defects — 21 once a class test written for three of them found a fourth nobody had looked for. All one shape: a mechanism wired into the podman branch of the run pipeline with nothing checking the other two backends. Fourteen are fixed or warned; the rest need a census — a per-backend disposition table with FOUR states, because 'achieved another way' is the state that half the audit turned out to be."
-stage: BUILT
-next: "Rule the silent drops §4.2 lists as unruled (warn, or rule the silence as §5.1 did its rows)"
+stage: DESIGN
+next: "File the five unruled silent drops in §4.2 (on macos-user: the workspace_readonly config lock, programs.autoprune, a written network.mode bridge, a home-root host_files destination; on podman on a Mac: network.mode host) as a question, then rule each: warn, or rule the silence as §5.1 did"
 ---
 
 # Three backends, one pipeline, and no census — why a mechanism goes missing quietly

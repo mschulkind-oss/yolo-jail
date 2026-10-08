@@ -1,7 +1,7 @@
 ---
 status: current
 stage: DECIDED
-next: "Build OQ-CI1 (B), ruled 2026-10-05: yolo host -- claude joins the one shared Claude login through a credential view, as yolo host -- codex shares the OpenAI login; the build waits on a human running the credential-view measures runbook (docs/plans/runbooks/claude-credential-view-measures.md), which also holds notch-convergence.md row 31, Claude OAuth at the host"
+next: "When the credential-view measures pass (docs/plans/runbooks/claude-credential-view-measures.md, Parts A to D and H), make the view the default for yolo host -- claude, notch-convergence.md row 31; the view itself is built behind YOLO_CLAUDE_CREDENTIAL_VIEW=1 (CL-D27, CL-D28)"
 verified: 2026-09-23
 verified_commit: 7ad8358c
 covers:

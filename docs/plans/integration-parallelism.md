@@ -1,8 +1,8 @@
 ---
 title: "Plan: bounded parallelism for the integration suite"
 status: accepted
-stage: DECIDED
-next: "Ask the maintainer whether to unpark: four separate shard processes measured 240 s against 498 s serial on 2026-10-01, so a sharding recipe, balanced by recorded test times, is the candidate build"
+stage: DESIGN
+next: "The maintainer decides whether to unpark. Four shard processes measured 240 s against 498 s serial on 2026-10-01, so a Justfile sharding recipe balanced by recorded test times is the candidate, replacing the t.Parallel plan in §The work"
 ---
 
 # Plan: bounded parallelism for the integration suite

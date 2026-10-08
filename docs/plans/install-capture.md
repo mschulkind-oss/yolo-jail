@@ -2,7 +2,7 @@
 title: "Plan: capture-and-repackage for the installer class"
 status: accepted
 stage: BUILT
-next: "Dispatch macos-user.yml for TestMacosUserLaunchesMaterializeACapturedFixture and TestMacosUserAutoCapturesAFixtureOnFirstLaunch, then run slice 6's hardware item 6 with real claude; the maintainer may revisit H4's (b), an implementation decision"
+next: "Dispatch macos-user.yml for TestMacosUserLaunchesMaterializeACapturedFixture, TestMacosUserAutoCapturesAFixtureOnFirstLaunch and TestMacosUserCaptureSeatbeltProfileDeniesTheSharedHome and record the runs; run slice 6's hardware item 6 with real claude, and confirm uid mapping once on a real rootless host. The maintainer may revisit H4's (b), an implementation decision"
 tags: [plan, capture, installers, program-delivery, macos-user]
 ---
 

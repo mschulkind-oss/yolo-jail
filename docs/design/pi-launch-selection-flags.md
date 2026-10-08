@@ -3,7 +3,7 @@ title: "Pi's provider flag travels only with an explicit model"
 date: 2026-10-06
 status: in-review
 stage: BUILT
-next: "Complete combined landing and nested-jail checks, then graduate this built design to the relevant reference"
+next: "Built and on main. Left: a nested-jail check of `yolo host -p pi=` with a provider-only profile, then fold this into the model-lists-and-pickers reference"
 tags: [pi, host, launch-selection, cli-flags]
 summary: "A provider-only Pi profile must not become an orphan --provider argument. The launch-selection declaration expresses this generic flag-presence dependency without inventing a model or changing Pi's native settings."
 ---

@@ -3,7 +3,7 @@ title: "Claude login without interception: share the grant, not the file"
 date: 2026-09-28
 status: accepted
 stage: DECIDED
-next: "Run the measures runbook's Parts A to C on the host with a real Claude login (docs/plans/runbooks/claude-credential-view-measures.md); step 5, the deletion, waits on them"
+next: "Run the measures runbook's Parts A to D with a real Claude login (docs/plans/runbooks/claude-credential-view-measures.md); then build step 5, the deletion of the interception and the switch (CL-D7)"
 tags: [design, credentials, oauth, claude, broker, interception, notches, network, macos-user]
 summary: "Why yolo can stop intercepting platform.claude.com. The race exists only because each jail's Claude redeems the one single-use refresh token itself. If the host broker is the only holder of that token and writes each workspace a credential view with the current access token and no refresh token, Claude never refreshes, so there is nothing to intercept: no hosts entry, no CA, no listener on port 443, at every notch and on every backend. Claude Code has no supported endpoint override, and the options that keep a network hop (a proxy, the vendor's ssh tunnel mode, the wire bridge) each cost more. Two product questions remain: whether the view replaces interception everywhere, and what /login and /logout in a jail mean."
 vantage:

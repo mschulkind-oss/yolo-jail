@@ -2,7 +2,7 @@
 title: "Handoff — publish the prebuilt image to a Cachix cache"
 status: accepted
 stage: BUILT
-next: "Record the CACHIX lines in this status line: the 2026-10-03 scheduled macOS nightly (GitHub Actions run 37118791671, shard 11, at 0e34798c6) passed TestMacImageSubstitutesFromCachix, each case would build 13 to 15 derivations no substituter serves, and 2 of about 600 fetched paths came from yolo-jail.cachix.org"
+next: "Record the CACHIX lines in the status line and Final test: the 2026-10-03 scheduled macOS nightly (37118791671, shard 11, at 0e34798c6) passed TestMacImageSubstitutesFromCachix, but each case would build 13 to 15 derivations no substituter serves, and only 2 of about 600 fetched paths came from yolo-jail.cachix.org. Find out which derivations those are and why the pushed closure does not cover them"
 ---
 
 # Handoff — publish the prebuilt image to a Cachix cache

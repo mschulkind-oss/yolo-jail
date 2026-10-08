@@ -3,9 +3,7 @@ title: "The wire bridge as the jail's model gateway: signing, routing by model a
 date: 2026-09-25
 status: accepted
 stage: DECIDED
-next: "A human sends one claude turn and one copilot turn on GPT-6.1 Sol under -p bedrock-bridge, Part 2's done-condition: since the translating route sends the cap as max_completion_tokens, Sol and GPT-6 Astra answer it on the wire, streamed and not (§2.4's re-check, MEASURED 2026-10-01), so only what an agent adds to a request can still refute the route"
-depends-on:
-  - pi-codex-provider-shadowing.md#OQ-3
+next: "Build Part 4 (opt-in per-model failover from the subscription to Bedrock) and pi's Converse route (WG-I36) under a key of yolo's own, after checking that pi's Converse client serves it; a human still sends one claude and one copilot turn on GPT-6.1 Sol under -p bedrock-bridge (Part 2's done-condition)"
 tags: [wire-bridge, bedrock, aws, sigv4, routing, failover, models, allowlist, providers, subscription]
 summary: "What the wire bridge may do once it stands in front of an agent's model traffic. Four parts are ruled: it signs its own AWS requests with SigV4 (built, keyed on the provider's platform marker since 2026-09-30), routes claude's everything profile by model id so Claude models reach Bedrock's own Messages route untranslated (built), offers a sign-only OpenAI chat-completions route (built), and carries claude's subscription with opt-in per-model failover to Bedrock (unbuilt). The first live requests, 2026-10-01, found AWS accepting the bridge's signatures on runtime's Messages and Responses routes, and GPT-6.1 Sol refusing the translating route's max_tokens; the route has sent the cap as max_completion_tokens since, which Sol and GPT-6 Astra answered the same day. A Bedrock provider named by region alone is reached at runtime's own URL composed from the region (built 2026-09-30), so the shipped bedrock-bridge profile carries every agent, and plain bedrock carries copilot and oh-omp, which have no Bedrock client of their own (WG-I44). A fifth part, ruled 2026-09-25: a profile can send its agent's traffic through the bridge (native pass-through or translated) instead of the agent's own client, so the bridge can enforce the picker's model list (on by default; built 2026-09-30) and route each agent by a per-agent path prefix. The via route passes OpenAI chat-completions and Responses through (codex rides the second); Converse, the last native wire, is decided (WG-I36, 2026-09-30: pi's client sends a placeholder bearer and only the bridge signs) and not built; pi-codex-provider-shadowing's OQ-3, ruled 2026-10-05, puts pi's re-pointing row off pi's built-in amazon-bedrock, under a key pi does not implement, or the route is not built."
 vantage:
@@ -658,7 +656,7 @@ not name, pass through signed, and one the list declares another maker's is tran
 the same chat-completions translation, with its answer re-framed as InvokeModel's
 ([WG-I47](#WG-I47)). The everything profile still reaches every model in one session. *Corrected
 after review the same day:* the first build refused another maker's model there, which dropped
-OQ-BR11.
+[OQ-BR11](bedrock-plumbing.md#OQ-BR11).
 
 This **amends** the bridge's rule that it dials only the upstream selected at boot
 ([`wire-bridge.md`](../reference/wire-bridge.md#lifecycle-and-failure-behavior)): the everything

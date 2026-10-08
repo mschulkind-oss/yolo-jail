@@ -2,10 +2,10 @@
 title: "A patched fork can follow a pi extension's upstream — the same ratchet, ending in a read-only tree pi loads in place"
 date: 2026-10-04
 status: accepted
-stage: DECIDED
+stage: BUILT
 tags: [design, packs, files, pi, extensions, forks, evergreen, git]
 summary: "The maintainer asked on 2026-10-04 for the patched-fork mode to cover pi extensions. A `files` contribution may name an upstream `source` and a `patches` series in place of `from`. yolo checks the upstream at most hourly, replays the series on the host exactly as a patched fork does, takes the newest upstream version the series fits, builds it in the sealed capture jail and admits the result as a tree. Each fresh jail launch mounts its own copy of this machine's good build read-only, and pi loads it as a local package through a list entry the pack author writes, so pi never installs or updates it. Two calls were new and the maintainer's, what pi starts with when no build serves and whether the version is pinned in packs.lock.json; they and the four patched-fork questions were decided on their leanings under his delegation of 2026-10-04."
-next: "PPX-D40 (OQ-PPX3, ruled 2026-10-05) is built (2026-10-06): a fresh launch refuses before booting when a patched extension a selected pack needs has no build, naming each cause once and the ways back (PPX-D42); steps 2 to 5 of §16 built 2026-10-04 (PPX-D20 to PPX-D31) and integrated at e87f1ba88 on 2026-10-05 (PPX-D32, PPX-D33); step 6, migrating the five with the migration kit and checking that a real pi loads a built tree, is the maintainer's, who may overrule PPX-D18 and PPX-D19"
+next: "Built: §16 steps 1 to 5 and the PPX-D40 launch refusal. Left for the maintainer: step 6, migrating the five with the migration kit and checking by hand that a real pi loads a built tree; he may overrule PPX-D18 and PPX-D19"
 depends-on:
   - patched-forks.md
 ---

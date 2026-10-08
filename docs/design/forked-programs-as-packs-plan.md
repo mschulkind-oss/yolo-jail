@@ -4,7 +4,7 @@ date: 2026-09-21
 status: accepted
 tags: [plan, packs, programs, capture, forks]
 summary: "Build hand-off for the source-built program route: a fork declared as a program with via source, pinned in its own lock (by its first launch since FP-D18, moved only by yolo pack update), built once per platform in a sealed capture jail, recorded under a new receipt kind, and delivered to the jail by an entry key the host hands over. Promoted against the tree 2026-09-30; steps 1–6, the jail notch, built the same day; step 7, the host notch, measured on a stand-in fork and built on its shape 2026-10-01. The design wins on behavior."
-stage: DECIDED
+stage: BUILT
 next: "Rerun step 7's measurement (steps 1 to 3 of Step 7 needs) on the motivating fork once a maintainer names it; the hostfloor source arms are built on the 2026-10-01 stand-in's shape"
 vantage:
   status-chip: true

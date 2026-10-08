@@ -2,10 +2,10 @@
 title: "A patched fork follows its upstream — a patch series that rebuilds itself while it applies"
 date: 2026-10-03
 status: accepted
-stage: DECIDED
+stage: BUILT
 tags: [design, packs, programs, forks, build, evergreen, git]
 summary: "A second mode for a forked program: the fork pack names the upstream and carries a git format-patch series. yolo checks the upstream at most hourly, replays the series at its base and picks it onto the newest upstream version it fits on the host, builds the result in the sealed capture jail, and moves this machine's good build only once that build is admitted, so a new upstream version the series does not fit leaves the previous build running. The same mode follows a pi extension's upstream as a tree, in patched-extensions.md. The four calls that were the maintainer's, what runs after the user's own edit fails, whether the default follows versions or the branch head, whether a launch waits for the rebuild, and whether a conflict gets a rebase verb, were decided on their leanings under his delegation of 2026-10-04."
-next: "PF-D77 (ruled 2026-10-05 with patched-extensions.md OQ-PPX3) is built (2026-10-06): a fresh launch refuses before booting when a selected patched fork has no build to run, naming the ways back. Otherwise built at every notch but macos-user, patched extensions included, and integrated on build/patched at e87f1ba88 (2026-10-05); the maintainer tests it, with the migration kit in the durable scratch directory, and may overrule PF-D23 to PF-D26; macos-user delivery is deferred with the fork route's own macos-user step (OQ-PFK5, ruled 2026-10-05)"
+next: "Built at every notch but macos-user, PF-D77's launch refusal included. Left: the maintainer tests with the migration kit and reruns the step-7 measurement on his own series (§14 step 5), and may overrule PF-D23 to PF-D26. macos-user delivery waits on the fork route's own macos-user step (forked-programs-as-packs.md §11 step 4, FP-D3); install-capture H4, which OQ-PFK5 also named, landed 2026-10-05"
 depends-on:
   - forked-programs-as-packs.md
 ---

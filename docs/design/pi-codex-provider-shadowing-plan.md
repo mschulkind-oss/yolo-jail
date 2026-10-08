@@ -2,10 +2,10 @@
 title: "Implementation sketch: Pi Codex provider shadowing"
 date: 2026-09-27
 status: accepted
-stage: DECIDED
-next: "Nothing until OQ-4 rules: §2.1, OQ-3's broad reading, is built (2026-10-05). OQ-4 decides whether the ruling reaches the openai-codex list, pi's native Bedrock row and a `models` only on a built-in provider, which the build left as they were; codex's own list (BI-D9) is a later build"
+stage: BUILT
+next: "Built: §2.1, OQ-3's broad reading (2026-10-05). Waits on OQ-4 for the openai-codex list, pi's native Bedrock row and a `models` only on a built-in provider; codex's own built-in list (BI-D9) is a later build that needs no ruling"
 depends-on:
-  - pi-codex-provider-shadowing.md#OQ-3
+  - pi-codex-provider-shadowing.md#OQ-4
 tags: [providers, codex, pi, openai-auth, shadowing, plan]
 summary: "File targets and verification for pi-codex-provider-shadowing.md: the openai-codex exclusion in pi's derive and the needs-closure test helper are built, and a real -p codex launch asserts pi's models.json has no openai-codex row. OQ-3 ruled the broad reading on 2026-10-05, so the exclusion widens to every provider an agent has built in, declared per agent pack; that build landed the same day (§2.1)."
 ---

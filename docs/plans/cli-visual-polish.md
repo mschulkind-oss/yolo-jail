@@ -2,7 +2,7 @@
 title: "CLI visual polish — color to guide the eye"
 status: accepted
 stage: DECIDED
-next: "Group A is done. Build Group B's config --help item: color configUsage's headers, subcommand tokens and flags through the decision the yolo config dispatch already takes (configUsage in internal/cli/config.go)"
+next: "Land the in-flight config --help coloring and extend it to `yolo config render --help`, which still prints configUsage plain. Then color init/init-user-config's status lines, after adding red to markup.go or routing them through richtext"
 tags: [plan, cli, color, polish]
 ---
 

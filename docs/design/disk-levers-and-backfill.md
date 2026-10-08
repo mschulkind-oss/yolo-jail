@@ -4,7 +4,7 @@ date: 2026-09-06
 status: accepted
 tags: [design, disk, prune, podman, nix, backfill]
 summary: "Two questions the maintainer asked together: what are the big space-reduction levers, ranked and costed; and how does yolo clean up — or offer to clean up — the stores that already grew before each fix. All ten questions are ruled and every ruling that builds anything shipped 2026-09-08/09 — including the finding that yolo's own nix outputs were never collected, which now has a collector, and OQ-BF10's host-CAS aliasing, whose scope stops at pants' lmdb_store by ruling."
-stage: DECIDED
+stage: BUILT
 next: "Run §10 step 7's re-measure, in this jail and on the host: §2's tables are the baseline and §5.6's done conditions are what to check"
 vantage:
   status-chip: true

@@ -2,9 +2,10 @@
 title: "Handoff: the `guest` notch, and the macOS work only a Mac can finish"
 status: accepted
 stage: DECIDED
-next: "Record §4's render-mark twin: the 2026-10-03 scheduled macos-user.yml run (GitHub Actions run 37121866798, at 0e34798c6) passed TestMacosUserComposesARenderedHostFileAsABaseline; the Cachix row is handoff-cachix-cache.md's own next"
+next: "Record §4's render-mark twin: the 2026-10-03 scheduled macos-user.yml run (37121866798, at 0e34798c6) passed TestMacosUserComposesARenderedHostFileAsABaseline. TestMacosUserGuestNotchLaunchesTheSandbox still needs a macos-user.yml dispatch (environment-manager-plan.md owns it), and 7.2, the Linux guest, has no code and waits on user-stories Q7"
 depends-on:
   - environment-manager-plan.md
+  - ../design/environment-manager-user-stories.md
 ---
 
 # Handoff: the `guest` notch, and the macOS work only a Mac can finish
@@ -26,7 +27,7 @@ Cachix download proof are the two with a Mac step ready to run, and render-mark 
 until it does); the agent-auth row could not be re-verified, and cache relocation is its own
 doc's. Written 2026-08-03 and
 restamped 2026-08-23; [§§1](#1-what-the-three-notches-are-and-why-the-middle-one-matters), 3, 7, 8
-are unchanged from the first date, except §1's guest row and the paragraph under its table
+are unchanged from the first date, except [§1](#1-what-the-three-notches-are-and-why-the-middle-one-matters)'s guest row and the paragraph under its table
 (2026-10-04). Until 2026-10-04 `guest` was the one notch of three that did not work; it now
 launches on macOS, unmeasured there, and still not on Linux. Phases
 0–6, 8, and 9 of [`environment-manager-plan.md`](environment-manager-plan.md) are shipped;

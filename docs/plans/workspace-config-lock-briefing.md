@@ -2,7 +2,7 @@
 title: "Finish read-only workspace configuration guidance"
 status: accepted
 stage: DECIDED
-next: "Inspect a fresh PR CI attempt with retained failure artifacts after the maintainer pushes the diagnostic workflow and refreshes the PR base; preserve human authorship and required checks"
+next: "The CI diagnostic workflow is on main. Refresh PR #51 against it, read the new attempt's retained failure artifact and fix the actual failure, then integrate the PR while keeping the contributor's authorship and the required checks"
 tags: [pr, configuration, briefing, diagnostics]
 summary: "Maintainer-owned completion of the wanted workspace-config lock contribution, with local exact-source results and an unidentified remote CI failure kept separate."
 ---
