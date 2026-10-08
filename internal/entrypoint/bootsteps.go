@@ -522,9 +522,12 @@ func bootSteps() []bootStep {
 		{
 			// The nix root watcher (nixrootwatcher.go): keeps, for the host, the roots the
 			// jail's nix asks for. Best-effort; it never fails the boot.
-			name:      "start_nix_root_watcher",
-			run:       func(b *bootRun) { startNixRootWatcher(b.e) },
-			noMark:    true,
+			name:   "start_nix_root_watcher",
+			run:    func(b *bootRun) { startNixRootWatcher(b.e) },
+			noMark: true,
+			notSessionPass: "the jail's own boot started its one watcher; a session's would find " +
+				"the watcher's lock taken and exit, and race the session's exec into a program " +
+				"that does not reap it",
 			notDarwin: "macos-user shares the host's filesystem, so a root nix makes there is already one the host honors; no watcher is needed (in-jail-nix-roots.md §5.2)",
 		},
 		{

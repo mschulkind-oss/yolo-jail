@@ -52,7 +52,8 @@ var startNixRootWatcherFn = func(bin, logPath string) error {
 	// workspace the host cannot see, a watcher already running), and a released child of the
 	// jail's main process stays a zombie for the jail's life. A zombie has dropped its I/O
 	// context, so it also read as an unset `resources.io.priority` to every probe of the
-	// jail. The Wait outlives nothing it needs: after a session's execBash the shell reaps it.
+	// jail. Only the jail's own boot runs this step (notSessionPass), and that process
+	// outlives its watcher, so the Wait is always there to reap it.
 	go func() { _ = cmd.Wait() }()
 	return nil
 }

@@ -49,8 +49,9 @@ func WatchMain(args []string) int {
 			"/tmp, or a read-only one), so no managed root can be made here; nothing to watch\n", w.Registry.Dir())
 		return 0
 	}
-	// SIGINT is ignored: the watcher shares the boot's process group, and a Ctrl-C typed at the
-	// jail's shell is not meant for it. SIGTERM, which the jail's stop sends, ends it.
+	// SIGINT is ignored, a second guard behind the process group of its own the boot starts it
+	// in: a Ctrl-C typed at the jail's shell is not meant for it. SIGTERM, which the jail's
+	// stop sends, ends it.
 	signal.Ignore(syscall.SIGINT)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM)
 	defer stop()

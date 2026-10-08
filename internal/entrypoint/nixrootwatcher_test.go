@@ -100,3 +100,25 @@ func TestAWatcherThatExitsIsReapedNotLeftAZombie(t *testing.T) {
 	stat, _ := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
 	t.Fatalf("the exited watcher (pid %d) was never reaped: %s", pid, stat)
 }
+
+// Only the jail's own boot starts the watcher. A session's pass in a hold-main jail would start
+// one that finds the lock taken and exits, racing the session's exec into a program that does
+// not reap it. MUTATION: drop the step's notSessionPass and the session case spawns.
+func TestASessionsPassStartsNoRootWatcher(t *testing.T) {
+	for _, c := range []struct {
+		name        string
+		sessionPass bool
+		want        int
+	}{{"the jail's own boot", false, 1}, {"a session's pass", true, 0}} {
+		t.Run(c.name, func(t *testing.T) {
+			spawned := watcherSeams(t, t.TempDir(), nil)
+			e := testEnv(t)
+			e.Vars[nixroots.MapEnv] = nixroots.HostMap{"/workspace": "/host/proj"}.Encode()
+			runSteps(&bootRun{e: e, target: bootContainer, sessionPass: c.sessionPass, perf: newPerfLog()},
+				[]bootStep{mustBootStep(t, "start_nix_root_watcher")})
+			if len(*spawned) != c.want {
+				t.Errorf("spawned %v, want %d", *spawned, c.want)
+			}
+		})
+	}
+}

@@ -133,7 +133,8 @@ type Env struct {
 	//
 	// A plain map, no mutex: the boot path is sequential where this is written. Checked
 	// rather than assumed (2026-08-25) — the only goroutines the entrypoint starts are the
-	// cmd.Wait() reapers in runtime.go / system_boot.go and the reachability probes, and
+	// cmd.Wait() reapers in runtime.go / system_boot.go / nixrootwatcher.go and the
+	// reachability probes, and
 	// probeService takes a serviceEndpoint and a deadline, touching no Env at all.
 	warnedOnce map[string]struct{}
 	// listSkipped records each surface the render loop's `whenListed` gate left unwritten
