@@ -824,7 +824,7 @@ writes to `launch.log` alone, through the launcher's log-only half (`LaunchLogOn
 wrapped plugin that runs code, for example
 `acme: acme-tools — hooks (.claude-plugin/plugin.json), mcpServers (.claude-plugin/plugin.json)`,
 and a hooks module's source directory when the plugin loads one. It reads the set the counted line
-counts (`disclosedJailCodePlugins`), so the two cannot disagree. Where it lands is
+counts (`disclosedJailCodePlugins`), so it names no plugin the count leaves out. Where it lands is
 [`TP-I1`](#TP-I1). Pinned by `TestWrappedPluginCodeIsItemizedInTheLaunchLogOnly`
 ([`jailcodeitemization_test.go`](../../internal/cli/run/jailcodeitemization_test.go)), driven
 through the spawn boundary. `yolo pack footprint` still itemizes every claim, not only the code.
@@ -839,4 +839,3 @@ through the spawn boundary. `yolo pack footprint` still itemizes every claim, no
   ([§3.2](#32-jail_daemon-is-a-claim-free-crossing-to-supervised-in-jail-execution)), and the
   [inventory](#2-the-inventory) has no row for this path, so whether TP10 reaches it is
   [OQ-TP11](#OQ-TP11).
-
