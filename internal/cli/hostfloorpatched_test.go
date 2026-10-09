@@ -421,7 +421,7 @@ func TestHostFloorOfflineLegacyRecoveryKeepsRecordAndReceiptBytes(t *testing.T) 
 	if !ok || !program.Install.IsPatchedFork() {
 		t.Fatalf("the selected Floor has no patched tool: %+v", progs)
 	}
-	floor := productionHostFloor(io.Discard, progs)
+	floor := onForkFloorPlatform(productionHostFloor(io.Discard, progs))
 	preparation, err := floor.PreparePatched(context.Background(), program, false)
 	if err != nil || preparation == nil {
 		t.Fatalf("offline legacy recovery did not prepare the admitted Good: preparation=%+v err=%v", preparation, err)

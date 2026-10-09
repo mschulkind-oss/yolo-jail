@@ -59,6 +59,15 @@ func withForkFloor(t *testing.T) *floortest.Dist {
 	return dist
 }
 
+// onForkFloorPlatform puts f on the platform withForkFloor's floor runs on, Linux on this machine's
+// architecture: the one platform where the floor holds a patched fork's build. It is for a test that
+// takes the production wiring directly (productionHostFloor) rather than through newHostFloor, which
+// would otherwise leave the floor on the runner's own platform and, on a Mac, refuse the fork.
+func onForkFloorPlatform(f *hostfloor.Floor) *hostfloor.Floor {
+	f.GOOS, f.GOARCH = "linux", goruntime.GOARCH
+	return f
+}
+
 // stubContainerRuntime makes this test's machine one that can run a capture or a fork's build: a
 // runtime named, and a stub of it on PATH for the production floor's CaptureUnavailable to find. A
 // floor test of a fork that can build calls it, because otherwise the answer is the machine's own

@@ -382,6 +382,12 @@ func TestBuildSlotRefusesIntactELFForWrongTargetMachine(t *testing.T) {
 }
 
 func TestBuildSlotCachedGoodRunsThroughGeneratedLauncherAndCaptureMaterializer(t *testing.T) {
+	// The second half runs the JAIL's side, the generated launcher's capture-materialize, which takes
+	// a container build only where it runs: inside a Linux jail. On a Mac this process's platform is
+	// darwin's, and the materializer rightly refuses the podman build's linux one.
+	if capture.Platform() != patchedTestPlatform {
+		t.Skipf("the in-jail materializer runs in a %s jail; this machine is %s", patchedTestPlatform, capture.Platform())
+	}
 	body := "#!/bin/sh\nprintf '%s\\0' \"$@\" > \"$CACHED_GOOD_ARGV\"\nprintf '%s\\n' \"$PWD\" > \"$CACHED_GOOD_CWD\"\nprintf 'old-good-stdout\\n'\nprintf 'old-good-stderr\\n' >&2\nexit 23\n"
 	fx := newPatchedAdvanceFixture(t, "")
 	fx.programBody = body

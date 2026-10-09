@@ -30,8 +30,12 @@ import (
 // render that does not depend on the fork's build, and before the floor entry is written. A patched
 // extension's advance already runs before the render (advanceHostTrees), so its failure stops there.
 
-// hostPatchPreflightFloor is the floor the check asks, a var so a test can stand one in.
-var hostPatchPreflightFloor = newHostFloor
+// hostPatchPreflightFloor is the floor the check asks: newHostFloor, read at each call, so the check
+// asks the floor every other host verb builds (a test's own floor included) rather than the one
+// newHostFloor was when the package initialized.
+func hostPatchPreflightFloor(out io.Writer, progs []hostfloor.Program) *hostfloor.Floor {
+	return newHostFloor(out, progs)
+}
 
 // hostPatchPreflight returns false, having printed the refusal on errw, when a selected patched
 // fork's recorded patch failure stops verb before its first write. command is the operation the

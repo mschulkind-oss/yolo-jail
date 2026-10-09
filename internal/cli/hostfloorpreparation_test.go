@@ -71,7 +71,7 @@ func selectedProductionFloor(t *testing.T) (*hostfloor.Floor, hostfloor.Program,
 	if !ok || !p.Install.IsPatchedFork() {
 		t.Fatalf("selected floor has no patched tool: %+v", progs)
 	}
-	floor := productionHostFloor(io.Discard, progs)
+	floor := onForkFloorPlatform(productionHostFloor(io.Discard, progs))
 	// The build is the fixture's fake capture jail; make the path reachable so an erroneous second
 	// advance is observed rather than hidden by this test machine's runtime installation.
 	floor.CaptureUnavailable = nil
@@ -224,7 +224,7 @@ func TestDeferredApplyFloorRetainsCachedResolverWithoutOrdinaryAdvance(t *testin
 	previousFloor := newHostFloor
 	var preparedFloor *hostfloor.Floor
 	newHostFloor = func(out io.Writer, selected []hostfloor.Program) *hostfloor.Floor {
-		preparedFloor = productionHostFloor(out, selected)
+		preparedFloor = onForkFloorPlatform(productionHostFloor(out, selected))
 		preparedFloor.CaptureUnavailable = nil
 		return preparedFloor
 	}
