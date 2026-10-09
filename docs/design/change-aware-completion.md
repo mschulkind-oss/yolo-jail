@@ -3,7 +3,7 @@ title: "Completion should check the task, without rewriting it"
 date: 2026-10-09
 status: accepted
 stage: BUILT
-next: "Owner confirmation of CAC-D7 (package-impact selection in done); keep scripts/completion-readers.json current"
+next: "Keep scripts/completion-readers.json current"
 tags: [testing, tooling, design]
 summary: "Read-only, change-aware `just done`: an automatic verified baseline shared by worktrees, package-impact and recorded-reader test selection, and the full check-ci when anything is unproven; landing policy unchanged."
 ---
@@ -26,7 +26,7 @@ The earlier bounded experiment stays in
 **The shape.** One completion command collects changes, selects checks and records successful coverage.
 **Cost.** A small exact allowlist buys a deliberately narrow shortcut; uncertain inputs still pay for the full gate.
 **Start at [the baseline](#3-the-baseline-is-automatic-and-covers-earlier-commits)** — empty working diffs are not evidence.
-**Needs your ruling:** Confirm [CAC-D7](#CAC-D7): `just done` selects Go checks by package impact.
+**Ruled:** the owner confirmed [CAC-D7](#CAC-D7) on 2026-10-09: `just done` selects Go checks by package impact.
 Landing (`just check-ci`) is unchanged.
 **Reads with:** [input research](../research/completion-check-inputs.md) (source evidence),
 [the companion sketch](change-aware-completion-plan.md) (not a build hand-off), and
@@ -471,7 +471,7 @@ engineering gaps go there, not into invented owner questions.
 | CAC-D4 | Proposed stability contract: coordinated one-writer interval; no acceptance from endpoint equality alone | 2026-10-09 | [Stability](#6-cleanliness-and-a-stable-verification-interval) | — |
 | CAC-D5 | Source-preparation amendment: standalone invocation uses bounded input observation, not caller certification; positive context identification executes no Go argv | 2026-10-09 | [Context](#context-cannot-be-silently-inherited), [stability](#6-cleanliness-and-a-stable-verification-interval) | — |
 | CAC-D6 | Bounded diagnostic amendment: a sufficient inert-paragraph proof may preserve targets without a renderer adapter; all unsupported syntax still selects full | 2026-10-09 | [Targets](#anchors-and-incoming-references-are-real-inputs) | — |
-| <a id="CAC-D7"></a>CAC-D7 | **Scope, from the owner's request of 2026-10-09** (relayed by the coordinating agent): *"we just need only the right tests to run. We want this to be as fast as possible. It gets run a lot. And we want it to be intelligent about what's run."* `just done` selects Go checks by package impact and documents by recorded reader, which supersedes CAC-D1's prose-only slice and CAC-D3's five-path allowlist. Landing (`just check-ci`), CI and the integration and nested-jail obligations are unchanged. **Needs the owner's confirmation**, because section 7 called selective source checking a future policy decision | 2026-10-09 | [What shipped](#what-shipped) | ✅ `scripts/completion-check.py` |
+| <a id="CAC-D7"></a>CAC-D7 | **Scope, confirmed by the owner 2026-10-09 ("yes to D7"), from the owner's request of 2026-10-09** (relayed by the coordinating agent): *"we just need only the right tests to run. We want this to be as fast as possible. It gets run a lot. And we want it to be intelligent about what's run."* `just done` selects Go checks by package impact and documents by recorded reader, which supersedes CAC-D1's prose-only slice and CAC-D3's five-path allowlist. Landing (`just check-ci`), CI and the integration and nested-jail obligations are unchanged. **Needs the owner's confirmation**, because section 7 called selective source checking a future policy decision | 2026-10-09 | [What shipped](#what-shipped) | ✅ `scripts/completion-check.py` |
 | <a id="CAC-D8"></a>CAC-D8 | *Implementation decision.* Verification records live in the common Git directory (`yolo-completion/verified/<commit>.json`), keyed by commit and checked against that commit's tree and the current context, so every worktree shares them; a per-worktree lock and log stay in the worktree's own Git directory. **Why:** agents start each task in a new worktree, and per-worktree records (CAC-D2) would make every first `just done` a full run. A record says one tree passed under one context, which no worktree path changes. Reversible | 2026-10-09 | [What shipped](#what-shipped) | ✅ |
 | <a id="CAC-D9"></a>CAC-D9 | *Implementation decision.* The change is the baseline-tree-to-HEAD-tree diff, not the union of every intervening commit's edges. **Why:** the check verifies HEAD's tree; a change made and reverted inside the range leaves no difference for any check to see, and every path that does differ is in the net diff. `--no-renames` still yields both names of a rename. Reversible | 2026-10-09 | [What shipped](#what-shipped) | ✅ |
 | <a id="CAC-D10"></a>CAC-D10 | *Implementation decision.* Which tests read which non-imported files comes from a census of Go's own test log (`scripts/completion-census.py`), per test, replacing the renderer-adapter and inert-paragraph proofs of section 4. A directory listing counts only when a direct entry appears or goes. **Why:** it is the evidence `go test` itself uses to invalidate cached results, it covers arbitrary file reads that no import graph shows, and it is per test, so a doc change runs one citation test, not `internal/cli`'s 130 s suite. Reversible | 2026-10-09 | [What shipped](#what-shipped) | ✅ |
@@ -487,7 +487,7 @@ an assertion cannot stop an uncoordinated writer, and refusing every uncertified
 ordinary `just done` unreachable. CAC-D7 to CAC-D16 record what was built and where it departs
 from CAC-D1 to CAC-D6.
 
-One owner confirmation is open: [CAC-D7](#CAC-D7). The speed plan's answered
+The owner confirmed [CAC-D7](#CAC-D7) on 2026-10-09 ("yes to D7"). The speed plan's answered
 [OQ-TS1](../plans/test-suite-speed.md#OQ-TS1) and [OQ-TS3](../plans/test-suite-speed.md#OQ-TS3), and open
 [OQ-TS2](../plans/test-suite-speed.md#OQ-TS2) and [OQ-TS4](../plans/test-suite-speed.md#OQ-TS4), stay in their
 own source. None is duplicated or silently answered here.
