@@ -23,9 +23,11 @@ package run
 // A client that binds a caller token itself needs it in ITS environment, as it has in a
 // container's shared channel: the Codex launcher's auth.json writer binds
 // $YOLO_SERVICE_OPENAI_AUTH_BROKER_TOKEN into the refresh marker the adapter checks
-// (openauthclient.WriteCodexAuth). guestSharedCallerTokens is that exported, UNSCOPED set, for
-// the daemons the guest runs; a scoped token keeps reaching only the agents its pointer
-// reaches, through their per-agent env files, exactly as on a container.
+// (openauthclient.WriteCodexAuth), and pi's via row names $YOLO_SERVICE_WIRE_BRIDGE_TOKEN as its
+// apiKey (WG-I36). guestSharedCallerTokens is that exported, UNSCOPED set, for the daemons the
+// guest runs, the doorways it opens outside, and the launch-owned services (macosuserservices.go)
+// whose host halves answer only this launch's token; a scoped token keeps reaching only the
+// agents its pointer reaches, through their per-agent env files, exactly as on a container.
 //
 // # Where a loophole's own files are
 //
@@ -42,11 +44,13 @@ package run
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -172,9 +176,23 @@ func (c *packChannel) jailDaemonEnv(runs []loopholes.JailDaemonSpec, launchEnv *
 // hands it every daemon the launch SERVES (loopholes.ServedJailDaemons), the doorways it opens
 // outside the sandbox included (macosuserdoorways.go): the Codex launcher binds the refresh
 // doorway's token into the marker that doorway checks, wherever it listens.
-func (c *packChannel) guestSharedCallerTokens(runs []loopholes.JailDaemonSpec) map[string]string {
+//
+// AND EVERY LAUNCH-OWNED SERVICE in services (HS-D30; macosuserservices.go): the wire bridge's host
+// half serving pi's via route is no jail daemon this launch serves (the guest declines the bridge's
+// jail daemon), yet it answers only its plan's token, and pi's via row names that token's variable,
+// as a container's shared channel exports it to every process. Leaving it out sent pi's via route,
+// and any shell that starts pi, no token at all, which the bridge refuses (401, WB-D18). The token is
+// the one the channel composed with (c.callerTokens, which composePackChannel fills from the same
+// plans), so the session and the host half agree.
+func (c *packChannel) guestSharedCallerTokens(runs []loopholes.JailDaemonSpec, services []*launchservice.Plan) map[string]string {
+	vars := callerTokenVars(runs)
+	for k := range launchservice.CallerTokens(services) {
+		if !slices.Contains(vars, k) {
+			vars = append(vars, k)
+		}
+	}
 	out := map[string]string{}
-	for _, k := range callerTokenVars(runs) {
+	for _, k := range vars {
 		if c.scopedTokenVars[k] {
 			continue
 		}

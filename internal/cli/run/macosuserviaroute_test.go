@@ -206,6 +206,50 @@ func TestTheMacosUserArmStartsTheBridgeForAViaOrCarrierAndStopsIt(t *testing.T) 
 	}
 }
 
+// PI'S VIA ROW NAMES THE CALLER TOKEN BY VARIABLE (pi's derive writes `apiKey:
+// "${YOLO_SERVICE_WIRE_BRIDGE_TOKEN}"`, WG-I36), so the session that starts pi must carry that
+// variable, holding the token the bridge's host half was started with: a container's shared
+// channel exports it to every process, and on macos-user the session env is that channel. Before
+// this, the arm handed the session only the tokens of the jail daemons and doorways it serves
+// (ServedJailDaemons), never a launch-owned service's, so pi's via route (and any shell that
+// starts pi, the hardware probe in integration/macosuserviaroute_test.go) sent no token and the
+// bridge answered 401. Both a `-- pi` and a `-- bash` session count: the token is not scoped to an
+// agent. Deleting the launch-service tokens from the arm's session env fails this.
+func TestTheMacosUserSessionCarriesTheBridgesCallerTokenForAViaRoute(t *testing.T) {
+	for _, cmd := range []string{"pi", "bash"} {
+		t.Run(cmd, func(t *testing.T) {
+			o, stderr, seen := overrideNativeLaunch(t, `{"packs": ["pi", "bedrock", "wire-bridge"], `+
+				`"profile": {"pi": "bedrock-bridge"}`+bedrockRegionMember+`}`, shellWith(nil))
+			o.Args = []string{cmd}
+			o.ProfileName = ""
+			var started []*launchservice.Plan
+			stopped := 0
+			orig := startMacosUserService
+			startMacosUserService = func(p *launchservice.Plan, _ map[string]string) (launchedService, string, error) {
+				started = append(started, p)
+				return fakeLaunched{&stopped}, "/log/launch-service-wire-bridge.log", nil
+			}
+			t.Cleanup(func() { startMacosUserService = orig })
+			if rc := Run(*o); rc != 0 {
+				t.Fatalf("Run() = %d\n%s", rc, stderr.String())
+			}
+			if len(started) != 1 || started[0].Service != "wire-bridge" {
+				t.Fatalf("started %v, want the wire bridge\n%s", started, stderr.String())
+			}
+			plan := started[0]
+			if plan.TokenEnv != "YOLO_SERVICE_WIRE_BRIDGE_TOKEN" || plan.Token == "" {
+				t.Fatalf("the bridge's plan has token %q in %q, want one in YOLO_SERVICE_WIRE_BRIDGE_TOKEN",
+					plan.Token, plan.TokenEnv)
+			}
+			got, _ := seen.env.Get(plan.TokenEnv)
+			if s, _ := got.(string); s != plan.Token {
+				t.Errorf("the %s session's %s = %q, want the token the bridge's host half answers (%d chars), "+
+					"or pi's via row sends none and is refused 401", cmd, plan.TokenEnv, s, len(plan.Token))
+			}
+		})
+	}
+}
+
 // THE BRIDGE IS HANDED THE AWS DOORWAY'S POINTER FOR THE AGENT IT CARRIES (HS-D32): copilot on
 // `-p bedrock`, aws-auth enabled, on macos-user. The launch opens the AWS doorway (the jail's
 // condition, some agent's provider on Bedrock), and the bridge's input carries the pointer at it,

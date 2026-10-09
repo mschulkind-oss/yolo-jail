@@ -658,7 +658,7 @@ func Run(opts Options) (rc int) {
 		// A client that binds its daemon's caller token itself reads it from its own
 		// environment, as it does from a container's shared channel: the Codex launcher's
 		// auth.json writer binds the refresh doorway's, wherever that doorway runs.
-		for k, v := range channel.guestSharedCallerTokens(loopholes.ServedJailDaemons(rt, jailDaemons)) {
+		for k, v := range channel.guestSharedCallerTokens(loopholes.ServedJailDaemons(rt, jailDaemons), o.launchServices) {
 			launchEnv.Set(k, v)
 		}
 		o.noteCredentialScope(channel)
