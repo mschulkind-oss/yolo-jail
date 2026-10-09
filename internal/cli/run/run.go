@@ -1669,6 +1669,14 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// pool, under one interrupt scope, with the image's own build started beside it.
 	forkSpan := o.Perf.Span("launch.fork_builds")
 	o.runForkBuildSlot(cfg, rt, repoRoot)
+	// A PATCH SERIES THAT DOES NOT APPLY IS FATAL (patchfailures.go; PF-D81, PF-D83): its error block
+	// first, before any other line about the builds, then the refusal when an intact older build would
+	// otherwise run in silence; YOLO_ALLOW_PATCH_FAILURES=1 runs that build for this launch.
+	if o.refusePatchFailures(rt) {
+		forkSpan.End()
+		lock.Close()
+		return 1
+	}
 	o.noteTreeDeliveries(rt)
 	forkSpan.End()
 	// A MISSING PATCHED BUILD IS FATAL (missingbuilds.go; PPX-D40, PF-D77): a patched fork this launch

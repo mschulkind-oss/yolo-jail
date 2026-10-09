@@ -98,7 +98,8 @@ func (o *Options) missingBuilds(rt string) []missingBuild {
 			}
 			if d, ok := o.forkDelivered[p.Fork.Bin]; ok && d.Key == "" {
 				out = append(out, missingBuild{label: "fork " + p.Fork.Key(), capture: p.Fork.CaptureArg(),
-					reason: d.Reason, cause: d.Cause, unsaid: d.Unsaid, needed: true, patchFailure: d.PatchFailure != nil})
+					reason: patchFailureReason(d.Reason, d.PatchFailure != nil), cause: d.Cause, unsaid: d.Unsaid,
+					needed: true, patchFailure: d.PatchFailure != nil})
 			}
 		}
 	}
@@ -108,12 +109,23 @@ func (o *Options) missingBuilds(rt string) []missingBuild {
 				continue // its fallback is installed in its place: noteTreeDeliveries says it, and its cause (XB-D7)
 			}
 			if d, ok := o.treeDelivered[f.Key()]; ok && d.Dir == "" {
-				out = append(out, missingBuild{label: f.Label(), capture: f.CaptureArg(), reason: d.Reason, cause: d.Cause,
+				out = append(out, missingBuild{label: f.Label(), capture: f.CaptureArg(),
+					reason: patchFailureReason(d.Reason, d.PatchFailure != nil), cause: d.Cause,
 					unsaid: d.Unsaid, owner: f.Owner, needed: f.Owner != "" && f.ListedInJail, patchFailure: d.PatchFailure != nil})
 			}
 		}
 	}
 	return out
+}
+
+// patchFailureReason is a missing build's reason when its cause is a patch failure, whose error
+// block the launch printed just above (patchfailures.go): a pointer to it, so the target and the
+// patch are said once.
+func patchFailureReason(reason string, patchFailure bool) string {
+	if patchFailure {
+		return "its patch series does not apply (the ERROR above), and no build of it is on this machine"
+	}
+	return reason
 }
 
 // refuseMissingBuilds is the refusal, said before the image step: true when this launch refuses.

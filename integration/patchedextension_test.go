@@ -120,10 +120,10 @@ if touch "$d/.probe" 2>/dev/null; then echo TREE_WRITABLE; else echo TREE_READON
 echo "TREES=$YOLO_PATCHED_TREES"
 echo "SETTINGS=$(tr -d ' \n' < "$HOME/.ptreeagent/settings.json")"
 echo "AUTOMODE=$(tr -d ' \n' < "$HOME/` + patchTreeAutomode + `")"`
-	launch := func(what string) string {
+	launch := func(what string, opts ...runOption) string {
 		t.Helper()
 		r := runCommand(t, t.TempDir(), append(jailRunArgs(), "--", "bash", "-c", probe),
-			withoutFixtureProgramInstall(), withHostSemantics())
+			append([]runOption{withoutFixtureProgramInstall(), withHostSemantics()}, opts...)...)
 		out := r.combined()
 		if r.rc != 0 {
 			t.Fatalf("%s: rc %d\n%s", what, r.rc, out)
@@ -167,9 +167,11 @@ echo "AUTOMODE=$(tr -d ' \n' < "$HOME/` + patchTreeAutomode + `")"`
 		t.Errorf("a patched extension was pinned in the fork lock:\n%s", data)
 	}
 
-	// 2. A VERSION THE SERIES DOES NOT FIT is held, and the conflict names the rebase that fixes it:
-	// since PF-D81 (docs/design/patched-forks.md §8) the update FAILS with the conflict's error,
-	// whose Repair line is the rebase onto the conflicting commit, and builds no older fit or base.
+	// 2. A VERSION THE SERIES DOES NOT FIT is FATAL (docs/design/patched-forks.md PF-D81): the update
+	// FAILS with the conflict's error, whose Repair line is the rebase onto the conflicting commit, and
+	// builds no older fit or base; the next launch refuses before its jail starts, its error block
+	// naming the rebase and the bypass that mounts the previous build; with that bypass the jail
+	// mounts it, held.
 	v12 := up.release("1.2.0", "upstream-ten", "v1.2.0")
 	updRun := runCommand(t, t.TempDir(), []string{"pack", "update"}, withHostSemantics())
 	upd := updRun.combined()
@@ -177,7 +179,15 @@ echo "AUTOMODE=$(tr -d ' \n' < "$HOME/` + patchTreeAutomode + `")"`
 	if updRun.rc == 0 || !strings.Contains(upd, patchFailureBlock(owner, "v1.2.0", v12, "f.txt")) {
 		t.Fatalf("yolo pack update did not fail on the conflict at v1.2.0 with its rebase: rc %d\n%s", updRun.rc, upd)
 	}
-	out = launch("the launch after v1.2.0")
+	refused := runCommand(t, t.TempDir(), append(jailRunArgs(), "--", "bash", "-c", probe),
+		withoutFixtureProgramInstall(), withHostSemantics())
+	if refused.rc == 0 || strings.Contains(refused.combined(), "LINE10=") ||
+		!strings.Contains(refused.combined(), "ERROR: extension "+owner+": patch application failed at upstream v1.2.0") ||
+		!strings.Contains(refused.combined(), "Bypass: YOLO_ALLOW_PATCH_FAILURES=1 yolo") ||
+		!strings.Contains(refused.combined(), "Refusing to launch: the patch series of extension "+owner+" does not apply") {
+		t.Fatalf("the launch after v1.2.0 was not refused with its error block: rc %d\n%s", refused.rc, refused.combined())
+	}
+	out = launch("the bypassed launch after v1.2.0", withEnv("YOLO_ALLOW_PATCH_FAILURES=1"))
 	if !strings.Contains(out, "LINE10=patched") || !strings.Contains(out, "TREE_READONLY") {
 		t.Fatalf("the held launch does not mount the previous build:\n%s", out)
 	}

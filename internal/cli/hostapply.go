@@ -137,8 +137,12 @@ func hostApplyRefreshAndRender(out, errw io.Writer, color, write bool, stdin io.
 	// One act (PF-D57): a Ctrl-C that ends an extension's wait here ends the floor stage's patched
 	// forks' waits too.
 	act := &run.ActInterrupt{}
-	if write && deferred == "" {
-		advanceHostTrees(errw, color, "", act)
+	if write && deferred == "" && !advanceHostTrees(errw, color, "", act) {
+		return 1
+	}
+	// PF-D81 BEFORE THE FIRST WRITE: a patched fork's recorded patch failure stops the apply here.
+	if write && !hostPatchPreflight(errw, selectConfiguredHostPacks().packs, "the host apply", "", act) {
+		return 1
 	}
 	return applyHostFormattedDeferring(out, errw, color, write, stdin, format, deferred, act)
 }

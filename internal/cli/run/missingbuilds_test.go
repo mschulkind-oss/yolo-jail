@@ -126,9 +126,11 @@ func TestAMissingPatchedForkRefusesTheLaunch(t *testing.T) {
 	}
 }
 
-// A MISSING FORK WHOSE CAUSE IS A PATCH FAILURE (PF-D81): its reason says the commit once, the
-// series' ways back are named, and so is the patch failure's own bypass, with why it does not start a
-// launch that has no admitted build. Red with the patch-failure line in refuseMissingBuilds deleted.
+// A MISSING FORK WHOSE CAUSE IS A PATCH FAILURE (PF-D81, PF-D83): the launch's error block comes
+// first, its Bypass line offering the missing-program hatch since no build is here to run; the
+// refusal points at it rather than saying the target again, names the series' ways back, and the
+// patch failure's own bypass with why it does not start this launch. Red with the patch-failure line
+// in refuseMissingBuilds deleted, or with the block offering YOLO_ALLOW_PATCH_FAILURES.
 func TestAMissingForksPatchFailureNamesItsOwnBypass(t *testing.T) {
 	patchedLaunchHome(t)
 	commit := "c5c0f6bd0123456789abcdef0123456789abcdef"
@@ -143,7 +145,9 @@ func TestAMissingForksPatchFailureNamesItsOwnBypass(t *testing.T) {
 		t.Fatalf("a launch with no build of its patched fork started its jail:\n%s", printed)
 	}
 	for _, w := range []string{
-		"\n  fork forkpack/tool: patch application failed at v1.2.0 (c5c0f6bd): 0001-ten.patch\n",
+		"ERROR: fork forkpack/tool: patch application failed at upstream v1.2.0 (" + commit + ")\n",
+		"  Bypass: YOLO_ALLOW_MISSING_PROGRAMS=1 yolo\n",
+		"\n  fork forkpack/tool: its patch series does not apply (the ERROR above), and no build of it is on this machine\n",
 		"`yolo pack series check` says where it stops, and `yolo pack rebase <key>` sets up the fix",
 		"  YOLO_ALLOW_PATCH_FAILURES=1 does not start this launch: it runs only an intact admitted build",
 		"To launch without it now: YOLO_ALLOW_MISSING_PROGRAMS=1",
@@ -152,8 +156,15 @@ func TestAMissingForksPatchFailureNamesItsOwnBypass(t *testing.T) {
 			t.Errorf("the refusal lacks %q:\n%s", w, printed)
 		}
 	}
-	if n := strings.Count(printed, "c5c0f6bd"); n != 1 {
-		t.Errorf("the refusal says the commit %d times, want once:\n%s", n, printed)
+	if strings.Contains(printed, "Bypass: YOLO_ALLOW_PATCH_FAILURES") {
+		t.Errorf("the block offers a bypass with no build to run:\n%s", printed)
+	}
+	if strings.Index(printed, "ERROR: fork forkpack/tool") > strings.Index(printed, "Refusing to launch") {
+		t.Errorf("the error block follows the refusal:\n%s", printed)
+	}
+	// The block's header and its copyable Repair line name the commit; nothing else repeats it.
+	if n := strings.Count(printed, "c5c0f6bd"); n != 2 {
+		t.Errorf("the launch says the commit %d times, want twice (the block's header and Repair):\n%s", n, printed)
 	}
 }
 

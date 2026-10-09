@@ -489,14 +489,17 @@ func TestBackgroundPatchFailureSurvivesRecordSaveFailureAndClaim(t *testing.T) {
 		t.Fatalf("no-check foreground recovery lost the claimed authority or real background log: result=%+v candidate=%+v rec=%+v said=%+v\n%s",
 			noCheck, candidate, record, said, recoveredErr.String())
 	}
+	// A JAIL LAUNCH'S SLOT HANDS THE TYPED FAILURE and prints no block of its own: the launch prints
+	// it once, right after the slot (run's patchfailures.go, PF-D81), from the failure handed here,
+	// whose Log names the real background log.
 	delivered, foreground := fx.deliver(t, true)
+	block := delivered.PatchFailure.Block(f.Label(), f.Key(), packsrc.PatchBypass{})
 	if delivered.PatchFailure == nil || delivered.PatchFailure.Owner != pf.Owner || delivered.PatchFailure.Seq != pf.Seq ||
 		delivered.PatchFailure.Target != pf.Target || delivered.PatchFailure.Member != pf.Member ||
-		!strings.Contains(foreground, "ERROR: "+f.Key()+": patch application failed at upstream v1.2.0") ||
-		!strings.Contains(foreground, "Log: "+backgroundAdvanceLog()) {
-		t.Fatalf("foreground delivery/report lost claimed background authority or the ordered host error: got=%+v want=%+v error=%v log=%v\n%s",
-			delivered.PatchFailure, pf, strings.Contains(foreground, "ERROR: "+f.Key()+": patch application failed at upstream v1.2.0"),
-			strings.Contains(foreground, "Log: "+backgroundAdvanceLog()), foreground)
+		!strings.Contains(block, "patch application failed at upstream v1.2.0") ||
+		!strings.Contains(block, "Log: "+backgroundAdvanceLog()) || strings.Contains(foreground, "ERROR: ") {
+		t.Fatalf("foreground delivery lost claimed background authority or its real log, or the slot printed the block the launch prints: got=%+v want=%+v\n%s\nslot said:\n%s",
+			delivered.PatchFailure, pf, block, foreground)
 	}
 	after, err := patchedAdvanceStore(true).LoadCheckRecord(f.Key())
 	if err != nil || after.Good == nil || before.Good == nil || after.Good.Entry != before.Good.Entry || len(fx.builds) != 1 {
@@ -566,10 +569,11 @@ func TestBackgroundPatchFailureSurvivesRecordSaveFailureAndClaim(t *testing.T) {
 				!strings.Contains(recoveredErr.String(), "Log: "+backgroundAdvanceLog()) {
 				t.Fatalf("actual no-check recovery lost typed failure/log after %s: %+v\n%s", mode, noCheck, recoveredErr.String())
 			}
+			// The slot hands the failure for the launch to print once (run's patchfailures.go).
 			delivered, report := bg.fx.deliver(t, true)
 			if delivered.PatchFailure == nil || delivered.PatchFailure.Target != bg.failure.Target ||
-				!strings.Contains(report, "ERROR: "+bg.fork.Key()+": patch application failed at upstream v1.2.0") ||
-				!strings.Contains(report, "Log: "+backgroundAdvanceLog()) {
+				!strings.Contains(delivered.PatchFailure.Block(bg.fork.Label(), bg.fork.Key(), packsrc.PatchBypass{}),
+					"Log: "+backgroundAdvanceLog()) || strings.Contains(report, "ERROR: ") {
 				t.Fatalf("actual foreground delivery/report lost evidence after %s: %+v\n%s", mode, delivered.PatchFailure, report)
 			}
 		})

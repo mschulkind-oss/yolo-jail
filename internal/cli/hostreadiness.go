@@ -23,9 +23,12 @@ import (
 // HNR-D1), the host's copy of the jail's (internal/entrypoint/readiness.go, OQ-JR1): every
 // `yolo host -- <cmd>` launch installs every program a user-scope selected pack declares into
 // yolo's floor BEFORE it resolves the target, whatever the command, and a program it cannot
-// install STOPS the launch unless paths.AllowMissingProgramsEnv is set. That missing-program hatch
-// never waives a typed patch-application failure; only the foreground literal-1 compatibility
-// bypass, after positive validation of what serves, can continue that class.
+// install STOPS the launch unless paths.AllowMissingProgramsEnv is set. A typed patch-application
+// failure follows the one rule a jail launch follows too (docs/design/patched-forks.md PF-D83): when
+// an intact admitted build of the series, or an installed copy, is on this machine, the missing-program
+// hatch does not waive it and only paths.AllowPatchFailuresEnv goes on, running that build; when
+// nothing of the program would run (hostfloor.ErrPatchFailureNothingRuns), the missing-program hatch
+// waives it by launching without the program, as for any program that could not be installed.
 //
 // There is one installer: the act calls Floor.Ensure per program, as `yolo host apply --assert`
 // and the target's own install do. Ensure on an installed entry is the throttled evergreen
@@ -98,7 +101,9 @@ func hostReadinessAct(packs []*packload.Pack, cmd []string, errw io.Writer, act 
 	floor := newHostFloor(errw, progs)
 	ctx := withActInterrupt(context.Background(), act)
 	var failed []hostReadinessFailure
-	patchFailure := false
+	// patchFailure is a patch failure the missing-program hatch does not waive (PF-D83), and
+	// bypassable one whose own bypass runs an intact build of the series as it stands.
+	patchFailure, bypassable := false, false
 	for _, p := range todo {
 		if floor.OutsideTheFloor(p) {
 			continue
@@ -106,8 +111,12 @@ func hostReadinessAct(packs []*packload.Pack, cmd []string, errw io.Writer, act 
 		_, _, err := floor.Ensure(ctx, p)
 		r.settled[p.Bin()] = true
 		if err != nil {
+			// A PATCH FAILURE WITH SOMETHING TO RUN is not the missing-program hatch's (PF-D83).
 			var applicationFailure *packsrc.PatchFailure
-			patchFailure = patchFailure || errors.As(err, &applicationFailure)
+			if errors.As(err, &applicationFailure) && !errors.Is(err, hostfloor.ErrPatchFailureNothingRuns) {
+				patchFailure = true
+				bypassable = bypassable || errors.Is(err, hostfloor.ErrPatchFailureBypassable)
+			}
 			failed = append(failed, hostReadinessFailure{who: "program " + p.Bin() + " (pack " + p.Pack + ")",
 				pack: p.Pack, err: err})
 		}
@@ -137,8 +146,16 @@ func hostReadinessAct(packs []*packload.Pack, cmd []string, errw io.Writer, act 
 		return r, 0
 	}
 	if patchFailure {
-		fmt.Fprintf(errw, "yolo host: refusing to launch: a patch application failure is not waived by %s. Repair the patch series; "+
-			"the foreground-only YOLO_ALLOW_PATCH_FAILURES=1 compatibility bypass applies only to a positively validated compatible build.\n", paths.AllowMissingProgramsEnv)
+		if bypassable {
+			fmt.Fprintf(errw, "yolo host: refusing to launch: a patch series does not apply, and an intact build of it is on "+
+				"this machine, so %s does not leave it out. Repair the series as its ERROR above says, or run that build "+
+				"for this launch:\n          %s=1 yolo host -- %s\n", paths.AllowMissingProgramsEnv,
+				paths.AllowPatchFailuresEnv, shquote.Join(cmd))
+		} else {
+			fmt.Fprintf(errw, "yolo host: refusing to launch: a patch series does not apply, and an older copy of the "+
+				"program is installed, so %s does not leave it out. Repair the series as its ERROR above says.\n",
+				paths.AllowMissingProgramsEnv)
+		}
 		fmt.Fprintf(errw, "%s", list.String())
 		fmt.Fprintf(errw, "      Fix what each line names, drop the pack from your packs list, or leave it out of yolo's floor with `\"host_floor\": {%s}` in the user config.\n",
 			strings.Join(leaveOut, ", "))

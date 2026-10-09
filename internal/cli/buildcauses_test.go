@@ -291,9 +291,10 @@ func TestAHeldBuildOnAppleContainerNamesItsLimit(t *testing.T) {
 // reason to the launch's refusal (internal/cli/run's missingbuilds.go), which says it in full, so the
 // act prints no line of its own for it. A series the held version does not take is a patch
 // application failure, which since PF-D81 the act says itself, once, in its prominent error with the
-// rebase as its repair, before the launch's refusal, and hands the launch the typed failure as said.
-// Red with buildFailedLines' or noFit's warning printed at a jail launch with nothing serving, or with
-// the patch failure's error block missing or repeated.
+// rebase as its repair, before the launch's refusal — the launch prints it, right after the slot
+// (run's patchfailures.go), from the typed failure the act hands it, so the act prints no block of
+// its own. Red with buildFailedLines' or noFit's warning printed at a jail launch with nothing
+// serving, or with the act printing the block the launch prints, or handing no typed failure.
 func TestABuildThatLeavesNothingAtALaunchIsSaidOnceByTheLaunch(t *testing.T) {
 	t.Setenv("YOLO_ALLOW_PATCH_FAILURES", "")
 	fx := newPatchedAdvanceFixture(t, "")
@@ -315,11 +316,11 @@ func TestABuildThatLeavesNothingAtALaunchIsSaidOnceByTheLaunch(t *testing.T) {
 		t.Fatalf("the hold no version fits handed %+v after %d builds, want no build and the typed failure, said by the act\n%s",
 			r.delivery, len(fx.builds), term)
 	}
-	for _, w := range []string{"ERROR: forkpack/tool: patch application failed at upstream v1.2.0 (" + v12 + ")\n",
-		"  Repair: yolo pack rebase forkpack/tool --onto " + v12 + "\n", "  Bypass: YOLO_ALLOW_PATCH_FAILURES=1 yolo\n"} {
-		if n := strings.Count(term, w); n != 1 {
-			t.Errorf("the act said %q %d times, want once:\n%s", w, n, term)
-		}
+	if strings.Contains(term, "ERROR: ") || strings.Contains(term, "Bypass: ") {
+		t.Errorf("the act printed the error block the launch prints:\n%s", term)
+	}
+	if r.delivery.Runs != "" || r.delivery.CachedGood != "" {
+		t.Errorf("a failure with nothing built named a build to run: %+v", r.delivery)
 	}
 	if strings.Contains(term, "nothing to build —") {
 		t.Errorf("the act said there is nothing to build, which the launch's refusal says:\n%s", term)

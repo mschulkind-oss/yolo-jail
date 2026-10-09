@@ -144,10 +144,10 @@ func TestPatchedForkFollowsItsUpstreamAndHoldsAtAConflict(t *testing.T) {
 	userConfig := filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail", "config.jsonc")
 
 	var lastWorkspace string
-	launch := func(what string) string {
+	launch := func(what string, opts ...runOption) string {
 		t.Helper()
 		lastWorkspace = t.TempDir()
-		r := runCommand(t, lastWorkspace, append(jailRunArgs(), "--", patchFixtureBin), withHostSemantics())
+		r := runCommand(t, lastWorkspace, append(jailRunArgs(), "--", patchFixtureBin), append([]runOption{withHostSemantics()}, opts...)...)
 		out := r.combined()
 		if r.rc != 0 {
 			t.Fatalf("%s: rc %d\n%s", what, r.rc, out)
@@ -209,19 +209,33 @@ func TestPatchedForkFollowsItsUpstreamAndHoldsAtAConflict(t *testing.T) {
 		t.Errorf("after the move %d new entries are live, want the good build's alone: %v\n%s", len(live), live, out)
 	}
 
-	// 3. A VERSION THE SERIES DOES NOT FIT is held: the next launch's jail runs v1.2.0's build, and
-	// the fork's line names what stopped v1.3.0.
-	// Since PF-D81 (docs/design/patched-forks.md §8) the update FAILS on the conflict, naming the
-	// version, the patch, its rebase onto the conflicting commit and the bypass, and builds no older
-	// fit or base.
+	// 3. A VERSION THE SERIES DOES NOT FIT is FATAL (docs/design/patched-forks.md PF-D81): the update
+	// FAILS on the conflict, naming the version, the patch, its rebase onto the conflicting commit and
+	// the bypass, and builds no older fit or base; the next launch refuses before its jail starts,
+	// its error block naming the patch, the repair and the bypass that runs v1.2.0's build; with that
+	// bypass the jail runs v1.2.0's build, said, and the fork's line names what stopped v1.3.0.
 	v13 := up.release("1.3.0", "upstream-ten", "v1.3.0")
 	if r := runCommand(t, t.TempDir(), []string{"pack", "update"}, withHostSemantics()); r.rc == 0 ||
 		!strings.Contains(r.combined(), patchFailureBlock(owner, "v1.3.0", v13, "f.txt")) {
 		t.Fatalf("yolo pack update did not fail on the conflict at v1.3.0: rc %d\n%s", r.rc, r.combined())
 	}
-	out = launch("the launch after v1.3.0")
-	if !strings.Contains(out, runs("1.2.0")) || strings.Contains(out, patchFixtureMarker+"_1.3.0") {
-		t.Fatalf("the held launch does not run the previous build:\n%s", out)
+	jailGone()
+	lastWorkspace = t.TempDir()
+	refused := runCommand(t, lastWorkspace, append(jailRunArgs(), "--", patchFixtureBin), withHostSemantics())
+	if refused.rc == 0 || strings.Contains(refused.combined(), patchFixtureMarker) {
+		t.Fatalf("the launch after v1.3.0 started its jail on the older build: rc %d\n%s", refused.rc, refused.combined())
+	}
+	for _, w := range []string{"ERROR: fork " + owner + ": patch application failed at upstream v1.3.0 (" + v13 + ")",
+		"Repair: yolo pack rebase " + owner + " --onto " + v13, "Bypass: YOLO_ALLOW_PATCH_FAILURES=1 yolo",
+		"Refusing to launch: the patch series of fork " + owner + " does not apply"} {
+		if !strings.Contains(refused.combined(), w) {
+			t.Errorf("the refused launch lacks %q:\n%s", w, refused.combined())
+		}
+	}
+	out = launch("the bypassed launch after v1.3.0", withEnv("YOLO_ALLOW_PATCH_FAILURES=1"))
+	if !strings.Contains(out, runs("1.2.0")) || strings.Contains(out, patchFixtureMarker+"_1.3.0") ||
+		!strings.Contains(out, "CONTINUING: YOLO_ALLOW_PATCH_FAILURES=1 is set") {
+		t.Fatalf("the bypassed launch does not run the previous build, said:\n%s", out)
 	}
 	if !strings.Contains(out, "held at v1.2.0 ("+v12[:8]+"): upstream v1.3.0 ("+v13[:8]+") does not take 0001-patch-line-ten.patch") {
 		t.Errorf("the held launch's fork line does not name what holds it:\n%s", out)
@@ -236,7 +250,8 @@ func patchFailureBlock(owner, tag, commit, paths string) string {
 		"  Conflict: " + paths + "\n" +
 		"  Operation stopped; no older fit or base will be built.\n" +
 		"  Repair: yolo pack rebase " + owner + " --onto " + commit + "\n" +
-		"  Bypass: YOLO_ALLOW_PATCH_FAILURES=1 yolo\n"
+		"  Bypass: YOLO_ALLOW_PATCH_FAILURES=1 yolo pack update\n" +
+		"    (runs the intact admitted build "
 }
 
 // liveCaptureEntries is the keys among keys whose entry is complete: its marker is there.

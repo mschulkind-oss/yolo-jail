@@ -385,6 +385,20 @@ func TestAConflictingTagFailsAndOnlyExplicitBypassContinues(t *testing.T) {
 	if !strings.Contains(out, "0001-ten.patch") || !strings.Contains(out, "v1.4.0 ("+shortSHA(v14)+")") {
 		t.Fatalf("the concrete conflict was not reported:\n%s", out)
 	}
+	// PF-D83: the build is here, so the block offers the patch failure's own bypass, naming what it
+	// runs, and the delivery names that build for a jail launch's block.
+	if !strings.Contains(out, "  Bypass: YOLO_ALLOW_PATCH_FAILURES=1 yolo\n    (runs the intact admitted build v1.1.0 ("+
+		shortSHA(v11)+") + 2 patches") || !strings.Contains(failed.delivery.Runs, "v1.1.0 ("+shortSHA(v11)+")") {
+		t.Errorf("the bypass does not name the build it runs (delivery %+v):\n%s", failed.delivery, out)
+	}
+	// IN A JAIL LAUNCH'S SLOT the act hands the same, and prints no block: the launch prints it
+	// (run's patchfailures.go), before refusing.
+	fx.later(2 * time.Hour)
+	slotted, term := fx.launchReported(t)
+	if slotted.delivery.Key != r.delivery.Key || slotted.delivery.PatchFailure == nil || slotted.delivery.Runs == "" ||
+		strings.Contains(term, "ERROR: ") || strings.Contains(term, "CONTINUING") {
+		t.Errorf("the slot's act handed %+v, or printed the launch's block:\n%s", slotted.delivery, term)
+	}
 	t.Setenv("YOLO_ALLOW_PATCH_FAILURES", "1")
 	continued, out, _ := fx.launch(t, "podman")
 	if continued.failed || continued.delivery.Key != r.delivery.Key || continued.patchFailure == nil || len(fx.builds) != 1 {

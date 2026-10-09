@@ -52,6 +52,11 @@ type ForkDelivery struct {
 	Cause *BuildCause `json:"cause,omitempty"`
 	// PatchFailure is host-only failure evidence; the jail wire remains unchanged.
 	PatchFailure *packsrc.PatchFailure `json:"-"`
+	// Runs names the intact admitted build Key holds when PatchFailure is set, for the launch's error
+	// block (PF-D83); CachedGood names the older recorded good build cached-good recovery would run
+	// when Key is "" (PF-D82). Host-only, as PatchFailure is.
+	Runs       string `json:"-"`
+	CachedGood string `json:"-"`
 	// Unsaid says the host's build act said nothing of Reason, leaving it to the launch's refusal or
 	// warning (internal/cli/run's missingbuilds.go), which then says it once. The host's alone: never
 	// on the wire.

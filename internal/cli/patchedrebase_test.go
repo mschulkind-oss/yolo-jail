@@ -545,7 +545,8 @@ func TestAConflictBelowTheNewestNamesItsRebaseOnto(t *testing.T) {
 }
 
 // A HOLD THAT DOES NOT TAKE THE SERIES, with nothing to serve: the launch's conflict and its
-// nothing-to-build line both name the verb, which rebases onto the held tag.
+// nothing-to-build line both name the verb, which rebases onto the held tag, and the bypass offered
+// is launching without it, since no build is here for the patch failure's own to run (PF-D83).
 func TestAHeldTagThatDoesNotTakeTheSeriesNamesTheRebase(t *testing.T) {
 	fx := newPatchedAdvanceFixture(t, "")
 	v12 := fx.commit(t, "v1.2.0", map[int]string{11: "eleven"})
@@ -556,7 +557,7 @@ func TestAHeldTagThatDoesNotTakeTheSeriesNamesTheRebase(t *testing.T) {
 		t.Fatalf("the conflicting hold delivered %+v or built %d times\n%s", r.delivery, len(fx.builds), out)
 	}
 	for _, w := range []string{"patch application failed at upstream v1.2.0 (" + v12 + ")",
-		"Repair: yolo pack rebase forkpack/tool --onto " + v12, "Bypass: YOLO_ALLOW_PATCH_FAILURES=1 yolo"} {
+		"Repair: yolo pack rebase forkpack/tool --onto " + v12, "Bypass: YOLO_ALLOW_MISSING_PROGRAMS=1 yolo\n"} {
 		if !strings.Contains(out, w) {
 			t.Errorf("the held launch lacks %q:\n%s", w, out)
 		}

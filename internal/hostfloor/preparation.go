@@ -13,6 +13,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // openPreparedInstalledFile is replaced only by serial tests that model a read failure.
@@ -70,25 +71,63 @@ func (f *Floor) PreparePatched(ctx context.Context, p Program, allowAdvance bool
 
 	bypass := f.AllowPatchFailures != nil && f.AllowPatchFailures()
 	preparation.bypassRequested = bypass
-	if !bypass {
-		f.writePatchFailureOnce(p, state)
-		return preparation, preparationError(p, state, "patch application failure")
+	// WHAT THE BYPASS WOULD RUN (PF-D83): the installed copy when it is a build of the series as it
+	// stands, else the admitted store build of it; the error block offers the bypass only then.
+	keepInstalled := f.preparedRecordServes(p, currentStatus.Record, state)
+	installGood := !keepInstalled && f.preparedGoodUsable(p, state, preparation.selectedGood) == ""
+	runs := ""
+	switch {
+	case keepInstalled:
+		runs = currentStatus.Record.Version
+	case installGood:
+		runs = preparation.selectedGood.Label
 	}
-	if f.preparedRecordServes(p, currentStatus.Record, state) {
+	// NOTHING OF IT WOULD RUN when no build serves and no copy of it is installed: then, and only
+	// then, the missing-program hatch may leave it out (PF-D83), since leaving it out runs nothing.
+	nothingRuns := runs == "" && currentStatus.Record == nil
+	if !bypass {
+		f.writePatchFailureOnce(p, state, runs)
+		return preparation, patchFailureStop(p, state, "patch application failure", runs, nothingRuns)
+	}
+	if keepInstalled {
 		preparation.delivery = patchedPreparationKeepInstalled
 		preparation.installed = cloneRecord(currentStatus.Record)
-		f.writePatchFailureOnce(p, state)
+		f.writePatchFailureOnce(p, state, runs)
 		f.sayContinuingOnce(state, "CONTINUING: using installed compatible build %s; skips this fork's advance", currentStatus.Record.Version)
 		return preparation, nil
 	}
-	if why := f.preparedGoodUsable(p, state, preparation.selectedGood); why == "" {
+	if installGood {
 		preparation.delivery = patchedPreparationInstallGood
-		f.writePatchFailureOnce(p, state)
+		f.writePatchFailureOnce(p, state, runs)
 		f.sayContinuingOnce(state, "CONTINUING: installing the selected admitted build %s; skips this fork's advance", preparation.selectedGood.Label)
 		return preparation, nil
 	}
-	f.writePatchFailureOnce(p, state)
-	return preparation, preparationError(p, state, "no compatible installed copy or complete current-series store build is available for the literal patch-failure bypass")
+	f.writePatchFailureOnce(p, state, runs)
+	return preparation, patchFailureStop(p, state, "no compatible installed copy or complete current-series store build is available for the literal patch-failure bypass", "", nothingRuns)
+}
+
+// ErrPatchFailureNothingRuns marks a patch failure that left no copy of the program to run: no
+// intact admitted build of its series as it stands, and no installed copy at all. Only such a
+// failure may the missing-program hatch waive, by launching without the program (PF-D83); with a
+// build to run, the patch failure's own bypass is the one way on.
+var ErrPatchFailureNothingRuns = errors.New("no intact admitted build of it, and no installed copy, is on this machine")
+
+// ErrPatchFailureBypassable marks a patch failure the patch failure's own bypass would continue past,
+// running an intact admitted build of the series as it stands (PF-D81, PF-D83).
+var ErrPatchFailureBypassable = errors.New("an intact admitted build of it is on this machine for " +
+	paths.AllowPatchFailuresEnv + "=1 to run")
+
+// patchFailureStop is preparationError for a patch failure, marked ErrPatchFailureBypassable when the
+// bypass would run a build (runs), and ErrPatchFailureNothingRuns when nothing of the program would.
+func patchFailureStop(p Program, state PatchedState, message, runs string, nothingRuns bool) error {
+	err := preparationError(p, state, message)
+	switch {
+	case runs != "":
+		return errors.Join(err, ErrPatchFailureBypassable)
+	case nothingRuns:
+		return errors.Join(err, ErrPatchFailureNothingRuns)
+	}
+	return err
 }
 
 // EnsurePrepared consumes exactly one preparation from this Floor and declaration. The selected

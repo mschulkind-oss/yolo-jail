@@ -131,7 +131,7 @@ func writeCachedGoodPatchFailure(w io.Writer, f packload.Fork, record *packsrc.C
 		return
 	}
 	if admitted == "" {
-		writePatchFailure(w, pf, f.Key(), f.Bin, false, "")
+		writePatchFailure(w, pf, f.Key(), packsrc.PatchBypass{Command: "yolo", Missing: true}, "")
 		return
 	}
 	target := pf.Target.Tag

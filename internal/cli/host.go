@@ -718,7 +718,14 @@ func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, ra
 	sp = trace.span("host.apply_gate")
 	act := &run.ActInterrupt{}
 	if config.HostApplyOnLaunchEnabled() && config.HostManagementMode() != config.HostManagementNone {
-		advanceHostTrees(errw, colorForWriter(errw), filepath.Base(cmd[0]), act)
+		// PF-D81 BEFORE THE GATE'S RENDER: a patched extension's series that does not apply, or a patched
+		// fork's recorded patch failure, stops the launch here, before the gate may apply anything.
+		if !advanceHostTrees(errw, colorForWriter(errw), filepath.Base(cmd[0]), act) ||
+			!hostPatchPreflight(errw, selectConfiguredHostPacks().packs, "to launch "+filepath.Base(cmd[0]),
+				filepath.Base(cmd[0]), act) {
+			sp.End()
+			return 1
+		}
 	}
 	gated := hostApplyGate(errw, stdin, cmd[0])
 	sp.End()

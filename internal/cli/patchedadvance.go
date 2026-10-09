@@ -89,10 +89,15 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/pidlock"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // advanceOptions is who runs an advance, and how.
 type advanceOptions struct {
+	// bypassCommand is the operation a patch failure's Bypass line names, when the caller is not one
+	// patchBypass derives it for: `yolo host apply --assert`, or `yolo host -- <bin>` for a patched
+	// extension, whose own key names no bin.
+	bypassCommand string
 	// platform is the build's platform: the jail's.
 	platform string
 	// runtime is the backend the jail runs on ("" when not a launch), for the line a build jail the
@@ -796,12 +801,60 @@ func (a *advance) backgroundPatchFailureFromOutcome() (*packsrc.PatchFailure, *p
 
 func (a *advance) patchFailureText(pf *packsrc.PatchFailure) string {
 	var report strings.Builder
-	writePatchFailure(&report, pf, a.f.Key(), a.f.Bin, a.o.host, "")
+	writePatchFailure(&report, pf, a.f.Key(), a.patchBypass(), "")
 	return report.String()
 }
 
+// patchBypass is what this advance's error block offers as its bypass (PF-D81, PF-D83): the patch
+// failure's own, naming the build it runs, when one serves; else, for a fork at a jail launch, the
+// older recorded good build cached-good recovery runs (PF-D82); else, at a jail launch, launching
+// without it; else none.
+func (a *advance) patchBypass() packsrc.PatchBypass {
+	b := packsrc.PatchBypass{Command: patchFailureCommand(a.f.Bin, a.o.host)}
+	switch {
+	case a.o.bypassCommand != "":
+		b.Command = a.o.bypassCommand
+	case a.o.force:
+		b.Command = "yolo capture " + shquote.Quote(a.f.CaptureArg())
+	}
+	if a.serves() {
+		b.Runs = a.servingLine()
+		return b
+	}
+	if a.o.host || a.o.force {
+		return b
+	}
+	if label := a.cachedGoodLabel(); label != "" {
+		b.CachedGood, b.CachedGoodLabel = a.f.Key(), label
+		return b
+	}
+	b.Missing = true
+	return b
+}
+
+// cachedGoodLabel names the older recorded good build cached-good recovery (PF-D82) would run for a
+// patched fork with no build of its current recipe to serve, "" when there is none it could run.
+func (a *advance) cachedGoodLabel() string {
+	if a.f.Into != "" || a.rec == nil || a.rec.Good == nil {
+		return ""
+	}
+	if _, _, why := validateCachedGood(a.f, a.o.platform, a.rec.Good); why != "" {
+		return ""
+	}
+	return run.WithPatches(run.GoodBuildLabel(a.rec.Good), a.rec.Good.Patches)
+}
+
+// launchSaysPatchFailure reports whether a jail launch says this advance's patch failure itself
+// (internal/cli/run's patchfailures.go, PF-D81): an advance in a jail launch's build slot hands the
+// typed failure and prints neither its error block nor the bypass's CONTINUING line, so the launch
+// prints them once, together, right after the slot and before its refusal, where no build's progress
+// follows them.
+func (a *advance) launchSaysPatchFailure() bool {
+	return a.o.slot != nil && !a.o.host && !a.o.background
+}
+
 func (a *advance) reportPatchFailure(pf *packsrc.PatchFailure, text string) {
-	if pf == nil || a.failureReported {
+	if pf == nil || a.failureReported || a.launchSaysPatchFailure() {
 		return
 	}
 	if a.o.slot != nil {
@@ -841,8 +894,11 @@ func (a *advance) patchFailureResult(pf *packsrc.PatchFailure) advanceResult {
 			if good := a.goodBuild(); good != nil {
 				admitted = fmt.Sprintf("%s (%s; %s)", a.servingLine(), good.Commit, admitted)
 			}
-			a.dim("CONTINUING: using intact admitted build %s; skips this subject's advance.", admitted)
-			r.bypassed, r.continuingSaid = true, true
+			r.bypassed = true
+			if !a.launchSaysPatchFailure() {
+				a.dim("CONTINUING: using intact admitted build %s; skips this subject's advance.", admitted)
+				r.continuingSaid = true
+			}
 		} else if a.installed != nil {
 			a.dim("CONTINUING: using installed build %s; skips this subject's advance.", a.installed.label)
 			r.bypassed, r.continuingSaid = true, true
@@ -2350,8 +2406,26 @@ func (a *advance) finish(built *capture.Entry, b forkBuild, seq int64, failure *
 	}
 	if a.patchFailure != nil {
 		res.delivery.PatchFailure = a.patchFailure
+		// WHAT A JAIL LAUNCH'S BYPASS WOULD RUN (PF-D83), for the launch's error block: the build it
+		// hands, or, for a fork with none of its current recipe, the older one cached-good recovery runs.
+		if res.delivery.Key != "" {
+			res.delivery.Runs = a.handedLabel(res.good)
+		} else {
+			res.delivery.CachedGood = a.cachedGoodLabel()
+		}
 	}
 	return res
+}
+
+// handedLabel names the build a delivery hands, "<label> + N patches", as the lines do.
+func (a *advance) handedLabel(g *packsrc.GoodBuild) string {
+	if g == nil {
+		g = a.goodBuild()
+	}
+	if g == nil {
+		return a.servingLine()
+	}
+	return run.WithPatches(run.GoodBuildLabel(g), g.Patches)
 }
 
 // handReason hands the jail reason with no record touched (a series that cannot be read).

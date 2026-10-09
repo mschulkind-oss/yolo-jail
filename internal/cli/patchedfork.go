@@ -161,7 +161,7 @@ func checkPatchedFork(pr richtext.Printer, errw io.Writer, store *packsrc.Store,
 			[]packsrc.ListEntry{target}, patchedYoloVersion(), 0, originalSnapshot,
 			func(failure *packsrc.PatchFailure) {
 				retryReportedFailure = failure
-				writePatchFailure(errw, failure, f.Key(), f.Bin, false, "")
+				writePatchFailure(errw, failure, f.Key(), explicitPatchBypass(f, series, rec), "")
 			}, func(err error) {
 				if err != nil {
 					fmt.Fprintf(errw, "yolo pack: %s: its clean replay was recorded, but the matching detached failure evidence could not be resolved (%v) — the next launch checks it again\n",
@@ -293,7 +293,7 @@ func checkPatchedFork(pr richtext.Printer, errw io.Writer, store *packsrc.Store,
 	walk, recorded, _ := recordExplicitWalk(store, f, series, res.Inputs, list,
 		patchedYoloVersion(), spent, boundSnapshot, func(failure *packsrc.PatchFailure) {
 			reportedFailure = failure
-			writePatchFailure(errw, failure, f.Key(), f.Bin, false, "")
+			writePatchFailure(errw, failure, f.Key(), explicitPatchBypass(f, series, rec), "")
 		}, func(err error) {
 			if err != nil {
 				fmt.Fprintf(errw, "yolo pack: %s: its clean replay was recorded, but the matching detached failure evidence could not be resolved (%v) — the next launch checks it again\n",
@@ -411,7 +411,7 @@ func reportExplicitPatchFailure(pr richtext.Printer, errw io.Writer, f packload.
 		admitted = explicitCompatibleGood(f, series, rec)
 	}
 	if !alreadyReported {
-		writePatchFailure(errw, failure, f.Key(), f.Bin, false, admitted)
+		writePatchFailure(errw, failure, f.Key(), explicitPatchBypass(f, series, rec), admitted)
 	} else if admitted != "" {
 		fmt.Fprintf(errw, "CONTINUING: using intact admitted build %s; this explicit subject was skipped.\n", admitted)
 	}
@@ -420,6 +420,13 @@ func reportExplicitPatchFailure(pr richtext.Printer, errw io.Writer, f packload.
 		return rc
 	}
 	return 1
+}
+
+// explicitPatchBypass is an explicit act's Bypass line (PF-D83): the patch failure's own bypass in
+// front of `yolo pack update`, offered only when an intact admitted build of the series as it stands
+// is on this machine for it to keep.
+func explicitPatchBypass(f packload.Fork, series *packsrc.Series, rec *packsrc.CheckRecord) packsrc.PatchBypass {
+	return packsrc.PatchBypass{Command: "yolo pack update", Runs: explicitCompatibleGood(f, series, rec)}
 }
 
 func explicitCompatibleGood(f packload.Fork, series *packsrc.Series, rec *packsrc.CheckRecord) string {

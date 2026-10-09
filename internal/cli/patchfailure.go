@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 
 	runpkg "github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -30,60 +29,26 @@ func currentPatchFailure(f packload.Fork) *packsrc.PatchFailure {
 	return record.CurrentPatchFailure(inputs, series.Digest)
 }
 
-func patchFailureCommand(owner, bin string, host bool) string {
+// patchFailureCommand is the operation a patch failure's bypass is put in front of: `yolo host --
+// <bin>` at the host, else a jail launch.
+func patchFailureCommand(bin string, host bool) string {
 	if host {
-		return allowPatchFailuresEnv + "=1 yolo host -- " + shquote.Quote(bin)
+		return "yolo host -- " + shquote.Quote(bin)
 	}
-	return allowPatchFailuresEnv + "=1 yolo"
+	return "yolo"
 }
 
-func writePatchFailure(w io.Writer, f *packsrc.PatchFailure, owner, bin string, host bool, admitted string) {
+// writePatchFailure prints PF-D81's error block (packsrc.PatchFailure.Block) for owner, its Bypass
+// line offering only what works on this machine (PF-D83), and — when the bypass is set and
+// admitted names the intact build it runs — the CONTINUING line.
+func writePatchFailure(w io.Writer, f *packsrc.PatchFailure, owner string, bypass packsrc.PatchBypass, admitted string) {
 	if f == nil {
 		return
 	}
-	target := f.Target.Tag
-	if target == "" {
-		target = f.Target.Commit
-	}
-	fmt.Fprintf(w, "ERROR: %s: patch application failed at upstream %s (%s)\n", owner, target, f.Target.Commit)
-	if f.Member != "" {
-		fmt.Fprintf(w, "  Patch: %s\n", printableFailureText(f.Member))
-	}
-	switch f.Kind {
-	case "conflict":
-		if len(f.Paths) > 0 {
-			fmt.Fprintf(w, "  Conflict: %s\n", printableFailureText(strings.Join(f.Paths, ", ")))
-		} else {
-			fmt.Fprintln(w, "  Conflict: the patch could not be merged")
-		}
-	case "base":
-		fmt.Fprintf(w, "  Base rejection: %s\n", printableFailureText(f.Detail))
-	default:
-		fmt.Fprintf(w, "  Application command: %s\n", printableFailureText(f.Detail))
-	}
-	fmt.Fprintln(w, "  Operation stopped; no older fit or base will be built.")
-	if f.Kind == "base" {
-		fmt.Fprintf(w, "  Repair: re-export the series with git format-patch --base=%s\n", f.Target.Commit)
-	} else {
-		fmt.Fprintf(w, "  Repair: yolo pack rebase %s --onto %s\n", owner, f.Target.Commit)
-	}
-	fmt.Fprintf(w, "  Bypass: %s\n", patchFailureCommand(owner, bin, host))
-	if st, err := os.Stat(f.Log); err == nil && !st.IsDir() {
-		fmt.Fprintf(w, "  Log: %s\n", printableFailureText(f.Log))
-	}
+	_, _ = io.WriteString(w, f.Block(owner, owner, bypass))
 	if allowPatchFailures() && admitted != "" {
 		fmt.Fprintf(w, "CONTINUING: using intact admitted build %s; skips this subject's advance.\n", admitted)
 	}
 }
 
-func printableFailureText(s string) string {
-	var b strings.Builder
-	for _, r := range s {
-		if r == '\n' || r == '\t' || r >= 0x20 && r != 0x7f {
-			b.WriteRune(r)
-		} else {
-			fmt.Fprintf(&b, "\\x%02x", r)
-		}
-	}
-	return b.String()
-}
+func printableFailureText(s string) string { return packsrc.PrintableFailureText(s) }

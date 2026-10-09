@@ -69,14 +69,20 @@ var hostTreeAdvance = advancePatchedFork
 // advanceHostTrees runs the check and the advance of every patched extension the host's selection
 // carries — only those bin's owning agent pack runs, when bin is not "" — before any render reads
 // them (PPX-D11). Lines go to errw, as every host launch line does. act is the verb's act interrupt
-// (PF-D57), which the patched forks' advances after these read too.
-func advanceHostTrees(errw io.Writer, color bool, bin string, act *run.ActInterrupt) {
+// (PF-D57), which the patched forks' advances after these read too. It returns false when a series
+// does not apply and its bypass did not run an intact build in its place (PF-D81): the caller stops
+// BEFORE the render, so a refused verb writes nothing; the advance has said the error block.
+func advanceHostTrees(errw io.Writer, color bool, bin string, act *run.ActInterrupt) bool {
 	if !hostTreesBuild() {
-		return
+		return true
 	}
 	sel := selectConfiguredHostPacks()
 	if sel.loadErr != nil {
-		return
+		return true
+	}
+	command := "yolo host apply --assert"
+	if bin != "" {
+		command = "yolo host -- " + bin
 	}
 	var trees []packload.Fork
 	for _, f := range packload.PatchedTrees(sel.packs) {
@@ -92,10 +98,23 @@ func advanceHostTrees(errw io.Writer, color bool, bin string, act *run.ActInterr
 	}
 	// A PARALLEL ADVANCE, as a jail launch's tree arm runs one (treepool.go, XB-D10): the host builds
 	// in podman's own capture jails, side by side.
-	runTreesInParallel(trees, "", act, errw, errw, func(_ int, f packload.Fork, lane treeLane) {
-		hostTreeAdvance(f, lane.options(advanceOptions{platform: captureJailPlatform(), color: color,
-			launch: true, host: true, act: act}))
+	results := make([]advanceResult, len(trees))
+	runTreesInParallel(trees, "", act, errw, errw, func(i int, f packload.Fork, lane treeLane) {
+		results[i] = hostTreeAdvance(f, lane.options(advanceOptions{platform: captureJailPlatform(), color: color,
+			launch: true, host: true, act: act, bypassCommand: command}))
 	})
+	var stopped []string
+	for i, r := range results {
+		if r.patchFailure != nil && !r.bypassed {
+			stopped = append(stopped, trees[i].Label())
+		}
+	}
+	if len(stopped) == 0 {
+		return true
+	}
+	fmt.Fprintf(errw, "yolo host: refusing: the patch series of %s %s not apply (the ERROR above); nothing was written.\n",
+		entrypoint.JoinAnd(stopped), plural(len(stopped), "does", "do"))
+	return false
 }
 
 // ownerRuns reports whether f's owning agent pack declares a program named bin — its own, or the

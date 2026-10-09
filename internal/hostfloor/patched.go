@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
@@ -319,43 +319,19 @@ func (f *Floor) advances(p Program, st Status) bool {
 
 // writePatchFailureOnce prints state's patch failure block unless the advance that found it already
 // did: PF-D81's error is said once per operation, so a reader never wonders whether two failures
-// happened.
-func (f *Floor) writePatchFailureOnce(p Program, state PatchedState) {
+// happened. runs is the intact build the patch failure's bypass would run, "" for none, so the block
+// offers the bypass only when it works (PF-D83).
+func (f *Floor) writePatchFailureOnce(p Program, state PatchedState, runs string) {
 	if state.PatchFailureSaid {
 		return
 	}
-	f.writePatchFailure(p, state.PatchFailure)
+	f.writePatchFailure(p, state.PatchFailure, runs)
 }
 
-func (f *Floor) writePatchFailure(p Program, pf *packsrc.PatchFailure) {
-	target := pf.Target.Tag
-	if target == "" {
-		target = pf.Target.Commit
-	}
-	fmt.Fprintf(f.out(), "ERROR: fork %s: patch application failed at upstream %s (%s)\n", p.Install.ForkedBy+"/"+p.Bin(), target, pf.Target.Commit)
-	if pf.Member != "" {
-		fmt.Fprintf(f.out(), "  Patch: %s\n", printableFloorDetail(pf.Member))
-	}
-	if pf.Kind == "conflict" {
-		fmt.Fprintf(f.out(), "  Conflict: %s\n", printableFloorDetail(strings.Join(pf.Paths, ", ")))
-	} else {
-		fmt.Fprintf(f.out(), "  Application command: %s\n", printableFloorDetail(pf.Detail))
-	}
-	fmt.Fprintln(f.out(), "  Operation stopped; no older fit or base will be built.")
-	fmt.Fprintf(f.out(), "  Repair: yolo pack rebase %s/%s --onto %s\n", p.Install.ForkedBy, p.Bin(), pf.Target.Commit)
-	fmt.Fprintln(f.out(), "  Bypass: YOLO_ALLOW_PATCH_FAILURES=1 yolo host -- "+p.Bin())
-}
-
-func printableFloorDetail(s string) string {
-	var b strings.Builder
-	for _, r := range s {
-		if r == '\n' || r == '\t' || r >= 0x20 && r != 0x7f {
-			b.WriteRune(r)
-		} else {
-			fmt.Fprintf(&b, "\\\\x%02x", r)
-		}
-	}
-	return b.String()
+func (f *Floor) writePatchFailure(p Program, pf *packsrc.PatchFailure, runs string) {
+	owner := p.Install.ForkedBy + "/" + p.Bin()
+	_, _ = io.WriteString(f.out(), pf.Block("fork "+owner, owner,
+		packsrc.PatchBypass{Command: "yolo host -- " + p.Bin(), Runs: runs}))
 }
 
 // ensurePatched is Ensure for a patched fork's program: the advance first, outside the floor's lock
