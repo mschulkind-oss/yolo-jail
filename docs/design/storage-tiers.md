@@ -272,7 +272,7 @@ default.
 | `node_modules`, `.venv` | SSD | Many small files; an HDD is slow at them |
 | `data/`, `models/`, `.yolo/durable/<downloads>` | HDD | Large sequential files |
 | `.yolo/home`, `.yolo/durable` itself | The workspace tier | Not parts |
-| Nix store, images, `~/.cache`, `/mise` | Machine-wide levers | Not parts ([§1](#non-goals)) |
+| Nix store, images, `~/.cache`, `/mise` | Machine-wide levers | Not parts ([Non-goals](#non-goals)) |
 
 ### 4.4 Git
 
@@ -283,7 +283,7 @@ the workspace is a git repository, the apply step keeps a yolo-managed block in 
 `info/exclude` (the common directory, shared by worktrees). The block lists each linked part,
 anchored and without a slash (`/target`). It is written beneath the workspace with no-follow
 operations, the same way as the
-[workspace-state writes](../reference/jail-home.md#the-jail-home--how-homeagent-is-composed),
+[workspace-state writes](../../internal/cli/run/wsstatebeneath.go),
 because the jail can write `.git`. Jail-only parts need no entry.
 
 `git clean -fdx` removes a part's link and leaves the tier data in place
@@ -322,6 +322,7 @@ rule, and for each managed link with no rule:
 | A managed link into another workspace's directory | Do not mount it. Report it and name `yolo tiers adopt` ([§3.4](#34-the-workspace-id-and-moved-workspaces)) |
 | Any other link | Leave it and do not manage it. Report it once as not managed |
 | A managed link with no rule | Keep mounting its tier, since the data lives there. Report it and name `move` or `forget` |
+| Jail-only part: no tier copy yet, and a filled `.yolo/home/venv-shadows/<rel>` | Keep binding the existing copy. Report the drift and name `move`. Once the tier copy exists it is the bind source, and a leftover shadow copy is reported |
 
 Creation is idempotent, so a second launch that finds the work done does nothing. No step walks
 a part's contents, so an idle HDD is not spun up just to be listed. Attach reruns nothing. It
@@ -341,8 +342,8 @@ Refusing is what [DP-D15](declaration-parity.md#7-ruled-divergent-and-the-ones-i
 asks for: *"a fatal error … rather than having it be surprisingly not there"*. A dangling link would
 not fill the SSD: writes through one fail and `mkdir -p` reports that the path exists
 ([A1](#appendix-a-what-was-measured-in-this-jail)). The agent would instead meet missing
-directories mid-task. No `YOLO_ALLOW_*` hatch exists, because `forget` is the next step for a
-disk that is gone ([escape-hatch rule](../reference/happy-path-principle.md)).
+directories mid-task. No `YOLO_ALLOW_*` hatch exists: a hatch is for a broken configuration,
+and `forget` is the [next step](../reference/happy-path-principle.md) for a disk that is gone.
 
 ### 5.4 Moving a part
 
@@ -359,7 +360,8 @@ first-time migration of an existing `target/`. It runs on the host only:
    links, and links inside the data are copied as links.
 4. Copy into a staging directory on the destination filesystem. When source and destination share
    a filesystem, rename instead of copying. Verify that file count and total bytes match.
-5. Swap, which changes only what the path resolves to: replace the link atomically for a tier
+5. Swap, which changes only what the path resolves to. For a jail-only part the swap is the
+   bind source the next launch picks ([§5.2](#52-each-fresh-launch)). Otherwise: replace the link atomically for a tier
    destination, or unlink and then rename for the workspace tier. Until the swap the path
    resolves to the complete old copy; after it, to the complete new one.
 6. Delete the old copy. A copy that cannot be deleted, for example files host root owns on
@@ -536,9 +538,9 @@ until all four are answered.
 
 ## Decision Ledger
 
-`BS-D` rows are implementation decisions made here under the
-[standing delegation for one-answer mechanism choices](../../AGENTS.md#workflow). Each can be
-reversed.
+`BS-D` rows are implementation decisions made here: one-answer mechanism choices inside a design the
+owner asked for, taken as the maintainer delegated such choices on 2026-10-04 (see
+[OQ-PD27](program-delivery.md#decision-ledger)). Each can be reversed.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |

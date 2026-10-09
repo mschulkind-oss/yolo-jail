@@ -157,7 +157,7 @@ therefore differs from the existing courtesy locks and session-file sweeps.
 - [Cache relocation's three held questions](../plans/cache-relocation.md#open-questions)
   concern automation, host reflection and broader sharing, not a default isolation mechanism.
   [Shared-tool placement](../design/shared-tool-store-relocation.md),
-  [bulk scratch](../design/storage-tiers.md) and
+  [storage tiers](../design/storage-tiers.md) and
   [VM-local cache placement](../design/vm-local-volumes.md#OQ-VL2) stay independent.
 - [XB-D12](../design/pi-extension-store-builds.md#XB-D12), **2026-10-05**, forbids
   shared npm caches for sealed extension builds; it does not choose ordinary-jail scope.

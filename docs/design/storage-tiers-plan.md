@@ -3,42 +3,57 @@ status: draft
 stage: SKETCH
 next: "Resolve the design questions, then re-read the tree and complete the implementation plan"
 depends-on:
-  - storage-tiers.md#OQ-BS1
   - storage-tiers.md#OQ-BS2
   - storage-tiers.md#OQ-BS3
   - storage-tiers.md#OQ-BS4
-tags: [storage, implementation-sketch]
+  - storage-tiers.md#OQ-BS5
+tags: [storage, tiers, implementation-sketch]
 ---
 
-# Storage placement implementation sketch — not a build handoff
+# Storage tiers implementation sketch — not a build hand-off
 
-**Status:** 2026-10-08. Incomplete and unstable while design questions are open; re-checked against `ee7401d43`.
+**Status:** 2026-10-09. Incomplete and unstable while design questions are open; re-checked against
+`ccf073633`.
 
-**Design:** [Keep code fast, and give large agent files somewhere else to go](storage-tiers.md).
-The design wins on behavior; the tree wins on fact; this sketch is advice and the first thing to become stale. Do not implement from it.
+**Design:** [One workspace across several disks, seen as one tree](storage-tiers.md). The design
+wins on behavior and the tree wins on fact. This sketch is advice and will be the first part to go
+stale. Do not implement from it.
 
 ## Reuse and traps worth retaining
 
 | Evidence in today's tree | Why the builder should inspect it |
 | :--- | :--- |
-| [Cache relocation loader](../../internal/config/relocations.go) (`LoadCacheRelocations`) | Direct trusted-user-scope reads are the authority boundary; merged config and in-jail snapshots are not equivalent. Advice: reuse that loading shape, not its availability policy. |
-| [Durable directory launch handling](../../internal/cli/run/durabledir.go) | Fresh launch versus attach already has frozen-environment semantics. Its nonfatal allocation failure is not the proposed bulk policy. |
-| [Durable directory creation](../../internal/durable/durable.go) (`Ensure`) | Managed children are opened beneath a confined root, and links are refused rather than followed. Advice: inspect existing path helpers before inventing another walker. |
-| [Writable-source guard](../../internal/paths/workspacescope.go) (`WritableSourceScopeBreach`), [context mounts](../../internal/config/mounts.go) (`rwMountRefusal`) | Host scope overlap is resolved-path logic, not a string-prefix test. Call `rwMountRefusal`, which adds the workspace-overlap clause, rather than the scope predicate alone. The predicate's one exemption, the capture store, is a workspace's only and `WritableSourceScopeBreach` already omits it. `cache_relocations` runs neither, so it is not the precedent for this half. |
-| [Durable reporting](../../internal/durable/report.go) (`Measure`, `WalkBudget`) | Metadata-only reporting; the durable dir's launch line runs a time-budgeted size walk. Do not copy that walk into the bulk launch path, where it would spin up an idle HDD. |
-| [Per-workspace file](../../internal/config/workspacefile.go) | Resolved-path hashing and readable `<folder>-<hash>` naming already exist for one workspace's host-side state; reuse them for the child's name, and for the switch if [OQ-BS2](storage-tiers.md#OQ-BS2) rules B. |
-| [Cache relocation provisioning](../../internal/storage/ensure.go) (`EnsureCacheRelocations`) | The shipped missing-drive gap: parent-exists, then create the last component. A presence check ruled under [OQ-BS3](storage-tiers.md#OQ-BS3) should be one helper this caller can adopt too. |
-| [Storage-class briefing](durable-scratch-space.md#51-the-storage-class-map-and-the-briefing-section) | Storage guidance and emitted mounts must agree; core must not hardcode an agent name to introduce another destination. |
+| [Per-side shadows](../../internal/cli/run/mounts.go#L105-L148) (`venvShadowMountArgs`) | A jail-only part changes only the bind source this function picks. It skips a linked path today ([`mounts.go:116`](../../internal/cli/run/mounts.go#L116-L121)), and that skip has to stay for any link the tier step did not make. Its backing directories are made with `ensureBindSourceDir` beneath the workspace state; a tier directory needs the same no-follow creation beneath the tier root |
+| [Per-side set](../../internal/perside/perside.go) (`ShadowCandidates`, `ValidRel`) | The one authority on which parts are jail-only. Reuse `ValidRel` for rule paths and add the [§4.2](storage-tiers.md#42-what-may-be-a-part) refusals around it |
+| [Workspace-state operations beneath a root](../../internal/cli/run/wsstatebeneath.go) | The pattern for writing `.git/info/exclude` and laying links in a tree the jail can write |
+| [Writable-source guard](../../internal/paths/workspacescope.go) (`WritableSourceScopeBreach`), [rw-mount refusal](../../internal/config/mounts.go) (`rwMountRefusal`) | Resolved-path containment, and the either-direction workspace overlap clause |
+| [Cache relocation loader](../../internal/config/relocations.go) (`LoadCacheRelocations`) | Direct trusted user-scope reads; the merged config and in-jail snapshot are not equivalent. Reuse the loading shape, not its parent-exists availability policy ([`ensure.go`](../../internal/storage/ensure.go)) |
+| [Per-workspace file](../../internal/config/workspacefile.go) | Where `yolo tiers set` writes rules, and the `<folder>-<hash>` naming the workspace id reuses |
+| [Durable reporting](../../internal/durable/report.go) (`Measure`, `WalkBudget`) | The on-demand size walk for `yolo stores`. Never run it on the launch path, where it would spin up an idle HDD |
+| [macos-user links](../../internal/macosuser/ctxlinks.go) | The second delivery's precedent: links plus Seatbelt rules, and the `/Volumes` admission with a write probe |
+| The launch lock (`holdLaunchLock`) | The per-workspace tier lock must serialize launches and `yolo tiers` commands without being held across the container run |
 
 ## What waits on the rulings
 
-- [OQ-BS1](storage-tiers.md#OQ-BS1) controls whether the single-object schema is retained; do not add it to the config reference yet.
-- [OQ-BS2](storage-tiers.md#OQ-BS2) determines whether trusted per-workspace configuration needs a new switch and owner-facing command flow.
-- [OQ-BS3](storage-tiers.md#OQ-BS3) controls filesystem identity admission. The design's [identity table](storage-tiers.md#which-identity-a-non-root-launcher-can-read-on-linux) records what was measured: the generic UUID ioctl fails on btrfs, and a btrfs `stat` device number does not match mountinfo. Advice: resolve through `/proc/self/mountinfo` (statx's mount id matches its first field), then the mount source, then `/dev/disk/by-uuid` or `/sys/fs/btrfs`; measure ext4 and XFS before relying on the ioctl. Option C needs only the mountinfo step.
-- [OQ-BS4](storage-tiers.md#OQ-BS4) determines native backend work. Linux nested Podman forces user namespaces off; it cannot verify a real rootless ownership mapping. Mac delivery requires native evidence, not cross-compilation alone.
+- [OQ-BS2](storage-tiers.md#OQ-BS2) decides whether `storage_tiers` gains a defaults member and
+  whether the apply step reads two rule sources.
+- [OQ-BS3](storage-tiers.md#OQ-BS3) decides what `init` records. Advice for option A: find the
+  containing mount by statx mount id against `/proc/self/mountinfo`'s first field; record mount
+  point and filesystem type in host state under `~/.local/share/yolo-jail`, never in the jail-mounted
+  cache.
+- [OQ-BS4](storage-tiers.md#OQ-BS4) decides the macos-user work and whether rootful is refused.
+- [OQ-BS5](storage-tiers.md#OQ-BS5) decides whether jail-only parts ever get a host link. B needs
+  the mirror-path shadow measured in [Appendix A](storage-tiers.md#appendix-a-what-was-measured-in-this-jail) (A2b).
 
-## Complete before handoff
+## Complete before hand-off
 
-Re-read selected-source handling, launch/attach ordering, inventory, and briefing call sites after the rulings. Supply a bounded file map and tests that exercise the production caller, not only a standalone resolver. Include the missing-drive/underlying-filesystem case, workspace separation, restart survival, nondeletion, and real rootless permissions.
+Re-read the mount assembly order, the attach path, `yolo stores`, the reapers and the briefing's
+storage section after the rulings. Supply a bounded file map, and tests that exercise the production
+caller and not just a standalone resolver. Cover these cases: an unmounted disk at its mountpoint,
+a rewritten link that must not change a mount, a moved workspace, an interrupted move, the
+trailing-slash `.gitignore` case, and real rootless ownership. A nested jail cannot verify the
+last one.
 
-Advice: use fixture-sized writes for automated lifecycle tests; a genuinely large manual write proves capacity placement without forcing every CI job to allocate gigabytes. Documentation to reconcile includes the storage reference, agent briefing authority, supported-settings matrix, user storage guide, and config reference. Update release notes only when the behavior ships.
+Advice: use fixture-sized trees for the move tests. Documents to reconcile when it ships: the
+storage reference, the jail-home mount table, the briefing authority, the supported-settings
+matrix, the config reference and the user storage guide.

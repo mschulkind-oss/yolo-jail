@@ -159,9 +159,9 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
     extensions can share](../design/simultaneous-auth-and-pack-isolation.md#34-what-the-extension-cannot-close), [the shared tool store's relocation contract](../design/shared-tool-store-relocation.md)
     with [its build handoff](shared-tool-store-relocation.md), and, once item 11 records its cases, [context sources inside a
     home](../design/context-mounts.md).
-    Beside the storage rulings, [choose bulk scratch placement](../design/storage-tiers.md), with its
-    [implementation sketch](../design/storage-tiers-plan.md) — settle the capacity-storage contract before
-    widening storage abstractions; this does not move code or the existing durable directory.
+    Beside the storage rulings, [rule how one workspace splits across storage tiers](../design/storage-tiers.md), with its
+    [implementation sketch](../design/storage-tiers-plan.md) — the maintainer asked for it 2026-10-09, and its disk-presence
+    and backend calls are the same as the tool store's, so rule them together.
     Beside them, [isolate ordinary jail caches](../design/cache-isolation.md) — private warm state
     needs safe reclamation alongside it, not another unbounded storage surface.
 29. [Rule whether yolo may hold an editor preference](../design/baked-editor-preference.md) — the maintainer asked for

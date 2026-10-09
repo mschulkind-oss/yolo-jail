@@ -53,7 +53,7 @@ remain. Same-workspace untrusted sessions require a stronger scope choice.
 
 No new arbitrary writable host root, cache quota/size knob, forced active eviction,
 account-wide cleanup, credential reset or new administrative privilege is proposed.
-[Bulk scratch](storage-tiers.md), [shared-tool relocation](shared-tool-store-relocation.md)
+[Storage tiers](storage-tiers.md), [shared-tool relocation](shared-tool-store-relocation.md)
 and [VM-local volumes](vm-local-volumes.md) retain their independent rulings.
 
 ## 2. What exists, and what is missing
