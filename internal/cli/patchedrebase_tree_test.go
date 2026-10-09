@@ -14,24 +14,25 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
-// THE CONFLICT LINE'S OWN COMMAND, run as printed: `yolo pack update` names `yolo pack rebase
-// treepack/tool-ext` for the extension's conflict, and that command stops at the same conflict in
-// a clone of the extension's upstream, prints the export into the contributing pack's patches, and
-// writes nothing in the pack.
+// THE CONFLICT'S OWN REPAIR COMMAND, run as printed: `yolo pack update` fails on the extension's
+// conflict with PF-D81's error, whose Repair line names `yolo pack rebase treepack/tool-ext --onto
+// <the conflicting commit>`, and that command stops at the same conflict in a clone of the
+// extension's upstream, prints the export into the contributing pack's patches, and writes nothing
+// in the pack.
 func TestPackRebaseRebasesAPatchedExtensionsSeries(t *testing.T) {
 	fx := newTreeFixture(t, `"f.txt"`)
 	fx.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
 	v12 := fx.commit(t, "v1.2.0", map[int]string{14: "fourteen", 11: "eleven"})
 	packBefore := treeDigest(t, fx.treeDir)
-	_, upd, updErr := packVerb(t, "update")
-	const step = "rebase the series: "
-	i := strings.Index(upd, step)
-	if i < 0 {
-		t.Fatalf("update names no rebase for the extension's conflict:\n%s\n%s", upd, updErr)
+	rc, upd, updErr := packVerb(t, "update")
+	const step = "\n  Repair: "
+	i := strings.Index(updErr, step)
+	if rc != 1 || i < 0 || !strings.Contains(updErr, "ERROR: "+treeKeyCLI+": patch application failed at upstream v1.2.0 ("+v12+")") {
+		t.Fatalf("update rc=%d names no PF-D81 error and repair for the extension's conflict:\n%s\n%s", rc, upd, updErr)
 	}
-	printed := strings.TrimSpace(strings.SplitN(upd[i+len(step):], "\n", 2)[0])
-	if printed != "yolo pack rebase "+treeKeyCLI {
-		t.Fatalf("the conflict line names %q, want the extension's key", printed)
+	printed := strings.TrimSpace(strings.SplitN(updErr[i+len(step):], "\n", 2)[0])
+	if printed != "yolo pack rebase "+treeKeyCLI+" --onto "+v12 {
+		t.Fatalf("the repair line names %q, want the extension's key onto the conflicting commit", printed)
 	}
 	dir := filepath.Join(t.TempDir(), "ext clone")
 	args := append(strings.Fields(printed)[3:], "--into", dir)
@@ -43,7 +44,8 @@ func TestPackRebaseRebasesAPatchedExtensionsSeries(t *testing.T) {
 	patches := filepath.Join(fx.treeDir, "patches")
 	for _, w := range []string{
 		"checking extension " + treeKeyCLI + "'s upstream",
-		"extension " + treeKeyCLI + ": upstream v1.2.0 (" + shortSHA(v12) + ") does not take the patch series — " +
+		// --onto a commit names the target by its commit, as any --onto commit does.
+		"extension " + treeKeyCLI + ": upstream " + shortSHA(v12) + " does not take the patch series — " +
 			"the rebase stopped in " + dir,
 		"  0001-ten.patch conflicts in f.txt",
 		"    git -C " + q(dir) + " rebase --continue\n",

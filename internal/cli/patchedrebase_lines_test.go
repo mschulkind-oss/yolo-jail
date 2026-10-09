@@ -2,8 +2,8 @@ package cli
 
 // patchedrebase_lines_test.go pins each of `yolo pack rebase`'s lines at its call site (patchedrebase.go;
 // docs/design/patched-forks.md §8.4, PF-D47–PF-D49), so a line deleted or pointed at the wrong
-// version fails here: the `--onto` a conflict below the newest carries in the launch's walk and in
-// `yolo pack status`; a fetched fork pack at a tag, and one rebased twice, whose clone the second
+// version fails here: the `--onto` the launch's PF-D81 error names for the newest conflict, and the one
+// a conflict below the newest carries in `yolo pack status`; a fetched fork pack at a tag, and one rebased twice, whose clone the second
 // steps update; a series based past every version; a fetch that failed; the good build that already
 // runs a target; a second run on the same directory; and the next step of an unreadable config and
 // of a restart that cannot remove its clone.
@@ -21,25 +21,34 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
-// THE LAUNCH'S WALK NAMES THE REBASE ONTO THE ENTRY IT IS ABOUT: bare for the newest candidate, which
-// the verb takes with no --onto, and `--onto v1.2.0` for the conflict below it.
+// THE LAUNCH'S WALK NAMES THE REBASE ONTO THE ENTRY IT IS ABOUT: since PF-D81 the walk stops at the
+// newest candidate's conflict, so that entry, v1.3.0, is the one the error and its repair step name,
+// by its full commit — never v1.2.0 below it, which the walk does not reach, nor a build of v1.1.0,
+// the older fit no launch builds any more. (The name predates PF-D81 and is kept because PF-D49's
+// ledger row cites it: the conflict below the newest is what the walk must no longer reach.)
 func TestALaunchsWalkNamesTheRebaseOntoAConflictBelowTheNewest(t *testing.T) {
+	t.Setenv("YOLO_ALLOW_PATCH_FAILURES", "")
 	fx := newPatchedAdvanceFixture(t, "")
 	fx.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
-	fx.commit(t, "v1.2.0", map[int]string{14: "fourteen", 11: "eleven"})
-	fx.commit(t, "v1.3.0", map[int]string{14: "fourteen", 11: "eleven", 20: "twenty"})
-	_, out, _ := fx.launch(t, "podman")
-	for _, w := range []string{"upstream v1.3.0", "  rebase the series: yolo pack rebase forkpack/tool\n",
-		"upstream v1.2.0", "  rebase the series: yolo pack rebase forkpack/tool --onto v1.2.0\n"} {
+	v12 := fx.commit(t, "v1.2.0", map[int]string{14: "fourteen", 11: "eleven"})
+	v13 := fx.commit(t, "v1.3.0", map[int]string{14: "fourteen", 11: "eleven", 20: "twenty"})
+	r, out, _ := fx.launch(t, "podman")
+	for _, w := range []string{"ERROR: forkpack/tool: patch application failed at upstream v1.3.0 (" + v13 + ")\n",
+		"  Patch: 0001-ten.patch\n", "  Repair: yolo pack rebase forkpack/tool --onto " + v13 + "\n"} {
 		if !strings.Contains(out, w) {
 			t.Errorf("the launch's walk lacks %q:\n%s", w, out)
 		}
 	}
+	if strings.Contains(out, "v1.2.0") || strings.Contains(out, v12) || len(fx.builds) != 0 || r.delivery.Key != "" {
+		t.Errorf("the launch's walk went below the newest conflict (builds %d, handed %+v):\n%s", len(fx.builds), r.delivery, out)
+	}
 }
 
 // fetchedForkPack makes the fixture's fork pack a git repository, served bare, and points the user
-// config at it under ref; `yolo pack install` fetches it. It returns the repository's address as
-// the pack store normalizes it, and the bare repository.
+// config at it under ref; `yolo pack install` fetches it. The fixture's newest version does not take
+// the series, so install fetches the pack and then fails on PF-D81's patch-application error, which
+// must name the rebase these tests go on to run. It returns the repository's address as the pack
+// store normalizes it, and the bare repository.
 func fetchedForkPack(t *testing.T, f *patchedFixture, ref string) (repo, bare string) {
 	t.Helper()
 	upstreamGit(t, f.forkDir, "init", "-q", "-b", "main")
@@ -51,8 +60,10 @@ func fetchedForkPack(t *testing.T, f *patchedFixture, ref string) (repo, bare st
 	writeFile(t, filepath.Join(f.home, ".config", "yolo-jail", "config.jsonc"), `{"packs":[`+
 		`{"source":"file://`+filepath.Join(f.packs, "basepack")+`","name":"basepack"},`+
 		`{"source":"git+file://`+bare+`?ref=`+ref+`","name":"forkpack"}]}`)
-	if rc, out, errw := packVerb(t, "install"); rc != 0 && !strings.Contains(out, "does not take") {
-		t.Fatalf("install rc=%d\n%s\n%s", rc, out, errw)
+	if rc, out, errw := packVerb(t, "install"); rc != 0 && (!strings.Contains(errw,
+		"ERROR: forkpack/tool: patch application failed at upstream ") ||
+		!strings.Contains(errw, "  Repair: yolo pack rebase forkpack/tool --onto ")) {
+		t.Fatalf("install rc=%d, want 0 or PF-D81's error naming the rebase\n%s\n%s", rc, out, errw)
 	}
 	return "file://" + strings.TrimSuffix(bare, ".git"), bare
 }

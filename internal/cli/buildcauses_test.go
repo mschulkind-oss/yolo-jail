@@ -287,11 +287,15 @@ func TestAHeldBuildOnAppleContainerNamesItsLimit(t *testing.T) {
 	}
 }
 
-// A BUILD THAT LEAVES NOTHING SERVING AT A JAIL LAUNCH IS SAID BY THE LAUNCH, ONCE: a failed first
-// build and a series no upstream version takes leave their reason to the launch's refusal
-// (internal/cli/run's missingbuilds.go), which says it in full, so the act prints no line of its own
-// for it. Red with buildFailedLines' or noFit's warning printed at a jail launch with nothing serving.
+// A BUILD THAT LEAVES NOTHING SERVING AT A JAIL LAUNCH IS SAID ONCE: a failed first build leaves its
+// reason to the launch's refusal (internal/cli/run's missingbuilds.go), which says it in full, so the
+// act prints no line of its own for it. A series the held version does not take is a patch
+// application failure, which since PF-D81 the act says itself, once, in its prominent error with the
+// rebase as its repair, before the launch's refusal, and hands the launch the typed failure as said.
+// Red with buildFailedLines' or noFit's warning printed at a jail launch with nothing serving, or with
+// the patch failure's error block missing or repeated.
 func TestABuildThatLeavesNothingAtALaunchIsSaidOnceByTheLaunch(t *testing.T) {
+	t.Setenv("YOLO_ALLOW_PATCH_FAILURES", "")
 	fx := newPatchedAdvanceFixture(t, "")
 	fx.rc = 2
 	r, term := fx.launchReported(t)
@@ -303,12 +307,19 @@ func TestABuildThatLeavesNothingAtALaunchIsSaidOnceByTheLaunch(t *testing.T) {
 	}
 
 	fx = newPatchedAdvanceFixture(t, "")
-	fx.commit(t, "v1.2.0", map[int]string{11: "eleven"})
+	v12 := fx.commit(t, "v1.2.0", map[int]string{11: "eleven"})
 	fx.writeManifest(t, "v1.2.0", "")
 	r, term = fx.launchReported(t)
-	if r.delivery.Key != "" || !r.delivery.Unsaid || !strings.Contains(r.delivery.Reason, "`yolo pack rebase forkpack/tool`") {
-		t.Fatalf("the hold no version fits handed %+v, want its reason, naming the rebase, left to the launch\n%s",
-			r.delivery, term)
+	if r.delivery.Key != "" || r.delivery.Unsaid || r.delivery.PatchFailure == nil ||
+		r.delivery.PatchFailure.Target.Commit != v12 || len(fx.builds) != 0 {
+		t.Fatalf("the hold no version fits handed %+v after %d builds, want no build and the typed failure, said by the act\n%s",
+			r.delivery, len(fx.builds), term)
+	}
+	for _, w := range []string{"ERROR: forkpack/tool: patch application failed at upstream v1.2.0 (" + v12 + ")\n",
+		"  Repair: yolo pack rebase forkpack/tool --onto " + v12 + "\n", "  Bypass: YOLO_ALLOW_PATCH_FAILURES=1 yolo\n"} {
+		if n := strings.Count(term, w); n != 1 {
+			t.Errorf("the act said %q %d times, want once:\n%s", w, n, term)
+		}
 	}
 	if strings.Contains(term, "nothing to build —") {
 		t.Errorf("the act said there is nothing to build, which the launch's refusal says:\n%s", term)
