@@ -3,8 +3,8 @@ package cli
 // patchedseriescheck_test.go pins `yolo pack series check` (patchedseriescheck.go;
 // docs/design/patched-forks.md PF-D65) through the verb itself, against a real local upstream: in a
 // jail, with no pack store or check record of the host's, it reaches the verdict `yolo pack status`
-// reads on the host for the same series — the newest version that does not take it, the member and
-// the paths that stop it, and the newest fit below — and it writes nothing in the pack, nothing in
+// reads on the host for the same series — the newest version that does not take it, and the member
+// and the paths that stop it (PF-D81: no older fit is a launch's) — and it writes nothing in the pack, nothing in
 // the pack store, and leaves no scratch copy behind.
 
 import (
@@ -58,23 +58,30 @@ func noScratchLeft(t *testing.T, tmp string) {
 	}
 }
 
-// THE VERDICT `yolo pack status` READS: the host's update records the replays and its status reads
-// them back; in a jail, with nothing of the host's, the check reaches the same one — v1.2.0 does not
-// take 0001-ten.patch, which conflicts in f.txt, and v1.1.0 below it does — and names the rebase.
-// It writes nothing in the pack nor the host's pack store, and moves no check record.
+// THE VERDICT `yolo pack status` READS: the host's update records the replay and its status reads
+// it back; in a jail, with nothing of the host's, the check reaches the same one — v1.2.0 does not
+// take 0001-ten.patch, which conflicts in f.txt — and names the rebase. Since PF-D81 neither side
+// goes on to call v1.1.0 below it a fit: the host's update stops at the conflict, fatally, and the
+// check says a launch stops there too. It writes nothing in the pack nor the host's pack store, and
+// moves no check record.
 func TestSeriesCheckInAJailGivesTheVerdictPackStatusGivesOnTheHost(t *testing.T) {
 	f := newPatchedFixture(t, "")
 	v11 := f.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
 	v12 := f.commit(t, "v1.2.0", map[int]string{14: "fourteen", 11: "eleven"})
-	if rc, out, errw := packVerb(t, "update"); rc != 0 {
-		t.Fatalf("update rc=%d\n%s\n%s", rc, out, errw)
+	if rc, out, errw := packVerb(t, "update"); rc != 1 ||
+		!strings.Contains(errw, "ERROR: forkpack/tool: patch application failed at upstream v1.2.0 ("+v12+")") ||
+		!strings.Contains(errw, "  Repair: yolo pack rebase forkpack/tool --onto "+v12+"\n") {
+		t.Fatalf("update rc=%d, want 1 with PF-D81's error naming v1.2.0 and its rebase\n%s\n%s", rc, out, errw)
 	}
 	_, status, _ := packVerb(t, "status")
 	for _, w := range []string{"candidate: v1.2.0 (" + shortSHA(v12) + ")",
-		"does not take 0001-ten.patch (conflicts in f.txt)", "below it: v1.1.0 (" + shortSHA(v11) + ")", ": applies"} {
+		"does not take 0001-ten.patch (conflicts in f.txt) — `yolo pack rebase forkpack/tool` rebases the series"} {
 		if !strings.Contains(status, w) {
 			t.Fatalf("the host's status lacks %q:\n%s", w, status)
 		}
+	}
+	if strings.Contains(status, ": applies") {
+		t.Fatalf("the host's status names a fit below the conflict, which no launch builds since PF-D81:\n%s", status)
 	}
 	seq := patchedRecord(t).Seq
 	storeBefore, packBefore := treeDigest(t, paths.PacksDir()), treeDigest(t, f.forkDir)
@@ -89,11 +96,14 @@ func TestSeriesCheckInAJailGivesTheVerdictPackStatusGivesOnTheHost(t *testing.T)
 		"fork forkpack/tool: upstream v1.2.0 (" + shortSHA(v12) + ") does not take the patch series —",
 		"  0001-ten.patch conflicts in f.txt\n",
 		"  rebase the series: yolo pack rebase forkpack/tool --pack " + shquote.QuoteDisplay(f.forkDir) + " --onto v1.2.0\n",
-		"fork forkpack/tool: the newest fit, upstream v1.1.0 (" + shortSHA(v11) + "), takes the series (2 patches",
+		"a launch stops at this conflict and builds no older version or the series' base until the series is rebased",
 	} {
 		if !strings.Contains(out, w) {
 			t.Errorf("the check in a jail lacks %q:\n%s", w, out)
 		}
+	}
+	if strings.Contains(out, shortSHA(v11)) || strings.Contains(out, "takes the series") {
+		t.Errorf("the check in a jail names v1.1.0 below the conflict as a fit, which no launch builds since PF-D81:\n%s", out)
 	}
 	if got := patchedRecord(t).Seq; got != seq {
 		t.Errorf("the check in a jail moved the host's check record (seq %d after %d)", got, seq)
@@ -151,15 +161,16 @@ func TestSeriesCheckOntoChecksThatVersionAlone(t *testing.T) {
 	}
 }
 
-// NOTHING ON THE LIST TAKES IT: every version conflicts, said with what a launch then runs — with
-// no good build, the series' base, which the followed branch contains.
+// NOTHING ON THE LIST TAKES IT: the newest version conflicts, said with what a launch then does —
+// since PF-D81 it stops at that conflict, and builds neither an older version nor the series' base,
+// which the followed branch contains. Red with the verdict naming the base as what a launch builds.
 func TestSeriesCheckWithNoFitSaysWhatALaunchRuns(t *testing.T) {
 	f := newPatchedFixture(t, "")
 	upstreamGit(t, f.repo, "tag", "-d", "v1.0.0")
 	f.commit(t, "v1.1.0", map[int]string{11: "eleven"})
 	rc, out, errw := seriesVerb(t, "check", f.forkDir)
-	if rc != 1 || !strings.Contains(out, "no upstream version on the list takes the series — a launch keeps its "+
-		"good build running; with none, it builds the series' base "+shortSHA(f.base)) {
+	if rc != 1 || !strings.Contains(out, "a launch stops at this conflict and builds no older version or the "+
+		"series' base until the series is rebased") || strings.Contains(out, "it builds the series' base") {
 		t.Errorf("rc=%d\n%s\n%s", rc, out, errw)
 	}
 }

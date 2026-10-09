@@ -18,12 +18,12 @@ package cli
 //     rule, the follow rule and the walk's list. With no good build to cut it at, the list is the
 //     whole of it, as a machine's first advance reads it.
 //  3. THE WALK (packsrc.Store.WalkSeries), `yolo pack update`'s replay: the series applied at its
-//     base, then picked onto the list's entries newest first until one takes it; or onto --onto
-//     alone; or, with nothing on the list and the base on the branch, onto the base, which a first
-//     advance builds.
-//  4. THE VERDICT: the newest entry takes the series, or the member that stops it and its paths and
-//     the newest fit below it, each conflict naming the rebase that resolves it. Exit 0 when the
-//     newest entry (or --onto, or the base) takes the series, 1 otherwise.
+//     base, then picked onto the newest entry, stopping at its first conflict as a launch does since
+//     PF-D81; or onto --onto alone; or, with nothing on the list and the base on the branch, onto
+//     the base, which a first advance builds.
+//  4. THE VERDICT: the newest entry takes the series, or the member that stops it and its paths,
+//     naming the rebase that resolves it. Exit 0 when the newest entry (or --onto, or the base)
+//     takes the series, 1 otherwise.
 
 import (
 	"context"
@@ -288,11 +288,15 @@ func seriesCheckOne(ctx context.Context, pr richtext.Printer, errw io.Writer, f 
 			return 1
 		}
 	}
-	w := store.WalkSeries(repo, subdir, series, list, packsrc.WalkOptions{Timeout: packsrc.RebaseCloneTimeout})
+	// STOPS AT THE FIRST CONFLICT, as a launch's walk and `yolo pack update`'s do since PF-D81: a
+	// series the newest version does not take is a failed operation there, and no older fit or base
+	// is built, so naming one as what a launch builds would be a verdict no launch reaches.
+	w := store.WalkSeries(repo, subdir, series, list, packsrc.WalkOptions{Timeout: packsrc.RebaseCloneTimeout,
+		StopOnPatchFailure: true})
 	if ctx.Err() != nil {
 		return 130
 	}
-	lines, clean := seriesCheckReport(f, packDir, series, found.BaseOnBranch, w, atBase, onto)
+	lines, clean := seriesCheckReport(f, packDir, series, w, atBase, onto)
 	for _, line := range lines {
 		pr.Printf("%s", line)
 	}
@@ -303,10 +307,9 @@ func seriesCheckOne(ctx context.Context, pr richtext.Printer, errw io.Writer, f 
 }
 
 // seriesCheckReport is the verdict's lines for a walk, and whether the first entry it replayed —
-// the newest, --onto's, or the base — took the series. baseOnBranch is the check's answer to
-// whether the followed branch contains the series' base; atBase is a walk of the base alone; onto is
+// the newest, --onto's, or the base — took the series. atBase is a walk of the base alone; onto is
 // --onto's ref, "" for none, whose walk of its one commit says nothing about what a launch builds.
-func seriesCheckReport(f packload.Fork, packDir string, series *packsrc.Series, baseOnBranch bool, w packsrc.WalkResult,
+func seriesCheckReport(f packload.Fork, packDir string, series *packsrc.Series, w packsrc.WalkResult,
 	atBase bool, onto string) ([]string, bool) {
 	again := "`" + seriesCheckLine(packDir, onto) + "`"
 	warn := func(s string) []string {
@@ -358,12 +361,10 @@ func seriesCheckReport(f packload.Fork, packDir string, series *packsrc.Series, 
 		}
 	}
 	if onto == "" && w.Fit < 0 && len(w.Results) > 0 && w.Results[len(w.Results)-1].Err == nil {
-		without := "with none, it has nothing to build"
-		if baseOnBranch {
-			without = "with none, it builds the series' base " + shortSHA(series.Base)
-		}
-		lines = append(lines, warn("no upstream version on the list takes the series — a launch keeps its good "+
-			"build running; "+without)...)
+		// PF-D81: the conflict stops a launch; it neither keeps an older build as if nothing failed
+		// nor builds an older version or the series' base in its place.
+		lines = append(lines, warn("a launch stops at this conflict and builds no older version or the series' "+
+			"base until the series is rebased")...)
 	}
 	return lines, len(w.Results) > 0 && w.Results[0].Clean
 }
