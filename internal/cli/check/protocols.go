@@ -74,8 +74,22 @@ import (
 // composes the table the way that launch does and hands the gate the same unservable
 // adaptations, so on macos-user it predicts the refusal a bridged profile gets there
 // (notch convergence item 2: `yolo check` predicts per runtime).
+type protocolPrediction struct {
+	Packs     []*packload.Pack
+	Profiles  map[string]string
+	Sets      map[string][]string
+	Providers *jsonx.OrderedMap
+	Resolved  map[string]packload.ResolvedProfile
+	Presence  map[string]bool
+	Unserved  []packload.Adaptation
+	Ready     bool
+}
+
+// protocolPairingGap reports the launch's pairing and via gates, while exposing the same final
+// assembled inputs to other file-free predictions in the Packs section.
 func protocolPairingGap(packs []*packload.Pack, merged *jsonx.OrderedMap, served packload.ServedDaemons,
-	configWarn func(string), userProfiles func() (map[string]packload.UserProfile, error)) (errs []string, warns []string) {
+	configWarn func(string), userProfiles func() (map[string]packload.UserProfile, error),
+	prediction *protocolPrediction) (errs []string, warns []string) {
 	profiles := config.ConfigProfileTable(merged, packs)
 	if len(profiles) == 0 || len(packs) == 0 {
 		return nil, nil
@@ -86,8 +100,14 @@ func protocolPairingGap(packs []*packload.Pack, merged *jsonx.OrderedMap, served
 	// decides where inference goes). A read problem degrades to the packs' declared
 	// addresses there, so it degrades to them here too rather than changing the verdict.
 	addresses, _ := config.LoadAdapterAddresses(configWarn)
+	presence := map[string]bool{}
+	presenceOption := func(target map[string]bool) packload.ComposeOption {
+		return packload.WithModelListPresence(func(provider string, supplied bool) {
+			target[provider] = supplied
+		})
+	}
 	providers, unserved, err := packload.ComposeProvidersAt(subMap(merged, "providers"), packs,
-		addresses, served)
+		addresses, served, presenceOption(presence))
 	if err != nil {
 		return nil, []string{"Could not predict the protocol-pairing gate: the provider " +
 			"table did not compose (" + err.Error() + "). The launch will report this " +
@@ -131,9 +151,11 @@ func protocolPairingGap(packs []*packload.Pack, merged *jsonx.OrderedMap, served
 		}
 		if rerr == nil && len(names) > 0 {
 			served = served.Plus(packload.ServedByLaunch(names))
-			if p, u, cerr := packload.ComposeProvidersAt(subMap(merged, "providers"), packs, addresses, served); cerr == nil {
+			nextPresence := map[string]bool{}
+			if p, u, cerr := packload.ComposeProvidersAt(subMap(merged, "providers"), packs, addresses, served,
+				presenceOption(nextPresence)); cerr == nil {
 				if r, perr := packload.ResolveProfiles(packs, declared, p); perr == nil {
-					providers, unserved, resolved = p, u, r
+					providers, unserved, resolved, presence = p, u, r, nextPresence
 				}
 			}
 		}
@@ -150,6 +172,10 @@ func protocolPairingGap(packs []*packload.Pack, merged *jsonx.OrderedMap, served
 	// entry after the primary pairing as the primary does, the launch's refusals predicted in
 	// its words.
 	sets := packload.ProfileSets(config.ConfigProfileSets(merged, packs))
+	if prediction != nil {
+		*prediction = protocolPrediction{Packs: packs, Profiles: profiles, Sets: sets, Providers: providers,
+			Resolved: resolved, Presence: presence, Unserved: unserved, Ready: true}
+	}
 	for _, problem := range packload.ProfileSetProblems(packs, providers, sets, resolved) {
 		errs = append(errs, "This launch will be REFUSED: packs: "+problem)
 	}

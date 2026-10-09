@@ -194,3 +194,25 @@ func TestAForkBringsAShippedBase(t *testing.T) {
 		t.Errorf("an unshipped base: added %q, err %v; want nothing and no refusal here", addedNames(added), err)
 	}
 }
+
+// The check fact belongs to the base manifest, not the contribution whose delivery is
+// rewritten. Drive ApplyForks so the accessor is tested on the actual selected copy.
+func TestTheForkRewriteKeepsTheBaseModelListCheck(t *testing.T) {
+	base := richBase(t)
+	check := &packdecl.ModelListCheck{Rules: []packdecl.ModelListCheckRule{{Platform: "test-platform", Makers: []string{"maker"}}}}
+	base.Decl.ModelListChecks = map[string]*packdecl.ModelListCheck{"pi": check}
+	fork := claimPack(t, "pi-matt", forkContribution("pi", "pi"))
+	got, err := ApplyForks([]*Pack{base, fork})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selected, ok := got[0].Decl.ProgramModelListCheck("pi"); !ok || selected != check {
+		t.Fatalf("fork rewrite lost the base's check fact: (%+v, %t)", selected, ok)
+	}
+	if original, ok := base.Decl.ProgramModelListCheck("pi"); !ok || original != check || base.Decl.Contributes[0].ForkedBy != "" {
+		t.Fatal("fork rewrite mutated the original base")
+	}
+	if fact, ok := got[1].Decl.ProgramModelListCheck("pi"); ok || fact != nil {
+		t.Fatal("the fork claimed the base's check metadata")
+	}
+}

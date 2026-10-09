@@ -43,6 +43,44 @@ func modelListNotes(packs []*packload.Pack, merged *jsonx.OrderedMap) []string {
 	return notes
 }
 
+// emptyModelListReport names an opted-in selected program whose first reachable configured
+// profile sees a supplied list with no callable rows. Its input is the same notch-aware prediction
+// that drives protocolPairingGap, including the final via-resolved provider presence.
+func emptyModelListReport(r *reporter, prediction protocolPrediction) {
+	if !prediction.Ready {
+		return
+	}
+	for _, empty := range packload.EmptyModelLists(packload.EmptyModelListInput{
+		Packs: prediction.Packs, Providers: prediction.Providers, Profiles: prediction.Profiles,
+		Sets: prediction.Sets, Resolved: prediction.Resolved, Presence: prediction.Presence,
+	}) {
+		reason := "the supplied list is empty"
+		if empty.Reason == packload.EmptyModelListFiltered {
+			reason = "the supplied list's declared makers are all outside this program's callable set"
+		}
+		next := fmt.Sprintf("Add a callable alias under `providers.%s.models`", empty.Provider)
+		var onlyPacks []string
+		for _, p := range prediction.Packs {
+			if p == nil || p.Decl == nil {
+				continue
+			}
+			for _, c := range p.Decl.ModelsContributions() {
+				if c.Provider == empty.Provider && len(c.Only) > 0 {
+					onlyPacks = append(onlyPacks, p.Name)
+					break
+				}
+			}
+		}
+		if len(onlyPacks) > 0 {
+			next += ", or widen the `only` in pack " + strings.Join(onlyPacks, ", ") + " if it removed every callable entry"
+		}
+		r.warn(fmt.Sprintf("Model list: %s's supplied list for provider %q contributes no callable model (%s)",
+			empty.Program, empty.Provider, reason),
+			fmt.Sprintf("Profile %q governs %s here; the program is declared by pack %q. %s. %s. This list-only warning does not say the program lacks its own default or that a literal profile model cannot run",
+				empty.Profile, empty.Program, empty.Pack, reason, next))
+	}
+}
+
 // unnarrowedMenuReport is MM-D5's line (docs/design/model-lists-and-pickers.md: "opencode cannot
 // shape its menu without refusing, so with the switch off it gets no whitelist, and `yolo check`
 // says its menu is then not narrowed"; MM-D29 the mechanism): one WARNING per agent and provider

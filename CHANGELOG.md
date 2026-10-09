@@ -12,6 +12,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+**Warnings for empty model lists.** `yolo check` now points out supplied model lists that leave
+a selected program with no usable models and tells you which list to edit.
+See [the model-list check](docs/design/model-lists-and-pickers.md#74-the-empty-effective-list-check-decided-mechanism-2026-10-08).
+
 **Shorter fork disclosures.** A launch now names a fork's or built extension's build line by a
 short digest instead of printing it each time, and `yolo pack status <pack>/<name>` prints the
 line in full. See [the CLI reference](userguide/reference/cli-reference.md#packs).

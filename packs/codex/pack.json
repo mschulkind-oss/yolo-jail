@@ -1,4 +1,9 @@
 {
+  "model_list_check": {
+    "codex": {
+      "rules": [{"platform": "aws-bedrock", "makers": ["openai"]}]
+    }
+  },
   "contributes": [
     // Where each install hint's name came from, one line per manager, checked 2026-10-02.
     //   brew-cask: https://formulae.brew.sh/api/cask/codex.json (binary artifact bin/codex, linked as `codex`; there is no codex formula)

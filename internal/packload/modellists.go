@@ -45,6 +45,13 @@ func WithModelNotes(note func(string)) ComposeOption {
 	return func(o *composeOpts) { o.modelNote = note }
 }
 
+// WithModelListPresence asks ComposeProviders to report whether each surviving provider had a
+// model list supplied by a winning pack declaration, a models contribution, or the final user
+// layer. Presence is out of band: it does not add a key to the composed provider table.
+func WithModelListPresence(report func(provider string, supplied bool)) ComposeOption {
+	return func(o *composeOpts) { o.modelListPresence = report }
+}
+
 // shapedModels is one pack's `models` contribution with the pack that declared it.
 type shapedModels struct {
 	pack string
@@ -62,7 +69,8 @@ type shapedModels struct {
 // listed. The design text's literal "packs apply in `packs` order" would let a later add
 // re-open an earlier only; the implementation decision to apply the verbs in two passes is
 // recorded as MM-D11.
-func applyModelContributions(out, user *jsonx.OrderedMap, packs []*Pack, note func(string)) {
+func applyModelContributions(out, user *jsonx.OrderedMap, packs []*Pack, note func(string)) map[string]bool {
+	applied := map[string]bool{}
 	if note == nil {
 		note = func(string) {}
 	}
@@ -76,7 +84,7 @@ func applyModelContributions(out, user *jsonx.OrderedMap, packs []*Pack, note fu
 		}
 	}
 	if len(all) == 0 {
-		return
+		return applied
 	}
 	byProvider := map[string][]shapedModels{}
 	var providers []string
@@ -115,8 +123,10 @@ func applyModelContributions(out, user *jsonx.OrderedMap, packs []*Pack, note fu
 			entry = jsonx.NewOrderedMap()
 			out.Set(name, entry)
 		}
+		applied[name] = true
 		shapeProviderModels(name, entry, shapes, userModelIDs(user, name), note)
 	}
+	return applied
 }
 
 // shapeProviderModels applies one provider's `models` contributions to its entry.

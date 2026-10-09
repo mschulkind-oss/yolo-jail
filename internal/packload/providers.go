@@ -70,6 +70,7 @@ func ComposeProviders(user *jsonx.OrderedMap, packs []*Pack, opts ...ComposeOpti
 	}
 	out := jsonx.NewOrderedMap()
 	shipper := map[string]string{}
+	providerSupplied := map[string]bool{}
 	type shipped struct {
 		pack string
 		prov packdecl.ProviderContribution
@@ -87,16 +88,52 @@ func ComposeProviders(user *jsonx.OrderedMap, packs []*Pack, opts ...ComposeOpti
 		}
 		out.Set(s.prov.Name, shippedProviderEntry(s.prov))
 		shipper[s.prov.Name] = s.pack
+		providerSupplied[s.prov.Name] = s.prov.Models != nil
 	}
 	// THE `models` CONTRIBUTIONS, between the packs' own providers and the user's entries, so
 	// the engineer's own `providers.<name>.models` writes last (OQ-BR12; modellists.go).
-	applyModelContributions(out, user, packs, cfg.modelNote)
+	contributed := applyModelContributions(out, user, packs, cfg.modelNote)
+	for name := range contributed {
+		providerSupplied[name] = true
+	}
+	reportPresence := func() {
+		if cfg.modelListPresence == nil {
+			return
+		}
+		for _, name := range out.Keys() {
+			v, _ := out.Get(name)
+			entry, ok := v.(*jsonx.OrderedMap)
+			if !ok {
+				continue
+			}
+			supplied := providerSupplied[name]
+			if user != nil {
+				if raw, ok := user.Get(name); ok {
+					if userEntry, ok := raw.(*jsonx.OrderedMap); ok {
+						if models, has := userEntry.Get("models"); has {
+							// A final explicit null removes prior presence unless an `only` still
+							// marks the list as deliberately narrowed to nothing.
+							supplied = models != nil
+						}
+					}
+				}
+			}
+			if modelOnly, _ := entry.Get(ModelsOnlyKey); modelOnly == true {
+				supplied = true
+			}
+			if models, has := entry.Get("models"); has && models != nil {
+				supplied = true
+			}
+			cfg.modelListPresence(name, supplied)
+		}
+	}
 	if user == nil {
 		// The adapter pass runs on EVERY return, not only the one with a user layer: a
 		// launch whose providers are entirely pack-shipped is the common bridged case, and
 		// an early return that skipped it would leave exactly that launch unresolved.
 		liftModelFacts(out)
 		adaptEndpoints(out, packs, cfg)
+		reportPresence()
 		return orderedOrNil(out), nil
 	}
 	for _, name := range user.Keys() {
@@ -154,6 +191,7 @@ func ComposeProviders(user *jsonx.OrderedMap, packs []*Pack, opts ...ComposeOpti
 	// wins: an adapter fills a hole, and a user who wrote an address did not leave one.
 	liftModelFacts(out)
 	adaptEndpoints(out, packs, cfg)
+	reportPresence()
 	return orderedOrNil(out), nil
 }
 

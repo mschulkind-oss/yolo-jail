@@ -396,8 +396,10 @@ func (cfg composeOpts) adaptationServed(a Adaptation) bool {
 // them would resolve refuses with the reason (ScopeInput.UnservedAdaptations); nil where every
 // selected service runs.
 func ComposeProvidersAt(user *jsonx.OrderedMap, packs []*Pack, addresses map[string]string,
-	served ServedDaemons) (*jsonx.OrderedMap, []Adaptation, error) {
-	table, err := ComposeProviders(user, packs, WithAdapterAddresses(addresses), WithServed(served))
+	served ServedDaemons, opts ...ComposeOption) (*jsonx.OrderedMap, []Adaptation, error) {
+	composeOptions := append([]ComposeOption(nil), opts...)
+	composeOptions = append(composeOptions, WithAdapterAddresses(addresses), WithServed(served))
+	table, err := ComposeProviders(user, packs, composeOptions...)
 	if err != nil {
 		return nil, nil, err
 	}

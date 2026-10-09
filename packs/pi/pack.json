@@ -1,4 +1,7 @@
 {
+  "model_list_check": {
+    "pi": {}
+  },
   "contributes": [
     // Where each install hint's name came from, one line per manager, checked 2026-10-02.
     //   brew: https://formulae.brew.sh/api/formula/pi-coding-agent.json (bin/pi in its formula source)

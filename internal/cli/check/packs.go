@@ -263,7 +263,8 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 	// pairing, exactly as it does at launch. protocols.go states why this calls the
 	// launch's own gate instead of restating it.
 	served := o.predictedServed(merged, loaded)
-	pairErrs, pairWarns := protocolPairingGap(loaded, merged, served, r.configWarn, userProfiles)
+	var prediction protocolPrediction
+	pairErrs, pairWarns := protocolPairingGap(loaded, merged, served, r.configWarn, userProfiles, &prediction)
 	for _, e := range pairErrs {
 		r.fail(e, launchPredictionNote)
 	}
@@ -276,6 +277,7 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 	for _, w := range modelListNotes(loaded, merged) {
 		r.warn(w, modelListFixNote)
 	}
+	emptyModelListReport(r, prediction)
 	// Which of those lists a profile's `enforce_models` off leaves out of an agent's menu
 	// (docs/design/model-lists-and-pickers.md MM-D5, MM-D29): over the same selected set and the
 	// same composition, with the profiles resolved as the launch resolves them.

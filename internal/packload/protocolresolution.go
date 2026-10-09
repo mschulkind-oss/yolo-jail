@@ -103,6 +103,8 @@ type composeOpts struct {
 	servedSet bool
 	// modelNote receives what the `models` pass could not do as written (WithModelNotes).
 	modelNote func(string)
+	// modelListPresence receives one final supplied/absent fact per surviving provider.
+	modelListPresence func(provider string, supplied bool)
 }
 
 // ServiceAdaptations returns the conversions packs declare whose own pack serves them with a

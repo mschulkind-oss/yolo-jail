@@ -51,6 +51,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/json5"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/packs"
 )
 
@@ -234,6 +235,9 @@ func main() {
 			continue
 		}
 		out[name]["skipped"] = append(out[name]["skipped"], p.SkewNotes...)
+		for _, install := range p.Decl.InstallContributions() {
+			out[name]["programs"] = append(out[name]["programs"], install.Bin)
+		}
 		// The boot's surface pass, under both postures a render can select.
 		for _, autonomy := range []bool{true, false} {
 			_, surfaceProblems, _ := p.SurfacesForReport(autonomy)
@@ -301,6 +305,7 @@ func TestShippedPacksDecodeUnderTheLastRelease(t *testing.T) {
 		got := runReleaseProbe(t, probe, shipped, release)
 		var repairs []int
 		for pack, res := range got {
+
 			for _, note := range res["skipped"] {
 				if !skipped[note] {
 					skipped[note] = true
@@ -369,6 +374,145 @@ func TestShippedPacksDecodeUnderTheLastRelease(t *testing.T) {
 				"whose guard now describes nothing", b.pack, b.problem, release)
 		}
 	}
+	// Check the new metadata against the same real reader without it. A successful
+	// boot can still have silently lost a program, so compare identities explicitly.
+	withMetadata := runReleaseProbe(t, probe, shipped, release)
+	manifests := map[string]*packdecl.Manifest{}
+	for pack := range withMetadata {
+		raw, err := packs.FS.ReadFile(pack + "/pack.json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		manifest, problems := packdecl.Decode(raw)
+		if len(problems) != 0 {
+			t.Fatalf("current reader refused %s: %v", pack, problems)
+		}
+		manifests[pack] = manifest
+		if manifest.ModelListChecks != nil {
+			repairManifest(t, filepath.Join(shipped, pack), func(v any) any {
+				delete(v.(map[string]any), "model_list_check")
+				return v
+			})
+		}
+	}
+	baseline := runReleaseProbe(t, probe, shipped, release)
+	piBaselineGap := false
+	for pack, manifest := range manifests {
+		before, after := baseline[pack]["programs"], withMetadata[pack]["programs"]
+		if strings.Join(before, "\x00") != strings.Join(after, "\x00") {
+			t.Errorf("%s's program identities changed with metadata for %s: before=%v after=%v", release, pack, before, after)
+		}
+		for _, install := range manifest.InstallContributions() {
+			retained := false
+			for _, bin := range after {
+				retained = retained || bin == install.Bin
+			}
+			if retained {
+				continue
+			}
+			// Pi already carried a nested flag requirement the v0.12.1 reader
+			// cannot read. This is not a compatibility green for that program.
+			if release == "v0.12.1" && pack == "pi" && install.Bin == "pi" &&
+				strings.Contains(strings.Join(baseline[pack]["skipped"], "\n"), `unknown field "requires"`) {
+				piBaselineGap = true
+				t.Log("baseline residual: v0.12.1 drops Pi's unchanged launch_selection.requires both before and after metadata; five changed programs retained directly")
+			} else {
+				t.Errorf("%s lost pack %q's program %q (skips: %v)", release, pack, install.Bin, withMetadata[pack]["skipped"])
+			}
+		}
+	}
+	// Restore only the metadata we removed. Isolate Pi's existing requires
+	// incompatibility in this fixture, not its production manifest or flag policy.
+	for pack, manifest := range manifests {
+		if manifest.ModelListChecks != nil {
+			checks := manifest.ModelListChecks
+			repairManifest(t, filepath.Join(shipped, pack), func(v any) any {
+				v.(map[string]any)["model_list_check"] = checks
+				return v
+			})
+		}
+	}
+	if piBaselineGap {
+		repairManifest(t, filepath.Join(shipped, "pi"), func(v any) any {
+			top := v.(map[string]any)
+			for _, c := range top["contributes"].([]any) {
+				entry := c.(map[string]any)
+				if entry["kind"] != "program" || entry["bin"] != "pi" {
+					continue
+				}
+				selection := entry["launch_selection"].(map[string]any)
+				for _, flag := range selection["flags"].([]any) {
+					delete(flag.(map[string]any), "requires")
+				}
+			}
+			return v
+		})
+	}
+	isolated := runReleaseProbe(t, probe, shipped, release)
+	for pack, manifest := range manifests {
+		for _, install := range manifest.InstallContributions() {
+			retained := false
+			for _, bin := range isolated[pack]["programs"] {
+				retained = retained || bin == install.Bin
+			}
+			if !retained {
+				t.Errorf("isolated %s metadata fixture lost %s/%s: %v", release, pack, install.Bin, isolated[pack])
+			}
+		}
+	}
+	if piBaselineGap {
+		t.Log("fixture isolation: all six changed program identities retained with metadata after removing only Pi's unsupported nested flag requires")
+	}
+}
+
+// TestModelListCheckPackWideMetadataPreservesTheLastReleasesProgram contrasts the safe
+// location with the original unsafe program field, using the REAL last-release reader.
+func TestModelListCheckPackWideMetadataPreservesTheLastReleasesProgram(t *testing.T) {
+	root, release := lastRelease(t)
+	old := t.TempDir()
+	extractRelease(t, root, release, old)
+	probeDir := filepath.Join(old, "cmd", "yolo-release-decode-probe")
+	if err := os.MkdirAll(probeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(probeDir, "main.go"), []byte(releaseDecodeProbe), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	goBin, err := exec.LookPath("go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	probe := buildReleaseProbe(t, goBin, old, release)
+	tree := t.TempDir()
+	fixtures := map[string]string{
+		"safe":   `{"model_list_check":{"synthetic":{}},"contributes":[{"kind":"program","bin":"synthetic","via":"npm","package":"example/synthetic"}]}`,
+		"unsafe": `{"contributes":[{"kind":"program","bin":"synthetic","via":"npm","package":"example/synthetic","model_list_check":{}}]}`,
+	}
+	for name, raw := range fixtures {
+		dir := filepath.Join(tree, name)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(raw), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := runReleaseProbe(t, probe, tree, release)
+	for name, res := range got {
+		if len(res["problems"]) != 0 {
+			t.Errorf("%s refused %s: %v", release, name, res["problems"])
+		}
+	}
+	if programs := got["safe"]["programs"]; len(programs) != 1 || programs[0] != "synthetic" {
+		t.Fatalf("%s lost the safe fixture's program: %v", release, got["safe"])
+	}
+	if release == "v0.12.1" && !strings.Contains(strings.Join(got["safe"]["skipped"], "\n"), `unknown field "model_list_check" is ignored`) {
+		t.Fatalf("%s did not ignore the pack-wide metadata: %v", release, got["safe"])
+	}
+	if programs := got["unsafe"]["programs"]; len(programs) != 0 {
+		t.Fatalf("%s unexpectedly retained the unsafe program-field control: %v", release, got["unsafe"])
+	}
+	t.Logf("%s retained synthetic under pack-wide metadata; unsafe program field dropped it", release)
 }
 
 // buildReleaseProbe compiles releaseDecodeProbe inside the release tree at old and returns the

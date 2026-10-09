@@ -106,6 +106,13 @@ type Manifest struct {
 	// (WB-D9..D12), and what is validated here versus at resolution.
 	Needs []PackNeed `json:"needs,omitempty"`
 
+	// ModelListChecks is optional check-only metadata, keyed by this pack's own non-fork
+	// program bins (docs/design/model-lists-and-pickers.md MM-D41). An absent bin opts out;
+	// an empty object opts in without restricting makers. It is pack-wide so older use
+	// readers ignore the unknown field without dropping any program contribution. Read
+	// through ProgramModelListCheck; never projected into install or derive payloads.
+	ModelListChecks map[string]*ModelListCheck `json:"model_list_check,omitempty"`
+
 	// Contributes is the pack's effects: one list of typed contributions, each with
 	// an explicit `kind` from the closed set (see contributes.go / kinds.go). It
 	// each with an explicit kind from the closed core-owned set
@@ -854,6 +861,7 @@ func (m *Manifest) Validate() []string {
 	problems = append(problems, m.validateSupersedes()...)
 	problems = append(problems, m.validateNeeds()...)
 	problems = append(problems, m.validateContributions()...)
+	problems = append(problems, m.validateModelListChecks()...)
 	return append(problems, m.validateMCP()...)
 }
 

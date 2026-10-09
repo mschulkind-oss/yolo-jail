@@ -1,4 +1,7 @@
 {
+  "model_list_check": {
+    "oh-omp": {}
+  },
   "contributes": [
     {
       "bin": "oh-omp",
