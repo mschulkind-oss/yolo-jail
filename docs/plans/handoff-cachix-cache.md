@@ -1,8 +1,8 @@
 ---
 title: "Handoff — publish the prebuilt image to a Cachix cache"
-status: accepted
+status: accepted — Option A report split independently reviewed and verified offline; Apple silicon native Mac measurement remains UNMEASURED
 stage: BUILT
-next: "Decide whether the 13 to 15 darwin-system helper derivations a Mac builds locally are worth pushing (Proposed fix, option B, after a timed build); change TestMacImageSubstitutesFromCachix to report host-system builds apart from Linux builds (option A); run the human Final test on an Apple silicon Mac, which no CI job covers"
+next: "Run the human Final test on an Apple silicon Mac, which no CI job covers; decide whether the 13 to 15 darwin-system helper derivations a Mac builds locally are worth pushing (Proposed fix, option B, after a timed build)"
 ---
 
 # Handoff — publish the prebuilt image to a Cachix cache
@@ -13,14 +13,13 @@ image closures to yolo-jail.cachix.org` on both arches), and since `1006fe6d` (2
 macOS nightly pushes on every run as well (`.github/workflows/nightly-macos.yml`, the
 `build-image` and `push-arm-image-cache` jobs). MEASURED: CI pushes both Linux arches and
 substitutes the four this-repo-source paths back from the cache (run `31749547095`, below).
-UNMEASURED: the Mac-side download — no Mac, human or CI runner, has been shown substituting these
-paths rather than building them ("Final test" below). The instrument for it was written on
-2026-10-01 and has not run yet: `TestMacImageSubstitutesFromCachix`
+UNMEASURED: the human Final test on an Apple silicon Mac with its own clean store. The instrument
+for the macOS nightly was written on 2026-10-01: `TestMacImageSubstitutesFromCachix`
 ([`maccachixsubstitution_test.go`](../../integration/maccachixsubstitution_test.go)), which falls
-into one shard of the macOS nightly's computed partition. **It has run since** (2026-10-03, see
+into one shard of the computed partition. **It has run since** (2026-10-03, see
 [What the Mac nightly measured](#what-the-mac-nightly-measured-2026-10-03)): an Intel Mac fetches
 every Linux path the image needs and builds no Linux derivation; what it builds is 13 to 15 small
-darwin derivations that no CI job pushes.
+darwin derivations that no CI job pushes. That result is not the human Apple-silicon Final test.
 **Settled 2026-09-02 from the Actions log**, which closes the disagreement this doc
 carried against [`README.md`](README.md): README's *"CI has already pushed data"* was
 the correct sentence.
@@ -208,10 +207,11 @@ darwin host with nix, which makes it part of the macOS nightly's sharded run on 
 pushes for the shards (`["zbar"]`, `["libsodium.dev"]`) it runs `nix build --dry-run` of
 `.#ociImage` with `--accept-flake-config`, names each derivation nix would BUILD with its system,
 and asks `yolo-jail.cachix.org` for each path nix would FETCH (`<hash>.narinfo`; the URL is read
-from `flake.nix`'s `nixConfig`). It logs one `CACHIX <variant>:` line each (SUBSTITUTES, WOULD
-BUILD, NOTHING TO DO when an earlier test already realized it, or VOID when nix ignored the cache
-for an untrusted user) and builds nothing. A measurement: only a dry run that planned nothing
-fails it. It does not replace the run below, which is the one a user's own Mac makes.
+from `flake.nix`'s `nixConfig`). It logs separate host-system helper, Linux-image, and unknown-system
+build lists; only known Linux-image derivations are reported as requiring Linux builds. Cache hits
+remain aggregate counts across fetched paths. It builds nothing. A measurement: only a dry run that
+planned nothing fails it. Unknown derivation systems cannot produce a no-Linux-build verdict.
+It does not replace the run below, which is the one a user's own Mac makes.
 Its first result, from the 2026-10-03 nightly, is in
 [What the Mac nightly measured](#what-the-mac-nightly-measured-2026-10-03).
 

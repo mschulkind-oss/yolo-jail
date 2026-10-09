@@ -5,6 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"net/http"
 	"os"
 	"os/exec"
@@ -25,13 +28,12 @@ import (
 //
 // THE GAP. CI pushes the image closure to the project's Cachix cache on every nightly
 // (`build-image` for x86_64-linux, `push-arm-image-cache` for aarch64-linux) and on every
-// release, and CI on Linux has been seen substituting it back. No run has shown a MAC doing so:
-// the nightly's own comment says "no run has been instrumented to show a substitution rather
-// than a build", and TestExtraPackageLibFarm spending up to its 40-minute budget on the Intel
-// shards is the symptom it leaves unexplained. The archive-delivery job's realize phase
-// (macArchiveRealize) records fetched/built COUNTS for the images it builds; this test asks the
-// sharper question for the image variants the shards' own launches ask for, and names the cache
-// each fetched path would come from.
+// release, and CI on Linux has been seen substituting it back. The 2026-10-03 Intel Mac nightly
+// measured all Linux image paths fetched and no Linux derivation built; the Apple-silicon human
+// Final test remains unmeasured. The archive-delivery job's realize phase (macArchiveRealize)
+// records fetched/built COUNTS for the images it builds; this test asks the sharper question for
+// the image variants the shards' own launches ask for, and names the cache each fetched path
+// would come from.
 //
 // WHAT IT DOES, per variant, from the flake a launch resolves (macArchiveFlakeRoot):
 // `nix build --dry-run` of `.#ociImage` with YOLO_EXTRA_PACKAGES as the launch would set it,
@@ -48,12 +50,14 @@ import (
 // `["libsodium.dev"]`). A variant whose closure an earlier test in the same shard already
 // realized lists nothing, and the record says that this run cannot tell how it arrived.
 //
-// # A MEASUREMENT: every answer passes
+// # A MEASUREMENT: the Linux-builder verdict is separate from local Mac helpers
 //
-// One `CACHIX <variant> …` line per variant in the log and the step summary. What fails is the
-// instrument: a dry run that exits non-zero printing no plan, or a flake.nix with no
-// substituter to ask. Runs on any darwin host with nix; the nightly's shards are where it is
-// scheduled (it falls into one shard of the computed partition), and it builds nothing.
+// One `CACHIX <variant> …` line per variant in the log and the step summary. The report keeps
+// host-system helpers, Linux-image derivations, and unknown systems separate; only Linux-image
+// derivations count as a Linux-builder gap. A dry run that exits non-zero printing no plan, or a
+// flake.nix with no substituter to ask, still fails the instrument. Runs on any darwin host with
+// nix; the nightly's shards are where it is scheduled (it falls into one shard of the computed
+// partition), and it builds nothing.
 func TestMacImageSubstitutesFromCachix(t *testing.T) {
 	requireJail(t)
 	if goruntime.GOOS != "darwin" {
@@ -67,31 +71,18 @@ func TestMacImageSubstitutesFromCachix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NOTHING WAS MEASURED: %v", err)
 	}
-	rows := []string{
-		"### Does this Mac substitute the jail image from " + cache + "? (measurement only)",
-		"",
-		"| variant | would build | would fetch | of which from " + cache + " |",
-		"| :--- | :--- | :--- | :--- |",
+	variants := []cachixVariantSpec{
+		{label: "stock", pkgs: ""},
+		{label: "zbar", pkgs: `["zbar"]`},
+		{label: "libsodium.dev", pkgs: `["libsodium.dev"]`},
 	}
-	var verdicts []string
-	for _, v := range []struct{ label, pkgs string }{
-		{"stock", ""},
-		{"zbar", `["zbar"]`},
-		{"libsodium.dev", `["libsodium.dev"]`},
-	} {
-		plan, out := cachixDryRun(t, flake, v.pkgs)
-		if plan == nil {
-			t.Fatalf("CACHIX %s: `nix build --dry-run %s` printed no plan, so NOTHING WAS MEASURED "+
-				"for it:\n%s", v.label, image.ImageAttrDefault, lastLines(out, 30))
-		}
-		built := cachixDescribeBuilds(plan.build)
-		hits := cachixNarinfoHits(cache, plan.fetch)
-		rows = append(rows, fmt.Sprintf("| %s | %d: %s | %d | %d |",
-			v.label, len(plan.build), built, len(plan.fetch), hits))
-		verdicts = append(verdicts, "- "+cachixVerdict(v.label, plan, hits, cache))
+	_, err = cachixMeasureAndReport(variants, goruntime.GOOS, goruntime.GOARCH, cache,
+		func(pkgs string) (*nixDryRunPlan, string) { return cachixDryRun(t, flake, pkgs) },
+		nixDrvSystem, cachixNarinfoHits,
+		func(lines []string) { stepSummary(t, lines...) })
+	if err != nil {
+		t.Fatal(err)
 	}
-	stepSummary(t, append(append(rows, ""), append(verdicts, "",
-		"Record it in docs/plans/handoff-cachix-cache.md (its status line and the Final test).", "")...)...)
 }
 
 // nixDryRunPlan is what `nix build --dry-run` says it would do.
@@ -166,19 +157,6 @@ func flakeSubstituter(flakeNix string) (string, error) {
 		return "", fmt.Errorf("%s declares no extra-substituters, so there is no project cache to ask", flakeNix)
 	}
 	return strings.TrimRight(string(m[1]), "/"), nil
-}
-
-// cachixDescribeBuilds names each to-be-built derivation with its system, or "none".
-func cachixDescribeBuilds(drvs []string) string {
-	if len(drvs) == 0 {
-		return "none"
-	}
-	var out []string
-	for _, d := range drvs {
-		out = append(out, strings.TrimSuffix(nixStoreName(d), ".drv")+" ("+nixDrvSystem(d)+")")
-	}
-	sort.Strings(out)
-	return strings.Join(out, ", ")
 }
 
 // nixDrvSystem is a derivation's `system`, or "system unknown".
@@ -264,8 +242,113 @@ func cachixNarinfoHits(cache string, paths []string) int {
 	return hits
 }
 
-// cachixVerdict is the one line recorded per variant.
-func cachixVerdict(label string, plan *nixDryRunPlan, hits int, cache string) string {
+// cachixVariantMeasurement is one variant's report, with derivations classified from nix's
+// reported `system`. Cache hits intentionally remain an aggregate over fetched paths: the dry-run
+// path list alone does not carry a trustworthy platform association.
+type cachixVariantMeasurement struct {
+	label         string
+	hostBuilds    []string
+	linuxBuilds   []string
+	unknownBuilds []string
+	cacheHits     int
+	row           string
+	verdict       string
+}
+
+type cachixVariantSpec struct {
+	label string
+	pkgs  string
+}
+
+type cachixMeasurementReport struct {
+	variants []cachixVariantMeasurement
+	summary  []string
+}
+
+// cachixNixDarwinSystem translates the host runtime's GOARCH vocabulary to Nix's system
+// vocabulary. Unknown architectures remain unmatched instead of being guessed.
+func cachixNixDarwinSystem(goos, goarch string) string {
+	if goos != "darwin" {
+		return ""
+	}
+	var nixArch string
+	switch goarch {
+	case "arm64":
+		nixArch = "aarch64"
+	case "amd64":
+		nixArch = "x86_64"
+	default:
+		return ""
+	}
+	return nixArch + "-darwin"
+}
+
+// cachixMeasureAndReport is the complete production per-variant orchestration used by the Mac
+// test. The dry-run, derivation-system, cache-hit, and summary readers are injectable so offline
+// fixtures exercise the caller's classifications and delivered report without nix or HTTP.
+func cachixMeasureAndReport(variants []cachixVariantSpec, hostGOOS, hostGOARCH, cache string,
+	dryRun func(string) (*nixDryRunPlan, string), systemFor func(string) string,
+	narinfoHits func(string, []string) int, deliverSummary func([]string)) (*cachixMeasurementReport, error) {
+	report := &cachixMeasurementReport{}
+	rows := []string{
+		"### Does this Mac substitute the jail image from " + cache + "? (measurement only)",
+		"",
+		"| variant | host-system builds (local) | Linux-image builds | unknown-system builds | would fetch | from " + cache + " |",
+		"| :--- | :--- | :--- | :--- | :--- | :--- |",
+	}
+	verdicts := []string{}
+	hostSystem := cachixNixDarwinSystem(hostGOOS, hostGOARCH)
+	for _, variant := range variants {
+		plan, output := dryRun(variant.pkgs)
+		if plan == nil {
+			return nil, fmt.Errorf("CACHIX %s: `nix build --dry-run %s` printed no plan, so NOTHING WAS MEASURED "+
+				"for it:\n%s", variant.label, image.ImageAttrDefault, lastLines(output, 30))
+		}
+		measured := cachixMeasurePlan(variant.label, plan, hostSystem, cache, systemFor, narinfoHits)
+		report.variants = append(report.variants, *measured)
+		rows = append(rows, measured.row)
+		verdicts = append(verdicts, "- "+measured.verdict)
+	}
+	report.summary = append(append(rows, ""), append(verdicts,
+		"Record it in docs/plans/handoff-cachix-cache.md (its status line and the Final test).", "")...)
+	deliverSummary(report.summary)
+	return report, nil
+}
+
+func cachixMeasurePlan(label string, plan *nixDryRunPlan, hostSystem, cache string,
+	systemFor func(string) string, narinfoHits func(string, []string) int) *cachixVariantMeasurement {
+	measured := &cachixVariantMeasurement{label: label}
+	for _, drv := range plan.build {
+		system := systemFor(drv)
+		description := nixStoreName(drv) + " (" + system + ")"
+		switch {
+		case system != "" && system == hostSystem:
+			measured.hostBuilds = append(measured.hostBuilds, description)
+		case strings.HasSuffix(system, "-linux"):
+			measured.linuxBuilds = append(measured.linuxBuilds, description)
+		default:
+			measured.unknownBuilds = append(measured.unknownBuilds, description)
+		}
+	}
+	for _, group := range []*[]string{&measured.hostBuilds, &measured.linuxBuilds, &measured.unknownBuilds} {
+		sort.Strings(*group)
+	}
+	measured.cacheHits = narinfoHits(cache, plan.fetch)
+	measured.row = fmt.Sprintf("| %s | %s | %s | %s | %d | %d |",
+		label, cachixFormatBuilds(measured.hostBuilds), cachixFormatBuilds(measured.linuxBuilds),
+		cachixFormatBuilds(measured.unknownBuilds), len(plan.fetch), measured.cacheHits)
+	measured.verdict = cachixMeasurementVerdict(label, plan, *measured, cache)
+	return measured
+}
+
+func cachixFormatBuilds(builds []string) string {
+	if len(builds) == 0 {
+		return "none"
+	}
+	return fmt.Sprintf("%d: %s", len(builds), strings.Join(builds, ", "))
+}
+
+func cachixMeasurementVerdict(label string, plan *nixDryRunPlan, measured cachixVariantMeasurement, cache string) string {
 	switch {
 	case plan.ignored != "":
 		return fmt.Sprintf("CACHIX %s: VOID — nix ignored the project cache, so this plan never "+
@@ -274,13 +357,243 @@ func cachixVerdict(label string, plan *nixDryRunPlan, hits int, cache string) st
 	case len(plan.build) == 0 && len(plan.fetch) == 0:
 		return fmt.Sprintf("CACHIX %s: NOTHING TO DO — the closure is already in this Mac's store "+
 			"(an earlier test realized it), so this run cannot say whether it was fetched or built", label)
-	case len(plan.build) == 0:
-		return fmt.Sprintf("CACHIX %s: SUBSTITUTES — nothing would be built; %d of %d paths would "+
-			"be fetched from %s", label, hits, len(plan.fetch), cache)
+	case len(measured.unknownBuilds) != 0:
+		known := ""
+		if len(measured.linuxBuilds) != 0 {
+			known = fmt.Sprintf("; %d known Linux-image derivation(s) would build", len(measured.linuxBuilds))
+		}
+		return fmt.Sprintf("CACHIX %s: UNKNOWN DERIVATION SYSTEM — cannot classify %d build(s) as "+
+			"host-local or Linux-image derivations%s; %d of %d fetched paths come from %s",
+			label, len(measured.unknownBuilds), known, measured.cacheHits, len(plan.fetch), cache)
+	case len(measured.linuxBuilds) != 0:
+		return fmt.Sprintf("CACHIX %s: WOULD BUILD %d LINUX IMAGE DERIVATION(S); %d host-system "+
+			"helper(s) would build locally; %d of %d fetched paths come from %s", label,
+			len(measured.linuxBuilds), len(measured.hostBuilds), measured.cacheHits, len(plan.fetch), cache)
+	case len(measured.hostBuilds) != 0:
+		return fmt.Sprintf("CACHIX %s: NO LINUX BUILDS — %d host-system helper(s) would build locally; "+
+			"%d of %d fetched paths come from %s", label, len(measured.hostBuilds),
+			measured.cacheHits, len(plan.fetch), cache)
 	default:
-		return fmt.Sprintf("CACHIX %s: WOULD BUILD %d derivation(s) no substituter serves; %d of %d "+
-			"fetched paths come from %s", label, len(plan.build), hits, len(plan.fetch), cache)
+		return fmt.Sprintf("CACHIX %s: SUBSTITUTES — nothing would be built; %d of %d paths would "+
+			"be fetched from %s", label, measured.cacheHits, len(plan.fetch), cache)
 	}
+}
+
+func TestCachixMeasurementClassifiesPlansThroughProductionOrchestration(t *testing.T) {
+	cache := "https://cache.example"
+	variants := []cachixVariantSpec{
+		{label: "stock", pkgs: "stock-pkgs"},
+		{label: "zbar", pkgs: "zbar-pkgs"},
+		{label: "libsodium.dev", pkgs: "sodium-pkgs"},
+	}
+	for _, arch := range []struct{ goArch, nixArch string }{
+		{"arm64", "aarch64"},
+		{"amd64", "x86_64"},
+	} {
+		t.Run(arch.goArch, func(t *testing.T) {
+			darwinHelper := "/nix/store/host-helper.drv"
+			linuxImage := "/nix/store/linux-image.drv"
+			mixedHelper := "/nix/store/mixed-helper.drv"
+			mixedImage := "/nix/store/mixed-image.drv"
+			plans := map[string]*nixDryRunPlan{
+				"stock-pkgs":  {build: []string{darwinHelper}, fetch: []string{"/nix/store/fetch-a", "/nix/store/fetch-b"}},
+				"zbar-pkgs":   {build: []string{linuxImage}, fetch: []string{"/nix/store/fetch-c"}},
+				"sodium-pkgs": {build: []string{mixedHelper, mixedImage}, fetch: []string{"/nix/store/fetch-d", "/nix/store/fetch-e"}},
+			}
+			systems := map[string]string{
+				darwinHelper: arch.nixArch + "-darwin",
+				linuxImage:   "aarch64-linux",
+				mixedHelper:  arch.nixArch + "-darwin",
+				mixedImage:   "x86_64-linux",
+			}
+			var delivered [][]string
+			askedCache := ""
+			askedPathCount := 0
+			report, err := cachixMeasureAndReport(variants, "darwin", arch.goArch, cache,
+				func(pkgs string) (*nixDryRunPlan, string) { return plans[pkgs], "fixture output: " + pkgs },
+				func(drv string) string { return systems[drv] },
+				func(cache string, paths []string) int {
+					askedCache = cache
+					askedPathCount += len(paths)
+					return len(paths)
+				},
+				func(lines []string) { delivered = append(delivered, append([]string(nil), lines...)) })
+			if err != nil {
+				t.Fatal(err)
+			}
+			if askedCache != cache || askedPathCount != 5 {
+				t.Errorf("aggregate cache-hit reader queried %s and %d paths; want %s and 5 total fetched paths",
+					askedCache, askedPathCount, cache)
+			}
+			if len(report.variants) != 3 || len(delivered) != 1 || !sameStrings(delivered[0], report.summary) {
+				t.Fatalf("report variants=%d, summary deliveries=%v, want all three variants delivered once",
+					len(report.variants), delivered)
+			}
+			want := []struct {
+				label                      string
+				host, linux, unknown, hits int
+				verdict                    string
+			}{
+				{"stock", 1, 0, 0, 2, "NO LINUX BUILDS"},
+				{"zbar", 0, 1, 0, 1, "WOULD BUILD 1 LINUX IMAGE DERIVATION"},
+				{"libsodium.dev", 1, 1, 0, 2, "WOULD BUILD 1 LINUX IMAGE DERIVATION"},
+			}
+			for i, expected := range want {
+				got := report.variants[i]
+				if got.label != expected.label || len(got.hostBuilds) != expected.host ||
+					len(got.linuxBuilds) != expected.linux || len(got.unknownBuilds) != expected.unknown ||
+					got.cacheHits != expected.hits || !strings.Contains(got.verdict, expected.verdict) {
+					t.Errorf("variant report[%d] = %+v, want label/classification/hits/verdict %s/%d/%d/%d/%d/%s",
+						i, got, expected.label, expected.host, expected.linux, expected.unknown, expected.hits, expected.verdict)
+				}
+			}
+			if len(report.summary) < 11 || report.summary[4] != report.variants[0].row ||
+				report.summary[5] != report.variants[1].row || report.summary[6] != report.variants[2].row ||
+				report.summary[8] != "- "+report.variants[0].verdict ||
+				report.summary[9] != "- "+report.variants[1].verdict ||
+				report.summary[10] != "- "+report.variants[2].verdict {
+				t.Errorf("summary rows/verdicts do not contain structured reports: %v", report.summary)
+			}
+		})
+	}
+}
+
+func TestCachixUnknownSystemsAndExistingPlanVerdictsThroughOrchestration(t *testing.T) {
+	variants := []cachixVariantSpec{
+		{label: "unknown", pkgs: "unknown"},
+		{label: "untrusted", pkgs: "untrusted"},
+		{label: "empty", pkgs: "empty"},
+	}
+	plans := map[string]*nixDryRunPlan{
+		"unknown":   {build: []string{"/nix/store/no-system.drv"}, fetch: []string{"/nix/store/fetched"}},
+		"untrusted": {build: []string{"/nix/store/host-helper.drv"}, ignored: "ignoring untrusted substituter"},
+		"empty":     {},
+	}
+	var delivered [][]string
+	report, err := cachixMeasureAndReport(variants, "darwin", "arm64", "https://cache.example",
+		func(pkgs string) (*nixDryRunPlan, string) { return plans[pkgs], "fixture" },
+		func(drv string) string {
+			if drv == "/nix/store/host-helper.drv" {
+				return "aarch64-darwin"
+			}
+			return ""
+		}, func(_ string, paths []string) int { return len(paths) },
+		func(lines []string) { delivered = append(delivered, append([]string(nil), lines...)) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	unknown := report.variants[0]
+	if len(unknown.unknownBuilds) != 1 || strings.Contains(unknown.verdict, "NO LINUX BUILDS") ||
+		strings.Contains(unknown.verdict, "SUBSTITUTES") {
+		t.Errorf("unknown system was silently green: %+v", unknown)
+	}
+	if !strings.Contains(report.variants[1].verdict, "VOID") || !strings.Contains(report.variants[2].verdict, "NOTHING TO DO") {
+		t.Errorf("untrusted/empty plan verdicts changed: %+v", report.variants)
+	}
+	if len(delivered) != 1 || !sameStrings(delivered[0], report.summary) {
+		t.Errorf("summary delivery = %v, want the report's complete lines", delivered)
+	}
+	calledSummary := false
+	_, err = cachixMeasureAndReport([]cachixVariantSpec{{label: "missing", pkgs: "missing"}},
+		"darwin", "arm64", "https://cache.example",
+		func(string) (*nixDryRunPlan, string) { return nil, "failed dry-run fixture" },
+		func(string) string { return "" }, func(string, []string) int { return 0 },
+		func([]string) { calledSummary = true })
+	if err == nil || !strings.Contains(err.Error(), "NOTHING WAS MEASURED") || calledSummary {
+		t.Errorf("missing plan error=%v summary delivered=%v; want measurement failure and no summary", err, calledSummary)
+	}
+}
+
+func TestCachixUnknownGoArchitectureIsNotGuessed(t *testing.T) {
+	var reportSummary []string
+	report, err := cachixMeasureAndReport([]cachixVariantSpec{
+		{label: "known Nix system", pkgs: "fixture"},
+		{label: "missing Nix system", pkgs: "missing-system"},
+	},
+		"darwin", "mystery", "https://cache.example",
+		func(pkgs string) (*nixDryRunPlan, string) {
+			if pkgs == "missing-system" {
+				return &nixDryRunPlan{build: []string{"/nix/store/missing-system.drv"}}, "fixture"
+			}
+			return &nixDryRunPlan{build: []string{"/nix/store/arm-helper.drv"}}, "fixture"
+		}, func(drv string) string {
+			if drv == "/nix/store/missing-system.drv" {
+				return ""
+			}
+			return "aarch64-darwin"
+		}, func(string, []string) int { return 0 },
+		func(lines []string) { reportSummary = append([]string(nil), lines...) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, got := range report.variants {
+		if len(got.hostBuilds) != 0 || len(got.linuxBuilds) != 0 || len(got.unknownBuilds) != 1 ||
+			!strings.Contains(got.verdict, "UNKNOWN DERIVATION SYSTEM") ||
+			strings.Contains(got.verdict, "NO LINUX BUILDS") {
+			t.Errorf("unknown Go architecture or missing Nix system was guessed as host-local: %+v", got)
+		}
+	}
+	if !sameStrings(reportSummary, report.summary) {
+		t.Errorf("unknown architectures/systems were not included in summary: %v", reportSummary)
+	}
+}
+
+func TestMacImageSubstitutesFromCachixPinsProductionOrchestrationCall(t *testing.T) {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "maccachixsubstitution_test.go", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var foundOrchestration, foundSummary, foundGOOS, foundGOARCH bool
+	ast.Inspect(file, func(n ast.Node) bool {
+		fn, ok := n.(*ast.FuncDecl)
+		if !ok || fn.Name.Name != "TestMacImageSubstitutesFromCachix" || fn.Body == nil {
+			return true
+		}
+		ast.Inspect(fn.Body, func(m ast.Node) bool {
+			call, ok := m.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			if id, ok := call.Fun.(*ast.Ident); ok && id.Name == "cachixMeasureAndReport" {
+				foundOrchestration = true
+				if len(call.Args) > 2 {
+					foundGOOS = isRuntimeSelector(call.Args[1], "GOOS")
+					foundGOARCH = isRuntimeSelector(call.Args[2], "GOARCH")
+				}
+			}
+			if id, ok := call.Fun.(*ast.Ident); ok && id.Name == "stepSummary" {
+				foundSummary = true
+			}
+			return true
+		})
+		return false
+	})
+	if !foundOrchestration || !foundSummary || !foundGOOS || !foundGOARCH {
+		t.Errorf("Mac measurement wrapper orchestration pin: call=%v stepSummary=%v GOOS=%v GOARCH=%v; want actual orchestration, runtime platform inputs, and summary delivery",
+			foundOrchestration, foundSummary, foundGOOS, foundGOARCH)
+	}
+}
+
+func isRuntimeSelector(node ast.Node, name string) bool {
+	selector, ok := node.(*ast.SelectorExpr)
+	if !ok || selector.Sel.Name != name {
+		return false
+	}
+	pkg, ok := selector.X.(*ast.Ident)
+	return ok && pkg.Name == "goruntime"
+}
+
+func sameStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // TestMacImageSubstitutesFromCachixParsesNixsPlan is the -short check of the parts that need no
@@ -314,8 +627,9 @@ func TestMacImageSubstitutesFromCachixParsesNixsPlan(t *testing.T) {
 	if !ok || untrusted.ignored == "" || len(untrusted.build) != 1 {
 		t.Errorf("an untrusted user's plan did not record the ignored cache: %+v", untrusted)
 	}
-	if got := cachixVerdict("stock", untrusted, 0, "https://yolo-jail.cachix.org"); !strings.Contains(got, "VOID") {
-		t.Errorf("a plan that never asked the cache is not VOID: %s", got)
+	if got := cachixMeasurePlan("stock", untrusted, "aarch64-darwin", "https://yolo-jail.cachix.org",
+		func(string) string { return "aarch64-darwin" }, func(string, []string) int { return 0 }); !strings.Contains(got.verdict, "VOID") {
+		t.Errorf("a plan that never asked the cache is not VOID: %+v", got)
 	}
 	if _, ok := parseNixDryRun("error: flake 'path:.' does not provide attribute", true); ok {
 		t.Error("a failed dry run with no plan parsed as a plan with nothing to do")
@@ -345,12 +659,14 @@ func TestMacImageSubstitutesFromCachixParsesNixsPlan(t *testing.T) {
 		}
 	}
 	for want, p := range map[string]*nixDryRunPlan{
-		"NOTHING TO DO": {},
-		"SUBSTITUTES":   {fetch: []string{"/nix/store/a-x"}},
-		"WOULD BUILD 1": {build: []string{"/nix/store/b-y.drv"}},
+		"NOTHING TO DO":                        {},
+		"SUBSTITUTES":                          {fetch: []string{"/nix/store/a-x"}},
+		"WOULD BUILD 1 LINUX IMAGE DERIVATION": {build: []string{"/nix/store/b-y.drv"}},
 	} {
-		if got := cachixVerdict("stock", p, 0, cache); !strings.Contains(got, want) {
-			t.Errorf("cachixVerdict(%+v) = %q, want it to say %q", p, got, want)
+		got := cachixMeasurePlan("stock", p, "aarch64-darwin", cache,
+			func(string) string { return "aarch64-linux" }, func(string, []string) int { return 0 })
+		if !strings.Contains(got.verdict, want) {
+			t.Errorf("measurement verdict for %+v = %+v, want it to say %q", p, got, want)
 		}
 	}
 }
