@@ -459,6 +459,68 @@ func TestPackFilesDistinctDestsDoNotCollide(t *testing.T) {
 	}
 }
 
+// Nested `into` paths must collide — a `files` destination mounted :ro over a directory
+// prevents a nested destination inside it (runc EROFS at container init).
+func TestPackFilesNestedDestinationsNamesBothPacks(t *testing.T) {
+	parent := filesPack(t, "claude-fzf", "bin", ".claude/bin", map[string]string{"file-suggestion.sh": "x\n"})
+	child := filesPack(t, "matt", "files", ".claude/bin/statusline.sh", nil)
+
+	conflicts := packDestConflicts([]*packload.Pack{parent, child}, packdecl.KindFiles)
+	if len(conflicts) != 1 {
+		t.Fatalf("want exactly one conflict for nested `into`, got %d: %v", len(conflicts), conflicts)
+	}
+	msg := conflicts[0]
+	for _, want := range []string{"claude-fzf", "matt", ".claude/bin", ".claude/bin/statusline.sh", "read-only"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("conflict message missing %q; got:\n%s", want, msg)
+		}
+	}
+}
+
+// A single pack declaring both a directory and a path inside it is the same fatal nested mount.
+func TestPackFilesNestedDestinationsWithinOnePack(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "bin", "tool.sh"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"name":"greedy","contributes":[` +
+		`{"kind":"files","from":"bin","into":".tools"},` +
+		`{"kind":"files","from":"bin/tool.sh","into":".tools/nested.sh"}]}`
+	if err := os.WriteFile(filepath.Join(root, "pack.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, problems := packload.LoadDir(root, "greedy")
+	if len(problems) != 0 {
+		t.Fatalf("loading greedy pack: %v", problems)
+	}
+
+	conflicts := packDestConflicts([]*packload.Pack{p}, packdecl.KindFiles)
+	if len(conflicts) != 1 {
+		t.Fatalf("want one conflict, got %d: %v", len(conflicts), conflicts)
+	}
+	if !strings.Contains(conflicts[0], "greedy") || strings.Contains(conflicts[0], "packs ") {
+		t.Errorf("a one-pack self-collision must name that pack without implying a second; got:\n%s", conflicts[0])
+	}
+	for _, want := range []string{".tools", ".tools/nested.sh", "read-only"} {
+		if !strings.Contains(conflicts[0], want) {
+			t.Errorf("conflict message missing %q; got:\n%s", want, conflicts[0])
+		}
+	}
+}
+
+// Two sibling files inside the same directory must NOT collide.
+func TestPackFilesSiblingFilesDoNotCollide(t *testing.T) {
+	a := filesPack(t, "fzf", "bin/fzf.sh", ".claude/bin/fzf.sh", nil)
+	b := filesPack(t, "statusline", "statusline.sh", ".claude/bin/statusline.sh", nil)
+
+	if conflicts := packDestConflicts([]*packload.Pack{a, b}, packdecl.KindFiles); len(conflicts) != 0 {
+		t.Errorf("sibling files inside the same directory must not collide; got: %v", conflicts)
+	}
+}
+
 // The check is keyed on a KIND so it can be reused, and it must NOT be silently applied to
 // skills: two `skills` contributions sharing an `into` is the same podman failure but a
 // DIFFERENT bug (skills are a designed merge, so the fix is mount dedup, not a collision
@@ -516,6 +578,46 @@ func TestStagePacksRefusesFilesCollision(t *testing.T) {
 			"podman would otherwise reject the second bind with an error naming neither pack")
 	}
 	for _, want := range []string{"alpha", "beta", ".shared/tree"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("stagePacks error missing %q; got: %v", want, err)
+		}
+	}
+}
+
+// Nested files destinations across packs must fail launch pre-flight before podman is invoked.
+func TestStagePacksRefusesNestedFilesCollision(t *testing.T) {
+	home := packHome(t)
+
+	fzfDir := filepath.Join(t.TempDir(), "fzf")
+	if err := os.MkdirAll(filepath.Join(fzfDir, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fzfDir, "bin", "fzf.sh"), []byte("fzf"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fzfDir, "pack.json"), []byte(`{"name":"fzf","contributes":[{"kind":"files","from":"bin","into":".claude/bin"}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	statusDir := filepath.Join(t.TempDir(), "statusline")
+	if err := os.MkdirAll(filepath.Join(statusDir, "files"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(statusDir, "files", "statusline.sh"), []byte("status"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(statusDir, "pack.json"), []byte(`{"name":"statusline","contributes":[{"kind":"files","from":"files/statusline.sh","into":".claude/bin/statusline.sh"}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	writeUserPacks(t, home, `["file://`+fzfDir+`", "file://`+statusDir+`"]`)
+
+	o := &Options{Workspace: t.TempDir()}
+	_, _, _, err := o.stagePacks("yolo-test-nested-files-collide")
+	if err == nil {
+		t.Fatal("nested files destinations must fail launch pre-flight before podman is invoked")
+	}
+	for _, want := range []string{"fzf", "statusline", ".claude/bin", ".claude/bin/statusline.sh"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("stagePacks error missing %q; got: %v", want, err)
 		}

@@ -26,8 +26,10 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	_ "github.com/mschulkind-oss/yolo-jail/internal/packreg" // registers the embedded packs with packload
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
@@ -247,6 +249,16 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 	for _, c := range packload.AgentNameCollisions(loaded) {
 		r.fail("agent name "+c.Target+" has more than one owning pack",
 			"packs "+strings.Join(c.Packs, ", ")+" — "+c.Reason+"\n"+keepOneNote())
+	}
+
+	// Pack destination exclusivity (KindFiles) — exact duplicate destinations and nested claims.
+	// FATAL here for the same reason the launch refuses it: reporting it as a warning would mean
+	// `yolo check` passing on a config that cannot start a jail.
+	for _, c := range run.PackDestConflicts(loaded, packdecl.KindFiles) {
+		r.fail("pack files collision", c+"\n"+keepOneNote())
+	}
+	for _, s := range run.PackFilesShadowedSurfaces(loaded) {
+		r.fail("pack files shadows a config surface", s)
 	}
 
 	// A `files` tree landing in a slot whose `expects` it misses, over the same selected set. A

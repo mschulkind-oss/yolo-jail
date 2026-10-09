@@ -672,8 +672,9 @@ func packFilesSkeletonEntries(packs []*packload.Pack, trees map[string]string) (
 	return dirs, files
 }
 
-// packDestConflicts reports every home destination that more than one contribution of
-// this kind claims, naming the packs involved.
+// PackDestConflicts reports every home destination that more than one contribution of
+// this kind claims, or where one contribution's destination nests inside another, naming
+// the packs involved.
 //
 // THE POINT is which error the user sees. The assembler emits one bind per contribution
 // with no dedup by destination, so two claims on one `into` reach podman as "duplicate
@@ -682,12 +683,19 @@ func packFilesSkeletonEntries(packs []*packload.Pack, trees map[string]string) (
 // claimant is ALREADY a footprint violation — so it is reported here, before the
 // container exists, with both pack names in the message.
 //
+// A nested destination (e.g. one pack claiming ~/.claude/bin and another claiming
+// ~/.claude/bin/statusline.sh) is the second sharp edge: because `files` is a read-only
+// bind mount over its whole destination, mounting a nested path inside it causes runc to
+// fail at container init with a cryptic "openat: read-only file system" error when trying to
+// create the nested mountpoint. Reported here with advice on narrowing directory claims to
+// individual files so multiple packs can deliver scripts into shared directories.
+//
 // Keyed on a KIND so the check is reusable, but only `files` is wired to it today. The
 // identical podman failure exists for two `skills` contributions sharing an `into`, and
 // there it is a DIFFERENT bug: skills are a designed merge, so the fix is mount dedup,
 // not a collision error. Deliberately out of scope (plan OQ-C,
 // project_pack_tooling_gaps).
-func packDestConflicts(packs []*packload.Pack, kind packdecl.Kind) []string {
+func PackDestConflicts(packs []*packload.Pack, kind packdecl.Kind) []string {
 	// Claim count and claimant set per destination, keeping first-seen order so the
 	// report is deterministic.
 	type claim struct {
@@ -699,14 +707,18 @@ func packDestConflicts(packs []*packload.Pack, kind packdecl.Kind) []string {
 	var order []string
 	for _, p := range packs {
 		for _, c := range p.Decl.Contributions() {
-			if c.Kind != kind || c.Into == "" {
+			if c.Kind != kind || c.Into == "" || c.Agent != "" {
 				continue
 			}
-			cl := byDest[c.Into]
+			cleanDest := strings.Trim(filepath.Clean(filepath.ToSlash(c.Into)), "/")
+			if cleanDest == "." || cleanDest == "" {
+				continue
+			}
+			cl := byDest[cleanDest]
 			if cl == nil {
 				cl = &claim{seen: map[string]struct{}{}}
-				byDest[c.Into] = cl
-				order = append(order, c.Into)
+				byDest[cleanDest] = cl
+				order = append(order, cleanDest)
 			}
 			cl.count++
 			if _, dup := cl.seen[p.Name]; !dup {
@@ -737,7 +749,50 @@ func packDestConflicts(packs []*packload.Pack, kind packdecl.Kind) []string {
 				"error. Give them different `into` paths, or drop one.",
 			who, dest, kind))
 	}
+
+	// Nested destinations: a mount inside a read-only bind fails at boot during container
+	// init (runc EROFS) because the runtime cannot create mountpoints inside a :ro filesystem.
+	for _, parent := range order {
+		parentDir := strings.TrimSuffix(parent, "/") + "/"
+		for _, child := range order {
+			if parent == child || !strings.HasPrefix(child, parentDir) {
+				continue
+			}
+			parentPacks := append([]string(nil), byDest[parent].packs...)
+			sort.Strings(parentPacks)
+			childPacks := append([]string(nil), byDest[child].packs...)
+			sort.Strings(childPacks)
+
+			var who string
+			if len(parentPacks) == 1 && len(childPacks) == 1 && parentPacks[0] == childPacks[0] {
+				who = fmt.Sprintf("pack %s declares a %q contribution at ~/%s and another at ~/%s, inside it",
+					parentPacks[0], kind, parent, child)
+			} else {
+				who = fmt.Sprintf("pack %s claims ~/%s as a %q tree, and pack %s claims ~/%s, inside it",
+					strings.Join(parentPacks, " and "), parent, kind,
+					strings.Join(childPacks, " and "), child)
+			}
+			out = append(out, fmt.Sprintf(
+				"%s — %s is sole-owned (mounted read-only), and nesting a mount inside it fails "+
+					"the container at boot with a read-only file system error. If delivering individual "+
+					"scripts (such as into ~/.claude/bin), narrow directory claims to specific files "+
+					"(e.g. into: \"~/%s/<script>\"), or give them non-overlapping paths.",
+				who, kind, parent))
+		}
+	}
+
 	return out
+}
+
+func packDestConflicts(packs []*packload.Pack, kind packdecl.Kind) []string {
+	return PackDestConflicts(packs, kind)
+}
+
+// PackFilesShadowedSurfaces reports every config surface whose path falls INSIDE a `files`
+// destination — a conflict that podman cannot see and that kills the boot with an error
+// naming neither culprit.
+func PackFilesShadowedSurfaces(packs []*packload.Pack) []string {
+	return packFilesShadowedSurfaces(packs)
 }
 
 // packFilesShadowedSurfaces reports every config surface whose path falls INSIDE a `files`

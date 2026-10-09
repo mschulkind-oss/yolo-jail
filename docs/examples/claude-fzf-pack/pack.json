@@ -32,8 +32,8 @@
     },
     {
       "kind": "files",
-      "from": "bin",
-      "into": ".claude/bin"
+      "from": "bin/file-suggestion.sh",
+      "into": ".claude/bin/file-suggestion.sh"
     },
     {
       "kind": "config-overlay",

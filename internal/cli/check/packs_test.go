@@ -590,3 +590,79 @@ func TestSectionPacksWarnsAboutAPiFolderPiCannotLoad(t *testing.T) {
 		}
 	}
 }
+
+// Nested files destinations across configured packs must fail `yolo check` (the pre-flight that
+// refuses the launch).
+func TestSectionPacksFailsOnNestedFilesCollision(t *testing.T) {
+	parent := filepath.Join(t.TempDir(), "parent-pack")
+	if err := os.MkdirAll(filepath.Join(parent, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(parent, "bin", "tool.sh"), []byte("tool"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(parent, "pack.json"), []byte(`{"name":"parent-pack","contributes":[{"kind":"files","from":"bin","into":".claude/bin"}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	child := filepath.Join(t.TempDir(), "child-pack")
+	if err := os.MkdirAll(filepath.Join(child, "files"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(child, "files", "status.sh"), []byte("status"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(child, "pack.json"), []byte(`{"name":"child-pack","contributes":[{"kind":"files","from":"files/status.sh","into":".claude/bin/status.sh"}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	packsFixture(t, `{"packs": ["file://`+parent+`", "file://`+child+`"]}`)
+
+	var buf bytes.Buffer
+	r := &reporter{w: &buf}
+	(&Options{}).sectionPacks(r, jsonx.NewOrderedMap())
+
+	if r.failed == 0 {
+		t.Fatalf("expected yolo check to fail on nested files collision, but passed:\n%s", buf.String())
+	}
+	for _, want := range []string{"parent-pack", "child-pack", ".claude/bin", ".claude/bin/status.sh", "read-only file system"} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("failure output missing %q; got:\n%s", want, buf.String())
+		}
+	}
+}
+
+// Sibling files in the same directory must pass `yolo check`.
+func TestSectionPacksPassesOnSiblingFiles(t *testing.T) {
+	a := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(a, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(a, "bin", "a.sh"), []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(a, "pack.json"), []byte(`{"name":"pack-a","contributes":[{"kind":"files","from":"bin/a.sh","into":".claude/bin/a.sh"}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	b := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(b, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(b, "bin", "b.sh"), []byte("b"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(b, "pack.json"), []byte(`{"name":"pack-b","contributes":[{"kind":"files","from":"bin/b.sh","into":".claude/bin/b.sh"}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	packsFixture(t, `{"packs": ["file://`+a+`", "file://`+b+`"]}`)
+
+	var buf bytes.Buffer
+	r := &reporter{w: &buf}
+	(&Options{}).sectionPacks(r, jsonx.NewOrderedMap())
+
+	if r.failed != 0 {
+		t.Errorf("sibling files must not fail yolo check; got:\n%s", buf.String())
+	}
+}

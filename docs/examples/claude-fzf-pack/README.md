@@ -152,17 +152,18 @@ deps where the user's package manager is right and nixpkgs is current.
 ### `files` → the script
 
 ```jsonc
-{ "kind": "files", "from": "bin", "into": ".claude/bin" }
+{ "kind": "files", "from": "bin/file-suggestion.sh", "into": ".claude/bin/file-suggestion.sh" }
 ```
 
-**`into` is `.claude/bin`, NOT `.claude`.** A `files` tree is a `:ro` bind mount
-in the jail, so claiming the whole `.claude` directory shadows claude's own
-`settings.json` surface and the boot is **refused** — the entrypoint would hit
-`open /home/agent/.claude/settings.json: read-only file system`. There is a
-pre-flight check for this now that names both packs, so you get a real error
-rather than a mystery, but the fix is always a narrower `into`.
+**`into` names the specific file, NOT `.claude` or `.claude/bin`.** A `files` tree is a `:ro` bind mount
+in the jail. Claiming the whole `.claude` directory shadows claude's own `settings.json` surface and the
+boot is **refused** — the entrypoint would hit `open /home/agent/.claude/settings.json: read-only file system`.
+Similarly, claiming the whole `.claude/bin` directory would mount that entire folder read-only, preventing
+any other pack from delivering tools or scripts into `~/.claude/bin`. Narrowing the claim to the exact
+script file (`into: ".claude/bin/file-suggestion.sh"`) allows multiple packs to deliver scripts into
+`~/.claude/bin` side-by-side.
 
-At the host notch the same declaration *writes the tree* instead of binding it,
+At the host notch the same declaration *writes the file* instead of binding it,
 read-only (`0o555`, executable preserved), refusing any path you own that yolo
 has no record of writing.
 
