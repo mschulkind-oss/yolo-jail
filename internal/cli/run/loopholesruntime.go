@@ -253,7 +253,7 @@ func sharesLauncherNetns(rt, netMode string, inContainer bool) bool {
 // assembler shares the namespace and this says otherwise, every loopback-TLS daemon
 // publishes an address the jail cannot reach.
 func (o *Options) inContainer() bool {
-	return !o.IsMacOS && (o.PathExists("/run/.containerenv") || o.PathExists("/.dockerenv"))
+	return !o.IsMacOS && paths.InsideContainer(o.PathExists)
 }
 
 // startLoopholes starts all host services for this jail and returns handles.

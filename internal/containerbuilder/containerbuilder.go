@@ -55,7 +55,34 @@ func PullArgv(runtime, image string) []string {
 // publishes sshd to 127.0.0.1:<hostPort>; Apple Container has no -p (each
 // container gets its own VM IP), so the publish is omitted there. Mirrors
 // run_argv. Empty image/name/0 hostPort fall back to the frozen defaults.
+//
+// This is the NOT-nested argv, byte for byte what it has always been; Session.Start
+// adds NestedNetwork when podman itself runs inside a container (see runArgv).
 func RunArgv(runtime, pubkey, image, name string, hostPort int) []string {
+	return runArgv(runtime, pubkey, image, name, hostPort, false)
+}
+
+// NestedNetwork is the network a podman builder takes when podman runs INSIDE a
+// container — a yolo jail. podman's default there is a netavark bridge, which needs a
+// veth pair, and a container's netns cannot always make one: the kernel's veth module
+// must already be loaded on the host, because a non-initial user namespace may not
+// autoload it, so after a host reboot that has not loaded it every nested `podman run -p`
+// fails with `netavark: create veth pair: Netlink error: Operation not supported (os
+// error 95)` (measured 2026-10-09, podman 5.8.7, kernel 7.2.7). slirp4netns needs only a
+// tap device, and it keeps the `-p 127.0.0.1:<hostPort>:22` publish, so the address
+// Session dials and the builders line are unchanged. The jail image ships slirp4netns
+// (flake.nix: it is the nested podman's default rootless network command).
+//
+// Not `--net=host`, which is what the run assembler forces on a nested JAIL: the builder
+// image's sshd listens on port 22 and nothing else, so sharing the launcher's namespace
+// would serve the builder on that namespace's port 22 — the host's own sshd's port on a
+// `network.mode: host` chain — and leave 127.0.0.1:<hostPort> empty (measured the same day:
+// keyscan answers on :22 and nothing on :31022).
+const NestedNetwork = "--network=slirp4netns"
+
+// runArgv is RunArgv with the nested choice made explicit. Apple Container takes no
+// network selector, so nested is ignored there.
+func runArgv(runtime, pubkey, image, name string, hostPort int, nested bool) []string {
 	if image == "" {
 		image = BuilderImage
 	}
@@ -76,6 +103,9 @@ func RunArgv(runtime, pubkey, image, name string, hostPort int) []string {
 	}
 	argv := []string{runtime}
 	argv = append(argv, common...)
+	if nested {
+		argv = append(argv, NestedNetwork)
+	}
 	argv = append(argv, "-p", fmt.Sprintf("127.0.0.1:%d:%d", hostPort, BuilderGuestPort), image)
 	return argv
 }

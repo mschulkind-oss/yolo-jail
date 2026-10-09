@@ -2,6 +2,7 @@ package containerbuilder
 
 import (
 	"encoding/base64"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -242,5 +243,49 @@ func TestSessionStartWithoutAnOutputSeamDoesNotStart(t *testing.T) {
 	}
 	if _, _, ok := s.Start(); ok {
 		t.Error("Start should fail when no Output seam can read the builder's host key")
+	}
+}
+
+// TestSessionStartPicksTheNestedNetworkFromTheProbe drives Start — the call site — so it
+// fails if Start stops consulting Deps.InContainer or stops passing its answer to the run
+// argv. Nested podman cannot always make the bridge's veth pair (NestedNetwork's comment
+// has the measurement); not-nested must stay byte-identical to RunArgv, which is what
+// every macOS launch runs.
+func TestSessionStartPicksTheNestedNetworkFromTheProbe(t *testing.T) {
+	for _, tc := range []struct {
+		runtime string
+		nested  bool
+		want    []string
+	}{
+		{"podman", false, RunArgv("podman", "PUB", "", "", 0)},
+		{"podman", true, []string{
+			"podman", "run", "-d", "--rm", "--name", BuilderContainer,
+			"-e", "YOLO_BUILDER_PUBKEY=PUB",
+			"--network=slirp4netns",
+			"-p", "127.0.0.1:31022:22", BuilderImage,
+		}},
+		// Apple Container takes no network selector, nested or not.
+		{"container", true, RunArgv("container", "PUB", "", "", 0)},
+	} {
+		var ran [][]string
+		nested := tc.nested
+		s := &Session{
+			Runtime: tc.runtime,
+			Pubkey:  "PUB",
+			Deps: Deps{
+				Run:         func(argv []string) int { ran = append(ran, argv); return 0 },
+				Output:      okOutput("NAME STATE ADDR\n" + BuilderContainer + " running 192.168.64.2/24\n"),
+				Reachable:   func(string, int) bool { return true },
+				Sleep:       func(float64) {},
+				Now:         (&fakeClock{}).now,
+				InContainer: func() bool { return nested },
+			},
+		}
+		if _, _, ok := s.Start(); !ok {
+			t.Fatalf("%s nested=%v: Start failed", tc.runtime, tc.nested)
+		}
+		if len(ran) < 2 || !reflect.DeepEqual(ran[1], tc.want) {
+			t.Errorf("%s nested=%v: run argv\n got %v\n want %v", tc.runtime, tc.nested, ran, tc.want)
+		}
 	}
 }

@@ -141,6 +141,8 @@ func TestTheLinuxBuilderOffloadLineNixActuallyBuildsThrough(t *testing.T) {
 			Sleep: func(s float64) { time.Sleep(time.Duration(s * float64(time.Second))) },
 			Now:   func() float64 { return float64(time.Now().UnixNano()) / 1e9 },
 			Out:   testWriter{t},
+			// InContainer left nil: Start runs the real nested probe, so inside a jail
+			// this exercises containerbuilder.NestedNetwork exactly as a launch would.
 		},
 	}
 	host, port, ok := sess.Start()

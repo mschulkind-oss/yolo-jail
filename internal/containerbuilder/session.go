@@ -4,7 +4,11 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
+	goruntime "runtime"
 	"strconv"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // session.go is the on-demand builder lifecycle (J3): when a macOS `packages:`
@@ -36,6 +40,27 @@ type Deps struct {
 	Now func() float64
 	// Out receives human progress lines. nil => io.Discard.
 	Out io.Writer
+	// InContainer reports whether the runtime's podman runs inside a container (a
+	// yolo jail), which picks NestedNetwork for the builder. nil => the real probe,
+	// insideContainer, so every caller gets the nested network without wiring it.
+	InContainer func() bool
+}
+
+// insideContainer is the real nested probe: the run assembler's own predicate
+// (paths.InsideContainer), and never on macOS, where it is never true either way.
+func insideContainer() bool {
+	return goruntime.GOOS == "linux" && paths.InsideContainer(func(p string) bool {
+		_, err := os.Stat(p)
+		return err == nil
+	})
+}
+
+// nested is Deps.InContainer, defaulted.
+func (d Deps) nested() bool {
+	if d.InContainer == nil {
+		return insideContainer()
+	}
+	return d.InContainer()
 }
 
 // Session drives one builder container's lifecycle for one build.
@@ -70,7 +95,7 @@ func (s *Session) Start() (host string, port int, ok bool) {
 		fmt.Fprintln(out, "could not pull the Linux builder image")
 		return "", 0, false
 	}
-	if s.Deps.Run(RunArgv(s.Runtime, s.Pubkey, "", "", 0)) != 0 {
+	if s.Deps.Run(runArgv(s.Runtime, s.Pubkey, "", "", 0, s.Deps.nested())) != 0 {
 		fmt.Fprintln(out, "could not start the Linux builder container")
 		return "", 0, false
 	}
