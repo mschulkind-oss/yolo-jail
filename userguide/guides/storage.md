@@ -48,8 +48,8 @@ never prints to your terminal, which by then belongs to the jail; it is logged i
 `<project>/.yolo/housekeeping.log`. Set `YOLO_NO_AUTO_IMAGE_REAP=1` to turn it off.
 
 Two kinds of files yolo will not remove without asking, because getting them back means
-downloading them again: shared build-cache files older than 30 days, and mise tool versions that no
-jail on the machine has used for 30 days. A launch in a terminal offers them once there is at least
+downloading them again: shared build-cache files older than 30 days (never a login token or a lock
+file, whatever its age), and mise tool versions that no jail on the machine has used for 30 days. A launch in a terminal offers them once there is at least
 a gigabyte to reclaim. Answering "yes" removes them and makes that cleanup automatic from then on,
 and "never" stops the asking.
 

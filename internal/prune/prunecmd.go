@@ -1117,8 +1117,15 @@ func Run(opts Options) int {
 				p.line(fmt.Sprintf("  [dim]%s is relocated — purging %s[/dim]", sub, target))
 			}
 		}
-		cacheBytes, cacheFiles = PurgeCacheByAge(joinPath(gs, "cache"), subdirs, opts.CacheRelocations, float64(opts.CacheAge), apply, opts.Now())
+		// Bounded like the launch's pass (CI-D7): a cache can hold hundreds of thousands of files.
+		var cachePartial bool
+		cacheBytes, cacheFiles, cachePartial = PurgeCacheByAgeWithin(joinPath(gs, "cache"), subdirs, opts.CacheRelocations,
+			float64(opts.CacheAge), apply, opts.Now(), nil, purgeClock().Add(CachePurgeBudget))
 		p.line(fmt.Sprintf("  %s: %s across %s files", verb(apply, "would remove", "removed"), FmtBytes(cacheBytes), fmtComma(cacheFiles)))
+		if cachePartial {
+			p.line(fmt.Sprintf("  [yellow]partial: stopped at the %s budget, so this is a lower bound — "+
+				"run `yolo prune --apply` again to continue[/yellow]", CachePurgeBudget))
+		}
 		totalSaved += cacheBytes
 	}
 

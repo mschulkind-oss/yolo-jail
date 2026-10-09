@@ -535,14 +535,14 @@ func cacheStores(o Options) []Store {
 	for _, sub := range prune.CachePurgeDefaultSubdirs {
 		covered[sub] = Reclaimer{
 			Func:    "PurgeCacheByAge",
-			Detail:  fmt.Sprintf("older than %dd", prune.NewDefaultOptions().CacheAge),
+			Detail:  fmt.Sprintf("older than %dd; credentials and locks held", prune.NewDefaultOptions().CacheAge),
 			Trigger: "yolo prune --apply" + slot,
 		}
 	}
 	for _, sub := range prune.CachePurgeHeavySubdirs {
 		covered[sub] = Reclaimer{
 			Func:    "PurgeCacheByAge",
-			Detail:  fmt.Sprintf("older than %dd, OPT-IN", prune.NewDefaultOptions().CacheAge),
+			Detail:  fmt.Sprintf("older than %dd, OPT-IN; credentials and locks held", prune.NewDefaultOptions().CacheAge),
 			Trigger: "yolo prune --apply --purge-heavy-caches",
 		}
 	}

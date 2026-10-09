@@ -38,6 +38,7 @@ See [the wire bridge](docs/reference/wire-bridge.md#converse-on-a-via-route).
 - A patched program with a failed current build can now be used for one fresh launch from its intact recorded good build, without changing the requested series.
 - A podman jail with nothing for the Nix root watcher to do no longer keeps a defunct `yolo-jaild` process for its whole life.
 - A host service that refuses its settings now stops the launch at once with its own cause and fix, instead of holding it for the whole startup window and staying running afterwards.
+- Cache cleanup no longer deletes login tokens (such as Hugging Face's) or lock files however old they are, and stops at its time limit instead of running on.
 
 ## [0.12.2] - 2026-10-08
 

@@ -381,7 +381,7 @@ func TestEveryClassDeletesUnderTheGuard(t *testing.T) {
 	for _, call := range []string{
 		"prune.AutoReapOldImagesGuarded(rt, buildDir, o.Now(), run, guard)",
 		"prune.DeleteSupersededStoreOutputsGuarded(candidates, true, run, guard, rootDirs)",
-		"prune.PurgeCacheByAgeGuarded(cacheRoot, subdirs, nil, cacheAgeDays, true, o.Now(), guard)",
+		"prune.PurgeCacheByAgeWithin(cacheRoot, subdirs, nil, cacheAgeDays, true, o.Now(), guard,",
 		"prune.PruneUnusedMiseVersionsGuarded(sweep, o.Now(), guard)",
 		"prune.PruneOrphanAgentStagingGuarded(",
 		"prune.PruneRetiredLoopholeStateGuarded(",
@@ -397,7 +397,8 @@ func TestEveryClassDeletesUnderTheGuard(t *testing.T) {
 	}
 	for _, unguarded := range []string{"prune.AutoReapOldImages(", "prune.DeleteSupersededStoreOutputs(",
 		"prune.PruneOrphanAgentStaging(", "prune.PruneRetiredLoopholeState(", "prune.PruneImageCache(",
-		"prune.PruneImageDelivery(", "flakebundle.Reap(", "prune.PruneUnusedMiseVersions("} {
+		"prune.PruneImageDelivery(", "flakebundle.Reap(", "prune.PruneUnusedMiseVersions(",
+		"prune.PurgeCacheByAge(", "prune.PurgeCacheByAgeGuarded("} {
 		if strings.Contains(src, unguarded) {
 			t.Errorf("the slot calls the unguarded %s", unguarded)
 		}

@@ -270,7 +270,11 @@ A1–A5 in the [native list](#independent-native-experiment-owed) check the assu
 `uv/.lock`, and the opt-in heavy buckets deleted `huggingface/token`. That path is where
 `huggingface_hub` keeps its login token by default (upstream knowledge, not source). This is
 **shipped behavior** for anyone who opted into heavy purge. It is independent of isolation,
-and the owner may want a separate fix.
+and the owner may want a separate fix. A separate fix on 2026-10-09 makes today's purge hold the
+Credentials row and lock files (`*.lock`, `.lock`, `LOCK`, `*.lck`, plus uv's control files), and
+bounds its walk and its deletions by the 60-second budget with CI-D7's batched read, writing the
+launch's debounce stamp only when the measurement completes. The positive class table below is
+still unimplemented: everything it does not hold is still purged by age.
 
 **Proposed classes,** relative to a bucket root. Every row marked disposable also needs a
 regular file, no link following, `Nlink == 1` and a recheck under the guard. Tool layouts are

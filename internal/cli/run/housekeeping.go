@@ -323,31 +323,43 @@ func (o *Options) measureAndPurgeCache(consent reclaimConsent, guard prune.Guard
 
 	// DRY-RUN FIRST, always: the measurement is what the next launch offers on,
 	// and it must exist whether or not this launch may delete anything.
-	start := o.Now()
-	bytes, files := prune.PurgeCacheByAge(cacheRoot, subdirs, nil, cacheAgeDays, false, o.Now())
+	//
+	// Each pass stops at cacheWalkBudget (CI-D7). A measurement that stopped is
+	// recorded as partial, and the debounce is stamped only by a measurement that
+	// finished: a pass cut short is not a pass, and the next launch retries it.
+	bytes, files, partial := prune.PurgeCacheByAgeWithin(cacheRoot, subdirs, nil, cacheAgeDays, false, o.Now(), nil,
+		time.Now().Add(cacheWalkBudget))
 	RecordOfferMeasurement(cachePurgeClass, offerMeasurement{
 		Bytes:   bytes,
 		Detail:  fmtCachePurgeDetail(files),
 		When:    o.Now(),
-		Partial: o.Now().Sub(start) >= cacheWalkBudget,
+		Partial: partial,
 	})
-	done()
+	if !partial {
+		done()
+	}
 	if !consented || bytes == 0 {
 		return
 	}
-	removed, _ := prune.PurgeCacheByAgeGuarded(cacheRoot, subdirs, nil, cacheAgeDays, true, o.Now(), guard)
+	removed, _, cut := prune.PurgeCacheByAgeWithin(cacheRoot, subdirs, nil, cacheAgeDays, true, o.Now(), guard,
+		time.Now().Add(cacheWalkBudget))
 	if removed > 0 {
 		o.housekeepingNote("cache: reclaimed %s older than %d days, as agreed",
 			prune.FmtBytes(removed), int(cacheAgeDays))
+	}
+	if cut {
+		o.housekeepingNote("cache: stopped at the %s budget; a later launch continues, or run `yolo prune --apply`",
+			cacheWalkBudget)
 	}
 }
 
 // cacheAgeDays is §5.3's unchanged 30-day rule.
 const cacheAgeDays = 30
 
-// cacheWalkBudget is §5.3's 60 s: past it, the figure is reported as partial
-// rather than as a total that happens to be short.
-const cacheWalkBudget = 60 * time.Second
+// cacheWalkBudget is §5.3's 60 s, for each of the slot's two cache passes: past it,
+// the figure is reported as partial rather than as a total that happens to be
+// short, and the deletions stop. A var only so a test can make it already past.
+var cacheWalkBudget = prune.CachePurgeBudget
 
 func fmtCachePurgeDetail(files int) string {
 	if files == 1 {
