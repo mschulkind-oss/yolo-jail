@@ -394,7 +394,25 @@ func runBuildSlot(req run.BuildSlotRequest, stream io.Writer, color bool) (map[s
 	forks := map[string]entrypoint.ForkDelivery{}
 	trees := map[string]run.TreeDelivery{}
 	if fr := req.Forks; fr != nil {
-		addForkKeys(pool, *fr, color, func(bin string, d entrypoint.ForkDelivery) {
+		if fr.CachedGoodOwner != "" {
+			filtered := *fr
+			filtered.Pins = make([]packload.ForkPin, 0, len(fr.Pins))
+			found := false
+			for _, pin := range fr.Pins {
+				if pin.Fork.Key() == fr.CachedGoodOwner && pin.Fork.Patched() && !found {
+					found = true
+					forks[pin.Fork.Bin] = runCachedGoodFork(pin.Fork, *fr, stream)
+					continue
+				}
+				filtered.Pins = append(filtered.Pins, pin)
+			}
+			if !found {
+				forks[fr.CachedGoodOwner] = entrypoint.ForkDelivery{Reason: "cached-good selector no longer names a selected patched program — run `yolo pack status` and select the owner key shown there"}
+			}
+			filtered.CachedGoodOwner = ""
+			req.Forks = &filtered
+		}
+		addForkKeys(pool, *req.Forks, color, func(bin string, d entrypoint.ForkDelivery) {
 			mu.Lock()
 			defer mu.Unlock()
 			forks[bin] = d
@@ -439,9 +457,10 @@ func addForkKeys(pool *buildPool, req run.ForkBuildRequest, color bool, answer f
 	for _, p := range req.Pins {
 		if p.Fork.Patched() {
 			pool.add(p.Fork.Label(), func(it *poolItem) {
-				answer(p.Fork.Bin, advancePatchedFork(p.Fork, advanceOptions{platform: req.Platform, runtime: req.Runtime,
+				result := advancePatchedFork(p.Fork, advanceOptions{platform: req.Platform, runtime: req.Runtime,
 					workspace: req.Workspace, out: it.stream(), errw: it.stream(), color: color, launch: true,
-					hand: req.Hand, act: req.Interrupt, report: pool.report, slot: it}).delivery)
+					hand: req.Hand, act: req.Interrupt, report: pool.report, slot: it})
+				answer(p.Fork.Bin, result.forkDelivery())
 			})
 			continue
 		}

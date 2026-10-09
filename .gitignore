@@ -28,6 +28,7 @@ build/
 /yolo-ps
 /yolo-serial
 /build-wheels
+/completion-experiment
 /tap-install-check
 /ghgrammar
 /pack-binaries

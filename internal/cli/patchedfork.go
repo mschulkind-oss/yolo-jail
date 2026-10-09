@@ -17,9 +17,11 @@ package cli
 // following (§3.3).
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
+	"reflect"
 	"strings"
 	"time"
 
@@ -52,6 +54,10 @@ const patchedNotBuilt = "the next fresh launch builds it"
 // own, as patchedAdvanceStore's tests do.
 var patchedForkStore = func() *packsrc.Store { return &packsrc.Store{Dir: paths.PacksDir()} }
 
+// explicitPostRetryRecordLoad is the actual post-retry reread. Its production default is the
+// unchanged loader; tests replace it only to order a later check immediately before that read.
+var explicitPostRetryRecordLoad = run.LoadPatchedRecord
+
 // patchedForkHold is what holds a patched fork's upstream at the good build, "" when nothing does:
 // `agent_updates` off for the fork pack or for its base (PF-D19), as a launch reads it.
 func patchedForkHold(f packload.Fork) string { return run.PatchedForkHold(f) }
@@ -67,14 +73,25 @@ func checkPatchedForks(pr richtext.Printer, errw io.Writer, forks []packload.For
 			continue
 		}
 		if !update {
-			if rec, err := store.LoadCheckRecord(f.Key()); err == nil && rec.Good != nil {
-				pr.Printf("[dim]%s unchanged (good build %s) — `yolo pack update` checks its upstream[/dim]",
-					f.Key(), goodLabel(rec.Good))
-				continue
+			if series, err := f.ReadSeries(); err == nil {
+				if rec, err := run.LoadPatchedRecord(store, f, series); err == nil && rec != nil && rec.Good != nil {
+					inputs, _, _, inputErr := f.CheckWant(series).Inputs()
+					if inputErr == nil {
+						if failure := rec.CurrentPatchFailure(inputs, series.Digest); failure != nil {
+							if n := reportExplicitPatchFailure(pr, errw, f, series, rec, failure, 0); n != 0 {
+								rc = 1
+							}
+							continue
+						}
+						pr.Printf("[dim]%s unchanged (good build %s) — `yolo pack update` checks its upstream[/dim]",
+							f.Key(), goodLabel(rec.Good))
+						continue
+					}
+				}
 			}
 		}
 		if n := checkPatchedFork(pr, errw, store, f); n != 0 {
-			rc = n
+			rc = 1
 		}
 	}
 	return rc
@@ -96,31 +113,163 @@ func checkPatchedFork(pr richtext.Printer, errw io.Writer, store *packsrc.Store,
 		fmt.Fprintf(errw, "yolo pack: %s: %v\n", f.Label(), res.Err)
 		return 1
 	}
-	rec, found := run.RekeyLegacyGood(store, f, series, res.Record), res.Record.Check
+	if res.Record == nil || res.Record.Check == nil {
+		fmt.Fprintf(errw, "yolo pack: %s: the explicit check returned no original check record\n", f.Label())
+		return 1
+	}
+	original := res.Record
+	originalSnapshot, err := original.ReplaySnapshot(res.Inputs, series.Digest)
+	if err != nil {
+		fmt.Fprintf(errw, "yolo pack: %s: binding the explicit replay to its original check: %v\n", f.Label(), err)
+		return 1
+	}
+	rec := run.RekeyLegacyGood(store, f, series, original)
+	found := original.Check
 	rc := 0
 	if found.FetchErr != "" {
-		// The explicit act asked for the network and did not get it, as a pack's failed install.
 		fmt.Fprintf(errw, "yolo pack: %s: could not fetch %s (%s) — using this machine's copy\n",
 			f.Label(), f.Source, found.FetchErr)
 		rc = 1
 	}
+	failure := rec.CurrentPatchFailure(res.Inputs, series.Digest)
 	if found.Problem != "" {
 		fmt.Fprintf(errw, "yolo pack: %s: %s\n", f.Label(), found.Problem)
+		if failure != nil {
+			return reportExplicitPatchFailure(pr, errw, f, series, rec, failure, 1)
+		}
 		return 1
 	}
 	if found.NoVersion != "" {
 		// A RELEASE RULE OVER A BRANCH WITH NO VERSION TAG (PF-D60): an empty list, and where it stays.
 		pr.Printf("[yellow]⚠ %s[/yellow]", richtext.Escape(f.Label()+": "+found.NoVersionLine(stayAt(rec, series))))
 	}
+
+	var spent time.Duration
+	var retried *packsrc.ListEntry
+	var retryAtBase bool
+	var retrySnapshot *packsrc.ReplaySnapshot
+	if failure != nil {
+		if found.FetchErr != "" {
+			return reportExplicitPatchFailure(pr, errw, f, series, rec, failure, rc)
+		}
+		target, atBase, ok := explicitFailureTarget(failure, rec, found, series)
+		if !ok {
+			return reportExplicitPatchFailure(pr, errw, f, series, rec, failure, rc)
+		}
+		var retryReportedFailure *packsrc.PatchFailure
+		walk, recorded, elapsed := recordExplicitWalk(store, f, series, res.Inputs,
+			[]packsrc.ListEntry{target}, patchedYoloVersion(), 0, originalSnapshot,
+			func(failure *packsrc.PatchFailure) {
+				retryReportedFailure = failure
+				writePatchFailure(errw, failure, f.Key(), f.Bin, false, "")
+			}, func(err error) {
+				if err != nil {
+					fmt.Fprintf(errw, "yolo pack: %s: its clean replay was recorded, but the matching detached failure evidence could not be resolved (%v) — the next launch checks it again\n",
+						f.Label(), err)
+				}
+			})
+		spent += elapsed
+		if errors.Is(recorded.Err, packsrc.ErrStaleReplay) {
+			fresh, readErr := store.LoadCheckRecord(f.Key())
+			if readErr != nil {
+				fmt.Fprintf(errw, "yolo pack: %s: replay authority changed and the current check record could not be read: %v\n",
+					f.Label(), readErr)
+				return 1
+			}
+			fmt.Fprintf(errw, "yolo pack: %s: recording the replay: %v\n", f.Label(), recorded.Err)
+			if current := fresh.CurrentPatchFailure(res.Inputs, series.Digest); current != nil {
+				return reportExplicitPatchFailure(pr, errw, f, series, fresh, current, rc,
+					retryReportedFailure != nil && reflect.DeepEqual(retryReportedFailure, current))
+			}
+			fmt.Fprintf(errw, "yolo pack: %s: replay authority changed during its forced check; run `yolo pack update` again\n", f.Label())
+			return 1
+		}
+		if recorded.Err != nil {
+			fmt.Fprintf(errw, "yolo pack: %s: recording the replay: %v\n", f.Label(), recorded.Err)
+			rc = 1
+		}
+		if failure := explicitWalkFailure(walk, recorded, f, series, res.Inputs, originalSnapshot.Seq); failure != nil {
+			return reportExplicitPatchFailure(pr, errw, f, series, rec, failure, rc,
+				retryReportedFailure != nil && reflect.DeepEqual(retryReportedFailure, failure))
+		}
+		if walk.Err != nil || walk.Fit < 0 {
+			for _, line := range walkReport(f, series, rec, walk, atBase) {
+				pr.Printf("%s", line)
+			}
+			return 1
+		}
+		if !recorded.Recorded {
+			fresh, readErr := run.LoadPatchedRecord(store, f, series)
+			if readErr != nil {
+				fmt.Fprintf(errw, "yolo pack: %s: reading the replay result: %v\n", f.Label(), readErr)
+				return 1
+			}
+			if current := fresh.CurrentPatchFailure(res.Inputs, series.Digest); current != nil {
+				return reportExplicitPatchFailure(pr, errw, f, series, fresh, current, rc)
+			}
+			fmt.Fprintf(errw, "yolo pack: %s: the clean retry did not record a changed replay result\n", f.Label())
+			return 1
+		}
+		fresh, readErr := explicitPostRetryRecordLoad(store, f, series)
+		if readErr != nil {
+			fmt.Fprintf(errw, "yolo pack: %s: reading the replay result: %v\n", f.Label(), readErr)
+			return 1
+		}
+		rec = fresh
+		if current := rec.CurrentPatchFailure(res.Inputs, series.Digest); current != nil {
+			return reportExplicitPatchFailure(pr, errw, f, series, rec, current, rc, false)
+		}
+		if !explicitSelectedCheckStillCurrent(fresh, originalSnapshot, found) {
+			fmt.Fprintf(errw, "yolo pack: %s: replay authority changed after its successful retry; no later check will be replayed — run `yolo pack update` again\n", f.Label())
+			return 1
+		}
+		nextSnapshot, snapshotErr := fresh.ReplaySnapshot(res.Inputs, series.Digest)
+		if snapshotErr != nil {
+			fmt.Fprintf(errw, "yolo pack: %s: binding the next replay to its original selected check: %v\n", f.Label(), snapshotErr)
+			return 1
+		}
+		retrySnapshot = &nextSnapshot
+		retried, retryAtBase = &target, atBase
+	}
+
 	list := rec.Candidates(res.Inputs)
+	if retried != nil {
+		targetIndex := -1
+		for i, entry := range found.List {
+			if entry.Commit == retried.Commit {
+				targetIndex = i
+				break
+			}
+		}
+		filtered := list[:0]
+		for _, entry := range list {
+			for i, selected := range found.List {
+				if selected.Commit == entry.Commit && (targetIndex < 0 && retryAtBase || targetIndex >= 0 && i < targetIndex) {
+					filtered = append(filtered, entry)
+					break
+				}
+			}
+		}
+		list = filtered
+	}
 	first := rec.Good == nil
 	atBase := false
-	if len(list) == 0 && first && found.BaseOnBranch {
+	if len(list) == 0 && first && found.BaseOnBranch && retried == nil {
 		// NOTHING ON THE LIST: a series whose base is past the branch's newest version builds the
 		// base, which it applies to by construction (§6.4), and nothing is held.
 		list, atBase = []packsrc.ListEntry{{Commit: series.Base}}, true
 	}
 	if len(list) == 0 {
+		if retried != nil {
+			for _, line := range walkReport(f, series, rec, packsrc.WalkResult{Fit: 0,
+				Results: []packsrc.ReplayResult{{Entry: *retried, Clean: true}}}, retryAtBase) {
+				pr.Printf("%s", line)
+			}
+			if hold := patchedForkHold(f); hold != "" {
+				pr.Printf("[dim]  %s: no launch checks it, and the good build stays where it is[/dim]", hold)
+			}
+			return rc
+		}
 		switch {
 		case first:
 			fmt.Fprintf(errw, "yolo pack: %s: %s names nothing this series can be built at — the "+
@@ -132,21 +281,161 @@ func checkPatchedFork(pr richtext.Printer, errw io.Writer, store *packsrc.Store,
 			return rc
 		}
 	}
-	w := store.WalkSeries(mustRepo(f.Source), subdirOf(f.Source), series, list, packsrc.WalkOptions{})
-	if err := store.RecordWalk(f.Key(), series.Digest, patchedYoloVersion(), w, patchedNow()); err != nil {
-		fmt.Fprintf(errw, "yolo pack: %s: recording the replay: %v\n", f.Label(), err)
+	boundSnapshot := originalSnapshot
+	if retried != nil {
+		if retrySnapshot == nil {
+			fmt.Fprintf(errw, "yolo pack: %s: the repaired replay has no renewed snapshot of its original selected check\n", f.Label())
+			return 1
+		}
+		boundSnapshot = *retrySnapshot
+	}
+	var reportedFailure *packsrc.PatchFailure
+	walk, recorded, _ := recordExplicitWalk(store, f, series, res.Inputs, list,
+		patchedYoloVersion(), spent, boundSnapshot, func(failure *packsrc.PatchFailure) {
+			reportedFailure = failure
+			writePatchFailure(errw, failure, f.Key(), f.Bin, false, "")
+		}, func(err error) {
+			if err != nil {
+				fmt.Fprintf(errw, "yolo pack: %s: its clean replay was recorded, but the matching detached failure evidence could not be resolved (%v) — the next launch checks it again\n",
+					f.Label(), err)
+			}
+		})
+	if errors.Is(recorded.Err, packsrc.ErrStaleReplay) {
+		fresh, readErr := store.LoadCheckRecord(f.Key())
+		if readErr != nil {
+			fmt.Fprintf(errw, "yolo pack: %s: replay authority changed and the current check record could not be read: %v\n",
+				f.Label(), readErr)
+			return 1
+		}
+		fmt.Fprintf(errw, "yolo pack: %s: recording the replay: %v\n", f.Label(), recorded.Err)
+		if current := fresh.CurrentPatchFailure(res.Inputs, series.Digest); current != nil {
+			return reportExplicitPatchFailure(pr, errw, f, series, fresh, current, rc,
+				reportedFailure != nil && reflect.DeepEqual(reportedFailure, current))
+		}
+		fmt.Fprintf(errw, "yolo pack: %s: replay authority changed during its forced check; run `yolo pack update` again\n", f.Label())
+		return 1
+	}
+	if recorded.Err != nil {
+		fmt.Fprintf(errw, "yolo pack: %s: recording the replay: %v\n", f.Label(), recorded.Err)
 		rc = 1
 	}
-	for _, line := range walkReport(f, series, rec, w, atBase) {
+	if failure := explicitWalkFailure(walk, recorded, f, series, res.Inputs, rec.Seq); failure != nil {
+		return reportExplicitPatchFailure(pr, errw, f, series, rec, failure, rc,
+			reportedFailure != nil && reflect.DeepEqual(reportedFailure, failure))
+	}
+	for _, line := range walkReport(f, series, rec, walk, atBase) {
 		pr.Printf("%s", line)
 	}
-	if w.Base != nil || w.Err != nil || w.Fit < 0 {
+	if walk.Base != nil || walk.Err != nil || walk.Fit < 0 {
 		rc = 1
 	}
 	if hold := patchedForkHold(f); hold != "" {
 		pr.Printf("[dim]  %s: no launch checks it, and the good build stays where it is[/dim]", hold)
 	}
 	return rc
+}
+
+func explicitWalkFailure(walk packsrc.WalkResult, recorded packsrc.RecordReplayResult, f packload.Fork,
+	series *packsrc.Series, inputs packsrc.CheckInputs, seq int64) *packsrc.PatchFailure {
+	failure := recorded.Failure
+	if failure == nil {
+		failure = walk.PatchFailure()
+	}
+	if failure != nil {
+		failure.Owner, failure.Inputs, failure.Series, failure.Seq = f.Key(), inputs, series.Digest, seq
+	}
+	return failure
+}
+
+func explicitFailureTarget(failure *packsrc.PatchFailure, rec *packsrc.CheckRecord, check *packsrc.CheckFound, series *packsrc.Series) (packsrc.ListEntry, bool, bool) {
+	if failure.Kind == "base" {
+		if rec.Good == nil && check != nil && check.BaseOnBranch {
+			return packsrc.ListEntry{Commit: series.Base}, true, true
+		}
+		return packsrc.ListEntry{}, false, false
+	}
+	if check != nil {
+		for _, entry := range check.List {
+			if entry.Commit == failure.Target.Commit {
+				return entry, false, true
+			}
+		}
+	}
+	return packsrc.ListEntry{}, false, false
+}
+
+func explicitSelectedCheckStillCurrent(record *packsrc.CheckRecord, selected packsrc.ReplaySnapshot,
+	check *packsrc.CheckFound) bool {
+	return record != nil && record.Owner == selected.Owner && record.Seq == selected.Seq &&
+		record.Read == selected.Inputs && record.Check != nil && record.Check.Seq == selected.Seq &&
+		reflect.DeepEqual(record.Check, check)
+}
+
+func recordExplicitWalk(store *packsrc.Store, f packload.Fork, series *packsrc.Series,
+	inputs packsrc.CheckInputs, list []packsrc.ListEntry, yolo string, spent time.Duration,
+	snapshot packsrc.ReplaySnapshot, beforeRecord func(*packsrc.PatchFailure), afterRecord func(error)) (packsrc.WalkResult, packsrc.RecordReplayResult, time.Duration) {
+	if store == nil || snapshot.Owner != f.Key() || snapshot.Series == "" {
+		return packsrc.WalkResult{Fit: -1, Err: errors.New("explicit replay has no detached-evidence authority")},
+			packsrc.RecordReplayResult{Err: errors.New("explicit replay has no detached-evidence authority")}, 0
+	}
+	token, tokenErr := observeBackgroundRepairToken(f.Key(), store, snapshot, list, nil, false)
+	if tokenErr != nil {
+		return packsrc.WalkResult{Fit: -1, Err: fmt.Errorf("reading detached failure evidence before replay: %w", tokenErr)},
+			packsrc.RecordReplayResult{Err: fmt.Errorf("reading detached failure evidence before replay: %w", tokenErr)}, 0
+	}
+	start := time.Now()
+	walk := store.WalkSeries(mustRepo(f.Source), subdirOf(f.Source), series, list, packsrc.WalkOptions{
+		Snapshot: &snapshot, StopOnPatchFailure: true, Spent: spent,
+	})
+	elapsed := time.Since(start)
+	if failure := walk.PatchFailure(); failure != nil {
+		failure.Owner, failure.Inputs, failure.Series, failure.Seq = f.Key(), inputs, series.Digest, snapshot.Seq
+		if beforeRecord != nil {
+			beforeRecord(failure)
+		}
+	}
+	recorded := store.RecordReplay(snapshot, yolo, walk, patchedNow())
+	if recorded.Recorded && recorded.Err == nil {
+		if err := recordBackgroundPatchRepair(context.Background(), token, store, snapshot, yolo, walk, recorded, false); err != nil && afterRecord != nil {
+			afterRecord(err)
+		}
+	}
+	return walk, recorded, elapsed
+}
+
+func reportExplicitPatchFailure(pr richtext.Printer, errw io.Writer, f packload.Fork, series *packsrc.Series,
+	rec *packsrc.CheckRecord, failure *packsrc.PatchFailure, rc int, reported ...bool) int {
+	alreadyReported := len(reported) > 0 && reported[0]
+	admitted := ""
+	if allowPatchFailures() {
+		admitted = explicitCompatibleGood(f, series, rec)
+	}
+	if !alreadyReported {
+		writePatchFailure(errw, failure, f.Key(), f.Bin, false, admitted)
+	} else if admitted != "" {
+		fmt.Fprintf(errw, "CONTINUING: using intact admitted build %s; this explicit subject was skipped.\n", admitted)
+	}
+	if admitted != "" {
+		pr.Printf("[dim]%s: skipped this explicit subject; no build or fallback was accepted[/dim]", f.Label())
+		return rc
+	}
+	return 1
+}
+
+func explicitCompatibleGood(f packload.Fork, series *packsrc.Series, rec *packsrc.CheckRecord) string {
+	if rec == nil || rec.Good == nil || rec.Good.Series != series.Digest ||
+		rec.Good.Recipe != run.PatchedRecipe(f, series.Digest) {
+		return ""
+	}
+	runtime := captureRuntime()
+	if runtime != "macos-user" {
+		runtime = ""
+	}
+	if _, _, err := resolvePatchedBuild(&capture.Store{Dir: paths.CapturesDir()}, f.Key(), f.Bin,
+		forkBuildPlatform(runtime), patchedBuildSource(f.Source), rec.Good.Commit, rec.Good.Recipe); err != nil {
+		return ""
+	}
+	return goodLabel(rec.Good)
 }
 
 // walkReport is the lines an explicit act prints for a walk: the candidate and whether the series

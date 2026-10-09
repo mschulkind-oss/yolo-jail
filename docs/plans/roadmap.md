@@ -148,6 +148,8 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
     Beside suite speed, [make completion change-aware and read-only](../design/change-aware-completion.md),
     with [its sketch](../design/change-aware-completion-plan.md) and [input research](../research/completion-check-inputs.md)
     — avoid irrelevant repeated gates without changing source landing or CI coverage.
+    Keep its [unconnected component experiment](../../tools/completion-experiment/README.md) separate
+    from production completion; input closure, baseline publication and command dispatch remain open.
 27. [Rule how a jail reaches a worktree's `.git` outside it](../research/herdr-integration.md), with the other herdr calls
     — measured: a read-only bind refuses every commit, a read-write one lets a jail prune the worktree.
 28. Calls left at one decision each, each with its facts and a leaning: [the `:ro` degradation rows](../design/composed-file-permissions.md),

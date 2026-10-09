@@ -1509,7 +1509,8 @@ func runCachedPublisherJob(t *testing.T, job workflowJob, attempt, root, bin, tr
 			t.Fatalf("fixture has no cached successful prerequisite %s", need)
 		}
 	}
-	replacements := strings.NewReplacer("${{ github.run_attempt }}", attempt, "${{ inputs.version }}", "9.8.7", "${{ github.repository_owner }}", "OwNeR", "${{ github.actor }}", "fixture", "${{ github.token }}", "offline-token", "${{ secrets.CACHIX_AUTH_TOKEN }}", "offline-cachix", "${{ needs.cache-eligibility.outputs.cache }}", "fixture-cache")
+	dummyCredential := "fixture-dummy-token-" + strings.Repeat("x", 96*1024) // Larger than a pipe buffer, below the host's per-argument limit.
+	replacements := strings.NewReplacer("${{ github.run_attempt }}", attempt, "${{ inputs.version }}", "9.8.7", "${{ github.repository_owner }}", "OwNeR", "${{ github.actor }}", "fixture", "${{ github.token }}", dummyCredential, "${{ secrets.CACHIX_AUTH_TOKEN }}", "offline-cachix", "${{ needs.cache-eligibility.outputs.cache }}", "fixture-cache")
 	for _, step := range job.Steps {
 		if step.Uses != "" {
 			f, e := os.OpenFile(trace, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
@@ -1571,8 +1572,8 @@ func TestFailedJobsOnlyPublisherRerunRefusesAtEachActualMutationJobEntry(t *test
 				"go": "exit 0\n", "nix": "exit 0\n",
 				"uv":     `echo 'registry uv publish' >> "$TRACE"; echo "$RELEASE_VERSION" > "$LATEST"`,
 				"cachix": `echo 'registry cachix push' >> "$TRACE"; echo "$RELEASE_VERSION" > "$LATEST"`,
-				"skopeo": `case "$1" in inspect) case "$*" in *arm64*) echo linux/arm64;; *) echo linux/amd64;; esac;; login) echo 'credential skopeo login' >> "$TRACE";; copy) echo "registry skopeo $*" >> "$TRACE"; echo "$RELEASE_VERSION" > "$LATEST";; esac`,
-				"docker": `case "$*" in *login*) echo 'credential docker login' >> "$TRACE";; *imagetools\ create*) echo "registry docker $*" >> "$TRACE"; echo "$RELEASE_VERSION" > "$LATEST";; esac`,
+				"skopeo": `case "$1" in inspect) case "$*" in *arm64*) echo linux/arm64;; *) echo linux/amd64;; esac;; login) cat >/dev/null; echo 'credential skopeo login' >> "$TRACE";; copy) echo "registry skopeo $*" >> "$TRACE"; echo "$RELEASE_VERSION" > "$LATEST";; esac`,
+				"docker": `case "$*" in *login*) cat >/dev/null; echo 'credential docker login' >> "$TRACE";; *imagetools\ create*) echo "registry docker $*" >> "$TRACE"; echo "$RELEASE_VERSION" > "$LATEST";; esac`,
 			} {
 				if e := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/bash\n"+body+"\n"), 0o755); e != nil {
 					t.Fatal(e)

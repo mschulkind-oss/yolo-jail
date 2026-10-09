@@ -357,6 +357,9 @@ func Run(opts Options) (rc int) {
 	// above the dispatch, so every backend and an attach say which revision each source-built
 	// program is at (OQ-FP6, forkbuild.go).
 	o.forkPinned = o.noteForkPins(staged.packs, rt)
+	if !o.selectCachedGood(rt) {
+		return 1
+	}
 	// THE PATCHED EXTENSIONS' block, above the dispatch beside the forks', and for its reason: every
 	// backend and an attach say what each one is at (docs/design/patched-extensions.md §10).
 	o.patchedTrees = o.notePatchedTrees(staged.packs)
@@ -2691,6 +2694,15 @@ func startedLoophole(handles []loopholeDaemon, name string) bool {
 func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.OrderedMap,
 	staged stagedPacks, channel *packChannel, raced bool, release func()) (rc int, restarted bool) {
 	out := o.pr(o.Stdout)
+	if o.cachedGoodOwner != "" {
+		if release != nil {
+			release()
+		}
+		out.printf("Refusing cached-good recovery on an attach.")
+		out.printf("Stop this workspace's running jail with `yolo stop`, then repeat the fresh launch with %s=%s.",
+			CachedGoodEnv, o.cachedGoodOwner)
+		return 1, false
+	}
 	// The moment this entry began: a stop record older than it explains some earlier end, never
 	// this session's (stopreason.go).
 	attachStart := o.Now()

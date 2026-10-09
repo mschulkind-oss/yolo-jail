@@ -31,6 +31,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
@@ -49,6 +50,8 @@ type ForkDelivery struct {
 	// Cause is the build's cause in plain words, when its act found one (BuildCause): what the
 	// launch's refusal of a missing patched fork says (PF-D77). nil leaves Reason to say it.
 	Cause *BuildCause `json:"cause,omitempty"`
+	// PatchFailure is host-only failure evidence; the jail wire remains unchanged.
+	PatchFailure *packsrc.PatchFailure `json:"-"`
 	// Unsaid says the host's build act said nothing of Reason, leaving it to the launch's refusal or
 	// warning (internal/cli/run's missingbuilds.go), which then says it once. The host's alone: never
 	// on the wire.

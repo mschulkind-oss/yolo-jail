@@ -11,6 +11,11 @@ summary: "Source evidence for a narrowly scoped, read-only completion command; d
 **Status:** Source inspection and bounded offline diagnostics, 2026-10-09; no project gate run.
 No selector, baseline recorder or evidence-reuse mechanism is implemented by this research.
 
+A separate portable component experiment lives at
+[`tools/completion-experiment/`](../../tools/completion-experiment/README.md). Its focused
+fixtures are not project-gate or whole-profile evidence and do not change this research's
+production input-closure findings.
+
 > **Finding.** A small documentation shortcut is defensible; a Markdown-extension shortcut is not.
 > Completion also needs a successful baseline covering earlier commits, not just an empty working diff.
 

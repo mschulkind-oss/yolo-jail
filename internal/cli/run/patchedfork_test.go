@@ -448,7 +448,9 @@ func TestTheForkBuildsAndTheTreeArmShareTheLaunchsActInterrupt(t *testing.T) {
 // BELOW APPLE CONTAINER'S READ-ONLY FLOOR a patched fork is a plain fork's case (§9): no store is
 // mounted, so no advance runs and the fork is told why.
 func TestNoPatchedForkAdvancesBelowTheAppleContainerFloor(t *testing.T) {
+	t.Setenv("YOLO_VERSION", "")
 	o := goldenOptions("/ws", t.TempDir())
+	o.acVersion = &acVersionProbe{v: "1.0.0", ok: true}
 	o.CapturesDir = func() string { return "/store" }
 	called := false
 	o.BuildForks = func(ForkBuildRequest) map[string]entrypoint.ForkDelivery { called = true; return nil }

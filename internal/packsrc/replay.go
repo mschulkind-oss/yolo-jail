@@ -93,6 +93,8 @@ type ReplayResult struct {
 	Conflict *ReplayConflict
 	// Err is an APPLY ERROR: anything else that stopped the replay. The entry stays pending.
 	Err error
+	// PatchFailure is set only for a non-cancelled member-application command failure.
+	PatchFailure *PatchFailure
 	// head is a clean replay's last commit, in the scratch repository, for OnFit's checkout.
 	head string
 }
@@ -116,6 +118,8 @@ func (e *SeriesBaseError) Error() string {
 
 // WalkOptions tunes WalkSeries.
 type WalkOptions struct {
+	// Snapshot binds this walk to the original check authority captured before replay.
+	Snapshot *ReplaySnapshot
 	// Timeout is the walk's bound; zero means ReplayTimeout.
 	Timeout time.Duration
 	// Spent is what earlier replays of the same act took of that bound: one advance's replays
@@ -128,6 +132,10 @@ type WalkOptions struct {
 	Waiting func(string)
 	// All replays every entry instead of stopping at the first fit (a status survey).
 	All bool
+	// StopOnPatchFailure ends at the first concrete conflict instead of reaching an older fit.
+	StopOnPatchFailure bool
+	// LocalOnly reclassifies legacy failures without prefetching or lazy fetching.
+	LocalOnly bool
 	// OnFit, when non-nil, is handed the newest fit's source subdirectory (the whole tree for a
 	// repository-root source) checked out of the replay's last commit into a directory inside
 	// the walk's private scratch space, with its links as links and no .git, before the scratch
@@ -151,14 +159,50 @@ type WalkResult struct {
 	Err error
 	// Git is the git version the replay ran, for the outcome key.
 	Git string
+	// snapshot is a private copy of the original authority captured at WalkSeries entry.
+	snapshot *ReplaySnapshot
+}
+
+func (w WalkResult) PatchFailure() *PatchFailure {
+	if w.Base != nil {
+		return &PatchFailure{Target: ListEntry{Commit: w.Base.Base}, Kind: "base", Member: w.Base.Member, Detail: w.Base.Detail}
+	}
+	for _, r := range w.Results {
+		if r.Conflict != nil {
+			return &PatchFailure{Target: r.Entry, Kind: "conflict", Member: r.Conflict.Member, Paths: append([]string(nil), r.Conflict.Paths...)}
+		}
+		if r.PatchFailure != nil {
+			f := clonePatchFailure(r.PatchFailure)
+			f.Target = r.Entry
+			return f
+		}
+	}
+	return nil
 }
 
 // WalkSeries replays series down list, newest first, until an entry takes it: the walk of §6.4.
 // repo is the upstream's repository and subdir the source's subdirectory, for the patched tree.
 func (s *Store) WalkSeries(repo, subdir string, series *Series, list []ListEntry, opts WalkOptions) WalkResult {
-	res := WalkResult{Fit: -1}
+	res := WalkResult{Fit: -1, snapshot: cloneReplaySnapshot(opts.Snapshot)}
+	if opts.Snapshot != nil {
+		if err := invalidSnapshot(*res.snapshot); err != nil {
+			res.Err = err
+			return res
+		}
+		if series == nil || res.snapshot.Inputs.Repo != repo || res.snapshot.Inputs.Subdir != subdir ||
+			res.snapshot.Series != series.Digest {
+			res.Err = errors.New("replay repository, subdirectory, or series does not match its original snapshot")
+			return res
+		}
+	}
 	if strings.HasPrefix(repo, NpmSourcePrefix) {
-		return walkNpm(list, opts)
+		n := walkNpm(list, opts)
+		n.snapshot = res.snapshot
+		return n
+	}
+	if series == nil {
+		res.Err = errors.New("cannot replay a nil series")
+		return res
 	}
 	timeout := opts.Timeout
 	if timeout <= 0 {
@@ -169,7 +213,9 @@ func (s *Store) WalkSeries(repo, subdir string, series *Series, list []ListEntry
 		res.Err = fmt.Errorf("the series' replay ran out of its %s", timeout)
 		return res
 	}
-	gitVer, err := s.GitVersion()
+	ctx, cancel := context.WithTimeout(s.parentCtx(), left)
+	defer cancel()
+	gitVer, err := s.GitVersionContext(ctx)
 	res.Git = gitVer
 	if err != nil {
 		res.Err = err
@@ -185,8 +231,6 @@ func (s *Store) WalkSeries(repo, subdir string, series *Series, list []ListEntry
 		return res
 	}
 	defer unlock()
-	ctx, cancel := context.WithTimeout(s.parentCtx(), left)
-	defer cancel()
 	b := budget{ctx: ctx, d: timeout}
 	mirror := s.mirrorPath(repo)
 	if !mirrorExists(mirror) {
@@ -197,12 +241,8 @@ func (s *Store) WalkSeries(repo, subdir string, series *Series, list []ListEntry
 	// The base's files, into the mirror, then the series made into commits there. An EMPTY SERIES
 	// (an unmodified extension, EmptySeries) has no base and makes no commit: each entry's replay
 	// is its own tree, which every entry fits.
-	if series.Len() > 0 {
+	if series.Len() > 0 && !opts.LocalOnly {
 		s.prefetchBlobs(b, mirror, series.Base, "")
-		if err := s.missingBlobs(b, mirror, series.Base); err != nil {
-			res.Err = err
-			return res
-		}
 	}
 	sc, err := newScratch(s.git(), mirror, b)
 	if err != nil {
@@ -210,6 +250,17 @@ func (s *Store) WalkSeries(repo, subdir string, series *Series, list []ListEntry
 		return res
 	}
 	defer sc.remove()
+	if series.Len() > 0 {
+		if opts.LocalOnly {
+			if err := missingBlobsScratch(sc, series.Base); err != nil {
+				res.Err = err
+				return res
+			}
+		} else if err := s.missingBlobs(b, mirror, series.Base); err != nil {
+			res.Err = err
+			return res
+		}
+	}
 	var commits []string
 	if series.Len() > 0 {
 		var baseErr *SeriesBaseError
@@ -226,9 +277,17 @@ func (s *Store) WalkSeries(repo, subdir string, series *Series, list []ListEntry
 
 	for _, e := range list {
 		r := ReplayResult{Entry: e}
-		s.prefetchBlobs(b, mirror, e.Commit, "")
-		if err := s.missingBlobs(b, mirror, e.Commit); err != nil {
-			r.Err = err
+		if !opts.LocalOnly {
+			s.prefetchBlobs(b, mirror, e.Commit, "")
+		}
+		var missingErr error
+		if opts.LocalOnly {
+			missingErr = missingBlobsScratch(sc, e.Commit)
+		} else {
+			missingErr = s.missingBlobs(b, mirror, e.Commit)
+		}
+		if missingErr != nil {
+			r.Err = missingErr
 			res.Results = append(res.Results, r)
 			return res
 		}
@@ -240,6 +299,10 @@ func (s *Store) WalkSeries(repo, subdir string, series *Series, list []ListEntry
 		}
 		res.Results = append(res.Results, r)
 		switch {
+		case r.Conflict != nil:
+			if opts.StopOnPatchFailure {
+				return res
+			}
 		case r.Err != nil:
 			// An apply error ends the walk: the entries below it stay unsettled, and pending.
 			return res
@@ -278,6 +341,27 @@ func walkNpm(list []ListEntry, opts WalkOptions) WalkResult {
 	res.Results = append(res.Results, r)
 	res.Fit = 0
 	return res
+}
+
+// missingBlobsScratch checks object availability through the isolated non-promisor replay repository.
+// It cannot trigger lazy fetches from a partial mirror, even with Git versions that ignore the
+// GIT_NO_LAZY_FETCH environment variable.
+func missingBlobsScratch(sc *scratch, commit string) error {
+	out, err := sc.git("", "rev-list", "--objects", "--missing=print", commit+"^{tree}")
+	if err != nil {
+		return fmt.Errorf("could not read the upstream's files at %s: %s", shortCommit(commit), oneLine(err))
+	}
+	n := 0
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "?") {
+			n++
+		}
+	}
+	if n > 0 {
+		return fmt.Errorf("could not fetch the upstream's files at %s (%d missing after the local-only probe)",
+			shortCommit(commit), n)
+	}
+	return nil
 }
 
 // missingBlobs is an apply error when the mirror still lacks a file of commit after its prefetch:
@@ -458,7 +542,11 @@ func (sc *scratch) applyAtBase(series *Series, branch string) ([]string, *Series
 			if sc.b.ctx.Err() != nil {
 				return nil, nil, err
 			}
-			return nil, &SeriesBaseError{Member: m.Name, Base: series.Base, Detail: amDetail(err)}, nil
+			var exit *exec.ExitError
+			if errors.As(err, &exit) && exit.ExitCode() >= 1 {
+				return nil, &SeriesBaseError{Member: m.Name, Base: series.Base, Detail: err.Error()}, nil
+			}
+			return nil, nil, err
 		}
 		head, err := sc.git("", "rev-parse", "HEAD")
 		if err != nil {
@@ -467,19 +555,6 @@ func (sc *scratch) applyAtBase(series *Series, branch string) ([]string, *Series
 		commits = append(commits, strings.TrimSpace(head))
 	}
 	return commits, nil, nil
-}
-
-// amDetail is the first line of git am's diagnosis that says what failed.
-func amDetail(err error) string {
-	for _, line := range strings.Split(err.Error(), "\n")[1:] {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "hint:") || strings.HasPrefix(line, "Applying:") ||
-			strings.HasPrefix(line, "Patch failed at") || strings.Contains(line, "git am --") {
-			continue
-		}
-		return line
-	}
-	return oneLine(err)
 }
 
 // pick picks commits onto r.Entry's commit one at a time, filling r.
@@ -505,6 +580,10 @@ func (sc *scratch) pick(r *ReplayResult, series *Series, commits []string, subdi
 				}
 			}
 			r.Conflict = &ReplayConflict{Member: member, Paths: paths}
+			return
+		case err != nil && code > 1 && sc.b.ctx.Err() == nil:
+			r.PatchFailure = &PatchFailure{Kind: "application-command", Member: member, Detail: err.Error()}
+			r.Err = fmt.Errorf("applying %s onto %s: %w", member, shortCommit(r.Entry.Commit), err)
 			return
 		case err != nil:
 			r.Err = fmt.Errorf("picking %s onto %s: %s", member, shortCommit(r.Entry.Commit), oneLine(err))
@@ -575,10 +654,23 @@ var gitVersions sync.Map
 // GitVersion is the store's git's version, "2.55.0" for "git version 2.55.0", asked once per
 // process: it is part of a conflict's key, since another git may merge differently.
 func (s *Store) GitVersion() (string, error) {
+	return s.GitVersionContext(context.Background())
+}
+
+// GitVersionContext is GitVersion with a caller-owned execution bound.
+func (s *Store) GitVersionContext(ctx context.Context) (string, error) {
 	if v, ok := gitVersions.Load(s.git()); ok {
 		return v.(string), nil
 	}
-	out, err := exec.Command(s.git(), "version").Output()
+	cmd := exec.CommandContext(ctx, s.git(), "version")
+	waitDelay := gitWaitDelay
+	if deadline, ok := ctx.Deadline(); ok {
+		if remaining := time.Until(deadline); remaining > 0 && remaining < waitDelay {
+			waitDelay = remaining
+		}
+	}
+	cmd.WaitDelay = waitDelay
+	out, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("running %s version: %w", s.git(), err)
 	}

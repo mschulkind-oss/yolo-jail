@@ -248,6 +248,16 @@ To keep running what you have, turn `agent_updates` off for the pack, or put a t
   `yolo pack series check` and `yolo pack rebase <key>` when a series no longer applies, or dropping
   the list entry or the pack. `YOLO_ALLOW_MISSING_PROGRAMS=1` starts the jail anyway: the shell
   works, and pi says which extension has no build if you run it.
+- **One launch from a previous good patched program:** if a fresh jail launch reports that the
+  current build failed but an intact recorded good build remains, you can explicitly use that old
+  program once: `YOLO_USE_CACHED_GOOD=pi-fork/pi yolo -- pi -c`. Replace `pi-fork/pi` with the
+  selected patched program's `<pack>/<bin>`. It skips only that program's advance for this fresh
+  launch; it does not change the requested series or make the old build current. The old program
+  does not include your current edits, and the next launch follows the normal build path again.
+  If its exact recorded build is missing or cannot safely run, yolo refuses and tells you how to
+  repair the current build. This is different from `YOLO_ALLOW_MISSING_PROGRAMS=1`: that bypass
+  starts a jail without supplying a program. Use `yolo capture` to retry a build failure, and
+  `yolo pack rebase` only when the series no longer applies.
 
 ```text
 Refusing to launch: 2 patched extensions pack pi loads have no build on this machine.

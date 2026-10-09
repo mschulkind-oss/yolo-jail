@@ -2,13 +2,16 @@ package hostfloor
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 )
 
 // patched.go is the floor's arm for a PATCHED FORK's program (docs/design/patched-forks.md §9,
@@ -57,6 +60,16 @@ type PatchedState struct {
 	Recipe string
 	// Good is the good build when it serves the manifest (its recipe is Recipe), nil when none does.
 	Good *PatchedBuild
+	// PatchFailure is the current persistent application failure, if any, or the typed failure
+	// returned by the immediately preceding Advance when persistence did not retain it.
+	PatchFailure *packsrc.PatchFailure
+	// OperationError is an independent check/operation failure returned by Advance. A compatible
+	// patch-failure bypass must not turn this into success.
+	OperationError string
+	// AuthorityError is a failed or unresolved authority read, not a classified patch failure.
+	AuthorityError string
+	// AdvanceBypassed records that Advance itself took the literal foreground compatibility skip.
+	AdvanceBypassed bool
 	// Reason is why no good build serves, naming the next step; "" when Good is set.
 	Reason string
 }
@@ -70,6 +83,81 @@ type PatchedBuild struct {
 	// Entry is its capture store entry, found by the exact lookup; nil when the store holds it no
 	// more (a prune, a wiped store), which the next advance builds again.
 	Entry *capture.Entry
+}
+
+// PatchedPreparation is an operation-local, opaque selection returned by PreparePatched. Its
+// unexported fields bind the selected declaration, Floor, recipe, authority and delivery; callers
+// can only consume it through EnsurePrepared on the same Floor and Program.
+type PatchedPreparation struct {
+	floor           *Floor
+	program         Program
+	goos, goarch    string
+	recipe          string
+	state           PatchedState
+	failure         *packsrc.PatchFailure
+	installed       *Record
+	selectedGood    *PatchedBuild
+	delivery        patchedPreparationDelivery
+	bypassRequested bool
+}
+
+type patchedPreparationDelivery uint8
+
+const (
+	patchedPreparationInstall patchedPreparationDelivery = iota
+	patchedPreparationKeepInstalled
+	patchedPreparationInstallGood
+)
+
+func cloneProgram(p Program) (Program, error) {
+	data, err := json.Marshal(p.Install)
+	if err != nil {
+		return Program{}, fmt.Errorf("copying the host program declaration: %w", err)
+	}
+	var install packdecl.Install
+	if err := json.Unmarshal(data, &install); err != nil {
+		return Program{}, fmt.Errorf("copying the host program declaration: %w", err)
+	}
+	install.ForkRoot = p.Install.ForkRoot
+	install.Gate = p.Install.Gate
+	install.RefreshTiming = p.Install.RefreshTiming
+	return Program{Pack: p.Pack, Install: install}, nil
+}
+
+func clonePatchFailure(in *packsrc.PatchFailure) *packsrc.PatchFailure {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.Paths = append([]string(nil), in.Paths...)
+	return &out
+}
+
+func clonePatchedBuild(in *PatchedBuild) *PatchedBuild {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	if in.Entry != nil {
+		entry := *in.Entry
+		out.Entry = &entry
+	}
+	return &out
+}
+
+func clonePatchedState(in PatchedState) PatchedState {
+	in.Good = clonePatchedBuild(in.Good)
+	in.PatchFailure = clonePatchFailure(in.PatchFailure)
+	return in
+}
+
+func cloneRecord(in *Record) *Record {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.Exec = append([]string(nil), in.Exec...)
+	return &out
 }
 
 // patched is Patched's answer for p, or why this floor reads none.
@@ -164,7 +252,7 @@ func (f *Floor) patchedProvisionable(st Status, ps PatchedState) Status {
 	if why := f.cannotAdvance(); why != "" {
 		st.Disposition = NoEntry
 		st.Reason = "there is no build of " + p.Bin() + " from fork pack " + in.ForkedBy + "'s patch series on this " +
-			"machine, and " + why + runtimeStep(f.Advance != nil, "builds it")
+			"machine, and " + why + runtimeStep(f.canAdvance(), "builds it")
 		return st
 	}
 	switch {
@@ -187,14 +275,18 @@ func (f *Floor) patchedWhat(p Program, g *PatchedBuild) string {
 // advance builds in a jail, as a plain fork's build act does (cannotBuild).
 func (f *Floor) cannotAdvance() string {
 	switch {
-	case f.Advance == nil && f.NoAdvance != "":
+	case f.NoAdvance != "":
 		return f.NoAdvance
-	case f.Advance == nil:
+	case !f.canAdvance():
 		return "this yolo runs no patched fork's advance here"
 	case f.CaptureUnavailable != nil:
 		return f.CaptureUnavailable()
 	}
 	return ""
+}
+
+func (f *Floor) canAdvance() bool {
+	return f.NoAdvance == "" && (f.Advance != nil || f.ResolvePatched != nil)
 }
 
 // patchedUpdatesAllowed is the refresh arm's `agent_updates` question for a patched fork, asked for
@@ -217,107 +309,46 @@ func (f *Floor) advances(p Program, st Status) bool {
 	return !(st.Disposition == Provisioned && st.Pending == "" && !f.patchedUpdatesAllowed(p))
 }
 
+func (f *Floor) writePatchFailure(p Program, pf *packsrc.PatchFailure) {
+	target := pf.Target.Tag
+	if target == "" {
+		target = pf.Target.Commit
+	}
+	fmt.Fprintf(f.out(), "ERROR: fork %s: patch application failed at upstream %s (%s)\n", p.Install.ForkedBy+"/"+p.Bin(), target, pf.Target.Commit)
+	if pf.Member != "" {
+		fmt.Fprintf(f.out(), "  Patch: %s\n", printableFloorDetail(pf.Member))
+	}
+	if pf.Kind == "conflict" {
+		fmt.Fprintf(f.out(), "  Conflict: %s\n", printableFloorDetail(strings.Join(pf.Paths, ", ")))
+	} else {
+		fmt.Fprintf(f.out(), "  Application command: %s\n", printableFloorDetail(pf.Detail))
+	}
+	fmt.Fprintln(f.out(), "  Operation stopped; no older fit or base will be built.")
+	fmt.Fprintf(f.out(), "  Repair: yolo pack rebase %s/%s --onto %s\n", p.Install.ForkedBy, p.Bin(), pf.Target.Commit)
+	fmt.Fprintln(f.out(), "  Bypass: YOLO_ALLOW_PATCH_FAILURES=1 yolo host -- "+p.Bin())
+}
+
+func printableFloorDetail(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if r == '\n' || r == '\t' || r >= 0x20 && r != 0x7f {
+			b.WriteRune(r)
+		} else {
+			fmt.Fprintf(&b, "\\\\x%02x", r)
+		}
+	}
+	return b.String()
+}
+
 // ensurePatched is Ensure for a patched fork's program: the advance first, outside the floor's lock
 // — it has its own, and a launch waits for it interruptibly (PF-D25), which a wait on the floor's
 // unbounded lock would not be — and then the install of the good build it leaves, under the lock.
 func (f *Floor) ensurePatched(ctx context.Context, p Program) (Status, Outcome, error) {
-	st := f.Status(p)
-	switch {
-	case st.Disposition == NoEntry && f.noEntryReason(p) != "":
-		// The platform, `host_floor`, a series that cannot be read: nothing an advance changes.
-		return st, "", fmt.Errorf("%w for %s: %s", ErrNoEntry, p.Bin(), st.Reason)
-	case st.Newer:
-		return st, "", newerRecordError{st.Reason}
-	}
-	if f.advances(p, st) {
-		f.Advance(ctx, p, f.patchedServing(p, st))
-		st = f.Status(p)
-	}
-	switch {
-	case st.Disposition == NoEntry:
-		return st, "", fmt.Errorf("%w for %s: %s", ErrNoEntry, p.Bin(), st.Reason)
-	case st.Newer:
-		return st, "", newerRecordError{st.Reason}
-	case st.Disposition == Provisioned && st.Pending == "":
-		return st, Current, nil
-	}
-	if err := f.ensureDir("bin", "programs", "records", "locks"); err != nil {
-		return st, "", err
-	}
-	lk, err := acquire(f.lockPath(p.Bin()), true, func(pid int) {
-		f.say("waiting for pid %d, which is installing %s into yolo's floor", pid, p.Bin())
-	})
+	prepared, err := f.PreparePatched(ctx, p, true)
 	if err != nil {
-		return st, "", err
+		return f.Status(p), "", err
 	}
-	defer lk.release()
-	// Re-checked UNDER the lock: the holder we waited for may have installed exactly this.
-	st = f.Status(p)
-	switch {
-	case st.Newer:
-		return st, "", newerRecordError{st.Reason}
-	case st.Disposition == NoEntry:
-		return st, "", fmt.Errorf("%w for %s: %s", ErrNoEntry, p.Bin(), st.Reason)
-	case st.Disposition == Provisioned && st.Pending == "":
-		return st, Current, nil
-	}
-	var rec *Record
-	if ps := f.patched(p); ps.Good != nil && ps.Good.Entry == nil {
-		// THE GOOD BUILD IS GONE FROM THE STORE, and the advance above, when this machine runs one, did
-		// not build it again: no install can copy it, so none starts, and the failure names the act
-		// that builds it.
-		err = errors.New(f.patchedGoneReason(p, ps.Good))
-	} else {
-		why := st.Reason
-		if st.Pending != "" {
-			why = st.Pending
-		}
-		f.say("installing %s into yolo's floor (%s): %s", p.Bin(), why, f.describeRecipe(p))
-		rec, err = f.install(ctx, p)
-	}
-	if err != nil {
-		noEntry := noEntryReasonOf(err)
-		if st.Disposition == Provisioned && noEntry == "" && !f.servesANearMiss(p, st.Record) {
-			// A NEWER UPSTREAM'S INSTALL FAILED, and the installed copy is a build of the series as it
-			// stands: it keeps serving (PF-D8).
-			f.say("could not reinstall %s (%v); running the installed %s", p.Bin(), err, st.Record.Version)
-			return st, Kept, nil
-		}
-		if st.Disposition == Provisioned {
-			// THE USER'S EDIT (PF-D23, FP-D17): the installed copy is not the build the pack now asks
-			// for, so it does not serve. Or A GOOD BUILD THAT CANNOT LEAVE THE JAIL'S HOME, which has no
-			// floor entry (§9) whatever the floor ran before it.
-			if noEntry != "" {
-				f.say("%s: %s, so the floor no longer runs the installed %s", p.Bin(), noEntry, st.Record.Version)
-			} else {
-				f.say("could not install %s (%v); the installed %s is not the build the pack now asks for, "+
-					"so the floor no longer runs it", p.Bin(), err, st.Record.Version)
-			}
-			f.removeInstalled(p)
-			st.Disposition, st.Record, st.Pending = Missing, nil, ""
-			st.Reason = "the install the pack now asks for failed, and the installed copy was not it"
-		}
-		if noEntry != "" {
-			st.Disposition, st.Reason = NoEntry, noEntry
-		}
-		return st, "", err
-	}
-	outcome := Installed
-	if st.Disposition == Provisioned {
-		outcome = Updated
-	}
-	f.say("installed %s %s → %s", p.Bin(), rec.Version, f.Launcher(p.Bin()))
-	return f.Status(p), outcome, nil
-}
-
-// patchedServing is the floor's installed copy of p when it serves whatever an advance does — a
-// build of the series as it stands, the copy a failed install keeps (PF-D8) — and nil otherwise:
-// nothing installed, or a near-miss (patchedServesANearMiss), which a failed install removes.
-func (f *Floor) patchedServing(p Program, st Status) *Record {
-	if st.Disposition != Provisioned || st.Record == nil || f.patchedServesANearMiss(p, st.Record) {
-		return nil
-	}
-	return st.Record
+	return f.EnsurePrepared(ctx, p, prepared)
 }
 
 // patchedGoneReason is why the floor cannot install good build g, whose store entry is gone, with the
@@ -327,7 +358,7 @@ func (f *Floor) patchedServing(p Program, st Status) *Record {
 func (f *Floor) patchedGoneReason(p Program, g *PatchedBuild) string {
 	gone := "fork pack " + p.Install.ForkedBy + "'s good build " + g.Label + " is gone from the capture store"
 	if why := f.cannotAdvance(); why != "" {
-		return gone + ", and " + why + runtimeStep(f.Advance != nil, "builds it")
+		return gone + ", and " + why + runtimeStep(f.canAdvance(), "builds it")
 	}
 	return gone + ", and nothing built it again — `yolo capture " + p.Bin() + "` builds it, and the next `yolo host -- " +
 		p.Bin() + "` installs it"
@@ -353,14 +384,17 @@ func (f *Floor) removeInstalled(p Program) {
 func (f *Floor) patchedServesANearMiss(p Program, rec *Record) bool {
 	ps := f.patched(p)
 	return rec.Via != packdecl.ViaSource || rec.Declared != declared(p.Install) || ps.Recipe == "" ||
-		rec.Recipe != ps.Recipe
+		rec.Recipe != ps.Recipe || rec.Node != "" && !packdecl.SatisfiesNodeFloor(rec.Node, p.Install.NodeFloor)
 }
 
 // installFromPatchedBuild materializes the good build of p into dir/home — the entry a jail launch
 // is handed, relocated — the advance having run first (ensurePatched). It builds nothing itself.
 func (f *Floor) installFromPatchedBuild(ctx context.Context, p Program, dir string) (*Record, error) {
+	return f.installFromPatchedState(ctx, p, dir, f.patched(p))
+}
+
+func (f *Floor) installFromPatchedState(ctx context.Context, p Program, dir string, ps PatchedState) (*Record, error) {
 	in := p.Install
-	ps := f.patched(p)
 	switch {
 	case ps.Good == nil:
 		// The advance said why above, with its next step; this is the floor's half of it.
@@ -381,7 +415,7 @@ func (f *Floor) installFromPatchedBuild(ctx context.Context, p Program, dir stri
 		if m, merr := capture.ReadManifest(g.Entry.Root); merr == nil && m.Home != "" {
 			buildHome = m.Home
 		}
-		return nil, &noEntryError{reason: notRelocatableReason(what, buildHome, []string{err.Error()})}
+		return nil, errors.Join(&noEntryError{reason: notRelocatableReason(what, buildHome, []string{err.Error()})}, err)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("materializing the build of %s: %w", p.Bin(), err)

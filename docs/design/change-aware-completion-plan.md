@@ -21,6 +21,13 @@ the tree wins on facts; this sketch is advice and is not a hand-off. There are n
 The smart preparation role must close the engineering gates below; the implementation role must
 not invent their missing evidence.
 
+## Bounded source experiment
+
+The portable component sources and focused tests live in
+[`tools/completion-experiment/`](../../tools/completion-experiment/README.md). They are not
+production wiring, a reusable baseline, or a closed implementation hand-off. The wider
+source-closure, dispatch, production acceptance, and quality gates below remain open.
+
 ## Before promotion
 
 | Gap | Prepared result | Still required before hand-off |

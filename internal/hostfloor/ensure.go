@@ -389,6 +389,12 @@ func roughAge(d time.Duration) string {
 // install puts a fresh copy of p in a new directory, and switches bin/<bin> to it on success.
 // The caller holds p's lock.
 func (f *Floor) install(ctx context.Context, p Program) (*Record, error) {
+	return f.installSelected(ctx, p, nil)
+}
+
+// installSelected installs from the patched build selected before the floor lock, never by rereading
+// a later good-build pointer. A nil selection keeps ordinary recipes on their existing path.
+func (f *Floor) installSelected(ctx context.Context, p Program, patched *PatchedState) (*Record, error) {
 	bin := p.Bin()
 	prev, err := f.readRecord(bin)
 	if errors.Is(err, ErrNewerRecord) {
@@ -408,7 +414,11 @@ func (f *Floor) install(ctx context.Context, p Program) (*Record, error) {
 		rec, err = f.installFromCapture(p, dir)
 	case packdecl.InstallKindSource:
 		if p.Install.IsPatchedFork() {
-			rec, err = f.installFromPatchedBuild(ctx, p, dir)
+			if patched != nil {
+				rec, err = f.installFromPatchedState(ctx, p, dir, *patched)
+			} else {
+				rec, err = f.installFromPatchedBuild(ctx, p, dir)
+			}
 		} else {
 			rec, err = f.installFromBuild(ctx, p, dir)
 		}

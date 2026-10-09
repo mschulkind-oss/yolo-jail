@@ -98,6 +98,9 @@ type Fork struct {
 	// a fork. A base yolo ships joins by itself; a configured one is in the selection only when the
 	// seal names it (docs/design/patched-extensions.md PPX-D39).
 	PackBases []string
+	// NodeFloor is the base program's declared Node floor. A cached source build's env-node entrypoint
+	// remains compatible only when the selected base keeps its runtime floor.
+	NodeFloor string
 	// Into is a PATCHED EXTENSION's home-relative landing (docs/design/patched-extensions.md;
 	// patchedtrees.go), "" for every fork of a program. With it set the value is an extension:
 	// Bin is its name, the last segment of Into; Base is ""; and Produces are tree-relative.
@@ -180,10 +183,25 @@ func Forks(packs []*Pack) []Fork {
 				Produces:  append([]string(nil), c.Produces...),
 				Platforms: append([]string(nil), c.Platforms...),
 				Root:      p.Root, Patches: c.Patches, Follow: c.Follow, PackBases: slices.Clone(bases),
+				NodeFloor: baseProgramNodeFloor(packs, c.ForkOf, c.Bin),
 			})
 		}
 	}
 	return out
+}
+
+func baseProgramNodeFloor(packs []*Pack, base, bin string) string {
+	for _, p := range packs {
+		if p == nil || p.Name != base || p.Decl == nil {
+			continue
+		}
+		for _, c := range p.Decl.Contributions() {
+			if c.Kind == packdecl.KindProgram && c.Bin == bin {
+				return c.NodeFloor
+			}
+		}
+	}
+	return ""
 }
 
 // forkBases is the distinct base pack names p's forks name, in declaration order: the packs a

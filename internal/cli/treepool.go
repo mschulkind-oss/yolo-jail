@@ -101,15 +101,19 @@ func (p *advancePool) build(ctx context.Context, fn func()) bool {
 // treeLane is what one key's pipeline in a pool runs with: its own writers, the pool, the pool's one
 // interrupt scope's context, and the start line its build says at once.
 type treeLane struct {
-	out, errw io.Writer
-	pool      *advancePool
-	ctx       context.Context
-	started   func()
+	out, errw     io.Writer
+	immediateErrw io.Writer
+	pool          *advancePool
+	ctx           context.Context
+	started       func()
 }
 
 // options are a's lane fields set on o.
 func (l treeLane) options(o advanceOptions) advanceOptions {
 	o.out, o.errw, o.pool, o.ctx, o.started = l.out, l.errw, l.pool, l.ctx, l.started
+	if o.background {
+		o.backgroundErrw = l.immediateErrw
+	}
 	return o
 }
 
@@ -140,7 +144,7 @@ func runTreesUnder(ctx context.Context, trees []packload.Fork, runtime string, o
 			defer wg.Done()
 			lo, le := ord.writers(i)
 			log := treeBuildLog(f)
-			lane := treeLane{out: lo, errw: le, pool: pool, ctx: ctx}
+			lane := treeLane{out: lo, errw: le, immediateErrw: errw, pool: pool, ctx: ctx}
 			lane.started = func() {
 				// The log opens HERE, under the build's own lock and slot, and is appended to:
 				// a launch that builds nothing of the key never touches it (XB-D50).

@@ -35,6 +35,7 @@ See [the wire bridge](docs/reference/wire-bridge.md#converse-on-a-via-route).
 
 ### Fixed
 
+- A patched program with a failed current build can now be used for one fresh launch from its intact recorded good build, without changing the requested series.
 - A podman jail with nothing for the Nix root watcher to do no longer keeps a defunct `yolo-jaild` process for its whole life.
 - A host service that refuses its settings now stops the launch at once with its own cause and fix, instead of holding it for the whole startup window and staying running afterwards.
 

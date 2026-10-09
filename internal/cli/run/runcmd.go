@@ -759,6 +759,8 @@ type Options struct {
 	// forkPinned is this launch's forks with what the fork lock says each is pinned to, read once
 	// above the backend dispatch (noteForkPins) and acted on by the fork build trigger.
 	forkPinned []packload.ForkPin
+	// cachedGoodOwner is the explicit, one-launch selector for a selected patched program.
+	cachedGoodOwner string
 	// forkDelivered is what this launch hands its jail per forked program (forkDeliveriesFor).
 	forkDelivered map[string]entrypoint.ForkDelivery
 	// handedForks are the bins a patched fork's advance recorded itself, under its record lock

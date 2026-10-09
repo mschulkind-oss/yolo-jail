@@ -29,6 +29,9 @@ type ForkBuildRequest struct {
 	// which has no pin by design (docs/design/patched-forks.md §6.5) and whose delivery its advance
 	// decides.
 	Pins []packload.ForkPin
+	// CachedGoodOwner is the one selected patched-program owner whose recorded Good.Entry is
+	// delivered instead of advancing it. Empty preserves the strict ordinary launch path.
+	CachedGoodOwner string
 	// Platform is the jail's platform (containerJailPlatform), never the host's.
 	Platform string
 	// Runtime is the backend the jail runs on, for a line that names what differs there (§9: an
@@ -141,7 +144,7 @@ func (o *Options) forkBuildPlan(rt string) (map[string]entrypoint.ForkDelivery, 
 		}
 		return out, nil
 	}
-	req := &ForkBuildRequest{Pins: build, Platform: platform, Runtime: rt, Workspace: o.Workspace,
+	req := &ForkBuildRequest{Pins: build, CachedGoodOwner: o.cachedGoodOwner, Platform: platform, Runtime: rt, Workspace: o.Workspace,
 		Stdout: o.Stdout, Stderr: o.Stderr, Progress: o.progressConfig(), Interrupt: o.actInterrupt()}
 	if o.packTree != "" {
 		// Called from every advance of the slot's pool at once (XB-D10): the record's writes are

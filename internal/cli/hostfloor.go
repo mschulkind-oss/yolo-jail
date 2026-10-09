@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"syscall"
@@ -70,6 +71,7 @@ var newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Flo
 		UpdatesAllowed: func(pack string) bool {
 			return entrypoint.PackPolicyAllows(updatesWire, pack)
 		},
+		AllowPatchFailures: allowPatchFailures,
 		// Either origin (resolveFloorCapture): a capture jail's, or this host's own capture (HP-D18),
 		// which no jail ever selects.
 		ResolveCapture: func(bin string) (*capture.Entry, error) {
@@ -134,9 +136,12 @@ var newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Flo
 		// and capture store — and its install runs the fork's ADVANCE first, the one a fresh jail launch
 		// runs (patchedadvance.go), waiting for it as that launch does (PF-D25).
 		Patched: floorPatchedState,
+		ResolvePatched: func(ctx context.Context, p hostfloor.Program, installed *hostfloor.Record, allowAdvance bool) hostfloor.PatchedState {
+			return floorResolvePatched(ctx, p, out, floorServingCopy(installed), allowAdvance)
+		},
 		Advance: func(ctx context.Context, p hostfloor.Program, installed *hostfloor.Record) hostfloor.PatchedState {
-			floorAdvance(floorForkBuild(p, "").Fork, out, floorServingCopy(installed), actInterruptOf(ctx))
-			return floorPatchedState(p)
+			result := floorAdvance(ctx, floorForkBuild(p, "").Fork, out, floorServingCopy(installed), actInterruptOf(ctx))
+			return floorAdvanceState(p, result)
 		},
 		Home:   paths.Home(),
 		Out:    out,
@@ -339,6 +344,130 @@ func floorForkBuild(p hostfloor.Program, commit string) forkBuild {
 // is a capture jail's too, so the floor's lookups and a jail launch's name one build.
 func floorPatchedPlatform() string { return capture.Platform() }
 
+func floorAdvanceState(p hostfloor.Program, result advanceResult) hostfloor.PatchedState {
+	state := floorPatchedState(p)
+	failure := result.patchFailure
+	if failure == nil {
+		failure = result.delivery.PatchFailure
+	}
+	if result.good != nil {
+		good, err := floorPatchedBuild(p, result.good, result.good.Recipe)
+		state.Good = good
+		if err != nil {
+			state.Good = nil
+			state.AuthorityError = fmt.Sprintf("%s: %v", p.Bin(), err)
+		} else {
+			state.AuthorityError = ""
+		}
+	} else if failure != nil {
+		// Do not substitute a Good build from a fresh readback for the operation's selection.
+		state.Good = nil
+	}
+	if failure != nil {
+		state.PatchFailure = failure
+	}
+	state.OperationError = result.operationError
+	state.AdvanceBypassed = result.bypassed
+	return state
+}
+
+// floorResolvePatched consumes detached/opaque local authority before the Floor selects a copy. A
+// classified current failure is returned directly; only a clean authority read may continue into a
+// requested advance. Preparation never installs the selected build.
+func floorResolvePatched(ctx context.Context, p hostfloor.Program, out io.Writer, installed *installedCopy,
+	allowAdvance bool) (resolved hostfloor.PatchedState) {
+	defer func() {
+		if ctx != nil && ctx.Err() != nil {
+			appendFloorOperationError(&resolved, ctx.Err().Error())
+		}
+	}()
+	fork := floorForkBuild(p, "").Fork
+	a, early := newAdvance(fork, advanceOptions{platform: floorPatchedPlatform(), out: out, errw: out,
+		launch: true, host: true, installed: installed, act: actInterruptOf(ctx), operationCtx: ctx,
+		readOnlyInitialization: true})
+	if early != nil {
+		state := floorPatchedState(p)
+		if early.problem != "" {
+			state.Reason = early.problem
+		}
+		return state
+	}
+	authority := a.deliveryPatchFailure(true)
+	state := floorPatchedStateAtAdvance(p, a)
+	if authority.Err != nil {
+		message := authority.Err.Error()
+		if authority.Diagnostic != "" && !strings.Contains(authority.Diagnostic, message) {
+			message = authority.Diagnostic + "; " + message
+		}
+		appendFloorAuthorityError(&state, message)
+	}
+	authorityBlocked := authority.Err != nil
+	switch authority.State {
+	case "unavailable":
+		message := authority.Diagnostic
+		if message == "" {
+			message = "the local patch-failure authority is unavailable"
+		}
+		appendFloorAuthorityError(&state, message)
+		authorityBlocked = true
+	case "stale":
+		message := authority.Diagnostic
+		if message == "" {
+			message = "the replay authority changed during local classification"
+		}
+		appendFloorAuthorityError(&state, message)
+		authorityBlocked = true
+	case "failure":
+		if authority.Failure != nil {
+			state.PatchFailure = authority.Failure
+			authorityBlocked = true
+		} else {
+			appendFloorAuthorityError(&state, "the local patch-failure authority has no classified failure")
+			authorityBlocked = true
+		}
+	case "clean", "not-needed":
+	default:
+		appendFloorAuthorityError(&state, fmt.Sprintf("unknown local patch-failure authority state %q", authority.State))
+		authorityBlocked = true
+	}
+	if authorityBlocked {
+		return state
+	}
+	if ctx != nil && ctx.Err() != nil {
+		appendFloorOperationError(&state, ctx.Err().Error())
+		return state
+	}
+	if !allowAdvance {
+		return state
+	}
+	result := floorAdvance(ctx, fork, out, installed, actInterruptOf(ctx))
+	return floorAdvanceState(p, result)
+}
+
+func appendFloorOperationError(state *hostfloor.PatchedState, message string) {
+	message = strings.TrimSpace(message)
+	if message == "" || strings.Contains(state.OperationError, message) {
+		return
+	}
+	if state.OperationError == "" {
+		state.OperationError = message
+		return
+	}
+	state.OperationError += "; " + message
+}
+
+func appendFloorAuthorityError(state *hostfloor.PatchedState, message string) {
+	message = strings.TrimSpace(message)
+	if message == "" || strings.Contains(state.AuthorityError, message) {
+		return
+	}
+	if state.AuthorityError == "" {
+		state.AuthorityError = message
+		return
+	}
+	state.AuthorityError += "; " + message
+}
+
 // floorAdvance is the floor's advance of a patched fork (hostfloor.Floor.Advance): the fresh
 // launch's own (advancePatchedFork) as a LAUNCH — the check throttled, a back-off honored, the wait
 // interruptible while a good build serves (PF-D25) — at the host (advanceOptions.host), its lines on
@@ -346,9 +475,9 @@ func floorPatchedPlatform() string { return capture.Platform() }
 // none (PF-D55). act is the verb's act interrupt (PF-D57), which the floor's Ensure carried in its
 // context (withActInterrupt). It hands nothing: the floor installs the good build the record names
 // once it returns. A var so a test can count the floor's advances.
-var floorAdvance = func(f packload.Fork, out io.Writer, installed *installedCopy, act *run.ActInterrupt) {
-	advancePatchedFork(f, advanceOptions{platform: floorPatchedPlatform(), out: out, errw: out, launch: true, host: true,
-		installed: installed, act: act})
+var floorAdvance = func(ctx context.Context, f packload.Fork, out io.Writer, installed *installedCopy, act *run.ActInterrupt) advanceResult {
+	return advancePatchedFork(f, advanceOptions{platform: floorPatchedPlatform(), out: out, errw: out, launch: true, host: true,
+		installed: installed, act: act, operationCtx: ctx})
 }
 
 // actInterruptKey is the context key the verb's act interrupt rides under through the floor's Ensure,
@@ -384,6 +513,15 @@ func floorServingCopy(rec *hostfloor.Record) *installedCopy {
 // with no record, the one the capture store holds for this recipe (recoverGoodBuild, which writes
 // nothing) — with its store entry by the exact lookup. File reads only: no git, no network.
 func floorPatchedState(p hostfloor.Program) hostfloor.PatchedState {
+	return floorPatchedStateRecord(p, nil, false, nil)
+}
+
+func floorPatchedStateAtAdvance(p hostfloor.Program, a *advance) hostfloor.PatchedState {
+	return floorPatchedStateRecord(p, a.rec, true, a.legacyGood)
+}
+
+func floorPatchedStateRecord(p hostfloor.Program, recorded *packsrc.CheckRecord, fixed bool,
+	legacyReceipt *packsrc.GoodBuild) hostfloor.PatchedState {
 	f := floorForkBuild(p, "").Fork
 	series, err := f.ReadSeries()
 	if err != nil {
@@ -395,17 +533,40 @@ func floorPatchedState(p hostfloor.Program) hostfloor.PatchedState {
 	platform := floorPatchedPlatform()
 	store := &capture.Store{Dir: paths.CapturesDir()}
 	var g *packsrc.GoodBuild
+	var patchFailure *packsrc.PatchFailure
 	lookup := recipe // the recipe the store entry's receipt names, for the exact lookup below
-	if rec, err := run.LoadPatchedRecord(patchedForkStore(), f, series); err == nil && rec.Good != nil {
+	in, _, _, _ := f.CheckWant(series).Inputs()
+	if fixed {
+		g = nil
+		patchFailure = nil
+		if recorded != nil {
+			patchFailure = recorded.CurrentPatchFailure(in, series.Digest)
+			g = recorded.Good
+			if receipt := floorLegacyReceiptRecipe(f, series, recipe, g, legacyReceipt); receipt != "" {
+				lookup = receipt
+			}
+		}
+	} else if rec, err := (&packsrc.Store{Dir: paths.PacksDir()}).LoadCheckRecord(f.Key()); err == nil {
 		g = rec.Good
-	} else if g = recoverGoodBuild(store, f.Key(), platform, recipe, series.Len()); g == nil &&
-		series.LegacyDigest != "" && series.LegacyDigest != series.Digest {
-		// A BUILD RECEIPTED UNDER THE SERIES' LEGACY DIGEST is a build of these files (PF-D62): it
-		// serves, found under the recipe its receipt names. This read writes nothing; the next advance
-		// re-keys it, as its own recovery does.
-		legacy := run.PatchedRecipe(f, series.LegacyDigest)
-		if g = recoverGoodBuild(store, f.Key(), platform, legacy, series.Len()); g != nil {
-			g.Series, g.Recipe, lookup = series.Digest, recipe, legacy
+		if g != nil && series.LegacyDigest != "" && series.LegacyDigest != series.Digest &&
+			g.Series == series.LegacyDigest && g.Recipe == run.PatchedRecipe(f, series.LegacyDigest) {
+			legacy := *g
+			rec.RekeySeries(series.LegacyDigest, legacy.Recipe, series.Digest, recipe)
+			g = rec.Good
+			if receipt := floorLegacyReceiptRecipe(f, series, recipe, g, &legacy); receipt != "" {
+				lookup = receipt
+			}
+		}
+		patchFailure = rec.CurrentPatchFailure(in, series.Digest)
+	}
+	ps.PatchFailure = patchFailure
+	if !fixed && g == nil {
+		g = recoverGoodBuild(store, f.Key(), platform, recipe, series.Len())
+		if g == nil && series.LegacyDigest != "" && series.LegacyDigest != series.Digest {
+			legacy := run.PatchedRecipe(f, series.LegacyDigest)
+			if g = recoverGoodBuild(store, f.Key(), platform, legacy, series.Len()); g != nil {
+				g.Series, g.Recipe, lookup = series.Digest, recipe, legacy
+			}
 		}
 	}
 	switch {
@@ -418,13 +579,74 @@ func floorPatchedState(p hostfloor.Program) hostfloor.PatchedState {
 			run.GoodBuildLabel(g) + " — reverting the edit brings that build back"
 		return ps
 	}
-	ps.Good = &hostfloor.PatchedBuild{Commit: g.Commit, Recipe: g.Recipe,
-		Label: run.WithPatches(run.GoodBuildLabel(g), g.Patches)}
-	if e, _, err := resolvePatchedBuild(store, f.Key(), f.Bin, platform, patchedBuildSource(f.Source), g.Commit,
-		lookup); err == nil {
-		ps.Good.Entry = e
+	ps.Good, err = floorPatchedBuild(p, g, lookup)
+	if err != nil {
+		ps.Good = nil
+		ps.AuthorityError = fmt.Sprintf("%s: %v", p.Bin(), err)
+		return ps
+	}
+	if g.Entry == "" {
+		if e, _, err := resolvePatchedBuild(store, f.Key(), f.Bin, platform, patchedBuildSource(f.Source), g.Commit,
+			lookup); err == nil {
+			ps.Good.Entry = e
+		}
 	}
 	return ps
+}
+
+// floorLegacyReceiptRecipe returns the original receipt recipe only when read-only initialization
+// re-keyed the exact Good identity in memory from this series' legacy digest to its current digest.
+// The legacy copy is private advance evidence; this conversion never accepts a recipe discovered by
+// scanning or writes a migration.
+func floorLegacyReceiptRecipe(f packload.Fork, series *packsrc.Series, recipe string,
+	current, legacy *packsrc.GoodBuild) string {
+	if current == nil || legacy == nil || series == nil || series.LegacyDigest == "" ||
+		series.LegacyDigest == series.Digest || current.Series != series.Digest || current.Recipe != recipe ||
+		legacy.Series != series.LegacyDigest || legacy.Recipe != run.PatchedRecipe(f, series.LegacyDigest) {
+		return ""
+	}
+	original := *current
+	original.Series, original.Recipe = legacy.Series, legacy.Recipe
+	if !reflect.DeepEqual(original, *legacy) {
+		return ""
+	}
+	return legacy.Recipe
+}
+
+func floorPatchedBuild(p hostfloor.Program, g *packsrc.GoodBuild, receiptRecipe string) (*hostfloor.PatchedBuild, error) {
+	if g == nil {
+		return nil, nil
+	}
+	patched := &hostfloor.PatchedBuild{Commit: g.Commit, Recipe: g.Recipe,
+		Label: run.WithPatches(run.GoodBuildLabel(g), g.Patches)}
+	if g.Entry == "" {
+		return patched, nil
+	}
+	store := &capture.Store{Dir: paths.CapturesDir()}
+	entry, err := store.Resolve(g.Entry)
+	if err != nil {
+		if errors.Is(err, capture.ErrNotCaptured) {
+			// The selected content may have been pruned after the floor installed it. Keep the
+			// Good identity so an intact compatible floor copy can still serve; do not substitute
+			// a different entry found by scanning the store.
+			return patched, nil
+		}
+		return nil, fmt.Errorf("selected Good entry %s is not complete: %w", g.Entry, err)
+	}
+	fork := floorForkBuild(p, "").Fork
+	records, err := captureRecords(entry.Root)
+	if err != nil {
+		return nil, fmt.Errorf("read selected Good entry %s receipts: %w", g.Entry, err)
+	}
+	for _, receipt := range records {
+		if receipt.Fork == fork.Key() && receipt.Bin == p.Bin() && receipt.Platform == floorPatchedPlatform() &&
+			receipt.Source == patchedBuildSource(fork.Source) && receipt.Revision == g.Commit && receipt.Recipe == receiptRecipe {
+			patched.Entry = entry
+			return patched, nil
+		}
+	}
+	return nil, fmt.Errorf("selected Good entry %s has no build receipt matching fork %s, bin %s, platform %s, source %s, revision %s and recipe %s",
+		g.Entry, fork.Key(), p.Bin(), floorPatchedPlatform(), patchedBuildSource(fork.Source), g.Commit, receiptRecipe)
 }
 
 // floorForkPins reads the fork lock once for every source-built program among progs, keyed by bin,
@@ -791,6 +1013,10 @@ func resolveHostLaunchTarget(packs []*packload.Pack, cmd0 string, lp *hostpath.L
 	}
 	floor := newHostFloor(errw, progs)
 	st, _, err := floor.Ensure(withActInterrupt(context.Background(), act), prog)
+	var patchFailure *packsrc.PatchFailure
+	if errors.As(err, &patchFailure) {
+		return hostTarget{}, 1
+	}
 	if err == nil || (errors.Is(err, hostfloor.ErrNoEntry) && floor.OutsideTheFloor(prog)) {
 		// The agent starts: so do the MCP servers its config names (HC-D28). A no-entry agent the
 		// floor answers for is refused below (HNR-D2), so nothing is installed for it.

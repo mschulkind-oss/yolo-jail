@@ -13,9 +13,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 )
 
 const (
@@ -79,6 +82,285 @@ func patchedWorld(t *testing.T) (*world, *patchedFake) {
 		return "", ""
 	}
 	return w, pf
+}
+
+func TestFloorPatchedPreparationSelectsOnceWithoutFloorWrites(t *testing.T) {
+	w, pf := patchedWorld(t)
+	p := patchedProgram()
+	first := pf.good(forkCommitOne, patchedRecipeOne, "v1.0.0 (11111111) + 2 patches", true)
+	later := pf.good(forkCommitTwo, patchedRecipeOne, "v1.1.0 (22222222) + 2 patches", true)
+	pf.state = PatchedState{Recipe: patchedRecipeOne, Good: first}
+	advances := 0
+	w.floor.Advance = func(context.Context, Program, *Record) PatchedState {
+		advances++
+		return PatchedState{Recipe: patchedRecipeOne, Good: first}
+	}
+	prepared, err := w.floor.PreparePatched(context.Background(), p, true)
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	if advances != 1 {
+		t.Fatalf("prepare ran %d advances, want one", advances)
+	}
+	if _, err := os.Stat(w.floor.Dir); !os.IsNotExist(err) {
+		t.Fatalf("preparation wrote floor artifacts: %v", err)
+	}
+	pf.state.Good = later
+	st, outcome, err := w.floor.EnsurePrepared(context.Background(), p, prepared)
+	if err != nil || outcome != Installed || st.Record == nil || st.Record.Revision != forkCommitOne ||
+		st.Record.Capture != first.Entry.Key || advances != 1 {
+		t.Fatalf("EnsurePrepared did not consume the selected Good exactly once: status=%+v outcome=%q advances=%d err=%v",
+			st, outcome, advances, err)
+	}
+}
+
+func TestFloorPatchedPreparationWithoutAdvanceHasNoFloorWrites(t *testing.T) {
+	w, pf := patchedWorld(t)
+	p := patchedProgram()
+	advances := 0
+	w.floor.Advance = func(context.Context, Program, *Record) PatchedState {
+		advances++
+		return pf.state
+	}
+	if _, err := w.floor.PreparePatched(context.Background(), p, false); err != nil {
+		t.Fatalf("cached-only preparation: %v", err)
+	}
+	if advances != 0 {
+		t.Errorf("cached-only preparation ran %d advances", advances)
+	}
+	if _, err := os.Stat(w.floor.Dir); !os.IsNotExist(err) {
+		t.Errorf("cached-only preparation wrote floor artifacts: %v", err)
+	}
+}
+
+func TestFloorPatchedPreparationRejectsChangedBindingBeforeWrites(t *testing.T) {
+	for _, change := range []string{"program", "floor", "recipe"} {
+		t.Run(change, func(t *testing.T) {
+			w, pf := patchedWorld(t)
+			p := patchedProgram()
+			good := pf.good(forkCommitOne, patchedRecipeOne, "v1.0.0 (11111111) + 2 patches", true)
+			pf.state = PatchedState{Recipe: patchedRecipeOne, Good: good}
+			prepared, err := w.floor.PreparePatched(context.Background(), p, false)
+			if err != nil {
+				t.Fatalf("prepare: %v", err)
+			}
+			target := w.floor
+			checkProgram := p
+			switch change {
+			case "program":
+				checkProgram.Install.Build += " && changed"
+			case "floor":
+				other := *w.floor
+				target = &other
+			case "recipe":
+				pf.state.Recipe = patchedRecipeTwo
+			}
+			if _, _, err := target.EnsurePrepared(context.Background(), checkProgram, prepared); err == nil {
+				t.Fatalf("changed %s binding was accepted", change)
+			}
+			if _, err := os.Stat(w.floor.Dir); !os.IsNotExist(err) {
+				t.Errorf("rejected %s binding wrote floor artifacts: %v", change, err)
+			}
+		})
+	}
+}
+
+func TestFloorPatchedPreparationRefusesUnresolvedAuthorityBesideGoodBuild(t *testing.T) {
+	w, pf := patchedWorld(t)
+	p := patchedProgram()
+	good := pf.good(forkCommitOne, patchedRecipeOne, "v1.0.0 (11111111) + 2 patches", true)
+	pf.state = PatchedState{Recipe: patchedRecipeOne, Good: good}
+	w.floor.AllowPatchFailures = func() bool { return true }
+	w.floor.ResolvePatched = func(context.Context, Program, *Record, bool) PatchedState {
+		return PatchedState{Recipe: patchedRecipeOne, Good: good, AuthorityError: "detached evidence unavailable",
+			OperationError: "independent operation error"}
+	}
+	st, outcome, err := w.floor.Ensure(context.Background(), p)
+	var failure *packsrc.PatchFailure
+	if err == nil || errors.As(err, &failure) || outcome != "" ||
+		!strings.Contains(err.Error(), "detached evidence unavailable") || !strings.Contains(err.Error(), "independent operation error") {
+		t.Fatalf("unresolved authority or operation error was waived by a compatible Good build: status=%+v outcome=%q err=%v",
+			st, outcome, err)
+	}
+	if _, err := os.Stat(w.floor.Dir); !os.IsNotExist(err) {
+		t.Errorf("unresolved authority preparation wrote floor artifacts: %v", err)
+	}
+}
+
+func TestFloorPatchFatalReturnedFailureDoesNotAdoptPreAdvanceGood(t *testing.T) {
+	w, pf := patchedWorld(t)
+	p := patchedProgram()
+	first := pf.good(forkCommitOne, patchedRecipeOne, "v1.0.0 (11111111) + 2 patches", true)
+	pf.state = PatchedState{Recipe: patchedRecipeOne, Good: first}
+	failure := &packsrc.PatchFailure{Owner: "forkpack/forkcli", Series: patchedRecipeOne,
+		Target: packsrc.ListEntry{Commit: "upstream-target"}, Kind: "conflict", Member: "0001-conflict.patch"}
+	w.floor.AllowPatchFailures = func() bool { return true }
+	w.floor.Advance = func(context.Context, Program, *Record) PatchedState {
+		return PatchedState{Recipe: patchedRecipeOne, PatchFailure: failure}
+	}
+	_, outcome, err := w.floor.Ensure(context.Background(), p)
+	var got *packsrc.PatchFailure
+	if !errors.As(err, &got) || !reflect.DeepEqual(got, failure) || outcome != "" {
+		t.Fatalf("pre-advance Good was substituted for the failure operation's missing selection: outcome=%q err=%v", outcome, err)
+	}
+	if _, err := os.Stat(w.floor.Dir); !os.IsNotExist(err) {
+		t.Errorf("unselected Good was installed after returned failure: %v", err)
+	}
+}
+
+func TestFloorPatchFatalRaisedNodeFloorIsNotBypassCompatible(t *testing.T) {
+	w, pf := patchedWorld(t)
+	pf.advance = firstGood
+	p := patchedProgram()
+	if _, _, err := w.floor.Ensure(context.Background(), p); err != nil {
+		t.Fatalf("initial install: %v", err)
+	}
+	launcher, err := os.ReadFile(w.floor.Launcher(p.Bin()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raised := p
+	raised.Install.NodeFloor = "99.1"
+	failure := &packsrc.PatchFailure{Owner: "forkpack/forkcli", Series: patchedRecipeOne,
+		Target: packsrc.ListEntry{Commit: "upstream-target"}, Kind: "conflict", Member: "0001-conflict.patch"}
+	pf.state.PatchFailure = failure
+	w.floor.AllowPatchFailures = func() bool { return true }
+	st, outcome, err := w.floor.Ensure(context.Background(), raised)
+	var got *packsrc.PatchFailure
+	if !errors.As(err, &got) || !reflect.DeepEqual(got, failure) || outcome == Current || st.Record == nil {
+		t.Fatalf("literal patch bypass accepted a copy below the selected node_floor: status=%+v outcome=%q err=%v",
+			st, outcome, err)
+	}
+	after, readErr := os.ReadFile(w.floor.Launcher(p.Bin()))
+	if readErr != nil || string(after) != string(launcher) {
+		t.Errorf("Node-incompatible patch refusal changed the installed copy: err=%v", readErr)
+	}
+}
+
+func TestFloorPatchFatalLiteralBypassCanInstallOnlyTheSelectedCompleteStoreBuild(t *testing.T) {
+	w, pf := patchedWorld(t)
+	p := patchedProgram()
+	good := pf.good(forkCommitOne, patchedRecipeOne, "v1.0.0 (11111111) + 2 patches", true)
+	pf.state = PatchedState{Recipe: patchedRecipeOne, Good: good}
+	failure := &packsrc.PatchFailure{Owner: "forkpack/forkcli", Series: patchedRecipeOne,
+		Target: packsrc.ListEntry{Commit: "upstream-target"}, Kind: "conflict", Member: "0001-conflict.patch"}
+	pf.state.PatchFailure = failure
+	advances := 0
+	w.floor.Advance = func(context.Context, Program, *Record) PatchedState {
+		advances++
+		return pf.state
+	}
+	w.floor.AllowPatchFailures = func() bool { return true }
+	if _, err := os.Stat(w.floor.Dir); !os.IsNotExist(err) {
+		t.Fatalf("fixture unexpectedly created floor artifacts before Ensure: %v", err)
+	}
+	st, outcome, err := w.floor.Ensure(context.Background(), p)
+	if err != nil || outcome != Installed || st.Disposition != Provisioned || st.Record == nil ||
+		st.Record.Capture != good.Entry.Key || advances != 0 {
+		t.Fatalf("literal skip did not install the selected admitted build without another advance: status=%+v outcome=%q advances=%d err=%v",
+			st, outcome, advances, err)
+	}
+	if pf.state.PatchFailure != failure || pf.state.Good == nil || pf.state.Good.Entry == nil ||
+		pf.state.Good.Entry.Key != good.Entry.Key {
+		t.Errorf("install mutated the failure or selected Good authority: state=%+v", pf.state)
+	}
+}
+
+// A returned classified failure remains authoritative even when persistence did not retain it: the
+// advance result is the operation's answer, not something a subsequent offline Status can replace.
+func TestFloorPatchFatalReturnedAdvanceFailureSurvivesAbsentPersistence(t *testing.T) {
+	w, pf := patchedWorld(t)
+	pf.advance = firstGood
+	p := patchedProgram()
+	if _, _, err := w.floor.Ensure(context.Background(), p); err != nil {
+		t.Fatalf("initial install: %v", err)
+	}
+	before, err := os.ReadFile(w.floor.Launcher(p.Bin()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeRecord, err := os.ReadFile(w.floor.recordPath(p.Bin()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	failure := &packsrc.PatchFailure{Owner: "forkpack/forkcli", Series: "series-digest",
+		Target: packsrc.ListEntry{Commit: "upstream-target"}, Kind: "conflict", Member: "0001-conflict.patch",
+		Paths: []string{"conflict.txt"}}
+	w.floor.Advance = func(context.Context, Program, *Record) PatchedState {
+		return PatchedState{Recipe: pf.state.Recipe, Good: pf.state.Good, PatchFailure: failure}
+	}
+	_, outcome, err := w.floor.Ensure(context.Background(), p)
+	var got *packsrc.PatchFailure
+	if !errors.As(err, &got) || !reflect.DeepEqual(got, failure) {
+		t.Fatalf("Ensure lost returned-only typed failure: outcome=%q err=%v", outcome, err)
+	}
+	if outcome != "" {
+		t.Errorf("failure claimed successful outcome %q", outcome)
+	}
+	after, readErr := os.ReadFile(w.floor.Launcher(p.Bin()))
+	afterRecord, recordErr := os.ReadFile(w.floor.recordPath(p.Bin()))
+	if readErr != nil || recordErr != nil || string(after) != string(before) || string(afterRecord) != string(beforeRecord) {
+		t.Errorf("returned-only failure changed the installed copy: launcher err=%v record err=%v", readErr, recordErr)
+	}
+}
+
+func TestFloorPatchFatalCompatibilityBypassKeepsOnlyAnIntactCurrentSeriesCopy(t *testing.T) {
+	for _, cell := range []string{"current", "lags-good", "store-entry-gone"} {
+		t.Run(cell, func(t *testing.T) {
+			w, pf := patchedWorld(t)
+			pf.advance = firstGood
+			p := patchedProgram()
+			if _, _, err := w.floor.Ensure(context.Background(), p); err != nil {
+				t.Fatalf("initial install: %v", err)
+			}
+			before, err := os.ReadFile(w.floor.Launcher(p.Bin()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cell == "lags-good" {
+				pf.state.Good = &PatchedBuild{Commit: forkCommitTwo, Recipe: patchedRecipeOne,
+					Label: "v1.1.0 (22222222) + 2 patches"}
+			}
+			if cell == "store-entry-gone" {
+				pf.state.Good.Entry = nil
+			}
+			failure := &packsrc.PatchFailure{Owner: "forkpack/forkcli", Series: patchedRecipeOne,
+				Target: packsrc.ListEntry{Commit: "upstream-target"}, Kind: "conflict", Member: "0001-conflict.patch"}
+			w.floor.AllowPatchFailures = func() bool { return true }
+			w.floor.Advance = func(context.Context, Program, *Record) PatchedState {
+				return PatchedState{Recipe: patchedRecipeOne, Good: pf.state.Good, PatchFailure: failure}
+			}
+			st, outcome, err := w.floor.Ensure(context.Background(), p)
+			if err != nil || outcome != Current || st.Disposition != Provisioned {
+				t.Fatalf("compatible literal bypass: status=%s outcome=%q err=%v", st.Disposition, outcome, err)
+			}
+			after, err := os.ReadFile(w.floor.Launcher(p.Bin()))
+			if err != nil || string(after) != string(before) {
+				t.Errorf("compatibility skip changed the existing floor copy: err=%v", err)
+			}
+		})
+	}
+}
+
+func TestFloorPatchFatalOperationErrorSurvivesCompatibleBypass(t *testing.T) {
+	w, pf := patchedWorld(t)
+	pf.advance = firstGood
+	p := patchedProgram()
+	if _, _, err := w.floor.Ensure(context.Background(), p); err != nil {
+		t.Fatalf("initial install: %v", err)
+	}
+	failure := &packsrc.PatchFailure{Owner: "forkpack/forkcli", Series: patchedRecipeOne,
+		Target: packsrc.ListEntry{Commit: "upstream-target"}, Kind: "conflict", Member: "0001-conflict.patch"}
+	w.floor.AllowPatchFailures = func() bool { return true }
+	w.floor.Advance = func(context.Context, Program, *Record) PatchedState {
+		return PatchedState{Recipe: patchedRecipeOne, Good: pf.state.Good, PatchFailure: failure,
+			OperationError: "the independent fetch check failed"}
+	}
+	_, outcome, err := w.floor.Ensure(context.Background(), p)
+	var got *packsrc.PatchFailure
+	if outcome != "" || !errors.As(err, &got) || !reflect.DeepEqual(got, failure) || !strings.Contains(err.Error(), "independent fetch check failed") {
+		t.Fatalf("the compatibility skip waived an independent operation error: outcome=%q err=%v", outcome, err)
+	}
 }
 
 // firstGood is the advance a first install runs: it builds v1.0.0 and makes it the good build.

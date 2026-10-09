@@ -14,6 +14,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
@@ -22,7 +23,9 @@ import (
 // HNR-D1), the host's copy of the jail's (internal/entrypoint/readiness.go, OQ-JR1): every
 // `yolo host -- <cmd>` launch installs every program a user-scope selected pack declares into
 // yolo's floor BEFORE it resolves the target, whatever the command, and a program it cannot
-// install STOPS the launch unless paths.AllowMissingProgramsEnv is set.
+// install STOPS the launch unless paths.AllowMissingProgramsEnv is set. That missing-program hatch
+// never waives a typed patch-application failure; only the foreground literal-1 compatibility
+// bypass, after positive validation of what serves, can continue that class.
 //
 // There is one installer: the act calls Floor.Ensure per program, as `yolo host apply --assert`
 // and the target's own install do. Ensure on an installed entry is the throttled evergreen
@@ -95,6 +98,7 @@ func hostReadinessAct(packs []*packload.Pack, cmd []string, errw io.Writer, act 
 	floor := newHostFloor(errw, progs)
 	ctx := withActInterrupt(context.Background(), act)
 	var failed []hostReadinessFailure
+	patchFailure := false
 	for _, p := range todo {
 		if floor.OutsideTheFloor(p) {
 			continue
@@ -102,6 +106,8 @@ func hostReadinessAct(packs []*packload.Pack, cmd []string, errw io.Writer, act 
 		_, _, err := floor.Ensure(ctx, p)
 		r.settled[p.Bin()] = true
 		if err != nil {
+			var applicationFailure *packsrc.PatchFailure
+			patchFailure = patchFailure || errors.As(err, &applicationFailure)
 			failed = append(failed, hostReadinessFailure{who: "program " + p.Bin() + " (pack " + p.Pack + ")",
 				pack: p.Pack, err: err})
 		}
@@ -125,10 +131,18 @@ func hostReadinessAct(packs []*packload.Pack, cmd []string, errw io.Writer, act 
 			leaveOut = append(leaveOut, fmt.Sprintf("%q: false", f.pack))
 		}
 	}
-	if os.Getenv(paths.AllowMissingProgramsEnv) != "" {
+	if os.Getenv(paths.AllowMissingProgramsEnv) != "" && !patchFailure {
 		fmt.Fprintf(errw, "yolo host: ⚠ %s is set, so this launch starts WITHOUT what a selected pack declares:\n%s"+
 			"    The next `yolo host` launch tries each install again.\n", paths.AllowMissingProgramsEnv, list.String())
 		return r, 0
+	}
+	if patchFailure {
+		fmt.Fprintf(errw, "yolo host: refusing to launch: a patch application failure is not waived by %s. Repair the patch series; "+
+			"the foreground-only YOLO_ALLOW_PATCH_FAILURES=1 compatibility bypass applies only to a positively validated compatible build.\n", paths.AllowMissingProgramsEnv)
+		fmt.Fprintf(errw, "%s", list.String())
+		fmt.Fprintf(errw, "      Fix what each line names, drop the pack from your packs list, or leave it out of yolo's floor with `\"host_floor\": {%s}` in the user config.\n",
+			strings.Join(leaveOut, ", "))
+		return r, 1
 	}
 	// REFUSAL, not a warning, in the jail's words: a launch without a program its own config
 	// selected is not the environment that config promised.

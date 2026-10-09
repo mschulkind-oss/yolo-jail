@@ -226,6 +226,8 @@ type Floor struct {
 	Outranked func(p Program) string
 	// UpdatesAllowed is the `agent_updates` policy for a pack. nil => allowed, the ruled default.
 	UpdatesAllowed func(pack string) bool
+	// AllowPatchFailures is the one explicit host foreground bypass; it never creates a build.
+	AllowPatchFailures func() bool
 	// ResolveCapture finds the capture store's entry for bin on this host's platform, the same
 	// selection a jail's materialize makes. nil => this host has no capture store.
 	ResolveCapture func(bin string) (*capture.Entry, error)
@@ -277,16 +279,15 @@ type Floor struct {
 	// record and capture store, offline — file reads, never git or the network, so Status may ask
 	// it. nil => this floor holds no patched fork.
 	Patched func(p Program) PatchedState
-	// Advance runs a patched fork's ADVANCE for p — the check (throttled hourly), the replay of the
-	// series and the build of the newest fit in a sealed capture jail, and the move of the good build
-	// once that build is admitted — waiting for it as a launch does (PF-D25: bounded, and a Ctrl-C
-	// ends it on the good build), and returns the state after it. Ensure asks it before it decides,
-	// outside the floor's lock; never Status. installed is the floor's own copy of p when it is a
-	// build of the series as it stands — the copy a failed install keeps (PF-D8) — and nil otherwise:
-	// it serves whatever the advance does, so the advance runs as one with a good build serving, and
-	// builds no good build that copy already is (PF-D55). nil => no patched fork is advanced here, and
-	// none with no good build in the store has a floor entry.
+	// Advance asks the foreground actor to read the selected fork series and build the newest fit in
+	// a sealed capture jail, returning the state after it. Ensure asks it before deciding, outside the
+	// floor lock; Status never does. installed is the floor's own copy of p when it serves the current
+	// series and declared Node floor, nil otherwise. nil => no patched fork is advanced here.
 	Advance func(ctx context.Context, p Program, installed *Record) PatchedState
+	// ResolvePatched is the operation-local authority boundary used by PreparePatched. It consumes
+	// current detached/opaque failure authority with the selected host context, and runs an advance
+	// only when allowAdvance is true. It must not install or write floor/user artifacts.
+	ResolvePatched func(ctx context.Context, p Program, installed *Record, allowAdvance bool) PatchedState
 	// NoAdvance is why Advance is nil for this act when the act, not the machine, builds no patched
 	// fork, naming the act that does: the host apply `yolo pack update` runs (PF-D12, PF-D56). ""
 	// keeps the machine's reason.

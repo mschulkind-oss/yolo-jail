@@ -391,6 +391,8 @@ type buildMode struct {
 	// replaySpent is what the advance's walks have already taken of the replay's bound, which the
 	// build's own replay into src/ shares (packsrc.WalkOptions.Spent, PF-D44).
 	replaySpent time.Duration
+	// sourceReplay binds and records a patched source's second replay when an advance owns it.
+	sourceReplay sourceReplayOptions
 	// settle, when non-nil, is run with the build's result — its entry, or the error that ended it
 	// — while the build's lock is still held, and every return from the act after the lock was
 	// taken goes through it: a PATCHED fork's advance records a failed build and moves the good
@@ -843,7 +845,7 @@ func buildForkUnderLock(b forkBuild, mode buildMode, store *capture.Store, pr ri
 		} else {
 			mode.run.phase("replaying the series")
 		}
-		if tree, err = replayIntoSource(mode.packs, b, src, mode.replaySpent); err != nil {
+		if tree, err = replayIntoSource(mode.packs, b, src, mode.replaySpent, mode.sourceReplay); err != nil {
 			what := "replaying the series onto"
 			if b.Series.Len() == 0 {
 				what = "checking out"

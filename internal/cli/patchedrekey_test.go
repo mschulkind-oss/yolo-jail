@@ -8,6 +8,7 @@ package cli
 // rebase` and the host floor's offline read — and none reads it as the user's own edit.
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"os"
@@ -173,7 +174,8 @@ func TestPackRebaseOntoALegacyDigestGoodBuildSaysItRunsTheSeries(t *testing.T) {
 	assertReKeyed(t, f, s, r.delivery.Key, newRecipe)
 }
 
-// THE HOST FLOOR'S OFFLINE READ serves it too, with its store entry, where no advance runs first.
+// THE HOST FLOOR'S OFFLINE READ serves it too, with its store entry and current logical recipe,
+// without migrating the check record or its receipt on disk.
 func TestTheFloorsReadServesALegacyDigestGoodBuild(t *testing.T) {
 	fx := patchedFloorFixture(t)
 	fx.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
@@ -188,13 +190,64 @@ func TestTheFloorsReadServesALegacyDigestGoodBuild(t *testing.T) {
 		t.Fatalf("the floor's advance built nothing: %+v", built)
 	}
 	f := fx.fork(t)
-	s, _, newRecipe := legacyGood(t, f)
+	s, oldRecipe, _ := legacyGood(t, f)
+	key := built.Good.Entry.Key
+	checkStore := &packsrc.Store{Dir: paths.PacksDir()}
+	recordPath := checkStore.CheckRecordPath(f.Key())
+	recordBefore, err := os.ReadFile(recordPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	diskBefore, err := checkStore.LoadCheckRecord(f.Key())
+	if err != nil || diskBefore.Good == nil || diskBefore.Good.Series != s.LegacyDigest ||
+		diskBefore.Good.Recipe != oldRecipe || diskBefore.Good.Entry != key {
+		t.Fatalf("the on-disk record is not the legacy Good before the Floor read: record=%+v err=%v", diskBefore, err)
+	}
+	entry, err := (&capture.Store{Dir: paths.CapturesDir()}).Resolve(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receiptPath := capture.ReceiptsPath(entry.Root)
+	receiptBefore, err := os.ReadFile(receiptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertLegacyReceipt := func(when string) {
+		t.Helper()
+		receipts, err := entrypoint.ReadBuildReceipts(receiptPath)
+		if err != nil {
+			t.Fatalf("read %s receipt identity: %v", when, err)
+		}
+		for _, receipt := range receipts {
+			if receipt.Key == key && receipt.Fork == f.Key() && receipt.Series == s.LegacyDigest && receipt.Recipe == oldRecipe {
+				return
+			}
+		}
+		t.Errorf("the %s receipt no longer names legacy Good %s under series %s / recipe %s", when, key,
+			s.LegacyDigest, oldRecipe)
+	}
+	assertLegacyReceipt("before")
+
 	ps := floor.Patched(p)
-	if ps.Good == nil || ps.Good.Entry == nil || ps.Good.Entry.Key != built.Good.Entry.Key || ps.Good.Recipe != ps.Recipe {
-		t.Fatalf("the floor's read of a legacy-digest good build = %+v (reason %q), want it serving with its entry",
+	if ps.Good == nil || ps.Good.Entry == nil || ps.Good.Entry.Key != key || ps.Good.Recipe != ps.Recipe {
+		t.Fatalf("the floor's read of a legacy-digest good build = %+v (reason %q), want it serving with its exact entry and current recipe",
 			ps.Good, ps.Reason)
 	}
-	assertReKeyed(t, f, s, built.Good.Entry.Key, newRecipe)
+
+	recordAfter, err := os.ReadFile(recordPath)
+	if err != nil || !bytes.Equal(recordBefore, recordAfter) {
+		t.Errorf("the Floor's offline read changed check-record bytes: read err=%v", err)
+	}
+	diskAfter, err := checkStore.LoadCheckRecord(f.Key())
+	if err != nil || diskAfter.Good == nil || diskAfter.Good.Series != s.LegacyDigest ||
+		diskAfter.Good.Recipe != oldRecipe || diskAfter.Good.Entry != key {
+		t.Errorf("the Floor's offline read changed disk Good identity: record=%+v err=%v", diskAfter, err)
+	}
+	receiptAfter, err := os.ReadFile(receiptPath)
+	if err != nil || !bytes.Equal(receiptBefore, receiptAfter) {
+		t.Errorf("the Floor's offline read changed receipt bytes: read err=%v", err)
+	}
+	assertLegacyReceipt("after")
 }
 
 // THE HOST FLOOR'S OFFLINE READ WITH NO RECORD finds a build receipted under the series' legacy

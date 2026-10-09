@@ -36,6 +36,29 @@ import (
 // this build: recovered from the capture store, as a lost one is (§6.2), never misread.
 const CheckRecordSchema = 1
 
+// PatchFailure is a classified failure while applying a named patch-series member. It is kept
+// separately from replay's broader operational errors so callers can refuse only genuine patch
+// application failures.
+type PatchFailure struct {
+	Owner  string      `json:"owner,omitempty"`
+	Inputs CheckInputs `json:"inputs,omitempty"`
+	Series string      `json:"series,omitempty"`
+	Target ListEntry   `json:"target"`
+	Kind   string      `json:"kind"`
+	Member string      `json:"member"`
+	Paths  []string    `json:"paths,omitempty"`
+	Detail string      `json:"detail,omitempty"`
+	Log    string      `json:"log,omitempty"`
+	Seq    int64       `json:"seq,omitempty"`
+}
+
+func (f *PatchFailure) Error() string {
+	if f == nil {
+		return ""
+	}
+	return fmt.Sprintf("patch application failed at %s (%s): %s", f.Target.Label(), f.Target.Commit, f.Member)
+}
+
 // CheckRecord is one owner key's check record.
 type CheckRecord struct {
 	Schema int `json:"schema"`
@@ -62,13 +85,30 @@ type CheckRecord struct {
 	// that same check while a good build serves replays nothing again and the next check retries
 	// it (§6.2's apply-error row, PF-D45). nil once a walk of the list settles what it reached.
 	ApplyErr *ApplyError `json:"apply_err,omitempty"`
+	// PatchFailure records one currently relevant application failure independently from the
+	// last-build outcome and from whether a warning was already shown.
+	PatchFailure *PatchFailure `json:"patch_failure,omitempty"`
 }
 
 // ApplyError is a walk's apply error as the record keeps it: the check whose list was walked, and
 // the error, one line.
 type ApplyError struct {
-	Seq   int64  `json:"seq"`
-	Error string `json:"error"`
+	Seq    int64                `json:"seq"`
+	Error  string               `json:"error"`
+	Legacy *LegacyReplayAttempt `json:"legacy_replay,omitempty"`
+}
+
+// LegacyReplayAttempt records one completed, unavailable attempt to recover concrete evidence
+// from an opaque schema-1 ApplyError. Only unavailable results are retained for retry identity.
+type LegacyReplayAttempt struct {
+	Seq    int64       `json:"seq"`
+	Inputs CheckInputs `json:"inputs"`
+	Series string      `json:"series"`
+	Target ListEntry   `json:"target"`
+	Yolo   string      `json:"yolo"`
+	Git    string      `json:"git,omitempty"`
+	State  string      `json:"state"`
+	Detail string      `json:"detail,omitempty"`
 }
 
 // ApplyErrAtLastCheck is the apply error the last walk of the last check's list ended in, or nil:
@@ -218,10 +258,10 @@ type EntryOutcome struct {
 	At    int64  `json:"at,omitempty"`
 }
 
-// RekeySeries moves what the record holds under one series digest and recipe to another (PF-D62):
-// the good build, when it is a build of that series and recipe, and every outcome recorded for that
-// series, a failed build's recipe with it. It reports whether anything moved. The two digests name
-// the same files, so nothing recorded under the one is wrong under the other.
+// RekeySeries moves the good build, typed failure, unavailable legacy attempt and matching outcomes
+// to a new series digest (PF-D62). The good build also requires the same recipe; outcome recipes
+// move only when they match oldRecipe. The two digests name the same files, so nothing is wrong.
+// It reports whether anything moved.
 func (r *CheckRecord) RekeySeries(oldSeries, oldRecipe, newSeries, newRecipe string) bool {
 	changed := false
 	if g := r.Good; g != nil && g.Series == oldSeries && g.Recipe == oldRecipe {
@@ -237,6 +277,14 @@ func (r *CheckRecord) RekeySeries(oldSeries, oldRecipe, newSeries, newRecipe str
 		if o.Recipe == oldRecipe {
 			o.Recipe = newRecipe
 		}
+		changed = true
+	}
+	if f := r.PatchFailure; f != nil && f.Series == oldSeries {
+		f.Series = newSeries
+		changed = true
+	}
+	if apply := r.ApplyErr; apply != nil && apply.Legacy != nil && apply.Legacy.Series == oldSeries {
+		apply.Legacy.Series = newSeries
 		changed = true
 	}
 	return changed

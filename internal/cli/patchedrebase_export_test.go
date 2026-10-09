@@ -67,7 +67,8 @@ func failingFormatPatch(t *testing.T) string {
 // made is then named to remove first by the verb's next run, and the export refuses while it is
 // there; removed, the export replaces the series.
 func TestAPastedExportChangesNothingUntilTheRebaseIsFinished(t *testing.T) {
-	fx, _, v12, first, out, _ := firstAdvance(t)
+	fx, _, _, first, out, _ := firstAdvance(t)
+	v12 := fx.commit(t, "v1.2.0", map[int]string{14: "fourteen", 11: "eleven"})
 	if first.delivery.Key == "" {
 		t.Fatalf("the first advance did not build:\n%s", out)
 	}

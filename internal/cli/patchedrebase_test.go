@@ -36,6 +36,19 @@ func rebaseVerb(t *testing.T, args ...string) (int, string, string) {
 	return rc, out.String(), errw.String()
 }
 
+// requirePatchFailureUpdate establishes the concrete newest-candidate failure the rebase command
+// must preserve and report; the lower clean fit must not be substituted.
+func requirePatchFailureUpdate(t *testing.T, target string) {
+	t.Helper()
+	rc, out, errw := packVerb(t, "update")
+	record := patchedRecord(t)
+	if rc == 0 || record.PatchFailure == nil || record.PatchFailure.Kind != "conflict" ||
+		record.PatchFailure.Target.Commit != target {
+		t.Fatalf("update did not record the concrete conflict at %s: rc=%d record=%+v\n%s\n%s",
+			target, rc, record.PatchFailure, out, errw)
+	}
+}
+
 // treeDigest is a digest of every file under dir, by path and bytes, so a test can say a tree was
 // not written.
 func treeDigest(t *testing.T, dir string) string {
@@ -130,9 +143,7 @@ func TestPackRebaseStopsAtTheConflictAndPrintsItsNextSteps(t *testing.T) {
 	f.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
 	v12 := f.commit(t, "v1.2.0", map[int]string{14: "fourteen", 11: "eleven"})
 	packBefore := treeDigest(t, f.forkDir)
-	if rc, out, errw := packVerb(t, "update"); rc != 0 {
-		t.Fatalf("update rc=%d\n%s\n%s", rc, out, errw)
-	}
+	requirePatchFailureUpdate(t, v12)
 	checked := patchedRecord(t).Seq
 	dir := filepath.Join(t.TempDir(), "my clone")
 	rc, out, errw := rebaseVerb(t, "forkpack/tool", "--into", dir)
@@ -182,7 +193,8 @@ func TestPackRebaseStopsAtTheConflictAndPrintsItsNextSteps(t *testing.T) {
 // and exports, the next launch builds and moves the good build" — the printed steps, run exactly as
 // printed, replace the series with one the next fresh launch builds at v1.2.0.
 func TestARebasedAndExportedSeriesIsBuiltByTheNextLaunch(t *testing.T) {
-	fx, v11, v12, first, out, _ := firstAdvance(t)
+	fx, v11, _, first, out, _ := firstAdvance(t)
+	v12 := fx.commit(t, "v1.2.0", map[int]string{14: "fourteen", 11: "eleven"})
 	if first.delivery.Key == "" || fx.record(t).Good.Commit != v11 {
 		t.Fatalf("the first advance did not build v1.1.0:\n%s", out)
 	}
@@ -233,18 +245,9 @@ func TestARebasedAndExportedSeriesIsBuiltByTheNextLaunch(t *testing.T) {
 func TestPackRebaseOfAFetchedForkPackPublishesThroughItsRepository(t *testing.T) {
 	f := newPatchedFixture(t, "")
 	f.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
+	repo, bare := fetchedForkPack(t, f, "main")
 	v12 := f.commit(t, "v1.2.0", map[int]string{14: "fourteen", 11: "eleven"})
-	upstreamGit(t, f.forkDir, "init", "-q", "-b", "main")
-	upstreamGit(t, f.forkDir, "add", "-A")
-	upstreamGit(t, f.forkDir, "commit", "-qm", "the fork pack")
-	bare := filepath.Join(t.TempDir(), "forkpack.git")
-	upstreamGit(t, filepath.Dir(bare), "clone", "-q", "--bare", f.forkDir, bare)
-	writeFile(t, filepath.Join(f.home, ".config", "yolo-jail", "config.jsonc"), `{"packs":[`+
-		`{"source":"file://`+filepath.Join(f.packs, "basepack")+`","name":"basepack"},`+
-		`{"source":"git+file://`+bare+`?ref=main","name":"forkpack"}]}`)
-	if rc, out, errw := packVerb(t, "install"); rc != 0 && !strings.Contains(out, "does not take") {
-		t.Fatalf("install rc=%d\n%s\n%s", rc, out, errw)
-	}
+	requirePatchFailureUpdate(t, v12)
 	storeTrees := filepath.Join(paths.PacksDir(), "trees")
 	storeBefore := treeDigest(t, storeTrees)
 
@@ -255,7 +258,6 @@ func TestPackRebaseOfAFetchedForkPackPublishesThroughItsRepository(t *testing.T)
 		t.Fatalf("rebase rc=%d\n%s\n%s", rc, out, errw)
 	}
 	clone := filepath.Join(work, "forkpack-pack")
-	repo := "file://" + strings.TrimSuffix(bare, ".git") // the address as the pack store normalizes it
 	q := shquote.QuoteDisplay
 	for _, w := range []string{"fork pack forkpack is fetched from " + repo,
 		"    git clone -b main " + q(repo) + " " + q(clone) + "\n",
@@ -509,27 +511,31 @@ func TestAnInterruptedRebaseRemovesItsClone(t *testing.T) {
 	}
 }
 
-// EVERY CONFLICT NAMES THE VERB, onto the entry it is about: `yolo pack update`'s walk names it bare
-// for the newest candidate, which the verb takes with no --onto, and with --onto for one below it.
+// EVERY CONFLICT NAMES THE VERB, while the default walk records only the newest candidate. The lower
+// candidate remains unclassified until the explicit --onto rebase asks to replay it.
 func TestAConflictBelowTheNewestNamesItsRebaseOnto(t *testing.T) {
-	f := newPatchedFixture(t, "")
-	f.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
-	f.commit(t, "v1.2.0", map[int]string{14: "fourteen", 11: "eleven"})
-	f.commit(t, "v1.3.0", map[int]string{14: "fourteen", 11: "eleven", 20: "twenty"})
-	_, out, errw := packVerb(t, "update")
-	for _, w := range []string{"upstream v1.3.0", "rebase the series: yolo pack rebase forkpack/tool\n",
-		"upstream v1.2.0", "rebase the series: yolo pack rebase forkpack/tool --onto v1.2.0\n"} {
-		if !strings.Contains(out, w) {
-			t.Errorf("update lacks %q:\n%s\n%s", w, out, errw)
-		}
+	fx, v11, _, first, out, _ := firstAdvance(t)
+	if first.delivery.Key == "" || fx.record(t).Good.Commit != v11 {
+		t.Fatalf("the clean bootstrap did not build v1.1.0:\n%s", out)
 	}
-	// `yolo pack status` says the same of each recorded conflict.
-	_, out, errw = packVerb(t, "status")
-	for _, w := range []string{"candidate: v1.3.0", "(conflicts in f.txt) — `yolo pack rebase forkpack/tool` rebases the series",
-		"below it: v1.2.0", "(conflicts in f.txt) — `yolo pack rebase forkpack/tool --onto v1.2.0` rebases the series"} {
+	v12 := fx.commit(t, "v1.2.0", map[int]string{14: "fourteen", 11: "eleven"})
+	v13 := fx.commit(t, "v1.3.0", map[int]string{14: "fourteen", 11: "eleven", 20: "twenty"})
+	requirePatchFailureUpdate(t, v13)
+	_, out, errw := packVerb(t, "status")
+	for _, w := range []string{"candidate: v1.3.0 (" + shortSHA(v13) + ")",
+		"does not take 0001-ten.patch (conflicts in f.txt) — `yolo pack rebase forkpack/tool` rebases the series",
+		"below it: v1.2.0 (" + shortSHA(v12) + "), checked under a minute ago: not replayed yet — `yolo pack update` replays it"} {
 		if !strings.Contains(out, w) {
 			t.Errorf("status lacks %q:\n%s\n%s", w, out, errw)
 		}
+	}
+	dir := filepath.Join(t.TempDir(), "explicit lower target")
+	rc, rebaseOut, rebaseErr := rebaseVerb(t, "forkpack/tool", "--onto", v12, "--into", dir)
+	cmds := printedCommands(rebaseOut)
+	if rc != 1 || len(cmds) != 2 || !strings.Contains(cmds[1], v12) ||
+		!strings.Contains(rebaseOut, "onto upstream "+v12[:8]) || !packsrc.RebaseInProgress(dir) {
+		t.Fatalf("explicit lower-target rebase rc=%d commands=%q, want a real stopped clone at %s\n%s\n%s",
+			rc, cmds, v12, rebaseOut, rebaseErr)
 	}
 }
 
@@ -540,11 +546,12 @@ func TestAHeldTagThatDoesNotTakeTheSeriesNamesTheRebase(t *testing.T) {
 	v12 := fx.commit(t, "v1.2.0", map[int]string{11: "eleven"})
 	fx.writeManifest(t, "v1.2.0", "")
 	r, out, _ := fx.launch(t, "podman")
-	if r.delivery.Key != "" || len(fx.builds) != 0 {
-		t.Fatalf("the conflicting hold built or handed %+v\n%s", r.delivery, out)
+	if r.delivery.Key != "" || r.delivery.PatchFailure == nil || r.delivery.PatchFailure.Target.Commit != v12 ||
+		r.delivery.Unsaid || len(fx.builds) != 0 {
+		t.Fatalf("the conflicting hold delivered %+v or built %d times\n%s", r.delivery, len(fx.builds), out)
 	}
-	for _, w := range []string{"rebase the series: yolo pack rebase forkpack/tool\n",
-		"nothing to build — this jail has no tool; `yolo pack rebase forkpack/tool` rebases the series onto the upstream it does not fit"} {
+	for _, w := range []string{"patch application failed at upstream v1.2.0 (" + v12 + ")",
+		"Repair: yolo pack rebase forkpack/tool --onto " + v12, "Bypass: YOLO_ALLOW_PATCH_FAILURES=1 yolo"} {
 		if !strings.Contains(out, w) {
 			t.Errorf("the held launch lacks %q:\n%s", w, out)
 		}
@@ -566,6 +573,7 @@ func TestPackRebaseSaysAnAgentUpdatesHold(t *testing.T) {
 	if first.delivery.Key == "" {
 		t.Fatalf("the first advance built nothing:\n%s", out)
 	}
+	fx.commit(t, "v1.2.0", map[int]string{14: "fourteen", 11: "eleven"})
 	fx.writeUserConfig(t, `,"agent_updates":{"forkpack":false}`)
 	_, out, errw := rebaseVerb(t, "forkpack/tool", "--into", filepath.Join(t.TempDir(), "clone"))
 	if !strings.Contains(out, hold) {

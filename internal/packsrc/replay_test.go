@@ -12,6 +12,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // checked runs a forced check of the fixture's main and returns the series and the list.
@@ -63,6 +66,10 @@ func TestTheWalkStopsAtTheNewestFit(t *testing.T) {
 	if c.Conflict == nil || c.Conflict.Member != series.Members[0].Name || strings.Join(c.Conflict.Paths, ",") != "f.txt" {
 		t.Errorf("v1.2.0 = %+v, want a conflict at the first member in f.txt", c)
 	}
+	if failure := w.PatchFailure(); failure == nil || failure.Kind != "conflict" ||
+		failure.Target.Commit != list[0].Commit || failure.Member != series.Members[0].Name {
+		t.Errorf("classified first walk failure = %#v, want the concrete newest conflict", failure)
+	}
 	fit := w.Results[1]
 	if !fit.Clean || fit.Entry.Commit != v11 || fit.Err != nil {
 		t.Fatalf("v1.1.0 = %+v, want it clean", fit)
@@ -100,8 +107,58 @@ func TestASeriesThatDoesNotApplyAtItsBase(t *testing.T) {
 	if w.Base == nil || w.Base.Member != m.Name || len(w.Results) != 0 {
 		t.Fatalf("walk = %+v, want the second member refused at the base", w)
 	}
+	if failure := w.PatchFailure(); failure == nil || failure.Kind != "base" || failure.Target.Commit != series.Base ||
+		failure.Member != m.Name || failure.Detail == "" {
+		t.Errorf("classified base failure = %#v", failure)
+	}
 	if !strings.Contains(w.Base.Error(), "git format-patch --base") {
 		t.Errorf("the reason does not name the re-export: %s", w.Base)
+	}
+}
+
+func TestAExecutedMemberApplicationCommandFailureIsClassifiedWithFullDiagnosis(t *testing.T) {
+	u := newPatchedUpstream(t)
+	u.release(t, "v1.1.0", map[int]string{14: "fourteen"})
+	series, list := u.checked(t)
+	u.store.Git = wrappedGit(t, `case " $* " in *" merge-tree "*) printf 'fatal: first diagnostic\nsecond diagnostic\n' >&2; exit 2;; esac`)
+	addr := mustAddr(t, u.source("main"))
+	walk := u.store.WalkSeries(addr.Repo, addr.Path, series, list[:1], WalkOptions{StopOnPatchFailure: true})
+	failure := walk.PatchFailure()
+	if failure == nil || failure.Kind != "application-command" || failure.Target.Commit != list[0].Commit ||
+		failure.Member != series.Members[0].Name || !strings.Contains(failure.Detail, "fatal: first diagnostic") ||
+		!strings.Contains(failure.Detail, "second diagnostic") {
+		t.Fatalf("application command failure = walk %+v; classified %#v", walk, failure)
+	}
+}
+
+func TestASignalledBaseApplicationCommandIsNotClassified(t *testing.T) {
+	u := newPatchedUpstream(t)
+	u.release(t, "v1.1.0", map[int]string{14: "fourteen"})
+	series, list := u.checked(t)
+	u.store.Git = wrappedGit(t, `case " $* " in *" am "*) kill -TERM $$;; esac`)
+	addr := mustAddr(t, u.source("main"))
+	walk := u.store.WalkSeries(addr.Repo, addr.Path, series, list[:1], WalkOptions{})
+	if walk.PatchFailure() != nil || walk.Base != nil {
+		t.Fatalf("signalled application command became fatal evidence: walk=%+v failure=%#v", walk, walk.PatchFailure())
+	}
+	if walk.Err == nil {
+		t.Fatalf("signalled git am produced no operational error: %+v", walk)
+	}
+}
+
+func TestACancelledApplicationCommandIsNotClassified(t *testing.T) {
+	u := newPatchedUpstream(t)
+	u.release(t, "v1.1.0", map[int]string{14: "fourteen"})
+	series, list := u.checked(t)
+	marker := filepath.Join(t.TempDir(), "merge-started")
+	u.store.Git = wrappedGit(t, `case " $* " in *" merge-tree "*) echo started > `+shquote.Quote(marker)+`; exec sleep 30;; esac`)
+	addr := mustAddr(t, u.source("main"))
+	walk := u.store.WalkSeries(addr.Repo, addr.Path, series, list[:1], WalkOptions{Timeout: time.Second})
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("merge-tree did not start before cancellation: %v; walk=%+v", err, walk)
+	}
+	if walk.PatchFailure() != nil {
+		t.Fatalf("cancelled command became patch failure: %+v", walk.PatchFailure())
 	}
 }
 

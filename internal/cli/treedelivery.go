@@ -28,6 +28,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
@@ -41,6 +42,40 @@ var treeAdvance = advancePatchedFork
 // treeCopied runs once a per-launch copy of entry key has ended, before its completion marker is
 // checked: a seam for a test to reap the entry there, as another workspace's move would.
 var treeCopied = func(key string) {}
+
+// treeFailureAfterCopy rereads the owning record through CheckRecord.CurrentPatchFailure. A reaped
+// copy does not erase an advance's local evidence: only a newer, successful check bound to this
+// owner and these inputs may establish that the retained failure is irrelevant.
+func treeFailureAfterCopy(f packload.Fork, previous *packsrc.PatchFailure) (*packsrc.PatchFailure, bool) {
+	if previous == nil {
+		return nil, false
+	}
+	series, err := f.ReadSeries()
+	if err != nil {
+		return nil, false
+	}
+	inputs, _, _, err := f.CheckWant(series).Inputs()
+	if err != nil {
+		return nil, false
+	}
+	record, err := patchedAdvanceStore(true).LoadCheckRecord(f.Key())
+	if err != nil {
+		return nil, false
+	}
+	if current := record.CurrentPatchFailure(inputs, series.Digest); current != nil {
+		return current, false
+	}
+	if previous.Owner != f.Key() || record.Owner != f.Key() || record.Read != inputs || record.Check == nil ||
+		record.Seq <= previous.Seq || record.Check.Seq != record.Seq || record.Check.FetchErr != "" || record.Check.Problem != "" {
+		return previous, false
+	}
+	assessment := record
+	assessment.PatchFailure = previous
+	if current := assessment.CurrentPatchFailure(inputs, series.Digest); current != nil {
+		return current, false
+	}
+	return nil, true
+}
 
 // deliverTreesForLaunch is run.Options.BuildTrees.
 //
@@ -117,38 +152,59 @@ func deliverTree(f packload.Fork, req run.TreeBuildRequest, report *buildReport,
 				runtimeName(req.Runtime))))
 		}
 	}
+	var patchFailure *packsrc.PatchFailure
 	for attempt := 0; ; attempt++ {
 		var r advanceResult
-		switch {
-		case nextLaunch:
-			var a *advance
-			if r, a = servingTreeOf(f, o, ""); r.delivery.Key != "" {
-				// THE SPAWN CONDITION (XB-D19): its check due, a candidate pending, or the last
-				// background advance unfinished; a key with nothing to do starts none.
-				later = again || a.wantsBackground()
-				break
-			}
-			if f.Fallback != "" {
-				return run.TreeDelivery{Reason: f.Label() + " has no build on this machine yet, and updates for " +
-					"the next launch — a background advance builds it"}, true
-			}
-			r = treeAdvance(f, o)
-		case req.Build:
-			r = treeAdvance(f, o)
-		default:
+		if !req.Build {
 			r = servingTree(f, o, req.BuildFloor)
+		} else {
+			switch {
+			case nextLaunch:
+				var a *advance
+				if r, a = servingTreeOf(f, o, "", true); r.delivery.Key != "" {
+					if r.delivery.PatchFailure == nil {
+						// THE SPAWN CONDITION (XB-D19): its check due, a candidate pending, or the last
+						// background advance unfinished; a key with nothing to do starts none.
+						later = again || a.wantsBackground()
+					}
+					break
+				}
+				if r.delivery.PatchFailure != nil {
+					return run.TreeDelivery{Reason: r.delivery.Reason, PatchFailure: r.delivery.PatchFailure}, false
+				}
+				if f.Fallback != "" {
+					return run.TreeDelivery{Reason: f.Label() + " has no build on this machine yet, and updates for " +
+						"the next launch — a background advance builds it"}, true
+				}
+				r = treeAdvance(f, o)
+			case currentPatchFailure(f) != nil:
+				r = treeAdvance(f, o)
+			default:
+				r = treeAdvance(f, o)
+			}
+		}
+		if r.delivery.PatchFailure != nil {
+			patchFailure = r.delivery.PatchFailure
+		}
+		if attempt > 0 && req.Build && patchFailure != nil {
+			if current, cleared := treeFailureAfterCopy(f, patchFailure); current != nil {
+				patchFailure = current
+			} else if cleared {
+				patchFailure = nil
+			}
 		}
 		if r.delivery.Key == "" {
-			return run.TreeDelivery{Reason: r.delivery.Reason, Cause: r.delivery.Cause, Unsaid: r.delivery.Unsaid}, later
+			return run.TreeDelivery{Reason: r.delivery.Reason, Cause: r.delivery.Cause, Unsaid: r.delivery.Unsaid,
+				PatchFailure: patchFailure}, later
 		}
 		if req.CopyRoot == "" {
 			return run.TreeDelivery{Reason: f.Label() + " has a build on this machine, and this launch staged no pack " +
-				"tree to copy it beside — a fresh launch delivers it"}, later
+				"tree to copy it beside — a fresh launch delivers it", PatchFailure: patchFailure}, later
 		}
 		dir, err := copyTreeForLaunch(f, r.delivery.Key, req.CopyRoot, errw)
 		switch {
 		case err == nil:
-			d := run.TreeDelivery{Dir: dir, Entry: r.delivery.Key}
+			d := run.TreeDelivery{Dir: dir, Entry: r.delivery.Key, PatchFailure: patchFailure}
 			if g := r.good; g != nil {
 				d.Commit, d.Tag, d.Patches, d.Series = g.Commit, g.Tag, g.Patches, g.Series
 			}
@@ -160,13 +216,14 @@ func deliverTree(f packload.Fork, req run.TreeBuildRequest, report *buildReport,
 			continue
 		case errors.Is(err, errTreeEntryGone):
 			return run.TreeDelivery{Reason: f.Label() + "'s build was reaped twice while this launch copied it — " +
-				"the next fresh launch delivers the good build"}, later
+				"the next fresh launch delivers the good build", PatchFailure: patchFailure}, later
 		default:
 			// THE COPY FAILED (a full disk, say): nothing for this launch, and the store is untouched.
 			pr.Printf("[yellow]%s[/yellow]", richtext.Escape(fmt.Sprintf("⚠ %s: could not copy its build %s for "+
 				"this jail: %v — the store is untouched; free the space and launch again", f.Label(),
 				r.delivery.Key, err)))
-			return run.TreeDelivery{Reason: fmt.Sprintf("%s's build could not be copied for this jail (%v)", f.Label(), err)}, later
+			return run.TreeDelivery{Reason: fmt.Sprintf("%s's build could not be copied for this jail (%v)", f.Label(), err),
+				PatchFailure: patchFailure}, later
 		}
 	}
 }
@@ -175,15 +232,33 @@ func deliverTree(f packload.Fork, req run.TreeBuildRequest, report *buildReport,
 // recipe are the manifest's and its entry is in the store, or why there is none (floor names why
 // this launch builds nothing).
 func servingTree(f packload.Fork, o advanceOptions, floor string) advanceResult {
-	r, _ := servingTreeOf(f, o, floor)
+	r, _ := servingTreeOf(f, o, floor, false)
 	return r
 }
 
 // servingTreeOf is servingTree with the advance it read, nil when the series could not be read.
-func servingTreeOf(f packload.Fork, o advanceOptions, floor string) (advanceResult, *advance) {
+func servingTreeOf(f packload.Fork, o advanceOptions, floor string, probeLegacy bool) (advanceResult, *advance) {
 	a, early := newAdvance(f, o)
 	if early != nil {
 		return *early, nil
+	}
+	patch := a.deliveryPatchFailure(probeLegacy)
+	if patch.State == "unavailable" {
+		return a.unavailableDetachedAuthority(patch), a
+	}
+	if patch.State == "failure" && patch.Failure != nil {
+		a.patchFailure = patch.Failure
+		a.reportPatchFailure(patch.Failure, a.patchFailureText(patch.Failure))
+		delivery := entrypoint.ForkDelivery{PatchFailure: patch.Failure}
+		result := advanceResult{delivery: delivery, patchFailure: patch.Failure, failed: true}
+		if a.serving != nil {
+			delivery.Key = a.serving.Key
+			result.good = a.goodBuild()
+		} else {
+			delivery.Reason = patch.Failure.Error()
+		}
+		result.delivery = delivery
+		return result, a
 	}
 	if a.serving == nil {
 		why := f.Label() + " has no build on this machine"

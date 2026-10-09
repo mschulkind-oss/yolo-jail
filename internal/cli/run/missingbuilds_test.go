@@ -197,6 +197,7 @@ func TestANotchThatBuildsNoTreeRefusesNothing(t *testing.T) {
 // none failed (the header's "not where no tree or fork is built"), and its launcher keeps saying why.
 // Red with missingBuilds counting a fork its platforms exclude.
 func TestAPatchedForkForNoneOfThisPlatformRefusesNothing(t *testing.T) {
+	t.Setenv("YOLO_VERSION", "")
 	o := goldenOptions("/ws", t.TempDir())
 	var stderr bytes.Buffer
 	o.Stderr = &stderr

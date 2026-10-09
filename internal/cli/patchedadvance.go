@@ -74,7 +74,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 
@@ -99,7 +101,10 @@ type advanceOptions struct {
 	// workspace is the launch's, whose launch.log a failed build's line names; "" for none.
 	workspace string
 	out, errw io.Writer
-	color     bool
+	// backgroundErrw is the real detached-process error stream, used for typed application failures
+	// before a later tree lane's ordered host report can flush.
+	backgroundErrw io.Writer
+	color          bool
 	// launch is a fresh jail launch's advance: the check throttled, a back-off honored, the wait
 	// interruptible while a good build serves.
 	launch bool
@@ -131,9 +136,15 @@ type advanceOptions struct {
 	// this advance reads in place of opening a scope of its own (one per concurrent advance would catch
 	// a Ctrl-C in the innermost alone); and the line its build says at once. All nil outside a pool,
 	// and at a jail launch, whose pool is slot's.
-	pool    *advancePool
-	ctx     context.Context
-	started func()
+	pool *advancePool
+	ctx  context.Context
+	// operationCtx carries ordinary host/Floor work cancellation and values without claiming an
+	// externally owned runner lane or suppressing the launch's interrupt scope.
+	operationCtx context.Context
+	// readOnlyInitialization keeps the Floor's initial authority/recovery read in memory. The later
+	// local detached/opaque authority probe remains enabled and retains its own recording policy.
+	readOnlyInitialization bool
+	started                func()
 	// report is a jail launch's build report (buildreport.go, PF-D79): each build's start line
 	// carrying what the lines before it said, its build jail always the fork-build-jail child with
 	// every stream kept off the terminal, and the move line that build's result line. nil — `yolo
@@ -151,6 +162,13 @@ type advanceOptions struct {
 	// mirror lock, the build's lock — and skips the key when one is held (§6.2 rule 5), while its
 	// completed build's settle record write waits (rule 1); a stopped build jail is removed by name.
 	background bool
+}
+
+// advanceActScope is the production ActInterrupt scope boundary. The pass-through default keeps
+// scope ownership in run.ActInterrupt; its narrow seam lets caller-path tests count entry without
+// replacing the signal arm.
+var advanceActScope = func(act *run.ActInterrupt, fn func(context.Context)) os.Signal {
+	return act.Scope(fn)
 }
 
 // installedCopy is a copy of the program that runs outside the capture store: the host floor's
@@ -172,6 +190,12 @@ type advanceResult struct {
 	// failed is true when the act's own work failed (`yolo capture`'s exit status): a build, a
 	// replay, a check that names nothing, or no fit.
 	failed bool
+	// bypassed is a foreground explicit skip authorized by a proved compatible serving build.
+	bypassed bool
+	// operationError is an independently failed current check, retained beside a bypass result.
+	operationError string
+	// patchFailure is the current classified failure, carried beside any compatible delivery.
+	patchFailure *packsrc.PatchFailure
 	// lost is true when this advance's admitted build lost the swap to a newer check's (§6.1).
 	lost bool
 	// gone is why this advance's admitted build could not be moved to: it left the store first.
@@ -193,6 +217,16 @@ type advanceResult struct {
 	skipped           string
 	retained          string
 	problem           string
+}
+
+// forkDelivery returns the program answer while preserving current-operation evidence even when
+// the record callback or a later delivery step failed.
+func (r advanceResult) forkDelivery() entrypoint.ForkDelivery {
+	delivery := r.delivery
+	if r.patchFailure != nil {
+		delivery.PatchFailure = r.patchFailure
+	}
+	return delivery
 }
 
 // patchedNow and patchedYoloVersion (patchedfork.go) are the advance's clock and yolo version too.
@@ -220,9 +254,12 @@ type advance struct {
 	repo   string
 	subdir string
 	yolo   string
-	ctx    context.Context // the interrupt scope's, Background outside one
+	ctx    context.Context // the effective work context: operation parent, owned lane, or scoped merge
 	// serving is the good build the advance started with, when it serves (its store entry).
 	serving *capture.Entry
+	// legacyGood is an in-memory pre-migration identity whose old receipt still serves a read-only
+	// Floor initialization; a normal advance durably re-keys it before this pointer is needed.
+	legacyGood *packsrc.GoodBuild
 	// installed is the host floor's copy that serves when no store entry does (PF-D55): set only with
 	// serving nil, and only when it is a build of the recipe as it stands.
 	installed *installedCopy
@@ -230,8 +267,15 @@ type advance struct {
 	// seq is the sequence number of the check the walk's list came from.
 	seq int64
 	// boundHit is set by the child build runner when the build ran past forkBuildWaitBound.
-	boundHit bool
-	// replaySpent is what this advance's replays have taken of the replay's bound since its last
+	boundHit                       bool
+	patchFailure                   *packsrc.PatchFailure
+	failureReported                bool
+	backgroundAuthorityUnavailable string
+	replayBinding                  *packsrc.ReplaySnapshot
+	repairToken                    *backgroundRepairToken
+	// replayRecordAuthorized distinguishes a settled walk from a successfully changed, guarded
+	// record for its current binding; only the latter may clear an older ApplyErr in finish.
+	replayRecordAuthorized bool
 	// build began (PF-D44): the walk and the build's replay into src/ share one bound, and the
 	// series' base, built after a walk or a build that came to nothing, has one of its own.
 	replaySpent time.Duration
@@ -255,6 +299,8 @@ type advance struct {
 	// problem is a check's failure as its warning said it, one line, which finish carries to the
 	// result (advanceResult.problem).
 	problem string
+	// operationError is a current check's fetch failure, retained separately from a patch bypass.
+	operationError string
 }
 
 // baseWhy is why an advance builds the series at its own base (§6.4), baseNone when it does not.
@@ -303,24 +349,62 @@ func advancePatchedFork(f packload.Fork, o advanceOptions) advanceResult {
 		if ctx.Err() != nil && !res.built && !a.stopSaid {
 			a.interruptedLine()
 		}
-		return res
+		return a.withOperationCancellation(res)
 	}
 	if !o.launch || !a.serves() {
-		return a.run()
+		return a.withOperationCancellation(a.run())
 	}
 	// A GOOD BUILD SERVES — or the floor's copy does (PF-D55) — so a Ctrl-C ends this advance and the
 	// jail, or `yolo host`, starts on it (PF-D25), and the act's later advances begin none (PF-D57).
 	var res advanceResult
-	sig := o.act.Scope(func(ctx context.Context) {
-		a.ctx = ctx
-		a.packs.Ctx = ctx
-		res = a.run()
+	sig := advanceActScope(o.act, func(scopeCtx context.Context) {
+		workCtx, stopScope, cancelWork := mergeAdvanceOperationContext(o.operationCtx, scopeCtx)
+		defer func() {
+			stopScope()
+			cancelWork()
+		}()
+		a.ctx = workCtx
+		a.packs.Ctx = workCtx
+		res = a.withOperationCancellation(a.run())
 	})
 	if sig != nil && !res.built {
 		// Every step that saw the interrupt ended in finish, which handed the good build.
 		a.interruptedLine()
 	}
 	return res
+}
+
+func (a *advance) withOperationCancellation(result advanceResult) advanceResult {
+	if a.o.operationCtx == nil || a.o.operationCtx.Err() == nil {
+		return result
+	}
+	message := a.o.operationCtx.Err().Error()
+	if !strings.Contains(result.operationError, message) {
+		if result.operationError == "" {
+			result.operationError = message
+		} else {
+			result.operationError += "; " + message
+		}
+	}
+	return result
+}
+
+// mergeAdvanceOperationContext retains the operation parent's values and deadline while forwarding
+// scope cancellation. Stop and cancel are returned separately so cleanup can prevent a late scope
+// callback from reaching work after its operation has returned.
+func mergeAdvanceOperationContext(parent, scope context.Context) (context.Context, func() bool, context.CancelFunc) {
+	if parent == nil {
+		parent = context.Background()
+	}
+	workCtx, cancel := context.WithCancel(parent)
+	stop := func() bool { return true }
+	if scope != nil {
+		stop = context.AfterFunc(scope, cancel)
+		if scope.Err() != nil {
+			cancel()
+		}
+	}
+	return workCtx, stop, cancel
 }
 
 // interruptedLine says that a Ctrl-C ended this advance, and what the jail starts on: the good
@@ -345,6 +429,13 @@ func (a *advance) interruptedLine() {
 func (a *advance) actStopped() advanceResult {
 	f := a.f
 	a.stopSaid = true
+	failure := a.deliveryPatchFailure(false)
+	if failure.State == "unavailable" {
+		return a.unavailableDetachedAuthority(failure)
+	}
+	if failure.State == "failure" && failure.Failure != nil {
+		return a.patchFailureResult(failure.Failure)
+	}
 	if a.serves() {
 		a.dim("%s: not checked — a Ctrl-C ended %s's wait for its patched builds; %s %s, and %s checks it",
 			f.Label(), a.waiter(), a.startsOn(), a.servingName(), a.next())
@@ -371,6 +462,16 @@ func newAdvance(f packload.Fork, o advanceOptions) (*advance, *advanceResult) {
 		bg.NoWait = true
 		a.packs = &bg
 	}
+	if o.operationCtx != nil {
+		// Ordinary operation context is evidence/cancellation, not ownership. Give this advance its own
+		// shallow Store copy before loadOrRecover consumes the context, preserving every store policy.
+		a.ctx = o.operationCtx
+		if a.packs != nil {
+			local := *a.packs
+			local.Ctx = o.operationCtx
+			a.packs = &local
+		}
+	}
 	series, err := f.ReadSeries()
 	if err != nil {
 		// THE SERIES CANNOT BE READ (§8.1): nothing serves under PF-D23, since the manifest's recipe
@@ -383,6 +484,19 @@ func newAdvance(f packload.Fork, o advanceOptions) (*advance, *advanceResult) {
 	a.recipe = forkBuild{Fork: f, Series: series}.recipe()
 	a.in, _, _, _ = f.CheckWant(series).Inputs()
 	a.rec = a.loadOrRecover()
+	if a.rec != nil && a.rec.PatchFailure != nil &&
+		(a.rec.PatchFailure.Series != a.series.Digest || a.rec.PatchFailure.Inputs != a.in) {
+		if !o.readOnlyInitialization {
+			_ = a.packs.WithCheckRecord(f.Key(), nil, func(r *packsrc.CheckRecord, _ error, _ func() error) (bool, error) {
+				if r.PatchFailure != nil && (r.PatchFailure.Series != a.series.Digest || r.PatchFailure.Inputs != a.in) {
+					r.PatchFailure = nil
+					return true, nil
+				}
+				return false, nil
+			})
+		}
+		a.rec.PatchFailure = nil
+	}
 	if a.rec != nil && a.rec.Good != nil && a.rec.Good.Recipe == a.recipe {
 		a.serving = a.exactGood(a.rec.Good)
 	}
@@ -406,7 +520,345 @@ func (a *advance) records() *packsrc.Store {
 	return &s
 }
 
-// skip ends a background advance at a lock another process holds (§6.2 rule 5): nothing is recorded
+func (a *advance) replaySnapshot() (packsrc.ReplaySnapshot, error) {
+	return a.rec.ReplaySnapshot(a.in, a.series.Digest)
+}
+
+func (a *advance) recordReplay(snapshot packsrc.ReplaySnapshot, walk packsrc.WalkResult) packsrc.RecordReplayResult {
+	a.replayRecordAuthorized = false
+	result := a.packs.RecordReplay(snapshot, a.yolo, walk, patchedNow())
+	if result.Err != nil {
+		a.warn("%s: recording the replay: %v", a.f.Label(), result.Err)
+	}
+	if errors.Is(result.Err, packsrc.ErrStaleReplay) {
+		fresh, err := a.packs.LoadCheckRecord(a.f.Key())
+		if err != nil {
+			a.patchFailure = nil
+			result.Err = errors.Join(result.Err,
+				fmt.Errorf("replay authority changed and the current check record could not be read: %w", err), result.Failure)
+			return result
+		}
+		a.rec = fresh
+		if current := fresh.CurrentPatchFailure(a.in, a.series.Digest); current != nil {
+			a.patchFailure = current
+			result.Failure = current
+			result.Err = nil
+		} else {
+			a.patchFailure = nil
+			result.Failure = nil
+		}
+		return result
+	}
+	if result.Failure != nil {
+		a.patchFailure = result.Failure
+	}
+	if result.Recorded && result.Err == nil {
+		if fresh, err := a.packs.LoadCheckRecord(a.f.Key()); err == nil && fresh.Seq == snapshot.Seq && fresh.Read == snapshot.Inputs {
+			a.rec = fresh
+			a.patchFailure = fresh.CurrentPatchFailure(a.in, a.series.Digest)
+			if next, err := a.replaySnapshot(); err == nil {
+				a.replayBinding = &next
+				a.replayRecordAuthorized = reflect.DeepEqual(fresh.PatchFailure, snapshot.Failure) &&
+					reflect.DeepEqual(fresh.ApplyErr, snapshot.ApplyErr)
+			}
+		}
+		if err := recordBackgroundPatchRepair(a.ctx, a.repairToken, a.packs, snapshot, a.yolo, walk, result, a.o.background); err != nil {
+			a.warn("%s: its clean replay was recorded, but the matching detached failure evidence could not be resolved (%v) — that evidence remains unresolved, and the next launch checks it again",
+				a.f.Label(), err)
+		}
+	}
+	return result
+}
+
+// deliveryPatchFailure consumes classified authority and, only when requested, locally retries one
+// selected opaque legacy apply diagnosis. It never infers failure from legacy text.
+func (a *advance) recordSourceReplay(snapshot packsrc.ReplaySnapshot, walk packsrc.WalkResult) packsrc.RecordReplayResult {
+	if a.replayBinding == nil || !reflect.DeepEqual(*a.replayBinding, snapshot) {
+		a.replayRecordAuthorized = false
+	}
+	result := a.packs.RecordReplay(snapshot, a.yolo, walk, patchedNow())
+	if result.Err != nil {
+		a.replayRecordAuthorized = false
+	}
+	if result.Recorded && result.Err == nil {
+		fresh, err := a.packs.LoadCheckRecord(a.f.Key())
+		if err != nil || fresh.Seq != snapshot.Seq || fresh.Read != snapshot.Inputs || fresh.Check == nil ||
+			fresh.Check.Seq != snapshot.Seq || !reflect.DeepEqual(fresh.PatchFailure, snapshot.Failure) ||
+			!reflect.DeepEqual(fresh.ApplyErr, snapshot.ApplyErr) {
+			a.replayRecordAuthorized = false
+		} else {
+			a.replayRecordAuthorized = true
+		}
+		if err := recordBackgroundPatchRepair(a.ctx, a.repairToken, a.packs, snapshot, a.yolo, walk, result, a.o.background); err != nil {
+			a.warn("%s: its clean source replay was recorded, but the matching detached failure evidence could not be resolved (%v) — that evidence remains unresolved, and the next launch checks it again",
+				a.f.Label(), err)
+		}
+	}
+	if result.Err != nil && !errors.Is(result.Err, packsrc.ErrStaleReplay) {
+		a.warn("%s: recording the source replay: %v", a.f.Label(), result.Err)
+	}
+	if errors.Is(result.Err, packsrc.ErrStaleReplay) {
+		fresh, err := a.packs.LoadCheckRecord(a.f.Key())
+		if err != nil {
+			result.Err = errors.Join(result.Err,
+				fmt.Errorf("replay authority changed and the current check record could not be read: %w", err), result.Failure)
+			return result
+		}
+		a.rec = fresh
+		if current := fresh.CurrentPatchFailure(a.in, a.series.Digest); current != nil {
+			result.Failure = current
+			result.Err = nil
+		} else {
+			result.Failure = nil
+		}
+	}
+	return result
+}
+
+func (a *advance) deliveryPatchFailure(probe bool) packsrc.LegacyReplayResult {
+	result := packsrc.LegacyReplayResult{State: "not-needed"}
+	if a.rec == nil || a.series == nil {
+		return result
+	}
+	if failure, fresh, handled := a.backgroundPatchFailureFromOutcome(); handled {
+		if a.backgroundAuthorityUnavailable != "" {
+			result.State, result.Diagnostic = "unavailable", a.backgroundAuthorityUnavailable
+			return result
+		}
+		if fresh != nil {
+			a.rec = fresh
+		}
+		if failure != nil {
+			result.State, result.Failure = "failure", failure
+			return result
+		}
+	} else if failure := a.rec.CurrentPatchFailure(a.in, a.series.Digest); failure != nil {
+		result.State, result.Failure = "failure", failure
+		return result
+	}
+	if !probe || a.rec.ApplyErrAtLastCheck() == nil {
+		return result
+	}
+	snapshot, err := a.replaySnapshot()
+	if err != nil {
+		result.State, result.Diagnostic = "unavailable", err.Error()
+		return result
+	}
+	candidates := a.rec.Candidates(a.in)
+	pending := a.pendingOf(candidates, false)
+	var target packsrc.ListEntry
+	if len(pending) > 0 {
+		target = pending[0]
+	} else if a.baseFallback() {
+		target = a.baseEntry()
+	} else {
+		result.State, result.Diagnostic = "unavailable", "no selected pending target is available for local replay"
+		return result
+	}
+	result = a.packs.ReclassifyLegacyApplyError(snapshot, a.series, target, a.yolo,
+		packsrc.LegacyReplayOptions{Now: patchedNow()})
+	if errors.Is(result.Err, packsrc.ErrStaleReplay) {
+		fresh, readErr := a.packs.LoadCheckRecord(a.f.Key())
+		if readErr != nil {
+			result.State, result.Failure = "unavailable", nil
+			result.Diagnostic = fmt.Sprintf("replay authority changed and the current check record could not be read: %v", readErr)
+			return result
+		}
+		a.rec = fresh
+		if failure := fresh.CurrentPatchFailure(a.in, a.series.Digest); failure != nil {
+			result.State, result.Failure, result.Err = "failure", failure, nil
+		} else {
+			result.State, result.Failure, result.Err = "stale", nil, packsrc.ErrStaleReplay
+		}
+		return result
+	}
+	if result.State == "failure" && result.Failure != nil {
+		a.patchFailure = result.Failure
+	}
+	if result.Recorded {
+		if fresh, readErr := a.packs.LoadCheckRecord(a.f.Key()); readErr == nil {
+			a.rec = fresh
+		}
+	}
+	if result.Diagnostic != "" {
+		a.warn("%s: could not classify its earlier replay error locally: %s", a.f.Label(), result.Diagnostic)
+	}
+	return result
+}
+
+// backgroundPatchFailureFromSaid remains the typed failure accessor; delivery uses the richer result
+// below so a resolved artifact also refreshes an older in-memory CheckRecord.
+func (a *advance) backgroundPatchFailureFromSaid() *packsrc.PatchFailure {
+	failure, _, _ := a.backgroundPatchFailureFromOutcome()
+	return failure
+}
+
+// backgroundPatchFailureFromOutcome reads classified evidence from the current generation's .json,
+// .said or key-owned claim only after fresh CheckRecord authority has been read. A current typed
+// failure wins before any detached candidate or its repair marker.
+func (a *advance) backgroundPatchFailureFromOutcome() (*packsrc.PatchFailure, *packsrc.CheckRecord, bool) {
+	if a.o.background || a.packs == nil || a.series == nil {
+		return nil, nil, false
+	}
+	a.backgroundAuthorityUnavailable = ""
+	fresh, err := a.packs.LoadCheckRecord(a.f.Key())
+	missingRecord := errors.Is(err, packsrc.ErrNoCheckRecord)
+	if err != nil && !missingRecord {
+		a.backgroundAuthorityUnavailable = err.Error()
+		return nil, nil, true
+	}
+	if fresh != nil && fresh.Owner != a.f.Key() {
+		a.backgroundAuthorityUnavailable = "the current CheckRecord belongs to another key"
+		return nil, nil, true
+	}
+	if fresh != nil && fresh.Read == a.in {
+		if current := fresh.CurrentPatchFailure(a.in, a.series.Digest); current != nil {
+			return current, fresh, true
+		}
+	}
+	var candidate *backgroundOutcomeFile
+	var current *packsrc.PatchFailure
+	err = withBackgroundArtifact(a.f.Key(), backgroundArtifactWait(a.ctx), "recovery.read", func() error {
+		fresh, err = a.packs.LoadCheckRecord(a.f.Key())
+		if errors.Is(err, packsrc.ErrNoCheckRecord) {
+			fresh, err = nil, nil
+		}
+		if err != nil {
+			return err
+		}
+		if fresh != nil && fresh.Owner != a.f.Key() {
+			return errors.New("the current CheckRecord belongs to another key")
+		}
+		if fresh != nil && fresh.Read == a.in {
+			current = fresh.CurrentPatchFailure(a.in, a.series.Digest)
+			if current != nil {
+				return nil
+			}
+		}
+		files, err := backgroundOutcomeFilesUnlocked(a.f.Key())
+		if err != nil {
+			return err
+		}
+		candidate = latestBackgroundPatchFailure(files)
+		if candidate != nil && fresh == nil {
+			return errors.New("a detached typed failure has no current CheckRecord for relevance validation")
+		}
+		return nil
+	})
+	if err != nil {
+		a.backgroundAuthorityUnavailable = err.Error()
+		return nil, nil, true
+	}
+	if current != nil {
+		return current, fresh, true
+	}
+	if candidate == nil {
+		if fresh == nil {
+			if missingRecord {
+				return nil, nil, false
+			}
+			a.backgroundAuthorityUnavailable = "the current CheckRecord disappeared during detached recovery"
+			return nil, nil, true
+		}
+		return nil, fresh, true
+	}
+	if candidate.Outcome.Generation == 0 {
+		a.backgroundAuthorityUnavailable = "detached patch-failure evidence has no allocated generation"
+		return nil, fresh, true
+	}
+	if fresh.Read != a.in {
+		return nil, fresh, true
+	}
+	if current := fresh.CurrentPatchFailure(a.in, a.series.Digest); current != nil {
+		return current, fresh, true
+	}
+	failure := cloneBackgroundPatchFailure(candidate.Outcome.PatchFailure, candidate.Outcome.Log)
+	if failure.Owner != a.f.Key() || failure.Seq <= 0 || failure.Target.Commit == "" || failure.Kind == "" ||
+		failure.Inputs != a.in || failure.Series != a.series.Digest || fresh.Seq < failure.Seq ||
+		fresh.Check == nil || fresh.Check.Seq != fresh.Seq {
+		return nil, fresh, true
+	}
+	if backgroundResolutionCurrent(candidate.Outcome, failure, fresh, a.in, a.series.Digest) {
+		return nil, fresh, true
+	}
+	// Candidate relevance is evaluated on a copy: replaySnapshot and RecordReplay must retain only
+	// the CheckRecord's original disk authority, never a detached observation.
+	candidateRecord := *fresh
+	candidateRecord.PatchFailure = failure
+	return candidateRecord.CurrentPatchFailure(a.in, a.series.Digest), fresh, true
+}
+
+func (a *advance) patchFailureText(pf *packsrc.PatchFailure) string {
+	var report strings.Builder
+	writePatchFailure(&report, pf, a.f.Key(), a.f.Bin, a.o.host, "")
+	return report.String()
+}
+
+func (a *advance) reportPatchFailure(pf *packsrc.PatchFailure, text string) {
+	if pf == nil || a.failureReported {
+		return
+	}
+	if a.o.slot != nil {
+		_, _ = io.WriteString(a.o.slot.pool.writer(), text)
+	} else {
+		w := a.o.errw
+		if a.o.background && a.o.backgroundErrw != nil {
+			w = a.o.backgroundErrw
+		}
+		_, _ = io.WriteString(w, text)
+	}
+	if a.o.report != nil {
+		for _, line := range strings.Split(strings.TrimSuffix(text, "\n"), "\n") {
+			a.o.report.logLine(a.f.Key(), line)
+		}
+	}
+	a.failureReported = true
+}
+
+func (a *advance) patchFailureResult(pf *packsrc.PatchFailure) advanceResult {
+	a.patchFailure = pf
+	text := a.patchFailureText(pf)
+	a.reportPatchFailure(pf, text)
+	if allowPatchFailures() && !a.o.background && a.serves() {
+		r := a.finish(nil, forkBuild{}, 0, nil, "")
+		if a.serving != nil && r.delivery.Key == "" {
+			r.failed = true
+			r.patchFailure = pf
+			r.delivery.PatchFailure = pf
+			if r.delivery.Reason == "" {
+				r.delivery.Reason = pf.Error()
+			}
+			return r
+		}
+		if r.delivery.Key != "" {
+			admitted := r.delivery.Key
+			if good := a.goodBuild(); good != nil {
+				admitted = fmt.Sprintf("%s (%s; %s)", a.servingLine(), good.Commit, admitted)
+			}
+			a.dim("CONTINUING: using intact admitted build %s; skips this subject's advance.", admitted)
+			r.bypassed = true
+		} else if a.installed != nil {
+			a.dim("CONTINUING: using installed build %s; skips this subject's advance.", a.installed.label)
+			r.bypassed = true
+		}
+		return r
+	}
+	r := a.finish(nil, forkBuild{}, 0, nil, pf.Error())
+	r.failed = true
+	return r
+}
+
+func (a *advance) unavailableDetachedAuthority(result packsrc.LegacyReplayResult) advanceResult {
+	message := fmt.Sprintf("detached patch-failure evidence is unavailable (%s); no clean replay authority was assumed, and the next launch checks it again", result.Diagnostic)
+	a.warn("%s: %s", a.f.Label(), message)
+	out := advanceResult{failed: true, problem: message, operationError: message, good: a.goodBuild(),
+		delivery: entrypoint.ForkDelivery{Reason: message}}
+	if a.serving != nil {
+		out.delivery.Key = a.serving.Key
+	}
+	return out
+}
+
 // for it, and the next background advance tries again.
 func (a *advance) skip(err error) advanceResult {
 	why := oneLineErr(err)
@@ -525,7 +977,15 @@ func (a *advance) run() advanceResult {
 	// launch runs no git process at all (P4), and a git upgrade is replayed at the next check
 	// (PF-D41).
 	exactGit := false
+	cachedFailure := a.deliveryPatchFailure(false)
+	if cachedFailure.State == "unavailable" {
+		return a.unavailableDetachedAuthority(cachedFailure)
+	}
 	if hold != "" && good != nil && !a.o.force {
+		// A hold suppresses Git and repair retry, never already-classified failure authority.
+		if cachedFailure.State == "failure" && cachedFailure.Failure != nil {
+			return a.patchFailureResult(cachedFailure.Failure)
+		}
 		// HELD BY agent_updates (PF-D19): no check; a change to the series or the recipe is built at
 		// the good build's commit, and a serving good build is what runs.
 		if !a.serves() {
@@ -566,6 +1026,13 @@ func (a *advance) run() advanceResult {
 			return a.finish(nil, forkBuild{}, 0, nil, "")
 		}
 		if res.Err != nil {
+			failure := a.deliveryPatchFailure(false)
+			if failure.State == "unavailable" {
+				return a.unavailableDetachedAuthority(failure)
+			}
+			if failure.State == "failure" && failure.Failure != nil {
+				return a.patchFailureResult(failure.Failure)
+			}
 			if a.lockHeldSkip(res.Err) {
 				return a.skip(res.Err)
 			}
@@ -576,10 +1043,68 @@ func (a *advance) run() advanceResult {
 		a.rec = res.Record
 		found := a.rec.Check
 		a.seq = found.Seq
-		exactGit = res.Ran
 		if res.Ran && found.FetchErr != "" {
+			a.operationError = found.FetchErr
 			a.warn("%s: could not check its upstream (%s) — %s; the next check is in an hour, or "+
 				"`yolo pack update` checks now", f.Label(), found.FetchErr, a.runsNow())
+		}
+		cachedFailure = a.deliveryPatchFailure(false)
+		if cachedFailure.State == "unavailable" {
+			return a.unavailableDetachedAuthority(cachedFailure)
+		}
+		if cachedFailure.State == "failure" && cachedFailure.Failure != nil {
+			if !res.Ran {
+				return a.patchFailureResult(cachedFailure.Failure)
+			}
+			target := cachedFailure.Failure.Target
+			selected := false
+			if cachedFailure.Failure.Kind == "base" {
+				selected = a.baseFallback() && target.Commit == a.series.Base
+			} else if found != nil {
+				for _, e := range found.List {
+					if e.Commit == target.Commit {
+						target, selected = e, true
+						break
+					}
+				}
+			}
+			if !selected {
+				return a.patchFailureResult(cachedFailure.Failure)
+			}
+			if cachedFailure.Failure.Kind == "base" {
+				target = a.baseEntry()
+			}
+			retry := a.walk([]packsrc.ListEntry{target}, false)
+			if a.interrupted() {
+				return a.finish(nil, forkBuild{}, 0, nil, "")
+			}
+			if errors.Is(retry.Err, packsrc.ErrStaleReplay) {
+				return a.serveOr("the replay's check authority changed; the next launch rereads it before building")
+			}
+			if a.patchFailure != nil {
+				return a.patchFailureResult(a.patchFailure)
+			}
+			failure := a.deliveryPatchFailure(false)
+			if failure.State == "unavailable" {
+				return a.unavailableDetachedAuthority(failure)
+			}
+			if failure.State == "failure" && failure.Failure != nil {
+				return a.patchFailureResult(failure.Failure)
+			}
+		}
+		if !res.Ran {
+			legacy := a.deliveryPatchFailure(true)
+			if legacy.State == "unavailable" {
+				return a.unavailableDetachedAuthority(legacy)
+			}
+			if legacy.State == "failure" && legacy.Failure != nil {
+				return a.patchFailureResult(legacy.Failure)
+			}
+		}
+		found = a.rec.Check
+		a.seq = found.Seq
+		exactGit = res.Ran
+		if res.Ran && found.FetchErr != "" {
 			a.problem = "could not check its upstream: " + found.FetchErr
 		}
 		if found.Problem != "" {
@@ -682,6 +1207,12 @@ func (a *advance) run() advanceResult {
 	if a.interrupted() {
 		return a.finish(nil, forkBuild{}, 0, nil, "")
 	}
+	if errors.Is(w.Err, packsrc.ErrStaleReplay) {
+		return a.serveOr("the replay's check authority changed; the next launch rereads it before building")
+	}
+	if a.patchFailure != nil {
+		return a.patchFailureResult(a.patchFailure)
+	}
 	if a.lockHeldSkip(w.Err) {
 		return a.skip(w.Err)
 	}
@@ -703,6 +1234,9 @@ func (a *advance) run() advanceResult {
 		a.replaySpent = 0
 		if w = a.walk([]packsrc.ListEntry{a.baseEntry()}, false); a.interrupted() {
 			return a.finish(nil, forkBuild{}, 0, nil, "")
+		}
+		if a.patchFailure != nil {
+			return a.patchFailureResult(a.patchFailure)
 		}
 		if a.lockHeldSkip(w.Err) {
 			return a.skip(w.Err)
@@ -1010,24 +1544,48 @@ func (a *advance) buildFailure(commit string) *packsrc.EntryOutcome {
 // (not the series' base alone), whose apply error finish records (PF-D45). It takes what is left of
 // the replay's bound (PF-D44).
 func (a *advance) walk(list []packsrc.ListEntry, ofList bool) packsrc.WalkResult {
+	a.replayRecordAuthorized = false
 	start := time.Now()
-	w := a.packs.WalkSeries(a.repo, a.subdir, a.series, list, packsrc.WalkOptions{Spent: a.replaySpent})
+	snapshot, err := a.replaySnapshot()
+	if err != nil {
+		return packsrc.WalkResult{Fit: -1, Err: fmt.Errorf("binding replay to its original check: %w", err)}
+	}
+	a.replayBinding = &snapshot
+	if a.repairToken, err = observeBackgroundRepairToken(a.f.Key(), a.packs, snapshot, list, a.ctx, a.o.background); err != nil {
+		if !a.o.background {
+			return packsrc.WalkResult{Fit: -1, Err: fmt.Errorf("reading detached failure evidence before replay: %w", err)}
+		}
+		a.repairToken = nil
+		a.warn("%s: could not observe detached failure evidence before this replay (%v); it remains unresolved for a later advance",
+			a.f.Label(), err)
+	}
+	w := a.packs.WalkSeries(a.repo, a.subdir, a.series, list, packsrc.WalkOptions{Snapshot: &snapshot,
+		Spent: a.replaySpent, StopOnPatchFailure: true})
 	a.replaySpent += replayElapsed(start)
+	if pf := w.PatchFailure(); pf != nil {
+		pf.Owner, pf.Inputs, pf.Series, pf.Seq = a.f.Key(), a.in, a.series.Digest, snapshot.Seq
+		if pf.Log == "" && a.o.workspace != "" {
+			pf.Log = filepath.Join(a.o.workspace, ".yolo", "launch.log")
+		}
+		a.patchFailure = pf
+		a.reportPatchFailure(pf, a.patchFailureText(pf))
+	}
 	if a.interrupted() || a.lockHeldSkip(w.Err) {
 		return w // a held mirror lock replayed nothing: nothing is recorded, and the key is skipped
 	}
 	if ofList {
 		a.walked, a.applyErr = true, nil
 		if err := a.walkErr(w); w.Fit < 0 && w.Base == nil && err != nil {
-			a.applyErr = &packsrc.ApplyError{Seq: a.seq, Error: oneLineErr(err)}
+			a.applyErr = &packsrc.ApplyError{Seq: snapshot.Seq, Error: oneLineErr(err)}
 		}
 	}
-	if err := a.packs.RecordWalk(a.f.Key(), a.series.Digest, a.yolo, w, patchedNow()); err != nil {
-		if a.lockHeldSkip(err) {
-			w.Err, w.Fit = err, -1
-			return w
-		}
-		a.warn("%s: recording the replay: %v", a.f.Label(), err)
+	recorded := a.recordReplay(snapshot, w)
+	if errors.Is(recorded.Err, packsrc.ErrStaleReplay) {
+		w.Err, w.Fit = recorded.Err, -1
+		return w
+	}
+	if a.patchFailure != nil {
+		return w
 	}
 	var fit *packsrc.ReplayResult
 	if w.Fit >= 0 {
@@ -1158,6 +1716,12 @@ func (a *advance) build(b forkBuild, base baseWhy, edited bool) advanceResult {
 	a.boundHit, a.ownLock = false, b.lockPath()
 	mode := buildMode{force: a.o.force, packs: a.packs, lock: pidlock.NoWait, replaySpent: a.replaySpent,
 		runtime: a.o.runtime}
+	if a.replayBinding != nil {
+		snapshot := *a.replayBinding
+		mode.sourceReplay = sourceReplayOptions{Snapshot: &snapshot, Record: func(w packsrc.WalkResult) packsrc.RecordReplayResult {
+			return a.recordSourceReplay(snapshot, w)
+		}}
+	}
 	if a.o.report != nil {
 		// THE BUILD'S START LINE (PF-D79): what the lines above say without a report, before the build
 		// line runs — what is built, why, the wait, the log and the build's disclosures.
@@ -1241,9 +1805,14 @@ func (a *advance) build(b forkBuild, base baseWhy, edited bool) advanceResult {
 	a.thenBase = false
 	a.replaySpent = 0
 	w := a.walk([]packsrc.ListEntry{a.baseEntry()}, false)
+	if errors.Is(w.Err, packsrc.ErrStaleReplay) {
+		return a.serveOr("the replay's check authority changed; the next launch rereads it before building")
+	}
 	switch {
 	case a.interrupted():
 		return a.finish(nil, forkBuild{}, 0, nil, "")
+	case a.patchFailure != nil:
+		return a.patchFailureResult(a.patchFailure)
 	case a.lockHeldSkip(w.Err):
 		return a.skip(w.Err)
 	case w.Base != nil:
@@ -1315,6 +1884,17 @@ func (a *advance) settle(b forkBuild, entry *capture.Entry, err error, base base
 	}
 	if a.interrupted() || errors.Is(err, pidlock.ErrCanceled) {
 		return a.finish(nil, forkBuild{}, 0, nil, "the advance was interrupted — "+a.next()+" builds it")
+	}
+	var patchFailure *packsrc.PatchFailure
+	if errors.Is(err, packsrc.ErrStaleReplay) {
+		a.warn("%s: replay authority changed while preparing its build source; %s", f.Label(), a.runsNow())
+		return a.serveOr(fmt.Sprintf("%s's replay authority changed before its source could be built", f.Label()))
+	}
+	if errors.As(err, &patchFailure) {
+		patchFailure.Owner, patchFailure.Inputs, patchFailure.Series, patchFailure.Seq = a.f.Key(), a.in, a.series.Digest, a.seq
+		a.patchFailure = patchFailure
+		a.reportPatchFailure(patchFailure, a.patchFailureText(patchFailure))
+		return a.patchFailureResult(patchFailure)
 	}
 	if a.boundHit {
 		// STOPPED AT THE BOUND (PF-D38, §8.1): a failed build, with its back-off, whether or not the
@@ -1688,11 +2268,25 @@ func (a *advance) finish(built *capture.Entry, b forkBuild, seq int64, failure *
 			setFailure(r, failure)
 			changed = true
 		}
-		switch {
-		case a.applyErr != nil:
-			r.ApplyErr, changed = a.applyErr, true
-		case a.walked && r.ApplyErr != nil:
-			r.ApplyErr, changed = nil, true
+		if a.patchFailure != nil {
+			if snapshot := a.replayBinding; snapshot != nil && r.Seq == snapshot.Seq && r.Read == snapshot.Inputs &&
+				r.Seq == a.seq && r.Read == a.in && reflect.DeepEqual(r.PatchFailure, snapshot.Failure) &&
+				reflect.DeepEqual(r.ApplyErr, snapshot.ApplyErr) {
+				r.PatchFailure = a.patchFailure
+				changed = true
+			}
+		}
+		if snapshot := a.replayBinding; snapshot != nil && r.Seq == snapshot.Seq && r.Read == snapshot.Inputs &&
+			r.Seq == a.seq && r.Read == a.in && reflect.DeepEqual(r.PatchFailure, snapshot.Failure) &&
+			reflect.DeepEqual(r.ApplyErr, snapshot.ApplyErr) {
+			switch {
+			case a.applyErr != nil:
+				r.ApplyErr, changed = a.applyErr, true
+			case a.walked && a.replayRecordAuthorized && r.ApplyErr != nil:
+				// The opaque diagnosis belongs to an older check, but may be cleared only after
+				// RecordReplay changed this exact guarded authority successfully.
+				r.ApplyErr, changed = nil, true
+			}
 		}
 		a.rec = r
 		h := run.HandedFork{Fork: f.Key()}
@@ -1709,7 +2303,8 @@ func (a *advance) finish(built *capture.Entry, b forkBuild, seq int64, failure *
 				h.Reason = f.Label() + " has no build on this machine yet — " + a.next() + " builds it"
 			}
 		}
-		res.delivery = entrypoint.ForkDelivery{Key: h.Key, Reason: h.Reason}
+		res.delivery = entrypoint.ForkDelivery{Key: h.Key, Reason: h.Reason, PatchFailure: a.patchFailure}
+		res.patchFailure = a.patchFailure
 		if a.o.hand != nil {
 			if err := a.o.hand(f.Bin, h); err != nil && h.Key != "" {
 				a.warn("%s: could not record what this launch hands its jail (%v) — until it is recorded, "+
@@ -1737,6 +2332,18 @@ func (a *advance) finish(built *capture.Entry, b forkBuild, seq int64, failure *
 	}
 	res.lost = lost
 	res.problem = a.problem
+	res.operationError = a.operationError
+	res.patchFailure = a.patchFailure
+	if res.delivery.Key == "" && a.serving != nil && a.rec != nil && a.rec.Good != nil &&
+		a.rec.Good.Entry == a.serving.Key {
+		if current := a.exactGood(a.rec.Good); current != nil && current.Key == a.serving.Key {
+			res.delivery.Key = current.Key
+			res.delivery.PatchFailure = a.patchFailure
+		}
+	}
+	if a.patchFailure != nil {
+		res.delivery.PatchFailure = a.patchFailure
+	}
 	return res
 }
 
@@ -1773,7 +2380,21 @@ func (a *advance) builtTree(e *capture.Entry) string {
 }
 
 // exactGood is the store entry of good build g, by the exact lookup, or nil.
-func (a *advance) exactGood(g *packsrc.GoodBuild) *capture.Entry { return a.exact(g.Commit) }
+func (a *advance) exactGood(g *packsrc.GoodBuild) *capture.Entry {
+	if entry := a.exact(g.Commit); entry != nil {
+		return entry
+	}
+	legacy := a.legacyGood
+	if !a.o.readOnlyInitialization || legacy == nil || legacy.Commit != g.Commit {
+		return nil
+	}
+	entry, _, err := resolvePatchedBuild(a.store, a.f.Key(), a.f.Bin, a.o.platform, patchedBuildSource(a.f.Source),
+		legacy.Commit, legacy.Recipe)
+	if err != nil {
+		return nil
+	}
+	return entry
+}
 
 // exact is THE EXACT LOOKUP (§6.3): the newest admitted build of this fork key for this platform
 // at commit, from the fork's repository and subdirectory, under the recipe as it stands — never the
@@ -1870,8 +2491,17 @@ func (a *advance) onlyThisFork(recs []capture.Record) bool {
 // read (§6.2): the newest admitted build of this fork key for this platform whose recipe is the
 // manifest's becomes the good build. Losing the record costs a lookup, not a rebuild.
 func (a *advance) loadOrRecover() *packsrc.CheckRecord {
-	rec, err := run.LoadPatchedRecord(a.packs, a.f, a.series)
+	var rec *packsrc.CheckRecord
+	var err error
+	if a.o.readOnlyInitialization {
+		rec, err = a.packs.LoadCheckRecord(a.f.Key())
+	} else {
+		rec, err = run.LoadPatchedRecord(a.packs, a.f, a.series)
+	}
 	if err == nil && rec.Good != nil {
+		if a.o.readOnlyInitialization {
+			return a.rekeyLegacyGoodInMemory(rec)
+		}
 		return rec
 	}
 	g := a.recoverGood()
@@ -1880,6 +2510,21 @@ func (a *advance) loadOrRecover() *packsrc.CheckRecord {
 			rec = &packsrc.CheckRecord{Schema: packsrc.CheckRecordSchema, Owner: a.f.Key()}
 		}
 		return rec
+	}
+	if a.o.readOnlyInitialization {
+		if rec == nil {
+			rec = &packsrc.CheckRecord{Schema: packsrc.CheckRecordSchema, Owner: a.f.Key()}
+		}
+		rec.Good = g
+		why := "it had none"
+		if err != nil && !errors.Is(err, packsrc.ErrNoCheckRecord) {
+			why = "it could not be read: " + err.Error()
+		} else if errors.Is(err, packsrc.ErrNoCheckRecord) {
+			why = "it was gone"
+		}
+		a.dim("%s: recovered its good build %s from the capture store for this read (%s)", a.f.Label(),
+			run.GoodBuildLabel(g), why)
+		return a.rekeyLegacyGoodInMemory(rec)
 	}
 	var out *packsrc.CheckRecord
 	err = a.packs.WithCheckRecord(a.f.Key(), nil, func(r *packsrc.CheckRecord, _ error, _ func() error) (bool, error) {
@@ -1908,6 +2553,23 @@ func (a *advance) loadOrRecover() *packsrc.CheckRecord {
 		run.GoodBuildLabel(out.Good), why)
 	// A BUILD RECEIPTED UNDER THE SERIES' LEGACY DIGEST is recovered as that, and re-keyed (PF-D62).
 	return run.RekeyLegacyGood(a.packs, a.f, a.series, out)
+}
+
+// rekeyLegacyGoodInMemory applies the same legacy digest migration to this private read's record
+// without writing either the record or the capture receipt. A serving lookup can still use the old
+// receipt through exactGood below; a later ordinary advance performs the durable migration.
+func (a *advance) rekeyLegacyGoodInMemory(rec *packsrc.CheckRecord) *packsrc.CheckRecord {
+	if rec == nil || rec.Good == nil || a.series.LegacyDigest == "" || a.series.LegacyDigest == a.series.Digest {
+		return rec
+	}
+	oldRecipe := run.PatchedRecipe(a.f, a.series.LegacyDigest)
+	if rec.Good.Series != a.series.LegacyDigest || rec.Good.Recipe != oldRecipe {
+		return rec
+	}
+	legacy := *rec.Good
+	a.legacyGood = &legacy
+	rec.RekeySeries(a.series.LegacyDigest, oldRecipe, a.series.Digest, a.recipe)
+	return rec
 }
 
 // recoverGood is the good build the capture store holds for this fork as the manifest asks for it,
@@ -2003,13 +2665,18 @@ func onList(list []packsrc.ListEntry, commit string) bool {
 	return false
 }
 
+type sourceReplayOptions struct {
+	Snapshot *packsrc.ReplaySnapshot
+	Record   func(packsrc.WalkResult) packsrc.RecordReplayResult
+}
+
 // replayIntoSource replays b's series onto b.Entry in a scratch repository outside the build's
 // workspace (§5.1, PF-D18), under the mirror's lock, and copies the patched source subdirectory into
 // dst with the copy that never follows a link; it returns the PATCHED TREE (§5.3). packs nil is the
 // launch's store. It is the fit's second replay, under the build's lock (which is keyed on the fit,
 // so only after the walk found it), and takes what the walk left of the replay's bound (spent,
 // PF-D44).
-func replayIntoSource(packs *packsrc.Store, b forkBuild, dst string, spent time.Duration) (string, error) {
+func replayIntoSource(packs *packsrc.Store, b forkBuild, dst string, spent time.Duration, options sourceReplayOptions) (string, error) {
 	if packs == nil {
 		packs = packsrc.LaunchStore(paths.PacksDir())
 	}
@@ -2018,7 +2685,30 @@ func replayIntoSource(packs *packsrc.Store, b forkBuild, dst string, spent time.
 		return "", fmt.Errorf("%s names no upstream to check out", b.Fork.Source)
 	}
 	w := packs.WalkSeries(repo, subdirOf(b.Fork.Source), b.Series, []packsrc.ListEntry{b.Entry}, packsrc.WalkOptions{
-		Spent: spent, OnFit: func(tree string) error { return copySourceTree(tree, dst) }})
+		Snapshot: options.Snapshot, Spent: spent, StopOnPatchFailure: true,
+		OnFit: func(tree string) error { return copySourceTree(tree, dst) }})
+	var record packsrc.RecordReplayResult
+	if options.Record != nil {
+		record = options.Record(w)
+	}
+	if errors.Is(record.Err, packsrc.ErrStaleReplay) {
+		return "", record.Err
+	}
+	if record.Failure != nil && w.PatchFailure() == nil {
+		return "", record.Failure
+	}
+	if failure := w.PatchFailure(); failure != nil {
+		if record.Failure != nil {
+			failure = record.Failure
+		}
+		if record.Err != nil {
+			return "", errors.Join(failure, fmt.Errorf("recording patch application failure: %w", record.Err))
+		}
+		return "", failure
+	}
+	if record.Err != nil {
+		return "", record.Err
+	}
 	switch {
 	case w.Base != nil:
 		return "", w.Base

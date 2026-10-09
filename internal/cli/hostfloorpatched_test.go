@@ -11,9 +11,11 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"syscall"
 	"testing"
@@ -68,6 +70,30 @@ func floorToolBody(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return string(body)
+}
+
+func TestHostPatchFailureRefusesDespiteAValidOldFloor(t *testing.T) {
+	t.Setenv("YOLO_ALLOW_PATCH_FAILURES", "")
+	fx := patchedFloorFixture(t)
+	fx.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
+	if rc, _, out := fx.hostLaunch(t); rc != 0 {
+		t.Fatalf("clean initial host launch: rc=%d\n%s", rc, out)
+	}
+	key := fx.record(t).Good.Entry
+	fx.commit(t, "v1.2.0", map[int]string{14: "fourteen", 11: "eleven"})
+	fx.later(2 * time.Hour)
+	rc, target, out := fx.hostLaunch(t)
+	if rc != 1 || target != "" {
+		t.Fatalf("patch failure reached host exec: rc=%d target=%q\n%s", rc, target, out)
+	}
+	if !strings.Contains(out, "ERROR:") ||
+		!strings.Contains(out, "0001-ten.patch") ||
+		!strings.Contains(out, "YOLO_ALLOW_PATCH_FAILURES=1") {
+		t.Fatalf("host refusal lacks concrete error and bypass:\n%s", out)
+	}
+	if fx.record(t).Good.Entry != key || len(fx.builds) != 1 {
+		t.Fatal("refusal moved Good or built a fallback")
+	}
 }
 
 // THE MOTIVATING PATH AT THE HOST: `yolo host -- tool` of a patched fork never built on this machine
@@ -242,9 +268,9 @@ func TestTheHostFloorsAdvanceRunsAfterTheRenderGatesObservePass(t *testing.T) {
 		return 0
 	}
 	prevAdvance := floorAdvance
-	floorAdvance = func(f packload.Fork, out io.Writer, installed *installedCopy, act *run.ActInterrupt) {
+	floorAdvance = func(ctx context.Context, f packload.Fork, out io.Writer, installed *installedCopy, act *run.ActInterrupt) advanceResult {
 		events = append(events, "advance")
-		prevAdvance(f, out, installed, act)
+		return prevAdvance(ctx, f, out, installed, act)
 	}
 	t.Cleanup(func() { hostApplyGateSurvey, floorAdvance = prevSurvey, prevAdvance })
 	if rc, _, out := fx.hostLaunch(t); rc != 0 {
@@ -263,8 +289,9 @@ func TestHostLaunchOfAPatchedForkOnAMacNamesTheJailThatRunsIt(t *testing.T) {
 	fx.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
 	withFloorPlatform(t, "darwin")
 	prevAdvance := floorAdvance
-	floorAdvance = func(packload.Fork, io.Writer, *installedCopy, *run.ActInterrupt) {
+	floorAdvance = func(context.Context, packload.Fork, io.Writer, *installedCopy, *run.ActInterrupt) advanceResult {
 		t.Error("a Mac's floor ran a patched fork's advance")
+		return advanceResult{}
 	}
 	t.Cleanup(func() { floorAdvance = prevAdvance })
 	stub := filepath.Join(stubBins(t, "tool"), "tool")
@@ -315,9 +342,65 @@ func TestAHostWithNoRecordAndNoRuntimeInstallsTheGoodBuildItsStoreHolds(t *testi
 		t.Error("the floor's offline read wrote a check record")
 	}
 	// THE FORK'S LINE NAMES WHAT THE FLOOR RUNS (PF-D53): the recovered build, never "no build".
-	if want := ", at v1.1.0 (" + shortSHA(v11) + ")"; !strings.Contains(out, want) ||
-		strings.Contains(out, "no build of it on this machine yet") {
-		t.Errorf("the fork's line does not name the build the floor runs (%q):\n%s", want, out)
+
+}
+
+// A READ-ONLY FLOOR RESOLVER may serve a legacy receipt without durably re-keying either the check
+// record or receipt. The no-runtime setting is applied after the final fixture construction, and
+// EnsurePrepared consumes the real Floor preparation without an advance or capture build.
+func TestHostFloorOfflineLegacyRecoveryKeepsRecordAndReceiptBytes(t *testing.T) {
+	fx := patchedFloorFixture(t)
+	fx.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
+	if rc, _, out := fx.hostLaunch(t); rc != 0 {
+		t.Fatalf("the clean bootstrap: rc=%d\n%s", rc, out)
+	}
+	fork := fx.fork(t)
+	series, oldRecipe, newRecipe := legacyGood(t, fork)
+	if series.LegacyDigest == "" || oldRecipe == newRecipe {
+		t.Fatalf("fixture did not create a legacy receipt: series=%+v old=%s new=%s", series, oldRecipe, newRecipe)
+	}
+	good := fx.record(t).Good
+	if good == nil || good.Series != series.LegacyDigest || good.Recipe != oldRecipe || good.Entry == "" {
+		t.Fatalf("fixture's check record is not legacy Good: %+v", good)
+	}
+	store := &capture.Store{Dir: paths.CapturesDir()}
+	entry, err := store.Resolve(good.Entry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recordPath := (&packsrc.Store{Dir: paths.PacksDir()}).CheckRecordPath(fork.Key())
+	recordBefore, err := os.ReadFile(recordPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receiptPath := capture.ReceiptsPath(entry.Root)
+	receiptBefore, err := os.ReadFile(receiptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("YOLO_RUNTIME", "missing-runtime")
+	progs := floorPrograms(selectConfiguredHostPacks().packs)
+	program, ok := floorProgram(progs, "tool")
+	if !ok || !program.Install.IsPatchedFork() {
+		t.Fatalf("the selected Floor has no patched tool: %+v", progs)
+	}
+	floor := productionHostFloor(io.Discard, progs)
+	preparation, err := floor.PreparePatched(context.Background(), program, false)
+	if err != nil || preparation == nil {
+		t.Fatalf("offline legacy recovery did not prepare the admitted Good: preparation=%+v err=%v", preparation, err)
+	}
+	status, outcome, err := floor.EnsurePrepared(context.Background(), program, preparation)
+	if err != nil || outcome != hostfloor.Current || status.Record == nil || status.Record.Revision != good.Commit || len(fx.builds) != 1 {
+		t.Fatalf("offline legacy recovery did not deliver the current Floor copy: status=%+v outcome=%v builds=%d err=%v",
+			status, outcome, len(fx.builds), err)
+	}
+	recordAfter, err := os.ReadFile(recordPath)
+	if err != nil || !reflect.DeepEqual(recordBefore, recordAfter) {
+		t.Errorf("offline legacy recovery changed the check record: read err=%v", err)
+	}
+	receiptAfter, err := os.ReadFile(receiptPath)
+	if err != nil || !reflect.DeepEqual(receiptBefore, receiptAfter) {
+		t.Errorf("offline legacy recovery changed the capture receipt: read err=%v", err)
 	}
 }
 
@@ -378,16 +461,41 @@ func floorServesGoneEntry(t *testing.T) (*patchedAdvanceFixture, string, func(wh
 // and `agent_updates` holding the fork builds nothing either.
 func TestTheFloorsCopyOfTheGoodBuildServesWhenItsStoreEntryIsGone(t *testing.T) {
 	fx, v11, assertServes := floorServesGoneEntry(t)
+	previousAdvance := floorAdvance
+	advanceCalls := 0
+	advanceInputs := []string{}
+	floorAdvance = func(ctx context.Context, f packload.Fork, out io.Writer, installed *installedCopy, act *run.ActInterrupt) advanceResult {
+		advanceCalls++
+		if installed == nil {
+			advanceInputs = append(advanceInputs, "<nil>")
+		} else {
+			advanceInputs = append(advanceInputs, fmt.Sprintf("%s/%s", installed.commit, installed.recipe))
+		}
+		return previousAdvance(ctx, f, out, installed, act)
+	}
+	t.Cleanup(func() { floorAdvance = previousAdvance })
 	fx.later(10 * time.Minute)
 	assertServes("inside the hour", 1)
+	if fx.child != 0 {
+		t.Errorf("inside the hour unexpectedly launched %d build children", fx.child)
+	}
 	fx.later(2 * time.Hour)
 	assertServes("past the hour, nothing newer", 1)
+	if fx.child != 0 {
+		t.Errorf("past the hour without a newer upstream unexpectedly launched %d build children", fx.child)
+	}
 
 	v13 := fx.commit(t, "v1.3.0", map[int]string{14: "fourteen", 20: "twenty"})
 	fx.later(2 * time.Hour)
+	beforeAdvance := advanceCalls
 	out := assertServes("a newer upstream that fails", 2)
+	if advanceCalls-beforeAdvance != 1 {
+		t.Errorf("one due host launch resolved %d floor advances, want exactly one", advanceCalls-beforeAdvance)
+	}
 	if fx.child != 1 {
-		t.Errorf("the newer upstream's build ran outside the interruptible child (%d child builds)", fx.child)
+		good := fx.record(t).Good
+		installed := floorRecord(t, "tool")
+		t.Errorf("the newer upstream's build ran outside the interruptible child (%d child builds, candidates %q, advance inputs %q, good=%+v, installed=%+v):\n%s", fx.child, fx.builds, advanceInputs, good, installed, out)
 	}
 	label11 := "v1.1.0 (" + shortSHA(v11) + ")"
 	for _, w := range []string{
@@ -407,20 +515,36 @@ func TestTheFloorsCopyOfTheGoodBuildServesWhenItsStoreEntryIsGone(t *testing.T) 
 	assertServes("held by agent_updates", 2)
 }
 
-// WHAT A WALK STOPS ON, WHILE THE FLOOR'S COPY SERVES (PF-D55): an upstream that does not take the
-// series, and one the series cannot be replayed onto, each leave the floor's copy running, said as
-// such, with no build of the series' base in its place; and an apply error is replayed again only by
-// the next check (PF-D45), never by every launch inside the hour.
+// WHAT A WALK STOPS ON, WHILE THE FLOOR'S COPY SERVES (PF-D55): a classified conflict refuses by
+// default; an opaque read failure and a failed fetch remain independent unavailable-authority /
+// operation errors. None may move Good, replace the installed copy with a base build, or execute a
+// target. The literal compatibility bypass for an intact pruned-store copy is covered separately.
 func TestAWalkThatStopsLeavesTheFloorsCopyServing(t *testing.T) {
 	t.Run("a conflict", func(t *testing.T) {
-		fx, v11, assertServes := floorServesGoneEntry(t)
-		fx.commit(t, "v1.4.0", map[int]string{10: "upstream ten"})
+		t.Setenv("YOLO_ALLOW_PATCH_FAILURES", "")
+		fx, _, _ := floorServesGoneEntry(t)
+		v14 := fx.commit(t, "v1.4.0", map[int]string{10: "upstream ten"})
 		fx.later(2 * time.Hour)
-		out := assertServes("an upstream that does not take the series", 1)
-		for _, w := range []string{"upstream v1.4.0 (", "does not take the patch series",
-			"still running v1.1.0 (" + shortSHA(v11) + ") + 2 patches"} {
+		goodBefore := *fx.record(t).Good
+		floorBefore := *floorRecord(t, "tool")
+		copyBefore := treeDigest(t, floorBefore.Dir)
+		rc, target, out := fx.hostLaunch(t)
+		if rc != 1 || target != "" || len(fx.builds) != 1 {
+			t.Fatalf("the classified conflict reached the target or built a fallback: rc=%d target=%q builds=%d\n%s",
+				rc, target, len(fx.builds), out)
+		}
+		after := fx.record(t)
+		if after.PatchFailure == nil || after.PatchFailure.Target.Commit != v14 ||
+			after.PatchFailure.Kind != "conflict" || after.Good == nil || !reflect.DeepEqual(goodBefore, *after.Good) {
+			t.Errorf("the current typed conflict or original Good identity was lost: %+v", after)
+		}
+		if !reflect.DeepEqual(floorBefore, *floorRecord(t, "tool")) || treeDigest(t, floorBefore.Dir) != copyBefore {
+			t.Errorf("the refusal changed the installed floor copy")
+		}
+		for _, w := range []string{"patch application failed", "v1.4.0 (" + shortSHA(v14) + ")",
+			"YOLO_ALLOW_PATCH_FAILURES=1"} {
 			if !strings.Contains(out, w) {
-				t.Errorf("the conflict lacks %q:\n%s", w, out)
+				t.Errorf("the refusal lacks %q:\n%s", w, out)
 			}
 		}
 	})
@@ -431,23 +555,41 @@ func TestAWalkThatStopsLeavesTheFloorsCopyServing(t *testing.T) {
 		writeFile(t, failFile, v13)
 		patchedGitWrapper(t, failReadingFilesAt(failFile))
 		fx.later(2 * time.Hour)
-		out := assertServes("an apply error", 1)
+		firstOut := assertServes("an apply error", 1)
 		for _, w := range []string{"could not replay the series", "still running v1.1.0 (" + shortSHA(v11) +
 			") + 2 patches; the next check, in an hour, retries it, or `yolo pack update` now"} {
-			if !strings.Contains(out, w) {
-				t.Errorf("the apply error lacks %q:\n%s", w, out)
+			if !strings.Contains(firstOut, w) {
+				t.Errorf("the original ordinary apply error lacks %q:\n%s", w, firstOut)
 			}
 		}
-		fx.later(time.Minute)
-		if out := assertServes("inside the hour after it", 1); strings.Contains(out, "could not replay") {
-			t.Errorf("a launch inside the hour replayed the apply error again:\n%s", out)
+		t.Setenv("YOLO_ALLOW_PATCH_FAILURES", "1")
+		goodBefore := *fx.record(t).Good
+		floorBefore := *floorRecord(t, "tool")
+		copyBefore := treeDigest(t, floorBefore.Dir)
+		rc, target, out := fx.hostLaunch(t)
+		if rc != 127 || target != "" || len(fx.builds) != 1 {
+			t.Fatalf("unavailable replay authority was waived or built around: rc=%d target=%q builds=%d\n%s",
+				rc, target, len(fx.builds), out)
+		}
+		after := fx.record(t)
+		if after.PatchFailure != nil || after.ApplyErr == nil || after.Good == nil || !reflect.DeepEqual(goodBefore, *after.Good) {
+			t.Errorf("opaque replay failure was fabricated as typed authority or changed Good: %+v", after)
+		}
+		if !reflect.DeepEqual(floorBefore, *floorRecord(t, "tool")) || treeDigest(t, floorBefore.Dir) != copyBefore {
+			t.Errorf("unavailable replay authority changed the installed floor copy")
+		}
+		for _, w := range []string{"could not classify its earlier replay error locally", "authority is unresolved"} {
+			if !strings.Contains(out, w) {
+				t.Errorf("the ordinary refusal lacks %q:\n%s", w, out)
+			}
 		}
 	})
 	t.Run("a failed fetch", func(t *testing.T) {
+		t.Setenv("YOLO_ALLOW_PATCH_FAILURES", "1")
 		// A CANDIDATE STILL PENDING WHEN THE NEXT CHECK'S FETCH FAILS (§6.2) is not built until a check
 		// fetches: here v1.3.0, whose build a Ctrl-C ended, and an upstream that has since gone away.
-		fx, _, assertServes := floorServesGoneEntry(t)
-		fx.commit(t, "v1.3.0", map[int]string{14: "fourteen", 20: "twenty"})
+		fx, _, _ := floorServesGoneEntry(t)
+		v13 := fx.commit(t, "v1.3.0", map[int]string{14: "fourteen", 20: "twenty"})
 		fx.later(2 * time.Hour)
 		prev := forkBuildChild
 		forkBuildChild = func(ctx context.Context, _ time.Duration, _ string, _ forkBuild, _ captureStreams, _ bool) (int, bool) {
@@ -460,13 +602,39 @@ func TestAWalkThatStopsLeavesTheFloorsCopyServing(t *testing.T) {
 			<-ctx.Done()
 			return 130, false
 		}
-		assertServes("a Ctrl-C during v1.3.0's build", 1)
+		if rc, target, out := fx.hostLaunch(t); rc != 0 || target != filepath.Join(paths.HostFloorDir(), "bin", "tool") ||
+			len(fx.builds) != 1 {
+			t.Fatalf("a Ctrl-C during v1.3.0's build: rc=%d target=%q builds=%d\n%s", rc, target, len(fx.builds), out)
+		}
 		forkBuildChild = prev
+		before := fx.record(t)
+		if before.Check == nil || len(before.Check.List) == 0 || before.Check.List[0].Commit != v13 {
+			t.Fatalf("the candidate was not pending after Ctrl-C: %+v", before.Check)
+		}
+		goodBefore := *before.Good
+		pendingBefore := append([]packsrc.ListEntry(nil), before.Check.List...)
+		floorBefore := *floorRecord(t, "tool")
+		copyBefore := treeDigest(t, floorBefore.Dir)
 		if err := os.Rename(fx.repo, fx.repo+".gone"); err != nil {
 			t.Fatal(err)
 		}
 		fx.later(2 * time.Hour)
-		if out := assertServes("a failed fetch", 1); !strings.Contains(out, "could not check its upstream") {
+		rc, target, out := fx.hostLaunch(t)
+		if rc != 127 || target != "" || len(fx.builds) != 1 {
+			t.Fatalf("the failed fetch was waived or fell back: rc=%d target=%q builds=%d\n%s", rc, target, len(fx.builds), out)
+		}
+		after := fx.record(t)
+		if after.Check == nil || after.Check.FetchErr == "" || !reflect.DeepEqual(pendingBefore, after.Check.List) {
+			t.Errorf("failed fetch did not preserve its diagnosis and pending candidate: before=%+v after=%+v",
+				pendingBefore, after.Check)
+		}
+		if after.PatchFailure != nil || after.Good == nil || !reflect.DeepEqual(goodBefore, *after.Good) {
+			t.Errorf("failed fetch fabricated typed authority or changed Good: %+v", after)
+		}
+		if !reflect.DeepEqual(floorBefore, *floorRecord(t, "tool")) || treeDigest(t, floorBefore.Dir) != copyBefore {
+			t.Errorf("the failed fetch changed the installed floor copy")
+		}
+		if !strings.Contains(out, "could not check its upstream") {
 			t.Errorf("the failed fetch is not said:\n%s", out)
 		}
 	})
@@ -715,6 +883,41 @@ func TestAGoneGoodBuildThatDoesNotBuildAgainNamesTheNextStep(t *testing.T) {
 	}
 }
 
+func TestProductionPatchedResolverConsumesPersistedFailureWithoutAdvancing(t *testing.T) {
+	t.Setenv("YOLO_ALLOW_PATCH_FAILURES", "")
+	fx := patchedFloorFixture(t)
+	fx.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
+	if rc, _, out := fx.hostLaunch(t); rc != 0 {
+		t.Fatalf("clean initial host launch: rc=%d\n%s", rc, out)
+	}
+	fx.commit(t, "v1.2.0", map[int]string{14: "fourteen", 11: "eleven"})
+	fx.later(2 * time.Hour)
+	if rc, _, out := fx.hostLaunch(t); rc != 1 {
+		t.Fatalf("host launch did not persist and report the patch failure: rc=%d\n%s", rc, out)
+	}
+
+	progs := floorPrograms(selectConfiguredHostPacks().packs)
+	p, ok := floorProgram(progs, "tool")
+	if !ok || !p.Install.IsPatchedFork() {
+		t.Fatalf("the selected floor has no patched tool: %+v", progs)
+	}
+	prevAdvance := floorAdvance
+	advances := 0
+	floorAdvance = func(ctx context.Context, f packload.Fork, out io.Writer, installed *installedCopy, act *run.ActInterrupt) advanceResult {
+		advances++
+		return prevAdvance(ctx, f, out, installed, act)
+	}
+	t.Cleanup(func() { floorAdvance = prevAdvance })
+	floor := productionHostFloor(io.Discard, progs)
+	state := floor.ResolvePatched(context.Background(), p, nil, false)
+	if state.PatchFailure == nil || state.Recipe == "" {
+		t.Fatalf("cached resolver lost the persisted typed failure: %+v", state)
+	}
+	if advances != 0 {
+		t.Errorf("cached authority resolution ran %d new advances", advances)
+	}
+}
+
 // THE PRODUCTION FLOOR'S PATCHED WIRING IS THE CALL SITE: its Advance runs floorAdvance for the fork
 // as the selection declares it (its series' root among it) and returns the state after, and its
 // Patched reads that state offline — the fixture's first advance's good build, from the check record.
@@ -729,9 +932,9 @@ func TestTheProductionFloorWiresThePatchedAdvanceAndRead(t *testing.T) {
 	var advanced []packload.Fork
 	var handed []*installedCopy
 	prevAdvance := floorAdvance
-	floorAdvance = func(f packload.Fork, out io.Writer, installed *installedCopy, act *run.ActInterrupt) {
+	floorAdvance = func(ctx context.Context, f packload.Fork, out io.Writer, installed *installedCopy, act *run.ActInterrupt) advanceResult {
 		advanced, handed = append(advanced, f), append(handed, installed)
-		prevAdvance(f, out, installed, act)
+		return prevAdvance(ctx, f, out, installed, act)
 	}
 	t.Cleanup(func() { floorAdvance = prevAdvance })
 	floor := productionHostFloor(io.Discard, progs)

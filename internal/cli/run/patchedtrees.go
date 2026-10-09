@@ -108,6 +108,8 @@ type TreeDelivery struct {
 	Series      string
 	// Reason is why there is no copy, naming what to do; "" when Dir is set.
 	Reason string
+	// PatchFailure is host-only failure evidence carried beside the admitted directory.
+	PatchFailure *packsrc.PatchFailure
 	// Cause is the build's cause in plain words, when its act found one, which the launch's refusal
 	// says once for every key that shares it (missingbuilds.go) and the jail's gate is handed.
 	Cause *entrypoint.BuildCause

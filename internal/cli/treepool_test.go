@@ -27,6 +27,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
+	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
 const (
@@ -230,6 +231,102 @@ func TestOneCtrlCEndsEveryExtensionsBuildInThePool(t *testing.T) {
 	}
 	if !act.Interrupted() || strings.Count(out, ": the advance was interrupted — this jail starts on the good build") != 2 {
 		t.Errorf("the act or the lines do not record the interrupt:\n%s", out)
+	}
+}
+
+// The production runTreesUnder lane sends detached typed errors to the real stream immediately,
+// while a recovered foreground report still waits behind earlier host-tree output.
+func TestBackgroundTreeFailureIsImmediateAndRecoveredHostReportIsOrdered(t *testing.T) {
+	fx := newTreeFixture(t, `"f.txt"`)
+	f := fx.tree(t)
+	var firstOut bytes.Buffer
+	first := treeAdvance(f, advanceOptions{platform: patchedTestPlatform, runtime: "podman", launch: true,
+		out: &firstOut, errw: &firstOut})
+	if first.delivery.Key == "" {
+		t.Fatalf("clean Good was not admitted: %+v\n%s", first, firstOut.String())
+	}
+	fx.commit(t, "v1.2.0", map[int]string{14: "fourteen", 11: "eleven"})
+	fx.now = fx.now.Add(2 * time.Hour)
+	var conflictOut bytes.Buffer
+	conflict := treeAdvance(f, advanceOptions{platform: patchedTestPlatform, runtime: "podman", launch: true,
+		out: &conflictOut, errw: &conflictOut})
+	if conflict.patchFailure == nil {
+		t.Fatalf("fixture did not produce a typed failure: %+v\n%s", conflict, conflictOut.String())
+	}
+	store := patchedAdvanceStore(true)
+	if err := store.WithCheckRecord(f.Key(), nil, func(r *packsrc.CheckRecord, readErr error, _ func() error) (bool, error) {
+		if readErr != nil {
+			return false, readErr
+		}
+		r.PatchFailure, r.Outcomes = nil, nil
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	o := backgroundOutcome{Key: f.Key(), Label: f.Label(), State: bgFailed, At: fx.now.Unix(), Generation: 1,
+		Log: backgroundAdvanceLog(), PatchFailure: conflict.patchFailure}
+	if err := writeBackgroundOutcome(o); err != nil {
+		t.Fatal(err)
+	}
+	noteBackgroundOutcome(f, richtext.Printer{W: io.Discard})
+
+	var hostOut, hostErr bytes.Buffer
+	firstBlocked, releaseFirst := make(chan struct{}), make(chan struct{})
+	immediateWritten, foregroundWritten := make(chan struct{}), make(chan struct{})
+	runDone := make(chan struct{})
+	go func() {
+		runTreesUnder(context.Background(), []packload.Fork{f, f}, "podman", &hostOut, &hostErr,
+			func(i int, tree packload.Fork, lane treeLane) {
+				if i == 0 {
+					close(firstBlocked)
+					<-releaseFirst
+					_, _ = io.WriteString(lane.errw, "first host tree\n")
+					return
+				}
+				background := &advance{f: tree, o: lane.options(advanceOptions{background: true})}
+				background.reportPatchFailure(conflict.patchFailure, "immediate background failure\n")
+				close(immediateWritten)
+				recovered, _ := servingTreeOf(tree, lane.options(advanceOptions{platform: patchedTestPlatform,
+					runtime: "podman", launch: true, errw: lane.errw}), "", false)
+				if recovered.patchFailure == nil || recovered.delivery.PatchFailure == nil {
+					t.Errorf("foreground pool lane did not recover the actual typed outcome: %+v", recovered)
+				}
+				close(foregroundWritten)
+			})
+		close(runDone)
+	}()
+	select {
+	case <-firstBlocked:
+	case <-time.After(5 * time.Second):
+		close(releaseFirst)
+		t.Fatal("the earlier production pool lane did not block")
+	}
+	select {
+	case <-immediateWritten:
+	case <-time.After(5 * time.Second):
+		close(releaseFirst)
+		t.Fatal("the later production pool lane did not report its detached failure")
+	}
+	select {
+	case <-foregroundWritten:
+	case <-time.After(5 * time.Second):
+		close(releaseFirst)
+		t.Fatal("the later production pool lane did not report foreground recovery")
+	}
+	if hostErr.String() != "immediate background failure\n" {
+		close(releaseFirst)
+		t.Fatalf("detached error did not bypass the production ordered lane, or foreground report escaped early: %q",
+			hostErr.String())
+	}
+	close(releaseFirst)
+	select {
+	case <-runDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the production pool lanes did not finish")
+	}
+	if got, want := hostErr.String(), "immediate background failure\nfirst host tree\n"+
+		"ERROR: "+f.Key()+": patch application failed at upstream v1.2.0"; !strings.HasPrefix(got, want) {
+		t.Fatalf("foreground recovery report did not remain ordered after the earlier lane: got %q want prefix %q", got, want)
 	}
 }
 

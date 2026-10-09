@@ -63,13 +63,14 @@ func (s *syncBuffer) String() string {
 // apart by, the build jail substituted, and the interruptible build run in this process.
 type patchedAdvanceFixture struct {
 	*patchedFixture
-	now    time.Time
-	builds []string // f.txt as each build saw it in its src/
-	rc     int      // what the fake build jail exits with
-	ran    bool     // whether the fake build jail writes the toolchain record (its build line ran)
-	said   string   // a line the fake build jail's runtime prints on the jail's stderr before it exits, "" for none
-	child  int      // how many builds went through the child-process runner
-	scoped []bool   // per child build, whether an interrupt scope's context could cancel it
+	now         time.Time
+	builds      []string // f.txt as each build saw it in its src/
+	rc          int      // what the fake build jail exits with
+	ran         bool     // whether the fake build jail writes the toolchain record (its build line ran)
+	said        string   // a line the fake build jail's runtime prints on the jail's stderr before it exits, "" for none
+	programBody string   // optional exact executable bytes for intact-runtime fixtures
+	child       int      // how many builds went through the child-process runner
+	scoped      []bool   // per child build, whether an interrupt scope's context could cancel it
 	// sharedLocks is set where other keys of the selection run beside the build in the slot's pool,
 	// whose checks and walks hold their own record and mirror locks meanwhile (PPX-D13): the lock
 	// assertion is then the single-key tests'.
@@ -149,8 +150,11 @@ func (fx *patchedAdvanceFixture) buildJail(t *testing.T) func(run.Options) int {
 		if fx.rc != 0 {
 			return fx.rc
 		}
-		sum := sha256.Sum256(data)
-		body := "#!/bin/sh\n# " + hex.EncodeToString(sum[:]) + "\n"
+		body := fx.programBody
+		if body == "" {
+			sum := sha256.Sum256(data)
+			body = "#!/bin/sh\n# " + hex.EncodeToString(sum[:]) + "\n"
+		}
 		out := filepath.Join(o.Workspace, captureOutLeaf)
 		writeFile(t, filepath.Join(capture.TreeDir(out), ".local", "bin", "tool"), body)
 		if err := os.Chmod(filepath.Join(capture.TreeDir(out), ".local", "bin", "tool"), 0o755); err != nil {
@@ -222,13 +226,11 @@ func (fx *patchedAdvanceFixture) record(t *testing.T) *packsrc.CheckRecord {
 // later steps the clock past the check's interval.
 func (fx *patchedAdvanceFixture) later(d time.Duration) { fx.now = fx.now.Add(d) }
 
-// firstAdvance is the state every later test starts from: v1.1.0 takes the series, v1.2.0 does
-// not, and the first advance built v1.1.0.
+// firstAdvance is the state every later test starts from: v1.1.0 takes the clean series and the first advance builds it.
 func firstAdvance(t *testing.T) (fx *patchedAdvanceFixture, v11, v12 string, r advanceResult, out string, handed []run.HandedFork) {
 	t.Helper()
 	fx = newPatchedAdvanceFixture(t, "")
 	v11 = fx.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
-	v12 = fx.commit(t, "v1.2.0", map[int]string{14: "fourteen", 11: "eleven"})
 	r, out, handed = fx.launch(t, "podman")
 	return
 }
@@ -238,12 +240,25 @@ func storeEntryExists(key string) bool {
 	return err == nil
 }
 
-// THE FIRST ADVANCE builds the newest fit — v1.1.0, past the v1.2.0 the series does not take —
-// in this process (a first advance has nothing to start on, so a Ctrl-C ends the launch), writes
-// the good build after the admit, records the build's fork, series and tree, pins nothing, and
-// hands the jail the build under the record lock.
+// A patch application failure stops the advance before an older fit can be built.
+func TestPatchFailureStopsBeforeAnOlderFitBuilds(t *testing.T) {
+	t.Setenv("YOLO_ALLOW_PATCH_FAILURES", "")
+	fx := newPatchedAdvanceFixture(t, "")
+	fx.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
+	fx.commit(t, "v1.2.0", map[int]string{14: "fourteen", 11: "eleven"})
+	r, out, _ := fx.launch(t, "podman")
+	if len(fx.builds) != 0 || r.built || !r.failed || r.patchFailure == nil || r.delivery.PatchFailure == nil ||
+		r.patchFailure.Kind != "conflict" || r.patchFailure.Target.Tag != "v1.2.0" || r.patchFailure.Member != "0001-ten.patch" ||
+		len(r.patchFailure.Paths) != 1 || r.patchFailure.Paths[0] != "f.txt" || fx.record(t).Good != nil {
+		t.Fatalf("patch failure built an older fit, lost typed target detail, or wrote Good: builds=%d result=%+v record=%+v\n%s",
+			len(fx.builds), r, fx.record(t).Good, out)
+	}
+}
+
+// THE FIRST ADVANCE builds the clean bootstrap at v1.1.0, writes the good build after the admit,
+// records the build's fork, series and tree, pins nothing, and hands the jail the build under the record lock.
 func TestAFirstAdvanceBuildsTheNewestFitAndHandsIt(t *testing.T) {
-	fx, v11, v12, r, out, handed := firstAdvance(t)
+	fx, v11, _, r, out, handed := firstAdvance(t)
 	if len(fx.builds) != 1 || fx.builds[0] != lines30(map[int]string{10: "ten", 12: "twelve", 14: "fourteen"}) {
 		t.Fatalf("builds = %q, want one of v1.1.0 with the series applied\n%s", fx.builds, out)
 	}
@@ -260,9 +275,7 @@ func TestAFirstAdvanceBuildsTheNewestFitAndHandsIt(t *testing.T) {
 		handed[0].Patches != 2 || handed[0].Commit != v11 {
 		t.Errorf("handed %+v, want the good build with its label", handed)
 	}
-	for _, w := range []string{"upstream v1.2.0 (" + shortSHA(v12) + ") does not take the patch series",
-		"0001-ten.patch conflicts in f.txt", "building the newest fit, v1.1.0",
-		"built fork forkpack/tool: v1.1.0 (" + shortSHA(v11) + ") + 2 patches; this jail runs it"} {
+	for _, w := range []string{"built fork forkpack/tool: v1.1.0 (" + shortSHA(v11) + ") + 2 patches; this jail runs it"} {
 		if !strings.Contains(out, w) {
 			t.Errorf("the first advance lacks %q:\n%s", w, out)
 		}
@@ -357,36 +370,41 @@ func TestANewTagMovesTheGoodBuildAndReapsTheOld(t *testing.T) {
 	}
 }
 
-// A CONFLICTING TAG IS HELD: said once with its member, its paths and the next step, the previous
-// build still handed; a later launch replays it no more, says nothing, and the fork's line carries
-// the held suffix.
-func TestAConflictingTagIsHeldWithThePreviousBuildServing(t *testing.T) {
+// A CONFLICTING TAG IS FATAL BY DEFAULT: the old build remains available but the delivery carries
+// the failure. The exact foreground bypass may continue on that admitted build without clearing it.
+func TestAConflictingTagFailsAndOnlyExplicitBypassContinues(t *testing.T) {
 	fx, v11, _, r, _, _ := firstAdvance(t)
 	v14 := fx.commit(t, "v1.4.0", map[int]string{14: "fourteen", 11: "eleven-again"})
 	fx.later(2 * time.Hour)
-	held, out, _ := fx.launch(t, "podman")
-	if held.delivery.Key != r.delivery.Key || len(fx.builds) != 1 {
-		t.Fatalf("the conflicting tag handed %+v after %d builds\n%s", held.delivery, len(fx.builds), out)
+	failed, out, _ := fx.launch(t, "podman")
+	if !failed.failed || failed.delivery.Key != r.delivery.Key || failed.patchFailure == nil ||
+		failed.delivery.PatchFailure == nil || len(fx.builds) != 1 {
+		t.Fatalf("the conflicting tag was not rejected with the admitted build retained: %+v, builds=%d\n%s",
+			failed, len(fx.builds), out)
 	}
-	for _, w := range []string{"fork forkpack/tool: upstream v1.4.0 (" + shortSHA(v14) + ") does not take the patch series —",
-		"0001-ten.patch conflicts in f.txt", "still running v1.1.0 (" + shortSHA(v11) + ") + 2 patches",
-		"rebase the series: yolo pack rebase forkpack/tool"} {
-		if !strings.Contains(out, w) {
-			t.Errorf("the held launch lacks %q:\n%s", w, out)
-		}
+	if !strings.Contains(out, "0001-ten.patch") || !strings.Contains(out, "v1.4.0 ("+shortSHA(v14)+")") {
+		t.Fatalf("the concrete conflict was not reported:\n%s", out)
 	}
+	t.Setenv("YOLO_ALLOW_PATCH_FAILURES", "1")
+	continued, out, _ := fx.launch(t, "podman")
+	if continued.failed || continued.delivery.Key != r.delivery.Key || continued.patchFailure == nil || len(fx.builds) != 1 {
+		t.Fatalf("the exact compatible bypass did not continue on the admitted build: %+v\n%s", continued, out)
+	}
+	if fx.record(t).PatchFailure == nil {
+		t.Fatal("the compatible bypass cleared persistent patch-failure authority")
+	}
+	t.Setenv("YOLO_ALLOW_PATCH_FAILURES", "")
 	fx.later(2 * time.Hour)
 	again, out, _ := fx.launch(t, "podman")
-	if again.delivery.Key != r.delivery.Key || strings.Contains(out, "does not take the patch series") || len(fx.builds) != 1 {
-		t.Errorf("a later launch replayed the conflict again or moved:\n%s", out)
+	if !again.failed || again.delivery.Key != r.delivery.Key || again.patchFailure == nil || len(fx.builds) != 1 {
+		t.Errorf("a repeated cached failure was not refused without rebuilding: %+v\n%s", again, out)
 	}
 	f := fx.fork(t)
 	series, _ := f.ReadSeries()
 	in, _, _, _ := f.CheckWant(series).Inputs()
 	suffix := run.HeldSuffix(f, fx.record(t), in, series.Digest, forkBuild{Fork: f, Series: series}.recipe())
-	if !strings.Contains(suffix, "held at v1.1.0 ("+shortSHA(v11)+"): upstream v1.4.0 ("+shortSHA(v14)+") does not take 0001-ten.patch"+
-		" — `yolo pack rebase forkpack/tool`") {
-		t.Errorf("the held suffix is %q", suffix)
+	if !strings.Contains(suffix, "held at v1.1.0 ("+shortSHA(v11)+"): upstream v1.4.0 ("+shortSHA(v14)+")") {
+		t.Errorf("the fatal cached failure suffix is %q", suffix)
 	}
 }
 
@@ -433,7 +451,7 @@ func TestABuildJailThatNeverRanRecordsNothing(t *testing.T) {
 	fx.later(2 * time.Hour)
 	children := fx.child
 	got, out, _ := fx.launch(t, "container")
-	if got.delivery.Key != r.delivery.Key {
+	if got.patchFailure != nil || got.delivery.PatchFailure != nil || got.delivery.Key != r.delivery.Key {
 		t.Fatalf("handed %+v\n%s", got.delivery, out)
 	}
 	if fx.child == children {
@@ -492,7 +510,7 @@ func TestACtrlCDuringTheBuildStartsTheJailOnTheGoodBuild(t *testing.T) {
 	}
 	got, out, handed := fx.launch(t, "podman")
 	forkBuildChild = prev
-	if got.delivery.Key != r.delivery.Key || len(handed) != 1 || handed[0].Key != r.delivery.Key {
+	if got.patchFailure != nil || got.delivery.PatchFailure != nil || got.delivery.Key != r.delivery.Key || len(handed) != 1 || handed[0].Key != r.delivery.Key {
 		t.Fatalf("after the Ctrl-C the jail is handed %+v (recorded %+v), want the good build\n%s", got.delivery, handed, out)
 	}
 	if !strings.Contains(out, "the advance was interrupted — this jail starts on the good build v1.1.0 ("+shortSHA(v11)+") + 2 patches") {

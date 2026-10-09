@@ -422,6 +422,11 @@ func capturePatchedFork(f packload.Fork, out, errw io.Writer, color bool) int {
 	}
 	r := advancePatchedFork(f, advanceOptions{platform: captureJailPlatform(), out: out, errw: errw, color: color,
 		force: true})
+	if r.bypassed && r.operationError == "" {
+		fmt.Fprintf(out, "yolo capture: %s: capture skipped: explicit patch-failure bypass kept the compatible build; no build or admission was performed.\n",
+			f.Label())
+		return 0
+	}
 	if r.built {
 		return 0
 	}

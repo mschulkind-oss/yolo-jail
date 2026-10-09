@@ -94,7 +94,7 @@ func TestAFitThatFailsToBuildWithNothingServingBuildsTheBase(t *testing.T) {
 				t.Fatalf("builds = %q, want the fit and then the base, in this one launch\n%s", fx.builds[before:], out)
 			}
 			g := fx.record(t).Good
-			if r.delivery.Key == "" || g == nil || g.Commit != fx.base || g.Entry != r.delivery.Key || g.Tag != "v1.0.0" {
+			if r.delivery.Key == "" || r.patchFailure != nil || r.delivery.PatchFailure != nil || g == nil || g.Commit != fx.base || g.Entry != r.delivery.Key || g.Tag != "v1.0.0" {
 				t.Fatalf("handed %+v with good build %+v, want the base's build\n%s", r.delivery, g, out)
 			}
 			if len(handed) == 0 || handed[len(handed)-1].Key != r.delivery.Key {
@@ -126,7 +126,7 @@ func TestAUsersFailedEditTriesTheBaseThenGoes(t *testing.T) {
 	writeFile(t, fx.manifest, strings.Replace(mustRead(t, fx.manifest), `"build":"sh build.sh"`, `"build":"sh build2.sh"`, 1))
 	fx.rc = 2
 	edited, out, _ := fx.launch(t, "podman")
-	if edited.delivery.Key != "" || edited.delivery.Reason == "" || len(fx.builds) != 3 ||
+	if edited.delivery.Key != "" || edited.patchFailure != nil || edited.delivery.PatchFailure != nil || edited.delivery.Reason == "" || len(fx.builds) != 3 ||
 		fx.builds[2] != lines30(map[int]string{10: "ten", 12: "twelve"}) {
 		t.Fatalf("the failed edit handed %+v after builds %q, want the fit and the base tried and no program\n%s",
 			edited.delivery, fx.builds, out)
@@ -149,7 +149,7 @@ func TestAFirstAdvanceWhoseWalkHitsAnApplyErrorBuildsTheBase(t *testing.T) {
 	writeFile(t, failFile, v11)
 	patchedGitWrapper(t, failReadingFilesAt(failFile))
 	r, out, _ := fx.launch(t, "podman")
-	if r.delivery.Key == "" || len(fx.builds) != 1 || fx.builds[0] != lines30(map[int]string{10: "ten", 12: "twelve"}) {
+	if r.delivery.Key == "" || r.patchFailure != nil || r.delivery.PatchFailure != nil || len(fx.builds) != 1 || fx.builds[0] != lines30(map[int]string{10: "ten", 12: "twelve"}) {
 		t.Fatalf("handed %+v after builds %q, want the base built\n%s", r.delivery, fx.builds, out)
 	}
 	for _, w := range []string{"could not replay the series", "simulated: cannot read",
@@ -181,7 +181,7 @@ func TestAnApplyErrorIsRetriedByTheNextCheckNotEveryLaunch(t *testing.T) {
 	logPath := patchedGitWrapper(t, failReadingFilesAt(failFile))
 	fx.later(2 * time.Hour)
 	got, out, _ := fx.launch(t, "podman")
-	if got.delivery.Key != r.delivery.Key || len(fx.builds) != 1 || !strings.Contains(out, "could not replay the series") ||
+	if got.patchFailure != nil || got.delivery.PatchFailure != nil || got.delivery.Key != r.delivery.Key || len(fx.builds) != 1 || !strings.Contains(out, "could not replay the series") ||
 		!strings.Contains(out, "the next check, in an hour, retries it") {
 		t.Fatalf("the apply error handed %+v after %d builds\n%s", got.delivery, len(fx.builds), out)
 	}
@@ -189,12 +189,35 @@ func TestAnApplyErrorIsRetriedByTheNextCheckNotEveryLaunch(t *testing.T) {
 		t.Fatal(err)
 	}
 	fx.later(time.Minute)
+	beforeProbe := fx.record(t)
 	again, out, _ := fx.launch(t, "podman")
-	if again.delivery.Key != r.delivery.Key || strings.Contains(out, "could not replay") || len(fx.builds) != 1 {
-		t.Errorf("a launch inside the hour replayed the apply error again:\n%s", out)
+	probed := fx.record(t)
+	if again.patchFailure != nil || again.delivery.PatchFailure != nil || again.delivery.Key != r.delivery.Key || len(fx.builds) != 1 ||
+		probed.Seq != beforeProbe.Seq || probed.CheckedAt != beforeProbe.CheckedAt || probed.ApplyErr == nil || probed.ApplyErr.Legacy == nil ||
+		probed.ApplyErr.Legacy.State != "unavailable" {
+		t.Errorf("the one bounded legacy diagnosis changed the check, build, or served key: result=%+v record=%+v\n%s", again, probed, out)
+	}
+	if logged, err := os.ReadFile(logPath); err != nil {
+		t.Errorf("the local-only classification made no bounded Git attempt: %v", err)
+	} else {
+		for _, line := range strings.Split(string(logged), "\n") {
+			if strings.Contains(" "+line+" ", " fetch ") || strings.Contains(" "+line+" ", " fetch-pack ") ||
+				strings.Contains(" "+line+" ", " merge-tree ") {
+				t.Errorf("the cached classification fetched or entered ordinary replay: %s", line)
+			}
+		}
+	}
+	if err := os.Remove(logPath); err != nil {
+		t.Fatal(err)
+	}
+	fx.later(time.Minute)
+	cached, out, _ := fx.launch(t, "podman")
+	if cached.patchFailure != nil || cached.delivery.PatchFailure != nil || cached.delivery.Key != r.delivery.Key ||
+		len(fx.builds) != 1 || strings.Contains(out, "could not replay") {
+		t.Errorf("an unchanged unavailable diagnosis changed ordinary launch behavior:\n%s", out)
 	}
 	if logged, err := os.ReadFile(logPath); err == nil && len(logged) > 0 {
-		t.Errorf("a launch inside the hour after an apply error ran git:\n%s", logged)
+		t.Errorf("an unchanged unavailable attempt repeated member replay:\n%s", logged)
 	}
 	f := fx.fork(t)
 	series := mustSeries(t, fx)
@@ -206,11 +229,11 @@ func TestAnApplyErrorIsRetriedByTheNextCheckNotEveryLaunch(t *testing.T) {
 	writeFile(t, failFile, "")
 	fx.later(2 * time.Hour)
 	moved, out, _ := fx.launch(t, "podman")
-	if moved.delivery.Key == r.delivery.Key || len(fx.builds) != 2 {
+	if moved.patchFailure != nil || moved.delivery.PatchFailure != nil || moved.delivery.Key == r.delivery.Key || len(fx.builds) != 2 {
 		t.Errorf("the next check did not retry the entry the apply error stopped at:\n%s", out)
 	}
 	if fx.record(t).ApplyErr != nil {
-		t.Errorf("a walk that settled left the apply error on the record: %+v", fx.record(t).ApplyErr)
+		t.Errorf("a walk that settled left the apply error on the record: %+v\n%s", fx.record(t).ApplyErr, out)
 	}
 }
 
@@ -313,7 +336,7 @@ func TestTheBuildsReplayTakesWhatTheWalkLeft(t *testing.T) {
 	if !strings.Contains(out, "the series' replay ran out of its "+packsrc.ReplayTimeout.String()) {
 		t.Errorf("the fit's replay into src/ was given a bound of its own:\n%s", out)
 	}
-	if r.delivery.Key == "" || len(fx.builds) != 1 || fx.record(t).Good.Commit != fx.base {
+	if r.patchFailure != nil || r.delivery.PatchFailure != nil || r.delivery.Key == "" || len(fx.builds) != 1 || fx.record(t).Good.Commit != fx.base {
 		t.Errorf("handed %+v after builds %q, want the base built on a bound of its own\n%s", r.delivery, fx.builds, out)
 	}
 }

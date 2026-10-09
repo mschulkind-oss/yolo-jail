@@ -31,9 +31,11 @@ package packsrc
 // mirror's lock, and none takes the fork lock forks.lock.json's writers share.
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os/exec"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -174,11 +176,20 @@ func (s *Store) CheckPatched(w PatchedWant, opts CheckOptions) CheckResult {
 		r.Seq++
 		found.Seq, found.At = r.Seq, now().Unix()
 		r.Read, r.Check = in, &found
+		if pf := r.PatchFailure; pf != nil {
+			switch {
+			case pf.Inputs != in:
+				r.PatchFailure = nil
+			case found.FetchErr == "" && found.Problem == "" && pf.Kind != "base" &&
+				!listHasCommit(found.List, pf.Target.Commit):
+				r.PatchFailure = nil
+			}
+		}
 		// OUTCOMES FOLLOW THE LIST, and only a list: a check that names no candidate (a problem — a
 		// git error, a lock it could not take, a ref edited to HEAD for a minute) lists nothing, and
 		// pruning against that would forget every conflict the next good check would otherwise pass
 		// over (PF-D9), and in step 2 every build failure's back-off.
-		if found.Problem == "" {
+		if found.Problem == "" && found.FetchErr == "" {
 			r.Outcomes = keepListedOutcomes(r.Outcomes, found.List)
 		}
 		res.Record = r
@@ -565,31 +576,377 @@ func (r *CheckRecord) Answers(in CheckInputs) bool {
 	return r != nil && r.Check != nil && r.Read == in
 }
 
-// RecordWalk writes a walk's outcomes into owner's record under its lock, keyed by the series
-// digest, the yolo version and the walk's git: a conflict for each entry that stopped on a member,
-// and a clean replay for each that took the series. An apply error is no outcome (PF-D9): its entry
-// stays pending, and the next check retries it. Called after WalkSeries has released the mirror's
-// lock, never inside it (the lock order, checkrecord.go).
-func (s *Store) RecordWalk(owner, series, yolo string, w WalkResult, now time.Time) error {
-	if len(w.Results) == 0 {
+// CurrentPatchFailure returns a deep copy of current typed authority, or synthesizes concrete
+// authority from a selected legacy OutcomeConflict. Failed checks cannot prove that a target left
+// the selected list; only a successful finished check can do that.
+func (r *CheckRecord) CurrentPatchFailure(in CheckInputs, series string) *PatchFailure {
+	if r == nil || r.Owner == "" {
 		return nil
 	}
-	return s.WithCheckRecord(owner, nil, func(r *CheckRecord, _ error, _ func() error) (bool, error) {
-		changed := false
-		for _, res := range w.Results {
-			o := EntryOutcome{Commit: res.Entry.Commit, Series: series, Yolo: yolo, Git: w.Git, At: now.Unix()}
-			switch {
-			case res.Conflict != nil:
-				o.Kind, o.Member, o.Paths = OutcomeConflict, res.Conflict.Member, res.Conflict.Paths
-			case res.Clean:
-				o.Kind, o.Upstream = OutcomeApplies, res.Upstream
-			default:
+	if pf := r.PatchFailure; pf != nil && pf.Owner == r.Owner && pf.Inputs == in && pf.Series == series {
+		if pf.Kind == "base" {
+			if pf.Target.Commit == in.Base {
+				return clonePatchFailure(pf)
+			}
+		} else {
+			if r.Read != in || !successfulCheck(r) || listHasCommit(r.Check.List, pf.Target.Commit) {
+				return clonePatchFailure(pf)
+			}
+		}
+	}
+	return r.legacyConflict(in, series)
+}
+
+func successfulCheck(r *CheckRecord) bool {
+	return r != nil && r.Check != nil && r.Check.Seq == r.Seq &&
+		r.Check.FetchErr == "" && r.Check.Problem == ""
+}
+
+func (r *CheckRecord) legacyConflict(in CheckInputs, series string) *PatchFailure {
+	if r == nil || r.Owner == "" || r.Read != in || r.Check == nil || r.Check.Seq != r.Seq {
+		return nil
+	}
+	for _, selected := range r.Check.List {
+		for _, outcome := range r.Outcomes {
+			if outcome.Commit != selected.Commit || outcome.Kind != OutcomeConflict || outcome.Series != series {
 				continue
 			}
-			r.SetOutcome(o)
+			return &PatchFailure{
+				Owner: r.Owner, Inputs: in, Series: series, Target: selected, Kind: "conflict",
+				Member: outcome.Member, Paths: append([]string(nil), outcome.Paths...), Seq: r.Seq,
+			}
+		}
+	}
+	return nil
+}
+
+func listHasCommit(list []ListEntry, commit string) bool {
+	for _, e := range list {
+		if e.Commit == commit {
+			return true
+		}
+	}
+	return false
+}
+
+// RecordWalk writes an outcome only when its walk carries the check authority captured before replay.
+func (s *Store) RecordWalk(owner, series, yolo string, w WalkResult, now time.Time) error {
+	if w.snapshot == nil {
+		return ErrUnboundReplay
+	}
+	bound := *cloneReplaySnapshot(w.snapshot)
+	if owner != bound.Owner || series != bound.Series {
+		return fmt.Errorf("recording arguments do not match the walk's original snapshot: %w", ErrStaleReplay)
+	}
+	return s.RecordReplay(bound, yolo, w, now).Err
+}
+
+// RecordWalkForCheck records only the exact check snapshot supplied by its original caller.
+func (s *Store) RecordWalkForCheck(owner, series, yolo string, seq int64, inputs CheckInputs, w WalkResult, now time.Time) error {
+	bound, err := snapshotForRecord(owner, series, seq, inputs, w)
+	if err != nil {
+		return err
+	}
+	return s.RecordReplay(bound, yolo, w, now).Err
+}
+
+func failureIndex(list []ListEntry, f *PatchFailure) int {
+	if f == nil {
+		return len(list) + 1
+	}
+	if f.Kind == "base" {
+		return -1
+	}
+	for i, e := range list {
+		if e.Commit == f.Target.Commit {
+			return i
+		}
+	}
+	return len(list) + 1
+}
+
+func walkHasResult(w WalkResult) bool { return len(w.Results) != 0 || w.Base != nil }
+
+func recordWalkOutcomes(r *CheckRecord, snapshot ReplaySnapshot, yolo string, w WalkResult, now time.Time) bool {
+	changed := false
+	current := r.CurrentPatchFailure(snapshot.Inputs, snapshot.Series)
+	if current != nil {
+		for _, result := range w.Results {
+			if result.Clean && result.Entry.Commit == current.Target.Commit {
+				if failure := r.PatchFailure; failure != nil && failure.Owner == current.Owner &&
+					failure.Inputs == current.Inputs && failure.Series == current.Series &&
+					failure.Target.Commit == current.Target.Commit {
+					r.PatchFailure = nil
+					changed = true
+				}
+				current = nil
+				break
+			}
+		}
+	}
+	if current != nil && r.PatchFailure == nil {
+		r.PatchFailure = clonePatchFailure(current)
+		changed = true
+	}
+	if failure := w.PatchFailure(); failure != nil {
+		failure.Owner, failure.Inputs, failure.Series, failure.Seq = snapshot.Owner, snapshot.Inputs, snapshot.Series, snapshot.Seq
+		if current == nil || failure.Target.Commit == current.Target.Commit ||
+			failureIndex(r.Check.List, failure) < failureIndex(r.Check.List, current) {
+			r.PatchFailure = clonePatchFailure(failure)
 			changed = true
 		}
+	}
+	for _, result := range w.Results {
+		outcome := EntryOutcome{Commit: result.Entry.Commit, Series: snapshot.Series, Yolo: yolo, Git: w.Git, At: now.Unix()}
+		switch {
+		case result.Conflict != nil:
+			outcome.Kind, outcome.Member = OutcomeConflict, result.Conflict.Member
+			outcome.Paths = append([]string(nil), result.Conflict.Paths...)
+		case result.Clean:
+			outcome.Kind, outcome.Upstream = OutcomeApplies, append([]string(nil), result.Upstream...)
+		default:
+			continue
+		}
+		r.SetOutcome(outcome)
+		changed = true
+	}
+	return changed
+}
+
+// RecordReplay preserves classified operation evidence even when its guarded persistence fails.
+func (s *Store) RecordReplay(snapshot ReplaySnapshot, yolo string, walk WalkResult, now time.Time) RecordReplayResult {
+	result := RecordReplayResult{Failure: clonePatchFailure(walk.PatchFailure())}
+	if err := invalidSnapshot(snapshot); err != nil {
+		result.Err = err
+		return result
+	}
+	if result.Failure != nil {
+		result.Failure.Owner, result.Failure.Inputs, result.Failure.Series, result.Failure.Seq =
+			snapshot.Owner, snapshot.Inputs, snapshot.Series, snapshot.Seq
+	}
+	if walk.snapshot == nil {
+		result.Err = ErrUnboundReplay
+		return result
+	}
+	if !replaySnapshotsEqual(snapshot, *walk.snapshot) {
+		result.Err = fmt.Errorf("walk binding does not match the requested original snapshot: %w", ErrStaleReplay)
+		return result
+	}
+	if !walkHasResult(walk) {
+		return result
+	}
+	valid := false
+	changed := false
+	err := s.WithCheckRecord(snapshot.Owner, nil, func(r *CheckRecord, readErr error, _ func() error) (bool, error) {
+		if readErr != nil || r.Owner != snapshot.Owner || r.Seq != snapshot.Seq || r.Read != snapshot.Inputs ||
+			r.Check == nil || r.Check.Seq != snapshot.Seq || !reflect.DeepEqual(r.PatchFailure, snapshot.Failure) ||
+			!reflect.DeepEqual(r.ApplyErr, snapshot.ApplyErr) {
+			return false, ErrStaleReplay
+		}
+		valid = true
+		changed = recordWalkOutcomes(r, snapshot, yolo, walk, now)
 		return changed, nil
+	})
+	if err != nil {
+		result.Err = err
+		if errors.Is(err, ErrStaleReplay) {
+			result.Err = ErrStaleReplay
+		}
+		return result
+	}
+	result.Recorded = valid && changed
+	return result
+}
+
+// (The successful-check clearing in CheckPatched is deliberately separate from replay writes.)
+
+// ReclassifyLegacyApplyError locally retries one opaque schema-1 replay diagnosis, never using
+// its text as a classifier or allowing fetch/prefetch during the probe.
+func (s *Store) ReclassifyLegacyApplyError(snapshot ReplaySnapshot, series *Series, target ListEntry,
+	yolo string, opts LegacyReplayOptions) LegacyReplayResult {
+	result := LegacyReplayResult{State: "not-needed"}
+	if err := invalidSnapshot(snapshot); err != nil {
+		result.Err = err
+		return result
+	}
+	if series == nil {
+		result.Err = errors.New("cannot reclassify an opaque apply error without a series")
+		return result
+	}
+	if series.Digest != snapshot.Series {
+		result.State, result.Err = "stale", ErrStaleReplay
+		return result
+	}
+	if series.Len() == 0 || strings.HasPrefix(snapshot.Inputs.Repo, NpmSourcePrefix) {
+		return result
+	}
+	record, err := s.LoadCheckRecord(snapshot.Owner)
+	if err != nil {
+		result.Err = err
+		return result
+	}
+	if !snapshotMatchesRecord(record, snapshot) {
+		result.State = "stale"
+		result.Err = ErrStaleReplay
+		return result
+	}
+	if failure := record.CurrentPatchFailure(snapshot.Inputs, snapshot.Series); failure != nil {
+		result.State, result.Failure = "failure", failure
+		return result
+	}
+	applyErr := record.ApplyErrAtLastCheck()
+	if applyErr == nil || applyErr.Seq != snapshot.Seq || snapshot.ApplyErr == nil ||
+		!reflect.DeepEqual(applyErr, snapshot.ApplyErr) {
+		return result
+	}
+	if !legacyTargetSelected(record, snapshot, series, target) {
+		result.State, result.Diagnostic = "unavailable", "the supplied target is not a selected pending entry or the current branch base"
+		return result
+	}
+	limit := opts.Timeout
+	if limit <= 0 || limit > ReplayTimeout {
+		limit = ReplayTimeout
+	}
+	parent := s.parentCtx()
+	ctx, cancel := context.WithTimeout(parent, limit)
+	defer cancel()
+	probeStore := *s
+	probeStore.Ctx, probeStore.NoWait = ctx, true
+	gitVersion, gitErr := probeStore.GitVersionContext(ctx)
+	if gitErr != nil {
+		result.State, result.Diagnostic = "unavailable", gitErr.Error()
+		result.Attempted = true
+		retryable := errors.Is(ctx.Err(), context.Canceled) || errors.Is(ctx.Err(), context.DeadlineExceeded)
+		result.Recorded, result.Err = persistLegacyAttempt(&probeStore, snapshot, target, yolo, "", result.Diagnostic, retryable)
+		return result
+	}
+	if attempt := applyErr.Legacy; attempt != nil && sameLegacyAttempt(*attempt, snapshot, target, yolo, gitVersion) {
+		result.State, result.Diagnostic = "unavailable", attempt.Detail
+		return result
+	}
+	if !gitAtLeast(gitVersion, replayMinGit) {
+		old := &GitTooOldError{Have: gitVersion}
+		result.State, result.Diagnostic, result.Attempted = "unavailable", old.Error(), true
+		result.Recorded, result.Err = persistLegacyAttempt(&probeStore, snapshot, target, yolo, gitVersion, result.Diagnostic, false)
+		return result
+	}
+	walk := probeStore.WalkSeries(snapshot.Inputs.Repo, snapshot.Inputs.Subdir, series,
+		[]ListEntry{target}, WalkOptions{Timeout: limit, Snapshot: &snapshot, LocalOnly: true, StopOnPatchFailure: true})
+	result.Attempted = true
+	if failure := walk.PatchFailure(); failure != nil {
+		failure.Owner, failure.Inputs, failure.Series, failure.Seq = snapshot.Owner, snapshot.Inputs, snapshot.Series, snapshot.Seq
+		result.Failure, result.State = failure, "failure"
+	} else if diagnostic := walkOperationalDiagnostic(walk); diagnostic != "" {
+		result.State, result.Diagnostic = "unavailable", diagnostic
+	} else if len(walk.Results) == 1 && walk.Results[0].Clean && walk.Fit == 0 {
+		result.State = "clean"
+	} else {
+		result.State, result.Diagnostic = "unavailable", "local-only replay did not establish a clean or concrete application-failure result"
+	}
+	if result.State == "unavailable" {
+		retryable := errors.Is(ctx.Err(), context.Canceled) || errors.Is(ctx.Err(), context.DeadlineExceeded) ||
+			errors.Is(walk.Err, ErrLockHeld)
+		result.Recorded, result.Err = persistLegacyAttempt(&probeStore, snapshot, target, yolo, gitVersion, result.Diagnostic, retryable)
+		return result
+	}
+	persisted := probeStore.RecordReplay(snapshot, yolo, walk, legacyReplayNow(opts.Now))
+	if persisted.Err != nil {
+		if errors.Is(persisted.Err, ErrStaleReplay) {
+			result.State, result.Err = "stale", ErrStaleReplay
+		} else {
+			result.Err = persisted.Err
+		}
+		return result
+	}
+	result.Recorded = persisted.Recorded
+	if err := clearLegacyApplyError(&probeStore, snapshot); err != nil {
+		result.Err = err
+		result.Recorded = false
+	}
+	return result
+}
+
+func walkOperationalDiagnostic(walk WalkResult) string {
+	if walk.Err != nil {
+		return walk.Err.Error()
+	}
+	if walk.Base != nil {
+		return walk.Base.Error()
+	}
+	for i := len(walk.Results) - 1; i >= 0; i-- {
+		if walk.Results[i].Err != nil {
+			return walk.Results[i].Err.Error()
+		}
+	}
+	return ""
+}
+
+func legacyReplayNow(now time.Time) time.Time {
+	if now.IsZero() {
+		return time.Now()
+	}
+	return now
+}
+
+func snapshotMatchesRecord(record *CheckRecord, snapshot ReplaySnapshot) bool {
+	return record != nil && record.Owner == snapshot.Owner && record.Seq == snapshot.Seq &&
+		record.Read == snapshot.Inputs && record.Check != nil && record.Check.Seq == snapshot.Seq &&
+		reflect.DeepEqual(record.PatchFailure, snapshot.Failure) && reflect.DeepEqual(record.ApplyErr, snapshot.ApplyErr)
+}
+
+func legacyTargetSelected(record *CheckRecord, snapshot ReplaySnapshot, series *Series, target ListEntry) bool {
+	if record == nil || record.Check == nil || target.Commit == "" {
+		return false
+	}
+	if target.Commit == series.Base && snapshot.Inputs.Base == series.Base {
+		return record.Check.BaseOnBranch
+	}
+	for _, candidate := range record.Candidates(snapshot.Inputs) {
+		if candidate == target {
+			return true
+		}
+	}
+	return false
+}
+
+func sameLegacyAttempt(attempt LegacyReplayAttempt, snapshot ReplaySnapshot, target ListEntry, yolo, git string) bool {
+	return attempt.State == "unavailable" && attempt.Seq == snapshot.Seq && attempt.Inputs == snapshot.Inputs &&
+		attempt.Series == snapshot.Series && attempt.Target == target && attempt.Yolo == yolo && attempt.Git == git
+}
+
+func persistLegacyAttempt(s *Store, snapshot ReplaySnapshot, target ListEntry, yolo, git, detail string,
+	retryable bool) (bool, error) {
+	if retryable {
+		return false, nil
+	}
+	recorded := false
+	err := s.WithCheckRecord(snapshot.Owner, nil, func(r *CheckRecord, readErr error, _ func() error) (bool, error) {
+		if readErr != nil || !snapshotMatchesRecord(r, snapshot) || r.ApplyErr == nil || r.ApplyErr.Seq != snapshot.Seq {
+			return false, ErrStaleReplay
+		}
+		r.ApplyErr.Legacy = &LegacyReplayAttempt{Seq: snapshot.Seq, Inputs: snapshot.Inputs, Series: snapshot.Series,
+			Target: target, Yolo: yolo, Git: git, State: "unavailable", Detail: detail}
+		recorded = true
+		return true, nil
+	})
+	return recorded && err == nil, err
+}
+
+func clearLegacyApplyError(s *Store, snapshot ReplaySnapshot) error {
+	expected, err := s.LoadCheckRecord(snapshot.Owner)
+	if err != nil || expected.Seq != snapshot.Seq || expected.Read != snapshot.Inputs || expected.Check == nil ||
+		expected.Check.Seq != snapshot.Seq || !reflect.DeepEqual(expected.ApplyErr, snapshot.ApplyErr) {
+		return ErrStaleReplay
+	}
+	expectedFailure := clonePatchFailure(expected.PatchFailure)
+	return s.WithCheckRecord(snapshot.Owner, nil, func(r *CheckRecord, readErr error, _ func() error) (bool, error) {
+		if readErr != nil || r.Owner != snapshot.Owner || r.Seq != snapshot.Seq || r.Read != snapshot.Inputs ||
+			r.Check == nil || r.Check.Seq != snapshot.Seq || !reflect.DeepEqual(r.ApplyErr, snapshot.ApplyErr) ||
+			!reflect.DeepEqual(r.PatchFailure, expectedFailure) {
+			return false, ErrStaleReplay
+		}
+		r.ApplyErr = nil
+		return true, nil
 	})
 }
 

@@ -10,7 +10,11 @@ summary: "A bounded documentation-only completion shortcut, with an automatic su
 
 # Completion should check the task, without rewriting it
 
-**Status:** 2026-10-09 — behavior specified; nothing built or runtime-verified.
+**Status:** 2026-10-09 — behavior specified; production completion remains unbuilt and runtime-unverified.
+
+A bounded, unconnected source experiment is kept in
+[`tools/completion-experiment/`](../../tools/completion-experiment/README.md); it does not implement
+the completion command or change the production recipe.
 
 > **In short.** Completion should verify the work since a successful baseline and explain its coverage,
 > not format committed code or run unrelated Go checks for proven ordinary prose.
