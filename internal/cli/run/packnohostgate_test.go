@@ -101,6 +101,7 @@ func writePack(t *testing.T, dir, manifest string) {
 // the retired version as the CONTROL: it was never gated, so it must still arrive, and a
 // build that dropped every install would otherwise pass the installer assertion by accident.
 func TestFetchedPackHostClaimsAreHonoredWithNoApproval(t *testing.T) {
+	t.Setenv("YOLO_VERSION", "") // restores the variable after the Unsetenv below
 	os.Unsetenv("YOLO_VERSION")
 	home := packHome(t)
 	isolatePackModules(t)
@@ -219,6 +220,11 @@ func TestFetchedPackHostGrantsReachTheContainerArgv(t *testing.T) {
 // lived in the composition loop and nowhere else — a destination can carry the right `after`
 // and still have it dropped one line later.
 func TestFetchedPackBriefingOverlayPrependsTheUsersOwnFile(t *testing.T) {
+	// A HOST launch: in a jail, ~/AGENTS.md is a briefing destination and is never prepended
+	// (mayPrependHostBriefing), so run inside one this test would assert the in-jail rule. It
+	// used to borrow the host side from an earlier test's leaked os.Unsetenv("YOLO_VERSION"),
+	// and failed whenever it ran without that test in a jail.
+	pinLauncherInJail(t, false)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	emptyLoopholeDirs(t)
@@ -415,6 +421,7 @@ func TestEveryHostCrossingClaimIsDisclosed(t *testing.T) {
 // with bind mounts is Active() only if one of its CONTAINER paths already exists, so the
 // whole loophole would drop out before runtimeArgsFor looked at a single source.
 func TestAbsentBindSourceIsSkippedNotRefused(t *testing.T) {
+	t.Setenv("YOLO_VERSION", "") // restores the variable after the Unsetenv below
 	os.Unsetenv("YOLO_VERSION")
 	isolatePackModules(t)
 	fakeLoopholes(t)
