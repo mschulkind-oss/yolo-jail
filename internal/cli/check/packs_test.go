@@ -591,9 +591,49 @@ func TestSectionPacksWarnsAboutAPiFolderPiCannotLoad(t *testing.T) {
 	}
 }
 
-// Nested files destinations across configured packs must fail `yolo check` (the pre-flight that
+// Files collision across configured packs must fail `yolo check` (the pre-flight that
 // refuses the launch).
-func TestSectionPacksFailsOnNestedFilesCollision(t *testing.T) {
+func TestSectionPacksFailsOnFilesCollision(t *testing.T) {
+	parent := filepath.Join(t.TempDir(), "parent-pack")
+	if err := os.MkdirAll(filepath.Join(parent, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(parent, "bin", "status.sh"), []byte("tool-v1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(parent, "pack.json"), []byte(`{"name":"parent-pack","contributes":[{"kind":"files","from":"bin","into":".claude/bin"}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	child := filepath.Join(t.TempDir(), "child-pack")
+	if err := os.MkdirAll(filepath.Join(child, "files"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(child, "files", "status.sh"), []byte("status-v2"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(child, "pack.json"), []byte(`{"name":"child-pack","contributes":[{"kind":"files","from":"files/status.sh","into":".claude/bin/status.sh"}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	packsFixture(t, `{"packs": ["file://`+parent+`", "file://`+child+`"]}`)
+
+	var buf bytes.Buffer
+	r := &reporter{w: &buf}
+	(&Options{}).sectionPacks(r, jsonx.NewOrderedMap())
+
+	if r.failed == 0 {
+		t.Fatalf("expected yolo check to fail on files collision, but passed:\n%s", buf.String())
+	}
+	for _, want := range []string{"parent-pack", "child-pack", ".claude/bin", "status.sh"} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("failure output missing %q; got:\n%s", want, buf.String())
+		}
+	}
+}
+
+// Directory and nested file contributions in the same directory merge cleanly and pass `yolo check`.
+func TestSectionPacksPassesOnDirectoryMerge(t *testing.T) {
 	parent := filepath.Join(t.TempDir(), "parent-pack")
 	if err := os.MkdirAll(filepath.Join(parent, "bin"), 0o755); err != nil {
 		t.Fatal(err)
@@ -622,13 +662,8 @@ func TestSectionPacksFailsOnNestedFilesCollision(t *testing.T) {
 	r := &reporter{w: &buf}
 	(&Options{}).sectionPacks(r, jsonx.NewOrderedMap())
 
-	if r.failed == 0 {
-		t.Fatalf("expected yolo check to fail on nested files collision, but passed:\n%s", buf.String())
-	}
-	for _, want := range []string{"parent-pack", "child-pack", ".claude/bin", ".claude/bin/status.sh", "read-only file system"} {
-		if !strings.Contains(buf.String(), want) {
-			t.Errorf("failure output missing %q; got:\n%s", want, buf.String())
-		}
+	if r.failed != 0 {
+		t.Fatalf("expected yolo check to pass on directory merge, but failed:\n%s", buf.String())
 	}
 }
 

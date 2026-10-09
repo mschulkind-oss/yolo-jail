@@ -11,12 +11,14 @@ package run
 // exists so an inapplicable kind is REFUSED by name rather than skipped in silence).
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -119,42 +121,499 @@ func packFilesTargets(packs []*packload.Pack, trees map[string]string) []packFil
 	return out
 }
 
-// packFilesMountArgs emits one `-v <staged tree>:/home/agent/<into>:ro` per `files`
-// contribution.
-//
-// :ro is the contract, not tidiness: a `files` claim is CombineExclusive — the pack owns
-// the path — so the jail reads the tree and nobody writes it. A writable bind would let
-// an agent edit content the next launch silently reverts.
-//
-// Two cases the emitter has to split on, both of them "or it vanishes silently":
-//
-//   - Apple Container is handed a COPY rather than a single-FILE bind (apple/container#1089
-//     is false on 1.1.0, measured; the copy needs no version gate) — the same treatment
-//     that already routes yolo-user-env.sh and every briefing through acMaterialize. A
-//     `files` contribution naming one file is therefore COPIED into ws_state (which AC
-//     mounts wholesale at /home/agent) instead of mounted. A directory needs no such
-//     dance: AC nests dir mounts under /home/agent fine (GlobalCache at .cache proves
-//     it), so only the single-file case diverges.
-//   - An ABSENT source is skipped WITH A WARNING rather than mounted: podman kills the
-//     whole container with a bare "statfs …: no such file or directory" on a missing bind
-//     source, and an `only`/`exclude` filter that dropped the tree is an ordinary (if
-//     usually mistaken) user config, not a reason to refuse the launch. The warning is
-//     what keeps this from being another silent drop. Which warning it is, is
-//     packFilesSkipWarning's decision — the two causes need different reactions.
-func (o *Options) packFilesMountArgs(in *assembleInput) []string {
-	var args []string
-	for _, t := range packFilesTargets(in.packs, in.treeDirs) {
-		switch {
-		case isDir(t.Src):
-			args = append(args, "-v", t.Src+":/home/agent/"+t.Dest+":ro")
-		case isFile(t.Src):
-			if in.rt == "container" {
-				acMaterialize(t.Src, t.Dest, in.wsState)
+// packFilesMount is one planned mount emitted for `files` contributions.
+// Multiple contributions targeting the same directory or nesting inside a directory
+// merge into a single directory mount.
+type packFilesMount struct {
+	Dest    string
+	Src     string
+	IsDir   bool
+	Packs   []string
+	Targets []packFilesTarget
+}
+
+type packFilesPlan struct {
+	Mounts    []packFilesMount
+	Conflicts []string
+	Skipped   []packFilesTarget
+}
+
+type packFilesMountpointTarget struct {
+	Src   string
+	IsDir bool
+}
+
+func filesStagingName(dest string) string {
+	var b strings.Builder
+	b.WriteString("files-")
+	for _, r := range dest {
+		switch r {
+		case '~':
+			b.WriteString("~0")
+		case '/':
+			b.WriteString("~1")
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func filesEqual(pathA, pathB string) bool {
+	if pathA == pathB {
+		return true
+	}
+	f1, err := os.Open(pathA)
+	if err != nil {
+		return false
+	}
+	defer f1.Close()
+	f2, err := os.Open(pathB)
+	if err != nil {
+		return false
+	}
+	defer f2.Close()
+	fi1, err := f1.Stat()
+	if err != nil {
+		return false
+	}
+	fi2, err := f2.Stat()
+	if err != nil {
+		return false
+	}
+	if fi1.Size() != fi2.Size() {
+		return false
+	}
+	buf1 := make([]byte, 32*1024)
+	buf2 := make([]byte, 32*1024)
+	for {
+		n1, err1 := f1.Read(buf1)
+		n2, err2 := f2.Read(buf2)
+		if n1 != n2 || !bytes.Equal(buf1[:n1], buf2[:n2]) {
+			return false
+		}
+		if err1 != nil || err2 != nil {
+			return errors.Is(err1, io.EOF) && errors.Is(err2, io.EOF)
+		}
+	}
+}
+
+func copyOneFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	info, err := in.Stat()
+	if err != nil {
+		return err
+	}
+	perm := os.FileMode(0o644)
+	if info.Mode()&0o111 != 0 {
+		perm = 0o755
+	}
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, perm)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Chmod(perm)
+}
+
+func uniqueStrings(s []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, v := range s {
+		if !seen[v] {
+			seen[v] = true
+			out = append(out, v)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func planPackFilesMounts(packs []*packload.Pack, trees map[string]string, agentsPath string) *packFilesPlan {
+	targets := packFilesTargets(packs, trees)
+	plan := &packFilesPlan{}
+
+	type targetItem struct {
+		target  packFilesTarget
+		dest    string
+		isDir   bool
+		isFile  bool
+		treeKey string
+	}
+
+	var active []targetItem
+	for _, t := range targets {
+		dest := strings.Trim(filepath.Clean(filepath.ToSlash(t.Dest)), "/")
+		if dest == "." || dest == "" {
+			continue
+		}
+		isTargetDir := t.Tree != "" || isDir(t.Src)
+		isTargetFile := t.Tree == "" && isFile(t.Src)
+
+		if !isTargetDir && !isTargetFile {
+			plan.Skipped = append(plan.Skipped, t)
+			continue
+		}
+		active = append(active, targetItem{
+			target:  t,
+			dest:    dest,
+			isDir:   isTargetDir,
+			isFile:  isTargetFile,
+			treeKey: t.Tree,
+		})
+	}
+
+	byDest := map[string][]targetItem{}
+	for _, item := range active {
+		byDest[item.dest] = append(byDest[item.dest], item)
+	}
+
+	for dest, items := range byDest {
+		hasDir := false
+		hasFile := false
+		var dirPacks, filePacks []string
+		for _, it := range items {
+			if it.isDir {
+				hasDir = true
+				dirPacks = append(dirPacks, it.target.Pack)
+			}
+			if it.isFile {
+				hasFile = true
+				filePacks = append(filePacks, it.target.Pack)
+			}
+		}
+		if hasDir && hasFile {
+			sort.Strings(dirPacks)
+			sort.Strings(filePacks)
+			plan.Conflicts = append(plan.Conflicts, fmt.Sprintf(
+				"pack %s claims ~/%s as a directory, and pack %s claims it as a file — cannot merge directory and file at the same destination",
+				strings.Join(dirPacks, " and "), dest, strings.Join(filePacks, " and ")))
+		}
+	}
+
+	candidateRootsMap := map[string]struct{}{}
+	for _, it := range active {
+		if it.isDir {
+			candidateRootsMap[it.dest] = struct{}{}
+		}
+	}
+	var candidateRoots []string
+	for r := range candidateRootsMap {
+		candidateRoots = append(candidateRoots, r)
+	}
+	sort.Slice(candidateRoots, func(i, j int) bool {
+		di := strings.Count(candidateRoots[i], "/")
+		dj := strings.Count(candidateRoots[j], "/")
+		if di != dj {
+			return di < dj
+		}
+		return candidateRoots[i] < candidateRoots[j]
+	})
+
+	var outerRoots []string
+	for _, r := range candidateRoots {
+		subsumed := false
+		for _, p := range outerRoots {
+			if r == p || strings.HasPrefix(r, p+"/") {
+				subsumed = true
+				break
+			}
+		}
+		if !subsumed {
+			outerRoots = append(outerRoots, r)
+		}
+	}
+
+	assigned := map[int]bool{}
+	groups := map[string][]targetItem{}
+
+	for _, root := range outerRoots {
+		for i, it := range active {
+			if it.dest == root || strings.HasPrefix(it.dest, root+"/") {
+				groups[root] = append(groups[root], it)
+				assigned[i] = true
+			}
+		}
+	}
+
+	unassignedByDest := map[string][]targetItem{}
+	var unassignedDests []string
+	for i, it := range active {
+		if !assigned[i] {
+			if len(unassignedByDest[it.dest]) == 0 {
+				unassignedDests = append(unassignedDests, it.dest)
+			}
+			unassignedByDest[it.dest] = append(unassignedByDest[it.dest], it)
+		}
+	}
+	sort.Strings(unassignedDests)
+
+	for _, d1 := range unassignedDests {
+		prefix := d1 + "/"
+		for _, d2 := range unassignedDests {
+			if strings.HasPrefix(d2, prefix) {
+				p1 := unassignedByDest[d1][0].target.Pack
+				p2 := unassignedByDest[d2][0].target.Pack
+				if p1 == p2 {
+					plan.Conflicts = append(plan.Conflicts, fmt.Sprintf(
+						"pack %s claims ~/%s as a file and ~/%s, inside it — cannot nest inside a file",
+						p1, d1, d2))
+				} else {
+					plan.Conflicts = append(plan.Conflicts, fmt.Sprintf(
+						"pack %s claims ~/%s as a file, and pack %s claims ~/%s, inside it — cannot nest inside a file",
+						p1, d1, p2, d2))
+				}
+			}
+		}
+	}
+
+	for _, d := range unassignedDests {
+		items := unassignedByDest[d]
+		if len(items) == 1 {
+			it := items[0]
+			plan.Mounts = append(plan.Mounts, packFilesMount{
+				Dest:    d,
+				Src:     it.target.Src,
+				IsDir:   false,
+				Packs:   []string{it.target.Pack},
+				Targets: []packFilesTarget{it.target},
+			})
+			continue
+		}
+		first := items[0]
+		hasDiff := false
+		var packs []string
+		packs = append(packs, first.target.Pack)
+		for j := 1; j < len(items); j++ {
+			other := items[j]
+			packs = append(packs, other.target.Pack)
+			if !filesEqual(first.target.Src, other.target.Src) {
+				hasDiff = true
+				if first.target.Pack == other.target.Pack {
+					plan.Conflicts = append(plan.Conflicts, fmt.Sprintf(
+						"pack %s delivers different content for ~/%s across multiple contributions — give them different file names, or drop one",
+						first.target.Pack, d))
+				} else {
+					plan.Conflicts = append(plan.Conflicts, fmt.Sprintf(
+						"pack %s and pack %s both deliver different content for ~/%s — give them different file names, or drop one",
+						first.target.Pack, other.target.Pack, d))
+				}
+			}
+		}
+		if !hasDiff {
+			var targets []packFilesTarget
+			for _, it := range items {
+				targets = append(targets, it.target)
+			}
+			plan.Mounts = append(plan.Mounts, packFilesMount{
+				Dest:    d,
+				Src:     first.target.Src,
+				IsDir:   false,
+				Packs:   uniqueStrings(packs),
+				Targets: targets,
+			})
+		}
+	}
+
+	for _, root := range outerRoots {
+		items := groups[root]
+		if len(items) == 1 && items[0].dest == root && items[0].isDir {
+			it := items[0]
+			plan.Mounts = append(plan.Mounts, packFilesMount{
+				Dest:    root,
+				Src:     it.target.Src,
+				IsDir:   true,
+				Packs:   []string{it.target.Pack},
+				Targets: []packFilesTarget{it.target},
+			})
+			continue
+		}
+
+		for _, it1 := range items {
+			if it1.isFile {
+				prefix := it1.dest + "/"
+				for _, it2 := range items {
+					if strings.HasPrefix(it2.dest, prefix) {
+						if it1.target.Pack == it2.target.Pack {
+							plan.Conflicts = append(plan.Conflicts, fmt.Sprintf(
+								"pack %s claims ~/%s as a file and ~/%s, inside it — cannot nest inside a file",
+								it1.target.Pack, it1.dest, it2.dest))
+						} else {
+							plan.Conflicts = append(plan.Conflicts, fmt.Sprintf(
+								"pack %s claims ~/%s as a file, and pack %s claims ~/%s, inside it — cannot nest inside a file",
+								it1.target.Pack, it1.dest, it2.target.Pack, it2.dest))
+						}
+					}
+				}
+			}
+		}
+
+		type fileEntry struct {
+			pack    string
+			srcPath string
+			isExec  bool
+		}
+		fileContribs := map[string][]fileEntry{}
+		var groupTargets []packFilesTarget
+		var groupPacks []string
+
+		for _, it := range items {
+			groupTargets = append(groupTargets, it.target)
+			groupPacks = append(groupPacks, it.target.Pack)
+			relDest := strings.TrimPrefix(it.dest, root)
+			relDest = strings.TrimPrefix(relDest, "/")
+
+			if it.isDir {
+				if it.treeKey != "" && !isDir(it.target.Src) {
+					continue
+				}
+				if isDir(it.target.Src) {
+					_ = filepath.WalkDir(it.target.Src, func(path string, d fs.DirEntry, err error) error {
+						if err != nil || d.IsDir() {
+							return nil
+						}
+						info, err := os.Stat(path)
+						if err != nil || info.IsDir() {
+							return nil
+						}
+						relInside, err := filepath.Rel(it.target.Src, path)
+						if err != nil {
+							return nil
+						}
+						relFile := filepath.ToSlash(filepath.Clean(filepath.Join(relDest, relInside)))
+						isExec := info.Mode()&0o111 != 0
+						fileContribs[relFile] = append(fileContribs[relFile], fileEntry{
+							pack:    it.target.Pack,
+							srcPath: path,
+							isExec:  isExec,
+						})
+						return nil
+					})
+				}
+			} else if it.isFile {
+				relFile := filepath.ToSlash(filepath.Clean(relDest))
+				info, err := os.Stat(it.target.Src)
+				isExec := false
+				if err == nil && info.Mode()&0o111 != 0 {
+					isExec = true
+				}
+				fileContribs[relFile] = append(fileContribs[relFile], fileEntry{
+					pack:    it.target.Pack,
+					srcPath: it.target.Src,
+					isExec:  isExec,
+				})
+			}
+		}
+
+		var relFiles []string
+		for rf := range fileContribs {
+			relFiles = append(relFiles, rf)
+		}
+		sort.Strings(relFiles)
+
+		for _, f1 := range relFiles {
+			prefix := f1 + "/"
+			for _, f2 := range relFiles {
+				if strings.HasPrefix(f2, prefix) {
+					p1 := fileContribs[f1][0].pack
+					p2 := fileContribs[f2][0].pack
+					if p1 == p2 {
+						plan.Conflicts = append(plan.Conflicts, fmt.Sprintf(
+							"pack %s claims ~/%s/%s as a file and ~/%s/%s, inside it — cannot nest inside a file",
+							p1, root, f1, root, f2))
+					} else {
+						plan.Conflicts = append(plan.Conflicts, fmt.Sprintf(
+							"pack %s claims ~/%s/%s as a file, and pack %s claims ~/%s/%s, inside it — cannot nest inside a file",
+							p1, root, f1, p2, root, f2))
+					}
+				}
+			}
+		}
+
+		hasGroupDiff := false
+		for _, rf := range relFiles {
+			entries := fileContribs[rf]
+			if len(entries) <= 1 {
 				continue
 			}
-			args = append(args, "-v", t.Src+":/home/agent/"+t.Dest+":ro")
-		default:
-			o.pr(o.Stdout).print("[yellow]" + packFilesSkipWarning(t) + "[/yellow]")
+			first := entries[0]
+			for j := 1; j < len(entries); j++ {
+				other := entries[j]
+				if !filesEqual(first.srcPath, other.srcPath) {
+					hasGroupDiff = true
+					fullRel := filepath.ToSlash(filepath.Join(root, rf))
+					if first.pack == other.pack {
+						plan.Conflicts = append(plan.Conflicts, fmt.Sprintf(
+							"pack %s delivers different content for ~/%s across multiple contributions — give them different file names, or drop one",
+							first.pack, fullRel))
+					} else {
+						plan.Conflicts = append(plan.Conflicts, fmt.Sprintf(
+							"pack %s and pack %s both deliver different content for ~/%s — give them different file names, or drop one",
+							first.pack, other.pack, fullRel))
+					}
+				}
+			}
+		}
+
+		stagedDir := filesStagingName(root)
+		if agentsPath != "" {
+			stagedDir = filepath.Join(agentsPath, filesStagingName(root))
+			if !hasGroupDiff && len(plan.Conflicts) == 0 {
+				if err := os.MkdirAll(stagedDir, 0o755); err == nil {
+					for _, rf := range relFiles {
+						entry := fileContribs[rf][0]
+						dstPath := filepath.Join(stagedDir, filepath.FromSlash(rf))
+						if err := os.MkdirAll(filepath.Dir(dstPath), 0o755); err == nil {
+							_ = copyOneFile(entry.srcPath, dstPath)
+						}
+					}
+				}
+			}
+		}
+		plan.Mounts = append(plan.Mounts, packFilesMount{
+			Dest:    root,
+			Src:     stagedDir,
+			IsDir:   true,
+			Packs:   uniqueStrings(groupPacks),
+			Targets: groupTargets,
+		})
+	}
+
+	sort.Slice(plan.Mounts, func(i, j int) bool {
+		return plan.Mounts[i].Dest < plan.Mounts[j].Dest
+	})
+	sort.Strings(plan.Conflicts)
+	return plan
+}
+
+// packFilesMountArgs emits one `-v <staged tree>:/home/agent/<into>:ro` per planned `files`
+// mount.
+//
+// Multiple contributions targeting the same directory or nesting inside a directory
+// merge into a single staged directory mount, avoiding runc EROFS and duplicate mount
+// destination errors.
+func (o *Options) packFilesMountArgs(in *assembleInput) []string {
+	plan := planPackFilesMounts(in.packs, in.treeDirs, in.agentsPath)
+	for _, t := range plan.Skipped {
+		o.pr(o.Stdout).print("[yellow]" + packFilesSkipWarning(t) + "[/yellow]")
+	}
+	var args []string
+	for _, m := range plan.Mounts {
+		if m.IsDir {
+			args = append(args, "-v", m.Src+":/home/agent/"+m.Dest+":ro")
+		} else {
+			if in.rt == "container" {
+				acMaterialize(m.Src, m.Dest, in.wsState)
+				continue
+			}
+			args = append(args, "-v", m.Src+":/home/agent/"+m.Dest+":ro")
 		}
 	}
 	return args
@@ -250,12 +709,13 @@ type packFilesMountpoint struct {
 func preparePackFiles(packs []*packload.Pack, trees map[string]string, wsState, rt string) []string {
 	manifestPath := filepath.Join(filepath.Dir(wsState), packFilesMountpointManifestName)
 	previous := loadPackFilesMountpointManifest(manifestPath)
-	current := map[string]packFilesTarget{}
+	current := map[string]packFilesMountpointTarget{}
 	if rt != "macos-user" { // parity: NotApplicable — macos-user copies `files` trees through the home overlay (buildMacosHomeOverlay), which needs no mountpoint.
 		writable := packload.WritableDirs(packs)
-		for _, t := range packFilesTargets(packs, trees) {
-			if rel, ok := packFilesWorkspaceRel(t.Dest, writable, rt); ok {
-				current[rel] = t
+		plan := planPackFilesMounts(packs, trees, "")
+		for _, m := range plan.Mounts {
+			if rel, ok := packFilesWorkspaceRel(m.Dest, writable, rt); ok {
+				current[rel] = packFilesMountpointTarget{Src: m.Src, IsDir: m.IsDir}
 			}
 		}
 	}
@@ -278,9 +738,9 @@ func preparePackFiles(packs []*packload.Pack, trees map[string]string, wsState, 
 	}
 	for rel, t := range current {
 		dest := filepath.Join(wsState, rel)
-		kind := packFilesTargetKind(t)
-		if kind == "" {
-			continue
+		kind := "file"
+		if t.IsDir {
+			kind = "dir"
 		}
 
 		if owned, ok := previous.Entries[rel]; ok {
@@ -337,7 +797,7 @@ func preparePackFiles(packs []*packload.Pack, trees map[string]string, wsState, 
 // forged digest made any host file whose content the jail knows count as "unchanged". Beneath
 // the root, a link leaving it is refused at every component, and r.Remove never follows a link
 // at the final name.
-func retirePackFileMountpoints(wsState string, previous *packFilesMountpointManifest, current map[string]packFilesTarget) {
+func retirePackFileMountpoints(wsState string, previous *packFilesMountpointManifest, current map[string]packFilesMountpointTarget) {
 	var overlay *os.Root
 	opened := false
 	defer func() {
@@ -350,8 +810,14 @@ func retirePackFileMountpoints(wsState string, previous *packFilesMountpointMani
 			delete(previous.Entries, rel)
 			continue
 		}
-		if claimed, stillClaimed := current[rel]; stillClaimed && packFilesTargetKind(claimed) == owned.Kind {
-			continue
+		if claimed, stillClaimed := current[rel]; stillClaimed {
+			claimedKind := "file"
+			if claimed.IsDir {
+				claimedKind = "dir"
+			}
+			if claimedKind == owned.Kind {
+				continue
+			}
 		}
 		if !opened {
 			opened = true
@@ -424,9 +890,9 @@ func packFilesMountpointUnchangedBeneath(r *os.Root, rel string, owned packFiles
 	}
 }
 
-func hasSingleFilePackTarget(targets map[string]packFilesTarget) bool {
+func hasSingleFilePackTarget(targets map[string]packFilesMountpointTarget) bool {
 	for _, t := range targets {
-		if isFile(t.Src) {
+		if !t.IsDir && isFile(t.Src) {
 			return true
 		}
 	}
@@ -439,12 +905,12 @@ func hasSingleFilePackTarget(targets map[string]packFilesTarget) bool {
 // unclaimed empty regular file directly beside a currently managed single-file target: that
 // is the precise shape crun left for thinking-preview.ts. Move, never delete, because an
 // empty file the user intentionally put there has the same bytes.
-func archiveLegacyPackFileMountpoints(wsState string, current map[string]packFilesTarget) []string {
+func archiveLegacyPackFileMountpoints(wsState string, current map[string]packFilesMountpointTarget) []string {
 	claimed := map[string]struct{}{}
 	dirs := map[string]struct{}{}
 	for rel, t := range current {
 		claimed[filepath.Clean(rel)] = struct{}{}
-		if isFile(t.Src) {
+		if !t.IsDir && isFile(t.Src) {
 			dirs[filepath.Dir(rel)] = struct{}{}
 		}
 	}
@@ -658,130 +1124,35 @@ func fileSHA256(path string) string {
 // site's now: only podman builds a skeleton (runContainer).
 func packFilesSkeletonEntries(packs []*packload.Pack, trees map[string]string) (dirs, files []string) {
 	writable := packload.WritableDirs(packs)
-	for _, t := range packFilesTargets(packs, trees) {
-		if pathUnderAny(t.Dest, writable) {
+	plan := planPackFilesMounts(packs, trees, "")
+	for _, m := range plan.Mounts {
+		if pathUnderAny(m.Dest, writable) {
 			continue
 		}
-		switch {
-		case isDir(t.Src):
-			dirs = append(dirs, t.Dest)
-		case isFile(t.Src):
-			files = append(files, t.Dest)
+		if m.IsDir {
+			dirs = append(dirs, m.Dest)
+		} else {
+			files = append(files, m.Dest)
 		}
 	}
 	return dirs, files
 }
 
-// PackDestConflicts reports every home destination that more than one contribution of
-// this kind claims, or where one contribution's destination nests inside another, naming
-// the packs involved.
+// PackDestConflicts reports true collisions among contributions of this kind.
 //
-// THE POINT is which error the user sees. The assembler emits one bind per contribution
-// with no dedup by destination, so two claims on one `into` reach podman as "duplicate
-// mount destination" and kill the boot with a runtime error naming neither pack
-// (pack-system.md §14's known sharp edge). `files` is CombineExclusive — a second
-// claimant is ALREADY a footprint violation — so it is reported here, before the
-// container exists, with both pack names in the message.
+// Multiple contributions targeting the same directory or nesting inside a directory
+// merge automatically into a single staged directory mount (planPackFilesMounts), preventing runc
+// read-only file system (EROFS) and duplicate mount destination errors. A conflict is reported
+// only for true file collisions (different content for the same relative path) or invalid nesting
+// inside a single-file destination.
 //
-// A nested destination (e.g. one pack claiming ~/.claude/bin and another claiming
-// ~/.claude/bin/statusline.sh) is the second sharp edge: because `files` is a read-only
-// bind mount over its whole destination, mounting a nested path inside it causes runc to
-// fail at container init with a cryptic "openat: read-only file system" error when trying to
-// create the nested mountpoint. Reported here with advice on narrowing directory claims to
-// individual files so multiple packs can deliver scripts into shared directories.
-//
-// Keyed on a KIND so the check is reusable, but only `files` is wired to it today. The
-// identical podman failure exists for two `skills` contributions sharing an `into`, and
-// there it is a DIFFERENT bug: skills are a designed merge, so the fix is mount dedup,
-// not a collision error. Deliberately out of scope (plan OQ-C,
-// project_pack_tooling_gaps).
+// Keyed on a KIND so the check is reusable, but only `files` is wired to it today.
 func PackDestConflicts(packs []*packload.Pack, kind packdecl.Kind) []string {
-	// Claim count and claimant set per destination, keeping first-seen order so the
-	// report is deterministic.
-	type claim struct {
-		count int
-		packs []string
-		seen  map[string]struct{}
+	if kind != packdecl.KindFiles {
+		return nil
 	}
-	byDest := map[string]*claim{}
-	var order []string
-	for _, p := range packs {
-		for _, c := range p.Decl.Contributions() {
-			if c.Kind != kind || c.Into == "" || c.Agent != "" {
-				continue
-			}
-			cleanDest := strings.Trim(filepath.Clean(filepath.ToSlash(c.Into)), "/")
-			if cleanDest == "." || cleanDest == "" {
-				continue
-			}
-			cl := byDest[cleanDest]
-			if cl == nil {
-				cl = &claim{seen: map[string]struct{}{}}
-				byDest[cleanDest] = cl
-				order = append(order, cleanDest)
-			}
-			cl.count++
-			if _, dup := cl.seen[p.Name]; !dup {
-				cl.seen[p.Name] = struct{}{}
-				cl.packs = append(cl.packs, p.Name)
-			}
-		}
-	}
-
-	var out []string
-	for _, dest := range order {
-		cl := byDest[dest]
-		if cl.count < 2 {
-			continue
-		}
-		// A single pack claiming one path twice is the same fatal duplicate mount, so it
-		// is reported too — with wording that does not pretend there is a second pack.
-		who := fmt.Sprintf("pack %s declares %d %q contributions", cl.packs[0], cl.count, kind)
-		if len(cl.packs) > 1 {
-			sorted := append([]string(nil), cl.packs...)
-			sort.Strings(sorted)
-			who = fmt.Sprintf("packs %s each declare a %q contribution",
-				strings.Join(sorted, " and "), kind)
-		}
-		out = append(out, fmt.Sprintf(
-			"%s at ~/%s — %s is sole-owned (one claimant per path), and two binds at one "+
-				"destination fail the container at boot with a duplicate-mount-destination "+
-				"error. Give them different `into` paths, or drop one.",
-			who, dest, kind))
-	}
-
-	// Nested destinations: a mount inside a read-only bind fails at boot during container
-	// init (runc EROFS) because the runtime cannot create mountpoints inside a :ro filesystem.
-	for _, parent := range order {
-		parentDir := strings.TrimSuffix(parent, "/") + "/"
-		for _, child := range order {
-			if parent == child || !strings.HasPrefix(child, parentDir) {
-				continue
-			}
-			parentPacks := append([]string(nil), byDest[parent].packs...)
-			sort.Strings(parentPacks)
-			childPacks := append([]string(nil), byDest[child].packs...)
-			sort.Strings(childPacks)
-
-			var who string
-			if len(parentPacks) == 1 && len(childPacks) == 1 && parentPacks[0] == childPacks[0] {
-				who = fmt.Sprintf("pack %s declares a %q contribution at ~/%s and another at ~/%s, inside it",
-					parentPacks[0], kind, parent, child)
-			} else {
-				who = fmt.Sprintf("pack %s claims ~/%s as a %q tree, and pack %s claims ~/%s, inside it",
-					strings.Join(parentPacks, " and "), parent, kind,
-					strings.Join(childPacks, " and "), child)
-			}
-			out = append(out, fmt.Sprintf(
-				"%s — %s is sole-owned (mounted read-only), and nesting a mount inside it fails "+
-					"the container at boot with a read-only file system error. If delivering individual "+
-					"scripts (such as into ~/.claude/bin), narrow directory claims to specific files "+
-					"(e.g. into: \"~/%s/<script>\"), or give them non-overlapping paths.",
-				who, kind, parent))
-		}
-	}
-
-	return out
+	plan := planPackFilesMounts(packs, everyPatchedTree(packs), "")
+	return plan.Conflicts
 }
 
 func packDestConflicts(packs []*packload.Pack, kind packdecl.Kind) []string {
