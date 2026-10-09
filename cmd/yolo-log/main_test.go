@@ -109,11 +109,14 @@ func TestUnsetEndpointNamesHowToEnableIt(t *testing.T) {
 	if rc := run([]string{"show"}, &out, &errOut); rc != 1 {
 		t.Fatalf("rc = %d", rc)
 	}
-	for _, want := range []string{`"packs": ["macos-log"]`, `"loopholes": {"macos-log": {"enabled": true}}`,
+	for _, want := range []string{"add \"macos-log\" to \"packs\"", `"loopholes": {"macos-log": {"enabled": true}}`,
 		`"settings": {"full": true}`, "relaunch"} {
 		if !strings.Contains(errOut.String(), want) {
 			t.Errorf("the off message does not name %q:\n%s", want, errOut.String())
 		}
+	}
+	if strings.Contains(errOut.String(), `"packs": [`) {
+		t.Errorf("the off message spells a whole packs list, which would replace the user's agents:\n%s", errOut.String())
 	}
 	out.Reset()
 	if rc := run([]string{"--help"}, &out, &errOut); rc != 0 || !strings.Contains(out.String(), "off in this jail") {
@@ -150,7 +153,7 @@ func TestEndToEndOverLoopbackTLS(t *testing.T) {
 		defer close(done)
 		_ = journald.ServeMacosLogFrontedUnix(upstream, journald.MacosLogConfig{
 			Bin: fake, Mode: journald.ModeUser, SandboxUID: 401,
-			Owner: func(int) (uint32, bool) { return 0, false },
+			Owner: func(int) (uint32, time.Time, bool) { return 0, time.Time{}, false },
 		}, stop)
 	}()
 	deadline := time.Now().Add(10 * time.Second)

@@ -786,8 +786,9 @@ func validateMacosLogRetired(config *jsonx.OrderedMap, errs, warns *[]string) {
 	}
 	msg := "config.macos_log: REMOVED — the macOS unified log is now read on the host by the " +
 		"`macos-log` loophole, because the macos-user sandbox account cannot read it itself. " +
-		"Delete the key; to read the log from a jail, write " +
-		`"packs": ["macos-log"] plus "loopholes": {"macos-log": {"enabled": true}}, which ` +
+		"Delete the key; to read the log from a jail, add `macos-log` to `packs` in " +
+		"~/.config/yolo-jail/config.jsonc (beside your agents, e.g. " +
+		`["claude", "macos-log"]) and set "loopholes": {"macos-log": {"enabled": true}}, which ` +
 		`is what "macos_log": "user" was meant to give (entries from the sandbox's own ` +
 		`processes). The old "full" is one more key — "loopholes": {"macos-log": ` +
 		`{"settings": {"full": true}}} — and it is USER-CONFIG-ONLY: ` +

@@ -85,8 +85,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if endpoint == "" {
 		fmt.Fprint(stderr, "yolo-log: the macOS log bridge is not available in this jail.\n")
 		fmt.Fprintf(stderr, "  %s is not set. Ask the human to:\n", endpointEnv)
-		fmt.Fprint(stderr, "  1. select the pack in ~/.config/yolo-jail/config.jsonc (user scope only):\n")
-		fmt.Fprint(stderr, "       \"packs\": [\"macos-log\"]\n")
+		fmt.Fprint(stderr, "  1. add \"macos-log\" to \"packs\" in ~/.config/yolo-jail/config.jsonc\n")
+		fmt.Fprint(stderr, "     (user scope only), beside the agents already listed there\n")
 		fmt.Fprint(stderr, "  2. enable the loophole, in either scope:\n")
 		fmt.Fprint(stderr, "       \"loopholes\": {\"macos-log\": {\"enabled\": true}}\n")
 		fmt.Fprint(stderr, "  For every entry on the Mac rather than this sandbox account's, add\n")

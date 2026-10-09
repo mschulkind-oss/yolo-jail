@@ -25,17 +25,22 @@ package journald
 //
 //   - the bridge forces `--style ndjson` and judges every line (macosLogKeep). A line is sent
 //     only if it is a JSON object whose owner is the sandbox account: its `userID` field when
-//     the entry carries one, otherwise the live owner of its `processID`. A line it cannot
-//     attribute — not JSON, no owner, a process already gone — is DROPPED, so a failure here
-//     narrows and never widens.
+//     the entry carries one. Without one, `show` DROPS the line, because it reads history and
+//     a pid's owner today says nothing about who held it when the entry was logged. Only
+//     `stream`, which reads entries as they are logged, falls back to the live owner of the
+//     entry's `processID`, and only when that process started no later than the entry's own
+//     timestamp, so a recycled pid's new owner cannot claim its predecessor's lines. A line it
+//     cannot attribute — not JSON, no owner, a process already gone, a timestamp it cannot
+//     read — is DROPPED, so a failure here narrows and never widens.
 //   - the arguments are an allowlist (macosLogUserFlags): `show` and `stream`, and only flags
 //     that narrow or format. A positional argument is refused because `log show <archive>`
 //     reads a host file, as are `--archive` and every verb that writes (`config`, `erase`)
 //     or collects (`collect`, `stats`).
 //
-// ⚠ UNMEASURED: whether a current macOS's ndjson carries `userID`. Without it the owner is the
-// live process's, so an entry from a sandbox process that has already exited is dropped; the
-// macos-user integration test records which (TestMacosUserMacosLogBridgeScopesToTheSandbox).
+// ⚠ UNMEASURED: whether a current macOS's ndjson carries `userID`, and the exact spelling of its
+// `timestamp`. Without `userID`, `show` returns nothing in the user scope and `stream` only
+// entries from live sandbox processes; the macos-user integration test records which
+// (TestMacosUserMacosLogBridgeScopesToTheSandbox).
 
 import (
 	"encoding/json"
@@ -83,8 +88,11 @@ const macosLogWiden = "The user scope reads only `show` and `stream`, narrowed t
 // MacosLogPlan is one request's resolved run: the argv after `log`, and whether stdout goes
 // through the user scope's filter.
 type MacosLogPlan struct {
-	Args     []string
-	Filter   bool
+	Args   []string
+	Filter bool
+	// Live is a `stream`: entries arrive as they are logged, so the filter may judge an entry
+	// without `userID` by its process's live owner. A `show` reads history and may not.
+	Live     bool
 	ErrText  string
 	ExitCode int
 }
@@ -148,24 +156,45 @@ func PlanMacosLog(args []string, mode string) MacosLogPlan {
 		out = append(out, a, val)
 	}
 	out = append(out, "--style", "ndjson")
-	return MacosLogPlan{Args: out, Filter: true}
+	return MacosLogPlan{Args: out, Filter: true, Live: verb == "stream"}
 }
 
-// ownerFields are the two fields of an ndjson entry the user scope attributes it by.
+// ownerFields are the fields of an ndjson entry the user scope attributes it by.
 type ownerFields struct {
 	// Raw, so a quoted value is not read as a number: a JSON string fails ParseUint.
 	UserID    json.RawMessage `json:"userID"`
 	ProcessID json.RawMessage `json:"processID"`
+	Timestamp string          `json:"timestamp"`
 }
 
-// macosLogKeep returns the user scope's line filter for the sandbox account's uid. owner
-// reports a live process's uid; its answers are cached for ownerTTL, so a stream does not ask
-// the kernel once per line, and not longer, so a recycled pid is not trusted for long.
-func macosLogKeep(sandboxUID uint32, owner func(pid int) (uint32, bool)) lineFilter {
+// ownerFunc reports a live process's uid and start time, or false when it is gone.
+type ownerFunc func(pid int) (uid uint32, started time.Time, ok bool)
+
+// entryTimeLayouts are the spellings of an ndjson `timestamp` the stream fallback reads:
+// `log`'s own ("2026-10-09 15:01:23.123456-0700", any number of fractional digits) and
+// RFC 3339. Anything else fails, and the line is dropped.
+var entryTimeLayouts = []string{"2006-01-02 15:04:05.999999999-0700", time.RFC3339Nano}
+
+func parseEntryTime(s string) (time.Time, bool) {
+	for _, layout := range entryTimeLayouts {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
+}
+
+// macosLogKeep returns the user scope's line filter for the sandbox account's uid. live is a
+// `stream` (MacosLogPlan.Live): only then may a line without `userID` be judged by owner, the
+// live process's uid and start time, and only when that process started by the entry's time.
+// owner's answers are cached for ownerTTL, so a stream does not ask the kernel once per line,
+// and not longer, so a recycled pid is not trusted for long.
+func macosLogKeep(sandboxUID uint32, live bool, owner ownerFunc) lineFilter {
 	type cached struct {
-		uid uint32
-		ok  bool
-		at  time.Time
+		uid     uint32
+		started time.Time
+		ok      bool
+		at      time.Time
 	}
 	var mu sync.Mutex
 	cache := map[int]cached{}
@@ -178,7 +207,11 @@ func macosLogKeep(sandboxUID uint32, owner func(pid int) (uint32, bool)) lineFil
 			uid, err := strconv.ParseUint(string(f.UserID), 10, 32)
 			return err == nil && uint32(uid) == sandboxUID
 		}
-		if f.ProcessID == nil {
+		if !live || f.ProcessID == nil {
+			return false
+		}
+		logged, ok := parseEntryTime(f.Timestamp)
+		if !ok {
 			return false
 		}
 		pid, err := strconv.Atoi(string(f.ProcessID))
@@ -189,13 +222,13 @@ func macosLogKeep(sandboxUID uint32, owner func(pid int) (uint32, bool)) lineFil
 		c, hit := cache[pid]
 		mu.Unlock()
 		if !hit || time.Since(c.at) > ownerTTL {
-			uid, ok := owner(pid)
-			c = cached{uid: uid, ok: ok, at: time.Now()}
+			uid, started, ok := owner(pid)
+			c = cached{uid: uid, started: started, ok: ok, at: time.Now()}
 			mu.Lock()
 			cache[pid] = c
 			mu.Unlock()
 		}
-		return c.ok && c.uid == sandboxUID
+		return c.ok && c.uid == sandboxUID && !c.started.After(logged)
 	}
 }
 

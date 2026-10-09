@@ -20,12 +20,16 @@ import (
 // /usr/bin/log as the runner, an admin, since the sandbox account cannot read the log itself
 // (TestMacosUserMacosLogAsTheSandboxAccountMeasurement).
 //
-// TWO ENTRIES, ONE PER ACCOUNT, logged before the launch by long-lived processes so the bridge
-// can attribute them either way: by the entry's own `userID`, or by the live owner of its
-// `processID`. One is logged as the sandbox account (sudo -u), one as the runner. The user
-// scope must return the first and not the second; `full` must return both. Whether this macOS's
-// ndjson carries `userID` is recorded as a MEASUREMENT, because the scope's handling of an
-// entry from a process that has already exited depends on it.
+// TWO ENTRIES, ONE PER ACCOUNT, logged before the launch: one as the sandbox account (sudo -u),
+// one as the runner. `show` in the user scope attributes an entry by its own `userID` alone (a
+// pid's owner today says nothing about history), so it must never return the runner's entry,
+// and returns the sandbox's only if this macOS's ndjson carries `userID` — recorded as a
+// MEASUREMENT, and asserted when it does. `full` must return both.
+//
+// THEN A LIVE STREAM: the sandbox starts `yolo-log stream`, logs a third entry from inside the
+// sandbox with a process that stays alive, and kills the client. The stream must deliver that
+// entry, by `userID` or by its live process's owner. Killing the client is also the abandoned-
+// stream path: the bridge must then stop its `log stream`.
 //
 // Darwin-only by build constraint, like the serial test: requireMacosUser skips everywhere else.
 func TestMacosUserMacosLogBridgeScopesToTheSandbox(t *testing.T) {
@@ -40,6 +44,12 @@ func TestMacosUserMacosLogBridgeScopesToTheSandbox(t *testing.T) {
 		`command -v yolo-log || echo MISSING`,
 		`echo "=== SHOW ==="`,
 		`yolo-log show --last 10m --predicate 'eventMessage CONTAINS "` + token + `"'; echo "SHOW_RC=$?"`,
+		`echo "=== STREAM ==="`,
+		`f=$(mktemp /tmp/yolo-it-ylog.XXXXXX)`,
+		`yolo-log stream --predicate 'eventMessage CONTAINS "` + token + `"' >"$f" 2>&1 & p=$!`,
+		`sleep 3`,
+		`/usr/bin/perl -MSys::Syslog -e 'openlog("yolo-it", "pid", "user"); syslog("notice", "%s", $ARGV[0]); closelog(); sleep 6' ` + token + `-live & q=$!`,
+		`sleep 4; kill "$p" 2>/dev/null; wait "$p" 2>/dev/null; kill "$q" 2>/dev/null; cat "$f"; rm -f "$f"`,
 		`echo "=== COLLECT ==="`,
 		`yolo-log collect 2>&1; echo "COLLECT_RC=$?"`,
 		`echo "=== END ==="`,
@@ -55,11 +65,18 @@ func TestMacosUserMacosLogBridgeScopesToTheSandbox(t *testing.T) {
 		t.Errorf("yolo-log resolves to %q in the sandbox, want the staged guest binary %s%s",
 			client, macosuser.GuestBinaryPath("yolo-log", ""), diag())
 	}
-	show := section(r.stdout, "=== SHOW ===", "=== COLLECT ===")
-	t.Logf("MEASUREMENT (macos-log), the user scope's entries carry `userID`: %v",
-		strings.Contains(show, `"userID"`))
-	if !strings.Contains(show, "SHOW_RC=0") || !strings.Contains(show, mine) {
-		t.Errorf("the user scope did not return the sandbox account's entry %q:\n%s%s", mine, show, diag())
+	show := section(r.stdout, "=== SHOW ===", "=== STREAM ===")
+	hasUserID := strings.Contains(show, `"userID"`)
+	t.Logf("MEASUREMENT (macos-log), the user scope's `show` returned entries carrying `userID`: %v "+
+		"(without it, `show` returns nothing in the user scope, by design)", hasUserID)
+	if !strings.Contains(show, "SHOW_RC=0") || (hasUserID && !strings.Contains(show, mine)) {
+		t.Errorf("the user scope's show failed, or carried userID and still missed the sandbox "+
+			"account's entry %q:\n%s%s", mine, show, diag())
+	}
+	if stream := section(r.stdout, "=== STREAM ===", "=== COLLECT ==="); !strings.Contains(stream, token+"-live") {
+		t.Errorf("the user scope's stream did not deliver the sandbox's live entry %q (if the "+
+			"Seatbelt profile refuses syslog(3) to the sandbox, that is the cause, and the "+
+			"entry never existed):\n%s%s", token+"-live", stream, diag())
 	}
 	if strings.Contains(show, theirs) {
 		t.Errorf("the user scope returned the runner's entry %q, which is not the sandbox "+
@@ -73,7 +90,7 @@ func TestMacosUserMacosLogBridgeScopesToTheSandbox(t *testing.T) {
 	packHome(t, `{"packs": ["macos-log"], "loopholes": {"macos-log": {"enabled": true, `+
 		`"settings": {"full": true}}}}`)
 	r = macosUserRunProbe(t, "macos-log full", macosUserWorkspace(t, `{}`), script)
-	show = section(r.stdout, "=== SHOW ===", "=== COLLECT ===")
+	show = section(r.stdout, "=== SHOW ===", "=== STREAM ===")
 	if !strings.Contains(show, "SHOW_RC=0") || !strings.Contains(show, mine) || !strings.Contains(show, theirs) {
 		t.Errorf("`full` did not return both accounts' entries (%q, %q):\n%s%s", mine, theirs, show, diag())
 	}

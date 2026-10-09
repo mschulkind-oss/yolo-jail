@@ -85,18 +85,30 @@ Each entry below is an implementation decision taken under the owner's ruling of
   but may not widen it. A bool also cannot be misspelled into a wider mode.
 - **ML-D4. The user scope is the sandbox account's processes, enforced on the output.** It is
   journalctl `--user`'s counterpart. The bridge forces `--style ndjson` and sends a line only if
-  it is a JSON entry owned by the sandbox account. Ownership comes from the entry's `userID` when
-  the entry has one, and otherwise from the live owner of its `processID` (`kern.proc.pid`,
-  cached for one second). A line it cannot attribute is dropped. No predicate the client writes
-  can widen what gets through, so the arguments only need to stay off host files and off writes.
+  it is a JSON entry owned by the sandbox account. No predicate the client writes can widen what
+  gets through, so the arguments only need to stay off host files and off writes. Ownership:
+  - **The entry's own `userID`**, when it has one, under `show` and `stream` alike.
+  - **Under `show`, nothing else.** `show` reads history (`--last 7d`), and a pid's owner today
+    says nothing about who held it when the entry was logged, so a line without `userID` is
+    dropped.
+  - **Under `stream`, the live owner of the entry's `processID`** (`kern.proc.pid`, cached for
+    one second), only when that process started no later than the entry's own `timestamp`. A
+    process that started after the entry holds a recycled pid, and the entry belongs to the
+    pid's earlier owner.
+  - A line it cannot attribute (not JSON, no owner, a process already gone, a timestamp it cannot
+    read) is dropped.
   - **Scope is the ACCOUNT, not one jail.** Every macos-user sandbox on a Mac runs as
     `_yolojail`, so the user scope shows every sandbox's entries, not just this one's. A
     per-jail scope would need the bridge to know this session's process tree, which the host
     daemon does not track.
-  - **Unmeasured: whether a current macOS's ndjson carries `userID`.** Without it, an entry from
-    a sandbox process that has already exited is dropped, so `yolo-log show` after a crash can
-    miss the crashing process. `yolo-log stream` while reproducing does not have that problem.
-    `TestMacosUserMacosLogBridgeScopesToTheSandbox` records which case a Mac is in.
+  - **Unmeasured: whether a current macOS's ndjson carries `userID`, and how it spells
+    `timestamp`.** Without `userID`, `yolo-log show` returns nothing in the user scope, and
+    `yolo-log stream` while reproducing a problem is the way to read the log. With `full`,
+    `show` works as usual. `TestMacosUserMacosLogBridgeScopesToTheSandbox` records which case a
+    Mac is in.
+  - **An abandoned stream stops.** The filter may send nothing for minutes, so the bridge
+    doesn't wait for a failed write to notice the client is gone. It watches the connection, and
+    when the client goes, it stops `log`.
 - **ML-D5. User-scope arguments are an allowlist.** The verbs are `show` and `stream`. The flags
   are `--start`, `--end`, `--last`, `--predicate`, `--process`, `--style ndjson`, `--color`,
   `--timezone`, `--level`, `--type`, `--timeout`, `--info`, `--debug`, `--signpost`,

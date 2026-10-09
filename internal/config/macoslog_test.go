@@ -23,13 +23,17 @@ func TestRetiredMacosLogKeyIsRefusedAndNamesItsReplacement(t *testing.T) {
 			continue
 		}
 		for _, want := range []string{
-			"REMOVED", `"packs": ["macos-log"]`, `"loopholes": {"macos-log": {"enabled": true}}`,
+			"REMOVED", "add `macos-log` to `packs`", `"loopholes": {"macos-log": {"enabled": true}}`,
 			`{"settings": {"full": true}}`, "USER-CONFIG-ONLY", "~/.config/yolo-jail/config.jsonc",
 			"Delete the key", "yolo check",
 		} {
 			if !strings.Contains(hits[0], want) {
 				t.Errorf("macos_log %s: refusal %q does not name %q", body, hits[0], want)
 			}
+		}
+		// Never a whole `packs` value: copied literally it would replace the user's agent list.
+		if strings.Contains(hits[0], `"packs": [`) {
+			t.Errorf("macos_log %s: refusal %q spells a whole packs list", body, hits[0])
 		}
 		if len(containing(warns, "macos_log")) != 0 {
 			t.Errorf("macos_log %s: the refusal is also a warning: %v", body, warns)

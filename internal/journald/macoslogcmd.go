@@ -35,22 +35,28 @@ func MacosLogMain(argv []string) int {
 
 	// READ ONCE, before a connection is accepted: the setting is frozen at launch, as the
 	// journal bridge's is (LoadSettings — every failure is the user scope).
-	mode := LoadSettings(*settings)
-	uid, uidErr := lookupSandboxUID()
+	cfg := macosLogMainConfig(LoadSettings(*settings))
 
 	stop := make(chan struct{})
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
 	go func() { <-sigCh; close(stop) }()
 
-	err := ServeMacosLogFrontedUnix(*socket, MacosLogConfig{
-		Bin: macosLogBin, Mode: mode, SandboxUID: uid, SandboxUIDErr: uidErr, Owner: processOwner,
-	}, stop)
+	err := ServeMacosLogFrontedUnix(*socket, cfg, stop)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "yolo-macos-log:", err)
 		return 1
 	}
 	return 0
+}
+
+// macosLogMainConfig is the config MacosLogMain serves with: the real `log`, the sandbox
+// account looked up on this Mac, and the kernel's process owner.
+func macosLogMainConfig(mode string) MacosLogConfig {
+	uid, uidErr := lookupSandboxUID()
+	return MacosLogConfig{
+		Bin: macosLogBin, Mode: mode, SandboxUID: uid, SandboxUIDErr: uidErr, Owner: processOwner,
+	}
 }
 
 // MacosLogConfig is what one macos-log bridge serves with, resolved once at startup.
@@ -63,8 +69,8 @@ type MacosLogConfig struct {
 	// not exist here, so the user scope has nobody to show.
 	SandboxUID    uint32
 	SandboxUIDErr error
-	// Owner reports a live process's uid (processOwner).
-	Owner func(pid int) (uint32, bool)
+	// Owner reports a live process's uid and start time (processOwner).
+	Owner ownerFunc
 }
 
 // ServeMacosLogFrontedUnix binds the AF_UNIX socket only yolo's front dials and serves the
@@ -125,7 +131,7 @@ func handleMacosLogConn(conn net.Conn, cfg MacosLogConfig) {
 			_ = WriteExit(conn, 1)
 			return
 		}
-		keep = macosLogKeep(cfg.SandboxUID, cfg.Owner)
+		keep = macosLogKeep(cfg.SandboxUID, plan.Live, cfg.Owner)
 	}
 	logf("[macos-log] mode=%s args=%s", cfg.Mode, ArgsJSON(plan.Args))
 	spawnAndStream(conn, cfg.Bin, plan.Args,

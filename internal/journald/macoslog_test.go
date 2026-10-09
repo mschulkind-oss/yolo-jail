@@ -91,20 +91,22 @@ func TestMacosLogKeepAttributesEachEntryToItsOwner(t *testing.T) {
 	const sandbox = 401
 	owners := map[int]uint32{100: sandbox, 200: 501}
 	asked := 0
-	keep := macosLogKeep(sandbox, func(pid int) (uint32, bool) {
+	// A stream: the only read that may fall back to a live process's owner.
+	keep := macosLogKeep(sandbox, true, func(pid int) (uint32, time.Time, bool) {
 		asked++
 		uid, ok := owners[pid]
-		return uid, ok
+		return uid, time.Unix(0, 0), ok
 	})
+	ts := `"timestamp": "` + ndjsonTime(time.Now()) + `"`
 	for _, tc := range []struct {
 		line string
 		want bool
 	}{
 		{`{"userID": 401, "processID": 200, "eventMessage": "a"}`, true}, // userID wins
 		{`{"userID": 501, "processID": 100, "eventMessage": "b"}`, false},
-		{`{"processID": 100, "eventMessage": "c"}`, true},
-		{`{"processID": 200, "eventMessage": "d"}`, false},
-		{`{"processID": 300, "eventMessage": "gone"}`, false},
+		{`{"processID": 100, ` + ts + `, "eventMessage": "c"}`, true},
+		{`{"processID": 200, ` + ts + `, "eventMessage": "d"}`, false},
+		{`{"processID": 300, ` + ts + `, "eventMessage": "gone"}`, false},
 		{`{"eventMessage": "no owner"}`, false},
 		{`Filtering the log data using "x"`, false},
 		{`[1, 2]`, false},
@@ -116,7 +118,7 @@ func TestMacosLogKeepAttributesEachEntryToItsOwner(t *testing.T) {
 		}
 	}
 	before := asked
-	keep([]byte(`{"processID": 100}`))
+	keep([]byte(`{"processID": 100, ` + ts + `}`))
 	if asked != before {
 		t.Errorf("a pid seen within the TTL was asked again (%d → %d)", before, asked)
 	}
@@ -146,7 +148,7 @@ func driveMacosLog(t *testing.T, request, mode string, uidErr error) (string, st
 	t.Helper()
 	server, client := net.Pipe()
 	go handleMacosLogConn(server, MacosLogConfig{Bin: macosLogBin, Mode: mode, SandboxUID: 401,
-		SandboxUIDErr: uidErr, Owner: func(int) (uint32, bool) { return 0, false }})
+		SandboxUIDErr: uidErr, Owner: func(int) (uint32, time.Time, bool) { return 0, time.Time{}, false }})
 	_ = client.SetDeadline(time.Now().Add(30 * time.Second))
 	if _, err := client.Write([]byte(request + "\n")); err != nil {
 		t.Fatal(err)
