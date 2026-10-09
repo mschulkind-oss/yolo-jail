@@ -289,6 +289,28 @@ local function codexReachable(prov)
   return nil
 end
 
+-- CODEX'S OWN PROVIDERS (docs/design/pi-codex-provider-shadowing.md OQ-3): pack.json declares
+-- the native IDs read from `built_in_model_providers` in tagged Codex source. Core hands that
+-- selected-pack metadata here as ctx.built_in_providers: `{ id = <Codex provider ID> }` for a
+-- usable native plan, false for a native name with no provider for this plan, and nil for a
+-- provider Codex does not implement. Membership is non-nil, including false. The one legacy
+-- fallback remains openai-codex because older entrypoints may not provide this table; there is
+-- deliberately no hard-coded fallback for the newer native IDs, so removed metadata stays visible.
+local function codexOwn(ctx, name)
+  if type(name) ~= "string" or name == "" then return nil end
+  local own = nil
+  if type(ctx.built_in_providers) == "table" then
+    own = ctx.built_in_providers[name]
+  end
+  if own == nil and name == "openai-codex" then
+    return { id = "openai-codex" }
+  end
+  if own == false or type(own) == "table" then
+    return own
+  end
+  return nil
+end
+
 -- THE NATIVE BEDROCK BINDING (docs/design/bedrock-plumbing.md §6.2, OQ-BR1: `-p bedrock` puts an
 -- agent on Bedrock through its OWN Bedrock client where it has one). codex has one: the
 -- built-in provider `amazon-bedrock-runtime`, which speaks Responses to
@@ -297,8 +319,12 @@ end
 -- from the strings of the codex-cli 0.158.0 binary the launcher installs (2026-09-29), never
 -- run:
 --
---   - the built-in ids, in order: `responses` `openai` `amazon-bedrock` `amazon-bedrock-runtime`
---     `ollama`; `amazon-bedrock` is the mantle client, which yolo does not ship (DIR-BR3);
+--   - the native map keys in both public source tags read 2026-10-09: `openai`,
+--     `amazon-bedrock`, `amazon-bedrock-runtime`, `ollama`, `lmstudio`; `responses` is a
+--     WireApi value, not a provider key. See `built_in_model_providers` in
+--     https://github.com/openai/codex/blob/rust-v0.158.0/codex-rs/model-provider-info/src/lib.rs
+--     and https://github.com/openai/codex/blob/rust-v0.159.2/codex-rs/model-provider-info/src/lib.rs;
+--     these checked tags are a baseline, not a latest-release claim.
 --   - `model-provider/src/amazon_bedrock/runtime.rs` beside `https://bedrock-runtime.` and
 --     `.amazonaws.com/openai/v1`, the endpoint family yolo ships;
 --   - the override guard, verbatim: "only supports changing `base_url`, `auth`,
@@ -329,14 +355,19 @@ end
 local codexBedrockProvider = "amazon-bedrock-runtime"
 
 local function codexNativeBedrock(ctx)
-  return ctx.selected_platform == "aws-bedrock" and (ctx.via_url or "") == ""
+  -- A false plan is built-in membership with no provider for this plan; do not let this
+  -- earlier platform-specific branch synthesize a runtime selection or region override.
+  return codexOwn(ctx, ctx.selected_provider) ~= false and
+    ctx.selected_platform == "aws-bedrock" and (ctx.via_url or "") == ""
 end
 
 -- codexViaBedrock: the selected provider is a Bedrock one and codex's profile routes it through a
--- via service, so its row is the via row whatever endpoints the provider names.
+-- via service, so its row is the via row whatever endpoints the provider names. A provider Codex
+-- owns natively does not get this bridge row: the catalog guard below omits it, so selecting the
+-- bridge here would leave a dangling model_provider. The pack's custom `bedrock` key still routes.
 local function codexViaBedrock(ctx, name)
-  return ctx.selected_platform == "aws-bedrock" and (ctx.via_url or "") ~= "" and
-    name == ctx.selected_provider
+  return codexOwn(ctx, name) == nil and ctx.selected_platform == "aws-bedrock" and
+    (ctx.via_url or "") ~= "" and name == ctx.selected_provider
 end
 
 -- codex's Bedrock client drives the Responses API, and the evidence covers OpenAI's models on
@@ -379,9 +410,9 @@ yolo.derive("codex", "config", function(ctx)
   if ctx.providers and next(ctx.providers) ~= nil then
     local provOut = {}
     for name, prov in pairs(ctx.providers) do
-      -- openai-codex is Codex's native subscription provider backed by OAuth
-      -- credentials, not a custom third-party endpoint with an API key.
-      if name ~= "openai-codex" then
+      -- The `openai-codex` fallback in codexOwn preserves the legacy subscription exclusion;
+      -- other native names come only from this selected Codex pack's built_in_providers table.
+      if codexOwn(ctx, name) == nil then
         local baseUrl, api = codexReachable(prov)
         if codexViaBedrock(ctx, name) then
           -- Reachable through the bridge's Responses pass-through, which is the one route
@@ -520,6 +551,19 @@ yolo.derive("codex", "config", function(ctx)
         sel.model = model
       end
       res.selection = sel
+    elseif codexOwn(ctx, ctx.selected_provider) ~= nil then
+      -- A native provider uses Codex's own client even when yolo has no endpoint row for it.
+      -- Pass only a literal, non-default profile model; yolo aliases/defaults belong to its
+      -- custom catalog and are not expanded against Codex's native catalog.
+      local own = codexOwn(ctx, ctx.selected_provider)
+      if type(own) == "table" and type(own.id) == "string" and own.id ~= "" then
+        local sel = { model_provider = own.id }
+        local model = type(ctx.profile) == "table" and ctx.profile.model or nil
+        if type(model) == "string" and model ~= "" and model ~= "default" then
+          sel.model = model
+        end
+        res.selection = sel
+      end
     else
       local p = ctx.providers and ctx.providers[ctx.selected_provider] or nil
       if codexReachable(p) then

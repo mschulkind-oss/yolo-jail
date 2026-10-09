@@ -112,7 +112,99 @@ func TestOpencodesSelectionNamesItsOwnProviderForThePlan(t *testing.T) {
 	}
 }
 
-// ctx.built_in_providers CARRIES yolo_list for a provider the agent runs on yolo's list
+func TestCodexDeriveUsesNativeMembershipAndKeepsOnlyLegacySubscriptionFallback(t *testing.T) {
+	src, err := os.ReadFile("../../../packs/codex/derive.lua")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(src)
+	ctx := &DeriveCtx{
+		Agent: "codex", Surface: "config", SelectedProvider: "openai",
+		Profile:          map[string]string{"model": "fast"},
+		BuiltInProviders: map[string]BuiltInProvider{"openai": {ID: "openai"}},
+		Tables: map[string]map[string]any{"providers": {"openai": map[string]any{
+			"base_url": "https://poison.example/v1",
+			"models":   map[string]any{"default": "expanded-default", "fast": "expanded-fast"},
+		}}},
+	}
+	out, err := (GopherLuaVM{}).Derive(script, ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, _ := out["model_providers"].(map[string]any)
+	if rows["openai"] != nil {
+		t.Errorf("native Codex key got a generic row: %v", rows["openai"])
+	}
+	sel, _ := out["selection"].(map[string]any)
+	if sel["model_provider"] != "openai" || sel["model"] != "fast" {
+		t.Errorf("native selection = %v, want openai/fast literally", sel)
+	}
+
+	// A false entry is membership too, but means this plan has no native provider ID. It may
+	// neither leak a catalog row nor fall through to endpoint-gated generic selection.
+	ctx.BuiltInProviders = map[string]BuiltInProvider{"openai": {}}
+	out, err = (GopherLuaVM{}).Derive(script, ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, _ = out["model_providers"].(map[string]any)
+	sel, _ = out["selection"].(map[string]any)
+	if rows["openai"] != nil || len(sel) != 0 {
+		t.Errorf("false native plan fell through: rows=%v selection=%v", rows, sel)
+	}
+
+	// An explicit false native Bedrock plan with no via URL must bypass the earlier native
+	// Bedrock region/selection branch too, even when the provider declares a region.
+	ctx.SelectedProvider = "amazon-bedrock-runtime"
+	ctx.ViaURL = ""
+	ctx.BuiltInProviders = map[string]BuiltInProvider{"amazon-bedrock-runtime": {}}
+	ctx.Tables["providers"] = map[string]any{"amazon-bedrock-runtime": map[string]any{
+		"platform": "aws-bedrock", "region": "us-west-2",
+	}}
+	out, err = (GopherLuaVM{}).Derive(script, ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, _ = out["model_providers"].(map[string]any)
+	sel, _ = out["selection"].(map[string]any)
+	if rows["amazon-bedrock-runtime"] != nil || len(sel) != 0 {
+		t.Errorf("false native Bedrock plan without via fell through: rows=%v selection=%v", rows, sel)
+	}
+
+	// The early Codex Bedrock-via branch must also respect false membership: no fake bridge
+	// row/selection may be synthesized when the provider has no native plan ID.
+	ctx.ViaURL = "http://127.0.0.1:8216/agent/codex"
+	ctx.Tables["providers"] = map[string]any{"amazon-bedrock-runtime": map[string]any{
+		"platform": "aws-bedrock", "base_url": "https://poison-bedrock.example/v1",
+	}}
+	out, err = (GopherLuaVM{}).Derive(script, ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, _ = out["model_providers"].(map[string]any)
+	sel, _ = out["selection"].(map[string]any)
+	if rows["amazon-bedrock-runtime"] != nil || len(sel) != 0 {
+		t.Errorf("false native Bedrock-via plan fell through: rows=%v selection=%v", rows, sel)
+	}
+
+	// Old entrypoints without the metadata table still keep the historical subscription rule,
+	// but the new five-name native set has no hard-coded fallback that could hide dropped metadata.
+	legacy := &DeriveCtx{Agent: "codex", Surface: "config", SelectedProvider: "openai-codex",
+		Profile: map[string]string{}, Tables: map[string]map[string]any{"providers": {"openai-codex": map[string]any{
+			"base_url": "https://subscription-poison.example/v1",
+			"models":   map[string]any{"default": "gpt-6.1-sol"},
+		}}}}
+	out, err = (GopherLuaVM{}).Derive(script, legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, _ = out["model_providers"].(map[string]any)
+	sel, _ = out["selection"].(map[string]any)
+	if rows["openai-codex"] != nil || sel["model_provider"] != nil || sel["model"] != "gpt-6.1-sol" {
+		t.Errorf("legacy subscription fallback changed: rows=%v selection=%v", rows, sel)
+	}
+}
+
 // (BuiltInProvider.YoloList), and no such field for one on the agent's own list, so a derive can
 // tell the two apart from the table alone.
 func TestTheCtxSaysWhichBuiltInProviderRunsYolosList(t *testing.T) {

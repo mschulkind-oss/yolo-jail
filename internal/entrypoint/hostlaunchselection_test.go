@@ -145,6 +145,45 @@ func TestHostLaunchSelectionSpellsCodexsSelectionAsItsDashC(t *testing.T) {
 	}
 }
 
+func TestHostCodexNativeSelectionUsesTheSelectedPackMetadata(t *testing.T) {
+	decoded, err := jsonx.Decode([]byte(codexNativePoisonProviders))
+	if err != nil {
+		t.Fatal(err)
+	}
+	userProviders, _ := decoded.(*jsonx.OrderedMap)
+	profiles := map[string]packload.UserProfile{}
+	for _, name := range []string{"openai", "amazon-bedrock", "amazon-bedrock-runtime", "ollama", "lmstudio"} {
+		profiles[name] = packload.UserProfile{Provider: name, Options: map[string]string{"model": "fast"}}
+	}
+	profiles["responses"] = packload.UserProfile{Provider: "responses"}
+	f := newSelectionFixture(t, "codex", userProviders, profiles, "zai")
+
+	for _, name := range []string{"openai", "amazon-bedrock", "amazon-bedrock-runtime", "ollama", "lmstudio"} {
+		t.Run(name, func(t *testing.T) {
+			sel := f.compose(t, `{"codex":"`+name+`"}`)
+			argv, err := sel.Argv()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !containsRun(argv, []string{"-c", `model_provider="` + name + `"`}) ||
+				!containsRun(argv, []string{"-c", `model="fast"`}) {
+				t.Errorf("native selection argv = %q, want its literal provider ID and model", argv)
+			}
+			if sel.Rows != nil {
+				t.Errorf("native selection handed a configured provider row: %v", sel.Rows)
+			}
+		})
+	}
+
+	custom := f.compose(t, `{"codex":"responses"}`)
+	if custom.Rows["responses"] == nil {
+		t.Errorf("custom provider responses lost its host row: %+v", custom)
+	}
+	if none := f.compose(t, `{}`); !none.Empty() {
+		t.Errorf("no profile composed a host selection: %+v", none)
+	}
+}
+
 // OPENCODE: one document in its variable, the selection's keys and the rows enabled_providers
 // names, merged over a value the user already set there, whose other keys are kept; a value that is
 // not a document is refused, never overwritten. A provider opencode has built in is named by its

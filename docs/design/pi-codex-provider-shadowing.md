@@ -10,15 +10,26 @@ summary: "Adding an openai-responses endpoint to the openai-codex provider allow
 
 # Why a bridge endpoint shadowed Pi's Codex provider — and how ambient keys took over
 
-**Status:** 2026-10-05 — [OQ-3](#OQ-3) is ruled, the broad reading: yolo writes no model entry
-over any provider an agent has built in, and the agent uses its own list. **Built the same day**
-([§6.5](#65-what-the-build-decided), [BI-D1](#BI-D1) to [BI-D10](#BI-D10)): the pi, omp and
-opencode packs name their own providers in `built_in_providers`, their derives write no row under
+**Status:** 2026-10-09 — [OQ-3](#OQ-3) is ruled, the broad reading: yolo writes no model entry
+over any provider an agent has built in, and the agent uses its own list. Built 2026-10-05
+([§6.5](#65-what-the-build-decided), [BI-D1](#BI-D1) to [BI-D10](#BI-D10)): pi, omp and
+opencode declare their own providers in `built_in_providers`, their derives write no row under
 one, via rows included, and opencode reaches z.ai's coding plan through its own `zai-coding-plan`.
-MEASURED by unit tests through the boot render, revert-checked against the call sites and the
-lists, and by integration launches; UNMEASURED: no pi, omp or opencode session was run, so no
-request reached a provider. [OQ-4](#OQ-4), filed the same day, asks whether that reaches a list a
-pack declares for such a provider, which two other rulings let land there. The `openai-codex` exclusion is built, 2026-09-26, at `92c20cc6` (pi) and `4ed48212` (omp); codex already excluded it. Measured through the boot render by the catalog tests, which compose each agent's `needs` closure since 2026-09-27 ([§6.2](#62-test-composition-alignment)), and for pi through a `-p codex` integration launch since 2026-10-01, whose rendered `models.json` holds no `openai-codex` row ([the plan's §5](pi-codex-provider-shadowing-plan.md#5-verification-checklist)); no live pi or omp has run it. Evidence verified at `c5bab09b`; pi's and claude's codex handling re-verified at `4dcebd18`.
+BI-D9 is now built for Codex: its pack declares the five native provider-map keys verified in
+public tags `rust-v0.158.0` and `rust-v0.159.2`, maps the `openai-codex` plan to native `openai`,
+and marks that subscription list as yolo-owned. Unit tests render the shipped Codex derive through
+boot and host selection and run the actual via-pointer scan; **no Codex CLI session, authentication,
+or provider request was run**. These tags are a source baseline, not a claim about the latest
+published release. [OQ-4](#OQ-4) remains open and unchanged: it holds the `openai-codex` and Bedrock lists,
+and models-only narrowing on a built-in provider.
+The 2026-10-05 [OQ-3](#OQ-3) work was measured by unit tests through the boot render and integration
+launches; no pi, omp or opencode session was run. The `openai-codex` exclusion is built,
+2026-09-26, at `92c20cc6` (pi) and `4ed48212` (omp); codex already excluded it. Measured through
+the boot render by the catalog tests, which compose each agent's `needs` closure since 2026-09-27
+([§6.2](#62-test-composition-alignment)), and for pi through a `-p codex` integration launch since
+2026-10-01, whose rendered `models.json` holds no `openai-codex` row ([the plan's
+§5](pi-codex-provider-shadowing-plan.md#5-verification-checklist)); no live pi or omp has run it.
+Evidence verified at `c5bab09b`; pi's and claude's codex handling re-verified at `4dcebd18`.
 
 > **In short.** A pack-level endpoint added for wire-bridge adaptation caused Pi's derive
 > to generate a `models.json` entry for `openai-codex`, overriding Pi's built-in subscription
@@ -531,8 +542,22 @@ installed in the jail, and oh-omp 0.15.3's linux-x64 binary fetched with `npm pa
 - **What waits on [OQ-4](#OQ-4)** ([BI-D8](#BI-D8)). The two lists named there are as they were, and
   so is a list a `models` contribution narrows with `only` on a built-in provider, which still
   narrows through each agent's list channel without a catalog row.
-- **What is not built.** codex declares no list ([BI-D9](#BI-D9)), and nothing keeps the lists true
-  across an agent's releases (R3).
+- **What is built for BI-D9.** Codex's program pack declares the five provider IDs in its native
+  map at the checked `rust-v0.158.0` and `rust-v0.159.2` tags: `openai`, `amazon-bedrock`,
+  `amazon-bedrock-runtime`, `ollama` and `lmstudio`. Its derive emits no generic row or via row
+  under those names. A selected native ID uses Codex's own provider without requiring a yolo
+  endpoint and accepts only a literal non-default profile model; Codex's own list/default/alias
+  remains its owner. The `openai-codex` plan maps to `openai` and remains marked in
+  `yolo_lists`, preserving yolo's subscription menu and existing no-root-provider policy.
+  `responses` is a wire enum, not a built-in provider key; it remains a custom-provider control.
+  The existing native Bedrock runtime region-only row and logical `bedrock` bridge are unchanged.
+  Boot, host selection and via-pointer tests cover these call sites; no Codex CLI/auth/session was
+  run, and the tag pair is not a latest-release claim. No updater keeps this list synchronized with
+  future Codex releases, so a new native name requires a pack update (R3).
+- **What remains held by [OQ-4](#OQ-4).** The `openai-codex` list, the native Bedrock list, and
+  a `models`-only narrowing on a built-in provider remain as they were; BI-D9 does not settle or
+  alter that question.
+
 
 ---
 
@@ -683,7 +708,7 @@ installed in the jail, and oh-omp 0.15.3's linux-x64 binary fetched with `npm pa
 | <a id="BI-D6"></a>BI-D6 | *Implementation decision.* **No `YOLO_MODEL_<ROLE>` variable is composed for an agent on a built-in provider**: its tiers are composed as if the selection named none, which removes the ones another provider of the table names. A role variable is `<yolo name>/<yolo's id>`, a model from yolo's list, and on opencode's zai it would name a provider opencode knows as `zai-coding-plan` | 2026-10-05 | [§6.5](#65-what-the-build-decided) | ✅ `TestTheGateRelaysThePlansKeyAndNoTierOnABuiltInProvider` |
 | <a id="BI-D7"></a>BI-D7 | *Implementation decision, the ruling's "the launch says".* **The profile line names the agent's own client, and a `null` plan is a warning naming the next step**: `through its own "<id>" client, with its own model list`, and for a plan the agent has none of its own for, that the profile reaches nothing for that agent, with `-p <agent>=<name>` or none. The via route gate's no-effect notice says which rule it is and how to route the provider anyway: declare it under `providers` with a name the agent has no provider of | 2026-10-05 | [§6.5](#65-what-the-build-decided) | ✅ `TestTheProfileLineSaysAnAgentReachesItsOwnProvider`, `TestAProfileOnAPlanTheAgentHasNoProviderOfItsOwnForSaysSo`, `TestShippedViaOverABuiltInProviderRepointsNothing` |
 | <a id="BI-D8"></a>BI-D8 | *Implementation decision, holding [OQ-4](#OQ-4).* **The lists [OQ-4](#OQ-4) names stay as they were, and so does a list a `models` contribution narrows with `only` on a built-in provider**, which still narrows through each agent's list channel and never a catalog row: pi's extension registration, now naming no api, so the extension reads pi's own catalog and a list spanning two of pi's apis (OpenRouter's Anthropic models beside others) is the menu alone, without the refusal ([MM-D21](model-lists-and-pickers.md#MM-D21)); oh-omp's scope under its own id; and opencode's `whitelist` on its own id, alone, for a provider that names an address, so an endpoint-less first-party provider stays unnarrowed as `yolo check` says | 2026-10-05 | [§6.5](#65-what-the-build-decided) | ✅ `TestOpencodeWhitelistsANarrowedList`, `TestPiGetsANarrowedListToRegister`, `TestPiNarrowedOpenRouterListNamesItsRowsOneAPI`, `TestTheUnnarrowedMenuLineAgreesWithOpencodesWhitelist` |
-| <a id="BI-D9"></a>BI-D9 | *Implementation decision.* **codex declares no list in this build** and keeps its by-name `openai-codex` check, the original rule, byte for byte. Which of codex's own providers a yolo provider could share a name with was not read, so declaring codex's list, and reading it, is a later build's. claude, copilot and agy write no catalog row | 2026-10-05 | [§6.5](#65-what-the-build-decided) | — |
+| <a id="BI-D9"></a>BI-D9 | *Implementation decision.* **Codex declares its built-in provider names in its program pack.** The five `built_in_model_providers` keys verified in `rust-v0.158.0` and `rust-v0.159.2` are `openai`, `amazon-bedrock`, `amazon-bedrock-runtime`, `ollama`, and `lmstudio`; `responses` is a wire value, not a map key. The `openai-codex` plan maps to native `openai` and remains in `yolo_lists`, preserving the subscription list/menu policy. The derive suppresses generic direct/via rows and selects a declared native ID with a literal non-default profile model, without endpoint or yolo alias/default fallback. Existing native Bedrock region-only/list/model behavior and custom logical `bedrock` via are unchanged. The historical binary-string comment was corrected. Verified by literal boot-output tests for all five names, custom controls, host selected-pack selection, VM false-plan/legacy fallback, actual via-pointer scan, and stateful selection transition; deletion of both the native selection branch and early Bedrock-via guard was revert-checked against caller tests; no Codex CLI/auth/live provider request was run. The checked tags are a baseline, not latest-release monitoring. [OQ-4](#OQ-4) stays open and unchanged | 2026-10-05 | [§6.5](#65-what-the-build-decided), this source follow-up | yes, 2026-10-09 |
 | <a id="BI-D10"></a>BI-D10 | *Implementation decision.* **The tests that used zai, cerebras or openrouter as a catalogued provider moved to one no agent has built in**: the fixtures' `zhipu`, the user's `glm`, and the shipped kilo and llamacpp, so the selection, set and catalog mechanics stay pinned for a catalogued provider, while the shipped pairings are pinned at the new behavior | 2026-10-05 | [§6.5](#65-what-the-build-decided) | ✅ |
 | <a id="BI-D11"></a>BI-D11 | *Implementation decision, correcting [BI-D6](#BI-D6) and [BI-D7](#BI-D7).* **A built-in provider whose list the agent's pack renders from yolo's declaration is named in `built_in_providers.yolo_lists`, and keeps its tiers and its endpoint line.** pi and opencode run `openai-codex` on their own client, but on the one list `packs/openai-auth` declares ([ML-D1](model-lists-and-pickers.md#ML-D1)): pi's extension registers it, and opencode's `opencodeCodexRow` writes it as the models and whitelist of its own `openai`. So BI-D6's reason, a model from yolo's list the agent's own may lack, does not hold there, and BI-D7's "with its own model list" was untrue. Both packs list `openai-codex` there; omp, on its own list, does not. The derives are unchanged | 2026-10-06 | [§6.5](#65-what-the-build-decided) | ✅ `TestTheCodexListStaysYolosForAnAgentThatRendersIt`, `TestYoloListsNamesTheBuiltInProvidersOnYolosList` |
 | <a id="BI-D12"></a>BI-D12 | *Implementation decision, extending [BI-D5](#BI-D5).* **A key the user re-points is relayed under the variable the agent's own provider reads**: the plan's `api_key_env_name`, else the one variable the shipped provider declares. With no row written there is no `${OR_KEY}` reference left, so `providers.openrouter.api_key_env_name = "OR_KEY"` would otherwise leave pi's own openrouter, which reads only `OPENROUTER_API_KEY`, with no key. A literal `api_key` or `options.api_key` is not relayed, a literal key in the table being the drift [providers.md](../reference/providers.md) names; the profile line warns that it reaches no client and names `api_key_env_name` | 2026-10-06 | [§6.5](#65-what-the-build-decided) | ✅ `TestARepointedKeyReachesTheAgentsOwnClient`, `TestALiteralKeyOnABuiltInProviderWarns` |

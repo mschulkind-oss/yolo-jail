@@ -14,6 +14,18 @@
         "brew-cask": "codex",
         "pacman": "openai-codex"
       },
+      // Codex's native provider map in both checked public tags (read 2026-10-09):
+      // https://github.com/openai/codex/blob/rust-v0.158.0/codex-rs/model-provider-info/src/lib.rs#L643-L675
+      // https://github.com/openai/codex/blob/rust-v0.159.2/codex-rs/model-provider-info/src/lib.rs#L651-L683
+      // The map is built by `built_in_model_providers`; `responses` is a WireApi value, not a key.
+      // This is a verified source baseline, not a claim about the latest published Codex release.
+      "built_in_providers": {
+        "names": ["openai", "amazon-bedrock", "amazon-bedrock-runtime", "ollama", "lmstudio"],
+        "plans": {
+          "openai-codex": {"provider": "openai"}
+        },
+        "yolo_lists": ["openai-codex"]
+      },
       "kind": "program",
       // How `yolo host -p <profile> -- codex` moves codex for one launch without touching
       // ~/.codex/config.toml (docs/design/model-lists-and-pickers.md MM-D30): the config derive's

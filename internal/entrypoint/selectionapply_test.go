@@ -140,7 +140,65 @@ func (r *selectionRender) write(t *testing.T, m map[string]any) {
 	}
 }
 
-// selectionKey is the namespace as the agent's file would spell it. It must never
+func TestSelectionTransitionsToCodexNativeAndNoProfilePreservesUserSettings(t *testing.T) {
+	user, err := jsonx.Decode([]byte(`{
+	  "openai":{"base_url":"https://poison-openai.example/v1","models":{"default":"yolo-default","fast":"expanded-id"}},
+	  "llamacpp":{"base_url":"http://127.0.0.1:8080/v1","models":{"default":"custom-model"}}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	packs := testPacksForAgent(t, "codex", "zai")
+	providers, err := packload.ComposeProviders(user.(*jsonx.OrderedMap), packs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := packload.ResolveProfiles(packs, map[string]packload.UserProfile{
+		"custom": {Provider: "llamacpp"},
+		"native": {Provider: "openai", Options: map[string]string{"model": "fast"}},
+	}, providers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	codex, err := embeddedPack("codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := &selectionRender{errw: &bytes.Buffer{}}
+	r.e = &Env{Home: t.TempDir(), Workspace: t.TempDir(), Stderr: r.errw, Vars: map[string]string{
+		"YOLO_PROVIDERS": mustCompactJSON(t, providers),
+		"YOLO_PROFILES":  mustCompactJSON(t, packload.ProfilesWireTable(resolved)),
+	}}
+	withCtxRoot(t, t.TempDir(), "codex")
+	r.path = filepath.Join(r.e.Home, ".codex", "config.toml")
+	render := func(use string) map[string]any {
+		t.Helper()
+		r.e.Vars["YOLO_USE_PROFILES"] = use
+		ConfigurePackSurfaces(r.e, []*packload.Pack{codex})
+		if fails := r.e.GenFailures(); len(fails) != 0 {
+			t.Fatalf("boot render failed: %v\n%s", fails, r.errw.String())
+		}
+		return r.read(t)
+	}
+
+	if got := render(`{"codex":"custom"}`); got["model_provider"] != "llamacpp" || got["model"] != "custom-model" {
+		t.Fatalf("custom activation = %v/%v, want llamacpp/custom-model", got["model_provider"], got["model"])
+	}
+	if got := render(`{"codex":"native"}`); got["model_provider"] != "openai" || got["model"] != "fast" {
+		t.Fatalf("native transition = %v/%v, want openai/fast literal", got["model_provider"], got["model"])
+	}
+	got := r.read(t)
+	got["theme"] = "user-owned"
+	r.write(t, got)
+	got = render(`{}`)
+	if got["model_provider"] != nil || got["model"] != nil {
+		t.Errorf("deactivation left the yolo native selection behind: %v", got)
+	}
+	if got["theme"] != "user-owned" {
+		t.Errorf("deactivation cleared an unrelated user setting: %v", got)
+	}
+}
+
 // appear: the namespace is an implementation detail of the computed layer, and a file
 // carrying a literal `selection` table is a config the agent does not read.
 const selectionKey = "selection"

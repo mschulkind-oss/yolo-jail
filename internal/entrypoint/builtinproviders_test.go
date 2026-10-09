@@ -12,7 +12,8 @@ package entrypoint
 // pack and the providers its shipped neighbours compose, so deleting the ctx's call site, a
 // derive's check, or a name from a pack's list fails a case here. The names asserted are the
 // design's table (§6.4, "What yolo writes today"), not the packs' lists read back, so a list that
-// lost a shipped provider's name is caught rather than agreed with.
+// lost a shipped provider's name is caught rather than agreed with. Codex's bounded source list
+// and real-boot output are covered below independently of that older cross-agent table.
 
 import (
 	"bytes"
@@ -23,6 +24,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/codec"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
@@ -54,7 +56,198 @@ func builtInRender(t *testing.T, agentPack, use string) string {
 	return e.Home
 }
 
-// renderedFile decodes home/rel with codec (nil when the boot wrote no such file).
+func codexNativeFixture(t *testing.T, userProvidersJSON string, profiles map[string]packload.UserProfile) ([]*packload.Pack, *jsonx.OrderedMap, map[string]packload.ResolvedProfile) {
+	t.Helper()
+	packs := testPacksForAgent(t, "codex", "zai", "wire-bridge")
+	userProviders, err := jsonx.Decode([]byte(userProvidersJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	table, err := packload.ComposeProviders(userProviders.(*jsonx.OrderedMap), packs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := packload.ResolveProfiles(packs, profiles, table)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return packs, table, resolved
+}
+
+func renderCodexNativeFixture(t *testing.T, packs []*packload.Pack, providers *jsonx.OrderedMap,
+	resolved map[string]packload.ResolvedProfile, use string) map[string]any {
+	t.Helper()
+	var codex *packload.Pack
+	for _, p := range packs {
+		if p.Name == "codex" {
+			codex = p
+			break
+		}
+	}
+	if codex == nil {
+		t.Fatal("selected packs lack codex")
+	}
+	var errw bytes.Buffer
+	e := &Env{Home: t.TempDir(), Workspace: t.TempDir(), Stderr: &errw, Vars: map[string]string{
+		"YOLO_PROVIDERS":    mustCompactJSON(t, providers),
+		"YOLO_USE_PROFILES": use,
+		"YOLO_PROFILES":     mustCompactJSON(t, packload.ProfilesWireTable(resolved)),
+	}}
+	withCtxRoot(t, t.TempDir(), "codex")
+	ConfigurePackSurfaces(e, []*packload.Pack{codex})
+	if fails := e.GenFailures(); len(fails) != 0 {
+		t.Fatalf("Codex boot render failed: %v\n%s", fails, errw.String())
+	}
+	return renderedFile(t, e.Home, ".codex/config.toml", codec.TOML{})
+}
+
+const codexNativePoisonProviders = `{
+  "openai":{"base_url":"https://poison-openai.example/v1","models":{"default":"yolo-default","fast":"expanded-id"}},
+  "amazon-bedrock":{"base_url":"https://poison-bedrock.example/v1","models":{"default":"yolo-default","fast":"expanded-id"}},
+  "amazon-bedrock-runtime":{"base_url":"https://poison-runtime.example/v1","models":{"default":"yolo-default","fast":"expanded-id"}},
+  "ollama":{"base_url":"https://poison-ollama.example/v1","models":{"default":"yolo-default","fast":"expanded-id"}},
+  "lmstudio":{"base_url":"https://poison-lmstudio.example/v1","models":{"default":"yolo-default","fast":"expanded-id"}},
+  "responses":{"endpoints":{"openai-responses":{"base_url":"https://custom-responses.example/v1"}},"models":{"default":"responses-default"}},
+  "acme":{"endpoints":{"openai":{"base_url":"https://custom-acme.example/v1"}},"api_key_env_name":"ACME_KEY","models":{"default":"acme-default"}},
+  "llamacpp":{"base_url":"https://custom-llamacpp.example/v1","models":{"default":"llama-default"}}
+}`
+
+// CODEX'S BUILT-IN CATALOG IS OWNED BY ITS DECLARATION: the real selected Codex pack reaches
+// ctx.built_in_providers through ConfigurePackSurfaces, so poison endpoints under all five
+// Rust-native keys do not become model_providers rows. Native selection needs no reachable yolo
+// endpoint and passes a non-default profile model literally, not through yolo's alias table.
+func TestCodexNativeProvidersAreNotCataloguedAndSelectTheirOwnIDs(t *testing.T) {
+	profiles := map[string]packload.UserProfile{}
+	for _, name := range []string{"openai", "amazon-bedrock", "amazon-bedrock-runtime", "ollama", "lmstudio"} {
+		profiles[name] = packload.UserProfile{Provider: name, Options: map[string]string{"model": "fast"}}
+	}
+	profiles["codex-subscription"] = packload.UserProfile{Provider: "openai-codex"}
+	packs, table, resolved := codexNativeFixture(t, codexNativePoisonProviders, profiles)
+	declared := packload.BuiltInProvidersFor(packs, "codex")
+	wantNative := []string{"openai", "amazon-bedrock", "amazon-bedrock-runtime", "ollama", "lmstudio"}
+	if len(declared) != len(wantNative)+1 {
+		t.Fatalf("Codex built-in metadata has %d entries, want five native IDs plus its subscription plan: %v", len(declared), declared)
+	}
+	for _, name := range wantNative {
+		if got, ok := declared[name]; !ok || got.ID != name {
+			t.Errorf("Codex built-in %q = %+v (present %t), want that literal native ID", name, got, ok)
+		}
+	}
+	if _, ok := declared["responses"]; ok {
+		t.Errorf("responses is a wire name, not a Codex native provider key: %v", declared["responses"])
+	}
+	if sub, ok := declared["openai-codex"]; !ok || sub.ID != "openai" || !sub.YoloList {
+		t.Errorf("Codex subscription plan = %+v (present %t), want openai with yolo-owned list", sub, ok)
+	}
+	for _, name := range []string{"openai", "amazon-bedrock", "amazon-bedrock-runtime", "ollama", "lmstudio"} {
+		t.Run(name, func(t *testing.T) {
+			got := renderCodexNativeFixture(t, packs, table, resolved, `{"codex":"`+name+`"}`)
+			if got["model_provider"] != name || got["model"] != "fast" {
+				t.Errorf("native selection = %v/%v, want literal %s/fast", got["model_provider"], got["model"], name)
+			}
+			rows, _ := got["model_providers"].(map[string]any)
+			if rows[name] != nil {
+				t.Errorf("native provider %q was emitted as a configured row: %v", name, rows[name])
+			}
+		})
+	}
+
+	// The model alias is not expanded, and absent/default do not create a native model value.
+	for _, option := range []string{"", "default"} {
+		name := "openai"
+		profile := "openai"
+		if option == "default" {
+			profile = "openai-default"
+			profiles[profile] = packload.UserProfile{Provider: name, Options: map[string]string{"model": option}}
+			packs, table, resolved = codexNativeFixture(t, codexNativePoisonProviders, profiles)
+		}
+		if option == "" {
+			profiles["openai-no-model"] = packload.UserProfile{Provider: name}
+			packs, table, resolved = codexNativeFixture(t, codexNativePoisonProviders, profiles)
+			profile = "openai-no-model"
+		}
+		got := renderCodexNativeFixture(t, packs, table, resolved, `{"codex":"`+profile+`"}`)
+		if got["model_provider"] != name {
+			t.Errorf("native provider = %v, want %s", got["model_provider"], name)
+		}
+		if _, ok := got["model"]; ok {
+			t.Errorf("native model = %v for absent/default option %q, want no model", got["model"], option)
+		}
+	}
+
+	// A via profile cannot manufacture a bridge selection for any native key. In particular,
+	// Codex's early Bedrock-via branch must not select the bridge after its native row is dropped.
+	viaProviders := strings.Replace(codexNativePoisonProviders,
+		`"amazon-bedrock-runtime":{"base_url":`, `"amazon-bedrock-runtime":{"platform":"aws-bedrock","base_url":`, 1)
+	viaProfiles := map[string]packload.UserProfile{}
+	for _, name := range []string{"openai", "amazon-bedrock", "amazon-bedrock-runtime", "ollama", "lmstudio"} {
+		viaProfiles["via-"+name] = packload.UserProfile{Provider: name, Via: "wire-bridge",
+			Options: map[string]string{"model": "fast"}}
+	}
+	viaPacks, viaTable, viaResolved := codexNativeFixture(t, viaProviders, viaProfiles)
+	for _, name := range []string{"openai", "amazon-bedrock", "amazon-bedrock-runtime", "ollama", "lmstudio"} {
+		got := renderCodexNativeFixture(t, viaPacks, viaTable, viaResolved, `{"codex":"via-`+name+`"}`)
+		if got["model_provider"] != name || got["model"] != "fast" {
+			t.Errorf("native-key via selection for %s = %v/%v, want native ID/literal model", name, got["model_provider"], got["model"])
+		}
+		rows, _ := got["model_providers"].(map[string]any)
+		if rows[name] != nil || strings.Contains(mustCompactJSON(t, rows), "127.0.0.1:8216") {
+			t.Errorf("native-key via emitted a bridge row for %s: %v", name, rows)
+		}
+	}
+
+	// The legacy subscription policy still owns its yolo list and writes no provider key;
+	// a missing metadata table remains safe for this one old rule.
+	sub := renderCodexNativeFixture(t, packs, table, resolved, `{"codex":"codex-subscription"}`)
+	if sub["model_provider"] != nil || sub["model"] != "gpt-6.1-sol" {
+		t.Errorf("subscription selection = %v/%v, want no provider and yolo's first model", sub["model_provider"], sub["model"])
+	}
+	rows, _ := sub["model_providers"].(map[string]any)
+	if rows["openai-codex"] != nil {
+		t.Errorf("subscription metadata/list policy wrote a generic row: %v", rows["openai-codex"])
+	}
+}
+
+// A natively implemented provider is selectable even when the yolo declaration has no endpoint
+// Codex can use; the native provider map, not codexReachable, supplies that client.
+func TestCodexNativeSelectionDoesNotRequireAYoloEndpoint(t *testing.T) {
+	packs, table, resolved := codexNativeFixture(t,
+		`{"openai":{"models":{"default":"yolo-default","fast":"expanded-id"}}}`,
+		map[string]packload.UserProfile{"openai-fast": {Provider: "openai", Options: map[string]string{"model": "fast"}}})
+	got := renderCodexNativeFixture(t, packs, table, resolved, `{"codex":"openai-fast"}`)
+	if got["model_provider"] != "openai" || got["model"] != "fast" {
+		t.Errorf("endpoint-less native selection = %v/%v, want openai/fast", got["model_provider"], got["model"])
+	}
+	rows, _ := got["model_providers"].(map[string]any)
+	if rows["openai"] != nil {
+		t.Errorf("endpoint-less native selection emitted a custom row: %v", rows["openai"])
+	}
+}
+
+func TestCodexKeepsCustomProviderCatalogRowsAndNoProfileSelection(t *testing.T) {
+	profiles := map[string]packload.UserProfile{
+		"responses": {Provider: "responses"}, "acme": {Provider: "acme"}, "llamacpp": {Provider: "llamacpp"},
+	}
+	packs, table, resolved := codexNativeFixture(t, codexNativePoisonProviders, profiles)
+	got := renderCodexNativeFixture(t, packs, table, resolved, `{}`)
+	rows, _ := got["model_providers"].(map[string]any)
+	for _, name := range []string{"responses", "acme", "llamacpp"} {
+		if rows[name] == nil {
+			t.Errorf("custom provider %q lost its catalog row: %v", name, rows)
+		}
+	}
+	for _, name := range []string{"openai", "amazon-bedrock", "amazon-bedrock-runtime", "ollama", "lmstudio", "openai-codex"} {
+		if rows[name] != nil {
+			t.Errorf("no-profile render emitted built-in/subscription row %q: %v", name, rows[name])
+		}
+	}
+	for _, key := range []string{"model_provider", "model"} {
+		if _, ok := got[key]; ok {
+			t.Errorf("no profile wrote %s=%v", key, got[key])
+		}
+	}
+}
+
 func renderedFile(t *testing.T, home, rel string, c interface {
 	Decode([]byte) (any, error)
 }) map[string]any {

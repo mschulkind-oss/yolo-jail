@@ -287,7 +287,58 @@ func pointers(t *testing.T, p *Pack, base string) ([]string, error) {
 	return out, err
 }
 
-// TestDerivedViaPointersReadsWhatTheBootRenders pins WG-I15's inputs: every rendered surface
+func TestCodexViaScanHonorsNativeMetadataAndRetainsCustomRoutes(t *testing.T) {
+	packs := embeddedNamed(t, "codex", "openai-auth", "bedrock", "wire-bridge")
+	user, err := jsonx.Decode([]byte(`{
+	  "openai":{"base_url":"https://poison-openai.example/v1"},
+	  "amazon-bedrock":{"base_url":"https://poison-bedrock.example/v1"},
+	  "amazon-bedrock-runtime":{"platform":"aws-bedrock","region":"us-west-2","base_url":"https://poison-runtime.example/v1"},
+	  "ollama":{"base_url":"https://poison-ollama.example/v1"},
+	  "lmstudio":{"base_url":"https://poison-lmstudio.example/v1"},
+	  "responses":{"endpoints":{"openai-responses":{"base_url":"https://custom-responses.example/v1"}}}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	providers, err := ComposeProviders(user.(*jsonx.OrderedMap), packs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const viaBase = "http://127.0.0.1:8216"
+	for _, name := range []string{"openai", "amazon-bedrock", "amazon-bedrock-runtime", "ollama", "lmstudio"} {
+		t.Run(name, func(t *testing.T) {
+			resolved := map[string]ResolvedProfile{"native-via": {Provider: name, Via: "wire-bridge", ViaBase: viaBase}}
+			got, err := DerivedViaPointers(packs, providers, map[string]string{"codex": "native-via"}, resolved, "codex")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got) != 0 {
+				t.Errorf("Codex native-key via was reported as bridged: %+v", got)
+			}
+		})
+	}
+
+	custom := map[string]ResolvedProfile{"custom-via": {Provider: "responses", Via: "wire-bridge", ViaBase: viaBase}}
+	got, err := DerivedViaPointers(packs, providers, map[string]string{"codex": "custom-via"}, custom, "codex")
+	foundCustomResponsesRow := false
+	for _, ptr := range got {
+		if ptr.Surface == "config" && strings.Join(ptr.Path, ".") == "model_providers.responses.base_url" {
+			foundCustomResponsesRow = true
+		}
+	}
+	if err != nil || !foundCustomResponsesRow {
+		t.Errorf("custom Responses via pointers = %+v err %v, want its provider row", got, err)
+	}
+
+	// The shipped logical `bedrock` provider remains the custom bridge route; the native
+	// runtime region-only exception is tested through the boot/config fixture separately.
+	bedrock := map[string]ResolvedProfile{"bedrock-via": {Provider: "bedrock", Via: "wire-bridge", ViaBase: viaBase}}
+	got, err = DerivedViaPointers(packs, providers, map[string]string{"codex": "bedrock-via"}, bedrock, "codex")
+	if err != nil || len(got) == 0 {
+		t.Errorf("custom logical Bedrock bridge pointers = %+v err %v, want retained bridge route", got, err)
+	}
+}
+
 // the agent's packs declare and the agent's env producer are run with ctx.via_url set, and
 // each string that is the URL or lies under it is a pointer. An unrendered surface is never
 // derived at boot, so its output is not a pointer. A value that only shares the URL's text,

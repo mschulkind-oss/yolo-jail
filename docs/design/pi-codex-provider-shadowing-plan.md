@@ -3,20 +3,18 @@ title: "Implementation sketch: Pi Codex provider shadowing"
 date: 2026-09-27
 status: accepted
 stage: BUILT
-next: "Built: §2.1, OQ-3's broad reading (2026-10-05). Waits on OQ-4 for the openai-codex list, pi's native Bedrock row and a `models` only on a built-in provider; codex's own built-in list (BI-D9) is a later build that needs no ruling"
+next: "Built: §2.1, OQ-3's broad reading (2026-10-05), and BI-D9 for Codex (2026-10-09, no new ruling). OQ-4 remains held for the openai-codex list, native Bedrock list and models-only narrowing on built-in providers; Codex's new provider-name guard does not settle it"
 depends-on:
   - pi-codex-provider-shadowing.md#OQ-4
 tags: [providers, codex, pi, openai-auth, shadowing, plan]
-summary: "File targets and verification for pi-codex-provider-shadowing.md: the openai-codex exclusion in pi's derive and the needs-closure test helper are built, and a real -p codex launch asserts pi's models.json has no openai-codex row. OQ-3 ruled the broad reading on 2026-10-05, so the exclusion widens to every provider an agent has built in, declared per agent pack; that build landed the same day (§2.1)."
+summary: "File targets and verification for pi-codex-provider-shadowing.md: the openai-codex exclusion in pi's derive and the needs-closure test helper are built, and a real -p codex launch asserts pi's models.json has no openai-codex row. OQ-3's broad reading is built across pi, omp and opencode; BI-D9 now adds Codex's bounded native provider-name metadata and derive guards from two checked public source tags. OQ-4 remains held; no Codex CLI/auth/session was run."
 ---
 
 # Implementation Sketch: Pi Codex Provider Shadowing
 
-**Status:** 2026-10-05 — [OQ-3](pi-codex-provider-shadowing.md#OQ-3) ruled the broad reading, and
-[§2.1](#21-the-broad-reading-the-build) is built the same day, its decisions ledgered as
-[BI-D1 to BI-D10](pi-codex-provider-shadowing.md#65-what-the-build-decided);
-[OQ-4](pi-codex-provider-shadowing.md#OQ-4), filed the same day, holds two of its rows. Before
-that ruling, 2026-10-01: [§2](#2-pi-derive-changes) and [§3](#3-entrypoint-test-alignment) are built (`92c20cc6`, and the 2026-09-27 test helper), and [§5](#5-verification-checklist)'s last step is an integration launch, a container jail the suite starts, rather than a hand-run one. MEASURED: `TestCodexProfileRendersOneModelListForEveryAgent` ([`codex_model_list_test.go`](../../integration/codex_model_list_test.go)) launches `-p codex` over pi, claude, codex and opencode and finds pi's rendered `models.json` holding no `openai-codex` row beside `defaultProvider = "openai-codex"`; with the exclusion removed the same launch rendered that row and the test failed (revert-checked 2026-10-01). UNMEASURED: no pi session was run, so no request reached the subscription.
+**Status:** 2026-10-09 — [OQ-3](pi-codex-provider-shadowing.md#OQ-3)'s broad reading and BI-D1 to BI-D10 are built. BI-D9's Codex slice is now built without a new ruling: Codex's program pack declares the five native provider-map keys read from public tags `rust-v0.158.0` and `rust-v0.159.2`, and its derive suppresses generic catalog/via rows for them while selecting native IDs with literal non-default profile models. Its `openai-codex` plan maps to `openai` and stays in `yolo_lists`, retaining subscription menu policy. Boot, host-selection, VM and via-pointer tests cover the real callers, including custom controls and state transitions. The known tag pair is a source baseline, not latest-release monitoring; no Codex CLI, authentication or live provider request was run. [OQ-4](pi-codex-provider-shadowing.md#OQ-4) remains held.
+
+Previously, on 2026-10-05, [OQ-3](pi-codex-provider-shadowing.md#OQ-3) ruled the broad reading, and [§2.1](#21-the-broad-reading-the-build) was built the same day as [BI-D1 to BI-D10](pi-codex-provider-shadowing.md#65-what-the-build-decided). Before that ruling, 2026-10-01: [§2](#2-pi-derive-changes) and [§3](#3-entrypoint-test-alignment) were built (`92c20cc6`, and the 2026-09-27 test helper); [§5](#5-verification-checklist)'s last step is an integration launch, not a hand-run one. MEASURED: `TestCodexProfileRendersOneModelListForEveryAgent` ([`codex_model_list_test.go`](../../integration/codex_model_list_test.go)) launches `-p codex` over pi, claude, codex and opencode and finds pi's rendered `models.json` holding no `openai-codex` row beside `defaultProvider = "openai-codex"`; with the exclusion removed the same launch rendered that row and the test failed (revert-checked 2026-10-01). UNMEASURED: no pi session was run, so no request reached the subscription.
 
 This sketch holds implementation notes, file targets, and test verification details for
 [`pi-codex-provider-shadowing.md`](pi-codex-provider-shadowing.md). The design doc wins on
@@ -80,8 +78,9 @@ departed from a step, the step says so.
    ones a shipped provider can collide with is the build's choice; the whole list also catches a
    user's provider of that name. The list goes stale with an agent release (the design's R3).
    *Built* as [BI-D1](pi-codex-provider-shadowing.md#BI-D1) and
-   [BI-D2](pi-codex-provider-shadowing.md#BI-D2), the whole list; codex declares none yet
-   ([BI-D9](pi-codex-provider-shadowing.md#BI-D9)).
+   [BI-D2](pi-codex-provider-shadowing.md#BI-D2), the whole list for pi, omp and opencode. Codex's
+   five-name list was previously deferred in [BI-D9](pi-codex-provider-shadowing.md#BI-D9)
+   and is now built from the two checked Rust tags; its stale-release risk remains.
 2. **No derive writes a row under a declared name.** pi's `native` flag becomes membership in the
    list, gating the catalog row and the via row as it does for `openai-codex` now; omp's and
    opencode's catalog loops take the same check. The settings derives write no yolo model id for
@@ -198,3 +197,14 @@ Once the design is decided and ready to implement:
    `models.json`, `zai` and the via disclosure), since the derives' output is read at a real
    launch. The integration launches ran in a nested jail, which is blind to no class this change
    touches: no loopback or rootless path moved.
+6. **BI-D9's Codex source-follow-up:** ✅ 2026-10-09. Tagged upstream source at
+   `rust-v0.158.0` and `rust-v0.159.2` both declares the same five provider-map keys in
+   `built_in_model_providers`; `responses` is a wire value, not a key. Checks render literal boot
+   output for all five keys, custom `responses`/`acme`/`llamacpp` controls, host selection, the
+   actual via-pointer scan, VM false-plan/legacy behavior, and a custom→native→no-profile stateful
+   transition. Regression mutations deleting the derive catalog guard, native selection branch, early Bedrock-via guard,
+   one manifest name, boot ctx handoff, host selected-pack handoff, and via-scan handoff each
+   compiled and failed their asserting test, then were restored. Focused tests also re-check native
+   Bedrock's existing region-only row, custom logical Bedrock bridge, and Codex subscription
+   selection. No Codex CLI/auth/live provider request or latest-release verification was performed;
+   [OQ-4](pi-codex-provider-shadowing.md#OQ-4) remains held.
