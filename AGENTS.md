@@ -483,9 +483,10 @@ live, so edits are visible on the host instantly — there is no sync step.
   ⚠ **`LD_LIBRARY_PATH` never names `/lib` or `/usr/lib`**: they carry the merged tree's glibc,
   which a nix binary built against an older one then loads and crashes on (`GLIBC_PRIVATE`). The
   launch unsets it, the boot scrubs those entries, and it names only `/usr/local/lib/yolo-ld`
-  (GCC runtimes, zlib, `packages:` libs) and, store-delivered, `/run/yolo/packages/lib`. The rest
-  of the farm, glibc excepted, reaches FHS binaries through nix-ld's compiled-in path
-  (`/usr/local/lib/yolo-fhs`), never `LD_LIBRARY_PATH`, because some of it needs a newer glibc than
+  (GCC runtimes, zlib, `packages:` libs) and, store-delivered, `/run/yolo/packages/lib` (`packages:`
+  libs only). The rest of the farm, glibc excepted, reaches FHS binaries through nix-ld's compiled-in
+  path (`/usr/local/lib/yolo-fhs`, and store-delivered `/run/yolo/packages/fhs-lib`, which holds the
+  lean image's chromium stack), never `LD_LIBRARY_PATH`, because some of it needs a newer glibc than
   an older nix program has ([`mise-node-dynamic-linking.md`](docs/reference/mise-node-dynamic-linking.md)).
 - The built-in skills (`configuring-the-jail`, `diagnosing-the-jail`) are injected into every jail. The
   one-time host→jail handoff is NOT a skill: a fresh `.yolo/handover.md` the host agent filed becomes a

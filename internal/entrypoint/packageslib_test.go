@@ -132,12 +132,12 @@ func TestTheStoreFarmLinksNoGlibc(t *testing.T) {
 		}
 	}
 	root := t.TempDir()
-	for _, d := range []string{storeBinDir(root), storePkgConfigDir(root)} {
+	for _, d := range []string{storeBinDir(root), storePkgConfigDir(root), storeFHSLibDir(root)} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := linkStoreProfile(profile, root); err != nil {
+	if err := linkStoreProfile(profile, root, true); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Lstat(filepath.Join(storeLibDir(root), "libc.so.6")); err == nil {
@@ -145,5 +145,9 @@ func TestTheStoreFarmLinksNoGlibc(t *testing.T) {
 	}
 	if _, err := os.Lstat(filepath.Join(storeLibDir(root), "libzbar.so.0")); err != nil {
 		t.Errorf("the store farm dropped libzbar.so.0: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(storeFHSLibDir(root), "libc.so.6")); err == nil {
+		t.Error("the store farm linked glibc's libc.so.6 into the nix-ld dir; an FHS " +
+			"binary's glibc is nix-ld's, as in the image's yolo-fhs")
 	}
 }

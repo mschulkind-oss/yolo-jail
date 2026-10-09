@@ -238,6 +238,17 @@ func TestDevPackageLinksRuntimeLib(t *testing.T) {
 // lean variant — and it is also the "shadowing inversion" §3.1 warns about, measured: a
 // name that could not be shadowed while it was baked is now delivered like any other.
 //
+// PROBES 6 AND 7 ARE THE LIBRARY SPLIT (docs/reference/mise-node-dynamic-linking.md): the
+// extras' chromium stack must stay off LD_LIBRARY_PATH, because glib needs a newer glibc
+// symbol version than an older nix program has, and must still reach FHS binaries through
+// nix-ld:
+//
+//  6. no LD_LIBRARY_PATH directory holds libglib-2.0.so.0 or libc.so.6, while the
+//     `packages:` dir is still on it (probe 3 is its dlopen);
+//  7. an FHS binary (interpreter /lib64/…, i.e. nix-ld) NEEDing libglib-2.0.so.0 starts
+//     under `env -i`: nix-ld's compiled-in path names /run/yolo/packages/fhs-lib, the one
+//     place a lean launch's glib is. The mirror of TestExtraPackageLibFarm's probe 6.
+//
 // SKIPS rather than fails when the machine is not eligible. Store delivery needs podman +
 // Linux + a running nix daemon (§3.2), and on a host without them the CLI says so and
 // bakes — at which point probe 2 would fail and read as a lib-farm bug, which is the exact
@@ -268,6 +279,14 @@ func TestExtraPackagesFromMountedStore(t *testing.T) {
 		`echo "=== DLOPEN ==="; python3 -c 'import ctypes; ctypes.CDLL("libzbar.so.0"); print("dlopen-ok")'`,
 		`echo "=== EXTRAS ==="; command -v fzf || true`,
 		`echo "=== LEANBIN ==="; ls /bin/fzf 2>/dev/null || echo not-in-bin`,
+		`echo "=== NOGLIB ==="; echo "LDLP=$LD_LIBRARY_PATH"; ` +
+			`for d in $(echo "$LD_LIBRARY_PATH" | tr ':' ' '); do ` +
+			`[ -e "$d/libglib-2.0.so.0" ] && echo "GLIB-IN $d"; ` +
+			`[ -e "$d/libc.so.6" ] && echo "GLIBC-IN $d"; done; true`,
+		`echo "=== FHSGLIB ==="; f=$(mktemp -d); ld=$(ls /lib64/ld-linux-x86-64.so.2 /lib/ld-linux-aarch64.so.1 2>/dev/null | head -1); ` +
+			`printf '#include <stdio.h>\nextern const unsigned int glib_major_version;\nint main(void){ printf("fhs-glib-ok %%u\\n", glib_major_version); return 0; }\n' > $f/m.c; ` +
+			`NIX_DONT_SET_RPATH_x86_64_unknown_linux_gnu=1 NIX_DONT_SET_RPATH_aarch64_unknown_linux_gnu=1 ` +
+			`gcc -o $f/fhs $f/m.c /run/yolo/packages/fhs-lib/libglib-2.0.so.0 -Wl,--dynamic-linker=$ld && env -i $f/fhs 2>&1; true`,
 	}, "\n"), withTimeout(nixBuildJailTimeout), withEnv("YOLO_STORE_PACKAGES=1"))
 
 	if strings.Contains(r.combined(), "YOLO_STORE_PACKAGES=1 ignored") {
@@ -284,7 +303,9 @@ func TestExtraPackagesFromMountedStore(t *testing.T) {
 	baked := section(r.stdout, "=== BAKED ===", "=== DLOPEN ===")
 	dlopen := section(r.stdout, "=== DLOPEN ===", "=== EXTRAS ===")
 	extras := section(r.stdout, "=== EXTRAS ===", "=== LEANBIN ===")
-	leanbin := section(r.stdout, "=== LEANBIN ===", "")
+	leanbin := section(r.stdout, "=== LEANBIN ===", "=== NOGLIB ===")
+	noglib := section(r.stdout, "=== NOGLIB ===", "=== FHSGLIB ===")
+	fhsGlib := section(r.stdout, "=== FHSGLIB ===", "")
 
 	if !strings.Contains(which, "/run/yolo/packages/bin/zbarimg") {
 		t.Errorf("zbarimg did not resolve to the store-delivered farm:\n%s", which)
@@ -308,5 +329,22 @@ func TestExtraPackagesFromMountedStore(t *testing.T) {
 		t.Errorf("/bin/fzf EXISTS on an opt-in launch, so the run path built the FULL "+
 			"image and not the lean one. The lean attr is where C5's ~1.6–2 GB comes "+
 			"from; without it the extras profile is pure cost:\n%s", leanbin)
+	}
+	// The library split.
+	if !strings.Contains(noglib, "LDLP=") {
+		t.Errorf("NOGLIB probe did not run:\n%s", noglib)
+	}
+	if strings.Contains(noglib, "GLIB-IN") || strings.Contains(noglib, "GLIBC-IN") {
+		t.Errorf("an LD_LIBRARY_PATH directory holds the image extras' glib or glibc; glib "+
+			"needs GLIBC_2.43, so a nix program on an older glibc that NEEDs it fails to "+
+			"start (docs/reference/mise-node-dynamic-linking.md):\n%s", noglib)
+	}
+	if !strings.Contains(noglib, "/run/yolo/packages/lib") {
+		t.Errorf("LD_LIBRARY_PATH does not name /run/yolo/packages/lib, so a `packages:` "+
+			"library is not dlopen-able by bare soname:\n%s", noglib)
+	}
+	if !strings.Contains(fhsGlib, "fhs-glib-ok") {
+		t.Errorf("an FHS binary NEEDing libglib-2.0.so.0 did not start under env -i — "+
+			"nix-ld's default library path no longer reaches /run/yolo/packages/fhs-lib:\n%s", fhsGlib)
 	}
 }

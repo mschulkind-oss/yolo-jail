@@ -309,11 +309,16 @@ func TestImageExtrasRideBehindTheWorkspacePackages(t *testing.T) {
 	if !ok {
 		t.Fatal("addImageExtras refused")
 	}
-	want := []string{"/nix/store/user-profile", "/nix/store/extras-profile"}
-	if !slices.Equal(plan.Profiles, want) {
-		t.Errorf("profiles = %v, want %v — the workspace's own `packages:` must LEAD, "+
-			"because the jail's farm is first-wins and a baked image gives them the "+
-			"same precedence", plan.Profiles, want)
+	if want := []string{"/nix/store/user-profile"}; !slices.Equal(plan.Profiles, want) {
+		t.Errorf("profiles = %v, want %v — the workspace's own `packages:` lead, and "+
+			"only they go on the jail's LD_LIBRARY_PATH", plan.Profiles, want)
+	}
+	// The extras go on the FHS-only list: their chromium stack (glib needs GLIBC_2.43)
+	// must reach FHS binaries through nix-ld, never every nix program's LD_LIBRARY_PATH.
+	// The jail links this list BEHIND Profiles, which keeps the user's first-wins.
+	if want := []string{"/nix/store/extras-profile"}; !slices.Equal(plan.FHSProfiles, want) {
+		t.Errorf("FHS-only profiles = %v, want %v — the image extras must not ride the "+
+			"LD_LIBRARY_PATH list", plan.FHSProfiles, want)
 	}
 
 	// A launch that bakes must not pay for a build whose output it will not use.
@@ -322,7 +327,7 @@ func TestImageExtrasRideBehindTheWorkspacePackages(t *testing.T) {
 		t.Fatal("a launch that did not opt in must not build the extras profile")
 		return "", nil
 	}
-	if got, ok := baked.addImageExtras(storePackagesPlan{}, "/repo"); !ok || len(got.Profiles) != 0 {
+	if got, ok := baked.addImageExtras(storePackagesPlan{}, "/repo"); !ok || len(got.Profiles)+len(got.FHSProfiles) != 0 {
 		t.Errorf("baked plan = %+v, ok = %v", got, ok)
 	}
 }
@@ -365,6 +370,25 @@ func TestStoreProfilesReachTheContainerArgv(t *testing.T) {
 	if !slices.Equal(got, want) {
 		t.Errorf("store-profiles env pair = %v, want %v — the ORDER is precedence, and "+
 			"the jail's farm is first-wins", got, want)
+	}
+
+	// The image extras travel on their own variable, so the jail can keep their
+	// libraries off LD_LIBRARY_PATH; an extras-only plan (no `packages:`) still emits.
+	got = pair(&assembleInput{storePackages: storePackagesPlan{
+		Active:      true,
+		Profiles:    []string{"/nix/store/aaa"},
+		FHSProfiles: []string{"/nix/store/extras"},
+	}})
+	want = []string{"-e", entrypoint.StoreProfilesEnv + "=/nix/store/aaa",
+		"-e", entrypoint.StoreFHSProfilesEnv + "=/nix/store/extras"}
+	if !slices.Equal(got, want) {
+		t.Errorf("store-profiles env pairs = %v, want %v", got, want)
+	}
+	got = pair(&assembleInput{storePackages: storePackagesPlan{
+		Active: true, FHSProfiles: []string{"/nix/store/extras"}}})
+	want = []string{"-e", entrypoint.StoreFHSProfilesEnv + "=/nix/store/extras"}
+	if !slices.Equal(got, want) {
+		t.Errorf("extras-only env pair = %v, want %v", got, want)
 	}
 }
 

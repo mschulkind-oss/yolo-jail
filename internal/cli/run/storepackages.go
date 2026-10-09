@@ -72,20 +72,34 @@ type storePackagesPlan struct {
 	// Active: this launch delivers packages from the mounted store, and the image it
 	// builds does not contain them.
 	Active bool
-	// Profiles are the buildEnv store paths, in PRECEDENCE order — the jail's farm is
-	// first-wins, so the user's own `packages:` profile leads.
+	// Profiles are the workspace's own `packages:` buildEnv store paths, in PRECEDENCE
+	// order — the jail's farm is first-wins, so they lead. Their libraries go on
+	// LD_LIBRARY_PATH, which is what keeps a `packages:` library dlopen-able by bare soname.
 	Profiles []string
+	// FHSProfiles are yolo's own image extras (`.#yoloImageExtras`, C5), linked BEHIND
+	// Profiles. Their libraries reach FHS binaries only, through nix-ld's compiled-in
+	// path, and never LD_LIBRARY_PATH: the chromium stack in them (glib, pixman) needs a
+	// newer glibc than an older nix program has, which is the baked image's yolo-fhs rule
+	// (docs/reference/mise-node-dynamic-linking.md).
+	FHSProfiles []string
 }
 
-// storePackagesEnv returns the `-e YOLO_STORE_PROFILES=…` pair for an active plan with
-// something to deliver, and nil otherwise. An active plan with no profiles emits nothing:
-// there is no farm to build, and an empty variable would make the jail claim store
-// delivery is live while linking nothing.
+// env returns the `-e YOLO_STORE_PROFILES=…` and `-e YOLO_STORE_FHS_PROFILES=…` pairs for
+// an active plan, each only when its list is non-empty, and nil otherwise. An active plan
+// with no profiles at all emits nothing: there is no farm to build, and an empty variable
+// would make the jail claim store delivery is live while linking nothing.
 func (p storePackagesPlan) env() []string {
-	if !p.Active || len(p.Profiles) == 0 {
+	if !p.Active {
 		return nil
 	}
-	return []string{"-e", entrypoint.StoreProfilesEnv + "=" + strings.Join(p.Profiles, ":")}
+	var out []string
+	if len(p.Profiles) > 0 {
+		out = append(out, "-e", entrypoint.StoreProfilesEnv+"="+strings.Join(p.Profiles, ":"))
+	}
+	if len(p.FHSProfiles) > 0 {
+		out = append(out, "-e", entrypoint.StoreFHSProfilesEnv+"="+strings.Join(p.FHSProfiles, ":"))
+	}
+	return out
 }
 
 // envTruthy is the launcher's spelling of "the operator said yes", matching
@@ -201,9 +215,11 @@ func (o *Options) planStorePackages(cfg *jsonx.OrderedMap, rt, repoRoot string, 
 // chromium graphics stack the /lib farm used to link — and append it to the plan's
 // profiles, so the launch can build the LEAN image instead.
 //
-// APPENDED, NEVER PREPENDED, and the order is the whole of the collision rule. The jail's
-// farm is first-wins, so the workspace's own `packages:` profile leads and yolo's stock
-// extras fill in behind it. That reproduces the precedence a baked image already has —
+// A SEPARATE LIST, BEHIND THE USER'S, and the order is the whole of the collision rule.
+// The jail's farm is first-wins and links YOLO_STORE_PROFILES before
+// YOLO_STORE_FHS_PROFILES, so the workspace's own `packages:` profile leads and yolo's
+// stock extras fill in behind it. The list is separate because the two differ in where
+// their libraries go: the extras' stay off LD_LIBRARY_PATH (see FHSProfiles). That reproduces the precedence a baked image already has —
 // `packages:` and `fullPackages` both land in the image's `contents`, and a workspace that
 // declares a version of a tool yolo also ships expects its own.
 //
@@ -228,7 +244,7 @@ func (o *Options) addImageExtras(plan storePackagesPlan, repoRoot string) (store
 			err.Error(), StorePackagesOptInEnv)
 		return storePackagesPlan{}, false
 	}
-	plan.Profiles = append(plan.Profiles, profile)
+	plan.FHSProfiles = append(plan.FHSProfiles, profile)
 	return plan, true
 }
 

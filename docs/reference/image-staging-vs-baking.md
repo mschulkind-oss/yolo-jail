@@ -58,7 +58,7 @@ it builds contains none of them.
 | Prefix resolution and the two mounts | `internal/cli/run` (`resolveJailPrefix`, `jailPrefixMountArgs`, `prefixUnreachableFromVM`, `JailEntrypointPath`) |
 | The macOS Podman Machine share-list pre-flight | `internal/runtime` (`ReadMachineShares`, `MachineShares.Unreachable`); `internal/cli/run` (`unsharedBindSources`, `bindSources`); `internal/cli/check` (`checkPodmanMachineShares`) |
 | Store-delivered packages, host half | `internal/cli/run` (`planStorePackages`, `storePackagesEligible`, `addImageExtras`); `internal/darwinpkg` (`MaterializeAt`) |
-| Store-delivered packages, jail half | `internal/entrypoint` (`StoreProfilesEnv`, `StorePackagesRoot`, `imageProbePath`) |
+| Store-delivered packages, jail half | `internal/entrypoint` (`StoreProfilesEnv`, `StoreFHSProfilesEnv`, `StorePackagesRoot`, `imageProbePath`) |
 | The bundle an install stages | `scripts/stage-source-bundle.sh`, `scripts/build-go.sh` |
 
 **Reads with:** [`nix-across-backends.md`](nix-across-backends.md) (what nix produces for each
@@ -1272,11 +1272,15 @@ images do.
 `builtins.getEnv`, so an opting-in machine holds **one image** however many workspaces declare
 however many lists.
 
-**The jail half** reads `YOLO_STORE_PROFILES` — a colon-separated, precedence-ordered list of
-profile store paths (a store path's name can never contain a colon) — and builds a symlink farm
-at `/run/yolo/packages`: each profile's `bin` into one PATH directory, its `lib/lib*.so*` into one
-`LD_LIBRARY_PATH` directory, its `lib/pkgconfig/*.pc` into one `PKG_CONFIG_PATH` directory,
-first-wins. A fixed directory rather than the profiles' own paths, because five things name the
+**The jail half** reads `YOLO_STORE_PROFILES` (the workspace's `packages:` profile) and
+`YOLO_STORE_FHS_PROFILES` (the image extras) — each a colon-separated, precedence-ordered list
+of profile store paths (a store path's name can never contain a colon), the first list ahead of
+the second — and builds a symlink farm at `/run/yolo/packages`: each profile's `bin` into one PATH
+directory, its `lib/pkgconfig/*.pc` into one `PKG_CONFIG_PATH` directory, and its `lib/lib*.so*`
+into `fhs-lib`, the directory nix-ld searches, all first-wins. Only the first list's libraries
+also go into `lib`, the `LD_LIBRARY_PATH` directory: that is the bare-soname `dlopen` a
+`packages:` library promises, while the extras' chromium stack stays off the variable as the
+baked image's does ([`mise-node-dynamic-linking.md`](mise-node-dynamic-linking.md)). A fixed directory rather than the profiles' own paths, because five things name the
 location — `BootPath`, the `.bashrc` copy of it, the launcher-collision probe, ldconfig's scan
 list and `LD_LIBRARY_PATH` — and a store hash in any of them is a value that must be threaded
 and can drift. `/run` is a tmpfs, so the farm is writable under the read-only root and starts
@@ -1310,11 +1314,9 @@ the closure whether or not it appears in `contents`.
 > **A scrubbed `LD_LIBRARY_PATH` loses a store-delivered library, exactly as it lost a baked
 > user library.** nixpkgs' `ld.so` never reads the FHS `ld.so.cache`, so for a nix-built
 > process both `/usr/local/lib/yolo-ld` and `/run/yolo/packages/lib` are discoverable only
-> through the variable. nix-ld's compiled-in path names only baked directories, so an FHS binary
-> under `env -i` does not find a store-delivered library. And because a lean launch's chromium
-> stack (glib among it) arrives in `/run/yolo/packages/lib`, it IS on `LD_LIBRARY_PATH` there,
-> which the baked image avoids: glib needs a newer glibc symbol version than an older nix program
-> may have ([`mise-node-dynamic-linking.md`](mise-node-dynamic-linking.md)).
+> through the variable. An FHS binary is unaffected: nix-ld's compiled-in path names
+> `/run/yolo/packages/fhs-lib`, which holds every delivered library, so it finds them under
+> `env -i` too.
 
 Two package-delivery mechanisms are maintained on purpose. That asymmetry is the accepted price
 of the ruling that store delivery is an opt-in fast path with the baked path retained; the
@@ -1549,8 +1551,8 @@ values themselves are stated.
 | macOS "the VM shares `/nix`" (reachability; gates the prefix mount) | `YOLO_NIX_HOST_DAEMON` truthy (`1`, `true`, `yes`) | `prefixUnreachableFromVM`, `envTruthy` |
 | macOS "my store holds the jail's Linux closure" (gates delegation, additionally) | `YOLO_NIX_HOST_STORE_LINUX` truthy | `shouldMountHostNix`, `nixHostStoreLinuxEnv` |
 | Store-delivery opt-in | `YOLO_STORE_PACKAGES` truthy | `StorePackagesOptInEnv` (`internal/cli/run/storepackages.go`) |
-| Launch → boot profile list | `YOLO_STORE_PROFILES`, colon-separated, precedence-ordered | `entrypoint.StoreProfilesEnv` |
-| The farm | `/run/yolo/packages/{bin,lib,lib/pkgconfig}`; `bin` sits immediately before `/bin` in `BootPath` | `entrypoint.StorePackagesRoot`, `BootPath` |
+| Launch → boot profile lists | `YOLO_STORE_PROFILES` (`packages:`), then `YOLO_STORE_FHS_PROFILES` (image extras), each colon-separated, precedence-ordered | `entrypoint.StoreProfilesEnv`, `entrypoint.StoreFHSProfilesEnv` |
+| The farm | `/run/yolo/packages/{bin,lib,lib/pkgconfig,fhs-lib}`; `bin` sits immediately before `/bin` in `BootPath`; `lib` (`packages:` only) on `LD_LIBRARY_PATH`; `fhs-lib` (every profile) on nix-ld's path | `entrypoint.StorePackagesRoot`, `BootPath`, `entrypoint.StorePackagesFHSLib` |
 | `packages:` into the flake | `YOLO_EXTRA_PACKAGES` (JSON), read with `builtins.getEnv` | `image.AutoLoadOptions.ExtraPackages`; `extraPackages` (`flake.nix`) |
 | Image reap on the launch path | every image except each workspace's current one, at most once per 24 h, opt out with `YOLO_NO_AUTO_IMAGE_REAP` | `prune.ReadCurrentImagePointers`, `prune.AutoReapInterval`; `autoReapOptOutEnv` (`internal/cli/run/autoreapimages.go`) |
 | Binary-cache substituter | `yolo-jail.cachix.org` | `nixConfig` (`flake.nix`) |

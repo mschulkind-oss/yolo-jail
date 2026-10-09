@@ -878,7 +878,11 @@
         # const (NOT an option_env!), so it is retargeted with substituteInPlace
         # to two baked non-store dirs, /usr/share/nix-ld/lib (the trio) and
         # /usr/local/lib/yolo-fhs (the glibc-free FHS farm), both laid down in
-        # mkBinPathLinks below.  Both defaults are compiled in, so no NIX_LD*
+        # mkBinPathLinks below, then /run/yolo/packages/fhs-lib, the boot-written
+        # twin of yolo-fhs on a store-delivered launch (the lean image's chromium
+        # stack from yoloImageExtras; internal/entrypoint/storepackages.go,
+        # StorePackagesFHSLib).  On a baked launch that dir does not exist and the
+        # loader skips it.  Both defaults are compiled in, so no NIX_LD*
         # env vars and no entrypoint /run wiring are needed.  --replace-fail
         # hard-errors at build time if the upstream const string ever drifts.
         # Nix-built binaries keep their store-path PT_INTERP and never pass
@@ -888,15 +892,17 @@
           env = (o.env or {}) // {
             DEFAULT_NIX_LD = "${imagePkgs.stdenv.cc.bintools.dynamicLinker}";
           };
-          # The library-path constant becomes TWO dirs: the trio fallback dir,
-          # then the glibc-free FHS farm (/usr/local/lib/yolo-fhs, mkBinPathLinks).
+          # The library-path constant becomes THREE dirs: the trio fallback dir,
+          # the glibc-free FHS farm (/usr/local/lib/yolo-fhs, mkBinPathLinks), then
+          # the store-delivered FHS farm the boot writes (/run/yolo/packages/fhs-lib).
+          # Baked first, so a library both baked and staged loads the baked copy.
           # nix-ld appends this default to LD_LIBRARY_PATH for the FHS binary it
           # loads (and blanks it for that binary's children), so a ":" list is
           # passed to ld.so verbatim.  The quoted constant is replaced first; the
           # second, broader replace then retargets only the unused ld.so fallback.
           postPatch = (o.postPatch or "") + ''
             substituteInPlace src/main.rs \
-              --replace-fail 'b"/run/current-system/sw/share/nix-ld/lib"' 'b"/usr/share/nix-ld/lib:/usr/local/lib/yolo-fhs"' \
+              --replace-fail 'b"/run/current-system/sw/share/nix-ld/lib"' 'b"/usr/share/nix-ld/lib:/usr/local/lib/yolo-fhs:/run/yolo/packages/fhs-lib"' \
               --replace-fail '/run/current-system/sw/share/nix-ld/lib' '/usr/share/nix-ld/lib'
           '';
         });

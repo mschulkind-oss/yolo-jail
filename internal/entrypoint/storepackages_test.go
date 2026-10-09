@@ -6,6 +6,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -66,7 +67,7 @@ func TestStoreFarmLinksBinLibAndPkgConfig(t *testing.T) {
 		[]string{"zbarimg"}, []string{"libzbar.so.0", "libzbar.so.0.3.0", "notalib.txt"},
 		[]string{"zbar.pc"})
 	root := t.TempDir()
-	if err := buildStorePackageFarm(testEnv(t), root, []string{profile}); err != nil {
+	if err := buildStorePackageFarm(testEnv(t), root, []string{profile}, nil); err != nil {
 		t.Fatalf("buildStorePackageFarm: %v", err)
 	}
 
@@ -100,7 +101,7 @@ func TestStoreFarmPrecedenceIsFirstProfileWins(t *testing.T) {
 	second := fakeProfile(t, filepath.Join(base, "extras"), []string{"fzf", "bat"}, []string{"libz.so.1"}, nil)
 
 	root := t.TempDir()
-	if err := buildStorePackageFarm(testEnv(t), root, []string{first, second}); err != nil {
+	if err := buildStorePackageFarm(testEnv(t), root, []string{first, second}, nil); err != nil {
 		t.Fatalf("buildStorePackageFarm: %v", err)
 	}
 	if got, want := linkTarget(t, root, "bin/fzf"), filepath.Join(first, "bin", "fzf"); got != want {
@@ -121,7 +122,7 @@ func TestStoreFarmPrecedenceIsFirstProfileWins(t *testing.T) {
 // store is not mounted the way the host believed — and linking nothing would hand the
 // agent a jail quietly missing every tool the workspace declared.
 func TestStoreFarmRefusesAnUnresolvableProfile(t *testing.T) {
-	err := buildStorePackageFarm(testEnv(t), t.TempDir(), []string{"/nix/store/does-not-exist-profile"})
+	err := buildStorePackageFarm(testEnv(t), t.TempDir(), []string{"/nix/store/does-not-exist-profile"}, nil)
 	if err == nil {
 		t.Fatal("a profile that does not resolve inside the jail must be a FATAL boot " +
 			"error: there is no baked copy to fall back on, so linking nothing " +
@@ -138,10 +139,10 @@ func TestStoreFarmRefusesAnUnresolvableProfile(t *testing.T) {
 func TestStoreFarmIsClearedWhenTheLaunchStopsOptingIn(t *testing.T) {
 	profile := fakeProfile(t, filepath.Join(t.TempDir(), "profile"), []string{"jq"}, nil, nil)
 	root := t.TempDir()
-	if err := buildStorePackageFarm(testEnv(t), root, []string{profile}); err != nil {
+	if err := buildStorePackageFarm(testEnv(t), root, []string{profile}, nil); err != nil {
 		t.Fatalf("buildStorePackageFarm: %v", err)
 	}
-	if err := buildStorePackageFarm(testEnv(t), root, nil); err != nil {
+	if err := buildStorePackageFarm(testEnv(t), root, nil, nil); err != nil {
 		t.Fatalf("buildStorePackageFarm (no profiles): %v", err)
 	}
 	if _, err := os.Lstat(filepath.Join(root, "bin", "jq")); err == nil {
@@ -382,15 +383,17 @@ func TestStorePackagesGenStepRunsBeforeItsTwoConsumers(t *testing.T) {
 		if fn, ok := call.Fun.(*ast.Ident); ok && fn.Name == "generateLdCache" {
 			calls++
 			// The Env became the first argument when the ldconfig run learned to report
-			// its own timeout, so the extra dir is the LAST one.
-			if len(call.Args) != 2 {
-				t.Errorf("generateLdCache is called with %d args, want 2 "+
-					"(the Env, then StorePackagesLib()) — without the extra dir "+
-					"the cache omits every store-delivered library", len(call.Args))
-			} else if !namesCallTo(call.Args[1], "StorePackagesLib") {
-				t.Error("generateLdCache's last argument is no longer " +
-					"StorePackagesLib() — without the farm's lib dir the " +
-					"ld.so.cache omits every store-delivered library")
+			// its own timeout, so the extra dirs follow it: the LD_LIBRARY_PATH lib dir,
+			// then the nix-ld dir that alone holds the image extras' libraries.
+			if len(call.Args) != 3 {
+				t.Errorf("generateLdCache is called with %d args, want 3 "+
+					"(the Env, StorePackagesLib(), StorePackagesFHSLib()) — without the "+
+					"extra dirs the cache omits store-delivered libraries", len(call.Args))
+			} else if !namesCallTo(call.Args[1], "StorePackagesLib") ||
+				!namesCallTo(call.Args[2], "StorePackagesFHSLib") {
+				t.Error("generateLdCache's extra arguments are no longer StorePackagesLib(), " +
+					"StorePackagesFHSLib() — without both farm lib dirs the ld.so.cache " +
+					"omits store-delivered libraries (the image extras live only in the second)")
 			}
 		}
 		return true
@@ -410,4 +413,132 @@ func namesCallTo(expr ast.Expr, name string) bool {
 	}
 	ident, ok := call.Fun.(*ast.Ident)
 	return ok && ident.Name == name
+}
+
+// TestStoreFarmKeepsFHSProfilesOffTheLDPath pins the split between the two profile lists,
+// which is the store-delivered form of the baked image's yolo-ld / yolo-fhs pair
+// (docs/reference/mise-node-dynamic-linking.md). The image extras' chromium stack carries
+// glib, which needs GLIBC_2.43: in the LD_LIBRARY_PATH dir it is handed to every nix
+// program, and a glibc-2.42 one that NEEDs libglib then fails to start. So an FHS-only
+// profile's libraries go into the nix-ld dir only, while a `packages:` profile's go into
+// both (bare-soname dlopen is that list's promised behavior).
+func TestStoreFarmKeepsFHSProfilesOffTheLDPath(t *testing.T) {
+	base := t.TempDir()
+	user := fakeProfile(t, filepath.Join(base, "user"), []string{"zbarimg"},
+		[]string{"libzbar.so.0", "libz.so.1"}, []string{"zbar.pc"})
+	extras := fakeProfile(t, filepath.Join(base, "extras"), []string{"chromium"},
+		[]string{"libglib-2.0.so.0", "libz.so.1"}, []string{"glib-2.0.pc"})
+
+	root := t.TempDir()
+	if err := buildStorePackageFarm(testEnv(t), root, []string{user}, []string{extras}); err != nil {
+		t.Fatalf("buildStorePackageFarm: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(storeLibDir(root), "libglib-2.0.so.0")); err == nil {
+		t.Error("an FHS-only profile's libglib-2.0.so.0 is in the LD_LIBRARY_PATH dir; it " +
+			"needs a newer glibc than an older nix program has, so it belongs to nix-ld only")
+	}
+	if got, want := linkTarget(t, root, "lib/libzbar.so.0"), filepath.Join(user, "lib", "libzbar.so.0"); got != want {
+		t.Errorf("lib/libzbar.so.0 -> %q, want %q: a `packages:` library must stay "+
+			"dlopen-able by bare soname", got, want)
+	}
+	for name, from := range map[string]string{
+		"libglib-2.0.so.0": extras,
+		"libzbar.so.0":     user,
+		"libz.so.1":        user, // first-wins across both lists
+	} {
+		if got, want := linkTarget(t, root, "fhs-lib/"+name), filepath.Join(from, "lib", name); got != want {
+			t.Errorf("fhs-lib/%s -> %q, want %q", name, got, want)
+		}
+	}
+	// bin and pkgconfig are unaffected by the split.
+	if got, want := linkTarget(t, root, "bin/chromium"), filepath.Join(extras, "bin", "chromium"); got != want {
+		t.Errorf("bin/chromium -> %q, want %q", got, want)
+	}
+	if got, want := linkTarget(t, root, "lib/pkgconfig/glib-2.0.pc"),
+		filepath.Join(extras, "lib", "pkgconfig", "glib-2.0.pc"); got != want {
+		t.Errorf("lib/pkgconfig/glib-2.0.pc -> %q, want %q", got, want)
+	}
+
+	// A boot that stops opting in clears the nix-ld dir too: nix-ld names it on every
+	// launch, so a surviving link would reach FHS binaries of a baked launch.
+	if err := buildStorePackageFarm(testEnv(t), root, nil, nil); err != nil {
+		t.Fatalf("buildStorePackageFarm (no profiles): %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(storeFHSLibDir(root), "libglib-2.0.so.0")); err == nil {
+		t.Error("a stale fhs-lib link survived a boot that delivers no profiles")
+	}
+}
+
+// TestGenerateStorePackagesReadsBothProfileLists is the call site for the split: the boot
+// reads StoreProfilesEnv and StoreFHSProfilesEnv, exports only the `packages:` lib dir on
+// LD_LIBRARY_PATH, and never the nix-ld dir.
+func TestGenerateStorePackagesReadsBothProfileLists(t *testing.T) {
+	base := t.TempDir()
+	user := fakeProfile(t, filepath.Join(base, "user"), []string{"zbarimg"}, []string{"libzbar.so.0"}, nil)
+	extras := fakeProfile(t, filepath.Join(base, "extras"), []string{"chromium"},
+		[]string{"libglib-2.0.so.0"}, []string{"glib-2.0.pc"})
+
+	root := t.TempDir()
+	e := NewEnv(map[string]string{
+		"JAIL_HOME":         "/home/agent",
+		StoreProfilesEnv:    user,
+		StoreFHSProfilesEnv: extras,
+	})
+	if err := generateStorePackagesIn(e, root, filepath.Join(root, "fonts"), imageFontsConf); err != nil {
+		t.Fatalf("generateStorePackagesIn: %v", err)
+	}
+	if got, want := e.Vars["LD_LIBRARY_PATH"], storeLibDir(root); got != want {
+		t.Errorf("LD_LIBRARY_PATH = %q, want %q (the `packages:` dir only)", got, want)
+	}
+	for _, dir := range strings.Split(e.Vars["LD_LIBRARY_PATH"], ":") {
+		if _, err := os.Lstat(filepath.Join(dir, "libglib-2.0.so.0")); err == nil {
+			t.Errorf("LD_LIBRARY_PATH dir %s holds the image extras' libglib-2.0.so.0", dir)
+		}
+	}
+	if _, err := os.Lstat(filepath.Join(storeFHSLibDir(root), "libglib-2.0.so.0")); err != nil {
+		t.Errorf("the extras' libglib-2.0.so.0 did not reach the nix-ld dir: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(storeBinDir(root), "chromium")); err != nil {
+		t.Errorf("the extras' chromium did not reach the bin dir: %v", err)
+	}
+	if got := StoreProfiles(e); !slices.Equal(got, []string{user, extras}) {
+		t.Errorf("StoreProfiles = %v, want both lists in precedence order", got)
+	}
+
+	// Extras only (a workspace with no `packages:`): store delivery is live, so the bin
+	// farm and PKG_CONFIG_PATH are set, but nothing goes on LD_LIBRARY_PATH.
+	onlyExtras := NewEnv(map[string]string{
+		"JAIL_HOME":         "/home/agent",
+		StoreFHSProfilesEnv: extras,
+	})
+	root2 := t.TempDir()
+	if err := generateStorePackagesIn(onlyExtras, root2, filepath.Join(root2, "fonts"), imageFontsConf); err != nil {
+		t.Fatalf("generateStorePackagesIn (extras only): %v", err)
+	}
+	if got := onlyExtras.Vars["LD_LIBRARY_PATH"]; got != "" {
+		t.Errorf("LD_LIBRARY_PATH = %q for a launch with no `packages:`; want it untouched", got)
+	}
+	if got, want := onlyExtras.Vars["PKG_CONFIG_PATH"], storePkgConfigDir(root2); got != want {
+		t.Errorf("PKG_CONFIG_PATH = %q, want %q", got, want)
+	}
+	if len(StoreProfiles(onlyExtras)) == 0 {
+		t.Error("StoreProfiles is empty for an extras-only launch, so imageProbePath would " +
+			"miss the farm that holds chromium")
+	}
+}
+
+// TestNixLdSearchesTheStoreFHSLib pins the one other spelling of StorePackagesFHSLib:
+// flake.nix's nixLd compiles it into nix-ld's default library path, after the baked
+// ImageFHSLib. Without it an FHS binary on a store-delivered launch finds no chromium stack
+// at all, since the dir is not on LD_LIBRARY_PATH.
+func TestNixLdSearchesTheStoreFHSLib(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(repoRoot(t), "flake.nix"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `b"/usr/share/nix-ld/lib:` + ImageFHSLib + `:` + StorePackagesFHSLib() + `"`
+	if !strings.Contains(string(raw), want) {
+		t.Errorf("flake.nix's nixLd override does not compile %s into nix-ld's default "+
+			"library path (want the literal %s)", StorePackagesFHSLib(), want)
+	}
 }

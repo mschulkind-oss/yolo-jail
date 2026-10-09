@@ -225,9 +225,9 @@ func bootSteps() []bootStep {
 			notDarwin: "macos-user bakes no image farm, and dyld does not read LD_LIBRARY_PATH",
 		},
 		{
-			// Populate /run/ld.so.cache from the /lib farm, plus the store-package farm above.
+			// Populate /run/ld.so.cache from the /lib farm, plus both store-package lib dirs above.
 			name:      "generate_ld_cache",
-			run:       func(b *bootRun) { generateLdCache(b.e, StorePackagesLib()) },
+			run:       func(b *bootRun) { generateLdCache(b.e, StorePackagesLib(), StorePackagesFHSLib()) },
 			notDarwin: "macOS has no ld.so.cache; dyld resolves libraries itself",
 		},
 		{name: "generate_shims", gen: GenerateShims},

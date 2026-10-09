@@ -303,7 +303,7 @@ func TestADroppedStorePackageFarmThatCannotBeClearedIsReported(t *testing.T) {
 		t.Fatal(err)
 	}
 	e, stderr, _ := loudEnv(t)
-	if err := buildStorePackageFarm(e, root, nil); err != nil {
+	if err := buildStorePackageFarm(e, root, nil, nil); err != nil {
 		t.Fatalf("a farm that cannot be cleared must DEGRADE, not refuse the boot: %v", err)
 	}
 	mustContain(t, "an uncleared farm", stderr, storeBinDir(root), "PATH", "shadow")

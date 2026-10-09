@@ -500,7 +500,7 @@ the only place the values themselves are stated.
 | Host launch-wrapper dir (the one a user prepends) | `<machine storage>/bin/wrap` | `paths.WrapDir` |
 | mise store, in-jail | `/mise`; the `yolo-mise-data-v2` named volume on a Podman Machine, and on Apple Container a tool disk per workspace, `<container name>.mise` | `internal/cli/run/assemble.go`, `internal/prune/misevolumes.go` |
 | Jail env: the mise block | `MISE_DATA_DIR=/mise`, `MISE_TRUSTED_CONFIG_PATHS=/workspace`, `MISE_ENV=jail`, `RUSTUP_HOME=/mise/rustup`, `CARGO_HOME=/mise/cargo` | `internal/cli/run/assemble.go` |
-| Jail env: the loader path | `LD_LIBRARY_PATH` unset at launch, then `/usr/local/lib/yolo-ld` (and `/run/yolo/packages/lib` when store-delivered); never `/lib` | `internal/cli/run/assemble.go` (`--unsetenv`), `internal/entrypoint/storepackages.go` |
+| Jail env: the loader path | `LD_LIBRARY_PATH` unset at launch, then `/usr/local/lib/yolo-ld` (and `/run/yolo/packages/lib`, the `packages:` libraries, when store-delivered); never `/lib` | `internal/cli/run/assemble.go` (`--unsetenv`), `internal/entrypoint/storepackages.go` |
 | Jail env: install prefixes | `NPM_CONFIG_PREFIX=/home/agent/.npm-global`, `GOPATH=/home/agent/go` | `internal/cli/run/assemble.go` |
 | Jail env: no interactive UI | `PAGER=cat`, `GIT_PAGER=cat`, `EDITOR=cat`, `VISUAL=nvim` | `internal/cli/run/assemble.go` |
 | Jail env: the full set | one `-e` block plus the per-entry channel file | `internal/cli/run/assemble.go`, `writeUserEnvFile` |

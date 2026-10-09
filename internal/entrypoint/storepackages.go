@@ -6,12 +6,14 @@ package entrypoint
 // by its OQ-1).
 //
 // The HOST realized one or more `buildEnv` profiles and handed their store paths over on
-// YOLO_STORE_PROFILES. Everything below is symlinking: each profile's `bin` into one PATH
-// dir, its `lib/lib*.so*` into one LD_LIBRARY_PATH dir, its `lib/pkgconfig/*.pc` into one
-// PKG_CONFIG_PATH dir. The targets resolve because the launch bind-mounts /nix/store
-// (§3.2) — which is also why the HOST decides eligibility and this file does not: from in
-// here, "this host cannot share its store" and "the operator did not opt in" are the same
-// observation, the same way the reachability witness cannot derive YOLO_HOST_LOOPBACK.
+// YOLO_STORE_PROFILES (the workspace's `packages:`) and YOLO_STORE_FHS_PROFILES (the image
+// extras). Everything below is symlinking: each profile's `bin` into one PATH dir, its
+// `lib/pkgconfig/*.pc` into one PKG_CONFIG_PATH dir, and its `lib/lib*.so*` into one
+// nix-ld dir (every profile) and one LD_LIBRARY_PATH dir (`packages:` profiles only). The
+// targets resolve because the launch bind-mounts /nix/store (§3.2) — which is also why the
+// HOST decides eligibility and this file does not: from in here, "this host cannot share its
+// store" and "the operator did not opt in" are the same observation, the same way the
+// reachability witness cannot derive YOLO_HOST_LOOPBACK.
 //
 // WHY A FIXED DIR RATHER THAN THE PROFILE'S OWN bin ON PATH. The profile's store path
 // moves whenever `packages:` moves, and five separate things have to name this location:
@@ -47,6 +49,15 @@ import (
 // is drawn from [A-Za-z0-9+._?=-] and can never contain a colon.
 const StoreProfilesEnv = "YOLO_STORE_PROFILES"
 
+// StoreFHSProfilesEnv is the second half of the contract: profiles linked BEHIND
+// StoreProfilesEnv's, whose libraries reach FHS binaries only (StorePackagesFHSLib, named
+// in nix-ld's compiled-in path) and never LD_LIBRARY_PATH. The launcher puts the image
+// extras (`.#yoloImageExtras`) here, because their chromium stack is the same newer-glibc
+// class the baked image keeps in ImageFHSLib: glib needs GLIBC_2.43, so a nix program
+// built on glibc 2.42 that NEEDs libglib fails to start with this glib on its
+// LD_LIBRARY_PATH. Same syntax as StoreProfilesEnv.
+const StoreFHSProfilesEnv = "YOLO_STORE_FHS_PROFILES"
+
 // StorePackagesRoot is the boot-written farm's root on the /run tmpfs.
 const StorePackagesRoot = "/run/yolo/packages"
 
@@ -57,8 +68,16 @@ const StorePackagesRoot = "/run/yolo/packages"
 func StorePackagesBin() string { return storeBinDir(StorePackagesRoot) }
 
 // StorePackagesLib is the farm's LD_LIBRARY_PATH dir — the store-delivered twin of the
-// image's /lib farm, and the reason ldconfig is handed it explicitly (see generateLdCache).
+// image's ImageLDLib, so it holds the StoreProfilesEnv profiles' libraries and no image
+// extras. ldconfig is handed it explicitly (see generateLdCache).
 func StorePackagesLib() string { return storeLibDir(StorePackagesRoot) }
+
+// StorePackagesFHSLib is the farm's nix-ld dir — the store-delivered twin of ImageFHSLib:
+// every profile's libraries, glibc excepted, first-wins. It is never on LD_LIBRARY_PATH.
+// flake.nix's nixLd names this exact path after ImageFHSLib in its compiled-in library
+// path, so an FHS binary finds it even under `env -i`; on a baked launch the directory
+// does not exist and the loader skips it.
+func StorePackagesFHSLib() string { return storeFHSLibDir(StorePackagesRoot) }
 
 // StorePackagesPkgConfig is the farm's PKG_CONFIG_PATH dir. It is nested under the lib dir
 // on purpose: that mirrors the image's own /lib/pkgconfig, which the baked PKG_CONFIG_PATH
@@ -120,13 +139,25 @@ func exportImageLDLibFrom(e *Env, dir string) {
 func storeBinDir(root string) string       { return filepath.Join(root, "bin") }
 func storeLibDir(root string) string       { return filepath.Join(root, "lib") }
 func storePkgConfigDir(root string) string { return filepath.Join(storeLibDir(root), "pkgconfig") }
+func storeFHSLibDir(root string) string    { return filepath.Join(root, "fhs-lib") }
 
-// StoreProfiles parses StoreProfilesEnv into the ordered profile list. A nil result is the
-// authoritative "this launch bakes its packages" answer, and it is what every consumer
-// (imageProbePath, the ldconfig extra dir) reads rather than probing for the dirs — the
-// declaration is the claim; a directory is only its consequence.
+// StoreProfiles is every store-delivered profile in precedence order: StoreProfilesEnv's,
+// then StoreFHSProfilesEnv's. A nil result is the authoritative "this launch bakes its
+// packages" answer, and it is what every consumer (imageProbePath, the ldconfig extra dir)
+// reads rather than probing for the dirs — the declaration is the claim; a directory is
+// only its consequence.
 func StoreProfiles(e *Env) []string {
-	raw := e.Getenv(StoreProfilesEnv)
+	ld, fhs := storeProfileLists(e)
+	return append(ld, fhs...)
+}
+
+// storeProfileLists is the two halves of the contract, parsed: the profiles whose libraries
+// go on LD_LIBRARY_PATH, and those whose libraries reach FHS binaries only.
+func storeProfileLists(e *Env) (ld, fhsOnly []string) {
+	return parseProfileList(e.Getenv(StoreProfilesEnv)), parseProfileList(e.Getenv(StoreFHSProfilesEnv))
+}
+
+func parseProfileList(raw string) []string {
 	if raw == "" {
 		return nil
 	}
@@ -155,17 +186,23 @@ func GenerateStorePackages(e *Env) error {
 // The env exports come AFTER the farm and only on success: a jail whose LD_LIBRARY_PATH
 // names a directory that was never built is a worse diagnosis than one whose boot refused.
 func generateStorePackagesIn(e *Env, root, fontsDir, imageConf string) error {
-	profiles := StoreProfiles(e)
-	if err := buildStorePackageFarm(e, root, profiles); err != nil {
+	ld, fhsOnly := storeProfileLists(e)
+	if err := buildStorePackageFarm(e, root, ld, fhsOnly); err != nil {
 		return err
 	}
+	profiles := append(append([]string(nil), ld...), fhsOnly...)
 	if len(profiles) == 0 {
 		return nil
 	}
 	// Prepended rather than replaced: the image bakes PKG_CONFIG_PATH=/lib/pkgconfig:…, and
 	// the /lib farm that names still carries the image's own .pc files. LD_LIBRARY_PATH is
 	// normally unset by now (scrubLegacyLDLibraryPath), but a user's own entries survive.
-	prependPathVar(e, "LD_LIBRARY_PATH", storeLibDir(root))
+	//
+	// LD_LIBRARY_PATH only when a `packages:` profile was delivered: the lib dir holds only
+	// those profiles' libraries, and the fhs-lib dir is never exported (nix-ld names it).
+	if len(ld) > 0 {
+		prependPathVar(e, "LD_LIBRARY_PATH", storeLibDir(root))
+	}
 	prependPathVar(e, "PKG_CONFIG_PATH", storePkgConfigDir(root))
 	configureStoreFontconfig(e, profiles, fontsDir, imageConf)
 	return nil
@@ -236,14 +273,21 @@ func configureStoreFontconfig(e *Env, profiles []string, fontsDir, imageConf str
 }
 
 // buildStorePackageFarm is the filesystem half: clear the farm under root, then link every
-// profile into it.
+// profile into it — ld's first, then fhsOnly's.
 //
 // PRECEDENCE IS FIRST-WINS, across profiles and within one, using the same `[ ! -e ]`
 // idiom flake.nix's /lib farm uses for exactly the same reason: the host orders the
 // profiles (user `packages:` ahead of the image extras), and a later profile may not
 // silently retarget a name an earlier one already claimed.
-func buildStorePackageFarm(e *Env, root string, profiles []string) error {
-	if len(profiles) == 0 {
+//
+// THE LIB SPLIT mirrors the baked image's two farms. The lib dir (LD_LIBRARY_PATH, like
+// ImageLDLib) gets ld's libraries only; the fhs-lib dir (nix-ld, like ImageFHSLib) gets
+// every profile's. So a `packages:` library stays dlopen-able by bare soname, and the
+// image extras' chromium stack — glib needs a newer glibc than an older nix program has —
+// reaches FHS binaries without being handed to every nix program.
+func buildStorePackageFarm(e *Env, root string, ld, fhsOnly []string) error {
+	dirs := []string{storeBinDir(root), storeLibDir(root), storeFHSLibDir(root)}
+	if len(ld)+len(fhsOnly) == 0 {
 		// Not opted in. Clear rather than create: an `exec` back into a live container
 		// re-runs the boot, so a launch that stopped opting in must not inherit the
 		// previous one's farm — and creating the dirs here would put an empty directory
@@ -256,7 +300,7 @@ func buildStorePackageFarm(e *Env, root string, profiles []string) error {
 		// rather than returning keeps the polarity right: this is a re-entry into a jail
 		// that is NOT opted in, so every tool it needs is baked and present, and refusing
 		// the launch over a stale symlink would be the worse outcome.
-		for _, d := range []string{storeBinDir(root), storeLibDir(root)} {
+		for _, d := range dirs {
 			if err := ClearContents(d); err != nil {
 				e.warn("Warning: this launch does not opt into store-delivered packages, " +
 					"but the previous entry's farm at " + d + " could not be cleared: " +
@@ -266,7 +310,7 @@ func buildStorePackageFarm(e *Env, root string, profiles []string) error {
 		}
 		return nil
 	}
-	for _, d := range []string{storeBinDir(root), storeLibDir(root)} {
+	for _, d := range dirs {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return err
 		}
@@ -278,8 +322,13 @@ func buildStorePackageFarm(e *Env, root string, profiles []string) error {
 	if err := os.MkdirAll(storePkgConfigDir(root), 0o755); err != nil {
 		return err
 	}
-	for _, profile := range profiles {
-		if err := linkStoreProfile(profile, root); err != nil {
+	for _, profile := range ld {
+		if err := linkStoreProfile(profile, root, true); err != nil {
+			return err
+		}
+	}
+	for _, profile := range fhsOnly {
+		if err := linkStoreProfile(profile, root, false); err != nil {
 			return err
 		}
 	}
@@ -287,7 +336,8 @@ func buildStorePackageFarm(e *Env, root string, profiles []string) error {
 }
 
 // linkStoreProfile links one profile's bin/, lib/lib*.so* and lib/pkgconfig/*.pc into the
-// farm under root.
+// farm under root. Its libraries always go into the fhs-lib dir, and into the
+// LD_LIBRARY_PATH lib dir only when onLDPath.
 //
 // A PROFILE THAT IS NOT THERE AT ALL IS AN ERROR, and that is the one check here that
 // earns its place. The host resolved the path against the HOST's store; if it does not
@@ -295,7 +345,7 @@ func buildStorePackageFarm(e *Env, root string, profiles []string) error {
 // linking nothing would then produce a silently tool-less jail, which is the half-state
 // R2 exists to make unrepresentable. A profile that exists but has no lib/ or no bin/ is
 // ordinary (a bin-only or headers-only closure) and links nothing without complaint.
-func linkStoreProfile(profile, root string) error {
+func linkStoreProfile(profile, root string, onLDPath bool) error {
 	info, err := os.Stat(profile)
 	if err != nil || !info.IsDir() {
 		return &storeProfileError{profile: profile, err: err}
@@ -303,8 +353,14 @@ func linkStoreProfile(profile, root string) error {
 	if err := linkDirEntries(filepath.Join(profile, "bin"), storeBinDir(root), nil); err != nil {
 		return err
 	}
-	if err := linkDirEntries(filepath.Join(profile, "lib"), storeLibDir(root), isNonGlibcSharedObject(profile)); err != nil {
+	keepLib := isNonGlibcSharedObject(profile)
+	if err := linkDirEntries(filepath.Join(profile, "lib"), storeFHSLibDir(root), keepLib); err != nil {
 		return err
+	}
+	if onLDPath {
+		if err := linkDirEntries(filepath.Join(profile, "lib"), storeLibDir(root), keepLib); err != nil {
+			return err
+		}
 	}
 	return linkDirEntries(filepath.Join(profile, "lib", "pkgconfig"), storePkgConfigDir(root),
 		func(name string) bool { return strings.HasSuffix(name, ".pc") })
@@ -345,7 +401,8 @@ func isSharedObject(name string) bool {
 // isNonGlibcSharedObject is isSharedObject minus every library that resolves into a glibc
 // store path. The farm's lib dir is on LD_LIBRARY_PATH, so a glibc linked into it would be
 // handed to every nix binary ahead of the glibc its own interpreter belongs to — the
-// GLIBC_PRIVATE crash scrubLegacyLDLibraryPath exists to prevent. The baked farm makes the
+// GLIBC_PRIVATE crash scrubLegacyLDLibraryPath exists to prevent. The fhs-lib dir makes
+// the same exclusion, as ImageFHSLib does: an FHS binary's glibc is nix-ld's. The baked farm makes the
 // same exclusion in flake.nix; here it is by the resolved target, because a profile is
 // opaque until it is read.
 func isNonGlibcSharedObject(profile string) func(string) bool {
