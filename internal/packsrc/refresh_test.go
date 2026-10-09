@@ -1,6 +1,7 @@
 package packsrc
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -317,32 +318,61 @@ func TestRefreshFetchFailureWithNoCopyNamesTheError(t *testing.T) {
 	}
 }
 
-// (f) A HUNG REMOTE CANNOT HANG A LAUNCH: the store's per-invocation timeout bounds the fetch,
-// and a timeout is a failure like any other — here, the cached copy is used.
-func TestRefreshFetchTimeoutIsAFailure(t *testing.T) {
+// (f) A parent cancellation at the actual fetch invocation is a failure like a deadline: the
+// cached copy remains usable, and no successful-fetch stamp is rewritten. Timeout stays at 3s
+// as a safety budget for local git; this test does not claim that the deadline fired.
+func TestRefreshFetchCancellationIsAFailure(t *testing.T) {
 	f := newRefreshFixture(t)
 	c1 := f.head(t)
 	pack := RefreshPack{Name: "p", Source: f.source("main")}
 	f.refresh(t, false, pack)
-
-	hang := filepath.Join(t.TempDir(), "git-hangs-on-fetch")
-	script := "#!/bin/sh\nfor a in \"$@\"; do [ \"$a\" = fetch ] && exec sleep 30; done\nexec git \"$@\"\n"
-	if err := os.WriteFile(hang, []byte(script), 0o755); err != nil {
+	commitFile(t, f.repo, "two", "2")
+	a := mustParse(t, pack.Source)
+	stamp := f.store.stampPath(a)
+	before, err := os.ReadFile(stamp)
+	if err != nil {
+		t.Fatalf("no stamp after initial successful fetch: %v", err)
+	}
+	f.store.Timeout = 3 * time.Second
+	f.now = f.now.Add(2 * BranchRefreshInterval)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f.store.Ctx = ctx
+	ready := filepath.Join(t.TempDir(), "fetch.ready")
+	f.store.Env = append(gitTestEnv(), "YOLO_TEST_READY="+ready)
+	var fetchPID fixtureProcess
+	t.Cleanup(func() { killFixtureProcess(t, fetchPID) })
+	f.store.Git = writeScript(t, pidReadinessShell()+`for a in "$@"; do [ "$a" = fetch ] && { publish_pid_ready "$$"; exec sleep 30; }; done
+exec git "$@"
+`)
+	done := refreshAsync(f, pack)
+	if err := awaitReadyMarker(ready, 2500*time.Millisecond); err != nil {
+		cancel()
+		waitRefreshResult(t, done, 8*time.Second)
 		t.Fatal(err)
 	}
-	// 3s, not the 500ms this was: the timeout is also each local rev-parse's budget, and one that
-	// overran under a full parallel `go test ./...` left the ref unclassified, so nothing was
-	// fetched (TestRefreshTimeoutKillsTheTransportHelper states it, and what an overrun reports
-	// now). The fetch still hangs 30s.
-	f.store.Git, f.store.Timeout = hang, 3*time.Second
-	f.now = f.now.Add(2 * BranchRefreshInterval)
-	start := time.Now()
-	o := f.refresh(t, false, pack)[0]
-	if took := time.Since(start); took > 10*time.Second {
-		t.Errorf("the refresh took %s against a hung remote", took)
+	fetchPID = fixturePID(t, ready)
+	cancelAt := time.Now()
+	cancel()
+	result := waitRefreshResult(t, done, 2*time.Second)
+	if took := time.Since(cancelAt); took >= 2*time.Second {
+		t.Errorf("Refresh took %s after parent cancellation; the 3s budget safety timeout may have fired instead", took)
 	}
-	if o.FetchErr == nil || !strings.Contains(o.FetchErr.Error(), "timed out") || o.Commit != c1 {
-		t.Errorf("outcome = %+v, want a timed-out fetch and the cached %s", o, c1)
+	if result.err != nil || len(result.outcomes) != 1 {
+		t.Fatalf("Refresh result = %+v, %v", result.outcomes, result.err)
+	}
+	o := result.outcomes[0]
+	if o.FetchErr == nil || !strings.Contains(o.FetchErr.Error(), "git fetch timed out") || o.Err != nil || o.Fetched || o.Commit != c1 {
+		t.Errorf("outcome = %+v, want cancelled fetch error and cached commit %s usable", o, c1[:8])
+	}
+	if fixtureStillRunning(fetchPID) {
+		t.Errorf("fetch process %d remained live after parent cancellation", fetchPID.pid)
+	}
+	if !mirrorHolds(t, f.store.mirrorPath(a.Repo), c1) {
+		t.Errorf("cancelled fetch lost cached commit %s", c1)
+	}
+	if after, err := os.ReadFile(stamp); err != nil || string(after) != string(before) {
+		t.Errorf("failed fetch changed successful-fetch stamp: %q -> %q (err %v)", before, after, err)
 	}
 }
 

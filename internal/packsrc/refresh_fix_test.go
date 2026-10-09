@@ -1,12 +1,14 @@
 package packsrc
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -27,6 +29,179 @@ func writeScript(t *testing.T, body string) string {
 		t.Fatal(err)
 	}
 	return p
+}
+
+// pidReadinessShell publishes a complete fixture PID with a same-directory rename. The optional
+// control files let the publication regression test pause after creating the sibling temp file,
+// while the normal refresh tests exercise the same publisher without a gate.
+func pidReadinessShell() string {
+	return `publish_pid_ready() {
+  ready_tmp="${YOLO_TEST_READY}.tmp"
+  : > "$ready_tmp"
+  if [ -n "${YOLO_TEST_TEMP_CREATED:-}" ]; then
+    : > "$YOLO_TEST_TEMP_CREATED"
+    while [ ! -e "$YOLO_TEST_RELEASE" ]; do sleep 0.01; done
+  fi
+  printf '%s\n' "$1" > "$ready_tmp"
+  mv "$ready_tmp" "$YOLO_TEST_READY"
+}
+`
+}
+
+// refreshResult is one fixture Refresh invoked asynchronously so the test can cancel at an
+// observed git invocation rather than after a guessed delay.
+type refreshResult struct {
+	outcomes []Outcome
+	err      error
+}
+
+func refreshAsync(f *refreshFixture, pack RefreshPack) <-chan refreshResult {
+	done := make(chan refreshResult, 1)
+	go func() {
+		outcomes, err := f.store.Refresh([]RefreshPack{pack}, RefreshOptions{
+			LockPath: f.lock, Now: func() time.Time { return f.now },
+		})
+		done <- refreshResult{outcomes: outcomes, err: err}
+	}()
+	return done
+}
+
+// awaitReadyMarker waits for an actual wrapper/descendant acknowledgement. Its deadline is a
+// failure watchdog; it never triggers cancellation or substitutes for a production timeout.
+func awaitReadyMarker(path string, watchdog time.Duration) error {
+	deadline := time.NewTimer(watchdog)
+	defer deadline.Stop()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if _, err := os.Stat(path); err == nil {
+			return nil
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		select {
+		case <-deadline.C:
+			return fmt.Errorf("readiness marker %s did not appear within %s", path, watchdog)
+		case <-ticker.C:
+		}
+	}
+}
+
+type fixtureProcess struct {
+	pid   int
+	birth string
+}
+
+// processSnapshot uses ps's portable start time and state fields so a later observation can
+// distinguish the controlled fixture PID from a reused PID and a terminated zombie.
+func processSnapshot(pid int) (fixtureProcess, string, bool) {
+	cmd := exec.Command("ps", "-o", "lstart=", "-o", "stat=", "-p", strconv.Itoa(pid))
+	out, err := cmd.Output()
+	if err != nil {
+		return fixtureProcess{}, "", false
+	}
+	fields := strings.Fields(string(out))
+	if len(fields) < 2 {
+		return fixtureProcess{}, "", false
+	}
+	return fixtureProcess{pid: pid, birth: strings.Join(fields[:len(fields)-1], " ")}, fields[len(fields)-1], true
+}
+
+func fixturePIDFromMarker(marker string) (fixtureProcess, error) {
+	data, err := os.ReadFile(marker)
+	if err != nil {
+		return fixtureProcess{}, err
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || pid <= 0 {
+		return fixtureProcess{}, fmt.Errorf("invalid PID acknowledgement %q: %v", data, err)
+	}
+	identity, state, exists := processSnapshot(pid)
+	if !exists || strings.HasPrefix(state, "Z") {
+		return fixtureProcess{}, fmt.Errorf("fixture process %d is not live (state %q)", pid, state)
+	}
+	return identity, nil
+}
+
+func fixturePID(t *testing.T, marker string) fixtureProcess {
+	t.Helper()
+	identity, err := fixturePIDFromMarker(marker)
+	if err != nil {
+		t.Fatalf("invalid fixture PID acknowledgement %s: %v", marker, err)
+	}
+	return identity
+}
+
+// awaitFixturePID waits for a complete, live PID acknowledgement rather than treating final-path
+// existence as publication. The atomicity test separately asserts that the final path is absent
+// while the writer is paused before publishing it.
+func awaitFixturePID(marker string, watchdog time.Duration) (fixtureProcess, error) {
+	deadline := time.NewTimer(watchdog)
+	defer deadline.Stop()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if identity, err := fixturePIDFromMarker(marker); err == nil {
+			return identity, nil
+		}
+		select {
+		case <-deadline.C:
+			return fixtureProcess{}, fmt.Errorf("complete live PID acknowledgement %s did not appear within %s", marker, watchdog)
+		case <-ticker.C:
+		}
+	}
+}
+
+func fixtureStillRunning(identity fixtureProcess) bool {
+	got, state, exists := processSnapshot(identity.pid)
+	return exists && got.birth == identity.birth && !strings.HasPrefix(state, "Z")
+}
+
+func awaitFixtureStopped(identity fixtureProcess, watchdog time.Duration) bool {
+	deadline := time.NewTimer(watchdog)
+	defer deadline.Stop()
+	ticker := time.NewTicker(20 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		got, state, exists := processSnapshot(identity.pid)
+		if !exists || got.birth != identity.birth || strings.HasPrefix(state, "Z") {
+			return true
+		}
+		select {
+		case <-deadline.C:
+			return false
+		case <-ticker.C:
+		}
+	}
+}
+
+func killFixtureProcess(t *testing.T, identity fixtureProcess) {
+	t.Helper()
+	if identity.pid <= 0 || !fixtureStillRunning(identity) {
+		return
+	}
+	proc, err := os.FindProcess(identity.pid)
+	if err != nil {
+		t.Errorf("find owned fixture process %d: %v", identity.pid, err)
+		return
+	}
+	if err := proc.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+		t.Errorf("kill owned fixture process %d: %v", identity.pid, err)
+	}
+	if !awaitFixtureStopped(identity, 2*time.Second) {
+		t.Errorf("owned fixture process %d did not stop during cleanup", identity.pid)
+	}
+}
+
+func waitRefreshResult(t *testing.T, done <-chan refreshResult, watchdog time.Duration) refreshResult {
+	t.Helper()
+	select {
+	case result := <-done:
+		return result
+	case <-time.After(watchdog):
+		t.Fatal("Refresh did not return before its failure watchdog")
+		return refreshResult{}
+	}
 }
 
 // THE COMMAND EVERY STORE RUN EXECUTES carries the prompt hygiene, and a Detached store runs
@@ -55,6 +230,86 @@ func TestGitCmdHygiene(t *testing.T) {
 		if detached && cmd.Cancel == nil {
 			t.Error("a Detached run has no process-group Cancel")
 		}
+	}
+}
+
+// A PID readiness acknowledgement stays invisible until the complete PID is published. This
+// drives the same shell publisher and fixturePID consumer as the refresh wrappers. The gate pauses
+// after the sibling temp file is created, so direct final-path redirection makes this fail
+// deterministically rather than relying on a scheduler race.
+func TestRefreshPIDReadinessPublicationIsAtomic(t *testing.T) {
+	f := newRefreshFixture(t)
+	c1 := f.head(t)
+	pack := RefreshPack{Name: "p", Source: f.source("main")}
+	f.refresh(t, false, pack)
+	commitFile(t, f.repo, "two", "2")
+	f.store.Timeout = 3 * time.Second
+	f.now = f.now.Add(2 * BranchRefreshInterval)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f.store.Ctx = ctx
+
+	ready := filepath.Join(t.TempDir(), "fetch.ready")
+	tempCreated := filepath.Join(t.TempDir(), "temp-created")
+	release := filepath.Join(t.TempDir(), "publish-release")
+	f.store.Env = append(gitTestEnv(), "YOLO_TEST_READY="+ready,
+		"YOLO_TEST_TEMP_CREATED="+tempCreated, "YOLO_TEST_RELEASE="+release)
+	var fetchPID fixtureProcess
+	t.Cleanup(func() {
+		cancel()
+		_ = os.WriteFile(release, []byte("release"), 0o600)
+		killFixtureProcess(t, fetchPID)
+	})
+	f.store.Git = writeScript(t, pidReadinessShell()+`for a in "$@"; do [ "$a" = fetch ] && { publish_pid_ready "$$"; exec sleep 30; }; done
+exec git "$@"
+`)
+	done := refreshAsync(f, pack)
+	if err := awaitReadyMarker(tempCreated, 2500*time.Millisecond); err != nil {
+		cancel()
+		_ = os.WriteFile(release, []byte("release"), 0o600)
+		waitRefreshResult(t, done, 8*time.Second)
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(ready + ".tmp"); err != nil {
+		t.Errorf("publisher did not create its sibling temp file before the pause: %v", err)
+	}
+	_, finalErr := os.Lstat(ready)
+	finalWasVisible := finalErr == nil
+	if finalErr != nil && !errors.Is(finalErr, os.ErrNotExist) {
+		t.Errorf("inspect final readiness path before publication: %v", finalErr)
+	}
+	if err := os.WriteFile(release, []byte("release"), 0o600); err != nil {
+		cancel()
+		waitRefreshResult(t, done, 8*time.Second)
+		t.Fatalf("release PID publisher: %v", err)
+	}
+	fetchPID, err := awaitFixturePID(ready, 1500*time.Millisecond)
+	if err != nil {
+		cancel()
+		waitRefreshResult(t, done, 8*time.Second)
+		t.Fatal(err)
+	}
+	cancelAt := time.Now()
+	cancel()
+	result := waitRefreshResult(t, done, 2*time.Second)
+	if took := time.Since(cancelAt); took >= 2*time.Second {
+		t.Errorf("Refresh took %s after cancellation of the acknowledged fetch", took)
+	}
+	if finalWasVisible {
+		t.Error("final readiness path was visible while the writer was paused before PID publication")
+	}
+	if _, err := os.Stat(ready + ".tmp"); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("sibling temp path remains after atomic publication (stat error %v)", err)
+	}
+	if result.err != nil || len(result.outcomes) != 1 {
+		t.Fatalf("Refresh result = %+v, %v", result.outcomes, result.err)
+	}
+	o := result.outcomes[0]
+	if o.FetchErr == nil || !strings.Contains(o.FetchErr.Error(), "git fetch timed out") || o.Err != nil || o.Fetched || o.Commit != c1 {
+		t.Errorf("outcome = %+v, want cancelled fetch error with cached commit %s usable", o, c1[:8])
+	}
+	if fixtureStillRunning(fetchPID) {
+		t.Errorf("acknowledged fetch process %d remained live after parent cancellation", fetchPID.pid)
 	}
 }
 
@@ -87,50 +342,122 @@ func TestGitCmdAllowsTheLazyFetchOnlyToARunThatReceivesObjects(t *testing.T) {
 	}
 }
 
-// (f) A TIMEOUT ENDS A GIT WHOSE HELPER HOLDS THE OUTPUT PIPE. The fake git leaves a
-// background child holding stderr, the shape git-remote-http takes; killing git alone would
-// leave the wait blocked on that pipe. Detached, the whole group dies at the deadline.
-//
-// THE TIMEOUT IS NOT ONLY THE FETCH'S. Every local git run before it (the rev-parses that
-// classify the ref) gets the same timeout as its own budget. At 700ms one of them overran under
-// a full parallel `go test ./...` on macOS; that read as "no such ref", so nothing was fetched
-// and FetchErr was nil. It is now the refresh's own failure, naming the rev-parse
-// (TestRefreshReportsARefItCouldNotRead), which this test would report instead of the fetch's
-// timeout. 3s leaves the rev-parses room; the fetch still hangs for 20s.
-func TestRefreshTimeoutKillsTheTransportHelper(t *testing.T) {
+// (f) Parent cancellation ends a real fetch invocation while its helper holds the output pipe.
+// The readiness acknowledgement carries the helper PID; detached group cancellation must stop
+// that known process. This checks the controlled helper, not that Wait reaps every descendant.
+func TestRefreshCancellationKillsTheTransportHelper(t *testing.T) {
 	f := newRefreshFixture(t)
+	c1 := f.head(t)
 	pack := RefreshPack{Name: "p", Source: f.source("main")}
 	f.refresh(t, false, pack)
-	f.store.Git = writeScript(t, "for a in \"$@\"; do [ \"$a\" = fetch ] && { sleep 20 & exec sleep 20; }; done\nexec git \"$@\"\n")
+	commitFile(t, f.repo, "two", "2")
+	a := mustParse(t, pack.Source)
+	stamp := f.store.stampPath(a)
+	stampBefore, err := os.ReadFile(stamp)
+	if err != nil {
+		t.Fatalf("no stamp after initial successful fetch: %v", err)
+	}
 	f.store.Timeout, f.store.Detached = 3*time.Second, true
 	f.now = f.now.Add(2 * BranchRefreshInterval)
-	start := time.Now()
-	o := f.refresh(t, false, pack)[0]
-	if took := time.Since(start); took > f.store.Timeout+gitWaitDelay/2 {
-		t.Errorf("the refresh took %s: the helper outlived the timeout", took)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f.store.Ctx = ctx
+	ready := filepath.Join(t.TempDir(), "helper.ready")
+	f.store.Env = append(gitTestEnv(), "YOLO_TEST_READY="+ready)
+	var helper fixtureProcess
+	t.Cleanup(func() { killFixtureProcess(t, helper) })
+	f.store.Git = writeScript(t, pidReadinessShell()+`for a in "$@"; do [ "$a" = fetch ] && { sleep 20 & helper=$!; publish_pid_ready "$helper"; exec sleep 20; }; done
+exec git "$@"
+`)
+	done := refreshAsync(f, pack)
+	if err := awaitReadyMarker(ready, 2500*time.Millisecond); err != nil {
+		cancel()
+		waitRefreshResult(t, done, 8*time.Second)
+		t.Fatal(err)
 	}
-	if o.FetchErr == nil || !strings.Contains(o.FetchErr.Error(), "git fetch timed out") {
-		t.Errorf("outcome = %+v, want a labelled fetch timeout", o)
+	helper = fixturePID(t, ready)
+	cancelAt := time.Now()
+	cancel()
+	result := waitRefreshResult(t, done, 2*time.Second)
+	if took := time.Since(cancelAt); took >= 2*time.Second {
+		t.Errorf("Refresh took %s after parent cancellation; the 3s budget safety timeout may have fired instead", took)
+	}
+	if result.err != nil || len(result.outcomes) != 1 {
+		t.Fatalf("Refresh result = %+v, %v", result.outcomes, result.err)
+	}
+	o := result.outcomes[0]
+	if o.FetchErr == nil || !strings.Contains(o.FetchErr.Error(), "git fetch timed out") || o.Err != nil || o.Fetched || o.Commit != c1 {
+		t.Errorf("outcome = %+v, want a cancelled fetch failure with the cached %s still usable", o, c1[:8])
+	}
+	if !mirrorHolds(t, f.store.mirrorPath(a.Repo), c1) {
+		t.Errorf("cancelled fetch lost cached commit %s", c1)
+	}
+	if after, err := os.ReadFile(stamp); err != nil || string(after) != string(stampBefore) {
+		t.Errorf("failed fetch changed successful-fetch stamp: %q -> %q (err %v)", stampBefore, after, err)
+	}
+	if fixtureStillRunning(helper) || !awaitFixtureStopped(helper, time.Second) {
+		t.Errorf("detached transport helper PID %d remained live after group cancellation", helper.pid)
 	}
 }
 
-// The same shape on a store that is NOT Detached (`yolo pack install`, at a terminal): git
-// alone is killed, and WaitDelay bounds the wait on the orphan's pipe. 3s for the reason
-// TestRefreshTimeoutKillsTheTransportHelper states.
-func TestRefreshTimeoutIsBoundedWithoutDetach(t *testing.T) {
+// On a store that is NOT Detached (`yolo pack install`, at a terminal), cancellation kills
+// git alone and WaitDelay must actually expire while the orphan still holds its output pipe.
+func TestRefreshCancellationIsBoundedWithoutDetach(t *testing.T) {
 	f := newRefreshFixture(t)
+	c1 := f.head(t)
 	pack := RefreshPack{Name: "p", Source: f.source("main")}
 	f.refresh(t, false, pack)
-	f.store.Git = writeScript(t, "for a in \"$@\"; do [ \"$a\" = fetch ] && { sleep 20 & exec sleep 20; }; done\nexec git \"$@\"\n")
+	commitFile(t, f.repo, "two", "2")
+	a := mustParse(t, pack.Source)
+	stamp := f.store.stampPath(a)
+	stampBefore, err := os.ReadFile(stamp)
+	if err != nil {
+		t.Fatalf("no stamp after initial successful fetch: %v", err)
+	}
 	f.store.Timeout = 3 * time.Second
 	f.now = f.now.Add(2 * BranchRefreshInterval)
-	start := time.Now()
-	o := f.refresh(t, false, pack)[0]
-	if took := time.Since(start); took > f.store.Timeout+gitWaitDelay+3*time.Second {
-		t.Errorf("the refresh took %s: WaitDelay did not bound the orphan's pipe", took)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f.store.Ctx = ctx
+	ready := filepath.Join(t.TempDir(), "helper.ready")
+	f.store.Env = append(gitTestEnv(), "YOLO_TEST_READY="+ready)
+	var helper fixtureProcess
+	t.Cleanup(func() { killFixtureProcess(t, helper) })
+	f.store.Git = writeScript(t, pidReadinessShell()+`for a in "$@"; do [ "$a" = fetch ] && { sleep 20 & helper=$!; publish_pid_ready "$helper"; exec sleep 20; }; done
+exec git "$@"
+`)
+	done := refreshAsync(f, pack)
+	if err := awaitReadyMarker(ready, 2500*time.Millisecond); err != nil {
+		cancel()
+		waitRefreshResult(t, done, 8*time.Second)
+		t.Fatal(err)
 	}
-	if o.FetchErr == nil || !strings.Contains(o.FetchErr.Error(), "timed out") {
-		t.Errorf("outcome = %+v, want a fetch timeout", o)
+	helper = fixturePID(t, ready)
+	cancelAt := time.Now()
+	cancel()
+	result := waitRefreshResult(t, done, gitWaitDelay+2*time.Second)
+	took := time.Since(cancelAt)
+	if took < gitWaitDelay-250*time.Millisecond {
+		t.Errorf("Refresh returned after %s; WaitDelay did not actually fire", took)
+	}
+	if took > gitWaitDelay+time.Second {
+		t.Errorf("Refresh took %s after cancellation; WaitDelay did not bound the inherited pipe", took)
+	}
+	if !fixtureStillRunning(helper) {
+		t.Errorf("fixture helper PID %d exited before WaitDelay returned; it must keep the output pipe open", helper.pid)
+	}
+	if result.err != nil || len(result.outcomes) != 1 {
+		t.Fatalf("Refresh result = %+v, %v", result.outcomes, result.err)
+	}
+	o := result.outcomes[0]
+	if o.FetchErr == nil || !strings.Contains(o.FetchErr.Error(), "git fetch timed out") || o.Err != nil || o.Fetched || o.Commit != c1 {
+		t.Errorf("outcome = %+v, want a cancelled fetch failure with the cached %s still usable", o, c1[:8])
+	}
+	if !mirrorHolds(t, f.store.mirrorPath(a.Repo), c1) {
+		t.Errorf("cancelled fetch lost cached commit %s", c1)
+	}
+	if after, err := os.ReadFile(stamp); err != nil || string(after) != string(stampBefore) {
+		t.Errorf("failed fetch changed successful-fetch stamp: %q -> %q (err %v)", stampBefore, after, err)
 	}
 }
 
@@ -147,8 +474,8 @@ func TestRefreshReportsARefItCouldNotRead(t *testing.T) {
 		timeout           time.Duration
 	}{
 		{"git error", `echo "fatal: simulated rev-parse failure" >&2; exit 128`, "simulated rev-parse failure", 0},
-		// 3s for the reason TestRefreshTimeoutKillsTheTransportHelper states: every other local
-		// git run gets the same timeout as its own budget.
+		// Keep this actual 3s deadline for local git runs before the lookup too; an overrun must
+		// remain a reported read failure rather than being mistaken for an absent ref.
 		{"timeout", "exec sleep 30", "git rev-parse timed out", 3 * time.Second},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

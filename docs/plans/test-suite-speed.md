@@ -120,6 +120,20 @@ The 15 s was the keeper's `confirmGone` polling its whole bound (`keeperGoneAtte
 `serviceReadyTimeoutDefault`, as inferred above; the svcendpoint test waited out
 `handshakeTimeout`, now a variable. The six `internal/packsrc` refresh-timeout tests remain.
 
+**Bounded refresh-wait first slice, 2026-10-08 (source/test work, not a measurement):** three existing
+fetch/helper cases now cancel an existing `Store.Ctx` only after the wrapper or its pipe-inheriting
+helper acknowledges the real fetch invocation. Each publishes the complete PID through a sibling
+temporary file followed by an atomic rename; the tests include a controlled publication-gap
+regression. Their 3 s store timeout remains a local-git safety
+budget; cancellation is not described as a deadline. The non-detached case still waits for the
+production 3 s `WaitDelay` backstop to actually fire. The other three deliberate timer proofs remain:
+the exact-ref-lookup timeout (3 s), the real stalled-HTTP deadline (2 s), and the shared clone/fetch
+budget (6 s). The lookup was not converted: canceling the store parent also cancels the later cached
+ref resolution, so that path cannot preserve the existing cached-commit/Warning contract without a
+production context-policy change, which is out of scope. The HTTP and shared-budget cases likewise
+remain unchanged. No elapsed-time claim is made here; recipe 1's warm retake and three idle recipe 3
+runs are still owed.
+
 **A flake seen once in four unit runs**, the second:
 `TestEnvOverrideRefusesTheMacosUserLaunch` failed with `Refusing the macos-user launch: the
 "openai-auth-broker" service (pack "openai-auth") did not start: listen tcp 127.0.0.1:44791:
