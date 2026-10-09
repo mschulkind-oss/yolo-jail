@@ -346,8 +346,11 @@ test:
     YOLO_TEST_REAL_PACK_INSTALLS=1 go test -count=1 -timeout 0 ./integration
 
 # Run fast tests only (skip container integration tests).
+# -timeout is per PACKAGE: internal/cli alone takes about seven minutes on a CI
+# runner, close enough to go test's default of ten that a slower runner trips it
+# with no test hung.
 test-fast:
-    go test -short ./...
+    go test -short -timeout=20m ./...
 
 # Run linter (Go: vet + staticcheck) ONCE PER BUILD CONFIGURATION THIS TREE
 # TARGETS — not once per machine.

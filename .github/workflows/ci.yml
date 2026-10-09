@@ -183,8 +183,11 @@ jobs:
             exit 1
           }
 
+      # -timeout is per package: internal/cli runs about nine minutes on this
+      # runner, past go test's ten-minute default on a slow day with no test
+      # hung, so the panic named whichever test happened to be starting.
       - name: Unit tests (macOS)
-        run: go test -short ./...
+        run: go test -short -timeout=20m ./...
 
   build-image:
     # Build the jail image on BOTH arches natively — x86_64 and arm64 — so
