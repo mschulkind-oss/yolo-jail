@@ -33,18 +33,25 @@ import (
 // hostPatchPreflightFloor is the floor the check asks, a var so a test can stand one in.
 var hostPatchPreflightFloor = newHostFloor
 
-// hostPatchPreflight returns false, having printed the error block and the refusal on errw, when a
-// selected patched fork's recorded patch failure stops verb before its first write. target is the
-// program a `yolo host --` launch runs, "" for an apply: at a launch, a failure that leaves nothing of
-// another program to run is the readiness act's to waive under the missing-program hatch (PF-D83),
-// so it does not stop the launch here while that hatch is set.
-func hostPatchPreflight(errw io.Writer, packs []*packload.Pack, verb, target string, act *run.ActInterrupt) bool {
+// hostPatchPreflight returns false, having printed the refusal on errw, when a selected patched
+// fork's recorded patch failure stops verb before its first write. command is the operation the
+// error block's bypass names. target is the program a `yolo host --` launch runs, "" for an apply: at
+// a launch, a failure that leaves nothing of another program to run is the readiness act's to waive
+// under the missing-program hatch (PF-D83), so it does not stop the launch here while that hatch is
+// set.
+//
+// deferred is an apply that advances nothing, the one `yolo pack update` runs: there the patched
+// extensions' advance does not run before the render either, so their recorded failures are read here
+// too, and no error block is said again, the update's own check having said each just before.
+func hostPatchPreflight(errw io.Writer, packs []*packload.Pack, verb, command, target string, deferred bool,
+	act *run.ActInterrupt) bool {
 	if config.InJail() {
 		return true
 	}
 	progs := floorPrograms(packs)
 	var said bytes.Buffer
 	floor := hostPatchPreflightFloor(&said, progs)
+	floor.PatchBypassCommand = command
 	ctx := withActInterrupt(context.Background(), act)
 	missingHatch := os.Getenv(paths.AllowMissingProgramsEnv) != ""
 	var stopped []string
@@ -62,10 +69,23 @@ func hostPatchPreflight(errw io.Writer, packs []*packload.Pack, verb, target str
 		}
 		stopped = append(stopped, "fork "+p.Install.ForkedBy+"/"+p.Bin())
 	}
+	if deferred && hostTreesBuild() {
+		for _, f := range packload.PatchedTrees(packs) {
+			if !f.DeliveredAtHost() || currentPatchFailure(f) == nil {
+				continue
+			}
+			if entry, _, _ := hostTreeServing(f); entry != nil && allowPatchFailures() {
+				continue // the bypass: the render links the good build, as it does for an advance's
+			}
+			stopped = append(stopped, f.Label())
+		}
+	}
 	if len(stopped) == 0 {
 		return true
 	}
-	_, _ = io.Copy(errw, &said)
+	if !deferred {
+		_, _ = io.Copy(errw, &said)
+	}
 	fmt.Fprintf(errw, "yolo host: refusing %s: the patch series of %s %s not apply (the ERROR above); nothing was "+
 		"written.\n", verb, entrypoint.JoinAnd(stopped), plural(len(stopped), "does", "do"))
 	return false

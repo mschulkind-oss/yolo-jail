@@ -722,7 +722,7 @@ func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, ra
 		// fork's recorded patch failure, stops the launch here, before the gate may apply anything.
 		if !advanceHostTrees(errw, colorForWriter(errw), filepath.Base(cmd[0]), act) ||
 			!hostPatchPreflight(errw, selectConfiguredHostPacks().packs, "to launch "+filepath.Base(cmd[0]),
-				filepath.Base(cmd[0]), act) {
+				"yolo host -- "+filepath.Base(cmd[0]), filepath.Base(cmd[0]), false, act) {
 			sp.End()
 			return 1
 		}

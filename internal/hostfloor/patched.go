@@ -330,8 +330,11 @@ func (f *Floor) writePatchFailureOnce(p Program, state PatchedState, runs string
 
 func (f *Floor) writePatchFailure(p Program, pf *packsrc.PatchFailure, runs string) {
 	owner := p.Install.ForkedBy + "/" + p.Bin()
-	_, _ = io.WriteString(f.out(), pf.Block("fork "+owner, owner,
-		packsrc.PatchBypass{Command: "yolo host -- " + p.Bin(), Runs: runs}))
+	command := f.PatchBypassCommand
+	if command == "" {
+		command = "yolo host -- " + p.Bin()
+	}
+	_, _ = io.WriteString(f.out(), pf.Block("fork "+owner, owner, packsrc.PatchBypass{Command: command, Runs: runs}))
 }
 
 // ensurePatched is Ensure for a patched fork's program: the advance first, outside the floor's lock

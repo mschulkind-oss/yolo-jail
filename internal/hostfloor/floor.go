@@ -228,6 +228,10 @@ type Floor struct {
 	UpdatesAllowed func(pack string) bool
 	// AllowPatchFailures is the one explicit host foreground bypass; it never creates a build.
 	AllowPatchFailures func() bool
+	// PatchBypassCommand is the command a patch failure's error block puts its bypass in front of:
+	// the operation this floor serves (`yolo host apply --assert`, `yolo host -- <cmd>`); "" names
+	// `yolo host -- <bin>` of the program itself.
+	PatchBypassCommand string
 	// ResolveCapture finds the capture store's entry for bin on this host's platform, the same
 	// selection a jail's materialize makes. nil => this host has no capture store.
 	ResolveCapture func(bin string) (*capture.Entry, error)

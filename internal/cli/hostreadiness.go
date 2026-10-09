@@ -99,6 +99,7 @@ func hostReadinessAct(packs []*packload.Pack, cmd []string, errw io.Writer, act 
 		return r, 0
 	}
 	floor := newHostFloor(errw, progs)
+	floor.PatchBypassCommand = "yolo host -- " + shquote.Quote(cmd0)
 	ctx := withActInterrupt(context.Background(), act)
 	var failed []hostReadinessFailure
 	// patchFailure is a patch failure the missing-program hatch does not waive (PF-D83), and

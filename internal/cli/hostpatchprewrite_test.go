@@ -112,7 +112,7 @@ func TestAHostApplyStopsOnAForksRecordedPatchFailureBeforeItWrites(t *testing.T)
 	rc := hostApplyRefreshAndRender(&out, &errw, false, true, nil, "", "")
 	if rc == 0 || strings.Contains(out.String(), "host apply — applying into") ||
 		!strings.Contains(errw.String(), "ERROR: fork forkpack/tool: patch application failed at upstream v1.2.0") ||
-		!strings.Contains(errw.String(), "  Bypass: YOLO_ALLOW_PATCH_FAILURES=1 yolo host -- tool\n") ||
+		!strings.Contains(errw.String(), "  Bypass: YOLO_ALLOW_PATCH_FAILURES=1 yolo host apply --assert\n") ||
 		!strings.Contains(errw.String(), "yolo host: refusing the host apply: the patch series of fork forkpack/tool does not apply") {
 		t.Errorf("an apply over a recorded patch failure: rc=%d, want a refusal before its render\n%s\n%s",
 			rc, out.String(), errw.String())
@@ -182,4 +182,53 @@ func TestAHostLaunchWithoutApplyOnLaunchStopsOnATreesRecordedPatchFailure(t *tes
 		!strings.Contains(errw.String(), "CONTINUING: YOLO_ALLOW_PATCH_FAILURES=1 is set") {
 		t.Errorf("the bypass: rc=%d execed %v\n%s", rc, got.execed, errw.String())
 	}
+}
+
+// THE APPLY `yolo pack update` RUNS (deferred: it advances nothing) stops before its first write on a
+// patched fork's and a patched extension's recorded patch failure alike, and says no second error
+// block: the update's own check printed each one just before it. Red with hostPatchPreflight
+// checking forks alone, or printing the blocks again for the pack-update apply.
+func TestThePackUpdateApplyStopsOnRecordedPatchFailuresBeforeItWritesSayingThemOnce(t *testing.T) {
+	t.Setenv("YOLO_ALLOW_PATCH_FAILURES", "")
+	t.Run("fork", func(t *testing.T) {
+		fx := patchedFloorFixture(t)
+		fx.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
+		fx.writeUserConfig(t, `,"host_management":"own"`)
+		if rc, _, out := fx.hostLaunch(t); rc != 0 {
+			t.Fatalf("the first launch: rc=%d\n%s", rc, out)
+		}
+		fx.commit(t, "v1.2.0", map[int]string{14: "fourteen", 11: "eleven"})
+		fx.later(2 * time.Hour)
+		if rc, _, out := fx.hostLaunch(t); rc == 0 {
+			t.Fatalf("the launch that records the failure: rc=%d\n%s", rc, out)
+		}
+		var out, errw bytes.Buffer
+		rc := hostApplyRefreshAndRender(&out, &errw, false, true, nil, "", packUpdateBuildsNoPatched)
+		if rc == 0 || strings.Contains(out.String(), "host apply — applying into") || strings.Contains(errw.String(), "ERROR: ") ||
+			!strings.Contains(errw.String(), "yolo host: refusing the host apply: the patch series of fork forkpack/tool does not apply") {
+			t.Errorf("the pack-update apply over a recorded patch failure: rc=%d\n%s\n%s", rc, out.String(), errw.String())
+		}
+	})
+	t.Run("extension", func(t *testing.T) {
+		fx := newTreeFixture(t, `"f.txt"`)
+		fx.listTreeForAgent(t)
+		fx.writeHostConfig(t, treeHostOwn+`,"host_apply_on_launch":false`)
+		stubBins(t, "tool")
+		var out, errw bytes.Buffer
+		if rc := hostApplyRefreshAndRender(&out, &errw, false, true, nil, "", ""); rc != 0 {
+			t.Fatalf("the first apply: rc=%d\n%s\n%s", rc, out.String(), errw.String())
+		}
+		fx.commit(t, "v1.2.0", map[int]string{14: "fourteen", 11: "eleven"})
+		fx.now = fx.now.Add(2 * time.Hour)
+		if advanceHostTrees(io.Discard, false, "", nil) {
+			t.Fatal("the advance that records the failure did not stop")
+		}
+		out.Reset()
+		errw.Reset()
+		rc := hostApplyRefreshAndRender(&out, &errw, false, true, nil, "", packUpdateBuildsNoPatched)
+		if rc == 0 || strings.Contains(out.String(), "host apply — applying into") || strings.Contains(errw.String(), "ERROR: ") ||
+			!strings.Contains(errw.String(), "yolo host: refusing the host apply: the patch series of extension treepack/tool-ext does not apply") {
+			t.Errorf("the pack-update apply over a recorded tree failure: rc=%d\n%s\n%s", rc, out.String(), errw.String())
+		}
+	})
 }

@@ -140,8 +140,10 @@ func hostApplyRefreshAndRender(out, errw io.Writer, color, write bool, stdin io.
 	if write && deferred == "" && !advanceHostTrees(errw, color, "", act) {
 		return 1
 	}
-	// PF-D81 BEFORE THE FIRST WRITE: a patched fork's recorded patch failure stops the apply here.
-	if write && !hostPatchPreflight(errw, selectConfiguredHostPacks().packs, "the host apply", "", act) {
+	// PF-D81 BEFORE THE FIRST WRITE: a patched fork's recorded patch failure stops the apply here, and
+	// so does a patched extension's in the apply `yolo pack update` runs, which advances none.
+	if write && !hostPatchPreflight(errw, selectConfiguredHostPacks().packs, "the host apply",
+		"yolo host apply --assert", "", deferred != "", act) {
 		return 1
 	}
 	return applyHostFormattedDeferring(out, errw, color, write, stdin, format, deferred, act)

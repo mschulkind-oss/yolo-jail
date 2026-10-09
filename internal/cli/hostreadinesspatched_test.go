@@ -50,6 +50,7 @@ func TestHostPatchFatalReadinessMissingBypassDoesNotWaiveFailure(t *testing.T) {
 	// PF-D83: an intact build is here, so the refusal names the patch failure's own bypass, the one
 	// that runs it, and says the missing-program hatch does not leave the program out.
 	if !strings.Contains(errw.String(), "0001-ten.patch") ||
+		!strings.Contains(errw.String(), "  Bypass: YOLO_ALLOW_PATCH_FAILURES=1 yolo host -- other-command\n") ||
 		!strings.Contains(errw.String(), "YOLO_ALLOW_MISSING_PROGRAMS does not leave it out") ||
 		!strings.Contains(errw.String(), "YOLO_ALLOW_PATCH_FAILURES=1 yolo host -- other-command") {
 		t.Fatalf("readiness did not retain the concrete patch failure and refusal:\n%s", errw.String())

@@ -797,6 +797,7 @@ func applyHostFloor(pr richtext.Printer, out io.Writer, packs []*packload.Pack, 
 	progs := floorPrograms(packs)
 	floor := newHostFloor(out, progs)
 	floor.Prefix = "    "
+	floor.PatchBypassCommand = "yolo host apply --assert"
 	if survey != nil && survey.advanceDeferred != "" {
 		// THE ACT BUILDS NONE (PF-D12, PF-D56): the floor installs a good build already admitted, and a
 		// patched fork with none says which act builds it.
