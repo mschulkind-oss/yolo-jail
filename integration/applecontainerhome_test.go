@@ -11,17 +11,19 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// TWO APPLE CONTAINER HOME FACTS BUILT ON LINUX AND NEVER BOOTED, ASKED AS EXPERIMENTS — a third
-// batch under the exception applecontainer_test.go's header names, kept by
-// applecontainerparity_test.go's rule: BOTH ANSWERS PASS, each is recorded on one
-// `AC-PARITY <fix> VERDICT:` line, and only an experiment not conducted is red.
+// ONE APPLE CONTAINER HOME FACT IS STILL ASKED AS AN EXPERIMENT — the third batch under the
+// exception applecontainer_test.go's header names, kept by applecontainerparity_test.go's rule:
+// both answers pass, are recorded on one `AC-PARITY <fix> VERDICT:` line, and only an experiment
+// not conducted is red.
 //
-//	login-seed       TestAppleContainerFreshWorkspaceBootsWithTheLoginSeed   docs/design/base-home-legacy-state.md §3, OQ-BH12
 //	storage-classes  TestAppleContainerBriefingCarriesItsStorageClasses       docs/design/durable-scratch-space.md, DS-P1
 //
-// Both run in apple-container.yml, on the maintainer's SELF-HOSTED Mac (the only Apple Container
-// instrument there is; that workflow's header says why no hosted runner can run the backend).
-// Neither adds a job or a trigger there: the job selects every TestAppleContainer… test by name.
+// The login-seed boot check is promoted to a hard regression assertion; see
+// TestAppleContainerFreshWorkspaceBootsWithTheLoginSeed and its offline assertion controls in
+// applecontainerseedassert_test.go. The storage-classes experiment runs in apple-container.yml,
+// on the maintainer's SELF-HOSTED Mac (the only Apple Container instrument there is; that
+// workflow's header says why no hosted runner can run the backend). The job selects every
+// TestAppleContainer… test by name.
 
 // TestAppleContainerFreshWorkspaceBootsWithTheLoginSeed asks OQ-BH12's fix on the hardware.
 //
@@ -59,38 +61,23 @@ func TestAppleContainerFreshWorkspaceBootsWithTheLoginSeed(t *testing.T) {
 		`for d in .claude claude npm-global; do if [ -d "$HOME/$d" ]; then echo "$d|DIR"; else echo "$d|ABSENT"; fi; done`,
 		`echo "=== END ==="`,
 	}, "\n"))
-	jailSeed := section(res.stdout, "=== SEED ===", "=== DIRS ===")
-	dirs := map[string]string{}
-	for _, line := range strings.Split(section(res.stdout, "=== DIRS ===", "=== END ==="), "\n") {
-		if k, v, ok := strings.Cut(strings.TrimSpace(line), "|"); ok {
-			dirs[k] = v
-		}
+	probe, err := parseACLoginSeedProbe(res.stdout)
+	if err != nil {
+		t.Fatalf("%s %s: %v, so NOTHING WAS MEASURED:\n%s",
+			acParityTag, fix, err, lastLines(res.stdout, 30))
 	}
-	if len(dirs) == 0 {
-		t.Fatalf("%s %s: the probe printed no directory facts, so NOTHING WAS MEASURED:\n%s",
-			acParityTag, fix, lastLines(res.stdout, 30))
-	}
-	hostCopy, _ := os.ReadFile(filepath.Join(dir, ".yolo", "home", ".claude.json"))
+	hostCopy, hostCopyErr := os.ReadFile(filepath.Join(dir, ".yolo", "home", ".claude.json"))
 
-	var wrong []string
-	if !strings.Contains(jailSeed, email) {
-		wrong = append(wrong, "the jail's ~/.claude.json lacks the seed's login")
+	evidence := fmt.Sprintf("host <ws>/.yolo/home/.claude.json carries the seed's login: %v (read error: %v)\n"+
+		"jail ~/.claude.json:\n%s\ndirs: %v", hostCopyErr == nil && strings.Contains(string(hostCopy), email),
+		hostCopyErr, lastLines(probe.jailSeed, 12), probe.dirs)
+	if err := acLoginSeedFailures(email, probe, string(hostCopy), hostCopyErr); err != nil {
+		t.Fatalf("%s %s VERDICT: DOES NOT HOLD — a fresh workspace's jail does not boot the way "+
+			"OQ-BH12's fix says: %v\n\nevidence:\n%s", acParityTag, fix, err, evidence)
 	}
-	for d, want := range map[string]string{".claude": "DIR", "claude": "ABSENT", "npm-global": "ABSENT"} {
-		if dirs[d] != want {
-			wrong = append(wrong, fmt.Sprintf("~/%s is %s, want %s", d, dirs[d], want))
-		}
-	}
-	evidence := fmt.Sprintf("host <ws>/.yolo/home/.claude.json carries the seed's login: %v\n"+
-		"jail ~/.claude.json:\n%s\ndirs: %v", strings.Contains(string(hostCopy), email),
-		lastLines(jailSeed, 12), dirs)
-	if len(wrong) > 0 {
-		acParityRecord(t, fix, false, "a fresh workspace's jail does not boot the way OQ-BH12's fix "+
-			"says: "+strings.Join(wrong, "; "), evidence)
-		return
-	}
-	acParityRecord(t, fix, true, "a fresh workspace's jail reads the seed's login at "+
-		"~/.claude.json, has ~/.claude, and has neither undotted podman bind source", evidence)
+	t.Logf("%s %s VERDICT: HOLDS — a fresh workspace's jail reads the seed's login at "+
+		"~/.claude.json, has ~/.claude, has neither undotted podman bind source, and the host copy "+
+		"is readable\n\nevidence:\n%s", acParityTag, fix, evidence)
 }
 
 // TestAppleContainerBriefingCarriesItsStorageClasses asks the storage-classes section's Apple

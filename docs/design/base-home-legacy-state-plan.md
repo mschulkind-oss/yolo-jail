@@ -5,16 +5,18 @@ status: accepted
 tags: [plan, sketch, base-home, jail-home, storage]
 summary: "Build sketch for the per-jail read-only skeleton that replaces podman's shared base home: the seed fixes that ship first, the skeleton builder and the writers it takes over, the tests and fixtures that move, and the traps found in the tree. No design decision lives here."
 stage: DECIDED
-next: "Promote TestAppleContainerFreshWorkspaceBootsWithTheLoginSeed into a regression check using the recorded fake-seed HOLDS, proving its actual negative branch red and restored target green without an agent or API call"
+next: "On native Apple Container, mutate the actual container seed target/copy caller and prove the named login-seed boot test goes red, then restore it and prove green"
 ---
 
 # Per-jail home skeleton — build sketch
 
-**Status:** reconciled 2026-10-07 against `931489400b`. The original implementation
-steps are built. MEASURED: [the fake-seed delivery HOLDS](base-home-legacy-state.md#3-the-apple-container-seed-defect)
-on the self-hosted Mac, 2026-10-03. UNMEASURED: authentic login and current target-host
-acceptance. The [regression-promotion gate](#remaining-gate--seed-regression-promotion)
-is unbuilt, so this companion remains a live work owner, not a completed plan to delete.
+**Status:** reconciled 2026-10-09 against the source tree. The original implementation
+steps are built. The fake-seed delivery [HOLDS](base-home-legacy-state.md#3-the-apple-container-seed-defect)
+were recorded on the self-hosted Mac, 2026-10-03. The login-seed test now has a hard regression
+assertion, offline verdict controls, and a structural check that the native boot caller fails on a
+bad verdict. UNMEASURED: current native target-path mutation/restoration and authentic login. The
+[native boot acceptance gate](#remaining-gate--seed-regression-promotion) remains open, so this companion
+is still live work, not a completed plan to delete.
 
 **Original build record, 2026-09-25:** every design question is settled,
 including the two found in the build, [OQ-BH15](base-home-legacy-state.md#OQ-BH15) and
@@ -101,22 +103,22 @@ sketches) and [`jail-home.md`](../reference/jail-home.md) (the home layout it ch
 ## Remaining gate — seed regression promotion
 
 The [design's seed evidence](base-home-legacy-state.md#3-the-apple-container-seed-defect)
-records the exact HOLDS and controls from [run 37133569003](https://github.com/mschulkind-oss/yolo-jail/actions/runs/37133569003),
-checkout `5ca9b74856b1a181e91b0c30022f578382d54204`. PASS alone is not the evidence:
-[`acParityRecord`](../../integration/applecontainerparity_test.go) accepts both answers.
-Its promotion rule requires a recorded HOLDS to become a regression check. That work
-has not been built into [`applecontainerhome_test.go`](../../integration/applecontainerhome_test.go).
+records the exact fake-login HOLDS and controls from [run 37133569003](https://github.com/mschulkind-oss/yolo-jail/actions/runs/37133569003),
+checkout `5ca9b74856b1a181e91b0c30022f578382d54204`. That historical result is not current-head
+acceptance and says nothing about authentic login.
 
-The next bounded source/test writer promotes **only the login-seed experiment**, keeping
-its private machine store, fake account, directory controls and no-agent/no-API boundary.
-Before the assertion change, observe that the existing negative branch remains green;
-afterward it must be red. Then a precise mutation of the actual backend seed-path caller
-must make the promoted check fail, with the restored path green on Apple Container.
-Linux unit greens cannot stand in for that target result. Parent owns this future writer,
-target authorization and acceptance; this docs reconciliation executes none of them.
+The login-seed test now fails on a bad delivery verdict instead of logging and returning. Its
+offline controls exercise a known-good result, a missing jail email, each wrong directory fact,
+malformed or missing probe facts, and a host-copy read error. A structural test pins the hard-failure
+boundary in the native boot caller. These checks promote the source regression; they do not run or
+prove the Apple Container boot.
+
+Native acceptance is still owed: mutate the actual container seed target/copy caller, run the named
+login-seed boot test on Apple Container and observe the specific failure, restore the source, and
+observe it pass. Linux tests cannot stand in for that target result. No agent or API call is needed.
 
 Graduation remains held: the destination's [OQ-JH1](../reference/jail-home.md#OQ-JH1)
-is live, and neither this unfinished gate nor real-login limitations may disappear in a
+is live, and neither the native acceptance gate nor real-login limitations may disappear in a
 reference move. Leave the existing [roadmap](../plans/roadmap.md) link to the design in
 place; no priority change or whole-roadmap replacement is needed for this reconciliation.
 

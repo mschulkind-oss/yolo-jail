@@ -726,11 +726,12 @@ not proof that Claude is logged in. Real authentication and reverse learning aft
 real login remain UNMEASURED on that backend.
 
 > [!WARNING]
-> **Read the experiment verdict, not PASS.** Both HOLDS and DOES NOT HOLD still pass
-> through `acParityRecord`; the [promotion rule](../../integration/applecontainerparity_test.go)
-> has not yet been applied to this experiment. Its [live plan](../design/base-home-legacy-state-plan.md#remaining-gate--seed-regression-promotion)
-> owns the regression-promotion and target gate. This historical observation does not
-> establish current target acceptance or repair any later native failure.
+> **Historical HOLDS is not current target acceptance.** That experiment accepted either
+> verdict. **Source-only update, 2026-10-09:** the login-seed check now fails on a bad verdict;
+> offline controls and a structural test pin its native caller's hard-failure branch. Its [live plan](../design/base-home-legacy-state-plan.md#remaining-gate--seed-regression-promotion)
+> still requires a native mutation of the actual container seed target/copy caller and a restored
+> boot green. Neither the historical observation nor offline tests proves authentic login or
+> repairs a later native failure.
 
 ### History isolation
 
