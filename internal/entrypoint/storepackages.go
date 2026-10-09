@@ -65,36 +65,47 @@ func StorePackagesLib() string { return storeLibDir(StorePackagesRoot) }
 // already names first, so the two mechanisms have the same shape.
 func StorePackagesPkgConfig() string { return storePkgConfigDir(StorePackagesRoot) }
 
-// BakedPackagesLib is the BAKED twin of StorePackagesLib: the image's packages-only lib
-// farm, which flake.nix (mkBinPathLinks) fills with the lib outputs of the workspace's
-// `packages:` and nothing else. It is the ONE image directory that goes on LD_LIBRARY_PATH.
+// ImageLDLib is the image's LD_LIBRARY_PATH farm (flake.nix, mkBinPathLinks): the C++
+// runtime and zlib (libstdc++, libgcc_s, libz and the rest of stdenv.cc.cc.lib) plus the lib
+// outputs of the workspace's `packages:`, and nothing else. It is the ONE image directory
+// that goes on LD_LIBRARY_PATH.
 //
-// WHY NOT /lib. A nix-built consumer (the image's python3 and its ctypes) dlopens by bare
-// soname only through LD_LIBRARY_PATH or its RUNPATH, because nixpkgs' ld.so reads its
-// cache from $glibc/etc/ld.so.cache in the read-only store and never /etc/ld.so.cache. And
-// /lib carries the merged tree's glibc, which an LD_LIBRARY_PATH search hands to every nix
-// binary ahead of its own: a prebuilt linked against an older glibc then crashes on a
-// GLIBC_PRIVATE lookup, which is why scrubLegacyLDLibraryPath strips /lib and /usr/lib. This
-// directory carries no glibc by construction (the flake skips every name glibc ships), so
-// it restores bare-soname dlopen without restoring that crash.
+// WHY IT EXISTS. A nix-built process (the image's python3) finds a library by bare soname
+// only through LD_LIBRARY_PATH or a RUNPATH, because nixpkgs' ld.so reads its cache from
+// $glibc/etc/ld.so.cache in the read-only store and never /etc/ld.so.cache. So a pip
+// wheel's extension (NEEDED libstdc++.so.6, libgcc_s.so.1, libz.so.1, no RUNPATH) and a
+// ctypes.CDLL of a `packages:` library both need this directory.
+//
+// WHY NOT /lib, AND WHY NOT THE WHOLE FARM. /lib carries the merged tree's glibc, which an
+// LD_LIBRARY_PATH search hands to every nix binary ahead of its own: a program linked
+// against an older glibc then crashes on a GLIBC_PRIVATE lookup, which is why
+// scrubLegacyLDLibraryPath strips /lib and /usr/lib. The rest of the farm is held back for a
+// second reason: a library built on this image's glibc can need a newer glibc symbol version
+// than an older program's glibc provides (glib needs GLIBC_2.43, and a glibc-2.42 program
+// that NEEDs libglib then fails to start). The C++ runtime and zlib need at most
+// GLIBC_2.38. FHS binaries get the whole farm, glibc excepted, through nix-ld's default path
+// (ImageFHSLib) instead.
 //
 // Outside /usr/lib on purpose: scrubLegacyLDLibraryPath drops every /usr/lib/… entry.
-const BakedPackagesLib = "/usr/local/lib/yolo-packages"
+const ImageLDLib = "/usr/local/lib/yolo-ld"
 
-// ExportBakedPackagesLib prepends BakedPackagesLib to LD_LIBRARY_PATH when the image's farm
-// holds anything. An image built with no `packages:` (every default launch, and every
-// store-delivered one, whose image is built with the packages left out) has an empty farm,
-// and exports nothing: an empty directory on every jail's search path is a probe per lookup
-// for nothing.
-func ExportBakedPackagesLib(e *Env) {
-	exportBakedPackagesLibFrom(e, BakedPackagesLib)
+// ImageFHSLib is the image's glibc-free copy of the whole /lib farm. It is never on
+// LD_LIBRARY_PATH: nix-ld's compiled-in library path names it (flake.nix, nixLd), so only
+// FHS binaries search it, including under `env -i`. Named here so the boot and its tests
+// share one spelling.
+const ImageFHSLib = "/usr/local/lib/yolo-fhs"
+
+// ExportImageLDLib prepends ImageLDLib to LD_LIBRARY_PATH when the image's farm holds
+// anything. An image older than the farm has no such directory and exports nothing.
+func ExportImageLDLib(e *Env) {
+	exportImageLDLibFrom(e, ImageLDLib)
 }
 
-// exportPackagesLibStep is the boot step table's body for export_packages_lib, named so a
+// exportImageLDLibStep is the boot step table's body for export_image_ld_lib, named so a
 // test can pin that the table really runs it.
-func exportPackagesLibStep(b *bootRun) { ExportBakedPackagesLib(b.e) }
+func exportImageLDLibStep(b *bootRun) { ExportImageLDLib(b.e) }
 
-func exportBakedPackagesLibFrom(e *Env, dir string) {
+func exportImageLDLibFrom(e *Env, dir string) {
 	entries, err := os.ReadDir(dir)
 	if err != nil || len(entries) == 0 {
 		return

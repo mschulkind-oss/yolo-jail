@@ -1308,10 +1308,13 @@ the closure whether or not it appears in `contents`.
 
 > [!WARNING]
 > **A scrubbed `LD_LIBRARY_PATH` loses a store-delivered library, exactly as it lost a baked
-> user library.** nixpkgs' `ld.so` never reads the FHS `ld.so.cache`, so both packages-only
-> farms, the baked `/usr/local/lib/yolo-packages` and `/run/yolo/packages/lib`, are discoverable
-> only through the variable. The nix-ld fallback
-> directory stays baked and stays the core trio; growing it is an explicit call.
+> user library.** nixpkgs' `ld.so` never reads the FHS `ld.so.cache`, so for a nix-built
+> process both `/usr/local/lib/yolo-ld` and `/run/yolo/packages/lib` are discoverable only
+> through the variable. nix-ld's compiled-in path names only baked directories, so an FHS binary
+> under `env -i` does not find a store-delivered library. And because a lean launch's chromium
+> stack (glib among it) arrives in `/run/yolo/packages/lib`, it IS on `LD_LIBRARY_PATH` there,
+> which the baked image avoids: glib needs a newer glibc symbol version than an older nix program
+> may have ([`mise-node-dynamic-linking.md`](mise-node-dynamic-linking.md)).
 
 Two package-delivery mechanisms are maintained on purpose. That asymmetry is the accepted price
 of the ruling that store delivery is an opt-in fast path with the baked path retained; the

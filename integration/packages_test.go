@@ -60,8 +60,8 @@ func lastNonEmptyLine(s string) string {
 	return ""
 }
 
-// TestExtraPackageLibFarm confirms three properties of a user `packages:` lib in
-// ONE jail launch (the three checks share the identical `{"packages":["zbar"]}`
+// TestExtraPackageLibFarm confirms the properties below of a user `packages:` lib, and of
+// the image's library farms, in ONE jail launch (the checks share the identical `{"packages":["zbar"]}`
 // config, so they build/boot the same --impure image; merged to pay the ~12-13s
 // nix-rebuild + container cold-start ONCE instead of three times). Each check
 // keeps its own marker and independent assertion, so failure attribution and
@@ -72,9 +72,9 @@ func lastNonEmptyLine(s string) string {
 //     separate `-lib` output), guarding against a naive `${pkg}/lib` impl.
 //  2. DLOPEN-BY-SONAME — the image's python3/ctypes can dlopen it by bare soname
 //     (the real consumer path, e.g. pyzbar). Works via LD_LIBRARY_PATH naming the
-//     packages-only farm /usr/local/lib/yolo-packages, which the boot exports when
-//     `packages:` filled it (nixpkgs' loader does NOT read /etc/ld.so.cache, only
-//     $glibc/etc/ld.so.cache in the store — so LD_LIBRARY_PATH is the mechanism).
+//     glibc-free farm /usr/local/lib/yolo-ld, which the boot exports (nixpkgs'
+//     loader does NOT read /etc/ld.so.cache, only $glibc/etc/ld.so.cache in the
+//     store — so LD_LIBRARY_PATH is the mechanism).
 //  3. FHS LD.SO.CACHE — build-time ldconfig populated /etc/ld.so.cache and it is
 //     NOT empty. Regression guard for the `ldconfig -r $out` bug that produced a
 //     0-entry cache. (`-C /etc/ld.so.cache` because bare `ldconfig -p` reads
@@ -82,14 +82,23 @@ func lastNonEmptyLine(s string) string {
 //  4. NO GLIBC ON LD_LIBRARY_PATH — no directory the jail's LD_LIBRARY_PATH names
 //     carries libc.so.6, and none is /lib, /usr/lib or /usr/lib/…. Exporting the
 //     merged tree's glibc that way crashed nix prebuilts built against an older glibc
-//     (GLIBC_PRIVATE), so probe 2 must keep working WITHOUT it.
+//     (GLIBC_PRIVATE), so probe 2 must keep working WITHOUT it. It also pins that
+//     yolo-ld IS on the path and yolo-fhs (the whole farm, for nix-ld) is NOT.
+//  5. WHEEL-STYLE LIB — the image's python3 loads a library that NEEDs
+//     libstdc++.so.6 and libgcc_s.so.1 and has no RUNPATH, the shape of a pip
+//     wheel's extension (numpy, cv2). Built here with the image's g++ and the
+//     wrapper's rpath turned off, so nothing is downloaded.
+//  6. FHS UNDER env -i — an FHS binary (interpreter /lib64/…, i.e. nix-ld) NEEDing
+//     libexpat.so.1, which only the chromium stack in the /lib farm provides, starts
+//     with an EMPTY environment: nix-ld's compiled-in path names yolo-fhs. That is
+//     the class playwright's downloaded chromium is in.
 //
 // The in-jail `python3 -c 'ctypes.CDLL(...)'` probe is kept verbatim from the
 // Python era on purpose (see file header); do not "clean" it into a Go loader.
 func TestExtraPackageLibFarm(t *testing.T) {
 	requireJail(t)
 	dir := writeProject(t, `{"network": {"mode": "bridge"}, "packages": ["zbar"]}`)
-	// One launch, three probes, each fenced by a marker so we assert independently.
+	// One launch, every probe fenced by a marker so each is asserted independently.
 	r := runYolo(t, dir, strings.Join([]string{
 		`echo "=== SYMLINK ==="; ls -l /lib/libzbar.so.0 /usr/lib/libzbar.so.0`,
 		`echo "=== DLOPEN ==="; python3 -c 'import ctypes; ctypes.CDLL("libzbar.so.0"); print("dlopen-ok")'`,
@@ -98,6 +107,16 @@ func TestExtraPackageLibFarm(t *testing.T) {
 			`for d in $(echo "$LD_LIBRARY_PATH" | tr ':' ' '); do ` +
 			`case "$d" in /lib|/usr/lib|/usr/lib/*) echo "MERGED-TREE-DIR $d";; esac; ` +
 			`[ -e "$d/libc.so.6" ] && echo "GLIBC-IN $d"; done; true`,
+		`echo "=== WHEEL ==="; w=$(mktemp -d); ` +
+			`printf '#include <string>\nextern "C" int smoke(){ std::string s("ok"); return (int)s.size(); }\n' > $w/s.cc; ` +
+			`NIX_DONT_SET_RPATH_x86_64_unknown_linux_gnu=1 NIX_DONT_SET_RPATH_aarch64_unknown_linux_gnu=1 ` +
+			`g++ -shared -fPIC -o $w/libsmoke.so $w/s.cc && ` +
+			`{ readelf -d $w/libsmoke.so | grep -E 'RUNPATH|RPATH' && echo HAS-RUNPATH; ` +
+			`python3 -c "import ctypes; ctypes.CDLL('$w/libsmoke.so').smoke(); print('wheel-ok')" 2>&1; }; true`,
+		`echo "=== FHSENVI ==="; f=$(mktemp -d); ld=$(ls /lib64/ld-linux-x86-64.so.2 /lib/ld-linux-aarch64.so.1 2>/dev/null | head -1); ` +
+			`printf '#include <stdio.h>\nconst char *XML_ExpatVersion(void);\nint main(void){ printf("fhs-ok %%s\\n", XML_ExpatVersion()); return 0; }\n' > $f/m.c; ` +
+			`NIX_DONT_SET_RPATH_x86_64_unknown_linux_gnu=1 NIX_DONT_SET_RPATH_aarch64_unknown_linux_gnu=1 ` +
+			`gcc -o $f/fhs $f/m.c /lib/libexpat.so.1 -Wl,--dynamic-linker=$ld && env -i $f/fhs 2>&1; true`,
 	}, "\n"), withTimeout(nixBuildJailTimeout))
 	if r.rc != 0 {
 		t.Fatalf("zbar lib-farm probe script failed (rc %d)\nstdout=%q\nstderr=%q",
@@ -107,7 +126,9 @@ func TestExtraPackageLibFarm(t *testing.T) {
 	symlink := section(r.stdout, "=== SYMLINK ===", "=== DLOPEN ===")
 	dlopen := section(r.stdout, "=== DLOPEN ===", "=== LDCACHE ===")
 	ldcache := section(r.stdout, "=== LDCACHE ===", "=== NOGLIBC ===")
-	noglibc := section(r.stdout, "=== NOGLIBC ===", "")
+	noglibc := section(r.stdout, "=== NOGLIBC ===", "=== WHEEL ===")
+	wheel := section(r.stdout, "=== WHEEL ===", "=== FHSENVI ===")
+	fhsEnvI := section(r.stdout, "=== FHSENVI ===", "")
 
 	// 1. Lib-farm symlink resolves into the nix store (the -lib output).
 	if !strings.Contains(symlink, "libzbar.so.0") || !strings.Contains(symlink, "/nix/store") {
@@ -137,6 +158,26 @@ func TestExtraPackageLibFarm(t *testing.T) {
 	if strings.Contains(noglibc, "MERGED-TREE-DIR") || strings.Contains(noglibc, "GLIBC-IN") {
 		t.Fatalf("LD_LIBRARY_PATH carries the merged tree's glibc (the GLIBC_PRIVATE crash "+
 			"class of docs/reference/mise-node-dynamic-linking.md):\n%s", noglibc)
+	}
+	if !strings.Contains(noglibc, "/usr/local/lib/yolo-ld") {
+		t.Fatalf("LD_LIBRARY_PATH does not name the image's /usr/local/lib/yolo-ld farm:\n%s", noglibc)
+	}
+	if strings.Contains(noglibc, "/usr/local/lib/yolo-fhs") {
+		t.Fatalf("LD_LIBRARY_PATH names /usr/local/lib/yolo-fhs, which is for nix-ld only "+
+			"(its libraries can need a newer glibc than an older nix program has):\n%s", noglibc)
+	}
+	// 5. A pip-wheel-shaped extension (NEEDs libstdc++, no RUNPATH) loads in image python3.
+	if strings.Contains(wheel, "HAS-RUNPATH") {
+		t.Fatalf("the wheel-shaped fixture got a RUNPATH, so it proves nothing:\n%s", wheel)
+	}
+	if !strings.Contains(wheel, "wheel-ok") {
+		t.Fatalf("image python3 could not load a library NEEDing libstdc++.so.6 with no "+
+			"RUNPATH (the pip-wheel case: numpy, cv2):\n%s", wheel)
+	}
+	// 6. An FHS binary finds a farm-only library through nix-ld with an empty environment.
+	if !strings.Contains(fhsEnvI, "fhs-ok") {
+		t.Fatalf("an FHS binary NEEDing libexpat.so.1 did not start under env -i — nix-ld's "+
+			"default library path no longer reaches /usr/local/lib/yolo-fhs:\n%s", fhsEnvI)
 	}
 }
 

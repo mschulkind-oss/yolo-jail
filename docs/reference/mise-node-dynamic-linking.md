@@ -8,7 +8,7 @@ covers:
   - internal/entrypoint/mcp_wrappers.go
   - internal/entrypoint/storepackages.go
 tags: [nix-ld, dynamic-linking, ld-library-path, image, mise, node]
-summary: "Why an FHS binary in this image could not find libstdc++ without LD_LIBRARY_PATH, and how nix-ld at /lib64 fixed it env-free. Covers the /lib farm, the baked nix-ld fallback lib dir, the packages-only farm that LD_LIBRARY_PATH names for dlopen-by-soname from nix processes (never /lib, which carries glibc), the tripwire that catches a regression, and the alternatives that must not be re-litigated."
+summary: "Why an FHS binary in this image could not find libstdc++ without LD_LIBRARY_PATH, and how nix-ld at /lib64 fixed it env-free. Covers the /lib farm, the baked nix-ld fallback lib dir, the two glibc-free farms (yolo-ld on LD_LIBRARY_PATH for nix processes, yolo-fhs on nix-ld's default path for FHS binaries; never /lib, which carries glibc), the tripwire that catches a regression, and the alternatives that must not be re-litigated."
 ---
 
 # Dynamic linking for FHS binaries — nix-ld, the `/lib` farm, and `LD_LIBRARY_PATH`
@@ -31,7 +31,7 @@ environment.
 | :--- | :--- |
 | The nix-ld derivation, its two baked defaults, and the `/lib64` + `/lib` interpreter links | `flake.nix` (`nixLd`, `mkBinPathLinks`) |
 | The `/lib` + `/usr/lib` library farm, and the baked nix-ld fallback dir | `flake.nix` (`mkBinPathLinks`, `extraLibPackages`) |
-| The packages-only farms `LD_LIBRARY_PATH` names (`/usr/local/lib/yolo-packages` baked, `/run/yolo/packages/lib` store-delivered), never `/lib` | `flake.nix` (`mkBinPathLinks`), `internal/entrypoint/storepackages.go`, `boot.go` |
+| The glibc-free farms: `/usr/local/lib/yolo-ld` and `/run/yolo/packages/lib` on `LD_LIBRARY_PATH`, `/usr/local/lib/yolo-fhs` on nix-ld's default path; never `/lib` | `flake.nix` (`mkBinPathLinks`, `nixLd`), `internal/entrypoint/storepackages.go`, `boot.go` |
 | The regression tripwire | `internal/cli/check` (`sectionNixLD`) |
 | The MCP wrappers this used to be a per-call-site fix in | `internal/entrypoint/mcp_wrappers.go` |
 
@@ -94,37 +94,41 @@ A non-store path is required for the second one, because a jail bind-mounts the 
 
 They look redundant and are not. Each covers a case the others structurally cannot.
 
-**1. The baked nix-ld fallback dir.** The **only** library search path an FHS binary gets
-under a fully scrubbed environment, because it is what nix-ld's compiled-in default names. It
-holds deliberately just the **core trio** — glibc, libstdc++/libgcc_s, zlib — plus the real
-loader under the name `ld.so`.
+**1. nix-ld's compiled-in library path: two directories.** The **only** library search path
+an FHS binary gets under a fully scrubbed environment. nix-ld appends it to whatever
+`LD_LIBRARY_PATH` the binary arrived with, for that binary alone.
+
+- `/usr/share/nix-ld/lib`, the fallback dir: the **core trio** (glibc, libstdc++/libgcc_s,
+  zlib) plus the real loader under the name `ld.so`.
+- `/usr/local/lib/yolo-fhs`, the FHS farm: everything the `/lib` farm links (the core libraries,
+  the chromium graphics stack, the workspace's `packages:`) **except every name glibc ships**.
+  This is what lets a downloaded FHS binary such as playwright's chromium find glib, gio and
+  expat, with or without an environment.
 
 > [!WARNING]
-> **Do not mirror the whole `/lib` farm into the nix-ld fallback dir.** The injected path
-> outranks the FHS binary's own `DT_RUNPATH`, so a *smaller* directory means a *smaller*
-> shadowing surface. Keeping it to the trio is what makes this cleaner than the baked variable
-> it replaced; grow it only on a proven need.
+> **The FHS farm shadows an FHS binary's own `DT_RUNPATH`**, as `LD_LIBRARY_PATH=/lib` used
+> to, so a binary bundling a different build of one of these libraries gets the image's. That
+> is the old behavior, kept on purpose for FHS binaries only: they already run on this image's
+> glibc through nix-ld, so the farm's libraries match them. It never reaches a nix-built
+> program, which does not pass through nix-ld.
 
 **2. The `/lib` + `/usr/lib` farm.** Symlinks to every lib output in the image. These directories
 are the dynamic loader's default search paths for merged-tree binaries. They are **not** exported
 on `LD_LIBRARY_PATH`.
 
-**3. `LD_LIBRARY_PATH` names only a packages-only farm, never `/lib`.** A nix-built process
-(the image's `python3` and its `ctypes`) can `dlopen` a library by bare soname only through
-`LD_LIBRARY_PATH` or its own `RUNPATH`: nixpkgs' loader reads its cache from
-`$glibc/etc/ld.so.cache` in the read-only store, never the FHS one, and nix-ld does not apply to
-a nix binary. So the libraries a workspace adds in `packages:` get a directory of their own,
-holding those libraries and nothing else:
+**3. `LD_LIBRARY_PATH` names only glibc-free directories, never `/lib`.** A nix-built process
+(the image's `python3`, its `ctypes`, and the pip wheels it imports) finds a library by bare
+soname only through `LD_LIBRARY_PATH` or the `RUNPATH` of the object that needs it: nixpkgs'
+loader reads its cache from `$glibc/etc/ld.so.cache` in the read-only store, never the FHS one,
+and nix-ld does not apply to a nix binary. A wheel's extension module (numpy, cv2) needs
+`libstdc++.so.6`, `libgcc_s.so.1` or `libz.so.1` and has no `RUNPATH` into the store. So:
 
-- **Baked** (the default): `/usr/local/lib/yolo-packages`, filled by `flake.nix`, which skips
-  every name glibc ships even when `packages:` lists glibc itself. The boot prepends it to
-  `LD_LIBRARY_PATH` only when it is non-empty, so a jail with no `packages:` exports nothing. It
-  sits outside `/usr/lib` because the boot scrubs every `/usr/lib/…` entry.
-- **Store-delivered** (`YOLO_STORE_PACKAGES=1`): `/run/yolo/packages/lib`, written at boot from
-  the launch's profiles, skipping any library that resolves into a glibc store path.
-
-The same libraries are also linked into `/lib` and `/usr/lib`, for FHS consumers and for the
-`ld.so.cache`.
+- **`/usr/local/lib/yolo-ld`** (baked): `stdenv.cc.cc.lib` (libstdc++, libgcc_s and the other
+  GCC runtimes), zlib, and the workspace's `packages:` libraries, skipping every name glibc ships
+  even when `packages:` lists glibc. The boot prepends it to `LD_LIBRARY_PATH` whenever it is
+  non-empty. It sits outside `/usr/lib` because the boot scrubs every `/usr/lib/…` entry.
+- **`/run/yolo/packages/lib`** (`YOLO_STORE_PACKAGES=1`): written at boot from the launch's
+  profiles, skipping any library that resolves into a glibc store path.
 
 > [!NOTE]
 > **Why `/lib` and `/usr/lib` were removed from `LD_LIBRARY_PATH`.** `LD_LIBRARY_PATH` is searched
@@ -133,15 +137,24 @@ The same libraries are also linked into `/lib` and `/usr/lib`, for FHS consumers
 > loader was compiled against an older glibc (e.g. 2.42) to load the merged tree's newer libc
 > (`/lib/libc.so.6`, 2.44). Because loader and libc must share internal ABI, this caused immediate
 > `undefined symbol: __pointer_chk_guard, version GLIBC_PRIVATE` startup crashes.
+
+> [!WARNING]
+> **Why the rest of the farm is not on `LD_LIBRARY_PATH` either.** Taking glibc out is not
+> enough. A library built on this image's glibc can require a newer glibc symbol version than an
+> older nix program's glibc provides. Measured on glibc 2.44: glib 2.88 needs `GLIBC_2.43`
+> (`free_sized`), and so do pixman and libsubid. A glibc-2.42 `slirp4netns` that `NEEDs`
+> `libglib-2.0.so.0` then fails with `version 'GLIBC_2.43' not found` when the image's glib is
+> on the path. `yolo-ld`'s GCC runtimes and zlib need at most `GLIBC_2.38`.
 >
-> Unsetting the variable restores normal loader behavior: nix binaries resolve their own glibc from
-> their store RPATH/default directory, and nix-ld covers FHS binaries via `/usr/share/nix-ld/lib`.
-> When a workspace requests additional libraries in `packages:`, `internal/entrypoint/storepackages.go`
-> links their `.so` files into `/run/yolo/packages/lib` and prepends *that* directory to `LD_LIBRARY_PATH`,
-> keeping `/lib` and `/usr/lib` off the search path; a baked `packages:` library gets the same
-> treatment through `/usr/local/lib/yolo-packages`. Neither directory can carry glibc, which is
-> what keeps the guarantee: `integration/packages_test.go` (`TestExtraPackageLibFarm`) asserts
-> both the bare-soname `dlopen` and that no `LD_LIBRARY_PATH` directory holds `libc.so.6`.
+> **The residual risk is a `packages:` library**, which goes on `LD_LIBRARY_PATH` because its
+> bare-soname `dlopen` is the documented contract. It can break an older-glibc nix program that
+> needs the same soname, and a newer libstdc++ is safe only because it stays backward compatible.
+
+`integration/packages_test.go` (`TestExtraPackageLibFarm`) pins each part:
+- the bare-soname `dlopen` of a `packages:` library;
+- that no `LD_LIBRARY_PATH` directory holds `libc.so.6` and that `yolo-fhs` is not on it;
+- that image `python3` loads a wheel-shaped library needing libstdc++ with no `RUNPATH`;
+- that an FHS binary needing a farm-only library starts under `env -i`.
 
 The FHS `ld.so.cache` — the conventional `/etc` path — is a symlink into a tmpfs, populated at boot. It exists for tools that read
 it *directly* — `ldconfig -p`, diagnostics — and is **inert for FHS lookup**, because the nix
@@ -214,10 +227,10 @@ the afternoon again.
 
 - **Not** a per-call-site `LD_LIBRARY_PATH` re-assertion. That is the whack-a-mole this
   replaced; the loader wiring covers the class.
-- **Not** putting `/lib` or `/usr/lib` back on `LD_LIBRARY_PATH`. They carry glibc; the
-  packages-only farm is how a `packages:` library stays findable by bare soname.
-- **Not** growing the nix-ld fallback dir for convenience. Every entry there shadows an FHS
-  binary's own `DT_RUNPATH`.
+- **Not** putting `/lib`, `/usr/lib` or `yolo-fhs` on `LD_LIBRARY_PATH`. The first two carry
+  glibc; the third carries libraries that need a newer glibc than older nix programs have.
+- **Not** letting a glibc name into `yolo-ld` or `yolo-fhs`. Both farms filter on glibc's own
+  file names, which is the whole of the `GLIBC_PRIVATE` guarantee.
 - **Not** treating the FHS `ld.so.cache` as an FHS discovery path. It is a diagnostics artifact.
 - **Not** routing nix-built binaries through nix-ld.
 
@@ -230,11 +243,12 @@ only place the values themselves are stated.
 | :--- | :--- | :--- |
 | FHS ELF interpreter | nix-ld, linked at `/lib64/<loader basename>` and `/lib/<loader basename>` | `flake.nix` (`mkBinPathLinks`) |
 | nix-ld's baked loader default | the image glibc's real dynamic linker, store path | `flake.nix` (`nixLd`, `DEFAULT_NIX_LD`) |
-| nix-ld's baked library dir | `/usr/share/nix-ld/lib`, substituted over the upstream source constant | `flake.nix` (`nixLd` `postPatch`) |
-| Contents of that dir | the core trio (glibc, `stdenv.cc.cc.lib`, zlib) plus `ld.so` | `flake.nix` (`mkBinPathLinks`) |
+| nix-ld's baked library path | `/usr/share/nix-ld/lib:/usr/local/lib/yolo-fhs`, substituted over the upstream source constant | `flake.nix` (`nixLd` `postPatch`) |
+| Contents of the fallback dir | the core trio (glibc, `stdenv.cc.cc.lib`, zlib) plus `ld.so` | `flake.nix` (`mkBinPathLinks`) |
+| Contents of `yolo-fhs` | every `/lib` farm entry except glibc's names | `flake.nix` (`mkBinPathLinks`) |
 | Library farm | `/lib` and `/usr/lib` symlink farms | `flake.nix` (`mkBinPathLinks`, `extraLibPackages`) |
-| `LD_LIBRARY_PATH` | unset by the launch (`--unsetenv`) and scrubbed of `/lib`, `/usr/lib` and `/usr/lib/…` at boot; then prepended with whichever packages-only farm is non-empty | `internal/cli/run/assemble.go`, `internal/entrypoint/boot.go`, `internal/entrypoint/storepackages.go` |
-| Packages-only farms | `/usr/local/lib/yolo-packages` (baked), `/run/yolo/packages/lib` (store-delivered) | `flake.nix` (`mkBinPathLinks`), `internal/entrypoint/storepackages.go` |
+| `LD_LIBRARY_PATH` | unset by the launch (`--unsetenv`) and scrubbed of `/lib`, `/usr/lib` and `/usr/lib/…` at boot; then `/usr/local/lib/yolo-ld`, plus `/run/yolo/packages/lib` on a store-delivered launch | `internal/cli/run/assemble.go`, `internal/entrypoint/boot.go`, `internal/entrypoint/storepackages.go` |
+| Contents of `yolo-ld` | `stdenv.cc.cc.lib`, zlib and the `packages:` libraries, minus glibc's names | `flake.nix` (`mkBinPathLinks`) |
 | FHS cache (diagnostics only) | the `ld.so.cache` under `/etc`, a symlink to a tmpfs path written at boot | `flake.nix`, `internal/entrypoint` (`generateLdCache`) |
 | Tripwire | `env -i <mise node> --version` under the "FHS loader (nix-ld)" section | `internal/cli/check/section_nixld.go` |
 

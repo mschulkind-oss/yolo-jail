@@ -14,7 +14,7 @@ func unsetLDLibraryPath(t *testing.T) {
 	_ = os.Unsetenv("LD_LIBRARY_PATH")
 }
 
-func TestExportBakedPackagesLibSkipsAnEmptyOrMissingFarm(t *testing.T) {
+func TestExportImageLDLibSkipsAnEmptyOrMissingFarm(t *testing.T) {
 	for name, dir := range map[string]string{
 		"empty":   t.TempDir(),
 		"missing": filepath.Join(t.TempDir(), "absent"),
@@ -22,9 +22,9 @@ func TestExportBakedPackagesLibSkipsAnEmptyOrMissingFarm(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			unsetLDLibraryPath(t)
 			e := NewEnv(map[string]string{})
-			exportBakedPackagesLibFrom(e, dir)
+			exportImageLDLibFrom(e, dir)
 			if v, ok := e.Vars["LD_LIBRARY_PATH"]; ok {
-				t.Errorf("an image with no `packages:` libs exported LD_LIBRARY_PATH=%q", v)
+				t.Errorf("an empty or missing farm exported LD_LIBRARY_PATH=%q", v)
 			}
 			if v, ok := os.LookupEnv("LD_LIBRARY_PATH"); ok {
 				t.Errorf("process env LD_LIBRARY_PATH=%q, want unset", v)
@@ -33,7 +33,7 @@ func TestExportBakedPackagesLibSkipsAnEmptyOrMissingFarm(t *testing.T) {
 	}
 }
 
-func TestExportBakedPackagesLibPrependsAFilledFarmOnce(t *testing.T) {
+func TestExportImageLDLibPrependsAFilledFarmOnce(t *testing.T) {
 	unsetLDLibraryPath(t)
 	dir := t.TempDir()
 	if err := os.Symlink("/nix/store/x-zbar-lib/lib/libzbar.so.0", filepath.Join(dir, "libzbar.so.0")); err != nil {
@@ -41,8 +41,8 @@ func TestExportBakedPackagesLibPrependsAFilledFarmOnce(t *testing.T) {
 	}
 	e := NewEnv(map[string]string{})
 	setEnvBoth(e, "LD_LIBRARY_PATH", "/opt/custom/lib")
-	exportBakedPackagesLibFrom(e, dir)
-	exportBakedPackagesLibFrom(e, dir) // an exec re-runs the boot
+	exportImageLDLibFrom(e, dir)
+	exportImageLDLibFrom(e, dir) // an exec re-runs the boot
 	want := dir + ":/opt/custom/lib"
 	if got := e.Getenv("LD_LIBRARY_PATH"); got != want {
 		t.Errorf("LD_LIBRARY_PATH = %q, want %q", got, want)
@@ -52,11 +52,12 @@ func TestExportBakedPackagesLibPrependsAFilledFarmOnce(t *testing.T) {
 	}
 }
 
-// THE GUARANTEE THAT /lib LEFT LD_LIBRARY_PATH FOR, KEPT: a jail whose image (or launch) still carries the old
-// baked LD_LIBRARY_PATH ends the boot with the packages-only farm on it and NOT the merged
+// THE GUARANTEE THAT /lib LEFT LD_LIBRARY_PATH FOR, KEPT: a jail whose image (or launch)
+// still carries the old
+// baked LD_LIBRARY_PATH ends the boot with the image LD farm on it and NOT the merged
 // tree's glibc dirs. The farm's path must also survive the scrub itself, which drops every
 // /usr/lib/… entry — the reason it lives under /usr/local.
-func TestTheBootPutsThePackagesFarmButNoGlibcDirOnLDLibraryPath(t *testing.T) {
+func TestTheBootPutsTheImageLDFarmButNoGlibcDirOnLDLibraryPath(t *testing.T) {
 	legacy := "/lib:/usr/lib:/usr/lib/x86_64-linux-gnu"
 	t.Setenv("LD_LIBRARY_PATH", legacy)
 	e := NewEnv(map[string]string{"LD_LIBRARY_PATH": legacy})
@@ -66,7 +67,7 @@ func TestTheBootPutsThePackagesFarmButNoGlibcDirOnLDLibraryPath(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "libzbar.so.0"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	exportBakedPackagesLibFrom(e, dir)
+	exportImageLDLibFrom(e, dir)
 
 	got := e.Getenv("LD_LIBRARY_PATH")
 	for _, seg := range strings.Split(got, ":") {
@@ -75,26 +76,26 @@ func TestTheBootPutsThePackagesFarmButNoGlibcDirOnLDLibraryPath(t *testing.T) {
 		}
 	}
 	if got != dir {
-		t.Errorf("LD_LIBRARY_PATH = %q, want exactly the packages farm %q", got, dir)
+		t.Errorf("LD_LIBRARY_PATH = %q, want exactly the image LD farm %q", got, dir)
 	}
 
-	e2 := NewEnv(map[string]string{"LD_LIBRARY_PATH": BakedPackagesLib + ":/lib"})
-	t.Setenv("LD_LIBRARY_PATH", BakedPackagesLib+":/lib")
+	e2 := NewEnv(map[string]string{"LD_LIBRARY_PATH": ImageLDLib + ":/lib"})
+	t.Setenv("LD_LIBRARY_PATH", ImageLDLib+":/lib")
 	scrubLegacyLDLibraryPath(e2)
-	if got := e2.Getenv("LD_LIBRARY_PATH"); got != BakedPackagesLib {
-		t.Errorf("the scrub turned %q into %q; the packages farm must survive it",
-			BakedPackagesLib+":/lib", got)
+	if got := e2.Getenv("LD_LIBRARY_PATH"); got != ImageLDLib {
+		t.Errorf("the scrub turned %q into %q; the image LD farm must survive it",
+			ImageLDLib+":/lib", got)
 	}
 }
 
 // The CALL SITE: the boot table runs the export, and after the store farm's, so a baked farm
 // would be searched first should both ever be filled.
 func TestExportPackagesLibStepIsWired(t *testing.T) {
-	if !isRun(mustBootStep(t, "export_packages_lib"), exportPackagesLibStep) {
-		t.Fatal("export_packages_lib no longer runs exportPackagesLibStep — a baked " +
+	if !isRun(mustBootStep(t, "export_image_ld_lib"), exportImageLDLibStep) {
+		t.Fatal("export_image_ld_lib no longer runs exportImageLDLibStep — a baked " +
 			"`packages:` library is then not dlopen-able by bare soname from python3")
 	}
-	assertStepBefore(t, bootContainer, "generate_store_packages", "export_packages_lib",
+	assertStepBefore(t, bootContainer, "generate_store_packages", "export_image_ld_lib",
 		"the baked farm must be prepended last so it is searched first")
 }
 

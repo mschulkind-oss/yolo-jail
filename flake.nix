@@ -876,8 +876,9 @@
         # env-scrub crash class (a mise/FHS node losing libstdc++ when a launcher
         # scrubs LD_LIBRARY_PATH).  The library-path default is a plain source
         # const (NOT an option_env!), so it is retargeted with substituteInPlace
-        # to the baked non-store dir /usr/share/nix-ld/lib (laid down in
-        # mkBinPathLinks below).  Both defaults are compiled in, so no NIX_LD*
+        # to two baked non-store dirs, /usr/share/nix-ld/lib (the trio) and
+        # /usr/local/lib/yolo-fhs (the glibc-free FHS farm), both laid down in
+        # mkBinPathLinks below.  Both defaults are compiled in, so no NIX_LD*
         # env vars and no entrypoint /run wiring are needed.  --replace-fail
         # hard-errors at build time if the upstream const string ever drifts.
         # Nix-built binaries keep their store-path PT_INTERP and never pass
@@ -887,8 +888,15 @@
           env = (o.env or {}) // {
             DEFAULT_NIX_LD = "${imagePkgs.stdenv.cc.bintools.dynamicLinker}";
           };
+          # The library-path constant becomes TWO dirs: the trio fallback dir,
+          # then the glibc-free FHS farm (/usr/local/lib/yolo-fhs, mkBinPathLinks).
+          # nix-ld appends this default to LD_LIBRARY_PATH for the FHS binary it
+          # loads (and blanks it for that binary's children), so a ":" list is
+          # passed to ld.so verbatim.  The quoted constant is replaced first; the
+          # second, broader replace then retargets only the unused ld.so fallback.
           postPatch = (o.postPatch or "") + ''
             substituteInPlace src/main.rs \
+              --replace-fail 'b"/run/current-system/sw/share/nix-ld/lib"' 'b"/usr/share/nix-ld/lib:/usr/local/lib/yolo-fhs"' \
               --replace-fail '/run/current-system/sw/share/nix-ld/lib' '/usr/share/nix-ld/lib'
           '';
         });
@@ -926,7 +934,15 @@
         # variant can skip the bulky and/or unused plumbing.
         mkBinPathLinks = { withChromium ? true, withNestedPodman ? true }:
           pkgs.runCommand "bin-path-links" {} (''
-          mkdir -p $out/usr/bin $out/bin $out/lib64 $out/lib $out/usr/lib $out/etc $out/usr/share/fonts $out/usr/share $out/usr/share/nix-ld/lib $out/usr/local/lib/yolo-packages
+          mkdir -p $out/usr/bin $out/bin $out/lib64 $out/lib $out/usr/lib $out/etc $out/usr/share/fonts $out/usr/share $out/usr/share/nix-ld/lib $out/usr/local/lib/yolo-ld $out/usr/local/lib/yolo-fhs
+          # is_glibc_name NAME: true when glibc itself ships a library of that
+          # name.  The two glibc-free farms below (yolo-ld, yolo-fhs) skip every
+          # such name, so neither can hand a process the merged tree's libc.
+          is_glibc_name() {
+            [ -e "${imagePkgs.glibc}/lib/$1" ] && return 0
+            case "$1" in ld-linux*|libc.so*|libm.so*|libpthread.so*|libdl.so*|librt.so*|libresolv.so*|libutil.so*|libmvec.so*|libanl.so*|libnsl.so*|libnss_*|libBrokenLocale*|libc_malloc_debug*|libthread_db*) return 0 ;; esac
+            return 1
+          }
           ln -s ${imagePkgs.coreutils}/bin/env $out/usr/bin/env
           ln -s ${imagePkgs.bashInteractive}/bin/bash $out/bin/bash
           ln -s ${imagePkgs.bashInteractive}/bin/sh $out/bin/sh
@@ -1033,7 +1049,7 @@
           # "packages", resolved into extraLibPackages above) so a package
           # added for its .so (zbar, libdmtx, ...) — or added as ".dev" to
           # build against — is in the FHS farm and the ld.so.cache (and, through
-          # the packages-only farm below, dlopen-able by bare soname).
+          # the yolo-ld farm below, dlopen-able by bare soname).
           # extraLibPackages already went
           # through getLib, which picks each package's conventional
           # shared-lib output: e.g. zbar's .so lives in its separate "-lib"
@@ -1058,28 +1074,33 @@
             done
           done
 
-          # THE PACKAGES-ONLY FARM, /usr/local/lib/yolo-packages: the same user
-          # `packages:` libs again, and NOTHING ELSE — no glibc, no image libs.
-          # This is the directory the entrypoint puts on LD_LIBRARY_PATH
-          # (internal/entrypoint/storepackages.go, exportBakedPackagesLib), and it
-          # is how a nix-built consumer (the image's python3/ctypes) dlopens a
-          # `packages:` library by bare soname: nixpkgs' ld.so never reads
-          # /etc/ld.so.cache, only $glibc/etc/ld.so.cache in the read-only store.
-          # /lib itself must NOT go back on LD_LIBRARY_PATH: it carries the merged
-          # tree's glibc, which an LD_LIBRARY_PATH search hands to every nix binary
-          # built against an older glibc ahead of its own (GLIBC_PRIVATE crashes;
-          # docs/reference/mise-node-dynamic-linking.md).  So any name glibc itself
-          # ships is skipped even when a user lists glibc in `packages:`, which is
-          # what keeps that guarantee true of this directory by construction.
+          # THE LD_LIBRARY_PATH FARM, /usr/local/lib/yolo-ld: the core C++ runtime
+          # and zlib (stdenv.cc.cc.lib, zlib) plus the user `packages:` libs, and
+          # NOTHING ELSE: no glibc, no chromium stack.  It is the one image
+          # directory the entrypoint puts on LD_LIBRARY_PATH
+          # (internal/entrypoint/storepackages.go, ImageLDLib), and how a
+          # nix-built process (the image's python3: pip wheels needing
+          # libstdc++.so.6 / libgcc_s.so.1 / libz.so.1, ctypes.CDLL of a
+          # `packages:` lib) finds a library by bare soname: nixpkgs' ld.so never
+          # reads /etc/ld.so.cache, only $glibc/etc/ld.so.cache in the store.
+          #
+          # /lib must NOT go on LD_LIBRARY_PATH: it carries the merged tree's
+          # glibc, which LD_LIBRARY_PATH hands to every nix binary built against an
+          # older glibc ahead of its own (GLIBC_PRIVATE crashes).  Nor may the rest
+          # of the farm: a library built here can need a NEWER glibc symbol version
+          # than an older nix program's glibc has (measured: glib 2.88 needs
+          # GLIBC_2.43, and a glibc-2.42 slirp4netns that NEEDs libglib fails with
+          # "GLIBC_2.43 not found" when this tree's glib is on the path).  The core
+          # trio needs at most GLIBC_2.38, so it stays.  Everything else reaches FHS
+          # binaries through nix-ld's default path instead (yolo-fhs, below).
           # Outside /usr/lib on purpose: the boot scrubs every /usr/lib/… entry.
-          for pkg in ${imagePkgs.lib.concatStringsSep " " (imagePkgs.lib.unique (map toString extraLibPackages))}; do
+          for pkg in ${imagePkgs.stdenv.cc.cc.lib} ${imagePkgs.zlib} ${imagePkgs.lib.concatStringsSep " " (imagePkgs.lib.unique (map toString extraLibPackages))}; do
             if [ -d "$pkg/lib" ]; then
               for f in "$pkg"/lib/lib*.so*; do
                 [ -f "$f" ] || [ -L "$f" ] || continue
                 name=$(basename "$f")
-                [ -e "${imagePkgs.glibc}/lib/$name" ] && continue
-                case "$name" in ld-linux*|libc.so*|libm.so*|libpthread.so*|libdl.so*|librt.so*|libresolv.so*|libutil.so*|libmvec.so*|libanl.so*|libnss_*) continue ;; esac
-                [ ! -e "$out/usr/local/lib/yolo-packages/$name" ] && ln -s "$f" "$out/usr/local/lib/yolo-packages/$name" 2>/dev/null || true
+                is_glibc_name "$name" && continue
+                [ ! -e "$out/usr/local/lib/yolo-ld/$name" ] && ln -s "$f" "$out/usr/local/lib/yolo-ld/$name" 2>/dev/null || true
               done
             fi
           done
@@ -1145,6 +1166,21 @@
           REGISTRIES
         '' + ''
 
+          # THE FHS FARM, /usr/local/lib/yolo-fhs: everything the /lib farm links
+          # above (core, chromium stack, `packages:`) EXCEPT glibc's own names.
+          # nix-ld's compiled-in library path names it after its own fallback dir
+          # (see nixLd), so an FHS binary — playwright's downloaded chromium
+          # wanting glib/gio/expat, a mise prebuilt — finds the whole farm even
+          # under `env -i`.  It is NOT on LD_LIBRARY_PATH, so a nix-built program
+          # never sees it (see the yolo-ld comment for why).  FHS binaries already
+          # run on this image's glibc through nix-ld, so its libraries match them.
+          for f in $out/lib/lib*.so*; do
+            [ -L "$f" ] || continue
+            name=$(basename "$f")
+            is_glibc_name "$name" && continue
+            ln -s "$(readlink "$f")" "$out/usr/local/lib/yolo-fhs/$name"
+          done
+
           # /etc/ld.so.cache + /etc/ld.so.conf, populated for tools that
           # read /etc/ld.so.cache directly (`ldconfig -p`, diagnostics, and
           # any non-nix glibc binary built to use the standard cache path).
@@ -1155,9 +1191,8 @@
           # we can't write), and verified via `LD_DEBUG=libs` it never
           # consults /etc/ld.so.cache at all.  So runtime discovery of the
           # symlinked libs above by a nix-built process's bare-soname dlopen
-          # relies on LD_LIBRARY_PATH, and for user `packages:` that names
-          # the packages-only farm
-          # /usr/local/lib/yolo-packages, never /lib (which carries glibc).
+          # relies on LD_LIBRARY_PATH, which names the glibc-free yolo-ld farm,
+          # never /lib (which carries glibc); FHS binaries get yolo-fhs from nix-ld.
           # A consumer that scrubs LD_LIBRARY_PATH cannot be rescued by this
           # cache; that is a documented limitation, not something ldconfig
           # can fix here.
