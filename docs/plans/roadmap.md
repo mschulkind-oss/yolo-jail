@@ -145,6 +145,9 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
 26. [Review H4's root-owned capture store on macos-user](install-capture.md#build-order), [rule whether integration
     sharding unparks](integration-parallelism.md) with [the test suite's other levers](test-suite-speed.md), and [name
     the real forked program](../design/forked-programs-as-packs.md), the last input its step 7 needs.
+    Beside suite speed, [make completion change-aware and read-only](../design/change-aware-completion.md),
+    with [its sketch](../design/change-aware-completion-plan.md) and [input research](../research/completion-check-inputs.md)
+    — avoid irrelevant repeated gates without changing source landing or CI coverage.
 27. [Rule how a jail reaches a worktree's `.git` outside it](../research/herdr-integration.md), with the other herdr calls
     — measured: a read-only bind refuses every commit, a read-write one lets a jail prune the worktree.
 28. Calls left at one decision each, each with its facts and a leaning: [the `:ro` degradation rows](../design/composed-file-permissions.md),
