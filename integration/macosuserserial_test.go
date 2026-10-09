@@ -54,7 +54,12 @@ func TestMacosUserSerialClientDrivesAHostPtyFromTheSandbox(t *testing.T) {
 		`yolo-serial write ` + slave + ` ping; echo "WRITE_RC=$?"`,
 		`echo "=== PTY ==="`,
 		`yolo-serial pty ` + slave + ` --link "$HOME/vpty" >` + out + ` 2>&1 & p=$!`,
-		`sleep 5; kill "$p" 2>/dev/null; wait "$p" 2>/dev/null; cat ` + out,
+		// Bounded: a pty that survives SIGTERM is reported and SIGKILLed, rather than parking
+		// the launch at `wait` until the job's timeout (30 minutes, the first time).
+		`sleep 5; kill "$p" 2>/dev/null`,
+		`for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$p" 2>/dev/null || break; sleep 1; done`,
+		`if kill -0 "$p" 2>/dev/null; then echo PTY_SURVIVED_SIGTERM; kill -9 "$p" 2>/dev/null; fi`,
+		`wait "$p" 2>/dev/null; cat ` + out,
 		`echo "=== END ==="`,
 	}, "\n"))
 	diag := func() string {
@@ -80,8 +85,12 @@ func TestMacosUserSerialClientDrivesAHostPtyFromTheSandbox(t *testing.T) {
 	if !strings.Contains(got(), "ping") {
 		t.Errorf("the host pty's master never read the sandbox's ping (read %q)%s", got(), diag())
 	}
-	if pty := section(r.stdout, "=== PTY ===", "=== END ==="); !strings.Contains(pty, "Virtual PTY:") {
+	pty := section(r.stdout, "=== PTY ===", "=== END ===")
+	if !strings.Contains(pty, "Virtual PTY:") {
 		t.Errorf("`yolo-serial pty` did not allocate a virtual PTY in the sandbox:\n%s%s", pty, diag())
+	}
+	if strings.Contains(pty, "PTY_SURVIVED_SIGTERM") {
+		t.Errorf("`yolo-serial pty` was still running 10s after SIGTERM and was SIGKILLed:\n%s%s", pty, diag())
 	}
 }
 

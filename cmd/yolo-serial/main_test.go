@@ -5,6 +5,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestNoArgsPrintsUsage(t *testing.T) {
@@ -57,5 +58,10 @@ func TestOpenPty(t *testing.T) {
 	defer master.Close()
 	if !strings.HasPrefix(slavePath, want) {
 		t.Errorf("slavePath = %q, want %s...", slavePath, want)
+	}
+	// Pollable, so Close cancels a parked Read or Write (ptysignal_test.go has why). A deadline
+	// is refused on a file Go does not poll.
+	if err := master.SetDeadline(time.Now().Add(time.Minute)); err != nil {
+		t.Errorf("the master is not pollable, so closing it cannot unblock runPty: %v", err)
 	}
 }
