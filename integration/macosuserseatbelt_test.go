@@ -461,10 +461,11 @@ func seatbeltCases() []seatbeltCase {
 		{
 			name: "undeclared_device_ioctl_refused",
 			id:   "file-ioctl-deny",
-			why: "FIONBIO on /dev/null succeeds unsandboxed (the null driver accepts it), so the " +
-				"control passes, and the profile's ioctl deny must turn it into EPERM: /dev/null " +
-				"is not a terminal and the fixture declares no such device. Until `devices` was " +
-				"carved out this rule had no case, for want of an ioctl that succeeds bare.",
+			why: "TIOCGETA on /dev/null reaches the null driver unsandboxed, which answers ENOTTY, " +
+				"so the control passes, and the profile's ioctl deny must turn it into EPERM: " +
+				"/dev/null is not a terminal and the fixture declares no such device. Until " +
+				"`devices` was carved out this rule had no case. Not FIONBIO: Seatbelt never " +
+				"judges that one (devIoctlProbe).",
 			script:  func(seatbeltFixtures) string { return devIoctlProbe("/dev/null") },
 			want:    wantRefused,
 			refusal: "Operation not permitted",
@@ -472,7 +473,7 @@ func seatbeltCases() []seatbeltCase {
 		{
 			name: "declared_device_ioctl_allowed",
 			id:   "device-ioctl-allow",
-			why: "the fixture declares /dev/zero as a `devices` entry, so the same FIONBIO the " +
+			why: "the fixture declares /dev/zero as a `devices` entry, so the same TIOCGETA the " +
 				"case above is refused on /dev/null must succeed here. The pair is the proof: " +
 				"this case alone would also pass if Seatbelt never checked the ioctl at all.",
 			script: func(seatbeltFixtures) string { return devIoctlProbe("/dev/zero") },
@@ -1311,14 +1312,22 @@ func runScript(t *testing.T, script string, prefix []string) (string, int) {
 // but a script built by concatenation is a script that grows a space one day.
 func sh(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
-// devIoctlProbe issues FIONBIO (_IOW('f', 126, int)) on a device node through the system perl
-// and prints seatbeltOK when the ioctl succeeded. FIONBIO because the null and zero drivers
-// accept it, so it succeeds unsandboxed with no privilege and changes nothing. The argument is
-// a variable, not `pack(...)` inline: perl's ioctl writes the buffer back and refuses a
-// read-only one (checked on Linux with its own FIONBIO number, 2026-10-04).
+// devIoctlProbe issues TIOCGETA — what isatty(3) asks — on a device node through the system
+// perl, and prints seatbeltOK when the ioctl REACHED THE DRIVER: it succeeded, or the driver
+// answered ENOTTY, which is what the null and zero drivers say to a terminal question with no
+// privilege and no side effect. A sandbox refusal is EPERM, which dies with "Operation not
+// permitted". The buffer is a struct termios, 72 bytes on both darwin architectures (TIOCGETA
+// is _IOR('t', 19, struct termios) = 0x40487413), and a variable, not "\0" x 72 inline: perl's
+// ioctl writes the buffer back and refuses a read-only one.
+//
+// NOT FIONBIO, which this probe used first: FIONBIO on /dev/null SUCCEEDED under the profile's
+// `(deny file-ioctl)` on every macOS run from the case's first (macos-user CI runs 37522721810
+// through 37940733418, arm64 and Intel alike), so Seatbelt never judges it, and the
+// declared-device case beside this one passed for a reason that had nothing to do with its
+// allow. TIOCGETA is the ioctl the file header's isatty(0)-on-/dev/null EPERM is about.
 func devIoctlProbe(dev string) string {
-	return "/usr/bin/perl -e 'open(my $f, \"<\", $ARGV[0]) or die \"open: $!\\n\"; " +
-		"my $v = pack(\"i\", 1); ioctl($f, 0x8004667e, $v) or die \"ioctl: $!\\n\"; " +
+	return "/usr/bin/perl -e 'use Errno; open(my $f, \"<\", $ARGV[0]) or die \"open: $!\\n\"; " +
+		"my $v = \"\\0\" x 72; ioctl($f, 0x40487413, $v) or $!{ENOTTY} or die \"ioctl: $!\\n\"; " +
 		"print \"" + seatbeltOK + "\\n\"' " + sh(dev)
 }
 
