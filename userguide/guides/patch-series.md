@@ -176,15 +176,28 @@ its own.
 
 ## When your patches stop applying
 
-When a new version does not take your patches, nothing breaks. The good build keeps running, and its
-line in the launch ends with what holds it and what to run:
+When a new version does not take your patches, yolo stops the update and prints an error. It names
+the patch that failed, the files it conflicts in, the command that fixes it, and the one way to go
+on without fixing it. yolo never builds an older version or your series' base instead:
 
 ```text
-  fork pi-mine: pi (in place of pack pi's) is a patched fork of … + 7 patches (series 2544fe91), at v1.0.0 (a13d35a7); held at v1.0.0 (a13d35a7): upstream v1.0.2 (cd32f772) does not take 0001-show-fleet-details.patch — `yolo pack rebase pi-mine/pi`
+ERROR: fork pi-mine/pi: patch application failed at upstream v1.0.2 (cd32f7729e1b4c0a8d5f3e6b7a2c9d0e1f4a5b6c)
+  Patch: 0001-show-fleet-details.patch
+  Conflict: packages/tui/src/footer.ts
+  Operation stopped; no older fit or base will be built.
+  Repair: yolo pack rebase pi-mine/pi --onto cd32f7729e1b4c0a8d5f3e6b7a2c9d0e1f4a5b6c
+  Bypass: YOLO_ALLOW_PATCH_FAILURES=1 yolo host -- pi
 ```
 
-yolo also walks back through older versions and builds the newest one your patches do apply to,
-if it is newer than the good build.
+- **Repair** sets up a rebase of your patches onto that version, as below.
+- **`yolo host`, `yolo pack update` and `yolo capture` stop** at the error, even when a good build
+  is on your machine. Put `YOLO_ALLOW_PATCH_FAILURES=1` in front of the command to run the good
+  build for that one run and skip the update. It never runs a build your patches did not fully apply
+  to.
+- **With no good build on your machine**, nothing is left to run: the bypass cannot help, and a
+  launch stops, as in [When a build fails](#when-a-build-fails).
+- **A jail launch with a good build** still starts on it after the error. Stopping there too is
+  planned.
 
 `yolo pack rebase <key>` sets up the rebase for you. Run it on your machine; in a jail, see
 [Check or rebase a series in a jail](#check-or-rebase-a-series-in-a-jail):
