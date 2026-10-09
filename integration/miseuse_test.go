@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"testing"
 	"time"
@@ -29,9 +30,19 @@ func TestAJailRecordsTheToolVersionsItUses(t *testing.T) {
 		t.Fatalf("jail exited %d:\n%s", r.rc, r.combined())
 	}
 	// THE CLOCK IS A HOST LAUNCH'S TO START (internal/miseuse.SinceName): a suite run inside a jail
-	// launches in-jail jails, which bind the host's store and must leave its clock alone.
+	// launches in-jail jails, which bind the host's store and must leave its clock alone. And a
+	// LINUX host's alone: a Mac's jails bind a volume inside the container VM, which the host
+	// never sweeps, so no Mac launch starts a clock there (markMiseUseRecording's IsMacOS). This
+	// asserted a marker on the Intel nightly too, and failed there by that design (run 37931358062).
 	since := strings.TrimSpace(section(r.stdout, "=== SINCE ===", "=== RECORDS ==="))
-	if os.Getenv("YOLO_VERSION") == "" {
+	switch {
+	case os.Getenv("YOLO_VERSION") != "":
+	case goruntime.GOOS == "darwin":
+		if since != "" {
+			t.Errorf("a Mac launch started a clock in the VM's tool store (since marker %q), which "+
+				"no host sweep reads", since)
+		}
+	default:
 		if _, err := time.Parse(time.RFC3339, since); err != nil {
 			t.Errorf("a host launch did not start the store's clock: the since marker is %q (%v)", since, err)
 		}
