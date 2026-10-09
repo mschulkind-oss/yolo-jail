@@ -873,3 +873,17 @@ func TestPatchFailureUnboundWalkCannotAdoptLatestCheck(t *testing.T) {
 		t.Fatalf("unbound walk changed record bytes\nbefore: %s\nafter:  %s", original, after)
 	}
 }
+
+// A PATCH FAILURE'S ONE-LINE REASON names its target's commit once: the label already carries it,
+// so a launch's refusal that quotes the reason does not say it twice.
+func TestAPatchFailureReasonSaysItsCommitOnce(t *testing.T) {
+	commit := "c5c0f6bd0123456789abcdef0123456789abcdef"
+	pf := &PatchFailure{Target: ListEntry{Commit: commit, Tag: "v1.2.0"}, Kind: "conflict", Member: "0001-ten.patch"}
+	if got, want := pf.Error(), "patch application failed at v1.2.0 (c5c0f6bd): 0001-ten.patch"; got != want {
+		t.Errorf("reason %q, want %q", got, want)
+	}
+	pf.Member = ""
+	if got, want := pf.Error(), "patch application failed at v1.2.0 (c5c0f6bd)"; got != want {
+		t.Errorf("reason with no member %q, want %q", got, want)
+	}
+}

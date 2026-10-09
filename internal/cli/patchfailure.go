@@ -9,10 +9,11 @@ import (
 	runpkg "github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
-const allowPatchFailuresEnv = "YOLO_ALLOW_PATCH_FAILURES"
+const allowPatchFailuresEnv = paths.AllowPatchFailuresEnv
 
 var allowPatchFailures = func() bool { return os.Getenv(allowPatchFailuresEnv) == "1" }
 

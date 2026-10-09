@@ -343,6 +343,13 @@ const HoldExecEnv = "YOLO_HOLD_EXEC"
 // before any jail exists.
 const AllowMissingProgramsEnv = "YOLO_ALLOW_MISSING_PROGRAMS"
 
+// AllowPatchFailuresEnv is the patch-application failure's bypass (docs/design/patched-forks.md
+// PF-D81): set to 1 in front of a foreground launch, it runs an intact admitted build in place of a
+// patch series that fails to apply, skipping that subject's advance. It admits no failed or
+// partially patched build, and it does not start a launch that has no admitted build to run.
+// Unlike AllowMissingProgramsEnv it supplies the program rather than leaving it out.
+const AllowPatchFailuresEnv = "YOLO_ALLOW_PATCH_FAILURES"
+
 // NoProgramReadinessEnv turns the jail's readiness act OFF for a launch: any non-empty value
 // leaves every declared program to install from its launcher on first use, which is what every
 // launch did before OQ-JR1 (docs/design/jail-notch-readiness.md, JR-D7).

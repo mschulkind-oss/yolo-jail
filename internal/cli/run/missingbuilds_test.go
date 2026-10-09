@@ -15,6 +15,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/image"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -122,6 +123,50 @@ func TestAMissingPatchedForkRefusesTheLaunch(t *testing.T) {
 		if !strings.Contains(printed, w) {
 			t.Errorf("the refusal lacks %q:\n%s", w, printed)
 		}
+	}
+}
+
+// A MISSING FORK WHOSE CAUSE IS A PATCH FAILURE (PF-D81): its reason says the commit once, the
+// series' ways back are named, and so is the patch failure's own bypass, with why it does not start a
+// launch that has no admitted build. Red with the patch-failure line in refuseMissingBuilds deleted.
+func TestAMissingForksPatchFailureNamesItsOwnBypass(t *testing.T) {
+	patchedLaunchHome(t)
+	commit := "c5c0f6bd0123456789abcdef0123456789abcdef"
+	pf := &packsrc.PatchFailure{Owner: "forkpack/tool", Target: packsrc.ListEntry{Commit: commit, Tag: "v1.2.0"},
+		Kind: "conflict", Member: "0001-ten.patch", Paths: []string{"f.txt"}}
+	argv, printed := fakePodmanLaunch(t, func(o *Options) {
+		o.BuildForks = func(ForkBuildRequest) map[string]entrypoint.ForkDelivery {
+			return map[string]entrypoint.ForkDelivery{"tool": {Reason: pf.Error(), PatchFailure: pf}}
+		}
+	})
+	if argv != nil {
+		t.Fatalf("a launch with no build of its patched fork started its jail:\n%s", printed)
+	}
+	for _, w := range []string{
+		"\n  fork forkpack/tool: patch application failed at v1.2.0 (c5c0f6bd): 0001-ten.patch\n",
+		"`yolo pack series check` says where it stops, and `yolo pack rebase <key>` sets up the fix",
+		"  YOLO_ALLOW_PATCH_FAILURES=1 does not start this launch: it runs only an intact admitted build",
+		"To launch without it now: YOLO_ALLOW_MISSING_PROGRAMS=1",
+	} {
+		if !strings.Contains(printed, w) {
+			t.Errorf("the refusal lacks %q:\n%s", w, printed)
+		}
+	}
+	if n := strings.Count(printed, "c5c0f6bd"); n != 1 {
+		t.Errorf("the refusal says the commit %d times, want once:\n%s", n, printed)
+	}
+}
+
+// A MISSING BUILD WITH ANOTHER CAUSE does not name the patch failure's bypass.
+func TestAMissingBuildWithoutAPatchFailureNamesNoPatchBypass(t *testing.T) {
+	patchedLaunchHome(t)
+	_, printed := fakePodmanLaunch(t, func(o *Options) {
+		o.BuildForks = func(ForkBuildRequest) map[string]entrypoint.ForkDelivery {
+			return map[string]entrypoint.ForkDelivery{"tool": {Reason: "fork forkpack/tool's build of v1.1.0 failed"}}
+		}
+	})
+	if !strings.Contains(printed, "Refusing to launch") || strings.Contains(printed, paths.AllowPatchFailuresEnv) {
+		t.Errorf("a build failure's refusal names the patch-failure bypass, or refuses nothing:\n%s", printed)
 	}
 }
 

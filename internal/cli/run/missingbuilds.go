@@ -31,6 +31,10 @@ package run
 // jail-notch-readiness.md JR-D3 names for the readiness act, so one variable covers both. With the
 // bypass set the same text is a warning and the launch goes on.
 //
+// A MISSING BUILD WHOSE CAUSE IS A PATCH FAILURE (patched-forks.md PF-D81) also names that failure's
+// own bypass, paths.AllowPatchFailuresEnv, and why it does not start this launch: it runs only an intact
+// admitted build, and a missing build has none.
+//
 // An extension NO agent pack loads has nothing to stop and nothing to refuse, but the slot's act
 // says nothing of a build that leaves nothing serving — a jail that stopped before its build line, a
 // build that failed, a series no upstream version takes (TreeDelivery.Unsaid) — so that one is said
@@ -61,6 +65,9 @@ type missingBuild struct {
 	owner string
 	// needed says the launch refuses without it.
 	needed bool
+	// patchFailure says its series could not be applied (PF-D81): the refusal names the patch
+	// failure's own bypass beside the missing-program one.
+	patchFailure bool
 }
 
 // missingGroup is the missing builds one cause left: said once, with every label.
@@ -91,7 +98,7 @@ func (o *Options) missingBuilds(rt string) []missingBuild {
 			}
 			if d, ok := o.forkDelivered[p.Fork.Bin]; ok && d.Key == "" {
 				out = append(out, missingBuild{label: "fork " + p.Fork.Key(), capture: p.Fork.CaptureArg(),
-					reason: d.Reason, cause: d.Cause, unsaid: d.Unsaid, needed: true})
+					reason: d.Reason, cause: d.Cause, unsaid: d.Unsaid, needed: true, patchFailure: d.PatchFailure != nil})
 			}
 		}
 	}
@@ -102,7 +109,7 @@ func (o *Options) missingBuilds(rt string) []missingBuild {
 			}
 			if d, ok := o.treeDelivered[f.Key()]; ok && d.Dir == "" {
 				out = append(out, missingBuild{label: f.Label(), capture: f.CaptureArg(), reason: d.Reason, cause: d.Cause,
-					unsaid: d.Unsaid, owner: f.Owner, needed: f.Owner != "" && f.ListedInJail})
+					unsaid: d.Unsaid, owner: f.Owner, needed: f.Owner != "" && f.ListedInJail, patchFailure: d.PatchFailure != nil})
 			}
 		}
 	}
@@ -159,6 +166,14 @@ func (o *Options) refuseMissingBuilds(rt string) bool {
 	if len(needed) == 1 {
 		them = "it"
 	}
+	if slices.ContainsFunc(needed, func(m missingBuild) bool { return m.patchFailure }) {
+		// A PATCH FAILURE'S OWN BYPASS (PF-D81) runs an intact admitted build in the failed series'
+		// place; a missing build has none on this machine, so the bypass is named with why it does
+		// not start this launch, and the repair above is the way back.
+		out.print("[dim]" + richtext.Escape("  "+paths.AllowPatchFailuresEnv+"=1 does not start this launch: it runs only an "+
+			"intact admitted build in place of a series that fails to apply, and none is on this machine. "+
+			"Repair the series as its error says.") + "[/dim]")
+	}
 	out.print("[dim]" + richtext.Escape("  To launch without "+them+" now: "+paths.AllowMissingProgramsEnv+"=1, and what "+
 		"loads "+them+" stops in the jail while the shell works.") + "[/dim]")
 	out.print("[dim]" + richtext.Escape("  To run without one for good: drop the list entry naming it, or its pack.") +
@@ -213,7 +228,7 @@ func (o *Options) printMissingGroups(builds []missingBuild) {
 	for _, m := range builds {
 		if m.cause == nil {
 			groups = append(groups, &missingGroup{builds: []missingBuild{m}})
-			series = series || strings.Contains(m.reason, "series")
+			series = series || m.patchFailure || strings.Contains(m.reason, "series")
 			continue
 		}
 		joined := false

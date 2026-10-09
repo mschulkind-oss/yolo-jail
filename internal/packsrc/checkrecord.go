@@ -56,7 +56,11 @@ func (f *PatchFailure) Error() string {
 	if f == nil {
 		return ""
 	}
-	return fmt.Sprintf("patch application failed at %s (%s): %s", f.Target.Label(), f.Target.Commit, f.Member)
+	// The target's label already carries its commit (ListEntry.Label), so it is said once.
+	if f.Member == "" {
+		return "patch application failed at " + f.Target.Label()
+	}
+	return fmt.Sprintf("patch application failed at %s: %s", f.Target.Label(), f.Member)
 }
 
 // CheckRecord is one owner key's check record.
