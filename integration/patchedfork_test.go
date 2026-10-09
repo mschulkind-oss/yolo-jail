@@ -243,7 +243,8 @@ func TestPatchedForkFollowsItsUpstreamAndHoldsAtAConflict(t *testing.T) {
 }
 
 // patchFailureBlock is PF-D81's error for a conflict of the fixtures' one patch at upstream tag
-// (commit), from its ERROR line through its Bypass line (internal/cli/patchfailure.go).
+// (commit), from its ERROR line through the start of the line naming the build its Bypass runs
+// (packsrc.PatchFailure.Block, PF-D83: `yolo pack update` offers the bypass when a good build is here).
 func patchFailureBlock(owner, tag, commit, paths string) string {
 	return "ERROR: " + owner + ": patch application failed at upstream " + tag + " (" + commit + ")\n" +
 		"  Patch: 0001-patch-line-ten.patch\n" +
