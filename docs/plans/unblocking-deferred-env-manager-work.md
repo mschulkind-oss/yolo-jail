@@ -14,7 +14,7 @@ the per-item reasoning about what hardware each step needs. Re-checked against t
   refuses (`refuseUnbuiltNotch` in `internal/cli/run/run.go`) and `yolo apply --at guest`
   prints the same sentence (`internal/cli/apply.go`), so there is nothing on a Mac or a Linux
   host to run yet. The work and its gates are
-  [`environment-manager-plan.md` Phase 7](environment-manager-plan.md#phase-7--make-the-guest-notch-actually-work---not-built).
+  [`environment-manager-plan.md` Phase 7](environment-manager-plan.md#phase-7--make-the-guest-notch-actually-work--️-partial--71-built-2026-10-04-72-not-built).
   ⚠ This doc's claim that the Linux half needs "a real Linux host" does not hold for the probe
   that matters: in this repo's own jail on 2026-09-30, `landlock_create_ruleset` reported ABI 10
   and a process could create a user and a mount namespace. A nested jail was not tried.

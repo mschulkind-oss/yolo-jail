@@ -12,7 +12,7 @@ vantage:
 
 # Who owns the config file — declared host management, and the way out of capture
 
-**Status:** 2026-10-05 — the bulk was built 2026-09-12 and amended twice on 2026-09-20; the first amendment's follow-on [`CO13`](#13-decision-ledger) was built 2026-09-25, and the second, the `assert` retirement, was built 2026-10-05 with [`OQ-CO14`](#oq-co14) as ruled that day ([`CO-D1`](#CO-D1) to [`CO-D19`](#CO-D19) in [§13](#13-decision-ledger)). Sections written before that build describe the three-value key in places; where one does, it is history, and §4.1, §4.3, §4.5 and §13 say what is built.
+**Status:** 2026-10-05 — the bulk was built 2026-09-12 and amended twice on 2026-09-20; the first amendment's follow-on [`CO13`](#13-decision-ledger) was built 2026-09-25, and the second, the `assert` retirement, was built 2026-10-05 with [`OQ-CO14`](#oq-co14) as ruled that day ([`CO-D1`](#CO-D1) to [`CO-D19`](#CO-D19) in [§13](#13-decision-ledger)). Sections written before that build describe the three-value key in places; where one does, it is history, and [§4.1](#41-the-key), [§4.3](#43-the-unset-state-and-what-happens-to-everyone-already-running), [§4.5](#45-retiring-assert--the-two-value-key) and [§13](#13-decision-ledger) say what is built.
 
 **Needs your ruling:** [`OQ-CO14`](#oq-co14) was ruled 2026-10-05 and built the same day. Two smaller ones, both opened 2026-09-25 by the `CO13` build and neither blocking anything: [`OQ-CO15`](#OQ-CO15) (what the jail's `rmw` arm does with a table not declared in full) and [`OQ-CO16`](#OQ-CO16) (whether the provider catalogs stay declared in full).
 
@@ -578,7 +578,7 @@ needs no ceremony of its own — **the default carries the whole migration.**
 
 1. Behavior is `none` since the `assert` retirement ([`OQ-CO14`](#oq-co14), built 2026-10-05):
    with no prompt and no notice at upgrade, and a home yolo asserted into left exactly as
-   `assert` last rendered it. *As first ruled (OQ-CO2) it was `assert` — then today's behavior, so
+   `assert` last rendered it. *As first ruled ([`OQ-CO2`](#13-decision-ledger)) it was `assert` — then today's behavior, so
    nothing broke on upgrade day, and nobody was interrupted in order to be told that.*
 2. **No migration prompt and no notice.** Each value explains itself at the
    point of the act instead: `yolo host apply` under `none` writes nothing and
@@ -3084,7 +3084,7 @@ sibling docs and code comments continue to resolve. **Every row but
 [`OQ-CO15`](#13-decision-ledger) and [`OQ-CO16`](#13-decision-ledger) is settled** — the ones the design opened, the last three of
 those on 2026-09-11, [`OQ-CO12`](#13-decision-ledger), which its build opened, on 2026-09-12,
 [`CO13`](#13-decision-ledger), decided 2026-09-20 and built 2026-09-25, and
-[`OQ-CO14`](#oq-co14), ruled and built 2026-10-05. A RULING opened `CO13` and `OQ-CO14`, which is
+[`OQ-CO14`](#oq-co14), ruled and built 2026-10-05. A RULING opened `CO13` and [`OQ-CO14`](#oq-co14), which is
 the one way a settled design reopens.
 
 > [!WARNING]

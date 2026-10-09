@@ -334,7 +334,7 @@ what we have today?"* "Today" is Apple Container, yolo's macOS backend. The best
 alternative on a shared folder is libkrun with `permissionSemantics=complete`
 ([§6.2](#62-measured-two-of-them)); it is slightly *behind* Apple Container on every row, so on a
 shared folder the best open option measured is the one yolo already has. Every number repeats one
-in [§3](#3-results), [§4](#4-memory-does-a-vm-give-a-freed-2-gib-back) or §6.2 (MEASURED, one run
+in [§3](#3-results), [§4](#4-memory-does-a-vm-give-a-freed-2-gib-back) or [§6.2](#62-measured-two-of-them) (MEASURED, one run
 each).
 
 **On a shared Mac folder:**

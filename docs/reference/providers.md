@@ -748,7 +748,7 @@ that writes a launch's environment for one notch or backend. There are three:
     `YOLO_ALLOW_*` variable and config cannot
     ([OQ-ES5](../design/credential-sources-separation.md#OQ-ES5);
     [ES-D13 to ES-D16](../design/credential-sources-separation.md#10-decision-ledger)).
-  - **At a jail launch the same flag grants the jail** (OQ-ES5's jail half, 2026-10-05).
+  - **At a jail launch the same flag grants the jail** ([OQ-ES5](../design/credential-sources-separation.md#OQ-ES5)'s jail half, 2026-10-05).
     `yolo --with-credentials zai -- bash` starts a jail whose every process holds those claimed
     values, keys only, for the jail's life: the session it starts, every session attached later,
     and everything each one starts. The grant is no recipient of the gate: it rides a per-launch

@@ -17,7 +17,7 @@ vantage:
 called by `hostLaunch` before `resolveHostLaunchTarget`, which now refuses a declared program with no
 floor entry. [§3](#3-the-host-readiness-act-hnr-d1) and
 [§4](#4-a-declared-program-is-never-a-path-copy-hnr-d2) carry the decisions; the build added
-[HNR-D4](#HNR-D4) to [HNR-D7](#HNR-D7), the questions the build had to answer. §2 describes the
+[HNR-D4](#HNR-D4) to [HNR-D7](#HNR-D7), the questions the build had to answer. [§2](#2-what-existed-before-the-build-and-the-asymmetry) describes the
 behavior before the build, read at `afab7bea`.
 
 > **In short.** The jail and the host should answer *"is this environment ready?"* the same way,
@@ -204,7 +204,7 @@ The holes an implementer would otherwise fill silently:
 
 - **Not `yolo host apply`.** `apply` still renders config, reports state, and prompts; the launch
   installs programs only. This does not move rendering onto the launch path.
-- **Not the wrapper gate.** `host_apply_on_launch` stays the staleness net ([§2](#2-what-exists-today-and-the-asymmetry)).
+- **Not the wrapper gate.** `host_apply_on_launch` stays the staleness net ([§2](#2-what-existed-before-the-build-and-the-asymmetry)).
 - **Not the jail or macos-user readiness acts.** Their contract ([`OQ-JR1`](jail-notch-readiness.md#OQ-JR1),
   [`JR-D2`](jail-notch-readiness.md#JR-D2)) is unchanged; this mirrors it at the host.
 - **Not currency.** Refresh cadence and `agent_updates` are untouched.
