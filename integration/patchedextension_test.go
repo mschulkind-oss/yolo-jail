@@ -167,12 +167,15 @@ echo "AUTOMODE=$(tr -d ' \n' < "$HOME/` + patchTreeAutomode + `")"`
 		t.Errorf("a patched extension was pinned in the fork lock:\n%s", data)
 	}
 
-	// 2. A VERSION THE SERIES DOES NOT FIT is held, and the conflict names the rebase that fixes it.
+	// 2. A VERSION THE SERIES DOES NOT FIT is held, and the conflict names the rebase that fixes it:
+	// since PF-D81 (docs/design/patched-forks.md §8) the update FAILS with the conflict's error,
+	// whose Repair line is the rebase onto the conflicting commit, and builds no older fit or base.
 	v12 := up.release("1.2.0", "upstream-ten", "v1.2.0")
-	upd := runCommand(t, t.TempDir(), []string{"pack", "update"}, withHostSemantics()).combined()
+	updRun := runCommand(t, t.TempDir(), []string{"pack", "update"}, withHostSemantics())
+	upd := updRun.combined()
 	rebase := "yolo pack rebase " + owner
-	if !strings.Contains(upd, "does not take the patch series") || !strings.Contains(upd, "rebase the series: "+rebase) {
-		t.Fatalf("yolo pack update did not report the conflict at v1.2.0 with its rebase:\n%s", upd)
+	if updRun.rc == 0 || !strings.Contains(upd, patchFailureBlock(owner, "v1.2.0", v12, "f.txt")) {
+		t.Fatalf("yolo pack update did not fail on the conflict at v1.2.0 with its rebase: rc %d\n%s", updRun.rc, upd)
 	}
 	out = launch("the launch after v1.2.0")
 	if !strings.Contains(out, "LINE10=patched") || !strings.Contains(out, "TREE_READONLY") {
@@ -194,9 +197,11 @@ echo "AUTOMODE=$(tr -d ' \n' < "$HOME/` + patchTreeAutomode + `")"`
 		t.Errorf("the held launch captured the owning installer despite both fixture suppression dials: %v", got)
 	}
 	clone := filepath.Join(t.TempDir(), "clone")
-	r := runCommand(t, t.TempDir(), append(strings.Fields(rebase)[1:], "--into", clone), withHostSemantics())
-	if r.rc != 1 || !strings.Contains(r.combined(), "extension "+owner+": upstream v1.2.0 ("+v12[:8]+
-		") does not take the patch series — the rebase stopped in "+clone) {
-		t.Errorf("the conflict line's own command did not stop at the conflict: rc %d\n%s", r.rc, r.combined())
+	// The error's own Repair command, run as printed; --onto a commit names the target by its commit.
+	repair := rebase + " --onto " + v12
+	r := runCommand(t, t.TempDir(), append(strings.Fields(repair)[1:], "--into", clone), withHostSemantics())
+	if r.rc != 1 || !strings.Contains(r.combined(), "extension "+owner+": upstream "+v12[:8]+
+		" does not take the patch series — the rebase stopped in "+clone) {
+		t.Errorf("the conflict's own Repair command did not stop at the conflict: rc %d\n%s", r.rc, r.combined())
 	}
 }

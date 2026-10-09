@@ -211,9 +211,13 @@ func TestPatchedForkFollowsItsUpstreamAndHoldsAtAConflict(t *testing.T) {
 
 	// 3. A VERSION THE SERIES DOES NOT FIT is held: the next launch's jail runs v1.2.0's build, and
 	// the fork's line names what stopped v1.3.0.
+	// Since PF-D81 (docs/design/patched-forks.md §8) the update FAILS on the conflict, naming the
+	// version, the patch, its rebase onto the conflicting commit and the bypass, and builds no older
+	// fit or base.
 	v13 := up.release("1.3.0", "upstream-ten", "v1.3.0")
-	if r := runCommand(t, t.TempDir(), []string{"pack", "update"}, withHostSemantics()); !strings.Contains(r.combined(), "does not take the patch series") {
-		t.Fatalf("yolo pack update did not report the conflict at v1.3.0:\n%s", r.combined())
+	if r := runCommand(t, t.TempDir(), []string{"pack", "update"}, withHostSemantics()); r.rc == 0 ||
+		!strings.Contains(r.combined(), patchFailureBlock(owner, "v1.3.0", v13, "f.txt")) {
+		t.Fatalf("yolo pack update did not fail on the conflict at v1.3.0: rc %d\n%s", r.rc, r.combined())
 	}
 	out = launch("the launch after v1.3.0")
 	if !strings.Contains(out, runs("1.2.0")) || strings.Contains(out, patchFixtureMarker+"_1.3.0") {
@@ -222,6 +226,17 @@ func TestPatchedForkFollowsItsUpstreamAndHoldsAtAConflict(t *testing.T) {
 	if !strings.Contains(out, "held at v1.2.0 ("+v12[:8]+"): upstream v1.3.0 ("+v13[:8]+") does not take 0001-patch-line-ten.patch") {
 		t.Errorf("the held launch's fork line does not name what holds it:\n%s", out)
 	}
+}
+
+// patchFailureBlock is PF-D81's error for a conflict of the fixtures' one patch at upstream tag
+// (commit), from its ERROR line through its Bypass line (internal/cli/patchfailure.go).
+func patchFailureBlock(owner, tag, commit, paths string) string {
+	return "ERROR: " + owner + ": patch application failed at upstream " + tag + " (" + commit + ")\n" +
+		"  Patch: 0001-patch-line-ten.patch\n" +
+		"  Conflict: " + paths + "\n" +
+		"  Operation stopped; no older fit or base will be built.\n" +
+		"  Repair: yolo pack rebase " + owner + " --onto " + commit + "\n" +
+		"  Bypass: YOLO_ALLOW_PATCH_FAILURES=1 yolo\n"
 }
 
 // liveCaptureEntries is the keys among keys whose entry is complete: its marker is there.
