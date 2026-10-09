@@ -1050,7 +1050,7 @@ only place the values themselves are stated.
 | The most one download may be (added 2026-09-30) | 512 MiB | `packbin.DefaultMaxBytes` |
 | Per-loophole state dir | `<global storage>/state/<name>` | `loopholes.StateDirFor` |
 | Retired-state generations kept | 3 | `hostArchiveKeep` in `internal/prune/prunecmd.go`, mirrored by the post-launch slot's `hostArchiveKeepInSlot`; the sweeper is `prune.PruneRetiredLoopholeState` |
-| Retired top-level config keys (now refusals naming their replacements) | `host_processes`, `journal`, `agents` | `internal/config/validate.go` |
+| Retired top-level config keys (now refusals naming their replacements) | `host_processes`, `journal`, `macos_log`, `agents` | `internal/config/validate.go` |
 | Shipped loopholes | one manifest per `packs/*/loopholes/*/` | `packs/` |
 
 ## Why it's this way

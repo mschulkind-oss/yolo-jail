@@ -771,14 +771,14 @@ only place the values themselves are stated.
 | Content-overlay wire var | `YOLO_DARWIN_HOME_OVERLAY` | `internal/cli/run/macoshomeoverlay.go`, `entrypoint.InstallHomeOverlay` |
 | Pack tree wire var | `YOLO_PACK_ROOT`, baked onto the bootstrap argv; since 2026-10-04 also in the session env file, with `YOLO_DARWIN_WORKSPACE`, when packs were staged, so an in-sandbox `yolo programs` reads this jail | `macosuser.BuildRunPlan`, asserted by `PlanInvariants`; read in the sandbox by `entrypoint.JailEnvFromOS` |
 | Login-rc PATH var | `YOLO_DARWIN_LOGIN_PATH`, assembled from `macosuser.SandboxPath` | `entrypoint.DarwinBootstrapOptions`, `WriteLoginRC` |
-| Unified-logging dial | `macos_log`: `off` / `user` / `full`, default `off` | `macosuser.MacosLogWrapperScript`, `macosuser.macosLogMode`, `entrypoint.InstallYoloLog` |
-| Unified-log deny under `off` | file-read of `/private/var/db/diagnostics` and `/private/var/db/uuidtext`, mach-lookup of `com.apple.diagnosticd`; none under `user`/`full` (inferred, unmeasured on a Mac) | `macosuser.macosLogDenies` |
+| The unified log | read on the host by the `macos-log` loophole and reached with the guest client `yolo-log`; the top-level `macos_log` key is retired and refused ([the pack's ledger](../../packs/macos-log/README.md)) | `journald.MacosLogMain`, `journald.PlanMacosLog`, `cmd/yolo-log`, `config.validateMacosLogRetired`, `entrypoint.RetireYoloLog` |
+| Unified-log deny, in every profile | file-read of `/private/var/db/diagnostics` and `/private/var/db/uuidtext`, mach-lookup of `com.apple.diagnosticd` (inferred, unmeasured on a Mac) | `macosuser.macosLogDenies` |
 | Seatbelt write policy | deny all, re-allow the workspace, the sandbox home, and the temp dirs | `macosuser.SeatbeltProfile` |
 | Seatbelt read denials | under the users root (with intermediate literals re-allowed), under `/Volumes` except the boot volume, and the keychain dir | `macosuser.SeatbeltProfile`, `ancestorLiterals` |
 | Process visibility | the process list is allowed; another process's command line and environment are denied (procargs and pidinfo), except within the same sandbox | `macosuser.SeatbeltProfile` |
 | The narrower capture profile | drops the workspace and the sandbox home from the write set | `macosuser.SeatbeltCaptureProfile` |
 | Host nix daemon opt-in (container backends only) | `YOLO_NIX_HOST_DAEMON` | `internal/cli/run/hostprobes.go` |
-| The guest prefix, holding the staged `yolo` and the darwin in-jail set | `/var/yolo-jail/bin`, root-owned; the set is `yolo-jaild`, `yolo-serial`, `yolo-ps` | `macosuser.GuestBinDir`, `macosuser.GuestBinaries`; `flake.nix` `guestBinaries`; `stage-source-bundle.sh` `GUEST_BINARIES` |
+| The guest prefix, holding the staged `yolo` and the darwin in-jail set | `/var/yolo-jail/bin`, root-owned; the set is `yolo-jaild`, `yolo-serial`, `yolo-ps`, `yolo-log` | `macosuser.GuestBinDir`, `macosuser.GuestBinaries`; `flake.nix` `guestBinaries`; `stage-source-bundle.sh` `GUEST_BINARIES` |
 | The supervisor's env file (verified at `d4e435a3`; named per session since 2026-10-04) | `/var/yolo-jail/env/<session>.daemons.env` ([`<session>`](macos-user-provisioning.md#the-session-key)), `0600` in a `0700` directory, one `user:_yolojail` read ACE | `macosuser.SandboxDaemonEnvFile` |
 | The sandbox's TLS trust (added 2026-10-04) | `NIX_SSL_CERT_FILE`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, `GIT_SSL_CAINFO` name `/var/yolo-jail/env/<session>.ca-bundle.crt` (the profile's public roots plus the CAs the System keychain trusts for TLS), or the profile's own bundle when it adds none, and when the launch's own env layers set any of the five, all five name that value instead; `NODE_EXTRA_CA_CERTS` names `<session>.extra-ca.pem` only when there is one and the layers do not set it | `macosuser.ComposeCATrust` (`cabundle.go`); [PS-D10](../design/provisioner-sets.md#PS-D10) |
 | The supervisor's own log (verified at `d4e435a3`) | `<workspace>/.yolo/home/local/state/yolo-jail-daemons/supervisor.log`, `~/.local/state/yolo-jail-daemons` in the sandbox | `macosuser.SupervisorLogName`, `SupervisorLogPath` |
@@ -787,6 +787,12 @@ only place the values themselves are stated.
 | The sandbox's `nix` (added after the verified commit) | the host client's resolved store `bin` dir, after the floor's; delivered only with a daemon socket at `/nix/var/nix/daemon-socket/socket`; plus `NIX_REMOTE=daemon` (unless the user set it) and `NIX_CONFIG=extra-experimental-features = nix-command flakes` (appended to a user's `NIX_CONFIG` that names no features) | `macosuser.resolveHostNix`, `hostNixEnv`, `withHostNixEnv` (`hostnix.go`); `BuildRunPlan` |
 
 > [!NOTE]
+> **Superseded 2026-10-09: the key is retired.** The sandbox account cannot read the unified log
+> even with no Seatbelt profile (macos-user CI run 37940733418), so the dial below never gave the
+> agent a log in any mode. The log is now the `macos-log` loophole's, read on the host, and
+> `macos_log` is a refusal naming it ([the pack's ledger](../../packs/macos-log/README.md)). The
+> note is kept for its lesson.
+>
 > **`macos_log` now validates, and the class it came from is worth keeping.** The key was READ,
 > HONORED and DOCUMENTED long before it was ACCEPTED: the bootstrap installed the `yolo-log` helper
 > from it in all three modes while `config.knownTopLevelConfigKeys` had no entry — and an

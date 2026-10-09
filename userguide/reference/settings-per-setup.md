@@ -231,7 +231,8 @@ selects.
 | `aws-auth` (`aws-auth`) | Bedrock with credentials from your host's `aws sso login`, narrowed to a role before they reach the jail | No | Yes[^lh-aws] | Should work[^lh-mac] | No[^lh-ac] | Yes[^login-mu] |
 | `github-broker` (`github`) | `gh` in the jail, run by your host's GitHub login against the project's own repositories; read-only for now | No | Yes[^lh-gh] | Should work[^lh-mac] | No[^lh-ac] | Starts; not yet run on a Mac |
 | `serial` (`serial`) | A USB serial device on the host, through an allowlist (`yolo-serial`) | No | Yes | Should work[^lh-mac] | No[^lh-ac] | Should work: `yolo-serial` is installed in the sandbox when the loophole is on. Not yet run on a Mac. |
-| `journal` (`journal`) | The host's systemd journal (`yolo-journalctl`) | No | Yes | No: needs a Linux host[^lh-linux] | No: needs a Linux host[^lh-linux] | No; `macos_log` instead[^maclog] |
+| `journal` (`journal`) | The host's systemd journal (`yolo-journalctl`) | No | Yes | No: needs a Linux host[^lh-linux] | No: needs a Linux host[^lh-linux] | No; `macos-log` instead |
+| `macos-log` (`macos-log`) | The Mac's unified log (`yolo-log`), by default only entries from processes the sandbox runs | No | No: needs a Mac host | Only with `full`[^lh-mac]: by default it shows the sandbox account's processes, and a container runs none | No[^lh-ac] | Should work[^maclog] |
 | `host-processes` (`host-processes`) | A filtered list of host processes (`yolo-ps`); nothing shows until you list names | No | Yes | Should work[^lh-mac] | No[^lh-ac] | Should work[^muprocs] |
 | `audio` (`audio`) | The host's microphone and speakers (PipeWire or PulseAudio) | No | Yes | No: needs a Linux host[^lh-linux][^audiomac] | No: needs a Linux host[^lh-linux][^audiomac] | No[^audiomac] |
 | `cgroup-delegate` (`cgroup-delegate`) | Lets the jail cap its own sub-jobs (`yolo-cglimit`) | No | Yes, with cgroup v2[^cgv2] | No: needs a Linux host[^lh-linux] | No: needs a Linux host[^lh-linux] | No |
@@ -244,7 +245,7 @@ selects.
 [^lh-gh]: Turned on one project at a time, by `yolo loopholes enable github-broker` run in it on the host; no config file switches it. Needs `gh` logged in on the host. The first launch of a project with a GitHub remote asks you to approve its repositories, and every call is recorded for `yolo audit`. A repository the project has no remote for can be listed in the project's own config as `brokered.github.repos`, and the next fresh launch asks you to approve it. Tested against a stand-in for `gh`, never a real GitHub login. See [GitHub](../guides/github.md#adding-a-repository-the-project-has-no-remote-for).
 [^lh-linux]: These need Linux on the host. On a Mac, turning one on does nothing, and the launch says so in one line naming the loophole.
 [^cgv2]: Needs cgroup v2 on the host: `test -e /sys/fs/cgroup/cgroup.controllers && echo v2`.
-[^maclog]: `macos-user` offers Apple's unified log instead, behind its own `macos_log` key (`off` / `user` / `full`) and a `yolo-log` helper. Under `off`, the default, the sandbox cannot read the log at all, not only through the helper; `user` and `full` let it. Not yet tried on a Mac.
+[^maclog]: The sandbox cannot read the log itself, so `yolo-log` asks the host to run Apple's `log` for it: `show` and `stream` only, as ndjson, limited to processes running as the sandbox account, which every `macos-user` sandbox on the Mac shares. `"settings": {"full": true}`, in your user config only, passes every argument through. The old `macos_log` key is refused and names this loophole. Not yet run on a Mac.
 [^muprocs]: The `macos-user` sandbox sees which processes are running on your Mac but not their command lines; `yolo-ps` shows the ones you list, with their command lines. Not yet run on a Mac.
 [^audiomac]: On a Mac the `audio` pack sets neither `PULSE_SERVER` nor `PIPEWIRE_REMOTE`, because no jail there gets the host's audio sockets, and the launch names both as left out. Audio tools in the jail use their own defaults.
 
@@ -475,7 +476,6 @@ The keys the tables above leave out. Most of them do the same thing on every set
 | `adapters` — where an adapted provider is reached | works | works | works | works — except for a helper the launch starts itself, which uses the port that launch picked |
 | `loopholes` — turn a pack's host service on or off | works | works — a Linux-only one is named and skipped[^lh-linux] | absent, warns — only the OpenAI login service starts, the jail cannot reach it, and the launch names each one it skips[^lh-ac] | works — every one starts, and the launch names each in-jail half the sandbox declines[^theone] |
 | `brokered` — more repositories for the GitHub host service in one project | works | works | absent, warns — the GitHub host service does not start here, and the launch names it[^lh-ac] | works |
-| `macos_log` — what the sandbox may read from the Mac's log | `n/a` — no macOS log | `n/a` — the jail is Linux and cannot read the Mac's log | `n/a` — the same | works |
 | `agents_md_extra`, `briefing_provenance` — your text in the agent's briefing | works | works | works — a running jail keeps the briefing it started with | works |
 | `include_if_found`, `prune`, `perf_logging`, `update_check` | works | works | works | works |
 

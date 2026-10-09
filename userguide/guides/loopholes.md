@@ -38,6 +38,7 @@ access behind it.
 | `github-broker` (`github`) | `gh` in the jail, run by your host's own GitHub login against this workspace's repositories, read-only for now, with no token in the jail ([GitHub](github.md)) | No; you turn it on per project, with `yolo loopholes enable github-broker` |
 | `serial` (`serial`) | USB serial devices on the host, through an allowlist, with the `yolo-serial` command | No |
 | `journal` (`journal`) | The host's systemd journal, with `yolo-journalctl` (Linux hosts) | No |
+| `macos-log` (`macos-log`) | The Mac's unified log, with `yolo-log`: by default only entries from processes the `macos-user` sandbox runs (Mac hosts) | No |
 | `host-processes` (`host-processes`) | A filtered list of host processes, with `yolo-ps` (Linux hosts) | No |
 | `audio` (`audio`) | The host's microphone and speakers through PipeWire or PulseAudio (Linux hosts) | No |
 | `cgroup-delegate` (`cgroup-delegate`) | Lets the jail cap the CPU and memory of its own jobs, with `yolo-cglimit` (Linux hosts) | No |

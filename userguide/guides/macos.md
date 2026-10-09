@@ -257,6 +257,12 @@ What you give up:
 - **Mac tools, not Linux ones.** The agent uses macOS's own `sed`, `grep`, `find` and `tar`, whose
   flags differ from the Linux ones, so a script written for Linux can fail. Without Xcode's command
   line tools (`xcode-select --install`) there is no `cc` or `make`.
+- **The Mac's log through the host.** The sandbox account cannot read the unified log, so
+  `/usr/bin/log` in the sandbox reads nothing. Select the `macos-log` pack and set
+  `"loopholes": {"macos-log": {"enabled": true}}`, and `yolo-log show` and `yolo-log stream` read
+  it on your Mac for the agent, limited to entries from processes the sandbox runs. Your user
+  config's `"settings": {"full": true}` passes every `log` argument through unchanged. Not yet
+  tried on a Mac. See [the `macos-log` pack](https://github.com/mschulkind-oss/yolo-jail/blob/main/packs/macos-log/README.md).
 
 ### macos-user (native, no VM) — what it does not do
 

@@ -33,6 +33,10 @@ speaks Bedrock's own API through the wire bridge, which signs each request, incl
 for Claude models. Supply a Bedrock model list to use this route.
 See [the wire bridge](docs/reference/wire-bridge.md#converse-on-a-via-route).
 
+**The Mac's unified log in a `macos-user` jail.** Select the `macos-log` pack and turn its
+loophole on, and `yolo-log` reads the log on your Mac, by default only entries from the
+sandbox's own processes. See [the `macos-log` pack](packs/macos-log/README.md).
+
 ### Changed
 
 **A patch series that no longer applies stops the launch.** A jail launch, `yolo host` and
@@ -40,6 +44,8 @@ See [the wire bridge](docs/reference/wire-bridge.md#converse-on-a-via-route).
 bypass that works, instead of quietly running your last good build. Put
 `YOLO_ALLOW_PATCH_FAILURES=1` in front of the command to run that build for one launch.
 See [When your patches stop applying](userguide/guides/patch-series.md#when-your-patches-stop-applying).
+
+- `macos_log` is refused: it never gave a `macos-user` sandbox the log. Delete it, and use the `macos-log` pack instead ([how](packs/macos-log/README.md#turning-it-on)).
 
 ### Fixed
 
