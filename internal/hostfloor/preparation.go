@@ -78,13 +78,13 @@ func (f *Floor) PreparePatched(ctx context.Context, p Program, allowAdvance bool
 		preparation.delivery = patchedPreparationKeepInstalled
 		preparation.installed = cloneRecord(currentStatus.Record)
 		f.writePatchFailureOnce(p, state)
-		f.say("CONTINUING: using installed compatible build %s; skips this fork's advance", currentStatus.Record.Version)
+		f.sayContinuingOnce(state, "CONTINUING: using installed compatible build %s; skips this fork's advance", currentStatus.Record.Version)
 		return preparation, nil
 	}
 	if why := f.preparedGoodUsable(p, state, preparation.selectedGood); why == "" {
 		preparation.delivery = patchedPreparationInstallGood
 		f.writePatchFailureOnce(p, state)
-		f.say("CONTINUING: installing the selected admitted build %s; skips this fork's advance", preparation.selectedGood.Label)
+		f.sayContinuingOnce(state, "CONTINUING: installing the selected admitted build %s; skips this fork's advance", preparation.selectedGood.Label)
 		return preparation, nil
 	}
 	f.writePatchFailureOnce(p, state)
@@ -204,6 +204,15 @@ func (f *Floor) EnsurePrepared(ctx context.Context, p Program, prepared *Patched
 	}
 	f.say("installed %s %s → %s", p.Bin(), rec.Version, f.Launcher(p.Bin()))
 	return f.Status(p), outcome, nil
+}
+
+// sayContinuingOnce says the bypass's CONTINUING line unless the advance that took the skip already
+// did: like the error block (writePatchFailureOnce), it is said once per operation.
+func (f *Floor) sayContinuingOnce(state PatchedState, format string, args ...any) {
+	if state.ContinuingSaid {
+		return
+	}
+	f.say(format, args...)
 }
 
 func mergePreparedPatchedState(initial, resolved PatchedState) PatchedState {

@@ -99,8 +99,9 @@ func TestHostPatchFailureRefusesDespiteAValidOldFloor(t *testing.T) {
 // PF-D81'S ERROR IS SAID ONCE AT THE HOST: the advance that finds the conflict prints its error
 // block, and the floor's preparation, handed that failure, does not print the same block again; a
 // later launch, which reads the failure from the record with no advance to say it, prints it once
-// itself. Bypassed or not. Red with floorAdvanceState dropping the advance's "said" mark, or the floor
-// printing its block unconditionally.
+// itself. Bypassed or not; and under the bypass its CONTINUING line is said once as well. Red with
+// floorAdvanceState dropping the advance's "said" marks, or the floor printing its block or its
+// CONTINUING line unconditionally.
 func TestHostPatchFailureErrorIsSaidOnce(t *testing.T) {
 	for _, bypass := range []string{"", "1"} {
 		t.Setenv("YOLO_ALLOW_PATCH_FAILURES", "")
@@ -123,6 +124,10 @@ func TestHostPatchFailureErrorIsSaidOnce(t *testing.T) {
 				if n := strings.Count(out, line); n != 1 {
 					t.Errorf("bypass %q, %s: %q said %d times, want once:\n%s", bypass, launch, line, n, out)
 				}
+			}
+			// The bypass's CONTINUING line is said once too, whether the advance or the floor says it.
+			if n, want := strings.Count(out, "CONTINUING: "), map[string]int{"": 0, "1": 1}[bypass]; n != want {
+				t.Errorf("bypass %q, %s: CONTINUING said %d times, want %d:\n%s", bypass, launch, n, want, out)
 			}
 		}
 	}

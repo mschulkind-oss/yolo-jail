@@ -199,6 +199,9 @@ type advanceResult struct {
 	// patchFailureSaid is true when this advance printed patchFailure's error block itself
 	// (reportPatchFailure), so a caller that also reports failures does not print it a second time.
 	patchFailureSaid bool
+	// continuingSaid is true when this advance printed the bypass's CONTINUING line itself, so a
+	// caller that also says what continues (the host floor's preparation) does not say it again.
+	continuingSaid bool
 	// lost is true when this advance's admitted build lost the swap to a newer check's (§6.1).
 	lost bool
 	// gone is why this advance's admitted build could not be moved to: it left the store first.
@@ -839,10 +842,10 @@ func (a *advance) patchFailureResult(pf *packsrc.PatchFailure) advanceResult {
 				admitted = fmt.Sprintf("%s (%s; %s)", a.servingLine(), good.Commit, admitted)
 			}
 			a.dim("CONTINUING: using intact admitted build %s; skips this subject's advance.", admitted)
-			r.bypassed = true
+			r.bypassed, r.continuingSaid = true, true
 		} else if a.installed != nil {
 			a.dim("CONTINUING: using installed build %s; skips this subject's advance.", a.installed.label)
-			r.bypassed = true
+			r.bypassed, r.continuingSaid = true, true
 		}
 		return r
 	}

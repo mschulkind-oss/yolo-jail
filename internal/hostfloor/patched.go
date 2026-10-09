@@ -74,6 +74,10 @@ type PatchedState struct {
 	AuthorityError string
 	// AdvanceBypassed records that Advance itself took the literal foreground compatibility skip.
 	AdvanceBypassed bool
+	// ContinuingSaid records that the Advance which took that skip already printed its CONTINUING
+	// line on this operation's stream, so the floor does not say the bypass continues a second time,
+	// as PatchFailureSaid does for the error block.
+	ContinuingSaid bool
 	// Reason is why no good build serves, naming the next step; "" when Good is set.
 	Reason string
 }

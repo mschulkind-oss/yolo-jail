@@ -369,6 +369,7 @@ func floorAdvanceState(p hostfloor.Program, result advanceResult) hostfloor.Patc
 	}
 	state.OperationError = result.operationError
 	state.AdvanceBypassed = result.bypassed
+	state.ContinuingSaid = result.continuingSaid
 	return state
 }
 
