@@ -595,6 +595,12 @@ func TestPreparePatchedKeepsReadableDirectExecutableCopy(t *testing.T) {
 
 func directExecutablePreparationRecord(t *testing.T, w *world, original *Record) *Record {
 	t.Helper()
+	// Replace the entry rather than write through it: where the install hardlinked it out of the
+	// capture store (any filesystem without reflink, CI's ext4 among them), the entry IS the
+	// store's sealed read-only inode, which a non-root writer cannot open and root would corrupt.
+	if err := os.Remove(original.Entry); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(original.Entry, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
