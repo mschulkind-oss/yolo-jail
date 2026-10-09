@@ -67,17 +67,6 @@ const (
 	sessionGuardGrace    = 5 * time.Second
 )
 
-// psBin and psArgs are the process-table read OFF macOS (proctable_other.go): every
-// process, numeric columns only, no header. Numeric only because a command name can hold
-// spaces and a column that can hold anything is a column a parser has to guess at; the guard
-// names a process by its pid. ON macOS the guard never runs /bin/ps: ps is setuid root there,
-// and Seatbelt refuses a setuid exec inside any sandbox whatever the profile says, so the
-// guard read nothing (`fork/exec /bin/ps: operation not permitted`, macos-user CI run
-// 37940733418). proctable_darwin.go reads the same three columns from the kernel instead.
-const psBin = "/bin/ps"
-
-var psArgs = []string{"-ax", "-o", "pid=,ppid=,rss="}
-
 // SessionGuard is what a launch's session guard enforces. The zero value is no guard, and
 // then the launch argv is exactly the argv of a launch that never heard of one.
 type SessionGuard struct {
