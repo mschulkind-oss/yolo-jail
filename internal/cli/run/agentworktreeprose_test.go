@@ -41,8 +41,9 @@ func TestEachAgentPackShipsItsOwnWorktreeProseToItsOwnAgent(t *testing.T) {
 		"pi-subagents makes a `worktree: true` run's worktrees in the system temp dir unless told\n" +
 		"otherwise: `/tmp`, which a container jail deletes when it exits. So where `$YOLO_DURABLE_DIR` is\n" +
 		"set, yolo's extension `~/.pi/agent/extensions/yolo-durable-worktrees.js` sets\n" +
-		"`PI_SUBAGENTS_WORKTREE_DIR` to `$YOLO_DURABLE_DIR/worktrees/pi-subagents`, and they go there. A\n" +
-		"`PI_SUBAGENTS_WORKTREE_DIR` already set, or pi-subagents' own `worktreeBaseDir` setting, wins.\n" +
+		"`worktreeBaseDir` in `~/.pi/agent/extensions/subagent/config.json` to\n" +
+		"`$YOLO_DURABLE_DIR/worktrees/pi-subagents`, and they go there. A `PI_SUBAGENTS_WORKTREE_DIR`\n" +
+		"already set, or a user-configured `worktreeBaseDir`, wins.\n" +
 		"pi-subagents removes a run's worktrees when the run ends; one a restart cut short stays until you\n" +
 		"`git worktree remove` it.\n\n" +
 		"pi-dynamic-workflows puts its worktrees in the repository's `.pi/worktrees/`, which it has no\n" +

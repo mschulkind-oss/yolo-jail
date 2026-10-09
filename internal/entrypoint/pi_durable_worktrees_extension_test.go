@@ -1,6 +1,7 @@
 package entrypoint
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -36,9 +37,11 @@ func TestShippedPiPackDeliversTheDurableWorktreesExtension(t *testing.T) {
 	}
 }
 
-// Executed: the extension sets PI_SUBAGENTS_WORKTREE_DIR from YOLO_DURABLE_DIR when the user
-// has not set it, and changes nothing when either is otherwise (a user's own value wins; the
-// host notch and a launch with no durable dir export no YOLO_DURABLE_DIR).
+// Executed: the extension configures worktreeBaseDir in subagent/config.json from
+// YOLO_DURABLE_DIR when the user has not set it, and changes nothing when either is
+// otherwise (a user's own value wins; the host notch and a launch with no durable dir export
+// no YOLO_DURABLE_DIR). PI_SUBAGENTS_WORKTREE_DIR is never exported into the process
+// environment, so child processes do not inherit it.
 func TestPiDurableWorktreesExtensionSetsTheBaseDirOnlyWhenUnset(t *testing.T) {
 	p := shippedPiPack(t)
 	source, err := os.ReadFile(filepath.Join(p.Root, "extensions", "yolo-durable-worktrees.js"))
@@ -51,24 +54,77 @@ func TestPiDurableWorktreesExtensionSetsTheBaseDirOnlyWhenUnset(t *testing.T) {
 	}
 	harness := filepath.Join(dir, "harness.mjs")
 	if err := os.WriteFile(harness, []byte(`
-import extension from "./extension.mjs";
+import extension, { subagentConfigPath } from "./extension.mjs";
+import fs from "node:fs";
+
 await extension({});
-process.stdout.write(process.env.PI_SUBAGENTS_WORKTREE_DIR ?? "<unset>");
+
+const envVal = process.env.PI_SUBAGENTS_WORKTREE_DIR ?? "<unset>";
+const configPath = subagentConfigPath(process.env);
+let fileVal = "<no-file>";
+if (fs.existsSync(configPath)) {
+	try {
+		const parsed = JSON.parse(fs.readFileSync(configPath, "utf8"));
+		fileVal = parsed.worktreeBaseDir ?? "<no-key>";
+	} catch (e) {
+		fileVal = "<parse-error>";
+	}
+}
+process.stdout.write(JSON.stringify({ env: envVal, file: fileVal }));
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct {
-		name string
-		env  []string
-		want string
+		name     string
+		env      []string
+		initFile string
+		wantEnv  string
+		wantFile string
 	}{
-		{"durable dir, no user value", []string{"YOLO_DURABLE_DIR=/workspace/.yolo/durable"},
-			"/workspace/.yolo/durable/worktrees/pi-subagents"},
-		{"a user's own value wins", []string{"YOLO_DURABLE_DIR=/workspace/.yolo/durable", "PI_SUBAGENTS_WORKTREE_DIR=/mine"},
-			"/mine"},
-		{"no durable dir", nil, "<unset>"},
+		{
+			name:     "durable dir, no user value",
+			env:      []string{"YOLO_DURABLE_DIR=/workspace/.yolo/durable"},
+			wantEnv:  "<unset>",
+			wantFile: "/workspace/.yolo/durable/worktrees/pi-subagents",
+		},
+		{
+			name:     "a user's own env value wins",
+			env:      []string{"YOLO_DURABLE_DIR=/workspace/.yolo/durable", "PI_SUBAGENTS_WORKTREE_DIR=/mine"},
+			wantEnv:  "/mine",
+			wantFile: "<no-file>",
+		},
+		{
+			name:     "no durable dir",
+			env:      nil,
+			wantEnv:  "<unset>",
+			wantFile: "<no-file>",
+		},
+		{
+			name:     "a user's own worktreeBaseDir in config.json wins",
+			env:      []string{"YOLO_DURABLE_DIR=/workspace/.yolo/durable"},
+			initFile: `{"worktreeBaseDir": "/user/configured"}`,
+			wantEnv:  "<unset>",
+			wantFile: "/user/configured",
+		},
+		{
+			name:     "an existing yolo-managed worktreeBaseDir updates when durable dir changes",
+			env:      []string{"YOLO_DURABLE_DIR=/workspace/.yolo/durable"},
+			initFile: `{"worktreeBaseDir": "/old/path", "_yoloManagedWorktreeBaseDir": true}`,
+			wantEnv:  "<unset>",
+			wantFile: "/workspace/.yolo/durable/worktrees/pi-subagents",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			if tc.initFile != "" {
+				cfgPath := filepath.Join(home, ".pi", "agent", "extensions", "subagent", "config.json")
+				if err := os.MkdirAll(filepath.Dir(cfgPath), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(cfgPath, []byte(tc.initFile), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
 			cmd := exec.Command(requireNode(t, "the pi durable-worktrees extension"), harness)
 			cmd.Dir = dir
 			var env []string
@@ -77,13 +133,23 @@ process.stdout.write(process.env.PI_SUBAGENTS_WORKTREE_DIR ?? "<unset>");
 					env = append(env, kv)
 				}
 			}
-			cmd.Env = append(append(env, "HOME="+t.TempDir()), tc.env...)
+			cmd.Env = append(append(env, "HOME="+home), tc.env...)
 			out, err := cmd.CombinedOutput()
 			if err != nil {
 				t.Fatalf("executing the extension: %v\n%s", err, out)
 			}
-			if string(out) != tc.want {
-				t.Errorf("PI_SUBAGENTS_WORKTREE_DIR = %q, want %q", out, tc.want)
+			var got struct {
+				Env  string `json:"env"`
+				File string `json:"file"`
+			}
+			if err := json.Unmarshal(out, &got); err != nil {
+				t.Fatalf("parsing output %q: %v", out, err)
+			}
+			if got.Env != tc.wantEnv {
+				t.Errorf("PI_SUBAGENTS_WORKTREE_DIR in env = %q, want %q", got.Env, tc.wantEnv)
+			}
+			if got.File != tc.wantFile {
+				t.Errorf("worktreeBaseDir in config.json = %q, want %q", got.File, tc.wantFile)
 			}
 		})
 	}
