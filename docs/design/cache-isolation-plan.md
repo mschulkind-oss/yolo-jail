@@ -2,7 +2,7 @@
 title: "Sketch: trace private cache delivery and safe reclaim before building"
 status: draft
 stage: SKETCH
-next: "Specify protected source delivery and a native quiescence witness; prepare offline controls while owner questions remain open"
+next: "Verify the host-only source-anchor candidate and specify native quiescence; keep owner questions open"
 depends-on:
   - cache-isolation.md#OQ-CI1
   - cache-isolation.md#OQ-CI2
@@ -32,7 +32,7 @@ No further owner question is needed for helper names, record encoding or travers
 
 | Seam | What a future source-complete plan must connect |
 | :--- | :--- |
-| [`paths.go`](../../internal/paths/paths.go), [`naming.go`](../../internal/runtime/naming.go) | Derive a workspace-shaped private child in the one path package; verify full resolved identity, not only container-name hash. Preserve the frozen container-name contract. |
+| [`paths.go`](../../internal/paths/paths.go), [`naming.go`](../../internal/runtime/naming.go) | Derive the proposed host-only `ordinary-caches` child of `GlobalStorage()`, never of `GlobalCache()` or the workspace; verify full resolved identity, not only container-name hash. Preserve the frozen container-name contract. |
 | [`statefile.go`](../../internal/paths/statefile.go), [`wsstatebeneath.go`](../../internal/cli/run/wsstatebeneath.go) | Reuse checked real-root and beneath-root operations. Trace the remaining interval from opened directory to runtime delivery; a prior Lstat alone is not proof against a swap. |
 | [`run.go`](../../internal/cli/run/run.go#L1986-L2042), [`assemble.go`](../../internal/cli/run/assemble.go#L109-L120) | Actual ordinary selection supplies `cacheDir` explicitly; mount fallback changes alone cannot deliver isolation. Resolve once and pass that same backing into all readers. |
 | [`assemble_parts.go`](../../internal/cli/run/assemble_parts.go#L54-L172), [`homeskeleton.go`](../../internal/cli/run/homeskeleton.go) | Podman private source plus mountpoint under its read-only skeleton; Apple Container's nested source under whole writable home. Do not add one mount per vendor. |
@@ -73,10 +73,11 @@ actual callers must cross it; changing a pure resolver alone is not the feature.
 
 ## Remaining source preparation, not owner gates
 
-1. **Protected delivery.** Existing `os.Root` handles survive root replacement but the emitted
-   runtime source is a string. Determine a backend-supported protected reference or an anchor
-   a sibling cannot replace; a post-open Lstat/dispatch pair is still racy. Keep sidecar
-   placement recommended, not silently substituted with an arbitrary host root.
+1. **Protected delivery candidate.** Use the amended host-only parent in
+   [the design](cache-isolation.md#where-the-backing-may-live), keeping anchors stable across
+   all possible runtime reopens. The upstream trace reaches pathname consumers, not a
+   portable inherited cache FD; verify actual backend source identity and leaf-only exposure.
+   Native traversal and Podman Machine visibility remain support stops, not access expansion.
 2. **Native addressing.** Prepare the env/profile candidate in
    [the design](cache-isolation.md#native-delivery-adjustment-under-investigation).
    Known npm/Go overrides and dynamic stamps can use existing crossings; arbitrary hardcoded
@@ -91,6 +92,26 @@ actual callers must cross it; changing a pure resolver alone is not the feature.
 Standalone offline models can falsify a protocol or illustrate opened-root confinement, but
 cannot establish production wiring, filesystem backend pinning or native process quiescence.
 No cache/user inventory or account modification belongs to this stage.
+
+## Protected-source selector, callers and smaller controls
+
+Proposed names below are **not implemented or accepted**. [The pinned upstream trace](../research/cache-trust-and-reclamation.md#runtime-delivery-retains-a-pathname-boundary)
+justifies a stable ordinary pathname; it does not certify the deployed OCI/VZ callee.
+
+| Proposed seam | Exact caller/control to prepare after policy and support gates |
+| :--- | :--- |
+| New `paths.OrdinaryCacheRoot()` → `<GlobalStorage>/ordinary-caches`; new run-side `admitOrdinaryCache` returns the checked leaf plus full scope/backing identity | Keep root/scope parents host-only; verify all effective grants do not expose authority or siblings. Records/locks stay outside the leaf. Unit fixtures reject forged identity, source-parent links, relocated/legacy ancestors and an exposed parent; directory naming never supplies authority. |
+| Move ordinary resolution before [`relocation provisioning`](../../internal/cli/run/run.go#L1890-L1905) and [`alias preparation`](../../internal/cli/run/run.go#L1921-L1924) | Pass that leaf into `EnsureCacheRelocations` and `planHostCASAlias` instead of their global-cache assumptions. `goldenOptions`/`hostcasalias_test.go` controls must fail if actual call-site delivery is removed, including the empty-host/warm-private distinction. Do not touch `sealedStores` or widen exceptions. |
+| [`runContainer` explicit selection](../../internal/cli/run/run.go#L1986-L2042) → `assembleInput.cacheDir` → [`cacheSource`](../../internal/cli/run/assemble_parts.go#L111-L115) → both emitters | Future `ordinaryCacheDelivery` run-path fixture uses two scopes, same guest path, restart and differing leaf sources. Deleting the production selector or substituting its current global fallback must fail. Assert neither parent nor legacy cache contains new authority; sealed/legacy attach controls retain their actual sources. |
+| Host-only source protection through real backend reopening | Later authorized smallest backend fixture: harmless sentinel, delayed create/open, guest attempts replacement via workspace and legacy cache; verify the runtime received the admitted leaf and guest `..` cannot reach its host parent. Linux rootless requires a real rootless host; Apple requires macOS. No interactive agent or API. |
+| Native source admission → env/profile/generator crossings | First prove selected-leaf writability and only necessary ancestor traversal without parent enumeration/replacement or sibling access. If existing authority cannot supply that, retain the support stop. Fixed HOME, real legacy `.cache`, hardcoded-path and surviving-writer obligations remain separate. |
+
+The standalone fixture illustrates opened-FD versus early plain-path reopening and the
+proposed exposure topology; exposed-parent and legacy-ancestor negative controls fail.
+It does not implement mount confinement. The irreducible FD alternative gap is the
+**selected OCI runtime/version and descriptor namespace/lifetime**, plus Apple's opaque VZ
+opening after string-only XPC. Do not substitute `/proc/self/fd` or `/dev/fd` argv from this
+model; later deployment must refuse unprotected delivery, not fall back to shared bytes.
 
 ## Tests lead the later implementation, not this document stage
 

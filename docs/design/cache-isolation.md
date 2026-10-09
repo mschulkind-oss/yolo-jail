@@ -2,7 +2,7 @@
 title: "Ordinary jail caches must not be a writable free-for-all"
 status: in-review
 stage: DESIGN
-next: "Resolve protected runtime delivery and native consumer quiescence while OQ-CI1 and OQ-CI2 await rulings"
+next: "Verify host-only source delivery and native consumer quiescence while OQ-CI1 and OQ-CI2 await rulings"
 tags: [design, storage, security]
 ---
 
@@ -94,11 +94,26 @@ not permission to change container names here.
 
 ### Where the backing may live
 
-Use a **source-shaped root**: storage yolo derives for this workspace from its established
-workspace state, exposing only its cache child, not a user-supplied ambient host directory.
-The recommended placement is beneath `<workspace>/.yolo/`, outside durable scratch and
-installed-program trees eligible for dedup. Exact child spelling and backend decomposition
-are engineering choices; they cannot alter the scope or safety behavior.
+Use a **source-shaped root**: storage yolo derives from the recorded workspace/scope identity,
+not a user-supplied ambient directory. **Engineering recommendation amended, 2026-10-09:**
+use `<GlobalStorage>/ordinary-caches/<scope-id>/cache`, under the existing yolo-owned store
+but **outside** `GlobalCache()`, workspace/durable trees and installed-program dedup roots.
+The earlier `<workspace>/.yolo/` sidecar is not recommended: a jail can replace its source
+through `/workspace` before a runtime reopens it. [The pinned delivery trace](../research/cache-trust-and-reclamation.md#runtime-delivery-retains-a-pathname-boundary)
+provides no portable inherited-descriptor replacement for that pathname boundary.
+
+The root and scope parent are host-only namespace anchors; ownership records and stable
+fences sit outside the exposed `cache` leaf. Derive the scope from the same full resolved
+identity; do not change workspace/container naming or decide [OQ-CI1](#OQ-CI1) by placement.
+Expose **only** the selected content leaf, never its authority parent or another scope.
+Guest writes may change leaf contents, not its parent entry. Host writers/reclaimers keep
+that entry and its ancestors stable through starting/live/unknown holds and all potential
+runtime reopens, including restart. Refuse links/replacements or a conflicting grant that
+exposes the authority/sibling caches; name the grant and ask the owner to narrow it and retry.
+Legacy global-cache mounts cannot reach the new sibling root, even on rollback.
+This grants no arbitrary host tree and introduces no third owner question. Native ancestry
+traversal, ID mapping and VM visibility are still backend support obligations; if the leaf
+cannot be delivered under existing authority, stop rather than widen access or fall back.
 
 - Restart at the same resolved workspace reuses the backing. Two concurrent launches of that
   workspace share it intentionally and join the same admission/liveness protection.
@@ -125,10 +140,10 @@ state. Their serialization is the implementer's choice, not a public schema.
 3. Refuse links at agent-replaceable managed components; open beneath checked real directories
    and preserve their identity through delivery. A changed root is a refusal, not a new grant.
    The existing checked-root helpers protect operations through their handles, **not a later
-   runtime reopen by pathname**. Before implementation, prove a protected source reference for
-   each backend or a stable anchor no sibling can replace during that interval. A final Lstat
-   followed by argv dispatch does not close it. Do not silently relocate backing outside the
-   recommended sidecar to evade this gap; any placement adjustment returns to this design.
+   runtime reopen by pathname**. Use the host-only source anchor above, not another final
+   Lstat or an unproved `/proc`/`/dev/fd` substitution. Before implementation, verify the
+   selected leaf remains the admitted directory through each actual backend's opening;
+   containers must not expose any path that can replace its host namespace anchors.
 4. Deliver only that scope's backing. On successful start, hand protection to backend liveness
    without a gap; on failure retain a starting/unknown hold until absence is proved.
 5. After exit, keep the cache warm. Only a later fenced, known-inactive pass may reclaim bytes.

@@ -2,7 +2,7 @@
 title: "A writable cache is a cross-workspace trust channel"
 status: accepted
 stage: CURRENT
-next: "Prove native hardcoded-path disposition and consumer quiescence; resolve pathname-to-runtime delivery before promoting the sketch"
+next: "Verify the host-only source-anchor candidate on each backend; prove native consumer quiescence before promoting the sketch"
 tags: [research, storage, security]
 ---
 
@@ -10,7 +10,8 @@ tags: [research, storage, security]
 
 Re-analyzed **from source, 2026-10-09**, against `b2eeffc12`.
 This is a repository audit, not an inventory of a user's caches or runtime evidence.
-No tests, builds, installs, native probes or cleanup were run.
+No repository tests, builds, installs, native probes or cleanup were run; bounded offline
+replacement fixtures illustrate pathname hazards, not backend protection.
 
 **Verdict:** recommend persistent workspace-private backing for ordinary jail caches,
 with inspection and reclamation delivered together. This is not a selected mechanism;
@@ -35,6 +36,26 @@ The default shared cache is **yolo-owned jail storage**, not the host user's ord
 An identical guest path does not identify an identical workspace: the
 [documented Claude MCP-log key](../reference/jail-home.md#sharing-semantics)
 collapses every container's `/workspace` into `-workspace`.
+
+## Runtime delivery retains a pathname boundary
+
+Public upstream source was read on **2026-10-09**; these are pinned traces, not launches.
+Podman reports **5.8.7** locally; Apple Container is unavailable here, so its upstream
+trace is not a claim about an installed macOS backend.
+
+- **Podman v5.8.7:** [`GenVolumeMounts`](https://github.com/containers/podman/blob/c593b672bf3db1173aebea565ebf1a724ea196dc/pkg/specgen/volumes.go#L95-L125) resolves symlinks for `./` sources; [`finalizeMounts`](https://github.com/containers/podman/blob/c593b672bf3db1173aebea565ebf1a724ea196dc/pkg/specgen/generate/storage.go#L202-L211) applies `filepath.Abs`, and [`SpecGenToOCI`](https://github.com/containers/podman/blob/c593b672bf3db1173aebea565ebf1a724ea196dc/pkg/specgen/generate/oci_linux.go#L304-L308) retains mount strings. This does **not** establish that every absolute descriptor path is canonicalized away.
+- **OCI opening, illustrative crun revision:** [`preopening`](https://github.com/containers/crun/blob/fe3301fc8050d64ec769ae7947baba91d7c9be2f/src/libcrun/linux.c#L4258-L4273) opens the configured source using [`open_tree`](https://github.com/containers/crun/blob/fe3301fc8050d64ec769ae7947baba91d7c9be2f/src/libcrun/linux.c#L387-L424); [`do_mount`](https://github.com/containers/crun/blob/fe3301fc8050d64ec769ae7947baba91d7c9be2f/src/libcrun/linux.c#L1830-L1885) also has a pathname `mount` fallback. Its own preopened descriptors are not yolo's checked handle. This revision is **not established as the selected runtime**; local/remote namespaces, descriptor lifetime and the actual OCI callee remain an FD-path support gap.
+- **Apple container `48f902dc`:** [`Parser.volume`](https://github.com/apple/container/blob/48f902dc6686c62d4fcc4d6fdec35190d7107f8d/Sources/Services/ContainerAPIService/Client/Parser.swift#L614-L632) converts the input through URL paths and existence checks into a source string. [`ContainerClient.create`](https://github.com/apple/container/blob/48f902dc6686c62d4fcc4d6fdec35190d7107f8d/Sources/Services/ContainerAPIService/Client/ContainerClient.swift#L48-L75) JSON-encodes configuration for XPC; [`RuntimeService`](https://github.com/apple/container/blob/48f902dc6686c62d4fcc4d6fdec35190d7107f8d/Sources/Services/RuntimeLinux/Server/RuntimeService.swift#L1488-L1503) turns that string into `.share`. No launcher cache descriptor is transported by this chain.
+- **Apple's exact containerization 0.47.0 dependency:** [`VZVirtualMachineInstance`](https://github.com/apple/containerization/blob/bc994b88df46207fad7775b0eabc51947e315881/Sources/Containerization/VZVirtualMachineInstance.swift#L495-L513) checks `mount.source` again and gives `VZSharedDirectory` a file URL. Foundation/Virtualization's internal opening is opaque here; there is no source-backed guarantee that a launcher's `/dev/fd/N` survives this service boundary.
+
+An opened directory does not establish portable protected delivery. The scratch fixture
+keeps a same-process Linux proc-FD pinned but loses protection after early pathname conversion;
+neither tests Podman/Apple. Recommend a **host-only parent** with leaf-only exposure in yolo storage, as
+[specified in the design](../design/cache-isolation.md#where-the-backing-may-live).
+The workspace sidecar is writable through `/workspace`; checking it again cannot secure
+all downstream reopens. Legacy `GlobalCache()` must be a sibling, never an ancestor,
+of the new authority. Backend permissions, VM visibility and protected-root behavior
+still require the companion's separately authorized smaller tests.
 
 ## Native addressing: compatible crossings, incomplete isolation
 
@@ -98,7 +119,7 @@ Those files are unchanged by this research; eventual implementation must reconci
 | Concern | What the current source establishes |
 | :--- | :--- |
 | Coverage | Named default buckets, separate opt-in heavy buckets, and forbidden profile/installed-program names. Only old regular files are counted/deleted; unknown content is not classified. [`cachepurge.go`](../../internal/prune/cachepurge.go#L10-L66) |
-| Path safety | Descendant removals run beneath `os.Root`, with links skipped. The current global/relocated root itself is opened following a link; workspace-private roots need a stronger admission check because the workspace is writable. [`cachepurge.go`](../../internal/prune/cachepurge.go#L78-L169), [`wsstatebeneath.go`](../../internal/cli/run/wsstatebeneath.go#L16-L127) |
+| Path safety | Descendant removals run beneath `os.Root`, with links skipped. The current global/relocated root itself is opened following a link; private-root admission must preserve host-only namespace anchors, not merely an opened handle. [`cachepurge.go`](../../internal/prune/cachepurge.go#L78-L169), [`wsstatebeneath.go`](../../internal/cli/run/wsstatebeneath.go#L16-L127) |
 | Liveness | Cache purge receives no live-cache set. Housekeeping rechecks file age under its deletion guard; jail tools do not take that host lock. Manual purge uses the unguarded wrapper. [`housekeeping.go`](../../internal/cli/run/housekeeping.go#L326-L375), [`guard.go`](../../internal/prune/guard.go), [`prunecmd.go`](../../internal/prune/prunecmd.go#L1100-L1131) |
 | Walk budget | `cacheWalkBudget` is 60 seconds, but the complete dry-run returns before elapsed time labels its result partial. It does **not** interrupt the walk or bound the following apply pass. [`housekeeping.go`](../../internal/cli/run/housekeeping.go#L326-L382) |
 | Consent | Offer at 1 GiB; yes becomes standing consent, not-now waits seven days, never stops asking. Age defaults to 30 days. These are existing values, not a size ceiling. [`offer.go`](../../internal/cli/run/offer.go#L24-L126) |
@@ -137,7 +158,7 @@ therefore differs from the existing courtesy locks and session-file sweeps.
 - [XB-D12](../design/pi-extension-store-builds.md#XB-D12), **2026-10-05**, forbids
   shared npm caches for sealed extension builds; it does not choose ordinary-jail scope.
 
-**Next source work:** specify protected delivery of the admitted directory across the
-runtime's pathname reopen; test native cache overrides, hardcoded-path denial and writer
-quiescence independently. Env-only native parity is not established. The companion maps
-these controls to actual callers; native experiments require separate authorization.
+**Next evidence work:** verify the host-only source anchor through each actual runtime's
+pathname reopen; test native cache overrides, hardcoded-path denial and writer quiescence
+independently. Env-only native parity and cross-backend FD delivery are not established.
+The companion maps these controls to actual callers; backend experiments require separate authorization.

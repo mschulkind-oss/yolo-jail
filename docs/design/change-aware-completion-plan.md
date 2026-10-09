@@ -3,7 +3,7 @@ title: "Sketch: map read-only completion onto the real recipe"
 date: 2026-10-09
 status: draft
 stage: SKETCH
-next: "Close the default context profile, renderer adapter and complete observer controls; then replace the diagnostic with a promotion-grade real-done fixture"
+next: "Close automatic reused-Go input closure and observed fresh-documentation dispatch; then finish the bounded hand-off"
 depends-on: [change-aware-completion.md]
 tags: [testing, tooling, implementation-sketch]
 summary: "Source-prepared baseline and failure protocol, real-recipe diagnostic reds, and explicit remaining engineering gates; not a build hand-off."
@@ -25,12 +25,12 @@ not invent their missing evidence.
 
 | Gap | Prepared result | Still required before hand-off |
 | :--- | :--- | :--- |
-| Context | Two-phase identity protocol; ambient Go/test inputs traced; no Go argv on prose | Source-audited default profile and an executable positive resolver fixture |
-| Anchors/referrers | Actual released renderer and checker pipelines inspected; source matcher differs | Provisioned adapter using those pipelines, complete graph and compatibility fixtures |
+| Context | Executable clean-home/compilerless Linux direct profile and real offline mise resolver control; no Go metadata argv | Close production external-reader/tool/bootstrap identities; prototype cohort is not the whole gate's proven input set |
+| Anchors/referrers | Sufficient inert-paragraph proof executes with counterexamples; broader renderer pipelines inspected | Review bounded proof; provisioned adapter remains necessary only for broader syntax |
 | Baseline/history | Real Git probes cover intermediate revert, both merge-parent edges, both rename names, linked administration | Add dirty/mode/copy/shallow/error cases to the real front-door fixture |
 | Persistence/failure | Exact record paths, ordering, crash/failure behavior below | Executable atomic-publication, interruption and stale-failure controls |
 | Stable interval | Standalone observation replaces certification; Linux inode event detects restored writes | Registration, directory/replacement/alias, overflow and native supported-backend controls |
-| Caller tests | Real recipe full control; deterministic prose red and caller-deletion red | Closed fake context/adapter protocol, reproducible red assertions and bounded prototype-positive controls; restored production green is required after implementation |
+| Caller tests | Actual copied recipe/driver establishes automatic full then zero-Go prose; caller deletion and restored positives execute | Production call-site pins, exhaustive failure controls and independent post-implementation acceptance |
 
 No column claiming a prepared protocol claims a built implementation. Promotion remains blocked
 on engineering evidence, not an owner ruling. Do not hand this file to a builder as a closed plan.
@@ -66,25 +66,37 @@ staticcheck. It must establish these boundaries, not reconstruct defaults from a
 
 | Input boundary | Source finding and preparation requirement |
 | :--- | :--- |
-| Go user settings | Go 1.26.7 `cmd/go/internal/cfg.EnvFile` uses explicit `GOENV` or `os.UserConfigDir()/go/env`; `initEnvCache` also reads `GOROOT/go.env`. Record both presence and content identity, including missing-to-present transitions |
-| Effective build selection | Environment overrides file defaults; implicit cgo depends on C-compiler PATH availability. Automatic toolchain/workspace selection, tags, overlays, architecture knobs and compiler wrappers cannot be ignored |
-| Tool resolution | Fingerprint resolved executable plus the compiler/standard-library installation, not just `VERSION`; direct tools and declared mise layout need offline resolver fixtures. An unknown shim selects full |
-| Staticcheck | Project/ancestor configuration and effective build environment are inputs, as well as its executable and Darwin exclusion |
-| Official builds | [Recipe](../../tools/pack-binaries/recipe.go) scrubs most GO/CGO inputs, but retains selected cache paths; [toolchain resolver](../../tools/pack-binaries/toolchain.go) consults proxy environment and Go env files before selecting exact Go 1.26.7 |
-| Short tests | Tests and called production readers inspect HOME, PATH, CI, dynamic variable names and YOLO test controls; an environment-key grep is not a complete external-file audit |
-| Documentation tools | Actual checker release/executable, wrapper, `.vantage.toml`, ignore/discovery inputs and provisioned parser modules are context; latest resolution is not a stable version pin |
+| Go user settings | Explicit `GOENV` or platform user-config `go/env`, plus `GOROOT/go.env`; record absence/content and effective overrides under observation |
+| Effective build selection | Full captures Go metadata; prose compares files without Go argv. Bind automatic toolchain/workspace selection, cgo/compiler/sysroot/loader closure, tags, overlays and architecture flags; opaque closure is unknown, not compilerless normalization |
+| Tool resolution | Direct or declared mise bindings, symlink chain, executable/interpreter/library and Go installation bytes; include ancestor/user/system configuration and trust inputs, not version strings |
+| Staticcheck | Executable and ancestor configuration, build context and Darwin SA4023 exclusion are inputs; ordinary analysis/build-cache entries are outputs, not tool identities |
+| Official builds | [Resolver](../../tools/pack-binaries/toolchain.go#L39-L123) downloads exact Go 1.26.7 and checks its version; module distribution, checksum/executable readiness are inputs, while [build outputs](../../tools/pack-binaries/recipe.go) are scratch |
+| Short tests | Fixture HOME/Git/staged-tree guards are not ambient readers; actual release tags/trees, PATH tools, installed Pi/npm dependency roots and home pi-subagents source are. [Research](../research/completion-check-inputs.md#verification-context-is-not-just-go-version) identifies the call sites |
+| Documentation tools | Wrapper, selected checker/interpreter, user/system UV configuration, global Python pins and resolver metadata are fresh-verification inputs; they are not inherited Go context unless another real reader consumes them |
 
 Source checked from the installed Go source and repository on 2026-10-09; see [research](../research/completion-check-inputs.md#verification-context-is-not-just-go-version).
 The supported default profile must be accepted automatically after a real full success. Unsupported
 custom settings still run full, with no inherited coverage. Do not achieve reachability by clearing
 ambient variables, replacing HOME or changing gate flags: that would verify another context.
 
-**Actionable remaining audit:** enumerate the effective external readers reachable under
-`go test -short ./...`, distinguish test-local `t.Setenv`/temp fixtures from inherited inputs,
-and specify default-profile file roots and tool resolution. Prove changed Go env file, newly
-available compiler, PATH/tool replacement, ignored settings and test-control inputs select full.
-Use resolved-file identities on prose, not `go env` disguised as a cheap metadata probe. No
-supported profile is yet source-proven; a fake `{}` Go-environment reply cannot stand in for it.
+**Typed boundary:** discovery returns `Known(inputs, tools, prerequisites)`, `Unknown(reason)`,
+`NeedsSetup(action)` or `UnsafeGate(action)`; each input has a source reader and role (configuration,
+tool/read-backed store), lexical/resolved binding and presence/content identity. Outputs are separate;
+new or unaccounted readers make it unknown. Observation returns ready, unavailable/lost or mutated.
+
+Unknown/unavailable runs full without reuse; mutation refuses. Missing tools or known gate-safety
+hazards name the specific existing setup/configuration action; never scrub HOME or opt-in variables.
+Bare `done` discovers inputs without a switch; first supported full success captures context automatically.
+Developer/jail compiler/Pi installations stay intact; re-resolve descriptors under established watches.
+
+[UV's tool command](https://github.com/astral-sh/uv/blob/0.12.19/crates/uv/src/lib.rs#L312-L328)
+ignores local project configuration; user/system settings and global Python pins still apply.
+[Latest selection](https://github.com/astral-sh/uv/blob/0.12.19/crates/uv/src/commands/tool/run.rs#L298-L301)
+refreshes metadata even with a cached environment. Run actual wrapper/strict referrer/index checks
+fresh on every route; capture their selected read inputs separately from provisioning outputs.
+First full retains normal `check-ci` provisioning and captures metadata automatically; no manual
+preinstallation or bootstrap-free proof is a reuse prerequisite. Reusable-Go reader closure and
+observed fresh dispatch remain engineering work, not a caller certification ritual.
 
 ## Anchors and incoming references
 
@@ -112,7 +124,12 @@ mixed/long fences, nested containers and line anchors in equivalence fixtures.
 Advice: reuse provisioned upstream parser modules rather than vendor a second Markdown parser.
 Remaining dependency: identify an offline installed/exported interface and pin compatible inputs;
 the compiled checker alone is not that interface. Until this is proven, the proposed adapter is
-not an executable dependency, and the shortcut is not ready for implementation.
+not an executable dependency, and the broader shortcut is not ready for implementation.
+The [bounded proof](change-aware-completion.md#anchors-and-incoming-references-are-real-inputs) avoids that dependency
+for one narrow paragraph edit; [positive diagnostic evidence](../research/completion-check-inputs.md#bounded-positive-diagnostic)
+uses actual decisions/records/observation with stand-in quality outcomes. It does not promote this sketch.
+The copied completion body must delegate only to the helper: retaining its old `git status`
+can refresh index bytes. The candidate's own Git reads use `--no-optional-locks`.
 
 Referrers may be a conservative superset of all tracked Markdown with parsed targets resolving to
 the changed files. Read both historical and current sides; check surviving current referrers.
@@ -239,6 +256,14 @@ deletion turns the test red. Unexpected argv exits 97; injected leaf failure exi
 assert strict changed-doc checks and parsed index, read-only formatting, unchanged tracked/index/
 ref/untracked bytes, selected/excluded coverage and absence of runtime/install/publication calls.
 The proposed test invocation in `lint-ci` must itself be pinned, so deleting the test caller fails.
+
+**Leading corrective tests, not fixes claimed here:** nonobject JSON and missing full-origin
+outcomes must select full, then genuine-record restoration recovers prose. Unsupported link/type
+and unavailable observer run full without a pointer; mutation refuses, restoration runs full then
+prose. Mutate external input through an existing hardlink before registration: provisional reads
+must not be reused; repeat after the barrier and require refusal even when restored. Inline
+link/image/definition target edits force full; surviving fragment/line/image/definition referrers
+are checked, then restored inert prose is positive. Pin these at the real front door after implementation.
 
 ## Future build slices and reporting fence
 

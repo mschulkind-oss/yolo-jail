@@ -114,11 +114,26 @@ A grep of literal environment names cannot cover dynamic names or called product
 The default supported profile therefore needs a source audit, not an all-environment hash or a
 manual caller promise. Clearing variables or replacing HOME would check a different context.
 
-The intended two-phase protocol records effective metadata during full verification and compares
-resolved file/tool identities on prose without any Go/gofmt/staticcheck argv. Direct tools and
-declared mise resolution need offline fixtures; opaque shims and custom inputs select full.
-No default profile is yet proven. That is an explicit [promotion gate](../design/change-aware-completion-plan.md#verification-context),
-not permission to ship a permanently disabled shortcut.
+Default short inputs include npm/Node/HOME [Pi package roots](../../internal/entrypoint/pi_openai_auth_native_test.go#L36-L69)
+and HOME's [pi-subagents checkout](../../internal/entrypoint/pi_provider_policy_extension_test.go#L438-L487),
+including dependencies and absence-to-presence. Real release [HEAD-parent](../../packs/releasedecode_test.go#L597-L645)
+and [HEAD](../../tools/tap-install-check/release_test.go#L105-L144) tag/tree choices and Git configuration are inputs.
+[Fixture Git](../../internal/testsupport/gitconfig.go#L33-L72), [run HOME](../../internal/cli/run/journalbridge_test.go#L116-L127)
+and [embedded test trees](../../internal/packload/embeddedcache.go#L20-L25) are test-owned, not ambient HOME.
+
+The actual jail has Nix gcc and mise python3 wrappers: bind their tool/loader roots, not compilerless
+normalization. Build/analysis scratch is output; executable toolchains/checker caches are input.
+[UV latest](../../scripts/vantage-check.sh) refreshes selection even with a cached environment;
+its current documentation outcomes run fresh, not as inherited Go coverage. UV 0.12.19's
+[tool configuration](https://github.com/astral-sh/uv/blob/0.12.19/crates/uv/src/lib.rs#L312-L328)
+ignores local project files; user/system settings and global Python pins remain inputs.
+[Official resolution](../../tools/pack-binaries/toolchain.go#L39-L123) can provision its exact Go.
+First full preserves normal provisioning and captures effective metadata automatically; cached
+payloads still need content/read identities, not a no-bootstrap certificate.
+[Model/API opt-in](../../internal/wirebridged/handler_test.go#L234-L243) is a known safety refusal in this
+unauthorized lane: name and unset `YOLO_TEST_CODEX_RESPONSES` for ordinary completion, never silently
+clear it; run the smoke separately only when authorized. The [typed interface](../design/change-aware-completion-plan.md#verification-context)
+keeps the resolver seam explicit; normal gate provisioning is unchanged and real acceptance follows implementation.
 
 ## Renderer, checker and source citations are different mechanisms
 
@@ -161,6 +176,28 @@ though the recipe printed success. Restoring the recipe recovered the full contr
 green. These are diagnostic reds, not landed tests, runtime execution or performance evidence.
 The [complete diagnostic listing](../design/change-aware-completion-plan.md#diagnostic-test-listing)
 is reproducible; its fake context is deliberately not accepted as a production baseline proof.
+
+## Bounded positive diagnostic
+
+**Prototype-positive** *(coined here)* means executable routing/record/observer evidence with
+stand-in quality outcomes, not shipped verification, runtime coverage or a speed measurement.
+Current primary readers were inspected: Go defaults, official resolver/build inputs, short-test
+network controls, Git-fixture isolation and TestMain guards. The candidate cohort is clean-home,
+compilerless Linux, not a proven complete production context. Actual file identities and default
+mise resolution run without Go metadata; the tool fixtures model the inspected installation layout.
+
+The copied real recipe now establishes its first full record automatically, then accepts a narrow
+listed paragraph edit with zero Go/gofmt/staticcheck argv. Tool/config changes, source/unknown and
+intermediate reverts select full. Tested dirty/failing/latest-invalid controls cannot advance success.
+Startup, restored, replacement and hardlink events reject; lost watches and overflow decoding are
+conservative. Actual kernel overflow testing exceeded its resource bound and was not performed.
+Removing the actual helper caller produces red; restoration recovers the same positive. Git/index/
+tracked/untracked bytes are checked independently. Strict Markdown uses the real released checker.
+
+The [sufficient proof](../design/change-aware-completion.md#anchors-and-incoming-references-are-real-inputs) rejects
+HTML-ID, bare source-ID, setext, fence, math, duplicate-heading, question-ID and frontmatter counterexamples.
+It is reachable on eligible primary planning bodies without building a Markdown parser. The
+remaining hand-off limiter is production context closure, not absence of an executable shortcut.
 
 ## Recommendation and remaining investigation
 

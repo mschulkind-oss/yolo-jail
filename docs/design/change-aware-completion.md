@@ -3,7 +3,7 @@ title: "Completion should check the task, without rewriting it"
 date: 2026-10-09
 status: accepted
 stage: DECIDED
-next: "Close the supported context profile, renderer adapter and monitored-interval fixtures in the companion sketch before implementation hand-off"
+next: "Close automatic reused-Go inputs and fresh-documentation dispatch; the companion sketch owns the source-input and leading-test contract"
 tags: [testing, tooling, design]
 summary: "A bounded documentation-only completion shortcut, with an automatic successful baseline and conservative read-only fallback; source landing policy remains unchanged."
 ---
@@ -32,10 +32,10 @@ My recommendation is a small, read-only front door for `just done`, initially op
 proven ordinary documentation changes. **Read-only** means it does not rewrite tracked files,
 the index, refs or untracked task files. Tools may use their ordinary caches and temporary outputs;
 the command may write its own verification record under the worktree's Git administrative directory.
-It never stages, commits, formats, launches a jail or publishes anything. Provisioning is not a
-completion step: the existing gate can resolve a checker or fetch its pinned Go toolchain, so
-completion must preflight already-provisioned tools and refuse with the setup action rather than
-promise that calling the existing recipe alone prevents installation.
+It never stages, commits, formats, launches a jail or publishes anything. The existing full gate's
+provisioning policy remains: a first full may resolve its checker or fetch the pinned Go toolchain
+and capture effective inputs automatically. Missing verification tools name their existing setup
+step; no manual preinstallation or no-bootstrap certificate establishes a baseline.
 
 The first slice includes automatic baseline discovery, exact prose classification, cleanliness
 before and after verification, explainable routing, and failure-safe baseline advancement.
@@ -105,7 +105,9 @@ HEAD's parent, the last commit of a task, an arbitrary user-supplied commit or a
 
 The record carries a schema version, producer version, commit/tree identities, verification
 context, named coverage with its originating successful full run, actual outcomes and diagnostic
-log locations. It stores no secrets or repository copy. Only this command writes the successful
+log locations. Validate object/field types and require the complete full-origin command outcomes;
+nonobject JSON or missing outcomes selects full, never a crash or vacuous pass. It stores no secrets
+or repository copy. Only this command writes the successful
 pointer; replacement is atomic after final validation. Existing ad hoc logs are ignored.
 
 A per-worktree completion lock refuses a second simultaneous completion with the next action:
@@ -134,8 +136,10 @@ when nothing is staged and the user already committed everything.
 ### Context cannot be silently inherited
 
 The successful record identifies the actual tool releases, host OS/architecture, recipe/selector
-version, flags and effective non-secret verification environment used by its full run. A changed
-context or inability to establish it selects full. Secrets are never logged; an input whose
+version, flags and effective non-secret verification environment used by its full run. A changed context for inherited outcomes or inability to establish it selects full. Fresh documentation
+outcomes are never inherited: [the latest checker](../../scripts/vantage-check.sh) and its effective
+inputs are captured for current verification, not required to match the old Go baseline unless an
+actual additional reader makes them Go inputs. Secrets are never logged; an input whose
 relevance cannot be established without storing secret material makes inheritance unavailable.
 
 Context identification has two phases. The full route may query Go while actually running the
@@ -176,14 +180,27 @@ an example of the proposed shortcut.
 
 ### Anchors and incoming references are real inputs
 
-For a listed modification, compare the ordered rendered target identities against the baseline
-and **both sides of every collected history edge**. A set of slugs alone loses duplicate-heading
-ownership and ordering. Any changed heading/explicit/question identity, source-citation target or
-unclassifiable syntax selects full. Strict checker success is not anchor extraction: the installed
-checker has different renderer and link-index pipelines and no public anchor-export command.
-Do not port its heading slugger into a regex and call that renderer equivalence.
+For a listed modification, preserve target identities on **both sides of every collected history
+edge**, either with the ordered renderer/source comparisons below or with a sufficient inert-text
+proof. The bounded proof admits one isolated, unindented ASCII-letter sentence, outside closed
+frontmatter, changed only by equal-length letter substitutions. Every other byte, including spaces,
+periods and newlines, stays fixed. Documents containing raw HTML, source-ID attribute text, fences,
+math blocks, tabs or CR
+are excluded. This preserves heading/question/explicit-ID ownership and source/line targets without
+extracting them; it is not a replacement renderer or a claim of regex equivalence.
 
-Source-citation preservation also compares the existing test's own target interpretation, which
+The restriction matters: a blank-surrounded text line can still change a multiline HTML ID or lie
+inside a fence/math block. Setext adjacency, heading edits, question IDs and frontmatter also
+force full. [Bounded counterexamples and positives](../research/completion-check-inputs.md#bounded-positive-diagnostic)
+were executed; broader ordinary prose still requires the ordered comparisons.
+
+For that broader route, a set of slugs alone loses duplicate-heading ownership and ordering.
+Any changed heading/explicit/question identity, source-citation target or unclassifiable syntax
+selects full. Strict checker success is not anchor extraction: the installed checker has different
+renderer and link-index pipelines and no public anchor-export command. Do not port its heading
+slugger into a regex and call that renderer equivalence.
+
+Broader analysis also compares the existing test's own target interpretation, which
 is not identical to the renderer. Keeping one renderer's anchors cannot silently break the Go
 citation test's distinct ATX/explicit-ID matching. The [anchor/referrer preparation](change-aware-completion-plan.md#anchors-and-incoming-references)
 records both mechanisms and the required adapter boundary.
@@ -211,6 +228,9 @@ source references, and turn deletion/rename/anchor defects red before widening t
 | Source comments, generated shell content and config/schema | Source/runtime/test contracts, even when prose-only |
 | Toolchains, dependencies, recipes, workflows, flake and shipping lists | Global/cross-language verification inputs |
 | Any unlisted or uncertain path | No proven reader classification |
+
+The bounded proof avoids a new parser dependency, not the unfinished production-context audit.
+It does not weaken strict changed/referrer checks or any landing/runtime obligation.
 
 ## 5. Each route prints what it does and what it excludes
 
@@ -256,13 +276,17 @@ turn a concurrent-change failure into a pass.
 > The completion lock serializes completion records only. No caller assertion or orchestration
 > token turns that advisory lock into a fence against editors, agents or Git commands.
 
-Ordinary standalone `just done` must be supported without caller certification. It starts an
-input-change observer before resolving/classifying inputs, establishes a registration barrier,
-and keeps observing through gates and final record validation. The supported observer must cover
-tracked file inodes, their parent directories, relevant Git administration and identified external
-context inputs; atomic replacement and alias writes must not evade it. An event affecting an
-input invalidates the attempt even when final bytes are restored. Overflow, watch loss, unreadable
-inputs or unsupported filesystem behavior are unknown stability, not green.
+Ordinary standalone `just done` needs no caller certification. Initial discovery is provisional:
+discard its identities and decisions. Register tracked/Git/external directory/inode watches and
+missing-input parents, then re-resolve/read the complete set under the established barrier. Only
+those reads may justify routing or coverage; a changed set restarts registration before gates.
+The protected interval ends at the final observer drain/context/clean validation immediately before
+atomic publication, not at initial discovery. Alias/replacement writes within it invalidate even
+restored bytes; double reads alone are not a fence. Bounded observation is not enforced immutability.
+Unsupported discovery/types or unavailable/lost observation select full with a named limitation
+and no reusable pointer, not a mutation refusal. Actual mutation refuses; verifier failure stays red.
+That fallback preserves normal gate provisioning; unavailable prerequisites name their setup action.
+Provisioning outputs and selected verification read inputs remain distinct.
 
 Unsupported observation still permits the conservative read-only full gate, reported with its
 stability limitation, but cannot establish reusable coverage. An observed mutation refuses
@@ -353,6 +377,7 @@ engineering gaps go there, not into invented owner questions.
 | CAC-D3 | Proposed engineering boundary: five exact modified-file paths; structural changes and all unknown/sourceful inputs select full | 2026-10-09 | [Allowlist](#4-the-first-shortcut-is-an-exact-allowlist) | — |
 | CAC-D4 | Proposed stability contract: coordinated one-writer interval; no acceptance from endpoint equality alone | 2026-10-09 | [Stability](#6-cleanliness-and-a-stable-verification-interval) | — |
 | CAC-D5 | Source-preparation amendment: standalone invocation uses bounded input observation, not caller certification; positive context identification executes no Go argv | 2026-10-09 | [Context](#context-cannot-be-silently-inherited), [stability](#6-cleanliness-and-a-stable-verification-interval) | — |
+| CAC-D6 | Bounded diagnostic amendment: a sufficient inert-paragraph proof may preserve targets without a renderer adapter; all unsupported syntax still selects full | 2026-10-09 | [Targets](#anchors-and-incoming-references-are-real-inputs) | — |
 
 The standalone-invocation requirement supersedes the coordinator-assertion mechanism in CAC-D4:
 an assertion cannot stop an uncoordinated writer, and refusing every uncertified caller would make
