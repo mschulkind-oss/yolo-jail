@@ -539,10 +539,13 @@ func TestEnsurePreparedRetainsFailureForChangedHostPlatform(t *testing.T) {
 				t.Fatalf("prepare selected store delivery: %v", err)
 			}
 			pf.advances = 0
+			// Each change must differ from the binding the preparation recorded, which follows the
+			// fixture (GOOS) and the running machine (GOARCH): a fixed "arm64" is no change at all
+			// on an arm64 host.
 			if change == "GOOS" {
-				w.floor.GOOS = "darwin"
+				w.floor.GOOS = otherThan(w.floor.GOOS, "darwin", "linux")
 			} else {
-				w.floor.GOARCH = "arm64"
+				w.floor.GOARCH = otherThan(w.floor.GOARCH, "arm64", "amd64")
 			}
 			_, outcome, err := w.floor.EnsurePrepared(context.Background(), p, prepared)
 			var got *packsrc.PatchFailure
@@ -557,6 +560,16 @@ func TestEnsurePreparedRetainsFailureForChangedHostPlatform(t *testing.T) {
 			}
 		})
 	}
+}
+
+// otherThan is the first of candidates that is not current.
+func otherThan(current string, candidates ...string) string {
+	for _, c := range candidates {
+		if c != current {
+			return c
+		}
+	}
+	panic("otherThan: every candidate is " + current)
 }
 
 func TestEnsurePreparedDoesNotInventPatchFailureForIndependentError(t *testing.T) {
