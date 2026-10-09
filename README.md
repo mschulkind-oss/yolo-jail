@@ -65,7 +65,7 @@ yolo builds each jail from its *flake bundle* — [`flake.nix`](flake.nix), its 
 prebuilt in-jail binaries — which it finds beside its own binary, never in your working directory.
 Homebrew, a [release archive](https://github.com/mschulkind-oss/yolo-jail/releases) and the
 from-source install ship one. `go install` and `pipx install yolo-jail` (or
-`uvx --from yolo-jail yolo`) ship the binary alone, so they need a checkout named by
+`uvx yolo-jail`) ship the binary alone, so they need a checkout named by
 `YOLO_REPO_ROOT`: [details](userguide/getting-started.md#other-ways-to-install).
 
 ### From source

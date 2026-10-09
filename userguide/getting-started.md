@@ -385,7 +385,7 @@ your current directory, and every launch prints which copy it used on a `Flake s
 | From source, with `just deploy` or `just install` | Yes |
 | GitHub release archive | Yes, if you keep `yolo` and its `share/` folder together |
 | `go install github.com/mschulkind-oss/yolo-jail/cmd/yolo@latest` | No: installs the binary only |
-| `pipx install yolo-jail`, or `uvx --from yolo-jail yolo` | No: installs the binary only |
+| `pipx install yolo-jail`, or `uvx yolo-jail` | No: installs the binary only |
 
 **Release archive.** Download `yolo-jail_<version>_<os>_<arch>.tar.gz` for your system from the
 [releases page](https://github.com/mschulkind-oss/yolo-jail/releases), unpack it into a folder of its

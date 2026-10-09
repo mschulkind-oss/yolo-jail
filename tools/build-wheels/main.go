@@ -7,7 +7,8 @@
 // description has its links pinned to the release tag (readmelinks.go).
 //
 // The wheel-building machinery stays list-driven (see the binaries slice) even
-// though the yolo-jail package currently ships a single console script (yolo).
+// though the yolo-jail package currently ships a single binary (yolo), exposed
+// as two console scripts: `yolo` and `yolo-jail`, the latter for `uvx yolo-jail`.
 //
 // Windows is deliberately absent: the Go tree uses unix-only syscalls and the
 // tool has no Windows story.
@@ -68,6 +69,15 @@ type binary struct {
 
 var binaries = []binary{
 	{"yolo", "main"},
+}
+
+// scriptAliases are console scripts with no binary of their own, each naming
+// an existing wrapper. `uvx yolo-jail` runs the script named after the
+// package, so the package name runs the primary binary too. The wrapper execs
+// bin/<binary> with that path as argv[0], so the program cannot tell which
+// script started it.
+var scriptAliases = []binary{
+	{packageName, "main"},
 }
 
 type platform struct {
@@ -263,10 +273,10 @@ def _run(name):
 }
 
 // generateEntryPoints renders dist-info/entry_points.txt (console scripts, not
-// .data/scripts/).
+// .data/scripts/): every binary's script, then every alias.
 func generateEntryPoints() string {
 	var lines []string
-	for _, b := range binaries {
+	for _, b := range append(append([]binary{}, binaries...), scriptAliases...) {
 		lines = append(lines, fmt.Sprintf("%s = %s:%s", b.script, importName, b.fn))
 	}
 	return "[console_scripts]\n" + strings.Join(lines, "\n") + "\n"
