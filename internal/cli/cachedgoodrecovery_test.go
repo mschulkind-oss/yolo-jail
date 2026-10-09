@@ -424,6 +424,10 @@ func TestBuildSlotCachedGoodRunsThroughGeneratedLauncherAndCaptureMaterializer(t
 		entrypoint.CapturesDirEnv: paths.CapturesDir(), entrypoint.ForkBuildsEnv: string(deliveryJSON),
 	})
 	e.Stderr = &bytes.Buffer{}
+	// GenerateAgentLaunchers reads the staged tree through entrypoint.LoadJailPacks, which
+	// switches this process to the jail's tolerant manifest decoder; restore the strict one so
+	// every later test's malformed-manifest refusal still bites.
+	t.Cleanup(packload.OverrideSkewTolerance(false))
 	if err := entrypoint.GenerateAgentLaunchers(e); err != nil {
 		t.Fatal(err)
 	}
