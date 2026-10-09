@@ -1,9 +1,9 @@
 ---
 title: "Sketch: map read-only completion onto the real recipe"
 date: 2026-10-09
-status: draft
-stage: SKETCH
-next: "Close automatic reused-Go input closure and observed fresh-documentation dispatch; then finish the bounded hand-off"
+status: superseded
+stage: SUPERSEDED
+next: "None: built differently; see the design's What shipped and CAC-D7 to CAC-D14"
 depends-on: [change-aware-completion.md]
 tags: [testing, tooling, implementation-sketch]
 summary: "Source-prepared baseline and failure protocol, real-recipe diagnostic reds, and explicit remaining engineering gates; not a build hand-off."
@@ -11,7 +11,15 @@ summary: "Source-prepared baseline and failure protocol, real-recipe diagnostic 
 
 # Sketch: map read-only completion onto the real recipe
 
-**Status:** 2026-10-09 — source preparation and bounded offline diagnostics only; no implementation.
+**Status:** 2026-10-09 — superseded. `just done` was built from the
+[design's What shipped section](change-aware-completion.md#what-shipped), which closes this
+sketch's two `next` items differently: reused-Go inputs by the recorded `go env` context
+([CAC-D11](change-aware-completion.md#CAC-D11)) plus Go's own test-log census
+([CAC-D10](change-aware-completion.md#CAC-D10)), and fresh documentation dispatch by running the
+Vantage check and the recorded reader tests on every changed document. The gates below were not
+closed as written; the ledger rows say which were replaced and why. Kept as the argument.
+
+Originally: source preparation and bounded offline diagnostics only; no implementation.
 Written against `b2eeffc12b631d5cda108238e77a6c4cb5bb777c`; newer primary planning was read
 separately. No gate ran on the project checkout; only copied-recipe fake-tool diagnostics ran.
 No build, integration, native execution or performance measurement ran.

@@ -624,7 +624,14 @@ release is fixed by the next one. What the script cannot judge is who the sectio
    And then the backstop is still the CI"*). If the landing gate rejects, fix forward with a new commit —
    never `--amend` a landed commit. ⚠ `just check-ci` is a WHOLE-TREE gate, so during a fan-out it
    reports other agents' in-flight files as your failure; land from a clean worktree.
-5. End of task: `git status` clean, `just done` green.
+5. End of task: commit, then `just done` green. It is **change-aware and read-only**
+   ([`change-aware-completion.md`](docs/design/change-aware-completion.md)): it refuses a dirty tree
+   before any check, then runs only what the commits since the last verified ancestor reach — lint
+   and short tests for the changed Go packages and their importers, the tests recorded as reading a
+   changed file, and the checks for changed documents — or the full `just check-ci` when there is
+   no verified ancestor or a gate input moved. It never formats, so `just format` stays step 3. A
+   test that newly reads files outside its package dir needs `python3 scripts/completion-census.py`
+   rerun and its output committed. `just done` is not the landing gate (step 4).
 6. **Doc change that makes a claim about the code** → check it before writing it. A number, a `file:line`, a
    commit SHA, or a negative ("X has no caller") is the exact place a reader stops checking, so a wrong one
    is worse than none. The sweeps that keep this corpus honest — and the allowlists they need, since a doc

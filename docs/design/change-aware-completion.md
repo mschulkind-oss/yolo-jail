@@ -2,19 +2,22 @@
 title: "Completion should check the task, without rewriting it"
 date: 2026-10-09
 status: accepted
-stage: DECIDED
-next: "Close automatic reused-Go inputs and fresh-documentation dispatch; the companion sketch owns the source-input and leading-test contract"
+stage: BUILT
+next: "Owner confirmation of CAC-D7 (package-impact selection in done); keep scripts/completion-readers.json current"
 tags: [testing, tooling, design]
-summary: "A bounded documentation-only completion shortcut, with an automatic successful baseline and conservative read-only fallback; source landing policy remains unchanged."
+summary: "Read-only, change-aware `just done`: an automatic verified baseline shared by worktrees, package-impact and recorded-reader test selection, and the full check-ci when anything is unproven; landing policy unchanged."
 ---
 
 # Completion should check the task, without rewriting it
 
-**Status:** 2026-10-09 — behavior specified; production completion remains unbuilt and runtime-unverified.
+**Status:** 2026-10-09 — built. [`scripts/completion-check.py`](../../scripts/completion-check.py)
+is `just done`; [What shipped](#what-shipped) describes it, and the
+[ledger](#decision-ledger) records where it departs from the sections below, which are kept as the
+reasoning that led there. Sections 1 to 8 describe the narrower first slice proposed before the
+owner's 2026-10-09 request; where they disagree with [What shipped](#what-shipped), it wins.
 
-A bounded, unconnected source experiment is kept in
-[`tools/completion-experiment/`](../../tools/completion-experiment/README.md); it does not implement
-the completion command or change the production recipe.
+The earlier bounded experiment stays in
+[`tools/completion-experiment/`](../../tools/completion-experiment/README.md), unconnected.
 
 > **In short.** Completion should verify the work since a successful baseline and explain its coverage,
 > not format committed code or run unrelated Go checks for proven ordinary prose.
@@ -23,12 +26,85 @@ the completion command or change the production recipe.
 **The shape.** One completion command collects changes, selects checks and records successful coverage.
 **Cost.** A small exact allowlist buys a deliberately narrow shortcut; uncertain inputs still pay for the full gate.
 **Start at [the baseline](#3-the-baseline-is-automatic-and-covers-earlier-commits)** — empty working diffs are not evidence.
-**Needs your ruling:** None for the first slice; selective source landing is excluded.
+**Needs your ruling:** Confirm [CAC-D7](#CAC-D7): `just done` selects Go checks by package impact.
+Landing (`just check-ci`) is unchanged.
 **Reads with:** [input research](../research/completion-check-inputs.md) (source evidence),
 [the companion sketch](change-aware-completion-plan.md) (not a build hand-off), and
 [suite speed](../plans/test-suite-speed.md) (independent timing work).
 
 ---
+
+## What shipped
+
+The owner asked on 2026-10-09 for `just done` to run "only the right tests", as fast as possible,
+because agents run it after every task ([CAC-D7](#CAC-D7)). Measured on this machine before the
+change: the old recipe ran the whole short suite, and a fresh worktree paid it cold (about 158 s
+of tests and 32 s of lint); a single package, `internal/cli`, took about 130 s of that.
+
+`just done` now runs [`scripts/completion-check.py`](../../scripts/completion-check.py):
+
+1. **Refuse a dirty tree** before any check: staged, unstaged and untracked paths are listed, with
+   the next step (commit; `just format` first if gofmt is why). It never formats or stages.
+2. **Find the baseline**: the nearest ancestor of HEAD with a verification record whose tree and
+   context (the effective `go env` values and the staticcheck binary and version) match. Records
+   live in the repository's common Git directory, keyed by commit, so every worktree shares them
+   ([CAC-D8](#CAC-D8)). No baseline runs the full gate.
+3. **Collect the change**: `git diff --raw --no-renames` from the baseline's tree to HEAD's, so a
+   rename is a deletion plus an addition ([CAC-D9](#CAC-D9)). HEAD's tree equal to a verified tree
+   runs nothing ([CAC-D13](#CAC-D13)).
+4. **Plan**. Any of these runs the full `just check-ci`, plus the Markdown check on changed
+   documents: a gate or whole-tree input (`go.mod`, `go.sum`, `vendor/`, the `Justfile`, `mise`
+   files, the flake, `.github/`, `scripts/`, release and site config), a non-regular file, a Go
+   file in no package, an error from `go list`, an unreadable readers file, or a path no check and
+   no recorded reader covers. Otherwise only:
+   - `go vet` and staticcheck for both GOOS values, and `go test -short`, on the changed packages
+     and every package whose build or tests import them (each GOOS's own graph for lint);
+   - the individual tests recorded as **reading** a changed path, or listing a directory that
+     gained or lost an entry ([CAC-D10](#CAC-D10));
+   - `gofmt -l` on the changed Go files, and the official-binary pin check when Go or pack sources
+     moved;
+   - for documents: the [Vantage wrapper](../../scripts/vantage-check.sh) on changed Markdown
+     ([CAC-D14](#CAC-D14)), the guide's closed-tree and whole-guide checks when `userguide/`
+     changed, and the changelog extraction tests when `CHANGELOG.md` changed.
+5. **Run** the selected checks in parallel, keep the full output in the worktree's own Git
+   directory (`yolo-completion/last.log`), and on any failure record nothing.
+6. **Re-check** that HEAD is unchanged and the tree still clean ([CAC-D12](#CAC-D12)), then record
+   the verification atomically. The report names what ran, what was inherited from the baseline,
+   and what `just done` never covers (integration, nested jail, native macOS).
+
+The reader evidence is [`scripts/completion-readers.json`](../../scripts/completion-readers.json),
+written by [`scripts/completion-census.py`](../../scripts/completion-census.py): it runs every test
+once, alone, with Go's `-test.testlogfile` — the log `go test` itself uses to invalidate its cache —
+and keeps each test's reads outside its own package directory. On 2026-10-09 it took 145 to 200 s
+for 12,403 tests and found 573 reading tests in 34 packages. Changing the file is a `scripts/`
+change, so the commit that refreshes it runs the full gate.
+[`scripts/test-completion-check.py`](../../scripts/test-completion-check.py), run by `lint-ci`,
+covers the routes on a synthetic repository and pins both call sites.
+
+### Measured on 2026-10-09
+
+One machine (32 CPUs), the shared Go build cache warm from earlier runs:
+
+| Change since the baseline | What ran | Wall time |
+| :--- | :--- | :--- |
+| None: first run in this worktree | Full `just check-ci` | 229 s |
+| One line of `docs/reference/jail-home.md` | Its Markdown check, and the one citation test that reads it | 4.4 s |
+| A comment in `tools/build-wheels`, a package nothing imports | Lint and tests for that package, one reader test, gofmt, pins | 1.1 s |
+| One line of `internal/cli` code | Lint and tests for `internal/cli` and `cmd/yolo`, 14 reader tests | 211 s, 210 s of it `internal/cli`'s own suite |
+
+`internal/cli` and `internal/cli/run` import nearly every package in the module, so most Go changes
+still pay for those two suites. That cost is the [suite-speed](../plans/test-suite-speed.md) work,
+not something selection can remove.
+
+### Known limits
+
+- **Reads by a test's subprocesses** (git, `go build`) are not in Go's test log; Go's own test
+  cache has the same blind spot.
+- **A new test that reads outside its package directory** is unknown until the census is rerun.
+  `just done` misses it until then; `just check-ci` at landing and CI do not.
+- **Ambient inputs** — files under HOME, environment variables other than the recorded `go env`
+  values — are not part of the context. Landing and CI run the whole gate.
+- **A write that is undone before the checks finish** is not detected ([CAC-D12](#CAC-D12)).
 
 ## 1. Scope: completion is not a new landing policy
 
@@ -382,13 +458,21 @@ engineering gaps go there, not into invented owner questions.
 | CAC-D4 | Proposed stability contract: coordinated one-writer interval; no acceptance from endpoint equality alone | 2026-10-09 | [Stability](#6-cleanliness-and-a-stable-verification-interval) | — |
 | CAC-D5 | Source-preparation amendment: standalone invocation uses bounded input observation, not caller certification; positive context identification executes no Go argv | 2026-10-09 | [Context](#context-cannot-be-silently-inherited), [stability](#6-cleanliness-and-a-stable-verification-interval) | — |
 | CAC-D6 | Bounded diagnostic amendment: a sufficient inert-paragraph proof may preserve targets without a renderer adapter; all unsupported syntax still selects full | 2026-10-09 | [Targets](#anchors-and-incoming-references-are-real-inputs) | — |
+| <a id="CAC-D7"></a>CAC-D7 | **Scope, from the owner's request of 2026-10-09** (relayed by the coordinating agent): *"we just need only the right tests to run. We want this to be as fast as possible. It gets run a lot. And we want it to be intelligent about what's run."* `just done` selects Go checks by package impact and documents by recorded reader, which supersedes CAC-D1's prose-only slice and CAC-D3's five-path allowlist. Landing (`just check-ci`), CI and the integration and nested-jail obligations are unchanged. **Needs the owner's confirmation**, because section 7 called selective source checking a future policy decision | 2026-10-09 | [What shipped](#what-shipped) | ✅ `scripts/completion-check.py` |
+| <a id="CAC-D8"></a>CAC-D8 | *Implementation decision.* Verification records live in the common Git directory (`yolo-completion/verified/<commit>.json`), keyed by commit and checked against that commit's tree and the current context, so every worktree shares them; a per-worktree lock and log stay in the worktree's own Git directory. **Why:** agents start each task in a new worktree, and per-worktree records (CAC-D2) would make every first `just done` a full run. A record says one tree passed under one context, which no worktree path changes. Reversible | 2026-10-09 | [What shipped](#what-shipped) | ✅ |
+| <a id="CAC-D9"></a>CAC-D9 | *Implementation decision.* The change is the baseline-tree-to-HEAD-tree diff, not the union of every intervening commit's edges. **Why:** the check verifies HEAD's tree; a change made and reverted inside the range leaves no difference for any check to see, and every path that does differ is in the net diff. `--no-renames` still yields both names of a rename. Reversible | 2026-10-09 | [What shipped](#what-shipped) | ✅ |
+| <a id="CAC-D10"></a>CAC-D10 | *Implementation decision.* Which tests read which non-imported files comes from a census of Go's own test log (`scripts/completion-census.py`), per test, replacing the renderer-adapter and inert-paragraph proofs of section 4. A directory listing counts only when a direct entry appears or goes. **Why:** it is the evidence `go test` itself uses to invalidate cached results, it covers arbitrary file reads that no import graph shows, and it is per test, so a doc change runs one citation test, not `internal/cli`'s 130 s suite. Reversible | 2026-10-09 | [What shipped](#what-shipped) | ✅ |
+| <a id="CAC-D11"></a>CAC-D11 | *Implementation decision.* The context is the effective `go env` values (version, GOOS, GOARCH, GOROOT, GOFLAGS, CGO, toolchain, workspace, CC) and staticcheck's resolved path and version. Reading them runs `go env` and `staticcheck -version`, which CAC-D5 forbade on the prose route. **Why:** both take milliseconds and run no quality check; resolving tool identity from files without them was the unbuilt half of the old plan. Reversible | 2026-10-09 | [What shipped](#what-shipped) | ✅ |
+| <a id="CAC-D12"></a>CAC-D12 | *Implementation decision.* Stability is the before-and-after check (clean tree, same HEAD) plus a per-worktree lock; there is no file-event observer, replacing CAC-D4 and CAC-D5's bounded observation. **Why:** the observer was unbuilt, Linux-only and could still not fence a writer. Cost, stated plainly: a write undone before the checks finish goes unseen; landing and CI rerun everything. Reversible | 2026-10-09 | [What shipped](#what-shipped) | ✅ |
+| <a id="CAC-D13"></a>CAC-D13 | *Implementation decision.* A HEAD whose tree equals a verified tree under the same context runs no check, where section 3 sent an empty range to the full gate. **Why:** that record is an actual green for exactly these inputs, which is the reuse section 7 allowed once identities are recorded. Reversible | 2026-10-09 | [What shipped](#what-shipped) | ✅ |
+| <a id="CAC-D14"></a>CAC-D14 | *Implementation decision.* Every changed Markdown file outside a Go package directory gets the Vantage check, including `docs/`, which `check-ci` does not check today. Eleven files under `docs/` already have findings, so the first `just done` after editing one of them fails until they are fixed. **Why:** section 4 requires the strict check on every changed document, and a check that skipped known-bad files would hide new findings in them. Reversible | 2026-10-09 | [What shipped](#what-shipped) | ✅ |
 
 The standalone-invocation requirement supersedes the coordinator-assertion mechanism in CAC-D4:
 an assertion cannot stop an uncoordinated writer, and refusing every uncertified caller would make
-ordinary `just done` unreachable. The underlying prohibition on accepting restored mutations
-remains. None of these mechanisms is implemented by this document.
+ordinary `just done` unreachable. CAC-D7 to CAC-D14 record what was built and where it departs
+from CAC-D1 to CAC-D6.
 
-No owner questions are open in this design. The speed plan's answered
+One owner confirmation is open: [CAC-D7](#CAC-D7). The speed plan's answered
 [OQ-TS1](../plans/test-suite-speed.md#OQ-TS1) and [OQ-TS3](../plans/test-suite-speed.md#OQ-TS3), and open
 [OQ-TS2](../plans/test-suite-speed.md#OQ-TS2) and [OQ-TS4](../plans/test-suite-speed.md#OQ-TS4), stay in their
 own source. None is duplicated or silently answered here.
