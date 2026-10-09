@@ -153,7 +153,7 @@ func resolvedDir(t *testing.T) string {
 
 func TestRunnerRunsGHUnderConditionsItOwns(t *testing.T) {
 	f := newRunnerFixture(t, "2.101.0", nil)
-	if f.r.Version != "2.101.0" || !f.r.Tested || !f.r.TokenRead {
+	if f.r.Version != "2.101.0" || !f.r.TokenRead {
 		t.Fatalf("runner %+v", f.r)
 	}
 	var s sinks
@@ -341,10 +341,13 @@ func TestRunnerStopsAtTheTimeout(t *testing.T) {
 	}
 }
 
-func TestRunnerKnowsAnUntestedGH(t *testing.T) {
-	f := newRunnerFixture(t, "2.99.0", nil)
-	if f.r.Tested || !strings.Contains(f.r.Describe(), "OUTSIDE the tested range") {
-		t.Fatalf("runner %+v: %s", f.r, f.r.Describe())
+// §5.1 rule 6, revised 2026-10-09: any host gh version is recorded and described, never
+// judged against a range.
+func TestRunnerRecordsAnyGHVersion(t *testing.T) {
+	f := newRunnerFixture(t, "2.102.0", nil)
+	if f.r.Version != "2.102.0" || !strings.Contains(f.r.Describe(), "version 2.102.0;") ||
+		strings.Contains(f.r.Describe(), "tested") || strings.Contains(f.r.Summary(), "tested") {
+		t.Fatalf("runner %+v: %s / %s", f.r, f.r.Describe(), f.r.Summary())
 	}
 }
 

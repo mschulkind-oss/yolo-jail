@@ -50,20 +50,16 @@ const (
 	ghExitAuth      = 4 // gh's own "authentication required"
 )
 
-// testedMinor is the gh version range the measured grammar and the policy were built
-// against (§5.1 rule 6): 2.101.x. Outside it no set applies.
-const testedMinor = "2.101"
-
 // ErrNoGH is a host with no gh on the broker's PATH.
 var ErrNoGH = errors.New("no gh on the host's PATH")
 
 // Runner runs one host gh for one broker.
 type Runner struct {
 	// GhPath is the host gh, resolved once at start to an absolute path; Version its
-	// `gh --version` number; Tested whether that is inside testedMinor.
+	// `gh --version` number, recorded in the audit log. Any version is served with the
+	// reviewed grammar as-is (§5.1 rule 6, revised 2026-10-09).
 	GhPath  string
 	Version string
-	Tested  bool
 	// HostsFile is the host hosts.yml copied into the broker's config dir, "" when the
 	// host had none.
 	HostsFile string
@@ -172,7 +168,6 @@ func NewRunner(o RunnerOptions) (*Runner, error) {
 	out, _, _ := r.capture([]string{"--version"})
 	if m := versionRE.FindStringSubmatch(out); m != nil {
 		r.Version = m[1] + "." + m[2] + "." + m[3]
-		r.Tested = m[1]+"."+m[2] == testedMinor
 	}
 	// The token, once, host-side, only to redact it (BB-D16). It never leaves this process.
 	if tok, _, rc := r.capture([]string{"auth", "token", "--hostname", "github.com"}); rc == 0 {
@@ -464,25 +459,16 @@ func lookPathIn(pathList, name string) (string, error) {
 // Summary is the line the broker logs at start: Describe without the host paths, since the
 // daemon's log is shared by every jail on the machine (newBroker).
 func (r *Runner) Summary() string {
-	tested := "inside the tested range " + testedMinor + ".x"
-	if !r.Tested {
-		tested = "OUTSIDE the tested range " + testedMinor + ".x"
-	}
 	v := r.Version
 	if v == "" {
 		v = "unknown"
 	}
-	return "host gh version " + v + ", " + tested + "; hosts.yml copied: " +
+	return "host gh version " + v + "; hosts.yml copied: " +
 		strconv.FormatBool(r.HostsFile != "") + "; token held for redaction: " + strconv.FormatBool(r.TokenRead)
 }
 
 // Describe is the line `yolo check` prints, on the terminal that ran it.
 func (r *Runner) Describe() string {
-	tested := "inside the tested range " + testedMinor + ".x"
-	if !r.Tested {
-		tested = "OUTSIDE the tested range " + testedMinor + ".x, so no set applies and every command " +
-			"needs its own approval"
-	}
 	v := r.Version
 	if v == "" {
 		v = "unknown"
@@ -491,6 +477,6 @@ func (r *Runner) Describe() string {
 	if r.HostsFile != "" {
 		hosts = "hosts.yml from " + r.HostsFile
 	}
-	return "host gh " + r.GhPath + " version " + v + ", " + tested + "; " + hosts +
+	return "host gh " + r.GhPath + " version " + v + "; " + hosts +
 		"; token held for redaction: " + strconv.FormatBool(r.TokenRead)
 }

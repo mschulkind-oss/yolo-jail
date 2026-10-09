@@ -327,18 +327,6 @@ func (b *Broker) Serve(req Request, jail string, stdout, stderr func([]byte)) in
 		say(msg)
 		return finish(ExitUnavailable)
 	}
-	if !b.runner.Tested {
-		// §5.1 rule 6: outside the tested range no set applies, so even a read needs its own
-		// Allow once — which is a request this version cannot file.
-		ev.Outcome = "denied"
-		ev.Reason = "host gh " + b.runner.Version + " is outside the tested range " + testedMinor + ".x"
-		say("the host's gh is version " + b.runner.Version + ", outside the " + testedMinor +
-			".x range this broker was measured against, so no set applies and every command needs " +
-			"its own approval, which this version cannot ask for. Nothing ran and nothing is waiting " +
-			"(exit 77). Ask the user to install gh " + testedMinor + ".x on the host (`yolo check` there " +
-			"shows the version the broker found), or to run the command there.")
-		return finish(ExitNoPerm)
-	}
 	if d.Path == "auth status" && !slices.Contains(d.Argv, "--help") {
 		return finish(b.answerAuthStatus(d.Argv, &ev, stdout, stderr, say))
 	}

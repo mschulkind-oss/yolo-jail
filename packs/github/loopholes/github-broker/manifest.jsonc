@@ -55,8 +55,8 @@
     "publishes": "socket"
   },
 
-  // `yolo check` asks the daemon which host gh it would run, its version against the tested
-  // range, and whether it can read a login.
+  // `yolo check` asks the daemon which host gh it would run, its version, and whether it can
+  // read a login.
   "doctor_cmd": [
     "yolo", "internal", "daemon", "github-broker", "--self-check"
   ]

@@ -246,12 +246,22 @@ func TestServeOutOfScopeRingsNobodyAndRunsNothing(t *testing.T) {
 	}
 }
 
-func TestServeAnUntestedGHRunsNothing(t *testing.T) {
-	f := newBrokerFixture(t, "2.99.0")
-	code, _, errOut := f.serve(t, Request{Argv: []string{"pr", "view", "1", "-R", "o/r"}})
-	if code != ExitNoPerm || !strings.Contains(errOut, "outside the 2.101.x range") ||
-		!strings.Contains(errOut, "nothing is waiting (exit 77)") || !strings.Contains(errOut, "install gh 2.101.x on the host") {
-		t.Fatalf("code %d err %q", code, errOut)
+// §5.1 rule 6, revised 2026-10-09 by the owner's ruling: a host gh of any version serves a
+// reviewed read with the grammar as-is, and the audit line records which version ran it.
+func TestServeAnyGHVersionRunsAReviewedRead(t *testing.T) {
+	for _, version := range []string{"2.102.0", "2.99.0", "3.0.1"} {
+		f := newBrokerFixture(t, version)
+		code, out, errOut := f.serve(t, Request{Argv: []string{"pr", "view", "1", "-R", "o/r"}})
+		if code != 0 || out != "ran pr view --repo=o/r 1\n" || errOut != "" {
+			t.Fatalf("gh %s: code %d out %q err %q", version, code, out, errOut)
+		}
+		if ev := lastAudit(t); ev.Outcome != "ran" || ev.GHVersion != version {
+			t.Fatalf("gh %s: audit %+v", version, ev)
+		}
+		// Grammar is still grammar: an unknown flag is refused at any version.
+		if code, _, _ := f.serve(t, Request{Argv: []string{"pr", "view", "1", "-R", "o/r", "--no-such-flag"}}); code != ExitUsage {
+			t.Fatalf("gh %s: unknown flag exit %d, want %d", version, code, ExitUsage)
+		}
 	}
 }
 

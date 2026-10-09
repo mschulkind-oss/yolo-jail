@@ -1,5 +1,5 @@
 // Command ghgrammar regenerates internal/ghbroker's gh flag grammar from the gh binary on
-// PATH. It is run by hand when the broker's tested gh range moves, never by a build:
+// PATH. It is run by hand when a gh release breaks the broker's grammar, never by a build:
 //
 //	go run ./tools/ghgrammar -out internal/ghbroker/grammar_gen.go
 //
