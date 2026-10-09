@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
-	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 // CachedGoodEnv selects one patched program's exact recorded good build for one fresh jail launch.
@@ -27,7 +26,7 @@ func (o *Options) selectCachedGood(rt string) bool {
 	if o.inJail() || config.InJail() {
 		return refuse("it applies only to a fresh host-to-container launch")
 	}
-	if rt != "podman" && rt != "container" {
+	if rt != "podman" && rt != "container" { // parity: Refused — macos-user has no capture-store bind to deliver an old build through
 		return refuse("it applies only to a fresh podman or Apple Container launch")
 	}
 	if o.CapturesDir() == "" {
@@ -47,17 +46,4 @@ func (o *Options) selectCachedGood(rt string) bool {
 	}
 	o.cachedGoodOwner = selector
 	return true
-}
-
-// cachedGoodFork is the selected fork named by this launch's validated selector, or nil.
-func (o *Options) cachedGoodFork(pins []packload.ForkPin) *packload.ForkPin {
-	if o.cachedGoodOwner == "" {
-		return nil
-	}
-	for i := range pins {
-		if pins[i].Fork.Key() == o.cachedGoodOwner && pins[i].Fork.Patched() {
-			return &pins[i]
-		}
-	}
-	return nil
 }
