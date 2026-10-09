@@ -182,21 +182,22 @@ func backendLimits(rt string, packs []*packload.Pack, cfg *jsonx.OrderedMap, rel
 		"`tar --wildcards` fail. Write portable invocations — a script you write here may also "+
 		"run on a Linux CI machine.")
 
-	// THE TWO REFUSALS THE PROFILE MAKES BY DEFAULT, each with the setting that lifts it. Both
+	// THE TWO REFUSALS THE PROFILE MAKES, each with what gets past it. Both
 	// are stops the agent meets with nothing it can see naming the cause — Seatbelt's refusal is
 	// a bare "Operation not permitted" — and no launch line pairs with them, so this is the one
 	// surface where the next step can be said ("Every stop names the next step", AGENTS.md).
 	//
-	// The log: `macos_log` "off", the default, denies the unified log's stores and its stream
-	// service (macosuser.macosLogDenies), so `/usr/bin/log` reads nothing either, and the only
-	// text naming the remedy used to sit inside the `yolo-log` stub, which nothing tells the agent
-	// exists. Conditional on the profile's own reading of the key (macosuser.MacosLogOff), so the
-	// sentence and the deny cannot disagree; under "user" and "full" there is nothing to say.
-	if macosuser.MacosLogOff(cfg) {
-		out = append(out, "The macOS unified log is unreadable here (`macos_log` is off, as it is "+
-			"by default): `/usr/bin/log` and the `yolo-log` helper cannot read it. If you need it, "+
-			"ask the human to set `\"macos_log\": \"user\"` in yolo-jail.jsonc and relaunch.")
-	}
+	// The log: every profile denies the unified log's stores and its stream service
+	// (macosuser.macosLogDenies), and the sandbox account could not read the log without them
+	// either, so `/usr/bin/log` reads nothing here. `yolo-log` reads it on the host, through the
+	// macos-log loophole, and is staged only when that loophole is on (macosuser.GuestClients);
+	// the sentence names both the tool and the switch, so it is true either way.
+	out = append(out, "The macOS unified log is unreadable from this sandbox: `/usr/bin/log` "+
+		"reads nothing here. `yolo-log` reads it on the host (`yolo-log show --last 5m`, "+
+		"`yolo-log stream`), narrowed to the processes this sandbox account runs, when the "+
+		"human has selected the `macos-log` pack and set "+
+		"`\"loopholes\": {\"macos-log\": {\"enabled\": true}}`. If `yolo-log` is not found "+
+		"and you need the log, ask the human to do that and relaunch.")
 	// Devices: the profile's `(deny file-ioctl)` is unconditional, re-allowed for terminals and
 	// for each raw-path `devices` entry (macosuser.DeviceIoctlPaths), so the sentence is
 	// unconditional too. Raw disks and packet capture are refused whatever the config lists, so

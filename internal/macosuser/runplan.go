@@ -773,7 +773,7 @@ func BuildRunPlanWithStages(workspace string, cfg *jsonx.OrderedMap, agents, age
 		// workspace_readonly and its config lock, each raw-path `devices` entry's ioctl
 		// carve-out (devices.go), and macos_log, whose "off" is a deny (SeatbeltProfile).
 		Seatbelt: seatbeltProfile(workspace, SandboxHome(), readonlyRels, readonlyTargets,
-			homeReadonly, ctxLinks, relocs, cfgStrList(cfg, "devices"), macosLogMode(cfg)),
+			homeReadonly, ctxLinks, relocs, cfgStrList(cfg, "devices")),
 		StagedDir:  stateDir,
 		StagedYolo: stagedYolo,
 		// Binary first, then the pack trees, then the content overlay, then the context
@@ -1192,7 +1192,6 @@ func buildBootstrapEnv(workspace string, cfg, gitIdentity, sandboxEnv *jsonx.Ord
 
 	// Darwin extras consumed by `yolo internal darwin-bootstrap`.
 	bootstrapEnv.Set("YOLO_DARWIN_WORKSPACE", workspace)
-	bootstrapEnv.Set("YOLO_DARWIN_MACOS_LOG", macosLogMode(cfg))
 	bootstrapEnv.Set(entrypoint.DarwinLoginPathEnv, SandboxPath(home, darwinPrefix))
 	return bootstrapEnv
 }
@@ -2071,28 +2070,6 @@ func getSectionOrEmptyList(cfg *jsonx.OrderedMap, key string) any {
 		}
 	}
 	return []any{}
-}
-
-// macosLogMode returns config["macos_log"] as a string. An ABSENT key resolves to "off"
-// here, which is why a jail whose config predates the key and one that sets it off are the
-// same jail.
-//
-// It deliberately does not enum-check what it finds. config.validateMacosLog judges the
-// value on the host (the key is in the schema since 2026-09-16 — before that every config
-// declaring it was refused outright), and MacosLogWrapperScript rewrites anything it does
-// not recognise to "off" downstream. A third check here would only shadow whichever of
-// those two was wrong.
-func macosLogMode(cfg *jsonx.OrderedMap) string {
-	if cfg != nil {
-		if v, ok := cfg.Get("macos_log"); ok {
-			if s, ok := v.(string); ok {
-				return s
-			}
-			// Non-string config value — rare; fall back to off, but
-			// the container path only ever writes strings here.
-		}
-	}
-	return "off"
 }
 
 // orderedMapToAny returns the OrderedMap as an `any` so jsonx.DumpsCompact

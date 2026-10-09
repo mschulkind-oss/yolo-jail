@@ -525,17 +525,6 @@ var configKeys = map[string]Entry{
 			"(writeScopeFiles); loopholeAllow admits every loophole on this backend"),
 		Guide: []string{"`brokered`"},
 	},
-	"macos_log": {
-		PodmanLinux: notApplicable("dials the macos-user sandbox's yolo-log helper " +
-			"(macosuser.macosLogMode, runplan.go); a Linux host has no unified log"),
-		PodmanMac: notApplicable("only the macos-user bootstrap installs yolo-log " +
-			"(bootsteps.go's install_yolo_log is notContainer), and a Linux container cannot read " +
-			"the Mac's unified log"),
-		AppleContainer: notApplicable("the same: install_yolo_log is notContainer (bootsteps.go)"),
-		MacosUser: honored("BuildRunPlan reads it (macosLogMode, runplan.go) and the bootstrap's " +
-			"install_yolo_log step writes the helper the sandbox may run at that level"),
-		Guide: []string{"`macos_log`"},
-	},
 	"required_capabilities": everywhere(honored("refuseUnmetCapabilities runs inside "+
 		"loadAndValidateConfig, above the dispatch, so a capability nothing satisfies refuses "+
 		"the same way on every setup (preflight.go)"), "`required_capabilities`"),

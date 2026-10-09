@@ -208,6 +208,8 @@ func TestShippedLoopholePlatformDeclarations(t *testing.T) {
 	wantPlatforms := map[string][]string{
 		"audio": {"linux"}, "journal": {"linux"}, "cgroup-delegate": {"linux"},
 		"host-processes": {"linux", "darwin"},
+		// macos-log reads a Mac's unified log, so darwin alone (packs/macos-log/README.md ML-D9).
+		"macos-log": {"darwin"},
 	}
 	for _, s := range shippedLoopholes {
 		lp, err := LoadLoophole(shippedLoopholeModule(t, s.name, s.pack))

@@ -231,21 +231,6 @@ func TestHomeContaining(t *testing.T) {
 	}
 }
 
-func TestMacosLogModes(t *testing.T) {
-	if MacosLogWrapperScript("bogus") != MacosLogWrapperScript("off") {
-		t.Error("unknown falls back to off")
-	}
-	if contains(MacosLogWrapperScript("off"), "/usr/bin/log") {
-		t.Error("off must not exec log")
-	}
-	if !contains(MacosLogWrapperScript("full"), `exec /usr/bin/log "$@"`) {
-		t.Error("full passthrough")
-	}
-	if !contains(MacosLogWrapperScript("user"), "/usr/bin/log show") {
-		t.Error("user defaults to show")
-	}
-}
-
 func TestShQuoteNotShlex(t *testing.T) {
 	// shQuote always wraps in single quotes and uses '\'' escaping.
 	if got := shQuote("abc"); got != "'abc'" {

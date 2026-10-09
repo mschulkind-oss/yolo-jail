@@ -39,6 +39,7 @@ var shippedLoopholes = []struct{ name, pack string }{
 	{"audio", "audio"},
 	{"host-processes", "host-processes"},
 	{"journal", "journal"},
+	{"macos-log", "macos-log"},
 	{"cgroup-delegate", "cgroup-delegate"},
 	{"serial", "serial"},
 	{"openai-auth-broker", "openai-auth"},

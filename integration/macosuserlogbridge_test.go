@@ -1,0 +1,104 @@
+//go:build darwin
+
+package integration
+
+import (
+	"fmt"
+	"os"
+	"os/exec"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
+)
+
+// TestMacosUserMacosLogBridgeScopesToTheSandbox is the macos-log loophole on macos-user, end to
+// end (packs/macos-log/README.md): the launch stages a darwin `yolo-log` into the sandbox because
+// the session env carries the loophole's endpoint, and the client, run by the agent inside the
+// Seatbelt profile, reads the Mac's unified log through the host daemon — which runs
+// /usr/bin/log as the runner, an admin, since the sandbox account cannot read the log itself
+// (TestMacosUserMacosLogAsTheSandboxAccountMeasurement).
+//
+// TWO ENTRIES, ONE PER ACCOUNT, logged before the launch by long-lived processes so the bridge
+// can attribute them either way: by the entry's own `userID`, or by the live owner of its
+// `processID`. One is logged as the sandbox account (sudo -u), one as the runner. The user
+// scope must return the first and not the second; `full` must return both. Whether this macOS's
+// ndjson carries `userID` is recorded as a MEASUREMENT, because the scope's handling of an
+// entry from a process that has already exited depends on it.
+//
+// Darwin-only by build constraint, like the serial test: requireMacosUser skips everywhere else.
+func TestMacosUserMacosLogBridgeScopesToTheSandbox(t *testing.T) {
+	requireMacosUser(t)
+	token := fmt.Sprintf("yolo-it-maclog-%d-%d", os.Getpid(), time.Now().UnixNano())
+	mine, theirs := token+"-sandbox", token+"-host"
+	syslogAs(t, true, mine)
+	syslogAs(t, false, theirs)
+
+	script := strings.Join([]string{
+		`echo "=== CLIENT ==="`,
+		`command -v yolo-log || echo MISSING`,
+		`echo "=== SHOW ==="`,
+		`yolo-log show --last 10m --predicate 'eventMessage CONTAINS "` + token + `"'; echo "SHOW_RC=$?"`,
+		`echo "=== COLLECT ==="`,
+		`yolo-log collect 2>&1; echo "COLLECT_RC=$?"`,
+		`echo "=== END ==="`,
+	}, "\n")
+
+	packHome(t, `{"packs": ["macos-log"], "loopholes": {"macos-log": {"enabled": true}}}`)
+	r := macosUserRunProbe(t, "macos-log user", macosUserWorkspace(t, `{}`), script)
+	diag := func() string {
+		return fmt.Sprintf("\n--- launch stdout:\n%s\n--- launch stderr:\n%s", r.stdout, r.stderr)
+	}
+	if client := strings.TrimSpace(section(r.stdout, "=== CLIENT ===", "=== SHOW ===")); client !=
+		macosuser.GuestBinaryPath("yolo-log", "") {
+		t.Errorf("yolo-log resolves to %q in the sandbox, want the staged guest binary %s%s",
+			client, macosuser.GuestBinaryPath("yolo-log", ""), diag())
+	}
+	show := section(r.stdout, "=== SHOW ===", "=== COLLECT ===")
+	t.Logf("MEASUREMENT (macos-log), the user scope's entries carry `userID`: %v",
+		strings.Contains(show, `"userID"`))
+	if !strings.Contains(show, "SHOW_RC=0") || !strings.Contains(show, mine) {
+		t.Errorf("the user scope did not return the sandbox account's entry %q:\n%s%s", mine, show, diag())
+	}
+	if strings.Contains(show, theirs) {
+		t.Errorf("the user scope returned the runner's entry %q, which is not the sandbox "+
+			"account's:\n%s%s", theirs, show, diag())
+	}
+	if c := section(r.stdout, "=== COLLECT ===", "=== END ==="); !strings.Contains(c, "COLLECT_RC=2") ||
+		!strings.Contains(c, `"full": true`) {
+		t.Errorf("`yolo-log collect` was not refused with the setting that widens it:\n%s%s", c, diag())
+	}
+
+	packHome(t, `{"packs": ["macos-log"], "loopholes": {"macos-log": {"enabled": true, `+
+		`"settings": {"full": true}}}}`)
+	r = macosUserRunProbe(t, "macos-log full", macosUserWorkspace(t, `{}`), script)
+	show = section(r.stdout, "=== SHOW ===", "=== COLLECT ===")
+	if !strings.Contains(show, "SHOW_RC=0") || !strings.Contains(show, mine) || !strings.Contains(show, theirs) {
+		t.Errorf("`full` did not return both accounts' entries (%q, %q):\n%s%s", mine, theirs, show, diag())
+	}
+}
+
+// syslogAs logs msg through syslog(3) from a process that stays alive until the test ends, as the
+// sandbox account (sudo -n -u) or as the runner. Kept alive so a bridge attributing an entry by
+// its live process can still find the owner.
+func syslogAs(t *testing.T, asSandbox bool, msg string) {
+	t.Helper()
+	argv := []string{"/usr/bin/perl", "-MSys::Syslog", "-e",
+		`openlog("yolo-it", "pid", "user"); syslog("notice", "%s", $ARGV[0]); closelog(); sleep 900`, msg}
+	if asSandbox {
+		argv = append([]string{"/usr/bin/sudo", "-n", "--user=" + macosuser.SandboxUser}, argv...)
+	}
+	cmd := exec.Command(argv[0], argv[1:]...)
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("logging %q: %v", msg, err)
+	}
+	t.Cleanup(func() {
+		if asSandbox {
+			_ = runQuiet(time.Minute, "/usr/bin/sudo", "-n", "/usr/bin/pkill", "-u", macosuser.SandboxUser, "-f", msg)
+		}
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	})
+	time.Sleep(time.Second) // let the entry land before the launch reads it
+}

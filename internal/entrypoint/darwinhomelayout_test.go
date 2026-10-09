@@ -99,7 +99,7 @@ func darwinBootstrapRun(t *testing.T, extra map[string]string, prep func(home st
 	// The bootstrap's own error is deliberately NOT fatal here: a temp home can fail an
 	// unrelated generator (no git, no node), and what most of these tests assert is the
 	// LAYOUT. A layout failure shows up as a missing link, named precisely.
-	err = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
+	err = RunDarwinBootstrap(e, DarwinBootstrapOptions{})
 	return home, ws, err
 }
 
@@ -238,7 +238,7 @@ func TestDarwinBootstrapOverlayDeliversWithoutEatingTheLayout(t *testing.T) {
 		"YOLO_DARWIN_HOME_OVERLAY": overlay,
 	}, home)
 	e.Stderr = &strings.Builder{}
-	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
+	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{})
 
 	if _, err := os.Stat(stale); !os.IsNotExist(err) {
 		t.Errorf("a skills dir the pack stopped shipping survived the overlay (err %v) — "+

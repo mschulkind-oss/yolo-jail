@@ -29,7 +29,6 @@ var undoneKeySamples = map[string]string{
 	"ephemeral_storage":  `"tmpfs"`,
 	"gpu":                `{"enabled": true}`,
 	"kvm":                `true`,
-	"macos_log":          `"user"`,
 	"mcp_presets":        `["sequential-thinking"]`,
 	"mise_tools":         `{"node": "22"}`,
 	"mounts":             `["~/data"]`,

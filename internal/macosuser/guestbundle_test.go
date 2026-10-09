@@ -166,6 +166,7 @@ func TestEachGuestClientReadsTheEndpointItIsStagedOn(t *testing.T) {
 	consts := map[string]string{
 		paths.SerialEndpointEnv:        "SerialEndpointEnv",
 		paths.HostProcessesEndpointEnv: "HostProcessesEndpointEnv",
+		paths.MacosLogEndpointEnv:      "MacosLogEndpointEnv",
 	}
 	for _, c := range GuestClients {
 		ident, ok := consts[c.EndpointEnv]

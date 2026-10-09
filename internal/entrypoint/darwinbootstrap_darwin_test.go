@@ -80,7 +80,7 @@ func TestDarwinBootstrapGeneratesAUsableHome(t *testing.T) {
 	home := t.TempDir()
 	e := bootstrapEnv(t, home, nil)
 
-	if err := RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"}); err != nil {
+	if err := RunDarwinBootstrap(e, DarwinBootstrapOptions{}); err != nil {
 		t.Fatalf("bootstrap failed: %v", err)
 	}
 
@@ -104,7 +104,7 @@ func TestDarwinBootstrapBlockerActuallyRefuses(t *testing.T) {
 		"YOLO_BLOCK_CONFIG": `[{"name":"grep","message":"blocked here",` +
 			`"suggestion":"use rg","block_flags":["-r"]}]`,
 	})
-	if err := RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"}); err != nil {
+	if err := RunDarwinBootstrap(e, DarwinBootstrapOptions{}); err != nil {
 		t.Fatalf("bootstrap failed: %v", err)
 	}
 
@@ -159,7 +159,7 @@ func TestDarwinBootstrapInstallsTheHomeOverlay(t *testing.T) {
 	write(filepath.Join(home, ".claude", "skills", "gone", "SKILL.md"), "stale")
 
 	e := bootstrapEnv(t, home, map[string]string{"YOLO_DARWIN_HOME_OVERLAY": overlay})
-	if err := RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"}); err != nil {
+	if err := RunDarwinBootstrap(e, DarwinBootstrapOptions{}); err != nil {
 		t.Fatalf("bootstrap failed: %v", err)
 	}
 
@@ -189,7 +189,7 @@ func TestDarwinBootstrapToleratesAMissingOverlay(t *testing.T) {
 	})
 	e.Stderr = &warnings
 
-	if err := RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"}); err != nil {
+	if err := RunDarwinBootstrap(e, DarwinBootstrapOptions{}); err != nil {
 		t.Fatalf("a missing overlay aborted the boot: %v", err)
 	}
 	if !strings.Contains(warnings.String(), "not present") {
@@ -204,7 +204,7 @@ func TestDarwinBootstrapToleratesAMissingOverlay(t *testing.T) {
 func TestDarwinBootstrapKeepsABootLogInTheWorkspace(t *testing.T) {
 	home := t.TempDir()
 	e := bootstrapEnv(t, home, nil)
-	if err := RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off", Version: "darwin-twin"}); err != nil {
+	if err := RunDarwinBootstrap(e, DarwinBootstrapOptions{Version: "darwin-twin"}); err != nil {
 		t.Fatalf("bootstrap failed: %v", err)
 	}
 	raw, err := os.ReadFile(BootLogPath(e.Workspace))
@@ -230,7 +230,7 @@ func TestDarwinBootstrapReadsTheSessionEnvFile(t *testing.T) {
 		"YOLO_MCP_SERVERS":      `{"gh":{"command":"gh-mcp","requires_env":["GITHUB_TOKEN"]}}`,
 		DarwinSessionEnvFileEnv: file,
 	})
-	if err := RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"}); err != nil {
+	if err := RunDarwinBootstrap(e, DarwinBootstrapOptions{}); err != nil {
 		t.Fatalf("bootstrap failed: %v", err)
 	}
 	if !sharedMCPNames(e)["gh"] {

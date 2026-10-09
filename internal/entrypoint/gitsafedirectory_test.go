@@ -306,7 +306,7 @@ func TestTheMacosUserBootstrapLeavesAHomeWhoseGitAcceptsTheWorkspace(t *testing.
 	}, home)
 	e.Stderr = &strings.Builder{}
 
-	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
+	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{})
 
 	if out, rc := gitAsAnotherOwner(home, ws, "status"); rc != 0 {
 		t.Fatalf("after the macos-user bootstrap, git as another account still refuses the "+

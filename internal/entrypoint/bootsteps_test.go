@@ -132,7 +132,7 @@ func TestTheMacosUserBootRunsItsStepsInOrder(t *testing.T) {
 		"catalog_installed_orphans", "reconcile_installed_programs", "report_durable_dir",
 		"generate_bashrc", "generate_mise_config", "mcp_presets_declined", "configure_git",
 		"configure_pack_surfaces", "configure_host_files", "install_home_overlay",
-		"generate_darwin_bootstrap_script", "install_yolo_log", "write_login_rc",
+		"generate_darwin_bootstrap_script", "retire_yolo_log", "write_login_rc",
 	}
 	if got := bootStepNames(bootDarwin); !slices.Equal(got, want) {
 		t.Errorf("macos-user boot steps:\n got %v\nwant %v", got, want)

@@ -1,6 +1,7 @@
 package journald
 
 import (
+	"bufio"
 	"errors"
 	"flag"
 	"fmt"
@@ -207,55 +208,99 @@ func handleConn(conn net.Conn, mode string) {
 	// Per-request audit log (module map freezes this): "[journal] mode=.. args=..".
 	logf("[journal] mode=%s args=%s", mode, ArgsJSON(v.Args))
 
-	cmd := exec.Command("journalctl", v.Args...)
+	spawnAndStream(conn, "journalctl", v.Args, "yolo-journal: journalctl not found on host\n",
+		"yolo-journal: spawn failed: ", nil)
+}
+
+// lineFilter decides, per stdout line, whether it crosses to the client. nil means the
+// raw pump: bytes cross as they are read, in whatever chunks the pipe hands back.
+type lineFilter func(line []byte) bool
+
+// spawnAndStream runs name with args and streams its stdout and stderr back as frames,
+// then the exit frame. It is the journal bridge's spawn, shared with the macos-log
+// bridge (macoslogcmd.go), which differs only in the program, the not-found text and the
+// stdout filter that is its user scope.
+//
+// keep == nil pumps stdout raw. A non-nil keep reads stdout a LINE at a time and sends
+// only the lines it accepts, each with its newline; stderr is always raw.
+func spawnAndStream(conn net.Conn, name string, args []string, notFound, spawnFailed string, keep lineFilter) {
+	cmd := exec.Command(name, args...)
 	cmd.Stdin = nil
-	// start_new_session=True (Python): isolate journalctl in its own session so
-	// a group-directed signal at the daemon (Commit A SIGTERM/PDEATHSIG cascade)
+	// start_new_session=True (Python): isolate the child in its own session so a
+	// group-directed signal at the daemon (Commit A SIGTERM/PDEATHSIG cascade)
 	// doesn't also hit a live journalctl.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	stdout, _ := cmd.StdoutPipe()
 	stderr, _ := cmd.StderrPipe()
 	if err := cmd.Start(); err != nil {
 		if errors.Is(err, exec.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
-			_ = WriteFrame(conn, FrameStderr, []byte("yolo-journal: journalctl not found on host\n"))
+			_ = WriteFrame(conn, FrameStderr, []byte(notFound))
 			_ = WriteExit(conn, 127)
 			return
 		}
-		_ = WriteFrame(conn, FrameStderr, []byte("yolo-journal: spawn failed: "+err.Error()+"\n"))
+		_ = WriteFrame(conn, FrameStderr, []byte(spawnFailed+err.Error()+"\n"))
 		_ = WriteExit(conn, 1)
 		return
 	}
 
 	var sendMu sync.Mutex
 	var wg sync.WaitGroup
+	send := func(stream byte, payload []byte) bool {
+		sendMu.Lock()
+		werr := WriteFrame(conn, stream, payload)
+		sendMu.Unlock()
+		if werr != nil {
+			// Client went away — SIGTERM (Python proc.terminate()),
+			// NOT SIGKILL, so the child can flush/exit cleanly.
+			_ = cmd.Process.Signal(syscall.SIGTERM)
+			return false
+		}
+		return true
+	}
 	pump := func(r io.Reader, stream byte) {
 		defer wg.Done()
 		buf := make([]byte, 4096)
 		for {
 			n, rerr := r.Read(buf)
-			if n > 0 {
-				sendMu.Lock()
-				werr := WriteFrame(conn, stream, buf[:n])
-				sendMu.Unlock()
-				if werr != nil {
-					// Client went away — SIGTERM (Python proc.terminate()),
-					// NOT SIGKILL, so journalctl can flush/exit cleanly.
-					_ = cmd.Process.Signal(syscall.SIGTERM)
-					return
-				}
+			if n > 0 && !send(stream, buf[:n]) {
+				return
 			}
 			if rerr != nil {
 				return
 			}
 		}
 	}
+	linePump := func(r io.Reader) {
+		defer wg.Done()
+		sc := bufio.NewScanner(r)
+		sc.Buffer(make([]byte, 64*1024), MaxFilteredLine)
+		for sc.Scan() {
+			line := sc.Bytes()
+			if !keep(line) {
+				continue
+			}
+			out := make([]byte, 0, len(line)+1)
+			out = append(append(out, line...), '\n')
+			if !send(FrameStdout, out) {
+				return
+			}
+		}
+		// A line past MaxFilteredLine stops the scanner. The rest of the output is
+		// DRAINED, never sent: the child must not block on a full pipe, and a line
+		// the filter never judged must not cross.
+		_, _ = io.Copy(io.Discard, r)
+	}
 	wg.Add(2)
-	go pump(stdout, FrameStdout)
+	if keep == nil {
+		go pump(stdout, FrameStdout)
+	} else {
+		go linePump(stdout)
+	}
 	go pump(stderr, FrameStderr)
 
 	// Drain the pumps to EOF BEFORE Wait: cmd.Wait closes the pipes after the
 	// child exits, discarding kernel-buffered data. The pumps get EOF when
-	// journalctl exits and closes its ends, so waiting on them first ensures
+	// the child exits and closes its ends, so waiting on them first ensures
 	// no data is lost.
 	wg.Wait()
 	rc := 0
@@ -266,6 +311,10 @@ func handleConn(conn net.Conn, mode string) {
 	_ = WriteExit(conn, rc)
 	sendMu.Unlock()
 }
+
+// MaxFilteredLine caps one stdout line a filtering bridge will judge (macoslogcmd.go).
+// One unified-log entry as ndjson is a few kilobytes; a longer line ends the stream.
+const MaxFilteredLine = 8 << 20
 
 // exitCode extracts the process exit code, mapping a signal death to -N (the
 // signed value Python's proc.wait() returns and packs into the exit frame),

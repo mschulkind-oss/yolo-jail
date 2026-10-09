@@ -45,7 +45,7 @@ func TestDarwinBootstrapLaysLocalBeforeAnyEmbeddedTree(t *testing.T) {
 		"MISE_DATA_DIR":         filepath.Join(home, ".yolo", "mise"),
 	}, home)
 	e.Stderr = &strings.Builder{}
-	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
+	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{})
 
 	fi, err := os.Lstat(filepath.Join(home, ".local"))
 	if err != nil {

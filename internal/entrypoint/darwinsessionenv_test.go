@@ -40,7 +40,7 @@ func gatedServerBootstrap(t *testing.T, sessionEnv string) (claudeJSON, term str
 	e := DarwinEnvFrom(vars, home)
 	var out strings.Builder
 	e.Stderr = &out
-	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
+	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{})
 	raw, err := os.ReadFile(e.ClaudeJSONPath())
 	if err != nil {
 		t.Fatalf("the bootstrap rendered no ~/.claude.json, so nothing below is a result: %v\n%s",
@@ -193,7 +193,7 @@ func TestTheSessionEnvFileCannotTurnOnAutoprune(t *testing.T) {
 	var term strings.Builder
 	e.Stderr = &term
 
-	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
+	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{})
 
 	if _, err := os.Stat(pkg); err != nil {
 		t.Errorf("a session env file turned autoprune on, and the orphan was deleted (err=%v)\n%s",

@@ -175,8 +175,6 @@ var hostConfigKeys = map[string]keyCensusEntry{
 		"already yours"},
 	"gpu": {KeyNotApplicable, "passes the host GPU into a container; at the host it is already yours"},
 	"kvm": {KeyNotApplicable, "passes /dev/kvm into a container; at the host it is already yours"},
-	"macos_log": {KeyNotApplicable, "dials what the macos-user sandbox's yolo-log helper may read; " +
-		"the host notch runs no sandbox and installs no helper"},
 	"mise_tools": {KeyNotApplicable, "a jail composes mise's config from it, and nothing at the " +
 		"host manages your own mise"},
 	"mcp_presets": {KeyNotApplicable, "a preset's command is a wrapper only a jail's boot writes " +

@@ -1,0 +1,9 @@
+{
+  "contributes": [
+    {
+      "from": "loopholes/macos-log",
+      "kind": "loophole"
+    }
+  ],
+  "name": "macos-log"
+}

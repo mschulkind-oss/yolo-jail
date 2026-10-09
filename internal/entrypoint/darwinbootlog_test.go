@@ -48,7 +48,7 @@ func TestTheDarwinBootstrapKeepsABootLog(t *testing.T) {
 	var term strings.Builder
 	e.Stderr = &term
 
-	if err := RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off", Version: "0.12.0+3.gabc"}); err != nil {
+	if err := RunDarwinBootstrap(e, DarwinBootstrapOptions{Version: "0.12.0+3.gabc"}); err != nil {
 		t.Fatalf("bootstrap failed: %v\n%s", err, term.String())
 	}
 	raw, err := os.ReadFile(BootLogPath(ws))
@@ -80,7 +80,7 @@ func TestTheDarwinBootstrapKeepsABootLog(t *testing.T) {
 func TestTheDarwinBootLogNamesAnUnstampedBinary(t *testing.T) {
 	home, ws := resolvedDir(t), resolvedDir(t)
 	e := darwinBootEnv(t, home, ws, nil)
-	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
+	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{})
 	raw, err := os.ReadFile(BootLogPath(ws))
 	if err != nil {
 		t.Fatal(err)
@@ -97,7 +97,7 @@ func TestTheDarwinBootstrapRotatesItsBootLog(t *testing.T) {
 	for _, v := range []string{"first", "second"} {
 		e := darwinBootEnv(t, home, ws, nil)
 		e.Stderr = &strings.Builder{}
-		_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off", Version: v})
+		_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{Version: v})
 	}
 	cur, err := os.ReadFile(BootLogPath(ws))
 	if err != nil {
@@ -122,7 +122,7 @@ func TestTheDarwinBootstrapLogsItsRefusal(t *testing.T) {
 	}
 	e := darwinBootEnv(t, home, ws, nil)
 	e.Stderr = &strings.Builder{}
-	if err := RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"}); err == nil {
+	if err := RunDarwinBootstrap(e, DarwinBootstrapOptions{}); err == nil {
 		t.Fatal("the fixture did not make the bootstrap refuse")
 	}
 	raw, err := os.ReadFile(BootLogPath(ws))
@@ -170,7 +170,7 @@ func TestTheDarwinBootLogFollowsNoLinkTheAgentLeft(t *testing.T) {
 	}
 	e := darwinBootEnv(t, home, ws, nil)
 	e.Stderr = &strings.Builder{}
-	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
+	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{})
 	if got, _ := os.ReadFile(target); string(got) != "keep\n" {
 		t.Errorf("the boot log was written through a link onto %s:\n%s", target, got)
 	}
@@ -192,7 +192,7 @@ func TestTheDarwinBootLogRefusesALinkedStateDir(t *testing.T) {
 	e := darwinBootEnv(t, home, ws, map[string]string{"YOLO_MCP_PRESETS": `["chrome-devtools"]`})
 	var term strings.Builder
 	e.Stderr = &term
-	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
+	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{})
 	for _, name := range []string{bootLogName, bootLogPrevName} {
 		if _, err := os.Lstat(filepath.Join(elsewhere, name)); err == nil {
 			t.Errorf("%s was written through a linked .yolo into %s", name, elsewhere)
@@ -250,7 +250,7 @@ func TestTheDarwinBootLogWritesNoLinkWhenItsRotationFails(t *testing.T) {
 	}
 	e := darwinBootEnv(t, home, ws, nil)
 	e.Stderr = &strings.Builder{}
-	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
+	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{})
 	if got, _ := os.ReadFile(target); string(got) != "keep\n" {
 		t.Errorf("the boot log was written through the link at %s onto %s:\n%s", bootLogName, target, got)
 	}
@@ -282,7 +282,7 @@ func TestTheDarwinBootLogFollowsALinkAboveTheStateDir(t *testing.T) {
 	}
 	e := darwinBootEnv(t, resolvedDir(t), filepath.Join(via, "proj"), nil)
 	e.Stderr = &strings.Builder{}
-	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off", Version: "via-link"})
+	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{Version: "via-link"})
 	raw, err := os.ReadFile(BootLogPath(filepath.Join(real, "proj")))
 	if err != nil {
 		t.Fatalf("no boot log for a workspace reached through a link above .yolo: %v", err)

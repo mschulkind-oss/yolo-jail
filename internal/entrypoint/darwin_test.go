@@ -9,40 +9,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/setupcensus"
 )
 
-// TestInstallYoloLog writes an executable helper to ~/.local/bin/yolo-log.
-func TestInstallYoloLog(t *testing.T) {
-	home := t.TempDir()
-	e := NewEnv(map[string]string{"HOME": home})
-	body := "#!/bin/sh\nexec /usr/bin/log \"$@\"\n"
-	if err := InstallYoloLog(e, body); err != nil {
-		t.Fatal(err)
-	}
-	p := filepath.Join(home, ".local", "bin", "yolo-log")
-	got := mustRead(t, p)
-	if string(got) != body {
-		t.Errorf("yolo-log body = %q, want %q", got, body)
-	}
-	info, err := os.Stat(p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode()&0o100 == 0 {
-		t.Errorf("yolo-log is not executable: mode %v", info.Mode())
-	}
-}
-
-// TestInstallYoloLogEmptyIsNoop: an empty script writes nothing.
-func TestInstallYoloLogEmptyIsNoop(t *testing.T) {
-	home := t.TempDir()
-	e := NewEnv(map[string]string{"HOME": home})
-	if err := InstallYoloLog(e, ""); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(home, ".local", "bin", "yolo-log")); !os.IsNotExist(err) {
-		t.Errorf("empty script should write no file, got err=%v", err)
-	}
-}
-
 // TestWriteLoginRC re-prepends the PATH in all three login rc files — from the ENVIRONMENT,
 // which is the half that matters.
 //
@@ -84,20 +50,25 @@ func TestRunDarwinBootstrapGeneratesConfig(t *testing.T) {
 	})
 	e.Workspace = "/Users/dev/proj"
 	e.ShimBinDir = "/usr/bin"
+	// A wrapper an older bootstrap wrote, which would shadow the macos-log bridge's client.
+	stale := filepath.Join(home, ".local", "bin", "yolo-log")
+	if err := os.MkdirAll(filepath.Dir(stale), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stale, []byte("#!/bin/bash\nset -euo pipefail\nexec /usr/bin/log \"$@\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 
-	RunDarwinBootstrap(e, DarwinBootstrapOptions{
-		MacosLog:      "user",
-		YoloLogScript: "#!/bin/sh\nexec /usr/bin/log \"$@\"\n",
-	})
+	RunDarwinBootstrap(e, DarwinBootstrapOptions{})
 
 	// Shim generated, exec'ing the macOS /usr/bin path.
 	shim := string(mustRead(t, filepath.Join(home, ".yolo/bin/block", "grep")))
 	if !strings.Contains(shim, "/usr/bin/grep") {
 		t.Errorf("darwin shim should exec /usr/bin/grep:\n%s", shim)
 	}
-	// yolo-log installed.
-	if _, err := os.Stat(filepath.Join(home, ".local", "bin", "yolo-log")); err != nil {
-		t.Errorf("yolo-log not installed: %v", err)
+	// The retired in-sandbox yolo-log wrapper is gone (retire_yolo_log).
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Errorf("the retired yolo-log wrapper survived the bootstrap (stat: %v)", err)
 	}
 	// Login rc written, re-prepending the launch's PATH after path_helper.
 	rc := string(mustRead(t, filepath.Join(home, ".zprofile")))
@@ -124,7 +95,7 @@ func TestDarwinBootstrapSkipsLinuxMCPWrappers(t *testing.T) {
 	}, home)
 	e.Stderr = &warnings
 
-	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
+	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{})
 
 	// The wrapper the container path writes must not exist here.
 	if _, err := os.Stat(filepath.Join(e.LocalBin(), "chrome-devtools-mcp-wrapper")); err == nil {
@@ -159,9 +130,48 @@ func TestDarwinBootstrapSilentAboutMCPWhenNonePresetsAsked(t *testing.T) {
 	e := DarwinEnvFrom(map[string]string{"JAIL_HOME": home, "YOLO_DARWIN_WORKSPACE": t.TempDir()}, home)
 	e.Stderr = &warnings
 
-	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
+	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{})
 
 	if strings.Contains(warnings.String(), "mcp_presets") {
 		t.Errorf("warned about mcp_presets when none were configured:\n%s", warnings.String())
+	}
+}
+
+// RetireYoloLog removes only what the retired generator wrote — each of its three bodies —
+// and keeps, and names, a file of the user's at the same path.
+func TestRetireYoloLogRemovesOnlyTheRetiredWrapper(t *testing.T) {
+	head := "#!/bin/bash\nset -euo pipefail\n"
+	for _, tc := range []struct {
+		body   string
+		remove bool
+	}{
+		{head + "echo \"yolo-log: macOS log access is disabled.\" >&2\nexit 1\n", true},
+		{head + "exec /usr/bin/log \"$@\"\n", true},
+		{head + "if [ \"$#\" -eq 0 ]; then\n  exec /usr/bin/log show --last 5m --style compact\nfi\n", true},
+		{"#!/bin/sh\nmy own log helper\n", false},
+	} {
+		home := t.TempDir()
+		p := filepath.Join(home, ".local", "bin", "yolo-log")
+		_ = os.MkdirAll(filepath.Dir(p), 0o755)
+		if err := os.WriteFile(p, []byte(tc.body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		e := NewEnv(map[string]string{"HOME": home})
+		var warn strings.Builder
+		e.Stderr = &warn
+		if err := RetireYoloLog(e); err != nil {
+			t.Fatal(err)
+		}
+		_, err := os.Stat(p)
+		if gone := os.IsNotExist(err); gone != tc.remove {
+			t.Errorf("body %q: removed=%v, want %v", tc.body, gone, tc.remove)
+		}
+		if named := strings.Contains(warn.String(), "rename or delete it"); named == tc.remove {
+			t.Errorf("body %q: warning %q (a kept file must be named with the fix, a removed one not)", tc.body, warn.String())
+		}
+	}
+	// Nothing there is nothing to do.
+	if err := RetireYoloLog(NewEnv(map[string]string{"HOME": t.TempDir()})); err != nil {
+		t.Error(err)
 	}
 }

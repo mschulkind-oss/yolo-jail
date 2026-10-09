@@ -196,7 +196,7 @@ func TestMacosUserContextVolumesAndPrivacyDirsMeasurement(t *testing.T) {
 		profile := filepath.Join(profDir, "p.sb")
 		if err := os.WriteFile(profile, []byte(macosuser.SeatbeltProfileWithContext(
 			macosuser.SharedRootDefault(), "", nil, macosuser.HomeReadonly{},
-			[]macosuser.ContextLink{link}, nil, "off")), 0o644); err != nil {
+			[]macosuser.ContextLink{link}, nil)), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

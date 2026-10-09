@@ -69,7 +69,7 @@ func TestDarwinBootstrapGatesRequiresEnvPerAgentAndSaysSo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
+	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{})
 
 	claudeJSON := string(mustRead(t, e.ClaudeJSONPath()))
 	if !strings.Contains(claudeJSON, `"zai-search"`) {

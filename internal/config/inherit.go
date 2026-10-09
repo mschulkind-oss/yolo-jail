@@ -313,12 +313,6 @@ var inheritCensus = map[string]keyDisposition{
 	// Linux container names a runtime that cannot exist in here, and an inner launcher
 	// must pick its own (YOLO_RUNTIME and auto-detect already decide it).
 	"runtime": {reason: "an in-jail launcher detects its own runtime; a host value names a machine that is not this one"},
-	// `macos_log`: `runtime`'s class, one notch narrower. It dials how much of the Mac's
-	// unified log the Seatbelt profile lets the sandbox reach, so its whole referent is a
-	// facility a Linux container does not have — there is no `log` to read and no profile to
-	// widen. The nested half is empty for a second, independent reason: macos-user composes
-	// no container, so nothing in here can spawn the sandbox this key describes.
-	"macos_log": {reason: "dials a macOS Seatbelt profile's access to the unified log; the jail has neither"},
 	// `workspace_readonly`: paths inside the WORKSPACE, which is the one scope that
 	// crosses live through the /workspace bind. A user-scope entry naming another
 	// project's paths is meaningless here, and the workspace's own config carries the
@@ -343,6 +337,9 @@ var inheritCensus = map[string]keyDisposition{
 	// (already in both scopes, three entries up) carries the switch and the settings.
 	"host_processes": {reason: "RETIRED — the keys moved to loopholes.host-processes.settings; emitting it would re-trigger the retirement error"},
 	"journal":        {reason: "RETIRED — the switch moved to loopholes.journal.enabled and the mode to its settings; emitting it would re-trigger the retirement error"},
+	// `macos_log` joined them on 2026-10-09, for the same reason: the unified log is the
+	// `macos-log` loophole's now (packs/macos-log/README.md).
+	"macos_log": {reason: "RETIRED — the log moved to the macos-log loophole; emitting it would re-trigger the retirement error"},
 	// `agent_profiles` joined them on 2026-09-01, renamed to `pack_profiles` — the
 	// keys were always CLI names and core knows packs, not agents — which was itself
 	// renamed to `use_profiles` on 2026-09-02 (docs/reference/providers.md — Profiles and options:

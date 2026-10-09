@@ -56,7 +56,7 @@ func IsDaemonArgv(argv []string) bool {
 // for an argv nothing emits any more.
 func Run(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: yolo internal daemon <aws-auth|aws-credential-adapter|claude-oauth-broker|github-broker|host-processes|jail-keeper|journal|openai-auth-adapter|openai-auth-broker|serial|wire-bridge> [args...]")
+		fmt.Fprintln(os.Stderr, "usage: yolo internal daemon <aws-auth|aws-credential-adapter|claude-oauth-broker|github-broker|host-processes|jail-keeper|journal|macos-log|openai-auth-adapter|openai-auth-broker|serial|wire-bridge> [args...]")
 		return 2
 	}
 	rest := args[1:]
@@ -90,6 +90,10 @@ func Run(args []string) int {
 		return hostprocesses.Main(rest)
 	case "journal":
 		return journald.Main(rest)
+	case "macos-log":
+		// packs/macos-log's bridge: Apple's `log`, run as the host user for a jail whose own
+		// account cannot read the unified log (packs/macos-log/README.md).
+		return journald.MacosLogMain(rest)
 	case "openai-auth-broker":
 		return openaiauthdaemon.Main(rest)
 	case "serial":

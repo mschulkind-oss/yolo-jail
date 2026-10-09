@@ -83,13 +83,27 @@ type ValidatedArgs struct {
 // of _journal_handle_client. `header` is the bytes up to (not including) the
 // first newline; mode is "user" or "full".
 func ParseRequest(header []byte, mode string) ValidatedArgs {
+	v := decodeArgs(header, "yolo-journal")
+	if v.ErrText != "" {
+		return v
+	}
+	if mode == "user" {
+		v.Args = append([]string{"--user"}, v.Args...)
+	}
+	return v
+}
+
+// decodeArgs is the request shape both bridges share: a JSON object whose `args` is a
+// list of at most MaxArgs strings, each under MaxArgLen bytes. prefix names the bridge
+// in its error text ("yolo-journal", "yolo-log").
+func decodeArgs(header []byte, prefix string) ValidatedArgs {
 	decoded, err := jsonx.Decode(header)
 	if err != nil {
-		return ValidatedArgs{ErrText: "yolo-journal: invalid JSON: " + err.Error() + "\n", ExitCode: 2}
+		return ValidatedArgs{ErrText: prefix + ": invalid JSON: " + err.Error() + "\n", ExitCode: 2}
 	}
 	m, ok := decoded.(*jsonx.OrderedMap)
 	if !ok {
-		return ValidatedArgs{ErrText: "yolo-journal: invalid JSON: not an object\n", ExitCode: 2}
+		return ValidatedArgs{ErrText: prefix + ": invalid JSON: not an object\n", ExitCode: 2}
 	}
 
 	var rawArgs []any
@@ -97,7 +111,7 @@ func ParseRequest(header []byte, mode string) ValidatedArgs {
 		arr, isArr := v.([]any)
 		if !isArr {
 			return ValidatedArgs{
-				ErrText:  "yolo-journal: args must be a list of ≤64 strings\n",
+				ErrText:  prefix + ": args must be a list of ≤64 strings\n",
 				ExitCode: 2,
 			}
 		}
@@ -105,7 +119,7 @@ func ParseRequest(header []byte, mode string) ValidatedArgs {
 	}
 	if len(rawArgs) > MaxArgs {
 		return ValidatedArgs{
-			ErrText:  "yolo-journal: args must be a list of ≤64 strings\n",
+			ErrText:  prefix + ": args must be a list of ≤64 strings\n",
 			ExitCode: 2,
 		}
 	}
@@ -114,14 +128,11 @@ func ParseRequest(header []byte, mode string) ValidatedArgs {
 		s, ok := a.(string)
 		if !ok || len(s) > MaxArgLen {
 			return ValidatedArgs{
-				ErrText:  "yolo-journal: each arg must be a string under 1024 bytes\n",
+				ErrText:  prefix + ": each arg must be a string under 1024 bytes\n",
 				ExitCode: 2,
 			}
 		}
 		clean = append(clean, s)
-	}
-	if mode == "user" {
-		clean = append([]string{"--user"}, clean...)
 	}
 	return ValidatedArgs{Args: clean}
 }

@@ -130,6 +130,7 @@ unification exists to end ([`loophole-transport.md`](docs/reference/loophole-tra
 | `yolo-cglimit` | container | cgroup-delegate client (the one AF_UNIX consumer left) |
 | `yolo-journalctl` | container | journal-bridge client (loopback-TLS) |
 | `yolo-serial` | container, and the macos-user guest | serial-bridge client (loopback-TLS; the `serial` loophole) |
+| `yolo-log` | the macos-user guest (shipped to containers too) | macOS unified-log bridge client (loopback-TLS; the `macos-log` loophole) |
 | `goprobe` | nowhere | deployment tripwire; excluded from runtime PATH |
 
 **A new `cmd/` binary must be added to [`flake.nix`](flake.nix)'s `shippedBinaries` AND to

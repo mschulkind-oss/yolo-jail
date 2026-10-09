@@ -465,12 +465,13 @@ func bootSteps() []bootStep {
 			notContainer: "the container boot writes ~/.yolo-bootstrap.sh (generate_bootstrap_script, above)",
 		},
 		{
-			// The macOS unified-logging analog of the container's yolo-journalctl bridge.
-			name: "install_yolo_log",
+			// The in-sandbox yolo-log wrapper is retired: yolo-log is the macos-log loophole's
+			// client now, staged into the guest prefix, and a leftover wrapper would shadow it.
+			name: "retire_yolo_log",
 			run: func(b *bootRun) {
-				genStep(b.e, "install_yolo_log", func() error { return InstallYoloLog(b.e, b.darwin.YoloLogScript) })
+				genStep(b.e, "retire_yolo_log", func() error { return RetireYoloLog(b.e) })
 			},
-			notContainer: "the container reads the host journal through yolo-journalctl, which the image bakes",
+			notContainer: "no container boot ever wrote the wrapper; the container's own clients are baked",
 		},
 		{
 			name:         "write_login_rc",

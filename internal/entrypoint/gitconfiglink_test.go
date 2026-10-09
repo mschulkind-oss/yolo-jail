@@ -53,7 +53,7 @@ func gitLayoutBoot(t *testing.T, home, ws, packRoot string, identity map[string]
 	var out, logOnly strings.Builder
 	e.Stderr = &out
 	e.LogOnly = &logOnly
-	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
+	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{})
 	return out.String(), launchLogged(t, ws, logOnly.String())
 }
 

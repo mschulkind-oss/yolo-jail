@@ -968,7 +968,7 @@ func aclHint(e *Env, fails []string) string {
 // converts a non-empty set into the error that aborts the boot.
 //
 // This is not a licence to route optional inputs through here: a generator must
-// return nil when its input is legitimately ABSENT (InstallYoloLog with no script,
+// return nil when its input is legitimately ABSENT (RetireYoloLog with no wrapper,
 // InstallDarwinHomeLayout with no sidecar, RemoveStaleGeneratedClients finding no stale
 // files all do exactly that). Only a real failure — an unwritable path, a malformed value,
 // an unreadable declared file — reaches this.

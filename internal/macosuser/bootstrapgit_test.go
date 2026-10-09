@@ -84,7 +84,7 @@ func TestTheBootstrapNeverRunsAGitTheAgentCanWrite(t *testing.T) {
 		entrypoint.DarwinLoginPathEnv: loginPath,
 	}, home)
 	e.Stderr = &strings.Builder{}
-	_ = entrypoint.RunDarwinBootstrap(e, entrypoint.DarwinBootstrapOptions{MacosLog: "off"})
+	_ = entrypoint.RunDarwinBootstrap(e, entrypoint.DarwinBootstrapOptions{})
 
 	if ran, err := os.ReadFile(marker); err == nil {
 		t.Fatalf("the bootstrap ran a git the agent can write, outside Seatbelt (planted in %s):\n%s",
@@ -158,7 +158,7 @@ func TestTheBootstrapAppliesTheStagedGlobalGitignore(t *testing.T) {
 					[]string{filepath.Dir(realGit)}),
 			}, home)
 			e.Stderr = &strings.Builder{}
-			_ = entrypoint.RunDarwinBootstrap(e, entrypoint.DarwinBootstrapOptions{MacosLog: "off"})
+			_ = entrypoint.RunDarwinBootstrap(e, entrypoint.DarwinBootstrapOptions{})
 
 			get := exec.Command(realGit, "config", "--global", "--get", "core.excludesFile")
 			get.Env = append(os.Environ(), "HOME="+home, "GIT_CONFIG_GLOBAL="+filepath.Join(home, ".gitconfig"))

@@ -105,14 +105,15 @@ var seatbeltRules = []seatbeltRule{
 	{id: "file-ioctl-tty-allow"},
 	// config.devices (macosuser.DeviceIoctlPaths): a declared node's control calls come back.
 	{id: "device-ioctl-allow"},
-	// config.macos_log "off", the default (macosuser.SeatbeltProfile).
-	{id: "macos-log-off-deny"},
-	{id: "macos-log-off-stream-deny", unproven: "a live `log stream` has no exit a bare control " +
+	// The unified log, denied in every profile (macosuser.macosLogDenies): the macos-log
+	// loophole reads it on the host instead.
+	{id: "macos-log-deny"},
+	{id: "macos-log-stream-deny", unproven: "a live `log stream` has no exit a bare control " +
 		"can rely on: the only clean-exit spelling (`--timeout`) is unverified on the runner's " +
 		"macOS, and a stream killed from outside may never flush the entries it buffered, so a " +
 		"control that printed nothing would say nothing about the profile. The stream is RECORDED " +
-		"instead, bare and under each profile, by TestMacosUserSeatbeltMacosLogDialDecidesTheLogRead; " +
-		"the store read beside it (macos-log-off-deny) is the asserted half."},
+		"instead, bare and under the profile, by TestMacosUserSeatbeltLogStreamMeasurement; " +
+		"the store read beside it (macos-log-deny) is the asserted half."},
 	// THE CONTEXT MOUNTS (docs/design/context-mounts.md §3.4, §4 steps 4-5).
 	{id: "context-read-allow"},
 	{id: "context-write-allow"},
@@ -480,13 +481,12 @@ func seatbeltCases() []seatbeltCase {
 			want:   wantAllowed,
 		},
 		{
-			name: "macos_log_off_store_read_refused",
-			id:   "macos-log-off-deny",
-			why: "macos_log defaults to \"off\", and off used to be advisory: the yolo-log helper " +
-				"refused while /usr/bin/log itself read the store. The probe passes only when an " +
-				"entry was actually read (the runner is an admin, so the bare control does), and " +
-				"TestMacosUserSeatbeltMacosLogDialDecidesTheLogRead runs it under a \"user\" " +
-				"profile to show the dial, not some other rule, is what refuses it.",
+			name: "macos_log_store_read_refused",
+			id:   "macos-log-deny",
+			why: "the log is the macos-log loophole's, read on the host, so the sandbox never " +
+				"reads it: the profile denies the store whatever the config says. The probe " +
+				"passes only when an entry was actually read (the runner is an admin, so the " +
+				"bare control does).",
 			script: func(seatbeltFixtures) string { return macosLogStoreProbe },
 			want:   wantRefused,
 		},
@@ -809,7 +809,7 @@ func TestMacosUserSeatbeltRelocationOnAVolumeMeasurement(t *testing.T) {
 				}
 			}
 			profile := macosuser.SeatbeltProfileWithRelocations(f.ws, "", nil, macosuser.HomeReadonly{}, nil,
-				[]macosuser.CacheRelocation{{Subdir: "huggingface", Target: target}}, nil, "off")
+				[]macosuser.CacheRelocation{{Subdir: "huggingface", Target: target}}, nil)
 			path := filepath.Join(t.TempDir(), "volume.sb")
 			if err := os.WriteFile(path, []byte(profile), 0o644); err != nil {
 				t.Fatal(err)
@@ -857,7 +857,7 @@ func TestMacosUserSeatbeltRegistryMatchesTheProfile(t *testing.T) {
 			{Dest: "/ctx/lib", Source: "/Users/Shared/ci/lib", Dir: true},
 			{Dest: "/ctx/data", Source: "/Users/Shared/yolo/data", RW: true, Dir: true},
 		}, []macosuser.CacheRelocation{{Subdir: "huggingface", Target: "/Volumes/Data/hf"}},
-		seatbeltFixtureDevices, "off")
+		seatbeltFixtureDevices)
 
 	inProfile := map[string]bool{}
 	for _, m := range seatbeltIDPattern.FindAllStringSubmatch(profile, -1) {
@@ -1246,25 +1246,13 @@ func startSeatbeltCanary(t *testing.T) (int, string) {
 //
 // The arguments are the ones BuildRunPlan passes (runplan.go): the workspace, the real
 // sandbox home, the workspace_readonly list, the content rules ResolveHomeReadonly derives
-// for a claude-pack delivery, the context links, a declared device and macos_log at its
-// default — so the text under test is the text a launch would install, not a second profile
+// for a claude-pack delivery, the context links and a declared device — so the text under test is the text a launch would install, not a second profile
 // written for the occasion. It is left in the temp dir on failure and its path is logged,
 // because the first question about a surprising refusal is what the profile actually said.
 func seatbeltProfileFile(t *testing.T, f seatbeltFixtures) string {
 	t.Helper()
-	return seatbeltProfileFileFor(t, f, "off")
-}
-
-// seatbeltFixtureDevices is the `devices` list every fixture profile declares: one node a case
-// drives (declared_device_ioctl_allowed), so the carve-out is in the text under test.
-var seatbeltFixtureDevices = []string{"/dev/zero"}
-
-// seatbeltProfileFileFor is seatbeltProfileFile with macos_log set to mode — the default launch's
-// "off" for the suite, "user" for the dial's control.
-func seatbeltProfileFileFor(t *testing.T, f seatbeltFixtures, macosLog string) string {
-	t.Helper()
 	profile := macosuser.SeatbeltProfileWithRelocations(f.ws, "", []string{"vendored"}, f.content, f.ctxLinks,
-		f.relocs, seatbeltFixtureDevices, macosLog)
+		f.relocs, seatbeltFixtureDevices)
 	path := filepath.Join(t.TempDir(), "session.sb")
 	if err := os.WriteFile(path, []byte(profile), 0o644); err != nil {
 		t.Fatalf("writing the profile to %s: %v", path, err)
@@ -1272,6 +1260,10 @@ func seatbeltProfileFileFor(t *testing.T, f seatbeltFixtures, macosLog string) s
 	t.Logf("Seatbelt profile under test (%s):\n%s", path, profile)
 	return path
 }
+
+// seatbeltFixtureDevices is the `devices` list every fixture profile declares: one node a case
+// drives (declared_device_ioctl_allowed), so the carve-out is in the text under test.
+var seatbeltFixtureDevices = []string{"/dev/zero"}
 
 // runScript runs one shell script, optionally wrapped in a prefix argv, and returns its
 // combined output and exit code.
@@ -1337,7 +1329,13 @@ func devIoctlProbe(dev string) string {
 // macosLogStoreProbe exits 0 only when `log show` actually READ an entry from the store: the
 // last minute of a running Mac always holds one, and json output names each `eventMessage`. An
 // exit status alone would not do, because `log show` can succeed having read nothing.
-const macosLogStoreProbe = "/usr/bin/log show --last 1m --style json 2>/dev/null | grep -q '\"eventMessage\"'"
+//
+// When nothing was read it prints `log`'s exit status and the head of what it said, so a
+// measurement records WHY (the 2026-10-09 run read nothing as the sandbox account and, with
+// stderr discarded, could not say whether `log` refused the account or found no entry).
+const macosLogStoreProbe = "out=$(/usr/bin/log show --last 1m --style json 2>&1); rc=$?; " +
+	"printf '%s' \"$out\" | grep -q '\"eventMessage\"' && exit 0; " +
+	"printf 'log exited %s: %s\\n' \"$rc\" \"$(printf '%s' \"$out\" | head -c 400)\"; exit 1"
 
 // macosLogStreamProbe RECORDS whether a live stream delivered an entry within three seconds:
 // started in the background, terminated, then read. SIGTERM and not SIGINT, because a
@@ -1349,41 +1347,23 @@ const macosLogStreamProbe = "f=$(mktemp /tmp/yolo-sb-logstream.XXXXXX) || exit 2
 	"sleep 1; kill -9 $p 2>/dev/null; wait $p 2>/dev/null; " +
 	"grep -q '\"eventMessage\"' \"$f\"; rc=$?; rm -f \"$f\"; exit $rc"
 
-// TestMacosUserSeatbeltMacosLogDialDecidesTheLogRead is the CONTROL for macos_log_off_store_read_refused:
-// the same store read, under the same fixture's profile generated with macos_log "user", must
-// succeed — so what refuses it under "off" is the dial's deny, and not another rule of the
-// profile (the /Users read deny, the keychains) catching something `log` happens to touch.
-// The live stream is recorded beside it, bare and under both profiles.
-func TestMacosUserSeatbeltMacosLogDialDecidesTheLogRead(t *testing.T) {
+// TestMacosUserSeatbeltLogStreamMeasurement RECORDS a live stream bare and under the session
+// profile, beside macos_log_store_read_refused's asserted store read. It asserts nothing: a
+// stream killed from outside may never flush, so "nothing arrived" under the profile proves
+// nothing on its own (the macos-log-stream-deny registry entry).
+func TestMacosUserSeatbeltLogStreamMeasurement(t *testing.T) {
 	requireMacosUserSeatbelt(t)
-	f := seatbeltFixture(t)
-	off := seatbeltProfileFileFor(t, f, "off")
-	user := seatbeltProfileFileFor(t, f, "user")
-	sandbox := func(profile string) []string { return []string{"/usr/bin/sandbox-exec", "-f", profile} }
-
-	if out, rc := runScript(t, macosLogStoreProbe, nil); rc != 0 {
-		t.Fatalf("the CONTROL failed: `%s` read no log entry unsandboxed (rc %d), so this "+
-			"machine cannot say what the dial does.\noutput:\n%s", macosLogStoreProbe, rc, out)
-	}
-	if out, rc := runScript(t, macosLogStoreProbe, sandbox(user)); rc != 0 {
-		t.Errorf("macos_log \"user\" READ NOTHING: the profile without the dial's deny still "+
-			"refuses the store read (rc %d), so the off case's refusal may be another rule's.\n"+
-			"output:\n%s", rc, out)
-	}
-	if out, rc := runScript(t, macosLogStoreProbe, sandbox(off)); rc == 0 {
-		t.Errorf("macos_log \"off\" READ THE LOG: the store read succeeded under the default "+
-			"profile.\nrule: #seatbelt-test-id:macos-log-off-deny#\noutput:\n%s", out)
-	}
+	profile := seatbeltProfileFile(t, seatbeltFixture(t))
 	for _, run := range []struct {
 		name   string
 		prefix []string
-	}{{"bare", nil}, {"user", sandbox(user)}, {"off", sandbox(off)}} {
+	}{{"bare", nil}, {"session profile", []string{"/usr/bin/sandbox-exec", "-f", profile}}} {
 		out, rc := runScript(t, macosLogStreamProbe, run.prefix)
 		verdict := "an entry ARRIVED"
 		if rc != 0 {
 			verdict = "nothing arrived"
 		}
-		t.Logf("MEASUREMENT (macos-log-off-stream-deny), `log stream` %s: %s (rc %d).\noutput:\n%s",
+		t.Logf("MEASUREMENT (macos-log-stream-deny), `log stream` %s: %s (rc %d).\noutput:\n%s",
 			run.name, verdict, rc, out)
 	}
 	// The "user" control has read nothing on every Mac run since it landed (macos-user runs
@@ -1394,30 +1374,26 @@ func TestMacosUserSeatbeltMacosLogDialDecidesTheLogRead(t *testing.T) {
 	}
 }
 
-// TestMacosUserMacosLogAsTheSandboxAccountMeasurement RECORDS what the dial is worth for the
-// account a session really runs as: the policy suite above runs as the runner, an admin, and
-// `log` treats an admin differently. If the sandbox account cannot read the log even with no
-// profile at all, macos_log "off"'s deny is belt and braces, and "user" is the setting that
-// needs a fix; the log line below is what that ruling would be made from. It asserts nothing
-// about either answer and fails only when the account cannot be reached.
+// TestMacosUserMacosLogAsTheSandboxAccountMeasurement RECORDS whether the account a session
+// runs as can read the unified log itself — with no profile, and under the session profile. On
+// macos-user CI run 37940733418 it read NOTHING either way, which is why the log is the
+// macos-log loophole's, read on the host (packs/macos-log/README.md). It asserts nothing, so a
+// macOS that changes the answer is a recorded line, not a red run, and fails only when the
+// account cannot be reached. The store probe prints `log`'s own words when it reads nothing.
 func TestMacosUserMacosLogAsTheSandboxAccountMeasurement(t *testing.T) {
 	requireMacosUser(t)
-	// The profiles must be readable by the sandbox account, which a per-user temp dir is not.
+	// The profile must be readable by the sandbox account, which a per-user temp dir is not.
 	dir, err := os.MkdirTemp("/private/tmp", "yolo-it-maclog-")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	_ = os.Chmod(dir, 0o755)
-	profiles := map[string]string{}
-	for _, mode := range []string{"off", "user"} {
-		p := filepath.Join(dir, mode+".sb")
-		text := macosuser.SeatbeltProfileWithContext(macosuser.SharedRootDefault(), "", nil,
-			macosuser.HomeReadonly{}, nil, nil, mode)
-		if err := os.WriteFile(p, []byte(text), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		profiles[mode] = p
+	profile := filepath.Join(dir, "session.sb")
+	text := macosuser.SeatbeltProfileWithContext(macosuser.SharedRootDefault(), "", nil,
+		macosuser.HomeReadonly{}, nil, nil)
+	if err := os.WriteFile(profile, []byte(text), 0o644); err != nil {
+		t.Fatal(err)
 	}
 	asSandbox := func(prefix []string) []string {
 		return append([]string{"/usr/bin/sudo", "-n", "--user=" + macosuser.SandboxUser}, prefix...)
@@ -1434,8 +1410,7 @@ func TestMacosUserMacosLogAsTheSandboxAccountMeasurement(t *testing.T) {
 			prefix []string
 		}{
 			{"no profile", asSandbox(nil)},
-			{"macos_log user", asSandbox([]string{"/usr/bin/sandbox-exec", "-f", profiles["user"]})},
-			{"macos_log off", asSandbox([]string{"/usr/bin/sandbox-exec", "-f", profiles["off"]})},
+			{"session profile", asSandbox([]string{"/usr/bin/sandbox-exec", "-f", profile})},
 		} {
 			out, rc := runScript(t, probe.script, run.prefix)
 			verdict := "READ an entry"

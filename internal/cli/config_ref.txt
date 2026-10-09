@@ -2611,26 +2611,24 @@
     container: the sandbox writes the machine's own /tmp and /var/folders, on
     disk, and "tmpfs" is warned as not read there.
 
-  [bold]macos_log[/bold] (string, default "off"): Apple unified-log access, through a
-    generated [cyan]yolo-log[/cyan] helper.  [bold]macos-user backend only.[/bold]
-    The macOS analog of the Linux jail's [cyan]yolo-journalctl[/cyan], and a much
-    smaller thing than it: there is no loophole, no host daemon and no bridge here —
-    the sandbox account runs the machine's own [cyan]/usr/bin/log[/cyan].  This key
-    decides what the helper installed at [cyan]~/.local/bin/yolo-log[/cyan] does and,
-    under "off", whether the Seatbelt profile lets the sandbox read the log at all.
-      • "off" (default) — the helper is a stub: it prints how to turn logging on
-        and exits 1, and the Seatbelt profile denies the sandbox the log itself.
-      • "user" — the helper wraps [cyan]log[/cyan].  Bare, it shows the last five
-        minutes compact; the [cyan]show[/cyan], [cyan]stream[/cyan], [cyan]collect[/cyan],
-        [cyan]config[/cyan] and [cyan]help[/cyan] subcommands pass straight through;
-        anything else becomes arguments to [cyan]log show[/cyan].
-      • "full" — the helper is [cyan]log[/cyan], argv for argv.
-    Under "off" the profile denies reads of the log's stores and the service a
-    live stream connects to, so running [cyan]/usr/bin/log[/cyan] directly reads
-    nothing either; "user" and "full" lift both rules.  Not yet tried on a Mac.
-    On [cyan]podman[/cyan] and [cyan]container[/cyan] the key is inert (nothing there
-    reads it), the same way [bold]kvm[/bold] is inert on macOS — declared so one config
-    file can serve both of your machines.
+  [bold]macos_log[/bold] (string): REMOVED — a config carrying it is REFUSED.
+    It dialled a [cyan]yolo-log[/cyan] wrapper that ran [cyan]/usr/bin/log[/cyan] inside
+    the macos-user sandbox, and the sandbox account cannot read the unified log,
+    so the wrapper read nothing in every mode.  The log is now read on the HOST by
+    the macos-log loophole, and [cyan]yolo-log[/cyan] is its client:
+
+      "packs": ["macos-log"],
+      "loopholes": { "macos-log": {
+        "enabled": true,                // what "user" was meant to give
+        "settings": { "full": true }    // what "full" was — USER CONFIG ONLY
+      }}
+
+      • narrow (default) — [cyan]yolo-log show[/cyan] and [cyan]yolo-log stream[/cyan]
+        only, printed as ndjson, and only entries logged by processes running as
+        the macos-user sandbox account
+      • full — every argument passes to [cyan]log[/cyan] unchanged, as the host user
+    "off" needs nothing: delete the key.  The Seatbelt profile denies the sandbox
+    the log itself whatever is set.  macOS only (the loophole declares darwin).
 
 [bold cyan]EXAMPLE CONFIG[/bold cyan]
 

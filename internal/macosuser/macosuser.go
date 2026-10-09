@@ -15,7 +15,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
@@ -1231,25 +1230,6 @@ func sandboxEnvPairs(home, user, pathValue, envFile string) []string {
 // ---------------------------------------------------------------------------
 // Loopholes on the native backend
 // ---------------------------------------------------------------------------
-// macosLogModes is the `macos_log` vocabulary as a lookup — off (a stub naming the
-// remedy), user (scoped), full (passthrough) — DERIVED from config.MacosLogModes rather
-// than restated here.
-//
-// The two lists have to be one list. config.validateMacosLog is what the pre-flight
-// judges a user's config against, and MacosLogWrapperScript below silently rewrites
-// anything outside this map to "off": a mode accepted there and missing here is a dial
-// the user set, yolo accepted, and the jail then ignored with no message on any surface.
-// This var used to hold its own literal, which is that drift waiting to happen — and the
-// key spent its whole life so far unreachable for the mirror-image reason (F1: the
-// generator knew three modes and the schema knew none).
-var macosLogModes = func() map[string]struct{} {
-	m := make(map[string]struct{}, len(config.MacosLogModes))
-	for _, mode := range config.MacosLogModes {
-		m[mode] = struct{}{}
-	}
-	return m
-}()
-
 // EndpointGrantCommands returns the `chmod +a` argv letting the sandbox USER read
 // one published endpoint file.
 //
@@ -1302,38 +1282,6 @@ func EndpointGrantCommands(endpointPath, user string) [][]string {
 		sandboxFileReadAce(endpointPath, user),
 		{chmodBin, "+a", "user:" + user + " allow search", pathParent(endpointPath)},
 	}
-}
-
-// MacosLogWrapperScript returns a yolo-log helper wrapping Apple's `log`.
-//
-// ⚠ THE SWITCH'S DEFAULT IS "user", NOT "off", so a mode added to the vocabulary without a
-// case of its own is served the SCOPED helper rather than the stub — it hands out more
-// access than the new word asked for, quietly. The unrecognised-mode rewrite above is what
-// keeps that unreachable for anything config.MacosLogModes does not list.
-func MacosLogWrapperScript(mode string) string {
-	if _, ok := macosLogModes[mode]; !ok {
-		mode = "off"
-	}
-	var body string
-	switch mode {
-	case "off":
-		body = "echo \"yolo-log: macOS log access is disabled.\" >&2\n" +
-			"echo \"  Enable it by setting \\\"macos_log\\\": \\\"user\\\" (or \\\"full\\\") in yolo-jail.jsonc, then restart.\" >&2\n" +
-			"exit 1\n"
-	case "full":
-		body = "exec /usr/bin/log \"$@\"\n"
-	default: // "user"
-		body = "if [ \"$#\" -eq 0 ]; then\n" +
-			"  exec /usr/bin/log show --last 5m --style compact\n" +
-			"fi\n" +
-			"case \"$1\" in\n" +
-			"  show|stream|collect|config|help)\n" +
-			"    exec /usr/bin/log \"$@\" ;;\n" +
-			"  *)\n" +
-			"    exec /usr/bin/log show \"$@\" ;;\n" +
-			"esac\n"
-	}
-	return "#!/bin/bash\nset -euo pipefail\n" + body
 }
 
 // ---------------------------------------------------------------------------

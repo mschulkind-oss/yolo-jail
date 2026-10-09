@@ -11,7 +11,7 @@ import (
 // else: no read or write allow names it, and a repeated entry renders once.
 func TestSeatbeltReallowsIoctlOnDeclaredDevices(t *testing.T) {
 	p := SeatbeltProfileWithContext("/Users/Shared/proj", "", nil, HomeReadonly{}, nil,
-		[]string{"/dev/cu.usbserial-1410", "/dev/cu.usbserial-1410"}, "off")
+		[]string{"/dev/cu.usbserial-1410", "/dev/cu.usbserial-1410"})
 	want := "(allow file-ioctl\n    (literal \"/dev/cu.usbserial-1410\"))"
 	if !strings.Contains(p, want) {
 		t.Fatalf("no device ioctl allow\n%s", p)
@@ -40,7 +40,7 @@ func TestSeatbeltReallowsIoctlOnDeclaredDevices(t *testing.T) {
 func TestSeatbeltWithoutDevicesIsUnchanged(t *testing.T) {
 	a := SeatbeltProfile("/Users/Shared/proj", "", []string{"vendored"}, HomeReadonly{})
 	for _, devs := range [][]string{nil, {}, {"/Users/matt/.ssh/id_ed25519"}} {
-		b := SeatbeltProfileWithContext("/Users/Shared/proj", "", []string{"vendored"}, HomeReadonly{}, nil, devs, "off")
+		b := SeatbeltProfileWithContext("/Users/Shared/proj", "", []string{"vendored"}, HomeReadonly{}, nil, devs)
 		if a != b || strings.Contains(b, "device-ioctl-allow") {
 			t.Errorf("devices %q changed the profile of a launch that admits no device", devs)
 		}
@@ -77,7 +77,7 @@ func TestDeviceIoctlPathsRefusesNonDevicesAndRawDisks(t *testing.T) {
 		t.Errorf("a non-device entry's refusal does not say how to find the node: %+v", r)
 	}
 	p := SeatbeltProfileWithContext("/Users/Shared/proj", "", nil, HomeReadonly{}, nil,
-		[]string{"/Users/matt/.ssh/id_ed25519", "/dev/disk4", "/dev/bpf0"}, "off")
+		[]string{"/Users/matt/.ssh/id_ed25519", "/dev/disk4", "/dev/bpf0"})
 	if strings.Contains(p, "device-ioctl-allow") || strings.Contains(p, "/Users/matt") ||
 		strings.Contains(p, `(literal "/dev/disk4")`) {
 		t.Errorf("a refused entry reached the profile\n%s", p)

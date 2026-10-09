@@ -143,7 +143,7 @@ func TestDarwinBootstrapArchivesTheAdoptedFileIntoTheWorkspace(t *testing.T) {
 	// asserts is the ARCHIVE. It is reported in the failure message instead, because the
 	// regression this test is about — no workspace to anchor on — arrives as one of those
 	// failures rather than as a missing file.
-	bootErr := RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
+	bootErr := RunDarwinBootstrap(e, DarwinBootstrapOptions{})
 
 	want := filepath.Join(ws, ".yolo", "archive", "config", "acme-settings", "settings.json")
 	got, err := os.ReadFile(want)

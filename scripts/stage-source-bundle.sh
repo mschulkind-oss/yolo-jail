@@ -113,14 +113,14 @@ fi
 # skipped THERE and vanishes from any image built from a shipped bundle, while
 # an image built from a source checkout still has it. The two lists are pinned
 # together by internal/entrypoint/shippedclients_test.go.
-SHIPPED_BINARIES=(yolo yolo-entrypoint yolo-jaild yolo-ps yolo-cglimit yolo-journalctl yolo-serial)
+SHIPPED_BINARIES=(yolo yolo-entrypoint yolo-jaild yolo-ps yolo-cglimit yolo-journalctl yolo-serial yolo-log)
 
 # The macos-user GUEST's darwin in-jail binaries (flake.nix:guestBinaries, and
 # macosuser.GuestBinaries in Go). Only what a guest actually runs: yolo-jaild,
-# the supervisor and every in-jail daemon, and the clients of the two loopholes
-# that run on a Mac, yolo-serial and yolo-ps. Pinned to the other two spellings
+# the supervisor and every in-jail daemon, and the clients of the three loopholes
+# that run on a Mac, yolo-serial, yolo-ps and yolo-log. Pinned to the other two spellings
 # by internal/macosuser/guestbundle_test.go.
-GUEST_BINARIES=(yolo-jaild yolo-serial yolo-ps)
+GUEST_BINARIES=(yolo-jaild yolo-serial yolo-ps yolo-log)
 
 # The guest OSes to stage (space-separated; default darwin). Empty stages none.
 GUEST_OSES=(darwin)

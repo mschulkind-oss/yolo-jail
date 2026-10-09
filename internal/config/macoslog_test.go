@@ -5,61 +5,62 @@ import (
 	"testing"
 )
 
-// macoslog_test.go covers the `macos_log` dial's arrival in the schema.
-//
-// The key was READ, HONORED and DOCUMENTED long before it was ACCEPTED: macos-user's
-// bootstrap installed the yolo-log helper from it in all three modes while
-// knownTopLevelConfigKeys had no entry, so `config.macos_log: unknown key` refused every
-// config that declared it — including the one yolo-log's own remedy text tells the user to
-// write (docs/plans/setup-support-gaps.md F1). Hence a test for the mundane fact that the
-// key validates at all: that is the fact that was false.
+// macoslog_test.go pins the RETIREMENT of the top-level `macos_log` key (2026-10-09). It
+// dialled an in-sandbox wrapper around /usr/bin/log that read nothing, because the macos-user
+// sandbox account cannot read the unified log (packs/macos-log/README.md). The log is the
+// `macos-log` loophole's now, and the key is a refusal naming it, as `journal` is.
 
-func TestMacosLogIsAcceptedAndEveryModeValidates(t *testing.T) {
-	for _, mode := range MacosLogModes {
-		errs, warns := ValidateConfig(decode(t, `{"macos_log": "`+mode+`"}`), t.TempDir(), nil)
-		for _, e := range errs {
-			if strings.Contains(e, "macos_log") {
-				t.Errorf("macos_log %q should validate, got error: %s", mode, e)
+// Every value the key ever took is refused on the host, once, with the three steps that
+// replace it and the scope of the one that widens.
+func TestRetiredMacosLogKeyIsRefusedAndNamesItsReplacement(t *testing.T) {
+	t.Setenv("YOLO_VERSION", "")
+	for _, body := range []string{`"off"`, `"user"`, `"full"`, `true`, `null`} {
+		errs, warns := ValidateConfig(decode(t, `{"macos_log": `+body+`}`), t.TempDir(), nil)
+		hits := containing(errs, "config.macos_log")
+		if len(hits) != 1 {
+			t.Errorf("macos_log %s: errors = %v, want ONE refusal (and no generic unknown-key "+
+				"error beside it)", body, errs)
+			continue
+		}
+		for _, want := range []string{
+			"REMOVED", `"packs": ["macos-log"]`, `"loopholes": {"macos-log": {"enabled": true}}`,
+			`{"settings": {"full": true}}`, "USER-CONFIG-ONLY", "~/.config/yolo-jail/config.jsonc",
+			"Delete the key", "yolo check",
+		} {
+			if !strings.Contains(hits[0], want) {
+				t.Errorf("macos_log %s: refusal %q does not name %q", body, hits[0], want)
 			}
 		}
-		for _, w := range warns {
-			if strings.Contains(w, "macos_log") {
-				t.Errorf("macos_log %q should be quiet, got warning: %s", mode, w)
-			}
+		if len(containing(warns, "macos_log")) != 0 {
+			t.Errorf("macos_log %s: the refusal is also a warning: %v", body, warns)
 		}
+	}
+	if errs, _ := ValidateConfig(decode(t, `{}`), t.TempDir(), nil); len(containing(errs, "macos_log")) != 0 {
+		t.Errorf("a config without the key is refused: %v", errs)
 	}
 }
 
-// The enum is checked, and the message names the vocabulary — the same treatment
-// ephemeral_storage gets. `journal`'s retirement is why this is worth stating: that key
-// carried the identical off/user/full spelling and lost its enum check when it was
-// retired, so "off/user/full is validated somewhere in this repo" is not a safe inference.
-func TestMacosLogRejectsAnythingOutsideItsVocabulary(t *testing.T) {
-	for _, body := range []string{`"verbose"`, `"user "`, `""`, `true`, `3`, `["user"]`} {
-		errs, _ := ValidateConfig(decode(t, `{"macos_log": `+body+`}`), t.TempDir(), nil)
-		var got []string
-		for _, e := range errs {
-			if strings.Contains(e, "macos_log") {
-				got = append(got, e)
-			}
-		}
-		if len(got) != 1 || !strings.Contains(got[0], "expected one of") {
-			t.Errorf("macos_log %s: errors = %v, want one 'expected one of'", body, got)
-			continue
-		}
-		for _, mode := range MacosLogModes {
-			if !strings.Contains(got[0], mode) {
-				t.Errorf("macos_log %s: %q never names the legal mode %q", body, got[0], mode)
-			}
+// In a jail the config is the host-generated snapshot, so the refusal is a warning there.
+func TestRetiredMacosLogKeyOnlyWarnsInsideAJail(t *testing.T) {
+	t.Setenv("YOLO_VERSION", "0.12.2")
+	errs, warns := ValidateConfig(decode(t, `{"macos_log": "user"}`), t.TempDir(), nil)
+	if len(containing(errs, "macos_log")) != 0 || len(containing(warns, "config.macos_log")) != 1 {
+		t.Errorf("in-jail: errs %v warns %v, want one warning", errs, warns)
+	}
+}
+
+// The key is listed as retired, so config-ref's coverage check does not demand it be documented.
+func TestMacosLogIsARetiredKey(t *testing.T) {
+	for _, k := range TopLevelConfigKeys() {
+		if k == "macos_log" {
+			t.Error("macos_log is still a live top-level key")
 		}
 	}
-	// An explicit null is "not set", like every other optional key here.
-	for _, body := range []string{`{"macos_log": null}`, `{}`} {
-		errs, _ := ValidateConfig(decode(t, body), t.TempDir(), nil)
-		for _, e := range errs {
-			if strings.Contains(e, "macos_log") {
-				t.Errorf("%s produced %s", body, e)
-			}
-		}
+	found := false
+	for _, k := range RetiredConfigKeys() {
+		found = found || k == "macos_log"
+	}
+	if !found {
+		t.Error("macos_log is not in RetiredConfigKeys")
 	}
 }

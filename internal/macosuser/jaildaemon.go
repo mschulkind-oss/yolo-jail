@@ -28,8 +28,8 @@ package macosuser
 //
 // # The loophole clients the agent runs (the same ruling, one step over)
 //
-// OQ-DP8's principle covers the CLIENTS too: `yolo-serial` and `yolo-ps` would have run in the
-// jail container, so they run on the guest. They are staged into GuestBinDir with yolo-jaild,
+// OQ-DP8's principle covers the CLIENTS too: `yolo-serial`, `yolo-ps` and `yolo-log` would have
+// run in the jail container, so they run on the guest. They are staged into GuestBinDir with yolo-jaild,
 // as one set (GuestBinaries), whenever the session env carries an endpoint one of them reads
 // (GuestClients), and they resolve on the agent's PATH, which SandboxPath gives GuestBinDir.
 // A launch with neither a daemon nor such an endpoint stages none of it, so a checkout launch
@@ -88,6 +88,7 @@ type GuestClient struct {
 var GuestClients = []GuestClient{
 	{Binary: "yolo-serial", Loophole: "serial", EndpointEnv: paths.SerialEndpointEnv},
 	{Binary: "yolo-ps", Loophole: "host-processes", EndpointEnv: paths.HostProcessesEndpointEnv},
+	{Binary: "yolo-log", Loophole: "macos-log", EndpointEnv: paths.MacosLogEndpointEnv},
 }
 
 // GuestBinaries is the guest's darwin in-jail set — only what a guest actually RUNS. It is a

@@ -88,7 +88,7 @@ func ValidateConfig(config *jsonx.OrderedMap, workspace string, resolver Loophol
 	validateJournalRetired(config, errs, warns)
 	validateKVM(config, errs)
 	validateEphemeralStorage(config, errs)
-	validateMacosLog(config, errs)
+	validateMacosLogRetired(config, errs, warns)
 	validateNetwork(config, errs, warns)
 	validateSecurity(config, errs)
 	validateHostProcessesRetired(config, errs, warns)
@@ -765,31 +765,39 @@ func validateEphemeralStorage(config *jsonx.OrderedMap, errs *[]string) {
 	}
 }
 
-// validateMacosLog shape-checks the `macos_log` dial (MacosLogModes; default off).
+// validateMacosLogRetired reports the RETIRED top-level `macos_log` key.
 //
-// THE KEY HAD NO ENTRY IN knownTopLevelConfigKeys UNTIL 2026-09-16, which made it the
-// one dial yolo instructed a user into and then refused. Everything else about the
-// feature shipped — the read site, the generator in all three modes, the native
-// bootstrap that installs the helper — so the only observable behaviour was the generic
-// `config.macos_log: unknown key`, a FATAL pre-flight error, printed at the launch after
-// the one where yolo-log's own `off` stub told the user to write
-// `"macos_log": "user"` (docs/plans/setup-support-gaps.md F1).
+// The key dialled a `yolo-log` wrapper that ran Apple's `/usr/bin/log` INSIDE the macos-user
+// sandbox, and that could not work: the sandbox account cannot read the unified log even with
+// no Seatbelt profile (macos-user CI run 37940733418; packs/macos-log/README.md). The log is
+// now read on the host, by the `macos-log` loophole of the official `macos-log` pack, so the
+// key went the way `journal` did: core's schema names no loophole.
 //
-// NOT GATED ON THE RUNTIME, like `kvm` on macOS: only the macos-user backend reads the
-// value (macosuser.buildBootstrapEnv is the sole writer of YOLO_DARWIN_MACOS_LOG), so on
-// a container backend it is inert. Refusing it there would make one config file unusable
-// across two of the user's own machines, which is the opposite of what a backend-shaped
-// key is for.
-func validateMacosLog(config *jsonx.OrderedMap, errs *[]string) {
-	v, present := config.Get("macos_log")
-	if !present || v == nil {
+// A REFUSAL, not silence, for validateJournalRetired's reason: the key turned a capability on,
+// and a config still asking for it must be told where it went. The message carries the three
+// steps (select the pack, enable the loophole, and for the old "full" the user-scope setting).
+// `"macos_log": "off"` asked for nothing, but it is refused all the same: one rule for one key,
+// and the fix — delete the line — is in the message.
+//
+// ERROR ON THE HOST, WARNING INSIDE A JAIL, for validateJournalRetired's reason.
+func validateMacosLogRetired(config *jsonx.OrderedMap, errs, warns *[]string) {
+	if _, present := config.Get("macos_log"); !present {
 		return
 	}
-	s, ok := asStr(v)
-	if !ok || !inStrSlice(MacosLogModes, s) {
-		add(errs, fmt.Sprintf("config.macos_log: expected one of %s (got %s)",
-			pyListRepr(MacosLogModes), pyReprValue(v)))
+	msg := "config.macos_log: REMOVED — the macOS unified log is now read on the host by the " +
+		"`macos-log` loophole, because the macos-user sandbox account cannot read it itself. " +
+		"Delete the key; to read the log from a jail, write " +
+		`"packs": ["macos-log"] plus "loopholes": {"macos-log": {"enabled": true}}, which ` +
+		`is what "macos_log": "user" was meant to give (entries from the sandbox's own ` +
+		`processes). The old "full" is one more key — "loopholes": {"macos-log": ` +
+		`{"settings": {"full": true}}} — and it is USER-CONFIG-ONLY: ` +
+		"~/.config/yolo-jail/config.jsonc. Then run `yolo check`."
+	if inJail() {
+		add(warns, msg+" (ignored here: this is the host-generated config snapshot, "+
+			"so remove the key from the HOST config.)")
+		return
 	}
+	add(errs, msg)
 }
 
 func validateNetwork(config *jsonx.OrderedMap, errs, warns *[]string) {

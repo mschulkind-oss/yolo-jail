@@ -50,7 +50,7 @@ func (f *homeRootFixture) launchDir(name string, entry config.HostFileEntry, fil
 	setHostFiles(f.t, e, entry)
 	var out strings.Builder
 	e.Stderr = &out
-	err := RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
+	err := RunDarwinBootstrap(e, DarwinBootstrapOptions{})
 	return out.String(), err
 }
 

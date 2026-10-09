@@ -370,13 +370,13 @@ func catalogPath(e *Env, abs string) string {
 }
 
 // catalogLocalBinOrphans compares ~/.local/bin against everything that has an owner: a
-// pack's native installer, the two MCP wrapper surfaces, the macOS log helper, and the
+// pack's native installer, the two MCP wrapper surfaces, the retired macOS log wrapper, and the
 // stale in-jail clients RemoveStaleGeneratedClients is already unlinking this boot.
 func catalogLocalBinOrphans(e *Env, packs []*packload.Pack) []pathOrphan {
 	declared := map[string]struct{}{
 		"chrome-devtools-mcp-wrapper": {}, // GenerateMCPWrappers
 		"mcp-wrappers":                {}, // its sibling directory
-		"yolo-log":                    {}, // InstallYoloLog (macOS)
+		"yolo-log":                    {}, // RetireYoloLog (macOS) unlinks ours and names any other
 	}
 	for _, name := range staleGeneratedClients {
 		declared[name] = struct{}{}

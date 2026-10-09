@@ -221,34 +221,29 @@ func TestBackendLimitsSayTheUserlandIsBSD(t *testing.T) {
 	}
 }
 
-// The two refusals this backend's profile makes by default, and the setting that lifts each.
-// An agent that runs `/usr/bin/log show` or configures a serial adapter is refused by the
-// Seatbelt profile with nothing it can see naming the cause; the stop names its next step here
-// (AGENTS.md "Every stop names the next step"). The log sentence follows the profile's own
-// reading of `macos_log` (macosuser.MacosLogOff): absent, "off" and every value the profile
-// treats as off carry it, "user" and "full" do not. The device sentence is unconditional, like
-// the ioctl deny it describes. Both are asserted on the composed briefing, so deleting the
-// branch from backendLimits fails them.
+// The two refusals this backend's profile makes, and what gets past each. An agent that runs
+// `/usr/bin/log show` or configures a serial adapter is refused by the Seatbelt profile with
+// nothing it can see naming the cause; the stop names its next step here (AGENTS.md "Every stop
+// names the next step"). Both sentences are unconditional, like the denies they describe: the
+// log one names `yolo-log` and the macos-log loophole that stages it, the device one the
+// `devices` entry. Both are asserted on the composed briefing, so deleting the branch from
+// backendLimits fails them.
 func TestBackendLimitsNameTheLogAndDeviceSettings(t *testing.T) {
-	const logLine = "The macOS unified log is unreadable here"
+	const logLine = "The macOS unified log is unreadable from this sandbox"
 	const devLine = "Device control calls (`ioctl`) on /dev nodes are refused here"
-	for _, mode := range []any{nil, "off", "bogus", "user", "full"} {
-		cfg := appliedTestConfig()
-		if mode != nil {
-			cfg.Set("macos_log", mode)
+	got := macosUserBriefing(t, appliedTestConfig())
+	for _, want := range []string{logLine, "`yolo-log` reads it on the host", "`macos-log` pack",
+		"`\"loopholes\": {\"macos-log\": {\"enabled\": true}}`", "relaunch"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the briefing's log sentence lacks %q:\n%s", want, got)
 		}
-		got := macosUserBriefing(t, cfg)
-		wantLog := mode == nil || mode == "off" || mode == "bogus"
-		if has := strings.Contains(got, logLine); has != wantLog {
-			t.Errorf("macos_log %v: the briefing carries the log sentence = %v, want %v:\n%s", mode, has, wantLog, got)
-		}
-		if wantLog && !strings.Contains(got, "ask the human to set `\"macos_log\": \"user\"`") {
-			t.Errorf("macos_log %v: the log sentence does not name the setting that lifts it:\n%s", mode, got)
-		}
-		if !strings.Contains(got, devLine) || !strings.Contains(got, "add its path") ||
-			!strings.Contains(got, "to `devices` in yolo-jail.jsonc") {
-			t.Errorf("macos_log %v: the briefing lacks the device sentence with its next step:\n%s", mode, got)
-		}
+	}
+	if strings.Contains(got, "macos_log") {
+		t.Errorf("the briefing still names the retired macos_log key:\n%s", got)
+	}
+	if !strings.Contains(got, devLine) || !strings.Contains(got, "add its path") ||
+		!strings.Contains(got, "to `devices` in yolo-jail.jsonc") {
+		t.Errorf("the briefing lacks the device sentence with its next step:\n%s", got)
 	}
 	for _, rt := range []string{"podman", "container"} {
 		got := strings.Join(backendLimits(rt, nil, jsonx.NewOrderedMap(), nil), "\n")

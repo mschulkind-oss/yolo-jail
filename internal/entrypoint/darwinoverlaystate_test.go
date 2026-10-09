@@ -97,7 +97,7 @@ func bootDarwinForPack(t *testing.T, home, ws, packRoot, overlay string) *string
 		"YOLO_DARWIN_HOME_OVERLAY": overlay,
 	}, home)
 	e.Stderr = &stderr
-	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
+	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{})
 	return &stderr
 }
 

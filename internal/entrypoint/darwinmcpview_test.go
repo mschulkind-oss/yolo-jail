@@ -248,7 +248,7 @@ func TestTheDarwinBootstrapKeepsAServerGatedOnASharedNameAProfileComposes(t *tes
 	var term strings.Builder
 	e.Stderr = &term
 
-	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
+	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{})
 
 	claudeJSON, err := os.ReadFile(e.ClaudeJSONPath())
 	if err != nil {

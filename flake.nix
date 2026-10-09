@@ -1293,8 +1293,10 @@
         # generator has to also unlink the file it used to write, which
         # entrypoint's stale-wrapper cleanup does. Two of the clients here,
         # yolo-serial and yolo-ps, are also built for darwin into the macos-user
-        # guest (guestBinaries below), because their loopholes run on a Mac.
-        shippedBinaries = [ "yolo" "yolo-entrypoint" "yolo-jaild" "yolo-ps" "yolo-cglimit" "yolo-journalctl" "yolo-serial" ];
+        # guest (guestBinaries below), because their loopholes run on a Mac, as is
+        # yolo-log, whose macos-log loophole runs ONLY on a Mac: it ships here too
+        # because the guest set is a subset of this one by rule.
+        shippedBinaries = [ "yolo" "yolo-entrypoint" "yolo-jaild" "yolo-ps" "yolo-cglimit" "yolo-journalctl" "yolo-serial" "yolo-log" ];
         installPrefix = pkgs.runCommand "yolo-jail-install-prefix" { } ''
           mkdir -p $out/opt/yolo-jail/bin \
                    $out/opt/yolo-jail/share/yolo-jail/bin/linux-${goArch}
@@ -1330,9 +1332,9 @@
         #
         # guestBinaries IS THE GUEST SUBSET, and it is a subset of shippedBinaries
         # on purpose: only what a guest actually RUNS. yolo-jaild (the supervisor
-        # and every in-jail daemon), and the two loophole clients whose loopholes
-        # run on a Mac: yolo-serial (the serial loophole) and yolo-ps
-        # (host-processes). `yolo` is not here — the sandbox self-execs the host's
+        # and every in-jail daemon), and the three loophole clients whose
+        # loopholes run on a Mac: yolo-serial (the serial loophole), yolo-ps
+        # (host-processes) and yolo-log (macos-log). `yolo` is not here — the sandbox self-execs the host's
         # own darwin yolo, staged by the backend — and neither is yolo-entrypoint
         # (the guest bootstrap is `yolo internal darwin-bootstrap`) nor
         # yolo-cglimit and yolo-journalctl, whose loopholes declare
@@ -1351,7 +1353,7 @@
         # the launch refuses such a bundle before building (internal/cli's
         # resolveGuestBinaries), naming the restage. goArch is the jail's arch,
         # which the darwin→linux mapping above preserves, so it is also the Mac's.
-        guestBinaries = [ "yolo-jaild" "yolo-serial" "yolo-ps" ];
+        guestBinaries = [ "yolo-jaild" "yolo-serial" "yolo-ps" "yolo-log" ];
         guestPrebuiltDir = ./. + "/bin/darwin-${goArch}";
         guestPrefix =
           if builtins.pathExists guestPrebuiltDir then

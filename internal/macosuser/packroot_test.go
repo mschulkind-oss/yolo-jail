@@ -341,7 +341,7 @@ func TestAnEnvSourcesValueCannotTurnOnAutopruneAtTheBootstrap(t *testing.T) {
 	e := entrypoint.DarwinEnvFrom(vars, home)
 	var term strings.Builder
 	e.Stderr = &term
-	_ = entrypoint.RunDarwinBootstrap(e, entrypoint.DarwinBootstrapOptions{MacosLog: "off"})
+	_ = entrypoint.RunDarwinBootstrap(e, entrypoint.DarwinBootstrapOptions{})
 	for _, k := range []string{entrypoint.OrphanAutopruneEnv, "YOLO_PACK_ROOT"} {
 		if got := e.Getenv(k); got != "" {
 			t.Errorf("%s = %q in the bootstrap's Env, taken from the agent's session env file\n%s",

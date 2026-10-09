@@ -33,6 +33,7 @@ var shippedManifestHome = map[string]string{
 	"audio":               "audio",
 	"host-processes":      "host-processes",
 	"journal":             "journal",
+	"macos-log":           "macos-log",
 	"cgroup-delegate":     "cgroup-delegate",
 	"serial":              "serial",
 	"openai-auth-broker":  "openai-auth",
@@ -191,14 +192,15 @@ func TestShippedManifestsDecodeStrictly(t *testing.T) {
 		"claude-oauth-broker": true,
 		"host-processes":      false,
 		"journal":             false,
+		"macos-log":           false,
 		"cgroup-delegate":     false,
 		"serial":              false,
 		"openai-auth-broker":  true,
 		"aws-auth":            false,
 	}
 	for _, name := range []string{
-		"audio", "claude-oauth-broker", "host-processes", "journal", "cgroup-delegate", "serial",
-		"openai-auth-broker", "aws-auth",
+		"audio", "claude-oauth-broker", "host-processes", "journal", "macos-log", "cgroup-delegate",
+		"serial", "openai-auth-broker", "aws-auth",
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := filepath.Join("/loopholes", name)
@@ -770,5 +772,39 @@ func TestShippedAWSAuthFields(t *testing.T) {
 	if m.CACertSet || len(m.HostBindMounts) != 0 || len(m.HostDevices) != 0 {
 		t.Errorf("unexpected crossings: ca=%v binds=%v devices=%v",
 			m.CACertSet, m.HostBindMounts, m.HostDevices)
+	}
+}
+
+// TestShippedMacosLogFields pins the macos-log manifest's ruling-bearing declarations
+// (packs/macos-log/README.md ML-D3, ML-D9): darwin only, off until asked for, one boolean
+// `full` that only the USER config may set, and the journal bridge's socket shape — the daemon
+// (journald.MacosLogMain) consumes the preamble exactly as the journal bridge does.
+func TestShippedMacosLogFields(t *testing.T) {
+	m, err := loopholedecl.Decode(shippedManifest(t, "macos-log"), filepath.Join("/loopholes", "macos-log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !m.PlatformsSet || !reflect.DeepEqual(m.Platforms, []string{"darwin"}) {
+		t.Errorf("platforms = %v (set=%v), want [darwin]", m.Platforms, m.PlatformsSet)
+	}
+	if m.Transport != loopholedecl.TransportLoopbackTLS {
+		t.Errorf("transport = %q", m.Transport)
+	}
+	wantCmd := []string{"yolo", "internal", "daemon", "macos-log", "--socket", "{socket}", "--settings", "{settings}"}
+	if m.HostDaemon == nil || !reflect.DeepEqual(m.HostDaemon.Cmd, wantCmd) {
+		t.Fatalf("host_daemon = %+v, want cmd %v", m.HostDaemon, wantCmd)
+	}
+	if m.HostDaemon.Publishes != loopholedecl.PublishesSocket || !m.HostDaemon.Preamble ||
+		m.HostDaemon.RequestEnd != loopholedecl.RequestEndFramed {
+		t.Errorf("host_daemon = %+v, want a framed, preamble-bearing socket", m.HostDaemon)
+	}
+	if len(m.Settings) != 1 {
+		t.Fatalf("settings = %+v, want exactly `full`", m.Settings)
+	}
+	full, ok := loopholedecl.SettingByKey(m.Settings, "full")
+	if !ok || full.Type != loopholedecl.SettingTypeBool || full.Scope != loopholedecl.SettingScopeUser ||
+		full.Default != false {
+		t.Errorf("settings.full = %+v, want a bool, user scope, default false — reading every "+
+			"entry on the Mac must not be settable from an agent-editable workspace file", full)
 	}
 }

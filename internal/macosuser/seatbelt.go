@@ -3,8 +3,6 @@ package macosuser
 import (
 	"path"
 	"strings"
-
-	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
 // SeatbeltProfile generates the SBPL sandbox profile, matching SandVault's
@@ -92,20 +90,21 @@ import (
 // classifier admits (DeviceIoctlPaths) is re-allowed `file-ioctl` alone, LAST, after the deny
 // it overrides (`#seatbelt-test-id:device-ioctl-allow#`). None declared renders nothing.
 //
-// # config.macos_log "off" (the default): THE UNIFIED LOG IS UNREADABLE
+// # THE UNIFIED LOG IS UNREADABLE FROM THE SANDBOX, ALWAYS
 //
-// It used to be advisory: "off" made the `yolo-log` helper a stub while the sandbox could run
-// /usr/bin/log itself. Under "off" the profile now denies reads of the log store and the
-// lookup of the service a live stream connects to (macosLogDenies), and nothing later
-// re-allows either. "user" and "full" render no rule, so their profiles are the ones they
-// always got. OQ-AS1's incremental-deny leaning (docs/research/agent-safehouse.md), taken as an
-// implementation decision; the store paths and the service name are INFERRED and their proof
-// is integration/macosuserseatbelt_test.go's.
+// The profile denies reads of the log store and the lookup of the service a live stream
+// connects to (macosLogDenies), and nothing later re-allows either. It used to be conditional
+// on the top-level `macos_log` key, whose "user" and "full" settings rendered no rule so an
+// in-sandbox `yolo-log` wrapper could run /usr/bin/log. That wrapper never read anything —
+// the sandbox account cannot read the log even with no profile (macos-user CI run
+// 37940733418) — so the key was retired, the log is read on the host by the `macos-log`
+// loophole (packs/macos-log/README.md), and the deny no longer has a setting to yield to.
+// The store paths and the service name are INFERRED; their proof is
+// integration/macosuserseatbelt_test.go's.
 //
-// SeatbeltProfile is the profile of a launch with no context mount, no declared device and
-// macos_log at its default, "off".
+// SeatbeltProfile is the profile of a launch with no context mount and no declared device.
 func SeatbeltProfile(workspace, sandboxHome string, readonlyRels []string, homeReadonly HomeReadonly) string {
-	return SeatbeltProfileWithContext(workspace, sandboxHome, readonlyRels, homeReadonly, nil, nil, "off")
+	return SeatbeltProfileWithContext(workspace, sandboxHome, readonlyRels, homeReadonly, nil, nil)
 }
 
 // profileWritableRoots is the writable set's fixed half: what the profile re-allows for
@@ -133,13 +132,12 @@ const bootVolume = "/Volumes/Macintosh HD"
 // and each source under /Users/Shared/ adds its intermediate directories to the ancestor
 // literals: the traversal the workspace needed, with the siblings still denied.
 //
-// devices is config.devices' raw-path entries (deviceIoctlAllow) and macosLog the config's
-// macos_log value as read (macosLogMode: absent is "off"); see SeatbeltProfile for both.
+// devices is config.devices' raw-path entries (deviceIoctlAllow).
 //
 // It renders no config TARGET outside the workspace: that is read off the workspace on disk,
 // so BuildRunPlan, which reads it (workspaceReadonlyRels), calls seatbeltProfile itself.
-func SeatbeltProfileWithContext(workspace, sandboxHome string, readonlyRels []string, homeReadonly HomeReadonly, ctx []ContextLink, devices []string, macosLog string) string {
-	return seatbeltProfile(workspace, sandboxHome, readonlyRels, nil, homeReadonly, ctx, nil, devices, macosLog)
+func SeatbeltProfileWithContext(workspace, sandboxHome string, readonlyRels []string, homeReadonly HomeReadonly, ctx []ContextLink, devices []string) string {
+	return seatbeltProfile(workspace, sandboxHome, readonlyRels, nil, homeReadonly, ctx, nil, devices)
 }
 
 // SeatbeltProfileWithRelocations is SeatbeltProfileWithContext plus the user's CACHE RELOCATIONS
@@ -148,14 +146,14 @@ func SeatbeltProfileWithContext(workspace, sandboxHome string, readonlyRels []st
 // it re-opens, and before the keychain and unified-log denies, which still win
 // (`#seatbelt-test-id:cache-relocation-write-allow#`, `#seatbelt-test-id:cache-relocation-read-allow#`).
 // With none it is byte-identical to SeatbeltProfileWithContext.
-func SeatbeltProfileWithRelocations(workspace, sandboxHome string, readonlyRels []string, homeReadonly HomeReadonly, ctx []ContextLink, relocs []CacheRelocation, devices []string, macosLog string) string {
-	return seatbeltProfile(workspace, sandboxHome, readonlyRels, nil, homeReadonly, ctx, relocs, devices, macosLog)
+func SeatbeltProfileWithRelocations(workspace, sandboxHome string, readonlyRels []string, homeReadonly HomeReadonly, ctx []ContextLink, relocs []CacheRelocation, devices []string) string {
+	return seatbeltProfile(workspace, sandboxHome, readonlyRels, nil, homeReadonly, ctx, relocs, devices)
 }
 
 // seatbeltProfile is the one profile builder. readonlyTargets is the absolute half of
 // workspace_readonly's lock, a symlinked config's target outside the workspace
 // (workspaceReadonlyRels), rendered into the same deny form as readonlyRels (readonlyDenies).
-func seatbeltProfile(workspace, sandboxHome string, readonlyRels, readonlyTargets []string, homeReadonly HomeReadonly, ctx []ContextLink, relocs []CacheRelocation, devices []string, macosLog string) string {
+func seatbeltProfile(workspace, sandboxHome string, readonlyRels, readonlyTargets []string, homeReadonly HomeReadonly, ctx []ContextLink, relocs []CacheRelocation, devices []string) string {
 	if sandboxHome == "" {
 		sandboxHome = SandboxHome()
 	}
@@ -225,7 +223,7 @@ func seatbeltProfile(workspace, sandboxHome string, readonlyRels, readonlyTarget
 		";;     readable while denying the pair above (agent-safehouse.md §8.2.3) ---\n" +
 		";; #seatbelt-test-id:system-keychains-deny#\n" +
 		"(deny file-read* (subpath \"/System/Library/Keychains\"))\n" +
-		macosLogDenies(macosLog) +
+		macosLogDenies() +
 		"\n" +
 		";; --- Process introspection the agent's tooling needs ---\n" +
 		"(allow process-info*)\n" +
@@ -338,26 +336,7 @@ func volumeAncestorLiterals(targets []string) string {
 	return b.String()
 }
 
-// macosLogModeOff reports whether a macos_log value leaves the log unreadable: "off" itself,
-// and every value MacosLogWrapperScript rewrites to it (anything config.MacosLogModes does not
-// list, the empty string included). One lookup with the helper, so the stub and the deny are
-// never handed two different readings of one value.
-func macosLogModeOff(mode string) bool {
-	if _, ok := macosLogModes[mode]; !ok {
-		return true
-	}
-	return mode == "off"
-}
-
-// MacosLogOff reports whether a launch of cfg gets the macos_log "off" profile: the key as
-// BuildRunPlan reads it (macosLogMode: absent is "off"), judged by the predicate the deny is
-// gated on. The agent's briefing asks this (internal/cli/run's backendLimits), so the sentence
-// telling the agent the log is unreadable, and naming the setting that lifts it, and the deny
-// that makes it unreadable are never handed two readings of one config.
-func MacosLogOff(cfg *jsonx.OrderedMap) bool { return macosLogModeOff(macosLogMode(cfg)) }
-
-// macosLogDenies renders the macos_log "off" rules, or "" for "user" and "full", whose profiles
-// stay byte-identical to the ones they always got.
+// macosLogDenies renders the unified-log rules every profile carries.
 //
 //   - file-read* of the two stores `log show` reads: the persisted entries under
 //     /private/var/db/diagnostics and the format strings under /private/var/db/uuidtext.
@@ -369,19 +348,16 @@ func MacosLogOff(cfg *jsonx.OrderedMap) bool { return macosLogModeOff(macosLogMo
 // Placed after every file-read re-allow in the profile (the workspace's, the context mounts')
 // so none can re-open the stores; nothing after it allows a mach-lookup. ⚠ INFERRED, never
 // loaded on a Mac: the two store paths and the service name. Their runtime proof is the
-// macos_log cases in integration/macosuserseatbelt_test.go, with a "user" profile as control.
-func macosLogDenies(mode string) string {
-	if !macosLogModeOff(mode) {
-		return ""
-	}
-	return ";; --- config.macos_log is \"off\": the unified log is unreadable from the sandbox,\n" +
-		";;     not only through the yolo-log helper.  Its stores, then its live stream.\n" +
+// macos_log case in integration/macosuserseatbelt_test.go, with the bare run as control.
+func macosLogDenies() string {
+	return ";; --- The unified log is unreadable from the sandbox: yolo-log reads it on the\n" +
+		";;     host (the macos-log loophole).  Its stores, then its live stream.\n" +
 		";;     Nothing below re-allows a file read or a mach lookup. ---\n" +
-		";; #seatbelt-test-id:macos-log-off-deny#\n" +
+		";; #seatbelt-test-id:macos-log-deny#\n" +
 		"(deny file-read*\n" +
 		"    (subpath \"/private/var/db/diagnostics\")\n" +
 		"    (subpath \"/private/var/db/uuidtext\"))\n" +
-		";; #seatbelt-test-id:macos-log-off-stream-deny#\n" +
+		";; #seatbelt-test-id:macos-log-stream-deny#\n" +
 		"(deny mach-lookup (global-name \"com.apple.diagnosticd\"))\n"
 }
 

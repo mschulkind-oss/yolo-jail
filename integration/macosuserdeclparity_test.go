@@ -25,9 +25,9 @@ import (
 //     workspace declares `resources`;
 //   - DP-B4: the launch prints the `kvm` and `gpu.enabled` "not read on macos-user" lines;
 //   - DP-B5: and the `ephemeral_storage: "tmpfs"` one, which this backend cannot give;
-//   - the two refusals the profile makes by default, each with the setting that lifts it: the
-//     unified log under `macos_log` "off" (the workspace sets no `macos_log`, so off is what
-//     runs) and device ioctls on any /dev node `devices` does not list.
+//   - the two refusals the profile makes, each with what gets past it: the unified log, which
+//     the sandbox never reads and `yolo-log` reads on the host through the macos-log loophole,
+//     and device ioctls on any /dev node `devices` does not list.
 //   - TestMacosUserRefusesADeclaredContextMount: DP-B1, whose disposition since 2026-09-30 is
 //     DP-D15's fatal refusal. A `mounts` entry whose source exists refuses the launch, naming it,
 //     before any sandbox starts.
@@ -61,8 +61,8 @@ func TestMacosUserBriefingAndLaunchLinesDescribeThisBackend(t *testing.T) {
 			"the Home line does not say the account home is shared by every workspace"},
 		{"DP-B3", "- **Network**: Host networking",
 			"the network line is not host networking, which is what a native process has"},
-		{"macos_log", "The macOS unified log is unreadable here",
-			"the agent is not told that `macos_log` \"off\", the default, denies it the log, nor which setting lifts the deny"},
+		{"macos-log", "The macOS unified log is unreadable from this sandbox",
+			"the agent is not told the sandbox cannot read the log, nor that the macos-log loophole's `yolo-log` reads it on the host"},
 		{"devices", "Device control calls (`ioctl`) on /dev nodes are refused here",
 			"the agent is not told the profile refuses device ioctls, nor that a `devices` entry is the fix"},
 	} {

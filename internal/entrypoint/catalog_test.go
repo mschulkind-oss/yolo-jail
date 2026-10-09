@@ -269,7 +269,7 @@ func TestCatalogNamesLocalBinOrphansWithTheirSize(t *testing.T) {
 	}
 	for _, spared := range []string{
 		"declared-native",             // the pack's native program
-		"yolo-log",                    // InstallYoloLog
+		"yolo-log",                    // RetireYoloLog
 		"chrome-devtools-mcp-wrapper", // GenerateMCPWrappers
 		"mcp-wrappers",                // its sibling directory
 		"yolo-cglimit",                // staleGeneratedClients — this boot is already unlinking it
@@ -521,7 +521,7 @@ func TestTheDarwinBootstrapCatalogsOrphansIntoItsBootLog(t *testing.T) {
 	var term strings.Builder
 	e.Stderr = &term
 
-	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
+	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{})
 
 	if !strings.Contains(term.String(), catalogSummary(1)) {
 		t.Errorf("the macos-user bootstrap did not catalog the orphan on the terminal:\n%s",
@@ -575,7 +575,7 @@ func TestTheDarwinBootstrapAutoprunesThroughTheHomeLayoutLink(t *testing.T) {
 	var term strings.Builder
 	e.Stderr = &term
 
-	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
+	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{})
 
 	if fi, err := os.Lstat(filepath.Join(home, ".npm-global")); err != nil || fi.Mode()&os.ModeSymlink == 0 {
 		t.Fatalf("the fixture is not the layout this test is about: ~/.npm-global is not a link (err=%v)\n%s",
@@ -717,7 +717,7 @@ func TestTheDarwinBootstrapRemovesNothingThroughALinkInTheSidecar(t *testing.T) 
 	var term strings.Builder
 	e.Stderr = &term
 
-	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
+	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{})
 
 	if fi, err := os.Lstat(filepath.Join(home, ".local")); err != nil || fi.Mode()&os.ModeSymlink == 0 {
 		t.Fatalf("the fixture is not the layout this test is about: ~/.local is not a link (err=%v)\n%s",
@@ -773,7 +773,7 @@ func TestTheDarwinBootstrapRemovesNoNpmPackageThroughALinkInTheSidecar(t *testin
 	var term strings.Builder
 	e.Stderr = &term
 
-	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
+	_ = RunDarwinBootstrap(e, DarwinBootstrapOptions{})
 
 	if _, err := os.Stat(victim); err != nil {
 		t.Fatalf("autoprune removed a package directory in another workspace (err=%v)\n%s", err, term.String())

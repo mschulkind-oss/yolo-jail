@@ -154,7 +154,7 @@ func TestMacosUserDirectoryHostFileKeepsEachFilesPermissions(t *testing.T) {
 	// The bootstrap reads the pack tree through LoadJailPacks, which switches the process to the
 	// tolerant manifest decoder; strictPackloadReads restores strict host reads at test cleanup.
 	strictPackloadReads(t)
-	if err := entrypoint.RunDarwinBootstrap(e, entrypoint.DarwinBootstrapOptions{MacosLog: "off"}); err != nil {
+	if err := entrypoint.RunDarwinBootstrap(e, entrypoint.DarwinBootstrapOptions{}); err != nil {
 		for _, step := range []string{"darwin_home_layout", "configure_host_files"} {
 			if strings.Contains(err.Error(), step) {
 				t.Fatalf("the bootstrap's %s step failed: %v\n%s", step, err, said.String())

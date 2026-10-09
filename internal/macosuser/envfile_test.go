@@ -347,7 +347,7 @@ func TestAnEnvGatedServerSurvivesTheLaunchToBootstrapCrossing(t *testing.T) {
 	e := entrypoint.DarwinEnvFrom(vars, home)
 	var term strings.Builder
 	e.Stderr = &term
-	_ = entrypoint.RunDarwinBootstrap(e, entrypoint.DarwinBootstrapOptions{MacosLog: "off"})
+	_ = entrypoint.RunDarwinBootstrap(e, entrypoint.DarwinBootstrapOptions{})
 	if e.Getenv("GITHUB_TOKEN") != "ghp-not-a-real-token" {
 		t.Fatalf("the bootstrap's Env never saw the session file's GITHUB_TOKEN:\n%s", term.String())
 	}

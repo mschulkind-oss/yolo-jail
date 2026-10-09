@@ -1,0 +1,53 @@
+// The `macos-log` loophole, shipped by the OFFICIAL `macos-log` pack — the Mac's unified
+// log, read on the host by Apple's `/usr/bin/log` and reached from inside the jail as
+// `yolo-log`. internal/journald (MacosLogMain) is the daemon and cmd/yolo-log the client,
+// both BAKED, as the journal bridge's are. packs/macos-log/README.md is the ledger.
+//
+// IT REPLACES THE TOP-LEVEL `macos_log` KEY, which dialled an in-sandbox wrapper around
+// `/usr/bin/log`. That wrapper could not work: the macos-user sandbox account cannot read
+// the unified log even with no Seatbelt profile (macos-user CI run 37940733418), so the log
+// is read by the host user, here, and the key is a refusal naming this loophole — the
+// journal bridge's own conversion, for the same reason: core's schema names no loophole.
+{
+  "name": "macos-log",
+  "description": "Read the Mac's unified log from inside the jail (yolo-log). Every request is narrowed to the macos-user sandbox account's processes unless this loophole's own `full` setting says otherwise.",
+  "version": 1,
+
+  // OFF until asked for, as `journal` is. The switch is
+  // `"loopholes": {"macos-log": {"enabled": true}}`, either scope.
+  "default_enabled": false,
+
+  // A Mac's log, so darwin only. Declared, not probed: on Linux there is nothing to
+  // install. `/usr/bin/log` missing on a Mac is reported per request (exit 127).
+  "platforms": [
+    "darwin"
+  ],
+
+  "transport": "loopback-tls",
+  "lifecycle": "spawned",
+
+  // ONE BOOLEAN, `scope: "user"`, for the journal bridge's reason: a workspace file is one
+  // the agent can rewrite, so a workspace may switch the bridge on and get the narrow view
+  // and only the user config may widen it. A bool cannot spell itself wrong; the retired
+  // key's `off | user | full` string could, and its `user` was never scoped at all.
+  "settings": {
+    "full": {
+      "type": "bool",
+      "scope": "user",
+      "default": false,
+      "description": "pass yolo-log's arguments to `log` unchanged, reading every entry on the Mac (the host user must be allowed to read the log, which an admin is); false keeps `show` and `stream` only and sends only entries logged by the macos-user sandbox account's processes"
+    }
+  },
+
+  // The journal bridge's shape exactly: a plain AF_UNIX socket behind yolo's front, the
+  // preamble consumed by the daemon, one framed request line. The jail reads
+  // YOLO_SERVICE_MACOS_LOG_ENDPOINT, a function of this loophole's name.
+  "host_daemon": {
+    "cmd": [
+      "yolo", "internal", "daemon", "macos-log",
+      "--socket", "{socket}",
+      "--settings", "{settings}"
+    ],
+    "publishes": "socket"
+  }
+}

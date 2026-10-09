@@ -105,7 +105,7 @@ func (f *homeRootFixture) launch(name, hostBytes string, entries ...config.HostF
 	}
 	var out strings.Builder
 	e.Stderr = &out
-	err := RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
+	err := RunDarwinBootstrap(e, DarwinBootstrapOptions{})
 	return out.String(), err
 }
 

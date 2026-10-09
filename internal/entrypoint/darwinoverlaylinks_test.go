@@ -90,7 +90,7 @@ func (f *bootFixture) boot(overlay map[string]string) error {
 	}
 	e := DarwinEnvFrom(vars, f.home)
 	e.Stderr = &strings.Builder{}
-	return RunDarwinBootstrap(e, DarwinBootstrapOptions{MacosLog: "off"})
+	return RunDarwinBootstrap(e, DarwinBootstrapOptions{})
 }
 
 // overlayDestOf is the destination a fixture overlay file belongs to: the `skills` directory

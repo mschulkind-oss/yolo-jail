@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
@@ -29,12 +30,6 @@ import (
 // DarwinBootstrapOptions carries the sandbox-specific inputs the darwin
 // generation entry needs beyond what Env already holds.
 type DarwinBootstrapOptions struct {
-	// MacosLog gates the yolo-log helper: "off" | "user" | "full".
-	MacosLog string
-	// YoloLogScript is the yolo-log helper body (macosuser.MacosLogWrapperScript).
-	// Passed in rather than generated here to keep this package free of the
-	// macosuser dependency (macosuser imports entrypoint, not the reverse).
-	YoloLogScript string
 	// Version is this binary's own build stamp (version.Baked, "" when unstamped), for the
 	// boot log's header. The container's header reads YOLO_VERSION instead, and this
 	// bootstrap's environment must never carry that variable: it is the jail marker, so
@@ -202,19 +197,41 @@ func InstallHomeOverlay(e *Env, packs []*packload.Pack) error {
 	return installHomeOverlayDestinations(src, e.Home, roots, overlayLinksOf(layout))
 }
 
-// InstallYoloLog writes the yolo-log helper to ~/.local/bin/yolo-log (0755) —
-// the macOS unified-logging analog of the Linux jail's yolo-journalctl bridge.
-// An empty script is a no-op (the "off" mode still writes a stub via the
-// caller's MacosLogWrapperScript, so empty only happens if the caller opts out).
-func InstallYoloLog(e *Env, script string) error {
-	if script == "" {
+// RetireYoloLog removes the `yolo-log` wrapper an older bootstrap wrote to ~/.local/bin.
+//
+// That wrapper ran /usr/bin/log inside the sandbox, which reads nothing as the sandbox
+// account, and `yolo-log` is now the macos-log loophole's client, staged into the guest
+// prefix (macosuser.GuestClients). ~/.local/bin precedes that prefix on the sandbox PATH and
+// lives in the workspace sidecar, which outlives a launch, so a leftover wrapper would
+// shadow the client in every later session.
+//
+// Only a file yolo wrote is removed: the retired generator's header plus one of its bodies.
+// Anything else at that path is the user's, kept, and named on e.Stderr with the fix.
+func RetireYoloLog(e *Env) error {
+	p := filepath.Join(e.Home, ".local", "bin", "yolo-log")
+	data, err := os.ReadFile(p)
+	if err != nil {
 		return nil
 	}
-	binDir := filepath.Join(e.Home, ".local", "bin")
-	if err := os.MkdirAll(binDir, 0o755); err != nil {
-		return err
+	if retiredYoloLogWrapper(string(data)) {
+		return os.Remove(p)
 	}
-	return writeExecutable(filepath.Join(binDir, "yolo-log"), script)
+	if e.Stderr == nil {
+		return nil
+	}
+	fmt.Fprintf(e.Stderr, "yolo-jail: %s is not yolo's and shadows the macos-log bridge's "+
+		"yolo-log client on PATH; rename or delete it to use the bridge.\n", p)
+	return nil
+}
+
+// retiredYoloLogWrapper reports whether body is one the retired generator
+// (macosuser.MacosLogWrapperScript, deleted 2026-10-09) wrote, in any of its three modes.
+func retiredYoloLogWrapper(body string) bool {
+	if !strings.HasPrefix(body, "#!/bin/bash\nset -euo pipefail\n") {
+		return false
+	}
+	return strings.Contains(body, "yolo-log: macOS log access is disabled.") ||
+		strings.Contains(body, "exec /usr/bin/log ")
 }
 
 // WriteLoginRC re-prepends the sandbox PATH in the login rc files (.zprofile, .zshrc,

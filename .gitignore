@@ -25,6 +25,7 @@ build/
 /yolo-entrypoint
 /yolo-jaild
 /yolo-journalctl
+/yolo-log
 /yolo-ps
 /yolo-serial
 /build-wheels

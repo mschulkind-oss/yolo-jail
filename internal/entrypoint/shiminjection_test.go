@@ -197,9 +197,7 @@ func TestDarwinBootstrapWritesNonInjectableShims(t *testing.T) {
 	e.Workspace = filepath.Join(t.TempDir(), "proj")
 	e.ShimBinDir = "/usr/bin"
 
-	RunDarwinBootstrap(e, DarwinBootstrapOptions{
-		YoloLogScript: "#!/bin/sh\nexec /usr/bin/log \"$@\"\n",
-	})
+	RunDarwinBootstrap(e, DarwinBootstrapOptions{})
 
 	shim := filepath.Join(home, ".yolo/bin/block", "curl")
 	if _, err := os.Stat(shim); err != nil {

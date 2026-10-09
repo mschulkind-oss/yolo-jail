@@ -159,9 +159,9 @@ const (
 	JailDaemonReadyFDEnv = "YOLO_JAIL_DAEMON_READY_FD"
 )
 
-// SerialEndpointEnv and HostProcessesEndpointEnv are the endpoint variables two in-jail
-// loophole CLIENTS read: `yolo-serial` the serial loophole's, `yolo-ps` the host-processes
-// loophole's. Each is YOLO_SERVICE_<NAME>_ENDPOINT for its loophole's name, the spelling the
+// SerialEndpointEnv, HostProcessesEndpointEnv and MacosLogEndpointEnv are the endpoint
+// variables three in-jail loophole CLIENTS read: `yolo-serial` the serial loophole's, `yolo-ps`
+// the host-processes loophole's, `yolo-log` the macos-log loophole's. Each is YOLO_SERVICE_<NAME>_ENDPOINT for its loophole's name, the spelling the
 // run pipeline's hostServiceEnvVar produces, composed from the two halves above so the three
 // cannot drift.
 //
@@ -173,6 +173,7 @@ const (
 const (
 	SerialEndpointEnv        = ServiceEnvVarPrefix + "SERIAL" + ServiceEnvVarSuffix
 	HostProcessesEndpointEnv = ServiceEnvVarPrefix + "HOST_PROCESSES" + ServiceEnvVarSuffix
+	MacosLogEndpointEnv      = ServiceEnvVarPrefix + "MACOS_LOG" + ServiceEnvVarSuffix
 )
 
 // CgdEndpointName MUST be "<BuiltinCgroupLoopholeName>.endpoint" — composed, for

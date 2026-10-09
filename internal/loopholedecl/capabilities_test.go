@@ -133,6 +133,7 @@ func TestBundledServesDeclarations(t *testing.T) {
 		"audio":               nil,
 		"host-processes":      nil,
 		"journal":             nil,
+		"macos-log":           nil,
 		"cgroup-delegate":     nil,
 		"serial":              nil,
 	}

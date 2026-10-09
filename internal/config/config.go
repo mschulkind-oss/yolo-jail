@@ -101,6 +101,7 @@ var knownTopLevelConfigKeys = set(
 // drifts from this list.
 var retiredTopLevelConfigKeys = set(
 	"repo_path", "agents", "host_processes", "journal", "agent_profiles", "use_profiles",
+	"macos_log",
 )
 
 // TopLevelConfigKeys returns the LIVE top-level config keys — everything
@@ -146,22 +147,9 @@ func RetiredConfigKeys() []string {
 
 var ephemeralStorageModes = []string{"volume", "tmpfs"}
 
-// MacosLogModes is the `macos_log` vocabulary: off (the yolo-log helper is a stub that
-// prints how to enable it), user (a scoped wrapper around Apple's `log`), full (bare
-// passthrough). The default is off, applied at the read site (macosuser.macosLogMode).
-//
-// The SAME off/user/full spelling the retired `journal` key carried, and deliberately not
-// the same fate: `journal`'s mode became a loophole setting because that feature grew a
-// manifest to declare it in. This one has no loophole — macos-user runs the host's own
-// `/usr/bin/log`, with no daemon and no bridge to hang a declaration off — so the schema
-// is where its vocabulary lives.
-//
-// EXPORTED so the implementation does not carry a second copy of it.
-// macosuser.MacosLogWrapperScript silently rewrites an unrecognised mode to "off", so a
-// value this validator accepted and that generator did not would hand the user a jail
-// whose yolo-log claims logging is disabled right after they enabled it, with nothing
-// printed anywhere; macosuser derives its own lookup from this list.
-var MacosLogModes = []string{"off", "user", "full"}
+// `MacosLogModes` — the macos_log off/user/full vocabulary — went with the key on
+// 2026-10-09, when the unified log became the `macos-log` loophole's
+// (packs/macos-log/README.md). Its type check went with it, for `journal`'s reason above.
 
 // knownEndpointKeys is the census for ONE protocol's entry inside a provider's
 // `endpoints` map — the two keys a derive can consume, which is also what the
