@@ -8,7 +8,7 @@ summary: "Source evidence for a narrowly scoped, read-only completion command; d
 
 # Completion checks read more than Go imports
 
-**Status:** Inspection only; source readers checked 2026-10-09 against the current checkout.
+**Status:** Source inspection and bounded offline diagnostics, 2026-10-09; no project gate run.
 No selector, baseline recorder or evidence-reuse mechanism is implemented by this research.
 
 > **Finding.** A small documentation shortcut is defensible; a Markdown-extension shortcut is not.
@@ -92,6 +92,76 @@ not remeasured here: at `b2eeffc12b631d5cda108238e77a6c4cb5bb777c`, the second w
 passed. Neither target was met; host-wide idleness was not proved. The unit recipe used `-count=1`;
 ordinary quality recipes may reuse Go's test cache. There is no projected or measured selector saving.
 
+## Verification context is not just Go version
+
+Source rechecked 2026-10-09. The installed Go 1.26.7 source's `cmd/go/internal/cfg.EnvFile`
+selects explicit `GOENV` or the platform user-config directory's `go/env`; `initEnvCache` also
+reads `GOROOT/go.env`. Environment overrides those defaults. Implicit cgo additionally consults
+C-compiler PATH availability. The shipped defaults enable automatic toolchain selection. See
+[upstream configuration source](https://github.com/golang/go/blob/go1.26.7/src/cmd/go/internal/cfg/cfg.go).
+Thus identical executable/version and environment strings can still hide changed settings or tools.
+
+[Official builds](../../tools/pack-binaries/recipe.go) scrub most GO/CGO values, retain selected
+cache paths and disable Go env/workspace/automatic toolchain selection for the build itself.
+[Their toolchain resolver](../../tools/pack-binaries/toolchain.go) still consults proxy environment
+and user Go env settings. That build's closed environment does not close the entire quality gate.
+
+Short-unit inputs are broader: [PATH-sensitive host tests](../../internal/cli/hostblockers_test.go),
+[ambient launch context assertions](../../internal/cli/capturelandlock_test.go),
+[native CI-dependent behavior](../../internal/capture/clone_darwin_test.go), and
+[optional network tests](../../internal/packload/packproperties_test.go#L302) are examples.
+A grep of literal environment names cannot cover dynamic names or called production file readers.
+The default supported profile therefore needs a source audit, not an all-environment hash or a
+manual caller promise. Clearing variables or replacing HOME would check a different context.
+
+The intended two-phase protocol records effective metadata during full verification and compares
+resolved file/tool identities on prose without any Go/gofmt/staticcheck argv. Direct tools and
+declared mise resolution need offline fixtures; opaque shims and custom inputs select full.
+No default profile is yet proven. That is an explicit [promotion gate](../design/change-aware-completion-plan.md#verification-context),
+not permission to ship a permanently disabled shortcut.
+
+## Renderer, checker and source citations are different mechanisms
+
+Source inspected in the readable bundled modules of the cached released Vantage 0.9.2 checker:
+[renderer pipeline](https://github.com/mschulkind-oss/vantage/blob/v0.9.2/packages/vantage-md/src/pipeline.ts),
+[question anchors](https://github.com/mschulkind-oss/vantage/blob/v0.9.2/packages/vantage-md/src/rehypeVantageAnchors.ts),
+[checker target index](https://github.com/mschulkind-oss/vantage/blob/v0.9.2/packages/vantage-check/src/core/slugs.ts),
+and [link collection](https://github.com/mschulkind-oss/vantage/blob/v0.9.2/packages/vantage-check/src/rules/links.ts).
+External URLs were not fetched; the module names and functions were read from the released bundle.
+
+The renderer processes raw HTML, directives and sanitization before question IDs and `rehype-slug`.
+The CLI target index instead builds mdast heading slugs and adds HTML `id`/`name` and question IDs.
+Links include images and definitions. The CLI exposes no AST/anchor-export command. A strict PASS
+therefore cannot supply the ordered rendered-ID comparison the shortcut needs.
+
+[The source-citation matcher](../../internal/paths/doccitations_test.go#L215-L264) is a third
+interpretation: explicit double-quoted IDs are scanned across the whole text, headings are ATX,
+and fence state uses a limited pattern. Its interpretation is not full GFM or question directives.
+A prose route must preserve its targets too; unchanged Vantage IDs alone are insufficient.
+The proposed adapter dependency remains unresolved. Do not port a regex and call it equivalent.
+
+## Bounded diagnostics establish syntax, not a shipped shortcut
+
+Synthetic local-only Git history probes confirmed that net diffs can hide an intermediate source
+change/revert, while comparing each intervening commit against every parent retains it. A two-parent
+merge exposed different paths on each parent edge. `--raw -z --no-renames` conservatively exposed
+both deleted and added rename names. Ordinary and linked worktrees resolved distinct Git
+administration directories; the common directory is not the right baseline storage location.
+
+A Linux file-inode event probe observed deliberate mutate/restore despite equal final bytes.
+It does not prove recursive registration, atomic replacement, external-context coverage, overflow
+handling or native macOS observation. The design now requires automatic bounded observation,
+not caller certification; unsupported observation runs full without reusable coverage.
+
+The actual copied `just done` recipe, with real Git/just and fake quality tools, passed its six
+full-control lint/unit/pin assertions, then failed the no-Go prose assertion as expected. It invoked
+`gofmt -w` and the Go/lint/pin commands after an ordinary allowlisted prose commit. Deleting the
+copied recipe's `check` dependency made the coverage assertion fail with an empty argv log even
+though the recipe printed success. Restoring the recipe recovered the full control, not a feature
+green. These are diagnostic reds, not landed tests, runtime execution or performance evidence.
+The [complete diagnostic listing](../design/change-aware-completion-plan.md#diagnostic-test-listing)
+is reproducible; its fake context is deliberately not accepted as a production baseline proof.
+
 ## Recommendation and remaining investigation
 
 Start with exact planning-prose paths, preserved anchors and read-only completion. The design's
@@ -101,8 +171,9 @@ plan and roadmap, but no direct executable body reader for these five paths; tha
 by this checkout and must be rechecked before implementation. Structural changes still fall back.
 
 The next source investigation is [sketch promotion](../design/change-aware-completion-plan.md#before-promotion):
-prove automatic successful-baseline persistence, reader exclusions, renderer anchor comparison and
-real-recipe fake-tool fixtures before handing any implementation off. Package-impact selection and
-exact command-result reuse come later. Preserve [local landing rules](../../AGENTS.md#workflow),
+close a reachable supported context profile, provisioned renderer adapter and complete input
+observer, then finish persistence/history/error cases in the real-front-door fixture. Baseline
+commands, record ordering and deterministic caller/prose reds are prepared, not implemented.
+Package-impact selection and exact command-result reuse come later. Preserve [local landing rules](../../AGENTS.md#workflow),
 [CI's whole-tree quality job](../../.github/workflows/ci.yml#L32-L158), native units and both Linux
 integration architectures. None of this research changes them.

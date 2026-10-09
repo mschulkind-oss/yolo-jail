@@ -3,7 +3,7 @@ title: "Completion should check the task, without rewriting it"
 date: 2026-10-09
 status: accepted
 stage: DECIDED
-next: "Complete the source investigation and adversarial fixture specification in the companion sketch before implementation hand-off"
+next: "Close the supported context profile, renderer adapter and monitored-interval fixtures in the companion sketch before implementation hand-off"
 tags: [testing, tooling, design]
 summary: "A bounded documentation-only completion shortcut, with an automatic successful baseline and conservative read-only fallback; source landing policy remains unchanged."
 ---
@@ -32,7 +32,10 @@ My recommendation is a small, read-only front door for `just done`, initially op
 proven ordinary documentation changes. **Read-only** means it does not rewrite tracked files,
 the index, refs or untracked task files. Tools may use their ordinary caches and temporary outputs;
 the command may write its own verification record under the worktree's Git administrative directory.
-It never installs, stages, commits, formats, launches a jail or publishes anything.
+It never stages, commits, formats, launches a jail or publishes anything. Provisioning is not a
+completion step: the existing gate can resolve a checker or fetch its pinned Go toolchain, so
+completion must preflight already-provisioned tools and refuse with the setup action rather than
+promise that calling the existing recipe alone prevents installation.
 
 The first slice includes automatic baseline discovery, exact prose classification, cleanliness
 before and after verification, explainable routing, and failure-safe baseline advancement.
@@ -90,7 +93,7 @@ HEAD's parent, the last commit of a task, an arbitrary user-supplied commit or a
 ### Automatic establishment and advancement
 
 1. On every `just done`, resolve the current worktree and its own Git administrative directory.
-2. Read only the successful record produced by this command. Missing, malformed, unsupported or
+2. Read the command's own success and latest-attempt records. Missing, malformed, unsupported or
    unverifiable records select the full route; do not search logs for an older green sentence.
 3. A first clean full success records HEAD, its tree, full completion coverage and the relevant
    verification context. It requires no manual task-start flag or baseline import.
@@ -135,9 +138,20 @@ version, flags and effective non-secret verification environment used by its ful
 context or inability to establish it selects full. Secrets are never logged; an input whose
 relevance cannot be established without storing secret material makes inheritance unavailable.
 
-The precise closed set of effective tool/environment inputs must be proven during sketch promotion.
-Until that enumeration is complete, inheritance is disabled and the read-only full route remains
-available. This is an engineering investigation, not an owner-policy question.
+Context identification has two phases. The full route may query Go while actually running the
+Go gates. A later prose route compares file-resolved tool identities and effective configuration
+against that record **without executing any Go, gofmt or staticcheck argv**, including version,
+environment, list or help probes. A version string alone is not an identity; changed executable,
+compiler/standard-library tree, configuration or PATH resolution invalidates inheritance.
+
+The supported profile is discovered automatically, not enabled by an environment switch or a
+caller certificate. Direct executables and the project's declared tool-manager layout are the
+initial resolution cases to prove. Opaque shims, custom workspaces, flags, C toolchains and
+unaccounted ambient readers are full-route cases, not silently normalized into another gate.
+Neither a full-environment hash nor a hand-maintained list of variable names proves that external
+files are unchanged. The [source preparation](change-aware-completion-plan.md#verification-context)
+names the remaining reader/profile work; promotion needs an executable positive default-profile
+fixture, not a design that permanently disables inheritance.
 
 ## 4. The first shortcut is an exact allowlist
 
@@ -162,17 +176,24 @@ an example of the proposed shortcut.
 
 ### Anchors and incoming references are real inputs
 
-For a listed modification, compare rendered heading/explicit/question anchors against the
-baseline and intervening versions. Any structural-anchor change or unclassifiable syntax selects
-full until a real lightweight source-citation checker exists. Do not treat a regex claiming
-“no changed heading” as equivalent to the renderer: duplicate heading order, explicit IDs and
-question directives matter too.
+For a listed modification, compare the ordered rendered target identities against the baseline
+and **both sides of every collected history edge**. A set of slugs alone loses duplicate-heading
+ownership and ordering. Any changed heading/explicit/question identity, source-citation target or
+unclassifiable syntax selects full. Strict checker success is not anchor extraction: the installed
+checker has different renderer and link-index pipelines and no public anchor-export command.
+Do not port its heading slugger into a regex and call that renderer equivalence.
+
+Source-citation preservation also compares the existing test's own target interpretation, which
+is not identical to the renderer. Keeping one renderer's anchors cannot silently break the Go
+citation test's distinct ATX/explicit-ID matching. The [anchor/referrer preparation](change-aware-completion-plan.md#anchors-and-incoming-references)
+records both mechanisms and the required adapter boundary.
 
 Strict rendering/link checks run on every actual changed Markdown file and affected incoming
-Markdown referrers. For an ordinary modification, targets are preserved; deletion/rename/anchor
-changes take the full route and also check surviving referrers. An unreadable reference graph
-cannot produce a partial green. Code-claim review remains source-first; the command cannot prove
-that a sentence accurately describes a behavior or numbered section.
+Markdown referrers, including line anchors, definitions and images. A conservative referrer
+superset is acceptable; an unreadable or incomplete graph selects full and cannot produce a
+partial green. Deletion/rename/anchor changes also check surviving referrers on the full route.
+Code-claim review remains source-first; the command cannot prove that a sentence accurately
+describes a behavior or numbered section.
 
 [The current source-citation test](../../internal/paths/doccitations_test.go) checks paths and
 fragments from source directories and root files, with explicit fixture/history exceptions.
@@ -232,14 +253,27 @@ turn a concurrent-change failure into a pass.
 
 > [!WARNING]
 > Before/after equality cannot detect a writer temporarily changing a file and restoring it.
-> The first implementation requires the workspace coordinator to hold a no-edit verification
-> interval for **all** writers. Its own lock does not stop an editor, another agent or Git command.
-> If that coordination cannot be established, completion refuses to accept or inherit results.
+> The completion lock serializes completion records only. No caller assertion or orchestration
+> token turns that advisory lock into a fence against editors, agents or Git commands.
 
-The command checks that coordination is asserted through its orchestration contract and prints
-that limitation; it does not advertise an advisory lock as enforced immutability. A known transient
-mutation, including a deliberate red mutation later restored, invalidates prior coverage and
-requires a fresh green. No successful pointer is written until the interval ends clean and stable.
+Ordinary standalone `just done` must be supported without caller certification. It starts an
+input-change observer before resolving/classifying inputs, establishes a registration barrier,
+and keeps observing through gates and final record validation. The supported observer must cover
+tracked file inodes, their parent directories, relevant Git administration and identified external
+context inputs; atomic replacement and alias writes must not evade it. An event affecting an
+input invalidates the attempt even when final bytes are restored. Overflow, watch loss, unreadable
+inputs or unsupported filesystem behavior are unknown stability, not green.
+
+Unsupported observation still permits the conservative read-only full gate, reported with its
+stability limitation, but cannot establish reusable coverage. An observed mutation refuses
+completion and preserves the logs. A fresh attempt after the writer finishes must run green.
+The final observer drain and clean/context comparison precede atomic record publication; this is
+bounded observation, not OS-enforced immutability against a hostile writer.
+
+The Linux file-event diagnostic catches mutate/restore, but does not establish a complete
+portable monitor. [The companion sketch](change-aware-completion-plan.md#stable-interval)
+keeps startup, replacement, overflow, external-input and native-platform controls as explicit
+promotion gates. The suite-wide scheduling ruling is unchanged.
 
 ## 7. Later work must earn broader coverage
 
@@ -291,9 +325,9 @@ integration cannot establish macOS execution. The first slice imports none of th
 | Risk | Consequence and mitigation |
 | :--- | :--- |
 | A new reader starts consuming allowlisted prose | Shortcut becomes unsound; re-audit at promotion and pin reader/classifier wiring |
-| Context enumeration is incomplete | Disable inheritance; full route until source investigation closes it |
+| Context identification is incomplete | Full without reusable coverage; promotion requires a reachable default-profile positive case |
 | Renderer or incoming-link analysis is incomplete | Full fallback; do not guess anchors or silently omit referrers |
-| Concurrent writer is not coordinated | Refuse coverage; lock/equal endpoints are not sufficient |
+| Input observation is unsupported or loses events | Full without reusable coverage; observed changes refuse completion |
 | Missing tool or failed gate | Preserve red/unknown evidence and repair queue; never record success |
 
 Acceptance requires the real `just done` entry point to demonstrate:
@@ -318,6 +352,12 @@ engineering gaps go there, not into invented owner questions.
 | CAC-D2 | Proposed engineering mechanism: automatic last-success baseline; missing/invalid/context-unknown evidence selects full | 2026-10-09 | [Baseline](#3-the-baseline-is-automatic-and-covers-earlier-commits) | — |
 | CAC-D3 | Proposed engineering boundary: five exact modified-file paths; structural changes and all unknown/sourceful inputs select full | 2026-10-09 | [Allowlist](#4-the-first-shortcut-is-an-exact-allowlist) | — |
 | CAC-D4 | Proposed stability contract: coordinated one-writer interval; no acceptance from endpoint equality alone | 2026-10-09 | [Stability](#6-cleanliness-and-a-stable-verification-interval) | — |
+| CAC-D5 | Source-preparation amendment: standalone invocation uses bounded input observation, not caller certification; positive context identification executes no Go argv | 2026-10-09 | [Context](#context-cannot-be-silently-inherited), [stability](#6-cleanliness-and-a-stable-verification-interval) | — |
+
+The standalone-invocation requirement supersedes the coordinator-assertion mechanism in CAC-D4:
+an assertion cannot stop an uncoordinated writer, and refusing every uncertified caller would make
+ordinary `just done` unreachable. The underlying prohibition on accepting restored mutations
+remains. None of these mechanisms is implemented by this document.
 
 No owner questions are open in this design. The speed plan's answered
 [OQ-TS1](../plans/test-suite-speed.md#OQ-TS1) and [OQ-TS3](../plans/test-suite-speed.md#OQ-TS3), and open
