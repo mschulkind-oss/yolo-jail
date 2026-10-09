@@ -290,24 +290,25 @@ func spawnAndStream(conn net.Conn, name string, args []string, notFound, spawnFa
 		// the filter never judged must not cross.
 		_, _ = io.Copy(io.Discard, r)
 	}
-	// A FILTERED STREAM CANNOT NOTICE ITS CLIENT LEAVE BY WRITING: the filter may send nothing
-	// for minutes, and the SIGTERM above fires only on a failed write, so an abandoned
-	// `yolo-log stream` would keep `log` running on the host for good. The request was one line
-	// and the client sends nothing after it, so the connection's next read ends only when the
-	// client goes — and that ends the child. A child that already exited is never signalled:
-	// exited is closed after cmd.Wait.
+	// A STREAM CANNOT RELY ON WRITING TO NOTICE ITS CLIENT LEAVE: a filter may send nothing
+	// for minutes, and so may a followed unit that logs nothing (`yolo-journalctl -f`), and
+	// the SIGTERM above fires only on a failed write, so an abandoned `yolo-log stream` or
+	// `-f` would keep its child running on the host for good. The request was one line and
+	// the client sends nothing after it, so the connection's next read ends only when the
+	// client goes — behind yolo's front, when the client's own socket closes
+	// (svcendpoint's splice) — and that ends the child. Raw and filtered alike: the raw pump
+	// used to be left to its writes. A child that already exited is never signalled: exited
+	// is closed after cmd.Wait.
 	exited := make(chan struct{})
 	defer close(exited)
-	if keep != nil {
-		go func() {
-			_, _ = io.Copy(io.Discard, conn)
-			select {
-			case <-exited:
-			default:
-				_ = cmd.Process.Signal(syscall.SIGTERM)
-			}
-		}()
-	}
+	go func() {
+		_, _ = io.Copy(io.Discard, conn)
+		select {
+		case <-exited:
+		default:
+			_ = cmd.Process.Signal(syscall.SIGTERM)
+		}
+	}()
 
 	wg.Add(2)
 	if keep == nil {

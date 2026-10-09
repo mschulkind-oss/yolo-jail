@@ -1,6 +1,7 @@
 package svcendpoint
 
 import (
+	"crypto/tls"
 	"io"
 	"net"
 )
@@ -105,6 +106,11 @@ func ServeFrontWithOptions(publishPath, advertiseHost, upstreamUnixPath string, 
 // the response direction ends, which happens when upstream closes after its final
 // frame — by which point io.Copy has already written every byte to the client.
 //
+// A client that HANGS UP is different from one whose request direction ended,
+// and is told apart by its transport: once the client's socket itself has
+// closed, upstream is closed too (waitClientGone), so a daemon that streams until
+// its client leaves is released.
+//
 // halfCloseUpstream serves the OPPOSITE daemon shape — one that reads its request
 // to EOF: when the request direction ends, the upstream Unix socket is
 // CloseWrite'd (the dial below is net.Dial("unix", …), so the assertion holds),
@@ -174,10 +180,8 @@ func splice(client net.Conn, upstreamUnixPath string, halfCloseUpstream bool) {
 		// the broker relay mid-reply, since its core closes both sockets on either
 		// EOF.
 		//
-		// RESIDUE, stated rather than hidden: a client that writes a PARTIAL frame
-		// and then closes still hangs its daemon. That is pre-existing, is not what
-		// any prober does, and wants a daemon-side read deadline rather than
-		// anything this function can see.
+		// A client that wrote something and then CLOSED is handled below, by its
+		// transport ending rather than by its request stream ending.
 		if halfCloseUpstream || clientWroteNothing(client) {
 			if uc, ok := up.(*net.UnixConn); ok {
 				if err := uc.CloseWrite(); err != nil {
@@ -190,6 +194,25 @@ func splice(client net.Conn, upstreamUnixPath string, halfCloseUpstream bool) {
 						upstreamUnixPath, err)
 				}
 			}
+		}
+		// A CLIENT THAT HAS HUNG UP RELEASES THE DAEMON. The request direction
+		// ending does not say the client is gone: a TLS CloseWrite (close_notify)
+		// ends it too, and that client is still reading its reply — the case the
+		// warning above this function protects. What does say so is its TRANSPORT
+		// ending, so wait for that and then close upstream.
+		//
+		// Without this, a streaming daemon that learns of its client's departure
+		// only from EOF on its own socket — the serial bridge's `pty` and `monitor`
+		// modes — was never told: after the jail's Ctrl+C on a device that printed
+		// nothing more, the bridge held the HOST DEVICE open, and this splice held
+		// two goroutines and both fds, until the device next produced a byte and
+		// the response copy's write failed. Pinned by front_hangup_test.go.
+		//
+		// This cannot cut a response short: a client whose socket has closed can
+		// receive nothing more. Closing `up` ends the response copy below, which
+		// then closes the client and emits the tier-1 record as usual.
+		if waitClientGone(client) {
+			_ = up.Close()
 		}
 	}()
 	// Wait ONLY on the response. Its error is discarded for the same reason as the
@@ -219,4 +242,34 @@ func splice(client net.Conn, upstreamUnixPath string, halfCloseUpstream bool) {
 func clientWroteNothing(client net.Conn) bool {
 	cc, ok := client.(*countingConn)
 	return ok && cc.in.Load() == 0
+}
+
+// waitClientGone blocks until the client's TRANSPORT — the TCP socket under the
+// TLS session — has ended, and reports whether it could watch it at all.
+//
+// It is called only after the TLS request stream has returned, so nothing else
+// reads the socket any more and a raw read here steals no record from the TLS
+// layer. A client that only CloseWrite'd its session sends nothing further and
+// keeps the socket open, so this read blocks until that client really closes,
+// or until splice's own teardown closes the socket (which ends this read with
+// an error, so the goroutine never outlives the connection). A client that
+// closed — gracefully, or by dying — has sent FIN or RST, so the read returns at
+// once. Any bytes after close_notify are a protocol violation and are treated as
+// the end too.
+//
+// A client that is not a TLS session (a test splicing a bare net.Conn) reports
+// false: its request-direction EOF already IS its transport's, and the
+// pre-existing behaviour is kept for anything not accepted through a Listener.
+func waitClientGone(client net.Conn) bool {
+	conn := client
+	if cc, ok := conn.(*countingConn); ok {
+		conn = cc.Conn
+	}
+	tc, ok := conn.(*tls.Conn)
+	if !ok {
+		return false
+	}
+	var b [1]byte
+	_, _ = tc.NetConn().Read(b[:])
+	return true
 }

@@ -53,6 +53,7 @@ See [When your patches stop applying](userguide/guides/patch-series.md#when-your
 - A podman jail with nothing for the Nix root watcher to do no longer keeps a defunct `yolo-jaild` process for its whole life.
 - A host service that refuses its settings now stops the launch at once with its own cause and fix, instead of holding it for the whole startup window and staying running afterwards.
 - Cache cleanup no longer deletes login tokens (such as Hugging Face's) or lock files however old they are, and stops at its time limit instead of running on.
+- Leaving `yolo-serial pty` or `monitor`, `yolo-log stream` or `yolo-journalctl -f` now releases the host serial device or stops the host `log`/`journalctl` at once, even when nothing new has been printed.
 
 ## [0.12.2] - 2026-10-08
 

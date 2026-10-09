@@ -225,6 +225,9 @@ unlink the daemon's own socket.
 The front waits only on the **response** direction and, by default, never propagates the
 client's EOF upstream. The request direction runs unwaited in its own goroutine, so a
 framed client that writes one request and then waits cannot have its response cut short.
+A client that **hangs up** is different: once its socket closes, the front closes the
+upstream socket too, so a daemon that streams until its client leaves (the serial bridge's
+`monitor` and `pty`, a followed journal) sees EOF and stops.
 
 > [!WARNING]
 > **A daemon that reads its request to EOF works on a bare socket and hangs forever behind

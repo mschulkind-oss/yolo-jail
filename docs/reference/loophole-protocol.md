@@ -384,7 +384,8 @@ Two boundaries before the steps, both blunter than anything in the client sectio
 > front. Two ways out: read to the length prefix, or declare `request_end: "eof"` beside
 > `publishes: "socket"` and the front half-closes the upstream socket when the request
 > direction ends. The default stays `framed` because a length-prefixed protocol is
-> self-delimiting and does not need the EOF.
+> self-delimiting and does not need the EOF. A client that hangs up is the exception: when
+> its socket closes, the front closes the upstream socket, so a streaming daemon sees EOF.
 
 The steps, in an order that is load-bearing — **publish last**, so a published file always
 names a live listener:
