@@ -54,11 +54,13 @@ func TestPerJailStartupOutcomeKeepsTheReapedExitStatus(t *testing.T) {
 
 // A fronted per-jail service is ready only once its socket accepts a connect, so its outcome says
 // accepted. (A legacy no-transport entry is ready on bare file existence and reports observed.)
+// The reader is owner-cancelled only when readiness lands before the reader's own deadline, so
+// the budget is the test's lifetime rather than a guess at how fast the child starts.
 func TestPerJailFrontedReadinessIsAccepted(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("spawns a host process and binds an AF_UNIX socket")
 	}
-	o, handles, _, output := runPerJailReasonFixture(t, "ready", time.Second, true, 0)
+	o, handles, _, output := runPerJailReasonFixture(t, "ready", readyFixtureBudget(t), true, 0)
 	if len(handles) != 1 || len(o.startupOutcomes) != 1 {
 		t.Fatalf("ready fixture did not start: handles=%d outcomes=%+v\n%s", len(handles), o.startupOutcomes, output)
 	}

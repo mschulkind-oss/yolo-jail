@@ -143,7 +143,7 @@ func TestPerJailStartupReasonReadyWithoutReasonKeepsReadinessAuthority(t *testin
 	if runtime.GOOS != "linux" {
 		t.Skip("spawns a host process and binds an AF_UNIX socket")
 	}
-	o, handles, refusal, output := runPerJailReasonFixture(t, "ready", time.Second, true, 0)
+	o, handles, refusal, output := runPerJailReasonFixture(t, "ready", readyFixtureBudget(t), true, 0)
 	if refusal != nil || o.startupRefusal != nil || len(handles) != 1 {
 		t.Fatalf("reachable service without a reason was not accepted as ready: handles=%d refusal=%+v startup=%+v output=%s",
 			len(handles), refusal, o.startupRefusal, output)
@@ -179,6 +179,30 @@ func TestPerJailNonConfigurationRefusalIsPrintedBeforeTheDerivedSymptom(t *testi
 	if cause < 0 || symptom < 0 || cause > symptom {
 		t.Fatalf("the daemon's own cause is not printed before the derived symptom:\n%s", output)
 	}
+}
+
+// readyFixtureBudget is the readiness budget for a "ready" fixture, whose child does come up and
+// whose assertions are about what readiness establishes, not how long it takes. The budget is
+// also the startup-reason reader's deadline, and a ready child that binds after that deadline is
+// still accepted by the readiness wait's last look while the reader has already returned
+// no-record/deadline instead of being cancelled by its owner. A fixed second lost that race on a
+// loaded machine (a child exec starved past it), so the bound is the test binary's own deadline:
+// readiness then ends on the accepted connect, and a child that never binds fails the test before
+// -timeout panics it. The start returns as soon as the socket accepts, so a large budget costs a
+// passing run nothing.
+func readyFixtureBudget(t *testing.T) time.Duration {
+	t.Helper()
+	const fallback = 10 * time.Minute
+	deadline, ok := t.Deadline()
+	if !ok {
+		return fallback
+	}
+	remaining := time.Until(deadline)
+	// Leave room for the failure report and cleanup before -timeout fires.
+	if budget := remaining - 30*time.Second; budget > remaining/2 {
+		return budget
+	}
+	return remaining / 2
 }
 
 func runPerJailReasonFixture(t *testing.T, mode string, timeout time.Duration, ready bool,
