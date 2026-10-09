@@ -103,7 +103,8 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
     [Cachix](handoff-cachix-cache.md), [the in-VM copier](../research/macos-layer-reusing-image-delivery.md), [the login
     seed](../design/base-home-legacy-state.md) and [the storage classes](../design/durable-scratch-space.md).
 
-    Assess [SandVault's setup-authorized macOS privileges](../research/sandvault-macos-privileges.md)
+    Review [the bounded privilege lifecycle](../design/macos-user-privilege-lifecycle.md), informed by
+    [SandVault's setup-authorized macOS privileges](../research/sandvault-macos-privileges.md),
     with the native readiness work: reported startup denials and exit prompts expose prerequisites
     that account existence and compilation do not establish. Borrowing its setup/runtime split
     must not authorize arbitrary root operations or account-wide termination of sibling workspaces.

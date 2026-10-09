@@ -1,7 +1,7 @@
 ---
 status: in-review
 stage: SKETCH
-next: "Draft a bounded macos-user privilege contract that covers setup, user switching, session-file installation and cleanup; keep keychain policy in its existing design"
+next: "Review ../design/macos-user-privilege-lifecycle.md and its standing-authority question; keep keychain policy in its existing design"
 verified: 2026-10-07
 tags: [macos-user, sandvault, privileges, sudo, keychain]
 summary: "SandVault authorizes passwordless runtime operations during privileged setup. Its pattern can address yolo's repeated prompts, but its rules do not cover yolo's dynamic session artifacts and must not be copied as broad root access. Its dedicated-keychain fix also informs reported first-login failures."
@@ -18,6 +18,10 @@ change to yolo's environment or credential policy.
 Yolo was checked at `94d6337e09a905b400b1606c12767d1081df8747`. No native execution,
 sudo-policy installation, account changes or keychain operations were performed. This is a
 recommendation for design work, not an authorization to install passwordless privileges.
+
+**Forward route:** [the proposed privilege lifecycle](../design/macos-user-privilege-lifecycle.md)
+owns the bounded setup/switch/session-file/cleanup contract and its standing-authority question.
+The research remains a comparison, not installation consent or a keychain ruling.
 
 ## Findings
 
