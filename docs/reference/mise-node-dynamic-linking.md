@@ -6,8 +6,9 @@ covers:
   - flake.nix
   - internal/cli/check/section_nixld.go
   - internal/entrypoint/mcp_wrappers.go
+  - internal/entrypoint/storepackages.go
 tags: [nix-ld, dynamic-linking, ld-library-path, image, mise, node]
-summary: "Why an FHS binary in this image could not find libstdc++ without LD_LIBRARY_PATH, and how nix-ld at /lib64 fixed it env-free. Covers the /lib farm, the baked nix-ld fallback lib dir, the one thing the baked LD_LIBRARY_PATH is still for (dlopen-by-soname from nix processes), the tripwire that catches a regression, and the alternatives that must not be re-litigated."
+summary: "Why an FHS binary in this image could not find libstdc++ without LD_LIBRARY_PATH, and how nix-ld at /lib64 fixed it env-free. Covers the /lib farm, the baked nix-ld fallback lib dir, the packages-only farm that LD_LIBRARY_PATH names for dlopen-by-soname from nix processes (never /lib, which carries glibc), the tripwire that catches a regression, and the alternatives that must not be re-litigated."
 ---
 
 # Dynamic linking for FHS binaries — nix-ld, the `/lib` farm, and `LD_LIBRARY_PATH`
@@ -30,7 +31,7 @@ environment.
 | :--- | :--- |
 | The nix-ld derivation, its two baked defaults, and the `/lib64` + `/lib` interpreter links | `flake.nix` (`nixLd`, `mkBinPathLinks`) |
 | The `/lib` + `/usr/lib` library farm, and the baked nix-ld fallback dir | `flake.nix` (`mkBinPathLinks`, `extraLibPackages`) |
-| Store packages' `LD_LIBRARY_PATH` (`/run/yolo/packages/lib`), not `/lib` | `internal/entrypoint/storepackages.go`, `boot.go` |
+| The packages-only farms `LD_LIBRARY_PATH` names (`/usr/local/lib/yolo-packages` baked, `/run/yolo/packages/lib` store-delivered), never `/lib` | `flake.nix` (`mkBinPathLinks`), `internal/entrypoint/storepackages.go`, `boot.go` |
 | The regression tripwire | `internal/cli/check` (`sectionNixLD`) |
 | The MCP wrappers this used to be a per-call-site fix in | `internal/entrypoint/mcp_wrappers.go` |
 
@@ -108,7 +109,22 @@ loader under the name `ld.so`.
 are the dynamic loader's default search paths for merged-tree binaries. They are **not** exported
 on `LD_LIBRARY_PATH`.
 
-**3. `LD_LIBRARY_PATH` is scoped to store packages (`/run/yolo/packages/lib`), not `/lib`.**
+**3. `LD_LIBRARY_PATH` names only a packages-only farm, never `/lib`.** A nix-built process
+(the image's `python3` and its `ctypes`) can `dlopen` a library by bare soname only through
+`LD_LIBRARY_PATH` or its own `RUNPATH`: nixpkgs' loader reads its cache from
+`$glibc/etc/ld.so.cache` in the read-only store, never the FHS one, and nix-ld does not apply to
+a nix binary. So the libraries a workspace adds in `packages:` get a directory of their own,
+holding those libraries and nothing else:
+
+- **Baked** (the default): `/usr/local/lib/yolo-packages`, filled by `flake.nix`, which skips
+  every name glibc ships even when `packages:` lists glibc itself. The boot prepends it to
+  `LD_LIBRARY_PATH` only when it is non-empty, so a jail with no `packages:` exports nothing. It
+  sits outside `/usr/lib` because the boot scrubs every `/usr/lib/…` entry.
+- **Store-delivered** (`YOLO_STORE_PACKAGES=1`): `/run/yolo/packages/lib`, written at boot from
+  the launch's profiles, skipping any library that resolves into a glibc store path.
+
+The same libraries are also linked into `/lib` and `/usr/lib`, for FHS consumers and for the
+`ld.so.cache`.
 
 > [!NOTE]
 > **Why `/lib` and `/usr/lib` were removed from `LD_LIBRARY_PATH`.** `LD_LIBRARY_PATH` is searched
@@ -122,7 +138,10 @@ on `LD_LIBRARY_PATH`.
 > their store RPATH/default directory, and nix-ld covers FHS binaries via `/usr/share/nix-ld/lib`.
 > When a workspace requests additional libraries in `packages:`, `internal/entrypoint/storepackages.go`
 > links their `.so` files into `/run/yolo/packages/lib` and prepends *that* directory to `LD_LIBRARY_PATH`,
-> keeping `/lib` and `/usr/lib` off the search path.
+> keeping `/lib` and `/usr/lib` off the search path; a baked `packages:` library gets the same
+> treatment through `/usr/local/lib/yolo-packages`. Neither directory can carry glibc, which is
+> what keeps the guarantee: `integration/packages_test.go` (`TestExtraPackageLibFarm`) asserts
+> both the bare-soname `dlopen` and that no `LD_LIBRARY_PATH` directory holds `libc.so.6`.
 
 The FHS `ld.so.cache` — the conventional `/etc` path — is a symlink into a tmpfs, populated at boot. It exists for tools that read
 it *directly* — `ldconfig -p`, diagnostics — and is **inert for FHS lookup**, because the nix
@@ -195,7 +214,8 @@ the afternoon again.
 
 - **Not** a per-call-site `LD_LIBRARY_PATH` re-assertion. That is the whack-a-mole this
   replaced; the loader wiring covers the class.
-- **Not** deleting the baked `LD_LIBRARY_PATH`. It serves a different class entirely.
+- **Not** putting `/lib` or `/usr/lib` back on `LD_LIBRARY_PATH`. They carry glibc; the
+  packages-only farm is how a `packages:` library stays findable by bare soname.
 - **Not** growing the nix-ld fallback dir for convenience. Every entry there shadows an FHS
   binary's own `DT_RUNPATH`.
 - **Not** treating the FHS `ld.so.cache` as an FHS discovery path. It is a diagnostics artifact.
@@ -213,7 +233,8 @@ only place the values themselves are stated.
 | nix-ld's baked library dir | `/usr/share/nix-ld/lib`, substituted over the upstream source constant | `flake.nix` (`nixLd` `postPatch`) |
 | Contents of that dir | the core trio (glibc, `stdenv.cc.cc.lib`, zlib) plus `ld.so` | `flake.nix` (`mkBinPathLinks`) |
 | Library farm | `/lib` and `/usr/lib` symlink farms | `flake.nix` (`mkBinPathLinks`, `extraLibPackages`) |
-| Baked loader path | `LD_LIBRARY_PATH=/lib:/usr/lib:/usr/lib/<multilib>` | `flake.nix` image `Env`; re-exported by `internal/cli/run/assemble.go` |
+| `LD_LIBRARY_PATH` | unset by the launch (`--unsetenv`) and scrubbed of `/lib`, `/usr/lib` and `/usr/lib/…` at boot; then prepended with whichever packages-only farm is non-empty | `internal/cli/run/assemble.go`, `internal/entrypoint/boot.go`, `internal/entrypoint/storepackages.go` |
+| Packages-only farms | `/usr/local/lib/yolo-packages` (baked), `/run/yolo/packages/lib` (store-delivered) | `flake.nix` (`mkBinPathLinks`), `internal/entrypoint/storepackages.go` |
 | FHS cache (diagnostics only) | the `ld.so.cache` under `/etc`, a symlink to a tmpfs path written at boot | `flake.nix`, `internal/entrypoint` (`generateLdCache`) |
 | Tripwire | `env -i <mise node> --version` under the "FHS loader (nix-ld)" section | `internal/cli/check/section_nixld.go` |
 

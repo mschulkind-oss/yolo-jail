@@ -65,6 +65,43 @@ func StorePackagesLib() string { return storeLibDir(StorePackagesRoot) }
 // already names first, so the two mechanisms have the same shape.
 func StorePackagesPkgConfig() string { return storePkgConfigDir(StorePackagesRoot) }
 
+// BakedPackagesLib is the BAKED twin of StorePackagesLib: the image's packages-only lib
+// farm, which flake.nix (mkBinPathLinks) fills with the lib outputs of the workspace's
+// `packages:` and nothing else. It is the ONE image directory that goes on LD_LIBRARY_PATH.
+//
+// WHY NOT /lib. A nix-built consumer (the image's python3 and its ctypes) dlopens by bare
+// soname only through LD_LIBRARY_PATH or its RUNPATH, because nixpkgs' ld.so reads its
+// cache from $glibc/etc/ld.so.cache in the read-only store and never /etc/ld.so.cache. And
+// /lib carries the merged tree's glibc, which an LD_LIBRARY_PATH search hands to every nix
+// binary ahead of its own: a prebuilt linked against an older glibc then crashes on a
+// GLIBC_PRIVATE lookup, which is why scrubLegacyLDLibraryPath strips /lib and /usr/lib. This
+// directory carries no glibc by construction (the flake skips every name glibc ships), so
+// it restores bare-soname dlopen without restoring that crash.
+//
+// Outside /usr/lib on purpose: scrubLegacyLDLibraryPath drops every /usr/lib/… entry.
+const BakedPackagesLib = "/usr/local/lib/yolo-packages"
+
+// ExportBakedPackagesLib prepends BakedPackagesLib to LD_LIBRARY_PATH when the image's farm
+// holds anything. An image built with no `packages:` (every default launch, and every
+// store-delivered one, whose image is built with the packages left out) has an empty farm,
+// and exports nothing: an empty directory on every jail's search path is a probe per lookup
+// for nothing.
+func ExportBakedPackagesLib(e *Env) {
+	exportBakedPackagesLibFrom(e, BakedPackagesLib)
+}
+
+// exportPackagesLibStep is the boot step table's body for export_packages_lib, named so a
+// test can pin that the table really runs it.
+func exportPackagesLibStep(b *bootRun) { ExportBakedPackagesLib(b.e) }
+
+func exportBakedPackagesLibFrom(e *Env, dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) == 0 {
+		return
+	}
+	prependPathVar(e, "LD_LIBRARY_PATH", dir)
+}
+
 // The three dirs, derived from a root. Parameterized on the root ONLY so the farm builder
 // is testable off a t.TempDir(): /run is a container tmpfs, and a unit test that writes to
 // the real path either needs root or fails on a CI runner. Production has exactly one root
@@ -114,9 +151,9 @@ func generateStorePackagesIn(e *Env, root, fontsDir, imageConf string) error {
 	if len(profiles) == 0 {
 		return nil
 	}
-	// Prepended rather than replaced: the image bakes LD_LIBRARY_PATH=/lib:/usr/lib:… and
-	// PKG_CONFIG_PATH=/lib/pkgconfig:…, and the /lib farm those name still carries the
-	// image's own libraries.
+	// Prepended rather than replaced: the image bakes PKG_CONFIG_PATH=/lib/pkgconfig:…, and
+	// the /lib farm that names still carries the image's own .pc files. LD_LIBRARY_PATH is
+	// normally unset by now (scrubLegacyLDLibraryPath), but a user's own entries survive.
 	prependPathVar(e, "LD_LIBRARY_PATH", storeLibDir(root))
 	prependPathVar(e, "PKG_CONFIG_PATH", storePkgConfigDir(root))
 	configureStoreFontconfig(e, profiles, fontsDir, imageConf)
@@ -255,7 +292,7 @@ func linkStoreProfile(profile, root string) error {
 	if err := linkDirEntries(filepath.Join(profile, "bin"), storeBinDir(root), nil); err != nil {
 		return err
 	}
-	if err := linkDirEntries(filepath.Join(profile, "lib"), storeLibDir(root), isSharedObject); err != nil {
+	if err := linkDirEntries(filepath.Join(profile, "lib"), storeLibDir(root), isNonGlibcSharedObject(profile)); err != nil {
 		return err
 	}
 	return linkDirEntries(filepath.Join(profile, "lib", "pkgconfig"), storePkgConfigDir(root),
@@ -292,6 +329,51 @@ func linkDirEntries(src, dst string, keep func(string) bool) error {
 // delivered from the store lands the same set of names it lands when baked.
 func isSharedObject(name string) bool {
 	return strings.HasPrefix(name, "lib") && strings.Contains(name, ".so")
+}
+
+// isNonGlibcSharedObject is isSharedObject minus every library that resolves into a glibc
+// store path. The farm's lib dir is on LD_LIBRARY_PATH, so a glibc linked into it would be
+// handed to every nix binary ahead of the glibc its own interpreter belongs to — the
+// GLIBC_PRIVATE crash scrubLegacyLDLibraryPath exists to prevent. The baked farm makes the
+// same exclusion in flake.nix; here it is by the resolved target, because a profile is
+// opaque until it is read.
+func isNonGlibcSharedObject(profile string) func(string) bool {
+	libDir := filepath.Join(profile, "lib")
+	return func(name string) bool {
+		if !isSharedObject(name) {
+			return false
+		}
+		path := filepath.Join(libDir, name)
+		target, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			// Dangling: judge it by the link it names, which is what it would load.
+			if target, err = os.Readlink(path); err != nil {
+				return true
+			}
+		}
+		return !isGlibcStorePath(target)
+	}
+}
+
+// isGlibcStorePath reports whether path lies in a glibc output's store path
+// (/nix/store/<hash>-glibc-<version>…), the only package that ships the loader-coupled
+// libc, libm, libpthread and friends.
+func isGlibcStorePath(path string) bool {
+	const store = "/nix/store/"
+	if !strings.HasPrefix(path, store) {
+		return false
+	}
+	rest := path[len(store):]
+	if i := strings.IndexByte(rest, '/'); i >= 0 {
+		rest = rest[:i]
+	}
+	dash := strings.IndexByte(rest, '-')
+	if dash < 0 {
+		return false
+	}
+	name := rest[dash+1:]
+	return strings.HasPrefix(name, "glibc-") && len(name) > len("glibc-") &&
+		name[len("glibc-")] >= '0' && name[len("glibc-")] <= '9'
 }
 
 // storeProfileError names the profile that could not be read and says what that means —

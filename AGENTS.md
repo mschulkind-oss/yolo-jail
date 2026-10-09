@@ -478,9 +478,13 @@ live, so edits are visible on the host instantly — there is no sync step.
   forwarded so color survives, and its `NO_COLOR` (when set) so a request for none does too — every
   color decision goes through the one gate, `tty.Color`, or through its `NO_COLOR` half alone for
   text another process prints ([`cli-color.md`](docs/reference/cli-color.md));
-  `OVERMIND_SOCKET=/tmp/overmind.sock` so jail overmind doesn't collide with the host's;
-  `LD_LIBRARY_PATH=/lib:/usr/lib:/usr/lib/<multilib>` baked into the image Env to survive agents
-  sanitizing the environment.
+  `OVERMIND_SOCKET=/tmp/overmind.sock` so jail overmind doesn't collide with the host's.
+  ⚠ **`LD_LIBRARY_PATH` never names `/lib` or `/usr/lib`**: they carry the merged tree's glibc,
+  which a nix binary built against an older one then loads and crashes on (`GLIBC_PRIVATE`). The
+  launch unsets it, the boot scrubs those entries, and it names only a packages-only farm
+  (`/usr/local/lib/yolo-packages` baked, `/run/yolo/packages/lib` store-delivered), which is how
+  a `packages:` library still dlopens by bare soname
+  ([`mise-node-dynamic-linking.md`](docs/reference/mise-node-dynamic-linking.md)).
 - The built-in skills (`configuring-the-jail`, `diagnosing-the-jail`) are injected into every jail. The
   one-time host→jail handoff is NOT a skill: a fresh `.yolo/handover.md` the host agent filed becomes a
   **Handoff** section in the environment briefing and is consumed by the run pipeline — but only once a

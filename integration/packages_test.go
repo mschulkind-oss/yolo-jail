@@ -71,12 +71,18 @@ func lastNonEmptyLine(s string) string {
 //     the nix store. zbar is the canonical split-output case (its .so lives in a
 //     separate `-lib` output), guarding against a naive `${pkg}/lib` impl.
 //  2. DLOPEN-BY-SONAME — the image's python3/ctypes can dlopen it by bare soname
-//     (the real consumer path, e.g. pyzbar). Works via LD_LIBRARY_PATH=/lib:/usr/lib
-//     (the loader does NOT read /etc/ld.so.cache here — that's the mechanism).
+//     (the real consumer path, e.g. pyzbar). Works via LD_LIBRARY_PATH naming the
+//     packages-only farm /usr/local/lib/yolo-packages, which the boot exports when
+//     `packages:` filled it (nixpkgs' loader does NOT read /etc/ld.so.cache, only
+//     $glibc/etc/ld.so.cache in the store — so LD_LIBRARY_PATH is the mechanism).
 //  3. FHS LD.SO.CACHE — build-time ldconfig populated /etc/ld.so.cache and it is
 //     NOT empty. Regression guard for the `ldconfig -r $out` bug that produced a
 //     0-entry cache. (`-C /etc/ld.so.cache` because bare `ldconfig -p` reads
 //     $glibc/etc/ld.so.cache.)
+//  4. NO GLIBC ON LD_LIBRARY_PATH — no directory the jail's LD_LIBRARY_PATH names
+//     carries libc.so.6, and none is /lib, /usr/lib or /usr/lib/…. Exporting the
+//     merged tree's glibc that way crashed nix prebuilts built against an older glibc
+//     (GLIBC_PRIVATE), so probe 2 must keep working WITHOUT it.
 //
 // The in-jail `python3 -c 'ctypes.CDLL(...)'` probe is kept verbatim from the
 // Python era on purpose (see file header); do not "clean" it into a Go loader.
@@ -88,6 +94,10 @@ func TestExtraPackageLibFarm(t *testing.T) {
 		`echo "=== SYMLINK ==="; ls -l /lib/libzbar.so.0 /usr/lib/libzbar.so.0`,
 		`echo "=== DLOPEN ==="; python3 -c 'import ctypes; ctypes.CDLL("libzbar.so.0"); print("dlopen-ok")'`,
 		`echo "=== LDCACHE ==="; ldconfig -C /etc/ld.so.cache -p | grep -c libzbar || true`,
+		`echo "=== NOGLIBC ==="; echo "LDLP=$LD_LIBRARY_PATH"; ` +
+			`for d in $(echo "$LD_LIBRARY_PATH" | tr ':' ' '); do ` +
+			`case "$d" in /lib|/usr/lib|/usr/lib/*) echo "MERGED-TREE-DIR $d";; esac; ` +
+			`[ -e "$d/libc.so.6" ] && echo "GLIBC-IN $d"; done; true`,
 	}, "\n"), withTimeout(nixBuildJailTimeout))
 	if r.rc != 0 {
 		t.Fatalf("zbar lib-farm probe script failed (rc %d)\nstdout=%q\nstderr=%q",
@@ -96,7 +106,8 @@ func TestExtraPackageLibFarm(t *testing.T) {
 
 	symlink := section(r.stdout, "=== SYMLINK ===", "=== DLOPEN ===")
 	dlopen := section(r.stdout, "=== DLOPEN ===", "=== LDCACHE ===")
-	ldcache := section(r.stdout, "=== LDCACHE ===", "")
+	ldcache := section(r.stdout, "=== LDCACHE ===", "=== NOGLIBC ===")
+	noglibc := section(r.stdout, "=== NOGLIBC ===", "")
 
 	// 1. Lib-farm symlink resolves into the nix store (the -lib output).
 	if !strings.Contains(symlink, "libzbar.so.0") || !strings.Contains(symlink, "/nix/store") {
@@ -118,6 +129,14 @@ func TestExtraPackageLibFarm(t *testing.T) {
 	if count < 1 {
 		t.Fatalf("libzbar not in /etc/ld.so.cache (count=%d); cache may be empty "+
 			"(the -r $out regression)\nstdout=%q", count, ldcache)
+	}
+	// 4. The dlopen above did not get there by putting glibc back on LD_LIBRARY_PATH.
+	if !strings.Contains(noglibc, "LDLP=") {
+		t.Fatalf("NOGLIBC probe did not run:\n%s", noglibc)
+	}
+	if strings.Contains(noglibc, "MERGED-TREE-DIR") || strings.Contains(noglibc, "GLIBC-IN") {
+		t.Fatalf("LD_LIBRARY_PATH carries the merged tree's glibc (the GLIBC_PRIVATE crash "+
+			"class of docs/reference/mise-node-dynamic-linking.md):\n%s", noglibc)
 	}
 }
 

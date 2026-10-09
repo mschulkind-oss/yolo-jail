@@ -215,6 +215,16 @@ func bootSteps() []bootStep {
 				"macos-user takes `packages:` from its own native nix build",
 		},
 		{
+			// The BAKED half's twin of the export above: put the image's packages-only lib
+			// farm on LD_LIBRARY_PATH when `packages:` filled it, so a nix-built process can
+			// dlopen a declared library by bare soname without /lib (and its glibc) on the
+			// search path. After generate_store_packages so that, should both ever be
+			// non-empty, the baked farm is searched first — R2's "baked wins".
+			name:      "export_packages_lib",
+			run:       exportPackagesLibStep,
+			notDarwin: "macos-user takes `packages:` from its own native nix build, and dyld has no LD_LIBRARY_PATH farm",
+		},
+		{
 			// Populate /run/ld.so.cache from the /lib farm, plus the store-package farm above.
 			name:      "generate_ld_cache",
 			run:       func(b *bootRun) { generateLdCache(b.e, StorePackagesLib()) },

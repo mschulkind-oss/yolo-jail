@@ -165,10 +165,11 @@
 
     Shared libraries: each package's shared libraries are symlinked into
     the library search paths, so a package added for its .so (zbar, libdmtx, ...)
-    is dlopen-able by bare soname (e.g. ctypes.CDLL("libzbar.so.0")). For
-    store-delivered packages, their libraries are staged at
-    /run/yolo/packages/lib on LD_LIBRARY_PATH (the loader does not use
-    /etc/ld.so.cache in this image). The correct shared-lib output is picked
+    is dlopen-able by bare soname (e.g. ctypes.CDLL("libzbar.so.0")): the
+    libraries also land in a packages-only directory on LD_LIBRARY_PATH,
+    /usr/local/lib/yolo-packages (or /run/yolo/packages/lib for
+    store-delivered packages), since the loader does not use
+    /etc/ld.so.cache in this image. The correct shared-lib output is picked
     automatically (e.g. zbar ships its .so in a separate "-lib" output), so a
     bare "zbar" just works — no need to spell ".lib". A ".dev" request (e.g.
     "lilv.dev") contributes the package's runtime libraries too — and those of

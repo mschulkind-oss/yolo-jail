@@ -410,7 +410,7 @@ supplies the content.**
 | nix-ld at `/lib/ld-*` and `/lib64/ld-*`, and its fallback library dir | A `PT_INTERP` is an absolute path in every FHS binary, not a PATH entry; the fallback dir is the only library search path a scrubbed environment gets |
 | `/etc/passwd`, `/etc/group`, `/etc/containers/*`, `/etc/subuid`, `/etc/subgid` | Read by podman before and independently of yolo; nested-podman config on a read-only root |
 | `/etc/nix/nix.conf`, enabling `nix-command` and `flakes` | Read by the nix *client* before any yolo code runs, and `/etc` is read-only, so a plain `nix shell` or `nix build` typed in the jail needs it baked — yolo's own nix calls pass the flags themselves and never noticed its absence. Client config only: where the host store is mounted, the host daemon keeps its own `nix.conf` for trust, sandbox and substituters. Unconditional across the three variants, inert in the minimal one, which has no nix; pinned by `integration/nixconf_test.go` |
-| `config.Env` — `SSL_CERT_FILE`, `LD_LIBRARY_PATH`, `TZDIR`, `PATH` | Literal store paths in the image config; moving `cacert` or `tzdata` means moving these |
+| `config.Env` — `SSL_CERT_FILE`, `TZDIR`, `PATH` | Literal store paths in the image config; moving `cacert` or `tzdata` means moving these |
 | The `/etc` **symlinks** into `/run` for `localtime`, `timezone` and `ld.so.cache` | The link is baked because `/etc` is read-only; the boot writes the target — the pattern in production |
 | The nixpkgs package sets (`corePackagesFromNixpkgs`, and `fullPackages` unless the launch opted out) | Nearly all of the closure by bytes, invalidated only by `flake.lock` |
 
@@ -1308,8 +1308,9 @@ the closure whether or not it appears in `contents`.
 
 > [!WARNING]
 > **A scrubbed `LD_LIBRARY_PATH` loses a store-delivered library, exactly as it lost a baked
-> user library.** nixpkgs' `ld.so` never reads the FHS `ld.so.cache`, so both `/lib` and
-> `/run/yolo/packages/lib` are discoverable only through the variable. The nix-ld fallback
+> user library.** nixpkgs' `ld.so` never reads the FHS `ld.so.cache`, so both packages-only
+> farms, the baked `/usr/local/lib/yolo-packages` and `/run/yolo/packages/lib`, are discoverable
+> only through the variable. The nix-ld fallback
 > directory stays baked and stays the core trio; growing it is an explicit call.
 
 Two package-delivery mechanisms are maintained on purpose. That asymmetry is the accepted price

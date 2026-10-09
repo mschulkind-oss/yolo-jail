@@ -166,7 +166,7 @@
           else if imageSystem == "aarch64-linux" then "arm64"
           else throw "yolo-jail: no OCI arch mapping for image system ${imageSystem}";
 
-        # Architecture-aware multilib path for LD_LIBRARY_PATH inside the image
+        # Architecture-aware multilib path, listed in the image's /etc/ld.so.conf
         linuxMultilib =
           if imageSystem == "x86_64-linux" then "x86_64-linux-gnu"
           else if imageSystem == "aarch64-linux" then "aarch64-linux-gnu"
@@ -926,7 +926,7 @@
         # variant can skip the bulky and/or unused plumbing.
         mkBinPathLinks = { withChromium ? true, withNestedPodman ? true }:
           pkgs.runCommand "bin-path-links" {} (''
-          mkdir -p $out/usr/bin $out/bin $out/lib64 $out/lib $out/usr/lib $out/etc $out/usr/share/fonts $out/usr/share $out/usr/share/nix-ld/lib
+          mkdir -p $out/usr/bin $out/bin $out/lib64 $out/lib $out/usr/lib $out/etc $out/usr/share/fonts $out/usr/share $out/usr/share/nix-ld/lib $out/usr/local/lib/yolo-packages
           ln -s ${imagePkgs.coreutils}/bin/env $out/usr/bin/env
           ln -s ${imagePkgs.bashInteractive}/bin/bash $out/bin/bash
           ln -s ${imagePkgs.bashInteractive}/bin/sh $out/bin/sh
@@ -994,13 +994,13 @@
           ln -sf ${nixLd}/libexec/nix-ld $out/lib/$LINKER_BASENAME
           ln -sf ${nixLd}/libexec/nix-ld $out/lib64/$LINKER_BASENAME
 
-          # Link shared libraries to /lib and /usr/lib for LD_LIBRARY_PATH discovery.
+          # Link shared libraries to /lib and /usr/lib, the FHS default search dirs.
           # Iterates over all packages with lib outputs, including split-output packages
           # (e.g., fontconfig.lib has .so files separate from fontconfig.out which has etc/).
           # Note: glib and pango define outputs=["bin" "out" ...] so their DEFAULT output
           # is "bin" (no lib/). Must use .out explicitly to get the libraries.
-          # Non-nix binaries (node, npm/pip packages) rely on LD_LIBRARY_PATH=/lib:/usr/lib
-          # since they lack RPATH entries pointing into the nix store.
+          # /lib and /usr/lib are NOT on LD_LIBRARY_PATH: they carry glibc, and exporting
+          # them broke nix binaries built against another glibc (GLIBC_PRIVATE crashes).
           # The same core trio also populates the baked nix-ld fallback lib dir
           # (/usr/share/nix-ld/lib): this is the ONLY library search path an FHS
           # binary gets under a fully scrubbed environment (nix-ld sets
@@ -1032,8 +1032,9 @@
           # Link shared libraries from user-added packages (yolo-jail.jsonc
           # "packages", resolved into extraLibPackages above) so a package
           # added for its .so (zbar, libdmtx, ...) — or added as ".dev" to
-          # build against — is dlopen-able / discoverable on
-          # LD_LIBRARY_PATH=/lib:/usr/lib.  extraLibPackages already went
+          # build against — is in the FHS farm and the ld.so.cache (and, through
+          # the packages-only farm below, dlopen-able by bare soname).
+          # extraLibPackages already went
           # through getLib, which picks each package's conventional
           # shared-lib output: e.g. zbar's .so lives in its separate "-lib"
           # output, and mupdf/openssl/sqlite default to a "-bin" output
@@ -1055,6 +1056,32 @@
                 done
               fi
             done
+          done
+
+          # THE PACKAGES-ONLY FARM, /usr/local/lib/yolo-packages: the same user
+          # `packages:` libs again, and NOTHING ELSE — no glibc, no image libs.
+          # This is the directory the entrypoint puts on LD_LIBRARY_PATH
+          # (internal/entrypoint/storepackages.go, exportBakedPackagesLib), and it
+          # is how a nix-built consumer (the image's python3/ctypes) dlopens a
+          # `packages:` library by bare soname: nixpkgs' ld.so never reads
+          # /etc/ld.so.cache, only $glibc/etc/ld.so.cache in the read-only store.
+          # /lib itself must NOT go back on LD_LIBRARY_PATH: it carries the merged
+          # tree's glibc, which an LD_LIBRARY_PATH search hands to every nix binary
+          # built against an older glibc ahead of its own (GLIBC_PRIVATE crashes;
+          # docs/reference/mise-node-dynamic-linking.md).  So any name glibc itself
+          # ships is skipped even when a user lists glibc in `packages:`, which is
+          # what keeps that guarantee true of this directory by construction.
+          # Outside /usr/lib on purpose: the boot scrubs every /usr/lib/… entry.
+          for pkg in ${imagePkgs.lib.concatStringsSep " " (imagePkgs.lib.unique (map toString extraLibPackages))}; do
+            if [ -d "$pkg/lib" ]; then
+              for f in "$pkg"/lib/lib*.so*; do
+                [ -f "$f" ] || [ -L "$f" ] || continue
+                name=$(basename "$f")
+                [ -e "${imagePkgs.glibc}/lib/$name" ] && continue
+                case "$name" in ld-linux*|libc.so*|libm.so*|libpthread.so*|libdl.so*|librt.so*|libresolv.so*|libutil.so*|libmvec.so*|libanl.so*|libnss_*) continue ;; esac
+                [ ! -e "$out/usr/local/lib/yolo-packages/$name" ] && ln -s "$f" "$out/usr/local/lib/yolo-packages/$name" 2>/dev/null || true
+              done
+            fi
           done
         '' + imagePkgs.lib.optionalString withChromium ''
           # Chromium graphics stack — only linked when chromium itself is in
@@ -1127,12 +1154,13 @@
           # its cache from `$glibc/etc/ld.so.cache` (a read-only store path
           # we can't write), and verified via `LD_DEBUG=libs` it never
           # consults /etc/ld.so.cache at all.  So runtime discovery of the
-          # symlinked libs above — core, chromium, and user `packages:` —
-          # relies entirely on LD_LIBRARY_PATH=/lib:/usr/lib (set in the
-          # image config.Env below, and re-exported by the entrypoint,
-          # run_cmd, and the MCP wrappers).  A consumer that scrubs
-          # LD_LIBRARY_PATH cannot be rescued by this cache; that is a
-          # documented limitation, not something ldconfig can fix here.
+          # symlinked libs above by a nix-built process's bare-soname dlopen
+          # relies on LD_LIBRARY_PATH, and for user `packages:` that names
+          # the packages-only farm
+          # /usr/local/lib/yolo-packages, never /lib (which carries glibc).
+          # A consumer that scrubs LD_LIBRARY_PATH cannot be rescued by this
+          # cache; that is a documented limitation, not something ldconfig
+          # can fix here.
           #
           # The cache itself is generated at CONTAINER STARTUP by the
           # entrypoint (generate_ld_cache), not at image build time: this
