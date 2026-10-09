@@ -437,6 +437,8 @@ lint-ci: lint
     # test-fast under check-ci's [parallel]; the script says why.
     python3 scripts/test-vantage-check.py
     scripts/vantage-check.sh userguide/
+    # `just done`'s change-aware front door: its routes, and that `done` still calls it.
+    python3 scripts/test-completion-check.py
 
 # Format code (Go: gofmt on tracked files)
 format:
@@ -478,24 +480,20 @@ clean:
     rm -f result
     rm -rf dist/ build/ dist-go/
 
-# Run `just done` at end of task to verify clean state.
+# Run `just done` at end of task: check what changed since the last verified commit, read-only.
 #
-# The tree check is not decoration: `check` depends on `format`, which runs
-# `gofmt -w`, so this recipe can DIRTY the tree itself. It used to print
-# "working tree clean" unconditionally — a claim it never verified — and
-# AGENTS.md tells agents to run it and report its output, so a stale working
-# tree could be reported as a clean one.
-done: check
-    @if [ -n "$(git status --porcelain)" ]; then \
-        echo; \
-        echo "Checks passed, but the working tree is DIRTY:"; \
-        echo; \
-        git status --short; \
-        echo; \
-        echo "Commit before calling the task done (gofmt may have just rewritten a file)."; \
-        exit 1; \
-    fi
-    @echo "All checks passed, working tree clean"
+# It verifies the task, not the tree from scratch (docs/design/change-aware-completion.md). The
+# baseline is the nearest ancestor of HEAD that an earlier `just done` verified on a clean tree
+# with the same toolchain; records are shared by every worktree of the repository. From there it
+# runs only what the change can reach — lint and short tests for the changed Go packages and their
+# importers, the tests recorded as reading a changed file (scripts/completion-readers.json), and
+# the checks for changed documents — and the full `check-ci` when there is no baseline or a gate
+# input moved. It never formats: a dirty tree is refused before any check runs, which is why it no
+# longer depends on `check`, whose `gofmt -w` could rewrite the work it was verifying.
+#
+# It is not the landing gate: landing still runs `just check-ci` (AGENTS.md, Workflow).
+done:
+    @python3 scripts/completion-check.py
 
 # Each official pack binary is built with the release recipe, and its sha256 is written into its
 # loophole manifest in place (docs/design/broker-as-a-pack.md BP-D9). WITH A VERSION it writes
