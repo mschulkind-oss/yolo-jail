@@ -177,6 +177,10 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
     which removes the copy-back of a host command's output until the broker's store and doorbell exist; that one
     question decides whether anything is built. Whether the broker may later approve such a command from a
     notification is [its own question](../design/boundary-broker.md#OQ-BB14), and waits for the doorbell.
+    Also asked for on 2026-10-09: [image paste in every agent](../design/image-paste.md), where [how far Ctrl+V is
+    consumed](../design/image-paste.md#OQ-PA2) shapes the key handling, with [closing macos-user's possibly open
+    pasteboard](../design/image-paste.md#OQ-PA1) and [the default](../design/image-paste.md#OQ-PA3); its first slice,
+    the host reader and `yolo paste`, waits on none of them.
 31. Speed builds the maintainer asked for on 2026-10-04: [Apple Container's stock-image skip, then the skip for a launch
     declaring `packages:`](../reference/image-staging-vs-baking.md), as a nix build that finds nothing to do is 3.2 to
     3.5 s of a 6.9 s fresh launch; and [Podman Machines pinned to applehv](../research/macos-vm-runtime-comparison.md#32-on-a-shared-mac-folder),
