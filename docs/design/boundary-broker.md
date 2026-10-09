@@ -74,7 +74,7 @@ ping box, which is designed and not built.
 
 **Start at [§3](#3-the-flow)**, the flow. Everything else is what one step of it needs.
 
-**Needs your ruling:** [OQ-BB10](#OQ-BB10).
+**Needs your ruling:** [OQ-BB10](#OQ-BB10), [OQ-BB14](#OQ-BB14).
 [OQ-BB3](#OQ-BB3), [OQ-BB4](#OQ-BB4), [OQ-BB6](#OQ-BB6),
 [OQ-BB7](#OQ-BB7), [OQ-BB8](#OQ-BB8), [OQ-BB9](#OQ-BB9) and OQ-C were ruled 2026-09-29,
 [OQ-BB12](#OQ-BB12) and [OQ-BB13](#OQ-BB13) on 2026-10-01, and [OQ-BB6](#OQ-BB6) re-ruled on
@@ -86,7 +86,9 @@ the answer rides back on), [`loophole-system.md`](../reference/loophole-system.m
 reaches it), [`config-safety.md`](../reference/config-safety.md) (the config-change gate the
 scope is approved through), [`providers.md`'s credential gate](../reference/providers.md#the-credential-gate)
 (delivery as specific as possible), [`sso-backed-bedrock.md`](sso-backed-bedrock.md) (the second consumer waiting for a
-request shape). No implementation sketch is open yet.
+request shape), [`host-run-mailbox.md`](host-run-mailbox.md) (the paste-to-host stopgap
+for everything this design does not yet cover, planned to become one more front-end of its
+store: its [§8](host-run-mailbox.md#8-how-the-gateway-absorbs-it)). No implementation sketch is open yet.
 
 ---
 
@@ -2164,6 +2166,24 @@ covered:
     > manual enabling only for now. We will worry about a more global enabling another time."*
     > Built for every loophole whose manifest declares `brokered`, of which `github-broker` is the
     > one yolo ships ([BB-D55](#BB-D55)).
+
+14. 💬 <a id="OQ-BB14"></a>**[OQ-BB14](#OQ-BB14): Once the doorbell exists, may a notification
+    approve an arbitrary host command filed through host-run?** Raised 2026-10-09 by
+    [`host-run-mailbox.md`](host-run-mailbox.md), the paste-to-host stopgap this design is
+    planned to absorb ([its §8](host-run-mailbox.md#8-how-the-gateway-absorbs-it)). This decides
+    whether that tier stays paste-only for good or becomes one of this broker's services.
+
+    - **A — Paste only, permanently.** The gateway carries its store, audit and doorbell; an
+      arbitrary argv never gets a button, so [BB-P6](#BB-P6) holds.
+    - **B — Allow once from a notification**: one digest, one use, 15 minutes, never a standing
+      grant. Less friction; a click takes less attention than reading and pasting a line.
+
+    <!-- vantage: question id=OQ-BB14 leaning="A — a button that runs any command is the general RPC BB-P6 forbids, and reading the line is the only review host-run has." -->
+
+    _Leaning:_ A — a button that runs any command is the general RPC BB-P6 forbids, and reading the line is the only review host-run has.
+
+    **Answer:**
+    > _(empty — fill in when decided)_
 
 ## 15. Decision Ledger
 
