@@ -524,10 +524,15 @@ func TestAConflictBelowTheNewestNamesItsRebaseOnto(t *testing.T) {
 	_, out, errw := packVerb(t, "status")
 	for _, w := range []string{"candidate: v1.3.0 (" + shortSHA(v13) + ")",
 		"does not take 0001-ten.patch (conflicts in f.txt) — `yolo pack rebase forkpack/tool` rebases the series",
-		"below it: v1.2.0 (" + shortSHA(v12) + "), checked under a minute ago: not replayed yet — `yolo pack update` replays it"} {
+		"below it: v1.2.0 (" + shortSHA(v12) + "), checked under a minute ago: not tried — `yolo pack update` " +
+			"stops at the conflict above and builds no older version; `yolo pack rebase forkpack/tool --onto v1.2.0` " +
+			"rebases the series onto it"} {
 		if !strings.Contains(out, w) {
 			t.Errorf("status lacks %q:\n%s\n%s", w, out, errw)
 		}
+	}
+	if strings.Contains(out, "replays it") {
+		t.Errorf("status still says an update replays the version below the conflict:\n%s", out)
 	}
 	dir := filepath.Join(t.TempDir(), "explicit lower target")
 	rc, rebaseOut, rebaseErr := rebaseVerb(t, "forkpack/tool", "--onto", v12, "--into", dir)

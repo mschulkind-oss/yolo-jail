@@ -754,6 +754,13 @@ func candidateLines(f packload.Fork, rec *packsrc.CheckRecord, series *packsrc.S
 			label = "below it"
 		}
 		state := "not replayed yet — `yolo pack update` replays it"
+		if i > 0 {
+			// BELOW A CONFLICT, NOTHING REPLAYS IT (PF-D81): an update stops at the newest's conflict
+			// and builds no older fit, so the one way to it is a rebase onto it.
+			state = "not tried — `yolo pack update` stops at the conflict above and builds no older " +
+				"version; `" + rebaseCommand(f, e, isRebaseDefault(rec, in, series.Digest, e)) +
+				"` rebases the series onto it"
+		}
 		if o := rec.Conflict(e.Commit, series.Digest, yolo, gitVer); o != nil {
 			state = fmt.Sprintf("does not take %s (conflicts in %s) — `%s` rebases the series", o.Member,
 				strings.Join(o.Paths, ", "), rebaseCommand(f, e, isRebaseDefault(rec, in, series.Digest, e)))
