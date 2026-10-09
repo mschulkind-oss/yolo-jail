@@ -67,7 +67,7 @@ class WrapperTest(unittest.TestCase):
     def test_the_shared_pipe_stays_blocking(self):
         rc, out, nonblocking, stdin_nonblocking = run_wrapper(0)
         self.assertEqual(rc, 0, out)
-        self.assertIn("fake vantage-check: vantage-check@latest CHANGELOG.md", out)
+        self.assertIn("fake vantage-check: vantage-check@0.10.0 CHANGELOG.md", out)
         self.assertFalse(nonblocking, "the wrapper let vantage-check set O_NONBLOCK on the caller's pipe")
         self.assertFalse(stdin_nonblocking, "the wrapper let vantage-check set O_NONBLOCK on the caller's stdin")
 
