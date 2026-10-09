@@ -17,7 +17,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
-	"github.com/mschulkind-oss/yolo-jail/internal/storage"
 )
 
 // miseStoreVolume is the named volume backing a podman jail's /mise on macOS: the Podman
@@ -390,6 +389,10 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 		runFlags = append(runFlags, "--pull=never")
 		runFlags = append(runFlags, "--log-driver", "none")
 		runFlags = append(runFlags, "--security-opt", "unmask=/proc/sys")
+		// Unset any legacy LD_LIBRARY_PATH baked into older container images.
+		// Exporting /lib and /usr/lib hijacks nix binaries' dynamic loader lookups
+		// and causes GLIBC_PRIVATE symbol lookup crashes (e.g. mise-installed Go tools).
+		runFlags = append(runFlags, "--unsetenv", "LD_LIBRARY_PATH")
 		// THE CLIENT FORWARDS NO SIGNAL INTO THE MAIN PROCESS. pid 1 is a hold, and the
 		// launcher's own signal arm is what ends the jail on a hangup or an interrupt; a
 		// client that also forwarded one would be a second way for a stray signal to end
@@ -1225,16 +1228,6 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 		"-e", "MISE_YES=1",
 		"-e", "COPILOT_ALLOW_ALL=true",
 		"-e", "IS_SANDBOX=1",
-		// Retained deliberately (not redundant cleanup): this mirrors the value
-		// baked into the OCI image's config.Env (flake.nix), but re-asserting it
-		// on -e makes the launch env self-describing and independent of whichever
-		// image tag podman resolves — a `yolo run` that (mis)loads an image
-		// without the baked env still gets a correct LD_LIBRARY_PATH. It is the
-		// dlopen-by-soname discovery path for nix-built processes (which never
-		// traverse /lib64 and so are unreachable by nix-ld); nix-ld handles the
-		// FHS-binary case. See docs/reference/mise-node-dynamic-linking.md, "The
-		// three library paths", item 3.
-		"-e", "LD_LIBRARY_PATH=/lib:/usr/lib:/usr/lib/" + storage.LinuxMultilib(),
 		"-e", "HOME=/home/agent",
 		"-e", "EDITOR=cat",
 		"-e", "VISUAL=nvim",

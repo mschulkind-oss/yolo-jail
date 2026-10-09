@@ -44,9 +44,13 @@ var errNotELF = errors.New("not an ELF file")
 // (MAXSYMLINKS).
 const maxLinkHops = 40
 
-// elfInterp returns the dynamic loader an ELF file asks for: its PT_INTERP, "" for one without (a
+// ElfInterp returns the dynamic loader an ELF file asks for: its PT_INTERP, "" for one without (a
 // static build). A file that is not ELF is errNotELF, and one too short or malformed to read is
 // another error. Neither says the program needs a loader.
+func ElfInterp(file string) (string, error) {
+	return elfInterp(file)
+}
+
 func elfInterp(file string) (string, error) {
 	fh, err := os.Open(file)
 	if err != nil {

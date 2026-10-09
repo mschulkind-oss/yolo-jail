@@ -1004,16 +1004,6 @@ func packFilesWorkspaceRel(dest string, writable []string, rt string) (string, b
 	return filepath.Join(strings.TrimPrefix(best, "."), remainder), true
 }
 
-func packFilesTargetKind(t packFilesTarget) string {
-	if isDir(t.Src) {
-		return "dir"
-	}
-	if isFile(t.Src) {
-		return "file"
-	}
-	return ""
-}
-
 func safePackFilesManifestRel(rel string) bool {
 	clean := filepath.Clean(rel)
 	return rel == clean && clean != "." && !filepath.IsAbs(clean) && clean != ".." &&

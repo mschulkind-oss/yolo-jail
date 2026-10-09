@@ -30,7 +30,7 @@ environment.
 | :--- | :--- |
 | The nix-ld derivation, its two baked defaults, and the `/lib64` + `/lib` interpreter links | `flake.nix` (`nixLd`, `mkBinPathLinks`) |
 | The `/lib` + `/usr/lib` library farm, and the baked nix-ld fallback dir | `flake.nix` (`mkBinPathLinks`, `extraLibPackages`) |
-| The baked `LD_LIBRARY_PATH` and its per-launch re-export | `flake.nix` (image `Env`), `internal/cli/run/assemble.go` |
+| Store packages' `LD_LIBRARY_PATH` (`/run/yolo/packages/lib`), not `/lib` | `internal/entrypoint/storepackages.go`, `boot.go` |
 | The regression tripwire | `internal/cli/check` (`sectionNixLD`) |
 | The MCP wrappers this used to be a per-call-site fix in | `internal/entrypoint/mcp_wrappers.go` |
 
@@ -104,20 +104,25 @@ loader under the name `ld.so`.
 > shadowing surface. Keeping it to the trio is what makes this cleaner than the baked variable
 > it replaced; grow it only on a proven need.
 
-**2. The `/lib` + `/usr/lib` farm.** Symlinks to every lib output in the image, plus the lib
-outputs of everything the workspace declared in `packages:`. This is what
-`LD_LIBRARY_PATH=/lib:/usr/lib:…` searches.
+**2. The `/lib` + `/usr/lib` farm.** Symlinks to every lib output in the image. These directories
+are the dynamic loader's default search paths for merged-tree binaries. They are **not** exported
+on `LD_LIBRARY_PATH`.
 
-**3. The baked `LD_LIBRARY_PATH`** in the image environment, re-exported on the container
-argv.
+**3. `LD_LIBRARY_PATH` is scoped to store packages (`/run/yolo/packages/lib`), not `/lib`.**
 
-> [!WARNING]
-> **Do not delete the baked `LD_LIBRARY_PATH` as leftover cleanup.** It is the **only**
-> discovery mechanism for `dlopen`-by-soname from **nix-built** processes — the documented
-> contract behind `packages:` adding a library for something to `dlopen` — and that is a class
-> nix-ld structurally cannot reach, since a nix binary never passes through `/lib64`. One baked
-> line was never the whack-a-mole; the *per-call-site re-assertions* were, and those are the
-> ones that went.
+> [!NOTE]
+> **Why `/lib` and `/usr/lib` were removed from `LD_LIBRARY_PATH`.** `LD_LIBRARY_PATH` is searched
+> *before* an ELF binary's `DT_RUNPATH` or default library paths. Exporting `/lib` and `/usr/lib`
+> forced any nix-built binary (such as mise-installed prebuilts like `staticcheck`) whose dynamic
+> loader was compiled against an older glibc (e.g. 2.42) to load the merged tree's newer libc
+> (`/lib/libc.so.6`, 2.44). Because loader and libc must share internal ABI, this caused immediate
+> `undefined symbol: __pointer_chk_guard, version GLIBC_PRIVATE` startup crashes.
+>
+> Unsetting the variable restores normal loader behavior: nix binaries resolve their own glibc from
+> their store RPATH/default directory, and nix-ld covers FHS binaries via `/usr/share/nix-ld/lib`.
+> When a workspace requests additional libraries in `packages:`, `internal/entrypoint/storepackages.go`
+> links their `.so` files into `/run/yolo/packages/lib` and prepends *that* directory to `LD_LIBRARY_PATH`,
+> keeping `/lib` and `/usr/lib` off the search path.
 
 The FHS `ld.so.cache` — the conventional `/etc` path — is a symlink into a tmpfs, populated at boot. It exists for tools that read
 it *directly* — `ldconfig -p`, diagnostics — and is **inert for FHS lookup**, because the nix
@@ -126,11 +131,15 @@ findable.
 
 ## The regression tripwire
 
-`yolo check` runs an in-jail-only probe: a mise-installed node under `env -i`, asserting it
-prints a version. That is the exact case nix-ld exists to cover, and if a nixpkgs bump or a
-flake change regresses the wiring, the probe fails here with a remedy naming the interpreter
-symlink and the baked fallback dir — rather than surfacing as a cryptic MCP-spawn failure deep
-inside an agent.
+`yolo check` runs the in-jail `FHS loader (nix-ld)` checks:
+
+1. **Env-free probe:** a mise-installed node under `env -i`, asserting it prints a version.
+   This verifies nix-ld's compiled-in fallback defaults without ambient environment.
+2. **Ambient environment probe:** node under the jail's actual environment, ensuring ambient variables
+   do not break dynamic loader resolution.
+3. **Mise glibc interpreter skew check:** compares each mise-installed binary's `.interp` glibc against
+   the merged image tree's libc, warning when a binary was built against a different glibc, and failing
+   if ambient execution crashes with `GLIBC_PRIVATE` or dynamic linker symbol lookup errors.
 
 Two details of the probe are deliberate:
 

@@ -733,6 +733,7 @@ func Main(args []string) error {
 	defer packload.ReleaseEmbedded()
 
 	e := EnvFromOS()
+	scrubLegacyLDLibraryPath(e)
 
 	// THE MAIN PROCESS SAYS ITS BOOT HAS BEGUN, before the boot, so a session exec'd into the
 	// container meanwhile waits for it rather than finding nothing. A SESSION of a jail whose
@@ -992,4 +993,34 @@ func setEnvBoth(e *Env, key, val string) {
 	// empty key or one containing "=" / NUL — so there is no reachable error. e.Vars
 	// above is set unconditionally either way, which is what the generators read.
 	_ = os.Setenv(key, val)
+}
+
+// unsetEnvBoth deletes key in both the process env and e.Vars.
+func unsetEnvBoth(e *Env, key string) {
+	delete(e.Vars, key)
+	_ = os.Unsetenv(key)
+}
+
+// scrubLegacyLDLibraryPath removes merged-tree glibc paths (/lib, /usr/lib, /usr/lib/<multilib>)
+// from LD_LIBRARY_PATH. Exporting those hijacks nix-built binaries' glibc (e.g. mise-installed
+// prebuilts with GLIBC_PRIVATE symbol mismatch).
+func scrubLegacyLDLibraryPath(e *Env) {
+	raw := e.Getenv("LD_LIBRARY_PATH")
+	if raw == "" {
+		return
+	}
+	var kept []string
+	for _, p := range strings.Split(raw, ":") {
+		p = strings.TrimSpace(p)
+		if p == "" || p == "/lib" || p == "/usr/lib" || strings.HasPrefix(p, "/usr/lib/") {
+			continue
+		}
+		kept = append(kept, p)
+	}
+	if len(kept) == 0 {
+		unsetEnvBoth(e, "LD_LIBRARY_PATH")
+	} else {
+		newVal := strings.Join(kept, ":")
+		setEnvBoth(e, "LD_LIBRARY_PATH", newVal)
+	}
 }

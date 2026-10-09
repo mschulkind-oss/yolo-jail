@@ -16,7 +16,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/setupcensus"
-	"github.com/mschulkind-oss/yolo-jail/internal/storage"
 	officialpacks "github.com/mschulkind-oss/yolo-jail/packs"
 )
 
@@ -444,7 +443,7 @@ func podmanLinuxGolden(home string) []string {
 	add("podman", "run",
 		"--rm", "-i", "--init", "--cgroupns=private", "--read-only", "--name", "yolo-ws-abcd1234",
 		"--read-only-tmpfs=false", "--pull=never", "--log-driver", "none",
-		"--security-opt", "unmask=/proc/sys", "--sig-proxy=false", "--detach-keys=")
+		"--security-opt", "unmask=/proc/sys", "--unsetenv", "LD_LIBRARY_PATH", "--sig-proxy=false", "--detach-keys=")
 	// podman base mounts. The home root is THIS JAIL'S skeleton, not the machine store
 	// (<state>/home) every podman jail used to share: that store's only mounts left are the
 	// selected packs' shared dirs, below (docs/design/base-home-legacy-state.md#29-backends).
@@ -513,7 +512,6 @@ func podmanLinuxGolden(home string) []string {
 		"-e", "MISE_YES=1",
 		"-e", "COPILOT_ALLOW_ALL=true",
 		"-e", "IS_SANDBOX=1",
-		"-e", "LD_LIBRARY_PATH=/lib:/usr/lib:/usr/lib/"+storage.LinuxMultilib(),
 		"-e", "HOME=/home/agent",
 		"-e", "EDITOR=cat",
 		"-e", "VISUAL=nvim",

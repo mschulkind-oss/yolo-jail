@@ -86,6 +86,12 @@ type Options struct {
 	// /mise/installs/node/*/bin/node. Injected so the drift-detection branches
 	// are unit-testable without a real mise install.
 	MiseNode func() string
+	// MiseBinaries returns paths to mise-installed ELF binaries to probe for glibc skew.
+	// nil => scan of /mise/installs. Injected for unit testing.
+	MiseBinaries func() []string
+	// MergedGlibc returns the nix store path of the merged tree's glibc (e.g. from /lib/libc.so.6).
+	// nil => real EvalSymlinks of /lib/libc.so.6. Injected for unit testing.
+	MergedGlibc func() string
 	// Exec runs a subprocess with a timeout in the given working directory (""
 	// = inherit the current dir) and extra environment entries ("KEY=VALUE",
 	// appended to the parent env). nil => real. Tests install a stub that
@@ -241,6 +247,12 @@ func fillDefaults(o *Options) {
 	}
 	if o.MiseNode == nil {
 		o.MiseNode = realFirstMiseNode
+	}
+	if o.MiseBinaries == nil {
+		o.MiseBinaries = realMiseBinaries
+	}
+	if o.MergedGlibc == nil {
+		o.MergedGlibc = realMergedGlibc
 	}
 	if o.Exec == nil {
 		o.Exec = realExec

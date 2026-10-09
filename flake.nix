@@ -1770,7 +1770,6 @@
               Env = [
                 "PATH=/bin:/usr/bin"
                 "SSL_CERT_FILE=${imagePkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
-                "LD_LIBRARY_PATH=/lib:/usr/lib:/usr/lib/${linuxMultilib}"
                 # FHS-style pkg-config search path for .pc files laid down
                 # by any ``.dev`` outputs in the image (gtk4.dev,
                 # freetype.dev, ...).  Without this, ``pkg-config --cflags
