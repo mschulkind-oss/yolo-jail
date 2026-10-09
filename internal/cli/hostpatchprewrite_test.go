@@ -146,3 +146,40 @@ func TestAHostLaunchStopsOnAForksRecordedPatchFailureBeforeTheGate(t *testing.T)
 		t.Errorf("the refusal says the error %d times, want once, and names the stop:\n%s", n, out)
 	}
 }
+
+// WITHOUT host_apply_on_launch, `yolo host -- <bin>` still stops on a patched extension's RECORDED
+// patch failure, though its linked good build is there to load: the advance before the gate does
+// not run, so the stop (hostTreeGate) reads the record. The bypass loads the linked build, said.
+// Red with hostTreeGate's patch-failure read deleted, which started tool on the older build.
+func TestAHostLaunchWithoutApplyOnLaunchStopsOnATreesRecordedPatchFailure(t *testing.T) {
+	t.Setenv("YOLO_ALLOW_PATCH_FAILURES", "")
+	fx := newTreeFixture(t, `"f.txt"`)
+	fx.listTreeForAgent(t)
+	fx.writeHostConfig(t, treeHostOwn+`,"host_apply_on_launch":false`)
+	stubBins(t, "tool")
+	var out, errw bytes.Buffer
+	if rc := hostApplyRefreshAndRender(&out, &errw, false, true, nil, "", ""); rc != 0 || !isDir(fx.link()) {
+		t.Fatalf("the first apply: rc=%d\n%s\n%s", rc, out.String(), errw.String())
+	}
+	fx.commit(t, "v1.2.0", map[int]string{14: "fourteen", 11: "eleven"})
+	fx.now = fx.now.Add(2 * time.Hour)
+	if advanceHostTrees(io.Discard, false, "", nil) {
+		t.Fatal("the advance that records the failure did not stop")
+	}
+	got := captureHostExec(t)
+	errw.Reset()
+	rc := hostExec(nil, []string{"tool"}, io.Discard, &errw, nil)
+	if rc == 0 || got.execed {
+		t.Fatalf("a recorded patch failure: rc=%d execed %v, want a refusal\n%s", rc, got.execed, errw.String())
+	}
+	if n := strings.Count(errw.String(), "ERROR: treepack/tool-ext: patch application failed at upstream v1.2.0"); n != 1 ||
+		!strings.Contains(errw.String(), "  Bypass: YOLO_ALLOW_PATCH_FAILURES=1 yolo host -- tool\n") {
+		t.Errorf("the refusal says the error %d times, want once, with the bypass:\n%s", n, errw.String())
+	}
+	t.Setenv("YOLO_ALLOW_PATCH_FAILURES", "1")
+	errw.Reset()
+	if rc := hostExec(nil, []string{"tool"}, io.Discard, &errw, nil); rc != 0 || !got.execed ||
+		!strings.Contains(errw.String(), "CONTINUING: YOLO_ALLOW_PATCH_FAILURES=1 is set") {
+		t.Errorf("the bypass: rc=%d execed %v\n%s", rc, got.execed, errw.String())
+	}
+}

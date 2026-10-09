@@ -154,6 +154,9 @@ func hostTreeGate(errw io.Writer, bin, home string) bool {
 	ok := true
 	for _, f := range hostLaunchTrees(sel.packs, bin) {
 		dest := filepath.Join(home, filepath.FromSlash(strings.TrimSuffix(f.Into, "/")))
+		if !hostTreePatchFailureAllows(errw, f, bin, dest) {
+			return false
+		}
 		if isDir(dest) {
 			continue
 		}
@@ -172,6 +175,34 @@ func hostTreeGate(errw io.Writer, bin, home string) bool {
 			"to run %s without it.\n", bin, bin)
 	}
 	return ok
+}
+
+// hostTreePatchFailureAllows is PF-D81 at the stop, for a launch whose advance did not run before the
+// gate (host_apply_on_launch off, where advanceHostTrees said and decided it): a patched extension
+// whose series as it stands has a recorded patch failure stops the launch, read from its check record
+// with no git, its error block said here, even though the linked good build is there to load.
+// paths.AllowPatchFailuresEnv=1 loads that linked build, said; with none linked it offers nothing.
+func hostTreePatchFailureAllows(errw io.Writer, f packload.Fork, bin, dest string) bool {
+	if config.HostApplyOnLaunchEnabled() {
+		return true
+	}
+	pf := currentPatchFailure(f)
+	if pf == nil {
+		return true
+	}
+	runs := ""
+	if target, err := os.Readlink(dest); err == nil && filepath.Dir(target) == hostTreeVersionsDir(f) && isDir(dest) {
+		runs = linkedTreeLabel(filepath.Base(target))
+	}
+	_, _ = io.WriteString(errw, pf.Block(f.Key(), f.Key(), packsrc.PatchBypass{Command: "yolo host -- " + bin, Runs: runs}))
+	if runs != "" && allowPatchFailures() {
+		fmt.Fprintf(errw, "CONTINUING: %s=1 is set — %s loads the intact admitted build %s of %s in place of the series "+
+			"that does not apply; the series is not repaired.\n", allowPatchFailuresEnv, bin, runs, f.Label())
+		return true
+	}
+	fmt.Fprintf(errw, "yolo host: refusing to launch %s: the patch series of %s does not apply (the ERROR above).\n",
+		bin, f.Label())
+	return false
 }
 
 // hostLaunchTrees is every patched extension `yolo host -- <bin>` stops without: those whose owning
