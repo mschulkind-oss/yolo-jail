@@ -89,8 +89,13 @@ One machine (32 CPUs), the shared Go build cache warm from earlier runs:
 | :--- | :--- | :--- |
 | None: first run in this worktree | Full `just check-ci` | 229 s |
 | One line of `docs/reference/jail-home.md` | Its Markdown check, and the one citation test that reads it | 4.4 s |
+| The same line, in a new checkout path holding only the shared record | The same two checks | 4.0 s |
 | A comment in `tools/build-wheels`, a package nothing imports | Lint and tests for that package, one reader test, gofmt, pins | 1.1 s |
 | One line of `internal/cli` code | Lint and tests for `internal/cli` and `cmd/yolo`, 14 reader tests | 211 s, 210 s of it `internal/cli`'s own suite |
+
+The old recipe (`check`, then the tree check), on the commit before this change: 241 s in a new
+checkout path, and 21.2 s after the same one-line document commit in a checkout whose test cache
+was warm.
 
 `internal/cli` and `internal/cli/run` import nearly every package in the module, so most Go changes
 still pay for those two suites. That cost is the [suite-speed](../plans/test-suite-speed.md) work,
