@@ -743,6 +743,9 @@ func TestMacosUserSeatbeltProfileEnforcesItsRules(t *testing.T) {
 			}
 		})
 	}
+	if t.Failed() {
+		logSandboxDenials(t)
+	}
 }
 
 // TestMacosUserSeatbeltContextHardLinkMeasurement RECORDS the answer to
@@ -1382,6 +1385,12 @@ func TestMacosUserSeatbeltMacosLogDialDecidesTheLogRead(t *testing.T) {
 		}
 		t.Logf("MEASUREMENT (macos-log-off-stream-deny), `log stream` %s: %s (rc %d).\noutput:\n%s",
 			run.name, verdict, rc, out)
+	}
+	// The "user" control has read nothing on every Mac run since it landed (macos-user runs
+	// 37522721810 through 37940733418), so some rule of the base profile refuses `log show`;
+	// the kernel's own record of the refusal names which.
+	if t.Failed() {
+		logSandboxDenials(t)
 	}
 }
 
