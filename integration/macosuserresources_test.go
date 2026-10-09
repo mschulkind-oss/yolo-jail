@@ -10,11 +10,15 @@ import (
 // and the pids_limit evidence the open question needs.
 //
 // The guard runs as the sandbox account inside the agent's Seatbelt sandbox, reading the process
-// table with /bin/ps. Three facts only a Mac can settle, each a section of one launch:
+// table from the kernel. Three facts only a Mac can settle, each a section of one launch:
 //
-//   - PS: `ps -o rss=` reads a descendant's size from inside the sandbox — the profile denies
-//     process-info-pidinfo outside the sandbox and allows it for the same sandbox, and the guard
-//     lives on the second half of that;
+//   - READ: the guard reads the process table from inside the sandbox — it never says it
+//     cannot. It reads the kernel (kern.proc.all and proc_pidinfo, proctable_darwin.go), not
+//     /bin/ps: ps is setuid root, and Seatbelt refuses a setuid exec in any sandbox, which
+//     left the guard blind on this test's first run (CI run 37940733418). The profile denies
+//     process-info-pidinfo outside the sandbox and allows it for the same sandbox, and the
+//     guard lives on the second half of that. The PS section still records what /bin/ps does
+//     in the sandbox, printed, never asserted: it is evidence, not the guard's instrument;
 //   - HOG: a process that allocates past resources.memory is stopped, with the guard's line
 //     naming the key, within a bound well under the hog's own sleep;
 //   - UNDER: a session under the limit runs to its own exit status, 0.
@@ -29,6 +33,10 @@ import (
 // well under the 60 s the hog sleeps if nothing stops it.
 const memoryGuardHogBound = 45
 
+// guardBlindLine is the start of the guard's line for a process table it could not read
+// (sessionguard.go): the guard is running and checking nothing.
+const guardBlindLine = "the memory guard cannot read the process table"
+
 func TestMacosUserMemoryGuard(t *testing.T) {
 	requireMacosUser(t)
 	ws := macosUserWorkspace(t, `{"resources": {"memory": "256m"}}`)
@@ -36,7 +44,7 @@ func TestMacosUserMemoryGuard(t *testing.T) {
 	r := runMacosUser(t, ws, strings.Join([]string{
 		`echo "=== PS ==="`,
 		`sleep 30 & kid=$!`,
-		`echo "RSS=$(/bin/ps -o rss= -p "$kid" | tr -d ' ')"`,
+		`echo "RSS=$(/bin/ps -o rss= -p "$kid" 2>&1 | tr -d ' ')"`,
 		`echo "ROWS=$(/bin/ps -ax -o pid=,ppid=,rss= | wc -l | tr -d ' ')"`,
 		`echo "DASHES=$(/bin/ps -ax -o rss= | grep -c -- '-' || true)"`,
 		`kill "$kid"`,
@@ -57,10 +65,9 @@ func TestMacosUserMemoryGuard(t *testing.T) {
 		t.Errorf("memory is guarded, yet the launch still calls it ignored:\n%s", out)
 	}
 	ps := section(r.stdout, "=== PS ===", "=== LIMITS ===")
-	rss := strings.TrimSpace(strings.TrimPrefix(firstLineWith(ps, "RSS="), "RSS="))
-	if n, err := strconv.Atoi(rss); err != nil || n <= 0 {
-		t.Errorf("PS: `ps -o rss=` of a descendant read %q from inside the sandbox; the guard "+
-			"sums exactly this column, so it is blind here.\n%s", rss, ps)
+	if strings.Contains(out, guardBlindLine) {
+		t.Errorf("READ: the guard could not read the process table inside the sandbox, so it "+
+			"is blind here.\n%s", out)
 	}
 	limits := section(r.stdout, "=== LIMITS ===", "=== END ===")
 	stepSummary(t, "### macos-user resources: the memory guard and the pids_limit evidence", "",
@@ -78,6 +85,10 @@ func TestMacosUserMemoryGuard(t *testing.T) {
 		`exit $rc`,
 	}, "\n"))
 	out = r.combined()
+	if strings.Contains(out, guardBlindLine) {
+		t.Errorf("READ: the guard could not read the process table inside the sandbox, so it "+
+			"is blind here.\n%s", out)
+	}
 	if strings.Contains(out, "HOG-SURVIVED") {
 		t.Fatalf("HOG: a process holding 768m in a 256m session slept its full minute: nothing "+
 			"stopped it.\n%s", out)

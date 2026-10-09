@@ -26,9 +26,9 @@ import (
 //
 // WHAT IT IS, AND WHAT IT IS NOT. macOS has no cgroups and this backend has no VM to size, so
 // nothing can make the kernel refuse an allocation the way a container's memory.max does. The
-// guard reads the process table every few seconds (/bin/ps, numeric columns only), sums the
-// resident memory of every process descended from it, and, when the sum is over the declared
-// limit, stops the LARGEST of them: SIGTERM, a grace period, then SIGKILL. That is the shape
+// guard reads the process table every few seconds (pid, ppid and resident size, from the
+// kernel: proctable_darwin.go), sums the resident memory of every process descended from it,
+// and, when the sum is over the declared limit, stops the LARGEST of them: SIGTERM, a grace period, then SIGKILL. That is the shape
 // of the cgroup OOM killer, which picks the biggest process in the group rather than the
 // newest, so a runaway build process goes and the agent that started it usually stays.
 //
@@ -67,9 +67,13 @@ const (
 	sessionGuardGrace    = 5 * time.Second
 )
 
-// psBin and psArgs are the process-table read: every process, numeric columns only, no
-// header. Numeric only because a command name can hold spaces and a column that can hold
-// anything is a column a parser has to guess at; the guard names a process by its pid.
+// psBin and psArgs are the process-table read OFF macOS (proctable_other.go): every
+// process, numeric columns only, no header. Numeric only because a command name can hold
+// spaces and a column that can hold anything is a column a parser has to guess at; the guard
+// names a process by its pid. ON macOS the guard never runs /bin/ps: ps is setuid root there,
+// and Seatbelt refuses a setuid exec inside any sandbox whatever the profile says, so the
+// guard read nothing (`fork/exec /bin/ps: operation not permitted`, macos-user CI run
+// 37940733418). proctable_darwin.go reads the same three columns from the kernel instead.
 const psBin = "/bin/ps"
 
 var psArgs = []string{"-ax", "-o", "pid=,ppid=,rss="}
@@ -344,22 +348,7 @@ func realGuardSeams(stderr *os.File) guardSeams {
 			c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
 			return c, c.Start()
 		},
-		ps: func() (string, int, error) {
-			c := exec.Command(psBin, psArgs...)
-			var out strings.Builder
-			c.Stdout = &out
-			if err := c.Start(); err != nil {
-				return "", 0, err
-			}
-			pid := c.Process.Pid
-			// A non-zero exit with a table on stdout is still a table: a ps that could not
-			// inspect one process may say so in its status, and parsePSTable is what judges
-			// the rows. Only a ps that printed nothing is a failure to read.
-			if err := c.Wait(); err != nil && strings.TrimSpace(out.String()) == "" {
-				return "", pid, err
-			}
-			return out.String(), pid, nil
-		},
+		ps:     readProcessTable,
 		kill:   func(pid int, sig syscall.Signal) error { return syscall.Kill(pid, sig) },
 		alive:  func(pid int) bool { return syscall.Kill(pid, 0) == nil },
 		notify: signal.Notify,
