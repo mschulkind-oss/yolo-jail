@@ -365,6 +365,7 @@ func floorAdvanceState(p hostfloor.Program, result advanceResult) hostfloor.Patc
 	}
 	if failure != nil {
 		state.PatchFailure = failure
+		state.PatchFailureSaid = result.patchFailureSaid
 	}
 	state.OperationError = result.operationError
 	state.AdvanceBypassed = result.bypassed

@@ -196,6 +196,9 @@ type advanceResult struct {
 	operationError string
 	// patchFailure is the current classified failure, carried beside any compatible delivery.
 	patchFailure *packsrc.PatchFailure
+	// patchFailureSaid is true when this advance printed patchFailure's error block itself
+	// (reportPatchFailure), so a caller that also reports failures does not print it a second time.
+	patchFailureSaid bool
 	// lost is true when this advance's admitted build lost the swap to a newer check's (§6.1).
 	lost bool
 	// gone is why this advance's admitted build could not be moved to: it left the store first.
@@ -2334,6 +2337,7 @@ func (a *advance) finish(built *capture.Entry, b forkBuild, seq int64, failure *
 	res.problem = a.problem
 	res.operationError = a.operationError
 	res.patchFailure = a.patchFailure
+	res.patchFailureSaid = a.patchFailure != nil && a.failureReported
 	if res.delivery.Key == "" && a.serving != nil && a.rec != nil && a.rec.Good != nil &&
 		a.rec.Good.Entry == a.serving.Key {
 		if current := a.exactGood(a.rec.Good); current != nil && current.Key == a.serving.Key {

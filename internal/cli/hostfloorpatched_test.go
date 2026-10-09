@@ -96,6 +96,38 @@ func TestHostPatchFailureRefusesDespiteAValidOldFloor(t *testing.T) {
 	}
 }
 
+// PF-D81'S ERROR IS SAID ONCE AT THE HOST: the advance that finds the conflict prints its error
+// block, and the floor's preparation, handed that failure, does not print the same block again; a
+// later launch, which reads the failure from the record with no advance to say it, prints it once
+// itself. Bypassed or not. Red with floorAdvanceState dropping the advance's "said" mark, or the floor
+// printing its block unconditionally.
+func TestHostPatchFailureErrorIsSaidOnce(t *testing.T) {
+	for _, bypass := range []string{"", "1"} {
+		t.Setenv("YOLO_ALLOW_PATCH_FAILURES", "")
+		fx := patchedFloorFixture(t)
+		fx.commit(t, "v1.1.0", map[int]string{14: "fourteen"})
+		if rc, _, out := fx.hostLaunch(t); rc != 0 {
+			t.Fatalf("clean initial host launch: rc=%d\n%s", rc, out)
+		}
+		fx.commit(t, "v1.2.0", map[int]string{14: "fourteen", 11: "eleven"})
+		fx.later(2 * time.Hour)
+		t.Setenv("YOLO_ALLOW_PATCH_FAILURES", bypass)
+		for _, launch := range []string{"the advancing launch", "the next launch"} {
+			rc, _, out := fx.hostLaunch(t)
+			if want := map[string]int{"": 1, "1": 0}[bypass]; rc != want {
+				t.Fatalf("bypass %q, %s: rc=%d, want %d\n%s", bypass, launch, rc, want, out)
+			}
+			for _, line := range []string{": patch application failed at upstream v1.2.0 (", "  Patch: 0001-ten.patch\n",
+				"  Conflict: f.txt\n", "  Operation stopped; no older fit or base will be built.\n",
+				"  Repair: yolo pack rebase forkpack/tool --onto ", "  Bypass: YOLO_ALLOW_PATCH_FAILURES=1 yolo host -- tool\n"} {
+				if n := strings.Count(out, line); n != 1 {
+					t.Errorf("bypass %q, %s: %q said %d times, want once:\n%s", bypass, launch, line, n, out)
+				}
+			}
+		}
+	}
+}
+
 // THE MOTIVATING PATH AT THE HOST: `yolo host -- tool` of a patched fork never built on this machine
 // runs its first advance — the newest fit, v1.1.0, built once in the sealed jail — then installs that
 // good build and runs the floor's copy; its lines name `yolo host`, and the fork's line names the

@@ -71,23 +71,23 @@ func (f *Floor) PreparePatched(ctx context.Context, p Program, allowAdvance bool
 	bypass := f.AllowPatchFailures != nil && f.AllowPatchFailures()
 	preparation.bypassRequested = bypass
 	if !bypass {
-		f.writePatchFailure(p, state.PatchFailure)
+		f.writePatchFailureOnce(p, state)
 		return preparation, preparationError(p, state, "patch application failure")
 	}
 	if f.preparedRecordServes(p, currentStatus.Record, state) {
 		preparation.delivery = patchedPreparationKeepInstalled
 		preparation.installed = cloneRecord(currentStatus.Record)
-		f.writePatchFailure(p, state.PatchFailure)
+		f.writePatchFailureOnce(p, state)
 		f.say("CONTINUING: using installed compatible build %s; skips this fork's advance", currentStatus.Record.Version)
 		return preparation, nil
 	}
 	if why := f.preparedGoodUsable(p, state, preparation.selectedGood); why == "" {
 		preparation.delivery = patchedPreparationInstallGood
-		f.writePatchFailure(p, state.PatchFailure)
+		f.writePatchFailureOnce(p, state)
 		f.say("CONTINUING: installing the selected admitted build %s; skips this fork's advance", preparation.selectedGood.Label)
 		return preparation, nil
 	}
-	f.writePatchFailure(p, state.PatchFailure)
+	f.writePatchFailureOnce(p, state)
 	return preparation, preparationError(p, state, "no compatible installed copy or complete current-series store build is available for the literal patch-failure bypass")
 }
 

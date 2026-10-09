@@ -63,6 +63,10 @@ type PatchedState struct {
 	// PatchFailure is the current persistent application failure, if any, or the typed failure
 	// returned by the immediately preceding Advance when persistence did not retain it.
 	PatchFailure *packsrc.PatchFailure
+	// PatchFailureSaid records that the Advance which returned PatchFailure already printed its
+	// error block on this operation's stream, so the floor does not print the same block again. It
+	// is false for a failure read from the record, which nothing in this operation has said yet.
+	PatchFailureSaid bool
 	// OperationError is an independent check/operation failure returned by Advance. A compatible
 	// patch-failure bypass must not turn this into success.
 	OperationError string
@@ -307,6 +311,16 @@ func (f *Floor) advances(p Program, st Status) bool {
 		return false
 	}
 	return !(st.Disposition == Provisioned && st.Pending == "" && !f.patchedUpdatesAllowed(p))
+}
+
+// writePatchFailureOnce prints state's patch failure block unless the advance that found it already
+// did: PF-D81's error is said once per operation, so a reader never wonders whether two failures
+// happened.
+func (f *Floor) writePatchFailureOnce(p Program, state PatchedState) {
+	if state.PatchFailureSaid {
+		return
+	}
+	f.writePatchFailure(p, state.PatchFailure)
 }
 
 func (f *Floor) writePatchFailure(p Program, pf *packsrc.PatchFailure) {
