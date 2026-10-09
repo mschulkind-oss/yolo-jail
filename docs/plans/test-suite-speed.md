@@ -3,12 +3,14 @@ title: "Test suite speed"
 date: 2026-09-27
 status: in-review
 stage: DESIGN
-next: "Cut the six refresh-timeout tests in internal/packsrc the 2026-10-01 retake names, without weakening an assertion, then retake recipe 1 and three idle runs of recipe 3"
+next: "Audit the remaining timer tests and the slow package setups recorded by the latest retake before choosing the next bounded source change; then repeat the target measurements only when host-wide idleness can be verified"
 tags: [testing, ci, performance, plan]
-summary: "Why the unit gate doubled and the integration suite grew by half in three weeks, what is being cut, the targets, and four questions for the maintainer, two of them answered."
+summary: "The suite-speed investigation, changes built so far, measurement recipes and retakes, and the remaining questions about the landing gate and darwin lint."
 ---
 
 # The suite got slower because tests were added, and the suite got run more often
+
+**Current status, 2026-10-09.** The refreshed recipe-1 and recipe-3 measurements are recorded at [the 2026-10-08 retake](#retaken-2026-10-08-on-the-clean-source-tree). All five commands passed, but the warm unit time and the three-run integration median both exceed their targets. Host-wide idleness was not verified, so this is not a valid target-acceptance check. The plan remains partly built: [OQ-TS2](#OQ-TS2) and [OQ-TS4](#OQ-TS4) remain open, and the next source work is a bounded audit of the remaining waits and dominant package setups.
 
 **Status:** 2026-09-27. Evidence measured 2026-09-27 against `71114ecc` and its parents.
 Five work items are ruled and being built, and some have landed, among them the **integration**
@@ -26,7 +28,7 @@ asked for one more lever. [OQ-TS1](#OQ-TS1) and [OQ-TS3](#OQ-TS3) were answered 
 leaned and both adding no lever ([Decision Ledger](#decision-ledger)). [OQ-TS2](#OQ-TS2) and
 [OQ-TS4](#OQ-TS4) are still open, and none of the five work items waits on them.
 
-> **In short.** No existing test got slower. The time went into tests added since mid-August,
+> **In short (the 09-27 baseline).** No existing test got slower. The time went into tests added since mid-August,
 > several of which wait on real clocks, and into running the full suite 28 to 34 times a day.
 > Cutting about 18 s of waits, isolating two integration tests from a concurrent run's state, and
 > running the full suite once per landing brings the warm gate back under 30 s.
@@ -131,8 +133,35 @@ the exact-ref-lookup timeout (3 s), the real stalled-HTTP deadline (2 s), and th
 budget (6 s). The lookup was not converted: canceling the store parent also cancels the later cached
 ref resolution, so that path cannot preserve the existing cached-commit/Warning contract without a
 production context-policy change, which is out of scope. The HTTP and shared-budget cases likewise
-remain unchanged. No elapsed-time claim is made here; recipe 1's warm retake and three idle recipe 3
-runs are still owed.
+remain unchanged.
+
+### Retaken 2026-10-08 on the clean source tree
+
+**MEASURED** against `b2eeffc12b631d5cda108238e77a6c4cb5bb777c`, with the source tree clean before and after each command. The two recipe-1 runs were sequential; recipe 3 was run three times sequentially. Every command exited 0. The measurement ran in a Linux rootful jail with 32 CPUs visible. No other heavy command or suite was visible from the jail during the runs, but host-wide idleness could not be verified. The process umask was `022`. The sampled one-minute load averages were 12.05 and 14.17 at the two unit starts, then 11.57, 10.34 and 4.52 at the three integration starts.
+
+| Measurement | Run 1 | Warm run / runs 2–3 | Median or warm result | Target | Result |
+| :--- | ---: | ---: | ---: | ---: | :--- |
+| Unit `go test -count=1 -json -short ./...` wall time | 124.156 s | 123.287 s | 123.287 s (warm) | ≤ 25 s | Not met |
+| Full integration `go test -count=1 -json -timeout 0 ./integration` wall time | 676.432 s | 631.301 s; 606.978 s | 631.301 s (median of three) | ≤ 450 s | Not met |
+
+The package `Elapsed` values in Go's JSON output are not command wall times; the table uses the external wall measurements. The Linux integration runs did not exercise native macOS coverage: 0 `macos-user` tests executed and 91 were skipped. This limits what the green integration result establishes.
+
+The warm unit run's largest package `Elapsed` values provide an audit order, not an attribution to a single test and not a sum of wall time:
+
+| Package | Elapsed in warm unit run |
+| :--- | ---: |
+| `internal/cli/run` | 121.213 s |
+| `internal/cli` | 96.053 s |
+| `internal/entrypoint` | 72.050 s |
+| `internal/packsrc` | 31.145 s |
+| `integration` under `-short` | 30.989 s |
+
+Neither numeric target was reached, and the run cannot establish an idle-target check because host-wide idleness was not observable. These timings make no claim of improvement or causality relative to earlier source trees or different machine loads. The next source step is to audit the dominant package test setup and the remaining deliberate timer waits described above, then select the smallest safe follow-on; do not introduce a new timing framework or a global parallelism limit based on this data.
+
+> [!NOTE]
+> An earlier attempt is excluded from these measurements: two capture tests failed because the runner's restrictive inherited umask made copied test fixtures mode `0700` instead of the intended `0755`. The runner was corrected to set the test process umask to `022`, and both focused capture tests passed before this completed retake. This was a fixture-permission measurement-harness defect, not evidence of a product regression.
+
+
 
 **A flake seen once in four unit runs**, the second:
 `TestEnvOverrideRefusesTheMacosUserLaunch` failed with `Refusing the macos-user launch: the
@@ -294,12 +323,16 @@ run, not how the code is written.
 
 Run these from a clean checkout of the commit being measured. For a past tree, use
 `git worktree add "$S/tree" "$(git rev-list -1 --before=2026-09-03T23:59 main)"`. Set
-`S=<scratch dir>` first. The two `env -u` flags remove the in-jail variables that change `go test`
-results.
+`S=<scratch dir>` first. **Measurement recipe:** The recorded 2026-10-08 runner removed five environment variables before each command: `YOLO_VERSION`, `YOLO_HOST_LAYERS`, `YOLO_SERVICE_AWS_AUTH_ENDPOINT`, `AWS_CONTAINER_AUTHORIZATION_TOKEN` and `AWS_CONTAINER_CREDENTIALS_FULL_URI`. Recipe commands below spell out the same isolation rather than implying that only the two previously listed flags were unset.
+
 
 ```console
 # 1. Unit wall time, per-package time, and the slowest tests. Run twice and keep the second (warm) run.
-$ time env -u YOLO_VERSION -u YOLO_HOST_LAYERS go test -short -count=1 -json ./... > "$S/unit.json"
+$ time env -u YOLO_VERSION -u YOLO_HOST_LAYERS \
+    -u YOLO_SERVICE_AWS_AUTH_ENDPOINT \
+    -u AWS_CONTAINER_AUTHORIZATION_TOKEN \
+    -u AWS_CONTAINER_CREDENTIALS_FULL_URI \
+    go test -short -count=1 -json ./... > "$S/unit.json"
 $ jq -r 'select(.Action=="pass" and .Test==null) | "\(.Elapsed)\t\(.Package)"' "$S/unit.json" | sort -rn | head
 $ jq -r 'select(.Action=="pass" and .Test!=null) | "\(.Elapsed)\t\(.Package)\t\(.Test)"' "$S/unit.json" | sort -rn | head -20
 $ go test -short -list . ./internal/cli/run | rg -c '^Test'
@@ -309,7 +342,11 @@ $ time just check-ci
 $ time env GOCACHE="$(mktemp -d)" STATICCHECK_CACHE="$(mktemp -d)" just check-ci
 
 # 3. The integration suite, and its slowest tests (median of three runs, with no other suite running).
-$ time go test -count=1 -timeout 0 -json ./integration > "$S/integ.json"
+$ time env -u YOLO_VERSION -u YOLO_HOST_LAYERS \
+    -u YOLO_SERVICE_AWS_AUTH_ENDPOINT \
+    -u AWS_CONTAINER_AUTHORIZATION_TOKEN \
+    -u AWS_CONTAINER_CREDENTIALS_FULL_URI \
+    go test -count=1 -timeout 0 -json ./integration > "$S/integ.json"
 $ jq -r 'select(.Action=="pass" or .Action=="fail") | select(.Test!=null) | "\(.Elapsed)\t\(.Action)\t\(.Test)"' "$S/integ.json" | sort -rn | head -20
 
 # 4. CI step and job durations (needs a token that can read the repository).

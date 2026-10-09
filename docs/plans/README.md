@@ -477,6 +477,7 @@ has since graduated:
 
 | Doc | What it is | Status |
 |---|---|---|
+| [test-suite-speed.md](test-suite-speed.md) | Why the unit and integration suites grew, the test changes built so far, the recipe-1 warm unit and three-run integration measurements, and the remaining bounded source audit. | **DESIGN, partly built** — the latest Linux rootful-jail retake passed but missed both numeric targets and could not validate them under verified host-idle conditions. [OQ-TS2](test-suite-speed.md#OQ-TS2) and [OQ-TS4](test-suite-speed.md#OQ-TS4) remain open. |
 | [integration-parallelism.md](integration-parallelism.md) | Bounded `t.Parallel()` for the container suite, after per-test GlobalStorage isolation unsticks the shared `last-load` sentinel race. | **Parked** — CI is free + the fast local loop skips these tests; the launch-merges (done 2026-07-20) were the cheaper win. Pick up only if the full local `just test` becomes a friction. |
 
 ## Other
