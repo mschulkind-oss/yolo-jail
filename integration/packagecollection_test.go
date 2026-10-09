@@ -443,7 +443,7 @@ func nixGetLib(t *testing.T, attrPath string) string {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "nix", "--extra-experimental-features", "nix-command flakes",
 		"eval", "--raw", "--inputs-from", repoRoot,
-		"nixpkgs#legacyPackages."+imageNixSystem(nixSystem()),
+		nixpkgsAbsolute("legacyPackages."+imageNixSystem(nixSystem())),
 		"--apply", "p: (p.lib.getLib p."+attrPath+").outPath")
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
@@ -528,8 +528,17 @@ func imageInstallable(installable string) string {
 	if !ok {
 		return installable
 	}
-	return "nixpkgs#legacyPackages." + imageNixSystem(nixSystem()) + "." + attr
+	return nixpkgsAbsolute("legacyPackages." + imageNixSystem(nixSystem()) + "." + attr)
 }
+
+// nixpkgsAbsolute spells an ABSOLUTE attribute path in the nixpkgs flake: the leading dot
+// after `#` stops nix from first trying the path under packages.<host system> and
+// legacyPackages.<host system>. That search is not harmless on an Intel Mac: evaluating
+// legacyPackages.x86_64-darwin throws in nixpkgs 26.11 ("has dropped support for
+// x86_64-darwin"), and a throw ends the search, so even
+// `nixpkgs#legacyPackages.x86_64-linux.gtk4.dev` failed there (Nightly macOS Integration run
+// 37931358062). TestTheNixpkgsOracleSurvivesAnIntelMacHost reproduces it on Linux.
+func nixpkgsAbsolute(attrPath string) string { return "nixpkgs#." + attrPath }
 
 func requireNix(t *testing.T) {
 	t.Helper()
@@ -553,11 +562,45 @@ func TestThePackageOracleAsksAboutTheImagesSystem(t *testing.T) {
 		}
 	}
 	got := imageInstallable("nixpkgs#texlivePackages.abc.texsource")
-	want := "nixpkgs#legacyPackages." + imageNixSystem(nixSystem()) + ".texlivePackages.abc.texsource"
+	want := "nixpkgs#.legacyPackages." + imageNixSystem(nixSystem()) + ".texlivePackages.abc.texsource"
 	if got != want {
 		t.Errorf("imageInstallable = %q, want %q", got, want)
 	}
 	if !strings.HasSuffix(imageNixSystem(nixSystem()), "-linux") {
 		t.Errorf("the image system on this host is %q, not a Linux system", imageNixSystem(nixSystem()))
 	}
+}
+
+// TestTheNixpkgsOracleSurvivesAnIntelMacHost runs the oracle's own installable as an Intel Mac
+// host would, on any machine: `--system x86_64-darwin` makes nix search
+// legacyPackages.x86_64-darwin first for a RELATIVE attribute path, which throws in nixpkgs
+// 26.11 and failed every TestPackagesEntryInstallsWhatNixBuildBuilds case on the Intel
+// nightly (run 37931358062). The absolute spelling imageInstallable now returns must not reach
+// that search. Not under -short: it evaluates nixpkgs.
+func TestTheNixpkgsOracleSurvivesAnIntelMacHost(t *testing.T) {
+	if testing.Short() {
+		t.Skip("evaluates nixpkgs")
+	}
+	requireNix(t)
+	dryRun := func(installable string) (string, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), nixEvalTimeout)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, "nix", "--extra-experimental-features", "nix-command flakes",
+			"build", "--dry-run", "--json", "--no-link", "--option", "substitute", "false",
+			"--system", "x86_64-darwin", "--inputs-from", repoRoot, installable)
+		var stderr strings.Builder
+		cmd.Stderr = &stderr
+		_, err := cmd.Output()
+		return stderr.String(), err
+	}
+	installable := imageInstallable("nixpkgs#hello")
+	if stderr, err := dryRun(installable); err != nil {
+		t.Fatalf("`nix build --dry-run --system x86_64-darwin %s` failed, as the Intel nightly "+
+			"did: %v\n--- stderr ---\n%s", installable, err, stderr)
+	}
+	// The control: the relative spelling this replaced. Recorded, not asserted — it fails only
+	// while the pinned nixpkgs throws for x86_64-darwin.
+	relative := "nixpkgs#legacyPackages." + imageNixSystem(nixSystem()) + ".hello"
+	_, err := dryRun(relative)
+	t.Logf("control: the relative %s as an Intel Mac host: err %v", relative, err)
 }

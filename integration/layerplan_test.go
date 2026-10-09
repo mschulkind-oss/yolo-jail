@@ -108,7 +108,7 @@ func layerPlanNixpkgsOut(t *testing.T, dir, attr string) string {
 	sys = strings.Replace(sys, "arm64", "aarch64", 1) + "-linux"
 	eval := exec.Command("nix", "--extra-experimental-features", "nix-command flakes",
 		"eval", "--raw", "--inputs-from", "path:"+dir,
-		"nixpkgs#legacyPackages."+sys+"."+attr+".outPath")
+		nixpkgsAbsolute("legacyPackages."+sys+"."+attr+".outPath"))
 	eval.Dir = dir
 	out, err := eval.Output()
 	if err != nil {
