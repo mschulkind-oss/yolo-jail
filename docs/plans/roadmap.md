@@ -157,6 +157,8 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
     Beside the storage rulings, [choose bulk scratch placement](../design/storage-tiers.md), with its
     [implementation sketch](../design/storage-tiers-plan.md) — settle the capacity-storage contract before
     widening storage abstractions; this does not move code or the existing durable directory.
+    Beside them, [isolate ordinary jail caches](../design/cache-isolation.md) — private warm state
+    needs safe reclamation alongside it, not another unbounded storage surface.
 29. [Rule whether yolo may hold an editor preference](../design/baked-editor-preference.md) — the maintainer asked for
     it, and its first ruling decides an image change every jail pays. Beside it, also asked for by the
     maintainer: [how a SandVault or Safehouse user tries yolo on their existing setup](../design/sandvault-safehouse-compat.md#OQ-NB1),
