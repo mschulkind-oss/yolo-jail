@@ -9,7 +9,9 @@ package integration
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -223,16 +225,155 @@ func xbRemember(t *testing.T, pid int) xbProcess {
 }
 
 func (p xbProcess) alive() bool {
-	_, stat, ok := readStat(p.pid)
-	return ok && len(stat) >= 20 && stat[19] == p.birth && stat[0] != "Z" && stat[0] != "X"
+	alive, _ := xbOwnedThreadGroup(p, xbReadLeaderStat, xbReadTaskGroup)
+	return alive
 }
 
 func (p xbProcess) ended() bool {
-	if processGone(p.pid) {
-		return true
+	_, ended := xbOwnedThreadGroup(p, xbReadLeaderStat, xbReadTaskGroup)
+	return ended
+}
+
+type xbProcStat struct {
+	state string
+	birth string
+}
+
+type xbTaskState struct {
+	tid   int
+	state string
+	birth string
+}
+
+// xbOwnedThreadGroup returns an answer only for p's matching birth identity. A dead leader
+// alone does not end its process: any live task keeps the owned thread group alive. Unknown or
+// changing proc snapshots are neither alive proof (cleanup must not signal uncertain identities)
+// nor death proof (the wait must keep polling).
+func xbOwnedThreadGroup(
+	p xbProcess,
+	readLeader func(int) (xbProcStat, bool, error),
+	readTasks func(int) ([]xbTaskState, bool, error),
+) (alive, ended bool) {
+	leader, absent, err := readLeader(p.pid)
+	if absent {
+		return false, true
 	}
-	_, stat, ok := readStat(p.pid)
-	return ok && len(stat) >= 20 && stat[19] != p.birth
+	if err != nil {
+		return false, false
+	}
+	if leader.birth != p.birth {
+		return false, true
+	}
+	if !xbTerminalTaskState(leader.state) {
+		return true, false
+	}
+
+	tasks, stable, err := readTasks(p.pid)
+	if err != nil || !stable {
+		return false, false
+	}
+	liveTask := false
+	for _, task := range tasks {
+		if task.tid <= 0 || task.birth == "" {
+			return false, false
+		}
+		if !xbTerminalTaskState(task.state) {
+			liveTask = true
+		}
+	}
+	current, absent, err := readLeader(p.pid)
+	if absent || (err == nil && current.birth != p.birth) {
+		return false, true
+	}
+	if err != nil || current.state != leader.state {
+		return false, false
+	}
+	if liveTask {
+		return true, false
+	}
+	return false, true
+}
+
+func xbTerminalTaskState(state string) bool {
+	return state == "Z" || state == "X" || state == "x"
+}
+
+func xbReadLeaderStat(pid int) (xbProcStat, bool, error) {
+	return xbReadProcStat(fmt.Sprintf("/proc/%d/stat", pid))
+}
+
+func xbReadProcStat(path string) (xbProcStat, bool, error) {
+	b, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return xbProcStat{}, true, nil
+	}
+	if err != nil {
+		return xbProcStat{}, false, err
+	}
+	stat, err := xbParseProcStat(b)
+	return stat, false, err
+}
+
+func xbParseProcStat(b []byte) (xbProcStat, error) {
+	s := string(b)
+	end := strings.LastIndexByte(s, ')')
+	if end < 0 {
+		return xbProcStat{}, fmt.Errorf("malformed proc stat: missing command terminator")
+	}
+	fields := strings.Fields(s[end+1:])
+	if len(fields) < 20 || len(fields[0]) != 1 || fields[19] == "" {
+		return xbProcStat{}, fmt.Errorf("malformed proc stat: missing task state or birth")
+	}
+	return xbProcStat{state: fields[0], birth: fields[19]}, nil
+}
+
+func xbReadTaskGroup(pid int) ([]xbTaskState, bool, error) {
+	dir := fmt.Sprintf("/proc/%d/task", pid)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, false, err
+	}
+	tasks := make([]xbTaskState, 0, len(entries))
+	for _, entry := range entries {
+		tid, err := strconv.Atoi(entry.Name())
+		if err != nil || tid <= 0 {
+			return nil, false, fmt.Errorf("invalid task id %q in %s", entry.Name(), dir)
+		}
+		stat, _, err := xbReadProcStat(fmt.Sprintf("%s/%s/stat", dir, entry.Name()))
+		if err != nil {
+			return nil, false, err
+		}
+		// A task disappearing between ReadDir and stat is a transient snapshot, not proof
+		// that all owned tasks are terminal. The next bounded xbAwait poll retries it.
+		if stat.birth == "" {
+			return nil, false, fmt.Errorf("task %d disappeared while reading %s", tid, dir)
+		}
+		tasks = append(tasks, xbTaskState{tid: tid, state: stat.state, birth: stat.birth})
+	}
+	again, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(entries) != len(again) {
+		return tasks, false, nil
+	}
+	for i := range entries {
+		if entries[i].Name() != again[i].Name() {
+			return tasks, false, nil
+		}
+		current, absent, err := xbReadProcStat(fmt.Sprintf("%s/%s/stat", dir, again[i].Name()))
+		if absent || err != nil || current.birth != tasks[i].birth {
+			return tasks, false, nil
+		}
+	}
+	return tasks, true, nil
+}
+
+// xbWaitOwnedProcessEnd is the signal fixture's actual bounded wait caller; keep xbAwait's
+// jailTimeout/poll budget and the separate post-wait pidlock.Held assertion unchanged.
+func xbWaitOwnedProcessEnd(t *testing.T, what string, p xbProcess) {
+	t.Helper()
+	xbAwait(t, what, p.ended)
 }
 
 // ready waits for the build's actual marker, never the boot's echo of its command.
@@ -488,7 +629,7 @@ func TestBackgroundAdvanceSignalsFenceAndRecoverItsRealBuildWorkspace(t *testing
 			if err := syscall.Kill(bg.pid, sig); err != nil {
 				t.Fatal(err)
 			}
-			xbAwait(t, "signalled background owner exit", func() bool { return bg.ended() })
+			xbWaitOwnedProcessEnd(t, "signalled background owner exit", bg)
 			if pidlock.Held(filepath.Join(paths.BackgroundAdvanceDir(), run.PatchedCopySlug(xbKey)+".lock")) {
 				t.Fatalf("dead background owner kept its kernel key lock\n%s", f.keyLockDiagnostics(bg, child))
 			}
