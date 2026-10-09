@@ -25,3 +25,15 @@ func openAndConfigureSerial(devicePath string, baud int) (*os.File, error) {
 
 	return file, nil
 }
+
+// probeOpen is `list`'s accessibility check: whether this daemon can open the device the way
+// openAndConfigureSerial does. Non-blocking, because a modem-control port opened without it
+// waits for carrier (darwin's /dev/tty.* do); no controlling terminal, so probing a tty never
+// makes it this daemon's.
+func probeOpen(devicePath string) error {
+	fd, err := unix.Open(devicePath, unix.O_RDWR|unix.O_NOCTTY|unix.O_NONBLOCK, 0)
+	if err != nil {
+		return &os.PathError{Op: "open", Path: devicePath, Err: err}
+	}
+	return unix.Close(fd)
+}

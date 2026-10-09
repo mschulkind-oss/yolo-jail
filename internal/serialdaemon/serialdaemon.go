@@ -66,10 +66,8 @@ func findDevices(allowed []string) []DeviceEntry {
 			seen[m] = true
 
 			entry := DeviceEntry{Path: m}
-			f, err := os.OpenFile(m, os.O_RDWR, 0)
-			if err == nil {
+			if err := probeOpen(m); err == nil {
 				entry.Accessible = true
-				f.Close()
 			} else {
 				entry.Accessible = false
 				entry.Error = err.Error()
@@ -82,6 +80,26 @@ func findDevices(allowed []string) []DeviceEntry {
 		return result[i].Path < result[j].Path
 	})
 	return result
+}
+
+// listJSON is `list --json`'s document, {"devices": [{"path", "accessible", "error"?}, ...]},
+// spelled in the types jsonx encodes. Session.JSON is jsonx, not encoding/json: it has no case
+// for a []DeviceEntry, and an object member it cannot encode is written as NOTHING, so handing
+// it the slice printed `{"devices": }` for every device set, empty or not.
+func listJSON(devices []DeviceEntry) *jsonx.OrderedMap {
+	list := make([]any, 0, len(devices))
+	for _, d := range devices {
+		entry := jsonx.NewOrderedMap()
+		entry.Set("path", d.Path)
+		entry.Set("accessible", d.Accessible)
+		if d.Error != "" {
+			entry.Set("error", d.Error)
+		}
+		list = append(list, entry)
+	}
+	doc := jsonx.NewOrderedMap()
+	doc.Set("devices", list)
+	return doc
 }
 
 // BuildHandler constructs the hostservice handler for the serial loophole.
@@ -109,7 +127,11 @@ func handleList(s *hostservice.Session, cfg Settings) {
 	devices := findDevices(cfg.AllowedDevices)
 	if s.Request != nil {
 		if raw, ok := s.Get("format"); ok && raw == "json" {
-			_ = s.JSON(map[string]any{"devices": devices})
+			if err := s.JSON(listJSON(devices)); err != nil {
+				s.Stderr(fmt.Sprintf("serial: cannot encode the device list: %v\n", err))
+				s.Exit(1)
+				return
+			}
 			s.Exit(0)
 			return
 		}
