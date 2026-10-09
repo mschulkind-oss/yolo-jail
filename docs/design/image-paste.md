@@ -118,12 +118,12 @@ whole answer: Codex and Copilot never run an external program, so faking `xclip`
 - **The proxy already intercepts one key.** It puts the host terminal in raw mode
   ([`ttyproxy.go:427`](../../internal/ttyproxy/ttyproxy.go#L427)), reads stdin in chunks, and
   strips a Ctrl-Z before forwarding the rest to the pty
-  ([`ttyproxy.go:662`](../../internal/ttyproxy/ttyproxy.go#L662)).
-  `matchEscapedCtrlKey` matches a Ctrl+key in all three encodings: the raw control byte, the kitty
-  protocol's `CSI <code>;<mods>u`, and xterm's `CSI 27;<mods>;<code>~`
-  ([`suspendkey.go:111`](../../internal/ttyproxy/suspendkey.go#L111)). `classifyInput` already
+  ([`ttyproxy.go:667`](../../internal/ttyproxy/ttyproxy.go#L667)).
+  `matchEscapedCtrlKey` matches a Ctrl+key in both escape encodings, the kitty
+  protocol's `CSI <code>;<mods>u` and xterm's `CSI 27;<mods>;<code>~`, beside the raw control byte
+  ([`suspendkey.go:114`](../../internal/ttyproxy/suspendkey.go#L114)). `classifyInput` already
   recognizes a chunk that is **exactly** one key and nothing else
-  ([`suspendkey.go:268`](../../internal/ttyproxy/suspendkey.go#L268)).
+  ([`suspendkey.go:224`](../../internal/ttyproxy/suspendkey.go#L224)).
 - **Ctrl-C is forwarded, by a 2026-09-19 ruling** that reversed the proxy stealing it
   ([`ttyproxy.go:637`](../../internal/ttyproxy/ttyproxy.go#L637)): a key that means something to
   the program in the jail reaches that program. [§4](#4-the-chord-consumed-only-when-it-can-be-honored)
@@ -376,8 +376,8 @@ library, which is also why webp is refused rather than converted.
 - **Written atomically** (temporary name, then rename) before the path is typed, so the agent never
   reads a partial file.
 - **The in-jail path** is the workspace's mount destination in the jail joined with
-  `.yolo/paste/<name>`. The launcher already knows the destination, including under
-  [workspace path mirroring](workspace-path-mirroring.md); the proxy is handed it, never derives it.
+  `.yolo/paste/<name>`. The launcher already knows the destination (`/workspace` on a container backend);
+  the proxy is handed it, never derives it.
 - **Mode and owner**: what a file the user creates in the workspace gets, so the jail reads it
   exactly as it reads the user's own files ([M4](#9-measurements-needed) per backend).
 - **Retention**: a file older than **7 days** is deleted, and beyond **200 files** the oldest go
