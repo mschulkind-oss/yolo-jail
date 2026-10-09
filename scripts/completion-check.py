@@ -42,6 +42,10 @@ GLOBAL_FILES = {
 }
 GLOBAL_PREFIXES = ("vendor/", ".github/", "scripts/")
 
+# Documents whose Markdown findings are deliberate: specimens of the checker's own rules, which
+# the document says must never be linked away (its opening NOTE). Their reader tests still run.
+MARKDOWN_SPECIMENS = {"docs/research/vantage-check-0.5.9-findings.md"}
+
 # Context that decides what an inherited result means. A baseline recorded under any other
 # value is not used.
 GO_ENV_KEYS = ["GOVERSION", "GOOS", "GOARCH", "GOROOT", "GOFLAGS", "CGO_ENABLED", "GOEXPERIMENT",
@@ -266,14 +270,24 @@ def _listed(entries, d):
     return False
 
 
+def scanning(rec):
+    """A test that reads every file of a kind in some directory, or lists a whole tree.
+
+    What such a test reads moves with ordinary edits — a doc citation added to Go source makes
+    the citation test read that doc — so its recorded set cannot be trusted to select it. It runs
+    on every change instead; Go's own test cache, which tracks the files it actually opened,
+    keeps that cheap when nothing it reads has changed."""
+    return any("*" in x for x in rec["read"]) or any(x.endswith("/**") for x in rec["listed"])
+
+
 def reader_tests(readers, entries, listings):
-    """{package dir: {test}} for every recorded test that read a changed path, or listed a
-    directory whose entries changed."""
+    """{package dir: {test}} for every scanning test, and every recorded test that read a
+    changed path or listed a directory whose entries changed."""
     out = {}
     paths = [p for _, p, _, _ in entries]
     for pkg, tests in readers.items():
         for name, rec in tests.items():
-            if (any(_read(rec["read"], p) for p in paths)
+            if (scanning(rec) or any(_read(rec["read"], p) for p in paths)
                     or any(_listed(rec["listed"], d) for d in listings)):
                 out.setdefault(pkg, set()).add(name)
     return out
@@ -291,6 +305,7 @@ class Plan:
         self.full = []          # reasons a full gate is needed
         self.steps = []         # (label, argv, env overrides, reason, kind)
         self.inherited = []
+        self.notes = []
 
     def add(self, label, argv, reason, env=None, kind="check"):
         self.steps.append((label, argv, env or {}, reason, kind))
@@ -347,7 +362,9 @@ def plan_selective(root, base, entries, readers):
         if path == "CHANGELOG.md":
             changelog = True
         if is_markdown(path):
-            if status != "D":
+            if path in MARKDOWN_SPECIMENS:
+                plan.notes.append(f"{path}: not Markdown-checked, a specimen document")
+            elif status != "D":
                 docs.append(path)
             continue
         if _read_by_any(readers, path):
@@ -387,7 +404,7 @@ def plan_selective(root, base, entries, readers):
         rx = "^(" + "|".join(names) + ")$"
         plan.add(f"go test -short -run <{len(names)} reader test{'s' if len(names) != 1 else ''}> "
                  f"./{pkg}", ["go", "test", "-short", "-run", rx, "./" + pkg],
-                 "tests that read a changed file")
+                 "tests that read a changed file, and every scanning test")
 
     # Documents.
     if changelog:
@@ -535,6 +552,7 @@ def main():
             # Changed documents get their own checks too; check-ci covers only the guide and changelog.
             if entries:
                 docs = sorted(p for s, p, _, _ in entries if is_markdown(p) and s != "D"
+                              and p not in MARKDOWN_SPECIMENS
                               and not p.startswith("userguide/") and p != "CHANGELOG.md"
                               and not _under_go_dir(root, p))
                 if docs:
@@ -547,6 +565,8 @@ def main():
             n = len(entries or [])
             print(f"just done: {n} path{'s' if n != 1 else ''} changed since {short(base['commit'])} "
                   f"(verified {base.get('verified_at')}); checking only what they reach:")
+            for note in plan.notes:
+                print("  note: " + note)
             results = run_steps(root, plan.steps, log) if plan.steps else []
             origin = base.get("origin", base["commit"])
 

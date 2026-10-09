@@ -51,13 +51,13 @@ GO_FILES = {
     "b/b_test.go": "package b\n\nimport \"testing\"\n\nfunc TestB(t *testing.T) {}\n",
     "c/c.go": "package c\n\nfunc C() int { return 3 }\n",
     "c/c_test.go": ("package c\n\nimport \"testing\"\n\nfunc TestReadsDoc(t *testing.T) {}\n\n"
-                    "func TestOther(t *testing.T) {}\n"),
+                    "func TestOther(t *testing.T) {}\n\nfunc TestScansSource(t *testing.T) {}\n"),
 }
 
 READERS = {
     "about": "fixture",
-    "sets": [{"read": ["docs/read.md"], "listed": ["docs"]}],
-    "readers": {"c": {"TestReadsDoc": 0}},
+    "sets": [{"read": ["docs/read.md"], "listed": ["docs"]}, {"read": ["a/*.go"], "listed": []}],
+    "readers": {"c": {"TestReadsDoc": 0, "TestScansSource": 1}},
 }
 
 
@@ -166,8 +166,9 @@ class FrontDoor(unittest.TestCase):
         self.commit("docs")
         rc, out, calls = self.done()
         self.assertEqual(rc, 0, out)
-        self.assertEqual([(c["tool"], c["argv"]) for c in calls],
-                         [("vantage-check.sh", ["docs/unread.md"])])
+        self.assertEqual(sorted((c["tool"], c["argv"]) for c in calls),
+                         [("go", ["test", "-short", "-run", "^(TestScansSource)$", "./c"]),
+                          ("vantage-check.sh", ["docs/unread.md"])])
         self.assertEqual(self.record(self.head())["route"], "selective")
 
     def test_a_document_a_test_reads_runs_that_test_too(self):
@@ -176,8 +177,8 @@ class FrontDoor(unittest.TestCase):
         self.commit("docs")
         rc, out, calls = self.done()
         self.assertEqual(rc, 0, out)
-        self.assertEqual(self.ran(calls, "go", "test"),
-                         [{"tool": "go", "argv": ["test", "-short", "-run", "^(TestReadsDoc)$", "./c"], "GOOS": None}])
+        self.assertEqual([c["argv"] for c in self.ran(calls, "go", "test")],
+                         [["test", "-short", "-run", "^(TestReadsDoc|TestScansSource)$", "./c"]])
         self.assertTrue(self.ran(calls, "vantage-check.sh", "docs/read.md"))
         for tool in ("staticcheck", "gofmt", "just"):
             self.assertEqual(self.ran(calls, tool), [], tool)
@@ -189,7 +190,29 @@ class FrontDoor(unittest.TestCase):
         self.commit("new doc")
         rc, out, calls = self.done()
         self.assertEqual(rc, 0, out)
-        self.assertTrue(self.ran(calls, "go", "test", "-short", "-run", "^(TestReadsDoc)$", "./c"))
+        self.assertTrue(self.ran(calls, "go", "test", "-short", "-run", "^(TestReadsDoc|TestScansSource)$", "./c"))
+
+    def test_the_specimen_document_is_not_markdown_checked(self):
+        # Its findings are deliberate specimens of the checker's rules, which it says must not
+        # be linked away; checking it would fail every edit to it.
+        self.verified()
+        self.write("docs/research/vantage-check-0.5.9-findings.md", "# Specimens\n\n`§4.3b`\n")
+        self.commit("specimen doc")
+        rc, out, calls = self.done()
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.ran(calls, "vantage-check.sh"), [])
+        self.assertIn("specimen", out)
+
+    def test_a_scanning_test_runs_on_every_change(self):
+        # What a scanning test reads moves with ordinary edits (a new doc citation in Go source
+        # makes the citation test read that doc), so a recorded read set cannot select it.
+        self.verified()
+        self.write("NOTES.md", "# Notes\n")
+        self.commit("an unrelated doc")
+        rc, out, calls = self.done()
+        self.assertEqual(rc, 0, out)
+        self.assertEqual([c["argv"] for c in self.ran(calls, "go", "test")],
+                         [["test", "-short", "-run", "^(TestScansSource)$", "./c"]])
 
     def test_a_leaf_package_change_checks_it_and_its_importers_only(self):
         self.verified()
@@ -198,7 +221,9 @@ class FrontDoor(unittest.TestCase):
         rc, out, calls = self.done()
         self.assertEqual(rc, 0, out)
         want = ["example.com/m/a", "example.com/m/b"]
-        self.assertEqual([c["argv"] for c in self.ran(calls, "go", "test")], [["test", "-short"] + want])
+        self.assertEqual([c["argv"] for c in self.ran(calls, "go", "test", "-short", "example.com/m/a")],
+                         [["test", "-short"] + want])
+        self.assertNotIn("example.com/m/c", [a for c in calls for a in c["argv"]])
         for goos in ("linux", "darwin"):
             vet = [c for c in self.ran(calls, "go", "vet") if c["GOOS"] == goos]
             sc = [c for c in self.ran(calls, "staticcheck") if c["GOOS"] == goos]
@@ -270,7 +295,7 @@ class FrontDoor(unittest.TestCase):
         self.commit("rename")
         rc, out, calls = self.done()
         self.assertEqual(rc, 0, out)
-        self.assertTrue(self.ran(calls, "go", "test", "-short", "-run", "^(TestReadsDoc)$"))
+        self.assertTrue(self.ran(calls, "go", "test", "-short", "-run", "^(TestReadsDoc|TestScansSource)$"))
         self.assertTrue(self.ran(calls, "vantage-check.sh", "docs/moved.md"))
 
     # -- safety
@@ -348,6 +373,30 @@ def just_recipe(name):
     return m.group(1).split(), [line.strip() for line in m.group(2).splitlines() if line.strip()]
 
 
+def load_census():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("census", HERE / "completion-census.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class Census(unittest.TestCase):
+    def test_a_read_in_a_subpackage_of_the_tests_own_directory_is_kept(self):
+        census = load_census()
+        root = census.ROOT
+        log = "\n".join([
+            f"open {root}/internal/cli/run/packtree.go",   # another package, under internal/cli
+            f"open {root}/internal/cli/configdiff.go",     # the test's own package
+            f"open {root}/internal/cli/testdata",          # its own testdata, a non-package dir
+            f"open {root}/docs/reference/jail-home.md",
+        ])
+        pkg_dirs = {"internal/cli", "internal/cli/run"}
+        opened, listed, stats = census.parse_log(log, root / "internal" / "cli", pkg_dirs)
+        self.assertEqual(sorted(opened | listed),
+                         ["docs/reference/jail-home.md", "internal/cli/run/packtree.go"])
+
+
 class CallSites(unittest.TestCase):
     def test_just_done_runs_the_front_door_and_nothing_that_writes(self):
         deps, body = just_recipe("done")
@@ -358,6 +407,13 @@ class CallSites(unittest.TestCase):
     def test_lint_ci_runs_these_tests(self):
         _, body = just_recipe("lint-ci")
         self.assertIn("python3 scripts/test-completion-check.py", body)
+
+    def test_the_markdown_checker_is_pinned(self):
+        # An upstream release must not turn an unchanged document red; changing the pin is a
+        # scripts/ change, which runs the full gate.
+        wrapper = (REPO / "scripts" / "vantage-check.sh").read_text()
+        self.assertRegex(wrapper, r"uvx vantage-check@\d+\.\d+\.\d+ ")
+        self.assertNotIn("vantage-check@latest", wrapper)
 
     def test_the_readers_file_names_real_packages_and_tests(self):
         doc = json.loads((REPO / "scripts" / "completion-readers.json").read_text())

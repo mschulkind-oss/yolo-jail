@@ -29,15 +29,17 @@ OUT = ROOT / "scripts" / "completion-readers.json"
 
 
 def go_packages():
+    """(packages with tests, every package directory), for both GOOS values' package sets."""
     out = subprocess.check_output(
-        ["go", "list", "-f", "{{.ImportPath}}\t{{.Dir}}\t{{len .TestGoFiles}}\t{{len .XTestGoFiles}}", "./..."],
-        cwd=ROOT, text=True)
-    pkgs = []
+        ["go", "list", "-e", "-f", "{{.ImportPath}}\t{{.Dir}}\t{{len .TestGoFiles}}\t{{len .XTestGoFiles}}",
+         "./..."], cwd=ROOT, text=True)
+    pkgs, dirs = [], set()
     for line in out.splitlines():
         ip, d, t, x = line.split("\t")
+        dirs.add(os.path.relpath(d, ROOT))
         if int(t) or int(x):
             pkgs.append((ip, Path(d)))
-    return pkgs
+    return pkgs, dirs
 
 
 def rel(p, base):
@@ -53,11 +55,24 @@ def rel(p, base):
     return os.path.relpath(p, root)
 
 
-def parse_log(text, pkgdir):
-    """The test log's open/stat entries outside the package's own directory.
+def owner(rel_path, pkg_dirs):
+    """The package directory a repository-relative path belongs to: itself or its nearest
+    ancestor that is a package directory, or None."""
+    d = rel_path
+    while d and d != ".":
+        if d in pkg_dirs:
+            return d
+        d = os.path.dirname(d)
+    return None
 
-    A directory that was opened was listed; a file that was opened was read; a stat saw size,
-    mode and mtime. All three are what Go's test cache hashes for the same entries."""
+
+def parse_log(text, pkgdir, pkg_dirs):
+    """The test log's open/stat entries that belong to no package or another package.
+
+    Ownership is by package, not by directory prefix: internal/cli's tests reading
+    internal/cli/run/x.go read another package. A directory that was opened was listed; a file
+    that was opened was read; a stat saw size, mode and mtime. All three are what Go's test cache
+    hashes for the same entries."""
     opened, listed, stats = set(), set(), set()
     own = os.path.relpath(pkgdir, ROOT)
     for line in text.splitlines():
@@ -65,7 +80,9 @@ def parse_log(text, pkgdir):
         if op not in ("open", "stat"):
             continue
         r = rel(path, pkgdir)
-        if r is None or r == own or r.startswith(own + os.sep) or r.startswith(".git" + os.sep) or r == ".git":
+        if r is None or r == ".git" or r.startswith(".git" + os.sep):
+            continue
+        if owner(r, pkg_dirs) == own:
             continue
         if (ROOT / r).is_dir():
             # A listed or stat'ed directory changes only when a direct child appears or goes.
@@ -128,7 +145,7 @@ def compress_listed(listed, by_dir):
 
 def main():
     jobs_n = int(os.environ.get("CENSUS_JOBS", str(max(2, (os.cpu_count() or 4) // 2))))
-    pkgs = go_packages()
+    pkgs, pkg_dirs = go_packages()
     by_dir = tracked_dirs()
     with tempfile.TemporaryDirectory(prefix="completion-census-") as tmp:
         tmp = Path(tmp)
@@ -159,7 +176,7 @@ def main():
             except subprocess.TimeoutExpired:
                 pass
             text = log.read_text(errors="replace") if log.exists() else ""
-            return i, name, parse_log(text, d)
+            return i, name, parse_log(text, d, pkg_dirs)
 
         readers, sets, index = {}, [], {}
         with cf.ThreadPoolExecutor(jobs_n) as ex:

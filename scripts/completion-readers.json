@@ -209,7 +209,7 @@
 "internal/logcap/*",
 "internal/loopholedecl/*",
 "internal/loopholes/*",
-"internal/macosuser/*",
+"internal/macosuser/*.go",
 "internal/miseuse/*",
 "internal/modelcatalog/*",
 "internal/modelmenu/*",
@@ -442,6 +442,9 @@
 "internal/capture/*.go",
 "internal/cgd/*.go",
 "internal/claudeview/claudeview.go",
+"internal/cli/check/*.go",
+"internal/cli/run/*.go",
+"internal/cli/stores/*.go",
 "internal/config/*.go",
 "internal/containerbuilder/*.go",
 "internal/crossaudit/crossaudit.go",
@@ -558,6 +561,9 @@
 "internal/capture",
 "internal/cgd",
 "internal/claudeview",
+"internal/cli/check",
+"internal/cli/run/**",
+"internal/cli/stores",
 "internal/config",
 "internal/containerbuilder",
 "internal/crossaudit",
@@ -661,6 +667,9 @@
 "internal/brokeraudit/brokeraudit.go",
 "internal/capture/*.go",
 "internal/claudeview/claudeview.go",
+"internal/cli/check/*.go",
+"internal/cli/run/*.go",
+"internal/cli/stores/*.go",
 "internal/config/*.go",
 "internal/darwinpkg/*.go",
 "internal/depcheck/depcheck.go",
@@ -694,6 +703,9 @@
 "internal/brokeraudit",
 "internal/capture",
 "internal/claudeview",
+"internal/cli/check",
+"internal/cli/run",
+"internal/cli/stores",
 "internal/config",
 "internal/darwinpkg",
 "internal/depcheck",
@@ -729,6 +741,9 @@
 "internal/broker/*.go",
 "internal/capture/*.go",
 "internal/claudeview/claudeview.go",
+"internal/cli/check/*.go",
+"internal/cli/run/*.go",
+"internal/cli/stores/*.go",
 "internal/config/*.go",
 "internal/darwinpkg/*.go",
 "internal/entrypoint/*.go",
@@ -755,6 +770,9 @@
 "internal/broker",
 "internal/capture",
 "internal/claudeview",
+"internal/cli/check",
+"internal/cli/run",
+"internal/cli/stores",
 "internal/config",
 "internal/darwinpkg",
 "internal/entrypoint",
@@ -1343,6 +1361,15 @@
 },
 {
 "read": [
+"internal/jailcontent/builtinskills/configuring-the-jail/SKILL.md",
+"internal/jailcontent/builtinskills/diagnosing-the-jail/SKILL.md"
+],
+"listed": [
+"internal/jailcontent/builtinskills/**"
+]
+},
+{
+"read": [
 "internal/hostskills/tier.go"
 ],
 "listed": []
@@ -1498,6 +1525,7 @@
 "internal/cli/run/patchedforkline.go",
 "internal/cli/run/patchedrekey.go",
 "internal/cli/run/patchedtrees.go",
+"internal/cli/run/patchfailures.go",
 "internal/cli/run/perfevents.go",
 "internal/cli/run/persistencemap.go",
 "internal/cli/run/podmanready.go",
@@ -1768,7 +1796,9 @@
 "internal/wirebridged",
 "packs/**",
 "scripts",
+"scripts/__pycache__",
 "tools/**",
+"tools/completion-experiment/__pycache__",
 "userguide/**"
 ]
 },
@@ -2611,6 +2641,9 @@
 "docs/design/bedrock-web-search.md",
 "docs/design/boundary-broker.md",
 "docs/design/broker-as-a-pack.md",
+"docs/design/cache-isolation-plan.md",
+"docs/design/cache-isolation.md",
+"docs/design/change-aware-completion.md",
 "docs/design/claude-login-without-interception.md",
 "docs/design/config-ownership-and-promotion.md",
 "docs/design/config-target-resolution-plan.md",
@@ -2824,7 +2857,7 @@
 "internal/logcap/*",
 "internal/loopholedecl/*",
 "internal/loopholes/*",
-"internal/macosuser/*",
+"internal/macosuser/*.go",
 "internal/miseuse/*",
 "internal/modelcatalog/*",
 "internal/modelmenu/*",
@@ -3069,7 +3102,8 @@
 "internal/wirebridge",
 "internal/wirebridged",
 "packs/**",
-"scripts"
+"scripts",
+"scripts/__pycache__"
 ]
 },
 {
@@ -3093,6 +3127,7 @@
 "cmd/yolo-serial/main_test.go",
 "cmd/yolo-serial/pty_linux.go",
 "cmd/yolo-serial/pty_other.go",
+"cmd/yolo-serial/ptysignal_test.go",
 "cmd/yolo/main.go",
 "internal/agentcfg/*",
 "internal/agentcfg/codec/*",
@@ -3190,7 +3225,99 @@
 "internal/logcap/*",
 "internal/loopholedecl/*",
 "internal/loopholes/*",
-"internal/macosuser/*.go",
+"internal/macosuser/bootstrapgit_test.go",
+"internal/macosuser/briefingresources_test.go",
+"internal/macosuser/cabundle.go",
+"internal/macosuser/cabundle_test.go",
+"internal/macosuser/capture.go",
+"internal/macosuser/capture_test.go",
+"internal/macosuser/capturestore_test.go",
+"internal/macosuser/commands.go",
+"internal/macosuser/contextdir_test.go",
+"internal/macosuser/credentialview_test.go",
+"internal/macosuser/ctxlinks.go",
+"internal/macosuser/ctxlinks_test.go",
+"internal/macosuser/ctxtree_test.go",
+"internal/macosuser/devices.go",
+"internal/macosuser/devices_test.go",
+"internal/macosuser/dryrunwords_test.go",
+"internal/macosuser/durabledir_test.go",
+"internal/macosuser/endpointgrants_test.go",
+"internal/macosuser/envfile.go",
+"internal/macosuser/envfile_test.go",
+"internal/macosuser/floor_test.go",
+"internal/macosuser/forkbuildact_test.go",
+"internal/macosuser/forkbuilds_test.go",
+"internal/macosuser/guestbundle_test.go",
+"internal/macosuser/guestcontainerstep_test.go",
+"internal/macosuser/homeoverlayplan_test.go",
+"internal/macosuser/homereadonly.go",
+"internal/macosuser/homereadonly_test.go",
+"internal/macosuser/homereadonlyboot_test.go",
+"internal/macosuser/homespelling_test.go",
+"internal/macosuser/hometier_test.go",
+"internal/macosuser/hostlayers_test.go",
+"internal/macosuser/hostnix.go",
+"internal/macosuser/hostnix_test.go",
+"internal/macosuser/inhomemove_test.go",
+"internal/macosuser/inhomeorder_test.go",
+"internal/macosuser/iopriority_test.go",
+"internal/macosuser/jaildaemon.go",
+"internal/macosuser/jaildaemon_test.go",
+"internal/macosuser/jailmarker_test.go",
+"internal/macosuser/keepergrants_test.go",
+"internal/macosuser/launchconfinement_test.go",
+"internal/macosuser/launchwriter_test.go",
+"internal/macosuser/loginpath_test.go",
+"internal/macosuser/lspservers_test.go",
+"internal/macosuser/macoslog_test.go",
+"internal/macosuser/macosuser.go",
+"internal/macosuser/macosuser_test.go",
+"internal/macosuser/mcpbootstrap_test.go",
+"internal/macosuser/mcppresets_test.go",
+"internal/macosuser/misedatadir_test.go",
+"internal/macosuser/nixstop_test.go",
+"internal/macosuser/onlaunch_test.go",
+"internal/macosuser/openaiauth_endpoint_test.go",
+"internal/macosuser/orchestrator.go",
+"internal/macosuser/orchestrator_test.go",
+"internal/macosuser/packroot_test.go",
+"internal/macosuser/persidepaths_test.go",
+"internal/macosuser/preconditions.go",
+"internal/macosuser/preconditions_test.go",
+"internal/macosuser/proctable.go",
+"internal/macosuser/proctable_other.go",
+"internal/macosuser/proctable_test.go",
+"internal/macosuser/provision.go",
+"internal/macosuser/provision_test.go",
+"internal/macosuser/real.go",
+"internal/macosuser/relocations_test.go",
+"internal/macosuser/runplan.go",
+"internal/macosuser/runtiming_test.go",
+"internal/macosuser/sandboxpathorder_test.go",
+"internal/macosuser/seatbelt.go",
+"internal/macosuser/seatbelt_readonly_test.go",
+"internal/macosuser/seatbeltcapture.go",
+"internal/macosuser/seatbeltcapture_test.go",
+"internal/macosuser/seatbeltdenies_test.go",
+"internal/macosuser/serviceprobe.go",
+"internal/macosuser/serviceprobe_test.go",
+"internal/macosuser/sessionfiles.go",
+"internal/macosuser/sessionfiles_test.go",
+"internal/macosuser/sessionguard.go",
+"internal/macosuser/sessionguard_test.go",
+"internal/macosuser/setupcensus_test.go",
+"internal/macosuser/setupnix_test.go",
+"internal/macosuser/skippedpackages_test.go",
+"internal/macosuser/stagedyolopath_test.go",
+"internal/macosuser/statedir.go",
+"internal/macosuser/supervisorlog_test.go",
+"internal/macosuser/terminate_test.go",
+"internal/macosuser/wiretables_test.go",
+"internal/macosuser/workspacegrant_test.go",
+"internal/macosuser/workspacegrantreal_test.go",
+"internal/macosuser/workspacereadonly.go",
+"internal/macosuser/workspaceresolve_test.go",
 "internal/miseuse/*",
 "internal/modelcatalog/*",
 "internal/modelmenu/*",
@@ -3235,6 +3362,7 @@
 "internal/prune/autoreap.go",
 "internal/prune/autoreap_test.go",
 "internal/prune/cachepurge.go",
+"internal/prune/cachepurgehold_test.go",
 "internal/prune/captures_test.go",
 "internal/prune/changetime_linux.go",
 "internal/prune/codex_surface_test.go",
@@ -5014,6 +5142,7 @@
 "internal/cli/hostownedreset_test.go",
 "internal/cli/hostpackrefresh_test.go",
 "internal/cli/hostpackresolve_test.go",
+"internal/cli/hostpatchprewrite_test.go",
 "internal/cli/hostplatformswitch_test.go",
 "internal/cli/hostprelaunch_test.go",
 "internal/cli/hostprelaunchrefresh_test.go",
@@ -5189,6 +5318,7 @@
 "internal/cli/run/builtinskillpipath_test.go",
 "internal/cli/run/bundleflake_test.go",
 "internal/cli/run/cachedgood_test.go",
+"internal/cli/run/cachepurgebudget_test.go",
 "internal/cli/run/callertokens_test.go",
 "internal/cli/run/capturemisetools_test.go",
 "internal/cli/run/capturesacfloor_test.go",
@@ -5541,6 +5671,15 @@
 },
 {
 "read": [
+"go.mod",
+"tools/tap-install-check/baremac/baremac.go"
+],
+"listed": [
+"tools/tap-install-check/baremac"
+]
+},
+{
+"read": [
 ".github/workflows/tap-install.yml",
 "README.md",
 "userguide/getting-started.md"
@@ -5622,13 +5761,16 @@
 "TestAFailureInTheLaunchedProgramsOwnConfigRefusesIt": 17,
 "TestAHostApplyCountsAFileItCreatesAsAChange": 17,
 "TestAHostApplyNamesARequiresEnvGatedLossForWhatItIs": 17,
+"TestAHostApplyStopsOnATreesPatchFailureBeforeItWrites": 17,
 "TestAHostLaunchAdvancesItsOwnersTreeBeforeTheGate": 17,
 "TestAHostLaunchLinksTheTreeItBuiltWhenTheRenderCheckOverruns": 25,
 "TestAHostLaunchLinksTheTreeItBuiltWhenTheRenderNeedsADecision": 25,
 "TestAHostLaunchNamesTheBuildItsLinkNames": 17,
 "TestAHostLaunchOfTheOwnerStopsWithoutItsTree": 25,
+"TestAHostLaunchStopsOnATreesPatchFailureBeforeTheGate": 17,
 "TestAHostLaunchTheCapabilityGateRefusesBuildsNoTree": 25,
 "TestAHostLaunchUnderHostManagementNoneAdvancesNothing": 25,
+"TestAHostLaunchWithoutApplyOnLaunchStopsOnATreesRecordedPatchFailure": 17,
 "TestALinuxHostLaunchWithNoGoodBuildSaysTheAgentInstallsTheFallback": 17,
 "TestAMacOSHostLaunchSaysTheAgentInstallsTheFallback": 17,
 "TestAMacOSHostLaunchSaysTheOwnerStartsWithoutItsTree": 25,
@@ -5975,6 +6117,7 @@
 "TestTheInstallRunsWithTheLaunchPathAndTheReprobeReadsIt": 17,
 "TestTheInteractiveFirstApplyLetsAnUnrelatedFailureThrough": 17,
 "TestTheLaunchGateDoesNotCountARetireStillWaiting": 17,
+"TestThePackUpdateApplyStopsOnRecordedPatchFailuresBeforeItWritesSayingThemOnce": 17,
 "TestTheWrapperAutoApplyWritesTheComputedLayer": 17,
 "TestUnderOwnTheReportSaysTheCapturedEditIsKeptOverTheOverlay": 17
 },
@@ -6068,77 +6211,78 @@
 "TestNightlyWorkflowTagsTheStockImage": 1
 },
 "internal/jailcontent": {
-"TestPluginMarkerMatchesTheHostSkillsComposer": 51
+"TestBuiltinSkillsEmbedMatchesTree": 51,
+"TestPluginMarkerMatchesTheHostSkillsComposer": 52
 },
 "internal/loopholedecl": {
-"TestEveryOfficialBinaryIsOnTheReleaseMatrix": 52
+"TestEveryOfficialBinaryIsOnTheReleaseMatrix": 53
 },
 "internal/loopholes": {
-"TestCensusIsSevenSurfaces": 54,
-"TestEveryDiscoverCallSiteIsConverged": 53,
-"TestEveryShippedLoopholeHasARow": 57,
-"TestShippedBrokerNeverMountsItsPrivateKey": 56,
-"TestShippedLoopholePlatformDeclarations": 55,
-"TestShippedManifestsParse": 55,
+"TestCensusIsSevenSurfaces": 55,
+"TestEveryDiscoverCallSiteIsConverged": 54,
+"TestEveryShippedLoopholeHasARow": 58,
+"TestShippedBrokerNeverMountsItsPrivateKey": 57,
+"TestShippedLoopholePlatformDeclarations": 56,
+"TestShippedManifestsParse": 56,
 "TestSkippedDirsAreTopLevelOnly": 45
 },
 "internal/macosuser": {
 "TestDeviceIoctlPathsRefusesNonDevicesAndRawDisks": 25,
-"TestEachGuestClientReadsTheEndpointItIsStagedOn": 60,
+"TestEachGuestClientReadsTheEndpointItIsStagedOn": 61,
 "TestEveryGuestBinaryIsAShippedBinary": 4,
 "TestGuestBinariesMatchTheFlakeAndTheBundleScript": 50,
-"TestTheBundleStagesDarwinGuestDirsForBothArchesUnderItsShareDir": 58,
-"TestTheHostShipSetStaysYoloAlone": 59
+"TestTheBundleStagesDarwinGuestDirsForBothArchesUnderItsShareDir": 59,
+"TestTheHostShipSetStaysYoloAlone": 60
 },
 "internal/packdecl": {
-"TestDecodeForUseMatchesDecodeWhenNothingIsSkipped": 64,
-"TestEveryShippedAndExampleInstallHintNamesItsSource": 62,
-"TestEveryShippedAndExamplePackHasNoInstallHintProblem": 62,
-"TestLlamacppDeclaresTheAttributionHeaderAsAProviderOption": 63,
-"TestLlamacppDeclaresTheOptionsAProfileMayTune": 63,
-"TestLlamacppNamesNoCredentialVariable": 63,
-"TestLlamacppShipsOneProviderAndTheProfileOverIt": 63,
-"TestShippedManifestsSurviveTheBriefingDefaultsRefusals": 61
+"TestDecodeForUseMatchesDecodeWhenNothingIsSkipped": 65,
+"TestEveryShippedAndExampleInstallHintNamesItsSource": 63,
+"TestEveryShippedAndExamplePackHasNoInstallHintProblem": 63,
+"TestLlamacppDeclaresTheAttributionHeaderAsAProviderOption": 64,
+"TestLlamacppDeclaresTheOptionsAProfileMayTune": 64,
+"TestLlamacppNamesNoCredentialVariable": 64,
+"TestLlamacppShipsOneProviderAndTheProfileOverIt": 64,
+"TestShippedManifestsSurviveTheBriefingDefaultsRefusals": 62
 },
 "internal/packload": {
-"TestAPackShippedJailBinaryReachesTheContainerArgv": 68,
-"TestEmbedMatchesTree": 65,
-"TestNoFetchedPackHostAccessGateExists": 66,
-"TestTheDisclosureThatReplacedTheGateIsStillWired": 67,
-"TestTheSubsetAcceptsAJailOnlyLoophole": 68
+"TestAPackShippedJailBinaryReachesTheContainerArgv": 69,
+"TestEmbedMatchesTree": 66,
+"TestNoFetchedPackHostAccessGateExists": 67,
+"TestTheDisclosureThatReplacedTheGateIsStillWired": 68,
+"TestTheSubsetAcceptsAJailOnlyLoophole": 69
 },
 "internal/paths": {
-"TestEveryDocCitationFromGoResolves": 69,
+"TestEveryDocCitationFromGoResolves": 70,
 "TestTheGatesPythonBytecodeIsIgnored": 3
 },
 "internal/prune": {
 "TestOwnerLabelSpellingMatchesTheFlake": 4,
-"TestPrefixBinMountDestMatchesTheLauncher": 70
+"TestPrefixBinMountDestMatchesTheLauncher": 71
 },
 "internal/releasematrix": {
-"TestEmbedChainAgreesWithTheMeasuredTree": 71,
-"TestReleasePlatformsAreTheYoloBuildsOfTheRealConfig": 52
+"TestEmbedChainAgreesWithTheMeasuredTree": 72,
+"TestReleasePlatformsAreTheYoloBuildsOfTheRealConfig": 53
 },
 "internal/render": {
-"TestGuestNotchSentenceHasExactlyOneHome": 72,
-"TestTheEngineHasOneCaller": 73
+"TestGuestNotchSentenceHasExactlyOneHome": 73,
+"TestTheEngineHasOneCaller": 74
 },
 "internal/runtime": {
-"TestEveryRunAndExecIntoAJailTurnsOffTheDetachSequence": 74
+"TestEveryRunAndExecIntoAJailTurnsOffTheDetachSequence": 75
 },
 "internal/setupcensus": {
-"TestEveryCitedFileAndFunctionIsWhereTheReasonSays": 76,
+"TestEveryCitedFileAndFunctionIsWhereTheReasonSays": 77,
 "TestEveryGuideLabelNamesOneRow": 39,
 "TestEveryGuideRowNamingAKeyOrKindIsClaimed": 39,
 "TestEveryKeyAndKindHasAGuideRow": 39,
-"TestEveryNoticeIsReadByItsPrinter": 75,
+"TestEveryNoticeIsReadByItsPrinter": 76,
 "TestEverySilentOrRefusingGuideAnswerIsACensusCell": 39,
-"TestNoUserGuidePageMakesAClaimTheCensusContradicts": 77,
+"TestNoUserGuidePageMakesAClaimTheCensusContradicts": 78,
 "TestTheGuideAgreesWithTheCensus": 39
 },
 "internal/tty": {
-"TestEveryColorEmitterIsInventoried": 78,
-"TestNoPrivateTerminalProbe": 78
+"TestEveryColorEmitterIsInventoried": 79,
+"TestNoPrivateTerminalProbe": 79
 },
 "internal/version": {
 "TestBuildVersionPrecedence": 3,
@@ -6146,70 +6290,70 @@
 "TestImageSourcePathsMatchTheFlake": 4
 },
 "internal/wirebridged": {
-"TestTheAdapterFrontsExactlyThePlatformsTheDaemonReaches": 79
+"TestTheAdapterFrontsExactlyThePlatformsTheDaemonReaches": 80
 },
 "packs": {
 "TestModelListCheckPackWideMetadataPreservesTheLastReleasesProgram": 28,
-"TestShippedPacksDecodeUnderTheLastRelease": 80
+"TestShippedPacksDecodeUnderTheLastRelease": 81
 },
 "tools/build-wheels": {
-"TestPublishRequiresTrustedPublishing": 81,
-"TestTheRealReadmeKeepsNoRelativeLink": 82
+"TestPublishRequiresTrustedPublishing": 82,
+"TestTheRealReadmeKeepsNoRelativeLink": 83
 },
 "tools/completion-experiment": {
-"TestGoEmitterCompiledPrefixDispatchRunsActualMain": 83
+"TestGoEmitterCompiledPrefixDispatchRunsActualMain": 84
 },
 "tools/pack-binaries": {
-"TestGoreleaserStagesThePackBinariesAndPublishesThem": 85,
+"TestGoreleaserStagesThePackBinariesAndPublishesThem": 86,
 "TestJustCheckCIChecksThePinsAgainstTheTree": 26,
 "TestJustInstallKeepsTheTreeForAnUpdate": 26,
 "TestJustInstallSeedsTheTreesProgramsBeforeItInstalls": 26,
 "TestJustPinPackBinariesRunsThePinVerb": 26,
 "TestJustReleaseChecksThePinsBeforeItDispatchesTheFrozenRequest": 26,
-"TestPublishUsesTheSharedExactCommitPreflightBeforeAnythingIsPublished": 81,
-"TestReleasePreflightsBeforeGoReleaserAndHomebrew": 86,
-"TestTheIntegrationHarnessSeedsItsRunsCache": 84,
-"TestTheToolReadsTheManifestsTheEmbedCarries": 87,
+"TestPublishUsesTheSharedExactCommitPreflightBeforeAnythingIsPublished": 82,
+"TestReleasePreflightsBeforeGoReleaserAndHomebrew": 87,
+"TestTheIntegrationHarnessSeedsItsRunsCache": 85,
+"TestTheToolReadsTheManifestsTheEmbedCarries": 88,
 "TestToolchainIsAtOrAboveGoMod": 28
 },
 "tools/release-wiring": {
-"TestActualPublisherCallerRefusesDuplicatePartialOldAndFailedOriginalState": 93,
-"TestActualTrustedUploadCallerPreservesAllAssetsNotesPrereleaseAndPartialState": 88,
-"TestClaimPublicationDependencyAndPyPIOIDCSourceCaller": 81,
+"TestActualPublisherCallerRefusesDuplicatePartialOldAndFailedOriginalState": 94,
+"TestActualTrustedUploadCallerPreservesAllAssetsNotesPrereleaseAndPartialState": 89,
+"TestClaimPublicationDependencyAndPyPIOIDCSourceCaller": 82,
 "TestConcurrentActualRequestCallersHaveOneCreateOnlyTagWinner": 3,
-"TestFailedJobsOnlyPublisherRerunRefusesAtEachActualMutationJobEntry": 81,
-"TestGoReleaserPackagingScriptAcceptsOnlyItsDeclaredInertOutputSet": 91,
-"TestHomebrewBackfillIsExplicitAndRequiresThePublishedImmutableTag": 90,
-"TestHomebrewFormulaHeredocNeverExecutesLiteralYoloForNormalOrBackfill": 91,
+"TestFailedJobsOnlyPublisherRerunRefusesAtEachActualMutationJobEntry": 82,
+"TestGoReleaserPackagingScriptAcceptsOnlyItsDeclaredInertOutputSet": 92,
+"TestHomebrewBackfillIsExplicitAndRequiresThePublishedImmutableTag": 91,
+"TestHomebrewFormulaHeredocNeverExecutesLiteralYoloForNormalOrBackfill": 92,
 "TestHomebrewReleasePresenceGateRefusesDraftOrUnknown": 3,
 "TestHostJustReleaseSubmitsOnlyFrozenSHAAfterLocalPinCheck": 3,
-"TestImageCacheImportAcceptsUnsignedRunnerBuiltPaths": 81,
-"TestMainBackfillCallerUsesTrustedToolsWhenOldTagHasNone": 91,
-"TestMainScopedReleaseCallerUsesAnchoredRunNamesAndTrustedMainInputs": 89,
-"TestOtherNormalPublicationJobsGuardBeforeCredentialSteps": 94,
-"TestReleaseArtifactHandoffFailsClosedOnUnexpectedPathsTypesAndDigests": 88,
-"TestReleaseRequestEligibilityAllowsAResumeToReachTheWriteJob": 92,
-"TestReleaseWorkflowsAreMainDispatchedAndKeepWritesOffTargetSource": 89,
+"TestImageCacheImportAcceptsUnsignedRunnerBuiltPaths": 82,
+"TestMainBackfillCallerUsesTrustedToolsWhenOldTagHasNone": 92,
+"TestMainScopedReleaseCallerUsesAnchoredRunNamesAndTrustedMainInputs": 90,
+"TestOtherNormalPublicationJobsGuardBeforeCredentialSteps": 95,
+"TestReleaseArtifactHandoffFailsClosedOnUnexpectedPathsTypesAndDigests": 89,
+"TestReleaseRequestEligibilityAllowsAResumeToReachTheWriteJob": 93,
+"TestReleaseWorkflowsAreMainDispatchedAndKeepWritesOffTargetSource": 90,
 "TestRequestCallerRejectsWrongRefAndRerunBeforeAnyWrite": 3,
 "TestRequestHostRecipeDoesNotTagLocally": 26,
-"TestRequestJobTimeoutExceedsItsWaits": 92,
+"TestRequestJobTimeoutExceedsItsWaits": 93,
 "TestRequestMainCallerWaitsForExactOriginalReleaseSuccessBeforePublishDispatch": 3,
 "TestRequestResumesATagOnlyReleaseWithoutTouchingTheTag": 3,
 "TestRequestTapDispatchFailureLeavesTheRequestGreen": 3,
-"TestShellHelpersFailClosedAndAllWorkflowCommandsParse": 89,
+"TestShellHelpersFailClosedAndAllWorkflowCommandsParse": 90,
 "TestStandaloneCLIHasNoFixtureTrustHook": 3,
-"TestTrustedEligibilityRejectsUnmergedSourceBeforeHostileTargetCanRun": 92,
+"TestTrustedEligibilityRejectsUnmergedSourceBeforeHostileTargetCanRun": 93,
 "TestTrustedHelperCLIUsesOnlyExplicitFixtureRoots": 3,
-"TestValidateReleaseAssetDirectoryAgainstPinnedGoreleaserContract": 88,
-"TestWorkflowHelperCallsAreExecutableAndTargetCheckoutCannotPersistCredentials": 89
+"TestValidateReleaseAssetDirectoryAgainstPinnedGoreleaserContract": 89,
+"TestWorkflowHelperCallsAreExecutableAndTargetCheckoutCannotPersistCredentials": 90
 },
 "tools/tap-install-check": {
-"TestReleasePushesTheFormulaTheDocsInstall": 98,
-"TestReleaseRunNameTransportReachesTheProductionTapCaller": 91,
-"TestTheJudgeAcceptsWhatTheLastReleaseReportsOnABareMac": 28,
-"TestTheWorkflowCarriesNoSecrets": 97,
-"TestTheWorkflowInstallsWhatTheDocsSay": 95,
-"TestTheWorkflowRunsAfterEachReleaseWeeklyAndByHand": 96
+"TestReleasePushesTheFormulaTheDocsInstall": 100,
+"TestReleaseRunNameTransportReachesTheProductionTapCaller": 92,
+"TestTheJudgeAcceptsWhatTheLastReleaseReportsOnABareMac": 96,
+"TestTheWorkflowCarriesNoSecrets": 99,
+"TestTheWorkflowInstallsWhatTheDocsSay": 97,
+"TestTheWorkflowRunsAfterEachReleaseWeeklyAndByHand": 98
 }
 }
 }
