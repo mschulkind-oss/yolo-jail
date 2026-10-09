@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -536,29 +537,67 @@ func TestPatchFailureLegacyOldGitIsUnavailable(t *testing.T) {
 	}
 }
 
+// TestPatchFailureLegacyProbeIsBounded pins that an EXPIRED probe returns promptly although a
+// descendant of git still holds its stdout, and that the expiry is not recorded as a permanent
+// verdict.
+//
+// THE EXPIRY IS ARMED BY THE TEST, once the descendant is known to run. It used to be the probe's
+// own 100 ms Timeout, raced against the spawn of a shell and its child: on a loaded machine the
+// window closed before the descendant existed, and the test failed on what it does not test. The
+// probe's deadline context is derived from the store's parent context (Store.Ctx), so a parent
+// that the test expires by hand reaches the probe exactly as its own timer would, DeadlineExceeded
+// included, and the descendant reports its pid through a FIFO, an event rather than a poll.
+//
+// What bounds the return is GitVersionContext capping os/exec's WaitDelay at the time left before
+// the deadline, so the parent also REPORTS a deadline: always expiringCtxLead away until it
+// expires. The cap is then expiringCtxLead however long the spawn took, where a real deadline would
+// have run down during it.
 func TestPatchFailureLegacyProbeIsBounded(t *testing.T) {
 	u, series, snap, target := legacyProbeFixture(t, false, false)
-	pidFile := filepath.Join(t.TempDir(), "version-child.pid")
+	pidFIFO := filepath.Join(t.TempDir(), "version-child.pid")
+	if err := syscall.Mkfifo(pidFIFO, 0o600); err != nil {
+		t.Fatalf("mkfifo: %v", err)
+	}
 	childScript := `trap 'kill "$sleeper" 2>/dev/null; wait "$sleeper"; exit 0' TERM INT
 sleep 30 &
 sleeper=$!
 printf '%s\\n' "$$" > "$1"
 wait "$sleeper"`
 	u.store.Git = wrappedGit(t, `if [ "$1" = version ]; then
-  sh -c `+shquote.Quote(childScript)+` version-child `+shquote.Quote(pidFile)+` &
+  sh -c `+shquote.Quote(childScript)+` version-child `+shquote.Quote(pidFIFO)+` &
   wait
 fi`)
+	parent := newExpiringCtx()
+	t.Cleanup(parent.expire) // whatever fails below, the probe's process group is stopped
+	u.store.Ctx = parent
 
 	type probeResult struct {
-		result  LegacyReplayResult
-		elapsed time.Duration
+		result   LegacyReplayResult
+		returned time.Time
 	}
 	done := make(chan probeResult, 1)
-	start := time.Now()
 	go func() {
-		result := u.store.ReclassifyLegacyApplyError(snap, series, target, "yolo-v1", LegacyReplayOptions{Timeout: 100 * time.Millisecond, Now: u.now})
-		done <- probeResult{result: result, elapsed: time.Since(start)}
+		// No Timeout: the bound is ReplayTimeout, far past the test, so only the parent's
+		// expiry below can end the probe.
+		result := u.store.ReclassifyLegacyApplyError(snap, series, target, "yolo-v1", LegacyReplayOptions{Now: u.now})
+		done <- probeResult{result: result, returned: time.Now()}
 	}()
+
+	pidRead := make(chan string, 1)
+	go func() {
+		// Opening a FIFO for reading blocks until the descendant opens it to write its pid.
+		data, err := os.ReadFile(pidFIFO)
+		if err != nil {
+			data = nil
+		}
+		pidRead <- strings.TrimSpace(string(data))
+	}()
+	t.Cleanup(func() {
+		// Unblock the reader if the descendant never opened the FIFO.
+		if w, err := os.OpenFile(pidFIFO, os.O_WRONLY|syscall.O_NONBLOCK, 0); err == nil {
+			_ = w.Close()
+		}
+	})
 
 	var childPID int
 	cleanupChild := func() {
@@ -569,42 +608,31 @@ fi`)
 		}
 	}
 	t.Cleanup(cleanupChild)
-	pidDeadline := time.Now().Add(time.Second)
-	for childPID == 0 && time.Now().Before(pidDeadline) {
-		data, err := os.ReadFile(pidFile)
-		if err == nil {
-			if _, err := fmt.Sscan(strings.TrimSpace(string(data)), &childPID); err != nil {
-				t.Fatalf("parse version child pid: %v", err)
-			}
-			break
+	select {
+	case raw := <-pidRead:
+		if _, err := fmt.Sscan(raw, &childPID); err != nil {
+			t.Fatalf("parse version child pid %q: %v", raw, err)
 		}
-		select {
-		case got := <-done:
-			t.Fatalf("version probe returned before starting its descendant: %+v", got)
-		default:
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if childPID == 0 {
-		select {
-		case got := <-done:
-			t.Fatalf("version probe never wrote its descendant pid: %+v", got)
-		case <-time.After(2 * time.Second):
-			t.Fatal("version probe descendant did not start")
-		}
+	case got := <-done:
+		t.Fatalf("version probe returned before starting its descendant: %+v", got)
+	case <-time.After(testsupport.ReadinessBudget(t)):
+		t.Fatal("version probe descendant did not start")
 	}
 
+	expiredAt := time.Now()
+	parent.expire()
 	var got probeResult
 	select {
 	case got = <-done:
 	case <-time.After(2 * time.Second):
 		cleanupChild()
 		got = <-done
-		t.Fatalf("legacy probe exceeded bound with descendant retaining stdout: %v", got.elapsed)
+		t.Fatalf("legacy probe exceeded bound with descendant retaining stdout: %v after expiry",
+			got.returned.Sub(expiredAt))
 	}
 	cleanupChild()
-	if got.elapsed > 2*time.Second {
-		t.Fatalf("legacy probe exceeded bound with descendant retaining stdout: %v", got.elapsed)
+	if elapsed := got.returned.Sub(expiredAt); elapsed > 2*time.Second {
+		t.Fatalf("legacy probe exceeded bound with descendant retaining stdout: %v after expiry", elapsed)
 	}
 	if got.result.State != "unavailable" || got.result.Failure != nil || !got.result.Attempted || got.result.Recorded || got.result.Err != nil {
 		t.Fatalf("stalled version probe = %+v", got.result)
@@ -617,6 +645,40 @@ fi`)
 		t.Fatalf("cancelled probe was permanently recorded as unavailable: %+v", record.ApplyErr.Legacy)
 	}
 }
+
+// expiringCtx is a parent context the test expires by hand, never by a timer. Once expired, Err reports
+// context.DeadlineExceeded, which a context.WithTimeout child inherits, so the code under test
+// sees the expiry its own timer would have produced.
+type expiringCtx struct {
+	context.Context
+	done chan struct{}
+	once sync.Once
+}
+
+func newExpiringCtx() *expiringCtx {
+	return &expiringCtx{Context: context.Background(), done: make(chan struct{})}
+}
+
+// expiringCtxLead is how far away an unexpired expiringCtx reports its deadline: the probe's
+// old Timeout, so the WaitDelay cap the probe derives from it is what that Timeout gave.
+const expiringCtxLead = 100 * time.Millisecond
+
+// Deadline is always expiringCtxLead from now, so any reader computes the same time left. A
+// context.WithTimeout child with a later deadline of its own defers to it.
+func (c *expiringCtx) Deadline() (time.Time, bool) { return time.Now().Add(expiringCtxLead), true }
+
+func (c *expiringCtx) Done() <-chan struct{} { return c.done }
+
+func (c *expiringCtx) Err() error {
+	select {
+	case <-c.done:
+		return context.DeadlineExceeded
+	default:
+		return nil
+	}
+}
+
+func (c *expiringCtx) expire() { c.once.Do(func() { close(c.done) }) }
 
 func stopVersionProbeChild(t *testing.T, pid int) {
 	t.Helper()
