@@ -146,13 +146,14 @@ func TestPackFilesTreeReachesTheJail(t *testing.T) {
 	}
 }
 
-// TestPackFilesCollisionFailsPreflight: two packs claiming one `files` destination must
-// fail on the HOST, naming both packs, before podman is invoked.
+// TestPackFilesCollisionFailsPreflight: two packs delivering DIFFERENT content for one file
+// under a shared `files` destination must fail on the HOST, naming both packs and the file,
+// before podman is invoked.
 //
-// Without the pre-flight the assembler emits two binds at one path and podman kills the
-// boot with "duplicate mount destination" — a runtime error that names neither pack and
-// reads as a yolo bug. `files` is sole-owned, so a second claimant is a footprint
-// violation and the diagnosis belongs on the host side.
+// Directory contributions to one `into` merge across packs, and a file both deliver with
+// identical bytes deduplicates (internal/cli/run/packfiles.go), so the fixture's packs each
+// deliver common.txt with their own content: that is still a collision, and one pack's
+// content silently shadowing the other's is what the pre-flight refuses.
 func TestPackFilesCollisionFailsPreflight(t *testing.T) {
 	requireJail(t)
 
@@ -162,7 +163,7 @@ func TestPackFilesCollisionFailsPreflight(t *testing.T) {
 		if err := os.MkdirAll(filepath.Join(root, "files"), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(root, "files", name+".txt"),
+		if err := os.WriteFile(filepath.Join(root, "files", "common.txt"),
 			[]byte(name+"\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -185,7 +186,7 @@ func TestPackFilesCollisionFailsPreflight(t *testing.T) {
 		t.Errorf("the container started despite a sole-ownership violation:\n%s", r.stdout)
 	}
 	out := r.combined()
-	for _, want := range []string{"alpha", "beta", ".shared/tree"} {
+	for _, want := range []string{"alpha", "beta", ".shared/tree", "common.txt"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("pre-flight error missing %q — podman's own error names neither pack, "+
 				"which is why this check exists:\n%s", want, out)
