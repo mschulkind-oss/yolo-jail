@@ -146,7 +146,7 @@ func TestBriefingAdvertisesOnlyActiveLoopholes(t *testing.T) {
 // A pack-contributed loophole reaches the briefing, the container argv and the daemon spawn
 // through ONE recorded value — the convergence, observed from the run package.
 func TestRunPathSurfacesSeeARecordedPackLoophole(t *testing.T) {
-	os.Unsetenv("YOLO_VERSION")
+	hostLauncher(t)
 	isolatePackModules(t)
 	fakeLoopholes(t)
 	mod := writeLoopholeModule(t, t.TempDir(), "acme-proxy", "")
@@ -236,7 +236,7 @@ func TestBrokerLookupIsPackExclusive(t *testing.T) {
 // binds a real socket and leaks a goroutine the test cannot stop. Its own gate is pinned
 // by TestCgroupDelegateNeedsItsLoophole.
 func TestFormerBuiltinNamesAreSpawnedNotSkipped(t *testing.T) {
-	os.Unsetenv("YOLO_VERSION")
+	hostLauncher(t)
 	isolatePackModules(t)
 	moduleRoot := fakeLoopholes(t)
 	writeHostDaemonModule(t, moduleRoot, "journal")
@@ -326,7 +326,7 @@ func TestCgroupDelegateNeedsItsLoophole(t *testing.T) {
 // A `file://` pack is used because its origin carries the user's own authority, which is what
 // makes the gate's TRUE branch observable without a lockfile.
 func TestLazyResolverReadsTheStoreAndGates(t *testing.T) {
-	os.Unsetenv("YOLO_VERSION")
+	hostLauncher(t)
 	home := packHome(t)
 	loopholes.ResetPackModules()
 	t.Cleanup(loopholes.ResetPackModules)
@@ -357,7 +357,7 @@ func TestLazyResolverReadsTheStoreAndGates(t *testing.T) {
 // validator, where the honest answer to "I cannot resolve your packs" is "I know of no pack
 // loopholes" — never a refused preflight, and never a loophole treated as approved.
 func TestLazyResolverIsSilentAndEmptyOnAnUnresolvablePack(t *testing.T) {
-	os.Unsetenv("YOLO_VERSION")
+	hostLauncher(t)
 	home := packHome(t)
 	loopholes.ResetPackModules()
 	t.Cleanup(loopholes.ResetPackModules)

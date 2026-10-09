@@ -101,8 +101,7 @@ func writePack(t *testing.T, dir, manifest string) {
 // the retired version as the CONTROL: it was never gated, so it must still arrive, and a
 // build that dropped every install would otherwise pass the installer assertion by accident.
 func TestFetchedPackHostClaimsAreHonoredWithNoApproval(t *testing.T) {
-	t.Setenv("YOLO_VERSION", "") // restores the variable after the Unsetenv below
-	os.Unsetenv("YOLO_VERSION")
+	hostLauncher(t)
 	home := packHome(t)
 	isolatePackModules(t)
 	fakeLoopholes(t)
@@ -421,8 +420,7 @@ func TestEveryHostCrossingClaimIsDisclosed(t *testing.T) {
 // with bind mounts is Active() only if one of its CONTAINER paths already exists, so the
 // whole loophole would drop out before runtimeArgsFor looked at a single source.
 func TestAbsentBindSourceIsSkippedNotRefused(t *testing.T) {
-	t.Setenv("YOLO_VERSION", "") // restores the variable after the Unsetenv below
-	os.Unsetenv("YOLO_VERSION")
+	hostLauncher(t)
 	isolatePackModules(t)
 	fakeLoopholes(t)
 	packRoot := t.TempDir()

@@ -27,8 +27,7 @@ func TestRefreshLoggingEndToEnd(t *testing.T) {
 		w.Write([]byte(`{"access_token":"AT_new_secret","refresh_token":"RT_new_secret","expires_in":3600,"scope":"user:inference"}`))
 	}))
 	defer srv.Close()
-	os.Setenv("YOLO_BROKER_UPSTREAM_URL", srv.URL)
-	defer os.Unsetenv("YOLO_BROKER_UPSTREAM_URL")
+	t.Setenv("YOLO_BROKER_UPSTREAM_URL", srv.URL)
 
 	dir := t.TempDir()
 	creds := filepath.Join(dir, "creds.json")

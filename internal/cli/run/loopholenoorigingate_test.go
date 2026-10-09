@@ -169,7 +169,7 @@ func syncPackStore(t *testing.T, src string) {
 // intercept, the bind, the device and the CA), and the BRIEFING (the agent is told the
 // capability is live).
 func TestFetchedPackLoopholeSpawnsAndCrossesWithNoApproval(t *testing.T) {
-	os.Unsetenv("YOLO_VERSION")
+	hostLauncher(t)
 	home := packHome(t)
 	isolatePackModules(t)
 	fakeLoopholes(t)
@@ -243,7 +243,7 @@ func TestFetchedPackLoopholeSpawnsAndCrossesWithNoApproval(t *testing.T) {
 // store (a file:// pack needs no `pack install`), and this pins that the two routes end in
 // the same place.
 func TestLocalPackLoopholeReachesTheSpawnAndTheArgv(t *testing.T) {
-	os.Unsetenv("YOLO_VERSION")
+	hostLauncher(t)
 	home := packHome(t)
 	isolatePackModules(t)
 	fakeLoopholes(t)
@@ -317,7 +317,7 @@ func TestLocalPackLoopholeReachesTheSpawnAndTheArgv(t *testing.T) {
 // VANISH: a loophole missing from `yolo loopholes list` is indistinguishable from a pack that
 // failed to stage, so the diagnosis has to stay visible.
 func TestPackLoopholeWithNoOriginDecisionIsStillListed(t *testing.T) {
-	os.Unsetenv("YOLO_VERSION")
+	hostLauncher(t)
 	isolatePackModules(t)
 	fakeLoopholes(t)
 	mod := writeLoopholeModule(t, t.TempDir(), "acme-proxy", "")

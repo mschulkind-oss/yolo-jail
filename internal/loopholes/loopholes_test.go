@@ -467,6 +467,7 @@ func TestRequiresFileExistsEnvCollapse(t *testing.T) {
 
 func TestExpandEnvUnit(t *testing.T) {
 	t.Setenv("FOO", "bar")
+	t.Setenv("MISSING_VAR_XYZ", "") // restores the variable after the Unsetenv below
 	os.Unsetenv("MISSING_VAR_XYZ")
 	cases := map[string]string{
 		"${FOO}/x":             "bar/x",

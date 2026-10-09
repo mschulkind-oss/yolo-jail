@@ -185,6 +185,7 @@ func TestAMissingBuildWithoutAPatchFailureNamesNoPatchBypass(t *testing.T) {
 // the cause's lines once; and an extension no agent pack loads refuses nothing, its cause said as a
 // warning. Red with printMissingGroups' grouping deleted.
 func TestOneCauseIsSaidOnceForEveryBuildItLeftWithout(t *testing.T) {
+	hostLauncher(t) // a host launch: run inside a jail, YOLO_VERSION would make it an in-jail one
 	o := goldenOptions("/ws", t.TempDir())
 	var stderr bytes.Buffer
 	o.Stderr = &stderr
@@ -224,6 +225,7 @@ func TestOneCauseIsSaidOnceForEveryBuildItLeftWithout(t *testing.T) {
 // was built, so none failed, and the launch keeps its warning line; on podman the same answer
 // refuses. Red if missingBuilds stops asking whether this notch builds.
 func TestANotchThatBuildsNoTreeRefusesNothing(t *testing.T) {
+	hostLauncher(t) // a host launch: run inside a jail, YOLO_VERSION would make it an in-jail one
 	o := goldenOptions("/ws", t.TempDir())
 	var stderr bytes.Buffer
 	o.Stderr = &stderr
@@ -281,6 +283,7 @@ func TestAPatchedForkForNoneOfThisPlatformRefusesNothing(t *testing.T) {
 // AN UNNEEDED MISSING BUILD ON APPLE CONTAINER names that runtime's limit too (PF-D21): the warning
 // is the only place its cause is said. Red with the hint printed only for builds the launch needs.
 func TestAnUnneededMissingBuildOnAppleContainerNamesItsLimit(t *testing.T) {
+	hostLauncher(t) // a host launch: run inside a jail, YOLO_VERSION would make it an in-jail one
 	o := goldenOptions("/ws", t.TempDir())
 	var stderr bytes.Buffer
 	o.Stderr = &stderr

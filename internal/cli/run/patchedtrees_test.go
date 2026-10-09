@@ -189,6 +189,7 @@ func TestACaptureJailRunsNoTreeArm(t *testing.T) {
 // BELOW APPLE CONTAINER'S READ-ONLY FLOOR the arm checks and builds nothing but still asks for a
 // copy of what serves (§11), and no launcher is stopped there: that notch builds no tree.
 func TestBelowTheAppleContainerFloorTheTreeArmBuildsNothingAndStopsNothing(t *testing.T) {
+	hostLauncher(t) // a host launch: run inside a jail, YOLO_VERSION would make it an in-jail one
 	o := goldenOptions("/ws", t.TempDir())
 	o.CapturesDir = func() string { return "/store" }
 	var req TreeBuildRequest

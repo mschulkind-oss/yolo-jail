@@ -37,6 +37,7 @@ func deselectLaunchLine(t *testing.T, packs []*packload.Pack, cfg *jsonx.Ordered
 // with a null for copilot; that spelling, written back, parses, keeps claude on bedrock and
 // removes the warning. Deleting the launch's Deselect (profilechannel.go, run.go) fails here.
 func TestTheReachesNothingWarningNamesTheKeyAndItsFix(t *testing.T) {
+	hostLauncher(t) // a host launch: run inside a jail, YOLO_VERSION would make it an in-jail one
 	home := retireHome(t)
 	writeUserConfigJSON(t, home, "{\n  \"packs\": [],\n  \"profile\": \"bedrock\"\n}\n")
 	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "copilot"),
