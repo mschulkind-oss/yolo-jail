@@ -2,7 +2,7 @@
 title: "Ordinary jail caches must not be a writable free-for-all"
 status: in-review
 stage: DESIGN
-next: "Investigate native cache addressing and the launch/reclaim fence while OQ-CI1 and OQ-CI2 await rulings"
+next: "Resolve protected runtime delivery and native consumer quiescence while OQ-CI1 and OQ-CI2 await rulings"
 tags: [design, storage, security]
 ---
 
@@ -124,6 +124,11 @@ state. Their serialization is the implementer's choice, not a public schema.
    any consumer can use the backing. Create only absent managed directories, never import data.
 3. Refuse links at agent-replaceable managed components; open beneath checked real directories
    and preserve their identity through delivery. A changed root is a refusal, not a new grant.
+   The existing checked-root helpers protect operations through their handles, **not a later
+   runtime reopen by pathname**. Before implementation, prove a protected source reference for
+   each backend or a stable anchor no sibling can replace during that interval. A final Lstat
+   followed by argv dispatch does not close it. Do not silently relocate backing outside the
+   recommended sidecar to evade this gap; any placement adjustment returns to this design.
 4. Deliver only that scope's backing. On successful start, hand protection to backend liveness
    without a gap; on failure retain a starting/unknown hold until absence is proved.
 5. After exit, keep the cache warm. Only a later fenced, known-inactive pass may reclaim bytes.
@@ -153,13 +158,40 @@ own resolved addressing and protection rather than inherit whichever global link
 | Apple Container | Keep the whole writable workspace home and one nested private cache source compatible with its device limit. VM-local placement is still [OQ-VL2](vm-local-volumes.md#OQ-VL2), not chosen here. |
 | Native macos-user | Per-session addressing and Seatbelt permissions must not redirect a live sibling. Current `.cache` is a real directory, required by relocations; replacing it with one global workspace link is not an adequate design. |
 
-Native `~/Library/Caches` remains outside the `.cache` contract.
-A required later experiment must distinguish tools obeying an explicit cache path from tools
-using hardcoded `.cache` or native paths, and prove that retained account bytes are not consumed
-as the new private default. Source tracing can prepare that experiment now; only native execution
-settles permissions, overrides and concurrent access. This is **engineering/evidence work,
-not a third owner-policy gate**. If a backend cannot meet the selected contract, a fresh launch
-must refuse with the supported-backend/retry next step rather than claim isolation on a fallback.
+### Native delivery adjustment under investigation
+
+Native `HOME` stays fixed under the [one-home ruling](../reference/macos-user-home-tiers.md#oq-ht4).
+The [source trace](../research/cache-trust-and-reclamation.md#native-addressing-compatible-crossings-incomplete-isolation)
+finds useful session env/profile crossings, but **no existing complete private-cache primitive**.
+Prepare the following cache-only candidate, conditional on scope and evidence, not a selected mechanism:
+
+- Hand one admitted absolute backing to bootstrap generators, provisioning, guest daemons and
+  agent env. Set XDG-aware consumers there, npm to its `npm` child, and native Go via explicit
+  `GOCACHE` to `go-build`: XDG alone does not move Darwin Go. Check final env after composition;
+  do not allow a dotenv override to become an ambient host grant.
+- Change yolo's stamp lookup to the session's selected cache at invocation, not a baked
+  `HOME/.cache` or a path another session's shared launcher generation overwrites.
+  Keep install prefixes, receipts, mise and credentials in their existing tiers.
+- Profile the **physical** selected backing and its protected anchors; prevent reads/writes
+  of retained legacy `.cache` through the broad home allow, preserving only explicitly
+  granted relocation targets. Test traversal and resolved-link behavior, not profile text.
+  Deny Go's old native `Library/Caches/go-build` fallback as well as setting `GOCACHE`.
+  Keep the account `.cache` real and relocation writes root-confined; no global root link.
+- `Library/Caches` is not covered by current relocation. Explicit Go redirection is a named
+  consumer adjustment, not privatization or deletion of that whole directory. Unknown native
+  consumers there remain a support gap; old bytes must not silently become a private fallback.
+
+This candidate redirects **known env-obeying consumers only**. Hardcoded `HOME/.cache`
+consumers are denied rather than magically redirected; a native experiment must show the
+failure and next step, not call it parity. Fresh native support under the selected contract
+is not ready until this incompatibility and actual writer quiescence are resolved; otherwise
+refuse the unsupported launch with the container-backend/retry remedy, never a global fallback.
+
+Preserve the current different-workspace account-home refusal. Same-workspace overlapping
+sessions still need independent env and lifetime holds; a per-launch choice would also need
+independent cache addresses despite shared launcher files. A shared-home link cannot name both.
+Host-lock release on SIGKILL and unseen other-host-user sessions are unknown, not safe overlap.
+No all-home/auth migration, privilege consent or third owner gate is added by this preparation.
 
 ## 5. Discovery and bounded inspection
 
@@ -197,29 +229,47 @@ re-fetch without losing unique user state; it does not mean authenticated or che
 Ownership, regular-file shape, old mtime and a familiar directory name are insufficient alone.
 Class definitions come from trusted host-side code/declarations, not an agent-editable manifest.
 Keep browser profiles, cookies, tokens, installed programs and unclassified vendor data held.
+The existing whole-bucket age list is not that positive classifier: define disposable entry
+shapes per supported tool/version before admitting them, leave unknown shapes held, and skip
+multiply linked files whose other writer/ownership cannot be established. Walk every managed
+component without following links, including links staying inside the cache into opaque data.
 No recursive whole-scope removal while opaque bytes remain.
 
 ### The launch/reclaim fence
 
-Host launch admission and **every** reclamation entry point, manual and housekeeping,
-participate in one ordering protocol for an admitted backing:
+**Conditional engineering protocol:** one mandatory per-backing admission mutex, stable and
+never unlinked/renamed, plus separate immutable attempt identities and durable lifecycle updates.
+All authority lives in host-only state outside the workspace/account home/cache and every
+jail-writable mount. A shortened name, guest manifest or free lifetime lock grants nothing.
+No shared-to-exclusive flock upgrade: admission and lifetime evidence are different objects.
 
-1. Reclaim takes exclusive admission protection without waiting behind a live launch; busy
-   or uncheckable protection means retain and retry later.
-2. Under protection, prove ownership and re-query all relevant backend holders. Live, paused,
-   starting or unknown scopes are retained; a failed enumeration is not an empty live set.
-3. Admit only known-inactive, classified units under current consent. Recheck opened root,
-   file identity/class and age immediately before removal; reject links and root swaps.
-4. Delete a bounded unit while admission stays excluded; release between units. A new launch
-   can then register starting, causing the next deletion to decline before its first cache write.
-5. Report failures/partial progress; resume through the same checks, never via an unchecked
-   pending-deletion pathname. Stop releases protection without manufacturing an inactive state.
+| Transition under admission protection | Required evidence / result |
+| :--- | :--- |
+| Absent → prepared | Host exclusively creates the scope/attempt record, validates full workspace and opened backing identity, and holds a lifetime witness before publishing. No writer dispatched yet; atomic publication failure refuses launch. |
+| Prepared → starting | Persist **dispatched** before the first possible cache writer: container runtime submission or native bootstrap/provision/daemon, not agent start. Record-write failure dispatches nothing. |
+| Starting → live | Record a backend instance identity and settled submission with no unprotected interval. Keep the starting hold until that acknowledgment; a progress frame or successful client return alone is insufficient. |
+| Live → inactive | All holders ended, no pending submission/restart capability remains, and the exact backend instance is known quiescent. Any remaining container referencing the source, even stopped/paused, retains it. Native launcher exit needs proof its bootstrap, guest daemons and descendants cannot continue writing. |
+| Any dispatched attempt → unknown | Lost launcher/keeper, failed handoff, unreadable record, unmatched instance or failed enumeration persists a hold. A free flock, elapsed age or currently absent container does not settle a delayed submission. No timeout clears it. |
+| Prepared → inactive without dispatch | Under the same mutex, prove no writer was submitted. An incomplete/missing dispatch record is unknown, not evidence of this transition. |
 
-This fence protects **host admission**, not cooperation from npm, Go or other jail tools.
-Backend liveness must span the lifetime of every user of the backing, including attach,
-multiple native sessions and interrupted starts. Older launchers do not know the fence:
-retain any legacy/ambiguous backing they might write. An uncheckable fence cannot degrade to
-ordinary unlocked deletion; the current launch lock's courtesy warning is not sufficient.
+After a crash, reconcile from the durable attempt state plus backend proof; never synthesize
+inactive from an empty lock count. Legacy/unregistered consumers also retain their ambiguous
+backing. Native quiescence after host death remains an **unproved engineering obligation**;
+existing account-home/session locks count host launchers, not every surviving guest writer.
+
+Every manual/slot deletion takes the admission mutex non-blocking, revalidates host ownership,
+opens the exact recorded root without links, and queries all holders. Only known-inactive,
+positively classified units with current consent proceed. Bind measurement candidates to
+opened root/file identities; under protection recheck no-follow parents, class, identity and
+age before a descriptor-relative unlink. Busy/error/identity change means retain and retry.
+Delete a bounded unit then release: a new admission publishes starting before the next unit
+can proceed. Detached pending pathnames never bypass these checks. Interruption/failure leaves
+partial accounting unstamped, not a fresh inactive declaration.
+
+This excludes **host admissions**, not npm/Go writers or arbitrary host-owner actions. Guest
+writers need not take a host lock; their whole reachable lifetime must be covered by evidence.
+[The companion](cache-isolation-plan.md#production-handoff-and-reclaimer-wiring) maps the actual
+keeper/native/manual/slot crossings. This is not the current courtesy launch lock's protocol.
 
 ### Consent, reach and the outstanding capacity decision
 
