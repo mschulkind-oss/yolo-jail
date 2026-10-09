@@ -890,7 +890,7 @@ func TestPackUpdateReportsTypedFailureBeforeBlockingRecordReplay(t *testing.T) {
 	}
 	resumeWrapper()
 	reportedBeforeUnlock := false
-	reportCtx, reportCancel := context.WithTimeout(ctx, time.Second)
+	reportCtx, reportCancel := context.WithTimeout(ctx, testsupport.ReadinessBudget(t))
 	select {
 	case <-errw.signal:
 		reportedBeforeUnlock = true

@@ -25,6 +25,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/pidlock"
 	"github.com/mschulkind-oss/yolo-jail/internal/progress"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 	"golang.org/x/sys/unix"
 )
 
@@ -204,7 +205,7 @@ func TestForkBuildChildCancellationPTYHelper(t *testing.T) {
 	for _, dir := range keyDirs {
 		if _, err := os.Stat(filepath.Join(dir, "started")); err == nil {
 			started++
-			waitForFixtureFile(t, filepath.Join(dir, "descendant.pid"), time.Second)
+			waitForFixtureFile(t, filepath.Join(dir, "descendant.pid"), testsupport.ReadinessBudget(t))
 		}
 	}
 	if started != active {

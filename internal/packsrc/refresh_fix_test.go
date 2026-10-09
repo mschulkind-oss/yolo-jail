@@ -395,7 +395,7 @@ exec git "$@"
 	if after, err := os.ReadFile(stamp); err != nil || string(after) != string(stampBefore) {
 		t.Errorf("failed fetch changed successful-fetch stamp: %q -> %q (err %v)", stampBefore, after, err)
 	}
-	if fixtureStillRunning(helper) || !awaitFixtureStopped(helper, time.Second) {
+	if fixtureStillRunning(helper) || !awaitFixtureStopped(helper, testsupport.ReadinessBudget(t)) {
 		t.Errorf("detached transport helper PID %d remained live after group cancellation", helper.pid)
 	}
 }

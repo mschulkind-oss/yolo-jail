@@ -20,6 +20,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/openaiauth"
 	"github.com/mschulkind-oss/yolo-jail/internal/openauthclient"
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
 func jwt(payload string) string {
@@ -44,7 +45,7 @@ func TestDaemonPublishesPrivateDirectHostSocketAndStreamsErrors(t *testing.T) {
 		done <- serveSockets(BuildHandler(config), BuildHostHandler(config),
 			fronted, hostSocket, stop, shutdown)
 	}()
-	deadline := time.Now().Add(time.Second)
+	deadline := time.Now().Add(testsupport.ReadinessBudget(t))
 	for {
 		if _, err := os.Stat(hostSocket); err == nil {
 			break

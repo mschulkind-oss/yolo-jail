@@ -54,7 +54,7 @@ s.sendall(struct.pack(">I", len(data)) + data)
 	set := loopholes.NewHostSet(loopCfg)
 
 	var output bytes.Buffer
-	o := &Options{Workspace: t.TempDir(), Stdout: &output, Stderr: &output, ServiceReadyTimeout: time.Second}
+	o := &Options{Workspace: t.TempDir(), Stdout: &output, Stderr: &output, ServiceReadyTimeout: readyFixtureBudget(t)}
 	fillDefaults(o)
 	if enabled := set.Enabled(); len(enabled) != 1 || enabled[0].Name != name {
 		t.Fatalf("selected per-jail fixture set = %+v", enabled)

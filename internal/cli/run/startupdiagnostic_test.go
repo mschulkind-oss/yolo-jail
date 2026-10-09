@@ -84,7 +84,7 @@ func TestAWSUnnarrowedRoutineDisclosureDoesNotSuppressOtherPackDisclosures(t *te
 	fillDefaults(o)
 	o.Stdout, o.Stderr = &output, &output
 	o.PathExists = func(string) bool { return false }
-	o.ServiceReadyTimeout = time.Second
+	o.ServiceReadyTimeout = readyFixtureBudget(t)
 	handles, _ := o.startLoopholesDisclosed(cname, "podman", cfg,
 		[]*packload.Pack{awsPack, otherPack}, nil)
 	if len(handles) != 2 {
@@ -212,7 +212,7 @@ func TestAWSStartupRefusalRendersSafeCauseWithoutProfileOrPolicyValues(t *testin
 	fillDefaults(o)
 	o.Stderr, o.Stdout = &output, &output
 	o.PathExists = func(string) bool { return false }
-	o.ServiceReadyTimeout = 500 * time.Millisecond
+	o.ServiceReadyTimeout = readyFixtureBudget(t)
 	handles, refused := o.startLoopholesDisclosed(cname, "podman", cfg, []*packload.Pack{p}, nil)
 	if refused == nil || refused.startup == nil || len(handles) != 0 {
 		t.Fatalf("actual AWS daemon refusal did not reach the launch caller: refusal=%v handles=%v output=%s",

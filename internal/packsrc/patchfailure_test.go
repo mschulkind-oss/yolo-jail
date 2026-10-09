@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
 func TestPatchFailureSnapshotDeepCopiesAuthority(t *testing.T) {
@@ -626,7 +627,7 @@ func stopVersionProbeChild(t *testing.T, pid int) {
 	if err := process.Signal(syscall.SIGTERM); err != nil && !errors.Is(err, os.ErrProcessDone) {
 		t.Fatalf("stop version child %d: %v", pid, err)
 	}
-	deadline := time.Now().Add(time.Second)
+	deadline := time.Now().Add(testsupport.ReadinessBudget(t))
 	for time.Now().Before(deadline) {
 		if err := process.Signal(syscall.Signal(0)); errors.Is(err, os.ErrProcessDone) {
 			return

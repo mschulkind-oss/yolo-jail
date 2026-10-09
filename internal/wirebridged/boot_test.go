@@ -23,6 +23,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
 func TestSignalReadyWritesTheServiceName(t *testing.T) {
@@ -312,7 +313,7 @@ func TestRunWakesForAnAttachedRoute(t *testing.T) {
 	providers := `{"bridge":{"endpoints":{"anthropic":{"base_url":"http://` + addr + `"},"openai":{"base_url":"https://upstream.example/v1"}}}}`
 	writeChannel(t, home, providers, `{"bridge":{"provider":"bridge"}}`, `{"claude":"bridge"}`)
 
-	deadline := time.Now().Add(time.Second)
+	deadline := time.Now().Add(testsupport.ReadinessBudget(t))
 	for {
 		if data, err := os.ReadFile(endpointFile); err == nil {
 			conn, err := net.DialTimeout("tcp", strings.TrimSpace(string(data)), 100*time.Millisecond)
@@ -356,7 +357,7 @@ func TestWaitForActiveRouteSeesAttachedClaudeCodex(t *testing.T) {
 		if !got.ok || !got.route.CodexAccessToken || got.route.ListenAddr != CodexResponsesListenAddr {
 			t.Fatalf("attached Claude codex route = %+v, ok=%v", got.route, got.ok)
 		}
-	case <-time.After(time.Second):
+	case <-time.After(testsupport.ReadinessBudget(t)):
 		t.Fatal("idle bridge did not see the attached Claude codex profile")
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
 const perJailReasonChildModeEnv = "YJ_PER_JAIL_REASON_CHILD_MODE"
@@ -192,17 +193,7 @@ func TestPerJailNonConfigurationRefusalIsPrintedBeforeTheDerivedSymptom(t *testi
 // passing run nothing.
 func readyFixtureBudget(t *testing.T) time.Duration {
 	t.Helper()
-	const fallback = 10 * time.Minute
-	deadline, ok := t.Deadline()
-	if !ok {
-		return fallback
-	}
-	remaining := time.Until(deadline)
-	// Leave room for the failure report and cleanup before -timeout fires.
-	if budget := remaining - 30*time.Second; budget > remaining/2 {
-		return budget
-	}
-	return remaining / 2
+	return testsupport.ReadinessBudget(t)
 }
 
 func runPerJailReasonFixture(t *testing.T, mode string, timeout time.Duration, ready bool,

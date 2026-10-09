@@ -67,8 +67,8 @@ import (
 // a value someone should be adjusting. On expiry the gate reports cannot-determine and execs —
 // a launch must never hang on a check it can decline to make.
 //
-// A package var only so a test can shrink it, following flockSyscall's convention. Nothing but
-// a test reassigns it.
+// A package var only so a test can shrink it, or widen it past a loaded machine's scheduling
+// (the package's TestMain), following flockSyscall's convention. Nothing but a test reassigns it.
 var hostApplyGateBudget = time.Second
 
 // hostApplyGateSurvey is the observe pass, behind a seam, and the seam exists for ONE reason:

@@ -19,6 +19,7 @@ package cli
 //     fixture.
 
 import (
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -99,6 +100,14 @@ func TestMain(m *testing.M) {
 	// A fixture's git reads no machine configuration (testsupport.HermeticGitEnv), and the
 	// tripwire makes one that does fail here and on CI, not only on a machine that signs.
 	testsupport.ArmGitConfigTripwire()
+	// THE HOST-RENDER GATE'S STUCK-DETECTOR IS NOT A TEST'S CLOCK. hostApplyGateBudget is a
+	// production second, and a gate test asserting what the observe pass FOUND lost it on a
+	// loaded machine (TestHostApplyGateRendersNothingOverAMalformedPack, 2026-10-09, during
+	// `just check-ci`): the survey overran, the gate took cannot-determine and launched. The
+	// package's budget is therefore the test binary's own deadline; a test about the overrun
+	// blocks the survey and sets 10 ms itself (blockGateSurvey).
+	flag.Parse()
+	hostApplyGateBudget = gateTestBudget()
 	releaseStagedTree := isolateTheStagedTree()
 	// `yolo host-daemon`, `yolo broker` and host launches ensure real host singletons;
 	// they get a private directory, not the machine-wide /tmp/yolo-<name>.* (testsupport).
@@ -154,4 +163,18 @@ func stubDeclaredBins(t *testing.T) {
 		}
 	}
 	stubBins(t, names...)
+}
+
+// gateTestBudget is hostApplyGateBudget for this package's tests: testsupport.ReadinessBudget's
+// bound, taken from the binary's -timeout flag because TestMain has no t. A gate whose survey
+// returns ends at once, so a passing run spends none of it; a survey that never returns fails
+// its test on the gate's report before -timeout panics the binary.
+func gateTestBudget() time.Duration {
+	var timeout time.Duration
+	if f := flag.Lookup("test.timeout"); f != nil {
+		if g, ok := f.Value.(flag.Getter); ok {
+			timeout, _ = g.Get().(time.Duration)
+		}
+	}
+	return testsupport.BudgetWithin(timeout)
 }
