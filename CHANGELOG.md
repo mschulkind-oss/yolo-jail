@@ -33,6 +33,14 @@ speaks Bedrock's own API through the wire bridge, which signs each request, incl
 for Claude models. Supply a Bedrock model list to use this route.
 See [the wire bridge](docs/reference/wire-bridge.md#converse-on-a-via-route).
 
+### Changed
+
+**A patch series that no longer applies stops the launch.** A jail launch, `yolo host` and
+`yolo host apply --assert` now stop with one error naming the patch, its conflict, the fix and the
+bypass that works, instead of quietly running your last good build. Put
+`YOLO_ALLOW_PATCH_FAILURES=1` in front of the command to run that build for one launch.
+See [When your patches stop applying](userguide/guides/patch-series.md#when-your-patches-stop-applying).
+
 ### Fixed
 
 - A patched program with a failed current build can now be used for one fresh launch from its intact recorded good build, without changing the requested series.

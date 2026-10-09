@@ -1,8 +1,8 @@
 package run
 
 // patchfailures.go is A JAIL LAUNCH'S PATCH FAILURE (docs/design/patched-forks.md §8, PF-D81, PF-D83):
-// right after the fork-build slot, before every other line the launch prints about its builds and
-// before the image step and the boot, the launch prints the error block of each selected patched fork
+// as soon as the fork-build slot ends, before any line the launch prints about what the slot
+// delivered and before the image step and the boot, the launch prints the error block of each selected patched fork
 // and patched extension whose series does not apply — the slot's advances hand the typed failure and
 // print no block of their own (cli's advance.launchSaysPatchFailure), so the block is said once, here,
 // where no build's progress follows it — and then decides:

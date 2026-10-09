@@ -5,10 +5,10 @@ new upstream release means rebasing the fork again by hand. With a **patch serie
 hand yolo the upstream and your changes, and yolo keeps them current:
 
 - it checks the upstream for new versions, at most once an hour, at a launch;
-- it applies your patches to the newest version they apply to cleanly;
+- it applies your patches to the newest version;
 - it builds the result in a sealed jail and runs it;
-- when a new version does not take your patches, it keeps running the last build that worked and
-  tells you which patch stopped it.
+- when a new version does not take your patches, it stops and tells you which patch stopped it,
+  how to fix it, and how to run the last build that worked meanwhile.
 
 This works for a program a pack installs, such as `pi`, and for a pi extension. A **patch series**
 is a folder of `git format-patch` files, made with `--base` so it records the upstream commit it
@@ -176,9 +176,11 @@ its own.
 
 ## When your patches stop applying
 
-When a new version does not take your patches, yolo stops the update and prints an error. It names
-the patch that failed, the files it conflicts in, the command that fixes it, and the one way to go
-on without fixing it. yolo never builds an older version or your series' base instead:
+When a new version does not take your patches, yolo stops and prints an error. It names the patch
+that failed, the files it conflicts in, the command that fixes it, and the one way to go on without
+fixing it that works on your machine. yolo never builds an older version or your series' base
+instead. A jail launch prints it as soon as its builds are done, before the jail starts, then
+stops:
 
 ```text
 ERROR: fork pi-mine/pi: patch application failed at upstream v1.0.2 (cd32f7729e1b4c0a8d5f3e6b7a2c9d0e1f4a5b6c)
@@ -186,18 +188,24 @@ ERROR: fork pi-mine/pi: patch application failed at upstream v1.0.2 (cd32f7729e1
   Conflict: packages/tui/src/footer.ts
   Operation stopped; no older fit or base will be built.
   Repair: yolo pack rebase pi-mine/pi --onto cd32f7729e1b4c0a8d5f3e6b7a2c9d0e1f4a5b6c
-  Bypass: YOLO_ALLOW_PATCH_FAILURES=1 yolo host -- pi
+  Bypass: YOLO_ALLOW_PATCH_FAILURES=1 yolo
+    (runs the intact admitted build v1.0.0 (a13d35a7) + 7 patches for this one run, skipping this update; it does not repair the series)
+Refusing to launch: the patch series of fork pi-mine/pi does not apply (the ERROR above), and a launch does not run an older build in its place unless asked.
 ```
 
 - **Repair** sets up a rebase of your patches onto that version, as below.
-- **`yolo host`, `yolo pack update` and `yolo capture` stop** at the error, even when a good build
-  is on your machine. Put `YOLO_ALLOW_PATCH_FAILURES=1` in front of the command to run the good
-  build for that one run and skip the update. It never runs a build your patches did not fully apply
-  to.
-- **With no good build on your machine**, nothing is left to run: the bypass cannot help, and a
-  launch stops, as in [When a build fails](#when-a-build-fails).
-- **A jail launch with a good build** still starts on it after the error. Stopping there too is
-  planned.
+- **Every command stops** at the error, even when a good build is on your machine: a jail launch,
+  `yolo host`, `yolo host apply --assert`, `yolo pack update` and `yolo capture`. A command that
+  writes into your home, such as `yolo host apply --assert`, stops before it writes anything.
+- **Bypass** is the one way on that works on your machine. With a good build of your series here,
+  it is `YOLO_ALLOW_PATCH_FAILURES=1` in front of the command: it runs that build for that one run,
+  says so, and skips the update. It never runs a build your patches did not fully apply to.
+- **With no good build of your series**, the Bypass line says what else works. For a patched
+  program whose only build is of an earlier series, it is `YOLO_USE_CACHED_GOOD=<pack>/<bin>`, as in
+  [When a build fails](#when-a-build-fails). Otherwise a jail launch can start without it,
+  `YOLO_ALLOW_MISSING_PROGRAMS=1`, and so can `yolo host` for a program other than the one it runs.
+  `YOLO_ALLOW_MISSING_PROGRAMS=1` does nothing for a series that does not apply while a good build of
+  it is here: use `YOLO_ALLOW_PATCH_FAILURES=1`.
 
 `yolo pack rebase <key>` sets up the rebase for you. Run it on your machine; in a jail, see
 [Check or rebase a series in a jail](#check-or-rebase-a-series-in-a-jail):
@@ -237,10 +245,10 @@ Neither command writes into your pack itself, or changes what a launch runs.
 
 | Command | What it does |
 | :--- | :--- |
-| `yolo pack update` | Checks every upstream now, applies each series to the newest version, and says whether it applies or which patch conflicts. It builds nothing: the next launch does. |
+| `yolo pack update` | Checks every upstream now, applies each series to the newest version, and says whether it applies or prints the error for the patch that conflicts. It builds nothing: the next launch does. |
 | `yolo pack status` | Shows each good build, the newest version and what happened when yolo tried it, what holds it, and when the next check is due. It works offline. |
 | `yolo pack status <key>` | Prints the build line in full. A launch names the build line by a short digest instead of printing it each time; the build itself always prints it in full first. |
-| `yolo capture <bin>` or `yolo capture <pack>/<name>` | Checks now and builds the newest version that applies, or rebuilds the good build. |
+| `yolo capture <bin>` or `yolo capture <pack>/<name>` | Checks now and builds the newest version if your series applies to it, or rebuilds the good build. It stops at a series that does not apply. |
 | `yolo pack rebase <key>` | Sets up a rebase of the series onto a version it does not apply to, as above. Add `--pack <pack folder>` to run it from the pack's folder, in a jail too. |
 | `yolo pack series check <pack folder>` | Says whether each series in a pack folder applies to the newest version, or which patch conflicts. It works in a jail. |
 | `yolo pack lint [--online] <dir>` | Checks a pack before you select it: each series must be one a launch can read. With `--online` it also checks the upstream in a scratch copy it deletes afterwards: that the ref and the series' base exist, what `follow` finds, and that your patches apply at their base. It works in a jail too. |

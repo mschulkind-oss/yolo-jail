@@ -1670,7 +1670,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	forkSpan := o.Perf.Span("launch.fork_builds")
 	o.runForkBuildSlot(cfg, rt, repoRoot)
 	// A PATCH SERIES THAT DOES NOT APPLY IS FATAL (patchfailures.go; PF-D81, PF-D83): its error block
-	// first, before any other line about the builds, then the refusal when an intact older build would
+	// first, before any line about what the slot delivered, then the refusal when an intact older build would
 	// otherwise run in silence; YOLO_ALLOW_PATCH_FAILURES=1 runs that build for this launch.
 	if o.refusePatchFailures(rt) {
 		forkSpan.End()
