@@ -5,10 +5,14 @@ import (
 )
 
 // dumpJSONIndent2 renders v as indent-2 JSON + "\n" — the form every
-// agent-config writer uses (insertion-order preserving, ASCII-only).
-func dumpJSONIndent2(v any) string {
-	s, _ := jsonx.DumpsIndent(v, 2)
-	return s + "\n"
+// agent-config writer uses (insertion-order preserving, ASCII-only). An encode
+// error is returned, never rendered: dropping it wrote "\n" over the agent's config.
+func dumpJSONIndent2(v any) (string, error) {
+	s, err := jsonx.DumpsIndent(v, 2)
+	if err != nil {
+		return "", err
+	}
+	return s + "\n", nil
 }
 
 // loadObject — the "read a JSON object, defaulting to {}" reader — lived here until the

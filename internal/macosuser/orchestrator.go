@@ -624,7 +624,7 @@ func programReadinessStageFor(packRoot, home, workspace, workspaceHome, loginPat
 	if packRoot == "" {
 		return ProgramReadinessStage{}
 	}
-	miseJSON, _ := jsonx.DumpsCompact(orderedMapToAny(miseTools))
+	miseJSON := jsonx.MustDumpsCompact(orderedMapToAny(miseTools))
 	vars := map[string]string{
 		"YOLO_PACK_ROOT":              packRoot,
 		"YOLO_MISE_TOOLS":             miseJSON,

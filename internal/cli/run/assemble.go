@@ -1435,11 +1435,10 @@ func (in *assembleInput) jailImage() string {
 	return in.imageRef
 }
 
-// jsonDumps renders v as compact JSON.
-func jsonDumps(v any) string {
-	s, _ := jsonx.DumpsCompact(v)
-	return s
-}
+// jsonDumps renders v as compact JSON. Every value it is handed is built from types jsonx
+// encodes, so an encode error is a bug, and it panics (MustDumpsCompact) rather than hand
+// the jail an empty wire value.
+func jsonDumps(v any) string { return jsonx.MustDumpsCompact(v) }
 
 // jailMCPServers is the mcp_servers table a container jail renders: the selected packs' `mcp`
 // entries joined to the jail's home, under the config's own `mcp_servers`.

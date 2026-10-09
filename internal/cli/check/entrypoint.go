@@ -169,25 +169,22 @@ func listOrNil(m *jsonx.OrderedMap, key string) []any {
 	return nil
 }
 
-func jsonDump(v any) string {
-	s, _ := jsonx.DumpsCompact(v)
-	return s
-}
+// jsonDump and its two wrappers render the preflight's env wires, which are built from
+// types jsonx encodes: an encode error is a bug, so they panic rather than return "".
+func jsonDump(v any) string { return jsonx.MustDumpsCompact(v) }
 
 func jsonDumpOrEmptyObj(m *jsonx.OrderedMap) string {
 	if m == nil {
 		return "{}"
 	}
-	s, _ := jsonx.DumpsCompact(m)
-	return s
+	return jsonx.MustDumpsCompact(m)
 }
 
 func jsonDumpOrEmptyList(l []any) string {
 	if l == nil {
 		return "[]"
 	}
-	s, _ := jsonx.DumpsCompact(l)
-	return s
+	return jsonx.MustDumpsCompact(l)
 }
 
 // parseToml is a minimal TOML validity check — the codex config.toml is simple

@@ -128,9 +128,7 @@ func handleList(s *hostservice.Session, cfg Settings) {
 	if s.Request != nil {
 		if raw, ok := s.Get("format"); ok && raw == "json" {
 			if err := s.JSON(listJSON(devices)); err != nil {
-				s.Stderr(fmt.Sprintf("serial: cannot encode the device list: %v\n", err))
-				s.Exit(1)
-				return
+				return // Session.JSON has written the error and exited 1
 			}
 			s.Exit(0)
 			return

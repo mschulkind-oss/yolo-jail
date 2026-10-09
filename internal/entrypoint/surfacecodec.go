@@ -260,7 +260,12 @@ func encodeSurfaceObjectReporting(surface manifest.Surface, obj *jsonx.OrderedMa
 	orig []byte, before *jsonx.OrderedMap) (string, []string, error) {
 	switch surface.Codec {
 	case "json":
-		return dumpJSONIndent2(obj), nil, nil
+		text, err := dumpJSONIndent2(obj)
+		if err != nil {
+			return "", nil, refuseRMW(surface, "the composed value cannot be written as "+
+				"JSON (%v) — the file is left untouched", err)
+		}
+		return text, nil, nil
 	case "toml":
 		c, _ := codec.LookupCodec("toml")
 		encoded, err := c.Encode(tomlValue(obj))

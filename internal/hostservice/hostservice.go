@@ -165,9 +165,15 @@ func (s *Session) Stderr(data string) { s.sendFrame(frameproto.StreamStderr, []b
 
 // JSON emits obj as one newline-terminated JSON line on stdout (compact
 // separators, matching Session.json's json.dumps default).
+//
+// A value jsonx cannot encode ENDS THE SESSION: nothing on stdout, the error on stderr,
+// exit 1. The error is still returned, but most handlers discard it (`_ = s.JSON(...)`),
+// and a reply that was never written must not reach the client as rc=0 with an empty body.
 func (s *Session) JSON(obj any) error {
 	line, err := jsonx.DumpsCompact(obj)
 	if err != nil {
+		s.Stderr("cannot encode the reply as JSON: " + err.Error() + "\n")
+		s.Exit(1)
 		return err
 	}
 	s.Stdout(line + "\n")

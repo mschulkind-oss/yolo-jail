@@ -110,6 +110,18 @@ func DumpsCompact(v any) (string, error) {
 	return e.sb.String(), nil
 }
 
+// MustDumpsCompact is DumpsCompact for a value built in code from types jsonx encodes —
+// the env wires a launch hands a jail — where an encode error is a programming error
+// with no caller able to act on it. It panics rather than return "": an empty wire
+// value reads in the jail as "nothing configured", which is a silent failure.
+func MustDumpsCompact(v any) string {
+	s, err := DumpsCompact(v)
+	if err != nil {
+		panic("jsonx.MustDumpsCompact: " + err.Error())
+	}
+	return s
+}
+
 // DumpsIndent renders v as json.dumps(v, indent=n) — pretty-printed but
 // WITHOUT sort_keys (insertion order preserved), ensure_ascii=True. This is the
 // form src/oauth_broker.py:_write_tokens uses (indent=2, no sort_keys), where
@@ -211,31 +223,36 @@ func (e *encoder) encode(v any, depth int) error {
 	case jsonInt:
 		e.sb.WriteString(string(t))
 	case []any:
-		e.encodeArray(t, depth)
+		return e.encodeArray(t, depth)
 	case []string:
 		arr := make([]any, len(t))
 		for i, s := range t {
 			arr[i] = s
 		}
-		e.encodeArray(arr, depth)
+		return e.encodeArray(arr, depth)
 	case *OrderedMap:
-		e.encodeOrderedMap(t, depth)
+		return e.encodeOrderedMap(t, depth)
 	case map[string]any:
 		// Unordered map: Python would preserve insertion order, but a Go map
 		// has none. sort_keys=True makes this deterministic; sort_keys=False
 		// on a plain map is inherently unordered, so we sort as the only
 		// stable choice (callers needing order use OrderedMap).
-		e.encodeStringMap(t, depth, true)
+		return e.encodeStringMap(t, depth, true)
 	default:
 		return fmt.Errorf("jsonx: unsupported type %T", v)
 	}
 	return nil
 }
 
-func (e *encoder) encodeArray(arr []any, depth int) {
+// encodeArray, encodeOrderedMap, encodeStringMap and emitObject return the first
+// error a nested value raises, prefixed with where it sits (`[1]`, `.devices`).
+// Dropping it would leave the container's punctuation around a value that was
+// never written — `{"devices": }` — behind a nil error; the public Dumps*
+// functions discard the builder on any error, so a caller never sees partial output.
+func (e *encoder) encodeArray(arr []any, depth int) error {
 	if len(arr) == 0 {
 		e.sb.WriteString("[]")
-		return
+		return nil
 	}
 	e.sb.WriteByte('[')
 	for i, item := range arr {
@@ -243,22 +260,25 @@ func (e *encoder) encodeArray(arr []any, depth int) {
 			e.sb.WriteString(e.itemSep)
 		}
 		e.newlineIndent(depth + 1)
-		_ = e.encode(item, depth+1)
+		if err := e.encode(item, depth+1); err != nil {
+			return nestedErr(fmt.Sprintf("[%d]", i), err)
+		}
 	}
 	e.newlineIndent(depth)
 	e.sb.WriteByte(']')
+	return nil
 }
 
-func (e *encoder) encodeOrderedMap(m *OrderedMap, depth int) {
+func (e *encoder) encodeOrderedMap(m *OrderedMap, depth int) error {
 	keys := m.keys
 	if e.sortKeys {
 		keys = append([]string(nil), m.keys...)
 		sort.Strings(keys)
 	}
-	e.emitObject(keys, func(k string) any { return m.values[k] }, depth)
+	return e.emitObject(keys, func(k string) any { return m.values[k] }, depth)
 }
 
-func (e *encoder) encodeStringMap(m map[string]any, depth int, forceSort bool) {
+func (e *encoder) encodeStringMap(m map[string]any, depth int, forceSort bool) error {
 	keys := make([]string, 0, len(m))
 	for k := range m {
 		keys = append(keys, k)
@@ -266,13 +286,13 @@ func (e *encoder) encodeStringMap(m map[string]any, depth int, forceSort bool) {
 	if e.sortKeys || forceSort {
 		sort.Strings(keys)
 	}
-	e.emitObject(keys, func(k string) any { return m[k] }, depth)
+	return e.emitObject(keys, func(k string) any { return m[k] }, depth)
 }
 
-func (e *encoder) emitObject(keys []string, get func(string) any, depth int) {
+func (e *encoder) emitObject(keys []string, get func(string) any, depth int) error {
 	if len(keys) == 0 {
 		e.sb.WriteString("{}")
-		return
+		return nil
 	}
 	e.sb.WriteByte('{')
 	for i, k := range keys {
@@ -282,10 +302,30 @@ func (e *encoder) emitObject(keys []string, get func(string) any, depth int) {
 		e.newlineIndent(depth + 1)
 		e.encodeString(k)
 		e.sb.WriteString(e.keySep)
-		_ = e.encode(get(k), depth+1)
+		if err := e.encode(get(k), depth+1); err != nil {
+			return nestedErr("."+k, err)
+		}
 	}
 	e.newlineIndent(depth)
 	e.sb.WriteByte('}')
+	return nil
+}
+
+// pathError is an encode error carrying the path from the root to the value
+// that failed, built innermost-first as the error unwinds.
+type pathError struct {
+	path string
+	err  error
+}
+
+func (p *pathError) Error() string { return fmt.Sprintf("%v (at %s)", p.err, p.path) }
+func (p *pathError) Unwrap() error { return p.err }
+
+func nestedErr(step string, err error) error {
+	if pe, ok := err.(*pathError); ok {
+		return &pathError{path: step + pe.path, err: pe.err}
+	}
+	return &pathError{path: step, err: err}
 }
 
 // encodeString writes s as a Python json.dumps string literal with

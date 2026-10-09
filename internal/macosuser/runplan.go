@@ -980,15 +980,15 @@ func buildBootstrapEnv(workspace string, cfg, gitIdentity, sandboxEnv *jsonx.Ord
 	darwinPrefix []string, blockedTools []packload.BlockedTool, miseTools *jsonx.OrderedMap) *jsonx.OrderedMap {
 	bootstrapEnv := jsonx.NewOrderedMap()
 	bootstrapEnv.Set("YOLO_HOST_DIR", resolvePathAbs(workspace))
-	blockJSON, _ := jsonx.DumpsCompact(config.NormalizeBlockedToolsWith(securitySection(cfg), blockedTools))
+	blockJSON := jsonx.MustDumpsCompact(config.NormalizeBlockedToolsWith(securitySection(cfg), blockedTools))
 	bootstrapEnv.Set("YOLO_BLOCK_CONFIG", blockJSON)
-	miseJSON, _ := jsonx.DumpsCompact(orderedMapToAny(miseTools))
+	miseJSON := jsonx.MustDumpsCompact(orderedMapToAny(miseTools))
 	bootstrapEnv.Set("YOLO_MISE_TOOLS", miseJSON)
-	lspJSON, _ := jsonx.DumpsCompact(getSectionOrEmptyMap(cfg, "lsp_servers"))
+	lspJSON := jsonx.MustDumpsCompact(getSectionOrEmptyMap(cfg, "lsp_servers"))
 	bootstrapEnv.Set("YOLO_LSP_SERVERS", lspJSON)
-	mcpSrvJSON, _ := jsonx.DumpsCompact(getSectionOrEmptyMap(cfg, "mcp_servers"))
+	mcpSrvJSON := jsonx.MustDumpsCompact(getSectionOrEmptyMap(cfg, "mcp_servers"))
 	bootstrapEnv.Set("YOLO_MCP_SERVERS", mcpSrvJSON)
-	mcpPresetsJSON, _ := jsonx.DumpsCompact(getSectionOrEmptyList(cfg, "mcp_presets"))
+	mcpPresetsJSON := jsonx.MustDumpsCompact(getSectionOrEmptyList(cfg, "mcp_presets"))
 	bootstrapEnv.Set("YOLO_MCP_PRESETS", mcpPresetsJSON)
 	// The `agent_updates` policy. macos-user is the backend where missing this hides
 	// least: it bakes no image, so the launchers ARE the delivery.
