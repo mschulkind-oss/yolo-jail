@@ -7,12 +7,14 @@ package run
 // own bypass runs that build for the launch, said; the missing-program hatch does not waive it.
 
 import (
+	"bytes"
 	"os"
 	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/image"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -169,5 +171,33 @@ func TestAPatchedExtensionsPatchFailureRefusesOnlyWhereItIsLoaded(t *testing.T) 
 		if listed && !strings.Contains(printed, "Bypass: YOLO_ALLOW_PATCH_FAILURES=1 yolo\n") {
 			t.Errorf("a loaded extension's block does not offer its bypass:\n%s", printed)
 		}
+	}
+}
+
+// BELOW APPLE CONTAINER'S READ-ONLY FLOOR the slot builds nothing new but still copies in a patched
+// extension's good build, and its advance hands the patch failure beside it and prints no block, as
+// in every slot: so the launch says the block and refuses there too. Red with launchPatchFailures
+// gated on whether this runtime builds, which mounted the older build in silence.
+func TestAPatchFailureBelowAppleContainersReadOnlyFloorStillRefuses(t *testing.T) {
+	t.Setenv("YOLO_VERSION", "")
+	o := goldenOptions("/ws", t.TempDir())
+	var stderr bytes.Buffer
+	o.Stderr = &stderr
+	o.Getenv = func(string) string { return "" }
+	o.acVersion = &acVersionProbe{v: "0.1.0", ok: true}
+	if o.roBindsUnsupported("container") == "" {
+		t.Fatal("the fixture's Apple Container is not below the read-only floor")
+	}
+	pf := pfFailure()
+	pf.Owner = treeKey
+	o.patchedTrees = []packload.Fork{{Pack: "treepack", Bin: "tree-ext", Into: treeInto, Owner: "agentpack", ListedInJail: true}}
+	o.treeDelivered = map[string]TreeDelivery{treeKey: {Dir: "/copies/tree-ext", Entry: "e1", Commit: strings.Repeat("a", 40),
+		Patches: 1, PatchFailure: pf}}
+	if !o.refusePatchFailures("container") {
+		t.Fatalf("below the floor the launch mounted the older build of a series that does not apply:\n%s", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "ERROR: extension "+treeKey+": patch application failed at upstream v1.2.0") ||
+		!strings.Contains(stderr.String(), "Bypass: YOLO_ALLOW_PATCH_FAILURES=1 yolo\n") {
+		t.Errorf("below the floor the block is missing or offers no bypass:\n%s", stderr.String())
 	}
 }

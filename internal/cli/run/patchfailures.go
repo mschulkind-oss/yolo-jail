@@ -24,6 +24,8 @@ package run
 import (
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
+
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -40,7 +42,10 @@ type launchPatchFailure struct {
 // launchPatchFailures are this launch's patch failures, in the order the slot ran them: the patched
 // forks, then the patched extensions.
 func (o *Options) launchPatchFailures(rt string) []launchPatchFailure {
-	if !o.patchedBuildsHere(rt) {
+	// EVERY RUNTIME THE SLOT RAN ON, not only those that build: below Apple Container's read-only
+	// floor the tree arm builds nothing yet still hands a good build with its recorded failure, and
+	// its advance printed no block (cli's advance.launchSaysPatchFailure). Only a jail runs no slot.
+	if config.InJail() {
 		return nil
 	}
 	var out []launchPatchFailure
