@@ -2,13 +2,13 @@
 title: "Ordinary jail caches must not be a writable free-for-all"
 status: in-review
 stage: DESIGN
-next: "Verify host-only source delivery and native consumer quiescence while OQ-CI1 and OQ-CI2 await rulings"
+next: "Rule OQ-CI1 and OQ-CI2; the companion's build hand-off then starts at slice S1"
 tags: [design, storage, security]
 ---
 
 # Ordinary jail caches must not be a writable free-for-all
 
-**Status:** 2026-10-09. Nothing built for this proposal; current-source findings checked against `b2eeffc12`.
+**Status:** 2026-10-09. Nothing is built for this proposal. Source findings were re-checked against `8f52d3561`. The non-owner-gated verification ran on Linux; its results and the [Mac and rootless checks still owed](cache-isolation-plan.md#independent-native-experiment-owed) are in [the companion](cache-isolation-plan.md#verification-results-2026-10-09). Implementation decisions CI-D1 to CI-D8 are in the [ledger](#10-decision-ledger).
 
 > **In short.** An agent's environment should keep ordinary cache writes within its workspace's trust, with reclamation beside isolation rather than postponed.
 
@@ -17,7 +17,7 @@ tags: [design, storage, security]
 **Cost.** A cold first launch per workspace and duplicated downloads; same-workspace sessions remain mutually trusted.
 **Start at [§3](#3-the-recommended-scope-and-identity)** — the recommended default, not an owner-selected mechanism.
 **Needs your ruling:** [OQ-CI1](#OQ-CI1), [OQ-CI2](#OQ-CI2).
-**Reads with:** [research](../research/cache-trust-and-reclamation.md) (source findings), [companion sketch](cache-isolation-plan.md) (incomplete source map, not a build hand-off).
+**Reads with:** [research](../research/cache-trust-and-reclamation.md) (source findings), [companion](cache-isolation-plan.md) (verification results and a build hand-off that waits on the rulings).
 
 ---
 
@@ -115,6 +115,24 @@ This grants no arbitrary host tree and introduces no third owner question. Nativ
 traversal, ID mapping and VM visibility are still backend support obligations; if the leaf
 cannot be delivered under existing authority, stop rather than widen access or fall back.
 
+**Verified on Linux Podman, 2026-10-09** (rootful, nested; see
+[V1](cache-isolation-plan.md#v1-the-host-only-anchor-holds-on-linux-podman)):
+
+- No jail-writable bind on a real launch reaches the proposed parent.
+- A guest cannot reach the parent or a sibling scope from the leaf.
+- The runtime **reopens the source by pathname and follows links**, at `run` and again at
+  every `start`. So the anchor's protection is that only host yolo can write the parents,
+  across every restart.
+
+Two limits found in the same pass:
+
+- **Read-only grants.** A read-only `mounts` element or a pack `mount` can expose the root
+  today ([V2](cache-isolation-plan.md#v2-two-read-only-grant-paths-can-expose-the-anchor)), so
+  the launch must refuse such a grant ([CI-D3](#10-decision-ledger)).
+- **Native location.** The native backend cannot use a root under the host home
+  ([V3](cache-isolation-plan.md#v3-the-native-anchor-cannot-sit-under-the-host-home)). Its
+  anchor is a root-owned tree under `/var/yolo-jail` ([CI-D4](#10-decision-ledger)).
+
 - Restart at the same resolved workspace reuses the backing. Two concurrent launches of that
   workspace share it intentionally and join the same admission/liveness protection.
 - Separate clones and worktrees have separate scopes even with identical repository contents.
@@ -171,7 +189,7 @@ own resolved addressing and protection rather than inherit whichever global link
 | Linux Podman, rootful | Same isolation contract; root-owned bytes may need existing privileged runtime access. Unreadable/unremovable bytes remain unknown/failed, not silently reclaimed; no new broad `sudo` deletion authority. |
 | Podman Machine on macOS | Only the workspace's cache backing is shared into the VM. Restart, mapping and host reclaim must be verified natively, not inferred from Linux argv. |
 | Apple Container | Keep the whole writable workspace home and one nested private cache source compatible with its device limit. VM-local placement is still [OQ-VL2](vm-local-volumes.md#OQ-VL2), not chosen here. |
-| Native macos-user | Per-session addressing and Seatbelt permissions must not redirect a live sibling. Current `.cache` is a real directory, required by relocations; replacing it with one global workspace link is not an adequate design. |
+| Native macos-user | Per-session addressing and Seatbelt permissions must not redirect a live sibling. Current `.cache` is a real directory, required by relocations; replacing it with one global workspace link is not an adequate design. Every workspace runs as one uid, so the profile is the only scope separator ([CI-D4](#10-decision-ledger)). |
 
 ### Native delivery adjustment under investigation
 
@@ -285,6 +303,9 @@ This excludes **host admissions**, not npm/Go writers or arbitrary host-owner ac
 writers need not take a host lock; their whole reachable lifetime must be covered by evidence.
 [The companion](cache-isolation-plan.md#production-handoff-and-reclaimer-wiring) maps the actual
 keeper/native/manual/slot crossings. This is not the current courtesy launch lock's protocol.
+The backend proofs "known quiescent" relies on are written as predicates:
+[containers](cache-isolation-plan.md#v4-container-quiescence-predicate) and
+[macos-user](cache-isolation-plan.md#v5-native-quiescence-predicate) ([CI-D5](#10-decision-ledger), [CI-D6](#10-decision-ledger)).
 
 ### Consent, reach and the outstanding capacity decision
 
@@ -302,6 +323,16 @@ residual machine storage, narrowed to mise; it did not choose a strict cap for m
 private cache working sets. [OQ-CI2](#OQ-CI2) asks whether that policy still suffices here.
 **Age/consent cannot guarantee size:** frequently written, live, unknown or opaque bytes can
 grow indefinitely, and consent may be declined. No ceiling or chosen number is smuggled into this design.
+
+**Verification finding for [OQ-CI2](#OQ-CI2), 2026-10-09, not a ruling.** The tree has no
+storage-quota mechanism; its only quota is the cgroup `cpu.max` in
+[`cgd`](../../internal/cgd/ops.go#L72-L84). Rootless podman and macos-user offer no unprivileged
+per-directory quota (upstream knowledge, not measured). So a strict guarantee needs new
+privilege or a per-scope filesystem image, which [§1](#1-direction-and-boundaries) does not propose.
+
+Separately, today's opt-in heavy purge deletes a `huggingface/token` older than 30 days, shown by
+a [run fixture](cache-isolation-plan.md#v6-positive-classes-and-bounded-traversal). That is a
+defect for anyone who opted in, whatever the answer.
 
 ## 7. Migration and sharing exceptions
 
@@ -336,6 +367,13 @@ not the old global default. npm and Go gain no equivalent sharing exception.
 | Strict per-launch private default | **Viable owner alternative:** stronger session separation, repeat cold downloads and more teardown/residue work. Warm-restart requirement would change. |
 | Trusted admitted read-only blobs with private indexes/locks | **Future only:** expected digests must come from trusted resolution and consumers must support separated storage. Mounting a complete npm/Go cache read-only is not that design. |
 | Fetch broker before isolation | **Rejected as prerequisite:** adds a service/protocol while leaving the ordinary lifecycle unresolved. |
+
+**Verification finding for [OQ-CI1](#OQ-CI1), 2026-10-09, not a ruling.** On the container
+backends a second `yolo` in the same workspace
+[attaches to the running container](../../internal/cli/run/run.go#L1507), which already binds
+one cache. Per-launch scope therefore separates fresh launches but not concurrent terminals of
+one workspace, unless attach changes too. Both answers use the same mechanism and the same
+[hand-off](cache-isolation-plan.md#build-hand-off-under-either-ruling); only the scope id differs.
 
 | Risk | Mitigation / remaining cost |
 | :--- | :--- |
@@ -406,3 +444,11 @@ Completion must demonstrate, using harmless offline fixtures rather than live ag
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
 | CI-DIR1 | Maintainer direction: ordinary cache writes must not be a free-for-all. This is a principle, not selection of workspace/per-launch scope or a capacity mechanism. | 2026-10-09 | [Direction and boundaries](#1-direction-and-boundaries) | — |
+| CI-D1 | Implementation decision, reversible: the container root is `<GlobalStorage>/ordinary-caches/<ws-key>/`, holding `record`, a never-unlinked `admission.lock`, `attempts/` and `scopes/<scope-id>/cache`. `<ws-key>` is the full SHA-256 hex of the resolved workspace path. The scope id is `w` under [OQ-CI1](#OQ-CI1) A and the attempt id under B. Only the leaf is ever bound. | 2026-10-09 | [V1](cache-isolation-plan.md#v1-the-host-only-anchor-holds-on-linux-podman) | — |
+| CI-D2 | Implementation decision: a case alias of one physical workspace joins the existing scope only when the device, the inode and the case-folded path all match its record. Otherwise it gets a fresh scope, and the mismatch is reported. | 2026-10-09 | [§3](#3-the-recommended-scope-and-identity) | — |
+| CI-D3 | Implementation decision: a launch refuses any grant whose resolved source is the root, an ancestor of it, or anything inside it other than the delivered leaf. That covers read-only and read-write `mounts`, pack `mount`, `host_files` and `cache_relocations` targets. The refusal names the grant and asks the owner to narrow it. | 2026-10-09 | [V2](cache-isolation-plan.md#v2-two-read-only-grant-paths-can-expose-the-anchor) | — |
+| CI-D4 | Implementation decision, conditional on checks N1–N4: the native anchor is `/var/yolo-jail/ordinary-caches/<ws-key>/scopes/<scope-id>/cache`. Its parents are root-owned, and the profile write-allows the leaf and denies reads of every other scope. Host reclaim uses the inheriting shared-group ACE, with no sudo deletion. | 2026-10-09 | [V3](cache-isolation-plan.md#v3-the-native-anchor-cannot-sit-under-the-host-home) | — |
+| CI-D5 | Implementation decision: container quiescence comes from `inspect`ing every container's mount sources. `ps --filter volume=` is not used, because it matches destinations, which every jail shares. Any query failure means unknown. | 2026-10-09 | [V4](cache-isolation-plan.md#v4-container-quiescence-predicate) | — |
+| CI-D6 | Implementation decision: native quiescence is predicate (a)–(e) under a machine-wide fence. If an unprivileged host user cannot list the guest's processes (A1), native reclaim stays a support stop and never escalates to sudo. | 2026-10-09 | [V5](cache-isolation-plan.md#v5-native-quiescence-predicate) | — |
+| CI-D7 | Implementation decision: traversal reads directories in batches of 256 beneath `os.Root`. It checks the context and deadline before each batch and each unlink, and returns a partial flag that every caller honors. No completion stamp is written on partial. Admission uses the positive class table, and everything else is held. | 2026-10-09 | [V6](cache-isolation-plan.md#v6-positive-classes-and-bounded-traversal) | — |
+| CI-D8 | Implementation decision: relocation mountpoints and every managed directory inside a private leaf are created with a beneath-root `Mkdir`, never `MkdirAll` on a joined path. | 2026-10-09 | [V2](cache-isolation-plan.md#v2-two-read-only-grant-paths-can-expose-the-anchor) | — |

@@ -2,7 +2,7 @@
 title: "A writable cache is a cross-workspace trust channel"
 status: accepted
 stage: CURRENT
-next: "Verify the host-only source-anchor candidate on each backend; prove native consumer quiescence before promoting the sketch"
+next: "Run the rootless, Podman Machine, Apple Container and macos-user checks the companion lists; Linux Podman is done"
 tags: [research, storage, security]
 ---
 
@@ -12,6 +12,10 @@ Re-analyzed **from source, 2026-10-09**, against `b2eeffc12`.
 This is a repository audit, not an inventory of a user's caches or runtime evidence.
 No repository tests, builds, installs, native probes or cleanup were run; bounded offline
 replacement fixtures illustrate pathname hazards, not backend protection.
+**Follow-up, 2026-10-09, at `8f52d3561`:** a Linux verification pass ran a nested-podman anchor
+model, a purge fixture and the existing package tests. Its results are in
+[the companion](../design/cache-isolation-plan.md#verification-results-2026-10-09); the findings
+below stand, with the additions noted inline.
 
 **Verdict:** recommend persistent workspace-private backing for ordinary jail caches,
 with inspection and reclamation delivered together. This is not a selected mechanism;
@@ -23,8 +27,8 @@ Yolo manages an agent's environment; this proposal narrows one shared surface of
 
 | Surface | Current behavior and evidence |
 | :--- | :--- |
-| Machine cache | `GlobalCache()` returns `<GlobalStorage>/cache`; initialization creates it before config loads. [`paths.go`](../../internal/paths/paths.go#L860-L883), [`ensure.go`](../../internal/storage/ensure.go#L24-L70) |
-| Ordinary containers | `runContainer` explicitly selects `GlobalCache()` into `assembleInput.cacheDir`. Both Podman and Apple Container bind it writable at `/home/agent/.cache`; the assembler's empty-value fallback selects it too. Changing only that fallback misses production. [`run.go`](../../internal/cli/run/run.go#L1986-L2042), [`assemble_parts.go`](../../internal/cli/run/assemble_parts.go#L54-L172) |
+| Machine cache | `GlobalCache()` returns `<GlobalStorage>/cache`; initialization creates it before config loads. [`paths.go`](../../internal/paths/paths.go#L867-L890), [`ensure.go`](../../internal/storage/ensure.go#L24-L70) |
+| Ordinary containers | `runContainer` explicitly selects `GlobalCache()` into `assembleInput.cacheDir`. Both Podman and Apple Container bind it writable at `/home/agent/.cache`; the assembler's empty-value fallback selects it too. Changing only that fallback misses production. [`run.go`](../../internal/cli/run/run.go#L1989-L2045), [`assemble_parts.go`](../../internal/cli/run/assemble_parts.go#L54-L172) |
 | Sealed builds | `sealedStores` creates `build-cache` and `build-mise` in the build workspace. The seal withholds relocations, host aliases and machine-scope pack dirs. This is a built precedent, not ordinary-jail isolation. [`seal.go`](../../internal/cli/run/seal.go#L18-L43), [`sealedStores`](../../internal/cli/run/seal.go#L169-L181) |
 | Native macos-user | The home layout links workspace state but leaves `.cache` in the sandbox account home. Relocation explicitly requires that root to be a real directory and checks its opened identity. [`darwinhomelayout.go`](../../internal/entrypoint/darwinhomelayout.go#L21-L28), [`InstallDarwinCacheRelocations`](../../internal/entrypoint/darwinhomelayout.go#L811-L886) |
 | Cache environment | Container npm uses `.cache/npm`; mise downloads use `/tmp/mise-cache`, not the persistent `.cache/mise` bucket named by purge. Shell and native bootstrap also default npm to `.cache/npm`. [`commonEnvBlock`](../../internal/cli/run/assemble.go#L1198-L1230), [`shell.go`](../../internal/entrypoint/shell.go#L249-L254), [`bootstrapTemplate`](../../internal/entrypoint/shell.go#L387-L391) |
@@ -118,7 +122,7 @@ Those files are unchanged by this research; eventual implementation must reconci
 
 | Concern | What the current source establishes |
 | :--- | :--- |
-| Coverage | Named default buckets, separate opt-in heavy buckets, and forbidden profile/installed-program names. Only old regular files are counted/deleted; unknown content is not classified. [`cachepurge.go`](../../internal/prune/cachepurge.go#L10-L66) |
+| Coverage | Named default buckets, separate opt-in heavy buckets, and forbidden profile/installed-program names. Only old regular files are counted/deleted; unknown content is not classified. [`cachepurge.go`](../../internal/prune/cachepurge.go#L10-L66). A run fixture shows the default buckets deleting `uv/.lock` and the heavy buckets deleting `huggingface/token` once 30 days old ([V6](../design/cache-isolation-plan.md#v6-positive-classes-and-bounded-traversal)). |
 | Path safety | Descendant removals run beneath `os.Root`, with links skipped. The current global/relocated root itself is opened following a link; private-root admission must preserve host-only namespace anchors, not merely an opened handle. [`cachepurge.go`](../../internal/prune/cachepurge.go#L78-L169), [`wsstatebeneath.go`](../../internal/cli/run/wsstatebeneath.go#L16-L127) |
 | Liveness | Cache purge receives no live-cache set. Housekeeping rechecks file age under its deletion guard; jail tools do not take that host lock. Manual purge uses the unguarded wrapper. [`housekeeping.go`](../../internal/cli/run/housekeeping.go#L326-L375), [`guard.go`](../../internal/prune/guard.go), [`prunecmd.go`](../../internal/prune/prunecmd.go#L1100-L1131) |
 | Walk budget | `cacheWalkBudget` is 60 seconds, but the complete dry-run returns before elapsed time labels its result partial. It does **not** interrupt the walk or bound the following apply pass. [`housekeeping.go`](../../internal/cli/run/housekeeping.go#L326-L382) |
@@ -158,7 +162,13 @@ therefore differs from the existing courtesy locks and session-file sweeps.
 - [XB-D12](../design/pi-extension-store-builds.md#XB-D12), **2026-10-05**, forbids
   shared npm caches for sealed extension builds; it does not choose ordinary-jail scope.
 
-**Next evidence work:** verify the host-only source anchor through each actual runtime's
-pathname reopen; test native cache overrides, hardcoded-path denial and writer quiescence
-independently. Env-only native parity and cross-backend FD delivery are not established.
-The companion maps these controls to actual callers; backend experiments require separate authorization.
+**Next evidence work:** the Linux Podman half of the anchor is verified (rootful, nested).
+The run showed the runtime reopening the source by pathname and following links at every
+`run` and `start`. Two more findings came from the same pass:
+
+- A read-only grant can expose the anchor.
+- The native anchor cannot live under the host home.
+
+The [rootless, Podman Machine, Apple Container and macos-user checks](../design/cache-isolation-plan.md#independent-native-experiment-owed)
+remain, together with native overrides, hardcoded-path denial and writer quiescence. Env-only
+native parity and cross-backend FD delivery are not established.
