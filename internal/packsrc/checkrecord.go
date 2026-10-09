@@ -120,6 +120,9 @@ type CheckFound struct {
 	// advance builds the base, and this says why, one line naming what the rule reads. NoVersionLine
 	// completes it with where the fork stays. "" otherwise.
 	NoVersion string `json:"no_version,omitempty"`
+	// lockHeld is a NoWait store's check that found the mirror's lock held (an error matching
+	// ErrLockHeld): it fetched and listed nothing, and CheckPatched records none of it. Never written.
+	lockHeld error
 }
 
 // NoVersionLine is the line that says, once at a launch and in `yolo pack status`, why a release
@@ -308,7 +311,7 @@ func (s *Store) saveCheckRecord(r *CheckRecord) error {
 
 // lockCheckRecord takes owner's record lock and returns its release.
 func (s *Store) lockCheckRecord(owner string, waiting func(string)) (func(), error) {
-	return flockPath(filepath.Join(s.Dir, "locks", "check-"+mirrorSlug(owner)+".lock"),
+	return s.flock(filepath.Join(s.Dir, "locks", "check-"+mirrorSlug(owner)+".lock"),
 		"the check record of "+owner, waiting)
 }
 

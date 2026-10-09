@@ -152,6 +152,7 @@ func (s *Store) CheckPatched(w PatchedWant, opts CheckOptions) CheckResult {
 		// inputs with the last check's list. A check killed in its git after an edit to what it
 		// reads leaves the old inputs beside the old list, and the next launch is due at once
 		// (CheckDue) instead of serving the old rule's list under the new one for an hour.
+		stamp := r.CheckedAt
 		r.CheckedAt = now().Unix()
 		if err := save(); err != nil {
 			return false, err
@@ -162,6 +163,13 @@ func (s *Store) CheckPatched(w PatchedWant, opts CheckOptions) CheckResult {
 			found = s.findNpmCandidates(n)
 		} else {
 			found = s.findCandidates(addr, follow, w.Base, opts.Force, now(), waiting)
+		}
+		if found.lockHeld != nil {
+			// A NoWait STORE MET A HELD MIRROR LOCK: nothing was fetched or listed, so the attempt's
+			// stamp goes back to what it was and the record says nothing of this call; the caller
+			// skips the key (§6.2 rule 5).
+			r.CheckedAt, res.Ran, res.Err, res.Record = stamp, false, found.lockHeld, r
+			return true, nil
 		}
 		r.Seq++
 		found.Seq, found.At = r.Seq, now().Unix()
@@ -205,6 +213,9 @@ func (s *Store) findCandidates(a Addr, follow FollowRule, base string, force boo
 	var found CheckFound
 	unlock, err := s.lockMirror(a.Repo, waiting)
 	if err != nil {
+		if errors.Is(err, ErrLockHeld) {
+			found.lockHeld = err
+		}
 		found.Problem = oneLine(err)
 		return found
 	}

@@ -737,3 +737,21 @@ func TestARevertOverAnUnreadableFilesRecordRemovesNoLinkAndSaysSo(t *testing.T) 
 		t.Errorf("the revert does not say why it left the link, naming the record:\n%s%s", out.String(), errw.String())
 	}
 }
+
+// `yolo host -- <bin>` UPDATES ITS OWNER'S TREES AT ITS LAUNCH in the next-launch mode, which slice 1
+// of XB-D42 builds for jail launches only, and says so in one line. Red if the host stops saying it,
+// or starts leaving the tree to a background advance it does not start.
+func TestAHostLaunchSaysTheNextLaunchModeIsAJailLaunchs(t *testing.T) {
+	fx := newTreeFixture(t, `"f.txt"`)
+	fx.listTreeForAgent(t)
+	fx.writeHostConfig(t, `,"agent_updates":{"agentpack":"next-launch"}`)
+	var errw bytes.Buffer
+	advanceHostTrees(&errw, false, "tool", nil)
+	if len(fx.builds) != 1 {
+		t.Errorf("`yolo host -- tool` built %d trees, want the one its owner loads, at the launch", len(fx.builds))
+	}
+	if !strings.Contains(errw.String(), "extension treepack/tool-ext: `agent_updates` asks for the next launch, "+
+		"which this yolo applies to jail launches — `yolo host` updates it at this launch") {
+		t.Errorf("the host launch does not say it:\n%s", errw.String())
+	}
+}

@@ -682,8 +682,15 @@ func (s *Store) pinnedFetchFailure(a Addr) error {
 // lockMirror takes the exclusive flock for one repository's mirror and returns its
 // release. Fetch and checkout both run under it.
 func (s *Store) lockMirror(repo string, waiting func(string)) (func(), error) {
-	return flockPath(filepath.Join(s.Dir, "locks", mirrorSlug(repo)+".lock"),
-		"the pack mirror of "+repo, waiting)
+	return s.flock(filepath.Join(s.Dir, "locks", mirrorSlug(repo)+".lock"), "the pack mirror of "+repo, waiting)
+}
+
+// flock is flockPath, or under NoWait its try (flockTry).
+func (s *Store) flock(path, what string, waiting func(string)) (func(), error) {
+	if s.NoWait {
+		return flockTry(path, what)
+	}
+	return flockPath(path, what, waiting)
 }
 
 // WithLock is the lockfile's load-modify-save under an exclusive flock kept in the pack
@@ -706,6 +713,30 @@ func WithLock(storeDir, lockPath string, waiting func(string), fn func(*Lock) (b
 		return err
 	}
 	return l.Save(lockPath)
+}
+
+// flockTry opens path and tries its exclusive flock once. Any held lock, including a sibling's
+// in this process, fails at once with ErrLockHeld; no process mutex may turn this into a wait.
+func flockTry(path, what string) (func(), error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return nil, err
+	}
+	fd := int(f.Fd())
+	if err := syscall.Flock(fd, syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		f.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
+			return nil, fmt.Errorf("%s is %w", what, ErrLockHeld)
+		}
+		return nil, fmt.Errorf("locking %s: %w", path, err)
+	}
+	return func() {
+		_ = syscall.Flock(fd, syscall.LOCK_UN)
+		_ = f.Close()
+	}, nil
 }
 
 // flockPath opens path and takes an exclusive flock on it, NON-BLOCKING FIRST so a

@@ -24,6 +24,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -60,21 +61,33 @@ const (
 	timingNextLaunch
 )
 
-// treeUpdateTiming is when f updates. THE SEAM for XB-D28's background mode: the refresh-timing
-// option's per-program value (`agent_updates`' "next-launch", XB-D17) is not built in this tree, so
-// every key updates at the launch. Its reader replaces this body; the tree arm reads nothing else.
-var treeUpdateTiming = func(packload.Fork) updateTiming { return timingAtLaunch }
-
-// backgroundTreeAdvance starts the BACKGROUND ADVANCE of the keys a launch handed what it had
-// (XB-D19): a detached host process that checks and builds them for the next launch. THE SEAM's
-// other half: not built in this tree (treeUpdateTiming never answers next-launch), so it says which
-// keys wait and that the next launch at the default timing checks them.
-var backgroundTreeAdvance = func(trees []packload.Fork, _ run.TreeBuildRequest, errw io.Writer, color bool) {
-	pr := richtext.Printer{W: errw, Color: color}
-	for _, f := range trees {
-		pr.Printf("[dim]%s[/dim]", richtext.Escape(f.Label()+": updates for the next launch, and this yolo runs no "+
-			"background advance — a fresh launch at the default timing checks it"))
+// treeUpdateTiming is when f updates, from `agent_updates` (XB-D17, XB-D18): a tree it holds updates
+// at the launch, which checks nothing for it; otherwise its owning agent pack's own entry, then its
+// contributing pack's, then "*", then a top-level value (config.PackTimingDecision). A var so a test
+// can stand a timing in.
+var treeUpdateTiming = func(f packload.Fork) updateTiming {
+	if run.PatchedForkHold(f) != "" {
+		return timingAtLaunch
 	}
+	packs := []string{f.Pack}
+	if f.Owner != "" {
+		packs = []string{f.Owner, f.Pack}
+	}
+	if config.PackTimingDecision(config.AgentUpdatesWire(), packs...) == config.AgentUpdatesNextLaunch {
+		return timingNextLaunch
+	}
+	return timingAtLaunch
+}
+
+// runtimeName is a runtime as a line names it.
+func runtimeName(rt string) string {
+	switch rt {
+	case "container":
+		return "Apple Container"
+	case "":
+		return "this runtime"
+	}
+	return rt
 }
 
 // deliverTree is one built tree's delivery, the pool's key it: what serves, then its per-launch copy,
@@ -88,15 +101,31 @@ func deliverTree(f packload.Fork, req run.TreeBuildRequest, report *buildReport,
 	color bool) (_ run.TreeDelivery, later bool) {
 	errw := it.stream()
 	pr := richtext.Printer{W: errw, Color: color}
+	// THE LAST BACKGROUND ADVANCE'S OUTCOME, said once at whichever launch reads it first (XB-D20),
+	// whatever this launch's timing.
+	again := noteBackgroundOutcome(f, pr)
 	o := advanceOptions{platform: req.Platform, runtime: req.Runtime, workspace: req.Workspace, out: errw,
 		errw: errw, color: color, launch: true, act: req.Interrupt, report: report, slot: it}
-	nextLaunch := req.Build && treeUpdateTiming(f) == timingNextLaunch
+	nextLaunch := false
+	if req.Build && treeUpdateTiming(f) == timingNextLaunch {
+		nextLaunch = run.BackgroundBuildsOn(req.Runtime)
+		if !nextLaunch {
+			// THIS RUNTIME RUNS NO BACKGROUND ADVANCE (Apple Container, macos-user): the key updates at
+			// this launch, as XB-D21 has the next-launch option do there whenever a build happens.
+			pr.Printf("[dim]%s[/dim]", richtext.Escape(fmt.Sprintf("%s: `agent_updates` asks for the next launch, "+
+				"and on %s this yolo runs no background advance — it updates at this launch", f.Label(),
+				runtimeName(req.Runtime))))
+		}
+	}
 	for attempt := 0; ; attempt++ {
 		var r advanceResult
 		switch {
 		case nextLaunch:
-			if r = servingTree(f, o, ""); r.delivery.Key != "" {
-				later = true
+			var a *advance
+			if r, a = servingTreeOf(f, o, ""); r.delivery.Key != "" {
+				// THE SPAWN CONDITION (XB-D19): its check due, a candidate pending, or the last
+				// background advance unfinished; a key with nothing to do starts none.
+				later = again || a.wantsBackground()
 				break
 			}
 			if f.Fallback != "" {
@@ -146,19 +175,25 @@ func deliverTree(f packload.Fork, req run.TreeBuildRequest, report *buildReport,
 // recipe are the manifest's and its entry is in the store, or why there is none (floor names why
 // this launch builds nothing).
 func servingTree(f packload.Fork, o advanceOptions, floor string) advanceResult {
+	r, _ := servingTreeOf(f, o, floor)
+	return r
+}
+
+// servingTreeOf is servingTree with the advance it read, nil when the series could not be read.
+func servingTreeOf(f packload.Fork, o advanceOptions, floor string) (advanceResult, *advance) {
 	a, early := newAdvance(f, o)
 	if early != nil {
-		return *early
+		return *early, nil
 	}
 	if a.serving == nil {
 		why := f.Label() + " has no build on this machine"
 		if floor != "" {
 			why += ", and this runtime builds none (" + floor + ")"
 		}
-		return advanceResult{delivery: entrypoint.ForkDelivery{Reason: why}}
+		return advanceResult{delivery: entrypoint.ForkDelivery{Reason: why}}, a
 	}
 	good := *a.rec.Good
-	return advanceResult{delivery: entrypoint.ForkDelivery{Key: a.serving.Key}, good: &good}
+	return advanceResult{delivery: entrypoint.ForkDelivery{Key: a.serving.Key}, good: &good}, a
 }
 
 // copyTreeForLaunch copies f's built tree out of entry key into its per-launch directory under

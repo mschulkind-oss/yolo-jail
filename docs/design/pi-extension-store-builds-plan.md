@@ -3,18 +3,12 @@ title: "Companion implementation sketch: one keyed build for every pi extension"
 date: 2026-10-05
 status: draft
 stage: SKETCH
-next: "Built 2026-10-05 but for the background advance (step 3, which waits on the refresh-timing option); the patched forks' share of step 2 was built 2026-10-06 (XB-D56, XB-D57); the design's ledger, XB-D35 to XB-D42 and XB-D56 to XB-D57, records how"
+next: "Independent review and landing remain for the Podman built-tree next-launch slice, source-built slice 1 and runtime-checked only on Linux, rootful, nested Podman. Rootless Podman and native macOS runtime behavior remain unmeasured; Darwin evidence is static vet/compile only. This does not imply native/performance/migration slice 2. Apple Container's check-only advance, host updates/reporting, and patched-fork/captured-program timing remain unbuilt; use the canonical design ledger for their scope"
 ---
 
 # Companion implementation sketch: one keyed build for every pi extension
 
-**Status:** 2026-10-05 — built but for two pieces, which the design's ledger names: step 1 whole
-([XB-D14](pi-extension-store-builds.md#XB-D14), [XB-D41](pi-extension-store-builds.md#XB-D41)),
-step 2 ([XB-D39](pi-extension-store-builds.md#XB-D39), and for a jail launch's forks
-[XB-D56](pi-extension-store-builds.md#XB-D56)), step 3 as a seam
-([XB-D42](pi-extension-store-builds.md#XB-D42)), and step 4, which
-[OQ-6](pi-git-extension-caching.md#OQ-6) (c) took ([XB-D35](pi-extension-store-builds.md#XB-D35) to
-[XB-D38](pi-extension-store-builds.md#XB-D38)). The sketch below is what it was built from. It parks the implementation material of
+**Status:** 2026-10-05 — this historical sketch is not an implementation plan to build from. Its step 1 and step 2 shipped; step 3's Podman built-tree next-launch source slice 1 is built and runtime-checked only on Linux, rootful, nested Podman ([XB-D42](pi-extension-store-builds.md#XB-D42), [XB-D58](pi-extension-store-builds.md#XB-D58) to [XB-D65](pi-extension-store-builds.md#XB-D65)). Rootless Podman and native macOS runtime behavior remain UNMEASURED; Darwin evidence is static vet/compile only. This does not imply native/performance/migration slice 2. Independent review and landing remain. Apple Container's check-only advance, host updates and reporting, and patched-fork/captured-program timing are not built. A real Pi load and the maintainer's extension migration remain unmeasured; step 4, which [OQ-6](pi-git-extension-caching.md#OQ-6) (c) took ([XB-D35](pi-extension-store-builds.md#XB-D35) to [XB-D38](pi-extension-store-builds.md#XB-D38)), is already built.
 [`pi-extension-store-builds.md`](pi-extension-store-builds.md), whose steps it follows; the design
 wins on behavior, and nobody builds from this sketch.
 

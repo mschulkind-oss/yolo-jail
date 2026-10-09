@@ -163,6 +163,17 @@ func ProbeExistingContainer(cname, rt string, timeout time.Duration) (exists, kn
 	return id != "", known
 }
 
+// ForceRemoveContainer removes cname on rt by force, running or not, and reports whether the
+// runtime then answers that no container of the name exists. It is the background advance's removal
+// of a build jail it stopped (docs/design/pi-extension-store-builds.md XB-D19): nothing stops a
+// build jail when the yolo that started it dies, so a SIGTERM's handler removes each by name. Both
+// runtimes spell it `<rt> rm --force <cname>`, Apple Container's `container` included.
+func ForceRemoveContainer(cname, rt string) (gone bool) {
+	o := NewDefaultOptions()
+	o.Exec = realExec
+	return o.forceRemoveStoppedContainer(cname, rt)
+}
+
 // removeStaleContainer force-removes a container and clears its tracking.
 func (o *Options) removeStaleContainer(cname, rt string) bool {
 	var res ExecResult

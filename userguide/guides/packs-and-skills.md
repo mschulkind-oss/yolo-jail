@@ -235,7 +235,10 @@ them, and yolo cannot tell you which version of any of them ran. To freeze Copil
 start at once instead, set `"agent_updates": { "pi": "next-launch" }`: the update then runs in the
 background while you work, and your next launch of pi uses it. yolo names the update's log as pi
 starts, and tells you at a later launch if the update failed or did not finish. New extensions in
-your pi settings still install before pi opens.
+your pi settings still install before pi opens. On Podman, the same setting also controls extensions
+a pack declares for yolo to build: with `"next-launch"`, a fresh launch starts with its last good
+build or fallback and tries any due update in the background. A later launch can use the new build
+if that update finishes first; the setting does not guarantee the next launch gets a newer one.
 
 **Packs move only when you say so**, apart from a branch ref as described above:
 

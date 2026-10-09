@@ -1144,6 +1144,13 @@ func FlakeBundleDir() string { return filepath.Join(GlobalStorage(), "flake-bund
 // prints, nor the "declined" flag that decides whether the host prompts.
 func UpdateCheckDir() string { return filepath.Join(GlobalStorage(), "update-check") }
 
+// BackgroundAdvanceDir returns $HOME/.local/share/yolo-jail/background-advance: per built tree, the
+// lock a background advance holds while it runs the key and the outcome the next launch reports
+// (docs/design/pi-extension-store-builds.md XB-D19, XB-D20). A dedicated leaf for UpdateCheckDir's
+// reasons: never under cache/, which every jail mounts read-write, since a jail must not be able to
+// write the line the host's next launch prints.
+func BackgroundAdvanceDir() string { return filepath.Join(GlobalStorage(), "background-advance") }
+
 // UserConfigPath returns $HOME/.config/yolo-jail/config.jsonc (or config.json if config.jsonc is absent).
 func UserConfigPath() string {
 	p := filepath.Join(home(), userConfigSuffix)

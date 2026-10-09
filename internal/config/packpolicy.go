@@ -50,3 +50,42 @@ func packPolicySetting(v any) (allowed bool, timing string, ok bool) {
 	}
 	return false, "", false
 }
+
+// PackTimingDecision is WHEN a built tree, or anything else several packs govern, updates
+// (docs/design/pi-extension-store-builds.md §7.6, XB-D18): AgentUpdatesAtLaunch or
+// AgentUpdatesNextLaunch. packs are the governing packs in precedence order — for a built tree its
+// owning agent pack, then its contributing pack — and the first one with a valid entry of its own
+// decides, then "*", then a top-level value, then the default, at the launch. A false counts as at
+// the launch: whether anything moves at all is the hold's reader's (PackPolicyDecision,
+// run.PatchedForkHold), and a held tree checks nothing in either mode.
+//
+// It extends OQ-PD31's "a pack's own entry beats `*` whole" (docs/design/program-delivery.md) to a
+// second governing pack: a tree's contributing pack's own entry beats `*` too, and its owner's beats
+// both.
+func PackTimingDecision(wire string, packs ...string) string {
+	if wire == "" {
+		return AgentUpdatesAtLaunch
+	}
+	decoded, err := jsonx.Decode([]byte(wire))
+	if err != nil {
+		return AgentUpdatesAtLaunch
+	}
+	m, isMap := decoded.(*jsonx.OrderedMap)
+	if !isMap {
+		if _, timing, ok := packPolicySetting(decoded); ok {
+			return timing
+		}
+		return AgentUpdatesAtLaunch
+	}
+	for _, key := range append(append([]string(nil), packs...), "*") {
+		if key == "" {
+			continue
+		}
+		if v, present := m.Get(key); present {
+			if _, timing, ok := packPolicySetting(v); ok {
+				return timing
+			}
+		}
+	}
+	return AgentUpdatesAtLaunch
+}

@@ -84,6 +84,11 @@ func advanceHostTrees(errw io.Writer, color bool, bin string, act *run.ActInterr
 			continue // no host render links a tree whose list entry reaches jails alone (PPX-D35)
 		}
 		trees = append(trees, f)
+		if bin != "" && treeUpdateTiming(f) == timingNextLaunch {
+			// THE HOST'S NEXT-LAUNCH MODE IS NOT BUILT (XB-D22): `yolo host -- <bin>` updates at its launch.
+			richtext.Printer{W: errw, Color: color}.Printf("[dim]%s[/dim]", richtext.Escape(f.Label()+": `agent_updates` "+
+				"asks for the next launch, which this yolo applies to jail launches — `yolo host` updates it at this launch"))
+		}
 	}
 	// A PARALLEL ADVANCE, as a jail launch's tree arm runs one (treepool.go, XB-D10): the host builds
 	// in podman's own capture jails, side by side.

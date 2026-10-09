@@ -101,6 +101,15 @@ func BuildJailsSideBySide(rt string) bool {
 	return rt != "container" // parity: Honored — every other backend starts capture jails side by side (macos-user builds none)
 }
 
+// BackgroundBuildsOn reports whether a launch on rt may leave a next-launch key's update to a
+// BACKGROUND ADVANCE (docs/design/pi-extension-store-builds.md XB-D19): false on Apple Container,
+// where a build jail cannot start beside a running jail, so the next-launch option is the at-launch
+// wait whenever a build happens (XB-D21; its check-only background advance is not built), and on
+// macos-user, which builds nothing; only podman runs this slice's background advance.
+func BackgroundBuildsOn(rt string) bool {
+	return rt == "podman" // parity: Honored — only podman runs this slice's background advance
+}
+
 // appleContainerVersion returns the `container` CLI's version, memoized for this launch.
 //
 // MEMOIZED because four call sites ask (the argv twice, the host-mount grants, and the

@@ -120,31 +120,40 @@ func runTreesInParallel(trees []packload.Fork, runtime string, act *run.ActInter
 	if len(trees) == 0 {
 		return
 	}
+	act.Scope(func(ctx context.Context) { runTreesUnder(ctx, trees, runtime, out, errw, fn) })
+}
+
+// runTreesUnder is runTreesInParallel under ctx, which ends every key's wait when it is cancelled:
+// an interrupt scope's, or the background advance's signal context (backgroundadvance.go), which must
+// not take a scope, since a scope re-raises the signal it caught.
+func runTreesUnder(ctx context.Context, trees []packload.Fork, runtime string, out, errw io.Writer,
+	fn func(i int, f packload.Fork, lane treeLane)) {
+	if len(trees) == 0 {
+		return
+	}
 	pool := newAdvancePool(runtime)
 	ord := newOrderedOutput(out, errw, len(trees))
-	act.Scope(func(ctx context.Context) {
-		var wg sync.WaitGroup
-		for i, f := range trees {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				lo, le := ord.writers(i)
-				log := treeBuildLog(f)
-				lane := treeLane{out: lo, errw: le, pool: pool, ctx: ctx}
-				lane.started = func() {
-					// The log opens HERE, under the build's own lock and slot, and is appended to:
-					// a launch that builds nothing of the key never touches it (XB-D50).
-					ord.logTo(i, log, fmt.Sprintf("=== %s: build started %s (yolo pid %d)\n", f.Label(),
-						time.Now().Format(time.RFC3339), os.Getpid()))
-					ord.startLine(i, fmt.Sprintf("%s: its build has started — its lines follow once every extension "+
-						"listed before it has ended, and its output is in %s as it runs", f.Label(), log))
-				}
-				defer ord.end(i)
-				fn(i, f, lane)
-			}()
-		}
-		wg.Wait()
-	})
+	var wg sync.WaitGroup
+	for i, f := range trees {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			lo, le := ord.writers(i)
+			log := treeBuildLog(f)
+			lane := treeLane{out: lo, errw: le, pool: pool, ctx: ctx}
+			lane.started = func() {
+				// The log opens HERE, under the build's own lock and slot, and is appended to:
+				// a launch that builds nothing of the key never touches it (XB-D50).
+				ord.logTo(i, log, fmt.Sprintf("=== %s: build started %s (yolo pid %d)\n", f.Label(),
+					time.Now().Format(time.RFC3339), os.Getpid()))
+				ord.startLine(i, fmt.Sprintf("%s: its build has started — its lines follow once every extension "+
+					"listed before it has ended, and its output is in %s as it runs", f.Label(), log))
+			}
+			defer ord.end(i)
+			fn(i, f, lane)
+		}()
+	}
+	wg.Wait()
 }
 
 // treeBuildLog is where a key's lines are written as they come once its build starts, for a key

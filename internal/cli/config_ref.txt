@@ -1049,6 +1049,18 @@
     A launch after that runs the refresh again.  `yolo host` runs no add-on
     refresh, so there "next-launch" means the same as true.
 
+    EXTENSIONS YOLO BUILDS FOLLOW THE SAME VALUE.  An extension a pack declares
+    with a `source` is built on the host and copied into each fresh jail.  Under
+    "next-launch" a fresh launch hands it the build this machine already has and
+    starts one background advance, which checks and builds it while you work; the
+    launch names its log, ~/.local/share/yolo-jail/logs/background-advance.log,
+    and the next launch says what it built, or that it failed and when it is
+    tried again.  An extension with no build yet uses its fallback, or is built
+    before the jail starts.  The owning agent's entry decides first, then the
+    entry of the pack that declares the extension, then "*".  On Apple Container
+    and at `yolo host`, it still updates at the launch, and the launch says so.
+    macos-user builds no tree and uses the extension's fallback.
+
     IT GOVERNS YOLO'S UPDATER, NOT THE AGENT'S OWN.  An agent that ships a
     self-updater runs it on its own terms, and yolo does not suppress one.  Claude
     Code, Copilot and agy all do: each comes from its vendor's own installer and

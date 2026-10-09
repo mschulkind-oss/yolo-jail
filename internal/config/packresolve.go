@@ -38,6 +38,7 @@ package config
 // footer) with Store.ResolveExisting. Neither ever fetches.
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -63,6 +64,12 @@ type ResolvePackSpec struct {
 	// a nested launch resolves the local packs its outer launch delivered). Nil reads the real
 	// environment.
 	Getenv func(string) string
+	// Ctx, NoWait and Detached preserve a background caller's store posture through fetched-pack
+	// resolution, including an incomplete checkout's materialization. Zero values keep ordinary
+	// foreground resolution unchanged: lock waits and terminal-capable git.
+	Ctx      context.Context
+	NoWait   bool
+	Detached bool
 }
 
 // ResolvedPack is one entry the resolver loaded.
@@ -99,6 +106,9 @@ func ResolvePack(entry PackEntry, spec ResolvePackSpec) (ResolvedPack, error) {
 	fail := func(err error) (ResolvedPack, error) {
 		return ResolvedPack{}, &PackResolveError{Name: entry.Name, Err: err}
 	}
+	if spec.Ctx != nil && spec.Ctx.Err() != nil {
+		return fail(spec.Ctx.Err())
+	}
 	filtered := len(entry.Only) > 0 || len(entry.Exclude) > 0
 	var out ResolvedPack
 	var root string
@@ -118,7 +128,8 @@ func ResolvePack(entry PackEntry, spec ResolvePackSpec) (ResolvedPack, error) {
 		if err != nil {
 			return fail(err)
 		}
-		store := &packsrc.Store{Dir: paths.PacksDir(), Getenv: spec.Getenv}
+		store := &packsrc.Store{Dir: paths.PacksDir(), Getenv: spec.Getenv, Ctx: spec.Ctx,
+			NoWait: spec.NoWait, Detached: spec.Detached}
 		var res *packsrc.Resolved
 		if spec.ReadOnlyStore {
 			res, err = store.ResolveExisting(addr, entry.Slug())

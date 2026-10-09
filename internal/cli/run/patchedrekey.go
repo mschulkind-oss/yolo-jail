@@ -20,6 +20,8 @@ package run
 // good build of other bytes, or of another `build` or `produces`, is never re-keyed: that is an edit.
 
 import (
+	"errors"
+
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
@@ -74,6 +76,9 @@ func RekeyLegacyGood(packs *packsrc.Store, f packload.Fork, s *packsrc.Series, r
 		}
 		return r.RekeySeries(s.LegacyDigest, oldRecipe, s.Digest, newRecipe), nil
 	})
+	if errors.Is(err, packsrc.ErrLockHeld) {
+		return rec // background initialization defers the migration; no receipt write without its lock
+	}
 	if err == nil && out != nil {
 		return out
 	}

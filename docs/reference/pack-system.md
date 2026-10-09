@@ -631,7 +631,16 @@ state. The launcher runs it right before the exec, at most once an hour, and onl
 `agent_updates` lets the pack move. When `agent_updates` gives the pack `"next-launch"`, the
 launcher instead starts the same refresh as a detached job and execs at once, so what it installs
 is the next launch's; a launch whose `due_on_change` content is new still refreshes first
-([OQ-PD31](../design/program-delivery.md#decision-ledger)). The hourly stamp lives beside the lock, in
+([OQ-PD31](../design/program-delivery.md#decision-ledger)). On Podman the same value also controls
+an extension tree a pack declares for yolo to build ([XB-D28](../design/pi-extension-store-builds.md#XB-D28)):
+with `"next-launch"`, a fresh jail launch serves its last good build or the declared fallback and,
+when an advance is due, starts it detached for a later launch. That later launch can use the new
+build if the advance finishes; it is not a promise that the next launch has a newer build. The
+launch reports the outcome ([XB-D19](../design/pi-extension-store-builds.md#XB-D19),
+[XB-D20](../design/pi-extension-store-builds.md#XB-D20)). The owning agent pack's entry decides
+first, then the contributing pack's, then `"*"` ([XB-D58](../design/pi-extension-store-builds.md#XB-D58)).
+Apple Container and `yolo host` still update at launch; macos-user builds no tree and uses its
+fallback. The hourly stamp lives beside the lock, in
 `<store>/.yolo-refresh/<bin>.stamp`, so it throttles exactly the launches the lock excludes,
 which for pi are one workspace's
 ([XB-D14](../design/pi-extension-store-builds.md#XB-D14); the stamp was machine-wide, in

@@ -16,6 +16,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 short digest instead of printing it each time, and `yolo pack status <pack>/<name>` prints the
 line in full. See [the CLI reference](userguide/reference/cli-reference.md#packs).
 
+**Built extensions update in the background too.** With `"agent_updates": { "pi": "next-launch" }`,
+pi's extensions that yolo builds no longer hold up a fresh podman launch: they are checked and built while you
+work, and the next launch says what it got.
+See [the packs guide](userguide/guides/packs-and-skills.md#keep-agents-and-packs-up-to-date).
+
 **Plugin code itemized in the launch log.** `.yolo/launch.log` lists each wrapped plugin that runs
 code in the jail, by component, beside the one counted line the terminal shows.
 

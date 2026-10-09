@@ -218,3 +218,54 @@ func TestARecordThatCannotBeWrittenIsReKeyedInWhatIsRead(t *testing.T) {
 		t.Errorf("the record on disk = %+v, which no write could reach", disk.Good)
 	}
 }
+
+// A busy legacy record under NoWait must defer both the migration and the receipt append.
+func TestANoWaitLegacyReKeyLeavesABusyRecordAndReceipt(t *testing.T) {
+	forkDir := patchedLaunchHome(t)
+	f := packload.Fork{Pack: "forkpack", Base: "basepack", Bin: "tool", Source: patchedSource, Build: "make install",
+		Produces: []string{".local/bin/tool"}, Root: forkDir, Patches: "patches"}
+	s, err := f.ReadSeries()
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry, receipts := admitLegacyBuild(t, f, s)
+	recordLegacyGood(t, f, s, entry.Key)
+	before, err := os.ReadFile(receipts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	holding, release, released := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(released)
+		_ = patchedPacksStore().WithCheckRecord(f.Key(), nil, func(*packsrc.CheckRecord, error, func() error) (bool, error) {
+			close(holding)
+			<-release
+			return false, nil
+		})
+	}()
+	<-holding
+	bg := *patchedPacksStore()
+	bg.NoWait = true
+	done := make(chan *packsrc.CheckRecord, 1)
+	go func() { rec, _ := LoadPatchedRecord(&bg, f, s); done <- rec }()
+	var rec *packsrc.CheckRecord
+	select {
+	case rec = <-done:
+	case <-time.After(time.Second):
+		close(release)
+		<-released
+		t.Fatal("NoWait legacy initialization waited for its record lock")
+	}
+	close(release)
+	<-released
+	if rec == nil || rec.Good.Series != s.LegacyDigest {
+		t.Fatalf("busy legacy record migrated: %+v", rec)
+	}
+	after, err := os.ReadFile(receipts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Error("busy legacy record appended a receipt without taking its lock")
+	}
+}

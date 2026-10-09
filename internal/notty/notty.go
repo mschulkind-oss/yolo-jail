@@ -324,9 +324,9 @@ func StartDetached(c *exec.Cmd) error {
 // every hour for as long as the user keeps the setting.
 const detachLogLimit = 1 << 20
 
-// openDetachLog opens path for a detached job to append to, moving it aside first when it has
+// OpenDetachLog opens path for a detached job to append to, moving it aside first when it has
 // grown past detachLogLimit. It never creates a directory: the caller names where its log goes.
-func openDetachLog(path string) (*os.File, error) {
+func OpenDetachLog(path string) (*os.File, error) {
 	if fi, err := os.Stat(path); err == nil && fi.Size() > detachLogLimit {
 		_ = os.Rename(path, path+".prev")
 	}
@@ -401,7 +401,7 @@ func Main(verb string, args []string) int {
 // appended to logPath, and 0 once it is running; 1 for a log that cannot be opened, 127 for a
 // command that cannot start.
 func detachMain(verb, logPath, name string, argv []string) int {
-	log, err := openDetachLog(logPath)
+	log, err := OpenDetachLog(logPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "yolo internal %s: %v\n", verb, err)
 		return 1

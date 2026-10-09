@@ -145,6 +145,12 @@ type advanceOptions struct {
 	// own, its first advance included (PF-D80), the check slot its check waits for, and the build slot
 	// its walk and build wait for. nil runs the advance as an act of its own.
 	slot *poolItem
+	// background is the BACKGROUND ADVANCE's (backgroundadvance.go; docs/design/pi-extension-store-
+	// builds.md §7.4, XB-D19), set with launch and a pool's lane: it runs for the next fresh launch,
+	// which its lines name; it tries each lock once — the check's record and mirror locks, the walk's
+	// mirror lock, the build's lock — and skips the key when one is held (§6.2 rule 5), while its
+	// completed build's settle record write waits (rule 1); a stopped build jail is removed by name.
+	background bool
 }
 
 // installedCopy is a copy of the program that runs outside the capture store: the host floor's
@@ -176,6 +182,17 @@ type advanceResult struct {
 	// good is the good build delivery.Key is the entry of, nil when there is none: what a patched
 	// extension's per-launch copy and its lines name.
 	good *packsrc.GoodBuild
+	// What a BACKGROUND ADVANCE's outcome record carries for the next launch's line (XB-D20): from and
+	// to, the good build a move left and the one it moved to; failWhat, failErr and retryAt, a failed
+	// build's, with its back-off's end; skipped, why a held lock skipped the key; retained, why a build
+	// jail not known gone kept its staging and the candidate pending; and problem, a check that could
+	// not run or found nothing to build, one line.
+	from, to          string
+	failWhat, failErr string
+	retryAt           time.Time
+	skipped           string
+	retained          string
+	problem           string
 }
 
 // patchedNow and patchedYoloVersion (patchedfork.go) are the advance's clock and yolo version too.
@@ -235,6 +252,9 @@ type advance struct {
 	// stopSaid is set once actStopped has said that a Ctrl-C ended this advance, which the pool's
 	// interruptedLine then does not say again.
 	stopSaid bool
+	// problem is a check's failure as its warning said it, one line, which finish carries to the
+	// result (advanceResult.problem).
+	problem string
 }
 
 // baseWhy is why an advance builds the series at its own base (§6.4), baseNone when it does not.
@@ -345,6 +365,12 @@ func newAdvance(f packload.Fork, o advanceOptions) (*advance, *advanceResult) {
 	a := &advance{f: f, o: o, pr: richtext.Printer{W: o.out, Color: o.color}, epr: richtext.Printer{W: o.errw, Color: o.color},
 		packs: patchedAdvanceStore(o.launch), store: &capture.Store{Dir: paths.CapturesDir()},
 		yolo: patchedYoloVersion(), ctx: context.Background(), repo: mustRepo(f.Source), subdir: subdirOf(f.Source)}
+	if o.background {
+		// A BACKGROUND HOLDER NEVER WAITS (§6.2 rule 5): its check and walk try each lock once.
+		bg := *a.packs
+		bg.NoWait = true
+		a.packs = &bg
+	}
 	series, err := f.ReadSeries()
 	if err != nil {
 		// THE SERIES CANNOT BE READ (§8.1): nothing serves under PF-D23, since the manifest's recipe
@@ -366,6 +392,32 @@ func newAdvance(f packload.Fork, o advanceOptions) (*advance, *advanceResult) {
 		a.installed = o.installed
 	}
 	return a, nil
+}
+
+// records is the store used ONLY to settle a completed build's move or failure under its build
+// lock. That compare-and-swap may wait (§6.2 rule 1); initialization, replay records and all other
+// background work use a.packs and skip a busy lock (§6.2 rule 5).
+func (a *advance) records() *packsrc.Store {
+	if !a.packs.NoWait {
+		return a.packs
+	}
+	s := *a.packs
+	s.NoWait = false
+	return &s
+}
+
+// skip ends a background advance at a lock another process holds (§6.2 rule 5): nothing is recorded
+// for it, and the next background advance tries again.
+func (a *advance) skip(err error) advanceResult {
+	why := oneLineErr(err)
+	a.dim("%s: skipped — %s; %s tries again", a.f.Label(), why, a.next())
+	return advanceResult{skipped: why}
+}
+
+// lockHeldSkip reports whether err is a held lock a background advance skips its key for: a NoWait
+// store's (packsrc.ErrLockHeld), or the build's own lock (errForkBuildLocked).
+func (a *advance) lockHeldSkip(err error) bool {
+	return a.o.background && (errors.Is(err, packsrc.ErrLockHeld) || errors.Is(err, errForkBuildLocked))
 }
 
 // serves reports whether something runs while this advance does not move: the good build's store
@@ -395,6 +447,25 @@ func (a *advance) servingName() string {
 		return "the installed " + a.installed.label
 	}
 	return "the good build " + a.servingLine()
+}
+
+// wantsBackground reports whether a next-launch key this launch handed its good build needs the
+// background advance (XB-D19): never while `agent_updates` holds it; when its check is due; or when
+// its last check found a candidate still pending — by the advance's own early exits: no fetch that
+// failed, no problem, no apply error at that check, and a pending entry left once conflicts and a
+// back-off are passed over. It runs no git, as the launch it serves runs none.
+func (a *advance) wantsBackground() bool {
+	if run.PatchedForkHold(a.f) != "" {
+		return false
+	}
+	if due, _ := packsrc.CheckDue(a.rec, a.in, patchedNow(), 0); due {
+		return true
+	}
+	c := a.rec.Check
+	if c == nil || c.FetchErr != "" || c.Problem != "" || a.rec.ApplyErrAtLastCheck() != nil {
+		return false
+	}
+	return len(a.pendingOf(a.rec.Candidates(a.in), false)) > 0
 }
 
 // interrupted reports whether the interrupt scope's Ctrl-C has ended this advance.
@@ -495,7 +566,11 @@ func (a *advance) run() advanceResult {
 			return a.finish(nil, forkBuild{}, 0, nil, "")
 		}
 		if res.Err != nil {
+			if a.lockHeldSkip(res.Err) {
+				return a.skip(res.Err)
+			}
 			a.warn("%s: could not check its upstream: %v", f.Label(), res.Err)
+			a.problem = "could not check its upstream: " + oneLineErr(res.Err)
 			return a.serveOr(fmt.Sprintf("%s's upstream could not be checked (%v)", f.Label(), res.Err))
 		}
 		a.rec = res.Record
@@ -505,10 +580,12 @@ func (a *advance) run() advanceResult {
 		if res.Ran && found.FetchErr != "" {
 			a.warn("%s: could not check its upstream (%s) — %s; the next check is in an hour, or "+
 				"`yolo pack update` checks now", f.Label(), found.FetchErr, a.runsNow())
+			a.problem = "could not check its upstream: " + found.FetchErr
 		}
 		if found.Problem != "" {
 			if res.Ran {
 				a.warn("%s: %s — %s", f.Label(), found.Problem, a.runsNow())
+				a.problem = found.Problem
 			}
 			return a.serveOr(fmt.Sprintf("%s's upstream names nothing to build (%s)", f.Label(), found.Problem))
 		}
@@ -605,6 +682,9 @@ func (a *advance) run() advanceResult {
 	if a.interrupted() {
 		return a.finish(nil, forkBuild{}, 0, nil, "")
 	}
+	if a.lockHeldSkip(w.Err) {
+		return a.skip(w.Err)
+	}
 	if w.Fit < 0 && w.Base == nil && w.Err == nil && base == baseNone && !a.serves() && a.baseFallback() {
 		// THE FIRST ADVANCE'S FALLBACK, and any state with nothing to serve (§6.4): nothing on the list
 		// takes the series, or the walk stopped on an apply error before it found what does, so it is
@@ -623,6 +703,9 @@ func (a *advance) run() advanceResult {
 		a.replaySpent = 0
 		if w = a.walk([]packsrc.ListEntry{a.baseEntry()}, false); a.interrupted() {
 			return a.finish(nil, forkBuild{}, 0, nil, "")
+		}
+		if a.lockHeldSkip(w.Err) {
+			return a.skip(w.Err)
 		}
 	}
 	switch {
@@ -657,8 +740,10 @@ func (a *advance) gitTooOld(e *packsrc.GitTooOldError) advanceResult {
 		next = "update git, then " + a.retryStep()
 	}
 	a.warn("%s: %s, and this host's git is %s — %s; %s", f.Label(), e.Need(), e.Have, a.runsNow(), next)
-	r := a.finish(nil, forkBuild{}, 0, nil, fmt.Sprintf("%s's series could not be replayed on the host (%s, and "+
-		"the host's git is %s) — update git on the host, and %s builds it", f.Label(), e.Need(), e.Have, a.next()))
+	why := fmt.Sprintf("%s's series could not be replayed on the host (%s, and "+
+		"the host's git is %s) — update git on the host, and %s builds it", f.Label(), e.Need(), e.Have, a.next())
+	a.problem = oneLineErr(errors.New(why))
+	r := a.finish(nil, forkBuild{}, 0, nil, why)
 	r.failed = true
 	return r
 }
@@ -710,6 +795,8 @@ func (a *advance) runner() string {
 		return "the host"
 	case a.o.host:
 		return "`yolo host`"
+	case a.o.background:
+		return "the next fresh launch"
 	}
 	return "this jail"
 }
@@ -718,6 +805,9 @@ func (a *advance) runner() string {
 func (a *advance) hasNo() string {
 	if a.o.host && !a.f.IsTree() {
 		return "yolo's floor has no " + a.f.Bin
+	}
+	if a.o.background {
+		return "this machine has no build of " + a.f.Thing()
 	}
 	return a.runner() + " has no " + a.f.Thing()
 }
@@ -730,6 +820,8 @@ func (a *advance) startsOn() string {
 		return "the host keeps"
 	case a.o.host:
 		return "`yolo host` starts " + a.f.Bin + " on"
+	case a.o.background:
+		return "the next fresh launch starts on"
 	}
 	return "this jail starts on"
 }
@@ -742,6 +834,8 @@ func (a *advance) waiter() string {
 		return "yolo"
 	case a.o.host:
 		return "`yolo host`"
+	case a.o.background:
+		return "the background advance"
 	}
 	return "this launch"
 }
@@ -770,6 +864,8 @@ func (a *advance) next() string {
 		return "the next `yolo host apply --assert`"
 	case a.o.host:
 		return "the next `yolo host -- " + a.f.Bin + "`"
+	case a.o.background:
+		return "the next background advance"
 	}
 	return "the next fresh launch"
 }
@@ -785,6 +881,8 @@ func (a *advance) later() string {
 		return "`yolo host apply --assert`"
 	case a.o.host:
 		return "`yolo host -- " + a.f.Bin + "`"
+	case a.o.background:
+		return "the next background advance"
 	}
 	return "a fresh launch"
 }
@@ -800,6 +898,11 @@ func (a *advance) retryStep() string {
 
 // serveOr ends an advance that builds nothing: the good build when it serves, else why's reason.
 func (a *advance) serveOr(why string) advanceResult {
+	if a.problem == "" {
+		// Successful last-good delivery clears its no-build reason; retain the act's failure
+		// independently so the background outcome and next-launch report keep the real cause.
+		a.problem = oneLineErr(errors.New(why))
+	}
 	r := a.finish(nil, forkBuild{}, 0, nil, why+" — "+a.next()+" tries again")
 	r.failed = true
 	return r
@@ -823,6 +926,7 @@ func (a *advance) noFit(edited bool, newest string) advanceResult {
 		}
 		return r
 	}
+	a.problem = oneLineErr(errors.New(why))
 	r := a.finish(nil, forkBuild{}, 0, nil, "")
 	r.failed = true
 	return r
@@ -909,8 +1013,8 @@ func (a *advance) walk(list []packsrc.ListEntry, ofList bool) packsrc.WalkResult
 	start := time.Now()
 	w := a.packs.WalkSeries(a.repo, a.subdir, a.series, list, packsrc.WalkOptions{Spent: a.replaySpent})
 	a.replaySpent += replayElapsed(start)
-	if a.interrupted() {
-		return w
+	if a.interrupted() || a.lockHeldSkip(w.Err) {
+		return w // a held mirror lock replayed nothing: nothing is recorded, and the key is skipped
 	}
 	if ofList {
 		a.walked, a.applyErr = true, nil
@@ -919,6 +1023,10 @@ func (a *advance) walk(list []packsrc.ListEntry, ofList bool) packsrc.WalkResult
 		}
 	}
 	if err := a.packs.RecordWalk(a.f.Key(), a.series.Digest, a.yolo, w, patchedNow()); err != nil {
+		if a.lockHeldSkip(err) {
+			w.Err, w.Fit = err, -1
+			return w
+		}
 		a.warn("%s: recording the replay: %v", a.f.Label(), err)
 	}
 	var fit *packsrc.ReplayResult
@@ -1033,7 +1141,7 @@ func (a *advance) build(b forkBuild, base baseWhy, edited bool) advanceResult {
 	}
 	wait := ""
 	switch {
-	case a.serves() && a.o.launch:
+	case a.serves() && a.o.launch && !a.o.background:
 		runs := "the good build " + run.GoodBuildLabel(a.rec.Good)
 		if a.serving == nil {
 			runs = a.servingName()
@@ -1072,6 +1180,9 @@ func (a *advance) build(b forkBuild, base baseWhy, edited bool) advanceResult {
 	}
 	if a.o.launch {
 		mode.lock = pidlock.Mode{Wait: true, Bound: forkBuildWaitBound, Cancel: a.ctx.Done()}
+		if a.o.background {
+			mode.lock = pidlock.NoWait // a held build lock skips the key (§6.2 rule 5)
+		}
 		mode.afterLock = func() (*capture.Entry, error, bool) { return a.afterLock(b, startGood, startFail) }
 		// A CHILD whenever a Ctrl-C must end the build and not the launch: a good build serves
 		// (PF-D25), or the advance is one of a pool's (XB-D10), whose builds run side by side — two
@@ -1082,6 +1193,12 @@ func (a *advance) build(b forkBuild, base baseWhy, edited bool) advanceResult {
 			mode.runJail = func(staging string, b forkBuild, s captureStreams) int {
 				rc, bound := forkBuildChild(a.ctx, forkBuildWaitBound, staging, b, s, a.o.color)
 				a.boundHit = bound
+				if a.o.background && a.ctx.Err() != nil {
+					// A SIGTERM OR SIGHUP STOPPED THE BACKGROUND ADVANCE (XB-D19): its build child's group
+					// is gone, and nothing stops a build jail when the yolo that started it dies, so it is
+					// removed by name before the build's staging is looked at.
+					a.removeBuildJailOf(staging)
+				}
 				return rc
 			}
 		}
@@ -1127,6 +1244,8 @@ func (a *advance) build(b forkBuild, base baseWhy, edited bool) advanceResult {
 	switch {
 	case a.interrupted():
 		return a.finish(nil, forkBuild{}, 0, nil, "")
+	case a.lockHeldSkip(w.Err):
+		return a.skip(w.Err)
 	case w.Base != nil:
 		a.warn("%s: %s", f.Label(), w.Base.Error())
 		return a.serveOr(fmt.Sprintf("%s's series does not apply at its own base (%s)", f.Label(), w.Base.Error()))
@@ -1191,6 +1310,9 @@ func (a *advance) settle(b forkBuild, entry *capture.Entry, err error, base base
 	if err == nil {
 		return a.moved(b, entry, base, edited)
 	}
+	if a.lockHeldSkip(err) && !a.interrupted() {
+		return a.skip(err)
+	}
 	if a.interrupted() || errors.Is(err, pidlock.ErrCanceled) {
 		return a.finish(nil, forkBuild{}, 0, nil, "the advance was interrupted — "+a.next()+" builds it")
 	}
@@ -1228,7 +1350,9 @@ func (a *advance) settle(b forkBuild, entry *capture.Entry, err error, base base
 		// A PREVIOUS OR THIS BUILD'S JAIL IS NOT YET KNOWN GONE: no verdict on the commit, so nothing
 		// is recorded, no back-off starts, and the next launch tries again (pi-startup-cancellation §3).
 		a.warn("%s: %v — %s", f.Label(), err, a.runsNow())
-		return a.serveOr(fmt.Sprintf("%s: %v", f.Label(), err))
+		r := a.serveOr(fmt.Sprintf("%s: %v", f.Label(), err))
+		r.retained = run.WithPatches(b.Entry.Label(), b.Series.Len()) + " pending — " + oneLineErr(err)
+		return r
 	case errors.Is(err, errForkBuildNotStarted):
 		// THE BUILD JAIL STOPPED BEFORE ITS BUILD LINE RAN (PF-D21): not a failed build, so nothing is
 		// recorded and the candidate stays pending. What stopped it is the jail's to say, and the
@@ -1284,6 +1408,9 @@ func (a *advance) notStarted(cause *entrypoint.BuildCause) advanceResult {
 		why = "its build jail refused to start on the host"
 	}
 	r := a.serveOr(why)
+	if r.problem == "" {
+		r.problem = why
+	}
 	switch {
 	case r.delivery.Key == "" && r.delivery.Reason != "":
 		r.delivery.Cause = cause
@@ -1329,6 +1456,8 @@ func (a *advance) buildFailed(b forkBuild, err error) advanceResult {
 		a.buildFailedLines(b, err, autoCaptureRetryAt(capture.AutoFailure{Failures: o.Count, Last: now}))
 	}
 	r.failed, r.fellShort = true, true
+	r.failWhat, r.failErr = run.WithPatches(b.Entry.Label(), b.Series.Len()), oneLineErr(err)
+	r.retryAt = autoCaptureRetryAt(capture.AutoFailure{Failures: o.Count, Last: now})
 	return r
 }
 
@@ -1346,7 +1475,7 @@ func (a *advance) leaveToLaunch(r *advanceResult) bool {
 
 // recordOnly writes a failed build's outcome, counted against the record's, and nothing else.
 func (a *advance) recordOnly(o *packsrc.EntryOutcome) {
-	err := a.packs.WithCheckRecord(a.f.Key(), nil, func(r *packsrc.CheckRecord, _ error, _ func() error) (bool, error) {
+	err := a.records().WithCheckRecord(a.f.Key(), nil, func(r *packsrc.CheckRecord, _ error, _ func() error) (bool, error) {
 		setFailure(r, o)
 		a.rec = r
 		return true, nil
@@ -1419,6 +1548,10 @@ func (a *advance) moved(b forkBuild, entry *capture.Entry, base baseWhy, edited 
 		return r
 	}
 	r.built = true
+	r.to = run.WithPatches(b.Entry.Label(), b.Series.Len())
+	if prev != nil {
+		r.from = run.GoodBuildLabel(prev)
+	}
 	if r.lost {
 		lost := richtext.Escape(fmt.Sprintf("%s: another launch moved the good build meanwhile, from a newer "+
 			"check; %s runs that one, and this build is reaped", a.f.Label(), a.runner()))
@@ -1529,7 +1662,11 @@ func (a *advance) finish(built *capture.Entry, b forkBuild, seq int64, failure *
 	f := a.f
 	var res advanceResult
 	var moved, lost bool
-	err := a.packs.WithCheckRecord(f.Key(), nil, func(r *packsrc.CheckRecord, _ error, _ func() error) (bool, error) {
+	packs := a.packs
+	if built != nil || failure != nil {
+		packs = a.records() // only a completed build's settle may wait
+	}
+	err := packs.WithCheckRecord(f.Key(), nil, func(r *packsrc.CheckRecord, _ error, _ func() error) (bool, error) {
 		changed := false
 		if built != nil {
 			_, gone := a.store.Resolve(built.Key)
@@ -1590,12 +1727,16 @@ func (a *advance) finish(built *capture.Entry, b forkBuild, seq int64, failure *
 		return changed, nil
 	})
 	if err != nil {
+		if a.lockHeldSkip(err) {
+			return a.skip(err)
+		}
 		a.warn("%s: could not update its check record: %v", f.Label(), err)
 		if res.delivery.Key == "" && res.delivery.Reason == "" {
 			res.delivery.Reason = fmt.Sprintf("%s's check record could not be updated (%v)", f.Label(), err)
 		}
 	}
 	res.lost = lost
+	res.problem = a.problem
 	return res
 }
 
@@ -1741,7 +1882,7 @@ func (a *advance) loadOrRecover() *packsrc.CheckRecord {
 		return rec
 	}
 	var out *packsrc.CheckRecord
-	_ = a.packs.WithCheckRecord(a.f.Key(), nil, func(r *packsrc.CheckRecord, _ error, _ func() error) (bool, error) {
+	err = a.packs.WithCheckRecord(a.f.Key(), nil, func(r *packsrc.CheckRecord, _ error, _ func() error) (bool, error) {
 		out = r
 		if r.Good != nil {
 			return false, nil
@@ -1749,6 +1890,11 @@ func (a *advance) loadOrRecover() *packsrc.CheckRecord {
 		r.Good = g
 		return true, nil
 	})
+	if a.lockHeldSkip(err) {
+		// Recovery is initialization, not a completed build's settle. Leave it to the next launch;
+		// the check's own NoWait attempt will skip the key too while this lock stays busy.
+		return &packsrc.CheckRecord{Schema: packsrc.CheckRecordSchema, Owner: a.f.Key()}
+	}
 	if out == nil {
 		out = &packsrc.CheckRecord{Schema: packsrc.CheckRecordSchema, Owner: a.f.Key(), Good: g}
 	}

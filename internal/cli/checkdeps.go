@@ -465,7 +465,13 @@ func describeUnresolved(list []unresolvedPack) string {
 // into it as a destination. None reads a malformed manifest.
 // packload's host-notch containment guards stay, for a manifest no decoder checked.
 func resolveConfiguredPack(e config.PackEntry) (*packload.Pack, error) {
-	res, err := config.ResolvePackForProcess(e, hostPackResolveSpec(false))
+	return resolveConfiguredPackWithSpec(e, hostPackResolveSpec(false))
+}
+
+// resolveConfiguredPackWithSpec retains the one resolver's filters, process-tree lifetime and
+// dispositions while allowing background selection to pass its cancellation and NoWait posture.
+func resolveConfiguredPackWithSpec(e config.PackEntry, spec config.ResolvePackSpec) (*packload.Pack, error) {
+	res, err := config.ResolvePackForProcess(e, spec)
 	if err != nil {
 		if errors.Is(err, packsrc.ErrNotFetched) && !e.IsLocal() && !e.Embedded() {
 			return nil, storeMissError{err}
@@ -475,7 +481,7 @@ func resolveConfiguredPack(e config.PackEntry) (*packload.Pack, error) {
 	return resolvedOrProblems(e, res)
 }
 
-// hostPackResolveSpec is how every host verb asks the one resolver for a pack: writing nothing
+// hostPackResolveSpec is how ordinary host verbs ask the one resolver for a pack: writing nothing
 // into the pack store when readOnly. One constructor so the footer's declaration read and the
 // verbs' reads cannot disagree about which packs resolve. Whether a pack's symlinks are followed
 // is not the caller's to say: the resolver follows a local pack's and refuses a fetched pack's

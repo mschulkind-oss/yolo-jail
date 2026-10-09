@@ -265,11 +265,9 @@ func TestOrderedOutputHoldsALaterKeyUntilTheEarlierEnd(t *testing.T) {
 	}
 }
 
-// THE BACKGROUND MODE'S SEAM (XB-D28, XB-D19): a key that updates for the next launch is handed the
-// good build it has with no check and no build, and left to the background advance. The timing
-// reader is a seam (treeUpdateTiming) until the refresh-timing option is built; this pins the
-// launch's half. Red if the tree arm stops reading the reader, or stops handing the background
-// advance its keys.
+// THE BACKGROUND MODE (XB-D28, XB-D19): a key that `agent_updates` sets to update for the next launch
+// is handed the good build it has with no check and no build, and left to the background advance.
+// Red if the tree arm stops reading the timing, or stops handing the background advance its keys.
 func TestAKeyThatUpdatesForTheNextLaunchIsHandedWhatItHas(t *testing.T) {
 	pf := newPoolFixture(t)
 	first, out := pf.launch(t, "podman", &run.ActInterrupt{})
@@ -280,9 +278,9 @@ func TestAKeyThatUpdatesForTheNextLaunchIsHandedWhatItHas(t *testing.T) {
 	pf.now = pf.now.Add(2 * time.Hour)
 	var builds sync.Map
 	pf.child = func(_ context.Context, b forkBuild) int { builds.Store(b.Fork.Key(), true); return 0 }
-	prevTiming, prevBackground := treeUpdateTiming, backgroundTreeAdvance
-	t.Cleanup(func() { treeUpdateTiming, backgroundTreeAdvance = prevTiming, prevBackground })
-	treeUpdateTiming = func(packload.Fork) updateTiming { return timingNextLaunch }
+	prevBackground := backgroundTreeAdvance
+	t.Cleanup(func() { backgroundTreeAdvance = prevBackground })
+	pf.agentUpdates(t, `{"*":true,"treepool":"next-launch"}`)
 	var queued []string
 	backgroundTreeAdvance = func(trees []packload.Fork, _ run.TreeBuildRequest, _ io.Writer, _ bool) {
 		for _, f := range trees {

@@ -93,7 +93,16 @@ type Store struct {
 	// so a Ctrl-C ends the advance's check and walk and the launch starts on the good build
 	// (docs/design/patched-forks.md PF-D25). Nil means none, as every other store has.
 	Ctx context.Context
+	// NoWait makes a mirror's lock and a check record's lock a TRY, never a wait: one held by
+	// another process fails at once with ErrLockHeld, and the caller skips the key. The BACKGROUND
+	// ADVANCE sets it (docs/design/pi-extension-store-builds.md §6.2 rule 5, XB-D19): a background
+	// holder never waits. Its compare-and-swap of a record waits all the same (rule 1), through a
+	// copy of the store with NoWait unset.
+	NoWait bool
 }
+
+// ErrLockHeld is a lock a NoWait store found held by another process: nothing ran under it.
+var ErrLockHeld = errors.New("held by another yolo process")
 
 // Resolved is a fetched, materialized source ready to stage.
 type Resolved struct {
