@@ -60,11 +60,13 @@ of tests and 32 s of lint); a single package, `internal/cli`, took about 130 s o
    - `go vet` and staticcheck for both GOOS values, and `go test -short`, on the changed packages
      and every package whose build or tests import them (each GOOS's own graph for lint);
    - the individual tests recorded as **reading** a changed path, or listing a directory that
-     gained or lost an entry ([CAC-D10](#CAC-D10));
+     gained or lost an entry ([CAC-D10](#CAC-D10)), and on every change every **scanning** test,
+     one that reads all files of a kind in a directory or lists a whole tree
+     ([CAC-D15](#CAC-D15));
    - `gofmt -l` on the changed Go files, and the official-binary pin check when Go or pack sources
      moved;
-   - for documents: the [Vantage wrapper](../../scripts/vantage-check.sh) on changed Markdown
-     ([CAC-D14](#CAC-D14)), the guide's closed-tree and whole-guide checks when `userguide/`
+   - for documents: the [Vantage wrapper](../../scripts/vantage-check.sh), at a pinned release, on
+     changed Markdown ([CAC-D14](#CAC-D14), [CAC-D16](#CAC-D16)), the guide's closed-tree and whole-guide checks when `userguide/`
      changed, and the changelog extraction tests when `CHANGELOG.md` changed.
 5. **Run** the selected checks in parallel, keep the full output in the worktree's own Git
    directory (`yolo-completion/last.log`), and on any failure record nothing.
@@ -75,8 +77,8 @@ of tests and 32 s of lint); a single package, `internal/cli`, took about 130 s o
 The reader evidence is [`scripts/completion-readers.json`](../../scripts/completion-readers.json),
 written by [`scripts/completion-census.py`](../../scripts/completion-census.py): it runs every test
 once, alone, with Go's `-test.testlogfile` — the log `go test` itself uses to invalidate its cache —
-and keeps each test's reads outside its own package directory. On 2026-10-09 it took 145 to 200 s
-for 12,403 tests and found 573 reading tests in 34 packages. Changing the file is a `scripts/`
+and keeps each test's reads of files that belong to no package or to another package. On
+2026-10-09 it took 145 to 200 s for 12,403 tests and found 578 reading tests in 34 packages. Changing the file is a `scripts/`
 change, so the commit that refreshes it runs the full gate.
 [`scripts/test-completion-check.py`](../../scripts/test-completion-check.py), run by `lint-ci`,
 covers the routes on a synthetic repository and pins both call sites.
@@ -105,8 +107,14 @@ not something selection can remove.
 
 - **Reads by a test's subprocesses** (git, `go build`) are not in Go's test log; Go's own test
   cache has the same blind spot.
-- **A new test that reads outside its package directory** is unknown until the census is rerun.
-  `just done` misses it until then; `just check-ci` at landing and CI do not.
+- **The readers file goes stale with ordinary edits.** A test added in a commit runs there anyway,
+  its package having changed. But what an existing test reads can move without its package
+  changing: a citation added to Go source makes the citation test read one more document. Scanning
+  tests are therefore run on every change ([CAC-D15](#CAC-D15)), leaving Go's own test cache to
+  decide whether they need to execute. A test that reads a fixed list of named files is still
+  selected from the recorded list, so a change to that list is missed until the census is rerun.
+  Rerun it before landing any change to a test that reads outside its package; `just check-ci` at
+  landing and CI catch what it misses.
 - **Ambient inputs** — files under HOME, environment variables other than the recorded `go env`
   values — are not part of the context. Landing and CI run the whole gate.
 - **A write that is undone before the checks finish** is not detected ([CAC-D12](#CAC-D12)).
@@ -470,11 +478,13 @@ engineering gaps go there, not into invented owner questions.
 | <a id="CAC-D11"></a>CAC-D11 | *Implementation decision.* The context is the effective `go env` values (version, GOOS, GOARCH, GOROOT, GOFLAGS, CGO, toolchain, workspace, CC) and staticcheck's resolved path and version. Reading them runs `go env` and `staticcheck -version`, which CAC-D5 forbade on the prose route. **Why:** both take milliseconds and run no quality check; resolving tool identity from files without them was the unbuilt half of the old plan. Reversible | 2026-10-09 | [What shipped](#what-shipped) | ✅ |
 | <a id="CAC-D12"></a>CAC-D12 | *Implementation decision.* Stability is the before-and-after check (clean tree, same HEAD) plus a per-worktree lock; there is no file-event observer, replacing CAC-D4 and CAC-D5's bounded observation. **Why:** the observer was unbuilt, Linux-only and could still not fence a writer. Cost, stated plainly: a write undone before the checks finish goes unseen; landing and CI rerun everything. Reversible | 2026-10-09 | [What shipped](#what-shipped) | ✅ |
 | <a id="CAC-D13"></a>CAC-D13 | *Implementation decision.* A HEAD whose tree equals a verified tree under the same context runs no check, where section 3 sent an empty range to the full gate. **Why:** that record is an actual green for exactly these inputs, which is the reuse section 7 allowed once identities are recorded. Reversible | 2026-10-09 | [What shipped](#what-shipped) | ✅ |
-| <a id="CAC-D14"></a>CAC-D14 | *Implementation decision.* Every changed Markdown file outside a Go package directory gets the Vantage check, including `docs/`, which `check-ci` does not check today. Eleven files under `docs/` already have findings, so the first `just done` after editing one of them fails until they are fixed. **Why:** section 4 requires the strict check on every changed document, and a check that skipped known-bad files would hide new findings in them. Reversible | 2026-10-09 | [What shipped](#what-shipped) | ✅ |
+| <a id="CAC-D14"></a>CAC-D14 | *Implementation decision.* Every changed Markdown file outside a Go package directory gets the Vantage check, including `docs/`, which `check-ci` does not check today. The ten `docs/` files with existing findings were fixed on 2026-10-09; the eleventh, `docs/research/vantage-check-0.5.9-findings.md`, is exempt by name, because its findings are specimens that its own opening note says must never be linked away. **Why:** section 4 requires the strict check on every changed document, and a check that skipped known-bad files would hide new findings in them. Reversible | 2026-10-09 | [What shipped](#what-shipped) | ✅ |
+| <a id="CAC-D15"></a>CAC-D15 | *Implementation decision, from review.* Every scanning test — one whose recorded reads include a `D/*` or `D/*.E` pattern, or whose listings include a `D/**` tree — runs on every selective check, 43 tests in 18 packages on 2026-10-09. **Why:** what they read moves with ordinary edits, so a recorded set went stale between census runs: deleting a cited document selected none of the citation test, and `just done` would have recorded a tree `check-ci` rejects. Run uncached, the 42 of the earlier census took 14 s together; Go's test cache skips them when nothing they read changed. Reversible | 2026-10-09 | [Known limits](#known-limits) | ✅ |
+| <a id="CAC-D16"></a>CAC-D16 | *Implementation decision, from review.* The Vantage wrapper runs a pinned release (0.10.0), not `@latest`. **Why:** with `@latest`, an upstream release could turn a document nobody changed red, and a document's check must depend only on the document. Raising the pin changes `scripts/`, so that commit runs the full gate. Reversible | 2026-10-09 | [What shipped](#what-shipped) | ✅ |
 
 The standalone-invocation requirement supersedes the coordinator-assertion mechanism in CAC-D4:
 an assertion cannot stop an uncoordinated writer, and refusing every uncertified caller would make
-ordinary `just done` unreachable. CAC-D7 to CAC-D14 record what was built and where it departs
+ordinary `just done` unreachable. CAC-D7 to CAC-D16 record what was built and where it departs
 from CAC-D1 to CAC-D6.
 
 One owner confirmation is open: [CAC-D7](#CAC-D7). The speed plan's answered

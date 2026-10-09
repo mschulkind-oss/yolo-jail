@@ -629,9 +629,10 @@ release is fixed by the next one. What the script cannot judge is who the sectio
    before any check, then runs only what the commits since the last verified ancestor reach — lint
    and short tests for the changed Go packages and their importers, the tests recorded as reading a
    changed file, and the checks for changed documents — or the full `just check-ci` when there is
-   no verified ancestor or a gate input moved. It never formats, so `just format` stays step 3. A
-   test that newly reads files outside its package dir needs `python3 scripts/completion-census.py`
-   rerun and its output committed. `just done` is not the landing gate (step 4).
+   no verified ancestor or a gate input moved. It never formats, so `just format` stays step 3.
+   Before landing a change to a test that reads files outside its package, rerun
+   `python3 scripts/completion-census.py` and commit its output. `just done` is not the landing
+   gate (step 4).
 6. **Doc change that makes a claim about the code** → check it before writing it. A number, a `file:line`, a
    commit SHA, or a negative ("X has no caller") is the exact place a reader stops checking, so a wrong one
    is worse than none. The sweeps that keep this corpus honest — and the allowlists they need, since a doc
