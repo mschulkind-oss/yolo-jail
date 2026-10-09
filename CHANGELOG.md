@@ -10,101 +10,69 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Added
-
-**Warnings for empty model lists.** `yolo check` now points out supplied model lists that leave
-a selected program with no usable models and tells you which list to edit.
-See [the model-list check](docs/design/model-lists-and-pickers.md#74-the-empty-effective-list-check-decided-mechanism-2026-10-08).
-
-**Shorter fork disclosures.** A launch now names a fork's or built extension's build line by a
-short digest instead of printing it each time, and `yolo pack status <pack>/<name>` prints the
-line in full. See [the CLI reference](userguide/reference/cli-reference.md#packs).
-
-**Built extensions update in the background too.** With `"agent_updates": { "pi": "next-launch" }`,
-pi's extensions that yolo builds no longer hold up a fresh podman launch: they are checked and built while you
-work, and the next launch says what it got.
-See [the packs guide](userguide/guides/packs-and-skills.md#keep-agents-and-packs-up-to-date).
-
-**Plugin code itemized in the launch log.** `.yolo/launch.log` lists each wrapped plugin that runs
-code in the jail, by component, beside the one counted line the terminal shows.
-
-**Pi reaches Bedrock through the bridge's own signing.** On the `bedrock-bridge` profile Pi now
-speaks Bedrock's own API through the wire bridge, which signs each request, including requests
-for Claude models. Supply a Bedrock model list to use this route.
-See [the wire bridge](docs/reference/wire-bridge.md#converse-on-a-via-route).
-
-**The Mac's unified log in a `macos-user` jail.** Select the `macos-log` pack and turn its
-loophole on, and `yolo-log` reads the log on your Mac, by default only entries from the
-sandbox's own processes. See [the `macos-log` pack](packs/macos-log/README.md).
-
-### Changed
-
-**A patch series that no longer applies stops the launch.** A jail launch, `yolo host` and
-`yolo host apply --assert` now stop with one error naming the patch, its conflict, the fix and the
-bypass that works, instead of quietly running your last good build. Put
-`YOLO_ALLOW_PATCH_FAILURES=1` in front of the command to run that build for one launch.
-See [When your patches stop applying](userguide/guides/patch-series.md#when-your-patches-stop-applying).
-
-- `macos_log` is refused: it never gave a `macos-user` sandbox the log. Delete it, and use the `macos-log` pack instead ([how](packs/macos-log/README.md#turning-it-on)).
-
-### Fixed
-
-- A patched program with a failed current build can now be used for one fresh launch from its intact recorded good build, without changing the requested series.
-- A podman jail with nothing for the Nix root watcher to do no longer keeps a defunct `yolo-jaild` process for its whole life.
-- A host service that refuses its settings now stops the launch at once with its own cause and fix, instead of holding it for the whole startup window and staying running afterwards.
-- Cache cleanup no longer deletes login tokens (such as Hugging Face's) or lock files however old they are, and stops at its time limit instead of running on.
-- The GitHub broker no longer stops answering every command when the host's `gh` updates to a new version.
-- `uvx yolo-jail` now runs yolo, instead of failing with "An executable named `yolo-jail` is not provided".
-- Leaving `yolo-serial pty` or `monitor`, `yolo-log stream` or `yolo-journalctl -f` now releases the host serial device or stops the host `log`/`journalctl` at once, even when nothing new has been printed.
-
-## [0.12.2] - 2026-10-08
-
 Pi keeps to the active profile set, Nix builds made in a jail survive host garbage collection,
-and `yolo host` installs every declared program instead of running a copy from your PATH.
+and a patch series that no longer applies stops the launch instead of running an old build.
 
 ### Added
-
-**OpenRouter routing per model.** A model entry can carry `openrouter_routing`, an object sent
-verbatim as OpenRouter's request `provider` field, and `base` to inherit the pi catalog row's
-facts for a variant id. See
-[Per-model OpenRouter routing](docs/reference/providers.md#per-model-openrouter-routing).
-
-**Pi keeps to the active profile set.** With a profile set active, Pi refuses every provider
-outside it, saved logins included, hides those providers from `/model`, and says which set to
-relaunch with. See
-[the provider policy](docs/design/simultaneous-auth-and-pack-isolation.md#3-accepted-provider-use-policy).
-
-**Colored `yolo config` help.** On a terminal, `yolo config --help` and each verb's `--help`
-highlight headings, verbs and flags; piped output and `NO_COLOR` stay plain.
 
 **Nix builds in a jail survive host garbage collection.** A `result` link, profile or nix-direnv
-cache made in a podman jail is now kept for the host for a week after its last build, at most 64
-per workspace; `yolo nix-roots` lists and releases them. See
-[In-jail Nix roots](docs/design/in-jail-nix-roots.md#8-what-is-built).
+cache made in a podman jail is kept for a week after its last build; `yolo nix-roots` lists and
+releases them.
+See [In-jail Nix roots](docs/design/in-jail-nix-roots.md#8-what-is-built).
+
+**Pi keeps to the active profile set.** With a profile set active, Pi refuses and hides every provider
+outside it, saved logins included, and names the set to relaunch with. See [the provider policy](docs/design/simultaneous-auth-and-pack-isolation.md#3-accepted-provider-use-policy).
+
+**Pi reaches Bedrock through the wire bridge.** On the `bedrock-bridge` profile, with a Bedrock
+model list, Pi speaks Bedrock's own API through the bridge, which signs each request. See [the wire bridge](docs/reference/wire-bridge.md#converse-on-a-via-route).
+
+**OpenRouter routing per model.** A model entry can carry `openrouter_routing`, sent as
+OpenRouter's `provider` field, and `base` to inherit a pi catalog row for a variant id.
+See [Per-model OpenRouter routing](docs/reference/providers.md#per-model-openrouter-routing).
+
+**The Mac's unified log in a `macos-user` jail.** Select the `macos-log` pack and turn its
+loophole on, and `yolo-log` reads your Mac's log, by default only the sandbox's own entries.
+See [the `macos-log` pack](packs/macos-log/README.md).
+
+**Built extensions update in the background.** With `"agent_updates": { "pi": "next-launch" }`,
+pi extensions yolo builds no longer hold up a podman launch.
+See [the packs guide](userguide/guides/packs-and-skills.md#keep-agents-and-packs-up-to-date).
+
+**Clearer checks and disclosures.** `yolo check` names a model list that leaves a program
+with no usable model. A launch names a fork's build line by a short digest, which
+`yolo pack status <pack>/<name>` prints in full. See [the CLI reference](userguide/reference/cli-reference.md#packs).
+
+**Colored `yolo config` help** on a terminal; piped output and `NO_COLOR` stay plain.
 
 ### Changed
 
-- A pack whose `shared_credentials` or `shared_directory` hook names an `at` that is not a machine-scope `state` of the pack is refused by `yolo pack lint`, `yolo check` and every launch, `yolo host` included: declare that path as a machine-scope `state` in the pack.
-- `yolo host -- <command>` now installs every program your selected packs declare before the command
-  runs, as a jail does, and stops when one cannot install. To launch anyway, set
-  `YOLO_ALLOW_MISSING_PROGRAMS=1`. See [host-notch-readiness.md](docs/design/host-notch-readiness.md).
-- `yolo host -- <agent>` no longer runs a copy from your PATH when yolo cannot install that agent on
-  this machine; it stops and names the step that fixes it. To keep using your own copy, leave the
-  pack out with `"host_floor": {"<pack>": false}` in your user config.
+**A patch series that no longer applies stops the launch.** A launch, `yolo host` and
+`yolo host apply --assert` stop with one error naming the patch, its conflict and the fix.
+Put `YOLO_ALLOW_PATCH_FAILURES=1` in front of the command to run your last good build once.
+See [When your patches stop applying](userguide/guides/patch-series.md#when-your-patches-stop-applying).
+
+**`yolo host` installs every declared program.** `yolo host -- <command>` installs your selected
+packs' programs first, as a jail does, and never falls back to a copy on your PATH. Keep your own copy
+with `"host_floor": {"<pack>": false}` in your user config. See [host readiness](docs/design/host-notch-readiness.md).
+
+- A `shared_credentials` or `shared_directory` hook whose `at` is not a machine-scope `state` of its pack is refused: declare that path as one.
+- `macos_log` is refused: delete it and select the `macos-log` pack ([how](packs/macos-log/README.md#turning-it-on)).
 
 ### Fixed
 
-- Ctrl-C during startup extension builds now stops compilers promptly without reusing their workspaces before jail teardown finishes.
-- A provider-only Pi profile no longer fails at startup because of a provider flag without a model selection.
-- A profile's config overlay now applies when that profile is any member of an agent's active profile set, not only the first.
-- In a project that sets `workspace_readonly`, the agent is told the project config is read-only
-  in the jail and asks you to apply a config change, instead of failing to write it; an in-jail
-  `yolo check` says so too.
-- An MCP server left out because its `requires_env` variable is unset is no longer reported as "not in config" at launch or by `yolo host apply`; the notice names the variable and how to deliver it.
-- An AMD GPU in `mode: "cdi"` on a host with no AMD CDI spec no longer fails the launch: the jail starts without the GPU and the warning names the command that writes the spec.
-- A second terminal opened on a running jail no longer repeats the durable-dir line, and opens faster.
-- A pack declaring one `state` path at both workspace and machine scope is now refused by name, instead of failing the launch with a duplicate-mount error.
-- Bedrock credential startup now explains invalid profile settings without printing their values; an explicit choice to use the profile's assigned permissions no longer triggers a routine warning.
+- A patched program whose current build fails can run its last good build for one launch with `YOLO_USE_CACHED_GOOD=<pack>/<program>` ([how](userguide/guides/patch-series.md#when-a-build-fails)).
+- A host service that refuses its settings stops the launch at once with its cause and fix, and Bedrock's names invalid profile settings without printing their values.
+- Cache cleanup no longer deletes login tokens or lock files, and stops at its time limit.
+- The GitHub broker keeps working when the host's `gh` updates.
+- `uvx yolo-jail` now runs yolo.
+- Leaving `yolo-serial pty` or `monitor`, or `yolo-journalctl -f`, releases the host device or process at once.
+- Ctrl-C during startup extension builds stops the compilers promptly, and a provider-only Pi profile no longer fails at startup.
+- A profile's config overlay applies for any member of the active set, not only the first.
+- With `workspace_readonly`, the agent asks you to apply config changes instead of failing.
+- An MCP server dropped for an unset `requires_env` variable now names that variable.
+- An AMD GPU in `mode: "cdi"` without a CDI spec starts the jail without the GPU and names the fix.
+- A second terminal on a running jail opens faster and no longer repeats the durable-dir line.
+- A pack declaring one `state` path at both scopes is refused by name, not with a duplicate-mount error.
 
 ## [0.12.1] - 2026-10-06
 

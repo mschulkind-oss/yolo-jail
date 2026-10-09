@@ -118,7 +118,7 @@ AWS access. Keep explicit user-scope opt-in, default false, conflict refusals, a
 and unrelated pack read/exec trust disclosures. Keep the route inspectable on request.
 Do not add an AWS-name branch or a new generic severity feature solely for this request.
 
-This change shipped in 0.12.2 with the startup diagnostics. The ruling does not change
+This change ships in 0.13.0 with the startup diagnostics. The ruling does not change
 credentials, configuration scope or permission policy.
 
 ## 8. Decisions and deferred work

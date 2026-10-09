@@ -48,7 +48,9 @@ A request whose tag was created but whose publication never started may **resume
 
 A resume never creates, moves or deletes the tag. It skips tag creation and goes on from the Release dispatch. The new request's run ID goes into the Release `run-name`, and the Release run checks that this request is still in progress, exactly as for a first request. The publisher and claim bind that same request ID. The trigger is `just release VERSION` run from a checkout whose `HEAD` is the tagged commit. Orchestration is always the `main` workflow source, and every target build checks out the requested SHA, so the published content is the tagged commit whatever `main` holds. The write job's timeout covers a resume's waits as well as a first request's (`TestRequestJobTimeoutExceedsItsWaits`).
 
-**Ledger.** PTG-D1 (2026-10-08, maintainer ruling: *"let's rollback and redo 12.2 add the resume now"*). 0.12.2's first live request created the tag and then failed before any Release run did anything. The version is not abandoned. A request may resume exactly that tag-only state, under the preconditions above. Everything else stays fail-closed.
+**Ledger.** PTG-D1 (2026-10-08, maintainer ruling: *"let's rollback and redo 12.2 add the resume now"*). 0.12.2's first live request created the tag and then failed before any Release run did anything. The version is not abandoned. *Superseded 2026-10-09 by [PTG-D2](#PTG-D2): 0.12.2 was abandoned instead.* A request may resume exactly that tag-only state, under the preconditions above. Everything else stays fail-closed.
+
+<a id="PTG-D2"></a>**PTG-D2** (2026-10-09, maintainer ruling: *"can we just cancle 0.12.2 entirelyi and move to 0.13.0 like it never happened?"*). 0.12.2 is abandoned. It was never published: no GitHub Release, no PyPI upload, and the Homebrew formula stayed at 0.12.1. The owner deletes its tag on the host, and its notes are folded into the next release, 0.13.0. This is a ruling about one version, not a new path: the workflows still provide no delete or move, and the [tag-only resume](#resuming-a-tag-only-release) stays the only recovery they automate.
 
 ## Partial state and validation limits
 
