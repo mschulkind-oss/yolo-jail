@@ -481,8 +481,8 @@ parent of both processes (`launchservice.RunAgent`). This is [OQ-HS3](#OQ-HS3)'s
    home, so its live launches share one caller token, counted by a lock of the home's own
    ([NC-D18](../plans/notch-convergence.md#NC-D18)). Under
    [OQ-JL5](jail-lifetime-last-session-wins.md#OQ-JL5)'s ruling, what a workspace's host sessions
-   share moves to a keeper, and whether these per-launch services do is
-   [OQ-JL9](jail-lifetime-last-session-wins.md#OQ-JL9).
+   share moves to a keeper, and [OQ-JL9](jail-lifetime-last-session-wins.md#OQ-JL9) ruled
+   (2026-10-10) that these per-launch services stay each launch's own.
 
 ### 4.5 Failure paths
 

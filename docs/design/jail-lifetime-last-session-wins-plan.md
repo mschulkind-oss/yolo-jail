@@ -20,7 +20,7 @@ keeper:
   [§7](jail-lifetime-last-session-wins.md#7-what-i-would-build-in-order), step 3;
 - the traps the build met, moved from here: the bullet after that step's **Built** entry;
 - what is still owed (the Mac runs of step 4, the keeper at `yolo host` and macos-user of
-  step 5, and [OQ-JL9](jail-lifetime-last-session-wins.md#OQ-JL9)): the same section.
+  step 5): the same section.
 
 MEASURED in nested jails on Linux podman, by the integration tests that step names. UNMEASURED:
 either Mac backend and a real rootless systemd host. The plan's map, its reuse list and its build

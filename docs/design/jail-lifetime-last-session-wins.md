@@ -3,9 +3,9 @@ title: "A shared jail should end with its last session, not its first"
 date: 2026-09-29
 status: in-review
 stage: DESIGN
-next: "Dispatch macos-user.yml for the macos-user keeper (JL-D86; TestMacosUserTwoConcurrentLaunchesOfOneWorkspace), and apple-container.yml again once the fixes for run 37133569003 land (JL-D83, and the Apple Container pin on JL-D13's refusal), to re-ask the killed-keeper and both stop-says-why runs and take the stop-listing-lag measure; the same run conducts the sweep (JL-D7), since OQ-MB1's build (2026-10-05) gives each workspace a /mise disk of its own. Then rule OQ-JL9, what the keeper at yolo host holds, which only step 5's yolo host half waits on, beside agent-event-watchers.md's host-side sidecars"
+next: "Dispatch macos-user.yml for the macos-user keeper (JL-D86; TestMacosUserTwoConcurrentLaunchesOfOneWorkspace), and apple-container.yml again once the fixes for run 37133569003 land (JL-D83, and the Apple Container pin on JL-D13's refusal), to re-ask the killed-keeper and both stop-says-why runs and take the stop-listing-lag measure; the same run conducts the sweep (JL-D7), since OQ-MB1's build (2026-10-05) gives each workspace a /mise disk of its own. Then rule OQ-JL10's one remaining case, a Ctrl-C to the tab still starting the jail after another tab joined it; step 5's yolo host half waits only on agent-event-watchers.md's host-side sidecars or ping box"
 tags: [design, lifecycle, attach, sessions, host-services, teardown, keeper, podman, apple-container, herdr]
-summary: "Several agents can share one workspace's jail, but the jail ends when the FIRST session's agent quits, because that agent is the container's main process and the first launcher's process hosts every host service. The maintainer directed the owner on 2026-09-29: a small background process, never a first terminal that waits. So pid 1 becomes a hold process, every session enters by exec, a host-side kernel lock counts sessions, and a keeper per running container jail, spawned by the fresh launch before any host service or the container exists, owns the jail's host services and tears the jail down when the lock says the last session is gone or the runtime says the container is. The first terminal gets its prompt back when its agent quits, and re-entering from it is an ordinary attach. OQ-JL5 was ruled on 2026-09-29: a keeper at every notch that starts a long-lived host service or sidecar, if supportable. §9.9 designs it for yolo host and macos-user: one keeper per workspace per notch; a yolo host launch that has one stays resident instead of exec'ing, because an inherited lock descriptor was measured to miscount both ways; and macos-user's keeper cannot own what runs as the sandbox account, because it cannot run sudo. OQ-JL6, OQ-JL7 and OQ-JL8 were ruled too: no linger; a killed keeper's sessions run on and a new arrival is refused; an agent ends with its pane. Two questions remain: whether yolo host's keeper also holds the services a launch starts for its own agent, and whether an interrupt before ready spares a jail another session has entered."
+summary: "Several agents can share one workspace's jail, but the jail ends when the FIRST session's agent quits, because that agent is the container's main process and the first launcher's process hosts every host service. The maintainer directed the owner on 2026-09-29: a small background process, never a first terminal that waits. So pid 1 becomes a hold process, every session enters by exec, a host-side kernel lock counts sessions, and a keeper per running container jail, spawned by the fresh launch before any host service or the container exists, owns the jail's host services and tears the jail down when the lock says the last session is gone or the runtime says the container is. The first terminal gets its prompt back when its agent quits, and re-entering from it is an ordinary attach. OQ-JL5 was ruled on 2026-09-29: a keeper at every notch that starts a long-lived host service or sidecar, if supportable. §9.9 designs it for yolo host and macos-user: one keeper per workspace per notch; a yolo host launch that has one stays resident instead of exec'ing, because an inherited lock descriptor was measured to miscount both ways; and macos-user's keeper cannot own what runs as the sandbox account, because it cannot run sudo. OQ-JL6, OQ-JL7 and OQ-JL8 were ruled too: no linger; a killed keeper's sessions run on and a new arrival is refused; an agent ends with its pane. On 2026-10-10 OQ-JL9 was ruled A: yolo host's keeper holds only what a workspace's sessions share, so a launch's bridge, AWS doorway and Codex adapter stay its own. OQ-JL10 was ruled the same day for a later session: Ctrl-C ends only the session it was typed in. One question remains: whether a Ctrl-C to the tab still starting the jail spares a tab already waiting to join it."
 vantage:
   status-chip: true
 ---
@@ -28,8 +28,9 @@ down while its jail is up, which a session's quit and every later arrival print
 half is built, 2026-10-05: one keeper holds a workspace's macos-user host services for every session
 of it, and a later launch joins it ([JL-D86](#JL-D86) to [JL-D88](#JL-D88), with the review's fixes in
 [JL-D89](#JL-D89)); it has not run on a Mac.
-Step 5's `yolo host` half waits on [OQ-JL9](#OQ-JL9), which gates that notch alone, and step 4's Mac
-runs are owed.
+Step 5's `yolo host` half no longer waits on a ruling: [OQ-JL9](#OQ-JL9) was ruled A on 2026-10-10,
+so the keeper there holds only what a workspace's sessions share, and it has something to hold once
+the host-side sidecars or ping box land. Step 4's Mac runs are owed.
 Its Apple Container half, written as tests in that backend's job ([JL-D72](#JL-D72)), ran once on
 2026-10-03: three lifecycle runs hold, the three that did not are fixed and wait for the next run,
 and the sweep, not conducted because a second Apple Container jail could not start, is unblocked
@@ -39,7 +40,9 @@ by [OQ-MB1](../research/macos-backend-performance.md#OQ-MB1)'s build and waits f
 directed by the maintainer on 2026-09-29, and the design it produced is
 [§9](#9-the-keeper-design-2026-09-29); [OQ-JL5](#OQ-JL5) to [OQ-JL8](#OQ-JL8) were ruled the
 same day, and [§9.9](#99-the-keeper-at-yolo-host-and-macos-user) designs the keeper at
-`yolo host` and macos-user; one question remains. Every citation, and the keeper research with
+`yolo host` and macos-user. [OQ-JL9](#OQ-JL9) was ruled A on 2026-10-10, and
+[OQ-JL10](#OQ-JL10) was ruled the same day for a later session's Ctrl-C, leaving one narrower
+question about the tab that is starting the jail. Every citation, and the keeper research with
 its measurements, was verified against `232e4dcd`. The citations the review of 2026-09-29 added
 (JL-D28 to JL-D35) were verified against `d3c6970a`, and [§9.9](#99-the-keeper-at-yolo-host-and-macos-user)'s citations and
 measurements (JL-D36 to JL-D43) against `30b65282`. A review of [§9.9](#99-the-keeper-at-yolo-host-and-macos-user) the same day corrected its
@@ -71,13 +74,10 @@ how the first terminal gets its prompt back, how re-entering works, how it ends 
 discloses, its signals, and each notch. [§2.4](#24-everything-the-first-terminals-process-owns-today)
 is what it takes over, and [§5](#5-how-terrible-is-it) answers "how terrible is this".
 
-**Needs your ruling** ([OQ-JL5](#OQ-JL5) was ruled A, a keeper at every notch if supportable, and
-[OQ-JL6](#OQ-JL6), [OQ-JL7](#OQ-JL7) and [OQ-JL8](#OQ-JL8) A, all 2026-09-29):
+**Needs your ruling** (every other question is ruled; see [§11](#11-decision-ledger)):
 
-- [OQ-JL9](#OQ-JL9): at `yolo host`, does the keeper also hold what one launch starts for its own
-  agent: the bridge's host half and the AWS doorway, which no other launch uses, and the Codex
-  refresh adapter, whose managed home every host Codex launch on the machine already shares.
-- [OQ-JL10](#OQ-JL10): does an interrupt before ready spare a jail another session has entered.
+- [OQ-JL10](#OQ-JL10): you Ctrl-C the tab that is starting the jail while another tab has already
+  joined it and is waiting. Does the jail keep starting for that other tab?
 
 **Reads with:** [`herdr-integration.md` §3.4](../research/herdr-integration.md#34-closing-a-pane-is-a-kill)
 (what closing a pane does), and
@@ -965,7 +965,7 @@ sibling doc's subject ([`central-yolo-watcher.md`](../research/central-yolo-watc
    [§9.9.1](#991-where-the-re-entry-problem-is-real) on its own. At `yolo host` it has something
    to hold only once [`agent-event-watchers.md`](agent-event-watchers.md)'s host-side sidecars
    or ping box land (its [§10](agent-event-watchers.md#10-what-i-would-build-in-order) step 6),
-   unless [OQ-JL9](#OQ-JL9) is ruled B or C; [OQ-JL9](#OQ-JL9) gates that notch alone. The resident
+   since [OQ-JL9](#OQ-JL9) was ruled A (2026-10-10): a launch's own services stay its own. The resident
    host session ([JL-D36](#JL-D36)) lands with it, and never before: a host launch with no keeper
    keeps exec'ing. The macos-user session launcher's signal arm, without which a Ctrl-C could drop
    a session's lock while its sandbox runs on, is built already
@@ -1530,7 +1530,7 @@ other two notches are [§9.9](#99-the-keeper-at-yolo-host-and-macos-user).
 | podman on macOS | yes | the same design. The session and liveness locks are flocks on the Mac, so they work with the remote client. There is no `/proc/self/exe`, so a keeper of another build refuses the plan ([JL-D20](#JL-D20)); there is no systemd, so the keeper has Setsid alone. Each session needs a signal arm for [JL-D4](#JL-D4): an attach's has one since step 1, through the same plain spawn in [`proxy_other.go`](../../internal/cli/run/proxy_other.go) ([JL-D52](#JL-D52)), not yet run on a Mac | a Mac run, including a pane close and a logout |
 | Apple Container | yes | the same design, through `container run` and `container exec`. Today it has an owner, the first launcher, but no orphan reaper (row 5 of [§2](#2-what-ties-a-jail-to-its-first-terminal-today)). Under this design the keeper owns it, an unkept jail's last session reaps it ([JL-D30](#JL-D30)), and the next-launch reaper is extended to its keeper-era jails, whose liveness lock is the evidence it lacked ([JL-D7](#JL-D7)). The same signal arm, an attach's since step 1 and unmeasured there. It gets no `--detach-keys` until one is shown to exist ([JL-D27](#JL-D27)) | whether its attached client can be kept from forwarding signals, as `--sig-proxy=false` does on podman (unmeasured). `container exec`'s process survives its client's death, and `ctrl-p`, `ctrl-q` reach the process without detaching its client (MEASURED, run 37133569003). The lifecycle ran there once, and the three runs that did not hold wait for the next run ([§7](#7-what-i-would-build-in-order) step 4, [JL-D72](#JL-D72)) |
 | macos-user | yes, one per workspace, whenever a launch starts anything outside the sandbox ([§9.9](#99-the-keeper-at-yolo-host-and-macos-user)) | the fronts, fronted daemons, doorways, launch-owned services, host-side sidecars and ping box move from each session's launcher to the keeper, and every session uses the same ones. What runs as the sandbox account stays each session's, since a keeper cannot run `sudo` ([§9.9.4](#994-what-the-keeper-owns-there)). Built 2026-10-05 for all but the sidecars and the box, which are unbuilt at every notch ([JL-D86](#JL-D86)) | a Mac run: two sandboxes in one workspace, the write grant on the ping box, a logout, and the session launcher's signal arm under a Ctrl-C and a pane close |
-| `yolo host` | yes, one per workspace, whenever a launch holds a sidecar or the ping box, and, if [OQ-JL9](#OQ-JL9) is ruled B or C, its own services ([§9.9](#99-the-keeper-at-yolo-host-and-macos-user)) | a launch with a keeper stays resident as its session instead of exec'ing ([JL-D36](#JL-D36)); one with none execs as today. Whether the launch's own services move in is [OQ-JL9](#OQ-JL9) | a host run on Linux and on a Mac, including a pane close |
+| `yolo host` | yes, one per workspace, whenever a launch holds a sidecar or the ping box ([§9.9](#99-the-keeper-at-yolo-host-and-macos-user)) | a launch with a keeper stays resident as its session instead of exec'ing ([JL-D36](#JL-D36)); one with none execs as today. A launch's own services stay its own, as [OQ-JL9](#OQ-JL9) ruled | a host run on Linux and on a Mac, including a pane close |
 
 ### 9.9 The keeper at yolo host and macos-user
 
@@ -1629,8 +1629,8 @@ answer differs by what is shared:
 So the keeper is needed at macos-user for everything its launches start outside the sandbox, and
 at both notches for the sidecar feature. At `yolo host`, what the Codex adapter shares belongs to
 the machine, not to a workspace, so a per-workspace keeper cannot simply take it over
-([§9.9.10](#9910-every-feasibility-problem-found) row 8). Whether it and the bridge move into the
-keeper, and how, is [OQ-JL9](#OQ-JL9).
+([§9.9.10](#9910-every-feasibility-problem-found) row 8). So, as [OQ-JL9](#OQ-JL9) ruled (A,
+2026-10-10), neither it nor the bridge moves into the keeper: each stays the launch's own.
 
 #### 9.9.2 What a session is there, and why yolo host stays resident
 
@@ -1776,9 +1776,10 @@ inherited descriptor above 2, no lifeline could cross it to end what it started.
 **At `yolo host`, the sidecars and the ping box.** Every sidecar is host side there. What a
 launch starts for its own agent (the bridge's host half, the managed Codex refresh adapter, and
 the AWS doorway, built 2026-09-29 as [HS-D21](host-notch-services.md#HS-D21)) is
-[OQ-JL9](#OQ-JL9)'s: under its leaning, A, it stays the launch's own, and the managed Codex home
-keeps NC-D18's machine-wide token and lock; under B the keeper holds each launch's services; under
-C it holds the Codex adapter over a Codex home made per workspace.
+the launch's own, as [OQ-JL9](#OQ-JL9) ruled (A, 2026-10-10), and the managed Codex home keeps
+NC-D18's machine-wide token and lock. The keeper holds what a workspace's sessions share, at the
+scope they share it: the bridge is shared by no one, and the Codex home is shared by the whole
+machine, where NC-D18 already counts it.
 
 **The caller tokens of what a keeper holds are the keeper's, not a session's.** The fresh launch
 mints them into the plan, as at a container backend ([JL-D20](#JL-D20)), and every session of the
@@ -1869,7 +1870,7 @@ liveness lock ([JL-D38](#JL-D38)):
   - At macos-user the service set comes from every profiled agent's pairing, not the launched
     command's ([HS-D14](host-notch-services.md#HS-D14)), so a joiner of an unchanged config never
     differs. A changed config, or a `-p` that pairs an agent through a service, can.
-  - At `yolo host`, under [OQ-JL9](#OQ-JL9)'s leaning, the keeper holds only what the config
+  - At `yolo host`, as [OQ-JL9](#OQ-JL9) ruled, the keeper holds only what the config
     decides. A sidecar enabled since the keeper started runs from the key's next fresh launch, and
     the joiner's sidecar line says so
     ([`agent-event-watchers.md` §12.5](agent-event-watchers.md#125-what-the-launch-says)).
@@ -1984,8 +1985,7 @@ liveness lock ([JL-D38](#JL-D38)):
 ([JL-D42](#JL-D42)), which [§9.9.4](#994-what-the-keeper-owns-there) lists per notch: at
 macos-user anything the launch would start outside the sandbox (a front, a fronted daemon, a
 doorway, a launch-owned service), and at either notch a sidecar or the ping box. At `yolo host` a
-launch's own services are on that list only if [OQ-JL9](#OQ-JL9) is ruled B or C. Under its
-leaning a bridged `yolo host -p codex -- claude` with no sidecar gets no keeper and stays resident
+launch's own services are not on that list ([OQ-JL9](#OQ-JL9), ruled A), so a bridged `yolo host -p codex -- claude` with no sidecar gets no keeper and stays resident
 as its services' parent, as today. Such a launch runs exactly as today: `yolo host` execs its
 agent, or stays resident for its own services, and macos-user runs its sandbox with nothing to
 stop. It takes no session lock, and a
@@ -2017,7 +2017,7 @@ starts it"*. From now on it reads this way ([JL-D43](#JL-D43)):
   [HD-R1](host-daemon-ownership.md#HD-R1)'s unit ([JL-P4](#JL-P4)). At macos-user and `yolo host`
   it is the sessions of one workspace at that notch.
 - **For what a session keeps, it reads literally**: macos-user's sandbox-account processes, and,
-  under [OQ-JL9](#OQ-JL9)'s leaning, a `yolo host` launch's own services, whose Codex adapter keeps
+  as [OQ-JL9](#OQ-JL9) ruled, a `yolo host` launch's own services, whose Codex adapter keeps
   the managed home's machine-wide token ([NC-D18](../plans/notch-convergence.md#NC-D18)).
 - **What HS3 rejected stays rejected.** Nothing outlives the key's last session. `yolo host apply`
   still renders no per-launch address, and `yolo host env` still refuses a bridged profile, since
@@ -2031,8 +2031,8 @@ starts it"*. From now on it reads this way ([JL-D43](#JL-D43)):
   when it was ruled. At macos-user the owner is now the keeper ([JL-D38](#JL-D38)), and the
   doorway still listens on the machine's loopback, outside Seatbelt, behind the caller token the
   plan carries. At `yolo host` the Codex adapter and the AWS doorway
-  ([HS-D21](host-notch-services.md#HS-D21)) stay launch-owned under [OQ-JL9](#OQ-JL9)'s
-  leaning.
+  ([HS-D21](host-notch-services.md#HS-D21)) stay launch-owned, as [OQ-JL9](#OQ-JL9)
+  ruled.
 - **[`host-notch-services.md` §4.4](host-notch-services.md#44-lifetime)'s steps move to the keeper
   for what it holds.** Order and readiness are unchanged. "The agent exits" becomes "the key's
   last session exits". "The launch dies without cleanup" becomes "the keeper dies", with the same
@@ -2051,7 +2051,7 @@ starts it"*. From now on it reads this way ([JL-D43](#JL-D43)):
 | 5 | macOS has no `/proc/self/exe` and no systemd | [§9.8](#98-per-notch-podman-apple-container-macos-user-yolo-host) | the build-stamp refusal ([JL-D20](#JL-D20)) and Setsid alone, as for podman on macOS |
 | 6 | macos-user's session env file and its Seatbelt profile are described as per session but keyed per workspace (`SandboxEnvFile(cname, …)`, `<stateDir>/env/<cname>.env`; `SessionProfilePath(cname, …)`, `profile-<cname>.sb`), and every launch rewrites both; each session also removes the env file at its end. `RunMacosUser` releases the workspace lock before the sandbox reads either, so a second session writing them in that gap would hand the first sandbox the second's environment, which is scoped to another launched agent, or its profile | [`envfile.go`](../../internal/macosuser/envfile.go), [`macosuser.go`](../../internal/macosuser/macosuser.go), and `RunMacosUser`'s `InstallRootFile`, deferred removal and `release()` before `RunWithProxy`; SOURCED; the race INFERRED | both stay the session's, so the keeper does not fix them; a per-session name would, and it is recorded here as found. ✅ **Fixed 2026-10-04**: each launch mints a 16-hex session id and names its env file, daemons env file, Seatbelt profile and CA files `<cname>.<id>` ([the session key](../reference/macos-user-provisioning.md#the-session-key), `internal/macosuser/sessionfiles.go`); it removes its own profile as well as its env files when it ends; and a host-side liveness record (an exclusive flock on `<global storage>/locks/macos-user-sessions/<cname>.<id>.lock`) lets the next launch sweep the files of a session killed before its teardown, keeping any record it cannot prove ended ([JL-D84](#JL-D84)) |
 | 7 | A `yolo host` launch from the home directory is not a workspace yolo keeps state for, so no sidecar is enabled for it | `paths.WorkspaceScopeBreach`, which `paths.EnsureWorkspaceStateDir` enforces | no key and no keeper there ([§9.9.3](#993-one-keeper-per-workspace-per-notch)) |
-| 8 | State shared across workspaces cannot be owned by a per-workspace keeper. Every `yolo host -- codex` on the machine runs on one managed Codex home keyed on the pack, whose `auth.json` carries one caller token that its live launches share. Two workspaces' keepers, each minting a token into that file, would bring NC-D18's breakage back | `prepare` and `sharedCallerToken` in [`host.go`](../../internal/openaiauthhost/host.go), [NC-D18](../plans/notch-convergence.md#NC-D18); SOURCED | under [OQ-JL9](#OQ-JL9)'s A and B the home keeps NC-D18's machine-wide token and lock; its C makes the home per workspace, the scope `.codex` has in a jail and at macos-user. The host-wide brokers stay outside every keeper, as [HD-R1](host-daemon-ownership.md#HD-R1)'s build leaves them |
+| 8 | State shared across workspaces cannot be owned by a per-workspace keeper. Every `yolo host -- codex` on the machine runs on one managed Codex home keyed on the pack, whose `auth.json` carries one caller token that its live launches share. Two workspaces' keepers, each minting a token into that file, would bring NC-D18's breakage back | `prepare` and `sharedCallerToken` in [`host.go`](../../internal/openaiauthhost/host.go), [NC-D18](../plans/notch-convergence.md#NC-D18); SOURCED | as [OQ-JL9](#OQ-JL9) ruled (A), the adapter stays each launch's own and the home keeps NC-D18's machine-wide token and lock. The host-wide brokers stay outside every keeper, as [HD-R1](host-daemon-ownership.md#HD-R1)'s build leaves them |
 | 9 | An agent-side sidecar at macos-user cannot be kept to one instance per workspace. It would run under each session's guest supervisor, which runs as the sandbox account and is started by that session's `sudo`; only keepers take [EW-D25](agent-event-watchers.md#EW-D25)'s one-instance lock, and a keeper cannot start what runs as the sandbox account (row 2), so two sandboxes would each ping | [EW-D25](agent-event-watchers.md#EW-D25), and the guest supervisor's start in `RunMacosUser` ([`orchestrator.go`](../../internal/macosuser/orchestrator.go)); SOURCED | not started at macos-user, and each launch says so; the same sidecar declared host side runs there under the keeper. It covers user-declared sidecars, which row 2's "no shipped pack" does not |
 
 None of these blocks the ruling, and none is an exception to it. Each is a limit on what a keeper
@@ -2195,7 +2195,7 @@ podman has no way to re-attach to an exec session
 
 #### 9.10.5 What the keeper at `yolo host` holds
 
-Moved here verbatim from [OQ-JL9](#OQ-JL9), which is open.
+Moved here verbatim from [OQ-JL9](#OQ-JL9), ruled A on 2026-10-10: these stay the launch's own.
 *Re-asked 2026-09-29.* The first draft said nothing another
 host launch reads names these services; that is untrue of the Codex refresh adapter.
 
@@ -2253,18 +2253,24 @@ alone, or the managed Codex home has to change what it is.
 
 #### 9.10.6 An interrupt before ready
 
-Moved here verbatim from [OQ-JL10](#OQ-JL10), which is open. Raised 2026-10-01 by the review of
-[JL-D73](#JL-D73).
+**A Ctrl-C ends only the session it was typed in** (maintainer, 2026-10-10, answering
+[OQ-JL10](#OQ-JL10)). With a jail running, a second tab that starts an agent and is Ctrl-C'd
+during its startup is gone, and the first tab's agent and the jail are untouched. That is what is
+built: a later arrival holds only its own session lock while it waits for the jail to be ready, so
+its interrupt drops that lock and nothing else, and once it is in, its signal arm ends its own
+session ([JL-D4](#JL-D4); `TestASIGINTAfterTheReadyRetargetEndsOnlyThatSession`, in
+[JL-D74](#JL-D74)).
 
-**The setup.** The fresh launch's keeper releases the launch lock once the container runs,
-which is before ready, so a second launch can attach during the first one's boot. If the first
-launch is then interrupted before ready, its keeper ends the jail, as [§9.5](#95-how-it-ends-itself)
-item 1 says, and the second session ends with it. MEASURED in a nested jail on rootful Linux
-podman: with the second launch 500 ms or more behind the first, it is told why its jail ended.
-Before ready the keeper is not counting sessions yet ([JL-D74](#JL-D74)).
-
-It has no leaning yet: how often a second session arrives inside a boot is the fact a leaning
-would need, and nothing has measured it.
+**The one case that does not yet follow that rule is the tab that is starting the jail.** Its keeper
+releases the launch lock once the container runs, before the boot is done, so a second tab can join
+and wait for ready. If the first tab is then Ctrl-C'd, its keeper ends the jail
+([§9.5](#95-how-it-ends-itself) item 1), because before ready it is not counting sessions and reads
+the launch's end as a failed start ([JL-D74](#JL-D74)). The waiting tab is told why its jail ended
+(MEASURED in a nested jail on rootful Linux podman, with the second launch 500 ms or more behind).
+Following the rule there means the keeper notices the waiting tab and finishes the boot for it.
+If the first tab had not finished provisioning, the waiting tab already reruns it on its own
+terminal, as it does whenever provisioning is abandoned ([§4.1](#41-the-container-a-hold-process-as-pid-1-and-every-session-an-exec)).
+Whether to do that is [OQ-JL10](#OQ-JL10).
 
 ## 10. Open Questions
 
@@ -2451,7 +2457,7 @@ would need, and nothing has measured it.
    launcher hangs up its own in-jail processes before it exits, and the other sessions and the jail
    carry on.
 
-6. 💬 <a id="OQ-JL9"></a>**[OQ-JL9](#OQ-JL9): At `yolo host`, does the keeper also hold what one
+6. ✅ <a id="OQ-JL9"></a>**[OQ-JL9](#OQ-JL9): At `yolo host`, does the keeper also hold what one
    launch starts for its own agent?**
 
    The setup, why it is a question, and each option's mechanism and cost in full:
@@ -2474,26 +2480,36 @@ would need, and nothing has measured it.
    to the keeper too, and Codex at `yolo host` then keeps its history per workspace, as it does in
    a jail.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   **Answer:** **A** (maintainer, 2026-10-10), in the leaning's words: *"the keeper holds what a
+   workspace's sessions share, at the scope they share it; the bridge is shared by no one, and the
+   Codex home is shared by the whole machine, where NC-D18 already counts it."* The bridge's host
+   half, the AWS doorway and the Codex refresh adapter stay each `yolo host` launch's own, and the
+   managed Codex home keeps NC-D18's machine-wide token and lock
+   ([§9.9.4](#994-what-the-keeper-owns-there)).
 
-7. 💬 <a id="OQ-JL10"></a>**[OQ-JL10](#OQ-JL10): Does an interrupt before ready spare a jail
-   another session has entered?**
+7. 💬 <a id="OQ-JL10"></a>**[OQ-JL10](#OQ-JL10): You Ctrl-C the tab that is starting the jail,
+   while another tab has already joined it and is waiting. Does the jail keep starting for that
+   other tab?**
 
-   The setup: [§9.10.6](#9106-an-interrupt-before-ready).
+   The setup, and the later-session case already ruled: [§9.10.6](#9106-an-interrupt-before-ready).
 
-   - **(a) Spare it.** A keeper interrupted before ready that finds another session holding the
-     session lock carries the boot on to ready and keeps the jail for that session, as it would
-     after ready. *You pay:* the keeper finishes a boot whose own launch is gone, and a boot that
-     then fails, fails under the other session.
-   - **(b) Keep today's rule.** An interrupt before ready ends the jail, and the other session is
-     told why. *You keep:* one rule for a boot, whoever else arrived during it.
+   - **(a) Yes.** The keeper finishes starting the jail for the waiting tab, which asks any
+     unfinished setup questions on its own terminal. *You pay:* a boot whose starting tab is gone
+     still runs, and if it fails, it fails in the other tab.
+   - **(b) No, as today.** The jail stops, and the waiting tab is told why and must run `yolo`
+     again.
 
-   <!-- vantage: question id=OQ-JL10 -->
+   <!-- vantage: question id=OQ-JL10 leaning="(a): finish starting the jail for the waiting tab, by the rule already ruled for a later session: a Ctrl-C ends only the session it was typed in, and the waiting tab is a session. With no tab waiting, the Ctrl-C still ends the jail, as today." -->
 
-   No leaning yet; [§9.10.6](#9106-an-interrupt-before-ready) names the fact one needs.
+   _Leaning:_ **(a)**, finish starting the jail for the waiting tab, by the rule already ruled for
+   a later session: a Ctrl-C ends only the session it was typed in, and the waiting tab is a
+   session. With no tab waiting, the Ctrl-C still ends the jail, as today.
 
-   **Answer:**
+   **Answer:** In part (maintainer, 2026-10-10), for a later session: *"if you have a jail running
+   and you start starting up another agent in that jail and then control C it, just that new agent
+   should be gone. The original should be untouched."* That is how it is built
+   ([§9.10.6](#9106-an-interrupt-before-ready)). The case above, the starting tab's Ctrl-C, is what
+   is left:
    > _(empty — fill in when decided)_
 
 ---

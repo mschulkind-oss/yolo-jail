@@ -131,8 +131,8 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
     login](../research/copilot-token-storage.md). Review its broader native-credential-store direction with the
     sandbox account's missing-keychain reports: storing suitable tokens responsibly must not wait on Copilot alone,
     and the account's unlock, workspace scope and migration choices need to be considered together.
-21. [Rule what the keeper holds at `yolo host`](../design/jail-lifetime-last-session-wins.md), with [the sidecars and
-    doorbell](../design/agent-event-watchers.md) — each design's host half waits on the other.
+21. [Rule the starting tab's Ctrl-C in a shared jail](../design/jail-lifetime-last-session-wins.md#OQ-JL10) — the
+    keeper at `yolo host` is ruled; its build waits on [the sidecars and doorbell](../design/agent-event-watchers.md).
 22. [The boot snapshot and diagnostic dial](../design/diagnostics-past-the-boundary.md) — a refused boot keeps no record
     of the jail's state, and the readiness act built 2026-10-06 adds one more refusal.
 23. [Rule the add-only model lists](../design/model-lists-and-pickers.md) and [web search on Bedrock](../design/bedrock-web-search.md)
