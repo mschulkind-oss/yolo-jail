@@ -89,7 +89,11 @@ func TestMacosUserMemoryGuard(t *testing.T) {
 		t.Errorf("READ: the guard could not read the process table inside the sandbox, so it "+
 			"is blind here.\n%s", out)
 	}
-	if strings.Contains(out, "HOG-SURVIVED") {
+	// The hog's markers are matched as WHOLE LINES: when the guard stops it, bash's job report
+	// ("Terminated: 15  perl -e '...print "HOG-SURVIVED\n"'") echoes the command text, markers
+	// included, so a substring match reads the guard's success as the hog surviving (CI run
+	// 37986991379).
+	if hasLine(out, "HOG-SURVIVED") {
 		t.Fatalf("HOG: a process holding 768m in a 256m session slept its full minute: nothing "+
 			"stopped it.\n%s", out)
 	}
