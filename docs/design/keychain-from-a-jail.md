@@ -3,9 +3,9 @@ title: "Copilot's keychain, from a jail: a Secret Service inside, the real keych
 date: 2026-09-29
 status: in-review
 stage: DESIGN
-next: "Rule OQ-KC1–OQ-KC4 with the broader native-credential-store direction and reported macos-user first-login failure in view; verify the dedicated-account candidate with harmless native items before choosing its unlock and sharing policy"
+next: "Rule OQ-KC5, how macos-user's native clients reach the host keychain; then confirm Copilot 1.0.89's login service name with a real login (§6 step 4) and open a plan sketch"
 tags: [design, copilot, credentials, keychain, secret-service, d-bus, loopholes, macos-user]
-summary: "Copilot CLI stores its login in the system keychain first and falls back to plain text only after asking. A container jail has no keychain, so every workspace gets a fresh login and a plain-text prompt. This design gives the jail a small Secret Service that yolo writes itself. It runs inside the jail, and its entries live in sealed files on the host, locked by keys in the macOS login keychain or the desktop keyring. The host side only touches items yolo created for that jail, and the launch says what it stored and where. Where no keychain can be reached, yolo copies only Copilot's copilotTokens entry between workspaces, and says so on every launch that copies. Four questions are open: whether jails share the host's own Copilot login, which Copilot entries are machine-wide, which programs in a jail get the keychain, and whether the macos-user sandbox account gets a keychain of its own."
+summary: "Copilot CLI stores its login in the system keychain first and falls back to plain text only after asking. A container jail has no keychain, so every workspace gets a fresh login and a plain-text prompt. This design gives the jail a small Secret Service that yolo writes itself. It runs inside the jail, and its entries live in sealed files on the host, locked by keys in the macOS login keychain or the desktop keyring. Ruled 2026-10-10: one Copilot login serves the host and every jail, and it is the host Copilot's own keychain item; only the login is machine-wide; every program in a jail gets the keychain; and the keychain is always the host's, on every backend. The host side touches only items yolo created and the host Copilot's own login item, and the launch says what it stored and where. Where no keychain can be reached, yolo copies only Copilot's copilotTokens entry between workspaces, and says so on every launch that copies. One question is open: how macos-user's native clients, which have no seam, reach the host keychain."
 vantage:
   status-chip: true
 ---
@@ -16,17 +16,20 @@ vantage:
 Copilot 1.0.89 packages ([Appendix A](#appendix-a--evidence)). Targeted update 2026-10-07:
 broader native credential-store direction, macos-user setup source and first-login reports,
 and SandVault's dedicated-keychain source. The older artifact and transport claims are not a
-whole-design re-verification. Nothing in this design is built, and four rulings remain open.
-No agent CLI or native keychain operation was run for this update.
+whole-design re-verification. Rulings 2026-10-10 on all four of the original questions
+([§8](#8-decision-ledger)); the body is revised to them, and one narrower question,
+[OQ-KC5](#OQ-KC5), is open. Nothing in this design is built. No agent CLI or native keychain
+operation was run for either update.
 
 > **In short.** Copilot already stores its login the responsible way. It asks the operating
 > system's password store first and writes plain text only with consent. So yolo should not route
-> around that path. It should give the jail a password store whose entries live in sealed files on
-> this machine, locked by a key in the user's login keychain (or desktop keyring), and scope it so
-> a jail can reach only the entries yolo made for it.
+> around that path. It should give every program in the jail a password store backed by the
+> host's keychain: Copilot's login is the host Copilot's own keychain item, shared by the host and
+> every jail, and every other entry lives in sealed files on this machine, locked by a key in the
+> user's login keychain (or desktop keyring). A jail reaches only those items.
 
 **Why it matters.** Today every workspace asks for its own `copilot login` and then for consent to
-keep the token in plain text. Each login also mints another GitHub OAuth token, and GitHub keeps
+keep the token in plain text, even when the host's Copilot is already logged in. Each login also mints another GitHub OAuth token, and GitHub keeps
 only ten per user, app and scope, so an eleventh login revokes one of the others (INFERRED for
 Copilot's app, [E14](#E14)).
 
@@ -39,15 +42,14 @@ library. Two host keychain adapters. Plain-text copies of Copilot's login where 
 reached ([§5](#5-the-fallback-copy-only-copilottokens-and-say-so)). And seven changes to yolo
 itself ([§3.14](#314-what-yolo-itself-must-change)): a readiness budget and a reason line from a
 loophole's host daemon to its launch, a launcher-side value in the
-credential gate for an agent with no profile selected, a startup input naming the container and
-the opted-in agents, a machine-list field in the pack manifest, a written-out footprint claim, a
+jail's whole environment set only when the route is on, a startup input naming the container and
+the selected packs' machine lists, a machine-list field in the pack manifest, a written-out footprint claim, a
 rule for an attach, and a host-side step when a jail ends.
 
 **Start at [§3](#3-the-design).** The per-backend answer in [§1](#1-the-short-answer) falls out of
 it.
 
-**Needs your ruling:** [OQ-KC1](#OQ-KC1), [OQ-KC2](#OQ-KC2), [OQ-KC3](#OQ-KC3), [OQ-KC4](#OQ-KC4).
-Accepting this design also answers
+**Needs your ruling:** [OQ-KC5](#OQ-KC5). Accepting this design also answers
 [OQ-CT1](../research/copilot-token-storage.md#OQ-CT1). That question stays open in its own document
 until the ruling is recorded there.
 
@@ -57,9 +59,9 @@ measurement this answers, and the maintainer's direction on
 [`host-notch-services.md`](host-notch-services.md#HS-D15) (HS-D15, the doorway rule this design
 follows), [`loophole-transport.md`](../reference/loophole-transport.md) (the jail-to-host hop),
 [`agent-credentials.md`](../reference/agent-credentials.md#the-credential-boundary) (the boundary
-[OQ-KC1](#OQ-KC1) is about), and [`boundary-broker.md`](boundary-broker.md#61-linux) (BB-D11, the
+[OQ-KC1](#OQ-KC1)'s ruling opens for Copilot's login), and [`boundary-broker.md`](boundary-broker.md#61-linux) (BB-D11, the
 other planned D-Bus client, which sets the no-fallback rule for the host bus). There is no plan
-sketch yet. One opens once the questions are ruled.
+sketch yet. One opens once [OQ-KC5](#OQ-KC5) is ruled and the login's service name is confirmed.
 
 ---
 
@@ -76,12 +78,14 @@ keychain” must not obscure three distinct storage choices:
 | Store | Ownership and intended role | What this direction does not imply |
 | :--- | :--- | :--- |
 | Host user's account keychain | The human's host-side credential store; a candidate for yolo-owned host credentials and keys | A jail may read the user's unrelated entries |
-| Sandbox account's dedicated keychain | An account-owned store for native clients running as `_yolojail` | Secrets are private per workspace merely because they are in a keychain |
+| Sandbox account's dedicated keychain | An account-owned store for native clients running as `_yolojail`. **Not provisioned, by [OQ-KC4](#OQ-KC4)'s ruling**: the keychain is always the host's | Secrets are private per workspace merely because they are in a keychain |
 | Machine-wide System keychain | The system-domain store, commonly at `/Library/Keychains/System.keychain`; a distinct administrative and access-control choice | Every application token belongs there, or administrator writes and unattended access have been approved |
 
 The preferred direction is native credential storage, **not an automatic selection of the
-machine-wide store**. [The macos-user question](#OQ-KC4) still owns account-keychain lifetime,
-and [the scoping questions](#7-open-questions) still own who may receive entries.
+machine-wide store**. On 2026-10-10 the maintainer ruled that the store is always the host
+user's keychain, whatever the backend, reached through a loophole ([OQ-KC4](#OQ-KC4)), and that
+every program that can use a keychain gets it where that can be done securely
+([OQ-KC3](#OQ-KC3)).
 
 Before extending the proposed storage beyond Copilot, inventory each candidate: its owner,
 consumers, persistence needs, refresh behavior, native format and deletion semantics. Agent
@@ -118,21 +122,29 @@ native macOS clients may already use Keychain Services directly.
   bus inside the jail that forwards to a host half. The host half keeps the entries in sealed
   files on this machine, locked by a key in the user's login keychain or desktop keyring
   ([§3](#3-the-design)).
+- **Copilot's login is one login, the host's.** The host Copilot's own keychain item is the
+  machine-wide login, so a login made at the host or in any jail serves both, and a logout
+  anywhere logs out everywhere ([OQ-KC1](#OQ-KC1),
+  [§3.3](#33-the-host-side-the-doorway-into-the-real-keychain)).
+- **Every program in the jail gets the keychain,** not only Copilot. Its entries stay in this
+  workspace unless a pack declares them machine-wide ([OQ-KC3](#OQ-KC3),
+  [§3.5](#35-who-gets-the-bus-address)).
 - **On macOS the Copilot binary has no such seam.** It calls Apple's Security framework directly
   ([E12](#E12)). The seam exists wherever Linux Copilot runs, which includes every container jail
-  on a Mac. It does not exist for macos-user or `yolo host`
+  on a Mac. It does not exist for macos-user or `yolo host`. At `yolo host` none is needed, and
+  for macos-user how the host keychain is reached is [OQ-KC5](#OQ-KC5)
   ([§4](#4-macos-user-and-yolo-host)).
 
 ### 1.1 Per backend
 
 | Setup | Copilot build that runs | Keychain route | Where a login lands |
 | :--- | :--- | :--- | :--- |
-| `podman` on a Linux host with a desktop keyring | linux | **on** | A sealed file on the host, whose key sits in the user's Secret Service (GNOME Keyring, KWallet, KeePassXC). Once per machine |
+| `podman` on a Linux host with a desktop keyring | linux | **on** | The host Copilot's own login item in the user's Secret Service (GNOME Keyring, KWallet, KeePassXC). Once per machine, host included. Other entries: a sealed file on the host, whose key sits in the same Secret Service |
 | `podman` on a Linux host with no Secret Service on the launch's session bus (headless, or SSH with no session) | linux | **off** for that launch | Plain text in `config.json` after Copilot's own consent prompt, then the login copy ([§5](#5-the-fallback-copy-only-copilottokens-and-say-so)) |
-| `podman` on macOS (the podman machine VM) | linux | **on** | A sealed file on the Mac, whose key sits in the user's login keychain. Once per machine |
-| `container` (Apple Container) | linux | **off** until the jail can reach the host ([G6](../plans/setup-support-gaps.md#2-ranked-gap-backlog)) | Plain text after consent, then the login copy |
-| `macos-user` | darwin | **no seam**: [OQ-KC4](#OQ-KC4) | Today, most likely plain text after consent (INFERRED, [E17](#E17)), then the login copy. With [OQ-KC4](#OQ-KC4) option B, the sandbox account's own keychain |
-| `yolo host` | the host's | **not needed** | The user's own keychain, exactly as a Copilot launched without yolo would use it ([§4.2](#42-yolo-host-already-right)) |
+| `podman` on macOS (the podman machine VM) | linux | **on** | The host Copilot's own login item in the user's login keychain. Once per machine, host included. Other entries: a sealed file on the Mac, whose key sits in the same keychain |
+| `container` (Apple Container) | linux | **off** until the jail can reach the host ([G6](../plans/setup-support-gaps.md#2-ranked-gap-backlog)); then on, as for podman ([OQ-KC4](#OQ-KC4)) | Plain text after consent, then the login copy |
+| `macos-user` | darwin | **no seam**: the host keychain, by a route [OQ-KC5](#OQ-KC5) chooses | Today, most likely plain text after consent (INFERRED, [E17](#E17)), then the login copy. Never a keychain of the sandbox account's own ([OQ-KC4](#OQ-KC4)) |
+| `yolo host` | the host's | **not needed** | The user's own keychain, exactly as a Copilot launched without yolo would use it. That item is the login every jail shares ([§4.2](#42-yolo-host-already-right)) |
 
 Apple Container is off because its launch starts no pack host daemon except the OpenAI credential
 service, and the jail-to-host TCP hop is measured dead there
@@ -156,11 +168,11 @@ testing.
 | **notch** | One setting of yolo's confinement dial. `yolo host` is the host notch | [`config-target-resolution.md`](../reference/config-target-resolution.md) |
 | **machine tier, workspace tier** | State shared by every workspace on the machine, versus state kept per workspace | [The three tiers](../reference/macos-user-home-tiers.md#the-three-tiers-and-where-each-one-lives) |
 | **single-tenant bus** | A D-Bus server that owns one service name itself and routes nothing between clients. Not `dbus-daemon`, which routes between any clients | *(coined here)* |
-| **namespace** | The set of jail keychain entries that one host key protects: one per (agent, tier), where the tier is the machine or one workspace | *(coined here)* |
+| **namespace** | The set of jail keychain entries that one host key protects: one per workspace, shared by every program in that workspace's jail, and one machine namespace per pack that declares a machine list. Not the host Copilot's own login item, which no yolo key protects | *(coined here)* |
 | **namespace key, sealed file** | A namespace's random 256-bit key, kept as one item in the host keychain, and the file on the host holding that namespace's entries encrypted under it | *(coined here)* |
 | **key id, entry id** | A key id is a random identifier stored beside a namespace key in its keychain item and written into the header of every sealed file sealed under that key. An entry id is a random identifier an entry gets when it is created, stored with it in the sealed file | *(coined here)* |
 | **readiness line** | The one line a yolo daemon writes to an inherited descriptor when it starts: `ready <name>`, or `failed <name> <reason>`. The jail's daemon supervisor and the host notch's launch-owned services already read it; a loophole's host daemon does not today | [wire-bridge.md, current values](../reference/wire-bridge.md#current-values) |
-| **machine list** | The Secret Service `service` attribute values an agent pack declares as machine-wide. Every other entry is per workspace | *(coined here)* |
+| **machine list** | The Secret Service `service` attribute values a pack declares as machine-wide. Every other entry is per workspace. The copilot pack's list names its login service, whose entries are the host Copilot's own keychain items rather than sealed-file entries | *(coined here)* |
 | **login copy** | Route D of [OQ-CT1](../research/copilot-token-storage.md#OQ-CT1): copying only Copilot's `copilotTokens` entries between workspaces, in plain text | *(coined here)* |
 
 ## 2. How Copilot and the other agents use a keychain
@@ -224,8 +236,9 @@ The login is a GitHub OAuth App token whose requested scopes include `repo` and 
 from the client id, the scope string and the token-prefix checks, [E13](#E13)). Two things follow.
 Sharing it has none of Claude's single-use refresh race, so no broker is needed. But one shared
 login gives every jail that selects Copilot read and write access to every repository the user can
-reach, and lets it create and manage the user's Codespaces, which is why [OQ-KC1](#OQ-KC1) is a
-real decision.
+reach, and lets it create and manage the user's Codespaces. Under [OQ-KC1](#OQ-KC1)'s ruling that
+login is also the host's own, so this is the reach of the host's Copilot login, held in every
+such jail ([§3.12](#312-risks)).
 
 ### 2.4 The other programs a jail runs
 
@@ -234,7 +247,7 @@ real decision.
 | `gh`, through go-keyring v0.2.8 | A `plain` session only. It reads the `Collections` property, uses `/org/freedesktop/secrets/collection/login` if that is listed and otherwise the alias path as a collection, then calls `SearchItems`, `CreateItem`, `Unlock`, `GetSecret` and `Session.Close`. Its service is `gh:<hostname>`. Each call gets 60 s, and a failed `Set` writes the token in plain text to `hosts.yml` (SOURCED, [E5](#E5)) | `plain`, the `Collections` property, and collection methods at the alias path |
 | libsecret clients (`secret-tool`, Python `keyring`, `git-credential-libsecret`) | `dh` first, then `plain` on `NotSupported` (SOURCED, [E6](#E6)) | `plain` or `dh` |
 | Codex | Its login store defaults to `File`. Its MCP OAuth store defaults to `Auto`, which uses the keyring when one can be reached (SOURCED, [E16](#E16)) | Moves its MCP logins only if it can see a bus |
-| Claude | A file on Linux. On macOS the keychain comes first and the file is the fallback ([`claudeview.go`](../../internal/claudeview/claudeview.go#L59-L62)) | Nothing on Linux. Relevant to [OQ-KC4](#OQ-KC4) |
+| Claude | A file on Linux. On macOS the keychain comes first and the file is the fallback ([`claudeview.go`](../../internal/claudeview/claudeview.go#L59-L62)) | Nothing on Linux, where it opens no bus. On macos-user, its refresh ownership stays the broker's whatever [OQ-KC5](#OQ-KC5) chooses ([§4.1](#41-macos-user-no-seam-and-no-keychain-provisioning)) |
 
 ## 3. The design
 
@@ -243,11 +256,11 @@ real decision.
 ```mermaid
 flowchart LR
     subgraph jail["container jail"]
-        cop["Copilot (linux build)"] -->|"D-Bus over a unix socket"| jss["in-jail Secret Service (single-tenant bus)"]
+        cop["Copilot, gh, Codex, any client (linux builds)"] -->|"D-Bus over a unix socket"| jss["in-jail Secret Service (single-tenant bus)"]
     end
     subgraph host["host"]
         hh["keychain host half"] --> files["sealed files (host state dir, never mounted)"]
-        hh --> os["OS keychain: one namespace key per item"]
+        hh --> os["OS keychain: one item per namespace key, plus the host Copilot's own login item"]
     end
     jss -->|"loopback-tls + connection preamble"| hh
     os -.->|"macOS: /usr/bin/security; Linux: the user's Secret Service"| hh
@@ -255,14 +268,16 @@ flowchart LR
 
 | Component | Runs where | Owns (the one writer) | Talks to |
 | :--- | :--- | :--- | :--- |
-| **In-jail Secret Service**, a `yolo-jaild` daemon | Inside the container | The bus, its sessions and object paths. No secret outlives a request | Jail clients over a unix socket, and the host half over `loopback-tls` |
-| **Keychain host half**, a loophole host daemon, one per jail under [HD-R1](host-daemon-ownership.md#HD-R1) | Host | The sealed files, under a per-namespace lock ([KC-D5](#KC-D5)) | The OS keychain, to read namespace keys, or create one under the namespace lock ([KC-D15](#KC-D15)) |
-| **OS keychain** | Host | The namespace key items, created by the host half and removable by the user | Nothing in yolo but the host half |
-| **Launch** | Host | Whether the route is on for this launch, the bus address in the agent env file, and the disclosure | The host half's readiness line ([KC-D13](#KC-D13)) |
+| **In-jail Secret Service**, a `yolo-jaild` daemon | Inside the container | The bus, its sessions and object paths. No secret outlives a request | Every jail client over one unix socket, and the host half over `loopback-tls` |
+| **Keychain host half**, a loophole host daemon, one per jail under [HD-R1](host-daemon-ownership.md#HD-R1) | Host | The sealed files, under a per-namespace lock ([KC-D5](#KC-D5)) | The OS keychain, to read namespace keys, or create one under the namespace lock ([KC-D15](#KC-D15)), and to read and write the host Copilot's own login item ([KC-D17](#KC-D17)) |
+| **OS keychain** | Host | The namespace key items, created by the host half and removable by the user. The host Copilot's login item, which the host Copilot and the host half both write | The host half, and the host's own Copilot |
+| **Launch** | Host | Whether the route is on for this launch, the bus address in the jail's environment, and the disclosure | The host half's readiness line ([KC-D13](#KC-D13)) |
 
-A new `keychain` pack ships the loophole, which declares both halves. An agent pack opts in with
-`needs` and declares its machine list ([KC-D12](#KC-D12)). Every loophole yolo ships belongs to a
-pack, and this one follows the same shape as `openai-auth`, which three agent packs `need`.
+A new `keychain` pack ships the loophole, which declares both halves. The route is on for a
+launch that selects the pack, directly or through a pack's `needs`. The copilot pack `needs` it
+and declares its machine list ([KC-D12](#KC-D12)); any pack may declare a machine list of its
+own. Every loophole yolo ships belongs to a pack, and this one follows the same shape as
+`openai-auth`, which three agent packs `need`.
 
 ### 3.2 The jail side: a single-tenant bus that is also the Secret Service
 
@@ -307,11 +322,12 @@ pack, and this one follows the same shape as `openai-auth`, which three agent pa
   client holds stays valid across requests and across a `SetAttributes`, which changes an entry's
   attributes but never its path. Two entries may carry identical attributes, as `CreateItem` with
   `replace=false` requires. The encoding is the implementer's choice.
-- **Which entries a client sees.** It sees its agent's machine namespace and this workspace's
-  namespace ([§3.4](#34-scoping-which-items-a-jail-may-read-or-write)). `CreateItem` places an
-  entry by its `service` attribute. If one attribute set exists in both tiers, which happens after
-  a machine list changes, the tier the current list assigns wins. The other is hidden, never
-  deleted.
+- **Which entries a client sees.** Every client sees this workspace's namespace, the machine
+  namespace of each selected pack that declares a machine list, and, when the copilot pack is
+  selected, the host Copilot's own login items
+  ([§3.4](#34-scoping-which-items-a-jail-may-read-or-write)). `CreateItem` places an entry by its
+  `service` attribute. If one attribute set exists in both tiers, which happens after a machine
+  list changes, the tier the current list assigns wins. The other is hidden, never deleted.
 - **The cryptography is Go's standard library.** `dh` uses the 1024-bit IETF Second Oakley Group
   (`math/big`), HKDF-SHA256 with a NULL salt and empty info giving a 128-bit key (`crypto/hkdf`),
   and AES-128-CBC with PKCS7 padding and a 16-byte IV carried in the secret's parameters. Public
@@ -343,6 +359,30 @@ in the keychain.
 > **That directory must never be mounted into any jail, and must never move under `cache/`,**
 > which every jail mounts read-write. A jail that can read its sealed file still cannot open it,
 > but a jail that can write it can delete every workspace's entries.
+
+**Copilot's login is the host Copilot's own item, not a sealed-file entry** ([OQ-KC1](#OQ-KC1),
+[KC-D17](#KC-D17)). One login serves the host and every jail, and the host's Copilot keeps its
+login in the keychain itself ([§4.2](#42-yolo-host-already-right)), so that item is the one
+login:
+
+- **Which items.** Those whose `service` is on the copilot pack's machine list
+  ([OQ-KC2](#OQ-KC2)), in the store the host Copilot uses: the user's default keychain on macOS
+  ([E12](#E12)), the user's default collection on Linux. On macOS, `security` finds an item by
+  service and account; how the host half learns the accounts without listing the whole keychain
+  is the implementer's, within the rule that it reads nothing of any other service.
+- **Read at start, written through.** The host half reads those items when it reads its keys,
+  and holds them in memory. A jail's `copilot login` or logout writes the host item at once,
+  under the machine lock. A login or logout made by the host's own Copilot reaches a running
+  jail at that jail's next launch.
+- **Access.** On Linux the Secret Service has no per-application rules, so there is no dialog
+  ([E4](#E4)). On macOS the item was created by the host's Copilot, so the first read by
+  `/usr/bin/security` raises the OS dialog *"security wants to use … in your keychain"* (Deny /
+  Allow / Always Allow, [E11](#E11)) at launch, while the user is at the terminal. "Allow" asks
+  again at the next launch. "Always Allow" adds `security` to that item's access list, which lets
+  any program the user runs read the token through `security` with no dialog (INFERRED). An item
+  a jail's login creates is created by `security`, so the host's Copilot is the one asked the
+  first time it reads it (INFERRED, [E11](#E11)). Denied, the jail's Copilot login is off for
+  that launch and Copilot asks for its own ([§3.7](#37-failure-paths)).
 
 **Why a sealed file rather than one keychain item per secret** ([KC-D4](#KC-D4)). On macOS, two
 constraints push this way:
@@ -377,9 +417,11 @@ With sealed files, the OS adapter does two things per OS, read a key and create 
 keychain stays the thing whose unlock the user controls. Delete the key item and the next launch
 in that namespace starts it empty, which is a logout of every entry in it.
 
-**When the host half touches the keychain.** It reads or creates its namespace keys **once, when it
-starts, before it writes its readiness line** ([KC-D5](#KC-D5)). For Copilot that means the machine
-namespace and this workspace's namespace.
+**When the host half touches the keychain.** It reads or creates its namespace keys, and reads
+the host Copilot's login items, **once, when it starts, before it writes its readiness line**
+([KC-D5](#KC-D5)). That means this workspace's namespace, each selected pack's machine namespace,
+and, when copilot is selected, the host Copilot's login items. The only later touch is a
+write-through of a Copilot login or logout.
 
 - **A locked keychain shows the OS's own unlock dialog at launch,** while the user is at the
   terminal: macOS's SecurityAgent, or the desktop's keyring prompter. The launch waits for the
@@ -396,9 +438,11 @@ namespace and this workspace's namespace.
   key is fetched, and the next launch finds the keychain unlocked. The launch's own deadline for
   this host half is 10 s past the host half's wait. It is a backstop for a host half that hangs,
   and at that deadline the launch kills the host half's whole process group, as it does today.
-- **Keys stay in the host half's memory for its lifetime.** Requests never touch the keychain
-  again, so no dialog can open halfway through a Copilot call and race its unknown timeout
-  ([§2.3](#23-what-copilot-keeps-there)).
+- **Keys stay in the host half's memory for its lifetime.** Requests never read the keychain
+  again, so no unlock dialog can open halfway through a Copilot call and race its unknown timeout
+  ([§2.3](#23-what-copilot-keeps-there)). The one exception is a write-through of Copilot's login
+  on macOS, which may raise the access dialog while the user is running `copilot login`
+  (INFERRED, [§3.12](#312-risks)).
 - **The sealed file is re-read on every request,** under a per-namespace lock, because another
   jail may have written it. Nothing about it is cached.
 
@@ -436,10 +480,12 @@ rules:
 
 **What the host half never does:**
 
-- It never reads, writes, lists or deletes a keychain item that lacks yolo's marker: the
-  `yolo-jail keychain` service on macOS, or the `yolo-jail-namespace` attribute on Linux.
-- It never answers a jail's search from the host keychain. Every search is answered from sealed
-  files.
+- It never reads, writes, lists or deletes a keychain item that lacks yolo's marker (the
+  `yolo-jail keychain` service on macOS, or the `yolo-jail-namespace` attribute on Linux), with
+  one exception: the host Copilot's login items, whose `service` is on the copilot pack's
+  machine list, and only when this launch selects the copilot pack.
+- It never answers a jail's search from the host keychain beyond those items. Every other search
+  is answered from sealed files.
 - It never passes a secret on an argv.
 - It never falls back to another bus.
 
@@ -448,8 +494,8 @@ rules:
 **The limit is enforced on the host side, by namespace, and never by trusting what the jail
 sends** ([KC-D7](#KC-D7)).
 
-- **The workspace part of an id comes from the host.** An id is `<agent>/machine` or
-  `<agent>/workspace/<container name>`. The host half is one per jail, so its workspace is fixed
+- **The workspace part of an id comes from the host.** An id is `workspace/<container name>`
+  or `<pack>/machine`. The host half is one per jail, so its workspace is fixed
   when it starts, and the launch hands it the container name as a startup input
   ([§3.14](#314-what-yolo-itself-must-change)). The container name is already yolo's workspace
   identity, derived from the workspace's resolved host path
@@ -462,32 +508,32 @@ sends** ([KC-D7](#KC-D7)).
   preamble is not needed for scoping anyway: the host half's bearer token is per (jail, service),
   so no other jail reaches it
   ([the endpoint file](../reference/loophole-transport.md#the-endpoint-file-is-a-credential)).
-- **The agent part comes from the client, so the host half checks it.** One in-jail daemon serves
-  every opted-in agent's socket and names the agent on each request by the socket the connection
-  arrived on ([§3.5](#35-who-gets-the-bus-address)). A jail holds its own endpoint token by design
-  ([the threat model](../reference/loophole-transport.md#threat-model)), so any process in it can
-  reach the host half directly and name any agent. So the launch hands the host half the set of
-  agents this launch opted in, as a startup input and never over the connection, and the host
-  half refuses a request that names any other agent. Once a second pack opts in
-  ([OQ-KC3](#OQ-KC3)), a jail that selects only Codex still cannot read Copilot's machine
-  namespace.
-- **Tier assignment is a rule inside that boundary, not the boundary itself.** An entry is
-  machine-tier when its `service` attribute is on the agent's machine list, and workspace-tier
-  otherwise. A jail that sends any attributes it likes can still only land in the machine and
-  workspace namespaces of the agents this launch opted in.
+- **The machine tier comes from the launch, never from the client.** Every program in the jail
+  shares one socket ([§3.5](#35-who-gets-the-bus-address)), and any process in the jail can reach
+  the host half directly, since a jail holds its own endpoint token by design
+  ([the threat model](../reference/loophole-transport.md#threat-model)). So the launch hands the
+  host half, as a startup input and never over the connection, the machine lists of the packs
+  this launch selected. An entry whose `service` is on one of those lists is that pack's
+  machine-tier entry, and for the copilot pack that means the host Copilot's own item
+  ([§3.3](#33-the-host-side-the-doorway-into-the-real-keychain)). Every other entry is
+  workspace-tier. A jail that does not select the copilot pack therefore stores a `copilot-cli`
+  entry in its own workspace namespace and never reaches the host's Copilot login.
+- **So a jail can land only in its own workspace namespace and the machine tiers of the packs it
+  selected,** whatever attributes it sends.
 
 | Who | Can read | Can write |
 | :--- | :--- | :--- |
-| Any process of the jail's uid, in this workspace | For each agent this launch opted in, every entry in that agent's machine namespace and in this workspace's namespace. This matches today's exposure: `config.json` is readable by the same processes | The same namespaces |
-| A jail in another workspace | The machine namespace of each agent that launch opted in, and never this workspace's namespace | The same |
+| Any process of the jail's uid, in this workspace | Every entry in this workspace's namespace, whichever program stored it, and the machine tier of each pack this launch selected: with copilot selected, the host's own Copilot login. This matches today's exposure for the workspace's files: `config.json` and `hosts.yml` are readable by the same processes | The same |
+| A jail in another workspace | The machine tier of each pack that launch selected, and never this workspace's namespace | The same |
+| The host's own Copilot | Its own login item, which is the jails' machine login | The same: a host login or logout reaches every jail at its next launch |
 | Any jail, for the user's other keychain items | **Nothing**, by any request ([§3.3](#33-the-host-side-the-doorway-into-the-real-keychain)) | Nothing |
-| The user on the host | The namespace keys, in Keychain Access or Seahorse, each labeled with its agent and tier. Not the entries: those are in the sealed files, and no app of the OS opens them | Can delete a namespace key, which logs out that namespace at its next launch ([§3.3](#33-the-host-side-the-doorway-into-the-real-keychain)) |
+| The user on the host | The namespace keys, in Keychain Access or Seahorse, each labeled with its tier, and Copilot's login item as Copilot labels it. Not the sealed entries: no app of the OS opens those | Can delete a namespace key, which logs out that namespace at its next launch ([§3.3](#33-the-host-side-the-doorway-into-the-real-keychain)), or Copilot's item, which logs Copilot out everywhere |
 
 > [!NOTE]
 > **The socket is not an identity check within the jail.** Every process in the jail runs as one
-> uid, so any of them can connect to the socket whether or not its environment names it
-> ([§3.5](#35-who-gets-the-bus-address)). The boundaries that hold are the jail and the
-> namespace. The threat model is the same one the credential gate already accepts for agent env
+> uid, and every one of them has the address ([§3.5](#35-who-gets-the-bus-address)). The
+> boundaries that hold are the jail, the workspace namespace and the selected packs' machine
+> lists. The threat model is the same one the credential gate already accepts for agent env
 > files ([`providers.md`](../reference/providers.md#L414-L416)).
 
 **This follows HS-D15 with one deliberate difference** ([KC-D8](#KC-D8)). The in-jail Secret
@@ -501,29 +547,28 @@ socket's owner-only mode and the peer uid, because D-Bus clients carry no token.
 
 ### 3.5 Who gets the bus address
 
-**The address reaches the opted-in agent only, through its agent env file** ([KC-D9](#KC-D9)). That
-is my leaning in [OQ-KC3](#OQ-KC3).
+**Every program in the jail, by the maintainer's ruling on [OQ-KC3](#OQ-KC3):** *"every program
+that could use a keychain should be allowed to use the keychain if we can securely manage this
+and pass this through."* The secure part is the scoping of
+[§3.4](#34-scoping-which-items-a-jail-may-read-or-write): a program's entries stay in this
+workspace unless a selected pack declares their `service` machine-wide ([KC-D18](#KC-D18)).
 
-- **Each opted-in agent gets its own socket,** for example `copilot.sock`, and its own value
-  `DBUS_SESSION_BUS_ADDRESS=unix:path=<dir>/copilot.sock`. The in-jail daemon names the agent to
-  the host half by the socket a connection arrives on. That is a routing key, not a security
-  check (the note in [§3.4](#34-scoping-which-items-a-jail-may-read-or-write)), and the host half
-  refuses any agent this launch did not opt in.
-- **The launch writes it only when the route is on** for that launch
-  ([§3.7](#37-failure-paths)). It is a new kind of value for the credential gate, which today
-  writes an agent env file only for an agent with a profile selected
-  ([`providers.md`](../reference/providers.md#the-credential-gate)). Copilot usually has none
+- **One socket and one address for the whole jail,**
+  `DBUS_SESSION_BUS_ADDRESS=unix:path=<dir>/bus`, in the environment every process in the jail
+  inherits. No per-agent socket and no agent env file carries it.
+- **The launch sets it only when the route is on** for that launch
+  ([§3.7](#37-failure-paths)). It is a launcher-side value, never an ungated pack `env` value:
+  an ungated value is static and reaches the jail whether or not the host half came up
+  ([`tokens.go`](../../internal/loopholedecl/tokens.go#L42-L43)), and an address with no service
+  behind it would make every client fail instead of using its own fallback. The launch's channel
+  into the jail's environment is the implementer's choice
   ([§3.14](#314-what-yolo-itself-must-change)).
-- **An attach takes the route from the running jail.** An attach rewrites every agent env file
-  ([`providers.md`](../reference/providers.md#the-credential-gate)) but starts no host half, so it
-  cannot decide the route itself. It probes the endpoint the running jail's host half published.
-  If the endpoint answers, the attach writes the address. If not, it writes none and prints the
-  "not available" line of [§3.6](#36-disclosure-at-launch). A host half publishes only after it
-  has its keys ([§3.14](#314-what-yolo-itself-must-change)), so an endpoint that answers means
-  the route is on.
-- **Never as an ungated pack `env` value.** An ungated value reaches every process in the jail
-  ([`tokens.go`](../../internal/loopholedecl/tokens.go#L42-L43)), and it would move Codex's MCP OAuth
-  logins and `gh` along with Copilot ([§2.4](#24-the-other-programs-a-jail-runs)).
+- **An attach takes the route from the running jail.** An attach starts no host half, so it
+  cannot decide the route itself, and it inherits the address the fresh launch set. It probes the
+  endpoint the running jail's host half published. If the endpoint does not answer, it prints the
+  "not available" line of [§3.6](#36-disclosure-at-launch), and clients then get the errors of
+  [§3.7](#37-failure-paths). A host half publishes only after it has its keys
+  ([§3.14](#314-what-yolo-itself-must-change)), so an endpoint that answers means the route is on.
 - **Never at `yolo host`.** The host notch already withholds a pack pointer at a jail daemon
   ([`host.go`](../../internal/cli/host.go#L1628-L1631)), and no loophole host daemon starts there
   ([HS-D20](host-notch-services.md#HS-D20)).
@@ -531,31 +576,31 @@ is my leaning in [OQ-KC3](#OQ-KC3).
   ([`claudesecurestorage.go`](../../internal/cli/run/claudesecurestorage.go#L18-L21)).
 - **`XDG_RUNTIME_DIR` is not set.** Setting it would change where unrelated programs look for
   their runtime files.
-- **Copilot's child processes inherit it.** Its shell tool can reach the bus, so a `gh auth login`
-  run from inside Copilot stores its token in Copilot's workspace namespace, and `gh` then removes
-  `oauth_token` from `hosts.yml` (SOURCED, [E5](#E5)). A `gh` the user runs from their own jail
-  shell has no bus address, finds no token, and reports that it is not logged in. **So a login
-  made from inside Copilot is invisible to `gh` everywhere else.** The exposure is the same as
-  `config.json`'s today, and it is disclosed ([§3.6](#36-disclosure-at-launch)).
-  [OQ-KC3](#OQ-KC3) is where this is ruled.
+- **What moves.** `gh` keeps its jail login in the keychain rather than `hosts.yml`, and removes
+  `oauth_token` from `hosts.yml` once it has (SOURCED, [E5](#E5)). Codex's MCP OAuth logins,
+  Python `keyring` and `git-credential-libsecret` move too ([§2.4](#24-the-other-programs-a-jail-runs)).
+  All of it is per workspace, so a `gh auth login` in one shell, or one Copilot runs, is seen by
+  every shell of that workspace's jail and by no other workspace. No pack declares `gh`'s service
+  machine-wide; doing so would be a decision of its own, like [OQ-KC2](#OQ-KC2)'s.
 
 ### 3.6 Disclosure at launch
 
 A launch has no quiet mode ([OQ-RO3](../reference/report-tiers.md#why-its-this-way)), so every
-launch that selects an opted-in agent prints one line naming where that agent's secrets go.
+launch with the route on prints one line naming where the jail's secrets go.
 **Never a value.** Login names such as `github.com:<login>` are not credentials and may appear.
 
 ```text
-Keychain: copilot's secrets are sealed in ~/.local/share/yolo-jail/keychain, locked by keys in your login keychain
-  (items "yolo-jail: copilot, all workspaces" and "yolo-jail: copilot, workspace ~/code/app").
-  Machine-wide: entries with service copilot-cli; logins held: github.com:<login>. Everything else: this workspace only.
+Keychain: every program in this jail has a keychain. Its secrets are sealed in ~/.local/share/yolo-jail/keychain,
+  locked by a key in your login keychain (item "yolo-jail: workspace ~/code/app"); this workspace only.
+  Copilot's login is your own host Copilot login (service copilot-cli; logins held: github.com:<login>),
+  shared with Copilot on this machine and every jail that selects copilot.
 ```
 
 On Linux the first line says "your desktop keyring". While the launch waits on an unlock dialog
 ([§3.3](#33-the-host-side-the-doorway-into-the-real-keychain)):
 
 ```text
-Keychain: waiting for your login keychain to be unlocked (up to 120 s; without it, copilot's keychain is off for this launch).
+Keychain: waiting for your login keychain to be unlocked (up to 120 s; without it, this jail's keychain is off for this launch).
 ```
 
 ```text
@@ -567,10 +612,11 @@ Keychain: not available for this launch (no Secret Service on this session's D-B
   your keychain; stores sealed files under ~/.local/share/yolo-jail/keychain"*. Today's footprint
   derives every loophole claim from what the manifest declares, such as a host daemon's argv, so
   a claim written out in words is a new manifest field ([§3.14](#314-what-yolo-itself-must-change)).
-- The line names the machine list as declared, so a wrong list is visible at the first launch.
+- The line names each selected pack's machine list as declared, so a wrong list is visible at
+  the first launch.
   With a wrong list, the login stays per workspace, which is the safe direction to fail.
-- The line names each login the machine namespace holds, so a second GitHub account arriving from
-  another workspace is visible ([OQ-KC2](#OQ-KC2)).
+- The line names each login the machine tier holds, so a second GitHub account arriving from
+  another workspace or from the host is visible ([OQ-KC2](#OQ-KC2)).
 
 ### 3.7 Failure paths
 
@@ -578,6 +624,7 @@ Keychain: not available for this launch (no Secret Service on this session's D-B
 | :--- | :--- | :--- | :--- |
 | Launch probe (Linux host) | No `DBUS_SESSION_BUS_ADDRESS`, or `org.freedesktop.secrets` neither owned nor activatable | The route is off for this launch, no address is written, and the login copy applies | The launch line gives the reason |
 | Key fetch (either OS) | Locked keychain and no answer within 120 s, a session that cannot show a dialog (macOS over SSH: "User interaction is not allowed"), or the item was refused | The same | The same |
+| Copilot's host login item (macOS) | The user answers Deny to the access dialog, or it times out | The route stays on for every other entry. Copilot's machine login is off for this launch, so a Copilot login made here is refused rather than stored elsewhere, and Copilot asks for plain-text consent as it does today | The launch line says Copilot's login is off and why |
 | Host half start | The host half crashes, or neither writes its readiness line nor exits within the launch's backstop ([§3.8](#38-defaults-and-limits)) | The same. At the backstop, the launch kills the host half's process group | The same, naming the host half's log |
 | Apple Container | No host half starts ([E23](#E23)) | The same | The line names Apple Container |
 | A request, mid-session | The host half is gone, or its sealed file cannot be written | The in-jail service answers that request with `org.freedesktop.DBus.Error.Failed` and **never reports success for a write it did not make**. For the login, Copilot then does what it does today and asks for plain-text consent. For an MCP secret, Copilot's own rule is *"A failure never switches storage"* ([E15](#E15)), so the failure is visible and final: saving or using that MCP server's secret fails, and nothing falls back | The jail's boot log records it, and the client sees an error |
@@ -613,8 +660,11 @@ None of these is a config key in v1.
   Copilot's fallback read would find the copy and log the user back in. A launch that switches
   between SSH (route off) and the desktop (route on) would hit this routinely. The rule is in
   [§5](#5-the-fallback-copy-only-copilottokens-and-say-so).
-- **The user's other keychain items,** including the host Copilot's own, are never read
-  ([OQ-KC1](#OQ-KC1) is the one question that would change this).
+- **The host Copilot's own login is used as it is.** It is the machine login
+  ([OQ-KC1](#OQ-KC1)), so a host already logged in starts every jail logged in, with nothing
+  migrated. A login a workspace's jail made before this ships stays in that workspace's
+  `config.json`, as above.
+- **The user's other keychain items are never read.**
 - **Sealed files and key items are never reaped by yolo in v1.** A workspace that is deleted
   leaves a labeled key item that the user can remove. Reaping by `yolo prune` is a follow-up.
 
@@ -622,10 +672,10 @@ None of these is a config key in v1.
 
 - **Not an interposer on macOS Security.framework.** Nothing here reaches darwin Copilot
   ([§4](#4-macos-user-and-yolo-host)).
-- **Not a keychain for every program by default.** That is [OQ-KC3](#OQ-KC3), and the leaning is
-  no.
-- **Not a GitHub credential channel for the jail.** The jail's Copilot logs in itself.
-  [OQ-KC1](#OQ-KC1) option B is the only form of this design that would move a host credential in.
+- **Not a channel for any host credential but Copilot's login.** [OQ-KC1](#OQ-KC1) makes the
+  host Copilot's login a jail credential, and nothing else crosses: not `gh`'s host login, not
+  any other keychain item.
+- **Not a keychain of the sandbox account's own** on macos-user ([OQ-KC4](#OQ-KC4)).
 - **Not a migration of plain-text logins** ([§3.9](#39-state-that-already-exists)).
 - **Not a management verb.** The key items carry human labels, so the OS's own keychain app lists
   and removes them.
@@ -642,6 +692,9 @@ None of these is a config key in v1.
 | One keychain item per secret | **Rejected on macOS** for the 4 KB `security -i` limit and the listing problem. **Rejected on Linux**, where neither applies, because every request would reach the desktop keyring and could raise a dialog mid-call, and because it would be a second storage design to write and test ([§3.3](#33-the-host-side-the-doorway-into-the-real-keychain)). What it would buy there: Seahorse would show and remove each entry, not only each namespace key |
 | The host half publishes at once, and the launch waits on a separate key-fetch outcome | **Rejected.** The launch still has to wait before it writes the agent env file, so this adds a second channel from host half to launch rather than removing one. And a published endpoint would no longer mean the route is on, which the attach rule relies on ([§3.5](#35-who-gets-the-bus-address)) |
 | Model the host lock with Secret Service prompts during a call | **Rejected for v1.** Fetching keys at launch leaves no mid-call dialog to model. Revisit if keys ever have to be fetched lazily |
+| A yolo-owned Copilot login shared only by jails, apart from the host's own | **Rejected** by [OQ-KC1](#OQ-KC1)'s ruling: one login serves the host and the jails. It would have kept the host's token out of every jail, at the price of a second login |
+| Give the jail's address to opted-in agents only, one socket each | **Rejected** by [OQ-KC3](#OQ-KC3)'s ruling: every program gets the keychain. It would have made a `gh auth login` run from Copilot invisible to `gh` in the user's own jail shell |
+| A dedicated keychain for the macos-user sandbox account | **Rejected** by [OQ-KC4](#OQ-KC4)'s ruling: the keychain is always the host's. It would have needed its own unlock, lock and reboot policy, and would have been shared by every native workspace |
 | Route A of [OQ-CT1](../research/copilot-token-storage.md#OQ-CT1): force plain text and share `config.json` | **Rejected** in the research ([§5 there](../research/copilot-token-storage.md#5-why-the-hook-was-not-shipped)) |
 | Route B of [OQ-CT1](../research/copilot-token-storage.md#OQ-CT1): a fine-grained token in `env_sources` | **Still available**, and it needs nothing from yolo, for someone who wants no stored login at all. No user-guide recipe for it exists yet: the guide's `env_sources` token advice names `GH_TOKEN` for `gh`, and nothing under `userguide/` names `COPILOT_GITHUB_TOKEN` |
 
@@ -651,19 +704,23 @@ None of these is a config key in v1.
 | :--- | :--- |
 | Copilot 1.0.89's service name is not `copilot-cli`, so the machine list misses | The login stays per workspace, which fails safe. The launch line names the list. A human login in [§6](#6-build-order) settles it |
 | Copilot moves to another keyring backend or a new call | Implement `plain` as well as `dh`, and implement the collection surface that `gh` needs even though `gh` is not pointed at the service by default. A new call answers `UnknownMethod`. For the login, Copilot falls back to its plain-text prompt; for an MCP secret the call fails visibly ([§3.7](#37-failure-paths)). Neither is a silent loss |
-| A compromised jail writes an attacker's token into the machine namespace, and every jail's Copilot then acts as that account | The same exposure Claude's shared credential file has today ([`agent-credentials.md`](../reference/agent-credentials.md#where-each-agents-credentials-live)). It is limited to the agent's machine namespace, and the launch line names that namespace |
+| **The host's Copilot login is a jail credential** ([OQ-KC1](#OQ-KC1)). Any process in a jail that selects copilot can read a token with `repo` and `codespace` scopes ([§2.3](#23-what-copilot-keeps-there)), and it is the token the host's own Copilot uses | Accepted by the ruling. What limits it: only jails that select copilot reach it ([§3.4](#34-scoping-which-items-a-jail-may-read-or-write)), the launch line names it, and the user revokes it by logging out or by revoking the OAuth app on GitHub, which logs out the host too |
+| A compromised jail logs the host out, or writes an attacker's token into Copilot's host item, so the host's Copilot and every jail then act as that account | Limited to Copilot's login service; the launch line names every login the item holds. The same class of exposure as Claude's shared credential file today ([`agent-credentials.md`](../reference/agent-credentials.md#where-each-agents-credentials-live)), extended to the host |
+| On macOS, "Always Allow" lets any program the user runs read Copilot's token through `security` with no dialog (INFERRED, [§3.3](#33-the-host-side-the-doorway-into-the-real-keychain)) | The launch's waiting line suggests "Allow", which asks again at the next launch. Linux has no such dialog at all: any process with the user's session bus could already read the item |
+| **Every program's secrets move into the keychain route** ([OQ-KC3](#OQ-KC3)), including those of programs nobody has checked | Per workspace unless a selected pack declares them machine-wide, so no program's entry is shared by default. A failed write never reports success ([§3.7](#37-failure-paths)), and each client keeps its own fallback |
 | A jail floods the host half with writes | The limits in [§3.8](#38-defaults-and-limits) |
 | A developer verifies in a nested jail and sees the route off | Expected: the outer jail has no keychain. [§6](#6-build-order) says how to turn it on there |
 
 ### 3.13 What done looks like
 
-1. With `podman` on a Linux desktop, `copilot login` in workspace A never shows the plain-text
-   prompt. Seahorse lists "yolo-jail: copilot, all workspaces", and workspace B's Copilot starts
-   logged in.
-2. With `podman` on a Mac, the same, with Keychain Access listing the item and no access dialog on
-   any later launch.
-3. In a jail shell with the address exported, `secret-tool store` and `secret-tool lookup` round
-   trip over both `dh` and `plain`.
+1. With `podman` on a Linux desktop where the host's Copilot is logged in, workspace A's Copilot
+   starts logged in as the same account and never shows the plain-text prompt. A `copilot logout`
+   in A logs out the host's Copilot and workspace B's.
+2. With `podman` on a Mac, the same, with the access dialog shown at launch and answered there,
+   never in the middle of a Copilot call.
+3. In a jail shell, with no export, `secret-tool store` and `secret-tool lookup` round trip over
+   both `dh` and `plain`, and `gh auth login` there is seen by `gh` in another shell of the same
+   jail and not in another workspace.
 4. A host keychain item that another app created, with the same attributes a jail searches for, is
    never returned to the jail.
 5. Over SSH into a Mac with a locked keychain, the launch prints the "not available" line with its
@@ -671,7 +728,8 @@ None of these is a config key in v1.
 6. `yolo host -- copilot` gets no yolo bus address, and Copilot uses the user's own keychain.
 7. No TCP port is opened for this in the jail, and a process of another uid cannot connect to the
    socket.
-8. A request that names an agent this launch did not opt in is refused by the host half.
+8. A jail that does not select copilot stores a `copilot-cli` entry in its workspace namespace,
+   and never reads or writes the host's Copilot item.
 9. With two jails running, deleting the machine key item and starting a third launch resets the
    namespace once. The two running jails' requests then fail, and no further key is created.
 10. An attach to a jail whose route is on writes the bus address. An attach after that jail's host
@@ -679,20 +737,21 @@ None of these is a config key in v1.
 
 ### 3.14 What yolo itself must change
 
-This design needs seven changes outside the new pack. Each touches a shared part of yolo, so each
+This design needs seven changes outside the new pack, not counting macos-user's route
+([OQ-KC5](#OQ-KC5)). Each touches a shared part of yolo, so each
 is listed here for its size rather than left to the build ([§6](#6-build-order) step 3).
 
 | Change | Why this design needs it | What yolo does today |
 | :--- | :--- | :--- |
 | **A readiness budget and a reason line for a loophole's host daemon** ([KC-D13](#KC-D13)). A manifest may declare that its host daemon writes the readiness line, with a budget above the default. The launch then waits for that line instead of probing the endpoint. It prints a `waiting <name> <what>` line when the daemon writes one, a third line kind added for this, and reports the reason from `failed <name> <reason>` | The key fetch can wait up to 120 s on an unlock dialog ([§3.3](#33-the-host-side-the-doorway-into-the-real-keychain)), and the route-off line must give its reason ([§3.7](#37-failure-paths)) | Every loophole host daemon gets a fixed 5 s, and no manifest setting changes it. Past that, the launch SIGKILLs the daemon's whole process group, which would include a `security` child showing a dialog, and prints only "did not become reachable within 5s" (MEASURED, [E24](#E24)). The readiness line exists, but only the jail's daemon supervisor and the host notch's launch-owned services read it |
-| **A launcher-side value for an agent with no profile selected** | The bus address goes to the opted-in agent's own env file ([KC-D9](#KC-D9)) | The credential gate writes an agent env file only for an agent with a profile selected ([`providers.md`](../reference/providers.md#the-credential-gate)) |
-| **A startup input for the host half**, naming the container and the agents this launch opted in | The workspace key and the agent check of [§3.4](#34-scoping-which-items-a-jail-may-read-or-write) | A host daemon's argv can carry its endpoint, the loophole's own module directory, its state directory and a settings file of the user's values, and the last two are keyed by the loophole's name, not by a jail. Nothing tells it which container it serves or which packs selected it (MEASURED, [E25](#E25)) |
-| **A machine-list field** in an agent pack's manifest ([KC-D12](#KC-D12)) | Tier assignment ([§3.4](#34-scoping-which-items-a-jail-may-read-or-write)) and the disclosure line | No such field |
+| **A launcher-side value in the jail's whole environment, set only when the route is on** | The bus address goes to every process in the jail ([KC-D18](#KC-D18)) | The credential gate writes per-agent env files, and only for an agent with a profile selected ([`providers.md`](../reference/providers.md#the-credential-gate)). A pack `env` value reaches the whole jail but is static |
+| **A startup input for the host half**, naming the container and the selected packs' machine lists | The workspace key and the machine tier of [§3.4](#34-scoping-which-items-a-jail-may-read-or-write) | A host daemon's argv can carry its endpoint, the loophole's own module directory, its state directory and a settings file of the user's values, and the last two are keyed by the loophole's name, not by a jail. Nothing tells it which container it serves or which packs selected it (MEASURED, [E25](#E25)) |
+| **A machine-list field** in a pack's manifest ([KC-D12](#KC-D12)) | Tier assignment ([§3.4](#34-scoping-which-items-a-jail-may-read-or-write)) and the disclosure line | No such field |
 | **A footprint claim written out in words** | The keychain crossing ([§3.6](#36-disclosure-at-launch)) is not any argv, bind or file a manifest declares | Every loophole claim is derived from the manifest's declarations |
-| **An attach rule** ([KC-D14](#KC-D14)) | An attach rewrites every agent env file but starts no host half ([§3.5](#35-who-gets-the-bus-address)), and must not merge into a `config.json` a running Copilot may write ([§5](#5-the-fallback-copy-only-copilottokens-and-say-so)) | An attach rewrites every agent env file ([`agentenvfiles.go`](../../internal/cli/run/agentenvfiles.go#L7-L20)) and starts no loophole host daemon: it returns before the launch reaches that step ([`run.go`](../../internal/cli/run/run.go#L1448-L1455), [`run.go`](../../internal/cli/run/run.go#L1584)) |
+| **An attach rule** ([KC-D14](#KC-D14)) | An attach starts no host half, so it must say when the route it inherits is dead ([§3.5](#35-who-gets-the-bus-address)), and must not merge into a `config.json` a running Copilot may write ([§5](#5-the-fallback-copy-only-copilottokens-and-say-so)) | An attach rewrites every agent env file ([`agentenvfiles.go`](../../internal/cli/run/agentenvfiles.go#L7-L20)) and starts no loophole host daemon: it returns before the launch reaches that step ([`run.go`](../../internal/cli/run/run.go#L1448-L1455), [`run.go`](../../internal/cli/run/run.go#L1584)) |
 | **A host-side step when a jail ends**, for the login copy's harvest | [§5](#5-the-fallback-copy-only-copilottokens-and-say-so) step 3 | A pack's hooks come from a closed set and run in the jail at boot ([`packhooks.go`](../../internal/entrypoint/packhooks.go#L1-L37)). At a jail's end, the host only stops its loophole daemons |
 
-The generic [host-service startup-diagnostics design](host-service-startup-diagnostics.md) now specifies a bounded failure-only reason channel and pure settings preflight within the existing readiness window. It does **not** add `ready`/`waiting` messages or extend that window for a keychain unlock prompt. [KC-D13](#KC-D13) remains a separate, unbuilt requirement; this handoff does not make the keychain route buildable on its own.
+The generic [host-service startup diagnostics](../reference/host-service-startup-diagnostics.md) now specify a bounded failure-only reason channel and pure settings preflight within the existing readiness window. It does **not** add `ready`/`waiting` messages or extend that window for a keychain unlock prompt. [KC-D13](#KC-D13) remains a separate, unbuilt requirement; this handoff does not make the keychain route buildable on its own.
 
 ## 4. macos-user and yolo host
 
@@ -711,25 +770,37 @@ The generic [host-service startup-diagnostics design](host-service-startup-diagn
   client's credential. This is human evidence of the setup gap, not a passing automated probe
   or proof of Copilot's exact behavior in every version. Copilot's older fallback analysis
   remains [E17](#E17).
-- **The human's own keychain is not the account's default.** Giving `_yolojail` a usable store
-  is not permission to mount or search another account's keychain. Filesystem access alone is
-  also not proof of a usable Security.framework session or item access control.
-- **An account-owned keychain is not automatically workspace-private.** All native workspaces
-  use `_yolojail`, and its `~/Library` is not linked separately for each workspace
-  ([the three tiers](../reference/macos-user-home-tiers.md#the-three-tiers-and-where-each-one-lives)).
-  Actual API access, locking and multi-workspace behavior require native verification.
+- **The keychain is the host's, by ruling.** On 2026-10-10 the maintainer ruled *"I want the
+  keychain to always be the host's keychain. It doesn't matter what our backend is. The values
+  will pass from the host somehow through whatever loophole setup we have for this"*
+  ([OQ-KC4](#OQ-KC4)). So yolo provisions no keychain for `_yolojail`, and the host half of
+  [§3.3](#33-the-host-side-the-doorway-into-the-real-keychain) is the one keeper of this
+  backend's entries too, the host Copilot's login item included. The dedicated account keychain
+  [the SandVault comparison](../research/sandvault-macos-privileges.md#the-dedicated-keychain-addresses-missing-keychain-startup-failures)
+  proposed is not taken ([§3.11](#311-alternatives-considered)).
+- **The ruling does not mean the sandbox searches the human's keychain.** Adding the user's login
+  keychain to the account's search list would hand every native process the user's unrelated
+  items, and the sandbox denies reads under `/Users` ([E22](#E22)). Values cross through the
+  loophole, scoped as [§3.4](#34-scoping-which-items-a-jail-may-read-or-write) scopes them.
+- **What is left open is the route.** Native clients call Security.framework on the account's
+  default keychain, which does not exist, and there is no seam yolo can serve. How values reach
+  them is [OQ-KC5](#OQ-KC5). Until it is built, this backend keeps the fallbacks of
+  [§5](#5-the-fallback-copy-only-copilottokens-and-say-so), and the missing-keychain dialog
+  remains.
+- **Claude's refresh ownership does not move.** Claude on macOS is keychain-first, and
+  [its shared credential bridge](claude-login-without-interception.md#CL-D22) keeps its login in
+  a file today. Whatever route [OQ-KC5](#OQ-KC5) picks must not put a second refresher on
+  Claude's login.
 
-A dedicated account keychain is the concrete candidate from
-[the SandVault comparison](../research/sandvault-macos-privileges.md#the-dedicated-keychain-addresses-missing-keychain-startup-failures).
-Upstream moved away from the login keychain because macOS could resynchronize its password
-after reboot. Do not assume an empty-password login keychain is a durable solution.
-
-Native clients other than Copilot may select the new store too. In particular, Claude's
-keychain-first behavior can change the backing store used by
-[its shared credential bridge](claude-login-without-interception.md#CL-D22). Inventory and test
-that interaction before migrating anything; keychain storage does not eliminate refresh races.
-[OQ-KC4](#OQ-KC4) still owns the policy. A safe probe uses harmless items, including repeated
-launch and reboot tests, not a real agent login or copied host credentials.
+**The existing probe.** `TestMacosUserKeychainProbe`
+([`macosuserkeychain_test.go`](../../integration/macosuserkeychain_test.go)), which
+`macos-user.yml` runs on a Mac, asks from inside a macos-user sandbox, as `_yolojail`: the default
+keychain and the search list; a keychain created on a throwaway file in the account's temp dir,
+set never to lock, locked, and unlocked with its password fed to `security -i` on stdin; an item
+added, then read back by a second process; and the keychain deleted. It never sets the default
+keychain, records every answer and asserts none. It was written for the dedicated-keychain
+option [OQ-KC4](#OQ-KC4) rejected; its default-keychain and search-list answers still describe
+what native clients see, which is input to [OQ-KC5](#OQ-KC5). No run is recorded.
 
 ### 4.2 yolo host: already right
 
@@ -743,6 +814,15 @@ adding only `yolo` and `statusLine`, so `copilotTokens` and `storeTokenPlaintext
 left them ([`pack.json`](../../packs/copilot/pack.json)). The one requirement on the new work:
 **nothing it adds may reach this notch** ([§3.5](#35-who-gets-the-bus-address)).
 
+**That item is the login every jail shares** ([OQ-KC1](#OQ-KC1)). A host already logged in
+starts every jail logged in, and a jail's login or logout reaches the host's Copilot. This holds
+for a Copilot the user launches directly as well as for `yolo host -- copilot`, unlike Codex,
+where a directly launched host Codex keeps its own login
+([OQ-OA3](../reference/agent-credentials.md#oq-oa3)). The difference is where the login lives:
+Codex's shared login is a file yolo would have to rewrite, while Copilot's is the keychain item
+Copilot itself manages, and the host half writes only what a Copilot login or logout would write
+there ([KC-D17](#KC-D17)).
+
 ## 5. The fallback: copy only `copilotTokens`, and say so
 
 This is route D. On 2026-09-29 the maintainer called it reasonable, *"although we should maybe
@@ -753,7 +833,7 @@ keychain route is off** ([KC-D1](#KC-D1)), and it is disclosed on every launch t
 **When it applies:** exactly the launches [§3.7](#37-failure-paths) turns the route off for. That
 means Apple Container, a Linux host with no Secret Service on the launch's bus, a Mac session that
 cannot unlock its keychain, a host half that failed to start, a nested jail by default, and
-macos-user unless [OQ-KC4](#OQ-KC4) gives the account a keychain.
+macos-user until the route [OQ-KC5](#OQ-KC5) chooses is built.
 
 **What it copies:** only the entries of the `copilotTokens` map. It never copies
 `storeTokenPlaintext` or any other key. Copilot reads `copilotTokens` when the keychain read fails
@@ -806,8 +886,7 @@ Copied Copilot's login for github.com:<login> into this workspace's ~/.copilot/c
   existing login, and the merge spreads the union. A user with a work account in one repository
   and a personal account in another ends with both in every workspace's `config.json`, readable
   by every jail, where today each stays in its own workspace. The disclosure names each login it
-  copies. [OQ-KC2](#OQ-KC2) weighs the same cost for the keychain route, and its option C would
-  limit this copy the same way.
+  copies. The keychain route carries the same cost, accepted with [OQ-KC2](#OQ-KC2)'s ruling.
 
 **A launch with the route on harvests, then removes, and never merges.** At its start, before
 Copilot can start, it harvests the workspace as step 3 does. Then it removes from `config.json`
@@ -829,21 +908,24 @@ What I would build, in order:
    Vendoring go-keyring itself as a test dependency is the implementer's call. One test forces a
    `dh` shared secret whose first byte is zero. This step closes the bus method set
    ([§3.2](#32-the-jail-side-a-single-tenant-bus-that-is-also-the-secret-service)).
-2. **The host half.** Namespaces, sealed files, the lock, key ids and the reset rule, the agent
-   check, and the two OS adapters. The Linux adapter is tested against step 1's own service,
-   standing in for a desktop keyring on a private bus, and the macOS adapter by the macOS CI job.
-   Tests plant a foreign item and assert it is never returned, refuse an agent outside the
-   opted-in set, and delete a key under two running host halves
+2. **The host half.** Namespaces, sealed files, the lock, key ids and the reset rule, the machine
+   tier, the read and write-through of the host Copilot's login item, and the two OS adapters. The
+   Linux adapter is tested against step 1's own service, standing in for a desktop keyring on a
+   private bus, and the macOS adapter by the macOS CI job, on a harmless item standing in for
+   Copilot's. Tests plant a foreign item and assert it is never returned, keep a `copilot-cli`
+   entry in the workspace when copilot is not selected, and delete a key under two running host
+   halves
    ([§3.13](#313-what-done-looks-like) items 4, 8 and 9).
 3. **Wiring.** First the changes to yolo itself in
    [§3.14](#314-what-yolo-itself-must-change). Then the `keychain` pack with both halves, the
    copilot pack's `needs` and provisional machine list, the launch probe and readiness outcome,
-   per-agent address delivery, the attach rule, the disclosure lines and the footprint claim. The
+   the jail-wide address, the attach rule, the disclosure lines and the footprint claim. The
    `-short` suite pins the call sites: deleting the probe, the readiness wait, the address write,
    the attach probe or the disclosure must fail a test.
 4. **A human login.** A person runs `copilot login` from a throwaway workspace in a real jail on
    a rootless host, once on a Linux desktop and once on a Mac. That records Copilot 1.0.89's
-   service name and attributes and confirms the machine list for [OQ-KC2](#OQ-KC2). The same
+   service name and attributes and confirms the machine list for [OQ-KC2](#OQ-KC2), and confirms
+   that the jail's Copilot reads the host Copilot's own item as its login. The same
    person measures two things no test can: whether a withdrawn request closes the OS's unlock
    dialog ([§3.3](#33-the-host-side-the-doorway-into-the-real-keychain)), and whether a running
    Copilot recovers when the in-jail daemon restarts ([§3.7](#37-failure-paths)). Automated
@@ -855,11 +937,11 @@ What I would build, in order:
 5. **The login copy** ([§5](#5-the-fallback-copy-only-copilottokens-and-say-so)), unit-tested on
    fixture `config.json` files: merge, harvest, a removal, two workspaces changing the same entry,
    the removal on a launch with the route on, and an attach that merges nothing.
-6. **macos-user,** after [OQ-KC4](#OQ-KC4)'s measurement.
+6. **macos-user,** once [OQ-KC5](#OQ-KC5) chooses its route to the host keychain.
 
 ## 7. Open questions
 
-1. 💬 **OQ-KC1: Should a jail's Copilot share the host's own Copilot login?**
+1. ✅ **OQ-KC1: Should a jail's Copilot share the host's own Copilot login?**
 
    The rule so far is that no host credential crosses into a jail
    ([the credential boundary](../reference/agent-credentials.md#the-credential-boundary)), and this
@@ -877,10 +959,20 @@ What I would build, in order:
    ([§2.3](#23-what-copilot-keeps-there)), so it can write to every repository the user can reach
    and create and manage their Codespaces. B makes the host's login a jail credential.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   **Answer:** **B in effect, ruled by the maintainer 2026-10-10:** *"Maybe this was decided since
+   then, but I thought we decided that we would, like for Claude, we share the login. There's one
+   YOLO login. It gets used at the host and in the jails, the same login. Copilot should be the
+   same."* One login serves the host and every jail. Copilot keeps its login in the host keychain
+   itself, so that login is the host Copilot's own item ([§3.3](#33-the-host-side-the-doorway-into-the-real-keychain),
+   [§4.2](#42-yolo-host-already-right)). No earlier ruling in this doc or in
+   [OQ-CT1](../research/copilot-token-storage.md#OQ-CT1) said so. The nearest precedent is the
+   OpenAI login, which jails and yolo-launched host agents share
+   ([OQ-OA3](../reference/agent-credentials.md#oq-oa3)); Claude's login is shared by every jail,
+   while the host's own Claude keeps an independent one
+   ([`agent-credentials.md`](../reference/agent-credentials.md#the-credential-boundary)). The
+   consequences are in [§3.12](#312-risks).
 
-2. 💬 **OQ-KC2: Which of Copilot's keychain entries are machine-wide?**
+2. ✅ **OQ-KC2: Which of Copilot's keychain entries are machine-wide?**
 
    With the keychain route on, a login and an MCP server's API key stored in workspace A both sit
    in yolo's namespaces. This decides whether workspace B sees the MCP key as well as the login.
@@ -898,10 +990,14 @@ What I would build, in order:
    on a user with two GitHub accounts, and it is visible: the launch line names every login the
    machine namespace holds ([§3.6](#36-disclosure-at-launch)). If that user is expected, C.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   **Answer:** **B, ruled by the maintainer 2026-10-10,** restating the leaning: only the login
+   entries on the pack's machine list are machine-wide, and every other Copilot secret stays per
+   workspace. The list is confirmed against a real 1.0.89 login ([§6](#6-build-order) step 4).
+   Under [OQ-KC1](#OQ-KC1) those entries are the host Copilot's own login items, so every GitHub
+   account logged in at the host or in any jail is in every Copilot jail, named on the launch
+   line ([§3.6](#36-disclosure-at-launch)).
 
-3. 💬 **OQ-KC3: Which programs in a jail get the keychain: Copilot only, or every program?**
+3. ✅ **OQ-KC3: Which programs in a jail get the keychain: Copilot only, or every program?**
 
    Today `gh` and Codex's MCP logins find no keychain in a jail and fall back to plain-text files.
    With the route on, yolo decides whether the bus address is Copilot's or the jail's. The setup
@@ -918,10 +1014,15 @@ What I would build, in order:
    checked what they store. The service implements what `gh` needs either way
    ([§3.12](#312-risks)), so B later is a delivery change, not a rebuild.
 
-   **Answer:**
-   > _(empty — fill in when decided)_
+   **Answer:** **B, ruled by the maintainer 2026-10-10:** *"If it makes sense, every program that
+   could use a keychain should be allowed to use the keychain if we can securely manage this and
+   pass this through or whatever. Definitely, I would rather use the keychain."* The address is
+   jail-wide ([§3.5](#35-who-gets-the-bus-address)). What keeps it secure is the scoping of
+   [§3.4](#34-scoping-which-items-a-jail-may-read-or-write): every program's entries are per
+   workspace unless a selected pack declares their `service` machine-wide, so the per-program
+   machine list survives as the only way to share an entry, not as an opt-in to the keychain.
 
-4. 💬 **OQ-KC4: On macos-user, should yolo give the sandbox account a keychain?**
+4. ✅ **OQ-KC4: On macos-user, should yolo give the sandbox account a keychain?**
 
    Setup does not provision an account keychain, and first-login reports now describe the
    missing-keychain dialog. Native account clients have no D-Bus seam. The consequences and
@@ -936,6 +1037,35 @@ What I would build, in order:
    _Leaning:_ B, subject to harmless native tests of item access, repeated launches and reboot
    behavior, plus an explicit unlock and workspace-sharing policy. Do not import the human's
    unrelated credentials or silently move Claude's refresh ownership.
+
+   **Answer:** **Neither, ruled by the maintainer 2026-10-10:** *"I want the keychain to always be
+   the host's keychain. It doesn't matter what our backend is. The values will pass from the host
+   somehow through whatever loophole setup we have for this."* No keychain of the account's own:
+   on every backend, macos-user included, values come from the host keychain through the keychain
+   loophole ([§4.1](#41-macos-user-no-seam-and-no-keychain-provisioning)). How they reach
+   macos-user's native clients, which have no seam, is [OQ-KC5](#OQ-KC5).
+
+5. 💬 **OQ-KC5: On macos-user, how do native clients get values from the host keychain?**
+
+   [OQ-KC4](#OQ-KC4) ruled the host's keychain on every backend, but darwin clients call
+   Security.framework on the account's own default keychain, with no seam
+   ([§4.1](#41-macos-user-no-seam-and-no-keychain-provisioning)).
+
+   - **A: Per program, through each one's own non-keychain input.** At launch the host half reads
+     the program's entries, and the launch hands each to an input that program already reads:
+     Copilot's login as `COPILOT_GITHUB_TOKEN` in its agent env file. A login made in the sandbox
+     comes back through the login copy's harvest. A program with no such input is not covered.
+   - **B: Interpose Security.framework** in the sandbox with an injected library that answers the
+     keychain calls from the loophole.
+
+   <!-- vantage: question id=OQ-KC5 leaning="A, per program through an input each already reads, starting with Copilot's login as COPILOT_GITHUB_TOKEN once a measurement shows Copilot accepts its own OAuth token there; B needs a C library outside the cgo-free build, and macOS strips injected libraries from hardened binaries." -->
+
+   _Leaning:_ A, starting with Copilot's login as `COPILOT_GITHUB_TOKEN`, once a measurement
+   shows Copilot accepts its own OAuth token there (unmeasured: the research names it for
+   fine-grained tokens, [route B](../research/copilot-token-storage.md#OQ-CT1)). The token is then
+   in the environment of Copilot's children, as `config.json` is readable by them today. B needs a
+   C library outside the `CGO_ENABLED=0` build, and macOS strips injected libraries from hardened
+   binaries.
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -1037,7 +1167,7 @@ this question rather than the whole measurement. No run is recorded.
 
 These include the implementation decisions within the maintainer's direction on
 [OQ-CT1](../research/copilot-token-storage.md#OQ-CT1) and the broader native-storage direction
-recorded on 2026-10-07. None is built.
+recorded on 2026-10-07. None is built. Rows revised on 2026-10-10 say so.
 
 | ID | Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
@@ -1047,16 +1177,18 @@ recorded on 2026-10-07. None is built.
 | <a id="KC-D4"></a>[`KC-D4`](#8-decision-ledger) | *Implementation decision.* Host storage is one AES-256-GCM sealed file per namespace, under a 256-bit key kept as one OS keychain item, on both OSes. On macOS it is chosen over one keychain item per secret because the `security -i` command is kept under about 4 KB (go-keyring's 4096-byte cap, Claude Code's 4032-byte threshold), capping a secret at about 3 KB, and because a namespace cannot be listed without listing the whole keychain. Neither applies on Linux. There it is chosen so that no request reaches the desktop keyring mid-call, and so that one storage design is written and tested, at the cost of Seahorse showing namespace keys rather than entries | 2026-09-29 | [§3.3](#33-the-host-side-the-doorway-into-the-real-keychain) | — |
 | <a id="KC-D5"></a>[`KC-D5`](#8-decision-ledger) | *Implementation decision.* Keys are fetched once, when the host half starts and before it writes its readiness line, waiting up to 120 s for an OS unlock dialog. On giving up, the host half withdraws its request and writes `failed` with the reason. The launch's backstop is 130 s. After that, keys are held in memory. Sealed files are re-read under a per-namespace host lock on every request. A deleted key item takes effect at the next launch in its namespace | 2026-09-29 | [§3.3](#33-the-host-side-the-doorway-into-the-real-keychain) | — |
 | <a id="KC-D6"></a>[`KC-D6`](#8-decision-ledger) | *Implementation decision.* On macOS, `/usr/bin/security` with secrets on stdin only. On Linux, the user's Secret Service through the launch's own `DBUS_SESSION_BUS_ADDRESS` only, with BB-D11's no-fallback rule | 2026-09-29 | [§3.3](#33-the-host-side-the-doorway-into-the-real-keychain) | — |
-| <a id="KC-D7"></a>[`KC-D7`](#8-decision-ledger) | *Implementation decision.* Namespaces are per (agent, tier). The workspace tier is keyed by the container name, which the launch hands the per-jail host half at startup, not by the preamble's 32-bit jail identity. The agent is named by the in-jail daemon, and the host half accepts only the agents this launch opted in, a set also handed over at startup. Tier assignment is the pack's machine list on the `service` attribute. The host half never touches a keychain item without yolo's marker | 2026-09-29 | [§3.4](#34-scoping-which-items-a-jail-may-read-or-write) | — |
+| <a id="KC-D7"></a>[`KC-D7`](#8-decision-ledger) | *Implementation decision, revised 2026-10-10 for [OQ-KC1](#OQ-KC1) and [OQ-KC3](#OQ-KC3).* One workspace namespace per workspace, shared by every program in its jail, and one machine namespace per pack that declares a machine list. The workspace tier is keyed by the container name, which the launch hands the per-jail host half at startup, not by the preamble's 32-bit jail identity. The machine tier is the `service` attribute against the machine lists of the packs this launch selected, also handed over at startup, never named by the client. The host half touches no keychain item without yolo's marker except the host Copilot's own login items, and those only when copilot is selected ([KC-D17](#KC-D17)) | 2026-09-29 | [§3.4](#34-scoping-which-items-a-jail-may-read-or-write) | — |
 | <a id="KC-D8"></a>[`KC-D8`](#8-decision-ledger) | *Implementation decision, under [HS-D15](host-notch-services.md#HS-D15).* The in-jail service is the doorway, as a jail daemon, because its socket must sit in the container's own filesystem: virtiofs does not carry a host socket's connection. The hop is `loopback-tls`. The one difference: the check is the socket's mode plus the peer uid, since D-Bus carries no caller token | 2026-09-29 | [§3.4](#34-scoping-which-items-a-jail-may-read-or-write) | — |
-| <a id="KC-D9"></a>[`KC-D9`](#8-decision-ledger) | *Implementation decision.* The bus address is a launcher-side value in the opted-in agent's env file, one socket per agent, written only when the route is on. Never an ungated pack `env` value, never at `yolo host`, and `XDG_RUNTIME_DIR` is never set. Who opts in is [OQ-KC3](#OQ-KC3) | 2026-09-29 | [§3.5](#35-who-gets-the-bus-address) | — |
+| <a id="KC-D9"></a>[`KC-D9`](#8-decision-ledger) | *Implementation decision, superseded 2026-10-10 by [KC-D18](#KC-D18) under [OQ-KC3](#OQ-KC3)'s ruling.* The bus address was a launcher-side value in the opted-in agent's env file, one socket per agent | 2026-09-29 | [§3.5](#35-who-gets-the-bus-address) | — |
 | <a id="KC-D10"></a>[`KC-D10`](#8-decision-ledger) | *Implementation decision.* The limits and waits in [§3.8](#38-defaults-and-limits). None is configurable in v1 | 2026-09-29 | [§3.8](#38-defaults-and-limits) | — |
 | <a id="KC-D11"></a>[`KC-D11`](#8-decision-ledger) | *Implementation decision.* Login-copy mechanics: a host-only machine copy, a merge at a fresh launch, a harvest at the jail's end and at the next start, per-workspace SHA-256 records, removals carried, and a host lock. A launch with the route on harvests and then removes the entries yolo placed that are still unchanged, and never merges | 2026-09-29 | [§5](#5-the-fallback-copy-only-copilottokens-and-say-so) | — |
-| <a id="KC-D12"></a>[`KC-D12`](#8-decision-ledger) | *Implementation decision.* A `keychain` pack ships the loophole. The copilot pack `needs` it and declares a provisional machine list of `copilot-cli`, pending [OQ-KC2](#OQ-KC2)'s measurement | 2026-09-29 | [§3.1](#31-the-components) | — |
+| <a id="KC-D12"></a>[`KC-D12`](#8-decision-ledger) | *Implementation decision.* A `keychain` pack ships the loophole, and the route is on for any launch that selects it. The copilot pack `needs` it and declares a provisional machine list of `copilot-cli`, pending the measurement [OQ-KC2](#OQ-KC2)'s ruling names. Any pack may declare a machine list | 2026-09-29 | [§3.1](#31-the-components) | — |
 | <a id="KC-D13"></a>[`KC-D13`](#8-decision-ledger) | *Implementation decision.* The launch learns the key fetch's outcome from the host half's readiness line, not from a second channel. A loophole manifest may declare that its host daemon writes that line, with a budget above the default 5 s, and the line gains a third kind, `waiting <name> <what>`, which the launch prints. The host half publishes its endpoint only once it has its keys, so an endpoint that answers means the route is on | 2026-09-29 | [§3.14](#314-what-yolo-itself-must-change) | — |
-| <a id="KC-D14"></a>[`KC-D14`](#8-decision-ledger) | *Implementation decision.* An attach probes the running jail's keychain endpoint and writes the bus address only when it answers. An attach never merges or harvests the login copy | 2026-09-29 | [§3.5](#35-who-gets-the-bus-address) | — |
+| <a id="KC-D14"></a>[`KC-D14`](#8-decision-ledger) | *Implementation decision, revised 2026-10-10.* An attach inherits the address the fresh launch set, probes the running jail's keychain endpoint, and prints the "not available" line when it does not answer. An attach never merges or harvests the login copy | 2026-09-29 | [§3.5](#35-who-gets-the-bus-address) | — |
 | <a id="KC-D15"></a>[`KC-D15`](#8-decision-ledger) | *Implementation decision.* A key is created only under the namespace lock, after reading the keychain again. Each sealed file's header names its key id. Only a starting host half that finds no key item, or a key that cannot open the file, sets the file aside. A running host half fails the request instead, and never renames a file or creates a key | 2026-09-29 | [§3.3](#33-the-host-side-the-doorway-into-the-real-keychain) | — |
-| <a id="KC-D16"></a>[`KC-D16`](#8-decision-ledger) | *Maintainer direction.* Prefer operating-system credential stores for suitable persistent credentials beyond Copilot. Inventory ownership, consumers, refresh and deletion before extending storage; this does not choose the machine-wide System keychain, import unrelated host items, expose the route to all programs or settle the four scoping/lifetime questions | 2026-10-07 | [Native credential storage](#0-native-credential-storage-beyond-copilot) | — |
+| <a id="KC-D16"></a>[`KC-D16`](#8-decision-ledger) | *Maintainer direction.* Prefer operating-system credential stores for suitable persistent credentials beyond Copilot. Inventory ownership, consumers, refresh and deletion before extending storage; this does not choose the machine-wide System keychain, import unrelated host items, expose the route to all programs or settle the four scoping/lifetime questions. Those four were ruled 2026-10-10, the route reaching every program by [OQ-KC3](#OQ-KC3) | 2026-10-07 | [Native credential storage](#0-native-credential-storage-beyond-copilot) | — |
+| <a id="KC-D17"></a>[`KC-D17`](#8-decision-ledger) | *Implementation decision, building [OQ-KC1](#OQ-KC1).* The one Copilot login is the host Copilot's own keychain item, never a copy: the host half reads the items whose `service` is on the copilot pack's machine list when it starts, holds them in memory, and writes a jail's login or logout through to them under the machine lock. A host-side change reaches a running jail at its next launch. A directly launched host Copilot shares it too, unlike [OQ-OA3](../reference/agent-credentials.md#oq-oa3)'s Codex, because the item is the store Copilot itself manages. Reversible | 2026-10-10 | [§3.3](#33-the-host-side-the-doorway-into-the-real-keychain) | — |
+| <a id="KC-D18"></a>[`KC-D18`](#8-decision-ledger) | *Implementation decision, building [OQ-KC3](#OQ-KC3).* One socket and one `DBUS_SESSION_BUS_ADDRESS` for the whole jail, a launcher-side value in the jail's environment set only when the route is on. Never an ungated pack `env` value, never at `yolo host`, and `XDG_RUNTIME_DIR` is never set | 2026-10-10 | [§3.5](#35-who-gets-the-bus-address) | — |
 
 ## Appendix A — Evidence
 
