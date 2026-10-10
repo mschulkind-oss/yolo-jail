@@ -277,16 +277,28 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/nix-binary-cache" nix-cache/store
           : > nix-cache/store-paths.txt
-          for attr in ociImage ociImageMinimal imageCopier; do
-            path=$(nix build --impure --accept-flake-config --no-link --print-out-paths ".#${attr}")
-            printf '%s\n' "$path" >> nix-cache/store-paths.txt
+          # Every output is named, so the upload is exactly these four paths.
+          # imageCopier is skopeo, whose installed outputs are out AND man: a
+          # launch's `nix build .#imageCopier` substitutes both, and no public
+          # cache serves this patched skopeo, so a missing man output would make
+          # every launch compile it.
+          for installable in 'ociImage^out' 'ociImageMinimal^out' 'imageCopier^out,man'; do
+            outputs=${installable#*^}
+            want=$(( $(printf '%s' "$outputs" | tr -cd , | wc -c) + 1 ))
+            built=$(nix build --impure --accept-flake-config --no-link --print-out-paths ".#${installable}")
+            got=$(printf '%s\n' "$built" | awk 'NF { n++ } END { print n + 0 }')
+            if [ "$got" -ne "$want" ]; then
+              echo "Expected exactly $want Nix output path(s) from .#${installable}, got $got; no cache upload is allowed. Compare the flake's outputs (nix eval .#${installable%%^*}.outputs) with this list and update it." >&2
+              exit 1
+            fi
+            printf '%s\n' "$built" >> nix-cache/store-paths.txt
           done
           paths=()
           while IFS= read -r path || [ -n "$path" ]; do
             paths+=("$path")
           done < nix-cache/store-paths.txt
-          if [ "${#paths[@]}" -ne 3 ]; then
-            echo "Expected exactly three Nix output paths; no cache upload is allowed." >&2
+          if [ "${#paths[@]}" -ne 4 ]; then
+            echo "Expected exactly four Nix output paths; no cache upload is allowed." >&2
             exit 1
           fi
           nix copy --to "file://$RUNNER_TEMP/nix-binary-cache" "${paths[@]}"
@@ -349,7 +361,7 @@ jobs:
           while IFS= read -r path || [ -n "$path" ]; do
             paths+=("$path")
           done < nix-cache/store-paths.txt
-          if [ "${#paths[@]}" -ne 3 ]; then
+          if [ "${#paths[@]}" -ne 4 ]; then
             echo "Nix cache artifact has an unexpected path count; refuse upload." >&2
             exit 1
           fi

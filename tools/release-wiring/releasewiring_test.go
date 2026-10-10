@@ -1562,7 +1562,7 @@ func TestFailedJobsOnlyPublisherRerunRefusesAtEachActualMutationJobEntry(t *test
 				}
 			}
 			paths := ""
-			for _, name := range []string{"image", "minimal", "copier"} {
+			for _, name := range []string{"image", "minimal", "copier", "copier-man"} {
 				paths += "/nix/store/" + strings.Repeat("a", 32) + "-" + name + "\n"
 			}
 			if e := os.WriteFile(filepath.Join(root, "nix-cache/store-paths.txt"), []byte(paths), 0o600); e != nil {
