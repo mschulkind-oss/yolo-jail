@@ -41,7 +41,10 @@ import (
 //     logged-in Aqua session); the control is what tells that apart from a sandbox that is denied;
 //   - inside one macos-user session it runs `pbpaste`, `osascript -e 'the clipboard as text'` and
 //     `osascript -e 'the clipboard as «class PNGf»'`, each bounded, and logs one MEASUREMENT line
-//     per method: whether the marker came back, the exit code and the stderr;
+//     per method: whether the marker came back, the exit code, its stdout and its stderr. Only
+//     STDOUT is judged, here and in the control: macOS prints harmless warnings on stderr (a
+//     runner VM's `IOServiceMatchingfailed for: AppleM2ScalerParavirtDriver`, for one), and a
+//     comparison over merged output read a successful read as a failed one;
 //   - it restores the text the pasteboard held before it started. Only TEXT is restored: an image
 //     or file the runner's pasteboard held is not, and an empty or non-text pasteboard is left
 //     holding an empty string so the marker does not linger.
@@ -63,13 +66,13 @@ func TestMacosUserPasteboardProbe(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	original, origErr := hostPasteboard(t, "", "pbpaste")
+	original, _, origErr := hostPasteboard(t, "", "pbpaste")
 	t.Cleanup(func() {
 		restore := original
 		if origErr != nil {
 			restore = ""
 		}
-		if _, err := hostPasteboard(t, restore, "pbcopy"); err != nil {
+		if _, _, err := hostPasteboard(t, restore, "pbcopy"); err != nil {
 			t.Logf("could not restore the pasteboard's original text: %v", err)
 		}
 	})
@@ -78,17 +81,21 @@ func TestMacosUserPasteboardProbe(t *testing.T) {
 	if err := os.WriteFile(jxa, []byte(pasteboardSetJXA), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := hostPasteboard(t, "", "osascript", "-l", "JavaScript", jxa, marker, pngPath); err != nil {
+	if out, errOut, err := hostPasteboard(t, "", "osascript", "-l", "JavaScript", jxa, marker, pngPath); err != nil {
 		t.Fatalf("INCONCLUSIVE: the host could not set its own pasteboard (%v), so the sandbox's "+
 			"answer would mean nothing. This runner probably has no window server or pasteboard "+
-			"session; run this test from a logged-in GUI session (a Terminal on a Mac).\n%s", err, out)
+			"session; run this test from a logged-in GUI session (a Terminal on a Mac).\n"+
+			"stdout: %q\nstderr: %q", err, out, errOut)
 	}
 	var control []string
 	for _, m := range pasteboardMethods {
-		out, err := hostPasteboard(t, "", m.argv[0], m.argv[1:]...)
+		out, errOut, err := hostPasteboard(t, "", m.argv[0], m.argv[1:]...)
 		if !m.matches(out, marker, pngHex) {
-			control = append(control, fmt.Sprintf("%s: err %v, output %q", m.name, err, clip(out)))
+			control = append(control, fmt.Sprintf("%s: err %v, stdout %q, stderr %q",
+				m.name, err, clip(out), clip(errOut)))
+			continue
 		}
+		t.Logf("control: the host read its own pasteboard via %s (stderr %q)", m.what, clip(errOut))
 	}
 	if len(control) > 0 {
 		t.Fatalf("INCONCLUSIVE: the host, unsandboxed, could not read back what it put on its own "+
@@ -120,11 +127,20 @@ type pasteboardMethod struct {
 	png  bool // the marker is the PNG's bytes, not the text
 }
 
-func (m pasteboardMethod) matches(out, marker, pngHex string) bool {
+// matches judges a method's STDOUT alone; stderr must never reach it. The text marker counts
+// when it is a whole line of stdout, once trimmed, so a warning a tool prints on stdout before
+// it cannot hide a successful read; the marker is random, so no other line can equal it. The
+// PNG counts when its bytes, hex-encoded as osascript prints «data PNGf…», appear in stdout.
+func (m pasteboardMethod) matches(stdout, marker, pngHex string) bool {
 	if m.png {
-		return strings.Contains(strings.ToUpper(out), pngHex)
+		return strings.Contains(strings.ToUpper(stdout), pngHex)
 	}
-	return strings.TrimSpace(out) == marker
+	for _, l := range strings.Split(stdout, "\n") {
+		if strings.TrimSpace(l) == marker {
+			return true
+		}
+	}
+	return false
 }
 
 var pasteboardMethods = []pasteboardMethod{
@@ -136,7 +152,8 @@ var pasteboardMethods = []pasteboardMethod{
 }
 
 // pasteboardVerdicts reads the probe's output: one line per method saying whether the sandbox got
-// the marker back, with its exit code and output, and how many steps the probe printed at all.
+// the marker back, with its exit code, stdout and stderr, and how many steps the probe printed at
+// all. A step's stdout lines are printed as "  | " and its stderr lines as "  ! ".
 func pasteboardVerdicts(probe, marker, pngHex string) (lines []string, steps int) {
 	steps = strings.Count("\n"+probe, "\nSTEP ")
 	for _, m := range pasteboardMethods {
@@ -154,10 +171,12 @@ func pasteboardVerdicts(probe, marker, pngHex string) (lines []string, steps int
 		} else if strings.HasPrefix(body, "STEP ") {
 			body = ""
 		}
-		var out strings.Builder
+		var out, errOut strings.Builder
 		for _, l := range strings.Split(body, "\n") {
 			if v, ok := strings.CutPrefix(l, "  | "); ok {
 				out.WriteString(v + "\n")
+			} else if v, ok := strings.CutPrefix(l, "  ! "); ok {
+				errOut.WriteString(v + "\n")
 			}
 		}
 		got := out.String()
@@ -165,8 +184,8 @@ func pasteboardVerdicts(probe, marker, pngHex string) (lines []string, steps int
 		if m.matches(got, marker, pngHex) {
 			verdict = "yes"
 		}
-		lines = append(lines, fmt.Sprintf("sandbox read the host pasteboard via %s: %s (rc %s, output %q)",
-			m.what, verdict, strings.TrimSpace(rc), clip(got)))
+		lines = append(lines, fmt.Sprintf("sandbox read the host pasteboard via %s: %s (rc %s, stdout %q, stderr %q)",
+			m.what, verdict, strings.TrimSpace(rc), clip(got), clip(errOut.String())))
 	}
 	return lines, steps
 }
@@ -179,8 +198,9 @@ const pasteboardProbeStepSeconds = 20
 // pasteboardProbeScript is the probe's shell, run by the sandbox's login bash. Each step runs
 // with an empty-pipe stdin (an isatty(0) on /dev/null is a denied ioctl under the session
 // profile: macosuserseatbelt_test.go's header) and under bash's own watchdog, a stock macOS
-// having no timeout(1); its output, stderr included, is copied with awk so every STEP marker
-// begins a line. The marker is NOT in the script: a step's output can only carry it by reading
+// having no timeout(1); its stdout and its stderr go to separate files and are copied with awk,
+// stdout lines prefixed "  | " and stderr lines "  ! ", so every STEP marker begins a line and
+// only stdout is judged. The marker is NOT in the script: a step's output can only carry it by reading
 // the pasteboard.
 func pasteboardProbeScript(stepSeconds int) string {
 	var b strings.Builder
@@ -204,11 +224,11 @@ trap 'rm -rf "$pbdir"' EXIT
 step() {
     name=$1 secs=__BOUND__
     shift
-    out="$pbdir/$name.out"
+    out="$pbdir/$name.out" err="$pbdir/$name.err"
     # No EXIT trap for the forked helpers to inherit: only this shell removes $pbdir
     # (macosuserkeychain_test.go's probe states the race).
     trap - EXIT
-    printf '' | "$@" >"$out" 2>&1 &
+    printf '' | "$@" >"$out" 2>"$err" &
     pid=$!
     ( sleep "$secs"; kill -TERM "$pid" 2>/dev/null; sleep 2; kill -KILL "$pid" 2>/dev/null ) >/dev/null 2>&1 &
     dog=$!
@@ -219,6 +239,7 @@ step() {
     wait "$dog" 2>/dev/null
     echo "STEP $name rc=$rc"
     awk '{ print "  | " $0 }' "$out"
+    awk '{ print "  ! " $0 }' "$err"
 }
 `
 
@@ -238,18 +259,19 @@ function run(argv) {
 `
 
 // hostPasteboard runs one pasteboard command on the host, outside any sandbox, with stdin as
-// its input, bounded so a pasteboard with no session behind it cannot hang the job.
-func hostPasteboard(t *testing.T, stdin, name string, args ...string) (string, error) {
+// its input, bounded so a pasteboard with no session behind it cannot hang the job. It returns
+// stdout and stderr apart: only stdout is the pasteboard's content (and what the cleanup restores).
+func hostPasteboard(t *testing.T, stdin, name string, args ...string) (stdout, stderr string, err error) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Stdin = strings.NewReader(stdin)
-	var out bytes.Buffer
+	var out, errOut bytes.Buffer
 	cmd.Stdout = &out
-	cmd.Stderr = &out
-	err := cmd.Run()
-	return out.String(), err
+	cmd.Stderr = &errOut
+	err = cmd.Run()
+	return out.String(), errOut.String(), err
 }
 
 // probePNG is a 1x1 PNG of a random color, so its bytes are this run's own.
@@ -279,8 +301,9 @@ func clip(s string) string {
 
 // TestMacosUserPasteboardProbeShellRunsAgainstAStandIn runs the probe's shell on any machine,
 // against stand-in `pbpaste` and `osascript` first on PATH, and reads it with the parser the Mac
-// test uses: pbpaste answers the marker, the text read fails, and the PNG read hangs past a
-// one-second bound so the watchdog must end it. Not behind requireMacosUser's skip, so it runs
+// test uses: pbpaste answers the marker after a warning line on stderr (the shape macOS printed
+// on a CI runner, which a merged-output comparison misread as a failed read), the text read
+// fails on stderr, and the PNG read hangs past a one-second bound so the watchdog must end it. Not behind requireMacosUser's skip, so it runs
 // under -short on Linux.
 func TestMacosUserPasteboardProbeShellRunsAgainstAStandIn(t *testing.T) {
 	bash, err := exec.LookPath("bash")
@@ -294,7 +317,7 @@ func TestMacosUserPasteboardProbeShellRunsAgainstAStandIn(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write("pbpaste", "printf '%s' \"$PB_MARKER\"\n")
+	write("pbpaste", "echo 'IOServiceMatchingfailed for: AppleM2ScalerParavirtDriver' >&2\nprintf '%s' \"$PB_MARKER\"\n")
 	write("osascript", `case "$2" in
   *PNGf*) exec sleep 30 ;;
   *) echo "execution error: Can't make some data into the expected type. (-1700)" >&2; exit 1 ;;
@@ -322,8 +345,8 @@ esac
 		t.Errorf("the probe printed %d steps, want %d:\n%s", steps, len(pasteboardMethods), raw)
 	}
 	want := []string{
-		"via pbpaste: yes (rc 0",
-		"via osascript `the clipboard as text`: no (rc 1, output \"execution error",
+		"via pbpaste: yes (rc 0, stdout \"" + marker + "\", stderr \"IOServiceMatchingfailed",
+		"via osascript `the clipboard as text`: no (rc 1, stdout \"\", stderr \"execution error",
 		"via osascript `the clipboard as «class PNGf»`: no (rc 14", // 143 or 137, the watchdog's
 	}
 	for i, w := range want {
@@ -333,5 +356,35 @@ esac
 	}
 	if len(lines) > 2 && !watchdogEnded(probe, "osascript-png") {
 		t.Errorf("the hanging PNG read was not ended by the watchdog (want rc 143 or 137):\n%s", probe)
+	}
+}
+
+// TestPasteboardMethodMatchesJudgesTheMarkerLine pins the text comparison the host control and
+// the sandbox verdicts share: the marker counts as a whole line of stdout, so a warning line
+// before it (the merged output CI printed, which an exact comparison called a failed read) does
+// not hide it, while a line merely containing the marker does not count.
+func TestPasteboardMethodMatchesJudgesTheMarkerLine(t *testing.T) {
+	marker := "yolo-pasteboard-probe-0ac899290e89bfdfbd1126c9"
+	text := pasteboardMethods[1]
+	for _, c := range []struct {
+		stdout string
+		want   bool
+	}{
+		{marker, true},
+		{marker + "\n", true},
+		{"IOServiceMatchingfailed for: AppleM2ScalerParavirtDriver\n" + marker, true},
+		{"  " + marker + "  \nwarning after\n", true},
+		{"", false},
+		{"IOServiceMatchingfailed for: AppleM2ScalerParavirtDriver", false},
+		{"prefix " + marker, false},
+		{marker[:len(marker)-1], false},
+	} {
+		if got := text.matches(c.stdout, marker, ""); got != c.want {
+			t.Errorf("matches(%q) = %v, want %v", c.stdout, got, c.want)
+		}
+	}
+	pngHex := "89504E470D0A1A0A"
+	if !pasteboardMethods[2].matches("warning\n«data PNGf89504e470d0a1a0a»\n", "", pngHex) {
+		t.Error("the PNG read does not match its own bytes after a warning line")
 	}
 }
