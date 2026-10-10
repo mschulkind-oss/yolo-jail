@@ -1,7 +1,7 @@
 ---
 status: in-review
 stage: SKETCH
-next: "Review ../design/macos-user-privilege-lifecycle.md and its standing-authority question; keep keychain policy in its existing design"
+next: "Feeds the grant inventory walkthrough in ../design/macos-user-privilege-lifecycle.md (OQ-MP10); keep keychain policy in its existing design"
 verified: 2026-10-07
 tags: [macos-user, sandvault, privileges, sudo, keychain]
 summary: "SandVault authorizes passwordless runtime operations during privileged setup. Its pattern can address yolo's repeated prompts, but its rules do not cover yolo's dynamic session artifacts and must not be copied as broad root access. Its dedicated-keychain fix also informs reported first-login failures."

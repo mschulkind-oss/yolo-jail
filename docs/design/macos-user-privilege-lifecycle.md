@@ -1,7 +1,7 @@
 ---
 status: in-review
 stage: DESIGN
-next: "Rule OQ-MP1 on the bounded standing privilege grant; design acceptance does not authorize native installation"
+next: "Walk through the grant inventory (§8) with the owner, then record OQ-MP10; no build or installation is authorized"
 verified: 2026-10-09
 tags: [macos-user, privileges, security, lifecycle, sudo]
 summary: "Proposed contract: after explicit administrator setup, routine native startup and exit never ask for a sudo password. A root-protected, caller-authenticated helper installs only named guest artifacts, switches only to the fixed sandbox account and removes only owned session files. No implementation or installation is authorized; keychain, workspace and lifetime policies remain independent."
@@ -11,8 +11,11 @@ vantage:
 
 # Authorize native startup once, without giving the launcher a root shell
 
-**Status:** 2026-10-09 — source verified at `b2eeffc12`. The privilege helper is unbuilt;
-its native security and password-free behavior are **UNMEASURED**. This is not setup authorization.
+**Status:** 2026-10-10 — direction ruled: adopt SandVault's model
+([OQ-MP1](#decision-ledger)); the exact grants await the owner's walkthrough of
+[the grant inventory](#8-the-grant-inventory). Source verified 2026-10-09 at `b2eeffc12`. The
+privilege helper is unbuilt; its native security and password-free behavior are **UNMEASURED**.
+This is not setup or build authorization.
 
 > **In short.** Yolo manages the agent's environment; its native macOS confinement option should
 > authorize bounded routine operations at administrator setup, not ask for a password at every
@@ -23,9 +26,9 @@ bounded requests; guest code runs only after the helper permanently drops root p
 
 **Cost.** A new root execution surface, explicit administrative updates and retained crash artifacts.
 
-**Start at [the authority boundary](#3-the-authority-boundary).**
+**Start at [the grant inventory](#8-the-grant-inventory)**, then [the authority boundary](#3-the-authority-boundary).
 
-**Needs your ruling:** [OQ-MP1](#OQ-MP1).
+**Needs your ruling:** [OQ-MP10](#OQ-MP10), after the walkthrough.
 
 **Reads with:** [the privilege research](../research/sandvault-macos-privileges.md),
 [the keychain design](keychain-from-a-jail.md), [workspace policy](configurable-workspace-root.md),
@@ -40,8 +43,9 @@ No implementation plan exists for this proposal.
 My recommendation is **password-free routine startup and exit after explicit administrator
 setup**, including an expired sudo authentication cache and a launch with no terminal. A broken
 installation refuses early with a repair step; it never silently returns to interactive sudo.
-This is the proposed product contract. [OQ-MP1](#OQ-MP1) decides whether its standing root
-authority is acceptable, not which library implements it.
+This is the proposed product contract. [OQ-MP1](#decision-ledger) accepted its standing
+authority in principle on 2026-10-10, on SandVault's model; [OQ-MP10](#OQ-MP10) decides the
+exact grants.
 
 - **P1 — Setup is administrative; routine use is not.** Account provisioning, installing or
   updating the protected helper and changing its authorization require an administrator or IT.
@@ -438,7 +442,7 @@ already copied into memory, and is not a secure-erasure claim.
 | Approach | Verdict and cost |
 | :--- | :--- |
 | Protected, authenticated, short-lived helper | **Proposed.** Adds a root parser, installation/update trust and root ownership receipts; buys cache-independent startup/cleanup without a resident service. |
-| SandVault's policy copied verbatim | **Rejected.** Missing yolo session-file authority; account-wide removal is outside normal session scope. |
+| SandVault's rule list copied verbatim | **Rejected.** Its model is adopted ([OQ-MP1](#decision-ledger)), but its rules lack yolo's session-file grants and include account-wide removal; see [the grant inventory](#8-the-grant-inventory). |
 | Passwordless account switching only | **Insufficient.** Root file writes, staging and cleanup still need authorization. |
 | Root `yolo internal ...` from a host-writable install | **Rejected.** Every host/pack dependency of that executable becomes root code. Root-owned guest staging does not repair the provenance of a privileged update. |
 | Root shell/copy/remove/chmod rules with flexible paths | **Rejected.** Dynamic session inputs turn them into general root file authority. |
@@ -448,7 +452,7 @@ already copied into memory, and is not a secure-erasure claim.
 | Residual risk | Required mitigation or limitation |
 | :--- | :--- |
 | Root request-parser or filesystem bug | Closed verbs/types, finite limits, kernel peer identity, no root source reads, descriptor-based no-follow operations and independent security review before installation. |
-| Compromised enrolled host user | Can request the bounded operations and choose guest content/profile. That is standing authority beyond a password prompt; [OQ-MP1](#OQ-MP1) must accept it. It is never arbitrary root code or host credential export. |
+| Compromised enrolled host user | Can request the bounded operations and choose guest content/profile. That is standing authority beyond a password prompt, accepted in principle by [OQ-MP1](#decision-ledger); [OQ-MP10](#OQ-MP10) settles its extent. It is never arbitrary root code or host credential export. |
 | Account or executable replacement during a session | Revalidate at use, root-protected update chain, stable identity matching and compatible cleanup; fail closed with administrator remedy. |
 | Disk full / process killed during credential write or deletion | Incomplete artifacts remain private, receipts retained, per-file failure warning and safe retry. SIGKILL cannot promise immediate cleanup. |
 | Guest processes survive wrapper termination | No descendant-death assertion; preserve tree retention and record observations separately from stop/file-removal results. |
@@ -481,7 +485,8 @@ not an acceptance shortcut or unlock-policy ruling here.
 
 ### What may happen next
 
-First rule the standing-authority policy. Then author a code-grounded implementation plan,
+First walk through [the grant inventory](#8-the-grant-inventory) with the owner and record
+[OQ-MP10](#OQ-MP10). Then author a code-grounded implementation plan,
 review the root request/installation boundary independently, and implement and test the source
 contract. Native installation and measurement are separate: obtain explicit authorization for
 an isolated native test installation before either occurs. That installation approval is not
@@ -498,34 +503,127 @@ packages alter an official pack program, [the digest re-pin rule](../../AGENTS.m
 applies; a standalone helper does not invent a pack pin for itself. Administrator-approved
 helper publication is a separate distribution contract, not today's guest staging path.
 
-## 8. Open question
+## 8. The grant inventory
 
-1. 💬 **OQ-MP1: May explicit administrator setup grant this host user standing bounded root authority?**
+[OQ-MP1](#decision-ledger) settled the direction on 2026-10-10: adopt SandVault's model. Setup,
+with an administrator's password, installs a validated sudo policy naming one host user; every
+routine launch then runs only what that policy names, probes it noninteractively first, and
+refuses with a repair command when it fails. What is **not** settled is the list itself. This
+section is that list, for one sitting with the owner; [OQ-MP10](#OQ-MP10) is the sign-off.
 
-   This grants future operations without re-entering an administrator password, including to
-   a compromised process of that enrolled host UID. The root limits are
-   [the authority boundary](#3-the-authority-boundary) and [the closed surface](#4-the-complete-bounded-runtime-surface).
+SandVault citations are to v1.32.0's
+[`sv`](https://github.com/webcoyote/sandvault/blob/ad05889e9f5f7d63460d6e56a2586c724b14bcd0/sv)
+at the commit [the research](../research/sandvault-macos-privileges.md) checked. Every SandVault
+fact here is from reading that source, not from running it. ⚠ marks a grant beyond SandVault's.
 
-   - **A — Accept the bounded standing grant.** Explicit administrator setup authorizes only
-     these routine operations; installation, updates and revocation remain administrative.
-   - **B — Do not grant standing authority.** Routine password-free startup/exit remains unbuilt;
-     do not substitute broad cached sudo or passwordless root commands.
+### What SandVault's setup grants, exactly
 
-   <!-- vantage: question id=OQ-MP1 leaning="A, conditioned on the protected executable/update chain, authenticated enrolled host UID, closed root operations and independent security/native proof; accepting the design is not authorization to install it." -->
+Its [generated policy](https://github.com/webcoyote/sandvault/blob/ad05889e9f5f7d63460d6e56a2586c724b14bcd0/sv#L1553-L1565),
+installed at `/etc/sudoers.d/50-nopasswd-for-sandvault-<host user>` through a root-owned
+temporary file, `visudo -c` and a rename
+([L1566-L1579](https://github.com/webcoyote/sandvault/blob/ad05889e9f5f7d63460d6e56a2586c724b14bcd0/sv#L1566-L1579)):
 
-   _Leaning:_ A, conditioned on the protected executable/update chain, authenticated enrolled
-   host UID, closed root operations and independent security/native proof; accepting the design
-   is not authorization to install it.
+```text
+<host user> ALL=(sandvault-<host user>) NOPASSWD: /bin/zsh
+<host user> ALL=(sandvault-<host user>) NOPASSWD: /usr/bin/env
+<host user> ALL=(sandvault-<host user>) NOPASSWD: /usr/bin/true
+<host user> ALL=(root) NOPASSWD: /var/sandvault/buildhome-sandvault-<host user>
+<host user> ALL=(root) NOPASSWD: /bin/launchctl bootout user/<sandbox uid>
+<host user> ALL=(root) NOPASSWD: /usr/bin/pkill -9 -u sandvault-<host user>
+```
+
+Three facts about that model matter for yolo:
+
+- **Each host user gets their own sandbox account** (`sandvault-<host user>`,
+  [L135](https://github.com/webcoyote/sandvault/blob/ad05889e9f5f7d63460d6e56a2586c724b14bcd0/sv#L135)).
+  Yolo has one machine-wide `_yolojail`.
+- **Everything that varies per launch runs as the sandbox account, not root.** SandVault's
+  Seatbelt profile is written once, at setup
+  ([L1693-L1694](https://github.com/webcoyote/sandvault/blob/ad05889e9f5f7d63460d6e56a2586c724b14bcd0/sv#L1693-L1694)),
+  and the session's environment crosses on `env -i`'s argv
+  ([L2119-L2133](https://github.com/webcoyote/sandvault/blob/ad05889e9f5f7d63460d6e56a2586c724b14bcd0/sv#L2119-L2133)).
+  Its one per-launch root act is the home sync
+  ([L1771-L1779](https://github.com/webcoyote/sandvault/blob/ad05889e9f5f7d63460d6e56a2586c724b14bcd0/sv#L1771-L1779)).
+- **Its home sync reads its source as root.** The script
+  ([L1495-L1541](https://github.com/webcoyote/sandvault/blob/ad05889e9f5f7d63460d6e56a2586c724b14bcd0/sv#L1495-L1541))
+  runs `rsync --copy-unsafe-links` as root from the install's `guest/home`, which is the
+  checkout or Homebrew prefix the script ran from
+  ([L8-L21](https://github.com/webcoyote/sandvault/blob/ad05889e9f5f7d63460d6e56a2586c724b14bcd0/sv#L8-L21)).
+  That flag copies the file a link pointing outside the tree names. From the source alone, a
+  host user who can write that tree can have root copy a root-only file into the sandbox
+  home. Not reproduced. Yolo's design deliberately does not copy this: root reads no source path
+  ([staging](#staging-without-a-root-file-reader)).
+
+### What yolo's setup would grant
+
+Setup itself (**G0**) runs with an administrator's password and grants nothing by itself. The
+standing grants are **G1** to **G10**. "Today" means the current plain-`sudo` source.
+
+| # | Grant | Exact command or system call | Why root, or another account | SandVault's equivalent | Bound and authentication | Without it |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| G0 | Setup: install the helper and the policy | Write `/Library/PrivilegedHelperTools/dev.yolo-jail.macos-privilege`, digest-checked; write the policy to a root temporary file, `visudo -c -f`, rename into `/etc/sudoers.d/`; create `/var/yolo-jail` and `/Users/Shared/yolo-captures` | Writes system directories | Same act: `sv build --rebuild` | Administrator password, once; [setup](#administrator-setup-and-existing-state) | Nothing is granted |
+| G1 | Run a fixed role as `_yolojail`: bootstrap, provision, supervise, witness, session, capture, fork-build, and the access probes | Today `sudo --user=_yolojail /usr/bin/env -i … <role>` ([session](../../internal/macosuser/macosuser.go#L1154-L1188), [provision](../../internal/macosuser/provision.go#L146-L176)). Proposed: helper `enter` calls `setgroups`, `setgid`, `setuid` to `_yolojail`, then `execve` | Changing to another account needs root; today sudo is that root | `(sandvault-<user>) NOPASSWD: /bin/zsh, /usr/bin/env` | Run-as `_yolojail` only. ⚠ The proposal puts a yolo root process in front of every guest start; SandVault leaves the switch to sudo. A rule `(_yolojail) NOPASSWD: /usr/bin/env` is SandVault's exact shape and needs no helper. ⚠ The guest account is shared by every enrolled host user | Password prompt whenever sudo's cache has expired |
+| G2 | Readiness probe | SandVault: `sudo -n --user=<account> /usr/bin/true` ([L2094-L2101](https://github.com/webcoyote/sandvault/blob/ad05889e9f5f7d63460d6e56a2586c724b14bcd0/sv#L2094-L2101)). Proposed: helper `probe`, read-only | Reading the root-owned install and enrollment | Same purpose. ⚠ The proposed probe runs as root; SandVault's runs as the sandbox account | Read-only; [shared preflight](#one-preflight-shared-by-launch-check-and-automatic-capture) | A broken install prompts or fails mid-launch |
+| G3 | Write this launch's Seatbelt profile | Today `sudo mkdir -p`, `sudo tee /var/yolo-jail/profile-<key>.sb`, `sudo chmod 0444` ([installer](../../internal/macosuser/real.go#L174-L189)). Proposed: exclusive no-follow create in a held directory, `fchmod 0444`, `renameat` | The confined guest must not edit its own profile; the directory is root-owned | ⚠ None at runtime: SandVault writes one profile at setup. Yolo's differs per launch | Path derived from the session key; data only, never compiled as root | Per-launch prompt |
+| G4 | Write the session and daemon env files, which hold credentials | Today `mkdir`, `chmod 0700`, `chmod +a "user:_yolojail allow search"` on `env/`; `sudo tee`, `chmod 0600`, a guest read ACL on each file ([env protection](../../internal/macosuser/envfile.go#L187-L225)) | Guest can read but not write or list; no other local account can read | ⚠ None: SandVault puts the environment on argv | Fixed names from the key; root-only `0700` parent; [publication](#profile-and-credential-file-publication) | Per-launch prompt |
+| G5 | Write the CA bundle and extra-CA files | Same commands as G4, only when the System keychain adds a CA | As G4 | ⚠ None | As G4 | Per-launch prompt |
+| G6 | Stage yolo's guest binaries | Today `sudo mkdir -p`, `cp -f <host yolo> <dst>.new`, `chmod a+rX`, `mv -f` ([staging](../../internal/macosuser/macosuser.go#L202-L226)). Proposed: the caller streams bytes; the helper writes a fresh inode | The guest may run them but not alter them; the prefix is root-owned | Root home sync. Its result ends guest-owned; yolo's stays root-owned | Fixed ship-set names only; root reads no source path and runs none of these bytes | Per-launch prompt |
+| G7 | Stage pack, overlay and context trees | Today root copy and permission commands ([staging](../../internal/macosuser/runplan.go#L698-L710)). Proposed: a typed tree stream, no links followed | As G6 | Root home sync | Existing target classes; [JD-10](jail-daemon-on-macos-user-plan.md#JD-10) reservation, no merge | Per-launch prompt |
+| G8 | Remove this session's own files at exit or sweep | Today `sudo rm -f` on the [five fixed paths](../../internal/macosuser/sessionfiles.go#L97-L109) ([teardown](../../internal/macosuser/sessionfiles.go#L189-L230)). Proposed: helper `cleanup`, `unlinkat` on recorded inodes | The files are root-owned in a root-only directory | ⚠ None per session. SandVault's root removals are account-wide | Owned key, receipt and a claimed liveness record; no path or glob | Prompt at exit; on failure the credential file stays, with today's warning |
+| G9 | Capture and fork-build's protected files | G3 to G5 and G8 again, keyed per capture attempt ([scratch](../../internal/macosuser/capture.go#L381-L406), [cleanup](../../internal/macosuser/capture.go#L810-L819)) | As G3 to G5 | ⚠ None | Per-attempt key and receipt; scratch itself runs without root | Prompt when startup reaches capture |
+| G10 | Ownership receipts | Helper writes and reads root-only records under its protected directory | Records must not be forgeable by the host or guest | ⚠ None | Written only by the helper; [receipts](#session-ownership-is-not-caller-supplied-authority) | No helper, so nothing to record |
+
+### What yolo would not take
+
+- **SandVault's two account-wide root removals**, `launchctl bootout user/<uid>` and
+  `pkill -9 -u <account>`. SandVault now runs them only at uninstall
+  ([L470-L499](https://github.com/webcoyote/sandvault/blob/ad05889e9f5f7d63460d6e56a2586c724b14bcd0/sv#L470-L499)),
+  yet still grants them standing. Yolo stops its own process group without root
+  ([stop](../../internal/macosuser/real.go#L370-L391)), and `_yolojail` serves other workspaces.
+- **A root program reading host-writable paths**, unlike the home sync above.
+- **A per-user rule by name alone.** SandVault matches the host user name. The proposal also
+  checks the numeric UID and account UUID ([identity](#authenticate-an-operating-system-identity)).
+
+### Points to settle in the walkthrough
+
+1. **G1's shape.** SandVault's literal run-as-guest rule, or the helper's `enter`?
+2. **Root for G3 to G9 at all.** These are beyond SandVault because yolo writes per-launch files
+   into root-owned `/var/yolo-jail`. A host-owned directory might give the guest the same
+   read-only view without root. Nobody has evaluated that.
+3. **The shared guest account.** SandVault has one account per host user; yolo has one per
+   machine. Is enrolling a second host user allowed?
+4. **The shape of the policy.** SandVault writes several narrow sudo rules for system
+   commands. This design has one rule for its own helper, and the helper's verbs are the grants.
+
+## 9. Open question
+
+1. 💬 **OQ-MP10: Does the owner sign off on the grant inventory as listed?**
+
+   The direction is ruled ([OQ-MP1](#decision-ledger)). Signing off accepts G1 to G10 in
+   [the grant inventory](#8-the-grant-inventory), with each walkthrough point decided. That
+   could mean removing a grant or taking SandVault's form. It still authorizes no build or
+   installation.
+
+   <!-- vantage: question id=OQ-MP10 leaning="Undecided until the walkthrough. Expected: G1 in SandVault's literal run-as-guest form, and G3 to G9 only if a host-owned directory cannot do the job." -->
+
+   _Leaning:_ Undecided until the walkthrough. Expected: G1 in SandVault's literal run-as-guest
+   form, and G3 to G9 only if a host-owned directory cannot do the job.
 
    **Answer:**
 
    > _(empty — fill in when decided)_
 
-## 9. Decision record and planning filter
+## 10. Decision record and planning filter
 
-No new owner ruling is recorded. Helper substrate and safety budgets are **proposals**, not
-accepted decisions. Existing keychain, workspace, keeper and guest-tree rulings remain in
+Helper substrate and safety budgets are **proposals**, not accepted decisions. Existing keychain,
+workspace, keeper and guest-tree rulings remain in
 [their authorities](#non-goals-and-authorities-that-still-win); no answered card is reopened.
+
+### Decision ledger
+
+| ID | Ruling / Decision | Date | Settled in | Built |
+| :--- | :--- | :--- | :--- | :--- |
+| OQ-MP1 | **Partial: yes to A in principle.** Explicit administrator setup may grant the enrolled host user standing, bounded authority for routine startup and exit, and SandVault's model is the one to adopt. The owner's words: *"Yes, but before we do this, we need to talk about precisely what it is we're granting and how and why. This is exactly what we need to adopt from SandVault. We should use their model, but still, got to go through this more specifically."* Not authorization to build or install; the exact grants wait on [OQ-MP10](#OQ-MP10). | 2026-10-10 | [§8](#8-the-grant-inventory) | No: nothing built or installed |
 
 For this privilege policy alone, paste this into Vantage's planning-page Filter box:
 
