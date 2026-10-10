@@ -177,7 +177,11 @@ func TestMacosUserRunsAPackServiceJailDaemonInTheGuest(t *testing.T) {
 	if strings.Contains(r.combined(), "acme-svc: /bin/sh") {
 		t.Errorf("the launch declined the service's jail daemon, which has no host half%s", diag())
 	}
-	if !strings.Contains(r.combined(), "Started acme-svc inside the sandbox") {
+	// Either verb: "Starting" is the same disclosure from a supervisor that had not yet said it
+	// was supervising when the launch stopped waiting (macosuser.jailDaemonDisclosure), which a
+	// slow runner produces; the daemon's own log line below is what proves it ran.
+	if !strings.Contains(r.combined(), "Started acme-svc inside the sandbox") &&
+		!strings.Contains(r.combined(), "Starting acme-svc inside the sandbox") {
 		t.Errorf("the launch did not disclose the guest's service daemon%s", diag())
 	}
 	b, err := os.ReadFile(hostLog)

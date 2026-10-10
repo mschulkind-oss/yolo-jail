@@ -194,6 +194,38 @@ func TestAnOldReadinessLineDoesNotCountAsThisStart(t *testing.T) {
 	}
 }
 
+// A SUPERVISOR STILL SILENT PAST THE BOUND IS DISCLOSED ALL THE SAME. It is running, so the
+// pack-declared code it starts is too, and that line is a disclosure (report-tiers.md, OQ-RO3):
+// a slow Mac must not turn it off. macos-user CI run 38020706066 printed only the unconfirmed
+// warning, and the launch never said what it was running. "Started" stays for a confirmed start
+// (JD-8); this one says "Starting", names its log directory, and then says it is unconfirmed.
+func TestAnUnconfirmedSupervisorIsStillDisclosed(t *testing.T) {
+	old := supervisorReadyBound
+	supervisorReadyBound = 60 * time.Millisecond
+	t.Cleanup(func() { supervisorReadyBound = old })
+	var rec []string
+	d := mockDeps(&rec)
+	ws := "/Users/Shared/yolo/proj"
+	fakeSupervisor(&d, &rec, ws, "", "", "", false)
+	rc, out := runGuestLaunch(t, d)
+	if rc != 42 {
+		t.Fatalf("rc = %d\n%s", rc, out)
+	}
+	disclosure := "Starting openai-auth-broker inside the sandbox (confined by its Seatbelt profile, as " +
+		SandboxUser + ")"
+	if !strings.Contains(out, disclosure) ||
+		!strings.Contains(out, "Logs: "+filepath.Dir(SupervisorLogPath(ws))) {
+		t.Errorf("a supervisor still silent past the bound is not disclosed (want %q and its log "+
+			"directory):\n%s", disclosure, out)
+	}
+	if strings.Contains(out, "Started openai-auth-broker") {
+		t.Errorf("an unconfirmed start is said to have started:\n%s", out)
+	}
+	if i, j := strings.Index(out, disclosure), strings.Index(out, "has not said it is supervising"); j < 0 || i > j {
+		t.Errorf("the unconfirmed warning is missing or precedes the disclosure:\n%s", out)
+	}
+}
+
 // A SUPERVISOR THAT EXITS BEFORE IT STARTS REFUSES THE LAUNCH, and says so: the log's path, the
 // lines THIS start added (not an earlier session's), and what sudo or sandbox-exec printed
 // before the log took over. It is stopped and its env file swept, and the agent never runs.

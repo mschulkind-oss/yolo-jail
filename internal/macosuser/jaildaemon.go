@@ -425,18 +425,23 @@ type Background struct {
 // so this costs time only when the supervisor is still alive and has not spoken — a slow or
 // hung start — and never on the stop, which is untouched.
 //
-// WHY 1.5 s. The chain in front of the line is six execs, none of which does I/O worth the
-// name: a sudo whose credential cache the staging steps warmed a moment earlier, env,
+// WHY THE BOUND IS SHORT. The chain in front of the line is six execs, none of which does I/O
+// worth the name: a sudo whose credential cache the staging steps warmed a moment earlier, env,
 // sandbox-exec compiling a profile of a few dozen rules, two /bin/sh wrappers, and a Go binary
 // that parses one env var and writes the line before it starts anything. Every failure it is
 // meant to catch (a sudo -n refusal, a sandbox-exec denial, an exec or env-file failure) EXITS,
 // in milliseconds, and ends the wait through Exited rather than this bound. So the bound is
-// only the ceiling on a live-but-silent start, set well above that chain's cost (hundreds of
-// milliseconds at worst — each exec of the freshly staged binary is a new inode, so its code
-// signature is checked afresh) and low enough that a slow Mac costs a launch under two seconds
-// rather than a refusal. How long the chain really takes is a Mac measurement
-// (UNMEASURED in macos-user-nix-and-features.md's jail-daemon section; JD-8).
-var supervisorReadyBound = 1500 * time.Millisecond
+// only the ceiling on a live-but-silent start, set above that chain's estimated cost (hundreds of
+// milliseconds, reasoned rather than measured — each exec of the freshly staged binary is a new inode, so its code
+// signature is checked afresh) and low enough that a slow Mac costs a launch seconds rather
+// than a refusal.
+//
+// ⚠ 1.5 s WAS MEASURED SHORT: on macos-user CI run 38020706066 the supervisor wrote its line
+// after the launch had stopped waiting, so the bound is 5 s, still costing nothing on a start
+// that speaks or exits. How long the chain really takes is not measured (JD-8), and a start
+// slower than the bound is disclosed anyway (jailDaemonDisclosure), so the bound only decides
+// whether the launch can say "Started".
+var supervisorReadyBound = 5 * time.Second
 
 // supervisorReadyPoll is how often the wait re-reads the log.
 const supervisorReadyPoll = 20 * time.Millisecond
@@ -482,6 +487,17 @@ func awaitSupervisor(deps Deps, bg Background, logPath string, offset int) (supe
 	}
 }
 
+// jailDaemonDisclosure is the line saying which pack-declared daemons run in the sandbox, and
+// how. A DISCLOSURE, not progress: that code runs for the whole session, so it is said on every
+// launch whose supervisor did not exit (report-tiers.md, OQ-RO3: no quiet mode), confirmed
+// ("Started") or not ("Starting"); only a confirmed start is said to have started (JD-8).
+func jailDaemonDisclosure(verb, names, logPath string) string {
+	return fmt.Sprintf("%s %s inside the sandbox (confined by its Seatbelt profile, as %s) "+
+		"under %s supervise, until the command exits. Logs: %s "+
+		"(~/.local/state/yolo-jail-daemons in the sandbox).",
+		verb, names, SandboxUser, JaildName, pathParent(logPath))
+}
+
 // freshSupervisorLog is the log's content past offset: what THIS start wrote. A file shorter
 // than offset was replaced, and is read whole.
 func freshSupervisorLog(deps Deps, logPath string, offset int) string {
@@ -521,8 +537,9 @@ func quoteTail(s string, n int) string {
 //
 // "Started" is printed only once the supervisor's readiness line is in its log
 // (awaitSupervisor, JD-8). A supervisor that exits first is a refusal naming the log and its
-// last lines; one still running but silent past the bound is said to be unconfirmed, and the
-// launch goes on — a timer of ours is no reason to refuse a Mac that is merely slow.
+// last lines; one still running but silent past the bound is DISCLOSED all the same, said to be
+// unconfirmed, and the launch goes on — a timer of ours is no reason to refuse a Mac that is
+// merely slow, nor to leave running code unsaid.
 func startJailDaemons(deps Deps, out printer, plan RunPlan, teardown *sessionTeardown) (func(), bool) {
 	if deps.StartBackground == nil {
 		out.print("[bold red]This build cannot start the sandbox's jail daemons[/bold red] " +
@@ -579,17 +596,14 @@ func startJailDaemons(deps Deps, out printer, plan RunPlan, teardown *sessionTea
 			"daemons' addresses.")
 		return nil, false
 	case supervisorUnconfirmed:
-		out.printf("[yellow]The sandbox's jail-daemon supervisor for %s is running but has not said "+
-			"it is supervising after %s.[/yellow] The launch continues without that confirmation; "+
-			"if a daemon's client fails, read %s and the daemons' logs beside it.",
-			names, supervisorReadyBound, logPath)
+		// The DISCLOSURE first, as on the confirmed path: the supervisor is running, so the
+		// pack-declared code is too, and a slow start is no reason to leave that unsaid.
+		out.printf("%s", jailDaemonDisclosure("Starting", names, logPath))
+		out.printf("[yellow]Its supervisor is running but has not said it is supervising after "+
+			"%s.[/yellow] The launch continues without that confirmation; if a daemon's client "+
+			"fails, read %s and the daemons' logs beside it.", supervisorReadyBound, logPath)
 	default:
-		// A DISCLOSURE, not progress: pack-declared code is about to run for the whole session,
-		// so it is said on every launch (report-tiers.md, no quiet mode).
-		out.printf("Started %s inside the sandbox (confined by its Seatbelt profile, as %s) "+
-			"under %s supervise, until the command exits. Logs: %s "+
-			"(~/.local/state/yolo-jail-daemons in the sandbox).",
-			names, SandboxUser, JaildName, pathParent(logPath))
+		out.printf("%s", jailDaemonDisclosure("Started", names, logPath))
 	}
 	return func() {
 		bg.Stop()
