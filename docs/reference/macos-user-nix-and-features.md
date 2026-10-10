@@ -586,10 +586,22 @@ here a remap in either port key is carried by a TCP relay the launch opens outsi
 when the session starts and closes with the command, and a same-port entry needs nothing
 ([`declaration-parity.md` DP-I14](../design/declaration-parity.md#DP-I14), unmeasured on a Mac). **GPU** is unavailable on every
 macOS backend (Metal, no CUDA or ROCm). **Devices**: there is nothing to pass through, since the
-sandbox opens a `/dev` node under ordinary permissions, but the profile refuses `ioctl` on all but
+sandbox opens a `/dev` node under ordinary permissions, but the profile denies `ioctl` on all but
 terminals, so a `devices` entry naming a `/dev` node re-allows that node's ioctls and is disclosed
 at launch; raw disks and bpf stay denied (unmeasured on a Mac). `usb:` and cgroup rules are Linux
 kernel features and are warned as not read.
+
+⚠ **The ioctl deny does NOT refuse every ioctl, measured.** Seatbelt judges some ioctl commands
+and lets others through whatever the profile says: on macos-user CI it refused dyld's
+`DTRACEHIOC_ADDDOF` on `/dev/dtracehelper` in every sandboxed process (run 38020706066), and it did
+not refuse `FIONBIO` (runs 37522721810 through 37940733418) or `TIOCGETA`, the call behind
+`isatty`, on `/dev/null` (run 38020706066). So "refuses `ioctl` on all but terminals" holds only
+for the commands Seatbelt judges, and which commands those are is not known: whether it judges a
+serial port's `TIOCSETA` (`tcsetattr`), and so whether an undeclared serial adapter is really
+unusable, is unmeasured. The policy suite's `undeclared_device_ioctl_refused` and
+`declared_device_ioctl_allowed` cases now probe the one command measured as judged, and
+`TestMacosUserSeatbeltIoctlCoverageMeasurement` records what `TIOCGETA` on `/dev/null` and
+`/dev/zero` gets; both are unverified until the next Mac run.
 
 ### Loopholes: mostly moot, and the framework ports better
 

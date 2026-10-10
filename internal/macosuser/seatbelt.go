@@ -63,7 +63,11 @@ import (
 //     names, which is what a TUI and every pty its tooling allocates need. ⚠ The
 //     allow set is the part written blind: a pty an agent's tooling opens under some
 //     OTHER name would lose its ioctls, and the runtime case that exercises this
-//     (`script`, which allocates a real pty) is the instrument for it.
+//     (`script`, which allocates a real pty) is the instrument for it. ⚠ The DENY is
+//     narrower than its text, measured: Seatbelt judges only some ioctl commands. It
+//     refuses dyld's DTRACEHIOC_ADDDOF on /dev/dtracehelper and lets FIONBIO and
+//     TIOCGETA on /dev/null through (docs/reference/macos-user-nix-and-features.md,
+//     "Networking, devices, GPU"), so "terminals only" holds for the judged commands.
 //   - `/System/Library/Keychains`, which this profile left readable while denying
 //     `/Library/Keychains` beside it. ⚠ It holds SystemRootCertificates.keychain, the
 //     system trust store. Trust evaluation on macOS goes through trustd over XPC

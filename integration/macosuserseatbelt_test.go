@@ -58,12 +58,12 @@ const sharedUsersDir = "/Users/Shared"
 // separate question of whether a launch actually hands that profile to the agent is
 // pinned by internal/macosuser/launchconfinement_test.go.
 //
-// STDIN IS A PIPE FOR EVERY RUN, and it is not incidental. Go gives a child with no
-// Stdin the /dev/null DEVICE, which is a vnode — so `isatty(0)` on it is a
-// `file-ioctl` on a path, which the profile now denies, and the caller sees EPERM where
-// it expected ENOTTY. A pipe has no path and never reaches that check. Anything that
-// treats an ioctl error as fatal rather than as "not a terminal" would fail here for a
-// reason that has nothing to do with the case under test.
+// STDIN IS A PIPE FOR EVERY RUN. Go gives a child with no Stdin the /dev/null DEVICE,
+// which is a vnode, so `isatty(0)` on it is a `file-ioctl` on a path; this header used
+// to say the profile denies it, written blind. MEASURED otherwise (macos-user CI run
+// 38020706066): TIOCGETA on /dev/null reaches the driver under `(deny file-ioctl)`. The
+// pipe stays because it has no path and never reaches the check at all, whichever ioctl
+// a tool asks.
 
 // ---------------------------------------------------------------------------
 // The registry: every #seatbelt-test-id: in the profile, and what proves it.
@@ -211,6 +211,9 @@ type seatbeltCase struct {
 	// permitted", the EPERM that proves the PROFILE refused rather than the file mode (EACCES,
 	// "Permission denied"), which is the distinction declaration-parity.md §6.1 probe 3 drew.
 	refusal string
+	// devices, when non-nil, is the `devices` list this case's profile declares INSTEAD of
+	// seatbeltFixtureDevices: the case runs under its own variant of the fixture profile.
+	devices []string
 }
 
 // seatbeltCases is the whole suite. It is a pure function of the fixtures so the
@@ -458,23 +461,29 @@ func seatbeltCases() []seatbeltCase {
 		{
 			name: "undeclared_device_ioctl_refused",
 			id:   "file-ioctl-deny",
-			why: "TIOCGETA on /dev/null reaches the null driver unsandboxed, which answers ENOTTY or ENODEV, " +
-				"so the control passes, and the profile's ioctl deny must turn it into EPERM: " +
-				"/dev/null is not a terminal and the fixture declares no such device. Until " +
-				"`devices` was carved out this rule had no case. Not FIONBIO: Seatbelt never " +
-				"judges that one (devIoctlProbe).",
-			script:  func(seatbeltFixtures) string { return devIoctlProbe("/dev/null") },
+			why: "dyld's own DTRACEHIOC_ADDDOF, _IO('h', 4), on /dev/dtracehelper is the one ioctl " +
+				"Seatbelt is MEASURED to judge under this profile: the kernel logged `deny(1) " +
+				"file-ioctl path:/dev/dtracehelper ioctl-command:(_IO \"h\" 4)` for every sandboxed " +
+				"process on macos-user CI run 38020706066. Unsandboxed the driver answers with " +
+				"no side effect (a null DOF pointer is EFAULT), so the control passes, and the " +
+				"profile's ioctl deny must turn it into EPERM: the fixture does not declare the " +
+				"node. Not TIOCGETA or FIONBIO on /dev/null: Seatbelt judges neither " +
+				"(dtraceHelperIoctlProbe, TestMacosUserSeatbeltIoctlCoverageMeasurement).",
+			script:  func(seatbeltFixtures) string { return dtraceHelperIoctlProbe() },
 			want:    wantRefused,
 			refusal: "Operation not permitted",
 		},
 		{
 			name: "declared_device_ioctl_allowed",
 			id:   "device-ioctl-allow",
-			why: "the fixture declares /dev/zero as a `devices` entry, so the same TIOCGETA the " +
-				"case above is refused on /dev/null must succeed here. The pair is the proof: " +
-				"this case alone would also pass if Seatbelt never checked the ioctl at all.",
-			script: func(seatbeltFixtures) string { return devIoctlProbe("/dev/zero") },
-			want:   wantAllowed,
+			why: "the same ioctl the case above is refused, under a profile that declares " +
+				"/dev/dtracehelper as a `devices` entry, must reach the driver. The pair is the " +
+				"proof, and it needs an ioctl Seatbelt judges: on one it never checks, this " +
+				"case passes whatever the allow says (the /dev/zero TIOCGETA it used to probe " +
+				"was that).",
+			devices: []string{dtraceHelperDev},
+			script:  func(seatbeltFixtures) string { return dtraceHelperIoctlProbe() },
+			want:    wantAllowed,
 		},
 		{
 			name: "macos_log_store_read_refused",
@@ -705,7 +714,11 @@ func TestMacosUserSeatbeltProfileEnforcesItsRules(t *testing.T) {
 					"tell a policy refusal from a machine that never allowed it.\n"+
 					"rule: %s\nwhy:  %s\noutput:\n%s", script, bareRC, tc.id, tc.why, bareOut)
 			}
-			sbOut, sbRC := runScript(t, script, []string{"/usr/bin/sandbox-exec", "-f", profile})
+			caseProfile := profile
+			if tc.devices != nil {
+				caseProfile = seatbeltProfileVariant(t, f, tc.devices)
+			}
+			sbOut, sbRC := runScript(t, script, []string{"/usr/bin/sandbox-exec", "-f", caseProfile})
 
 			switch tc.want {
 			case wantRefused:
@@ -741,6 +754,39 @@ func TestMacosUserSeatbeltProfileEnforcesItsRules(t *testing.T) {
 	}
 	if t.Failed() {
 		logSandboxDenials(t)
+	}
+}
+
+// TestMacosUserSeatbeltIoctlCoverageMeasurement RECORDS which ioctls on a non-terminal device
+// the profile's `(deny file-ioctl)` actually refuses, and asserts nothing about it. The deny is
+// MEASURED to refuse DTRACEHIOC_ADDDOF on /dev/dtracehelper (undeclared_device_ioctl_refused)
+// and NOT to refuse FIONBIO or TIOCGETA on /dev/null (macos-user CI runs 37522721810 through
+// 38020706066), so Seatbelt judges some ioctl commands and not others, and which ones is the
+// open question docs/reference/macos-user-nix-and-features.md states. Only a broken control
+// fails it.
+func TestMacosUserSeatbeltIoctlCoverageMeasurement(t *testing.T) {
+	requireMacosUserSeatbelt(t)
+	f := seatbeltFixture(t)
+	profile := seatbeltProfileFile(t, f)
+	// The two nodes whose unsandboxed answer is measured (ENODEV, CI run 37986991379).
+	for _, dev := range []string{"/dev/null", "/dev/zero"} {
+		script := devIoctlProbe(dev)
+		if out, rc := runScript(t, script, nil); rc != 0 {
+			t.Fatalf("the CONTROL failed: TIOCGETA on %s exits %d unsandboxed.\noutput:\n%s", dev, rc, out)
+		}
+		out, rc := runScript(t, script, []string{"/usr/bin/sandbox-exec", "-f", profile})
+		verdict := "NOT REFUSED (reached the driver)"
+		if rc != 0 {
+			verdict = "REFUSED"
+		}
+		declared := "undeclared"
+		for _, d := range seatbeltFixtureDevices {
+			if d == dev {
+				declared = "declared in `devices`"
+			}
+		}
+		t.Logf("MEASUREMENT (file-ioctl coverage), TIOCGETA on %s (%s): %s under the profile (rc %d).\noutput:\n%s",
+			dev, declared, verdict, rc, out)
 	}
 }
 
@@ -1247,18 +1293,36 @@ func startSeatbeltCanary(t *testing.T) (int, string) {
 // because the first question about a surprising refusal is what the profile actually said.
 func seatbeltProfileFile(t *testing.T, f seatbeltFixtures) string {
 	t.Helper()
-	profile := macosuser.SeatbeltProfileWithRelocations(f.ws, "", []string{"vendored"}, f.content, f.ctxLinks,
-		f.relocs, seatbeltFixtureDevices)
-	path := filepath.Join(t.TempDir(), "session.sb")
-	if err := os.WriteFile(path, []byte(profile), 0o644); err != nil {
-		t.Fatalf("writing the profile to %s: %v", path, err)
-	}
+	path, profile := writeSeatbeltProfile(t, f, seatbeltFixtureDevices)
 	t.Logf("Seatbelt profile under test (%s):\n%s", path, profile)
 	return path
 }
 
-// seatbeltFixtureDevices is the `devices` list every fixture profile declares: one node a case
-// drives (declared_device_ioctl_allowed), so the carve-out is in the text under test.
+// seatbeltProfileVariant writes the fixture profile with `devices` declared in place of
+// seatbeltFixtureDevices, for a case that needs a device declared which another case needs
+// undeclared. Only the difference is logged: the rest is the profile already printed.
+func seatbeltProfileVariant(t *testing.T, f seatbeltFixtures, devices []string) string {
+	t.Helper()
+	path, _ := writeSeatbeltProfile(t, f, devices)
+	t.Logf("this case runs under the fixture profile with devices %q in place of %q (%s)",
+		devices, seatbeltFixtureDevices, path)
+	return path
+}
+
+func writeSeatbeltProfile(t *testing.T, f seatbeltFixtures, devices []string) (string, string) {
+	t.Helper()
+	profile := macosuser.SeatbeltProfileWithRelocations(f.ws, "", []string{"vendored"}, f.content, f.ctxLinks,
+		f.relocs, devices)
+	path := filepath.Join(t.TempDir(), "session.sb")
+	if err := os.WriteFile(path, []byte(profile), 0o644); err != nil {
+		t.Fatalf("writing the profile to %s: %v", path, err)
+	}
+	return path, profile
+}
+
+// seatbeltFixtureDevices is the `devices` list the fixture profile declares, so the carve-out is
+// in the text under test. No runtime case drives /dev/zero: Seatbelt is not measured to judge any
+// ioctl on it, and declared_device_ioctl_allowed declares its own node (dtraceHelperDev).
 var seatbeltFixtureDevices = []string{"/dev/zero"}
 
 // runScript runs one shell script, optionally wrapped in a prefix argv, and returns its
@@ -1268,8 +1332,8 @@ var seatbeltFixtureDevices = []string{"/dev/zero"}
 // and the case's evidence arrives on stdout; a failure message that carried only one of
 // them would send a reader to the runner to see the other.
 //
-// Stdin is an empty PIPE and never the default /dev/null — see the file header:
-// /dev/null is a device vnode, so `isatty(0)` on it is now a denied file-ioctl.
+// Stdin is an empty PIPE and never the default /dev/null — see the file header: a pipe
+// reaches no file-ioctl check, whatever Seatbelt judges on the /dev/null vnode.
 func runScript(t *testing.T, script string, prefix []string) (string, int) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -1319,10 +1383,45 @@ func sh(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 // `(deny file-ioctl)` on every macOS run from the case's first (macos-user CI runs 37522721810
 // through 37940733418, arm64 and Intel alike), so Seatbelt never judges it, and the
 // declared-device case beside this one passed for a reason that had nothing to do with its
-// allow. TIOCGETA is the ioctl the file header's isatty(0)-on-/dev/null EPERM is about.
+// allow. ⚠ TIOCGETA FARED NO BETTER: once ENODEV counted as reaching the driver, TIOCGETA on
+// /dev/null SUCCEEDED under the profile too (macos-user CI run 38020706066), so Seatbelt does not
+// judge it there either, and the file header's isatty(0) EPERM it was chosen for was never
+// measured. The policy cases now use dtraceHelperIoctlProbe; this probe is kept for
+// TestMacosUserSeatbeltIoctlCoverageMeasurement, which records what it gets.
 func devIoctlProbe(dev string) string {
-	return "/usr/bin/perl -e 'use Errno; open(my $f, \"<\", $ARGV[0]) or die \"open: $!\\n\"; " +
-		"my $v = \"\\0\" x 72; ioctl($f, 0x40487413, $v) or $!{ENOTTY} or $!{ENODEV} or die \"ioctl: $!\\n\"; " +
+	return ioctlProbe(dev, "<", "0x40487413", "my $v = \"\\0\" x 72; ", "$v", "$!{ENOTTY} or $!{ENODEV}")
+}
+
+// dtraceHelperDev is the node dtraceHelperIoctlProbe drives.
+const dtraceHelperDev = "/dev/dtracehelper"
+
+// dtraceHelperIoctlProbe issues DTRACEHIOC_ADDDOF, _IO('h', 4) = 0x20006804, on /dev/dtracehelper
+// with a NULL argument, and prints seatbeltOK when the ioctl REACHED THE DRIVER: any answer but
+// EPERM, which is the sandbox's refusal.
+//
+// WHY THIS ONE. It is the only file-ioctl Seatbelt is MEASURED to deny under this profile: dyld
+// issues it at every exec to register a binary's DTrace probes, and the kernel logged `deny(1)
+// file-ioctl path:/dev/dtracehelper ioctl-command:(_IO "h" 4)` for every sandboxed process on
+// macos-user CI run 38020706066 (dyld ignores the refusal). FIONBIO and TIOCGETA on /dev/null
+// both passed the same deny (devIoctlProbe), so a probe Seatbelt never judges proves nothing.
+//
+// SIDE-EFFECT FREE BY CONSTRUCTION: the argument is the user address of a DOF descriptor, and a
+// NULL one fails the driver's first copyin (EFAULT), or its restriction check (EACCES) first.
+// Every errno but EPERM counts as reaching the driver, because which of those the driver says is
+// not the question; an EPERM from the bare control fails the control and prints itself, which is
+// the case saying it cannot tell the driver's answer from the sandbox's.
+//
+// UNVERIFIED until a Mac runs it: the control's answer is reasoned from XNU's helper ioctl, not
+// measured.
+func dtraceHelperIoctlProbe() string {
+	return ioctlProbe(dtraceHelperDev, "+<", "0x20006804", "", "0", "!$!{EPERM}")
+}
+
+// ioctlProbe is the perl both probes share: open dev in mode, issue ioctl cmd with arg (after
+// setup), and print seatbeltOK when the call succeeded or failed with an errno reached accepts.
+func ioctlProbe(dev, mode, cmd, setup, arg, reached string) string {
+	return "/usr/bin/perl -e 'use Errno; open(my $f, \"" + mode + "\", $ARGV[0]) or die \"open: $!\\n\"; " +
+		setup + "ioctl($f, " + cmd + ", " + arg + ") or " + reached + " or die \"ioctl: $!\\n\"; " +
 		"print \"" + seatbeltOK + "\\n\"' " + sh(dev)
 }
 
