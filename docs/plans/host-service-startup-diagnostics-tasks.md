@@ -4,8 +4,7 @@ status: accepted
 stage: BUILT
 next: "None: built. Graduate the remaining contract text into the references when this design is next touched"
 depends-on:
-  - ../design/host-service-startup-diagnostics.md
-  - host-service-startup-diagnostics.md
+  - ../reference/host-service-startup-diagnostics.md
 tags: [tasks, host-services, diagnostics, launch]
 summary: "Ordered implementation and verification slices for safe settings preflight, attempt-attributed daemon refusals and real launch propagation."
 vantage:
@@ -66,7 +65,7 @@ vantage:
 
 ## 7. Carry failures through every launch caller
 
-- [x] Expand the current `olderDaemonRefusal` boundary to carry typed host startup causes without collapsing distinct outcomes. (Only a `configuration`-class cause is fatal, through `olderDaemonRefusal.startup`; other classes stay distinct warnings, with severity unchanged by [design §4.2](../design/host-service-startup-diagnostics.md#42-outcomes-and-presentation).)
+- [x] Expand the current `olderDaemonRefusal` boundary to carry typed host startup causes without collapsing distinct outcomes. (Only a `configuration`-class cause is fatal, through `olderDaemonRefusal.startup`; other classes stay distinct warnings, with severity unchanged by [the reference's refusal rules](../reference/host-service-startup-diagnostics.md#what-happens-on-a-refusal).)
 - [x] Exercise fresh container output through keeper's real plan/start/frames/final result; cause and remedy reach the launch client, not just keeper stderr/log. (`TestAFreshContainerLaunchRelaysADaemonRefusalThroughItsKeeper`, `TestAFreshMacosUserLaunchRelaysADaemonRefusalThroughItsKeeper`.)
 - [x] Exercise native launch (`run.go` native arm) and `HostDoorways.Start` / `yolo host --`; assert the same cause, remedy and cleanup at each actual front door. (`TestAFreshMacosUserLaunchRefusesInvalidSettingsBeforeItsKeeper`, `TestHostDoorwaysStartPropagatesSettingsRefusalBeforeStartingDoorway`, `TestAHostDoorwayStartReturnsADaemonRefusal`; the keeperless macos-user arm now prints the start's refusal before the OpenAI credential refusal, as the keeper does.)
 - [x] Keep failed-launch cleanup ownership narrow: stop launch-owned fronts/children; never tear down a shared singleton for a rejected desired snapshot. (A refusing daemon this attempt spawned is stopped by that attempt; a live shared singleton is never stopped for a rejected candidate.)

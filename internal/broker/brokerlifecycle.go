@@ -621,7 +621,7 @@ func EnsureSingleton(deps Deps) Ensured {
 	var reasonReadDone chan struct{}
 	var reasonReadCancel context.CancelFunc
 	// recordAccepted closes once the reader holds an accepted record, which ends the readiness
-	// wait as a failure (docs/design/host-service-startup-diagnostics.md §4.1), so a daemon that
+	// wait as a failure (docs/reference/host-service-startup-diagnostics.md#what-the-parent-accepts), so a daemon that
 	// refuses and stays alive does not hold the launch for the whole spawn window.
 	var recordAccepted chan struct{}
 	if reasonConn != nil {
@@ -635,7 +635,7 @@ func EnsureSingleton(deps Deps) Ensured {
 		go func() {
 			defer close(reasonReadDone)
 			// The reader's own return closes the parent end too, whichever deadline fired first, so no
-			// path leaves it open for a descendant holding the child end (§4.1).
+			// path leaves it open for a descendant holding the child end (docs/reference/host-service-startup-diagnostics.md#what-the-parent-accepts).
 			defer reasonConn.Close()
 			read := hostservice.ReadStartupReasonOutcome(readCtx, reasonConn, deps.Name, reasonAttempt, readyDeadline)
 			result := startupReasonResult{read: read}
@@ -723,7 +723,7 @@ func EnsureSingleton(deps Deps) Ensured {
 	// A DAEMON THAT REFUSED THIS ATTEMPT AND STAYS ALIVE IS THIS ATTEMPT'S TO END. It was spawned
 	// under this flock and its pid file names it, so nothing else owns it; left running it holds the
 	// pid file of a singleton that will never bind, and the next ensure, which stops nothing it finds
-	// alive without a socket, could not replace it after the user fixes the cause (§4.1: the parent
+	// alive without a socket, could not replace it after the user fixes the cause (docs/reference/host-service-startup-diagnostics.md#what-the-parent-accepts: the parent
 	// closes on refusal; a refusal is terminal for the attempt). A readiness timeout stays as it was:
 	// that daemon may still bind.
 	if !ready && done.Outcome.Kind == hostservice.StartupKindCooperativeRefusal &&
@@ -849,7 +849,7 @@ func reportCooperativeSpawnRefusal(deps Deps, reason *hostservice.StartupReason)
 	line := "[yellow]Warning: " + singletonSubject(deps) + " refused startup: " + richtext.Escape(reason.Reason)
 	if reason.Remedy != "" {
 		// The pack's text is sanitized to one bounded line but may still hold brackets: it is
-		// literal here, never markup (host-service-startup-diagnostics.md §3.1).
+		// literal here, never markup (docs/reference/host-service-startup-diagnostics.md#bounds-and-outcomes).
 		line += " Fix: " + richtext.Escape(reason.Remedy)
 	}
 	line += "; see " + deps.LogPath + "[/yellow]"
@@ -915,7 +915,7 @@ func brokerWaitForSocketUntil(deps Deps, sock string, deadline time.Time, exited
 		}
 		select {
 		case <-refused:
-			// Socket existence stays the authority (§4.1): one more look before judging.
+			// Socket existence stays the authority (docs/reference/host-service-startup-diagnostics.md#what-the-parent-accepts): one more look before judging.
 			return deps.PathExists(sock)
 		default:
 		}

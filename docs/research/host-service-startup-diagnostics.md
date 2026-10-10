@@ -14,8 +14,8 @@ service refuses its configuration, the operator should see that refusal and the 
 step—not infer it from the service's missing socket inside a jail.
 
 **Source checked:** 2026-10-07 at `10f90ba3e`. This records an observed reporting shape and
-requirements for a repair. The [design](../design/host-service-startup-diagnostics.md) now owns
-that repair, with its [implementation plan](../plans/host-service-startup-diagnostics.md).
+requirements for a repair. The [reference](../reference/host-service-startup-diagnostics.md) now describes
+that repair as built.
 Candidate work is stopped outside main; it has not passed whole-feature acceptance.
 The AWS policy remains the pack's; core must not learn AWS setting names to special-case it.
 
@@ -102,7 +102,7 @@ the headline remedy for this configuration error.
   [the jail reachability check](../../internal/entrypoint/reachability.go) report subsequent
   consequences. Those checks are not the original configuration validator.
 
-The missing channel was first identified by [the keychain design's host-daemon readiness work](../design/keychain-from-a-jail.md#314-what-yolo-itself-must-change). The bounded failure-only channel and early pure-settings validation for this incident are now specified in [`host-service-startup-diagnostics.md`](../design/host-service-startup-diagnostics.md); do not add an AWS-only error parser.
+The missing channel was first identified by [the keychain design's host-daemon readiness work](../design/keychain-from-a-jail.md#314-what-yolo-itself-must-change). The bounded failure-only channel and early pure-settings validation for this incident are now described in [`host-service-startup-diagnostics.md`](../reference/host-service-startup-diagnostics.md); do not add an AWS-only error parser.
 
 ## What better output should say
 

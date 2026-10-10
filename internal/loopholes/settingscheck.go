@@ -48,7 +48,7 @@ func RunSettingsCheck(lp *Loophole, frozen []byte) SettingsCheckResult {
 		out.Reason = "The settings validator did not finish within " + hostservice.SettingsCheckTimeout.String() + "."
 		// Not "correct the settings": nothing says they are wrong. A validator reads one file, so a
 		// second timeout on an idle host is the pack's to fix. No service bypass is offered as the
-		// repair (docs/design/host-service-startup-diagnostics.md §3.1).
+		// repair (docs/reference/host-service-startup-diagnostics.md#bounds-and-outcomes).
 		out.Remedy = "Retry the launch; if the validator times out again on an idle machine, report it " +
 			"to the maintainer of the pack that ships " + lp.Name + "."
 

@@ -8,7 +8,7 @@ summary: "What the landed startup diagnostics were verified by, and what only a 
 
 # QA: host-service startup diagnostics
 
-The [design](../design/host-service-startup-diagnostics.md) owns behavior; the
+The [reference](../reference/host-service-startup-diagnostics.md) describes behavior; the
 [task checklist](host-service-startup-diagnostics-tasks.md) names the test behind each row.
 Status 2026-10-08: every task row is checked.
 

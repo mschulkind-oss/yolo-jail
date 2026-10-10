@@ -1,7 +1,7 @@
 package run
 
-// startupfrontdoor_test.go pins docs/design/host-service-startup-diagnostics.md §4.2 and done
-// criterion 5 at the launch FRONT DOORS rather than at the service starter: a host service's
+// startupfrontdoor_test.go pins docs/reference/host-service-startup-diagnostics.md#typed-startup-outcomes
+// at the launch FRONT DOORS rather than at the service starter: a host service's
 // typed startup refusal reaches what a user sees through each whole launch, Run() driving its
 // real keeper (in-process, as keeper_test.go's TestMain installs it), with its frames relayed to
 // the launching terminal. The two refusals each arm owes are covered:
@@ -179,7 +179,7 @@ func assertFrontDoorRefusal(t *testing.T, out, headline, reason, remedy string) 
 		t.Errorf("a historical shared-log line reached the launch output:\n%s", out)
 	}
 	// A configuration refusal is the primary diagnostic; the readiness failure it caused is not
-	// reported in its place (§4.2).
+	// reported in its place (docs/reference/host-service-startup-diagnostics.md#typed-startup-outcomes).
 	for _, symptom := range []string{"did not bind", "cannot reach it"} {
 		if strings.Contains(out, symptom) {
 			t.Errorf("the derived symptom %q was printed for a configuration refusal:\n%s", symptom, out)
@@ -210,7 +210,7 @@ func TestAFreshContainerLaunchRelaysADaemonRefusalThroughItsKeeper(t *testing.T)
 
 // TestAFreshContainerLaunchKeepsANonConfigurationRefusalAWarning is its severity control: a
 // cooperative refusal of another class is printed first, as the daemon's own cause, and the
-// launch keeps the established reachability severity — it is not refused for it (§4.2).
+// launch keeps the established reachability severity — it is not refused for it (docs/reference/host-service-startup-diagnostics.md#typed-startup-outcomes).
 func TestAFreshContainerLaunchKeepsANonConfigurationRefusalAWarning(t *testing.T) {
 	frontDoorHome(t, cooperativeRefusalManifest())
 	t.Setenv(perJailReasonChildModeEnv, "exit")

@@ -1015,7 +1015,7 @@ func (o *Options) waitServiceReady(reachable func() bool, exited <-chan struct{}
 // startup-reason reader uses this same deadline so observing a refusal cannot extend it.
 //
 // refused closes when the daemon's startup-reason channel delivered an accepted record, and ENDS
-// THE WAIT as a failure (docs/design/host-service-startup-diagnostics.md §4.1: the parent stops
+// THE WAIT as a failure (docs/reference/host-service-startup-diagnostics.md#what-the-parent-accepts: the parent stops
 // waiting on readiness, a refusal, an exit or the timeout). A daemon that refuses and stays alive
 // would otherwise hold the launch for the whole window. Readiness keeps its authority: a service
 // found reachable before the record is ready. nil, for a service without the channel, never closes.
@@ -1042,7 +1042,7 @@ func (o *Options) waitServiceReadyUntil(deadline time.Time, reachable func() boo
 		}
 		select {
 		case <-refused:
-			// Socket acceptance stays the authority (§4.1): one more look before judging.
+			// Socket acceptance stays the authority (docs/reference/host-service-startup-diagnostics.md#what-the-parent-accepts): one more look before judging.
 			if reachable() {
 				return ""
 			}
@@ -1335,7 +1335,7 @@ func (o *Options) startHostSingleton(
 			o.pr(o.Stdout).print("[yellow]Warning: the host-wide daemon for '" + name +
 				"' " + hostSingletonRefusal(daemonPath, attempt, ensured.Started) + " — " +
 				o.unreachableBy() + " cannot reach it. See " + deps.LogPath + "[/yellow]")
-			// A cooperative refusal of another class is the daemon's own cause (section 4.2), and
+			// A cooperative refusal of another class is the daemon's own cause (docs/reference/host-service-startup-diagnostics.md#what-happens-on-a-refusal), and
 			// keeps its kind; the unreachable socket is its consequence.
 			if ensured.StartupReason == nil {
 				current.startupOutcome.Kind = hostservice.StartupKindTransportFailed
@@ -1666,7 +1666,7 @@ func (o *Options) startExternalService(
 		go func() {
 			defer close(reasonReadDone)
 			// The reader's own return closes the parent end too, whichever deadline fired first, so no
-			// path leaves it open for a descendant holding the child end (§4.1).
+			// path leaves it open for a descendant holding the child end (docs/reference/host-service-startup-diagnostics.md#what-the-parent-accepts).
 			defer reasonConn.Close()
 			read := hostservice.ReadStartupReasonOutcome(readCtx, reasonConn, name, reasonAttempt, readyDeadline)
 			reasonResults <- reasonReadResult{read: read}

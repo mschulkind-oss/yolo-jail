@@ -810,7 +810,7 @@ user-scope file to write it in, never the configured profile or policy. A host-w
 already running on earlier valid settings keeps running, for the jails already using it. `yolo
 check --no-build` runs the same validator on the current config, and skips the service's
 self-check when it refuses. The validator runs no `aws` and mints nothing
-([the startup-diagnostics design](../design/host-service-startup-diagnostics.md#3-settings-validation-precedes-shared-lifecycle-changes)).
+([host-service startup diagnostics](host-service-startup-diagnostics.md#the-settings-preflight)).
 
 #### What crosses into the jail
 

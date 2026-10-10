@@ -534,7 +534,7 @@ func TestHostEnvNamesTheLaunchThatOpensTheDoorway(t *testing.T) {
 
 // A HOST SERVICE WHOSE SETTINGS ARE REFUSED STOPS THE HOST LAUNCH, WORDED FOR THE HOST. The
 // settings name a profile and no permission mode, which aws-auth's pure settings validator refuses
-// before anything starts (host-service-startup-diagnostics.md §3.2): the launch is refused with
+// before anything starts (docs/reference/host-service-startup-diagnostics.md#where-it-runs-on-a-launch): the launch is refused with
 // the pack's cause and remedy and the host check to run next, opens no doorway, and says nothing
 // about a jail there is none of. No `aws` runs, so no AWS state decides the result.
 func TestHostWordsAFailedDoorwayServiceForTheHost(t *testing.T) {

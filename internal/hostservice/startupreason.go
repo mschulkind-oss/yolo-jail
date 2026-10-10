@@ -17,6 +17,9 @@ import (
 	"unicode"
 )
 
+// The attempt-reason channel: architecture and invariants in
+// docs/reference/host-service-startup-diagnostics.md.
+
 const (
 	StartupReasonFDEnv      = "YOLO_HOST_SERVICE_REASON_FD"
 	StartupReasonAttemptEnv = "YOLO_HOST_SERVICE_ATTEMPT"
