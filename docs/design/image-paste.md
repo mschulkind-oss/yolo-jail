@@ -447,14 +447,14 @@ never eat a keystroke without delivering an image.
 
 | ID | Measurement | Why |
 | :--- | :--- | :--- |
-| M1 | From a macos-user sandbox session, read the pasteboard (`pbpaste`, `osascript` for `«class PNGf»`) | Decides whether [OQ-PA1](#OQ-PA1)'s hole exists |
+| M1 | From a macos-user sandbox session, read the pasteboard (`pbpaste`, `osascript` for `«class PNGf»`). `TestMacosUserPasteboardProbe` in [`macosuserpasteboard_test.go`](../../integration/macosuserpasteboard_test.go) takes it on every macOS CI run: it logs one `MEASUREMENT` line per method and reports a host that cannot read its own pasteboard as inconclusive | Decides whether [OQ-PA1](#OQ-PA1)'s hole exists |
 | M2 | For each common terminal (kitty, Ghostty, WezTerm, foot, Alacritty, GNOME Terminal, iTerm2, Terminal.app), with only an image on the clipboard: does Ctrl+V reach the program as one chunk, or does the terminal intercept it | [§5.1](#51-only-a-chunk-that-is-exactly-one-key) assumes one chunk |
 | M3 | For each of the six agents, in a jail: does it turn bracketed paste on, and does it attach a bracketed paste of `/workspace/.yolo/paste/x.png` (agy and Copilot's details especially) | P1 rests on it |
 | M4 | Per backend: can the jail read a file the host writes into `.yolo/paste/` (rootless podman's uid map, Apple Container's virtiofs, the macos-user account) | [§7.3](#73-the-paste-store) |
 | M5 | Kitty CSI-u and modifyOtherKeys encodings of Ctrl+V arrive as one chunk | [§5.1](#51-only-a-chunk-that-is-exactly-one-key) |
 | M6 | `wl-paste --list-types` and `xclip … TARGETS` for screenshots from the common tools; `«class PNGf»` from a macOS screenshot | [§7.1](#71-reading-the-host-clipboard)'s type order |
 
-M1, M3 and M4 need a real jail and a human at the terminal; none is a synthetic load.
+M3 and M4 need a real jail and a human at the terminal. M1 runs unattended, but a CI runner is not a Terminal launch by a person, so a human repeats it from a Terminal before [OQ-PA1](#OQ-PA1) is ruled on a "no". None is a synthetic load.
 
 ## 10. First build slice
 
