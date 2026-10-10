@@ -114,8 +114,9 @@ are SandVault's rationale and implementation, not a reboot behavior measured in 
 For yolo, this improves the proposed fix: do not blindly create an empty-password login
 keychain and assume it remains usable. A dedicated service-account keychain is a concrete
 candidate. Its password, lock lifecycle, search list and cross-workspace access remain the
-policy of [the existing keychain question](../design/keychain-from-a-jail.md#OQ-KC4), not a
-ruling made by this comparison. Never migrate the host user's personal keychain wholesale.
+policy of [the keychain design](../design/keychain-from-a-jail.md#8-decision-ledger), not a
+ruling made by this comparison; on 2026-10-10 its [OQ-KC4](../design/keychain-from-a-jail.md#8-decision-ledger) ruled the keychain always the host's,
+so the dedicated account keychain is not taken. Never migrate the host user's personal keychain wholesale.
 
 ## Adoption assessment
 

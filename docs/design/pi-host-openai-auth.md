@@ -820,8 +820,9 @@ a macos-user launch hands it only to the services and doorways it runs outside t
    login. The codex precedent is C's shape instead: `yolo host -- codex` uses the broker through a
    managed home while a direct host codex stays untouched
    ([OQ-OA3](../reference/agent-credentials.md#oq-oa3)). A keeps that second half, and C would cost E,
-   the largest build here. [OQ-KC1](keychain-from-a-jail.md#OQ-KC1), the nearest unruled question,
-   also keeps a yolo-owned login apart from the host's own, but for a jail, not the host.
+   the largest build here. [OQ-KC1](keychain-from-a-jail.md#8-decision-ledger), ruled 2026-10-10,
+   went the other way for Copilot: one login, the host Copilot's own, shared by the host and
+   every jail.
 
    **Answer:**
    > _(empty — fill in when decided)_

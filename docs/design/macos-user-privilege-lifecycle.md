@@ -64,7 +64,7 @@ exact grants.
 | Subject | What remains unchanged |
 | :--- | :--- |
 | Account password | `_yolojail` keeps its random password. No empty account password, login-window account or stored account password is proposed. |
-| Keychain | [OQ-KC1](keychain-from-a-jail.md#OQ-KC1), [OQ-KC2](keychain-from-a-jail.md#OQ-KC2), [OQ-KC3](keychain-from-a-jail.md#OQ-KC3) and [OQ-KC4](keychain-from-a-jail.md#OQ-KC4) still own credential sharing, consumers and account-keychain unlock/lifetime/migration. No machine-wide System keychain, permanently unlocked empty-password default or host-credential import is selected here. |
+| Keychain | [OQ-KC1](keychain-from-a-jail.md#8-decision-ledger) to [OQ-KC4](keychain-from-a-jail.md#8-decision-ledger), ruled 2026-10-10, own credential sharing and consumers; the keychain is always the host's, so no account keychain is provisioned, and [OQ-KC5](keychain-from-a-jail.md#OQ-KC5) owns how native clients reach it. No machine-wide System keychain, permanently unlocked empty-password default or host-credential import is selected here. |
 | Workspace | [OQ-CW2](configurable-workspace-root.md#OQ-CW2) and its sibling questions still own the whitelist and root policy. The current neutral-ground check is not proof that every real home is excluded; this design neither widens it nor claims to fix it. |
 | Runtime and authentication | No auto-detection change, provider/auth change, pack consent change or credential-refresh ownership change. Password-free sudo operations do not guarantee a client never presents a keychain or login dialog. |
 | Services and stop | [The keeper's ownership](jail-lifetime-last-session-wins.md#994-what-the-keeper-owns-there), [stop semantics](jail-lifetime-last-session-wins.md#996-what-the-first-terminal-sees-and-how-the-keeper-ends) and held [HD-R1](host-daemon-ownership.md#HD-R1) stay independent. No resident root service, keeper migration or host-daemon deployment is proposed. |
@@ -254,7 +254,7 @@ no other local account's read grant.
 These grants name one shared `_yolojail` UID, as today: caller/session ownership prevents root
 operations crossing host owners, but does **not** create per-workspace isolation of guest
 secrets. Another guest process that obtains a file's name may have the same account rights;
-[the keychain/workspace scope question](keychain-from-a-jail.md#OQ-KC4) is not answered by this helper.
+[the keychain ruling](keychain-from-a-jail.md#8-decision-ledger) ([OQ-KC4](keychain-from-a-jail.md#8-decision-ledger): always the host's keychain) is not served by this helper.
 
 Atomic publication means readers see either no committed file or its complete bytes and final
 permissions. Creation uses an exclusive temporary regular file in the protected directory,
@@ -480,7 +480,7 @@ they do not implement this helper.
 Use harmless fixture commands and secret canaries, not interactive agents, model APIs or real
 credential migration. Native tests check ownership, ACLs, readable/unreadable paths, no root
 capability and the absence of sudo prompts with invalidated timestamps. Harmless keychain
-item/reboot tests remain [the keychain design's verification](keychain-from-a-jail.md#background-to-oq-kc4),
+item/reboot tests remain [the keychain design's probe](keychain-from-a-jail.md#41-macos-user-no-seam-and-no-keychain-provisioning),
 not an acceptance shortcut or unlock-policy ruling here.
 
 ### What may happen next

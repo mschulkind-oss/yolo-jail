@@ -14,9 +14,9 @@ import (
 )
 
 // TestMacosUserKeychainProbe RECORDS what the sandbox account can do with a keychain, and
-// asserts nothing about it: it is the measurement docs/design/keychain-from-a-jail.md OQ-KC4's
-// leaning asks for before that question is ruled ("Measure first"), taken from inside a real
-// macos-user sandbox, as the account `_yolojail`, under the session Seatbelt profile. It never
+// asserts nothing about it. It was written as the measurement for a dedicated account keychain,
+// which docs/design/keychain-from-a-jail.md's OQ-KC4 ruling (2026-10-10) rejected; its answers are
+// now input to that doc's OQ-KC5 (§4.1). It is taken from inside a real macos-user sandbox, as the account `_yolojail`, under the session Seatbelt profile. It never
 // runs Copilot, or any agent.
 //
 // What it asks, one step each, every step bounded so that a keychain call waiting on a dialog
@@ -25,8 +25,8 @@ import (
 //   - whether the account has a default keychain and what its search list holds (§4.1 infers
 //     neither, E17);
 //   - whether it can create a keychain on a throwaway file in its own temp dir, set it never to
-//     lock, lock it, and unlock it with the password fed to `security -i` on stdin (option B's
-//     mechanism);
+//     lock, lock it, and unlock it with the password fed to `security -i` on stdin (the rejected
+//     dedicated-keychain mechanism);
 //   - whether an item added by one process is read back by a SECOND one, which is the property
 //     an unlocked keychain without a login session has to have for a later agent process to use
 //     it;
@@ -39,8 +39,8 @@ import (
 // did not run it, or its shell printed none of its steps) or when it left its keychain in the
 // account's search list, which is the one change to the account it promises not to make.
 //
-// ⚠ A GitHub-hosted runner is not a Terminal launch, which is what the leaning names, and whether
-// the two give the same answer is not known. An answer here is an input for OQ-KC4, not the whole
+// ⚠ A GitHub-hosted runner is not a Terminal launch, and whether the two give the same answer is
+// not known. An answer here is an input for OQ-KC5, not the whole
 // measurement.
 func TestMacosUserKeychainProbe(t *testing.T) {
 	requireMacosUser(t)
@@ -54,7 +54,7 @@ func TestMacosUserKeychainProbe(t *testing.T) {
 			steps++
 		}
 	}
-	t.Logf("MEASUREMENT (keychain-from-a-jail.md OQ-KC4), as %s inside the sandbox:\n%s",
+	t.Logf("MEASUREMENT (keychain-from-a-jail.md §4.1), as %s inside the sandbox:\n%s",
 		macosuser.SandboxUser, probe)
 	if steps == 0 {
 		t.Fatalf("the probe printed none of its steps, so nothing was measured:\nstdout:\n%s\nstderr:\n%s",
