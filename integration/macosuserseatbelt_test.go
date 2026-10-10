@@ -105,15 +105,11 @@ var seatbeltRules = []seatbeltRule{
 	{id: "file-ioctl-tty-allow"},
 	// config.devices (macosuser.DeviceIoctlPaths): a declared node's control calls come back.
 	{id: "device-ioctl-allow"},
-	// The unified log, denied in every profile (macosuser.macosLogDenies): the macos-log
-	// loophole reads it on the host instead.
+	// The unified log's stores, denied in every profile (macosuser.macosLogDenies): the
+	// macos-log loophole reads the log on the host instead. The live-stream service is not
+	// denied (macosLogDenies says why); TestMacosUserSeatbeltLogStreamMeasurement records a
+	// stream bare and under the profile.
 	{id: "macos-log-deny"},
-	{id: "macos-log-stream-deny", unproven: "a live `log stream` has no exit a bare control " +
-		"can rely on: the only clean-exit spelling (`--timeout`) is unverified on the runner's " +
-		"macOS, and a stream killed from outside may never flush the entries it buffered, so a " +
-		"control that printed nothing would say nothing about the profile. The stream is RECORDED " +
-		"instead, bare and under the profile, by TestMacosUserSeatbeltLogStreamMeasurement; " +
-		"the store read beside it (macos-log-deny) is the asserted half."},
 	// THE CONTEXT MOUNTS (docs/design/context-mounts.md §3.4, §4 steps 4-5).
 	{id: "context-read-allow"},
 	{id: "context-write-allow"},
@@ -1344,8 +1340,9 @@ const macosLogStoreProbe = "out=$(/usr/bin/log show --last 1m --style json 2>&1)
 // macosLogStreamProbe RECORDS whether a live stream delivered an entry within three seconds:
 // started in the background, terminated, then read. SIGTERM and not SIGINT, because a
 // non-interactive shell starts a background job with SIGINT ignored, and a SIGKILL a second
-// later, so a stream that ignores SIGTERM cannot hold `wait` past runScript's deadline. See the
-// stream rule's registry entry for why this is recorded rather than asserted.
+// later, so a stream that ignores SIGTERM cannot hold `wait` past runScript's deadline.
+// Recorded rather than asserted: a stream killed from outside may never flush the entries it
+// buffered, so a control that printed nothing would say nothing about the profile.
 const macosLogStreamProbe = "f=$(mktemp /tmp/yolo-sb-logstream.XXXXXX) || exit 2; " +
 	"/usr/bin/log stream --style json >\"$f\" 2>&1 & p=$!; sleep 3; kill $p 2>/dev/null; " +
 	"sleep 1; kill -9 $p 2>/dev/null; wait $p 2>/dev/null; " +
@@ -1354,7 +1351,8 @@ const macosLogStreamProbe = "f=$(mktemp /tmp/yolo-sb-logstream.XXXXXX) || exit 2
 // TestMacosUserSeatbeltLogStreamMeasurement RECORDS a live stream bare and under the session
 // profile, beside macos_log_store_read_refused's asserted store read. It asserts nothing: a
 // stream killed from outside may never flush, so "nothing arrived" under the profile proves
-// nothing on its own (the macos-log-stream-deny registry entry).
+// nothing on its own. As the sandbox account, `log show` under the profile refused to start
+// ("Cannot run while sandboxed", CI run 37986991379), whatever the profile allows.
 func TestMacosUserSeatbeltLogStreamMeasurement(t *testing.T) {
 	requireMacosUserSeatbelt(t)
 	profile := seatbeltProfileFile(t, seatbeltFixture(t))
@@ -1367,7 +1365,7 @@ func TestMacosUserSeatbeltLogStreamMeasurement(t *testing.T) {
 		if rc != 0 {
 			verdict = "nothing arrived"
 		}
-		t.Logf("MEASUREMENT (macos-log-stream-deny), `log stream` %s: %s (rc %d).\noutput:\n%s",
+		t.Logf("MEASUREMENT (macos-log stream), `log stream` %s: %s (rc %d).\noutput:\n%s",
 			run.name, verdict, rc, out)
 	}
 	// The "user" control has read nothing on every Mac run since it landed (macos-user runs

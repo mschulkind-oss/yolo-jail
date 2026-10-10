@@ -92,15 +92,15 @@ import (
 //
 // # THE UNIFIED LOG IS UNREADABLE FROM THE SANDBOX, ALWAYS
 //
-// The profile denies reads of the log store and the lookup of the service a live stream
-// connects to (macosLogDenies), and nothing later re-allows either. It used to be conditional
+// The profile denies reads of the log store (macosLogDenies), and nothing later re-allows
+// one. It does NOT deny the lookup of com.apple.diagnosticd, the live-stream service: see
+// macosLogDenies for why that deny was dropped. It used to be conditional
 // on the top-level `macos_log` key, whose "user" and "full" settings rendered no rule so an
 // in-sandbox `yolo-log` wrapper could run /usr/bin/log. That wrapper never read anything —
 // the sandbox account cannot read the log even with no profile (macos-user CI run
 // 37940733418) — so the key was retired, the log is read on the host by the `macos-log`
 // loophole (packs/macos-log/README.md), and the deny no longer has a setting to yield to.
-// The store paths and the service name are INFERRED; their proof is
-// integration/macosuserseatbelt_test.go's.
+// The store paths are INFERRED; their proof is integration/macosuserseatbelt_test.go's.
 //
 // SeatbeltProfile is the profile of a launch with no context mount and no declared device.
 func SeatbeltProfile(workspace, sandboxHome string, readonlyRels []string, homeReadonly HomeReadonly) string {
@@ -336,29 +336,37 @@ func volumeAncestorLiterals(targets []string) string {
 	return b.String()
 }
 
-// macosLogDenies renders the unified-log rules every profile carries.
+// macosLogDenies renders the unified-log rule every profile carries: file-read* of the two
+// stores `log show` reads, the persisted entries under /private/var/db/diagnostics and the
+// format strings under /private/var/db/uuidtext. Physical paths, because the kernel resolves
+// /var before the policy is consulted.
 //
-//   - file-read* of the two stores `log show` reads: the persisted entries under
-//     /private/var/db/diagnostics and the format strings under /private/var/db/uuidtext.
-//     Physical paths, because the kernel resolves /var before the policy is consulted.
-//   - mach-lookup of com.apple.diagnosticd, the service `log stream` connects to. A program
-//     writes its own log through logd, which no rule here names; that denying diagnosticd costs
-//     a logging program nothing is part of what is unmeasured.
+// NO mach-lookup deny of com.apple.diagnosticd, the service a live `log stream` connects to.
+// The profile carried one until macos-user CI run 37986991379, where the macos-log bridge's
+// user-scope stream never delivered an entry the sandbox logged while it ran
+// (TestMacosUserMacosLogBridgeScopesToTheSandbox). If a live stream is fed by the LOGGING
+// process, which looks diagnosticd up once a stream is attached, the deny hid every sandbox
+// entry from every stream — the user scope's only live view — while it still reached the
+// store. That mechanism is INFERRED, not measured; the bridge test now separates it from
+// the stream's own delivery by also reading the entry back with `show`. Dropping the deny
+// widens nothing measured: as the sandbox account, `log stream` read nothing even with no
+// profile (CI runs 37940733418 and 37986991379), and `log show` under this profile refused
+// to start, "Cannot run while sandboxed" (CI run 37986991379), both in
+// TestMacosUserMacosLogAsTheSandboxAccountMeasurement.
 //
 // Placed after every file-read re-allow in the profile (the workspace's, the context mounts')
-// so none can re-open the stores; nothing after it allows a mach-lookup. ⚠ INFERRED, never
-// loaded on a Mac: the two store paths and the service name. Their runtime proof is the
-// macos_log case in integration/macosuserseatbelt_test.go, with the bare run as control.
+// so none can re-open the stores; nothing after it allows a file read. ⚠ INFERRED: the two
+// store paths. Their runtime proof is the macos_log case in
+// integration/macosuserseatbelt_test.go, with the bare run as control.
 func macosLogDenies() string {
-	return ";; --- The unified log is unreadable from the sandbox: yolo-log reads it on the\n" +
-		";;     host (the macos-log loophole).  Its stores, then its live stream.\n" +
-		";;     Nothing below re-allows a file read or a mach lookup. ---\n" +
+	return ";; --- The unified log's stores are unreadable from the sandbox: yolo-log reads\n" +
+		";;     the log on the host (the macos-log loophole).  The live-stream service is\n" +
+		";;     NOT denied: a sandbox process's entries may reach a stream through it.\n" +
+		";;     Nothing below re-allows a file read. ---\n" +
 		";; #seatbelt-test-id:macos-log-deny#\n" +
 		"(deny file-read*\n" +
 		"    (subpath \"/private/var/db/diagnostics\")\n" +
-		"    (subpath \"/private/var/db/uuidtext\"))\n" +
-		";; #seatbelt-test-id:macos-log-stream-deny#\n" +
-		"(deny mach-lookup (global-name \"com.apple.diagnosticd\"))\n"
+		"    (subpath \"/private/var/db/uuidtext\"))\n"
 }
 
 // readonlyDenies renders the config.workspace_readonly block: ONE

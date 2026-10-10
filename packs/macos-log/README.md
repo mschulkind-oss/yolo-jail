@@ -101,11 +101,10 @@ Each entry below is an implementation decision taken under the owner's ruling of
     `_yolojail`, so the user scope shows every sandbox's entries, not just this one's. A
     per-jail scope would need the bridge to know this session's process tree, which the host
     daemon does not track.
-  - **Unmeasured: whether a current macOS's ndjson carries `userID`, and how it spells
-    `timestamp`.** Without `userID`, `yolo-log show` returns nothing in the user scope, and
-    `yolo-log stream` while reproducing a problem is the way to read the log. With `full`,
-    `show` works as usual. `TestMacosUserMacosLogBridgeScopesToTheSandbox` records which case a
-    Mac is in.
+  - **Measured: macOS's ndjson carries `userID`.** On macos-user CI run 37986991379 the user
+    scope's `yolo-log show` returned the sandbox account's entry with `"userID":600`, and its
+    `timestamp` read "2026-10-09 22:16:08.389816+0000", the spelling the stream fallback parses.
+    `TestMacosUserMacosLogBridgeScopesToTheSandbox` records it again on every Mac run.
   - **An abandoned stream stops.** The filter may send nothing for minutes, so the bridge
     doesn't wait for a failed write to notice the client is gone. It watches the connection, and
     when the client goes, it stops `log`.
@@ -127,8 +126,15 @@ Each entry below is an implementation decision taken under the owner's ruling of
   wrapper from `~/.local/bin`, which comes before the guest prefix on the sandbox PATH and lives
   in the workspace sidecar, so a leftover wrapper would hide the client. A file there that yolo
   did not write is kept and named.
-- **ML-D8. The Seatbelt log deny is unconditional.** With nothing left to read the log inside
-  the sandbox, the store and stream denies have no setting to make way for.
+- **ML-D8. The Seatbelt log deny is unconditional, and covers the stores only.** With nothing
+  left to read the log inside the sandbox, the store deny has no setting to make way for. The
+  profile no longer denies `com.apple.diagnosticd`, the live-stream service: on CI run
+  37986991379 the user scope's `yolo-log stream` never delivered an entry the sandbox logged
+  while it ran, and a sandbox process that cannot reach that service may never appear in any
+  live stream. That cause is inferred, not measured; the same test now reads the entry back
+  with `show` to tell "never logged" from "logged, not streamed". Dropping the deny widens
+  nothing measured, since the sandbox account read nothing from `log stream` even with no
+  profile, and `log show` refused to start under the profile ("Cannot run while sandboxed").
 - **ML-D9. Darwin hosts only, and meant for macos-user.** The loophole declares
   `platforms: ["darwin"]`. A podman jail on a Mac can reach it too, but by default it shows
   only the sandbox account's processes, and a container runs none of those, so there only

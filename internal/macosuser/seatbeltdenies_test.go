@@ -169,18 +169,18 @@ func TestSeatbeltNewDeniesFollowTheWritableSet(t *testing.T) {
 	}
 }
 
-// macosLogDenyRules are the two unified-log rules every profile carries, by their text.
+// macosLogDenyRules are the unified-log store rule every profile carries, by its text.
 var macosLogDenyRules = []string{
 	"#seatbelt-test-id:macos-log-deny#",
 	`(subpath "/private/var/db/diagnostics")`,
 	`(subpath "/private/var/db/uuidtext")`,
-	"#seatbelt-test-id:macos-log-stream-deny#",
-	`(deny mach-lookup (global-name "com.apple.diagnosticd"))`,
 }
 
 // TestSeatbeltAlwaysDeniesTheLog: the log is the macos-log bridge's (packs/macos-log), never the
-// sandbox's, so every profile denies its stores and its stream service — the bare default and one
-// with context mounts and devices alike. There is no setting left that removes the rules.
+// sandbox's, so every profile denies its stores — the bare default and one with context mounts
+// and devices alike. There is no setting left that removes the rule. And no profile denies the
+// live-stream service, com.apple.diagnosticd: a sandbox process that cannot reach it may never
+// appear in a live stream, which is the macos-log user scope's only live view (macosLogDenies).
 func TestSeatbeltAlwaysDeniesTheLog(t *testing.T) {
 	for name, p := range map[string]string{
 		"default": SeatbeltProfile("/Users/Shared/proj", "", []string{"vendored"}, HomeReadonly{}),
@@ -191,6 +191,10 @@ func TestSeatbeltAlwaysDeniesTheLog(t *testing.T) {
 			if !strings.Contains(p, want) {
 				t.Errorf("%s: the profile lacks %q\n%s", name, want, p)
 			}
+		}
+		if strings.Contains(p, `"com.apple.diagnosticd"`) {
+			t.Errorf("%s: the profile names com.apple.diagnosticd, the service a sandbox process's "+
+				"entries reach a live stream through\n%s", name, p)
 		}
 	}
 }

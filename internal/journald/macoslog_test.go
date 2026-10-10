@@ -258,3 +258,25 @@ func TestMacosLogMainRequiresItsSocket(t *testing.T) {
 		t.Errorf("stderr %q", got)
 	}
 }
+
+// TestMacosLogKeepReadsAMeasuredEntry pins the user scope against the shape a real Mac printed
+// (macos-user CI run 37986991379, `log show --style ndjson` as the bridge runs it): the
+// sandbox account's entry carries a numeric `userID`, and `timestamp` is spelled
+// "2026-10-09 22:16:08.389816+0000", which the stream fallback must parse.
+func TestMacosLogKeepReadsAMeasuredEntry(t *testing.T) {
+	const measured = `{"timezoneName":"","messageType":"Default","eventType":"logEvent","source":null,` +
+		`"formatString":"%s","userID":600,"activityIdentifier":0,"subsystem":"","category":"",` +
+		`"threadID":92890,"processImagePath":"\/usr\/bin\/perl",` +
+		`"timestamp":"2026-10-09 22:16:08.389816+0000","processID":4242,"eventMessage":"x"}`
+	none := func(int) (uint32, time.Time, bool) { return 0, time.Time{}, false }
+	if !macosLogKeep(600, false, none)([]byte(measured)) {
+		t.Errorf("the user scope dropped the sandbox account's measured entry:\n%s", measured)
+	}
+	if macosLogKeep(501, true, none)([]byte(measured)) {
+		t.Errorf("the user scope kept another account's measured entry:\n%s", measured)
+	}
+	got, ok := parseEntryTime("2026-10-09 22:16:08.389816+0000")
+	if want := time.Date(2026, 10, 9, 22, 16, 8, 389816000, time.UTC); !ok || !got.Equal(want) {
+		t.Errorf("parseEntryTime(measured) = %v, %v; want %v", got, ok, want)
+	}
+}

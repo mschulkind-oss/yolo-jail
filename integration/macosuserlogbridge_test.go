@@ -29,7 +29,12 @@ import (
 // THEN A LIVE STREAM: the sandbox starts `yolo-log stream`, logs a third entry from inside the
 // sandbox with a process that stays alive, and kills the client. The stream must deliver that
 // entry, by `userID` or by its live process's owner. Killing the client is also the abandoned-
-// stream path: the bridge must then stop its `log stream`.
+// stream path: the bridge must then stop its `log stream`. A user-scope `show` of the live entry
+// afterwards separates "never logged" from "logged, not streamed" when the stream misses it.
+//
+// MEASURED (CI run 37986991379): this macOS's ndjson carries `userID` (the sandbox's entry
+// came back from `show` as `"userID":600`) and spells `timestamp` as
+// "2026-10-09 22:16:08.389816+0000", the layout macoslog.go's parseEntryTime reads.
 //
 // Darwin-only by build constraint, like the serial test: requireMacosUser skips everywhere else.
 func TestMacosUserMacosLogBridgeScopesToTheSandbox(t *testing.T) {
@@ -47,9 +52,11 @@ func TestMacosUserMacosLogBridgeScopesToTheSandbox(t *testing.T) {
 		`echo "=== STREAM ==="`,
 		`f=$(mktemp /tmp/yolo-it-ylog.XXXXXX)`,
 		`yolo-log stream --predicate 'eventMessage CONTAINS "` + token + `"' >"$f" 2>&1 & p=$!`,
-		`sleep 3`,
+		`sleep 5`, // the client dials the bridge and the bridge starts `log stream` first
 		`/usr/bin/perl -MSys::Syslog -e 'openlog("yolo-it", "pid", "user"); syslog("notice", "%s", $ARGV[0]); closelog(); sleep 6' ` + token + `-live & q=$!`,
 		`sleep 4; kill "$p" 2>/dev/null; wait "$p" 2>/dev/null; kill "$q" 2>/dev/null; cat "$f"; rm -f "$f"`,
+		`echo "=== LIVESHOW ==="`,
+		`yolo-log show --last 5m --predicate 'eventMessage CONTAINS "` + token + `-live"'; echo "LIVESHOW_RC=$?"`,
 		`echo "=== COLLECT ==="`,
 		`yolo-log collect 2>&1; echo "COLLECT_RC=$?"`,
 		`echo "=== END ==="`,
@@ -73,10 +80,26 @@ func TestMacosUserMacosLogBridgeScopesToTheSandbox(t *testing.T) {
 		t.Errorf("the user scope's show failed, or carried userID and still missed the sandbox "+
 			"account's entry %q:\n%s%s", mine, show, diag())
 	}
-	if stream := section(r.stdout, "=== STREAM ===", "=== COLLECT ==="); !strings.Contains(stream, token+"-live") {
-		t.Errorf("the user scope's stream did not deliver the sandbox's live entry %q (if the "+
-			"Seatbelt profile refuses syslog(3) to the sandbox, that is the cause, and the "+
-			"entry never existed):\n%s%s", token+"-live", stream, diag())
+	// LIVESHOW reads the live entry back from the STORE after the stream, so a stream that
+	// missed it says which half failed: an entry `show` finds was logged and the stream did not
+	// deliver it; one `show` cannot find either was never logged from inside the sandbox or
+	// cannot be attributed to it (CI run 37986991379 failed here with no way to tell).
+	liveShow := section(r.stdout, "=== LIVESHOW ===", "=== COLLECT ===")
+	inStore := strings.Contains(liveShow, token+"-live")
+	t.Logf("MEASUREMENT (macos-log), the sandbox's live entry is in the store (user-scope `show` "+
+		"after the stream): %v", inStore)
+	if stream := section(r.stdout, "=== STREAM ===", "=== LIVESHOW ==="); !strings.Contains(stream, token+"-live") {
+		cause := "`show` cannot find it either, so the sandbox's syslog(3) entry never reached " +
+			"the store, or reached it without the sandbox account's userID: the profile " +
+			"refusing the sandbox's logging is the first suspect (the kernel's Sandbox lines follow)"
+		if inStore {
+			cause = "`show` finds it in the store, so the sandbox logged it and the STREAM did not " +
+				"deliver it: `log stream` holding its output in a pipe buffer until it exits, the " +
+				"stream starting after the entry, or the entry missing the stream's attribution"
+		}
+		t.Errorf("the user scope's stream did not deliver the sandbox's live entry %q: %s.\n"+
+			"stream:\n%s\nshow after it:\n%s%s", token+"-live", cause, stream, liveShow, diag())
+		logSandboxDenials(t)
 	}
 	if strings.Contains(show, theirs) {
 		t.Errorf("the user scope returned the runner's entry %q, which is not the sandbox "+

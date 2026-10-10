@@ -137,9 +137,9 @@ whole answer: Codex and Copilot never run an external program, so faking `xclip`
   loophole the agent can call is a loophole the agent can call whenever it likes.
 - **No clipboard code exists**, and the jail gets no X11, Wayland or D-Bus socket.
 - **macos-user's Seatbelt profile is `(allow default)`**
-  ([`seatbelt.go:171`](../../internal/macosuser/seatbelt.go#L171)), and its one mach-lookup deny
-  is `com.apple.diagnosticd` ([`seatbelt.go:361`](../../internal/macosuser/seatbelt.go#L361)).
-  Nothing denies the pasteboard service, so the sandbox account **may already read the user's
+  ([`seatbelt.go:171`](../../internal/macosuser/seatbelt.go#L171)), and it denies no mach-lookup
+  at all (the one it had, `com.apple.diagnosticd`, was dropped:
+  [ML-D8](../../packs/macos-log/README.md#the-ledger)). Nothing denies the pasteboard service, so the sandbox account **may already read the user's
   pasteboard**. Unmeasured; [§6.3](#63-macos-user) and [OQ-PA1](#OQ-PA1).
 
 ## 3. The recommendation: type the path, don't open a channel

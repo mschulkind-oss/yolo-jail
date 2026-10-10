@@ -37,10 +37,11 @@ package journald
 //     reads a host file, as are `--archive` and every verb that writes (`config`, `erase`)
 //     or collects (`collect`, `stats`).
 //
-// ⚠ UNMEASURED: whether a current macOS's ndjson carries `userID`, and the exact spelling of its
-// `timestamp`. Without `userID`, `show` returns nothing in the user scope and `stream` only
-// entries from live sandbox processes; the macos-user integration test records which
-// (TestMacosUserMacosLogBridgeScopesToTheSandbox).
+// MEASURED on macos-user CI run 37986991379: the ndjson of the runner's macOS carries a numeric
+// `userID`, so `show` returns the sandbox account's entries in the user scope, and spells
+// `timestamp` "2026-10-09 22:16:08.389816+0000", which entryTimeLayouts reads
+// (TestMacosLogKeepReadsAMeasuredEntry; TestMacosUserMacosLogBridgeScopesToTheSandbox records
+// it on every Mac run).
 
 import (
 	"encoding/json"
