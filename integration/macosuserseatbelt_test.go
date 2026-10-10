@@ -462,7 +462,7 @@ func seatbeltCases() []seatbeltCase {
 		{
 			name: "undeclared_device_ioctl_refused",
 			id:   "file-ioctl-deny",
-			why: "TIOCGETA on /dev/null reaches the null driver unsandboxed, which answers ENOTTY, " +
+			why: "TIOCGETA on /dev/null reaches the null driver unsandboxed, which answers ENOTTY or ENODEV, " +
 				"so the control passes, and the profile's ioctl deny must turn it into EPERM: " +
 				"/dev/null is not a terminal and the fixture declares no such device. Until " +
 				"`devices` was carved out this rule had no case. Not FIONBIO: Seatbelt never " +
@@ -1309,10 +1309,14 @@ func sh(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 
 // devIoctlProbe issues TIOCGETA — what isatty(3) asks — on a device node through the system
 // perl, and prints seatbeltOK when the ioctl REACHED THE DRIVER: it succeeded, or the driver
-// answered ENOTTY, which is what the null and zero drivers say to a terminal question with no
-// privilege and no side effect. A sandbox refusal is EPERM, which dies with "Operation not
-// permitted". The buffer is a struct termios, 72 bytes on both darwin architectures (TIOCGETA
-// is _IOR('t', 19, struct termios) = 0x40487413), and a variable, not "\0" x 72 inline: perl's
+// answered ENOTTY or ENODEV to a terminal question it does not implement, with no privilege
+// and no side effect. ENOTTY is the conventional answer; ENODEV ("Operation not supported by
+// device") is the one the null and zero drivers MEASURED unsandboxed on this probe's first
+// macOS run (CI run 37986991379), which failed both controls for accepting ENOTTY alone. A
+// sandbox refusal is EPERM, which is neither, so it still dies with "Operation not
+// permitted"; an errno outside the pair fails the control and prints itself. The buffer is a
+// struct termios, 72 bytes on both darwin architectures (TIOCGETA is _IOR('t', 19, struct
+// termios) = 0x40487413), and a variable, not "\0" x 72 inline: perl's
 // ioctl writes the buffer back and refuses a read-only one.
 //
 // NOT FIONBIO, which this probe used first: FIONBIO on /dev/null SUCCEEDED under the profile's
@@ -1322,7 +1326,7 @@ func sh(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 // allow. TIOCGETA is the ioctl the file header's isatty(0)-on-/dev/null EPERM is about.
 func devIoctlProbe(dev string) string {
 	return "/usr/bin/perl -e 'use Errno; open(my $f, \"<\", $ARGV[0]) or die \"open: $!\\n\"; " +
-		"my $v = \"\\0\" x 72; ioctl($f, 0x40487413, $v) or $!{ENOTTY} or die \"ioctl: $!\\n\"; " +
+		"my $v = \"\\0\" x 72; ioctl($f, 0x40487413, $v) or $!{ENOTTY} or $!{ENODEV} or die \"ioctl: $!\\n\"; " +
 		"print \"" + seatbeltOK + "\\n\"' " + sh(dev)
 }
 
