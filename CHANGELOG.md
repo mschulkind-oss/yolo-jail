@@ -10,6 +10,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-10-09
+
 Pi keeps to the active profile set, Nix builds made in a jail survive host garbage collection,
 and a patch series that no longer applies stops the launch instead of running an old build.
 
