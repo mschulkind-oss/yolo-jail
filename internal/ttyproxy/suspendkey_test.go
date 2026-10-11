@@ -143,7 +143,15 @@ func assertProxySuspends(t *testing.T, input string, want bool) {
 	if err := c.Start(); err != nil {
 		t.Fatalf("start child: %v", err)
 	}
-	defer func() { _ = c.Process.Kill() }()
+	loopDone := make(chan struct{})
+	defer func() {
+		_ = c.Process.Kill()
+		select {
+		case <-loopDone:
+		case <-time.After(5 * time.Second):
+			t.Error("the proxy loop never returned once its child was killed")
+		}
+	}()
 	unix.Close(childSlave)
 
 	cooked, err := unix.IoctlGetTermios(hostSlave, unix.TCGETS)
@@ -152,7 +160,10 @@ func assertProxySuspends(t *testing.T, input string, want bool) {
 	}
 	setRaw(hostSlave, cooked) // what RunWithProxyHooked does before pumping
 
-	go proxyLoop(hostSlave, childMaster, c, cooked, Observer{})
+	go func() {
+		defer close(loopDone)
+		proxyLoop(hostSlave, childMaster, c, cooked, Observer{})
+	}()
 
 	if _, err := unix.Write(hostMaster, []byte(input)); err != nil {
 		t.Fatalf("write to host pty: %v", err)
@@ -184,5 +195,40 @@ func assertProxySuspends(t *testing.T, input string, want bool) {
 			return // stayed raw, which is the correct answer for a non-match
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// TestProxyLoopFlushesSurvivingBytesAroundSuspend asserts that bytes typed before
+// and after Ctrl-Z in the same chunk reach the child in order, with the suspend
+// sequence itself stripped.
+func TestProxyLoopFlushesSurvivingBytesAroundSuspend(t *testing.T) {
+	signal.Ignore(syscall.SIGTSTP)
+	defer signal.Reset(syscall.SIGTSTP)
+
+	master, _ := fakeHostTTY(t)
+
+	run := startProxied(t, master, []string{"sh", "-c",
+		"stty raw -echo; printf 'READY\\n'; dd bs=1 count=10 2>/dev/null; exit 0"}, Observer{})
+
+	if got, ok := readUntil(master, "READY\n", childDeadline); !ok {
+		t.Fatalf("child never signaled READY: %q", got)
+	}
+
+	// Write "hello" + ^Z + "world" in a single write.
+	if _, err := unix.Write(master, []byte("hello\x1aworld")); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, ok := readUntil(master, "helloworld", childDeadline); !ok {
+		t.Fatalf("child never echoed surviving bytes, got %q", got)
+	}
+
+	select {
+	case rc := <-run.done:
+		if rc != 0 {
+			t.Fatalf("child rc = %d", rc)
+		}
+	case <-time.After(childDeadline):
+		t.Fatal("proxy did not return after child exit")
 	}
 }

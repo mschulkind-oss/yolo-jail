@@ -558,14 +558,60 @@ func runPlain(cmd []string, onStarted func(*os.Process), obs Observer) (int, err
 	return exitCode(err), nil
 }
 
+// maxForwardQueue is the backpressure threshold for host input queued for the
+// child's pty master. When the in-memory queue reaches this ceiling, reading from
+// host stdin is paused so a flood of pasted input cannot grow memory without bound
+// or outpace the child. Output draining from the child continues uninterrupted.
+const maxForwardQueue = 1024 * 1024 // 1 MiB
+
 // proxyLoop pumps bytes between the host TTY and the master pty until the child
 // exits.
-// the stdin-EOF semantics (stop reading stdin, keep pumping master).
 func proxyLoop(inFd, master int, c *exec.Cmd, cooked *unix.Termios, obs Observer) int {
 	hook := obs.Stage
 	outFd := int(os.Stdout.Fd())
 	var pending []byte
+	var toMaster []byte
 	stdinClosed := false
+
+	// Set master to non-blocking so writes to the pty never hang proxyLoop in the
+	// kernel when child input buffers fill up (e.g. large image paste) while the child
+	// is producing output or blocked.
+	_ = unix.SetNonblock(master, true)
+
+	flushToMaster := func() {
+		if len(toMaster) == 0 {
+			return
+		}
+		n, err := unix.Write(master, toMaster)
+		if n > 0 {
+			toMaster = toMaster[n:]
+			if len(toMaster) == 0 {
+				toMaster = nil
+			}
+		}
+		if err != nil && !errors.Is(err, unix.EAGAIN) && !errors.Is(err, unix.EWOULDBLOCK) && !errors.Is(err, syscall.EINTR) {
+			// Master write error (e.g. EIO if slave closed): discard remaining queue.
+			toMaster = nil
+		}
+	}
+
+	enqueueToMaster := func(data []byte) {
+		if len(data) == 0 {
+			return
+		}
+		if len(toMaster) == 0 {
+			n, err := unix.Write(master, data)
+			if n > 0 {
+				data = data[n:]
+			}
+			if err != nil && !errors.Is(err, unix.EAGAIN) && !errors.Is(err, unix.EWOULDBLOCK) && !errors.Is(err, syscall.EINTR) {
+				return
+			}
+		}
+		if len(data) > 0 {
+			toMaster = append(toMaster, data...)
+		}
+	}
 
 	// Reap the child in the background so poll() equivalent works.
 	exitedCh := make(chan int, 1)
@@ -591,8 +637,12 @@ func proxyLoop(inFd, master int, c *exec.Cmd, cooked *unix.Termios, obs Observer
 		default:
 		}
 
-		fds := []unix.PollFd{{Fd: int32(master), Events: unix.POLLIN}}
-		if !stdinClosed {
+		masterEvents := int16(unix.POLLIN)
+		if len(toMaster) > 0 {
+			masterEvents |= unix.POLLOUT
+		}
+		fds := []unix.PollFd{{Fd: int32(master), Events: masterEvents}}
+		if !stdinClosed && len(toMaster) < maxForwardQueue {
 			fds = append(fds, unix.PollFd{Fd: int32(inFd), Events: unix.POLLIN})
 		}
 		_, err := unix.Poll(fds, 100)
@@ -611,23 +661,33 @@ func proxyLoop(inFd, master int, c *exec.Cmd, cooked *unix.Termios, obs Observer
 				_, _ = unix.Write(outFd, buf[:n])
 			}
 			if rerr != nil || n == 0 {
-				// master closed (child exited) — wait for the reaper.
-				rc := <-exitedCh
-				callStage(hook, StageExited)
-				callStage(hook, StageDrainDone)
-				return rc
+				if rerr == nil || (!errors.Is(rerr, unix.EAGAIN) && !errors.Is(rerr, unix.EWOULDBLOCK) && !errors.Is(rerr, syscall.EINTR)) {
+					// master closed (child exited) — wait for the reaper.
+					rc := <-exitedCh
+					callStage(hook, StageExited)
+					callStage(hook, StageDrainDone)
+					return rc
+				}
 			}
+		}
+
+		// master writable
+		if fds[0].Revents&unix.POLLOUT != 0 {
+			flushToMaster()
 		}
 
 		// stdin readable
 		if !stdinClosed && len(fds) > 1 && fds[1].Revents&unix.POLLIN != 0 {
 			n, rerr := unix.Read(inFd, buf)
-			if n == 0 || (rerr != nil && !errors.Is(rerr, syscall.EINTR)) {
+			if n == 0 || (rerr != nil && !errors.Is(rerr, syscall.EINTR) && !errors.Is(rerr, unix.EAGAIN) && !errors.Is(rerr, unix.EWOULDBLOCK)) {
 				// EOF on host stdin: stop reading stdin, keep pumping master
 				// until child exit (the decided semantics). We do NOT close the
 				// master (that would kill an interactive child prematurely);
 				// just stop polling stdin.
 				stdinClosed = true
+				continue
+			}
+			if n <= 0 {
 				continue
 			}
 			data := append([]byte(nil), buf[:n]...)
@@ -666,18 +726,18 @@ func proxyLoop(inFd, master int, c *exec.Cmd, cooked *unix.Termios, obs Observer
 			// prevent (suspendkey.go, THE WEDGE OF 2026-09-10).
 			start, stop, found := findSuspendKey(data)
 			if !found {
-				_, _ = unix.Write(master, data)
+				enqueueToMaster(data)
 				continue
 			}
 			if start > 0 {
-				_, _ = unix.Write(master, data[:start])
+				enqueueToMaster(data[:start])
 			}
 			pending = append([]byte(nil), data[stop:]...)
 			callStage(hook, StageSuspended)
 			selfSuspend(inFd, cooked)
 			callStage(hook, StageResumed)
 			if len(pending) > 0 {
-				_, _ = unix.Write(master, pending)
+				enqueueToMaster(pending)
 				pending = nil
 			}
 		}

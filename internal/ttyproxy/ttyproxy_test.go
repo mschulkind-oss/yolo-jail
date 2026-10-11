@@ -4,6 +4,7 @@ package ttyproxy
 
 import (
 	"errors"
+	"io"
 	"os"
 	"os/signal"
 	"strings"
@@ -600,5 +601,114 @@ func TestTermResetDisablesEveryModeThatSurvivesAKill(t *testing.T) {
 	if strings.Contains(termReset, "\x1b[?1049l") {
 		t.Error("termReset leaves the alternate screen; selfSuspend would wipe the " +
 			"suspended program's display and `fg` could not restore it")
+	}
+}
+
+// TestHelperLargePasteChild is the child process helper for
+// TestLargePasteDeadlockPinsNonblockingMasterForwarding. It runs as a single process,
+// so killing it closes the pty slave cleanly without orphaned sub-shells.
+func TestHelperLargePasteChild(t *testing.T) {
+	if os.Getenv("GO_WANT_LARGE_PASTE_CHILD") != "1" {
+		return
+	}
+	inFd := int(os.Stdin.Fd())
+	if cooked, err := unix.IoctlGetTermios(inFd, unix.TCGETS); err == nil {
+		setRaw(inFd, cooked)
+	}
+	if _, err := os.Stdout.Write([]byte("READY\n")); err != nil {
+		os.Exit(1)
+	}
+	// Write 128KB to stdout before reading input.
+	outBuf := make([]byte, 128*1024)
+	for i := range outBuf {
+		outBuf[i] = 'O'
+	}
+	if _, err := os.Stdout.Write(outBuf); err != nil {
+		os.Exit(2)
+	}
+	// Read 64KB from stdin.
+	inBuf := make([]byte, 64*1024)
+	if _, err := io.ReadFull(os.Stdin, inBuf); err != nil {
+		os.Exit(3)
+	}
+	os.Exit(0)
+}
+
+// TestLargePasteDeadlockPinsNonblockingMasterForwarding asserts that a large input paste
+// does not deadlock the proxy when the child writes output before draining input.
+func TestLargePasteDeadlockPinsNonblockingMasterForwarding(t *testing.T) {
+	master, _ := fakeHostTTY(t)
+
+	// Child writes 128KB to stdout, then reads 64KB from stdin, then exits 0.
+	run := startProxied(t, master, []string{os.Args[0], "-test.run=^TestHelperLargePasteChild$", "-test.count=1"},
+		Observer{Env: []string{"GO_WANT_LARGE_PASTE_CHILD=1"}})
+
+	if got, ok := readUntil(master, "READY\n", childDeadline); !ok {
+		t.Fatalf("child never signaled READY: %q", got)
+	}
+
+	// Drain host master output in background until the proxy run finishes,
+	// so the host pty buffer does not fill.
+	stopDrain := make(chan struct{})
+	go func() {
+		<-run.finished
+		close(stopDrain)
+	}()
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			select {
+			case <-stopDrain:
+				return
+			default:
+				_ = unix.SetNonblock(master, true)
+				n, err := unix.Read(master, buf)
+				if n == 0 || (err != nil && !errors.Is(err, unix.EAGAIN)) {
+					return
+				}
+				if err != nil && errors.Is(err, unix.EAGAIN) {
+					time.Sleep(5 * time.Millisecond)
+				}
+			}
+		}
+	}()
+
+	// Feed the 64KB paste in background as the proxy accepts it.
+	paste := make([]byte, 65536)
+	for i := range paste {
+		paste[i] = 'A'
+	}
+	pasteDone := make(chan struct{})
+	go func() {
+		defer close(pasteDone)
+		written := 0
+		for written < len(paste) {
+			select {
+			case <-stopDrain:
+				return
+			default:
+				fds := []unix.PollFd{{Fd: int32(master), Events: unix.POLLOUT}}
+				n, err := unix.Poll(fds, 50)
+				if err != nil || n == 0 {
+					continue
+				}
+				m, err := unix.Write(master, paste[written:])
+				if m > 0 {
+					written += m
+				}
+				if err != nil && !errors.Is(err, unix.EAGAIN) {
+					return
+				}
+			}
+		}
+	}()
+
+	select {
+	case rc := <-run.done:
+		if rc != 0 {
+			t.Fatalf("child exit code = %d, want 0", rc)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("proxyLoop deadlocked on large input paste while child was writing output")
 	}
 }
