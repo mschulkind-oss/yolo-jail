@@ -175,7 +175,8 @@ func TestHostLayerLeavesOutAHookAtAHostOnlyPath(t *testing.T) {
 	e.Stderr = &stderr
 	hook := "bash '" + hostHome + "/.claude/hooks/herdr-agent-state.sh' session"
 	host := `{"hooks": {
-	  "SessionStart": [{"hooks": [{"type": "command", "command": ` + strconv.Quote(hook) + `}]}],
+	  "SessionStart": [{"matcher": "^(startup|resume|clear|compact|fork)$",
+	    "hooks": [{"type": "command", "command": ` + strconv.Quote(hook) + `}]}],
 	  "Stop": [{"hooks": [{"type": "command", "command": "echo done > /tmp/stop"}]}]
 	}}`
 	if err := os.WriteFile(filepath.Join(ctx, "settings.json"), []byte(host), 0o644); err != nil {

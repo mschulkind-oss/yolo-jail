@@ -152,29 +152,43 @@ func matchPointer(v any, steps, at []string) []pointerMatch {
 	return out
 }
 
-// removePointers is v without every value whose pointer is in remove, and without every
-// object or array those removals emptied; ok is false when v itself goes. A container that was
-// already empty is kept: only an emptying this pass caused is pruned. v is never mutated.
+// removePointers is v without every value whose pointer is in remove, and without what those
+// removals emptied; ok is false when v itself goes. v is never mutated.
+//
+// Emptied means two things. A container this pass left empty goes, though one that was already
+// empty is kept. And an ARRAY ELEMENT that lost a list this way goes whole, because what is
+// left of it is debris: a Claude matcher group whose last handler went still holds its
+// `matcher`, and a group with no `hooks` is not a hook (measured in a live jail 2026-10-21).
 func removePointers(v any, at []string, remove map[string]bool) (any, bool) {
+	return removeWithin(v, at, remove, false)
+}
+
+func removeWithin(v any, at []string, remove map[string]bool, inArray bool) (any, bool) {
 	if len(at) > 0 && remove[jsonptr.Format(at)] {
 		return nil, false
 	}
 	switch t := v.(type) {
 	case map[string]any:
 		out := make(map[string]any, len(t))
+		lostAList := false
 		for k, child := range t {
-			if kept, ok := removePointers(child, with(at, k), remove); ok {
+			kept, ok := removeWithin(child, with(at, k), remove, false)
+			if ok {
 				out[k] = kept
+				continue
+			}
+			if list, isList := child.([]any); isList && len(list) > 0 && !remove[jsonptr.Format(with(at, k))] {
+				lostAList = true
 			}
 		}
-		if len(out) == 0 && len(t) > 0 && len(at) > 0 {
+		if len(at) > 0 && (len(out) == 0 && len(t) > 0 || inArray && lostAList) {
 			return nil, false
 		}
 		return out, true
 	case []any:
 		out := make([]any, 0, len(t))
 		for i, child := range t {
-			if kept, ok := removePointers(child, with(at, strconv.Itoa(i)), remove); ok {
+			if kept, ok := removeWithin(child, with(at, strconv.Itoa(i)), remove, true); ok {
 				out = append(out, kept)
 			}
 		}

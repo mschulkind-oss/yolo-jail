@@ -28,7 +28,7 @@ func TestDropHostOnlyCommandsRemovesTheHandlerAndWhatItEmptied(t *testing.T) {
 	host := []byte(`{
 	  "theme": "dark",
 	  "hooks": {
-	    "SessionStart": [{"hooks": [{"type": "command",
+	    "SessionStart": [{"matcher": "^(startup|resume)$", "hooks": [{"type": "command",
 	      "command": "bash '/Users/someone/.claude/hooks/herdr-agent-state.sh' session"}]}],
 	    "Stop": [{"matcher": "", "hooks": [{"type": "command", "command": "echo done > /tmp/stop"}]}]
 	  }
