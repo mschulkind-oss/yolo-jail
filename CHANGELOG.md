@@ -8,6 +8,12 @@ one per patch release.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- On a Mac with Podman, launching from a source checkout with `YOLO_REPO_ROOT` now works without sharing `/nix` with the Podman machine.
+
 ## [0.15.0] - 2026-10-19
 
 Jails can apply approved changes live, Pi sessions keep their own profiles, and patches follow upstream branches.
