@@ -37,6 +37,8 @@ func TestDecodeOverlayRefusesSurfaceRedefinition(t *testing.T) {
 		"retireIfMatchesRender": `{"retireIfMatchesRender":["x"],"managed":{"k":1}}`,
 		"whenListed":            `{"whenListed":{"surface":"a/b","path":"/l","matches":"x"},"managed":{"k":1}}`,
 		"notAtHost":             `{"notAtHost":"because","managed":{"k":1}}`,
+		// What of the user's own host file a jail leaves out.
+		"hostCommands": `{"hostCommands":["/hooks/*/command"],"managed":{"k":1}}`,
 	}
 	for field, body := range cases {
 		t.Run(field, func(t *testing.T) {

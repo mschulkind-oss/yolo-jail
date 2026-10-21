@@ -22,6 +22,8 @@ import (
 	"path"
 	"sort"
 	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonptr"
 )
 
 // SurfaceDTO is the wire form of one surface.
@@ -43,6 +45,8 @@ type SurfaceDTO struct {
 	WhenListed *ListConditionDTO `json:"whenListed,omitempty"`
 	// NotAtHost is Surface.NotAtHost: the reason host apply skips this surface.
 	NotAtHost string `json:"notAtHost,omitempty"`
+	// HostCommands is Surface.HostCommands: where the host layer holds a shell command.
+	HostCommands []string `json:"hostCommands,omitempty"`
 }
 
 // ListConditionDTO is the wire form of a ListCondition. Strict like the surface around it.
@@ -120,10 +124,31 @@ func (d SurfaceDTO) Surface() (Surface, []string) {
 		problems = append(problems, fmt.Sprintf("%s: \"notAtHost\" is the reason host "+
 			"apply prints, and it is blank", label))
 	}
+	// A command pointer is read only out of the host layer, so on a surface without one it
+	// would name nothing, and the author hears so now rather than wondering why the jail
+	// still runs the hook.
+	if len(d.HostCommands) > 0 && !d.ReadsHost {
+		problems = append(problems, fmt.Sprintf("%s: \"hostCommands\" needs \"readsHost\": "+
+			"the commands it names are read only out of the user's own host copy of this file",
+			label))
+	}
+	for _, p := range d.HostCommands {
+		steps, err := jsonptr.Parse(p)
+		switch {
+		case err != nil:
+			problems = append(problems, fmt.Sprintf("%s: \"hostCommands\" entry: %v", label, err))
+		case len(steps) < 2:
+			problems = append(problems, fmt.Sprintf("%s: \"hostCommands\" entry %q names a "+
+				"top-level key; it needs two tokens or more, because the object HOLDING the "+
+				"command is what a jail leaves out, and that object may not be the whole file",
+				label, p))
+		}
+	}
 	s := Surface{
 		Agent: d.Agent, Name: d.Name, Path: d.Path, Codec: d.Codec,
 		Mode: d.Mode, RetireOnFirstRender: d.Retire, ReadsHost: d.ReadsHost,
 		RetireIfMatchesRender: d.RetireIfMatches, WhenListed: when, NotAtHost: d.NotAtHost,
+		HostCommands: d.HostCommands,
 	}
 	// Assign layers only when non-nil. An empty map is NOT the same as absent: on a
 	// keyless surface an empty-map layer hard-errors, and on an object surface it

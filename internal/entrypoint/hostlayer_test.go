@@ -12,11 +12,13 @@ package entrypoint
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // claudeHostLayerDelivered is the report a launcher emits when it really did put the user's
@@ -155,5 +157,47 @@ func TestHostLayerRefusesADeclarationNoLoaderResolved(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "zz/settings") {
 		t.Errorf("the refusal does not name the surface: %v", err)
+	}
+}
+
+// THE CALL SITE of agentcfg.DropHostOnlyCommands, through a real claude boot: the user's host
+// settings.json carries herdr's SessionStart hook at a script under the host's home, which this
+// jail cannot see, beside a Stop hook it can run. The jail's copy leaves the first out, keeps the
+// second, and the boot says so. Delete the call in packsurfaces.go and the first assertion fails:
+// the filter's own tests stay green, so this is the test that proves the boot runs it.
+func TestHostLayerLeavesOutAHookAtAHostOnlyPath(t *testing.T) {
+	hostHome := filepath.Join(t.TempDir(), "Users", "someone")
+	e, ctx := newClaudePrismEnv(t, map[string]string{
+		packload.HostLayerEnvVar: claudeHostLayerDelivered,
+		paths.HostHomeEnv:        hostHome,
+	})
+	var stderr strings.Builder
+	e.Stderr = &stderr
+	hook := "bash '" + hostHome + "/.claude/hooks/herdr-agent-state.sh' session"
+	host := `{"hooks": {
+	  "SessionStart": [{"hooks": [{"type": "command", "command": ` + strconv.Quote(hook) + `}]}],
+	  "Stop": [{"hooks": [{"type": "command", "command": "echo done > /tmp/stop"}]}]
+	}}`
+	if err := os.WriteFile(filepath.Join(ctx, "settings.json"), []byte(host), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ConfigurePackByName(e, "claude"); err != nil {
+		t.Fatalf("ConfigurePackByName: %v", err)
+	}
+	got := decodeJSONFile(t, filepath.Join(e.ClaudeDir(), "settings.json"))
+	hooks, _ := got["hooks"].(map[string]any)
+	if _, still := hooks["SessionStart"]; still {
+		t.Errorf("the jail's settings.json still runs %q, a script only the host has — "+
+			"the boot no longer filters host-only commands:\n%v", hook, hooks)
+	}
+	if _, kept := hooks["Stop"]; !kept {
+		t.Errorf("the Stop hook names no host path and was left out anyway: %v", hooks)
+	}
+	for _, want := range []string{"claude/settings", "hooks.SessionStart.0.hooks.0",
+		hostHome + "/.claude/hooks/herdr-agent-state.sh", "mounts, host_files"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Errorf("the boot's disclosure does not say %q:\n%s", want, stderr.String())
+		}
 	}
 }

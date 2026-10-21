@@ -123,6 +123,33 @@ func TestMergeValidatesOverrides(t *testing.T) {
 
 // The three fields a surface's OWNER uses to decide whether, where and beside what its file is
 // written (AM-R1, AM-R2) decode into the Surface, and each malformed spelling is refused by
+// hostCommands decodes onto a surface that reads a host layer, and is refused by name on one
+// that does not, at the root, and as a malformed pointer: each would otherwise be a declaration
+// that silently filters nothing.
+func TestDecodeSurfacesReadsHostCommands(t *testing.T) {
+	surfaces, problems := DecodeSurfaces([]byte(`[{"agent":"a","name":"n","path":"~/.a/s.json",
+	  "codec":"json","readsHost":true,"hostCommands":["/hooks/*/*/hooks/*/command","/statusLine/command"]}]`))
+	if len(problems) != 0 {
+		t.Fatalf("problems = %v", problems)
+	}
+	if got := surfaces[0].HostCommands; len(got) != 2 || got[0] != "/hooks/*/*/hooks/*/command" {
+		t.Errorf("HostCommands = %v", got)
+	}
+	for name, tc := range map[string]struct{ body, want string }{
+		"no host layer": {`"hostCommands":["/a/command"]`, `needs "readsHost"`},
+		"top-level key": {`"readsHost":true,"hostCommands":["/command"]`, "top-level key"},
+		"not a pointer": {`"readsHost":true,"hostCommands":["hooks/command"]`, "must be empty or start"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, probs := DecodeSurfaces([]byte(`[{"agent":"a","name":"n","path":"~/.a/s.json",` +
+				`"codec":"json",` + tc.body + `}]`))
+			if joined := strings.Join(probs, "\n"); !strings.Contains(joined, tc.want) {
+				t.Errorf("%s: problems %q do not say %q", tc.body, joined, tc.want)
+			}
+		})
+	}
+}
+
 // name rather than decoded into a surface that behaves as if it were absent.
 func TestDecodeSurfacesReadsTheGatingAndRetireFields(t *testing.T) {
 	surfaces, problems := DecodeSurfaces([]byte(`[{"agent":"a","name":"n","path":"~/.a/new.json",

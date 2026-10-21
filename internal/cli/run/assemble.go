@@ -1329,6 +1329,13 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 		// and re-runs the same gate over it.
 		"-e", "YOLO_RUNTIME=podman",
 	)
+	// The host's home, a label never opened: how the boot tells a host-layer command written for
+	// the host from one the jail can run (paths.HostHomeEnv, agentcfg.DropHostOnlyCommands). None
+	// under the seal, which composes no host layer and is handed no more of the host than it needs
+	// (seal.go): the path names the user.
+	if !in.sealed {
+		env = append(env, "-e", paths.HostHomeEnv+"="+homeDir())
+	}
 	// programs.autoprune (OQ-PD4's third clause, program-delivery.md §10 step four) —
 	// EMITTED ONLY WHEN ON, which is the opposite of YOLO_HOST_LOOPBACK's always-emit rule
 	// and for a reason that inverts it. There, an absent variable had to be

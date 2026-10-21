@@ -39,6 +39,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // LoadJailPacks reads the pack trees the launch delivered at YOLO_PACK_ROOT.
@@ -730,6 +731,14 @@ func renderPlannedSurface(e *Env, pl surfacePlan, src jailLayerSource) error {
 	layers.hostBytes, hostDrops = agentcfg.DropHostProviderKeys(surface.Codec, layers.hostBytes,
 		providerLeaves)
 	noteHostProviderKeyDrops(e, surface, hostDrops, layers.computed)
+	// AND EVERY HOST COMMAND THE JAIL CANNOT RUN (hostcommands.go): a hook or status line the
+	// user's host copy points at a script under the host's home, which this jail cannot see,
+	// would fail at every event it fires on. The jail's copy leaves the object holding it out
+	// and says so; the user's file is not touched.
+	var commandDrops []agentcfg.CommandDrop
+	layers.hostBytes, commandDrops = agentcfg.DropHostOnlyCommands(surface.Codec, layers.hostBytes,
+		surface.HostCommands, e.Getenv(paths.HostHomeEnv), jailCanStat)
+	noteHostOnlyCommandDrops(e, surface, commandDrops)
 
 	// CAPTURE FROM SESSION HOMES first (sessioncapture.go, OQ-SP2): an edit a program saved in
 	// another session's own copy of this surface reaches the shared overlay this render folds.

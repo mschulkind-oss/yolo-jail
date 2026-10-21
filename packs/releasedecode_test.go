@@ -176,6 +176,12 @@ var knownReleaseBreaks = []knownReleaseBreak{
 	{release: "v0.11.0", pack: "codex", problem: `unknown field "notAtHost"`,
 		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
 		repair: dropKey("notAtHost")},
+	// Measured against v0.15.0 on 2026-10-21: claude's settings surface declares where Claude
+	// keeps a shell command (manifest.Surface.HostCommands), so a jail leaves out a hook naming a
+	// host-only path; v0.15.0's strict surface decoder refuses the field by name.
+	{release: "v0.15.0", pack: "claude", problem: `unknown field "hostCommands"`,
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
+		repair: dropKey("hostCommands")},
 }
 
 // releaseDecodeProbe is the program compiled INSIDE the last release's tree: that release's

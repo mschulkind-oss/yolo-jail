@@ -236,6 +236,22 @@ type Surface struct {
 	// or re-encode the one they keep. Shipped use: pi's `subagents-mcp`, whose file,
 	// `~/.config/mcp/mcp.json`, is a cross-tool location (AM-R2).
 	NotAtHost string
+
+	// HostCommands are the RFC 6901 pointers, "*" matching any key or array index, at which
+	// this surface's HOST LAYER holds a shell command — Claude Code's
+	// `/hooks/*/*/hooks/*/command` and `/statusLine/command`.
+	//
+	// Declared by the pack because core knows no vendor's settings schema (the claude pack
+	// says where Claude keeps commands; core does the generic part). A jail composing the host
+	// layer leaves out the OBJECT holding each command that names a path under the host's home
+	// which the jail cannot see, and says so at boot (agentcfg.DropHostOnlyCommands): such a
+	// command was written for the host and can only fail here, at every event it fires on. The
+	// user's own file is never touched, and the host notch renders it as it always did.
+	//
+	// Meaningful only on a surface that reads a host layer, so the decoder refuses it on one
+	// that does not; and a pointer needs two tokens or more, since the object holding the
+	// command is what goes and the document root never does.
+	HostCommands []string
 }
 
 // ListCondition is WhenListed's test: does the array at Path in Surface hold an entry that

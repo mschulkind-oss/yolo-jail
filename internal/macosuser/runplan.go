@@ -211,6 +211,11 @@ type RunPlan struct {
 // every macos-user launch was in before DP-L1: no tree to stage, no YOLO_CTX_ROOT, and
 // a host-layer report of `unsupported`.
 type HostContext struct {
+	// HostHome is the invoking user's home directory on the host, crossing as
+	// paths.HostHomeEnv: a label the boot compares host-layer commands against to leave out
+	// one written for the host (agentcfg.DropHostOnlyCommands). The caller's to fill, like
+	// every field here; "" emits no variable, which the boot reads as an older launcher.
+	HostHome string
 	// Tree is the host-side root the caller composed, laid out at the /ctx-relative
 	// paths the jail reads (`host-<staged slug>/<basename>` for a pack `reads-host`
 	// grant, `host-user/<slug>` for a source-bearing `host_files` entry, file or directory,
@@ -1032,6 +1037,11 @@ func buildBootstrapEnv(workspace string, cfg, gitIdentity, sandboxEnv *jsonx.Ord
 	darwinPrefix []string, blockedTools []packload.BlockedTool, miseTools *jsonx.OrderedMap) *jsonx.OrderedMap {
 	bootstrapEnv := jsonx.NewOrderedMap()
 	bootstrapEnv.Set("YOLO_HOST_DIR", resolvePathAbs(workspace))
+	// The HOST's home, a label the boot reads to tell a host-layer command written for the
+	// host from one the sandbox can run (paths.HostHomeEnv). The sandbox's own home is `home`.
+	if hostCtx.HostHome != "" {
+		bootstrapEnv.Set(paths.HostHomeEnv, hostCtx.HostHome)
+	}
 	blockJSON := jsonx.MustDumpsCompact(config.NormalizeBlockedToolsWith(securitySection(cfg), blockedTools))
 	bootstrapEnv.Set("YOLO_BLOCK_CONFIG", blockJSON)
 	miseJSON := jsonx.MustDumpsCompact(orderedMapToAny(miseTools))

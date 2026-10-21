@@ -157,6 +157,14 @@
               "type": "command"
             }
           },
+          // Where Claude Code keeps a shell command, so a jail leaves out a hook or status line
+          // your host copy points at a script under your host home, which it cannot see
+          // (manifest.Surface.HostCommands). Each handler is {type, command}, in a matcher
+          // group's `hooks` list, under the event name.
+          "hostCommands": [
+            "/hooks/*/*/hooks/*/command",
+            "/statusLine/command"
+          ],
           "name": "settings",
           "path": "~/.claude/settings.json",
           "readsHost": true,

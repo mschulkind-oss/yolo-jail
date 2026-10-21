@@ -1133,6 +1133,7 @@ func Run(opts Options) (rc int) {
 		// And the cache relocations, which the backend discloses by link and target
 		// (macosuser.printCacheRelocations) and stages, probes and opens in the profile.
 		ctxDelivery.ctx.Relocations = cacheRelocs
+		ctxDelivery.ctx.HostHome = homeDir()
 		// EVERY PROFILED AGENT'S OWN ENV FILE, on this backend too (providers.md
 		// OQ-CN9, ruled 2026-09-28): the container vehicle's writer, into the sidecar directory
 		// the bootstrap's home layout links the sandbox's ~/.config to, so an agent started from

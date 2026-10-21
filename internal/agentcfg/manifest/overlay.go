@@ -55,6 +55,9 @@ type OverlayDTO struct {
 	RetireIfMatches []string          `json:"retireIfMatchesRender,omitempty"`
 	WhenListed      *ListConditionDTO `json:"whenListed,omitempty"`
 	NotAtHost       string            `json:"notAtHost,omitempty"`
+	// HostCommands decides what of the user's own host file a jail leaves out, which is the
+	// owner's decision like readsHost itself.
+	HostCommands []string `json:"hostCommands,omitempty"`
 }
 
 // overlayRefusals is the reason each non-contributable field is refused, so the
@@ -90,6 +93,9 @@ var overlayRefusals = []struct {
 		func(d OverlayDTO) bool { return d.WhenListed != nil }},
 	{"notAtHost", "whether the file is written at the host is the surface's OWNER's decision",
 		func(d OverlayDTO) bool { return d.NotAtHost != "" }},
+	{"hostCommands", "what of the user's own host file a jail leaves out is the surface's " +
+		"OWNER's decision, like readsHost itself",
+		func(d OverlayDTO) bool { return len(d.HostCommands) > 0 }},
 }
 
 // DecodeOverlay decodes a config-overlay body into the single layer map the compose

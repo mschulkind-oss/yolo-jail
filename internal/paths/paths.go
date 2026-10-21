@@ -337,6 +337,13 @@ const HoldExecEnv = "YOLO_HOLD_EXEC"
 // than the variable, and its readers fall back to wording true of podman.
 const JailBackendEnv = "YOLO_JAIL_BACKEND"
 
+// HostHomeEnv is the HOST's home directory, a LABEL the launcher hands every jail so the boot
+// can tell a command written for the host (`bash '/Users/<user>/.claude/hooks/x.sh'`) from one
+// the jail can run (agentcfg.DropHostOnlyCommands). Nothing in the jail opens it. Absent means
+// a launcher older than the variable, and the boot then leaves every host-layer command as it
+// is, which is what it always did.
+const HostHomeEnv = "YOLO_HOST_HOME"
+
 // AllowMissingProgramsEnv is the escape hatch out of the jail's READINESS ACT
 // (docs/reference/program-readiness.md, OQ-JR1): the provisioning stage installs every program
 // a selected pack declares before the command runs, and a program it cannot install STOPS the
