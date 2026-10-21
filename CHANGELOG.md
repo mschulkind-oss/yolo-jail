@@ -8,6 +8,12 @@ one per patch release.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- A Claude Code hook or status line in your host settings that runs a script from your home folder no longer fails at every event in a jail: the jail leaves it out and says so at launch, and your host settings are untouched.
+
 ## [0.15.0] - 2026-10-19
 
 Jails can apply approved changes live, Pi sessions keep their own profiles, and patches follow upstream branches.
