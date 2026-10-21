@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/image"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // jailprefix.go decides WHERE the jail's own copy of yolo comes from, and emits
@@ -92,6 +93,9 @@ type jailPrefix struct {
 	// bundle artifacts. Reported, not branched on: the launch says where the
 	// binaries it is about to run came from.
 	built bool
+	// mirroredFrom is the store bundle a built prefix was copied out of for a VM that cannot
+	// see /nix (prefixmirror.go), or "". Reported, like built.
+	mirroredFrom string
 }
 
 // registerPrefixRoot is image.RegisterPrefixRoot, which pins a built prefix with a nix GC root
@@ -134,9 +138,29 @@ func (o *Options) resolveJailPrefix(root, rt string) (jailPrefix, bool) {
 	// The darwin VM-visibility gate goes HERE, on the RESULT, and not inside
 	// either arm: the one mount whose absence means "no pid1" must not be
 	// reachable-or-not depending on which arm produced it. Inert off darwin.
+	// A BUILT prefix the VM cannot see is COPIED where it can (prefixmirror.go) rather than
+	// refused: the copy is a flake-bundle generation under $HOME, the tree `just install`
+	// stages, so the general share check below then judges it like an installed bundle. Only a
+	// copy that fails leaves the refusal standing, and the refusal then says why.
 	if msg := prefixUnreachableFromVM(p, rt, o.IsMacOS, o.Getenv("YOLO_NIX_HOST_DAEMON")); msg != "" {
-		o.pr(o.Stderr).print(msg)
-		return jailPrefix{}, false
+		if !p.built {
+			o.pr(o.Stderr).print(msg)
+			return jailPrefix{}, false
+		}
+		mirrored, reused, err := mirrorBuiltPrefix(paths.FlakeBundleDir(), p, o.Now(), o.Getpid())
+		if err != nil {
+			o.pr(o.Stderr).print(msg)
+			o.pr(o.Stderr).printf("[dim]  (yolo tried copying the build out of the nix store "+
+				"to a folder the VM shares, and that failed: %s)[/dim]", err)
+			return jailPrefix{}, false
+		}
+		verb := "Copied"
+		if reused {
+			verb = "Reusing a copy of"
+		}
+		o.pr(o.Stderr).printf("[dim]%s yolo's own binaries out of /nix/store, which this Mac's "+
+			"runtime VM does not share: %s[/dim]", verb, mirrored.shareDir)
+		p = mirrored
 	}
 	// The general form of the same question, against the machine's REAL share list:
 	// a Homebrew prefix under $(brew --prefix)/Cellar is refused here when the machine
@@ -246,6 +270,9 @@ func jailPrefixMountArgs(p jailPrefix) []string {
 // fixed by the image's content hash, so it has to be visible without inspecting
 // the argv.
 func describeJailPrefix(p jailPrefix) string {
+	if p.mirroredFrom != "" {
+		return p.binDir + " (built from the flake source, copied from " + p.mirroredFrom + ")"
+	}
 	if p.built {
 		return p.binDir + " (built from the flake source)"
 	}

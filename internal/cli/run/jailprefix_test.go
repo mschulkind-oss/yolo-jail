@@ -696,7 +696,12 @@ func TestPrefixUnreachableFromVMTable(t *testing.T) {
 // switched off wholesale with the table above still green (AGENTS.md names that
 // shape). It drives the LIVE-CHECKOUT arm, because building is what puts the
 // prefix in the store in the first place.
+//
+// The refusal now stands only when the copy out of the store FAILS (prefixmirror.go;
+// the copy that succeeds is TestDarwinMirrorsABuiltStorePrefixInsteadOfRefusing). This
+// store path exists nowhere, so the copy fails, and the refusal must say it tried.
 func TestDarwinRefusesAStorePrefix(t *testing.T) {
+	t.Setenv("HOME", resolveSymlinks(t.TempDir()))
 	root := stageBundle(t, false)
 	store := filepath.Join(hostNixStore, "abc-yolo-jail-install-prefix")
 	o, calls := prefixOptions(t, func(string) (string, []string) { return store, nil })
@@ -715,6 +720,9 @@ func TestDarwinRefusesAStorePrefix(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "runtime VM does not share") {
 		t.Errorf("refusal did not reach stderr:\n%s", buf.String())
+	}
+	if !strings.Contains(buf.String(), "tried copying the build out of the nix store") {
+		t.Errorf("the refusal does not say the copy was tried and failed:\n%s", buf.String())
 	}
 }
 

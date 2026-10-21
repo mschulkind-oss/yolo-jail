@@ -186,7 +186,7 @@ done
 # The guest dirs, one per OS x arch, holding GUEST_BINARIES and nothing else.
 # build-go.sh is narrowed to the guest set (BUILD_GO_CMDS), so a darwin build
 # compiles those binaries rather than every cmd/.
-for gos in "${GUEST_OSES[@]}"; do
+for gos in ${GUEST_OSES[@]+"${GUEST_OSES[@]}"}; do
   for arch in "${ARCHES[@]}"; do
     echo "stage-source-bundle: cross-compiling the ${gos}/${arch} guest set (${GUEST_BINARIES[*]})"
     BUILD_GO_CMDS="${GUEST_BINARIES[*]}" CGO_ENABLED=0 GOOS="$gos" GOARCH="$arch" \
@@ -220,7 +220,7 @@ for arch in "${ARCHES[@]}"; do
     missing=1
   fi
 done
-for gos in "${GUEST_OSES[@]}"; do
+for gos in ${GUEST_OSES[@]+"${GUEST_OSES[@]}"}; do
   for arch in "${ARCHES[@]}"; do
     for name in "${GUEST_BINARIES[@]}"; do
       [ -e "$DEST/bin/${gos}-${arch}/$name" ] || {
