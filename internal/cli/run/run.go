@@ -1072,11 +1072,16 @@ func Run(opts Options) (rc int) {
 			launchEnv.Set(durable.EnvVar, d.Path)
 		}
 		// CLAUDE'S CREDENTIAL STORE, on this backend too (CL-D22, claudesecurestorage.go): the
-		// account home's machine-scope directory, which the bootstrap lays as a real directory
-		// (entrypoint.DeriveDarwinHomeLayout) inside the Seatbelt profile's home write grant.
-		// Through the launch env, so the session env file carries it to every process of the
-		// session, as the container argv carries it to every exec. A --dry-run plan shows it.
-		if dir := o.claudeSecureStorageDir(rt, cfg, staged.packs, macosuser.SandboxHome()); dir != "" {
+		// machine-scope directory where the session's mode keeps it, Homes.Shared. In the account
+		// mode that is the account home, where the bootstrap lays it as a real directory
+		// (entrypoint.DeriveDarwinHomeLayout) inside the Seatbelt profile's home write grant. In the
+		// run-as-you mode it is the shared store under your state dir, which the profile grants by
+		// exact path (MMP-D6); /Users/_yolojail does not exist there, and naming it left Claude
+		// with no readable login and nowhere to save one. Through the launch env, so the session
+		// env file carries it to every process of the session, as the container argv carries it to
+		// every exec. A --dry-run plan shows it.
+		sharedHome := macosuser.LaunchHomes(o.MacosUserMode, o.Workspace, o.macosUserHostHome()).Shared
+		if dir := o.claudeSecureStorageDir(rt, cfg, staged.packs, sharedHome); dir != "" {
 			launchEnv.Set(claudeview.SecureStorageEnv, dir)
 		}
 		// notchConfig, not cfg: the briefing states the notch, and `--at guest` names one the

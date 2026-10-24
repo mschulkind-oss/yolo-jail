@@ -208,3 +208,37 @@ func TestTheMacosUserSessionPointsClaudesStoreAtTheWritableSharedDir(t *testing.
 		}
 	}
 }
+
+// THE RUN-AS-YOU MODE has no sandbox account, so the store is the shared store under your state
+// dir (macosuser.LaunchHomes(...).Shared), the directory the run-as-you profile grants by exact
+// path. Pointing it at the account home named /Users/_yolojail, which does not exist in this
+// mode: Claude found no login there and could not save one, so every session started logged out.
+// Deleting the mode from run.go's launchEnv.Set fails the first assertion.
+func TestTheRunAsYouSessionPointsClaudesStoreAtTheSharedStore(t *testing.T) {
+	home := packHome(t)
+	writeUserPacks(t, home, `["claude"]`)
+	ws := t.TempDir()
+	hostHome := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
+	o.DryRun = true
+	o.MacosUserMode = macosuser.ModeSelf
+	o.MacosUserHostHome = hostHome
+	var got *jsonx.OrderedMap
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string,
+		_ macosuser.HomeOverlay, _ macosuser.HostContext, _ bool, env *jsonx.OrderedMap,
+		_ []packload.BlockedTool, _ macosuser.JailDaemons) int {
+		got = env
+		return 0
+	}
+	if rc := Run(*o); rc != 0 {
+		t.Fatalf("Run() = %d\nstderr:\n%s", rc, stderr.String())
+	}
+	want := path.Join(macosuser.LaunchHomes(macosuser.ModeSelf, ws, hostHome).Shared, claudeSharedDirRel)
+	if v := envAt(got, claudeview.SecureStorageEnv); v != want {
+		t.Fatalf("the run-as-you session's %s = %q, want %q", claudeview.SecureStorageEnv, v, want)
+	}
+	if strings.HasPrefix(want, macosuser.SandboxHome()+"/") {
+		t.Fatalf("the run-as-you store %s is under the sandbox account's home", want)
+	}
+}
