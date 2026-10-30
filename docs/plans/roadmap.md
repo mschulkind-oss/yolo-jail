@@ -328,7 +328,9 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
     [planned for building](../design/git-broker-plan.md);
     writes ship on the agent's own background wait, as [OQ-BB17](../design/boundary-broker.md#OQ-BB17) ruled, and a
     workspace's own `repos` list still requests repositories at the human's y, as
-    [OQ-BB18](../design/boundary-broker.md#OQ-BB18) ruled. Beside it,
+    [OQ-BB18](../design/boundary-broker.md#OQ-BB18) ruled. On top of the GitHub working set,
+    [which writes to a PR or issue run unasked, per user and per workspace](../design/github-write-scopes.md)
+    waits on its six rulings. Beside it,
     [workspace widening](../design/workspace-widening.md) graduates once [OQ-WW1](../design/workspace-widening.md#OQ-WW1) is ruled.
     Also beside it, asked for by the maintainer on 2026-10-09 and ruled to build on 2026-10-23: [the paste-to-host
     stopgap](../design/host-run-mailbox.md), whose [first slice](../design/host-run-mailbox-plan.md) is ready to build.

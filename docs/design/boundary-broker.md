@@ -1135,6 +1135,9 @@ The classifier names each write's kind and resource from its own parse:
   the write is a repository-level write, which asks.
 - **No user grant, working-set entry or answer reaches a refused command or a repository out of
   scope** ([BB-P8](#BB-P8)). The kinds sort what may be asked for; they move neither fence.
+- **Which writes to a working-set PR or issue run unasked, and where a user or a workspace draws
+  that line** (comment, edit, approve, merge), is designed in
+  [`github-write-scopes.md`](github-write-scopes.md).
 
 #### The user grants a workspace can hold
 
