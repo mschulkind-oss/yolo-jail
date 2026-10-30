@@ -174,15 +174,6 @@ func apiTarget(p *parsed, t writeTarget) writeTarget {
 	return t
 }
 
-// numbered reports whether the target names a PR or an issue.
-func (t writeTarget) numbered() bool {
-	switch t.Kind {
-	case targetPR, targetIssue, targetIssueOrPR, targetMerge:
-		return t.Number > 0
-	}
-	return false
-}
-
 // storeRepo is the target repository as the working set records it: the grant identity
 // `github.com/owner/repo`, lower-cased since GitHub names are case-insensitive.
 func (t writeTarget) storeRepo() string { return storeRepoOf(t.Repo) }
