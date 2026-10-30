@@ -146,7 +146,9 @@ s.sendall(struct.pack(">I", len(data)) + data)
 	fillDefaults(o)
 	o.Stderr, o.Stdout = &output, &output
 	o.PathExists = func(string) bool { return false }
-	o.ServiceReadyTimeout = 250 * time.Millisecond
+	// The wait returns the moment the refusal record arrives, so the deadline only bounds a
+	// broken run; it must outlast a python3 cold start on a slow CI runner (250ms did not on macOS).
+	o.ServiceReadyTimeout = 5 * time.Second
 	handles, refused := o.startLoopholesDisclosed(cname, "podman", cfg, []*packload.Pack{p}, nil)
 	if refused == nil || refused.startup == nil {
 		t.Fatalf("host singleton refusal was not returned through the selected launch: handles=%v output=%s",
