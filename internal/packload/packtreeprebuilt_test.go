@@ -106,7 +106,7 @@ func TestThePrebuiltOptInTakesTheArtifactOverAPresentSource(t *testing.T) {
 // platform, since otherwise there is nothing to opt into.
 func TestThePrebuiltOptInStepIsNamedOnlyWhereOneIsDeclared(t *testing.T) {
 	f := prebuiltProgram(t, true)
-	if step := f.PrebuiltOptInStep("darwin/arm64"); !strings.Contains(step, `"board": {"prebuilt": true}`) ||
+	if step := f.PrebuiltOptInStep("darwin/arm64"); !strings.Contains(step, "`yolo config set programs.overrides.board.prebuilt true --user`") ||
 		!strings.Contains(step, "darwin/arm64") {
 		t.Errorf("step = %q, want the opt-in for board on darwin/arm64", step)
 	}

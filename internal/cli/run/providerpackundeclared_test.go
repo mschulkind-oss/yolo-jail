@@ -28,7 +28,7 @@ func TestAnUndeclaredCopilotProfileNamesItsPack(t *testing.T) {
 	cfg := profileFor("pi", "copilot")
 	_, err := o.composePackChannel(cfg, []*packload.Pack{officialPack(t, "pi")}, zaiAndRouterKeys())
 	if err == nil || !strings.Contains(err.Error(), `no profile named "copilot" is declared`) ||
-		!strings.Contains(err.Error(), `add "copilot-auth" to your config's `+"`packs`") {
+		!strings.Contains(err.Error(), "run `yolo pack add copilot-auth`") {
 		t.Fatalf("composePackChannel = %v, want the refusal to name adding the copilot-auth pack", err)
 	}
 	// Selected beside pi, the pack declares it.

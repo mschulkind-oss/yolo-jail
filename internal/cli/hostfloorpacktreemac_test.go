@@ -70,7 +70,7 @@ func TestAMacFloorBuildsAPackTreeProgramInTheDarwinAct(t *testing.T) {
 	if d.Reason != "" || !d.Jail || d.Disclosure != "" || d.Revision != digest {
 		t.Errorf("an unbuildable Mac floor resolved %+v, want the build (refused by the floor), never the prebuilt", d)
 	}
-	if !strings.Contains(d.PrebuiltOptInStep, `"x": {"prebuilt": true}`) {
+	if !strings.Contains(d.PrebuiltOptInStep, "`yolo config set programs.overrides.x.prebuilt true --user`") {
 		t.Errorf("the build's opt-in clause = %q, want the prebuilt opt-in for x", d.PrebuiltOptInStep)
 	}
 

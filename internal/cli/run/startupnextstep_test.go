@@ -2,6 +2,8 @@ package run
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"unicode"
@@ -29,6 +31,18 @@ func TestHostStartupRefusalAlwaysEndsWithTheRetry(t *testing.T) {
 }
 
 func TestLoopholeSettingsFixStepNamesTheKeyItsFileAndThePreflight(t *testing.T) {
+	// A legacy user config keeps the loophole's own settings block.
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, ".config", "yolo-jail"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	// A user-scope setting is refused in the workspace file, so its step names the user config alone.
 	user := &loopholes.Loophole{Name: "aws-auth", Settings: []loopholes.Setting{
 		{Key: "profile", Scope: loopholes.SettingScopeUser}}}
@@ -45,6 +59,35 @@ func TestLoopholeSettingsFixStepNamesTheKeyItsFileAndThePreflight(t *testing.T) 
 		{Key: "mode", Scope: loopholes.SettingScopeWorkspace}}}
 	if step := LoopholeSettingsFixStep(workspace); !strings.Contains(step, "yolo-jail.jsonc") {
 		t.Errorf("a workspace-scope setting's fix step does not name the workspace file: %s", step)
+	}
+}
+
+// A readable (TOML) user config holds a pack's settings under allow.<pack>, so the step names that
+// table and the verb that writes it, never the legacy loophole block.
+func TestLoopholeSettingsFixStepNamesTheVerbForAReadableUserConfig(t *testing.T) {
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	user := &loopholes.Loophole{Name: "aws-auth", Pack: "aws-auth", Settings: []loopholes.Setting{
+		{Key: "profile", Scope: loopholes.SettingScopeUser}}}
+	step := LoopholeSettingsFixStep(user)
+	for _, want := range []string{"`allow.aws-auth`", filepath.Join(home, ".config", "yolo-jail", "config.toml"),
+		"`yolo config set allow.aws-auth.<setting> <value> --user`", "`yolo check --no-build`"} {
+		if !strings.Contains(step, want) {
+			t.Errorf("settings fix step lacks %q: %s", want, step)
+		}
+	}
+	for _, stale := range []string{"loopholes.", "config.jsonc", "requests."} {
+		if strings.Contains(step, stale) {
+			t.Errorf("a user-scope setting's step names %q: %s", stale, step)
+		}
+	}
+	workspace := &loopholes.Loophole{Name: "svc", Pack: "svc-pack", Settings: []loopholes.Setting{
+		{Key: "mode", Scope: loopholes.SettingScopeWorkspace}}}
+	if step := LoopholeSettingsFixStep(workspace); !strings.Contains(step, "`requests.svc-pack` in the workspace config") {
+		t.Errorf("a workspace-scope setting's fix step does not name the workspace table: %s", step)
 	}
 }
 

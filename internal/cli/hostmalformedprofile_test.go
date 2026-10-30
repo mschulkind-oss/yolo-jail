@@ -115,7 +115,7 @@ func TestHostUndeclaredCopilotProfileNamesItsPack(t *testing.T) {
 	var out, errw bytes.Buffer
 	rc := hostMain([]string{"env", "--agent", "pi", "-p", "pi=copilot"}, &out, &errw, false, nil)
 	if rc == 0 || !strings.Contains(errw.String(), `no profile named "copilot" is declared`) ||
-		!strings.Contains(errw.String(), `add "copilot-auth" to your config's `+"`packs`") {
+		!strings.Contains(errw.String(), "run `yolo pack add copilot-auth`") {
 		t.Fatalf("rc=%d, want the refusal to name adding the copilot-auth pack:\n%s", rc, errw.String())
 	}
 	out.Reset()

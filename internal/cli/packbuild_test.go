@@ -263,7 +263,7 @@ func TestPackBuildOnAMacWithNoSandboxAccountRefusesAndTheOptInTakesThePrebuilt(t
 					t.Fatalf("rc %d, %d jail runs, %d fetches; want 1, none, none\nout:\n%s\nerr:\n%s",
 						rc, runs, hits.Load(), out, errw)
 				}
-				for _, want := range []string{"failed", "`yolo macos-setup`", `"x": {"prebuilt": true}`, "darwin/" + goruntime.GOARCH} {
+				for _, want := range []string{"failed", "`yolo macos-setup`", "`yolo config set programs.overrides.x.prebuilt true --user`", "darwin/" + goruntime.GOARCH} {
 					if !strings.Contains(out, want) {
 						t.Errorf("the refusal lacks %q:\n%s", want, out)
 					}
@@ -312,7 +312,7 @@ func TestPackBuildRefusalNamesThePrebuiltOptInExceptForACheckout(t *testing.T) {
 			if rc != 1 || runs != 1 || !strings.Contains(out, "failed") {
 				t.Fatalf("rc %d, %d runs, want 1 and one failed build\nout:\n%s\nerr:\n%s", rc, runs, out, errw)
 			}
-			named := strings.Contains(out, `"x": {"prebuilt": true}`)
+			named := strings.Contains(out, "`yolo config set programs.overrides.x.prebuilt true --user`")
 			if checkout && named {
 				t.Errorf("a checkout build's refusal names the prebuilt opt-in:\n%s", out)
 			}
@@ -330,7 +330,7 @@ func TestTheMacSetupRefusalOfACheckoutNamesTheCheckoutAndNoOptIn(t *testing.T) {
 	f := packload.Fork{Pack: "fx", Bin: "x", From: "tools/x", Run: "x",
 		Prebuilts: map[string]packdecl.PrebuiltBuild{"darwin/arm64": {URL: "https://example.invalid/x"}}}
 	if why := darwinPackTreeUnbuildableReason(f, "darwin/arm64"); !strings.Contains(why, "pack fx's tools/x") ||
-		!strings.Contains(why, `"x": {"prebuilt": true}`) {
+		!strings.Contains(why, "`yolo config set programs.overrides.x.prebuilt true --user`") {
 		t.Errorf("the pack tree's refusal = %q, want its source and the opt-in", why)
 	}
 	f.Checkout = "/Users/u/src/x"

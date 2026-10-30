@@ -169,7 +169,7 @@ func composedTmpdirEnvProblem(variable, tmpdir string, roots []string, sharedTmp
 		"with \"Operation not permitted\". Remove the %s override so the session uses its own temp "+
 		"dir, or point it inside the workspace", variable, tmpdir, variable)
 	if t == "/private/tmp" || strings.HasPrefix(t, "/private/tmp/") {
-		msg += `; or, to use the shared /tmp, set "macos_user_shared_tmp": true in your user config`
+		msg += "; or, to use the shared /tmp, run `yolo config set macos_user_shared_tmp true --user`"
 	}
 	return msg + " (MMP-D20)."
 }

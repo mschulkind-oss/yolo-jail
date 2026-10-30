@@ -49,6 +49,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // macosLogBin is Apple's `log`, by absolute path: the host daemon runs with the launching
@@ -80,11 +82,21 @@ var macosLogUserFlags = map[string]bool{
 	"--loss": false, "--source": false, "--no-pager": false, "--mach-continuous-time": false,
 }
 
-// macosLogWiden is the sentence every user-scope refusal ends with: the next step.
-const macosLogWiden = "The user scope reads only `show` and `stream`, narrowed to the " +
-	"sandbox account's processes. To pass arguments to `log` unchanged, a human sets " +
-	`"loopholes": {"macos-log": {"settings": {"full": true}}} in ~/.config/yolo-jail/config.jsonc ` +
-	"(user config only) and relaunches.\n"
+// macosLogWiden is the sentence every user-scope refusal ends with: the next step. A readable
+// (TOML) user config holds the pack's setting under allow.macos-log, which `yolo config set`
+// writes (docs/design/config-commands.md); a legacy one keeps the loophole's settings block,
+// named in the file the host reads.
+func macosLogWiden() string {
+	file := paths.UserConfigDisplayPath()
+	step := "a human runs `yolo config set allow.macos-log.full true --user` on the host " +
+		"(user config only) and relaunches.\n"
+	if !strings.HasSuffix(file, ".toml") {
+		step = "a human sets " + `"loopholes": {"macos-log": {"settings": {"full": true}}} in ` + file +
+			" (user config only) and relaunches.\n"
+	}
+	return "The user scope reads only `show` and `stream`, narrowed to the " +
+		"sandbox account's processes. To pass arguments to `log` unchanged, " + step
+}
 
 // MacosLogPlan is one request's resolved run: the argv after `log`, and whether stdout goes
 // through the user scope's filter.
@@ -119,7 +131,7 @@ func PlanMacosLog(args []string, mode string) MacosLogPlan {
 		return MacosLogPlan{Args: args}
 	}
 	refuse := func(why string) MacosLogPlan {
-		return MacosLogPlan{ErrText: macosLogPrefix + ": " + why + "\n  " + macosLogWiden, ExitCode: 2}
+		return MacosLogPlan{ErrText: macosLogPrefix + ": " + why + "\n  " + macosLogWiden(), ExitCode: 2}
 	}
 	verb := args[0]
 	if verb != "show" && verb != "stream" {

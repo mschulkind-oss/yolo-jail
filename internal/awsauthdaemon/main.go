@@ -35,6 +35,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -42,6 +43,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/awsauth"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // LoopholeName is the name the shipped pack gives this loophole, so a refusal can
@@ -207,26 +209,49 @@ func SettingsCheck(settingsPath string, out io.Writer) int {
 }
 
 func safeSettingsRefusal(kind awsauth.ResolveRefusalKind) (string, string) {
-	scope := "loopholes.aws-auth.settings"
+	file := paths.UserConfigDisplayPath()
+	key := func(setting string) string { return "loopholes." + LoopholeName + ".settings." + setting }
+	set := func(setting, value string) string {
+		if value == "true" {
+			return "set " + key(setting) + " to true in " + file
+		}
+		return "set " + key(setting) + " in " + file
+	}
+	readable := strings.HasSuffix(file, ".toml")
+	if readable {
+		// A readable user config holds a pack's settings under allow.<pack>, which `yolo config
+		// set` writes (docs/design/config-commands.md); a legacy one keeps loopholes.<name>.settings.
+		key = func(setting string) string { return "allow." + LoopholeName + "." + setting }
+		set = func(setting, value string) string {
+			return "run `yolo config set " + key(setting) + " " + value + " --user`"
+		}
+	}
 	switch kind {
 	case awsauth.RefusalMissingProfile:
-		return "No AWS profile is configured.", "Set " + scope + ".profile in ~/.config/yolo-jail/config.jsonc."
+		return "No AWS profile is configured.", upperFirst(set("profile", `'"<profile>"'`)) + "."
 	case awsauth.RefusalMissingNarrowing:
-		return "No AWS credential mode is configured.", "Set " + scope + ".role_arn (optionally with " + scope +
-			".session_policy) to add restrictions, or explicitly set " + scope +
-			".unnarrowed to true to use the assigned permission set as configured in ~/.config/yolo-jail/config.jsonc."
+		return "No AWS credential mode is configured.", "To add restrictions, " + set("role_arn", `'"<role-arn>"'`) +
+			" (optionally with " + key("session_policy") + "); or, to use the assigned permission set as configured, " +
+			"explicitly " + set("unnarrowed", "true") + "."
 	case awsauth.RefusalPolicyWithoutRole:
-		return "A session policy is configured without a role to assume.", "Set " + scope +
-			".role_arn in ~/.config/yolo-jail/config.jsonc, or remove the session policy."
+		return "A session policy is configured without a role to assume.", upperFirst(set("role_arn", `'"<role-arn>"'`)) +
+			", or remove " + key("session_policy") + " from " + file + "."
 	case awsauth.RefusalConflictingNarrowing:
-		return "AWS narrowing settings conflict.", "Choose either a role-based narrowing or " + scope +
-			".unnarrowed in ~/.config/yolo-jail/config.jsonc."
+		return "AWS narrowing settings conflict.", "Choose either a role-based narrowing (" + key("role_arn") + ") or " +
+			key("unnarrowed") + " in " + file + ", and remove the other."
 	case awsauth.RefusalInvalidPolicy:
-		return "The AWS session policy is not valid JSON.", "Correct " + scope +
-			".session_policy in ~/.config/yolo-jail/config.jsonc."
+		return "The AWS session policy is not valid JSON.", "Correct " + key("session_policy") + " in " + file + "."
 	default:
 		return "The AWS settings were refused.", "Correct the user-scope AWS service settings and run `yolo check --no-build` again."
 	}
+}
+
+// upperFirst capitalizes a remedy that starts a sentence.
+func upperFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
 }
 
 func writeSettingsCheckRefusal(out io.Writer, reason, remedy string) int {

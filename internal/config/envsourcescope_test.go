@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // envScopeFixture is a host (not in-jail) home, a workspace and a directory outside it,
@@ -151,6 +153,12 @@ func TestWorkspaceEnvSourcesOutsideTheWorkspaceAreRefused(t *testing.T) {
 						if !strings.Contains(msg, want) {
 							t.Errorf("refusal %q does not contain %q", msg, want)
 						}
+					}
+					// The fixture writes no user config, so the destination is the TOML file a
+					// first write creates, and the refusal names the verb that lists the file.
+					verb := "`yolo config add env.files " + shquote.Quote(strconv.Quote(tc.wantFix)) + " --user`"
+					if !strings.Contains(msg, "config.toml as [env] files") || !strings.Contains(msg, verb) {
+						t.Errorf("refusal does not move the entry to config.toml with %s: %s", verb, msg)
 					}
 				})
 			}

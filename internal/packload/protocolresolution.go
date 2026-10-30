@@ -201,13 +201,12 @@ func (e *MissingProviderError) Error() string {
 		return fmt.Sprintf("%s. Remove the `providers.%s` null entry that removes it, or choose a profile using an available provider",
 			head, e.Provider)
 	case e.Shipper != "" && e.Then != nil:
-		return fmt.Sprintf("%s. Add %q to `packs` in your workspace configuration to make this provider available, but that alone will not fix this refusal: %v",
-			head, e.Shipper, e.Then)
+		return fmt.Sprintf("%s. Run %s to make this provider available, but that alone will not fix this refusal: %v",
+			head, PackAddCommand(e.Shipper), e.Then)
 	case e.Shipper != "":
-		return fmt.Sprintf("%s. Add %q to `packs` in your workspace configuration to use this provider",
-			head, e.Shipper)
+		return fmt.Sprintf("%s. Run %s to use this provider", head, PackAddCommand(e.Shipper))
 	default:
-		return fmt.Sprintf("%s. Choose a profile that uses a provider supplied by your selected packs, or declare this provider in `providers` in your workspace configuration",
+		return fmt.Sprintf("%s. Choose a profile that uses a provider supplied by your selected packs, or declare this provider in `providers` in your user config",
 			head)
 	}
 }

@@ -497,19 +497,20 @@ func HostProfileDeselection(key ProfileSelection, typed, keyReaches bool, cli st
 // the plain form.
 //
 // A selection read from `active_provider` (OQ-RC14) is undone by that key's own word, "native"
-// (OQ-RC20), at the agent's entry: `active_provider.<cli> = "native"`.
+// (OQ-RC20), at the agent's entry, which its named verb writes: `yolo active-provider <cli>
+// native` (docs/design/config-commands.md §4). The legacy `profile` key has no verb, so its fix
+// stays the key respelled.
 func profileKeyFix(key ProfileSelection, cli, every string) string {
 	keyName := ProfileKey
 	spelling := "`" + ProfileKeySpelling(withNoProfileFor(key, cli)) + "`"
+	here, onHost := "write "+spelling+" there", "write "+spelling+" in your user config on the host"
 	if key.Key == ActiveProviderKey {
 		keyName = ActiveProviderKey
-		spelling = "`" + ActiveProviderKey + "." + cli + ` = "` + NativeProvider + `"` + "`"
+		run := "run `yolo active-provider " + shquote.Quote(cli) + " " + NativeProvider + "`"
+		here, onHost = run, run+" on the host"
 	}
 	none := " to select none for " + cli + " on every " + every
-	loc := ""
-	if locs := UserScopeSources().Locations(profileKeyPathFor(key, cli)); len(locs) > 0 {
-		loc = locs[0]
-	}
+	loc := selectionKeyLocation(key, cli)
 	if inJail() && !locatedInUserLayer(loc) {
 		where := "your host config's `" + keyName + "` key"
 		switch {
@@ -519,13 +520,22 @@ func profileKeyFix(key ProfileSelection, cli, every string) string {
 		case loc != "":
 			where += ", which this jail reads from a read-only copy at " + loc
 		}
-		return where + ", so write " + spelling + " in your user config on the host" + none
+		return where + ", so " + onHost + none
 	}
 	where := "your config's `" + keyName + "` key"
 	if loc != "" {
 		where += " at " + loc
 	}
-	return where + ", so write " + spelling + " there" + none
+	return where + ", so " + here + none
+}
+
+// selectionKeyLocation is where the user scope wrote the selection key's entry for cli, ""
+// when no file records it.
+func selectionKeyLocation(key ProfileSelection, cli string) string {
+	if locs := UserScopeSources().Locations(profileKeyPathFor(key, cli)); len(locs) > 0 {
+		return locs[0]
+	}
+	return ""
 }
 
 // locatedInUserLayer reports whether loc, an origin as Sources spells it (a file, then its line

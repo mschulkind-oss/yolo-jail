@@ -72,7 +72,59 @@ func TestMainRequiresASocketOutsideSelfCheck(t *testing.T) {
 	}
 }
 
+// settingsHome points HOME at a fresh home whose user config is the named file (none when
+// name is ""), so a refusal's remedy names that file and that format's spelling.
+func settingsHome(t *testing.T, name string) string {
+	t.Helper()
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	dir := filepath.Join(home, ".config", "yolo-jail")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if name != "" {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return filepath.Join(dir, name)
+}
+
+// A readable (TOML) user config, or none, is told the verb that writes each setting under
+// allow.aws-auth; a legacy one the key it holds and the file it is in.
+func TestSettingsRefusalNamesTheVerbForAReadableUserConfig(t *testing.T) {
+	settings := settingsFileWith(t, `{"profile":"p","role_arn":"","session_policy":"","unnarrowed":false}`)
+	for _, tc := range []struct {
+		file string
+		want []string
+	}{
+		{"", []string{"`yolo config set allow.aws-auth.role_arn ",
+			"`yolo config set allow.aws-auth.unnarrowed true --user`"}},
+		{"config.toml", []string{"`yolo config set allow.aws-auth.unnarrowed true --user`"}},
+		{"config.jsonc", []string{"loopholes.aws-auth.settings.role_arn", "loopholes.aws-auth.settings.unnarrowed",
+			filepath.Join(".config", "yolo-jail", "config.jsonc")}},
+	} {
+		settingsHome(t, tc.file)
+		var out strings.Builder
+		if rc := SettingsCheck(settings, &out); rc == 0 {
+			t.Fatal("missing narrowing passed settings validation")
+		}
+		for _, want := range tc.want {
+			if !strings.Contains(out.String(), want) {
+				t.Errorf("user config %q: remedy lacks %q: %s", tc.file, want, out.String())
+			}
+		}
+		if tc.file != "config.jsonc" && strings.Contains(out.String(), "config.jsonc") {
+			t.Errorf("user config %q: remedy names the legacy file: %s", tc.file, out.String())
+		}
+	}
+}
+
 func TestSettingsCheckProjectsTypedRefusalsWithoutSettingsValues(t *testing.T) {
+	settingsHome(t, "config.jsonc")
 	profile := "SENTINEL_PROFILE_DO_NOT_RENDER"
 	policyKey := "SENTINEL_POLICY_KEY_DO_NOT_RENDER"
 	policyValue := "SENTINEL_POLICY_VALUE_DO_NOT_RENDER"
@@ -81,7 +133,7 @@ func TestSettingsCheckProjectsTypedRefusalsWithoutSettingsValues(t *testing.T) {
 	if rc := SettingsCheck(settings, &out); rc == 0 {
 		t.Fatal("missing narrowing passed settings validation")
 	}
-	for _, want := range []string{"No AWS credential mode is configured", "loopholes.aws-auth.settings.role_arn", "~/.config/yolo-jail/config.jsonc", "unnarrowed"} {
+	for _, want := range []string{"No AWS credential mode is configured", "loopholes.aws-auth.settings.role_arn", filepath.Join(".config", "yolo-jail", "config.jsonc"), "unnarrowed"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("safe diagnostic lacks %q: %s", want, out.String())
 		}

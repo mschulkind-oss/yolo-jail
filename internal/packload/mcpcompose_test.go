@@ -119,6 +119,13 @@ func TestAnMCPNameTwoPacksShipIsHeldByTheLaterAndReported(t *testing.T) {
 		!strings.Contains(msgs[0], "Remove one of those packs from `packs`") {
 		t.Errorf("collision messages = %v", msgs)
 	}
+	// The steps are the verbs, and the file is the user config that exists, never a hard-coded
+	// legacy config.jsonc.
+	for _, want := range []string{"`yolo pack remove <pack>`", "`yolo config set mcp_servers.browser.<field> <value> --user`"} {
+		if len(msgs) == 1 && !strings.Contains(msgs[0], want) {
+			t.Errorf("collision message lacks %q: %s", want, msgs[0])
+		}
+	}
 	if MCPNameCollisions([]*Pack{first, mcpPack(t, "other", "other", "/o")}) != nil {
 		t.Error("two different names reported as a collision")
 	}

@@ -22,6 +22,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/treedigest"
 )
 
@@ -128,10 +129,10 @@ func PackTreeResolve(f Fork, platform string, usePrebuilt bool) ForkPin {
 		switch {
 		case err != nil:
 			p.Reason = "your checkout " + f.Checkout + " could not be read (" + err.Error() + ") — fix it, or remove " +
-				"programs.overrides." + f.Bin + " from ~/.config/yolo-jail/config.jsonc to build pack " + f.Pack + "'s own " + f.From
+				"programs.overrides." + f.Bin + " from " + paths.UserConfigDisplayPath() + " to build pack " + f.Pack + "'s own " + f.From
 		case digest == "":
 			p.Reason = "your checkout " + f.Checkout + " is gone — restore it, or remove programs.overrides." + f.Bin +
-				" from ~/.config/yolo-jail/config.jsonc to build pack " + f.Pack + "'s own " + f.From
+				" from " + paths.UserConfigDisplayPath() + " to build pack " + f.Pack + "'s own " + f.From
 		default:
 			p.Commit = digest
 		}
@@ -144,7 +145,7 @@ func PackTreeResolve(f Fork, platform string, usePrebuilt bool) ForkPin {
 	}
 	if usePrebuilt {
 		if !declared {
-			p.Reason = "programs.overrides." + f.Bin + ".prebuilt is set in ~/.config/yolo-jail/config.jsonc, but pack " +
+			p.Reason = "programs.overrides." + f.Bin + ".prebuilt is set in " + paths.UserConfigDisplayPath() + ", but pack " +
 				f.Pack + "'s `prebuilt` declares no artifact for " + platform + " (it declares: " + have +
 				") — remove that setting to build " + f.Bin + " from the pack's " + f.From + ", or ask the pack's " +
 				"author for a `prebuilt` entry for " + platform

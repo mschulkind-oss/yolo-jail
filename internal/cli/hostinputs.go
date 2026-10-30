@@ -313,12 +313,20 @@ func hostMCPPacks(packs []*packload.Pack) (composed []*packload.Pack, omitted []
 		for _, s := range p.Decl.MCPContributions() {
 			omitted = append(omitted, fmt.Sprintf("mcp %s (pack %s) is not written at the host: the "+
 				"pack was fetched, and an MCP server's command runs unconfined as you whenever the "+
-				"agent starts — to run it here, write the entry under `mcp_servers` in "+
-				"~/.config/yolo-jail/config.jsonc yourself (docs/reference/host-agent-environment.md HC-D26)",
-				s.Name, p.Name))
+				"agent starts — to run it here, declare it yourself under `mcp_servers` in %s "+
+				"(`yolo config set mcp_servers.%s.command <command> --user`, then its other fields) "+
+				"(docs/reference/host-agent-environment.md HC-D26)",
+				s.Name, p.Name, userConfigFileName(), s.Name))
 		}
 	}
 	return composed, omitted
+}
+
+// userConfigFileName is the user config file a message names: config.toml, or the legacy file
+// when that is the live one (config.UserConfigFile).
+func userConfigFileName() string {
+	file, _ := config.UserConfigFile()
+	return file
 }
 
 // hostAgentLookup answers a server's requires_env for ONE agent, the way that agent's process

@@ -682,7 +682,7 @@ func TestImagesHintNamesCacheRelocations(t *testing.T) {
 	if strings.Contains(hint, "symlink") {
 		t.Errorf("the headline hint must not sell symlinking as the technique: %q", hint)
 	}
-	for _, want := range []string{"cache_relocations", "dangles", "~/.config/yolo-jail/config.jsonc"} {
+	for _, want := range []string{"cache_relocations", "dangles", "`yolo config set cache_relocations.<subdir> '\"/absolute/path\"' --user`"} {
 		if !strings.Contains(follow, want) {
 			t.Errorf("hint follow-up %q missing %q", follow, want)
 		}

@@ -33,7 +33,7 @@ func TestCheckFailsAProfileNoSelectedPackDeclares(t *testing.T) {
 	capabilityHome(t, `{"packs": ["pi"]}`)
 	got := runMergedConfigSection(t, `{"profile": {"pi": "copilot"}}`)
 	for _, want := range []string{"[FAIL]", `profile "copilot" selected for pi`,
-		`no profile named "copilot" is declared`, `add "copilot-auth" to your config's`} {
+		`no profile named "copilot" is declared`, "run `yolo pack add copilot-auth`"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("check must FAIL with the launch's refusal, lacking %q:\n%s", want, got)
 		}

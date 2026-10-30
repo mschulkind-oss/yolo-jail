@@ -110,7 +110,7 @@ func TestAClaudeCodexSelectionWithoutItsProviderRefuses(t *testing.T) {
 				t.Errorf("jail: %+v", mp)
 			}
 			for _, want := range []string{`Profile "codex" uses provider "openai-codex" for claude`,
-				`Add "codex-auth" to ` + "`packs`" + ` in your workspace configuration`,
+				"Run `yolo pack add codex-auth`",
 				`Pack "wire-bridge" adapts "openai-responses" → "anthropic"`} {
 				if !strings.Contains(err.Error(), want) {
 					t.Errorf("jail: Error() must say %q:\n%v", want, err)
@@ -142,7 +142,7 @@ func TestCodexAndPiWithoutTheirProviderStillCompose(t *testing.T) {
 	if !errors.As(err, &mp) || mp.Shipper != "codex-auth" {
 		t.Fatalf("host: pi on codex without openai-auth must be refused naming openai-auth, got %v", err)
 	}
-	want := `Profile "codex" uses provider "openai-codex" for pi, but that provider is unavailable. Add "codex-auth" to ` + "`packs`" + ` in your workspace configuration to use this provider`
+	want := `Profile "codex" uses provider "openai-codex" for pi, but that provider is unavailable. Run ` + "`yolo pack add codex-auth`" + ` to use this provider`
 	if got := err.Error(); got != want {
 		t.Errorf("rendered refusal = %q, want %q", got, want)
 	}
@@ -163,7 +163,7 @@ func TestAJailRefusesAUserProfileWhoseProviderItLacks(t *testing.T) {
 		if !errors.As(err, &mp) || mp.Shipper != "zai" || mp.Then != nil {
 			t.Fatalf("jail/%s: err = %v, want the missing provider naming zai to add", agent, err)
 		}
-		if !strings.Contains(err.Error(), `Add "zai" to `+"`packs`"+` in your workspace configuration`) {
+		if !strings.Contains(err.Error(), "Run `yolo pack add zai`") {
 			t.Errorf("jail/%s: the refusal must name the pack whose addition resolves it:\n%v", agent, err)
 		}
 		// With the pack selected the jail composes, so the refusal was about the row alone.
@@ -206,7 +206,7 @@ yolo.env("respy", function(ctx) return { RESPY_URL = "x" } end)`), 0o644); err !
 		if !errors.As(err, &mp) || mp.Shipper != "codex-auth" || mp.Then != nil {
 			t.Fatalf("%s: err = %v, want the missing provider naming openai-auth to add", n.name, err)
 		}
-		if !strings.Contains(err.Error(), `Add "codex-auth" to `+"`packs`"+` in your workspace configuration`) {
+		if !strings.Contains(err.Error(), "Run `yolo pack add codex-auth`") {
 			t.Errorf("%s: the refusal must name the pack whose addition resolves it:\n%v", n.name, err)
 		}
 	}
@@ -262,7 +262,7 @@ func TestAProviderNothingDeclaresRefuses(t *testing.T) {
 				t.Fatalf("%s/%s: err = %v, want *MissingProviderError naming no pack", n.name, agent, err)
 			}
 			if !strings.Contains(err.Error(), "uses a provider supplied by your selected packs") ||
-				!strings.Contains(err.Error(), "declare this provider in `providers` in your workspace configuration") {
+				!strings.Contains(err.Error(), "declare this provider in `providers` in your user config") {
 				t.Errorf("%s/%s: %v", n.name, agent, err)
 			}
 		}
@@ -303,7 +303,7 @@ func TestPairingRefusalsReportsAMissingProvider(t *testing.T) {
 	if len(errs) != 1 || !errors.As(errs[0], &mp) {
 		t.Fatalf("PairingRefusals = %v, want the one missing-provider refusal", errs)
 	}
-	want := `Profile "codex" uses provider "openai-codex" for claude, but that provider is unavailable. Add "codex-auth" to ` + "`packs`" + ` in your workspace configuration to make this provider available, but that alone will not fix this refusal:`
+	want := `Profile "codex" uses provider "openai-codex" for claude, but that provider is unavailable. Run ` + "`yolo pack add codex-auth`" + ` to make this provider available, but that alone will not fix this refusal:`
 	if !strings.HasPrefix(errs[0].Error(), want) {
 		t.Errorf("check refusal = %q, want prefix %q", errs[0], want)
 	}

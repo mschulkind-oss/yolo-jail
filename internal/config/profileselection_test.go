@@ -450,6 +450,26 @@ func TestProfileDeselectionNamesTheSourceAndTheSpelling(t *testing.T) {
 	}
 }
 
+// A selection read from `active_provider` is undone by its named verb, `yolo active-provider
+// <agent> native`, not by a key to hand-write; in a jail, run on the host.
+func TestActiveProviderDeselectionNamesTheVerb(t *testing.T) {
+	newMountsHost(t)
+	key := ProfileSelection{Default: []string{"bedrock"}, Key: ActiveProviderKey}
+	got := ProfileDeselection(key, ProfileSelection{}, "agy")
+	if want := "so run `yolo active-provider agy native` to select none for agy on every launch"; !strings.Contains(got, want) {
+		t.Errorf("ProfileDeselection() = %q, want it to contain %q", got, want)
+	}
+	t.Setenv("YOLO_VERSION", "0.0.0-test")
+	t.Setenv(UserLayerEnv, "")
+	got = ProfileDeselection(key, ProfileSelection{}, "agy")
+	if want := "your host config's `active_provider` key, so run `yolo active-provider agy native` on the host"; !strings.Contains(got, want) {
+		t.Errorf("in a jail, ProfileDeselection() = %q, want it to contain %q", got, want)
+	}
+	if strings.Contains(got, `= "native"`) {
+		t.Errorf("the deselection names a key to hand-write: %q", got)
+	}
+}
+
 // IN A JAIL THE USER CONFIG IS A READ-ONLY COPY THE HOST GENERATED, so "write it there" names a
 // file nothing in the jail can write. The persistent fix is the host's: the clause says the key
 // was read from that copy and names the host config as where to write the spelling. A

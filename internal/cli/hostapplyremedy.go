@@ -42,6 +42,7 @@ package cli
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -520,8 +521,16 @@ func selectedValueGroup(g remedyGroup, n int, verb, home string) remedyGroup {
 	g.Key = "profile"
 	g.Headline = fmt.Sprintf("%d %s of yours %s by what your profile selects",
 		n, plural(n, "value", "values"), verb)
+	// A readable (TOML) user config selects through `active_provider`, which its named verb
+	// writes; a legacy one through `profile`, beside which that verb's key is refused.
+	file := userConfigPathIn(home)
 	g.Remedy = fmt.Sprintf("to keep yours, change or remove `profile` in %s, then apply again",
-		prettyHomePath(home, userConfigPathIn(home)))
+		prettyHomePath(home, file))
+	if filepath.Base(file) == paths.UserConfigTOMLName {
+		g.Remedy = fmt.Sprintf("to keep yours, change or remove the agent's `active_provider` entry in %s "+
+			"(`yolo active-provider <agent> <provider>` changes it, `native` selecting none), then apply again",
+			prettyHomePath(home, file))
+	}
 	g.Warn = true
 	g.Note = "a value your `profile` selects is written when that profile is first " +
 		"activated in this home; a pick of your own after that (your agent's /model) " +
@@ -698,7 +707,8 @@ func mcpEntryRemedy(home string, tables []droppedTable) string {
 		scope = fmt.Sprintf(" — one for each of %s, under the table key its loss line names (%s)",
 			joinWords(surfaces, "and"), joinWords(keys, "or"))
 	}
-	return fmt.Sprintf("declare it in %s — %s — which reaches every agent's files "+
+	return fmt.Sprintf("declare it in %s — %s, each field of which "+
+		"`yolo config set <table>.<name>.<field> <value> --user` writes — which reaches every agent's files "+
 		"here as it reaches a jail's; or, for one agent's file alone, add a `config-overlay` to "+
 		"the `contributes` list in %s, for example "+
 		`{"kind": "config-overlay", "surface": %q, "config": {"managed": `+
@@ -771,10 +781,21 @@ func localPackManifestPathIn(home string) string {
 // home it was handed (every test, and a `--at host` run from inside a jail) would print a path
 // in a different home than the one the report is about. Falls back to the conventional layout
 // when the two cannot be related.
+//
+// The file is the one that exists in THAT home's config directory, as paths.UserConfigDisplayPath
+// chooses in $HOME: config.toml, else a legacy config.jsonc or config.json, and config.toml when
+// none does (the file a first write creates), so a remedy never names the legacy file to a user
+// who has none.
 func userConfigPathIn(home string) string {
-	rel, err := filepath.Rel(paths.Home(), paths.UserConfigPath())
-	if err != nil || rel == "" || rel == "." || strings.HasPrefix(rel, "..") {
-		return filepath.Join(home, ".config", "yolo-jail", "config.jsonc")
+	dir := filepath.Join(home, ".config", "yolo-jail")
+	if rel, err := filepath.Rel(paths.Home(), filepath.Dir(paths.UserConfigDisplayPath())); err == nil &&
+		rel != "" && rel != "." && !strings.HasPrefix(rel, "..") {
+		dir = filepath.Join(home, rel)
 	}
-	return filepath.Join(home, rel)
+	for _, name := range []string{paths.UserConfigTOMLName, paths.UserConfigLegacyJSONCName, paths.UserConfigLegacyJSONName} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
+			return filepath.Join(dir, name)
+		}
+	}
+	return filepath.Join(dir, paths.UserConfigTOMLName)
 }

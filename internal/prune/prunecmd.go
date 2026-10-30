@@ -478,7 +478,7 @@ func Run(opts Options) int {
 		// does not exist there. Name the supported mechanism instead.
 		p.line("  [dim]cache/images is only ever read host-side, so a symlink is safe HERE.  " +
 			"Other cache subdirs are bind-mounted into the jail, where a symlink dangles — " +
-			"relocate those with cache_relocations in ~/.config/yolo-jail/config.jsonc.[/dim]")
+			"relocate one with `yolo config set cache_relocations.<subdir> '\"/absolute/path\"' --user`.[/dim]")
 		// Mental model (image-retention.md "A GC is safe at any moment" and disk-footprint.md "Lifecycle sweeps"): the tar here is a one-shot load
 		// artifact — streamed into podman's own image store once, then never read
 		// again — so pruning it (PruneImageCache, keep=3) is always safe and frees

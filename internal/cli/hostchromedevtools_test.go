@@ -190,7 +190,7 @@ func TestAFetchedPacksMCPEntryIsNamedAndLeftOutAtTheHost(t *testing.T) {
 		t.Errorf("composed = %v, want the official and the local pack", composed)
 	}
 	if len(omitted) != 1 || !strings.Contains(omitted[0], "mcp chrome-devtools (pack fetched) is not written at the host") ||
-		!strings.Contains(omitted[0], "write the entry under `mcp_servers`") {
+		!strings.Contains(omitted[0], "declare it yourself under `mcp_servers`") {
 		t.Errorf("omitted = %v", omitted)
 	}
 }
@@ -349,7 +349,7 @@ func TestYoloHostApplyLeavesAFetchedPacksMCPServerOutOfEveryAgentsFile(t *testin
 		t.Errorf("codex's config.toml carries the fetched pack's server:\n%s", codex)
 	}
 	if !strings.Contains(report, "mcp acme-mcp (pack gp) is not written at the host: the pack was fetched") ||
-		!strings.Contains(report, "write the entry under `mcp_servers`") {
+		!strings.Contains(report, "declare it yourself under `mcp_servers`") {
 		t.Errorf("the report does not name the server it left out, with the step that runs it:\n%s", report)
 	}
 }

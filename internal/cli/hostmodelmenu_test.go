@@ -395,7 +395,7 @@ func TestTheMenuOfAProgramWithNoLaunchSelectionFollowsOnlyItsFile(t *testing.T) 
 		configuredSet: []string{"z"}}
 	line, follows := c.menuFollowsTheLaunch(none)
 	if follows || !strings.Contains(line, "tool's pack declares no launch_selection") ||
-		!strings.Contains(line, "run `yolo host apply`") {
+		!strings.Contains(line, "run `yolo active-provider tool sub`, then `yolo host apply`") {
 		t.Errorf("a -p over another provider: follows=%v, line %q", follows, line)
 	}
 	c.configuredSet = []string{"sub"}

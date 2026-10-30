@@ -218,7 +218,7 @@ func TestAWSStartupRefusalRendersSafeCauseWithoutProfileOrPolicyValues(t *testin
 	output.WriteString(refused.markup("Refusing this launch"))
 	rendered := output.String()
 	for _, want := range []string{"A session policy is configured without a role to assume.",
-		"loopholes.aws-auth.settings.role_arn", "Refusing this launch"} {
+		"allow.aws-auth.role_arn", "Refusing this launch"} {
 		if !strings.Contains(rendered, want) {
 			t.Errorf("rendered AWS startup cause lacks %q:\n%s", want, rendered)
 		}

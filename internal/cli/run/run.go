@@ -223,7 +223,9 @@ func Run(opts Options) (rc int) {
 	hostImportExclusions, err := config.LoadHostImportExclusions()
 	if err != nil {
 		o.pr(o.Stderr).printf("[bold red]Refusing host import exclusions: %s[/bold red]", err)
-		o.pr(o.Stderr).print("Fix the user-scope `host_import_exclusions` setting in ~/.config/yolo-jail/config.jsonc, or remove it.")
+		userFile, _ := config.UserConfigFile()
+		o.pr(o.Stderr).print("Fix the user-scope `host_import_exclusions` setting in " +
+			richtext.Escape(userFile) + ", or remove it.")
 		return 1
 	}
 	// THE NOTCH GATE, above the backend dispatch and above the repo-root gate, because

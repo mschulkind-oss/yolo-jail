@@ -40,6 +40,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentenv"
@@ -197,8 +198,9 @@ func (c *hostComposition) menuFollowsTheLaunch(sel *hostSelection) (string, bool
 	return fmt.Sprintf("%s gets no model menu from yolo this launch: -p %s selects %s, while %s, and %s's "+
 		"pack declares no launch_selection, so a -p cannot move %s off the provider its own config names "+
 		"(docs/design/model-lists-and-pickers.md MM-D30); %s shows its own model menu. To change the "+
-		"provider it starts on, set its profile in your config and run `yolo host apply`.",
-		c.agent, shquote.Quote(c.typedProfile), selects(launch), cfg, c.agent, c.agent, c.agent), false
+		"provider it starts on, run %s, then `yolo host apply`.",
+		c.agent, shquote.Quote(c.typedProfile), selects(launch), cfg, c.agent, c.agent, c.agent,
+		c.selectionCommand()), false
 }
 
 // configuredPrimary is the primary profile the user-scope `profile` key selects for this launch's
@@ -302,9 +304,10 @@ func (c *hostComposition) launchSelection(typed, environ []string, say func(stri
 	if hostDeselects(c.typedProfile, c.agent) {
 		if spec != nil && p != nil && p.Decl != nil && len(p.Decl.SessionHomes()) == 0 {
 			say(fmt.Sprintf("-p %s selects no profile for %s, but %s starts on the selection its own config "+
-				"holds (~/%s), which a launch cannot take away. To start it on none, select none for %s in "+
-				"your config's `profile` key (a null for %s) and run `yolo host apply`.",
-				shquote.Quote(c.typedProfile), c.agent, c.agent, spec.Surface, c.agent, c.agent))
+				"holds (~/%s), which a launch cannot take away. To start it on none, run "+
+				"`yolo active-provider %s %s`, then `yolo host apply`.",
+				shquote.Quote(c.typedProfile), c.agent, c.agent, spec.Surface,
+				shquote.Quote(c.agent), config.NativeProvider))
 		}
 		return nil
 	}
@@ -463,20 +466,29 @@ func (c *hostComposition) profilesThatMove(p *packload.Pack, spec packdecl.Launc
 	return out
 }
 
-// selectionRemedy is the next step a launch that could not move its program names: the launch's
-// profile, or its whole active set, in the user's config, and `yolo host apply`, which writes it into
-// the program's own file.
+// selectionRemedy is the next step a launch that could not move its program names: the command
+// that selects the launch's profile, or its whole active set, in the user's config, and
+// `yolo host apply`, which writes it into the program's own file.
 func (c *hostComposition) selectionRemedy() string {
-	value := fmt.Sprintf("%q", c.profile)
-	if len(c.set) > 1 {
-		quoted := make([]string, 0, len(c.set))
-		for _, p := range c.set {
-			quoted = append(quoted, fmt.Sprintf("%q", p))
-		}
-		value = "[" + strings.Join(quoted, ", ") + "]"
+	return fmt.Sprintf("To start %s there by default, run %s, then `yolo host apply`.",
+		c.agent, c.selectionCommand())
+}
+
+// selectionCommand is the verb that makes this launch's selection the configured one, in
+// backquotes: `yolo active-provider <agent> <profile>` for one profile, and the generic
+// `yolo config set active_provider.<agent> [...] --user` for an active set, which the named verb
+// does not take (docs/design/config-commands.md §4).
+func (c *hostComposition) selectionCommand() string {
+	if len(c.set) <= 1 {
+		return "`yolo active-provider " + shquote.Quote(c.agent) + " " + shquote.Quote(c.profile) + "`"
 	}
-	return fmt.Sprintf("To start %s there by default, name it in your config (\"profile\": {%q: %s}) and "+
-		"run `yolo host apply`.", c.agent, c.agent, value)
+	quoted := make([]string, 0, len(c.set))
+	for _, p := range c.set {
+		quoted = append(quoted, strconv.Quote(p))
+	}
+	value := "[" + strings.Join(quoted, ", ") + "]"
+	return "`yolo config set " + shquote.Quote(config.ActiveProviderKey+"."+c.agent) + " " +
+		shquote.Quote(value) + " --user`"
 }
 
 // environLookup is a lookup over an environ slice, the last assignment of a name winning.

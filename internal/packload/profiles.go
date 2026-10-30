@@ -35,6 +35,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // UserProfile is one user-declared profile entry: the provider it selects and the
@@ -483,14 +484,20 @@ func UndeclaredProfileMessage(name string, declared, shippedBy []string) string 
 		"by a selected pack's manifest or by your config's `profiles` key (declared: %s)",
 		name, have)
 	if len(shippedBy) > 0 {
-		quoted := make([]string, len(shippedBy))
+		commands := make([]string, len(shippedBy))
 		for i, p := range shippedBy {
-			quoted[i] = strconv.Quote(p)
+			commands[i] = PackAddCommand(p)
 		}
-		msg += fmt.Sprintf("; the %s pack yolo ships declares it: add %s to your config's "+
-			"`packs` list", strings.Join(shippedBy, " or "), strings.Join(quoted, " or "))
+		msg += fmt.Sprintf("; the %s pack yolo ships declares it: run %s",
+			strings.Join(shippedBy, " or "), strings.Join(commands, " or "))
 	}
 	return msg
+}
+
+// PackAddCommand is the step that selects a pack, in backquotes: `yolo pack add <name>`, the verb
+// that writes it into the user config's `packs` list (docs/design/config-commands.md).
+func PackAddCommand(pack string) string {
+	return "`yolo pack add " + shquote.Quote(pack) + "`"
 }
 
 // UndeclaredProfileHelp is THE refusal body for a selected profile name nothing declares, the one
@@ -510,7 +517,7 @@ func UndeclaredProfileHelp(name string, declared []string, selected, universe []
 		msg := fmt.Sprintf("no profile named %q is declared — it was renamed %q, which the %s pack "+
 			"declares: select %q instead", name, now, pack, now)
 		if !slices.Contains(declared, now) {
-			msg += fmt.Sprintf(", and add %q to your config's `packs` list", pack)
+			msg += ", and run " + PackAddCommand(pack)
 		}
 		return msg
 	}
@@ -535,7 +542,7 @@ func UndeclaredProfileHelp(name string, declared []string, selected, universe []
 			"yolo ships declares it as the profile %q: select %q instead", name, who, verb, name,
 			pack, profile, profile)
 		if !slices.Contains(declared, profile) {
-			msg += fmt.Sprintf(", and add %q to your config's `packs` list", pack)
+			msg += ", and run " + PackAddCommand(pack)
 		}
 		return msg + " (declared: " + have + ")"
 	}

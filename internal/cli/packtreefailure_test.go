@@ -177,7 +177,7 @@ func TestALaunchsPackTreeBuildRefusalNamesThePrebuiltOptIn(t *testing.T) {
 			if d.Key != "" || runs != 1 || !strings.Contains(d.Reason, tc.said) {
 				t.Fatalf("%d runs, delivery %+v, want one run and a reason saying %q\n%s", runs, d, tc.said, stream.String())
 			}
-			named := strings.Contains(d.Reason, `"x": {"prebuilt": true}`) && strings.Contains(d.Reason, "linux/amd64")
+			named := strings.Contains(d.Reason, "`yolo config set programs.overrides.x.prebuilt true --user`") && strings.Contains(d.Reason, "linux/amd64")
 			if named == tc.checkout {
 				t.Errorf("the reason names the opt-in = %v, want %v:\n%s", named, !tc.checkout, d.Reason)
 			}
@@ -226,7 +226,7 @@ func TestAPackTreeBuildSkippedForARefusedSealNamesThePrebuiltOptIn(t *testing.T)
 	if runs != 1 || skipped == "" {
 		t.Fatalf("%d build jails, deliveries %+v; want one jail and the other build skipped\n%s", runs, forks, stream.String())
 	}
-	if !strings.Contains(skipped, `{"prebuilt": true}`) || !strings.Contains(skipped, "linux/amd64") {
+	if !strings.Contains(skipped, ".prebuilt true --user`") || !strings.Contains(skipped, "linux/amd64") {
 		t.Errorf("the skipped build's refusal does not name the prebuilt opt-in:\n%s", skipped)
 	}
 }

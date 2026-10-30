@@ -269,7 +269,7 @@ func TestSelfModeRefusesAComposedTmpdirTheProfileDoesNotGrant(t *testing.T) {
 		{"/var/folders/ab/xyz/T/mine", false, ""},
 		{"/tmp/mine", true, ""},
 		{"/Users/you/tmp", false, "Remove the TMPDIR override"},
-		{"/tmp/mine", false, `"macos_user_shared_tmp": true`},
+		{"/tmp/mine", false, "`yolo config set macos_user_shared_tmp true --user`"},
 		{"relative/tmp", false, "Remove the TMPDIR override"},
 	} {
 		got := refused(plan(tc.tmpdir, tc.hatch))

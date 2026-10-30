@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // validateEnvSourceScope refuses a FILE entry of `env_sources` (`env.files` in the TOML
@@ -90,7 +92,10 @@ func envSourceScopeRefusal(key, entry, real, root, userPath string, userTOML boo
 	}
 	spelled := fmt.Sprintf(`"env_sources": [%q]`, fix)
 	if userTOML {
-		spelled = fmt.Sprintf("[env] files = [%q]", fix)
+		// The readable key has a verb that appends to it (docs/design/config-commands.md); a
+		// legacy file keeps `env_sources`, beside which that verb's `env.files` is refused.
+		spelled = fmt.Sprintf("[env] files = [%q] (`yolo config add env.files %s --user`)",
+			fix, shquote.Quote(strconv.Quote(fix)))
 	}
 	return fmt.Sprintf("config.%s: %s is in the workspace config%s, outside the workspace %s. "+
 		"A workspace config travels with the repository, so its env files must be inside the "+

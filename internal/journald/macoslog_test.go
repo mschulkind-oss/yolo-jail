@@ -65,13 +65,37 @@ func TestPlanMacosLogResolvesArgumentsPerScope(t *testing.T) {
 	}
 }
 
-// Every user-scope refusal names the next step: the `full` setting, and where it is written.
+// Every user-scope refusal names the next step: the `full` setting, and where it is written —
+// the verb for a readable (TOML) user config or none, the legacy block in the legacy file.
 func TestMacosLogUserRefusalNamesTheFullSetting(t *testing.T) {
-	p := PlanMacosLog([]string{"collect"}, ModeUser)
-	for _, want := range []string{`"loopholes": {"macos-log": {"settings": {"full": true}}}`,
-		"~/.config/yolo-jail/config.jsonc", "user config only"} {
-		if !strings.Contains(p.ErrText, want) {
-			t.Errorf("refusal %q does not name %q", p.ErrText, want)
+	for _, tc := range []struct {
+		file string
+		want []string
+	}{
+		{"", []string{"`yolo config set allow.macos-log.full true --user`", "user config only"}},
+		{"config.toml", []string{"`yolo config set allow.macos-log.full true --user`", "user config only"}},
+		{"config.jsonc", []string{`"loopholes": {"macos-log": {"settings": {"full": true}}}`,
+			filepath.Join(".config", "yolo-jail", "config.jsonc"), "user config only"}},
+	} {
+		home, err := filepath.EvalSymlinks(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("HOME", home)
+		if tc.file != "" {
+			dir := filepath.Join(home, ".config", "yolo-jail")
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, tc.file), []byte("\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		p := PlanMacosLog([]string{"collect"}, ModeUser)
+		for _, want := range tc.want {
+			if !strings.Contains(p.ErrText, want) {
+				t.Errorf("user config %q: refusal %q does not name %q", tc.file, p.ErrText, want)
+			}
 		}
 	}
 }

@@ -2,6 +2,7 @@ package run
 
 import (
 	"path/filepath"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -73,15 +74,32 @@ func (o *Options) prepareLoopholeSettings(discovered []*loopholes.Loophole, cfg 
 
 // LoopholeSettingsFixStep is the next step for settings that could not be resolved: where they
 // are set, and the preflight that re-checks them.
+//
+// A readable (TOML) user config holds a pack's settings under `allow.<pack>`, which
+// `yolo config set` writes, and a workspace's under `requests.<pack>` (the rename table's
+// `loopholes.*.settings.*` row); a legacy one keeps the loophole's `loopholes.<name>.settings`.
 func LoopholeSettingsFixStep(lp *loopholes.Loophole) string {
-	where := paths.UserConfigDisplayPath() + " or the workspace's yolo-jail.jsonc"
+	user := paths.UserConfigDisplayPath()
+	userOnly := false
 	for _, s := range lp.Settings {
 		// A user-scope setting is refused in the workspace file, so naming that file would be a
 		// step that fails: name the user-scope path alone where scope matters.
 		if s.Scope == loopholes.SettingScopeUser {
-			where = paths.UserConfigDisplayPath()
+			userOnly = true
 			break
 		}
+	}
+	if strings.HasSuffix(user, ".toml") && lp.Pack != "" {
+		where := "`allow." + lp.Pack + "` in " + user
+		if !userOnly {
+			where += ", or `requests." + lp.Pack + "` in the workspace config"
+		}
+		return "Correct " + where + " (`yolo config set allow." + lp.Pack + ".<setting> <value> --user` " +
+			"sets one), then run `yolo check --no-build`."
+	}
+	where := user + " or the workspace's yolo-jail.jsonc"
+	if userOnly {
+		where = user
 	}
 	return "Correct `loopholes." + lp.Name + ".settings` in " + where + ", then run `yolo check --no-build`."
 }

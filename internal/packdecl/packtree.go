@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // ViaPack is the `via` a program built from its pack's OWN tree declares (the design
@@ -317,9 +318,10 @@ func PrebuiltPlatforms(prebuilt map[string]PrebuiltBuild) []string {
 
 // PrebuiltOptInSetting is the user-scope setting that opts one program into its pack's prebuilt
 // artifact even when the pack ships its source (docs/design/pack-buildable-programs.md §7, OQ-BG2,
-// BG-D18), spelled as a user writes it.
+// BG-D18), as the command that writes it into the user config, in backquotes: the readable key
+// `programs.overrides.<bin>.prebuilt`, which `yolo config set` writes in either config format.
 func PrebuiltOptInSetting(bin string) string {
-	return `"programs": {"overrides": {"` + bin + `": {"prebuilt": true}}} in ~/.config/yolo-jail/config.jsonc`
+	return "`yolo config set " + shquote.Quote("programs.overrides."+bin+".prebuilt") + " true --user`"
 }
 
 // PrebuiltOptInStep is the clause a refusal of a pack-tree BUILD that cannot run here adds when the
@@ -330,6 +332,6 @@ func PrebuiltOptInStep(pack, bin, platform string, prebuilt map[string]PrebuiltB
 	if _, ok := prebuilt[platform]; !ok {
 		return ""
 	}
-	return "or, to run pack " + pack + "'s prebuilt artifact for " + platform + " instead of building it, set " +
+	return "or, to run pack " + pack + "'s prebuilt artifact for " + platform + " instead of building it, run " +
 		PrebuiltOptInSetting(bin)
 }

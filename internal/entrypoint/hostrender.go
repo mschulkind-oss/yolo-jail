@@ -1470,7 +1470,17 @@ func IsGatedEntryLoss(loss string) bool { return strings.Contains(loss, "("+gate
 
 // GatedEntryLossRemedy is the change that keeps a gated loss, given the user config's path:
 // deliver the variable to the agent. It ends without a full stop, like the declare-it remedy.
+//
+// A readable (TOML) user config lists its dotenv files under `env.files` and selects a provider
+// under `active_provider`, and the verbs that write those are named; a legacy file keeps its own
+// keys, `env_sources` and `profile`, beside which the verbs' keys are refused.
 func GatedEntryLossRemedy(userConfig string) string {
+	if strings.HasSuffix(userConfig, ".toml") {
+		return "set the variable its loss line names in a dotenv file listed under `env.files` " +
+			"in " + userConfig + " (`yolo config add env.files <file> --user` lists one); a variable " +
+			"a provider claims reaches only an agent whose active provider is that provider, so for " +
+			"such a variable select it for the agent with `yolo active-provider <agent> <provider>`"
+	}
 	return "set the variable its loss line names in a dotenv file listed under `env_sources` " +
 		"in " + userConfig + "; a variable a provider claims reaches only an agent whose " +
 		"selected profile resolves to that provider, so for such a variable select that " +

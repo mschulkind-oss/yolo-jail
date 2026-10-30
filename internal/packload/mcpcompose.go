@@ -21,6 +21,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // HeldMCPServer is one `mcp` contribution and the pack that declared it.
@@ -91,9 +92,10 @@ func MCPNameCollisions(packs []*Pack) []string {
 		}
 		out = append(out, fmt.Sprintf("MCP server %q is shipped by %s — a server name is "+
 			"sole-owned, the key its entry lands under in mcp_servers, so one would silently replace "+
-			"the other. Remove one of those packs from `packs` in ~/.config/yolo-jail/config.jsonc; "+
-			"to change the server you keep, write mcp_servers.%s there, which merges over it",
-			name, who, name))
+			"the other. Remove one of those packs from `packs` (`yolo pack remove <pack>`); "+
+			"to change the server you keep, write mcp_servers.%s in %s, which merges over it "+
+			"(`yolo config set mcp_servers.%s.<field> <value> --user` sets one field)",
+			name, who, name, paths.UserConfigDisplayPath(), name))
 	}
 	return out
 }

@@ -122,7 +122,7 @@ func TestAnUndeclaredShippedProfileNamesThePackThatShipsIt(t *testing.T) {
 	declared := DeclaredProfileNames(selected, nil)
 	msg := UndeclaredProfileHelp("copilot", declared, selected, Embedded())
 	if !strings.Contains(msg, `no profile named "copilot" is declared`) ||
-		!strings.Contains(msg, `add "copilot-auth" to your config's `+"`packs`") {
+		!strings.Contains(msg, "run `yolo pack add copilot-auth`") {
 		t.Errorf("message %q does not name adding the copilot-auth pack", msg)
 	}
 	if typo := UndeclaredProfileHelp("zai-fst", declared, selected, Embedded()); strings.Contains(typo, "packs`") {
@@ -136,14 +136,14 @@ func TestTheFormerGitHubCopilotProfileIsRefusedNamingCopilot(t *testing.T) {
 	selected := embeddedNamed(t, "pi")
 	msg := UndeclaredProfileHelp("github-copilot", DeclaredProfileNames(selected, nil), selected, Embedded())
 	for _, want := range []string{`no profile named "github-copilot" is declared`, `renamed "copilot"`,
-		"the copilot-auth pack declares", `select "copilot" instead`, `add "copilot-auth" to your config's`} {
+		"the copilot-auth pack declares", `select "copilot" instead`, "run `yolo pack add copilot-auth`"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("message %q lacks %q", msg, want)
 		}
 	}
 	selected = embeddedNamed(t, "pi", "copilot-auth")
 	msg = UndeclaredProfileHelp("github-copilot", DeclaredProfileNames(selected, nil), selected, Embedded())
-	if !strings.Contains(msg, `select "copilot" instead`) || strings.Contains(msg, "add \"copilot-auth\"") {
+	if !strings.Contains(msg, `select "copilot" instead`) || strings.Contains(msg, "yolo pack add copilot-auth") {
 		t.Errorf("with copilot-auth selected, message %q should name copilot and no pack to add", msg)
 	}
 	if now, pack, ok := RenamedProfile("github-copilot", Embedded()); !ok || now != "copilot" || pack != "copilot-auth" {
@@ -209,7 +209,7 @@ func TestAnUndeclaredBuiltInNameAShippedPackCarriesNamesItsProfile(t *testing.T)
 	selected := embeddedNamed(t, "pi")
 	msg := UndeclaredProfileHelp("anthropic", DeclaredProfileNames(selected, nil), selected, Embedded())
 	for _, want := range []string{"pi has anthropic built in", "the claude-auth pack", `select "claude" instead`,
-		`add "claude-auth" to your config's`} {
+		"run `yolo pack add claude-auth`"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("message %q lacks %q", msg, want)
 		}
