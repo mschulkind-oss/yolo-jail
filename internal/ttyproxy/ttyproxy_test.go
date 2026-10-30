@@ -2287,8 +2287,16 @@ func queuedTerminationResumeTraceError(trace, childReceipt, stages []byte) error
 		}
 		return nil
 	}
-	if len(writes) != 1 || len(writeErrors) != 0 || len(enqueues) != 1 || len(flushes) > 1 || !bytes.Contains(stages, []byte{'R'}) || !bytes.Contains(childReceipt, []byte{'R'}) {
-		return fmt.Errorf("false controlling snapshot lacks one complete write and verified child-consumption trace: stages=%q trace=%q child=%q", stages, trace, childReceipt)
+	if len(writes) != 1 || len(writeErrors) != 0 || len(enqueues) != 1 || len(flushes) > 1 || !bytes.Contains(stages, []byte{'R'}) {
+		return fmt.Errorf("false controlling snapshot lacks one complete write trace: stages=%q trace=%q child=%q", stages, trace, childReceipt)
+	}
+	// A false snapshot lets the proxy hand the byte to the pty, but the signal arm that
+	// publishes the queued SIGTERM kills the child on its own goroutine right after, and
+	// nothing orders that kill after the child's read(): a loaded machine runs the kill
+	// first and leaves the byte unread in the line discipline. So the child's receipt is
+	// optional here, and its absence must be explained by the arm's published cancellation.
+	if !bytes.Contains(childReceipt, []byte{'R'}) && len(armCancel) != 1 {
+		return fmt.Errorf("false controlling snapshot wrote input the child never read, with no published cancellation to explain the kill: stages=%q trace=%q child=%q", stages, trace, childReceipt)
 	}
 	write := writes[0]
 	if write.index <= checks[0].index || fieldValue(write.line, "pending") != "0" || fieldValue(write.line, "attempted") != "1" {
@@ -2382,7 +2390,15 @@ func TestQueuedTerminationResumeTracePredicate(t *testing.T) {
 		{name: "true-snapshot-without-resumed-callback", trace: trace(entryFalse, returnTrue, checkTrue), child: []byte("SDW"), stages: []byte("?Z"), wantError: true},
 		{name: "false-snapshot-without-write", trace: trace(entryFalse, returnFalse, checkFalse), child: []byte("SDW"), stages: []byte("?ZR"), wantError: true},
 		{name: "false-snapshot-without-write-outcome", trace: trace(entryFalse, returnFalse, checkFalse, writeFalse), child: []byte("SDWR"), stages: []byte("?ZR"), wantError: true},
-		{name: "false-snapshot-without-child-receipt", trace: trace(entryFalse, returnFalse, checkFalse, writeFalse, enqueueDirect), child: []byte("SDW"), stages: []byte("?ZR"), wantError: true},
+		{name: "false-snapshot-unread-without-published-cancellation", trace: trace(entryFalse, returnFalse, checkFalse, writeFalse, enqueueDirect), child: []byte("SDW"), stages: []byte("?ZR"), wantError: true},
+		// The 2026-10-30 check-ci trace: the byte reached the pty before the arm published
+		// the queued SIGTERM, and the arm's kill ran before the child's read().
+		{
+			name:   "false-snapshot-write-then-kill-before-child-read",
+			trace:  trace(entryFalse, returnFalse, checkFalse, writeFalse, "event=resume-enqueue-result cancel-or-exit=false pending=0 attempted=1 written=1 queued=0", "event=resume-signal-cancellation-published cancel-or-exit=true pending=0 attempted=0 written=0 queued=0"),
+			child:  []byte("SDW"),
+			stages: []byte("?ZRA?"),
+		},
 		// Snapshot booleans are captured before their observer rows are appended. A signal
 		// marker logged between the returned row and false snapshot row may follow the
 		// controlling load, so this is a valid false-snapshot forwarding trace.
