@@ -992,6 +992,13 @@
             cargoBuildFeatures = features;
             cargoCheckNoDefaultFeatures = true;
             cargoCheckFeatures = features;
+            # No cache.nixos.org substitute exists for this override, so every
+            # host compiles it.  The check phase recompiles mise with
+            # --all-features (native-tls/openssl included) and runs nextest at
+            # -j 1: measured 2026-10-30, still running 13 minutes after the
+            # 22-minute release build finished.  The suite is upstream's, already
+            # run on the stock build; the substitute changes only TLS features.
+            doCheck = false;
           });
         };
 
