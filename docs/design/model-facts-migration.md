@@ -336,6 +336,67 @@ built; the Built column is empty on purpose.
    because a readable row's key is the id it sends and a name is not that. The new config has to
    say either "here is the id, and here is what I call it" or "the id is the name".
 
+   **What a name does today.** A model's id is what goes on the wire (or its `wire_id`, when it
+   has one). The name is everything else:
+
+   - **It is the key the provider lists the model under.** `models.<name>` holds the id, and the
+     composed facts sit at `model_options.<name>`; a derive that builds an agent's model list walks
+     those keys ([§3.1](#31-a-name-for-a-model)).
+   - **It picks the starting model.** `providers.openrouter.options.model = "deepseek-floor"` and
+     the deepseek provider's `options.model = "default"` name a model by its name. opencode's
+     derive resolves a name to its id before writing it (`opencodeModel` in
+     `packs/opencode/derive.lua`). pi's built-in-provider branch takes it literally, which is why
+     the file's `or` and `or-300k` profiles write the full id, as the comment above them says.
+   - **A pack's `default` is a name.** The cerebras pack ships `default = "qwen-3.8-27b"` and
+     starts on it; the file adds facts to that model today by writing
+     `models.default = { "id": "qwen-3.8-27b", … }`.
+
+   **The same models, three ways.** The OpenRouter `mimo` row and the cerebras `default` row,
+   facts as the file has them:
+
+   ```jsonc
+   // today (personal.jsonc)
+   "openrouter": {
+     "options": { "model": "deepseek-floor" },
+     "models": {
+       "deepseek-floor": { "id": "deepseek/deepseek-v4.1-flash-1017:floor", "extends": "deepseek-floor-1017" },
+       "mimo": { "id": "xiaomi/mimo-v2.6-flash", "context_window": 1048576, "max_tokens": 131072, … }
+     }
+   },
+   "cerebras": { "models": { "default": { "id": "qwen-3.8-27b", "context_window": 65536, … } } }
+   ```
+
+   ```toml
+   # A: a name is a one-line word for an id; the facts live on the row keyed by the id
+   [providers.openrouter]
+   options.model = "deepseek-floor"
+
+   [providers.openrouter.models]
+   deepseek-floor = "deepseek/deepseek-v4.1-flash-1017:floor"
+   mimo = "xiaomi/mimo-v2.6-flash"
+   "deepseek/deepseek-v4.1-flash-1017:floor" = { extends = "deepseek-floor-1017" }
+   "xiaomi/mimo-v2.6-flash" = { context = 1_048_576, max_tokens = 131_072, … }
+
+   [providers.cerebras.models]
+   # no `default` line: the pack's own `default = "qwen-3.8-27b"` names this row
+   "qwen-3.8-27b" = { context = 65_536, max_tokens = 32_768, … }
+   ```
+
+   ```toml
+   # B: the id is the only name
+   [providers.openrouter]
+   options.model = "deepseek/deepseek-v4.1-flash-1017:floor"
+
+   [providers.openrouter.models]
+   "deepseek/deepseek-v4.1-flash-1017:floor" = { extends = "deepseek-floor-1017" }
+   "xiaomi/mimo-v2.6-flash" = { context = 1_048_576, max_tokens = 131_072, … }
+
+   [providers.cerebras.models]
+   # lists a second model beside the pack's `default`, which still starts the provider
+   # and gets none of these facts
+   "qwen-3.8-27b" = { context = 65_536, max_tokens = 32_768, … }
+   ```
+
    - **A — A name stays a one-line word for an id.** The file keeps `deepseek-floor = "deepseek/…:floor"`
      beside the row keyed by the id, the same line every shipped pack writes. Menus, `options.model`
      and `-p` spellings read as before; adding facts to the pack's `default` is a row keyed by the
