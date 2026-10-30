@@ -17,12 +17,19 @@ func TestMesaGraphicsDriverReachesContainerBootAndCheck(t *testing.T) {
 		t.Skip("the nested container boot integration needs Linux Podman")
 	}
 
-	dir := writeProject(t, `{"gpu":{"enabled":true},"packages":["mesa","pkgsi686Linux.mesa"]}`)
+	// nixpkgs has a 32-bit package set only on the x86 family: on aarch64,
+	// pkgsi686Linux throws at evaluation, so the 32-bit driver is checked on amd64 alone.
+	packages, arches, paths := `["mesa"]`, []string{"64"}, "/run/opengl-driver/lib /run/opengl-driver/share"
+	if goruntime.GOARCH == "amd64" {
+		packages, arches = `["mesa","pkgsi686Linux.mesa"]`, []string{"64", "32"}
+		paths += " /run/opengl-driver-32/lib /run/opengl-driver-32/share"
+	}
+	dir := writeProject(t, `{"gpu":{"enabled":true},"packages":`+packages+`}`)
 	r := runYolo(t, dir, strings.Join([]string{
 		`echo GRAPHICS-MANIFEST-BEGIN`,
 		`cat /run/yolo/graphics-drivers.json`,
 		`echo GRAPHICS-MANIFEST-END`,
-		`for p in /run/opengl-driver/lib /run/opengl-driver/share /run/opengl-driver-32/lib /run/opengl-driver-32/share; do test -e "$p" || { echo "MISSING-GRAPHICS-PATH=$p"; exit 1; }; done`,
+		`for p in ` + paths + `; do test -e "$p" || { echo "MISSING-GRAPHICS-PATH=$p"; exit 1; }; done`,
 		`yolo check --no-build`,
 	}, "; "))
 	if r.rc != 0 {
@@ -51,7 +58,7 @@ func TestMesaGraphicsDriverReachesContainerBootAndCheck(t *testing.T) {
 			name, version, lib, share string
 		}{driver.Name, driver.Version, driver.Lib, driver.Share}
 	}
-	for _, arch := range []string{"64", "32"} {
+	for _, arch := range arches {
 		driver, ok := byArch[arch]
 		if !ok || driver.name != "mesa" || driver.version == "" || driver.lib == "" || driver.share == "" {
 			t.Fatalf("actual %s-bit Mesa runtime record = %+v, want resolved lib/share outputs: %+v", arch, driver, manifest.Drivers)
