@@ -43,6 +43,17 @@ func freeLoopbackPort(t *testing.T) int {
 	return port
 }
 
+// relayPortClash reports whether a launch's relay found port taken: a port freeLoopbackPort hands
+// out is free only until another process (a parallel test binary listening on :0) is given it, so
+// a test that relays a chosen port chooses again when that happened rather than fail.
+func relayPortClash(stderr string, port int) bool {
+	return strings.Contains(stderr, fmt.Sprintf("listening on 127.0.0.1:%d failed", port)) &&
+		strings.Contains(stderr, "address already in use")
+}
+
+// relayPortAttempts bounds how many times a relay test chooses its port again after a clash.
+const relayPortAttempts = 5
+
 func freeDistinctLoopbackPorts(t *testing.T, count int) []int {
 	t.Helper()
 	listeners := make([]net.Listener, 0, count)
@@ -432,14 +443,19 @@ func TestMacosUserLaunchRelaysAForwardHostPortRemap(t *testing.T) {
 	host := listenLoopback(t, 0)
 	serveOnce(host, speaksFirst("the host's service"))
 	h := host.Addr().(*net.TCPAddr).Port
-	j := freeLoopbackPort(t)
-	entry := fmt.Sprintf("%d:%d", j, h)
-
-	var line string
+	var j, rc int
+	var entry, stderr, line string
 	var dialErr error
-	rc, stderr := relayRun(t, `{"forward_host_ports": ["`+entry+`"]}`, nil, func(jd macosuser.JailDaemons) int {
-		return asTheBackendDoes(jd, func() { line, dialErr = readBanner(loopback(j)) })
-	})
+	for range relayPortAttempts {
+		j = freeLoopbackPort(t)
+		entry = fmt.Sprintf("%d:%d", j, h)
+		rc, stderr = relayRun(t, `{"forward_host_ports": ["`+entry+`"]}`, nil, func(jd macosuser.JailDaemons) int {
+			return asTheBackendDoes(jd, func() { line, dialErr = readBanner(loopback(j)) })
+		})
+		if !relayPortClash(stderr, j) {
+			break
+		}
+	}
 	if rc != 0 {
 		t.Fatalf("Run() = %d\nstderr:\n%s", rc, stderr)
 	}
@@ -465,14 +481,19 @@ func TestMacosUserLaunchRelaysAPublishedPortRemap(t *testing.T) {
 	sandboxSvc := listenLoopback(t, 0)
 	serveOnce(sandboxSvc, speaksFirst("the sandbox's service"))
 	j := sandboxSvc.Addr().(*net.TCPAddr).Port
-	h := freeLoopbackPort(t)
-	entry := fmt.Sprintf("127.0.0.1:%d:%d", h, j)
-
-	var line string
+	var h, rc int
+	var entry, stderr, line string
 	var dialErr error
-	rc, stderr := relayRun(t, `{"ports": ["`+entry+`"]}`, nil, func(jd macosuser.JailDaemons) int {
-		return asTheBackendDoes(jd, func() { line, dialErr = readBanner(loopback(h)) })
-	})
+	for range relayPortAttempts {
+		h = freeLoopbackPort(t)
+		entry = fmt.Sprintf("127.0.0.1:%d:%d", h, j)
+		rc, stderr = relayRun(t, `{"ports": ["`+entry+`"]}`, nil, func(jd macosuser.JailDaemons) int {
+			return asTheBackendDoes(jd, func() { line, dialErr = readBanner(loopback(h)) })
+		})
+		if !relayPortClash(stderr, h) {
+			break
+		}
+	}
 	if rc != 0 {
 		t.Fatalf("Run() = %d\nstderr:\n%s", rc, stderr)
 	}
