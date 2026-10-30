@@ -1,9 +1,9 @@
 ---
 title: "A selected pack runs its loophole and grants nothing: access is approved, never switched"
 date: 2026-10-30
-status: in-review
+status: accepted
 stage: DESIGN
-next: "Rule OQ-LG1 (does an always grant show once at each project's gate); the refusal texts and the migration wait on it"
+next: "Write the implementation plan from §12; OQ-LG1 to OQ-LG3 are ruled (LG-D12 to LG-D14)"
 depends-on: [readable-config.md]
 tags: [loopholes, packs, config, grants, approval, design]
 summary: "Selecting a pack installs its loophole and runs its machinery; neither gives any project access. Access is a grant in two layers, the user's ceiling (allow) and the project's request (requests), approved at the config-change gate, the shape the brokers already have. The six loopholes that today grant the moment they are switched on get the same shape, default_enabled and the enabled switch go, and the migration carries every access the owner has today into a grant."
@@ -32,12 +32,15 @@ every loophole ([§4.1](#41-one-rule-for-every-loophole)); the brokers' two-laye
 
 **Cost.** `default_enabled`, `loopholes.<name>.enabled`, the per-workspace switch file and
 `yolo loopholes enable|disable` go ([§4.5](#45-what-goes-away)); `serial` loses its default device
-globs; six rulings in `loophole-system.md` are amended ([§8](#8-what-this-does-not-license) lists
+globs; eight rulings in `loophole-system.md` are amended ([§8](#8-what-this-does-not-license) lists
 them).
 
 **Start at [§4](#4-the-shape).** Everything else falls out of it.
 
-**Needs your ruling:** [OQ-LG1](#OQ-LG1), [OQ-LG2](#OQ-LG2), [OQ-LG3](#OQ-LG3).
+**Ruled 2026-10-30:** an `always` grant shows once at each project's gate
+([LG-D12](#LG-D12)); the cgroup delegate is ungated and its pack selected by default
+([LG-D13](#LG-D13)); the migration writes ceiling lines from approvals the owner gave at a launch,
+and the journal's `read` is requestable with no ceiling line at all ([LG-D14](#LG-D14)).
 
 **Reads with:** [`boundary-broker.md`](boundary-broker.md) (the precedent, BB-D104 to BB-D110),
 [`config-user.md`](config-user.md) (the `allow` table this reuses),
@@ -142,7 +145,8 @@ setting of any pack and `always` / `on_request` for a broker source (`ResolveRea
 grants nothing until a grant covers the project.** That is [BB-D104](boundary-broker.md#BB-D104)
 made the rule rather than the exception. The two login services and `aws-auth` already behave this
 way with a different approval ([§4.3](#43-each-loopholes-access-and-its-approval)); the six and the
-experiment move to it.
+experiment move to it, and `cgroup-delegate`, which can limit nothing but the jail itself, moves
+to it ungated and selected by default ([LG-D13](#LG-D13)).
 
 Running is decided by yolo and nothing else:
 
@@ -170,8 +174,9 @@ loophole speaks it.
    today: a list of names, each marked valued or not, with one line of user-facing text per kind
    that the gate and the refusals print ("read your user journal", "see these host processes").
    A loophole that declares none is **ungated**: it runs on selection and whatever it serves is
-   served, gated by its own approval (a login, a setting). Of the twelve, three are ungated and
-   one, the `hello-daemon` experiment, crosses nothing and so has nothing to declare
+   served, gated by its own approval (a login, a setting) or by having nothing of the user's to
+   approve. Of the twelve, four are ungated and one, the `hello-daemon` experiment, crosses
+   nothing and so has nothing to declare
    ([§4.3](#43-each-loopholes-access-and-its-approval)); a test holds that list closed
    ([§11](#11-tests-that-pin-it)). This is a precedent for yolo's packs, not a rule on every pack,
    exactly as BB-D104 said of the brokers.
@@ -180,7 +185,8 @@ loophole speaks it.
    setting. **A valued kind may appear only in `on_request`**: its value is the project's, so there
    is no value for `always` to carry; `yolo check` refuses `always = ["devices"]` naming
    `on_request`. Absent table, absent list: nothing is granted and nothing is requestable, and a
-   request is reported and skipped ([`config-user.md` §6](config-user.md#6-what-a-jail-may-do-with-your-logins)).
+   request is reported and skipped ([`config-user.md` §6](config-user.md#6-what-a-jail-may-do-with-your-logins)),
+   except for a kind the manifest marks requestable by default (below).
    `yolo allow <pack> [always|on_request] <kind>` writes it and offers the approval, as it does for
    git ([`config-commands.md` §4](config-commands.md#4-the-commands)).
 3. **The project's request**, `[requests.<pack>]` in the project file: `<kind> = true` for an
@@ -193,9 +199,10 @@ loophole speaks it.
    `– serial: devices /dev/ttyUSB* (not allowed on request by your config: yolo allow serial
    on_request devices)`. The human's y, or `--accept-config-changes`, or `yolo config apply`,
    records the grants in the approval record beside the config part, as broker grants are recorded
-   today ([BB-D107](boundary-broker.md#BB-D107)). An N records nothing. **Whether an `always` line
-   appears at each project's gate once, or the user's edit is the whole approval, is
-   [OQ-LG1](#OQ-LG1)**; the body below assumes the leaning, once at each gate.
+   today ([BB-D107](boundary-broker.md#BB-D107)). An N records nothing. **An `always` line appears
+   at each project's gate once**, bundled with whatever else that launch asks, and never again
+   until the ceiling changes; the user's edit alone grants no project anything
+   ([LG-D12](#LG-D12)).
 5. **The grant file.** The launch writes what the gate approved into one core-written,
    launch-stamped file per loophole, the file the `{settings}` token already names, now carrying
    settings and grants together; the daemon reads only it, never the config
@@ -206,9 +213,16 @@ by the workspace, as a broker grant is ([BB-D99](boundary-broker.md#BB-D99)), so
 project shares it across restarts. There is no per-session grant and no per-call doorbell for these
 loopholes ([§8](#8-what-this-does-not-license)).
 
-**Default ceiling: nothing.** A fresh `packs = ["journal"]` with no `[allow.journal]` runs the
-bridge in every jail and serves no line of the journal to any of them. That is the maintainer's
-*"on or off makes absolutely no difference"* made literal.
+**Default ceiling: what the manifest marks requestable, and nothing more.** A grant kind may be
+declared **requestable by default** *(coined here)*: with no `on_request` list in the user's
+`[allow.<pack>]`, that kind sits in the ceiling's `on_request` as if the user had written it. It is
+never a default `always`, and it is never a valued kind, so a project still has to ask and the
+human still answers y at the gate. A user's own `on_request` list replaces the default whole,
+so `on_request = []` withdraws it. The shipped defaults are `journal`'s `read` and, by parity,
+`macos-log`'s `read`: the owner's own journal, never `read_all` ([LG-D14](#LG-D14)). So a fresh
+`packs = ["journal"]` with no `[allow.journal]` runs the bridge in every jail and serves no line of
+the journal to any of them until a project requests `read` and the human approves it. That is the
+maintainer's *"on or off makes absolutely no difference"* made literal.
 
 ### 4.3 Each loophole's access and its approval
 
@@ -222,13 +236,13 @@ beyond the pack's name. The kind names are this design's proposal; they follow
 | `openai-auth-broker` | Use the host's shared ChatGPT login | **The login**, completed in a browser by a human even when a jail starts it. Ungated | none | Runs; serves nothing until someone logs in. Unchanged |
 | `aws-auth` | Bedrock credentials minted from the host's SSO session | **A user-scope setting**, `allow.aws-auth.profile` with a narrowing, plus the agent's provider selecting Bedrock and a live `aws sso login`. Ungated | none | Runs; refuses to mint without a profile, as today (`awsauth.Settings.Resolve`) |
 | `git-broker` | Fetch and push with the host's credentials | Existing two-layer grants | `fetch`, `push`, `new_branches`, `push_tags` | Runs; refuses every call naming the read grant. Unchanged |
-| `github-broker` | `gh` with the host's login | Existing two-layer grants | `read`, `repos`, `create_pr`, `create_issue` | Unchanged |
-| `journal` | Read the host's systemd journal | **New grant.** `read` is the launching user's own journal (`--user` forced, as today); `read_all` is the whole journal, which today's user-scope `full` setting opened | `read`, `read_all` | Runs; `yolo-journalctl` is refused naming the grant |
-| `macos-log` | Read the Mac's unified log | **New grant.** `read` is the sandbox account's entries (today's narrowing); `read_all` is every entry (today's `full`) | `read`, `read_all` | Runs; `yolo-log` is refused naming the grant |
+| `github-broker` | `gh` with the host's login | Existing two-layer grants; `repos` is the scope, not a kind | `read`, `create_pr`, `create_issue`; [`github-write-scopes.md`](github-write-scopes.md) proposes four work kinds beside them | Unchanged |
+| `journal` | Read the host's systemd journal | **New grant.** `read` is the launching user's own journal (`--user` forced, as today); `read_all` is the whole journal, which today's user-scope `full` setting opened. `read` is requestable by default ([LG-D14](#LG-D14)) | `read`, `read_all` | Runs; `yolo-journalctl` is refused naming `yolo request journal read` |
+| `macos-log` | Read the Mac's unified log | **New grant.** `read` is the sandbox account's entries (today's narrowing); `read_all` is every entry (today's `full`). `read` is requestable by default, as the journal's is | `read`, `read_all` | Runs; `yolo-log` is refused naming `yolo request macos-log read` |
 | `host-processes` | See named host processes through `yolo-ps` | **New grant**, valued: the process names, today's workspace-scope `visible`. `fields` becomes a user setting, `allow.host-processes.fields` | `view` (valued) | Runs; `yolo-ps` is refused naming the request |
 | `serial` | Open host serial devices through `yolo-serial` | **New grant**, valued: the device globs, today's `allowed_devices`. **No default list**: a project names what it needs. `default_baud` becomes a user setting | `devices` (valued) | Runs; `yolo-serial` lists nothing and is refused naming the request |
 | `audio` | The host's microphone and speakers | **New grant.** One socket, so one kind; mic and playback are not separable at this crossing | `use` | Nothing is bound or passed; the launch line and the briefing say how to ask |
-| `cgroup-delegate` | Set the jail's own cgroup limits through `yolo-cglimit` | **New grant**, or ungated: [OQ-LG2](#OQ-LG2). The body assumes the leaning, a grant | `limits` | The delegate socket is not published; `yolo-cglimit` is refused naming the grant |
+| `cgroup-delegate` | Set limits on the jail's own processes through `yolo-cglimit`: child cgroups inside the container's own cgroup, `cpu`, `memory` and `pids` only, bounded ([`security-shim.md`](../reference/security-shim.md)) | **None needed**: it can only narrow the jail, and reads and changes nothing of the host's. Ungated, and **its pack is selected by default** on every setup ([LG-D13](#LG-D13)) | none | Runs wherever the setup can run it, with no line in any config; inert elsewhere, as today |
 | `hello-daemon` | Nothing on the host: a jail-side daemon that proves a pack can ship an executable | **None needed**; its manifest declares no host crossing, so there is nothing to grant | none | Runs inside the jail on selection; `default_enabled` is simply dropped |
 
 Two consequences for today's workspace-scope settings, which is the question this table had to
@@ -246,7 +260,7 @@ apart.
 | Shape | Loopholes | The check runs | Without a grant |
 | :--- | :--- | :--- | :--- |
 | **Mediated** *(coined here)*: a host daemon answers each request | brokers, the login services, `aws-auth`, `journal`, `macos-log`, `host-processes`, `serial` | In the daemon, per request, against the grant file; as the brokers do ([BB-D108](boundary-broker.md#BB-D108)) | The daemon runs and refuses with the message in [§5](#5-every-stop-and-its-next-step); the endpoint is published so the client can print it |
-| **Unmediated** *(coined here)*: the crossing is container argv, a bind, a device or a socket the launch publishes | `audio` (two sockets, an ALSA file, `/dev/snd`), `cgroup-delegate` (the delegate's socket) | At launch, in the argv and spawn builders, before the container exists | Nothing crosses. The launch's disclosure line and the jail's briefing section carry the standing and the next step, since there is no daemon to say it |
+| **Unmediated** *(coined here)*: the crossing is container argv, a bind, a device or a socket the launch publishes | `audio` (two sockets, an ALSA file, `/dev/snd`); `cgroup-delegate`'s socket is this shape too, but ungated, so it is always published where it runs | At launch, in the argv and spawn builders, before the container exists | Nothing crosses. The launch's disclosure line and the jail's briefing section carry the standing and the next step, since there is no daemon to say it |
 
 The split is read from the manifest (a `host_daemon` or a fronted `jail_daemon` against bare binds
 and devices), never from a tool name. It also fixes where `yolo config apply` can act
@@ -390,13 +404,13 @@ difference the migration prints with the command that closes it.
 
 | Legacy line | Where | Becomes | Loses or gains? |
 | :--- | :--- | :--- | :--- |
-| `loopholes.<lp>.enabled: true` | User config | `[allow.<lp>] always = ["<default kind>"]` for an unvalued kind (`read`, `use`, `limits`); `on_request = ["<kind>"]` for a valued one | Neither, under [OQ-LG1](#OQ-LG1)'s leaning each project sees the `always` line once at its gate, which the broker read grant already does |
+| `loopholes.<lp>.enabled: true` (`cgroup-delegate`: see below) | User config | `[allow.<lp>] always = ["<default kind>"]` for an unvalued kind (`read`, `use`, `limits`); `on_request = ["<kind>"]` for a valued one | Neither: each project sees the `always` line once at its gate ([LG-D12](#LG-D12)), which the broker read grant already does |
 | `loopholes.<lp>.settings.full: true` | User config | `read_all` joins the same list | Neither |
 | `loopholes.<lp>.settings.<user setting>` | User config | `allow.<lp>.<setting>` (the rename table's existing row) | Neither |
 | `loopholes.<lp>.enabled: false` | User config | Dropped: absent means nothing granted | Neither |
-| Per-workspace switch file, `enabled: true` | Host, yolo-owned | **A grant in that workspace's approval record** for the default kind (or, for a valued kind, the value the old code resolved: the record's `visible` list; `serial`'s five globs when none was written), plus `on_request` for that kind in the user ceiling if absent. The file is deleted | Neither. The human ran `yolo loopholes enable` on the host, which was the approval |
+| Per-workspace switch file, `enabled: true` | Host, yolo-owned | **A grant in that workspace's approval record** for the default kind (or, for a valued kind, the value the old code resolved: the record's `visible` list; `serial`'s five globs when none was written), plus `on_request` for that kind in the user ceiling if absent and not requestable by default ([LG-D14](#LG-D14)). The file is deleted | Neither. The human ran `yolo loopholes enable` on the host, which was the approval |
 | Per-workspace switch file, `enabled: false` | Host, yolo-owned | The pack's per-workspace `off` in the file yolo owns for it | Neither |
-| `loopholes.<lp>.enabled: true` in an **approved** workspace snapshot | Host, the approval record | The record gains the grant as above, and the user ceiling gains `on_request` for the kind: [OQ-LG3](#OQ-LG3) | Neither, if ruled as leaned; otherwise loud, see below |
+| `loopholes.<lp>.enabled: true` in an **approved** workspace snapshot | Host, the approval record | The record gains the grant as above, and the user ceiling gains `on_request` for the kind unless it is requestable by default, printed as a hunk like every other edit ([LG-D14](#LG-D14)) | Neither |
 | `loopholes.<lp>.enabled: true` | Project file, migrated in a jail | `[requests.<lp>] <kind> = true`, or for a valued kind the value the old settings gave | Neither if the ceiling admits it; otherwise **loud**: skipped and named at every check and launch |
 | `loopholes.<lp>.settings.visible` / `allowed_devices` | Project file | `requests.host-processes.view = [...]` / `requests.serial.devices = [...]` | Neither |
 | `loopholes.<lp>.enabled: false` | Project or local file | The pack's `off` for this workspace, per L4 | Neither |
@@ -414,8 +428,11 @@ Three mechanics the equality proof needs:
   cloned after the migration) meets the normal path: its request is a request, and the first launch
   shows it skipped with the `yolo allow` line. Nothing silent happens; nothing is gained.
 
-The two broker rows the migration also declines today (`brokered` grants, "write the table by hand")
-are the same shape and should land with this, so one release migrates both.
+**`cgroup-delegate`** needs no row: any legacy `enabled` or switch for it is dropped, since its
+pack is selected by default and holds no grant ([LG-D13](#LG-D13)); `enabled: false` becomes the
+pack's `off` like any other. The user config's `brokered` table already converts to
+`[allow.<source>]` ([RC-D42](readable-config.md#RC-D42)), so this design's rows extend a migration
+that handles brokers rather than one that declines them.
 
 ## 7. Parity across backends and notches
 
@@ -454,7 +471,10 @@ of [§1](#1-the-verdict-in-four-words); [OQ-A1](../reference/loophole-system.md#
 [OQ-A3](../reference/loophole-system.md#oq-a3), [OQ-A4](../reference/loophole-system.md#oq-a4),
 [OQ-A5](../reference/loophole-system.md#oq-a5), [OQ-A13](../reference/loophole-system.md#oq-a13) and
 [OQ-LP12](../reference/loophole-system.md#oq-lp12) are superseded in the ways
-[§4.5](#45-what-goes-away) states; [`config-user.md` A.4](config-user.md#a4-what-l4-amends) gains the
+[§4.5](#45-what-goes-away) states; [OQ-A4](../reference/loophole-system.md#oq-a4) (the delegate is
+opt-in) is overruled, and [OQ-A7](../reference/loophole-system.md#oq-a7) (every shipped pack still
+needs selecting) gains its one exception, `cgroup-delegate`, by [LG-D13](#LG-D13); [`AGENTS.md`](../../AGENTS.md)'s
+"nothing is active by default" gains the same exception when it is built; [`config-user.md` A.4](config-user.md#a4-what-l4-amends) gains the
 sentence that selection grants nothing.
 
 ## 9. Alternatives considered
@@ -467,13 +487,14 @@ sentence that selection grants nothing.
 | **Run the machinery only once a grant exists** (lazy, visible) | Rejected as a user-visible rule; kept as a hidden optimization yolo may make ([§4.1](#41-one-rule-for-every-loophole)). As a rule it reintroduces "is it running?" as a question the user must answer. |
 | **A per-call doorbell for the six**, like a broker write | Deferred. No shipped loophole has a resource finer than its kind that a human would want to answer per call; git's refs are the exception and already have one. |
 | **A user ceiling on valued kinds' values** (`allow.serial.devices = ["/dev/ttyUSB*"]` bounding what a project may request) | Deferred. Two valued kinds exist; the gate shows every value, and the y is the ceiling. Add when a third valued kind or a shared-repository case asks for it. |
-| **Treat `cgroup-delegate` as ungated** because it reaches no host state | Open ([OQ-LG2](#OQ-LG2)). `hello-daemon` is not the same case: it crosses nothing at all, so no grant applies to it either way. |
+| **A grant for `cgroup-delegate`** like every other loophole, for one rule with no exception | Rejected by the owner ([LG-D13](#LG-D13)): it can only limit the jail, so a grant would approve nothing of the user's. `hello-daemon` is a different case: it crosses nothing at all. |
+| **The migration prints `yolo allow` for a ceiling line rather than writing it** | Rejected ([LG-D14](#LG-D14)): the y at that launch was the approval, and a migration the user typed prints every hunk it writes. |
 
 ## 10. Risks
 
 | Risk | Mitigation |
 | :--- | :--- |
-| **Prompt fatigue**: six more loopholes putting lines through the gate | Lines appear only where a grant or request exists; an `always` grant shows once per project ([OQ-LG1](#OQ-LG1)); inert loopholes stay out ([§7](#7-parity-across-backends-and-notches)). The broker precedent has run this way since 2026-10-24. |
+| **Prompt fatigue**: six more loopholes putting lines through the gate | Lines appear only where a grant or request exists; an `always` grant shows once per project ([LG-D12](#LG-D12)); inert loopholes stay out ([§7](#7-parity-across-backends-and-notches)). The broker precedent has run this way since 2026-10-24. |
 | **A fetched pack ships `scope: "workspace"` on a setting to regain the widening** | Refused at load once no shipped manifest uses it ([§4.3](#43-each-loopholes-access-and-its-approval)); the pack vanishes with a message rather than leaking. |
 | **The migration's equality proof cannot see per-workspace access** | The canonical form gains the standing per workspace ([§6](#6-migration)); without it the proof passes on spellings and the rule is a promise. |
 | **A daemon keeps reading `loopholes.<name>.settings` after the config moved** | The grant file is the only input, and a test runs each shipped daemon's settings load against it with the config path absent ([§11](#11-tests-that-pin-it)). The survey found no delivery of `[allow.<pack>]` settings to a daemon yet; this is the build's first gap. |
@@ -488,12 +509,14 @@ than the helper; names are proposals.
 | Decision | Test | Fails if |
 | :--- | :--- | :--- |
 | Runs on selection, grants nothing | `TestASelectedLoopholePackRunsItsServiceAndGrantsNothing`: a launch with `packs = ["journal"]` and no `allow` spawns the bridge through `startLoopholesMatching`, and a request through the daemon's handler is refused with the `requestable`-less standing text | the spawn filter or the handler's grant check goes |
-| Default ceiling is nothing; a request outside it is skipped and named | `TestARequestOutsideTheCeilingIsSkippedAndNamed`, through `yolo check`'s runner on a project file with `requests.journal.read = true` and a user config with no `allow.journal` | the ceiling check or its message goes |
+| Default ceiling is only what the manifest marks; a request outside it is skipped and named | `TestARequestOutsideTheCeilingIsSkippedAndNamed`, through `yolo check`'s runner on a project file with `requests.journal.read_all = true` and a user config with no `allow.journal` | the ceiling check or its message goes |
+| A kind requestable by default needs no ceiling line, and a user's list replaces it | `TestARequestableByDefaultKindNeedsNoCeilingLine`: `requests.journal.read = true` with no `allow.journal` reaches the gate as a line; with `allow.journal.on_request = []` it is skipped. A sibling refuses a manifest marking a valued kind requestable by default | the default stops reaching the ceiling, or cannot be withdrawn |
 | An `always` grant shows at the gate once per project | `TestAnAlwaysGrantShowsOnceAtEachProjectsGate`, through `CheckConfigAndScopeChanges`: first launch shows the line, second does not, a withdrawn ceiling shows it removed once | the gate's grant rows go |
-| Unmediated crossings only under a grant | `TestAnUnmediatedCrossingIsAddedOnlyUnderAGrant`: `RuntimeArgsFor` yields no `/dev/snd`, no socket binds without a grant and all three with one; `startCgroupDelegate` publishes no socket without one | the grant check in the argv or spawn builder goes |
+| Unmediated crossings only under a grant | `TestAnUnmediatedCrossingIsAddedOnlyUnderAGrant`: `RuntimeArgsFor` yields no `/dev/snd`, no socket binds without a grant and all three with one | the grant check in the argv builder goes |
+| The cgroup delegate is ungated and selected by default | `TestTheCgroupDelegateRunsWithAnEmptyConfig`: a launch with no `packs` key resolves `cgroup-delegate` as selected and `startCgroupDelegate` publishes its socket; with the pack's `off` it does not | the default selection or the ungated spawn goes |
 | Valued kinds are `on_request` only | `TestAValuedKindUnderAlwaysIsRefused`, through the TOML validator | the refusal goes |
 | `default_enabled` is refused | `TestDefaultEnabledIsRefusedOnEveryManifest`: feeds the key to `loopholedecl.Decode` and expects the grant-naming refusal; a sibling walks every shipped manifest and fails on the key | the decoder tolerates it |
-| Three ungated, and only three | `TestNoShippedLoopholeIsUngatedWithoutAReason`: every shipped manifest declares grants, or declares no host crossing at all (no host daemon, bind, device or intercept, as `hello-daemon`), or is one of `claude-oauth-broker`, `openai-auth-broker`, `aws-auth`, each row with its approval's name | a fourth ungated manifest ships |
+| Four ungated, and only four | `TestNoShippedLoopholeIsUngatedWithoutAReason`: every shipped manifest declares grants, or declares no host crossing at all (no host daemon, bind, device or intercept, as `hello-daemon`), or is one of `claude-oauth-broker`, `openai-auth-broker`, `aws-auth`, `cgroup-delegate`, each row with its approval's name or its reason | a fifth ungated manifest ships |
 | No `scope: "workspace"` setting | `TestAWorkspaceScopeSettingIsRefusedAtLoad` | the refusal goes |
 | The daemon reads only the grant file | `TestEachShippedDaemonReadsOnlyItsGrantFile`: each daemon's settings load runs with no config on disk and a grant file present, and refuses a request the file does not grant | a daemon re-reads config |
 | Live apply reaches a mediated daemon, not an unmediated crossing | `TestConfigApplyRewritesTheGrantFileAndSaysRestartForAudio`, through `yolo config apply`'s runner | the apply skips the file, or claims audio applied |
@@ -517,100 +540,28 @@ than the helper; names are proposals.
 5. The project-file rows of the migration, the user guide and READMEs, the amendments to
    `loophole-system.md` listed in [§8](#8-what-this-does-not-license).
 
-## 13. Open Questions
-
-1. 💬 **OQ-LG1: When you allow a loophole for every project, should each project still show you that grant once?**
-
-   Matt adds `yolo allow journal read` on his host. He opens a jail in a project that has never
-   touched the journal. Today, for git, that project's first launch prints
-   `+ git: fetch from … (from your user config, for every workspace)` and asks y/N once, then
-   never again; for the journal today there is no line at all, the switch just applies. The choice
-   is whether the journal's grant behaves like git's.
-
-   - **A — Once at each project's gate.** The first launch of every project shows
-     `+ journal: read your user journal (from your user config, for every project)` and waits for y,
-     bundled with whatever else that launch asks. Cost: one extra line, one extra y per project,
-     for each loophole you allow everywhere.
-   - **B — Your edit is the approval.** Nothing is shown; the grant applies to every project the
-     moment you save it, as the loophole switch does today. Cost: a project gets host access with
-     no line in its own record, which is what you said should not happen.
-
-   <!-- vantage: question id=OQ-LG1 leaning="A, once at each project's gate: it is what you ruled for the broker read grant six days ago, and your words today, the project shouldn't have access until it has been approved, say the same." -->
-
-   _Leaning:_ A, once at each project's gate: it is what you ruled for the broker read grant six
-   days ago, and your words today, "the project shouldn't have access until it has been approved",
-   say the same.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 **OQ-LG2: Does the cgroup delegate need a grant, when it gives the jail control of nothing but its own cgroup?**
-
-   An agent in a jail runs `yolo-cglimit --cpu 50 -- make -j`. Today, with the pack selected and the
-   loophole off, it gets a six-line message about two config lines and a restart; with it on, the
-   jail can cap its own jobs and read no host state. Under this design every other loophole needs a
-   grant; the delegate is the one whose crossing reaches nothing of yours, so it could run ungated
-   like the login services.
-
-   - **A — A grant like the rest.** `yolo allow cgroup-delegate limits` once, and every project may
-     cap its jobs; without it `yolo-cglimit` is refused naming that line. One rule for every
-     loophole yolo ships; one more line for the users who want it.
-   - **B — Ungated.** Selecting the pack is enough, as it is for the Claude login service. The
-     agent gets the capability with no line in your config beyond the pack's name, and the rule
-     "selection grants nothing" has one exception whose reason is "it grants you nothing of mine".
-
-   <!-- vantage: question id=OQ-LG2 leaning="A, a grant like the rest: one rule reads the same in every refusal and every test, and the one line it costs is the line the earlier ruling (OQ-A4) already asked for in another spelling." -->
-
-   _Leaning:_ A, a grant like the rest: one rule reads the same in every refusal and every test,
-   and the one line it costs is the line the earlier ruling already asked for in another spelling.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-3. 💬 **OQ-LG3: May the migration add lines to your user config from approvals you gave at a launch?**
-
-   Last month Matt approved a workspace whose `yolo-jail.jsonc` switched the journal on; that y is
-   recorded on his host under `approvals/`. He runs `yolo config migrate` on the host. The new
-   shape needs two things for that workspace to keep reading the journal: a grant in its record,
-   and `on_request = ["read"]` under `[allow.journal]` in his user config, which nothing in his
-   user config said before. The migration can read the record; the question is whether it may
-   write the ceiling line for him.
-
-   - **A — Yes, from the records.** The migration writes `on_request = ["read"]` and the record's
-     grant, prints both hunks, and the workspace keeps its access with no new prompt. Cost: a line
-     in your config you did not type, derived from a y you gave at a launch.
-   - **B — No; it tells you.** The migration writes the record's grant but not the ceiling, and
-     prints `yolo allow journal on_request read` for you to run; until you do, that workspace's
-     next launch reports the request skipped, at every launch. Cost: a loud loss of access until
-     one command.
-
-   <!-- vantage: question id=OQ-LG3 leaning="A, from the records: the y at that launch was your approval of exactly this access, and a migration you typed is a command, not a side effect; it prints the hunk like every other edit." -->
-
-   _Leaning:_ A, from the records: the y at that launch was your approval of exactly this access,
-   and a migration you typed is a command, not a side effect; it prints the hunk like every other
-   edit.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-## 14. Decision Ledger
+## 13. Decision Ledger
 
 Decisions taken here under rulings already made; each names the ruling it rests on. Built from the
-tree, none yet.
+tree, none yet. The owner's three rulings of 2026-10-30 are LG-D12 to LG-D14; their question ids,
+[OQ-LG1](#OQ-LG1) to [OQ-LG3](#OQ-LG3), now point at those rows.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
 | <a id="LG-D1"></a>LG-D1 | **Maintainer ruling,** 2026-10-30: selecting a pack gives no project access through its loophole; whether the machinery runs is an implementation decision hidden from the user; the project has no access until approved. Quoted in [Appendix B](#appendix-b-the-owners-words) | 2026-10-30 | [§1](#1-the-verdict-in-four-words) | — |
 | <a id="LG-D2"></a>LG-D2 | *Implementation decision.* Every loophole's machinery runs whenever its pack is selected and the setup can run it; no key, manifest or config, decides it; a lazy start is a hidden optimization and never a rule. Rests on LG-D1 and [BB-D104](boundary-broker.md#BB-D104) | 2026-10-30 | [§4.1](#41-one-rule-for-every-loophole) | — |
 | <a id="LG-D3"></a>LG-D3 | *Implementation decision.* `default_enabled` is deleted and refused at load with the grant-naming message; the pack author's remaining declaration is the grant kinds. Rests on LG-D2 and the readable-config plan's G1 | 2026-10-30 | [§4.5](#45-what-goes-away) | — |
-| <a id="LG-D4"></a>LG-D4 | *Implementation decision.* The approval is the brokers' two layers, `allow` and `requests` at the config-change gate, with the manifest declaring the kinds; a loophole declaring none is ungated, and the ungated set yolo ships is the two login services and `aws-auth`, each approved by its own login or setting, held closed by test. Rests on [BB-D105](boundary-broker.md#BB-D105) to [BB-D107](boundary-broker.md#BB-D107) and the maintainer's words on Claude and AWS | 2026-10-30 | [§4.2](#42-the-approval-in-two-layers), [§4.3](#43-each-loopholes-access-and-its-approval) | — |
+| <a id="LG-D4"></a>LG-D4 | *Implementation decision.* The approval is the brokers' two layers, `allow` and `requests` at the config-change gate, with the manifest declaring the kinds; a loophole declaring none is ungated, and the ungated set yolo ships is the two login services and `aws-auth`, each approved by its own login or setting, and `cgroup-delegate` ([LG-D13](#LG-D13)), held closed by test. Rests on [BB-D105](boundary-broker.md#BB-D105) to [BB-D107](boundary-broker.md#BB-D107) and the maintainer's words on Claude and AWS | 2026-10-30 | [§4.2](#42-the-approval-in-two-layers), [§4.3](#43-each-loopholes-access-and-its-approval) | — |
 | <a id="LG-D5"></a>LG-D5 | *Implementation decision.* A valued kind is `on_request` only; its value is approved per line at the gate; no ceiling on values in this design. Today's workspace-scope settings `visible` and `allowed_devices` become request values, `fields` and `default_baud` become user settings, `serial`'s default globs are deleted, and `scope: "workspace"` on a setting is refused at load | 2026-10-30 | [§4.3](#43-each-loopholes-access-and-its-approval) | — |
 | <a id="LG-D6"></a>LG-D6 | *Implementation decision.* A mediated loophole checks grants in its daemon per request; an unmediated one is admitted at launch only under a grant; the split is read from the manifest's shape, never a tool name | 2026-10-30 | [§4.4](#44-mediated-and-unmediated-crossings) | — |
 | <a id="LG-D7"></a>LG-D7 | *Implementation decision.* One core-written grant file per loophole per launch carries settings and each kind's standing (`granted`, `requestable`, `pending`, `not_allowed`); the daemon reads only it; `yolo config apply` rewrites it live for mediated loopholes and records a restart for unmediated ones. Rests on [BB-D32](boundary-broker.md#BB-D32), [BB-D108](boundary-broker.md#BB-D108) and the settings-file rulings | 2026-10-30 | [§4.6](#46-how-a-grant-reaches-the-machinery) | — |
 | <a id="LG-D8"></a>LG-D8 | *Implementation decision.* `yolo loopholes enable` and `disable` refuse for every loophole naming `yolo request` and `yolo allow`, `disable` removing an old switch first; the per-workspace switch file is retired by the migration; `list` and `status` show the standing. Extends [BB-D109](boundary-broker.md#BB-D109) | 2026-10-30 | [§4.5](#45-what-goes-away) | — |
 | <a id="LG-D9"></a>LG-D9 | *Implementation decision.* L4's per-workspace `off = true` survives as a pack switch: a pack off for a workspace runs no loophole machinery and holds no grant there. Its mechanism stays [`config-project.md`](config-project.md#3-the-local-file-and-turning-something-off)'s | 2026-10-30 | [§4.5](#45-what-goes-away) | — |
 | <a id="LG-D10"></a>LG-D10 | *Implementation decision.* A request for a loophole inert on this setup stays out of the gate and is reported inert; `yolo host` accepts the grants and reports them as not applying. Rests on [BB-D110](boundary-broker.md#BB-D110) and the inert report | 2026-10-30 | [§7](#7-parity-across-backends-and-notches) | — |
-| <a id="LG-D11"></a>LG-D11 | *Implementation decision.* The migration converts every legacy enable and setting as [§6](#6-migration)'s table says, its equality proof compares a standing per loophole per kind per workspace, and a record grant the project file does not state is reported by `yolo check` until written. Rests on [OQ-RC18](readable-config.md#decision-ledger); the record-to-ceiling row waits on [OQ-LG3](#OQ-LG3) | 2026-10-30 | [§6](#6-migration) | — |
+| <a id="LG-D11"></a>LG-D11 | *Implementation decision.* The migration converts every legacy enable and setting as [§6](#6-migration)'s table says, its equality proof compares a standing per loophole per kind per workspace, and a record grant the project file does not state is reported by `yolo check` until written. Rests on [OQ-RC18](readable-config.md#decision-ledger) and, for the record-to-ceiling row, [LG-D14](#LG-D14) | 2026-10-30 | [§6](#6-migration) | — |
+| <a id="LG-D12"></a><a id="OQ-LG1"></a>LG-D12 | **Owner ruling,** 2026-10-30, on [OQ-LG1](#OQ-LG1), option A: an `always` grant in the user ceiling shows once at each project's config-change gate and is recorded there; the user's edit alone grants no project anything. *"A, once at each project's gate: it is what you ruled for the broker read grant six days ago, and your words today, the project shouldn't have access until it has been approved, say the same."* | 2026-10-30 | [§4.2](#42-the-approval-in-two-layers), [§6](#6-migration) | — |
+| <a id="LG-D13"></a><a id="OQ-LG2"></a>LG-D13 | **Owner ruling,** 2026-10-30, on [OQ-LG2](#OQ-LG2): `cgroup-delegate` is ungated and its pack is selected by default, a shipped pack in the default selection rather than core code, so every loophole stays a pack's ([OQ-A10](../reference/loophole-system.md#oq-a10)). The ruling rests on the premise, checked in [`security-shim.md`](../reference/security-shim.md), that the delegate can only limit the jail: child cgroups inside the container's own, three controllers, bounded values. *"If that is true, I would even consider just making this a built-in … it should just be default-enabled. … this is basically just like making a feature possible that should be possible always."* *Implementation decisions under it:* the pack's per-workspace `off` ([LG-D9](#LG-D9)) still turns it off; a default-selected pack inert on this setup is not reported at launch, only by `yolo loopholes status`, since the user did not choose it | 2026-10-30 | [§4.3](#43-each-loopholes-access-and-its-approval), [§4.4](#44-mediated-and-unmediated-crossings) | — |
+| <a id="LG-D14"></a><a id="OQ-LG3"></a>LG-D14 | **Owner ruling,** 2026-10-30, on [OQ-LG3](#OQ-LG3): yes, the migration may write a user-ceiling `on_request` line from an approval the owner gave at a launch, printing it as a hunk; and the journal needs none, because its `read` is requestable by default. *"Yes, I think it should be able to, but for this specific case, I think we've decided elsewhere that journals should just be just default enabled as a thing that can be requested."* *Implementation decisions under it:* a manifest may mark an unvalued kind requestable by default, never `always` and never a valued kind; a user's own `on_request` list replaces the default; `macos-log`'s `read` gets the same default as the journal's by [backend parity](backend-parity.md); `read_all` is not requestable by default for either | 2026-10-30 | [§4.2](#42-the-approval-in-two-layers), [§6](#6-migration) | — |
 
 ## Appendix A: evidence
 
