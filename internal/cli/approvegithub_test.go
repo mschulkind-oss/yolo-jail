@@ -1,9 +1,12 @@
 package cli
 
 import (
+	"bytes"
+	"context"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokercore"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
@@ -106,5 +109,29 @@ func TestApproveGitHubForAndAddCLI(t *testing.T) {
 	}
 	if _, ok, _ := s.LiveWorkingKind("/fixture", "github.com/o/r", "#12", brokerstore.WorkingPR); ok {
 		t.Fatal("a revoked entry stayed live")
+	}
+}
+
+// TestApproveGitHubWithoutTheEntriesHookRefusesForAndAdd pins the fence in approveAll: a
+// GitHub store with no per-resource hook refuses --for and --add, naming Allow once, and never
+// falls through to a whole-set grant.
+func TestApproveGitHubWithoutTheEntriesHookRefusesForAndAdd(t *testing.T) {
+	s := &brokerstore.Store{Dir: t.TempDir(), Source: ghbroker.Source,
+		Revalidate: func(q brokerstore.Request) (brokerstore.Policy, error) { return q.Policy, nil }}
+	q, err := s.File(brokerstore.Request{Jail: "j", Start: "s", Workspace: "/code/app", Argv: []string{"pr", "comment", "1", "--body", "x"},
+		Repo: "o/r", StdinDigest: "stdin", Set: "read-write", Policy: brokerstore.Policy{Window: 15 * time.Minute, MaxWindow: time.Hour, Uses: 25}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for flag, args := range map[string][]string{"--for": {q.ID, "--for", "15m"}, "--add": {q.ID, "--add"}} {
+		var out, errs bytes.Buffer
+		rc := approveAll(context.Background(), args, false, []*brokerstore.Store{s}, &out, &errs)
+		want := "yolo approve: " + flag + " is not available for GitHub writes. Next: run `yolo approve " + q.ID + "` with no flags to Allow once."
+		if rc != approveExitPolicy || !strings.Contains(errs.String(), want) {
+			t.Fatalf("%v: rc %d, out %q, err %q (want %q)", args, rc, out.String(), errs.String(), want)
+		}
+	}
+	if _, grants, err := s.List(); err != nil || len(grants) != 0 {
+		t.Fatalf("a refused answer granted: %+v %v", grants, err)
 	}
 }

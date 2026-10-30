@@ -188,6 +188,9 @@ func (b *Broker) coveredWrite(ctx context.Context, req Request, jail string, d D
 
 	// 1. A user grant.
 	if kind, ok := b.userGrantCovers(t); ok {
+		if afterGrantLook != nil {
+			afterGrantLook()
+		}
 		err := brokerlock.WithTransactionContext(ctx, b.store.Dir, func() error {
 			if err := gate(); err != nil {
 				return err
@@ -243,6 +246,10 @@ func (b *Broker) coveredWrite(ctx context.Context, req Request, jail string, d D
 	}
 	return finish(err, by)
 }
+
+// afterGrantLook, nil outside tests, runs between the look at a user grant and the
+// transaction that re-checks it, where a test withdraws the grant.
+var afterGrantLook func()
 
 // captureInto is stdout, also copied into buf up to 64 KiB: enough for gh's report of a
 // creation, and a longer one is not read (createdNumber fails on it).

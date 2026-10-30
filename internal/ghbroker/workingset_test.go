@@ -24,10 +24,11 @@ import (
 // hostGHFake is a host gh that records every argv it runs and answers `pr create`, `issue create`
 // and the broker's own issues/{n} read.
 type hostGHFake struct {
-	mu     sync.Mutex
-	ran    [][]string
-	merged bool
-	create string // what `pr create` or `issue create` prints
+	mu       sync.Mutex
+	ran      [][]string
+	merged   bool
+	readExit int    // what the broker's issues/{n} read exits with
+	create   string // what `pr create` or `issue create` prints
 }
 
 func (f *hostGHFake) execute(_ context.Context, argv []string, _ []byte, out, _ func([]byte)) RunResult {
@@ -36,6 +37,9 @@ func (f *hostGHFake) execute(_ context.Context, argv []string, _ []byte, out, _ 
 	f.ran = append(f.ran, append([]string(nil), argv...))
 	switch {
 	case len(argv) >= 2 && argv[0] == "api" && strings.HasPrefix(argv[1], "repos/o/r/issues/"):
+		if f.readExit != 0 {
+			return RunResult{Exit: f.readExit}
+		}
 		n := strings.TrimPrefix(argv[1], "repos/o/r/issues/")
 		merged := "null"
 		if f.merged {
@@ -341,5 +345,63 @@ func TestCreatedNumberReadsOnlyGhsOwnReport(t *testing.T) {
 	argv, tg = canon("api", "-X", "POST", "repos/o/r/issues", "-f", "title=x", "--jq", ".")
 	if got := createdNumber(tg, argv, []byte(`{"number":8,"html_url":"https://github.com/o/r/issues/8"}`)); got != 0 {
 		t.Errorf("--jq output joined: %d", got)
+	}
+}
+
+// TestAUserGrantWithdrawnBeforeTheTransactionAsks withdraws the create-pr grant between the
+// broker's look at it and the transaction that dispatches: the re-check inside the lock finds
+// it gone and nothing runs; run again, the creation asks.
+func TestAUserGrantWithdrawnBeforeTheTransactionAsks(t *testing.T) {
+	b, gh := workingSetBroker(t)
+	grantCreatePR(t, b, true)
+	afterGrantLook = func() {
+		if err := brokerscope.ReplaceScopeContext(context.Background(), b.authority.path, b.authority.scope, b.authority.scope.Repos, readAll); err != nil {
+			t.Error(err)
+		}
+	}
+	t.Cleanup(func() { afterGrantLook = nil })
+	code, msg := serveGH(b, "pr", "create", "--title", "t", "--body", "b", "--head", "agent/x")
+	if code == 0 || gh.writes() != 0 || !strings.Contains(msg, "no longer holds") {
+		t.Fatalf("a withdrawn grant: code %d, writes %d: %s", code, gh.writes(), msg)
+	}
+	if all, _ := b.store.Working(); len(all) != 0 {
+		t.Fatalf("a creation under a withdrawn grant joined the working set: %+v", all)
+	}
+	// Run again, the creation asks.
+	if code, _ := serveGH(b, "pr", "create", "--title", "t", "--body", "b", "--head", "agent/x"); code != ExitTempFail || gh.writes() != 0 || len(pending(t, b)) != 1 {
+		t.Fatalf("the retry under a withdrawn grant: code %d, writes %d", code, gh.writes())
+	}
+}
+
+// TestAnUnreadableIssueStateAsks pins that a working-set write whose PR state the broker cannot
+// read does not run under the entry: it asks, and says why.
+func TestAnUnreadableIssueStateAsks(t *testing.T) {
+	b, gh := workingSetBroker(t)
+	if _, _, err := b.store.AddWorking(brokerstore.WorkingEntry{Workspace: b.workspace, Repo: "github.com/o/r",
+		Kind: brokerstore.WorkingPR, Resource: "#7", By: GrantCreatePR}); err != nil {
+		t.Fatal(err)
+	}
+	gh.readExit = 1
+	code, msg := serveGH(b, "pr", "comment", "7", "--body", "x")
+	if code != ExitTempFail || gh.writes() != 0 || !strings.Contains(msg, "could not read whether") {
+		t.Fatalf("an unreadable PR state: code %d, writes %d: %s", code, gh.writes(), msg)
+	}
+	if _, ok, _ := b.store.LiveWorkingKind(b.workspace, "github.com/o/r", "#7", brokerstore.WorkingPR); !ok {
+		t.Fatal("a failed read ended the entry")
+	}
+}
+
+// TestAnEncodedMergeOnAWorkingSetPRAsks drives the escaped and re-cased merge paths through the
+// broker against a working-set PR: each asks, and nothing runs.
+func TestAnEncodedMergeOnAWorkingSetPRAsks(t *testing.T) {
+	b, gh := workingSetBroker(t)
+	if _, _, err := b.store.AddWorking(brokerstore.WorkingEntry{Workspace: b.workspace, Repo: "github.com/o/r",
+		Kind: brokerstore.WorkingPR, Resource: "#5", By: GrantCreatePR}); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"repos/o/r/pulls/5/%6Derge", "repos/o/r/pulls/5/MERGE", "repos/o/r/pulls/5/%75pdate-branch"} {
+		if code, msg := serveGH(b, "api", "-X", "PUT", path); code != ExitTempFail || gh.writes() != 0 {
+			t.Fatalf("%s on a working-set PR: code %d, writes %d: %s", path, code, gh.writes(), msg)
+		}
 	}
 }
