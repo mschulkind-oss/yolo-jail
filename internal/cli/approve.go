@@ -18,7 +18,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/brokeraudit"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerstore"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
@@ -39,8 +38,14 @@ request once, grant its requested set for a bounded duration, deny it, or
 revoke a grant or a working-set entry. Without --for, Allow once covers that
 exact command for one use, for at most 15 minutes and never beyond its set's
 ceiling. --for hands over the whole requested set, within its policy ceiling
-and use cap; session is 12 hours. GitHub write requests accept Allow once
-only; --for and --add are refused for them. A git push request lists
+and use cap; session is 12 hours. For a GitHub write, --for <duration> (at
+most 12h) allows that kind of write on its resource (the PR, the issue, PR or
+issue creation, or the repository's other writes) for that long, and --add adds
+the PR or issue it writes to the workspace's working set, where later writes to
+it run unasked until the PR is merged or the entry revoked; a merge, a
+creation and a repository-level write refuse --add, naming --for. A PR or issue
+the agent creates under a create-pr or create-issue grant, a --for or an Allow
+once joins the working set the same way. A git push request lists
 each ref it would change, old id -> new id, marked "needs approval" where no
 grant or working-set entry covered it, then each push option it sends; Allow
 once covers that exact push, every ref and option of it, once, and a new branch
@@ -63,7 +68,11 @@ one the agent created through the broker under a create-branch grant or an
 Allow once (by the grant's g-<id>), until
 the branch is deleted or the entry revoked (a w-<id> entry), and each one a
 branch grant declares in the project's config (a c-<id> line, marked "from
-config", listed while a jail of that project runs). --revoke w-<id> ends one
+config", listed while a jail of that project runs). A workspace's GitHub
+working set is the PRs and issues its github-broker writes unasked (w-<id>
+entries, by create-pr, create-issue, a grant's g-<id>, a timed grant's w-<id>,
+or human for --add), until the PR is merged or the entry revoked; a GitHub
+--for is a w-<id> entry too, listed with its expiry. --revoke w-<id> ends one
 entry; --revoke c-<id> refuses with exit 5 and names the config file to remove
 the grant from (exit 4 when no running jail declares it). --revoke all ends
 every live grant; --revoke all --workspace <path> ends that workspace's grants
@@ -137,7 +146,7 @@ func runApprove(args []string) int {
 	// broker's push requests, grants and working set, each decided against its live host
 	// authority and audited.
 	stores := []*brokerstore.Store{
-		{Dir: paths.BrokerSourceDir(ghbroker.Source), Source: ghbroker.Source, Revalidate: ghbroker.ApprovalAuthority, Audit: ghbroker.StoreAudit(brokeraudit.Open(paths.BrokerAuditLog(), nil))},
+		ghbroker.ApprovalStore(),
 		gitbroker.ApprovalStore(),
 	}
 	return approveAll(ctx, args[1:], config.InJail(), stores, os.Stdout, os.Stderr)
@@ -276,7 +285,7 @@ func approveAll(ctx context.Context, args []string, inJail bool, stores []*broke
 		if err != nil {
 			return approveFailure(err, errs)
 		}
-		if what, onceOnly := allowOnceOnly[source]; found && onceOnly {
+		if what, onceOnly := allowOnceOnly[source]; found && onceOnly && perRefStore(stores, source) == nil {
 			flag := "--for"
 			if addSeen {
 				flag = "--add"
@@ -349,14 +358,16 @@ func approveAll(ctx context.Context, args []string, inJail bool, stores []*broke
 	if empty {
 		fmt.Fprintln(out, "No requests, grants or working-set entries. A windowed GitHub write, or a git push no grant or working-set entry covers, can file a pending Allow-once request; decide it with `yolo approve <id>`. Run `yolo approve --help` for the host store commands.")
 	} else {
-		fmt.Fprintln(out, "Decide pending requests with `yolo approve <id>` (a GitHub write is Allow once; a git push takes `--for <duration>` to allow its refs for that long, `--add` to add its branches to the working set, or `--remember` to allow it and remember its refs in the project's config; `--for <duration>` grants a whole set only where supported), or `--deny`; revoke with `yolo approve --revoke <grant|w-entry|c-entry|all> [--workspace <path>]` (a c- entry is a working-set branch declared in config and is removed there).")
+		fmt.Fprintln(out, "Decide pending requests with `yolo approve <id>` (a GitHub write takes `--for <duration>` for its resource or `--add` for its PR or issue; a git push takes `--for <duration>` to allow its refs for that long, `--add` to add its branches to the working set, or `--remember` to allow it and remember its refs in the project's config; `--for <duration>` grants a whole set only where supported), or `--deny`; revoke with `yolo approve --revoke <grant|w-entry|c-entry|all> [--workspace <path>]` (a c- entry is a working-set branch declared in config and is removed there).")
 	}
 	return 0
 }
 
-// allowOnceOnly is each source whose requests take Allow once and Deny alone, with how the
-// refusal of --for and --add names its requests (BB-D77). A git push is not one: it also takes
-// Allow push for a time and Add to the working set (GB-D26), through its store's Entries.
+// allowOnceOnly is each source whose requests take Allow once and Deny alone unless its store
+// answers per resource (an Entries hook), with how the refusal of --for and --add names its
+// requests (BB-D77). A GitHub write takes Allow for a time and Add on its resource (BB-D79,
+// BB-D92) through ghbroker.ApprovalStore's Entries; a GitHub store without that hook never
+// falls through to a whole-set grant. A git push is not here: it takes per-ref answers (GB-D26).
 var allowOnceOnly = map[string]string{ghbroker.Source: "GitHub writes"}
 
 // perRefStore is the store of source whose requests take the per-resource answers, or nil.
@@ -373,6 +384,9 @@ func perRefStore(stores []*brokerstore.Store, source string) *brokerstore.Store 
 // or `--add` (Add them to the working set): working-set entries per ref, in place of a command
 // grant (GB-D26).
 func approvePerRef(stores []*brokerstore.Store, source, id string, d brokerstore.Decision, add bool, out, errs io.Writer) int {
+	if source == ghbroker.Source {
+		return approveGitHubPerResource(perRefStore(stores, source), id, d, add, out, errs)
+	}
 	if d.Session {
 		fmt.Fprintf(errs, "yolo approve: --for session is not available for git pushes, which allow a duration of at most 24h. Next: run `yolo approve %s --for 15m`.\n", termsafe.Visible(id))
 		return approveExitPolicy

@@ -601,10 +601,11 @@
     can be answered manually with `yolo approve` on the host.  When configured,
     the hook runs the CLI itself, so its buttons get the same checks, refusals and audit.
     Example (~/.config/yolo-jail/config.jsonc), a desktop notification with
-    Allow once and Deny buttons (GitHub writes accept Allow once only):
+    Allow once and Deny buttons:
       "on_request": "a=$(notify-send -A once=\"Allow once\" -A deny=Deny \"$YOLO_REQUEST_SUMMARY\"); case \"$a\" in once) yolo approve \"$YOLO_REQUEST_ID\";; deny) yolo approve \"$YOLO_REQUEST_ID\" --deny;; esac"
-    Allow once is `yolo approve <id>`: the exact command, once.  `--for` and
-    `--add` are refused for GitHub writes.  The same lines can live in a script
+    Allow once is `yolo approve <id>`: the exact command, once.  A GitHub write
+    also takes `--for <duration>` on its resource and `--add` for its PR or
+    issue (see `yolo approve --help`).  The same lines can live in a script
     the key names instead.  `"$YOLO_BIN" approve` works wherever plain yolo approve does.
     • A run may take as long as its request waits, one hour, so a notification
       left on screen can still be answered; several requests run several

@@ -136,9 +136,11 @@ revoke it. `yolo approve <request> --for <duration>` sets how long; `--for sessi
 whatever restarts in between. Removing a repository from the project's approved scope ends what
 an approval on that repository covers.
 
-GitHub writes use only Allow once: the exact command, resolved repository and stdin digest, one
-use within 15 minutes. `--for` and `--add` are refused for GitHub requests, and a legacy set-wide
-grant does not authorize a write. A configured `on_request` hook may notify or run the host CLI,
+A GitHub Allow once is the exact command, resolved repository and stdin digest, one use within
+15 minutes. `--add` adds the PR or issue a GitHub write targets to the project's working set, and
+`--for <duration>` (at most 12h; not `session`) allows that kind of write on its resource for that
+long; a merge refuses `--add`, and a write naming no PR or issue number takes Allow once only. A
+legacy set-wide grant does not authorize a write. A configured `on_request` hook may notify or run the host CLI,
 but is optional and its output alone is never consent. Without a hook, the broker log and host
 `yolo approve` command remain available for manual decisions.
 

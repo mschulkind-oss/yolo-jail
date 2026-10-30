@@ -18,7 +18,7 @@ import (
 // TestApproveGitForAndAddCLI drives `yolo approve <id> --for <duration>` and `--add` over the
 // git store (GB-D26): each records working-set entries on the refs that needed approval and no
 // command grant, lists them (a timed one with its expiry), and refuses what cannot apply with
-// the answer that does. GitHub keeps refusing both.
+// the answer that does. GitHub's per-resource answers are TestApproveGitHubForAndAddCLI's.
 func TestApproveGitForAndAddCLI(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("YOLO_VERSION", "")

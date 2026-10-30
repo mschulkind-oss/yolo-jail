@@ -179,7 +179,8 @@ the entry to put in each project's `yolo-jail.local.jsonc` instead.
 | The agent runs | What happens |
 |---|---|
 | `gh pr view 32`, `gh issue list`, `gh run view --log`, `gh workflow list`, `gh repo view`, `gh release list`, `gh api repos/OWNER/REPO/...` and other reads | It runs with your login, and the output comes back as if it ran in the jail |
-| `gh pr comment`, `gh issue edit`, `gh pr merge`, `gh api -X POST ...` and other in-scope writes | A request is filed and the broker waits briefly for host approval. Run `yolo approve <id>` on the host to allow that exact command once, or `yolo approve <id> --deny`; without a decision the command does not run and the agent can retry after approval |
+| `gh pr create` or `gh issue create` under a `create-pr` or `create-issue` grant, and `gh pr comment 32`, `gh pr edit 32`, `gh pr review 32`, `gh issue close 32` and other writes to a PR or issue in the project's working set | It runs without asking. What the agent creates joins the working set, and a PR leaves it when it is merged. See [the working set](#the-working-set) |
+| `gh pr merge`, and other in-scope writes nothing above covers | A request is filed and the broker waits briefly for host approval. Run `yolo approve <id>` on the host to allow that exact command once, or `yolo approve <id> --deny`; without a decision the command does not run and the agent can retry after approval |
 | `gh auth status` | Says which of your GitHub accounts the broker uses and which repositories the jail can reach. It never shows the token or its scopes |
 | `gh auth token`, `--web`, `gh api` to a full URL, a command that would read or write a file on your machine | Never runs, whatever else is allowed. It exits with code 64 and says why |
 | A repository outside this project, or a command across your whole account, such as a search with no `--repo` | Never runs. It exits with code 64 and names the repositories it can reach, and, for a repository, [where to add it](#adding-a-repository-the-project-has-no-remote-for) |
@@ -190,8 +191,30 @@ text on standard input, pass `-`, as in `--body-file -`.
 
 `yolo approve` is the host answer path, with or without a configured notification hook. Each GitHub
 Allow once binds the canonical argv, resolved repository and stdin digest; it is one use and expires
-after 15 minutes. Set-wide `--for` and working-set `--add` are refused for GitHub writes. A legacy
-set-wide grant is not spent for a GitHub write. If the host config makes `read-write` standing, the
+after 15 minutes. `yolo approve <id> --add` instead adds the PR or issue the write targets to the
+project's working set, and `yolo approve <id> --for 15m` allows that kind of write on it (or, for
+a creation or a repository-level write, in its repository) for that long, at most 12 hours; a
+merge takes Allow once or `--for`, never `--add`. A write that names a PR by branch rather than
+number takes Allow once only. A legacy set-wide grant is not spent for a GitHub write.
+
+### The working set
+
+The working set is the PRs and issues the agent may write to without asking. One joins when the
+agent creates it under a grant or an approval, or when you run `yolo approve <id> --add` on a
+request that writes to it. A PR leaves when it is merged (the broker checks before each write) or
+when you revoke its entry. To let the agent open PRs without asking in one project, allow the
+kind on request in your user config and request it in the project:
+
+```sh
+yolo allow github on_request create_pr   # on the host: your ceiling
+yolo request github create_pr            # in the project (or the jail)
+yolo config apply                        # on the host, in the project: approve the grant
+```
+
+`yolo allow github always create_pr` gives every project the grant instead, with no request.
+
+`yolo approve` lists each project's working set as `w-<id>` entries; `yolo approve --revoke
+w-<id>` ends one. A merge always asks. If the host config makes `read-write` standing, the
 broker refuses writes and tells you to remove that entry; ordinary standing reads continue to work.
 
 For output formatting, `--jq` and `--template` work as they do in `gh`, and so does piping
