@@ -173,8 +173,16 @@ func (p *githubApprovalBroker) restart(t *testing.T) {
 		t.Fatal(err)
 	}
 	go func() { _ = cmd.Wait(); close(p.done) }()
-	waitGitHubApproval(t, "the restarted production broker front", 5*time.Second, func() bool {
-		return svcendpoint.Probe(p.endpoint)
+	// The front is this process's and never stopped, so its probe passes at once; what has to be
+	// up is the restarted daemon behind it, which says so in its second "listening on" line.
+	var socket string
+	for i, arg := range old.Args {
+		if arg == "--socket" && i+1 < len(old.Args) {
+			socket = old.Args[i+1]
+		}
+	}
+	waitGitHubApproval(t, "the restarted production broker socket", 10*time.Second, func() bool {
+		return strings.Count(p.logs.String(), "listening on "+socket+" (") >= 2
 	})
 }
 
