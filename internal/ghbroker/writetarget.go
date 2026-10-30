@@ -3,6 +3,7 @@ package ghbroker
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"regexp"
 	"slices"
 	"strconv"
@@ -76,6 +77,10 @@ func targetOf(argv []string, repos []string) writeTarget {
 		if t.Number == 0 {
 			t.Kind = targetUnresolved
 		}
+	case (path == "pr edit" || path == "issue edit") && (p.has("add-project") || p.has("remove-project")):
+		// A project is the owner's or the organization's, outside the PR or issue: the edit
+		// asks, as a repository-level write.
+		return t
 	case slices.Contains(prWrites, path):
 		// Closing with --delete-branch also deletes the PR's head branch, a write on a branch
 		// the PR's working-set entry does not cover: it asks, as a repository-level write.
@@ -146,7 +151,15 @@ func apiTarget(p *parsed, t writeTarget) writeTarget {
 	if m == nil || !strings.EqualFold(m[1]+"/"+m[2], t.Repo) {
 		return t
 	}
+	// The target is read from the path as GitHub reads it, but only a path written plainly
+	// names one: a sub-resource spelled with an escape (`%6Derge`) or in another case
+	// (`MERGE`) is not on the lists below, so it asks as a repository-level write.
 	rest := strings.Split(strings.Trim(m[3], "/"), "/")
+	for _, seg := range rest {
+		if d, err := url.PathUnescape(seg); err != nil || d != seg {
+			return t
+		}
+	}
 	method := "GET"
 	if vals := p.values("method"); len(vals) > 0 {
 		method = strings.ToUpper(vals[len(vals)-1])
@@ -155,23 +168,87 @@ func apiTarget(p *parsed, t writeTarget) writeTarget {
 	}
 	switch {
 	case len(rest) == 1 && rest[0] == "pulls" && method == "POST":
+		// POST pulls with an `issue` field turns an existing issue into a PR, and a body read
+		// from --input could carry one unseen: both ask, as repository-level writes.
+		if p.has("input") || namesField(p, "issue") {
+			return t
+		}
 		t.Kind = targetCreatePR
 	case len(rest) == 1 && rest[0] == "issues" && method == "POST":
 		t.Kind = targetCreateIssue
 	case len(rest) >= 2 && rest[0] == "pulls" && issueNumber(rest[1]) > 0:
+		n, sub := issueNumber(rest[1]), rest[2:]
 		switch {
-		case len(rest) == 3 && rest[2] == "merge" && method == "PUT":
-			t.Kind, t.Number = targetMerge, issueNumber(rest[1])
-		case len(rest) >= 3 && (rest[2] == "merge" || rest[2] == "update-branch"):
-			// update-branch writes the PR's head branch; any other method on merge is not
-			// one the table names. Both ask, as repository-level writes.
-		default:
-			t.Kind, t.Number = targetPR, issueNumber(rest[1])
+		case len(sub) == 1 && sub[0] == "merge" && method == "PUT":
+			t.Kind, t.Number = targetMerge, n
+		case prSubResource(sub):
+			t.Kind, t.Number = targetPR, n
 		}
 	case len(rest) >= 2 && rest[0] == "issues" && issueNumber(rest[1]) > 0:
-		t.Kind, t.Number = targetIssueOrPR, issueNumber(rest[1])
+		if issueSubResource(rest[2:]) {
+			t.Kind, t.Number = targetIssueOrPR, issueNumber(rest[1])
+		}
 	}
 	return t
+}
+
+// prSubResource reports whether sub, the path under pulls/{n}, is one a PR's working-set
+// entry covers: the PR itself, its review comments, its reviews and one review's events, and
+// its requested reviewers. Anything else (merge with another method, update-branch, a
+// dismissal) asks, as a repository-level write.
+func prSubResource(sub []string) bool {
+	switch len(sub) {
+	case 0:
+		return true
+	case 1:
+		return sub[0] == "comments" || sub[0] == "reviews" || sub[0] == "requested_reviewers"
+	case 2:
+		return sub[0] == "reviews" && reviewID(sub[1])
+	case 3:
+		return sub[0] == "reviews" && reviewID(sub[1]) && sub[2] == "events"
+	}
+	return false
+}
+
+// issueSubResource reports whether sub, the path under issues/{n}, is one an issue's (or a
+// PR's) working-set entry covers: the issue itself, its comments and its assignees. Labels
+// (which can create a repository label), sub-issues (which move another issue), locks and the
+// rest ask, as repository-level writes.
+func issueSubResource(sub []string) bool {
+	switch len(sub) {
+	case 0:
+		return true
+	case 1:
+		return sub[0] == "comments" || sub[0] == "assignees"
+	}
+	return false
+}
+
+// reviewID reports whether s is a review id written plainly.
+func reviewID(s string) bool {
+	if s == "" || len(s) > 19 || s[0] == '0' {
+		return false
+	}
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// namesField reports whether any -f/-F field of a `gh api` call sets key, alone or as the
+// root of a nested key (`key[]`, `key[x]`), in any case.
+func namesField(p *parsed, key string) bool {
+	for _, long := range []string{"field", "raw-field"} {
+		for _, v := range p.values(long) {
+			k, _, _ := strings.Cut(v, "=")
+			if root, _, _ := strings.Cut(k, "["); strings.EqualFold(root, key) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // storeRepo is the target repository as the working set records it: the grant identity

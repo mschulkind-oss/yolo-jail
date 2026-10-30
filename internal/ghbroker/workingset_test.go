@@ -268,6 +268,28 @@ func TestTargetOfNamesKindAndResource(t *testing.T) {
 		{[]string{"api", "-X", "PUT", "repos/o/r/pulls/5/merge"}, targetMerge, 5},
 		{[]string{"api", "-X", "POST", "repos/o/r/pulls", "-f", "title=x"}, targetCreatePR, 0},
 		{[]string{"api", "-X", "POST", "repos/o/r/labels", "-f", "name=x"}, targetRepo, 0},
+		// A sub-resource spelled with an escape or in another case is not one the lists name.
+		{[]string{"api", "-X", "PUT", "repos/o/r/pulls/5/%6Derge"}, targetRepo, 0},
+		{[]string{"api", "-X", "PUT", "repos/o/r/pulls/5/MERGE"}, targetRepo, 0},
+		{[]string{"api", "-X", "PUT", "repos/o/r/pulls/5/%75pdate-branch"}, targetRepo, 0},
+		{[]string{"api", "-X", "PATCH", "repos/o/r/%70ulls/5"}, targetRepo, 0},
+		{[]string{"api", "-X", "PUT", "repos/o/r/pulls/5/update-branch"}, targetRepo, 0},
+		{[]string{"api", "-X", "POST", "repos/o/r/pulls/5/merge"}, targetRepo, 0},
+		{[]string{"api", "-X", "PUT", "repos/o/r/pulls/5/reviews/77/dismissals", "-f", "message=x"}, targetRepo, 0},
+		{[]string{"api", "-X", "POST", "repos/o/r/pulls/5/reviews/77/events", "-f", "event=COMMENT"}, targetPR, 5},
+		{[]string{"api", "-X", "POST", "repos/o/r/pulls/5/requested_reviewers", "-f", "reviewers[]=x"}, targetPR, 5},
+		// Converting an existing issue into a PR, or a body the broker cannot read, asks.
+		{[]string{"api", "-X", "POST", "repos/o/r/pulls", "-F", "issue=9", "-f", "head=x", "-f", "base=main"}, targetRepo, 0},
+		{[]string{"api", "-X", "POST", "repos/o/r/pulls", "-f", "Issue=9"}, targetRepo, 0},
+		{[]string{"api", "-X", "POST", "repos/o/r/pulls", "--raw-field", "issue[x]=9"}, targetRepo, 0},
+		{[]string{"api", "-X", "POST", "repos/o/r/pulls", "--input", "-"}, targetRepo, 0},
+		// Writes reaching outside the PR or issue ask.
+		{[]string{"api", "-X", "POST", "repos/o/r/issues/5/labels", "-f", "labels[]=new"}, targetRepo, 0},
+		{[]string{"api", "-X", "POST", "repos/o/r/issues/5/sub_issues", "-F", "sub_issue_id=1"}, targetRepo, 0},
+		{[]string{"api", "-X", "POST", "repos/o/r/issues/5/assignees", "-f", "assignees[]=x"}, targetIssueOrPR, 5},
+		{[]string{"pr", "edit", "5", "--add-project", "Roadmap"}, targetRepo, 0},
+		{[]string{"issue", "edit", "5", "--remove-project", "Roadmap"}, targetRepo, 0},
+		{[]string{"issue", "edit", "5", "--title", "x"}, targetIssue, 5},
 	} {
 		d, _, err := a.Classify(c.argv, "o/r")
 		if err != nil {
