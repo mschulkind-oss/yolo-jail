@@ -42,6 +42,12 @@ func runRequest(args []string) int {
 }
 
 func requestRunW(args []string, out, errw io.Writer) int {
+	return requestRunIn("", args, out, errw)
+}
+
+// requestRunIn is the verb against a named workspace; "" is the one the verb resolves from where
+// it runs. `yolo approve --remember` names the request's own workspace.
+func requestRunIn(workspace string, args []string, out, errw io.Writer) int {
 	dryRun := false
 	var positionals []string
 	for _, a := range args {
@@ -121,7 +127,9 @@ func requestRunW(args []string, out, errw io.Writer) int {
 		verb, value = "set", "true"
 	}
 
-	workspace := configEditWorkspace()
+	if workspace == "" {
+		workspace = configEditWorkspace()
+	}
 	project := config.EditTargetChoice{Kind: config.EditTargetProject}
 	if verb == "add" {
 		rc = namedVerbEditUnless(requestConvertFirst, workspace, key, configedit.Append, value, project, dryRun, !dryRun, out, errw)

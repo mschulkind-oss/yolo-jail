@@ -453,6 +453,29 @@ func TestAWorkspaceEntryIsApprovedAtTheGateAndReachesTheBroker(t *testing.T) {
 	}
 }
 
+// A TOML workspace's scope file names its TOML files: the broker's advice points at the file the
+// workspace actually has, never the legacy name it does not.
+func TestATOMLWorkspaceScopeFileNamesTheTOMLFiles(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("the fixture daemon is /bin/cp")
+	}
+	o, buf, marker := brokeredFixture(t)
+	if err := os.WriteFile(filepath.Join(o.Workspace, paths.WorkspaceConfigTOMLName),
+		[]byte("[install]\nnix = []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	o.AcceptConfigChanges = true
+	if !o.checkConfigChanges(gbOn(), "podman") {
+		t.Fatalf("an accepted gate refused:\n%s", buf.String())
+	}
+	handles := o.startLoopholes("yolo-brokered-toml", "podman", gbOn())
+	t.Cleanup(func() { o.stopLoopholes(handles, hostServiceSocketsDir("yolo-brokered-toml", false), "", "") })
+	f := readHandedScope(t, marker, buf)
+	if f.ConfigFile != paths.WorkspaceConfigTOMLName || f.LocalFile != paths.WorkspaceLocalConfigTOMLName {
+		t.Fatalf("scope file names %q and %q, want the TOML files", f.ConfigFile, f.LocalFile)
+	}
+}
+
 // A workspace lists every repository it can reach with a whole-segment wildcard (WW-D31): the
 // gate shows what the wildcard admits rather than leaving the human to read the token as one
 // repository's name, the scope file carries the token, and the launch line says what it admits.

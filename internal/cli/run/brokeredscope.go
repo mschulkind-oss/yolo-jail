@@ -101,8 +101,12 @@ func (o *Options) writeScopeFiles(cname string, brokered []*loopholes.Loophole) 
 	out := o.pr(o.Stderr)
 	// The names of the two workspace config files the loader reads, for the broker's
 	// out-of-scope refusal to name exactly (WW-D23). A name, never a path, and no config read.
-	_, configName := config.ResolveWorkspaceConfigPath(o.Workspace, config.WorkspaceConfigName)
-	_, localName := config.ResolveWorkspaceConfigPath(o.Workspace, config.WorkspaceLocalConfigName)
+	_, configName := config.ResolveReadableWorkspaceConfigPath(o.Workspace, config.WorkspaceConfigName)
+	localPath, localName := config.ResolveReadableWorkspaceConfigPath(o.Workspace, config.WorkspaceLocalConfigName)
+	// A local file not written yet takes the format the workspace's config is in.
+	if _, err := os.Lstat(localPath); err != nil && !strings.HasSuffix(configName, ".toml") {
+		localName = config.WorkspaceLocalConfigName
+	}
 	for _, lp := range brokered {
 		brokerscope.Sweep(lp.Brokered.Source)
 		// The user-scope permission sets this source runs under are disclosed here (BB-D23): a

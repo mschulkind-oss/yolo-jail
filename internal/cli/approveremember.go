@@ -3,7 +3,7 @@ package cli
 // approveremember.go is `yolo approve <id> --remember`: Allow once a pending git push and
 // remember each ref it needed approval for in the project's config, as the request that
 // `yolo request git push <branch>` (or `push_tags <tag>`) writes, through that verb's own code
-// path (requestRunW), so its ceiling report, post-write check and named host step are the
+// path (requestRunIn), so its ceiling report, post-write check and named host step are the
 // same. It also holds the next step that names how a grant declared in a project's config is
 // removed, which `--revoke` prints for a grant the store never held.
 
@@ -143,22 +143,13 @@ func legacyWorkspaceConfig(workspace string) (string, bool) {
 	return path, true
 }
 
-// requestInWorkspace runs the request verb, `yolo request <args>`, for workspace: the verb
-// resolves its workspace from the cwd, as it does when a person runs it there, so the cwd is
-// that workspace for the call and restored after it.
+// requestInWorkspace runs the request verb, `yolo request <args>`, for workspace, through the
+// verb's own path (requestRunIn), so the ceiling report, post-write check and host step match.
 func requestInWorkspace(workspace string, args []string, out, errs io.Writer) (int, error) {
 	if workspace == "" || !filepath.IsAbs(workspace) {
 		return 0, errors.New("the request records no absolute workspace path")
 	}
-	prev, err := os.Getwd()
-	if err != nil {
-		return 0, err
-	}
-	if err := os.Chdir(workspace); err != nil {
-		return 0, err
-	}
-	defer func() { _ = os.Chdir(prev) }()
-	return requestRunW(args, out, errs), nil
+	return requestRunIn(workspace, args, out, errs), nil
 }
 
 // configGrantRemoval is the next step that takes a grant declared in a project's config out of
