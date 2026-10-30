@@ -18,6 +18,15 @@ day ([§5.1](#51-what-agy-reads-and-what-nobody-has-measured)) and is **unmeasur
 leaning in this document is the design author's (Fable, the model that wrote it), not the
 maintainer's; the maintainer's words are quoted where they ruled.
 
+**Updated 2026-10-30:** re-read against `a078c5999` for the ruling round, leanings unchanged and
+no question decided. The macos-user rows now separate account mode from the run-as-you `self`
+mode and the [ruled per-workspace `HOME`](macos-user-model.md#7-the-ruled-model-two-modes-one-profile),
+which bounds [OQ-FS3](#OQ-FS3) to [OQ-FS5](#OQ-FS5); the layout is the first step that writes,
+not the first step ([OQ-FS4](#OQ-FS4)); manifests are TOML and a `home/` folder is path-addressed
+`files` too ([OQ-FS2](#OQ-FS2)); [OQ-FS3](#OQ-FS3) names its sibling [OQ-HT5](../reference/macos-user-home-tiers.md#oq-ht5);
+[OQ-FS6](#OQ-FS6) names the per-workspace `off` switch; and [§10](#10-the-messages)'s "today's refusal" is
+quoted as the code prints it.
+
 > **In short.** A `files` contribution that names a path inside a folder another pack declares as
 > `[[state]]` is addressing an agent by a path it does not own, and every defect in the
 > 2026-10-30 lab report follows from that one shape. yolo already has the right spelling —
@@ -92,6 +101,16 @@ Four principles carry the design; later sections cite them by number.
 | `{kind: files, from: <tree>, into: <path>}` | path-addressed content | `~/<path>`, `:ro` in a jail, written at the host | the pack is selected |
 | `{kind: files, agent: <bin>, into: <dir>}` | a **slot**: where content addressed to that agent lands; ships nothing | — | — |
 | `{kind: files, from: <tree>, agents: [<bin>]}` | agent-addressed content | `<slot>/<contributing pack>` (`packload.SlotLanding`, [`mergedest.go`](../../internal/packload/mergedest.go)) | the agent's pack is selected **and** declares a slot |
+| a file under the pack's `home/` folder | path-addressed content, one `files` entry per file (`discoverHomeFiles`, [`conventions.go`](../../internal/packload/conventions.go)) | `~/<path under home/>` | the pack is selected |
+
+The rows use the abstract shape. A manifest spells them as a `[[files]]` table in `pack.toml`,
+with a legacy `pack.json` still read for a few releases
+([`pack-manifests.md`](pack-manifests.md)). The `home/` row is convention C6, ruled with
+[OQ-RC19](readable-config.md#decision-ledger) and built
+([`pack-manifests.md` §3](pack-manifests.md#3-no-manifest-at-all)): it lowers to the first row,
+so everything below about a path-addressed destination holds for it. A folder spelling for the
+*addressed* row is [`pack-conventions.md`](pack-conventions.md)'s C2, still open as
+[OQ-PC1](pack-conventions.md#OQ-PC1).
 
 Both notches resolve addressed content through one function, `packload.ResolveDestinations`:
 the jail's mount planner (`packFilesTargets`, [`packfiles.go`](../../internal/cli/run/packfiles.go)),
@@ -118,16 +137,29 @@ selection ([`seal.go`](../../internal/cli/run/seal.go)).
 | :--- | :--- | :--- |
 | podman | `:ro` bind over the staged tree; a mountpoint is made in the per-launch home skeleton, or in the workspace state dir when the path is below a selected pack's state dir (`preparePackFiles`, [`packfiles.go`](../../internal/cli/run/packfiles.go)) | a root-owned directory in the skeleton, rebuilt every launch — this jail's `/home/agent/.gemini` is one |
 | Apple Container | the same bind; the whole home is the writable workspace state dir | an ordinary directory in the per-workspace home |
-| macos-user | the host composes a home overlay and the bootstrap's last generator installs it, creating missing parents beneath the account home or the workspace sidecar (`openOverlayParentIn`, [`darwinoverlay.go`](../../internal/entrypoint/darwinoverlay.go)) | **a real top-level directory in the account home every workspace shares** |
+| macos-user, account mode (today's default) | the host composes a home overlay and the bootstrap's `install_home_overlay` step installs it, creating missing parents beneath the account home or the workspace sidecar (`openOverlayParentIn`, [`darwinoverlay.go`](../../internal/entrypoint/darwinoverlay.go)) | **a real top-level directory in the account home every workspace shares** |
+| macos-user, `macos_user_mode = "self"` (built, opt-in) | the same overlay; `HOME` is `<workspace>/.yolo/home` itself ([MMP-D5](macos-user-model-plan.md#MMP-D5), `DeriveDarwinWorkspaceHome` in [`darwinhomelayout.go`](../../internal/entrypoint/darwinhomelayout.go)) | an ordinary directory in this workspace's own home, as on Apple Container |
 | `yolo host apply` | per-file write into the user's real home, refusing a path the user owns ([`hostfilestree.go`](../../internal/entrypoint/hostfilestree.go)) | a directory in the user's own home, which is what the agent reads there |
 
-Only one row makes a persistent, shared, wrong-tier directory. That row is the lab report.
+Only one row makes a persistent, shared, wrong-tier directory. That row is the lab report, and it
+is the row the ruled macos-user model retires. *"Shared by both modes: a per-launch `HOME` under
+the workspace's `.yolo/home`"* ([macos-user-model.md §7](macos-user-model.md#7-the-ruled-model-two-modes-one-profile));
+its plan flips the default to `self` at slice 11, moves account mode onto the per-workspace
+`HOME` at slice 12, and deletes the shared-home routing, `occupiedLayoutError`'s `sudo rm`
+remedy included, at
+[slice 13](macos-user-model-plan.md#slice-13--delete-what-nothing-uses-after-12-macos-ci).
+None of the three has landed.
 
 ### 2.3 The layout, and what it refuses
 
-On macos-user the `darwin_home_layout` step runs first ([`bootsteps.go`](../../internal/entrypoint/bootsteps.go))
-and lays one symlink per selected pack's workspace-scope `[[state]]` dir from the account home into
-`<workspace>/.yolo/home`. `ensureLayoutSymlink` ([`darwinhomelayout.go`](../../internal/entrypoint/darwinhomelayout.go))
+On macos-user the `darwin_home_layout` step is the first step that writes into the home
+([`bootsteps.go`](../../internal/entrypoint/bootsteps.go)); only `hydrate_session_env`, which
+reads the session env file, and `start_egress_probe`, which starts a background probe that
+`report_egress` collects at the end, run above it. In account mode it lays one symlink per
+selected pack's workspace-scope `[[state]]` dir from the account home into
+`<workspace>/.yolo/home`. In `self` mode those dirs are real directories in the workspace's own
+`HOME`, and only machine-scope dirs and caches are links out (`DeriveDarwinWorkspaceHome`), so a
+foreign parent there occupies nothing a layout link needs. `ensureLayoutSymlink` ([`darwinhomelayout.go`](../../internal/entrypoint/darwinhomelayout.go))
 repoints a link yolo wrote and **never removes a real path**: a real file or directory where a link
 belongs is collected, and `occupiedLayoutError` prints every account-home occupant under the heading
 *"In the SANDBOX ACCOUNT HOME, which predates this layout"* with one remedy,
@@ -136,9 +168,11 @@ no-migration ruling as code, written when the only way a real path could be ther
 than the layout.
 
 A boot step's failure is recorded and the boot **continues**, so every problem is reported in one
-boot (`genStepAbout`, [`boot.go`](../../internal/entrypoint/boot.go); the refusal record in
-[`bootrefusal.go`](../../internal/entrypoint/bootrefusal.go)). The overlay install honors the same
-rule per destination.
+boot, and the collected set refuses the boot before the agent starts (`genStep` and
+`genStepAbout`, then `genFailuresError`, in [`boot.go`](../../internal/entrypoint/boot.go); the
+refusal record in [`bootrefusal.go`](../../internal/entrypoint/bootrefusal.go)). That is the
+[A12 ruling](../reference/jail-home.md#why-its-this-way), and both boots run it through one
+table (`runSteps`). The overlay install honors the same rule per destination.
 
 ### 2.4 The packs
 
@@ -178,10 +212,12 @@ to the maintainer until theirs moves.
 
 ### 4.1 The contribution
 
-`matt-agentwork` replaces its path-addressed entry with an addressed one:
+`matt-agentwork` replaces its path-addressed entry with an addressed one (shown in the `pack.toml` form):
 
-```json
-{"kind": "files", "agents": ["agy"], "from": "files/agy"}
+```toml
+[[files]]
+agents = ["agy"]
+from = "files/agy"
 ```
 
 and the manifest comment above it reads:
@@ -234,6 +270,14 @@ tell them apart, and it can.
 
 So `agents: ["agyy"]` still stops the launch, and `agents: ["agy"]` in a launch without agy is
 exactly what the manifest comment in [§4.1](#41-the-contribution) says it is.
+
+"Could select" includes a pack the user configured and a workspace turned off. The per-workspace
+`off = true` on a pack entry is L4's ([`config-user.md` A.4](config-user.md#a4-what-l4-amends)),
+kept as a pack switch by the access-approval design under ruling now
+([`loophole-access-approval.md`](loophole-access-approval.md), its table of what goes away) and
+not built: a pack off in
+one workspace runs none of its machinery there. Under the amendment its agent's addressed content
+is skipped there too, the same rule from the content side.
 
 **Where the wider vocabulary comes from, and why it is not a reservation.**
 [`OQ-BH14`](../reference/jail-home.md#oq-bh14) rules that an unselected pack reserves nothing: its
@@ -344,6 +388,11 @@ into = ".gemini/config/agents"
 - **Branch C.** The plain slot, and a pack may ship `files/agy/<name>/agent.md` several times over.
   `expects` then names nothing, or the slot drops it.
 
+The slot is spelled as `packs/pi`'s is today. If the slot split
+([`slots-and-contributions.md`](slots-and-contributions.md), migration window open as
+[OQ-D6](slots-and-contributions.md#OQ-D6)) is built, both are respelled together; nothing here
+depends on the spelling.
+
 `register` is not an option here: agy's `settings.json` is an alias table for models and names no
 list of agent paths that anyone has found. If one exists it becomes branch A's refinement, not a
 new branch.
@@ -352,7 +401,8 @@ new branch.
 
 **Foreign-parent delivery** *(coined here)* is a path-addressed `files` destination inside a
 dot-directory that some pack the user could select — shipped, or configured in their `packs` —
-declares as `[[state]]`, in a launch that does not select that pack. It is not a nested delivery
+declares as `[[state]]`, in a launch that does not select that pack, whether a `[[files]]` entry
+or a file under the pack's `home/` folder spells it ([§2.1](#21-the-two-spellings-of-files)). It is not a nested delivery
 into a *selected* pack's state, which works on every backend and stays legal, and it is not a
 delivery into a dot-directory no pack anywhere claims, which is nobody's business but the pack's.
 
@@ -379,7 +429,9 @@ The maintainer asked what the valid use is, and why this is not an error. In pla
   host, over a hazard one backend has — a macos-user rule dressed as a pack rule, against the
   parity principle. And the hazard it would guard against is already met twice over: the warning
   names the fix, and [§6.3](#63-on-macos-user-record-what-the-overlay-makes) keeps the folder from
-  locking anyone out.
+  locking anyone out. The hazard is narrower still than one backend: it is macos-user's account
+  mode, whose shared account home the ruled model retires ([§2.2](#22-how-each-backend-materializes-a-path-addressed-files-destination)).
+  In `self` mode the folder lands in the workspace's own home, as on Apple Container.
 
 ### 6.2 Three readers, one rule
 
@@ -414,6 +466,13 @@ that asked for it. That record has two readers:
   left — and the directory is left alone and refused by name. [OQ-FS3](#OQ-FS3) asks whether this
   narrows [`OQ-HT2`](../reference/macos-user-home-tiers.md#oq-ht2) acceptably: that ruling protects
   a user's home from migration, and a directory yolo made and nobody else wrote is not the user's.
+  [`OQ-HT5`](../reference/macos-user-home-tiers.md#oq-ht5), open and leaning to keep refusing,
+  asks the same of a home-root `host_files` file an older launch rendered, so the two are best
+  ruled together.
+
+Both the record and the reclaim are account-mode machinery: in `self` mode no layout link sits
+where a workspace-scope state dir is, and the ruled model's slice 13 deletes the account-home
+routing they extend ([§2.2](#22-how-each-backend-materializes-a-path-addressed-files-destination)).
 
 ## 7. The layout refusal: name the path, stop the boot
 
@@ -430,11 +489,15 @@ home older than the layout.
 ### 7.2 Stop the boot
 
 On macos-user, a `darwin_home_layout` failure **ends the bootstrap** after the refusal is written
-([FS-D5](#decision-ledger), [OQ-FS4](#OQ-FS4) confirms). It is the first step, so nothing is lost
-from the one-boot report, and every later step writes into tiers the layout did not lay. The
-refusal record lists the layout failure alone, and the last line says why nothing else ran
-([§10](#10-the-messages)). The container boot keeps its rule: its tiers are the launcher's mounts,
-and no step there has this precondition.
+([OQ-FS4](#OQ-FS4) rules it). It is the first step that writes, so nothing is lost from the
+one-boot report: the two steps above it read the session env and start the egress probe, which
+the stop leaves uncollected, so that refused boot reports no egress finding. Every later step writes into tiers
+the layout did not lay. The refusal record lists the layout failure alone, and the last line says
+why nothing else ran ([§10](#10-the-messages)). This narrows [A12](../reference/jail-home.md#why-its-this-way)'s
+"after every remaining generator has run" for this one step on this one backend, in both modes
+(the `self`-mode layout still refuses a linked sidecar path or an occupied machine link). The
+container boot keeps its rule: its tiers are the launcher's mounts, and no step there has this
+precondition.
 
 ## 8. Dangling layout links from dead workspaces
 
@@ -454,6 +517,12 @@ leaves one per launch that selected a stateful pack.
 A target on an unmounted volume looks dangling too. Prune is explicit and names each target, so
 the user decides; the layout never removes one on its own.
 
+Only account mode lays workspace links in a shared home. The ruled model gives both modes a
+per-workspace `HOME` ([§2.2](#22-how-each-backend-materializes-a-path-addressed-files-destination)),
+and its [OQ-MM4](macos-user-model.md#OQ-MM4) rules that once launches move, *"nothing migrates,
+cleans up or announces the old account"*. So the housekeeping above serves account-mode launches
+until the plan's slice 12, and is not a cleanup of the old account after it.
+
 ## 9. Parity across backends and notches
 
 Dispositions are [`backend-parity.md`](backend-parity.md#3-the-dispositions--the-most-important-section)'s.
@@ -464,10 +533,10 @@ Dispositions are [`backend-parity.md`](backend-parity.md#3-the-dispositions--the
 | An `agents` name no pack anywhere declares is fatal | Honored | Honored | Honored | Honored |
 | An `agents` name for a known, unselected pack is skipped, with one line | Honored | Honored | Honored | Honored |
 | Foreign-parent warning | Honored | Honored | Honored | Honored |
-| Foreign parent materialized | HonoredBy: per-launch skeleton dir, gone at exit | HonoredBy: dir in the per-workspace home | **Warned**, and recorded ([§6.3](#63-on-macos-user-record-what-the-overlay-makes)) | NotApplicable: the user's home is the right tier |
+| Foreign parent materialized | HonoredBy: per-launch skeleton dir, gone at exit | HonoredBy: dir in the per-workspace home | account mode: **Warned**, and recorded ([§6.3](#63-on-macos-user-record-what-the-overlay-makes)); `self` mode: HonoredBy: dir in the per-workspace home | NotApplicable: the user's home is the right tier |
 | Layout refusal names the path | NotApplicable | NotApplicable | Honored | NotApplicable |
-| Boot stops after layout failure | NotApplicable: no layout step | NotApplicable | Honored | NotApplicable |
-| Dangling-link housekeeping | NotApplicable | NotApplicable | Honored | NotApplicable |
+| Boot stops after layout failure | NotApplicable: no layout step | NotApplicable | Honored, both modes | NotApplicable |
+| Dangling-link housekeeping | NotApplicable | NotApplicable | Honored in account mode; NotApplicable in `self` mode, which lays no workspace link in a shared home | NotApplicable |
 
 Every row a backend honors by a different mechanism names it, as the census requires, and the
 annotation test (`backendparity_test.go`) covers any runtime-gated line the build adds.
@@ -482,8 +551,8 @@ Each is the whole message, with its next step on the following line, per the
 
 ```text
   [WARN] pack matt-agentwork: files into ~/.gemini/config/agents lands inside ~/.gemini, where the agy pack keeps its state, and agy is not selected
-       -> On macos-user this makes ~/.gemini a real directory in the account home every workspace shares, and a later launch that selects agy is refused there. Address the agent instead; the files then land in agy's own folder when agy is selected, and nowhere when it is not:
-            {"kind": "files", "agents": ["agy"], "from": "files/gemini/config/agents"}
+       -> On macos-user's account mode this makes ~/.gemini a real directory in the account home every workspace shares, and a later launch that selects agy is refused there. Address the agent instead; the files then land in agy's own folder when agy is selected, and nowhere when it is not. In that [[files]] entry of the pack's manifest, replace the into line with:
+            agents = ["agy"]
           then: yolo check
 ```
 
@@ -495,17 +564,24 @@ the launch prints the first line in its pack disclosure):
        -> If you want it here:  yolo pack add agy
 ```
 
-**`yolo check` and the launch — a name no pack declares** (unchanged from today's refusal, shown
-for the contrast):
+**`yolo check` and the launch — a name no pack declares.** Today's refusal, as
+`agentAudienceMessage` ([`agentaudience.go`](../../internal/packload/agentaudience.go)) prints it:
 
 ```text
-Error: packs: pack matt-agentwork: files are addressed to "agyy" (its `agents` selector), and no pack declares an agent of that name. Selected packs provide: claude, pi. Every pack you could select provides: agy, claude, codex, copilot, pi. Did you mean "agy"?
+Error: packs: pack matt-agentwork: files `agents` names "agyy", which no pack in `packs` provides — did you mean "agy"?. Agents your `packs` provide: claude, pi. Fix the name, or add the pack that provides "agyy"
+```
+
+Under the amendment it keeps that shape, names the wider candidate list beside the selected one,
+and drops "add the pack", since no pack provides the name:
+
+```text
+Error: packs: pack matt-agentwork: files `agents` names "agyy", which no pack you could select provides — did you mean "agy"? Agents your `packs` provide: claude, pi; every pack you could select provides: agy, claude, codex, copilot, pi. Fix the name.
 ```
 
 **`yolo pack lint`** (a note, exit 0):
 
 ```text
-  note  files into .gemini/config/agents lands inside .gemini, where the agy pack keeps its state. Address its agent instead, so the files land in agy's folder when agy is selected and nowhere when it is not: {"kind": "files", "agents": ["agy"], "from": "files/gemini/config/agents"}
+  note  files into .gemini/config/agents lands inside .gemini, where the agy pack keeps its state. Address its agent instead, so the files land in agy's folder when agy is selected and nowhere when it is not: in that [[files]] entry, replace the into line with agents = ["agy"]
 ```
 
 **`darwin_home_layout`, an occupied account-home path** (replacing today's group):
@@ -550,7 +626,7 @@ Each is named so that deleting the production call site fails it, and each says 
 | :--- | :--- | :--- |
 | `TestAgyDeclaresAFilesSlotForAgentDefinitions` (`internal/packload`) | `packs/agy` loaded through `packload.Embedded()` declares one `files` slot at `.gemini/config/agents` expecting `agent.md` | the slot is removed or moved |
 | `TestAnAgyAddressedTreeLandsAtBothNotches` (`internal/cli/run`, beside `filesslotparity_test.go`) | a fixture pack `{agents: ["agy"]}` lands at `.gemini/config/agents/<pack>` in `packFilesTargets` and in `RenderHostFiles` after `ResolveDestinations`; nothing lands without `agy` selected | either notch stops resolving through `SlotLanding` |
-| `TestCheckWarnsOnFilesIntoAKnownUnselectedPacksStateDir` (`internal/cli/check`) | a fixture `files` into `.probe/x`, with a *configured but unselected* fixture declaring `[[state]] at = ".probe"`, warns with the [§10](#10-the-messages) text; selecting that pack silences it; with no pack anywhere declaring `.probe` nothing is printed | the check is deleted, warns on the nested case, or warns on an unclaimed dot-directory |
+| `TestCheckWarnsOnFilesIntoAKnownUnselectedPacksStateDir` (`internal/cli/check`) | a fixture `files` into `.probe/x`, and a second fixture with `home/.probe/x`, with a *configured but unselected* fixture declaring `[[state]] at = ".probe"`, each warn with the [§10](#10-the-messages) text; selecting that pack silences it; with no pack anywhere declaring `.probe` nothing is printed | the check is deleted, warns on the nested case, or warns on an unclaimed dot-directory |
 | `TestAnAddressedTreeForAKnownUnselectedAgentIsSkippedNotRefused` (`internal/cli/run`, and the `yolo host apply` twin in `internal/cli`) | a fixture pack `{agents: ["probe"]}` with the `probe` agent's pack configured and unselected: the launch proceeds, delivers nothing for it, and prints the one skip line | the pre-flight refuses, or delivers |
 | `TestAnAgentsNameNoPackDeclaresStaysFatal` | the same fixture with `agents: ["probee"]` refuses, naming both the selected and the selectable candidates and the did-you-mean | the refusal is lost with the amendment |
 | `TestAnUnreadableConfiguredPackMakesAnUnknownAudienceAReportNotARefusal` | a configured entry the read-only store cannot resolve: an unmatched name is reported with the pack it could not read, and the launch proceeds | the gate refuses on an incomplete vocabulary |
@@ -562,10 +638,10 @@ Each is named so that deleting the production call site fails it, and each says 
 | `TestOccupiedLayoutRefusalNamesThePackThatMadeThePath` | with an overlay record attributing the directory, the line names pack, contribution and workspace | the record is not read |
 | `TestTheOverlayRecordsATopLevelHomeDirectoryItCreates` | installing a destination whose top-level parent is absent writes the attribution | the record write is deleted |
 | `TestTheLayoutReclaimsADirectoryOnlyTheOverlayWrote` / `…LeavesOneHoldingOtherFiles` | the two [§6.3](#63-on-macos-user-record-what-the-overlay-makes) outcomes, over a real temp home | the reclaim is deleted, or reclaims too much |
-| `TestADarwinLayoutRefusalStopsTheBoot` (`internal/entrypoint`) | `runSteps` over a synthetic table with a failing `darwin_home_layout`: no later step runs on the darwin target, every later step runs on the container target, the last line is the [§10](#10-the-messages) text | the stop is deleted or leaks to the container boot |
+| `TestADarwinLayoutRefusalStopsTheBoot` (`internal/entrypoint`) | `runSteps` over a synthetic table with a failing `darwin_home_layout`: no later step runs on the darwin target in either mode, every later step runs on the container target, the last line is the [§10](#10-the-messages) text | the stop is deleted or leaks to the container boot |
 | `TestCheckReportsADanglingLayoutLinkAndPruneRemovesIt` | the warning names link and target; `yolo prune` lists it; `--apply` removes the link and leaves a present target alone | either half is deleted |
 | `TestNoShippedPackDeliversFilesIntoAnotherShippedPacksState` (`internal/packload`) | over the embedded set, no path-addressed `files` destination lies under another shipped pack's `[[state]]` | a shipped pack adopts the shape |
-| `TestMacosUserAForeignParentDoesNotLockOutItsOwner` (`integration`, macos-user hardware) | launch A: a fixture pack `files` into `.probe/x`, the owning fixture configured and not selected; launch B: a fixture declaring `[[state]] at = ".probe"`, exit 0 and `~/.probe` a link, or (without [OQ-FS3](#OQ-FS3)) a refusal naming only `~/.probe`; and A's launch log carries the warning | any of [§6](#6-the-foreign-parent-shape-warn-where-a-pack-is-known-to-keep-state-and-nowhere-else) and [§7](#7-the-layout-refusal-name-the-path-stop-the-boot) regresses |
+| `TestMacosUserAForeignParentDoesNotLockOutItsOwner` (`integration`, macos-user hardware, account mode) | launch A: a fixture pack `files` into `.probe/x`, the owning fixture configured and not selected; launch B: a fixture declaring `[[state]] at = ".probe"`, exit 0 and `~/.probe` a link, or (without [OQ-FS3](#OQ-FS3)) a refusal naming only `~/.probe`; and A's launch log carries the warning | any of [§6](#6-the-foreign-parent-shape-warn-where-a-pack-is-known-to-keep-state-and-nowhere-else) and [§7](#7-the-layout-refusal-name-the-path-stop-the-boot) regresses |
 | `TestEveryHintedYoloCommandExists` (existing) | every `yolo …` in the new messages is a real command | a message names a verb that is not there |
 
 Nothing here starts `agy`. The one measurement that needs it is [§5.2](#52-the-one-check-that-settles-it-and-who-runs-it)'s, and it is the maintainer's.
@@ -622,7 +698,10 @@ with its `yolo check` gate, since the pack-side change cannot land before it; th
 parity test; `matt-agentwork` switches to the addressed form and the maintainer runs the
 [§5.2](#52-the-one-check-that-settles-it-and-who-runs-it) check (branch B adds `as`); the per-path refusal and the boot stop; the overlay record and the
 foreign-parent warning in lint, check and launch; the reclaim and the dangling-link housekeeping,
-each behind its ruling. The implementation plan is not seeded here; the planner writes it once the
+each behind its ruling. The overlay record, the reclaim and the housekeeping are account-mode
+work with a horizon: they extend routing the macos-user model plan's slice 13 deletes
+([§2.2](#22-how-each-backend-materializes-a-path-addressed-files-destination)), so what each is
+worth depends on how long account mode keeps a shared home. The implementation plan is not seeded here; the planner writes it once the
 questions below are ruled.
 
 ## Open Questions
@@ -655,9 +734,10 @@ Every leaning below is the design author's (Fable). The maintainer's own words a
 
 2. 💬 **OQ-FS2: When a pack puts files inside a folder some other pack keeps state in, should yolo warn only then, warn on any undeclared dot-folder, or refuse?**
 
-   A launch selects `matt-agentwork` and not `agy`. Today it runs and, on a Mac, quietly makes a
-   real `~/.gemini` in the shared account home; on podman and Apple Container it leaves nothing.
-   A pack shipping `~/.tmux/plugins`, a folder no pack claims, has the same shape and no hazard.
+   A launch selects `matt-agentwork` and not `agy`. It runs, and only Mac account mode makes a
+   real `~/.gemini` in a shared home, which the ruled Mac model retires
+   ([§6.1](#61-what-is-legitimate-here-and-why-it-is-not-an-error)). A `home/` folder file is the
+   same shape. A pack shipping `~/.tmux/plugins`, a folder no pack claims, has no hazard.
 
    - **A — Warn only where a known pack keeps state there.** The agy case warns; the tmux case
      is silent.
@@ -675,14 +755,15 @@ Every leaning below is the design author's (Fable). The maintainer's own words a
 
 3. 💬 **OQ-FS3: May the layout replace a directory yolo itself made for pack files, with nothing else in it?**
 
-   A Mac launch without agy made `~/.gemini` to hold one delivered file. The next launch selects
-   agy and needs a link there. The no-migration ruling says a real path is never removed for the
-   user; this directory holds nothing the user wrote, and the overlay's record says so.
+   A Mac launch without agy made `~/.gemini` for one file; a launch selecting agy needs a link
+   there. The no-migration ruling never removes a real path; the overlay's record shows the user
+   wrote nothing here. Account mode only
+   ([§6.3](#63-on-macos-user-record-what-the-overlay-makes)); open
+   [OQ-HT5](../reference/macos-user-home-tiers.md#oq-ht5) asks this of a stale home-root file.
 
    - **A — Reclaim it.** The launch replaces the directory with the link and prints one line
      saying what it replaced and why it was safe. Anything unrecorded inside stops it.
-   - **B — Never.** The launch refuses, names the one path and its maker, and gives
-     `sudo rm -rf` of that path.
+   - **B — Never.** The launch refuses, naming the path and its maker, with `sudo rm -rf` of it.
 
    <!-- vantage: question id=OQ-FS3 leaning="A — the ruling protects the user's data, and a directory yolo made whose every byte yolo delivered is not that; the content check keeps it from reaching anything else." -->
 
@@ -695,17 +776,20 @@ Every leaning below is the design author's (Fable). The maintainer's own words a
 
 4. 💬 **OQ-FS4: After the home layout fails on a Mac, should the bootstrap stop, or run on and report everything?**
 
-   The refused launch in the lab report kept generating agy's config into the real `~/.gemini`
-   after the layout step had refused. The container boot runs every step so one boot reports every
-   problem; on macos-user the layout is the first step and every later one writes into what it lays.
+   The lab report's refused launch kept generating agy's config into the real `~/.gemini` after
+   the layout refused. Both boots run every step so one boot reports every problem
+   ([A12](../reference/jail-home.md#why-its-this-way)); on macos-user, in either mode, the layout
+   is the first step that writes, and every later one writes into what it lays
+   ([§7.2](#72-stop-the-boot)).
 
-   - **A — Stop.** The refusal is the layout's alone, with a last line saying nothing else ran.
+   - **A — Stop.** The refusal is the layout's alone, with a last line saying nothing else ran;
+     A12 gains a macos-user exception for this step.
    - **B — Run on, skipping only steps that write under the home.** More is reported; the skip
      list is a second thing to keep true.
 
-   <!-- vantage: question id=OQ-FS4 leaning="A — the layout is the first step, so stopping loses nothing already reported, and every later failure would be the first one wearing a different label." -->
+   <!-- vantage: question id=OQ-FS4 leaning="A — the layout is the first step that writes, so stopping loses nothing already reported, and every later failure would be the first one wearing a different label." -->
 
-   _Leaning:_ A. The layout is the first step, so stopping loses nothing already reported, and
+   _Leaning:_ A. The layout is the first step that writes, so stopping loses nothing already reported, and
    every later failure would be the first one wearing a different label.
 
    **Answer:**
@@ -714,8 +798,10 @@ Every leaning below is the design author's (Fable). The maintainer's own words a
 
 5. 💬 **OQ-FS5: Who removes a layout link whose workspace is gone?**
 
-   Three links in the account home pointed at deleted integration workspaces; one refused a real
-   launch until `sudo rm`. A launch that does not declare the link leaves it alone, by design.
+   Three account-home links pointed at deleted integration workspaces; one refused a real launch
+   until `sudo rm`. A launch not declaring the link leaves it alone, by design. Account mode
+   only: `self` mode lays none, and [OQ-MM4](macos-user-model.md#OQ-MM4) rules out
+   cleaning the old account once launches move ([§8](#8-dangling-layout-links-from-dead-workspaces)).
 
    - **A — `yolo check` warns, `yolo prune --apply` removes the link.** Explicit, named, and in
      prune's dry-run shape; the target is never touched.
@@ -736,13 +822,13 @@ Every leaning below is the design author's (Fable). The maintainer's own words a
 6. 💬 **OQ-FS6: Should files addressed to an agent whose pack is not selected be skipped by default, instead of refusing the launch?**
 
    Your words: a pack must be able to "distribute configs for agents in case they're enabled",
-   by default rather than through an `if` key. Today `agents: ["agy"]` in a launch without agy
-   refuses; yolo can tell that from a typo by the packs you could select.
+   by default, not by an `if` key. Today `agents: ["agy"]` without agy refuses; yolo tells that
+   from a typo by the packs you could select, a workspace's `off` one included ([§4.2](#42-addressing-an-agent-that-is-not-here-deliver-nothing-by-default)).
 
    - **A — Skip by default.** The launch delivers nothing for it; `yolo check` prints a `[SKIP]`
      line ending in `yolo pack add agy`. A name no pack anywhere declares still refuses.
    - **B — An opt-in key.** Only a contribution writing `if` is skipped; the rest refuse.
-   - **C — Keep the refusal** and select `agy` everywhere.
+   - **C — Keep the refusal**; select `agy` everywhere.
 
    <!-- vantage: question id=OQ-FS6 leaning="A — addressing an agent already means 'for whoever has it', the typo case stays fatal through the wider vocabulary, and the key would be boilerplate every content pack writes." -->
 
@@ -765,7 +851,14 @@ Every leaning below is the design author's (Fable). The maintainer's own words a
 
 ## Appendix: evidence, by symbol
 
-Read 2026-10-30 at `e4345e69d`. Symbols rather than lines, so a move does not make this false.
+Read 2026-10-30 at `e4345e69d`, and every symbol below re-read at `a078c5999` the same day.
+Symbols rather than lines, so a move does not make this false.
+
+- Added at the re-read: the macos-user mode is `macos_user_mode` (`ParseMode`, `LaunchHomes` in
+  [`mode.go`](../../internal/macosuser/mode.go); default `account`), and `self` mode's layout is
+  `DeriveDarwinWorkspaceHome`, chosen by `darwinHomeLayoutFor` when `HOME` is the sidecar; the
+  boot order is the `bootSteps` table; a `home/` folder lowers to `files` contributions in
+  `discoverHomeFiles`; today's audience refusal text is `agentAudienceMessage`.
 
 - `files` slot and audience fields: `Contribution.Agent`, `Contribution.Agents`,
   `Contribution.Register`, `Contribution.Expects` in [`contributes.go`](../../internal/packdecl/contributes.go);
