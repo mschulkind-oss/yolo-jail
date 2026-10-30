@@ -103,15 +103,16 @@ func TestTagGrantCoversMatchingTags(t *testing.T) {
 }
 
 // A tag grant whose kind the user config does not list covers nothing, and the refusal names
-// the key.
+// the verb that allows the kind.
 func TestTagGrantKindNotListedRefuses(t *testing.T) {
 	f := newFixtureOpts(t, fixtureOpts{grants: []brokerscope.Grant{{Kind: "tag", Repo: fixtureRepo, Tag: "v*"}}})
 	allowKinds(t, "branch")
 	mustGit(t, f.ws, "tag", "v1")
 	out, err := f.git("push", "origin", "refs/tags/v1")
-	if err == nil || !strings.Contains(out, reasonNeedsApproval) || !strings.Contains(out, "brokered.git.grant_kinds") {
+	if err == nil || !strings.Contains(out, reasonNeedsApproval) {
 		t.Fatalf("a tag push with the kind unlisted: %v\n%s", err, out)
 	}
+	convertThenAllow(t, out, grantTag)
 	if f.upstreamRef("refs/tags/v1") != "" {
 		t.Fatal("the tag reached the upstream")
 	}

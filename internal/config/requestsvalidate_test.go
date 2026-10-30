@@ -45,14 +45,15 @@ func TestUngrantedBrokerNotesReadTheReadableGrant(t *testing.T) {
 			t.Fatalf("note names the legacy grant to a TOML user: %q", got)
 		}
 	})
-	t.Run("a JSONC user keeps the legacy grant advice", func(t *testing.T) {
+	t.Run("a JSONC user is told to convert, then yolo allow", func(t *testing.T) {
 		h := newMountsHost(t)
 		if err := os.WriteFile(filepath.Join(h.home, ".config", "yolo-jail", "config.jsonc"), []byte(`{"packs": []}`), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		got := strings.Join(UngrantedBrokerNotes(gitBroker), "\n")
-		if !strings.Contains(got, "brokered.git.grants") || strings.Contains(got, "yolo allow") {
-			t.Fatalf("a JSONC user's note is not the legacy advice: %q", got)
+		migrate, allow := strings.Index(got, "`yolo config migrate`"), strings.Index(got, "`yolo allow git fetch`")
+		if migrate < 0 || allow < migrate || strings.Contains(got, "brokered.git.grants") {
+			t.Fatalf("a JSONC user's note does not name `yolo config migrate` then `yolo allow git fetch`: %q", got)
 		}
 	})
 }

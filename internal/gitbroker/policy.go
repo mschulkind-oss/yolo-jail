@@ -1,7 +1,6 @@
 package gitbroker
 
 import (
-	"encoding/json"
 	"errors"
 	"io"
 	"slices"
@@ -50,6 +49,50 @@ const (
 	// byCreateBranch is a working-set entry's By when a creation under the grant added it.
 	byCreateBranch = "create-branch"
 )
+
+// KindCapabilities is what packs/git's manifest declares as `brokered.kind_capabilities`: the
+// readable capability each grant kind is allowed under (`allow.git.*`) and requested under
+// (`requests.git.*`), which the push hints name in their `yolo allow` and `yolo request`
+// commands. TestKindCapabilitiesAreTheManifests pins the two together.
+var KindCapabilities = map[string]string{
+	grantCreateBranch: "new_branches",
+	grantBranch:       "push",
+	grantTag:          "push_tags",
+}
+
+// AllowOnRequestCommand is the user-ceiling command letting a workspace hold a grant of kind:
+// `yolo allow git on_request <capability>`, the list a project's request is judged against.
+// internal/cli pins that it parses.
+func AllowOnRequestCommand(kind string) string {
+	return "yolo allow " + Source + " on_request " + KindCapabilities[kind]
+}
+
+// RequestCommand is the project command that declares g in the workspace config:
+// `yolo request git <capability> [ref]`, or "" for a kind the git source does not define.
+// internal/cli pins that it parses.
+func RequestCommand(g brokerscope.Grant) string {
+	capability := KindCapabilities[g.Kind]
+	switch g.Kind {
+	case grantBranch:
+		return "yolo request " + Source + " " + capability + " " + g.Branch
+	case grantTag:
+		return "yolo request " + Source + " " + capability + " " + g.Tag
+	case grantCreateBranch:
+		return "yolo request " + Source + " " + capability
+	}
+	return ""
+}
+
+// allowAdvice is the step that lets the host user config allow kind: the `yolo allow` command,
+// behind `yolo config migrate` for a user config still in legacy JSONC, which the verb does not
+// write (docs/design/config-commands.md §4).
+func allowAdvice(kind string) string {
+	allow := "`" + AllowOnRequestCommand(kind) + "`"
+	if _, toml := config.UserConfigFile(); !toml {
+		return "convert your user config to TOML with `yolo config migrate` on the host, then run " + allow + " there"
+	}
+	return "run " + allow + " on the host"
+}
 
 // coverer decides whether one ref command is covered, and returns the set it falls in and what
 // covered it: the grant (`create-branch`; `branch:<name>` for a branch declared in config, or
@@ -107,11 +150,11 @@ func (b *Broker) coverFor(f brokerscope.File, repo string, say func(string)) cov
 			case authorityErr != nil:
 				say("this workspace's " + kind + " grant on " + repo + " is not in effect: the host user config's canonical `allow.git` write authority could not be validated, so the broker covers no such write. Repair `allow.git.always` or `allow.git.on_request` on the host, then push again; the broker rereads that config on each push, or push from the host.")
 			case canonical:
-				say("this workspace's " + kind + " grant on " + repo + " is not in effect: the host user config's canonical `allow.git` does not authorize it under the selected broker's declared capabilities. Add the required capability to `allow.git.always` or `allow.git.on_request` on the host, then push again; the broker rereads that config on each push, or push from the host.")
+				say("this workspace's " + kind + " grant on " + repo + " is not in effect: the host user config's canonical `allow.git` does not authorize it under the selected broker's declared capabilities. To let the broker " + what + ", " + allowAdvice(kind) + ", then push again; the broker rereads that config on each push, or push from the host.")
 			default:
 				say("this workspace's " + kind + " grant on " + repo + " is not in effect: your user config does not " +
-					"list " + kind + " under `brokered.git.grant_kinds`. Add it there on the host to let the broker " +
-					what + " (the next push reads it), or push from the host.")
+					"allow " + KindCapabilities[kind] + " under `allow.git`. To let the broker " + what + ", " +
+					allowAdvice(kind) + " (the next push reads it), or push from the host.")
 			}
 		}
 	}
@@ -123,32 +166,19 @@ func (b *Broker) coverFor(f brokerscope.File, repo string, say func(string)) cov
 			return ", and repair `allow.git` in your user config on the host, which could not be validated"
 		case slices.Contains(kinds, kind):
 			return ""
-		case canonical:
-			return ", and add its capability to `allow.git.always` or `allow.git.on_request` in your user config on the host"
 		default:
-			return ", and list \"" + kind + "\" under `brokered.git.grant_kinds` in your user config on the host"
+			return ", and " + allowAdvice(kind) + " to allow it in your user config"
 		}
 	}
-	// hint is a refused ref's next step: the one grant that covers it, spelled as the workspace
-	// config takes it (docs/reference/happy-path-principle.md).
+	// hint is a refused ref's next step: the verb that declares the one grant covering it in the
+	// workspace config, behind `yolo config migrate` for a project still on yolo-jail.jsonc,
+	// which the verb does not write (docs/reference/happy-path-principle.md,
+	// docs/design/config-commands.md §4). The hint names no legacy key to hand-edit.
 	hint := func(ref, why string, g brokerscope.Grant) {
-		spelled, _ := json.Marshal(g)
-		verb := ""
-		switch g.Kind {
-		case grantBranch:
-			verb = "yolo request git push " + g.Branch
-		case grantCreateBranch:
-			verb = "yolo request git new_branches"
-		case grantTag:
-			verb = "yolo request git push_tags " + g.Tag
-		}
-		if verb != "" {
-			verb = "run `" + verb + "`, or in a legacy JSONC project "
-		}
-		say(ref + ": " + why + ". To let the broker push it unasked, " + verb + "add " + string(spelled) +
-			" to `brokered.git.grants` in this workspace's yolo-jail.jsonc" + unlisted(g.Kind) +
-			", then run `yolo config apply` on the host, in this workspace, and approve the grant; " +
-			"or push it from the host (`git push` in this workspace there).")
+		say(ref + ": " + why + ". To let the broker push it unasked, run `" + RequestCommand(g) +
+			"` in this workspace (a project still on yolo-jail.jsonc converts first with `yolo config migrate`)" +
+			unlisted(g.Kind) + ", then run `yolo config apply` on the host, in this workspace, and approve the " +
+			"grant; or push it from the host (`git push` in this workspace there).")
 	}
 	warned := false
 	storeFailed := func(err error) {

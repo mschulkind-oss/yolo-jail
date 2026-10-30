@@ -299,7 +299,8 @@ func TestLoopholesEnableGlobalRefusesALoopholeNoPackInstalls(t *testing.T) {
 
 // TestLoopholesEnableRefusesABroker: a brokered loophole has no switch (docs/design/boundary-broker.md
 // BB-D104, BB-D109), so `enable` refuses for it on the host, with `--global`, and in a jail, each
-// naming the user-config read grant and `yolo config apply`, and none writes a file.
+// naming the conversion a legacy JSONC user config needs, then `yolo allow github read` and
+// `yolo config apply`, and none writes a file.
 func TestLoopholesEnableRefusesABroker(t *testing.T) {
 	home, userCfg, userBody, ws := enableHome(t)
 	dir := filepath.Join(home, ".config", "yolo-jail", "workspaces")
@@ -322,8 +323,8 @@ func TestLoopholesEnableRefusesABroker(t *testing.T) {
 			if rc == 0 {
 				t.Fatalf("rc 0, want a refusal\nstdout:\n%s\nstderr:\n%s", stdout, stderr)
 			}
-			for _, want := range []string{"github-broker has no switch", "brokered.github.grants",
-				`{"kind": "read", "repo": "*"}`, "yolo config apply"} {
+			for _, want := range []string{"github-broker has no switch", "`yolo config migrate`", "`yolo allow github read`",
+				"yolo config apply"} {
 				if !strings.Contains(stderr, want) {
 					t.Errorf("the refusal does not say %q:\n%s", want, stderr)
 				}
@@ -376,7 +377,7 @@ func TestLoopholesDisableRemovesABrokersOldSwitch(t *testing.T) {
 	if rc != 0 {
 		t.Fatalf("disable rc = %d\nstdout:\n%s\nstderr:\n%s", rc, stdout, stderr)
 	}
-	for _, want := range []string{"old one is removed", path, "brokered.github.grants"} {
+	for _, want := range []string{"old one is removed", path, "`yolo allow github read`"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("disable's line does not say %q:\n%s", want, stdout)
 		}

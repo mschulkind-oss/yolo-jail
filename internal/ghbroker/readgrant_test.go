@@ -11,8 +11,8 @@ import (
 )
 
 // The broker of a selected pack grants nothing (docs/design/boundary-broker.md BB-D104, BB-D108):
-// with no read grant it refuses a read and a write alike, naming the user-config grant and `yolo
-// config apply`, and runs no gh.
+// with no read grant it refuses a read and a write alike, naming the conversion a legacy JSONC
+// user config needs, `yolo allow github read` and `yolo config apply`, and runs no gh.
 func TestNoReadGrantRefusesEveryCall(t *testing.T) {
 	f := newBrokerFixture(t, "2.101.0")
 	f.b.scope = NewScope([]string{"o/r"})
@@ -23,7 +23,7 @@ func TestNoReadGrantRefusesEveryCall(t *testing.T) {
 		if code != ExitUsage || out != "" {
 			t.Fatalf("gh %v with no read grant: code %d out %q err %q", argv, code, out, errOut)
 		}
-		for _, want := range []string{"no read grant", "brokered.github.grants", `{"kind": "read", "repo": "*"}`,
+		for _, want := range []string{"no read grant", "`yolo config migrate`", "`yolo allow github read`",
 			"yolo config apply"} {
 			if !strings.Contains(errOut, want) {
 				t.Fatalf("gh %v refusal lacks %q:\n%s", argv, want, errOut)

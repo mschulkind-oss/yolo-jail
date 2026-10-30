@@ -228,7 +228,7 @@ func TestGitBrokerWithNoGrantRefusesTheFetch(t *testing.T) {
 	if got := kvLine(r.stdout, "RCB"); got == "0" || got == "" {
 		t.Errorf("git fetch exited %q with no read grant, want a failure:\n%s", got, r.combined())
 	}
-	for _, want := range []string{"holds no read grant", `"kind": "read"`, "yolo config apply"} {
+	for _, want := range []string{"holds no read grant", "`yolo config migrate`", "`yolo allow git fetch`", "yolo config apply"} {
 		if !strings.Contains(r.combined(), want) {
 			t.Errorf("the refused fetch does not say %q:\n%s", want, r.combined())
 		}

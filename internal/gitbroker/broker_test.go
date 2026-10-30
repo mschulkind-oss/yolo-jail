@@ -1027,10 +1027,9 @@ func TestUserKindRemovedTakesEffectAtNextPush(t *testing.T) {
 	if err == nil || !strings.Contains(out, reasonNeedsApproval) {
 		t.Fatalf("a creation after the kind was removed: %v\n%s", err, out)
 	}
-	// The refusal names the user-config key that would let the grant work.
-	if !strings.Contains(out, "brokered.git.grant_kinds") {
-		t.Fatalf("the refusal does not name brokered.git.grant_kinds:\n%s", out)
-	}
+	// The refusal names the verb that would let the grant work, behind the conversion a
+	// legacy JSONC user config needs first.
+	convertThenAllow(t, out, grantCreateBranch)
 	if f.upstreamRef("refs/heads/agent/y") != "" {
 		t.Fatal("agent/y reached the upstream")
 	}
@@ -1277,7 +1276,7 @@ func TestConfigBranchKindMissingSilentWhenCreateBranchCovers(t *testing.T) {
 }
 
 // The broker reads the user config's grant_kinds at every push: the kind taken away on the host
-// refuses the next push, naming the key.
+// refuses the next push, naming the verb that allows it again.
 func TestConfigBranchKindRemovedRefusesNextPush(t *testing.T) {
 	f := configBranchFixture(t, "main")
 	f.commit("one")
@@ -1286,9 +1285,10 @@ func TestConfigBranchKindRemovedRefusesNextPush(t *testing.T) {
 	allowKinds(t, "create-branch")
 	f.commit("two")
 	out, err := f.git("push", "origin", "HEAD:main")
-	if err == nil || !strings.Contains(out, reasonNeedsApproval) || !strings.Contains(out, "brokered.git.grant_kinds") {
+	if err == nil || !strings.Contains(out, reasonNeedsApproval) {
 		t.Fatalf("a push after the kind was removed: %v\n%s", err, out)
 	}
+	convertThenAllow(t, out, grantBranch)
 	if f.upstreamRef("refs/heads/main") != before {
 		t.Fatal("main moved")
 	}

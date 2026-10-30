@@ -149,7 +149,7 @@ func TestASelectedBrokerPackPutsTheBrokerInPlay(t *testing.T) {
 			writeWorkspaceSwitch(t, home, ws, `{"workspace": "`+ws+`", "loopholes": {"github-broker": {"enabled": `+v+`}}}`)
 			l := run()
 			notAsked(t, l)
-			for _, want := range []string{"loopholes.github-broker.enabled", "is ignored", "brokered.github.grants",
+			for _, want := range []string{"loopholes.github-broker.enabled", "is ignored", "`yolo allow github read`",
 				"`yolo loopholes disable github-broker --workspace " + shquote.QuoteDisplay(ws) + "`"} {
 				if !strings.Contains(l.out, want) {
 					t.Errorf("the launch does not note the ignored switch with %q:\n%s", want, l.out)
@@ -164,7 +164,7 @@ func TestASelectedBrokerPackPutsTheBrokerInPlay(t *testing.T) {
 		if l.rc == 0 || l.reached {
 			t.Fatalf("a user-config switch of a brokered loophole launched: rc %d\n%s", l.rc, l.out)
 		}
-		if !strings.Contains(l.out, "has no switch") || !strings.Contains(l.out, "brokered.github.grants") {
+		if !strings.Contains(l.out, "has no switch") || !strings.Contains(l.out, "`yolo allow github read`") {
 			t.Errorf("the refusal does not name the grant that gives access:\n%s", l.out)
 		}
 	})
@@ -182,7 +182,7 @@ func TestASelectedBrokerPackPutsTheBrokerInPlay(t *testing.T) {
 				t.Fatalf("a workspace switch of a brokered loophole launched: rc %d\n%s", l.rc, l.out)
 			}
 			if !strings.Contains(l.out, "never "+filepath.Join(ws, name)+", a file an agent can edit") ||
-				!strings.Contains(l.out, "brokered.github.grants") {
+				!strings.Contains(l.out, "`yolo allow github read`") {
 				t.Errorf("the refusal does not name the file and the grant:\n%s", l.out)
 			}
 		})

@@ -12,8 +12,9 @@ import (
 )
 
 // The broker of a selected pack grants nothing (docs/design/boundary-broker.md BB-D104, BB-D108):
-// with no read grant it refuses an SSH fetch and push, naming the user-config grant and `yolo config
-// apply`, without starting the host's ssh. Public HTTPS fetch behavior is pinned in https_test.go.
+// with no read grant it refuses an SSH fetch and push, naming the conversion a legacy JSONC user
+// config needs, the `yolo allow git fetch` that grants the read, and `yolo config apply`, without
+// starting the host's ssh. Public HTTPS fetch behavior is pinned in https_test.go.
 func TestSSHNoReadGrantRefusesEveryCall(t *testing.T) {
 	f := newFixtureOpts(t, fixtureOpts{noRead: true})
 	for _, args := range [][]string{{"fetch", "origin"}, {"push", "origin", "HEAD:refs/heads/agent/x"}} {
@@ -21,11 +22,14 @@ func TestSSHNoReadGrantRefusesEveryCall(t *testing.T) {
 		if err == nil {
 			t.Fatalf("git %v succeeded with no read grant:\n%s", args, out)
 		}
-		for _, want := range []string{"no read grant", "brokered.git.grants", `{"kind": "read", "repo": "*"}`,
+		for _, want := range []string{"no read grant", "`yolo config migrate`", "`yolo allow git fetch`",
 			"yolo config apply"} {
 			if !strings.Contains(out, want) {
 				t.Fatalf("git %v refusal lacks %q:\n%s", args, want, out)
 			}
+		}
+		if strings.Contains(out, "brokered.git.grants") {
+			t.Fatalf("git %v refusal names the legacy key to hand-edit:\n%s", args, out)
 		}
 	}
 	if f.sshRan() {

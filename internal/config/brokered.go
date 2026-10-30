@@ -303,16 +303,32 @@ func BrokerGrantAdviceFor(b loopholedecl.Brokered) string {
 // brokerReadGrantAdvice is BrokerGrantAdviceFor from the two fields it reads, for a caller
 // holding them apart from a declaration (a broker daemon knows its own source and read
 // capability). With no read capability there is no readable verb to name, so it is the legacy
-// advice whatever the user config's format.
+// advice whatever the user config's format. A user config still in legacy JSONC gets the same
+// verb behind the conversion that makes it usable, `yolo config migrate` (the verb does not
+// write a legacy file), never a hand edit of the legacy `brokered.<source>.grants` list
+// (docs/design/config-commands.md §4).
 func brokerReadGrantAdvice(source, readCapability string) string {
-	if path, toml := UserConfigFile(); toml && readCapability != "" {
-		return "To let every workspace read its own approved remotes through it, run `yolo allow " + source +
-			" " + readCapability + "` on the host (it adds " + pyReprValue(readCapability) + " to `allow." +
-			source + ".always` in your user config, " + path + ", or the file of it that already holds " +
-			"[allow]), then approve the workspace change it offers, or run `yolo config apply` on the host, " +
-			"in the workspace."
+	if readCapability == "" {
+		return BrokerGrantAdvice(source)
 	}
-	return BrokerGrantAdvice(source)
+	path, toml := UserConfigFile()
+	allow := "`" + BrokerReadAllowCommand(source, readCapability) + "`"
+	if !toml {
+		return "To let every workspace read its own approved remotes through it, convert your user config, " +
+			path + ", to TOML with `yolo config migrate` on the host, then run " + allow + " there (it adds " +
+			pyReprValue(readCapability) + " to `allow." + source + ".always` in the converted file), then " +
+			"approve the workspace change it offers, or run `yolo config apply` on the host, in the workspace."
+	}
+	return "To let every workspace read its own approved remotes through it, run " + allow + " on the host " +
+		"(it adds " + pyReprValue(readCapability) + " to `allow." + source + ".always` in your user config, " +
+		path + ", or the file of it that already holds [allow]), then approve the workspace change it " +
+		"offers, or run `yolo config apply` on the host, in the workspace."
+}
+
+// BrokerReadAllowCommand is the command the read-grant advice names: the user-ceiling verb that
+// allows the source's read capability for every project. internal/cli pins that it parses.
+func BrokerReadAllowCommand(source, readCapability string) string {
+	return "yolo allow " + source + " " + readCapability
 }
 
 // BrokerNoReadRefusal is a broker's refusal of a call on repo (spelled as the source spells it)

@@ -69,16 +69,28 @@ func TestTheUserReadGrantIsShownAtTheGate(t *testing.T) {
 	}
 }
 
-// Every broker refusal for want of a grant names the user-config key, its exact spelling, and
-// the host step that approves it, through the source's name alone.
+// Every broker refusal for want of a grant names the next step and the host step that approves
+// it, through the source's name alone: to a legacy JSONC user, the conversion and then the verb
+// (never a hand edit of `brokered.<source>.grants`); the legacy key only where the source
+// declares no read capability, so no verb exists.
 func TestBrokerGrantAdviceNamesTheGrantAndTheApply(t *testing.T) {
 	h := newBrokeredHost(t)
 	if err := os.WriteFile(h.userCfg, []byte(`{"packs": []}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	got := BrokerNoReadRefusal("github", "read", "github.com/o/r", true)
-	for _, want := range []string{"no read grant on github.com/o/r", "`brokered.github.grants`",
-		`{"kind": "read", "repo": "*"}`, "yolo config apply", "takes the grant at its next call"} {
+	for _, want := range []string{"no read grant on github.com/o/r", "`yolo config migrate`",
+		"`yolo allow github read`", "yolo config apply", "takes the grant at its next call"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the refusal lacks %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "brokered.github.grants") {
+		t.Errorf("a JSONC user's refusal names the legacy key to hand-edit:\n%s", got)
+	}
+	// With no declared read capability there is no verb to name, so the legacy key stands.
+	got = BrokerNoReadRefusal("github", "", "github.com/o/r", true)
+	for _, want := range []string{"`brokered.github.grants`", `{"kind": "read", "repo": "*"}`, "yolo config apply"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the refusal lacks %q:\n%s", want, got)
 		}

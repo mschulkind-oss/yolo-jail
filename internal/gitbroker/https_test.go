@@ -395,7 +395,7 @@ func TestHTTPSPrivateAnonymous401RefusesWithoutCredential(t *testing.T) {
 		want   []string
 	}{
 		{name: "outside scope", want: []string{"not in this workspace's approved scope", "config-change gate"}},
-		{name: "no read grant", noRead: true, want: []string{"holds no read grant", `"kind": "read"`, "yolo config apply"}},
+		{name: "no read grant", noRead: true, want: []string{"holds no read grant", "`yolo allow git fetch`", "yolo config apply"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newHTTPSFixture(t, httpsOpts{noRead: tc.noRead})
