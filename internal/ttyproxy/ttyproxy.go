@@ -50,6 +50,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -1456,7 +1457,7 @@ func suspendAfterReset(inFd int, cooked *unix.Termios, sess *session, hook Stage
 		if cooked != nil {
 			_ = unix.IoctlSetTermios(inFd, unix.TCSETS, cooked)
 		}
-		if err := syscall.Kill(os.Getpid(), syscall.SIGTSTP); err != nil {
+		if err := raiseStop(); err != nil {
 			if cooked != nil {
 				setRaw(inFd, cooked)
 			}
@@ -1516,7 +1517,7 @@ func suspendAfterReset(inFd int, cooked *unix.Termios, sess *session, hook Stage
 
 	// No callback, mutex, or wait between the final claim and this targeted attempt. The
 	// process is not holding the terminal-transition mutex while SIGTSTP can stop it.
-	err := syscall.Kill(os.Getpid(), syscall.SIGTSTP)
+	err := raiseStop()
 	if err != nil {
 		sess.clearSuspendStop()
 		sess.mu.Lock()
@@ -1547,8 +1548,24 @@ func selfSuspend(inFd int, cooked *unix.Termios) {
 	restoreTerminal(inFd, cooked)
 	// SIGTSTP with the DEFAULT disposition stops us; the shell prints
 	// "[1]+ Stopped" and `fg` later sends SIGCONT (handled -> re-raw).
-	_ = syscall.Kill(os.Getpid(), syscall.SIGTSTP)
+	_ = raiseStop()
 	// Control returns here after SIGCONT.
+}
+
+// raiseStop sends SIGTSTP to this process — TARGETED, never pgroup-wide — aimed at the
+// calling THREAD, so control returns past it only once the process was stopped and
+// continued, or the signal was ignored. Every ^Z stop goes through it.
+//
+// ⚠ NOT kill(getpid(), SIGTSTP). A process-directed signal is taken by the thread-group
+// leader whenever the leader does not block it, and the Go thread that raised it returns
+// from kill() and runs on until the leader's group stop reaches it. suspendAfterReset reads
+// "the syscall returned" as "ignored or continued" and re-raws the terminal, so the proxy
+// stopped with the shell's terminal left raw (CI run 41138698250). The kernel acts on a
+// signal pending on the current thread before that thread returns to user code.
+func raiseStop() error {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	return unix.Tgkill(unix.Getpid(), unix.Gettid(), unix.SIGTSTP)
 }
 
 func safeCallback(cb func(*os.Process), p *os.Process) {

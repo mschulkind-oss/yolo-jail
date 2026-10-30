@@ -2729,14 +2729,14 @@ func TestPtyPassthrough(t *testing.T) {
 }
 
 // TestSuspendIsTargetedNotPgroupWide is a STATIC guard on the design: the
-// suspend path must use syscall.Kill(getpid(), SIGTSTP) — a targeted self-kill,
+// suspend path must raise SIGTSTP at this process only (raiseStop) — a targeted self-signal,
 // never a pgroup-wide kill(0)/kill(-pgid) that would also stop podman. This
 // asserts the source contract via a behavioral proxy: selfSuspend on a process
 // with SIGTSTP ignored must NOT stop it (proving it's a normal targeted signal,
 // not a group broadcast that bypasses our own disposition).
 func TestSuspendTargetedSelfOnly(t *testing.T) {
-	// Ignore SIGTSTP in this test process so selfSuspend's Kill(getpid(),
-	// SIGTSTP) does NOT actually stop the test — proving it's a targeted
+	// Ignore SIGTSTP in this test process so selfSuspend's raiseStop
+	// does NOT actually stop the test — proving it's a targeted
 	// self-signal subject to our own disposition, not a pgroup-wide broadcast
 	// (which would stop podman, the exact regression the design forbids).
 	signal.Ignore(syscall.SIGTSTP)
