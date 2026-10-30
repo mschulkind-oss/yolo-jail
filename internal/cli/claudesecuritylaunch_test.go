@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -163,8 +164,10 @@ func TestAccountClaudeGeneratedLauncherDispatchesFixtureFallback(t *testing.T) {
 		t.Fatal("shipped pack tree unavailable")
 	}
 	home := t.TempDir()
+	// "false", never "0": the agent_updates wire is JSON, and a number is not a setting, so the
+	// policy reader treats it as absent and leaves updates OPEN (config.PackPolicyDecision).
 	e := entrypoint.NewEnv(map[string]string{
-		"JAIL_HOME": home, "YOLO_PACK_ROOT": root, "YOLO_AGENT_UPDATES": "0",
+		"JAIL_HOME": home, "YOLO_PACK_ROOT": root, entrypoint.AgentUpdatesEnv: "false",
 		claudesecurity.EnvVar: claudesecurity.AccountMode,
 		claudeview.SwitchEnv:  claudeview.ResolvedValue(true),
 	})
@@ -173,6 +176,17 @@ func TestAccountClaudeGeneratedLauncherDispatchesFixtureFallback(t *testing.T) {
 	}
 	if err := entrypoint.GenerateAgentLaunchers(e); err != nil {
 		t.Fatal(err)
+	}
+	// HERMETIC BY CONSTRUCTION: the fixture's agent_updates policy must freeze the pack before the
+	// launcher runs. Left open, the launcher's evergreen update re-runs this fake as
+	// `claude install` outside the security adapter, and when that fails it probes the pack's real
+	// installer URL to decide whether to refuse — so the verdict hung on whether the network
+	// answered. Checked on the generated text, so a regression fails here without touching it.
+	launcher := filepath.Join(e.LaunchDir(), "claude")
+	if body, err := os.ReadFile(launcher); err != nil {
+		t.Fatal(err)
+	} else if !regexp.MustCompile(`(?m)^UPDATES_ENABLED='?0'?$`).Match(body) {
+		t.Fatalf("generated Claude launcher %s would update, and reach its upstream, in a test: want UPDATES_ENABLED=0", launcher)
 	}
 	program := filepath.Join(home, ".local", "bin", "claude")
 	writeTestExecutable(t, program, `#!/bin/sh
@@ -197,12 +211,15 @@ printf '%s\n' '{"dummy":"account fallback"}' > "$YOLO_TEST_ACCOUNT_VIEW"
 	results := filepath.Join(home, "account-results")
 	fallback := filepath.Join(home, "account-view.json")
 	pathEnv := strings.Join([]string{e.LaunchDir(), e.BlockDir(), filepath.Join(home, ".local", "bin"), fakeBin, "/usr/bin", "/bin"}, string(os.PathListSeparator))
-	cmd := exec.Command(filepath.Join(e.LaunchDir(), "claude"))
+	cmd := exec.Command(launcher)
 	cmd.Env = []string{"HOME=" + home, "PATH=" + pathEnv, "YOLO_TEST_CLAUDE_SECURITY_DISPATCH=1",
 		"YOLO_CLAUDE_SECURITY_COMPAT=account", "YOLO_TEST_ACCOUNT_RESULTS=" + results, "YOLO_TEST_ACCOUNT_VIEW=" + fallback}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("generated account Claude launcher failed: %v\n%s", err, out)
+	}
+	if strings.Contains(string(out), "Updating claude") {
+		t.Fatalf("generated account Claude launcher ran an update in a test:\n%s", out)
 	}
 	if got, err := os.ReadFile(results); err != nil || strings.TrimSpace(string(got)) != "50 50" {
 		t.Fatalf("account adapter results %q, err=%v; want argv/stdin add refusal 50/50", got, err)
