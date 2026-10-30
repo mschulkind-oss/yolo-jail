@@ -92,7 +92,11 @@ var foldableFacts = []string{"context", "max_tokens", "reasoning", "accepts", "p
 // twinRows). A row this cannot convert (a null fact, a key with no readable spelling) is left as
 // it is, for the rename table to report. renamed maps each new path to the old one, for comment
 // placement; twins are the rows written as `twin_of`.
-func convertModelRows(value any, path []string, twinOf bool) (out any, renamed map[string][]string, twins []Twin) {
+//
+// only, when not nil, limits the twins to the rows whose dotted paths it holds: the merged read
+// twins only what the per-file conversion did, since a sibling in the other file is out of reach
+// of the file actually written.
+func convertModelRows(value any, path []string, twinOf bool, only map[string]bool) (out any, renamed map[string][]string, twins []Twin) {
 	providers, ok := value.(*jsonx.OrderedMap)
 	if !ok {
 		return value, nil, nil
@@ -134,7 +138,7 @@ func convertModelRows(value any, path []string, twinOf bool) (out any, renamed m
 		}
 		var twinned map[string]string
 		if twinOf {
-			twinned = twinRows(converted)
+			twinned = twinRows(converted, func(key string) bool { return only == nil || only[dotted(rowPath(key))] })
 		}
 		for _, key := range keys {
 			row, ok := converted[key]
@@ -174,7 +178,7 @@ func convertModelRows(value any, path []string, twinOf bool) (out any, renamed m
 // is left out; whether the twin's facts are then still its own is the plan's proof, which plans
 // again with `wire_id` when they are not (Plan). A sibling that sends another row's id is not
 // named: the twin's facts would then come from a third row.
-func twinRows(converted map[string]*jsonx.OrderedMap) map[string]string {
+func twinRows(converted map[string]*jsonx.OrderedMap, may func(key string) bool) map[string]string {
 	listed := map[string]string{}
 	for key, row := range converted {
 		if _, sends := row.Get("wire_id"); sends {
@@ -191,7 +195,7 @@ func twinRows(converted map[string]*jsonx.OrderedMap) map[string]string {
 		wire, sends := row.Get("wire_id")
 		wireID, _ := wire.(string)
 		sibling, found := listed[wireID]
-		if !sends || !found || sibling == key {
+		if !sends || !found || sibling == key || !may(key) {
 			continue
 		}
 		out := jsonx.NewOrderedMap()
@@ -202,7 +206,11 @@ func twinRows(converted map[string]*jsonx.OrderedMap) map[string]string {
 				out.Set("twin_of", sibling)
 				continue
 			case "extends":
-				if theirs, ok := converted[sibling].Get("extends"); ok && theirs == v {
+				// Strings only: a malformed list `extends` is not comparable with ==.
+				theirs, ok := converted[sibling].Get("extends")
+				ts, tok := theirs.(string)
+				vs, vok := v.(string)
+				if ok && tok && vok && ts == vs {
 					continue
 				}
 			}

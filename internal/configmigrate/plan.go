@@ -659,7 +659,9 @@ func readCanonical(g *Graph, userTop, workspace string, remotes []string, view *
 	if lowerOld {
 		s.user, _ = canonicalOld(read.User, loweringContext{scope: ScopeUser, remotes: remotes, user: view, inlineEnv: opts.inlineEnv, twinOf: opts.twinOf})
 		s.project, _ = canonicalOld(read.Workspace, loweringContext{scope: ScopeProject, remotes: remotes, user: view, inlineEnv: opts.inlineEnv, twinOf: opts.twinOf})
-		s.composed, _ = canonicalOld(read.Composed, loweringContext{scope: ScopeProject, remotes: remotes, user: view, merged: true, inlineEnv: opts.inlineEnv, twinOf: opts.twinOf})
+		twins := fileTwins(map[string]bool{}, read.User, loweringContext{scope: ScopeUser, remotes: remotes, user: view, inlineEnv: opts.inlineEnv, twinOf: opts.twinOf})
+		twins = fileTwins(twins, read.Workspace, loweringContext{scope: ScopeProject, remotes: remotes, user: view, inlineEnv: opts.inlineEnv, twinOf: opts.twinOf})
+		s.composed, _ = canonicalOld(read.Composed, loweringContext{scope: ScopeProject, remotes: remotes, user: view, merged: true, inlineEnv: opts.inlineEnv, twinOf: opts.twinOf, twinsOnly: twins})
 		// The OLD spelling as the launch reads it, not its lowering: the proof is that the
 		// converted files resolve to the env the old ones resolve to.
 		s.env = launchEnv(read.Composed)

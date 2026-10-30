@@ -74,6 +74,8 @@ type loweringContext struct {
 	// twinOf writes a legacy `wire_id` twin as `twin_of` its sibling's key (MF-D3). The plan
 	// turns it off when the provider table differs with it on (Plan).
 	twinOf bool
+	// twinsOnly, when not nil, limits twinOf to these dotted row paths (convertModelRows).
+	twinsOnly map[string]bool
 }
 
 // lowered is one lowering's result: the new-vocabulary values, the old path each new path came
@@ -189,7 +191,7 @@ func lower(old *jsonx.OrderedMap, ctx loweringContext, file string) lowered {
 		switch key {
 		case "providers":
 			var twins []Twin
-			value, renamed, twins = convertModelRows(value, path, ctx.twinOf)
+			value, renamed, twins = convertModelRows(value, path, ctx.twinOf, ctx.twinsOnly)
 			out.twins = append(out.twins, twins...)
 		case "model_facts":
 			value, renamed = lowerModelFacts(value)
@@ -758,6 +760,18 @@ func deletePath(m *jsonx.OrderedMap, path []string) {
 
 // canonicalOld is the equality check's old side for one scope: what the readers made of the old
 // files, lowered, with every key the lowering cannot convert kept at its old spelling.
+// fileTwins is the set of row paths each file's own conversion writes as `twin_of`, the only twins
+// the merged read may assume (convertModelRows).
+func fileTwins(set map[string]bool, doc *jsonx.OrderedMap, ctx loweringContext) map[string]bool {
+	if doc != nil {
+		ctx.keepUnconverted = true
+		for _, tw := range lower(jsonx.DeepCopyMap(doc), ctx, "").twins {
+			set[tw.Path] = true
+		}
+	}
+	return set
+}
+
 func canonicalOld(read *jsonx.OrderedMap, ctx loweringContext) (*jsonx.OrderedMap, []NotConverted) {
 	ctx.keepUnconverted = true
 	l := lower(jsonx.DeepCopyMap(read), ctx, "")

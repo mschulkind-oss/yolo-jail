@@ -308,3 +308,42 @@ func TestAHandWrittenTOMLOfTheConvertedShapeComposesTheSameProviderTable(t *test
 		t.Fatalf("the hand-written TOML composes a different provider table:\n got %s\nwant %s", s.set.providers, legacy)
 	}
 }
+
+// A twin whose sibling lives in the other file keeps `wire_id` in the file it is written to, and
+// the merged read twins only what a file's own conversion did, so the proof is equal (MF-D8).
+func TestATwinWhoseSiblingIsInTheOtherFileKeepsWireIDAndProves(t *testing.T) {
+	home := env(t)
+	dir := filepath.Join(home, ".config", "yolo-jail")
+	write(t, filepath.Join(dir, "config.jsonc"), `{"providers": {"openrouter": {"models": {
+  "floor": {"id": "acme/m:floor", "name": "Floor"}
+}}}}
+`)
+	ws := realDir(t)
+	project := filepath.Join(ws, "yolo-jail.jsonc")
+	write(t, project, `{"providers": {"openrouter": {"models": {
+  "floor-300k": {"id": "acme/m:floor@300k", "wire_id": "acme/m:floor", "name": "Floor"}
+}}}}
+`)
+	p := plan(t, Request{UserConfigDir: dir, Workspace: ws})
+	if !p.Equal || len(p.NotConverted) != 0 {
+		t.Fatalf("plan unequal: %+v\n%+v", p.Differences, p.NotConverted)
+	}
+	wantLines(t, string(target(t, p, project).Bytes), []string{`wire_id = "acme/m:floor"`}, []string{"twin_of"})
+}
+
+// A malformed list `extends` on a twin and its sibling is not comparable with ==; the plan
+// must not panic on it.
+func TestATwinWithAListExtendsDoesNotPanic(t *testing.T) {
+	home := env(t)
+	user := filepath.Join(home, ".config", "yolo-jail", "config.jsonc")
+	write(t, user, `{"providers": {"openrouter": {"models": {
+  "floor": {"id": "acme/m:floor", "extends": ["m"]},
+  "floor-300k": {"id": "acme/m:floor@300k", "wire_id": "acme/m:floor", "extends": ["m"]}
+}}}}
+`)
+	g, err := Discover(Request{UserConfigDir: filepath.Dir(user)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = Plan(g)
+}
