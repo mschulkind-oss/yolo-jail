@@ -68,13 +68,17 @@ var configRenames = []RenameDescriptor{
 	{OldPath: "profiles.*.subagents", Replacements: []string{"providers.*.variants.*.subagents"}, Scope: SchemaScopeUserOnly, Transform: RenameMove},
 	{OldPath: "profiles.*.*", Replacements: []string{"providers.*.variants.*.*"}, Scope: SchemaScopeUserOnly, Transform: RenameUnmatchedFields},
 	{OldPath: "providers.*.base_url", Replacements: []string{"providers.*.endpoints.*.base_url"}, Scope: SchemaScopeUserOnly, Transform: RenameValueRewrite},
-	{OldPath: "model_facts.*", Replacements: []string{"providers.*.every_model"}, Scope: SchemaScopeUserOnly, Transform: RenameFoldWhenEqual},
-	{OldPath: "providers.*.models.*.extends", Replacements: []string{"providers.*.every_model"}, Scope: SchemaScopeBoth, Transform: RenameValueRewrite},
-	{OldPath: "providers.*.models.*.wire_id", Replacements: []string{"providers.*.models.*.twin_of"}, Scope: SchemaScopeBoth, Transform: RenameValueRewrite},
+	// Shared facts keep their name, a row's pointer at them and a row's sent id theirs
+	// (docs/design/model-facts-migration.md MF-D2, MF-D3): identity rows, which the conversion
+	// passes through (lower.go's model_facts case respells each entry's facts).
+	{OldPath: "model_facts.*", Replacements: []string{"model_facts.*"}, Scope: SchemaScopeUserOnly, Transform: RenameKey},
+	{OldPath: "providers.*.models.*.extends", Replacements: []string{"providers.*.models.*.extends"}, Scope: SchemaScopeBoth, Transform: RenameKey},
+	{OldPath: "providers.*.models.*.wire_id", Replacements: []string{"providers.*.models.*.wire_id"}, Scope: SchemaScopeBoth, Transform: RenameKey},
 	{OldPath: "providers.*.models.*.context_window", Replacements: []string{"providers.*.models.*.context", "providers.*.every_model.context"}, Scope: SchemaScopeBoth, Transform: RenameFoldWhenEqual},
 	{OldPath: "providers.*.models.*.input", Replacements: []string{"providers.*.models.*.accepts", "providers.*.every_model.accepts"}, Scope: SchemaScopeBoth, Transform: RenameFoldWhenEqual},
 	{OldPath: "providers.*.models.*.cost", Replacements: []string{"providers.*.models.*.price", "providers.*.every_model.price"}, Scope: SchemaScopeBoth, Transform: RenameFoldWhenEqual},
-	{OldPath: "providers.*.models.*.id", Replacements: []string{"providers.*.models.<id>"}, Scope: SchemaScopeBoth, Transform: RenameDropDerived},
+	// A row keyed by a name says its id with `model`; one keyed by its id says nothing (MF-D1).
+	{OldPath: "providers.*.models.*.id", Replacements: []string{"providers.*.models.*.model"}, Scope: SchemaScopeBoth, Transform: RenameKey},
 	{OldPath: "providers.*.models.*.vendor", Replacements: []string{"providers.*.models.<id>"}, Scope: SchemaScopeBoth, Transform: RenameDropDerived},
 	{OldPath: "providers.*.models.*.max_tokens", Replacements: []string{"providers.*.models.*.max_tokens", "providers.*.every_model.max_tokens"}, Scope: SchemaScopeBoth, Transform: RenameFoldWhenEqual},
 	{OldPath: "providers.*.models.*.reasoning", Replacements: []string{"providers.*.models.*.reasoning", "providers.*.every_model.reasoning"}, Scope: SchemaScopeBoth, Transform: RenameFoldWhenEqual},

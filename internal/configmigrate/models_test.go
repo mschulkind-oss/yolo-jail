@@ -124,29 +124,3 @@ func TestPlanRefusesAConversionThatWouldReorderAModelList(t *testing.T) {
 		t.Errorf("the refusal does not name the order:\n%v", err)
 	}
 }
-
-// A ROW WHOSE ALIAS IS NOT ITS ID has no readable spelling (a readable row is keyed by the id it
-// sends), so it is not converted, and the plan says so rather than writing a different model.
-func TestPlanLeavesAnAliasedLegacyRowNotConverted(t *testing.T) {
-	home := env(t)
-	user := filepath.Join(home, ".config", "yolo-jail", "config.jsonc")
-	write(t, user, `{"providers": {"bedrock": {"models": {"opus": {"id": "global.anthropic.claude-opus-5-5", "context_window": 1000000}}}}}
-`)
-	g, err := Discover(Request{UserConfigDir: filepath.Dir(user)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	p, err := Plan(g)
-	if err == nil || p.Equal {
-		t.Fatalf("an aliased row must not prove equal: %v", err)
-	}
-	found := false
-	for _, nc := range p.NotConverted {
-		if strings.HasPrefix(nc.Path, "providers.bedrock.models.opus") {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("not converted does not name the aliased row: %+v", p.NotConverted)
-	}
-}

@@ -270,11 +270,12 @@ func unreadFactsNote(provider, at string, fields []string) string {
 		"keep them for when one does, or remove them", provider, at, strings.Join(fields, ", "))
 }
 
-// readableRowOverAlias refuses a user's readable row (keyed by the id it sends) written over an
-// alias a lower layer ships for a different wire id. The row would replace the alias whole and send
-// the alias name as the model id, which is the silent wire-id rewrite config.validateModelEntry's
-// required `id` exists to prevent (RC-D29): a user adding one fact to a pack's `default` meant the
-// pack's model, not a model named `default`.
+// readableRowOverAlias refuses a user's readable row that says no `model` (so is the model its key
+// names) written over an alias a lower layer ships for a different wire id. The row would replace
+// the alias whole and send the alias name as the model id, the silent wire-id rewrite RC-D29 (7)
+// exists to prevent: a user adding one fact to a pack's `default` meant the pack's model, not a
+// model named `default`. A row that says `model` names its model itself (MF-D1), so it is the one
+// remedy the refusal names.
 func readableRowOverAlias(provider string, base, override *jsonx.OrderedMap) error {
 	shipped := childMap(base, "models")
 	written := childMap(override, "models")
@@ -282,11 +283,14 @@ func readableRowOverAlias(provider string, base, override *jsonx.OrderedMap) err
 		return nil
 	}
 	for _, id := range readableRowIDs(written) {
+		if _, named := childMap(written, id).Get("model"); named {
+			continue
+		}
 		wire, _ := shipped.Get(id)
 		if s, isAlias := wire.(string); isAlias && s != id {
-			return fmt.Errorf("providers.%s.models.%s: the pack ships %q as an alias for the model %q, and a row "+
-				"without `id` is keyed by the model it sends, so it would send %q instead; write `id = %q` in it to add "+
-				"facts to the alias, or key the row by %q", provider, id, id, s, id, s, s)
+			return fmt.Errorf("providers.%s.models.%s: the pack ships %q as a name for the model %q, and a row "+
+				"that says no `model` is the model its key names, so it would send %q instead; write `model = %q` in "+
+				"it to add facts to the pack's model", provider, id, id, s, id, s)
 		}
 	}
 	return nil

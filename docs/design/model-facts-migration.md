@@ -3,14 +3,14 @@ title: "Models in the new config: shared facts, names, twins, and a conversion t
 date: 2026-10-30
 status: accepted
 stage: DESIGN
-next: "Write the implementation plan from the sketch and build it; OQ-MF1 is ruled (A)"
+next: "Built (MF-D1..MF-D9); graduate into a system doc once the owner has migrated his own file"
 tags: [config, models, providers, migration, toml, model-facts, twins, design]
 summary: "The maintainer's personal config declares its models four ways the TOML config cannot say yet: facts written once and shared by a model's routes, a short name for a long wire id, a 300k twin that sends its sibling's id, and facts added to a pack's `default`. This doc gives each a TOML spelling (existing where one exists, one new field otherwise), the migration's conversion rule, and what the equality proof compares, so `yolo config migrate` converts that file with nothing left over. Part of the readable-config redesign."
 ---
 
 # Models in the new config: shared facts, names, twins, and a conversion that proves itself
 
-**Status:** accepted, 2026-10-30 ([OQ-MF1](#OQ-MF1) ruled). Nothing here is built yet. The evidence is a dry run of
+**Status:** accepted, 2026-10-30 ([OQ-MF1](#OQ-MF1) ruled), and built the same day: every ledger row names its tests in the Built column. The evidence is a dry run of
 `yolo config migrate` over the maintainer's own user config on 2026-10-30, read against the
 composition and the converter at the current tree ([appendix B](#appendix-b-evidence)). The
 name spelling in [§3.1](#31-a-name-for-a-model) is its second draft: the owner read the first
@@ -358,17 +358,21 @@ and prints the difference key by key, as today.
 
 ## Decision Ledger
 
-The owner's ruling and the lane decisions, 2026-10-30; each lane decision is reversible and cites the ruling it builds. Nothing is
-built; the Built column is empty on purpose.
+The owner's ruling and the lane decisions, 2026-10-30; each lane decision is reversible and cites the ruling it builds. Every row is
+built; its Built column names the tests that pin it.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| <a id="OQ-MF1"></a>[OQ-MF1](#OQ-MF1) | **A model's row is keyed by its short name and says which model it is with `model = "<id>"`; the id is not the only name.** The owner's ruling (2026-10-30), taking option A: *"it is the file's own shape with `id` respelled, one model per row, and the only way a pack's `default` takes user facts."* [MF-D1](#MF-D1) is the mechanism | 2026-10-30 | [§3.1](#31-a-name-for-a-model) | — |
-| <a id="MF-D1"></a>MF-D1 | **A readable row is keyed by its id unless it says `model`; then the key is the model's name and `model` is the id the model is listed and registered under. A pack's string `default = "<id>"` is the shorthand of a row saying only `model`. `id` stays refused in TOML, and its rename row names `model`. The RC-D29 (7) refusal fires only for a row over a pack's alias for another id that says no `model`, and names `model = "<id>"`. The migration writes `model` from a legacy row's `id` when the two differ.** Amends [RC-D29](readable-config.md#RC-D29) (2)'s definition of a row; builds RC-D29 (7) and [RC-D30](readable-config.md#RC-D30) (2), (3). Reason: the owner read the first draft's name line beside an id-keyed row as two models and as backwards (2026-10-30); the row keyed by its name is the file's own shape, needs no new composition rule, and is the only way a pack's `default` takes user facts. Conditional on [OQ-MF1](#OQ-MF1) | 2026-10-30 | [§3.1](#31-a-name-for-a-model) | — |
-| <a id="MF-D2"></a>MF-D2 | **`model_facts` keeps its name as a readable top-level table with the row fact spellings, refusing route-only keys; `extends` stays a row key; both rename rows become identity rows and the converter passes both through.** Building [OQ-ML5](model-lists-and-pickers.md#oq-ml4-ml5-setup), [ML-D12](model-lists-and-pickers.md#ML-D12), [ML-D14](model-lists-and-pickers.md#ML-D14). `every_model` is per provider, `model_facts` per model across providers, and a fold into `every_model` changes `model_options.*.extends` and `model_shared`, so the rename row's fold could never prove equal and would change what a shared-form pi reads | 2026-10-30 | [§3.2](#32-facts-shared-by-a-models-routes) | — |
-| <a id="MF-D3"></a>MF-D3 | **A legacy `wire_id` row converts to `twin_of` naming the sibling row's key when a row of the same provider has that id and the proof holds; otherwise to a row with `wire_id`, which the schema admits and whose rename row goes. `context_window` on a twin respells to `context`.** Building [pack-manifests.md §4](pack-manifests.md#4-flags-that-add-and-a-model-said-once), [RC-D29](readable-config.md#RC-D29) (3), (4), the retry pattern of [RC-D30](readable-config.md#RC-D30) (4). `twin_of` is what the file's twins mean and makes "a tier and its twin cannot split" structural; `wire_id` is what the decoder already reads and covers the twin `twin_of` cannot say | 2026-10-30 | [§3.3](#33-a-twin-one-wire-id-at-two-windows) | — |
-| <a id="MF-D4"></a>MF-D4 | **`options.model` naming a row's key is left as written.** It converts today and keeps its meaning under MF-D1 | 2026-10-30 | [§3.4](#34-the-starting-model-named-by-a-name) | — |
-| <a id="MF-D5"></a>MF-D5 | **The proof's provider-table layer compares a vendor the id names as derived: a legacy row with no `vendor` is compared as if it carried the maker `InferModelVendor` gives its id, and the transcript names each such row.** Building [RC-D30](readable-config.md#RC-D30) (2)'s "a vendor the id names is derived" and [OQ-BR9](bedrock-plumbing.md#decision-ledger). The one place the table is not byte-equal; without it no `<maker>/` row ever converts. The launch after migration carries the maker; no reader acts on it for a provider whose derive passes no maker set | 2026-10-30 | [§3.5](#35-the-maker-an-id-names) | — |
+| <a id="OQ-MF1"></a>[OQ-MF1](#OQ-MF1) | **A model's row is keyed by its short name and says which model it is with `model = "<id>"`; the id is not the only name.** The owner's ruling (2026-10-30), taking option A: *"it is the file's own shape with `id` respelled, one model per row, and the only way a pack's `default` takes user facts."* [MF-D1](#MF-D1) is the mechanism | 2026-10-30 | [§3.1](#31-a-name-for-a-model) | built through [MF-D1](#MF-D1) |
+| <a id="MF-D1"></a>MF-D1 | **A readable row is keyed by its id unless it says `model`; then the key is the model's name and `model` is the id the model is listed and registered under. A pack's string `default = "<id>"` is the shorthand of a row saying only `model`. `id` stays refused in TOML, and its rename row names `model`. The RC-D29 (7) refusal fires only for a row over a pack's alias for another id that says no `model`, and names `model = "<id>"`. The migration writes `model` from a legacy row's `id` when the two differ.** Amends [RC-D29](readable-config.md#RC-D29) (2)'s definition of a row; builds RC-D29 (7) and [RC-D30](readable-config.md#RC-D30) (2), (3). Reason: the owner read the first draft's name line beside an id-keyed row as two models and as backwards (2026-10-30); the row keyed by its name is the file's own shape, needs no new composition rule, and is the only way a pack's `default` takes user facts. Conditional on [OQ-MF1](#OQ-MF1) | 2026-10-30 | [§3.1](#31-a-name-for-a-model) | built; `TestAReadableRowAcceptsModelAndWireID`, `TestTheIDKeyIsRefusedNamingModel`, `TestARowKeyedByANameListsItsModelUnderTheName`, `TestARowWithNoModelIsTheModelItsKeyNames`, `TestAUsersDefaultRowWithModelAddsFactsToThePacksDefault`, `TestARowOverAPackAliasWithoutModelIsRefusedNamingModel`, `TestPlanConvertsANamedRowToARowWithModel` |
+| <a id="MF-D2"></a>MF-D2 | **`model_facts` keeps its name as a readable top-level table with the row fact spellings, refusing route-only keys; `extends` stays a row key; both rename rows become identity rows and the converter passes both through.** Building [OQ-ML5](model-lists-and-pickers.md#oq-ml4-ml5-setup), [ML-D12](model-lists-and-pickers.md#ML-D12), [ML-D14](model-lists-and-pickers.md#ML-D14). `every_model` is per provider, `model_facts` per model across providers, and a fold into `every_model` changes `model_options.*.extends` and `model_shared`, so the rename row's fold could never prove equal and would change what a shared-form pi reads | 2026-10-30 | [§3.2](#32-facts-shared-by-a-models-routes) | built; `TestModelFactsIsAReadableTopLevelTable`, `TestAModelFactsEntryRefusesWhatOnlyARouteCanSay`, `TestReadableSharedFactsLayUnderARowThatExtendsThem`, `TestPlanConvertsModelFactsAndExtendsUnchanged` |
+| <a id="MF-D3"></a>MF-D3 | **A legacy `wire_id` row converts to `twin_of` naming the sibling row's key when a row of the same provider has that id and the proof holds; otherwise to a row with `wire_id`, which the schema admits and whose rename row goes. `context_window` on a twin respells to `context`.** Building [pack-manifests.md §4](pack-manifests.md#4-flags-that-add-and-a-model-said-once), [RC-D29](readable-config.md#RC-D29) (3), (4), the retry pattern of [RC-D30](readable-config.md#RC-D30) (4). `twin_of` is what the file's twins mean and makes "a tier and its twin cannot split" structural; `wire_id` is what the decoder already reads and covers the twin `twin_of` cannot say | 2026-10-30 | [§3.3](#33-a-twin-one-wire-id-at-two-windows) | built; `TestATwinOfANamedRowSendsItsModel`, `TestAWireIDRowSendsItAndKeepsItsOwnFacts`, `TestPlanConvertsAWireIDTwinToTwinOfTheSiblingsKey`, `TestPlanKeepsWireIDWhenTwinOfWouldChangeTheTwin`, `TestPlanFallsBackToWireIDWhenTwinOfChangesTheTable` |
+| <a id="MF-D4"></a>MF-D4 | **`options.model` naming a row's key is left as written.** It converts today and keeps its meaning under MF-D1 | 2026-10-30 | [§3.4](#34-the-starting-model-named-by-a-name) | built; `TestPlanConvertsTheMaintainersModelSectionsWithNothingLeft` (`options.model = "floor"` passes through) |
+| <a id="MF-D5"></a>MF-D5 | **The proof's provider-table layer compares a vendor the id names as derived: a legacy row with no `vendor` is compared as if it carried the maker `InferModelVendor` gives its id, and the transcript names each such row.** Building [RC-D30](readable-config.md#RC-D30) (2)'s "a vendor the id names is derived" and [OQ-BR9](bedrock-plumbing.md#decision-ledger). The one place the table is not byte-equal; without it no `<maker>/` row ever converts. The launch after migration carries the maker; no reader acts on it for a provider whose derive passes no maker set | 2026-10-30 | [§3.5](#35-the-maker-an-id-names) | built; `TestPlanComparesAVendorTheIDNamesAsDerived`, `TestPlanTranscriptNamesTwinsAndDerivedVendors` |
+| <a id="MF-D6"></a>MF-D6 | **A `model_facts` entry is read in the readable spelling when it writes a key only that spelling has (`accepts`, `price`, `context`, `api`, `thinking`, `images`, `vendor`), and in the legacy spelling otherwise; validation and composition ask the one predicate (`packdecl.IsReadableModelFacts`). The readable schema keeps `model_facts` among its removed roots and lists the readable paths explicitly.** Building [MF-D2](#MF-D2). The composition reads the merged config, where a legacy file's entries still arrive in the legacy spelling, so it must read both; an entry of only the shared keys (`name`, `reasoning`, `max_tokens`, `base`, `openrouter_routing`) lowers the same either way. Keeping the root removed is what keeps the legacy `input`, `cost` and `context_window` out of the TOML schema; the sketch's "take it out of the removed roots" would have admitted them | 2026-10-30 | [§3.2](#32-facts-shared-by-a-models-routes) | built; `TestModelFactsIsAReadableTopLevelTable`, `TestReadableSharedFactsLayUnderARowThatExtendsThem` |
+| <a id="MF-D7"></a>MF-D7 | **A user's readable row is the id its `model` says, else its key, wherever the composition asks which model a row is: the catalog lookup, the inferred maker, the default wire id, the listed id, and the drop of a pack's `vendor` for a row the user repointed (`dropRepointedVendors`).** Building [MF-D1](#MF-D1); `model` is literal and never resolved as another row's key | 2026-10-30 | [§3.1](#31-a-name-for-a-model) | built; `TestARowKeyedByANameListsItsModelUnderTheName`, `TestAUsersDefaultRowWithModelAddsFactsToThePacksDefault` |
+| <a id="MF-D8"></a>MF-D8 | **The converter names a sibling for `twin_of` only when it is a converted row of the same provider that sends no other row's id; the twin's `extends`, when it names the sibling's, is left out (the twin takes it). A table difference is retried with the folds dropped first, then with each twin keeping `wire_id` (folds back on, then off), then the inline env as before.** Building [MF-D3](#MF-D3). A twin of a twin would take its facts from a third row; dropping the folds first keeps a twin that the fold, not the twin, broke | 2026-10-30 | [§3.3](#33-a-twin-one-wire-id-at-two-windows) | built; `TestPlanFallsBackToWireIDWhenTwinOfChangesTheTable`, `TestPlanConvertsTheMaintainersModelSectionsWithNothingLeft` |
+| <a id="MF-D9"></a>MF-D9 | **The vendor fill runs on both sides of the provider-table layer, creating the model's facts when it has none, and the transcript names the models filled on the old side and not the new.** Building [MF-D5](#MF-D5). A row left legacy on both sides is filled on both and compares equal; only a row the conversion made readable is named | 2026-10-30 | [§3.5](#35-the-maker-an-id-names) | built; `TestPlanComparesAVendorTheIDNamesAsDerived` |
 
 ## Implementation sketch
 
@@ -380,9 +384,10 @@ against the tree.
 writes one; then the composition, so the launch reads what the schema accepts; then the
 converter; then the proof; then the end-to-end fixture.
 
-1. **Schema and validation** (`internal/config/schema.go`, `renames.go`, `validatereadablemodels.go`,
-   `readablevalidate.go`, `internal/packdecl/toml.go`). Take `model_facts` out of the readable
-   schema's removed roots and add `model_facts.*` with the fact keys `every_model` has, user scope.
+1. **Schema and validation** (`internal/config/schema.go`, `renames.go`, `removals.go`,
+   `validateproviders.go`, `internal/packdecl/toml.go`). Keep `model_facts` among the readable
+   schema's removed roots, so no legacy path of it carries over, and add `model_facts.*` with the
+   fact keys `every_model` has, user scope ([MF-D6](#MF-D6)).
    Add `providers.*.models.*.model` and `providers.*.models.*.wire_id` (strings). Give
    `packdecl.ProviderModel` a `Model` field. Turn the `model_facts.*`, `providers.*.models.*.extends`
    and `providers.*.models.*.wire_id` rename rows into identity rows; point the
@@ -413,18 +418,19 @@ converter; then the proof; then the end-to-end fixture.
    `TestPlanKeepsWireIDWhenTwinOfWouldChangeTheTwin`,
    `TestPlanConvertsModelFactsAndExtendsUnchanged`. `TestPlanLeavesAnAliasedLegacyRowNotConverted`
    becomes the first of these rather than being deleted: the pinned behavior is replaced, not dropped.
-4. **Proof** (`internal/configmigrate/models.go` `providerTable`, `plan.go`). On the old side, fill
-   a `vendor` the id names into each `model_options.<alias>` lacking one, recording the aliases
+4. **Proof** (`internal/configmigrate/models.go` `providerTable`, `plan.go`). On both sides, fill
+   a `vendor` the id names into each `model_options.<alias>` lacking one ([MF-D9](#MF-D9)), recording the aliases
    for the transcript; add the `twin_of`-then-`wire_id` retry beside the fold retry, with the
    plan's reason line. Tests: `TestPlanComparesAVendorTheIDNamesAsDerived`,
-   `TestPlanFallsBackToWireIDWhenTwinOfChangesTheTable`, and a transcript test naming both lines.
+   `TestPlanFallsBackToWireIDWhenTwinOfChangesTheTable`, and the transcript test naming both lines, `TestPlanTranscriptNamesTwinsAndDerivedVendors`.
 5. **The end-to-end fixture.** A test fixture shaped like [appendix A.1](#a1-what-yolo-config-migrate-writes)'s
    source: `model_facts` with two entries, a named row with `extends`, two `wire_id` twins, a
    full named row, a pack-aliased `default` with facts, a no-pack provider with `default`, and
    `options.model` naming a name. `TestPlanConvertsTheMaintainersModelSectionsWithNothingLeft`
    asserts `Equal`, an empty `NotConverted`, the written TOML's lines, and that `Apply` reads it
-   back through the same proof. Then the dry run of the real file on the maintainer's machine, which
-   only he can run; its output is the design's measurement.
+   back through the same proof; `TestAHandWrittenTOMLOfTheConvertedShapeComposesTheSameProviderTable`
+   composes a hand-written TOML of that shape to the same provider table. Then the dry run of the
+   real file on the maintainer's machine; its output is the design's measurement.
 
 **Not in this plan.** Tombstones in TOML; the pack string shorthand in user config; the
 `brokered → allow` conversion of the user config, which another lane is converting now.

@@ -44,6 +44,15 @@ type Target struct {
 	// Folded are the facts every model row of a provider repeated, written once in its
 	// `every_model` (models.go).
 	Folded []FoldedFact
+	// Twins are the legacy `wire_id` rows written as `twin_of` their sibling (models.go, MF-D3).
+	Twins []Twin
+}
+
+// DerivedVendor is one model the launch after migration carries a `vendor` for that the old
+// config left unsaid: its id names the maker, which a readable row infers and a legacy row did
+// not (model-facts-migration.md MF-D5). The proof compares it as derived; the transcript names it.
+type DerivedVendor struct {
+	Provider, Model, Vendor string
 }
 
 // Difference is one key on which the old and the converted config disagree.
@@ -95,6 +104,8 @@ type MigrationPlan struct {
 	Records        []Record
 	// Ignores keep each converted file out of commits as git kept its old name out.
 	Ignores []Ignore
+	// DerivedVendors are the models whose `vendor` the proof compared as derived (MF-D5).
+	DerivedVendors []DerivedVendor
 
 	canonical canonicalSet
 }
@@ -146,13 +157,28 @@ type canonicalSet struct {
 // every file of every scope, so a later scope's files can make it mean something else, and a plan
 // that converted them and does not prove equal in the environment is planned again with them
 // left unconverted. A refusal elsewhere keeps the conversion, so it names only what it is about.
+//
+// A legacy `wire_id` twin is written as `twin_of` its sibling the same way (model-facts-migration.md
+// MF-D3): a plan with twins whose provider table still differs once the folds are dropped is
+// planned again with each twin keeping `wire_id`, first with the folds and then without.
 func Plan(g *Graph) (*MigrationPlan, error) {
-	opts := planOptions{fold: true, inlineEnv: true}
+	opts := planOptions{fold: true, inlineEnv: true, twinOf: true}
 	p, err := planWith(g, opts)
 	var ineq *InequalityError
-	if errors.As(err, &ineq) && p.folded() && p.differsIn(providerTableLayer) {
-		opts.fold = false
-		p, err = planWith(g, opts)
+	if errors.As(err, &ineq) && p.differsIn(providerTableLayer) {
+		twinned := p.twinned()
+		if p.folded() {
+			opts.fold = false
+			p, err = planWith(g, opts)
+		}
+		if errors.As(err, &ineq) && twinned && p.differsIn(providerTableLayer) {
+			opts.twinOf, opts.fold = false, true
+			p, err = planWith(g, opts)
+			if errors.As(err, &ineq) && p.folded() && p.differsIn(providerTableLayer) {
+				opts.fold = false
+				p, err = planWith(g, opts)
+			}
+		}
 	}
 	if errors.As(err, &ineq) && hasInlineEnv(g) && p.differsInEnv() {
 		opts.inlineEnv = false
@@ -163,7 +189,7 @@ func Plan(g *Graph) (*MigrationPlan, error) {
 
 // planOptions are the conversions a plan makes only while the proof holds.
 type planOptions struct {
-	fold, inlineEnv bool
+	fold, inlineEnv, twinOf bool
 }
 
 // hasInlineEnv is whether a file being converted writes an inline variable entry in env_sources.
@@ -188,6 +214,15 @@ const providerTableLayer = "the provider table the launch resolves"
 
 // envLayer is the equality check's layer for the environment a launch resolves.
 const envLayer = "the environment the launch resolves"
+
+func (p *MigrationPlan) twinned() bool {
+	for _, t := range p.Targets {
+		if len(t.Twins) > 0 {
+			return true
+		}
+	}
+	return false
+}
 
 func (p *MigrationPlan) folded() bool {
 	for _, t := range p.Targets {
@@ -230,7 +265,7 @@ func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 	for _, f := range g.Files {
 		switch f.Role {
 		case RoleConvert:
-			writers.add(lower(f.doc.Values, loweringContext{scope: f.Scope, remotes: remotes, user: view, inlineEnv: opts.inlineEnv}, f.Logical).values)
+			writers.add(lower(f.doc.Values, loweringContext{scope: f.Scope, remotes: remotes, user: view, inlineEnv: opts.inlineEnv, twinOf: opts.twinOf}, f.Logical).values)
 		default:
 			writers.add(f.doc.Values)
 		}
@@ -263,7 +298,7 @@ func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 	if err := p.preflight(); err != nil {
 		return nil, err
 	}
-	before, err := readCanonical(g, oldTop(g), g.Request.Workspace, remotes, view, "", true, opts.inlineEnv, packs)
+	before, err := readCanonical(g, oldTop(g), g.Request.Workspace, remotes, view, "", true, opts, packs)
 	if err != nil {
 		return nil, fmt.Errorf("read the old config: %w", err)
 	}
@@ -279,7 +314,7 @@ func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 	if err != nil {
 		return nil, fmt.Errorf("stage the converted files: %w", err)
 	}
-	after, err := readCanonical(g, userTop, workspace, nil, nil, mirror, false, false, packs)
+	after, err := readCanonical(g, userTop, workspace, nil, nil, mirror, false, planOptions{}, packs)
 	if err != nil {
 		return nil, fmt.Errorf("the converted files would not read: %w; nothing was written", err)
 	}
@@ -291,6 +326,7 @@ func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 	p.Differences = append(p.Differences, diffValues(envLayer, before.env, after.env)...)
 	p.Differences = append(p.Differences, diffValues(providerTableLayer, before.providers, after.providers)...)
 	p.Differences = append(p.Differences, diffValues(brokerGrantsLayer, before.grants, after.grants)...)
+	p.DerivedVendors = derivedOnlyBefore(before.derived, after.derived)
 	p.Equal = before.set == after.set
 	if g.Request.Workspace != "" && len(g.project) > 0 {
 		p.Records = planRecords(g.Request.Workspace)
@@ -311,7 +347,7 @@ func oldTop(g *Graph) string {
 
 // convertFile makes one old file's TOML.
 func convertFile(f *File, remotes []string, view *userView, writers writerCounts, opts planOptions) (Target, []NotConverted, error) {
-	l := lower(f.doc.Values, loweringContext{scope: f.Scope, remotes: remotes, user: view, inlineEnv: opts.inlineEnv}, f.Logical)
+	l := lower(f.doc.Values, loweringContext{scope: f.Scope, remotes: remotes, user: view, inlineEnv: opts.inlineEnv, twinOf: opts.twinOf}, f.Logical)
 	dropped := dropDefaults(l.values, writers)
 	var folded []FoldedFact
 	if opts.fold {
@@ -359,7 +395,7 @@ func convertFile(f *File, remotes []string, view *userView, writers writerCounts
 		return Target{}, nil, fmt.Errorf("%s: %w", f.Logical, err)
 	}
 	t := Target{File: f, Old: f.Physical, New: twinPath(f.Physical), Backup: f.Physical + ".pre-migrate",
-		Bytes: data, Comments: len(comments), Respelled: respelled, Dropped: dropped, Folded: folded}
+		Bytes: data, Comments: len(comments), Respelled: respelled, Dropped: dropped, Folded: folded, Twins: l.twins}
 	link, err := linkFor(f)
 	if err != nil {
 		return Target{}, nil, err
@@ -563,6 +599,8 @@ type sideRead struct {
 	env *jsonx.OrderedMap
 	// providers is the provider table a launch resolves from the merged read (providerTable).
 	providers *jsonx.OrderedMap
+	// derived are the vendors providerTable filled in from an id that names its maker (MF-D5).
+	derived []DerivedVendor
 	// grants is what the user config grants each broker (brokerGrants).
 	grants *jsonx.OrderedMap
 	set    canonicalSet
@@ -608,7 +646,7 @@ var loweredRoots = []string{"env_sources", "env", "brokered", "requests", "allow
 // readCanonical reads one side through the launch's readers (config.ReadMigrationGraph). The old
 // side (remotes non-nil or mirror empty) is lowered; the new side is the readers' output with
 // the staging root taken back out of every anchored path.
-func readCanonical(g *Graph, userTop, workspace string, remotes []string, view *userView, mirror string, lowerOld, inlineEnv bool, packs []*packload.Pack) (*sideRead, error) {
+func readCanonical(g *Graph, userTop, workspace string, remotes []string, view *userView, mirror string, lowerOld bool, opts planOptions, packs []*packload.Pack) (*sideRead, error) {
 	read, err := config.ReadMigrationGraph(userTop, workspace)
 	if err != nil {
 		return nil, err
@@ -619,13 +657,13 @@ func readCanonical(g *Graph, userTop, workspace string, remotes []string, view *
 	}
 	s := &sideRead{}
 	if lowerOld {
-		s.user, _ = canonicalOld(read.User, loweringContext{scope: ScopeUser, remotes: remotes, user: view, inlineEnv: inlineEnv})
-		s.project, _ = canonicalOld(read.Workspace, loweringContext{scope: ScopeProject, remotes: remotes, user: view, inlineEnv: inlineEnv})
-		s.composed, _ = canonicalOld(read.Composed, loweringContext{scope: ScopeProject, remotes: remotes, user: view, merged: true, inlineEnv: inlineEnv})
+		s.user, _ = canonicalOld(read.User, loweringContext{scope: ScopeUser, remotes: remotes, user: view, inlineEnv: opts.inlineEnv, twinOf: opts.twinOf})
+		s.project, _ = canonicalOld(read.Workspace, loweringContext{scope: ScopeProject, remotes: remotes, user: view, inlineEnv: opts.inlineEnv, twinOf: opts.twinOf})
+		s.composed, _ = canonicalOld(read.Composed, loweringContext{scope: ScopeProject, remotes: remotes, user: view, merged: true, inlineEnv: opts.inlineEnv, twinOf: opts.twinOf})
 		// The OLD spelling as the launch reads it, not its lowering: the proof is that the
 		// converted files resolve to the env the old ones resolve to.
 		s.env = launchEnv(read.Composed)
-		s.providers = providerTable(withMovedProviderKeys(read.Composed, s.composed), packs)
+		s.providers, s.derived = providerTable(withMovedProviderKeys(read.Composed, s.composed), packs)
 		// The OLD user config as the brokers read it, not its lowering.
 		s.grants = brokerGrants(read.User, brokers)
 	} else {
@@ -633,7 +671,7 @@ func readCanonical(g *Graph, userTop, workspace string, remotes []string, view *
 		s.project = unmirror(read.Workspace, mirror).(*jsonx.OrderedMap)
 		s.composed = unmirror(read.Composed, mirror).(*jsonx.OrderedMap)
 		s.env = launchEnv(s.composed)
-		s.providers = providerTable(s.composed, packs)
+		s.providers, s.derived = providerTable(s.composed, packs)
 		s.grants = brokerGrants(s.user, brokers)
 	}
 	for _, m := range []*jsonx.OrderedMap{s.user, s.project, s.composed} {

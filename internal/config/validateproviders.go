@@ -246,6 +246,26 @@ func validateModelFacts(config *jsonx.OrderedMap, errs *[]string) map[string]boo
 			continue
 		}
 		names[name] = true
+		routeOnly := false
+		for _, key := range packdecl.ModelFactsRouteOnlyKeys {
+			if _, has := entry.Get(key); has {
+				routeOnly = true
+				add(errs, fmt.Sprintf("%s.%s: only a route says %s; a model_facts entry says only what every "+
+					"route of the model shares, so write it on the row that `extends` this entry", path, key, key))
+			}
+		}
+		if routeOnly {
+			continue
+		}
+		// The readable spelling (MF-D2) is checked by the decoder a row and `every_model` take;
+		// the legacy one by its own shape check, which accepts the same values for the keys the
+		// two spellings share.
+		if packdecl.IsReadableModelFacts(entry) {
+			if _, err := packdecl.DecodeModelFacts(name, entry); err != nil {
+				add(errs, "config."+err.Error())
+			}
+			continue
+		}
 		reportUnknownKeys(entry, knownSharedModelKeys, path, errs)
 		validateModelFactValues(entry, path, errs)
 	}

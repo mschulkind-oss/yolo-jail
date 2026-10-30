@@ -71,14 +71,18 @@ type loweringContext struct {
 	// inlineEnv converts inline variable entries that follow every file in env_sources to
 	// env.set and env.unset. The plan turns it off when the proof fails with it on (Plan).
 	inlineEnv bool
+	// twinOf writes a legacy `wire_id` twin as `twin_of` its sibling's key (MF-D3). The plan
+	// turns it off when the provider table differs with it on (Plan).
+	twinOf bool
 }
 
 // lowered is one lowering's result: the new-vocabulary values, the old path each new path came
-// from (for comment placement), and what it could not convert.
+// from (for comment placement), what it could not convert, and the rows written as `twin_of`.
 type lowered struct {
 	values  *jsonx.OrderedMap
 	origins map[string][]string
 	skipped []NotConverted
+	twins   []Twin
 }
 
 // renameReplacement is the first replacement the rename table gives an old path: the one table
@@ -181,12 +185,17 @@ func lower(old *jsonx.OrderedMap, ctx loweringContext, file string) lowered {
 			skip(path, value, unconvertedReason(d))
 			continue
 		}
-		if key == "providers" {
-			var renamed map[string][]string
-			value, renamed = convertModelRows(value, path)
-			for newPath, oldPath := range renamed {
-				out.origins[newPath] = oldPath
-			}
+		var renamed map[string][]string
+		switch key {
+		case "providers":
+			var twins []Twin
+			value, renamed, twins = convertModelRows(value, path, ctx.twinOf)
+			out.twins = append(out.twins, twins...)
+		case "model_facts":
+			value, renamed = lowerModelFacts(value)
+		}
+		for newPath, oldPath := range renamed {
+			out.origins[newPath] = oldPath
 		}
 		kept, dropped := filterRenamedLeaves(value, path)
 		// Place what converts first: a dropped leaf kept at its old spelling is written beside

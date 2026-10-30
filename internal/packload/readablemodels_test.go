@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 )
 
@@ -137,15 +138,101 @@ func TestACatalogFillsAReadableRowAndOnlyAReadableRow(t *testing.T) {
 	}
 }
 
-// A READABLE ROW OVER A PACK'S ALIAS FOR ANOTHER ID refuses: the row would send the alias name as
-// the model id (RC-D29), the rewrite a legacy row's required `id` prevents.
-func TestAReadableRowOverAPackAliasForAnotherIDRefuses(t *testing.T) {
+// A READABLE ROW OVER A PACK'S ALIAS FOR ANOTHER ID that says no `model` refuses: it would send the
+// alias name as the model id (RC-D29 (7)). The one remedy it names is `model` (MF-D1); the legacy
+// `id` it used to name is refused in TOML.
+func TestARowOverAPackAliasWithoutModelIsRefusedNamingModel(t *testing.T) {
 	pack := &Pack{Name: "kilo", Decl: declFrom(t, `{"contributes":[{"kind":"provider","name":"kilo",
 	 "models":{"default":"qwen-3.8-27b"}}]}`)}
 	_, err := ComposeProviders(userProviders(t, `{"kilo":{"models":{"default":{"reasoning":true}}}}`), []*Pack{pack})
-	if err == nil || !strings.Contains(err.Error(), `write `+"`id = \"qwen-3.8-27b\"`") {
-		t.Fatalf("want a refusal naming the id to write, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "write `model = \"qwen-3.8-27b\"`") || strings.Contains(err.Error(), "`id") {
+		t.Fatalf("want a refusal naming model as the one remedy, got %v", err)
 	}
+}
+
+// docs/design/model-facts-migration.md §3.1 (MF-D1): A ROW KEYED BY A NAME says which model it is
+// with `model`; the table lists the model under the name, and the maker, the catalog and the wire
+// id follow from the model, not the name.
+func TestARowKeyedByANameListsItsModelUnderTheName(t *testing.T) {
+	got := composeReadable(t, `{"openrouter":{"models":{"floor":{"model":"deepseek/v4:floor","name":"Floor","context":1048576}}}}`, nil)
+	wantSubstrings(t, got,
+		`"floor": "deepseek/v4:floor"`,
+		`"floor": {"order": "0", "name": "Floor", "vendor": "deepseek", "context_window": "1048576"}`,
+	)
+	if strings.Contains(got, `"model"`) || strings.Contains(got, "wire_id") {
+		t.Errorf("a name's row leaked its own key or a wire id into the derives' table: %s", got)
+	}
+}
+
+func TestARowWithNoModelIsTheModelItsKeyNames(t *testing.T) {
+	got := composeReadable(t, `{"acme":{"models":{"acme/one":{"name":"One"}}}}`, nil)
+	wantSubstrings(t, got, `"acme/one": "acme/one"`, `"vendor": "acme"`)
+}
+
+// A user's `default` row saying the pack's model adds facts to the pack's `default`: one model, the
+// pack's id, the pack's facts under the user's.
+func TestAUsersDefaultRowWithModelAddsFactsToThePacksDefault(t *testing.T) {
+	pack := &Pack{Name: "kilo", Decl: declFrom(t, `{"contributes":[{"kind":"provider","name":"kilo",
+	 "models":{"default":"qwen-3.8-27b"},"model_options":{"default":{"description":"Pack's","vendor":"qwen"}}}]}`)}
+	got := composeReadable(t, `{"kilo":{"models":{"default":{"model":"qwen-3.8-27b","name":"Qwen 27B","max_tokens":32768}}}}`, []*Pack{pack})
+	wantSubstrings(t, got,
+		`"models": {"default": "qwen-3.8-27b"}`,
+		`"description": "Pack's"`, `"vendor": "qwen"`, `"name": "Qwen 27B"`, `"max_tokens": "32768"`,
+	)
+}
+
+// MF-D2: a readable `model_facts` entry lays under a row that `extends` it exactly as the same
+// facts in the legacy spelling do, pin and `model_shared` included.
+func TestReadableSharedFactsLayUnderARowThatExtendsThem(t *testing.T) {
+	rows := `{"openrouter":{"models":{"floor":{"id":"deepseek/v4:floor","extends":"floor-1017"},"mimo":"xiaomi/mimo"}}}`
+	readable := userProviders(t, `{"floor-1017":{"base":"deepseek/v4","name":"Floor","reasoning":true,"accepts":["text","image"],
+	  "price":{"input":0.098,"output":0.294,"cache_read":0.00294,"cache_write":0},"context":1048576,"max_tokens":131072,
+	  "openrouter_routing":{"order":["morph","cloudflare"],"allow_fallbacks":false}}}`)
+	legacy := userProviders(t, `{"floor-1017":{"base":"deepseek/v4","name":"Floor","reasoning":true,"input":["text","image"],
+	  "cost":{"input":0.098,"output":0.294,"cache_read":0.00294,"cache_write":0},"context_window":1048576,"max_tokens":131072,
+	  "openrouter_routing":{"allow_fallbacks":false,"order":["morph","cloudflare"]}}}`)
+	snapshot := func(shared *jsonx.OrderedMap) string {
+		table, err := ComposeProviders(userProviders(t, rows), nil, WithModelFacts(shared))
+		if err != nil {
+			t.Fatalf("composing: %v", err)
+		}
+		s, err := jsonx.DumpsSnapshot(table)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+	got, want := snapshot(readable), snapshot(legacy)
+	if got != want {
+		t.Fatalf("the readable spelling composed a different table:\n got %s\nwant %s", got, want)
+	}
+	wantSubstrings(t, dump(t, userProviders(t, got)),
+		`"cost_input": "0.098"`, `"context_window": "1048576"`, `"extends": "floor-1017"`, `"model_shared"`, `"morph"`)
+}
+
+// MF-D3: a twin of a row keyed by a name lists its own model, sends its sibling's, and takes the
+// sibling's facts (its `extends` and pin included) under the ones it states.
+func TestATwinOfANamedRowSendsItsModel(t *testing.T) {
+	got := composeReadable(t, `{"openrouter":{"models":{
+	  "floor":{"model":"deepseek/v4:floor","extends":"floor-1017"},
+	  "floor-300k":{"model":"deepseek/v4:floor@300k","twin_of":"floor","name":"Floor (300k)","context":307200}}}}`, nil,
+		WithModelFacts(userProviders(t, `{"floor-1017":{"name":"Floor","max_tokens":131072,"openrouter_routing":{"order":["morph"]}}}`)))
+	wantSubstrings(t, got,
+		`"floor-300k": "deepseek/v4:floor@300k"`,
+		`"floor-300k": {"max_tokens": "131072", "name": "Floor (300k)", "order": "1", "vendor": "deepseek", "context_window": "307200", "wire_id": "deepseek/v4:floor", "extends": "floor-1017"}`,
+		`"floor-300k": {"order": ["morph"]}`,
+	)
+}
+
+// MF-D3: a row with `wire_id` sends it and keeps only its own facts: none of its sibling's.
+func TestAWireIDRowSendsItAndKeepsItsOwnFacts(t *testing.T) {
+	got := composeReadable(t, `{"openrouter":{"models":{
+	  "floor":{"model":"deepseek/v4:floor","max_tokens":131072},
+	  "floor-300k":{"model":"deepseek/v4:floor@300k","wire_id":"deepseek/v4:floor","context":307200}}}}`, nil)
+	wantSubstrings(t, got,
+		`"floor-300k": "deepseek/v4:floor@300k"`,
+		`"floor-300k": {"order": "1", "vendor": "deepseek", "context_window": "307200", "wire_id": "deepseek/v4:floor"}`,
+	)
 }
 
 // FACTS NO DERIVE READS YET are a note, not a refusal: the model still launches.

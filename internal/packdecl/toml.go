@@ -47,6 +47,10 @@ type ProviderVariant struct {
 
 // ProviderModel contains one model row's shared, provider-independent facts.
 type ProviderModel struct {
+	// Model is the id a row keyed by a name lists and registers its model under
+	// (docs/design/model-facts-migration.md MF-D1); a row without it is the model its key names.
+	// It is a row's own, so `every_model` and a `model_facts` entry refuse it.
+	Model             string         `json:"model,omitempty"`
 	Name              string         `json:"name,omitempty"`
 	Description       string         `json:"description,omitempty"`
 	Vendor            string         `json:"vendor,omitempty"`
@@ -1026,7 +1030,7 @@ func unknownModelField(raw any, path string) string {
 	if !ok {
 		return ""
 	}
-	if key := firstUnknownKey(model, "name", "description", "vendor", "api", "thinking", "images", "price", "context", "max_tokens", "reasoning", "accepts", "base", "wire_id", "extends", "openrouter_routing", "twin_of", "compact_at"); key != "" {
+	if key := firstUnknownKey(model, "model", "name", "description", "vendor", "api", "thinking", "images", "price", "context", "max_tokens", "reasoning", "accepts", "base", "wire_id", "extends", "openrouter_routing", "twin_of", "compact_at"); key != "" {
 		return path + "." + key
 	}
 	if images, ok := model["images"].(map[string]any); ok {
@@ -1351,6 +1355,52 @@ func decodeProviderModel(raw any) (ProviderModel, error) {
 	return model, err
 }
 
+// ModelFactsRouteOnlyKeys are the row keys a top-level `model_facts` entry refuses: what only one
+// route of a model can say, never a fact every route of it shares
+// (docs/design/model-facts-migration.md MF-D2).
+var ModelFactsRouteOnlyKeys = []string{"model", "wire_id", "twin_of", "compact_at", "extends"}
+
+// readableModelFactKeys are the keys only the readable spelling of a `model_facts` entry writes
+// (MF-D2); the legacy spelling writes `input`, `cost` and `context_window` instead, and the keys
+// the two share mean the same in both.
+var readableModelFactKeys = map[string]bool{"accepts": true, "price": true, "context": true, "api": true,
+	"thinking": true, "images": true, "vendor": true}
+
+// IsReadableModelFacts is whether a `model_facts` entry is in the readable spelling: it writes a
+// key only that spelling has. One that writes none reads the same either way.
+func IsReadableModelFacts(entry *jsonx.OrderedMap) bool {
+	for _, key := range entry.Keys() {
+		if readableModelFactKeys[key] {
+			return true
+		}
+	}
+	return false
+}
+
+// DecodeModelFacts decodes one readable `model_facts.<name>` entry (MF-D2) through the decoder a
+// row and `every_model` take, so one spelling cannot be accepted by one and refused by another.
+// It refuses the keys only a route can say (ModelFactsRouteOnlyKeys).
+func DecodeModelFacts(name string, entry *jsonx.OrderedMap) (ProviderModel, error) {
+	label := "model_facts." + name
+	for _, key := range ModelFactsRouteOnlyKeys {
+		if _, ok := entry.Get(key); ok {
+			return ProviderModel{}, fmt.Errorf("%s.%s: only a route says %s; a model_facts entry says only what every route of the model shares, so write it on the row", label, key, key)
+		}
+	}
+	raw, ok := orderedProviderMap(entry)
+	if !ok {
+		return ProviderModel{}, fmt.Errorf("%s: expected a table", label)
+	}
+	model, err := decodeProviderModel(raw)
+	if err != nil {
+		return ProviderModel{}, fmt.Errorf("%s: %w", label, err)
+	}
+	if err := validateProviderModel(label, raw, model); err != nil {
+		return ProviderModel{}, err
+	}
+	return model, nil
+}
+
 func decodeStrictValue(raw any, dst any) error {
 	data, err := json.Marshal(raw)
 	if err != nil {
@@ -1363,6 +1413,14 @@ func decodeStrictValue(raw any, dst any) error {
 
 func validateProviderModel(label string, raw any, model ProviderModel) error {
 	facts, _ := raw.(map[string]any)
+	if value, ok := facts["model"]; ok {
+		if label == "every_model" {
+			return fmt.Errorf("every_model.model: only a row says which model it is; write `model` on a row under models")
+		}
+		if text, valid := value.(string); !valid || text == "" || strings.ContainsAny(text, " \t\r\n") {
+			return fmt.Errorf("%s.model must be a non-empty model id without whitespace", label)
+		}
+	}
 	if value, ok := facts["api"]; ok {
 		api, valid := value.(string)
 		if !valid || api == "" {

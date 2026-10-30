@@ -189,13 +189,13 @@ func readFile(t *testing.T, path string) string {
 }
 
 // TestAnUnrelatedRefusalKeepsTheInlineConversion is the owner's work config: a refusal elsewhere
-// (here `model_facts`, which has no TOML spelling) must not make the plan drop a trailing inline env_sources
+// (here a null in `model_facts`, which has no TOML spelling) must not make the plan drop a trailing inline env_sources
 // table it converts exactly, and name env_sources as not converted beside the real refusal.
 func TestAnUnrelatedRefusalKeepsTheInlineConversion(t *testing.T) {
 	home := env(t)
 	dir := filepath.Join(home, ".config", "yolo-jail")
 	write(t, filepath.Join(dir, "local.env"), "A=f\n")
-	write(t, filepath.Join(dir, "config.jsonc"), `{"env_sources": ["local.env", {"PI_TRUE_COLOR": "1"}], "model_facts": {"m": {"reasoning": true}}}`+"\n")
+	write(t, filepath.Join(dir, "config.jsonc"), `{"env_sources": ["local.env", {"PI_TRUE_COLOR": "1"}], "model_facts": {"m": {"reasoning": null}}}`+"\n")
 	_, err := Plan(discoverFor(t, Request{UserConfigDir: dir, Workspace: realDir(t)}))
 	var ineq *InequalityError
 	if !errors.As(err, &ineq) {

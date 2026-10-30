@@ -61,7 +61,6 @@ func TestConfigSetOnARenamedLegacyRootNamesTheReplacement(t *testing.T) {
 			{[]string{"set", "loopholes.audio.enabled", "true"}, "yolo loopholes enable"},
 			{[]string{"set", "loopholes.audio.settings.x", "1"}, "allow.audio.<setting>"},
 			{[]string{"set", "profiles.x.model", "m"}, "providers.<name>"},
-			{[]string{"set", "model_facts.x.context", "1"}, "every_model"},
 		} {
 			name := "toml"
 			start := "# keep project\n"

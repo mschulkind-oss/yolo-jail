@@ -22,7 +22,10 @@ import (
 // ReadableModel is one selectable canonical model identity and its fully composed facts. CompactAt
 // is selection metadata, not a replacement id; WireID is the inherited/overridden wire identity.
 type ReadableModel struct {
-	ID             string
+	ID string
+	// Model is the id the model is listed and registered under: the row's `model`, or its key
+	// when it says none (docs/design/model-facts-migration.md MF-D1). ID is the key.
+	Model          string
 	WireID         string
 	WireIDAuthored bool
 	CompactAt      int64
@@ -144,9 +147,15 @@ func composeProviderModels(provider packdecl.ProviderContribution, catalog map[s
 		}
 		row := provider.ModelRows[id]
 		state[id] = 1
+		// The id the row lists: its `model`, else its key (MF-D1). The catalog, the maker and the
+		// wire id follow from it, never from a name.
+		listed := row.Model
+		if listed == "" {
+			listed = id
+		}
 		facts := packdecl.ProviderModel{}
 		compactAt := int64(0)
-		if catalogFacts, ok := catalog[id]; ok {
+		if catalogFacts, ok := catalog[listed]; ok {
 			if err := ValidateProviderModelFacts(catalogFacts); err != nil {
 				return ReadableModel{}, fmt.Errorf("provider %s model %q catalog facts: %w", provider.Name, id, err)
 			}
@@ -168,12 +177,12 @@ func composeProviderModels(provider packdecl.ProviderContribution, catalog map[s
 			facts = CloneProviderModel(base.Facts)
 			inheritedWireID = base.WireID
 		}
-		facts = MergeProviderModel(facts, row)
+		facts = MergeProviderModel(facts, row) // never `model`: a row's own, not a fact
 		if row.CompactAt != 0 {
 			compactAt = row.CompactAt
 		}
 		if facts.Vendor == "" {
-			if maker := inferProviderMaker(id); maker != "" {
+			if maker := inferProviderMaker(listed); maker != "" {
 				facts.Vendor = maker
 			}
 		}
@@ -197,9 +206,9 @@ func composeProviderModels(provider packdecl.ProviderContribution, catalog map[s
 			wireID = row.WireID
 		}
 		if wireID == "" {
-			wireID = id
+			wireID = listed
 		}
-		resolved := ReadableModel{ID: id, WireID: wireID, WireIDAuthored: facts.WireID != "" || row.TwinOf != "", CompactAt: compactAt, Facts: CloneProviderModel(facts)}
+		resolved := ReadableModel{ID: id, Model: listed, WireID: wireID, WireIDAuthored: facts.WireID != "" || row.TwinOf != "", CompactAt: compactAt, Facts: CloneProviderModel(facts)}
 		rows.ByID[id] = resolved
 		state[id] = 2
 		return resolved, nil
@@ -433,7 +442,7 @@ func CloneProviderModel(model packdecl.ProviderModel) packdecl.ProviderModel {
 	copy.Price = cloneProviderPrice(model.Price)
 	copy.Thinking = modelRowStrings(model.Thinking)
 	copy.Accepts = modelRowStrings(model.Accepts)
-	copy.TwinOf, copy.CompactAt = model.TwinOf, model.CompactAt
+	copy.Model, copy.TwinOf, copy.CompactAt = model.Model, model.TwinOf, model.CompactAt
 	return copy
 }
 
@@ -489,7 +498,11 @@ func ProjectProviderModelsForLegacyDerives(models ReadableModels) (LegacyDeriveP
 		if model.ID != "" && model.ID != id {
 			return LegacyDeriveProjection{}, fmt.Errorf("model key %q disagrees with row id %q", id, model.ID)
 		}
-		ids.Set(id, id)
+		listed := model.Model
+		if listed == "" {
+			listed = id
+		}
+		ids.Set(id, listed)
 		facts := model.Facts
 		flat := jsonx.NewOrderedMap()
 		flat.Set("order", strconv.Itoa(ordinal))

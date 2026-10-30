@@ -26,28 +26,76 @@ type FoldedFact struct {
 }
 
 // legacyRowFacts are the legacy object-row keys a readable row has a spelling for, each with
-// that spelling. `extends` and `wire_id` are not here: one points at shared facts and the other
-// sends another row's id, and neither has a readable form this conversion can prove.
+// that spelling (docs/design/model-facts-migration.md §3): `id` is the row's `model` (MF-D1),
+// `extends` names shared facts in both (MF-D2), and `wire_id` is kept or becomes `twin_of`
+// (MF-D3, twinRows).
 var legacyRowFacts = map[string]string{
-	"id": "", "vendor": "vendor",
+	"id": "model", "vendor": "vendor",
 	"name": "name", "description": "description", "reasoning": "reasoning", "max_tokens": "max_tokens",
 	"base": "base", "openrouter_routing": "openrouter_routing",
 	"context_window": "context", "input": "accepts", "cost": "price",
+	"extends": "extends", "wire_id": "wire_id",
+}
+
+// Twin is one legacy `wire_id` row written as `twin_of` the row whose id it sends (MF-D3).
+type Twin struct {
+	// Path is the twin's row, dotted; Of is the key of the row it is a twin of.
+	Path, Of string
+}
+
+// legacySharedFacts are the legacy `model_facts` entry keys respelled in the readable entry
+// (MF-D2); every other key keeps its name.
+var legacySharedFacts = map[string]string{"context_window": "context", "input": "accepts", "cost": "price"}
+
+// lowerModelFacts respells each `model_facts` entry's keys as a row's are (MF-D2). renamed maps
+// each new path to the old one, for comment placement; an entry that is not a table passes as it
+// is, for validation to name.
+func lowerModelFacts(value any) (any, map[string][]string) {
+	entries, ok := value.(*jsonx.OrderedMap)
+	if !ok || entries == nil {
+		return value, nil
+	}
+	renamed := map[string][]string{}
+	out := jsonx.NewOrderedMap()
+	for _, name := range entries.Keys() {
+		raw, _ := entries.Get(name)
+		entry, isMap := raw.(*jsonx.OrderedMap)
+		if !isMap || entry == nil {
+			out.Set(name, raw)
+			continue
+		}
+		respelled := jsonx.NewOrderedMap()
+		for _, k := range entry.Keys() {
+			v, _ := entry.Get(k)
+			key := k
+			if spelled, ok := legacySharedFacts[k]; ok {
+				if _, taken := entry.Get(spelled); !taken {
+					key = spelled
+					renamed[strings.Join([]string{"model_facts", name, key}, "\x00")] = []string{"model_facts", name, k}
+				}
+			}
+			respelled.Set(key, v)
+		}
+		out.Set(name, respelled)
+	}
+	return out, renamed
 }
 
 // foldableFacts are the readable facts the rename table says `every_model` may carry
 // (config.RenameDescriptors, the RenameFoldWhenEqual rows), in the order they are written.
 var foldableFacts = []string{"context", "max_tokens", "reasoning", "accepts", "price"}
 
-// convertModelRows returns providers with each legacy row keyed by its own id rewritten as a
-// readable row: the keys respelled, `id` left out (it is the key), and `vendor` left out when the
-// id names the same maker. A row this cannot convert (an alias for another id, a null fact, a
-// shared-facts pointer) is left as it is, for the rename table to report. renamed maps each new
-// path to the old one, for comment placement.
-func convertModelRows(value any, path []string) (out any, renamed map[string][]string) {
+// convertModelRows returns providers with each legacy row rewritten as a readable row: the keys
+// respelled, `id` written as `model` when it is not the row's key (MF-D1) and left out when it is,
+// and `vendor` left out when the id names the same maker. With twinOf, a row whose `wire_id` is
+// the id of another converted row of its provider says `twin_of` that row's key instead (MF-D3,
+// twinRows). A row this cannot convert (a null fact, a key with no readable spelling) is left as
+// it is, for the rename table to report. renamed maps each new path to the old one, for comment
+// placement; twins are the rows written as `twin_of`.
+func convertModelRows(value any, path []string, twinOf bool) (out any, renamed map[string][]string, twins []Twin) {
 	providers, ok := value.(*jsonx.OrderedMap)
 	if !ok {
-		return value, nil
+		return value, nil, nil
 	}
 	renamed = map[string][]string{}
 	result := jsonx.NewOrderedMap()
@@ -60,41 +108,52 @@ func convertModelRows(value any, path []string) (out any, renamed map[string][]s
 			continue
 		}
 		rows := jsonx.NewOrderedMap()
-		ids := append([]string(nil), models.Keys()...)
+		keys := append([]string(nil), models.Keys()...)
 		converted := map[string]*jsonx.OrderedMap{}
-		for _, id := range ids {
-			v, _ := models.Get(id)
-			if row, ok := readableFromLegacy(id, v); ok {
-				converted[id] = row
+		for _, key := range keys {
+			v, _ := models.Get(key)
+			if row, ok := readableFromLegacy(key, v); ok {
+				converted[key] = row
 			}
 		}
 		// A readable row's place in its provider is an order every derive sorts by, where a
 		// legacy alias sorts by its name: the converted rows go in that order so the sort is
 		// unchanged. Rows left legacy keep their place after them.
 		if len(converted) > 0 {
-			sort.SliceStable(ids, func(i, j int) bool {
-				_, ci := converted[ids[i]]
-				_, cj := converted[ids[j]]
+			sort.SliceStable(keys, func(i, j int) bool {
+				_, ci := converted[keys[i]]
+				_, cj := converted[keys[j]]
 				if ci != cj {
 					return ci
 				}
-				return ci && ids[i] < ids[j]
+				return ci && keys[i] < keys[j]
 			})
 		}
-		for _, id := range ids {
-			if row, ok := converted[id]; ok {
-				rows.Set(id, row)
-				old, _ := models.Get(id)
-				for _, key := range old.(*jsonx.OrderedMap).Keys() {
-					if spelled := legacyRowFacts[key]; spelled != "" && spelled != key {
-						renamed[strings.Join(append(append([]string(nil), path...), name, "models", id, spelled), "\x00")] =
-							append(append([]string(nil), path...), name, "models", id, key)
-					}
-				}
+		rowPath := func(key string, leaf ...string) []string {
+			return append(append(append([]string(nil), path...), name, "models", key), leaf...)
+		}
+		var twinned map[string]string
+		if twinOf {
+			twinned = twinRows(converted)
+		}
+		for _, key := range keys {
+			row, ok := converted[key]
+			if !ok {
+				v, _ := models.Get(key)
+				rows.Set(key, v)
 				continue
 			}
-			v, _ := models.Get(id)
-			rows.Set(id, v)
+			rows.Set(key, row)
+			old, _ := models.Get(key)
+			for _, k := range old.(*jsonx.OrderedMap).Keys() {
+				if spelled := legacyRowFacts[k]; spelled != k {
+					renamed[strings.Join(rowPath(key, spelled), "\x00")] = rowPath(key, k)
+				}
+			}
+			if of, ok := twinned[key]; ok {
+				renamed[strings.Join(rowPath(key, "twin_of"), "\x00")] = rowPath(key, "wire_id")
+				twins = append(twins, Twin{Path: dotted(rowPath(key)), Of: of})
+			}
 		}
 		copied := jsonx.NewOrderedMap()
 		for _, key := range entry.Keys() {
@@ -106,31 +165,89 @@ func convertModelRows(value any, path []string) (out any, renamed map[string][]s
 		}
 		result.Set(name, copied)
 	}
-	return result, renamed
+	return result, renamed, twins
 }
 
-// readableFromLegacy is one legacy row as a readable row, false when it has none.
+// twinRows rewrites, in place, each converted row whose `wire_id` is the id another converted row
+// lists (its `model`, or its key) as `twin_of` that row's key, and returns twin → sibling. A twin
+// takes every fact of its sibling, its `extends` included, so an `extends` naming the sibling's
+// is left out; whether the twin's facts are then still its own is the plan's proof, which plans
+// again with `wire_id` when they are not (Plan). A sibling that sends another row's id is not
+// named: the twin's facts would then come from a third row.
+func twinRows(converted map[string]*jsonx.OrderedMap) map[string]string {
+	listed := map[string]string{}
+	for key, row := range converted {
+		if _, sends := row.Get("wire_id"); sends {
+			continue
+		}
+		id := key
+		if model, ok := row.Get("model"); ok {
+			id, _ = model.(string)
+		}
+		listed[id] = key
+	}
+	twins := map[string]string{}
+	for key, row := range converted {
+		wire, sends := row.Get("wire_id")
+		wireID, _ := wire.(string)
+		sibling, found := listed[wireID]
+		if !sends || !found || sibling == key {
+			continue
+		}
+		out := jsonx.NewOrderedMap()
+		for _, k := range row.Keys() {
+			v, _ := row.Get(k)
+			switch k {
+			case "wire_id":
+				out.Set("twin_of", sibling)
+				continue
+			case "extends":
+				if theirs, ok := converted[sibling].Get("extends"); ok && theirs == v {
+					continue
+				}
+			}
+			out.Set(k, v)
+		}
+		for _, k := range append([]string(nil), row.Keys()...) {
+			row.Delete(k)
+		}
+		for _, k := range out.Keys() {
+			v, _ := out.Get(k)
+			row.Set(k, v)
+		}
+		twins[key] = sibling
+	}
+	return twins
+}
+
+// readableFromLegacy is one legacy row as a readable row, false when it has none: a row with no
+// string `id`, or with a fact that is null or has no readable spelling. The row keeps its key;
+// its `id` is written first, as `model`, unless it is the key (MF-D1).
 func readableFromLegacy(key string, value any) (*jsonx.OrderedMap, bool) {
 	row, ok := value.(*jsonx.OrderedMap)
 	if !ok {
 		return nil, false
 	}
-	id, hasID := row.Get("id")
-	if s, isString := id.(string); !hasID || !isString || s != key {
+	raw, hasID := row.Get("id")
+	id, isString := raw.(string)
+	if !hasID || !isString || id == "" {
 		return nil, false
 	}
 	out := jsonx.NewOrderedMap()
+	if id != key {
+		out.Set("model", id)
+	}
 	for _, k := range row.Keys() {
 		v, _ := row.Get(k)
 		spelled, known := legacyRowFacts[k]
 		if !known || v == nil {
 			return nil, false
 		}
-		switch {
-		case spelled == "":
+		switch k {
+		case "id":
 			continue
-		case k == "vendor":
-			if maker, _ := v.(string); maker == packload.InferModelVendor(key) {
+		case "vendor":
+			if maker, _ := v.(string); maker == packload.InferModelVendor(id) {
 				continue
 			}
 		}
@@ -268,19 +385,21 @@ const modelOrderKey = "(model order)"
 
 // providerTable is the provider table a launch resolves from one side's merged read, composed
 // with every shipped pack and the offline catalog, canonical: each provider's `order` facts are
-// replaced by the order they make (modelOrderKey). A composition that refuses is its refusal.
-func providerTable(read *jsonx.OrderedMap, packs []*packload.Pack) *jsonx.OrderedMap {
-	out := jsonx.NewOrderedMap()
+// replaced by the order they make (modelOrderKey), and a `vendor` the model's id names is filled
+// in where the composition left none (deriveVendors, MF-D5). A composition that refuses is its
+// refusal. derived is what the fill wrote.
+func providerTable(read *jsonx.OrderedMap, packs []*packload.Pack) (out *jsonx.OrderedMap, derived []DerivedVendor) {
+	out = jsonx.NewOrderedMap()
 	providers, _ := mapAt(read, "providers")
 	facts, _ := mapAt(read, "model_facts")
 	table, err := packload.ComposeProviders(providers, packs, packload.WithModelFacts(facts),
 		config.WithOfflineModelCatalog(read, packs))
 	if err != nil {
 		out.Set("(refused)", err.Error())
-		return out
+		return out, nil
 	}
 	if table == nil {
-		return out
+		return out, nil
 	}
 	for _, name := range table.Keys() {
 		entry, ok := mapAt(table, name)
@@ -290,6 +409,7 @@ func providerTable(read *jsonx.OrderedMap, packs []*packload.Pack) *jsonx.Ordere
 			continue
 		}
 		entry = jsonx.DeepCopyMap(entry)
+		derived = append(derived, deriveVendors(name, entry)...)
 		options, _ := mapAt(entry, "model_options")
 		if models, ok := mapAt(entry, "models"); ok {
 			aliases := append([]string(nil), models.Keys()...)
@@ -331,6 +451,59 @@ func providerTable(read *jsonx.OrderedMap, packs []*packload.Pack) *jsonx.Ordere
 			}
 		}
 		out.Set(name, entry)
+	}
+	return out, derived
+}
+
+// deriveVendors writes, into one composed provider entry, the maker each model's id names
+// (packload.InferModelVendor) as the `vendor` of every model whose facts carry none, and returns
+// what it wrote. A readable row infers that maker in the composition and a legacy row does not,
+// so the proof compares it as derived on both sides (model-facts-migration.md MF-D5, RC-D30 (2)):
+// the one place the table is not compared byte for byte.
+func deriveVendors(provider string, entry *jsonx.OrderedMap) []DerivedVendor {
+	models, ok := mapAt(entry, "models")
+	if !ok {
+		return nil
+	}
+	var out []DerivedVendor
+	for _, alias := range models.Keys() {
+		v, _ := models.Get(alias)
+		id, _ := v.(string)
+		maker := packload.InferModelVendor(id)
+		if maker == "" {
+			continue
+		}
+		options, ok := mapAt(entry, "model_options")
+		if !ok {
+			options = jsonx.NewOrderedMap()
+			entry.Set("model_options", options)
+		}
+		row, ok := mapAt(options, alias)
+		if !ok {
+			row = jsonx.NewOrderedMap()
+			options.Set(alias, row)
+		}
+		if _, stated := row.Get("vendor"); stated {
+			continue
+		}
+		row.Set("vendor", maker)
+		out = append(out, DerivedVendor{Provider: provider, Model: alias, Vendor: maker})
+	}
+	return out
+}
+
+// derivedOnlyBefore is the vendors the old side's table was filled with that the new side's
+// carried itself: the models the launch after migration names a maker for.
+func derivedOnlyBefore(before, after []DerivedVendor) []DerivedVendor {
+	seen := map[DerivedVendor]bool{}
+	for _, d := range after {
+		seen[d] = true
+	}
+	var out []DerivedVendor
+	for _, d := range before {
+		if !seen[d] {
+			out = append(out, d)
+		}
 	}
 	return out
 }

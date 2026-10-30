@@ -19,8 +19,8 @@ func renamedKeyHint(parts []string) string {
 }
 
 // renamedKeyReplacement names what replaced the legacy key at parts, or "". An exact descriptor
-// wins; a path under a moved root (resources.cpus) carries its tail to the new root; the three
-// roots with no one-line rename (loopholes, profiles, model_facts) name their verb or key.
+// wins; a path under a moved root (resources.cpus) carries its tail to the new root; the two
+// roots with no one-line rename (loopholes, profiles) name their verb or key.
 func renamedKeyReplacement(parts []string) string {
 	old := strings.Join(parts, ".")
 	var plain []string
@@ -45,8 +45,6 @@ func renamedKeyReplacement(parts []string) string {
 		return "`yolo loopholes enable <name>` (this workspace, run on the host) or `yolo pack add <pack>` for a pack that ships it"
 	case "profiles":
 		return "providers.<name> and providers.<name>.variants.<variant>, chosen with `yolo active-provider`"
-	case "model_facts":
-		return "providers.<name>.every_model"
 	}
 	for _, d := range RenameDescriptors() {
 		if d.OldPath == parts[0] && d.Transform == RenameMove && len(d.Replacements) == 1 {

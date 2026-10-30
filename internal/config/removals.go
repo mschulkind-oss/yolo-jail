@@ -62,6 +62,8 @@ func ReadableRemovalPolicies() []RemovalRule {
 		{Path: "providers.*.every_model.accepts", Policy: RemovalEmptyList},
 		{Path: "providers.*.models.*.thinking", Policy: RemovalEmptyList},
 		{Path: "providers.*.models.*.accepts", Policy: RemovalEmptyList},
+		{Path: "model_facts.*.thinking", Policy: RemovalEmptyList},
+		{Path: "model_facts.*.accepts", Policy: RemovalEmptyList},
 		{Path: "allow.*.always", Policy: RemovalEmptyList},
 		{Path: "allow.*.on_request", Policy: RemovalEmptyList},
 		{Path: "requests.git.push", Policy: RemovalEmptyList},

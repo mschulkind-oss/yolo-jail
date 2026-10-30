@@ -104,6 +104,8 @@ func ReadableSchemaKeys() []SchemaKey {
 	// Keep unchanged legacy paths in the canonical schema, and omit only the paths whose
 	// accepted redesign explicitly gives them a new name or representation.
 	removedRoots := map[string]bool{}
+	// `model_facts` is spelled anew below (docs/design/model-facts-migration.md MF-D2): its entries
+	// take the row fact spellings, so none of its legacy paths carry over.
 	for _, root := range []string{"packages", "mise_tools", "gpu", "resources", "env_sources", "brokered", "profile", "profiles", "loopholes", "model_facts"} {
 		removedRoots[root] = true
 	}
@@ -297,6 +299,39 @@ func ReadableSchemaKeys() []SchemaKey {
 		{Path: "providers.*.models.*.base", Scope: both, Type: SchemaTypeString},
 		{Path: "providers.*.models.*.extends", Scope: both, Type: SchemaTypeString},
 		{Path: "providers.*.models.*.openrouter_routing", Scope: both, Type: SchemaTypeObject},
+		{Path: "providers.*.models.*.openrouter_routing.*", Scope: both, Type: SchemaTypeAny},
+		// A row keyed by a name says which model it is (MF-D1); a row may send another id
+		// (MF-D3). docs/design/model-facts-migration.md.
+		{Path: "providers.*.models.*.model", Scope: both, Type: SchemaTypeString},
+		{Path: "providers.*.models.*.wire_id", Scope: both, Type: SchemaTypeString},
+		// Facts written once and shared by a model's routes (MF-D2), in the row fact spellings,
+		// without what only a route can say (packdecl.ModelFactsRouteOnlyKeys).
+		{Path: "model_facts", Scope: user, Type: SchemaTypeObject},
+		{Path: "model_facts.*", Scope: user, Type: SchemaTypeObject},
+		{Path: "model_facts.*.name", Scope: user, Type: SchemaTypeString},
+		{Path: "model_facts.*.description", Scope: user, Type: SchemaTypeString},
+		{Path: "model_facts.*.vendor", Scope: user, Type: SchemaTypeString},
+		{Path: "model_facts.*.api", Scope: user, Type: SchemaTypeString},
+		{Path: "model_facts.*.thinking", Scope: user, Type: SchemaTypeList},
+		{Path: "model_facts.*.thinking.*", Scope: user, Type: SchemaTypeString},
+		{Path: "model_facts.*.accepts", Scope: user, Type: SchemaTypeList},
+		{Path: "model_facts.*.accepts.*", Scope: user, Type: SchemaTypeString},
+		{Path: "model_facts.*.max_tokens", Scope: user, Type: SchemaTypeNumber},
+		{Path: "model_facts.*.reasoning", Scope: user, Type: SchemaTypeBoolean},
+		{Path: "model_facts.*.context", Scope: user, Type: SchemaTypeNumber},
+		{Path: "model_facts.*.base", Scope: user, Type: SchemaTypeString},
+		{Path: "model_facts.*.openrouter_routing", Scope: user, Type: SchemaTypeObject},
+		{Path: "model_facts.*.openrouter_routing.*", Scope: user, Type: SchemaTypeAny},
+		{Path: "model_facts.*.price", Scope: user, Type: SchemaTypeObject},
+		{Path: "model_facts.*.price.input", Scope: user, Type: SchemaTypeNumber},
+		{Path: "model_facts.*.price.output", Scope: user, Type: SchemaTypeNumber},
+		{Path: "model_facts.*.price.cache_read", Scope: user, Type: SchemaTypeNumber},
+		{Path: "model_facts.*.price.cache_write", Scope: user, Type: SchemaTypeNumber},
+		{Path: "model_facts.*.images", Scope: user, Type: SchemaTypeObject},
+		{Path: "model_facts.*.images.max_width", Scope: user, Type: SchemaTypeNumber},
+		{Path: "model_facts.*.images.max_height", Scope: user, Type: SchemaTypeNumber},
+		{Path: "model_facts.*.images.max_bytes", Scope: user, Type: SchemaTypeNumber},
+		{Path: "model_facts.*.images.jpeg_quality", Scope: user, Type: SchemaTypeNumber},
 		{Path: "network.mode", Scope: both, Type: SchemaTypeString},
 		{Path: "providers.*.api_key_env_name", Scope: user, Type: SchemaTypeMixed},
 		{Path: "providers.*.platform", Scope: user, Type: SchemaTypeString},

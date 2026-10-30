@@ -2546,6 +2546,14 @@
                      chat-completions `endpoints.openai` that no agent runs itself.
                      Example: {"bedrock": {"models": {"kimi":
                      {"id": "global.moonshotai.kimi-k3", "vendor": "moonshotai"}}}}
+                     In TOML a row is keyed by the model's id, or by a name you choose
+                     when it says which model it is with `model` (TOML refuses `id`):
+                     kimi = { model = "global.moonshotai.kimi-k3" }.  Its facts are
+                     spelled `context`, `accepts` and `price`; `extends` and `wire_id`
+                     keep their names, and a twin that sends another row's id and takes
+                     its facts says `twin_of = "<that row's key>"` instead.  A row
+                     over a pack's alias for another id must say `model`, or it would
+                     send its key as the id.  `yolo config migrate` writes all of these.
       capabilities   the named jobs this provider performs for itself, e.g.
                      ["web_search"].  A launch that selects it OMITS every
                      `mcp_servers` entry whose "provides" names one of them — the
@@ -2588,6 +2596,8 @@
     which replaces the base pack's, or else the pack installing pi.
     Example: {"opus-5.5": {"reasoning": true, "input": ["text", "image"],
               "context_window": 1000000, "max_tokens": 128000}}
+    In TOML an entry takes a row's fact spellings, `accepts`, `price` and `context`, and
+    refuses what only a route says: `model`, `wire_id`, `twin_of`, `compact_at`, `extends`.
 
   [bold]adapters[/bold] (object): Where an ADAPTED provider answers — the one field of an
     adapter you may set.  [bold yellow]USER SCOPE ONLY[/bold yellow], for the same reason `providers`

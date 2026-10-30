@@ -340,9 +340,6 @@ func TestReadableSchemaModelFieldsMatchExecutableManifestModelTypes(t *testing.T
 		if name == "" || name == "-" {
 			continue
 		}
-		if name == "wire_id" {
-			name = "twin_of"
-		}
 		path := "providers.*.models.*." + name
 		key, ok := readable[path]
 		if !ok {

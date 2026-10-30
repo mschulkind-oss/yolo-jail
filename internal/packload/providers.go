@@ -426,6 +426,9 @@ func canonicalProviderVariant(variant packdecl.ProviderVariant) *jsonx.OrderedMa
 
 func canonicalProviderModel(model packdecl.ProviderModel) *jsonx.OrderedMap {
 	value := jsonx.NewOrderedMap()
+	if model.Model != "" {
+		value.Set("model", model.Model)
+	}
 	if model.Name != "" {
 		value.Set("name", model.Name)
 	}
@@ -548,10 +551,11 @@ func sortedProviderKeys[V any](values map[string]V) []string {
 // a tombstone works at either layer. The shared facts also ride the entry once per name as
 // `model_shared.<name>`, in the same flat vocabulary, for a derive that writes them once
 // (packs/pi's shared form, ML-D11).
-func liftModelFacts(providers, shared *jsonx.OrderedMap) {
+func liftModelFacts(providers, sharedTable *jsonx.OrderedMap) {
 	if providers == nil {
 		return
 	}
+	shared := lowerSharedFacts(sharedTable)
 	for _, name := range providers.Keys() {
 		v, _ := providers.Get(name)
 		entry, ok := v.(*jsonx.OrderedMap)
@@ -644,7 +648,7 @@ func layOwnRouting(routing *jsonx.OrderedMap, alias string, obj *jsonx.OrderedMa
 // four rates, so a route's cost already replaces the shared one whole), because the object is
 // sent verbatim as OpenRouter's request `provider` field and a key-wise merge would send a pin
 // neither layer wrote. A null in the shared entry means the shared facts carry no pin.
-func laySharedRouting(routing, models, lifted, shared *jsonx.OrderedMap, stated map[string]bool) *jsonx.OrderedMap {
+func laySharedRouting(routing, models, lifted *jsonx.OrderedMap, shared map[string]sharedFacts, stated map[string]bool) *jsonx.OrderedMap {
 	if shared == nil || lifted == nil {
 		return routing
 	}
@@ -657,11 +661,11 @@ func laySharedRouting(routing, models, lifted, shared *jsonx.OrderedMap, stated 
 			continue
 		}
 		name, _ := stringAt(own, "extends")
-		src := childMap(shared, name)
-		if name == "" || src == nil {
+		src, ok := shared[name]
+		if name == "" || !ok {
 			continue
 		}
-		pin := childMap(src, "openrouter_routing")
+		pin := src.routing
 		if pin == nil || pin.Len() == 0 {
 			continue
 		}
@@ -677,9 +681,45 @@ func laySharedRouting(routing, models, lifted, shared *jsonx.OrderedMap, stated 
 // and shared by every route of one model, each route's object-form entry naming them with
 // `extends` (docs/design/model-lists-and-pickers.md OQ-ML5, ML-D12). liftModelFacts lays them
 // under the route's own facts. A caller that composes for no derive may leave it out: the
-// route's own facts and its `extends` still lower, and nothing is laid under them.
+// route's own facts and its `extends` still lower, and nothing is laid under them. An entry may be
+// in either spelling, the legacy one (`input`, `cost`, `context_window`) or the readable one
+// (`accepts`, `price`, `context`; docs/design/model-facts-migration.md MF-D2): lowerSharedFacts
+// lowers both into the one flat vocabulary.
 func WithModelFacts(facts *jsonx.OrderedMap) ComposeOption {
 	return func(o *composeOpts) { o.modelFacts = facts }
+}
+
+// sharedFacts is one `model_facts` entry lowered: its facts in the flat vocabulary and its pin.
+type sharedFacts struct {
+	facts, routing *jsonx.OrderedMap
+}
+
+// lowerSharedFacts lowers each `model_facts` entry once, whichever spelling it is in: a readable
+// entry (packdecl.IsReadableModelFacts) through the projection `every_model` takes
+// (lowerEveryModel), so one readable spelling cannot lower two ways, and a legacy one through
+// flattenModelFacts, as it always has. A readable entry the decoder refuses is lowered as a
+// legacy one, which drops what it cannot read; config validation refuses it before a launch.
+func lowerSharedFacts(shared *jsonx.OrderedMap) map[string]sharedFacts {
+	if shared == nil {
+		return nil
+	}
+	out := map[string]sharedFacts{}
+	for _, name := range shared.Keys() {
+		src := childMap(shared, name)
+		if src == nil {
+			continue
+		}
+		if packdecl.IsReadableModelFacts(src) {
+			if model, err := packdecl.DecodeModelFacts(name, src); err == nil {
+				if facts, routing, _, err := lowerEveryModel(model); err == nil {
+					out[name] = sharedFacts{facts: facts, routing: routing}
+					continue
+				}
+			}
+		}
+		out[name] = sharedFacts{facts: flattenModelFacts(src), routing: childMap(src, "openrouter_routing")}
+	}
+	return out
 }
 
 // overlayFacts sets every fact of src over dst, a null included: both are one alias's FLAT
@@ -695,7 +735,7 @@ func overlayFacts(dst, src *jsonx.OrderedMap) {
 // half) and records the shared facts it used as entry's `model_shared`. A name `shared` does
 // not hold leaves the alias's own facts as they are: config validation refuses that pointer,
 // and a caller that handed no shared facts composes for no derive (WithModelFacts).
-func layShared(entry, lifted, shared *jsonx.OrderedMap) {
+func layShared(entry, lifted *jsonx.OrderedMap, shared map[string]sharedFacts) {
 	if shared == nil {
 		return
 	}
@@ -709,16 +749,16 @@ func layShared(entry, lifted, shared *jsonx.OrderedMap) {
 		if name == "" {
 			continue
 		}
-		src := childMap(shared, name)
-		if src == nil {
+		src, ok := shared[name]
+		if !ok {
 			continue
 		}
-		base := flattenModelFacts(src)
+		base := jsonx.DeepCopyMap(src.facts)
 		if used == nil {
 			used = jsonx.NewOrderedMap()
 		}
 		if _, seen := used.Get(name); !seen {
-			used.Set(name, flattenModelFacts(src))
+			used.Set(name, jsonx.DeepCopyMap(src.facts))
 		}
 		overlayFacts(base, own)
 		lifted.Set(alias, base)
@@ -861,7 +901,13 @@ func dropRepointedVendors(shipped, user *jsonx.OrderedMap) {
 		}
 		userID, _ := raw.(string)
 		if obj, isMap := raw.(*jsonx.OrderedMap); isMap {
-			id, _ := obj.Get("id")
+			id, legacy := obj.Get("id")
+			if !legacy {
+				// A readable row lists its `model`, or its key when it says none (MF-D1).
+				if id, _ = obj.Get("model"); id == nil {
+					id = alias
+				}
+			}
 			userID, _ = id.(string)
 		}
 		shippedRaw, had := shippedModels.Get(alias)

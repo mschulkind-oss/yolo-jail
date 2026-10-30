@@ -38,6 +38,9 @@ func (p *MigrationPlan) Transcript() string {
 		for _, f := range t.Folded {
 			fmt.Fprintf(&b, "  %q: written on each of %d models, folded into one\n", f.Path, f.Rows)
 		}
+		for _, tw := range t.Twins {
+			fmt.Fprintf(&b, "  %q: written as twin_of %q, the row whose id it sends\n", tw.Path, tw.Of)
+		}
 		if t.Link != nil {
 			fmt.Fprintf(&b, "  the symlink %s is renamed to %s\n", t.Link.Old, t.Link.Path)
 		}
@@ -49,6 +52,10 @@ func (p *MigrationPlan) Transcript() string {
 		return b.String()
 	}
 	fmt.Fprintf(&b, "Effective config before and after: identical (checked as canonical JSON, %d bytes).\n", p.CanonicalBytes)
+	for _, d := range p.DerivedVendors {
+		fmt.Fprintf(&b, "  vendor %q follows from the id of %q, compared as derived; the launch now carries it.\n",
+			d.Vendor, dotted([]string{"providers", d.Provider, "models", d.Model}))
+	}
 	if s := Respelled(p.Records); s != "" {
 		fmt.Fprintf(&b, "Records only yolo reads, respelled in place: %s.\n", s)
 	}
