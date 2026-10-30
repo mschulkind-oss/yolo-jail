@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
@@ -24,7 +25,12 @@ import (
 //
 // os.Setenv rather than t.Setenv because TestMain has no *testing.T, and the value is
 // process-wide by design: the point is that NO test in this package inherits the real one.
+//
+// It also resolves TMPDIR (testsupport.UsePhysicalTempDir) first: the edit-target resolver
+// binds the workspace through filepath.EvalSymlinks, so a fixture minted under macOS's /var
+// (a link to /private/var) never equals the path it reports.
 func TestMain(m *testing.M) {
+	testsupport.UsePhysicalTempDir()
 	home, err := os.MkdirTemp("", "yolo-config-tests-home-")
 	if err != nil {
 		panic("config tests: creating an isolated HOME: " + err.Error())
@@ -46,5 +52,18 @@ func TestMain(m *testing.M) {
 func TestGitConfigTripwireIsArmedHere(t *testing.T) {
 	if !testsupport.GitConfigTripwireArmed() {
 		t.Fatal("the git configuration tripwire is not armed; this package's TestMain must call testsupport.ArmGitConfigTripwire")
+	}
+}
+
+// TestTempDirIsPhysicalHere pins the UsePhysicalTempDir call in TestMain: without it the
+// edit-target comparisons pass on Linux and fail on a host whose temp directory is a symlink.
+func TestTempDirIsPhysicalHere(t *testing.T) {
+	dir := t.TempDir()
+	resolved, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved != dir {
+		t.Fatalf("t.TempDir() = %q resolves to %q; this package's TestMain must call testsupport.UsePhysicalTempDir", dir, resolved)
 	}
 }
