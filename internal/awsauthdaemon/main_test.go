@@ -149,6 +149,9 @@ func TestSettingsRefusalStartupReasonAndLaunchTextDoNotRenderAWSValues(t *testin
 	profile := "SENTINEL_AWS_PROFILE_DO_NOT_RENDER"
 	policyKey := "SENTINEL_POLICY_KEY_DO_NOT_RENDER"
 	policyValue := "SENTINEL_POLICY_VALUE_DO_NOT_RENDER"
+	// The remedy names the key in the user config's own format, so the home holds no user config:
+	// the spelling a fresh install gets, TOML's, and never the running machine's.
+	t.Setenv("HOME", t.TempDir())
 	policy := `{"Statement":[{"Effect":"Allow","Action":["` + policyKey + `"],"Resource":"` + policyValue + `"}]}`
 	settings := settingsFileWith(t, `{"profile":"`+profile+`","role_arn":"","session_policy":`+
 		string(mustJSON(t, policy))+`,"unnarrowed":false}`)
@@ -179,7 +182,7 @@ func TestSettingsRefusalStartupReasonAndLaunchTextDoNotRenderAWSValues(t *testin
 		t.Fatalf("current AWS startup refusal record: %v", err)
 	}
 	if !strings.Contains(reason.Reason, "session policy is configured without a role") ||
-		!strings.Contains(reason.Remedy, "loopholes.aws-auth.settings.role_arn") {
+		!strings.Contains(reason.Remedy, "yolo config set allow.aws-auth.role_arn") {
 		t.Fatalf("AWS refusal projection lost its safe reason or setting remedy: %+v", reason)
 	}
 	rendered := reason.Reason + " " + reason.Remedy + " " + log.String()
