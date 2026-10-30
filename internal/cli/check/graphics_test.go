@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"testing"
 
@@ -251,7 +252,19 @@ func TestGraphicsHostReportDoesNotInspectHostTreeAsJailState(t *testing.T) {
 	}
 }
 
+// skipUnlessLinuxCheck skips a test that runs the whole Check and expects the graphics
+// section: sectionGPUGraphics reports only on Linux (a jail is always Linux), so on a macOS
+// runner the section is absent by design. The section's own report is covered on every OS by
+// the tests that call reportJailGraphicsState directly; the Linux CI job pins its call site.
+func skipUnlessLinuxCheck(t *testing.T) {
+	t.Helper()
+	if goruntime.GOOS != "linux" {
+		t.Skipf("the graphics section runs only on Linux; this is %s", goruntime.GOOS)
+	}
+}
+
 func TestCheckRunsGraphicsDiagnosticsForEnabledGPU(t *testing.T) {
+	skipUnlessLinuxCheck(t)
 	manifest := []byte(`{"drivers":[{"name":"mesa","version":"26.2.5","arch":"64","lib":"/nix/store/mesa/lib","share":"/nix/store/mesa/share","preserved":false}]}`)
 	reads := 0
 	inspected := map[string]string{}
@@ -280,6 +293,7 @@ func TestCheckRunsGraphicsDiagnosticsForEnabledGPU(t *testing.T) {
 }
 
 func TestCheckWarnsForDeletedOrReplacedGraphicsLeaves(t *testing.T) {
+	skipUnlessLinuxCheck(t)
 	manifest := []byte(`{"drivers":[{"name":"mesa","version":"26.2.5","arch":"64","lib":"/nix/store/mesa/lib","share":"/nix/store/mesa/share","preserved":false}]}`)
 	for _, tc := range []struct {
 		name, leaf, expected, issue string

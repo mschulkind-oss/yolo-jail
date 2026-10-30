@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/ioprio/iopriotest"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
@@ -64,6 +65,14 @@ func TestCheckPreflightRendersReadableMiseAndReportsMachineSettings(t *testing.T
 			var output bytes.Buffer
 			opts := baseOptions(t, &output)
 			opts.Workspace = workspace
+			// The disk under the workspace is a fixture, not this host's /proc: a macOS runner
+			// has no mountinfo, so the section reported only that it could not grade. The
+			// resolver grades the physical path, so the fixture mounts the resolved spelling.
+			physicalWorkspace, err := filepath.EvalSymlinks(workspace)
+			if err != nil {
+				t.Fatal(err)
+			}
+			opts.ioSysRoot = iopriotest.Scheduler(t, physicalWorkspace, "bfq").Root
 			opts.Getenv = func(key string) string {
 				if key == "YOLO_VERSION" {
 					return "9.9.9-test"
@@ -127,7 +136,7 @@ func TestCheckPreflightRendersReadableMiseAndReportsMachineSettings(t *testing.T
 				"Entrypoint Dry-Run",
 				"Generated per-agent jail config in a temp home",
 				"GPU (NVIDIA) checks",
-				`resources.io.priority "idle"`,
+				`resources.io.priority "idle" acts on sda`,
 			} {
 				if !strings.Contains(got, want) {
 					t.Errorf("public Check report lacks %q:\n%s", want, got)
