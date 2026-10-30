@@ -22,7 +22,9 @@ package config
 
 import (
 	"fmt"
+	"path/filepath"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/configdoc"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/termsafe"
@@ -169,6 +171,41 @@ func writableMountRequestRefusal(m ContextMount) string {
 		"each still approved by you at launch, run `yolo config add allow.mounts.on_request write --user` "+
 		"or add to %s:\n    %s\nOtherwise remove `write = true` from the entry and it mounts read-only",
 		termsafe.Visible(m.Spec), userPath, lines)
+}
+
+// workspaceReadWriteMountRefusal is the refusal for a read-write element in the workspace config
+// that is not a request (isWorkspaceRequest). Written by yolo-jail.jsonc or
+// yolo-jail.local.jsonc itself, it is the convert-first refusal: RC-D24 made a writable request
+// TOML-only, so converting is the step that turns this element into one. Anywhere else (a file
+// an include reached) it keeps the user-scope advice, since converting would not make it a
+// request.
+func workspaceReadWriteMountRefusal(m ContextMount, node *srcNode) string {
+	if path := legacyWorkspaceFileWriter(node); path != "" {
+		return fmt.Sprintf("config.mounts: %s is still in the deprecated JSONC format, and a writable "+
+			"mount request (%s) needs the TOML format. %s; the converted entry is then a request your "+
+			"user config must allow, approved by you at launch. Or move the entry to %s, where a "+
+			"read-write mount needs no request, or make it read-only.",
+			termsafe.Visible(path), termsafe.Visible(m.Spec), ConvertFirstMigrateStep, paths.UserConfigDisplayPath())
+	}
+	return fmt.Sprintf("config.mounts: %s is in the workspace config, and a read-write "+
+		"mount is user-scope only — move it to %s. A workspace config is agent-editable, "+
+		"so it cannot grant a read-write host mount (docs/reference/context-mounts.md#where-a-read-write-mount-may-be-declared; "+
+		"a read-only entry may stay where it is)", m.Spec, paths.UserConfigDisplayPath())
+}
+
+// legacyWorkspaceFileWriter is the path of the legacy JSONC workspace file (yolo-jail.jsonc or
+// yolo-jail.local.jsonc, not one an include reached) that wrote n, or "" when none did.
+func legacyWorkspaceFileWriter(n *srcNode) string {
+	for _, w := range n.writerList() {
+		f := w.file
+		if f == nil || f.format != configdoc.JSONC || f.via != "" {
+			continue
+		}
+		if base := filepath.Base(f.path); base == WorkspaceConfigName || base == WorkspaceLocalConfigName {
+			return f.path
+		}
+	}
+	return ""
 }
 
 // validateWorkspaceAllow refuses an `allow` table a workspace config wrote. `allow` is the

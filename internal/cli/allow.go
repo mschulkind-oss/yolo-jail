@@ -18,6 +18,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/configdoc"
 	"github.com/mschulkind-oss/yolo-jail/internal/configedit"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostrun"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -142,8 +143,8 @@ func allowRunW(args []string, out, errw io.Writer) int {
 
 	workspace := configEditWorkspace()
 	key := "allow." + configKeyComponent(source) + "." + list
-	if rc := namedVerbListAdd(workspace, key, capability, config.EditTargetChoice{Kind: config.EditTargetUser},
-		dryRun, false, out, errw); rc != 0 {
+	if rc := namedVerbEditUnless(allowConvertFirst, workspace, key, configedit.Append, capability,
+		config.EditTargetChoice{Kind: config.EditTargetUser}, dryRun, false, out, errw); rc != 0 {
 		return rc
 	}
 	if dryRun {
@@ -163,6 +164,18 @@ func allowRunW(args []string, out, errw io.Writer) int {
 	}
 	fmt.Fprintf(out, "This takes effect when a workspace approves it. Opening this workspace's approval (%s), as `yolo config apply` does:\n", approveWorkspace)
 	return allowApprovalGate(approveWorkspace, out, errw)
+}
+
+// allowConvertFirst refuses an `allow` write into a user config still on the legacy JSONC
+// `brokered` grants: the readers take a canonical `allow` table as the whole ceiling and drop
+// every legacy `brokered` user grant once one exists (config.UserScopeHoldsBrokered), so the
+// write would silently revoke what the file already allows. A JSONC user file without
+// `brokered` is written: the readers honor `allow` there.
+func allowConvertFirst(target config.ResolvedEditTarget) string {
+	if target.Format != configdoc.JSONC || !config.UserScopeHoldsBrokered() {
+		return ""
+	}
+	return "yolo allow: " + config.ConvertFirstRefusal(target.PhysicalPath, "an `allow` entry beside the legacy `brokered` grants in your user config")
 }
 
 // findDeclaredBroker is the broker declaration a verb names, or the refusal that lists what is
@@ -237,13 +250,6 @@ func hostRunLineFor(argv []string) string {
 	return hostrun.FormatLine(hostrun.Line{Dir: dir, Label: label, Argv: argv})
 }
 
-// namedVerbListAdd adds one string item to the list at key in the file the target rules
-// select, creating the list (and its table) when that file does not hold it yet: the generic
-// append refuses a missing list, and a named verb's first use is exactly that case.
-func namedVerbListAdd(workspace, key, item string, choice config.EditTargetChoice, dryRun, postWriteCheck bool, out, errw io.Writer) int {
-	return namedVerbEdit(workspace, key, configedit.Append, item, choice, dryRun, postWriteCheck, out, errw)
-}
-
 // namedVerbSet sets key to value, adding the key (and its table) when the selected file does
 // not hold it yet, which the generic set refuses.
 func namedVerbSet(workspace, key string, value any, choice config.EditTargetChoice, dryRun, postWriteCheck bool, out, errw io.Writer) int {
@@ -255,6 +261,15 @@ func namedVerbSet(workspace, key string, value any, choice config.EditTargetChoi
 // target rules and transaction as the generic verbs.
 func namedVerbEdit(workspace, key string, action configedit.Action, value any, choice config.EditTargetChoice,
 	dryRun, postWriteCheck bool, out, errw io.Writer) int {
+	return namedVerbEditUnless(nil, workspace, key, action, value, choice, dryRun, postWriteCheck, out, errw)
+}
+
+// namedVerbEditUnless is namedVerbEdit with a refusal checked against the resolved target before
+// anything is written, dry run included: refuse returns the message to print, or "" to go on.
+// An Append on a missing list creates the list (and its table): the generic append refuses a
+// missing list, and a named verb's first use is exactly that case.
+func namedVerbEditUnless(refuse func(config.ResolvedEditTarget) string, workspace, key string, action configedit.Action,
+	value any, choice config.EditTargetChoice, dryRun, postWriteCheck bool, out, errw io.Writer) int {
 	path, err := parseConfigEditKey(key)
 	if err != nil {
 		fmt.Fprintf(errw, "invalid config key: %v\n", err)
@@ -265,6 +280,12 @@ func namedVerbEdit(workspace, key string, action configedit.Action, value any, c
 	if err != nil {
 		fmt.Fprint(errw, configEditRefusal(err))
 		return 1
+	}
+	if refuse != nil {
+		if msg := refuse(target); msg != "" {
+			fmt.Fprintln(errw, msg)
+			return 1
+		}
 	}
 	mutation, target, ok := addMissingKey(workspace, target, mutation, value, choice, errw)
 	if !ok {

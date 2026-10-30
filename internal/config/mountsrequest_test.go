@@ -180,7 +180,7 @@ func TestAJSONCWorkspaceReadWriteMountIsStillRefusedWithTheAllowLine(t *testing.
 		h.userTOML(t, allowMountsLines)
 		h.workspace(t, `{"mounts": [`+el+`]}`)
 		errs, _ := h.validate(t)
-		if got := joined(errs); !strings.Contains(got, "user-scope only") {
+		if got := joined(errs); !strings.Contains(got, "is still in the deprecated JSONC format, and a writable mount request") || !strings.Contains(got, "yolo config migrate") {
 			t.Fatalf("JSONC workspace %s was not refused: %q", el, errs)
 		}
 		if rw := gateRequests(t, h.ws); len(rw) != 0 {

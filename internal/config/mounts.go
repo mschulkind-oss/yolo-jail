@@ -526,11 +526,7 @@ func validateMountScope(config *jsonx.OrderedMap, workspace string, errs *[]stri
 		node := wsNode.key(mountsKey).elem(indices[n])
 		if m.RW && !rwMountTrusted(mountScopeWorkspace) {
 			if !isWorkspaceRequest(node) {
-				msg := fmt.Sprintf("config.mounts: %s is in the workspace config, and a read-write "+
-					"mount is user-scope only — move it to %s. A workspace config is agent-editable, "+
-					"so it cannot grant a read-write host mount (docs/reference/context-mounts.md#where-a-read-write-mount-may-be-declared; "+
-					"a read-only entry may stay where it is)", m.Spec, paths.UserConfigDisplayPath())
-				add(errs, locatedAt(node, msg))
+				add(errs, locatedAt(node, workspaceReadWriteMountRefusal(m, node)))
 				continue
 			}
 			if !allowed {

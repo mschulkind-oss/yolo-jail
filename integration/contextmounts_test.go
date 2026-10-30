@@ -118,7 +118,10 @@ func TestAWorkspaceReadWriteMountRefusesTheLaunch(t *testing.T) {
 	if r.rc == 0 || strings.Contains(r.combined(), "SHOULD-NOT-RUN") {
 		t.Fatalf("a workspace-scope read-write mount launched a jail (rc=%d):\n%s", r.rc, r.combined())
 	}
-	if !strings.Contains(r.combined(), "user-scope only") {
-		t.Errorf("the refusal does not say the mount is user-scope only:\n%s", r.combined())
+	// RC-D24: a writable request is TOML-only, so a JSONC project's is refused convert-first.
+	for _, want := range []string{"deprecated JSONC format", "yolo config migrate"} {
+		if !strings.Contains(r.combined(), want) {
+			t.Errorf("the refusal lacks %q:\n%s", want, r.combined())
+		}
 	}
 }

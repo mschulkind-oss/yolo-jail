@@ -175,8 +175,16 @@ func TestAReadWriteMountInTheWorkspaceConfigIsRefused(t *testing.T) {
 			}
 			errs, _ := h.validate(t)
 			got := joined(errs)
-			if !strings.Contains(got, "user-scope only") || !strings.Contains(got, paths.UserConfigDisplayPath()) {
-				t.Fatalf("a read-write mount in %s was not refused as workspace scope: %q", file, errs)
+			// RC-D24 made a writable request TOML-only, so the refusal's first step is the
+			// conversion, and moving the entry to the user config stays the other one.
+			for _, want := range []string{" is still in the deprecated JSONC format",
+				"`yolo config migrate` (preview with `yolo config migrate --dry-run`)", paths.UserConfigDisplayPath()} {
+				if !strings.Contains(got, want) {
+					t.Fatalf("a read-write mount in %s was not refused convert-first (lacks %q): %q", file, want, errs)
+				}
+			}
+			if !strings.Contains(got, file+" is still") {
+				t.Fatalf("the refusal does not name %s: %q", file, errs)
 			}
 		})
 	}

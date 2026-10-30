@@ -278,7 +278,7 @@ func TestWorkspaceRWMountRefusalNamesTheElement(t *testing.T) {
 	p := filepath.Join(ws, WorkspaceConfigName)
 	write(t, p, "{\"mounts\": [\n  \"~/data:/ctx/ro\",\n  {\"host\": \"~/data\", \"at\": \"/ctx/rw\", \"mode\": \"rw\"}\n]}")
 	errs, _ := locatedErrors(t, ws)
-	got := line(t, errs, "is in the workspace config, and a read-write")
+	got := line(t, errs, "a writable mount request")
 	if !strings.HasPrefix(got, p+":3:3: config.mounts") {
 		t.Errorf("the refusal does not name the workspace element:\n%s", got)
 	}

@@ -16,6 +16,8 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/configdoc"
+	"github.com/mschulkind-oss/yolo-jail/internal/configedit"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
@@ -122,9 +124,9 @@ func requestRunW(args []string, out, errw io.Writer) int {
 	workspace := configEditWorkspace()
 	project := config.EditTargetChoice{Kind: config.EditTargetProject}
 	if verb == "add" {
-		rc = namedVerbListAdd(workspace, key, value, project, dryRun, !dryRun, out, errw)
+		rc = namedVerbEditUnless(requestConvertFirst, workspace, key, configedit.Append, value, project, dryRun, !dryRun, out, errw)
 	} else {
-		rc = namedVerbSet(workspace, key, true, project, dryRun, !dryRun, out, errw)
+		rc = namedVerbEditUnless(requestConvertFirst, workspace, key, configedit.Set, true, project, dryRun, !dryRun, out, errw)
 	}
 	if dryRun {
 		return rc
@@ -144,6 +146,17 @@ func requestRunW(args []string, out, errw io.Writer) int {
 	}
 	fmt.Fprintln(out, "It is approved on the host: the human runs `yolo config apply` there, in this workspace, and answers y.")
 	return rc
+}
+
+// requestConvertFirst refuses a `requests` write into a legacy JSONC project file that still
+// carries `brokered`: one file would then hold both vocabularies for the same grants. A JSONC
+// project file without `brokered` is written, since the gate reads `requests` from it.
+func requestConvertFirst(target config.ResolvedEditTarget) string {
+	if target.Format != configdoc.JSONC ||
+		!configEditPathPresent(target.ExpectedBytes(), target.Format, []configdoc.Step{{Key: "brokered"}}) {
+		return ""
+	}
+	return "yolo request: " + config.ConvertFirstRefusal(target.PhysicalPath, "a `requests` entry beside its legacy `brokered` grants")
 }
 
 func requestDescription(capability, value string) string {
