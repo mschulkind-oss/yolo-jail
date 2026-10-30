@@ -77,7 +77,7 @@ class FrontDoor(unittest.TestCase):
         self.env = dict(os.environ, PATH=str(self.bin) + os.pathsep + os.environ["PATH"],
                         FAKE_LOG=str(self.log), GOTOOLCHAIN="local", GOFLAGS="-mod=mod",
                         GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull,
-                        GOWORK="off")
+                        GOWORK="off", XDG_CONFIG_HOME=str(self.tmp / "xdg"))
         for k in ("FAKE_FAIL", "FAKE_TOUCH", "FAKE_SC_VERSION", "FAKE_GOFMT_DIRTY", "GIT_DIR",
                   "GIT_INDEX_FILE", "GIT_WORK_TREE"):
             self.env.pop(k, None)
@@ -97,6 +97,9 @@ class FrontDoor(unittest.TestCase):
         self.write("CHANGELOG.md", "# Changelog\n")
         self.write("userguide/README.md", "# Guide\n")
         self.write("Justfile", "check-ci:\n    true\n")
+        # The front door imports go_packages, so Python writes its bytecode beside it; the real
+        # repository ignores that, and the fixture must too rather than lean on a global ignore.
+        self.write(".gitignore", "__pycache__/\n")
         self.git("init", "-q", "-b", "main")
         self.git("config", "user.name", "Fixture")
         self.git("config", "user.email", "fixture@example.invalid")
