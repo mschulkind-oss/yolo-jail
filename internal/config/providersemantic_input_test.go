@@ -61,11 +61,13 @@ func TestBuildReadableSemanticInputsAdaptsLoadedGitGitHubAndAWSDeclarations(t *t
 		t.Fatalf("Git capabilities = %#v", git)
 	}
 	github := bySource["github"]
-	if github.ReadCapability != "read" || !reflect.DeepEqual(github.PendingCapabilities, []string{"create_pr", "create_issue"}) {
+	// create_pr and create_issue are delivered grant kinds (the broker covers creations under
+	// them, docs/design/boundary-broker.md BB-D76), no longer pending ones.
+	if github.ReadCapability != "read" || len(github.PendingCapabilities) != 0 {
 		t.Fatalf("GitHub pending capabilities = %#v", github)
 	}
-	if !reflect.DeepEqual(github.Brokered.Grants, []string{"create-issue", "create-pr"}) {
-		t.Fatalf("detached pending-only mapped grant kinds = %#v", github.Brokered.Grants)
+	if !reflect.DeepEqual(github.Brokered.Grants, []string{"create-pr", "create-issue"}) {
+		t.Fatalf("declared GitHub grant kinds = %#v", github.Brokered.Grants)
 	}
 	awsSettings := false
 	for _, declaration := range inputs.AllowanceInput.PackSettings {
@@ -77,11 +79,11 @@ func TestBuildReadableSemanticInputsAdaptsLoadedGitGitHubAndAWSDeclarations(t *t
 		t.Fatalf("AWS settings did not come from the loaded pack module: %#v", inputs.AllowanceInput.PackSettings)
 	}
 	if len(inputs.AllowancePlan.Requests) != 2 {
-		t.Fatalf("GitHub requests = %#v, want two pending declarations", inputs.AllowancePlan.Requests)
+		t.Fatalf("GitHub requests = %#v, want two granted declarations", inputs.AllowancePlan.Requests)
 	}
 	for _, request := range inputs.AllowancePlan.Requests {
-		if request.Status != ReadableRequestPending {
-			t.Errorf("request %s status %q, want pending-runtime", request.Path, request.Status)
+		if request.Status != ReadableRequestGranted {
+			t.Errorf("request %s status %q, want granted", request.Path, request.Status)
 		}
 	}
 	if inputs.AllowanceInput.UserOrigins["allow.github.on_request"][0] != "user.jsonc" {
@@ -105,7 +107,8 @@ func TestBuildReadableSemanticInputsAdaptsLoadedGitGitHubAndAWSDeclarations(t *t
 			t.Fatalf("re-read GitHub declarations: refusals=%v warnings=%v", refusals, warnings)
 		}
 		for _, module := range modules {
-			if module.Name == "github-broker" && module.Decl.Brokered != nil && module.Decl.Brokered.Grants != nil {
+			if module.Name == "github-broker" && module.Decl.Brokered != nil &&
+				!reflect.DeepEqual(module.Decl.Brokered.Grants, []string{"create-pr", "create-issue"}) {
 				t.Fatalf("adapter changed source GitHub grants: %#v", module.Decl.Brokered.Grants)
 			}
 		}

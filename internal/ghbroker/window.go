@@ -1,6 +1,7 @@
 package ghbroker
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -89,6 +90,12 @@ func (b *Broker) window(ctx context.Context, req Request, jail string, d Decisio
 		}
 		return code, ""
 	}
+	// A user grant, a working-set entry or a timed grant covering the write runs it before any
+	// Allow once is spent or a request is filed (workingset.go).
+	t := targetOf(d.Argv, d.Repos)
+	if code, msg, ok := b.coveredWrite(ctx, req, jail, d, t, stdout, stderr, ev); ok {
+		return code, msg
+	}
 	sum := sha256.Sum256(req.Stdin)
 	q := brokerstore.Request{Jail: jail, Start: b.startID, Workspace: b.workspace, LaunchID: b.authority.scope.LaunchID, Argv: d.Argv, Repo: strings.Join(d.Repos, ","), Set: d.Set, Policy: p, StdinDigest: hex.EncodeToString(sum[:])}
 	q.Digest = brokerstore.CommandDigest(q)
@@ -120,8 +127,9 @@ func (b *Broker) window(ctx context.Context, req Request, jail string, d Decisio
 			return true, ExitTempFail, "caller disconnected or broker stopped; nothing ran; run the same command again: a grant approved for it is kept across a broker or jail restart and covers the retry"
 		}
 		code := ExitTempFail
+		var captured bytes.Buffer
 		used, ok, err := consume(func() error {
-			code = b.dispatch(ctx, req, d, stdout, stderr, ev)
+			code = b.dispatch(ctx, req, d, captureInto(&captured, stdout), stderr, ev)
 			return nil
 		})
 		if ok {
@@ -136,6 +144,9 @@ func (b *Broker) window(ctx context.Context, req Request, jail string, d Decisio
 		if code == ghExitAuth {
 			return true, ExitUnavailable, noHostLogin
 		}
+		// What an Allow once created joins the working set by that grant; a merge it ran ends
+		// the PR's entry.
+		b.afterWrite(t, d.Argv, code, captured.Bytes(), used.ID, stderr)
 		return true, code, ""
 	}
 	// Spending and filing are one transaction: an answer landing between them would allow a
@@ -171,7 +182,7 @@ func (b *Broker) window(ctx context.Context, req Request, jail string, d Decisio
 	}
 	status, err := b.waitStatus(ctx, jail, q.ID)
 	if err != nil {
-		return ExitTempFail, fmt.Sprintf("%s remains pending; nothing ran; re-run the command once it is approved, if still wanted: a grant for it lasts across a broker or jail restart (`yolo gh status %s` answers only while this broker runs)%s", q.ID, q.ID, b.notifierNote(jail, q.ID))
+		return ExitTempFail, fmt.Sprintf("%s remains pending; nothing ran; re-run the command once it is approved, if still wanted: a grant for it lasts across a broker or jail restart (`yolo gh status %s` answers only while this broker runs).%s%s", q.ID, q.ID, answerHint(t, q.ID), b.notifierNote(jail, q.ID))
 	}
 	if status.State != "allowed" {
 		return ExitNoPerm, fmt.Sprintf("%s is %s; nothing ran; ask the host user before retrying", q.ID, status.State)
@@ -179,6 +190,10 @@ func (b *Broker) window(ctx context.Context, req Request, jail string, d Decisio
 	if ok, code, msg := run(func(dispatch func() error) (brokerstore.Grant, bool, error) {
 		return b.store.ConsumeExactDispatchContext(ctx, b.workspace, jail, d.Set, q.Digest, gate, dispatch)
 	}); ok {
+		return code, msg
+	}
+	// Answered with `--add` or `--for`: no command grant, but an entry on the resource now.
+	if code, msg, ok := b.coveredWrite(ctx, req, jail, d, t, stdout, stderr, ev); ok {
 		return code, msg
 	}
 	return ExitNoPerm, "no live grant covers this command; refile and approve it on the host"
