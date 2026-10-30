@@ -304,6 +304,12 @@ func TestOutputPressureDoesNotStopInputForwarding(t *testing.T) {
 		fifo := os.Getenv("YOLO_TTYPROXY_PRESSURE_FIFO")
 		outputBytes := os.Getenv("YOLO_TTYPROXY_PRESSURE_BYTES")
 		observer := Observer{Env: []string{"YOLO_TTYPROXY_PRESSURE_FIFO=" + fifo, "YOLO_TTYPROXY_PRESSURE_BYTES=" + outputBytes, "YOLO_TTYPROXY_OUTPUT_ACK=" + os.Getenv("YOLO_TTYPROXY_OUTPUT_ACK")}}
+		if os.Getenv("YOLO_TTYPROXY_OUTPUT_BLOCKED_MARKER") == "1" {
+			var once sync.Once
+			observer.outputBlocked = func() {
+				once.Do(func() { _ = writePressureReceipt(fifo+".output-blocked", 'P') })
+			}
+		}
 		var cancelWake chan os.Signal
 		var resumeHandle Handle
 		if os.Getenv("YOLO_TTYPROXY_EXPECT_SUSPEND") == "1" {
@@ -517,7 +523,7 @@ func TestOutputPressureDoesNotStopInputForwarding(t *testing.T) {
 		t.Fatal(err)
 	}
 	outputBytes := pipeSize * 2
-	cmd.Env = append(os.Environ(), "YOLO_TTYPROXY_PRESSURE_HELPER=1", "YOLO_TTYPROXY_PRESSURE_FIFO="+control, "YOLO_TTYPROXY_PRESSURE_BYTES="+strconv.Itoa(outputBytes), "YOLO_TTYPROXY_NONBLOCK_STDOUT=1")
+	cmd.Env = append(os.Environ(), "YOLO_TTYPROXY_PRESSURE_HELPER=1", "YOLO_TTYPROXY_PRESSURE_FIFO="+control, "YOLO_TTYPROXY_PRESSURE_BYTES="+strconv.Itoa(outputBytes), "YOLO_TTYPROXY_NONBLOCK_STDOUT=1", "YOLO_TTYPROXY_OUTPUT_BLOCKED_MARKER=1")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
@@ -543,13 +549,18 @@ func TestOutputPressureDoesNotStopInputForwarding(t *testing.T) {
 	if err := waitPressureMarker(t, control, 'S', time.Now().Add(childDeadline)); err != nil {
 		t.Fatalf("target did not become ready: %v stderr=%q", err, stderr.String())
 	}
-	pressured, _ := waitForOutputPressure(t, pipeFD, pipeSize)
-	if pressured {
-		if _, err := unix.Write(master, []byte{'q'}); err != nil {
-			t.Fatal(err)
-		}
+	// The proxy's own writer reports the EAGAIN that parks it in poll. Nothing reads the
+	// pipe until the child's receipt below, and the output is twice the pipe, so from this
+	// marker on the writer stays parked: 'q' is sent strictly under output pressure. The
+	// deadlines bound liveness only; no ordering here depends on how fast anything runs.
+	if err := waitPressureMarker(t, control+".output-blocked", 'P', time.Now().Add(childDeadline)); err != nil {
+		buffered, _ := unix.IoctlGetInt(pipeFD, unix.TIOCINQ)
+		t.Fatalf("proxy output writer never hit a full pipe: %v (pipe holds %d of %d bytes) stderr=%q", err, buffered, pipeSize, stderr.String())
 	}
-	received := pressured && waitPressureMarker(t, control, 'R', time.Now().Add(2*time.Second)) == nil
+	if _, err := unix.Write(master, []byte{'q'}); err != nil {
+		t.Fatal(err)
+	}
+	received := waitPressureMarker(t, control, 'R', time.Now().Add(childDeadline)) == nil
 
 	readDone := make(chan struct {
 		data []byte
@@ -2585,7 +2596,7 @@ func TestWriteOutputChunkReportsSinkError(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer unix.Close(fd)
-	if err := writeOutputChunk(fd, []byte("terminal output")); !errors.Is(err, unix.ENOSPC) {
+	if err := writeOutputChunk(fd, []byte("terminal output"), nil); !errors.Is(err, unix.ENOSPC) {
 		t.Fatalf("writeOutputChunk error = %v, want ENOSPC", err)
 	}
 }

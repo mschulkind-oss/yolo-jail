@@ -195,8 +195,11 @@ type Observer struct {
 	beforeSuspend      func()
 	afterSuspendCommit func()
 	cancelWake         <-chan os.Signal
-	outputSink         *outputSink
-	run                *session
+	// outputBlocked is told each time host stdout refuses output with EAGAIN, just
+	// before the writer parks in poll: a test's exact witness that output is stalled.
+	outputBlocked func()
+	outputSink    *outputSink
+	run           *session
 	// Input sees every chunk read from the host stdin and forwarded to the child:
 	// its LENGTH, and — for a chunk that is exactly one ^C, as a raw 0x03 or a
 	// kitty/modifyOtherKeys escape — KeyCtrlC. NEVER the content: what a user
@@ -592,7 +595,7 @@ func RunWithProxyObserved(cmd []string, onStarted func(*os.Process), onTerminate
 	// Raw mode on the host TTY.
 	setRaw(inFd, cooked)
 
-	sink := &outputSink{fd: 1}
+	sink := &outputSink{fd: 1, blocked: obs.outputBlocked}
 	obs.outputSink = sink
 	restoreCooked := func() { restoreTerminal(inFd, cooked) }
 
@@ -785,7 +788,7 @@ type outputWriteResult struct {
 	err   error
 }
 
-func writeOutputChunk(fd int, data []byte) error {
+func writeOutputChunk(fd int, data []byte, blocked func()) error {
 	for len(data) > 0 {
 		n, err := unix.Write(fd, data)
 		if n > 0 {
@@ -801,6 +804,9 @@ func writeOutputChunk(fd int, data []byte) error {
 			continue
 		}
 		if errors.Is(err, unix.EAGAIN) || errors.Is(err, unix.EWOULDBLOCK) {
+			if blocked != nil {
+				blocked()
+			}
 			fds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLOUT}}
 			if _, pollErr := unix.Poll(fds, -1); pollErr != nil && !errors.Is(pollErr, syscall.EINTR) {
 				return pollErr
@@ -816,6 +822,7 @@ type outputSink struct {
 	fd       int
 	mu       sync.Mutex
 	canceled atomic.Bool
+	blocked  func()
 }
 
 func (s *outputSink) writeTo(fd int, data []byte) error {
@@ -824,7 +831,7 @@ func (s *outputSink) writeTo(fd int, data []byte) error {
 	if s.canceled.Load() {
 		return nil
 	}
-	return writeOutputChunk(fd, data)
+	return writeOutputChunk(fd, data, s.blocked)
 }
 
 func (s *outputSink) cancel() { s.canceled.Store(true) }
@@ -915,7 +922,7 @@ func proxyLoop(inFd, master int, c *exec.Cmd, cooked *unix.Termios, obs Observer
 	// while that writer is backpressured. No shared stdout status flags are changed.
 	sink := obs.outputSink
 	if sink == nil {
-		sink = &outputSink{fd: 1}
+		sink = &outputSink{fd: 1, blocked: obs.outputBlocked}
 	}
 	outputWrites := make(chan outputWriteRequest)
 	outputResults := make(chan outputWriteResult, 1)
