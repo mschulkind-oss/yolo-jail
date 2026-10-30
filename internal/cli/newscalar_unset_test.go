@@ -378,7 +378,13 @@ func TestConfigRegistryUnsetScalarDryRunInvalidInputAbsentAndNonScalarPreserveFi
 }
 
 func TestConfigRegistryUnsetScalarRefusalQuotesSelectedFileAndGivesNextStep(t *testing.T) {
-	workspace := filepath.Join(t.TempDir(), "workspace with spaces")
+	// Resolved where minted: the edit resolver names the selected file by its physical path,
+	// and macOS's temp directory is under /var, a link to /private/var.
+	tmp, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace := filepath.Join(tmp, "workspace with spaces")
 	if err := os.Mkdir(workspace, 0o700); err != nil {
 		t.Fatal(err)
 	}

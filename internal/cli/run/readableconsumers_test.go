@@ -36,7 +36,13 @@ func loadLaunchConsumerConfig(t *testing.T, body string, toml bool) (*Options, *
 func TestReadableMachineSettingsReachFreshRunArgv(t *testing.T) {
 	home := packHome(t)
 	writeUserPacks(t, home, `["claude"]`)
-	workspace := t.TempDir()
+	// Resolved where minted: the I/O priority resolver grades the workspace's physical path
+	// against the Kyber mount table below, and macOS's temp directory is under /var, a link
+	// to /private/var.
+	workspace, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	configPath := filepath.Join(workspace, paths.WorkspaceConfigTOMLName)
 	body := `[machine]
 
