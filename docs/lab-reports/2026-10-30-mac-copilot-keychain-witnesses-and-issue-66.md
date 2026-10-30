@@ -52,7 +52,7 @@ decoded with `security error`.
 | W3 pathless queries | Refused under p0, p2 and vd ([§4](#4-w3-and-w4-reads-and-path-aliases)) |
 | W4 path aliases | Refused from inside the sandbox; a hard link made **outside** it exposes the raw file, and under p2 a prompt ([§4](#4-w3-and-w4-reads-and-path-aliases)) |
 | W5 session routines | Another UID in the session can lock all; p2 and vd can lock all; p0 cannot; reset-login refused everywhere ([§5](#5-w5-session-routines)) |
-| W6 `SessionCreate` | Pending: needs the witness's desktop login |
+| W6 `SessionCreate` | **A LaunchAgent with `SessionCreate` gets its own session without root**, and a lock-all there leaves the desktop session's keychains unlocked ([§8](#8-w6-sessioncreate)) |
 | W7 BYOK offline over loopback | **Fails under p0** before connecting; works under vd only ([§6](#6-w7-byok-offline-over-loopback)) |
 | W8 message filtering | **Closed**: `sandbox-exec` refuses any message filter ([§3](#3-w0-w1-and-w8-in-the-owners-account)) |
 | Issue #66 | **Fixed**, in account mode and in run-as-you ([§7](#7-issue-66)) |
@@ -67,6 +67,8 @@ Consequences for the research's options:
   In run-as-you, that session is the owner's.
 - **(c1) BYOK does not avoid native TLS**: the client loads its trust roots before any request.
 - **(e) message filtering is not available** to `sandbox-exec`.
+- **(b) a separate security session is buildable without root** (W6), so it is the route that
+  closes the lock-all hazard for run-as-you and account mode alike.
 
 ## 2. W2: Copilot's own TLS
 
@@ -245,11 +247,43 @@ Run-as-you was selected for its rows by a temporary user-scope override. The iss
 confirms it. The first `+950` launch took 2045.8 s, because the new build compiled mise from source,
 its test suite included.
 
-## 8. Left in place, and cleanup
+## 8. W6: `SessionCreate`
 
-- `yolo-witness` holds the LaunchAgents `wit.sid.sessioncreate` and `wit.sid.plain` for W6, and its
-  `~/wit` working files. Both test keychains were deleted (`security delete-keychain`), leaving an
-  empty search list and no default keychain, as at the start.
+`yolo-witness` was recreated with the maintainer's admin authorization (`sysadminctl -addUser …
+-adminUser matt`). The first copy had been made without it, and its password never worked at the
+login window; `sysadminctl -resetPasswordFor` on it failed with `commitChanges failed`. The
+maintainer then logged in to it at the desktop with fast user switching. Two LaunchAgents in its
+`~/Library/LaunchAgents`, loaded by that login, ran the W1 probe:
+
+| Agent | Session id | Attributes |
+| :--- | :--- | :--- |
+| Plain (`SessionCreate` false) | 110464 | 24624 (`0x6030`, graphics and TTY) |
+| `SessionCreate` true | **110631** | **0** |
+| The SSH shell, for comparison | 110650 | 20512 (TTY, remote) |
+
+A new session id does not by itself show that securityd keeps the sessions apart, so agents started
+from SSH with `launchctl bootstrap gui/504` then ran in order. The plain ones reported attributes 48
+(`0x30`) under the same session id.
+
+| Step | Session | Result |
+| :--- | :--- | :--- |
+| Add and read a synthetic item in the login keychain the desktop login unlocked | 110464 | add rc 0, read rc 0 |
+| `security lock-keychain -a` | **110652**, `SessionCreate` | rc 0 |
+| Read the item again | 110464 | **rc 0: still unlocked** |
+| Control: `security lock-keychain -a` | 110464 | rc 0 |
+| Read the item again | 110464 | rc 152: locked |
+
+**A process in a `SessionCreate` session cannot lock the desktop session's keychains**, and a user's
+own LaunchAgent can create one without root. This is the research's option (b). Not measured: whether
+yolo's launch path (a `sudo -u _yolojail` hop in account mode, a direct child in run-as-you) can
+start the jail through such an agent, and what else the separate session takes away (for example
+dialogs, pasteboard or other services keyed by session).
+
+## 9. Left in place, and cleanup
+
+- `yolo-witness` was recreated for W6, so W2–W5's files went with the first copy. The W6
+  LaunchAgents were booted out and deleted. Its login keychain, holding one synthetic item, goes
+  with the account.
 - `yolo-witness2` holds nothing beyond its new home.
 - `/Users/Shared/yolo/sid` holds the W1 probe.
 - The #66 fixture workspaces were removed. Run-as-you was set for those launches only, by a temporary
