@@ -75,7 +75,9 @@ func (e WorkingEntry) matches(now time.Time, workspace, repo, resource string) b
 func (s *Store) upsertWorkingIn(r *records, now time.Time, e WorkingEntry) (WorkingEntry, bool, error) {
 	for i := range r.working {
 		w := &r.working[i]
-		if !w.matches(now, e.Workspace, e.Repo, e.Resource) {
+		// A kind is part of what an entry covers: a timed merge grant on a PR never becomes
+		// the PR's own working-set entry, nor the other way round.
+		if !w.matches(now, e.Workspace, e.Repo, e.Resource) || kindOf(*w) != kindOf(e) {
 			continue
 		}
 		switch {
@@ -109,11 +111,11 @@ func (s *Store) AddWorking(e WorkingEntry) (WorkingEntry, bool, error) {
 	if e.Workspace == "" || e.Repo == "" || e.Resource == "" || e.By == "" {
 		return WorkingEntry{}, false, errors.New("a working-set entry needs a workspace, a repository, a resource and what added it")
 	}
-	if e.Kind != WorkingBranch && e.Kind != WorkingTag {
-		return WorkingEntry{}, false, fmt.Errorf("working-set entry kind %q is not %q or %q", e.Kind, WorkingBranch, WorkingTag)
-	}
 	if e.Kind == WorkingTag && !e.Timed() {
 		return WorkingEntry{}, false, errors.New("a tag never joins the working set for good: its entry needs an expiry")
+	}
+	if err := checkWorkingKind(e); err != nil {
+		return WorkingEntry{}, false, err
 	}
 	var out WorkingEntry
 	added := false
@@ -145,7 +147,7 @@ func (s *Store) LiveWorking(workspace, repo, resource string) (WorkingEntry, boo
 // already ended is left as it ended.
 func (s *Store) EndWorking(id, reason string) error {
 	switch reason {
-	case EndDeleted, EndGone, EndRevoked:
+	case EndDeleted, EndGone, EndRevoked, EndMerged:
 	default:
 		return fmt.Errorf("a working-set entry cannot end as %q", reason)
 	}
