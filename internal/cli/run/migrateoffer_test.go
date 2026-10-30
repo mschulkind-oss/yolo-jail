@@ -203,17 +203,20 @@ func TestANeverAttachLaunchIsOfferedBesideARunningJail(t *testing.T) {
 	}
 }
 
-// A setting with no TOML spelling yet is not a yolo bug: the offer lists it with its own next step,
-// writes nothing, and launches on the old file (RC-D35).
-func TestLaunchOfferYesWithAnUnconvertibleSettingNamesItAndLaunches(t *testing.T) {
+// A setting with no TOML spelling yet is not a yolo bug: the offer lists it with its own next step
+// and writes nothing. The person asked for a conversion that did not happen, so the launch stops
+// and says how to launch on the old file instead (RC-D35).
+func TestLaunchOfferYesWithAnUnconvertibleSettingNamesItAndStops(t *testing.T) {
 	old := "{\n  \"packs\": [],\n  \"lsp_servers\": {\"rust\": {\"command\": \"rust-analyzer\", \"fileExtensions\": {\".rs\": \"rust\"}}}\n}\n"
 	l := runOfferLaunch(t, old, true, "y\n")
-	l.mustLaunch(t)
+	if l.rc == 0 || l.launched {
+		t.Fatalf("Run() = %d, launched = %v; want a failed requested conversion to stop the launch\nstderr:\n%s", l.rc, l.launched, l.stderr.String())
+	}
 	if l.exists("config.toml") || !l.exists("config.jsonc") {
 		t.Fatalf("an unconvertible setting still converted the file\nstderr:\n%s", l.stderr.String())
 	}
 	s := l.stderr.String()
-	for _, want := range []string{"Some settings can't be converted to TOML yet:", "lsp_servers", "Nothing was changed; launching with your current files."} {
+	for _, want := range []string{"Some settings can't be converted to TOML yet:", "lsp_servers", "Nothing was changed.", "answer n to launch with your current files."} {
 		if !strings.Contains(s, want) {
 			t.Errorf("stderr lacks %q:\n%s", want, s)
 		}
@@ -230,7 +233,7 @@ func TestAConversionThatChangesMeaningIsReportedAsABug(t *testing.T) {
 	plan := &configmigrate.MigrationPlan{Differences: []configmigrate.Difference{{Layer: "user", Path: "packs", Before: `["a"]`, After: `["b"]`}}}
 	o.reportMigrationRefusal(plan, &configmigrate.InequalityError{Plan: plan}, []string{"/h/.config/yolo-jail/work.jsonc"})
 	s := stderr.String()
-	for _, want := range []string{"Couldn't convert work.jsonc", "this is a yolo bug", "Nothing was changed; launching with your current files.",
+	for _, want := range []string{"Couldn't convert work.jsonc", "this is a yolo bug", "Nothing was changed.", "answer n to launch with your current files.",
 		"Please file it at " + migrationBugURL + " with the output above."} {
 		if !strings.Contains(s, want) {
 			t.Errorf("stderr lacks %q:\n%s", want, s)

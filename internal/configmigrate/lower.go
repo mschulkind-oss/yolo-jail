@@ -68,6 +68,9 @@ type loweringContext struct {
 	merged bool
 	// user is the merged old user config the user-scope conversions rest on (RC-D32).
 	user *userView
+	// inlineEnv converts inline variable entries that follow every file in env_sources to
+	// env.set and env.unset. The plan turns it off when the proof fails with it on (Plan).
+	inlineEnv bool
 }
 
 // lowered is one lowering's result: the new-vocabulary values, the old path each new path came
@@ -168,7 +171,7 @@ func lower(old *jsonx.OrderedMap, ctx loweringContext, file string) lowered {
 			lowerNetwork(value, ctx, place, skip)
 			continue
 		case "env_sources":
-			lowerEnvSources(value, place, skip)
+			lowerEnvSources(value, ctx.inlineEnv, place, skip)
 			continue
 		case "brokered":
 			lowerBrokered(value, ctx, place, skip)
@@ -359,24 +362,77 @@ func portNumber(text string) (int, bool) {
 }
 
 // lowerEnvSources converts an env_sources list of dotenv paths to env.files. An inline object
-// entry sets variables at its place in the list, which env.set (a table applied after every file)
-// cannot say, so a list holding one is not converted.
-func lowerEnvSources(value any, place func([]string, any, []string) bool, skip func([]string, any, string)) {
+// entry sets variables at its place in the list. env.set and env.unset apply after every file, so
+// inline entries convert only when they follow every file in the list (and inlineEnv allows it):
+// merged in order, a string value becomes env.set and a null one env.unset. An inline entry
+// before a file is not converted.
+func lowerEnvSources(value any, inlineEnv bool, place func([]string, any, []string) bool, skip func([]string, any, string)) {
 	oldPath := []string{"env_sources"}
 	list, ok := value.([]any)
 	if !ok {
 		skip(oldPath, value, "env_sources must be a list")
 		return
 	}
+	const placed = "an inline variable entry takes effect at its place in the list, which env.set cannot say; move those variables into a dotenv file listed here, or keep the old file for now"
+	var files []any
+	set, unset := jsonx.NewOrderedMap(), jsonx.NewOrderedMap()
 	for _, entry := range list {
-		if _, isString := entry.(string); !isString {
-			skip(oldPath, value, "an inline variable entry takes effect at its place in the list, which env.set cannot say; move those variables into a dotenv file listed here, or keep the old file for now")
+		if path, isString := entry.(string); isString {
+			if set.Len()+unset.Len() > 0 {
+				skip(oldPath, value, placed)
+				return
+			}
+			files = append(files, path)
+			continue
+		}
+		vars, isMap := entry.(*jsonx.OrderedMap)
+		if !isMap || !inlineEnv {
+			skip(oldPath, value, placed)
 			return
+		}
+		for _, name := range vars.Keys() {
+			v, _ := vars.Get(name)
+			switch v := v.(type) {
+			case string:
+				unset.Delete(name)
+				set.Delete(name)
+				set.Set(name, v)
+			case nil:
+				set.Delete(name)
+				unset.Set(name, nil)
+			default:
+				skip(oldPath, value, "an inline variable's value must be a string or null")
+				return
+			}
 		}
 	}
 	target, ok := renameReplacement("env_sources")
-	if !ok || !place(target, append([]any(nil), list...), oldPath) {
-		skip(oldPath, value, "env.files is already written in this file; keep one of the two")
+	if !ok {
+		skip(oldPath, value, "env_sources has no new spelling in this yolo")
+		return
+	}
+	env := target[:len(target)-1]
+	names := make([]any, 0, unset.Len())
+	for _, name := range unset.Keys() {
+		names = append(names, name)
+	}
+	parts := []struct {
+		key   string
+		value any
+		write bool
+	}{
+		{target[len(target)-1], files, len(files) > 0},
+		{"set", set, set.Len() > 0},
+		{"unset", names, len(names) > 0},
+	}
+	for _, part := range parts {
+		if !part.write {
+			continue
+		}
+		if !place(append(append([]string(nil), env...), part.key), part.value, oldPath) {
+			skip(oldPath, value, "env."+part.key+" is already written in this file; keep one of the two")
+			return
+		}
 	}
 }
 

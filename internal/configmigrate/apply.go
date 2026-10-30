@@ -137,7 +137,7 @@ func Apply(p *MigrationPlan, opts ApplyOptions) (*ApplyResult, error) {
 		}
 	}
 
-	after, err := readCanonical(p.Graph, newUserTop(p.Graph), p.Graph.Request.Workspace, nil, nil, "", false, packload.Embedded())
+	after, err := readCanonical(p.Graph, newUserTop(p.Graph), p.Graph.Request.Workspace, nil, nil, "", false, false, packload.Embedded())
 	if err != nil {
 		return nil, restore(fmt.Errorf("the written files do not read: %w", err))
 	}

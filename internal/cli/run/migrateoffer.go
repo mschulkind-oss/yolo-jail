@@ -50,10 +50,11 @@ import (
 )
 
 // offerConfigMigration offers to convert this launch's old-format config files, and converts
-// them when the person says yes. It never stops the launch.
-func (o *Options) offerConfigMigration() {
+// them when the person says yes. It returns false only when the person asked for the conversion
+// and it did not happen: the launch stops there, on unchanged files (RC-D35).
+func (o *Options) offerConfigMigration() bool {
 	if o.launchWillAttach() {
-		return
+		return true
 	}
 	req := configmigrate.Request{Workspace: o.Workspace}
 	if !config.InJail() {
@@ -62,15 +63,15 @@ func (o *Options) offerConfigMigration() {
 	graph, err := configmigrate.Discover(req)
 	if err != nil {
 		// The launch's own read below reports what is wrong with these files.
-		return
+		return true
 	}
 	old := graph.Old()
 	if len(old) == 0 {
-		return
+		return true
 	}
 	userFile, hasLegacyUser, silenced := convertLaterState()
 	if silenced {
-		return
+		return true
 	}
 	names := make([]string, len(old))
 	for i, f := range old {
@@ -89,7 +90,7 @@ func (o *Options) offerConfigMigration() {
 		if stop != "" {
 			pr.print("  Stop asking:  " + stop)
 		}
-		return
+		return true
 	}
 	// The mental model, then the two ways out, then the question (RC-D35): the old format still
 	// works for now, converting keeps each original beside it, and nothing is explained beyond that.
@@ -108,7 +109,7 @@ func (o *Options) offerConfigMigration() {
 	}
 	pr.print("")
 	if _, err := fmt.Fprint(o.Stderr, richtext.Render("[bold]Convert to TOML now? [y/N][/bold] ", o.streamColor())); err != nil {
-		return
+		return true
 	}
 	reply := ""
 	if scanner := bufio.NewScanner(o.Stdin); scanner.Scan() {
@@ -116,18 +117,18 @@ func (o *Options) offerConfigMigration() {
 	}
 	if reply != "y" && reply != "yes" {
 		pr.printf("Keeping the JSONC %s for now.", plural(len(old), "file", "files"))
-		return
+		return true
 	}
 	plan, err := configmigrate.Plan(graph)
 	if err != nil {
 		o.reportMigrationRefusal(plan, err, names)
-		return
+		return false
 	}
 	res, err := configmigrate.Apply(plan, configmigrate.ApplyOptions{})
 	if err != nil {
 		fmt.Fprintf(o.Stderr, "%v\n", err)
-		pr.print("[red]Couldn't write the converted files.[/red] Nothing was changed; launching with your current files.")
-		return
+		pr.print("[red]Couldn't write the converted files.[/red] Nothing was changed. Run the same command again and answer [bold]n[/bold] to launch with your current files.")
+		return false
 	}
 	backups := make([]string, len(res.Backups))
 	for i, b := range res.Backups {
@@ -138,64 +139,50 @@ func (o *Options) offerConfigMigration() {
 	for _, ig := range res.Ignores {
 		pr.print(richtext.Escape(ig.Report(o.Workspace)))
 	}
+	return true
 }
 
-// reportMigrationRefusal says why the offer converted nothing, and launches on the old files. A
-// converted config that would mean something else is a yolo bug, and says so; a setting with no
-// TOML spelling yet names its own next step and is not one.
+// reportMigrationRefusal says why the offer converted nothing; the launch then stops. A setting
+// with no TOML spelling yet names its own next step and is not a bug. A converted config that
+// would mean something else, with every setting converted, is a yolo bug, and says so.
 func (o *Options) reportMigrationRefusal(plan *configmigrate.MigrationPlan, err error, names []string) {
 	pr := o.pr(o.Stderr)
 	var ineq *configmigrate.InequalityError
 	if !errors.As(err, &ineq) || plan == nil {
 		fmt.Fprintf(o.Stderr, "%v\n", err)
-		pr.print("[red]Couldn't convert your config.[/red] Nothing was changed; launching with your current files.")
+		pr.printf("[red]Couldn't convert your config.[/red] Nothing was changed. %s", keepGoing)
 		return
 	}
-	// A setting with no TOML spelling yet is left out of the converted file, so it also shows as a
-	// difference; only a difference no such setting explains is a bug.
-	var unexplained []configmigrate.Difference
+	// A setting with no TOML spelling yet is left out of the converted file, so the proof also
+	// shows what leaving it out changes; those settings, with their reasons, are the answer then.
+	if len(plan.NotConverted) > 0 {
+		pr.print("[yellow]Some settings can't be converted to TOML yet:[/yellow]")
+		for _, nc := range plan.NotConverted {
+			where := nc.Path
+			if nc.File != "" {
+				where = filepath.Base(nc.File) + ": " + nc.Path
+			}
+			pr.printf("  %s — %s", richtext.Escape(where), richtext.Escape(nc.Reason))
+		}
+		pr.printf("Nothing was changed. Change those settings and convert again, or %s", strings.ToLower(keepGoing[:1])+keepGoing[1:])
+		return
+	}
+	pr.print("The converted config would not mean the same as yours:")
 	for _, d := range plan.Differences {
-		if !explainedByNotConverted(d.Path, plan.NotConverted) {
-			unexplained = append(unexplained, d)
-		}
+		pr.printf("  %s: %s", richtext.Escape(d.Layer), richtext.Escape(d.Path))
+		pr.printf("    [red]- %s[/red]", richtext.Escape(d.Before))
+		pr.printf("    [green]+ %s[/green]", richtext.Escape(d.After))
 	}
-	if len(unexplained) > 0 {
-		pr.print("The converted config would not mean the same as yours:")
-		for _, d := range unexplained {
-			pr.printf("  %s: %s", richtext.Escape(d.Layer), richtext.Escape(d.Path))
-			pr.printf("    [red]- %s[/red]", richtext.Escape(d.Before))
-			pr.printf("    [green]+ %s[/green]", richtext.Escape(d.After))
-		}
-		what := "your config"
-		if len(names) == 1 {
-			what = filepath.Base(names[0])
-		}
-		pr.printf("[red]Couldn't convert %s[/red] — this is a yolo bug. Nothing was changed; launching with your current files. "+
-			"Please file it at %s with the output above.", richtext.Escape(what), migrationBugURL)
-		return
+	what := "your config"
+	if len(names) == 1 {
+		what = filepath.Base(names[0])
 	}
-	pr.print("[yellow]Some settings can't be converted to TOML yet:[/yellow]")
-	for _, nc := range plan.NotConverted {
-		where := nc.Path
-		if nc.File != "" {
-			where = filepath.Base(nc.File) + ": " + nc.Path
-		}
-		pr.printf("  %s — %s", richtext.Escape(where), richtext.Escape(nc.Reason))
-	}
-	pr.print("Nothing was changed; launching with your current files.")
+	pr.printf("[red]Couldn't convert %s[/red] — this is a yolo bug. Nothing was changed. "+
+		"Please file it at %s with the output above. %s", richtext.Escape(what), migrationBugURL, keepGoing)
 }
 
-// explainedByNotConverted is whether a difference at path lies at or under, or contains, a key the
-// conversion left out on purpose.
-func explainedByNotConverted(path string, skipped []configmigrate.NotConverted) bool {
-	for _, nc := range skipped {
-		if path == nc.Path || strings.HasPrefix(path, nc.Path+".") || strings.HasPrefix(path, nc.Path+"[") ||
-			strings.HasPrefix(nc.Path, path+".") || strings.HasPrefix(nc.Path, path+"[") {
-			return true
-		}
-	}
-	return false
-}
+// keepGoing is how a person whose requested conversion failed launches anyway.
+const keepGoing = "Run the same command again and answer [bold]n[/bold] to launch with your current files."
 
 // migrationBugURL is where a conversion that would change a config's meaning is reported.
 const migrationBugURL = "https://github.com/mschulkind-oss/yolo-jail/issues"

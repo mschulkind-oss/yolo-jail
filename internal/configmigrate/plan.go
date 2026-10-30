@@ -138,13 +138,45 @@ type canonicalSet struct {
 // A fold into `every_model` is made only while the proof holds (config-migration.md §4 item 4):
 // a plan with folds whose provider table differs is planned again without them, and that plan's
 // verdict is the answer.
+//
+// Inline env_sources variables converted to env.set are kept the same way: env.set applies after
+// every file of every scope, so a later scope's files can make it mean something else, and a plan
+// that converted them and does not prove equal is planned again with them left unconverted.
 func Plan(g *Graph) (*MigrationPlan, error) {
-	p, err := planWith(g, true)
+	opts := planOptions{fold: true, inlineEnv: true}
+	p, err := planWith(g, opts)
 	var ineq *InequalityError
 	if errors.As(err, &ineq) && p.folded() && p.differsIn(providerTableLayer) {
-		return planWith(g, false)
+		opts.fold = false
+		p, err = planWith(g, opts)
+	}
+	if errors.As(err, &ineq) && hasInlineEnv(g) {
+		opts.inlineEnv = false
+		p, err = planWith(g, opts)
 	}
 	return p, err
+}
+
+// planOptions are the conversions a plan makes only while the proof holds.
+type planOptions struct {
+	fold, inlineEnv bool
+}
+
+// hasInlineEnv is whether a file being converted writes an inline variable entry in env_sources.
+func hasInlineEnv(g *Graph) bool {
+	for _, f := range g.Files {
+		if f.Role != RoleConvert {
+			continue
+		}
+		list, _ := f.doc.Values.Get("env_sources")
+		entries, _ := list.([]any)
+		for _, e := range entries {
+			if _, isPath := e.(string); !isPath {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // providerTableLayer is the equality check's layer for the provider table a launch resolves.
@@ -168,7 +200,7 @@ func (p *MigrationPlan) differsIn(layer string) bool {
 	return false
 }
 
-func planWith(g *Graph, fold bool) (*MigrationPlan, error) {
+func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 	p := &MigrationPlan{Graph: g, Unreachable: append([]Missing(nil), g.Unreachable...)}
 	// Every shipped pack, for the provider table both sides are proved against: a pack's own
 	// model aliases are what a fold into `every_model` could reach (models.go).
@@ -180,7 +212,7 @@ func planWith(g *Graph, fold bool) (*MigrationPlan, error) {
 	for _, f := range g.Files {
 		switch f.Role {
 		case RoleConvert:
-			writers.add(lower(f.doc.Values, loweringContext{scope: f.Scope, remotes: remotes, user: view}, f.Logical).values)
+			writers.add(lower(f.doc.Values, loweringContext{scope: f.Scope, remotes: remotes, user: view, inlineEnv: opts.inlineEnv}, f.Logical).values)
 		default:
 			writers.add(f.doc.Values)
 		}
@@ -188,7 +220,7 @@ func planWith(g *Graph, fold bool) (*MigrationPlan, error) {
 	for _, f := range g.Files {
 		switch f.Role {
 		case RoleConvert:
-			t, skipped, err := convertFile(f, remotes, view, writers, fold)
+			t, skipped, err := convertFile(f, remotes, view, writers, opts)
 			if err != nil {
 				return nil, err
 			}
@@ -213,7 +245,7 @@ func planWith(g *Graph, fold bool) (*MigrationPlan, error) {
 	if err := p.preflight(); err != nil {
 		return nil, err
 	}
-	before, err := readCanonical(g, oldTop(g), g.Request.Workspace, remotes, view, "", true, packs)
+	before, err := readCanonical(g, oldTop(g), g.Request.Workspace, remotes, view, "", true, opts.inlineEnv, packs)
 	if err != nil {
 		return nil, fmt.Errorf("read the old config: %w", err)
 	}
@@ -229,7 +261,7 @@ func planWith(g *Graph, fold bool) (*MigrationPlan, error) {
 	if err != nil {
 		return nil, fmt.Errorf("stage the converted files: %w", err)
 	}
-	after, err := readCanonical(g, userTop, workspace, nil, nil, mirror, false, packs)
+	after, err := readCanonical(g, userTop, workspace, nil, nil, mirror, false, false, packs)
 	if err != nil {
 		return nil, fmt.Errorf("the converted files would not read: %w; nothing was written", err)
 	}
@@ -259,11 +291,11 @@ func oldTop(g *Graph) string {
 }
 
 // convertFile makes one old file's TOML.
-func convertFile(f *File, remotes []string, view *userView, writers writerCounts, fold bool) (Target, []NotConverted, error) {
-	l := lower(f.doc.Values, loweringContext{scope: f.Scope, remotes: remotes, user: view}, f.Logical)
+func convertFile(f *File, remotes []string, view *userView, writers writerCounts, opts planOptions) (Target, []NotConverted, error) {
+	l := lower(f.doc.Values, loweringContext{scope: f.Scope, remotes: remotes, user: view, inlineEnv: opts.inlineEnv}, f.Logical)
 	dropped := dropDefaults(l.values, writers)
 	var folded []FoldedFact
-	if fold {
+	if opts.fold {
 		folded = foldEveryModel(l.values)
 	}
 	var respelled []string
@@ -519,7 +551,32 @@ type sideRead struct {
 // name a difference in.
 func launchEnv(composed *jsonx.OrderedMap) *jsonx.OrderedMap {
 	out := jsonx.NewOrderedMap()
-	out.Set("entries", config.EnvEntries(composed))
+	out.Set("entries", mergeAdjacentTables(config.EnvEntries(composed)))
+	return out
+}
+
+// mergeAdjacentTables merges each run of adjacent inline tables into one, a later name winning:
+// two tables in a row resolve as one, which is how env.set followed by env.unset says what one
+// inline entry said.
+func mergeAdjacentTables(entries []any) []any {
+	var out []any
+	for _, e := range entries {
+		table, isTable := e.(*jsonx.OrderedMap)
+		if !isTable {
+			out = append(out, e)
+			continue
+		}
+		if n := len(out); n > 0 {
+			if prev, ok := out[n-1].(*jsonx.OrderedMap); ok {
+				for _, k := range table.Keys() {
+					v, _ := table.Get(k)
+					prev.Set(k, v)
+				}
+				continue
+			}
+		}
+		out = append(out, jsonx.DeepCopyMap(table))
+	}
 	return out
 }
 
@@ -530,16 +587,16 @@ var loweredRoots = []string{"env_sources", "env", "brokered", "requests", "allow
 // readCanonical reads one side through the launch's readers (config.ReadMigrationGraph). The old
 // side (remotes non-nil or mirror empty) is lowered; the new side is the readers' output with
 // the staging root taken back out of every anchored path.
-func readCanonical(g *Graph, userTop, workspace string, remotes []string, view *userView, mirror string, lowerOld bool, packs []*packload.Pack) (*sideRead, error) {
+func readCanonical(g *Graph, userTop, workspace string, remotes []string, view *userView, mirror string, lowerOld, inlineEnv bool, packs []*packload.Pack) (*sideRead, error) {
 	read, err := config.ReadMigrationGraph(userTop, workspace)
 	if err != nil {
 		return nil, err
 	}
 	s := &sideRead{}
 	if lowerOld {
-		s.user, _ = canonicalOld(read.User, loweringContext{scope: ScopeUser, remotes: remotes, user: view})
-		s.project, _ = canonicalOld(read.Workspace, loweringContext{scope: ScopeProject, remotes: remotes, user: view})
-		s.composed, _ = canonicalOld(read.Composed, loweringContext{scope: ScopeProject, remotes: remotes, user: view, merged: true})
+		s.user, _ = canonicalOld(read.User, loweringContext{scope: ScopeUser, remotes: remotes, user: view, inlineEnv: inlineEnv})
+		s.project, _ = canonicalOld(read.Workspace, loweringContext{scope: ScopeProject, remotes: remotes, user: view, inlineEnv: inlineEnv})
+		s.composed, _ = canonicalOld(read.Composed, loweringContext{scope: ScopeProject, remotes: remotes, user: view, merged: true, inlineEnv: inlineEnv})
 		// The OLD spelling as the launch reads it, not its lowering: the proof is that the
 		// converted files resolve to the env the old ones resolve to.
 		s.env = launchEnv(read.Composed)

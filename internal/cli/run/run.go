@@ -208,8 +208,11 @@ func Run(opts Options) (rc int) {
 	// for conversion before anything reads the config, so a `y` launches on the new files, and
 	// before the config-change prompt, which the migration's respelled records keep quiet.
 	// Never on an attach to a running jail (launchWillAttach): that jail booted on the old files.
+	// A `y` whose conversion fails stops the launch, on unchanged files (RC-D35).
 	// Pinned by TestLaunchOfferYesConvertsThenLaunches.
-	o.offerConfigMigration()
+	if !o.offerConfigMigration() {
+		return 1
+	}
 	o.refreshPacks()
 	cfg, ok := o.loadAndValidateConfig()
 	if !ok {

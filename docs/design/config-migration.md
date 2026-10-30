@@ -100,8 +100,9 @@ Keeping the JSONC file for now.
 
 (`y` converts, says *"Converted. The original is next to the new file, as
 config.jsonc.pre-migrate."*, and continues the launch. A setting with no TOML spelling yet is
-named with its next step, and nothing is changed; a conversion that would change what the config
-means is reported as a yolo bug to file, and nothing is changed. With no terminal the offer is the
+named with its next step; a conversion that would change what the config means is reported as a
+yolo bug to file. Either way nothing is changed and the launch stops, saying to run the command
+again and answer `n` to launch on the old files. With no terminal the offer is the
 opening line and the two command lines, with no question. `"convert_later": true` in the old user
 file silences the offer for every old file this machine reads; no command writes it. The wording
 is the owner's ([RC-D35](readable-config.md#RC-D35)).)
