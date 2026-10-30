@@ -141,7 +141,8 @@ type canonicalSet struct {
 //
 // Inline env_sources variables converted to env.set are kept the same way: env.set applies after
 // every file of every scope, so a later scope's files can make it mean something else, and a plan
-// that converted them and does not prove equal is planned again with them left unconverted.
+// that converted them and does not prove equal in the environment is planned again with them
+// left unconverted. A refusal elsewhere keeps the conversion, so it names only what it is about.
 func Plan(g *Graph) (*MigrationPlan, error) {
 	opts := planOptions{fold: true, inlineEnv: true}
 	p, err := planWith(g, opts)
@@ -150,7 +151,7 @@ func Plan(g *Graph) (*MigrationPlan, error) {
 		opts.fold = false
 		p, err = planWith(g, opts)
 	}
-	if errors.As(err, &ineq) && hasInlineEnv(g) {
+	if errors.As(err, &ineq) && hasInlineEnv(g) && p.differsInEnv() {
 		opts.inlineEnv = false
 		p, err = planWith(g, opts)
 	}
@@ -182,6 +183,9 @@ func hasInlineEnv(g *Graph) bool {
 // providerTableLayer is the equality check's layer for the provider table a launch resolves.
 const providerTableLayer = "the provider table the launch resolves"
 
+// envLayer is the equality check's layer for the environment a launch resolves.
+const envLayer = "the environment the launch resolves"
+
 func (p *MigrationPlan) folded() bool {
 	for _, t := range p.Targets {
 		if len(t.Folded) > 0 {
@@ -194,6 +198,17 @@ func (p *MigrationPlan) folded() bool {
 func (p *MigrationPlan) differsIn(layer string) bool {
 	for _, d := range p.Differences {
 		if d.Layer == layer {
+			return true
+		}
+	}
+	return false
+}
+
+// differsInEnv is whether a difference is in the environment a launch resolves, or in a key that
+// spells part of it.
+func (p *MigrationPlan) differsInEnv() bool {
+	for _, d := range p.Differences {
+		if d.Layer == envLayer || d.Path == "env_sources" || d.Path == "env" || strings.HasPrefix(d.Path, "env.") {
 			return true
 		}
 	}
@@ -270,7 +285,7 @@ func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 	p.Differences = append(p.Differences, diffValues("user config", before.user, after.user)...)
 	p.Differences = append(p.Differences, diffValues("project config", before.project, after.project)...)
 	p.Differences = append(p.Differences, diffValues("user and project config merged", before.composed, after.composed)...)
-	p.Differences = append(p.Differences, diffValues("the environment the launch resolves", before.env, after.env)...)
+	p.Differences = append(p.Differences, diffValues(envLayer, before.env, after.env)...)
 	p.Differences = append(p.Differences, diffValues(providerTableLayer, before.providers, after.providers)...)
 	p.Equal = before.set == after.set
 	if g.Request.Workspace != "" && len(g.project) > 0 {
