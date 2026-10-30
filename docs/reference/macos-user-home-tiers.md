@@ -247,15 +247,16 @@ preserving pack-declared shared backing, not this global-home layout.
 The layout is the **first generator step** of `RunDarwinBootstrap`, above genStep #1 — not merely
 "before the pack hooks". `~/.yolo/bin` is itself one of the links and `GenerateShims` writes
 through it, so a shim generated into the account home before the link was laid would be a blocker
-in the wrong tier, and a link laid over the directory it had just created would refuse. The ONE
-statement ahead of it is the `LoadJailPacks` call, and that is the same constraint from the other
-side: the two pack-declared tier lists **are** the layout, so they have to be loaded before it can
-be derived.
+in the wrong tier, and a link laid over the directory it had just created would refuse. Two boot
+steps run ahead of it on this backend, `hydrate_session_env` and `start_egress_probe`, and neither
+writes into the home, so the layout is the first step that does. The packs load in its own step,
+and that is the same constraint from the other side: the two pack-declared tier lists **are** the
+layout, so they have to be loaded before it can be derived.
 
 | Rule | Enforced by |
 | :--- | :--- |
 | The cache relocations' links are laid in the layout's step, and never through a link | `InstallDarwinHomeLayout` runs `InstallDarwinCacheRelocations` beside `Apply` and reports both refusals together; with a relocation to lay it refuses a `~/.cache` that is a link and writes beneath an `os.Root` on the real one, and with none it ignores a `~/.cache` that is not a real directory ([HT-D16](#ht-d16)) |
-| The layout applies above genStep #1 | it is the first `genStep` in `RunDarwinBootstrap`; only `LoadJailPacks`, which supplies its two tier lists, runs earlier |
+| The layout applies above genStep #1 | it is the first step in `bootSteps` that writes into the home and the first `genStep`; on this backend only `hydrate_session_env` and `start_egress_probe` run before it, and the packs that supply its two tier lists load in its own step |
 | `Dirs` before `Links` | `Apply` walks the fields in declaration order; `MkdirAll` THROUGH a dangling symlink fails (`Stat` misses, `Mkdir` hits `EEXIST`, `Lstat` says "not a directory") |
 | The `SharedDirs` mirror before anything RESOLVES one | `Mirrors` is applied in the same step as the `Links`, above every generator |
 | `MISE_DATA_DIR` names a path outside the workspace tier | `macosuser.SandboxMiseData` is the one function the launch env, the bootstrap env and the PATH's shims dir all read; `assertOutsideTheWorkspaceTier` asks the deriver |
