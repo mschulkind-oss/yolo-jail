@@ -513,7 +513,7 @@ func TestApproveRevokeAllWorkspace(t *testing.T) {
 	}
 	// The output counts what it ended and says the config's create-branch grant stays, naming
 	// both places that remove it.
-	for _, want := range []string{"Revoked 2 ", "stays", "brokered.git.grants", "brokered.git.grant_kinds"} {
+	for _, want := range []string{"Revoked 2 ", "stays", "yolo config unset requests.git.<capability> --project", "allow.git.on_request"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("revoke output lacks %q:\n%s", want, out.String())
 		}

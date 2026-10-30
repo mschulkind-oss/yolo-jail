@@ -29,7 +29,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/termsafe"
 )
 
-const approveUsage = `Usage: yolo approve [request] [--for <duration|session> | --deny]
+const approveUsage = `Usage: yolo approve [request] [--for <duration|session> | --add | --remember | --deny]
        yolo approve --revoke <grant|w-entry|c-entry|all> [--workspace <path>]
        yolo approve --json
        yolo approve --watch [--json]
@@ -48,7 +48,12 @@ it creates joins the working set. For a git push, --for <duration> (at most 24h)
 every push to
 the refs that needed approval for that long, and --add adds those branches to
 the workspace's working set for good; --add is refused for a tag and for a new
-branch, naming --for as the next step. A grant
+branch, naming --for as the next step. --remember allows that push once and
+remembers each ref it needed approval for in the project's config, writing what
+` + "`yolo request git push <branch>`" + ` (or ` + "`push_tags <tag>`" + `) writes there, through
+that verb, so later pushes to it need no approval once ` + "`yolo config apply`" + ` approves
+the change; it is refused, with nothing written, while the project's config is
+still in the deprecated JSONC format. A grant
 belongs to the request's workspace: every jail of that project may use it, and
 it lasts through broker and jail restarts and relaunches until it expires, its
 uses run out, or it is revoked.
@@ -64,10 +69,13 @@ the grant from (exit 4 when no running jail declares it). --revoke all ends
 every live grant; --revoke all --workspace <path> ends that workspace's grants
 and its recorded working set, and exits 4 when nothing in the store matched,
 naming the config file when the workspace's working set holds only branches
-declared there. Neither ends a create-branch or branch grant
-written in the project's config: remove it from the workspace's
-yolo-jail.jsonc (brokered.git.grants), or the kind from
-brokered.git.grant_kinds in your user config.
+declared there. Neither ends a create-branch, branch or tag grant
+written in the project's config: remove it there with
+` + "`yolo config unset requests.git.<capability> --project`" + ` (or one entry of the
+list, ` + "`requests.git.push[<n>]`" + `), run in the project, then ` + "`yolo config apply`" + `; a
+project still on yolo-jail.jsonc converts first with ` + "`yolo config migrate`" + `. Or
+take the capability out of ` + "`allow.git.on_request`" + ` in your user config
+(` + "`brokered.git.grant_kinds`" + ` in one still on JSONC).
 
 --json prints pending requests, live grants and live working-set entries as one
 JSON document; a grant's "workspace" is its holder, "jail" the jail whose
@@ -84,8 +92,8 @@ it approves: a jail can reach a port the host listens on.
 Exit codes: 0 done; 1 the store could not be read or written; 2 usage;
 3 the request is already decided; 4 no request, grant or entry has that id
 (or, with --workspace, that workspace path);
-5 refused by policy (beyond the set's ceiling, or a revoke of a branch declared
-in config); 6 the host can no longer confirm
+5 refused by policy (beyond the set's ceiling, a revoke of a branch declared
+in config, or a --remember that cannot be written); 6 the host can no longer confirm
 the request (its jail's launch is gone or its scope changed), so it cannot be
 allowed. A request whose jail stopped normally is already refused, which is 3.
 
@@ -97,6 +105,7 @@ Examples:
   yolo approve
   yolo approve r-<id>
   yolo approve r-<id> --for 15m
+  yolo approve r-<id> --remember     # a git push: allow it and remember it in the project's config
   yolo approve r-<id> --deny
   yolo approve --revoke w-<id>
   yolo approve --revoke c-<id>       # names the config file to edit instead
@@ -175,7 +184,7 @@ func approveAll(ctx context.Context, args []string, inJail bool, stores []*broke
 	}
 	var request, revoke, workspace string
 	var d brokerstore.Decision
-	forSeen, addSeen, asJSON, watch, workspaceSeen := false, false, false, false, false
+	forSeen, addSeen, rememberSeen, asJSON, watch, workspaceSeen := false, false, false, false, false, false
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		name, value, eq := strings.Cut(a, "=")
@@ -220,6 +229,11 @@ func approveAll(ctx context.Context, args []string, inJail bool, stores []*broke
 				return fail(fmt.Errorf("specify --add once, without a value"))
 			}
 			addSeen = true
+		case "--remember":
+			if eq || rememberSeen {
+				return fail(fmt.Errorf("specify --remember once, without a value"))
+			}
+			rememberSeen = true
 		case "--deny":
 			if eq || d.Deny {
 				return fail(fmt.Errorf("specify --deny once, without a value"))
@@ -241,7 +255,14 @@ func approveAll(ctx context.Context, args []string, inJail bool, stores []*broke
 			request = a
 		}
 	}
-	if (d.Deny && (forSeen || addSeen)) || (forSeen && addSeen) || (revoke != "" && (request != "" || d.Deny || forSeen || addSeen)) || ((d.Deny || forSeen || addSeen) && request == "") {
+	// The answers to one request exclude each other: Deny, Allow for a time, Add, Remember.
+	answers := 0
+	for _, seen := range []bool{d.Deny, forSeen, addSeen, rememberSeen} {
+		if seen {
+			answers++
+		}
+	}
+	if answers > 1 || (revoke != "" && (request != "" || answers > 0)) || (answers > 0 && request == "") {
 		return fail(fmt.Errorf("choose one request decision, or --revoke"))
 	}
 	if workspaceSeen && revoke != "all" {
@@ -250,7 +271,7 @@ func approveAll(ctx context.Context, args []string, inJail bool, stores []*broke
 	if (asJSON || watch) && (request != "" || revoke != "") {
 		return fail(fmt.Errorf("decide or revoke without --json or --watch, which only list or follow the store"))
 	}
-	if request != "" && (forSeen || addSeen) {
+	if request != "" && (forSeen || addSeen || rememberSeen) {
 		source, found, err := pendingRequestSource(stores, request)
 		if err != nil {
 			return approveFailure(err, errs)
@@ -259,9 +280,14 @@ func approveAll(ctx context.Context, args []string, inJail bool, stores []*broke
 			flag := "--for"
 			if addSeen {
 				flag = "--add"
+			} else if rememberSeen {
+				flag = "--remember"
 			}
 			fmt.Fprintf(errs, "yolo approve: %s is not available for %s. Next: run `yolo approve %s` with no flags to Allow once.\n", flag, what, termsafe.Visible(request))
 			return approveExitPolicy
+		}
+		if rememberSeen {
+			return approveRemember(stores, request, out, errs)
 		}
 		if !found && addSeen {
 			// No request has this id: --add is answered by the store that takes it, which says so.
@@ -323,7 +349,7 @@ func approveAll(ctx context.Context, args []string, inJail bool, stores []*broke
 	if empty {
 		fmt.Fprintln(out, "No requests, grants or working-set entries. A windowed GitHub write, or a git push no grant or working-set entry covers, can file a pending Allow-once request; decide it with `yolo approve <id>`. Run `yolo approve --help` for the host store commands.")
 	} else {
-		fmt.Fprintln(out, "Decide pending requests with `yolo approve <id>` (a GitHub write is Allow once; a git push takes `--for <duration>` to allow its refs for that long or `--add` to add its branches to the working set; `--for <duration>` grants a whole set only where supported), or `--deny`; revoke with `yolo approve --revoke <grant|w-entry|c-entry|all> [--workspace <path>]` (a c- entry is a working-set branch declared in config and is removed there).")
+		fmt.Fprintln(out, "Decide pending requests with `yolo approve <id>` (a GitHub write is Allow once; a git push takes `--for <duration>` to allow its refs for that long, `--add` to add its branches to the working set, or `--remember` to allow it and remember its refs in the project's config; `--for <duration>` grants a whole set only where supported), or `--deny`; revoke with `yolo approve --revoke <grant|w-entry|c-entry|all> [--workspace <path>]` (a c- entry is a working-set branch declared in config and is removed there).")
 	}
 	return 0
 }
@@ -412,9 +438,11 @@ func approveRevoke(ctx context.Context, stores []*brokerstore.Store, revoke, wor
 		// never held it, so the store's "ended record kept 7 days" does not apply.
 		fmt.Fprintf(errs, "yolo approve: no running jail declares %s. A c- id is a working-set branch declared in config, "+
 			"listed only while a jail of its project runs; the broker recorded nothing to revoke.\n"+
-			"Next: to take the branch out, remove its {\"kind\": \"branch\", …} entry under `brokered.git.grants` in the "+
-			"project's yolo-jail.jsonc, then run `yolo config apply` in the project (a stopped jail reads it at its next "+
-			"launch); run `yolo approve` to list the ids of running jails.\n", termsafe.Visible(revoke))
+			"Next: to take the branch out, run `yolo config unset 'requests.git.push[<n>]' --project` in the project, "+
+			"<n> being the branch's position from 0 as `yolo config why requests.git.push` lists it, then `yolo config apply` there "+
+			"(a stopped jail reads it at its next launch); a project still on yolo-jail.jsonc, where it is a {\"kind\": \"branch\", …} "+
+			"entry under `brokered.git.grants`, converts first with `yolo config migrate`. Run `yolo approve` to list the ids of running jails.\n",
+			termsafe.Visible(revoke))
 		return approveExitUnknownID
 	}
 	if revoke != "all" {
@@ -467,16 +495,14 @@ func approveRevoke(ctx context.Context, stores []*brokerstore.Store, revoke, wor
 		// so name what holds them instead.
 		fmt.Fprintf(errs, "yolo approve: nothing in the store to revoke for %s: no live grant or recorded working-set entry. "+
 			"It holds only branches and tags declared in config:\n", shown)
-		files := []string{}
 		for _, b := range declared {
 			fmt.Fprintf(errs, "  %s of %s, declared in config in %s\n", termsafe.Visible(b.ref()), termsafe.Visible(b.Repo), termsafe.Visible(b.File))
-			if !slices.Contains(files, b.File) {
-				files = append(files, b.File)
-			}
 		}
-		fmt.Fprintf(errs, "Next: remove each {\"kind\": \"branch\", …} or {\"kind\": \"tag\", …} entry under `brokered.git.grants` in %s (or its local "+
-			"file), then run `yolo config apply` in %s; or remove `branch` and `tag` from `brokered.git.grant_kinds` in your user "+
-			"config. The broker reads both at the next push.\n", termsafe.Visible(strings.Join(files, ", ")), shown)
+		fmt.Fprintln(errs, "Next: for each one,")
+		for _, b := range declared {
+			fmt.Fprintf(errs, "  %s: %s.\n", termsafe.Visible(b.ref()), configGrantRemoval(b.Workspace, []string{b.File, b.LocalFile}, b.Source, b.Kind, b.Branch))
+		}
+		fmt.Fprintln(errs, "Or take `push` and `push_tags` out of `allow.git.on_request` in your user config (`branch` and `tag` out of `brokered.git.grant_kinds` in one still on JSONC). The broker reads both at the next push.")
 		return approveExitUnknownID
 	}
 	if ended == 0 {
@@ -484,16 +510,20 @@ func approveRevoke(ctx context.Context, stores []*brokerstore.Store, revoke, wor
 			"Next: run `yolo approve` to see each working-set entry's workspace (in brackets), then give that path to --workspace.\n", shown)
 		return approveExitUnknownID
 	}
-	fmt.Fprintf(out, "Revoked %d live grant(s) and working-set entr(ies) of %s.\n%s\nRun `yolo approve` to list requests, grants and working sets.\n", ended, shown, configGrantNote)
+	fmt.Fprintf(out, "Revoked %d live grant(s) and working-set entr(ies) of %s.\n%s\nRun `yolo approve` to list requests, grants and working sets.\n", ended, shown, configGrantNote(forms[0]))
 	return 0
 }
 
 // configGrantNote says what `--revoke all --workspace` cannot end: a grant written in config,
-// which the launch puts in the scope file and the broker re-reads at every push (ID-9, ID-10).
-const configGrantNote = "A create-branch, branch or tag grant in the project's config stays, so the agent can still create " +
-	"a new branch, every branch a branch grant declares stays in the working set, and every tag a tag grant names stays pushable: " +
-	"remove it from the workspace's yolo-jail.jsonc (`brokered.git.grants`), or remove the kind from " +
-	"`brokered.git.grant_kinds` in your user config, which takes effect at the next push."
+// which the launch puts in the scope file and the broker re-reads at every push (ID-9, ID-10),
+// and the verb that removes it from workspace's config.
+func configGrantNote(workspace string) string {
+	project, local := configBranchFiles(workspace, "", "")
+	return "A create-branch, branch or tag grant in the project's config stays, so the agent can still create " +
+		"a new branch, every branch a branch grant declares stays in the working set, and every tag a tag grant names stays pushable: " +
+		configGrantRemoval(workspace, []string{project, local}, gitbroker.Source, "", "") +
+		"; or take the capability out of `allow.git.on_request` in your user config (`brokered.git.grant_kinds` in one still on JSONC). Either takes effect at the next push."
+}
 
 // configBranch is a working-set branch a `branch` grant declares in a workspace's config, or the
 // tags a `tag` grant covers, as the scope file of a running broker holds it
@@ -548,16 +578,9 @@ func configBranches(ctx context.Context, source string) []configBranch {
 				continue
 			}
 			seen[id] = true
-			file := lf.File.ConfigFile
-			if file == "" {
-				file = config.WorkspaceConfigName
-			}
-			b := configBranch{ID: id, Source: source, Workspace: lf.File.Workspace, Repo: g.Repo, Branch: g.Name(), Kind: g.Kind,
-				File: filepath.Join(lf.File.Workspace, file)}
-			if lf.File.LocalFile != "" {
-				b.LocalFile = filepath.Join(lf.File.Workspace, lf.File.LocalFile)
-			}
-			out = append(out, b)
+			file, local := configBranchFiles(lf.File.Workspace, lf.File.ConfigFile, lf.File.LocalFile)
+			out = append(out, configBranch{ID: id, Source: source, Workspace: lf.File.Workspace, Repo: g.Repo, Branch: g.Name(), Kind: g.Kind,
+				File: file, LocalFile: local})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
@@ -590,10 +613,10 @@ func refuseConfigBranchRevoke(b configBranch, errs io.Writer) int {
 	if b.Kind == brokerscope.KindTag {
 		what = "a tag grant"
 	}
-	fmt.Fprintf(errs, "yolo approve: %s is %s declared in config (%s of %s), not one the broker "+
-		"recorded, so there is nothing to revoke here.\nNext: remove its {\"kind\": \"%s\", …} entry under "+
-		"`brokered.%s.grants` in %s, then run `yolo config apply` in %s; the broker reads it at the next push.\n",
-		b.ID, what, termsafe.Visible(b.ref()), termsafe.Visible(b.Repo), b.Kind, termsafe.Visible(b.Source), where, termsafe.Visible(b.Workspace))
+	fmt.Fprintf(errs, "yolo approve: %s is %s declared in config in %s (%s of %s), not one the broker "+
+		"recorded, so there is nothing to revoke here.\nNext: %s; the broker reads it at the next push.\n",
+		b.ID, what, where, termsafe.Visible(b.ref()), termsafe.Visible(b.Repo),
+		configGrantRemoval(b.Workspace, []string{b.File, b.LocalFile}, b.Source, b.Kind, b.Branch))
 	return approveExitPolicy
 }
 
