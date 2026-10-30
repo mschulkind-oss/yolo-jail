@@ -245,7 +245,7 @@ func TestRunRefusesAReadWriteMountItMayNotGrant(t *testing.T) {
 	}{
 		{"declared in the workspace config", func(t *testing.T, home, ws, src string) {
 			writeWorkspaceConfig(t, ws, `{"mounts": [{"host": "`+src+`", "mode": "rw"}]}`)
-		}, "user-scope only"},
+		}, "a writable mount request"},
 		{"the home", func(t *testing.T, home, ws, src string) {
 			writeUserConfig(t, home, `{"mounts": [{"host": "~", "mode": "rw"}]}`)
 		}, "IS your home directory"},
