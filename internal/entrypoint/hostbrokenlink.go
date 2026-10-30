@@ -64,8 +64,9 @@ func (b BrokenLink) Reason() string {
 		b.Link, b.Target, shquote.Quote(b.Link), filepath.Dir(b.Target))
 }
 
-// maxLinkHops bounds a chain walk, without confusing an exhausted finite chain with a cycle.
-const maxLinkHops = 40
+// maxLinkHops (linkhops_<goos>.go) bounds a chain walk, without confusing an exhausted finite
+// chain with a cycle. It is the kernel's own symlink limit for one path resolution, so a chain
+// the walk proves finite is one the write that follows can open: 40 on Linux, 32 on macOS.
 
 type loopInspection struct {
 	link         string

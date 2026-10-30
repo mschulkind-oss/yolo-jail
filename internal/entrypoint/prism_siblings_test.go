@@ -12,13 +12,25 @@ import (
 // unlike the stateful surfaces, these files write NO sidecars and preserve NO
 // in-jail edit — the live table wins outright every boot.
 
-// siblingEnv builds an Env with temp Home+Workspace and the given env vars.
+// siblingEnv builds an Env with temp Home+Workspace and the given env vars. Both are minted
+// resolved, as a jail's /home/agent is: the kernel counts a link in a parent component (macOS's
+// /var -> /private/var) against the same per-resolution limit as the chain a test builds.
 func siblingEnv(t *testing.T, vars map[string]string) *Env {
 	t.Helper()
 	if vars == nil {
 		vars = map[string]string{}
 	}
-	return &Env{Home: t.TempDir(), Workspace: t.TempDir(), Vars: vars}
+	return &Env{Home: physicalTempDir(t), Workspace: physicalTempDir(t), Vars: vars}
+}
+
+// physicalTempDir is t.TempDir() with every symlink in its path resolved.
+func physicalTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }
 
 // TestCopilotMCPComputedServerLands: a server declared via YOLO_MCP_SERVERS is

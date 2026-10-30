@@ -148,7 +148,11 @@ func TestConfigureAgyMCPReplacesALoopAboveTheFile(t *testing.T) {
 	}
 }
 
-func TestConfigureAgyMCPWritesThroughFortyLinkFiniteRedirect(t *testing.T) {
+// TestConfigureAgyMCPWritesThroughAFiniteRedirectAtTheKernelLimit: a chain of exactly
+// maxLinkHops links (40 on Linux, 32 on macOS) is proven finite and written through; one link
+// more is refused by the walk (TestConfigureAgyMCPRefusesUnprovenLongFiniteRedirect), never by
+// the kernel's ELOOP on the write.
+func TestConfigureAgyMCPWritesThroughAFiniteRedirectAtTheKernelLimit(t *testing.T) {
 	e := siblingEnv(t, nil)
 	declared := filepath.Join(e.AgyDir(), "mcp_config.json")
 	chainDir := filepath.Join(e.GeminiDir(), "config")
@@ -159,7 +163,7 @@ func TestConfigureAgyMCPWritesThroughFortyLinkFiniteRedirect(t *testing.T) {
 		t.Fatal(err)
 	}
 	links := []string{declared}
-	for i := 1; i < 40; i++ {
+	for i := 1; i < maxLinkHops; i++ {
 		links = append(links, filepath.Join(chainDir, fmt.Sprintf("redirect-%02d", i)))
 	}
 	terminal := filepath.Join(chainDir, "mcp_config.json")
@@ -177,7 +181,7 @@ func TestConfigureAgyMCPWritesThroughFortyLinkFiniteRedirect(t *testing.T) {
 	}
 
 	if err := ConfigurePackByName(e, "agy"); err != nil {
-		t.Fatalf("ConfigureAgyPrism through a finite 40-link redirect: %v", err)
+		t.Fatalf("ConfigureAgyPrism through a finite %d-link redirect: %v", maxLinkHops, err)
 	}
 	if fi, err := os.Lstat(declared); err != nil || fi.Mode()&os.ModeSymlink == 0 {
 		t.Errorf("the first valid redirect was removed: %v, %v", fi, err)
@@ -199,7 +203,7 @@ func TestConfigureAgyMCPRefusesUnprovenLongFiniteRedirect(t *testing.T) {
 		t.Fatal(err)
 	}
 	links := []string{declared}
-	for i := 1; i < 41; i++ {
+	for i := 1; i < maxLinkHops+1; i++ {
 		links = append(links, filepath.Join(chainDir, fmt.Sprintf("redirect-%02d", i)))
 	}
 	terminal := filepath.Join(chainDir, "mcp_config.json")
