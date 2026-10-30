@@ -1,16 +1,16 @@
 ---
 title: "Models in the new config: shared facts, names, twins, and a conversion that proves itself"
 date: 2026-10-30
-status: in-review
+status: accepted
 stage: DESIGN
-next: "Rule OQ-MF1 (a row keyed by the model's short name, saying `model = \"<id>\"`); the build waits on it"
+next: "Write the implementation plan from the sketch and build it; OQ-MF1 is ruled (A)"
 tags: [config, models, providers, migration, toml, model-facts, twins, design]
 summary: "The maintainer's personal config declares its models four ways the TOML config cannot say yet: facts written once and shared by a model's routes, a short name for a long wire id, a 300k twin that sends its sibling's id, and facts added to a pack's `default`. This doc gives each a TOML spelling (existing where one exists, one new field otherwise), the migration's conversion rule, and what the equality proof compares, so `yolo config migrate` converts that file with nothing left over. Part of the readable-config redesign."
 ---
 
 # Models in the new config: shared facts, names, twins, and a conversion that proves itself
 
-**Status:** in review, 2026-10-30. Design only; nothing here is built. The evidence is a dry run of
+**Status:** accepted, 2026-10-30 ([OQ-MF1](#OQ-MF1) ruled). Nothing here is built yet. The evidence is a dry run of
 `yolo config migrate` over the maintainer's own user config on 2026-10-30, read against the
 composition and the converter at the current tree ([appendix B](#appendix-b-evidence)). The
 name spelling in [§3.1](#31-a-name-for-a-model) is its second draft: the owner read the first
@@ -19,10 +19,9 @@ name spelling in [§3.1](#31-a-name-for-a-model) is its second draft: the owner 
 **How to read this.** [§1](#1-what-the-file-says) is the five things the file says about its models,
 [§2](#2-where-the-toml-stops-today) where the TOML stops, [§3](#3-the-spellings-and-their-proofs) the
 spelling, conversion rule and proof for each. [§4](#4-what-is-deliberately-not-said) names what stays
-unsaid. The lane decisions are in the [ledger](#decision-ledger); the one owner question is
-[OQ-MF1](#OQ-MF1). The worked example is [appendix A](#appendix-a-the-maintainers-model-sections-converted).
+unsaid. The owner's ruling ([OQ-MF1](#OQ-MF1)) and the lane decisions are in the [ledger](#decision-ledger). The worked example is [appendix A](#appendix-a-the-maintainers-model-sections-converted).
 
-**Needs your ruling:** [OQ-MF1](#OQ-MF1).
+**Ruled:** [OQ-MF1](#OQ-MF1), 2026-10-30: a row keyed by the model's short name, saying `model = "<id>"`.
 
 > **In short.** Every model construct in the file already has a readable word except two: a short
 > name for a model, and a row that sends another row's id while keeping its own facts. The first
@@ -198,8 +197,7 @@ and `(model order)` is the written order, which is the old sorted one. Where a p
 among the user's rows, the table differs and the plan refuses naming the order, as RC-D30 (3)
 already does.
 
-Whether a model keeps a short name at all is the one question this doc puts to the owner:
-[OQ-MF1](#OQ-MF1). Everything above is the mechanism if the answer is yes.
+The owner ruled that a model keeps its short name this way ([OQ-MF1](#OQ-MF1), 2026-10-30).
 
 ### 3.2 Facts shared by a model's routes
 
@@ -360,53 +358,22 @@ and prints the difference key by key, as today.
 
 ## Decision Ledger
 
-Lane decisions, 2026-10-30, each reversible and each citing the ruling it builds. Nothing is
+The owner's ruling and the lane decisions, 2026-10-30; each lane decision is reversible and cites the ruling it builds. Nothing is
 built; the Built column is empty on purpose.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
+| <a id="OQ-MF1"></a>[OQ-MF1](#OQ-MF1) | **A model's row is keyed by its short name and says which model it is with `model = "<id>"`; the id is not the only name.** The owner's ruling (2026-10-30), taking option A: *"it is the file's own shape with `id` respelled, one model per row, and the only way a pack's `default` takes user facts."* [MF-D1](#MF-D1) is the mechanism | 2026-10-30 | [§3.1](#31-a-name-for-a-model) | — |
 | <a id="MF-D1"></a>MF-D1 | **A readable row is keyed by its id unless it says `model`; then the key is the model's name and `model` is the id the model is listed and registered under. A pack's string `default = "<id>"` is the shorthand of a row saying only `model`. `id` stays refused in TOML, and its rename row names `model`. The RC-D29 (7) refusal fires only for a row over a pack's alias for another id that says no `model`, and names `model = "<id>"`. The migration writes `model` from a legacy row's `id` when the two differ.** Amends [RC-D29](readable-config.md#RC-D29) (2)'s definition of a row; builds RC-D29 (7) and [RC-D30](readable-config.md#RC-D30) (2), (3). Reason: the owner read the first draft's name line beside an id-keyed row as two models and as backwards (2026-10-30); the row keyed by its name is the file's own shape, needs no new composition rule, and is the only way a pack's `default` takes user facts. Conditional on [OQ-MF1](#OQ-MF1) | 2026-10-30 | [§3.1](#31-a-name-for-a-model) | — |
 | <a id="MF-D2"></a>MF-D2 | **`model_facts` keeps its name as a readable top-level table with the row fact spellings, refusing route-only keys; `extends` stays a row key; both rename rows become identity rows and the converter passes both through.** Building [OQ-ML5](model-lists-and-pickers.md#oq-ml4-ml5-setup), [ML-D12](model-lists-and-pickers.md#ML-D12), [ML-D14](model-lists-and-pickers.md#ML-D14). `every_model` is per provider, `model_facts` per model across providers, and a fold into `every_model` changes `model_options.*.extends` and `model_shared`, so the rename row's fold could never prove equal and would change what a shared-form pi reads | 2026-10-30 | [§3.2](#32-facts-shared-by-a-models-routes) | — |
 | <a id="MF-D3"></a>MF-D3 | **A legacy `wire_id` row converts to `twin_of` naming the sibling row's key when a row of the same provider has that id and the proof holds; otherwise to a row with `wire_id`, which the schema admits and whose rename row goes. `context_window` on a twin respells to `context`.** Building [pack-manifests.md §4](pack-manifests.md#4-flags-that-add-and-a-model-said-once), [RC-D29](readable-config.md#RC-D29) (3), (4), the retry pattern of [RC-D30](readable-config.md#RC-D30) (4). `twin_of` is what the file's twins mean and makes "a tier and its twin cannot split" structural; `wire_id` is what the decoder already reads and covers the twin `twin_of` cannot say | 2026-10-30 | [§3.3](#33-a-twin-one-wire-id-at-two-windows) | — |
 | <a id="MF-D4"></a>MF-D4 | **`options.model` naming a row's key is left as written.** It converts today and keeps its meaning under MF-D1 | 2026-10-30 | [§3.4](#34-the-starting-model-named-by-a-name) | — |
 | <a id="MF-D5"></a>MF-D5 | **The proof's provider-table layer compares a vendor the id names as derived: a legacy row with no `vendor` is compared as if it carried the maker `InferModelVendor` gives its id, and the transcript names each such row.** Building [RC-D30](readable-config.md#RC-D30) (2)'s "a vendor the id names is derived" and [OQ-BR9](bedrock-plumbing.md#decision-ledger). The one place the table is not byte-equal; without it no `<maker>/` row ever converts. The launch after migration carries the maker; no reader acts on it for a provider whose derive passes no maker set | 2026-10-30 | [§3.5](#35-the-maker-an-id-names) | — |
 
-## Open Questions
-
-1. 💬 **OQ-MF1: Should a model's row be keyed by its short name, saying which model it is with `model`?**
-
-   Matt runs `yolo config migrate`; twelve of his thirteen model rows are keyed by a short word
-   over an `id`, and every one is refused: a readable row's key is the id it sends. Background in
-   [§3.1](#31-a-name-for-a-model).
-
-   - **A — The row keeps its name as its key and says `model = "<id>"`.** One model per row; the
-     pack's `default` takes user facts.
-
-     ```toml
-     deepseek-floor = { model = "deepseek/deepseek-v4.1-flash-1017:floor", extends = "deepseek-floor-1017" }
-     default        = { model = "qwen-3.8-27b", name = "Qwen 27B", … }
-     ```
-
-   - **B — The id is the only name.** Menus show long ids; the pack's `default` cannot take user
-     facts.
-
-     ```toml
-     "deepseek/deepseek-v4.1-flash-1017:floor" = { extends = "deepseek-floor-1017" }
-     "qwen-3.8-27b"                            = { name = "Qwen 27B", … }   # a second model beside `default`
-     ```
-
-   <!-- vantage: question id=OQ-MF1 leaning="A — it is the file's own shape with `id` respelled, one model per row, and the only way a pack's `default` takes user facts." -->
-
-   _Leaning:_ A. It is the file's own shape with `id` respelled, one model per row, and the only
-   way a pack's `default` takes user facts.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
 ## Implementation sketch
 
 The seed of the implementation plan, in the `design-doc` skill's sense: what the design surfaced,
-not a hand-off, and not to be built from until [OQ-MF1](#OQ-MF1) is ruled. The planner completes it
+not a hand-off; [OQ-MF1](#OQ-MF1) is ruled, so the plan may be written from it. The planner completes it
 against the tree.
 
 **Order.** Schema and validation first, so a hand-written file is accepted before the converter
