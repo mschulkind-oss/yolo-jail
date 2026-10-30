@@ -359,25 +359,14 @@ func applyLegacyReadableUserAllowance(user *jsonx.OrderedMap, declarations []Rea
 	var allow *jsonx.OrderedMap
 	origins := map[string][]string{}
 	sources := UserScopeSources()
+	legacy := UserScopeConfigOrEmpty()
 	for _, declaration := range declarations {
 		source := declaration.Brokered.Source
-		table := jsonx.NewOrderedMap()
-		if containsGrant(BrokeredUserGrants(source), brokerscope.Grant{Kind: brokerscope.KindRead, Repo: brokerscope.AnyRepo}) && declaration.ReadCapability != "" {
-			table.Set("always", []any{declaration.ReadCapability})
+		table := LegacyUserAllowance(legacy, declaration)
+		if _, has := table.Get("always"); has {
 			origins["allow."+source+".always"] = scopeSourceFiles(sources, "brokered", source, brokeredGrantsKey)
 		}
-		allowedKinds := BrokeredGrantKinds(source)
-		var onRequest []any
-		for _, kind := range declaration.Brokered.Grants {
-			if !inList(allowedKinds, kind) {
-				continue
-			}
-			if capability := declaration.KindCapabilities[kind]; capability != "" && !containsStringAny(onRequest, capability) {
-				onRequest = append(onRequest, capability)
-			}
-		}
-		if len(onRequest) > 0 {
-			table.Set("on_request", onRequest)
+		if _, has := table.Get("on_request"); has {
 			origins["allow."+source+".on_request"] = scopeSourceFiles(sources, "brokered", source, brokeredGrantKindsKey)
 		}
 		if len(table.Keys()) == 0 {
@@ -392,6 +381,34 @@ func applyLegacyReadableUserAllowance(user *jsonx.OrderedMap, declarations []Rea
 		user.Set("allow", allow)
 	}
 	return origins
+}
+
+// LegacyUserAllowance is the `allow.<source>` table a legacy user config's `brokered.<source>`
+// entry says, through the broker's own declaration (config-user.md §6, appendix A.6): the user
+// read grant `{"kind": "read", "repo": "*"}` becomes the source's read capability under `always`,
+// and each `grant_kinds` entry the declaration maps becomes its capability under `on_request`, in
+// the declaration's order. A kind the declaration does not map is left out; an empty table means
+// the entry grants nothing the readable spelling can say.
+func LegacyUserAllowance(legacy *jsonx.OrderedMap, declaration ReadableBrokerDeclaration) *jsonx.OrderedMap {
+	source := declaration.Brokered.Source
+	table := jsonx.NewOrderedMap()
+	if containsGrant(userGrantsOf(legacy, source), brokerscope.Grant{Kind: brokerscope.KindRead, Repo: brokerscope.AnyRepo}) && declaration.ReadCapability != "" {
+		table.Set("always", []any{declaration.ReadCapability})
+	}
+	allowedKinds := grantKindsOf(legacy, source)
+	var onRequest []any
+	for _, kind := range declaration.Brokered.Grants {
+		if !inList(allowedKinds, kind) {
+			continue
+		}
+		if capability := declaration.KindCapabilities[kind]; capability != "" && !containsStringAny(onRequest, capability) {
+			onRequest = append(onRequest, capability)
+		}
+	}
+	if len(onRequest) > 0 {
+		table.Set("on_request", onRequest)
+	}
+	return table
 }
 
 func containsStringAny(values []any, want string) bool {

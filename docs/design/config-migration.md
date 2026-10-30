@@ -175,7 +175,10 @@ Upgrade with `yolo update`, or `just install` from a checkout. Nothing was start
 
 1. **Proves it lost nothing.** Effective config before (old files) and after (the files it would
    write), as canonical JSON in the new vocabulary; it refuses to write unless they are equal, and
-   prints any difference key by key.
+   prints any difference key by key. A user config's `brokered` table converts to the
+   `[allow.<source>]` tables of [config-user.md §6](config-user.md#6-what-a-jail-may-do-with-your-logins)
+   through the capabilities the declaring pack maps, and is proved against the grants the brokers
+   resolve from each side ([RC-D42](readable-config.md#RC-D42)).
 2. **Rewrites each file where it is, and never merges.** `config.jsonc` → `config.toml`, each
    include → its `.toml` twin with the include entries respelled; through a symlink, so the
    dotfiles copy changes, and the link itself is renamed to the new name

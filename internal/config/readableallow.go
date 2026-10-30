@@ -899,23 +899,95 @@ func BrokeredGrantKindsUsingReadablePolicy(source string) (kinds []string, canon
 				// A valid `off` tombstone carries canonical authority but no allowance.
 				return nil, true, nil
 			}
-			for _, declaration := range declarations {
-				if declaration.Pack != policy.Pack || declaration.Brokered.Source != source {
-					continue
-				}
-				for _, kind := range declaration.Brokered.Grants {
-					capability := policy.KindCapabilities[kind]
-					if capability != "" && !slices.Contains(policy.PendingCapabilities, capability) &&
-						(slices.Contains(policy.Always, capability) || slices.Contains(policy.OnRequest, capability)) {
-						kinds = append(kinds, kind)
-					}
-				}
-				return kinds, true, nil
-			}
-			return nil, true, fmt.Errorf("selected broker declaration for %q is missing", source)
+			kinds, err := readablePolicyGrantKinds(*policy, declarations)
+			return kinds, true, err
 		}
 	}
 	return grantKindsOf(user, source), false, nil
+}
+
+// readablePolicyGrantKinds projects a resolved broker policy back onto the grant kinds of its
+// selected declaration: each kind whose capability the policy allows, always or on request, and
+// that is not pending.
+func readablePolicyGrantKinds(policy ReadableBrokerPolicy, declarations []ReadableBrokerDeclaration) ([]string, error) {
+	for _, declaration := range declarations {
+		if declaration.Pack != policy.Pack || declaration.Brokered.Source != policy.Source {
+			continue
+		}
+		var kinds []string
+		for _, kind := range declaration.Brokered.Grants {
+			capability := policy.KindCapabilities[kind]
+			if capability != "" && !slices.Contains(policy.PendingCapabilities, capability) &&
+				(slices.Contains(policy.Always, capability) || slices.Contains(policy.OnRequest, capability)) {
+				kinds = append(kinds, kind)
+			}
+		}
+		return kinds, nil
+	}
+	return nil, fmt.Errorf("selected broker declaration for %q is missing", policy.Source)
+}
+
+// UserBrokerAuthority is what one user config grants a broker source for every workspace:
+// whether every workspace reads its own approved scope, and the grant kinds a project may
+// request, sorted. It is the brokers' answer, whichever spelling the config uses.
+type UserBrokerAuthority struct {
+	Source     string
+	Read       bool
+	GrantKinds []string
+	// Problem is the readable resolver's refusal, "" when it resolved.
+	Problem string
+}
+
+// UserBrokerAuthorityOf reads user, a user config as the readers made it, the way the brokers
+// do: a source with an `allow.<source>` table answers through the readable resolver
+// (ResolveReadableAllowance, as BrokeredGrantKindsUsingReadablePolicy does), with selected the
+// packs the config selects; any other answers through the legacy `brokered.<source>` readers. It
+// reads nothing from disk, so `yolo config migrate` can prove a conversion against it. One entry
+// per source the declarations name, in their order.
+func UserBrokerAuthorityOf(user *jsonx.OrderedMap, selected []string, declarations []ReadableBrokerDeclaration) []UserBrokerAuthority {
+	if user == nil {
+		user = jsonx.NewOrderedMap()
+	}
+	allow, _ := asMap(readableValue(user, "allow"))
+	var out []UserBrokerAuthority
+	seen := map[string]bool{}
+	for _, declaration := range declarations {
+		source := declaration.Brokered.Source
+		if seen[source] {
+			continue
+		}
+		seen[source] = true
+		a := UserBrokerAuthority{Source: source}
+		var table any
+		hasTable := false
+		if allow != nil {
+			table, hasTable = allow.Get(source)
+		}
+		if !hasTable {
+			a.Read = containsGrant(userGrantsOf(user, source), brokerscope.Grant{Kind: brokerscope.KindRead, Repo: brokerscope.AnyRepo})
+			a.GrantKinds = grantKindsOf(user, source)
+		} else {
+			// Only this source's table: another `allow` table answers to its own declaration,
+			// which is not this source's question.
+			onlyAllow := jsonx.NewOrderedMap()
+			onlyAllow.Set(source, table)
+			only := jsonx.NewOrderedMap()
+			only.Set("allow", onlyAllow)
+			plan, err := ResolveReadableAllowance(ReadableAllowanceInput{User: only, SelectedPacks: selected, Declarations: declarations})
+			if err != nil {
+				a.Problem = err.Error()
+			} else if i := readableBrokerIndex(plan.Sources, source); i >= 0 {
+				policy := plan.Sources[i]
+				a.Read = slices.Contains(policy.Always, policy.ReadCapability)
+				if a.GrantKinds, err = readablePolicyGrantKinds(policy, declarations); err != nil {
+					a.Problem = err.Error()
+				}
+			}
+		}
+		sort.Strings(a.GrantKinds)
+		out = append(out, a)
+	}
+	return out
 }
 
 // readableDeclarations validates the selected broker and pack declarations and resolves their

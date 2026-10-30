@@ -130,6 +130,9 @@ type canonicalSet struct {
 	// the config layers compare the model rows with every fold undone, and this is what proves a
 	// converted row or a fold means what the old rows meant.
 	providers string
+	// grants is what the user config grants each broker (brokerGrants): the user layer compares
+	// `brokered` lowered to `allow`, and this is what proves the brokers read the same grants.
+	grants string
 }
 
 // Plan converts every old file of g and proves the result says what the old files say. A plan
@@ -287,6 +290,7 @@ func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 	p.Differences = append(p.Differences, diffValues("user and project config merged", before.composed, after.composed)...)
 	p.Differences = append(p.Differences, diffValues(envLayer, before.env, after.env)...)
 	p.Differences = append(p.Differences, diffValues(providerTableLayer, before.providers, after.providers)...)
+	p.Differences = append(p.Differences, diffValues(brokerGrantsLayer, before.grants, after.grants)...)
 	p.Equal = before.set == after.set
 	if g.Request.Workspace != "" && len(g.project) > 0 {
 		p.Records = planRecords(g.Request.Workspace)
@@ -559,7 +563,9 @@ type sideRead struct {
 	env *jsonx.OrderedMap
 	// providers is the provider table a launch resolves from the merged read (providerTable).
 	providers *jsonx.OrderedMap
-	set       canonicalSet
+	// grants is what the user config grants each broker (brokerGrants).
+	grants *jsonx.OrderedMap
+	set    canonicalSet
 }
 
 // launchEnv is what the launch's env resolver walks over a merged read, as a map diffValues can
@@ -607,6 +613,10 @@ func readCanonical(g *Graph, userTop, workspace string, remotes []string, view *
 	if err != nil {
 		return nil, err
 	}
+	brokers, err := shippedBrokers()
+	if err != nil {
+		return nil, fmt.Errorf("read the shipped broker declarations: %w", err)
+	}
 	s := &sideRead{}
 	if lowerOld {
 		s.user, _ = canonicalOld(read.User, loweringContext{scope: ScopeUser, remotes: remotes, user: view, inlineEnv: inlineEnv})
@@ -616,12 +626,15 @@ func readCanonical(g *Graph, userTop, workspace string, remotes []string, view *
 		// converted files resolve to the env the old ones resolve to.
 		s.env = launchEnv(read.Composed)
 		s.providers = providerTable(withMovedProviderKeys(read.Composed, s.composed), packs)
+		// The OLD user config as the brokers read it, not its lowering.
+		s.grants = brokerGrants(read.User, brokers)
 	} else {
 		s.user = unmirror(read.User, mirror).(*jsonx.OrderedMap)
 		s.project = unmirror(read.Workspace, mirror).(*jsonx.OrderedMap)
 		s.composed = unmirror(read.Composed, mirror).(*jsonx.OrderedMap)
 		s.env = launchEnv(s.composed)
 		s.providers = providerTable(s.composed, packs)
+		s.grants = brokerGrants(s.user, brokers)
 	}
 	for _, m := range []*jsonx.OrderedMap{s.user, s.project, s.composed} {
 		m.Delete(convertLaterKey)
@@ -638,7 +651,7 @@ func readCanonical(g *Graph, userTop, workspace string, remotes []string, view *
 	for _, pair := range []struct {
 		m   *jsonx.OrderedMap
 		out *string
-	}{{s.user, &s.set.user}, {s.project, &s.set.project}, {s.composed, &s.set.composed}, {s.env, &s.set.env}, {s.providers, &s.set.providers}} {
+	}{{s.user, &s.set.user}, {s.project, &s.set.project}, {s.composed, &s.set.composed}, {s.env, &s.set.env}, {s.providers, &s.set.providers}, {s.grants, &s.set.grants}} {
 		text, err := config.SnapshotJSON(pair.m)
 		if err != nil {
 			return nil, err

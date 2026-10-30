@@ -439,7 +439,8 @@ func lowerEnvSources(value any, inlineEnv bool, place func([]string, any, []stri
 // lowerBrokered converts a project's brokered repository list and its branch and tag grants to
 // requests. A request names refs on every remote of the workspace, so a grant converts only when
 // the repository it names is the workspace's one remote repository; any other grant would widen
-// or narrow what may be pushed (readable-config-plan.md §7) and is left at its old spelling.
+// or narrow what may be pushed (readable-config-plan.md §7) and is left at its old spelling. A
+// user file's brokered table becomes allow.<source> instead (lowerUserBrokered).
 func lowerBrokered(value any, ctx loweringContext, place func([]string, any, []string) bool, skip func([]string, any, string)) {
 	sources, ok := value.(*jsonx.OrderedMap)
 	if !ok {
@@ -447,7 +448,7 @@ func lowerBrokered(value any, ctx loweringContext, place func([]string, any, []s
 		return
 	}
 	if ctx.scope != ScopeProject {
-		skip([]string{"brokered"}, value, "a user-scope grant becomes an allow.<source> capability named by the pack that declares the broker, which this conversion does not read; write the [allow.<source>] table by hand (`yolo check` names each capability), or keep the old file for now")
+		lowerUserBrokered(sources, ctx, place, skip)
 		return
 	}
 	for _, source := range sources.Keys() {
