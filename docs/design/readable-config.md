@@ -67,6 +67,9 @@ build followed, and its record of what is built).
 | [`config-migration.md`](config-migration.md) | the new file names, the release order, the migrate transcript | none; approved |
 | [`pack-manifests.md`](pack-manifests.md) | the maintainer's twelve packs, before and after | none; approved |
 
+A sixth, opened 2026-10-30 after the first real migration: [`model-facts-migration.md`](model-facts-migration.md),
+the TOML spelling and proved conversion of shared model facts, model names and wire-id twins ([OQ-MF1](model-facts-migration.md#OQ-MF1) open).
+
 ## 3. What this takes over, and what it reverses
 
 - [OQ-M1](manifest-language.md#OQ-M1) and [OQ-M2](manifest-language.md#OQ-M2) by [OQ-RC5](#decision-ledger) and
