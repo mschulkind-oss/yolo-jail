@@ -14,14 +14,14 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
-// Link is a symlink a migration makes so a name the user linked keeps reaching its file: the old
-// link (left as it is, naming the original's backup once it moves) has a twin pointing at the
-// new file (readable-config-plan.md §6 "Symlink writes").
+// Link is a symlink a migration moves so a name the user linked keeps reaching its file: the old
+// link is replaced by its twin, which points at the new file (readable-config-plan.md §6
+// "Symlink writes"; RC-D41). Left in place it would name the original's backup.
 type Link struct {
 	// Path is the new link, the old link's twin; Target is its text, the old link's text respelled.
 	Path, Target string
-	// Old is the user's link, left intact.
-	Old string
+	// Old is the user's link, removed once its twin is made; Text is its text, for the undo.
+	Old, Text string
 }
 
 // Target is one file a plan writes.
@@ -377,7 +377,7 @@ func linkFor(f *File) (*Link, error) {
 	if !filepath.IsAbs(text) && !strings.HasPrefix(text, "."+string(filepath.Separator)) && filepath.Dir(text) == "." {
 		newTarget = twinName(text)
 	}
-	return &Link{Path: twinPath(f.Logical), Target: newTarget, Old: f.Logical}, nil
+	return &Link{Path: twinPath(f.Logical), Target: newTarget, Old: f.Logical, Text: text}, nil
 }
 
 func resolvedDir(path string) string {

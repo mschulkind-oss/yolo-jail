@@ -109,7 +109,7 @@ func TestLaunchOfferNoLaunchesOnOldFile(t *testing.T) {
 	// and how to stop being asked (RC-D35).
 	ask := strings.Index(s, "[y/N]")
 	prev := -1
-	for _, want := range []string{"Deprecated config format:", filepath.Join(l.userDir, "config.jsonc"),
+	for _, want := range []string{"Deprecated config format:", filepath.Join(l.userDir, "config.jsonc") + "  →  config.toml",
 		"keep working for a few more releases", "as config.jsonc.pre-migrate", "Preview:      yolo config migrate --dry-run",
 		`Stop asking:  add "convert_later": true to ` + filepath.Join(l.userDir, "config.jsonc")} {
 		i := strings.Index(s, want)
@@ -238,5 +238,43 @@ func TestAConversionThatChangesMeaningIsReportedAsABug(t *testing.T) {
 		if !strings.Contains(s, want) {
 			t.Errorf("stderr lacks %q:\n%s", want, s)
 		}
+	}
+}
+
+// A linked user config is named before the question, set apart by a blank line on each side, and
+// renamed with the rest; the closing report says so again (RC-D41).
+func TestLaunchOfferWarnsAboutASymlinkBeforeTheQuestion(t *testing.T) {
+	l := runOfferLaunchWith(t, oldUserConfig, true, "y\n", func(o *Options) {
+		dir := filepath.Join(filepath.Dir(o.Workspace), "dotfiles")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		link := filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail", "config.jsonc")
+		if err := os.Rename(link, filepath.Join(dir, "config.jsonc")); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(filepath.Join(dir, "config.jsonc"), link); err != nil {
+			t.Fatal(err)
+		}
+	})
+	l.mustLaunch(t)
+	s := l.stderr.String()
+	warning := "config.jsonc is a symlink; it will be renamed to config.toml. If a dotfiles manager made it, you may need to update that too.\n\nConvert to TOML now?"
+	if !strings.Contains(s, warning) || !strings.Contains(s, "Stop asking:") || strings.Index(s, "Stop asking:") > strings.Index(s, warning) {
+		t.Fatalf("the warning is not after Stop asking and a blank line before the question:\n%s", s)
+	}
+	if !strings.Contains(s, "config.jsonc was a symlink and is now config.toml; if a dotfiles manager made it, you may need to update that too.") {
+		t.Errorf("the closing report does not name the renamed link:\n%s", s)
+	}
+	if info, err := os.Lstat(filepath.Join(l.userDir, "config.toml")); err != nil || info.Mode()&os.ModeSymlink == 0 || l.exists("config.jsonc") {
+		t.Fatalf("the link was not renamed (config.toml: %v, config.jsonc still there: %v)", err, l.exists("config.jsonc"))
+	}
+}
+
+// With no linked file there is no warning.
+func TestLaunchOfferHasNoSymlinkWarningWithoutALink(t *testing.T) {
+	l := runOfferLaunch(t, oldUserConfig, true, "n\n")
+	if s := l.stderr.String(); strings.Contains(s, "symlink") {
+		t.Fatalf("a launch with no linked file warned about one:\n%s", s)
 	}
 }

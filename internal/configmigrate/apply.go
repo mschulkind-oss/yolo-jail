@@ -22,14 +22,18 @@ type ApplyOptions struct {
 
 // ApplyResult is what Apply did.
 type ApplyResult struct {
-	// Written are the new files; Backups the originals kept as <name>.pre-migrate; Links the
-	// symlinks made beside linked old names.
-	Written, Backups, Links []string
+	// Written are the new files; Backups the originals kept as <name>.pre-migrate.
+	Written, Backups []string
+	// Links are the user's symlinks renamed to their new names (RC-D41).
+	Links []LinkMove
 	// Records are the records only yolo reads, each with what was done to it.
 	Records []Record
 	// Ignores are the plan's Ignores, each marked Done or carrying its hint.
 	Ignores []Ignore
 }
+
+// LinkMove is a user's symlink renamed by a conversion: From is the old name, To the new one.
+type LinkMove struct{ From, To string }
 
 // Apply writes a plan that proved equal. It locks every file it replaces the way `yolo config
 // set` does (the parent directory of each), refuses a file that
@@ -104,7 +108,6 @@ func Apply(p *MigrationPlan, opts ApplyOptions) (*ApplyResult, error) {
 				}
 				linkPath := t.Link.Path
 				undo = append(undo, func() error { return os.Remove(linkPath) })
-				res.Links = append(res.Links, t.Link.Path)
 				if err := step("link " + t.Link.Path); err != nil {
 					return nil, restore(err)
 				}
@@ -117,6 +120,19 @@ func Apply(p *MigrationPlan, opts ApplyOptions) (*ApplyResult, error) {
 			res.Backups = append(res.Backups, t.Backup)
 			if err := step("backup " + t.Backup); err != nil {
 				return nil, restore(err)
+			}
+			// The old link now names the backup, so it moves to the new name rather than stay
+			// beside its twin (RC-D41).
+			if t.Link != nil {
+				if err := os.Remove(t.Link.Old); err != nil {
+					return nil, restore(fmt.Errorf("remove the old link %s: %w", t.Link.Old, err))
+				}
+				oldLink, text := t.Link.Old, t.Link.Text
+				undo = append(undo, func() error { return os.Symlink(text, oldLink) })
+				res.Links = append(res.Links, LinkMove{From: t.Link.Old, To: t.Link.Path})
+				if err := step("unlink " + t.Link.Old); err != nil {
+					return nil, restore(err)
+				}
 			}
 			continue
 		}

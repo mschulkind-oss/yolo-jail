@@ -39,7 +39,7 @@ func (p *MigrationPlan) Transcript() string {
 			fmt.Fprintf(&b, "  %q: written on each of %d models, folded into one\n", f.Path, f.Rows)
 		}
 		if t.Link != nil {
-			fmt.Fprintf(&b, "  %s links to it; %s is left as it is\n", t.Link.Path, t.Link.Old)
+			fmt.Fprintf(&b, "  the symlink %s is renamed to %s\n", t.Link.Old, t.Link.Path)
 		}
 	}
 	b.WriteString("\n")

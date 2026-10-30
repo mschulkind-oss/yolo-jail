@@ -347,8 +347,8 @@ func TestApplyRespellsApprovalAndBootRecords(t *testing.T) {
 }
 
 // A symlinked top-level file and a symlinked include are converted where they physically live
-// (the dotfiles copy), the include entry is respelled, the user's links are left intact, and a
-// twin link makes the new name reach the new file.
+// (the dotfiles copy), the include entry is respelled, and each of the user's links is renamed to
+// the new name, reaching the new file (RC-D41).
 func TestPlanRespellsIncludesThroughSymlink(t *testing.T) {
 	home := env(t)
 	dir := filepath.Join(home, ".config", "yolo-jail")
@@ -382,13 +382,21 @@ func TestPlanRespellsIncludesThroughSymlink(t *testing.T) {
 		t.Fatalf("work target = %+v", work)
 	}
 
-	if _, err := Apply(p, ApplyOptions{}); err != nil {
+	res, err := Apply(p, ApplyOptions{})
+	if err != nil {
 		t.Fatal(err)
 	}
 	for _, link := range []string{"config.jsonc", "work.jsonc"} {
-		info, err := os.Lstat(filepath.Join(dir, link))
-		if err != nil || info.Mode()&os.ModeSymlink == 0 {
-			t.Fatalf("user link %s replaced or removed: %v", link, err)
+		if _, err := os.Lstat(filepath.Join(dir, link)); !os.IsNotExist(err) {
+			t.Fatalf("old link %s was not renamed: %v", link, err)
+		}
+	}
+	if len(res.Links) != 2 || res.Links[0].From != filepath.Join(dir, "config.jsonc") || res.Links[0].To != filepath.Join(dir, "config.toml") {
+		t.Fatalf("Links = %+v, want each old link with its new name", res.Links)
+	}
+	for _, name := range []string{"config.toml", "work.toml"} {
+		if info, err := os.Lstat(filepath.Join(dir, name)); err != nil || info.Mode()&os.ModeSymlink == 0 {
+			t.Fatalf("%s is not a link: %v", name, err)
 		}
 	}
 	for _, name := range []string{"config.toml", "work.toml"} {
@@ -446,5 +454,40 @@ func TestPlanRespellsTOMLParentByteForByte(t *testing.T) {
 	got := string(target(t, p, filepath.Join(dir, "config.toml")).Bytes)
 	if got != strings.Replace(parent, `"old.jsonc"`, `"old.toml"`, 1) {
 		t.Fatalf("respelled parent:\n%s", got)
+	}
+}
+
+// A failure after the old link is removed puts it back, with its own text, and removes its twin.
+func TestApplyRestoresARenamedLinkOnFailure(t *testing.T) {
+	home := env(t)
+	dir := filepath.Join(home, ".config", "yolo-jail")
+	dots := filepath.Join(home, "dotfiles", "yolo")
+	write(t, filepath.Join(dots, "config.jsonc"), `{"packs": ["claude"]}`+"\n")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const text = "../../dotfiles/yolo/config.jsonc"
+	if err := os.Symlink(text, filepath.Join(dir, "config.jsonc")); err != nil {
+		t.Fatal(err)
+	}
+	p := plan(t, Request{UserConfigDir: dir})
+	var failedAt string
+	_, err := Apply(p, ApplyOptions{failAfter: func(step string) error {
+		if strings.HasPrefix(step, "unlink ") {
+			failedAt = step
+			return errors.New("injected failure at " + step)
+		}
+		return nil
+	}})
+	if failedAt == "" || err == nil || !strings.Contains(err.Error(), "restored") {
+		t.Fatalf("Apply error = %v (failed at %q)", err, failedAt)
+	}
+	if got, err := os.Readlink(filepath.Join(dir, "config.jsonc")); err != nil || got != text {
+		t.Fatalf("old link = %q (%v), want %q back", got, err, text)
+	}
+	for _, path := range []string{filepath.Join(dir, "config.toml"), filepath.Join(dots, "config.toml"), filepath.Join(dots, "config.jsonc.pre-migrate")} {
+		if _, err := os.Lstat(path); !os.IsNotExist(err) {
+			t.Fatalf("%s left behind after a failed migration", path)
+		}
 	}
 }

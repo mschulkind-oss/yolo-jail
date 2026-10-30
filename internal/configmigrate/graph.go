@@ -290,6 +290,17 @@ func (g *Graph) Old() []*File {
 	return out
 }
 
+// NewName is the name the file has once converted, in the same directory: config.jsonc →
+// config.toml.
+func (f *File) NewName() string { return twinName(filepath.Base(f.Logical)) }
+
+// IsSymlink is whether the name the file is reached by is itself a symlink, which a conversion
+// renames to NewName (RC-D41).
+func (f *File) IsSymlink() bool {
+	info, err := os.Lstat(f.Logical)
+	return err == nil && info.Mode()&os.ModeSymlink != 0
+}
+
 // twinName is a file name's TOML twin: config.jsonc → config.toml.
 func twinName(name string) string {
 	for _, ext := range []string{".jsonc", ".json"} {

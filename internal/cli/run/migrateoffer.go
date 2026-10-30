@@ -74,8 +74,12 @@ func (o *Options) offerConfigMigration() bool {
 		return true
 	}
 	names := make([]string, len(old))
+	var links, linkNews []string
 	for i, f := range old {
 		names[i] = f.Logical
+		if f.IsSymlink() {
+			links, linkNews = append(links, filepath.Base(f.Logical)), append(linkNews, f.NewName())
+		}
 	}
 	stop := ""
 	if hasLegacyUser {
@@ -95,8 +99,12 @@ func (o *Options) offerConfigMigration() bool {
 	// The mental model, then the two ways out, then the question (RC-D35): the old format still
 	// works for now, converting keeps each original beside it, and nothing is explained beyond that.
 	pr.print(header)
+	width := 0
 	for _, n := range names {
-		pr.printf("  [cyan]%s[/cyan]", richtext.Escape(n))
+		width = max(width, len(n))
+	}
+	for i, n := range names {
+		pr.printf("  [cyan]%s[/cyan]%s  →  [cyan]%s[/cyan]", richtext.Escape(n), strings.Repeat(" ", width-len(n)), richtext.Escape(old[i].NewName()))
 	}
 	pr.print("The deprecated format will keep working for a few more releases.")
 	pr.printf("Converting keeps %s next to it, %s [cyan]%s.pre-migrate[/cyan].",
@@ -108,6 +116,13 @@ func (o *Options) offerConfigMigration() bool {
 		pr.print("  Stop asking:  " + stop)
 	}
 	pr.print("")
+	// A linked file is renamed with the rest, and whatever made the link may not know (RC-D41).
+	if len(links) > 0 {
+		pr.printf("%s; %s renamed to %s. If a dotfiles manager made %s, you may need to update that too.",
+			plural(len(links), richtext.Escape(links[0])+" is a symlink", richtext.Escape(joinAnd(links))+" are symlinks"),
+			plural(len(links), "it will be", "they will be"), richtext.Escape(joinAnd(linkNews)), plural(len(links), "it", "them"))
+		pr.print("")
+	}
 	if _, err := fmt.Fprint(o.Stderr, richtext.Render("[bold]Convert to TOML now? [y/N][/bold] ", o.streamColor())); err != nil {
 		return true
 	}
@@ -136,6 +151,10 @@ func (o *Options) offerConfigMigration() bool {
 	}
 	pr.printf("Converted. The %s next to the new %s, as %s.", plural(len(backups), "original is", "originals are"),
 		plural(len(backups), "file", "files"), richtext.Escape(joinAnd(backups)))
+	for _, l := range res.Links {
+		pr.printf("%s was a symlink and is now %s; if a dotfiles manager made it, you may need to update that too.",
+			richtext.Escape(filepath.Base(l.From)), richtext.Escape(filepath.Base(l.To)))
+	}
 	for _, ig := range res.Ignores {
 		pr.print(richtext.Escape(ig.Report(o.Workspace)))
 	}

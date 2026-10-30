@@ -640,8 +640,8 @@ in their owning consumer integration job, not left as indefinitely accepted alia
 - **Comment migration:** retain a document-order comment stream; changing `//`/block comment
   delimiters to `#` is format conversion, not inferred attachment. Place before the next emitted
   key, or at end when its following key was omitted. Do not drop “template” comments.
-- **Symlink writes:** edit the canonical physical target, leave user link intact and name it in
-  output; migration additionally respells link/include entry consistently. Refuse ambiguous
+- **Symlink writes:** edit the canonical physical target, rename the user's link to the new name
+  and name it in output ([RC-D41](readable-config.md#RC-D41)); migration additionally respells link/include entry consistently. Refuse ambiguous
   sibling targets/backups before mutation; never replace the symlink with a regular file by
   accident. Relative include/fragment links preserve their graph, not merely current values.
 - **List semantics:** [] clearing is the accepted removal override; nonempty config lists union

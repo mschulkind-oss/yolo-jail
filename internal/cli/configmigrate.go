@@ -131,8 +131,9 @@ func configMigrate(args []string, in io.Reader, interactive bool, out, errw io.W
 	}
 	// Every change is named here, so the closing line can say nothing else changed (RC-D34).
 	fmt.Fprintf(out, "Written: %s.\n", strings.Join(result.Written, ", "))
-	if len(result.Links) > 0 {
-		fmt.Fprintf(out, "Linked: %s.\n", strings.Join(shownPaths(workspace, result.Links), ", "))
+	for _, l := range result.Links {
+		shown := shownPaths(workspace, []string{l.From, l.To})
+		fmt.Fprintf(out, "Renamed the symlink %s to %s; if a dotfiles manager made it, you may need to update that too.\n", shown[0], shown[1])
 	}
 	if len(result.Backups) > 0 {
 		fmt.Fprintf(out, "Kept the %s as %s; delete %s once the new files work for you.\n",

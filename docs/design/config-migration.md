@@ -87,19 +87,23 @@ convert. That's fine."*
 ```console
 $ yolo
 Deprecated config format: yolo now uses TOML, and this file is still JSONC:
-  ~/.config/yolo-jail/config.jsonc
+  ~/.config/yolo-jail/config.jsonc  →  config.toml
 The deprecated format will keep working for a few more releases.
 Converting keeps the original next to it, as config.jsonc.pre-migrate.
 
   Preview:      yolo config migrate --dry-run
   Stop asking:  add "convert_later": true to ~/.config/yolo-jail/config.jsonc
 
+config.jsonc is a symlink; it will be renamed to config.toml. If a dotfiles manager made it, you may need to update that too.
+
 Convert to TOML now? [y/N] n
 Keeping the JSONC file for now.
 ```
 
 (`y` converts, says *"Converted. The original is next to the new file, as
-config.jsonc.pre-migrate."*, and continues the launch. A setting with no TOML spelling yet is
+config.jsonc.pre-migrate."*, and continues the launch. The symlink line shows only when a file
+is reached through a symlink, and the closing report says it again once the link has moved
+([RC-D41](readable-config.md#RC-D41)). A setting with no TOML spelling yet is
 named with its next step; a conversion that would change what the config means is reported as a
 yolo bug to file. Either way nothing is changed and the launch stops, saying to run the command
 again and answer `n` to launch on the old files. With no terminal the offer is the
@@ -174,7 +178,8 @@ Upgrade with `yolo update`, or `just install` from a checkout. Nothing was start
    prints any difference key by key.
 2. **Rewrites each file where it is, and never merges.** `config.jsonc` → `config.toml`, each
    include → its `.toml` twin with the include entries respelled; through a symlink, so the
-   dotfiles copy changes; a file it cannot reach is listed with the command to run where it can;
+   dotfiles copy changes, and the link itself is renamed to the new name
+   ([RC-D41](readable-config.md#RC-D41)); a file it cannot reach is listed with the command to run where it can;
    each original kept as `<name>.pre-migrate`, which the output says may be deleted once the new
    files work. A renamed file whose old name git ignored and whose new name it does not is added
    to the clone's own `.git/info/exclude`, never to the tracked `.gitignore`, and the plan says

@@ -103,3 +103,24 @@ func TestConfigMigrateDoesNotInventAKeyBesideAnUnconvertedOne(t *testing.T) {
 		t.Fatalf("the proof reports region as a difference:\n%s", out)
 	}
 }
+
+// A linked user config is renamed to its new name, and the report says so with the dotfiles
+// warning (RC-D41).
+func TestConfigMigrateReportsARenamedSymlink(t *testing.T) {
+	e := newMigrateEnv(t)
+	dots := filepath.Join(filepath.Dir(e.userDir), "dotfiles")
+	writeMigrateFile(t, filepath.Join(dots, "config.jsonc"), `{"packs": []}`)
+	if err := os.Symlink(filepath.Join(dots, "config.jsonc"), filepath.Join(e.userDir, "config.jsonc")); err != nil {
+		t.Fatal(err)
+	}
+	rc, stdout, stderr := runConfigMigrateVerb(t, "--yes")
+	if rc != 0 {
+		t.Fatalf("rc=%d\n%s%s", rc, stdout, stderr)
+	}
+	if !strings.Contains(stdout, "Renamed the symlink ") || !strings.Contains(stdout, "if a dotfiles manager made it, you may need to update that too.") {
+		t.Fatalf("the report does not name the renamed link:\n%s", stdout)
+	}
+	if info, err := os.Lstat(filepath.Join(e.userDir, "config.toml")); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("config.toml is not the renamed link: %v", err)
+	}
+}
