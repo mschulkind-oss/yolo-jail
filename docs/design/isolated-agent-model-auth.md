@@ -246,7 +246,7 @@ key, rather than any part of the subscription login.
     UNMEASURED; nothing in the repo cites it.
   - Bedrock: a separate `aws-auth` profile with a tighter `session_policy` is within the
     pack's existing settings. The broker caches one credential per profile, and nothing
-    is per process ([`awsauth` manifest](../../packs/aws-auth/loopholes/aws-auth/manifest.jsonc)).
+    is per process ([`awsauth` manifest](../../packs/aws-auth/loopholes/aws-auth/loophole.toml)).
   - Anthropic: an Anthropic API key from the Console is a separate billing path, not the
     subscription. `claude setup-token` mints a one-year, inference-only subscription token
     ([F9](claude-login-without-interception.md#F9)). One year is the opposite of

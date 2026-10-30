@@ -475,7 +475,7 @@ launched started one** (INFERRED: no yolo launch was run).
   [`unix_socket.rs:256-263`](https://github.com/openai/codex/blob/rust-v0.159.0/codex-rs/app-server-transport/src/transport/unix_socket.rs#L256-L263)).
 - **The refresh doorway stays right.** On a jail with its own network namespace the doorway listens
   at the fixed `127.0.0.1:1460` for the jail's life
-  ([`manifest.jsonc`](../../packs/codex-auth/loopholes/openai-auth-broker/manifest.jsonc#L53-L66)).
+  ([`manifest.jsonc`](../../packs/codex-auth/loopholes/openai-auth-broker/loophole.toml)).
   The **doorway** is the thin adapter an agent's client talks to, which checks the launch's caller
   token and forwards to the host service
   ([HS-D15](../design/host-notch-services.md#HS-D15)). A daemon that inherits that URL keeps a

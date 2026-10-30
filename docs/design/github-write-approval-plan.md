@@ -158,7 +158,7 @@ Refresh [`internal/cli/gh.go`](../../internal/cli/gh.go),
 [`packs/github/briefing/gh.md`](../../packs/github/briefing/gh.md),
 [`packs/github/README.md`](../../packs/github/README.md),
 [`userguide/guides/github.md`](../../userguide/guides/github.md),
-[`packs/github/loopholes/github-broker/manifest.jsonc`](../../packs/github/loopholes/github-broker/manifest.jsonc),
+[`packs/github/loopholes/github-broker/manifest.jsonc`](../../packs/github/loopholes/github-broker/loophole.toml),
 [`internal/ghbroker/daemon_test.go`](../../internal/ghbroker/daemon_test.go),
 [`internal/ghbroker/onrequest_test.go`](../../internal/ghbroker/onrequest_test.go), and the existing
 read-only integration fixture [`integration/githubbroker_test.go`](../../integration/githubbroker_test.go):

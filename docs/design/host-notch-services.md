@@ -198,7 +198,7 @@ A second jail-daemon pointer already reaches the host, and not through claude. W
 `CODEX_REFRESH_TOKEN_URL_OVERRIDE='http://127.0.0.1:1460/oauth/token'` (MEASURED on `e5150a03`,
 [Appendix A](#appendix-a--the-measured-runs)). That port belongs to `openai-auth`'s jail daemon
 (`openai-auth-adapter`, declared in
-[`packs/codex-auth/loopholes/openai-auth-broker/manifest.jsonc`](../../packs/codex-auth/loopholes/openai-auth-broker/manifest.jsonc)),
+[`packs/codex-auth/loopholes/openai-auth-broker/manifest.jsonc`](../../packs/codex-auth/loopholes/openai-auth-broker/loophole.toml)),
 and the pointer is an ungated env var of the codex pack
 ([`packs/codex/pack.toml`](../../packs/codex/pack.toml)). `yolo host -- codex` does not hand it
 on: `openaiauthhost.Prepare` replaces it with the address of the adapter it serves itself.

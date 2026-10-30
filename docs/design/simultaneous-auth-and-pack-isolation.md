@@ -63,7 +63,7 @@ The presence of `openai-auth` in the selected pack closure means its declared co
 
 At the host notch, Pi's derive declares the OpenAI auth prelaunch only when `openai-codex` is the selected provider or an entry in Pi's active set ([`packs/pi/derive.lua`](../../packs/pi/derive.lua)). Host preparation follows those composed declarations rather than treating every Pi launch as a broker grant ([`internal/cli/host.go`](../../internal/cli/host.go), [`internal/openaiauthhost/host.go`](../../internal/openaiauthhost/host.go)). A host launch on DeepSeek alone therefore does not declare that Pi prelaunch.
 
-The broker service and the jail-facing endpoint are distinct from the host prelaunch: selected and enabled loophole contributions can make a route available independently of whether a particular Pi profile declares a new login preparation. The OpenAI broker is a machine-wide refresh owner ([its manifest](../../packs/codex-auth/loopholes/openai-auth-broker/manifest.jsonc)); route availability alone does not prove that Pi used it or that a new credential was issued.
+The broker service and the jail-facing endpoint are distinct from the host prelaunch: selected and enabled loophole contributions can make a route available independently of whether a particular Pi profile declares a new login preparation. The OpenAI broker is a machine-wide refresh owner ([its manifest](../../packs/codex-auth/loopholes/openai-auth-broker/loophole.toml)); route availability alone does not prove that Pi used it or that a new credential was issued.
 
 ### 1.4 Pi's saved native login can work without a new broker grant
 
