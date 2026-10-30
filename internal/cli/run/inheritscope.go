@@ -46,6 +46,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	yoloruntime "github.com/mschulkind-oss/yolo-jail/internal/runtime"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // The in-jail names of the two generated files. Both live in the jail's own
@@ -207,6 +208,19 @@ func (o *Options) inheritedScopeWithSelector(rt string, stamped bool, selectLega
 }
 
 func selectInheritedJSONCRoute(wsState string, mapDestination func(string) (string, error), scope config.InheritScope, format configdoc.Format) (bool, error) {
+	return selectInheritedJSONCRouteSkipping(wsState, mapDestination, scope, format, nil)
+}
+
+// selectInheritedJSONCRouteSkipping is selectInheritedJSONCRoute judging every storage-relative
+// path in gone as absent: a dry run's plan for an empty placeholder a launch moves aside first
+// (clearPodmanPlaceholders).
+func selectInheritedJSONCRouteSkipping(wsState string, mapDestination func(string) (string, error), scope config.InheritScope, format configdoc.Format, gone map[string]bool) (bool, error) {
+	lstatHomeFile := func(wsState, rel string) (os.FileInfo, bool, error) {
+		if gone[rel] {
+			return nil, false, nil
+		}
+		return lstatHomeFile(wsState, rel)
+	}
 	legacyRel, tomlRel := inheritScopeFamily(scope)
 	legacyJSONRel := strings.TrimSuffix(legacyRel, ".jsonc") + ".json"
 	legacyPaths := []string{legacyRel, legacyJSONRel}
@@ -257,7 +271,7 @@ func inheritScopeFamily(scope config.InheritScope) (legacy, toml string) {
 	return inheritNestedLegacyRel, inheritNestedRel
 }
 
-func refuseExistingScopeDestination(wsState string, mapDestination func(string) (string, error), scope config.InheritScope, backend, overwriteRisk string) (bool, error) {
+func refuseExistingScopeDestination(wsState string, mapDestination func(string) (string, error), scope config.InheritScope, backend, overwriteRisk, emptyNote string) (bool, error) {
 	legacyRel, tomlRel := inheritScopeFamily(scope)
 	legacyPaths := []string{legacyRel, strings.TrimSuffix(legacyRel, ".jsonc") + ".json", tomlRel}
 	var existing []string
@@ -279,7 +293,13 @@ func refuseExistingScopeDestination(wsState string, mapDestination func(string) 
 		return false, fmt.Errorf("refusing %s inherited %s scope: existing user files occupy %s; preserve them, choose one only after reviewing their contents, then relaunch", backend, scope, strings.Join(existing, " and "))
 	}
 	if len(existing) == 1 {
-		return false, fmt.Errorf("refusing %s inherited %s scope: %s could overwrite existing user file %s; preserve its contents and mode, move it aside only after review, then relaunch", backend, scope, overwriteRisk, existing[0])
+		path := existing[0]
+		empty := ""
+		if info, err := os.Lstat(path); err == nil && info.Mode().IsRegular() && info.Size() == 0 {
+			empty = " It is empty. " + emptyNote
+		}
+		mv := shquote.JoinDisplay([]string{"mv", path, path + ".moved-aside"})
+		return false, fmt.Errorf("refusing %s inherited %s scope: existing user file %s is in the way, and %s.%s Review it, preserving its contents and mode, then move it aside (%s) and relaunch", backend, scope, path, overwriteRisk, empty, mv)
 	}
 	return false, nil
 }
@@ -447,7 +467,7 @@ func (o *Options) userConfigMountArgsForAssembly(in *assembleInput, assembled []
 		}
 		if in.rt == "container" { // parity: Refused — Apple Container cannot cover an existing HOME file without overwriting it.
 			return refuseExistingScopeDestination(in.wsState, mapDestination, scope,
-				"Apple Container", "the whole HOME bind would overwrite it")
+				"Apple Container", "the whole HOME bind would overwrite it", "Reviewing it is quick.")
 		}
 		return selectInheritedJSONCRoute(in.wsState, mapDestination, scope, format)
 	}
@@ -509,11 +529,18 @@ func (o *Options) macosUserInheritedScope(rt string) ([]overlayFile, error) {
 	wsState := paths.WorkspaceHomeState(o.Workspace)
 	preserve := map[string]bool{}
 	delivered := map[string][]byte{}
+	cleared := false
+	var gone map[string]bool
 	selectLegacy := func(scope config.InheritScope, format configdoc.Format) (bool, error) {
-		forceLegacy, err := selectInheritedJSONCRoute(wsState, func(rel string) (string, error) {
+		if scope == config.InheritPreflight && !cleared {
+			// Issue #66: an empty file a podman launch's bind left here holds no data; move it
+			// aside (or, in a dry run, plan as though it were) before judging the destination.
+			cleared, gone = true, o.clearPodmanPlaceholders(wsState)
+		}
+		forceLegacy, err := selectInheritedJSONCRouteSkipping(wsState, func(rel string) (string, error) {
 			// DeriveDarwinHomeLayout lays ~/.config as the `config` subtree of this sidecar.
 			return filepath.FromSlash(strings.TrimPrefix(rel, ".")), nil
-		}, scope, format)
+		}, scope, format, gone)
 		if err != nil {
 			return false, err
 		}
@@ -526,6 +553,9 @@ func (o *Options) macosUserInheritedScope(rt string) ([]overlayFile, error) {
 		var existing []string
 		for _, rel := range []string{legacy, strings.TrimSuffix(legacy, ".jsonc") + ".json", toml} {
 			storageRel := filepath.FromSlash(strings.TrimPrefix(rel, "."))
+			if gone[storageRel] {
+				continue
+			}
 			_, exists, err := lstatHomeFile(wsState, storageRel)
 			if err != nil {
 				return false, err
@@ -575,7 +605,8 @@ var inheritedScopeStagingRoot = macosuser.StagingRoot
 func refuseInheritedOverwrite(wsState string, scope config.InheritScope) error {
 	_, err := refuseExistingScopeDestination(wsState, func(rel string) (string, error) {
 		return filepath.FromSlash(strings.TrimPrefix(rel, ".")), nil
-	}, scope, "macos-user", "the home-overlay installer cannot prove this file is its prior delivery")
+	}, scope, "macos-user", "the home-overlay installer cannot prove it is a file it delivered before, so installing the user config there could overwrite it",
+		"It was not moved aside for you because it shares its data with another hard link or belongs to another user.")
 	return err
 }
 
