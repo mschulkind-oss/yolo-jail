@@ -339,117 +339,133 @@ same way.
 
 ## 11. Open Questions
 
-1. 💬 **OQ-PN1: Which entries deliver bare names?**
+1. 💬 **OQ-PN1: Which of Matt's packs keep their plain skill names?**
 
-   Matt's own packs (`dotfiles/matt`, `matt-craft`) deliver `review` today. A third party's
-   should carry a namespace so it cannot clash. yolo cannot tell a directory or repository Matt
-   wrote from one he cloned.
+   Matt's own packs deliver `review` today, unprefixed. He runs `yolo config migrate`. yolo cannot
+   tell a pack Matt wrote from one he cloned, so which packs stay unprefixed has to be a rule.
 
-   - **Namespaced unless marked `bare = true`; the migration marks every entry it converts.** Matt
-     sees no change after conversion; a pack he adds later is namespaced until he says otherwise.
-   - **Directories on this machine bare, git repositories namespaced.** No flag for the common case,
-     but `matt-craft` becomes `matt-craft-<skill>` unless Matt marks it, and a cloned third-party
-     directory is bare.
+   - **A — Prefixed unless marked `bare = true`; the migration marks what it converts.** His agents
+     show the same names after converting; acme's pack, added later, shows `acme-review`.
+   - **B — Folders plain, git repositories prefixed.** His `matt-craft` repository's skills become
+     `matt-craft-review` unless he marks it; a third party's pack cloned into a folder arrives plain.
+   - **C — Prefixed unless marked; the migration marks nothing.** His first launch after
+     converting shows `yolo-packs-review` where `review` was.
 
-   <!-- vantage: question id=OQ-PN1 leaning="Namespaced unless marked bare, and the migration marks what it converts — one rule, the safe default for new packs, and no name changes at conversion." -->
+   <!-- vantage: question id=OQ-PN1 leaning="A — nothing changes at conversion, and every pack added later is prefixed until Matt says otherwise." -->
 
-   _Leaning:_ Namespaced unless marked bare, and the migration marks what it converts — one rule, the safe default for new packs, and no name changes at conversion.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 **OQ-PN2: How is a namespaced skill spelled?**
-
-   acme's `review` needs its namespace. pi accepts only lowercase letters, digits and hyphens;
-   Claude Code, Copilot and Codex also understand `plugin:skill`.
-
-   - **`acme-review` at every agent.** One name everywhere; typing `/acme` lists all of acme's
-     skills.
-   - **`acme:review` where the agent has plugins, `acme-review` in pi.** The convention Claude Code
-     users know, at the price of one skill having two names.
-
-   <!-- vantage: question id=OQ-PN2 leaning="acme-review everywhere — one separator, one name per skill at every agent." -->
-
-   _Leaning:_ acme-review everywhere — one separator, one name per skill at every agent.
+   _Leaning:_ A. Nothing changes at conversion, and every pack added later is prefixed until Matt
+   says otherwise.
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. 💬 **OQ-PN3: Should the per-pack `skills_tier = "namespaced"` opt-in stay?**
+2. 💬 **OQ-PN2: How should a prefixed skill be spelled?**
 
-   Every third-party pack is now namespaced unless the user marks it bare, so the author's opt-in
-   only matters for an entry the user marked bare. No pack sets it.
+   Matt adds acme's packs, and acme's `review` needs acme's prefix. pi accepts only lowercase
+   letters, digits and hyphens in a skill name; Claude Code, Copilot and Codex also understand
+   `acme:review` for a plugin's skill. Every example in this document uses the hyphen.
 
-   - **Retire it.** A manifest declaring it gets a lint warning and nothing else.
-   - **Keep it.** An author can force a namespace even when the user marks the entry bare.
+   - **A — `acme-review` at every agent.** One name for the skill everywhere; typing `/acme` in a
+     picker lists all of acme's skills.
+   - **B — `acme:review` in Claude Code, Copilot and Codex, `acme-review` in pi.** It reads like
+     the plugin skills Claude users know, but the same skill has two names, and a prompt written
+     for one agent names the wrong skill in pi.
 
-   <!-- vantage: question id=OQ-PN3 leaning="Retire it — no user, and the user's bare choice should be the one that holds." -->
+   <!-- vantage: question id=OQ-PN2 leaning="A — one separator, and one name for a skill at every agent." -->
 
-   _Leaning:_ Retire it — no user, and the user's bare choice should be the one that holds.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-4. 💬 **OQ-PN4: Should renaming a source or moving a pack's directory keep its pins and builds?**
-
-   Matt's forked `pi` is pinned and built under `yolo-packs/pi-fork`. He renames the source to
-   `dotfiles`, and later moves `~/.dotfiles` to `~/dotfiles`.
-
-   - **Key records on where the pack lives.** The rename costs nothing; the move re-pins and
-     rebuilds once, and the launch says so.
-   - **Key records on the handle, carried on rename.** The rename runs the migration's carry step,
-     including after a hand edit; the move keeps everything.
-
-   <!-- vantage: question id=OQ-PN4 leaning="Key on where the pack lives — renaming is what users will do, moving a dotfiles tree is rare, and a hand edit then needs no carry." -->
-
-   _Leaning:_ Key on where the pack lives — renaming is what users will do, moving a dotfiles tree is rare, and a hand edit then needs no carry.
+   _Leaning:_ A. One separator, and one name for a skill at every agent.
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-5. 💬 **OQ-PN5: Should a source's namespace be settable apart from its key?**
+3. 💬 **OQ-PN3: Should a pack's author still be able to force a prefix on its skills?**
 
-   Matt's source key `dotfiles` is both the word in his handles and his namespace. He might want
-   handles `dotfiles/matt` but skills `matt-review`.
+   An author can write `skills_tier = "namespaced"` in a pack's manifest today, so Claude shows
+   `/acme:configure`. Every pack Matt has not marked `bare` is now prefixed anyway, so the setting
+   matters only on a pack he marked bare. No pack sets it.
 
-   - **No: the key is the namespace.** One word to know; renaming it renames both.
-   - **Yes: `namespace = "…"` on a source too.** Two words per source; handles and agent names can
-     differ.
+   - **A — Retire it.** A manifest that still declares it gets a `yolo pack lint` warning and is
+     otherwise ignored; Matt's `bare = true` always gives plain names.
+   - **B — Keep it, and let it override `bare`.** acme's `configure` stays `acme-configure` even
+     when Matt marks acme bare, so his `bare` becomes a request a pack can turn down.
 
-   <!-- vantage: question id=OQ-PN5 leaning="No — one word per source is the simpler model, and the rename verb already changes it." -->
+   <!-- vantage: question id=OQ-PN3 leaning="A — no pack uses it, and the user's choice should be the one that holds." -->
 
-   _Leaning:_ No — one word per source is the simpler model, and the rename verb already changes it.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-6. 💬 **OQ-PN6: What should `yolo config migrate` call a source the user never named?**
-
-   Matt's old config lists `~/.dotfiles/yolo-packs/matt`. The migration writes the source
-   `yolo-packs`, taking the directory's name; under [OQ-PN1](#OQ-PN1)'s leaning it is bare, so the
-   name shows in config and yolo's output but not to agents.
-
-   - **Keep the directory's name, and print the rename command on that line of the plan.**
-   - **Ask for each source during the migration.** One prompt per source.
-
-   <!-- vantage: question id=OQ-PN6 leaning="Keep the directory's name and print the rename command — it does not reach agents, so it is cheap to fix later." -->
-
-   _Leaning:_ Keep the directory's name and print the rename command — it does not reach agents, so it is cheap to fix later.
+   _Leaning:_ A. No pack uses it, and the user's choice should be the one that holds.
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-7. 💬 🤷 **OQ-PN7: Should a skill yolo ships look different from a third-party one?**
+4. 💬 **OQ-PN4: Should renaming a source or moving a pack's folder keep its pins and builds?**
 
-   Matt sees `configuring-the-jail` (yolo's) beside `review` (his bare pack's) and `acme-review`.
-   In config, a bare name already means shipped.
+   Matt's forked `pi` is pinned and built from `yolo-packs/pi-fork`. He renames the source to
+   `dotfiles`, and next month moves `~/.dotfiles` to `~/dotfiles`. yolo files pins and builds
+   under the pack's config name today, so either change starts them over.
 
-   - **No marker.** Names stay short; origin is one command away.
-   - **A `yolo-` prefix on shipped skills.** Every shipped skill gets longer.
+   - **A — File them under the pack's folder or repository.** The rename, by verb or by hand,
+     costs nothing; the move re-pins and rebuilds once, and the launch says so.
+   - **B — File them under the config name, carried on a rename.** After a hand edit,
+     `yolo check` offers the carry; the move keeps everything.
 
-   <!-- vantage: question id=OQ-PN7 leaning="No marker — origin is a lookup, not something invoked." -->
+   <!-- vantage: question id=OQ-PN4 leaning="A — renaming is what users will do, moving a dotfiles tree is rare, and a hand edit then needs no carry." -->
 
-   _Leaning:_ No marker — origin is a lookup, not something invoked.
+   _Leaning:_ A. Renaming is what users will do, moving a dotfiles tree is rare, and a hand edit
+   then needs no carry.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+5. 💬 **OQ-PN5: Should a source's prefix be able to differ from its name in the config?**
+
+   Matt names a source `work`, so his config reads `work/deploy` and his agents show
+   `work-deploy`. He might want `work/deploy` in config but `w-deploy` in his skill picker.
+
+   - **A — No: the source's name is its prefix.** One word per source, and
+     `yolo pack source rename` changes both at once.
+   - **B — Yes: a source may carry `namespace = "w"`.** Config and skill names can differ, at the
+     price of two words to keep straight per source, and a reader of `w-deploy` has to look up
+     which source `w` is.
+
+   <!-- vantage: question id=OQ-PN5 leaning="A — one word per source is the simpler model, and the rename verb already changes it." -->
+
+   _Leaning:_ A. One word per source is the simpler model, and the rename verb already changes it.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+6. 💬 **OQ-PN6: What should `yolo config migrate` name a source Matt never named?**
+
+   Matt's JSONC config lists `~/.dotfiles/yolo-packs/matt`. The migration must invent a source
+   name, and takes the folder's: `yolo-packs`, which Matt finds a poor name. If converted packs stay
+   unprefixed, it never reaches an agent.
+
+   - **A — Take the folder's name, and print the rename command beside it in the plan.** One
+     confirmation, as today, with a line like
+     `source yolo-packs (rename: yolo pack source rename yolo-packs <name>)`.
+   - **B — Ask for each source's name during the migration.** Matt types `dotfiles` once per
+     source, and the migration can no longer run without someone at the keyboard.
+
+   <!-- vantage: question id=OQ-PN6 leaning="A — the name does not reach agents, so it is cheap to fix later." -->
+
+   _Leaning:_ A. The name does not reach agents, so it is cheap to fix later.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+7. 💬 🤷 **OQ-PN7: Should a skill yolo ships look different from Matt's own?**
+
+   Matt opens Claude's skill picker and sees `configuring-the-jail` (shipped with yolo) beside
+   `review` (his bare pack's) and `acme-review`. Nothing in the first two says where it came from;
+   `yolo pack explain` and each skill's description do. In config, a pack name with no `/` already
+   means shipped.
+
+   - **A — No marker.** Shipped skills keep their names, and origin is one command away.
+   - **B — Prefix shipped skills with `yolo-`.** Matt sees `yolo-configuring-the-jail`; every
+     shipped skill gets longer, and notes that name one by its current name break once.
+
+   <!-- vantage: question id=OQ-PN7 leaning="A — origin is a lookup, not something invoked." -->
+
+   _Leaning:_ A. Origin is a lookup, not something invoked.
 
    **Answer:**
    > _(empty — fill in when decided)_
