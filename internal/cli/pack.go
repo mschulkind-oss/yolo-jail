@@ -32,6 +32,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/packname"
 	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
 	_ "github.com/mschulkind-oss/yolo-jail/internal/packreg" // registers the embedded packs with packload
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
@@ -204,10 +205,6 @@ yolo pack install or yolo pack update re-fetches a tag its author re-pointed.
                               does. --online also checks each upstream in a scratch mirror it
                               deletes afterwards: that the ref and the series' base exist, what the
                               follow rule finds, and that the series applies at its base
-  yolo pack source rename OLD NEW [--dry-run] [--yes]
-                              rename a [pack_sources] key and every handle that uses it, in
-                              one edit. The key is the namespace its skills are delivered
-                              under, so it lists every agent-facing name that changes and asks
   yolo pack ls                list configured packs and what each stages
   yolo pack explain <name>    show which files a pack stages, and what it dropped
   yolo pack footprint [ref]   what packs claim on the environment + collisions;
@@ -289,8 +286,7 @@ func runPack(args []string) int {
 
 // packMain dispatches a pack subcommand.
 //
-// IT TAKES NO STDIN, except `source rename`, which asks before renaming a namespace agents
-// invoke (docs/design/pack-naming.md §3.6) and reads packSourceStdin. It used to, for one reason: the install-time host-access approval
+// IT TAKES NO STDIN. It used to, for one reason: the install-time host-access approval
 // prompt, which OQ-TP9 deleted (docs/design/trust-paths.md, 2026-09-04). No `yolo pack`
 // verb asks a question now — `install`/`update` fetch and report, `series check` fetches patch series
 // and explicit `--online` patch branches into scratch copies it deletes, `init` scaffolds a pack, and everything else inspects — so there is no
@@ -311,8 +307,6 @@ func packMain(args []string, out, errw io.Writer, color bool) int {
 		return packAdd(args[1:], out, errw)
 	case "remove":
 		return packRemove(args[1:], out, errw)
-	case "source":
-		return packSource(args[1:], packSourceStdin, out, errw)
 	case "init":
 		return packInit(args[1:], out, errw)
 	case "migrate":
@@ -865,12 +859,15 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 	for _, w := range packload.LintDuplicateLoads(pack) {
 		pr.Printf("[yellow]⚠[/yellow] %s", richtext.Escape(w))
 	}
-	// The retired `skills_tier = "namespaced"`: what a pack's skills are called is the user's
-	// namespace choice now (docs/design/pack-naming.md PN-D9), so the key changes nothing.
+	// `skills_tier = "namespaced"` now decides one thing: that a WRAPPED PLUGIN is delivered whole
+	// (docs/design/pack-naming.md PN-D9). On a pack that wraps none it changes nothing.
 	if pack.Decl != nil && pack.Decl.WantsNamespacedSkills() {
-		pr.Printf("[yellow]⚠[/yellow] %s", richtext.Escape("skills_tier = \"namespaced\" is ignored: "+
-			"a pack's skills are named by the namespace its user's config gives it "+
-			"(`<namespace>-<skill>`, or bare), so remove the key"))
+		if plugins, _ := pack.HonoredPlugins(); len(plugins) == 0 {
+			pr.Printf("[yellow]⚠[/yellow] %s", richtext.Escape("skills_tier = \"namespaced\" changes "+
+				"nothing here: it only delivers a wrapped plugin whole, and this pack wraps none. "+
+				"Its skills are named by the namespace its user's config gives it "+
+				"(`<namespace>-<skill>`, or bare), so remove the key"))
+		}
 	}
 	// A patch branch named by a relative or git+file:// locator, which no one installing by URL can reach
 	// (packlintlocalbranch.go, PF-D100).
@@ -1508,6 +1505,10 @@ func packLs(out, errw io.Writer, color bool) int {
 			source = "(ships with yolo)"
 		}
 		pr.Printf("%-20s %-8s %s", e.Name, kind, source)
+		// The word its skills are delivered under (docs/design/pack-naming.md §3.3).
+		if e.Namespace != "" {
+			pr.Printf("  [dim]namespace: %s[/dim]", e.Namespace)
+		}
 		if len(e.Only) > 0 || len(e.Exclude) > 0 {
 			pr.Printf("  [dim]only: %v  exclude: %v[/dim]", e.Only, e.Exclude)
 		}
@@ -1575,6 +1576,17 @@ func packExplain(args []string, out, errw io.Writer, color bool) int {
 		pr.Printf("[yellow]filtered out %d file(s)[/yellow] [dim](only/exclude)[/dim]", len(res.Excluded))
 		for _, s := range res.Excluded {
 			pr.Printf("  [dim]%s[/dim]", s)
+		}
+	}
+	// Each skill under the name agents see it by (docs/design/pack-naming.md §3.4).
+	if names := packload.SkillNames(resolved.Pack); len(names) > 0 {
+		ns := "bare"
+		if entry.Namespace != "" {
+			ns = "namespace " + entry.Namespace
+		}
+		pr.Printf("[green]delivers %d skill(s)[/green] [dim](%s)[/dim]", len(names), ns)
+		for _, n := range names {
+			pr.Printf("  [cyan]%s[/cyan]", packname.Delivered(entry.Namespace, n))
 		}
 	}
 	return 0

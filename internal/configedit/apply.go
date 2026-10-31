@@ -24,10 +24,6 @@ type ApplyOptions struct {
 	// Verify compares caller-defined effective meaning after the write. An error restores the
 	// exact preimage while the same physical-target lock is held.
 	Verify func(before, after []byte) error
-	// Then are further mutations planned over the first one's result, in order, and written with
-	// it as ONE validated write: an edit that is only valid whole (a renamed key and every
-	// reference to it) never lands half done. Their paths are authored paths, used as given.
-	Then []Mutation
 
 	validateTarget func(physical string, before, planned []byte) error
 	verifyTarget   func(physical string, before, after []byte) error
@@ -109,13 +105,6 @@ func applyWithOps(path string, format configdoc.Format, mutation Mutation, optio
 	if err != nil {
 		return nil, fmt.Errorf("plan config edit: %w", err)
 	}
-	for _, next := range options.Then {
-		more, err := PlanEdit(plan.Updated, format, next)
-		if err != nil {
-			return nil, fmt.Errorf("plan config edit: %w", err)
-		}
-		plan = joinedPlan(before, more)
-	}
 	if options.validateTarget != nil {
 		if err := options.validateTarget(physical, before, plan.Updated); err != nil {
 			return nil, fmt.Errorf("planned effective-config validation failed: %w", err)
@@ -154,29 +143,6 @@ func applyWithOps(path string, format configdoc.Format, mutation Mutation, optio
 		}
 	}
 	return plan, nil
-}
-
-// joinedPlan is a chain of plans as one plan over before: last's result, with a single hunk
-// spanning every changed byte (the chain's own hunks are offsets into intermediate documents).
-func joinedPlan(before []byte, last *Plan) *Plan {
-	after := last.Updated
-	prefix := 0
-	for prefix < len(before) && prefix < len(after) && before[prefix] == after[prefix] {
-		prefix++
-	}
-	suffix := 0
-	for suffix < len(before)-prefix && suffix < len(after)-prefix &&
-		before[len(before)-1-suffix] == after[len(after)-1-suffix] {
-		suffix++
-	}
-	out := &Plan{Format: last.Format, Original: append([]byte(nil), before...), Updated: last.Updated,
-		Expected: last.Expected, Noop: bytes.Equal(before, after)}
-	if !out.Noop {
-		out.Hunks = []Hunk{{Start: prefix, End: len(before) - suffix,
-			Before: append([]byte(nil), before[prefix:len(before)-suffix]...),
-			After:  append([]byte(nil), after[prefix:len(after)-suffix]...)}}
-	}
-	return out
 }
 
 func restoreFailure(path string, before []byte, cause error, ops fileOps, mode os.FileMode) error {
