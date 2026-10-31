@@ -1426,10 +1426,17 @@ func runSuspendResumePreservesOutputQueueOrder(t *testing.T, backgroundChildExit
 		t.Fatalf("suspend/resume changed terminal output ordering or bytes: got=%d want=%d first-difference=%d queued-boundary=%d independent-ofd-pressure-bytes=%d reset-at=%d got-around-difference=%q want-around-difference=%q", len(got), len(want), at, boundary, pressureCount, resetAt, got[start:end], want[start:min(len(want), at+len(termReset)+16)])
 	}
 	if negativeResumeWrite {
+		// The delivering flush is sampled after its write, and the byte it delivers lets the child
+		// record its receipt and exit, so that one event's cancel-or-exit may read either way
+		// (CI run 41147578362); every event before the delivery must still read false.
+		deliveredFlush := func(trace string) bool {
+			return strings.Contains(trace, "event=resume-flush-result cancel-or-exit=false pending=0 attempted=1 written=1 queued=0") ||
+				strings.Contains(trace, "event=resume-flush-result cancel-or-exit=true pending=0 attempted=1 written=1 queued=0")
+		}
 		trace, traceErr := os.ReadFile(control + ".resume-boundary")
 		injected, injectionErr := os.ReadFile(control + ".resume-write-injection")
 		childReceipt, childErr := os.ReadFile(control)
-		if traceErr != nil || injectionErr != nil || childErr != nil || !bytes.Contains(childReceipt, []byte{'R'}) || !strings.Contains(string(injected), "call=1 n=0") || !strings.Contains(string(injected), "call=2 n=-1") || !strings.Contains(string(injected), "call=3 n=-1") || !strings.Contains(string(injected), "call=4 n=1") || !strings.Contains(string(trace), "event=resume-enqueue-result cancel-or-exit=false pending=0 attempted=1 written=0 queued=1") || strings.Count(string(trace), "event=resume-flush-result cancel-or-exit=false pending=0 attempted=1 written=0 queued=1") != 2 || !strings.Contains(string(trace), "event=resume-flush-result cancel-or-exit=false pending=0 attempted=1 written=1 queued=0") {
+		if traceErr != nil || injectionErr != nil || childErr != nil || !bytes.Contains(childReceipt, []byte{'R'}) || !strings.Contains(string(injected), "call=1 n=0") || !strings.Contains(string(injected), "call=2 n=-1") || !strings.Contains(string(injected), "call=3 n=-1") || !strings.Contains(string(injected), "call=4 n=1") || !strings.Contains(string(trace), "event=resume-enqueue-result cancel-or-exit=false pending=0 attempted=1 written=0 queued=1") || strings.Count(string(trace), "event=resume-flush-result cancel-or-exit=false pending=0 attempted=1 written=0 queued=1") != 2 || !deliveredFlush(string(trace)) {
 			t.Fatalf("negative transient write counts did not preserve retry accounting and child delivery: trace=%q traceErr=%v injected=%q injectionErr=%v child=%q childErr=%v", trace, traceErr, injected, injectionErr, childReceipt, childErr)
 		}
 	}
