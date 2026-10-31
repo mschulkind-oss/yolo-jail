@@ -6060,6 +6060,7 @@
 "internal/capture/rewrite_test.go",
 "internal/capture/scopeexemption_test.go",
 "internal/capture/store_test.go",
+"internal/capture/supervisor_linux_test.go",
 "internal/capture/supervisor_test.go",
 "internal/capture/surfaceroot_test.go",
 "internal/capture/symlinkedstore_test.go",
