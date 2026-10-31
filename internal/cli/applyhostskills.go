@@ -39,6 +39,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/changetiming"
@@ -183,13 +184,13 @@ func applyHostSkills(pr richtext.Printer, out io.Writer, stdin io.Reader,
 
 	rc := 0
 	dests := hostskills.ComposeHostSkills(loaded, home)
-	generatedRoot, generatedCleanup, generatedOK := prepareHostBuiltinSkills(pr, userCfg, loaded, dests)
+	generatedRoot, generatedCleanup, generatedOK := prepareHostBuiltinSkills(pr, userCfg, loaded, dests, composed)
 	defer generatedCleanup()
 	if !generatedOK {
 		return 0
 	}
 	if generatedRoot != "" {
-		dests = addHostBuiltinLayer(dests, generatedRoot)
+		dests = addHostBuiltinLayer(dests, generatedRoot, config.ShippedSkillPrefixIn(userCfg))
 	}
 	reportSkillDestinations(pr, dests)
 	// THE S1 REFUSAL, and it comes BEFORE the adoption gate rather than after. Two packs both
@@ -282,7 +283,7 @@ func applyHostSkills(pr richtext.Printer, out io.Writer, stdin io.Reader,
 					}
 					dests = hostskills.ComposeHostSkills(loaded, home)
 					if generatedRoot != "" {
-						dests = addHostBuiltinLayer(dests, generatedRoot)
+						dests = addHostBuiltinLayer(dests, generatedRoot, config.ShippedSkillPrefixIn(userCfg))
 					}
 					// RE-CHECKED, because the pack set just changed: the migration created the
 					// local pack, whose freshly-adopted skill can share a name with a shared
@@ -343,21 +344,52 @@ func applyHostSkills(pr richtext.Printer, out io.Writer, stdin io.Reader,
 	return rc
 }
 
-func addHostBuiltinLayer(dests []hostskills.Destination, root string) []hostskills.Destination {
+// addHostBuiltinLayer adds the generated suite as each destination's last layer. Under a
+// shipped_skill_prefix the layer also claims each skill's bare name, so a pack's skill under either
+// name is refused as a clash, as it is with no prefix (docs/design/pack-naming.md PN-D13).
+func addHostBuiltinLayer(dests []hostskills.Destination, root, prefix string) []hostskills.Destination {
+	var aliases map[string]string
+	if prefix != "" {
+		aliases = map[string]string{}
+		for _, bare := range jailcontent.BuiltinSkillBareNames() {
+			aliases[bare] = jailcontent.BuiltinSkillName(prefix, bare)
+		}
+	}
 	for i := range dests {
 		dests[i].Layers = append(dests[i].Layers, hostskills.Layer{
-			Pack: "yolo built-in skills", Generated: true,
+			Pack: "yolo built-in skills", Generated: true, Aliases: aliases,
 			Sources: []string{filepath.Join(root, fmt.Sprintf("destination-%d", i))},
 		})
 	}
 	return dests
 }
 
+// priorBuiltinSkillNames is the names the generated suite was last delivered under at dir, as the
+// composed record says, else the names it is delivered under now: a render that fails right after
+// the prefix changed keeps the suite under the names it actually has.
+func priorBuiltinSkillNames(composed *hostskills.Manifest, dir, prefix string) []string {
+	var names []string
+	if composed != nil {
+		for dest, owner := range composed.Entries {
+			if owner == hostskills.GeneratedOwner && filepath.Dir(dest) == filepath.Clean(dir) {
+				names = append(names, filepath.Base(dest))
+			}
+		}
+	}
+	if len(names) == 0 {
+		for _, bare := range jailcontent.BuiltinSkillBareNames() {
+			names = append(names, jailcontent.BuiltinSkillName(prefix, bare))
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
 // prepareHostBuiltinSkills materializes the generated host suite as the final composition layer.
 // On a render error it snapshots the prior generated trees instead, so the normal ownership and
 // retirement lifecycle leaves the last successful suite in place.
 func prepareHostBuiltinSkills(pr richtext.Printer, userCfg *jsonx.OrderedMap, packs []*packload.Pack,
-	dests []hostskills.Destination) (string, func(), bool) {
+	dests []hostskills.Destination, composed *hostskills.Manifest) (string, func(), bool) {
 	workspace, _ := os.Getwd()
 	if resolved, err := filepath.EvalSymlinks(workspace); err == nil {
 		workspace = resolved
@@ -394,8 +426,7 @@ func prepareHostBuiltinSkills(pr richtext.Printer, userCfg *jsonx.OrderedMap, pa
 		for i, dest := range dests {
 			target := filepath.Join(root, fmt.Sprintf("destination-%d", i))
 			preserved := true
-			for _, bare := range []string{"configuring-the-jail", "diagnosing-the-jail", "jail-mechanics"} {
-				name := jailcontent.BuiltinSkillName(prefix, bare)
+			for _, name := range priorBuiltinSkillNames(composed, dest.Dir, prefix) {
 				if err := copyHostSkillTree(filepath.Join(dest.Dir, name), filepath.Join(target, name)); err != nil && !os.IsNotExist(err) {
 					pr.Printf("  [yellow]⚠ skills: could not preserve prior %s suite: %v[/yellow]", name, err)
 					preserved = false

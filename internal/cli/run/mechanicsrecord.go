@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
@@ -192,5 +193,6 @@ func mechanicsStagingTargets(facts jailcontent.FactSheet) []string {
 }
 
 func (o *Options) mechanicsRefreshWarning(reason, remedy string) {
-	o.pr(o.Stderr).printf("[yellow]Warning: jail-mechanics still describes the prior applied state: %s. %s.[/yellow]", richtext.Escape(reason), remedy)
+	o.pr(o.Stderr).printf("[yellow]Warning: %s still describes the prior applied state: %s. %s.[/yellow]",
+		jailcontent.BuiltinSkillName(config.ShippedSkillPrefix(), "jail-mechanics"), richtext.Escape(reason), remedy)
 }

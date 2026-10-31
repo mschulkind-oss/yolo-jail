@@ -53,6 +53,14 @@ func writeBuiltinSkills(dst string, taken map[string]string, facts *FactSheet, p
 	}
 	var overridden []string
 	removedMechanics := false
+	// yolo's mechanics wins at the name it is delivered under, so a pack's skill at its bare name
+	// under a prefix is removed, never delivered beside it.
+	if mechanics != mechanicsSkill && taken[mechanicsSkill] != "" && (preserveMechanics || hasTop(files, mechanics)) {
+		if err := os.RemoveAll(filepath.Join(dst, mechanicsSkill)); err != nil {
+			return nil, err
+		}
+		overridden = append(overridden, mechanicsSkill)
+	}
 	for p, data := range files {
 		top, _, _ := strings.Cut(p, "/")
 		if preserveMechanics && top == mechanics {
@@ -77,6 +85,16 @@ func writeBuiltinSkills(dst string, taken map[string]string, facts *FactSheet, p
 		}
 	}
 	return overridden, nil
+}
+
+// hasTop reports whether files holds an entry under the top-level directory top.
+func hasTop(files map[string][]byte, top string) bool {
+	for p := range files {
+		if strings.HasPrefix(p, top+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // WriteBriefing writes content to path, truncating in place to preserve the

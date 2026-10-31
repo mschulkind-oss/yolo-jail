@@ -21,6 +21,10 @@ var shippedSkillPrefix = config.ShippedSkillPrefix
 // builtinSkillBareNames are the built-in suite's skills by the names yolo wrote them under.
 var builtinSkillBareNames = []string{"configuring-the-jail", "diagnosing-the-jail", mechanicsSkill}
 
+// BuiltinSkillBareNames is the built-in suite's skills by the names yolo wrote them under, before
+// any shipped_skill_prefix.
+func BuiltinSkillBareNames() []string { return append([]string(nil), builtinSkillBareNames...) }
+
 // mechanicsSkill is the generated skill whose rendered copy overrides a pack's of the same name.
 const mechanicsSkill = "jail-mechanics"
 

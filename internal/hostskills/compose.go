@@ -111,6 +111,11 @@ type Layer struct {
 	// (docs/design/pack-naming.md PN-D9), so a pack's own skills are delivered one by one at
 	// either tier.
 	Tier Tier
+	// Aliases is {other name → the name this layer delivers}: a name the layer does not write but
+	// stands for, so another layer's entry under it is a clash as one under the delivered name is.
+	// yolo's built-in suite under a shipped_skill_prefix claims each skill's bare name this way
+	// (docs/design/pack-naming.md PN-D13).
+	Aliases map[string]string
 	// Sources are the pack-relative skills dirs this contribution resolved to, empty when the
 	// declared `from` could not be honored (Problem then says so).
 	Sources []string
@@ -573,6 +578,14 @@ func destinationClaims(d Destination) map[string][]Claim {
 						add(shown, layerClaim{source: inner[n], author: shown}, true)
 					}
 				}
+			}
+		}
+		for _, alias := range sortedKeys(l.Aliases) {
+			if alias == l.Aliases[alias] {
+				continue
+			}
+			for _, c := range claimed[l.Aliases[alias]] {
+				add(alias, c, false)
 			}
 		}
 	}

@@ -130,3 +130,36 @@ func TestTheMechanicsRefreshWritesThePrefixedSkill(t *testing.T) {
 		t.Errorf("the refresh wrote a bare jail-mechanics (err=%v)", err)
 	}
 }
+
+// yolo's rendered jail-mechanics wins at the name it is delivered under, whichever of its names a
+// pack's skill takes, and is never delivered beside the pack's: under a prefix a pack skill at the
+// bare jail-mechanics is replaced too. Fails if the bare-name pack skill is left in place.
+func TestTheRenderedMechanicsOverridesAPackSkillUnderEitherName(t *testing.T) {
+	for _, tc := range []struct{ prefix, packName string }{
+		{"", "jail-mechanics"},
+		{"yolo", "jail-mechanics"},
+		{"yolo", "yolo-jail-mechanics"},
+	} {
+		t.Run(tc.prefix+"/"+tc.packName, func(t *testing.T) {
+			shippedPrefixHome(t, tc.prefix)
+			skills := filepath.Join(t.TempDir(), "skills")
+			must(t, os.MkdirAll(filepath.Join(skills, tc.packName), 0o755))
+			must(t, os.WriteFile(filepath.Join(skills, tc.packName, "SKILL.md"),
+				[]byte("---\nname: "+tc.packName+"\ndescription: mine\n---\nPACK\n"), 0o644))
+			dir := stagedClaudeSkills(t, skills)
+			delivered := BuiltinSkillName(tc.prefix, mechanicsSkill)
+			body, err := os.ReadFile(filepath.Join(dir, delivered, "SKILL.md"))
+			if err != nil || strings.Contains(string(body), "PACK") {
+				t.Errorf("%s is not yolo's rendered mechanics (err=%v):\n%s", delivered, err, body)
+			}
+			for _, name := range []string{mechanicsSkill, BuiltinSkillName("yolo", mechanicsSkill)} {
+				if name == delivered {
+					continue
+				}
+				if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
+					t.Errorf("%s is delivered beside %s (err=%v)", name, delivered, err)
+				}
+			}
+		})
+	}
+}
