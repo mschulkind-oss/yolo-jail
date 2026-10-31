@@ -208,6 +208,9 @@ var configKeys = map[string]Entry{
 	"host_path":            hostSideKey("`yolo host`'s tool lookup (internal/hostpath)"),
 	"provisioners":         hostSideKey("`yolo check-deps`, `yolo host apply` and the host floor (config.ProvisionerOrder)"),
 	"promotion_target":     hostSideKey("`yolo config promote`"),
+	"shipped_skill_prefix": everywhere(honored("read from user scope by the host when it stages "+
+		"skills (config.ShippedSkillPrefix, in hostskills.PackLayer and jailcontent's built-in "+
+		"suite), above the backend's delivery of them"), "`shipped_skill_prefix`"),
 	"programs": {
 		PodmanLinux: honored("assembleRunCmd passes YOLO_PROGRAMS_AUTOPRUNE=1 when the user " +
 			"config asks (config.ProgramsAutoprune), and the boot's catalog step removes orphans " +

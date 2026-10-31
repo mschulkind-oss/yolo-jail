@@ -85,8 +85,9 @@ var schemaRows = map[string]Outcome{
 	"provisioners": AtNextRestart, "packs": AtNextRestart, "perf_logging": AtNextRestart,
 	"macos_user_mode": AtNextRestart, "macos_user_shared_tmp": AtNextRestart,
 	"on_request": AtNextRestart, "update_check": AtNextRestart, "promotion_target": AtNextRestart,
-	"providers": AtNextRestart, "model_facts": AtNextRestart, "profiles": AtNextRestart,
-	"profile": AtNextRestart, "required_capabilities": AtNextRestart, "adapters": AtNextRestart,
+	"shipped_skill_prefix": AtNextRestart, "providers": AtNextRestart, "model_facts": AtNextRestart,
+	"profiles": AtNextRestart, "profile": AtNextRestart, "required_capabilities": AtNextRestart,
+	"adapters": AtNextRestart,
 }
 
 var nextSessionKeys = map[string]bool{

@@ -30,6 +30,7 @@ var legacyNullAcceptedWholeWorkspaceScopeKeys = map[string]struct{}{
 	"perf_logging":          {},
 	"promotion_target":      {},
 	"share_host_fonts":      {},
+	"shipped_skill_prefix":  {},
 	"update_check":          {},
 }
 

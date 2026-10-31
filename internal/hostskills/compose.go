@@ -315,6 +315,11 @@ func PackLayer(p *packload.Pack) Layer {
 	plugins, _ := p.HonoredPlugins()
 	l := Layer{Pack: p.Name, Namespace: p.Namespace, BareStep: p.BareStep, Shipped: p.Official, Plugins: plugins,
 		SourceOf: p.SourcePath}
+	if p.Official && l.Namespace == "" {
+		// A shipped pack's skills take the user's shipped_skill_prefix, as yolo's built-in skills
+		// do (docs/design/pack-naming.md PN-D13); unset, they stay bare.
+		l.Namespace = shippedSkillPrefix()
+	}
 	if p.Decl != nil {
 		// The pack's `skills_tier` decides only how a wrapped plugin is delivered (Layer.Tier);
 		// what anything is called is the user's namespace choice (pack-naming.md PN-D9).

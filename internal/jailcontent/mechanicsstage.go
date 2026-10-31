@@ -28,6 +28,12 @@ func RefreshMechanicsFiles(existingTargetDirs []string, facts FactSheet) error {
 	if err != nil {
 		return err
 	}
+	// The mechanics skill sits where the composition delivered it, under the user's
+	// shipped_skill_prefix (shippedprefix.go).
+	prefix := shippedSkillPrefix()
+	files = PrefixBuiltinSkillFiles(files, prefix)
+	mechanics := BuiltinSkillName(prefix, mechanicsSkill)
+	rels := []string{mechanics + "/SKILL.md", mechanics + "/host-map.md"}
 	var snapshots []mechanicsFileSnapshot
 	for _, dir := range existingTargetDirs {
 		info, statErr := os.Stat(dir)
@@ -37,7 +43,7 @@ func RefreshMechanicsFiles(existingTargetDirs []string, facts FactSheet) error {
 			}
 			return fmt.Errorf("mechanics target %q: %w", dir, statErr)
 		}
-		for _, rel := range []string{"jail-mechanics/SKILL.md", "jail-mechanics/host-map.md"} {
+		for _, rel := range rels {
 			path := filepath.Join(dir, filepath.FromSlash(rel))
 			s := mechanicsFileSnapshot{path: path}
 			info, statErr := os.Lstat(path)
@@ -72,9 +78,9 @@ func RefreshMechanicsFiles(existingTargetDirs []string, facts FactSheet) error {
 		return first
 	}
 	for _, dir := range existingTargetDirs {
-		for _, rel := range []string{"jail-mechanics/SKILL.md", "jail-mechanics/host-map.md"} {
+		for _, rel := range rels {
 			path := filepath.Join(dir, filepath.FromSlash(rel))
-			if err := replaceMechanicsFile(path, files[filepath.ToSlash(filepath.Join("jail-mechanics", filepath.Base(rel)))], 0o644); err != nil {
+			if err := replaceMechanicsFile(path, files[rel], 0o644); err != nil {
 				rbErr := rollback()
 				if rbErr != nil {
 					return fmt.Errorf("write mechanics file: %w (rollback failed: %v)", err, rbErr)

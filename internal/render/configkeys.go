@@ -139,6 +139,8 @@ var hostConfigKeys = map[string]keyCensusEntry{
 	"update_check":     {KeyHonored, "gates this machine's own update check (UpdateCheckEnabled)"},
 	"promotion_target": {KeyHonored, "where `yolo config promote`, a host-side command, writes " +
 		"captured settings"},
+	"shipped_skill_prefix": {KeyHonored, "`yolo host apply` delivers every skill yolo ships, " +
+		"built-in and shipped-pack alike, as `<prefix>-<skill>` (config.ShippedSkillPrefix)"},
 	"prune": {KeyHonored, "the free-disk threshold `yolo check`'s disk section warns at, on this " +
 		"machine"},
 	"macos_user_mode": {KeyNotApplicable, "selects the account a macos-user launch runs as; `yolo host` " +

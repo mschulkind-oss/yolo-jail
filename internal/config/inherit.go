@@ -314,6 +314,9 @@ var inheritCensus = map[string]keyDisposition{
 	// `promotion_target`: a host-only choice of which of the user's packs receives captured
 	// settings. Promotion is refused in a jail, so an inherited value has no in-jail reader.
 	"promotion_target": {reason: "selects a host-side promotion destination; promotion is refused in a jail"},
+	// `shipped_skill_prefix`: read from the HOST's user scope when the host stages a jail's
+	// skills and composes its briefing; nothing in a jail reads it.
+	"shipped_skill_prefix": {reason: "names the skills the host stages for a jail; no in-jail reader"},
 	// `programs`: NEITHER, and unusually it is neither a false-error class nor a misread
 	// grant — it is a key with no in-jail READER at all. `programs.autoprune` is read on
 	// the host out of the user file directly (ProgramsAutoprune; workspace scope is

@@ -178,6 +178,7 @@ func (o *Options) refreshJailBriefingsMode(cname string, cfg *jsonx.OrderedMap, 
 		Resources:          resources,
 		IOPriority:         ioPriorityForBriefing(io),
 		ProvisioningFailed: jailcontent.ReadProvisioningFailed(o.Workspace),
+		ShippedSkillPrefix: config.ShippedSkillPrefix(),
 		Confinement:        string(config.ResolveConfinement(cfg)),
 		// THE MECHANISM, which is the second axis of the header and was a boolean until
 		// OQ-DP2 (docs/design/declaration-parity.md §2.3). `rt` rather than the config,

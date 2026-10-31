@@ -41,17 +41,27 @@ func writeBuiltinSkills(dst string, taken map[string]string, facts *FactSheet, p
 			return nil, err
 		}
 	}
+	// Under the user's shipped_skill_prefix each skill is delivered as `<prefix>-<skill>`
+	// (shippedprefix.go). A pack's skill overrides a built-in one by either name, as on main; yolo's
+	// rendered mechanics overrides the pack's skill at the name it is delivered under.
+	prefix := shippedSkillPrefix()
+	files = PrefixBuiltinSkillFiles(files, prefix)
+	mechanics := BuiltinSkillName(prefix, mechanicsSkill)
+	bareOf := map[string]string{}
+	for _, name := range builtinSkillBareNames {
+		bareOf[BuiltinSkillName(prefix, name)] = name
+	}
 	var overridden []string
 	removedMechanics := false
 	for p, data := range files {
 		top, _, _ := strings.Cut(p, "/")
-		if preserveMechanics && top == "jail-mechanics" {
+		if preserveMechanics && top == mechanics {
 			continue
 		}
-		if top != "jail-mechanics" && taken[top] != "" {
+		if top != mechanics && (taken[top] != "" || (bareOf[top] != "" && taken[bareOf[top]] != "")) {
 			continue
 		}
-		if top == "jail-mechanics" && taken[top] != "" && !removedMechanics {
+		if top == mechanics && taken[top] != "" && !removedMechanics {
 			if err := os.RemoveAll(filepath.Join(dst, top)); err != nil {
 				return nil, err
 			}

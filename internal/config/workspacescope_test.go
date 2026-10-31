@@ -105,7 +105,7 @@ func TestWorkspaceScopeFactsDescribeCurrentSchemaAndConditionalDeciders(t *testi
 		"host_management": true, "host_path": true, "host_wrappers": true,
 		"local_clones": true, "macos_user_mode": true, "macos_user_shared_tmp": true,
 		"perf_logging": true, "promotion_target": true, "share_host_fonts": true,
-		"update_check": true,
+		"shipped_skill_prefix": true, "update_check": true,
 	}
 	for key := range wantWhole {
 		wantWhen := ""

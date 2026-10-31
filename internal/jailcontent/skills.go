@@ -458,8 +458,9 @@ func composeSkillLayers(dest hostskills.Destination, target SkillTarget, skillsD
 }
 
 func preserveLegacyMechanics(sourceSkills, composedSkills string) error {
-	source := filepath.Join(sourceSkills, "jail-mechanics")
-	destination := filepath.Join(composedSkills, "jail-mechanics")
+	mechanics := BuiltinSkillName(shippedSkillPrefix(), mechanicsSkill)
+	source := filepath.Join(sourceSkills, mechanics)
+	destination := filepath.Join(composedSkills, mechanics)
 	info, err := os.Lstat(source)
 	if os.IsNotExist(err) {
 		return os.RemoveAll(destination)
@@ -476,20 +477,27 @@ func preserveLegacyMechanics(sourceSkills, composedSkills string) error {
 	return nil
 }
 
-// builtinSkillNames lists the top-level skill directories of the built-in suite.
+// builtinSkillNames lists the top-level skill directories of the built-in suite, by the names
+// they are delivered under (BuiltinSkillName).
 func builtinSkillNames(includeMechanics, preserveMechanics bool) []string {
+	prefix := shippedSkillPrefix()
 	entries, err := fs.ReadDir(builtinskills.FS, ".")
 	var out []string
 	if includeMechanics || preserveMechanics {
-		out = append(out, "jail-mechanics")
+		out = append(out, BuiltinSkillName(prefix, mechanicsSkill))
 	}
 	if err != nil {
 		return out
 	}
 	for _, e := range entries {
-		if e.IsDir() {
-			out = append(out, e.Name())
+		if !e.IsDir() {
+			continue
 		}
+		name := e.Name()
+		if name != "templates" {
+			name = BuiltinSkillName(prefix, name)
+		}
+		out = append(out, name)
 	}
 	return out
 }

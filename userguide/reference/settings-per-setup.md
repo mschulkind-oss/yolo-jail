@@ -493,6 +493,7 @@ The keys the tables above leave out. Most of them do the same thing on every set
 | `on_request` — a command of yours run for each request a jail files for approval, in your user config only | works | works | absent, warns — the GitHub host service does not start here, and the launch names it[^lh-ac] | works |
 | `agents_md_extra`, `briefing_provenance` — your text in the agent's briefing | works | works | works — a running jail keeps the briefing it started with | works |
 | `include_if_found`, `prune`, `perf_logging`, `update_check` | works | works | works | works |
+| `shipped_skill_prefix` — a word every skill yolo ships starts with, in your user config only | works | works | works | works |
 | `local_clones` — clones of yours a published patch branch URL can be built from, in your user config only | works | works | works | works |
 | `macos_user_mode` — which account a macos-user jail runs as | `n/a` — ignored: only the macos-user setup reads it | `n/a` — ignored: only the macos-user setup reads it | `n/a` — ignored: only the macos-user setup reads it | works — `"account"`, the default; `"self"` runs the agent as you under a stricter profile (experimental) |
 | `macos_user_shared_tmp` — open the shared `/tmp` to a run-as-you macos-user jail | `n/a` — ignored: only the macos-user setup reads it | `n/a` — ignored: only the macos-user setup reads it | `n/a` — ignored: only the macos-user setup reads it | works — with `"macos_user_mode": "self"`, `true` opens `/tmp` read and write; the launch says so |

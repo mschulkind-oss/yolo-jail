@@ -219,6 +219,12 @@ type BriefingInput struct {
 	// own protection out. The packages section then tells the agent to propose the edit to the human
 	// instead of making it, which is the only edit open to it.
 	ConfigLocked bool
+
+	// ShippedSkillPrefix is the user's `shipped_skill_prefix` (config.ShippedSkillPrefix): the
+	// skills section names each built-in skill as it is delivered, `<prefix>-<skill>`
+	// (docs/design/pack-naming.md PN-D13). Empty names them bare, as before. The caller reads
+	// it, as it reads the provisioning log: this function reads no file.
+	ShippedSkillPrefix string
 }
 
 // configName is the workspace config file name the briefing names (BriefingInput.ConfigName).
@@ -917,13 +923,14 @@ func BriefingContent(in BriefingInput) string {
 	)
 	lines = append(lines, hostRunSection...)
 	lines = append(lines, "## Skills", "",
-		"Before editing the workspace config, asking for a restart, or relying on a file from the host: read **jail-mechanics**.", "",
+		"Before editing the workspace config, asking for a restart, or relying on a file from the host: read **"+
+			BuiltinSkillName(in.ShippedSkillPrefix, mechanicsSkill)+"**.", "",
 		"User-level skills dirs (`~/.<agent>/skills/`) are **read-only** in-jail",
 		"(kernel-enforced); workspace-level ones (`/workspace/.<agent>/skills/`) are",
 		"writable — develop there, then ask the human to promote to the host.",
 		"",
-		"On-demand skills are staged for you: read **configuring-the-jail** before",
-		"editing `"+in.configName()+"`, and **diagnosing-the-jail** when a command",
+		"On-demand skills are staged for you: read **"+BuiltinSkillName(in.ShippedSkillPrefix, "configuring-the-jail")+"** before",
+		"editing `"+in.configName()+"`, and **"+BuiltinSkillName(in.ShippedSkillPrefix, "diagnosing-the-jail")+"** when a command",
 		"misbehaves. Their bodies load only when invoked — they cost nothing until then.",
 		"",
 	)

@@ -1588,14 +1588,20 @@ func packExplain(args []string, out, errw io.Writer, color bool) int {
 		}
 	}
 	// Each skill under the name agents see it by (docs/design/pack-naming.md §3.4).
+	// A shipped pack's namespace is the user's shipped_skill_prefix (PN-D13), as
+	// hostskills.PackLayer delivers it.
 	if names := packload.SkillNames(resolved.Pack); len(names) > 0 {
+		namespace := entry.Namespace
+		if namespace == "" && entry.Embedded() {
+			namespace = config.ShippedSkillPrefix()
+		}
 		ns := "bare"
-		if entry.Namespace != "" {
-			ns = "namespace " + entry.Namespace
+		if namespace != "" {
+			ns = "namespace " + namespace
 		}
 		pr.Printf("[green]delivers %d skill(s)[/green] [dim](%s)[/dim]", len(names), ns)
 		for _, n := range names {
-			pr.Printf("  [cyan]%s[/cyan]", packname.Delivered(entry.Namespace, n))
+			pr.Printf("  [cyan]%s[/cyan]", packname.Delivered(namespace, n))
 		}
 	}
 	return 0

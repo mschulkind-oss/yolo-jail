@@ -1276,6 +1276,19 @@
     jail, so a workspace config cannot redirect their destination. A workspace
     value is a `yolo check` error and is never read.
 
+  [bold]shipped_skill_prefix[/bold] (string): A word every skill yolo ships starts with.
+    Default: unset, and shipped skills carry no marker.  With it set, yolo's
+    built-in skills and the skills of every shipped pack are delivered as
+    `<prefix>-<skill>`, in a jail and at the host alike, and the briefing names
+    them that way:
+      shipped_skill_prefix = "yolo"     # configuring-the-jail -> yolo-configuring-the-jail
+
+    The value is lowercase letters, digits and single hyphens.  A skill of yours
+    that overrides a built-in one still does, under either name.
+
+    [bold yellow]Scope: user config only[/bold yellow].  A workspace value is a `yolo check` error
+    and is never read.  Takes effect at the next launch or `yolo host apply`.
+
   [bold]agent_updates[/bold] (boolean, "launch", "next-launch", or object of pack name -> one
     of those): Keep agent CLIs current.  Default TRUE -- absent means on.
     An AGENT dependency is a program yolo installs so a coding agent can run: the

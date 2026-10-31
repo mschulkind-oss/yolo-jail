@@ -43,6 +43,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/changetiming"
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostskills"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -379,6 +380,10 @@ func prepareHostBuiltinSkills(pr richtext.Printer, userCfg *jsonx.OrderedMap, pa
 		}
 	}
 	files, renderErr := renderHostBuiltinSkills(facts)
+	// Under the user's shipped_skill_prefix every built-in skill is delivered as
+	// `<prefix>-<skill>`, here as in a jail (docs/design/pack-naming.md PN-D13).
+	prefix := config.ShippedSkillPrefixIn(userCfg)
+	files = jailcontent.PrefixBuiltinSkillFiles(files, prefix)
 	root, err := os.MkdirTemp("", "yolo-host-skills-")
 	if err != nil {
 		pr.Printf("  [yellow]⚠ skills: generated host suite unavailable (%v); keep the previous suite and rerun `yolo host apply`[/yellow]", err)
@@ -389,7 +394,8 @@ func prepareHostBuiltinSkills(pr richtext.Printer, userCfg *jsonx.OrderedMap, pa
 		for i, dest := range dests {
 			target := filepath.Join(root, fmt.Sprintf("destination-%d", i))
 			preserved := true
-			for _, name := range []string{"configuring-the-jail", "diagnosing-the-jail", "jail-mechanics"} {
+			for _, bare := range []string{"configuring-the-jail", "diagnosing-the-jail", "jail-mechanics"} {
+				name := jailcontent.BuiltinSkillName(prefix, bare)
 				if err := copyHostSkillTree(filepath.Join(dest.Dir, name), filepath.Join(target, name)); err != nil && !os.IsNotExist(err) {
 					pr.Printf("  [yellow]⚠ skills: could not preserve prior %s suite: %v[/yellow]", name, err)
 					preserved = false

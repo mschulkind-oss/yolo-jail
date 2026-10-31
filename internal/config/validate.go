@@ -176,6 +176,7 @@ func validateConfigWithEditContext(config *jsonx.OrderedMap, workspace string, r
 	validateOnRequest(config, workspace, errs, edit)
 	validateUpdateCheck(config, workspace, errs, edit)
 	validatePromotionTarget(config, workspace, errs, edit)
+	validateShippedSkillPrefix(config, workspace, errs, edit)
 	validatePacks(workspace, errs, edit)
 	validatePrograms(config, workspace, errs, edit)
 

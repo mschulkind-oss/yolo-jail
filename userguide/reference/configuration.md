@@ -112,6 +112,10 @@ project config and names the file to move them to:
 - `cache_relocations`
 - `host_management`, `host_wrappers`, `host_apply_on_launch`, `host_floor`, `host_path`, `provisioners` and `promotion_target`
 - `perf_logging` and `update_check`
+- `shipped_skill_prefix`, a word every skill yolo ships starts with: with
+  `shipped_skill_prefix = "yolo"`, `configuring-the-jail` is delivered as
+  `yolo-configuring-the-jail`, and so is every shipped pack's skill. Unset, shipped skills carry
+  no marker
 - `local_clones`, the clones of yours a published patch branch can be built from (see
   [your clone of a published branch](../guides/patch-series.md#your-clone-of-a-published-branch)); an
   entry that is not an absolute path to a git clone with a remote stops `yolo check`, the launch,

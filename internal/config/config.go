@@ -78,7 +78,7 @@ var knownTopLevelConfigKeys = set(
 	"briefing_provenance",
 	"cache_relocations", "writable_home_dirs", "host_files", "host_wrappers", "share_host_fonts", "local_clones",
 	"host_apply_on_launch", "host_management", "host_import_exclusions", "agent_updates", "host_floor", "host_path", "provisioners", "packs", "perf_logging", "macos_user_mode", "macos_user_shared_tmp", "on_request",
-	"update_check", "promotion_target",
+	"update_check", "promotion_target", "shipped_skill_prefix",
 	"providers", "model_facts", "profiles", "profile", "required_capabilities", "adapters",
 	// `agent_profiles` retired 2026-09-01, renamed to `pack_profiles` (the keys were
 	// always CLI names, and core knows packs, not agents — docs/design/
