@@ -356,6 +356,11 @@ func TestAFailedFetchWithNoMirrorFallsBackToTheTrackingRefThenATagThenRefuses(t 
 func TestEachRemoteIsFetchedOncePerCommand(t *testing.T) {
 	f := newCheckoutFixture(t)
 	_, fetches := f.originWrapper(t)
+	// A first command clones origin's mirror, and a fresh clone needs no fetch; start from a
+	// mirror that exists so each command below has a fetch to share.
+	f.launch(t)
+	base := fetches()
+	f.now = f.now.Add(2 * time.Minute)
 	for _, owner := range []string{"forkpack/tool", "forkpack/other"} { // one launch, two owners, one patch branch
 		w := f.want()
 		w.Owner = owner
@@ -363,12 +368,12 @@ func TestEachRemoteIsFetchedOncePerCommand(t *testing.T) {
 			t.Fatal(res.Err)
 		}
 	}
-	if n := fetches(); n != 1 {
+	if n := fetches() - base; n != 1 {
 		t.Errorf("one command fetched origin %d times, want once", n)
 	}
 	f.now = f.now.Add(2 * time.Minute) // the next command
 	f.launch(t)
-	if n := fetches(); n != 2 {
+	if n := fetches() - base; n != 2 {
 		t.Errorf("the next command fetched origin %d times in all, want 2", n)
 	}
 }

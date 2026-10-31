@@ -839,7 +839,8 @@ func TestRefreshTimeoutEndsAStalledHTTPRemote(t *testing.T) {
 }
 
 // (f) ONE BUDGET PER FETCH, not per git run: a clone and a fetch that each fit the timeout
-// but together exceed it are a timeout.
+// but together exceed it are a timeout. A fresh clone runs no mirror fetch of its own, so what
+// shares the clone's budget here is the checkout after it.
 //
 // NO REAL GIT WORK RUNS INSIDE THE BUDGET, because its speed is the machine's. The fake clone
 // used to sleep and then exec the real clone, so the real clone had what one sleep left of the
@@ -848,11 +849,11 @@ func TestRefreshTimeoutEndsAStalledHTTPRemote(t *testing.T) {
 // timed out first and the fetch this test is about never ran. Now the mirror is cloned BEFORE
 // the budget starts, with its HEAD taken away so the refresh still sees no mirror and clones,
 // and the fake clone only sleeps and writes HEAD back with a shell builtin. Both halves are
-// sleeps: the clone's 2.5s and the fetch's 4.5s each fit the 6s budget, and together they
-// cannot (the fetch cannot end before 7s). What the machine must still do inside the budget is
+// sleeps: the clone's 2.5s and the checkout's 4.5s each fit the 6s budget, and together they
+// cannot (the checkout cannot end before 7s). What the machine must still do inside the budget is
 // start the wrapper and its sleep, with 3.5s to do it in. Each sleep's output goes to
 // /dev/null, so a sleep orphaned by the timeout does not hold git's pipes open.
-func TestRefreshSharesOneBudgetAcrossCloneAndFetch(t *testing.T) {
+func TestRefreshSharesOneBudgetAcrossCloneAndCheckout(t *testing.T) {
 	f := newRefreshFixture(t)
 	mirror := f.store.mirrorPath(mustParse(t, f.source("main")).Repo)
 	if err := os.MkdirAll(filepath.Dir(mirror), 0o755); err != nil {
@@ -873,18 +874,18 @@ func TestRefreshSharesOneBudgetAcrossCloneAndFetch(t *testing.T) {
 for a in "$@"; do
 	case "$a" in
 	clone) sleep 2.5 </dev/null >/dev/null 2>&1; printf '`+strings.TrimSpace(string(head))+`\n' > "$last/HEAD"; exit 0;;
-	fetch) sleep 4.5 </dev/null >/dev/null 2>&1; break;;
+	checkout) sleep 4.5 </dev/null >/dev/null 2>&1; break;;
 	esac
 done
 exec git "$@"
 `)
 	f.store.Timeout = 6 * time.Second
 	o := f.refresh(t, false, RefreshPack{Name: "p", Source: f.source("main")})[0]
-	if o.FetchErr == nil || !strings.Contains(o.FetchErr.Error(), "git fetch timed out") {
-		t.Errorf("outcome = %+v, want the fetch to time out on the budget the clone spent", o)
+	if o.FetchErr != nil {
+		t.Errorf("outcome = %+v, want no mirror fetch after the clone", o)
 	}
 	if o.Err == nil || !strings.Contains(o.Err.Error(), "timed out") {
-		t.Errorf("outcome = %+v, want the checkout, in the same spent budget, unusable too", o)
+		t.Errorf("outcome = %+v, want the checkout to time out on the budget the clone spent", o)
 	}
 }
 
@@ -1131,34 +1132,42 @@ func TestResolutionErrorsSayWhatRepairsThem(t *testing.T) {
 	}
 }
 
-// A CLONE THAT SUCCEEDS AHEAD OF A FETCH THAT FAILS keeps the pack usable from what the clone
-// brought: that is the cached copy, used with the fetch error warned about like any other.
-// The git wrapper passes every run through except `fetch`, so the very first refresh clones
-// the mirror and then fails its fetch. Fails if resolveCommit lets a recorded fetch failure
-// outrank a ref that resolves locally (the verifier's surviving mutation d2).
-func TestRefreshKeepsWhatACloneBroughtWhenItsFetchFails(t *testing.T) {
+// A FRESH CLONE RUNS NO FETCH: the clone already holds every branch and tag, so a fetch that
+// would fail is never reached, and the first refresh reports no fetch error. The git wrapper
+// passes every run through except `fetch`. Fails if fetchMirror fetches after its clone again.
+//
+// EVERY TAG, NOT ONLY THOSE A BRANCH REACHES: the remote carries an annotated and a lightweight
+// tag on a commit no branch holds any more, and both resolve from what the clone alone brought.
+// Fails if the clone stops copying a tag the fetch of refs/tags/* used to bring.
+func TestRefreshRunsNoFetchAfterAFreshClone(t *testing.T) {
 	f := newRefreshFixture(t)
 	want := f.head(t)
+	gitIn(t, f.repo, "checkout", "-q", "-b", "side")
+	orphan := commitFile(t, f.repo, "side.txt", "on no branch")
+	gitIn(t, f.repo, "tag", "-a", "-m", "annotated", "orphan")
+	gitIn(t, f.repo, "tag", "orphan-lw")
+	gitIn(t, f.repo, "checkout", "-q", "main")
+	gitIn(t, f.repo, "branch", "-q", "-D", "side")
 	f.store.Git = writeScript(t, `for a in "$@"; do
   if [ "$a" = fetch ]; then echo "fatal: simulated fetch failure" >&2; exit 128; fi
 done
 exec git "$@"
 `)
 	o := f.refresh(t, false, RefreshPack{Name: "p", Source: f.source("main")})[0]
-	if o.Err != nil {
-		t.Fatalf("the pack is unusable although its clone succeeded: %+v", o)
+	if o.Err != nil || o.FetchErr != nil {
+		t.Fatalf("the first refresh ran a fetch after its clone: %+v", o)
 	}
-	if o.FetchErr == nil || !strings.Contains(o.FetchErr.Error(), "simulated fetch failure") {
-		t.Errorf("FetchErr = %v, want the failed fetch reported", o.FetchErr)
-	}
-	if o.Commit != want {
-		t.Errorf("Commit = %q, want the cloned %s", o.Commit, want)
-	}
-	if w := o.Warning(); !strings.Contains(w, "using the cached "+want[:8]) {
-		t.Errorf("Warning() = %q, want it to say the cloned commit is used", w)
+	if o.Commit != want || !o.Fetched {
+		t.Errorf("outcome = %+v, want the cloned %s, fetched", o, want)
 	}
 	a, _ := Parse(f.source("main"))
 	if res, err := f.store.Resolve(a, "p"); err != nil || res.Commit != want {
-		t.Errorf("resolution after the failed fetch: %+v, %v", res, err)
+		t.Errorf("resolution after the clone: %+v, %v", res, err)
+	}
+	for _, tag := range []string{"orphan", "orphan-lw"} {
+		ta, _ := Parse(f.source(tag))
+		if res, err := f.store.Resolve(ta, "p-"+tag); err != nil || res.Commit != orphan {
+			t.Errorf("tag %s on no branch after the clone: %+v, %v; want %s", tag, res, err, orphan)
+		}
 	}
 }

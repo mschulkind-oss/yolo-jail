@@ -276,6 +276,7 @@ func TestRefreshFetchesABranchHourly(t *testing.T) {
 func TestRefreshFetchFailureUsesTheCachedCommit(t *testing.T) {
 	f := newRefreshFixture(t)
 	c1 := f.head(t)
+	gitIn(t, f.repo, "tag", "v1") // in the mirror, but no pack of the refresh below names it
 	pack := RefreshPack{Name: "p", Source: f.source("main")}
 	f.refresh(t, false, pack)
 	f.breakRemote(t)
@@ -292,6 +293,13 @@ func TestRefreshFetchFailureUsesTheCachedCommit(t *testing.T) {
 	a, _ := Parse(pack.Source)
 	if res, err := f.store.Resolve(a, "p"); err != nil || res.Commit != c1 {
 		t.Errorf("resolution after a failed refresh: %+v, %v", res, err)
+	}
+	// A ref of the same mirror that this refresh did not decide is read from the mirror, and
+	// the fetch failure recorded for the repository does not outrank it while it resolves
+	// there. Fails if resolveCommit consults the failure before the mirror (mutation d2).
+	other, _ := Parse(f.source("v1"))
+	if res, err := f.store.Resolve(other, "q"); err != nil || res.Commit != c1 {
+		t.Errorf("resolution of an undecided ref after a failed fetch: %+v, %v", res, err)
 	}
 }
 
@@ -469,7 +477,7 @@ func TestRefreshDisclosesEveryPackOfAFreshMirror(t *testing.T) {
 }
 
 // (i) CONCURRENCY. Eight refreshes of one never-fetched mirror at once, each recording a
-// different pack name: exactly one clone and one fetch reach the network (every waiter
+// different pack name: exactly one clone reaches the network, with no fetch after it (every waiter
 // re-checks the stamp the first one wrote), and the lockfile keeps all eight entries.
 //
 // flock is per open file description, so goroutines opening the lock file separately contend
@@ -508,8 +516,8 @@ func TestRefreshConcurrentLaunchesFetchOnceAndLoseNothing(t *testing.T) {
 		t.Error(e)
 	}
 	data, _ := os.ReadFile(calls)
-	if got := strings.Fields(string(data)); len(got) != 2 || got[0] != "clone" || got[1] != "fetch" {
-		t.Errorf("network calls = %v, want exactly [clone fetch]", got)
+	if got := strings.Fields(string(data)); len(got) != 1 || got[0] != "clone" {
+		t.Errorf("network calls = %v, want exactly [clone]: a fresh clone needs no fetch", got)
 	}
 	l, err := LoadLock(f.lock)
 	if err != nil {

@@ -3900,8 +3900,10 @@ Whichever is ruled, R5's *"install is user-scope"* in
   rather than a claim that the ref is missing. A ref that a fetch **succeeded** without finding
   (a typo in `?ref=`, a deleted branch) is fatal too, and says so: no later launch repairs it.
   Each launch-time fetch of a repository runs under one timeout, shorter than `install`'s,
-  covering its clone, its fetch and the checkouts after them, so a hung remote costs a bounded
-  wait and then counts as a failed fetch.
+  covering its clone or fetch and the checkouts after them, so a hung remote costs a bounded
+  wait and then counts as a failed fetch. A repository's first fetch is its clone alone: the
+  clone already holds every branch and tag, so no fetch follows it, except for a patch
+  branch, whose remote-tracking refs a clone does not copy.
 - **Every move is disclosed.** A pack delivered for the first time prints
   `Fetched pack <name>: <ref> → <short sha>`: one fetched now, or one whose repository and
   subdirectory the lockfile has no entry for (a monorepo's second subpath, which arrives
@@ -4656,7 +4658,7 @@ only place the values themselves are stated.
 | Value | Setting | Defined in |
 | :--- | :--- | :--- |
 | Branch refresh interval | one hour: a branch-pinned git pack is re-fetched at launch when its last successful fetch is older ([`OQ-PF1`](#oq-pf1)) | `packsrc.BranchRefreshInterval` |
-| Launch-time fetch timeout | 60 seconds per repository fetch, shared by its clone, fetch and checkouts, against the store's 2-minute default for `install` and `update` | `packsrc.LaunchFetchTimeout`, `packsrc.Store.Timeout` |
+| Launch-time fetch timeout | 60 seconds per repository fetch, shared by its clone or fetch and its checkouts, against the store's 2-minute default for `install` and `update` | `packsrc.LaunchFetchTimeout`, `packsrc.Store.Timeout` |
 | Kind set | the `footprints` map key, from which `KnownKinds()` derives (sorted alphabetically) | `packdecl.footprints`, count-pinned by `packdecl.TestKnownKindsCoverEveryConstant` |
 | Hook set | `shared_credentials`, `shared_directory`, `unshare_directory`, `per_jail_history`, `boot_check` (see [the boot check](#the-boot-check-hook)). `claude_plugins` was a member until it was retired ([`OQ-2`](../design/pi-pack-extensions.md#10-decision-ledger), 2026-09-19 — retire it and add nothing like it, no agent-named hook); the name is not unknown but REFUSED, with a migration message | `packdecl.KnownHooks`, drift-pinned by `entrypoint.TestHookSetsAgree`; the refusal is `packdecl.RetiredHook` |
 | Manifest top-level keys | `name`, `description`, `contributes`, `skills_tier`, `supersedes`, `needs` | `packdecl.Manifest` |

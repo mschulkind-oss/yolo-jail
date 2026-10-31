@@ -254,7 +254,7 @@ func TestPinForksWaiterUsesThePinMadeWhileItWaited(t *testing.T) {
 }
 
 // TWO PINNERS AT ONCE AGREE: every concurrent pin of one fork answers with one commit, exactly one of
-// them made it, the fork lock holds one entry, and the repository was cloned and fetched once.
+// them made it, the fork lock holds one entry, and the repository was cloned once, with no fetch after it.
 func TestPinForksConcurrentPinnersAgreeOnOneEntry(t *testing.T) {
 	repo, store, lockPath := forkPinFixture(t)
 	calls := filepath.Join(t.TempDir(), "calls")
@@ -298,8 +298,8 @@ func TestPinForksConcurrentPinnersAgreeOnOneEntry(t *testing.T) {
 		t.Errorf("the fork lock has %d entries, want one: %+v", len(l.Forks), l.Forks)
 	}
 	data, _ := os.ReadFile(calls)
-	if got := strings.Fields(string(data)); len(got) != 2 || got[0] != "clone" || got[1] != "fetch" {
-		t.Errorf("network calls = %v, want exactly [clone fetch]", got)
+	if got := strings.Fields(string(data)); len(got) != 1 || got[0] != "clone" {
+		t.Errorf("network calls = %v, want exactly [clone]: a fresh clone needs no fetch", got)
 	}
 }
 

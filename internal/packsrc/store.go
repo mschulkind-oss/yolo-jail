@@ -544,7 +544,7 @@ func mirrorExists(mirror string) bool {
 	return err == nil
 }
 
-// fetchMirror is THE NETWORK ACCESS: clone the mirror if it is missing, then fetch every
+// fetchMirror is THE NETWORK ACCESS: clone the mirror if it is missing, or else fetch every
 // branch and tag into it, all inside one budget. It returns the failure rather than
 // judging it — whether a failed fetch is fatal depends on whether the ref already
 // resolves, which is the caller's question. The caller holds the mirror's lock.
@@ -557,7 +557,7 @@ func mirrorExists(mirror string) bool {
 //
 // remoteTracking fetches the remote's remote-tracking refs (refs/remotes/*) as well, under their own names, for
 // a patch branch (fetchMode.remoteTracking). --prune prunes only what a refspec given names, so a fetch without
-// them leaves them alone.
+// them leaves them alone. A clone does not copy them, so with remoteTracking a fetch follows a fresh clone.
 func (s *Store) fetchMirror(b budget, a Addr, explicit, remoteTracking bool) error {
 	mirror := s.mirrorPath(a.Repo)
 	if err := os.MkdirAll(filepath.Dir(mirror), 0o755); err != nil {
@@ -573,6 +573,12 @@ func (s *Store) fetchMirror(b budget, a Addr, explicit, remoteTracking bool) err
 			// existing mirror. Remove it so the next attempt clones again.
 			_ = os.RemoveAll(mirror)
 			return fmt.Errorf("cloning %s: %w", a.Repo, err)
+		}
+		// A bare clone already holds every branch and tag under its own name, so a fetch of
+		// them right after has nothing to bring. Only the remote-tracking refs a patch branch
+		// reads are outside what a clone copies.
+		if !remoteTracking {
+			return nil
 		}
 	}
 	// fsckObjects on fetch (fsckArgs says why).
