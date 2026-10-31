@@ -38,6 +38,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
+	"github.com/mschulkind-oss/yolo-jail/internal/slug"
 )
 
 // packsKey is the top-level config key.
@@ -142,11 +143,11 @@ type PackEntry struct {
 	Implicit bool `json:"-"`
 }
 
-// Slug returns a filesystem-safe identifier for this pack's staging dir. It reuses
-// HostFileEntry.Slug's escaping so the two staging namespaces cannot collide by
-// accident and one escaping bug cannot exist in two forms.
+// Slug returns a filesystem-safe identifier for this pack's staging dir: internal/slug's
+// escape, the one HostFileEntry.Slug and every other path built from a pack name use, so one
+// escaping bug cannot exist in two forms and one name has one spelling (RC-D48).
 func (p PackEntry) Slug() string {
-	return HostFileEntry{Path: p.Name}.Slug()
+	return slug.Escape(p.Name)
 }
 
 // IsLocal reports whether Source is a file:// address, which needs no fetch.

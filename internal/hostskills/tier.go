@@ -152,6 +152,11 @@ type pluginManifest struct {
 	// entitled to rewrite it. An unknown extra field is harmless to the tools (they
 	// ignore what they do not model) and is the whole ownership record tier A needs.
 	ManagedBy string `json:"x-yolo-managed-by"`
+	// Pack is the pack's own name, the ownership record a dropped-pack sweep compares with the
+	// configured names (YoloPluginOwner). Name is the agent's namespace, which need not be the
+	// pack's name. Absent from a manifest an older yolo wrote, whose Name was the pack's name
+	// itself.
+	Pack string `json:"x-yolo-pack,omitempty"`
 }
 
 // yoloManagedMarker is the ManagedBy value yolo writes and recognizes.
@@ -199,6 +204,9 @@ func YoloPluginOwner(dir string) (string, bool) {
 	if m.ManagedBy != yoloManagedMarker || m.Name == "" {
 		return "", false
 	}
+	if m.Pack != "" {
+		return m.Pack, true
+	}
 	return m.Name, true
 }
 
@@ -210,6 +218,7 @@ func writePluginManifest(packDir, pack, description string) error {
 	}
 	m := pluginManifest{
 		Name:        pack,
+		Pack:        pack,
 		Description: description,
 		Skills:      []string{"./"},
 		ManagedBy:   yoloManagedMarker,

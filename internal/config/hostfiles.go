@@ -28,6 +28,7 @@ import (
 	_ "github.com/mschulkind-oss/yolo-jail/internal/packreg" // registers the embedded packs with packload
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
+	"github.com/mschulkind-oss/yolo-jail/internal/slug"
 )
 
 // hostFilesKey is the one config key this feature reads. Kept as a constant so
@@ -171,55 +172,14 @@ func (e HostFileEntry) SourceBearing() bool { return e.Source != "" }
 // owns: checkHostFiles rejects two entries writing the same destination, so
 // distinct entries have distinct Paths, and injectivity here carries that through
 // to distinct slugs.
-func (e HostFileEntry) Slug() string {
-	var b strings.Builder
-	b.Grow(len(e.Path) + 8)
-	for i := 0; i < len(e.Path); i++ {
-		c := e.Path[i]
-		switch {
-		case c == '.' || c == '-' ||
-			(c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'):
-			b.WriteByte(c)
-		default:
-			fmt.Fprintf(&b, "_%02x", c)
-		}
-	}
-	return b.String()
-}
+func (e HostFileEntry) Slug() string { return slug.Escape(e.Path) }
 
 // HostFilePathFromSlug inverts Slug: the home-relative destination a slug was escaped from,
 // and false for a string Slug cannot have produced. It exists because the escape is
 // reversible by construction (the single-role '_' sentinel above), and a host apply finds a
 // DROPPED entry's destination by its provenance record alone, whose file name carries the
 // slug and nothing else (OQ-NC8).
-func HostFilePathFromSlug(slug string) (string, bool) {
-	var b strings.Builder
-	for i := 0; i < len(slug); i++ {
-		c := slug[i]
-		switch {
-		case c == '_':
-			if i+2 >= len(slug) {
-				return "", false
-			}
-			var v byte
-			if _, err := fmt.Sscanf(slug[i+1:i+3], "%02x", &v); err != nil {
-				return "", false
-			}
-			b.WriteByte(v)
-			i += 2
-		case c == '.' || c == '-' ||
-			(c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'):
-			b.WriteByte(c)
-		default:
-			return "", false
-		}
-	}
-	out := b.String()
-	if out == "" || (HostFileEntry{Path: out}).Slug() != slug {
-		return "", false
-	}
-	return out, true
-}
+func HostFilePathFromSlug(s string) (string, bool) { return slug.Unescape(s) }
 
 // HostFileCodecFor is the codec an entry naming dest gets when it declares none — the
 // auto-detect, for a reader that has only the destination (a dropped entry's record, OQ-NC8).

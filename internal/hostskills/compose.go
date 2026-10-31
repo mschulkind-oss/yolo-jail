@@ -391,17 +391,10 @@ func Collisions(dests []Destination) []Collision {
 		if unresolved {
 			continue
 		}
-		byName := map[string][]Claim{}
-		var order []string
-		for _, l := range d.Layers {
-			claimed := layerClaims(l)
-			for _, name := range sortedKeys(claimed) {
-				if _, seen := byName[name]; !seen {
-					order = append(order, name)
-				}
-				byName[name] = append(byName[name],
-					Claim{Pack: l.Pack, Source: l.source(claimed[name]), Namespaced: l.Tier == TierNamespaced})
-			}
+		byName := destinationClaims(d)
+		order := make([]string, 0, len(byName))
+		for name := range byName {
+			order = append(order, name)
 		}
 		sort.Strings(order)
 		for _, name := range order {
@@ -413,6 +406,27 @@ func Collisions(dests []Destination) []Collision {
 		}
 	}
 	return out
+}
+
+// ClaimsAt is every pack whose layer in d puts an entry called name at d's top level, one claim per
+// pack, in layer order: the question "who else would write here?" asked of the same authority
+// Collisions reads (layerClaims). Unlike Collisions it reads an unresolved destination's resolved
+// layers too; a caller that must not accuse on a guess checks Layer.Unresolved itself.
+func ClaimsAt(d Destination, name string) []Claim {
+	return dedupePackClaims(destinationClaims(d)[name])
+}
+
+// destinationClaims is {top-level name → the claims on it}, every layer of d in order.
+func destinationClaims(d Destination) map[string][]Claim {
+	byName := map[string][]Claim{}
+	for _, l := range d.Layers {
+		claimed := layerClaims(l)
+		for _, name := range sortedKeys(claimed) {
+			byName[name] = append(byName[name],
+				Claim{Pack: l.Pack, Source: l.source(claimed[name]), Namespaced: l.Tier == TierNamespaced})
+		}
+	}
+	return byName
 }
 
 // layerClaims is {top-level entry name → source path} for one layer: exactly the names this layer
