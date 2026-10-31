@@ -58,7 +58,7 @@ func checkReadablePacksFromEmbeddedNames(raw any, definitions map[string]packsrc
 				AllowDefaultRef: ref.AllowDefaultRef,
 				IsEmbedded:      ref.EmbeddedName != "",
 				Namespace:       ref.Namespace, NamespaceOwner: ref.NamespaceOwner, Landing: ref.Landing,
-				KeepNamesStep: ref.KeepNamesStep,
+				KeepNamesStep: ref.KeepNamesStep, AcceptNamesStep: ref.AcceptNamesStep, BareStep: ref.BareStep,
 			}
 			localPath = ref.LocalPath
 		}

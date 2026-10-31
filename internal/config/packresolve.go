@@ -212,7 +212,8 @@ func ResolvePack(entry PackEntry, spec ResolvePackSpec) (ResolvedPack, error) {
 		out.Pack.Official = entry.Embedded()
 		out.Pack.Local = entry.IsLocal() && !entry.Embedded()
 		// The agent-facing naming the config entry computed (docs/design/pack-naming.md §3.4).
-		out.Pack.KeepNamesStep = entry.KeepNamesStep
+		out.Pack.KeepNamesStep, out.Pack.AcceptNamesStep, out.Pack.BareStep =
+			entry.KeepNamesStep, entry.AcceptNamesStep, entry.BareStep
 		out.Pack.Namespace, out.Pack.NamespaceOwner, out.Pack.Landing =
 			entry.Namespace, entry.NamespaceOwner, entry.Landing
 	}

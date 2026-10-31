@@ -147,6 +147,31 @@ func TestABarePackIsNamedExactlyAsBefore(t *testing.T) {
 	}
 }
 
+// A source key that is not a plain word is quoted as one component of the config-set path, and the
+// whole path is shell-quoted; a handle `yolo pack add` checks is not in the config yet, so its step
+// adds the table instead (second-round review, majors 1 and 2).
+func TestTheBareStepQuotesTheKeyAndNamesARealCommand(t *testing.T) {
+	for _, tc := range []struct{ key, want string }{
+		{"work", "`yolo config set pack_sources.work.bare true --user`"},
+		{"skills.git", "`yolo config set 'pack_sources.\"skills.git\".bare' true --user`"},
+		{"my tools", "`yolo config set 'pack_sources.\"my tools\".bare' true --user`"},
+	} {
+		if got := (SourceDefinition{Name: tc.key, Marked: true}).KeepNamesStep(); got != tc.want {
+			t.Errorf("%q: %s, want %s", tc.key, got, tc.want)
+		}
+	}
+	ref, err := ParsePackReference("local/mine", nil, "/home/u/.config/yolo-jail/packs", "/home/u", "pack handle", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "`yolo config add packs '{ pack = \"local/mine\", bare = true }' --user`"; ref.KeepNamesStep != want {
+		t.Errorf("pack add's step = %s, want %s", ref.KeepNamesStep, want)
+	}
+	if want := "`yolo config add packs '{ pack = \"local/mine\", bare = false }' --user`"; ref.AcceptNamesStep != want {
+		t.Errorf("pack add's accept step = %s, want %s", ref.AcceptNamesStep, want)
+	}
+}
+
 // M5: an entry and source that chose nothing get the default namespace, and carry the one step
 // that keeps their names bare; one that chose (either way) carries none.
 func TestADefaultedNamespaceCarriesTheStepThatKeepsItsNames(t *testing.T) {
@@ -161,10 +186,11 @@ func TestADefaultedNamespaceCarriesTheStepThatKeepsItsNames(t *testing.T) {
 		{"work/deploy", "`yolo config set pack_sources.work '{ path = \"~/w\", bare = true }' --user`"},
 		{"acme/tools", ""},
 		{obj("pack", "work/deploy", "bare", false), ""},
-		{"local/mine", "`{ pack = \"local/mine\", bare = true }`"},
+		{"local/mine", "`yolo config set 'packs[3]' '{ pack = \"local/mine\", bare = true }' --user`"},
+		{obj("git", "https://github.com/bob/tools"), "`yolo config set 'packs[3].bare' true --user`"},
 		{obj("pack", "local/mine", "namespace", "me"), ""},
 	} {
-		ref, err := ParsePackReference(tc.entry, sources, "/home/u/.config/yolo-jail/packs", "/home/u", "p[0]", nil)
+		ref, err := ParsePackReference(tc.entry, sources, "/home/u/.config/yolo-jail/packs", "/home/u", "config.packs[3]", nil)
 		if err != nil {
 			t.Fatalf("%v: %v", tc.entry, err)
 		}

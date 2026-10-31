@@ -5,7 +5,10 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // Object is the ordered-map shape used at the config boundary. packsrc accepts this
@@ -34,11 +37,58 @@ type SourceDefinition struct {
 
 // KeepNamesStep is the one command that delivers every pack of this source under its own names
 // (`bare = true`), for a message whose next step that is.
-func (d SourceDefinition) KeepNamesStep() string {
+func (d SourceDefinition) KeepNamesStep() string { return d.bareStep(true) }
+
+// AcceptNamesStep is the one command that keeps this source's default namespace and says so
+// (`bare = false`), which silences the converted-config warning.
+func (d SourceDefinition) AcceptNamesStep() string { return d.bareStep(false) }
+
+func (d SourceDefinition) bareStep(bare bool) string {
+	key := "pack_sources." + ConfigKey(d.Name)
 	if d.Shorthand {
-		return fmt.Sprintf("`yolo config set pack_sources.%s '{ path = %q, bare = true }' --user`", d.Name, d.Path)
+		return ConfigCommand("set", key, fmt.Sprintf("{ path = %s, bare = %t }", strconv.Quote(d.Path), bare))
 	}
-	return fmt.Sprintf("`yolo config set pack_sources.%s.bare true --user`", d.Name)
+	return ConfigCommand("set", key+".bare", strconv.FormatBool(bare))
+}
+
+// ConfigKey spells one key of a `yolo config set` path: as written when it is a plain word of
+// letters, digits, `_` and `-`, and quoted otherwise, so a key such as `skills.git` (which main's
+// migrator made from a repository URL) stays one component rather than two.
+func ConfigKey(k string) string {
+	plain := k != ""
+	for _, r := range k {
+		plain = plain && (r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '-')
+	}
+	if plain {
+		return k
+	}
+	return strconv.Quote(k)
+}
+
+// ConfigCommand is `yolo config <verb> <path> <value> --user`, shell-quoted and in backticks, for
+// a message to name as its next step.
+func ConfigCommand(verb, path, value string) string {
+	return "`" + shquote.Join([]string{"yolo", "config", verb, path, value, "--user"}) + "`"
+}
+
+// entryBareStep is the one command that sets `bare` on the `packs` entry origin names: the
+// entry's own key for a table, a table replacing a plain-string handle, or, for a handle not yet
+// in the config ("pack handle", `yolo pack add`'s check), the table to add instead.
+func entryBareStep(origin, handle string, table, bare bool) string {
+	entry := fmt.Sprintf("{ pack = %s, bare = %t }", strconv.Quote(handle), bare)
+	rest, ok := strings.CutPrefix(origin, "config.packs[")
+	if ok {
+		rest, ok = strings.CutSuffix(rest, "]")
+	}
+	index, err := strconv.Atoi(rest)
+	if !ok || err != nil || index < 0 {
+		return ConfigCommand("add", "packs", entry)
+	}
+	path := fmt.Sprintf("packs[%d]", index)
+	if table {
+		return ConfigCommand("set", path+".bare", strconv.FormatBool(bare))
+	}
+	return ConfigCommand("set", path, entry)
 }
 
 // PackReference is one pack named through the readable source vocabulary. Source is
@@ -69,6 +119,12 @@ type PackReference struct {
 	// source (no `bare`, no `namespace`) — the shape main's migrator wrote — and is the one step
 	// that keeps the pack's skills under their own names.
 	KeepNamesStep string
+	// AcceptNamesStep, set with KeepNamesStep, is the one step that keeps the default namespace
+	// and records the choice (`bare = false`).
+	AcceptNamesStep string
+	// BareStep is set whenever Namespace is: the one command that lists this entry bare, the
+	// remedy for two of its names that its namespace delivers alike (§3.5).
+	BareStep string
 }
 
 // ParseSourceDefinitions validates the raw pack_sources table without loading any

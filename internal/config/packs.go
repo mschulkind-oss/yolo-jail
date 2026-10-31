@@ -114,6 +114,9 @@ type PackEntry struct {
 	Landing        string `json:"landing,omitempty"`
 	// KeepNamesStep is packsrc.PackReference.KeepNamesStep: set when Namespace is the default one.
 	KeepNamesStep string `json:"keepNamesStep,omitempty"`
+	// AcceptNamesStep and BareStep are packsrc.PackReference's fields of these names.
+	AcceptNamesStep string `json:"acceptNamesStep,omitempty"`
+	BareStep        string `json:"bareStep,omitempty"`
 
 	// AllowDefaultRef carries the authored omitted-ref state into the resolver and the
 	// refresh adapter. It is never inferred from an empty ref in a legacy address.

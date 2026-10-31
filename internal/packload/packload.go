@@ -105,6 +105,10 @@ type Pack struct {
 	// nor its source, and is the one step that keeps the pack's skills under their own names
 	// (packsrc.PackReference.KeepNamesStep; DefaultNamespaceRenames).
 	KeepNamesStep string
+	// AcceptNamesStep is the step that keeps the default namespace and records the choice, set with
+	// KeepNamesStep; BareStep is the one command that lists this entry bare, set whenever Namespace
+	// is (packsrc.PackReference).
+	AcceptNamesStep, BareStep string
 	// Root is the directory its files live in. For an embedded pack this is the
 	// materialized copy, so every consumer sees a real path either way.
 	Root string
