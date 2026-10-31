@@ -53,7 +53,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
-	"github.com/mschulkind-oss/yolo-jail/internal/pluginpack"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
@@ -248,39 +247,29 @@ func retireHostLSPPlugin(path string, req hostskills.ComposeRequest, home string
 	return r, true
 }
 
-// lspPluginProbe is the layer lspPluginClaimant adds to a destination to ask who else claims the
-// name: a namespaced layer whose one wrapped plugin is called yolo-lsp, which claims exactly that
-// top-level name and nothing else. Its pack name can be no pack's: a configured pack's name never
-// holds a "/" (config's checkPackName), since it becomes a staging directory, and a shipped one is
-// its own directory's.
-const lspPluginProbe = "lsp_servers/" + jailcontent.LSPPluginDir
-
 // lspPluginClaimant names the pack whose layer in THIS composition puts an entry called yolo-lsp at
-// d's top level, "" for none: a flat skill of that name, the namespaced subtree of a pack called
-// yolo-lsp, or a wrapped plugin of that name.
+// d's top level, "" for none: a flat skill of that name, the namespaced subtree of a pack whose
+// namespace is yolo-lsp, or a wrapped plugin of that name.
 //
-// Asked of hostskills.Collisions with the plugin added as one more layer, because that is the one
-// authority on which top-level names a composition creates (layerClaims, which mirrors the
-// render's own deliveries). Read from the destination's LAYERS, not from the skills record or the
-// disk, because a dry run writes neither: the record names what an earlier --assert composed, so a
-// claim this composition makes for the first time is absent from it, and one the user just renamed
-// away is still in it. A real collision between two packs never reaches here — applyHostSkills
-// refuses it first — so at most one pack claims the name, and a destination with an unresolved
-// layer, which the render leaves alone, reports none.
+// Asked of hostskills.ClaimsAt, the one authority on which top-level names a composition creates
+// (layerClaims, which mirrors the render's own deliveries). It once asked hostskills.Collisions
+// with a probe layer added and told the probe's claim from a pack's by the probe's NAME, which
+// assumed no configured pack name holds a "/"; a readable-config pack is named by its source
+// handle (OQ-RC15), so `lsp_servers/yolo-lsp` is a name a user can write, and that pack's claim
+// read as the probe's. Read from the destination's LAYERS, not from the skills record or the disk,
+// because a dry run writes neither: the record names what an earlier --assert composed, so a claim
+// this composition makes for the first time is absent from it, and one the user just renamed away
+// is still in it. A real collision between two packs never reaches here — applyHostSkills refuses
+// it first — so at most one pack claims the name, and a destination with an unresolved layer,
+// which the render leaves alone, reports none.
 func lspPluginClaimant(d hostskills.Destination) string {
-	layers := append(append([]hostskills.Layer(nil), d.Layers...), hostskills.Layer{
-		Pack: lspPluginProbe, Tier: hostskills.TierNamespaced,
-		Plugins: []*pluginpack.Plugin{{Dir: jailcontent.LSPPluginDir}},
-	})
-	for _, c := range hostskills.Collisions([]hostskills.Destination{{Dir: d.Dir, Layers: layers}}) {
-		if c.Name != jailcontent.LSPPluginDir {
-			continue
+	for _, l := range d.Layers {
+		if l.Unresolved {
+			return ""
 		}
-		for _, cl := range c.Claims {
-			if cl.Pack != lspPluginProbe {
-				return cl.Pack
-			}
-		}
+	}
+	if claims := hostskills.ClaimsAt(d, jailcontent.LSPPluginDir); len(claims) > 0 {
+		return claims[0].Pack
 	}
 	return ""
 }

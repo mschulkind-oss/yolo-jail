@@ -24,7 +24,7 @@ func packStatusKey(args []string, out, errw io.Writer, color bool) int {
 		return 2
 	}
 	key := args[0]
-	if pack, name, ok := strings.Cut(key, "/"); !ok || pack == "" || name == "" {
+	if pack, name, ok := splitForkKey(key); !ok || pack == "" || name == "" {
 		fmt.Fprintf(errw, "yolo pack status: %q is not a <pack>/<name> key — name a fork or built tree as a "+
 			"launch's disclosure does (for example `yolo pack status pi-fork/pi`), or run `yolo pack status` "+
 			"with no argument for every pack\n", key)
@@ -59,11 +59,22 @@ func packStatusKey(args []string, out, errw io.Writer, color bool) int {
 	return rc
 }
 
+// splitForkKey splits a `<pack>/<name>` key (packload.Fork.Key) at its LAST "/": the name is a bin
+// or an extension name, which never holds one, while a readable-config pack's name is a source
+// handle that does (`yolo-packs/pi-fork/pi`, OQ-RC15).
+func splitForkKey(key string) (pack, name string, ok bool) {
+	i := strings.LastIndex(key, "/")
+	if i < 0 {
+		return "", "", false
+	}
+	return key[:i], key[i+1:], true
+}
+
 // packStatusKeyUnresolved reports a key whose pack the user configured but this process could not
 // resolve, or a selection whose closure or entries failed, with the reason and the next command.
 // said is false when neither applies, and the caller's own refusal stands.
 func packStatusKeyUnresolved(errw io.Writer, sel hostPackSet, key string) (rc int, said bool) {
-	pack, _, _ := strings.Cut(key, "/")
+	pack, _, _ := splitForkKey(key)
 	where := "fix what it names, then run `yolo pack status " + key + "` again"
 	if config.InJail() {
 		where = "this jail cannot read it; run `yolo pack status " + key + "` in a terminal on the host, " +
