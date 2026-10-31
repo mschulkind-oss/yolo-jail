@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -15,10 +16,14 @@ import (
 
 // ApplyOptions tunes Apply. The zero value is the real migration.
 type ApplyOptions struct {
-	// failAfter is a test seam: it runs after each write step, and an error aborts the migration
-	// there and restores every file.
-	failAfter func(step string) error
+	// StopAfter is a test seam for a kill: it runs after each commit step, numbered from 0, and
+	// true stops the migration there exactly as a kill would, journal and all.
+	StopAfter func(step int, name string) bool
 }
+
+// ErrInterrupted is Apply stopped part way by its test seam: the files are as a kill there would
+// leave them, and Resume finishes the moves.
+var ErrInterrupted = errors.New("the migration stopped part way")
 
 // ApplyResult is what Apply did.
 type ApplyResult struct {
@@ -35,19 +40,36 @@ type ApplyResult struct {
 // LinkMove is a user's symlink renamed by a conversion: From is the old name, To the new one.
 type LinkMove struct{ From, To string }
 
-// Apply writes a plan that proved equal. It locks every file it replaces the way `yolo config
-// set` does (the parent directory of each), refuses a file that
-// changed since the plan and any collision before the first write, keeps each original as
-// <name>.pre-migrate, reads the written files back through the launch's readers, and restores
-// every file if any step or that check fails. Records are respelled only after the files are in
-// place, and only where they still hold what the old files said.
+// Apply carries out a plan that proved equal and that the launch's config gate accepted (RC-D44).
+// It never rewrites an original's bytes and never restores one (RC-D45; config-migration.md, the commit
+// steps):
+//
+//  1. Under the lock `yolo config set` takes, it refuses a file that changed since the plan and
+//     any collision, then writes every converted file beside its destination under a hidden
+//     staged name, and adds the git ignore lines. A kill here leaves the old layout loading as
+//     before, and the next run removes the staged files.
+//  2. It writes the journal: the list of moves still to make, with the bytes each must carry.
+//  3. It makes the moves, every one a rename, a hard link or a symlink: the converted files no
+//     top-level file reads yet, then each respelled TOML file and each top-level file, then the
+//     originals nothing reads any more, each kept as <name>.pre-migrate. While the journal exists
+//     the launch and `yolo check` refuse, naming `yolo config migrate`, which finishes the moves
+//     (Resume): forward, never back.
+//  4. It removes the journal, reads the written files back through the launch's readers, and
+//     respells the records only yolo reads.
 func Apply(p *MigrationPlan, opts ApplyOptions) (*ApplyResult, error) {
 	if p == nil || !p.Equal {
 		return nil, errNotEqual
 	}
+	if p.Refused != nil {
+		return nil, p.Refused
+	}
 	res := &ApplyResult{}
 	if len(p.Targets) == 0 {
 		return res, nil
+	}
+	journal := journalPathFor(p.Graph.Request)
+	if _, err := os.Lstat(journal); err == nil {
+		return nil, fmt.Errorf("an earlier `yolo config migrate` stopped part way (%s), so nothing was changed; run `yolo config migrate` to finish it first", journal)
 	}
 	unlock, err := lockTargets(p.Targets)
 	if err != nil {
@@ -57,112 +79,138 @@ func Apply(p *MigrationPlan, opts ApplyOptions) (*ApplyResult, error) {
 	for _, t := range p.Targets {
 		now, err := os.ReadFile(t.Old)
 		if err != nil {
-			return nil, fmt.Errorf("read %s: %w; nothing was written", t.Old, err)
+			return nil, fmt.Errorf("read %s: %w; nothing was changed", t.Old, err)
 		}
 		if !bytes.Equal(now, t.File.Bytes) {
-			return nil, fmt.Errorf("%s changed since the migration was planned, so nothing was written; run `yolo config migrate` again", t.Old)
+			return nil, fmt.Errorf("%s changed since the migration was planned, so nothing was changed; run `yolo config migrate` again", t.Old)
 		}
 	}
 	if err := p.preflight(); err != nil {
 		return nil, err
 	}
 
-	var undo []func() error
-	restore := func(cause error) error {
-		var failed []error
-		for i := len(undo) - 1; i >= 0; i-- {
-			if err := undo[i](); err != nil {
-				failed = append(failed, err)
-			}
-		}
-		if len(failed) > 0 {
-			return fmt.Errorf("%w; restoring the original files also failed: %v. Each original is kept as <name>.pre-migrate; `mv` it back to its name", cause, errors.Join(failed...))
-		}
-		return fmt.Errorf("%w; every original file was restored and nothing else changed", cause)
-	}
-	step := func(name string) error {
-		if opts.failAfter != nil {
-			return opts.failAfter(name)
-		}
-		return nil
-	}
+	// Step 1: stage. Nothing a reader reads changes.
 	for _, t := range p.Targets {
 		info, err := os.Stat(t.Old)
 		if err != nil {
-			return nil, restore(err)
+			return nil, fmt.Errorf("read %s: %w; nothing was changed", t.Old, err)
 		}
-		mode := info.Mode().Perm()
-		if t.New != t.Old {
-			if err := createExclusive(t.New, t.Bytes, mode); err != nil {
-				return nil, restore(fmt.Errorf("write %s: %w", t.New, err))
-			}
-			newPath := t.New
-			undo = append(undo, func() error { return os.Remove(newPath) })
-			res.Written = append(res.Written, t.New)
-			if err := step("write " + t.New); err != nil {
-				return nil, restore(err)
-			}
-			if t.Link != nil {
-				if err := os.Symlink(t.Link.Target, t.Link.Path); err != nil {
-					return nil, restore(fmt.Errorf("link %s: %w", t.Link.Path, err))
-				}
-				linkPath := t.Link.Path
-				undo = append(undo, func() error { return os.Remove(linkPath) })
-				if err := step("link " + t.Link.Path); err != nil {
-					return nil, restore(err)
-				}
-			}
-			if err := renameNoReplace(t.Old, t.Backup); err != nil {
-				return nil, restore(fmt.Errorf("keep %s as %s: %w", t.Old, t.Backup, err))
-			}
-			oldPath, backup := t.Old, t.Backup
-			undo = append(undo, func() error { return renameNoReplace(backup, oldPath) })
-			res.Backups = append(res.Backups, t.Backup)
-			if err := step("backup " + t.Backup); err != nil {
-				return nil, restore(err)
-			}
-			// The old link now names the backup, so it moves to the new name rather than stay
-			// beside its twin (RC-D41).
-			if t.Link != nil {
-				if err := os.Remove(t.Link.Old); err != nil {
-					return nil, restore(fmt.Errorf("remove the old link %s: %w", t.Link.Old, err))
-				}
-				oldLink, text := t.Link.Old, t.Link.Text
-				undo = append(undo, func() error { return os.Symlink(text, oldLink) })
-				res.Links = append(res.Links, LinkMove{From: t.Link.Old, To: t.Link.Path})
-				if err := step("unlink " + t.Link.Old); err != nil {
-					return nil, restore(err)
-				}
-			}
-			continue
+		staged := stagedPath(t.New)
+		_ = os.Remove(staged) // one a run killed before its journal left
+		if err := createExclusive(staged, t.Bytes, info.Mode().Perm()); err != nil {
+			removeStaged(p.Targets)
+			return nil, fmt.Errorf("stage %s: %w; nothing was changed", t.New, err)
 		}
-		if err := createExclusive(t.Backup, t.File.Bytes, mode); err != nil {
-			return nil, restore(fmt.Errorf("keep %s as %s: %w", t.Old, t.Backup, err))
+	}
+	res.Ignores = applyIgnores(p.Ignores, p.Graph.Request.Workspace)
+
+	// Step 2: the journal.
+	j := &migrationJournal{Version: 1, Workspace: p.Graph.Request.Workspace, Steps: commitSteps(p.Targets)}
+	if err := j.write(journal); err != nil {
+		removeStaged(p.Targets)
+		return nil, fmt.Errorf("write the migration's journal %s: %w; nothing was changed", journal, err)
+	}
+
+	// Step 3: the moves.
+	for i, s := range j.Steps {
+		if err := s.do(); err != nil {
+			return nil, partWay(journal, s, err)
 		}
-		backup := t.Backup
-		undo = append(undo, func() error { return os.Remove(backup) })
-		res.Backups = append(res.Backups, t.Backup)
-		if err := writeAtomic(t.Old, t.Bytes, mode); err != nil {
-			return nil, restore(fmt.Errorf("write %s: %w", t.Old, err))
-		}
-		oldPath, before := t.Old, t.File.Bytes
-		undo = append(undo, func() error { return writeAtomic(oldPath, before, mode) })
-		res.Written = append(res.Written, t.Old)
-		if err := step("respell " + t.Old); err != nil {
-			return nil, restore(err)
+		if opts.StopAfter != nil && opts.StopAfter(i, s.String()) {
+			return nil, &PartWayError{Journal: journal, Step: s.String(), Err: ErrInterrupted}
 		}
 	}
 
+	// Step 4: done.
+	if err := os.Remove(journal); err != nil {
+		return nil, fmt.Errorf("converted, but the journal %s could not be removed (%w); delete it by hand", journal, err)
+	}
+	j.result(res)
 	after, err := readCanonical(p.Graph, newUserTop(p.Graph), p.Graph.Request.Workspace, nil, nil, "", false, planOptions{}, packload.Embedded())
 	if err != nil {
-		return nil, restore(fmt.Errorf("the written files do not read: %w", err))
+		return res, fmt.Errorf("converted: %s; originals kept as %s. But the written files do not read: %w. This is a yolo bug: please report it; to go back, move each original back to its name", strings.Join(res.Written, ", "), strings.Join(res.Backups, ", "), err)
 	}
 	if after.set != p.canonical {
-		return nil, restore(fmt.Errorf("the written files do not say what the plan proved"))
+		return res, fmt.Errorf("converted: %s; originals kept as %s. But the written files do not say what the plan proved. This is a yolo bug: please report it; to go back, move each original back to its name", strings.Join(res.Written, ", "), strings.Join(res.Backups, ", "))
 	}
 	res.Records = respellRecords(p.Records, p.Graph.Request.Workspace)
-	res.Ignores = applyIgnores(p.Ignores, p.Graph.Request.Workspace)
 	return res, nil
+}
+
+// PartWayError is a commit stopped part way: nothing was put back, the journal lists the moves
+// left, and `yolo config migrate` finishes them.
+type PartWayError struct {
+	Journal string
+	Step    string
+	Err     error
+}
+
+func (e *PartWayError) Error() string {
+	return fmt.Sprintf("the migration stopped part way, at %s: %v. Nothing was put back; your files are half "+
+		"converted, and the launch refuses until the migration is finished. Fix what the error names, then "+
+		"run `yolo config migrate` to finish the moves listed in %s", e.Step, e.Err, e.Journal)
+}
+
+func (e *PartWayError) Unwrap() error { return e.Err }
+
+// partWay is the error for a move that failed: nothing is put back, and the next run finishes.
+func partWay(journal string, s commitStep, err error) error {
+	return &PartWayError{Journal: journal, Step: s.String(), Err: err}
+}
+
+func removeStaged(targets []Target) {
+	for _, t := range targets {
+		_ = os.Remove(stagedPath(t.New))
+	}
+}
+
+// stagedPath is the hidden name a converted file waits under, beside its destination.
+func stagedPath(dest string) string {
+	return filepath.Join(filepath.Dir(dest), "."+filepath.Base(dest)+".migrate-staged")
+}
+
+// journalPathFor is where a migration of req keeps its journal: the user config directory when
+// it converts the user config, else the workspace's .yolo.
+func journalPathFor(req Request) string {
+	if req.UserConfigDir != "" {
+		return filepath.Join(req.UserConfigDir, config.MigrationJournalName)
+	}
+	return filepath.Join(req.Workspace, ".yolo", config.MigrationJournalName)
+}
+
+// isTop is a target a top-level selector reads by its name: the user config or a workspace
+// file, whose old and new names beside each other are refused.
+func isTop(t Target) bool { return t.File.Via == "" && !t.File.fragment }
+
+// commitSteps orders the moves so that the old layout keeps loading as long as it can: converted
+// files nothing reads yet first, then the files the readers start from, then the originals
+// nothing reads any more.
+func commitSteps(targets []Target) []commitStep {
+	var first, middle, last []commitStep
+	for _, t := range targets {
+		staged := stagedPath(t.New)
+		switch {
+		case t.New == t.Old:
+			middle = append(middle, commitStep{Kind: stepReplace, From: staged, To: t.Old, Backup: t.Backup,
+				Hash: hashOf(t.Bytes), OldHash: hashOf(t.File.Bytes)})
+		case isTop(t):
+			middle = append(middle, commitStep{Kind: stepPlace, From: staged, To: t.New, Hash: hashOf(t.Bytes)})
+			if t.Link != nil {
+				middle = append(middle,
+					commitStep{Kind: stepLink, To: t.Link.Path, Text: t.Link.Target},
+					commitStep{Kind: stepUnlink, To: t.Link.Old, Text: t.Link.Text})
+			}
+			middle = append(middle, commitStep{Kind: stepBackup, From: t.Old, To: t.Backup, Hash: hashOf(t.File.Bytes)})
+		default:
+			first = append(first, commitStep{Kind: stepPlace, From: staged, To: t.New, Hash: hashOf(t.Bytes)})
+			if t.Link != nil {
+				first = append(first, commitStep{Kind: stepLink, To: t.Link.Path, Text: t.Link.Target})
+				last = append(last, commitStep{Kind: stepUnlink, To: t.Link.Old, Text: t.Link.Text})
+			}
+			last = append(last, commitStep{Kind: stepBackup, From: t.Old, To: t.Backup, Hash: hashOf(t.File.Bytes)})
+		}
+	}
+	return append(append(first, middle...), last...)
 }
 
 func newUserTop(g *Graph) string {
@@ -286,32 +334,6 @@ func createExclusive(path string, data []byte, mode os.FileMode) error {
 		return err
 	}
 	return os.Link(tmpPath, path)
-}
-
-// writeAtomic replaces path with data through a temporary file in the same directory.
-func writeAtomic(path string, data []byte, mode os.FileMode) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".migrate-*")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Chmod(mode); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmpPath, path)
 }
 
 // renameNoReplace moves a file to a name that must not exist: a hard link, then the old name

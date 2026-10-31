@@ -201,6 +201,13 @@ func consumeReadableFormat(values *jsonx.OrderedMap, label, path string) error {
 }
 
 func readableSiblingCollisionError(files []string) error {
+	// The one collision yolo makes itself: a migration stopped between placing a converted file
+	// and moving its original aside. Finishing it is the step, never choosing by hand.
+	for _, file := range files {
+		if j := interruptedMigrationBeside(file); j != "" {
+			return configErr("config siblings %s exist. %s", strings.Join(files, ", "), InterruptedMigrationRefusal(j))
+		}
+	}
 	absolute := make([]string, len(files))
 	for i, file := range files {
 		if fullPath, err := filepath.Abs(file); err == nil {

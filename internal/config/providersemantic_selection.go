@@ -101,10 +101,37 @@ func activeProviderSelectionOf(v any) (ProfileSelection, bool) {
 	return s, ok
 }
 
-// selectsThroughActiveProvider reports whether cfg holds the readable selection key.
+// selectsThroughActiveProvider reports whether cfg's `providers` table is the readable declaration
+// table: cfg holds the readable selection key, or, selecting through neither key, one of its
+// providers spells a key only the readable table has (`model`, `variants`). A config that selects
+// nothing still declares those (RC-D32 writes an old profile there), and `-p` must find them
+// (RC-D43); a legacy table cannot spell them, so a legacy config keeps its old namespace.
 func selectsThroughActiveProvider(cfg *jsonx.OrderedMap) bool {
-	_, present := cfg.Get(ActiveProviderKey)
-	return present
+	if _, present := cfg.Get(ActiveProviderKey); present {
+		return true
+	}
+	if _, legacy := cfg.Get(ProfileKey); legacy {
+		return false
+	}
+	raw, _ := cfg.Get(providersKey)
+	table, ok := raw.(*jsonx.OrderedMap)
+	if !ok {
+		return false
+	}
+	readable := readableOnlyProviderKeys()
+	for _, name := range table.Keys() {
+		v, _ := table.Get(name)
+		entry, ok := v.(*jsonx.OrderedMap)
+		if !ok {
+			continue
+		}
+		for _, k := range entry.Keys() {
+			if readable[k] {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // selectsNative reports whether set is the reserved selection "native": the agent left to its own

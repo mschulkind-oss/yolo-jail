@@ -204,7 +204,7 @@ func TestPlanKeepsEveryCommentInOrder(t *testing.T) {
 	}
 }
 
-func TestApplyWritesPreMigrateAndRestoresOnFailure(t *testing.T) {
+func TestApplyKeepsEachOriginalAsPreMigrate(t *testing.T) {
 	env(t)
 	ws := realDir(t)
 	top := "{\n  // top\n  \"packages\": [\"just\"],\n  \"include_if_found\": [\"extra.jsonc\"]\n}\n"
@@ -213,29 +213,6 @@ func TestApplyWritesPreMigrateAndRestoresOnFailure(t *testing.T) {
 	write(t, filepath.Join(ws, "extra.jsonc"), extra)
 
 	p := plan(t, Request{Workspace: ws})
-	steps := 0
-	_, err := Apply(p, ApplyOptions{failAfter: func(step string) error {
-		steps++
-		if steps == 3 {
-			return errors.New("injected failure at " + step)
-		}
-		return nil
-	}})
-	if err == nil || !strings.Contains(err.Error(), "injected failure") || !strings.Contains(err.Error(), "restored") {
-		t.Fatalf("Apply error = %v", err)
-	}
-	for path, want := range map[string]string{"yolo-jail.jsonc": top, "extra.jsonc": extra} {
-		if data, err := os.ReadFile(filepath.Join(ws, path)); err != nil || string(data) != want {
-			t.Fatalf("%s not restored: %q %v", path, data, err)
-		}
-	}
-	for _, path := range []string{"yolo-jail.toml", "extra.toml", "yolo-jail.jsonc.pre-migrate", "extra.jsonc.pre-migrate"} {
-		if exists(filepath.Join(ws, path)) {
-			t.Fatalf("%s left behind after a failed migration", path)
-		}
-	}
-
-	p = plan(t, Request{Workspace: ws})
 	res, err := Apply(p, ApplyOptions{})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -454,40 +431,5 @@ func TestPlanRespellsTOMLParentByteForByte(t *testing.T) {
 	got := string(target(t, p, filepath.Join(dir, "config.toml")).Bytes)
 	if got != strings.Replace(parent, `"old.jsonc"`, `"old.toml"`, 1) {
 		t.Fatalf("respelled parent:\n%s", got)
-	}
-}
-
-// A failure after the old link is removed puts it back, with its own text, and removes its twin.
-func TestApplyRestoresARenamedLinkOnFailure(t *testing.T) {
-	home := env(t)
-	dir := filepath.Join(home, ".config", "yolo-jail")
-	dots := filepath.Join(home, "dotfiles", "yolo")
-	write(t, filepath.Join(dots, "config.jsonc"), `{"packs": ["claude"]}`+"\n")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	const text = "../../dotfiles/yolo/config.jsonc"
-	if err := os.Symlink(text, filepath.Join(dir, "config.jsonc")); err != nil {
-		t.Fatal(err)
-	}
-	p := plan(t, Request{UserConfigDir: dir})
-	var failedAt string
-	_, err := Apply(p, ApplyOptions{failAfter: func(step string) error {
-		if strings.HasPrefix(step, "unlink ") {
-			failedAt = step
-			return errors.New("injected failure at " + step)
-		}
-		return nil
-	}})
-	if failedAt == "" || err == nil || !strings.Contains(err.Error(), "restored") {
-		t.Fatalf("Apply error = %v (failed at %q)", err, failedAt)
-	}
-	if got, err := os.Readlink(filepath.Join(dir, "config.jsonc")); err != nil || got != text {
-		t.Fatalf("old link = %q (%v), want %q back", got, err, text)
-	}
-	for _, path := range []string{filepath.Join(dir, "config.toml"), filepath.Join(dots, "config.toml"), filepath.Join(dots, "config.jsonc.pre-migrate")} {
-		if _, err := os.Lstat(path); !os.IsNotExist(err) {
-			t.Fatalf("%s left behind after a failed migration", path)
-		}
 	}
 }

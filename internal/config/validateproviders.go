@@ -66,6 +66,10 @@ func validateProviderEntries(config *jsonx.OrderedMap, errs, warns *[]string) {
 			continue
 		}
 		cfg = splitReadableModels(name, cfg, errs)
+		// The readable provider-level keys (a starting `model`, `alias`, `via`, `variants`) are
+		// not unknown: `yolo config migrate` writes them for an old profile (RC-D32) and
+		// `yolo config set` accepts them, so the launch must too (RC-D43).
+		cfg = withoutKeys(cfg, readableOnlyProviderKeys())
 		reportUnknownKeys(cfg, knownProviderKeys, path, errs)
 		if base, has := cfg.Get("base_url"); has && base != nil {
 			// REMOVED (protocol-resolution.md), and this is the entry's ONLY message
@@ -748,4 +752,26 @@ func validateProviderOptions(v any, path string, errs *[]string) {
 				"this config)")
 		}
 	}
+}
+
+// withoutKeys is m without the named keys, m itself when it holds none of them.
+func withoutKeys(m *jsonx.OrderedMap, drop map[string]bool) *jsonx.OrderedMap {
+	found := false
+	for _, k := range m.Keys() {
+		if drop[k] {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return m
+	}
+	out := jsonx.NewOrderedMap()
+	for _, k := range m.Keys() {
+		if !drop[k] {
+			v, _ := m.Get(k)
+			out.Set(k, v)
+		}
+	}
+	return out
 }

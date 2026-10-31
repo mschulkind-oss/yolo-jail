@@ -17,6 +17,9 @@ type userView struct {
 	profiles *jsonx.OrderedMap
 	// enabled is each loophole's merged `enabled` value, when one file wrote it.
 	enabled map[string]any
+	// sources names each pack source the merged `packs` list needs (sourceNames), so every file
+	// that names one directory writes the same source.
+	sources map[string]string
 }
 
 func newUserView(user *jsonx.OrderedMap) *userView {
@@ -26,6 +29,7 @@ func newUserView(user *jsonx.OrderedMap) *userView {
 	}
 	if list, ok := user.Get("packs"); ok {
 		if items, ok := list.([]any); ok {
+			v.sources = sourceNames(items)
 			for _, item := range items {
 				if name, ok := item.(string); ok {
 					v.packs[name] = true

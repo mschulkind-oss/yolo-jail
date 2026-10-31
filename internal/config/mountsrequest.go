@@ -120,6 +120,9 @@ func withReadableScopeKeys(known map[string]struct{}) map[string]struct{} {
 	out["allow"] = struct{}{}
 	out["requests"] = struct{}{}
 	out["active_provider"] = struct{}{}
+	// `pack_sources` names the trees a `<source>/<pack>` handle reads (OQ-RC15), and the pack
+	// reader judges it; `yolo config migrate` writes it for an old path in `packs` (RC-D43).
+	out["pack_sources"] = struct{}{}
 	return out
 }
 

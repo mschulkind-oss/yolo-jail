@@ -106,6 +106,9 @@ type MigrationPlan struct {
 	Ignores []Ignore
 	// DerivedVendors are the models whose `vendor` the proof compared as derived (MF-D5).
 	DerivedVendors []DerivedVendor
+	// Refused is the launch config gate's refusal of the converted files (RC-D44); Apply
+	// refuses a plan that holds one.
+	Refused error
 
 	canonical canonicalSet
 }
@@ -335,6 +338,13 @@ func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 		return p, &InequalityError{Plan: p}
 	}
 	p.Ignores = planIgnores(g, p.Targets)
+	// The equality proof lowers both sides the same way, so it cannot see a spelling the readable
+	// reader refuses: run the launch's own config gate over the converted files before any
+	// original is touched (RC-D44).
+	if err := p.gate(); err != nil {
+		p.Refused = err
+		return p, err
+	}
 	return p, nil
 }
 

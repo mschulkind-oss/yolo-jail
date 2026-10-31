@@ -167,6 +167,13 @@ func lower(old *jsonx.OrderedMap, ctx loweringContext, file string) lowered {
 				profiles, hasProfiles = value, true
 				continue
 			}
+		case "packs":
+			if ctx.userScoped() {
+				lowerPacks(value, ctx, place, skip, func(path []string, reason string) {
+					out.skipped = append(out.skipped, NotConverted{File: file, Path: dotted(path), Reason: reason})
+				})
+				continue
+			}
 		case "packages", "mise_tools", "gpu", "resources":
 			target, ok := renameReplacement(key)
 			if !ok || !place(target, value, path) {

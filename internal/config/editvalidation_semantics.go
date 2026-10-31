@@ -143,16 +143,7 @@ func legacyProviderValidationProjection(config *jsonx.OrderedMap) *jsonx.Ordered
 	for _, name := range decoded.Disabled {
 		providers.Delete(name)
 	}
-	canonicalOnly := map[string]bool{}
-	for _, key := range ReadableSchemaKeys() {
-		parts := strings.Split(key.Path, ".")
-		if len(parts) < 3 || parts[0] != providersKey || parts[1] != "*" {
-			continue
-		}
-		if _, legacyKey := knownProviderKeys[parts[2]]; !legacyKey {
-			canonicalOnly[parts[2]] = true
-		}
-	}
+	canonicalOnly := readableOnlyProviderKeys()
 	for _, name := range providers.Keys() {
 		raw, _ := providers.Get(name)
 		entry, ok := asMap(raw)
@@ -176,4 +167,23 @@ func legacyProviderValidationProjection(config *jsonx.OrderedMap) *jsonx.Ordered
 	}
 	projected.Set(providersKey, providers)
 	return projected
+}
+
+// readableOnlyProviderKeys are the provider-level keys only the readable vocabulary spells (its
+// schema's providers.*.<key> rows that the legacy knownProviderKeys lacks): a provider's starting
+// `model`, `alias`, `via`, `variants` and `every_model` (config-user.md §5). The legacy shape check
+// reads an entry without them; their shapes are the readable schema's and the provider
+// declaration decoder's to check.
+func readableOnlyProviderKeys() map[string]bool {
+	out := map[string]bool{}
+	for _, key := range ReadableSchemaKeys() {
+		parts := strings.Split(key.Path, ".")
+		if len(parts) < 3 || parts[0] != providersKey || parts[1] != "*" {
+			continue
+		}
+		if _, legacyKey := knownProviderKeys[parts[2]]; !legacyKey {
+			out[parts[2]] = true
+		}
+	}
+	return out
 }

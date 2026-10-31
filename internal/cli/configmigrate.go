@@ -35,9 +35,15 @@ every file they include) into their TOML twins, once. On the host it converts th
 and this workspace's files; in a jail, only this workspace's files.
 
 It proves the converted files say exactly what the old ones say (the effective config before
-and after, compared as canonical JSON) and writes nothing otherwise, printing each difference.
-Each original is kept as <name>.pre-migrate, and the records only yolo reads (approval records,
-.yolo/config-boot.json) are respelled so the next launch asks nothing new.
+and after, compared as canonical JSON), and that the next launch accepts them (its own config
+checks, run over the converted files staged off to the side). Otherwise it changes nothing and
+prints why. Only then does it move the converted files into place, by renames alone: each
+original is kept, byte for byte, as <name>.pre-migrate, and the records only yolo reads
+(approval records, .yolo/config-boot.json) are respelled so the next launch asks nothing new.
+If it is killed part way, the launch says so, and running it again finishes the moves.
+
+Only the files the config reaches are converted: a --user-layer file, or any file no include
+names, is left as it is.
 
 Convert only once every machine that shares these files runs a yolo that reads TOML: an older
 yolo finds no config.jsonc and starts with no packs.
@@ -88,6 +94,21 @@ func configMigrate(args []string, in io.Reader, interactive bool, out, errw io.W
 		fmt.Fprintln(errw, "In a jail only this workspace's config files migrate; the user config is the host's. "+
 			"Run `yolo config migrate` on the host to convert it.")
 	}
+	// A migration a kill or a failed move stopped part way is finished first, forward, never back
+	// (config-migration.md, the commit steps).
+	if journal := configmigrate.Interrupted(req); journal != "" {
+		if dryRun {
+			fmt.Fprintf(errw, "yolo config migrate: an earlier migration stopped part way (%s); run `yolo config migrate` without --dry-run to finish it. Nothing was changed.\n", journal)
+			return 1
+		}
+		res, err := configmigrate.Resume(journal)
+		if err != nil {
+			fmt.Fprintf(errw, "yolo config migrate: %v\n", err)
+			return 1
+		}
+		fmt.Fprintf(out, "Finished the migration that stopped part way. Converted: %s; originals kept as %s.\n",
+			strings.Join(shownPaths(workspace, res.Written), ", "), strings.Join(shownPaths(workspace, res.Backups), ", "))
+	}
 	graph, err := configmigrate.Discover(req)
 	if err != nil {
 		fmt.Fprintf(errw, "yolo config migrate: %v\n", err)
@@ -130,7 +151,7 @@ func configMigrate(args []string, in io.Reader, interactive bool, out, errw io.W
 		return 1
 	}
 	// Every change is named here, so the closing line can say nothing else changed (RC-D34).
-	fmt.Fprintf(out, "Written: %s.\n", strings.Join(result.Written, ", "))
+	fmt.Fprintf(out, "Converted: %s.\n", strings.Join(result.Written, ", "))
 	for _, l := range result.Links {
 		shown := shownPaths(workspace, []string{l.From, l.To})
 		fmt.Fprintf(out, "Renamed the symlink %s to %s; if a dotfiles manager made it, you may need to update that too.\n", shown[0], shown[1])

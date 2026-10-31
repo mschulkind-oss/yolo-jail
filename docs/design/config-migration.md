@@ -61,7 +61,7 @@ Not found here (listed in config.jsonc): ~/.dotfiles/tag-personal/config/yolo-ja
 Effective config before and after: identical (checked as canonical JSON, 2,447 bytes).
 Records only yolo reads, respelled in place: 3 approval records, 2 boot baselines.
 Write 4 files, keeping each original as <name>.pre-migrate? [y/N] y
-Written: ~/.config/yolo-jail/config.toml, ~/.config/yolo-jail/overrides.toml, ~/.dotfiles/tag-work/config/yolo-jail/work.toml, ~/code/yolo-jail/yolo-jail.toml.
+Converted: ~/.config/yolo-jail/config.toml, ~/.config/yolo-jail/overrides.toml, ~/.dotfiles/tag-work/config/yolo-jail/work.toml, ~/code/yolo-jail/yolo-jail.toml.
 Kept the originals as ~/.config/yolo-jail/config.jsonc.pre-migrate, ~/.config/yolo-jail/overrides.jsonc.pre-migrate, ~/.dotfiles/tag-work/config/yolo-jail/work.jsonc.pre-migrate, yolo-jail.jsonc.pre-migrate; delete them once the new files work for you.
 Records only yolo reads, respelled in place: 3 approval records, 2 boot baselines.
 Nothing else changed. Next: `yolo check`.
@@ -204,6 +204,42 @@ Upgrade with `yolo update`, or `just install` from a checkout. Nothing was start
    prompts once, which the output says.
 6. **Runs once, on request.** The launch offers it; nothing runs it unasked. On the host for the
    user files; in a jail only for the project's.
+7. **Proves the next launch accepts the converted files before it touches anything**
+   ([RC-D44](readable-config.md#RC-D44)). It stages the converted set off to the side, reads it
+   the way a launch would read the layout after migration, with all scopes together, and runs the
+   launch's config checks over it. Any refusal the old files do not already meet refuses the
+   migration, which then says *nothing was changed*, lists the problems and gives the next step.
+8. **Converts only what the config reaches** ([RC-D46](readable-config.md#RC-D46)). The owner's
+   ruling (2026-10-31): *"not included. not touched. we only convert included stuff."* A
+   `--user-layer` file, and any file no include names, is left byte for byte as it is, and a JSONC
+   layer keeps loading on top of a TOML user config.
+
+### The commit steps
+
+The owner's ruling (2026-10-31, [RC-D45](readable-config.md#RC-D45)): *"I don't want the converter
+to just restore the originals, I want it to never touch them. When we're gonna touch them, we
+should know it's gonna work, because it could get killed in the middle of rolling back."* So
+nothing is ever restored, and no original's bytes are rewritten. Each step below names the state a
+kill right after it leaves. The **journal** is `.config-migrate-journal.json` in the user config
+directory, or in the workspace's `.yolo` when only the workspace converts. It lists the remaining
+moves and the hash of the bytes each one carries.
+
+| Step | What it does | A kill after it leaves |
+| :--- | :--- | :--- |
+| 1. Check | Takes the directory locks, refuses a file that changed since the plan, and refuses a name already taken | Nothing changed |
+| 2. Stage | Writes each converted file beside its destination as `.<name>.migrate-staged`, and adds the git ignore lines | The old layout, loading exactly as before; the next run replaces the staged files |
+| 3. Journal | Writes the journal | The old layout plus the journal: the launch and `yolo check` refuse, naming `yolo config migrate` |
+| 4. Included files | Moves each converted file that only an include reads to its name, and makes its symlink twin | The old layout plus files nothing reads yet; refused as in step 3 |
+| 5. Top-level files | Respells each TOML parent: a hard link keeps the original as `<name>.pre-migrate`, then a rename puts the staged file over the name. Places each `config.toml` and `yolo-jail.toml`, then moves its original aside or removes its old symlink | Part old, part new. Between placing a top-level file and moving its original aside, the reader meets both names, and its sibling refusal names the interrupted migration rather than asking you to choose one |
+| 6. Originals | Moves each original that nothing reads any more to `<name>.pre-migrate`, and removes its old symlink | The new layout plus the journal; refused as in step 3 |
+| 7. Done | Removes the journal, reads the written files back the way a launch reads them, and respells the records only yolo reads | The new layout, loading exactly as after; a record left unrespelled asks once at the next launch |
+
+**The next run finishes forward.** `yolo config migrate` finds the journal and makes each move
+again: a move already made is found made, and one cut off midway (both names present after a hard
+link) is completed. It never moves a file back. If a file changed since the plan, it refuses and
+names that file, and the journal stays. A step that fails in a live run (for example, a full disk)
+leaves the same state as a kill, says *"the migration stopped part way … Nothing was put back"*,
+and names the same command. A finished run says *"Converted: …"* and *"Kept the originals as …"*.
 
 Approved 2026-10-25 ([OQ-RC18](readable-config.md#decision-ledger)): *"the equality check is
 what makes the folds safe, and a conversion that leaves the shrinking for later leaves the

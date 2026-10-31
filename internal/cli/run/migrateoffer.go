@@ -142,6 +142,11 @@ func (o *Options) offerConfigMigration() bool {
 	res, err := configmigrate.Apply(plan, configmigrate.ApplyOptions{})
 	if err != nil {
 		fmt.Fprintf(o.Stderr, "%v\n", err)
+		var partWay *configmigrate.PartWayError
+		if errors.As(err, &partWay) {
+			pr.print("[red]The conversion stopped part way.[/red] Nothing was put back. Run [green]yolo config migrate[/green] to finish it.")
+			return false
+		}
 		pr.print("[red]Couldn't write the converted files.[/red] Nothing was changed. Run the same command again and answer [bold]n[/bold] to launch with your current files.")
 		return false
 	}

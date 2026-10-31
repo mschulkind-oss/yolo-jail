@@ -1255,11 +1255,11 @@ func BackgroundAdvanceDirUnder(home string) string {
 
 // UserConfigPath returns $HOME/.config/yolo-jail/config.jsonc (or config.json if config.jsonc is absent).
 func UserConfigPath() string {
-	p := filepath.Join(home(), userConfigSuffix)
+	p := filepath.Join(userConfigDir(), UserConfigLegacyJSONCName)
 	if _, err := os.Stat(p); err == nil {
 		return p
 	}
-	jsonP := filepath.Join(home(), ".config", "yolo-jail", UserConfigLegacyJSONName)
+	jsonP := filepath.Join(userConfigDir(), UserConfigLegacyJSONName)
 	if _, err := os.Stat(jsonP); err == nil {
 		return jsonP
 	}
@@ -1272,7 +1272,7 @@ func UserConfigPath() string {
 // names and stays the legacy reader's path; a user-facing line uses this. On a TOML-beside-
 // legacy collision, which the reader refuses, it answers the TOML file.
 func UserConfigDisplayPath() string {
-	dir := filepath.Join(home(), ".config", "yolo-jail")
+	dir := userConfigDir()
 	for _, n := range []string{UserConfigTOMLName, UserConfigLegacyJSONCName, UserConfigLegacyJSONName} {
 		if _, err := os.Stat(filepath.Join(dir, n)); err == nil {
 			return filepath.Join(dir, n)
