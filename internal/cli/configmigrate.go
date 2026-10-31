@@ -20,10 +20,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/configmigrate"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
@@ -167,6 +169,11 @@ func configMigrate(args []string, in io.Reader, interactive bool, out, errw io.W
 		fmt.Fprintf(out, "Kept the %s as %s; delete %s once the new files work for you.\n",
 			plural(len(result.Backups), "original", "originals"), strings.Join(shownPaths(workspace, result.Backups), ", "),
 			plural(len(result.Backups), "it", "them"))
+		if keptUserBackup(result.Backups) {
+			fmt.Fprintln(out, "While the user config's .pre-migrate copy is kept, the launch, `yolo check` and "+
+				"`yolo host apply` report any pack whose skill names, files landing or /ctx directory a "+
+				"default namespace changes (docs/design/pack-naming.md §7); once it is deleted, they no longer do.")
+		}
 	}
 	if s := configmigrate.Respelled(result.Records); s != "" {
 		fmt.Fprintf(out, "Records only yolo reads, respelled in place: %s.\n", s)
@@ -182,6 +189,18 @@ func configMigrate(args []string, in io.Reader, interactive bool, out, errw io.W
 	}
 	fmt.Fprintln(out, "Nothing else changed. Next: `yolo check`.")
 	return 0
+}
+
+// keptUserBackup reports whether one of backups is the user config's .pre-migrate copy, the file
+// whose presence packload.ConvertedConfigIn reads as "this config was converted".
+func keptUserBackup(backups []string) bool {
+	userDir := filepath.Dir(paths.UserConfigPath())
+	for _, b := range backups {
+		if filepath.Dir(b) == userDir && slices.Contains(packload.ConvertedConfigBackups, filepath.Base(b)) {
+			return true
+		}
+	}
+	return false
 }
 
 // printPackRecords names each record of a renamed pack that moved to the pack's new name.

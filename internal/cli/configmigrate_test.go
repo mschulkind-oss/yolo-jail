@@ -94,6 +94,12 @@ func TestConfigMigrateConvertsUserAndProjectOnTheHost(t *testing.T) {
 	if !strings.Contains(out, "Next: `yolo check`") {
 		t.Errorf("no next step:\n%s", out)
 	}
+	// The converted-config warning lasts only as long as the user config's backup, and the
+	// migration says so (pack-naming second review, minor 1).
+	if !strings.Contains(out, "While the user config's .pre-migrate copy is kept") ||
+		!strings.Contains(out, "once it is deleted, they no longer do") {
+		t.Errorf("the migration does not say the rename report lasts only while the backup is kept:\n%s", out)
+	}
 }
 
 // The verb says before writing that a local file git ignored under its old name goes into the

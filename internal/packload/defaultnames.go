@@ -33,9 +33,10 @@ func ConvertedConfigIn(dir string) bool {
 }
 
 // DefaultNamespaceRenames is one warning per selected pack whose DEFAULT namespace (one neither
-// its entry nor its source chose: Pack.KeepNamesStep) renames a skill it ships, naming every
-// renamed skill old → new and the one step that keeps the old names. Nil unless converted: a config
-// written since pack naming chose its names knowingly.
+// its entry nor its source chose: Pack.KeepNamesStep) renames a skill it ships or moves its files
+// landing or /ctx directory, naming each move old → new, the one step that keeps the old names and
+// the one that keeps the new ones. Nil unless converted: a config written since pack naming chose
+// its names knowingly.
 func DefaultNamespaceRenames(packs []*Pack, converted bool) []string {
 	if !converted {
 		return nil
@@ -45,19 +46,38 @@ func DefaultNamespaceRenames(packs []*Pack, converted bool) []string {
 		if p == nil || p.Namespace == "" || p.KeepNamesStep == "" || p.Decl == nil {
 			continue
 		}
-		var renamed []string
+		var moved []string
 		for _, name := range SkillNames(p) {
 			if to := packname.Delivered(p.Namespace, name); to != name {
-				renamed = append(renamed, name+" → "+to)
+				moved = append(moved, "skill "+name+" → "+to)
 			}
 		}
-		if len(renamed) == 0 {
+		// Bare, the pack landed under its own name and its /ctx grants under its staged
+		// directory (landingName and CtxName with no Landing); now both are its Landing.
+		files, ctx := false, false
+		for _, c := range p.Decl.Contributions() {
+			files = files || c.Kind == packdecl.KindFiles
+			ctx = ctx || c.Kind == packdecl.KindReadsHost
+		}
+		bare := *p
+		bare.Landing = ""
+		if from := bare.landingName(); files && p.Landing != "" && from != p.Landing {
+			moved = append(moved, "files landing "+from+" → "+p.Landing)
+		}
+		if from := bare.CtxName(); ctx && p.Landing != "" && from != p.Landing {
+			moved = append(moved, "/ctx/host-"+from+"/ → /ctx/host-"+p.Landing+"/")
+		}
+		if len(moved) == 0 {
 			continue
 		}
-		out = append(out, fmt.Sprintf("pack %s's skills are now delivered in the namespace %q, which "+
-			"its config entry and source did not choose (a config converted before pack naming): %s. "+
-			"Keep the old names with %s; or write `bare = false` there to keep the new ones and "+
-			"silence this", p.Name, p.Namespace, strings.Join(renamed, ", "), p.KeepNamesStep))
+		accept := p.AcceptNamesStep
+		if accept == "" {
+			accept = "`bare = false` on that entry or source"
+		}
+		out = append(out, fmt.Sprintf("pack %s is now named in the namespace %q, which its config entry "+
+			"and source did not choose (a config converted before pack naming): %s. Keep the old names "+
+			"with %s; or keep the new ones and silence this with %s. Either way, then run `yolo check`",
+			p.Name, p.Namespace, strings.Join(moved, ", "), p.KeepNamesStep, accept))
 	}
 	return out
 }
