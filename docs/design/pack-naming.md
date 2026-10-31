@@ -3,7 +3,7 @@ title: "Pack naming: what config, records and agents each call a pack"
 date: 2026-10-31
 status: accepted
 stage: DECIDED
-next: "Build the identity-keyed records (§3.2, PN-D10) with `yolo pack source rename` (§3.6), and shipped_skill_prefix (PN-D13); everything else is built"
+next: "Everything is built; graduate the design into docs/reference/pack-system.md"
 tags: [packs, naming, skills, plugins, config, records, migration, design]
 summary: "A pack has a handle (config and yolo's output), an identity (what records key on) and a namespace (what agents see). A namespace is a word the user chose or accepted, and every agent-facing name is that word plus the skill, or the bare skill for shipped packs and entries the user marks bare. Names never depend on what else is selected: a clash is refused, never resolved by renaming."
 ---
@@ -20,7 +20,7 @@ summary: "A pack has a handle (config and yolo's output), an identity (what reco
 qualifying names only during a clash made one pack's arrival rename another's skills. Both are
 ruled out ([PN-D3](#PN-D3), [PN-D4](#PN-D4)).
 
-**Start at [§3](#3-the-design).** Every question is ruled. Built: namespaces, `bare`, delivered names, the clash refusals and the migration; not yet: the identity-keyed records with the rename verb ([PN-D10](#PN-D10)), and `shipped_skill_prefix` ([PN-D13](#PN-D13)).
+**Start at [§3](#3-the-design).** Every question is ruled. Everything is built: namespaces, `bare`, delivered names, the clash refusals, the migration, the records that follow a pack's identity with `yolo pack source rename` ([PN-D10](#PN-D10), [PN-D15](#PN-D15)), and `shipped_skill_prefix` ([PN-D13](#PN-D13)).
 
 **Reads with:** [`config-user.md` §4](config-user.md#4-naming-a-pack-that-is-not-shipped) (the
 handle grammar, [OQ-RC15](readable-config.md#decision-ledger)),
@@ -120,6 +120,19 @@ records, build receipts, host program records, host-skills manifest owners, the 
 display. CLI arguments take handles and resolve them first. Renaming a source moves no state;
 moving a pack's directory or repository starts its pins and receipts over once, and the launch
 says so ([PN-D10](#PN-D10)).
+
+**As built** ([PN-D15](#PN-D15)): the records keep their handle keys, and an **identity index**
+*(coined here)*, `pack-identities.json` beside the user config, maps each identity to the handle
+its records are under. The first read of a selection — a launch's or `yolo host apply`'s pack
+refresh, `yolo pack install`/`update`, and `yolo pack source rename` — compares the two and moves
+records with the same idempotent moves the migration uses: a renamed handle's records follow it,
+and a moved pack's earlier records are set aside under a handle no config can write
+(`~parked/<hash>`) and come back if that identity is selected again. An identity first seen
+adopts the records under its handle, which is the migration of every record written before the
+index; a pack renamed by hand before then is found by the address its pin was locked for. An
+omitted-ref git pack whose handle changed reads its pin by that address until the records move,
+so a rename never re-pins or updates it. Shipped packs and read-only verbs (`yolo check`,
+`yolo pack status`) move nothing; nothing moves inside a jail.
 
 The staged tree directory stays the escaped handle: nobody reads it, and the escape is injective.
 
@@ -242,13 +255,13 @@ content under one name is not a clash ([`compose.go`](../../internal/hostskills/
 
 ### 3.6 Renaming
 
-- **A source**: today, a hand edit of the `[pack_sources]` key and every handle that uses it,
-  then `yolo check`; a handle left pointing at the old key is refused naming that step. Until
-  the records key on the identity, a renamed pack re-pins once, as a moved one does.
-  `yolo pack source rename OLD NEW` *(proposed here, not built)* will do the same in one journaled,
-  confirmed edit that also moves every record keyed on the old handle, and lists every
-  agent-facing name that changes, since the source key is the namespace. It ships with the
-  identity-keyed records ([PN-D10](#PN-D10)), after which no record moves at all.
+- **A source**: `yolo pack source rename OLD NEW` rewrites the `[pack_sources]` key, every
+  handle that uses it and every pack-keyed table (`[allow."OLD/pack"]`) in one confirmed edit,
+  lists every agent-facing name that changes (the source key is the namespace), re-reads and
+  re-plans the file after the confirmation and refuses if it changed, then moves each pack's
+  records to its new handle. It fetches nothing and updates no pin, and accepts a git source
+  without `ref`. A hand edit of the key and its handles works too: the next launch or
+  `yolo pack install` finds each pack's records by its identity ([PN-D15](#PN-D15)).
 - **A pack listed on its own**: set or change its `namespace`.
 - **A pack's own name, or a skill's**: the author's words. A user who wants different ones forks the
   pack.
@@ -263,7 +276,9 @@ skill's description say where it came from. Shipped skills carry no marker by de
 config, and every skill yolo ships, built-in skills included, is delivered as
 `yolo-<skill>`. The prefix is the user's word, set once, and depends on nothing selected; a
 delivered name it produces is checked against every other like any name
-([§3.5](#35-clashes)).
+([§3.5](#35-clashes)). The briefing and the built-in skills' references to one another name the
+delivered skills, and a pack's skill still overrides a built-in one as on main, by either name;
+yolo's generated `jail-mechanics` still overrides a pack's at the name it is delivered under.
 
 ### 3.8 Against the requirements
 
@@ -333,11 +348,10 @@ only while that backup is kept, and the migrator says so when it writes one
 written. A `files` landing or namespaced subtree
 written under an escaped or nested name is archived as composition residue at the next apply.
 
-**Records.** Every name-keyed record is re-keyed to the identity
-once, inside the journaled, roll-forward migration [RC-D47](readable-config.md#RC-D47) uses, at the
-first launch or `yolo host apply` of a build that has this design. A record whose pack is not
-selected keeps its key and is re-keyed if the pack returns. A legacy JSONC config is re-keyed the
-same way.
+**Records.** The first launch, `yolo host apply` or `yolo pack install` of a build with the
+identity index records, for each selected pack, the handle its records are already under; nothing
+moves ([PN-D15](#PN-D15)). A record whose pack is not selected keeps its key and is found again if
+the pack returns. A legacy JSONC config is read the same way.
 
 **The held slash-name fix** (worktree `agent-aa30e25b86a0e5a26`, unlanded):
 
@@ -354,8 +368,7 @@ same way.
 - With the example in [§3.4.1](#341-a-worked-example), removing `acme/lint` or adding a pack changes no
   delivered name of any other entry; a clash is a refusal naming both entries and the step.
 - `yolo pack source rename yolo-packs dotfiles` rewrites the config in one confirmed edit, lists
-  any agent-facing name it changes, and the next launch re-pins and rebuilds nothing (not built:
-  it ships with step 3 of [§9](#9-build-order)).
+  any agent-facing name it changes, and the next launch re-pins and rebuilds nothing.
 - `yolo pack explain <handle>` lists each skill under its delivered name; `yolo pack ls` shows the
   handle and the namespace.
 
@@ -365,9 +378,9 @@ same way.
 2. Namespaces, `bare` and `namespace`, delivered names and the clash refusals, with
    `5a4b8dbb9`'s internal half; `skills_tier = "namespaced"` stops naming anything and keeps
    only its choice of a wrapped plugin's whole delivery ([PN-D14](#PN-D14)).
-3. Identity-keyed records and their migration.
-4. The migration's `bare` marking and its old-to-new name list (built); `yolo pack source rename`, with step 3.
-5. `shipped_skill_prefix`.
+3. Identity-keyed records and their migration (built, [PN-D15](#PN-D15)).
+4. The migration's `bare` marking and its old-to-new name list; `yolo pack source rename`, with step 3 (built).
+5. `shipped_skill_prefix` (built).
 
 ## 10. Risks
 
@@ -391,8 +404,9 @@ same way.
 | <a id="PN-D7"></a><a id="OQ-PN1"></a>PN-D7 | **Owner ruling:** a pack outside the shipped set is prefixed unless its entry or source says `bare = true`, and the migration writes `bare = true` on everything it converts — *"nothing changes at conversion, and every pack added later is prefixed until Matt says otherwise."* | 2026-10-31 | [§3.3](#33-the-namespace--what-agents-see), [§7](#7-migration) | `cd184509a`, `65ebe25f9` |
 | <a id="PN-D8"></a><a id="OQ-PN2"></a>PN-D8 | **Owner ruling:** a prefixed skill is `<namespace>-<skill>` at every agent — *"one separator, and one name for a skill at every agent."* | 2026-10-31 | [§3.4](#34-delivered-names) | `cd184509a` |
 | <a id="PN-D9"></a><a id="OQ-PN3"></a>PN-D9 | **Owner ruling:** `skills_tier = "namespaced"` is retired to a lint warning; the user's `bare` holds — *"no pack uses it, and the user's choice should be the one that holds."* | 2026-10-31 | [§3.4](#34-delivered-names) | `cd184509a` |
-| <a id="PN-D10"></a><a id="OQ-PN4"></a>PN-D10 | **Owner ruling:** records key on where the pack lives; a rename moves nothing, a move re-pins once — *"renaming is what users will do, moving a dotfiles tree is rare, and a hand edit then needs no carry."* | 2026-10-31 | [§3.2](#32-the-pack-identity--what-records-key-on) | — |
+| <a id="PN-D10"></a><a id="OQ-PN4"></a>PN-D10 | **Owner ruling:** records key on where the pack lives; a rename moves nothing, a move re-pins once — *"renaming is what users will do, moving a dotfiles tree is rare, and a hand edit then needs no carry."* | 2026-10-31 | [§3.2](#32-the-pack-identity--what-records-key-on) | e582ad218, as [PN-D15](#PN-D15): `TestTheFirstReadAdoptsHandleKeyedRecordsAndIsIdempotent`, `TestARenamedHandleFindsItsRecords`, `TestAMovedPackStartsOverAndItsRecordsWaitForItsReturn`, `TestTheLaunchRefreshMovesARenamedPacksPin`, `TestPackSourceRenamePlansTheHandleKeyedTables`, `TestPackSourceRenameMovesThePacksPins`, `TestPackSourceRenameKeepsAnOmittedRefGitPackAtItsPinnedCommit` |
 | <a id="PN-D11"></a><a id="OQ-PN5"></a>PN-D11 | **Owner ruling:** a source's key is its namespace, with no second spelling — *"one word per source is the simpler model, and the rename verb already changes it."* | 2026-10-31 | [§3.3](#33-the-namespace--what-agents-see) | `cd184509a` |
 | <a id="PN-D12"></a><a id="OQ-PN6"></a>PN-D12 | **Owner ruling:** the migration names an unnamed source after its folder, with no prompt, and the conversion offer lists every pack's new name — *"Whatever is most default, less configuration, I think is the ideal configuration … it would be nice in the 'Do you want to convert?' message to also explicitly spell out the new pack names."* | 2026-10-31 | [§7](#7-migration) | `cd184509a`, `65ebe25f9` |
-| <a id="PN-D13"></a><a id="OQ-PN7"></a>PN-D13 | **Owner ruling:** shipped skills carry no marker by default; `shipped_skill_prefix` in user config adds one — *"by default there should be no marker, but we need to have some config language so that the user can prefix them if they so choose in their user config."* | 2026-10-31 | [§3.7](#37-shipped-and-third-party) | — |
+| <a id="PN-D13"></a><a id="OQ-PN7"></a>PN-D13 | **Owner ruling:** shipped skills carry no marker by default; `shipped_skill_prefix` in user config adds one — *"by default there should be no marker, but we need to have some config language so that the user can prefix them if they so choose in their user config."* | 2026-10-31 | [§3.7](#37-shipped-and-third-party) | dbaba4b13: `TestBuiltinSkillsAreDeliveredUnderTheShippedSkillPrefix`, `TestAPackSkillOverridesAPrefixedBuiltinByEitherName`, `TestTheBriefingNamesBuiltinSkillsUnderTheShippedSkillPrefix`, `TestTheLaunchBriefingFollowsTheShippedSkillPrefix`, `TestAShippedPacksSkillsTakeTheShippedSkillPrefix`, `TestHostApplyDeliversBuiltinSkillsUnderTheShippedSkillPrefix` |
 | <a id="PN-D14"></a>PN-D14 | Review fixes to the first build: a wrapper that did not set `skills_tier = "namespaced"` delivers its plugin's skills alone, with hooks and MCP refused, as before pack naming; a whole plugin's inner skills are claimed under the name each agent shows them by (bare at pi and Copilot); a bare pack's landing and `/ctx` directory are unchanged, and no character or length rule applies to a bare name; a source key that is no namespace word loads and is refused only where a namespace is composed from it; a config an older migrator converted is warned of, naming each renamed skill; `yolo pack source rename` waits for [PN-D10](#PN-D10). Designer decisions from the review of the first build, keeping [PN-D7](#PN-D7)'s "nothing changes at conversion" | 2026-10-31 | [§3.4](#34-delivered-names), [§3.5](#35-clashes), [§3.6](#36-renaming), [§7](#7-migration) | cc4344050, 495b1628f, caf85daa4: `TestAFlatWrapperDeliversItsPluginsSkillsAlone`, `TestAWholePluginsInnerSkillsAreClaimedUnderTheNameEachAgentShows`, `TestABarePackIsNamedExactlyAsBefore`, `TestSectionPacksWarnsWhenAConvertedSourceRenamesSkills` |
+| <a id="PN-D15"></a>PN-D15 | How [PN-D10](#PN-D10) is built: the records keep their handle keys, and an identity index beside the user config says which handle each identity's records are under; the first read of a selection (the launch's and `yolo host apply`'s pack refresh, `yolo pack install`/`update`, `yolo pack source rename`) moves the records of a renamed handle, and sets a moved pack's earlier records aside under `~parked/<hash>` until that identity returns. A first-seen identity adopts the records under its handle, or those locked for its address under a handle no longer selected. Read-only verbs, shipped packs and a jail move nothing. Designer decision: §3.2's "keyed on the identity" is met in behavior, not in the files' keys, so every record writer and reader, the migration's record carry and `yolo pack status` stay as they are; the cost is one index file and a read on every launch | 2026-10-31 | [§3.2](#32-the-pack-identity--what-records-key-on), [§3.6](#36-renaming), [§7](#7-migration) | e582ad218: `TestARenameBeforeTheIndexExistedIsFoundByTheLockedAddress`, `TestTwoPacksSwappingHandlesKeepTheirOwnRecords`, `TestPackIdentityIgnoresTheRefAndNormalizesTheRepository` |

@@ -1,7 +1,7 @@
 ---
 status: accepted
 stage: DECIDED
-next: "Build the design's §9 steps 2-5 in order; each step is one commit"
+next: "Every task is built; delete this plan when the design graduates"
 depends-on: [docs/design/pack-naming.md, docs/design/readable-config.md]
 ---
 
@@ -32,8 +32,8 @@ Three words, defined in the design's [§3](../design/pack-naming.md#3-the-design
 | `internal/packload/` (new `namecollisions.go`) | namespace-word and landing clashes, called from `yolo check`, the launch and `yolo host apply` |
 | `internal/packdecl` lint | `skills_tier = "namespaced"` warns where it changes nothing (a pack wrapping no plugin), PN-D14 |
 | `packs/claude`, `packs/copilot`, `yolo pack init --plugin` scaffold | keep `skills_tier = "namespaced"` where a plugin is wrapped whole (PN-D14) |
-| `internal/configmigrate/` | re-key records to identity (step 3); write `bare = true`, folder-named sources, the old → new list (step 4) |
-| `internal/cli/pack.go` + new `packsource.go` | `yolo pack source rename OLD NEW`: not built; left for the PN-D10 slice, which moves the records keyed on the old handle |
+| `internal/configmigrate/` (new `identities.go`), `internal/packsrc/identity.go` | the identity index and the record moves on first read (step 3, as built in design PN-D15); write `bare = true`, folder-named sources, the old → new list (step 4) |
+| `internal/cli/pack.go` + `packsourcerename.go` | `yolo pack source rename OLD NEW`, built with the PN-D10 slice |
 | config key plumbing for `shipped_skill_prefix` | the user-only key list below (step 5) |
 
 ## Reuse
@@ -67,12 +67,15 @@ Three words, defined in the design's [§3](../design/pack-naming.md#3-the-design
 
 ## Tasks
 
+All four are built; the design's ledger names each commit and its tests.
+
 1. **Namespaces and delivered names** (design §9 step 2). Settled, do not re-open: §3.3-§3.5,
    PN-D5, PN-D6, PN-D8, PN-D9. Tests: the §3.4.1 example as a table of delivered names, and each
    row of its second table as a refusal naming both entries and the step. Gate:
    `go test -short ./internal/packsrc/... ./internal/packname/... ./internal/hostskills/... ./internal/config/... ./internal/cli/...`.
-2. **Identity-keyed records** (after 1). Settled: §3.2, PN-D10. One-time re-key inside the RC-D47
-   journal; a moved pack re-pins once and the launch says so.
+2. **Identity-keyed records** (after 1). Settled: §3.2, PN-D10. Built as an identity index and
+   record moves on first read rather than a re-key in the RC-D47 journal (design PN-D15); a moved
+   pack re-pins once and the launch says so.
 3. **Rename verb and migration marking** (after 2). Settled: §3.6, §7, PN-D7, PN-D12.
 4. **`shipped_skill_prefix`** (after 1). Settled: §3.7, PN-D13.
 
