@@ -83,6 +83,8 @@ type PackSkillSource struct {
 	// `<namespace>-<name>`, or bare when Namespace is "".
 	Namespace string
 	Shipped   bool
+	// BareStep is hostskills.Layer.BareStep: the command that lists the pack bare.
+	BareStep string
 	// Description goes into a namespaced subtree's plugin manifest.
 	Description string
 	// Plugins are the wrapped plugin trees this pack carries INSIDE Dir, or at the pack root when
@@ -197,7 +199,8 @@ func SkillPlan(sources []PackSkillSource, targets []SkillTarget) []hostskills.De
 				i = len(d.Layers)
 				index[src.Pack] = i
 				d.Layers = append(d.Layers, hostskills.Layer{Pack: src.Pack, Description: src.Description,
-					Tier: src.Tier, Namespace: src.Namespace, Shipped: src.Shipped, SourceOf: src.SourceOf})
+					Tier: src.Tier, Namespace: src.Namespace, BareStep: src.BareStep, Shipped: src.Shipped,
+					SourceOf: src.SourceOf})
 			}
 			// A record with no Dir carries plugins and nothing to copy: the host's writer delivers
 			// a layer's plugins whether or not it has a source (hostskills.writeLayer).

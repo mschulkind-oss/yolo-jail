@@ -121,10 +121,15 @@ func TestAWholePluginsInnerSkillsAreClaimedUnderTheNameEachAgentShows(t *testing
 				t.Fatalf("the inner review must clash with the bare review at %s: %+v", tc.agent, cols)
 			}
 			msg := cols[0].Message()
-			for _, want := range []string{"acme/kit", "dotfiles/matt"} {
+			// Minor 4: no namespace on the plugin's pack can help here, so the step names what can.
+			for _, want := range []string{"acme/kit", "dotfiles/matt", "give pack dotfiles/matt a namespace",
+				"`yolo pack remove acme/kit`", "`yolo pack remove dotfiles/matt`"} {
 				if !strings.Contains(msg, want) {
 					t.Errorf("the refusal does not name %q:\n%s", want, msg)
 				}
+			}
+			if strings.Contains(msg, "Choose a different namespace") {
+				t.Errorf("the refusal offers a namespace for the plugin's pack, which cannot help:\n%s", msg)
 			}
 		})
 	}
@@ -135,6 +140,8 @@ func TestAWholePluginsInnerSkillsAreClaimedUnderTheNameEachAgentShows(t *testing
 func TestTwoNamesOneNamespaceDeliversAlikeAreRefusedNamingBoth(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		l := exampleLayer(t, "acme/tools", "acme", false, "Foo_Bar", "foo-bar")
+		const step = "`yolo config set 'packs[2].bare' true --user`"
+		l.BareStep = step
 		d := Destination{Dir: "~/.claude/skills", Agent: "claude", Layers: []Layer{l}}
 		cols := Collisions([]Destination{d})
 		if len(cols) != 1 || cols[0].Name != "acme-foo-bar" || len(cols[0].Claims) != 2 {
@@ -144,7 +151,12 @@ func TestTwoNamesOneNamespaceDeliversAlikeAreRefusedNamingBoth(t *testing.T) {
 			t.Errorf("claims out of order: %+v", cols[0].Claims)
 		}
 
-		res, err := deliverFlat(Request{Pack: "acme/tools", Namespace: "acme", SkillsDir: t.TempDir()},
+		// Minor 3: the pre-flight and the writer offer the same steps, the concrete command included.
+		want := aliketStep("acme/tools", step)
+		if msg := cols[0].Message(); !strings.Contains(msg, want) || !strings.Contains(want, step) {
+			t.Errorf("the pre-flight does not offer %q:\n%s", want, msg)
+		}
+		res, err := deliverFlat(Request{Pack: "acme/tools", Namespace: "acme", BareStep: step, SkillsDir: t.TempDir()},
 			map[string]string{"Foo_Bar": filepath.Join(l.Sources[0], "Foo_Bar"),
 				"foo-bar": filepath.Join(l.Sources[0], "foo-bar")})
 		if err != nil {
@@ -152,7 +164,8 @@ func TestTwoNamesOneNamespaceDeliversAlikeAreRefusedNamingBoth(t *testing.T) {
 		}
 		refused := 0
 		for _, r := range res {
-			if r.Action == ActionRefused && strings.Contains(r.Detail, `"Foo_Bar" and "foo-bar"`) {
+			if r.Action == ActionRefused && strings.Contains(r.Detail, `"Foo_Bar" and "foo-bar"`) &&
+				strings.Contains(r.Detail, want) {
 				refused++
 			}
 			if r.Action == ActionWrote {

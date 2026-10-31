@@ -48,6 +48,8 @@ type PluginRequest struct {
 	// Namespace is the wrapping pack's namespace: the tree lands at `<namespace>-<manifest name>`
 	// and its copied manifest's `name` says so, "" for a bare pack (docs/design/pack-naming.md §3.4).
 	Namespace string
+	// BareStep is Request.BareStep, for the plugin's skills delivered one by one.
+	BareStep string
 	// Plugin is the recognized tree.
 	Plugin *pluginpack.Plugin
 	// SkillsDir is the absolute destination skills dir (the tool's own).
@@ -275,6 +277,7 @@ func deliverPluginFlat(req PluginRequest, name string) ([]Result, error) {
 	res, err := deliverFlat(Request{
 		Pack:         req.Pack,
 		Namespace:    req.Namespace,
+		BareStep:     req.BareStep,
 		SkillsDir:    req.SkillsDir,
 		Composed:     req.Composed,
 		Legacy:       req.Legacy,

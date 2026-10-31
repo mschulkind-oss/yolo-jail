@@ -98,6 +98,9 @@ type Layer struct {
 	// It comes from the user's config entry (packload.Pack.Namespace), never from the pack, and
 	// never from what else is selected (PN-D3).
 	Namespace string
+	// BareStep is the one command that lists the layer's pack bare (packload.Pack.BareStep), named
+	// by a refusal of two of its names that Namespace delivers alike; "" when not known.
+	BareStep string
 	// Shipped marks a layer of a pack yolo ships, for the clash message: its names are bare and
 	// not the user's to change (pack-naming.md §3.5).
 	Shipped bool
@@ -310,7 +313,8 @@ func PackLayer(p *packload.Pack) Layer {
 		return Layer{}
 	}
 	plugins, _ := p.HonoredPlugins()
-	l := Layer{Pack: p.Name, Namespace: p.Namespace, Shipped: p.Official, Plugins: plugins, SourceOf: p.SourcePath}
+	l := Layer{Pack: p.Name, Namespace: p.Namespace, BareStep: p.BareStep, Shipped: p.Official, Plugins: plugins,
+		SourceOf: p.SourcePath}
 	if p.Decl != nil {
 		// The pack's `skills_tier` decides only how a wrapped plugin is delivered (Layer.Tier);
 		// what anything is called is the user's namespace choice (pack-naming.md PN-D9).
@@ -364,6 +368,11 @@ type Claim struct {
 	Shipped, Generated bool
 	// Author is the name the pack's author gave the entry, before the namespace was added.
 	Author string
+	// Inner says the claim is a skill inside a whole wrapped plugin, which this destination's
+	// agent shows by its own frontmatter name whatever the pack's namespace is.
+	Inner bool
+	// BareStep is the claiming layer's (Layer.BareStep).
+	BareStep string
 }
 
 // Message is the refusal a user reads (docs/design/pack-naming.md §3.5): every contending entry,
@@ -412,15 +421,33 @@ func (c Collision) step() string {
 		anyBare = anyBare || userBare
 		anyNamespaced = anyNamespaced || cl.Namespace != ""
 	}
-	onePack := true
+	onePack, inner := true, false
 	for _, cl := range c.Claims {
 		onePack = onePack && cl.Pack == c.Claims[0].Pack
+		inner = inner || cl.Inner
 	}
 	switch {
 	case onePack:
 		return "Pack " + c.Claims[0].Pack + " names these entries differently, but its namespace " +
-			"delivers them alike: rename all but one in the pack, or list the pack with " +
-			"`bare = true` to keep its own names, then run `yolo check`."
+			"delivers them alike. " + aliketStep(c.Claims[0].Pack, c.Claims[0].BareStep)
+	case inner:
+		// No namespace renames a skill inside a whole plugin here: this agent shows it by its own
+		// frontmatter name. What can help is the OTHER claimant's name, or one pack fewer.
+		var steps, removes []string
+		for _, cl := range c.Claims {
+			if !cl.Inner && cl.Namespace == "" && !cl.Shipped && !cl.Generated {
+				steps = append(steps, "give pack "+cl.Pack+" a namespace (`bare = false` on its entry or "+
+					"source, and its skill becomes `<namespace>-"+cl.Author+"`)")
+			}
+			if !cl.Generated {
+				if r := "`yolo pack remove " + cl.Pack + "`"; !slices.Contains(removes, r) {
+					removes = append(removes, r)
+				}
+			}
+		}
+		steps = append(steps, "remove one of the packs ("+strings.Join(removes, " or ")+")")
+		return "This agent lists a whole plugin's inner skills by their own names, so no namespace on " +
+			"the plugin's pack changes this one: " + strings.Join(steps, ", or ") + "; then run `yolo check`."
 	case sameNamespace:
 		return "These packs share the namespace " + c.Claims[0].Namespace + ", whose author named " +
 			"both entries alike: select only one of them, then run `yolo check`, which reports this " +
@@ -499,25 +526,26 @@ func destinationClaims(d Destination) map[string][]Claim {
 			names = append(names, name)
 		}
 		sort.Strings(names)
-		add := func(name string, c layerClaim) {
+		add := func(name string, c layerClaim, inner bool) {
 			src := ""
 			if c.source != "" {
 				src = l.source(c.source)
 			}
 			byName[name] = append(byName[name], Claim{Pack: l.Pack, Source: src,
 				Namespaced: c.subtree, Namespace: l.Namespace,
-				Shipped: l.Shipped, Generated: l.Generated, Author: c.author})
+				Shipped: l.Shipped, Generated: l.Generated, Author: c.author,
+				Inner: inner, BareStep: l.BareStep})
 		}
 		for _, name := range names {
 			for _, c := range claimed[name] {
-				add(name, c)
+				add(name, c, false)
 				if c.plugin == nil || !agentShowsPluginSkillsBare(d.Agent) {
 					continue
 				}
 				inner := c.plugin.SkillDirs()
 				for _, n := range sortedKeys(inner) {
 					if shown := skillShownName(inner[n], n); shown != name {
-						add(shown, layerClaim{source: inner[n], author: shown})
+						add(shown, layerClaim{source: inner[n], author: shown}, true)
 					}
 				}
 			}
@@ -1059,7 +1087,7 @@ func writeLayer(dir string, l Layer, req ComposeRequest, preOwned map[string]boo
 	// the tier no longer names anything (docs/design/pack-naming.md PN-D9).
 	for _, pl := range l.Plugins {
 		res, err := DeliverPlugin(PluginRequest{
-			Pack: l.Pack, Namespace: l.Namespace, Plugin: pl, SkillsDir: dir, Tier: l.Tier,
+			Pack: l.Pack, Namespace: l.Namespace, BareStep: l.BareStep, Plugin: pl, SkillsDir: dir, Tier: l.Tier,
 			Composed: req.Composed, Legacy: req.Legacy, PreOwned: preOwned, Claimed: want,
 			ArchiveRoot: req.ArchiveRoot, Stamp: req.Stamp, Observe: observe,
 		})
@@ -1076,7 +1104,8 @@ func writeLayer(dir string, l Layer, req ComposeRequest, preOwned map[string]boo
 		return out, nil
 	}
 	res, err := Deliver(Request{
-		Pack: l.Pack, Namespace: l.Namespace, Owner: owner, Description: l.Description, Sources: l.Sources, SkipSources: pluginDirs,
+		Pack: l.Pack, Namespace: l.Namespace, BareStep: l.BareStep, Owner: owner, Description: l.Description,
+		Sources: l.Sources, SkipSources: pluginDirs,
 		SkillsDir: dir, Tier: TierFlat,
 		Composed: req.Composed, Legacy: req.Legacy, PreOwned: preOwned, Claimed: want,
 		ArchiveRoot: req.ArchiveRoot, Stamp: req.Stamp, Observe: observe,

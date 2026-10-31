@@ -34,7 +34,7 @@ func jailSkillSources(p *packload.Pack, sources []packload.SkillsSource) []jailc
 	layer := hostskills.PackLayer(p)
 	record := func(dir string, agents []string, plugins []*pluginpack.Plugin) jailcontent.PackSkillSource {
 		return jailcontent.PackSkillSource{Dir: dir, Agents: agents, Pack: p.Name, Tier: layer.Tier,
-			Namespace: layer.Namespace, Shipped: layer.Shipped,
+			Namespace: layer.Namespace, BareStep: layer.BareStep, Shipped: layer.Shipped,
 			Description: layer.Description, Plugins: plugins, SourceOf: layer.SourceOf}
 	}
 	out := make([]jailcontent.PackSkillSource, 0, len(sources)+1)

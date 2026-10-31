@@ -398,7 +398,10 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 		packload.ConvertedConfigIn(filepath.Dir(paths.UserConfigPath()))) {
 		r.warn("pack skills renamed by a default namespace", w)
 	}
-	for _, c := range hostskills.Collisions(hostskills.ComposeHostSkills(loaded, paths.Home())) {
+	// Over the packs `yolo host apply` composes: each destination resolved, so a pack that names
+	// its audience rather than a directory (`agents`, or nothing) is counted where it lands.
+	resolved, _ := packload.ResolveDestinations(loaded)
+	for _, c := range hostskills.Collisions(hostskills.ComposeHostSkills(resolved, paths.Home())) {
 		r.fail("pack skill name collision", c.Message())
 	}
 

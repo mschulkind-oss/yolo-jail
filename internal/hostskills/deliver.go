@@ -190,6 +190,9 @@ type Request struct {
 	// SKILL.md's `name` saying the same, and as the author named it when "" (a bare pack,
 	// docs/design/pack-naming.md §3.4).
 	Namespace string
+	// BareStep is the one command that lists the pack bare (packload.Pack.BareStep), for the
+	// refusal of two names its namespace delivers alike; "" names the key instead.
+	BareStep string
 	// Description is the pack's description, written into the tier-A plugin manifest.
 	Description string
 	// Owner is the provenance identity recorded for this delivery. Usually it is Pack;
@@ -407,6 +410,18 @@ func deliverNamespaced(req Request, skills map[string]string) ([]Result, error) 
 // it ships now", which at flat tier is wrong in both directions once several packs merge into one
 // dir: a name that moved from pack A to pack B between applies read as A retiring it and B being
 // refused. The destination-wide pass sees the union, so a name that moved simply changes hands.
+// aliketStep is the one next step for two names of one pack that its namespace delivers alike,
+// shared by the pre-flight (Collision.step) and the writer (deliverFlat) so both say the same:
+// rename in the pack, or list the pack bare, by the command when the entry is known.
+func aliketStep(pack, bareStep string) string {
+	bare := "`bare = true` on its entry in `packs`"
+	if bareStep != "" {
+		bare = bareStep
+	}
+	return "Rename all but one of them in pack " + pack + ", or keep the pack's own names by " +
+		"listing it bare with " + bare + "; then run `yolo check`."
+}
+
 func deliverFlat(req Request, skills map[string]string) ([]Result, error) {
 	// The skills DIR ITSELF may be a dangling link — the `~/.pi/agent/skills` shape in the
 	// field report, where the whole directory was deployed as one link. That aborted the entire
@@ -439,8 +454,8 @@ func deliverFlat(req Request, skills map[string]string) ([]Result, error) {
 			for _, raw := range raws {
 				out = append(out, Result{Name: name, Path: skills[raw], Action: ActionRefused,
 					Detail: fmt.Sprintf("pack %s's skills %s are all delivered as %q in namespace %s, "+
-						"and yolo will not pick one: rename all but one of them in the pack",
-						req.Pack, strings.Join(quoted(raws), " and "), name, req.Namespace)})
+						"and yolo will not pick one. %s", req.Pack, strings.Join(quoted(raws), " and "),
+						name, req.Namespace, aliketStep(req.Pack, req.BareStep))})
 			}
 			continue
 		}
