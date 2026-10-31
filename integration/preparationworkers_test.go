@@ -536,7 +536,18 @@ func reobserveUncertainHome(home string, p homeProcess, deadline time.Time, prob
 			return homeProcess{}, false, fmt.Errorf("revalidating %s: pid now names a different process", p)
 		}
 		if len(snapshot.args) == 0 {
-			return homeProcess{}, false, fmt.Errorf("revalidating %s: live process has no classifiable arguments", p)
+			// A process caught exiting reads with an empty argv for a moment; wait for it within
+			// the stop bound, as the signalling path does, and fail closed only past it.
+			if time.Now().Before(deadline) {
+				pause := time.Until(deadline)
+				if pause > 50*time.Millisecond {
+					pause = 50 * time.Millisecond
+				}
+				time.Sleep(pause)
+				continue
+			}
+			original := fmt.Errorf("revalidating %s: live process has no classifiable arguments", p)
+			return homeProcess{}, false, fmt.Errorf("%w; %s", original, emptyArgStopDiagnostic(p, snapshot))
 		}
 		if probes.home == nil {
 			return homeProcess{}, false, fmt.Errorf("revalidating %s: HOME observation probe is unavailable", p)
@@ -3709,5 +3720,39 @@ func TestALaunchesCleanupStopsItsHomesPreparationWorkers(t *testing.T) {
 	if !processGone(worker) {
 		t.Error("a preparation worker running under the launch's HOME outlived the launch's " +
 			"cleanup: awaitDetachedWriters no longer calls stopHomeProcesses")
+	}
+}
+
+// A process whose HOME was unreadable and which is caught exiting reads with an empty argv for a
+// moment; the re-observation waits for it within the stop bound instead of failing at once (CI
+// run 41144239138, TestPinnedNpmProgramInstallsTheDeclaredVersion's cleanup).
+func TestStopHomeProcessesWaitsOutAnEmptyArgvUnderUncertainHOME(t *testing.T) {
+	const home = "/test/home"
+	const startTime = "876560"
+	listed := homeProcess{
+		pid: 5160, ppid: 1, args: []string{"/bin/worker"}, startTime: startTime,
+		homeErr: fmt.Errorf("%w: %w", errHomeObservationUnknown, syscall.EACCES),
+	}
+	inspectCalls, killCalls := 0, 0
+	probes := stopProcessProbes{
+		list: func(string) []homeProcess {
+			if inspectCalls >= 3 {
+				return nil
+			}
+			return []homeProcess{listed}
+		},
+		inspect: func(int) (stopProcessSnapshot, error) {
+			inspectCalls++
+			if inspectCalls >= 3 {
+				return stopProcessSnapshot{gone: true}, nil
+			}
+			return stopProcessSnapshot{startTime: startTime}, nil
+		},
+		home: func(int, string) (bool, error) { return true, nil },
+		kill: func(int, syscall.Signal) error { killCalls++; return nil },
+	}
+	stopped, err := stopHomeProcessesWithinWithProbes(home, 2*time.Second, 0, probes)
+	if err != nil || len(stopped) != 0 || killCalls != 0 || inspectCalls < 3 {
+		t.Fatalf("stop=%v, %v (inspections=%d signals=%d); want the exiting process waited out, unsignalled", stopped, err, inspectCalls, killCalls)
 	}
 }
