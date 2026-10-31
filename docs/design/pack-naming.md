@@ -227,8 +227,8 @@ Every case below is refused at `yolo check`, the launch and `yolo host apply`, w
 | two delivered names that hyphenate alike | namespace `a-b` with skill `c`, namespace `a` with skill `b-c` | choose a different namespace for either |
 | two bare entries ship one skill, or a bare entry ships a shipped skill's name | the user's bare `review` beside another bare `review` | give one entry a namespace (`bare = false`), or rename the user's own skill |
 | two packs in one namespace ship one skill | `acme/tools` and `acme/lint` both ship `review` | select only one, then `yolo check`; the defect is the source author's |
-| one pack ships two names its namespace delivers alike | `Review_It` and `review-it` in one pack, both `acme-review-it` | rename all but one in the pack, or list it `bare = true` |
-| a whole wrapped plugin's inner skill meets another pack's skill at an agent that lists plugin skills bare | pi or Copilot sees the plugin's inner `review` beside another `review` | the same steps as the bare clash above |
+| one pack ships two names its namespace delivers alike | `Review_It` and `review-it` in one pack, both `acme-review-it` | rename all but one in the pack, or list it bare with the exact `yolo config set` command for its entry; the launch's pre-flight and the writer say the same |
+| a whole wrapped plugin's inner skill meets another pack's skill at an agent that lists plugin skills bare | pi or Copilot sees the plugin's inner `review` beside another `review` | no namespace on the plugin's pack changes the inner name, so: give the other pack a namespace if it is bare, or remove one of the two with `yolo pack remove …` |
 
 These refusals are between selected packs. A pack skill named like one of yolo's built-in skills
 is not one of them: main's priority still holds, the workspace below the built-in skills below
@@ -316,10 +316,14 @@ the name it had before conversion.
 **A config an older migrator converted** carries no `bare`: that migrator ran before pack naming,
 so its sources and `local/<pack>` entries now get their default namespace. Where its user config
 directory still holds the migrator's `config.jsonc.pre-migrate` backup, `yolo check`, the launch
-and `yolo host apply` warn of each such pack, naming every renamed skill old → new and the one
-step that keeps the old names (for a source,
-`yolo config set pack_sources.<key>.bare true --user`, or the table form of a path-string
-source). Writing `bare = false` there keeps the new names and silences the warning
+and `yolo host apply` warn of each such pack, naming every renamed skill, its moved `files`
+landing and `/ctx` directory old → new, and two commands: one keeps the old names, the other
+keeps the new ones and silences the warning. For a source the command is
+`yolo config set pack_sources.<key>.bare true --user` (a key that is not a plain word is quoted,
+`'pack_sources."skills.git".bare'`, and a path-string source is rewritten as a table); for an
+entry it is `yolo config set 'packs[N].bare' true --user`, or `'packs[N]'` set to
+`{ pack = "…", bare = true }` for a plain handle; `false` keeps the new names. The warning lasts
+only while that backup is kept, and the migrator says so when it writes one
 ([PN-D14](#PN-D14)).
 
 **Source names.** A source the old config never named takes its folder's name, with no prompt
