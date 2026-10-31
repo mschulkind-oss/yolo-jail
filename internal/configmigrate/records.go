@@ -86,6 +86,13 @@ func packTreeSourceRename(renames map[string]string, source string) (string, boo
 // record moved. In a jail it does nothing: the pack store, the capture store and the host floor
 // are the host's, and a jail's user config renames nothing there.
 func respellPackRecords(userConfigDir string, renames []PackRename) ([]string, error) {
+	return moveRecords(userConfigDir, renames, true)
+}
+
+// moveRecords is respellPackRecords, with the host-skills manifest's owners moved only when
+// manifest is set: a pack's records set aside under a parked handle leave the paths its handle
+// still writes owned by that handle.
+func moveRecords(userConfigDir string, renames []PackRename, manifest bool) ([]string, error) {
 	if len(renames) == 0 || userConfigDir == "" || config.InJail() {
 		return nil, nil
 	}
@@ -120,6 +127,9 @@ func respellPackRecords(userConfigDir string, renames []PackRename) ([]string, e
 	out = append(out, moved...)
 	if err != nil {
 		return out, err
+	}
+	if !manifest {
+		return out, nil
 	}
 	moved, err = respellSkillsManifest(filepath.Join(paths.GlobalStorage(), "host-skills-manifest.json"), names)
 	out = append(out, moved...)

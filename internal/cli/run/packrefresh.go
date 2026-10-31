@@ -6,7 +6,11 @@ package run
 // the in-jail exemption, and the printing.
 
 import (
+	"fmt"
+	"path/filepath"
+
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/configmigrate"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -48,6 +52,10 @@ func refreshConfiguredPacks(say, warn func(string), during func() (waiting func(
 	if err != nil {
 		return // the config error is the launch's to report, where it reports the others
 	}
+	// Before anything reads a pin: a pack renamed since the last launch finds its records under
+	// its new handle (docs/design/pack-naming.md §3.2), so the refresh below neither re-resolves
+	// it nor prunes its old entry.
+	ReconcilePackRecords(entries, say, warn)
 	var git []packsrc.RefreshPack
 	for _, e := range entries {
 		if e.Embedded() || e.IsLocal() {
@@ -111,4 +119,19 @@ func (o *Options) refreshPacks() {
 			return line.Println, func() { line.Done(""); span.End() }
 		},
 	)
+}
+
+// ReconcilePackRecords moves the selected packs' records to the handles they are selected under
+// (configmigrate.ReconcilePackRecords), saying each pack whose records moved or started over. A
+// failure is a warning: the records stay where they were, and the next read tries again.
+func ReconcilePackRecords(entries []config.PackEntry, say, warn func(string)) {
+	lines, err := configmigrate.ReconcilePackRecords(filepath.Dir(paths.UserConfigPath()),
+		configmigrate.IdentifiedPacks(entries))
+	for _, l := range lines {
+		say(l)
+	}
+	if err != nil {
+		warn(fmt.Sprintf("could not move the pack records of a renamed or moved pack (%v); the next launch "+
+			"or `yolo pack install` tries again, and until then that pack re-pins as a new one", err))
+	}
 }

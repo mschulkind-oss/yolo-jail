@@ -156,6 +156,16 @@ type PackEntry struct {
 	Implicit bool `json:"-"`
 }
 
+// Identity is the pack's identity (packsrc.PackIdentity; docs/design/pack-naming.md §3.2): where
+// it is read from, whatever its handle. "" when that cannot be told.
+func (p PackEntry) Identity() string {
+	embedded := p.EmbeddedName
+	if embedded == "" && p.IsEmbedded {
+		embedded = p.Name
+	}
+	return packsrc.PackIdentity(embedded, p.PhysicalPath, p.Source)
+}
+
 // Slug returns a filesystem-safe identifier for this pack's staging dir: internal/slug's
 // escape, the one HostFileEntry.Slug and every other path built from a pack name use, so one
 // escaping bug cannot exist in two forms and one name has one spelling (RC-D48).

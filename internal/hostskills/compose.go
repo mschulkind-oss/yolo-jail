@@ -510,6 +510,26 @@ func ClaimsAt(d Destination, name string) []Claim {
 	return dedupePackClaims(destinationClaims(d)[name])
 }
 
+// NamesInNamespace is every distinct top-level name the layers in namespace deliver across dests,
+// sorted: the agent-facing names a rename of that namespace changes (pack-naming.md §3.6). A whole
+// plugin's inner skill is shown by its own name whatever the namespace, so it is not one of them.
+func NamesInNamespace(dests []Destination, namespace string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, d := range dests {
+		for name, claims := range destinationClaims(d) {
+			for _, cl := range claims {
+				if cl.Namespace == namespace && !cl.Inner && !seen[name] {
+					seen[name] = true
+					out = append(out, name)
+				}
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 // destinationClaims is {top-level name → the claims on it}, every layer of d in order.
 //
 // A wrapped plugin delivered whole claims its own delivered name everywhere, and ALSO each inner

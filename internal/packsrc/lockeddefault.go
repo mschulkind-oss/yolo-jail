@@ -17,6 +17,12 @@ func (s *Store) ResolvePackDefault(addr Addr, name, stagedName, source, lockPath
 		return nil, fmt.Errorf("pack %s: could not read its default-branch lock: %w — run `yolo pack install` or write an explicit ?ref=", name, err)
 	}
 	pin, ok := lock.Get(name)
+	if !ok {
+		// A pack whose handle was renamed since its pin was written (a source key renamed, before
+		// the next launch moves its records): the pin is found by where the pack lives
+		// (docs/design/pack-naming.md §3.2), so a rename never reads as an unpinned pack.
+		pin, ok = lock.BySource(source)
+	}
 	if !ok || pin.Source != source || pin.Ref == "" || !isFullSHA(pin.Commit) {
 		if delivered, ok := s.stagedPackDir(stagedName); ok {
 			return &Resolved{Root: delivered, StagedFrom: delivered}, nil
