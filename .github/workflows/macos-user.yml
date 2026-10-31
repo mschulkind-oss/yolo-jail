@@ -307,6 +307,7 @@ jobs:
       # tests ran — the step's failure surfaces as a named red below instead of an
       # aborted job with no results.
       - name: Create the sandbox account
+        id: account
         continue-on-error: true
         run: go run ./cmd/yolo macos-setup
 
@@ -467,10 +468,15 @@ jobs:
       # `sudo -k` before each probe: a cached credential would pass `sudo -n` through a broad rule
       # and hide a missing one (the plan's Traps).
       #
-      # `!cancelled()`, so a red test in the step above does not also cost this measurement.
+      # `!cancelled()`, so a red test in the step above does not also cost this measurement. And
+      # only once the account step SUCCEEDED, because the run-as rule this step probes is the one
+      # that step installs. Without that condition a failed step before it (the floor build
+      # timing out, which skips the account step) made this step fail too, asking whether
+      # /etc/sudoers.d/yolo-jail was installed: in every scheduled run from 2026-10-26 to
+      # 2026-10-31 that second red read as a sudo defect when nothing had created the account.
       - name: Narrow sudo to the enrolled rule
         id: narrow
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.account.outcome == 'success' }}
         run: |
           set -uo pipefail
           echo "Every NOPASSWD grant before narrowing:"

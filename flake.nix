@@ -980,18 +980,28 @@
         # default-features = false, so the build below selects rustls for all
         # of them; the rest of mise's default features are kept.  Linux is
         # untouched: its native-tls is OpenSSL, which reads the CA bundle.
+        #
+        # NO CHECK PHASE.  No public cache holds this build, so every Mac and
+        # every macOS CI runner compiles it, and upstream's check phase added
+        # a second compile without testing this build: nixpkgs' mise
+        # passes `--all-features` in cargoTestFlags, which overrides any
+        # feature selection here, so the check recompiled mise and mise-util
+        # (and every dependency whose features moved) with native-tls AND
+        # rustls, then ran the nextest suite serially
+        # (dontUseCargoParallelTests).  On GitHub's 3-core macos-latest
+        # runners the whole build ran past 60 minutes in most jobs from
+        # 2026-10-25 on, and past darwin-floor-cache.yml's 75, so the cache
+        # was never filled.  Upstream's own build of the default features
+        # runs that suite on Hydra.
         noncontainerFloorSubstitutes = pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
           # ⚠ The cargo* names, not buildFeatures/buildNoDefaultFeatures:
           # buildRustPackage turns those into the cargo* variables once, when
           # the package is defined, so overrideAttrs on them changes nothing
           # cargo sees (measured: the derivation kept cargoBuildFeatures = "").
-          mise = pkgs.mise.overrideAttrs (_: let
-            features = [ "rustls" "vfox/vendored-lua" "self_update" ];
-          in {
+          mise = pkgs.mise.overrideAttrs (_: {
             cargoBuildNoDefaultFeatures = true;
-            cargoBuildFeatures = features;
-            cargoCheckNoDefaultFeatures = true;
-            cargoCheckFeatures = features;
+            cargoBuildFeatures = [ "rustls" "vfox/vendored-lua" "self_update" ];
+            doCheck = false;
           });
         };
 
