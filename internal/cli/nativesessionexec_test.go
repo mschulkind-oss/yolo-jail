@@ -80,11 +80,15 @@ func TestNativeSessionExecExportsToShellAndChildrenAndHoldsLease(t *testing.T) {
 	// production reader (sessioncapture.go) treats "held" as "not yet" and retries at the next
 	// boot, so the bound here is generous, and a failure names which half of ClaimGone refused.
 	deadline := time.Now().Add(5 * time.Second)
-	for {
+	for first := true; ; first = false {
 		release, gone := nativehome.ClaimGone(dir)
 		if gone {
 			release()
 			return
+		}
+		if first {
+			// A transient holder passes below but still leaves its name in the -v log.
+			t.Logf("first probe after reaping: %s", nativeGoneRefusal(dir))
 		}
 		if time.Now().After(deadline) {
 			t.Fatal(nativeGoneRefusal(dir))
@@ -101,7 +105,7 @@ func nativeGoneRefusal(dir string) string {
 	}
 	state, release, err := packload.ProbeLease(dir)
 	release()
-	msg := fmt.Sprintf("ended exec still holds the lease 5s after it was reaped: probe %s (err %v)", state, err)
+	msg := fmt.Sprintf("ended exec still holds the lease after it was reaped: probe %s (err %v)", state, err)
 	if out, lerr := exec.Command("lsof", filepath.Join(dir, packload.EmbeddedLeaseName)).CombinedOutput(); lerr == nil || len(out) > 0 {
 		msg += "\nlsof of the lease:\n" + string(out)
 	}
