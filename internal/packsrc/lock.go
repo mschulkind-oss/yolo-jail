@@ -84,9 +84,12 @@ func newerSchemaError(path string, got, want int) error {
 	return updatehint.NewerSchema(path, got, want)
 }
 
+// LockName is the pack lockfile's name, beside the user config.
+const LockName = "packs.lock.json"
+
 // LockPath returns the lockfile path beside a user config path.
 func LockPath(userConfigPath string) string {
-	return filepath.Join(filepath.Dir(userConfigPath), "packs.lock.json")
+	return filepath.Join(filepath.Dir(userConfigPath), LockName)
 }
 
 // LoadLock reads a lockfile. A MISSING file is not an error — it is the normal state

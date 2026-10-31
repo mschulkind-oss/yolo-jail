@@ -189,3 +189,86 @@ func TestPackIdentityIgnoresTheRefAndNormalizesTheRepository(t *testing.T) {
 		t.Errorf("a shipped pack's identity = %q, want yolo:claude", got)
 	}
 }
+
+// A move whose new key already holds a record leaves both, says so, and keeps the identity's index
+// entry, so the next read tries again and finishes once the newer record is gone. Fails if the
+// index is updated past a skipped move.
+func TestAMoveBlockedByARecordAlreadyThereIsReportedAndRetried(t *testing.T) {
+	dir, id := identityFixture(t)
+	if _, err := ReconcilePackRecords(dir, []IdentifiedPack{{Handle: "acme/x", Identity: id}}); err != nil {
+		t.Fatal(err)
+	}
+	forkLock := packsrc.ForkLockPath(filepath.Join(dir, paths.UserConfigTOMLName))
+	setPin := func(fn func(*packsrc.ForkLock)) {
+		t.Helper()
+		if err := packsrc.WithForkLock(paths.PacksDir(), forkLock, nil, func(l *packsrc.ForkLock) (bool, error) {
+			fn(l)
+			return true, nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	setPin(func(l *packsrc.ForkLock) {
+		l.Set(packsrc.ForkLockEntry{Key: "tools/x/pi", Source: "git+https://example.invalid/pi?ref=main", Ref: "main",
+			Commit: "2222222222222222222222222222222222222222"})
+	})
+	selected := []IdentifiedPack{{Handle: "tools/x", Identity: id}}
+	lines, err := ReconcilePackRecords(dir, selected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, "could not all move to tools/x") || !strings.Contains(joined, "acme/x/pi stays") {
+		t.Errorf("the read does not report the blocked move:\n%s", joined)
+	}
+	if _, pin, _ := recordsUnder(t, dir, "acme/x"); !pin {
+		t.Errorf("the blocked pin did not stay under acme/x")
+	}
+	idx, err := packsrc.LoadIdentityIndex(filepath.Join(dir, packsrc.IdentityIndexName))
+	if err != nil || idx.Packs[id] != "acme/x" {
+		t.Fatalf("the index moved past a blocked move: %+v %v", idx, err)
+	}
+	// The newer record gone, the next read finishes the move.
+	setPin(func(l *packsrc.ForkLock) { delete(l.Forks, "tools/x/pi") })
+	if _, err := ReconcilePackRecords(dir, selected); err != nil {
+		t.Fatal(err)
+	}
+	if lock, pin, check := recordsUnder(t, dir, "tools/x"); !lock || !pin || !check {
+		t.Errorf("the retried move did not finish: lock=%v pin=%v check=%v", lock, pin, check)
+	}
+	if idx, _ := packsrc.LoadIdentityIndex(filepath.Join(dir, packsrc.IdentityIndexName)); idx.Packs[id] != "tools/x" {
+		t.Errorf("the index does not follow the finished move: %+v", idx)
+	}
+}
+
+// A pack added and launched (its pin written, the index not yet keeping it), then re-pointed at
+// another place and launched again, does not adopt the first place's records: they are set aside
+// and come back when that place is selected again. Fails if the first sight adopts records locked
+// for another place.
+func TestARepointBeforeTheIndexKeptThePackSetsTheOldRecordsAside(t *testing.T) {
+	dir, id := identityFixture(t) // add + launch: the records exist, the index does not
+	moved := filepath.Join(filepath.Dir(dir), "elsewhere")
+	if err := os.MkdirAll(moved, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	newID := packsrc.PackIdentity("", moved, "")
+	lines, err := ReconcilePackRecords(dir, []IdentifiedPack{{Handle: "acme/x", Identity: newID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) == 0 || !strings.Contains(lines[0], "start over") {
+		t.Errorf("the re-pointed pack does not say it starts over: %v", lines)
+	}
+	if lock, pin, check := recordsUnder(t, dir, "acme/x"); lock || pin || check {
+		t.Errorf("the re-pointed pack adopted the old place's records: lock=%v pin=%v check=%v", lock, pin, check)
+	}
+	if lock, pin, check := recordsUnder(t, dir, packsrc.ParkedHandle(id)); !lock || !pin || !check {
+		t.Errorf("the old place's records were not set aside: lock=%v pin=%v check=%v", lock, pin, check)
+	}
+	if _, err := ReconcilePackRecords(dir, []IdentifiedPack{{Handle: "acme/x", Identity: id}}); err != nil {
+		t.Fatal(err)
+	}
+	if lock, pin, check := recordsUnder(t, dir, "acme/x"); !lock || !pin || !check {
+		t.Errorf("pointing back did not bring the records back: lock=%v pin=%v check=%v", lock, pin, check)
+	}
+}

@@ -60,28 +60,82 @@ func ReconcilePackRecords(userConfigDir string, selected []IdentifiedPack) ([]st
 	var out []string
 	err := packsrc.WithIdentityIndex(indexPath, func(idx *packsrc.IdentityIndex) (bool, error) {
 		plan := planReconcile(idx.Packs, selected, readRecordState(userConfigDir))
+		// An identity a move could not finish for keeps its index entry, so the next read tries
+		// the move again, and the line says so.
+		stay := map[string]bool{}
+		blocked := map[string]bool{} // handles whose records could not be set aside
 		if len(plan.parks) > 0 {
-			moved, err := moveRecords(userConfigDir, plan.parks, false)
+			moved, conflicts, err := moveRecords(userConfigDir, plan.parks, false)
 			if err != nil {
 				return false, err
 			}
 			out = append(out, plan.parkLines...)
 			out = append(out, indent(moved)...)
+			for i, r := range plan.parks {
+				if c := conflictsFrom(conflicts, r.Old); len(c) > 0 {
+					blocked[r.Old] = true
+					stay[plan.parkIDs[i]] = true
+					if taker := plan.takerOf[r.Old]; taker != "" {
+						stay[taker] = true
+					}
+					out = append(out, conflictLine(r, c)...)
+				}
+			}
 		}
-		if len(plan.renames) > 0 {
-			moved, err := moveRecords(userConfigDir, plan.renames, true)
+		renames, lines, ids := plan.renames[:0:0], plan.renameLines[:0:0], plan.renameIDs[:0:0]
+		for i, r := range plan.renames {
+			if blocked[r.New] {
+				continue
+			}
+			renames, lines, ids = append(renames, r), append(lines, plan.renameLines[i]), append(ids, plan.renameIDs[i])
+		}
+		if len(renames) > 0 {
+			moved, conflicts, err := moveRecords(userConfigDir, renames, true)
 			if err != nil {
 				return false, err
 			}
-			out = append(out, plan.renameLines...)
+			out = append(out, lines...)
 			out = append(out, indent(moved)...)
+			for i, r := range renames {
+				if c := conflictsFrom(conflicts, r.Old); len(c) > 0 {
+					stay[ids[i]] = true
+					out = append(out, conflictLine(r, c)...)
+				}
+			}
 		}
+		changed := false
 		for id, handle := range plan.index {
-			idx.Packs[id] = handle
+			if !stay[id] && idx.Packs[id] != handle {
+				idx.Packs[id] = handle
+				changed = true
+			}
 		}
-		return plan.changed, nil
+		return changed, nil
 	})
 	return out, err
+}
+
+// conflictsFrom is the conflicts among cs of records moved from handle.
+func conflictsFrom(cs []packsrc.MoveConflict, handle string) []packsrc.MoveConflict {
+	var out []packsrc.MoveConflict
+	for _, c := range cs {
+		if c.Handle() == handle {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// conflictLine says a move left records where they were, which, and what lets it finish.
+func conflictLine(r PackRename, cs []packsrc.MoveConflict) []string {
+	lines := []string{fmt.Sprintf("pack records under %s could not all move to %s, because %s already has its "+
+		"own: both are kept, and every launch tries the move again. To keep the ones under %s, delete each newer "+
+		"record named below (a pin is fetched again, a check runs again) and the next launch moves them; to keep "+
+		"the newer ones, nothing needs doing", r.Old, r.New, r.New, r.Old)}
+	for _, c := range cs {
+		lines = append(lines, "  "+c.String())
+	}
+	return lines
 }
 
 // recordState is what the records say before any index does: locked is {handle → identity} for
@@ -120,6 +174,10 @@ type reconcilePlan struct {
 	// handle another identity is about to take is free.
 	parks, renames         []PackRename
 	parkLines, renameLines []string
+	// parkIDs and renameIDs are the identity each park and rename moves the records of, and
+	// takerOf is {handle → identity a park frees it for}.
+	parkIDs, renameIDs []string
+	takerOf            map[string]string
 	// index is the identities whose entry changes, and where their records are after the moves.
 	index   map[string]string
 	changed bool
@@ -127,7 +185,7 @@ type reconcilePlan struct {
 
 // planReconcile is ReconcilePackRecords' decision, over the index's {identity → handle}.
 func planReconcile(index map[string]string, selected []IdentifiedPack, records recordState) reconcilePlan {
-	plan := reconcilePlan{index: map[string]string{}}
+	plan := reconcilePlan{index: map[string]string{}, takerOf: map[string]string{}}
 	selectedHandles := map[string]bool{}
 	for _, p := range selected {
 		selectedHandles[p.Handle] = true
@@ -168,6 +226,8 @@ func planReconcile(index map[string]string, selected []IdentifiedPack, records r
 		parked[other] = true
 		to := packsrc.ParkedHandle(other)
 		plan.parks = append(plan.parks, PackRename{Old: h, New: to})
+		plan.parkIDs = append(plan.parkIDs, other)
+		plan.takerOf[h] = id
 		parkedFrom[h] = true
 		plan.index[other] = to
 		if _, selectedElsewhere := want[other]; !selectedElsewhere {
@@ -188,17 +248,40 @@ func planReconcile(index map[string]string, selected []IdentifiedPack, records r
 			// written before the index), unless another identity's were just set aside from it. A
 			// pack renamed before the index first saw it is found by the address its pin was
 			// locked for: one unselected, unindexed handle locked for this identity.
-			// A handle with no records yet is not recorded: there is nothing to keep.
-			if records.held[h] || parkedFrom[h] {
+			// A handle with no records yet is not recorded: there is nothing to keep. Records
+			// under it whose pin was locked for another place are that place's, not this pack's:
+			// the pack was re-pointed before the index first saw it, so they are set aside as a
+			// move's are, unless the index already keeps that place's records elsewhere.
+			prev := records.locked[h]
+			if _, prevIndexed := index[prev]; records.held[h] && !parkedFrom[h] && prev != "" && prev != id {
+				if prevIndexed || parked[prev] {
+					continue
+				}
+				parked[prev] = true
+				to := packsrc.ParkedHandle(prev)
+				plan.parks = append(plan.parks, PackRename{Old: h, New: to})
+				plan.parkIDs = append(plan.parkIDs, prev)
+				plan.takerOf[h] = id
+				plan.index[prev] = to
+				plan.index[id] = h
+				if _, selectedElsewhere := want[prev]; selectedElsewhere {
+					continue
+				}
+				plan.parkLines = append(plan.parkLines, fmt.Sprintf("pack %s now reads from %s, not %s: its pins and "+
+					"checks start over, and the earlier ones are kept in case %s is selected again",
+					h, describeIdentity(id), describeIdentity(prev), describeIdentity(prev)))
+			} else if records.held[h] || parkedFrom[h] {
 				plan.index[id] = h
 			} else if old := formerHandle(id, h, records.locked, holder, selectedHandles); old != "" {
 				plan.index[id] = h
 				plan.renames = append(plan.renames, PackRename{Old: old, New: h})
+				plan.renameIDs = append(plan.renameIDs, id)
 				plan.renameLines = append(plan.renameLines, fmt.Sprintf("pack %s was %s: its pins and records follow it",
 					h, old))
 			}
 		case from != h:
 			plan.renames = append(plan.renames, PackRename{Old: from, New: h})
+			plan.renameIDs = append(plan.renameIDs, id)
 			plan.index[id] = h
 			if index[id] == packsrc.ParkedHandle(id) {
 				plan.renameLines = append(plan.renameLines, fmt.Sprintf("pack %s reads from %s again: "+

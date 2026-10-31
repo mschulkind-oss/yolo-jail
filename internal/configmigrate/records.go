@@ -86,15 +86,20 @@ func packTreeSourceRename(renames map[string]string, source string) (string, boo
 // record moved. In a jail it does nothing: the pack store, the capture store and the host floor
 // are the host's, and a jail's user config renames nothing there.
 func respellPackRecords(userConfigDir string, renames []PackRename) ([]string, error) {
-	return moveRecords(userConfigDir, renames, true)
+	out, conflicts, err := moveRecords(userConfigDir, renames, true)
+	for _, c := range conflicts {
+		out = append(out, c.String())
+	}
+	return out, err
 }
 
 // moveRecords is respellPackRecords, with the host-skills manifest's owners moved only when
 // manifest is set: a pack's records set aside under a parked handle leave the paths its handle
-// still writes owned by that handle.
-func moveRecords(userConfigDir string, renames []PackRename, manifest bool) ([]string, error) {
+// still writes owned by that handle. It returns the moves it made and, apart, the records it left
+// because their new key already held one (packsrc.MoveConflict).
+func moveRecords(userConfigDir string, renames []PackRename, manifest bool) ([]string, []packsrc.MoveConflict, error) {
 	if len(renames) == 0 || userConfigDir == "" || config.InJail() {
-		return nil, nil
+		return nil, nil, nil
 	}
 	names := renameMap(renames)
 	sources := map[string]string{}
@@ -107,33 +112,34 @@ func moveRecords(userConfigDir string, renames []PackRename, manifest bool) ([]s
 	storeDir := paths.PacksDir()
 	keys := forkKeyRename(names)
 	var out []string
-	moved, err := packsrc.RenamePackLock(storeDir, packsrc.LockPath(userConfig), names, sources)
-	out = append(out, moved...)
+	var conflicts []packsrc.MoveConflict
+	moved, c, err := packsrc.RenamePackLock(storeDir, packsrc.LockPath(userConfig), names, sources)
+	out, conflicts = append(out, moved...), append(conflicts, c...)
 	if err != nil {
-		return out, err
+		return out, conflicts, err
 	}
-	moved, err = packsrc.RenameForkLock(storeDir, packsrc.ForkLockPath(userConfig), keys)
-	out = append(out, moved...)
+	moved, c, err = packsrc.RenameForkLock(storeDir, packsrc.ForkLockPath(userConfig), keys)
+	out, conflicts = append(out, moved...), append(conflicts, c...)
 	if err != nil {
-		return out, err
+		return out, conflicts, err
 	}
-	moved, err = (&packsrc.Store{Dir: storeDir}).RenameCheckRecords(keys)
-	out = append(out, moved...)
+	moved, c, err = (&packsrc.Store{Dir: storeDir}).RenameCheckRecords(keys)
+	out, conflicts = append(out, moved...), append(conflicts, c...)
 	if err != nil {
-		return out, err
+		return out, conflicts, err
 	}
 	out = append(out, respellReceipts(names, keys)...)
 	moved, err = (&hostfloor.Floor{Dir: paths.HostFloorDir()}).RenamePack(names)
 	out = append(out, moved...)
 	if err != nil {
-		return out, err
+		return out, conflicts, err
 	}
 	if !manifest {
-		return out, nil
+		return out, conflicts, nil
 	}
 	moved, err = respellSkillsManifest(filepath.Join(paths.GlobalStorage(), "host-skills-manifest.json"), names)
 	out = append(out, moved...)
-	return out, err
+	return out, conflicts, err
 }
 
 // respellReceipts gives every build a renamed pack's fork or pack-tree program admitted a record
