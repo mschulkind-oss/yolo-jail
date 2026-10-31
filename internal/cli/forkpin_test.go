@@ -284,7 +284,7 @@ func TestHostPinDeclarationsContextCancelsHeldLockPromptly(t *testing.T) {
 	var out bytes.Buffer
 	done := make(chan int, 1)
 	go func() {
-		done <- pinForkDeclarationsContext(ctx, richtext.Printer{W: &out}, &out, packload.Forks(selectConfiguredHostPacks().packs), nil, true, false, false)
+		done <- pinForkDeclarationsContext(ctx, richtext.Printer{W: &out}, &out, packload.Forks(selectConfiguredHostPacks().packs), nil, true, nil, false)
 	}()
 	select {
 	case rc := <-done:

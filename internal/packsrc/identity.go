@@ -175,3 +175,38 @@ func (l *Lock) BySource(source string) (LockEntry, bool) {
 	}
 	return found, n == 1
 }
+
+// IsParkedHandle reports whether handle is one ParkedHandle names.
+func IsParkedHandle(handle string) bool { return strings.HasPrefix(handle, "~parked/") }
+
+// ForkKeyHandle is the handle of the pack a fork pin's key belongs to: the key without its
+// `#<patch>` suffix and its last `/<fork>` segment. "" for a key with no pack part.
+func ForkKeyHandle(key string) string {
+	key, _, _ = strings.Cut(key, "#")
+	if i := strings.LastIndex(key, "/"); i > 0 {
+		return key[:i]
+	}
+	return ""
+}
+
+// ClaimedHandles is the prune guard for the identity index at indexPath (PN-D15): it reports
+// whether a record under handle belongs to an identity that is not selected now, because the
+// handle is parked or the index maps an identity to it and no selected pack is called it. A prune
+// drops only records no such identity claims, so an unselected or moved pack's pins are found
+// again when it returns, while a selected pack's records stay the prune's to judge. When the index
+// cannot be read, every handle is claimed: a prune that cannot tell which records are kept removes
+// none.
+func ClaimedHandles(indexPath string, selected []string) func(handle string) bool {
+	idx, err := LoadIdentityIndex(indexPath)
+	if err != nil {
+		return func(string) bool { return true }
+	}
+	claimed := map[string]bool{}
+	for _, h := range idx.Packs {
+		claimed[h] = true
+	}
+	for _, h := range selected {
+		delete(claimed, h)
+	}
+	return func(handle string) bool { return IsParkedHandle(handle) || claimed[handle] }
+}

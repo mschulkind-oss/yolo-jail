@@ -179,13 +179,19 @@ func (l *Lock) Get(name string) (LockEntry, bool) {
 // Reported rather than silent: a lock entry vanishing is worth seeing, because it
 // means a pack left the config and its content is about to stop being delivered.
 func (l *Lock) Prune(configured []string) []string {
+	return l.PruneUnclaimed(configured, nil)
+}
+
+// PruneUnclaimed is Prune keeping, besides the configured packs, every entry whose handle claimed
+// reports (ClaimedHandles): the pins of a pack that is parked or not selected now (PN-D15).
+func (l *Lock) PruneUnclaimed(configured []string, claimed func(string) bool) []string {
 	keep := map[string]bool{}
 	for _, n := range configured {
 		keep[n] = true
 	}
 	var removed []string
 	for name := range l.Packs {
-		if !keep[name] {
+		if !keep[name] && (claimed == nil || !claimed(name)) {
 			removed = append(removed, name)
 			delete(l.Packs, name)
 		}

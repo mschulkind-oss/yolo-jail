@@ -1896,8 +1896,9 @@ func packInstallPins(out, errw io.Writer, color, repinForks bool) int {
 				l.Set(e)
 			}
 			// Prune entries for packs that left the config, and SAY SO: a lock entry
-			// vanishing means content is about to stop being delivered.
-			pruned = l.Prune(names)
+			// vanishing means content is about to stop being delivered. An entry an identity
+			// still claims (parked, or a pack not selected now) is kept for its return (PN-D15).
+			pruned = l.PruneUnclaimed(names, packsrc.ClaimedHandles(packsrc.IdentityIndexPath(paths.UserConfigPath()), names))
 		},
 	})
 	byName := map[string]packsrc.Outcome{}

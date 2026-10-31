@@ -143,13 +143,19 @@ func (l *ForkLock) Set(e ForkLockEntry) {
 // Prune removes the pins whose key is not in keep and returns the removed keys, sorted — reported
 // by the caller, because a pin vanishing means a fork left the selection.
 func (l *ForkLock) Prune(keep []string) []string {
+	return l.PruneUnclaimed(keep, nil)
+}
+
+// PruneUnclaimed is Prune keeping, besides keep, every pin whose pack handle (ForkKeyHandle)
+// claimed reports (ClaimedHandles): the pins of a pack that is parked or not selected now (PN-D15).
+func (l *ForkLock) PruneUnclaimed(keep []string, claimed func(string) bool) []string {
 	want := map[string]bool{}
 	for _, k := range keep {
 		want[k] = true
 	}
 	var removed []string
 	for k := range l.Forks {
-		if !want[k] {
+		if !want[k] && (claimed == nil || !claimed(ForkKeyHandle(k))) {
 			removed = append(removed, k)
 			delete(l.Forks, k)
 		}

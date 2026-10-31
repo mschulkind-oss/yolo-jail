@@ -56,18 +56,24 @@ func pinForks(pr richtext.Printer, errw io.Writer, repin bool) int {
 		}
 		return 0
 	}
-	return pinForkDeclarations(pr, errw, forks, trees, repin, true, true)
+	selected := make([]string, 0, len(sel.packs))
+	for _, p := range sel.packs {
+		selected = append(selected, p.Name)
+	}
+	return pinForkDeclarations(pr, errw, forks, trees, repin, selected, true)
 }
 
-// pinForkDeclarations pins exactly the passed declarations. pruneSelection is used only by
-// whole-selection pack commands; launch-scoped updates pass false so unrelated lock entries stay put.
+// pinForkDeclarations pins exactly the passed declarations. selected, the whole selection's pack
+// handles, is passed only by whole-selection pack commands, which prune the pins of forks that left
+// it, keeping those of a pack an identity still claims (packsrc.ClaimedHandles, PN-D15);
+// launch-scoped updates pass nil so unrelated lock entries stay put.
 func pinForkDeclarations(pr richtext.Printer, errw io.Writer, forks, trees []packload.Fork,
-	repin, pruneSelection, checkTrees bool) int {
-	return pinForkDeclarationsContext(context.Background(), pr, errw, forks, trees, repin, pruneSelection, checkTrees)
+	repin bool, selected []string, checkTrees bool) int {
+	return pinForkDeclarationsContext(context.Background(), pr, errw, forks, trees, repin, selected, checkTrees)
 }
 
 func pinForkDeclarationsContext(ctx context.Context, pr richtext.Printer, errw io.Writer, forks, trees []packload.Fork,
-	repin, pruneSelection, checkTrees bool) int {
+	repin bool, selected []string, checkTrees bool) int {
 	if config.InJail() {
 		return 1
 	}
@@ -141,8 +147,9 @@ func pinForkDeclarationsContext(ctx context.Context, pr richtext.Printer, errw i
 					changed = true
 				}
 			}
-			if pruneSelection {
-				if pruned = l.Prune(keep); len(pruned) > 0 {
+			if selected != nil {
+				claimed := packsrc.ClaimedHandles(packsrc.IdentityIndexPath(paths.UserConfigPath()), selected)
+				if pruned = l.PruneUnclaimed(keep, claimed); len(pruned) > 0 {
 					changed = true
 				}
 			}
