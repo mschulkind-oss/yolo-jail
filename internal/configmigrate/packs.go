@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packname"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -77,12 +78,15 @@ func classifyPack(entry any) convertedPack {
 		return convertedPack{reason: fmt.Sprintf("the pack directory %q has no name a TOML handle can carry", name)}
 	}
 	if expandHome(parent) == filepath.Join(paths.Home(), ".config", "yolo-jail", "packs") {
-		return convertedPack{handle: "local/" + name}
+		return convertedPack{handle: bareEntry("local/" + name)}
 	}
 	if parent == "~" || parent == "/" {
 		return convertedPack{reason: "a pack directory directly under ~ or / has no source a TOML handle can name; move it into a directory of packs, or keep the old file for now"}
 	}
-	return convertedPack{handle: name, source: &packSource{key: "dir:" + parent, value: parent}}
+	source := jsonx.NewOrderedMap()
+	source.Set("path", parent)
+	source.Set("bare", true)
+	return convertedPack{handle: name, source: &packSource{key: "dir:" + parent, value: source}}
 }
 
 func classifyGitPack(text string) convertedPack {
@@ -99,12 +103,23 @@ func classifyGitPack(text string) convertedPack {
 		if !ownerRepoShaped(addr.Repo) {
 			return convertedPack{reason: "a repository that is one pack is named owner/repository from its URL, and " + addr.Repo + " has no owner/repository path; keep the old file for now"}
 		}
+		table.Set("bare", true)
 		return convertedPack{handle: table}
 	}
 	if strings.Contains(addr.Path, "/") || !validSegment(addr.Path) {
 		return convertedPack{reason: "a pack in a nested subdirectory (" + addr.Path + ") has no TOML handle: a source is a repository of <pack>/ directories; keep the old file for now"}
 	}
+	table.Set("bare", true)
 	return convertedPack{handle: addr.Path, source: &packSource{key: "git:" + addr.Repo + "@" + addr.Ref, value: table}}
+}
+
+// bareEntry is { pack = HANDLE, bare = true }: a converted pack listed on its own keeps the bare
+// names it was delivered under before conversion (pack-naming.md PN-D7).
+func bareEntry(handle string) *jsonx.OrderedMap {
+	entry := jsonx.NewOrderedMap()
+	entry.Set("pack", handle)
+	entry.Set("bare", true)
+	return entry
 }
 
 func ownerRepoShaped(repo string) bool {
@@ -150,10 +165,11 @@ func sourceNames(list []any) map[string]string {
 			repo, _, _ := strings.Cut(strings.TrimPrefix(c.source.key, "git:"), "@")
 			base = path.Base(repo)
 		}
-		if !validSegment(base) || taken[base] {
-			if !validSegment(base) {
-				base = "packs"
-			}
+		// The key is the source's namespace (pack-naming.md PN-D11), so it is written in the spelling
+		// agents carry: the folder's name normalized, with no prompt (PN-D12).
+		base = packname.Normalize(base)
+		if base == "" || len(base) > packname.MaxLen-8 {
+			base = "packs"
 		}
 		name := base
 		for i := 2; taken[name]; i++ {

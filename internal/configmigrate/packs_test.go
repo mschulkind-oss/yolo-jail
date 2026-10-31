@@ -42,9 +42,24 @@ func TestClassifyPackGivesEachLegacySpellingItsHandle(t *testing.T) {
 		}
 		handle, _ := got.handle.(string)
 		if table, ok := got.handle.(*jsonx.OrderedMap); ok {
-			repo, _ := table.Get("git")
-			ref, _ := table.Get("ref")
-			handle = "git=" + repo.(string) + " ref=" + ref.(string)
+			// Every converted entry listed on its own is bare (pack-naming.md PN-D7).
+			if bare, _ := table.Get("bare"); bare != true {
+				t.Errorf("%s: converted entry is not bare: %v", c.entry, table)
+			}
+			if pack, isPack := table.Get("pack"); isPack {
+				handle = pack.(string)
+			} else {
+				repo, _ := table.Get("git")
+				ref, _ := table.Get("ref")
+				handle = "git=" + repo.(string) + " ref=" + ref.(string)
+			}
+		}
+		if got.source != nil {
+			if table, ok := got.source.value.(*jsonx.OrderedMap); !ok {
+				t.Errorf("%s: source is not a table: %v", c.entry, got.source.value)
+			} else if bare, _ := table.Get("bare"); bare != true {
+				t.Errorf("%s: converted source is not bare: %v", c.entry, table)
+			}
 		}
 		if handle != c.handle {
 			t.Errorf("%s: handle %q, want %q", c.entry, handle, c.handle)
@@ -71,5 +86,18 @@ func TestSourceNamesAreDistinctAndNeverReserved(t *testing.T) {
 		if n == "local" || n == "yolo" {
 			t.Errorf("%s got the reserved source name %q", key, n)
 		}
+	}
+}
+
+// A source takes its folder's name with no prompt, in the spelling agents carry, since the key
+// is the source's namespace (pack-naming.md PN-D11, PN-D12).
+func TestASourceTakesItsFoldersNameAsAWord(t *testing.T) {
+	env(t)
+	names := sourceNames([]any{"/a/Yolo_Packs/x", "/b/___/y"})
+	if got := names["dir:/a/Yolo_Packs"]; got != "yolo-packs" {
+		t.Errorf("source for /a/Yolo_Packs = %q, want yolo-packs", got)
+	}
+	if got := names["dir:/b/___"]; got != "packs" {
+		t.Errorf("source for a folder with no letter = %q, want packs", got)
 	}
 }
