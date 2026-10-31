@@ -18,6 +18,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // PackIdentity is a pack's identity: `yolo:<name>` for a shipped pack, `dir:<physical path>` for a
@@ -94,8 +96,10 @@ func LoadIdentityIndex(path string) (*IdentityIndex, error) {
 	}
 	var idx IdentityIndex
 	if err := json.Unmarshal(data, &idx); err != nil {
-		return nil, fmt.Errorf("%s: %w (delete it to start over: the next launch writes it again, "+
-			"and a pack renamed since the last launch then re-pins once)", path, err)
+		return nil, fmt.Errorf("%s: %w. That file only records which handle each pack's pins and records are "+
+			"kept under, so removing it is safe: `rm %s`. The next launch writes it again from the pins "+
+			"themselves, and only a pack renamed or moved since the last launch then fetches and checks again once",
+			path, err, shquote.Quote(path))
 	}
 	if idx.Schema > IdentityIndexSchema {
 		return nil, newerSchemaError(path, idx.Schema, IdentityIndexSchema)

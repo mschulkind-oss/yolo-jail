@@ -31,6 +31,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packname"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 const packSourceUsage = `yolo pack source rename OLD NEW [--dry-run] [--yes]
@@ -80,7 +81,13 @@ func packSource(args []string, in io.Reader, out, errw io.Writer) int {
 	}
 	workspace := configEditWorkspace()
 	if config.InJail() {
-		printPackHostRun(errw, workspace, "source", args)
+		// The host-run line runs with no terminal to answer the y/N question, so it answers it:
+		// the user has read the plan this line came with, and runs it to make that edit.
+		hostArgs := args
+		if !yes && !dryRun {
+			hostArgs = append(append([]string(nil), args...), "--yes")
+		}
+		printPackHostRun(errw, workspace, "source", hostArgs)
 		return 1
 	}
 	planned, target, rc := planSourceRename(workspace, oldKey, newKey, errw)
@@ -93,8 +100,8 @@ func packSource(args []string, in io.Reader, out, errw io.Writer) int {
 	result, err := configedit.ApplyTargeted(workspace, target, planned.first,
 		configedit.ApplyOptions{DryRun: true, Then: planned.then})
 	if err != nil {
-		fmt.Fprintf(errw, "yolo pack source rename: refused: %v — nothing written. Rename it by hand in %s, "+
-			"then run `yolo check`\n", err, target.LogicalPath)
+		fmt.Fprintf(errw, "yolo pack source rename: refused: %v — nothing written. The same rename, one "+
+			"edit at a time, is:\n%s", err, renameAsCommands(planned))
 		return 1
 	}
 	fmt.Fprintf(out, "%s\n", result.Path)
@@ -198,7 +205,8 @@ func planSourceRename(workspace, oldKey, newKey string, errw io.Writer) (renameP
 	}
 	if _, taken := sources.Get(newKey); taken {
 		fmt.Fprintf(errw, "yolo pack source rename: %s already has a source %q; choose another new key, "+
-			"or remove that one first\n", target.LogicalPath, newKey)
+			"or remove that one first with `%s` (the packs that read from it then stop resolving)\n",
+			target.LogicalPath, newKey, shquote.Join([]string{"yolo", "config", "unset", "pack_sources." + configKeyComponent(newKey), "--user"}))
 		return renamePlan{}, target, 1
 	}
 	first.Value = definition
@@ -206,8 +214,7 @@ func planSourceRename(workspace, oldKey, newKey string, errw io.Writer) (renameP
 	plan.then, plan.handles = renamedHandles(doc, oldKey, newKey)
 	tables, renamedTables, err := renamedTables(doc, oldKey, newKey)
 	if err != nil {
-		fmt.Fprintf(errw, "yolo pack source rename: %v — nothing written. Rename it by hand in %s, then run `yolo check`\n",
-			err, target.LogicalPath)
+		fmt.Fprintf(errw, "yolo pack source rename: %v — nothing written\n", err)
 		return renamePlan{}, target, 1
 	}
 	plan.then = append(plan.then, tables...)
@@ -263,7 +270,10 @@ func renamedTables(doc *configdoc.Document, oldKey, newKey string) ([]configedit
 			}
 			to := newKey + "/" + strings.TrimPrefix(key, prefix)
 			if _, taken := table.Get(to); taken {
-				return nil, nil, fmt.Errorf("[%s.%q] and [%s.%q] both exist, and the rename would make them one", root, key, root, to)
+				return nil, nil, fmt.Errorf("[%s.%q] and [%s.%q] both exist, and the rename would make them one: "+
+					"`yolo config why %s` shows both, and `%s` removes the second, after which this rename moves the "+
+					"first in its place", root, key, root, to, root,
+					shquote.Join([]string{"yolo", "config", "unset", root + "." + configKeyComponent(to), "--user"}))
 			}
 			value, _ := table.Get(key)
 			out = append(out,
@@ -323,3 +333,40 @@ func renamedAgentNames(oldKey, newKey string) []string {
 
 // packSourceStdin is the reader the confirmation reads: the terminal, in the real command.
 var packSourceStdin io.Reader = os.Stdin
+
+// renameAsCommands is the planned rename as the `yolo config` commands that make the same edits,
+// one per line, for when the verb cannot make them in one write.
+func renameAsCommands(plan renamePlan) string {
+	var b strings.Builder
+	for _, m := range append([]configedit.Mutation{plan.first}, plan.then...) {
+		argv := []string{"yolo", "config"}
+		switch m.Action {
+		case configedit.Remove:
+			argv = append(argv, "unset", configEditKey(m.Path))
+		default:
+			value, err := configdoc.EncodeValue(m.Value, configdoc.TOML)
+			if err != nil {
+				continue
+			}
+			argv = append(argv, "set", configEditKey(m.Path), string(value))
+		}
+		fmt.Fprintf(&b, "  %s\n", shquote.Join(append(argv, "--user")))
+	}
+	return b.String()
+}
+
+// configEditKey is path as `yolo config set` and `unset` read a key (parseConfigEditKey).
+func configEditKey(path []configdoc.Step) string {
+	var b strings.Builder
+	for i, s := range path {
+		if s.IsIndex {
+			fmt.Fprintf(&b, "[%d]", s.Index)
+			continue
+		}
+		if i > 0 {
+			b.WriteByte('.')
+		}
+		b.WriteString(configKeyComponent(s.Key))
+	}
+	return b.String()
+}
