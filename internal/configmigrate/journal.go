@@ -8,6 +8,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 // The commit's moves (config-migration.md, the commit steps). Each is a rename, a hard link or a
@@ -62,6 +65,100 @@ type migrationJournal struct {
 	Version   int          `json:"version"`
 	Workspace string       `json:"workspace,omitempty"`
 	Steps     []commitStep `json:"steps"`
+	// UserConfigDir is the user config directory the migration converts, "" for a workspace
+	// alone: where the pack locks live.
+	UserConfigDir string `json:"user_config_dir,omitempty"`
+	// Renames are the packs the conversion renames: their records move inside the commit, before
+	// the journal is removed (respellPackRecords).
+	Renames []PackRename `json:"renames,omitempty"`
+	// Records are the approval record and boot baseline the plan respells once the files are in
+	// place, with the text each held when it was planned.
+	Records []journalRecord `json:"records,omitempty"`
+	// UserTop is the converted user config's path and Canonical the hash of what the plan proved
+	// the converted files say: the read-back a finished migration checks.
+	UserTop   string `json:"user_top,omitempty"`
+	Canonical string `json:"canonical,omitempty"`
+}
+
+// journalRecord is a Record as the journal keeps it.
+type journalRecord struct {
+	Kind   string      `json:"kind"`
+	Path   string      `json:"path,omitempty"`
+	State  RecordState `json:"state"`
+	Why    string      `json:"why,omitempty"`
+	Before string      `json:"before,omitempty"`
+}
+
+func journalRecords(rs []Record) []journalRecord {
+	out := make([]journalRecord, len(rs))
+	for i, r := range rs {
+		out[i] = journalRecord{Kind: r.Kind, Path: r.Path, State: r.State, Why: r.Why, Before: r.before}
+	}
+	return out
+}
+
+func (j *migrationJournal) records() []Record {
+	out := make([]Record, len(j.Records))
+	for i, r := range j.Records {
+		out[i] = Record{Kind: r.Kind, Path: r.Path, State: r.State, Why: r.Why, before: r.Before}
+	}
+	return out
+}
+
+// hashCanonical is the read-back's digest of a canonical set.
+func hashCanonical(s canonicalSet) string {
+	return hashOf([]byte(strings.Join([]string{s.user, s.project, s.composed, s.env, s.providers, s.grants}, "\x00")))
+}
+
+// finish is the commit's last part, the same after Apply's moves and after Resume's: the renamed
+// packs' records move while the journal still stands, so a kill there is finished by the next
+// run; then the journal goes, and the written files are read back through the launch's readers
+// and the approval records respelled.
+func (j *migrationJournal) finish(journal string, res *ApplyResult) error {
+	moved, err := respellPackRecords(j.UserConfigDir, j.Renames)
+	res.PackRecords = moved
+	if err != nil {
+		return fmt.Errorf("the converted files are in place, but moving the renamed packs' records failed (%w); "+
+			"fix what that names and run `yolo config migrate` to finish, as %s lists", err, journal)
+	}
+	if err := os.Remove(journal); err != nil {
+		return fmt.Errorf("converted, but the journal %s could not be removed (%w); delete it by hand", journal, err)
+	}
+	syncDir(filepath.Dir(journal))
+	j.result(res)
+	if j.Canonical != "" {
+		after, err := readCanonical(nil, j.UserTop, j.Workspace, nil, nil, "", false, planOptions{}, packload.Embedded())
+		if err != nil {
+			return fmt.Errorf("converted: %s; originals kept as %s. But the written files do not read: %w. This is a yolo bug: please report it; to go back, move each original back to its name", strings.Join(res.Written, ", "), strings.Join(res.Backups, ", "), err)
+		}
+		if hashCanonical(after.set) != j.Canonical {
+			return fmt.Errorf("converted: %s; originals kept as %s. But the written files do not say what the plan proved. This is a yolo bug: please report it; to go back, move each original back to its name", strings.Join(res.Written, ", "), strings.Join(res.Backups, ", "))
+		}
+	}
+	res.Records = respellRecords(j.records(), j.Workspace)
+	return nil
+}
+
+// stepDirs are the directories a step changes an entry of.
+func (s commitStep) dirs() []string {
+	var out []string
+	for _, p := range []string{s.From, s.To, s.Backup} {
+		if p != "" {
+			out = append(out, filepath.Dir(p))
+		}
+	}
+	return out
+}
+
+// syncDir makes a directory's entries durable: a rename, link or removal in it is on disk once
+// this returns, so a crash cannot undo a move the journal already counts as made.
+func syncDir(dir string) {
+	f, err := os.Open(dir)
+	if err != nil {
+		return
+	}
+	_ = f.Sync()
+	f.Close()
 }
 
 func (j *migrationJournal) write(path string) error {
@@ -230,16 +327,32 @@ func Resume(journal string) (*ApplyResult, error) {
 	if err := json.Unmarshal(b, &j); err != nil || j.Version != 1 {
 		return nil, fmt.Errorf("%s is not a journal this yolo reads; move it aside and finish the moves by hand", journal)
 	}
+	// The locks Apply took: a `yolo config set` or a second migrate in flight is waited for.
+	dirSet := map[string]bool{}
+	for _, s := range j.Steps {
+		for _, d := range s.dirs() {
+			if _, err := os.Stat(d); err == nil {
+				dirSet[d] = true
+			}
+		}
+	}
+	unlock, err := lockDirs(sortedKeys(dirSet))
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 	for _, s := range j.Steps {
 		if err := s.do(); err != nil {
 			return nil, partWay(journal, s, err)
 		}
-	}
-	if err := os.Remove(journal); err != nil {
-		return nil, err
+		for _, d := range s.dirs() {
+			syncDir(d)
+		}
 	}
 	res := &ApplyResult{}
-	j.result(res)
+	if err := j.finish(journal, res); err != nil {
+		return res, err
+	}
 	return res, nil
 }
 

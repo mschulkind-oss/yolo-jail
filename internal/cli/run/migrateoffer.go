@@ -60,6 +60,20 @@ func (o *Options) offerConfigMigration() bool {
 	if !config.InJail() {
 		req.UserConfigDir = filepath.Dir(paths.UserConfigPath())
 	}
+	// A conversion that stopped part way is finished by `yolo config migrate`, never offered
+	// again: a second conversion would refuse over its journal, and "nothing was changed" would
+	// be false (RC-D45).
+	if journal := configmigrate.Interrupted(req); journal != "" {
+		o.pr(o.Stderr).print(richtext.Escape(config.InterruptedMigrationRefusal(journal)))
+		return false
+	}
+	// A converted file staged by a migration killed before its journal is a hidden copy of the
+	// config's bytes that nothing will move into place.
+	if !o.DryRun {
+		for _, p := range configmigrate.RemoveStaleStaged(req) {
+			o.pr(o.Stderr).printf("Removed [cyan]%s[/cyan], left staged by a config migration stopped before it began.", richtext.Escape(p))
+		}
+	}
 	graph, err := configmigrate.Discover(req)
 	if err != nil {
 		// The launch's own read below reports what is wrong with these files.
@@ -123,6 +137,18 @@ func (o *Options) offerConfigMigration() bool {
 			plural(len(links), "it will be", "they will be"), richtext.Escape(joinAnd(linkNews)), plural(len(links), "it", "them"))
 		pr.print("")
 	}
+	// A path pack converted to its readable handle is renamed, and what moves with it and what
+	// does not is said before the question (RC-D47). The plan is made once, here, and is the one a
+	// yes applies.
+	plan, planErr := configmigrate.Plan(graph)
+	if planErr == nil && len(plan.Renames) > 0 {
+		pr.print("Converting renames these packs to their readable handles:")
+		for _, r := range plan.Renames {
+			pr.printf("  [cyan]%s[/cyan]  →  [cyan]%s[/cyan]", richtext.Escape(r.Old), richtext.Escape(r.New))
+		}
+		pr.print("Their pins, check records, builds and host records move to the new names; " + richtext.Escape(configmigrate.NotCarried) + ".")
+		pr.print("")
+	}
 	if _, err := fmt.Fprint(o.Stderr, richtext.Render("[bold]Convert to TOML now? [y/N][/bold] ", o.streamColor())); err != nil {
 		return true
 	}
@@ -134,9 +160,8 @@ func (o *Options) offerConfigMigration() bool {
 		pr.printf("Keeping the JSONC %s for now.", plural(len(old), "file", "files"))
 		return true
 	}
-	plan, err := configmigrate.Plan(graph)
-	if err != nil {
-		o.reportMigrationRefusal(plan, err, names)
+	if planErr != nil {
+		o.reportMigrationRefusal(plan, planErr, names)
 		return false
 	}
 	res, err := configmigrate.Apply(plan, configmigrate.ApplyOptions{})

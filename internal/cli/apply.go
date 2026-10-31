@@ -268,7 +268,23 @@ func applyAtHost(out, errw io.Writer, color, write, revert bool, stdin io.Reader
 	if rc, refused := refuseHostManagement(out, errw, format); refused {
 		return rc
 	}
+	if refuseInterruptedMigration(errw) {
+		return 1
+	}
 	return hostApplyRefreshAndRender(out, errw, color, write, stdin, format, "")
+}
+
+// refuseInterruptedMigration refuses a host verb while a `yolo config migrate` is part way, and
+// says so on errw. The host reads the user config alone, through readers that read an unreadable
+// file as empty (config.UserScopeConfigOrEmpty), so mid-migration it would compose the host from
+// no config at all without a word. The one step is to finish the migration (RC-D45).
+func refuseInterruptedMigration(errw io.Writer) bool {
+	journal := config.InterruptedMigration("")
+	if journal == "" {
+		return false
+	}
+	fmt.Fprintln(errw, "yolo: "+config.InterruptedMigrationRefusal(journal)+".")
+	return true
 }
 
 // applyHost renders the configured packs' config surfaces into the invoking user's REAL

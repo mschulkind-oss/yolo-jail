@@ -31,6 +31,16 @@ func TestConfigMigrateFinishesAMigrationKilledPartWay(t *testing.T) {
 		t.Fatal("no journal after a stop")
 	}
 
+	// The host reads the user config through readers that read an unreadable file as empty, so
+	// mid-migration `yolo host` would compose from no config without a word: it refuses instead.
+	for _, args := range [][]string{{"--", "true"}, {"apply"}} {
+		var hostOut, hostErr strings.Builder
+		if rc := hostMain(args, &hostOut, &hostErr, false, strings.NewReader("")); rc == 0 ||
+			!strings.Contains(hostErr.String(), "yolo config migrate") {
+			t.Errorf("yolo host %v mid-migration: rc=%d\nstderr:\n%s", args, rc, hostErr.String())
+		}
+	}
+
 	rc, out, errw := runConfigMigrateVerb(t, "--dry-run")
 	if rc != 1 || !strings.Contains(errw, "stopped part way") || !strings.Contains(errw, "Nothing was changed") {
 		t.Fatalf("--dry-run over an interrupted migration: rc=%d\nstdout:\n%s\nstderr:\n%s", rc, out, errw)

@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
-	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/gitexclude"
 	"golang.org/x/sys/unix"
 )
 
@@ -33,6 +33,8 @@ type ApplyResult struct {
 	Links []LinkMove
 	// Records are the records only yolo reads, each with what was done to it.
 	Records []Record
+	// PackRecords name each record of a renamed pack moved to its new name.
+	PackRecords []string
 	// Ignores are the plan's Ignores, each marked Done or carrying its hint.
 	Ignores []Ignore
 }
@@ -89,7 +91,9 @@ func Apply(p *MigrationPlan, opts ApplyOptions) (*ApplyResult, error) {
 		return nil, err
 	}
 
-	// Step 1: stage. Nothing a reader reads changes.
+	// Step 1: stage. Nothing a reader reads changes. Each staged name is kept out of git first:
+	// it holds the converted file's bytes, as private as the original's, and a kill can leave it.
+	excludeStaged(p.Targets)
 	for _, t := range p.Targets {
 		info, err := os.Stat(t.Old)
 		if err != nil {
@@ -104,36 +108,38 @@ func Apply(p *MigrationPlan, opts ApplyOptions) (*ApplyResult, error) {
 	}
 	res.Ignores = applyIgnores(p.Ignores, p.Graph.Request.Workspace)
 
-	// Step 2: the journal.
-	j := &migrationJournal{Version: 1, Workspace: p.Graph.Request.Workspace, Steps: commitSteps(p.Targets)}
+	for _, t := range p.Targets {
+		syncDir(filepath.Dir(t.New))
+	}
+
+	// Step 2: the journal, with everything the commit still has to do: the moves, the renamed
+	// packs' records, the approval records and the read-back, so Resume finishes all of it.
+	j := &migrationJournal{Version: 1, Workspace: p.Graph.Request.Workspace, Steps: commitSteps(p.Targets),
+		UserConfigDir: p.Graph.Request.UserConfigDir, Renames: p.Renames, Records: journalRecords(p.Records),
+		UserTop: newUserTop(p.Graph), Canonical: hashCanonical(p.canonical)}
 	if err := j.write(journal); err != nil {
 		removeStaged(p.Targets)
 		return nil, fmt.Errorf("write the migration's journal %s: %w; nothing was changed", journal, err)
 	}
+	syncDir(filepath.Dir(journal))
 
 	// Step 3: the moves.
 	for i, s := range j.Steps {
 		if err := s.do(); err != nil {
 			return nil, partWay(journal, s, err)
 		}
+		for _, d := range s.dirs() {
+			syncDir(d)
+		}
 		if opts.StopAfter != nil && opts.StopAfter(i, s.String()) {
 			return nil, &PartWayError{Journal: journal, Step: s.String(), Err: ErrInterrupted}
 		}
 	}
 
-	// Step 4: done.
-	if err := os.Remove(journal); err != nil {
-		return nil, fmt.Errorf("converted, but the journal %s could not be removed (%w); delete it by hand", journal, err)
+	// Step 4: the renamed packs' records, then the journal goes, the read-back, the approvals.
+	if err := j.finish(journal, res); err != nil {
+		return res, err
 	}
-	j.result(res)
-	after, err := readCanonical(p.Graph, newUserTop(p.Graph), p.Graph.Request.Workspace, nil, nil, "", false, planOptions{}, packload.Embedded())
-	if err != nil {
-		return res, fmt.Errorf("converted: %s; originals kept as %s. But the written files do not read: %w. This is a yolo bug: please report it; to go back, move each original back to its name", strings.Join(res.Written, ", "), strings.Join(res.Backups, ", "), err)
-	}
-	if after.set != p.canonical {
-		return res, fmt.Errorf("converted: %s; originals kept as %s. But the written files do not say what the plan proved. This is a yolo bug: please report it; to go back, move each original back to its name", strings.Join(res.Written, ", "), strings.Join(res.Backups, ", "))
-	}
-	res.Records = respellRecords(p.Records, p.Graph.Request.Workspace)
 	return res, nil
 }
 
@@ -166,7 +172,7 @@ func removeStaged(targets []Target) {
 
 // stagedPath is the hidden name a converted file waits under, beside its destination.
 func stagedPath(dest string) string {
-	return filepath.Join(filepath.Dir(dest), "."+filepath.Base(dest)+".migrate-staged")
+	return filepath.Join(filepath.Dir(dest), "."+filepath.Base(dest)+stagedSuffix)
 }
 
 // journalPathFor is where a migration of req keeps its journal: the user config directory when
@@ -271,7 +277,11 @@ func lockTargets(targets []Target) (func(), error) {
 			dirSet[filepath.Dir(t.Link.Path)] = true
 		}
 	}
-	dirs := sortedKeys(dirSet)
+	return lockDirs(sortedKeys(dirSet))
+}
+
+// lockDirs takes the directory lock `yolo config set` takes on each of dirs, in the order given.
+func lockDirs(dirs []string) (func(), error) {
 	var release []func()
 	unlock := func() {
 		for i := len(release) - 1; i >= 0; i-- {
@@ -343,4 +353,80 @@ func renameNoReplace(from, to string) error {
 		return err
 	}
 	return os.Remove(from)
+}
+
+// RemoveStaleStaged removes the converted files a migration of req staged and never moved into
+// place: one killed after staging and before its journal, which leaves the old layout loading as
+// before and a hidden copy of the converted bytes beside it. With a journal they are the
+// migration's own, and Resume moves them; so nothing is removed then. It returns what it removed.
+func RemoveStaleStaged(req Request) []string {
+	if Interrupted(req) != "" {
+		return nil
+	}
+	g, err := Discover(req)
+	if err != nil {
+		return nil
+	}
+	dirs := map[string]bool{}
+	if req.UserConfigDir != "" {
+		dirs[req.UserConfigDir] = true
+	}
+	if req.Workspace != "" {
+		dirs[req.Workspace] = true
+	}
+	for _, f := range g.Files {
+		for _, p := range []string{f.Logical, f.Physical} {
+			if p != "" {
+				dirs[filepath.Dir(p)] = true
+			}
+		}
+	}
+	var removed []string
+	for _, dir := range sortedKeys(dirs) {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			n := e.Name()
+			if !e.Type().IsRegular() || !strings.HasPrefix(n, ".") || !strings.HasSuffix(n, stagedSuffix) {
+				continue
+			}
+			if os.Remove(filepath.Join(dir, n)) == nil {
+				removed = append(removed, filepath.Join(dir, n))
+			}
+		}
+	}
+	return removed
+}
+
+// stagedSuffix ends the hidden name a converted file waits under (stagedPath).
+const stagedSuffix = ".migrate-staged"
+
+// excludeStaged keeps every staged name out of git before anything is staged: one pattern per
+// directory in the clone's info/exclude (never a committed file), matching every staged name
+// there, added only where git does not ignore the name already. Without git there is nothing to
+// keep it out of.
+func excludeStaged(targets []Target) {
+	done := map[string]bool{}
+	for _, t := range targets {
+		staged := stagedPath(t.New)
+		dir := filepath.Dir(staged)
+		if done[dir] {
+			continue
+		}
+		done[dir] = true
+		if gitexclude.Check(staged) != gitexclude.NotIgnored {
+			continue
+		}
+		exclude := gitexclude.File(dir)
+		line, ok := gitexclude.Line(filepath.Join(dir, ".*"+stagedSuffix))
+		if exclude == "" || !ok {
+			continue
+		}
+		if have, err := os.ReadFile(exclude); err == nil && strings.Contains("\n"+string(have)+"\n", "\n"+line+"\n") {
+			continue
+		}
+		_ = gitexclude.Append(exclude, line)
+	}
 }

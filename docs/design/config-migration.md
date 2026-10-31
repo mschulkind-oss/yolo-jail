@@ -207,12 +207,29 @@ Upgrade with `yolo update`, or `just install` from a checkout. Nothing was start
 7. **Proves the next launch accepts the converted files before it touches anything**
    ([RC-D44](readable-config.md#RC-D44)). It stages the converted set off to the side, reads it
    the way a launch would read the layout after migration, with all scopes together, and runs the
-   launch's config checks over it. Any refusal the old files do not already meet refuses the
-   migration, which then says *nothing was changed*, lists the problems and gives the next step.
+   launch's config checks over it: the strict load, the validator, the pack switch, the capability
+   gate and the undeclared-profile refusal. The last two run over the selected packs this machine
+   already has; a selected pack only a launch would fetch leaves a *Not checked* line in the plan.
+   Any refusal the old files do not already meet refuses the migration, which then says *nothing
+   was changed*, lists the problems and gives the next step.
 8. **Converts only what the config reaches** ([RC-D46](readable-config.md#RC-D46)). The owner's
    ruling (2026-10-31): *"not included. not touched. we only convert included stuff."* A
    `--user-layer` file, and any file no include names, is left byte for byte as it is, and a JSONC
    layer keeps loading on top of a TOML user config.
+9. **Carries a renamed pack's state to its new name** ([RC-D47](readable-config.md#RC-D47)). A
+   path in `packs` converts to its readable handle, and the handle is the pack's name
+   ([OQ-RC15](config-user.md#4-naming-a-pack-that-is-not-shipped)), so `~/code/yolo-packs/pi-fork`, the pack
+   `pi-fork`, becomes the pack `yolo-packs/pi-fork`. Before it touches anything, the migration
+   reads both selections the way a launch does and proves they are the same packs, by directory
+   or repository, with only the names differing; any other difference refuses it. The plan, and
+   the launch's offer before its question, list each rename. Inside the journaled commit the
+   migration then moves every record keyed by the old name: the `packs.lock.json` entry, each fork
+   pin in `forks.lock.json`, each check record (which holds a patched fork's good build), a build
+   receipt line for each admitted build, each `yolo host --` program record, and the owner of
+   each path `yolo host apply` wrote. A record whose new name is already taken is left. The next
+   launch neither re-pins, rebuilds nor re-fetches. What is not carried is said before the
+   question: a pending background update check starts over, and build logs and cached copies are
+   made again under the new name.
 
 ### The commit steps
 
@@ -227,12 +244,20 @@ moves and the hash of the bytes each one carries.
 | Step | What it does | A kill after it leaves |
 | :--- | :--- | :--- |
 | 1. Check | Takes the directory locks, refuses a file that changed since the plan, and refuses a name already taken | Nothing changed |
-| 2. Stage | Writes each converted file beside its destination as `.<name>.migrate-staged`, and adds the git ignore lines | The old layout, loading exactly as before; the next run replaces the staged files |
+| 2. Stage | Adds a git exclude line for the staged names, writes each converted file beside its destination as `.<name>.migrate-staged`, and adds the git ignore lines | The old layout, loading exactly as before; the next `yolo config migrate`, or the launch's offer, removes the staged files |
 | 3. Journal | Writes the journal | The old layout plus the journal: the launch and `yolo check` refuse, naming `yolo config migrate` |
 | 4. Included files | Moves each converted file that only an include reads to its name, and makes its symlink twin | The old layout plus files nothing reads yet; refused as in step 3 |
 | 5. Top-level files | Respells each TOML parent: a hard link keeps the original as `<name>.pre-migrate`, then a rename puts the staged file over the name. Places each `config.toml` and `yolo-jail.toml`, then moves its original aside or removes its old symlink | Part old, part new. Between placing a top-level file and moving its original aside, the reader meets both names, and its sibling refusal names the interrupted migration rather than asking you to choose one |
 | 6. Originals | Moves each original that nothing reads any more to `<name>.pre-migrate`, and removes its old symlink | The new layout plus the journal; refused as in step 3 |
-| 7. Done | Removes the journal, reads the written files back the way a launch reads them, and respells the records only yolo reads | The new layout, loading exactly as after; a record left unrespelled asks once at the next launch |
+| 7. Pack records | Moves each renamed pack's records to its new name (item 9) | The new layout plus the journal; refused as in step 3, and the next run moves what is left |
+| 8. Done | Removes the journal, reads the written files back the way a launch reads them, and respells the records only yolo reads | The new layout, loading exactly as after; a record left unrespelled asks once at the next launch |
+
+Each move is followed by an fsync of the directories it changed, so a crash cannot lose a move
+the journal counts as made. The journal also carries the rest of the commit (the pack renames, the
+approval records to respell, and a digest of the effective config the read-back must find), so a
+resumed run finishes all of it, under the same directory locks a live run takes. While the
+journal stands, the launch, `yolo check`, `yolo host --` and `yolo host apply` refuse, naming
+`yolo config migrate`.
 
 **The next run finishes forward.** `yolo config migrate` finds the journal and makes each move
 again: a move already made is found made, and one cut off midway (both names present after a hard

@@ -3,6 +3,7 @@ package configmigrate
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -129,6 +130,56 @@ func TestAKillWhileStagingLeavesTheOldLayout(t *testing.T) {
 		if strings.HasSuffix(k, ".migrate-staged") {
 			t.Errorf("a staged file outlived the migration: %s", k)
 		}
+	}
+}
+
+// MINOR 5 of the review of 825892281: a staged file a kill left before the journal is removed by
+// the next discovery that may write (`yolo config migrate`, the launch's offer), not only by a
+// later migrate of the same files; while a journal stands it is the migration's own and stays.
+func TestStaleStagedFilesAreRemovedOnlyWithoutAJournal(t *testing.T) {
+	_, _, req := commitFixture(t)
+	p := plan(t, req)
+	var staged []string
+	for _, tg := range p.Targets {
+		staged = append(staged, stagedPath(tg.New))
+		write(t, stagedPath(tg.New), "left by a killed run\n")
+	}
+	journal := journalPathFor(req)
+	write(t, journal, "{}\n")
+	if got := RemoveStaleStaged(req); len(got) != 0 {
+		t.Fatalf("staged files were removed while a journal stands: %v", got)
+	}
+	if err := os.Remove(journal); err != nil {
+		t.Fatal(err)
+	}
+	got := RemoveStaleStaged(req)
+	if len(got) != len(staged) {
+		t.Errorf("removed %v, want every staged file %v", got, staged)
+	}
+	for _, s := range staged {
+		if exists(s) {
+			t.Errorf("%s outlived the cleanup", s)
+		}
+	}
+}
+
+// MINOR 5: before anything is staged, the staged names are kept out of git, as the converted
+// files themselves are.
+func TestStagedNamesAreExcludedFromGitBeforeStaging(t *testing.T) {
+	_, ws, req := commitFixture(t)
+	if out, err := exec.Command("git", "init", "-q", ws).CombinedOutput(); err != nil {
+		t.Skipf("no git here: %v %s", err, out)
+	}
+	p := plan(t, req)
+	if _, err := Apply(p, ApplyOptions{StopAfter: func(int, string) bool { return true }}); err == nil {
+		t.Fatal("the seam did not stop the migration")
+	}
+	exclude, err := os.ReadFile(filepath.Join(ws, ".git", "info", "exclude"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(exclude), ".*.migrate-staged") {
+		t.Errorf("the staged names are not excluded from git:\n%s", exclude)
 	}
 }
 

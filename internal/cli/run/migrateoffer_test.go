@@ -278,3 +278,50 @@ func TestLaunchOfferHasNoSymlinkWarningWithoutALink(t *testing.T) {
 		t.Fatalf("a launch with no linked file warned about one:\n%s", s)
 	}
 }
+
+// RC-D45: while a conversion is part way, the launch does not offer a second one (which would
+// refuse over the journal and then say "Nothing was changed", which is false): it names the one
+// step, `yolo config migrate`, and stops.
+func TestALaunchMidMigrationNamesConfigMigrateInsteadOfOffering(t *testing.T) {
+	l := runOfferLaunchWith(t, oldUserConfig, true, "y\n", func(o *Options) {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			t.Fatal(err)
+		}
+		journal := filepath.Join(home, ".config", "yolo-jail", ".config-migrate-journal.json")
+		if err := os.WriteFile(journal, []byte("{}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	})
+	got := l.stderr.String()
+	if l.launched || l.rc == 0 {
+		t.Fatalf("the launch went on mid-migration: rc=%d\n%s", l.rc, got)
+	}
+	if !strings.Contains(got, "yolo config migrate") || strings.Contains(got, "Nothing was changed") ||
+		strings.Contains(got, "Convert to TOML now?") {
+		t.Errorf("mid-migration the launch must name `yolo config migrate`, not offer again:\n%s", got)
+	}
+}
+
+// RC-D47: a path pack the conversion renames to its readable handle is named before the question,
+// with what moves to the new name and what does not, so the person answers knowing it.
+func TestLaunchOfferNamesARenamedPackBeforeTheQuestion(t *testing.T) {
+	l := runOfferLaunchWith(t, "{\"packs\": [\"~/code/yolo-packs/mine\"]}\n", true, "n\n", func(o *Options) {
+		dir := filepath.Join(os.Getenv("HOME"), "code", "yolo-packs", "mine")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "pack.toml"), []byte("name = \"mine\"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	})
+	s := l.stderr.String()
+	rename := "mine  →  yolo-packs/mine"
+	q := strings.Index(s, "Convert to TOML now?")
+	if i := strings.Index(s, rename); i < 0 || q < 0 || i > q {
+		t.Fatalf("the rename is not named before the question:\n%s", s)
+	}
+	if !strings.Contains(s, configmigrate.NotCarried) {
+		t.Errorf("the offer does not say what is not carried to the new name:\n%s", s)
+	}
+}

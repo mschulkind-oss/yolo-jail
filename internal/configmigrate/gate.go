@@ -2,12 +2,14 @@ package configmigrate
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // ValidationError is a plan that proved equal but whose converted files the launch's config gate
@@ -91,10 +93,93 @@ func (p *MigrationPlan) gate() error {
 		}
 		problems = append(problems, unmirrorText(located, mirror))
 	}
+	p.Unchecked = after.Unchecked
+	if g.Request.UserConfigDir != "" {
+		renames, packProblems := packRenames(g.Request.UserConfigDir, userDir)
+		p.Renames = renames
+		problems = append(problems, packProblems...)
+	}
 	if len(problems) > 0 {
 		return &ValidationError{Plan: p, Problems: problems}
 	}
 	return nil
+}
+
+// loadPacks is the launch's pack selection read from the user config in dir. A seam only in that
+// it names the one reader both sides of the proof share.
+func loadPacks(dir string) ([]config.PackEntry, error) {
+	defer paths.ReadUserConfigFrom(dir)()
+	return config.LoadPacks(func(string) {})
+}
+
+// packRenames proves the converted user config selects the very packs the old one does, by what
+// the launch reads (config.LoadPacks), and returns the names that change. The equality proof
+// lowers both sides through one converter, so it cannot see a pack renamed by its readable
+// handle; this compares each entry's identity — its physical directory, its repository, path and
+// ref, or the shipped pack it names — and lets only the name differ.
+func packRenames(userConfigDir, stagedUserDir string) ([]PackRename, []string) {
+	before, err := loadPacks(userConfigDir)
+	if err != nil {
+		return nil, nil // the old selection does not read; the launch's own gate says so
+	}
+	after, err := loadPacks(stagedUserDir)
+	if err != nil {
+		return nil, []string{"the converted `packs` do not read: " + err.Error()}
+	}
+	byIdentity := map[string][]config.PackEntry{}
+	for _, e := range after {
+		id := packIdentity(e)
+		byIdentity[id] = append(byIdentity[id], e)
+	}
+	var renames []PackRename
+	var problems []string
+	for _, e := range before {
+		id := packIdentity(e)
+		match := byIdentity[id]
+		if len(match) == 0 {
+			problems = append(problems, fmt.Sprintf("the converted `packs` no longer select the pack %s (%s)", e.Name, e.Source))
+			continue
+		}
+		n := match[0]
+		byIdentity[id] = match[1:]
+		if n.Name != e.Name {
+			renames = append(renames, PackRename{Old: e.Name, New: n.Name, OldSource: e.Source, NewSource: n.Source})
+		}
+	}
+	for _, rest := range byIdentity {
+		for _, e := range rest {
+			problems = append(problems, fmt.Sprintf("the converted `packs` select a pack the old ones do not: %s (%s)", e.Name, e.Source))
+		}
+	}
+	return renames, problems
+}
+
+// packIdentity is what makes two `packs` entries the same pack whatever they are named.
+func packIdentity(e config.PackEntry) string {
+	filter := "|only=" + strings.Join(e.Only, ",") + "|exclude=" + strings.Join(e.Exclude, ",")
+	switch {
+	case e.IsEmbedded:
+		name := e.EmbeddedName
+		if name == "" {
+			name = e.Name
+		}
+		return "shipped:" + name + filter
+	case e.PhysicalPath != "":
+		return "dir:" + e.PhysicalPath + filter
+	}
+	if u, err := url.Parse(e.Source); err == nil && u.Scheme == "file" {
+		dir := u.Path
+		if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+			dir = resolved
+		}
+		return "dir:" + filepath.Clean(dir) + filter
+	}
+	a, err := e.PackAddress()
+	if err != nil || a.Repo == "" {
+		return "source:" + e.Source + filter
+	}
+	repo := strings.TrimSuffix(strings.TrimSuffix(a.Repo, "/"), ".git")
+	return "git:" + repo + "//" + strings.Trim(a.Path, "/") + "?" + a.Ref + filter
 }
 
 func unmirrorText(s, mirror string) string { return strings.ReplaceAll(s, mirror, "") }

@@ -109,6 +109,11 @@ type MigrationPlan struct {
 	// Refused is the launch config gate's refusal of the converted files (RC-D44); Apply
 	// refuses a plan that holds one.
 	Refused error
+	// Renames are the packs the converted `packs` name differently, proved to be the same packs by
+	// what the launch reads (packRenames). Apply moves every record keyed by the old name.
+	Renames []PackRename
+	// Unchecked are the launch checks the gate could not run in full on this machine, and why.
+	Unchecked []string
 
 	canonical canonicalSet
 }

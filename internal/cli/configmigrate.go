@@ -108,6 +108,13 @@ func configMigrate(args []string, in io.Reader, interactive bool, out, errw io.W
 		}
 		fmt.Fprintf(out, "Finished the migration that stopped part way. Converted: %s; originals kept as %s.\n",
 			strings.Join(shownPaths(workspace, res.Written), ", "), strings.Join(shownPaths(workspace, res.Backups), ", "))
+		printPackRecords(out, res.PackRecords)
+	} else if !dryRun {
+		// A converted file staged by a run killed before its journal is a hidden copy of private
+		// bytes nothing will move into place: removed here, never left for a later migrate.
+		for _, p := range configmigrate.RemoveStaleStaged(req) {
+			fmt.Fprintf(out, "Removed %s, left staged by a migration stopped before it began.\n", shownPaths(workspace, []string{p})[0])
+		}
 	}
 	graph, err := configmigrate.Discover(req)
 	if err != nil {
@@ -164,6 +171,7 @@ func configMigrate(args []string, in io.Reader, interactive bool, out, errw io.W
 	if s := configmigrate.Respelled(result.Records); s != "" {
 		fmt.Fprintf(out, "Records only yolo reads, respelled in place: %s.\n", s)
 	}
+	printPackRecords(out, result.PackRecords)
 	for _, r := range result.Records {
 		if r.State == configmigrate.RecordLeft {
 			fmt.Fprintf(out, "The %s %s is left: %s.\n", r.Kind, r.Path, r.Why)
@@ -174,6 +182,17 @@ func configMigrate(args []string, in io.Reader, interactive bool, out, errw io.W
 	}
 	fmt.Fprintln(out, "Nothing else changed. Next: `yolo check`.")
 	return 0
+}
+
+// printPackRecords names each record of a renamed pack that moved to the pack's new name.
+func printPackRecords(out io.Writer, moved []string) {
+	if len(moved) == 0 {
+		return
+	}
+	fmt.Fprintln(out, "Moved to the renamed packs' new names:")
+	for _, m := range moved {
+		fmt.Fprintf(out, "  %s\n", m)
+	}
 }
 
 // shownPaths names each path relative to the workspace when it lies inside it, else in full.

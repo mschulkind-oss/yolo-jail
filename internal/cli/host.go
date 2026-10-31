@@ -212,6 +212,9 @@ func hostArguments(args []string) []string {
 // args[0] is routinely a flag rather than a verb, and a verb switch that ran first would
 // have to re-implement flag parsing to find out whether a verb was even present.
 func hostMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) int {
+	if len(args) > 0 && args[0] != "-h" && args[0] != "--help" && args[0] != "help" && refuseInterruptedMigration(errw) {
+		return 1
+	}
 	if i := indexOf(args, "--"); i >= 0 {
 		return hostExec(args[:i], args[i+1:], out, errw, stdin)
 	}

@@ -55,6 +55,16 @@ func (p *MigrationPlan) Transcript() string {
 	if p.Refused == nil {
 		b.WriteString("The next launch's config checks pass on the converted files (run on a staged copy; nothing was changed yet).\n")
 	}
+	for _, u := range p.Unchecked {
+		fmt.Fprintf(&b, "  Not checked: %s.\n", u)
+	}
+	if len(p.Renames) > 0 {
+		b.WriteString("Packs renamed by their readable handles (the same packs, by directory or repository):\n")
+		for _, r := range p.Renames {
+			fmt.Fprintf(&b, "  %s → %s\n", r.Old, r.New)
+		}
+		fmt.Fprintf(&b, "  Their pins, check records, builds and host records move to the new names; %s.\n", NotCarried)
+	}
 	for _, d := range p.DerivedVendors {
 		fmt.Fprintf(&b, "  vendor %q follows from the id of %q, compared as derived; the launch now carries it.\n",
 			d.Vendor, dotted([]string{"providers", d.Provider, "models", d.Model}))
