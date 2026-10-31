@@ -82,21 +82,17 @@ func DefaultNamespaceRenames(packs []*Pack, converted bool) []string {
 	return out
 }
 
-// SkillNames is the sorted names, as the author wrote them, of the skills p's skills contributions
-// carry: each directory under a resolved skills source holding a SKILL.md.
+// SkillNames is the sorted names, as the author wrote them, of the skills p delivers: each
+// directory holding a SKILL.md under a skills source the delivery reads (SkillsSources), the
+// declared contributions and the conventional skills/ tree alike, with a manifest or without.
 func SkillNames(p *Pack) []string {
 	seen := map[string]bool{}
-	if p == nil || p.Decl == nil {
+	if p == nil {
 		return nil
 	}
-	for _, c := range p.Decl.Contributions() {
-		if c.Kind != packdecl.KindSkills {
-			continue
-		}
-		src, _ := p.SkillsSourceDir(c)
-		if src == "" {
-			continue
-		}
+	sources, _ := p.SkillsSources()
+	for _, source := range sources {
+		src := source.Dir
 		entries, err := os.ReadDir(src)
 		if err != nil {
 			continue
