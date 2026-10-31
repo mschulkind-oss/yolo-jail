@@ -6609,6 +6609,7 @@
 "internal/cli/packbuild_test.go",
 "internal/cli/packexamples_test.go",
 "internal/cli/packexpects_test.go",
+"internal/cli/packexplainmanifest_test.go",
 "internal/cli/packfootprintenv_test.go",
 "internal/cli/packfootprintlocal_test.go",
 "internal/cli/packinitplugin_noapproval_test.go",
