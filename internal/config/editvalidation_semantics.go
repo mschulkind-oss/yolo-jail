@@ -102,7 +102,7 @@ func reportUnknownKeysWithReadableFG(config *jsonx.OrderedMap, errs *[]string) {
 func validateProvidersForExplicit(config, readableEffective *jsonx.OrderedMap, ctx *editValidationContext, errs, warns *[]string) {
 	validateProviderCredentialScopeConfig(ctx.rawWorkspace, errs)
 	legacy := legacyProviderValidationProjection(config)
-	validateProviderEntries(legacy, errs, warns)
+	validateProviderEntries(legacy, errs, warns, nil)
 	semantic, err := BuildReadableSemanticInputs(ReadableSemanticInputSource{
 		Config: readableEffective, User: ctx.rawUser, Workspace: ctx.rawWorkspace,
 		UserOrigins:      readableUserOrigins(ctx.rawUser, ctx.userOrigins),

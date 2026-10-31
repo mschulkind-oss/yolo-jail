@@ -1,6 +1,9 @@
 package config
 
 import (
+	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -12,6 +15,9 @@ type MigrationGate struct {
 	Problems []string
 	// Located are the same refusals as a launch prints them, each naming the file and line.
 	Located []string
+	// Unchecked says which checks could not run in full, and why: a selected pack this machine
+	// has not fetched yet, which only the launch fetches.
+	Unchecked []string
 }
 
 // RunMigrationGate composes the config a launch would compose with the user config read from
@@ -34,5 +40,36 @@ func RunMigrationGate(userConfigDir, workspace string, resolver LoopholeResolver
 	src := sourcesOf(node)
 	errs, _ := ValidateConfig(cfg, workspace, resolver)
 	errs = append(errs, AllowPackSwitchErrors()...)
-	return MigrationGate{Problems: errs, Located: src.Annotate(errs)}
+	var unchecked []string
+	// The launch's capability gate and its undeclared-profile refusal, as `yolo check` predicts
+	// them (RC-D44): over the selected packs that resolve with no fetch. A pack that needs one is
+	// fetched by the launch first, so what it could add is said as unchecked, never guessed.
+	selected, complete := UserScopeSelectedPacks()
+	if !complete {
+		unchecked = append(unchecked, "some selected packs are not fetched on this machine yet, so the "+
+			"capability and profile checks ran over the packs that are; the next launch fetches the rest "+
+			"and runs them in full")
+	}
+	missing, capErr := UnmetCapabilities(cfg, &CapabilityLaunch{
+		Packs: func() ([]*packload.Pack, bool) { return selected, complete },
+		ProfileSets: func(packs []*packload.Pack) map[string][]string {
+			return packload.ProfileSets(ConfigProfileSets(cfg, packs))
+		},
+	})
+	if len(missing) > 0 && capErr == nil {
+		errs = append(errs, "config.required_capabilities declares '"+strings.Join(missing, "', '")+
+			"', and nothing this config or its selected packs declare satisfies it")
+	}
+	if len(missing) > 0 && capErr != nil && complete {
+		unchecked = append(unchecked, "the capability check could not run: "+capErr.Error())
+	}
+	declared, err := LoadSelectableProfiles(nil, cfg, selected)
+	if err != nil {
+		errs = append(errs, err.Error())
+	} else {
+		for _, p := range UndeclaredProfileProblems(ConfigProfileFold(cfg, selected), 0, declared, selected, packload.Embedded()) {
+			errs = append(errs, "packs: "+p)
+		}
+	}
+	return MigrationGate{Problems: errs, Located: src.Annotate(errs), Unchecked: unchecked}
 }

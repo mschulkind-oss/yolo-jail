@@ -26,10 +26,12 @@ package config
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // ActiveProviderKey is the readable config's selection key (OQ-RC14), the rename of ProfileKey.
@@ -102,10 +104,12 @@ func activeProviderSelectionOf(v any) (ProfileSelection, bool) {
 }
 
 // selectsThroughActiveProvider reports whether cfg's `providers` table is the readable declaration
-// table: cfg holds the readable selection key, or, selecting through neither key, one of its
-// providers spells a key only the readable table has (`model`, `variants`). A config that selects
-// nothing still declares those (RC-D32 writes an old profile there), and `-p` must find them
-// (RC-D43); a legacy table cannot spell them, so a legacy config keeps its old namespace.
+// table: cfg holds the readable selection key, or, selecting through neither key and with no
+// legacy user file, one of its providers declares what an old profile became (RC-D32): a starting
+// `model` or `variants`. A config that selects nothing still declares those, and `-p` must find
+// them (RC-D43). The other readable-only keys (`alias`, `via`, `every_model`) declare no
+// selectable model, so they do not switch the namespace, and a legacy JSONC user file keeps its
+// old namespace whatever its table spells (the launch refuses those keys there).
 func selectsThroughActiveProvider(cfg *jsonx.OrderedMap) bool {
 	if _, present := cfg.Get(ActiveProviderKey); present {
 		return true
@@ -113,12 +117,15 @@ func selectsThroughActiveProvider(cfg *jsonx.OrderedMap) bool {
 	if _, legacy := cfg.Get(ProfileKey); legacy {
 		return false
 	}
+	if filepath.Ext(paths.UserConfigDisplayPath()) != ".toml" {
+		return false
+	}
 	raw, _ := cfg.Get(providersKey)
 	table, ok := raw.(*jsonx.OrderedMap)
 	if !ok {
 		return false
 	}
-	readable := readableOnlyProviderKeys()
+	readable := map[string]bool{"model": true, "variants": true}
 	for _, name := range table.Keys() {
 		v, _ := table.Get(name)
 		entry, ok := v.(*jsonx.OrderedMap)

@@ -19,7 +19,13 @@ func validateProviders(config *jsonx.OrderedMap, workspace string, errs, warns *
 	// the refusal off without switching the feature off. Measured while writing the test
 	// that pins it, with an empty merged map.
 	validateProviderCredentialScope(workspace, errs)
-	validateProviderEntries(config, errs, warns)
+	validateProviderEntries(config, errs, warns, tomlProviderKeys(func() *Sources {
+		_, src, err := LoadConfigWithSources(workspace, false, func(string) {})
+		if err != nil {
+			return nil
+		}
+		return src
+	}))
 }
 
 // ValidateProviderSection is ValidateConfig's provider and profile section over one config
@@ -33,7 +39,13 @@ func validateProviders(config *jsonx.OrderedMap, workspace string, errs, warns *
 // file cannot change what it composes.
 func ValidateProviderSection(config *jsonx.OrderedMap) (errors []string, warnings []string) {
 	errs, warns := &[]string{}, &[]string{}
-	validateProviderEntries(config, errs, warns)
+	validateProviderEntries(config, errs, warns, tomlProviderKeys(func() *Sources {
+		_, src, err := UserScopeConfigWithSources(false, func(string) {})
+		if err != nil {
+			return nil
+		}
+		return src
+	}))
 	validateAgentProfilesRetired(config, errs, warns)
 	validateUseProfilesRetired(config, errs, warns)
 	validateProfile(config, errs)
@@ -43,7 +55,9 @@ func ValidateProviderSection(config *jsonx.OrderedMap) (errors []string, warning
 }
 
 // validateProviderEntries is validateProviders' shape half: every `providers.<name>` entry.
-func validateProviderEntries(config *jsonx.OrderedMap, errs, warns *[]string) {
+// fromTOML reports whether a TOML file wrote one provider's key; nil reads as never, for a caller
+// whose map has had the readable keys projected out already.
+func validateProviderEntries(config *jsonx.OrderedMap, errs, warns *[]string, fromTOML func(provider, key string) bool) {
 	sharedNames := validateModelFacts(config, errs)
 	v, present := config.Get(providersKey)
 	if !present || v == nil {
@@ -66,10 +80,11 @@ func validateProviderEntries(config *jsonx.OrderedMap, errs, warns *[]string) {
 			continue
 		}
 		cfg = splitReadableModels(name, cfg, errs)
-		// The readable provider-level keys (a starting `model`, `alias`, `via`, `variants`) are
-		// not unknown: `yolo config migrate` writes them for an old profile (RC-D32) and
-		// `yolo config set` accepts them, so the launch must too (RC-D43).
-		cfg = withoutKeys(cfg, readableOnlyProviderKeys())
+		// The readable provider-level keys (a starting `model`, `alias`, `via`, `variants`,
+		// `every_model`) are not unknown IN A TOML FILE: `yolo config migrate` writes them for an
+		// old profile (RC-D32) and `yolo config set` accepts them, so the launch must too
+		// (RC-D43). A legacy JSONC file cannot spell them, and is told so as before.
+		cfg = withoutKeys(cfg, readableKeysFromTOML(name, cfg, fromTOML))
 		reportUnknownKeys(cfg, knownProviderKeys, path, errs)
 		if base, has := cfg.Get("base_url"); has && base != nil {
 			// REMOVED (protocol-resolution.md), and this is the entry's ONLY message
@@ -752,6 +767,35 @@ func validateProviderOptions(v any, path string, errs *[]string) {
 				"this config)")
 		}
 	}
+}
+
+// tomlProviderKeys is validateProviderEntries' fromTOML over the provenance load returns. It loads
+// only when asked, which is only for a provider entry spelling a readable-only key, and a load
+// that fails reads as legacy: the key is then reported as unknown, as a JSONC file is told.
+func tomlProviderKeys(load func() *Sources) func(provider, key string) bool {
+	var src *Sources
+	loaded := false
+	return func(provider, key string) bool {
+		if !loaded {
+			src, loaded = load(), true
+		}
+		return src.writtenInTOML(providersKey, provider, key)
+	}
+}
+
+// readableKeysFromTOML is the readable-only provider keys entry spells that a TOML file wrote.
+func readableKeysFromTOML(provider string, entry *jsonx.OrderedMap, fromTOML func(provider, key string) bool) map[string]bool {
+	drop := map[string]bool{}
+	if fromTOML == nil {
+		return drop
+	}
+	readable := readableOnlyProviderKeys()
+	for _, k := range entry.Keys() {
+		if readable[k] && fromTOML(provider, k) {
+			drop[k] = true
+		}
+	}
+	return drop
 }
 
 // withoutKeys is m without the named keys, m itself when it holds none of them.

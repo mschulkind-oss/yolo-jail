@@ -429,6 +429,26 @@ func (n *srcNode) follow(rest string) *srcNode {
 	return reached
 }
 
+// writtenInTOML reports whether the highest-precedence writer of the value at keys (each one map
+// key, no dotted splitting) is a readable TOML file. False when the record does not hold it.
+func (s *Sources) writtenInTOML(keys ...string) bool {
+	if s == nil || s.root == nil {
+		return false
+	}
+	n := s.root
+	for _, k := range keys {
+		if n == nil {
+			return false
+		}
+		n = n.keys[k]
+	}
+	if n == nil {
+		return false
+	}
+	origins := n.origins()
+	return len(origins) > 0 && origins[0].file != nil && origins[0].file.format == configdoc.TOML
+}
+
 // longestKeyAt is the longest recorded key rest starts with that ends where a path step
 // does: at a ".", a "[", the ":" or space that ends the path, or the end of the message.
 func (n *srcNode) longestKeyAt(rest string) (string, bool) {
