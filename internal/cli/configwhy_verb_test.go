@@ -10,14 +10,15 @@ import (
 func TestConfigWhyNamesTheVerbOfAnUnsetKey(t *testing.T) {
 	newNamedVerbFixture(t, "", "")
 	for key, want := range map[string]string{
-		"allow.git.always":          "set it with `yolo allow git always <capability>`",
-		"allow.git.on_request":      "set it with `yolo allow git on_request <capability>`",
-		"allow.github":              "set it with `yolo allow github <capability>`",
-		"requests.git.push":         "set it with `yolo request git push <ref>`",
-		"requests.github.repos":     "set it with `yolo request github repos <OWNER/REPO>`",
-		"requests.git.new_branches": "set it with `yolo request git new_branches`",
-		"active_provider.claude":    "set it with `yolo active-provider claude <provider|native>`",
-		"active_provider.default":   "set it with `yolo active-provider default <provider|native>`",
+		"allow.git.always":                   "set it with `yolo allow git always <capability>`",
+		"allow.git.on_request":               "set it with `yolo allow git on_request <capability>`",
+		"allow.github":                       "set it with `yolo allow github <capability>`",
+		"requests.git.push":                  "set it with `yolo request git push <ref>`",
+		"requests.github.repos":              "set it with `yolo request github repos <OWNER/REPO>`",
+		"requests.git.new_branches":          "set it with `yolo request git new_branches`",
+		"requests.github.dispatch_workflows": "set it with `yolo request github dispatch_workflows <workflow file>`",
+		"active_provider.claude":             "set it with `yolo active-provider claude <provider|native>`",
+		"active_provider.default":            "set it with `yolo active-provider default <provider|native>`",
 
 		"packs[5]":                 "set it with `yolo pack add <pack>`",
 		"machine.resources.memory": "set it with `yolo config set machine.resources.memory <value>`",

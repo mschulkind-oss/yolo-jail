@@ -144,6 +144,28 @@ func TestPlanRefusesOnInequality(t *testing.T) {
 	}
 }
 
+// A legacy dispatch-workflow grant on the workspace's one remote converts to the request naming
+// its workflow (docs/design/github-write-scopes.md GW-D14).
+func TestPlanConvertsADispatchWorkflowGrant(t *testing.T) {
+	env(t)
+	ws := realDir(t)
+	gitRemotes(t, ws, "https://github.com/acme/one.git")
+	write(t, filepath.Join(ws, "yolo-jail.jsonc"), `{
+  "brokered": {"github": {"grants": [
+    {"kind": "dispatch-workflow", "repo": "github.com/acme/one", "workflow": "nightly.yml"}
+  ]}}
+}
+`)
+	p := plan(t, Request{Workspace: ws})
+	if !p.Equal {
+		t.Fatalf("plan unequal: %+v", p.Differences)
+	}
+	got := string(target(t, p, filepath.Join(ws, "yolo-jail.jsonc")).Bytes)
+	if !strings.Contains(got, "[requests.github]\ndispatch_workflows = [\"nightly.yml\"]") {
+		t.Fatalf("converted file:\n%s", got)
+	}
+}
+
 // Every comment survives, as # lines, in document order: a template block, standalone and inline
 // comments, and one after a key the conversion drops.
 func TestPlanKeepsEveryCommentInOrder(t *testing.T) {

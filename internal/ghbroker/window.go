@@ -182,7 +182,7 @@ func (b *Broker) window(ctx context.Context, req Request, jail string, d Decisio
 	}
 	status, err := b.waitStatus(ctx, jail, q.ID)
 	if err != nil {
-		return ExitTempFail, fmt.Sprintf("%s remains pending; nothing ran; re-run the command once it is approved, if still wanted: a grant for it lasts across a broker or jail restart (`yolo gh status %s` answers only while this broker runs).%s%s", q.ID, q.ID, answerHint(t, q.ID), b.notifierNote(jail, q.ID))
+		return ExitTempFail, fmt.Sprintf("%s remains pending; nothing ran; re-run the command once it is approved, if still wanted: a grant for it lasts across a broker or jail restart (`yolo gh status %s` answers only while this broker runs).%s%s", q.ID, q.ID, answerHint(t, q.ID)+dispatchHint(d.Argv, t), b.notifierNote(jail, q.ID))
 	}
 	if status.State != "allowed" {
 		return ExitNoPerm, fmt.Sprintf("%s is %s; nothing ran; ask the host user before retrying", q.ID, status.State)

@@ -78,9 +78,10 @@
   [bold]requests[/bold] — (table, [bold]WORKSPACE SCOPE[/bold]): what this project asks for within your
     `allow` ceiling: `[requests.git]` `push = ["main"]`, `push_tags`,
     `new_branches = true`; `[requests.github]` `repos = ["acme/other"]`,
-    `create_pr`, `create_issue`.  A request your ceiling does not allow is
-    reported and skipped, never an error.  A `requests` table in a legacy
-    JSONC user config is refused.  Edit with
+    `create_pr`, `create_issue`, `dispatch_workflows = ["nightly.yml"]` (run
+    that workflow on the default branch only; `"*"` for every workflow).  A
+    request your ceiling does not allow is reported and skipped, never an
+    error.  A `requests` table in a legacy JSONC user config is refused.  Edit with
     [bold]yolo request <source> <capability> [resource][/bold], which writes the project's
     file, runs `yolo check`, and names the host step (`yolo config apply`).
 

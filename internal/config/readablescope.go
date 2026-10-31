@@ -251,7 +251,7 @@ func applyLegacyReadableWorkspace(read *WorkspaceRead, user *jsonx.OrderedMap, b
 				continue
 			}
 			if grant.Repo == brokerscope.AnyRepo {
-				if brokerscope.GrantTakesRef(grant.Kind) {
+				if brokerscope.GrantTakesName(grant.Kind) {
 					gate.Differences = appendReadableDifference(gate.Differences, "legacy "+broker.Source+" "+grant.Kind+" grant cannot be projected across repository scope without widening; preserve the original brokered grant and write no readable request")
 					continue
 				}

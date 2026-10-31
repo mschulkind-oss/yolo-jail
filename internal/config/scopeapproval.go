@@ -572,11 +572,11 @@ func scopeBlock(s ScopeSource, cur []scopeRepo, prev []string, had bool,
 		}
 		return ""
 	}
-	// A remote approved now joins the reach of every ref grant on "*" the workspace holds, so its
+	// A remote approved now joins the reach of every named grant (a ref or a workflow) on "*" the workspace holds, so its
 	// added row names them: the widening is seen where the remote is approved (GB-D25).
 	var anyRepoGrants []string
 	for _, g := range s.Grants {
-		if brokerscope.GrantTakesRef(g.Kind) && g.Repo == brokerscope.AnyRepo {
+		if brokerscope.GrantTakesName(g.Kind) && g.Repo == brokerscope.AnyRepo {
 			anyRepoGrants = append(anyRepoGrants, termsafe.Visible(g.String()))
 		}
 	}
