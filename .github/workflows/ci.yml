@@ -164,6 +164,14 @@ jobs:
   # describes, where /var/folders is a symlink and Linux cannot disagree.
   check-macos:
     runs-on: macos-latest
+    # internal/cli alone ran past twenty minutes on this runner, most of it git
+    # process starts, which cost far more here than on Linux. So its tests are
+    # split across the shards, and shard 1 also takes every other package. The
+    # jobs are named "check-macos (N)", the family tools/release-gate requires.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     if: >
       github.event_name == 'push' ||
       github.event.pull_request.head.repo.full_name == github.repository
@@ -185,14 +193,32 @@ jobs:
             exit 1
           }
 
-      # -timeout is per package: internal/cli runs about nine minutes on this
-      # runner, past go test's ten-minute default on a slow day with no test
-      # hung, so the panic named whichever test happened to be starting.
+      # THE PARTITION IS COMPUTED from `go test -list`, as the nightly's
+      # integration shards are, so a new test lands in some shard by
+      # construction, and a shard that selects nothing refuses to pass.
       - name: Unit tests (macOS)
-        run: go test -short -timeout=20m ./...
+        run: |
+          set -euo pipefail
+          go test -short -list '.*' ./internal/cli | grep -E '^Test' | sort > "$RUNNER_TEMP/all-tests"
+          total=${{ strategy.job-total }}
+          idx=${{ matrix.shard }}
+          awk -v t="$total" -v i="$idx" 'NR % t == (i - 1) % t' "$RUNNER_TEMP/all-tests" > "$RUNNER_TEMP/my-tests"
+          count=$(wc -l < "$RUNNER_TEMP/my-tests" | tr -d ' ')
+          echo "shard $idx/$total selected $count of $(wc -l < "$RUNNER_TEMP/all-tests" | tr -d ' ') internal/cli tests"
+          if [ "$count" -eq 0 ]; then
+            echo "::error::shard $idx selected 0 internal/cli tests — the partition is broken, refusing to pass vacuously"
+            exit 1
+          fi
+          # -timeout is per package, and generous so a slow day does not panic
+          # whichever test happened to be starting.
+          go test -short -timeout=20m -run "^($(paste -sd'|' "$RUNNER_TEMP/my-tests"))\$" ./internal/cli
+          if [ "$idx" -eq 1 ]; then
+            go test -short -timeout=20m $(go list ./... | grep -vx 'github.com/mschulkind-oss/yolo-jail/internal/cli')
+          fi
 
       # The undeploy script runs on Linux in lint-ci; this runs it on the macOS BSD userland.
       - name: Undeploy script tests (macOS)
+        if: matrix.shard == 1
         run: sh scripts/test-undeploy.sh
 
   build-image:
