@@ -25,7 +25,8 @@ import (
 //
 //  1. a user grant: a `create-pr` or `create-issue` grant the live scope file holds on the
 //     repository (or on `*`), while the user's own config still allows its kind, covers that
-//     creation;
+//     creation; a `dispatch-workflow` grant naming the workflow's file (or `*`) covers its run
+//     on the repository's default branch, and on no other ref (dispatch.go);
 //  2. a working-set entry: a PR or issue in the workspace's working set covers every
 //     non-merge write to it (comment, edit, review, ready, close, reopen, and `gh api` writes
 //     under its pulls/{n} or issues/{n}), unless one host read of issues/{n} shows it merged,
@@ -60,11 +61,17 @@ func createGrantKind(t writeTarget) string {
 	return ""
 }
 
-// userGrantCovers reports whether a user grant covers the creation target t now: the live
-// scope file holds a grant of its kind on the repository or on `*`, and the host user's own
-// config still allows that kind (BB-D96). Every failure to read either covers nothing.
-func (b *Broker) userGrantCovers(t writeTarget) (string, bool) {
+// userGrantCovers reports whether a user grant covers the write now: for a creation target t,
+// the live scope file holds a grant of its kind on the repository or on `*`; for a workflow run
+// the canonical argv asks for (dispatchOf), a dispatch-workflow grant naming its workflow or
+// `*`; and the host user's own config still allows that kind (BB-D96). Every failure to read
+// either covers nothing. A dispatch's ref is not read here: coveredWrite checks it.
+func (b *Broker) userGrantCovers(t writeTarget, argv []string) (string, bool) {
 	kind := createGrantKind(t)
+	w, dispatch := dispatchOf(argv, t)
+	if kind == "" && dispatch {
+		kind = GrantDispatchWorkflow
+	}
 	if kind == "" || b.authority == nil {
 		return "", false
 	}
@@ -73,8 +80,11 @@ func (b *Broker) userGrantCovers(t writeTarget) (string, bool) {
 		return "", false
 	}
 	held := false
+	if kind == GrantDispatchWorkflow {
+		held = dispatchGrantHeld(f.Grants, t.Repo, w)
+	}
 	for _, g := range f.Grants {
-		if g.Kind == kind && (g.Repo == brokerscope.AnyRepo || sameRepo(g.Repo, t.Repo)) {
+		if kind != GrantDispatchWorkflow && g.Kind == kind && (g.Repo == brokerscope.AnyRepo || sameRepo(g.Repo, t.Repo)) {
 			held = true
 		}
 	}
@@ -186,8 +196,24 @@ func (b *Broker) coveredWrite(ctx context.Context, req Request, jail string, d D
 		return code, "", true
 	}
 
-	// 1. A user grant.
-	if kind, ok := b.userGrantCovers(t); ok {
+	// 1. A user grant. A dispatch-workflow grant covers a run on the default branch alone, read
+	// by the broker's own host reads; on any other ref the run asks like any repository write.
+	kind, ok := b.userGrantCovers(t, d.Argv)
+	if ok && kind == GrantDispatchWorkflow {
+		w, _ := dispatchOf(d.Argv, t)
+		def, onDefault, err := b.onDefaultBranch(ctx, t.Repo, w)
+		switch {
+		case err != nil:
+			stderr([]byte("github-broker: could not read " + t.Repo + "'s default branch (" + err.Error() +
+				"), so this workspace's dispatch-workflow grant does not cover this run, which asks\n"))
+			ok = false
+		case !onDefault:
+			stderr([]byte("github-broker: this workspace's dispatch-workflow grant covers a run of " + w.Workflow +
+				" on " + t.Repo + "'s default branch (" + def + ") only; this run on " + w.Ref + " asks\n"))
+			ok = false
+		}
+	}
+	if ok {
 		if afterGrantLook != nil {
 			afterGrantLook()
 		}
@@ -195,7 +221,7 @@ func (b *Broker) coveredWrite(ctx context.Context, req Request, jail string, d D
 			if err := gate(); err != nil {
 				return err
 			}
-			if _, still := b.userGrantCovers(t); !still {
+			if _, still := b.userGrantCovers(t, d.Argv); !still {
 				return errors.New("this workspace's " + kind + " grant no longer holds")
 			}
 			return run(kind, kind)

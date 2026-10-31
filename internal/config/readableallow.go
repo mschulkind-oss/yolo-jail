@@ -447,8 +447,12 @@ func ResolveReadableAllowance(input ReadableAllowanceInput) (ReadableAllowancePl
 				return plan, fmt.Errorf("%s has no declared broker kind; declared capabilities are %s", path, strings.Join(readableCapabilities(policy), ", "))
 			}
 			if shape == SchemaTypeList {
+				kind := legacyKind(policy, key)
 				for index, name := range stringList(value) {
-					if !brokerscope.ValidGrantRefPattern(name) {
+					if kind == brokerscope.KindDispatchWorkflow && !brokerscope.ValidGrantName(kind, name) {
+						return plan, fmt.Errorf("%s[%d]: %q is not a workflow a grant can name: write the workflow's file name in .github/workflows, such as \"nightly.yml\" (not its path, numeric id or display name), or \"*\" for every workflow in the repository", path, index, name)
+					}
+					if kind != brokerscope.KindDispatchWorkflow && !brokerscope.ValidGrantRefPattern(name) {
 						return plan, fmt.Errorf("%s[%d]: %q is not a ref name a grant can take: write a short name git accepts, such as \"main\" or \"v1.0\", optionally with one `*` matching any run of characters, such as \"patch/*\" or \"v*\"", path, index, name)
 					}
 				}
@@ -574,7 +578,7 @@ func ProduceReadableGateInput(workspace string, plan ReadableAllowancePlan) (Rea
 				continue
 			}
 			kind := legacyKind(policy, capability)
-			if kind == "" || brokerscope.GrantTakesRef(kind) {
+			if kind == "" || brokerscope.GrantTakesName(kind) {
 				continue
 			}
 			for _, target := range targets {
@@ -594,7 +598,7 @@ func ProduceReadableGateInput(workspace string, plan ReadableAllowancePlan) (Rea
 			if kind == "" {
 				continue
 			}
-			if brokerscope.GrantTakesRef(kind) {
+			if brokerscope.GrantTakesName(kind) {
 				for _, target := range targets {
 					for _, name := range stringList(request.Value) {
 						grant := brokerscope.RefGrant(kind, target.RemoteHost+"/"+target.Repository, name)
@@ -711,7 +715,7 @@ func ExpandReadableLegacyGrants(source string, raw []brokerscope.Grant, targets 
 			}
 		}
 		if grant.Repo == brokerscope.AnyRepo {
-			if brokerscope.GrantTakesRef(grant.Kind) {
+			if brokerscope.GrantTakesName(grant.Kind) {
 				projection.Differences = append(projection.Differences, fmt.Sprintf("legacy %s %s grant cannot use wildcard scope", source, grant.Kind))
 				continue
 			}
@@ -1145,7 +1149,7 @@ func readableRequestShape(policy ReadableBrokerPolicy, capability string) (Schem
 	if kind == "" {
 		return 0, false
 	}
-	if brokerscope.GrantTakesRef(kind) {
+	if brokerscope.GrantTakesName(kind) {
 		return SchemaTypeList, true
 	}
 	return SchemaTypeBoolean, true

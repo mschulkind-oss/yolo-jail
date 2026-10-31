@@ -42,6 +42,7 @@ func TestConfigRefTOMLSectionNamesOnlyReadableKeys(t *testing.T) {
 		"machine.gpu", "machine.resources", "machine.ports", "machine.forward",
 		"requests.git.push", "requests.git.push_tags", "requests.git.new_branches",
 		"requests.github.repos", "requests.github.create_pr", "requests.github.create_issue",
+		"requests.github.dispatch_workflows",
 		"packs",
 	} {
 		if !readable[key] {

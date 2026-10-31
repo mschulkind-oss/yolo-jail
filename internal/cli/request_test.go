@@ -62,6 +62,34 @@ func TestRequestWritesProjectThenChecks(t *testing.T) {
 	}
 }
 
+// A dispatch_workflows request takes one workflow file name, or *, into a list; anything else is
+// refused naming the command that works (docs/design/github-write-scopes.md GW-D14).
+func TestRequestDispatchWorkflowsTakesAWorkflowFile(t *testing.T) {
+	fx := newNamedVerbFixture(t, "", "[allow.github]\nalways = [\"read\"]\non_request = [\"dispatch_workflows\"]\n")
+	for _, file := range []string{"nightly-macos.yml", "macos-user.yml"} {
+		rc, out, errs := captureStd(t, func() int {
+			return registry["request"]([]string{"request", "github", "dispatch_workflows", file})
+		})
+		assertPublicPostWriteCheck(t, rc, out, errs)
+		if strings.Contains(out, "runs without it") {
+			t.Fatalf("an allowed request was reported as skipped: %q", out)
+		}
+	}
+	if got := readFile(t, fx.project); !strings.Contains(got, `dispatch_workflows = ["nightly-macos.yml", "macos-user.yml"]`) {
+		t.Fatalf("project file lacks the workflows:\n%s", got)
+	}
+	for _, args := range [][]string{
+		{"request", "github", "dispatch_workflows"},
+		{"request", "github", "dispatch_workflows", ".github/workflows/nightly.yml"},
+		{"request", "github", "dispatch_workflows", "12345"},
+	} {
+		rc, out, errs := captureStd(t, func() int { return registry["request"](args) })
+		if rc != 1 || !strings.Contains(errs, "workflow file name") || !strings.Contains(errs, "yolo request github dispatch_workflows nightly.yml") {
+			t.Fatalf("%v rc=%d, stdout=%q stderr=%q", args, rc, out, errs)
+		}
+	}
+}
+
 func TestRequestOutsideCeilingIsSkippedNotFatal(t *testing.T) {
 	fx := newNamedVerbFixture(t, "", "[allow.git]\nalways = [\"fetch\"]\n")
 	rc, out, errs := captureStd(t, func() int { return registry["request"]([]string{"request", "git", "push", "main"}) })

@@ -548,6 +548,8 @@ func grantRequest(source string, entry any, ctx loweringContext, add func(key, r
 		field = "branch"
 	case brokerscope.KindTag:
 		field = "tag"
+	case brokerscope.KindDispatchWorkflow:
+		field = "workflow"
 	}
 	target, hasRow := renameReplacement("brokered.*.grants.*." + field)
 	ref, _ := m.Get(field)

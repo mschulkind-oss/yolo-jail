@@ -66,7 +66,7 @@ func TestBuildReadableSemanticInputsAdaptsLoadedGitGitHubAndAWSDeclarations(t *t
 	if github.ReadCapability != "read" || len(github.PendingCapabilities) != 0 {
 		t.Fatalf("GitHub pending capabilities = %#v", github)
 	}
-	if !reflect.DeepEqual(github.Brokered.Grants, []string{"create-pr", "create-issue"}) {
+	if !reflect.DeepEqual(github.Brokered.Grants, []string{"create-pr", "create-issue", "dispatch-workflow"}) {
 		t.Fatalf("declared GitHub grant kinds = %#v", github.Brokered.Grants)
 	}
 	awsSettings := false
@@ -108,7 +108,7 @@ func TestBuildReadableSemanticInputsAdaptsLoadedGitGitHubAndAWSDeclarations(t *t
 		}
 		for _, module := range modules {
 			if module.Name == "github-broker" && module.Decl.Brokered != nil &&
-				!reflect.DeepEqual(module.Decl.Brokered.Grants, []string{"create-pr", "create-issue"}) {
+				!reflect.DeepEqual(module.Decl.Brokered.Grants, []string{"create-pr", "create-issue", "dispatch-workflow"}) {
 				t.Fatalf("adapter changed source GitHub grants: %#v", module.Decl.Brokered.Grants)
 			}
 		}

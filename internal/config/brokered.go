@@ -83,28 +83,39 @@ const (
 
 // The keys of one `brokered.<source>.grants` entry.
 const (
-	brokeredGrantKindKey   = "kind"
-	brokeredGrantRepoKey   = "repo"
-	brokeredGrantBranchKey = "branch"
-	brokeredGrantTagKey    = "tag"
+	brokeredGrantKindKey     = "kind"
+	brokeredGrantRepoKey     = "repo"
+	brokeredGrantBranchKey   = "branch"
+	brokeredGrantTagKey      = "tag"
+	brokeredGrantWorkflowKey = "workflow"
 )
 
-var knownBrokeredGrantKeys = set(brokeredGrantKindKey, brokeredGrantRepoKey, brokeredGrantBranchKey, brokeredGrantTagKey)
+var knownBrokeredGrantKeys = set(brokeredGrantKindKey, brokeredGrantRepoKey, brokeredGrantBranchKey, brokeredGrantTagKey,
+	brokeredGrantWorkflowKey)
 
-// grantRefKeys are the grant-entry keys that name a ref, each the key of the kind of the same
-// name (brokerscope.KindBranch, brokerscope.KindTag).
-var grantRefKeys = []string{brokeredGrantBranchKey, brokeredGrantTagKey}
+// grantRefKeys are the grant-entry keys that name something beside the repository, each the key
+// brokerscope.GrantNameKey gives its kind: `branch` (KindBranch), `tag` (KindTag) and `workflow`
+// (KindDispatchWorkflow).
+var grantRefKeys = []string{brokeredGrantBranchKey, brokeredGrantTagKey, brokeredGrantWorkflowKey}
 
-// grantRefExample is each ref key's example name and the ref it means, for a refusal's next step.
+// grantRefKind is the kind each name key belongs to.
+var grantRefKind = map[string]string{
+	brokeredGrantBranchKey:   brokerscope.KindBranch,
+	brokeredGrantTagKey:      brokerscope.KindTag,
+	brokeredGrantWorkflowKey: brokerscope.KindDispatchWorkflow,
+}
+
+// grantRefExample is each name key's example name and what it means, for a refusal's next step.
 var grantRefExample = map[string][2]string{
-	brokeredGrantBranchKey: {"main", "refs/heads/main"},
-	brokeredGrantTagKey:    {"v*", "refs/tags/v1, refs/tags/v2.0 and every other tag starting with v"},
+	brokeredGrantBranchKey:   {"main", "refs/heads/main"},
+	brokeredGrantTagKey:      {"v*", "refs/tags/v1, refs/tags/v2.0 and every other tag starting with v"},
+	brokeredGrantWorkflowKey: {"nightly.yml", ".github/workflows/nightly.yml, run on the default branch; \"*\" names every workflow"},
 }
 
 // grantEntry is one `grants` entry as a grant, ok false unless it holds exactly a kind, a
-// repository and, for a kind that names a ref, its `branch` or `tag`, all strings, making a grant
-// brokerscope.ValidGrant accepts. A ref key is part of the grant only for the kind of its name
-// (ValidGrant refuses it on any other, and a ref grant without one).
+// repository and, for a kind that names something, its `branch`, `tag` or `workflow`, all
+// strings, making a grant brokerscope.ValidGrant accepts. A name key is part of the grant only
+// for its own kind (ValidGrant refuses it on any other, and a name-taking grant without one).
 func grantEntry(m *jsonx.OrderedMap) (brokerscope.Grant, bool) {
 	str := func(key string) (string, bool, bool) {
 		v, has := m.Get(key)
@@ -115,41 +126,50 @@ func grantEntry(m *jsonx.OrderedMap) (brokerscope.Grant, bool) {
 	repo, _, repoOK := str(brokeredGrantRepoKey)
 	branch, hasBranch, branchOK := str(brokeredGrantBranchKey)
 	tag, hasTag, tagOK := str(brokeredGrantTagKey)
+	workflow, hasWorkflow, workflowOK := str(brokeredGrantWorkflowKey)
 	keys := 2
-	if hasBranch {
-		keys++
+	for _, has := range []bool{hasBranch, hasTag, hasWorkflow} {
+		if has {
+			keys++
+		}
 	}
-	if hasTag {
-		keys++
-	}
-	g := brokerscope.Grant{Kind: kind, Repo: repo, Branch: branch, Tag: tag}
-	return g, kindOK && repoOK && branchOK && tagOK && len(m.Keys()) == keys && brokerscope.ValidGrant(g)
+	g := brokerscope.Grant{Kind: kind, Repo: repo, Branch: branch, Tag: tag, Workflow: workflow}
+	return g, kindOK && repoOK && branchOK && tagOK && workflowOK && len(m.Keys()) == keys && brokerscope.ValidGrant(g)
 }
 
-// grantRefProblem is the error for a grant entry's `branch` and `tag`, "" when they are right: a
-// kind that names a ref (brokerscope.GrantTakesRef) has a valid name or one-`*` pattern under the
-// key of its own name, on a repository or "*" (GB-D25), and no other ref key; any other kind has
-// neither. The second result is the name as written, valid or not.
+// grantRefProblem is the error for a grant entry's `branch`, `tag` and `workflow`, "" when they
+// are right: a kind that names a ref (brokerscope.GrantTakesRef) has a valid name or one-`*`
+// pattern under the key of its own name, on a repository or "*" (GB-D25); a `dispatch-workflow`
+// grant has a workflow file name or "*" under `workflow` (GW-D14); and no kind has another kind's
+// key. The second result is the name as written, valid or not.
 func grantRefProblem(entryPath, kind string, m *jsonx.OrderedMap) (string, string) {
 	for _, key := range grantRefKeys {
-		if _, has := m.Get(key); has && key != kind {
-			return entryPath + "." + key + ": only a " + key + " grant names a " + key + "; a " + pyReprValue(kind) +
-				" grant does not take one. Remove this key, or make the grant {\"kind\": \"" + key + "\", …} " +
+		if _, has := m.Get(key); has && grantRefKind[key] != kind {
+			return entryPath + "." + key + ": only a " + grantRefKind[key] + " grant names a " + key + "; a " + pyReprValue(kind) +
+				" grant does not take one. Remove this key, or make the grant {\"kind\": \"" + grantRefKind[key] + "\", …} " +
 				"to name that " + key + ".", ""
 		}
 	}
-	if !brokerscope.GrantTakesRef(kind) {
+	if !brokerscope.GrantTakesName(kind) {
 		return "", ""
 	}
-	key := kind
+	key := brokerscope.GrantNameKey(kind)
 	v, has := m.Get(key)
 	path := entryPath + "." + key
 	example := grantRefExample[key]
 	if !has {
-		return path + ": a " + key + " grant names its " + key + ", such as \"" + key + "\": \"" + example[0] +
+		return path + ": a " + kind + " grant names its " + key + ", such as \"" + key + "\": \"" + example[0] +
 			"\" (" + example[1] + "). Add it.", ""
 	}
 	name, ok := v.(string)
+	if kind == brokerscope.KindDispatchWorkflow {
+		if !ok || !brokerscope.ValidGrantWorkflow(name) {
+			return path + ": " + pyReprValue(v) + " is not a workflow a dispatch-workflow grant can name: write the " +
+				"workflow's file name in .github/workflows, such as \"" + example[0] + "\" (not its path, numeric " +
+				"id or display name), or \"*\" for every workflow in the repository. List each workflow as its own grant.", name
+		}
+		return "", name
+	}
 	if ok && strings.Count(name, "*") > 1 {
 		return path + ": " + pyReprValue(v) + " has more than one `*`: a pattern takes one, which matches any run " +
 			"of characters, `/` included (\"patch/*\", \"v*\"). Keep one `*`, or list each pattern as its own grant.", name
@@ -207,6 +227,7 @@ func userGrantsValue(source, path string, v any) ([]brokerscope.Grant, []string)
 		rv, _ := m.Get(brokeredGrantRepoKey)
 		_, hasBranch := m.Get(brokeredGrantBranchKey)
 		_, hasTag := m.Get(brokeredGrantTagKey)
+		_, hasWorkflow := m.Get(brokeredGrantWorkflowKey)
 		switch {
 		case kv != readGrantKind:
 			problems = append(problems, entryPath+"."+brokeredGrantKindKey+": "+pyReprValue(kv)+" is not a grant "+
@@ -225,6 +246,8 @@ func userGrantsValue(source, path string, v any) ([]brokerscope.Grant, []string)
 				"Remove this key.")
 		case hasTag:
 			problems = append(problems, entryPath+"."+brokeredGrantTagKey+": a read grant names no tag. Remove this key.")
+		case hasWorkflow:
+			problems = append(problems, entryPath+"."+brokeredGrantWorkflowKey+": a read grant names no workflow. Remove this key.")
 		}
 		if len(problems) > before {
 			continue

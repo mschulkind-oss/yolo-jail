@@ -1,6 +1,6 @@
 {
   "name": "github-broker",
-  "description": "Run the host's gh login for the jail against this workspace's GitHub repositories, its remotes and any its config lists under brokered.github.repos, as approved at launch, and only under a read grant in config (brokered.github.grants; with none, every call is refused): reads run; PR and issue creation under a create-pr or create-issue grant, and writes to a PR or issue in the workspace's working set (what the agent created, or what a human added with yolo approve --add), run unasked, a merge excepted; every other write files a request the host answers with yolo approve (once, --for a time, or --add), and every call is audited on the host (yolo audit).",
+  "description": "Run the host's gh login for the jail against this workspace's GitHub repositories, its remotes and any its config lists under brokered.github.repos, as approved at launch, and only under a read grant in config (brokered.github.grants; with none, every call is refused): reads run; PR and issue creation under a create-pr or create-issue grant, a workflow run on the default branch under a dispatch-workflow grant, and writes to a PR or issue in the workspace's working set (what the agent created, or what a human added with yolo approve --add), run unasked, a merge excepted; every other write files a request the host answers with yolo approve (once, --for a time, or --add), and every call is audited on the host (yolo audit).",
   "version": 1,
   "transport": "loopback-tls",
   "lifecycle": "spawned",
@@ -14,12 +14,14 @@
     ],
     "grants": [
       "create-pr",
-      "create-issue"
+      "create-issue",
+      "dispatch-workflow"
     ],
     "read_capability": "read",
     "kind_capabilities": {
       "create-pr": "create_pr",
-      "create-issue": "create_issue"
+      "create-issue": "create_issue",
+      "dispatch-workflow": "dispatch_workflows"
     },
     "pending_capabilities": []
   },

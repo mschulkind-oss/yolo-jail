@@ -221,6 +221,8 @@ func ReadableSchemaKeys() []SchemaKey {
 		{Path: "requests.github.repos.*", Scope: workspace, Type: SchemaTypeString},
 		{Path: "requests.github.create_pr", Scope: workspace, Type: SchemaTypeBoolean},
 		{Path: "requests.github.create_issue", Scope: workspace, Type: SchemaTypeBoolean},
+		{Path: "requests.github.dispatch_workflows", Scope: workspace, Type: SchemaTypeList},
+		{Path: "requests.github.dispatch_workflows.*", Scope: workspace, Type: SchemaTypeString},
 		{Path: "active_provider", Scope: user, Type: SchemaTypeObject},
 		{Path: "active_provider.default", Scope: user, Type: SchemaTypeMixed},
 		{Path: "active_provider.*", Scope: user, Type: SchemaTypeMixed},

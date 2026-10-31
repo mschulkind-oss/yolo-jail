@@ -18,6 +18,11 @@ GitHub repositories. The jail holds no GitHub token; `gh auth status` names the 
   working set runs too (comment, edit, review, ready, close, reopen, and `gh api` writes under
   its `pulls/{n}` or `issues/{n}`), until the PR is merged. A merge always asks. Name a PR or
   issue by its number, not a branch: a write without a number always asks.
+- With a `dispatch-workflow` grant naming a workflow file (or `*`), which the user adds with
+  `yolo request github dispatch_workflows <file>` and approves the same way,
+  `gh workflow run <file>` runs unasked on the repository's **default branch** only: omit `--ref`
+  or pass the default branch's name. Name the workflow by its file name (`nightly.yml`), not its
+  id or display name. A run on any other ref asks.
 - Every other in-scope write files a pending request and waits briefly for the host. Tell the
   user to run `yolo approve <id>` on the host to allow that exact command once,
   `yolo approve <id> --add` to add the PR or issue it writes to the working set,

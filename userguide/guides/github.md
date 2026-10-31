@@ -180,6 +180,7 @@ the entry to put in each project's `yolo-jail.local.jsonc` instead.
 |---|---|
 | `gh pr view 32`, `gh issue list`, `gh run view --log`, `gh workflow list`, `gh repo view`, `gh release list`, `gh api repos/OWNER/REPO/...` and other reads | It runs with your login, and the output comes back as if it ran in the jail |
 | `gh pr create` or `gh issue create` under a `create-pr` or `create-issue` grant, and `gh pr comment 32`, `gh pr edit 32`, `gh pr review 32`, `gh issue close 32` and other writes to a PR or issue in the project's working set | It runs without asking. What the agent creates joins the working set, and a PR leaves it when it is merged. See [the working set](#the-working-set) |
+| `gh workflow run nightly.yml` under a `dispatch-workflow` grant naming that workflow, on the repository's default branch | It runs without asking. See [running a workflow](#running-a-workflow) |
 | `gh pr merge`, and other in-scope writes nothing above covers | A request is filed and the broker waits briefly for host approval. Run `yolo approve <id>` on the host to allow that exact command once, or `yolo approve <id> --deny`; without a decision the command does not run and the agent can retry after approval |
 | `gh auth status` | Says which of your GitHub accounts the broker uses and which repositories the jail can reach. It never shows the token or its scopes |
 | `gh auth token`, `--web`, `gh api` to a full URL, a command that would read or write a file on your machine | Never runs, whatever else is allowed. It exits with code 64 and says why |
@@ -216,6 +217,26 @@ yolo config apply                        # on the host, in the project: approve 
 `yolo approve` lists each project's working set as `w-<id>` entries; `yolo approve --revoke
 w-<id>` ends one. A merge always asks. If the host config makes `read-write` standing, the
 broker refuses writes and tells you to remove that entry; ordinary standing reads continue to work.
+
+### Running a workflow
+
+To let the agent start a workflow without asking, allow the kind and name the workflow file in
+the project:
+
+```sh
+yolo allow github on_request dispatch_workflows          # on the host: your ceiling
+yolo request github dispatch_workflows nightly.yml       # in the project (or the jail)
+yolo config apply                                        # on the host, in the project: approve it
+```
+
+The project file then holds `dispatch_workflows = ["nightly.yml"]` under `[requests.github]`;
+`"*"` there names every workflow in the repository. With it, `gh workflow run nightly.yml` runs
+without asking, with any inputs (`-f`, `-F`, `--json`), but only on the repository's default
+branch: leave out `--ref`, or pass the default branch's name. A run on any other branch or tag
+asks, because a workflow runs as its file is on that ref, with the repository's secrets, and an
+agent that can push a branch could change the file there first. The agent must name the workflow
+by its file name; a numeric id or display name asks. Re-running, cancelling, enabling and
+disabling workflows always ask.
 
 For output formatting, `--jq` and `--template` work as they do in `gh`, and so does piping
 `--json` output into `jq` inside the jail.

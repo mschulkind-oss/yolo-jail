@@ -31,6 +31,7 @@ Examples:
   yolo request git push main            a branch the jail may push
   yolo request git new_branches         the jail may create branches
   yolo request github create_pr
+  yolo request github dispatch_workflows nightly.yml  a workflow the jail may run on the default branch
   yolo request github repos acme/other  a repository beyond this one's own remotes`
 
 func runRequest(args []string) int {
@@ -111,6 +112,13 @@ func requestRunIn(workspace string, args []string, out, errw io.Writer) int {
 		fmt.Fprintf(errw, "yolo request: %s %s is not requested by a project; your user config allows it for every project.\n"+
 			"  On the host:  yolo allow %s %s\n", source, capability, source, capability)
 		return 1
+	case requestGrantKind(decl, capability) == brokerscope.KindDispatchWorkflow:
+		if resource == "" || !brokerscope.ValidGrantWorkflow(resource) {
+			fmt.Fprintf(errw, "yolo request: %s %s takes one workflow file name, such as nightly.yml, or * for every workflow; got %q.\n"+
+				"  For example:  yolo request %s %s nightly.yml\n", source, capability, resource, source, capability)
+			return 1
+		}
+		verb, value = "add", resource
 	case requestTakesRef(decl, capability):
 		if resource == "" || !brokerscope.ValidGrantRefPattern(resource) {
 			fmt.Fprintf(errw, "yolo request: %s %s takes one ref name git accepts, such as main or patch/*; got %q.\n"+
@@ -174,18 +182,24 @@ func requestDescription(capability, value string) string {
 	return capability + " " + value
 }
 
-// requestTakesRef reports whether the capability is a grant kind that names a ref, which makes
-// its request a list of ref names rather than a yes/no.
+// requestTakesRef reports whether the capability is a grant kind that names something (a ref or
+// a workflow), which makes its request a list of names rather than a yes/no.
 func requestTakesRef(decl config.ReadableBrokerDeclaration, capability string) bool {
+	return brokerscope.GrantTakesName(requestGrantKind(decl, capability))
+}
+
+// requestGrantKind is the grant kind the capability maps to, "" for the read capability or one
+// the source does not declare.
+func requestGrantKind(decl config.ReadableBrokerDeclaration, capability string) string {
 	if capability == decl.ReadCapability {
-		return false
+		return ""
 	}
 	for kind, mapped := range decl.KindCapabilities {
 		if mapped == capability {
-			return brokerscope.GrantTakesRef(kind)
+			return kind
 		}
 	}
-	return false
+	return ""
 }
 
 // requestWritten reports whether the request is in the effective config after a post-write

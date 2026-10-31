@@ -8,11 +8,11 @@
 # THE CREDENTIAL NEVER CROSSES; THE COMMAND DOES (BB-P1). The jail sends an argv; the
 # daemon parses it against gh's measured flag grammar, refuses what could print the token or
 # reach the host, checks its repository against the scope the launch approved, and runs the
-# host gh with a canonical argv in an empty directory. A write runs unasked under a create-pr
-# or create-issue grant, or on a PR or issue in the workspace's working set (merges excepted);
+# host gh with a canonical argv in an empty directory. A write runs unasked under a create-pr,
+# create-issue or dispatch-workflow grant, or on a PR or issue in the workspace's working set (merges excepted);
 # any other write files a pending request the host answers with `yolo approve`.
 name = "github-broker"
-description = "Run the host's gh login for the jail against this workspace's GitHub repositories, its remotes and any its config lists under brokered.github.repos, as approved at launch, and only under a read grant in config (brokered.github.grants; with none, every call is refused): reads run; PR and issue creation under a create-pr or create-issue grant, and writes to a PR or issue in the workspace's working set (what the agent created, or what a human added with yolo approve --add), run unasked, a merge excepted; every other write files a request the host answers with yolo approve (once, --for a time, or --add), and every call is audited on the host (yolo audit)."
+description = "Run the host's gh login for the jail against this workspace's GitHub repositories, its remotes and any its config lists under brokered.github.repos, as approved at launch, and only under a read grant in config (brokered.github.grants; with none, every call is refused): reads run; PR and issue creation under a create-pr or create-issue grant, a workflow run on the default branch under a dispatch-workflow grant, and writes to a PR or issue in the workspace's working set (what the agent created, or what a human added with yolo approve --add), run unasked, a merge excepted; every other write files a request the host answers with yolo approve (once, --for a time, or --add), and every call is audited on the host (yolo audit)."
 version = 1
 # No switch, and no access by default (boundary-broker.md BB-D104 to BB-D106). A `brokered`
 # loophole runs whenever its pack is selected, so selecting the pack installs the `gh`
@@ -44,10 +44,13 @@ credential_paths = ["$GH_CONFIG_DIR", "$XDG_CONFIG_HOME/gh", "~/.config/gh"]
 # grant of one, within the kinds the user config allows (`allow.github` or the legacy
 # `brokered.github.grant_kinds`), lets the broker create PRs (`create-pr`) or issues
 # (`create-issue`) in the granted repository unasked, and each one it creates joins the
-# workspace's working set, where its later writes run unasked too; a merge still asks.
-grants = ["create-pr", "create-issue"]
+# workspace's working set, where its later writes run unasked too; a merge still asks. A
+# `dispatch-workflow` grant names a workflow file (or `*`) and lets the broker run
+# `gh workflow run <file>` on the repository's default branch unasked; any other ref asks
+# (docs/design/github-write-scopes.md GW-D14).
+grants = ["create-pr", "create-issue", "dispatch-workflow"]
 read_capability = "read"
-kind_capabilities = { create-pr = "create_pr", create-issue = "create_issue" }
+kind_capabilities = { create-pr = "create_pr", create-issue = "create_issue", dispatch-workflow = "dispatch_workflows" }
 pending_capabilities = []
 
 # One daemon per jail, behind yolo's front, with the connection preamble on: every grant
