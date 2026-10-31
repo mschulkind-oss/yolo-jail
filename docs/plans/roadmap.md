@@ -214,7 +214,9 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
    since `codex agents` starts the daemon yolo turns off; [whose OpenAI login host pi uses](../design/pi-host-openai-auth.md),
    since its first refresh replaces yours, with its catalog-refresh question; and [a leftover `mcp-adapter.json` at the
    host](../reference/mcp-configuration.md#OQ-MC2), which host apply never deletes and pi keeps loading, with
-   [OQ-MC1](../reference/mcp-configuration.md#OQ-MC1).
+   [OQ-MC1](../reference/mcp-configuration.md#OQ-MC1). For pack files: [skipping files for an unselected agent](../design/pack-files-for-agent-state.md#OQ-FS6)
+   instead of refusing the launch, [warning on a folder another pack keeps state in](../design/pack-files-for-agent-state.md#OQ-FS2), and [whether a Mac
+   bootstrap stops at a failed home layout](../design/pack-files-for-agent-state.md#OQ-FS4).
 5. [Rule whether a successful `yolo host apply --assert` names a next command](../reference/happy-path-principle.md#the-rules)
    — rule 2 calls such a success a dead end, `--assert` ends at its counts, and the line waits on a ruling against [the
    verdict block](../reference/report-tiers.md#the-verdict-block)'s "Only the dry run has a footer"; this entry is the
@@ -367,7 +369,7 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
     generic name](../design/credential-sources-separation.md#OQ-ES6), [the pack-file conventions](../design/pack-conventions.md),
     [loophole env and guest fields](../design/loophole-packaging.md), [workspace MCP files](../design/workspace-mcp-sources.md),
     [Seatbelt deny-default](../research/agent-safehouse.md), [host apply's posture](../design/host-render-target.md),
-    [the I/O priority default](../design/io-priority.md). Only closing a document: [an unmatched-reference hatch](../design/reference-mismatch-diagnostics.md),
+    [the I/O priority default](../design/io-priority.md), [replacing a pack-files directory yolo made](../design/pack-files-for-agent-state.md#OQ-FS3) with [OQ-HT5](../reference/macos-user-home-tiers.md#oq-ht5), [removing a layout link whose workspace is gone](../design/pack-files-for-agent-state.md#OQ-FS5). Only closing a document: [an unmatched-reference hatch](../design/reference-mismatch-diagnostics.md),
     [path mirroring](../reference/workspace-path-mirroring.md), [pack telemetry](../reference/pack-system.md#oq-acp4), [AWS's key
     pair](../design/credential-sources-separation.md#OQ-ES8), [stateful-surface comments](BACKLOG.md#OQ-E4), [the upstream mise
     issue](../design/jail-state-separation-design.md), and [macos-user's stale home-root file and two workspaces at
@@ -434,6 +436,7 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
     [menus under a model list](../design/model-lists-and-pickers.md#13-build-order-and-what-done-looks-like), [a switch in
     a provider set](../design/active-provider-sets.md#9-what-done-looks-like), [Copilot's config migration](../design/agent-directory-map.md#74-copilot),
     [a Kilo session](../design/gateway-provider-packs.md), [the restart prompt](../reference/attach-skew.md),
+    [whether the plain agy slot delivers the agent](../design/pack-files-for-agent-state.md#OQ-FS1),
     [pi loading a pack's folder](../reference/pack-system.md#pi-packages), [host Chrome from `yolo host -- claude` and under
     macos-user](../design/mcp-presets-removal.md#13-what-i-would-build-in-order), and [codex, opencode and pi on
     Bedrock](../design/bedrock-plumbing.md#8-behaviour-this-design-fixes) under SSO. Check [Pi launch selection](../design/model-lists-and-pickers.md#1411-pis-provider-flag-travels-only-with-an-explicit-model-built-2026-10-07)
