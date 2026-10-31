@@ -2,13 +2,13 @@
 status: accepted
 stage: DECIDED
 next: "Every task is built; delete this plan when the design graduates"
-depends-on: [docs/design/pack-naming.md, docs/design/readable-config.md]
+depends-on: [../design/pack-naming.md, ../design/readable-config.md]
 ---
 
 # Plan: pack naming
 
 **Status:** 2026-10-31. Completed against the tree, written against `67b336e09` (main at
-`efe94c655`, plus the held fixes of design §9 step 1).
+`efe94c655`, plus the held fixes of design [§9](../design/pack-naming.md#9-build-order) step 1).
 **Design:** [`pack-naming.md`](../design/pack-naming.md), every question ruled
 ([Decision Ledger](../design/pack-naming.md#decision-ledger)).
 Precedence: the design wins on behavior, the tree wins on fact, this file is advice and is the
@@ -28,7 +28,7 @@ Three words, defined in the design's [§3](../design/pack-naming.md#3-the-design
 | `internal/config/schema.go`, `packs.go`, `readablepacks.go`, `packresolve.go` | the new keys; `PackEntry` carries the three fields onto `packload.Pack` |
 | `internal/packload/packload.go`, `packtreerecord.go` | `Pack.Namespace/NamespaceOwner/Landing`; `files` landing and `/ctx/host-…` use `Landing`; the tree record carries them to the jail |
 | `internal/entrypoint/packsurfaces.go`, `internal/cli/run/macosctxtree.go`, `packhostgrants.go` | read the recorded naming; `/ctx` uses `CtxName()` |
-| `internal/hostskills/` | delivered names on both notches: skill dirs and the copied `SKILL.md` `name`; a wrapped plugin's copied manifest `name`; the clash message per design §3.5 |
+| `internal/hostskills/` | delivered names on both notches: skill dirs and the copied `SKILL.md` `name`; a wrapped plugin's copied manifest `name`; the clash message per design [§3.5](../design/pack-naming.md#35-clashes) |
 | `internal/packload/` (new `namecollisions.go`) | namespace-word and landing clashes, called from `yolo check`, the launch and `yolo host apply` |
 | `internal/packdecl` lint | `skills_tier = "namespaced"` warns where it changes nothing (a pack wrapping no plugin), PN-D14 |
 | `packs/claude`, `packs/copilot`, `yolo pack init --plugin` scaffold | keep `skills_tier = "namespaced"` where a plugin is wrapped whole (PN-D14) |
@@ -69,22 +69,22 @@ Three words, defined in the design's [§3](../design/pack-naming.md#3-the-design
 
 All four are built; the design's ledger names each commit and its tests.
 
-1. **Namespaces and delivered names** (design §9 step 2). Settled, do not re-open: §3.3-§3.5,
-   PN-D5, PN-D6, PN-D8, PN-D9. Tests: the §3.4.1 example as a table of delivered names, and each
+1. **Namespaces and delivered names** (design [§9](../design/pack-naming.md#9-build-order) step 2). Settled, do not re-open: [§3.3](../design/pack-naming.md#33-the-namespace--what-agents-see)-[§3.5](../design/pack-naming.md#35-clashes),
+   PN-D5, PN-D6, PN-D8, PN-D9. Tests: the [§3.4.1](../design/pack-naming.md#341-a-worked-example) example as a table of delivered names, and each
    row of its second table as a refusal naming both entries and the step. Gate:
    `go test -short ./internal/packsrc/... ./internal/packname/... ./internal/hostskills/... ./internal/config/... ./internal/cli/...`.
-2. **Identity-keyed records** (after 1). Settled: §3.2, PN-D10. Built as an identity index and
+2. **Identity-keyed records** (after 1). Settled: [§3.2](../design/pack-naming.md#32-the-pack-identity--what-records-key-on), PN-D10. Built as an identity index and
    record moves on first read rather than a re-key in the RC-D47 journal (design PN-D15); a moved
    pack re-pins once and the launch says so.
-3. **Rename verb and migration marking** (after 2). Settled: §3.6, §7, PN-D7, PN-D12.
-4. **`shipped_skill_prefix`** (after 1). Settled: §3.7, PN-D13.
+3. **Rename verb and migration marking** (after 2). Settled: [§3.6](../design/pack-naming.md#36-renaming), [§7](../design/pack-naming.md#7-migration), PN-D7, PN-D12.
+4. **`shipped_skill_prefix`** (after 1). Settled: [§3.7](../design/pack-naming.md#37-shipped-and-third-party), PN-D13.
 
 Each task: `just format`, then `env -u YOLO_ALLOW_MISSING_PROGRAMS just check-ci` before landing.
 
 ## Ships with
 
 - `docs/reference/pack-system.md` "skills collision" and its `skills_tier` text;
-  `docs/design/config-user.md` §4; the user guide's pack pages; `yolo config-ref`.
+  [`config-user.md` §4](../design/config-user.md#4-naming-a-pack-that-is-not-shipped); the user guide's pack pages; `yolo config-ref`.
 - Tests asserting the escaped or `<pack>:<skill>` names (`internal/hostskills` deliver, compose and
   plugin tests, `internal/cli` apply and init tests): rewrite them to the new names, never relax
   them until green.
