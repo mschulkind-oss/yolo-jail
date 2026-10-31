@@ -336,7 +336,14 @@ func (s *Store) WalkSeries(repo, subdir string, series *Series, list []ListEntry
 	for _, e := range list {
 		r := ReplayResult{Entry: e}
 		probe := ""
-		if !opts.LocalOnly {
+		switch {
+		case opts.LocalOnly:
+		case e.Commit == series.Base && baseProbe != "":
+			// AN ENTRY THAT IS THE BASE (the upstream has not moved) was probed complete above, under
+			// the lock this walk still holds: a fetch since can only have added objects, so a second
+			// `rev-list` could only repeat the answer. One git start saved per such walk.
+			probe = baseProbe
+		default:
 			probe = s.prefetchBlobs(b, mirror, e.Commit, "")
 		}
 		// The check's listing names the entry's root tree first, which the pick compares against.

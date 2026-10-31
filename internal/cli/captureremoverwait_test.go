@@ -20,7 +20,7 @@ import (
 // that way: the remover of an npm-resolve jail outlived the launch that asked for it.
 //
 // The "remover" is this test holding the shared in-flight lock the real one inherits, writing
-// its housekeeping line and releasing a second later. Delete the wait from
+// its housekeeping line and releasing a moment later. Delete the wait from
 // cleanupCaptureWorkspace and the cleanup returns before the release.
 func TestCaptureCleanupWaitsForTheBuildJailsScratchRemover(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
@@ -44,7 +44,8 @@ func TestCaptureCleanupWaitsForTheBuildJailsScratchRemover(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		time.Sleep(time.Second)
+		// Long enough that a cleanup which does not wait (a directory removal) is long done.
+		time.Sleep(200 * time.Millisecond)
 		_ = os.WriteFile(filepath.Join(ws, ".yolo", "housekeeping.log"), []byte("scratch: removed\n"), 0o644)
 		released.Store(true)
 		_ = syscall.Flock(fd, syscall.LOCK_UN)

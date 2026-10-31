@@ -182,7 +182,14 @@ func (o *Options) jailGoneAfterItsEnd(cname, rt string) bool {
 // jailGonePoll within jailGoneWait. A probe that could not ANSWER is never "gone" (JL-P3), and a
 // runtime whose listing does not trail is asked once.
 func JailGoneAfterItsEnd(rt string, probe func() (running, answered bool)) bool {
-	deadline := time.Now().Add(jailGoneWait)
+	return JailGoneWithin(rt, jailGoneWait, jailGonePoll, probe)
+}
+
+// JailGoneWithin is JailGoneAfterItsEnd with the bound and the poll named by the caller: `yolo
+// stop` passes its own copies of jailGoneWait and jailGonePoll (stopJailGoneWait in package cli),
+// so a test of a jail that stays listed need not wait out the production bound.
+func JailGoneWithin(rt string, wait, poll time.Duration, probe func() (running, answered bool)) bool {
+	deadline := time.Now().Add(wait)
 	for {
 		running, answered := probe()
 		switch {
@@ -193,9 +200,12 @@ func JailGoneAfterItsEnd(rt string, probe func() (running, answered bool)) bool 
 		case !listingTrailsAJailsEnd(rt) || !time.Now().Before(deadline):
 			return false
 		}
-		time.Sleep(jailGonePoll)
+		time.Sleep(poll)
 	}
 }
+
+// JailGonePoll is jailGoneAfterItsEnd's interval between asks, for a caller of JailGoneWithin.
+func JailGonePoll() time.Duration { return jailGonePoll }
 
 // JailGoneWait is jailGoneAfterItsEnd's bound, for the Apple Container keeper test's measure of how
 // long `container ls` lists a jail a stop has ended (integration/applecontainerkeeper_test.go).

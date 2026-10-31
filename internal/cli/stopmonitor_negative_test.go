@@ -207,6 +207,7 @@ func TestRunStopForceRecoveryDeclinesCallerMetadataAndIdentityNegatives(t *testi
 func TestRunStopForceUnresolvedAppleContainerDoesNotProbePodmanOrSignal(t *testing.T) {
 	cname, _ := stopWorkspace(t, `{"runtime":"container"}`)
 	shrinkStopGone(t)
+	shrinkStopJailGone(t)
 	procRoot := filepath.Join(t.TempDir(), "unused-proc")
 	var pidfdOpened, signaled, pidfdClosed bool
 	savedOps := stopMonitorProcessOps
@@ -271,4 +272,13 @@ func writeStopProcStat(t *testing.T, proc string, pid, ppid int, state string, s
 	if err := os.WriteFile(filepath.Join(proc, fmt.Sprint(pid), "stat"), []byte(fmt.Sprintf("%d (fake comm) %s\n", pid, strings.Join(fields, " "))), 0o600); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// shrinkStopJailGone shrinks the post-stop re-probe's wait for an Apple Container listing to stop
+// naming the jail (probeJailGoneAfterStop), so a test whose jail stays listed need not wait out
+// the production bound.
+func shrinkStopJailGone(t *testing.T) {
+	savedWait, savedPoll := stopJailGoneWait, stopJailGonePoll
+	stopJailGoneWait, stopJailGonePoll = 20*time.Millisecond, time.Millisecond
+	t.Cleanup(func() { stopJailGoneWait, stopJailGonePoll = savedWait, savedPoll })
 }

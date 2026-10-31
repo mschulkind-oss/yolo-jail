@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokeraudit"
+	"github.com/mschulkind-oss/yolo-jail/internal/brokercore"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerstore"
 	"github.com/mschulkind-oss/yolo-jail/internal/ghbroker"
@@ -31,6 +32,9 @@ func TestGitHubApprovalBrokerHelper(t *testing.T) {
 	if os.Getenv("YOLO_GH_APPROVAL_BROKER_HELPER") != "1" {
 		t.Skip("run as the GitHub broker helper only")
 	}
+	// The on_request hook runs at the runner's next poll of the store: a test files a request and
+	// waits for its hook, so this broker polls every 20 ms rather than the production second.
+	brokercore.SetOnRequestIntervalForTest(20 * time.Millisecond)
 	for i, arg := range os.Args {
 		if arg == "--" {
 			os.Exit(ghbroker.Main(os.Args[i+1:]))

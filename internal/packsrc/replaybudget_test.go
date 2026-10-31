@@ -126,6 +126,37 @@ func TestAWalkOverAFilledMirrorListsEachTreeOnce(t *testing.T) {
 	}
 }
 
+// AN ENTRY THAT IS THE SERIES' BASE (an upstream that has not moved) IS LISTED ONCE: the base's
+// probe found nothing missing under the walk's lock, so the entry's would only repeat it. Two
+// rev-list starts, the base's listing and the am's commits, where the entry's probe made three.
+func TestAWalkOverItsOwnBaseListsTheBaseOnce(t *testing.T) {
+	u := newPatchedUpstream(t)
+	series, list := u.checked(t)
+	var entry []ListEntry
+	for _, e := range list {
+		if e.Commit == series.Base {
+			entry = []ListEntry{e}
+		}
+	}
+	if entry == nil {
+		t.Fatalf("fixture: no entry on %+v is the base %s", list, series.Base)
+	}
+	addr := mustAddr(t, u.source("main"))
+	if w := u.store.WalkSeries(addr.Repo, addr.Path, series, entry, WalkOptions{}); w.Err != nil || w.Fit != 0 {
+		t.Fatalf("filling walk = %+v", w)
+	}
+	bin, counts := countingGit(t)
+	u.store.Git = bin
+	w := u.store.WalkSeries(addr.Repo, addr.Path, series, entry, WalkOptions{})
+	if w.Err != nil || w.Fit != 0 || !w.Results[0].Clean || w.Results[0].Tree == "" {
+		t.Fatalf("walk = %+v", w)
+	}
+	if got := counts(); got["rev-list"] != 2 || got["fetch"] != 0 {
+		t.Errorf("git starts by subcommand %v, want two rev-list (the base's listing, the am's commits) "+
+			"and no fetch", got)
+	}
+}
+
 // ONE `git am` OVER THE WHOLE SERIES MAKES THE COMMITS ONE RUN PER MEMBER MAKES, the same ids in the
 // same order, which is what lets applyAtBase take it (wholeSeriesAppliable).
 func TestTheWholeSeriesAmMakesTheMemberByMemberCommits(t *testing.T) {

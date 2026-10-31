@@ -351,6 +351,14 @@ func probeJailRunning(rt, cname string, run stopCommandRunner) (running, ran boo
 	}
 }
 
+// stopJailGoneWait and stopJailGonePoll are probeJailGoneAfterStop's bound and poll: the session
+// attach's own (run.JailGoneWait, run.JailGonePoll), held here as vars so a test need not wait
+// them out.
+var (
+	stopJailGoneWait = run.JailGoneWait()
+	stopJailGonePoll = run.JailGonePoll()
+)
+
 // probeJailGoneAfterStop answers, for a stop whose runtime stop returned non-zero, whether cname's
 // jail is gone: run.JailGoneAfterItsEnd over this file's own runtime runner. A runtime that could
 // not be run, or (Apple Container) could not answer, is "could not ask" and never "gone" (JL-P3),
@@ -358,7 +366,7 @@ func probeJailRunning(rt, cname string, run stopCommandRunner) (running, ran boo
 // Container's `container ls` also keeps listing a jail for a moment after its stop returns
 // (JL-D83), which the bounded wait covers; podman's one answer stands, so it is asked once.
 func probeJailGoneAfterStop(rt, cname string, runCmd stopCommandRunner) bool {
-	return run.JailGoneAfterItsEnd(rt, func() (running, answered bool) {
+	return run.JailGoneWithin(rt, stopJailGoneWait, stopJailGonePoll, func() (running, answered bool) {
 		running, ran, rc := probeJailRunning(rt, cname, runCmd)
 		if !ran || (rt == "container" && rc != 0) { // parity: HonoredBy — a failed `container ls` is "could not ask", where podman's failed inspect is "no such container"
 			return false, false

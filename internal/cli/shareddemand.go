@@ -347,12 +347,17 @@ type sharedDemandRequest struct {
 	previousWorkerError []byte
 }
 
+// sharedDemandCleanupBound bounds a released request's cleanup (release): its wait for state.lock
+// and its wait for a scheduler-stopped producer to drain. A var so a test that holds state.lock
+// across the release need not wait it out.
+var sharedDemandCleanupBound = time.Second
+
 func (r *sharedDemandRequest) release(automatic bool) {
 
 	r.lease.Release()
 	// Remove only this detached request under the same transaction the worker reads.
 	// Cleanup is bounded and never waits on an artifact/check/build lock.
-	cleanupCtx, stop := context.WithTimeout(context.WithoutCancel(r.ctx), time.Second)
+	cleanupCtx, stop := context.WithTimeout(context.WithoutCancel(r.ctx), sharedDemandCleanupBound)
 	defer stop()
 	_ = withDemandState(cleanupCtx, r.dir, true, func() error {
 		_ = os.Remove(r.path)

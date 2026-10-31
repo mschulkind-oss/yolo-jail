@@ -177,16 +177,6 @@ func assertCaptureDescendantsGone(t *testing.T, home string) {
 	}
 }
 
-func TestProgramCaptureDriverCancellationWithStoppedSupervisorFailsClosed(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-	out := filepath.Join(t.TempDir(), "out")
-	start := time.Now()
-	_, err := capture.Run(capture.Options{Context: ctx, Home: t.TempDir(), Out: out, Artifacts: []string{".local/bin/probe"}, Command: []string{"/bin/sh", "-c", `kill -STOP $PPID`}})
-	if !errors.Is(err, context.DeadlineExceeded) || time.Since(start) > 7*time.Second {
-		t.Fatalf("stopped ownership: %v after %v", err, time.Since(start))
-	}
-	if _, err := os.Stat(capture.ManifestPath(out)); !os.IsNotExist(err) {
-		t.Fatal("unknown ownership published manifest")
-	}
-}
+// The cancelled capture whose supervisor never answers is
+// internal/capture's TestProgramCaptureDriverCancellationWithStoppedSupervisorFailsClosed, where its
+// wait for the stopped supervisor can be shrunk.

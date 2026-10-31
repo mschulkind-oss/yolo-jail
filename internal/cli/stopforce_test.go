@@ -134,6 +134,9 @@ func TestAForcedStopFailsClosedWhenPodmanInspectCannotDistinguishTheContainer(t 
 
 func TestStopJailDoesNotTreatUnknownAfterStopAsGone(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	// The container never leaves, so the wait for it to go runs to its bound: shrunk, as every
+	// other still-there stop test does, rather than waited out at the production 15 s.
+	shrinkStopGone(t)
 	cname := runtime.FromWorkspace("/ws")
 	var calls [][]string
 	runningProbes := 0

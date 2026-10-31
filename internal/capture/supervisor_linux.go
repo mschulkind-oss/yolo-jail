@@ -21,6 +21,11 @@ import (
 const InstallerSupervisorVerb = "capture-installer-supervise"
 const descendantCleanupBound = 3 * time.Second
 
+// supervisorCancelWait is how long a cancelled capture waits for its supervisor to finish its own
+// bounded descendant cleanup before killing it: that bound and a second. A var so a test of a
+// supervisor that never answers need not wait it out.
+var supervisorCancelWait = descendantCleanupBound + time.Second
+
 // InstallerSupervisorMain runs only in a dedicated self-exec process. Subreaping
 // never changes the parent CLI's or a legacy installer's child/signal semantics.
 // Fd 3 is the parent's lifetime pipe; fd 4 acknowledges ECHILD after cleanup.
@@ -187,7 +192,7 @@ func (d *driver) installArtifacts(ctx context.Context) error {
 	case err = <-waited:
 	case <-ctx.Done():
 		_ = lifetimeW.Close()
-		timer := time.NewTimer(descendantCleanupBound + time.Second)
+		timer := time.NewTimer(supervisorCancelWait)
 		select {
 		case err = <-waited:
 			timer.Stop()

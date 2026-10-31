@@ -138,6 +138,14 @@ func (d Daemon) Main(argv []string) int {
 	return 0
 }
 
+// onRequestInterval is how often StartOnRequest's runner polls the request store; zero is the
+// runner's own default (brokerhook.Runner.Interval). SetOnRequestIntervalForTest sets it.
+var onRequestInterval time.Duration
+
+// SetOnRequestIntervalForTest makes every on_request runner started after it poll every d, for a
+// test's broker process that need not wait a production poll per request it files.
+func SetOnRequestIntervalForTest(d time.Duration) { onRequestInterval = d }
+
 // StartOnRequest runs the user's on_request command for each request this broker lifetime
 // (start) files in store (BB-D75), when one is set. name is the daemon's name, for its log
 // lines. The returned channel closes once its runner has stopped.
@@ -157,7 +165,8 @@ func StartOnRequest(ctx context.Context, name string, store *brokerstore.Store, 
 		fmt.Fprintln(log, name+": on_request gets no YOLO_BIN:", err, "; its `yolo approve` must be on PATH")
 		bin = ""
 	}
-	r := &brokerhook.Runner{Store: store, Start: start, Command: command, Bin: bin, Dir: home, Log: log}
+	r := &brokerhook.Runner{Store: store, Start: start, Command: command, Bin: bin, Dir: home, Log: log,
+		Interval: onRequestInterval}
 	fmt.Fprintln(log, name+": running your on_request for each request this jail files")
 	go func() {
 		defer close(done)

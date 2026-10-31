@@ -240,6 +240,16 @@ func TestSharedFreshDemandRetriesStateLockAtInitialAndFinalAdmissions(t *testing
 	}
 }
 
+// shrinkSharedDemandCleanup shrinks a released request's cleanup bound, for a test that holds
+// state.lock across the release: the cleanup then waits for a lock it cannot get, and would wait
+// out the production second.
+func shrinkSharedDemandCleanup(t *testing.T) {
+	t.Helper()
+	saved := sharedDemandCleanupBound
+	sharedDemandCleanupBound = 3 * sharedDemandPoll
+	t.Cleanup(func() { sharedDemandCleanupBound = saved })
+}
+
 func TestSharedFreshDemandCancellationDuringFinalStateLockRetry(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
@@ -249,6 +259,7 @@ func TestSharedFreshDemandCancellationDuringFinalStateLockRetry(t *testing.T) {
 		{name: "Good settlement", guardCall: 3},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			shrinkSharedDemandCleanup(t)
 			fx, oldGood := forkWithAGoodBuild(t)
 			newCommit := fx.commit(t, "v1.3.0", map[int]string{14: "fourteen", 20: "twenty", 22: "twenty-two"})
 			fx.later(2 * time.Hour)

@@ -97,7 +97,7 @@ func TestAWaiterTakesTheWinnersFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	close(proceed)
-	time.Sleep(1500 * time.Millisecond) // B's poll of the build lock runs every 50 ms
+	time.Sleep(500 * time.Millisecond) // ten of B's polls of the build lock, which run every 50 ms
 	_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
 	f.Close()
 	wg.Wait()
