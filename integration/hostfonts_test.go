@@ -3,12 +3,14 @@ package integration
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
 
 // hostfonts_test.go drives share_host_fonts (OQ-NX9, docs/design/provisioner-sets.md) through a
-// real jail: with the user-scope opt-in, the host user's ~/.local/share/fonts is bound read-only
+// real jail: with the user-scope opt-in, the host user's font folder (~/.local/share/fonts on
+// Linux, ~/Library/Fonts on a Mac, which is the only folder a Mac host shares) is bound read-only
 // under the jail's ~/.local/share/fonts, the jail's own fontconfig lists the font in it, a write
 // to it is refused, and the launch names the folder. The unit suite pins the argv and the
 // disclosure at their call site (internal/cli/run/hostfonts_test.go); this is the one place the
@@ -17,6 +19,9 @@ func TestSharedHostFontsAreReadOnlyAndFontconfigFindsThem(t *testing.T) {
 	requireJail(t)
 	packHome(t, `{"share_host_fonts": true}`)
 	fonts := filepath.Join(os.Getenv("HOME"), ".local", "share", "fonts")
+	if runtime.GOOS == "darwin" {
+		fonts = filepath.Join(os.Getenv("HOME"), "Library", "Fonts")
+	}
 	if err := os.MkdirAll(fonts, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -50,8 +55,8 @@ func TestSharedHostFontsAreReadOnlyAndFontconfigFindsThem(t *testing.T) {
 		" → /home/agent/.local/share/fonts/yolo-host") {
 		t.Errorf("the launch did not name the shared font folder:\n%s", r.stderr)
 	}
-	// ~/.fonts does not exist in this home: skipped, with its line.
-	if !strings.Contains(r.combined(), "share_host_fonts: "+filepath.Join(os.Getenv("HOME"), ".fonts")+" does not exist") {
+	// ~/.fonts does not exist in this home: skipped, with its line. A Mac host never looks there.
+	if runtime.GOOS != "darwin" && !strings.Contains(r.combined(), "share_host_fonts: "+filepath.Join(os.Getenv("HOME"), ".fonts")+" does not exist") {
 		t.Errorf("the missing ~/.fonts was not reported:\n%s", r.combined())
 	}
 }
