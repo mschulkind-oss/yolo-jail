@@ -30,10 +30,10 @@ Three words, defined in the design's [§3](../design/pack-naming.md#3-the-design
 | `internal/entrypoint/packsurfaces.go`, `internal/cli/run/macosctxtree.go`, `packhostgrants.go` | read the recorded naming; `/ctx` uses `CtxName()` |
 | `internal/hostskills/` | delivered names on both notches: skill dirs and the copied `SKILL.md` `name`; a wrapped plugin's copied manifest `name`; the clash message per design §3.5 |
 | `internal/packload/` (new `namecollisions.go`) | namespace-word and landing clashes, called from `yolo check`, the launch and `yolo host apply` |
-| `internal/packdecl` lint | `skills_tier = "namespaced"` warns that it is ignored |
-| `packs/claude`, `packs/copilot`, `yolo pack init --plugin` scaffold | drop `skills_tier` |
+| `internal/packdecl` lint | `skills_tier = "namespaced"` warns where it changes nothing (a pack wrapping no plugin), PN-D14 |
+| `packs/claude`, `packs/copilot`, `yolo pack init --plugin` scaffold | keep `skills_tier = "namespaced"` where a plugin is wrapped whole (PN-D14) |
 | `internal/configmigrate/` | re-key records to identity (step 3); write `bare = true`, folder-named sources, the old → new list (step 4) |
-| `internal/cli/pack.go` + new `packsource.go` | `yolo pack source rename OLD NEW` |
+| `internal/cli/pack.go` + new `packsource.go` | `yolo pack source rename OLD NEW`: not built; left for the PN-D10 slice, which moves the records keyed on the old handle |
 | config key plumbing for `shipped_skill_prefix` | the user-only key list below (step 5) |
 
 ## Reuse
@@ -97,4 +97,7 @@ Each task: `just format`, then `env -u YOLO_ALLOW_MISSING_PROGRAMS just check-ci
   that today decides whether a wrapped plugin's whole tree (hooks, MCP servers) is delivered or
   only its skills. Advice taken: a wrapped plugin is always delivered as a tree under
   `<namespace>-<manifest name>`, downgraded to flat skills only where a foreign directory holds
-  the name, as today. Reported to the owner as a design hole.
+  the name, as today. Reported to the owner as a design hole. Superseded by
+  [PN-D14](../design/pack-naming.md#PN-D14): a wrapper delivers its plugin whole only when it
+  opts in with `skills_tier = "namespaced"`; otherwise its skills go out flat and its hooks and
+  MCP servers stay refused, as on main.

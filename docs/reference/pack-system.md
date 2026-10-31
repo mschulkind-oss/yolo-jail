@@ -418,7 +418,7 @@ one contribution does not mask a second; a launch skips what this build cannot r
 | `name` | informational — **not** the pack's effective name (below) |
 | `description` | prose for `yolo pack ls` |
 | `contributes` | the pack's effects: one list of typed contributions, each with a `kind` |
-| `skills_tier` | retired: ignored, and `yolo pack lint` warns of it ([pack naming PN-D9](../design/pack-naming.md#PN-D9)) |
+| `skills_tier` | `namespaced` delivers a wrapped plugin whole; at the default its skills arrive alone and its hooks and MCP servers are refused by name. It never changes a name ([pack naming PN-D9, PN-D14](../design/pack-naming.md#PN-D14)) |
 | `supersedes` | the pack's claim that a [capability](#capabilities-and-supersession)'s job no longer needs doing |
 | `needs` | [conditional pack dependency](#needs--conditional-pack-dependency): another pack joins the launch when a condition holds |
 
@@ -1399,8 +1399,9 @@ from yolo is in a **namespace**, the word its config entry gives it: a `[pack_so
 Each of its skills is delivered as `<namespace>-<skill>`, as the directory name and as the `name`
 field of the copied `SKILL.md`, and each wrapped plugin as `<namespace>-<manifest name>`, written
 into its copied manifest. Shipped packs, and entries or sources marked `bare = true`, deliver the
-author's own names. The pack's `skills_tier` is retired: it changes no name, and `yolo pack lint`
-warns that it is ignored ([PN-D9](../design/pack-naming.md#PN-D9)).
+author's own names, and a bare entry's `files` landing and `/ctx` directory keep the spelling they had. A pack's `skills_tier` changes no name;
+`namespaced` only delivers a wrapped plugin whole, and `yolo pack lint` warns of it on a pack that wraps none
+([PN-D9](../design/pack-naming.md#PN-D9), [PN-D14](../design/pack-naming.md#PN-D14)).
 
 **A skills contribution may also RESERVE children of its destination** — `reserved`, a list of bare
 child names yolo neither adopts nor composes over. It sits beside the tier rule because it is the
@@ -4692,7 +4693,7 @@ only place the values themselves are stated.
 | Packs shipping a `derive.lua` | `agy`, `claude`, `codex`, `copilot`, `omp`, `opencode`, `pi` | `packs/*/derive.lua`, all run by `TestEveryShippedPackDeriveStillRuns` |
 | Surface modes | `stateful` (default), `computed`, `rmw`, `unrendered` | `internal/agentcfg/manifest` |
 | `state` scopes | `workspace` (default), `machine` (requires `because`) | `packdecl` |
-| `skills_tier` values | `""` / `flat`, `namespaced`; both ignored ([PN-D9](../design/pack-naming.md#PN-D9)) | `packdecl.Manifest.SkillsTier` |
+| `skills_tier` values | `""` / `flat`, `namespaced`; `namespaced` delivers a wrapped plugin whole ([PN-D14](../design/pack-naming.md#PN-D14)) | `packdecl.Manifest.SkillsTier` |
 | Derive registrations | `yolo.derive(agent, surface, fn)`, `yolo.env(agent, fn)` | `internal/agentcfg/luahook` |
 | Derive helpers | `yolo.model_for(alias)` → `"<provider>/<id>", "<id>"` or `nil`, for the selected provider only; warns for a missing `default`, `fast`, `balanced` or `frontier` | `luahook/modelfor.go` |
 | Derive ctx sentinels | `ctx.tombstone`, `ctx.empty_array`, `ctx.in_full(t)` | `luahook/derive.go` |
