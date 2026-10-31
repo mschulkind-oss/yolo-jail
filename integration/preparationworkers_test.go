@@ -854,13 +854,29 @@ func refreshStopListing(home string, procs []homeProcess, deadline time.Time, pr
 	return current, needsRelist, nil
 }
 
-func signalStopTarget(home string, p homeProcess, signal syscall.Signal, probes stopProcessProbes) (bool, error) {
+// deadline bounds the wait for a target that reads no arguments at the moment of signalling.
+func signalStopTarget(home string, p homeProcess, signal syscall.Signal, deadline time.Time, probes stopProcessProbes) (bool, error) {
 	snapshot, live, err := validateStopTarget(home, p, probes)
 	if err != nil || !live {
 		return false, err
 	}
-	if len(snapshot.args) == 0 {
-		return false, fmt.Errorf("signalling %s with %s: live process has no readable arguments", p, signal)
+	// Classified with arguments, now reading none: usually a process caught exiting (CI run
+	// 41149159622, TestYoloDirectCommand's podman). Its identity cannot be confirmed, so it is
+	// not signalled; it is watched until it is gone or reads its arguments again, and fails
+	// closed past the deadline.
+	for len(snapshot.args) == 0 {
+		if !time.Now().Before(deadline) {
+			return false, fmt.Errorf("signalling %s with %s: live process has no readable arguments", p, signal)
+		}
+		pause := time.Until(deadline)
+		if pause > 10*time.Millisecond {
+			pause = 10 * time.Millisecond
+		}
+		time.Sleep(pause)
+		snapshot, live, err = validateStopTarget(home, p, probes)
+		if err != nil || !live {
+			return false, err
+		}
 	}
 	if (homeProcess{args: snapshot.args}).waitOnly() {
 		return false, nil
@@ -1145,7 +1161,7 @@ func stopHomeProcessesWithinWithProbes(home string, bound, grace time.Duration, 
 			var signalled []homeProcess
 			var retainedHOMEErrors []error
 			for _, p := range procs {
-				sent, err := signalStopTarget(home, p, syscall.SIGKILL, probes)
+				sent, err := signalStopTarget(home, p, syscall.SIGKILL, time.Now(), probes)
 				if err != nil {
 					failures = append(failures, err.Error())
 				} else if sent {
@@ -1195,7 +1211,7 @@ func stopHomeProcessesWithinWithProbes(home string, bound, grace time.Duration, 
 		}
 		var signalled []homeProcess
 		for _, p := range targets {
-			sent, err := signalStopTarget(home, p, syscall.SIGTERM, probes)
+			sent, err := signalStopTarget(home, p, syscall.SIGTERM, deadline, probes)
 			if err != nil {
 				return stopped, err
 			}
@@ -1216,7 +1232,7 @@ func stopHomeProcessesWithinWithProbes(home string, bound, grace time.Duration, 
 				return stopped, err
 			}
 			if live {
-				if _, err := signalStopTarget(home, p, syscall.SIGKILL, probes); err != nil {
+				if _, err := signalStopTarget(home, p, syscall.SIGKILL, deadline, probes); err != nil {
 					return stopped, err
 				}
 				if _, err := waitStopTargetGone(home, p, time.Now().Add(2*time.Second), probes); err != nil {
@@ -3754,5 +3770,30 @@ func TestStopHomeProcessesWaitsOutAnEmptyArgvUnderUncertainHOME(t *testing.T) {
 	stopped, err := stopHomeProcessesWithinWithProbes(home, 2*time.Second, 0, probes)
 	if err != nil || len(stopped) != 0 || killCalls != 0 || inspectCalls < 3 {
 		t.Fatalf("stop=%v, %v (inspections=%d signals=%d); want the exiting process waited out, unsignalled", stopped, err, inspectCalls, killCalls)
+	}
+}
+
+// A target classified with arguments that reads none at the moment of signalling is watched, not
+// signalled, until it is gone, within the deadline (CI run 41149159622); one that stays argumentless
+// past it is still an error ("empty argv at final signal validation").
+func TestSignalStopTargetWaitsOutAnArgumentlessExitingTarget(t *testing.T) {
+	const startTime = "876561"
+	p := homeProcess{pid: 5161, ppid: 1, args: []string{"podman"}, startTime: startTime, homeMatched: true}
+	inspectCalls, killCalls := 0, 0
+	probes := stopProcessProbes{
+		list: func(string) []homeProcess { return []homeProcess{p} },
+		inspect: func(int) (stopProcessSnapshot, error) {
+			inspectCalls++
+			if inspectCalls >= 3 {
+				return stopProcessSnapshot{gone: true}, nil
+			}
+			return stopProcessSnapshot{startTime: startTime}, nil
+		},
+		home: func(int, string) (bool, error) { return true, nil },
+		kill: func(int, syscall.Signal) error { killCalls++; return nil },
+	}
+	sent, err := signalStopTarget("/test/home", p, syscall.SIGTERM, time.Now().Add(2*time.Second), probes)
+	if sent || err != nil || killCalls != 0 || inspectCalls < 3 {
+		t.Fatalf("signal=%v, %v (inspections=%d signals=%d); want the exiting target waited out, unsignalled", sent, err, inspectCalls, killCalls)
 	}
 }
