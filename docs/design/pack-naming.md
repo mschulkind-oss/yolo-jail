@@ -157,26 +157,58 @@ yolo writes a skill's delivered name as its directory name and as the `name` fie
 and a plugin's as the `name` field of its copied manifest. The pack's own files are never edited.
 Built-in skills and the workspace skill layer are unchanged. One skill has one name at every agent.
 
-An example config and what agents see:
+### 3.4.1 A worked example
 
 ```toml
 [pack_sources]
-dotfiles = { path = "~/.dotfiles/yolo-packs", bare = true }
-acme = { git = "https://github.com/acme/yolo-packs" }
+dotfiles = { path = "~/.dotfiles/yolo-packs", bare = true }   # the user's own packs
+work = "~/src/work-packs"                                      # a team's packs, namespaced
+acme = { git = "https://github.com/acme/yolo-packs" }         # a third party's, namespaced
 
 packs = [
-  "claude",                                                  # configuring-the-jail
-  "dotfiles/matt",                                           # review
-  "acme/tools",                                              # acme-review
-  "acme/lint",                                               # acme-check
-  { git = "https://github.com/alice/tools" },                # tools-fmt
-  { git = "https://github.com/bob/tools", namespace = "bob" },  # bob-fmt
+  "claude",
+  "dotfiles/matt",
+  "dotfiles/matt-fzf",
+  "work/deploy",
+  "acme/tools",
+  "acme/lint",
+  { pack = "local/scratch", bare = true },
+  { git = "https://github.com/alice/tools" },
+  { git = "https://github.com/bob/tools", namespace = "bob" },
 ]
 ```
 
-Without bob's `namespace`, alice's and bob's repositories both default to `tools`, and `yolo check`
-refuses naming both entries and `namespace = "…"` as the step. Alice's `tools-fmt` is never
-renamed to make room.
+| Entry | Namespace | Ships | Agents see | `files` landing |
+| :--- | :--- | :--- | :--- | :--- |
+| `claude` | none (shipped) | its skills | their own names | `claude` |
+| `dotfiles/matt` | none (`bare`) | `review`, `commit` | `review`, `commit` | `matt` |
+| `dotfiles/matt-fzf` | none (`bare`) | `fzf-pick` | `fzf-pick` | `matt-fzf` |
+| `work/deploy` | `work` | `deploy`, `review` | `work-deploy`, `work-review` | `work-deploy` |
+| `acme/tools` | `acme` | `review`, `configure` | `acme-review`, `acme-configure` | `acme-tools` |
+| `acme/lint` | `acme` | `check` | `acme-check` | `acme-lint` |
+| `local/scratch` | none (`bare`) | `notes` | `notes` | `scratch` |
+| alice's `tools` | `tools` (its last segment) | `fmt` | `tools-fmt` | `tools` |
+| bob's `tools` | `bob` (chosen) | `fmt` | `bob-fmt` | `bob` |
+
+Three packs ship `review`, and the agent sees three names: `review`, `work-review`, `acme-review`.
+
+Each change below starts from that config:
+
+| Change | Result | Step named |
+| :--- | :--- | :--- |
+| Remove `acme/lint`, add `acme/extra` | No other entry's names change | — |
+| Drop bob's `namespace` | Refused: alice's and bob's repositories are both `tools` | `namespace = "…"` on either |
+| Add `{ pack = "local/notes", bare = true }`, which also ships `notes` | Refused: two bare entries deliver `notes` | drop `bare` on one (its skill becomes `notes-notes`), or rename your own skill |
+| Add `dotfiles/matt-review`, which also ships `review` | Refused: `dotfiles` is bare, so both deliver `review` | the same: un-bare `dotfiles`, or rename your own skill |
+| A yolo release ships a skill named `commit` | Refused at the first launch on that release, naming `dotfiles/matt` | `bare = false` on `dotfiles` (every skill there becomes `dotfiles-…`), or rename your skill |
+| Mark `acme` bare | Refused: `acme/tools` delivers `review` beside `dotfiles/matt`'s | leave `acme` namespaced: bare is for packs you control |
+| Add a skill `work-review` to `dotfiles/matt` | Refused: it is the name `work/deploy`'s `review` delivers | choose a different source key for `work`, or rename your skill |
+| Add `{ pack = "local/tools", bare = true }` | Refused: its landing `tools` is alice's | `namespace = "…"` on alice's entry, or drop `bare` |
+| acme ships `check` in both `acme/tools` and `acme/lint` | Refused: one namespace delivers `check` twice | select one; `yolo pack lint` on acme's source reports it to acme |
+| `yolo pack source rename work ops` | `work-deploy` becomes `ops-deploy`, `work-review` becomes `ops-review`; the plan lists both before you confirm | — |
+
+`bare` is a promise that an entry's names will not meet anyone else's. It is safe for packs you
+write, and every way it can break shows up as one of the refusals above, never as a rename.
 
 ### 3.5 Clashes
 
@@ -280,7 +312,7 @@ same way.
 
 - No agent-facing name contains `_2f`, `/` or `:` added by yolo.
 - After `yolo config migrate`, the owner's agents see the same names as before.
-- With the example in [§3.4](#34-delivered-names), removing `acme/lint` or adding a pack changes no
+- With the example in [§3.4.1](#341-a-worked-example), removing `acme/lint` or adding a pack changes no
   delivered name of any other entry; a clash is a refusal naming both entries and the step.
 - `yolo pack source rename yolo-packs dotfiles` rewrites the config in one confirmed edit, lists
   any agent-facing name it changes, and the next launch re-pins and rebuilds nothing.
