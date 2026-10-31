@@ -23,7 +23,7 @@ func ParsePackReference(raw any, sources map[string]SourceDefinition, localRoot,
 		if err != nil {
 			return PackReference{}, err
 		}
-		return named(ref, scope, false, "", origin)
+		return named(ref, scope, false, false, "", origin)
 	}
 
 	obj, ok := raw.(Object)
@@ -39,6 +39,9 @@ func ParsePackReference(raw any, sources map[string]SourceDefinition, localRoot,
 	if err != nil {
 		return PackReference{}, err
 	}
+	_, hasBare := obj.Get("bare")
+	_, hasNamespace := obj.Get("namespace")
+	marked := hasBare || hasNamespace
 	namespace := ""
 	if rawNS, has := obj.Get("namespace"); has {
 		ns, isString := rawNS.(string)
@@ -68,7 +71,7 @@ func ParsePackReference(raw any, sources map[string]SourceDefinition, localRoot,
 		if err != nil {
 			return PackReference{}, err
 		}
-		return named(ref, scope, bare, namespace, origin)
+		return named(ref, scope, marked, bare, namespace, origin)
 	}
 	rawRepo, has := obj.Get("git")
 	repoURL, isString := rawRepo.(string)
@@ -90,7 +93,7 @@ func ParsePackReference(raw any, sources map[string]SourceDefinition, localRoot,
 	out := PackReference{Source: gitPackAddress(repo, "", ref), Name: name,
 		SourceID: repo, AllowDefaultRef: ref == "", Origin: origin}
 	return named(out, handleScope{kind: scopeOwn, owner: "repo:" + repo, pack: name[strings.LastIndex(name, "/")+1:]},
-		bare, namespace, origin)
+		marked, bare, namespace, origin)
 }
 
 // scopeKind is where a pack's namespace comes from (docs/design/pack-naming.md §3.3).
@@ -144,7 +147,7 @@ func parseHandle(text string, sources map[string]SourceDefinition, localRoot, ho
 	def, ok := sources[parts[0]]
 	if !ok {
 		return PackReference{}, handleScope{}, fmt.Errorf("%s: unknown pack source %q — add it under [pack_sources], "+
-			"or, if it was renamed, write the new key (`yolo pack source rename OLD NEW` renames one everywhere)", origin, parts[0])
+			"or, if it was renamed, write the new key in this handle, then run `yolo check`", origin, parts[0])
 	}
 	scope := handleScope{kind: scopeSource, source: def, pack: parts[1]}
 	if def.Path != "" {
@@ -158,11 +161,11 @@ func parseHandle(text string, sources map[string]SourceDefinition, localRoot, ho
 }
 
 // named fills ref's namespace, its owner and its landing (docs/design/pack-naming.md §3.3, §3.4).
-func named(ref PackReference, scope handleScope, bare bool, namespace, origin string) (PackReference, error) {
-	pack := packname.Normalize(scope.pack)
-	if scope.kind != scopeShipped && pack == "" {
-		return PackReference{}, fmt.Errorf("%s: the pack name %q has no letter or digit, so no agent can carry a name made from it", origin, scope.pack)
-	}
+//
+// A BARE pack is left exactly as main named it (PN-D7): no landing of its own, so its files and
+// /ctx directory keep their old spelling, and no character or length rule on its names — those
+// apply only to a name yolo composes.
+func named(ref PackReference, scope handleScope, marked, bare bool, namespace, origin string) (PackReference, error) {
 	switch scope.kind {
 	case scopeShipped:
 		if namespace != "" {
@@ -172,22 +175,47 @@ func named(ref PackReference, scope handleScope, bare bool, namespace, origin st
 	case scopeSource:
 		if namespace != "" {
 			return PackReference{}, fmt.Errorf("%s.namespace: a pack of source %q is in that source's namespace, its key "+
-				"(PN-D11); run `yolo pack source rename %s NEW` to change it", origin, scope.source.Name, scope.source.Name)
+				"(PN-D11); to change it, rename the key under [pack_sources] and in every handle that uses it, "+
+				"then run `yolo check`", origin, scope.source.Name)
 		}
 		if bare || scope.source.Bare {
-			ref.Landing = pack
 			return ref, nil
+		}
+		// The key becomes the namespace only here, so only here must it be a word agents carry.
+		if !packname.IsWord(scope.source.Name) {
+			return PackReference{}, fmt.Errorf("%s: the source key %q is the namespace of its packs' skills, and "+
+				"a namespace must be lowercase letters, digits and single hyphens. Keep its packs' own names with %s, "+
+				"or rename the key to %q under [pack_sources] and in every handle that uses it",
+				origin, scope.source.Name, scope.source.KeepNamesStep(), packname.Normalize(scope.source.Name))
+		}
+		pack := packname.Normalize(scope.pack)
+		if pack == "" {
+			return PackReference{}, fmt.Errorf("%s: the pack name %q has no letter or digit, so no agent can carry a "+
+				"name made from it; keep its own names with %s", origin, scope.pack, scope.source.KeepNamesStep())
 		}
 		ref.Namespace, ref.NamespaceOwner = scope.source.Name, "source:"+scope.source.Name
 		ref.Landing = packname.Delivered(ref.Namespace, pack)
+		if !marked && !scope.source.Marked {
+			ref.KeepNamesStep = scope.source.KeepNamesStep()
+		}
 	default:
 		if bare {
-			ref.Landing = pack
 			return ref, nil
 		}
-		ref.Namespace, ref.NamespaceOwner = pack, scope.owner
-		if namespace != "" {
-			ref.Namespace = namespace
+		keep := fmt.Sprintf("`{ pack = %q, bare = true }` as its entry in `packs`, then `yolo check`", ref.Name)
+		if scope.owner != "" && strings.HasPrefix(scope.owner, "repo:") {
+			keep = "`bare = true` on its `{ git = … }` entry in `packs`, then `yolo check`"
+		}
+		ref.Namespace, ref.NamespaceOwner = namespace, scope.owner
+		if namespace == "" {
+			ref.Namespace = packname.Normalize(scope.pack)
+			if ref.Namespace == "" {
+				return PackReference{}, fmt.Errorf("%s: the pack name %q has no letter or digit, so no agent can carry "+
+					"a name made from it; write %s, or give the entry `namespace = \"…\"`", origin, scope.pack, keep)
+			}
+		}
+		if !marked {
+			ref.KeepNamesStep = keep
 		}
 		// A pack that is its own namespace lands under the namespace alone (§3.4).
 		ref.Landing = ref.Namespace

@@ -43,12 +43,12 @@ func TestTheWorkedExampleNamesEveryEntry(t *testing.T) {
 		landing   string
 	}{
 		{"claude", "", ""},
-		{"dotfiles/matt", "", "matt"},
-		{"dotfiles/matt-fzf", "", "matt-fzf"},
+		{"dotfiles/matt", "", ""}, // bare: no landing of its own, so main's spelling holds (PN-D7)
+		{"dotfiles/matt-fzf", "", ""},
 		{"work/deploy", "work", "work-deploy"},
 		{"acme/tools", "acme", "acme-tools"},
 		{"acme/lint", "acme", "acme-lint"},
-		{obj("pack", "local/scratch", "bare", true), "", "scratch"},
+		{obj("pack", "local/scratch", "bare", true), "", ""},
 		{obj("git", "https://github.com/alice/tools"), "tools", "tools"},
 		{obj("git", "https://github.com/bob/tools", "namespace", "bob"), "bob", "bob"},
 	} {
@@ -89,11 +89,24 @@ func TestTwoRepositoriesNamedAlikeShareAWordButNotAnOwner(t *testing.T) {
 
 // A user-written word must already be legal, and the refusal prints the legal spelling (§3.3).
 func TestAUserWrittenWordIsRefusedWithItsLegalSpelling(t *testing.T) {
-	if _, err := ParseSourceDefinitions(obj("Work_Packs", "~/w")); err == nil ||
-		!strings.Contains(err.Error(), `"work-packs"`) {
-		t.Errorf("an illegal source key was not refused with its legal spelling: %v", err)
+	// A source key that is not a word LOADS (main's migrator wrote folder names as keys), and is
+	// refused only where a namespace is composed from it, naming its legal spelling and the exact
+	// line that keeps its packs bare.
+	sources, err := ParseSourceDefinitions(obj("Work_Packs", "~/w", "Git_Packs", obj("git", "https://github.com/a/b")))
+	if err != nil {
+		t.Fatalf("a source key that is no namespace word must still load: %v", err)
 	}
-	_, err := ParsePackReference(obj("git", "https://github.com/bob/tools", "namespace", "Bob"), nil, "",
+	for _, tc := range []struct{ handle, step string }{
+		{"Work_Packs/x", "`yolo config set pack_sources.Work_Packs '{ path = \"~/w\", bare = true }' --user`"},
+		{"Git_Packs/x", "`yolo config set pack_sources.Git_Packs.bare true --user`"},
+	} {
+		_, err = ParsePackReference(tc.handle, sources, "", "/home/u", "p[0]", nil)
+		if err == nil || !strings.Contains(err.Error(), `"`+strings.ToLower(strings.ReplaceAll(strings.Split(tc.handle, "/")[0], "_", "-"))+`"`) ||
+			!strings.Contains(err.Error(), tc.step) {
+			t.Errorf("%s: not refused with its legal spelling and %s: %v", tc.handle, tc.step, err)
+		}
+	}
+	_, err = ParsePackReference(obj("git", "https://github.com/bob/tools", "namespace", "Bob"), nil, "",
 		"/home/u", "p[0]", nil)
 	if err == nil || !strings.Contains(err.Error(), `"bob"`) {
 		t.Errorf("an illegal namespace was not refused with its legal spelling: %v", err)
@@ -101,13 +114,62 @@ func TestAUserWrittenWordIsRefusedWithItsLegalSpelling(t *testing.T) {
 	// A source's namespace is its key, with no second spelling (PN-D11).
 	_, err = ParsePackReference(obj("pack", "acme/tools", "namespace", "x"), workedExampleSources(t), "",
 		"/home/u", "p[0]", nil)
-	if err == nil || !strings.Contains(err.Error(), "yolo pack source rename acme NEW") {
-		t.Errorf("a namespace on a source's pack was not refused naming the rename verb: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "rename the key under [pack_sources]") {
+		t.Errorf("a namespace on a source's pack was not refused naming the hand rename: %v", err)
 	}
 	// A landing past the limit every agent accepts is refused.
 	long := strings.Repeat("a", 70)
 	if _, err := ParsePackReference(obj("git", "https://github.com/bob/"+long), nil, "", "/home/u", "p[0]",
 		nil); err == nil || !strings.Contains(err.Error(), "64") {
 		t.Errorf("a 70-character namespace was not refused: %v", err)
+	}
+}
+
+// M3 (PN-D7: bare means unchanged): a bare pack keeps main's landing and /ctx spelling, so it has
+// no Landing of its own, and no character or length rule applies to its names.
+func TestABarePackIsNamedExactlyAsBefore(t *testing.T) {
+	sources, err := ParseSourceDefinitions(obj("Matt_Tools", obj("path", "~/src/Matt_Tools", "bare", true)))
+	if err != nil {
+		t.Fatalf("a bare source with a folder-name key must load: %v", err)
+	}
+	long := strings.Repeat("A_", 40)
+	for _, entry := range []any{"Matt_Tools/Matt_Tools", "Matt_Tools/" + long,
+		obj("pack", "local/Matt_Tools", "bare", true), obj("git", "https://github.com/bob/"+long, "bare", true)} {
+		ref, err := ParsePackReference(entry, sources, "/home/u/.config/yolo-jail/packs", "/home/u", "p[0]", nil)
+		if err != nil {
+			t.Errorf("%v: a bare pack was refused: %v", entry, err)
+			continue
+		}
+		if ref.Namespace != "" || ref.Landing != "" || ref.KeepNamesStep != "" {
+			t.Errorf("%v: namespace %q landing %q step %q, want all empty (named as before)", entry,
+				ref.Namespace, ref.Landing, ref.KeepNamesStep)
+		}
+	}
+}
+
+// M5: an entry and source that chose nothing get the default namespace, and carry the one step
+// that keeps their names bare; one that chose (either way) carries none.
+func TestADefaultedNamespaceCarriesTheStepThatKeepsItsNames(t *testing.T) {
+	sources, err := ParseSourceDefinitions(obj("work", "~/w", "acme", obj("git", "https://github.com/a/b", "bare", false)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		entry any
+		step  string
+	}{
+		{"work/deploy", "`yolo config set pack_sources.work '{ path = \"~/w\", bare = true }' --user`"},
+		{"acme/tools", ""},
+		{obj("pack", "work/deploy", "bare", false), ""},
+		{"local/mine", "`{ pack = \"local/mine\", bare = true }`"},
+		{obj("pack", "local/mine", "namespace", "me"), ""},
+	} {
+		ref, err := ParsePackReference(tc.entry, sources, "/home/u/.config/yolo-jail/packs", "/home/u", "p[0]", nil)
+		if err != nil {
+			t.Fatalf("%v: %v", tc.entry, err)
+		}
+		if (tc.step == "") != (ref.KeepNamesStep == "") || !strings.Contains(ref.KeepNamesStep, tc.step) {
+			t.Errorf("%v: step %q, want %q", tc.entry, ref.KeepNamesStep, tc.step)
+		}
 	}
 }

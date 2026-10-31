@@ -51,12 +51,12 @@ func NameCollisions(packs []*Pack) []string {
 }
 
 // namespaceStep is the step for two entries whose namespaces are one word: a pack listed on its
-// own takes `namespace = "…"`, and a source is renamed by the verb.
+// own takes `namespace = "…"`, and a source is renamed by hand: its key and every handle using it.
 func namespaceStep(a, b *Pack) string {
 	var steps []string
 	for _, p := range []*Pack{a, b} {
 		if src, ok := strings.CutPrefix(p.NamespaceOwner, "source:"); ok {
-			steps = append(steps, fmt.Sprintf("`yolo pack source rename %s NEW`", src))
+			steps = append(steps, fmt.Sprintf("renaming the [pack_sources] key %s and the handles that use it (then `yolo check`)", src))
 			continue
 		}
 		steps = append(steps, fmt.Sprintf("`namespace = \"…\"` on %s's entry", p.Name))

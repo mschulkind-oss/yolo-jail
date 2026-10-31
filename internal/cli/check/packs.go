@@ -394,6 +394,10 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 	for _, c := range packload.NameCollisions(loaded) {
 		r.fail("pack name collision", c)
 	}
+	for _, w := range packload.DefaultNamespaceRenames(loaded,
+		packload.ConvertedConfigIn(filepath.Dir(paths.UserConfigPath()))) {
+		r.warn("pack skills renamed by a default namespace", w)
+	}
 	for _, c := range hostskills.Collisions(hostskills.ComposeHostSkills(loaded, paths.Home())) {
 		r.fail("pack skill name collision", c.Message())
 	}

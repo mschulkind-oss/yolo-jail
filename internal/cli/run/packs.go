@@ -24,6 +24,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	"github.com/mschulkind-oss/yolo-jail/internal/wirebridged"
 )
 
@@ -411,6 +412,12 @@ func (o *Options) stagePacksInto(stagingRoot string, entries []config.PackEntry)
 	// Two entries given one namespace or one landing (docs/design/pack-naming.md §3.5).
 	if cols := packload.NameCollisions(loaded); len(cols) > 0 {
 		return nil, nil, fmt.Errorf("packs: %s", strings.Join(cols, "\npacks: "))
+	}
+	// A converted config whose entries now get a default namespace: say which skills it renames.
+	// A disclosure, so it is printed on every launch it applies to (OQ-RO3).
+	for _, w := range packload.DefaultNamespaceRenames(loaded,
+		packload.ConvertedConfigIn(filepath.Dir(paths.UserConfigPath()))) {
+		o.pr(o.Stderr).print("[yellow]packs: " + richtext.Escape(w) + "[/yellow]")
 	}
 	// Beside it, a SKILL name two packs ship to one destination (OQ-NC11, jailskills.go).
 	if err := checkSkillCollisions(skillDirs, loaded); err != nil {

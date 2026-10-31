@@ -37,7 +37,7 @@ func TestALaunchRefusesTwoEntriesInOneNamespace(t *testing.T) {
 	if err == nil {
 		t.Fatal("stagePacks accepted local/acme beside the source acme: both are the namespace acme")
 	}
-	for _, want := range []string{"acme/x", "local/acme", `namespace "acme"`, "yolo pack source rename acme NEW"} {
+	for _, want := range []string{"acme/x", "local/acme", `namespace "acme"`, "renaming the [pack_sources] key acme"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("refusal missing %q:\n%v", want, err)
 		}

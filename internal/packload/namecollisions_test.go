@@ -28,7 +28,7 @@ func TestNameCollisionsRefuseASharedWordAndASharedLanding(t *testing.T) {
 	// `local/acme` beside the source `acme`: the source's step is the rename verb.
 	localAcme := &Pack{Name: "local/acme", Namespace: "acme", NamespaceOwner: "local:acme", Landing: "acme"}
 	cols = NameCollisions([]*Pack{acmeTools, localAcme})
-	if len(cols) != 1 || !strings.Contains(cols[0], "yolo pack source rename acme NEW") {
+	if len(cols) != 1 || !strings.Contains(cols[0], "renaming the [pack_sources] key acme") {
 		t.Errorf("a local pack named like a source = %v", cols)
 	}
 

@@ -101,6 +101,10 @@ type Pack struct {
 	// `reads-host` grants under in /ctx (§3.4), "" for a pack that lands under its own name, as
 	// every shipped pack and legacy entry does. Read through LandingName and CtxName.
 	Landing string
+	// KeepNamesStep is set when Namespace is the DEFAULT one, chosen by neither the config entry
+	// nor its source, and is the one step that keeps the pack's skills under their own names
+	// (packsrc.PackReference.KeepNamesStep; DefaultNamespaceRenames).
+	KeepNamesStep string
 	// Root is the directory its files live in. For an embedded pack this is the
 	// materialized copy, so every consumer sees a real path either way.
 	Root string

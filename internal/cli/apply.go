@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -765,6 +766,11 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 		pr.Printf("[bold red]host apply: refused — %d pack name collision(s). Nothing was "+
 			"written.[/bold red]", len(cols))
 		return 1
+	}
+	// A converted config whose entries now get a default namespace: say which skills it renames.
+	for _, w := range packload.DefaultNamespaceRenames(loaded,
+		packload.ConvertedConfigIn(filepath.Dir(paths.UserConfigPath()))) {
+		pr.Printf("  [yellow]packs      renamed[/yellow] — %s", richtext.Escape(w))
 	}
 	// The §4.2 autonomy policy comes from THIS apply's render target, not from the `false`
 	// that used to sit here (C3, plan §6c step 1). It resolves to OFF — the guarded posture

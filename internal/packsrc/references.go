@@ -6,8 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/mschulkind-oss/yolo-jail/internal/packname"
 )
 
 // Object is the ordered-map shape used at the config boundary. packsrc accepts this
@@ -26,6 +24,21 @@ type SourceDefinition struct {
 	// Bare delivers every pack of this source under its own names, with no namespace
 	// (docs/design/pack-naming.md PN-D7): `{ path = "…", bare = true }`.
 	Bare bool
+	// Marked says the source's table carries a `bare` key, true or false: its user chose. A source
+	// without one gets the default namespace (its key), which main's migrator never wrote.
+	Marked bool
+	// Shorthand says the source is the plain-path string form, `key = "~/path"`, which has no
+	// field to set: the step that marks it bare rewrites it as a table.
+	Shorthand bool
+}
+
+// KeepNamesStep is the one command that delivers every pack of this source under its own names
+// (`bare = true`), for a message whose next step that is.
+func (d SourceDefinition) KeepNamesStep() string {
+	if d.Shorthand {
+		return fmt.Sprintf("`yolo config set pack_sources.%s '{ path = %q, bare = true }' --user`", d.Name, d.Path)
+	}
+	return fmt.Sprintf("`yolo config set pack_sources.%s.bare true --user`", d.Name)
 }
 
 // PackReference is one pack named through the readable source vocabulary. Source is
@@ -48,9 +61,14 @@ type PackReference struct {
 	// chose one word are a clash (§3.5). "" when Namespace is "".
 	NamespaceOwner string
 	// Landing is the directory a `files` tree and a `/ctx/host-…` grant land under (§3.4):
-	// `<namespace>-<pack>`, `<namespace>` for a pack that is its own namespace, `<pack>` bare.
-	// "" for a shipped pack, which lands under its name.
+	// `<namespace>-<pack>`, `<namespace>` for a pack that is its own namespace. "" for a pack
+	// delivered bare, shipped or marked, which lands exactly where it did before pack naming
+	// (PN-D7: bare means unchanged).
 	Landing string
+	// KeepNamesStep is set when Namespace is the DEFAULT one, chosen by neither the entry nor its
+	// source (no `bare`, no `namespace`) — the shape main's migrator wrote — and is the one step
+	// that keeps the pack's skills under their own names.
+	KeepNamesStep string
 }
 
 // ParseSourceDefinitions validates the raw pack_sources table without loading any
@@ -69,10 +87,12 @@ func ParseSourceDefinitions(raw any) (map[string]SourceDefinition, error) {
 		if name == "local" || name == "yolo" {
 			return nil, fmt.Errorf("pack_sources.%s: %q is yolo's own word for a pack source; choose another key", name, name)
 		}
-		// THE KEY IS THE NAMESPACE (PN-D11), so it is already the spelling agents see.
-		if err := packname.Word("source key", name); err != nil {
-			return nil, fmt.Errorf("pack_sources.%s: %w", name, err)
+		if !validHandleSegment(name) {
+			return nil, fmt.Errorf("pack_sources.%s: invalid source name", name)
 		}
+		// THE KEY IS THE NAMESPACE (PN-D11), but a key that is not a valid namespace word still
+		// loads — main's migrator wrote folder names as keys — and is refused only where a
+		// namespace would be composed from it (named), with the line that marks it bare.
 		value, _ := m.Get(name)
 		def := SourceDefinition{Name: name}
 		const shape = "expected a local path, { path = PATH }, or { git = URL, ref = REF }, each table taking bare = true"
@@ -81,7 +101,7 @@ func ParseSourceDefinitions(raw any) (map[string]SourceDefinition, error) {
 			if !strings.HasPrefix(v, "~/") && !filepath.IsAbs(v) {
 				return nil, fmt.Errorf("pack_sources.%s: local source must be an absolute or ~/ path", name)
 			}
-			def.Path = v
+			def.Path, def.Shorthand = v, true
 		default:
 			obj, ok := value.(Object)
 			if !ok || len(obj.Keys()) == 0 {
@@ -97,6 +117,7 @@ func ParseSourceDefinitions(raw any) (map[string]SourceDefinition, error) {
 				return nil, err
 			}
 			def.Bare = bare
+			_, def.Marked = obj.Get("bare")
 			rawPath, hasPath := obj.Get("path")
 			rawGit, hasGit := obj.Get("git")
 			if hasPath && hasGit {
