@@ -75,9 +75,11 @@ func dispatchOf(argv []string, t writeTarget) (workflowDispatch, bool) {
 // apiDispatch reads a `gh api` workflow dispatch: POST (stated, or implied by its fields) to
 // repos/{o}/{r}/actions/workflows/{file}/dispatches on repo, written plainly, with no --input
 // (a body read from it could carry another ref unseen) and exactly one field, -f or -F, whose
-// key is `ref` (none rooted at it otherwise, such as `ref[]`).
+// key is `ref` (none rooted at it otherwise, such as `ref[]` or `ref]`). An endpoint carrying a
+// query or a fragment is never one: gh sends the query unchanged, and GitHub could read a ref
+// from it the broker never checked.
 func apiDispatch(p *parsed, repo string) (workflowDispatch, bool) {
-	if len(p.positionals) != 1 || p.has("input") {
+	if len(p.positionals) != 1 || p.has("input") || strings.ContainsAny(p.positionals[0], "?#") {
 		return workflowDispatch{}, false
 	}
 	path, why := apiEndpointPath(p.positionals[0])
@@ -110,7 +112,7 @@ func apiDispatch(p *parsed, repo string) (workflowDispatch, bool) {
 	for _, long := range []string{"field", "raw-field"} {
 		for _, v := range p.values(long) {
 			k, val, _ := strings.Cut(v, "=")
-			if root, _, _ := strings.Cut(k, "["); strings.EqualFold(root, "ref") {
+			if strings.EqualFold(fieldRoot(k), "ref") {
 				if k != "ref" {
 					return workflowDispatch{}, false
 				}
@@ -122,6 +124,58 @@ func apiDispatch(p *parsed, repo string) (workflowDispatch, bool) {
 		return workflowDispatch{}, false
 	}
 	return workflowDispatch{Workflow: rest[2], Ref: refs[0]}, true
+}
+
+// fieldRoot is a `gh api` field key's root as gh's own field parsing could read it: the key up
+// to its first `[` or `]`. A key such as `ref]` or `ref[x]` is rooted at `ref` without being it.
+func fieldRoot(k string) string {
+	if i := strings.IndexAny(k, "[]"); i >= 0 {
+		return k[:i]
+	}
+	return k
+}
+
+// pinnedDispatchArgv is the canonical argv with its ref written as the full branch ref,
+// refs/heads/<def>: `--ref=refs/heads/<def>` for `gh workflow run` (added when the argv names
+// none), and the `ref` field's value for `gh api`. What runs then names exactly the branch the
+// broker read as the default, so neither gh's own default-branch lookup nor a tag of the same
+// name can change it. ok false when the argv is not a dispatch dispatchOf reads.
+func pinnedDispatchArgv(argv []string, t writeTarget, def string) ([]string, bool) {
+	if _, ok := dispatchOf(argv, t); !ok {
+		return nil, false
+	}
+	p, err := parseArgv(argv)
+	if err != nil || p.cmd == nil {
+		return nil, false
+	}
+	full := "refs/heads/" + def
+	var flags []flagUse
+	switch p.cmd.path {
+	case "workflow run":
+		refFlag := p.cmd.flagByLong("ref")
+		if refFlag == nil {
+			return nil, false
+		}
+		for _, u := range p.flags {
+			if u.flag.long != "ref" {
+				flags = append(flags, u)
+			}
+		}
+		flags = append(flags, flagUse{flag: refFlag, value: full, hasValue: true})
+	case "api":
+		for _, u := range p.flags {
+			if (u.flag.long == "field" || u.flag.long == "raw-field") && u.hasValue {
+				if k, _, _ := strings.Cut(u.value, "="); k == "ref" {
+					u.value = "ref=" + full
+				}
+			}
+			flags = append(flags, u)
+		}
+	default:
+		return nil, false
+	}
+	p.flags = flags
+	return p.canonical(), true
 }
 
 // dispatchGrantHeld reports whether grants hold a dispatch-workflow grant covering w on repo:
@@ -137,11 +191,11 @@ func dispatchGrantHeld(grants []brokerscope.Grant, repo string, w workflowDispat
 }
 
 // onDefaultBranch reports whether the dispatch w runs on repo's default branch, read by the
-// broker's own host reads: `repos/{o}/{r}` for its default branch, then the repository's tags of
-// that name, since GitHub may read a short ref naming both a tag and a branch as the tag, which
-// a jail able to push tags could create. A ref is the default branch when it is omitted (gh
-// sends the default branch's name), is its name, or is refs/heads/<name>. Any failed or
-// unreadable read is an error, and the dispatch is not covered.
+// broker's own host read of `repos/{o}/{r}`, and returns that branch's name. A ref is the
+// default branch when it is omitted (gh would send the default branch), is its name, or is
+// refs/heads/<name>. A covered run is then sent as refs/heads/<name> (pinnedDispatchArgv), so a
+// tag of the same name cannot shadow the branch the broker checked. Any failed or unreadable
+// read is an error, and the dispatch is not covered.
 func (b *Broker) onDefaultBranch(ctx context.Context, repo string, w workflowDispatch) (string, bool, error) {
 	var repoObj struct {
 		DefaultBranch string `json:"default_branch"`
@@ -154,24 +208,10 @@ func (b *Broker) onDefaultBranch(ctx context.Context, repo string, w workflowDis
 		return "", false, fmt.Errorf("the default branch's name %q is not one the broker reads plainly", def)
 	}
 	switch w.Ref {
-	case "", def:
-	case "refs/heads/" + def:
+	case "", def, "refs/heads/" + def:
 		return def, true, nil
-	default:
-		return def, false, nil
 	}
-	var tags []struct {
-		Ref string `json:"ref"`
-	}
-	if err := b.hostRead(ctx, "repos/"+repo+"/git/matching-refs/tags/"+def, &tags); err != nil {
-		return def, false, err
-	}
-	for _, tag := range tags {
-		if tag.Ref == "refs/tags/"+def {
-			return def, false, fmt.Errorf("a tag named %s exists beside the branch, so the short name could mean either", def)
-		}
-	}
-	return def, true, nil
+	return def, false, nil
 }
 
 // hostRead is one read the broker makes on its own account through the host gh, `gh api

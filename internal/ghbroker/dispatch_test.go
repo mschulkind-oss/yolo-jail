@@ -18,36 +18,26 @@ import (
 // ref, of another workflow, on another repository, or under a kind the user's config no longer
 // allows asks, as any repository write does. The host gh is a fake.
 
-// dispatchGHFake is a host gh that answers the broker's own reads of a repository and its tags,
-// and records every other command as a write.
+// dispatchGHFake is a host gh that answers the broker's own read of a repository, and records
+// every other command as a write.
 type dispatchGHFake struct {
-	mu        sync.Mutex
-	ran       [][]string
-	def       string // the default branch repos/o/r reports
-	tagShadow bool   // whether a tag of the default branch's name exists
+	mu  sync.Mutex
+	ran [][]string
+	def string // the default branch repos/o/r reports
 }
 
 func (f *dispatchGHFake) execute(_ context.Context, argv []string, _ []byte, out, _ func([]byte)) RunResult {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.ran = append(f.ran, append([]string(nil), argv...))
-	if len(argv) == 2 && argv[0] == "api" {
-		switch {
-		case argv[1] == "repos/o/r":
-			out([]byte(`{"full_name":"o/r","default_branch":"` + f.def + `"}`))
-		case argv[1] == "repos/o/r/git/matching-refs/tags/"+f.def:
-			if f.tagShadow {
-				out([]byte(`[{"ref":"refs/tags/` + f.def + `"}]`))
-			} else {
-				out([]byte(`[]`))
-			}
-		}
+	if f.isRead(argv) {
+		out([]byte(`{"full_name":"o/r","default_branch":"` + f.def + `"}`))
 	}
 	return RunResult{Exit: 0}
 }
 
 func (f *dispatchGHFake) isRead(a []string) bool {
-	return len(a) == 2 && a[0] == "api" && (a[1] == "repos/o/r" || strings.HasPrefix(a[1], "repos/o/r/git/matching-refs/"))
+	return len(a) == 2 && a[0] == "api" && a[1] == "repos/o/r"
 }
 
 // writes are the commands other than the broker's own reads.
@@ -97,29 +87,66 @@ func nightlyGrant(workflow string) brokerscope.Grant {
 	return brokerscope.Grant{Kind: GrantDispatchWorkflow, Repo: "github.com/o/r", Workflow: workflow}
 }
 
+// A covered run is sent pinned to the full default branch ref the broker checked, whatever
+// short form (or none) the jail named, so neither gh's own default-branch lookup nor a tag named
+// like the branch decides what runs; the inputs pass through unchanged.
 func TestDispatchOnTheDefaultBranchRunsUnaskedAndIsAudited(t *testing.T) {
-	for _, argv := range [][]string{
-		{"workflow", "run", "nightly-macos.yml", "--ref", "main"},
-		{"workflow", "run", "nightly-macos.yml"},
-		{"workflow", "run", "nightly-macos.yml", "--ref", "refs/heads/main", "-f", "suite=all"},
-		{"api", "repos/o/r/actions/workflows/nightly-macos.yml/dispatches", "-f", "ref=main", "-f", "inputs[suite]=all"},
+	for _, c := range []struct {
+		argv    []string
+		ref     string // the one ref-carrying element the run must send
+		isRef   func(string) bool
+		another string // an input that must pass through, or ""
+	}{
+		{[]string{"workflow", "run", "nightly-macos.yml", "--ref", "main"}, "--ref=refs/heads/main", isRefFlag, ""},
+		{[]string{"workflow", "run", "nightly-macos.yml"}, "--ref=refs/heads/main", isRefFlag, ""},
+		{[]string{"workflow", "run", "nightly-macos.yml", "-r", "refs/heads/main", "-f", "suite=all"}, "--ref=refs/heads/main", isRefFlag, "--raw-field=suite=all"},
+		{[]string{"api", "repos/o/r/actions/workflows/nightly-macos.yml/dispatches", "-f", "ref=main", "-f", "inputs[suite]=all"},
+			"--raw-field=ref=refs/heads/main", isRefField, "--raw-field=inputs[suite]=all"},
+		{[]string{"api", "repos/o/r/actions/workflows/nightly-macos.yml/dispatches", "-F", "ref=main"},
+			"--field=ref=refs/heads/main", isRefField, ""},
 	} {
-		t.Run(strings.Join(argv, " "), func(t *testing.T) {
+		t.Run(strings.Join(c.argv, " "), func(t *testing.T) {
 			b, gh := dispatchBroker(t)
 			grantDispatch(t, b, true, nightlyGrant("nightly-macos.yml"))
-			code, msg := serveGH(b, argv...)
+			code, msg := serveGH(b, c.argv...)
 			if code != 0 || len(gh.writes()) != 1 {
 				t.Fatalf("a granted dispatch on the default branch: code %d, writes %v: %s", code, gh.writes(), msg)
+			}
+			ran := gh.writes()[0]
+			var refs []string
+			for _, a := range ran {
+				if c.isRef(a) {
+					refs = append(refs, a)
+				}
+			}
+			if len(refs) != 1 || refs[0] != c.ref {
+				t.Fatalf("the run sent refs %v, want exactly %q: %v", refs, c.ref, ran)
+			}
+			if c.another != "" && !slicesContains(ran, c.another) {
+				t.Fatalf("the input %q did not pass through: %v", c.another, ran)
 			}
 			if len(pending(t, b)) != 0 {
 				t.Fatal("a covered dispatch filed a request")
 			}
 			audit, err := os.ReadFile(paths.BrokerAuditLog())
-			if err != nil || !strings.Contains(string(audit), `"set":"dispatch-workflow"`) {
-				t.Fatalf("no audit line under the dispatch-workflow set (%v):\n%s", err, audit)
+			if err != nil || !strings.Contains(string(audit), `"set":"dispatch-workflow"`) ||
+				!strings.Contains(string(audit), c.ref) {
+				t.Fatalf("no audit line under the dispatch-workflow set naming %s (%v):\n%s", c.ref, err, audit)
 			}
 		})
 	}
+}
+
+func isRefFlag(a string) bool  { return strings.HasPrefix(a, "--ref=") }
+func isRefField(a string) bool { return strings.Contains(a, "field=ref=") }
+
+func slicesContains(s []string, v string) bool {
+	for _, x := range s {
+		if x == v {
+			return true
+		}
+	}
+	return false
 }
 
 func TestDispatchAnyWorkflowGrantCoversEveryFile(t *testing.T) {
@@ -128,6 +155,9 @@ func TestDispatchAnyWorkflowGrantCoversEveryFile(t *testing.T) {
 	for i, file := range []string{"nightly-macos.yml", "macos-user.yml"} {
 		if code, msg := serveGH(b, "workflow", "run", file, "--ref", "main"); code != 0 || len(gh.writes()) != i+1 {
 			t.Fatalf("%s under a * grant: code %d, writes %d: %s", file, code, len(gh.writes()), msg)
+		}
+		if ran := gh.writes()[i]; !slicesContains(ran, "--ref=refs/heads/main") || !slicesContains(ran, file) {
+			t.Fatalf("%s under a * grant ran %v", file, ran)
 		}
 	}
 }
@@ -139,35 +169,35 @@ func TestDispatchTheGrantDoesNotCoverAsks(t *testing.T) {
 		grant   brokerscope.Grant
 		allowed bool
 		argv    []string
-		shadow  bool
 		note    string
 	}{
 		{"another ref", nightlyGrant("nightly-macos.yml"), true,
-			[]string{"workflow", "run", "nightly-macos.yml", "--ref", "agent/evil"}, false, "default branch (main) only"},
+			[]string{"workflow", "run", "nightly-macos.yml", "--ref", "agent/evil"}, "default branch (main) only"},
 		{"another workflow", nightlyGrant("nightly-macos.yml"), true,
-			[]string{"workflow", "run", "release.yml", "--ref", "main"}, false, ""},
+			[]string{"workflow", "run", "release.yml", "--ref", "main"}, ""},
 		{"a workflow by display name", nightlyGrant(brokerscope.AnyWorkflow), true,
-			[]string{"workflow", "run", "Nightly macOS", "--ref", "main"}, false, ""},
+			[]string{"workflow", "run", "Nightly macOS", "--ref", "main"}, ""},
 		{"a workflow by id", nightlyGrant(brokerscope.AnyWorkflow), true,
-			[]string{"workflow", "run", "123456", "--ref", "main"}, false, ""},
+			[]string{"workflow", "run", "123456", "--ref", "main"}, ""},
 		{"another repository", brokerscope.Grant{Kind: GrantDispatchWorkflow, Repo: "github.com/o/other", Workflow: "*"}, true,
-			[]string{"workflow", "run", "nightly-macos.yml", "--ref", "main"}, false, ""},
+			[]string{"workflow", "run", "nightly-macos.yml", "--ref", "main"}, ""},
 		{"not allowed by the user", nightlyGrant("nightly-macos.yml"), false,
-			[]string{"workflow", "run", "nightly-macos.yml", "--ref", "main"}, false, ""},
-		{"a tag shadows the default branch", nightlyGrant("nightly-macos.yml"), true,
-			[]string{"workflow", "run", "nightly-macos.yml", "--ref", "main"}, true, "a tag named main exists"},
+			[]string{"workflow", "run", "nightly-macos.yml", "--ref", "main"}, ""},
 		{"api on another ref", nightlyGrant("nightly-macos.yml"), true,
-			[]string{"api", "repos/o/r/actions/workflows/nightly-macos.yml/dispatches", "-f", "ref=agent/evil"}, false, "default branch (main) only"},
+			[]string{"api", "repos/o/r/actions/workflows/nightly-macos.yml/dispatches", "-f", "ref=agent/evil"}, "default branch (main) only"},
+		{"api with a ref in the endpoint's query", nightlyGrant("nightly-macos.yml"), true,
+			[]string{"api", "-X", "POST", "repos/o/r/actions/workflows/nightly-macos.yml/dispatches?ref=evil", "-f", "ref=main"}, ""},
+		{"api with a second field rooted at ref", nightlyGrant("nightly-macos.yml"), true,
+			[]string{"api", "repos/o/r/actions/workflows/nightly-macos.yml/dispatches", "-f", "ref=main", "-f", "ref]=evil"}, ""},
 		{"api with its body from input", nightlyGrant("nightly-macos.yml"), true,
-			[]string{"api", "repos/o/r/actions/workflows/nightly-macos.yml/dispatches", "--input", "-"}, false, ""},
+			[]string{"api", "repos/o/r/actions/workflows/nightly-macos.yml/dispatches", "--input", "-"}, ""},
 		{"a rerun", nightlyGrant(brokerscope.AnyWorkflow), true,
-			[]string{"run", "rerun", "12345"}, false, ""},
+			[]string{"run", "rerun", "12345"}, ""},
 		{"a workflow disable", nightlyGrant(brokerscope.AnyWorkflow), true,
-			[]string{"workflow", "disable", "nightly-macos.yml"}, false, ""},
+			[]string{"workflow", "disable", "nightly-macos.yml"}, ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			b, gh := dispatchBroker(t)
-			gh.tagShadow = c.shadow
 			grantDispatch(t, b, c.allowed, c.grant)
 			code, msg := serveGH(b, c.argv...)
 			if code != ExitTempFail || len(gh.writes()) != 0 {
@@ -220,6 +250,10 @@ func TestDispatchOfReadsOnlyAFileNamedRun(t *testing.T) {
 		{[]string{"api", "repos/o/r/actions/workflows/a.yml/dispatches", "-f", "ref=main"}, true, "a.yml", "main"},
 		{[]string{"api", "repos/o/r/actions/workflows/a.yml/dispatches", "-f", "ref=main", "-f", "ref=dev"}, false, "", ""},
 		{[]string{"api", "repos/o/r/actions/workflows/a.yml/dispatches", "-f", "ref[x]=main"}, false, "", ""},
+		{[]string{"api", "repos/o/r/actions/workflows/a.yml/dispatches", "-f", "ref=main", "-f", "ref]=evil"}, false, "", ""},
+		{[]string{"api", "repos/o/r/actions/workflows/a.yml/dispatches", "-f", "ref=main", "-F", "ref[]=evil"}, false, "", ""},
+		{[]string{"api", "repos/o/r/actions/workflows/a.yml/dispatches?ref=evil", "-f", "ref=main"}, false, "", ""},
+		{[]string{"api", "repos/o/r/actions/workflows/a.yml/dispatches#f", "-f", "ref=main"}, false, "", ""},
 		{[]string{"api", "repos/o/r/actions/workflows/a.yml/dispatches", "-X", "GET", "-f", "ref=main"}, false, "", ""},
 		{[]string{"api", "repos/o/other/actions/workflows/a.yml/dispatches", "-f", "ref=main"}, false, "", ""},
 		{[]string{"api", "repos/o/r/actions/workflows/a%2Eyml/dispatches", "-f", "ref=main"}, false, "", ""},

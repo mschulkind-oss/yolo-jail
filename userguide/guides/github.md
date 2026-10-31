@@ -232,7 +232,9 @@ yolo config apply                                        # on the host, in the p
 The project file then holds `dispatch_workflows = ["nightly.yml"]` under `[requests.github]`;
 `"*"` there names every workflow in the repository. With it, `gh workflow run nightly.yml` runs
 without asking, with any inputs (`-f`, `-F`, `--json`), but only on the repository's default
-branch: leave out `--ref`, or pass the default branch's name. A run on any other branch or tag
+branch: leave out `--ref`, or pass the default branch's name. The broker sends that run as the
+full branch ref (`refs/heads/main`), so a tag with the same name cannot stand in for the
+branch. A run on any other branch or tag
 asks, because a workflow runs as its file is on that ref, with the repository's secrets, and an
 agent that can push a branch could change the file there first. The agent must name the workflow
 by its file name; a numeric id or display name asks. Re-running, cancelling, enabling and

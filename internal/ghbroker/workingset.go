@@ -172,9 +172,12 @@ func (b *Broker) coveredWrite(ctx context.Context, req Request, jail string, d D
 	}
 	code := ExitTempFail
 	var captured bytes.Buffer
+	// runs is the decision that runs: d itself, except for a dispatch a dispatch-workflow grant
+	// covers, whose ref is pinned to the full default branch ref the broker checked.
+	runs := d
 	run := func(set, by string) error {
 		if err := b.audit.RequiredContext(ctx, brokeraudit.Event{Event: "covered-authorized", Service: Source, Jail: jail,
-			Workspace: b.workspace, Argv: d.Argv, Repo: strings.Join(d.Repos, ","), Set: set, Grant: by,
+			Workspace: b.workspace, Argv: runs.Argv, Repo: strings.Join(d.Repos, ","), Set: set, Grant: by,
 			Outcome: "authorized-before-dispatch"}); err != nil {
 			return err
 		}
@@ -182,7 +185,7 @@ func (b *Broker) coveredWrite(ctx context.Context, req Request, jail string, d D
 			return err
 		}
 		ev.Set, ev.Grant = set, by
-		code = b.dispatch(ctx, req, d, captureInto(&captured, stdout), stderr, ev)
+		code = b.dispatch(ctx, req, runs, captureInto(&captured, stdout), stderr, ev)
 		return nil
 	}
 	finish := func(err error, by string) (int, string, bool) {
@@ -197,7 +200,8 @@ func (b *Broker) coveredWrite(ctx context.Context, req Request, jail string, d D
 	}
 
 	// 1. A user grant. A dispatch-workflow grant covers a run on the default branch alone, read
-	// by the broker's own host reads; on any other ref the run asks like any repository write.
+	// by the broker's own host read; on any other ref the run asks like any repository write. A
+	// covered run is sent as refs/heads/<default>, so what runs is the branch that was checked.
 	kind, ok := b.userGrantCovers(t, d.Argv)
 	if ok && kind == GrantDispatchWorkflow {
 		w, _ := dispatchOf(d.Argv, t)
@@ -211,6 +215,15 @@ func (b *Broker) coveredWrite(ctx context.Context, req Request, jail string, d D
 			stderr([]byte("github-broker: this workspace's dispatch-workflow grant covers a run of " + w.Workflow +
 				" on " + t.Repo + "'s default branch (" + def + ") only; this run on " + w.Ref + " asks\n"))
 			ok = false
+		default:
+			pinned, pinOK := pinnedDispatchArgv(d.Argv, t, def)
+			if !pinOK {
+				stderr([]byte("github-broker: could not pin this run of " + w.Workflow + " to refs/heads/" + def +
+					", so this workspace's dispatch-workflow grant does not cover it, which asks\n"))
+				ok = false
+				break
+			}
+			runs.Argv = pinned
 		}
 	}
 	if ok {

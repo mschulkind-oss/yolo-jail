@@ -121,6 +121,11 @@ func TestGrantNote(t *testing.T) {
 			"may create, update, force-push and delete tags matching `v*` on every remote in scope now and any approved later"},
 		{Grant{Kind: "branch", Repo: "github.com/o/r", Branch: "main"}, ""},
 		{Grant{Kind: "create-branch", Repo: AnyRepo}, ""},
+		{Grant{Kind: KindDispatchWorkflow, Repo: "github.com/o/r", Workflow: AnyWorkflow},
+			"may run every workflow, including ones added to the default branch later, on the default branch of github.com/o/r, unasked"},
+		{Grant{Kind: KindDispatchWorkflow, Repo: AnyRepo, Workflow: "nightly.yml"},
+			"may run `nightly.yml` on the default branch of every repository in scope now and any approved later, unasked"},
+		{Grant{Kind: KindDispatchWorkflow, Repo: "github.com/o/r", Workflow: "nightly.yml"}, ""},
 	} {
 		if got := GrantNote(c.g); got != c.want {
 			t.Errorf("GrantNote(%s) = %q, want %q", c.g, got, c.want)

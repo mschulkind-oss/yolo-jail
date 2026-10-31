@@ -180,10 +180,11 @@ func (g Grant) Name() string {
 	return g.Workflow
 }
 
-// Wildcard reports whether a ref-naming grant reaches further than one ref on one repository:
-// its repository is AnyRepo, or its name is a pattern.
+// Wildcard reports whether a name-taking grant reaches further than one name on one
+// repository: its repository is AnyRepo, or its name is a pattern (a ref pattern, or
+// AnyWorkflow).
 func (g Grant) Wildcard() bool {
-	return GrantTakesRef(g.Kind) && (g.Repo == AnyRepo || strings.Contains(g.Name(), "*"))
+	return GrantTakesName(g.Kind) && (g.Repo == AnyRepo || strings.Contains(g.Name(), "*"))
 }
 
 // Covers reports whether a ref-naming grant covers the full ref on repo: the kind's namespace
@@ -204,11 +205,14 @@ const AnyRemoteNote = "every remote in scope now and any approved later"
 
 // GrantNote is plain words for what a wildcard ref grant admits, for the gate's grant line
 // (docs/design/git-broker.md GB-D25): "may create, update, force-push and delete branches
-// matching `patch/*` on github.com/o/r". It is "" for a grant naming one ref on one repository,
-// which reads plainly as it is, and for a kind that names no ref.
+// matching `patch/*` on github.com/o/r". It is "" for a grant naming one ref or one workflow on
+// one repository, which reads plainly as it is, and for a kind that names nothing.
 func GrantNote(g Grant) string {
 	if !g.Wildcard() {
 		return ""
+	}
+	if g.Kind == KindDispatchWorkflow {
+		return dispatchWorkflowNote(g)
 	}
 	what := "`" + g.Name() + "`"
 	if strings.Contains(g.Name(), "*") {
@@ -223,6 +227,21 @@ func GrantNote(g Grant) string {
 		on = AnyRemoteNote
 	}
 	return "may create, update, force-push and delete " + what + " on " + on
+}
+
+// dispatchWorkflowNote is GrantNote for a wildcard dispatch-workflow grant, in plain words: "may
+// run every workflow, including ones added to the default branch later, on the default branch of
+// github.com/o/r, unasked".
+func dispatchWorkflowNote(g Grant) string {
+	what := "`" + g.Workflow + "`"
+	if g.Workflow == AnyWorkflow {
+		what = "every workflow, including ones added to the default branch later,"
+	}
+	on := g.Repo
+	if g.Repo == AnyRepo {
+		on = "every repository in scope now and any approved later"
+	}
+	return "may run " + what + " on the default branch of " + on + ", unasked"
 }
 
 // String is the grant as the gate's block and the approval record spell it: `<kind> <repo>`,
