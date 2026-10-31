@@ -80,13 +80,14 @@ type Pack struct {
 	// loader, which reads it from the staged tree's record (PackTreeEntry.Name); "" everywhere
 	// else, where Name is that name already.
 	//
-	// The jail keeps naming a configured pack by its staged DIRECTORY, the name's slug
-	// (StagedSlug), because every jail-side key on Name was built on that. One thing in the jail
-	// must spell the launch's name instead: a `files` tree's LANDING (SlotLanding), which the
-	// launch mounts under the name it loaded the pack by. A registering slot's entry built from
-	// the slug listed ~/.pi/agent/yolo-packs/my_5fpack for a pack named `my_pack`, mounted at
-	// .../my_pack, and pi skips a listed path that does not exist without a word (measured
-	// 2026-10-05). Read through landingName, never directly.
+	// The jail's loader now names a RECORDED pack by this name too (entrypoint's
+	// loadPackRootAsStaged), so the two differ only for a pack loaded from an unrecorded tree,
+	// which is named by its staged DIRECTORY (StagedSlug). A `files` tree's LANDING
+	// (SlotLanding) must spell the launch's name, escaped, since the launch mounts the tree
+	// there: a registering slot's entry built from the directory once listed
+	// ~/.pi/agent/yolo-packs/my_5fpack for a pack mounted at .../my_pack, and pi skips a listed
+	// path that does not exist without a word (measured 2026-10-05). Read through landingName,
+	// never directly.
 	LaunchName string
 	// Root is the directory its files live in. For an embedded pack this is the
 	// materialized copy, so every consumer sees a real path either way.

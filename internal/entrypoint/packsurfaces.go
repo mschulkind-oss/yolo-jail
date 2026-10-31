@@ -117,11 +117,15 @@ func loadPackRootAsStaged(e *Env, root string) ([]*packload.Pack, error) {
 	// os.ReadDir, embedded packs first and each level alphabetical, which gave one key a winner
 	// neither the launch nor the host picked (row B2).
 	//
-	// A pack is still NAMED by its directory, as the walk below names it: the jail has always
-	// named a configured pack by its staged slug (Pack.StagedSlug), and the host keys what it
-	// hands the jail on that too, so the order comes from the record. So does the launch's name
-	// for the pack, kept beside Name as Pack.LaunchName for the one reader that must spell a path
-	// the launch built from it: a `files` tree's landing, which the launch mounts under that name.
+	// A RECORDED pack is NAMED as the launch loaded it, from the record, not by its directory.
+	// The jail named a configured pack by its staged slug until every pack yolo does not ship was
+	// named by a source handle holding a "/" (OQ-RC15), when every key the host built on the
+	// name and the jail rebuilt on its own came apart: a fork's `<pack>/<bin>`, on which the
+	// patched-tree wire is keyed, read `src_2ffork/tool` here against `src/fork/tool` at the
+	// launch. What the host keys on the DIRECTORY (a /ctx host-file grant, a patch-branch
+	// mapping) reads Pack.StagedSlug, which is the directory whatever the name. LaunchName keeps
+	// the same name for the `files` landing (SlotLanding); an unrecorded tree, below, still
+	// names a pack by its directory, having nothing else.
 	rec, recorded, err := packload.ReadPackTreeRecord(root)
 	if err != nil {
 		return nil, fmt.Errorf("pack root %s: %w", root, err)
@@ -130,7 +134,7 @@ func loadPackRootAsStaged(e *Env, root string) ([]*packload.Pack, error) {
 		var packs []*packload.Pack
 		for _, entry := range rec {
 			dir := filepath.Join(root, filepath.FromSlash(entry.Dir))
-			p, err := loadJailPack(e, dir, filepath.Base(dir), entry.Skipped)
+			p, err := loadJailPack(e, dir, entry.Name, entry.Skipped)
 			if err != nil {
 				return nil, err
 			}
