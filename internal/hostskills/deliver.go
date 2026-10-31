@@ -31,6 +31,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/packname"
 	"github.com/mschulkind-oss/yolo-jail/internal/pluginpack"
 )
 
@@ -184,6 +185,10 @@ type Request struct {
 	// Pack is the pack's name. At tier A it becomes the subtree name AND the invocation
 	// namespace, so it is user-visible.
 	Pack string
+	// Namespace is the pack's namespace: each skill lands as `<namespace>-<skill>`, the copied
+	// SKILL.md's `name` saying the same, and as the author named it when "" (a bare pack,
+	// docs/design/pack-naming.md §3.4).
+	Namespace string
 	// Description is the pack's description, written into the tier-A plugin manifest.
 	Description string
 	// Owner is the provenance identity recorded for this delivery. Usually it is Pack;
@@ -413,6 +418,24 @@ func deliverFlat(req Request, skills map[string]string) ([]Result, error) {
 		}
 	}
 
+	// The names an agent sees: `<namespace>-<skill>`, or the author's own for a bare pack
+	// (docs/design/pack-naming.md §3.4). renameTo is the `name` the copied SKILL.md carries
+	// instead of the author's, set only where a namespace changed the name.
+	delivered := map[string]string{}
+	renameTo := map[string]string{}
+	for raw, src := range skills {
+		name := packname.Delivered(req.Namespace, raw)
+		if err := packname.TooLong(name, req.Pack, "skill"); err != nil {
+			out = append(out, Result{Name: name, Path: src, Action: ActionRefused, Detail: err.Error()})
+			continue
+		}
+		delivered[name] = src
+		if req.Namespace != "" {
+			renameTo[name] = name
+		}
+	}
+	skills = delivered
+
 	for _, name := range sortedKeys(skills) {
 		dest := filepath.Join(req.SkillsDir, name)
 		_, statErr := os.Lstat(dest)
@@ -469,7 +492,7 @@ func deliverFlat(req Request, skills map[string]string) ([]Result, error) {
 		// skipped rather than re-copied. The name is still CLAIMED below, which is what keeps
 		// retireComposed from reading an in-sync entry as one no pack composes any more. See
 		// ActionUnchanged.
-		if occupied && !changedExcept(skills[name], dest, req.excludePaths) {
+		if occupied && !changedSkill(skills[name], dest, req.excludePaths, renameTo[name]) {
 			r.Action, r.WouldChange = ActionUnchanged, false
 			claim(req, dest)
 			out = append(out, r)
@@ -487,12 +510,17 @@ func deliverFlat(req Request, skills map[string]string) ([]Result, error) {
 			//     unchanged home grew one archive copy of every skill per `yolo host apply` forever.
 			//     Pre-existing, and composition made it louder rather than caused it: this pass now
 			//     visits every destination in one run instead of one pack's at a time.
-			if occupied && req.PreOwned[dest] && changedExcept(skills[name], dest, req.excludePaths) {
+			if occupied && req.PreOwned[dest] && changedSkill(skills[name], dest, req.excludePaths, renameTo[name]) {
 				if at, aerr := Archive(req.ArchiveRoot, req.Stamp, "skills", dest); aerr == nil {
 					r.Detail += " (previous copy archived to " + at + ")"
 				}
 			}
 			if err := copyTreeExcept(skills[name], dest, req.excludePaths); err != nil {
+				r.Action, r.Detail, r.WouldChange = ActionRefused, err.Error(), false
+				out = append(out, r)
+				continue
+			}
+			if err := writeSkillName(dest, renameTo[name]); err != nil {
 				r.Action, r.Detail, r.WouldChange = ActionRefused, err.Error(), false
 				out = append(out, r)
 				continue

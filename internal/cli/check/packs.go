@@ -28,6 +28,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/hostskills"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -386,6 +387,15 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 	for _, c := range packload.AgentNameCollisions(loaded) {
 		r.fail("agent name "+c.Target+" has more than one owning pack",
 			"packs "+strings.Join(c.Packs, ", ")+" — "+c.Reason+"\n"+keepOneNote())
+	}
+	// Two entries given one namespace or one landing, and two packs delivering one skill name
+	// (docs/design/pack-naming.md §3.5): the launch and `yolo host apply` refuse both, so a
+	// check that passed them would pass a config that cannot start.
+	for _, c := range packload.NameCollisions(loaded) {
+		r.fail("pack name collision", c)
+	}
+	for _, c := range hostskills.Collisions(hostskills.ComposeHostSkills(loaded, paths.Home())) {
+		r.fail("pack skill name collision", c.Message())
 	}
 
 	// Pack destination exclusivity (KindFiles) — exact duplicate destinations and nested claims.

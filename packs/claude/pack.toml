@@ -57,7 +57,6 @@ name = "claude"
 # holding the subscription nameable, binds the platform to Claude Code's own client, and keeps
 # the broker running whenever Claude Code can be.
 needs = [{ pack = "claude-auth" }, { pack = "wire-bridge" }]
-skills_tier = "namespaced"
 
 # Where the install hint's name came from, checked 2026-10-02. A cask, so "brew-cask".
 #   brew-cask: https://formulae.brew.sh/api/cask/claude-code.json (binary artifact `claude`)

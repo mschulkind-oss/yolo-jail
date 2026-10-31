@@ -200,24 +200,27 @@ func TestApplyHostKeepsAPluginInAnAddressedSourceToThatSourcesAgent(t *testing.T
 	}
 }
 
-// THE FLAT DEFAULT STILL HOLDS: a pack with no pack.json is flat, and a flat skills folder can
-// carry a plugin's skills and nothing else (hostskills.deliverPluginFlat). So the mod does not
-// arrive, and the apply SAYS so, naming the hooks that cannot and the tier that would carry them,
-// where it used to say nothing.
+// A PACK WITH NO pack.json DELIVERS ITS ROOT MOD WHOLE TOO. A wrapped plugin is always offered as a
+// whole tree at its delivered name, whatever the pack's manifest says or omits: `skills_tier` is
+// retired (docs/design/pack-naming.md PN-D9), so the bare pack that once could carry only the
+// mod's skills, and whose hooks therefore "cannot arrive", now delivers the hooks module with the
+// rest, and the apply no longer reports a refusal for it. (The one downgrade left, a folder yolo
+// did not write at the delivered name, cannot be staged at the host: the apply migrates such a
+// folder into the local pack first. It is pinned at hostskills: TestFlatRefusesNonSkillComponentsByName.)
 func TestApplyHostNamesAFlatRootModThatCannotArrive(t *testing.T) {
 	home := hostRootModHome(t, `"claude",`+writeHostRootMod(t, t.TempDir(), "first-mod", ""))
-	_, report := applyWith(t, true, strings.NewReader("y\n"))
+	rc, report := applyWith(t, true, strings.NewReader("y\n"))
+	if rc != 0 {
+		t.Fatalf("host apply --assert rc=%d\n%s", rc, report)
+	}
 	dest := filepath.Join(home, ".claude", "skills")
-	if _, err := os.Lstat(filepath.Join(dest, "first-mod")); !os.IsNotExist(err) {
-		t.Errorf("a flat pack's mod was copied whole into ~/.claude/skills (%v)", err)
-	}
+	assertHostModDeliveredWhole(t, dest, report)
 	if _, err := os.Lstat(filepath.Join(dest, "hooks")); !os.IsNotExist(err) {
-		t.Errorf("a flat pack's mod spilled its hooks/ into ~/.claude/skills (%v)", err)
+		t.Errorf("the mod spilled its hooks/ into ~/.claude/skills itself (%v)", err)
 	}
-	for _, want := range []string{"first-mod:hooks", "cannot arrive", "set `skills_tier` to `namespaced`",
-		"pack first-mod's pack.json"} {
-		if !strings.Contains(report, want) {
-			t.Errorf("the apply did not say %q about the mod a flat pack cannot deliver:\n%s", want, report)
+	for _, gone := range []string{"cannot arrive", "skills_tier"} {
+		if strings.Contains(report, gone) {
+			t.Errorf("a mod delivered whole was still reported with %q:\n%s", gone, report)
 		}
 	}
 }

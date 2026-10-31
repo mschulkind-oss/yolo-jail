@@ -78,6 +78,11 @@ type PackSkillSource struct {
 	// Tier is the PACK's skills_tier (hostskills.PackTier) — the same for every source of one
 	// pack, because a tier decides what a skill is CALLED (S2). The zero value is flat.
 	Tier hostskills.Tier
+	// Namespace and Shipped are the pack's naming (hostskills.Layer's fields of these names,
+	// docs/design/pack-naming.md §3.4): every skill and wrapped plugin is delivered as
+	// `<namespace>-<name>`, or bare when Namespace is "".
+	Namespace string
+	Shipped   bool
 	// Description goes into a namespaced subtree's plugin manifest.
 	Description string
 	// Plugins are the wrapped plugin trees this pack carries INSIDE Dir, or at the pack root when
@@ -192,7 +197,7 @@ func SkillPlan(sources []PackSkillSource, targets []SkillTarget) []hostskills.De
 				i = len(d.Layers)
 				index[src.Pack] = i
 				d.Layers = append(d.Layers, hostskills.Layer{Pack: src.Pack, Description: src.Description,
-					Tier: src.Tier, SourceOf: src.SourceOf})
+					Tier: src.Tier, Namespace: src.Namespace, Shipped: src.Shipped, SourceOf: src.SourceOf})
 			}
 			// A record with no Dir carries plugins and nothing to copy: the host's writer delivers
 			// a layer's plugins whether or not it has a source (hostskills.writeLayer).

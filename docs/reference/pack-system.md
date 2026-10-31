@@ -418,7 +418,7 @@ one contribution does not mask a second; a launch skips what this build cannot r
 | `name` | informational — **not** the pack's effective name (below) |
 | `description` | prose for `yolo pack ls` |
 | `contributes` | the pack's effects: one list of typed contributions, each with a `kind` |
-| `skills_tier` | the pack's opt-in to having its own skills namespaced |
+| `skills_tier` | retired: ignored, and `yolo pack lint` warns of it ([pack naming PN-D9](../design/pack-naming.md#PN-D9)) |
 | `supersedes` | the pack's claim that a [capability](#capabilities-and-supersession)'s job no longer needs doing |
 | `needs` | [conditional pack dependency](#needs--conditional-pack-dependency): another pack joins the launch when a condition holds |
 
@@ -1392,13 +1392,15 @@ pinned in `internal/packload/projectskilldirs_test.go` and witnessed against the
 by `integration/agents_test.go`'s probe, wherever the agent's bundle names the path at project
 scope as text; the probe lists the rows it cannot witness and where each was measured instead.
 
-`skills_tier` is a **per-pack** choice, not per contribution, and that is the whole of the
-ruling behind it: a tier decides what a skill is CALLED, which is a global property.
-Declared per contribution it could not express a consistent name — and a zero-ceremony pack,
-which declares no destinations at all and borrows them from the other selected packs,
-*inherited* a tier per destination, so one skill acquired two invocation names without the
-pack ever choosing either. Values are unnamespaced (the default), `flat` (the same thing
-said out loud), and `namespaced` (one subtree per destination, invoked `<pack>:<skill>`).
+**What a skill is CALLED is the user's choice, never the pack's**
+([pack naming §3.4](../design/pack-naming.md#34-delivered-names)). A pack the user did not get
+from yolo is in a **namespace**, the word its config entry gives it: a `[pack_sources]` key, a
+`local/<pack>`'s own name, a repository's last segment, or a `namespace = "…"` the user writes.
+Each of its skills is delivered as `<namespace>-<skill>`, as the directory name and as the `name`
+field of the copied `SKILL.md`, and each wrapped plugin as `<namespace>-<manifest name>`, written
+into its copied manifest. Shipped packs, and entries or sources marked `bare = true`, deliver the
+author's own names. The pack's `skills_tier` is retired: it changes no name, and `yolo pack lint`
+warns that it is ignored ([PN-D9](../design/pack-naming.md#PN-D9)).
 
 **A skills contribution may also RESERVE children of its destination** — `reserved`, a list of bare
 child names yolo neither adopts nor composes over. It sits beside the tier rule because it is the
@@ -1572,21 +1574,24 @@ The one part of the fence's ruling still open:
 <a id="skills-collision"></a>
 
 > [!WARNING]
-> **A skills name collision between two packs is FATAL at `yolo host apply` and at a jail
-> launch**, naming both packs, both source paths, and both remedies (rename, or opt one pack
-> into namespacing). At flat tier one pack's skill silently won and the loser produced no output
-> line at all. The error costs the deliberate flat-tier override, and that is the trade: an
-> intentional override and an accidental clash are the same declaration, so yolo cannot tell
-> them apart and the user should. **Adoption preserves, declaration refuses** — migrating a
-> user's pre-existing tree keeps both copies (`mine`, `mine-from-codex`), because those are two
-> different situations.
+> **A delivered-name collision between two packs is FATAL at `yolo check`, at `yolo host apply`
+> and at a jail launch**, naming both entries, both source paths, and the step for its kind
+> ([pack naming §3.5](../design/pack-naming.md#35-clashes)): two bare entries delivering one name
+> → give one a namespace (`bare = false`) or rename your own skill; two names that hyphenate alike
+> → choose a different namespace; two packs of one namespace delivering one name → select only
+> one, the source author's defect. Two entries given one namespace word, or one `files` landing,
+> are refused the same way. **yolo never renames anything to resolve a clash**, because no name
+> may depend on what else is selected ([PN-D3](../design/pack-naming.md#PN-D3)). An intentional
+> override and an accidental clash are the same declaration, so yolo cannot tell them apart and
+> the user should. **Adoption preserves, declaration refuses** — migrating a user's pre-existing
+> tree keeps both copies (`mine`, `mine-from-codex`), because those are two different situations.
 >
 > **The jail half is [`OQ-NC11`](../plans/notch-convergence.md#7-decision-ledger)** (ruled 2026-09-28 by
 > parity). It is a launch pre-flight beside the agent-name one, so it refuses host-side before
 > any container exists, on an attach too, with the host's message; it is not a boot failure
 > inside a running jail. The jail composes through the host's layer plan and writer, so the
-> remedy holds there: a namespaced pack's skills invoke as `/<pack>:<skill>` in a jail as at the
-> host, and a wrapped plugin is delivered as the host delivers it. The destinations each pack's
+> remedy holds there: a pack's skills are called `<namespace>-<skill>` in a jail as at the host,
+> and a wrapped plugin is delivered as the host delivers it. The destinations each pack's
 > skills reach still differ between the notches ([below](#skills-fanout-s4)).
 
 <a id="skills-fanout-s4"></a>
@@ -4570,7 +4575,7 @@ in the config-overlay comments (R2, R3) it means the R1–R5 table below, never
 | <a id="batch-6a-4"></a>[**§6a-4**](#batch-6a-4) (pack batch) — every notch reads a pack's sources through one resolver | A `from` that one notch honored and the other ignored was a silent divergence. The resolver is now `packload.GovernedSources` ([R5 (briefing defaults)](#briefing-r5-row)), and the fallback chain that once stood behind a missing `from` is gone ([P4](#briefing-p4)). |
 | <a id="batch-6a-5"></a>[**§6a-5**](#batch-6a-5) (pack batch) — host skills delivery asks whether a path is yolo's, never whether it is this pack's, so precedence is layer order | Asking "is it this pack's?" left a later layer unable to replace another pack's recorded entry, so the local pack lost at flat tier. Winning that collision was later given up on purpose: two packs claiming one unnamespaced name at the host is fatal ([the collision warning](#skills-collision), maintainer ruling 2026-08-05), the local pack included. A test of this rule applies twice, because one apply is decided by that run's own claims and the defect lived in the saved record. |
 | <a id="batch-6a-6"></a>[**§6a-6**](#batch-6a-6) (pack batch) — the briefing ownership record is a file of its own (`host-briefing-manifest.json`); the pack set is re-resolved once after a confirmed migration; an incomplete pack set retires no briefing (`PackSetComplete`, false at its zero value) | A composed briefing belongs to the whole pack set, so its record's owner is a pseudo-owner no config can name, and read by the skills record's dropped-pack pass it retired every composed briefing on the next apply. The migration creates the local pack, so a set resolved before it lacked the user's prose for one run. And a wholesale destination does not heal itself the way the old marker block did, so archiving an unreachable pack's briefing cost the user a trip to the state dir. Each defect was found only by running the lifecycle. |
-| <a id="batch-6a-7"></a>[**§6a-7**](#batch-6a-7) (pack batch) — a silent retire is only yolo's own upkeep: a pack removed from `packs` is retired behind the confirmation on every path, the render's included (`ComposeRequest.Configured`, [R1 (pack drop)](#pd-r1)); an incomplete pack set retires nothing on either path; an entry already byte-identical is neither copied nor archived; a hand-authored plugin directory is never migrated as a skill; `skills_tier` still decides a skill's invocation shape | "The pack I still have stopped shipping this skill" and "I removed a pack" are different user actions, and the render reaches a dropped pack's entries before the prune does, so gating only the prune let the confirmation stop firing. An offline apply archived an unreachable pack's skills while reporting success. Archiving on every apply grew an unchanged home without bound. A plugin moved into `skills/` would be delivered again under a different namespace, breaking the paths its own manifest declares. The tier survived wholesale composition because dropping it would rename every namespaced invocation, which nobody asked for. |
+| <a id="batch-6a-7"></a>[**§6a-7**](#batch-6a-7) (pack batch) — a silent retire is only yolo's own upkeep: a pack removed from `packs` is retired behind the confirmation on every path, the render's included (`ComposeRequest.Configured`, [R1 (pack drop)](#pd-r1)); an incomplete pack set retires nothing on either path; an entry already byte-identical is neither copied nor archived; a hand-authored plugin directory is never migrated as a skill; `skills_tier` still decided a skill's invocation shape until [PN-D9](../design/pack-naming.md#PN-D9) retired it | "The pack I still have stopped shipping this skill" and "I removed a pack" are different user actions, and the render reaches a dropped pack's entries before the prune does, so gating only the prune let the confirmation stop firing. An offline apply archived an unreachable pack's skills while reporting success. Archiving on every apply grew an unchanged home without bound. A plugin moved into `skills/` would be delivered again under a different namespace, breaking the paths its own manifest declares. The tier survived wholesale composition because dropping it would rename every namespaced invocation, which nobody asked for. |
 | <a id="batch-6b"></a>[**§6b**](#batch-6b) (pack batch) — a kind means one thing at every notch. The notch is DECLARED by the constructor that builds a render target, never inferred from its shape (a bare target gets `KindUnset`), and a mechanism chosen for the jail is not the kind's definition. Its items: `skills` unified (D1, [§6a-2](#batch-6a-2)); which modes a notch runs, and which keep provenance, are census data a new notch must state (D2); `env` is unbuilt at the host because `yolo host apply` launches no process, a limit of the command and not of the notch (D3) | Inferred from shape, a `guest` target resolved silently to jail semantics; declared, adding a notch is a compile-time question. `stateful` exists because yolo regenerates a file an agent may edit, not because a jail home is disposable (it is not), so the mode is not jail-shaped. `files` keeps refuse-what-yolo-cannot-prove at the host, since it has no layer model to regenerate from. |
 | <a id="batch-6c"></a>[**§6c**](#batch-6c) (pack batch) — confinement is not a pack. A notch's policy, the autonomy bit included, comes from its confinement profile (`render.Profile`), and core knows notch NAMES only at its two edges: `render.KindForNotch` on the way in, `Kind.String()` on the way out | A pack is content yolo renders; confinement is enforcement yolo executes, and it decides whether a pack may read the host at all, so a pack declaring it would let the confined thing choose its own confinement. The two also compose oppositely: pack kinds by merge, where the later pack wins, and confinement primitives by intersection, where the strictest wins. The profile replaced a hardcoded `true` or `false` at each call site, the boot loop's included. Letting a user assemble a primitive vector stays out of scope ([`fill-the-matrix-principle.md`](fill-the-matrix-principle.md)). |
 | <a id="batch-7"></a>[**§7**](#batch-7) (pack batch) — `yolo pack lint` asks "does this pack do anything?" and "does it stage content nothing reads?" as separate questions ([its checks](#pack-lint-questions)) | The rule it replaced used "ships `skills/` or `AGENTS.md`" as a proxy for "does anything read this pack". That rejected every shipped pack and a working config-only pack, and gave a pack that did nothing the same message, so it was useless in the one case it existed for. Maintainer framing, 2026-08-04: *"a pack that does absolutely nothing should be warned about, but not one that leaves out a part it could ship."* What shipped is stricter than the word "warned": both checks fail lint. |
@@ -4687,7 +4692,7 @@ only place the values themselves are stated.
 | Packs shipping a `derive.lua` | `agy`, `claude`, `codex`, `copilot`, `omp`, `opencode`, `pi` | `packs/*/derive.lua`, all run by `TestEveryShippedPackDeriveStillRuns` |
 | Surface modes | `stateful` (default), `computed`, `rmw`, `unrendered` | `internal/agentcfg/manifest` |
 | `state` scopes | `workspace` (default), `machine` (requires `because`) | `packdecl` |
-| `skills_tier` values | `""` / `flat` (default), `namespaced` | `packdecl.Manifest.SkillsTier` |
+| `skills_tier` values | `""` / `flat`, `namespaced`; both ignored ([PN-D9](../design/pack-naming.md#PN-D9)) | `packdecl.Manifest.SkillsTier` |
 | Derive registrations | `yolo.derive(agent, surface, fn)`, `yolo.env(agent, fn)` | `internal/agentcfg/luahook` |
 | Derive helpers | `yolo.model_for(alias)` → `"<provider>/<id>", "<id>"` or `nil`, for the selected provider only; warns for a missing `default`, `fast`, `balanced` or `frontier` | `luahook/modelfor.go` |
 | Derive ctx sentinels | `ctx.tombstone`, `ctx.empty_array`, `ctx.in_full(t)` | `luahook/derive.go` |

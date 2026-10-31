@@ -73,8 +73,8 @@ func TestComposeIntoRefusesACollisionBeforeWriting(t *testing.T) {
 	if err == nil {
 		t.Fatal("ComposeInto composed two packs claiming one unnamespaced name")
 	}
-	for _, want := range []string{`both want the entry "dup"`, "pack shared", "pack local",
-		`"skills_tier": "namespaced"`} {
+	for _, want := range []string{`deliver the name "dup"`, "pack shared", "pack local",
+		"bare = false"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("the refusal does not say %q:\n%v", want, err)
 		}

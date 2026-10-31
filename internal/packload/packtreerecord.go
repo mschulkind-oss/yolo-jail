@@ -56,6 +56,21 @@ type PackTreeEntry struct {
 	// PatchBranches carries host-side repository identity and the workspace-relative declaring
 	// directory for selected relative patch branches, keyed by staged owner key.
 	PatchBranches map[string]PatchBranchMapping `json:"patch_branches,omitempty"`
+	// Namespace, NamespaceOwner and Landing are the pack's agent-facing naming as the launch
+	// computed it from config (Pack's fields of these names, docs/design/pack-naming.md §3.4),
+	// so the jail lands `files` and mounts /ctx where the launch did. Absent from an older tree.
+	Namespace      string `json:"namespace,omitempty"`
+	NamespaceOwner string `json:"namespace_owner,omitempty"`
+	Landing        string `json:"landing,omitempty"`
+}
+
+// ApplyNaming gives p the agent-facing naming its launch recorded, so a reader of the tree delivers
+// skills and lands files under the names the launch did (docs/design/pack-naming.md §3.4).
+func (e PackTreeEntry) ApplyNaming(p *Pack) {
+	if p == nil {
+		return
+	}
+	p.Namespace, p.NamespaceOwner, p.Landing = e.Namespace, e.NamespaceOwner, e.Landing
 }
 
 type packTreeRecord struct {
@@ -78,7 +93,8 @@ func WritePackTreeRecordForWorkspace(root string, packs []*Pack, workspace strin
 		if err != nil || !filepath.IsLocal(rel) {
 			return fmt.Errorf("packs: pack %s was loaded from %s, outside its tree %s", p.Name, p.Root, root)
 		}
-		entry := PackTreeEntry{Name: p.Name, Dir: filepath.ToSlash(rel)}
+		entry := PackTreeEntry{Name: p.Name, Dir: filepath.ToSlash(rel),
+			Namespace: p.Namespace, NamespaceOwner: p.NamespaceOwner, Landing: p.Landing}
 		for _, note := range p.SkewNotes {
 			entry.Skipped = append(entry.Skipped, strings.TrimPrefix(note, "pack "+p.Name+": "))
 		}

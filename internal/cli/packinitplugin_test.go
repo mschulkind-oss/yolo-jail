@@ -106,11 +106,10 @@ func TestInitFromPluginProducesALintablePack(t *testing.T) {
 	if !strings.Contains(string(readme), "~/.config/yolo-jail/config.toml") {
 		t.Errorf("the wrapper README does not name the TOML user config:\n%s", readme)
 	}
-	// MANIFEST-level `skills_tier` since S2, not a per-contribution `tier`: a wrapper is the case
-	// with the strongest claim to a namespace (the plugin's docs say `/<plugin>:<skill>`), and the
-	// key it opts in with moved.
-	if !strings.Contains(string(decl), `skills_tier = "namespaced"`) {
-		t.Errorf("the scaffolded pack.toml must declare skills_tier namespaced:\n%s", decl)
+	// No `skills_tier`: it is retired and `yolo pack lint` warns of it (pack-naming.md PN-D9), so
+	// a scaffold that wrote it would hand the user a warning on their first lint.
+	if strings.Contains(string(decl), "skills_tier") {
+		t.Errorf("the scaffolded pack.toml still declares the retired skills_tier:\n%s", decl)
 	}
 	if strings.Contains(string(decl), "\ntier =") {
 		t.Errorf("the scaffold still writes the retired per-contribution `tier`, which every "+

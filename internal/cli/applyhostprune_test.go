@@ -352,9 +352,13 @@ func TestApplyHostRetireSparesConfiguredPacksAndUserSkills(t *testing.T) {
 	}
 }
 
-// A NAMESPACED (tier-A) pack's whole subtree is retired too. It is the sharper half: tier A
-// records nothing in the ownership manifest — the subtree's own plugin marker is the only
-// evidence — so a manifest-only scan leaves an entire loadable namespace behind.
+// A dropped pack's WHOLE PLUGIN TREE is retired too, beside its flat skills. Since pack naming
+// (docs/design/pack-naming.md PN-D9) a pack's own `skills_tier = "namespaced"` is ignored, so the
+// per-pack subtree this test used to retire is no longer produced; the tree-shaped output that
+// survives is a WRAPPED PLUGIN the pack carries, which is always delivered whole and carries yolo's
+// plugin marker. It is still the sharper half: retiring it takes every skill inside it at once, so
+// the report must say so. The retired `skills_tier` is kept in the fixture to pin that it no longer
+// makes a subtree of the pack.
 func TestApplyHostRetiresDroppedNamespacedSubtree(t *testing.T) {
 	home := t.TempDir()
 	packDir := filepath.Join(t.TempDir(), "nsdrop")
@@ -363,6 +367,10 @@ func TestApplyHostRetiresDroppedNamespacedSubtree(t *testing.T) {
 		  {"kind":"skills","from":"skills","into":".claude/skills"}]}`)
 	writeFile(t, filepath.Join(packDir, "skills", "nsdemo", "SKILL.md"),
 		"---\nname: nsdemo\ndescription: n\n---\nNS.\n")
+	writeFile(t, filepath.Join(packDir, "skills", "nsplug", ".claude-plugin", "plugin.json"),
+		`{"name":"nsplug","description":"a wrapped plugin"}`)
+	writeFile(t, filepath.Join(packDir, "skills", "nsplug", "skills", "plugskill", "SKILL.md"),
+		"---\nname: plugskill\ndescription: p\n---\nPLUG.\n")
 	selectPacks(t, home, `"claude",{"source":"file://`+packDir+`","name":"nsdrop"}`)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
@@ -370,21 +378,28 @@ func TestApplyHostRetiresDroppedNamespacedSubtree(t *testing.T) {
 	if rc, report := applyWith(t, true, nil); rc != 0 {
 		t.Fatalf("first apply rc=%d\n%s", rc, report)
 	}
-	subtree := filepath.Join(home, ".claude", "skills", "nsdrop")
-	mustExist(t, subtree, "the first apply delivered the namespaced subtree")
+	skills := filepath.Join(home, ".claude", "skills")
+	flat := filepath.Join(skills, "nsdemo")
+	plugin := filepath.Join(skills, "nsplug")
+	mustExist(t, filepath.Join(flat, "SKILL.md"), "the pack's own skill is delivered flat")
+	mustExist(t, filepath.Join(plugin, "skills", "plugskill", "SKILL.md"),
+		"the wrapped plugin is delivered as a whole tree")
+	mustNotExist(t, filepath.Join(skills, "nsdrop"),
+		"a manifest's skills_tier no longer makes a per-pack subtree (PN-D9)")
 
 	selectPacks(t, home, `"claude"`)
 	rc, report := applyWith(t, true, strings.NewReader("y\n"))
 	if rc != 0 {
 		t.Fatalf("retire rc=%d\n%s", rc, report)
 	}
-	mustNotExist(t, subtree, "nsdrop left the config")
+	mustNotExist(t, flat, "nsdrop left the config")
+	mustNotExist(t, plugin, "nsdrop left the config")
 	if !strings.Contains(report, "namespaced subtree") {
-		t.Errorf("retiring a whole namespace must say so — it takes every skill inside "+
+		t.Errorf("retiring a whole plugin tree must say so — it takes every skill inside "+
 			"it at once:\n%s", report)
 	}
-	if archived := archivedUnder(t, home); len(archived) == 0 {
-		t.Error("the namespaced subtree must be archived, not deleted")
+	if archived := archivedUnder(t, home); len(archived) < 2 {
+		t.Errorf("the flat skill and the plugin tree must both be archived, not deleted: %v", archived)
 	}
 }
 

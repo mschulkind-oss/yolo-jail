@@ -105,6 +105,14 @@ type PackEntry struct {
 	// EmbeddedName is the shipped pack identity behind an explicit yolo/<name> handle.
 	EmbeddedName string `json:"embeddedName,omitempty"`
 
+	// Namespace, NamespaceOwner and Landing name the pack for agents
+	// (docs/design/pack-naming.md §3.3, §3.4; packsrc.PackReference has each one's meaning).
+	// Empty for a shipped pack, a legacy JSONC entry and the conventional local pack, all of
+	// which deliver under their own names as they always have.
+	Namespace      string `json:"namespace,omitempty"`
+	NamespaceOwner string `json:"namespaceOwner,omitempty"`
+	Landing        string `json:"landing,omitempty"`
+
 	// AllowDefaultRef carries the authored omitted-ref state into the resolver and the
 	// refresh adapter. It is never inferred from an empty ref in a legacy address.
 	AllowDefaultRef bool `json:"allowDefaultRef,omitempty"`

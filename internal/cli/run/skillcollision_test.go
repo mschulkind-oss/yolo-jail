@@ -3,8 +3,8 @@ package run
 // skillcollision_test.go pins OQ-NC11 (docs/plans/notch-convergence.md#7-decision-ledger, ruled 2026-09-28
 // by parity) through the production call sites: a skill-name collision refuses a jail launch
 // host-side and before any container work, an attach too, with the host's message; and the jail
-// stages skills through the host's layer plan, so a namespaced pack's skill is /<pack>:<skill> in
-// a jail — while the protections the jail's own staging had (the reserved child, the layer order,
+// stages skills through the host's layer plan, so a pack's skill is named in a jail as at the host
+// (flat, `<namespace>-<skill>` when its entry gives it a namespace) — while the protections the jail's own staging had (the reserved child, the layer order,
 // the workspace layer's confinement and cap) still hold.
 //
 // Everything drives Run, stagePacks or refreshJailBriefings, never hostskills.Collisions or
@@ -38,22 +38,29 @@ func collidingSkillPacks(t *testing.T) (home, shared string) {
 	return home, shared
 }
 
-// assertSkillCollisionRefusal checks the refusal carries the host's message: the destination,
-// both packs, the shared pack's own source path, and both remedies.
+// assertSkillCollisionRefusal checks the refusal carries the host's message: the destination and
+// the contended name, each claim naming its pack as bare, the shared pack's own source path, and
+// both remedies (namespace one entry with `bare = false`, or rename your own skill). The retired
+// remedies (RENAME in the pack, `skills_tier`, a /<pack>:<skill> invocation) are gone
+// (docs/design/pack-naming.md PN-D9).
 func assertSkillCollisionRefusal(t *testing.T, out string) {
 	t.Helper()
 	for _, want := range []string{
 		"packs: skills: refusing to compose",
-		`~/.claude/skills: 2 packs both want the entry "dup"`,
-		"pack shared",
-		"pack local",
+		`~/.claude/skills: 2 packs deliver the name "dup", and yolo will not choose one or rename either:`,
+		`pack shared (bare) — "dup", from`,
+		`pack local (bare) — "dup", from`,
 		filepath.Join("shared", "skills", "dup"),
-		"RENAME one of them",
-		`"skills_tier": "namespaced"`,
-		"/<pack>:<skill>",
+		"Give one entry a namespace (`bare = false` on the entry or its source, and its skills " +
+			"become `<namespace>-<skill>`), or rename your own skill.",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the refusal does not say %q:\n%s", want, out)
+		}
+	}
+	for _, gone := range []string{"RENAME", "skills_tier", "/<pack>:<skill>"} {
+		if strings.Contains(out, gone) {
+			t.Errorf("the refusal still offers the retired remedy %q:\n%s", gone, out)
 		}
 	}
 }
@@ -168,9 +175,11 @@ func readFileT(t *testing.T, path string) string {
 	return string(data)
 }
 
-// THE RULING'S SECOND HALF: the jail honors skills_tier. A namespaced pack's skill lands in a
-// subtree of its own with a plugin manifest named for the pack, so it invokes as /house:review
-// in a jail exactly as at the host — the remedy the refusal offers is now true here.
+// THE RULING'S SECOND HALF, AFTER PACK NAMING: the jail stages skills as the host does, and a
+// manifest's `skills_tier = "namespaced"` is now IGNORED there and here alike
+// (docs/design/pack-naming.md PN-D9). A bare pack that still asks for it gets its skill staged
+// flat under the author's own name, /review, with no per-pack subtree or plugin manifest — the
+// namespace is the config entry's to give, not the manifest's to ask for.
 func TestAJailNamespacesAPackThatAskedForIt(t *testing.T) {
 	home := packHome(t)
 	base := t.TempDir()
@@ -186,20 +195,13 @@ func TestAJailNamespacesAPackThatAskedForIt(t *testing.T) {
 
 	staging, _ := stageJailSkills(t, o, "yolo-test-nc11-tier")
 	dest := filepath.Join(staging, jailcontent.SkillStagingName("alphacli"))
-	if _, err := os.Stat(filepath.Join(dest, "house", "skills", "review", "SKILL.md")); err != nil {
-		t.Errorf("the namespaced pack's skill is not at house/skills/review: %v", err)
+	if _, err := os.Stat(filepath.Join(dest, "review", "SKILL.md")); err != nil {
+		t.Errorf("the pack's skill was not staged flat, as /review, despite the retired skills_tier: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dest, "review")); !os.IsNotExist(err) {
-		t.Errorf("a namespaced pack's skill was staged flat, as /review (%v)", err)
+	if _, err := os.Lstat(filepath.Join(dest, "house")); !os.IsNotExist(err) {
+		t.Errorf("the manifest's skills_tier still made a per-pack subtree at house/ (%v)", err)
 	}
-	var m map[string]any
-	if err := json.Unmarshal([]byte(readFileT(t, filepath.Join(dest, "house", ".claude-plugin", "plugin.json"))), &m); err != nil {
-		t.Fatal(err)
-	}
-	if m["name"] != "house" {
-		t.Errorf("the subtree's plugin manifest names %v, want house — the invocation namespace", m["name"])
-	}
-	// The built-in suite is still there, beside the subtree.
+	// The built-in suite is still there, beside it.
 	if _, err := os.Stat(filepath.Join(dest, "configuring-the-jail", "SKILL.md")); err != nil {
 		t.Errorf("the built-in suite is gone: %v", err)
 	}
@@ -397,19 +399,19 @@ func writeWrappedPluginPack(t *testing.T, base, name, tier string) string {
 	return `{"source":"file://` + dir + `","name":"` + name + `"}`
 }
 
-// WRAPPED PLUGINS, AS THE HOST DELIVERS THEM: verbatim with yolo's marker when the pack is
-// namespaced; at the flat default only the plugin's skills arrive, and the components a flat
-// skills dir cannot carry are named at the launch rather than lost.
+// WRAPPED PLUGINS, AS THE HOST DELIVERS THEM: verbatim, as a whole tree with yolo's marker,
+// whatever the pack's manifest says. A wrapped plugin is always offered whole
+// (hostskills.writeLayer), and `skills_tier` is retired (docs/design/pack-naming.md PN-D9), so the
+// pack that declares "namespaced" and the pack that declares nothing deliver the same tree — the
+// second no longer arrives as its skills alone with its hook refused.
 func TestAJailDeliversAWrappedPluginAsTheHostDoes(t *testing.T) {
-	t.Run("namespaced", func(t *testing.T) {
-		home := packHome(t)
-		base := t.TempDir()
-		writeUserPacks(t, home, "["+agentSkillsPack(t, base, "alphacli")+","+
-			writeWrappedPluginPack(t, base, "wrapper", "namespaced")+"]")
-		staging, _ := stageJailSkills(t, goldenOptions(t.TempDir(), home), "yolo-test-nc11-plugin-ns")
-		dest := filepath.Join(staging, jailcontent.SkillStagingName("alphacli"))
+	assertWhole := func(t *testing.T, dest, said string) {
+		t.Helper()
 		if _, err := os.Stat(filepath.Join(dest, "acme-tools", "hooks", "pre-tool-use.json")); err != nil {
 			t.Errorf("the plugin tree did not arrive verbatim: %v", err)
+		}
+		if got := readFileT(t, filepath.Join(dest, "acme-tools", "skills", "nested", "SKILL.md")); got != "from the plugin" {
+			t.Errorf("the plugin's own skill did not arrive inside its tree: %q", got)
 		}
 		var m map[string]any
 		if err := json.Unmarshal([]byte(readFileT(t, filepath.Join(dest, "acme-tools", ".claude-plugin", "plugin.json"))), &m); err != nil {
@@ -418,6 +420,20 @@ func TestAJailDeliversAWrappedPluginAsTheHostDoes(t *testing.T) {
 		if m["x-yolo-managed-by"] != "yolo-jail" || m["hooks"] == nil {
 			t.Errorf("the delivered manifest lost a field or lacks yolo's marker: %v", m)
 		}
+		if _, err := os.Stat(filepath.Join(dest, "nested")); !os.IsNotExist(err) {
+			t.Errorf("the plugin's skill was also scattered flat into the skills folder (%v)", err)
+		}
+		if strings.Contains(said, "cannot arrive") {
+			t.Errorf("a plugin delivered whole still had a component refused at the launch:\n%s", said)
+		}
+	}
+	t.Run("namespaced", func(t *testing.T) {
+		home := packHome(t)
+		base := t.TempDir()
+		writeUserPacks(t, home, "["+agentSkillsPack(t, base, "alphacli")+","+
+			writeWrappedPluginPack(t, base, "wrapper", "namespaced")+"]")
+		staging, said := stageJailSkills(t, goldenOptions(t.TempDir(), home), "yolo-test-nc11-plugin-ns")
+		assertWhole(t, filepath.Join(staging, jailcontent.SkillStagingName("alphacli")), said)
 	})
 	t.Run("flat", func(t *testing.T) {
 		home := packHome(t)
@@ -425,15 +441,6 @@ func TestAJailDeliversAWrappedPluginAsTheHostDoes(t *testing.T) {
 		writeUserPacks(t, home, "["+agentSkillsPack(t, base, "alphacli")+","+
 			writeWrappedPluginPack(t, base, "wrapper", "")+"]")
 		staging, said := stageJailSkills(t, goldenOptions(t.TempDir(), home), "yolo-test-nc11-plugin-flat")
-		dest := filepath.Join(staging, jailcontent.SkillStagingName("alphacli"))
-		if got := readFileT(t, filepath.Join(dest, "nested", "SKILL.md")); got != "from the plugin" {
-			t.Errorf("the plugin's skill did not arrive flat: %q", got)
-		}
-		if _, err := os.Stat(filepath.Join(dest, "acme-tools")); !os.IsNotExist(err) {
-			t.Errorf("a flat pack's plugin tree was copied whole (%v)", err)
-		}
-		if !strings.Contains(said, "Skills:") || !strings.Contains(said, "cannot arrive") {
-			t.Errorf("the refused hook was not named at the launch:\n%s", said)
-		}
+		assertWhole(t, filepath.Join(staging, jailcontent.SkillStagingName("alphacli")), said)
 	})
 }

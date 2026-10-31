@@ -408,6 +408,10 @@ func (o *Options) stagePacksInto(stagingRoot string, entries []config.PackEntry)
 		}
 		return nil, nil, fmt.Errorf("packs: %s", strings.Join(msgs, "\npacks: "))
 	}
+	// Two entries given one namespace or one landing (docs/design/pack-naming.md §3.5).
+	if cols := packload.NameCollisions(loaded); len(cols) > 0 {
+		return nil, nil, fmt.Errorf("packs: %s", strings.Join(cols, "\npacks: "))
+	}
 	// Beside it, a SKILL name two packs ship to one destination (OQ-NC11, jailskills.go).
 	if err := checkSkillCollisions(skillDirs, loaded); err != nil {
 		return nil, nil, err

@@ -756,6 +756,16 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 			"owning pack. Nothing was written.[/bold red]", len(cols))
 		return 1
 	}
+	// Two entries given one namespace or one landing (docs/design/pack-naming.md §3.5); a skill
+	// name two packs deliver alike is refused by the skills step (reportSkillCollisions).
+	if cols := packload.NameCollisions(loaded); len(cols) > 0 {
+		for _, c := range cols {
+			pr.Printf("  [red]packs      refused[/red] — %s", c)
+		}
+		pr.Printf("[bold red]host apply: refused — %d pack name collision(s). Nothing was "+
+			"written.[/bold red]", len(cols))
+		return 1
+	}
 	// The §4.2 autonomy policy comes from THIS apply's render target, not from the `false`
 	// that used to sit here (C3, plan §6c step 1). It resolves to OFF — the guarded posture
 	// — so the owner set matches the surfaces RenderHostPack will actually produce, which is

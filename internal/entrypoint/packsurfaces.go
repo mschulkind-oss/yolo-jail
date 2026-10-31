@@ -139,6 +139,7 @@ func loadPackRootAsStaged(e *Env, root string) ([]*packload.Pack, error) {
 				return nil, err
 			}
 			p.LaunchName = entry.Name
+			entry.ApplyNaming(p)
 			p.PatchBranchMappings = map[string]packload.PatchBranchMapping{}
 			for owner, mapping := range entry.PatchBranches {
 				if mapping.Mapped {

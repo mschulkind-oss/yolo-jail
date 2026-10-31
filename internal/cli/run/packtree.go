@@ -193,6 +193,7 @@ func loadPackTree(root string) ([]*packload.Pack, error) {
 		if len(problems) > 0 {
 			return nil, errors.New(problems[0]) // LoadDir's problems already name the pack
 		}
+		e.ApplyNaming(p)
 		out = append(out, p)
 	}
 	// The fork rewrite the jail's own loader runs over this tree (packload.ApplyForks), so a

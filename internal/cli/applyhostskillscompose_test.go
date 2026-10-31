@@ -430,8 +430,12 @@ func TestApplyHostSkillsCollisionIsFatalAndNamesBothPacks(t *testing.T) {
 		"sflat", "local", // both packs, by name
 		sharedSkill, // the shared pack's source path
 		filepath.Join(localPackSkills(home), "mine"), // and the local pack's
-		"RENAME",      // remedy 1
-		"skills_tier", // remedy 2, by the exact key
+		`2 packs deliver the name "mine"`,            // what collided, counted
+		"pack sflat (bare)",                          // each claim names its pack and that it is bare
+		"pack local (bare)",
+		"bare = false",              // remedy 1, by the exact key that namespaces an entry
+		"<namespace>-<skill>",       // and what the namespaced skills are then called
+		"or rename your own skill.", // remedy 2
 	} {
 		if !strings.Contains(report, want) {
 			t.Errorf("the refusal does not mention %q, which the user needs in order to fix "+

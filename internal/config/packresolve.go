@@ -211,6 +211,9 @@ func ResolvePack(entry PackEntry, spec ResolvePackSpec) (ResolvedPack, error) {
 		// (packload.Pack.MayRunHostHalf; docs/design/host-notch-services.md HS-D27).
 		out.Pack.Official = entry.Embedded()
 		out.Pack.Local = entry.IsLocal() && !entry.Embedded()
+		// The agent-facing naming the config entry computed (docs/design/pack-naming.md §3.4).
+		out.Pack.Namespace, out.Pack.NamespaceOwner, out.Pack.Landing =
+			entry.Namespace, entry.NamespaceOwner, entry.Landing
 	}
 	return out, nil
 }

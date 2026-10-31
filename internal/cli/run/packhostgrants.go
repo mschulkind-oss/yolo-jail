@@ -76,7 +76,7 @@ func (o *Options) hostFileArgs(in *assembleInput) []string {
 			// jail names a pack from its staged directory because that is all it has, and
 			// the host stages a configured pack under config.PackEntry.Slug, so a name
 			// carrying anything outside [A-Za-z0-9.-] mounted here and was read there.
-			dest := packload.CtxPath(p.StagedSlug(), hf)
+			dest := packload.CtxPath(p.CtxName(), hf)
 			// APPLE CONTAINER IS GIVEN A COPY RATHER THAN A SINGLE-FILE BIND, and this grant
 			// is always exactly one file. The reason used to be stated as
 			// apple/container#1089 ("cannot bind a single file"), which is FALSE on 1.1.0 —

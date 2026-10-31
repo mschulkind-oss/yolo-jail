@@ -35,6 +35,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/packname"
 	"github.com/mschulkind-oss/yolo-jail/internal/pluginpack"
 )
 
@@ -44,6 +45,9 @@ type PluginRequest struct {
 	// attributes the delivery to. NOT the destination name: the plugin's own name is, because
 	// that is what the tools namespace its skills by.
 	Pack string
+	// Namespace is the wrapping pack's namespace: the tree lands at `<namespace>-<manifest name>`
+	// and its copied manifest's `name` says so, "" for a bare pack (docs/design/pack-naming.md §3.4).
+	Namespace string
 	// Plugin is the recognized tree.
 	Plugin *pluginpack.Plugin
 	// SkillsDir is the absolute destination skills dir (the tool's own).
@@ -85,6 +89,11 @@ func DeliverPlugin(req PluginRequest) ([]Result, error) {
 				"what it carries would land outside its own folder in this skills dir — set `name` " +
 				"in its " + req.Plugin.ManifestRel() + " to one with no `/` and no `..`",
 		}}, nil
+	}
+	// The name every later step writes under: the namespace's, or the manifest's own when bare.
+	name = packname.Delivered(req.Namespace, name)
+	if err := packname.TooLong(name, req.Pack, "plugin"); err != nil {
+		return []Result{{Name: name, Path: req.Plugin.ManifestPath, Action: ActionRefused, Detail: err.Error()}}, nil
 	}
 	tier, downgrade := ProbeTier(req.Tier, req.SkillsDir, name)
 	var out []Result
@@ -135,7 +144,7 @@ func deliverPluginTree(req PluginRequest, name string) ([]Result, error) {
 	// THE CHANGE PREDICATE for the tree, computed before anything is written so both postures
 	// agree (Result.WouldChange). An unchanged tree keeps its own action rather than becoming
 	// ActionUnchanged only where nothing is copied — see the write gate below.
-	changed := changedPluginTree(req.Plugin.Dir, dest, req.Plugin.ManifestRel())
+	changed := changedPluginTree(req.Plugin.Dir, dest, req.Plugin.ManifestRel(), req.mark(name))
 	action := wroteAction(req.Observe)
 	if !changed {
 		action = ActionUnchanged
@@ -204,7 +213,7 @@ func deliverPluginTree(req PluginRequest, name string) ([]Result, error) {
 		out[0].Action, out[0].Detail, out[0].WouldChange = ActionRefused, err.Error(), false
 		return out, nil
 	}
-	if err := markManifest(dest, req.Plugin.ManifestRel()); err != nil {
+	if err := markManifest(dest, req.Plugin.ManifestRel(), req.mark(name)); err != nil {
 		out[0].Action, out[0].Detail, out[0].WouldChange = ActionRefused, err.Error(), false
 		return out, nil
 	}
@@ -216,22 +225,16 @@ func deliverPluginTree(req PluginRequest, name string) ([]Result, error) {
 // gets, and every other component refused by name.
 func deliverPluginFlat(req PluginRequest, name string) ([]Result, error) {
 	var out []Result
-	// EACH REFUSAL NAMES ITS FIX, and there are two, told apart by the tier the pack DECLARED.
-	// Flat is the pack's default (PackTier), so the fix is the pack's own opt-in; a pack that
-	// opted in and was downgraded (ProbeTier) has nothing to set, and what it has to move is the
-	// folder standing at the plugin's name.
+	// EACH REFUSAL NAMES ITS FIX: a composed layer always asks for the whole tree (writeLayer), so
+	// reaching here means ProbeTier found a folder yolo did not write at the plugin's delivered
+	// name, and moving it is the fix. The pack's retired `skills_tier` is no longer one
+	// (docs/design/pack-naming.md PN-D9).
 	//
-	// NO DOUBLE QUOTE in either, as in DeliverPlugin's name refusal: a launch prints this detail
-	// through run.displaySafe, which Go-quotes a line holding one, so `"skills_tier"` reached the
-	// jail's output backslash-escaped, a spelling that is not JSON.
-	why := "this skills dir is flat"
-	fix := "set `skills_tier` to `namespaced` in pack " + req.Pack + "'s pack.json (at the " +
-		"pack's root) to deliver the plugin whole"
-	if req.Tier == TierNamespaced {
-		why = "its namespaced delivery here was downgraded to flat"
-		fix = "move what is at " + filepath.Join(req.SkillsDir, name) + " elsewhere to deliver " +
-			"the plugin whole"
-	}
+	// NO DOUBLE QUOTE, as in DeliverPlugin's name refusal: a launch prints this detail through
+	// run.displaySafe, which Go-quotes a line holding one.
+	why := "its delivery here as a whole plugin was downgraded to its skills alone"
+	fix := "move what is at " + filepath.Join(req.SkillsDir, name) + " elsewhere to deliver " +
+		"the plugin whole"
 	// The refusals come FIRST, before the successes, because they are the part a user needs
 	// to read: a plugin whose hooks did not arrive is not the plugin they installed.
 	for _, c := range req.Plugin.Components() {
@@ -262,6 +265,7 @@ func deliverPluginFlat(req PluginRequest, name string) ([]Result, error) {
 	// components arrived anyway, which is the one outcome worse than either honest answer.
 	res, err := deliverFlat(Request{
 		Pack:         req.Pack,
+		Namespace:    req.Namespace,
 		SkillsDir:    req.SkillsDir,
 		Composed:     req.Composed,
 		Legacy:       req.Legacy,
@@ -293,6 +297,20 @@ func pluginTreeDetail(name string, skills map[string]string) string {
 	return detail
 }
 
+// manifestMark is what yolo writes into a delivered plugin's copied manifest besides its marker:
+// the wrapping pack (x-yolo-pack) and the delivered name, "" to keep the manifest's own.
+type manifestMark struct{ pack, name string }
+
+// mark is this request's manifestMark for a tree delivered at name: the name is written only when
+// a namespace made it differ from the manifest's own.
+func (req PluginRequest) mark(name string) manifestMark {
+	m := manifestMark{pack: req.Pack}
+	if name != req.Plugin.Name() {
+		m.name = name
+	}
+	return m
+}
+
 // markManifest injects yolo's ownership marker into the manifest of a freshly copied plugin
 // tree, preserving every other field.
 //
@@ -300,9 +318,9 @@ func pluginTreeDetail(name string, skills map[string]string) string {
 // not model, which is precisely the plugin content this whole file exists to carry through
 // intact. rel is the manifest's location WITHIN the tree, so a plugin whose manifest lives at
 // `.plugin/plugin.json` is not silently given a second one under `.claude-plugin/`.
-func markManifest(destDir, rel string) error {
+func markManifest(destDir, rel string, m manifestMark) error {
 	path := filepath.Join(destDir, filepath.FromSlash(rel))
-	marked, changes, err := markedManifestBytes(path)
+	marked, changes, err := markedManifestBytes(path, m)
 	if err != nil || !changes {
 		// A manifest yolo cannot re-encode is left exactly as copied. The cost is that the
 		// next apply will not recognize the dir as yolo's and will leave it alone — the safe
@@ -320,7 +338,7 @@ func markManifest(destDir, rel string) error {
 // a delivered plugin tree is NOT a byte copy of the pack's — this marker is added to it — so
 // comparing the two trees directly reports every plugin as changed forever. changedPluginTree
 // is the caller, and it compares the source manifest's MARKED form against what is on disk.
-func markedManifestBytes(path string) ([]byte, bool, error) {
+func markedManifestBytes(path string, m manifestMark) ([]byte, bool, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, false, err
@@ -336,6 +354,19 @@ func markedManifestBytes(path string) ([]byte, bool, error) {
 		return nil, false, err
 	}
 	raw["x-yolo-managed-by"] = marker
+	// The pack that delivered the tree, so ownership survives the pack leaving the config
+	// (YoloPluginOwner), and the delivered name, which the agent reads from `name`
+	// (docs/design/pack-naming.md §3.4). The pack's own file is never edited; this is the copy.
+	if m.pack != "" {
+		if raw["x-yolo-pack"], err = json.Marshal(m.pack); err != nil {
+			return nil, false, err
+		}
+	}
+	if m.name != "" {
+		if raw["name"], err = json.Marshal(m.name); err != nil {
+			return nil, false, err
+		}
+	}
 	out, err := json.MarshalIndent(raw, "", "  ")
 	if err != nil {
 		return nil, false, err
@@ -356,7 +387,7 @@ func markedManifestBytes(path string) ([]byte, bool, error) {
 // MARKED form. Every failure to read either side reads as CHANGED, matching Changed's
 // direction: the cost of a false positive is one redundant copy, and of a false negative
 // content nobody compared.
-func changedPluginTree(src, dest, manifestRel string) bool {
+func changedPluginTree(src, dest, manifestRel string, m manifestMark) bool {
 	rel := filepath.FromSlash(manifestRel)
 	// Skipped on BOTH sides, unlike changedExcept's src-only skip: the manifest is present in
 	// the destination (rewritten, not omitted), so leaving it in the destination's digest would
@@ -364,7 +395,7 @@ func changedPluginTree(src, dest, manifestRel string) bool {
 	if changedTreeSkipping(src, dest, map[string]bool{rel: true}) {
 		return true
 	}
-	want, _, err := markedManifestBytes(filepath.Join(src, rel))
+	want, _, err := markedManifestBytes(filepath.Join(src, rel), m)
 	if err != nil {
 		return true
 	}

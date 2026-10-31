@@ -193,7 +193,7 @@ func (o *Options) buildMacosCtxTree(staging string, packs []*packload.Pack,
 		granted, _ := p.HonoredHostFiles()
 		for _, hf := range granted {
 			src := filepath.Join(homeDir(), filepath.FromSlash(hf.From))
-			dest := packload.CtxPath(p.StagedSlug(), hf)
+			dest := packload.CtxPath(p.CtxName(), hf)
 			if !isFile(src) {
 				// NOT RECORDED as delivered, and that is the whole of what lets the
 				// jail's read fail closed: this is the one case where nothing arriving is
@@ -525,7 +525,7 @@ func macosDeclaredHostFileDests(packs []*packload.Pack) []string {
 		}
 		granted, _ := p.HonoredHostFiles()
 		for _, hf := range granted {
-			out = append(out, packload.CtxPath(p.StagedSlug(), hf))
+			out = append(out, packload.CtxPath(p.CtxName(), hf))
 		}
 	}
 	return out

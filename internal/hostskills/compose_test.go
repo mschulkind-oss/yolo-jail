@@ -118,10 +118,9 @@ func TestFlatCollisionIsFatalAndWritesNothing(t *testing.T) {
 	for _, want := range []string{
 		"sflat", "local", // both packs
 		sources[0], sources[1], // both source paths
-		"RENAME",        // remedy 1
-		"skills_tier",   // remedy 2, by the exact key to add
-		"namespaced",    // ...and its value
-		d.Dir, `"mine"`, // where, and which name
+		"bare = false",          // remedy 1: give one entry a namespace
+		"rename your own skill", // remedy 2
+		d.Dir, `"mine"`,         // where, and which name
 	} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("the collision error does not mention %q — it is the only thing the user has "+

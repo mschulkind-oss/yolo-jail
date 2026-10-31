@@ -89,6 +89,18 @@ type Pack struct {
 	// path that does not exist without a word (measured 2026-10-05). Read through landingName,
 	// never directly.
 	LaunchName string
+	// Namespace is the word every agent-facing name of this pack's skills and wrapped plugins
+	// starts with, "" for a pack delivered bare (docs/design/pack-naming.md §3.3, §3.4). Set
+	// from the config entry at the host (config.ResolvePack, the selection's shipped prefix) and
+	// from the staged tree's record in the jail.
+	Namespace string
+	// NamespaceOwner says whose word Namespace is, so a clash between two entries that chose one
+	// word can be told from two packs of one source (NameCollisions).
+	NamespaceOwner string
+	// Landing is the directory this pack's `files` trees land under in a slot and its
+	// `reads-host` grants under in /ctx (§3.4), "" for a pack that lands under its own name, as
+	// every shipped pack and legacy entry does. Read through LandingName and CtxName.
+	Landing string
 	// Root is the directory its files live in. For an embedded pack this is the
 	// materialized copy, so every consumer sees a real path either way.
 	Root string
@@ -454,7 +466,7 @@ func (p *Pack) surfaceHostSource(s manifest.Surface) string {
 	if !ok {
 		return ""
 	}
-	return CtxPath(p.StagedSlug(), hf)
+	return CtxPath(p.CtxName(), hf)
 }
 
 // retiredSurfaceHostGrants reports a `reads-host` contribution that names one of this
@@ -544,10 +556,28 @@ func (p *Pack) StagedSlug() string { return filepath.Base(p.Root) }
 // the name the launch mounted them under. That is Name, except for a pack the jail loaded out of a
 // recorded tree, whose Name is its staged directory (LaunchName says why the two differ).
 func (p *Pack) landingName() string {
+	if p.Landing != "" {
+		return p.Landing
+	}
 	if p.LaunchName != "" {
 		return p.LaunchName
 	}
 	return p.Name
+}
+
+// LandingName is the agent-facing directory this pack's `files` trees land under in a slot
+// (docs/design/pack-naming.md §3.4).
+func (p *Pack) LandingName() string { return p.landingName() }
+
+// CtxName is the key this pack's `reads-host` grants are mounted under, `/ctx/host-<CtxName>/`:
+// the pack's Landing (docs/design/pack-naming.md §3.4), or, for a pack with none, its staged
+// directory (StagedSlug), which is what both halves keyed on before. Both halves evaluate this
+// one expression: the host from the config entry, the jail from the tree's record.
+func (p *Pack) CtxName() string {
+	if p.Landing != "" {
+		return p.Landing
+	}
+	return p.StagedSlug()
 }
 
 // SourcePath maps a path under Root to the same path under SourceRoot, for a message naming a
