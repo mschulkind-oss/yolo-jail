@@ -1,471 +1,372 @@
 ---
-title: "One pack, three names: what config, records and agents each call a pack"
+title: "Pack naming: what config, records and agents each call a pack"
 date: 2026-10-31
 status: in-review
 stage: DESIGN
-next: "Rule OQ-PN1 and OQ-PN2 — how a skill is spelled waits on them; OQ-PN4 decides the records migration"
+next: "Rule OQ-PN1 (which entries are bare) and OQ-PN2 (the spelling); OQ-PN4 decides the records migration"
 tags: [packs, naming, skills, plugins, config, records, migration, design]
-summary: "A pack's config handle, the key its records sit under and the name an agent invokes are three jobs, and one string doing all three produced both `/yolo-packs_2fmatt:foo` and the opposite risk of `a/tools` meeting `b/tools`. Keep the handle for config and yolo's own output, key records on where the pack lives, and give agents the shortest name that is unique in the selected set."
+summary: "A pack has a handle (config and yolo's output), an identity (what records key on) and a namespace (what agents see). A namespace is a word the user chose or accepted, and every agent-facing name is that word plus the skill, or the bare skill for shipped packs and entries the user marks bare. Names never depend on what else is selected: a clash is refused, never resolved by renaming."
 ---
 
-# One pack, three names — and why no agent should ever read `yolo-packs_2fmatt:foo`
+# Pack naming: what config, records and agents each call a pack
 
-**Status:** 2026-10-31. Nothing built. Evidence verified at `42d9a7cdf` (main) and at
-`576fe4f01` (the held worktree); agent behavior read from the bundles installed in this jail the
-same day ([§5](#5-how-each-agent-treats-a-skill-name)).
+> **In short.** Every pack the user did not get from yolo lives in a **namespace**: the source
+> name the user chose in `[pack_sources]`, or, for a pack listed on its own, its last segment or a
+> `namespace` the user writes. An agent sees `<namespace>-<skill>`. Shipped packs, and entries the
+> user marks `bare = true`, deliver the skill alone. A name depends only on its own config entry,
+> never on what else is selected, so adding a pack can be refused but can never rename a skill.
 
-> **In short.** A pack's config handle, the key its records sit under, and the name an agent
-> invokes are three jobs that want three different strings, and every defect here comes from one
-> string doing all three. Keep the handle for config and yolo's own output, key records on where
-> the pack lives, and give an agent the shortest name that is unique in the selected set: the
-> bare skill, with the pack's own short name added only while two packs ship one skill.
+**Why it matters.** Escaping a handle into an agent's namespace produced `/yolo-packs_2fmatt:foo`;
+qualifying names only during a clash made one pack's arrival rename another's skills. Both are
+ruled out ([PN-D3](#PN-D3), [PN-D4](#PN-D4)).
 
-**Why it matters.** Escaping the handle into the agent's namespace produced
-`/yolo-packs_2fmatt:foo`, which is unreadable and is not even a legal Copilot plugin name; using
-the handle's last segment instead lets `dotfiles/tools` and `acme/tools` meet.
+**Start at [§3](#3-the-design).** **Needs your ruling:** [OQ-PN1](#OQ-PN1), [OQ-PN2](#OQ-PN2),
+[OQ-PN3](#OQ-PN3), [OQ-PN4](#OQ-PN4), [OQ-PN5](#OQ-PN5), [OQ-PN6](#OQ-PN6), [OQ-PN7](#OQ-PN7).
 
-**The shape.** The handle (the user's words) determines a pack identity (what records key on) and
-a short name (what agents see); only the source name in the handle is ever edited by hand.
-
-**Cost.** One more record-key migration under the journal [RC-D47](readable-config.md#RC-D47)
-built; the namespaced opt-in changes spelling or goes ([OQ-PN3](#OQ-PN3)); the 2026-08-05 rule
-that a skill clash refuses the launch is replaced if [OQ-PN1](#OQ-PN1) rules so.
-
-**Start at [§4](#4-the-proposal-three-names-three-jobs)** — the three names. The rest falls out of it.
-
-**Needs your ruling:** [OQ-PN1](#OQ-PN1), [OQ-PN2](#OQ-PN2), [OQ-PN3](#OQ-PN3),
-[OQ-PN4](#OQ-PN4), [OQ-PN5](#OQ-PN5), [OQ-PN6](#OQ-PN6), [OQ-PN7](#OQ-PN7).
-
-**Reads with:** [`readable-config.md`](readable-config.md) (the rulings this keeps),
-[`config-user.md` §4](config-user.md#4-naming-a-pack-that-is-not-shipped) (the handle grammar),
-[`pack-system.md`](../reference/pack-system.md#skills-collision) (today's skill-clash refusal).
-No implementation-plan seed is open yet; the build order in [§11](#11-build-order) is its first
-content once this is accepted.
+**Reads with:** [`config-user.md` §4](config-user.md#4-naming-a-pack-that-is-not-shipped) (the
+handle grammar, [OQ-RC15](readable-config.md#decision-ledger)),
+[RC-D43](readable-config.md#RC-D43) and [RC-D47](readable-config.md#RC-D47) (the migration and its
+record carry), [`pack-system.md`](../reference/pack-system.md#skills-collision) (today's skill-clash
+refusal). The build order in [§9](#9-build-order) seeds the implementation plan once this is
+accepted.
 
 ---
 
-## 1. What the owner asked for
+## 1. Requirements
 
-Five statements, all from 2026-10-31, in the order they were made. Each is a requirement the
-design is checked against in [§4.7](#47-why-nothing-can-collide).
+From the owner, 2026-10-31:
 
-- **R1 — no escaped names.** On the escaped skill name `/yolo-packs_2fmatt:foo`: *"that is super
-  ugly and I hate it. why are we doing this?"*
-- **R2 — one coherent model, short names.** *"I think we need to take these issues as a coherent
-  whole because changing one thing in one place makes things worse than the other. … I hate having
-  so many separators. I hate having so many prefixes with skills we now have essentially three
-  name parts: where it came from, which pack it's from, and then which skill it is, which is going
-  to be so long that nobody's going to have any idea what any of their skills mean anymore,
-  because they're not even going to be able to read the skill name because it's going to just be
-  all prefix until it's cut off."*
+- **R1 — no escaped names.** On `/yolo-packs_2fmatt:foo`: *"that is super ugly and I hate it."*
+- **R2 — short names, few separators.** *"I hate having so many separators. I hate having so many
+  prefixes … where it came from, which pack it's from, and then which skill it is, which is going
+  to be so long that nobody's going to have any idea what any of their skills mean anymore."*
 - **R3 — renamable source names.** *"yolo-packs is a weird name. That's an artifact of the
-  organization in my config file, not about any mental model I have about what things are named.
-  So I'm thinking that we also probably need to allow people to rename this part of the names
-  because just the directory base name is not always going to be right."*
-- **R4 — collision-free without the user arbitrating.** *"we need to make sure that names from
-  different packs aren't going to collide, even though we get customization here. I don't want a
-  situation where two third-party packs have the chance to collide, and the user is now in the
-  position of trying to divvy up the namespace."*
-- **R5 — shipped packs.** How shipped packs are named, and whether the absence of a prefix is
-  enough to signal a yolo built-in.
+  organization in my config file … we also probably need to allow people to rename this part of
+  the names."*
+- **R4 — no collisions the user must divide.** *"I don't want a situation where two third-party
+  packs have the chance to collide, and the user is now in the position of trying to divvy up the
+  namespace."* A user may choose a namespace prefix, never individual skill names
+  ([PN-D4](#PN-D4)).
+- **R5 — stable names.** *"never rename based on pack inclusion. I hate that more than anything."*
+  ([PN-D3](#PN-D3))
+- **R6 — shipped packs.** Whether the absence of a prefix is enough to mark a yolo built-in.
 
-### 1.1 Rulings this design keeps
+## 2. Where a pack's name appears
 
-| Ruling | What it says | What this design does with it |
-| :--- | :--- | :--- |
-| [OQ-RC15](readable-config.md#decision-ledger) (2026-10-25) | *"A pack yolo does not ship is named by its source … the shipped set is the only bare namespace, as core is."* `local/<name>`, `<source>/<name>`, `<owner>/<repo>`; no bare path form | **Kept whole** for config and for every place yolo names a pack back to the user (the list in [`config-user.md` §4](config-user.md#4-naming-a-pack-that-is-not-shipped)). Agent-facing names were never on that list; [§4.3](#43-the-short-name--what-agents-see) gives them their own rule. No amendment is proposed |
-| [RC-D43](readable-config.md#RC-D43) (2026-10-31) | `yolo config migrate` turns a legacy path into `[pack_sources.<dir basename>]` plus `<basename>/<pack>` | Kept; its default source name is the subject of [OQ-PN6](#OQ-PN6) |
-| [RC-D47](readable-config.md#RC-D47) (2026-10-31) | A rename carries every name-keyed record inside the journaled migration | Kept as the mechanism; [OQ-PN4](#OQ-PN4) decides whether records stay keyed by name at all |
-| The skill-clash refusal ([`pack-system.md`](../reference/pack-system.md#skills-collision), 2026-08-05; jail parity 2026-09-28) | Two packs shipping one unnamespaced skill name is fatal, the local pack included | Re-asked as [OQ-PN1](#OQ-PN1), because R4 forbids its remedy for two third-party packs |
-| Per-pack tier (S2, [`packdecl.go`](../../internal/packdecl/packdecl.go#L80-L103)) | *"a tier decides what a skill is CALLED, which is a global property"* | Kept and generalized: one skill has one name at every agent ([§4.4](#44-skills-bare-by-default-qualified-only-during-a-clash)) |
+| Surface | Read by | Today on main | Evidence |
+| :--- | :--- | :--- | :--- |
+| `packs` entry | the user | handle, `dotfiles/matt-fzf` | [`references.go:96`](../../internal/packsrc/references.go#L96) |
+| `[pack_sources]` key | the user | user-chosen; the migration defaults to the directory's base name | [`configmigrate/packs.go:137`](../../internal/configmigrate/packs.go#L137-L165) |
+| launch pack line, `pack ls`/`explain`/`footprint`/`lint` | the user | handle | [`config-user.md` §4](config-user.md#4-naming-a-pack-that-is-not-shipped) |
+| staged tree directory | nobody | the handle escaped (`_2f` for `/`) | [`config/packs.go:148`](../../internal/config/packs.go#L148) |
+| `packs.lock.json`, `forks.lock.json` (`<pack>/<bin>`), check records, build receipts, host program records, host-skills manifest owners | yolo | keyed by handle | [RC-D47](readable-config.md#RC-D47) |
+| a skill (default tier) | the agent | `/<skill>`; two packs with one name refuse the launch | [`tier.go:39`](../../internal/hostskills/tier.go#L39) |
+| a skill (`skills_tier = "namespaced"`) | the agent | `/<pack>:<skill>`, plugin named by the handle | [`packdecl.go:80`](../../internal/packdecl/packdecl.go#L80-L103) |
+| a wrapped plugin | the agent | the plugin manifest's own name; two packs claiming one are refused | [`plugin.go`](../../internal/hostskills/plugin.go) |
+| a `files` contribution in another pack's slot | the agent's loader | `<slot>/<handle>` (nested for a slashed handle) | [`mergedest.go:566`](../../internal/packload/mergedest.go#L566-L600) |
+| a `reads-host` grant with no `into` | the agent, via its briefing | `/ctx/host-<staged directory>/<file>` | [`packload.go:571`](../../internal/packload/packload.go#L571-L576) |
+| briefing provenance label | the user reading a composed `CLAUDE.md` | `<!-- from pack: NAME -->` | [`briefing.go:1184`](../../internal/jailcontent/briefing.go#L1184) |
 
-## 2. Where a pack's name appears today
+No shipped pack and none of the owner's packs declares `skills_tier = "namespaced"`, and the
+owner's selected set has no skill clash.
 
-Every surface where a pack's name ends up, verified 2026-10-31. "Held fix" is the unlanded
-worktree `agent-aa30e25b86a0e5a26` (commits `5a4b8dbb9`, `3551eec58`, `576fe4f01`), whose
-ledger row RC-D48 spells every slashed name as one escaped path component.
-
-| Surface | Read by | Main today | With the held fix | Evidence |
-| :--- | :--- | :--- | :--- | :--- |
-| `packs` entry | the user | handle, `dotfiles/matt-fzf` | same | [`references.go:96`](../../internal/packsrc/references.go#L96) |
-| `[pack_sources]` key | the user | user-chosen; migration defaults to the directory's base name, `-2` on a repeat | same | [`configmigrate/packs.go:137`](../../internal/configmigrate/packs.go#L137-L165) |
-| launch pack line, `pack ls`/`explain`/`footprint`/`lint` | the user | handle | same | [`config-user.md` §4](config-user.md#4-naming-a-pack-that-is-not-shipped) |
-| staged tree directory | nobody | the name escaped (`_2f` for `/`) | same | [`config/packs.go:148`](../../internal/config/packs.go#L148) |
-| `packs.lock.json`, `forks.lock.json` (`<pack>/<bin>`), check records, build receipts, host program records, host-skills manifest owners | yolo | keyed by name, which is the handle | same; the jail now keys as the launch does | [RC-D47](readable-config.md#RC-D47) |
-| a skill, default (flat) tier | the agent | `/<skill>`; two packs with one name refuse the launch | same | [`tier.go:39`](../../internal/hostskills/tier.go#L39) |
-| a skill, namespaced opt-in | the agent | `/<pack>:<skill>`, plugin named by the raw name (a nested directory for a slashed one) | `/yolo-packs_2fmatt:foo` | [`packdecl.go:80`](../../internal/packdecl/packdecl.go#L80-L103) |
-| a wrapped plugin | the agent | the plugin manifest's own name; two packs claiming one plugin name are refused | same | [`plugin.go`](../../internal/hostskills/plugin.go) |
-| a `files` contribution in another pack's slot | the agent's loader | `<slot>/<pack>` (raw name, nested for a slashed one) | `<slot>/yolo-packs_2fpi-fork` | [`mergedest.go:566`](../../internal/packload/mergedest.go#L566-L600) |
-| a `reads-host` grant with no `into` | the agent, via its briefing | `/ctx/host-<staged directory>/<file>` | same | [`packload.go:571`](../../internal/packload/packload.go#L571-L576) |
-| briefing provenance label | the user reading a composed `CLAUDE.md` | `<!-- from pack: NAME -->` | same | [`briefing.go:1184`](../../internal/jailcontent/briefing.go#L1184) |
-
-**The size of it.** No shipped pack and none of the owner's seven dotfiles packs declares
-`skills_tier = "namespaced"` (checked 2026-10-31 through the github broker), so the escaped skill
-namespace R1 reacts to has no real user yet; the `files` landing and the `/ctx` directory do. The
-owner's selected set has no skill clash today, since the refusal would have stopped every launch.
-
-## 3. The tension, named
-
-Four properties are wanted, and without a registry they cannot all hold at once:
-
-1. **Short** — at most two parts, one separator, readable when a picker cuts it off (R2).
-2. **Collision-free** — two packs never yield one name (R4).
-3. **Registry-free** — any directory or repository is a pack; nobody hands out names.
-4. **No user arbitration** — the user never picks names to make third-party packs fit (R4).
-
-Two authors with no registry can both call a pack `tools` and a skill `review`. Something has to
-give: either the name grows (Homebrew's `user/repo/name`), a registry renames one (Claude Code's
-marketplace `renames` table), one silently loses (pi keeps the first one found,
-[§5](#5-how-each-agent-treats-a-skill-name)), or a human chooses (today's refusal).
-
-**This design gives up stability under change instead.** A name is a function of the selected
-set: it is the bare skill while it is unique, and grows the pack's short name only while a second
-selected pack ships the same one. Adding a pack can therefore rename a skill the user already
-knows, and the launch says so every time ([§9](#9-what-done-looks-like)). Every alternative pays
-with one of the four properties ([§6](#6-alternatives-considered)).
-
-A second tension sits under the spelling: **one spelling at every agent, or the richest spelling
-each agent supports.** Claude Code, Copilot and Codex namespace plugin skills as `plugin:skill`;
-pi has no namespace and limits a skill name to lowercase letters, digits and hyphens. The
-parity principle (every agent gets the same behavior) picks one spelling that every agent can
-carry, and that is [OQ-PN2](#OQ-PN2).
-
-## 4. The proposal: three names, three jobs
+## 3. The design
 
 ```mermaid
 flowchart LR
-    H["handle<br/>dotfiles/matt-fzf<br/>(config, yolo's own output)"] --> I["pack identity<br/>dir:/home/matt/.dotfiles/yolo-packs/matt-fzf<br/>(records)"]
-    H --> S["short name<br/>matt-fzf<br/>(agents)"]
-    S --> K["skill name<br/>fzf-pick, or fzf-pick-matt-fzf during a clash"]
+    H["handle<br/>acme/tools<br/>(config, yolo's output)"] --> I["pack identity<br/>git:github.com/acme/yolo-packs//tools<br/>(records)"]
+    H --> N["namespace<br/>acme<br/>(agents)"]
+    N --> K["skill<br/>acme-review"]
 ```
 
-**P1. Each name has one job, and no surface reads a name that is not its own.** yolo's output reads
-the handle, state reads the identity, agents read the short name.
+**P1. Each name has one job.** yolo's output reads the handle, state reads the identity, agents
+read names built from the namespace.
 
-**P2. An agent-facing name is never escaped and never contains a source name** unless two selected
-packs share a pack name, and then only for those packs.
+**P2. An agent-facing name is a function of its own config entry.** It reads the entry's
+namespace, its `bare` setting, its pack directory and its skill directory — never another
+selected pack. Adding, removing or reordering packs changes no delivered name.
 
-**P3. Uniqueness is computed by yolo from the selected set; the only names a user may ever be asked
-to change are their own source names.** Never a pack's, never a skill's.
+**P3. A clash is refused, never resolved.** When two entries would deliver one name, the launch and
+`yolo check` refuse, naming both entries and the one step that fixes it. The step is never "rename
+a skill": it is choosing a namespace, setting `bare`, or, for a defect inside one author's
+namespace, selecting only one of the two packs.
 
-### 4.1 The handle — config and yolo's own output
+**P4. Nothing an agent sees is escaped.** Every agent-facing name is lowercase letters, digits and
+hyphens, at most 64 characters — the only spelling every agent carries
+([§5](#5-how-each-agent-treats-a-skill-name)).
 
-[OQ-RC15](readable-config.md#decision-ledger) is kept exactly: shipped packs bare (`yolo/<name>`
+### 3.1 The handle — config and yolo's own output
+
+[OQ-RC15](readable-config.md#decision-ledger) as ruled: shipped packs bare (`yolo/<name>`
 accepted), `local/<name>`, `<source>/<name>` through `[pack_sources]`, `<owner>/<repo>` for a
-repository that is one pack. The handle stays the name on every surface yolo prints to the user,
-and in config tables keyed by pack (`[allow."local/my-auth"]`). The briefing provenance label
-uses the handle too: its job is to send the reader to a config line, it is never typed, and no
-picker truncates it.
+repository that is one pack. The handle is the name on every surface yolo prints to the user, in
+config tables keyed by pack (`[allow."local/my-auth"]`), and in the briefing provenance label. It
+is never a record key and never an agent-facing name.
 
-The handle **stops being** a record key ([§4.2](#42-the-pack-identity--what-records-key-on)) and
-**never becomes** an agent-facing name ([§4.3](#43-the-short-name--what-agents-see)).
+### 3.2 The pack identity — what records key on
 
-### 4.2 The pack identity — what records key on
-
-**Pack identity** *(coined here)*: the canonical place a pack is read from, independent of what
-the user calls it. Not the handle (that is the user's label) and not a content hash (content
-changes every commit).
+**Pack identity** *(coined here)*: the canonical place a pack is read from, independent of what the
+user calls it.
 
 | Pack | Identity |
 | :--- | :--- |
-| shipped | `yolo:<name>` (a shipped pack's `formerly` rename moves it, as today) |
-| a local directory (`local/…` or a local source) | `dir:<physical path>`, symlinks resolved as `packsrc.LocalDirectoryIdentity` already does |
+| shipped | `yolo:<name>` (a shipped pack's `formerly` rename moves it) |
+| a local directory (`local/…` or a local source) | `dir:<physical path>`, symlinks resolved as `packsrc.LocalDirectoryIdentity` does |
 | a pack inside a git source | `git:<normalized repository>//<subdirectory>`, no ref |
 | a repository that is one pack | `git:<normalized repository>`, no ref |
 
-Every record keyed by a pack name today moves to the identity: the `packs.lock.json` entry, fork
-pins (`<identity>` + `<bin>`), check records, build receipts, host program records, the
-host-skills manifest owners and the namespaced plugin manifest's `x-yolo-pack`. Each record also
-stores the handle it was last written under, for display only. CLI arguments keep taking
-handles: `yolo pack status dotfiles/pi-fork/pi` resolves the handle to an identity first.
-
-With records keyed this way, renaming a source moves no state, and two handles naming one
-directory are already refused (`duplicate local pack directory`,
-[`readablepacks.go:78`](../../internal/config/readablepacks.go#L78)). The cost is the mirror image: moving
-a pack's directory or repository changes its identity, so its pins and build receipts start over.
-[OQ-PN4](#OQ-PN4) asks which of the two moves should be free.
+Every name-keyed record — the `packs.lock.json` entry, fork pins (`<identity>` + `<bin>`), check
+records, build receipts, host program records, host-skills manifest owners, the plugin manifest's
+`x-yolo-pack` — is keyed on the identity and stores the handle it was last written under for
+display. CLI arguments take handles and resolve them first. Renaming a source moves no state;
+moving a pack's directory or repository starts its pins and receipts over. [OQ-PN4](#OQ-PN4) is the
+choice between those two costs.
 
 The staged tree directory stays the escaped handle: nobody reads it, and the escape is injective.
 
-### 4.3 The short name — what agents see
+### 3.3 The namespace — what agents see
 
-**Short name** *(coined here)*: the pack's name as an agent sees it. It is the handle's last
-segment (`matt-fzf`, `pi-fork`, `matt-craft` for `{ git = …/mschulkind-oss/matt-craft }`, the bare
-name for a shipped pack), **normalized** to what every agent accepts: lowercased, every character
-outside `a-z`, `0-9`, `-` replaced by `-`, runs of `-` collapsed, leading and trailing `-`
-dropped. It is not the handle and not the manifest's `name`, which stays informational
-([`packload.go:38`](../../internal/packload/packload.go#L38-L75)).
+**Namespace** *(coined here)*: the word every agent-facing name of a pack starts with. The user
+chose it or accepted its default; it never depends on the selected set.
 
-Computed once per launch (and per `yolo host apply`) over the selected packs, in this order:
+| Entry | Namespace |
+| :--- | :--- |
+| a shipped pack | none: delivered bare |
+| `<source>/<pack>` | the source key, `<source>` |
+| `local/<pack>` | `<pack>` (`local` is yolo's word, not the user's, so each local pack is its own namespace) |
+| a repository that is one pack | its last segment, `matt-craft` for `{ git = "…/mschulkind-oss/matt-craft" }` |
+| an entry or source with `bare = true` | none: delivered bare |
 
-1. Every selected pack gets its normalized last segment.
-2. A shipped pack keeps its short name unconditionally. Shipped names are distinct by construction,
-   and [OQ-RC15](readable-config.md#decision-ledger) makes the shipped set the only bare namespace.
-3. Every third-party pack whose short name equals another selected pack's — a second third-party
-   pack, or a selected shipped one — becomes **qualified**: the normalized
-   `<source name>-<pack segment>`. All members of a clash are qualified, not all but the first, so
-   config order never decides who keeps the plain name.
-4. If two short names still coincide (only hyphenation can do it: source `a-b` with pack `c`, and
-   source `a` with pack `b-c`), the launch refuses, naming both source names and
-   `yolo pack source rename` as the step. For a repository listed directly, whose owner the user
-   did not choose, the step is to name it through `[pack_sources]`.
-5. A name that normalizes to nothing (a directory called `___`) is refused the same way.
+A pack listed on its own takes `namespace = "…"` to choose a different word:
+`{ git = "https://github.com/bob/tools", namespace = "bob" }`. A source's namespace is its key, so
+it is chosen when the source is named and changed with `yolo pack source rename`
+([§3.6](#36-renaming)). A source key, and a `namespace` value, must already be in
+`[a-z0-9-]`; `yolo check` refuses anything else and prints the legal spelling. A pack or skill
+directory name, which the author chose, is lowercased and every other character becomes `-`.
 
-Where it is used: the `files` landing (`<slot>/<short name>`), the `/ctx/host-<short name>/`
-directory, the namespaced subtree and its plugin name if [OQ-PN3](#OQ-PN3) keeps that tier, and the
-qualifier of a clashing skill ([§4.4](#44-skills-bare-by-default-qualified-only-during-a-clash)).
-Example: the owner's selection yields `pi-fork`, `matt`, `matt-fzf`, `matt-mods`, `matt-craft`,
-`matt-agentwork`, `seat-profiles` and `claude-bedrock-global` beside the shipped names, with no
-clash, so every agent-facing name is what it was before the TOML conversion.
+### 3.4 Delivered names
 
-### 4.4 Skills: bare by default, qualified only during a clash
+| Thing | Namespaced | Bare |
+| :--- | :--- | :--- |
+| a skill | `<namespace>-<skill>`, in the spelling [OQ-PN2](#OQ-PN2) settles | `<skill>` |
+| a wrapped plugin | `<namespace>-<plugin manifest name>` | the manifest name |
+| a `files` landing, `/ctx/host-…/` directory | `<namespace>-<pack>`, or `<namespace>` for a pack that is its own namespace | `<pack>` |
 
-A skill reaches every agent as its own name, `review`, exactly as the default tier does today.
+yolo writes a skill's delivered name as its directory name and as the `name` field of its copy of
+`SKILL.md` (pi and Copilot key a skill on that field, [§5](#5-how-each-agent-treats-a-skill-name)),
+and a plugin's as the `name` field of its copied manifest. The pack's own files are never edited.
+Built-in skills and the workspace skill layer are unchanged. One skill has one name at every agent.
 
-**When two selected packs ship one skill name** and both reach at least one common destination,
-the leaning of [OQ-PN1](#OQ-PN1) is that each of those skills is delivered **qualified** by its pack's
-short name, in the spelling [OQ-PN2](#OQ-PN2) settles (leaning `review-matt`, `review-acme`). The
-decision is made over the whole selected set and applied at **every** destination the skill
-reaches, so one skill has one name in every agent, as the per-pack tier rule (S2) requires. yolo
-writes the qualified name as the delivered directory's name and as the `name` field in its copy of
-`SKILL.md`, because pi and Copilot key a skill on that field, not on the directory
-([§5](#5-how-each-agent-treats-a-skill-name)). The pack's own files are never edited.
+An example config and what agents see:
 
-Unchanged by this design: built-in skills, the workspace layer (which fills only names nothing above
-took), and the rule that identical content under one name is not a clash
-([`compose.go`](../../internal/hostskills/compose.go)). A qualified name longer than 64 characters,
-the limit pi and Copilot enforce, is refused naming the pack and the skill.
+```toml
+[pack_sources]
+dotfiles = { path = "~/.dotfiles/yolo-packs", bare = true }
+acme = { git = "https://github.com/acme/yolo-packs" }
 
-The same rule applies to a **wrapped plugin's name**: two packs wrapping plugins that call
-themselves `configure` are each delivered with the plugin name qualified, rather than refused.
-yolo already rewrites one field of the copied manifest (its ownership marker,
-[`plugin.go`](../../internal/hostskills/plugin.go)), so this is a second field, not a new kind of edit.
+packs = [
+  "claude",                                                  # configuring-the-jail
+  "dotfiles/matt",                                           # review
+  "acme/tools",                                              # acme-review
+  "acme/lint",                                               # acme-check
+  { git = "https://github.com/alice/tools" },                # tools-fmt
+  { git = "https://github.com/bob/tools", namespace = "bob" },  # bob-fmt
+]
+```
 
-### 4.5 Shipped and third-party
+Without bob's `namespace`, alice's and bob's repositories both default to `tools`, and `yolo check`
+refuses naming both entries and `namespace = "…"` as the step. Alice's `tools-fmt` is never
+renamed to make room.
 
-- **In config, the absence of a prefix is the signal, and it is complete**: [OQ-RC15](readable-config.md#decision-ledger) lets only a
-  shipped pack be bare, so `claude` cannot be anything else, and `yolo/claude` is the explicit
-  spelling for a reader who wants it.
-- **In agent-facing names there is no signal**, and this design adds none: `configuring-the-jail`
-  and `review` look alike in a skill picker. Where a skill came from is answered by
-  `yolo pack explain`, by the skill's own description, and by the briefing label. Whether that is
-  enough is [OQ-PN7](#OQ-PN7).
-- **A shipped pack never yields its short name**: a third-party `local/claude` selected beside
-  shipped `claude` is the one qualified, as `local-claude`.
+### 3.5 Clashes
 
-### 4.6 Renaming
+Every case below is refused at `yolo check`, the launch and `yolo host apply`, with the step named:
 
-- **A source name** is the user's word and is renamed with **`yolo pack source rename OLD NEW`**
-  *(proposed here)*: one journaled edit rewriting the `[pack_sources]` key and every handle that
-  uses it, across the user config files (the `packs` list and pack-keyed tables). A hand edit is
-  equally valid; a handle left pointing at the old name is refused by `yolo check` naming the verb.
-  Under [OQ-PN4](#OQ-PN4)'s leaning no state moves, and agent-facing names change only for a pack
-  that is currently qualified.
-- **A pack's own name** is its directory name, the author's word. Whether a user may alias it is
-  [OQ-PN5](#OQ-PN5); nothing in this design requires it.
-- **The migration's default source name** is the subject of [OQ-PN6](#OQ-PN6).
+| Clash | Example | Step |
+| :--- | :--- | :--- |
+| two namespaces with one word | two repositories named `tools`; `local/acme` beside source `acme` | set `namespace = "…"` on either entry |
+| two delivered names that hyphenate alike | namespace `a-b` with skill `c`, namespace `a` with skill `b-c` | choose a different namespace for either |
+| two bare entries ship one skill, or a bare entry ships a shipped skill's name | the user's bare `review` beside another bare `review` | give one entry a namespace (`bare = false`), or rename the user's own skill |
+| two packs in one namespace ship one skill | `acme/tools` and `acme/lint` both ship `review` | select only one; the defect is the source author's, and `yolo pack lint` on the source reports it to them |
 
-### 4.7 Why nothing can collide
+A third party's names are namespaced by a word the user chose or accepted, so two third-party
+packs cannot clash unless the user has marked one bare. Within one namespace the author owns every
+name, so a clash there is the author's defect, not the user's division to make. Identical skill
+content under one name is not a clash ([`compose.go`](../../internal/hostskills/compose.go)).
 
-- **Handles** cannot collide: source names are keys of one TOML table, `local` and `yolo` are
-  reserved ([`references.go:53`](../../internal/packsrc/references.go#L53)), and a pack segment is
-  a directory under its source.
-- **Identities** cannot collide: they are physical paths and repository addresses.
-- **Short names** are unique by steps 3–5 of [§4.3](#43-the-short-name--what-agents-see), and the
-  only case yolo cannot settle on its own is two source names the user chose that hyphenate alike.
-- **Skill and plugin names** are unique because a clash qualifies every member with a short name,
-  and short names are unique.
+### 3.6 Renaming
 
-Against the requirements: R1 holds (no escape reaches an agent); R2 holds for every name except a
-skill whose pack *and* skill name both clash; R3 holds (source names are renamed by a verb, with no
-state to move); R4 holds (nothing the user has to divide among third parties); R5 is answered in
-[§4.5](#45-shipped-and-third-party).
+- **A source**: `yolo pack source rename OLD NEW` *(proposed here)* rewrites the `[pack_sources]`
+  key and every handle and pack-keyed table that uses it, in one journaled, confirmed edit. Because
+  the source key is the namespace, the plan lists every agent-facing name that changes; this is a
+  rename the user asked for. Under [OQ-PN4](#OQ-PN4)'s leaning no record moves. A hand edit is
+  equally valid; a handle left pointing at the old key is refused by `yolo check` naming the verb.
+- **A pack listed on its own**: set or change its `namespace`.
+- **A pack's own name, or a skill's**: the author's words. A user who wants different ones forks the
+  pack.
+
+### 3.7 Shipped and third-party
+
+In config, the absence of a prefix marks a shipped pack, completely:
+[OQ-RC15](readable-config.md#decision-ledger) lets only a shipped pack be bare. In agent-facing
+names, a shipped skill and a skill from a bare entry look alike; `yolo pack explain` and the
+skill's description say where it came from. Whether shipped skills should carry a marker is
+[OQ-PN7](#OQ-PN7).
+
+### 3.8 Against the requirements
+
+R1: no escape reaches an agent. R2: at most two parts, one separator, and bare where the user says
+so. R3: a source is renamed by a verb, moving no state. R4: third-party names are separated by
+namespaces the user picks or accepts, and the user never picks a skill name. R5: no delivered name
+reads the selected set. R6: [§3.7](#37-shipped-and-third-party).
+
+## 4. The cost
+
+A namespaced skill is longer than the bare skill, permanently, even when nothing else ships that
+name. That is the price of [R5](#1-requirements) without a registry: a name that cannot change when
+a pack arrives has to be distinct before it arrives. `bare = true` is where the user buys the
+short name back for packs they trust not to clash, and pays for that with a refusal if one does.
 
 ## 5. How each agent treats a skill name
 
-Read from the installed bundles on 2026-10-31. VERIFIED rows quote the shipped code or its
-changelog; UNVERIFIED rows say why.
+Read from the bundles installed in this jail on 2026-10-31.
 
 | Agent (version) | Namespace | Two skills with one name | Name rule |
 | :--- | :--- | :--- | :--- |
-| Claude Code 2.1.312 | plugin skills `plugin:skill` (VERIFIED) | same file loaded twice is skipped; a plugin skill already present as a user-level skill is skipped; which of two different personal skills wins is UNVERIFIED | plugin name: no `/`, `\`, `..`, spaces, leading `.`; kebab-case only warned (VERIFIED) |
-| Copilot CLI 1.0.105 | plugin skills `pluginName:skill` (VERIFIED); "same name from different plugins coexist" since 1.0.66, "namespaced custom skills" since 1.0.88 (changelog, VERIFIED) | the higher-priority one wins, the other skipped with a message (VERIFIED); the exact key it dedups on is compiled code, UNVERIFIED | plugin name 1–64 of `[a-z0-9.-]`, alphanumeric at both ends (VERIFIED) — **`yolo-packs_2fmatt` is not a legal Copilot plugin name** |
-| Codex 0.162.1 | plugin skills prefixed `plugin_name:` (VERIFIED, its own instructions) | UNVERIFIED (native loader) | 64 characters, `[a-z0-9-]` only in its bundled skill-creator, not shown in the loader (weak) |
-| pi (fork, 1.4.0) | none; invoked `/skill:<name>` (VERIFIED) | the first found wins and the loser is reported as a collision (VERIFIED) | at most 64 of `[a-z0-9-]`, no leading, trailing or doubled `-`; a violation only warns (VERIFIED) |
-| agy 1.2.9 | UNVERIFIED (stripped binary) | has a shadowing concept; order UNVERIFIED | UNVERIFIED |
+| Claude Code 2.1.312 | plugin skills `plugin:skill` (VERIFIED) | the same file loaded twice is skipped; a plugin skill already present as a user-level skill is skipped; which of two different personal skills wins is UNVERIFIED | plugin name: no `/`, `\`, `..`, spaces, leading `.`; kebab-case only warned (VERIFIED) |
+| Copilot CLI 1.0.105 | plugin skills `pluginName:skill`; same-named skills from different plugins coexist (changelog 1.0.66, VERIFIED) | the higher-priority one wins, the other skipped with a message (VERIFIED) | plugin name 1–64 of `[a-z0-9.-]`, alphanumeric at both ends (VERIFIED) |
+| Codex 0.162.1 | plugin skills prefixed `plugin_name:` (VERIFIED) | UNVERIFIED | 64 characters of `[a-z0-9-]` in its bundled skill-creator (weak) |
+| pi (fork, 1.4.0) | none; invoked `/skill:<name>` (VERIFIED) | the first found wins; the loser is reported (VERIFIED) | at most 64 of `[a-z0-9-]`, no leading, trailing or doubled `-`; a violation only warns (VERIFIED) |
+| agy 1.2.9 | UNVERIFIED | has a shadowing concept; order UNVERIFIED | UNVERIFIED |
 
-What this settles: **the only spelling every agent carries is a plain name of lowercase letters,
-digits and hyphens, at most 64 characters**, which is why the short name is normalized to it and
-why [OQ-PN2](#OQ-PN2) leans away from `:`. An earlier note in this jail's memory said Copilot dedups
-plugin skills by bare name; its 1.0.66 changelog entry says otherwise, and that note is stale.
+The only spelling every agent carries is a plain name of lowercase letters, digits and single
+hyphens, at most 64 characters. A delivered name longer than that is refused naming the pack and
+the skill.
 
 ## 6. Alternatives considered
 
-| Alternative | What it gives up | Verdict |
-| :--- | :--- | :--- |
-| The handle, escaped, everywhere (the held fix) | short (R1, R2), and Copilot's plugin-name rule | Rejected by the owner on sight |
-| The handle's last segment, with any clash refused | no user arbitration (R4) | Rejected: the user divides the namespace |
-| Always `<pack>:<skill>` for every pack | short (R2), and pi has no `:` | Rejected; kept only as the opt-in [OQ-PN3](#OQ-PN3) asks about |
-| The first-listed pack keeps the bare name, later ones qualified | config order silently picks a winner, the defect the 2026-08-05 refusal removed | Offered as an option in [OQ-PN1](#OQ-PN1), not the leaning |
-| A content- or source-derived suffix (`review-3f2a`) | short and readable; a hash cannot be hidden from an invoked name | Rejected |
-| An author-declared global name (the manifest's `name`, reverse-DNS) | registry-free uniqueness needs long names; two authors still pick `tools` | Rejected for agent names; the manifest `name` stays informational |
-| Leave namespacing to each agent (deliver every pack as a plugin) | parity: pi and agy have no plugin namespace | Rejected |
-| Records keyed by handle, carried on rename | a hand edit of a source name needs a carry step | Kept as [OQ-PN4](#OQ-PN4)'s alternative |
+| Alternative | What it gives up |
+| :--- | :--- |
+| The handle, escaped, everywhere | R1, R2, and Copilot's plugin-name rule |
+| Bare names, qualified only while two selected packs clash | R5: adding a pack renames a skill |
+| The first-listed pack keeps the bare name | R5, and config order silently picks a winner |
+| Bare names, any clash refused | R4: the user divides third parties' names |
+| `<namespace>-<pack>-<skill>` always | R2: three parts |
+| A content- or source-derived suffix (`review-3f2a`) | R2: an unreadable invoked name |
+| Leave namespacing to each agent's plugin system | parity: pi and agy have no plugin namespace |
 
-## 7. Migration from today's names and the held fix
+## 7. Migration
+
+**Agent-facing names.** Under [OQ-PN1](#OQ-PN1)'s leaning, `yolo config migrate` writes
+`bare = true` on every entry and source it converts, so every skill, plugin, `files` landing and
+`/ctx` directory keeps the name it had before conversion. A `files` landing or namespaced subtree
+written under an escaped or nested name is archived as composition residue at the next apply.
 
 **Records.** Under [OQ-PN4](#OQ-PN4)'s leaning every name-keyed record is re-keyed to the identity
-once, inside the same journaled, roll-forward migration RC-D47 uses, at the first launch or
-`yolo host apply` of a build that has this design. The handle each record was written under is
-kept beside it. A record whose pack is no longer selected keeps its old key and is re-keyed if the
-pack returns, since yolo can resolve the identity only for a pack in the config. A legacy JSONC
-config is re-keyed the same way: its names resolve to identities through the same resolver.
+once, inside the journaled, roll-forward migration [RC-D47](readable-config.md#RC-D47) uses, at the
+first launch or `yolo host apply` of a build that has this design. A record whose pack is not
+selected keeps its key and is re-keyed if the pack returns. A legacy JSONC config is re-keyed the
+same way.
 
-**Agent-facing names.** For every pack whose name has no `/` (every shipped pack, and every legacy
-path-named pack before the TOML conversion), the short name equals today's name, so nothing an
-agent sees changes. For a converted pack, the short name restores the pre-conversion name. A
-namespaced subtree or `files` landing written under an escaped or nested name is archived as
-composition residue at the next apply, as any retired entry is.
+**The held slash-name fix** (worktree `agent-aa30e25b86a0e5a26`, unlanded):
 
-**The held fix, commit by commit.**
-
-| Commit | Survives? |
+| Commit | Lands? |
 | :--- | :--- |
-| `3551eec58` — the jail names a recorded pack by the name the launch loaded it under, so fork keys agree host and jail | **As is.** A real defect independent of spelling; under identity keys the jail reads the identity from the same record |
-| `576fe4f01` — the LSP plugin's claimant no longer uses a probe pack named `lsp_servers/yolo-lsp`; `yolo pack status` splits `<pack>/<bin>` at the last `/` | **As is.** Both are true whatever the agent-facing spelling, and a bin name holds no `/` |
-| `5a4b8dbb9` — one escape (`internal/slug`) for every name that becomes a path, `x-yolo-pack` in the plugin manifest, `ClaimsAt` | **In part.** The slug package, its use for the staged directory, `x-yolo-pack` and `ClaimsAt` survive. Its use for the skill namespace, plugin name and `files` landing is replaced by the short name, and RC-D48's ledger row lands narrowed to the internal half |
+| `3551eec58` — the jail names a recorded pack by the name the launch loaded it under | As is |
+| `576fe4f01` — the LSP plugin's claimant uses `ClaimsAt`; `yolo pack status` splits `<pack>/<bin>` at the last `/` | As is |
+| `5a4b8dbb9` — `internal/slug`, `x-yolo-pack`, `ClaimsAt`, escaped agent-facing names | The slug package for the staged directory, `x-yolo-pack` and `ClaimsAt` only; its RC-D48 row lands narrowed to that |
 
-## 8. Edge cases and failure paths
+## 8. What done looks like
 
-- **No third-party packs**: every name is a shipped name; nothing is qualified.
-- **One pack listed twice** under two handles: refused today as a duplicate directory; unchanged.
-- **A clash that appears mid-session**: names are computed at launch and at `yolo host apply`, never
-  in a running jail; an attach reads the running jail's tree and its names.
-- **A pack removed**: its clash partners lose their qualifier at the next launch, and the launch says
-  so.
-- **Two packs, one skill, no common destination** (a pi-only skill and a claude-only skill): no
-  clash, both stay bare.
-- **A skill or pack name already of the form `x-y`** that equals another's qualified name (pack
-  `matt` skill `review-acme` beside pack `acme` skill `review`): the qualified names are checked
-  against every delivered name, and a remaining match is refused naming both packs. This is an
-  author-side clash a rename cannot fix for the user, and it is expected to be vanishingly rare.
-- **Normalization changes a name** (`My_Tools` → `my-tools`): the launch's pack line shows the short
-  name beside the handle whenever they differ.
-- **Re-keying fails partway**: the journal rolls forward at the next run, as RC-D47's does; no record
-  is read under a half-migrated key.
+- No agent-facing name contains `_2f`, `/` or `:` added by yolo.
+- After `yolo config migrate`, the owner's agents see the same names as before.
+- With the example in [§3.4](#34-delivered-names), removing `acme/lint` or adding a pack changes no
+  delivered name of any other entry; a clash is a refusal naming both entries and the step.
+- `yolo pack source rename yolo-packs dotfiles` rewrites the config in one confirmed edit, lists
+  any agent-facing name it changes, and the next launch re-pins and rebuilds nothing.
+- `yolo pack explain <handle>` lists each skill under its delivered name; `yolo pack ls` shows the
+  handle and the namespace.
 
-## 9. What done looks like
+## 9. Build order
 
-- No agent-facing name — skill, plugin, `files` landing, `/ctx` directory — contains `_2f`, `/` or
-  a source name, unless two selected packs share a pack name.
-- With the owner's config, every skill invocation and every landing directory is the same as before
-  the TOML conversion.
-- When a qualification is in force the launch prints one disclosure line per clash, for example
-  `skills: review is review-matt (local/matt) and review-acme (acme/tools) — both packs ship it`,
-  and `yolo pack explain <handle>` lists each skill under the name agents invoke.
-- `yolo pack source rename yolo-packs dotfiles` rewrites the config in one confirmed edit, and the
-  next launch re-pins nothing, rebuilds nothing and changes no agent-facing name.
-- `yolo pack ls` shows the handle, and the short name where it differs.
+1. Land `3551eec58` and `576fe4f01`; they fix defects independent of spelling.
+2. Namespaces, `bare` and `namespace`, delivered names and the clash refusals, with
+   `5a4b8dbb9`'s internal half — once [OQ-PN1](#OQ-PN1) and [OQ-PN2](#OQ-PN2) are ruled.
+3. Identity-keyed records and their migration, once [OQ-PN4](#OQ-PN4) is ruled.
+4. `yolo pack source rename`, and the migration's defaults per [OQ-PN1](#OQ-PN1) and
+   [OQ-PN6](#OQ-PN6).
 
-## 10. Non-goals
-
-- **No change to the config grammar.** [OQ-RC15](readable-config.md#decision-ledger) and [RC-D43](readable-config.md#RC-D43) stand as ruled.
-- **No registry** and no reserved names beyond the shipped set, `local` and `yolo`.
-- **No marking of shipped content in agent-facing names** unless [OQ-PN7](#OQ-PN7) rules otherwise.
-- **No change to built-in or workspace skills**, or to how a wrapped plugin's skills are invoked
-  when its name is unique.
-- **No renaming of a skill by the user.** A user who wants a different name forks the pack.
-
-## 11. Build order
-
-1. Land `3551eec58` and `576fe4f01` now; they fix defects this design does not touch.
-2. The short name and its clash rule, for the `files` landing, the `/ctx` directory and the
-   namespaced subtree; land `5a4b8dbb9`'s internal half with it.
-3. Skill and plugin qualification, once [OQ-PN1](#OQ-PN1) and [OQ-PN2](#OQ-PN2) are ruled.
-4. Identity-keyed records and their migration, once [OQ-PN4](#OQ-PN4) is ruled.
-5. `yolo pack source rename`, and the migration offer per [OQ-PN6](#OQ-PN6).
-
-## 12. Risks
+## 10. Risks
 
 | Risk | Mitigation |
 | :--- | :--- |
-| Adding a pack renames a skill the user's notes or prompts use | The launch names every qualification; a clash needs two packs shipping one skill name, which the owner's set has never had |
-| An agent changes its name rules or dedup key | Names are normalized to the strictest rule seen ([§5](#5-how-each-agent-treats-a-skill-name)), so a looser agent costs nothing |
-| Rewriting `name` in a copied `SKILL.md` breaks a skill that reads its own name | Only during a clash, and the pack's own file is never touched; `yolo pack explain` shows the delivered name |
-| Moving a pack's directory loses its pins | It is a visible re-pin, not a silent wrong one; [OQ-PN4](#OQ-PN4) is where the owner can trade it the other way |
+| A yolo release ships a skill whose name a user's bare entry already uses | The launch refuses naming the user's entry and `bare = false`; nothing is renamed silently |
+| An agent tightens its name rules | Names already meet the strictest rule seen ([§5](#5-how-each-agent-treats-a-skill-name)) |
+| Rewriting `name` in a copied `SKILL.md` breaks a skill that reads its own name | The pack's file is untouched; `yolo pack explain` shows the delivered name |
+| Moving a pack's directory loses its pins | A visible re-pin, never a wrong one; [OQ-PN4](#OQ-PN4) trades it the other way |
 
-## 13. Open Questions
+## 11. Open Questions
 
-1. 💬 **OQ-PN1: When two packs ship a skill with the same name, what should the agent see?**
+1. 💬 **OQ-PN1: Which entries deliver bare names?**
 
-   Matt selects `local/matt` and `acme/tools`; both ship a skill called `review`. He runs `yolo`.
-   Today the launch refuses and tells him to rename a skill, which he cannot do to acme's pack
-   without forking it. The refusal was ruled on 2026-08-05 so that no clash resolves silently.
+   Matt's own packs (`dotfiles/matt`, `matt-craft`) deliver `review` today. A third party's
+   should carry a namespace so it cannot clash. yolo cannot tell a directory or repository Matt
+   wrote from one he cloned.
 
-   - **Refuse, as today.** Matt reads the refusal and must fork or drop a pack.
-   - **Qualify both.** Matt's agents list `review-matt` and `review-acme`, and the launch prints
-     one line saying why; `/review` stops existing while both are selected.
-   - **The first-listed keeps `review`.** Matt's `/review` keeps working, acme's is `review-acme`;
-     reordering `packs` silently swaps which one `/review` is.
+   - **Namespaced unless marked `bare = true`; the migration marks every entry it converts.** Matt
+     sees no change after conversion; a pack he adds later is namespaced until he says otherwise.
+   - **Directories on this machine bare, git repositories namespaced.** No flag for the common case,
+     but `matt-craft` becomes `matt-craft-<skill>` unless Matt marks it, and a cloned third-party
+     directory is bare.
 
-   <!-- vantage: question id=OQ-PN1 leaning="Qualify both — nothing wins silently, which is what the 2026-08-05 refusal protected, and nobody has to fork a pack." -->
+   <!-- vantage: question id=OQ-PN1 leaning="Namespaced unless marked bare, and the migration marks what it converts — one rule, the safe default for new packs, and no name changes at conversion." -->
 
-   _Leaning:_ Qualify both — nothing wins silently, which is what the 2026-08-05 refusal protected, and nobody has to fork a pack.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 **OQ-PN2: How should a qualified skill be spelled?**
-
-   Matt's `local/matt` and `acme/tools` both ship `review`, so each needs the pack's name added.
-   His skill picker cuts long names off on the right. pi accepts only lowercase letters, digits and
-   hyphens in a skill name; Claude Code, Copilot and Codex also understand `plugin:skill`.
-
-   - **`review-matt`.** Typing `/rev` lists every pack's `review` together, and a cut-off name still
-     shows the skill; it reads less like the `plugin:skill` convention. Same at every agent.
-   - **`matt-review`.** Groups by pack in a sorted list; truncation hides the skill first. Same at
-     every agent.
-   - **`matt:review`.** The convention Claude Code users know, but pi has no `:`, so a pi user would
-     see a different name for the same skill.
-
-   <!-- vantage: question id=OQ-PN2 leaning="review-matt — the skill word survives truncation and autocomplete finds every variant; weak on convention." -->
-
-   _Leaning:_ review-matt — the skill word survives truncation and autocomplete finds every variant; weak on convention.
+   _Leaning:_ Namespaced unless marked bare, and the migration marks what it converts — one rule, the safe default for new packs, and no name changes at conversion.
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. 💬 **OQ-PN3: Should a pack still be able to ask for all its skills to be prefixed?**
+2. 💬 **OQ-PN2: How is a namespaced skill spelled?**
 
-   A pack author ships generic skill names (`configure`, `setup`) and sets
-   `skills_tier = "namespaced"`, so Claude shows `/acme:configure`. No shipped pack and none of
-   Matt's seven own packs set it today. With clashes qualified automatically, the opt-in's original
-   purpose, keeping a pack's skills apart from the user's own in a real home, is gone since yolo
-   composes that directory itself.
+   acme's `review` needs its namespace. pi accepts only lowercase letters, digits and hyphens;
+   Claude Code, Copilot and Codex also understand `plugin:skill`.
 
-   - **Keep it, with the short name.** Claude and Copilot show `/acme:configure`; pi, which has no
-     namespace, shows `configure`, so one skill has two names.
-   - **Retire it.** Every skill is bare unless it clashes; a manifest still declaring it gets a lint
-     warning and nothing else.
+   - **`acme-review` at every agent.** One name everywhere; typing `/acme` lists all of acme's
+     skills.
+   - **`acme:review` where the agent has plugins, `acme-review` in pi.** The convention Claude Code
+     users know, at the price of one skill having two names.
 
-   <!-- vantage: question id=OQ-PN3 leaning="Retire it — no known user, and it is the one place a skill would be named differently per agent." -->
+   <!-- vantage: question id=OQ-PN2 leaning="acme-review everywhere — one separator, one name per skill at every agent." -->
 
-   _Leaning:_ Retire it — no known user, and it is the one place a skill would be named differently per agent.
+   _Leaning:_ acme-review everywhere — one separator, one name per skill at every agent.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+3. 💬 **OQ-PN3: Should the per-pack `skills_tier = "namespaced"` opt-in stay?**
+
+   Every third-party pack is now namespaced unless the user marks it bare, so the author's opt-in
+   only matters for an entry the user marked bare. No pack sets it.
+
+   - **Retire it.** A manifest declaring it gets a lint warning and nothing else.
+   - **Keep it.** An author can force a namespace even when the user marks the entry bare.
+
+   <!-- vantage: question id=OQ-PN3 leaning="Retire it — no user, and the user's bare choice should be the one that holds." -->
+
+   _Leaning:_ Retire it — no user, and the user's bare choice should be the one that holds.
 
    **Answer:**
    > _(empty — fill in when decided)_
 
 4. 💬 **OQ-PN4: Should renaming a source or moving a pack's directory keep its pins and builds?**
 
-   Matt's forked `pi` is pinned and built under the pack `yolo-packs/pi-fork`. He renames the source
-   to `dotfiles`, and next month moves `~/.dotfiles` to `~/dotfiles`. yolo's records (lock pins,
-   build receipts, check records) are keyed by the pack's name today, so the rename alone would
-   re-pin and rebuild unless something carries them.
+   Matt's forked `pi` is pinned and built under `yolo-packs/pi-fork`. He renames the source to
+   `dotfiles`, and later moves `~/.dotfiles` to `~/dotfiles`.
 
-   - **Key records on where the pack lives.** The rename costs nothing; the move re-pins and rebuilds
-     once, and the launch says so.
-   - **Key records on the name, carried on rename.** The rename runs the same carry step the TOML
-     migration uses, including after a hand edit; the move keeps everything.
+   - **Key records on where the pack lives.** The rename costs nothing; the move re-pins and
+     rebuilds once, and the launch says so.
+   - **Key records on the handle, carried on rename.** The rename runs the migration's carry step,
+     including after a hand edit; the move keeps everything.
 
    <!-- vantage: question id=OQ-PN4 leaning="Key on where the pack lives — renaming is what users will do, moving a dotfiles tree is rare, and a hand edit then needs no carry." -->
 
@@ -474,56 +375,49 @@ composition residue at the next apply, as any retired entry is.
    **Answer:**
    > _(empty — fill in when decided)_
 
-5. 💬 **OQ-PN5: Should a user be able to give a pack a different name of their own?**
+5. 💬 **OQ-PN5: Should a source's namespace be settable apart from its key?**
 
-   Matt uses a third-party pack whose directory is `tools-for-agents-v2`, so its `files` landing and
-   any clash prefix read that way. The old JSONC config let an entry carry `name = "…"`, which the
-   TOML conversion has no spelling for. Nothing in this design needs it: clashes resolve on their
-   own.
+   Matt's source key `dotfiles` is both the word in his handles and his namespace. He might want
+   handles `dotfiles/matt` but skills `matt-review`.
 
-   - **No.** The pack's name is its directory name; Matt can fork it to change that.
-   - **Yes, `{ pack = "acme/tools-for-agents-v2", as = "tools" }`.** Matt reads `tools` everywhere an
-     agent sees it, and the clash rule then treats his alias like any short name.
+   - **No: the key is the namespace.** One word to know; renaming it renames both.
+   - **Yes: `namespace = "…"` on a source too.** Two words per source; handles and agent names can
+     differ.
 
-   <!-- vantage: question id=OQ-PN5 leaning="No — an alias brings back the user dividing names, and no real pack needs it yet." -->
+   <!-- vantage: question id=OQ-PN5 leaning="No — one word per source is the simpler model, and the rename verb already changes it." -->
 
-   _Leaning:_ No — an alias brings back the user dividing names, and no real pack needs it yet.
+   _Leaning:_ No — one word per source is the simpler model, and the rename verb already changes it.
 
    **Answer:**
    > _(empty — fill in when decided)_
 
 6. 💬 **OQ-PN6: What should `yolo config migrate` call a source the user never named?**
 
-   Matt's old config lists `~/.dotfiles/yolo-packs/matt`. He runs `yolo config migrate`, which today
-   writes `[pack_sources] yolo-packs = "~/.dotfiles/yolo-packs"` and the handle `yolo-packs/matt`,
-   taking the directory's name. That name shows in his config and in yolo's output, though no
-   longer in any agent's.
+   Matt's old config lists `~/.dotfiles/yolo-packs/matt`. The migration writes the source
+   `yolo-packs`, taking the directory's name; under [OQ-PN1](#OQ-PN1)'s leaning it is bare, so the
+   name shows in config and yolo's output but not to agents.
 
-   - **Keep the directory's name, and name the rename verb on that line of the plan.** One
-     confirmation, as today; Matt runs `yolo pack source rename` if he wants `dotfiles`.
-   - **Ask for each source during the migration.** Matt types `dotfiles` once; the migration gains a
-     prompt per source.
+   - **Keep the directory's name, and print the rename command on that line of the plan.**
+   - **Ask for each source during the migration.** One prompt per source.
 
-   <!-- vantage: question id=OQ-PN6 leaning="Keep the directory's name and print the rename command — the name no longer reaches agents, so it is cheap to fix later." -->
+   <!-- vantage: question id=OQ-PN6 leaning="Keep the directory's name and print the rename command — it does not reach agents, so it is cheap to fix later." -->
 
-   _Leaning:_ Keep the directory's name and print the rename command — the name no longer reaches agents, so it is cheap to fix later.
+   _Leaning:_ Keep the directory's name and print the rename command — it does not reach agents, so it is cheap to fix later.
 
    **Answer:**
    > _(empty — fill in when decided)_
 
 7. 💬 🤷 **OQ-PN7: Should a skill yolo ships look different from a third-party one?**
 
-   Matt opens Claude's skill picker and sees `configuring-the-jail` (yolo's) beside `review` (a
-   third-party pack's). Nothing in either name says where it came from; `yolo pack explain` and
-   each skill's description do. In config, a bare name already means shipped.
+   Matt sees `configuring-the-jail` (yolo's) beside `review` (his bare pack's) and `acme-review`.
+   In config, a bare name already means shipped.
 
    - **No marker.** Names stay short; origin is one command away.
-   - **A `yolo-` prefix on shipped skills.** Matt sees `yolo-configuring-the-jail`; every shipped
-     skill gets longer.
+   - **A `yolo-` prefix on shipped skills.** Every shipped skill gets longer.
 
-   <!-- vantage: question id=OQ-PN7 leaning="No marker — the ask is for shorter names, and origin is a lookup, not something invoked." -->
+   <!-- vantage: question id=OQ-PN7 leaning="No marker — origin is a lookup, not something invoked." -->
 
-   _Leaning:_ No marker — the ask is for shorter names, and origin is a lookup, not something invoked.
+   _Leaning:_ No marker — origin is a lookup, not something invoked.
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -532,5 +426,9 @@ composition residue at the next apply, as any retired entry is.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| PN-D1 | Records, yolo's output and agents each read their own name (handle, identity, short name); an agent-facing name is never escaped. A designer decision from R1–R4, pending the owner's review of this doc | 2026-10-31 | [§4](#4-the-proposal-three-names-three-jobs) | — |
-| PN-D2 | A short name is the handle's last segment normalized to `[a-z0-9-]`; shipped packs keep theirs; every third-party member of a clash is qualified as `<source>-<pack>`; only the user's own source names are ever named as the fix | 2026-10-31 | [§4.3](#43-the-short-name--what-agents-see) | — |
+| <a id="PN-D1"></a>PN-D1 | yolo's output, records and agents each read their own name (handle, identity, namespace-built names); nothing an agent sees is escaped. Designer decision from R1–R4 | 2026-10-31 | [§3](#3-the-design) | — |
+| <a id="PN-D2"></a>PN-D2 | ~~A third-party pack whose short name clashes in the selected set is qualified as `<source>-<pack>`~~ — superseded by [PN-D3](#PN-D3) | 2026-10-31 | — | — |
+| <a id="PN-D3"></a>PN-D3 | **Owner ruling:** no name changes because of which packs are selected — *"no. never rename based on pack inclusion. I hate that more than anything."* A clash is refused, never resolved by renaming | 2026-10-31 | [§3](#3-the-design) P2, P3 | — |
+| <a id="PN-D4"></a>PN-D4 | **Owner ruling:** the user may choose a namespace prefix, never the names that collide — *"it would be ok if the user chooses a namespacing prefix if needed, just not skill names or whatever it is that collides. for instance you could name a repository that has 5 packs with a user-defined prefix and then that is the namespace."* | 2026-10-31 | [§3.3](#33-the-namespace--what-agents-see) | — |
+| <a id="PN-D5"></a>PN-D5 | A source's namespace is its key; a pack listed on its own is its own namespace (last segment, or `namespace = "…"`); delivered names are `<namespace>-<name>`, bare for shipped packs and `bare = true` entries. Designer decision from PN-D3 and PN-D4 | 2026-10-31 | [§3.3](#33-the-namespace--what-agents-see), [§3.4](#34-delivered-names) | — |
+| <a id="PN-D6"></a>PN-D6 | Two packs of one namespace shipping one skill name are refused as the source author's defect; the step is selecting one, and `yolo pack lint` on the source reports it. Designer decision: the only stable alternative is a three-part name, which R2 rules out | 2026-10-31 | [§3.5](#35-clashes) | — |
