@@ -417,7 +417,13 @@ func (s *Store) findCandidates(a Addr, follow FollowRule, base string, patchBran
 		found.Problem = "this machine has never fetched " + a.Repo + ", and " + fetchFailed(found.FetchErr)
 		return found
 	}
-	kind, name, tip, err := s.classifyRef(mirror, a.Ref)
+	// THE SERIES' BASE IS LOOKED UP WITH THE REF, in its git start, when ensureBase is what asks
+	// for it below: nothing between the two changes the mirror, which this check holds locked.
+	var also []string
+	if patchBranch == nil && base != "" {
+		also = []string{base}
+	}
+	kind, name, tip, baseLookup, err := s.classifyRefAnd(mirror, a.Ref, also...)
 	switch {
 	case err != nil:
 		found.Problem = oneLine(err)
@@ -466,7 +472,7 @@ func (s *Store) findCandidates(a Addr, follow FollowRule, base string, patchBran
 		// AN UNMODIFIED EXTENSION has no series, so no base to make present
 		// (docs/design/pi-extension-store-builds.md §4.2): its walk's list is every entry the follow
 		// rule names.
-		why, fetchErr := s.ensureBase(b, mirror, a, base, found.FetchErr)
+		why, fetchErr := s.ensureBase(b, mirror, a, base, found.FetchErr, baseLookup)
 		if fetchErr != "" {
 			// THE BASE'S OWN FETCH COULD NOT REACH THE UPSTREAM: a failed fetch, as the step's would be,
 			// never the verdict that the upstream lacks the commit.
@@ -493,19 +499,38 @@ func (s *Store) findCandidates(a Addr, follow FollowRule, base string, patchBran
 		return found
 	}
 	found.RefKind = "branch"
-	if base != "" {
-		on, err := s.isAncestor(mirror, base, tip)
+	var versions []taggedVersion
+	switch {
+	case base != "" && patchBranch == nil:
+		// ONE for-each-ref ASKS BOTH whether the branch contains the base and which versions do: the
+		// branch is listed beside the tags exactly when its commit contains the base. Its commit is
+		// tip still: under this lock nothing but ensureBase's fetch by id has run since classifyRef
+		// read it, and that fetch names no ref to update.
+		var on bool
+		versions, on, err = s.versionsContainingOnBranch(mirror, name, base, follow)
 		if err != nil {
 			found.Problem = "could not ask " + a.Repo + "'s mirror whether " + name + " contains the series' " +
 				"base: " + oneLine(err)
 			return found
 		}
 		found.BaseOnBranch = on
-	}
-	versions, err := s.versionsContaining(mirror, name, base, follow)
-	if err != nil {
-		found.Problem = "could not list " + a.Repo + "'s version tags: " + oneLine(err)
-		return found
+	default:
+		if base != "" {
+			// A PATCH BRANCH's fetch ran since classifyRef, and may have moved the branch when the patch
+			// branch lives in the upstream's own repository: the base is asked of tip, as read then.
+			on, err := s.isAncestor(mirror, base, tip)
+			if err != nil {
+				found.Problem = "could not ask " + a.Repo + "'s mirror whether " + name + " contains the series' " +
+					"base: " + oneLine(err)
+				return found
+			}
+			found.BaseOnBranch = on
+		}
+		versions, err = s.versionsContaining(mirror, name, base, follow)
+		if err != nil {
+			found.Problem = "could not list " + a.Repo + "'s version tags: " + oneLine(err)
+			return found
+		}
 	}
 	if follow.Kind == FollowRelease && len(versions) == 0 {
 		// TWO EMPTY LISTS, ONE OUTCOME, TOLD APART IN WORDS (PF-D60, amending PF-D27): versions that
@@ -542,11 +567,18 @@ func noVersionNote(a Addr, follow FollowRule) string {
 // all: the walk lists only versions that contain it, and the replay starts there. Its second result
 // is a by-id fetch that could not REACH the upstream (TransportFailure), which the caller records as
 // the check's failed fetch: the upstream was not asked, so "not a commit of" would be no answer.
-func (s *Store) ensureBase(b budget, mirror string, a Addr, base, fetchErr string) (string, string) {
+//
+// looked is the base's revParse answer when the caller already has it from this state of the
+// mirror (a one-element slice, classifyRefAnd), nil to ask.
+func (s *Store) ensureBase(b budget, mirror string, a Addr, base, fetchErr string, looked []string) (string, string) {
 	if base == "" {
 		return "the series names no base commit — re-export it with `git format-patch --base=<upstream commit>`", ""
 	}
-	if sha, err := s.revParse(mirror, base); err != nil {
+	if len(looked) == 1 {
+		if looked[0] != "" {
+			return "", ""
+		}
+	} else if sha, err := s.revParse(mirror, base); err != nil {
 		return "could not read the series' base " + shortCommit(base) + " in " + a.Repo + "'s mirror: " + oneLine(err), ""
 	} else if sha != "" {
 		return "", ""
@@ -645,21 +677,48 @@ type taggedVersion struct {
 // precedence. A tag naming no commit is left out by git itself; ties in precedence keep the tag
 // whose name sorts last, so the order is the same on every machine.
 func (s *Store) versionsContaining(mirror, branch, base string, follow FollowRule) ([]taggedVersion, error) {
+	vs, _, err := s.listVersions(mirror, branch, base, follow, false)
+	return vs, err
+}
+
+// versionsContainingOnBranch is versionsContaining with base set, and whether branch's commit
+// contains base too, which isAncestor would answer, from the same git start: the branch, merged
+// into itself, is listed beside the tags exactly when its commit contains base.
+func (s *Store) versionsContainingOnBranch(mirror, branch, base string, follow FollowRule) ([]taggedVersion, bool, error) {
+	return s.listVersions(mirror, branch, base, follow, true)
+}
+
+// listVersions is versionsContaining, with branch's own ref asked for beside the tags when
+// withBranch is set, and reported as listed or not.
+func (s *Store) listVersions(mirror, branch, base string, follow FollowRule, withBranch bool) ([]taggedVersion, bool, error) {
 	args := []string{"for-each-ref", "--merged=" + branch}
 	if base != "" {
 		args = append(args, "--contains="+base)
 	}
-	out, err := s.run(mirror, append(args, "--format=%(refname:strip=2) %(objectname) %(*objectname)",
-		"refs/tags")...)
+	args = append(args, "--format=%(refname) %(objectname) %(*objectname)", "refs/tags")
+	if withBranch {
+		args = append(args, branch)
+	}
+	out, err := s.run(mirror, args...)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	var vs []taggedVersion
+	listed := false
 	for _, line := range strings.Split(out, "\n") {
 		f := strings.Fields(line)
 		if len(f) < 2 {
 			continue
 		}
+		if withBranch && f[0] == branch {
+			listed = true
+			continue
+		}
+		tag, ok := strings.CutPrefix(f[0], "refs/tags/")
+		if !ok {
+			continue
+		}
+		f[0] = tag
 		v, ok := follow.TagVersion(f[0])
 		if !ok || v.Pre != "" {
 			continue
@@ -676,7 +735,7 @@ func (s *Store) versionsContaining(mirror, branch, base string, follow FollowRul
 		}
 		return vs[i].tag > vs[j].tag
 	})
-	return vs, nil
+	return vs, listed, nil
 }
 
 // walkList is the walk's list (§6.4, PF-D10 as amended 2026-10-04), newest first: under

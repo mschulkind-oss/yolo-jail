@@ -462,8 +462,11 @@ exec git "$@"
 }
 
 // A REF THE REFRESH COULD NOT READ IS A FAILURE, NOT A MISSING REF. The fake git fails only
-// the rev-parse asking whether `main` is a branch (refs/heads/main), the way a git error (exit
-// 128) or an overrun of the store's timeout does; every other run is real git. The pack
+// the lookup asking whether `main` is a branch (refs/heads/main), as an argument of rev-parse or
+// a line of a `cat-file --batch-check` (classifyRef asks every lookup in one), the way a git
+// error (exit 128) or an overrun of the store's timeout does; every other run is real git. The
+// git error is asked again one lookup at a time, so it names the branch lookup alone; the
+// overrun is not asked again, and names the lookups the one run was asking. The pack
 // follows a branch, is past its interval and its remote has moved on, so this launch's refresh
 // was due: it must say it could not refresh, naming the lookup and git's error, and keep the
 // cached commit. Read as "no such ref", the failure made `main` classify as neither tag nor
@@ -476,7 +479,7 @@ func TestRefreshReportsARefItCouldNotRead(t *testing.T) {
 		{"git error", `echo "fatal: simulated rev-parse failure" >&2; exit 128`, "simulated rev-parse failure", 0},
 		// Keep this actual 3s deadline for local git runs before the lookup too; an overrun must
 		// remain a reported read failure rather than being mistaken for an absent ref.
-		{"timeout", "exec sleep 30", "git rev-parse timed out", 3 * time.Second},
+		{"timeout", "exec sleep 30", "git cat-file timed out", 3 * time.Second},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newRefreshFixture(t)
@@ -484,7 +487,12 @@ func TestRefreshReportsARefItCouldNotRead(t *testing.T) {
 			pack := RefreshPack{Name: "p", Source: f.source("main")}
 			f.refresh(t, false, pack)
 			commitFile(t, f.repo, "two", "2")
-			f.store.Git = writeScript(t, `for a in "$@"; do [ "$a" = 'refs/heads/main^{commit}' ] && { `+
+			f.store.Git = writeScript(t, `case " $* " in *" cat-file --batch-check"*)
+	in=$(cat)
+	case "$in" in *'refs/heads/main^{commit}'*) `+tc.fail+`;; esac
+	printf '%s\n' "$in" | exec git "$@";;
+esac
+for a in "$@"; do [ "$a" = 'refs/heads/main^{commit}' ] && { `+
 				tc.fail+`; }; done
 exec git "$@"
 `)

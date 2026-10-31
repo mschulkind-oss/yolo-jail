@@ -649,7 +649,20 @@ const (
 // error is a lookup git did not answer (revParse), naming it; the lookups after it are not
 // asked, since a later candidate cannot answer for an earlier one (a branch lookup that
 // succeeds says nothing about a tag lookup that timed out).
+//
+// EVERY LOOKUP IN ONE GIT START (revParseBatch), where one start per candidate made a bare
+// branch name two and an unresolved name three; a batch that does not answer is asked again
+// one lookup at a time, so a failure reads as it always did.
 func (s *Store) classifyRef(mirror, ref string) (refKind, string, string, error) {
+	kind, name, sha, _, err := s.classifyRefAnd(mirror, ref)
+	return kind, name, sha, err
+}
+
+// classifyRefAnd is classifyRef that resolves each of also too, as revParse would, in the same
+// git start: a caller holding the mirror's lock that asks for another commit right after the ref
+// (findCandidates, the series' base) reads both from one state of the mirror in one run. An error
+// is an answer for none of them.
+func (s *Store) classifyRefAnd(mirror, ref string, also ...string) (refKind, string, string, []string, error) {
 	type lookup struct {
 		kind refKind
 		rev  string
@@ -670,16 +683,39 @@ func (s *Store) classifyRef(mirror, ref string) (refKind, string, string, error)
 			{refOther, ref, ""},
 		}
 	}
+	revs := make([]string, 0, len(lookups)+len(also))
+	for _, l := range lookups {
+		revs = append(revs, l.rev)
+	}
+	shas, err := s.revParseBatch(mirror, append(revs, also...))
+	switch {
+	case err == nil:
+		extra := shas[len(lookups):]
+		for i, l := range lookups {
+			if shas[i] != "" {
+				return l.kind, l.name, shas[i], extra, nil
+			}
+		}
+		return refUnresolved, "", "", extra, nil
+	case errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled):
+		// Out of time: asking again one by one would only wait it out again, so the error names
+		// every lookup the run was asking, one of which git did not answer in time.
+		return refUnresolved, "", "", nil, fmt.Errorf("reading %s in the pack mirror: %w",
+			strings.Join(revs[:len(lookups)], " or "), err)
+	}
+	// THE BATCH DID NOT ANSWER (a rev it cannot take, or a failure of git's): the lookups one at a
+	// time, as they always ran, so whatever failed is named, and fails, as it always did. also is
+	// left unanswered (nil), for the caller to ask with its own words.
 	for _, l := range lookups {
 		sha, err := s.revParse(mirror, l.rev)
 		if err != nil {
-			return refUnresolved, "", "", fmt.Errorf("reading %s in the pack mirror: %w", l.rev, err)
+			return refUnresolved, "", "", nil, fmt.Errorf("reading %s in the pack mirror: %w", l.rev, err)
 		}
 		if sha != "" {
-			return l.kind, l.name, sha, nil
+			return l.kind, l.name, sha, nil, nil
 		}
 	}
-	return refUnresolved, "", "", nil
+	return refUnresolved, "", "", nil, nil
 }
 
 // isFullSHA reports whether ref is a full 40-hex commit id.

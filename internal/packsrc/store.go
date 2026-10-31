@@ -469,8 +469,16 @@ func (s *Store) runIn(b budget, dir string, args ...string) (string, error) {
 // fetch, gitCmd), so the checkout of that "commit" failed on the word "warning:". stderr goes
 // into the error of a run that fails, stdout after it, which is git's diagnosis either way.
 func (s *Store) runEnv(b budget, dir string, env []string, args ...string) (string, error) {
+	return s.runWith(b, dir, env, "", args...)
+}
+
+// runWith is runEnv with stdin fed to the run when it is not "".
+func (s *Store) runWith(b budget, dir string, env []string, stdin string, args ...string) (string, error) {
 	cmd := s.gitCmd(b.ctx, dir, args...)
 	cmd.Env = append(cmd.Env, env...)
+	if stdin != "" {
+		cmd.Stdin = strings.NewReader(stdin)
+	}
 	var stdout, stderr strings.Builder
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err := cmd.Run()
@@ -652,6 +660,53 @@ func (s *Store) revParse(mirror, rev string) (string, error) {
 		return "", nil
 	}
 	return "", err
+}
+
+// revParseBatch is revParse for each of revs IN ONE GIT START, its answers in revs' order: on a
+// macOS host a git start costs about 25 ms, and a check asked two or three of these in a row
+// (classifyRef's tag, branch and as-written lookups, and the series' base after them).
+//
+// `git cat-file --batch-check` reads one revision a line and resolves each by the same rules as
+// rev-parse, fetching nothing (GIT_NO_LAZY_FETCH, gitCmd). Its per-line answers are what
+// revParse's exit status 1 is, measured with git 2.55 for every shape revParse lists: "<rev>
+// missing" for a ref or a full SHA the mirror lacks, for a ref naming a tree or a blob and for a
+// broken loose ref, and "<rev> ambiguous" for an abbreviation naming more than one object. Both
+// read as absent here. What revParse takes as an error, git's fatal exit (not a repository, an
+// unparseable config or packed-refs) and a run that timed out, ends the whole run with no answer
+// for any revision, and is an error here; so is an answer line of any other shape, and a rev
+// holding a line break, which cannot be one line of input. A caller that must say which lookup
+// failed asks again one at a time (classifyRefAnd).
+func (s *Store) revParseBatch(mirror string, revs []string) ([]string, error) {
+	out := make([]string, len(revs))
+	if slices.ContainsFunc(revs, func(r string) bool { return strings.ContainsAny(r, "\n\r\x00") }) {
+		return nil, errors.New("a revision holding a line break cannot be asked in a batch")
+	}
+	var in strings.Builder
+	for _, r := range revs {
+		in.WriteString(r + "^{commit}\n")
+	}
+	b, cancel := s.newBudget()
+	defer cancel()
+	said, err := s.runWith(b, mirror, nil, in.String(), "cat-file", "--batch-check=%(objectname) %(objecttype)")
+	if err != nil {
+		return nil, err
+	}
+	lines := strings.Split(strings.TrimSuffix(said, "\n"), "\n")
+	if len(lines) != len(revs) {
+		return nil, fmt.Errorf("git cat-file answered %d lines for %d revisions: %q", len(lines), len(revs), said)
+	}
+	for i, line := range lines {
+		asked := revs[i] + "^{commit}"
+		if line == asked+" missing" || line == asked+" ambiguous" {
+			continue
+		}
+		f := strings.Fields(line)
+		if len(f) != 2 || f[1] != "commit" || !isHexID(f[0]) {
+			return nil, fmt.Errorf("git cat-file answered %q for %q", line, asked)
+		}
+		out[i] = f[0]
+	}
+	return out, nil
 }
 
 // ErrNotFetched marks a resolution failure that a FETCH is what repairs: the store has no
