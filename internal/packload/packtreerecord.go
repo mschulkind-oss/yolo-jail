@@ -62,6 +62,10 @@ type PackTreeEntry struct {
 	Namespace      string `json:"namespace,omitempty"`
 	NamespaceOwner string `json:"namespace_owner,omitempty"`
 	Landing        string `json:"landing,omitempty"`
+	// BareStep is Pack.BareStep, the exact command that lists the entry bare, so an attach that
+	// refuses two of the pack's names delivered alike prints the command the launch would.
+	// Absent from an older tree, whose refusal names the step in words.
+	BareStep string `json:"bare_step,omitempty"`
 }
 
 // ApplyNaming gives p the agent-facing naming its launch recorded, so a reader of the tree delivers
@@ -70,7 +74,7 @@ func (e PackTreeEntry) ApplyNaming(p *Pack) {
 	if p == nil {
 		return
 	}
-	p.Namespace, p.NamespaceOwner, p.Landing = e.Namespace, e.NamespaceOwner, e.Landing
+	p.Namespace, p.NamespaceOwner, p.Landing, p.BareStep = e.Namespace, e.NamespaceOwner, e.Landing, e.BareStep
 }
 
 type packTreeRecord struct {
@@ -94,7 +98,7 @@ func WritePackTreeRecordForWorkspace(root string, packs []*Pack, workspace strin
 			return fmt.Errorf("packs: pack %s was loaded from %s, outside its tree %s", p.Name, p.Root, root)
 		}
 		entry := PackTreeEntry{Name: p.Name, Dir: filepath.ToSlash(rel),
-			Namespace: p.Namespace, NamespaceOwner: p.NamespaceOwner, Landing: p.Landing}
+			Namespace: p.Namespace, NamespaceOwner: p.NamespaceOwner, Landing: p.Landing, BareStep: p.BareStep}
 		for _, note := range p.SkewNotes {
 			entry.Skipped = append(entry.Skipped, strings.TrimPrefix(note, "pack "+p.Name+": "))
 		}
