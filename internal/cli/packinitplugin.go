@@ -4,10 +4,11 @@ package cli
 // as a yolo pack, in one command.
 //
 // This exists because "you can pull in a plugin" and "pulling in a plugin is trivial" are
-// different products. The mechanics are small — a pack.toml with one `skills` contribution and
-// the plugin tree under skills/ — but they are also exactly the kind of thing nobody derives
-// correctly from a design doc: the plugin has to sit UNDER skills/ or a jail never sees it. So
-// yolo writes it.
+// different products. The mechanics are small — a pack.json with one `skills` contribution at
+// tier `namespaced`, and the plugin tree under skills/ — but they are also exactly the kind of
+// thing nobody derives correctly from a design doc: the tier has to be namespaced or the
+// plugin degrades to loose skills, and the plugin has to sit UNDER skills/ or a jail never
+// sees it. So yolo writes it.
 //
 // It COPIES the plugin tree in rather than symlinking it, and that is forced rather than
 // chosen: packstage refuses a symlink pointing outside the pack root (a pack comes from
@@ -56,14 +57,24 @@ func packInitFromPlugin(pluginDir, packRoot, name string, out, errw io.Writer) i
 	}
 	pluginName := plugin.Name()
 
-	// The wrapper's pack.json. ONE skills contribution: `from: "skills"` puts the plugin under the
-	// pack's skills/ dir, which is the layout both notches read, and both recognize the plugin
-	// inside it and copy the tree verbatim at its delivered name. No `skills_tier`: what the
-	// plugin is called is the namespace the user's config gives the pack, never the pack's
-	// (docs/design/pack-naming.md PN-D9).
+	// The wrapper's pack.json. ONE skills contribution at tier `namespaced`, and both halves
+	// are load-bearing:
+	//   - `from: "skills"` puts the plugin under the pack's skills/ dir, which is the layout
+	//     both notches read: a jail merges that dir flat (so the plugin's skills arrive, minus
+	//     its manifest), and the host render recognizes the plugin inside it and copies the
+	//     tree verbatim.
+	//   - `skills_tier: "namespaced"` is what asks for the verbatim copy at all. Left unstated it
+	//     defaults to unnamespaced — and the plugin's hooks/MCP/agents would be refused by name
+	//     instead of delivered. It is a MANIFEST-level key (S2): a tier decides what a skill is
+	//     called, which is one fact about the pack rather than one per destination.
+	//
+	// A WRAPPER IS THE CASE WITH THE MOST CLAIM TO A NAMESPACE, which is why scaffolding the
+	// opt-in is right even though the default is now unnamespaced: the plugin's own documentation
+	// says `/<plugin>:<skill>`, so delivering it flat would rename every invocation it describes.
 	decl := map[string]any{
 		"name":        name,
 		"description": wrapperDescription(pluginName, plugin.Manifest.Description),
+		"skills_tier": "namespaced",
 		"contributes": []any{
 			map[string]any{
 				"kind": "skills",
@@ -140,15 +151,16 @@ func packInitFromPlugin(pluginDir, packRoot, name string, out, errw io.Writer) i
 		}
 	}
 	if plugin.RunsCode() {
-		fmt.Fprintf(out, "\n  Those components run code on your behalf. They are DELIVERED with "+
-			"the plugin tree (the tool loads the plugin); where a folder yolo did not write "+
-			"holds the plugin's name, they are refused by name. Nothing asks you to approve them later, from a git "+
+		fmt.Fprintf(out, "\n  Those components run code on your behalf. On a namespaced "+
+			"destination they are DELIVERED (the tool loads the plugin); on a flat "+
+			"one they are refused by name. Nothing asks you to approve them later, from a git "+
 			"address or anywhere else: selecting the pack in your config is the consent, and "+
 			"`yolo pack footprint` is where to review what it runs.\n")
 	}
 	if skills := plugin.SkillDirs(); len(skills) > 0 {
-		fmt.Fprintf(out, "\n  Its skills will invoke as /<namespace>-%s:<skill>, or /%s:<skill> "+
-			"from a bare entry (%d skill(s)).\n", packname.Normalize(pluginName), pluginName, len(skills))
+		fmt.Fprintf(out, "\n  Its skills will invoke as /<namespace>-%s:<skill>, the namespace your "+
+			"config gives the pack, or /%s:<skill> from a bare entry (%d skill(s)).\n",
+			packname.Normalize(pluginName), pluginName, len(skills))
 	}
 	fmt.Fprintf(out, "\nPack scaffolded at %s\nNext: yolo pack lint %s\n", packRoot, packRoot)
 	return 0
@@ -235,15 +247,17 @@ func pluginWrapperReadme(name, pluginName, packRoot, pluginAbs string) string {
 	return "# " + name + "\n\n" +
 		"A yolo-jail pack wrapping the agent plugin `" + pluginName + "`.\n\n" +
 		"The plugin tree is delivered VERBATIM — manifest included — to a skills dir whose\n" +
-		"tool loads plugin manifests, so its skills invoke as `/<namespace>-" + packname.Normalize(pluginName) + ":<skill>`\n" +
+		"tool loads plugin manifests, so its skills invoke as `/<namespace>-" +
+		packname.Normalize(pluginName) + ":<skill>` (`/" + pluginName + ":<skill>` from a bare entry)\n" +
 		"and cannot collide with your own. Nothing beside it in that dir is touched.\n\n" +
 		"Consume it by adding to `packs` in `~/.config/yolo-jail/config.toml`\n" +
 		"(`yolo pack add` takes a shipped name or `source/pack`, not a `file://` address):\n\n" +
 		"```toml\npacks = [\"file://" + packRoot + "\"]\n```\n\n" +
 		"## Two things to check\n\n" +
 		"1. **The destination.** `pack.toml` targets `.claude/skills`. Change `into` if you\n" +
-		"   want a different tool's dir — the plugin is delivered whole, and only a\n" +
-		"   tool that reads `.claude-plugin/plugin.json` loads what it declares.\n" +
+		"   want a different tool's dir — anything with `\"tier\": \"namespaced\"` must be a\n" +
+		"   dir whose tool reads `.claude-plugin/plugin.json`. A flat dir still gets the\n" +
+		"   plugin's skills; everything else it declares is refused by name.\n" +
 		"2. **It is a COPY.** `skills/" + pluginName + "` was copied from\n" +
 		"   `" + pluginAbs + "`, not linked (a pack may not contain a symlink pointing\n" +
 		"   outside itself). Re-run `yolo pack init --from-plugin` here to refresh it after\n" +

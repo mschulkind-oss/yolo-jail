@@ -26,6 +26,7 @@ package hostskills
 // only asks whether the name is yolo's to write.
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -421,18 +422,37 @@ func deliverFlat(req Request, skills map[string]string) ([]Result, error) {
 	// The names an agent sees: `<namespace>-<skill>`, or the author's own for a bare pack
 	// (docs/design/pack-naming.md §3.4). renameTo is the `name` the copied SKILL.md carries
 	// instead of the author's, set only where a namespace changed the name.
+	//
+	// A bare pack's names are its author's, unchanged: no length or character rule applies to them
+	// (PN-D7). Two author names that one namespace turns into the SAME delivered name are both
+	// refused, naming each other, in sorted order: neither wins by map order.
+	byDelivered := map[string][]string{}
+	for _, raw := range sortedKeys(skills) {
+		name := packname.Delivered(req.Namespace, raw)
+		byDelivered[name] = append(byDelivered[name], raw)
+	}
 	delivered := map[string]string{}
 	renameTo := map[string]string{}
-	for raw, src := range skills {
-		name := packname.Delivered(req.Namespace, raw)
-		if err := packname.TooLong(name, req.Pack, "skill"); err != nil {
-			out = append(out, Result{Name: name, Path: src, Action: ActionRefused, Detail: err.Error()})
+	for _, name := range sortedKeys(byDelivered) {
+		raws := byDelivered[name]
+		if len(raws) > 1 {
+			for _, raw := range raws {
+				out = append(out, Result{Name: name, Path: skills[raw], Action: ActionRefused,
+					Detail: fmt.Sprintf("pack %s's skills %s are all delivered as %q in namespace %s, "+
+						"and yolo will not pick one: rename all but one of them in the pack",
+						req.Pack, strings.Join(quoted(raws), " and "), name, req.Namespace)})
+			}
 			continue
 		}
-		delivered[name] = src
+		src := skills[raws[0]]
 		if req.Namespace != "" {
+			if err := packname.TooLong(name, req.Pack, "skill"); err != nil {
+				out = append(out, Result{Name: name, Path: src, Action: ActionRefused, Detail: err.Error()})
+				continue
+			}
 			renameTo[name] = name
 		}
+		delivered[name] = src
 	}
 	skills = delivered
 
@@ -699,11 +719,20 @@ func collectSkills(sources, skip []string) (map[string]string, error) {
 	return out, nil
 }
 
-func sortedKeys(m map[string]string) []string {
+func sortedKeys[V any](m map[string]V) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
 		out = append(out, k)
 	}
 	sort.Strings(out)
+	return out
+}
+
+// quoted is each name Go-quoted, for a message naming several.
+func quoted(names []string) []string {
+	out := make([]string, len(names))
+	for i, n := range names {
+		out[i] = fmt.Sprintf("%q", n)
+	}
 	return out
 }

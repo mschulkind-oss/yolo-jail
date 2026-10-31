@@ -167,40 +167,39 @@ func TestOnePacksOwnDuplicateIsNotACollision(t *testing.T) {
 }
 
 // A NAMESPACED PACK does not contend for a bare skill name — which is what makes the message's
-// second remedy real rather than advice. Both survive, each under its own name.
+// first remedy real rather than advice. Both survive, each under its own name. A layer's Tier
+// never namespaces its own skills (docs/design/pack-naming.md PN-D9): the namespace does.
 func TestNamespacingResolvesTheCollision(t *testing.T) {
 	d, sources := composeFixture(t, TierFlat, "sflat", "local")
-	d.Layers[1].Tier = TierNamespaced // the local pack opts in
+	d.Layers[1].Namespace = "local" // the local pack is given a namespace
 	writeSkill(t, sources[0], "mine", "SHARED BODY")
 	writeSkill(t, sources[1], "mine", "LOCAL BODY")
 
 	if cols := Collisions([]Destination{d}); len(cols) != 0 {
-		t.Fatalf("a namespaced pack claims its own subtree, not the bare name: %+v", cols)
+		t.Fatalf("a namespaced pack claims `<namespace>-<skill>`, not the bare name: %+v", cols)
 	}
 	if _, err := RenderHostSkills([]Destination{d}, composeReq(t), false); err != nil {
 		t.Fatal(err)
 	}
 	if got := body(t, d.Dir, "mine"); !strings.Contains(got, "SHARED BODY") {
-		t.Errorf("the flat pack keeps the bare name:\n%s", got)
+		t.Errorf("the bare pack keeps the bare name:\n%s", got)
 	}
-	if got := body(t, filepath.Join(d.Dir, "local", "skills"), "mine"); !strings.Contains(got,
-		"LOCAL BODY") {
-		t.Errorf("the namespaced pack's copy must live in its own subtree:\n%s", got)
+	if got := body(t, d.Dir, "local-mine"); !strings.Contains(got, "LOCAL BODY") {
+		t.Errorf("the namespaced pack's copy must land at local-mine:\n%s", got)
 	}
 }
 
-// A collision between a flat pack's SKILL name and a namespaced pack's SUBTREE name is still a
-// collision: both want the same top-level entry, and the namespaced pack's dir name is its PACK
-// name. Easy to miss, because the two claims come from different delivery paths.
+// A bare skill name against a namespaced pack's DELIVERED name is still a collision: both want
+// the same top-level entry. Easy to miss, because only one of the two names is spelled out.
 func TestFlatSkillVersusNamespacedSubtreeCollides(t *testing.T) {
 	d, sources := composeFixture(t, TierFlat, "sflat", "collide")
-	d.Layers[1].Tier = TierNamespaced
-	writeSkill(t, sources[0], "collide", "SHARED BODY") // a skill named like the other pack
+	d.Layers[1].Namespace = "collide"
+	writeSkill(t, sources[0], "collide-whatever", "SHARED BODY") // spelled like the other's
 	writeSkill(t, sources[1], "whatever", "LOCAL BODY")
 
 	cols := Collisions([]Destination{d})
-	if len(cols) != 1 || cols[0].Name != "collide" {
-		t.Fatalf("a flat skill name against a namespaced pack's subtree name must collide: %+v", cols)
+	if len(cols) != 1 || cols[0].Name != "collide-whatever" {
+		t.Fatalf("a bare skill name against a namespaced pack's delivered name must collide: %+v", cols)
 	}
 	if _, err := RenderHostSkills([]Destination{d}, composeReq(t), false); err == nil {
 		t.Error("the render composed over a top-level name two packs both claim")

@@ -42,6 +42,32 @@ func renamedSkill(data []byte, name string) []byte {
 	return []byte(lines[0] + line + nl + strings.Join(lines[1:], ""))
 }
 
+// skillShownName is the name an agent that keys skills on frontmatter lists the skill in dir under:
+// SKILL.md's `name`, unquoted, or fallback (the directory's name) when the file is unreadable or
+// carries none.
+func skillShownName(dir, fallback string) string {
+	data, err := os.ReadFile(filepath.Join(dir, skillManifest))
+	if err != nil {
+		return fallback
+	}
+	text := strings.ReplaceAll(string(data), "\r\n", "\n")
+	if !strings.HasPrefix(text, "---\n") {
+		return fallback
+	}
+	for _, line := range strings.Split(text, "\n")[1:] {
+		if line == "---" {
+			break
+		}
+		if v, ok := strings.CutPrefix(line, "name:"); ok {
+			v = strings.Trim(strings.TrimSpace(v), `"'`)
+			if v != "" {
+				return v
+			}
+		}
+	}
+	return fallback
+}
+
 // writeSkillName rewrites the copied SKILL.md under dest to carry name; "" or a skill with no
 // SKILL.md leaves the copy as it is.
 func writeSkillName(dest, name string) error {

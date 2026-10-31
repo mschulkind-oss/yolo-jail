@@ -46,6 +46,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -100,9 +101,12 @@ type Layer struct {
 	// Shipped marks a layer of a pack yolo ships, for the clash message: its names are bare and
 	// not the user's to change (pack-naming.md §3.5).
 	Shipped bool
-	// Tier is the per-pack subtree delivery the retired `skills_tier = "namespaced"` asked for
-	// (PN-D9). PackLayer never sets it any more; it is kept for the delivery code it still
-	// selects, which a test can reach by constructing a Layer by hand.
+	// Tier is the pack's `skills_tier`, and it now decides ONE thing: whether a WRAPPED PLUGIN is
+	// delivered whole at `<namespace>-<plugin>` (namespaced, the wrapper's opt-in) or as its skills
+	// alone, named like any other skill, with its hooks and MCP servers refused by name (flat, the
+	// default). It never renames a skill: names are the user's namespace choice
+	// (docs/design/pack-naming.md PN-D9), so a pack's own skills are delivered one by one at
+	// either tier.
 	Tier Tier
 	// Sources are the pack-relative skills dirs this contribution resolved to, empty when the
 	// declared `from` could not be honored (Problem then says so).
@@ -151,6 +155,9 @@ type Destination struct {
 	// ReservedNotes is what each reserved child IS, in the owning pack's words
 	// (packdecl.Contribution.ReservedNotes), for the notice. First declaration wins.
 	ReservedNotes map[string]string
+	// Agent is the agent reading Dir (packdecl.Contribution.Agent), "" when unknown. It decides
+	// which names a whole wrapped plugin puts in front of that agent (destinationClaims).
+	Agent string
 }
 
 // IsReserved reports whether a child NAME of this destination is fenced off.
@@ -277,6 +284,10 @@ func ComposeHostSkills(packs []*packload.Pack, homeDir string) []Destination {
 					d.ReservedNotes[name] = note
 				}
 			}
+			// The agent pack's own contribution names who reads this dir; first declaration wins.
+			if d.Agent == "" {
+				d.Agent = c.Agent
+			}
 		}
 	}
 	out := make([]Destination, 0, len(order))
@@ -301,9 +312,9 @@ func PackLayer(p *packload.Pack) Layer {
 	plugins, _ := p.HonoredPlugins()
 	l := Layer{Pack: p.Name, Namespace: p.Namespace, Shipped: p.Official, Plugins: plugins, SourceOf: p.SourcePath}
 	if p.Decl != nil {
-		// The pack's `skills_tier` is NOT read: a pack's names are the user's namespace choice,
-		// never the author's (docs/design/pack-naming.md PN-D9; `yolo pack lint` warns of it).
-		l.Description = p.Decl.Description
+		// The pack's `skills_tier` decides only how a wrapped plugin is delivered (Layer.Tier);
+		// what anything is called is the user's namespace choice (pack-naming.md PN-D9).
+		l.Description, l.Tier = p.Decl.Description, PackTier(p.Decl.SkillsTier)
 	}
 	return l
 }
@@ -360,8 +371,12 @@ type Claim struct {
 // resolve one (PN-D3), so the step is always the user's or the pack author's.
 func (c Collision) Message() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s: %d packs deliver the name %q, and yolo will not choose one or rename "+
-		"either:", c.Dir, len(c.Claims), c.Name)
+	who := "packs"
+	if len(dedupePacks(c.Claims)) == 1 {
+		who = "entries of one pack"
+	}
+	fmt.Fprintf(&b, "%s: %d %s deliver the name %q, and yolo will not choose one or rename "+
+		"either:", c.Dir, len(c.Claims), who, c.Name)
 	for _, cl := range c.Claims {
 		who := "pack " + cl.Pack
 		switch {
@@ -397,18 +412,26 @@ func (c Collision) step() string {
 		anyBare = anyBare || userBare
 		anyNamespaced = anyNamespaced || cl.Namespace != ""
 	}
+	onePack := true
+	for _, cl := range c.Claims {
+		onePack = onePack && cl.Pack == c.Claims[0].Pack
+	}
 	switch {
+	case onePack:
+		return "Pack " + c.Claims[0].Pack + " names these entries differently, but its namespace " +
+			"delivers them alike: rename all but one in the pack, or list the pack with " +
+			"`bare = true` to keep its own names, then run `yolo check`."
 	case sameNamespace:
 		return "These packs share the namespace " + c.Claims[0].Namespace + ", whose author named " +
-			"both entries alike: select only one of them. The defect is the source author's, and " +
-			"`yolo pack lint` on the source reports it to them."
+			"both entries alike: select only one of them, then run `yolo check`, which reports this " +
+			"clash until it is gone. The defect is the source author's to fix."
 	case anyBare && !anyNamespaced:
 		return "Give one entry a namespace (`bare = false` on the entry or its source, and its " +
 			"skills become `<namespace>-<skill>`), or rename your own skill."
 	default:
 		return "Choose a different namespace for either entry (`namespace = \"…\"` on a pack " +
-			"listed on its own, `yolo pack source rename OLD NEW` for a source), or rename your " +
-			"own skill if one of them is yours."
+			"listed on its own; for a source, rename its [pack_sources] key and the handles that " +
+			"use it), or rename your own skill if one of them is yours; then run `yolo check`."
 	}
 }
 
@@ -460,26 +483,13 @@ func ClaimsAt(d Destination, name string) []Claim {
 	return dedupePackClaims(destinationClaims(d)[name])
 }
 
-// NamesInNamespace is every distinct top-level name the layers in namespace deliver across dests,
-// sorted: the agent-facing names a rename of that namespace changes (pack-naming.md §3.6).
-func NamesInNamespace(dests []Destination, namespace string) []string {
-	seen := map[string]bool{}
-	var out []string
-	for _, d := range dests {
-		for name, claims := range destinationClaims(d) {
-			for _, cl := range claims {
-				if cl.Namespace == namespace && !seen[name] {
-					seen[name] = true
-					out = append(out, name)
-				}
-			}
-		}
-	}
-	sort.Strings(out)
-	return out
-}
-
 // destinationClaims is {top-level name → the claims on it}, every layer of d in order.
+//
+// A wrapped plugin delivered whole claims its own delivered name everywhere, and ALSO each inner
+// skill under its frontmatter name at a destination whose agent lists a plugin's skills bare
+// (agentShowsPluginSkillsBare): pi walks the copied tree recursively and lists every SKILL.md it
+// finds by its own `name`, so an inner `review` meets another pack's `review` there even though
+// the plugin's directory is called something else.
 func destinationClaims(d Destination) map[string][]Claim {
 	byName := map[string][]Claim{}
 	for _, l := range d.Layers {
@@ -489,36 +499,62 @@ func destinationClaims(d Destination) map[string][]Claim {
 			names = append(names, name)
 		}
 		sort.Strings(names)
-		for _, name := range names {
-			c := claimed[name]
+		add := func(name string, c layerClaim) {
 			src := ""
 			if c.source != "" {
 				src = l.source(c.source)
 			}
 			byName[name] = append(byName[name], Claim{Pack: l.Pack, Source: src,
-				Namespaced: l.Tier == TierNamespaced && c.subtree, Namespace: l.Namespace,
+				Namespaced: c.subtree, Namespace: l.Namespace,
 				Shipped: l.Shipped, Generated: l.Generated, Author: c.author})
+		}
+		for _, name := range names {
+			for _, c := range claimed[name] {
+				add(name, c)
+				if c.plugin == nil || !agentShowsPluginSkillsBare(d.Agent) {
+					continue
+				}
+				inner := c.plugin.SkillDirs()
+				for _, n := range sortedKeys(inner) {
+					if shown := skillShownName(inner[n], n); shown != name {
+						add(shown, layerClaim{source: inner[n], author: shown})
+					}
+				}
+			}
 		}
 	}
 	return byName
 }
 
+// agentShowsPluginSkillsBare reports whether the agent reading a destination lists a whole
+// plugin's inner skills under their own bare names rather than under the plugin's. Claude Code
+// namespaces them (`/plugin:skill`); the other agents yolo delivers to do not — pi loads a skills
+// dir recursively by frontmatter name, and Copilot dedups plugin skills by bare name. An unnamed
+// agent (a hand-built destination) is read as the stricter kind.
+func agentShowsPluginSkillsBare(agent string) bool {
+	return agent != "claude"
+}
+
 // layerClaim is where one claimed name comes from: its source path, the author's own name for it,
-// and whether it is a per-pack subtree.
+// whether it is a per-pack subtree, and the wrapped plugin when the claim is a whole plugin tree.
 type layerClaim struct {
 	source, author string
 	subtree        bool
+	plugin         *pluginpack.Plugin
 }
 
-// layerClaims is {delivered top-level name → its claim} for one layer: exactly the names this
+// layerClaims is {delivered top-level name → its claims} for one layer: exactly the names this
 // layer would create at the destination's top level, which is what can collide. Every name is the
 // DELIVERED one, `<namespace>-<name>` or bare (packname.Delivered), so two packs whose names
-// hyphenate alike collide here like any other two (docs/design/pack-naming.md §3.5).
+// hyphenate alike collide here like any other two (docs/design/pack-naming.md §3.5). One layer
+// may claim a name under two author names that deliver alike; both are kept, so the clash is
+// refused naming both rather than settled by map order.
 //
 // It mirrors writeLayer's deliveries rather than guessing: one name per skill, from the same
-// sources Deliver reads (the pack's skills dirs MINUS the plugin subtrees inside them), and one
-// per WRAPPED PLUGIN, whose tree lands at its own delivered name (deliverPluginTree). A layer built
-// by hand with TierNamespaced claims its per-pack subtree instead of its skills.
+// sources Deliver reads (the pack's skills dirs MINUS the plugin subtrees inside them), and per
+// WRAPPED PLUGIN either its whole tree at its own delivered name (a wrapper that set
+// skills_tier = "namespaced", deliverPluginTree) or its skills, named like any other
+// (deliverPluginFlat).
 //
 // An unreadable source contributes no claims. That direction is deliberate: a collision is a
 // REFUSAL, and refusing on content nobody could read would block an apply over a guess.
@@ -527,7 +563,7 @@ type layerClaim struct {
 // optimization: the shipped agent packs declare a `skills` contribution purely to NAME the
 // destination other packs merge into, so counting a directory Deliver never writes (its
 // `len(skills) == 0` early return) would have `claude` collide with a pack called `claude`.
-func layerClaims(l Layer) map[string]layerClaim {
+func layerClaims(l Layer) map[string][]layerClaim {
 	pluginDirs := make([]string, 0, len(l.Plugins))
 	for _, pl := range l.Plugins {
 		pluginDirs = append(pluginDirs, pl.Dir)
@@ -536,32 +572,60 @@ func layerClaims(l Layer) map[string]layerClaim {
 	if err != nil {
 		skills = nil
 	}
-	out := map[string]layerClaim{}
-	for _, pl := range l.Plugins {
-		out[packname.Delivered(l.Namespace, pl.Name())] = layerClaim{source: pl.Dir, author: pl.Name()}
-	}
-	if l.Tier == TierNamespaced {
-		if len(skills) > 0 {
-			out[l.Pack] = layerClaim{author: l.Pack, subtree: true}
+	out := map[string][]layerClaim{}
+	add := func(name string, c layerClaim) {
+		for _, have := range out[name] {
+			if have.author == c.author {
+				return // one author name twice in one pack: the pack's own source order settles it
+			}
 		}
-		return out
+		out[name] = append(out[name], c)
 	}
-	for name, src := range skills {
-		out[packname.Delivered(l.Namespace, name)] = layerClaim{source: src, author: name}
+	for _, name := range sortedKeys(skills) {
+		add(packname.Delivered(l.Namespace, name), layerClaim{source: skills[name], author: name})
+	}
+	for _, pl := range l.Plugins {
+		if l.Tier == TierNamespaced {
+			// The wrapper opted in: the plugin's whole tree lands at its own delivered name.
+			add(packname.Delivered(l.Namespace, pl.Name()),
+				layerClaim{source: pl.Dir, author: pl.Name(), plugin: pl})
+			continue
+		}
+		// Flat: the plugin contributes its SKILLS, named like any other skill
+		// (deliverPluginFlat), and nothing else; every other component is refused there by name.
+		inner := pl.SkillDirs()
+		for _, name := range sortedKeys(inner) {
+			add(packname.Delivered(l.Namespace, name), layerClaim{source: inner[name], author: name})
+		}
 	}
 	return out
 }
 
-// dedupePackClaims collapses several claims from ONE pack to its first, so a pack contributing a
-// name twice (its own skill and a wrapped plugin's, say) does not read as colliding with itself.
+// dedupePacks is the distinct packs among claims, in order.
+func dedupePacks(claims []Claim) []string {
+	var out []string
+	for _, c := range claims {
+		if !slices.Contains(out, c.Pack) {
+			out = append(out, c.Pack)
+		}
+	}
+	return out
+}
+
+// dedupePackClaims collapses several claims from ONE pack under ONE author name to the first, so a
+// pack contributing a name twice (its own skill and a wrapped plugin's, say) does not read as
+// colliding with itself. Two DIFFERENT author names from one pack that deliver alike are kept: the
+// pack's own names clash once namespaced, and the refusal names both.
 func dedupePackClaims(claims []Claim) []Claim {
-	seen := map[string]bool{}
+	type key struct{ pack, author string }
+	seen := map[key]bool{}
 	out := make([]Claim, 0, len(claims))
 	for _, c := range claims {
-		if seen[c.Pack] {
+		k := key{c.Pack, c.Author}
+		if seen[k] {
 			continue
 		}
-		seen[c.Pack] = true
+		seen[k] = true
 		out = append(out, c)
 	}
 	return out
@@ -990,12 +1054,12 @@ func writeLayer(dir string, l Layer, req ComposeRequest, preOwned map[string]boo
 		pluginDirs = append(pluginDirs, pl.Dir)
 	}
 	var out []Result
-	// A wrapped plugin is always offered as a whole tree at its delivered name; ProbeTier still
-	// falls back to its skills alone where a folder yolo did not write holds that name. The pack's
-	// retired `skills_tier` no longer decides it (docs/design/pack-naming.md PN-D9).
+	// A wrapped plugin goes out whole only when its wrapper opted in (Layer.Tier), otherwise as its
+	// skills alone. A pack's own skills are always delivered one by one (Deliver below, TierFlat):
+	// the tier no longer names anything (docs/design/pack-naming.md PN-D9).
 	for _, pl := range l.Plugins {
 		res, err := DeliverPlugin(PluginRequest{
-			Pack: l.Pack, Namespace: l.Namespace, Plugin: pl, SkillsDir: dir, Tier: TierNamespaced,
+			Pack: l.Pack, Namespace: l.Namespace, Plugin: pl, SkillsDir: dir, Tier: l.Tier,
 			Composed: req.Composed, Legacy: req.Legacy, PreOwned: preOwned, Claimed: want,
 			ArchiveRoot: req.ArchiveRoot, Stamp: req.Stamp, Observe: observe,
 		})
@@ -1013,7 +1077,7 @@ func writeLayer(dir string, l Layer, req ComposeRequest, preOwned map[string]boo
 	}
 	res, err := Deliver(Request{
 		Pack: l.Pack, Namespace: l.Namespace, Owner: owner, Description: l.Description, Sources: l.Sources, SkipSources: pluginDirs,
-		SkillsDir: dir, Tier: l.Tier,
+		SkillsDir: dir, Tier: TierFlat,
 		Composed: req.Composed, Legacy: req.Legacy, PreOwned: preOwned, Claimed: want,
 		ArchiveRoot: req.ArchiveRoot, Stamp: req.Stamp, Observe: observe,
 	})

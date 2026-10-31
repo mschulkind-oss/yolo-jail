@@ -399,19 +399,19 @@ func writeWrappedPluginPack(t *testing.T, base, name, tier string) string {
 	return `{"source":"file://` + dir + `","name":"` + name + `"}`
 }
 
-// WRAPPED PLUGINS, AS THE HOST DELIVERS THEM: verbatim, as a whole tree with yolo's marker,
-// whatever the pack's manifest says. A wrapped plugin is always offered whole
-// (hostskills.writeLayer), and `skills_tier` is retired (docs/design/pack-naming.md PN-D9), so the
-// pack that declares "namespaced" and the pack that declares nothing deliver the same tree — the
-// second no longer arrives as its skills alone with its hook refused.
+// WRAPPED PLUGINS, AS THE HOST DELIVERS THEM: verbatim with yolo's marker when the pack is
+// namespaced; at the flat default only the plugin's skills arrive, and the components a flat
+// skills dir cannot carry are named at the launch rather than lost.
 func TestAJailDeliversAWrappedPluginAsTheHostDoes(t *testing.T) {
-	assertWhole := func(t *testing.T, dest, said string) {
-		t.Helper()
+	t.Run("namespaced", func(t *testing.T) {
+		home := packHome(t)
+		base := t.TempDir()
+		writeUserPacks(t, home, "["+agentSkillsPack(t, base, "alphacli")+","+
+			writeWrappedPluginPack(t, base, "wrapper", "namespaced")+"]")
+		staging, _ := stageJailSkills(t, goldenOptions(t.TempDir(), home), "yolo-test-nc11-plugin-ns")
+		dest := filepath.Join(staging, jailcontent.SkillStagingName("alphacli"))
 		if _, err := os.Stat(filepath.Join(dest, "acme-tools", "hooks", "pre-tool-use.json")); err != nil {
 			t.Errorf("the plugin tree did not arrive verbatim: %v", err)
-		}
-		if got := readFileT(t, filepath.Join(dest, "acme-tools", "skills", "nested", "SKILL.md")); got != "from the plugin" {
-			t.Errorf("the plugin's own skill did not arrive inside its tree: %q", got)
 		}
 		var m map[string]any
 		if err := json.Unmarshal([]byte(readFileT(t, filepath.Join(dest, "acme-tools", ".claude-plugin", "plugin.json"))), &m); err != nil {
@@ -420,20 +420,6 @@ func TestAJailDeliversAWrappedPluginAsTheHostDoes(t *testing.T) {
 		if m["x-yolo-managed-by"] != "yolo-jail" || m["hooks"] == nil {
 			t.Errorf("the delivered manifest lost a field or lacks yolo's marker: %v", m)
 		}
-		if _, err := os.Stat(filepath.Join(dest, "nested")); !os.IsNotExist(err) {
-			t.Errorf("the plugin's skill was also scattered flat into the skills folder (%v)", err)
-		}
-		if strings.Contains(said, "cannot arrive") {
-			t.Errorf("a plugin delivered whole still had a component refused at the launch:\n%s", said)
-		}
-	}
-	t.Run("namespaced", func(t *testing.T) {
-		home := packHome(t)
-		base := t.TempDir()
-		writeUserPacks(t, home, "["+agentSkillsPack(t, base, "alphacli")+","+
-			writeWrappedPluginPack(t, base, "wrapper", "namespaced")+"]")
-		staging, said := stageJailSkills(t, goldenOptions(t.TempDir(), home), "yolo-test-nc11-plugin-ns")
-		assertWhole(t, filepath.Join(staging, jailcontent.SkillStagingName("alphacli")), said)
 	})
 	t.Run("flat", func(t *testing.T) {
 		home := packHome(t)
@@ -441,6 +427,15 @@ func TestAJailDeliversAWrappedPluginAsTheHostDoes(t *testing.T) {
 		writeUserPacks(t, home, "["+agentSkillsPack(t, base, "alphacli")+","+
 			writeWrappedPluginPack(t, base, "wrapper", "")+"]")
 		staging, said := stageJailSkills(t, goldenOptions(t.TempDir(), home), "yolo-test-nc11-plugin-flat")
-		assertWhole(t, filepath.Join(staging, jailcontent.SkillStagingName("alphacli")), said)
+		dest := filepath.Join(staging, jailcontent.SkillStagingName("alphacli"))
+		if got := readFileT(t, filepath.Join(dest, "nested", "SKILL.md")); got != "from the plugin" {
+			t.Errorf("the plugin's skill did not arrive flat: %q", got)
+		}
+		if _, err := os.Stat(filepath.Join(dest, "acme-tools")); !os.IsNotExist(err) {
+			t.Errorf("a flat pack's plugin tree was copied whole (%v)", err)
+		}
+		if !strings.Contains(said, "Skills:") || !strings.Contains(said, "cannot arrive") {
+			t.Errorf("the refused hook was not named at the launch:\n%s", said)
+		}
 	})
 }

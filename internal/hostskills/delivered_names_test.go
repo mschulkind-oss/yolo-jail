@@ -151,7 +151,7 @@ func TestEveryWorkedExampleSkillClashIsRefusedWithItsStep(t *testing.T) {
 				ls[3] = exampleLayer(t, "acme/tools", "acme", false, "review", "configure", "check")
 				return ls
 			},
-			names: []string{"acme/tools", "acme/lint"}, step: "yolo pack lint"},
+			names: []string{"acme/tools", "acme/lint"}, step: "select only one of them, then run `yolo check`"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			layers := workedExample(t)
@@ -208,10 +208,12 @@ func TestANamespacedSkillIsUnchangedOnTheSecondApply(t *testing.T) {
 	}
 }
 
-// A wrapped plugin lands at `<namespace>-<manifest name>`, and its copied manifest says so and
-// names the pack that delivered it; the pack's own manifest is untouched.
+// A wrapped plugin whose wrapper opted in (`skills_tier = "namespaced"`) lands whole at
+// `<namespace>-<manifest name>`, and its copied manifest says so and names the pack that delivered
+// it; the pack's own manifest is untouched.
 func TestAWrappedPluginIsDeliveredUnderItsNamespace(t *testing.T) {
 	root := t.TempDir()
+	writePluginFile(t, filepath.Join(root, "pack.json"), `{"name":"kit","skills_tier":"namespaced"}`)
 	plug := filepath.Join(root, "skills", "Kit")
 	writePluginFile(t, filepath.Join(plug, ".claude-plugin", "plugin.json"), `{"name":"Kit"}`)
 	writePluginFile(t, filepath.Join(plug, "skills", "go", "SKILL.md"), "# go")

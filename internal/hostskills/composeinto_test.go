@@ -5,7 +5,6 @@ package hostskills
 // host render, over a directory yolo owns wholesale, and a reserved child never composed.
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,37 +27,29 @@ func intoSource(t *testing.T, names ...string) string {
 	return src
 }
 
-// A namespaced pack's skills land in a subtree of its own with yolo's plugin manifest, so they
-// invoke as /<pack>:<skill> — the shape the host render writes, now at the jail too.
+// A namespaced pack's skills land at `<namespace>-<skill>`, each its own top-level entry, with no
+// per-pack subtree: the namespace names them, and a Tier on the layer changes nothing about its
+// own skills (docs/design/pack-naming.md PN-D9) — the shape the host render writes, at the jail too.
 func TestComposeIntoNamespacesAPackThatAskedForIt(t *testing.T) {
 	dir := t.TempDir()
 	d := Destination{Dir: "~/.claude/skills", Layers: []Layer{
-		{Pack: "house", Tier: TierNamespaced, Description: "house rules",
+		{Pack: "house", Namespace: "house", Tier: TierNamespaced, Description: "house rules",
 			Sources: []string{intoSource(t, "review")}},
 	}}
 	got, err := ComposeInto(d, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "house", "skills", "review", "SKILL.md")); err != nil {
-		t.Errorf("the namespaced skill is not at house/skills/review: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, "house-review", "SKILL.md")); err != nil {
+		t.Errorf("the namespaced skill is not at house-review: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "review")); !os.IsNotExist(err) {
-		t.Errorf("a namespaced pack's skill was ALSO written flat (%v)", err)
+	for _, gone := range []string{"review", "house"} {
+		if _, err := os.Stat(filepath.Join(dir, gone)); !os.IsNotExist(err) {
+			t.Errorf("a namespaced pack's skill was also written at %s (%v)", gone, err)
+		}
 	}
-	var m map[string]any
-	data, err := os.ReadFile(filepath.Join(dir, "house", ".claude-plugin", "plugin.json"))
-	if err != nil {
-		t.Fatalf("no plugin manifest for the namespaced subtree: %v", err)
-	}
-	if err := json.Unmarshal(data, &m); err != nil {
-		t.Fatal(err)
-	}
-	if m["name"] != "house" || m["x-yolo-managed-by"] != yoloManagedMarker {
-		t.Errorf("the subtree's manifest = %v, want name house and yolo's marker", m)
-	}
-	if got.Taken["house"] != "house" || len(got.Taken) != 1 {
-		t.Errorf("Taken = %v, want only the pack's own subtree", got.Taken)
+	if got.Taken["house-review"] != "house" || len(got.Taken) != 1 {
+		t.Errorf("Taken = %v, want only house-review", got.Taken)
 	}
 }
 

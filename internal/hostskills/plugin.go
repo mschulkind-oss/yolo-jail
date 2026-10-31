@@ -91,9 +91,12 @@ func DeliverPlugin(req PluginRequest) ([]Result, error) {
 		}}, nil
 	}
 	// The name every later step writes under: the namespace's, or the manifest's own when bare.
+	// A bare pack's plugin keeps its author's name, with no length rule (PN-D7).
 	name = packname.Delivered(req.Namespace, name)
-	if err := packname.TooLong(name, req.Pack, "plugin"); err != nil {
-		return []Result{{Name: name, Path: req.Plugin.ManifestPath, Action: ActionRefused, Detail: err.Error()}}, nil
+	if req.Namespace != "" {
+		if err := packname.TooLong(name, req.Pack, "plugin"); err != nil {
+			return []Result{{Name: name, Path: req.Plugin.ManifestPath, Action: ActionRefused, Detail: err.Error()}}, nil
+		}
 	}
 	tier, downgrade := ProbeTier(req.Tier, req.SkillsDir, name)
 	var out []Result
@@ -225,16 +228,22 @@ func deliverPluginTree(req PluginRequest, name string) ([]Result, error) {
 // gets, and every other component refused by name.
 func deliverPluginFlat(req PluginRequest, name string) ([]Result, error) {
 	var out []Result
-	// EACH REFUSAL NAMES ITS FIX: a composed layer always asks for the whole tree (writeLayer), so
-	// reaching here means ProbeTier found a folder yolo did not write at the plugin's delivered
-	// name, and moving it is the fix. The pack's retired `skills_tier` is no longer one
-	// (docs/design/pack-naming.md PN-D9).
+	// EACH REFUSAL NAMES ITS FIX, and there are two, told apart by the tier the pack DECLARED.
+	// Flat is the pack's default (PackTier), so the fix is the pack's own opt-in; a pack that
+	// opted in and was downgraded (ProbeTier) has nothing to set, and what it has to move is the
+	// folder standing at the plugin's name.
 	//
-	// NO DOUBLE QUOTE, as in DeliverPlugin's name refusal: a launch prints this detail through
-	// run.displaySafe, which Go-quotes a line holding one.
-	why := "its delivery here as a whole plugin was downgraded to its skills alone"
-	fix := "move what is at " + filepath.Join(req.SkillsDir, name) + " elsewhere to deliver " +
-		"the plugin whole"
+	// NO DOUBLE QUOTE in either, as in DeliverPlugin's name refusal: a launch prints this detail
+	// through run.displaySafe, which Go-quotes a line holding one, so `"skills_tier"` reached the
+	// jail's output backslash-escaped, a spelling that is not JSON.
+	why := "this skills dir is flat"
+	fix := "set `skills_tier` to `namespaced` in pack " + req.Pack + "'s pack.json (at the " +
+		"pack's root) to deliver the plugin whole"
+	if req.Tier == TierNamespaced {
+		why = "its namespaced delivery here was downgraded to flat"
+		fix = "move what is at " + filepath.Join(req.SkillsDir, name) + " elsewhere to deliver " +
+			"the plugin whole"
+	}
 	// The refusals come FIRST, before the successes, because they are the part a user needs
 	// to read: a plugin whose hooks did not arrive is not the plugin they installed.
 	for _, c := range req.Plugin.Components() {

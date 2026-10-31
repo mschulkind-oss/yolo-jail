@@ -209,7 +209,7 @@ func TestFlatRefusesNonSkillComponentsByName(t *testing.T) {
 		}
 		// EVERY STOP NAMES THE NEXT STEP: the flat tier is the PACK's default, so the fix is
 		// the pack's own opt-in, in its own manifest.
-		for _, fix := range []string{"move what is at", "elsewhere to deliver the plugin whole"} {
+		for _, fix := range []string{"set `skills_tier` to `namespaced`", "pack wrapper's pack.json"} {
 			if !strings.Contains(detail, fix) {
 				t.Errorf("the refusal of %q does not name the fix (%q):\n%s", want, fix, detail)
 			}
@@ -534,7 +534,7 @@ func TestRootPluginDoesNotDeliverSkillsTwice(t *testing.T) {
 				if _, hasPack := claims[l.Pack]; hasPack {
 					t.Errorf("layerClaims claimed pack name %q when pack has no loose skills: %+v", l.Pack, claims)
 				}
-				if claims["root-plugin"].source != packRoot {
+				if c := claims["root-plugin"]; len(c) != 1 || c[0].source != packRoot {
 					t.Errorf("layerClaims missing plugin claim: %+v", claims)
 				}
 			}
@@ -554,10 +554,12 @@ func TestRootPluginDoesNotDeliverSkillsTwice(t *testing.T) {
 					count++
 				}
 			}
-			// A composed layer always delivers its wrapped plugin as a whole tree, whatever the
-			// layer's tier (docs/design/pack-naming.md PN-D9), so my-skill is inside the copied
-			// tree and never delivered as a separate flat skill.
-			if count != 0 {
+			// At TierFlat, my-skill is delivered once.
+			// At TierNamespaced, my-skill is inside the copied tree and not delivered as a separate flat skill.
+			if tier == TierFlat && count != 1 {
+				t.Errorf("my-skill appeared %d times in results, want exactly 1: %+v", count, results)
+			}
+			if tier == TierNamespaced && count != 0 {
 				t.Errorf("my-skill was delivered as loose skill at tier A (%d times), want 0 (inside tree only): %+v", count, results)
 			}
 		})

@@ -180,7 +180,7 @@ func SkillStagingName(pack string) string { return "skills-" + pack }
 func SkillPlan(sources []PackSkillSource, targets []SkillTarget) []hostskills.Destination {
 	out := make([]hostskills.Destination, 0, len(targets))
 	for _, t := range targets {
-		d := hostskills.Destination{Dir: "~/" + filepath.ToSlash(t.Dest),
+		d := hostskills.Destination{Dir: "~/" + filepath.ToSlash(t.Dest), Agent: t.Agent,
 			Reserved: append([]string(nil), t.Reserved...), ReservedNotes: t.ReservedNotes}
 		index := map[string]int{}
 		for _, src := range sources {

@@ -112,57 +112,32 @@ func TestAJailDeliversARootModWithNoSkillsFolder(t *testing.T) {
 	}
 }
 
-// A PACK WITH NO pack.json DELIVERS ITS ROOT MOD WHOLE TOO, as at the host. `skills_tier` is
-// retired (docs/design/pack-naming.md PN-D9) and a wrapped plugin is always offered as a whole
-// tree, so the bare pack whose mod once "cannot arrive" now lands at ~/.claude/skills/first-mod/
-// with its hooks module, and the launch reports no refusal for it.
-//
-// The one downgrade left, a folder yolo did not write at the plugin's delivered name, is not
-// reachable through a launch: the workspace layer, the only lower layer that could hold such a
-// folder, is shadowed by the pack instead, which the second case pins. The downgrade itself is
-// pinned at hostskills (TestFlatRefusesNonSkillComponentsByName).
+// THE FLAT DEFAULT STILL HOLDS: a pack with no pack.json is flat, and a flat skills folder can
+// carry a plugin's skills and nothing else (hostskills.deliverPluginFlat). So the mod does not
+// arrive — and the launch now SAYS so, naming the hooks that cannot and the setting that would
+// carry them, where it used to stage nothing and say nothing. The setting has to read as it
+// does at the host: a detail holding a double quote is printed Go-quoted here (displaySafe), so
+// `"skills_tier"` reached the launch as `\"skills_tier\"`.
 func TestAJailNamesAFlatRootModThatCannotArrive(t *testing.T) {
-	t.Run("delivered whole", func(t *testing.T) {
-		home := packHome(t)
-		writeUserPacks(t, home, `["claude",`+writeRootMod(t, t.TempDir(), "first-mod", "first-mod", "")+`]`)
-		staging, said := stageJailSkills(t, goldenOptions(t.TempDir(), home), "yolo-test-g10-flat")
-		dest := filepath.Join(staging, jailcontent.SkillStagingName("claude"))
-		assertModDeliveredWhole(t, dest, "first-mod")
-		if _, err := os.Stat(filepath.Join(dest, "hooks")); !os.IsNotExist(err) {
-			t.Errorf("the mod spilled its hooks/ into the jail's skills folder itself (%v)", err)
+	home := packHome(t)
+	writeUserPacks(t, home, `["claude",`+writeRootMod(t, t.TempDir(), "first-mod", "first-mod", "")+`]`)
+	staging, said := stageJailSkills(t, goldenOptions(t.TempDir(), home), "yolo-test-g10-flat")
+	dest := filepath.Join(staging, jailcontent.SkillStagingName("claude"))
+	if _, err := os.Stat(filepath.Join(dest, "first-mod")); !os.IsNotExist(err) {
+		t.Errorf("a flat pack's mod was copied whole into the jail's skills folder (%v)", err)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "hooks")); !os.IsNotExist(err) {
+		t.Errorf("a flat pack's mod spilled its hooks/ into the jail's skills folder (%v)", err)
+	}
+	for _, want := range []string{"Skills:", "first-mod:hooks", "cannot arrive", "~/.claude/skills",
+		"set `skills_tier` to `namespaced` in pack first-mod's pack.json"} {
+		if !strings.Contains(said, want) {
+			t.Errorf("the launch did not say %q about the mod a flat pack cannot deliver:\n%s", want, said)
 		}
-		for _, gone := range []string{"cannot arrive", "skills_tier"} {
-			if strings.Contains(said, gone) {
-				t.Errorf("a mod delivered whole was still reported with %q:\n%s", gone, said)
-			}
-		}
-	})
-	t.Run("a workspace folder at its name is shadowed, not a downgrade", func(t *testing.T) {
-		home := packHome(t)
-		writeUserPacks(t, home, `["claude",`+writeRootMod(t, t.TempDir(), "first-mod", "first-mod", "")+`]`)
-		ws := t.TempDir()
-		foreign := filepath.Join(ws, ".agents", "skills", "first-mod", "SKILL.md")
-		if err := os.MkdirAll(filepath.Dir(foreign), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(foreign, []byte("WORKSPACE"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		staging, said := stageJailSkills(t, goldenOptions(ws, home), "yolo-test-g10-shadowed")
-		dest := filepath.Join(staging, jailcontent.SkillStagingName("claude"))
-		assertModDeliveredWhole(t, dest, "first-mod")
-		if _, err := os.Stat(filepath.Join(dest, "first-mod", "SKILL.md")); !os.IsNotExist(err) {
-			t.Errorf("the workspace's folder was merged into the delivered mod (%v)", err)
-		}
-		if !strings.Contains(said, `"first-mod" from .agents/skills is shadowed by pack first-mod's skill`) {
-			t.Errorf("the workspace folder the mod displaced was not reported as shadowed:\n%s", said)
-		}
-		for _, gone := range []string{"cannot arrive", "skills_tier"} {
-			if strings.Contains(said, gone) {
-				t.Errorf("a mod delivered whole was still reported with %q:\n%s", gone, said)
-			}
-		}
-	})
+	}
+	if strings.Contains(said, `\"`) {
+		t.Errorf("the launch printed a refusal Go-quoted, its fix backslash-escaped:\n%s", said)
+	}
 }
 
 // Copy the actual test binary outside cmd/go's work tree and invoke the real two-subtest caller in
