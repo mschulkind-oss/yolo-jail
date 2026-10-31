@@ -46,6 +46,9 @@ var convergenceExemptions = map[string]string{
 	// of the user's config entries are inline loopholes over those packs (HostInlineLoopholes),
 	// never through the process-wide record.
 	"internal/cli/run/hostdoorwaysets.go": "the host apply's own selection, projected as hostdoorways.go projects the launch's",
+	// Not loophole discovery at all: configmigrate.Discover reads the config-file include graph a
+	// `yolo config migrate` converts, and the textual scan cannot tell the two names apart.
+	"internal/configmigrate/apply.go": "configmigrate.Discover, the config-file include graph, not loopholes.Discover",
 }
 
 // skippedTopLevelDirs are the repo-root subtrees the walker does not read, each because it
