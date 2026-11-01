@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/configdoc"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -63,11 +64,28 @@ func appendReadablePath(path []string, key string) []string {
 	return append(out, key)
 }
 
+// readableSchemaRules is ReadableSchemaKeys with each path split, built once: the schema is
+// static, and a config read looks up every key it holds, so rebuilding it per key made reading a
+// large config take seconds.
+var readableSchemaRules = sync.OnceValue(func() []readableSchemaRuleEntry {
+	keys := ReadableSchemaKeys()
+	out := make([]readableSchemaRuleEntry, len(keys))
+	for i, key := range keys {
+		out[i] = readableSchemaRuleEntry{key: key, parts: strings.Split(key.Path, ".")}
+	}
+	return out
+})
+
+type readableSchemaRuleEntry struct {
+	key   SchemaKey
+	parts []string
+}
+
 func readableSchemaRule(path []string) (SchemaKey, bool) {
 	var selected SchemaKey
 	selectedWildcards := int(^uint(0) >> 1)
-	for _, rule := range ReadableSchemaKeys() {
-		parts := strings.Split(rule.Path, ".")
+	for _, entry := range readableSchemaRules() {
+		rule, parts := entry.key, entry.parts
 		if len(parts) != len(path) {
 			continue
 		}
