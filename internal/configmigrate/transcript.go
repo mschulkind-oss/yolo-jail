@@ -41,11 +41,13 @@ func (p *MigrationPlan) Transcript() string {
 		for _, tw := range t.Twins {
 			fmt.Fprintf(&b, "  %q: written as twin_of %q, the row whose id it sends\n", tw.Path, tw.Of)
 		}
-		if t.Link != nil {
-			fmt.Fprintf(&b, "  the symlink %s is renamed to %s\n", t.Link.Old, t.Link.Path)
-		}
 	}
 	b.WriteString("\n")
+	// A linked file is never written through: said once, standing alone, before anything else
+	// the plan concludes (RC-D41).
+	if w := LinkWarning(p.Graph.Linked()); w != "" {
+		b.WriteString(w + "\n\n")
+	}
 	if !p.Equal {
 		b.WriteString((&InequalityError{Plan: p}).Error())
 		b.WriteString("\n")

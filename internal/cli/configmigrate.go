@@ -110,6 +110,7 @@ func configMigrate(args []string, in io.Reader, interactive bool, out, errw io.W
 		}
 		fmt.Fprintf(out, "Finished the migration that stopped part way. Converted: %s; originals kept as %s.\n",
 			strings.Join(shownPaths(workspace, res.Written), ", "), strings.Join(shownPaths(workspace, res.Backups), ", "))
+		printLinks(out, workspace, res.Links)
 		printPackRecords(out, res.PackRecords)
 	} else if !dryRun {
 		// A converted file staged by a run killed before its journal is a hidden copy of private
@@ -161,10 +162,7 @@ func configMigrate(args []string, in io.Reader, interactive bool, out, errw io.W
 	}
 	// Every change is named here, so the closing line can say nothing else changed (RC-D34).
 	fmt.Fprintf(out, "Converted: %s.\n", strings.Join(result.Written, ", "))
-	for _, l := range result.Links {
-		shown := shownPaths(workspace, []string{l.From, l.To})
-		fmt.Fprintf(out, "Renamed the symlink %s to %s; if a dotfiles manager made it, you may need to update that too.\n", shown[0], shown[1])
-	}
+	printLinks(out, workspace, result.Links)
 	if len(result.Backups) > 0 {
 		fmt.Fprintf(out, "Kept the %s as %s; delete %s once the new files work for you.\n",
 			plural(len(result.Backups), "original", "originals"), strings.Join(shownPaths(workspace, result.Backups), ", "),
@@ -204,6 +202,15 @@ func keptUserBackup(backups []string) bool {
 }
 
 // printPackRecords names each record of a renamed pack that moved to the pack's new name.
+// printLinks says, for each symlink a migration moved aside, that its target was not changed and
+// that a dotfiles manager needs the new file copied in by hand (RC-D41).
+func printLinks(out io.Writer, workspace string, links []configmigrate.LinkedFile) {
+	for _, l := range links {
+		shown := shownPaths(workspace, []string{l.Link, l.Backup, l.Target, l.New})
+		fmt.Fprintln(out, configmigrate.LinkReport(configmigrate.LinkedFile{Link: shown[0], Backup: shown[1], Target: shown[2], New: shown[3]}))
+	}
+}
+
 func printPackRecords(out io.Writer, moved []string) {
 	if len(moved) == 0 {
 		return

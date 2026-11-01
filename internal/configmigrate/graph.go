@@ -294,11 +294,85 @@ func (g *Graph) Old() []*File {
 // config.toml.
 func (f *File) NewName() string { return twinName(filepath.Base(f.Logical)) }
 
-// IsSymlink is whether the name the file is reached by is itself a symlink, which a conversion
-// renames to NewName (RC-D41).
+// IsSymlink is whether the name the file is reached by is itself a symlink. A conversion never
+// writes through it: the link moves to its backup name and the converted file is a regular file
+// beside it (RC-D41).
 func (f *File) IsSymlink() bool {
 	info, err := os.Lstat(f.Logical)
 	return err == nil && info.Mode()&os.ModeSymlink != 0
+}
+
+// oldPath is the name a conversion moves to its backup: the physical file, or for a linked name
+// the link itself (its directory resolved), never the file it points at.
+func (f *File) oldPath() string {
+	if f.IsSymlink() {
+		return filepath.Join(resolvedDir(f.Logical), filepath.Base(f.Logical))
+	}
+	return f.Physical
+}
+
+// newPath is where the file is once the migration is done: a converted file's twin beside
+// oldPath, a respelled file at oldPath, and any other file where it is.
+func (f *File) newPath() string {
+	switch f.Role {
+	case RoleConvert:
+		return twinPath(f.oldPath())
+	case RoleRespell:
+		return f.oldPath()
+	}
+	return f.Physical
+}
+
+// LinkedFile is a config file reached through a symlink that a migration converts or respells:
+// Link is the user's link, moved to Backup with its text unchanged; Target is the file it points
+// at, never changed; New is the regular file written in its place (RC-D41).
+type LinkedFile struct{ Link, Backup, Target, New string }
+
+// Linked lists the files the migration writes whose names are symlinks, in discovery order.
+func (g *Graph) Linked() []LinkedFile {
+	var out []LinkedFile
+	for _, f := range g.Files {
+		if (f.Role == RoleConvert || f.Role == RoleRespell) && f.IsSymlink() {
+			out = append(out, LinkedFile{Link: f.oldPath(), Backup: f.oldPath() + ".pre-migrate", Target: f.Physical, New: f.newPath()})
+		}
+	}
+	return out
+}
+
+// LinkWarning is what is said before a migration asks, for files reached through symlinks: each
+// link and the file it points at, which is not changed, and that a dotfiles manager needs the new
+// file copied in by hand. "" without links.
+func LinkWarning(links []LinkedFile) string {
+	if len(links) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, l := range links {
+		fmt.Fprintf(&b, "%s is a link to %s. The converted file is written as a regular file at %s, and %s is not changed.\n",
+			l.Link, l.Target, l.New, l.Target)
+	}
+	if len(links) == 1 {
+		b.WriteString("If a dotfiles manager keeps this file, copy the new file into it yourself.")
+	} else {
+		b.WriteString("If a dotfiles manager keeps these files, copy the new files into it yourself.")
+	}
+	return b.String()
+}
+
+// LinkReport is the closing report's line for one moved link.
+func LinkReport(l LinkedFile) string {
+	return fmt.Sprintf("%s was a link to %s and is kept as %s. The converted file is the regular file %s, and %s was not changed; "+
+		"if a dotfiles manager keeps it, copy the new file into it yourself.", l.Link, l.Target, l.Backup, l.New, l.Target)
+}
+
+// resolvedDir is path's directory with every symlink in it resolved.
+func resolvedDir(path string) string {
+	dir, err := filepath.EvalSymlinks(filepath.Dir(path))
+	if err != nil {
+		return filepath.Dir(path)
+	}
+	abs, _ := filepath.Abs(dir)
+	return abs
 }
 
 // twinName is a file name's TOML twin: config.jsonc → config.toml.

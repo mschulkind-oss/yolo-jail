@@ -26,9 +26,9 @@ type Ignore struct {
 }
 
 // planIgnores decides an Ignore for each name a migration makes from an old one: the converted
-// physical file, the link beside a linked old name, and the <name>.pre-migrate backup of every
-// file it replaces (RC-D34: a backup holds the same private bytes its original did). The rule is
-// git's own answer for the old and new name, so it covers every such file, not a list of names.
+// file and the <name>.pre-migrate backup of every file it replaces (RC-D34: a backup holds the
+// same private bytes its original did; for a linked name, the moved link). The rule is git's own
+// answer for the old and new name, so it covers every such file, not a list of names.
 func planIgnores(g *Graph, targets []Target) []Ignore {
 	var out []Ignore
 	type pair struct {
@@ -40,10 +40,7 @@ func planIgnores(g *Graph, targets []Target) []Ignore {
 	for _, t := range targets {
 		var pairs []pair
 		if t.New != t.Old {
-			pairs = append(pairs, pair{t.Old, t.New, t.Link == nil})
-			if t.Link != nil {
-				pairs = append(pairs, pair{t.Link.Old, t.Link.Path, true})
-			}
+			pairs = append(pairs, pair{t.Old, t.New, true})
 		}
 		pairs = append(pairs, pair{t.Old, t.Backup, true})
 		for _, pr := range pairs {

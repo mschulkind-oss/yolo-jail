@@ -29,8 +29,9 @@ var ErrInterrupted = errors.New("the migration stopped part way")
 type ApplyResult struct {
 	// Written are the new files; Backups the originals kept as <name>.pre-migrate.
 	Written, Backups []string
-	// Links are the user's symlinks renamed to their new names (RC-D41).
-	Links []LinkMove
+	// Links are the user's symlinks moved to their backup names, each with the file it points at,
+	// which was not changed, and the regular file written in its place (RC-D41).
+	Links []LinkedFile
 	// Records are the records only yolo reads, each with what was done to it.
 	Records []Record
 	// PackRecords name each record of a renamed pack moved to its new name.
@@ -38,9 +39,6 @@ type ApplyResult struct {
 	// Ignores are the plan's Ignores, each marked Done or carrying its hint.
 	Ignores []Ignore
 }
-
-// LinkMove is a user's symlink renamed by a conversion: From is the old name, To the new one.
-type LinkMove struct{ From, To string }
 
 // Apply carries out a plan that proved equal and that the launch's config gate accepted (RC-D44).
 // It never rewrites an original's bytes and never restores one (RC-D45; config-migration.md, the commit
@@ -198,22 +196,14 @@ func commitSteps(targets []Target) []commitStep {
 		switch {
 		case t.New == t.Old:
 			middle = append(middle, commitStep{Kind: stepReplace, From: staged, To: t.Old, Backup: t.Backup,
-				Hash: hashOf(t.Bytes), OldHash: hashOf(t.File.Bytes)})
+				Hash: hashOf(t.Bytes), OldHash: hashOf(t.File.Bytes), Text: t.LinkText})
 		case isTop(t):
-			middle = append(middle, commitStep{Kind: stepPlace, From: staged, To: t.New, Hash: hashOf(t.Bytes)})
-			if t.Link != nil {
-				middle = append(middle,
-					commitStep{Kind: stepLink, To: t.Link.Path, Text: t.Link.Target},
-					commitStep{Kind: stepUnlink, To: t.Link.Old, Text: t.Link.Text})
-			}
-			middle = append(middle, commitStep{Kind: stepBackup, From: t.Old, To: t.Backup, Hash: hashOf(t.File.Bytes)})
+			middle = append(middle,
+				commitStep{Kind: stepPlace, From: staged, To: t.New, Hash: hashOf(t.Bytes)},
+				commitStep{Kind: stepBackup, From: t.Old, To: t.Backup, Hash: hashOf(t.File.Bytes), Text: t.LinkText})
 		default:
 			first = append(first, commitStep{Kind: stepPlace, From: staged, To: t.New, Hash: hashOf(t.Bytes)})
-			if t.Link != nil {
-				first = append(first, commitStep{Kind: stepLink, To: t.Link.Path, Text: t.Link.Target})
-				last = append(last, commitStep{Kind: stepUnlink, To: t.Link.Old, Text: t.Link.Text})
-			}
-			last = append(last, commitStep{Kind: stepBackup, From: t.Old, To: t.Backup, Hash: hashOf(t.File.Bytes)})
+			last = append(last, commitStep{Kind: stepBackup, From: t.Old, To: t.Backup, Hash: hashOf(t.File.Bytes), Text: t.LinkText})
 		}
 	}
 	return append(append(first, middle...), last...)
@@ -273,9 +263,6 @@ func lockTargets(targets []Target) (func(), error) {
 	dirSet := map[string]bool{}
 	for _, t := range targets {
 		dirSet[filepath.Dir(t.Old)] = true
-		if t.Link != nil {
-			dirSet[filepath.Dir(t.Link.Path)] = true
-		}
 	}
 	return lockDirs(sortedKeys(dirSet))
 }

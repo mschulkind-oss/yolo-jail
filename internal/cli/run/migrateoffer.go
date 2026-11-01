@@ -88,12 +88,8 @@ func (o *Options) offerConfigMigration() bool {
 		return true
 	}
 	names := make([]string, len(old))
-	var links, linkNews []string
 	for i, f := range old {
 		names[i] = f.Logical
-		if f.IsSymlink() {
-			links, linkNews = append(links, filepath.Base(f.Logical)), append(linkNews, f.NewName())
-		}
 	}
 	stop := ""
 	if hasLegacyUser {
@@ -130,11 +126,11 @@ func (o *Options) offerConfigMigration() bool {
 		pr.print("  Stop asking:  " + stop)
 	}
 	pr.print("")
-	// A linked file is renamed with the rest, and whatever made the link may not know (RC-D41).
-	if len(links) > 0 {
-		pr.printf("%s; %s renamed to %s. If a dotfiles manager made %s, you may need to update that too.",
-			plural(len(links), richtext.Escape(links[0])+" is a symlink", richtext.Escape(joinAnd(links))+" are symlinks"),
-			plural(len(links), "it will be", "they will be"), richtext.Escape(joinAnd(linkNews)), plural(len(links), "it", "them"))
+	// A linked file is never written through: the link moves aside, a regular file takes its
+	// place, and the file it points at is not changed, so a dotfiles manager needs the new file
+	// copied in by hand (RC-D41).
+	if w := configmigrate.LinkWarning(graph.Linked()); w != "" {
+		pr.print(richtext.Escape(w))
 		pr.print("")
 	}
 	// A path pack converted to its readable handle is renamed, and that is said before the
@@ -181,8 +177,7 @@ func (o *Options) offerConfigMigration() bool {
 	pr.printf("Converted. The %s next to the new %s, as %s.", plural(len(backups), "original is", "originals are"),
 		plural(len(backups), "file", "files"), richtext.Escape(joinAnd(backups)))
 	for _, l := range res.Links {
-		pr.printf("%s was a symlink and is now %s; if a dotfiles manager made it, you may need to update that too.",
-			richtext.Escape(filepath.Base(l.From)), richtext.Escape(filepath.Base(l.To)))
+		pr.print(richtext.Escape(configmigrate.LinkReport(l)))
 	}
 	for _, ig := range res.Ignores {
 		pr.print(richtext.Escape(ig.Report(o.Workspace)))

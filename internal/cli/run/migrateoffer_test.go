@@ -241,15 +241,17 @@ func TestAConversionThatChangesMeaningIsReportedAsABug(t *testing.T) {
 	}
 }
 
-// A linked user config is named before the question, set apart by a blank line on each side, and
-// renamed with the rest; the closing report says so again (RC-D41).
+// A linked user config is named before the question, set apart by a blank line on each side: the
+// link moves aside, the converted file is a regular file, and the file the link points at is not
+// changed. The closing report says so again (RC-D41, the owner's ruling of 2026-11-01).
 func TestLaunchOfferWarnsAboutASymlinkBeforeTheQuestion(t *testing.T) {
+	var dir, link string
 	l := runOfferLaunchWith(t, oldUserConfig, true, "y\n", func(o *Options) {
-		dir := filepath.Join(filepath.Dir(o.Workspace), "dotfiles")
+		dir = filepath.Join(filepath.Dir(o.Workspace), "dotfiles")
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		link := filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail", "config.jsonc")
+		link = filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail", "config.jsonc")
 		if err := os.Rename(link, filepath.Join(dir, "config.jsonc")); err != nil {
 			t.Fatal(err)
 		}
@@ -259,22 +261,31 @@ func TestLaunchOfferWarnsAboutASymlinkBeforeTheQuestion(t *testing.T) {
 	})
 	l.mustLaunch(t)
 	s := l.stderr.String()
-	warning := "config.jsonc is a symlink; it will be renamed to config.toml. If a dotfiles manager made it, you may need to update that too.\n\nConvert to TOML now?"
+	target, toml := filepath.Join(dir, "config.jsonc"), filepath.Join(l.userDir, "config.toml")
+	warning := link + " is a link to " + target + ". The converted file is written as a regular file at " + toml + ", and " + target + " is not changed.\n" +
+		"If a dotfiles manager keeps this file, copy the new file into it yourself.\n\nConvert to TOML now?"
 	if !strings.Contains(s, warning) || !strings.Contains(s, "Stop asking:") || strings.Index(s, "Stop asking:") > strings.Index(s, warning) {
 		t.Fatalf("the warning is not after Stop asking and a blank line before the question:\n%s", s)
 	}
-	if !strings.Contains(s, "config.jsonc was a symlink and is now config.toml; if a dotfiles manager made it, you may need to update that too.") {
-		t.Errorf("the closing report does not name the renamed link:\n%s", s)
+	if !strings.Contains(s, link+" was a link to "+target+" and is kept as "+link+".pre-migrate. The converted file is the regular file "+toml+
+		", and "+target+" was not changed; if a dotfiles manager keeps it, copy the new file into it yourself.") {
+		t.Errorf("the closing report does not name the moved link:\n%s", s)
 	}
-	if info, err := os.Lstat(filepath.Join(l.userDir, "config.toml")); err != nil || info.Mode()&os.ModeSymlink == 0 || l.exists("config.jsonc") {
-		t.Fatalf("the link was not renamed (config.toml: %v, config.jsonc still there: %v)", err, l.exists("config.jsonc"))
+	if info, err := os.Lstat(toml); err != nil || !info.Mode().IsRegular() || l.exists("config.jsonc") {
+		t.Fatalf("config.toml is not a regular file in place of the link (config.toml: %v, config.jsonc still there: %v)", err, l.exists("config.jsonc"))
+	}
+	if text, err := os.Readlink(link + ".pre-migrate"); err != nil || text != target {
+		t.Fatalf("config.jsonc.pre-migrate = %q (%v), want the original link", text, err)
+	}
+	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 1 {
+		t.Fatalf("the dotfiles directory changed: %v (%v)", entries, err)
 	}
 }
 
 // With no linked file there is no warning.
 func TestLaunchOfferHasNoSymlinkWarningWithoutALink(t *testing.T) {
 	l := runOfferLaunch(t, oldUserConfig, true, "n\n")
-	if s := l.stderr.String(); strings.Contains(s, "symlink") {
+	if s := l.stderr.String(); strings.Contains(s, "is a link to") || strings.Contains(s, "dotfiles manager") {
 		t.Fatalf("a launch with no linked file warned about one:\n%s", s)
 	}
 }

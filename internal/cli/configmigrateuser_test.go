@@ -104,23 +104,44 @@ func TestConfigMigrateDoesNotInventAKeyBesideAnUnconvertedOne(t *testing.T) {
 	}
 }
 
-// A linked user config is renamed to its new name, and the report says so with the dotfiles
-// warning (RC-D41).
-func TestConfigMigrateReportsARenamedSymlink(t *testing.T) {
+// A linked user config is never written through: the link moves to config.jsonc.pre-migrate,
+// config.toml is a regular file, the dotfiles copy is untouched, and the plan and the closing
+// report both say so (RC-D41, the owner's ruling of 2026-11-01).
+func TestConfigMigrateMovesALinkAndLeavesItsTarget(t *testing.T) {
 	e := newMigrateEnv(t)
 	dots := filepath.Join(filepath.Dir(e.userDir), "dotfiles")
-	writeMigrateFile(t, filepath.Join(dots, "config.jsonc"), `{"packs": []}`)
-	if err := os.Symlink(filepath.Join(dots, "config.jsonc"), filepath.Join(e.userDir, "config.jsonc")); err != nil {
+	target := filepath.Join(dots, "config.jsonc")
+	writeMigrateFile(t, target, `{"packs": []}`)
+	link := filepath.Join(e.userDir, "config.jsonc")
+	if err := os.Symlink(target, link); err != nil {
 		t.Fatal(err)
 	}
 	rc, stdout, stderr := runConfigMigrateVerb(t, "--yes")
 	if rc != 0 {
 		t.Fatalf("rc=%d\n%s%s", rc, stdout, stderr)
 	}
-	if !strings.Contains(stdout, "Renamed the symlink ") || !strings.Contains(stdout, "if a dotfiles manager made it, you may need to update that too.") {
-		t.Fatalf("the report does not name the renamed link:\n%s", stdout)
+	toml := filepath.Join(e.userDir, "config.toml")
+	before := link + " is a link to " + target + ". The converted file is written as a regular file at " + toml + ", and " + target + " is not changed.\n" +
+		"If a dotfiles manager keeps this file, copy the new file into it yourself.\n"
+	if !strings.Contains(stdout, before) {
+		t.Fatalf("the plan does not warn about the link:\n%s", stdout)
 	}
-	if info, err := os.Lstat(filepath.Join(e.userDir, "config.toml")); err != nil || info.Mode()&os.ModeSymlink == 0 {
-		t.Fatalf("config.toml is not the renamed link: %v", err)
+	after := link + " was a link to " + target + " and is kept as " + link + ".pre-migrate. The converted file is the regular file " + toml +
+		", and " + target + " was not changed; if a dotfiles manager keeps it, copy the new file into it yourself.\n"
+	if !strings.Contains(stdout, after) {
+		t.Fatalf("the report does not name the moved link:\n%s", stdout)
+	}
+	if info, err := os.Lstat(toml); err != nil || !info.Mode().IsRegular() {
+		t.Fatalf("config.toml is not a regular file: %v", err)
+	}
+	if text, err := os.Readlink(link + ".pre-migrate"); err != nil || text != target {
+		t.Fatalf("config.jsonc.pre-migrate = %q (%v), want the original link", text, err)
+	}
+	entries, err := os.ReadDir(dots)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("the dotfiles directory changed: %v (%v)", entries, err)
+	}
+	if b, _ := os.ReadFile(target); string(b) != `{"packs": []}` {
+		t.Fatalf("the link's target changed: %q", b)
 	}
 }

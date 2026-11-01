@@ -19,14 +19,12 @@ import (
 const (
 	// stepPlace moves a staged converted file From to its name To.
 	stepPlace = "place"
-	// stepLink makes the symlink To with text Text beside a linked old name.
-	stepLink = "link"
-	// stepUnlink removes the user's old symlink To, whose text is Text.
-	stepUnlink = "unlink"
-	// stepBackup moves the original From to To, its <name>.pre-migrate.
+	// stepBackup moves the original From to To, its <name>.pre-migrate. When From is the user's
+	// symlink (Text set), the link itself moves, its text unchanged, and the file it points at is
+	// never touched (RC-D41).
 	stepBackup = "backup"
-	// stepReplace keeps the original To as Backup (a hard link: the original's inode, untouched)
-	// and renames the staged file From over To's name.
+	// stepReplace keeps the original To as Backup (a hard link: the original's inode, untouched;
+	// for a symlink, the same link text) and renames the staged file From over To's name.
 	stepReplace = "replace"
 )
 
@@ -36,7 +34,8 @@ type commitStep struct {
 	From   string `json:"from,omitempty"`
 	To     string `json:"to"`
 	Backup string `json:"backup,omitempty"`
-	Text   string `json:"text,omitempty"`
+	// Text is the original's symlink text when the original name is a link, "" otherwise.
+	Text string `json:"text,omitempty"`
 	// Hash is the sha256 of the bytes the step moves into place (place, replace) or keeps
 	// (backup); OldHash the original's, for replace.
 	Hash    string `json:"hash,omitempty"`
@@ -47,10 +46,6 @@ func (s commitStep) String() string {
 	switch s.Kind {
 	case stepPlace:
 		return "placing " + s.To
-	case stepLink:
-		return "linking " + s.To
-	case stepUnlink:
-		return "removing the old link " + s.To
 	case stepBackup:
 		return "keeping " + s.From + " as " + s.To
 	case stepReplace:
@@ -183,14 +178,29 @@ func (j *migrationJournal) result(res *ApplyResult) {
 			res.Backups = append(res.Backups, s.Backup)
 		case stepBackup:
 			res.Backups = append(res.Backups, s.To)
-		case stepUnlink:
-			for _, l := range j.Steps {
-				if l.Kind == stepLink && filepath.Dir(l.To) == filepath.Dir(s.To) && twinName(filepath.Base(s.To)) == filepath.Base(l.To) {
-					res.Links = append(res.Links, LinkMove{From: s.To, To: l.To})
-				}
-			}
+		}
+		if s.Text == "" {
+			continue
+		}
+		switch s.Kind {
+		case stepBackup:
+			res.Links = append(res.Links, LinkedFile{Link: s.From, Backup: s.To, Target: linkTarget(s.To, s.Text), New: twinPath(s.From)})
+		case stepReplace:
+			res.Links = append(res.Links, LinkedFile{Link: s.To, Backup: s.Backup, Target: linkTarget(s.Backup, s.Text), New: s.To})
 		}
 	}
+}
+
+// linkTarget is the file the link at path, whose text is text, points at: every link resolved,
+// or the text joined to the link's directory when it no longer resolves.
+func linkTarget(path, text string) string {
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return resolved
+	}
+	if filepath.IsAbs(text) {
+		return text
+	}
+	return filepath.Join(filepath.Dir(path), text)
 }
 
 func hashOf(b []byte) string {
@@ -211,6 +221,37 @@ func hashFile(path string) (string, error) {
 }
 
 func lexists(path string) bool { _, err := os.Lstat(path); return err == nil }
+
+// moveLink moves the user's symlink from to the name to, its text unchanged: the link is made at
+// to (which must not exist, or already be that link), then from is removed. Nothing is read or
+// written through it, so the file it points at is never touched. Run again over a state a kill
+// left inside it, it finishes the move or finds it made.
+func moveLink(from, to, text string) error {
+	kept, err := os.Readlink(to)
+	switch {
+	case err == nil && kept != text:
+		return fmt.Errorf("%s exists and is not the link to %s", to, text)
+	case err != nil && lexists(to):
+		return fmt.Errorf("%s exists and is not the link to %s", to, text)
+	case err != nil:
+		if have, err := os.Readlink(from); err != nil || have != text {
+			return fmt.Errorf("%s is no longer the link to %s", from, text)
+		}
+		if err := os.Symlink(text, to); err != nil {
+			return err
+		}
+	}
+	if have, err := os.Readlink(from); err == nil {
+		if have != text {
+			return fmt.Errorf("%s now points at %s, not %s", from, have, text)
+		}
+		return os.Remove(from)
+	}
+	if lexists(from) {
+		return fmt.Errorf("%s is no longer the link to %s", from, text)
+	}
+	return nil
+}
 
 // do makes the move, or finishes it, or finds it made.
 func (s commitStep) do() error {
@@ -233,30 +274,10 @@ func (s commitStep) do() error {
 			return fmt.Errorf("the converted file staged as %s is missing or changed", s.From)
 		}
 		return renameNoReplace(s.From, s.To)
-	case stepLink:
-		if text, err := os.Readlink(s.To); err == nil {
-			if text == s.Text {
-				return nil
-			}
-			return fmt.Errorf("%s is a symlink to %s, not to %s", s.To, text, s.Text)
-		}
-		if lexists(s.To) {
-			return fmt.Errorf("%s exists and is not the symlink to %s", s.To, s.Text)
-		}
-		return os.Symlink(s.Text, s.To)
-	case stepUnlink:
-		text, err := os.Readlink(s.To)
-		if err != nil {
-			if !lexists(s.To) {
-				return nil
-			}
-			return fmt.Errorf("%s is no longer the symlink to %s", s.To, s.Text)
-		}
-		if text != s.Text {
-			return fmt.Errorf("%s now points at %s, not %s", s.To, text, s.Text)
-		}
-		return os.Remove(s.To)
 	case stepBackup:
+		if s.Text != "" {
+			return moveLink(s.From, s.To, s.Text)
+		}
 		kept, err := hashFile(s.To)
 		if err != nil {
 			return err
@@ -282,30 +303,49 @@ func (s commitStep) do() error {
 		}
 		return nil
 	case stepReplace:
+		// have reads through a link: the file it points at is read, never written.
 		have, err := hashFile(s.To)
 		if err != nil {
 			return err
 		}
-		kept, err := hashFile(s.Backup)
-		if err != nil {
-			return err
+		var keptOK bool
+		if s.Text != "" {
+			text, err := os.Readlink(s.Backup)
+			keptOK = err == nil && text == s.Text
+		} else {
+			kept, err := hashFile(s.Backup)
+			if err != nil {
+				return err
+			}
+			keptOK = kept == s.OldHash
 		}
-		if have == s.Hash && kept == s.OldHash {
+		if have == s.Hash && keptOK {
 			if lexists(s.From) {
 				return os.Remove(s.From)
 			}
 			return nil
 		}
-		if kept != s.OldHash {
+		if !keptOK {
 			if lexists(s.Backup) {
 				return fmt.Errorf("%s exists and is not the original %s", s.Backup, s.To)
 			}
 			if have != s.OldHash {
 				return fmt.Errorf("%s changed since the migration was planned", s.To)
 			}
-			if err := os.Link(s.To, s.Backup); err != nil {
+			if s.Text != "" {
+				// The link is kept under its backup name with the same text; the rename below
+				// then replaces the old name with a regular file, and its target is untouched.
+				if text, err := os.Readlink(s.To); err != nil || text != s.Text {
+					return fmt.Errorf("%s is no longer the link to %s", s.To, s.Text)
+				}
+				if err := os.Symlink(s.Text, s.Backup); err != nil {
+					return err
+				}
+			} else if err := os.Link(s.To, s.Backup); err != nil {
 				return err
 			}
+		} else if have != s.OldHash {
+			return fmt.Errorf("%s changed since the migration was planned", s.To)
 		}
 		if staged, err := hashFile(s.From); err != nil || staged != s.Hash {
 			return fmt.Errorf("the converted file staged as %s is missing or changed", s.From)

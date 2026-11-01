@@ -14,27 +14,19 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
-// Link is a symlink a migration moves so a name the user linked keeps reaching its file: the old
-// link is replaced by its twin, which points at the new file (readable-config-plan.md §6
-// "Symlink writes"; RC-D41). Left in place it would name the original's backup.
-type Link struct {
-	// Path is the new link, the old link's twin; Target is its text, the old link's text respelled.
-	Path, Target string
-	// Old is the user's link, removed once its twin is made; Text is its text, for the undo.
-	Old, Text string
-}
-
 // Target is one file a plan writes.
 type Target struct {
 	File *File
-	// Old is the physical file read; New is the physical file written (Old's .toml twin for a
-	// conversion, Old itself for a respelled TOML file).
+	// Old is the name moved aside: the physical file, or for a name that is a symlink the link
+	// itself, never the file it points at (RC-D41). New is the regular file written (Old's .toml
+	// twin for a conversion, Old itself for a respelled TOML file).
 	Old, New string
 	// Backup is where the original is kept: Old + ".pre-migrate".
 	Backup string
-	// Link is the symlink made beside a linked old name, nil when none is needed.
-	Link  *Link
-	Bytes []byte
+	// LinkText is the text of the symlink Old, which Backup keeps unchanged; "" when Old is a
+	// regular file.
+	LinkText string
+	Bytes    []byte
 	// Comments is how many comments of the old file the new one carries.
 	Comments int
 	// Respelled are the include entries rewritten to their twins.
@@ -409,54 +401,12 @@ func convertFile(f *File, remotes []string, view *userView, writers writerCounts
 	if err != nil {
 		return Target{}, nil, fmt.Errorf("%s: %w", f.Logical, err)
 	}
-	t := Target{File: f, Old: f.Physical, New: twinPath(f.Physical), Backup: f.Physical + ".pre-migrate",
-		Bytes: data, Comments: len(comments), Respelled: respelled, Dropped: dropped, Folded: folded, Twins: l.twins}
-	link, err := linkFor(f)
+	t, err := targetFor(f)
 	if err != nil {
 		return Target{}, nil, err
 	}
-	t.Link = link
+	t.Bytes, t.Comments, t.Respelled, t.Dropped, t.Folded, t.Twins = data, len(comments), respelled, dropped, folded, l.twins
 	return t, l.skipped, nil
-}
-
-// linkFor plans the twin of a symlinked old name. A link to a link is refused: which of the two
-// a twin should copy is not something a migration can know.
-func linkFor(f *File) (*Link, error) {
-	info, err := os.Lstat(f.Logical)
-	if err != nil {
-		return nil, err
-	}
-	if info.Mode()&os.ModeSymlink == 0 {
-		if filepath.Dir(f.Physical) != resolvedDir(f.Logical) {
-			return nil, fmt.Errorf("%s does not resolve beside its own name; point its link at the file itself, then run `yolo config migrate` again", f.Logical)
-		}
-		return nil, nil
-	}
-	text, err := os.Readlink(f.Logical)
-	if err != nil {
-		return nil, err
-	}
-	hop := text
-	if !filepath.IsAbs(hop) {
-		hop = filepath.Join(filepath.Dir(f.Logical), hop)
-	}
-	if hopInfo, err := os.Lstat(hop); err != nil || hopInfo.Mode()&os.ModeSymlink != 0 {
-		return nil, fmt.Errorf("%s is a link to another link; point it at %s itself, then run `yolo config migrate` again", f.Logical, f.Physical)
-	}
-	newTarget := filepath.Join(filepath.Dir(text), twinName(filepath.Base(text)))
-	if !filepath.IsAbs(text) && !strings.HasPrefix(text, "."+string(filepath.Separator)) && filepath.Dir(text) == "." {
-		newTarget = twinName(text)
-	}
-	return &Link{Path: twinPath(f.Logical), Target: newTarget, Old: f.Logical, Text: text}, nil
-}
-
-func resolvedDir(path string) string {
-	dir, err := filepath.EvalSymlinks(filepath.Dir(path))
-	if err != nil {
-		return filepath.Dir(path)
-	}
-	abs, _ := filepath.Abs(dir)
-	return abs
 }
 
 // respellFile rewrites a TOML file's include entries that name a converted file, byte for byte
@@ -488,8 +438,42 @@ func respellFile(f *File) (Target, error) {
 	for _, s := range splices {
 		data = append(data[:s.span.Start:s.span.Start], append(append([]byte(nil), s.text...), data[s.span.End:]...)...)
 	}
-	return Target{File: f, Old: f.Physical, New: f.Physical, Backup: f.Physical + ".pre-migrate", Bytes: data,
-		Comments: len(f.doc.Index.Comments()), Respelled: respelled}, nil
+	t, err := targetFor(f)
+	if err != nil {
+		return Target{}, err
+	}
+	t.Bytes, t.Comments, t.Respelled = data, len(f.doc.Index.Comments()), respelled
+	return t, nil
+}
+
+// targetFor is where a file's migration reads, writes and keeps the original. A name that is a
+// symlink is never written through: the link moves to its backup name, its text unchanged, and
+// the converted file is a regular file beside it; the file it points at, and that file's
+// directory, are not touched (RC-D41, the owner's ruling of 2026-11-01). However many links lie
+// between, only the user's own link moves, so a link to a link needs no refusal.
+func targetFor(f *File) (Target, error) {
+	t := Target{File: f, Old: f.oldPath(), New: f.newPath()}
+	t.Backup = t.Old + ".pre-migrate"
+	if !f.IsSymlink() {
+		if filepath.Dir(f.Physical) != resolvedDir(f.Logical) {
+			return Target{}, fmt.Errorf("%s does not resolve beside its own name; point its link at the file itself, then run `yolo config migrate` again", f.Logical)
+		}
+		return t, nil
+	}
+	text, err := os.Readlink(f.Logical)
+	if err != nil {
+		return Target{}, err
+	}
+	t.LinkText = text
+	// An include's own include entries are read beside the file it physically is; written as a
+	// regular file beside the link, they would read something else.
+	if f.Via != "" && len(f.includes) > 0 && filepath.Dir(f.Physical) != filepath.Dir(t.New) {
+		return Target{}, fmt.Errorf("%s is a link to %s, and the include_if_found entries in it are read beside %s. "+
+			"The converted file is written as a regular file beside the link, where they would read something else, so nothing was changed. "+
+			"Make those entries absolute paths, or replace the link with a copy of the file, then run `yolo config migrate` again",
+			f.Logical, f.Physical, filepath.Dir(f.Physical))
+	}
+	return t, nil
 }
 
 // preflight refuses, before anything is written, every collision a write would meet.
@@ -519,14 +503,6 @@ func (p *MigrationPlan) preflight() error {
 		if exists(t.Backup) {
 			problems = append(problems, t.Backup+" already exists")
 		}
-		if t.Link != nil {
-			if err := claim(t.Link.Path, t.File.Logical); err != nil {
-				return err
-			}
-			if exists(t.Link.Path) {
-				problems = append(problems, t.Link.Path+" already exists")
-			}
-		}
 	}
 	if len(problems) > 0 {
 		return fmt.Errorf("nothing was written, because %s; move each aside (for example to <name>.backup), then run `yolo config migrate` again", strings.Join(problems, ", and "))
@@ -534,17 +510,12 @@ func (p *MigrationPlan) preflight() error {
 	return nil
 }
 
-// writeMirror stages the converted graph under root at each file's own absolute path, with links
-// wherever the reader's join of an entry differs from the file, and returns the staged user
-// top-level file and workspace.
+// writeMirror stages the converted graph under root at the path each file has once migrated
+// (File.newPath), with links wherever the reader's join of an entry reaches that file through a
+// link that will still be there, and returns the staged user top-level file and workspace.
 func writeMirror(root string, g *Graph, content map[*File][]byte) (userTop, workspace string, err error) {
 	at := func(path string) string { return filepath.Join(root, path) }
-	newPhysical := func(f *File) string {
-		if f.Role == RoleConvert {
-			return twinPath(f.Physical)
-		}
-		return f.Physical
-	}
+	newPhysical := func(f *File) string { return f.newPath() }
 	newLogical := func(f *File) string {
 		if f.Role == RoleConvert {
 			return twinPath(f.Logical)
@@ -553,6 +524,12 @@ func writeMirror(root string, g *Graph, content map[*File][]byte) (userTop, work
 	}
 	link := func(name string, f *File) error {
 		if at(name) == at(newPhysical(f)) {
+			return nil
+		}
+		// A file the migration writes is reached afterwards only by a name whose directory
+		// resolves to where it is written: a moved link is gone, and no link is made to
+		// stand in for it (RC-D41). A file it leaves alone is reached as before.
+		if f.Role != RoleRead && filepath.Join(resolvedDir(name), filepath.Base(name)) != newPhysical(f) {
 			return nil
 		}
 		if _, err := os.Lstat(at(name)); err == nil {

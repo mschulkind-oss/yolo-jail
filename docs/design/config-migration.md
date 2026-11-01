@@ -94,16 +94,18 @@ Converting keeps the original next to it, as config.jsonc.pre-migrate.
   Preview:      yolo config migrate --dry-run
   Stop asking:  add "convert_later": true to ~/.config/yolo-jail/config.jsonc
 
-config.jsonc is a symlink; it will be renamed to config.toml. If a dotfiles manager made it, you may need to update that too.
+~/.config/yolo-jail/config.jsonc is a link to ~/.dotfiles/yolo/config.jsonc. The converted file is written as a regular file at ~/.config/yolo-jail/config.toml, and ~/.dotfiles/yolo/config.jsonc is not changed.
+If a dotfiles manager keeps this file, copy the new file into it yourself.
 
 Convert to TOML now? [y/N] n
 Keeping the JSONC file for now.
 ```
 
 (`y` converts, says *"Converted. The original is next to the new file, as
-config.jsonc.pre-migrate."*, and continues the launch. The symlink line shows only when a file
-is reached through a symlink, and the closing report says it again once the link has moved
-([RC-D41](readable-config.md#RC-D41)). A setting with no TOML spelling yet is
+config.jsonc.pre-migrate."*, and continues the launch. The link lines show only when a file is
+reached through a symlink. The link itself is what moves to `config.jsonc.pre-migrate`, its text
+unchanged; nothing is written at or beside the file it points at. The closing report says it
+again for each link ([RC-D41](readable-config.md#RC-D41)). A setting with no TOML spelling yet is
 named with its next step; a conversion that would change what the config means is reported as a
 yolo bug to file. Either way nothing is changed and the launch stops, saying to run the command
 again and answer `n` to launch on the old files. With no terminal the offer is the
@@ -180,8 +182,11 @@ Upgrade with `yolo update`, or `just install` from a checkout. Nothing was start
    through the capabilities the declaring pack maps, and is proved against the grants the brokers
    resolve from each side ([RC-D42](readable-config.md#RC-D42)).
 2. **Rewrites each file where it is, and never merges.** `config.jsonc` → `config.toml`, each
-   include → its `.toml` twin with the include entries respelled; through a symlink, so the
-   dotfiles copy changes, and the link itself is renamed to the new name
+   include → its `.toml` twin with the include entries respelled. A file reached through a
+   symlink is never written through: the link itself moves to `<name>.pre-migrate`, the converted
+   file is a regular file at the new name beside the link, and the file the link points at (a
+   dotfiles copy, say) and its directory are not changed. A linked include whose own include
+   entries are read beside its target is refused, naming the fix
    ([RC-D41](readable-config.md#RC-D41)); a file it cannot reach is listed with the command to run where it can;
    each original kept as `<name>.pre-migrate`, which the output says may be deleted once the new
    files work. A renamed file whose old name git ignored and whose new name it does not is added
@@ -274,11 +279,16 @@ moves and the hash of the bytes each one carries.
 | 1. Check | Takes the directory locks, refuses a file that changed since the plan, and refuses a name already taken | Nothing changed |
 | 2. Stage | Adds a git exclude line for the staged names, writes each converted file beside its destination as `.<name>.migrate-staged`, and adds the git ignore lines | The old layout, loading exactly as before; the next `yolo config migrate`, or the launch's offer, removes the staged files |
 | 3. Journal | Writes the journal | The old layout plus the journal: the launch and `yolo check` refuse, naming `yolo config migrate` |
-| 4. Included files | Moves each converted file that only an include reads to its name, and makes its symlink twin | The old layout plus files nothing reads yet; refused as in step 3 |
-| 5. Top-level files | Respells each TOML parent: a hard link keeps the original as `<name>.pre-migrate`, then a rename puts the staged file over the name. Places each `config.toml` and `yolo-jail.toml`, then moves its original aside or removes its old symlink | Part old, part new. Between placing a top-level file and moving its original aside, the reader meets both names, and its sibling refusal names the interrupted migration rather than asking you to choose one |
-| 6. Originals | Moves each original that nothing reads any more to `<name>.pre-migrate`, and removes its old symlink | The new layout plus the journal; refused as in step 3 |
+| 4. Included files | Moves each converted file that only an include reads to its name | The old layout plus files nothing reads yet; refused as in step 3 |
+| 5. Top-level files | Respells each TOML parent: a hard link keeps the original as `<name>.pre-migrate` (for a linked parent, a link with the same text), then a rename puts the staged file over the name. Places each `config.toml` and `yolo-jail.toml`, then moves its original aside | Part old, part new. Between placing a top-level file and moving its original aside, the reader meets both names, and its sibling refusal names the interrupted migration rather than asking you to choose one |
+| 6. Originals | Moves each original that nothing reads any more to `<name>.pre-migrate` | The new layout plus the journal; refused as in step 3 |
 | 7. Pack records | Moves each renamed pack's records to its new name (item 9) | The new layout plus the journal; refused as in step 3, and the next run moves what is left |
 | 8. Done | Removes the journal, reads the written files back the way a launch reads them, and respells the records only yolo reads | The new layout, loading exactly as after; a record left unrespelled asks once at the next launch |
+
+An original whose name is a symlink is moved as a link: a link with the same text is made at
+`<name>.pre-migrate`, then the old name is removed. Nothing is read or written through it, so the
+file it points at is never part of a step ([RC-D41](readable-config.md#RC-D41)). A kill between
+the two finds the backup link made and removes the old name.
 
 Each move is followed by an fsync of the directories it changed, so a crash cannot lose a move
 the journal counts as made. The journal also carries the rest of the commit (the pack renames, the

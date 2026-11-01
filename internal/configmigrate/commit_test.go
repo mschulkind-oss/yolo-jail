@@ -29,8 +29,15 @@ func commitFixture(t *testing.T) (string, string, Request) {
 		t.Fatal(err)
 	}
 	ws := realDir(t)
-	write(t, filepath.Join(ws, "yolo-jail.toml"), "include_if_found = [\"extra.jsonc\"]\n")
+	// The workspace's TOML file is a link too, so a respelled parent that is a link is moved
+	// aside and replaced by a regular file; the local file is a regular respelled parent.
+	write(t, filepath.Join(home, "dotfiles", "ws", "yolo-jail.toml"), "include_if_found = [\"extra.jsonc\"]\n")
+	if err := os.Symlink(filepath.Join(home, "dotfiles", "ws", "yolo-jail.toml"), filepath.Join(ws, "yolo-jail.toml")); err != nil {
+		t.Fatal(err)
+	}
 	write(t, filepath.Join(ws, "extra.jsonc"), `{"mise_tools": {"lua": "5.4.9"}}`+"\n")
+	write(t, filepath.Join(ws, "yolo-jail.local.toml"), "include_if_found = [\"local.jsonc\"]\n")
+	write(t, filepath.Join(ws, "local.jsonc"), `{"packages": ["htop"]}`+"\n")
 	return home, ws, Request{UserConfigDir: dir, Workspace: ws}
 }
 
@@ -56,11 +63,24 @@ func TestAKillAtEveryCommitStepRollsForward(t *testing.T) {
 	var steps int
 	t.Run("uninterrupted", func(t *testing.T) {
 		home, ws, req := commitFixture(t)
+		dots := treeState(t, filepath.Join(home, "dotfiles"))
 		p := plan(t, req)
+		kinds := map[string]bool{}
+		for _, s := range commitSteps(p.Targets) {
+			kinds[s.Kind+map[bool]string{true: "+link"}[s.Text != ""]] = true
+		}
+		for _, k := range []string{stepPlace, stepBackup, stepBackup + "+link", stepReplace, stepReplace + "+link"} {
+			if !kinds[k] {
+				t.Errorf("the fixture makes no %s step; it must reach every kind (%v)", k, kinds)
+			}
+		}
 		if _, err := Apply(p, ApplyOptions{StopAfter: func(i int, _ string) bool { steps = i + 1; return false }}); err != nil {
 			t.Fatal(err)
 		}
 		want = normalized(t, home, ws)
+		if got := treeState(t, filepath.Join(home, "dotfiles")); !reflect.DeepEqual(got, dots) {
+			t.Errorf("the conversion changed the dotfiles tree:\ngot  %v\nwant %v", got, dots)
+		}
 	})
 	if steps < 8 {
 		t.Fatalf("the fixture makes %d commit steps; it must reach every kind", steps)
@@ -189,7 +209,7 @@ func TestTheCollisionAKillLeavesNamesTheInterruptedMigration(t *testing.T) {
 	_, ws, req := commitFixture(t)
 	p := plan(t, req)
 	_, err := Apply(p, ApplyOptions{StopAfter: func(_ int, name string) bool {
-		return strings.HasPrefix(name, "linking ") && strings.HasSuffix(name, filepath.Join(".config", "yolo-jail", "config.toml"))
+		return strings.HasPrefix(name, "placing ") && strings.HasSuffix(name, filepath.Join(".config", "yolo-jail", "config.toml"))
 	}})
 	if !errors.Is(err, ErrInterrupted) {
 		t.Fatalf("Apply = %v", err)
@@ -232,6 +252,31 @@ func TestAStepCutOffInsideIsFinished(t *testing.T) {
 	}
 	if exists(staged) || readFile(t, dest) != "new\n" {
 		t.Fatal("place not finished")
+	}
+
+	// A link moved part way (its backup made, the old name not yet removed) is finished, and a
+	// link whose text changed since the plan is refused, never moved.
+	link, kept := filepath.Join(dir, "l.jsonc"), filepath.Join(dir, "l.jsonc.pre-migrate")
+	for _, name := range []string{link, kept} {
+		if err := os.Symlink("../elsewhere/l.jsonc", name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	l := commitStep{Kind: stepBackup, From: link, To: kept, Text: "../elsewhere/l.jsonc"}
+	for i := 0; i < 2; i++ {
+		if err := l.do(); err != nil {
+			t.Fatalf("link move run %d: %v", i, err)
+		}
+	}
+	if text, err := os.Readlink(kept); exists(link) || err != nil || text != "../elsewhere/l.jsonc" {
+		t.Fatalf("link move not finished: old name exists %v, backup %q (%v)", exists(link), text, err)
+	}
+	if err := os.Symlink("../elsewhere/other.jsonc", filepath.Join(dir, "m.jsonc")); err != nil {
+		t.Fatal(err)
+	}
+	m := commitStep{Kind: stepBackup, From: filepath.Join(dir, "m.jsonc"), To: filepath.Join(dir, "m.jsonc.pre-migrate"), Text: "../elsewhere/m.jsonc"}
+	if err := m.do(); err == nil || exists(filepath.Join(dir, "m.jsonc.pre-migrate")) {
+		t.Fatalf("a link repointed since the plan was moved: %v", err)
 	}
 
 	// A file changed since the plan is refused, never moved.
