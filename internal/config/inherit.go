@@ -665,7 +665,19 @@ func RenderFiltered(filtered *jsonx.OrderedMap, scope InheritScope, launchedAt s
 // from src, the provenance of the effective config filtered was cut from: one comment line at the
 // end of the header naming, for each value, the host file that set it, so a refusal in the jail
 // names that file rather than this one. A nil src writes no such line.
+//
+// IT REFUSES A VALUE THE HOST READ AS TOML WHERE THE READERS JUDGE BY FORMAT. Two readers decide a
+// value's meaning by the format of the file that wrote it: a pack entry (packEntryIsReadable) and
+// a provider's readable-only key (tomlProviderKeys). In the jail every value of a JSONC copy reads
+// as legacy, so one of those a TOML file wrote — a handle qualified by a named source, a bare git
+// table, a provider's own `model` — read as broken there although the host accepted it. Such a
+// value crosses only as TOML (RenderFilteredForDelivery). Every other value means the same in
+// both formats and may cross either way.
 func RenderFilteredWithOrigins(filtered *jsonx.OrderedMap, src *Sources, scope InheritScope, launchedAt string) (string, error) {
+	if where := formatJudgedTOMLValue(filtered, src); where != "" {
+		return "", fmt.Errorf("the inherited %s user config cannot cross as legacy JSONC: %s was written in TOML, "+
+			"and the jail's legacy reader would misjudge it", scope, where)
+	}
 	body, err := SnapshotJSON(filtered)
 	if err != nil {
 		return "", err
@@ -676,6 +688,53 @@ func RenderFilteredWithOrigins(filtered *jsonx.OrderedMap, src *Sources, scope I
 			"// names that file.\n" + originsLinePrefix + record + "\n"
 	}
 	return header + body + "\n", nil
+}
+
+// formatJudgedTOMLValue names the first value of values a reader judges by its file's format
+// that src says a TOML file wrote — "config.packs[1] (<file>:<line>:<col>)" — or "" when there is
+// none or src does not know.
+func formatJudgedTOMLValue(values *jsonx.OrderedMap, src *Sources) string {
+	if src == nil || src.root == nil || values == nil {
+		return ""
+	}
+	fromTOML := func(n *srcNode) bool {
+		origins := n.origins()
+		return len(origins) > 0 && origins[0].file != nil && origins[0].file.format == configdoc.TOML
+	}
+	named := func(path string) string {
+		if locations := src.Locations(path); len(locations) > 0 {
+			return path + " (" + locations[0] + ")"
+		}
+		return path
+	}
+	if raw, ok := values.Get("packs"); ok {
+		if list, ok := raw.([]any); ok {
+			packs := src.root.keys["packs"]
+			for i := range list {
+				if n := packs.elem(i); n != nil && fromTOML(n) {
+					return named(fmt.Sprintf("config.packs[%d]", i))
+				}
+			}
+		}
+	}
+	if raw, ok := values.Get(providersKey); ok {
+		if providers, ok := raw.(*jsonx.OrderedMap); ok {
+			readableOnly := readableOnlyProviderKeys()
+			for _, name := range providers.Keys() {
+				entry, _ := providers.Get(name)
+				fields, ok := entry.(*jsonx.OrderedMap)
+				if !ok {
+					continue
+				}
+				for _, key := range fields.Keys() {
+					if readableOnly[key] && src.writtenInTOML(providersKey, name, key) {
+						return named("config." + providersKey + "." + name + "." + key)
+					}
+				}
+			}
+		}
+	}
+	return ""
 }
 
 // InheritTOMLHeader is InheritHeader using TOML's comment prefix.
@@ -691,7 +750,9 @@ func InheritTOMLHeader(scope InheritScope, launchedAt string) string {
 
 // RenderFilteredForDelivery selects TOML only when the filtered legacy projection is
 // representable by the live readable schema. An unrepresentable legacy user payload remains
-// on the dual-reader JSONC path unchanged; it is never erased or made more authoritative.
+// on the dual-reader JSONC path unchanged; it is never erased or made more authoritative. A
+// payload holding any value a TOML file wrote has no JSONC path (RenderFilteredWithOrigins): it
+// crosses as TOML or the render fails, naming the key.
 func RenderFilteredForDelivery(filtered *jsonx.OrderedMap, src *Sources, scope InheritScope, launchedAt string) (string, configdoc.Format, string, error) {
 	values := jsonx.DeepCopyMap(filtered)
 	var node *srcNode
@@ -725,6 +786,10 @@ func RenderFilteredForDelivery(filtered *jsonx.OrderedMap, src *Sources, scope I
 	}
 	legacy, legacyErr := RenderFilteredWithOrigins(filtered, src, scope, launchedAt)
 	if legacyErr != nil {
+		if err != nil {
+			legacyErr = fmt.Errorf("%w; and it is not representable as TOML either: %v. Run `yolo check` on "+
+				"the host and fix the key it names, then launch again", legacyErr, err)
+		}
 		return "", configdoc.JSONC, "", legacyErr
 	}
 	reason := "legacy user-scope values are not representable by the current TOML reader"

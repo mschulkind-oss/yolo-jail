@@ -153,10 +153,14 @@ func inheritScopeFilesWithSelector(effective *jsonx.OrderedMap, src *config.Sour
 			if forceLegacy && format != configdoc.JSONC {
 				body, rerr = config.RenderFilteredWithOrigins(filtered, src, scope, launchedAt)
 				if rerr != nil {
-					return rerr
+					return fmt.Errorf("a legacy JSON or JSONC file already sits at ~/%s in this jail's home, which pins the "+
+						"scope to JSONC, but %w. Review that file in the workspace's .yolo/home, move it aside, then relaunch",
+						InheritedScopeRel(scope, configdoc.JSONC), rerr)
 				}
 				format = configdoc.JSONC
-				fallbackReason = "a regular legacy JSON or JSONC sibling already occupies the in-jail destination family"
+				fallbackReason = "a legacy JSON or JSONC file that is not an empty placeholder already sits at ~/" +
+					InheritedScopeRel(scope, configdoc.JSONC) + " (or its .json sibling) in this jail's home; review it in the " +
+					"workspace's .yolo/home and move it aside, and the next launch delivers TOML"
 			}
 		}
 		rel := InheritedScopeRel(scope, format)
@@ -208,13 +212,10 @@ func (o *Options) inheritedScopeWithSelector(rt string, stamped bool, selectLega
 	return files, nil
 }
 
-func selectInheritedJSONCRoute(wsState string, mapDestination func(string) (string, error), scope config.InheritScope, format configdoc.Format) (bool, error) {
-	return selectInheritedJSONCRouteSkipping(wsState, mapDestination, scope, format, nil)
-}
-
-// selectInheritedJSONCRouteSkipping is selectInheritedJSONCRoute judging every storage-relative
-// path in gone as absent: a dry run's plan for an empty placeholder a launch moves aside first
-// (clearPodmanPlaceholders).
+// selectInheritedJSONCRouteSkipping reports whether an existing legacy file at scope's
+// destination pins it to the JSONC route, refusing a destination it cannot keep. Every
+// storage-relative path in gone is judged absent: a dry run's plan for an empty placeholder a
+// launch moves aside first (clearPodmanPlaceholders).
 func selectInheritedJSONCRouteSkipping(wsState string, mapDestination func(string) (string, error), scope config.InheritScope, format configdoc.Format, gone map[string]bool) (bool, error) {
 	lstatHomeFile := func(wsState, rel string) (os.FileInfo, bool, error) {
 		if gone[rel] {
@@ -274,6 +275,13 @@ func inheritScopeFamily(scope config.InheritScope) (legacy, toml string) {
 		return inheritPreflightLegacyRel, inheritPreflightRel
 	}
 	return inheritNestedLegacyRel, inheritNestedRel
+}
+
+// inheritScopeDestinations is every destination scope's file may take: the legacy JSONC, its
+// JSON spelling, and the TOML.
+func inheritScopeDestinations(scope config.InheritScope) []string {
+	legacy, toml := inheritScopeFamily(scope)
+	return []string{legacy, strings.TrimSuffix(legacy, ".jsonc") + ".json", toml}
 }
 
 func refuseExistingScopeDestination(wsState string, mapDestination func(string) (string, error), scope config.InheritScope, backend, overwriteRisk, emptyNote string) (bool, error) {
@@ -466,15 +474,24 @@ func (o *Options) userConfigMountArgsForAssembly(in *assembleInput, assembled []
 	}
 	homeBinds := append([]string(nil), assembled...)
 	homeBinds = append(homeBinds, plannedPackFilesBindArgs(in.packFilesPlan, in.rt)...)
+	mapDestination := func(rel string) (string, error) {
+		return mappedHomePath(in.wsState, homeBinds, "/home/agent/"+rel)
+	}
 	selectLegacy := func(scope config.InheritScope, format configdoc.Format) (bool, error) {
-		mapDestination := func(rel string) (string, error) {
-			return mappedHomePath(in.wsState, homeBinds, "/home/agent/"+rel)
-		}
 		if in.rt == "container" { // parity: Refused — Apple Container cannot cover an existing HOME file without overwriting it.
 			return refuseExistingScopeDestination(in.wsState, mapDestination, scope,
 				"Apple Container", "the whole HOME bind would overwrite it", "Reviewing it is quick.")
 		}
-		return selectInheritedJSONCRoute(in.wsState, mapDestination, scope, format)
+		// An earlier launch's single-file bind left an empty file at the destination it used. It
+		// holds no data, so one of the other format is moved aside rather than read as a legacy
+		// sibling: read as one, it kept a host config converted to TOML crossing as JSONC.
+		legacy, toml := inheritScopeFamily(scope)
+		inTheWay := []string{toml}
+		if format == configdoc.TOML {
+			inTheWay = []string{legacy, strings.TrimSuffix(legacy, ".jsonc") + ".json"}
+		}
+		gone := o.clearPodmanPlaceholders(in.wsState, mapDestination, inTheWay...)
+		return selectInheritedJSONCRouteSkipping(in.wsState, mapDestination, scope, format, gone)
 	}
 	return o.userConfigMountArgsForHome(in.rt, in.wsState, selectLegacy)
 }
@@ -547,7 +564,7 @@ func (o *Options) macosUserInheritedScope(rt string) ([]overlayFile, error) {
 		if scope == config.InheritPreflight && !cleared {
 			// Issue #66: an empty file a podman launch's bind left here holds no data; move it
 			// aside (or, in a dry run, plan as though it were) before judging the destination.
-			cleared, gone = true, o.clearPodmanPlaceholders(wsState, storage)
+			cleared, gone = true, o.clearPodmanPlaceholders(wsState, storage, inheritScopeDestinations(config.InheritPreflight)...)
 		}
 		forceLegacy, err := selectInheritedJSONCRouteSkipping(wsState, storage, scope, format, gone)
 		if err != nil {

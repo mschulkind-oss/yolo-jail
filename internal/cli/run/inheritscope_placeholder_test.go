@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor/floortest"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -256,7 +257,7 @@ func TestClearPodmanPlaceholdersCoversTheTOMLDestination(t *testing.T) {
 	path := plantPodmanPlaceholder(t, filepath.Join(wsState, "config", "yolo-jail"), "config.toml")
 	var stderr bytes.Buffer
 	o := &Options{Stderr: &stderr}
-	if gone := o.clearPodmanPlaceholders(wsState, o.macosUserInheritedStorage); len(gone) != 0 {
+	if gone := o.clearPodmanPlaceholders(wsState, o.macosUserInheritedStorage, inheritScopeDestinations(config.InheritPreflight)...); len(gone) != 0 {
 		t.Errorf("a launch reported %v as planned rather than moved", gone)
 	}
 	if _, err := os.Lstat(path + podmanPlaceholderSuffix); err != nil {

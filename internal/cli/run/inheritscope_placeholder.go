@@ -9,7 +9,6 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -44,8 +43,8 @@ func isEmptyPlaceholder(info os.FileInfo, uid int) bool {
 	return ok && stat.Nlink == 1 && inheritedFileOwnedBy(info, uid)
 }
 
-// clearPodmanPlaceholders moves aside every empty placeholder that occupies the inherited
-// preflight scope's destination family in wsState, printing one line for each. A dry run moves
+// clearPodmanPlaceholders moves aside every empty placeholder at one of the home-relative
+// destinations rels in wsState, printing one line for each. A dry run moves
 // nothing: it says what a launch will move and returns those destinations (storage-relative) so
 // the plan selects as though they were gone. A placeholder the launch cannot move is named and
 // left in place, where the overwrite refusal then names the command that clears it.
@@ -54,15 +53,19 @@ func isEmptyPlaceholder(info os.FileInfo, uid int) bool {
 // sidecar's `config`, and storage maps each destination where this launch's home keeps it
 // (macosUserInheritedStorage). In run-as-you mode that is the sidecar's own `.config`, so a podman
 // placeholder at `config` is in nobody's way and stays where it is.
-func (o *Options) clearPodmanPlaceholders(wsState string, storage func(string) (string, error)) map[string]bool {
+//
+// A PODMAN RELAUNCH CLEARS ITS OWN (userConfigMountArgsForAssembly), but only those of the
+// format it is not delivering: an earlier launch's JSONC placeholder otherwise reads as an
+// owner's legacy sibling and pins the scope to JSONC long after the host config was converted to
+// TOML. A placeholder of the delivered format is the bind's own target, which podman reuses.
+func (o *Options) clearPodmanPlaceholders(wsState string, storage func(string) (string, error), rels ...string) map[string]bool {
 	if _, err := os.Lstat(wsState); err != nil {
 		return nil
 	}
 	out := o.pr(o.Stderr)
 	uid := os.Geteuid()
-	legacy, toml := inheritScopeFamily(config.InheritPreflight)
 	var pending map[string]bool
-	for _, rel := range []string{legacy, strings.TrimSuffix(legacy, ".jsonc") + ".json", toml} {
+	for _, rel := range rels {
 		storageRel := filepath.FromSlash(strings.TrimPrefix(rel, "."))
 		if dest, err := storage(rel); err != nil || dest != storageRel {
 			continue

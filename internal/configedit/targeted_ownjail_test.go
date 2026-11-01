@@ -459,7 +459,9 @@ func TestResolveTargetOwnJailRejectsGeneratedAndInheritedUserCopiesBothSourceFor
 		name, userName, projectName, userBody, projectBody string
 	}{
 		{"JSONC source", paths.UserConfigLegacyJSONCName, paths.WorkspaceConfigLegacyJSONCName, `{"packs":["git"]}`, `{"machine":{"resources":{"cpus":2}}}`},
-		{"TOML source", paths.UserConfigTOMLName, paths.WorkspaceConfigTOMLName, "packs=['git']\n", "[machine.resources]\ncpus=2\n"},
+		// A TOML-written pack entry never crosses as legacy JSONC (config.RenderFilteredWithOrigins),
+		// so the TOML source writes a key both formats read alike.
+		{"TOML source", paths.UserConfigTOMLName, paths.WorkspaceConfigTOMLName, "[install]\nnix=['strace']\n", "[machine.resources]\ncpus=2\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			home, workspace := matrixCanonicalTempDir(t), matrixCanonicalTempDir(t)
