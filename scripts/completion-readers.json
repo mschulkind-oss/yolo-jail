@@ -2368,6 +2368,7 @@
 "internal/configmigrate/graph.go",
 "internal/configmigrate/identities.go",
 "internal/configmigrate/journal.go",
+"internal/configmigrate/keyedstate.go",
 "internal/configmigrate/lower.go",
 "internal/configmigrate/loweruser.go",
 "internal/configmigrate/models.go",
