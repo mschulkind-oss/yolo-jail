@@ -847,7 +847,7 @@ fixed-name volumes, or a run should refuse while another holds the machine.
 ### <a id="timing-flakes-under-load"></a>🔧 **Two short deadlines fail `just check-ci` on a loaded machine**
 
 `TestAHealthyMintPrintsNoLaunchCheckLine` (a 2-second mint deadline) and
-`TestLargePasteDeadlockPinsNonblockingMasterForwarding` (a 3-second ttyproxy deadline) each failed
+`TestLargePasteDeadlockPinsNonblockingMasterForwarding` (a wall-clock ttyproxy deadline) each failed
 once during a 2026-10-23 landing gate with other agents' builds running, and passed alone. Each
 deadline should measure what it pins without a wall-clock bound the machine's load can cross.
 

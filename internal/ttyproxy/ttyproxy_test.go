@@ -2305,36 +2305,72 @@ func queuedTerminationResumeTraceError(trace, childReceipt, stages []byte) error
 		}
 		return nil
 	}
-	if len(writes) != 1 || len(writeErrors) != 0 || len(enqueues) != 1 || len(flushes) > 1 || !bytes.Contains(stages, []byte{'R'}) {
-		return fmt.Errorf("false controlling snapshot lacks one complete write trace: stages=%q trace=%q child=%q", stages, trace, childReceipt)
+	// A false snapshot lets the main loop forward the byte: write-attempt, then the
+	// enqueue result, then a flush result if the write was queued. The signal arm runs on
+	// its own goroutine, and once it has published the queued SIGTERM it kills the child
+	// and calls os.Exit. Nothing orders either against the main loop, so two things follow,
+	// and they are the only allowances this branch makes:
+	//   - the trace is the proxy's log up to its exit, so the forwarding sequence may stop
+	//     after ANY row (even before write-attempt) — but only when the arm published,
+	//     since nothing else ends the proxy mid-sequence;
+	//   - the kill may run before the child's read(), so a written byte may go unread —
+	//     again only when the arm published.
+	// Every row present must still be in order and consistent, and the child can never
+	// have read a byte the proxy did not first attempt to write.
+	if len(writes) > 1 || len(writeErrors) != 0 || len(enqueues) > 1 || len(flushes) > 1 || !bytes.Contains(stages, []byte{'R'}) {
+		return fmt.Errorf("false controlling snapshot has a malformed write trace: stages=%q trace=%q child=%q", stages, trace, childReceipt)
 	}
-	// A false snapshot lets the proxy hand the byte to the pty, but the signal arm that
-	// publishes the queued SIGTERM kills the child on its own goroutine right after, and
-	// nothing orders that kill after the child's read(): a loaded machine runs the kill
-	// first and leaves the byte unread in the line discipline. So the child's receipt is
-	// optional here, and its absence must be explained by the arm's published cancellation.
-	if !bytes.Contains(childReceipt, []byte{'R'}) && len(armCancel) != 1 {
+	armPublished := len(armCancel) == 1
+	childRead := bytes.Contains(childReceipt, []byte{'R'})
+	complete := false
+	switch {
+	case len(writes) == 0:
+		if len(enqueues)+len(flushes) != 0 {
+			return fmt.Errorf("write outcome without a one-byte write attempt: trace=%q", trace)
+		}
+		if childRead {
+			return fmt.Errorf("child read input the proxy never attempted to write: trace=%q child=%q", trace, childReceipt)
+		}
+	default:
+		write := writes[0]
+		if write.index <= checks[0].index || fieldValue(write.line, "pending") != "0" || fieldValue(write.line, "attempted") != "1" {
+			return fmt.Errorf("false snapshot has no causally subsequent one-byte write attempt: trace=%q", trace)
+		}
+		if len(enqueues) == 0 {
+			if len(flushes) != 0 {
+				return fmt.Errorf("flush outcome without an enqueue outcome: trace=%q", trace)
+			}
+			break
+		}
+		enqueue := enqueues[0]
+		if enqueue.index <= write.index || fieldValue(enqueue.line, "attempted") != "1" {
+			return fmt.Errorf("write outcome does not follow the one-byte attempt: trace=%q", trace)
+		}
+		written, queued := fieldValue(enqueue.line, "written"), fieldValue(enqueue.line, "queued")
+		switch {
+		case written == "1" && queued == "0":
+			if len(flushes) != 0 {
+				return fmt.Errorf("direct enqueue success contradicts a later flush outcome: trace=%q", trace)
+			}
+			complete = true
+		case written == "0" && queued == "1":
+			if len(flushes) == 1 {
+				if flushes[0].index <= enqueue.index || fieldValue(flushes[0].line, "written") != "1" || fieldValue(flushes[0].line, "queued") != "0" {
+					return fmt.Errorf("queued byte's flush outcome is out of order or incomplete: trace=%q", trace)
+				}
+				complete = true
+			}
+		default:
+			return fmt.Errorf("false snapshot has an inconsistent one-byte enqueue outcome: trace=%q", trace)
+		}
+	}
+	if !complete && !armPublished {
+		return fmt.Errorf("false controlling snapshot's write trace ends early with no published cancellation whose exit would cut it off: stages=%q trace=%q child=%q", stages, trace, childReceipt)
+	}
+	if !childRead && !armPublished {
 		return fmt.Errorf("false controlling snapshot wrote input the child never read, with no published cancellation to explain the kill: stages=%q trace=%q child=%q", stages, trace, childReceipt)
 	}
-	write := writes[0]
-	if write.index <= checks[0].index || fieldValue(write.line, "pending") != "0" || fieldValue(write.line, "attempted") != "1" {
-		return fmt.Errorf("false snapshot has no causally subsequent one-byte write attempt: trace=%q", trace)
-	}
-	enqueue := enqueues[0]
-	if enqueue.index <= write.index || fieldValue(enqueue.line, "attempted") != "1" {
-		return fmt.Errorf("write outcome does not follow the one-byte attempt: trace=%q", trace)
-	}
-	written, queued := fieldValue(enqueue.line, "written"), fieldValue(enqueue.line, "queued")
-	if written == "1" && queued == "0" {
-		if len(flushes) != 0 {
-			return fmt.Errorf("direct enqueue success contradicts a later flush outcome: trace=%q", trace)
-		}
-		return nil
-	}
-	if written == "0" && queued == "1" && len(flushes) == 1 && flushes[0].index > enqueue.index && fieldValue(flushes[0].line, "written") == "1" && fieldValue(flushes[0].line, "queued") == "0" {
-		return nil
-	}
-	return fmt.Errorf("false snapshot lacks a complete one-byte write/flush outcome: trace=%q", trace)
+	return nil
 }
 
 func TestQueuedTerminationResumeTracePredicate(t *testing.T) {
@@ -2349,6 +2385,7 @@ func TestQueuedTerminationResumeTracePredicate(t *testing.T) {
 	enqueueDirect := "event=resume-enqueue-result cancel-or-exit=true pending=0 attempted=1 written=1 queued=0"
 	enqueueQueued := "event=resume-enqueue-result cancel-or-exit=false pending=0 attempted=1 written=0 queued=1"
 	flushWritten := "event=resume-flush-result cancel-or-exit=true pending=0 attempted=1 written=1 queued=0"
+	arm := "event=resume-signal-cancellation-published cancel-or-exit=true pending=0 attempted=0 written=0 queued=0"
 	trace := func(lines ...string) []byte { return []byte(strings.Join(lines, "\n") + "\n") }
 
 	tests := []struct {
@@ -2426,6 +2463,31 @@ func TestQueuedTerminationResumeTracePredicate(t *testing.T) {
 			child:  []byte("SDWR"),
 			stages: []byte("?ZRA?"),
 		},
+		// The 2026-11-01 check-go trace (run 41356848800): the byte reached the child, but
+		// the arm's os.Exit landed between the write and its enqueue-result row.
+		{
+			name:   "arm-exit-cuts-trace-after-write-attempt",
+			trace:  trace(entryFalse, returnFalse, checkFalse, writeFalse, arm),
+			child:  []byte("SDWR"),
+			stages: []byte("?ZRA?"),
+		},
+		{
+			name:   "arm-exit-cuts-trace-before-write-attempt",
+			trace:  trace(entryFalse, returnFalse, checkFalse, arm),
+			child:  []byte("SDW"),
+			stages: []byte("?ZRA?"),
+		},
+		{
+			name:   "arm-exit-cuts-trace-before-queued-flush-result",
+			trace:  trace(entryFalse, returnFalse, checkFalse, writeFalse, enqueueQueued, arm),
+			child:  []byte("SDWR"),
+			stages: []byte("?ZRA?"),
+		},
+		{name: "child-read-without-write-attempt", trace: trace(entryFalse, returnFalse, checkFalse, arm), child: []byte("SDWR"), stages: []byte("?ZRA?"), wantError: true},
+		{name: "outcome-without-write-attempt", trace: trace(entryFalse, returnFalse, checkFalse, enqueueDirect, arm), child: []byte("SDWR"), stages: []byte("?ZRA?"), wantError: true},
+		{name: "flush-without-enqueue-outcome", trace: trace(entryFalse, returnFalse, checkFalse, writeFalse, flushWritten, arm), child: []byte("SDWR"), stages: []byte("?ZRA?"), wantError: true},
+		{name: "queued-write-cut-without-published-cancellation", trace: trace(entryFalse, returnFalse, checkFalse, writeFalse, enqueueQueued), child: []byte("SDWR"), stages: []byte("?ZR"), wantError: true},
+		{name: "duplicate-write-attempt", trace: trace(entryFalse, returnFalse, checkFalse, writeFalse, writeFalse, enqueueDirect, arm), child: []byte("SDWR"), stages: []byte("?ZRA?"), wantError: true},
 		{name: "arm-marker-before-return-record-contradicts-false-snapshot", trace: trace(entryFalse, "event=resume-signal-cancellation-published cancel-or-exit=true pending=0 attempted=0 written=0 queued=0", returnFalse, checkFalse, writeFalse, enqueueDirect), child: []byte("SDWR"), stages: []byte("?ZRA?"), wantError: true},
 		{name: "malformed-cancellation-value", trace: trace(entryFalse, "event=resume-callback-return cancel-or-exit=unknown pending=1 attempted=0 written=0 queued=0", checkFalse), child: []byte("SDW"), stages: []byte("?ZR"), wantError: true},
 	}
