@@ -734,9 +734,9 @@ func writeCachedGoodFailure(w io.Writer, f packload.Fork, record *packsrc.CheckR
 		return
 	}
 	if latest.Kind == packsrc.OutcomeBuildFailed {
-		log := filepath.Join(paths.GlobalStorage(), "logs", "build-"+run.PatchedCopySlug(f.Key())+".log")
+		log := filepath.Join(paths.LogsDir(), paths.BuildLogName(f.Key()))
 		if workspace != "" {
-			log = filepath.Join(workspace, ".yolo", "build-"+run.PatchedCopySlug(f.Key())+".log")
+			log = filepath.Join(paths.WorkspaceStateDir(workspace), paths.BuildLogName(f.Key()))
 		}
 		fmt.Fprintf(w, "Current build failure remains recorded at %s: %s; the existing log %s is unchanged. Repair with `yolo capture %s`.\n",
 			latest.Commit, latest.Error, log, f.Bin)

@@ -65,7 +65,7 @@ func ReconcilePackRecords(userConfigDir string, selected []IdentifiedPack) ([]st
 		stay := map[string]bool{}
 		blocked := map[string]bool{} // handles whose records could not be set aside
 		if len(plan.parks) > 0 {
-			moved, conflicts, err := moveRecords(userConfigDir, plan.parks, false)
+			moved, conflicts, err := moveRecords(userConfigDir, "", plan.parks, false)
 			if err != nil {
 				return false, err
 			}
@@ -90,7 +90,7 @@ func ReconcilePackRecords(userConfigDir string, selected []IdentifiedPack) ([]st
 			renames, lines, ids = append(renames, r), append(lines, plan.renameLines[i]), append(ids, plan.renameIDs[i])
 		}
 		if len(renames) > 0 {
-			moved, conflicts, err := moveRecords(userConfigDir, renames, true)
+			moved, conflicts, err := moveRecords(userConfigDir, "", renames, true)
 			if err != nil {
 				return false, err
 			}

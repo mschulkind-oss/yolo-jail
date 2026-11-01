@@ -304,24 +304,31 @@ func TestALaunchMidMigrationNamesConfigMigrateInsteadOfOffering(t *testing.T) {
 }
 
 // RC-D47: a path pack the conversion renames to its readable handle is named before the question,
-// with what moves to the new name and what does not, so the person answers knowing it.
+// in the owner's words, old names padded so the arrows line up, so the person answers knowing it.
 func TestLaunchOfferNamesARenamedPackBeforeTheQuestion(t *testing.T) {
-	l := runOfferLaunchWith(t, "{\"packs\": [\"~/code/yolo-packs/mine\"]}\n", true, "n\n", func(o *Options) {
-		dir := filepath.Join(os.Getenv("HOME"), "code", "yolo-packs", "mine")
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(dir, "pack.toml"), []byte("name = \"mine\"\n"), 0o644); err != nil {
-			t.Fatal(err)
+	l := runOfferLaunchWith(t, "{\"packs\": [\"~/code/yolo-packs/mine\", \"~/code/other/mine-longer\"]}\n", true, "n\n", func(o *Options) {
+		for _, rel := range []string{"yolo-packs/mine", "other/mine-longer"} {
+			dir := filepath.Join(os.Getenv("HOME"), "code", rel)
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "pack.toml"), []byte("name = \""+filepath.Base(rel)+"\"\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
 		}
 	})
 	s := l.stderr.String()
-	rename := "mine  →  yolo-packs/mine"
+	section := "In TOML a pack is named by where it comes from, so these are renamed:\n" +
+		"  mine         →  yolo-packs/mine\n" +
+		"  mine-longer  →  other/mine-longer\n" +
+		"Your skills keep their names, and nothing is fetched or rebuilt.\n"
 	q := strings.Index(s, "Convert to TOML now?")
-	if i := strings.Index(s, rename); i < 0 || q < 0 || i > q {
-		t.Fatalf("the rename is not named before the question:\n%s", s)
+	if i := strings.Index(s, section); i < 0 || q < 0 || i > q {
+		t.Fatalf("the rename section is not said before the question as:\n%s\nthe offer:\n%s", section, s)
 	}
-	if !strings.Contains(s, configmigrate.NotCarried) {
-		t.Errorf("the offer does not say what is not carried to the new name:\n%s", s)
+	for _, old := range []string{"starts over", "made again under the new name", "readable handles"} {
+		if strings.Contains(s, old) {
+			t.Errorf("the offer still says %q:\n%s", old, s)
+		}
 	}
 }

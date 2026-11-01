@@ -93,7 +93,7 @@ func TestARenamedPackKeepsItsPinsAndCheckRecord(t *testing.T) {
 	if len(p.Renames) != 1 || p.Renames[0].Old != "pi-fork" || p.Renames[0].New != "yolo-packs/pi-fork" {
 		t.Fatalf("the plan's renames = %+v, want pi-fork → yolo-packs/pi-fork", p.Renames)
 	}
-	if !strings.Contains(p.Transcript(), "pi-fork → yolo-packs/pi-fork") {
+	if !strings.Contains(p.Transcript(), "pi-fork  →  yolo-packs/pi-fork") {
 		t.Errorf("the transcript does not name the rename:\n%s", p.Transcript())
 	}
 	res, err := Apply(p, ApplyOptions{})

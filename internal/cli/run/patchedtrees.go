@@ -38,8 +38,6 @@ package run
 // On macos-user it is beside the pack trees instead, in paths.TreeCopyRoot, which outlives them.
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"io"
 	"os"
 	"path/filepath"
@@ -70,10 +68,7 @@ func patchedCopiesDir(tree string) string {
 
 // PatchedCopySlug is the directory name one extension key's per-launch copy takes under a copies
 // directory: readable, and unique by a hash of the key, since a key holds a "/".
-func PatchedCopySlug(key string) string {
-	sum := sha256.Sum256([]byte(key))
-	return strings.ReplaceAll(key, "/", "--") + "-" + hex.EncodeToString(sum[:])[:8]
-}
+func PatchedCopySlug(key string) string { return paths.KeySlug(key) }
 
 // TreeBuildRequest is what a launch hands its tree arm (Options.BuildTrees).
 type TreeBuildRequest struct {

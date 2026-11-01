@@ -5,14 +5,16 @@ package configmigrate
 // `~/code/yolo-packs/pi-fork` is the pack `pi-fork`, and `yolo-packs/pi-fork` is the pack
 // `yolo-packs/pi-fork`), and the records below are keyed by that name or by a fork key
 // "<pack>/<bin>" made from it. Left under the old name, the next launch would re-pin each fork,
-// re-check and rebuild each patched build, and re-resolve each pack's commit. Every respell is
-// idempotent and moves a record, so it runs inside the journaled commit and Resume runs it again.
+// re-check and rebuild each patched build, and re-resolve each pack's commit. Its build logs and
+// pending background-advance state move too (keyedstate.go). Every respell is idempotent and moves
+// a record, so it runs inside the journaled commit and Resume runs it again.
 
 import (
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
@@ -32,12 +34,62 @@ type PackRename struct {
 	New       string `json:"new"`
 	OldSource string `json:"old_source,omitempty"`
 	NewSource string `json:"new_source,omitempty"`
+	// SkillsRenamed reports that the converted entry names the pack's skills differently from the
+	// old one (its namespace or landing differs), and Namespace is the namespace they take. The
+	// conversion writes `bare = true` on everything it converts (pack-naming.md PN-D7), so this is
+	// false unless a launch would read the converted entry otherwise.
+	SkillsRenamed bool   `json:"skills_renamed,omitempty"`
+	Namespace     string `json:"namespace,omitempty"`
 }
 
-// NotCarried names the pack state a rename does not carry, and what the next launch does
-// instead. Said before the question, so the user answers knowing it.
-const NotCarried = "a pending background update check for a renamed pack starts over, and its " +
-	"build logs and cached copies are made again under the new name"
+// RenamesHeading opens the list of renamed packs, in the launch's offer and in the plan.
+const RenamesHeading = "In TOML a pack is named by where it comes from, so these are renamed:"
+
+// RenameRows are the renamed packs' rows, old name padded so every arrow lines up: each is the old
+// name, the padding after it, and the new name.
+func RenameRows(renames []PackRename) [][3]string {
+	width := 0
+	for _, r := range renames {
+		width = max(width, utf8.RuneCountInString(r.Old))
+	}
+	rows := make([][3]string, len(renames))
+	for i, r := range renames {
+		rows[i] = [3]string{r.Old, strings.Repeat(" ", width-utf8.RuneCountInString(r.Old)), r.New}
+	}
+	return rows
+}
+
+// RenamesClosing is the sentence after the list: what the renames do not change. It says the
+// skills keep their names only when every renamed pack's do, and names each pack whose do not.
+//
+// Nothing is fetched or rebuilt: every record keyed by the old name moves (moveRecords), and what
+// a fetch or a build is keyed by otherwise — a git mirror and its fetch stamps, by the repository
+// as packsrc.Parse spells it, which a dropped trailing `.git` does not change; a pack tree, by its
+// commit — is the same before and after, since packRenames proved each renamed pack the same
+// directory or repository.
+func RenamesClosing(renames []PackRename) string {
+	var changed []string
+	for _, r := range renames {
+		if r.SkillsRenamed {
+			if r.Namespace != "" {
+				changed = append(changed, "the skills of "+r.New+" take the namespace "+r.Namespace)
+			} else {
+				changed = append(changed, "the skills of "+r.New+" are renamed")
+			}
+		}
+	}
+	if len(changed) == 0 {
+		return "Your skills keep their names, and nothing is fetched or rebuilt."
+	}
+	return capitalize(strings.Join(changed, "; ")) + "; every other skill keeps its name, and nothing is fetched or rebuilt."
+}
+
+func capitalize(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}
 
 // renameMap is old name → new name.
 func renameMap(renames []PackRename) map[string]string {
@@ -83,10 +135,11 @@ func packTreeSourceRename(renames map[string]string, source string) (string, boo
 }
 
 // respellPackRecords moves every record a renamed pack is keyed by, and returns one line per
-// record moved. In a jail it does nothing: the pack store, the capture store and the host floor
-// are the host's, and a jail's user config renames nothing there.
-func respellPackRecords(userConfigDir string, renames []PackRename) ([]string, error) {
-	out, conflicts, err := moveRecords(userConfigDir, renames, true)
+// record moved. workspace is the migration's, whose .yolo build logs move with the host's; ""
+// moves only the host's. In a jail it does nothing: the pack store, the capture store and the host
+// floor are the host's, and a jail's user config renames nothing there.
+func respellPackRecords(userConfigDir, workspace string, renames []PackRename) ([]string, error) {
+	out, conflicts, err := moveRecords(userConfigDir, workspace, renames, true)
 	for _, c := range conflicts {
 		out = append(out, c.String())
 	}
@@ -97,7 +150,7 @@ func respellPackRecords(userConfigDir string, renames []PackRename) ([]string, e
 // manifest is set: a pack's records set aside under a parked handle leave the paths its handle
 // still writes owned by that handle. It returns the moves it made and, apart, the records it left
 // because their new key already held one (packsrc.MoveConflict).
-func moveRecords(userConfigDir string, renames []PackRename, manifest bool) ([]string, []packsrc.MoveConflict, error) {
+func moveRecords(userConfigDir, workspace string, renames []PackRename, manifest bool) ([]string, []packsrc.MoveConflict, error) {
 	if len(renames) == 0 || userConfigDir == "" || config.InJail() {
 		return nil, nil, nil
 	}
@@ -134,6 +187,7 @@ func moveRecords(userConfigDir string, renames []PackRename, manifest bool) ([]s
 	if err != nil {
 		return out, conflicts, err
 	}
+	out = append(out, moveKeyedState(workspace, names)...)
 	if !manifest {
 		return out, conflicts, nil
 	}

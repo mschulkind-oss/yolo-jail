@@ -143,7 +143,8 @@ func packRenames(userConfigDir, stagedUserDir string) ([]PackRename, []string) {
 		n := match[0]
 		byIdentity[id] = match[1:]
 		if n.Name != e.Name {
-			renames = append(renames, PackRename{Old: e.Name, New: n.Name, OldSource: e.Source, NewSource: n.Source})
+			renames = append(renames, PackRename{Old: e.Name, New: n.Name, OldSource: e.Source, NewSource: n.Source,
+				SkillsRenamed: n.Namespace != e.Namespace || n.Landing != e.Landing, Namespace: n.Namespace})
 		}
 	}
 	for _, rest := range byIdentity {

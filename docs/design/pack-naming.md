@@ -58,7 +58,7 @@ From the owner, 2026-10-31:
 | `[pack_sources]` key | the user | user-chosen; the migration defaults to the directory's base name | [`configmigrate/packs.go:137`](../../internal/configmigrate/packs.go#L137-L165) |
 | launch pack line, `pack ls`/`explain`/`footprint`/`lint` | the user | handle | [`config-user.md` §4](config-user.md#4-naming-a-pack-that-is-not-shipped) |
 | staged tree directory | nobody | the handle escaped (`_2f` for `/`) | [`config/packs.go:148`](../../internal/config/packs.go#L148) |
-| `packs.lock.json`, `forks.lock.json` (`<pack>/<bin>`), check records, build receipts, host program records, host-skills manifest owners | yolo | keyed by handle | [RC-D47](readable-config.md#RC-D47) |
+| `packs.lock.json`, `forks.lock.json` (`<pack>/<bin>`), check records, build receipts, host program records, host-skills manifest owners, build logs, background-advance state | yolo | keyed by handle (logs and background state by the slug of `<pack>/<bin>`) | [RC-D47](readable-config.md#RC-D47), [RC-D49](readable-config.md#RC-D49) |
 | a skill (default tier) | the agent | `/<skill>`; two packs with one name refuse the launch | [`tier.go:39`](../../internal/hostskills/tier.go#L39) |
 | a skill (`skills_tier = "namespaced"`) | the agent | `/<pack>:<skill>`, plugin named by the handle | [`packdecl.go:80`](../../internal/packdecl/packdecl.go#L80-L103) |
 | a wrapped plugin | the agent | the plugin manifest's own name; two packs claiming one are refused | [`plugin.go`](../../internal/hostskills/plugin.go) |

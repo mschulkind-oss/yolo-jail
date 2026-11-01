@@ -121,23 +121,23 @@ func backgroundAdvanceLog() string {
 // backgroundKeyLock is the lock a background advance holds while it runs key, and backgroundOutcomePath
 // the key's outcome record; a claimed record is read from a unique file before becoming backgroundSaidPath.
 func backgroundKeyLock(key string) string {
-	return filepath.Join(paths.BackgroundAdvanceDir(), run.PatchedCopySlug(key)+".lock")
+	return paths.BackgroundAdvanceKeyFile(key, paths.BackgroundKeyLockSuffix)
 }
 
 func backgroundArtifactLock(key string) string {
-	return filepath.Join(paths.BackgroundAdvanceDir(), run.PatchedCopySlug(key)+".artifacts.lock")
+	return paths.BackgroundAdvanceKeyFile(key, paths.BackgroundArtifactLockSuffix)
 }
 
 func backgroundOutcomePath(key string) string {
-	return filepath.Join(paths.BackgroundAdvanceDir(), run.PatchedCopySlug(key)+".json")
+	return paths.BackgroundAdvanceKeyFile(key, paths.BackgroundOutcomeSuffix)
 }
 
 func backgroundSaidPath(key string) string {
-	return filepath.Join(paths.BackgroundAdvanceDir(), run.PatchedCopySlug(key)+".said")
+	return paths.BackgroundAdvanceKeyFile(key, paths.BackgroundSaidSuffix)
 }
 
 func backgroundClaimPattern(key string) string {
-	return filepath.Join(paths.BackgroundAdvanceDir(), ".claimed-"+run.PatchedCopySlug(key)+"-*")
+	return filepath.Join(paths.BackgroundAdvanceDir(), paths.BackgroundClaimPrefix+paths.KeySlug(key)+"-*")
 }
 
 // These pass-through filesystem seams keep the notice's claim failure paths testable in process.
@@ -524,7 +524,7 @@ func preserveBackgroundOutcomeClaim(o backgroundOutcome) error {
 		_ = os.Remove(tmpPath)
 		return err
 	}
-	claim := filepath.Join(dir, ".claimed-"+run.PatchedCopySlug(o.Key)+"-"+filepath.Base(tmpPath))
+	claim := filepath.Join(dir, paths.BackgroundClaimPrefix+paths.KeySlug(o.Key)+"-"+filepath.Base(tmpPath))
 	if err := publishBackgroundEvidenceClaim(tmpPath, claim); err != nil {
 		_ = os.Remove(tmpPath)
 		return err

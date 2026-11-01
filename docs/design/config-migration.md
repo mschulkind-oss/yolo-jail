@@ -222,14 +222,42 @@ Upgrade with `yolo update`, or `just install` from a checkout. Nothing was start
    `pi-fork`, becomes the pack `yolo-packs/pi-fork`. Before it touches anything, the migration
    reads both selections the way a launch does and proves they are the same packs, by directory
    or repository, with only the names differing; any other difference refuses it. The plan, and
-   the launch's offer before its question, list each rename. Inside the journaled commit the
-   migration then moves every record keyed by the old name: the `packs.lock.json` entry, each fork
-   pin in `forks.lock.json`, each check record (which holds a patched fork's good build), a build
-   receipt line for each admitted build, each `yolo host --` program record, and the owner of
-   each path `yolo host apply` wrote. A record whose new name is already taken is left. The next
-   launch neither re-pins, rebuilds nor re-fetches. What is not carried is said before the
-   question: a pending background update check starts over, and build logs and cached copies are
-   made again under the new name.
+   the launch's offer before its question, list each rename in the owner's words
+   ([RC-D49](readable-config.md#RC-D49)):
+
+   ```text
+   In TOML a pack is named by where it comes from, so these are renamed:
+     matt        →  yolo-packs/matt
+     matt-craft  →  mschulkind-oss/matt-craft
+   Your skills keep their names, and nothing is fetched or rebuilt.
+   ```
+
+   The conversion writes `bare = true` on every entry and source it converts
+   ([PN-D7](pack-naming.md#PN-D7)), and the proof compares each renamed pack's namespace and
+   landing before and after; where they differ, the closing sentence names the pack and the
+   namespace its skills take instead of saying they keep their names.
+
+   Inside the journaled commit the migration then moves every record keyed by the old name: the
+   `packs.lock.json` entry, each fork pin in `forks.lock.json`, each check record (which holds a
+   patched fork's good build), a build receipt line for each admitted build, each `yolo host --`
+   program record, and the owner of each path `yolo host apply` wrote. A record whose new name is
+   already taken is left. It also moves what is named by the slug of a build key
+   (`<pack>/<bin>[#upstream]`, whose file name ends in a hash of the key, so the move recomputes
+   it):
+
+   - **Build logs**, the host's `logs/build-*.log` and `logs/tree-build-*.log` (with its rotated
+     `.log.1`) and the migrating workspace's `.yolo/build-*.log`. A log whose new name is taken
+     is left, and so is the one there.
+   - **Pending background-advance state**: a key's outcome record, its reported outcome and its
+     claimed outcomes, respelled to the new key. The migration tries the key's locks, old and new,
+     the way the background advance takes them, and never waits: a key whose lock is held is left
+     whole and starts over under the new name.
+
+   Not moved: a `demands/` directory, which holds the lock, leases and results of a demand a
+   running launch waits on; and the local copies of built programs (the host's and macos-user's
+   tree copies), which the next launch makes again from the build by a local copy. The next
+   launch neither re-pins, rebuilds nor re-fetches: a git mirror and its fetch stamps are keyed
+   by the repository as yolo parses it, which a dropped trailing `.git` does not change.
 
 ### The commit steps
 

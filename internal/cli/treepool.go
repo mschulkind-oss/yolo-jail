@@ -176,7 +176,7 @@ func runTreesUnder(ctx context.Context, trees []packload.Fork, runtime string, o
 // one path a start line can name; appending, and opening it only once a build starts, means no
 // launch truncates the log another launch's start line pointed its user at.
 func treeBuildLog(f packload.Fork) string {
-	return filepath.Join(paths.GlobalStorage(), "logs", "tree-build-"+run.PatchedCopySlug(f.Key())+".log")
+	return filepath.Join(paths.LogsDir(), paths.TreeBuildLogName(f.Key()))
 }
 
 // treeBuildLogRotateAt is the size past which a build's log is moved to <log>.1 before a new build

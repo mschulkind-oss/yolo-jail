@@ -242,9 +242,9 @@ type tailLine struct {
 	build bool
 }
 
-// buildLogName is the name of the build log of fork key under the workspace's .yolo: readable,
-// and unique by a hash of the key (run.PatchedCopySlug), since a key holds a "/".
-func buildLogName(key string) string { return "build-" + run.PatchedCopySlug(key) + ".log" }
+// buildLogName is the name of the build log of fork key under the workspace's .yolo
+// (paths.BuildLogName): readable, and unique by a hash of the key.
+func buildLogName(key string) string { return paths.BuildLogName(key) }
 
 // openLog opens the build's own log, beneath a root on the jail-writable .yolo, never by path
 // (paths.OpenWorkspaceStateFile, which launch.log's open states the reason for), with a header naming

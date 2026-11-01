@@ -115,7 +115,7 @@ func hashCanonical(s canonicalSet) string {
 // run; then the journal goes, and the written files are read back through the launch's readers
 // and the approval records respelled.
 func (j *migrationJournal) finish(journal string, res *ApplyResult) error {
-	moved, err := respellPackRecords(j.UserConfigDir, j.Renames)
+	moved, err := respellPackRecords(j.UserConfigDir, j.Workspace, j.Renames)
 	res.PackRecords = moved
 	if err != nil {
 		return fmt.Errorf("the converted files are in place, but moving the renamed packs' records failed (%w); "+

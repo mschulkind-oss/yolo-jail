@@ -59,11 +59,11 @@ func (p *MigrationPlan) Transcript() string {
 		fmt.Fprintf(&b, "  Not checked: %s.\n", u)
 	}
 	if len(p.Renames) > 0 {
-		b.WriteString("Packs renamed by their readable handles (the same packs, by directory or repository):\n")
-		for _, r := range p.Renames {
-			fmt.Fprintf(&b, "  %s → %s\n", r.Old, r.New)
+		b.WriteString(RenamesHeading + "\n")
+		for _, row := range RenameRows(p.Renames) {
+			fmt.Fprintf(&b, "  %s%s  →  %s\n", row[0], row[1], row[2])
 		}
-		fmt.Fprintf(&b, "  Their pins, check records, builds and host records move to the new names; %s.\n", NotCarried)
+		b.WriteString(RenamesClosing(p.Renames) + "\n")
 	}
 	for _, d := range p.DerivedVendors {
 		fmt.Fprintf(&b, "  vendor %q follows from the id of %q, compared as derived; the launch now carries it.\n",

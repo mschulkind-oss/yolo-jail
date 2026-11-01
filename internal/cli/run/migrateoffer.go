@@ -137,16 +137,15 @@ func (o *Options) offerConfigMigration() bool {
 			plural(len(links), "it will be", "they will be"), richtext.Escape(joinAnd(linkNews)), plural(len(links), "it", "them"))
 		pr.print("")
 	}
-	// A path pack converted to its readable handle is renamed, and what moves with it and what
-	// does not is said before the question (RC-D47). The plan is made once, here, and is the one a
-	// yes applies.
+	// A path pack converted to its readable handle is renamed, and that is said before the
+	// question (RC-D47). The plan is made once, here, and is the one a yes applies.
 	plan, planErr := configmigrate.Plan(graph)
 	if planErr == nil && len(plan.Renames) > 0 {
-		pr.print("Converting renames these packs to their readable handles:")
-		for _, r := range plan.Renames {
-			pr.printf("  [cyan]%s[/cyan]  →  [cyan]%s[/cyan]", richtext.Escape(r.Old), richtext.Escape(r.New))
+		pr.print(richtext.Escape(configmigrate.RenamesHeading))
+		for _, row := range configmigrate.RenameRows(plan.Renames) {
+			pr.printf("  [cyan]%s[/cyan]%s  →  [cyan]%s[/cyan]", richtext.Escape(row[0]), row[1], richtext.Escape(row[2]))
 		}
-		pr.print("Their pins, check records, builds and host records move to the new names; " + richtext.Escape(configmigrate.NotCarried) + ".")
+		pr.print(richtext.Escape(configmigrate.RenamesClosing(plan.Renames)))
 		pr.print("")
 	}
 	if _, err := fmt.Fprint(o.Stderr, richtext.Render("[bold]Convert to TOML now? [y/N][/bold] ", o.streamColor())); err != nil {
