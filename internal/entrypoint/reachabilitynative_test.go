@@ -105,6 +105,26 @@ func TestTheUnreadableRemedyNamesTheACLEntryOnAMac(t *testing.T) {
 // probe-services` builds — and returns what it said and the gate's verdict.
 func probeDarwin(t *testing.T, vars map[string]string) (string, error) {
 	t.Helper()
+	return probeDarwinEnv(t, withNamedWorkspace(t, vars))
+}
+
+// withNamedWorkspace is vars naming a temporary workspace when they name none, as every macos-user
+// launch does: without one the witness says on stderr that it keeps no record.
+func withNamedWorkspace(t *testing.T, vars map[string]string) map[string]string {
+	t.Helper()
+	if vars["YOLO_DARWIN_WORKSPACE"] != "" {
+		return vars
+	}
+	out := map[string]string{"YOLO_DARWIN_WORKSPACE": t.TempDir()}
+	for k, v := range vars {
+		out[k] = v
+	}
+	return out
+}
+
+// probeDarwinEnv is probeDarwin over vars exactly as given.
+func probeDarwinEnv(t *testing.T, vars map[string]string) (string, error) {
+	t.Helper()
 	var out strings.Builder
 	e := DarwinEnvFrom(vars, t.TempDir())
 	e.Stderr = &out
@@ -206,5 +226,91 @@ func TestRunServiceProbeLogsOnlyForANamedWorkspace(t *testing.T) {
 	}
 	if e.Stderr != &out || e.LogOnly != nil {
 		t.Errorf("RunServiceProbe left its log's writers on the Env (Stderr %T, LogOnly %v)", e.Stderr, e.LogOnly)
+	}
+}
+
+// A WITNESS RECORD THAT CANNOT BE KEPT SAYS WHY, on stderr: a boot.log ending at the bootstrap's
+// record otherwise reads as "the witness never ran" (the macOS nightly's
+// TestMacosUserServiceProbeRefusesAnEndpointTheSandboxCannotRead, whose log said nothing). Both of
+// attachWitnessLog's failure paths: no workspace named, and an open that fails (here a linked
+// .yolo, which paths.OpenWorkspaceStateFile refuses).
+func TestAttachWitnessLogSaysWhyItKeptNoRecord(t *testing.T) {
+	shrinkReachabilityBudget(t)
+	vars := map[string]string{
+		paths.HostLoopbackEnvVar: paths.HostLoopbackShared,
+		paths.SerialEndpointEnv:  liveEndpoint(t, servicesDir(t), "serial"),
+	}
+	out, err := probeDarwinEnv(t, vars)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "YOLO_DARWIN_WORKSPACE is not set") {
+		t.Errorf("an Env naming no workspace kept no record and did not say why:\n%s", out)
+	}
+
+	ws, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(t.TempDir(), filepath.Join(ws, ".yolo")); err != nil {
+		t.Fatal(err)
+	}
+	vars["YOLO_DARWIN_WORKSPACE"] = ws
+	out, err = probeDarwin(t, vars)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"could not be appended to " + BootLogPath(ws), ".yolo"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("a failed boot-log open does not say %q on stderr:\n%s", want, out)
+		}
+	}
+}
+
+// THE ACCOUNT'S LAYOUT LINKS DO NOT REFUSE ITS OWN WORKSPACE. On the macos-user account the
+// probe's HOME is the sandbox home, whose ~/.config links into <workspace>/.yolo/home/config
+// (DeriveDarwinHomeLayout). Once that holds a yolo-jail directory, a scope guard judged by the
+// process HOME resolves "yolo's config directory" into the workspace and refuses to create its
+// .yolo, so the witness's record was silently lost. Judged by the account's boundary
+// (witnessScopeHome), the record lands.
+func TestWitnessLogSurvivesTheSandboxHomesConfigLink(t *testing.T) {
+	shrinkReachabilityBudget(t)
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws := filepath.Join(base, "ws")
+	home := filepath.Join(base, "sandbox-home")
+	sidecarConfig := filepath.Join(paths.WorkspaceHomeState(ws), "config")
+	for _, d := range []string{filepath.Join(sidecarConfig, "yolo-jail"), home} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(sidecarConfig, filepath.Join(home, ".config")); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv(paths.DarwinRealHomeEnv, "")
+	if paths.WorkspaceScopeBreach(ws) == nil {
+		t.Fatal("fixture: the process-HOME scope guard does not refuse the workspace, so this test cannot see the defect")
+	}
+
+	var out strings.Builder
+	e := DarwinEnvFrom(map[string]string{
+		"YOLO_DARWIN_WORKSPACE":  ws,
+		paths.HostLoopbackEnvVar: paths.HostLoopbackShared,
+		paths.SerialEndpointEnv:  liveEndpoint(t, servicesDir(t), "serial"),
+	}, home)
+	e.Stderr = &out
+	if err := RunServiceProbe(e); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(BootLogPath(ws))
+	if err != nil || !strings.Contains(string(b), "witness passed") {
+		t.Errorf("the witness kept no record under the account's layout (%v):\n%s\nstderr:\n%s", err, b, out.String())
+	}
+	if paths.WorkspaceScopeBreach(ws) == nil {
+		t.Error("the witness left its scope guard in place for the rest of the process")
 	}
 }

@@ -67,7 +67,9 @@ func runProbe(t *testing.T, kv map[string]string) (int, string) {
 // A REACHABLE SERVICE: status 0, and silence, as at a healthy container boot.
 func TestProbeServicesPassesAReachableService(t *testing.T) {
 	dir := probeServicesDir(t)
+	ws, _, _ := probeWorkspace(t)
 	rc, out := runProbe(t, map[string]string{
+		"YOLO_DARWIN_WORKSPACE":        ws,
 		paths.HostLoopbackEnvVar:       paths.HostLoopbackShared,
 		paths.SerialEndpointEnv:        liveProbeEndpoint(t, dir, "serial"),
 		paths.HostProcessesEndpointEnv: liveProbeEndpoint(t, dir, "host-processes"),

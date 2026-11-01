@@ -787,14 +787,40 @@ func RunServiceProbe(e *Env) error {
 // without YOLO_DARWIN_WORKSPACE is a test or a hand-run whose WorkspaceDir may be the container's
 // literal /workspace, the live jail's own. Never fatal: every failure keeps plain stderr, and the
 // returned function is then a no-op.
+//
+// NEVER SILENT: each failure says on stderr why the record was not kept. The verdict itself still
+// reaches the terminal, but a boot.log ending at the bootstrap's record reads as "the witness
+// never ran", which is the wrong conclusion. The macOS nightly's boot log for
+// TestMacosUserServiceProbeRefusesAnEndpointTheSandboxCannotRead did exactly this, with no line
+// saying why.
+//
+// JUDGED BY THE SANDBOX'S BOUNDARY, NOT BY ITS HOME'S LAYOUT LINKS (witnessScopeHome): the open
+// creates <workspace>/.yolo through paths.EnsureWorkspaceStateDir, whose scope guard reads the
+// process HOME, and the macos-user account's ~/.config and ~/.local are links into this
+// workspace's own sidecar (DeriveDarwinHomeLayout). Followed, they put "yolo's config directory"
+// inside the workspace once the sidecar holds a config/yolo-jail, and the guard refused the
+// workspace the launch had admitted — the failure `yolo internal darwin-bootstrap`,
+// `log-append` and `capture-materialize` each already guard against the same way.
 func attachWitnessLog(e *Env) func(error) {
 	noop := func(error) {}
 	if e.Getenv("YOLO_DARWIN_WORKSPACE") == "" {
+		e.warn("reachability: the host-service witness's record is not kept in a boot log: " +
+			"YOLO_DARWIN_WORKSPACE is not set, so this process names no workspace to append it to. " +
+			"The witness's verdict on this terminal is the whole record; a macos-user launch always " +
+			"sets the variable, so if this came from a launch, report it.")
 		return noop
+	}
+	restore := func() {}
+	if h := witnessScopeHome(e); h != "" {
+		restore = paths.GuardScopeUnder(h)
 	}
 	f, err := paths.OpenWorkspaceStateFile(e.WorkspaceDir(), bootLogName,
 		os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	restore()
 	if err != nil {
+		e.warn(fmt.Sprintf("reachability: the host-service witness's record could not be appended to %s: %v. "+
+			"The verdict on this terminal is the whole record; relaunch to retry, and report it if it recurs.",
+			BootLogPath(e.WorkspaceDir()), err))
 		return noop
 	}
 	fmt.Fprintf(f, "=== macos-user host-service witness %s ===\n", time.Now().Format("2006-01-02T15:04:05-0700"))
@@ -819,6 +845,18 @@ func attachWitnessLog(e *Env) func(error) {
 		// Discarded for bootLog.finish's reason: this is the log's own close.
 		_ = f.Close()
 	}
+}
+
+// witnessScopeHome is the home whose boundary the witness's boot-log open judges workspace scope
+// by: a run-as-you session's real home when the launcher named one (paths.GuestRealHome, MMP-D7),
+// else this Env's home, the sandbox account's, whose ~/.config and ~/.local are then compared
+// lexically (paths.WorkspaceScopeBreachUnder). The same choice as the bootstrap's
+// darwinBootstrapBoundaryHome in internal/cli, read off the Env rather than a fixed account path.
+func witnessScopeHome(e *Env) string {
+	if h := paths.GuestRealHome(); h != "" {
+		return h
+	}
+	return e.Home
 }
 
 // enabledServiceEndpoints lists the loopback-TLS services this launch wired up, in
