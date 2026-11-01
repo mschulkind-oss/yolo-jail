@@ -1135,6 +1135,12 @@ topic now. They are listed by area, in no priority order; nothing here is ranked
   text is in git history (`git show 4acb71205:docs/research/vantage-check-0.5.9-findings.md`);
   raise the pin once they are fixed. From `vantage-check-0.5.9-findings.md`, deleted 2026-10-16.
   Owner: [the lettered-number note](README.md#vantage-checks-suggested-link-is-wrong-for-a-lettered-number).
+- **Keep config-verb tests off the jail's own workspace.** Inside a jail a config edit writes to
+  the jail's workspace (`YOLO_WORKSPACE`, else `/workspace`), not the current directory, so a test
+  that sets `YOLO_VERSION` and leaves `YOLO_WORKSPACE` unset edits the real project config when run
+  in a jail. One did, on 2026-11-01, and was caught and reverted. Make the shared test helpers pin
+  `YOLO_WORKSPACE` to the test's own temporary workspace, or refuse to run otherwise. Owner:
+  [config commands](../design/config-commands.md).
 
 ## Rulings — ALL ANSWERED 2026-07-26
 
