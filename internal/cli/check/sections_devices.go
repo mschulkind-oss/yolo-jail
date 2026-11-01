@@ -8,13 +8,14 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
 // gpuConfig extracts config.machine.gpu as a map (or empty), plus enabled/vendor.
 func gpuConfig(merged *jsonx.OrderedMap) (enabled bool, vendor string, gpu *jsonx.OrderedMap, mode string) {
 	gpu = jsonx.NewOrderedMap()
-	if value, present := readableCheckMachineValue(merged, "gpu", "gpu"); present {
+	if value, present := config.MachineValue(merged, "gpu", "", "gpu"); present {
 		if b, ok := value.(bool); ok {
 			enabled = b
 		} else if m, ok := value.(*jsonx.OrderedMap); ok {

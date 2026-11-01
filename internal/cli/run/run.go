@@ -1135,7 +1135,7 @@ func Run(opts Options) (rc int) {
 		facts := o.mechanicsFactSheet(cname, o.notchConfig(cfg), rt, staged, storePackagesPlan{}, ctxDelivery.ctx.HostFiles)
 		mechanicsNativeHostFileBackings(facts, ctxDelivery.ctx, cname)
 		staging, err = o.refreshJailBriefings(cname, o.notchConfig(cfg), rt, staged,
-			appliedIOPriority(rt, o.IsMacOS, readableResources(cfg)), facts)
+			appliedIOPriority(rt, o.IsMacOS, config.Resources(cfg)), facts)
 		sp.End()
 		if err != nil {
 			if ctxDelivery.ctx.Tree != "" {
@@ -2323,7 +2323,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	mechanicsWorkspaceReadonlyFromArgv(o, facts, cfg, runCmd, rt)
 	mechanicsHostFileBackings(facts, hostFiles, runCmd, rt, wsState)
 	_, refreshErr := o.refreshJailBriefings(cname, cfg, rt, staged,
-		appliedIOPriority(rt, o.IsMacOS, readableResources(cfg)), facts)
+		appliedIOPriority(rt, o.IsMacOS, config.Resources(cfg)), facts)
 	sp.End()
 	if refreshErr != nil {
 		out.printf("[bold red]%s[/bold red]", refreshErr.Error())
@@ -2519,7 +2519,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// Beside it, for the same reason: a declared disk I/O priority this backend cannot pass,
 	// or that the disk under the workspace ignores, is a declaration doing nothing, and this
 	// is where a user reads what the launch will not do (docs/design/io-priority.md §5.2).
-	o.noteIOPriority(rt, ioprio.FromResources(readableResources(cfg)))
+	o.noteIOPriority(rt, ioprio.FromResources(config.Resources(cfg)))
 
 	// And a machine-scope folder a selected pack stopped sharing, still in the machine store,
 	// with the command that deletes it (retiredshareddirs.go). Not for a sealed build, whose
@@ -3591,7 +3591,7 @@ func (o *Options) inspectContainerEnv(rt, cname string) ([]string, bool) {
 // surfaced (the native run path is podman/Linux).
 func resPartsFor(cfg *jsonx.OrderedMap, rt string) []string {
 	var parts []string
-	rm := readableResources(cfg)
+	rm := config.Resources(cfg)
 	get := func(k string) (any, bool) {
 		if rm == nil {
 			return nil, false

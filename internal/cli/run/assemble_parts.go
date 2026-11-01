@@ -891,7 +891,7 @@ func hasKey(m *jsonx.OrderedMap, key string) bool {
 // must be one answer (backend-parity.md §6). This function is only its argv spelling.
 func (o *Options) resourceArgs(cfg *jsonx.OrderedMap, rt string) []string {
 	var args []string
-	for _, lim := range appliedResourceLimits(rt, readableResources(cfg), o.appleContainerDefaultMemory) {
+	for _, lim := range appliedResourceLimits(rt, config.Resources(cfg), o.appleContainerDefaultMemory) {
 		args = append(args, lim.flag, lim.value)
 	}
 	return args

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -24,7 +25,7 @@ import (
 // never changes the exit code, since Check() returns 1 on failures alone. A host fact a
 // podman jail cannot see is hostFact's [SKIP] (OQ-IO5, answered from reporter.go's rulings).
 func (o *Options) sectionIOPriority(r *reporter, merged *jsonx.OrderedMap, runtimeSel string) {
-	res := readableCheckResources(merged)
+	res := config.Resources(merged)
 	p := ioprio.FromResources(res)
 	if !p.Declared() {
 		return

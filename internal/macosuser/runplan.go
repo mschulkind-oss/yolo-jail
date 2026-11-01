@@ -955,7 +955,7 @@ func BuildRunPlanWithStages(workspace string, cfg *jsonx.OrderedMap, agents, age
 	// priority the orchestrator sets as a disk policy, the memory guard the launch argv runs,
 	// and the cpus value buildPlan's parallelism defaults were set from. pids_limit is the one
 	// still read and ignored.
-	resCfg := cfgSection(cfg, "resources")
+	resCfg := config.Resources(cfg)
 	ioPriority := ioprio.FromResources(resCfg)
 	guard := SessionGuardFor(resCfg)
 	cpus, _ := CooperativeCPUs(resCfg)
@@ -2647,23 +2647,10 @@ func cnameFor(workspace string) string {
 var cnameFn = runtime.FromWorkspace
 
 // --- config accessors (thin adapters over jsonx.OrderedMap) -----------------
-// securitySection returns config["security"] as an OrderedMap, or nil.
-// cfgSection is securitySection generalized to any top-level object key. Added for the
-// backend-inert warnings in the orchestrator, which need `resources` and
-// `cache_relocations` and would otherwise each grow their own copy of this five-line
-// nil-and-type dance.
-func cfgSection(cfg *jsonx.OrderedMap, key string) *jsonx.OrderedMap {
-	if cfg == nil {
-		return nil
-	}
-	v, ok := cfg.Get(key)
-	if !ok {
-		return nil
-	}
-	m, _ := v.(*jsonx.OrderedMap)
-	return m
-}
-
+// securitySection returns config["security"] as an OrderedMap, or nil. A setting the readable
+// config layout moved (`machine.resources`, `install.mise`, `install.nix`) is never read here by
+// its old top-level name: internal/config's readers (Resources, OwnMiseTools, OwnNixPackages)
+// are the one place each is read.
 func securitySection(cfg *jsonx.OrderedMap) *jsonx.OrderedMap {
 	if cfg == nil {
 		return nil

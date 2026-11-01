@@ -810,7 +810,7 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// The disk I/O priority is not a limit and takes no runtime flag: the entrypoint
 	// applies it from this variable (docs/design/io-priority.md §5.1). The decision is the
 	// one the briefing reads (appliedIOPriority).
-	runCmd = append(runCmd, ioPriorityEnvArgs(appliedIOPriority(rt, o.IsMacOS, readableResources(cfg)))...)
+	runCmd = append(runCmd, ioPriorityEnvArgs(appliedIOPriority(rt, o.IsMacOS, config.Resources(cfg)))...)
 
 	// --- host nvim config ---
 	// Read once at boot (entrypoint copies /ctx/host-nvim-config into the jail's

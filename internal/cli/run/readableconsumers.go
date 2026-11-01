@@ -3,36 +3,9 @@ package run
 import (
 	"strconv"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
-
-// readableMachineValue reads one canonical machine setting, with the legacy root/key
-// retained for callers that still pass an unprojected JSONC config directly.
-func readableMachineValue(cfg *jsonx.OrderedMap, key, legacySection, legacyKey string) (any, bool) {
-	if machine := cfgMap(cfg, "machine"); machine != nil {
-		if value, ok := machine.Get(key); ok {
-			return value, true
-		}
-	}
-	section := cfg
-	if legacySection != "" {
-		section = cfgMap(cfg, legacySection)
-	}
-	if section == nil {
-		return nil, false
-	}
-	value, ok := section.Get(legacyKey)
-	return value, ok
-}
-
-func readableResources(cfg *jsonx.OrderedMap) *jsonx.OrderedMap {
-	value, present := readableMachineValue(cfg, "resources", "", "resources")
-	if !present {
-		return nil
-	}
-	resources, _ := value.(*jsonx.OrderedMap)
-	return resources
-}
 
 type gpuConfigValues struct {
 	options *jsonx.OrderedMap
@@ -42,7 +15,7 @@ type gpuConfigValues struct {
 }
 
 func readableGPU(cfg *jsonx.OrderedMap) gpuConfigValues {
-	value, _ := readableMachineValue(cfg, "gpu", "", "gpu")
+	value, _ := config.MachineValue(cfg, "gpu", "", "gpu")
 	settings := gpuConfigValues{vendor: "nvidia", mode: "devices"}
 	gpu, _ := value.(*jsonx.OrderedMap)
 	settings.options = gpu

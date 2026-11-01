@@ -39,9 +39,7 @@ const (
 // `platform` is a GOOS value; an empty one disables filtering entirely, which is what
 // a caller that genuinely wants the declared list (a config dump, a diff) wants.
 func EffectivePackages(config *jsonx.OrderedMap, platform string) []any {
-	install, _ := asMap(getMapOrEmpty(config, "install"))
-	packages := filterPackagesForPlatform(
-		listCopy(getListOrNilFalsy(install, "nix")), platform)
+	packages := filterPackagesForPlatform(listCopy(OwnNixPackages(config)), platform)
 
 	machine, _ := asMap(getMapOrEmpty(config, "machine"))
 	gpuValue, _ := machine.Get("gpu")
@@ -92,7 +90,8 @@ func EffectivePackages(config *jsonx.OrderedMap, platform string) []any {
 // returns; nothing depends on it.
 func SelectedAgents(*jsonx.OrderedMap) []string { return []string{} }
 
-// MergeMiseTools merges config.mise_tools over the defaults. Returns an
+// MergeMiseTools merges the config's own install.mise table (OwnMiseTools, which falls back
+// to the legacy top-level mise_tools) over the defaults. Returns an
 // OrderedMap so the result serializes with stable key order: defaults first,
 // then config keys not already present, updates keeping position.
 func MergeMiseTools(config *jsonx.OrderedMap) *jsonx.OrderedMap {
@@ -100,7 +99,7 @@ func MergeMiseTools(config *jsonx.OrderedMap) *jsonx.OrderedMap {
 	for _, k := range defaultMiseToolsKeys {
 		out.Set(k, defaultMiseToolsVals[k])
 	}
-	if userTools, ok := asMap(getMapOrEmpty(config, "mise_tools")); ok && userTools != nil {
+	if userTools := OwnMiseTools(config); userTools != nil {
 		for _, k := range userTools.Keys() {
 			v, _ := userTools.Get(k)
 			out.Set(k, v)
@@ -132,7 +131,7 @@ func JailMiseTools(config *jsonx.OrderedMap, captureJail bool) (tools *jsonx.Ord
 		return MergeMiseTools(config), nil
 	}
 	if config != nil {
-		if own, ok := asMap(getMapOrEmpty(config, "mise_tools")); ok && own != nil {
+		if own := OwnMiseTools(config); own != nil {
 			withheld = own.Keys()
 		}
 	}
@@ -489,7 +488,7 @@ func packagePlatforms(entry any) ([]string, bool) {
 // filters a package.
 func PackagesExcludedOn(config *jsonx.OrderedMap, platform string) []string {
 	var out []string
-	for _, p := range getListOrNilFalsy(config, "packages") {
+	for _, p := range OwnNixPackages(config) {
 		declared, ok := packagePlatforms(p)
 		if !ok || containsStr(declared, platform) {
 			continue

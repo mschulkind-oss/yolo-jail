@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/cgd"
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
@@ -70,7 +71,7 @@ func (o *Options) checkRocmEnumeration(r *reporter) {
 // checkPodmanMachineResources surfaces the
 // Podman Machine VM memory and warn if it's below the floor or below the
 // workspace's resources.memory request. Best-effort; never gating.
-func (o *Options) checkPodmanMachineResources(r *reporter, config *jsonx.OrderedMap) {
+func (o *Options) checkPodmanMachineResources(r *reporter, merged *jsonx.OrderedMap) {
 	name, memMB, ok := o.podmanMachineMemory()
 	if !ok {
 		return
@@ -79,7 +80,7 @@ func (o *Options) checkPodmanMachineResources(r *reporter, config *jsonx.Ordered
 	// Compare against the workspace's requested resources.memory if set.
 	workspaceFloorMB := int64(-1)
 	requestedStr := ""
-	if resources := readableCheckResources(config); resources != nil {
+	if resources := config.Resources(merged); resources != nil {
 		if reqV, _ := resources.Get("memory"); reqV != nil {
 			if s, ok := reqV.(string); ok {
 				requestedStr = s

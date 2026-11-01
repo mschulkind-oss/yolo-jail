@@ -247,14 +247,14 @@ func TestReadableMachinePresenceWinsLegacyAndDefaultsStayTyped(t *testing.T) {
 	if gpu.enabled || gpu.vendor != "nvidia" || gpu.mode != "devices" {
 		t.Fatalf("present false machine.gpu did not win with typed defaults: %+v", gpu)
 	}
-	resources := readableResources(cfg)
+	resources := config.Resources(cfg)
 	if resources == nil || resources.Len() != 0 {
 		t.Fatalf("present empty machine.resources did not win legacy resources: %#v", resources)
 	}
 	if got := readableGPU(nil); got.enabled || got.vendor != "nvidia" || got.mode != "devices" || got.options != nil {
 		t.Fatalf("absent machine.gpu defaults = %+v", got)
 	}
-	if got := readableResources(nil); got != nil {
+	if got := config.Resources(nil); got != nil {
 		t.Fatalf("absent machine.resources = %#v, want nil", got)
 	}
 }

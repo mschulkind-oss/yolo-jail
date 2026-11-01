@@ -152,7 +152,7 @@ func (o *Options) refreshJailBriefingsMode(cname string, cfg *jsonx.OrderedMap, 
 	// from the `resources` map, this told an Apple Container jail its pids_limit was
 	// kernel-enforced when that flag is never passed there, and told it nothing at all
 	// about the memory and cpu caps the backend applies by default.
-	resources := briefedResourceLimits(rt, readableResources(cfg))
+	resources := briefedResourceLimits(rt, config.Resources(cfg))
 
 	// The one-time handoff: a fresh .yolo/handover.md pointer the host agent filed for
 	// this transition, surfaced via the briefing and then consumed so it never resurfaces

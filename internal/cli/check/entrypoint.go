@@ -22,7 +22,7 @@ func (o *Options) runEntrypointPreflight(r *reporter, _, workspace string, merge
 
 	normalizedBlocked := securitySection(merged)
 	blockedJSON := jsonDump(config.NormalizeBlockedTools(normalizedBlocked))
-	miseJSON := jsonDump(readableCheckMiseTools(merged))
+	miseJSON := jsonDump(config.MergeMiseTools(merged))
 	lspJSON := jsonDumpOrEmptyObj(mapOrNil(merged, "lsp_servers"))
 	mcpJSON := jsonDumpOrEmptyObj(mapOrNil(merged, "mcp_servers"))
 

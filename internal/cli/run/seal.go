@@ -230,26 +230,7 @@ func (o *Options) captureJail() bool { return o.Sealed || o.CapturesDir() == "" 
 // two halves disagreeing leaves a jail with no pnpm at all (misepnpm_test.go). The sealed launch's
 // withheld line counts the second result (sealedWithheldLine).
 func (in *assembleInput) jailMiseTools() (tools *jsonx.OrderedMap, withheld []string) {
-	install := cfgMap(in.cfg, "install")
-	own := cfgMap(install, "mise")
-	if own == nil {
-		// Direct callers that have not crossed the format-aware reader retain the old API contract.
-		own = cfgMap(in.cfg, "mise_tools")
-	}
-	tools = config.MergeMiseTools(jsonx.NewOrderedMap())
-	if in.sealed || in.captureJail {
-		if own != nil {
-			withheld = own.Keys()
-		}
-		return tools, withheld
-	}
-	if own != nil {
-		for _, key := range own.Keys() {
-			value, _ := own.Get(key)
-			tools.Set(key, value)
-		}
-	}
-	return tools, nil
+	return config.JailMiseTools(in.cfg, in.sealed || in.captureJail)
 }
 
 // assembledConfigFor is the merged config this launch writes to its workspace's delivery copy

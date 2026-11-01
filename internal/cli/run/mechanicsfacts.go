@@ -38,7 +38,7 @@ func (o *Options) mechanicsFactSheet(cname string, cfg *jsonx.OrderedMap, rt str
 	}
 	if rt == "macos-user" { // parity: HonoredBy — the workspace is already at its native host path, not mounted at /workspace
 		facts.WorkspacePath = o.Workspace
-		if _, ok := macosuser.CooperativeCPUs(readableResources(cfg)); ok {
+		if _, ok := macosuser.CooperativeCPUs(config.Resources(cfg)); ok {
 			facts.CooperativeCPUDefaults = append([]string(nil), macosuser.CooperativeCPUVars...)
 		}
 	}

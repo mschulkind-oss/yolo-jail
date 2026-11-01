@@ -629,7 +629,7 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 	// rule that picks them; cooperativeCPUCount, why the cap). Here, before PackEnv,
 	// env_sources and SandboxEnv, for MISE_TRUSTED_CONFIG_PATHS's reason: a value the user set
 	// in any of those wins, and the disclosure below reports the value that won.
-	resources := cfgSection(opts.Config, "resources")
+	resources := config.Resources(opts.Config)
 	host := hostCPUs(deps)
 	if declared, ok := CooperativeCPUs(resources); ok {
 		n, _ := cooperativeCPUCount(declared, host)
