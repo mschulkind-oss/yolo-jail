@@ -49,7 +49,12 @@ func isEmptyPlaceholder(info os.FileInfo, uid int) bool {
 // nothing: it says what a launch will move and returns those destinations (storage-relative) so
 // the plan selects as though they were gone. A placeholder the launch cannot move is named and
 // left in place, where the overwrite refusal then names the command that clears it.
-func (o *Options) clearPodmanPlaceholders(wsState string) map[string]bool {
+//
+// ONLY WHERE THE PODMAN PATH IS THIS LAUNCH'S DESTINATION: podman binds ~/.config from the
+// sidecar's `config`, and storage maps each destination where this launch's home keeps it
+// (macosUserInheritedStorage). In run-as-you mode that is the sidecar's own `.config`, so a podman
+// placeholder at `config` is in nobody's way and stays where it is.
+func (o *Options) clearPodmanPlaceholders(wsState string, storage func(string) (string, error)) map[string]bool {
 	if _, err := os.Lstat(wsState); err != nil {
 		return nil
 	}
@@ -59,6 +64,9 @@ func (o *Options) clearPodmanPlaceholders(wsState string) map[string]bool {
 	var pending map[string]bool
 	for _, rel := range []string{legacy, strings.TrimSuffix(legacy, ".jsonc") + ".json", toml} {
 		storageRel := filepath.FromSlash(strings.TrimPrefix(rel, "."))
+		if dest, err := storage(rel); err != nil || dest != storageRel {
+			continue
+		}
 		info, exists, err := lstatHomeFile(wsState, storageRel)
 		if err != nil || !exists || !isEmptyPlaceholder(info, uid) {
 			continue // the selector meets the same object and refuses or keeps it as before

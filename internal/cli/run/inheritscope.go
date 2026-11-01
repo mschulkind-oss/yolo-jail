@@ -42,6 +42,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/configdoc"
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -258,7 +259,11 @@ func selectInheritedJSONCRouteSkipping(wsState string, mapDestination func(strin
 		return true, nil
 	}
 	if tomlExists && format != configdoc.TOML {
-		legacyPath := filepath.Join(wsState, legacyRel)
+		legacyStorageRel, err := mapDestination(legacyRel)
+		if err != nil {
+			return false, err
+		}
+		legacyPath := filepath.Join(wsState, legacyStorageRel)
 		return false, fmt.Errorf("refusing inherited %s user config: its legacy JSONC payload needs %s, but the jail already has %s; preserve both, convert or back up one file, then relaunch", scope, legacyPath, tomlPath)
 	}
 	return false, nil
@@ -520,6 +525,12 @@ func (o *Options) userConfigMountArgsForHome(rt, wsState string, selectLegacy fu
 // conventional local pack) stays the agent's own (R8). canNest is false for this backend, so
 // the nested-launch file is never among them (R2).
 //
+// EVERY DESTINATION IS JUDGED WHERE THIS LAUNCH'S HOME KEEPS IT (macosUserInheritedStorage):
+// <sidecar>/config in account mode, where ~/.config links into the sidecar, but
+// <sidecar>/.config in run-as-you mode, where HOME is the sidecar itself. Judging the account
+// path in self mode found nothing, left the previous delivery in place, and the installer then
+// refused the relaunch.
+//
 // AND THE ONE IT DID NOT RENDER, removed (removeStaleInheritedScope), on a launch only. A
 // container's bind leaves nothing behind when it is not made; this backend's copy stays in the
 // sidecar, so a user config that lost its last inheritable key would otherwise keep serving the
@@ -527,6 +538,7 @@ func (o *Options) userConfigMountArgsForHome(rt, wsState string, selectLegacy fu
 func (o *Options) macosUserInheritedScope(rt string) ([]overlayFile, error) {
 	var core []overlayFile
 	wsState := paths.WorkspaceHomeState(o.Workspace)
+	storage := o.macosUserInheritedStorage
 	preserve := map[string]bool{}
 	delivered := map[string][]byte{}
 	cleared := false
@@ -535,12 +547,9 @@ func (o *Options) macosUserInheritedScope(rt string) ([]overlayFile, error) {
 		if scope == config.InheritPreflight && !cleared {
 			// Issue #66: an empty file a podman launch's bind left here holds no data; move it
 			// aside (or, in a dry run, plan as though it were) before judging the destination.
-			cleared, gone = true, o.clearPodmanPlaceholders(wsState)
+			cleared, gone = true, o.clearPodmanPlaceholders(wsState, storage)
 		}
-		forceLegacy, err := selectInheritedJSONCRouteSkipping(wsState, func(rel string) (string, error) {
-			// DeriveDarwinHomeLayout lays ~/.config as the `config` subtree of this sidecar.
-			return filepath.FromSlash(strings.TrimPrefix(rel, ".")), nil
-		}, scope, format, gone)
+		forceLegacy, err := selectInheritedJSONCRouteSkipping(wsState, storage, scope, format, gone)
 		if err != nil {
 			return false, err
 		}
@@ -549,10 +558,16 @@ func (o *Options) macosUserInheritedScope(rt string) ([]overlayFile, error) {
 		if forceLegacy || format != configdoc.TOML {
 			selected = legacy
 		}
-		selectedStorage := filepath.FromSlash(strings.TrimPrefix(selected, "."))
+		selectedStorage, err := storage(selected)
+		if err != nil {
+			return false, err
+		}
 		var existing []string
 		for _, rel := range []string{legacy, strings.TrimSuffix(legacy, ".jsonc") + ".json", toml} {
-			storageRel := filepath.FromSlash(strings.TrimPrefix(rel, "."))
+			storageRel, err := storage(rel)
+			if err != nil {
+				return false, err
+			}
 			if gone[storageRel] {
 				continue
 			}
@@ -568,11 +583,11 @@ func (o *Options) macosUserInheritedScope(rt string) ([]overlayFile, error) {
 			return forceLegacy, nil
 		}
 		if len(existing) != 1 || existing[0] != selected {
-			return false, refuseInheritedOverwrite(wsState, scope)
+			return false, refuseInheritedOverwrite(wsState, storage, scope)
 		}
 		body, admitted := o.priorInheritedDelivery(wsState, selected)
 		if !admitted {
-			return false, refuseInheritedOverwrite(wsState, scope)
+			return false, refuseInheritedOverwrite(wsState, storage, scope)
 		}
 		preserve[selectedStorage] = true
 		delivered[selected] = body
@@ -587,25 +602,74 @@ func (o *Options) macosUserInheritedScope(rt string) ([]overlayFile, error) {
 	// every launch, so every relaunch rebuilt, re-staged and re-installed all of it.
 	for _, f := range files {
 		if prior, ok := delivered[f.rel]; ok && !bytes.Equal(prior, []byte(f.body)) {
-			return nil, refuseInheritedOverwrite(wsState, f.scope)
+			return nil, refuseInheritedOverwrite(wsState, storage, f.scope)
 		}
 		core = append(core, overlayFile{Rel: f.rel, Body: []byte(f.body)})
 	}
 	if !o.DryRun {
 		// Preserve an unchanged, admitted hardlink until the installer sees the same inode.
-		removeStaleInheritedScope(wsState, preserve)
+		removeStaleInheritedScope(wsState, storage, preserve)
 	}
 	return core, nil
+}
+
+// macosUserInheritedStorage maps a home-relative inherited destination (".config/yolo-jail/…",
+// as the overlay spells it) to the path beneath the workspace sidecar where this launch's sandbox
+// home keeps it. It reads the answer off the layout the bootstrap itself lays for this launch's
+// mode (macosuser.LaunchHomes), so the mapping is derived in one place rather than spelled here:
+// entrypoint.DeriveDarwinHomeLayout links the account's ~/.config to <sidecar>/config, and
+// entrypoint.DeriveDarwinWorkspaceHome makes HOME the sidecar, with ~/.config a real `.config`
+// in it. A destination the layout does not keep in the sidecar is an error, never a guess.
+func (o *Options) macosUserInheritedStorage(rel string) (string, error) {
+	sidecar := paths.WorkspaceHomeState(o.Workspace)
+	home := macosuser.LaunchHomes(o.MacosUserMode, o.Workspace, "").Home
+	var layout entrypoint.DarwinHomeLayout
+	if filepath.Clean(home) == filepath.Clean(sidecar) {
+		layout = entrypoint.DeriveDarwinWorkspaceHome(entrypoint.DarwinHomes{Home: home}, nil, nil)
+	} else {
+		layout = entrypoint.DeriveDarwinHomeLayout(home, sidecar, nil, nil)
+	}
+	return darwinSidecarRel(layout, rel)
+}
+
+// darwinSidecarRel resolves home-relative rel through layout: beneath the most specific Link
+// covering it, to the sidecar subtree that link targets; or, where HOME is the sidecar itself,
+// to rel unchanged. The answer is relative to the sidecar and never leaves it.
+func darwinSidecarRel(layout entrypoint.DarwinHomeLayout, rel string) (string, error) {
+	sidecar := filepath.Clean(layout.Sidecar)
+	abs := filepath.Join(layout.Home, filepath.FromSlash(rel))
+	within := func(parent, child string) (string, bool) {
+		r, err := filepath.Rel(parent, child)
+		if err != nil || r == ".." || filepath.IsAbs(r) || strings.HasPrefix(r, ".."+string(filepath.Separator)) {
+			return "", false
+		}
+		return r, true
+	}
+	resolved, best := "", -1
+	for _, l := range layout.Links {
+		suffix, ok := within(filepath.Clean(l.Path), abs)
+		if !ok || len(l.Path) <= best {
+			continue
+		}
+		resolved, best = filepath.Join(l.Target, suffix), len(l.Path)
+	}
+	if best < 0 && sidecar == filepath.Clean(layout.Home) {
+		resolved = abs
+	}
+	if resolved != "" {
+		if r, ok := within(sidecar, resolved); ok && r != "." {
+			return r, nil
+		}
+	}
+	return "", fmt.Errorf("the macos-user home layout keeps ~/%s outside the workspace's home state %s; preserve your files and report it with this line", rel, sidecar)
 }
 
 // inheritedScopeStagingRoot is private so tests can use an isolated staging tree; production
 // always asks macos-user for its established root.
 var inheritedScopeStagingRoot = macosuser.StagingRoot
 
-func refuseInheritedOverwrite(wsState string, scope config.InheritScope) error {
-	_, err := refuseExistingScopeDestination(wsState, func(rel string) (string, error) {
-		return filepath.FromSlash(strings.TrimPrefix(rel, ".")), nil
-	}, scope, "macos-user", "the home-overlay installer cannot prove it is a file it delivered before, so installing the user config there could overwrite it",
+func refuseInheritedOverwrite(wsState string, storage func(string) (string, error), scope config.InheritScope) error {
+	_, err := refuseExistingScopeDestination(wsState, storage, scope, "macos-user", "the home-overlay installer cannot prove it is a file it delivered before, so installing the user config there could overwrite it",
 		"It was not moved aside for you because it shares its data with another hard link or belongs to another user.")
 	return err
 }
@@ -690,7 +754,11 @@ func (o *Options) priorInheritedDelivery(wsState, rel string) ([]byte, bool) {
 	if err != nil {
 		return nil, false
 	}
-	destInfo, exists, err := lstatHomeFile(wsState, filepath.FromSlash(strings.TrimPrefix(rel, ".")))
+	destRel, err := o.macosUserInheritedStorage(rel)
+	if err != nil {
+		return nil, false
+	}
+	destInfo, exists, err := lstatHomeFile(wsState, destRel)
 	if err != nil || !exists || destInfo.Mode().Perm() != 0o444 || !os.SameFile(sourceInfo, destInfo) {
 		return nil, false
 	}
@@ -703,8 +771,9 @@ func inheritedFileOwnedBy(info os.FileInfo, uid int) bool {
 }
 
 // removeStaleInheritedScope removes only the generated user-scope files a previous macos-user
-// launch installed in sidecar (the workspace's <ws>/.yolo/home, which the sandbox's ~/.config
-// links into at `config`). Anything else at either format path is an agent's own and is kept.
+// launch installed in sidecar (the workspace's <ws>/.yolo/home), at the path storage maps each
+// one to (macosUserInheritedStorage). Anything else at either format path is an agent's own and
+// is kept.
 //
 // BENEATH THE SIDECAR'S ROOT, never by path (openStateRoot): the sidecar is written by the agent,
 // so a link it planted above the file would otherwise take the removal to whatever it names.
@@ -713,7 +782,7 @@ func inheritedFileOwnedBy(info os.FileInfo, uid int) bool {
 // ⚠ RESIDUAL: stale cleanup still recognizes only the legacy generated header for an undelivered
 // file. This slice preserves a destination only when its unchanged sealed hardlink is proven; it
 // does not extend ownership proof or alter cleanup for old header-only artifacts.
-func removeStaleInheritedScope(sidecar string, preserve map[string]bool) {
+func removeStaleInheritedScope(sidecar string, storage func(string) (string, error), preserve map[string]bool) {
 	// No sidecar, no files: and openStateRoot would create the directories it opens.
 	if _, err := os.Lstat(sidecar); err != nil {
 		return
@@ -730,8 +799,8 @@ func removeStaleInheritedScope(sidecar string, preserve map[string]bool) {
 		{inheritPreflightLegacyRel, inheritHeaderFirstLine()},
 		{inheritPreflightRel, inheritTOMLHeaderFirstLine()},
 	} {
-		rel := filepath.FromSlash(strings.TrimPrefix(candidate.rel, "."))
-		if preserve[rel] {
+		rel, err := storage(candidate.rel)
+		if err != nil || preserve[rel] {
 			continue
 		}
 		if fi, err := r.Lstat(rel); err != nil || !fi.Mode().IsRegular() {
