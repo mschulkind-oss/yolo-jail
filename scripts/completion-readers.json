@@ -6920,6 +6920,7 @@
 "internal/cli/run/inheritscope_placeholder_test.go",
 "internal/cli/run/inheritscope_relaunch_test.go",
 "internal/cli/run/inheritscope_safety_test.go",
+"internal/cli/run/inheritscope_selfmode_test.go",
 "internal/cli/run/inheritscope_test.go",
 "internal/cli/run/interruptscope_scope_test.go",
 "internal/cli/run/iopriority_test.go",
