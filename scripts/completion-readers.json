@@ -6737,6 +6737,7 @@
 "internal/cli/ps_test.go",
 "internal/cli/reexectmpdir_test.go",
 "internal/cli/refreshservers_test.go",
+"internal/cli/request_injailpack_test.go",
 "internal/cli/request_test.go",
 "internal/cli/requestcheck_test.go",
 "internal/cli/restoreonce_test.go",
