@@ -666,7 +666,24 @@ jobs:
             fi
           done
 
+      # The image is a 1.2 GB artifact, and the action's own five retries can all fail on one
+      # runner while every other shard fetches it fine: run 41307872448 lost shard 11 to
+      # "Artifact download failed after 5 retries" with the artifact intact. One more attempt,
+      # after a pause, is the whole fix; a second failure still fails the shard.
       - name: Download jail image
+        id: download-image
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: jail-image
+          path: /tmp
+
+      - name: Wait before retrying the jail image download
+        if: ${{ steps.download-image.outcome == 'failure' }}
+        run: sleep 60
+
+      - name: Download jail image (retry)
+        if: ${{ steps.download-image.outcome == 'failure' }}
         uses: actions/download-artifact@v8
         with:
           name: jail-image
