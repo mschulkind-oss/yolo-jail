@@ -1300,6 +1300,11 @@ func (s *Store) stagedPackDir(name string) (string, bool) {
 	return "", false
 }
 
+// DeliveredPackDir is stagedPackDir for a caller outside this package that resolves a
+// local pack's root itself (the config-edit validator) and needs the same delivered-tree
+// fallback Resolve applies, rather than a second reading of YOLO_PACK_ROOT.
+func (s *Store) DeliveredPackDir(name string) (string, bool) { return s.stagedPackDir(name) }
+
 // getenv is nil-safe: most callers build a Store with Dir alone, and a nil func there
 // must read the real environment rather than panic.
 func (s *Store) getenv(key string) string {

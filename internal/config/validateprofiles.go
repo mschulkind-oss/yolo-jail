@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -110,7 +111,10 @@ func validateProfile(config *jsonx.OrderedMap, errs *[]string, edit ...*editVali
 	if wantsNamespace {
 		if len(edit) != 0 && edit[0] != nil {
 			namespace, sets, err := explicitEditProfileNamespaces(edit[0])
-			if err != nil {
+			if errors.Is(err, errPackUnverifiableInJail) {
+				// A jail cannot read that pack, so the namespace is unknowable here: the
+				// namespace half steps aside, as below when UseProfileCLINames cannot answer.
+			} else if err != nil {
 				add(errs, "config."+ProfileKey+": cannot validate the planned CLI namespace: "+err.Error())
 			} else {
 				installed = explicitEditProfileNames(namespace)

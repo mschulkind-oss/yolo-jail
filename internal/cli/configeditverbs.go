@@ -226,10 +226,21 @@ func addMissingKey(workspace string, target config.ResolvedEditTarget, mutation 
 }
 
 func applyConfigEdit(workspace string, target config.ResolvedEditTarget, mutation configedit.Mutation, dryRun bool, out, errw io.Writer, postWriteCheck bool) int {
-	result, err := configedit.ApplyTargeted(workspace, target, mutation, configedit.ApplyOptions{DryRun: dryRun})
+	// A pack the jail could not read went unchecked; say so once, however many times the edit
+	// validated (planned, then actual), so the edit never reads as a full check.
+	var unverified []string
+	onValidated := func(r config.ValidatedExplicitEditResult) {
+		if unverified == nil {
+			unverified = r.UnverifiedPacks()
+		}
+	}
+	result, err := configedit.ApplyTargeted(workspace, target, mutation, configedit.ApplyOptions{DryRun: dryRun, OnValidated: onValidated})
 	if err != nil {
 		fmt.Fprintf(errw, "config edit refused: %v\n", err)
 		return 1
+	}
+	for _, note := range unverified {
+		fmt.Fprintf(errw, "note: %s\n", note)
 	}
 	if result.Plan.Noop {
 		fmt.Fprintf(out, "%s\nNo change; no write.\n", result.Path)

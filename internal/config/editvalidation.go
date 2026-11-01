@@ -152,6 +152,7 @@ type editValidationContext struct {
 	workspaceOrigins *Sources
 	reads            []editReadObservation
 	packs            []*packload.Pack
+	packNotes        []string
 	catalog          map[string]map[string]packdecl.ProviderModel
 	semantic         *ReadableSemanticInputs
 	viaSelectionErr  error
@@ -172,7 +173,15 @@ type ValidatedExplicitEditResult struct {
 	warnings         []string
 	readableWarnings []string
 	readableRequests []ValidatedReadableRequest
+	unverifiedPacks  []string
 	validated        bool
+}
+
+// UnverifiedPacks names, one line each, the configured packs a jail's workspace-config edit
+// could not read (a host-only source with no delivered copy) and so did not check, each line
+// naming where they are checked. Empty on the host, where such a pack refuses the edit instead.
+func (r ValidatedExplicitEditResult) UnverifiedPacks() []string {
+	return append([]string(nil), r.unverifiedPacks...)
 }
 
 // SnapshotJSON returns the validated planned snapshot and false for a zero, unvalidated result.
@@ -285,7 +294,7 @@ func validateEditContext(ctx *editValidationContext) (ValidatedExplicitEditResul
 	return ValidatedExplicitEditResult{
 		snapshot: snapshot, warnings: append([]string(nil), warnings...),
 		readableWarnings: append([]string(nil), ctx.semantic.AllowancePlan.Diagnostics...),
-		readableRequests: readableRequests, validated: true,
+		readableRequests: readableRequests, unverifiedPacks: append([]string(nil), ctx.packNotes...), validated: true,
 	}, nil
 }
 

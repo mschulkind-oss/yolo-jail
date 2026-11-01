@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"path/filepath"
@@ -56,14 +57,13 @@ func explicitEditProfileNamespaces(ctx *editValidationContext) (map[string]bool,
 		}
 		pack := resolved[entry.Name]
 		if pack == nil {
-			var root string
-			var err error
-			if entry.IsLocal() {
-				root, err = selectedPackRoot(entry)
-			} else {
-				root, err = selectedFetchedPackRoot(entry)
-			}
+			root, err := ctx.configuredPackRoot(entry)
 			if err != nil {
+				if errors.Is(err, errPackUnverifiableInJail) {
+					// The namespace is unknowable from this jail; the caller steps its half
+					// aside, as validateProfile does when UseProfileCLINames cannot answer.
+					return nil, nil, err
+				}
 				return nil, nil, fmt.Errorf("resolve configured pack %s for profile namespace: %w; repair the pack source and retry", entry.Name, err)
 			}
 			packRead, problems, err := packload.ReadSelectedPackPath(root, entry.Name, entry.Only, entry.Exclude, entry.IsLocal())
