@@ -6918,6 +6918,7 @@
 "internal/cli/run/imageloadmemo_test.go",
 "internal/cli/run/imageprewarm_test.go",
 "internal/cli/run/imageref_test.go",
+"internal/cli/run/inheritscope_converted_test.go",
 "internal/cli/run/inheritscope_loaderror_test.go",
 "internal/cli/run/inheritscope_placeholder_test.go",
 "internal/cli/run/inheritscope_relaunch_test.go",
@@ -7752,6 +7753,8 @@
 },
 "internal/configmigrate": {
 "TestAHandWrittenTOMLOfTheConvertedShapeComposesTheSameProviderTable": 54,
+"TestALinkToALinkIsMovedAsItIs": 54,
+"TestALinkedConfigIsMovedAndItsTargetIsNeverTouched": 54,
 "TestPlanComparesAVendorTheIDNamesAsDerived": 54,
 "TestPlanConvertsANamedRowToARowWithModel": 54,
 "TestPlanConvertsAWireIDTwinToTwinOfTheSiblingsKey": 54,
@@ -7763,7 +7766,6 @@
 "TestPlanKeepsEveryCommentInOrder": 54,
 "TestPlanKeepsWireIDWhenTwinOfWouldChangeTheTwin": 54,
 "TestPlanListsUnreachableInclude": 54,
-"TestPlanRespellsIncludesThroughSymlink": 54,
 "TestPlanRespellsTOMLParentByteForByte": 54,
 "TestPlanTranscriptNamesTwinsAndDerivedVendors": 54,
 "TestUserBrokeredConvertsToAllow": 54
