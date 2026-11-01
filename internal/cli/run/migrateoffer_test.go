@@ -261,7 +261,18 @@ func TestLaunchOfferWarnsAboutASymlinkBeforeTheQuestion(t *testing.T) {
 	})
 	l.mustLaunch(t)
 	s := l.stderr.String()
-	target, toml := filepath.Join(dir, "config.jsonc"), filepath.Join(l.userDir, "config.toml")
+	// The report names each path through its resolved directory; on macOS t.TempDir() is under
+	// the /var -> /private/var link, so the expected paths are spelled the same way.
+	resolved := func(p string) string {
+		d, err := filepath.EvalSymlinks(filepath.Dir(p))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return filepath.Join(d, filepath.Base(p))
+	}
+	linkText := filepath.Join(dir, "config.jsonc")
+	link = resolved(link)
+	target, toml := resolved(filepath.Join(dir, "config.jsonc")), resolved(filepath.Join(l.userDir, "config.toml"))
 	warning := link + " is a link to " + target + ". The converted file is written as a regular file at " + toml + ", and " + target + " is not changed.\n" +
 		"If a dotfiles manager keeps this file, copy the new file into it yourself.\n\nConvert to TOML now?"
 	if !strings.Contains(s, warning) || !strings.Contains(s, "Stop asking:") || strings.Index(s, "Stop asking:") > strings.Index(s, warning) {
@@ -274,7 +285,7 @@ func TestLaunchOfferWarnsAboutASymlinkBeforeTheQuestion(t *testing.T) {
 	if info, err := os.Lstat(toml); err != nil || !info.Mode().IsRegular() || l.exists("config.jsonc") {
 		t.Fatalf("config.toml is not a regular file in place of the link (config.toml: %v, config.jsonc still there: %v)", err, l.exists("config.jsonc"))
 	}
-	if text, err := os.Readlink(link + ".pre-migrate"); err != nil || text != target {
+	if text, err := os.Readlink(link + ".pre-migrate"); err != nil || text != linkText {
 		t.Fatalf("config.jsonc.pre-migrate = %q (%v), want the original link", text, err)
 	}
 	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 1 {
