@@ -81,3 +81,8 @@ func (r Refusal) valueList() string {
 	}
 	return " " + strings.Join(r.Values, ", ")
 }
+
+// RefusedExit is the exit status of every grant refusal and of the inert line, in a daemon and
+// in its client alike (docs/design/loophole-access-approval-plan.md, PD-7): a caller tells "no
+// grant here" from a usage error (2) or a failed read (1) by status alone.
+const RefusedExit = 64

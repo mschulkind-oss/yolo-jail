@@ -199,8 +199,8 @@ func TestYoloPsPrintsTheInertLine(t *testing.T) {
 		if stderr != want {
 			t.Errorf("args %v: stderr = %q, want %q", args, stderr, want)
 		}
-		if rc != 2 {
-			t.Errorf("args %v: rc = %d, want 2", args, rc)
+		if rc != 64 {
+			t.Errorf("args %v: rc = %d, want 64, the grant refusal status (PD-7)", args, rc)
 		}
 	}
 }

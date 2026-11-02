@@ -80,7 +80,7 @@ func runArgs(args []string) int {
 	// relaunch a jail that will never have one.
 	if reason := os.Getenv(inertEnv); reason != "" {
 		fmt.Fprint(os.Stderr, loopholegrant.Refusal{Client: "yolo-ps", Pack: "host-processes", Inert: reason}.Text())
-		return 2
+		return loopholegrant.RefusedExit
 	}
 
 	ep := *endpoint
