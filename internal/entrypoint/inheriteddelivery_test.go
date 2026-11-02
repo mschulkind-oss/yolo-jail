@@ -182,6 +182,42 @@ func TestInheritedCoreOverlayKeepsAnOwnerFileSwappedInAfterTheRecordCheck(t *tes
 	requireUntouched(t, f.dest, before, owner)
 }
 
+// THE SAME INODE IS NOT THE SAME FILE. The agent rewrites the recorded delivery in place after the
+// check: inode and mode are unchanged, the bytes are its own. On a filesystem that reuses a freed
+// inode number (ext4, as on CI), the remove-and-recreate swap above produces exactly this, so the
+// installer must re-check the content of what it moved aside, not only its identity.
+func TestInheritedCoreOverlayKeepsAnOwnerRewriteInPlaceAfterTheRecordCheck(t *testing.T) {
+	refuseLinks(t)
+	f := newInheritedCoreOverlayFixture(t)
+	old := []byte("previous inherited config\n")
+	writeOwnerFile(t, f.dest, old)
+	writeInheritedRecord(t, f.overlay, inheritedCoreOverlayTestDest, 0o444, inheritedCoreOverlayTestBody, old)
+	owner := []byte("the agent's own config, same length\n")
+	var before os.FileInfo
+	withOverlayInstallHook(t, func(dest, window string) {
+		if dest != inheritedCoreOverlayTestDest || window != "staged" {
+			return
+		}
+		if err := os.Chmod(f.dest, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(f.dest, owner, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(f.dest, 0o444); err != nil {
+			t.Fatal(err)
+		}
+		before = inheritedCoreOverlayEntryInfo(t, f.dest)
+	})
+	if err := f.install(); err == nil {
+		t.Fatal("install replaced an owner file rewritten in place after the record check")
+	}
+	if before == nil {
+		t.Fatal("the staged hook did not rewrite the destination")
+	}
+	requireUntouched(t, f.dest, before, owner)
+}
+
 // THE RECORD IS NOT IN THE SIDECAR: it sits beside the staged overlay in the host's staging root,
 // which the sandbox cannot write, never under the workspace's home state, which it can.
 func TestTheInheritedDeliveryRecordLivesBesideTheStagedOverlay(t *testing.T) {

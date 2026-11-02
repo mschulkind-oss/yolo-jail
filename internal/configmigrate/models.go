@@ -452,10 +452,18 @@ func providerTable(read *jsonx.OrderedMap, packs []*packload.Pack) (out *jsonx.O
 			entry.Set(modelOrderKey, list)
 		}
 		if options != nil {
+			// The order facts are compared as the order they make; a row that held nothing else
+			// (a readable row with no option facts) is no fact at all, as absent.
 			for _, alias := range options.Keys() {
 				if row, ok := mapAt(options, alias); ok {
 					row.Delete("order")
+					if row.Len() == 0 {
+						options.Delete(alias)
+					}
 				}
+			}
+			if options.Len() == 0 {
+				entry.Delete("model_options")
 			}
 		}
 		out.Set(name, entry)

@@ -207,7 +207,7 @@ func TestANeverAttachLaunchIsOfferedBesideARunningJail(t *testing.T) {
 // and writes nothing. The person asked for a conversion that did not happen, so the launch stops
 // and says how to launch on the old file instead (RC-D35).
 func TestLaunchOfferYesWithAnUnconvertibleSettingNamesItAndStops(t *testing.T) {
-	old := "{\n  \"packs\": [],\n  \"lsp_servers\": {\"rust\": {\"command\": \"rust-analyzer\", \"fileExtensions\": {\".rs\": \"rust\"}}}\n}\n"
+	old := "{\n  \"packs\": [],\n  \"loopholes\": {\"mine\": {\"command\": [\"mine-daemon\"]}}\n}\n"
 	l := runOfferLaunch(t, old, true, "y\n")
 	if l.rc == 0 || l.launched {
 		t.Fatalf("Run() = %d, launched = %v; want a failed requested conversion to stop the launch\nstderr:\n%s", l.rc, l.launched, l.stderr.String())
@@ -216,7 +216,7 @@ func TestLaunchOfferYesWithAnUnconvertibleSettingNamesItAndStops(t *testing.T) {
 		t.Fatalf("an unconvertible setting still converted the file\nstderr:\n%s", l.stderr.String())
 	}
 	s := l.stderr.String()
-	for _, want := range []string{"Some settings can't be converted to TOML yet:", "lsp_servers", "Nothing was changed.", "answer n to launch with your current files."} {
+	for _, want := range []string{"Some settings can't be converted to TOML yet:", "loopholes.mine", "Nothing was changed.", "answer n to launch with your current files."} {
 		if !strings.Contains(s, want) {
 			t.Errorf("stderr lacks %q:\n%s", want, s)
 		}

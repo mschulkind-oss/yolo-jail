@@ -1,6 +1,7 @@
 package configmigrate
 
 import (
+	"fmt"
 	"strings"
 	"sync"
 
@@ -49,6 +50,31 @@ func brokerGrants(user *jsonx.OrderedMap, declarations []config.ReadableBrokerDe
 		}
 		out.Set(a.Source, entry)
 	}
+	// The permission sets each source hands over, whichever spelling wrote them (RC-D54).
+	for _, d := range declarations {
+		source := d.Brokered.Source
+		sets, problems := config.BrokeredSetsOf(user, source)
+		if len(sets) == 0 && len(problems) == 0 {
+			continue
+		}
+		v, _ := out.Get(source)
+		entry, ok := v.(*jsonx.OrderedMap)
+		if !ok {
+			entry = jsonx.NewOrderedMap()
+			out.Set(source, entry)
+		}
+		if _, done := entry.Get("sets"); done {
+			continue
+		}
+		rendered := make([]any, 0, len(sets))
+		for _, set := range sets {
+			rendered = append(rendered, fmt.Sprintf("%+v", set))
+		}
+		entry.Set("sets", rendered)
+		if len(problems) > 0 {
+			entry.Set("sets_problems", strings.Join(problems, "; "))
+		}
+	}
 	return out
 }
 
@@ -87,6 +113,14 @@ func lowerUserBrokered(sources *jsonx.OrderedMap, ctx loweringContext, place fun
 				problem = userReadGrantsProblem(source, v)
 			case "grant_kinds":
 				problem = userGrantKindsProblem(v, declaration)
+			case config.AllowSetsKey:
+				// The list moves whole, entry for entry, to allow.<source>.sets (RC-D54).
+				if _, problems := config.BrokeredSetsOf(legacySets(source, v), source); len(problems) > 0 {
+					skip(at, v, strings.Join(problems, "; "))
+				} else if !place([]string{"allow", source, config.AllowSetsKey}, v, at) {
+					skip(at, v, "allow."+source+"."+config.AllowSetsKey+" is already written in this file; keep one of the two")
+				}
+				continue
 			default:
 				d, _ := renameDescriptorFor(at)
 				problem = unconvertedReason(d)
@@ -210,5 +244,16 @@ func selectedPackNames(user *jsonx.OrderedMap) []string {
 	for name := range newUserView(user).packs {
 		out = append(out, name)
 	}
+	return out
+}
+
+// legacySets is a user config holding only source's legacy sets list v.
+func legacySets(source string, v any) *jsonx.OrderedMap {
+	entry := jsonx.NewOrderedMap()
+	entry.Set(config.AllowSetsKey, v)
+	sources := jsonx.NewOrderedMap()
+	sources.Set(source, entry)
+	out := jsonx.NewOrderedMap()
+	out.Set("brokered", sources)
 	return out
 }

@@ -320,13 +320,13 @@ func lowerNetwork(value any, ctx loweringContext, place func([]string, any, []st
 			var converted []any
 			if isList {
 				if k == "ports" {
-					converted, ok = publishPorts(list)
+					converted, ok = config.LowerLegacyPublishPorts(list)
 				} else {
 					converted, ok = forwardPorts(list)
 				}
 			}
 			if !isList || !ok {
-				skip(oldPath, v, "an entry bound to an address or a protocol has no "+dotted(target)+" spelling; keep the old file for now")
+				skip(oldPath, v, "an entry the old reader refuses has no "+dotted(target)+" spelling; fix it in the old file (`yolo check` names it), then run `yolo config migrate` again")
 				continue
 			}
 			if !place(target, converted, oldPath) {
@@ -339,30 +339,6 @@ func lowerNetwork(value any, ctx loweringContext, place func([]string, any, []st
 	if rest.Len() > 0 {
 		place([]string{"network"}, rest, []string{"network"})
 	}
-}
-
-func publishPorts(entries []any) ([]any, bool) {
-	out := make([]any, 0, len(entries))
-	for _, entry := range entries {
-		text, ok := entry.(string)
-		if !ok || strings.Contains(text, "/") {
-			return nil, false
-		}
-		parts := strings.Split(text, ":")
-		if len(parts) != 2 {
-			return nil, false
-		}
-		host, hostOK := portNumber(parts[0])
-		jail, jailOK := portNumber(parts[1])
-		if !hostOK || !jailOK {
-			return nil, false
-		}
-		port := jsonx.NewOrderedMap()
-		port.Set("host", int64(host))
-		port.Set("jail", int64(jail))
-		out = append(out, port)
-	}
-	return out, true
 }
 
 func forwardPorts(entries []any) ([]any, bool) {
@@ -389,11 +365,6 @@ func forwardPorts(entries []any) ([]any, bool) {
 		out = append(out, port)
 	}
 	return out, true
-}
-
-func portNumber(text string) (int, bool) {
-	n, err := strconv.Atoi(text)
-	return n, err == nil && n >= 1 && n <= 65535
 }
 
 // lowerEnvSources converts an env_sources list verbatim to env.sources through

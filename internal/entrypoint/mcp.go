@@ -26,6 +26,11 @@ func LoadLSPServers(e *Env) *jsonx.OrderedMap {
 	}
 	for _, k := range extra.Keys() {
 		v, _ := extra.Get(k)
+		// A server written "off" (or a legacy null) is a removal, not a server (RC-D52): no
+		// renderer or derive is handed it.
+		if _, isMap := v.(*jsonx.OrderedMap); !isMap {
+			continue
+		}
 		servers.Set(k, v)
 	}
 	return servers

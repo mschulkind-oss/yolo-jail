@@ -15,7 +15,7 @@ func TestApplyTargetedValidatesResourcesFromGeneratedInheritedOrigins(t *testing
 		name, hostConfig, wantExt string
 	}{
 		{name: "TOML", hostConfig: `{"resources":{"memory":"8g"}}`, wantExt: ".toml"},
-		{name: "JSONC fallback", hostConfig: `{"resources":{"memory":"8g"},"network":{"ports":["127.0.0.1:8080:80"]}}`, wantExt: ".jsonc"},
+		{name: "JSONC fallback", hostConfig: `{"resources":{"memory":"8g"},"model_facts":{"m1":{"context_window":1000}}}`, wantExt: ".jsonc"},
 	} {
 		for _, create := range []bool{false, true} {
 			caseName := "edit"

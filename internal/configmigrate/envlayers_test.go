@@ -222,3 +222,81 @@ func TestMigrateConvertsANullToItsTOMLRemovalSpelling(t *testing.T) {
 		}
 	}
 }
+
+// A report against a yolo built before RC-D50: "the single-file migrate wants the two env files
+// in a different order". `yolo config migrate FILE` on a legacy file whose env_sources lists two
+// dotenv paths, over a user config whose env.files lists two more (and the reverse: a TOML layer
+// over a legacy user config, which the user-scope migrate converts), keeps the walk and what wins:
+// both files of each layer stay in their order, and the layers stay in theirs. Every file sets the
+// same variable, so any reordering changes the resolved value. Each stage converts one file alone
+// (the Request a FILE argument makes, then the one a plain migrate makes), and the read is the same
+// after each.
+func TestSingleFileMigrateKeepsTwoEnvFilesInOrder(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		user, layerBody string
+		userTOML        bool
+		layerTOML       bool
+	}{
+		{"a legacy layer over a TOML user config", "[env]\nfiles = ['u1.env', 'u2.env']\n", `{"env_sources": ["l1.env", "l2.env"]}`, true, false},
+		{"a legacy layer over a legacy user config", `{"env_sources": ["u1.env", "u2.env"]}`, `{"env_sources": ["l1.env", "l2.env"]}`, false, false},
+		{"a TOML layer over a legacy user config", `{"env_sources": ["u1.env", "u2.env"]}`, "[env]\nfiles = ['l1.env', 'l2.env']\n", false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := env(t)
+			dir := filepath.Join(home, ".config", "yolo-jail")
+			layers := filepath.Join(home, "layers")
+			for _, f := range []string{"u1", "u2"} {
+				write(t, filepath.Join(dir, f+".env"), "X="+f+"\n"+strings.ToUpper(f)+"=1\n")
+			}
+			for _, f := range []string{"l1", "l2"} {
+				write(t, filepath.Join(layers, f+".env"), "X="+f+"\n"+strings.ToUpper(f)+"=1\n")
+			}
+			if tc.userTOML {
+				write(t, filepath.Join(dir, "config.toml"), tc.user)
+			} else {
+				write(t, filepath.Join(dir, "config.jsonc"), tc.user+"\n")
+			}
+			layer := filepath.Join(layers, "work.jsonc")
+			if tc.layerTOML {
+				layer = filepath.Join(layers, "work.toml")
+			}
+			write(t, layer, tc.layerBody+"\n")
+			ws := realDir(t)
+			write(t, filepath.Join(ws, "w.env"), "X=w\n")
+			write(t, filepath.Join(ws, "yolo-jail.jsonc"), `{"env_sources": ["w.env"]}`+"\n")
+
+			walkBefore, envBefore := layeredEnvRead(t, ws, layer)
+			wantWalk := []string{"u1.env", "u2.env", "l1.env", "l2.env", "w.env"}
+			if !reflect.DeepEqual(walkBefore, wantWalk) {
+				t.Fatalf("the fixture's env walk = %v, want %v", walkBefore, wantWalk)
+			}
+			if envBefore["X"] != "w" {
+				t.Fatalf("the fixture resolves X=%q, want the workspace's", envBefore["X"])
+			}
+			stages := []Request{{UserConfigDir: dir, Workspace: ws}}
+			if !tc.layerTOML {
+				stages = append([]Request{{UserConfigDir: dir, Workspace: ws, Layer: layer}}, stages...)
+			}
+			for i, req := range stages {
+				p := plan(t, req)
+				if len(p.NotConverted) > 0 {
+					t.Fatalf("stage %d: not converted: %+v", i, p.NotConverted)
+				}
+				if _, err := Apply(p, ApplyOptions{}); err != nil {
+					t.Fatal(err)
+				}
+				if req.Layer != "" {
+					layer = strings.TrimSuffix(layer, ".jsonc") + ".toml"
+				}
+				walkAfter, envAfter := layeredEnvRead(t, ws, layer)
+				if !reflect.DeepEqual(walkAfter, walkBefore) {
+					t.Errorf("stage %d walks the env in a different order:\n  before %v\n  after  %v", i, walkBefore, walkAfter)
+				}
+				if !reflect.DeepEqual(envAfter, envBefore) {
+					t.Errorf("stage %d resolves a different env:\n  before %v\n  after  %v", i, envBefore, envAfter)
+				}
+			}
+		})
+	}
+}

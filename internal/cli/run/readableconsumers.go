@@ -56,10 +56,8 @@ func readablePublishPorts(cfg *jsonx.OrderedMap) []any {
 		if !ok {
 			continue
 		}
-		host, hostOK := jsonx.AsInt(mapGet(port, "host"))
-		jail, jailOK := jsonx.AsInt(mapGet(port, "jail"))
-		if hostOK && jailOK {
-			out = append(out, strconv.FormatInt(host, 10)+":"+strconv.FormatInt(jail, 10))
+		if spec, ok := config.PublishPortSpec(port); ok {
+			out = append(out, spec)
 		}
 	}
 	if legacy {

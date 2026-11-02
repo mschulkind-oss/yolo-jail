@@ -135,6 +135,7 @@ func fileOwner(info os.FileInfo) (uint32, bool) {
 // already are the staged source's.
 type recordedInheritedDelivery struct {
 	info    os.FileInfo
+	digest  string
 	current bool
 }
 
@@ -175,17 +176,41 @@ func admitRecordedInheritedDelivery(overlay, dest, src string, srcInfo os.FileIn
 	if !ok || (owner != srcOwner && owner != uint32(os.Geteuid())) {
 		return recordedInheritedDelivery{}, errNotRecorded
 	}
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return recordedInheritedDelivery{}, errNotRecorded
-	}
-	digest := "sha256:" + hex.EncodeToString(h.Sum(nil))
-	if !record.Admits(dest, digest) {
+	digest, err := openFileDigest(f)
+	if err != nil || !record.Admits(dest, digest) {
 		return recordedInheritedDelivery{}, errNotRecorded
 	}
 	staged, err := os.ReadFile(src)
 	if err != nil {
 		return recordedInheritedDelivery{}, err
 	}
-	return recordedInheritedDelivery{info: info, current: ContentDigest(staged) == digest}, nil
+	return recordedInheritedDelivery{info: info, digest: digest, current: ContentDigest(staged) == digest}, nil
+}
+
+// openFileDigest is the content digest of f, read from its current offset, in ContentDigest's form.
+func openFileDigest(f *os.File) (string, error) {
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// stillAt reports whether name in the directory pfd is still the file admitRecordedInheritedDelivery
+// hashed: the same inode, the same mode, AND the same bytes. Identity alone is not enough: the
+// agent can rewrite a file it owns in place, and a filesystem that reuses a freed inode number
+// (ext4) gives a file removed and recreated after the check the hashed file's identity.
+func (r recordedInheritedDelivery) stillAt(pfd int, name string) bool {
+	fd, err := unix.Openat(pfd, name, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return false
+	}
+	f := os.NewFile(uintptr(fd), name)
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil || !os.SameFile(info, r.info) || info.Mode() != r.info.Mode() {
+		return false
+	}
+	digest, err := openFileDigest(f)
+	return err == nil && digest == r.digest
 }

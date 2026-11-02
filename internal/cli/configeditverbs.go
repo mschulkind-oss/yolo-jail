@@ -393,6 +393,12 @@ func configEditUnsetMutation(format configdoc.Format, canonicalPath, authoredPat
 		}
 	}
 	mutation := configedit.Mutation{Action: configedit.Set, Path: append([]configdoc.Step(nil), authoredPath...)}
+	// A plain scalar entry with an "off" spelling (a mise tool's version, RC-D52) is unset by
+	// removing this file's line, so a lower file's version shows through, as before the
+	// spelling existed; "off", which drops the lower one too, is `yolo config set ... off`.
+	if rule.Removal == config.RemovalOffString && rule.Type == config.SchemaTypeString {
+		rule.Removal = config.RemovalUnspecified
+	}
 	switch rule.Removal {
 	case config.RemovalNull, config.RemovalTombstone:
 		if format != configdoc.JSONC {

@@ -169,8 +169,11 @@ func TestRenameDescriptorsHaveScopeAndReplacement(t *testing.T) {
 	}
 	if !renameHasTransform(descriptors, "profiles.*", RenameProfileVariant) ||
 		!renameHasTransform(descriptors, "profile.*", RenameProfileSelection) ||
-		!renameHasTransform(descriptors, "brokered.*.sets.*", RenameUnrepresentable) {
-		t.Error("provider variants, native/default selections, and unrepresentable grants need explicit transforms")
+		!renameHasTransform(descriptors, "brokered.*.sets.*", RenameMove) {
+		t.Error("provider variants, native/default selections, and a broker's sets (RC-D54) need explicit transforms")
+	}
+	if !replacementContains(descriptors, "brokered.*.sets", "allow.*.sets") {
+		t.Error("a broker's sets rename omits allow.*.sets (RC-D54)")
 	}
 }
 

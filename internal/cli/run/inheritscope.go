@@ -44,6 +44,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/configdoc"
+	"github.com/mschulkind-oss/yolo-jail/internal/configmigrate"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
@@ -143,7 +144,7 @@ func inheritScopeFilesWithSelector(effective *jsonx.OrderedMap, src *config.Sour
 		if filtered.Len() == 0 {
 			return nil
 		}
-		body, format, fallbackReason, rerr := config.RenderFilteredForDelivery(filtered, src, scope, launchedAt)
+		body, format, fallbackReason, rerr := config.RenderFilteredForDeliveryLowering(filtered, src, scope, launchedAt, configmigrate.LowerInheritedUserScope)
 		if rerr != nil {
 			return rerr
 		}

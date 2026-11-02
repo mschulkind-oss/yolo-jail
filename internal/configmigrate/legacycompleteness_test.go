@@ -18,9 +18,9 @@ const (
 	// TOML; `yolo config migrate` writes the same spelling.
 	loweredAtRead legacyLowering = "lowered at read and by migrate"
 	// loweredByMigrate: `yolo config migrate` converts it exactly, and a read keeps the legacy
-	// spelling. A mixed config holding one cannot cross into a jail as TOML yet: the launch
-	// refuses naming `yolo config migrate` (config.mixedFormatRefusal). These are the open gaps
-	// the ruling leaves, listed in the RC-D50 ledger row.
+	// spelling. A mixed config holding one crosses into a jail as the migration's lowering of it
+	// (LowerInheritedUserScope, RC-D55), and the launch refuses naming `yolo config migrate`
+	// (config.mixedFormatRefusal) only where that conversion declines, as migrate does.
 	loweredByMigrate legacyLowering = "lowered by migrate only"
 	// retired: the key means nothing any more, in either spelling; a legacy file holding one is
 	// refused with its own retirement message, so there is nothing to lower.

@@ -30,7 +30,7 @@ func projectReadableB2ForValidation(config *jsonx.OrderedMap) (*jsonx.OrderedMap
 			projection.changed = true
 		}
 		if value, present := install.Get("mise"); present {
-			projected.Set("mise_tools", value)
+			projected.Set("mise_tools", withoutOffEntries(value))
 			projection.changed = true
 		}
 		install.Delete("nix")
@@ -80,6 +80,15 @@ func projectReadableB2ForValidation(config *jsonx.OrderedMap) (*jsonx.OrderedMap
 			projected.Delete("env")
 			projection.changed = true
 			projection.env = true
+		}
+	}
+
+	// A tool or server written "off" is no entry at all (RC-D52), which the legacy validator
+	// spells as its absence.
+	if lspValue, present := projected.Get("lsp_servers"); present {
+		if _, ok := asMap(lspValue); ok {
+			projected.Set("lsp_servers", withoutOffEntries(lspValue))
+			projection.changed = true
 		}
 	}
 
@@ -142,7 +151,19 @@ func validateReadablePortList(value any, field string) []string {
 			continue
 		}
 		for _, key := range port.Keys() {
-			if key != first && key != second {
+			switch {
+			case key == first || key == second:
+			case field == "ports" && key == "address":
+				// Any text podman takes before the host port, as the legacy entry's (RC-D53).
+				text, ok := mapValueString(port, key)
+				if !ok || strings.ContainsAny(text, ":/") {
+					errors = append(errors, entryPath+".address: expected an address string like '127.0.0.1', with no ':' or '/'")
+				}
+			case field == "ports" && key == "protocol":
+				if text, _ := mapValueString(port, key); text != "tcp" && text != "udp" {
+					errors = append(errors, entryPath+".protocol: expected 'tcp' or 'udp'")
+				}
+			default:
 				errors = append(errors, entryPath+"."+key+": unknown key")
 			}
 		}
@@ -319,4 +340,28 @@ func replaceReadableDiagnosticPrefix(message, before, after string) string {
 		return message
 	}
 	return after + message[len(before):]
+}
+
+// withoutOffEntries is value, when it is a table, without its entries written "off" (a removal,
+// RC-D52); any other value as it is.
+func withoutOffEntries(value any) any {
+	table, ok := asMap(value)
+	if !ok {
+		return value
+	}
+	out := jsonx.NewOrderedMap()
+	for _, key := range table.Keys() {
+		entry, _ := table.Get(key)
+		if entry == "off" {
+			continue
+		}
+		out.Set(key, entry)
+	}
+	return out
+}
+
+func mapValueString(m *jsonx.OrderedMap, key string) (string, bool) {
+	value, _ := m.Get(key)
+	text, ok := value.(string)
+	return text, ok
 }

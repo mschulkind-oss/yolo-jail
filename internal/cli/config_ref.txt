@@ -58,14 +58,25 @@
     packages            -> [install] nix = [...]       mise_tools -> [install] mise = {...}
     gpu, resources      -> [machine.gpu], [machine.resources]
     network.ports       -> machine.ports               network.forward_host_ports -> machine.forward
+                           "IP:HOST:JAIL/udp" -> { host = HOST, jail = JAIL,
+                           address = "IP", protocol = "udp" }
     env_sources         -> [env] sources, entry for entry (an inline object
                            as { set = {...}, unset = [...] }); a null -> sources = []
     brokered.*          -> [allow.<source>] (your ceiling) and [requests.<source>]
-                           (a project's request); `repos` -> requests.github.repos
+                           (a project's request); `repos` -> requests.github.repos;
+                           `sets` -> [[allow.<source>.sets]], entry for entry
     profile, profiles   -> [active_provider] and providers.<name>.variants.<variant>
     loopholes.*.enabled -> the grant it gave: [allow.<pack>] (your ceiling) and
                            [requests.<pack>] (a project's request), approved
     loopholes.*.settings.* -> [allow.<pack>] settings
+
+  TOML has no null.  A legacy null that drops what a lower file wrote is, in TOML:
+    a list (packages, blocked_tools, env_sources ...) -> an empty list, e.g.
+                           [security] blocked_tools = [] (replaces the lists below)
+    one server or tool  -> "off": mcp_servers.<name>, lsp_servers.<name>,
+                           [install] mise.<tool> = "off"
+    an agent's selection -> active_provider.<agent> = "native"
+  `yolo config migrate` and a jail's inherited config write exactly these.
 
   [bold]allow[/bold] — (table, [bold]USER SCOPE ONLY[/bold]): what a project's jail may do with your
     logins and your host's loopholes.  `[allow.<pack>]` takes `always = [...]`
@@ -100,7 +111,7 @@
   [bold]active_provider[/bold] — (table, [bold]USER SCOPE ONLY[/bold]): which provider each agent runs on.
     `claude = "bedrock"`, `claude = "bedrock/opus"` (a variant), `default = ...`
     for every agent the table does not name, and `"native"` to leave an agent
-    to its own login.  The name must be one a selected pack declares.  Edit with
+    to its own login (a legacy null under active_provider reads as "native").  The name must be one a selected pack declares.  Edit with
     [bold]yolo active-provider <agent|default> <provider|provider/variant|native>[/bold];
     it takes effect at the next launch.
 
@@ -305,12 +316,27 @@
     Example (~/.config/yolo-jail/config.jsonc):
       "include_if_found": ["overrides.jsonc"]
 
-  [bold]~/.config/yolo-jail/config.d/*.toml[/bold] (user config fragments): With a
-    TOML user config, every *.toml file in config.d/ is read after config.toml,
-    in name order, and merged on top the same way; no include_if_found line is
-    needed. A linked fragment is followed. Use one file per machine or role (a
-    dotfiles manager can link in work.toml on one machine only). A legacy
-    config.jsonc reads no config.d/.
+  [bold]~/.config/yolo-jail/config.d/*.toml[/bold] (user config fragments): Read
+    automatically, with no include_if_found line, whenever the user config is
+    config.toml or there is no user config file at all.  A legacy config.jsonc
+    (or config.json) reads no config.d/.
+    What is loaded: each entry of config.d/ whose name ends in ".toml" and is a
+    regular file once links are followed (a linked fragment is read; a
+    subdirectory, a .jsonc file or any other name is skipped).  Each fragment
+    is user-scope, like config.toml, and may list its own include_if_found,
+    relative to config.d/.  A file already read (through an include, say) is
+    not read twice.
+    Order: config.toml with its includes first, then the fragments in byte
+    order of their names (uppercase before lowercase; number them, as in
+    10-base.toml and 20-work.toml, to fix the order), each with its own
+    includes, then a --user-layer last.
+    Merge: each fragment merges on top of everything before it exactly as a
+    TOML include does: tables merge key by key, a later scalar wins, lists
+    from each file add up (duplicates dropped), and a removal spelling
+    (an empty list, "off", "native" where a key has one) drops what earlier
+    files wrote.
+    Use one file per machine or role (a dotfiles manager can link in
+    work.toml on one machine only).
 
   [bold]agents_md_extra[/bold] (string): Markdown appended to every agent's briefing.
     Whatever you put here is concatenated onto the jail-managed section of
@@ -553,6 +579,14 @@
       "github-broker: sets from user config: read-only (+ pr comment), review 1h".  A workspace
       file may NOT name sets: that file is the agent's to edit, so `sets` there is a `yolo check`
       error.
+      In TOML the list is allow.<source>.sets, each entry the same table:
+        [[allow.github.sets]]
+        name = "review"
+        mode = "windowed"
+        window = "1h"
+        admit = ["pr comment", "pr review"]
+      A config that writes both spellings (a TOML user config including a legacy file) reads
+      both lists, the TOML entries first; a name may appear once across the two.
     • [bold]grant_kinds[/bold] (USER SCOPE ONLY): the kinds of user grant a workspace may hold
       for this source, as in "grant_kinds": ["create-branch"].  A kind is one the loophole's
       manifest defines (`brokered.grants`; the git pack's git-broker defines "create-branch",
@@ -1725,6 +1759,11 @@
     Format: "HOST:JAIL" — host side first, podman's -p order.
       Also accepted: "IP:HOST:JAIL", and a "/tcp" or "/udp" suffix.
     Example: ["8000:8000", "3000:3000"]
+    In TOML: [machine] ports = [{ host = 8000, jail = 8000 }], and the other
+      two forms as the optional `address` (the IP: any text with no ':' or
+      '/') and `protocol` ("tcp" or "udp") of an entry:
+      { host = 9000, jail = 90, address = "127.0.0.1", protocol = "udp" }
+      is the same -p as "127.0.0.1:9000:90/udp".
       → a dev server on the jail's 0.0.0.0:3000 is at localhost:3000 ON THE HOST.
     A server bound to 127.0.0.1 inside the jail is NOT publishable — bind
     0.0.0.0 in here, which is safe: the published port is the only way in.
@@ -1791,6 +1830,9 @@
       • find unconditionally blocked.
     Your own entries here are unaffected, and an entry naming the same
     tool as a pack's REPLACES it whole.
+    Lists from several files merge.  In TOML an empty list
+    (blocked_tools = []) drops every entry a lower file wrote, as a legacy
+    "blocked_tools": null does.
     Conditional on the ALTERNATIVE existing: add ``replacement`` (a bare
     binary name) and the tool is blocked only when that binary is on the
     jail's PATH.  The two defaults set it (rg for grep, fd for find), so
@@ -1841,6 +1883,8 @@
     there is none — see internal/config/config.go's defaultMiseToolsVals.)
     These are injected into the jail's global mise config (not workspace mise.toml).
     Deep-merged: user config adds tools, workspace config overrides versions.
+    A tool written "off" (TOML: [install] mise.<tool> = "off"; legacy: null)
+    drops the version a lower file pinned.
 
     [bold]Which of the three places does your tool belong?[/bold] They are not
     interchangeable, and picking by habit is the common mistake:
@@ -2820,6 +2864,8 @@
     pack that composes one.
     Example: {"rust": {"command": "rust-analyzer", "args": [],
               "fileExtensions": {".rs": "rust"}}}
+    A server written "off" (TOML: lsp_servers.<name> = "off"; legacy: null)
+    drops one a lower file declared.
 
   [bold]mcp_presets[/bold] (array of strings): REMOVED — a config carrying it is REFUSED,
     in either file.  yolo no longer keeps its own list of MCP servers:

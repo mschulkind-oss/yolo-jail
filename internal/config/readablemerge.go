@@ -42,11 +42,14 @@ func projectLegacyB2Config(values *jsonx.OrderedMap, source *srcNode) (*jsonx.Or
 	}
 	values, source = projectLegacyReadableNetwork(values, source)
 	values, source = lowerLegacyEnvSources(values, source)
+	// A null no merged read honored is respelled to the scalar that reads the same in every merge
+	// (RC-D52), so a TOML layer over or under it, and the TOML delivery of it, agree.
+	lowerLegacyScalarNulls(values)
 	return values, source
 }
 
 func projectLegacyReadableNetwork(values *jsonx.OrderedMap, source *srcNode) (*jsonx.OrderedMap, *srcNode) {
-	values, source = projectLegacyNetworkList(values, source, "ports", []string{"machine", "ports"}, parseLegacyPublishPorts)
+	values, source = projectLegacyNetworkList(values, source, "ports", []string{"machine", "ports"}, LowerLegacyPublishPorts)
 	return projectLegacyNetworkList(values, source, "forward_host_ports", []string{"machine", "forward"}, parseLegacyForwardPorts)
 }
 
@@ -96,6 +99,13 @@ func projectLegacyNetworkList(values *jsonx.OrderedMap, source *srcNode, oldKey 
 				"host": oldElement,
 				"jail": oldElement,
 			}}
+			if table, ok := converted[i].(*jsonx.OrderedMap); ok {
+				for _, key := range []string{"address", "protocol"} {
+					if _, present := table.Get(key); present {
+						projectedElements[i].keys[key] = oldElement
+					}
+				}
+			}
 		}
 	}
 	var projectedNode *srcNode
@@ -106,16 +116,38 @@ func projectLegacyNetworkList(values *jsonx.OrderedMap, source *srcNode, oldKey 
 	return values, rootNode
 }
 
-func parseLegacyPublishPorts(entries []any) ([]any, bool) {
+// LowerLegacyPublishPorts is the one lowering of a legacy `network.ports` list to
+// `machine.ports` tables, shared by every read of a legacy file and `yolo config migrate`. Every
+// form the legacy validator accepts converts: `host:jail`, `address:host:jail` (the address goes
+// to `address`) and either with a trailing `/tcp` or `/udp` (to `protocol`, written only when the
+// legacy entry wrote one), so readablePublishPorts renders the same `-p` text the legacy entry was
+// (RC-D53). It answers false for an entry the legacy validator refuses.
+func LowerLegacyPublishPorts(entries []any) ([]any, bool) {
 	converted := make([]any, 0, len(entries))
 	for _, entry := range entries {
 		text, ok := entry.(string)
-		if !ok || strings.Contains(text, "/") {
+		if !ok {
 			return nil, false
 		}
+		protocol := ""
+		if i := strings.LastIndex(text, "/"); i >= 0 {
+			text, protocol = text[:i], text[i+1:]
+			if protocol != "tcp" && protocol != "udp" {
+				return nil, false
+			}
+		}
 		parts := strings.Split(text, ":")
-		if len(parts) != 2 {
-			return nil, false // Address-bound forms have no lossless machine.ports representation.
+		address, hasAddress := "", false
+		switch len(parts) {
+		case 2:
+		case 3:
+			address, hasAddress = parts[0], true
+			parts = parts[1:]
+		default:
+			return nil, false
+		}
+		if strings.Contains(address, "/") {
+			return nil, false
 		}
 		host, hostOK := parseLegacyPortNumber(parts[0])
 		jail, jailOK := parseLegacyPortNumber(parts[1])
@@ -125,9 +157,43 @@ func parseLegacyPublishPorts(entries []any) ([]any, bool) {
 		port := jsonx.NewOrderedMap()
 		port.Set("host", legacyReadablePortNumber(host))
 		port.Set("jail", legacyReadablePortNumber(jail))
+		if hasAddress {
+			port.Set("address", address)
+		}
+		if protocol != "" {
+			port.Set("protocol", protocol)
+		}
 		converted = append(converted, port)
 	}
 	return converted, true
+}
+
+// PublishPortSpec is the `-p` text one `machine.ports` table renders, the legacy entry it was
+// lowered from: `[address:]host:jail[/protocol]`. It answers false for a table without two port
+// numbers.
+func PublishPortSpec(port *jsonx.OrderedMap) (string, bool) {
+	if port == nil {
+		return "", false
+	}
+	hostValue, _ := port.Get("host")
+	jailValue, _ := port.Get("jail")
+	host, hostOK := jsonx.AsInt(hostValue)
+	jail, jailOK := jsonx.AsInt(jailValue)
+	if !hostOK || !jailOK {
+		return "", false
+	}
+	spec := strconv.FormatInt(host, 10) + ":" + strconv.FormatInt(jail, 10)
+	if address, ok := port.Get("address"); ok {
+		if text, isText := address.(string); isText {
+			spec = text + ":" + spec
+		}
+	}
+	if protocol, ok := port.Get("protocol"); ok {
+		if text, isText := protocol.(string); isText {
+			spec += "/" + text
+		}
+	}
+	return spec, true
 }
 
 func parseLegacyForwardPorts(entries []any) ([]any, bool) {

@@ -2,6 +2,7 @@ package configmigrate
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -219,4 +220,67 @@ func mustJSON(t *testing.T, text string) *jsonx.OrderedMap {
 		t.Fatalf("%s is not an object", text)
 	}
 	return m
+}
+
+// RC-D54: a user's brokered.<source>.sets moves whole to allow.<source>.sets. `yolo config
+// migrate` converts it (it was "not converted" before), the host's sets reader
+// (config.CurrentBrokeredSets, what the github broker reads) answers the same sets before and
+// after, and a piecemeal stage that writes both spellings reads both. Fails if migrate stops
+// placing the list, or if the reader stops reading the TOML spelling.
+func TestMigrateMovesABrokersSetsToItsAllowTable(t *testing.T) {
+	home := env(t)
+	dir := filepath.Join(home, ".config", "yolo-jail")
+	const sets = `[{"name": "review", "mode": "windowed", "window": "1h", "uses": 5, "admit": ["pr comment"]}, {"name": "read-only", "mode": "standing"}]`
+	write(t, filepath.Join(dir, "config.jsonc"), `{"packs": ["github"], "brokered": {"github": {"sets": `+sets+`}}}`+"\n")
+	before, err := config.CurrentBrokeredSets("github")
+	if err != nil || len(before) != 2 {
+		t.Fatalf("the fixture's sets = %+v, %v", before, err)
+	}
+	ws := realDir(t)
+	p := plan(t, Request{UserConfigDir: dir, Workspace: ws})
+	if len(p.NotConverted) > 0 {
+		t.Fatalf("not converted: %+v", p.NotConverted)
+	}
+	if _, err := Apply(p, ApplyOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "[[allow.github.sets]]") && !strings.Contains(string(data), "sets = [") {
+		t.Fatalf("the converted file does not write allow.github.sets:\n%s", data)
+	}
+	merged, err := config.LoadConfig(ws, true, func(string) {})
+	if err != nil {
+		t.Fatalf("the converted config does not load: %v", err)
+	}
+	if errs, _ := config.ValidateConfig(merged, ws, nil); len(errs) > 0 {
+		t.Fatalf("the converted config does not launch: %v", errs)
+	}
+	after, err := config.CurrentBrokeredSets("github")
+	if err != nil || !reflect.DeepEqual(after, before) {
+		t.Fatalf("the converted config's sets = %+v, %v; before %+v", after, err, before)
+	}
+	// A piecemeal stage: the TOML user config includes a legacy file with one more set.
+	write(t, filepath.Join(dir, "more.jsonc"), `{"brokered": {"github": {"sets": [{"name": "triage", "mode": "standing"}]}}}`+"\n")
+	write(t, filepath.Join(dir, "config.toml"), "include_if_found = ['more.jsonc']\n"+string(data))
+	mixed, err := config.CurrentBrokeredSets("github")
+	if err != nil || len(mixed) != 3 || mixed[2].Name != "triage" {
+		t.Fatalf("a TOML config including legacy sets reads %+v, %v", mixed, err)
+	}
+}
+
+// The proof compares the sets too: a conversion that dropped one is a difference.
+func TestTheProofNamesADroppedSet(t *testing.T) {
+	env(t)
+	declarations, err := shippedBrokers()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := mustJSON(t, `{"packs": ["github"], "brokered": {"github": {"sets": [{"name": "review", "mode": "standing"}]}}}`)
+	converted := mustJSON(t, `{"packs": ["github"]}`)
+	if diffs := diffValues(brokerGrantsLayer, brokerGrants(old, declarations), brokerGrants(converted, declarations)); len(diffs) == 0 {
+		t.Fatal("a dropped set was not named")
+	}
 }

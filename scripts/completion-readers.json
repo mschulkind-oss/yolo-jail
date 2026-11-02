@@ -2375,6 +2375,7 @@
 "internal/configmigrate/gate.go",
 "internal/configmigrate/gitignore.go",
 "internal/configmigrate/identities.go",
+"internal/configmigrate/inherited.go",
 "internal/configmigrate/journal.go",
 "internal/configmigrate/keyedstate.go",
 "internal/configmigrate/loopholegrants.go",
@@ -6987,6 +6988,7 @@
 "internal/cli/run/inheritscope_converted_test.go",
 "internal/cli/run/inheritscope_copied_test.go",
 "internal/cli/run/inheritscope_loaderror_test.go",
+"internal/cli/run/inheritscope_lowered_test.go",
 "internal/cli/run/inheritscope_mixedformat_test.go",
 "internal/cli/run/inheritscope_placeholder_test.go",
 "internal/cli/run/inheritscope_relaunch_test.go",
@@ -7823,6 +7825,7 @@
 "TestReadableDeclarationsForOfficialPathPackReadsItsOwnModuleFiles": 52
 },
 "internal/configmigrate": {
+"TestAFileIsConvertedWithItsIncludesUnlessOnly": 53,
 "TestAHandWrittenTOMLOfTheConvertedShapeComposesTheSameProviderTable": 53,
 "TestAKilledLayerMigrationRollsForward": 53,
 "TestALayersSourcesAgreeWithTheUserConfigs": 53,
@@ -7831,6 +7834,8 @@
 "TestALinkedUserLayerIsMovedAndItsTargetIsNeverTouched": 53,
 "TestAUserLayerIsConvertedOnItsOwn": 53,
 "TestMigrationKeepsAnEnvSourcesNullReset": 53,
+"TestMigrationKeepsEveryLegacyNullRead": 53,
+"TestMigrationKeepsEveryLegacyUserSettingRead": 53,
 "TestMigrationKeepsTheLayeredEnvRead": 53,
 "TestPlanComparesAVendorTheIDNamesAsDerived": 53,
 "TestPlanConvertsANamedRowToARowWithModel": 53,
@@ -7845,6 +7850,7 @@
 "TestPlanListsUnreachableInclude": 53,
 "TestPlanRespellsTOMLParentByteForByte": 53,
 "TestPlanTranscriptNamesTwinsAndDerivedVendors": 53,
+"TestSingleFileMigrateKeepsTwoEnvFilesInOrder": 53,
 "TestTheBedrockKeyLayerConvertsAndKeepsItsEmptyProfile": 53,
 "TestUserBrokeredConvertsToAllow": 53
 },

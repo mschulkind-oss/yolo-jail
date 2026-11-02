@@ -195,6 +195,10 @@ func ReadableSchemaKeys() []SchemaKey {
 		{Path: "machine.ports.*", Scope: both, Type: SchemaTypeObject},
 		{Path: "machine.ports.*.host", Scope: both, Type: SchemaTypeNumber},
 		{Path: "machine.ports.*.jail", Scope: both, Type: SchemaTypeNumber},
+		// The interface a port binds on the host and its protocol, a legacy entry's
+		// `address:host:jail/protocol` (RC-D53).
+		{Path: "machine.ports.*.address", Scope: both, Type: SchemaTypeString},
+		{Path: "machine.ports.*.protocol", Scope: both, Type: SchemaTypeString},
 		{Path: "machine.forward", Scope: both, Type: SchemaTypeList},
 		{Path: "machine.forward.*", Scope: both, Type: SchemaTypeObject},
 		{Path: "machine.forward.*.host", Scope: both, Type: SchemaTypeNumber},
@@ -380,6 +384,8 @@ func ReadableSchemaKeys() []SchemaKey {
 		{Path: "programs.overrides.*.path", Scope: user, Type: SchemaTypeString},
 		{Path: "programs.overrides.*.prebuilt", Scope: user, Type: SchemaTypeBoolean},
 		{Path: "programs.overrides.*.run", Scope: user, Type: SchemaTypeString},
+		// A language server's entry, so its removal spelling ("off", RC-D52) has a path.
+		{Path: "lsp_servers.*", Scope: both, Type: SchemaTypeObject},
 		{Path: "mcp_servers", Scope: both, Type: SchemaTypeObject},
 		{Path: "mcp_servers.*", Scope: both, Type: SchemaTypeObject},
 		{Path: "mcp_servers.*.command", Scope: both, Type: SchemaTypeList},

@@ -273,6 +273,17 @@ func ResolveReadableAllowance(input ReadableAllowanceInput) (ReadableAllowancePl
 					} else {
 						policy.OnRequest, policy.OnRequestOrigins = validated, cloneOrigins(input.UserOrigins["allow."+name+".on_request"])
 					}
+				case AllowSetsKey:
+					// The source's permission sets, the TOML spelling of brokered.<source>.sets
+					// (RC-D54), read by BrokeredSets and judged by the same validator.
+					if name == policy.Pack {
+						if _, found, _ := readableSettingByKey(settings[policy.Pack], key); found {
+							return plan, fmt.Errorf("allow.%s.%s ambiguously names both the broker's permission sets and a pack setting", name, key)
+						}
+					}
+					if _, problems := brokeredSetsValue("allow."+name+"."+key, value); len(problems) > 0 {
+						return plan, fmt.Errorf("%s", strings.Join(problems, "; "))
+					}
 				default:
 					var setting loopholedecl.Setting
 					var found, ambiguous bool

@@ -1175,14 +1175,29 @@ func TestStandardWorkspaceReaderProjectsRepresentableLegacyPorts(t *testing.T) {
 		t.Fatalf("normalized legacy port source locations missing: %#v", sources)
 	}
 
-	write(t, filepath.Join(workspace, paths.WorkspaceConfigLegacyJSONCName), `{"network":{"ports":["127.0.0.1:8000:80"]}}`)
+	// An address-bound or protocol entry is representable too (RC-D53): it reads as a table
+	// that renders the same -p text.
+	write(t, filepath.Join(workspace, paths.WorkspaceConfigLegacyJSONCName), `{"network":{"ports":["127.0.0.1:8000:80", "9000:9000/udp", "0.0.0.0:53:53/udp"]}}`)
 	legacyAddressBound, err := LoadWorkspaceConfig(workspace, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacyNetwork, _ := asMap(mustValue(t, legacyAddressBound, "network"))
-	if ports, _ := legacyNetwork.Get("ports"); !reflect.DeepEqual(ports, []any{"127.0.0.1:8000:80"}) {
-		t.Fatalf("unrepresentable address-bound port was rewritten: %#v", ports)
+	if _, exists := legacyAddressBound.Get("network"); exists {
+		t.Fatalf("an address-bound legacy port stayed in the legacy vocabulary: %#v", legacyAddressBound)
+	}
+	boundMachine, _ := asMap(mustValue(t, legacyAddressBound, "machine"))
+	boundPorts, _ := asList(mustValue(t, boundMachine, "ports"))
+	var specs []string
+	for _, entry := range boundPorts {
+		table, _ := asMap(entry)
+		spec, ok := PublishPortSpec(table)
+		if !ok {
+			t.Fatalf("a lowered port does not render: %#v", entry)
+		}
+		specs = append(specs, spec)
+	}
+	if want := []string{"127.0.0.1:8000:80", "9000:9000/udp", "0.0.0.0:53:53/udp"}; !reflect.DeepEqual(specs, want) {
+		t.Fatalf("the lowered ports render %q, want the legacy entries %q", specs, want)
 	}
 }
 
@@ -1618,4 +1633,81 @@ func mustMap(t *testing.T, m *jsonx.OrderedMap, key string) *jsonx.OrderedMap {
 		t.Fatalf("%s is not a table in %#v", key, m)
 	}
 	return out
+}
+
+// config.d/*.toml as `yolo config-ref` states it: read with no user config file at all (the
+// absent user config is the TOML one a first write creates), never beside a legacy config.jsonc,
+// each fragment's own include_if_found followed (relative to config.d/), and a later fragment's
+// scalar winning over an earlier one's.
+func TestConfigDFragmentsReadAsConfigRefStates(t *testing.T) {
+	for _, tc := range []struct {
+		name, top, body string
+		want            any
+	}{
+		{"no user config file", "", "", "second"},
+		{"a TOML user config", paths.UserConfigTOMLName, "agents_md_extra = 'top'\n", "second"},
+		{"a legacy user config", paths.UserConfigLegacyJSONCName, `{"agents_md_extra": "top"}`, "top"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			t.Setenv("YOLO_VERSION", "")
+			t.Setenv(UserLayerEnv, "")
+			userDir := filepath.Join(home, ".config", "yolo-jail")
+			if tc.top != "" {
+				write(t, filepath.Join(userDir, tc.top), tc.body)
+			}
+			write(t, filepath.Join(userDir, "config.d", "10-a.toml"), "include_if_found = ['parts/nix.toml']\nagents_md_extra = 'first'\n")
+			write(t, filepath.Join(userDir, "config.d", "parts", "nix.toml"), "[install]\nnix = ['from-include']\n")
+			write(t, filepath.Join(userDir, "config.d", "20-b.toml"), "agents_md_extra = 'second'\n")
+			got, err := LoadReadableUserScopeConfig(true, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			extra, _ := got.Get("agents_md_extra")
+			if extra != tc.want {
+				t.Fatalf("agents_md_extra = %#v, want %#v", extra, tc.want)
+			}
+			install, _ := got.Get("install")
+			if tc.want == "second" {
+				nix, _ := install.(*jsonx.OrderedMap).Get("nix")
+				if !reflect.DeepEqual(nix, []any{"from-include"}) {
+					t.Fatalf("the fragment's include was not followed: install = %#v", install)
+				}
+			} else if install != nil {
+				t.Fatalf("a legacy user config read config.d: install = %#v", install)
+			}
+		})
+	}
+}
+
+// RC-D54: allow.<source>.sets is judged by the sets validator brokered.<source>.sets is, at a
+// launch's validation: a malformed set is refused by name, and a well-formed one launches.
+func TestAllowSetsIsValidatedLikeTheLegacySets(t *testing.T) {
+	for _, tc := range []struct {
+		sets string
+		want string
+	}{
+		{"[{ name = 'review', mode = 'standing' }]", ""},
+		{"[{ name = 'review', mode = 'sometimes' }]", "allow.github.sets[0]"},
+	} {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		t.Setenv("YOLO_VERSION", "")
+		t.Setenv(UserLayerEnv, "")
+		write(t, filepath.Join(home, ".config", "yolo-jail", paths.UserConfigTOMLName), "packs = ['github']\n[allow.github]\nsets = "+tc.sets+"\n")
+		ws := t.TempDir()
+		merged, err := LoadConfig(ws, true, func(string) {})
+		if err != nil {
+			t.Fatal(err)
+		}
+		errs, _ := ValidateConfig(merged, ws, nil)
+		got := strings.Join(errs, "\n")
+		if tc.want == "" && got != "" {
+			t.Errorf("%s: a well-formed set was refused: %s", tc.sets, got)
+		}
+		if tc.want != "" && !strings.Contains(got, tc.want) {
+			t.Errorf("%s: a malformed set was not refused by name: %q", tc.sets, got)
+		}
+	}
 }
