@@ -6126,6 +6126,7 @@
 "internal/brokercore/core_test.go",
 "internal/brokerhook/brokerhook_test.go",
 "internal/brokerhook/requesthook_test.go",
+"internal/brokerscope/approverungrant_test.go",
 "internal/brokerscope/brokerscope_test.go",
 "internal/brokerscope/display_test.go",
 "internal/brokerscope/grantpattern_test.go",
