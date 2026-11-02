@@ -115,7 +115,9 @@ func TestAHookIsKilledWhenItsRequestLeavesPending(t *testing.T) {
 // whichever comes first, the store's expiry event or the runner's own clock on the request's
 // expiry, and when the runner's Timeout runs past the expiry, as its default does.
 func TestAHookStillRunningAtExpiryRecordsNoFailure(t *testing.T) {
-	const left = 300 * time.Millisecond
+	// Long enough for the hook to start and write its pid file before the expiry stops it, on a
+	// machine busy with the whole tree's tests: at 300ms it once timed out waiting for the file.
+	const left = 2 * time.Second
 	for _, c := range []struct {
 		name              string
 		timeout, interval time.Duration
@@ -209,7 +211,7 @@ func TestTheOneLinerNotifierGetsTheSIGINT(t *testing.T) {
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	var log syncBuffer
-	stop := f.run(t, `a=$(notify-send -A once="Allow once" -A deny=Deny "$YOLO_REQUEST_SUMMARY"); case "$a" in once) yolo approve "$YOLO_REQUEST_ID";; deny) yolo approve "$YOLO_REQUEST_ID" --deny;; esac`, &log)
+	stop := f.run(t, `a=$(notify-send -u critical -A once="Allow once" -A deny=Deny "yolo: $YOLO_REQUEST_HEADLINE" "$YOLO_REQUEST_DESCRIPTION_MARKUP"); case "$a" in once) yolo approve "$YOLO_REQUEST_ID";; deny) yolo approve "$YOLO_REQUEST_ID" --deny;; esac`, &log)
 	defer stop()
 	q, err := f.store.File(f.filing)
 	if err != nil {

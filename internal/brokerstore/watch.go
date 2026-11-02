@@ -208,6 +208,15 @@ type RequestView struct {
 	// NeedsApproval is, for a git push, the refs no grant or working-set entry covered: what
 	// the request asks approval for (Request.NeedsApproval); absent otherwise.
 	NeedsApproval []string `json:"needs_approval,omitempty"`
+	// Action, Target and Headline are safe in any renderer; Title, Refs and Description hold
+	// the agent's words (About, Store.Headline, Store.Description). Headline and Description
+	// are always present; the rest are absent when the filing broker named none.
+	Action      string   `json:"action,omitempty"`
+	Target      string   `json:"target,omitempty"`
+	Headline    string   `json:"headline"`
+	Title       string   `json:"title,omitempty"`
+	Refs        []string `json:"refs,omitempty"`
+	Description string   `json:"description"`
 }
 
 // GrantView is a grant as the surface shows it.
@@ -276,6 +285,12 @@ func (s *Store) RequestView(q Request) RequestView {
 		CommandDigest: q.Digest, StdinDigest: q.StdinDigest, Filed: q.Filed,
 		Expires: q.Expires(), State: q.State, HookFailure: q.HookFailure, HookOutput: q.HookOutput,
 		NeedsApproval: q.NeedsApproval}
+	a := q.About.safe()
+	v.Action, v.Target, v.Headline = a.Action, a.Target, s.Headline(q)
+	v.Title, v.Description = termsafe.Visible(a.Title), s.Description(q)
+	for _, r := range a.Refs {
+		v.Refs = append(v.Refs, termsafe.Visible(r))
+	}
 	if v.Argv == nil {
 		v.Argv = []string{}
 	}

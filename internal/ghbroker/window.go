@@ -99,6 +99,7 @@ func (b *Broker) window(ctx context.Context, req Request, jail string, d Decisio
 	sum := sha256.Sum256(req.Stdin)
 	q := brokerstore.Request{Jail: jail, Start: b.startID, Workspace: b.workspace, LaunchID: b.authority.scope.LaunchID, Argv: d.Argv, Repo: strings.Join(d.Repos, ","), Set: d.Set, Policy: p, StdinDigest: hex.EncodeToString(sum[:])}
 	q.Digest = brokerstore.CommandDigest(q)
+	q.About = aboutOf(d.Argv, t)
 	ev.CommandDigest, ev.StdinDigest = q.Digest, q.StdinDigest
 	// A grant is held by its workspace (boundary-broker.md BB-D99), so its parent request may
 	// come from a jail or broker lifetime that is gone. The gate checks that the parent is this

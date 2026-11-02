@@ -4,15 +4,21 @@ import "testing"
 
 func TestVisible(t *testing.T) {
 	for in, want := range map[string]string{
-		"plain /path/to/x":          "plain /path/to/x",
-		"x\x1b[2K\x1b[1A":           `x\x1b[2K\x1b[1A`,
-		"\x1b]0;owned\a":            `\x1b]0;owned\a`,
-		"a\rb\tc\nd":                `a\rb\tc\nd`,
-		"del\x7f":                   `del\x7f`,
-		"c1\u009b31m":               `c1\u009b31m`,
-		"rtl\u202eevil":             `rtl\u202eevil`,
-		"bad\x9bbyte":               `bad\x9bbyte`,
-		"ünïcödé stays":             "ünïcödé stays",
+		"plain /path/to/x": "plain /path/to/x",
+		"x\x1b[2K\x1b[1A":  `x\x1b[2K\x1b[1A`,
+		"\x1b]0;owned\a":   `\x1b]0;owned\a`,
+		"a\rb\tc\nd":       `a\rb\tc\nd`,
+		"del\x7f":          `del\x7f`,
+		"c1\u009b31m":      `c1\u009b31m`,
+		"rtl\u202eevil":    `rtl\u202eevil`,
+		"bad\x9bbyte":      `bad\x9bbyte`,
+		"ünïcödé stays":    "ünïcödé stays",
+		// Invisible format characters (category Cf) make one string read as another.
+		"ma\u200bin":                `ma\u200bin`,
+		"zw\u200cj\u200dx":          `zw\u200cj\u200dx`,
+		"wj\u2060x\ufeff":           `wj\u2060x\ufeff`,
+		"soft\u00adhyphen":          `soft\u00adhyphen`,
+		"tag\U000e0041":             `tag\U000e0041`,
 		"\x1b]52;c;cGF3bmVk\x07 ok": `\x1b]52;c;cGF3bmVk\a ok`,
 	} {
 		if got := Visible(in); got != want {

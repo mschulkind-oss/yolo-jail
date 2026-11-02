@@ -87,6 +87,9 @@ type Request struct {
 	// NeedsApproval is, for a git push, the refs among Argv's that nothing else covered: what
 	// a front end marks as the reason the push asks. It is shown, never part of Digest.
 	NeedsApproval []string `json:",omitempty"`
+	// About is what the request does, for a person, as its filing broker read it; shown,
+	// never part of Digest. Empty in a request an older yolo filed.
+	About About `json:",omitzero"`
 	// Spent is an Allow once whose command already spent it; Lapsed one whose window closed
 	// unspent and whose retry was refused once naming it (LapsedAllowError). Neither is part
 	// of Digest.
@@ -544,6 +547,7 @@ func (s *Store) fileIn(ctx context.Context, r *records, now time.Time, input Req
 		}
 	}
 	input.Digest = digest(input)
+	input.About = input.About.safe()
 	for _, q := range r.requests {
 		if q.Jail == input.Jail && q.Start == input.Start && q.Set == input.Set && q.Digest == input.Digest && q.State == "pending" {
 			return q, nil

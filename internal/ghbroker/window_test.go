@@ -65,6 +65,10 @@ func TestWindowedWriteDoesNotSpendLegacySetWideGrant(t *testing.T) {
 	if err != nil || len(requests) != 1 {
 		t.Fatalf("requests: %+v, %v", requests, err)
 	}
+	// The filed request says what it does, for a notifier (aboutOf).
+	if a := requests[0].About; a.Action != brokerstore.ActionPRWrite || a.Target != "PR o/r#1" || a.Headline != "write to PR o/r#1" {
+		t.Fatalf("filed request's about %+v", a)
+	}
 	legacy, err := b.store.Decide(requests[0].ID, "pending", brokerstore.Decision{For: time.Minute})
 	if err != nil || legacy.Digest != "" {
 		t.Fatalf("legacy timed grant: %+v, %v", legacy, err)

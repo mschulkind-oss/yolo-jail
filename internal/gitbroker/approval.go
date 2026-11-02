@@ -134,6 +134,22 @@ func RefusalNextSteps() []string {
 	return out
 }
 
+// pushAbout is what a push request does, for a person (brokerstore.About). The headline
+// counts the refs, never names them: a ref name is the agent's text, so it goes in Refs
+// alone. The remote is named only when every character of it is safe to show unescaped.
+func pushAbout(repo string, needs []string) brokerstore.About {
+	where := "a git remote"
+	if repo != "" && brokerstore.SafeLabel(repo) {
+		where = repo
+	}
+	refs := "1 ref"
+	if len(needs) != 1 {
+		refs = fmt.Sprintf("%d refs", len(needs))
+	}
+	return brokerstore.About{Action: brokerstore.ActionPush, Target: where, Headline: "push " + refs + " to " + where,
+		Refs: slices.Clone(needs)}
+}
+
 // revalidate is this broker's push revalidation, bound to its launch and lifetime.
 func (b *Broker) revalidate(q brokerstore.Request) (brokerstore.Policy, error) {
 	return revalidatePush(b.scopeFile, b.bound, b.start, q)
@@ -151,6 +167,7 @@ func (b *Broker) revalidate(q brokerstore.Request) (brokerstore.Policy, error) {
 func (b *Broker) askForPush(ctx context.Context, repo string, cmds []gitproto.Command, opts, needs []string, cover coverer, ev *brokeraudit.Event) (brokerstore.Grant, refusal, bool) {
 	q := b.pushRequest(repo, cmds, opts)
 	q.NeedsApproval = needs
+	q.About = pushAbout(repo, needs)
 	ev.CommandDigest, ev.StdinDigest = q.Digest, q.StdinDigest
 	// A grant is held by its workspace (BB-D99), so its request may come from a jail or broker
 	// lifetime that is gone: the parent must be this workspace's, and both it, held by this

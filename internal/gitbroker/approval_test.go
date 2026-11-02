@@ -73,6 +73,10 @@ func TestAskForPushSpendsExactGrantOnce(t *testing.T) {
 	if len(reqs) != 1 || reqs[0].ID != id || len(reqs[0].NeedsApproval) != 1 || reqs[0].NeedsApproval[0] != "refs/heads/main" {
 		t.Fatalf("filed requests %+v", reqs)
 	}
+	// The filed request says what it does, for a notifier (pushAbout).
+	if a := reqs[0].About; a.Action != brokerstore.ActionPush || a.Headline != "push 1 ref to "+repo || len(a.Refs) != 1 || a.Refs[0] != "refs/heads/main" {
+		t.Fatalf("filed request's about %+v", a)
+	}
 
 	g, err := ApprovalStore().Decide(id, "pending", brokerstore.Decision{})
 	if err != nil {

@@ -137,22 +137,58 @@ request a jail files. It goes at the **top level** of your user config, and only
 
 ```toml
 # ~/.config/yolo-jail/config.toml
-on_request = 'notify-send "yolo: $YOLO_REQUEST_SUMMARY"'
+on_request = 'notify-send -u critical "yolo: $YOLO_REQUEST_HEADLINE" "$YOLO_REQUEST_DESCRIPTION_MARKUP"'
 ```
 
 Then run `yolo check`. It takes effect at the next fresh launch. The request's fields are in the
-command's environment: `YOLO_REQUEST_ID`, `YOLO_REQUEST_SUMMARY` (one line: the id, the set, the
-repository and the jail, then the command), `YOLO_REQUEST_EXPIRES`, `YOLO_REQUEST_WORKSPACE`,
-`YOLO_REQUEST_JAIL`, `YOLO_REQUEST_SET`, `YOLO_REQUEST_REPO`, `YOLO_SOURCE` (`git` or `github`)
-and `YOLO_EVENT`. The same fields arrive as one JSON object on its standard input.
+command's environment, as `YOLO_REQUEST_*` variables in three groups, beside `YOLO_SOURCE`
+(`git` or `github`), `YOLO_EVENT` and `YOLO_REQUEST_WORKSPACE`:
+
+- **Safe anywhere**, yolo's own words and validated parts, needing no escaping:
+  `YOLO_REQUEST_ID`; `YOLO_REQUEST_ACTION` (`push`, `pr-create`, `pr-merge`, `pr-write`,
+  `issue-create`, `issue-write`, `workflow-dispatch`, `repo-write` or `api`);
+  `YOLO_REQUEST_TARGET` (such as `PR o/r#70`); `YOLO_REQUEST_HEADLINE`, a short phrase that
+  needs no assembly (`merge PR o/r#70`, `push 2 refs to github.com/o/r`, `run a workflow on
+  o/r`); `YOLO_REQUEST_SET`, `YOLO_REQUEST_JAIL`, `YOLO_REQUEST_EXPIRES`; and
+  `YOLO_REQUEST_REPO` (for git, the remote's host and path as its approved URL names them).
+- **Free text**, the agent's words, made safe for a terminal but nothing else:
+  `YOLO_REQUEST_TITLE` (a `--title` or `--subject`, a workflow file, an API path),
+  `YOLO_REQUEST_REFS` (one per line: a push's refs, a dispatch's ref),
+  `YOLO_REQUEST_DESCRIPTION` (the headline, then `title: ...` and one `ref: ...` per ref, a
+  line each), and `YOLO_REQUEST_SUMMARY` (one line, the complete record: the id, the set, the
+  repository and the jail, then the command and its digests).
+- **Escaped for notification markup**: `YOLO_REQUEST_DESCRIPTION_MARKUP` and
+  `YOLO_REQUEST_SUMMARY_MARKUP`.
+
+The same request arrives as one JSON object on the command's standard input, with every field
+but the two markup ones.
+
+The free text is the agent's words, so treat it as untrusted. A plain-text notifier (a terminal,
+a log) shows `YOLO_REQUEST_DESCRIPTION`, one that renders markup shows
+`YOLO_REQUEST_DESCRIPTION_MARKUP`, and `YOLO_REQUEST_HEADLINE` is safe in either; never run any
+of them as a command. Desktop notification daemons such as swaync render the freedesktop
+notification markup, which includes `<b>` and `<a href>`, so the plain text could hide or fake
+text, or add a link, in the very notification you approve from. A markup field has `&`, `<`,
+`>`, `"` and `'` replaced by XML entities, which suits a notifier that renders the freedesktop
+notification (Pango) markup and nothing else: any other renderer, such as a Slack message,
+needs its own escaping of the plain field. Your notifier may wrap a field in formatting of its
+own, such as `"<b>$YOLO_REQUEST_HEADLINE</b>"`: only the values an agent writes need escaping.
+An invisible format character, such as a zero-width space that would make a branch read as
+`main` when it is not, shows escaped in every free-text field. Lookalike letters from other
+scripts are not caught; the command SHA-256 at the end of the summary is the exact identity of
+what you approve.
 
 The command can answer, too. A plain `yolo` inside it is the yolo that started the broker,
 whatever your `PATH` (`$YOLO_BIN` is its full path), so a notification with buttons is the whole
-approval front end. With `notify-send` from libnotify 0.7.10 or newer, which takes `-A` for a
+approval front end. The command does not inherit the pane identity of the terminal that started
+the broker (`HERDR_PANE_ID`, `HERDR_TAB_ID`, `HERDR_WORKSPACE_ID`, `TMUX_PANE`,
+`ZELLIJ_PANE_ID`, `WEZTERM_PANE`, `KITTY_WINDOW_ID`): the broker outlives that pane, so a hook
+that drives a multiplexer names its pane itself. The session's identity (`HERDR_SOCKET_PATH`,
+`HERDR_SESSION`, `TMUX` and the like) is kept, so the hook still reaches the right session. With `notify-send` from libnotify 0.7.10 or newer, which takes `-A` for a
 button:
 
 ```toml
-on_request = 'a=$(notify-send -A once="Allow once" -A deny=Deny "$YOLO_REQUEST_SUMMARY"); case "$a" in once) yolo approve "$YOLO_REQUEST_ID";; deny) yolo approve "$YOLO_REQUEST_ID" --deny;; esac'
+on_request = 'a=$(notify-send -u critical -A once="Allow once" -A deny=Deny "yolo: $YOLO_REQUEST_HEADLINE" "$YOLO_REQUEST_DESCRIPTION_MARKUP"); case "$a" in once) yolo approve "$YOLO_REQUEST_ID";; deny) yolo approve "$YOLO_REQUEST_ID" --deny;; esac'
 ```
 
 A button does exactly what the command does, with the same checks and the same audit record. A

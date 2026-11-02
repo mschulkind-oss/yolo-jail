@@ -192,3 +192,142 @@ func TestAHungHookIsStoppedAtItsTimeout(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+// The summary is the agent's words, and a notification daemon renders markup, so the hook
+// also gets YOLO_REQUEST_SUMMARY_MARKUP: the same line with &, <, >, " and ' as XML
+// entities. The plain field is left exactly as it was.
+func TestTheHookGetsAMarkupSummaryForMarkupNotifiers(t *testing.T) {
+	f := newFixture(t)
+	markup := `<b>x</b> & <a href="http://e">y</a>`
+	f.filing.Argv = []string{"pr", "comment", "1", markup}
+	out := filepath.Join(f.dir, "summaries")
+	stop := f.run(t, f.script(t, "hook", `printf '%s\n%s\n' "$YOLO_REQUEST_SUMMARY" "$YOLO_REQUEST_SUMMARY_MARKUP" >>'`+out+`'`+"\n"), &syncBuffer{})
+	q, err := f.store.File(f.filing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the hook's output", func() bool { b, _ := os.ReadFile(out); return bytes.Count(b, []byte("\n")) >= 2 })
+	stop()
+	b, _ := os.ReadFile(out)
+	lines := strings.Split(strings.TrimSuffix(string(b), "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("hook output %q", b)
+	}
+	plain, escaped := lines[0], lines[1]
+	if plain != f.store.RequestSummary(q) || !strings.Contains(plain, markup) {
+		t.Fatalf("the plain summary changed: %q", plain)
+	}
+	want := `&lt;b&gt;x&lt;/b&gt; &amp; &lt;a href=&quot;http://e&quot;&gt;y&lt;/a&gt;`
+	if !strings.Contains(escaped, want) || strings.ContainsAny(escaped, `<>"'`) {
+		t.Fatalf("escaped summary %q, want it to contain %q and no raw markup or quote", escaped, want)
+	}
+	// Exactly the plain line, entity for entity: &amp; first, so no entity is escaped twice.
+	r := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;", "'", "&#39;")
+	if escaped != r.Replace(plain) {
+		t.Fatalf("escaped %q is not the plain summary escaped, %q", escaped, r.Replace(plain))
+	}
+}
+
+// An invisible format character makes `ma<U+200B>in` read as `main` in the line the user
+// approves from, so both summaries show it escaped.
+func TestTheHookSummariesShowAZeroWidthSpace(t *testing.T) {
+	f := newFixture(t)
+	f.filing.Argv = []string{"pr", "comment", "1", "--head", "ma\u200bin"}
+	out := filepath.Join(f.dir, "summaries")
+	stop := f.run(t, f.script(t, "hook", `printf '%s\n%s\n' "$YOLO_REQUEST_SUMMARY" "$YOLO_REQUEST_SUMMARY_MARKUP" >>'`+out+`'`+"\n"), &syncBuffer{})
+	if _, err := f.store.File(f.filing); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the hook's output", func() bool { b, _ := os.ReadFile(out); return bytes.Count(b, []byte("\n")) >= 2 })
+	stop()
+	b, _ := os.ReadFile(out)
+	lines := strings.Split(strings.TrimSuffix(string(b), "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("hook output %q", b)
+	}
+	// The summary shell-quotes an argument holding one as $'...', its bytes escaped.
+	for i, l := range lines {
+		if strings.ContainsRune(l, '\u200b') || !strings.Contains(l, `ma\xe2\x80\x8bin`) {
+			t.Errorf("summary %d does not show the zero-width space escaped: %q", i, l)
+		}
+	}
+}
+
+// The hook gets what the request does in fields that need no assembly: ACTION, TARGET and
+// HEADLINE are safe anywhere, TITLE and REFS are the agent's text, DESCRIPTION is the
+// headline plus that text, and DESCRIPTION_MARKUP is it escaped for notification markup.
+func TestTheHookGetsTheRequestsActionTargetAndDescription(t *testing.T) {
+	f := newFixture(t)
+	f.filing.Argv = []string{"pr", "create", "--title", "fix: Vec<T> && lexer", "--body", "b"}
+	f.filing.About = brokerstore.About{Action: brokerstore.ActionPRCreate, Target: "PR creation in o/r",
+		Headline: "create a PR in o/r", Title: "fix: Vec<T> && lexer\nsecond", Refs: []string{"refs/heads/a<b>", "refs/heads/c"}}
+	q, err := f.store.File(f.filing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := map[string]string{}
+	for _, kv := range Env(f.store, q, "") {
+		k, v, _ := strings.Cut(kv, "=")
+		env[k] = v
+	}
+	description := "create a PR in o/r\ntitle: fix: Vec<T> && lexer\\nsecond\nref: refs/heads/a<b>\nref: refs/heads/c"
+	for k, want := range map[string]string{
+		"YOLO_REQUEST_ACTION":             "pr-create",
+		"YOLO_REQUEST_TARGET":             "PR creation in o/r",
+		"YOLO_REQUEST_HEADLINE":           "create a PR in o/r",
+		"YOLO_REQUEST_TITLE":              `fix: Vec<T> && lexer\nsecond`,
+		"YOLO_REQUEST_REFS":               "refs/heads/a<b>\nrefs/heads/c",
+		"YOLO_REQUEST_DESCRIPTION":        description,
+		"YOLO_REQUEST_DESCRIPTION_MARKUP": brokerstore.MarkupEscape(description),
+	} {
+		if env[k] != want {
+			t.Errorf("%s = %q, want %q", k, env[k], want)
+		}
+	}
+	if strings.ContainsAny(env["YOLO_REQUEST_DESCRIPTION_MARKUP"], `<>"'`) {
+		t.Errorf("markup description holds raw markup: %q", env["YOLO_REQUEST_DESCRIPTION_MARKUP"])
+	}
+}
+
+// The broker outlives the terminal pane that started it, so the pane identity it inherited
+// (herdr's, tmux's, zellij's, wezterm's, kitty's) is stale by the time a hook runs, and a
+// hook calling `herdr pane ...` would act on the wrong pane: the hook does not inherit it.
+// The session's identity outlives the pane, so it is kept, and so is everything else.
+func TestTheHookDoesNotInheritTheLaunchingPanesIdentity(t *testing.T) {
+	stale := map[string]string{"HERDR_PANE_ID": "p1", "HERDR_TAB_ID": "t1", "HERDR_WORKSPACE_ID": "w1",
+		"TMUX_PANE": "%3", "ZELLIJ_PANE_ID": "2", "WEZTERM_PANE": "4", "KITTY_WINDOW_ID": "5"}
+	kept := map[string]string{"YOLO_TEST_KEPT": "yes", "TMUX_TMPDIR": "/tmp/t",
+		"HERDR_SOCKET_PATH": "/run/herdr.sock", "HERDR_SESSION": "s1", "HERDR_ENV": "1",
+		"TMUX": "/tmp/tmux-1/default,1,0", "ZELLIJ": "0", "ZELLIJ_SESSION_NAME": "s"}
+	for k, v := range stale {
+		t.Setenv(k, v)
+	}
+	for k, v := range kept {
+		t.Setenv(k, v)
+	}
+	f := newFixture(t)
+	out := filepath.Join(f.dir, "env")
+	stop := f.run(t, f.script(t, "hook", `env >'`+out+`.tmp' && mv '`+out+`.tmp' '`+out+`'`+"\n"), &syncBuffer{})
+	if _, err := f.store.File(f.filing); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the hook's environment", func() bool { _, err := os.Stat(out); return err == nil })
+	stop()
+	b, _ := os.ReadFile(out)
+	env := map[string]string{}
+	for _, line := range strings.Split(string(b), "\n") {
+		if k, v, ok := strings.Cut(line, "="); ok {
+			env[k] = v
+		}
+	}
+	for k := range stale {
+		if v, ok := env[k]; ok {
+			t.Errorf("the hook inherited %s=%s", k, v)
+		}
+	}
+	for k, want := range kept {
+		if env[k] != want {
+			t.Errorf("%s = %q, want %q kept", k, env[k], want)
+		}
+	}
+}

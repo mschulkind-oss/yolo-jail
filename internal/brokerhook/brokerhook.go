@@ -177,13 +177,17 @@ func (r *Runner) removeLinkDir() {
 	r.pathDir = ""
 }
 
-// hookEnv is base with dir first on PATH, then the request's fields.
+// hookEnv is base with dir first on PATH and no terminal pane identity, then the request's
+// fields.
 func hookEnv(base []string, dir string, fields []string) []string {
 	env := make([]string, 0, len(base)+len(fields)+1)
 	path := ""
 	for _, kv := range base {
 		if v, ok := strings.CutPrefix(kv, "PATH="); ok {
 			path = v
+			continue
+		}
+		if name, _, _ := strings.Cut(kv, "="); paneIdentity(name) {
 			continue
 		}
 		env = append(env, kv)
@@ -199,6 +203,23 @@ func hookEnv(base []string, dir string, fields []string) []string {
 		env = append(env, "PATH="+path)
 	}
 	return append(env, fields...)
+}
+
+// paneIdentity reports whether name is a terminal multiplexer's identity for the pane,
+// tab or window the broker was started from: herdr's (a terminal multiplexer for agents)
+// HERDR_PANE_ID, HERDR_TAB_ID and HERDR_WORKSPACE_ID, tmux's TMUX_PANE, zellij's
+// ZELLIJ_PANE_ID, WEZTERM_PANE and KITTY_WINDOW_ID. The broker outlives that pane, so in a
+// hook they are stale, and a hook running `herdr pane ...` or `tmux display` would act on a
+// pane that is gone or another one. The SESSION or server identity is kept (HERDR_SOCKET_PATH,
+// HERDR_SESSION, TMUX, ZELLIJ_SESSION_NAME and the rest): the session outlives the pane, and
+// a hook reaches the right one through it.
+func paneIdentity(name string) bool {
+	switch name {
+	case "HERDR_PANE_ID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID", "TMUX_PANE", "ZELLIJ_PANE_ID",
+		"WEZTERM_PANE", "KITTY_WINDOW_ID":
+		return true
+	}
+	return false
 }
 
 // opened fires for this lifetime's requests already pending when the watch opens: those
@@ -292,14 +313,35 @@ func (r *Runner) launch(parent context.Context, q brokerstore.Request) {
 // Env is the request's fields as the hook's environment: what a notifier that takes its
 // text as arguments, such as notify-send, needs, and YOLO_BIN, the yolo the hook calls to
 // decide. Every request value is safe to show on a terminal.
+//
+// ACTION, TARGET and HEADLINE are yolo's own words and validated parts (brokerstore.About),
+// safe in any renderer. TITLE, REFS, DESCRIPTION and SUMMARY carry the agent's words. The
+// _MARKUP fields are DESCRIPTION and SUMMARY with brokerstore.MarkupEscape applied, for a
+// notifier that renders the freedesktop notification markup (a Pango/XML subset with <b>,
+// <a href>, ...), where the plain text could hide or fake text or add links in the toast the
+// user approves from. They are escaped for that dialect only; another renderer needs its own
+// escaping of the plain text. REFS and DESCRIPTION are several lines; every other field one.
 func Env(s *brokerstore.Store, q brokerstore.Request, bin string) []string {
 	env := []string{"YOLO_EVENT=" + brokerstore.EventRequestFiled, "YOLO_SOURCE=" + s.SourceName()}
 	if bin != "" {
 		env = append(env, "YOLO_BIN="+bin)
 	}
 	add := func(k, v string) { env = append(env, k+"="+termsafe.Visible(v)) }
+	// lines is for a value already terminal-safe line by line (Store.Description, Refs).
+	lines := func(k, v string) { env = append(env, k+"="+termsafe.VisibleLines(v)) }
 	add("YOLO_REQUEST_ID", q.ID)
-	add("YOLO_REQUEST_SUMMARY", s.RequestSummary(q))
+	view := s.RequestView(q)
+	add("YOLO_REQUEST_ACTION", view.Action)
+	add("YOLO_REQUEST_TARGET", view.Target)
+	add("YOLO_REQUEST_HEADLINE", view.Headline)
+	add("YOLO_REQUEST_TITLE", view.Title)
+	lines("YOLO_REQUEST_REFS", brokerstore.Refs(q))
+	description := termsafe.VisibleLines(view.Description)
+	lines("YOLO_REQUEST_DESCRIPTION", description)
+	lines("YOLO_REQUEST_DESCRIPTION_MARKUP", brokerstore.MarkupEscape(description))
+	summary := termsafe.Visible(s.RequestSummary(q))
+	env = append(env, "YOLO_REQUEST_SUMMARY="+summary,
+		"YOLO_REQUEST_SUMMARY_MARKUP="+brokerstore.MarkupEscape(summary))
 	add("YOLO_REQUEST_EXPIRES", q.Expires().Format(time.RFC3339))
 	// YOLO_REQUEST_*, never yolo's own names: YOLO_WORKSPACE, for one, is read by the
 	// `yolo approve` the hook runs.
