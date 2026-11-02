@@ -2689,6 +2689,19 @@
 },
 {
 "read": [
+"go.mod",
+"internal/go.mod",
+"packs/audio/loopholes/audio/*",
+"packs/audio/loopholes/audio/manifest.json",
+"packs/audio/loopholes/audio/manifest.jsonc"
+],
+"listed": [
+"packs",
+"packs/audio/**"
+]
+},
+{
+"read": [
 "packs/aws-auth/loopholes/aws-auth/loophole.toml",
 "packs/claude-auth/loopholes/claude-oauth-broker/loophole.toml",
 "packs/codex-auth/loopholes/openai-auth-broker/loophole.toml"
@@ -7970,17 +7983,18 @@
 "TestEveryShippedLoopholeIsTOMLAndDecodesToWhatItAlwaysDid": 63
 },
 "internal/loopholes": {
-"TestAnOlderJailsShippedCredentialLoopholesStayInTheSet": 67,
+"TestAnOlderJailsShippedCredentialLoopholesStayInTheSet": 68,
 "TestCensusIsSevenSurfaces": 65,
 "TestEveryDiscoverCallSiteIsConverged": 64,
-"TestEveryShippedLoopholeHasARow": 70,
+"TestEveryShippedLoopholeHasARow": 71,
 "TestMechanicsPrepareUsesTheConvergedSelectedPackConstructor": 66,
-"TestShippedBrokerNeverMountsItsPrivateKey": 69,
-"TestShippedGitBrokerDefinesBranchAndTag": 71,
-"TestShippedGitBrokerDefinesCreateBranch": 71,
-"TestShippedLoopholePlatformDeclarations": 68,
-"TestShippedManifestsParse": 68,
-"TestSkippedDirsAreTopLevelOnly": 55
+"TestShippedBrokerNeverMountsItsPrivateKey": 70,
+"TestShippedGitBrokerDefinesBranchAndTag": 72,
+"TestShippedGitBrokerDefinesCreateBranch": 72,
+"TestShippedLoopholePlatformDeclarations": 69,
+"TestShippedManifestsParse": 69,
+"TestSkippedDirsAreTopLevelOnly": 55,
+"TestTheShippedAudioCrossesOnlyUnderItsUseGrant": 67
 },
 "internal/macosuser": {
 "TestACaptureInstallsNoneOfTheConfigsMiseTools": 28,
@@ -7991,7 +8005,7 @@
 "TestAUserFontconfigFileWins": 28,
 "TestAccountModeHasNoSessionTmpdirOrServicesGrant": 28,
 "TestAccountModePlanIsUnchanged": 28,
-"TestAccountRunPlanDoesNotInventUserTempValidationRoots": 76,
+"TestAccountRunPlanDoesNotInventUserTempValidationRoots": 77,
 "TestAnAccountModePlanCarryingACacheAliasIsRefused": 28,
 "TestAnEmptyContextDirDoesNotClaimAComposedTree": 28,
 "TestAnEnvGatedServerSurvivesTheLaunchToBootstrapCrossing": 28,
@@ -8006,7 +8020,7 @@
 "TestBuildRunPlanLocksASymlinkedConfigsTarget": 28,
 "TestBuildRunPlanLocksASymlinkedConfigsTargetOutsideTheWorkspace": 28,
 "TestBuildRunPlanLocksTheWorkspaceConfigWithWorkspaceReadonly": 28,
-"TestBuildRunPlanMapsSelectedProgramTempEnvToSandboxTMPDIR": 76,
+"TestBuildRunPlanMapsSelectedProgramTempEnvToSandboxTMPDIR": 77,
 "TestBuildRunPlanMapsTempEnvOnlyFromSelectedProgramPack": 28,
 "TestBuildRunPlanNamesTheWorkspaceSidecar": 28,
 "TestBuildRunPlanProtectsNothingWhenNothingIsDelivered": 28,
@@ -8018,10 +8032,10 @@
 "TestBuildRunPlanWithoutAHostNixDeliversNoNix": 28,
 "TestBuildRunPlanWithoutWorkspaceReadonlyEmitsNoDenies": 28,
 "TestBuildRunPlanWriteProtectsTheDeliveredContent": 28,
-"TestCapturePlanCompatibilityOwnsItsResolvedContext": 72,
+"TestCapturePlanCompatibilityOwnsItsResolvedContext": 73,
 "TestCommandForStartsASelfCrossingInRoot": 28,
 "TestDeviceIoctlPathsRefusesNonDevicesAndRawDisks": 28,
-"TestEachGuestClientReadsTheEndpointItIsStagedOn": 75,
+"TestEachGuestClientReadsTheEndpointItIsStagedOn": 76,
 "TestEveryGuestBinaryIsAShippedBinary": 3,
 "TestEveryPlanNamesAndStagesTheContextDir": 28,
 "TestEveryPlanSaysTheSandboxSharesTheLaunchersNetwork": 28,
@@ -8079,7 +8093,7 @@
 "TestProvisionArgvIsConfinedUnderThisSessionsProfile": 28,
 "TestProvisionArgvRunsItsScriptInTheWorkspace": 28,
 "TestRunPlanCarriesBothHalvesOfHostFiles": 28,
-"TestRunPlanCarriesOnlyResolvedTempValidationContextToNativeLaunchers": 76,
+"TestRunPlanCarriesOnlyResolvedTempValidationContextToNativeLaunchers": 77,
 "TestRunPlanDoesNotGrantASocketVariable": 28,
 "TestRunPlanEmitsOneSearchAceForOneDirectory": 28,
 "TestRunPlanGrantsAndCarriesOpenAIAuthEndpoint": 28,
@@ -8122,7 +8136,7 @@
 "TestStageExecsTheGeneratedScriptAndLogsWhereTheBriefingLooks": 28,
 "TestTheBootstrapAppliesTheStagedGlobalGitignore": 28,
 "TestTheBootstrapArgvNamesTheSessionEnvFile": 28,
-"TestTheBundleStagesDarwinGuestDirsForBothArchesUnderItsShareDir": 73,
+"TestTheBundleStagesDarwinGuestDirsForBothArchesUnderItsShareDir": 74,
 "TestTheBundleVariablesFollowTheFirstOneTheUserSet": 28,
 "TestTheDarwinBootstrapEnvCarriesNoMacosLogMode": 28,
 "TestTheDryRunPlanNamesEachRelocation": 28,
@@ -8130,7 +8144,7 @@
 "TestTheEnvFileNamesTheBundleAndExtrasOnlyWithExtras": 28,
 "TestTheFloorReachesBothPATHsThePlanCarries": 28,
 "TestTheForkDecisionsReachTheBootstrap": 28,
-"TestTheHostShipSetStaysYoloAlone": 74,
+"TestTheHostShipSetStaysYoloAlone": 75,
 "TestTheMacosUserBootstrapCarriesThePacksMCPEntry": 28,
 "TestThePatchedTreeDecisionsReachTheBootstrap": 28,
 "TestThePlanInvariantsRefuseEverySpellingOfAPathInAHome": 28,
@@ -8144,105 +8158,105 @@
 "TestTwoLaunchPackTreesHaveDifferentGuestRoots": 28
 },
 "internal/packdecl": {
-"TestDecodeForUseMatchesDecodeWhenNothingIsSkipped": 80,
-"TestEveryShippedAndExampleInstallHintNamesItsSource": 78,
-"TestEveryShippedAndExamplePackHasNoInstallHintProblem": 78,
-"TestLlamacppDeclaresTheAttributionHeaderAsAProviderOption": 79,
-"TestLlamacppDeclaresTheOptionsAProfileMayTune": 79,
-"TestLlamacppNamesNoCredentialVariable": 79,
-"TestLlamacppShipsOneProviderAndNoProfileOverIt": 79,
-"TestShippedManifestsSurviveTheBriefingDefaultsRefusals": 77
+"TestDecodeForUseMatchesDecodeWhenNothingIsSkipped": 81,
+"TestEveryShippedAndExampleInstallHintNamesItsSource": 79,
+"TestEveryShippedAndExamplePackHasNoInstallHintProblem": 79,
+"TestLlamacppDeclaresTheAttributionHeaderAsAProviderOption": 80,
+"TestLlamacppDeclaresTheOptionsAProfileMayTune": 80,
+"TestLlamacppNamesNoCredentialVariable": 80,
+"TestLlamacppShipsOneProviderAndNoProfileOverIt": 80,
+"TestShippedManifestsSurviveTheBriefingDefaultsRefusals": 78
 },
 "internal/packload": {
-"TestAPackShippedJailBinaryReachesTheContainerArgv": 85,
-"TestEmbedMatchesTree": 82,
-"TestEmbeddedExecutablesMatchTheTree": 81,
-"TestNoFetchedPackHostAccessGateExists": 83,
+"TestAPackShippedJailBinaryReachesTheContainerArgv": 86,
+"TestEmbedMatchesTree": 83,
+"TestEmbeddedExecutablesMatchTheTree": 82,
+"TestNoFetchedPackHostAccessGateExists": 84,
 "TestReleaseEmbeddedForExitStopsReacquisitionFromExternalBinary": 55,
-"TestTheDisclosureThatReplacedTheGateIsStillWired": 84,
-"TestTheSubsetAcceptsAJailOnlyLoophole": 85
+"TestTheDisclosureThatReplacedTheGateIsStillWired": 85,
+"TestTheSubsetAcceptsAJailOnlyLoophole": 86
 },
 "internal/packmigrate": {
-"TestEncodeDecodeRoundTripEveryShippedManifest": 87,
-"TestMigrationOfTheShippedLoopholesProvesEveryOneEqual": 86
+"TestEncodeDecodeRoundTripEveryShippedManifest": 88,
+"TestMigrationOfTheShippedLoopholesProvesEveryOneEqual": 87
 },
 "internal/paths": {
-"TestEveryDocCitationFromGoResolves": 88
+"TestEveryDocCitationFromGoResolves": 89
 },
 "internal/prune": {
 "TestOwnerLabelSpellingMatchesTheFlake": 3,
-"TestPrefixBinMountDestMatchesTheLauncher": 89,
-"TestRetiredPrefixOutLinksHaveNoWriter": 89
+"TestPrefixBinMountDestMatchesTheLauncher": 90,
+"TestRetiredPrefixOutLinksHaveNoWriter": 90
 },
 "internal/render": {
-"TestGuestNotchSentenceHasExactlyOneHome": 90,
-"TestTheEngineHasOneCaller": 91
+"TestGuestNotchSentenceHasExactlyOneHome": 91,
+"TestTheEngineHasOneCaller": 92
 },
 "internal/runtime": {
-"TestEveryRunAndExecIntoAJailTurnsOffTheDetachSequence": 92
+"TestEveryRunAndExecIntoAJailTurnsOffTheDetachSequence": 93
 },
 "internal/setupcensus": {
-"TestEveryCitedFileAndFunctionIsWhereTheReasonSays": 94,
+"TestEveryCitedFileAndFunctionIsWhereTheReasonSays": 95,
 "TestEveryGuideLabelNamesOneRow": 45,
 "TestEveryGuideRowNamingAKeyOrKindIsClaimed": 45,
 "TestEveryKeyAndKindHasAGuideRow": 45,
-"TestEveryNoticeIsReadByItsPrinter": 93,
+"TestEveryNoticeIsReadByItsPrinter": 94,
 "TestEverySilentOrRefusingGuideAnswerIsACensusCell": 45,
-"TestNoUserGuidePageMakesAClaimTheCensusContradicts": 95,
+"TestNoUserGuidePageMakesAClaimTheCensusContradicts": 96,
 "TestTheGuideAgreesWithTheCensus": 45
 },
 "internal/tty": {
-"TestEveryColorEmitterIsInventoried": 96,
-"TestNoPrivateTerminalProbe": 96
+"TestEveryColorEmitterIsInventoried": 97,
+"TestNoPrivateTerminalProbe": 97
 },
 "internal/version": {
 "TestImageSourcePathsMatchTheFlake": 3,
 "TestTheFlakeAndBuildGoShareReleaseMetadata": 57
 },
 "internal/wirebridged": {
-"TestTheAdapterFrontsExactlyThePlatformsTheDaemonReaches": 97
+"TestTheAdapterFrontsExactlyThePlatformsTheDaemonReaches": 98
 },
 "packs": {
 "TestModelListCheckPackWideMetadataPreservesTheLastReleasesProgram": 32,
-"TestShippedPacksDecodeUnderTheLastRelease": 98,
+"TestShippedPacksDecodeUnderTheLastRelease": 99,
 "TestTheLastReleaseReadsNoPackToml": 32
 },
 "tools/build-wheels": {
-"TestPublishRequiresTrustedPublishing": 99,
-"TestTheRealReadmeKeepsNoRelativeLink": 100
+"TestPublishRequiresTrustedPublishing": 100,
+"TestTheRealReadmeKeepsNoRelativeLink": 101
 },
 "tools/release-wiring": {
-"TestAReleaseBuildPrintsItsVersionAndCommit": 104,
-"TestActualPublisherCallerRefusesDuplicatePartialOldAndFailedOriginalState": 99,
-"TestClaimPublicationDependencyAndPyPIOIDCSourceCaller": 99,
-"TestDarwinFloorCacheBuildsTheDispatchedCommitAndTitlesItsRun": 101,
-"TestFailedJobsOnlyPublisherRerunRefusesAtEachActualMutationJobEntry": 99,
-"TestGoReleaserPackagingScriptAcceptsOnlyItsDeclaredInertOutputSet": 106,
-"TestHomebrewBackfillIsExplicitAndRequiresThePublishedImmutableTag": 105,
-"TestHomebrewFormulaHeredocNeverExecutesLiteralYoloForNormalOrBackfill": 106,
-"TestImageCacheBuildRefusesAnUnexpectedOutputBeforeAnyCopy": 99,
-"TestImageCacheBuildUploadsExactlyTheImagesAndBothCopierOutputs": 99,
-"TestImageCacheImportAcceptsUnsignedRunnerBuiltPaths": 99,
-"TestMainBackfillCallerUsesTrustedToolsWhenOldTagHasNone": 106,
-"TestMainScopedReleaseCallerUsesAnchoredRunNamesAndTrustedMainInputs": 103,
-"TestOtherNormalPublicationJobsGuardBeforeCredentialSteps": 107,
-"TestReleaseRequestEligibilityAllowsAResumeToReachTheWriteJob": 102,
-"TestReleaseRequestHandsTheFloorPathsToTheWriteJob": 102,
-"TestReleaseWorkflowsAreMainDispatchedAndKeepWritesOffTargetSource": 103,
+"TestAReleaseBuildPrintsItsVersionAndCommit": 105,
+"TestActualPublisherCallerRefusesDuplicatePartialOldAndFailedOriginalState": 100,
+"TestClaimPublicationDependencyAndPyPIOIDCSourceCaller": 100,
+"TestDarwinFloorCacheBuildsTheDispatchedCommitAndTitlesItsRun": 102,
+"TestFailedJobsOnlyPublisherRerunRefusesAtEachActualMutationJobEntry": 100,
+"TestGoReleaserPackagingScriptAcceptsOnlyItsDeclaredInertOutputSet": 107,
+"TestHomebrewBackfillIsExplicitAndRequiresThePublishedImmutableTag": 106,
+"TestHomebrewFormulaHeredocNeverExecutesLiteralYoloForNormalOrBackfill": 107,
+"TestImageCacheBuildRefusesAnUnexpectedOutputBeforeAnyCopy": 100,
+"TestImageCacheBuildUploadsExactlyTheImagesAndBothCopierOutputs": 100,
+"TestImageCacheImportAcceptsUnsignedRunnerBuiltPaths": 100,
+"TestMainBackfillCallerUsesTrustedToolsWhenOldTagHasNone": 107,
+"TestMainScopedReleaseCallerUsesAnchoredRunNamesAndTrustedMainInputs": 104,
+"TestOtherNormalPublicationJobsGuardBeforeCredentialSteps": 108,
+"TestReleaseRequestEligibilityAllowsAResumeToReachTheWriteJob": 103,
+"TestReleaseRequestHandsTheFloorPathsToTheWriteJob": 103,
+"TestReleaseWorkflowsAreMainDispatchedAndKeepWritesOffTargetSource": 104,
 "TestRequestHostRecipeDoesNotTagLocally": 30,
-"TestRequestJobCanDispatchTheFloorBuild": 102,
-"TestRequestJobTimeoutExceedsItsWaits": 102,
-"TestShellHelpersFailClosedAndAllWorkflowCommandsParse": 103,
-"TestTrustedEligibilityRejectsUnmergedSourceBeforeHostileTargetCanRun": 102,
-"TestWorkflowHelperCallsAreExecutableAndTargetCheckoutCannotPersistCredentials": 103
+"TestRequestJobCanDispatchTheFloorBuild": 103,
+"TestRequestJobTimeoutExceedsItsWaits": 103,
+"TestShellHelpersFailClosedAndAllWorkflowCommandsParse": 104,
+"TestTrustedEligibilityRejectsUnmergedSourceBeforeHostileTargetCanRun": 103,
+"TestWorkflowHelperCallsAreExecutableAndTargetCheckoutCannotPersistCredentials": 104
 },
 "tools/tap-install-check": {
-"TestReleasePushesTheFormulaTheDocsInstall": 112,
-"TestReleaseRunNameTransportReachesTheProductionTapCaller": 106,
-"TestTheJudgeAcceptsWhatTheLastReleaseReportsOnABareMac": 108,
-"TestTheWorkflowCarriesNoSecrets": 111,
-"TestTheWorkflowInstallsWhatTheDocsSay": 109,
-"TestTheWorkflowRunsAfterEachReleaseWeeklyAndByHand": 110
+"TestReleasePushesTheFormulaTheDocsInstall": 113,
+"TestReleaseRunNameTransportReachesTheProductionTapCaller": 107,
+"TestTheJudgeAcceptsWhatTheLastReleaseReportsOnABareMac": 109,
+"TestTheWorkflowCarriesNoSecrets": 112,
+"TestTheWorkflowInstallsWhatTheDocsSay": 110,
+"TestTheWorkflowRunsAfterEachReleaseWeeklyAndByHand": 111
 }
 }
 }
