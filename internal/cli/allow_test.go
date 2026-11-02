@@ -279,3 +279,85 @@ func TestAllowWritesALoopholeKind(t *testing.T) {
 		t.Fatal("a refused allow wrote the user config")
 	}
 }
+
+// journalKindStanding is the standing config.ResolveLoopholeGrants gives the fixture journal's
+// kind, reading the configs the fixture wrote.
+func journalKindStanding(t *testing.T, workspace, kind string) config.LoopholeKindStanding {
+	t.Helper()
+	_, packSettings, err := allowSelectedBrokers()
+	if err != nil {
+		t.Fatal(err)
+	}
+	decl, ok := findGrantDeclaringPack("journal", packSettings)
+	if !ok {
+		t.Fatal("the fixture journal pack declares no grants")
+	}
+	cfg, err := config.LoadReadableConfig(workspace, false, func(string) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := config.ResolveLoopholeGrants(config.LoopholeGrantInput{User: cfg, Workspace: cfg,
+		Declarations: []config.LoopholeGrantDeclaration{decl}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range plan.Packs {
+		for _, k := range p.Kinds {
+			if k.Grant.Kind == kind {
+				return k.Standing
+			}
+		}
+	}
+	t.Fatalf("the plan has no journal kind %q", kind)
+	return ""
+}
+
+// The first `yolo allow <pack> on_request <kind>` creates the list, and a written list replaces
+// the requestable-by-default ceiling, so the verb seeds the list with those kinds: asking to add
+// read_all must not withdraw read.
+func TestAllowFirstOnRequestListKeepsRequestableByDefaultKinds(t *testing.T) {
+	fx := newLoopholeGrantVerbFixture(t, "", "")
+	recordAllowGate(t, false)
+	if got := journalKindStanding(t, fx.workspace, "read"); got != config.LoopholeKindRequestable {
+		t.Fatalf("before the write, read stands %q, want requestable by default", got)
+	}
+	rc, out, errs := captureStd(t, func() int {
+		return registry["allow"]([]string{"allow", "journal", "on_request", "read_all"})
+	})
+	if rc != 0 {
+		t.Fatalf("yolo allow journal on_request read_all rc=%d stdout=%q stderr=%q", rc, out, errs)
+	}
+	if got := readFile(t, fx.userConfig); !strings.Contains(got, `on_request = ["read", "read_all"]`) {
+		t.Fatalf("the first on_request list was not seeded with read:\n%s", got)
+	}
+	if !strings.Contains(out, "read (requestable by default)") {
+		t.Fatalf("the output does not say read was kept: %q", out)
+	}
+	for _, kind := range []string{"read", "read_all"} {
+		if got := journalKindStanding(t, fx.workspace, kind); got != config.LoopholeKindRequestable {
+			t.Fatalf("after the write, %s stands %q, want requestable", kind, got)
+		}
+	}
+}
+
+// Appending to a list the user already wrote adds only the kind asked for: a requestable-by-default
+// kind the user left out of it stays out.
+func TestAllowAppendToOnRequestListDoesNotReseedDefaults(t *testing.T) {
+	fx := newLoopholeGrantVerbFixture(t, "", "\n[allow.journal]\non_request = []\n")
+	recordAllowGate(t, false)
+	rc, out, errs := captureStd(t, func() int {
+		return registry["allow"]([]string{"allow", "journal", "on_request", "read_all"})
+	})
+	if rc != 0 {
+		t.Fatalf("yolo allow journal on_request read_all rc=%d stdout=%q stderr=%q", rc, out, errs)
+	}
+	if got := readFile(t, fx.userConfig); !strings.Contains(got, `on_request = ["read_all"]`) {
+		t.Fatalf("appending re-added a default the user removed:\n%s", got)
+	}
+	if strings.Contains(out, "requestable by default") {
+		t.Fatalf("an append claimed to seed defaults: %q", out)
+	}
+	if got := journalKindStanding(t, fx.workspace, "read"); got != config.LoopholeKindNotAllowed {
+		t.Fatalf("read stands %q, want not allowed: the user's list leaves it out", got)
+	}
+}

@@ -134,9 +134,16 @@ func allowRunW(args []string, out, errw io.Writer) int {
 			"  Run `yolo check` to see which pack is broken.\n", err)
 		return 1
 	}
+	// seed is what a first on_request list starts with besides the kind asked for: a written
+	// list replaces the requestable-by-default ceiling (config.ResolveLoopholeGrants), so a list
+	// created without those kinds would withdraw them from a user who asked to add one.
+	var seed []string
 	if grants, ok := findGrantDeclaringPack(source, packSettings); ok {
 		if rc := allowLoopholeKindRefusal(grants, list, capability, errw); rc != 0 {
 			return rc
+		}
+		if list == "on_request" {
+			seed = requestableByDefaultKinds(grants, capability)
 		}
 	} else {
 		decl, rc := findDeclaredBroker("allow", source, brokers, packSettings, errw)
@@ -153,9 +160,18 @@ func allowRunW(args []string, out, errw io.Writer) int {
 
 	workspace := configEditWorkspace()
 	key := "allow." + configKeyComponent(source) + "." + list
-	if rc := namedVerbEditUnless(allowConvertFirst, workspace, key, configedit.Append, capability,
+	seeded := false
+	if rc := namedVerbEditSeeded(allowConvertFirst, workspace, key, configedit.Append, capability, seed, &seeded,
 		config.EditTargetChoice{Kind: config.EditTargetUser}, dryRun, false, out, errw); rc != 0 {
 		return rc
+	}
+	if seeded {
+		verb := "now lists"
+		if dryRun {
+			verb = "would list"
+		}
+		fmt.Fprintf(out, "%s %s %s (requestable by default) and %s: a written on_request list replaces that default, so it keeps them.\n",
+			key, verb, strings.Join(seed, ", "), capability)
 	}
 	if dryRun {
 		return 0
@@ -233,6 +249,18 @@ func findGrantDeclaringPack(source string, packSettings []config.ReadablePackDec
 		}
 	}
 	return config.LoopholeGrantDeclaration{}, false
+}
+
+// requestableByDefaultKinds is decl's kinds declared requestable_by_default, in declaration
+// order, except except: what a first allow.<pack>.on_request list must keep.
+func requestableByDefaultKinds(decl config.LoopholeGrantDeclaration, except string) []string {
+	var out []string
+	for _, g := range decl.Grants {
+		if g.RequestableByDefault && g.Kind != except {
+			out = append(out, g.Kind)
+		}
+	}
+	return out
 }
 
 // loopholeGrantKind is the declared kind named kind.
@@ -348,6 +376,13 @@ func namedVerbEdit(workspace, key string, action configedit.Action, value any, c
 // missing list, and a named verb's first use is exactly that case.
 func namedVerbEditUnless(refuse func(config.ResolvedEditTarget) string, workspace, key string, action configedit.Action,
 	value any, choice config.EditTargetChoice, dryRun, postWriteCheck bool, out, errw io.Writer) int {
+	return namedVerbEditSeeded(refuse, workspace, key, action, value, nil, nil, choice, dryRun, postWriteCheck, out, errw)
+}
+
+// namedVerbEditSeeded is namedVerbEditUnless where an Append that creates the list starts it
+// with seed before value; seeded reports that it did. An existing list takes value alone.
+func namedVerbEditSeeded(refuse func(config.ResolvedEditTarget) string, workspace, key string, action configedit.Action,
+	value any, seed []string, seeded *bool, choice config.EditTargetChoice, dryRun, postWriteCheck bool, out, errw io.Writer) int {
 	path, err := parseConfigEditKey(key)
 	if err != nil {
 		fmt.Fprintf(errw, "invalid config key: %v\n", err)
@@ -363,6 +398,18 @@ func namedVerbEditUnless(refuse func(config.ResolvedEditTarget) string, workspac
 		if msg := refuse(target); msg != "" {
 			fmt.Fprintln(errw, msg)
 			return 1
+		}
+	}
+	if action == configedit.Append && len(seed) > 0 &&
+		!configEditPathPresent(target.ExpectedBytes(), target.Format, target.AuthoredPath()) {
+		first := make([]any, 0, len(seed)+1)
+		for _, s := range seed {
+			first = append(first, s)
+		}
+		first = append(first, value)
+		mutation, value = configedit.Mutation{Action: configedit.Set, Path: path, Value: first}, first
+		if seeded != nil {
+			*seeded = true
 		}
 	}
 	mutation, target, ok := addMissingKey(workspace, target, mutation, value, choice, errw)
