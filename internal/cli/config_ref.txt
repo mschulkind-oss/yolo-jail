@@ -627,9 +627,8 @@
 
   [bold]on_request[/bold] (string, [bold]USER SCOPE ONLY[/bold]): A command yolo runs for each request a
     jail files for your approval, so one line can be your whole approval front
-    end.  Off unless set.  NOT YET ACTIVE: the GitHub broker files no requests
-    until its writes are turned on, so today nothing runs this command; requests,
-    and with them this hook, begin once writes ship.
+    end.  Off unless set.  The git broker (a push that needs approval) and the
+    GitHub broker (a write or a dispatch that needs approval) both run it.
     Each running jail's broker (such as the github pack's github-broker) runs it
     on the host, as you, with `sh -c`, from your home directory, once per
     request that jail files, and for nothing else: a decision, an expiry or a
@@ -650,9 +649,9 @@
     required: a pending request is also visible in the background broker log and
     can be answered manually with `yolo approve` on the host.  When configured,
     the hook runs the CLI itself, so its buttons get the same checks, refusals and audit.
-    Example (~/.config/yolo-jail/config.jsonc), a desktop notification with
-    Allow once and Deny buttons:
-      "on_request": "a=$(notify-send -A once=\"Allow once\" -A deny=Deny \"$YOLO_REQUEST_SUMMARY\"); case \"$a\" in once) yolo approve \"$YOLO_REQUEST_ID\";; deny) yolo approve \"$YOLO_REQUEST_ID\" --deny;; esac"
+    Example (~/.config/yolo-jail/config.toml, at the top level), a desktop
+    notification with Allow once and Deny buttons:
+      on_request = 'a=$(notify-send -A once="Allow once" -A deny=Deny "$YOLO_REQUEST_SUMMARY"); case "$a" in once) yolo approve "$YOLO_REQUEST_ID";; deny) yolo approve "$YOLO_REQUEST_ID" --deny;; esac'
     Allow once is `yolo approve <id>`: the exact command, once.  A GitHub write
     also takes `--for <duration>` on its resource and `--add` for its PR or
     issue (see `yolo approve --help`).  The same lines can live in a script

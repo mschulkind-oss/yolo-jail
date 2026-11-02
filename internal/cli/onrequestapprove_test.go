@@ -3,7 +3,6 @@ package cli
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,9 +28,13 @@ func TestTheOnRequestExampleDecidesThroughTheCLI(t *testing.T) {
 	if _, err := os.Stat("/bin/sh"); err != nil {
 		t.Skip("the hook runs under /bin/sh")
 	}
-	quoted, _ := json.Marshal(onRequestExample)
-	if !strings.Contains(configRefContent, `"on_request": `+string(quoted)+"\n") {
-		t.Fatalf("config-ref's on_request example is not the one this test runs, %s", quoted)
+	// The example is TOML, a literal string, so it is the command byte for byte.
+	if !strings.Contains(configRefContent, "on_request = '"+onRequestExample+"'\n") {
+		t.Fatalf("config-ref's on_request example is not the one this test runs, %s", onRequestExample)
+	}
+	// Both brokers file requests, so the key is live; a "not yet active" note is a lie.
+	if strings.Contains(configRefContent, "NOT YET ACTIVE: the GitHub broker files no requests") {
+		t.Fatal("config-ref still says on_request is not yet active")
 	}
 	root := t.TempDir()
 	if r, err := filepath.EvalSymlinks(root); err == nil {
