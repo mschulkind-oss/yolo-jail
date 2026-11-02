@@ -42,8 +42,10 @@ becomes a real friction; the launch-merges (below) already landed in `c4ae68a`.
   bookkeeping is also one package variable (`heldMachineLock`) because the tests run
   serially.
 - **CI already splits the macOS suite across jobs.** `.github/workflows/nightly-macos.yml`
-  runs twelve shards: doubled to eight on 2026-09-13 after two of four shards hit the 50-minute
-  cap, then raised to twelve with a 75-minute cap on 2026-09-15 (`7b59711f`).
+  runs fourteen shards: doubled to eight on 2026-09-13 after two of four shards hit the 50-minute
+  cap, raised to twelve with a 75-minute cap on 2026-09-15 (`7b59711f`), then to fourteen on
+  2026-11-02, when the round-robin partition was replaced by one balanced on measured per-test
+  durations ([`scripts/nightly-shard.py`](../../scripts/nightly-shard.py)).
   That is sharding across runners, not `t.Parallel()`, and it is the one place where wall time
   has cost evidence rather than a convenience.
 

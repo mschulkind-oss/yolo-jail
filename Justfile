@@ -349,6 +349,8 @@ lint-ci: lint
     python3 scripts/test_matched_bundle.py
     # The launcher slot `just deploy` and `just deploy-dev` share: what they replace and refuse.
     python3 scripts/test_launcher_slot.py
+    # The macOS nightly's duration-balanced shard partition, and the workflow step that calls it.
+    python3 scripts/test_nightly_shard.py
     # An answered question left in question form still reads as a decision to make, and only
     # `vantage-check index` lists it, so check the index (the design-doc skill's compaction rule).
     python3 scripts/test-check-answered-questions.py

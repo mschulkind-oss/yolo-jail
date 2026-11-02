@@ -321,10 +321,17 @@ jobs:
     # worker. Each shard here is a separate runner with its own machine, its own
     # podman and its own load, so the serial-within-a-job contract is untouched.
     #
-    # NOT time-balanced: shards are round-robin over the test-name list, so a
-    # shard that happens to collect several slow tests runs longer. Unmeasured
-    # and deliberately so — balancing needs per-test costs this job has never
-    # produced, and it does not have to be balanced to stop dying.
+    # TIME-BALANCED SINCE 2026-11-02, from per-test durations this job now has. Until then
+    # shards were round-robin over the sorted test names, and that stopped being good enough:
+    # run 41465971761 put 15.8 minutes of tests on one shard and 55.6 on another, and shards 6
+    # and 7 hit the test step's 60-minute cap with no failing test and a test still running
+    # (as did shard 8 on runs 40497777958 and 41053588731). The tests' total had grown to
+    # 315-408 minutes a run, and single tests run up to 38 (TestPackRendersConfigAndLauncher).
+    # scripts/nightly-shard.py partitions by the median durations in
+    # .github/nightly-macos-durations.txt, longest first, each to the least-loaded shard; a
+    # test the table does not name counts as an average one. Regenerate the table from a
+    # run's shard logs with `python3 scripts/nightly-shard.py durations <logs>` when the
+    # suite's shape changes; a stale one costs balance, never coverage.
     #
     # TWELVE SINCE 2026-09-15, and the measurement that set it is worth keeping because it
     # also says what more shards CANNOT fix. On run 34984503308 there were ZERO test
@@ -339,10 +346,17 @@ jobs:
     # single test, and twelve shards pay it twelve times. That is why the cap moved too — a
     # fixed cost that large, with 7 minutes of run-to-run variance, leaves too little
     # headroom to absorb a slow test set on top of it.
+    #
+    # FOURTEEN SINCE 2026-11-02, with the balancing above. Replayed over the five runs from
+    # 40872571213 to 41465971761, each run partitioned by the other four runs' medians, the
+    # busiest shard would have run 40-49 minutes of tests at twelve shards and 34-38 at
+    # fourteen, against the 60-minute step cap; the round-robin cut it replaced reached 41-70
+    # in the same replay. Like the doubling to eight, this divides the work rather than
+    # raising the cap, which stays a bound on hangs.
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
     # A CAP, so a wedged shard fails with its log instead of losing the runner.
     # The suite itself still runs with `-timeout 0` — its own per-command
     # deadlines (YOLO_TEST_JAIL_TIMEOUT) are the inner bound; this is the outer
@@ -790,7 +804,9 @@ jobs:
           go test -list '.*' ./integration | grep -E '^Test' | sort > /tmp/all-tests
           total=${{ strategy.job-total }}
           idx=${{ matrix.shard }}
-          awk -v t="$total" -v i="$idx" 'NR % t == (i - 1) % t' /tmp/all-tests > /tmp/my-tests
+          # Balanced by measured duration, not round-robin: scripts/nightly-shard.py says how,
+          # and why a stale table can cost balance but never coverage.
+          python3 scripts/nightly-shard.py select --durations .github/nightly-macos-durations.txt --total "$total" --index "$idx" < /tmp/all-tests > /tmp/my-tests
           count=$(wc -l < /tmp/my-tests | tr -d ' ')
           echo "shard $idx/$total selected $count of $(wc -l < /tmp/all-tests | tr -d ' ') tests"
           # A SHARD THAT RUNS NOTHING MUST NOT BE GREEN. This is the failure the
@@ -880,7 +896,7 @@ jobs:
         if: always()
         run: sudo tail -n 200 /var/log/nix-daemon.log || true
 
-  # THE DELTA ARCHIVE, DELIVERED FOR REAL ON A PODMAN MACHINE — one job, not a thirteenth shard.
+  # THE DELTA ARCHIVE, DELIVERED FOR REAL ON A PODMAN MACHINE — one job, not a fifteenth shard.
   #
   # Since 52b29e87 a podman-on-macOS launch hands the VM an oci-archive that leaves out the
   # layers the machine already holds (internal/image deliverViaArchive, deltaarchive.go). The
