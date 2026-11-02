@@ -159,19 +159,50 @@ func UnconfiguredLogins(packs []*Pack, setting func(loophole, key string) string
 	if setting == nil {
 		return out
 	}
+	for name, l := range LoginLoopholes(packs) {
+		if setting(name, l.Setting) != "" {
+			continue
+		}
+		out[name] = "serves nothing until its `" + l.Setting + "` setting names " +
+			"a profile (`yolo config set allow." + l.Pack + "." + l.Setting + " <profile>`)"
+	}
+	return out
+}
+
+// LoginLoophole is one LOGIN LOOPHOLE (WithoutUnconfiguredLogins says what makes one): the
+// loophole a pack's gated env contribution points at, the pack, and the setting naming its
+// profile.
+type LoginLoophole struct {
+	Pack, Loophole, Setting string
+}
+
+// LoginLoopholes maps each login loophole packs declare to its facts, keyed by loophole name.
+func LoginLoopholes(packs []*Pack) map[string]LoginLoophole {
+	out := map[string]LoginLoophole{}
 	for _, p := range packs {
 		if p == nil || p.Decl == nil {
 			continue
 		}
 		for _, c := range p.Decl.GatedEnvContributions() {
-			if c.ServedBy == "" || c.RegionProfileSetting == "" || setting(c.ServedBy, c.RegionProfileSetting) != "" {
-				continue
+			if c.ServedBy != "" && c.RegionProfileSetting != "" {
+				out[c.ServedBy] = LoginLoophole{Pack: p.Name, Loophole: c.ServedBy, Setting: c.RegionProfileSetting}
 			}
-			out[c.ServedBy] = "serves nothing until its `" + c.RegionProfileSetting + "` setting names " +
-				"a profile (`yolo config set allow." + p.Name + "." + c.RegionProfileSetting + " <profile>`)"
 		}
 	}
 	return out
+}
+
+// EmptyProfileStep is the step that keeps a login loophole from serving in one config layer
+// while another names its profile: the setting set to "" there, which wins over the table it
+// layers on, so the service serves nothing and every pointer at it is withheld
+// (UnconfiguredLogins). Both config spellings are named, since the step goes in whichever file
+// the reader means: a JSONC layer's and a TOML file's. It is the remedy a refusal over a
+// credential beside the pointer names, and the one a no-op `enabled: false` names.
+func (l LoginLoophole) EmptyProfileStep() string {
+	return "set " + l.Loophole + "'s " + l.Setting + ` to "" in the config layer that should not ` +
+		`use it (` + "`" + `"loopholes": {"` + l.Loophole + `": {"settings": {"` + l.Setting +
+		`": ""}}}` + "`" + ` in a JSONC file, ` + "`" + l.Setting + ` = "" under [allow.` + l.Pack +
+		`]` + "`" + ` in a TOML one), so its service serves nothing and its pointer is withheld`
 }
 
 // AtHost returns s marked as the host notch's set (the host field says what that changes).

@@ -1,0 +1,51 @@
+package config
+
+import (
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
+)
+
+// A user-scope `loopholes.<name>.enabled` for a pack's loophole switches nothing: the loophole
+// runs whenever its pack is selected. The validator warns, located in the file that wrote it (a
+// `--user-layer` among them), and for a LOGIN loophole (aws-auth: its pack's env contribution
+// names the `profile` setting) it names the step that does keep the service from serving: the
+// profile set to "", in both config spellings. A grant-declaring loophole's user-scope switch is
+// read as a legacy grant (loopholegrantlegacy.go), so it draws no such line, and a config-defined
+// loophole's switch is a real switch.
+func TestAUserScopeSwitchOfAPackLoopholeSwitchesNothing(t *testing.T) {
+	resolver := fakeResolver{
+		"aws-auth": {Name: "aws-auth", HasHostDaemon: true},
+		"journal":  {Name: "journal", HasHostDaemon: true, Grants: []loopholedecl.Grant{{Kind: "read"}}},
+	}
+	_, userCfg, ws := workspaceFileHome(t, "app")
+	write(t, userCfg, `{"packs": ["aws-auth", "journal"]}`)
+	layer := filepath.Join(t.TempDir(), "bedrock-key.jsonc")
+	write(t, layer, `{"loopholes": {"aws-auth": {"enabled": false}, "journal": {"enabled": true}, `+
+		`"mine": {"command": ["/bin/true"], "enabled": false}}}`)
+	t.Setenv(UserLayerEnv, layer)
+
+	cfg, err := LoadConfig(ws, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	errs, warns := ValidateConfig(cfg, ws, resolver)
+	all := strings.Join(warns, "\n")
+	for _, want := range []string{"config.loopholes.aws-auth.enabled", layer, "switches nothing",
+		"runs whenever its pack is selected",
+		`"loopholes": {"aws-auth": {"settings": {"profile": ""}}}`, `profile = "" under [allow.aws-auth]`} {
+		if !strings.Contains(all, want) {
+			t.Errorf("the warning does not say %q:\n%s", want, all)
+		}
+	}
+	for _, unwanted := range []string{"config.loopholes.journal.enabled", "config.loopholes.mine.enabled"} {
+		if strings.Contains(all, unwanted+" ") || strings.Contains(all, unwanted+" in") {
+			t.Errorf("a switch that is not a no-op drew the line (%s):\n%s", unwanted, all)
+		}
+	}
+	if len(errs) != 0 {
+		t.Errorf("a no-op switch must warn, not refuse: %v", errs)
+	}
+}

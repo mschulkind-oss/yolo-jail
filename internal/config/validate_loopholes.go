@@ -3,6 +3,7 @@ package config
 import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
@@ -177,6 +178,25 @@ func validateLoopholes(config *jsonx.OrderedMap, workspace string, resolver Loop
 				add(errs, msg)
 			}
 			if note := staleBrokerSwitchNote(name, *infoPtr.Brokered, wsFile); note != "" {
+				add(warns, note)
+			}
+		}
+
+		// --- A USER-SCOPE SWITCH OF A PACK'S LOOPHOLE switches nothing: the loophole runs whenever
+		// its pack is selected. A brokered one's was refused just above, and a grant-declaring
+		// one's is read as a legacy grant (loopholegrantlegacy.go), so only the rest are named.
+		if infoPtr != nil && !brokered && len(infoPtr.Grants) == 0 {
+			if !userBlockRead {
+				if len(edit) != 0 && edit[0] != nil {
+					if edit[0].rawUser != nil {
+						userBlock, _ = asMap(getOr(edit[0].rawUser, "loopholes", nil))
+					}
+				} else {
+					userBlock = userScopeLoopholes()
+				}
+				userBlockRead = true
+			}
+			if note := userSwitchesNothingNote(name, userBlock, validationUserSources(edit...)); note != "" {
 				add(warns, note)
 			}
 		}
@@ -511,6 +531,33 @@ func brokeredUserSwitchRefusalWithSources(name string, broker loopholedecl.Broke
 	msg := "config.loopholes." + name + ".enabled: " + pytext.Repr(name) + " has no switch: it runs " +
 		"whenever the pack that ships it is selected, and grants nothing until a grant in config does. " +
 		"Remove this key. " + BrokerGrantAdviceFor(broker) + " To stop it running, take its pack out of `packs`."
+	if sources != nil {
+		msg = sources.AnnotateOne(msg)
+	}
+	return msg
+}
+
+// userSwitchesNothingNote is the warning for a user-scope `loopholes.<name>.enabled` of a pack's
+// loophole, located where the user scope wrote it (a `--user-layer` among them), or "" when the
+// user scope writes none. For a LOGIN loophole (packload.LoginLoopholes over the shipped packs) it
+// names the step that does keep the service from serving: its profile set to "" in that layer.
+func userSwitchesNothingNote(name string, userBlock *jsonx.OrderedMap, sources *Sources) string {
+	if userBlock == nil {
+		return ""
+	}
+	entry, ok := asMap(getOr(userBlock, name, nil))
+	if !ok || hasKey(entry, "command") {
+		return ""
+	}
+	if _, has := entry.Get("enabled"); !has {
+		return ""
+	}
+	msg := "config.loopholes." + name + ".enabled switches nothing: the loophole " + pytext.Repr(name) +
+		" runs whenever its pack is selected. Remove the key; to stop it running, take its pack out " +
+		"of `packs`."
+	if l, login := packload.LoginLoopholes(packload.Embedded())[name]; login {
+		msg += " To keep it from serving where this file is in force, " + l.EmptyProfileStep() + "."
+	}
 	if sources != nil {
 		msg = sources.AnnotateOne(msg)
 	}

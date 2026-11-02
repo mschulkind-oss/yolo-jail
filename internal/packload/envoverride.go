@@ -175,10 +175,16 @@ func EnvOverrideFindings(packs []*Pack, sel GateSelection, look OriginLookup,
 				if len(facts) == 0 {
 					continue
 				}
-				out = append(out, EnvOverrideFinding{
-					Certain: o.IsCertain(),
-					Lines:   overrideFindingLines(p.Name, d, o, facts, removals),
-				})
+				lines := overrideFindingLines(p.Name, d, o, facts, removals)
+				// A pointer at a LOGIN LOOPHOLE has a third way out, the one a layer that
+				// keeps its own credential takes: that layer's profile set to "", so the
+				// service serves nothing and the pointer is withheld (UnconfiguredLogins).
+				if l, ok := LoginLoopholes(packs)[d.ServedBy]; ok && d.ServedBy != "" {
+					last := len(lines) - 1
+					lines[last] = strings.TrimSuffix(lines[last], ".") + "; or, to keep that credential, " +
+						l.EmptyProfileStep() + "."
+				}
+				out = append(out, EnvOverrideFinding{Certain: o.IsCertain(), Lines: lines})
 			}
 		}
 	}
