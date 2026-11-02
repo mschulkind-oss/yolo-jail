@@ -29,12 +29,18 @@ const activeProviderWithProfileProblem = "config: active_provider and legacy pro
 // selectors, and otherwise preserves the legacy profile selection unchanged.
 func ConfigProviderConsumer(cfg *jsonx.OrderedMap, declarations []packdecl.ProviderContribution,
 	packs []*packload.Pack, catalog map[string]map[string]packdecl.ProviderModel) (ProviderConsumerComposition, error) {
+	return configProviderConsumer(cfg, declarations, packs, catalog, false)
+}
+
+// configProviderConsumer is ConfigProviderConsumer; reportModelGaps is ProviderSemanticInput's.
+func configProviderConsumer(cfg *jsonx.OrderedMap, declarations []packdecl.ProviderContribution,
+	packs []*packload.Pack, catalog map[string]map[string]packdecl.ProviderModel, reportModelGaps bool) (ProviderConsumerComposition, error) {
 	if cfg != nil {
 		if _, active := cfg.Get("active_provider"); active {
 			if _, legacy := cfg.Get(ProfileKey); legacy {
 				return ProviderConsumerComposition{}, fmt.Errorf("%s", activeProviderWithProfileProblem)
 			}
-			readable, err := ComposeConfiguredProviderSemantics(cfg, declarations, packs, catalog)
+			readable, err := composeConfiguredProviderSemantics(cfg, declarations, packs, catalog, reportModelGaps)
 			if err != nil {
 				return ProviderConsumerComposition{}, err
 			}
@@ -64,15 +70,22 @@ func ClearNativeProviderEnvForReceiver(result ProviderSemanticResult, packs []*p
 func ComposeConfiguredProviderSemantics(cfg *jsonx.OrderedMap,
 	declarations []packdecl.ProviderContribution, packs []*packload.Pack,
 	catalog map[string]map[string]packdecl.ProviderModel) (ProviderSemanticResult, error) {
+	return composeConfiguredProviderSemantics(cfg, declarations, packs, catalog, false)
+}
+
+func composeConfiguredProviderSemantics(cfg *jsonx.OrderedMap,
+	declarations []packdecl.ProviderContribution, packs []*packload.Pack,
+	catalog map[string]map[string]packdecl.ProviderModel, reportModelGaps bool) (ProviderSemanticResult, error) {
 	selection, err := ConfigActiveProviderSelection(cfg)
 	if err != nil {
 		return ProviderSemanticResult{}, err
 	}
 	return ComposeProviderSemantics(ProviderSemanticInput{
-		Declarations: declarations,
-		Selection:    selection,
-		Receivers:    ProviderReceivers(packs),
-		Catalog:      catalog,
+		Declarations:    declarations,
+		Selection:       selection,
+		Receivers:       ProviderReceivers(packs),
+		Catalog:         catalog,
+		ReportModelGaps: reportModelGaps,
 	})
 }
 

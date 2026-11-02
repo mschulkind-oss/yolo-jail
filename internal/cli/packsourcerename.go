@@ -104,6 +104,7 @@ func packSource(args []string, in io.Reader, out, errw io.Writer) int {
 			"edit at a time, is:\n%s", err, renameAsCommands(planned))
 		return 1
 	}
+	writeConfigEditPreexisting(errw, result)
 	fmt.Fprintf(out, "%s\n", result.Path)
 	writeConfigEditHunks(out, result.Plan.Hunks)
 	fmt.Fprintf(out, "Renames source %q to %q, %d handle(s) that use it", oldKey, newKey, planned.handles)

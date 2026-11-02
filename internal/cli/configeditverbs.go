@@ -242,6 +242,7 @@ func applyConfigEdit(workspace string, target config.ResolvedEditTarget, mutatio
 	for _, note := range unverified {
 		fmt.Fprintf(errw, "note: %s\n", note)
 	}
+	writeConfigEditPreexisting(errw, result)
 	if result.Plan.Noop {
 		fmt.Fprintf(out, "%s\nNo change; no write.\n", result.Path)
 		return 0
@@ -279,6 +280,14 @@ func runConfigPostWriteCheck(workspace string, out, errw io.Writer) int {
 	opts.Stderr = errw
 	opts.Color = colorForWriter(out)
 	return check.Check(opts)
+}
+
+// writeConfigEditPreexisting warns, one line each, of a problem the config already had, which the
+// edit left as it was and so was not refused for. Each problem names where it is written and its fix.
+func writeConfigEditPreexisting(errw io.Writer, result configedit.TargetedResult) {
+	for _, problem := range result.Preexisting {
+		fmt.Fprintf(errw, "warning: already in your config, and left as it is by this edit: %s\n", problem)
+	}
 }
 
 func writeConfigEditHunks(out io.Writer, hunks []configedit.Hunk) {

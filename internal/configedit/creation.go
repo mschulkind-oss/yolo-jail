@@ -25,7 +25,7 @@ func applyProspectiveTargeted(workspace string, target config.ResolvedEditTarget
 	if err != nil {
 		return nil, fmt.Errorf("plan prospective TOML edit: %w", err)
 	}
-	_, err = validateProspectiveTarget(workspace, target, plan.Updated, true, options)
+	_, _, err = validateProspectiveTarget(workspace, target, plan.Updated, true, options)
 	if err != nil {
 		return nil, err
 	}
@@ -55,7 +55,7 @@ func applyProspectiveTargeted(workspace string, target config.ResolvedEditTarget
 	if err := target.VerifyProspectiveAbsence(); err != nil {
 		return nil, err
 	}
-	validatedSnapshot, err := validateProspectiveTarget(workspace, target, plan.Updated, false, options)
+	validatedSnapshot, preexisting, err := validateProspectiveTarget(workspace, target, plan.Updated, false, options)
 	if err != nil {
 		return nil, err
 	}
@@ -118,7 +118,8 @@ func applyProspectiveTargeted(workspace string, target config.ResolvedEditTarget
 	if err != nil {
 		return nil, rollbackCreation(parent, parentPath, leaf, tempInfo, err)
 	}
-	actual, err := config.ValidateExplicitEdit(workspace, actualTarget, input)
+	// The published file is checked against the same pre-existing problems its plan tolerated.
+	actual, err := config.ValidateExplicitEditTolerating(workspace, actualTarget, input, preexisting)
 	if err != nil {
 		return nil, rollbackCreation(parent, parentPath, leaf, tempInfo, fmt.Errorf("actual published config validation failed: %w", err))
 	}
@@ -167,22 +168,33 @@ func applyProspectiveTargeted(workspace string, target config.ResolvedEditTarget
 	return plan, nil
 }
 
-func validateProspectiveTarget(workspace string, target config.ResolvedEditTarget, candidate []byte, notify bool, options ApplyOptions) (string, error) {
+// validateProspectiveTarget validates the new file's candidate bytes and returns the validated
+// snapshot and the problems the config already had without the file, which it tolerated.
+func validateProspectiveTarget(workspace string, target config.ResolvedEditTarget, candidate []byte, notify bool, options ApplyOptions) (string, []string, error) {
 	if err := target.VerifyProspectiveAbsence(); err != nil {
-		return "", err
+		return "", nil, err
 	}
+	var preexisting []string
 	result, err := target.ValidateProspective(workspace, candidate)
+	if err != nil && config.EditProblems(err) != nil {
+		// The config without this file is the one before the edit; what it already fails
+		// validation for does not refuse creating the file (config.EditProblems).
+		_, absentErr := target.ValidateProspective(workspace, []byte{})
+		if preexisting = config.EditProblems(absentErr); preexisting != nil {
+			result, err = target.ValidateProspectiveTolerating(workspace, candidate, preexisting)
+		}
+	}
 	if err != nil {
-		return "", fmt.Errorf("validate prospective config: %w", err)
+		return "", nil, fmt.Errorf("validate prospective config: %w", err)
 	}
 	snapshot, ok := result.SnapshotJSON()
 	if !ok {
-		return "", fmt.Errorf("prospective validation returned no validated snapshot")
+		return "", nil, fmt.Errorf("prospective validation returned no validated snapshot")
 	}
 	if notify && options.OnValidated != nil {
 		options.OnValidated(result)
 	}
-	return snapshot, nil
+	return snapshot, preexisting, nil
 }
 
 func verifyHeldParent(parent *os.File, parentPath string, target config.ResolvedEditTarget) error {

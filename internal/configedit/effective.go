@@ -18,7 +18,14 @@ func ApplyEffective(workspace, path string, format configdoc.Format, mutation Mu
 
 func applyEffectiveWithOps(workspace, path string, format configdoc.Format, mutation Mutation, options ApplyOptions, ops fileOps) (*Plan, error) {
 	var plannedSnapshot string
+	// preexisting is what the file's config already failed validation for before this edit:
+	// it does not refuse the edit, which leaves it as it was (config.EditProblems).
+	var preexisting []string
 	options.validateTarget = func(physical string, before, planned []byte) error {
+		// originalRefusal is the removal's prevalidation finding: a problem the removal resolves
+		// (it was in the removed value) refuses it; one it leaves as it was does not.
+		var originalRefusal error
+		var originalFindings []string
 		if mutation.Action == Remove {
 			validateOriginal, typeErr := validatesOriginalScalarRemoval(format, mutation.Path, before)
 			if typeErr != nil {
@@ -30,7 +37,10 @@ func applyEffectiveWithOps(workspace, path string, format configdoc.Format, muta
 					return err
 				}
 				if _, err := config.ValidateExplicitEdit(workspace, options.Target, originalInput); err != nil {
-					return fmt.Errorf("validate original config %q before removal: %w", physical, err)
+					originalRefusal = fmt.Errorf("validate original config %q before removal: %w", physical, err)
+					if originalFindings = config.EditProblems(err); originalFindings == nil {
+						return originalRefusal
+					}
 				}
 			}
 		}
@@ -39,8 +49,17 @@ func applyEffectiveWithOps(workspace, path string, format configdoc.Format, muta
 			return err
 		}
 		result, err := config.ValidateExplicitEdit(workspace, options.Target, input)
+		if err != nil && config.EditProblems(err) != nil {
+			preexisting = originalProblems(workspace, options.Target, physical, before)
+			if preexisting != nil {
+				result, err = config.ValidateExplicitEditTolerating(workspace, options.Target, input, preexisting)
+			}
+		}
 		if err != nil {
 			return fmt.Errorf("validate planned config: %w", err)
+		}
+		if originalRefusal != nil && len(config.ResolvedProblems(originalFindings, result.Preexisting())) != 0 {
+			return originalRefusal
 		}
 		validatedSnapshot, ok := result.SnapshotJSON()
 		if !ok {
@@ -57,7 +76,7 @@ func applyEffectiveWithOps(workspace, path string, format configdoc.Format, muta
 		if err != nil {
 			return err
 		}
-		result, err := config.ValidateExplicitEdit(workspace, options.Target, input)
+		result, err := config.ValidateExplicitEditTolerating(workspace, options.Target, input, preexisting)
 		if err != nil {
 			return fmt.Errorf("validate actual config: %w", err)
 		}
@@ -71,6 +90,17 @@ func applyEffectiveWithOps(workspace, path string, format configdoc.Format, muta
 		return nil
 	}
 	return applyWithOps(path, format, mutation, options, ops)
+}
+
+// originalProblems is the problems the config fails validation for with the file's bytes before
+// the edit, nil when it validates or fails for something other than a finding.
+func originalProblems(workspace string, target config.ExplicitEditTarget, physical string, before []byte) []string {
+	input, err := config.NewConfigReadInput(physical, before)
+	if err != nil {
+		return nil
+	}
+	_, err = config.ValidateExplicitEdit(workspace, target, input)
+	return config.EditProblems(err)
 }
 
 func validatesOriginalScalarRemoval(format configdoc.Format, path []configdoc.Step, data []byte) (bool, error) {

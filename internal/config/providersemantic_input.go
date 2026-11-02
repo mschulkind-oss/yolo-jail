@@ -21,6 +21,9 @@ type ReadableSemanticInputSource struct {
 	WorkspaceOrigins map[string][]string
 	Packs            []*packload.Pack
 	Catalog          map[string]map[string]packdecl.ProviderModel
+	// ReportModelGaps is ProviderSemanticInput's: a selected model's unknown maker or incomplete
+	// price is listed in ReadableSemanticInputs.ModelGaps rather than refused.
+	ReportModelGaps bool
 }
 
 // ReadableSemanticInputs is the immutable typed F/G boundary produced for one config invocation.
@@ -31,6 +34,7 @@ type ReadableSemanticInputs struct {
 	AllowancePlan    ReadableAllowancePlan
 	ProviderInput    ProviderSemanticInput
 	ProviderConsumer ProviderConsumerComposition
+	ModelGaps        []ProviderModelGap
 }
 
 // BuildReadableSemanticInputs projects declarations from already loaded selected packs, clones
@@ -71,18 +75,25 @@ func BuildReadableSemanticInputs(source ReadableSemanticInputSource) (ReadableSe
 		Selection:    selection,
 		Receivers:    ProviderReceivers(packs),
 		Catalog:      cloneProviderCatalog(source.Catalog),
+		// The same composition the launch runs (RC-D29 (6)) when the caller asked for gaps.
+		ReportModelGaps: source.ReportModelGaps,
 	}
 
 	// The shared F validator checks every authored provider graph even when no active_provider
 	// key exists; declarations never become selectors by being present.
-	providerConsumer, err := ConfigProviderConsumer(source.Config, providerDeclarations, packs, providerInput.Catalog)
+	providerConsumer, err := configProviderConsumer(source.Config, providerDeclarations, packs, providerInput.Catalog, source.ReportModelGaps)
 	if err != nil {
 		return ReadableSemanticInputs{}, err
 	}
-	if providerConsumer.Readable == nil {
-		if _, err := ComposeProviderSemantics(providerInput); err != nil {
+	var modelGaps []ProviderModelGap
+	if providerConsumer.Readable != nil {
+		modelGaps = providerConsumer.Readable.ModelGaps
+	} else {
+		composed, err := ComposeProviderSemantics(providerInput)
+		if err != nil {
 			return ReadableSemanticInputs{}, err
 		}
+		modelGaps = composed.ModelGaps
 		_, legacySelection := configValue(source.Config, ProfileKey)
 		_, userProfiles := configValue(source.User, "profiles")
 		if legacySelection || userProfiles {
@@ -107,7 +118,7 @@ func BuildReadableSemanticInputs(source ReadableSemanticInputSource) (ReadableSe
 	}
 	return ReadableSemanticInputs{
 		AllowanceInput: allowanceInput, AllowancePlan: allowancePlan,
-		ProviderInput: providerInput, ProviderConsumer: providerConsumer,
+		ProviderInput: providerInput, ProviderConsumer: providerConsumer, ModelGaps: modelGaps,
 	}, nil
 }
 

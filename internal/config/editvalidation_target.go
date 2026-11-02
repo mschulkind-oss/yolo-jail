@@ -99,11 +99,18 @@ func (r ResolvedEditTarget) verifyProspectiveBinding() error {
 // ValidateProspective parses and validates candidate bytes through the standard selected layer.
 // Its private selection receipt is distinct from an actual-file read witness.
 func (r ResolvedEditTarget) ValidateProspective(workspace string, candidate []byte) (ValidatedExplicitEditResult, error) {
+	return r.ValidateProspectiveTolerating(workspace, candidate, nil)
+}
+
+// ValidateProspectiveTolerating is ValidateProspective, except that a problem among preexisting
+// (the problems the config had before this edit, EditProblems) is reported in the result's
+// Preexisting rather than refusing it.
+func (r ResolvedEditTarget) ValidateProspectiveTolerating(workspace string, candidate []byte, preexisting []string) (ValidatedExplicitEditResult, error) {
 	if err := r.verifyProspectiveBinding(); err != nil {
 		return ValidatedExplicitEditResult{}, err
 	}
 	input := newProspectiveCandidateInput(r.prospective, candidate)
-	return validateProspectiveEdit(workspace, r.Target, input)
+	return validateProspectiveEdit(workspace, r.Target, input, preexisting)
 }
 
 // ExpectedBytes returns a detached copy of the selected preimage. Existing empty files remain

@@ -170,6 +170,7 @@ type ValidatedExplicitEditResult struct {
 	readableWarnings []string
 	readableRequests []ValidatedReadableRequest
 	unverifiedPacks  []string
+	preexisting      []string
 	validated        bool
 }
 
@@ -231,20 +232,22 @@ func ValidateExplicitEdit(workspace string, target ExplicitEditTarget, input Con
 	if err != nil {
 		return ValidatedExplicitEditResult{}, err
 	}
-	return validateEditContext(ctx)
+	return validateEditContext(ctx, nil)
 }
 
 // ValidateProspectiveEdit validates candidate bytes through the standard Project/Local reader
 // using a selected-absence receipt; it does not issue an actual-file read witness.
-func validateProspectiveEdit(workspace string, target ExplicitEditTarget, input ConfigReadInput) (ValidatedExplicitEditResult, error) {
+func validateProspectiveEdit(workspace string, target ExplicitEditTarget, input ConfigReadInput, preexisting []string) (ValidatedExplicitEditResult, error) {
 	ctx, err := readProspectiveEditContext(workspace, target, input)
 	if err != nil {
 		return ValidatedExplicitEditResult{}, err
 	}
-	return validateEditContext(ctx)
+	return validateEditContext(ctx, preexisting)
 }
 
-func validateEditContext(ctx *editValidationContext) (ValidatedExplicitEditResult, error) {
+// validateEditContext validates one planned graph. A problem whose problemKey is among
+// preexisting's does not refuse it: it is returned in the result's Preexisting instead.
+func validateEditContext(ctx *editValidationContext, preexisting []string) (ValidatedExplicitEditResult, error) {
 	var err error
 	if err := ctx.readRawScopes(); err != nil {
 		return ValidatedExplicitEditResult{}, err
@@ -267,8 +270,9 @@ func validateEditContext(ctx *editValidationContext) (ValidatedExplicitEditResul
 		return ValidatedExplicitEditResult{}, err
 	}
 	errs, warnings := validateConfigWithEditContext(ctx.effective, ctx.workspace, nil, ctx)
+	errs, tolerated := splitPreexistingProblems(errs, preexisting)
 	if len(errs) != 0 {
-		return ValidatedExplicitEditResult{}, fmt.Errorf("validate planned effective config: %s", strings.Join(errs, "; "))
+		return ValidatedExplicitEditResult{}, &EditProblemsError{Problems: errs}
 	}
 	if ctx.semantic == nil {
 		return ValidatedExplicitEditResult{}, fmt.Errorf("validate planned readable F/G semantics: typed consumer did not run")
@@ -290,7 +294,8 @@ func validateEditContext(ctx *editValidationContext) (ValidatedExplicitEditResul
 	return ValidatedExplicitEditResult{
 		snapshot: snapshot, warnings: append([]string(nil), warnings...),
 		readableWarnings: append([]string(nil), ctx.semantic.AllowancePlan.Diagnostics...),
-		readableRequests: readableRequests, unverifiedPacks: append([]string(nil), ctx.packNotes...), validated: true,
+		readableRequests: readableRequests, unverifiedPacks: append([]string(nil), ctx.packNotes...),
+		preexisting: tolerated, validated: true,
 	}, nil
 }
 

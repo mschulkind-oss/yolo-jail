@@ -128,6 +128,7 @@ func packAdd(args []string, out, errw io.Writer) int {
 			"yolo ships; `yolo pack --help` says how to name another\n", err)
 		return 1
 	}
+	writeConfigEditPreexisting(errw, result)
 	fmt.Fprintf(out, "%s\n", result.Path)
 	writeConfigEditHunks(out, result.Plan.Hunks)
 	if dryRun {
@@ -190,6 +191,7 @@ func packRemove(args []string, out, errw io.Writer) int {
 			err, target.LogicalPath)
 		return 1
 	}
+	writeConfigEditPreexisting(errw, result)
 	fmt.Fprintf(out, "%s\n", result.Path)
 	writeConfigEditHunks(out, result.Plan.Hunks)
 	if dryRun {

@@ -100,6 +100,19 @@ type ProviderSemanticInput struct {
 	Selection    ActiveProviderSelection
 	Receivers    []ProviderReceiver
 	Catalog      map[string]map[string]packdecl.ProviderModel
+	// ReportModelGaps composes each selected provider's models as a launch does: a model with an
+	// unknown maker or an incomplete price composes, and each such gap is listed in
+	// ProviderSemanticResult.ModelGaps instead of refusing (docs/design/readable-config.md
+	// RC-D29 (6)). Edit validation sets it, so it can refuse only a gap the edit introduces.
+	ReportModelGaps bool
+}
+
+// ProviderModelGap is one selected provider's model whose maker or price no layer states
+// (packload.ModelGap), named with its provider.
+type ProviderModelGap struct {
+	Provider string
+	Model    string
+	Problem  string
 }
 
 // ProviderSemanticResult contains validated selections and the fully composed canonical model facts.
@@ -107,6 +120,7 @@ type ProviderSemanticResult struct {
 	Selection     ProviderSelectionResult
 	Models        map[string]ReadableModels
 	LegacyDerives map[string]LegacyDeriveProjection
+	ModelGaps     []ProviderModelGap
 }
 
 // ComposeProviderSemantics is the public, inactive semantic entry point: validates and resolves
@@ -133,7 +147,16 @@ func ComposeProviderSemantics(input ProviderSemanticInput) (ProviderSemanticResu
 		if !selectedProviders[declaration.Name] {
 			continue
 		}
-		models, err := ComposeProviderModels(declaration, input.Catalog[declaration.Name])
+		var models ReadableModels
+		if input.ReportModelGaps {
+			var gaps []packload.ModelGap
+			models, gaps, err = packload.ComposeProviderModelsWithGaps(declaration, input.Catalog[declaration.Name])
+			for _, gap := range gaps {
+				result.ModelGaps = append(result.ModelGaps, ProviderModelGap{Provider: declaration.Name, Model: gap.Model, Problem: gap.Problem})
+			}
+		} else {
+			models, err = ComposeProviderModels(declaration, input.Catalog[declaration.Name])
+		}
 		if err != nil {
 			return ProviderSemanticResult{}, err
 		}

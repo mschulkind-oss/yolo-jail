@@ -86,6 +86,10 @@ type srcFile struct {
 func (f *srcFile) locate(steps []json5.Step, documentSteps []configdoc.Step) (json5.Span, bool) {
 	if f.format == configdoc.TOML && f.document != nil {
 		span, ok, err := f.document.Index.Value(documentSteps...)
+		if err == nil && !ok {
+			// A table written as a [header] has no value span; it starts at its header.
+			span, ok, err = f.document.Index.Table(documentSteps...)
+		}
 		return json5.Span{Start: span.Start, End: span.End}, ok && err == nil
 	}
 	f.indexOnce.Do(func() { f.index, _ = json5.NewIndex(f.data) })

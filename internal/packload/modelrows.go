@@ -127,6 +127,36 @@ func composeLaunchModels(provider packdecl.ProviderContribution, catalog map[str
 	return composeProviderModels(provider, catalog, false)
 }
 
+// ModelGap is one fact a composed model leaves unsaid that ComposeProviderModels refuses and the
+// launch's composition (composeLaunchModels) leaves unsaid: an unknown maker or an incomplete
+// price (docs/design/readable-config.md RC-D29 (6)).
+type ModelGap struct {
+	Model   string
+	Problem string
+}
+
+// ComposeProviderModelsWithGaps composes the rows exactly as a launch does, so a model with an
+// unknown maker or an incomplete price composes rather than refusing, and lists each such gap in
+// the rows' order. A caller that refuses only the gaps it introduced (an edit) reads them here,
+// where ComposeProviderModels would stop at the first and hide every other problem.
+func ComposeProviderModelsWithGaps(provider packdecl.ProviderContribution, catalog map[string]packdecl.ProviderModel) (ReadableModels, []ModelGap, error) {
+	rows, err := composeLaunchModels(provider, catalog)
+	if err != nil {
+		return ReadableModels{}, nil, err
+	}
+	var gaps []ModelGap
+	for _, id := range rows.Order {
+		model := rows.ByID[id]
+		if model.Facts.Vendor == "" {
+			gaps = append(gaps, ModelGap{Model: id, Problem: "maker is ambiguous; author vendor"})
+		}
+		if err := CompleteProviderPrice(model.Facts.Price); err != nil {
+			gaps = append(gaps, ModelGap{Model: id, Problem: err.Error()})
+		}
+	}
+	return rows, gaps, nil
+}
+
 func composeProviderModels(provider packdecl.ProviderContribution, catalog map[string]packdecl.ProviderModel, strict bool) (ReadableModels, error) {
 	if err := ValidateProviderModelGraph(provider); err != nil {
 		return ReadableModels{}, err

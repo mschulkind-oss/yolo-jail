@@ -108,12 +108,53 @@ func validateProvidersForExplicit(config, readableEffective *jsonx.OrderedMap, c
 		UserOrigins:      readableUserOrigins(ctx.rawUser, ctx.userOrigins),
 		WorkspaceOrigins: readableWorkspaceOrigins(ctx.rawWorkspace, ctx.workspaceOrigins),
 		Packs:            ctx.packs, Catalog: ctx.catalog,
+		ReportModelGaps: true,
 	})
 	if err != nil {
 		add(errs, err.Error())
 		return
 	}
 	ctx.semantic = &semantic
+	for _, gap := range semantic.ModelGaps {
+		add(errs, modelGapProblem(gap, ctx))
+	}
+}
+
+// modelGapProblem is the edit problem for a selected model with no maker or an incomplete price:
+// where the model is declared, the fix, and that a launch runs without it. A launch composes the
+// model with the fact unsaid (docs/design/readable-config.md RC-D29 (6)), so an edit is refused
+// only for a gap it introduces; one the config already had is a warning
+// (ValidatedExplicitEditResult.Preexisting).
+func modelGapProblem(gap ProviderModelGap, ctx *editValidationContext) string {
+	message := fmt.Sprintf("provider %s model %q: %s", gap.Provider, gap.Model, gap.Problem)
+	for _, sources := range []*Sources{ctx.workspaceOrigins, ctx.userOrigins} {
+		if where := modelDeclaredAt(sources, gap.Provider, gap.Model); where != "" {
+			return where + ": " + message + ". Add it to that model's table there; a launch runs without it, " +
+				"and a config edit is refused only when it writes such a model"
+		}
+	}
+	return message + ". A selected pack declares this model; to supply the fact, declare the model under " +
+		"[providers." + gap.Provider + ".models] in your user config with it. A launch runs without it, " +
+		"and a config edit is refused only when it writes such a model"
+}
+
+// modelDeclaredAt is where providers.<provider>.models.<model> is written in sources, the
+// highest-precedence writer, or "" when sources does not write that exact model.
+func modelDeclaredAt(sources *Sources, provider, model string) string {
+	node := sources.node()
+	for _, key := range []string{providersKey, provider, "models", model} {
+		if node == nil {
+			return ""
+		}
+		node = node.key(key)
+	}
+	if node == nil {
+		return ""
+	}
+	if locations := node.locations(); len(locations) != 0 {
+		return locations[0]
+	}
+	return ""
 }
 
 func legacyProviderValidationProjection(config *jsonx.OrderedMap) *jsonx.OrderedMap {
