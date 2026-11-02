@@ -163,6 +163,7 @@ func (l *Loophole) subsetManifest() *loopholedecl.Manifest {
 		Serves:         l.Serves,
 		Settings:       l.Settings,
 		Brokered:       l.Brokered,
+		Grants:         l.Grants,
 		Binaries:       l.Binaries,
 		BinaryRefs:     l.BinaryRefs,
 
@@ -328,6 +329,7 @@ func resolve(m *loopholedecl.Manifest, modulePath string) *Loophole {
 		Serves:        m.Serves,
 		Settings:      m.Settings,
 		Brokered:      m.Brokered,
+		Grants:        m.Grants,
 		Binaries:      m.Binaries,
 		BinaryRefs:    m.BinaryRefs,
 

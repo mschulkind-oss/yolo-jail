@@ -203,6 +203,13 @@ func parseSettings(manifestPath string, raw any) ([]Setting, error) {
 					" JSON file yolo writes for this loophole, so it is bounded on purpose",
 				manifestPath, pytext.Repr(key), pytext.Repr(settingKeyRe.String()))
 		}
+		if key == ReservedGrantsSettingName {
+			return nil, Errorf(
+				"%s: setting name %s is reserved: the file yolo writes for this loophole carries"+
+					" the project's grants under that key (the grant file), so a setting of the"+
+					" same name would collide with them; rename the setting",
+				manifestPath, pytext.Repr(key))
+		}
 		declV, _ := block.Get(key)
 		decl, isMap := declV.(*jsonx.OrderedMap)
 		if !isMap {

@@ -474,6 +474,7 @@ func TestSubsetManifestProjectsEveryField(t *testing.T) {
 		Platforms: []string{"linux"}, PlatformsSet: true,
 		Serves:   []string{"acme-capability"},
 		Brokered: &Brokered{Source: "acme", RemoteHost: "acme.test"},
+		Grants:   []Grant{{Kind: "read", Text: "read acme"}},
 		Settings: []Setting{{
 			Key: "opt", Type: SettingTypeString, Scope: SettingScopeUser, Default: "",
 		}},

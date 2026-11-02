@@ -127,6 +127,9 @@ type Loophole struct {
 	// workspace's remotes at each fresh launch, approved in the config-change diff and
 	// handed to its daemon in the launch's scope file.
 	Brokered *Brokered
+	// Grants is the manifest's `[[grants]]` declarations verbatim (loopholedecl/grants.go): the
+	// grant kinds a project can be granted. Nil means the loophole is ungated.
+	Grants []Grant
 	// Binaries and BinaryRefs carry the manifest's `binaries` declarations and which of them
 	// its argvs name, verbatim (loopholedecl/binaries.go). The argvs themselves are resolved
 	// at load (resolve, load.go); BinaryNeeds (binaries.go) is where the two meet this

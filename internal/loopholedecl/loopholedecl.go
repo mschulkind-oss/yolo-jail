@@ -367,6 +367,12 @@ type Manifest struct {
 	// Brokered is the `brokered` block (brokered.go), or nil: a loophole whose daemon
 	// runs a host credential's commands, fenced to the workspace's own repositories.
 	Brokered *Brokered
+	// Grants are the `[[grants]]` declarations (grants.go), in written order: the grant kinds a
+	// project can be granted at the config-change gate. nil means the loophole is ungated.
+	Grants []Grant
+	// Access is the top-level `access` line, what the loophole reaches ("read the host's
+	// journal"), which every grant refusal prints. Set exactly when Grants is.
+	Access string
 	// InheritFromParentJail is the `inherit_from_parent_jail` block (parentjail.go), or nil: a
 	// nested launch sharing the launching jail's loopback may take this loophole's credential
 	// pointer from the launching jail instead of starting its daemons.
@@ -789,6 +795,19 @@ func walk(data *jsonx.OrderedMap, manifestPath, dirName string) (*Manifest, erro
 	if err != nil {
 		return nil, err
 	}
+	grants, err := parseGrants(manifestPath, getOrNil(data, keyGrants))
+	if err != nil {
+		return nil, err
+	}
+	if brokered != nil && len(grants) > 0 {
+		return nil, Errorf("%s: this manifest declares both 'brokered' and [[grants]]; a broker's grant "+
+			"kinds are 'brokered.grants', so declare its kinds there and drop the [[grants]] tables",
+			manifestPath)
+	}
+	access, err := parseAccess(manifestPath, getOrNil(data, keyAccess), grants)
+	if err != nil {
+		return nil, err
+	}
 	binaries, err := parseBinaries(manifestPath, getOrNil(data, keyBinaries))
 	if err != nil {
 		return nil, err
@@ -816,12 +835,12 @@ func walk(data *jsonx.OrderedMap, manifestPath, dirName string) (*Manifest, erro
 	// resolves on the host, that one inside the container, and a token in the wrong
 	// half is refused at load naming the fix.
 	if err := refuseSettingsTokenWithoutDeclaration(
-		manifestPath, "'doctor_cmd'", doctorCmd, len(settings)); err != nil {
+		manifestPath, "'doctor_cmd'", doctorCmd, len(settings)+len(grants)); err != nil {
 		return nil, err
 	}
 	if hostDaemon != nil {
 		if err := refuseSettingsTokenWithoutDeclaration(
-			manifestPath, "'host_daemon.cmd'", hostDaemon.Cmd, len(settings)); err != nil {
+			manifestPath, "'host_daemon.cmd'", hostDaemon.Cmd, len(settings)+len(grants)); err != nil {
 			return nil, err
 		}
 	}
@@ -837,7 +856,7 @@ func walk(data *jsonx.OrderedMap, manifestPath, dirName string) (*Manifest, erro
 	// refusals so a manifest doing both is told about the token first — that is the
 	// mistake the author actually made.
 	if err := refuseSettingsFileCrossingIntoTheJail(
-		manifestPath, len(settings), jailDaemon != nil, stateFiles); err != nil {
+		manifestPath, len(settings)+len(grants), jailDaemon != nil, stateFiles); err != nil {
 		return nil, err
 	}
 
@@ -904,6 +923,8 @@ func walk(data *jsonx.OrderedMap, manifestPath, dirName string) (*Manifest, erro
 		Serves:                serves,
 		Settings:              settings,
 		Brokered:              brokered,
+		Grants:                grants,
+		Access:                access,
 		Binaries:              binaries,
 		BinaryRefs:            binaryRefs,
 		InheritFromParentJail: inherit,

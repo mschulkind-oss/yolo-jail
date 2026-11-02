@@ -121,16 +121,19 @@ const TokenState = "{state}"
 // never supplies environment. Whoever edited the config decides what the numbers
 // are, and yolo decides what the file says.
 //
-// # Refused when the manifest declares no settings
+// # Refused when the manifest declares no settings and no grants
 //
 // A `{settings}` in an argv with an empty `settings` block would name a file core
 // has no reason to write, and the daemon would be handed a path to nothing. Refused
 // at load rather than resolved to a missing file, because "this token means nothing
-// in this manifest" is a statement about the schema.
+// in this manifest" is a statement about the schema. A manifest declaring [[grants]]
+// has a file to hand over even with no settings: the grant file is this file.
 const TokenSettings = "{settings}"
 
 // refuseSettingsTokenWithoutDeclaration rejects {settings} in a host-side field of a
-// manifest that declares no settings keys.
+// manifest that declares no settings keys and no grant kinds. declared counts both: the file
+// the token names is also the grant file (grants.go), which a grant-declaring loophole is handed
+// even with no settings.
 func refuseSettingsTokenWithoutDeclaration(manifestPath, field string, args []string, declared int) error {
 	if declared > 0 {
 		return nil
@@ -138,8 +141,8 @@ func refuseSettingsTokenWithoutDeclaration(manifestPath, field string, args []st
 	for _, s := range args {
 		if strings.Contains(s, TokenSettings) {
 			return Errorf(
-				"%s: %s names '%s', but this manifest declares no 'settings' — the token"+
-					" resolves to a file yolo writes from the settings DECLARATIONS, so with"+
+				"%s: %s names '%s', but this manifest declares no 'settings' and no [[grants]] — the token"+
+					" resolves to a file yolo writes from those DECLARATIONS, so with"+
 					" none there is nothing to write and the daemon would be handed a path to"+
 					" a missing file; declare the keys or drop the token",
 				manifestPath, field, TokenSettings)

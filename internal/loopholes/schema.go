@@ -28,6 +28,7 @@ type (
 	EnvMap        = loopholedecl.EnvMap
 	Setting       = loopholedecl.Setting
 	Brokered      = loopholedecl.Brokered
+	Grant         = loopholedecl.Grant
 	Binary        = loopholedecl.Binary
 	BinaryBuild   = loopholedecl.BinaryBuild
 	BinaryRefs    = loopholedecl.BinaryRefs
