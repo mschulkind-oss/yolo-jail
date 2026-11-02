@@ -3,7 +3,7 @@ title: "Where the GitHub line is drawn: which writes run unasked, per user and p
 date: 2026-10-30
 status: in-review
 stage: DESIGN
-next: "Rule the narrowed OQ-GW2 (what replaces `yolo approve --add`); the design seat revises §6.2 and the wide grants against it"
+next: "Build the kinds, the wide grants and the working-set request, then write the implementation plan's build record"
 depends-on:
   - boundary-broker.md
 tags: [design, github, gh, broker, grants, approvals, config, toml]
@@ -44,8 +44,8 @@ kind for it; `create_pr` and `create_issue` keep today's comment and edit on wha
 
 **Start at [§4](#4-the-work-kinds)** — the kinds. [§5](#5-two-layers-ceiling-asks-and-the-narrowing) is how the two files compose; everything else follows.
 
-**Needs your ruling:** [OQ-GW2](#OQ-GW2), narrowed: `yolo approve --add` is removed, and the
-question is what replaces it. [OQ-GW1](#OQ-GW1) and [OQ-GW3](#OQ-GW3) to [OQ-GW6](#OQ-GW6) are ruled ([§14](#14-decision-ledger)).
+**Every question is ruled** ([§14](#14-decision-ledger)). `yolo approve --add` is removed, and an
+agent reaches an item it did not create by asking for it by name ([§6.2](#62-reaching-an-item-the-agent-did-not-create)).
 
 **Reads with:** [`boundary-broker.md`](boundary-broker.md) (the grant model this refines:
 [§5.7](boundary-broker.md#57-permission-sets), [§5.8](boundary-broker.md#58-long-lived-access-and-temporary-access)
@@ -125,7 +125,7 @@ carried by where a line is written.
 | Axis | Values | Carried by |
 | :--- | :--- | :--- |
 | **What the write does** | comment, edit, request changes, approve, mark ready, close, reopen, merge, arm auto-merge, label, release, … | **The work kinds** ([§4](#4-the-work-kinds)): the long list folds into four words |
-| **Whose item it is** | the agent created it; a human added it | **The working set already knows** (`By` on each entry: `create-pr`, `human`, or a grant id), so no word is added; the one place it changes a rule is the merge of an added PR ([§6.2](#62-what-a-humans-add-covers), [OQ-GW2](#OQ-GW2)) |
+| **Whose item it is** | the agent created it; a human added it | **The working set already knows** (`By` on each entry: `create-pr`, `human`, or a grant id), so no word is added; the one place it changes a rule is the merge of an added PR ([§6.2](#62-reaching-an-item-the-agent-did-not-create), [OQ-GW2](#OQ-GW2)) |
 | **Which repository** | the workspace's own remotes; a listed `repos` entry | **The scope** ([§5.6 there](boundary-broker.md#56-the-repository-scope)): a kind never names a repository; it applies to every repository in the workspace's scope, as `create_pr` does |
 | **Which workspace** | this project; this clone; all of them | **Which file holds the line**: the user's config is every workspace, the project's `yolo-jail.toml` is one project for everyone who clones it, the uncommitted `yolo-jail.local.toml` is one clone ([§5](#5-two-layers-ceiling-asks-and-the-narrowing)) |
 
@@ -265,36 +265,34 @@ commands, the scope, the read floor):
 5. Otherwise **a request**, whose message names the kind, the item, and the commands
    ([§8](#8-every-stop-names-its-next-step)).
 
-### 6.2 What a human's Add covers
+### 6.2 Reaching an item the agent did not create
 
 > **Ruled 2026-11-02: `yolo approve --add` is removed.** The owner: *"I don't like this add
 > flag because it's confusing. It rides along with a grant, or it rides along with an approval,
 > and depending on what the approval is, it does different things, and you're trying to guess
-> context. … Let's remove it. We can force the agent to take some other path here."* What
-> replaces it is [OQ-GW2](#OQ-GW2); the text below describes the Add as designed before the
-> ruling and is superseded once that question is answered.
+> context. … Let's remove it. We can force the agent to take some other path here."*
 
-`yolo approve r-<id> --add` puts a colleague's PR or issue into the working set. Under this
-design the entry covers **the work kinds the workspace holds** — comment and edit for most
-users, approve where allowed — and **a merge of an added PR asks per PR, from config or from
-nowhere**: the `merge` kind covers PRs the agent created, and a colleague's PR is merged only on
-a `yolo approve` answer (`--for` for a window, or once). This is [OQ-GW2](#OQ-GW2); the
-reasoning:
+Kurt files bug #70; the agent fixes it and wants to comment on it and close it. Four paths reach
+it, and each is one thing a human answers in one way ([OQ-GW2](#OQ-GW2)):
 
-- Merging a PR you did not open is the one act every persona in [§7](#7-what-people-write)
-  wants a human for, and the one the auto-merge leak was about.
-- An issue entry never covers `approve` or `merge`: neither exists on an issue
-  ([GW-D11](#GW-D11)).
-- The Add still happens when the workspace holds no work kind; the entry is a fact about the
-  workspace, and coverage follows the config later. The command says so:
+| Path | The agent runs | The human answers | It covers |
+| :--- | :--- | :--- | :--- |
+| **Allow once** | the write (`gh issue close 70`), which files `r-<id>` | `yolo approve r-<id>` | that exact command, once, within 15 minutes |
+| **For a time** | the same write | `yolo approve r-<id> --for 1h` | the request's kind on that item, at most 24 hours ([GW-D10](#GW-D10)) |
+| **Join the working set** | `yolo request github working-set issue 70` (or `pr 32`), which files `r-<id>` naming only that | `yolo approve r-<id>` | `comment` and `edit` on that item until it closes or merges, or `yolo approve --revoke w-<id>` ends it; never `approve` or `merge` |
+| **Standing, per repository** | `yolo request github comment_any issues` (and `edit_any`, `approve_any`, `merge_any`) | `yolo config apply` on the host | that kind on every item of the repository |
 
-```console
-$ yolo approve r-7k2m --add
-Allowed r-7k2m: added PR acme/app#32 to the working set of /home/m/acme, across restarts.
-  Your config grants no kind on the working set yet, so every write to it still asks;
-  `yolo allow github comment` and `yolo allow github edit` cover comments and edits in every
-  workspace, or `yolo request github comment` in this one.
-```
+The third path is the owner's: *"can't the agent request it to be added to the working set
+somehow?"* It is what `--add` did, with the ambiguity taken out: the request says it is a request
+to join, so a plain `yolo approve` means exactly one thing, and an approval of a write never adds
+anything. An entry joined this way is recorded `By: human` as the Add's were, and an issue's
+entry never covers `approve` or `merge` ([GW-D11](#GW-D11)). **A merge of a PR the agent did not
+create is reached only by Allow once, `--for`, or `merge_any`**: joining the working set never
+carries it.
+
+The refusal of a write to such an item names all four, with the human's commands each alone on a
+line ([§8](#8-every-stop-names-its-next-step)). Working-set entries a human added with `--add`
+before its removal are kept until revoked ([GW-D34](#GW-D34)).
 
 ### 6.3 What the agent's own creation covers
 
@@ -443,7 +441,7 @@ timed entry already carries its kind.
 | **Keep one bit; take `approve` and `ready` out of the working set's coverage so they always ask.** Closes the trigger with no vocabulary | Rejected: it draws one line for everyone, and the ask is for everybody's line. The reviewer persona wants approvals unasked; the cautious persona wants comments asked |
 | **Two kinds, `work` and `merge`, where `work` is everything but a merge and an approval** | Rejected: `approve` must be a word a user can allow or withhold on its own, since it is the one that differs between the reviewer and the default persona; and `comment` against `edit` is where a colleague's PR differs from your own. Four is the count at which every persona in [§7](#7-what-people-write) is one line ([OQ-GW1](#OQ-GW1), ruled A) |
 | **Five or more kinds**: split `review` (request changes) from `comment`, or `close` from `edit`, or `ready` from both | Rejected for v1: no persona needed the split, and each word a reader must learn costs more than the line it draws. Add one when a real user asks |
-| **Origin as a suffix or second list** (`merge_own`, or `[allow.github] added = [...]`) | Rejected: it doubles the vocabulary for a distinction that matters to one kind. The working set already knows who added each item; the one rule that turns on it is stated in words ([§6.2](#62-what-a-humans-add-covers)) |
+| **Origin as a suffix or second list** (`merge_own`, or `[allow.github] added = [...]`) | Rejected: it doubles the vocabulary for a distinction that matters to one kind. The working set already knows who added each item; the one rule that turns on it is stated in words ([§6.2](#62-reaching-an-item-the-agent-did-not-create)) |
 | **Choose the kinds at Add time** (`yolo approve r-<id> --add comment,edit`) | Rejected as the model, kept as a possible later flag: a per-resource choice does not give the user a line they can read in their config, and the human's Add already has a config to read the line from |
 | **A separate workspace table for narrowing** (`[ask.github] kinds = [...]`) | Not taken ([OQ-GW4](#OQ-GW4), ruled A): one table, `requests.github`, holding `true` and `"ask"` keeps a kind's whole story on one line of one table |
 | **Catch the auto-merge case: an approval on an armed PR asks as a merge** | Not taken ([OQ-GW5](#OQ-GW5), ruled B): the owner found it more surprising than an approval that stays an approval; the `approve` gate line states the reach instead |
@@ -470,25 +468,28 @@ timed entry already carries its kind.
 
 ## 13. Open Questions
 
-1. 💬 **OQ-GW2: With `yolo approve --add` removed, how does the agent come to write to a PR or issue it did not create?**
+1. ✅ **OQ-GW2: With `yolo approve --add` removed, how does the agent come to write to a PR or issue it did not create?**
 
-   The Add flag is removed ([§6.2](#62-what-a-humans-add-covers) quotes the ruling). Kurt
+   The Add flag is removed ([§6.2](#62-reaching-an-item-the-agent-did-not-create) quotes the ruling). Kurt
    files bug #70; the agent fixes it and wants to comment and close it.
 
    - Allow once per write, or a timed `--for`.
    - The repository-wide `comment_any` / `edit_any` grants.
    - A per-item grant spelled in config.
 
-   The design seat also says what git's `--add` and `--remember` become.
+   Git's `--add` and `--remember` go too ([GB-D28](git-broker.md#GB-D28)).
 
-   <!-- vantage: question id=OQ-GW2 leaning="Pending the design seat's revision: likely Allow once, --for, and the wide *_any grants, with no per-item Add." -->
+   <!-- vantage: question id=OQ-GW2 leaning="Allow once, --for, the *_any grants, and a request by name to join the working set." -->
 
-   _Leaning:_ pending the design seat's revision; likely Allow once, `--for` and the wide
-   `*_any` grants, with no per-item Add.
+   _Leaning:_ Allow once, `--for`, the wide `*_any` grants, and a request by name to join the
+   working set.
 
-   **Answer:**
+   **Answer:** Allow once, `--for`, the wide `*_any` grants, and a request by name to join the
+   working set, answered by a plain `yolo approve`
+   ([§6.2](#62-reaching-an-item-the-agent-did-not-create)). No per-item grant in config.
 
-   > _(empty — fill in when decided)_
+   > *"can't the agetn request it to be added to the working set somehow?"* … *"yes that sounds
+   > good."* (owner, 2026-11-02)
 
 ## 14. Decision Ledger
 
@@ -507,12 +508,15 @@ above lands here when it arrives.
 | <a id="GW-D8"></a>GW-D8 | `requests.github.read = "ask"` is a `yolo check` error naming `yolo pack remove github`, the user-config verb; `packs` has no per-project form | 2026-10-30 | [§5](#5-two-layers-ceiling-asks-and-the-narrowing) | — |
 | <a id="GW-D9"></a>GW-D9 | **Superseded by [OQ-GW3](#OQ-GW3) (2026-11-02): creation carries comment and edit, so there is no pairing to offer.** `yolo allow github [on_request] create_pr` on a terminal offers to also allow `comment` and `edit` in `always`; declined, or without a terminal, it prints the two commands, and `yolo check` repeats the pairing hint while `create_pr` is held with no work kind | 2026-10-30 | [§5](#5-two-layers-ceiling-asks-and-the-narrowing) | — |
 | <a id="GW-D10"></a>GW-D10 | A timed grant (`--for`) covers the request's kind on its resource and no other kind | 2026-10-30 | [§6.1](#61-what-covers-a-write-in-order) | — |
-| <a id="GW-D11"></a>GW-D11 | An issue's working-set entry never covers `approve` or `merge` | 2026-10-30 | [§6.2](#62-what-a-humans-add-covers) | — |
+| <a id="GW-D11"></a>GW-D11 | An issue's working-set entry never covers `approve` or `merge` | 2026-10-30 | [§6.2](#62-reaching-an-item-the-agent-did-not-create) | — |
 | <a id="GW-D12"></a>GW-D12 | `yolo request github <kind> --ask [--local]` writes the narrowing; `yolo config set requests.github.<kind> ask` is the same edit, and advice names the former | 2026-10-30 | [§8](#8-every-stop-names-its-next-step) | — |
 | <a id="GW-D13"></a>GW-D13 | A covered write is audited `held: <kind>` with the covering entry's id; the launch disclosure names the kinds that run and the kinds that ask | 2026-10-30 | [§8](#8-every-stop-names-its-next-step) | — |
 | <a id="GW-D14"></a>GW-D14 | **Maintainer's ask:** *"I want you to improve the broker so dispatch is possible. then we'll modify my config to allow it, relaunch, and have you dispatch it."* A user grant kind `dispatch-workflow` names a repository and a `workflow`, one workflow file name (`nightly-macos.yml`) or `*` for every workflow; a grant without one is refused at config load. Readable spelling: `allow.github.on_request = ["dispatch_workflows"]`, `requests.github.dispatch_workflows = ["<file>"]`. It covers only `gh workflow run <file>` and `gh api` POST `repos/{o}/{r}/actions/workflows/{file}/dispatches`, with no query or fragment on the endpoint, no `--input`, and exactly one field rooted at `ref` (a key cut at `[` or `]`, as gh reads it), which must be `ref` itself; a workflow named by id or display name, `run rerun`, `run cancel` and `workflow enable`/`disable` ask as before. It covers a run on the repository's **default branch** only: `--ref` omitted, the default branch's name, or `refs/heads/<name>`, read by the broker's own `gh api repos/{o}/{r}`. A covered run is sent pinned to the full ref: the argv that runs carries `--ref=refs/heads/<default>`, or `ref=refs/heads/<default>` for `gh api`, so what runs is exactly the branch checked, and neither gh's own default-branch lookup nor a tag of the same name can change it (review fix, 2026-10-31, replacing a tag-shadow read). The reason: a dispatch runs the workflow file as it is on the ref, with the repository's secrets, and a jail able to push a branch could push a changed workflow and dispatch it there. Any other ref asks (Allow once or a timed grant). Inputs pass through unchanged. A covered run is authorized under the store's transaction lock with the grant re-read and audited under the set `dispatch-workflow`, as a `create-pr` creation is. Residual: the default-branch read happens just before the transaction, not inside it (a default branch renamed in between still runs the branch read), and a workspace that may push the default branch itself (a `branch` grant on it) can change the workflow it then dispatches | 2026-10-31 | [§10](#10-what-this-does-not-cover) | built |
 | <a id="GW-D15"></a>GW-D15 | **Maintainer's ask:** approve the workflow runs GitHub holds at `action_required` (the weekly `flake.lock` bump PR that `github-actions[bot]` opens from a branch of the same repository) from the jail without a per-call host approval. A user grant kind `approve-run`, modeled on `dispatch-workflow` ([GW-D14](#GW-D14)), names a repository and an `actor`: a GitHub login (letters, digits and hyphens, not starting with a hyphen, at most 39 characters, optionally followed by `[bot]`) or `*` for every actor; a grant without one is refused at config load. Readable spelling: `allow.github.on_request = ["approve_runs"]`, `requests.github.approve_runs = ["<login>"]`; `yolo request github approve_runs <login>` writes it. It covers exactly `gh api` with a stated `-X POST` (or `--method POST`) of `repos/{o}/{r}/actions/runs/{id}/approve`: a numeric id, no query or fragment, no field and no `--input`. Before running it, the broker reads `repos/{o}/{r}/actions/runs/{id}` through the host gh and covers the approval only when `triggering_actor.login` matches a grant's actor (case-insensitively, or `*`) **and** `head_repository.full_name` is the repository itself (case-insensitively). A fork's run is never covered, whatever the actor: approving it runs code from outside the repository. A failed or unreadable read, an answer naming another run, a fork head or an actor no grant names asks, with a stderr line saying which; the pending request names `yolo request github approve_runs <actor>` then `yolo config apply`. Re-running, cancelling and `pending_deployments` approvals ask as before. A covered approval is authorized under the store's transaction lock with the grant re-read for the actor the broker read, and audited under the set `approve-run`. Residual: the run read happens just before the transaction, not inside it | 2026-11-02 | [§10](#10-what-this-does-not-cover) | built |
 | <a id="OQ-GW1"></a>[OQ-GW1](#OQ-GW1) | **Ruled A:** four work kinds, `comment`, `edit`, `approve`, `merge`, as tabled in [§4.1](#41-the-table) | 2026-11-02 | [§4.1](#41-the-table) | — |
+| <a id="OQ-GW2"></a>[OQ-GW2](#OQ-GW2) | **Ruled:** `yolo approve --add` is removed; an item the agent did not create is reached by Allow once, by `--for`, by a standing `*_any` grant, or by the agent's own request to join the working set (`yolo request github working-set issue <n>` or `pr <n>`), which a plain `yolo approve` answers and which covers `comment` and `edit` only. Owner: *"can't the agetn request it to be added to the working set somehow?"*, then *"yes that sounds good"* | 2026-11-02 | [§6.2](#62-reaching-an-item-the-agent-did-not-create) | — |
+| <a id="GW-D33"></a>GW-D33 | **Owner's ruling (2026-11-02):** `comment`, `edit` and `approve` have no positive form; `true`, or a listing in `always`/`on_request`, is a `yolo check` error naming `create_pr`/`create_issue` (which carry comment and edit on the agent's own items), the working-set request, or the `*_any` word. `"ask"` stays for all four kinds. No migration: the positive forms were never built. Owner: *"I don't even understand what the naked approve and comment would even be. So I think that says we should remove them. We don't even have to have a migration path here."* `merge = true` (the agent's own PRs) stays as the one positive kind | 2026-11-02 | [§4.1](#41-the-table) | — |
+| <a id="GW-D34"></a>GW-D34 | Working-set entries a human added with `--add` before its removal are kept until revoked, listed by `yolo approve` with their origin, and ended by `--revoke w-<id>`; the store records what was added, not how, so nothing migrates | 2026-11-02 | [§6.2](#62-reaching-an-item-the-agent-did-not-create) | — |
 | <a id="OQ-GW3"></a>[OQ-GW3](#OQ-GW3) | **Ruled B:** `create_pr` and `create_issue` carry `comment` and `edit` on what they create; a project narrows with `"ask"`. Owner: *"agents should be able to comment on edit on PRs they create. We can just specify that as part of create PR. I don't think it's really making one thing mean two things."* | 2026-11-02 | [§6.3](#63-what-the-agents-own-creation-covers) | — |
 | <a id="OQ-GW4"></a>[OQ-GW4](#OQ-GW4) | **Ruled A:** the narrowing is `"ask"` in `requests.github`, written by `yolo request github <kind> --ask`; `true` requests the kind, absent leaves it to the user | 2026-11-02 | [§5](#5-two-layers-ceiling-asks-and-the-narrowing) | — |
 | <a id="OQ-GW5"></a>[OQ-GW5](#OQ-GW5) | **Ruled B:** an approval or a ready on a PR with armed auto-merge is classified by its argv and is not a merge; the `approve` gate line states that an approval can complete an armed auto-merge. Owner: *"it's less surprising really"* | 2026-11-02 | [§4.2](#42-an-armed-auto-merge-an-approval-stays-an-approval) | — |
