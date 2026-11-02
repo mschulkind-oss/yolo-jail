@@ -246,11 +246,12 @@ func writeFakeJournalctlTailed(t *testing.T, path string, n int, tail string) {
 // The preamble-consuming door is covered by TestFrontedJournalConsumesThePreamble.
 func startServe(t *testing.T, sock, mode string) (chan struct{}, chan struct{}) {
 	t.Helper()
+	policy := grantedPolicy(t, mode)
 	stop := make(chan struct{})
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		if err := serveUnixConns(sock, stop, func(c net.Conn) { handleConn(c, Policy{Mode: mode}) }); err != nil {
+		if err := serveUnixConns(sock, stop, func(c net.Conn) { handleConn(c, policy) }); err != nil {
 			t.Errorf("serveUnixConns: %v", err)
 		}
 	}()

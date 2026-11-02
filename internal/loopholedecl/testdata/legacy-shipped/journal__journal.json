@@ -1,21 +1,27 @@
 {
   "name": "journal",
-  "description": "Read the host's systemd journal from inside the jail (yolo-journalctl). Every request is forced to --user unless this loophole's own `full` setting says otherwise.",
+  "description": "Read the host's systemd journal from inside the jail (yolo-journalctl). The `read` grant forces --user onto every request; `read_all` passes the request through unchanged.",
   "version": 1,
   "default_enabled": false,
+  "access": "read the host's journal",
   "platforms": [
     "linux"
   ],
   "transport": "loopback-tls",
   "lifecycle": "spawned",
-  "settings": {
-    "full": {
-      "type": "bool",
-      "scope": "user",
-      "default": false,
-      "description": "pass journalctl args through unchanged, reading the WHOLE host journal (needs host journal read access); false forces --user onto every request"
+  "grants": [
+    {
+      "kind": "read",
+      "text": "read your user journal",
+      "requestable_by_default": true,
+      "legacy_enable": true
+    },
+    {
+      "kind": "read_all",
+      "text": "read the whole host journal",
+      "legacy_setting": "full"
     }
-  },
+  ],
   "host_daemon": {
     "cmd": [
       "yolo",

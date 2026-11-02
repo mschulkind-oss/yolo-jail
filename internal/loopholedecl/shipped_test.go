@@ -475,18 +475,13 @@ func TestShippedHostProcessesFields(t *testing.T) {
 }
 
 // TestShippedJournalFields pins the manifest that turned a BUILTIN SERVICE into a
-// loophole, and pins the two declarations that carry the ruling rather than the port.
+// loophole, and pins the grants that carry the ruling rather than the port.
 //
-// `scope: "user"` on `full` IS OQ-K4's security half. `"journal": "full"` — read the
-// whole host journal, every unit, every user — used to be settable from a workspace
-// `yolo-jail.jsonc`, a file the agent inside the jail can rewrite, with no scope rule
-// anywhere. Nothing in core enforces that any more; the manifest does, and a silent
-// drift to `workspace` here would re-open the hole with no other test failing.
-//
-// The TYPE is the other one. The settings type set is closed and has no `enum`, so a
-// `string` mode would be unvalidatable by core — and ParseRequest narrows on the exact
-// literal "user", meaning every other spelling behaves as FULL. `bool` is what makes a
-// config typo unable to widen host access.
+// `"journal": "full"` — read the whole host journal, every unit, every user — used to be
+// settable from a workspace `yolo-jail.jsonc`, a file the agent inside the jail can
+// rewrite. It became a user-scope `full` setting (OQ-K4), and is now the `read_all` grant
+// kind, which is not requestable by default: the user's ceiling must allow it and a gate
+// must accept it. A drift to requestable-by-default here would re-open the hole.
 //
 // The {socket}/publishes pair is asserted TOGETHER because the two halves are one fact:
 // parseHostDaemon REFUSES a {endpoint} argv under publishes:"socket", and a refused
@@ -535,25 +530,23 @@ func TestShippedJournalFields(t *testing.T) {
 			"line and the daemon never reads to EOF",
 			m.HostDaemon.RequestEnd, loopholedecl.RequestEndFramed)
 	}
-	if len(m.Settings) != 1 {
-		t.Fatalf("settings = %+v, want exactly the one declared key (full)", m.Settings)
+	// The flip (docs/design/loophole-access-approval-plan.md F1): what the bridge may read is
+	// two grant kinds, not a setting. `read` is the user's own journal and requestable by
+	// default; `read_all` is the whole host journal, which only the user's ceiling can make
+	// requestable. A `full` setting left beside them would be a second, ungated way to widen.
+	if len(m.Settings) != 0 {
+		t.Fatalf("settings = %+v, want none — `full` became the read_all grant", m.Settings)
 	}
-	full, ok := loopholedecl.SettingByKey(m.Settings, "full")
-	if !ok {
-		t.Fatalf("settings has no %q; got %+v", "full", m.Settings)
+	if m.Access != "read the host's journal" {
+		t.Errorf("access = %q, want %q", m.Access, "read the host's journal")
 	}
-	if full.Type != loopholedecl.SettingTypeBool {
-		t.Errorf("settings.full type = %q, want %q — a string mode is unvalidatable (no enum "+
-			"in the closed type set) and every misspelling of it reads as FULL",
-			full.Type, loopholedecl.SettingTypeBool)
+	wantGrants := []loopholedecl.Grant{
+		{Kind: "read", Text: "read your user journal", RequestableByDefault: true, LegacyEnable: true},
+		{Kind: "read_all", Text: "read the whole host journal", LegacySetting: "full"},
 	}
-	if full.Scope != loopholedecl.SettingScopeUser {
-		t.Errorf("settings.full scope = %q, want %q — this is OQ-K4's security half: reading "+
-			"the whole host journal must not be settable from an agent-editable workspace file",
-			full.Scope, loopholedecl.SettingScopeUser)
-	}
-	if full.Default != false {
-		t.Errorf("settings.full default = %#v, want false — silence must not escalate", full.Default)
+	if !reflect.DeepEqual(m.Grants, wantGrants) {
+		t.Errorf("grants = %+v\nwant     %+v — read_all must never be requestable by default: "+
+			"reading the whole host journal is the user's to allow", m.Grants, wantGrants)
 	}
 	// A doctor_cmd would run on the HOST on every `yolo check`, and there is nothing
 	// here it could ask that the jail's first request does not answer better.

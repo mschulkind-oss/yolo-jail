@@ -93,11 +93,12 @@ func startFrontedJournal(t *testing.T, mode string, bodyLen int) (dir, sock, end
 	sock = filepath.Join(dir, "upstream.sock")
 	endpoint = filepath.Join(dir, "journal.endpoint")
 
+	policy := grantedPolicy(t, mode)
 	daemonStop := make(chan struct{})
 	daemonDone := make(chan struct{})
 	go func() {
 		defer close(daemonDone)
-		if err := ServeFrontedUnix(sock, Policy{Mode: mode}, daemonStop); err != nil {
+		if err := ServeFrontedUnix(sock, policy, daemonStop); err != nil {
 			t.Errorf("ServeFrontedUnix: %v", err)
 		}
 	}()
@@ -161,7 +162,7 @@ func TestRetiredFlagsRefuseAndNameTheirReplacement(t *testing.T) {
 		{
 			name:  "--mode",
 			argv:  []string{"--socket", "/tmp/nope.sock", "--mode", "full"},
-			wants: []string{"--mode is retired", "--settings", "loopholes.journal.settings", `"full": true`},
+			wants: []string{"--mode is retired", "--settings", "grant file", "yolo request journal read_all"},
 		},
 		{
 			name:  "--endpoint",

@@ -13,9 +13,11 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/awsauthdaemon"
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/internaldaemon"
 	"github.com/mschulkind-oss/yolo-jail/internal/journald"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholegrant"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/nixchildren"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
@@ -188,19 +190,21 @@ func TestShippedJournalPackRunsBehindTheFront(t *testing.T) {
 			"ServeFrontedUnix is written to consume the frame")
 	}
 
-	// THE MODE ARRIVES THROUGH THE SETTINGS FILE, written by the same launch-path
-	// function the run pipeline calls. Going through writeLoopholeSettings rather than
-	// hand-writing the JSON is deliberate: the manifest declaration, the resolver, the
-	// writer and the daemon's reader are four pieces that have to agree on one file,
-	// and only an end-to-end path proves they do.
+	// THE MODE ARRIVES THROUGH THE GRANT FILE, written by the same launch-path function
+	// the run pipeline calls, from the standings the config-change gate approved. Going
+	// through writeLoopholeSettings rather than hand-writing the JSON is deliberate: the
+	// manifest's [[grants]], the launch's grant block, the snapshot writer, the {settings}
+	// substitution and the daemon's reader have to agree on one file, and only an
+	// end-to-end path proves they do. `read_all` granted is the full mode (PD-11).
 	cfg := jsonx.NewOrderedMap()
-	loopBlock := jsonx.NewOrderedMap()
-	entry := jsonx.NewOrderedMap()
-	settings := jsonx.NewOrderedMap()
-	settings.Set("full", true)
-	entry.Set("settings", settings)
-	loopBlock.Set("journal", entry)
-	cfg.Set("loopholes", loopBlock)
+	o := &Options{}
+	fillDefaults(o)
+	o.approvedLoopholeGrants = map[string]map[string]config.LoopholeGrantStanding{
+		"journal": {
+			"read":     {Standing: string(loopholegrant.Requestable)},
+			"read_all": {Standing: string(loopholegrant.Granted)},
+		},
+	}
 
 	// A fake journalctl that prints its argv, so the assertion below can read the mode
 	// the daemon resolved OFF THE WIRE rather than off a log line.
@@ -224,14 +228,19 @@ func TestShippedJournalPackRunsBehindTheFront(t *testing.T) {
 	spec.Set("command", toAnyList(lp.HostDaemon.Cmd))
 	spec.Set("env", env)
 
-	o := &Options{}
-	fillDefaults(o)
 	var buf strings.Builder
 	o.Stdout = &buf
 	o.writeLoopholeSettings([]*loopholes.Loophole{lp}, cfg)
-	if !fileExists(loopholes.SettingsFileFor("journal")) {
-		t.Fatalf("no settings file at %s; output: %q",
-			loopholes.SettingsFileFor("journal"), buf.String())
+	snapshot := o.settingsSnapshots["journal"]
+	if snapshot == nil {
+		t.Fatalf("no grant file for the journal, which declares no settings but does declare "+
+			"grants; output: %q", buf.String())
+	}
+	defer o.cleanupSettingsSnapshots()
+	if _, block, err := loopholegrant.Read(snapshot.path); err != nil || block == nil ||
+		block.Kinds["read_all"].Standing != loopholegrant.Granted || block.Access != "read the host's journal" {
+		t.Fatalf("grant file %s: block %+v, err %v; want read_all granted and the manifest's access",
+			snapshot.path, block, err)
 	}
 
 	h, ok := o.startExternalService("journal", spec, socketsDir,
@@ -274,12 +283,12 @@ func TestShippedJournalPackRunsBehindTheFront(t *testing.T) {
 		t.Fatalf("rc=%d, want 0 (stdout %q) — a non-zero exit here is the daemon reading "+
 			"the connection preamble AS the request", rc, out)
 	}
-	// `full: true` means the client's args pass through unchanged. The narrow mode
+	// `read_all` granted means the client's args pass through unchanged. The narrow mode
 	// would have prepended --user, so this one assertion covers the whole chain:
-	// declaration → config value → settings file → daemon → journalctl argv.
+	// declaration → gate standing → grant file → daemon → journalctl argv.
 	if strings.Contains(out, "--user") {
-		t.Errorf("journalctl argv = %q; settings.full=true must NOT prepend --user, or the "+
-			"escalation the user config asked for never reached the daemon", out)
+		t.Errorf("journalctl argv = %q; read_all granted must NOT prepend --user, or the "+
+			"grant the gate approved never reached the daemon", out)
 	}
 	if !strings.Contains(out, "-n 5") {
 		t.Errorf("journalctl argv = %q, want the client's own args", out)

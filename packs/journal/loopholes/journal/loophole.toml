@@ -9,16 +9,21 @@
 #     (docs/reference/loophole-system.md §1.4, OQ-A6; pack-config-keys.md OQ-K4), and a config that
 #     still writes the key is refused, naming this block.
 #
-#  2. The mode has a scope, which is the security half. `"journal": "full"` was an agent-settable
-#     host-journal passthrough, and a workspace config is a file the agent inside the jail can
-#     rewrite. It is now the declared `full` setting below, `scope = "user"`.
+#  2. What it may read is a grant, not a setting (docs/design/loophole-access-approval.md §4.3).
+#     `"journal": "full"` was an agent-settable host-journal passthrough; it became a user-scope
+#     `full` setting, and is now the `read_all` grant kind below, which only the user's ceiling
+#     (`allow.journal`) can make requestable and only an accepted gate can grant.
 #
 #  3. The name is not reserved. A name yolo answers to itself and a name a pack ships cannot be the
 #     same name (`PackLoopholeNameConflicts` is fatal).
 name = "journal"
-description = "Read the host's systemd journal from inside the jail (yolo-journalctl). Every request is forced to --user unless this loophole's own `full` setting says otherwise."
+description = "Read the host's systemd journal from inside the jail (yolo-journalctl). The `read` grant forces --user onto every request; `read_all` passes the request through unchanged."
 version = 1
+# A grant-declaring loophole runs whenever its pack is selected; the grants below, not this
+# switch, decide what a request may read. The key goes when `default_enabled` is retired.
 default_enabled = false
+# The one line every refusal and the launch's disclosure print for this loophole.
+access = "read the host's journal"
 # Linux only, declared rather than probed: `requires` asks whether a thing is present, `platforms`
 # whether it exists for this machine at all. systemd's journal is Linux; the macOS analog is the
 # separate `macos-log` loophole. `journalctl` itself is not a `requires.command_on_path` probe: a
@@ -29,20 +34,27 @@ platforms = ["linux"]
 transport = "loopback-tls"
 lifecycle = "spawned"
 
-# One boolean, where the old key had three strings (`off | user | full`). Off is the loophole
-# being switched off, so the only thing left to declare is whether this bridge may read past the launching
-# user's own journal. A `string` would have been the unsafe port: the settings type set is closed
-# (`string`, `bool`, `int`, `string_list`) with no `enum`, so core could not refuse
-# `mode = "usr"`, and ParseRequest's test is `mode == "user"`, so every other spelling would behave
-# as full. A bool cannot spell itself wrong, and core type-checks it before it is written.
-[settings.full]
-type = "bool"
-# User config only, by ruling (OQ-K4: "the declared key gets a scope, which is the security half").
-# A workspace may still switch the bridge on and get the narrow view; what it cannot do is widen what
-# the bridge may read.
-scope = "user"
-default = false
-description = "pass journalctl args through unchanged, reading the WHOLE host journal (needs host journal read access); false forces --user onto every request"
+# Two grant kinds (plan PD-11): `read_all` granted is the full mode, the client's args unchanged;
+# else `read` granted is the user mode, `--user` forced onto every request; else the daemon
+# refuses, naming `read`. The bridge reads only its grant file, and with no `grants` key in it
+# every request is refused (internal/journald/grant.go).
+#
+# `read` is requestable by default: a project may ask for its user's own journal without the
+# user first widening their ceiling, and the gate still asks. `read_all` is not; the user allows
+# it with `yolo allow journal on_request read_all` first.
+#
+# The legacy keys map a legacy JSONC config during the window (plan PD-9): `enabled: true` becomes
+# `read`, and the retired user-scope `full` setting's `true` becomes `read_all`.
+[[grants]]
+kind = "read"
+text = "read your user journal"
+requestable_by_default = true
+legacy_enable = true
+
+[[grants]]
+kind = "read_all"
+text = "read the whole host journal"
+legacy_setting = "full"
 
 # `publishes = "socket"` is required of a pack-shipped loophole (internal/loopholedecl/packshipped.go):
 # the daemon binds a plain AF_UNIX socket at `{socket}` and yolo runs the front over it, so the
@@ -55,10 +67,10 @@ description = "pass journalctl args through unchanged, reading the WHOLE host jo
 # an unconsumed preamble becomes the request and every call answers "malformed request".
 # `request_end` stays at "framed": the request is one newline-terminated line, never read to EOF.
 #
-# `{settings}` resolves to the file yolo writes from the declarations above after validating the
-# user's values. It is a path and not an env map on purpose: `loopholes.<name>.env` is user-scope
-# only because it reaches a host daemon's spawn environment, and a path is the one thing a spawn
-# may carry.
+# `{settings}` resolves to this launch's grant file: the private settings snapshot yolo writes in
+# the loophole's state dir, here with no settings and one reserved `grants` key carrying each
+# kind's standing. The daemon re-reads it at every request, so `yolo config apply` lands at the
+# next one. It never crosses into the jail.
 [host_daemon]
 cmd = ["yolo", "internal", "daemon", "journal", "--socket", "{socket}", "--settings", "{settings}"]
 publishes = "socket"

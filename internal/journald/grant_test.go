@@ -43,6 +43,20 @@ func writeGrantFile(t *testing.T, path, pack string, settings string, kinds map[
 	writeAtomically(t, path, data)
 }
 
+// grantedPolicy is the journal bridge's policy over a grant file that grants mode: ModeUser
+// grants `read`, ModeFull `read_all`. The journal bridge has no settings mode since its flip,
+// so a test that drives handleConn for its transport hands it a granted file.
+func grantedPolicy(t *testing.T, mode string) Policy {
+	t.Helper()
+	kinds := map[string]loopholegrant.Standing{"read": loopholegrant.Granted, "read_all": loopholegrant.NotAllowed}
+	if mode == ModeFull {
+		kinds["read_all"] = loopholegrant.Granted
+	}
+	path := filepath.Join(t.TempDir(), "journal.settings.json")
+	writeGrantFile(t, path, "journal", `{}`, kinds)
+	return LoadJournalPolicy(path)
+}
+
 // writeAtomically replaces path in one rename, as a live apply does, so a request racing
 // the rewrite never reads half a file.
 func writeAtomically(t *testing.T, path string, data []byte) {
@@ -203,10 +217,16 @@ func TestJournaldReadsOnlyItsGrantFile(t *testing.T) {
 	}
 }
 
-// PD-12: until the journal's flip, a settings file with no `grants` key keeps today's
-// behavior, the mode its `full` setting names, read once at startup.
-func TestJournaldWithoutAGrantsKeyKeepsItsSettingsMode(t *testing.T) {
+// PD-12, the journal's flip: a settings file with no `grants` key grants nothing, and neither
+// does no settings file. The old `full: true` setting no longer widens anything; both fail
+// closed with the not_allowed text and spawn no journalctl.
+func TestJournaldWithoutAGrantsKeyRefuses(t *testing.T) {
 	isolateFromConfig(t)
+	notAllowed := loopholegrant.Refusal{
+		Client: "yolo-journalctl", Pack: "journal", Access: "read the host's journal",
+		Kind: "read", Standing: loopholegrant.NotAllowed,
+	}.Text()
+
 	dir := bridgeDir(t)
 	writeArgvJournalctl(t, dir)
 	settings := filepath.Join(dir, "journal.settings.json")
@@ -215,16 +235,40 @@ func TestJournaldWithoutAGrantsKeyKeepsItsSettingsMode(t *testing.T) {
 	}
 	endpoint := startFrontedMain(t, dir, journalEntry(settings))
 	out, errText, rc := ask(t, endpoint, `{"args":["-n","1"]}`)
-	if rc != 0 || out != "ARGV:-n 1\n" {
-		t.Fatalf("legacy full: rc %d stdout %q stderr %q", rc, out, errText)
+	if rc != 64 || out != "" || errText != notAllowed {
+		t.Fatalf("legacy full, no grants key: rc %d stdout %q stderr\n%s\nwant rc 64 and\n%s", rc, out, errText, notAllowed)
 	}
 
-	userDir := bridgeDir(t)
-	writeArgvJournalctl(t, userDir)
-	userEndpoint := startFrontedMain(t, userDir, journalEntry(""))
-	out, errText, rc = ask(t, userEndpoint, `{"args":["-n","1"]}`)
-	if rc != 0 || out != "ARGV:--user -n 1\n" {
-		t.Fatalf("no settings: rc %d stdout %q stderr %q", rc, out, errText)
+	noneDir := bridgeDir(t)
+	writeArgvJournalctl(t, noneDir)
+	noneEndpoint := startFrontedMain(t, noneDir, journalEntry(""))
+	out, errText, rc = ask(t, noneEndpoint, `{"args":["-n","1"]}`)
+	if rc != 64 || out != "" || errText != notAllowed {
+		t.Fatalf("no settings file: rc %d stdout %q stderr\n%s\nwant rc 64 and\n%s", rc, out, errText, notAllowed)
+	}
+}
+
+// The refusal prints the `access` the launch wrote into the grant file, the manifest's own
+// line; the bridge's constant is only the fallback for a file that carries none.
+func TestJournaldRefusalTakesAccessFromTheGrantFile(t *testing.T) {
+	isolateFromConfig(t)
+	dir := bridgeDir(t)
+	writeArgvJournalctl(t, dir)
+	grantFile := filepath.Join(dir, "journal.settings.json")
+	b := loopholegrant.Block{
+		Pack: "journal", Workspace: "/home/u/proj", Container: "yolo-proj", LaunchID: "l1",
+		PID: os.Getpid(), Access: "read this manifest's journal",
+		Kinds: map[string]loopholegrant.Kind{"read": {Standing: loopholegrant.Requestable}},
+	}
+	data, err := loopholegrant.Merge(nil, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeAtomically(t, grantFile, data)
+	endpoint := startFrontedMain(t, dir, journalEntry(grantFile))
+	_, errText, rc := ask(t, endpoint, `{"args":["-n","1"]}`)
+	if rc != 64 || !strings.Contains(errText, "no grant to read this manifest's journal") {
+		t.Fatalf("rc %d stderr\n%s\nwant the grant file's access line", rc, errText)
 	}
 }
 

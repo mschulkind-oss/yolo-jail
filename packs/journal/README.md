@@ -13,55 +13,84 @@ a **top-level `journal` key in yolo's own config schema**, with its name reserve
 has been renamed, not emptied"* — and OQ-K4 supplied the settings half that made it
 possible.
 
-## Two gates
+## Selected, then granted
 
-On your machine, `yolo pack add journal` selects the pack. In a legacy JSONC user config the same selection, and the rest of this setup, reads:
+Selecting the pack runs the bridge; a **grant** decides what a request may read
+([`loophole-access-approval.md`](../../docs/design/loophole-access-approval.md) §4.3). The
+loophole declares two grant kinds:
 
-```jsonc
-// ~/.config/yolo-jail/config.jsonc  — user scope
-{
-  "packs": ["claude", "journal"],                     // 1. installed
-  "loopholes": { "journal": { "enabled": true } }     // 2. running
-}
+| Kind | What a request reads | Requestable by default |
+| :--- | :--- | :--- |
+| `read` | your user journal: `--user` is forced onto every request | yes |
+| `read_all` | the whole host journal: the request's arguments pass through unchanged (needs host journal read access) | no |
+
+With `read_all` granted the bridge reads the whole journal; else with `read` granted, the
+user journal; else it refuses, exit 64, naming `read` and the next step. The daemon reads
+only this launch's grant file, never your config, and re-reads it at every request, so a
+`yolo config apply` takes effect at the next one.
+
+For your user journal in one project:
+
+```toml
+# ~/.config/yolo-jail/config.toml  — user scope
+packs = ["claude", "journal"]
 ```
 
-Then, in a jail:
+```toml
+# yolo-jail.toml  — the project asks; `yolo request journal read` writes this
+[requests.journal]
+read = true
+```
+
+Then answer y at the launch's config-change gate, or run `yolo config apply` on the host in
+the workspace. In a jail:
 
 ```console
 $ yolo-journalctl -u some.service -n 50
 ```
 
-`enabled` is honored from **either** scope (R5), so a workspace `yolo-jail.jsonc` may
-switch the bridge on for one project. What a workspace may **not** do is widen what it
-reads — see below.
+For the whole host journal, the user allows it first, since `read_all` is not requestable by
+default (`yolo allow journal on_request read_all` writes the first line), and the project
+asks for it:
 
-## The mode is one boolean now, and it is user-scope
-
-```jsonc
-// ~/.config/yolo-jail/config.jsonc  — USER SCOPE ONLY
-"loopholes": { "journal": { "settings": { "full": true } } }
+```toml
+# ~/.config/yolo-jail/config.toml
+[allow.journal]
+on_request = ["read_all"]
 ```
 
-| old | new |
+```toml
+# yolo-jail.toml
+[requests.journal]
+read_all = true
+```
+
+A kind under `always` instead of `on_request` (`[allow.journal] always = ["read"]`) is held
+for every project without a request; each project's gate still asks once.
+
+With no grant, `yolo-journalctl` refuses and names the step:
+
+```console
+$ yolo-journalctl -n 1
+yolo-journalctl: this project holds no grant to read the host's journal, so nothing ran.
+  The journal pack is selected and its service is running; it is waiting on a grant.
+  Ask for this project:   yolo request journal read
+  then the human runs, on the host, in this workspace:  yolo config apply   and answers y.
+```
+
+### From the old spellings
+
+| old | now |
 | :--- | :--- |
-| `"journal": "off"` / absent / `false` | `"loopholes": {"journal": {"enabled": false}}` (or just don't select the pack) |
-| `"journal": "user"` / `true` | `"loopholes": {"journal": {"enabled": true}}` |
-| `"journal": "full"` | the above **plus** `"settings": {"full": true}`, **in the user config** |
+| `"journal": "user"` / `true`, or `"loopholes": {"journal": {"enabled": true}}` | `read` |
+| `"journal": "full"`, or `"settings": {"full": true}` | `read_all` |
 
-Two things about that table are the point rather than a translation.
-
-**`full` is `scope: "user"`.** `"journal": "full"` was an agent-settable host-journal
-passthrough: a workspace `yolo-jail.jsonc` is a file the agent inside the jail can rewrite,
-and nothing anywhere said the key was user-scope. OQ-K4 calls the scope *"the security half
-of this ruling"*. The asymmetry with `host-processes`.`visible` — which kept
-`scope: "workspace"` — is deliberate: that key had an established workspace behaviour worth
-preserving, and this one had no scope rule at all.
-
-**It is a boolean, not the old three-valued string.** The settings type set is closed
-(`string`, `bool`, `int`, `string_list`) with no `enum`, so a `string` mode could carry any
-word and core could not refuse one — while `ParseRequest`'s test is `mode == "user"`, so
-every *other* spelling, including a typo, behaves as **full**. A config typo that silently
-widens host access is the shape this sprint exists to delete.
+A legacy JSONC config is read through these rows while the old format is still accepted:
+`enabled: true` in the user config holds `read` for every project, `settings.full: true`
+there adds `read_all`, and `enabled: true` in a workspace file is a request for `read`. The
+`full` setting is gone from the manifest. Reading the whole host journal was once settable
+from a workspace `yolo-jail.jsonc`, a file the agent inside the jail can rewrite; it is now a
+kind only your user config can make requestable and only a gate can grant.
 
 ## What changed under the hood
 
@@ -84,5 +113,5 @@ widens host access is the shape this sprint exists to delete.
 $ yolo pack lint packs/journal      # claims + the strict manifest read
 $ yolo pack footprint journal       # the same claims, from the embedded copy
 $ yolo loopholes list               # journal, source `pack`
-$ yolo-journalctl -n 5              # in a jail that selected AND enabled it
+$ yolo-journalctl -n 5              # in a jail that selected it and holds a grant
 ```

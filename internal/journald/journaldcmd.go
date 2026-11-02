@@ -63,7 +63,7 @@ func signalStop() <-chan struct{} {
 func journalMain(argv []string, stopFn func() <-chan struct{}) int {
 	fs := flag.NewFlagSet("yolo-journald", flag.ExitOnError)
 	socket := fs.String("socket", "", "AF_UNIX socket to bind (behind yolo's front)")
-	settings := fs.String("settings", "", "Resolved settings file written by yolo (see --help)")
+	settings := fs.String("settings", "", "The grant file yolo writes for this launch")
 	retiredEndpoint := fs.String("endpoint", "", "RETIRED — use --socket")
 	retiredMode := fs.String("mode", "", "RETIRED — use --settings")
 	logFile := fs.String("log-file", "", "append per-request audit log here (default: stderr)")
@@ -72,9 +72,10 @@ func journalMain(argv []string, stopFn func() <-chan struct{}) int {
 	if *retiredMode != "" {
 		fmt.Fprintln(os.Stderr, "yolo-journald: --mode is retired — the mode is no longer an "+
 			"argv yolo computes from a top-level `journal` config key. Pass --settings <file>, "+
-			"the resolved settings file yolo writes from loopholes.journal.settings; the "+
-			"manifest's host_daemon.cmd names it with the {settings} token, and the escalation "+
-			"that was --mode full is now {\"full\": true} in there (user config only).")
+			"the grant file yolo writes for this launch; the manifest's host_daemon.cmd names it "+
+			"with the {settings} token. The escalation that was --mode full is now the read_all "+
+			"grant: the project asks with `yolo request journal read_all`, and the human allows "+
+			"it on the host with `yolo allow journal on_request read_all`.")
 		return 2
 	}
 	if *retiredEndpoint != "" {
@@ -91,11 +92,10 @@ func journalMain(argv []string, stopFn func() <-chan struct{}) int {
 	}
 	setupLog(*logFile)
 
-	// READ HERE, before a single connection is accepted. A settings file with no `grants`
-	// key is frozen into a mode, the freeze internal/hostprocesses states at length; one
-	// with the key is a grant file, re-read at every request so a live apply lands at the
-	// next one (grant.go).
-	policy := LoadPolicy(*settings)
+	// The settings file is the grant file, re-read at every request so a live apply lands at
+	// the next one. One without a `grants` key grants nothing: there is no settings mode to
+	// fall back to (grant.go).
+	policy := LoadJournalPolicy(*settings)
 
 	if err := ServeFrontedUnix(*socket, policy, stopFn()); err != nil {
 		fmt.Fprintln(os.Stderr, "yolo-journald:", err)

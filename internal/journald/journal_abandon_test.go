@@ -27,11 +27,12 @@ func TestAnAbandonedFollowTerminatesItsJournalctl(t *testing.T) {
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
+	policy := grantedPolicy(t, ModeFull)
 	server, client := net.Pipe()
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		handleConn(server, Policy{Mode: ModeFull})
+		handleConn(server, policy)
 	}()
 	// net.Pipe is unbuffered, so the header must be written while handleConn reads it;
 	// the daemon then writes nothing until the child does, and this fake prints nothing.

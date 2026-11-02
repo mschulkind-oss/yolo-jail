@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/journald"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholegrant"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
@@ -346,13 +347,27 @@ func TestEndToEndOverLoopbackTLS(t *testing.T) {
 	// listener actually binds, so point the advertisement at it.
 	t.Setenv(svcendpoint.AdvertiseHostEnv, "127.0.0.1")
 
+	// The journal bridge reads only its grant file since its flip: grant read_all, the
+	// client's args unchanged.
+	grantFile := filepath.Join(dir, "journal.settings.json")
+	grantData, err := loopholegrant.Merge(nil, loopholegrant.Block{
+		Pack: "journal", Workspace: "/home/u/proj", Container: "yolo-proj", LaunchID: "l1", PID: os.Getpid(),
+		Kinds: map[string]loopholegrant.Kind{"read_all": {Standing: loopholegrant.Granted}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(grantFile, grantData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
 	endpoint := filepath.Join(dir, "journal.endpoint")
 	upstream := filepath.Join(dir, "journal-upstream.sock")
 	stop := make(chan struct{})
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		if err := journald.ServeFrontedUnix(upstream, journald.Policy{Mode: journald.ModeFull}, stop); err != nil {
+		if err := journald.ServeFrontedUnix(upstream, journald.LoadJournalPolicy(grantFile), stop); err != nil {
 			t.Errorf("ServeFrontedUnix: %v", err)
 		}
 	}()

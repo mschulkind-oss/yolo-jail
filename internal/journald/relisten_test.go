@@ -33,12 +33,13 @@ func TestServeReleasesSocketPathOnReturn(t *testing.T) {
 	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(1))
 
 	sock := filepath.Join(shortSockDir(t), "j.sock")
+	policy := grantedPolicy(t, ModeUser)
 	for i := 0; i < 60; i++ {
 		stop := make(chan struct{})
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
-			if err := serveUnixConns(sock, stop, func(c net.Conn) { handleConn(c, Policy{Mode: ModeUser}) }); err != nil {
+			if err := serveUnixConns(sock, stop, func(c net.Conn) { handleConn(c, policy) }); err != nil {
 				t.Errorf("iter %d: serveUnixConns: %v", i, err)
 			}
 		}()
