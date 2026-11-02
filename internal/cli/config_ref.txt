@@ -636,22 +636,29 @@
     `yolo approve --watch --json` instead.  The request-filed event's JSON
     object, the same one `yolo approve --watch --json` prints, is on its stdin,
     and its fields are in the environment: YOLO_EVENT (request-filed),
-    YOLO_SOURCE, YOLO_REQUEST_ID, YOLO_REQUEST_SUMMARY, YOLO_REQUEST_EXPIRES,
-    YOLO_REQUEST_WORKSPACE, YOLO_REQUEST_JAIL, YOLO_REQUEST_SET and
-    YOLO_REQUEST_REPO.  A plain `yolo` works in it, whatever your PATH: a
+    YOLO_SOURCE, YOLO_REQUEST_ID, YOLO_REQUEST_SUMMARY,
+    YOLO_REQUEST_SUMMARY_MARKUP, YOLO_REQUEST_EXPIRES, YOLO_REQUEST_WORKSPACE,
+    YOLO_REQUEST_JAIL, YOLO_REQUEST_SET and YOLO_REQUEST_REPO.  A plain `yolo` works in it, whatever your PATH: a
     private directory holding only a link named yolo to the running yolo
     comes first on its PATH, and YOLO_BIN names that same yolo by its full
     path, for a script that wants it absolute.
     YOLO_REQUEST_SUMMARY is one line of at most 2048 bytes: the request id, the
     set, the repository and the jail first, then the command, each value over
     60 characters cut to its first 40 with its length and a short hash.
+    The summary is the agent's words: a notifier that renders markup (a
+    desktop notification daemon such as swaync renders <b> and <a href>)
+    shows YOLO_REQUEST_SUMMARY_MARKUP, the same line with & < > " ' as XML
+    entities (so it can be longer than 2048 bytes), and a plain-text one (a
+    terminal, a log) shows YOLO_REQUEST_SUMMARY; never run either.  The
+    markup field is for a notifier that renders notification markup; any
+    other renderer (Slack, HTML) needs its own escaping of the plain field.
     IT ONLY NOTIFIES.  yolo reads nothing back from the command, and no hook is
     required: a pending request is also visible in the background broker log and
     can be answered manually with `yolo approve` on the host.  When configured,
     the hook runs the CLI itself, so its buttons get the same checks, refusals and audit.
     Example (~/.config/yolo-jail/config.toml, at the top level), a desktop
     notification with Allow once and Deny buttons:
-      on_request = 'a=$(notify-send -A once="Allow once" -A deny=Deny "$YOLO_REQUEST_SUMMARY"); case "$a" in once) yolo approve "$YOLO_REQUEST_ID";; deny) yolo approve "$YOLO_REQUEST_ID" --deny;; esac'
+      on_request = 'a=$(notify-send -A once="Allow once" -A deny=Deny "$YOLO_REQUEST_SUMMARY_MARKUP"); case "$a" in once) yolo approve "$YOLO_REQUEST_ID";; deny) yolo approve "$YOLO_REQUEST_ID" --deny;; esac'
     Allow once is `yolo approve <id>`: the exact command, once.  A GitHub write
     also takes `--for <duration>` on its resource and `--add` for its PR or
     issue (see `yolo approve --help`).  The same lines can live in a script

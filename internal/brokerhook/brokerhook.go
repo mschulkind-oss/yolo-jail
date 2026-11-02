@@ -292,6 +292,12 @@ func (r *Runner) launch(parent context.Context, q brokerstore.Request) {
 // Env is the request's fields as the hook's environment: what a notifier that takes its
 // text as arguments, such as notify-send, needs, and YOLO_BIN, the yolo the hook calls to
 // decide. Every request value is safe to show on a terminal.
+//
+// The summary is the agent's words. YOLO_REQUEST_SUMMARY_MARKUP is the same line with
+// markupEscaper applied, for a notifier that renders the freedesktop notification markup
+// (a Pango/XML subset with <b>, <a href>, ...), where the plain line could hide or fake text
+// or add links in the toast the user approves from. It is escaped for that dialect only;
+// another renderer needs its own escaping of the plain line. Every plain field is left as it is.
 func Env(s *brokerstore.Store, q brokerstore.Request, bin string) []string {
 	env := []string{"YOLO_EVENT=" + brokerstore.EventRequestFiled, "YOLO_SOURCE=" + s.SourceName()}
 	if bin != "" {
@@ -299,7 +305,9 @@ func Env(s *brokerstore.Store, q brokerstore.Request, bin string) []string {
 	}
 	add := func(k, v string) { env = append(env, k+"="+termsafe.Visible(v)) }
 	add("YOLO_REQUEST_ID", q.ID)
-	add("YOLO_REQUEST_SUMMARY", s.RequestSummary(q))
+	summary := termsafe.Visible(s.RequestSummary(q))
+	env = append(env, "YOLO_REQUEST_SUMMARY="+summary,
+		"YOLO_REQUEST_SUMMARY_MARKUP="+markupEscaper.Replace(summary))
 	add("YOLO_REQUEST_EXPIRES", q.Expires().Format(time.RFC3339))
 	// YOLO_REQUEST_*, never yolo's own names: YOLO_WORKSPACE, for one, is read by the
 	// `yolo approve` the hook runs.
@@ -309,6 +317,10 @@ func Env(s *brokerstore.Store, q brokerstore.Request, bin string) []string {
 	add("YOLO_REQUEST_REPO", q.Repo)
 	return env
 }
+
+// markupEscaper replaces the XML metacharacters with entities. A Replacer scans once, so the
+// & of an entity it writes is never escaped again.
+var markupEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;", "'", "&#39;")
 
 // fire runs the hook for one request. The hook decides nothing itself: a decision is the
 // user's command running `yolo approve`, with the CLI's own checks and audit.

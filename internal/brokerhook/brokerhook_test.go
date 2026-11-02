@@ -192,3 +192,63 @@ func TestAHungHookIsStoppedAtItsTimeout(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+// The summary is the agent's words, and a notification daemon renders markup, so the hook
+// also gets YOLO_REQUEST_SUMMARY_MARKUP: the same line with &, <, >, " and ' as XML
+// entities. The plain field is left exactly as it was.
+func TestTheHookGetsAMarkupSummaryForMarkupNotifiers(t *testing.T) {
+	f := newFixture(t)
+	markup := `<b>x</b> & <a href="http://e">y</a>`
+	f.filing.Argv = []string{"pr", "comment", "1", markup}
+	out := filepath.Join(f.dir, "summaries")
+	stop := f.run(t, f.script(t, "hook", `printf '%s\n%s\n' "$YOLO_REQUEST_SUMMARY" "$YOLO_REQUEST_SUMMARY_MARKUP" >>'`+out+`'`+"\n"), &syncBuffer{})
+	q, err := f.store.File(f.filing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the hook's output", func() bool { b, _ := os.ReadFile(out); return bytes.Count(b, []byte("\n")) >= 2 })
+	stop()
+	b, _ := os.ReadFile(out)
+	lines := strings.Split(strings.TrimSuffix(string(b), "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("hook output %q", b)
+	}
+	plain, escaped := lines[0], lines[1]
+	if plain != f.store.RequestSummary(q) || !strings.Contains(plain, markup) {
+		t.Fatalf("the plain summary changed: %q", plain)
+	}
+	want := `&lt;b&gt;x&lt;/b&gt; &amp; &lt;a href=&quot;http://e&quot;&gt;y&lt;/a&gt;`
+	if !strings.Contains(escaped, want) || strings.ContainsAny(escaped, `<>"'`) {
+		t.Fatalf("escaped summary %q, want it to contain %q and no raw markup or quote", escaped, want)
+	}
+	// Exactly the plain line, entity for entity: &amp; first, so no entity is escaped twice.
+	r := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;", "'", "&#39;")
+	if escaped != r.Replace(plain) {
+		t.Fatalf("escaped %q is not the plain summary escaped, %q", escaped, r.Replace(plain))
+	}
+}
+
+// An invisible format character makes `ma<U+200B>in` read as `main` in the line the user
+// approves from, so both summaries show it escaped.
+func TestTheHookSummariesShowAZeroWidthSpace(t *testing.T) {
+	f := newFixture(t)
+	f.filing.Argv = []string{"pr", "comment", "1", "--head", "ma\u200bin"}
+	out := filepath.Join(f.dir, "summaries")
+	stop := f.run(t, f.script(t, "hook", `printf '%s\n%s\n' "$YOLO_REQUEST_SUMMARY" "$YOLO_REQUEST_SUMMARY_MARKUP" >>'`+out+`'`+"\n"), &syncBuffer{})
+	if _, err := f.store.File(f.filing); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the hook's output", func() bool { b, _ := os.ReadFile(out); return bytes.Count(b, []byte("\n")) >= 2 })
+	stop()
+	b, _ := os.ReadFile(out)
+	lines := strings.Split(strings.TrimSuffix(string(b), "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("hook output %q", b)
+	}
+	// The summary shell-quotes an argument holding one as $'...', its bytes escaped.
+	for i, l := range lines {
+		if strings.ContainsRune(l, '\u200b') || !strings.Contains(l, `ma\xe2\x80\x8bin`) {
+			t.Errorf("summary %d does not show the zero-width space escaped: %q", i, l)
+		}
+	}
+}

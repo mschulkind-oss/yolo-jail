@@ -137,14 +137,30 @@ request a jail files. It goes at the **top level** of your user config, and only
 
 ```toml
 # ~/.config/yolo-jail/config.toml
-on_request = 'notify-send "yolo: $YOLO_REQUEST_SUMMARY"'
+on_request = 'notify-send "yolo: $YOLO_REQUEST_SUMMARY_MARKUP"'
 ```
 
 Then run `yolo check`. It takes effect at the next fresh launch. The request's fields are in the
 command's environment: `YOLO_REQUEST_ID`, `YOLO_REQUEST_SUMMARY` (one line: the id, the set, the
-repository and the jail, then the command), `YOLO_REQUEST_EXPIRES`, `YOLO_REQUEST_WORKSPACE`,
+repository and the jail, then the command), `YOLO_REQUEST_SUMMARY_MARKUP` (the same line,
+escaped for notification markup), `YOLO_REQUEST_EXPIRES`, `YOLO_REQUEST_WORKSPACE`,
 `YOLO_REQUEST_JAIL`, `YOLO_REQUEST_SET`, `YOLO_REQUEST_REPO`, `YOLO_SOURCE` (`git` or `github`)
-and `YOLO_EVENT`. The same fields arrive as one JSON object on its standard input.
+and `YOLO_EVENT`. The same fields, all but the markup summary, arrive as one JSON object on its
+standard input.
+
+The summary is the agent's words, so treat it as untrusted text. A notifier that renders
+markup shows `YOLO_REQUEST_SUMMARY_MARKUP`, and a plain-text one (a terminal, a log) shows
+`YOLO_REQUEST_SUMMARY`; never run either as a command. Desktop notification daemons such as
+swaync render the freedesktop notification markup, which includes `<b>` and `<a href>`, so the
+plain line could hide or fake text, or add a link, in the very notification you approve from.
+The markup line has `&`, `<`, `>`, `"` and `'` replaced by XML entities, which suits a notifier
+that renders the freedesktop notification (Pango) markup and nothing else: any other renderer,
+such as a Slack message, needs its own escaping of the plain line. Your notifier may wrap it in
+formatting of its own, such as `"<b>$YOLO_REQUEST_ID</b> $YOLO_REQUEST_SUMMARY_MARKUP"`: only
+the values an agent writes need escaping. An invisible format character, such as a zero-width
+space that would make a branch read as `main` when it is not, shows escaped in both lines.
+Lookalike letters from other scripts are not caught; the command SHA-256 at the end of the
+summary is the exact identity of what you approve.
 
 The command can answer, too. A plain `yolo` inside it is the yolo that started the broker,
 whatever your `PATH` (`$YOLO_BIN` is its full path), so a notification with buttons is the whole
@@ -152,7 +168,7 @@ approval front end. With `notify-send` from libnotify 0.7.10 or newer, which tak
 button:
 
 ```toml
-on_request = 'a=$(notify-send -A once="Allow once" -A deny=Deny "$YOLO_REQUEST_SUMMARY"); case "$a" in once) yolo approve "$YOLO_REQUEST_ID";; deny) yolo approve "$YOLO_REQUEST_ID" --deny;; esac'
+on_request = 'a=$(notify-send -A once="Allow once" -A deny=Deny "$YOLO_REQUEST_SUMMARY_MARKUP"); case "$a" in once) yolo approve "$YOLO_REQUEST_ID";; deny) yolo approve "$YOLO_REQUEST_ID" --deny;; esac'
 ```
 
 A button does exactly what the command does, with the same checks and the same audit record. A

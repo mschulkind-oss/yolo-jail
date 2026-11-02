@@ -209,7 +209,7 @@ func TestTheOneLinerNotifierGetsTheSIGINT(t *testing.T) {
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	var log syncBuffer
-	stop := f.run(t, `a=$(notify-send -A once="Allow once" -A deny=Deny "$YOLO_REQUEST_SUMMARY"); case "$a" in once) yolo approve "$YOLO_REQUEST_ID";; deny) yolo approve "$YOLO_REQUEST_ID" --deny;; esac`, &log)
+	stop := f.run(t, `a=$(notify-send -A once="Allow once" -A deny=Deny "$YOLO_REQUEST_SUMMARY_MARKUP"); case "$a" in once) yolo approve "$YOLO_REQUEST_ID";; deny) yolo approve "$YOLO_REQUEST_ID" --deny;; esac`, &log)
 	defer stop()
 	q, err := f.store.File(f.filing)
 	if err != nil {

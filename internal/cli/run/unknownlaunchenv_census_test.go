@@ -61,7 +61,8 @@ var notLaunchSettings = func() map[string]string {
 
 		"YOLO_REQUEST_EXPIRES": hook, "YOLO_REQUEST_ID": hook, "YOLO_REQUEST_JAIL": hook,
 		"YOLO_REQUEST_REPO": hook, "YOLO_REQUEST_SET": hook, "YOLO_REQUEST_SUMMARY": hook,
-		"YOLO_REQUEST_WORKSPACE": hook, "YOLO_EVENT": hook, "YOLO_SOURCE": hook, "YOLO_BIN": hook,
+		"YOLO_REQUEST_SUMMARY_MARKUP": hook, "YOLO_REQUEST_WORKSPACE": hook,
+		"YOLO_EVENT": hook, "YOLO_SOURCE": hook, "YOLO_BIN": hook,
 
 		"YOLO_BROKER_STATE_DIR": testOnly, "YOLO_BROKER_UPSTREAM_URL": testOnly,
 

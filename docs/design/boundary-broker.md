@@ -1602,7 +1602,7 @@ reference). The spellings above stand. The fields are the ones the store holds:
   one line in the user config can be the whole notification front end:
 
   ```jsonc
-  "on_request": "a=$(notify-send -A once=\"Allow once\" -A deny=Deny \"$YOLO_REQUEST_SUMMARY\"); case \"$a\" in once) yolo approve \"$YOLO_REQUEST_ID\";; deny) yolo approve \"$YOLO_REQUEST_ID\" --deny;; esac"
+  "on_request": "a=$(notify-send -A once=\"Allow once\" -A deny=Deny \"$YOLO_REQUEST_SUMMARY_MARKUP\"); case \"$a\" in once) yolo approve \"$YOLO_REQUEST_ID\";; deny) yolo approve \"$YOLO_REQUEST_ID\" --deny;; esac"
   ```
 
   GitHub writes accept Allow once or Deny only; the on_request example is a notification front end,
@@ -1614,11 +1614,14 @@ reference). The spellings above stand. The fields are the ones the store holds:
   of a single request and only the first one's buttons would do anything. A tool that wants
   every event reads `yolo approve --watch --json`. The broker runs it with `sh -c` from the
   user's home, the request-filed event's JSON on stdin and its fields in `YOLO_REQUEST_*`
-  variables (`_ID`, `_SUMMARY`, `_EXPIRES`, `_WORKSPACE`, `_JAIL`, `_SET`, `_REPO`), since a
+  variables (`_ID`, `_SUMMARY`, `_SUMMARY_MARKUP`, `_EXPIRES`, `_WORKSPACE`, `_JAIL`, `_SET`, `_REPO`), since a
   notifier such as `notify-send` takes its text as arguments. `YOLO_REQUEST_SUMMARY`
   leads with the request id, the set, the repository and the jail, then the command with each
   value over 60 characters elided as in [§6.3](#63-what-the-notification-shows), and is cut at
-  2048 bytes. A plain `yolo` works in it: the broker puts first on its `PATH` a private
+  2048 bytes. The summary is the agent's words, and desktop notification daemons render the
+  freedesktop notification markup (`<b>`, `<a href>`), so `YOLO_REQUEST_SUMMARY_MARKUP` is the
+  same line with `&`, `<`, `>`, `"` and `'` as XML entities, for a notifier that renders markup
+  (environment only; the stdin JSON is the watch's own schema). A plain `yolo` works in it: the broker puts first on its `PATH` a private
   directory holding exactly one entry, a link named `yolo` to the running yolo, and
   `YOLO_BIN` names the same binary absolutely. **Its failures are visible**: a command that
   exits non-zero, or runs into its timeout, has its exit and the last 4 KiB of its output

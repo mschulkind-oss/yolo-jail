@@ -18,7 +18,7 @@ import (
 
 // onRequestExample is config-ref's optional notification example. It runs the existing host CLI;
 // the hook's output is never consent.
-const onRequestExample = `a=$(notify-send -A once="Allow once" -A deny=Deny "$YOLO_REQUEST_SUMMARY"); case "$a" in once) yolo approve "$YOLO_REQUEST_ID";; deny) yolo approve "$YOLO_REQUEST_ID" --deny;; esac`
+const onRequestExample = `a=$(notify-send -A once="Allow once" -A deny=Deny "$YOLO_REQUEST_SUMMARY_MARKUP"); case "$a" in once) yolo approve "$YOLO_REQUEST_ID";; deny) yolo approve "$YOLO_REQUEST_ID" --deny;; esac`
 
 // A click does exactly what the CLI does, because it IS the CLI (BB-D75): the documented
 // example, with a stand-in notify-send answering each button in turn, runs the real

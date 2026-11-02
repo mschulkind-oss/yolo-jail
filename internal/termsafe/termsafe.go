@@ -16,10 +16,16 @@ import (
 	"unicode/utf8"
 )
 
-// Unsafe reports whether a terminal may act on r: a C0 or C1 control character, DEL, or a
-// bidi-format character, which reorders what the reader sees.
+// Unsafe reports whether a terminal may act on r, or the reader may misread the text around
+// it: a C0 or C1 control character, DEL, or any format character (Unicode category Cf). The
+// format characters include the bidi controls, which reorder what the reader sees, and the
+// invisible ones, such as U+200B zero-width space, U+200C/U+200D zero-width (non-)joiner,
+// U+2060 word joiner, U+FEFF, U+00AD soft hyphen and the U+E0000 tag characters, which make
+// one string read as another (`ma<U+200B>in` shows as `main`). An emoji sequence joined by
+// U+200D therefore shows its joiner escaped, which yolo accepts. Lookalike letters from
+// other scripts are not caught.
 func Unsafe(r rune) bool {
-	return unicode.IsControl(r) || unicode.Is(unicode.Bidi_Control, r)
+	return unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Bidi_Control, r)
 }
 
 // HasUnsafe reports whether s holds an unsafe rune or a byte that is not UTF-8.
