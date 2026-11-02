@@ -911,16 +911,15 @@ func installOverlayDestination(overlay, home string, roots []overlayRoot, links 
 		defer parent.Close()
 		pfd := int(parent.Fd())
 		if recorded != nil {
-			// THE RECORDED DELIVERY STEPS ASIDE FIRST, and only the file that was hashed may: a
-			// destination the agent swapped in after the check is put back and refused, never
-			// replaced. Both renames refuse to replace, so nothing the agent laid at either name
+			// THE RECORDED DELIVERY STEPS ASIDE FIRST, and only the file that was hashed may, with
+			// the bytes that were hashed (recordedInheritedDelivery.stillAt): a destination the
+			// agent swapped in or rewrote after the check is put back and refused, never replaced. Both renames refuse to replace, so nothing the agent laid at either name
 			// is overwritten.
 			if err := renameNoReplaceBetweenAt(pfd, base, pfd, aside); err != nil {
 				_ = dir.RemoveAll(staged)
 				return fmt.Errorf("moving aside the previous inherited core config ~/%s: %w; inspect the path and relaunch", dest, err)
 			}
-			moved, err := dir.Lstat(aside)
-			if err != nil || !os.SameFile(moved, recorded.info) || moved.Mode() != recorded.info.Mode() {
+			if !recorded.stillAt(pfd, aside) {
 				_ = renameNoReplaceBetweenAt(pfd, aside, pfd, base)
 				_ = dir.RemoveAll(staged)
 				return fmt.Errorf("refusing to replace inherited core config ~/%s: it changed during installation; preserve it, inspect the path, then relaunch", dest)
