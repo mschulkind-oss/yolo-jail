@@ -285,11 +285,13 @@ func TestTheFlagPathShowsTheBlockBeforeRecording(t *testing.T) {
 // the record (the capture cleanup) deletes them all.
 func TestRecordApprovalWritesEveryPartAndTheRecordNamesThem(t *testing.T) {
 	ws := approvalWorkspace(t)
-	if err := RecordApproval(ws, decode(t, `{}`), entryScope(nil, EntryRepo{Repo: "org/lib", Files: []string{"a.jsonc"}})); err != nil {
+	writeGrantUserConfig(t, "[allow.fixture]\nalways = [\"read\"]\n")
+	scope := WithLoopholeGrants(entryScope(nil, EntryRepo{Repo: "org/lib", Files: []string{"a.jsonc"}}), ws, nil, grantFixture())
+	if err := RecordApproval(ws, decode(t, `{}`), scope); err != nil {
 		t.Fatal(err)
 	}
 	files := ApprovalRecordFiles(runtime.FromWorkspace(ws))
-	want := []string{ApprovalSnapshotPath(ws), ApprovalScopePath(ws), ApprovalScopeSourcesPath(ws)}
+	want := []string{ApprovalSnapshotPath(ws), ApprovalScopePath(ws), ApprovalScopeSourcesPath(ws), ApprovalLoopholeGrantsPath(ws)}
 	if strings.Join(files, ",") != strings.Join(want, ",") {
 		t.Fatalf("ApprovalRecordFiles %v, want %v", files, want)
 	}

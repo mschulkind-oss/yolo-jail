@@ -31,7 +31,7 @@ import (
 //     leaves it.
 //   - build/current-images/<cname> (currentimages.go), which CurrentImageTags skips once its
 //     workspace is gone but never deletes.
-//   - approvals/<cname>.json, .scope.json, .scope-sources.json (internal/config).
+//   - approvals/<cname>.json, .scope.json, .scope-sources.json, .loophole-grants.json (internal/config).
 //   - logs/jail-keeper-<cname>.log and <cname>-socat.log, each capped but one per name, and the
 //     <cname>-cgd.log the retired per-jail cgroup-delegate daemon wrote (no current writer; the
 //     files remain on machines that ran it).
@@ -115,7 +115,7 @@ var (
 	orphanKeeperLog  = regexp.MustCompile(`^jail-keeper-(` + cnamePattern + `)` + notchPattern + `\.log(\.1|\.lock)?$`)
 	orphanSidecarLog = regexp.MustCompile(`^(` + cnamePattern + `)-(?:socat|cgd)\.log(\.1|\.lock)?$`)
 	orphanBareRe     = regexp.MustCompile(`^(` + cnamePattern + `)$`)
-	orphanApprovalRe = regexp.MustCompile(`^(` + cnamePattern + `)(\.scope-sources\.json|\.scope\.json|\.json)$`)
+	orphanApprovalRe = regexp.MustCompile(`^(` + cnamePattern + `)(\.loophole-grants\.json|\.scope-sources\.json|\.scope\.json|\.json)$`)
 )
 
 // OrphanCnameOf parses one directory entry's base name in class's directory: the cname it

@@ -64,7 +64,7 @@ func (f *orphanFixture) add(t *testing.T, cname string) {
 		write(OrphanClassLogs, filepath.Join(f.dirs.Logs, n), "log")
 	}
 	write(OrphanClassOwners, filepath.Join(f.dirs.Owners, cname), "4242\n")
-	for _, s := range []string{".json", ".scope.json", ".scope-sources.json"} {
+	for _, s := range []string{".json", ".scope.json", ".scope-sources.json", ".loophole-grants.json"} {
 		write(OrphanClassApprovals, filepath.Join(f.dirs.Approvals, cname+s), "{}")
 	}
 	if cname != f.cname {
@@ -226,7 +226,7 @@ func TestOrphanSweepKeepsApprovalsWithNoPointerOrAMismatchedOne(t *testing.T) {
 		other := "yolo-other-0badc0de"
 		f.add(t, other)
 		f.sweep(nil, true, nil)
-		for _, s := range []string{".json", ".scope.json", ".scope-sources.json"} {
+		for _, s := range []string{".json", ".scope.json", ".scope-sources.json", ".loophole-grants.json"} {
 			if _, err := os.Lstat(filepath.Join(f.dirs.Approvals, other+s)); err != nil {
 				t.Errorf("approval part %s of a name with no pointer was removed (%v)", s, err)
 			}
@@ -348,7 +348,7 @@ func TestPruneRunSweepsOrphanedPerJailState(t *testing.T) {
 		var buf bytes.Buffer
 		o.Out = &buf
 		Run(o)
-		want := "  removed: 16 file(s) (6 locks, 5 logs, 1 owners, 1 current-images, 3 approvals) of 1 container name(s)"
+		want := "  removed: 17 file(s) (6 locks, 5 logs, 1 owners, 1 current-images, 4 approvals) of 1 container name(s)"
 		if !bytes.Contains(buf.Bytes(), []byte(want)) {
 			t.Errorf("missing %q in:\n%s", want, buf.String())
 		}

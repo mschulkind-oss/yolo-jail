@@ -28,16 +28,43 @@ func (o *Options) brokeredToStart(rt string, cfg *jsonx.OrderedMap) []*loopholes
 	return set.BrokeredToStart(o.loopholeAllow(rt, cfg))
 }
 
-// brokeredScopeCheck reads each brokered loophole's scope for the gate, through the helper
-// `yolo check` shares (config.NewScopeCheck): its remotes, and its entry from the gate's own read
-// of the workspace config. nil when no broker starts, which leaves the gate exactly what it was
-// before the scope part existed.
-func (o *Options) brokeredScopeCheck(rt string, cfg *jsonx.OrderedMap, read *config.WorkspaceRead) *config.ScopeCheck {
-	set := loopholes.NewHostSet(cfgMap(cfg, "loopholes"))
-	lps := set.BrokeredToStart(o.loopholeAllow(rt, cfg))
-	if len(lps) == 0 {
-		return nil
+// ScopeInput is what the shared scope collector reads: one launch's (or one `yolo check`'s)
+// workspace, merged config, runtime and the gate's own read of the workspace config.
+type ScopeInput struct {
+	Workspace string
+	Merged    *jsonx.OrderedMap
+	Runtime   string
+	// Allow is the backend's admission of a host service by name (a launch's loopholeAllow);
+	// nil admits what HostServiceAdmittedOn admits with no credential view, which is what
+	// `yolo check` asks.
+	Allow func(string) bool
+	Read  *config.WorkspaceRead
+}
+
+// collectScopeCheck is CollectScopeCheck, a variable so a test can prove the launch goes
+// through it.
+var collectScopeCheck = CollectScopeCheck
+
+// CollectScopeCheck is THE ONE COLLECTOR of what the config-change gate asks about beyond the
+// workspace config, shared by the launch (brokeredScopeCheck) and `yolo check`
+// (brokeredScopeForCheck), so the two cannot disagree: every brokered loophole this launch would
+// start (loopholes.Set.BrokeredToStart, the predicate the spawn applies) with its repository
+// scope, and every selected grant-declaring loophole
+// (docs/design/loophole-access-approval.md §4.2) with its ceiling, request and standing, an
+// inert one kept out of the gate (LG-D10). nil when neither is selected, which leaves the gate
+// exactly what it was before either existed.
+//
+// Each selected pack's declaration carries its loophole's grant kinds beside its settings, so
+// the readable resolution reads `allow.<pack>.always` and `.on_request` of a grant-declaring pack
+// as its ceiling, never as an undeclared setting.
+func CollectScopeCheck(in ScopeInput) *config.ScopeCheck {
+	allow := in.Allow
+	if allow == nil {
+		rt := in.Runtime
+		allow = func(name string) bool { return HostServiceAdmittedOn(rt, name, false) }
 	}
+	set := loopholes.NewHostSet(cfgMap(in.Merged, "loopholes"))
+	lps := set.BrokeredToStart(allow)
 	brokers := make([]config.ScopeBroker, 0, len(lps))
 	for _, lp := range lps {
 		brokers = append(brokers, config.ScopeBroker{Source: lp.Brokered.Source, Label: lp.Name,
@@ -46,15 +73,58 @@ func (o *Options) brokeredScopeCheck(rt string, cfg *jsonx.OrderedMap, read *con
 	}
 	selected := make([]config.ReadablePackDeclaration, 0)
 	selectedBrokers := make([]config.ReadableSelectedBroker, 0)
+	var granting []config.GateLoophole
 	for _, lp := range set.All() {
-		if lp.Source == loopholes.SourcePack {
-			selected = append(selected, config.ReadablePackDeclaration{Pack: lp.Pack, Settings: lp.Settings})
-			if lp.Brokered != nil && lp.Brokered.ReadCapability != "" {
-				selectedBrokers = append(selectedBrokers, config.ReadableSelectedBroker{Pack: lp.Pack, Label: lp.Name, Brokered: *lp.Brokered})
-			}
+		if lp.Source != loopholes.SourcePack {
+			continue
+		}
+		selected = append(selected, config.ReadablePackDeclaration{Pack: lp.Pack, Settings: lp.Settings,
+			Loophole: lp.Name, Grants: lp.Grants})
+		if lp.Brokered != nil && lp.Brokered.ReadCapability != "" {
+			selectedBrokers = append(selectedBrokers, config.ReadableSelectedBroker{Pack: lp.Pack, Label: lp.Name, Brokered: *lp.Brokered})
+		}
+		if len(lp.Grants) > 0 {
+			granting = append(granting, config.GateLoophole{Pack: lp.Pack, Loophole: lp.Name,
+				Grants: lp.Grants, Inert: grantInertLine(lp, in.Runtime, allow)})
 		}
 	}
-	check := config.NewSelectedScopeCheck(o.Workspace, brokers, read, selected, selectedBrokers)
+	var check *config.ScopeCheck
+	if len(brokers) > 0 {
+		check = config.NewSelectedScopeCheck(in.Workspace, brokers, in.Read, selected, selectedBrokers)
+	}
+	return config.WithLoopholeGrants(check, in.Workspace, in.Read, granting)
+}
+
+// grantInertLine is the inert report's line for a grant-declaring loophole this setup runs not
+// at all (docs/reference/loophole-system.md#where-a-loophole-does-nothing), on the report's three
+// axes, backend, platform and a program not fetched; "" when it runs. A loophole the backend
+// admits not for another reason (one a nested launch inherits, whose service is the launching
+// jail's) is out of this launch's gate too.
+func grantInertLine(lp *loopholes.Loophole, rt string, allow func(string) bool) string {
+	if !allow(lp.Name) {
+		if reason := backendInertReason(rt); reason != "" {
+			return loopholes.InertNote{Name: lp.Name, Axis: loopholes.AxisBackend, Reason: reason}.Line()
+		}
+		return "loophole " + lp.Name + " is answered by the launching jail's own service here"
+	}
+	if reason, ok := lp.UnsupportedHereReason(); ok {
+		return loopholes.InertNote{Name: lp.Name, Axis: loopholes.AxisPlatform, Reason: reason}.Line()
+	}
+	if reason, ok := lp.UnfetchedBinaryReason(); ok {
+		return loopholes.InertNote{Name: lp.Name, Axis: loopholes.AxisBinary, Reason: reason}.Line()
+	}
+	return ""
+}
+
+// brokeredScopeCheck reads what this launch's gate asks about beyond the workspace config through
+// the collector `yolo check` shares (CollectScopeCheck): each brokered loophole's repository
+// scope and each grant-declaring loophole's grants. nil when neither is in play.
+func (o *Options) brokeredScopeCheck(rt string, cfg *jsonx.OrderedMap, read *config.WorkspaceRead) *config.ScopeCheck {
+	check := collectScopeCheck(ScopeInput{Workspace: o.Workspace, Merged: cfg, Runtime: rt,
+		Allow: o.loopholeAllow(rt, cfg), Read: read})
+	if check == nil {
+		return nil
+	}
 	for _, s := range check.Sources {
 		if s.Read.Problem != "" {
 			// Said at the gate, whether or not the approved scope differs: a scope that reads
@@ -79,6 +149,16 @@ func (o *Options) recordApprovedScopes(approved map[string][]config.ScopeRepo, g
 		o.approvedScopes = approved
 		o.approvedGrants = grants
 		o.readWithoutScope = readWithoutScope
+	}
+}
+
+// recordApprovedLoopholeGrants keeps what the gate just approved for each grant-declaring
+// loophole, by its name (config.ScopeCheck.ApprovedLoopholeGrants): every kind's standing, from
+// the gate's own in-memory result (WW-P2), for the launch to hand its loophole in the grant file.
+// nil leaves what an earlier gate of this process recorded.
+func (o *Options) recordApprovedLoopholeGrants(approved map[string]map[string]config.LoopholeGrantStanding) {
+	if approved != nil {
+		o.approvedLoopholeGrants = approved
 	}
 }
 

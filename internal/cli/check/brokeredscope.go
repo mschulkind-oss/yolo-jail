@@ -4,9 +4,9 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
+	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
-	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/termsafe"
 )
 
@@ -18,28 +18,58 @@ import (
 // start, so the check writes no scope part for a workspace whose launches never start a broker.
 //
 // "Would start" is loopholes.Set.BrokeredToStart, the predicate the launch's gate and spawn
-// share, over the backend filter the launch applies (run's loopholeAllow): Apple Container
+// share, over the backend filter the launch applies (run.HostServiceAdmittedOn): Apple Container
 // starts no brokered loophole, and every other backend starts them all.
+//
+// The launch's own collector (run.CollectScopeCheck), never a copy of it: two collectors are how
+// `yolo check` and a launch come to disagree about what the gate asks. It also carries each
+// selected grant-declaring loophole's grants (docs/design/loophole-access-approval.md §4.2).
 func brokeredScopeForCheck(workspace string, merged *jsonx.OrderedMap, rt string, read *config.WorkspaceRead) *config.ScopeCheck {
-	set := loopholes.NewHostSet(subMap(merged, "loopholes"))
-	lps := set.BrokeredToStart(func(string) bool { return rt != "container" })
-	brokers := make([]config.ScopeBroker, 0, len(lps))
-	for _, lp := range lps {
-		brokers = append(brokers, config.ScopeBroker{Source: lp.Brokered.Source, Label: lp.Name,
-			RemoteHost: lp.Brokered.RemoteHost, GrantKinds: lp.Brokered.Grants, Pack: lp.Pack,
-			Brokered: *lp.Brokered, Settings: lp.Settings})
-	}
-	selected := make([]config.ReadablePackDeclaration, 0)
-	selectedBrokers := make([]config.ReadableSelectedBroker, 0)
-	for _, lp := range set.All() {
-		if lp.Source == loopholes.SourcePack {
-			selected = append(selected, config.ReadablePackDeclaration{Pack: lp.Pack, Settings: lp.Settings})
-			if lp.Brokered != nil && lp.Brokered.ReadCapability != "" {
-				selectedBrokers = append(selectedBrokers, config.ReadableSelectedBroker{Pack: lp.Pack, Label: lp.Name, Brokered: *lp.Brokered})
-			}
+	return collectScopeCheck(run.ScopeInput{Workspace: workspace, Merged: merged, Runtime: rt, Read: read})
+}
+
+// collectScopeCheck is run.CollectScopeCheck, a variable so a test can prove the check goes
+// through it.
+var collectScopeCheck = run.CollectScopeCheck
+
+// printRecordedGateChanges is what `yolo check --accept-config-changes` shows before it records:
+// the repository scope's changes and the loophole grants', each only when it changed.
+func printRecordedGateChanges(r *reporter, rep config.ChangeReport) {
+	if rep.ScopeChanged {
+		r.line("  Repository scope changed since the last approval; recording it as approved:")
+		for _, line := range append(rep.ScopeBlock, rep.ScopeCounts...) {
+			r.line("    " + line)
 		}
 	}
-	return config.NewSelectedScopeCheck(workspace, brokers, read, selected, selectedBrokers)
+	if rep.GrantsChanged {
+		r.line("  Loophole grants changed since the last approval; recording them as approved:")
+		for _, line := range append(rep.GrantBlock, rep.GrantCounts...) {
+			r.line("    " + termsafe.Visible(line))
+		}
+	}
+}
+
+// reportInertGrantRequests names each grant-declaring loophole this setup runs not at all whose
+// grants this project requests (LG-D10): the gate shows no line for it, so `yolo check` says why,
+// in the inert report's words. Nothing when the workspace config cannot be read for the gate, which
+// the config's own section reports.
+func reportInertGrantRequests(r *reporter, workspace string, merged *jsonx.OrderedMap, rt string) {
+	read, err := config.ReadWorkspaceForGate(workspace)
+	if err != nil {
+		return
+	}
+	scope := collectScopeCheck(run.ScopeInput{Workspace: workspace, Merged: merged, Runtime: rt, Read: read})
+	if scope == nil {
+		return
+	}
+	for _, ig := range scope.InertLoopholeGrants {
+		if len(ig.Requested) == 0 {
+			continue
+		}
+		r.dim(termsafe.Visible(ig.Pack + ": this project requests " + strings.Join(ig.Requested, ", ") +
+			", which the config-change gate does not show: " + ig.Inert + ". It grants nothing here, " +
+			"and nothing is missing to install."))
+	}
 }
 
 func scopeSourcesOf(s *config.ScopeCheck) []config.ScopeSource {

@@ -721,6 +721,8 @@ func (o *Options) sectionMergedConfig(r *reporter, merged *jsonx.OrderedMap, wor
 		for _, line := range run.OptionalMountSkips(workspace, merged, runtimeSel) {
 			r.dim(termsafe.Visible(line))
 		}
+		// A grant this setup's inert loophole would hold: out of the gate, so said here (LG-D10).
+		reportInertGrantRequests(r, workspace, merged, runtimeSel)
 	}
 	if o.AcceptConfigChanges {
 		if o.inJail() {
@@ -740,11 +742,8 @@ func (o *Options) sectionMergedConfig(r *reporter, merged *jsonx.OrderedMap, wor
 				// would, shows what changed, and every part lands together
 				// (docs/design/boundary-broker.md BB-D30; workspace-widening.md WW-D20).
 				scope := brokeredScopeForCheck(workspace, merged, runtimeSel, read)
-				if rep, err := config.ScopeChanges(workspace, scope); err == nil && rep.ScopeChanged {
-					r.line("  Repository scope changed since the last approval; recording it as approved:")
-					for _, line := range append(rep.ScopeBlock, rep.ScopeCounts...) {
-						r.line("    " + line)
-					}
+				if rep, err := config.ScopeChanges(workspace, scope); err == nil {
+					printRecordedGateChanges(r, rep)
 				}
 				if writeErr := config.RecordApprovalOfRead(workspace, read, mounts, scope); writeErr == nil {
 					r.ok("Approved workspace config recorded to host approval snapshot")

@@ -9,7 +9,7 @@ import (
 )
 
 // A path that deletes the approval record deletes every one of its parts (BB-D30, WW-D11): the
-// config part, the scope part and the sources record, named here by hand so that a part the
+// config part, the scope part, the sources record and the loophole-grant part, named here by hand so that a part the
 // cleanup's list forgets fails this.
 func TestCaptureCleanupRemovesEveryApprovalPart(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
@@ -21,6 +21,7 @@ func TestCaptureCleanupRemovesEveryApprovalPart(t *testing.T) {
 		filepath.Join(paths.ApprovalsDir(), cname+".json"),
 		filepath.Join(paths.ApprovalsDir(), cname+".scope.json"),
 		filepath.Join(paths.ApprovalsDir(), cname+".scope-sources.json"),
+		filepath.Join(paths.ApprovalsDir(), cname+".loophole-grants.json"),
 	}
 	for _, p := range parts {
 		if err := os.WriteFile(p, []byte("{}\n"), 0o644); err != nil {

@@ -111,6 +111,12 @@ type ScopeCheck struct {
 	// ReadableInput retains the lossless readable projection for the H scope-file adapter; the
 	// legacy ScopeSource view only carries entries representable by its existing scope form.
 	ReadableInput *ReadableGateInput
+	// LoopholeGrants are the selected grant-declaring loopholes this setup runs, each kind's
+	// standing before the record (loopholegrantgate.go, PD-4): the gate's grant rows and the
+	// record's grant part. InertLoopholeGrants are the ones it does not run, which stay out of the
+	// gate (LG-D10) and are kept for `yolo check` to name.
+	LoopholeGrants      []LoopholeGrantSource
+	InertLoopholeGrants []InertLoopholeGrants
 }
 
 func (s *ScopeCheck) inPlay() bool { return s != nil && len(s.Sources) > 0 }
@@ -296,7 +302,8 @@ const (
 )
 
 // ApprovalRecordFiles is every part of the approval record of the workspace whose container
-// name is cname: the config part, the scope part and the sources record. A path that deletes the
+// name is cname: the config part, the scope part, the sources record and the loophole grant
+// part (loopholegrantgate.go). A path that deletes the
 // record deletes each of them; deleting one alone fails safe, since a missing part diffs against
 // none and asks (BB-D30). EW-D33's sidecar part joins this list when it is built.
 func ApprovalRecordFiles(cname string) []string {
@@ -304,6 +311,7 @@ func ApprovalRecordFiles(cname string) []string {
 		filepath.Join(paths.ApprovalsDir(), cname+configPartSuffix),
 		filepath.Join(paths.ApprovalsDir(), cname+scopePartSuffix),
 		filepath.Join(paths.ApprovalsDir(), cname+sourcesRecordSuffix),
+		filepath.Join(paths.ApprovalsDir(), cname+loopholeGrantsPartSuffix),
 	}
 }
 
@@ -735,23 +743,33 @@ func readScopeRecords(workspace string) (scopeRecord, bool, sourcesRecord, error
 	return old, exists, oldSources, nil
 }
 
-// ScopeChanges is what a gate would ask about the scope, compared with the record, for a caller
-// that records without asking and must show the change first: host `yolo check
-// --accept-config-changes` (WW-D20). Only the scope half of the report is set.
+// ScopeChanges is what a gate would ask about the scope and the loophole grants, compared with
+// the record, for a caller that records without asking and must show the change first: host
+// `yolo check --accept-config-changes` (WW-D20). Only the scope and grant halves are set.
 func ScopeChanges(workspace string, scope *ScopeCheck) (ChangeReport, error) {
 	if scope != nil && scope.Fatal != nil {
 		return ChangeReport{}, scope.Fatal
 	}
-	if !scope.inPlay() {
-		return ChangeReport{}, nil
+	var rep ChangeReport
+	if scope.inPlay() {
+		old, _, oldSources, err := readScopeRecords(workspace)
+		if err != nil {
+			return ChangeReport{}, err
+		}
+		sc := compareScope(scope, old, oldSources)
+		rep = ChangeReport{ScopeChanged: sc.changed, ScopeBlock: sc.block, ScopeCounts: sc.counts,
+			ScopeLabels: sc.labels, EntryEdits: sc.entryEdits, Workspace: workspaceOrCwd(workspace)}
 	}
-	old, _, oldSources, err := readScopeRecords(workspace)
-	if err != nil {
-		return ChangeReport{}, err
+	if scope.grantsInPlay() {
+		g, err := readLoopholeGrantsGate(workspace, scope)
+		if err != nil {
+			return ChangeReport{}, err
+		}
+		rep.GrantsChanged, rep.GrantBlock, rep.GrantCounts = g.out.changed, g.out.block, g.out.counts
+		rep.EntryEdits = append(rep.EntryEdits, g.out.requestEdits...)
+		rep.Workspace = workspaceOrCwd(workspace)
 	}
-	sc := compareScope(scope, old, oldSources)
-	return ChangeReport{ScopeChanged: sc.changed, ScopeBlock: sc.block, ScopeCounts: sc.counts,
-		ScopeLabels: sc.labels, EntryEdits: sc.entryEdits, Workspace: workspaceOrCwd(workspace)}, nil
+	return rep, nil
 }
 
 // RecordApproval writes the approval record: the workspace config part, and the scope part and
@@ -780,6 +798,13 @@ func recordApproval(workspace string, wsConfig *jsonx.OrderedMap, resolved map[s
 		if err := writeScopeRecords(workspace, compareScope(scope, old, oldSources)); err != nil {
 			return err
 		}
+	}
+	g, err := readLoopholeGrantsGate(workspace, scope)
+	if err != nil {
+		return err
+	}
+	if err := g.record(workspace, scope); err != nil {
+		return err
 	}
 	return writeSnapshot(ApprovalSnapshotPath(workspace), currentJSON)
 }

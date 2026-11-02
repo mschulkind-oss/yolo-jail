@@ -141,6 +141,12 @@ type ChangedNonInteractiveError struct {
 	WritableMounts []string
 	// MountSources are ChangeReport.MountSources, printed after them.
 	MountSources []string
+	// GrantsChanged, GrantBlock and GrantCounts are ChangeReport's: the loophole grant rows,
+	// printed after the scope block; GrantsPath the grant part they were compared against.
+	GrantsChanged bool
+	GrantBlock    []string
+	GrantCounts   []string
+	GrantsPath    string
 }
 
 // Headline states what happened and why the launch stopped. It names the repository scope
@@ -148,6 +154,10 @@ type ChangedNonInteractiveError struct {
 // announcing a config change that did not happen, above the block meant to be read first,
 // is the trap the block exists to close (BB-D31).
 func (e *ChangedNonInteractiveError) Headline() string {
+	if e.GrantsChanged {
+		return ChangedParts(e.ConfigChanged, e.ScopeChanged, true) + " changed since the last approved " +
+			"launch, and this launch has no terminal to approve them on."
+	}
 	switch {
 	case e.ScopeChanged && e.ConfigChanged:
 		return "Workspace config and repository scope changed since the last approved launch, and " +
@@ -183,9 +193,16 @@ func (e *ChangedNonInteractiveError) Advice() string {
 		}
 		files += "  approved scope:   " + e.ScopePath + "\n"
 	}
+	if e.GrantsChanged {
+		files += "  approved grants:  " + e.GrantsPath + "\n"
+	}
 	what, recorded := "workspace config", "the new config"
 	if e.ScopeChanged {
 		what, recorded = "workspace config or repository scope", "the new config and repository scope"
+	}
+	if e.GrantsChanged {
+		what = "workspace config, repository scope or loophole grant"
+		recorded = "the new " + strings.ToLower(ChangedParts(e.ConfigChanged, e.ScopeChanged, true))
 	}
 	return "A changed " + what + " is never accepted without a human — an auto-accept here would " +
 		"make the approval promise conditional on somebody happening to have a terminal " +
@@ -230,6 +247,10 @@ func (e *ChangedNonInteractiveError) Error() string {
 		b.WriteString("\n")
 	}
 	for _, line := range e.ScopeCounts {
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	for _, line := range append(append([]string(nil), e.GrantBlock...), e.GrantCounts...) {
 		b.WriteString(line)
 		b.WriteString("\n")
 	}
@@ -298,6 +319,40 @@ type ChangeReport struct {
 	// each at the destination shown (oq-cx-symlink in docs/reference/context-mounts.md), so
 	// every renderer shows them (MountSourceBlock).
 	MountSources []string
+	// GrantsChanged says the loophole grants a selected grant-declaring loophole would hold
+	// changed against the record's grant part (loopholegrantgate.go). GrantBlock is the grant
+	// rows, printed after the scope block: each grant added or removed, the unchanged ones for
+	// context, and each request the ceiling skips, the last also when only another part changed,
+	// since the gate asks anyway (PD-5). GrantCounts are their count lines.
+	GrantsChanged bool
+	GrantBlock    []string
+	GrantCounts   []string
+}
+
+// ChangedParts names the parts of the approval record a gate is asking about, for a heading:
+// "Workspace config", "Workspace config and loophole grants", "Workspace config, repository
+// scope and loophole grants".
+func ChangedParts(config, scope, grants bool) string {
+	var parts []string
+	if config {
+		parts = append(parts, "workspace config")
+	}
+	if scope {
+		parts = append(parts, "repository scope")
+	}
+	if grants {
+		parts = append(parts, "loophole grants")
+	}
+	var s string
+	switch len(parts) {
+	case 0:
+		return ""
+	case 1:
+		s = parts[0]
+	default:
+		s = strings.Join(parts[:len(parts)-1], ", ") + " and " + parts[len(parts)-1]
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
 }
 
 // ReportPrompter is a ChangePrompter that can show the whole report, so the header and the
@@ -401,6 +456,10 @@ func approveConfigAndScope(workspace string, config *jsonx.OrderedMap, resolved 
 		oldSourcesJSON, _ = sourcesRecordJSON(oldSources)
 		sc = compareScope(scope, old, oldSources)
 	}
+	grants, err := readLoopholeGrantsGate(workspace, scope)
+	if err != nil {
+		return false, nil, err
+	}
 
 	recordAll := func() error {
 		if scope.inPlay() {
@@ -408,10 +467,13 @@ func approveConfigAndScope(workspace string, config *jsonx.OrderedMap, resolved 
 				return err
 			}
 		}
+		if err := grants.record(workspace, scope); err != nil {
+			return err
+		}
 		return writeSnapshot(snapshotPath, currentJSON)
 	}
 
-	if !configChanged && !sc.changed {
+	if !configChanged && !sc.changed && !grants.out.changed {
 		// Nothing to ask. Record whatever part had no record yet — silently, and together,
 		// which is the only branch that writes without a human: an empty config's part, an
 		// empty scope's, and the sources of a scope whose repositories are unchanged and come
@@ -429,6 +491,9 @@ func approveConfigAndScope(workspace string, config *jsonx.OrderedMap, resolved 
 					return false, nil, err
 				}
 			}
+		}
+		if err := grants.recordSilently(workspace, scope); err != nil {
+			return false, nil, err
 		}
 		return true, sc.approvedOrNil(scope), nil
 	}
@@ -452,7 +517,9 @@ func approveConfigAndScope(workspace string, config *jsonx.OrderedMap, resolved 
 	}
 	report := ChangeReport{ConfigChanged: configChanged, DiffLines: diffLines,
 		ScopeChanged: sc.changed, ScopeBlock: sc.block, ScopeCounts: sc.counts, EntryEdits: sc.entryEdits,
-		ConfigFiles: configFiles, ScopeLabels: sc.labels, Workspace: workspaceOrCwd(workspace)}
+		ConfigFiles: configFiles, ScopeLabels: sc.labels, Workspace: workspaceOrCwd(workspace),
+		GrantsChanged: grants.out.changed, GrantBlock: grants.out.shownBlock(), GrantCounts: grants.out.counts}
+	report.EntryEdits = append(report.EntryEdits, grants.out.requestEdits...)
 	if configChanged {
 		// RC-D24: approving this diff approves every writable mount in it, so it is shown loud.
 		mounts := mountElements(config, resolved)
@@ -478,16 +545,23 @@ func approveConfigAndScope(workspace string, config *jsonx.OrderedMap, resolved 
 				Workspace:            workspaceOrCwd(workspace),
 				WritableMounts:       report.WritableMounts,
 				MountSources:         report.MountSources,
+				GrantsChanged:        report.GrantsChanged,
+				GrantBlock:           report.GrantBlock,
+				GrantCounts:          report.GrantCounts,
 			}
+			e.EntryEdits = report.EntryEdits
 			if sc.changed {
 				e.ScopePath = scopePath
+			}
+			if report.GrantsChanged {
+				e.GrantsPath = ApprovalLoopholeGrantsPath(workspace)
 			}
 			return false, nil, e
 		}
 		// Granted by the flag: shown, then recorded exactly as a `y` does, or the next
 		// launch prompts (or refuses) over the same change all over again. A writable mount
 		// is shown as a scope change is (WW-D20): the flag approves it, but never unseen.
-		if ar, ok := prompter.(AcceptedReporter); ok && (sc.changed || len(report.WritableMounts) > 0 || len(report.MountSources) > 0) {
+		if ar, ok := prompter.(AcceptedReporter); ok && (sc.changed || grants.out.changed || len(report.WritableMounts) > 0 || len(report.MountSources) > 0) {
 			ar.ReportAccepted(report)
 		}
 		if err := recordAll(); err != nil {
@@ -503,7 +577,7 @@ func approveConfigAndScope(workspace string, config *jsonx.OrderedMap, resolved 
 	if rp, ok := prompter.(ReportPrompter); ok {
 		accepted = rp.PromptReport(report)
 	} else {
-		accepted = prompter.Prompt(append(append([]string(nil), sc.block...), diffLines...))
+		accepted = prompter.Prompt(append(append(append([]string(nil), sc.block...), report.GrantBlock...), diffLines...))
 	}
 	if !accepted {
 		return false, nil, nil

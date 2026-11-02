@@ -470,6 +470,7 @@ func (o *Options) runConfigGate(merged *jsonx.OrderedMap, rt string, h *gateHook
 	o.workspaceMounts = nil
 	if ok && err == nil {
 		o.recordApprovedScopes(approved, scope.ApprovedGrants(), scope.ReadWithoutScope())
+		o.recordApprovedLoopholeGrants(scope.ApprovedLoopholeGrants())
 		o.workspaceMounts = approvedMounts
 	}
 	if err != nil {
@@ -497,6 +498,8 @@ func (o *Options) printChangeRefusal(e *config.ChangedNonInteractiveError) {
 	printWritableMounts(out, e.WritableMounts, e.MountSources)
 	printScopeBlock(out, e.ScopeBlock)
 	printScopeCounts(out, e.ScopeCounts)
+	printScopeBlock(out, e.GrantBlock)
+	printScopeCounts(out, e.GrantCounts)
 	printConfigDiff(out, e.DiffLines)
 	out.print("")
 	// The advice names files, one of them the git config the scope was read from, which can
@@ -703,12 +706,19 @@ func (p *changePrompter) PromptReport(r config.ChangeReport) bool {
 		header, question = "Repository scope changed since last run:",
 			"Accept these repository scope changes? [y/N] "
 	}
+	if r.GrantsChanged {
+		what := config.ChangedParts(r.ConfigChanged, r.ScopeChanged, true)
+		header = what + " changed since last run:"
+		question = "Accept these " + strings.ToLower(what) + " changes? [y/N] "
+	}
 	out.print("\n[bold yellow]⚠  " + header + "[/bold yellow]\n")
 	printWritableMounts(out, r.WritableMounts, r.MountSources)
 	printScopeBlock(out, r.ScopeBlock)
+	printScopeBlock(out, r.GrantBlock)
 	printConfigDiff(out, r.DiffLines)
 	out.print("")
 	printScopeCounts(out, r.ScopeCounts)
+	printScopeCounts(out, r.GrantCounts)
 	for _, line := range p.preQuestion {
 		out.print(line)
 	}
@@ -750,11 +760,16 @@ func (p *changePrompter) ReportAccepted(r config.ChangeReport) {
 	case !r.ScopeChanged:
 		what = "Workspace config with " + mounts + " changed since last run"
 	}
+	if r.GrantsChanged {
+		what = config.ChangedParts(r.ConfigChanged, r.ScopeChanged, true) + " changed since last run"
+	}
 	out.print("\n[bold yellow]⚠  " + what + "; " + config.AcceptConfigChangesFlag +
 		" records it as approved:[/bold yellow]\n")
 	printWritableMounts(out, r.WritableMounts, r.MountSources)
 	printScopeBlock(out, r.ScopeBlock)
 	printScopeCounts(out, r.ScopeCounts)
+	printScopeBlock(out, r.GrantBlock)
+	printScopeCounts(out, r.GrantCounts)
 }
 
 // declineLines is what a `N` at the config-change prompt prints: that nothing was recorded, then
@@ -773,6 +788,9 @@ func declineLines(r config.ChangeReport, attach bool) []string {
 		head = "Workspace config and repository scope changes rejected; nothing was recorded."
 	case r.ScopeChanged:
 		head = "Repository scope changes rejected; nothing was recorded."
+	}
+	if r.GrantsChanged {
+		head = config.ChangedParts(r.ConfigChanged, r.ScopeChanged, true) + " changes rejected; nothing was recorded."
 	}
 	if attach {
 		return []string{head + " This session starts in the jail as it is.",
@@ -797,6 +815,12 @@ func declineLines(r config.ChangeReport, attach bool) []string {
 	for _, l := range r.ScopeLabels {
 		lines = append(lines, config.WithoutBrokerStep(l)+" Otherwise the next launch asks about "+
 			"its repositories again.")
+	}
+	if r.GrantsChanged {
+		// A grant from the user's own ceiling has no file in this workspace to undo: it is the
+		// user's config, and the next launch asks about it again until a y records it.
+		lines = append(lines, "No loophole grant changed: this project holds only what was approved "+
+			"before, and the next launch asks about the grants again.")
 	}
 	return lines
 }
