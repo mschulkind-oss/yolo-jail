@@ -229,14 +229,16 @@ func loadReadableUserScopeWithInputUse(path string, strict bool, warn Warn, reco
 	if err != nil {
 		return nil, nil, err
 	}
-	cfg, node, err = applyReadableUserLayerWithInputUse(cfg, node, record, input, inputUsed)
+	cfg, node, err = applyReadableUserLayerWithInputUse(cfg, node, readable && cfg != nil && cfg.Len() > 0, record, input, inputUsed)
 	if err != nil {
 		return nil, nil, err
 	}
 	return cfg, node, nil
 }
 
-func applyReadableUserLayerWithInputUse(base *jsonx.OrderedMap, baseNode *srcNode, record bool, input *ConfigReadInput, inputUsed *bool) (*jsonx.OrderedMap, *srcNode, error) {
+// readableBase is whether the user config the layer applies over is the TOML one: a legacy JSONC
+// layer over it is read in its spelling (projectLegacyLayerOverReadable).
+func applyReadableUserLayerWithInputUse(base *jsonx.OrderedMap, baseNode *srcNode, readableBase, record bool, input *ConfigReadInput, inputUsed *bool) (*jsonx.OrderedMap, *srcNode, error) {
 	path := UserLayerPath()
 	if path == "" {
 		return base, baseNode, nil
@@ -251,7 +253,11 @@ func applyReadableUserLayerWithInputUse(base *jsonx.OrderedMap, baseNode *srcNod
 	if base == nil {
 		base = jsonx.NewOrderedMap()
 	}
-	merged, mergedNode := mergeReadableConfigMode(base, layer, baseNode, layerNode, nil, strings.EqualFold(filepath.Ext(path), ".toml"))
+	layerIsTOML := strings.EqualFold(filepath.Ext(path), ".toml")
+	if readableBase && !layerIsTOML {
+		layer, layerNode = projectLegacyLayerOverReadable(layer, layerNode, base)
+	}
+	merged, mergedNode := mergeReadableConfigMode(base, layer, baseNode, layerNode, nil, layerIsTOML)
 	return merged, mergedNode, nil
 }
 

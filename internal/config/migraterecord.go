@@ -95,7 +95,14 @@ func ReadMigrationLayer(userPath, layerPath string) (*MigrationGraphRead, error)
 		return nil, configErr("%s", strings.Join(problems, "; "))
 	}
 	if layer != nil && layer.Len() > 0 {
-		read.User, _ = mergeReadableConfigMode(read.User, layer, nil, nil, nil, strings.EqualFold(filepath.Ext(layerPath), ".toml"))
+		// As the launch merges it (applyReadableUserLayerWithInputUse): a legacy layer over a TOML
+		// user config is read in the TOML spelling, so the old side of the proof is what the
+		// launch reads and not a map holding both spellings of one key.
+		layerIsTOML := strings.EqualFold(filepath.Ext(layerPath), ".toml")
+		if _, _, readableBase, err := resolveUserConfigPath(userPath); userPath != "" && err == nil && readableBase && !layerIsTOML && read.User.Len() > 0 {
+			layer, _ = projectLegacyLayerOverReadable(layer, nil, read.User)
+		}
+		read.User, _ = mergeReadableConfigMode(read.User, layer, nil, nil, nil, layerIsTOML)
 	}
 	read.Composed = jsonx.DeepCopyMap(read.User)
 	return read, nil
