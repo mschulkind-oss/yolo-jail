@@ -110,6 +110,10 @@ func (m *mintTracker) previous() *mintAttempt {
 
 // launchCheck answers the launch check within budget; see the file comment for the order.
 func launchCheck(broker awsauth.Broker, mints *mintTracker, budget time.Duration) hostservice.LaunchCheckReport {
+	if broker.Config.Profile == "" {
+		// A selected pack nobody configured: the launch proceeds and says what to set.
+		return hostservice.LaunchCheckReport{Warnings: []string{unconfiguredMessage()}}
+	}
 	if !broker.RemintDue() {
 		return hostservice.LaunchCheckReport{}
 	}

@@ -65,9 +65,9 @@ Any `yolo` invocation against the jail re-runs the front and republishes the fil
 
 ## Activation
 
-**Selecting the pack is the activation.** `default_enabled: true` — the one shipped loophole that
-stays on by default, because a jail-only claude user who loses it is not merely without a feature,
-they are running unserialized single-use refresh-token races against Anthropic.
+**Selecting the pack is the activation**, as it is for every loophole, and this one declares nothing
+to grant: a jail-only claude user who loses it is not merely without a feature, they are running
+unserialized single-use refresh-token races against Anthropic.
 
 The manifest's `requires.command_on_path: claude` predicate is **gone** as of the pack move. It was a
 host-side `exec.LookPath`, and it read false for exactly the user yolo exists for: someone who

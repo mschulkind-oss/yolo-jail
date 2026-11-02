@@ -39,7 +39,7 @@ func writeModule(t *testing.T, parent, name string, doctorCmd []string) string {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	body := `{"name":"` + name + `","description":"` + name + ` desc","default_enabled":true,` +
+	body := `{"name":"` + name + `","description":"` + name + ` desc",` +
 		`"transport":"none","lifecycle":"external"`
 	if len(doctorCmd) > 0 {
 		body += `,"doctor_cmd":["` + strings.Join(doctorCmd, `","`) + `"]`
@@ -261,11 +261,12 @@ func TestRetiredUserDirDoesNotShadowAPackModule(t *testing.T) {
 	}
 }
 
-// And a config entry still overrides a PACK loophole's `enabled` — the `pack < config`
-// ordering in docs/reference/loophole-system.md#selection-and-discovery, and the toggle's
-// prerequisite made real: the switch is loopholes.<name>.enabled in the user config, and
-// applyWorkspaceOverrides has to find the pack record to apply it to.
-func TestConfigOverrideAppliesToAPackModule(t *testing.T) {
+// A config entry naming a PACK loophole patches that record in place (the `pack < config`
+// ordering in docs/reference/loophole-system.md#selection-and-discovery), but its `enabled`
+// switches nothing any more: a pack loophole runs whenever its pack is selected and grants
+// nothing until a grant covers the project (design §5, T13). Only a config-inline loophole,
+// which the config entry alone declares, can still be turned off by it.
+func TestAConfigEnabledKeyDoesNotSwitchAPackLoophole(t *testing.T) {
 	unsetJail(t)
 	isolateModules(t)
 	mod := writeModule(t, t.TempDir(), "acme-proxy", nil)
@@ -279,10 +280,9 @@ func TestConfigOverrideAppliesToAPackModule(t *testing.T) {
 	if !ok {
 		t.Fatal("acme-proxy vanished; a config override must PATCH the record, not replace it")
 	}
-	if lp.Enabled {
-		t.Error("loopholes.acme-proxy.enabled=false must disable a PACK-shipped loophole — " +
-			"otherwise the enable toggle has nowhere to write " +
-			"(docs/reference/loophole-system.md#the-two-verbs)")
+	if !lp.Enabled {
+		t.Error("loopholes.acme-proxy.enabled=false turned off a PACK-shipped loophole; the " +
+			"switch is retired, and what a project may reach is its grants")
 	}
 	if lp.Source != SourcePack {
 		t.Errorf("Source = %q, want %q: an override patches the record in place; taking the "+
@@ -548,7 +548,7 @@ func TestActiveExcludesEnabledButUnmetRequirements(t *testing.T) {
 	// permits — and packs are the only module source left. An absolute host path here
 	// makes the manifest refused at load, so the loophole vanishes and Enabled() reads 0:
 	// the same symptom as the bug under test, arriving for the opposite reason.
-	body := `{"name":"needy","default_enabled":true,"transport":"none","lifecycle":"external",` +
+	body := `{"name":"needy","transport":"none","lifecycle":"external",` +
 		`"requires":{"file_exists":"{loophole_dir}/definitely-absent"}}`
 	mod := filepath.Join(dir, "needy")
 	if err := os.MkdirAll(mod, 0o755); err != nil {
@@ -662,16 +662,10 @@ func TestSetHoldsTheDisabledSupersetAndOffersNarrowViews(t *testing.T) {
 	unsetJail(t)
 	dir := t.TempDir()
 	writeModule(t, dir, "on", nil)
-	off := filepath.Join(dir, "off")
-	if err := os.MkdirAll(off, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	body := `{"name":"off","default_enabled":false,"transport":"none","lifecycle":"external"}`
-	if err := os.WriteFile(filepath.Join(off, "manifest.jsonc"), []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	// Only a config-inline loophole can be off now: a pack's runs whenever it is selected.
+	off := orderedFromPairs("off", map[string]any{"enabled": false})
 
-	set := NewSet(DiscoverOptions{PackModules: moduleDirsUnder(dir)})
+	set := NewSet(DiscoverOptions{PackModules: moduleDirsUnder(dir), LoopholesConfig: off})
 	if len(set.All()) != 2 {
 		t.Fatalf("All() = %d, want both records (list has to show the disabled one)", len(set.All()))
 	}

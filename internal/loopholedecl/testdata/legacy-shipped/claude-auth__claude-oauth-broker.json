@@ -2,7 +2,6 @@
   "name": "claude-oauth-broker",
   "description": "Serializes Claude OAuth refreshes so multi-jail setups don't burn the single-use refresh token. TLS termination lives inside each jail; a host-side daemon owns the flock + shared credentials file.",
   "version": 1,
-  "default_enabled": true,
   "serves": [
     "claude-oauth-refresh"
   ],

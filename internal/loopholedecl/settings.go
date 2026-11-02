@@ -61,12 +61,16 @@ var validSettingTypes = []string{
 // control when the approval snapshot moved host-side and non-interactive launches
 // stopped auto-accepting (OQ-K2, and see the dated warning in that section: this
 // answer travels with those two).
+//
+// SettingScopeWorkspace is RETIRED in a manifest (LG-D5): parseSettings refuses it by name. The
+// constant stays because the config validator still classifies the in-memory declarations it is
+// handed, and a declaration built in code may carry it.
 const (
 	SettingScopeUser      = "user"
 	SettingScopeWorkspace = "workspace"
 )
 
-var validSettingScopes = []string{SettingScopeUser, SettingScopeWorkspace}
+var validSettingScopes = []string{SettingScopeUser}
 
 // DefaultSettingScope is what an ABSENT `scope` means: user-scope only.
 //
@@ -89,7 +93,7 @@ const SettingsFileName = "settings.json"
 
 // settingKeyRe bounds a setting's KEY NAME. Lowercase snake_case, matching how every
 // config key in this project is already spelled (`visible`, `fields`,
-// `default_enabled`) — a closed shape rather than a general identifier, because these
+// `default_baud`) — a closed shape rather than a general identifier, because these
 // names become keys in a JSON file core writes and a host daemon reads, and a name
 // that round-trips through neither is a name nobody should be able to declare.
 var settingKeyRe = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
@@ -253,13 +257,23 @@ func parseSettings(manifestPath string, raw any) ([]Setting, error) {
 			}
 			scope = s
 		}
+		// The workspace scope let an agent-writable project file widen what a loophole
+		// grants; LG-D5 retired it (docs/design/loophole-access-approval.md §4.3). Refused
+		// by name, in both decoders, so a fetched pack cannot reintroduce the shape.
+		if scope == SettingScopeWorkspace {
+			return nil, Errorf(
+				"%s: '%s.scope' = %s is gone: a project can no longer widen access by editing a"+
+					" setting. Declare what a project may ask for as a valued kind under [[grants]]"+
+					" (the project then asks with `yolo request <pack> <kind> <value>`), or delete"+
+					" 'scope' to keep the setting the user's alone",
+				manifestPath, path, pytext.Repr(scope))
+		}
 		if !inList(scope, validSettingScopes) {
 			return nil, Errorf(
 				"%s: '%s.scope'=%s not in %s — %s means only the user config may supply a"+
-					" value (the default when the key is absent), %s means a workspace"+
-					" yolo-jail.jsonc may too",
+					" value, which is also what an absent 'scope' means",
 				manifestPath, path, pytext.Repr(scope), sortedListRepr(validSettingScopes),
-				pytext.Repr(SettingScopeUser), pytext.Repr(SettingScopeWorkspace))
+				pytext.Repr(SettingScopeUser))
 		}
 
 		description := ""
@@ -331,7 +345,7 @@ func SettingZero(typ string) any {
 // user-supplied value — report the same mismatch in the same words.
 //
 // TYPE-CHECKED, NEVER COERCED WITH Truthy/Str, and the reason is the one
-// `default_enabled` and `host_daemon.preamble` already state: Truthy("false") is
+// `host_daemon.preamble` already states: Truthy("false") is
 // true, so a quoted "false" would read as ON — the direction that GRANTS. Every
 // type here refuses a value of the wrong shape rather than making one up.
 func CoerceSettingValue(typ string, v any) (any, string) {

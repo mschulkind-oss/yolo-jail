@@ -218,11 +218,10 @@ func TestSettingsOnAnUnknownLoopholeIsNotValidated(t *testing.T) {
 // config that still writes it and gets nothing has been denied a capability it asked
 // for, in the one direction where silence reads as success.
 //
-// The message has four jobs, all asserted: name the replacement path, warn about the
-// hyphen (the two spellings differ by one character and the loophole's is not the
-// key's), say that the loophole now needs SELECTING as a pack, and repeat that the
-// value is frozen at launch. The last one is the behaviour change a reader who
-// migrates correctly still gets wrong.
+// The message has four jobs, all asserted: name the pack by its hyphenated name (the two
+// spellings differ by one character), say that the loophole now needs SELECTING as a pack,
+// name the grant verbs that replaced `visible`, and repeat that the `fields` setting is
+// frozen at launch. It must not teach the retired `settings.visible` or `enabled`.
 func TestRetiredHostProcessesKeyIsRefusedAndNamesItsReplacement(t *testing.T) {
 	t.Setenv("YOLO_VERSION", "")
 	cfg := decode(t, `{"host_processes": {"visible": ["sway"]}}`)
@@ -236,14 +235,19 @@ func TestRetiredHostProcessesKeyIsRefusedAndNamesItsReplacement(t *testing.T) {
 	}
 	for _, want := range []string{
 		"REMOVED",
-		"loopholes",
-		"host-processes",
-		"settings",
-		"packs",   // the loophole is a pack now; migrating the keys alone is not enough
+		"yolo pack add host-processes", // the loophole is a pack now
+		"yolo allow host-processes on_request view",
+		"yolo request host-processes view",
+		"allow.host-processes.fields",
 		"restart", // the freeze is a behaviour change and has to be said here too
 	} {
 		if !strings.Contains(hits[0], want) {
 			t.Errorf("refusal %q does not mention %q", hits[0], want)
+		}
+	}
+	for _, retired := range []string{"visible", `"enabled"`, "loopholes"} {
+		if strings.Contains(hits[0], retired) {
+			t.Errorf("refusal %q still teaches the retired %s", hits[0], retired)
 		}
 	}
 	if len(containing(warns, "config.host_processes")) != 0 {

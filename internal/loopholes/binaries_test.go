@@ -367,12 +367,9 @@ func TestANestedLaunchCountsNoBrokerWhoseBuildItLacks(t *testing.T) {
 	cache := isolateBinaryCache(t)
 	md := modsDir(t)
 	mod := mkdir(t, filepath.Join(md, "gb"))
-	// Off by default, as every brokered manifest must be (OQ-BB13); switched on below as a
-	// per-workspace file switches it.
 	writeManifest(t, mod, map[string]any{
 		"name": "gb", "description": "a broker that runs toold", "transport": "loopback-tls",
-		"default_enabled": false,
-		"binaries":        map[string]any{"toold": builds(map[string]string{hostPlatform: sumHost})},
+		"binaries": map[string]any{"toold": builds(map[string]string{hostPlatform: sumHost})},
 		"host_daemon": map[string]any{"cmd": []any{"{binary:toold}", "{repository_scope}"},
 			"publishes": "socket"},
 		"brokered": map[string]any{"source": "gbsrc", "remote_host": "github.com"},

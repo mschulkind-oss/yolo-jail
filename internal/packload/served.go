@@ -112,6 +112,68 @@ func (s ServedDaemons) WithUngrantedBinds(why map[string]string) ServedDaemons {
 	return s
 }
 
+// WithoutUnconfiguredLogins returns s minus every LOGIN LOOPHOLE whose profile is unset. A login
+// loophole (the term config.AllowPackFacts.LoginProfile reads the same way) is one a selected
+// pack's gated env contribution points at (`served_by`) while naming the loophole setting that
+// holds its profile (`region_profile_setting`), as packs/aws-auth does. It runs whenever its pack
+// is selected, and with no profile it serves nothing (docs/design/config-user.md §7: "a listed
+// login pack whose table names no profile is a warning: the pack installs, its service serves
+// nothing, and the check says what to set"). So a pointer at it is withheld here, naming the
+// setting, and what its pack declares overrides that pointer (EnvOverrideFindings) overrides
+// nothing: a bearer or a static key beside an unconfigured login service is the user's own
+// credential, not one that skips a narrowed service.
+//
+// setting resolves a loophole's setting (loopholes.ConfiguredSetting over the launch's config, which reads
+// a TOML user's `[allow.<pack>]` table too). A daemon this set serves by inheritance stays: the
+// launching jail served it. nil setting changes nothing.
+func (s ServedDaemons) WithoutUnconfiguredLogins(packs []*Pack, setting func(loophole, key string) string) ServedDaemons {
+	if setting == nil || len(s.names) == 0 {
+		return s
+	}
+	why := map[string]string{}
+	for name, clause := range UnconfiguredLogins(packs, setting) {
+		if s.names[name] && !s.Inherits(name) {
+			why[name] = "which " + clause
+		}
+	}
+	if len(why) == 0 {
+		return s
+	}
+	names := make(map[string]bool, len(s.names))
+	for n, ok := range s.names {
+		if _, unconfigured := why[n]; !unconfigured {
+			names[n] = ok
+		}
+	}
+	s.names = names
+	return s.WithNotServedWhy(why)
+}
+
+// UnconfiguredLogins names every LOGIN LOOPHOLE of packs whose profile setting is unset (the term
+// is WithoutUnconfiguredLogins'), each with the clause saying why it serves nothing and the verb
+// that fixes it: "serves nothing until its `profile` setting names a profile (`yolo config set
+// allow.aws-auth.profile <profile>`)". A `yolo host` launch opens no doorway to one
+// (run.PlanHostDoorwaysFor), and a launch withholds every pointer at one. nil setting names none.
+func UnconfiguredLogins(packs []*Pack, setting func(loophole, key string) string) map[string]string {
+	out := map[string]string{}
+	if setting == nil {
+		return out
+	}
+	for _, p := range packs {
+		if p == nil || p.Decl == nil {
+			continue
+		}
+		for _, c := range p.Decl.GatedEnvContributions() {
+			if c.ServedBy == "" || c.RegionProfileSetting == "" || setting(c.ServedBy, c.RegionProfileSetting) != "" {
+				continue
+			}
+			out[c.ServedBy] = "serves nothing until its `" + c.RegionProfileSetting + "` setting names " +
+				"a profile (`yolo config set allow." + p.Name + "." + c.RegionProfileSetting + " <profile>`)"
+		}
+	}
+	return out
+}
+
 // AtHost returns s marked as the host notch's set (the host field says what that changes).
 func (s ServedDaemons) AtHost() ServedDaemons {
 	s.host = true
@@ -172,7 +234,7 @@ func (s ServedDaemons) notServedWhy(daemon string) string {
 			"pointer to it is gated on that agent's selected profile or provider, which this " +
 			"one's is not (docs/design/host-notch-services.md HS-D15, HS-D22)"
 	case s.runs:
-		return "which this launch does not run (its loophole is disabled, or its pack is not selected)"
+		return "which this launch does not run (its loophole is inactive here, or its pack is not selected)"
 	default:
 		return "which does not run here: jail daemons run only in a jail (a container, or the " +
 			"macos-user sandbox), never at the host"
@@ -204,9 +266,8 @@ func (s ServedDaemons) notBoundWhy(loophole string) string {
 	case s.ungranted[loophole] != "":
 		return "which this launch did not bind: " + s.ungranted[loophole] + ", so nothing would answer it"
 	default:
-		return "which this launch did not bind: the loophole is off (`\"loopholes\": {" +
-			strconv.Quote(loophole) + ": {\"enabled\": true}}` in your config turns it on) or " +
-			"inactive on this machine (`yolo loopholes list` says why), so nothing would answer it"
+		return "which this launch did not bind: the loophole is inactive on this machine " +
+			"(`yolo loopholes list` says why), so nothing would answer it"
 	}
 }
 

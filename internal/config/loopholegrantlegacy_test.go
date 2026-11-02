@@ -168,6 +168,42 @@ func TestLegacySwitchFileEnabledReadsAsARecordedGrant(t *testing.T) {
 	}
 }
 
+// A user who ALREADY converted to TOML never reruns `yolo config migrate`, which is the one place a
+// switch file an older `yolo loopholes enable` wrote is carried into the approval record. With
+// the loophole switch retired (default_enabled and `enabled` decide nothing), the launch's own
+// read of that file through the legacy projection is what keeps the project's access: the grant
+// stands with no gate question, for an unvalued kind requestable by default (journal `read`), a
+// valued kind (procs `view`) and the shipped audio `use`, which is requestable only on the
+// user's say-so. Nothing in the TOML ceiling names any of them.
+func TestLegacySwitchFileStillGrantsUnderATOMLUserConfig(t *testing.T) {
+	ws := approvalWorkspace(t)
+	writeGrantUserConfig(t, "packs = []\n")
+	writeLegacyWorkspaceConfig(t, ws, `{"loopholes": {"procs": {"settings": {"visible": ["postgres"]}}}}`)
+	for _, name := range []string{"journal", "procs", "audio"} {
+		if _, err := SetWorkspaceLoophole(ws, name, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	lps := append(legacyGrantFixture(), shippedGateLoophole(t, "audio")...)
+	if got := grantGate(t, ws, lps); asksAboutGrants(got) {
+		t.Fatalf("a switch-file grant under a TOML user config asked the gate: %+v", got)
+	}
+	read, err := ReadWorkspaceForGate(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	standings := WithLoopholeGrants(nil, ws, read, lps).LoopholeGrantStandings(ws)
+	for _, c := range []struct{ pack, kind, values string }{
+		{"journal", "read", ""}, {"procs", "view", "postgres"}, {"audio", "use", ""},
+	} {
+		got := standings[c.pack][c.kind]
+		if got.Standing != LoopholeGrantGranted || strings.Join(got.Values, ",") != c.values {
+			t.Errorf("%s %s reads %+v under a TOML user config; want granted %q: the switch file's "+
+				"access was lost", c.pack, c.kind, got, c.values)
+		}
+	}
+}
+
 // `visible` → request values, one gate line per value.
 func TestLegacyVisibleListReadsAsRequestValues(t *testing.T) {
 	ws := approvalWorkspace(t)

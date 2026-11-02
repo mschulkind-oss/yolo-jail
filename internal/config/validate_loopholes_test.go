@@ -269,21 +269,23 @@ func TestWorkspaceEnableFalseUnknownStaysWarning(t *testing.T) {
 	}
 }
 
-// The consequence the two-verbs ruling carries: scope no longer protects the OFF
-// direction, so a workspace-sourced enabled:false on an INSTALLED loophole
-// must print one launch-time line naming the loophole AND the file (the only
-// protection left for the broker default).
-func TestWorkspaceDisableInstalledIsDisclosed(t *testing.T) {
+// A pack's loophole has no switch any more (it runs whenever its pack is selected), so a
+// workspace `enabled: false` on one is disclosed as a key that switches nothing, naming the
+// loophole AND the file, and never as a disable: the loophole runs.
+func TestWorkspaceDisableOfAPackLoopholeSwitchesNothing(t *testing.T) {
 	resolver := fakeResolver{"svc": {Name: "svc", HasHostDaemon: true}}
 	ws, errs, warns := validateScoped(t, "",
 		`{"loopholes": {"svc": {"enabled": false}}}`, resolver)
 	if len(errs) != 0 {
-		t.Errorf("errors = %v, want none — disabling is legal at workspace scope", errs)
+		t.Errorf("errors = %v, want none: the key is disclosed, not refused", errs)
 	}
-	hits := containing(warns, "config.loopholes.svc", "disabled by",
+	hits := containing(warns, "config.loopholes.svc.enabled", "switches nothing",
 		filepath.Join(ws, WorkspaceConfigName))
 	if len(hits) != 1 {
-		t.Errorf("warnings = %v, want one disclosure naming loophole and file", warns)
+		t.Errorf("warnings = %v, want one line naming the loophole, the file and the dead key", warns)
+	}
+	if hits := containing(warns, "disabled by"); len(hits) != 0 {
+		t.Errorf("warnings = %v: a pack loophole the key cannot switch was reported off", hits)
 	}
 }
 
@@ -311,12 +313,13 @@ func TestWorkspaceDisableUserInlineIsDisclosed(t *testing.T) {
 //
 // R5 itself is NOT narrowed: enabling stays legal at workspace scope, so this must
 // be a warning and never an error.
+//
+// A config-inline install is the one loophole left with a switch, so it is what this pins.
 func TestWorkspaceEnableInstalledIsDisclosed(t *testing.T) {
-	resolver := fakeResolver{"svc": {Name: "svc", HasHostDaemon: true}}
-	ws, errs, warns := validateScoped(t, "",
-		`{"loopholes": {"svc": {"enabled": true}}}`, resolver)
-	if len(errs) != 0 {
-		t.Errorf("errors = %v, want none — R5 stands: a workspace may still enable", errs)
+	ws, errs, warns := validateScoped(t, `{"loopholes": {"svc": {"command": ["/bin/true"]}}}`,
+		`{"loopholes": {"svc": {"enabled": true}}}`, nil)
+	if hits := containing(errs, "config.loopholes.svc"); len(hits) != 0 {
+		t.Errorf("errors = %v, want none — R5 stands: a workspace may still enable", hits)
 	}
 	hits := containing(warns, "config.loopholes.svc", "enabled by",
 		filepath.Join(ws, WorkspaceConfigName))
@@ -410,14 +413,15 @@ func TestScopeViolationsDowngradeToWarningsInJail(t *testing.T) {
 }
 
 // The workspace-local file is workspace scope too (it lives in the workspace,
-// so it is exactly as agent-editable), and later files win for `enabled`.
+// so it is exactly as agent-editable), and later files win for `enabled`. The loophole is a
+// config-inline install, the one kind left with a switch.
 func TestWorkspaceLocalScopeAndEnablePrecedence(t *testing.T) {
 	t.Setenv("YOLO_VERSION", "")
-	resolver := fakeResolver{"svc": {Name: "svc", HasHostDaemon: true}}
+	var resolver LoopholeResolver
 	ws := t.TempDir()
 	write(t, filepath.Join(ws, WorkspaceConfigName), `{"loopholes": {"svc": {"enabled": false}}}`)
 	write(t, filepath.Join(ws, WorkspaceLocalConfigName), `{"loopholes": {"svc": {"enabled": true}}}`)
-	merged := decode(t, `{"loopholes": {"svc": {"enabled": true}}}`)
+	merged := decode(t, `{"loopholes": {"svc": {"command": ["/bin/true"], "enabled": true}}}`)
 	_, warns := ValidateConfig(merged, ws, resolver)
 	if hits := containing(warns, "disabled by"); len(hits) != 0 {
 		t.Errorf("warnings = %v — the local file re-enabled it, no disclosure due", hits)
@@ -426,7 +430,7 @@ func TestWorkspaceLocalScopeAndEnablePrecedence(t *testing.T) {
 	// And the local file alone disabling it IS disclosed, naming the local file.
 	write(t, filepath.Join(ws, WorkspaceConfigName), `{}`)
 	write(t, filepath.Join(ws, WorkspaceLocalConfigName), `{"loopholes": {"svc": {"enabled": false}}}`)
-	merged = decode(t, `{"loopholes": {"svc": {"enabled": false}}}`)
+	merged = decode(t, `{"loopholes": {"svc": {"command": ["/bin/true"], "enabled": false}}}`)
 	_, warns = ValidateConfig(merged, ws, resolver)
 	if hits := containing(warns, "disabled by", WorkspaceLocalConfigName); len(hits) != 1 {
 		t.Errorf("warnings = %v, want the disclosure naming the local file", warns)

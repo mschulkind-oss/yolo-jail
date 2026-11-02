@@ -518,7 +518,9 @@ func mechanicsLoopholeSwitches(cfg *jsonx.OrderedMap, packs []*packload.Pack) ma
 	set := loopholes.NewSelectedSet(cfg, packLoopholeModules(packs), packSupersessions(packs))
 	available := make(map[string]bool, len(set.All()))
 	for _, lp := range set.All() {
-		available[lp.Name] = loopholes.SwitchedByConfig(lp)
+		// Only a config-inline loophole has a switch: a pack's runs whenever its pack is
+		// selected (docs/design/loophole-access-approval.md §4.1).
+		available[lp.Name] = lp.Source == loopholes.SourceConfig
 	}
 	return available
 }

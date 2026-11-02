@@ -237,8 +237,8 @@ func TestNoCommandIsReportedBeforeSocketAvailability(t *testing.T) {
 // It used to say the yolo CLI runs the delegate "automatically", which stopped being
 // true on 2026-08-18, when the delegate became an opt-in loophole (OQ-A4): a reader
 // who had launched with the yolo CLI was told to do the one thing they had already
-// done. The two config lines it names now are the delegate's switch;
-// TestTheNamedSwitchIsTheDelegates is the half that proves they are.
+// done. The command it names now selects the delegate's pack;
+// TestTheNamedPackShipsTheDelegate is the half that proves it does.
 func TestMissingSocketFailsClosed(t *testing.T) {
 	useSocket(t, filepath.Join(shortSocketDir(t), "does-not-exist.sock"))
 	var out, errOut bytes.Buffer
@@ -249,9 +249,7 @@ func TestMissingSocketFailsClosed(t *testing.T) {
 	got := errOut.String()
 	for _, want := range []string{
 		"cgroup delegation not available",
-		"~/.config/yolo-jail/config.jsonc",
-		`"packs": [..., "cgroup-delegate"]`,
-		`"loopholes": {"cgroup-delegate": {"enabled": true}}`,
+		"yolo pack add cgroup-delegate",
 		"Then restart the jail.",
 	} {
 		if !strings.Contains(got, want) {
@@ -264,13 +262,11 @@ func TestMissingSocketFailsClosed(t *testing.T) {
 	}
 }
 
-// TestTheNamedSwitchIsTheDelegates is rule 4 of the happy path principle for the
-// message above: config that turns nothing on is a dead end that looks like a next
+// TestTheNamedPackShipsTheDelegate is rule 4 of the happy path principle for the
+// message above: a command that turns nothing on is a dead end that looks like a next
 // step. So the pack the message names must be a shipped pack contributing a loophole
-// of the name the message enables, and that loophole must be OFF by default. If it
-// were ever on by default, the `enabled` line would be asking for something already
-// done, and the message's diagnosis would be wrong.
-func TestTheNamedSwitchIsTheDelegates(t *testing.T) {
+// of the delegate's name, which runs whenever the pack is selected.
+func TestTheNamedPackShipsTheDelegate(t *testing.T) {
 	name := paths.BuiltinCgroupLoopholeName
 	raw, err := fs.ReadFile(packs.FS, name+"/pack.toml")
 	if err != nil {
@@ -299,10 +295,6 @@ func TestTheNamedSwitchIsTheDelegates(t *testing.T) {
 			continue
 		}
 		found = true
-		if lm.DefaultEnabled {
-			t.Errorf("the %s loophole is on by default now, so the message's `enabled` "+
-				"line asks for something already done", lm.Name)
-		}
 	}
 	if !found {
 		t.Errorf("pack %q ships no loophole named %q, so the config the message names "+

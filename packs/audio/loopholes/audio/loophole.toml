@@ -24,9 +24,6 @@
 name = "audio"
 description = "PipeWire/PulseAudio socket pass-through + ALSA→PipeWire routing — enables microphone and playback inside the jail (Claude Code /voice, sox, ffmpeg, pipewire-rs, libasound clients). It crosses only under the `use` grant."
 version = 1
-# A grant-declaring loophole runs whenever its pack is selected; the grant below, not this switch,
-# decides whether anything crosses. The key goes when `default_enabled` is retired.
-default_enabled = false
 # The one line every refusal and the launch's disclosure print for this loophole.
 access = "use the host's microphone and speakers"
 # Linux only, declared rather than probed with `requires`: `requires` asks whether a thing is

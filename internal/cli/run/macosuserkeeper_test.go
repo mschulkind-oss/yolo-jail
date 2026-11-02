@@ -50,7 +50,7 @@ func writeKeeperProxy(t *testing.T, home string) {
 	t.Helper()
 	writeLocalLoopholeModules(t, home, map[string]string{
 		keeperProxy: `{"name": "` + keeperProxy + `", "description": "per-jail fixture",
-			"default_enabled": true, "transport": "loopback-tls",
+			"transport": "loopback-tls",
 			"host_daemon": {"publishes": "socket", "preamble": false,
 				"cmd": ` + testHostDaemonCmdJSON("keeper-proxy") + `}}`,
 	})

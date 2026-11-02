@@ -29,7 +29,6 @@
       "description": "ps -o columns returned to the jail"
     }
   },
-  "default_enabled": false,
   "platforms": [
     "linux",
     "darwin"

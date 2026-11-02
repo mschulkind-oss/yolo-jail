@@ -24,11 +24,13 @@ func TestMechanicsSwitchFactsUseTheStagedPackSelection(t *testing.T) {
 	control := writeLoopholePack(t, "selected-pack", "selected-switch", `{"name":"selected-switch","description":"selected","transport":"none","lifecycle":"external"}`)
 	loopholes.SetPackModules(packLoopholeModules([]*packload.Pack{stale}))
 
+	// The selected pack's loophole is listed, and has no switch: a pack's loophole runs whenever
+	// its pack is selected. The stale record's is not listed at all.
 	available := mechanicsLoopholeSwitches(nil, []*packload.Pack{control})
-	if !available["selected-switch"] {
-		t.Fatalf("the selected pack's user switch is unavailable: %v", available)
+	if on, listed := available["selected-switch"]; !listed || on {
+		t.Fatalf("the selected pack's loophole is %v (listed %v), want listed with no switch: %v", on, listed, available)
 	}
-	if available["stale-switch"] {
+	if _, listed := available["stale-switch"]; listed {
 		t.Fatalf("mechanics facts used the stale process pack record instead of selected packs: %v", available)
 	}
 }

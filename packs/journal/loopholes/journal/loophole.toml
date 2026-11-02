@@ -19,9 +19,6 @@
 name = "journal"
 description = "Read the host's systemd journal from inside the jail (yolo-journalctl). The `read` grant forces --user onto every request; `read_all` passes the request through unchanged."
 version = 1
-# A grant-declaring loophole runs whenever its pack is selected; the grants below, not this
-# switch, decide what a request may read. The key goes when `default_enabled` is retired.
-default_enabled = false
 # The one line every refusal and the launch's disclosure print for this loophole.
 access = "read the host's journal"
 # Linux only, declared rather than probed: `requires` asks whether a thing is present, `platforms`

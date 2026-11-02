@@ -35,7 +35,6 @@ func TestHostDoorwaysStartPropagatesSettingsRefusalBeforeStartingDoorway(t *test
 	}
 	manifest := fmt.Sprintf(`{
   "name": "doorway-refusal",
-  "default_enabled": true,
   "settings": {"profile": {"type": "string", "scope": "user", "default": "default-profile"}},
   "host_daemon": {
     "cmd": [%q, "-front-upstream-child", "line", "{socket}", "--settings", "{settings}"],
@@ -109,7 +108,7 @@ func TestSettingsCheckArgvChangeReachesLaunchFootprintConsumer(t *testing.T) {
 	const newArgv = `"settings_check": ["/bin/sh","-c","validate current bytes","{settings}"]`
 	p := writeRealLoopholePack(t, "validator-footprint", "footprint-validator",
 		`{"name":"footprint-validator","description":"fixture","transport":"none",`+
-			`"default_enabled":true,"settings":{"profile":{"type":"string","scope":"user","default":"default-profile"}},`+
+			`"settings":{"profile":{"type":"string","scope":"user","default":"default-profile"}},`+
 			`"host_daemon":{"cmd":["/bin/true","{settings}"],"settings_check": ["/bin/sh","-c","true","{settings}"],"publishes":"socket"},`+
 			`"doctor_cmd":["/bin/true"]}`)
 	manifestPath := filepath.Join(p.Root, "loopholes", "footprint-validator", "manifest.jsonc")
@@ -157,7 +156,7 @@ func TestHostDoorwaysAnnouncesValidatorThenKeepsDaemonDisclosure(t *testing.T) {
 	validated := filepath.Join(t.TempDir(), "validator-ran")
 	validator := `grep -q current-profile "$1" && test -f ` + shquote.Quote(announced) + ` && printf x >> ` + shquote.Quote(validated)
 	manifest := fmt.Sprintf(`{
-  "name":"doorway-valid", "default_enabled":true,
+  "name":"doorway-valid", 
   "settings":{"profile":{"type":"string","scope":"user","default":"default-profile"}},
   "host_daemon":{
     "cmd":[%q,"-front-upstream-child","line","{socket}","--settings","{settings}"],

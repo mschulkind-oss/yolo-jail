@@ -54,7 +54,9 @@ func brokerFixtureDirs(t *testing.T, enabled bool) {
 	brokerFixtureModule(t, enabled, true)
 }
 
-// brokerFixtureModule is brokerFixtureDirs with the origin gate as a parameter.
+// brokerFixtureModule is brokerFixtureDirs with the origin gate as a parameter. A loophole runs
+// whenever its pack is selected (default_enabled is refused), so "off" is the pack's absence:
+// enabled false records no module at all.
 func brokerFixtureModule(t *testing.T, enabled, approved bool) {
 	t.Helper()
 	dir := t.TempDir()
@@ -63,7 +65,7 @@ func brokerFixtureModule(t *testing.T, enabled, approved bool) {
 		t.Fatal(err)
 	}
 	manifest := `{"name": "` + broker.BrokerLoopholeName + `", "description": "fixture",
-	  "version": 1, "default_enabled": ` + map[bool]string{true: "true", false: "false"}[enabled] + `,
+	  "version": 1,
 	  "transport": "` + loopholes.TransportLoopbackTLS + `", "lifecycle": "spawned",
 	  "intercepts": [{"host": "platform.claude.com"}], "broker_ip": "127.0.0.1",
 	  "host_daemon": {"cmd": ["yolo", "internal", "daemon", "` + broker.BrokerLoopholeName + `", "--socket", "{socket}"],
@@ -73,7 +75,11 @@ func brokerFixtureModule(t *testing.T, enabled, approved bool) {
 		t.Fatal(err)
 	}
 	loopholes.SetPackModuleResolver(nil)
-	loopholes.SetPackModules([]loopholes.PackModule{{Dir: lp, HostExecApproved: approved}})
+	modules := []loopholes.PackModule{{Dir: lp, HostExecApproved: approved}}
+	if !enabled {
+		modules = nil
+	}
+	loopholes.SetPackModules(modules)
 	t.Cleanup(func() {
 		loopholes.ResetPackModules()
 		loopholes.SetPackModuleResolver(resolvePackLoopholeModules)
@@ -339,7 +345,7 @@ func TestSocketDirIgnoresALongTMPDIR(t *testing.T) {
 func TestBrokerLoopholeActiveIsFalseWhenDisabled(t *testing.T) {
 	brokerFixtureDirs(t, false)
 	if brokerLoopholeActive(jsonx.NewOrderedMap()) {
-		t.Error("brokerLoopholeActive = true for a manifest declaring default_enabled: false")
+		t.Error("brokerLoopholeActive = true with the broker's pack unselected")
 	}
 }
 

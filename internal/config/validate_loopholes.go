@@ -220,7 +220,7 @@ func validateLoopholes(config *jsonx.OrderedMap, workspace string, resolver Loop
 				}
 			}
 			installed := infoPtr != nil || userInstalledInline(spec, entries)
-			violation, disclosure := loopholeScopeEnableProblems(name, entries, installed)
+			violation, disclosure := loopholeScopeEnableProblems(name, entries, installed, infoPtr != nil)
 			if infoPtr != nil && len(infoPtr.Grants) > 0 && workspaceSwitchesOn(entries) {
 				// A grant-declaring loophole's workspace `enabled: true` is read as a request
 				// (the legacy projection, loopholegrantlegacy.go), which the gate shows where
@@ -407,7 +407,11 @@ func loopholeScopeKeyViolations(name string, spec *jsonx.OrderedMap, srcFile str
 // default — must agree with this one or the two disclosures contradict each other
 // over the same file. An explicit `enabled` in an agent-editable file is a
 // deliberate act either way, which is what keeps the line off every launch.
-func loopholeScopeEnableProblems(name string, entries []wsLoopholeEntry, installed bool) (violation, disclosure string) {
+//
+// A PACK's loophole (manifestBacked) has no switch: it runs whenever its pack is selected
+// (docs/design/loophole-access-approval.md §4.1), so either direction is disclosed as a key that
+// switches nothing, and the line names the key to remove.
+func loopholeScopeEnableProblems(name string, entries []wsLoopholeEntry, installed, manifestBacked bool) (violation, disclosure string) {
 	var enabled *bool
 	var at wsLoopholeEntry // the entry whose `enabled` decides, which the message names
 	for _, e := range entries {
@@ -427,6 +431,9 @@ func loopholeScopeEnableProblems(name string, entries []wsLoopholeEntry, install
 		return "", ""
 	}
 	file := at.file
+	if manifestBacked {
+		return "", at.locate(SwitchesNothingDisclosure(name, file))
+	}
 	if *enabled && !installed {
 		return at.locate("config.loopholes." + name + ": " + file + " enables a loophole that is " +
 			"not installed on this machine. " + loopholeNotInstalledRemedy(name)), ""
@@ -443,6 +450,16 @@ func loopholeScopeEnableProblems(name string, entries []wsLoopholeEntry, install
 			"agent-editable file switched it on.")
 	}
 	return "", ""
+}
+
+// SwitchesNothingDisclosure is the line for a `loopholes.<name>.enabled` key in an
+// agent-editable file when name is a pack's loophole, which has no switch. The launch and
+// `yolo check` both print it, so the two surfaces cannot disagree about one file.
+func SwitchesNothingDisclosure(name, file string) string {
+	return "config.loopholes." + name + ".enabled in " + file + " switches nothing: the loophole " +
+		pytext.Repr(name) + " runs whenever its pack is selected and grants nothing until a grant " +
+		"covers the project. Remove the key; to give this project access, run `yolo request " +
+		name + " <kind>` here."
 }
 
 // workspaceSwitchesOn is whether the workspace files' deciding `enabled` (the last one written,
@@ -669,9 +686,8 @@ type WorkspaceLoopholeSwitch struct {
 // keeps the two surfaces reading the same answer — and one vocabulary for a
 // question that was always symmetric.
 //
-// Only WORKSPACE files are read, which is the whole point. A user-scope enable and
-// a manifest's own `default_enabled` are decisions made where an agent cannot
-// reach, and disclosing those would put a line under every loophole on every
+// Only WORKSPACE files are read, which is the whole point. A user-scope enable is a
+// decision made where an agent cannot reach, and disclosing those would put a line under every loophole on every
 // launch — which is how the one that matters gets skimmed past.
 func WorkspaceLoopholeSwitches(workspace string) map[string]WorkspaceLoopholeSwitch {
 	out := map[string]WorkspaceLoopholeSwitch{}
@@ -756,7 +772,7 @@ func LoopholeEntryErrors(name string, specV any, info *LoopholeInfo, userInstall
 		*errs = append(*errs, loopholeSettingsScopeViolations(name, spec, srcFile, info)...)
 		installed := info != nil || userInstalledInline
 		entry := []wsLoopholeEntry{{file: srcFile, spec: spec}}
-		if violation, _ := loopholeScopeEnableProblems(name, entry, installed); violation != "" {
+		if violation, _ := loopholeScopeEnableProblems(name, entry, installed, info != nil); violation != "" {
 			*errs = append(*errs, violation)
 		}
 		// One mistake, one message: a scope refusal already rejects the whole
@@ -901,18 +917,18 @@ func validateInlineService(spec *jsonx.OrderedMap, path string, errs *[]string) 
 // LoopholeEnabledOverride reports what the merged config's `loopholes` block says about
 // one loophole's `enabled` key: the value, and whether the key was written at all.
 //
-// THE USER'S SWITCH, and the one place its rule is stated. `loopholes.<name>.enabled` is
-// a different key from the manifest's `default_enabled` — the pack author's default versus
-// the user's answer (docs/reference/loophole-system.md OQ-A9) — and it outranks the default
-// in BOTH directions, from either scope, because the merged block this reads is already
-// user-config-plus-workspace with the workspace winning.
+// THE CONFIG-DEFINED LOOPHOLE'S SWITCH. A pack's loophole runs whenever its pack is selected
+// (the manifest's former `default_enabled` is refused at load, loopholedecl's keys.go), so
+// `loopholes.<name>.enabled` decides only a loophole the config itself declares (a `command`
+// entry), from either scope, because the merged block this reads is already
+// user-config-plus-workspace with the workspace winning. For a pack's loophole the key switches
+// nothing, and `yolo check` says so (SwitchesNothingDisclosure).
 //
 // The "set" bool is load-bearing: "the config said true" and "the config said nothing" are
-// different answers, and only the second may leave the author's default standing.
+// different answers.
 //
-// COERCED WITH Truthy rather than type-checked, deliberately and unlike the manifest's
-// `default_enabled`: it is what the launch path has always done, so tightening it would
-// change which configs activate — and `validateLoopholeOverride` already refuses the sloppy
+// COERCED WITH Truthy rather than type-checked, deliberately: it is what the launch path has
+// always done, so tightening it would change which configs activate — and `validateLoopholeOverride` already refuses the sloppy
 // spelling (`enabled: expected a boolean`) before any launch reaches this.
 //
 // IT LIVES HERE, BUT NOTHING IN THIS PACKAGE READS IT ANY MORE. It moved here from
@@ -920,13 +936,8 @@ func validateInlineService(spec *jsonx.OrderedMap, path string, errs *[]string) 
 // config.ValidateConfig: the `~/.aws` grant check (validateAWSSharedConfigGrant), which
 // internal/loopholes could not host because it imports this package. That check was
 // deleted when OQ-SSO8 moved the grant conflict into packs/aws-auth's own declaration
-// (docs/reference/agent-credentials.md), and every remaining reader — applyWorkspaceOverrides,
-// the inert-loophole report, `yolo check`'s loophole section — goes through
-// loopholes.ConfigEnabledOverride. So the body could return to internal/loopholes; moving
-// it is a separate refactor, and until then this is the one copy. Its own history is the
-// argument against a second — the reporting surface once answered off the manifest
-// default alone, so a loophole the user had switched ON rendered as `[PASS] loophole X:
-// disabled` and its host daemon was never probed.
+// (docs/reference/agent-credentials.md); its remaining reader is `yolo loopholes list`'s
+// per-workspace column (internal/loopholes' loopholescmd.go).
 func LoopholeEnabledOverride(loopholesConfig *jsonx.OrderedMap, name string) (enabled, set bool) {
 	if loopholesConfig == nil {
 		return false, false

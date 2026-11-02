@@ -26,7 +26,7 @@ func stagedLoopholeTree(t *testing.T) string {
 	if err := os.MkdirAll(mod, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	manifest := `{"name":"acme-proxy","transport":"none","default_enabled":true,"host_daemon":{"cmd":["/bin/true"],"publishes":"socket"}}`
+	manifest := `{"name":"acme-proxy","transport":"none","host_daemon":{"cmd":["/bin/true"],"publishes":"socket"}}`
 	if err := os.WriteFile(filepath.Join(mod, "manifest.jsonc"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}

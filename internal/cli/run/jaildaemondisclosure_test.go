@@ -28,7 +28,7 @@ import (
 // daemon, no doctor, no intercept, no bind. The shape moduleClaims emits no claim for.
 func jailOnlyLoophole(name string, cmd string) string {
 	return `{"name": "` + name + `", "description": "a relay inside the jail",
-		"default_enabled": true, "transport": "none",
+		"transport": "none",
 		"jail_daemon": {"cmd": ` + cmd + `}}`
 }
 
@@ -174,22 +174,21 @@ func TestAPacksPluginCodeAndJailDaemonShareOneLine(t *testing.T) {
 	}
 }
 
-// A DAEMON THE LAUNCH DOES NOT RUN IS NOT ANNOUNCED. The user's own switch turns the loophole
-// off, the payload drops it, and the line must drop it too: announcing it would be the
-// overclaim OQ-TP10 names ("a declared daemon whose loophole is disabled … starts nothing").
-// A disclosure written over the manifests rather than over the payload prints it here.
-func TestADisabledLoopholesJailDaemonIsNotDisclosed(t *testing.T) {
+// A CONFIG `enabled: false` IS NO SWITCH. A pack's loophole runs whenever its pack is selected,
+// so the payload still carries its jail daemon, and the disclosure, written over the payload,
+// still names it: dropping the line while the daemon runs would be the underclaim the
+// disclosure exists to prevent.
+func TestAConfigSwitchDoesNotHideAPackLoopholesJailDaemon(t *testing.T) {
 	off := jsonx.NewOrderedMap()
 	off.Set("enabled", false)
 	lp := jsonx.NewOrderedMap()
 	lp.Set("acme-relay", off)
 	names, got := jailDaemonBoundary(t, "podman", newConfig("loopholes", lp))
-	if names["acme-relay"] {
-		t.Fatalf("the payload still carries a loophole the config switched off (%v); the "+
-			"control below would measure nothing", names)
+	if !names["acme-relay"] {
+		t.Fatalf("a config `enabled: false` dropped a pack loophole's jail daemon (%v)", names)
 	}
-	if strings.Contains(got, "acme-relay") {
-		t.Errorf("the launch named a jail daemon it does not run:\n%s", got)
+	if !strings.Contains(got, "acme-relay") {
+		t.Errorf("the launch runs a jail daemon it did not name:\n%s", got)
 	}
 }
 

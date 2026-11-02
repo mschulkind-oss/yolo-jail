@@ -212,7 +212,7 @@ func TestMacosUserRunsAModuleDirJailDaemonInTheGuest(t *testing.T) {
 		"pack.json": {body: `{"contributes": [{"kind": "loophole", "from": "loopholes/hello-guest"}]}`},
 		"loopholes/hello-guest/manifest.jsonc": {body: `{"name": "hello-guest",
 			"description": "the hello-daemon shape as a guest jail daemon (integration fixture)",
-			"version": 1, "default_enabled": true, "transport": "none",
+			"version": 1, "transport": "none",
 			"jail_daemon": {"cmd": ["{jail_loophole_dir}/bin/hello"]}}`},
 		"loopholes/hello-guest/bin/hello": {body: "#!/bin/sh\necho \"hello from $0\"\nexec /bin/sleep 600\n", mode: 0o755},
 	})
@@ -287,7 +287,6 @@ const localGuestAdapterManifest = `{
   "name": "openai-auth-broker",
   "description": "the OpenAI refresh adapter as a guest jail daemon (integration fixture)",
   "version": 1,
-  "default_enabled": true,
   "transport": "loopback-tls",
   "lifecycle": "spawned",
   "host_daemon": {

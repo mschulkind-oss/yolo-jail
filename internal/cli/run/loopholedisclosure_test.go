@@ -92,7 +92,6 @@ func TestSpawnBoundaryAnnouncesHostExecution(t *testing.T) {
 	// the disclosure names nothing else.
 	p := writeRealLoopholePack(t, "acme", "acme-proxy", `{
 		"name": "acme-proxy",
-		"default_enabled": true,
 		"transport": "none",
 		"host_daemon": {"cmd": ["python3", "{loophole_dir}/acme-daemon.py"], "publishes": "socket"}
 	}`)
@@ -128,7 +127,8 @@ func TestSpawnBoundaryAnnouncesHostExecution(t *testing.T) {
 //
 // Driven through discloseLoopholes, the disclosure the container launch prints before it spawns
 // its keeper and the one startLoopholesDisclosed prints before its own spawn: one pack loophole
-// on, one off, then the off one switched on in config.
+// that runs, one inactive on this OS, then a config `enabled: false` on the running one, which
+// switches nothing.
 func TestDisclosureNamesOnlyTheLoopholesThisLaunchStarts(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -137,11 +137,11 @@ func TestDisclosureNamesOnlyTheLoopholesThisLaunchStarts(t *testing.T) {
 	isolatePackModules(t)
 
 	on := writeRealLoopholePack(t, "acme", "acme-on", `{
-		"name": "acme-on", "default_enabled": true, "transport": "none",
+		"name": "acme-on", "transport": "none",
 		"host_daemon": {"cmd": ["python3", "{loophole_dir}/on-daemon.py"], "publishes": "socket"}
 	}`)
 	off := writeRealLoopholePack(t, "zeta", "zeta-off", `{
-		"name": "zeta-off", "transport": "none",
+		"name": "zeta-off", "transport": "none", "platforms": ["`+foreignPlatform()+`"],
 		"host_daemon": {"cmd": ["python3", "{loophole_dir}/off-daemon.py"], "publishes": "socket"}
 	}`)
 	packs := []*packload.Pack{on, off}
@@ -163,16 +163,16 @@ func TestDisclosureNamesOnlyTheLoopholesThisLaunchStarts(t *testing.T) {
 		t.Errorf("the disclosure does not name the daemon this launch starts:\n%s", got)
 	}
 	if strings.Contains(got, "off-daemon.py") {
-		t.Errorf("the disclosure names a daemon whose loophole is switched off, which this launch "+
+		t.Errorf("the disclosure names a daemon whose loophole is inactive here, which this launch "+
 			"does not start:\n%s", got)
 	}
 
-	// The switch decides, not the manifest: turned on in config, it is named.
+	// A config `enabled: false` is no switch for a pack's loophole: it still starts, and is named.
 	switched := jsonx.NewOrderedMap()
 	entry := jsonx.NewOrderedMap()
-	entry.Set("enabled", true)
-	switched.Set("zeta-off", entry)
-	if got := disclose(newConfig("loopholes", switched)); !strings.Contains(got, "off-daemon.py") {
-		t.Errorf("a loophole switched on in config is not named in the disclosure:\n%s", got)
+	entry.Set("enabled", false)
+	switched.Set("acme-on", entry)
+	if got := disclose(newConfig("loopholes", switched)); !strings.Contains(got, "on-daemon.py") {
+		t.Errorf("a config `enabled: false` hid a daemon this launch still starts:\n%s", got)
 	}
 }

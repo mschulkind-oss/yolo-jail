@@ -212,7 +212,7 @@ func perJailFixture(t *testing.T, name string) {
 		t.Fatal(err)
 	}
 	manifest := `{"name": "` + name + `", "description": "fixture", "version": 1,
-	  "default_enabled": true, "transport": "` + loopholes.TransportLoopbackTLS + `",
+	  "transport": "` + loopholes.TransportLoopbackTLS + `",
 	  "lifecycle": "spawned",
 	  "host_daemon": {"cmd": ` + string(cmd) + `, "publishes": "socket",
 	                  "preamble": false, "detach": true}}`

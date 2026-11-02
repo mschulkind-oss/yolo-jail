@@ -136,8 +136,8 @@ Nothing of audio crosses until a project holds `use`, and `use` is not requestab
 ([`loophole-activation.md`](../../docs/reference/loophole-system.md) R1/R4 — *"we don't give
 host access by default"*). Audio used to be on for everyone whose host had a Pulse socket, which
 is host presence deciding activation; then it was a `default_enabled: false` switch any config
-scope could flip. The manifest still says `default_enabled = false`, which a grant-declaring
-loophole does not read: selecting the pack runs it, and the grant decides what crosses.
+scope could flip. That key is gone (a manifest declaring it is refused at load): selecting the
+pack runs it, and the grant decides what crosses.
 
 Note the sibling `audio-alsa` shipped `default_enabled: **true**`, on an argument that was
 sound for what it was — R4's subject is host access, and an ALSA config fragment the pack

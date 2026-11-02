@@ -95,11 +95,6 @@ func TestDecodeMinimalAppliesDefaults(t *testing.T) {
 	if m.Lifecycle != "external" {
 		t.Errorf("Lifecycle = %q, want external", m.Lifecycle)
 	}
-	if m.DefaultEnabled {
-		t.Error("DefaultEnabled = true, want false — absent means OFF after OQ-A9/R2 " +
-			"(docs/reference/loophole-system.md). This assertion read the other way " +
-			"until the rename, which is the point of the ruling.")
-	}
 	if m.BrokerIP != loopholedecl.DefaultBrokerIP {
 		t.Errorf("BrokerIP = %q, want %q", m.BrokerIP, loopholedecl.DefaultBrokerIP)
 	}

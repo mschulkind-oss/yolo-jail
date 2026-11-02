@@ -235,22 +235,16 @@ func TestAudioPackLoopholeIsInsideThePackShippedSubset(t *testing.T) {
 	if mod.Decl == nil {
 		t.Fatalf("manifest did not decode: %s", mod.Problem)
 	}
-	// FALSE, and the value FLIPPED when the two audio loopholes merged
-	// (docs/reference/loophole-system.md R4, and the 0.9.x section of CHANGELOG.md).
+	// GATED BY A GRANT: the loophole binds two host sockets and passes /dev/snd through,
+	// which is host access, and it runs whenever its pack is selected, so selecting the pack
+	// is not consent for what crosses (docs/design/loophole-access-approval.md §4.3).
 	//
-	// The `audio-alsa` sibling shipped `default_enabled: true` on an argument that was
-	// sound for what it was: R4's subject is HOST ACCESS, and an ALSA config fragment
-	// the pack itself ships reaches none. That argument does not survive the merge —
-	// this loophole now binds two host sockets and passes /dev/snd through, which is
-	// host access and nothing else. Selecting the pack is no longer sufficient consent
-	// for what the pack does.
-	//
-	// Asserted through the EMBEDDED pack, so the value the binary carries is what is
+	// Asserted through the EMBEDDED pack, so the declaration the binary carries is what is
 	// pinned — the same reason every other assertion in this file reads the embed.
-	if mod.Decl.DefaultEnabled {
-		t.Errorf("default_enabled = true; %q binds the host's audio sockets and passes "+
-			"/dev/snd through, and R4 is that host access is never on by default. The "+
-			"switch is `\"loopholes\": {\"audio\": {\"enabled\": true}}`.", audioLoopholeName)
+	if len(mod.Decl.Grants) == 0 {
+		t.Errorf("%q binds the host's audio sockets and passes /dev/snd through, and runs "+
+			"whenever its pack is selected, so it must declare the grant that gates the "+
+			"crossing (`use`); it declares none", audioLoopholeName)
 	}
 	if probs := mod.Decl.PackShippedProblems(loopholedecl.ManifestPath(mod.Dir)); len(probs) > 0 {
 		t.Errorf("the SHIPPED pack's loophole is outside the pack-shipped subset, so a "+
@@ -531,9 +525,9 @@ func TestAudioPackPointersAreDeliveredOnlyWhereTheLoopholeBinds(t *testing.T) {
 		want   string // "" = delivered
 	}{
 		{"a container launch that binds it", packload.ServedInJail([]string{"audio"}), ""},
-		{"a container launch with the loophole off", packload.ServedInJail(nil),
-			head + `which this launch did not bind: the loophole is off (` +
-				"`" + `"loopholes": {"audio": {"enabled": true}}` + "`"},
+		{"a container launch where the loophole is inactive", packload.ServedInJail(nil),
+			head + "which this launch did not bind: the loophole is inactive on this machine " +
+				"(`yolo loopholes list` says why), so nothing would answer it"},
 		{"the host", packload.NothingServed().AtHost(),
 			head + "and the host has no jail to bind it into, so a client here reaches the host's own server"},
 		{"macos-user", packload.ServedInJail(nil).MountsNothing(),

@@ -351,23 +351,27 @@ func TestHostClaudeBesideALaunchOwnedServiceCarriesTheView(t *testing.T) {
 	}
 }
 
-// The broker loophole switched off in the user's config: the switch cannot be honored, the launch
-// says so and names where to look, and nothing is set or started.
-func TestHostClaudeViewWithTheBrokerLoopholeOffSetsNothingAndSaysWhy(t *testing.T) {
+// A user-config `enabled: false` for the broker loophole switches nothing: a pack's loophole runs
+// whenever its pack is selected, so the view is set up and the broker ensured exactly as without
+// the key, and the launch never says the loophole is off.
+func TestHostClaudeViewIgnoresABrokerLoopholeSwitch(t *testing.T) {
 	called := false
 	rc, env, errs := hostGateRunIn(t, `{"packs": ["claude"], "loopholes": `+
 		`{"claude-oauth-broker": {"enabled": false}}}`, viewShell("1"), nil, "claude", func(string) {
 		claudeViewHost(t)
-		hostClaudeBrokerEnsure = func(io.Writer) error { called = true; return nil }
+		hostClaudeBrokerEnsure = func(io.Writer) error {
+			called = true
+			return os.MkdirAll(oauthbroker.BrokerDir(), 0o700)
+		}
 	})
 	if rc != 0 {
 		t.Fatalf("rc=%d\n%s", rc, errs)
 	}
-	if v := env[claudeview.SecureStorageEnv]; v != "" || called {
-		t.Errorf("with the loophole off the view was set up (env %q, broker ensured %v):\n%s", v, called, errs)
+	if v := env[claudeview.SecureStorageEnv]; v == "" || !called {
+		t.Errorf("an `enabled: false` took the view away (env %q, broker ensured %v):\n%s", v, called, errs)
 	}
-	if !strings.Contains(errs, "loophole is not active here") || !strings.Contains(errs, "`yolo loopholes status`") {
-		t.Errorf("the launch did not say the loophole is off and where to look:\n%s", errs)
+	if strings.Contains(errs, "loophole is not active here") {
+		t.Errorf("the launch said the loophole is off:\n%s", errs)
 	}
 }
 

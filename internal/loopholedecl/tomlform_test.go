@@ -34,7 +34,7 @@ default = 7
 
 [settings.first]
 type = "string"
-scope = "workspace"
+scope = "user"
 
 [host_daemon]
 cmd = ["yolo", "internal", "daemon", "probe"]
@@ -109,10 +109,10 @@ func TestLoopholeTOMLRefusesAnUnknownKeyStrictlyAndSkipsItTolerantly(t *testing.
 }
 
 // TestRetiredEnabledKeyIsRefusedInTOMLToo: the retired manifest key `enabled` is refused whatever
-// the syntax (the walk is shared), naming what replaced it.
+// the syntax (the walk is shared), naming the grant declaration.
 func TestRetiredEnabledKeyIsRefusedInTOMLToo(t *testing.T) {
 	dir := writeModule(t, "probe", map[string]string{"loophole.toml": "name = \"probe\"\nenabled = true\n"})
-	if _, _, err := loopholedecl.LoadDirTolerant(dir); err == nil || !strings.Contains(err.Error(), "default_enabled") {
+	if _, _, err := loopholedecl.LoadDirTolerant(dir); err == nil || !strings.Contains(err.Error(), "[[grants]]") {
 		t.Fatalf("retired key in TOML: %v", err)
 	}
 }

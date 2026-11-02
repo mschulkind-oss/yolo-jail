@@ -3,7 +3,6 @@ package loopholes
 import (
 	"os"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -110,68 +109,7 @@ func synthesizeConfigLoopholes(loopholesConfig *jsonx.OrderedMap) []*Loophole {
 	return out
 }
 
-// ConfigEnabledOverride reports what the merged config says about one loophole's
-// `enabled` key: the value, and whether the key was written at all.
-//
-// THE USER'S SWITCH, and the one place its rule is stated. `loopholes.<name>.enabled`
-// is a different key from the manifest's `default_enabled` — the pack author's default
-// versus the user's answer (docs/reference/loophole-system.md OQ-A9) — and it outranks
-// the default in BOTH directions, from either scope, because the merged block this reads
-// is already user-config-plus-workspace with the workspace winning.
-//
-// Exported and factored out because it has TWO readers that must not drift:
-// applyWorkspaceOverrides, which resolves the record a launch acts on, and `yolo check`,
-// which reports what that launch will do. It used to have one, and the reporting surface
-// answered off the manifest default alone — so a loophole the user had switched ON
-// rendered as the greenest line in the section (`[PASS] loophole X: disabled`) and its
-// host daemon was never probed. The absent second reader is what made that possible;
-// a shared rule is what stops it coming back.
-//
-// The "set" bool is load-bearing: "the config said true" and "the config said nothing"
-// are different answers, and only the second may leave the author's default standing.
-//
-// COERCED WITH Truthy rather than type-checked, deliberately and unlike the manifest's
-// `default_enabled`. It is what the launch path has always done here, so tightening it
-// would change which configs activate — and the config key HAS a type check already, one
-// layer up in internal/config (`enabled: expected a boolean`), which refuses the sloppy
-// spelling before this ever sees it.
-//
-// THE BODY MOVED TO internal/config and this is now a one-line delegation, because a
-// THIRD reader once arrived that could not be here: the ~/.aws grant conflict, a
-// config.ValidateConfig error, and internal/config cannot import this package — loopholes
-// -> config is the direction the resolver seam already runs in. That reader is gone (the
-// conflict became packs/aws-auth's own `overridden_by` declaration, OQ-SSO8), so every
-// caller now reaches the body through this delegation and it could move back; until it
-// does, config.LoopholeEnabledOverride is the one copy. The name stays here because this
-// package's own callers spell it.
-func ConfigEnabledOverride(loopholesConfig *jsonx.OrderedMap, name string) (enabled bool, set bool) {
-	return config.LoopholeEnabledOverride(loopholesConfig, name)
-}
-
-// SwitchedByConfig reports whether a `loopholes.<name>.enabled` key decides lp: true for every
-// loophole but a brokered one (its manifest declares `brokered`), which runs whenever it is
-// installed and is narrowed by grants instead (docs/design/boundary-broker.md BB-D106), and a
-// grant-declaring one (its manifest declares `[[grants]]`), which runs whenever its pack is
-// selected and is narrowed by its grants the same way (docs/design/loophole-access-approval.md
-// §4.1). A switch for either in any file is ignored here; validation says where it is and what
-// replaces it.
-func SwitchedByConfig(lp *Loophole) bool {
-	return lp != nil && lp.Brokered == nil && len(lp.Grants) == 0
-}
-
-// EnabledUnder is whether lp runs under the merged config block: the block's switch where one
-// decides it (SwitchedByConfig), else the record's own state. Every reader that resolves a
-// switch over a record goes through it, so a reporting surface cannot list a broker as off.
-func EnabledUnder(lp *Loophole, loopholesConfig *jsonx.OrderedMap) bool {
-	if v, set := ConfigEnabledOverride(loopholesConfig, lp.Name); set && SwitchedByConfig(lp) {
-		return v
-	}
-	if onBySelection(lp) && SelectionIsTheSwitch() {
-		return true
-	}
-	return lp.Enabled
-}
-
+// applyWorkspaceOverrides lays the config block's `env` and `jail_env` over the
 // matching entries of `existing` in place and returns the NEW inline loopholes
 // (in document order) that matched nothing.
 func applyWorkspaceOverrides(existing map[string]*Loophole, loopholesConfig *jsonx.OrderedMap) []*Loophole {
@@ -192,9 +130,9 @@ func applyWorkspaceOverrides(existing map[string]*Loophole, loopholesConfig *jso
 			newInline = append(newInline, synthesizeConfigLoopholes(single)...)
 			continue
 		}
-		if v, set := ConfigEnabledOverride(loopholesConfig, name); set && SwitchedByConfig(target) {
-			target.Enabled = v
-		}
+		// No `enabled` here: a pack's loophole runs whenever its pack is selected
+		// (docs/design/loophole-access-approval.md §4.1), and a legacy switch is projected
+		// into a grant (§6 of that design), never onto the record.
 		if envV, ok := spec.Get("env"); ok && loopholedecl.Truthy(envV) {
 			if envMap, isMap := envV.(*jsonx.OrderedMap); isMap && target.HostDaemon != nil {
 				override := NewEnvMap()
@@ -390,10 +328,6 @@ type DiscoverOptions struct {
 	// EMPTY means nothing is superseded, which is the safe direction: a caller that
 	// never resolved packs cannot silently turn a loophole off.
 	PackSupersessions []PackSupersession
-	// SelectionSwitch is whether selecting a pack switches its ungated loopholes on
-	// (packswitch.go): nil asks the user config's format (SelectionIsTheSwitch), which is what
-	// every launch and report surface wants; `yolo config migrate` passes each side's answer.
-	SelectionSwitch *bool
 }
 
 // PackModule is one externally-contributed loophole module dir plus the caller's statement
@@ -875,9 +809,6 @@ func Discover(opts DiscoverOptions) []*Loophole {
 	// refused it (docs/reference/loophole-system.md#selection-and-discovery).
 	if len(opts.PackModules) > 0 {
 		pm, pk := loadModuleDirs(opts.PackModules, SourcePack)
-		if selectionSwitches(opts) {
-			switchOnSelected(pm)
-		}
 		appendOrdered(pm, pk)
 	}
 

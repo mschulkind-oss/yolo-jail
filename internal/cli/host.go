@@ -2849,7 +2849,9 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 		c.err = err
 		return c
 	}
-	hostServed := c.servedSet(workerWhy)
+	// A login service with no profile serves nothing, so nothing points at it
+	// (ServedDaemons.WithoutUnconfiguredLogins), at this notch as in a jail.
+	hostServed := c.servedSet(workerWhy).WithoutUnconfiguredLogins(packs, loopholes.ConfiguredSetting(cfg))
 	c.scopeInput = packload.ScopeInput{
 		Packs:     packs,
 		Providers: providers,
@@ -2914,7 +2916,7 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 		}
 		// The services beside the doorways and the workers: the host notch serves every kind of
 		// launch-owned process, and each has its own caller token.
-		hostServed = c.servedSet(workerWhy)
+		hostServed = c.servedSet(workerWhy).WithoutUnconfiguredLogins(packs, loopholes.ConfiguredSetting(cfg))
 		// A via the launch serves is served here too (HS-D30), one its agent's own config files carry
 		// stays cleared (HS-D31), and only `yolo host --` serves any: every other front door keeps
 		// every via inert (WG-I12 as WG-I46 narrowed it).

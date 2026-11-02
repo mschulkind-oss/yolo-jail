@@ -41,7 +41,7 @@ func supersessionFixture(t *testing.T, claimed string) {
 	writePack(t, acme, `{"name":"acme","contributes":[{"kind":"loophole","from":"loopholes/acme-broker"}]}`)
 	if err := os.WriteFile(filepath.Join(module, "manifest.jsonc"), []byte(
 		`{"name":"acme-broker","description":"acme's refresher","transport":"none",`+
-			`"default_enabled":true,"serves":["acme-oauth-refresh"]}`), 0o644); err != nil {
+			`"serves":["acme-oauth-refresh"]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	bedrock := filepath.Join(base, "acme-bedrock")

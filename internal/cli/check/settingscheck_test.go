@@ -33,8 +33,8 @@ func settingsCheckPackWithDoctor(t *testing.T, root, name string, validatorArgv,
 		daemon = daemonArgv[0]
 	}
 	manifest := map[string]any{
-		"name": name, "description": "settings check fixture", "transport": "loopback-tls", "default_enabled": true,
-		"settings": map[string]any{"value": map[string]any{"type": "string", "scope": "workspace", "default": "good"}},
+		"name": name, "description": "settings check fixture", "transport": "loopback-tls",
+		"settings": map[string]any{"value": map[string]any{"type": "string", "scope": "user", "default": "good"}},
 		"host_daemon": map[string]any{
 			"cmd":            daemon,
 			"settings_check": validatorArgv,
@@ -108,10 +108,7 @@ func TestCheckLoopholesValidatesCurrentSnapshotAndSkipsOnlyRefusingDoctor(t *tes
 	module := settingsCheckPack(t, moduleRoot, "acme-validator", validator, badDoctor)
 	selfCheckModule(t, moduleRoot, "other-health", touchAndSay(otherDoctor, "OK: unrelated health"))
 	workspace := t.TempDir()
-	if err := os.WriteFile(filepath.Join(workspace, "yolo-jail.jsonc"), []byte(
-		`{"loopholes":{"acme-validator":{"settings":{"value":"invalid"}}}}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeUserConfigForTest(t, `{"loopholes":{"acme-validator":{"settings":{"value":"invalid"}}}}`)
 	stale := filepath.Join(loopholes.StateDirFor("acme-validator"), loopholes.SettingsFileName)
 	if err := os.MkdirAll(filepath.Dir(stale), 0o700); err != nil {
 		t.Fatal(err)
@@ -184,10 +181,7 @@ func TestCheckLoopholesAnnouncesSelectedPackValidatorBeforeExecution(t *testing.
 	loopholes.SetPackModules([]loopholes.PackModule{{Dir: module, HostExecApproved: true}})
 	t.Cleanup(loopholes.ResetPackModules)
 	workspace := t.TempDir()
-	if err := os.WriteFile(filepath.Join(workspace, "yolo-jail.jsonc"),
-		[]byte(`{"loopholes":{"acme-validator":{"settings":{"value":"private-check-profile"}}}}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeUserConfigForTest(t, `{"loopholes":{"acme-validator":{"settings":{"value":"private-check-profile"}}}}`)
 	t.Setenv("YOLO_V1_PRIVATE_ENV", "private-check-environment")
 
 	writer := &validatorAnnouncementWriter{marker: marker}
@@ -234,14 +228,14 @@ func (w *validatorAnnouncementWriter) Write(p []byte) (int, error) {
 	return w.Builder.Write(p)
 }
 
-func TestCheckLoopholesDoesNotRunUnapprovedOrDisabledSettingsValidator(t *testing.T) {
+// A pack loophole cannot be switched off any more (it runs whenever its pack is selected), so the
+// origin gate is the one admission left to pin here.
+func TestCheckLoopholesDoesNotRunAnUnapprovedSettingsValidator(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		approved bool
-		disabled bool
 	}{
 		{name: "unapproved", approved: false},
-		{name: "disabled", approved: true, disabled: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			moduleRoot := isolatedModuleDir(t)
@@ -249,16 +243,6 @@ func TestCheckLoopholesDoesNotRunUnapprovedOrDisabledSettingsValidator(t *testin
 			module := settingsCheckPack(t, moduleRoot, "acme-validator",
 				`printf x >> `+shquote.Quote(marker)+`; exit 0`, filepath.Join(t.TempDir(), "doctor-ran"))
 			recordPackModule(t, module, tc.approved)
-			if tc.disabled {
-				t.Setenv("XDG_CONFIG_HOME", filepath.Join(os.Getenv("HOME"), ".config"))
-				path := paths.UserConfigPath()
-				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.WriteFile(path, []byte(`{"loopholes":{"acme-validator":{"enabled":false}}}`), 0o600); err != nil {
-					t.Fatal(err)
-				}
-			}
 			r, out := runCheckLoopholes(t, t.TempDir())
 			if _, err := os.Stat(marker); !os.IsNotExist(err) {
 				t.Fatalf("%s validator executed despite its admission gate: %v\n%s", tc.name, err, out)
@@ -328,8 +312,8 @@ func TestCheckLoopholesDoesNotRunInactiveOrAgentEditableSettingsValidator(t *tes
 			marker := filepath.Join(t.TempDir(), "validator-ran")
 			manifest := map[string]any{
 				"name": "acme-validator", "description": "settings validation fixture",
-				"transport": "loopback-tls", "default_enabled": true,
-				"settings": map[string]any{"value": map[string]any{"type": "string", "scope": "workspace", "default": "good"}},
+				"transport": "loopback-tls",
+				"settings":  map[string]any{"value": map[string]any{"type": "string", "scope": "user", "default": "good"}},
 				"host_daemon": map[string]any{
 					"cmd":            []string{"/bin/sh", "-c", "exit 0", "{settings}"},
 					"settings_check": []string{"/bin/sh", "-c", `printf x >> ` + shquote.Quote(marker), "validator", "{settings}"},
@@ -381,4 +365,19 @@ func TestCheckLoopholesDoesNotRunUnselectedPackSettingsValidator(t *testing.T) {
 	if r.failed != 0 || strings.Contains(out, "unselected-validator") {
 		t.Fatalf("an unselected validator entered the check's selected-module walk: failed=%d\n%s", r.failed, out)
 	}
+}
+
+// writeUserConfigForTest writes body as the user config of the suite's isolated HOME, and removes
+// it when the test ends. A setting is user-scope (a workspace scope is refused at load), so a
+// fixture supplies one here and never in the workspace file.
+func writeUserConfigForTest(t *testing.T, body string) {
+	t.Helper()
+	userConfig := paths.UserConfigPath()
+	if err := os.MkdirAll(filepath.Dir(userConfig), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(userConfig, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(userConfig) })
 }

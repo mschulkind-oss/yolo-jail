@@ -109,6 +109,29 @@ func TestResolveSettingsReportsAnUndeclaredKey(t *testing.T) {
 	}
 }
 
+// TestResolveSettingsReadsARetiredSettingAsTheGrantItBecame: journal's `full`, host-processes'
+// `visible` and serial's `allowed_devices` were settings and are now grants, which a legacy
+// config's value is projected into (config/loopholegrantlegacy.go). The launch resolving the
+// settings file must not call them "no such setting": the value is honored, as a grant, and a
+// line saying it was dropped would send the reader to delete it.
+func TestResolveSettingsReadsARetiredSettingAsTheGrantItBecame(t *testing.T) {
+	lp := declaredLoophole("journal")
+	lp.Grants = []Grant{{Kind: "read", LegacyEnable: true}, {Kind: "read_all", LegacySetting: "full"}}
+	if _, problems := ResolveSettings(lp, supplied("full", true)); len(problems) != 0 {
+		t.Errorf("a retired setting a grant reads drew %v", problems)
+	}
+	hp := declaredLoophole("host-processes",
+		Setting{Key: "fields", Type: SettingTypeStringList, Default: []string{}})
+	hp.Grants = []Grant{{Kind: "view", Valued: true, LegacyValues: "visible"}}
+	got, problems := ResolveSettings(hp, supplied("visible", []any{"sway"}, "fieldz", []any{}))
+	if _, present := got.Get("visible"); present {
+		t.Error("a retired setting reached the settings file; it is a grant's value now")
+	}
+	if len(problems) != 1 || !strings.Contains(problems[0], "fieldz") {
+		t.Errorf("problems = %v, want only the undeclared fieldz", problems)
+	}
+}
+
 // TestWriteSettingsProducesAFlatFile pins the file yolo writes: flat JSON, one entry
 // per declared key, 0600, at the path {settings} resolves to.
 func TestWriteSettingsProducesAFlatFile(t *testing.T) {
@@ -314,9 +337,9 @@ func TestListPrintsTheSettingsDeclarations(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := `{
-		"name": "acme", "default_enabled": true, "transport": "none",
+		"name": "acme", "transport": "none",
 		"settings": {
-			"visible": {"type": "string_list", "scope": "workspace", "default": [],
+			"visible": {"type": "string_list", "scope": "user", "default": [],
 				"description": "names to reveal"},
 			"quiet": {"type": "bool"}
 		}
@@ -341,7 +364,7 @@ func TestListPrintsTheSettingsDeclarations(t *testing.T) {
 		t.Fatalf("List rc=%d: %s", rc, errOut.String())
 	}
 	for _, want := range []string{
-		"settings.visible: string_list, workspace-scope, default []",
+		"settings.visible: string_list, user-scope, default []",
 		"names to reveal",
 		// The undeclared scope renders as what it MEANS — user — not as an empty
 		// column, because the strict default is the fact a reader most needs.
@@ -369,7 +392,7 @@ func TestResolverCarriesTheDeclarationsToConfig(t *testing.T) {
 	}
 	if err := os.WriteFile(filepath.Join(mod, loopholedecl.ManifestName), []byte(`{
 		"name": "acme", "transport": "none",
-		"settings": {"names": {"type": "string_list", "scope": "workspace"}}
+		"settings": {"names": {"type": "string_list", "scope": "user"}}
 	}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -392,8 +415,8 @@ func TestResolverCarriesTheDeclarationsToConfig(t *testing.T) {
 			"cannot tell a declared key from a typo, and every correct settings block "+
 			"becomes an error", info.Settings)
 	}
-	if info.Settings[0].Scope != SettingScopeWorkspace {
+	if info.Settings[0].Scope != SettingScopeUser {
 		t.Errorf("scope = %q, want the manifest's %q — the per-key scope rule is enforced "+
-			"from THIS copy", info.Settings[0].Scope, SettingScopeWorkspace)
+			"from THIS copy", info.Settings[0].Scope, SettingScopeUser)
 	}
 }

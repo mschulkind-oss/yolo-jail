@@ -155,8 +155,8 @@ func TestStartLoopholesWritesTheSettingsFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(mod, "manifest.jsonc"), []byte(`{
-		"name": "acme", "default_enabled": true, "transport": "none",
-		"settings": {"names": {"type": "string_list", "scope": "workspace", "default": []}}
+		"name": "acme", "transport": "none",
+		"settings": {"names": {"type": "string_list", "scope": "user", "default": []}}
 	}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -284,7 +284,7 @@ func TestStartLoopholesDisclosesAWideningSetting(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := fmt.Sprintf(`{
-		"name": "acme", "default_enabled": true, "transport": "none",
+		"name": "acme", "transport": "none",
 		"settings": {"wide": {"type": "bool", "scope": "user", "default": false,
 			"disclose": "serving everything, un-narrowed"}},
 		"host_daemon": {"cmd": [%q, "-front-upstream-child", "line", "{socket}"],

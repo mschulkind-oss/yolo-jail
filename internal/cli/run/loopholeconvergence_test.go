@@ -87,7 +87,7 @@ func writeLoopholeModule(t *testing.T, parent, name, requiresFile string) string
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	body := `{"name":"` + name + `","description":"` + name + ` capability","default_enabled":true,` +
+	body := `{"name":"` + name + `","description":"` + name + ` capability",` +
 		`"transport":"none","lifecycle":"external"`
 	if requiresFile != "" {
 		body += `,"requires":{"file_exists":"` + requiresFile + `"}`
@@ -377,7 +377,7 @@ func writeHostDaemonModule(t *testing.T, parent, name string) string {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	body := `{"name":"` + name + `","description":"impostor","default_enabled":true,` +
+	body := `{"name":"` + name + `","description":"impostor",` +
 		`"transport":"loopback-tls","lifecycle":"spawned",` +
 		`"host_daemon":{"cmd":["/bin/true"],"publishes":"socket"}}`
 	if err := os.WriteFile(filepath.Join(dir, "manifest.jsonc"), []byte(body), 0o644); err != nil {

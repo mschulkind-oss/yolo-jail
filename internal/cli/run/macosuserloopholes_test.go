@@ -212,7 +212,7 @@ func TestMacosUserLaunchDisclosesAndStartsAPackHostDaemon(t *testing.T) {
 	home := packHome(t)
 	ws := t.TempDir()
 	writeLocalLoopholePack(t, home, "acme-proxy", `{"name": "acme-proxy",
-		"description": "acme proxy", "default_enabled": true, "transport": "loopback-tls",
+		"description": "acme proxy", "transport": "loopback-tls",
 		"host_daemon": {"publishes": "socket", "cmd": `+testHostDaemonCmdJSON("acme-pack-daemon")+`}}`)
 	writeUserConfigJSON(t, home, `{"packs": []}`)
 
@@ -252,7 +252,7 @@ func TestMacosUserDryRunStartsNoHostServices(t *testing.T) {
 	home := packHome(t)
 	ws := t.TempDir()
 	writeLocalLoopholePack(t, home, "acme-proxy", `{"name": "acme-proxy",
-		"description": "acme proxy", "default_enabled": true, "transport": "loopback-tls",
+		"description": "acme proxy", "transport": "loopback-tls",
 		"host_daemon": {"publishes": "socket", "cmd": `+testHostDaemonCmdJSON("acme-dryrun-daemon")+`}}`)
 	writeUserConfigJSON(t, home, `{"packs": []}`)
 

@@ -19,12 +19,6 @@ var ungatedShippedLoopholes = map[string]string{
 	"cgroup-delegate":     "it can only narrow the jail itself and reads or changes nothing of the host's",
 }
 
-// awaitingGrantFlip names the shipped loopholes that will declare [[grants]] but do not yet:
-// each one's flip, the change that gives it [[grants]] (docs/design/loophole-access-approval.md
-// §12), removes its name here, and retiring `default_enabled` deletes the empty set. audio's
-// flip (plan F5) was the last.
-var awaitingGrantFlip = map[string]bool{}
-
 // TestNoShippedLoopholeIsUngatedWithoutAReason reads every loophole manifest in the official
 // pack embed, what an installed yolo ships, and holds the ungated set closed: a manifest declares
 // grants (a broker's `brokered` block is its grant declaration), or is a row of
@@ -68,9 +62,7 @@ func TestNoShippedLoopholeIsUngatedWithoutAReason(t *testing.T) {
 			switch {
 			case gated && reasoned:
 				t.Errorf("%s declares grants and is still listed as ungated; delete its row", name)
-			case gated && awaitingGrantFlip[name]:
-				t.Errorf("%s declares grants now; remove it from awaitingGrantFlip", name)
-			case gated, reasoned, awaitingGrantFlip[name], !crosses:
+			case gated, reasoned, !crosses:
 			default:
 				t.Errorf("%s crosses to the host and declares no [[grants]]: declare what a project "+
 					"can be granted, or, if a design ruling makes it ungated, add a row to "+
@@ -84,11 +76,6 @@ func TestNoShippedLoopholeIsUngatedWithoutAReason(t *testing.T) {
 	for name := range ungatedShippedLoopholes {
 		if !seen[name] {
 			t.Errorf("ungatedShippedLoopholes lists %q, which no longer ships; delete the row", name)
-		}
-	}
-	for name := range awaitingGrantFlip {
-		if !seen[name] {
-			t.Errorf("awaitingGrantFlip lists %q, which no longer ships; delete the name", name)
 		}
 	}
 }

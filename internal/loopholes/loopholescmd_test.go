@@ -182,7 +182,7 @@ func TestStatusDoctorsUseCorrectedUserSettingsInTextAndJSON(t *testing.T) {
 	daemonStarted := filepath.Join(t.TempDir(), "daemon-started")
 	moduleRoot := t.TempDir()
 	manifest := map[string]any{
-		"name": name, "description": "status current settings fixture", "transport": "loopback-tls", "default_enabled": true,
+		"name": name, "description": "status current settings fixture", "transport": "loopback-tls",
 		"settings": map[string]any{"value": map[string]any{"type": "string", "scope": "user", "default": "manifest-default"}},
 		"host_daemon": map[string]any{
 			"cmd": []string{"/bin/sh", "-c", `touch ` + shquote.Quote(daemonStarted), "daemon", "--socket", "{socket}", "--settings", "{settings}"},

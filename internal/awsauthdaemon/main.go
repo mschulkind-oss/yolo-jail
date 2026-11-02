@@ -10,7 +10,13 @@
 //
 // # What it decides at spawn, and why each is a spawn decision
 //
-//  1. The NARROWING must be configured, or it refuses (OQ-SSO1). A widening
+//  0. NO PROFILE IS NOT A FAULT. The loophole runs whenever its pack is selected (and a Bedrock
+//     profile selects it), so a user who reaches Bedrock some other way never names an AWS
+//     profile. Such a daemon serves nothing: it starts, mints nothing, answers every credential
+//     request and every launch check with what to set, and needs no `aws` CLI
+//     (docs/design/config-user.md §7, "a listed login pack whose table names no profile ... serves
+//     nothing, and the check says what to set"; loophole-access-approval.md §4.3).
+//  1. Once a profile is named, the NARROWING must be configured, or it refuses (OQ-SSO1). A widening
 //     retrofitted later breaks every setup that came to depend on the old default,
 //     so the requirement lands with the first release rather than after it.
 //  2. The `aws` CLI must be RUNNABLE, or it refuses. Loudly, at spawn — not as a
@@ -195,7 +201,8 @@ func SettingsCheck(settingsPath string, out io.Writer) int {
 		return writeSettingsCheckRefusal(out, "The AWS settings snapshot could not be read.",
 			"Check the host service settings file and run `yolo check --no-build` again.")
 	}
-	if _, err := settings.Resolve(); err == nil {
+	if _, err := settings.Resolve(); err == nil || unconfigured(err) {
+		// No profile is not a configuration fault: the daemon serves nothing and says so.
 		return 0
 	} else {
 		var refusal *awsauth.ResolveRefusal
@@ -206,6 +213,20 @@ func SettingsCheck(settingsPath string, out io.Writer) int {
 		reason, remedy := safeSettingsRefusal(refusal.Kind)
 		return writeSettingsCheckRefusal(out, reason, remedy)
 	}
+}
+
+// unconfigured is whether err is Resolve's refusal for a settings file that names no profile:
+// the state of a selected pack nobody configured, which serves nothing rather than failing.
+func unconfigured(err error) bool {
+	var refusal *awsauth.ResolveRefusal
+	return errors.As(err, &refusal) && refusal.Kind == awsauth.RefusalMissingProfile
+}
+
+// unconfiguredMessage is the one sentence a daemon with no profile answers with: at spawn, to a
+// credential request, and to the launch check.
+func unconfiguredMessage() string {
+	reason, remedy := safeSettingsRefusal(awsauth.RefusalMissingProfile)
+	return strings.TrimSuffix(reason, ".") + ", so aws-auth serves no Bedrock credential. " + remedy
 }
 
 func safeSettingsRefusal(kind awsauth.ResolveRefusalKind) (string, string) {
@@ -291,6 +312,15 @@ func prepare(opts spawnOptions, log io.Writer) (awsauth.Broker, int) {
 	}
 	// STEP 2'S REFUSAL, at spawn, naming the key. Absence is never un-narrowed.
 	config, err := settings.Resolve()
+	if unconfigured(err) {
+		// Step 0: serve nothing, and need no `aws` CLI to do it.
+		fmt.Fprintln(log, "aws-auth: "+unconfiguredMessage())
+		return awsauth.Broker{
+			StatePath: opts.StatePath,
+			LockPath:  filepath.Join(filepath.Dir(opts.StatePath), awsauth.LockFileName),
+			Minter:    awsauth.Minter{Run: opts.Runner, Binary: opts.AWSBinary},
+		}, 0
+	}
 	if err != nil {
 		var refusal *awsauth.ResolveRefusal
 		if errors.As(err, &refusal) {

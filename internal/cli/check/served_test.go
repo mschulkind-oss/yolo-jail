@@ -26,7 +26,7 @@ func TestCheckPredictsABoundLoopholeServedWhereItsBindsGo(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeLoopholeManifest(t, moduleRoot, "snd-like",
-		`"name":"snd-like","description":"d","transport":"none","default_enabled":true,`+
+		`"name":"snd-like","description":"d","transport":"none",`+
 			`"host_bind_mounts":[{"host":"`+sock+`","container":"/run/snd-like/native","readonly":true}]`)
 	for _, tc := range []struct {
 		runtime string

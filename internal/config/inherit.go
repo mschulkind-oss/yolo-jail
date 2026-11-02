@@ -367,7 +367,7 @@ var inheritCensus = map[string]keyDisposition{
 	// discovered from the `journal` pack's manifest like every other, and `loopholes`
 	// (already in both scopes, three entries up) carries the switch and the settings.
 	"host_processes": {reason: "RETIRED — the keys moved to loopholes.host-processes.settings; emitting it would re-trigger the retirement error"},
-	"journal":        {reason: "RETIRED — the switch moved to loopholes.journal.enabled and the mode to its settings; emitting it would re-trigger the retirement error"},
+	"journal":        {reason: "RETIRED — the bridge is the journal pack's loophole, its access the read and read_all grants; emitting it would re-trigger the retirement error"},
 	// `macos_log` joined them on 2026-10-09, for the same reason: the unified log is the
 	// `macos-log` loophole's now (packs/macos-log/README.md).
 	"macos_log": {reason: "RETIRED — the log moved to the macos-log loophole; emitting it would re-trigger the retirement error"},

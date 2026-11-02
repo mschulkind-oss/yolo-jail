@@ -28,7 +28,6 @@
       "description": "Default baud rate for serial connections"
     }
   },
-  "default_enabled": false,
   "transport": "loopback-tls",
   "lifecycle": "spawned",
   "host_daemon": {

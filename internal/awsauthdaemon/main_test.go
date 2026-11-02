@@ -247,14 +247,18 @@ func TestAbsentNarrowingRefusesAtSpawnNamingTheKey(t *testing.T) {
 	}
 }
 
-// TestAnAbsentSettingsFileRefusesAtSpawn: an unconfigured loophole that got spawned
-// anyway says which key is missing rather than serving something.
-func TestAnAbsentSettingsFileRefusesAtSpawn(t *testing.T) {
+// TestAnAbsentSettingsFileServesNothing: an absent file names no profile (awsauth.LoadSettings),
+// so a daemon spawned with one is an unconfigured loophole: it serves no credential and says
+// which key is missing (step 0), rather than refusing a launch that never asked for Bedrock.
+func TestAnAbsentSettingsFileServesNothing(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "settings.json")
-	rc := mainRC(t, "--socket", filepath.Join(shortTempDir(t), "d.sock"),
-		"--state-file", absState(t), "--settings", missing)
-	if rc != 2 {
-		t.Errorf("rc = %d, want 2", rc)
+	var log strings.Builder
+	broker, rc := prepare(prepareOpts(t, missing, cannedRunner(awsauth.Output{Spawned: true}, nil)), &log)
+	if rc != 0 || broker.Config.Profile != "" {
+		t.Errorf("rc = %d, profile = %q; want an unconfigured daemon serving nothing", rc, broker.Config.Profile)
+	}
+	if !strings.Contains(log.String(), "No AWS profile is configured") {
+		t.Errorf("the spawn log does not name the missing key:\n%s", log.String())
 	}
 }
 
@@ -262,7 +266,7 @@ func TestAnAbsentSettingsFileRefusesAtSpawn(t *testing.T) {
 // refusals with different exit codes, and a configuration fault must not be reported
 // as a missing CLI on a host that has neither.
 func TestTheSettingsRefusalPrecedesTheDependencyCheck(t *testing.T) {
-	settings := settingsFileWith(t, `{"profile":"","unnarrowed":true}`)
+	settings := settingsFileWith(t, `{"profile":"bedrock"}`)
 	rc := mainRC(t, "--socket", filepath.Join(shortTempDir(t), "d.sock"),
 		"--state-file", absState(t), "--settings", settings,
 		"--aws-binary", "/nonexistent/aws")
@@ -682,8 +686,6 @@ func TestPrepareRefusesInTheOrderTheLogReaderNeeds(t *testing.T) {
 	}{
 		{"no permission mode outranks a missing CLI", `{"profile":"bedrock"}`, unrunnable, 2,
 			"No AWS credential mode is configured"},
-		{"no profile outranks a missing CLI", `{"unnarrowed":true}`, unrunnable, 2,
-			"No AWS profile is configured"},
 		{"a missing CLI with a good configuration", `{"profile":"bedrock","unnarrowed":true}`,
 			unrunnable, 1, "AWS CLI v2 is not available"},
 		{"an unparseable settings file", "{ not json",
@@ -703,6 +705,45 @@ func TestPrepareRefusesInTheOrderTheLogReaderNeeds(t *testing.T) {
 				t.Errorf("a refusing daemon still printed its startup report:\n%s", log.String())
 			}
 		})
+	}
+}
+
+// TestAnUnconfiguredProfileServesNothingAndSaysWhatToSet is step 0. The loophole runs whenever
+// its pack is selected, so a settings file naming no profile is a selected pack nobody
+// configured: the validator passes it, the daemon starts without probing for the `aws` CLI, and
+// every answer it gives (the spawn log, a credential request, the launch check) names the key.
+func TestAnUnconfiguredProfileServesNothingAndSaysWhatToSet(t *testing.T) {
+	settingsHome(t, "config.toml")
+	settings := settingsFileWith(t, `{"profile":"","role_arn":"","session_policy":"","unnarrowed":false}`)
+	var out strings.Builder
+	if rc := SettingsCheck(settings, &out); rc != 0 || out.Len() != 0 {
+		t.Errorf("an unconfigured profile failed the settings check: rc=%d %q", rc, out.String())
+	}
+	var calls atomic.Int32
+	var log strings.Builder
+	broker, rc := prepare(prepareOpts(t, settings, cannedRunner(awsauth.Output{Spawned: false}, &calls)), &log)
+	if rc != 0 {
+		t.Fatalf("prepare rc = %d, want it to serve nothing rather than refuse: %s", rc, log.String())
+	}
+	if calls.Load() != 0 {
+		t.Errorf("an unconfigured daemon ran `aws` %d times; it needs no CLI", calls.Load())
+	}
+	const verb = "yolo config set allow.aws-auth.profile"
+	if !strings.Contains(log.String(), "No AWS profile is configured") || !strings.Contains(log.String(), verb) {
+		t.Errorf("the spawn log does not say what to set:\n%s", log.String())
+	}
+	if broker.RemintDue() {
+		t.Error("an unconfigured broker wants a proactive mint")
+	}
+	do := serveHandler(t, HandlerConfig{Broker: broker})
+	got := do(map[string]any{"action": "credentials"})
+	if got.rc == 0 || !strings.Contains(got.stdout, verb) {
+		t.Errorf("a credential request to an unconfigured daemon: rc=%d %q, want a refusal naming %q",
+			got.rc, got.stdout, verb)
+	}
+	report := askCheck(t, do, time.Second)
+	if len(report.Warnings) != 1 || !strings.Contains(report.Warnings[0], verb) {
+		t.Errorf("launch check = %+v, want one warning naming %q", report, verb)
 	}
 }
 

@@ -34,7 +34,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -85,22 +84,15 @@ func stageHelloPackByPath(t *testing.T) string {
 }
 
 // enabledHelloSet discovers the staged module the way a launch does — through the pack
-// module record, with the user's `loopholes.hello-daemon.enabled` override laid over the
-// manifest's `default_enabled: false`.
+// module record, with no `loopholes` config: a pack's loophole runs whenever its pack is
+// selected, so selecting it is the whole of "how do I turn this on".
 //
-// Both halves are the real thing: the record carries the origin gate (a Set built without
-// one refuses every SourcePack crossing, by construction), and the override is the same
-// config shape a user writes, because "how do I turn this on" is part of what the
-// experiment is proving.
+// The record is the real thing: it carries the origin gate (a Set built without one refuses
+// every SourcePack crossing, by construction).
 func enabledHelloSet(t *testing.T, moduleDir string) loopholes.Set {
 	t.Helper()
-	spec := jsonx.NewOrderedMap()
-	spec.Set("enabled", true)
-	cfg := jsonx.NewOrderedMap()
-	cfg.Set(helloPackName, spec)
 	set := loopholes.NewSet(loopholes.DiscoverOptions{
-		LoopholesConfig: cfg,
-		PackModules:     []loopholes.PackModule{{Dir: moduleDir, HostExecApproved: true}},
+		PackModules: []loopholes.PackModule{{Dir: moduleDir, HostExecApproved: true}},
 	})
 	lp, ok := set.Lookup(helloPackName)
 	if !ok {

@@ -2,7 +2,6 @@
   "name": "macos-log",
   "description": "Read the Mac's unified log from inside the jail (yolo-log). The `read` grant narrows every request to the macos-user sandbox account's processes; `read_all` passes the request to `log` unchanged.",
   "version": 1,
-  "default_enabled": false,
   "access": "read the Mac's unified log",
   "platforms": [
     "darwin"

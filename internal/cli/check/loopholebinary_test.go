@@ -28,7 +28,7 @@ func TestCheckWarnsAboutALoopholeWaitingForItsBinary(t *testing.T) {
 	t.Cleanup(func() { loopholes.BinaryCacheDir = prev })
 
 	writeLoopholeManifest(t, moduleRoot, "acme-tool",
-		`"name":"acme-tool","description":"d","transport":"none","default_enabled":true,`+
+		`"name":"acme-tool","description":"d","transport":"none",`+
 			`"binaries":{"toold":{"`+runtime.GOOS+`/`+runtime.GOARCH+`":{`+
 			`"url":"https://example.test/toold","sha256":"`+strings.Repeat("e", 64)+`"}}},`+
 			`"doctor_cmd":["{binary:toold}","--self-check"]`)

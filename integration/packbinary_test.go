@@ -54,7 +54,7 @@ func TestAJailRunsAPackBinaryItDownloaded(t *testing.T) {
 	if err := os.MkdirAll(mod, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	manifest := `{"name": "hello-bin", "transport": "none", "default_enabled": true,
+	manifest := `{"name": "hello-bin", "transport": "none", 
 	  "binaries": {"hello": {"linux/` + runtime.GOARCH + `": {"url": "` + srv.URL + `/hello",
 	    "sha256": "` + digest + `"}}},
 	  "jail_daemon": {"cmd": ["{jail_binary:hello}"], "restart": "no"}}`

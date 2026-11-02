@@ -27,7 +27,7 @@ func describesPack(t *testing.T) string {
 		`{"kind":"briefing","from":"briefing/env.md","describes":["env"]},`+
 		`{"kind":"briefing","from":"files/addressed.md","agents":["claude"],"describes":["loophole"]}]}`)
 	writeFile(t, filepath.Join(dir, "loopholes", "lhole", "manifest.jsonc"), `{
-		"name": "lhole", "description": "d", "version": 1, "default_enabled": true,
+		"name": "lhole", "description": "d", "version": 1, 
 		"transport": "loopback-tls", "lifecycle": "spawned",
 		"host_daemon": {"cmd": ["yolo", "internal", "daemon", "lhole", "--socket", "{socket}"],
 		                "publishes": "socket", "scope": "host"}}`)

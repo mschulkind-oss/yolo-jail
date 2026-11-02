@@ -8,13 +8,13 @@
 # job cgroup's cgroup.procs. A TCP connection carries no peer credential, and a loopback-TLS front
 # would make SO_PEERCRED attest yolo's own pid (docs/reference/security-shim.md §2).
 #
-# So this file is a switch and an identity: it puts the delegate in `yolo loopholes list`,
-# `yolo check` and the briefing under the same vocabulary as every other loophole. It is off until
-# asked for (`default_enabled = false`; docs/reference/loophole-system.md OQ-A4).
+# So this file is an identity: it puts the delegate in `yolo loopholes list`, `yolo check` and the
+# briefing under the same vocabulary as every other loophole. It runs whenever its pack is selected;
+# it grants nothing a grant could gate, since it can only narrow the jail
+# (docs/design/loophole-access-approval.md §4.3).
 name = "cgroup-delegate"
 description = "Lets a jail set its own cgroup limits (yolo-cglimit). The delegate hands the jail control of ITS OWN cgroup; it reads no host state."
 version = 1
-default_enabled = false
 # Linux only, declared rather than probed: cgroups are a Linux kernel feature. That the kernel runs
 # cgroup v2 with the controllers delegated is a fact about one host and is reported where an
 # operator can act on it, in startCgroupDelegateInProc.

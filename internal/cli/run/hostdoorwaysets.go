@@ -14,13 +14,12 @@ package run
 // one answer.
 //
 // TWO DIFFERENCES FROM A LAUNCH, both on purpose: the notch line states what the NOTCH does with
-// an enabled declaration, not what one launch does with it.
+// a declaration, not what one launch does with it.
 //
-//   - EVERY SELECTED PACK'S LOOPHOLE IS SWITCHED ON. The user's `enabled` switch turns a loophole
-//     off at every notch alike, a jail's included. Read through the switch, a pi-only config would
-//     print aws-auth's doorway (off by default) as "does not apply at the host", which is false:
-//     `yolo host --` opens it once it is on, and a launch whose agent asks for it while it is off
-//     names the switch (notOpenedWhy).
+//   - A LOGIN LOOPHOLE WITH NO PROFILE IS STILL NAMED. A launch opens no doorway to one, since it
+//     serves nothing (packload.UnconfiguredLogins, and PlanHostDoorways says so naming the setting).
+//     Read through that, a config naming no aws-auth profile would print aws-auth's doorway as
+//     "does not apply at the host", which is false: `yolo host --` opens it once a profile is set.
 //   - THERE IS NO SELECTION FILTER. PlanHostDoorways opens a doorway only for a profile-served
 //     daemon whose gate the launched agent's selection satisfies (HS-D22), and the apply runs no
 //     agent, so every composed doorway is named. That is why openai-auth-broker is named:
@@ -54,8 +53,8 @@ import (
 
 // HostDoorwayLoopholes names each loophole of packs whose credential doorway the host notch
 // composes, the one a `yolo host --` launch opens for an agent whose selection asks for it
-// (docs/design/host-notch-services.md HS-D15, HS-D21), with every selected pack's loophole
-// switched on and no selection filter (this file's header says why). cfg is the user-scope
+// (docs/design/host-notch-services.md HS-D15, HS-D21), with a login loophole named whether or not
+// it has its profile yet, and no selection filter (this file's header says why). cfg is the user-scope
 // config, whose loophole settings the set is discovered with. Empty when no pack ships a
 // loophole, in which case nothing is discovered.
 func HostDoorwayLoopholes(cfg *jsonx.OrderedMap, packs []*packload.Pack) map[string]bool {
@@ -64,21 +63,8 @@ func HostDoorwayLoopholes(cfg *jsonx.OrderedMap, packs []*packload.Pack) map[str
 	if len(decls) == 0 {
 		return out
 	}
-	switchedOn := jsonx.NewOrderedMap()
-	if block := cfgMap(cfg, "loopholes"); block != nil {
-		switchedOn = jsonx.DeepCopyMap(block)
-	}
-	for _, d := range decls {
-		entry, _ := switchedOn.Get(d.Name)
-		m, ok := entry.(*jsonx.OrderedMap)
-		if !ok {
-			m = jsonx.NewOrderedMap()
-		}
-		m.Set("enabled", true)
-		switchedOn.Set(d.Name, m)
-	}
 	set := loopholes.NewSet(loopholes.DiscoverOptions{
-		LoopholesConfig:   switchedOn,
+		LoopholesConfig:   cfgMap(cfg, "loopholes"),
 		PackModules:       packLoopholeModules(packs),
 		PackSupersessions: packSupersessions(packs),
 	})

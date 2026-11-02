@@ -451,7 +451,10 @@ func TestSubsetManifestProjectsEveryField(t *testing.T) {
 		"Pack": "the actual owning pack, stamped from selected-module provenance at discovery",
 		"doctorCmdDecl": "the original command tokens retained only to re-resolve settings " +
 			"without rewriting literals",
-		"Source":    "bundled/pack/user/config — the caller's label, never a manifest key",
+		"Source": "bundled/pack/user/config — the caller's label, never a manifest key",
+		"Enabled": "the resolved state: always true for a manifest (a loophole runs whenever " +
+			"its pack is selected; default_enabled is refused), false only for a config-inline " +
+			"entry that says so",
 		"SkewNotes": "the tolerant read's report, not a declaration",
 		"SupersededBy": "which selected packs retired this loophole's capabilities — a fact " +
 			"about the RESOLVED SET (the same manifest is superseded under one pack " +
@@ -504,27 +507,10 @@ func TestSubsetManifestProjectsEveryField(t *testing.T) {
 			}
 			continue
 		}
-		// Two fields whose names differ across the projection, and they differ for
-		// different reasons — worth keeping separate rather than collapsing into one
-		// "renames" map, because only one of them is a rename.
-		//
-		//	HostBindMount → HostBindMounts   a spelling difference and nothing more.
-		//	Enabled       → DefaultEnabled   a MEANING difference (OQ-A9). The record's
-		//	                                 Enabled is the resolved state, config
-		//	                                 override and all; the manifest's
-		//	                                 DefaultEnabled is only what the pack AUTHOR
-		//	                                 declared. resolve() (load.go) is where the
-		//	                                 second becomes the first, and this
-		//	                                 projection runs the other way — which is
-		//	                                 lossy in principle and free in fact,
-		//	                                 because the pack-shipped subset reads
-		//	                                 neither.
+		// HostBindMount → HostBindMounts is a spelling difference and nothing more.
 		projName := name
-		switch name {
-		case "HostBindMount":
+		if name == "HostBindMount" {
 			projName = "HostBindMounts"
-		case "Enabled":
-			projName = "DefaultEnabled"
 		}
 		field := projected.FieldByName(projName)
 		if !field.IsValid() {

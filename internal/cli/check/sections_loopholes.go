@@ -104,52 +104,20 @@ func (o *Options) checkLoopholes(r *reporter) {
 			"selected implicitly when it exists)", paths.LocalPackDir()))
 		return
 	}
-	// `enabled` is writable at workspace scope
-	// (docs/reference/loophole-system.md#disclosure-of-the-users-switch-in-both-directions), so
-	// the disclosure is the only protection left for a default-on loophole: a
-	// workspace-sourced disable must WARN and name the file, never render as a
-	// green line. Only a disable from the loophole's own manifest is an ok.
+	// Every loophole here is a pack's (ValidateSet reads the recorded packs), and a pack's
+	// loophole has no switch: it runs whenever its pack is selected and grants nothing until a
+	// grant covers the project (docs/design/loophole-access-approval.md §4.1). So an `enabled`
+	// key an agent-editable workspace file writes for one switches nothing, and the row says so
+	// in the launch's own words (config.SwitchesNothingDisclosure) and then carries on to the
+	// self-check, because the loophole is about to run. A user-scope key draws no row here; the
+	// launch's validation names it.
 	//
-	// The ON direction is disclosed the same way, for the newer reason
-	// (docs/reference/loophole-system.md OQ-A13). R5 dates from when a workspace
-	// `enabled: true` was INERT — manifests defaulted to on, so the weak scope could
-	// only subtract. R2 flipped that default and made this key the ACTIVATION VERB,
-	// and what a workspace enable rendered as here was the greenest line in the
-	// section: `[PASS] loophole X: disabled`, read off the manifest default (this
-	// walk resolves no config), with the file that overrode it named nowhere.
-	//
-	// Both lines are READABILITY, not a control, and the ON wording is held to that:
-	// it names the file holding the switch and stops. The config-approval diff is the
-	// mechanism that asks a human (docs/reference/config-safety.md); a check row implying
-	// review would be worth less than no row.
-	//
-	// A workspace file that merely RESTATES the manifest default is disclosed too.
-	// The launch-time twin cannot suppress that case — its LoopholeInfo carries no
-	// default — and two disclosures contradicting each other over one file is worse
-	// than one redundant line. An explicit `enabled` in an agent-editable file is a
-	// deliberate act either way, so this stays off ordinary launches.
+	// The per-workspace file (config/workspacefile.go) is yolo's own, user scope, and so draws
+	// no row of its own (OQ-A13); `Config Files` above names the file.
 	switches := config.WorkspaceLoopholeSwitches(o.Workspace)
-	// The USER's switch, read separately from the disclosure above and for a different
-	// job. `switches` answers "did an agent-editable file touch this", which is what
-	// decides whether to WARN; this answers "will the loophole run", which is what
-	// decides the ROW. Conflating them is how the section came to report the manifest
-	// default as fact: OQ-A13 fixed the workspace half and left the user half standing,
-	// so `loopholes.audio.enabled: true` in ~/.config/yolo-jail/config.jsonc — the
-	// remedy audio's own manifest prescribes, and the one `yolo loopholes enable --global`
-	// prints — rendered as `[PASS] loophole audio: disabled` with the doctor_cmd
-	// unrun. R2's flipped default is what made that the ordinary path rather than an
-	// exotic one.
-	//
-	// This adds no disclosure, which is OQ-A13's ruling and not an omission: a
-	// user-scope enable draws no line, because a line under every enabled loophole on
-	// every run is how the one that matters gets skimmed past. Only the verdict moves.
-	userSwitches := loopholeConfigBlock(o.Workspace)
-	// The per-workspace file (config/workspacefile.go) merges LAST, so a loophole it switches
-	// runs as it says: `userSwitches`, the merged block, already holds its value, and a
-	// workspace file's switch of the same name decides nothing, so its row would say the
-	// opposite of what runs. It is a human's switch for this one workspace, user scope, and so
-	// draws no row of its own (OQ-A13); `Config Files` above names the file.
 	wsFile := config.ReadWorkspaceFile(o.Workspace)
+	// The merged `loopholes` block, read for each settings validator's snapshot below.
+	settingsBlock := loopholeConfigBlock(o.Workspace)
 	for _, e := range entries {
 		if e.Err != "" {
 			r.warn("loophole "+filepath.Base(e.Path)+": invalid manifest",
@@ -157,40 +125,17 @@ func (o *Options) checkLoopholes(r *reporter) {
 			continue
 		}
 		lp := e.Loophole
-		sw, wsScoped := switches[lp.Name]
-		if _, decided := wsFile.LoopholeSwitch(lp.Name); decided || !loopholes.SwitchedByConfig(lp) {
-			// A broker's switch decides nothing anywhere (BB-D106): validation refuses the
-			// workspace file's, and this row would describe a state that does not run.
-			wsScoped = false
+		if sw, wsScoped := switches[lp.Name]; wsScoped {
+			if _, decided := wsFile.LoopholeSwitch(lp.Name); !decided {
+				r.warn("loophole "+lp.Name+": `enabled` in "+sw.File+" switches nothing",
+					config.SwitchesNothingDisclosure(lp.Name, sw.File))
+			}
 		}
-		if wsScoped && !sw.Enabled {
-			r.warn("loophole "+lp.Name+": disabled by "+sw.File+" (workspace scope)",
-				"An agent-editable file turned an installed loophole off; jails "+
-					"launched from this workspace run without it. Re-enable it there, "+
-					"or move the override to "+userConfigFile()+".")
-			continue
-		}
-		// The ON row DISCLOSES and then falls through, where the OFF row above stops.
-		// That asymmetry is the point rather than an oversight: off means there is
-		// nothing left to measure, on means the loophole is about to run and its
-		// self-check is the next thing a reader wants. Ending the iteration here would
-		// undo OQ-A12 — the reason every loophole's doctor_cmd is reported at all — for
-		// exactly the loopholes whose activation is least expected.
-		enabled := loopholes.EnabledUnder(lp, userSwitches)
-		if wsScoped && sw.Enabled {
-			r.warn("loophole "+lp.Name+": enabled by "+sw.File+" (workspace scope)",
-				"An agent-editable file turned an installed loophole ON; jails "+
-					"launched from this workspace run WITH it. This row says where the "+
-					"switch lives — it is not a record that anyone reviewed it. Turn it "+
-					"off there, or move the override to "+userConfigFile()+".")
-			enabled = true
-		}
-		if !enabled {
+		if !lp.Enabled {
 			r.ok("loophole " + lp.Name + ": disabled")
 			continue
 		}
-		// Every gate of Active() but the switch, which was resolved just above from the
-		// config this walk otherwise does not read — NOT RequirementsMet() alone. That
+		// Every gate of Active() but the switch — NOT RequirementsMet() alone. That
 		// probe folds in neither supersession nor `platforms`, so a loophole a selected
 		// pack superseded, or one this machine cannot run at all, used to fall through to
 		// its doctor_cmd: executed on the host, graded as a live row ("self-check ok", or
@@ -237,7 +182,7 @@ func (o *Options) checkLoopholes(r *reporter) {
 				continue
 			}
 			var err error
-			frozen, _, err = loopholes.FrozenSettingsBytes(lp, loopholes.SettingsFromConfig(userSwitches, lp.Name))
+			frozen, _, err = loopholes.FrozenSettingsBytes(lp, loopholes.SettingsFromConfig(settingsBlock, lp.Name))
 			if err != nil {
 				r.fail("loophole "+lp.Name+": settings validation failed",
 					"Could not resolve the declared settings snapshot: "+err.Error()+"\n"+run.LoopholeSettingsFixStep(lp))
@@ -275,7 +220,7 @@ func (o *Options) checkLoopholes(r *reporter) {
 		}
 		if len(lp.Settings) > 0 && frozen == nil {
 			var err error
-			frozen, _, err = loopholes.FrozenSettingsBytes(lp, loopholes.SettingsFromConfig(userSwitches, lp.Name))
+			frozen, _, err = loopholes.FrozenSettingsBytes(lp, loopholes.SettingsFromConfig(settingsBlock, lp.Name))
 			if err != nil {
 				r.fail("loophole "+lp.Name+": self-check settings could not be resolved",
 					"Could not resolve the current settings snapshot: "+err.Error()+"\n"+run.LoopholeSettingsFixStep(lp))
@@ -379,11 +324,9 @@ func settingsValidatorPackName(packs []*packload.Pack, lp *loopholes.Loophole) s
 // the one place that orders them (docs/reference/loophole-system.md: "the order is
 // load-bearing and InactiveReason repeats it").
 //
-// Minus `Enabled` because both sections here resolve the switch themselves, from the
-// merged config (loopholeConfigBlock), where the record carries only the manifest
-// default. Asking InactiveReason on the record would answer "disabled" for a loophole
-// the user switched on, so it is asked on a copy whose switch is set: a copy, never the
-// record, because the record is the Set's and RunDoctorChecks reads it next.
+// Minus `Enabled` because both sections here answer the switch themselves, so the
+// question is asked on a copy whose switch is set: a copy, never the record, because the
+// record is the Set's and RunDoctorChecks reads it next.
 func inertReason(lp *loopholes.Loophole) (string, bool) {
 	on := *lp
 	on.Enabled = true
@@ -391,15 +334,7 @@ func inertReason(lp *loopholes.Loophole) (string, bool) {
 }
 
 // loopholeConfigBlock returns the merged (user + workspace) `loopholes` block, or nil
-// when there is no config or no block — which ConfigEnabledOverride reads as "nobody
-// answered", leaving each manifest's own default standing.
-//
-// MERGED, not workspace-only, and that is the whole point of it existing beside
-// config.WorkspaceLoopholeSwitches. The two answer different questions: the switches map
-// is provenance (which agent-editable FILE holds the key, so a disclosure can name it),
-// this is the decision (what a launch will actually do). Reading provenance where the
-// decision was wanted is what left the user-scope half of the row wrong after OQ-A13
-// fixed the workspace half.
+// when there is no config or no block: what a launch reads a loophole's settings from.
 //
 // LOOSE: an unreadable or invalid config yields nil rather than an error, because the
 // config's own validity is a different section's report and `yolo check` must not lose
@@ -594,22 +529,13 @@ func (o *Options) checkHostServiceLiveness(r *reporter) {
 	// packs' `supersedes` claims (ValidateSet says why), and without them a superseded
 	// loophole's daemon — which no launch spawns — is queued below and probed as missing.
 	entries, _ := loopholes.ValidateSet()
-	// The same resolution the row above needs, for the same reason and with sharper
-	// stakes: this walker reads no config at all, so the record's Enabled is the
-	// manifest default. A loophole the user switched on has a daemon RUNNING — the
-	// launch path resolved the config and spawned it — while this block skipped it and
-	// printed "no host-side daemons to probe". A green line asserting there is nothing
-	// to measure, over a live host process, on the command someone runs when that
-	// process is the thing that broke.
-	userSwitches := loopholeConfigBlock(o.Workspace)
 	var externals []*loopholes.Loophole
 	for _, e := range entries {
 		lp := e.Loophole
 		if lp == nil || e.Err != "" {
 			continue
 		}
-		enabled := loopholes.EnabledUnder(lp, userSwitches)
-		if _, inert := inertReason(lp); enabled && !inert && lp.HostDaemon != nil {
+		if _, inert := inertReason(lp); lp.Enabled && !inert && lp.HostDaemon != nil {
 			externals = append(externals, lp)
 		}
 	}

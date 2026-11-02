@@ -585,9 +585,10 @@ var audioPointers = []string{"PIPEWIRE_REMOTE", "PULSE_SERVER"}
 // bind puts in the jail, as audio's does.
 const boundFixtureLoophole = "snd-fixture"
 
-// writeBoundFixturePack writes boundFixtureLoophole and its pointer into the local pack, with
-// the loophole switched on or off in the user config.
-func writeBoundFixturePack(t *testing.T, home string, enabled bool) {
+// writeBoundFixturePack writes boundFixtureLoophole and its pointer into the local pack. A
+// loophole runs whenever its pack is selected, so an inactive one (active false) is one whose
+// `platforms` names only another OS.
+func writeBoundFixturePack(t *testing.T, home string, active bool) {
 	t.Helper()
 	local := filepath.Join(home, ".config", "yolo-jail", "local")
 	mod := filepath.Join(local, "loopholes", boundFixtureLoophole)
@@ -597,8 +598,12 @@ func writeBoundFixturePack(t *testing.T, home string, enabled bool) {
 	if err := os.WriteFile(filepath.Join(mod, "native"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	manifest := `{"name":"` + boundFixtureLoophole + `","description":"a bound fixture","version":1,` +
-		`"default_enabled":false,"transport":"none","lifecycle":"external",` +
+	platforms := ""
+	if !active {
+		platforms = `"platforms":["` + foreignPlatform() + `"],`
+	}
+	manifest := `{"name":"` + boundFixtureLoophole + `","description":"a bound fixture","version":1,` + platforms +
+		`"transport":"none","lifecycle":"external",` +
 		`"host_bind_mounts":[{"host":"{loophole_dir}/native","container":"/run/snd-fixture/native","readonly":true}]}`
 	if err := os.WriteFile(filepath.Join(mod, "manifest.jsonc"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
@@ -608,11 +613,7 @@ func writeBoundFixturePack(t *testing.T, home string, enabled bool) {
 	if err := os.WriteFile(filepath.Join(local, "pack.json"), []byte(pack), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	on := "false"
-	if enabled {
-		on = "true"
-	}
-	writeUserConfigJSON(t, home, `{"packs": [], "loopholes": {"`+boundFixtureLoophole+`": {"enabled": `+on+`}}}`)
+	writeUserConfigJSON(t, home, `{"packs": []}`)
 }
 
 // hostLauncher makes this process a launcher on a HOST: loopholes.inJail reads YOLO_VERSION by
@@ -668,8 +669,8 @@ func podmanLaunchEnvFileIn(t *testing.T, ws string) (string, string) {
 	return string(raw), stdout.String() + stderr.String()
 }
 
-// A CONTAINER LAUNCH THAT BINDS THE LOOPHOLE DELIVERS ITS POINTER, and one that leaves it off
-// withholds the pointer and names it, with the switch that turns it on.
+// A CONTAINER LAUNCH THAT BINDS THE LOOPHOLE DELIVERS ITS POINTER, and one where it is inactive
+// withholds the pointer and names it, with the command that says why.
 func TestABoundLoopholesPointerReachesOnlyTheJailThatBindsIt(t *testing.T) {
 	hostLauncher(t)
 	const pointer = "SND_FIXTURE_SERVER"
@@ -688,15 +689,18 @@ func TestABoundLoopholesPointerReachesOnlyTheJailThatBindsIt(t *testing.T) {
 	writeBoundFixturePack(t, home, false)
 	file, out = podmanLaunchEnvFile(t)
 	if strings.Contains(file, pointer) {
-		t.Errorf("a launch with %s off delivered %s, a socket nothing bound:\n%s", boundFixtureLoophole, pointer, file)
+		t.Errorf("a launch with %s inactive delivered %s, a socket nothing bound:\n%s", boundFixtureLoophole, pointer, file)
 	}
 	for _, want := range []string{
 		pointer + ` — points at what the "` + boundFixtureLoophole + `" loophole binds into a jail`,
-		`"loopholes": {"` + boundFixtureLoophole + `": {"enabled": true}}`,
+		"inactive on this machine (`yolo loopholes list` says why)",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the withheld line does not say %q:\n%s", want, out)
 		}
+	}
+	if strings.Contains(out, `"enabled": true`) {
+		t.Errorf("the withheld line names the retired loophole switch:\n%s", out)
 	}
 	if strings.Contains(out, `"`+boundFixtureLoophole+`" jail daemon`) {
 		t.Errorf("a bound loophole's pointer was worded as a jail daemon's:\n%s", out)

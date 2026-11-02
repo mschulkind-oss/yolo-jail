@@ -37,7 +37,7 @@ func settingsManifest(t *testing.T, settings any, extra map[string]any) []byte {
 func TestSettingsDeclarationDecodes(t *testing.T) {
 	raw := settingsManifest(t, map[string]any{
 		"visible": map[string]any{
-			"type": "string_list", "scope": "workspace",
+			"type": "string_list", "scope": "user",
 			"default": []any{"sway"}, "description": "names",
 		},
 		"label":   map[string]any{"type": "string", "default": "x"},

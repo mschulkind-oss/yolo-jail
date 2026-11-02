@@ -146,27 +146,14 @@ func TestCheckLoopbackTLSServiceNamesTheLayer(t *testing.T) {
 	})
 }
 
-// TestCheckLoopholesWarnsOnWorkspaceDisable:
-// docs/reference/loophole-system.md#disclosure-of-the-users-switch-in-both-directions
-// leaves `enabled` writable at workspace scope, so the DISCLOSURE is the only
-// protection left for a default-on loophole: a workspace-sourced disable must
-// WARN and name the file, never render as a green "disabled" line. A disable
-// from the loophole's own manifest stays a green ok.
-func TestCheckLoopholesWarnsOnWorkspaceDisable(t *testing.T) {
-	// Isolate discovery: a throwaway module dir holding this test's two manifests, so no
-	// real loophole's doctor_cmd can ever run from a test.
-	moduleRoot := isolatedModuleDir(t)
-	writeManifest := func(name, body string) {
-		dir := filepath.Join(moduleRoot, name)
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(dir, "manifest.jsonc"), []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	writeManifest("wsoff", `{"name": "wsoff", "transport": "none", "default_enabled": true}`)
-	writeManifest("selfoff", `{"name": "selfoff", "transport": "none", "default_enabled": false}`)
+// TestCheckLoopholesSaysAWorkspaceDisableSwitchesNothing: a pack's loophole has no switch any
+// more (it runs whenever its pack is selected; docs/design/loophole-access-approval.md §4.1), so
+// a workspace `enabled: false` for one is disclosed as a key that switches nothing, naming the
+// file and the key to remove, and the row never says the loophole is disabled: it runs.
+func TestCheckLoopholesSaysAWorkspaceDisableSwitchesNothing(t *testing.T) {
+	bundled := isolatedModuleDir(t)
+	ran := filepath.Join(t.TempDir(), "wsoff-ran")
+	selfCheckModule(t, bundled, "wsoff", touchAndSay(ran, "OK: wsoff wiring present"))
 
 	ws := t.TempDir()
 	wsCfg := filepath.Join(ws, "yolo-jail.jsonc")
@@ -174,24 +161,21 @@ func TestCheckLoopholesWarnsOnWorkspaceDisable(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var buf bytes.Buffer
-	r := newReporter(&buf, false)
-	o := &Options{Workspace: ws, Getenv: func(string) string { return "" }}
-	fillDefaults(o)
-	o.checkLoopholes(r)
-	out := buf.String()
+	r, out := runCheckLoopholes(t, ws)
 
-	if r.warned != 1 || !strings.Contains(out, "wsoff") ||
-		!strings.Contains(out, "disabled by "+wsCfg) {
-		t.Errorf("warned=%d out=%q — a workspace-scope disable must WARN and name the file",
-			r.warned, out)
+	if r.warned != 1 || !strings.Contains(out, "loophole wsoff: `enabled` in "+wsCfg+" switches nothing") ||
+		!strings.Contains(out, "Remove the key") {
+		t.Errorf("warned=%d — a workspace `enabled` on a pack loophole must WARN, name the file "+
+			"and say the key switches nothing:\n%s", r.warned, out)
 	}
-	// The manifest's own disable stays a green ok line.
-	if !strings.Contains(out, "loophole selfoff: disabled") {
-		t.Errorf("out=%q — a manifest-level disable should still render", out)
+	if strings.Contains(out, "loophole wsoff: disabled") {
+		t.Errorf("the row says a pack loophole the key cannot switch is disabled:\n%s", out)
+	}
+	if _, err := os.Stat(ran); err != nil {
+		t.Errorf("the loophole runs, but its self-check did not:\n%s", out)
 	}
 	if r.failed != 0 {
-		t.Errorf("failed=%d out=%q — disclosures are warnings, not failures", r.failed, out)
+		t.Errorf("failed=%d — a disclosure is a warning, not a failure:\n%s", r.failed, out)
 	}
 }
 
@@ -469,7 +453,7 @@ func TestHostServiceLivenessSaysWhatItCannotSee(t *testing.T) {
 	// host_daemon is what puts it in the "externals" set this section probes at all.
 	if err := os.WriteFile(filepath.Join(modDir, "manifest.jsonc"), []byte(
 		`{"name": "svc", "description": "x", "transport": "loopback-tls", `+
-			`"default_enabled": true, "host_daemon": {"cmd": ["true"], "publishes": "socket"}}`), 0o644); err != nil {
+			`"host_daemon": {"cmd": ["true"], "publishes": "socket"}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -561,7 +545,7 @@ func TestHostServiceLivenessNoCaveatWithoutALoopbackTLSProbe(t *testing.T) {
 	// other than loopback-tls is probed as a plain socket.
 	if err := os.WriteFile(filepath.Join(modDir, "manifest.jsonc"), []byte(
 		`{"name": "unixsvc", "description": "x", "transport": "none", `+
-			`"default_enabled": true, "host_daemon": {"cmd": ["true"], "publishes": "socket"}}`), 0o644); err != nil {
+			`"host_daemon": {"cmd": ["true"], "publishes": "socket"}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -629,7 +613,7 @@ func TestHostServiceLivenessMissingDirIsOneRow(t *testing.T) {
 		}
 		if err := os.WriteFile(filepath.Join(modDir, "manifest.jsonc"), []byte(
 			`{"name": "`+name+`", "description": "x", "transport": "`+transport+`", `+
-				`"default_enabled": true, "host_daemon": {"cmd": ["true"], "publishes": "socket"}}`), 0o644); err != nil {
+				`"host_daemon": {"cmd": ["true"], "publishes": "socket"}}`), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -777,8 +761,7 @@ func writeLoopholeManifest(t *testing.T, parent, name, body string) string {
 // body that both loaders accept is what makes the two tests comparable.
 func selfCheckModule(t *testing.T, parent, name string, argv []string) string {
 	t.Helper()
-	body := `"name":"` + name + `","description":"` + name + `","transport":"none",` +
-		`"default_enabled":true`
+	body := `"name":"` + name + `","description":"` + name + `","transport":"none"`
 	if len(argv) > 0 {
 		body += `,` + doctorCmdField(t, argv)
 	}
@@ -905,39 +888,18 @@ func TestCheckLoopholesDoesNotInventAPackSelfCheck(t *testing.T) {
 	}
 }
 
-// TestCheckLoopholesWarnsOnWorkspaceEnable is OQ-A13's mirror
-// (docs/reference/loophole-system.md#oq-a13): the OFF direction has had a disclosure
-// since the placement rule landed (#disclosure-of-the-users-switch-in-both-directions),
-// and the ON direction — the one R2 turned into the
-// ACTIVATION VERB — had none.
-//
-// What it rendered as before is the part worth pinning: `[PASS] loophole X: disabled`,
-// the greenest line in the section, because this walk resolves the MANIFEST default and
-// never the config that overrode it. So the single loophole an agent-editable file had
-// switched on read as the one thing in the report guaranteed to be harmless.
-//
-// The row DISCLOSES and the section then carries on, which is the deliberate asymmetry
-// with the OFF row: off means there is nothing left to measure, on means the loophole is
-// about to run and its self-check is what a reader wants next. `continue`ing here would
-// undo OQ-A12 for exactly the activations nobody expected.
+// TestCheckLoopholesWarnsOnWorkspaceEnable is OQ-A13's mirror after the switch went: a workspace
+// `enabled: true` for a pack's loophole switches nothing either (the loophole runs because its
+// pack is selected), and the row says so and then carries on to the self-check, which is what a
+// reader wants next (OQ-A12). A loophole no workspace file mentions draws no line, or the one
+// that matters gets skimmed past.
 func TestCheckLoopholesWarnsOnWorkspaceEnable(t *testing.T) {
 	bundled := isolatedModuleDir(t)
 	sentinels := t.TempDir()
-
-	// default_enabled FALSE — the R2 world, where the workspace file is the only
-	// reason this loophole runs at all.
 	wsonRan := filepath.Join(sentinels, "wson-ran")
-	writeLoopholeManifest(t, bundled, "wson",
-		`"name":"wson","description":"wson","transport":"none","default_enabled":false,`+
-			doctorCmdField(t, touchAndSay(wsonRan, "OK: wson wiring present")))
-	// The control, and the constraint that keeps the new row worth reading: a
-	// loophole that is on because its own MANIFEST says so, which no workspace file
-	// mentions. It must draw no disclosure — a line under every default-on loophole
-	// prints on every launch for everybody, which is how the one that matters gets
-	// skimmed past.
-	manifestOnRan := filepath.Join(sentinels, "manifeston-ran")
-	selfCheckModule(t, bundled, "manifeston",
-		touchAndSay(manifestOnRan, "OK: manifeston wiring present"))
+	selfCheckModule(t, bundled, "wson", touchAndSay(wsonRan, "OK: wson wiring present"))
+	controlRan := filepath.Join(sentinels, "control-ran")
+	selfCheckModule(t, bundled, "control", touchAndSay(controlRan, "OK: control wiring present"))
 
 	ws := t.TempDir()
 	wsCfg := filepath.Join(ws, "yolo-jail.jsonc")
@@ -947,137 +909,73 @@ func TestCheckLoopholesWarnsOnWorkspaceEnable(t *testing.T) {
 
 	r, out := runCheckLoopholes(t, ws)
 
-	if !strings.Contains(out, "loophole wson: enabled by "+wsCfg+" (workspace scope)") {
-		t.Errorf("a workspace-scope enable must WARN and name the file:\n%s", out)
+	if !strings.Contains(out, "loophole wson: `enabled` in "+wsCfg+" switches nothing") {
+		t.Errorf("a workspace-scope `enabled` must WARN and name the file:\n%s", out)
 	}
-	if strings.Contains(out, "loophole wson: disabled") {
-		t.Errorf("the workspace-enabled loophole still renders as a green disabled line, "+
-			"read off the manifest default the workspace overrode:\n%s", out)
-	}
-	// The disclosure replaces the green, not the health report.
 	if _, err := os.Stat(wsonRan); err != nil {
-		t.Errorf("the workspace-enabled loophole's doctor_cmd never ran, so the row that "+
-			"discloses the activation also suppressed everything known about it:\n%s", out)
+		t.Errorf("the disclosure suppressed the self-check of a loophole that runs:\n%s", out)
 	}
 	if !strings.Contains(out, "loophole wson: self-check ok") {
-		t.Errorf("the workspace-enabled loophole's self-check is not reported:\n%s", out)
+		t.Errorf("the loophole's self-check is not reported:\n%s", out)
 	}
-	// The control: default-on from a manifest is business as usual, all green.
-	if strings.Contains(out, "loophole manifeston: enabled by") {
-		t.Errorf("a manifest's own default_enabled drew a workspace disclosure:\n%s", out)
+	if strings.Contains(out, "loophole control: `enabled`") {
+		t.Errorf("a loophole no workspace file mentions drew a disclosure:\n%s", out)
 	}
-	if _, err := os.Stat(manifestOnRan); err != nil {
+	if _, err := os.Stat(controlRan); err != nil {
 		t.Fatalf("the control loophole never ran, so its silence proves nothing:\n%s", out)
 	}
-	// Exactly one warning: the disclosure. Both self-checks graded OK, and this is
-	// disclosure only — it may not fail, and it may not spread.
 	if r.warned != 1 || r.failed != 0 {
 		t.Errorf("warned=%d failed=%d, want exactly the one disclosure and no failure:\n%s",
 			r.warned, r.failed, out)
 	}
 }
 
-// TestCheckLoopholesResolvesUserScopeSwitch is the half OQ-A13 did not reach, and R2's
-// flipped default is what turned it from a curiosity into the ordinary case.
-//
-// OQ-A13 fixed the WORKSPACE half of one bug: this walk resolves manifests and no
-// config, so a loophole the user had switched on rendered as `[PASS] loophole X:
-// disabled` — the greenest line in the section — with its doctor_cmd unrun. The fix read
-// config.WorkspaceLoopholeSwitches, which is a PROVENANCE seam (it names the
-// agent-editable file so a disclosure can point at it) and deliberately reads workspace
-// files only. So the USER scope kept the original defect, and after R2 the user scope is
-// where enablement now happens: `loopholes.audio.enabled: true` in
-// ~/.config/yolo-jail/config.jsonc is what audio's own manifest prescribes and what
-// `yolo loopholes enable` prints, and it is the only way to get audio back at all.
-//
-// Both directions are pinned in one test because they fail apart: reading the merged
-// block for the ON case while leaving OFF on the manifest default would leave the broker
-// self-check FAILING under `yolo check` for a user who switched the broker off.
-//
-// Deliberately NOT pinned: a disclosure line. A user-scope enable draws none — that is
-// OQ-A13's ruling, not an omission — because a line under every enabled loophole on
-// every run is how the one that matters gets skimmed past. Only the verdict moves, so
-// the assertion below is on warned==0.
-func TestCheckLoopholesResolvesUserScopeSwitch(t *testing.T) {
+// TestCheckLoopholesIgnoresAUserScopeSwitch: a user-scope `enabled` for a pack's loophole decides
+// nothing either. Both directions run the loophole's self-check, because a launch runs both
+// loopholes whenever their packs are selected; grading as off a loophole that runs would hide
+// the one row a user reaches for when it breaks. A user-scope key draws no row here: the
+// launch's validation names it, and a line under every loophole is how the one that matters
+// gets skimmed past.
+func TestCheckLoopholesIgnoresAUserScopeSwitch(t *testing.T) {
 	bundled := isolatedModuleDir(t)
 	sentinels := t.TempDir()
-
-	// OFF in the manifest, ON in the user config: the audio case after R4.
 	onRan := filepath.Join(sentinels, "on-ran")
-	writeLoopholeManifest(t, bundled, "useron",
-		`"name":"useron","description":"useron","transport":"none","default_enabled":false,`+
-			doctorCmdField(t, touchAndSay(onRan, "OK: useron wiring present")))
-	// ON in the manifest, OFF in the user config: the broker case, where reporting the
-	// author's default as fact means running (and grading) a self-check for a loophole
-	// that will not be there.
+	selfCheckModule(t, bundled, "useron", touchAndSay(onRan, "OK: useron wiring present"))
 	offRan := filepath.Join(sentinels, "off-ran")
-	writeLoopholeManifest(t, bundled, "useroff",
-		`"name":"useroff","description":"useroff","transport":"none","default_enabled":true,`+
-			doctorCmdField(t, touchAndSay(offRan, "FAIL: useroff is broken")))
-
-	userCfgDir := filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail")
-	if err := os.MkdirAll(userCfgDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(userCfgDir, "config.jsonc"),
-		[]byte(`{"loopholes": {"useron": {"enabled": true}, "useroff": {"enabled": false}}}`),
-		0o644); err != nil {
-		t.Fatal(err)
-	}
+	selfCheckModule(t, bundled, "useroff", touchAndSay(offRan, "OK: useroff wiring present"))
+	writeUserConfigForTest(t, `{"loopholes": {"useron": {"enabled": true}, "useroff": {"enabled": false}}}`)
 
 	r, out := runCheckLoopholes(t, t.TempDir())
 
-	if strings.Contains(out, "loophole useron: disabled") {
-		t.Errorf("a user-scope enable still renders as the green disabled line, read off "+
-			"the manifest default the user overrode:\n%s", out)
+	for _, c := range []struct{ name, sentinel string }{{"useron", onRan}, {"useroff", offRan}} {
+		if strings.Contains(out, "loophole "+c.name+": disabled") {
+			t.Errorf("a user-scope `enabled` switched the %s row off:\n%s", c.name, out)
+		}
+		if _, err := os.Stat(c.sentinel); err != nil {
+			t.Errorf("the %s self-check did not run, though the loophole does:\n%s", c.name, out)
+		}
+		if !strings.Contains(out, "loophole "+c.name+": self-check ok") {
+			t.Errorf("the %s self-check is not reported:\n%s", c.name, out)
+		}
 	}
-	if _, err := os.Stat(onRan); err != nil {
-		t.Errorf("the user-enabled loophole's doctor_cmd never ran, so nothing about the "+
-			"loophole that WILL run was reported:\n%s", err)
-	}
-	if !strings.Contains(out, "loophole useron: self-check ok") {
-		t.Errorf("the user-enabled loophole's self-check is not reported:\n%s", out)
-	}
-	if !strings.Contains(out, "loophole useroff: disabled") {
-		t.Errorf("a user-scope disable is not reflected in the row:\n%s", out)
-	}
-	if _, err := os.Stat(offRan); err == nil {
-		t.Errorf("the user-DISABLED loophole's doctor_cmd ran anyway, so `yolo check` "+
-			"grades a loophole no jail will have:\n%s", out)
-	}
-	// The verdict moved and nothing else did: no disclosure for a user-scope switch
-	// (that is OQ-A13's ruling), and no failure from the self-check that must not run.
 	if r.warned != 0 || r.failed != 0 {
-		t.Errorf("warned=%d failed=%d, want a silent verdict change:\n%s", r.warned, r.failed, out)
+		t.Errorf("warned=%d failed=%d, want silence:\n%s", r.warned, r.failed, out)
 	}
 }
 
-// TestHostServiceLivenessResolvesUserScopeEnable is the same defect one function over,
-// and the one with a live host process behind it.
-//
-// checkHostServiceLiveness picks which daemons to probe out of ValidateLoopholes, which
-// reads no config at all — so a loophole switched on in config had its daemon SPAWNED by
-// the launch path while this block skipped it and printed "no host-side daemons to
-// probe". A green asserting there is nothing to measure, over a running daemon, on the
-// command someone reaches for when that daemon is what broke.
+// TestHostServiceLivenessProbesEveryPackLoophole: checkHostServiceLiveness picks which daemons to
+// probe out of ValidateSet, and every pack loophole runs whenever its pack is selected, so a
+// host daemon is queued with no config naming it. Skipping it would print "no host-side daemons
+// to probe" over a daemon the launch spawns.
 //
 // It asserts the filter rather than a probe result: getting past the filter is the whole
 // property, and what happens next needs a container runtime this test has no business
 // starting.
-func TestHostServiceLivenessResolvesUserScopeEnable(t *testing.T) {
+func TestHostServiceLivenessProbesEveryPackLoophole(t *testing.T) {
 	bundled := isolatedModuleDir(t)
-	writeLoopholeManifest(t, bundled, "svcoff",
-		`"name":"svcoff","description":"d","transport":"loopback-tls","default_enabled":false,`+
+	writeLoopholeManifest(t, bundled, "svc",
+		`"name":"svc","description":"d","transport":"loopback-tls",`+
 			`"host_daemon":{"cmd":["/bin/true"],"publishes":"socket"}`)
-
-	userCfgDir := filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail")
-	if err := os.MkdirAll(userCfgDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(userCfgDir, "config.jsonc"),
-		[]byte(`{"loopholes": {"svcoff": {"enabled": true}}}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
 
 	var buf bytes.Buffer
 	r := newReporter(&buf, false)
@@ -1093,8 +991,7 @@ func TestHostServiceLivenessResolvesUserScopeEnable(t *testing.T) {
 	out := buf.String()
 
 	if strings.Contains(out, "no host-side daemons to probe") {
-		t.Errorf("the daemon of a loophole the user switched ON was not probed — the "+
-			"filter read the manifest default and no config:\n%s", out)
+		t.Errorf("the daemon of a selected pack's loophole was not probed:\n%s", out)
 	}
 	if r.failed != 0 {
 		t.Errorf("failed=%d, want the missing-runtime warning and nothing else:\n%s", r.failed, out)
@@ -1107,24 +1004,16 @@ type knownLoopholes map[string]config.LoopholeInfo
 
 func (k knownLoopholes) Known() (map[string]config.LoopholeInfo, bool) { return k, true }
 
-// TestWorkspaceEnableDisclosureAgreesAcrossSurfaces: the launch-time line and the
-// `yolo check` row are two renderings of ONE fact, and the fact is read from one seam
-// (config.WorkspaceLoopholeSwitches) precisely so they cannot drift apart.
-//
-// Drift is the failure worth a test rather than a comment, because the two surfaces
-// resolve DIFFERENT things either side of that seam: `yolo check` resolves manifests
-// and no config, while ValidateConfig resolves the merged config and no manifest.
-// Given one workspace file they must nonetheless name the same loophole, the same
-// file, and the same direction — otherwise a user reading the launch and then running
-// `yolo check` gets two answers and no way to tell which is the machine's.
+// TestWorkspaceEnableDisclosureAgreesAcrossSurfaces: the launch-time line and the `yolo check`
+// row are two renderings of ONE fact (config.SwitchesNothingDisclosure), so given one workspace
+// file they name the same loophole, the same file and the same verdict: the key switches
+// nothing. Otherwise a user reading the launch and then running `yolo check` gets two answers.
 func TestWorkspaceEnableDisclosureAgreesAcrossSurfaces(t *testing.T) {
 	// The host path: this suite runs INSIDE a jail, where a set YOLO_VERSION makes
-	// ValidateConfig downgrade scope violations. The disclosure is a warning either
-	// way, but pinning the env keeps the two surfaces compared under one story.
+	// ValidateConfig downgrade scope violations.
 	t.Setenv("YOLO_VERSION", "")
 	bundled := isolatedModuleDir(t)
-	writeLoopholeManifest(t, bundled, "acme",
-		`"name":"acme","description":"acme","transport":"none","default_enabled":false`)
+	writeLoopholeManifest(t, bundled, "acme", `"name":"acme","description":"acme","transport":"none"`)
 
 	ws := t.TempDir()
 	wsCfg := filepath.Join(ws, "yolo-jail.jsonc")
@@ -1151,7 +1040,7 @@ func TestWorkspaceEnableDisclosureAgreesAcrossSurfaces(t *testing.T) {
 	if launch == "" {
 		t.Fatalf("the launch surface disclosed nothing; warnings = %v", warns)
 	}
-	for _, want := range []string{"enabled by", wsCfg} {
+	for _, want := range []string{config.SwitchesNothingDisclosure("acme", wsCfg)} {
 		if !strings.Contains(launch, want) {
 			t.Errorf("launch line %q does not carry %q", launch, want)
 		}
@@ -1159,10 +1048,8 @@ func TestWorkspaceEnableDisclosureAgreesAcrossSurfaces(t *testing.T) {
 			t.Errorf("the `yolo check` row does not carry %q:\n%s", want, out)
 		}
 	}
-	// Same direction, both places. A surface that read the seam's boolean backwards
-	// would still name the loophole and the file, and only this catches it.
-	if strings.Contains(launch, "disabled by") || strings.Contains(out, "disabled by") {
-		t.Errorf("one surface reported the enable as a disable:\nlaunch: %s\ncheck:\n%s",
+	if strings.Contains(launch, "enabled by") || strings.Contains(out, "enabled by") {
+		t.Errorf("one surface reported the key as switching the loophole on:\nlaunch: %s\ncheck:\n%s",
 			launch, out)
 	}
 }
@@ -1234,10 +1121,10 @@ func TestCheckLoopholesGradesAnUnmatchedSupersession(t *testing.T) {
 	moduleRoot := isolatedModuleDir(t)
 	writeLoopholeManifest(t, moduleRoot, "acme-broker",
 		`"name":"acme-broker","description":"acme-broker","transport":"none",`+
-			`"default_enabled":true,"serves":["acme-oauth-refresh"]`)
+			`"serves":["acme-oauth-refresh"]`)
 	writeLoopholeManifest(t, moduleRoot, "acme-audio",
 		`"name":"acme-audio","description":"acme-audio","transport":"none",`+
-			`"default_enabled":true,"serves":["acme-audio"]`)
+			`"serves":["acme-audio"]`)
 	recordSupersessions(t,
 		loopholes.PackSupersession{Pack: "acme-bedrock", Capability: "acme-oauth-refersh",
 			Because: "Bedrock overrides the OAuth path"},
@@ -1326,7 +1213,7 @@ func TestCheckLoopholesDoesNotGradeAnInertLoopholeAsLive(t *testing.T) {
 
 	supersededRan := filepath.Join(sentinels, "superseded-ran")
 	writeLoopholeManifest(t, moduleRoot, "acme-refresh",
-		`"name":"acme-refresh","description":"d","transport":"none","default_enabled":true,`+
+		`"name":"acme-refresh","description":"d","transport":"none",`+
 			`"serves":["acme-oauth-refresh"],`+
 			doctorCmdField(t, touchAndSay(supersededRan, "OK: refresher healthy")))
 	recordSupersessions(t, loopholes.PackSupersession{Pack: "acme-bedrock",
@@ -1334,7 +1221,7 @@ func TestCheckLoopholesDoesNotGradeAnInertLoopholeAsLive(t *testing.T) {
 
 	platformRan := filepath.Join(sentinels, "platform-ran")
 	writeLoopholeManifest(t, moduleRoot, "acme-elsewhere",
-		`"name":"acme-elsewhere","description":"d","transport":"none","default_enabled":true,`+
+		`"name":"acme-elsewhere","description":"d","transport":"none",`+
 			`"platforms":["`+otherPlatform()+`"],`+
 			doctorCmdField(t, touchAndSay(platformRan, "OK: daemon healthy")))
 
@@ -1381,12 +1268,12 @@ func TestCheckLoopholesDoesNotGradeAnInertLoopholeAsLive(t *testing.T) {
 func TestHostServiceLivenessSkipsAnInertLoophole(t *testing.T) {
 	moduleRoot := isolatedModuleDir(t)
 	writeLoopholeManifest(t, moduleRoot, "acme-refresh",
-		`"name":"acme-refresh","description":"d","transport":"loopback-tls","default_enabled":true,`+
+		`"name":"acme-refresh","description":"d","transport":"loopback-tls",`+
 			`"serves":["acme-oauth-refresh"],"host_daemon":{"cmd":["/bin/true"],"publishes":"socket"}`)
 	recordSupersessions(t, loopholes.PackSupersession{Pack: "acme-bedrock",
 		Capability: "acme-oauth-refresh", Because: "Bedrock needs no OAuth refresh"})
 	writeLoopholeManifest(t, moduleRoot, "acme-elsewhere",
-		`"name":"acme-elsewhere","description":"d","transport":"loopback-tls","default_enabled":true,`+
+		`"name":"acme-elsewhere","description":"d","transport":"loopback-tls",`+
 			`"platforms":["`+otherPlatform()+`"],"host_daemon":{"cmd":["/bin/true"],"publishes":"socket"}`)
 	// Both fixtures must LOAD: a manifest the walk rejects never reaches the filter, and
 	// "nothing to probe" would then pass for the wrong reason.
@@ -1459,12 +1346,12 @@ func TestCheckLoopholesShowsAnUngradedFailingSelfCheck(t *testing.T) {
 	}
 }
 
-// The workspace-scope disclosure sends a TOML user to move the override to the user config file
-// the loader reads, config.toml, never a config.jsonc nothing reads.
+// The workspace-scope disclosure names no user config file to move the key to: under a TOML user
+// config there is no switch to move, and naming config.jsonc would send the user to a file
+// nothing reads.
 func TestCheckLoopholesWorkspaceSwitchNamesATOMLUsersConfigToml(t *testing.T) {
 	bundled := isolatedModuleDir(t)
-	writeLoopholeManifest(t, bundled, "wson",
-		`"name":"wson","description":"wson","transport":"none","default_enabled":false`)
+	writeLoopholeManifest(t, bundled, "wson", `"name":"wson","description":"wson","transport":"none"`)
 	userTOML := filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail", "config.toml")
 	if err := os.MkdirAll(filepath.Dir(userTOML), 0o755); err != nil {
 		t.Fatal(err)
@@ -1477,10 +1364,10 @@ func TestCheckLoopholesWorkspaceSwitchNamesATOMLUsersConfigToml(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, out := runCheckLoopholes(t, ws)
-	if !strings.Contains(out, "move the override to "+userTOML) {
-		t.Errorf("the disclosure does not send a TOML user to %s:\n%s", userTOML, out)
+	if !strings.Contains(out, "switches nothing") || !strings.Contains(out, "yolo request wson") {
+		t.Errorf("the disclosure does not name the dead key and the request verb:\n%s", out)
 	}
-	if strings.Contains(out, "config.jsonc") {
-		t.Errorf("the disclosure names config.jsonc to a TOML user:\n%s", out)
+	if strings.Contains(out, "config.jsonc") || strings.Contains(out, "move the override") {
+		t.Errorf("the disclosure sends a TOML user to move a switch that no longer exists:\n%s", out)
 	}
 }

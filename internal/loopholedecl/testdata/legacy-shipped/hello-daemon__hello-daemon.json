@@ -3,7 +3,6 @@
   "description": "Experiment: runs a two-line program this pack ships, to prove a pack can deliver a jail-side daemon's executable (docs/reference/pack-binaries.md).",
   "version": 1,
   "transport": "none",
-  "default_enabled": false,
   "jail_daemon": {
     "cmd": [
       "{jail_loophole_dir}/bin/hello"

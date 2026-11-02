@@ -102,7 +102,6 @@ func claudeBrokerFixturePack(t *testing.T) *packload.Pack {
 	return writeRealLoopholePack(t, "yjtest-catchup-claude", broker.BrokerLoopholeName, `{
 		"name": "`+broker.BrokerLoopholeName+`",
 		"description": "a fixture under the Claude broker's name",
-		"default_enabled": true,
 		"transport": "loopback-tls",
 		"lifecycle": "spawned",
 		"host_daemon": {"cmd": `+string(cmd)+`, "publishes": "socket", "detach": true},

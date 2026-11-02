@@ -269,20 +269,6 @@ type Manifest struct {
 	Version int
 	// VersionSet distinguishes an absent `version` from `"version": 0`.
 	VersionSet bool
-	// DefaultEnabled is the PACK AUTHOR's opinion about whether this loophole
-	// should be on when nobody has said otherwise — `default_enabled`, and ABSENT
-	// MEANS FALSE (docs/reference/loophole-system.md R2). It is not the user's
-	// switch and must never be read as one: the user's switch is the CONFIG key
-	// `loopholes.<name>.enabled`, which internal/loopholes lays over this value at
-	// discovery (discover.go's applyWorkspaceOverrides) and which this rename
-	// deliberately did not touch.
-	//
-	// The two used to share the spelling `enabled`, on opposite defaults, with
-	// nothing saying which won — the finding that produced the rename. The field
-	// name is the enforcement: `Manifest.DefaultEnabled` and `Loophole.Enabled` can
-	// no longer be confused at a call site, and resolve() (load.go) is the one place
-	// the first becomes the second.
-	DefaultEnabled bool
 	// Transport is one of ValidTransports; absent means TransportLoopbackTLS.
 	Transport string
 	// Lifecycle is one of ValidLifecycles; absent means "external".
@@ -860,38 +846,6 @@ func walk(data *jsonx.OrderedMap, manifestPath, dirName string) (*Manifest, erro
 		return nil, err
 	}
 
-	// ABSENT MEANS OFF, and the default lives HERE rather than at any reader, which is
-	// what makes "a manifest that says nothing activates nothing" literally true
-	// instead of true-at-the-places-somebody-remembered.
-	//
-	// TYPE-CHECKED, NOT COERCED WITH Truthy, and this is the tightening `enabled`
-	// could never have. Truthy("false") is TRUE (a non-empty string), so under the old
-	// key the one slip a human is actually likely to make — `"enabled": "false"` — read
-	// as ON, and the key was too widely shipped to tighten. `default_enabled` is new in
-	// this change, so no manifest anywhere can be relying on the loose coercion, and
-	// the direction the slip fails in is the one R4 exists to prevent: a quoted "false"
-	// would grant host access on a manifest whose author wrote the word for refusing
-	// it. `host_daemon.preamble` is the precedent and states the same rule.
-	defaultEnabled := false
-	if ev, ok := data.Get(keyDefaultEnabled); ok {
-		b, isBool := ev.(bool)
-		if !isBool {
-			return nil, Errorf("%s: 'default_enabled' must be a boolean — write true or false"+
-				" (not %s); it is the pack author's default, and an absent key already means false",
-				manifestPath, pytext.Repr(Str(ev)))
-		}
-		defaultEnabled = b
-	}
-	// A BROKERED loophole is on whenever its pack is selected and grants nothing until a grant
-	// in config says so (docs/design/boundary-broker.md BB-D104, BB-D105): `default_enabled` does
-	// not decide it, so `true` is refused as a claim the loader would not honor. `false`, the
-	// spelling every brokered manifest needed before, still loads and is ignored.
-	if defaultEnabled && brokered != nil {
-		return nil, Errorf("%s: a 'brokered' loophole runs whenever its pack is selected and grants "+
-			"nothing until a grant in config does, so 'default_enabled' does not apply to %s; remove it",
-			manifestPath, name)
-	}
-
 	brokerIP := DefaultBrokerIP
 	if bv, ok := data.Get(keyBrokerIP); ok && Truthy(bv) {
 		brokerIP = Str(bv)
@@ -902,7 +856,6 @@ func walk(data *jsonx.OrderedMap, manifestPath, dirName string) (*Manifest, erro
 		Description:           description,
 		Version:               version,
 		VersionSet:            versionSet,
-		DefaultEnabled:        defaultEnabled,
 		Transport:             transport,
 		Lifecycle:             lifecycle,
 		Intercepts:            intercepts,

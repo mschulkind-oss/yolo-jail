@@ -75,7 +75,7 @@ func TestABuildJailsNarrowingIsNotRefusedForWhatItDropped(t *testing.T) {
 			top:        `"supersedes":[{"capability":"tool-refresh","because":"the fixture refreshes tool itself"}],`,
 			agentExtra: `,{"kind":"loophole","from":"loopholes/tool-broker"}`,
 			files: map[string]string{"agentpack/loopholes/tool-broker/manifest.jsonc": `{"name":"tool-broker",` +
-				`"description":"tool's refresher","transport":"none","default_enabled":true,"serves":["tool-refresh"]}`}},
+				`"description":"tool's refresher","transport":"none","serves":["tool-refresh"]}`}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			narrowingHome(t, tc.extra, tc.top, tc.agentExtra, tc.files)

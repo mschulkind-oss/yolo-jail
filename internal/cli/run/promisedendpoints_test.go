@@ -35,18 +35,21 @@ func promisedFixture(t *testing.T, mods []loopholes.PackModule) {
 // `publishes: "socket"` is REQUIRED of a pack-shipped daemon (the default, "endpoint",
 // is refused at load and the loophole silently vanishes), and `detach` is the field
 // under test, so both are parameters rather than constants.
-func writeLoopholeManifest(t *testing.T, root, name string, detach, defaultEnabled bool) string {
+//
+// A loophole runs whenever its pack is selected, so an inactive one (active false) is one
+// whose `platforms` names only another OS.
+func writeLoopholeManifest(t *testing.T, root, name string, detach, active bool) string {
 	t.Helper()
 	dir := filepath.Join(root, name)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	enabled := "false"
-	if defaultEnabled {
-		enabled = "true"
+	platforms := ""
+	if !active {
+		platforms = `"platforms":["` + foreignPlatform() + `"],`
 	}
-	manifest := `{"name":"` + name + `","description":"fixture","version":1,` +
-		`"default_enabled":` + enabled + `,"transport":"` + loopholes.TransportLoopbackTLS + `",` +
+	manifest := `{"name":"` + name + `","description":"fixture","version":1,` + platforms +
+		`"transport":"` + loopholes.TransportLoopbackTLS + `",` +
 		`"lifecycle":"spawned",` +
 		`"host_daemon":{"cmd":["yolo","internal","daemon","` + name + `","--socket","{socket}"],` +
 		`"publishes":"socket","detach":` + strconv.FormatBool(detach) + `}}`
@@ -157,9 +160,8 @@ func TestEveryShippedDetachedLoopholeGetsItsEndpointVariable(t *testing.T) {
 	}
 	promisedFixture(t, mods)
 
-	// The USER's switch, on for every one of them: `default_enabled` is the pack
-	// author's answer and several ship OFF on purpose (aws-auth documents why), which
-	// is a fact about the default and not about this emission.
+	// A config switch decides nothing for a pack's loophole any more; the block is kept to
+	// show it does not get in the way.
 	block := jsonx.NewOrderedMap()
 	for _, n := range names {
 		entry := jsonx.NewOrderedMap()
@@ -250,7 +252,7 @@ func TestAnInactiveDetachedLoopholeIsNotWired(t *testing.T) {
 
 	args := o.hostServicesMountArgs("podman", "yolo-ws-abcd1234", jsonx.NewOrderedMap())
 	if got := endpointVarsIn(args); len(got) != 0 {
-		t.Errorf("a disabled detaching loophole was wired anyway: %v", got)
+		t.Errorf("an inactive detaching loophole was wired anyway: %v", got)
 	}
 	// The directory mount is unconditional on this backend and still there — the
 	// predicate must govern the env vars only.

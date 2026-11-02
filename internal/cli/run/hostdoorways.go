@@ -167,11 +167,20 @@ func PlanHostDoorwaysFor(cfg *jsonx.OrderedMap, packs []*packload.Pack, sel pack
 	}
 	// The doorways this agent's selection asks for: every profile-served daemon, less the ones
 	// no gate of the selection delivers (the jail's own filter, withoutUnselectedProfileDaemons).
+	// A LOGIN LOOPHOLE WITH NO PROFILE serves nothing (packload.UnconfiguredLogins), so no doorway
+	// opens to it and no host code runs for it: the launch withholds its pointer with the same
+	// clause, and the agent runs on whatever credential it has of its own.
+	unconfigured := packload.UnconfiguredLogins(packs, loopholes.ConfiguredSetting(cfg))
 	var wanted []string
 	for _, name := range packload.ProfileServedDaemonNames(packs) {
-		if !undelivered[name] {
-			wanted = append(wanted, name)
+		if undelivered[name] {
+			continue
 		}
+		if clause, ok := unconfigured[name]; ok {
+			d.notOpened[name] = "which this launch does not open, because the loophole " + clause
+			continue
+		}
+		wanted = append(wanted, name)
 	}
 	if len(wanted) == 0 {
 		// No selection asks for a doorway, so this plan reads no loophole manifest. (A host
@@ -311,10 +320,10 @@ func notOpenedWhy(set loopholes.Set, refused []launchservice.RefusedDoorway, nam
 		return "which this launch does not open: no selected pack's loophole declares it"
 	}
 	if !lp.Enabled {
-		return fmt.Sprintf("which this launch does not open, because loophole %q is disabled: "+
-			"`yolo host --` opens its doorway for this agent once %s sets "+
-			"`\"loopholes\": {%q: {\"enabled\": true}}` (and the settings it needs, "+
-			"`yolo loopholes list` names them)", name, paths.UserConfigDisplayPath(), name)
+		// Only a config-defined loophole can be switched off; a pack's runs whenever its pack is
+		// selected.
+		return fmt.Sprintf("which this launch does not open, because loophole %q is switched off "+
+			"by its own config entry (`yolo loopholes list` names it)", name)
 	}
 	if !lp.Active() {
 		why, _ := lp.InactiveReason()

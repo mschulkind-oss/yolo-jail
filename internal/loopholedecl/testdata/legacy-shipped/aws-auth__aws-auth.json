@@ -2,7 +2,6 @@
   "name": "aws-auth",
   "description": "Serve Bedrock-scoped AWS credentials to the jail from a host SSO session, minted per profile and narrowed before they cross.",
   "version": 1,
-  "default_enabled": false,
   "serves": [
     "aws-container-credentials"
   ],
@@ -13,7 +12,7 @@
       "type": "string",
       "scope": "user",
       "default": "",
-      "description": "the AWS profile this service resolves (the one you `aws sso login --profile`). Absent: the daemon refuses at spawn naming this key"
+      "description": "the AWS profile this service resolves (the one you `aws sso login --profile`). Absent: the service serves nothing, and the launch says to set this key"
     },
     "role_arn": {
       "type": "string",

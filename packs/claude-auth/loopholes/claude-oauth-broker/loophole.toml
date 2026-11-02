@@ -12,13 +12,10 @@
 name = "claude-oauth-broker"
 description = "Serializes Claude OAuth refreshes so multi-jail setups don't burn the single-use refresh token. TLS termination lives inside each jail; a host-side daemon owns the flock + shared credentials file."
 version = 1
-# On, unlike the other shipped loopholes, and the one place this key still carries meaning. This
-# broker must not gain a way to be silently off: a jail-only claude user who loses it runs
-# unserialized single-use refresh-token races against Anthropic (agent-credentials.md §2.5).
-# Selecting the claude pack is what turns it on, and this value makes that selection sufficient.
-# The others are host access you ask for; this one keeps the credential you already asked for from
-# being burnt.
-default_enabled = true
+# It runs whenever its pack is selected, like every loophole, and must not gain a way to be
+# silently off: a jail-only claude user who loses it runs unserialized single-use refresh-token
+# races against Anthropic (agent-credentials.md §2.5). It keeps the credential you already asked
+# for from being burnt, so it declares nothing to grant.
 # The named job this loophole implements: serializing OAuth token refreshes so concurrent consumers
 # do not burn a single-use refresh token (docs/reference/pack-system.md). On its own this changes
 # nothing; it becomes load-bearing when a selected pack declares `supersedes` for it with a reason

@@ -63,7 +63,7 @@ func fetchedLoopholePack(t *testing.T, home string) (sentinel string) {
 	// nothing. The readiness wait will fail (nothing is published) and that is fine — the
 	// question is whether the process was STARTED, which the sentinel answers regardless.
 	// It exits NON-ZERO so that failure is decided by its exit (sentinelDaemon says why).
-	manifest := `{"name":"acme-proxy","description":"unapproved","default_enabled":true,` +
+	manifest := `{"name":"acme-proxy","description":"unapproved",` +
 		`"transport":"loopback-tls","lifecycle":"spawned",` +
 		`"host_daemon":{"cmd":` + sentinelDaemon(sentinel) + `,"publishes":"socket"},` +
 		`"intercepts":[{"host":"api.acme.test"}],` +
@@ -257,7 +257,7 @@ func TestLocalPackLoopholeReachesTheSpawnAndTheArgv(t *testing.T) {
 		t.Fatal(err)
 	}
 	sentinel := filepath.Join(t.TempDir(), "daemon-ran")
-	manifest := `{"name":"acme-proxy","description":"approved","default_enabled":true,` +
+	manifest := `{"name":"acme-proxy","description":"approved",` +
 		`"transport":"loopback-tls","lifecycle":"spawned",` +
 		`"host_daemon":{"cmd":` + sentinelDaemon(sentinel) + `,"publishes":"socket"},` +
 		`"intercepts":[{"host":"api.acme.test"}],` +

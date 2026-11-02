@@ -89,7 +89,7 @@ func fetchedPackSourceWithLinks(t *testing.T, files, links map[string]string) st
 // acmeDoorwayManifest is a loophole whose jail daemon is a doorway: it declares the host argv
 // that opens it outside a sandbox (`jail_daemon.host_cmd`).
 const acmeDoorwayManifest = `{"name": "acme-proxy",
-	"description": "acme proxy", "default_enabled": true, "transport": "loopback-tls",
+	"description": "acme proxy", "transport": "loopback-tls",
 	"jail_daemon": {"cmd": ["yolo-jaild", "acme-adapter", "--listen", "{listen}"],
 	"listen": "127.0.0.1:1999", "caller_token": true,
 	"host_cmd": ["yolo", "internal", "daemon", "acme-adapter", "--listen", "{listen}"]}}`

@@ -517,12 +517,12 @@ func validateJournalRetired(config *jsonx.OrderedMap, errs, warns *[]string) {
 	}
 	msg := "config.journal: REMOVED — this top-level key was retired when the journal " +
 		"bridge became a pack-shipped loophole, and yolo's config schema no longer names " +
-		"a loophole. The bridge is now selected and switched on like anything else: " +
-		`"packs": ["journal"] plus "loopholes": {"journal": {"enabled": true}}, which is ` +
-		`what "journal": "user" (and the bare true) used to mean. The old "full" is one ` +
-		`more key — "loopholes": {"journal": {"settings": {"full": true}}} — and it is ` +
-		"USER-CONFIG-ONLY on purpose: reading the whole host journal used to be settable " +
-		"from a workspace file the agent inside the jail can rewrite, and now it is not."
+		"a loophole. Delete the key. The bridge runs whenever its pack is selected " +
+		"(`yolo pack add journal`) and reads nothing until a grant covers the project: " +
+		"`yolo allow journal read` is what \"journal\": \"user\" (and the bare true) used to " +
+		"mean, for every project, and `yolo allow journal read_all` is the old \"full\". " +
+		"Both are your user config's to give, never a workspace file's: reading the whole " +
+		"host journal used to be settable from a file the agent inside the jail can rewrite."
 	if inJail() {
 		add(warns, msg+" (ignored here: this is the host-generated config snapshot, "+
 			"so remove the key from the HOST config.)")
@@ -887,8 +887,8 @@ func validateEphemeralStorage(config *jsonx.OrderedMap, errs *[]string) {
 // key went the way `journal` did: core's schema names no loophole.
 //
 // A REFUSAL, not silence, for validateJournalRetired's reason: the key turned a capability on,
-// and a config still asking for it must be told where it went. The message carries the three
-// steps (select the pack, enable the loophole, and for the old "full" the user-scope setting).
+// and a config still asking for it must be told where it went. The message carries the steps
+// (select the pack, then grant `read`, or `read_all` for the old "full").
 // `"macos_log": "off"` asked for nothing, but it is refused all the same: one rule for one key,
 // and the fix — delete the line — is in the message.
 //
@@ -899,13 +899,11 @@ func validateMacosLogRetired(config *jsonx.OrderedMap, errs, warns *[]string) {
 	}
 	msg := "config.macos_log: REMOVED — the macOS unified log is now read on the host by the " +
 		"`macos-log` loophole, because the macos-user sandbox account cannot read it itself. " +
-		"Delete the key; to read the log from a jail, add `macos-log` to `packs` in " +
-		"~/.config/yolo-jail/config.jsonc (beside your agents, e.g. " +
-		`["claude", "macos-log"]) and set "loopholes": {"macos-log": {"enabled": true}}, which ` +
-		`is what "macos_log": "user" was meant to give (entries from the sandbox's own ` +
-		`processes). The old "full" is one more key — "loopholes": {"macos-log": ` +
-		`{"settings": {"full": true}}} — and it is USER-CONFIG-ONLY: ` +
-		"~/.config/yolo-jail/config.jsonc. Then run `yolo check`."
+		"Delete the key; to read the log from a jail, select the pack " +
+		"(`yolo pack add macos-log`) and grant `yolo allow macos-log read`, which is what " +
+		`"macos_log": "user" was meant to give (entries from the sandbox's own processes). ` +
+		"The old \"full\" is `yolo allow macos-log read_all`. Both are your user config's to " +
+		"give, never a workspace file's. Then run `yolo check`."
 	if inJail() {
 		add(warns, msg+" (ignored here: this is the host-generated config snapshot, "+
 			"so remove the key from the HOST config.)")
@@ -1131,13 +1129,13 @@ func validateHostProcessesRetired(config *jsonx.OrderedMap, errs, warns *[]strin
 	}
 	msg := "config.host_processes: REMOVED — this top-level key was retired when the " +
 		"host-processes loophole became a pack, and yolo's config schema no longer names " +
-		"a loophole. Write the values under the loophole's own name instead: " +
-		`"loopholes": {"host-processes": {"settings": {"visible": [...], "fields": [...]}}}. ` +
-		"NOTE THE SPELLING: the loophole is 'host-processes' (hyphen), not 'host_processes' " +
-		"(underscore). Two more things changed with the move, and both need doing: the " +
-		"loophole now ships in a pack, so `packs` must list \"host-processes\" and " +
-		`"loopholes": {"host-processes": {"enabled": true}} must switch it on; and the ` +
-		"allowlist is resolved ONCE at launch, so editing it needs a jail restart."
+		"a loophole. Delete the key. The loophole is 'host-processes' (hyphen), shipped by " +
+		"the pack of that name (`yolo pack add host-processes`), and the process names it " +
+		"may show are a grant a project requests: `yolo allow host-processes on_request view` " +
+		"in your user config, then `yolo request host-processes view <name>...` in the " +
+		"project. The columns it shows are your user setting " +
+		"(`yolo config set allow.host-processes.fields <field>...`), read once at launch, " +
+		"so changing it needs a jail restart."
 	if inJail() {
 		add(warns, msg+" (ignored here: this is the host-generated config snapshot, "+
 			"so remove the key from the HOST config.)")

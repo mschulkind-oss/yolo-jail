@@ -21,11 +21,9 @@
 name = "aws-auth"
 description = "Serve Bedrock-scoped AWS credentials to the jail from a host SSO session, minted per profile and narrowed before they cross."
 version = 1
-default_enabled = false
-# Off until asked for (`default_enabled = false`), and that is load-bearing here: with no profile
-# configured it should not start, and it is not an error ("a selected pack with no configuration is
-# inert"). A jail that enables it without a profile gets the daemon's loud spawn refusal naming the
-# key to write.
+# It runs whenever its pack is selected, like every loophole, and mints nothing until the user
+# config names a profile (`allow.aws-auth.profile`); without one it serves nothing and the launch
+# check names the key to write (docs/design/loophole-access-approval.md §4.3).
 serves = ["aws-container-credentials"]
 transport = "loopback-tls"
 lifecycle = "spawned"
@@ -58,7 +56,7 @@ doctor_cmd = [
 type = "string"
 scope = "user"
 default = ""
-description = "the AWS profile this service resolves (the one you `aws sso login --profile`). Absent: the daemon refuses at spawn naming this key"
+description = "the AWS profile this service resolves (the one you `aws sso login --profile`). Absent: the service serves nothing, and the launch says to set this key"
 
 [settings.role_arn]
 type = "string"

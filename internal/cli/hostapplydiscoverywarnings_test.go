@@ -36,7 +36,7 @@ func TestHostApplySaysLoopholeDiscoveryWarningsOnStderrAboveTheNotchLine(t *test
 	writeFile(t, filepath.Join(pack, "pack.json"),
 		`{"name":"skew","contributes":[{"kind":"loophole","from":"loopholes/skewhole"}]}`)
 	writeFile(t, filepath.Join(pack, "loopholes", "skewhole", "manifest.jsonc"), `{
-		"name": "skewhole", "description": "d", "version": 1, "default_enabled": true,
+		"name": "skewhole", "description": "d", "version": 1, 
 		"future_key": 1, "transport": "loopback-tls", "lifecycle": "spawned",
 		"host_daemon": {"cmd": ["yolo", "internal", "daemon", "skew", "--socket", "{socket}"],
 		                "publishes": "socket", "scope": "host"}}`)

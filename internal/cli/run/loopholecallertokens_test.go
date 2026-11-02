@@ -29,8 +29,10 @@ func TestTheCredentialAdaptersGetACallerTokenAndTheTerminatorDoesNot(t *testing.
 		// The adapter starts only when an agent's profile selects what it serves (OQ-CN7 (b)).
 		o.UseProfiles = map[string]string{"codex": "bedrock"}
 		loopholes.SetPackModules(packLoopholeModules(packs))
-		block, entry := jsonx.NewOrderedMap(), jsonx.NewOrderedMap()
-		entry.Set("enabled", true)
+		// A profile, because an aws-auth naming none serves nothing, so nothing points at it.
+		block, entry, settings := jsonx.NewOrderedMap(), jsonx.NewOrderedMap(), jsonx.NewOrderedMap()
+		settings.Set("profile", "yolo-unit")
+		entry.Set("settings", settings)
 		block.Set("aws-auth", entry)
 		cfg.Set("loopholes", block)
 	}

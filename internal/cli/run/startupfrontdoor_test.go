@@ -53,7 +53,6 @@ const (
 func cooperativeRefusalManifest() string {
 	return fmt.Sprintf(`{
   "name": %q,
-  "default_enabled": true,
   "host_daemon": {
     "cmd": [%q, "-test.run=^TestPerJailReasonChild$", "{socket}"],
     "startup_reason": true,
@@ -67,7 +66,6 @@ func cooperativeRefusalManifest() string {
 func preflightRefusalManifest(daemonMarker string) string {
 	return fmt.Sprintf(`{
   "name": %q,
-  "default_enabled": true,
   "settings": {"profile": {"type": "string", "scope": "user", "default": "default-profile"}},
   "host_daemon": {
     "cmd": [%q, "-settings-snapshot-daemon", "{socket}", "{settings}", %q],

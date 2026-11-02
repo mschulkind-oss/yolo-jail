@@ -3,9 +3,6 @@
 name = "serial"
 description = "Host USB and serial device bridge (yolo-serial). What it may open is the `devices` grant: the device globs an accepted request names."
 version = 1
-# A grant-declaring loophole runs whenever its pack is selected; the grant below, not this switch,
-# decides what a request may open. The key goes when `default_enabled` is retired.
-default_enabled = false
 # The one line every refusal and the launch's disclosure print for this loophole.
 access = "open host serial devices"
 # Two gates (docs/design/loophole-access-approval.md §4.3): select the pack, and grant `devices`

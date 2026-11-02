@@ -339,8 +339,8 @@
     NO NAME IS RESERVED any more.  "cgroup-delegate" and "journal" stopped being
     reserved on 2026-08-18 and "claude-oauth-broker" on 2026-08-19, when the last
     of yolo's own loopholes became a pack's manifest — writing
-    "loopholes": {"cgroup-delegate": {"enabled": true}} is how you switch the
-    cgroup delegate on, and it is OFF until you do.  What refuses a duplicate now
+    "packs": ["cgroup-delegate"] is how you switch the cgroup delegate on, and it
+    is OFF until you do.  What refuses a duplicate now
     is exclusivity ACROSS PACKS (two packs claiming one loophole name refuses the
     launch), not a list of names yolo holds back.
 
@@ -349,8 +349,8 @@
     the in-jail terminator's endpoint variable all name it — so declaring an
     INLINE service under that name is accepted and is almost certainly not what
     you want: yolo will ensure its own broker singleton alongside your daemon.
-    Select "packs": ["claude"] to get the real one, and use "enabled" below to
-    switch it off.
+    Select "packs": ["claude"] to get the real one; to stop it, do not select
+    the pack.
 
     A key here does one of two things, and which one depends on whether a loophole
     of that name already EXISTS on this machine (shipped by a selected pack).  A
@@ -358,48 +358,33 @@
     loophole.  The two accept different keys, because you cannot replace a
     manifest's daemon from config.
 
-    "enabled" (boolean, optional) is accepted by BOTH, and it is THE SWITCH:
+    "enabled" (boolean, optional) switches an INLINE service, and nothing else:
 
-      "loopholes": { "cgroup-delegate": { "enabled": true } }
+      "loopholes": { "my-service": { "enabled": false } }
 
-      It is the USER's answer, and it outranks whatever the loophole's manifest
-      declared, in both directions.  DO NOT CONFUSE IT WITH "default_enabled",
-      which is a key on a loophole's loophole.toml and is not valid here: that
-      one is the PACK AUTHOR's default — what happens when nobody has spoken —
-      and an ABSENT "default_enabled" means the loophole is OFF (presence never
-      activates; docs/reference/loophole-system.md R1/R2).  So a loophole whose
-      author shipped it off, "cgroup-delegate" among them, runs only because this
-      key says so.  A loophole that declares [[grants]] ("audio" among them)
-      runs whenever its pack is selected; for it this key is read only as a
-      legacy request for its grant.  Honored from the user config and from a workspace yolo-jail.jsonc
-      alike; the workspace is the agent-editable scope, so a switch written there
-      is disclosed by name at every launch and by "yolo check".
       On an inline service the default is ON — writing the argv out by hand is
-      already the deliberate act — so there the key is only ever used to switch
-      one off without deleting it.
-
-      FOR ONE PROJECT ONLY, run [cyan]yolo loopholes enable <name>[/cyan] (or
-      [cyan]disable[/cyan]) on the host, in the project or with --workspace <path>.
-      It writes the switch into that project's PER-WORKSPACE FILE,
-      ~/.config/yolo-jail/workspaces/<folder>-<hash>.jsonc, never into this
-      config, and prints which file.  That file merges LAST, over this config and
-      the project's own yolo-jail.jsonc and yolo-jail.local.jsonc, from the
-      project's next fresh launch; no jail can read it.  It holds
-      "workspace" (the project's path, which must match) and
-      "loopholes": {"<name>": {"enabled": true|false}} and nothing else.
-      [cyan]yolo loopholes enable <name> --global[/cyan] prints the block to
-      paste into this config (config.jsonc) instead, and writes nothing: yolo
-      does not edit your config.
+      already the deliberate act — so the key is only ever used to switch one
+      off without deleting it.  A loophole a selected pack ships has NO switch:
+      it runs whenever its pack is selected, and one that declares [[grants]]
+      ("journal", "audio", "host-processes" among them) grants nothing until a
+      grant covers the project.  Give one with [cyan]yolo allow <name> <kind>[/cyan] on
+      the host (every project), or let a project ask with
+      [cyan]yolo request <name> <kind>[/cyan] after [cyan]yolo allow <name> on_request <kind>[/cyan].
+      To keep a pack's loophole off, do not select the pack.  For a pack's
+      loophole this key switches nothing, and "yolo check" says so wherever it
+      is written.  A switch an older [cyan]yolo loopholes enable[/cyan] wrote into a
+      project's per-workspace file (~/.config/yolo-jail/workspaces/) is read as
+      that project's legacy request for the loophole's grant.  The manifest
+      key "default_enabled" is refused at load: a loophole.toml declares what
+      can be granted under [[grants]] instead.
 
       A loophole whose manifest declares "brokered" (the github pack's
-      github-broker, the git pack's git-broker) has NO switch: it runs whenever
-      its pack is selected, and grants nothing until a grant under "brokered"
-      does (see "brokered" below).  Its "enabled" here, or under "loopholes" in
-      a project's yolo-jail.jsonc or yolo-jail.local.jsonc (or their .json
-      spellings), is an error naming that grant; one an older yolo wrote into
-      a per-workspace file is ignored with a warning, and
-      [cyan]yolo loopholes disable <name>[/cyan] removes it.  Its manifest may not
-      set "default_enabled": true.
+      github-broker, the git pack's git-broker) grants nothing until a grant
+      under "brokered" does (see "brokered" below).  Its "enabled" here, or
+      under "loopholes" in a project's yolo-jail.jsonc or yolo-jail.local.jsonc
+      (or their .json spellings), is an error naming that grant; one an older
+      yolo wrote into a per-workspace file is ignored with a warning, and
+      [cyan]yolo loopholes disable <name>[/cyan] removes it.
 
     DECLARING an inline service also takes:
       "command" (array of strings, required): the command to launch on the host
@@ -417,9 +402,9 @@
     An inline service runs only beside a jail, its one client: at the host notch no
     verb starts it, and `yolo host apply` names each enabled one as not applying.
 
-    OVERRIDING an existing loophole takes only "enabled", "env", "jail_env" and
-    "settings" ("jail_env" being extra env vars set INSIDE the jail, merged over
-    whatever the manifest declared).  "command" and "doctor_cmd" are REFUSED there
+    OVERRIDING an existing loophole takes only "env", "jail_env" and "settings"
+    ("jail_env" being extra env vars set INSIDE the jail, merged over whatever the
+    manifest declared); its "enabled" is accepted and switches nothing.  "command" and "doctor_cmd" are REFUSED there
     by name: they are fixed by the loophole's manifest, and a config that appeared
     to change them would change nothing.
 
@@ -431,7 +416,7 @@
 
       "loopholes": {
         "host-processes": {
-          "settings": { "visible": ["sway", "waykeeper"] }
+          "settings": { "fields": ["pid", "comm"] }
         }
       }
 
@@ -641,49 +626,39 @@
     fresh launch.
 
   [bold]host_processes[/bold] (object): REMOVED — a config carrying it is REFUSED.
-    Its keys moved to the host-processes loophole's own "settings" block, where they
-    are declared by that loophole's manifest rather than by yolo's config schema:
+    The host-processes loophole ships in the pack of that name, and what it may
+    show is a grant a project requests, not a config key:
 
-      "packs": ["host-processes"],
-      "loopholes": { "host-processes": {
-        "enabled": true,
-        "settings": {
-          "visible": ["sway"],          // process comm names yolo-ps may show
-          "fields":  ["pid", "comm"]    // ps -o columns
-        }
-      }}
+      yolo pack add host-processes
+      yolo allow host-processes on_request view        # on the host, once
+      yolo request host-processes view sway            # in the project
+      yolo config set allow.host-processes.fields pid comm   # ps -o columns
 
     NOTE THE SPELLING: the loophole is "host-processes" (hyphen); the removed
-    top-level key is "host_processes" (underscore).  All three lines are needed —
-    the loophole ships in a PACK now, so migrating the keys alone leaves yolo-ps
-    just as broken.  Two behaviours changed with the move: the allowlist is
-    resolved once at launch (so an edit needs a jail restart), and a workspace file
-    supplying it is disclosed and gated by the config-change approval flow.
+    top-level key is "host_processes" (underscore).  The columns are read once at
+    launch, so changing them needs a jail restart.
 
   [bold]journal[/bold] (string): REMOVED — a config carrying it is REFUSED.
-    The journal bridge is an ordinary pack-shipped loophole now, so it is selected
-    and switched on like anything else, and its mode is its own declared setting.
+    The journal bridge is an ordinary pack-shipped loophole now: it runs whenever
+    its pack is selected and reads nothing until a grant covers the project.
     yolo's config schema no longer names a loophole at all.
 
-      "packs": ["journal"],
-      "loopholes": { "journal": {
-        "enabled": true,                // was "journal": "user" (or the bare true)
-        "settings": { "full": true }    // was "journal": "full" — USER CONFIG ONLY
-      }}
+      yolo pack add journal
+      yolo allow journal read          # was "journal": "user" (or the bare true)
+      yolo allow journal read_all      # was "journal": "full"
 
     What it does is unchanged: [bold]yolo-journalctl[/bold] inside the jail forwards
     its args to [cyan]journalctl[/cyan] running on the host and streams
     stdout/stderr back, so an agent can inspect systemd logs without the host
     journal being mounted rw into the jail.
-      • off      — don't select the pack, or "enabled": false
-      • narrow   — enabled; the daemon forces [cyan]--user[/cyan] on every
-                   invocation (this is the default, and what "user" meant)
-      • full     — enabled + "settings": {"full": true}; args pass through
-                   unchanged, which needs host journal read access
-    THE "full" SETTING IS USER-SCOPE.  A workspace yolo-jail.jsonc may switch the
-    bridge on ("enabled" is honored from either scope) but may NOT widen what it
-    reads: reading the whole host journal used to be settable from a file the agent
-    inside the jail can rewrite, and the declared scope is what ended that.
+      • off      — don't select the pack, or grant nothing
+      • narrow   — the "read" grant; the daemon forces [cyan]--user[/cyan] on every
+                   invocation (what "user" meant)
+      • full     — the "read_all" grant; args pass through unchanged, which
+                   needs host journal read access
+    A GRANT IS YOURS TO GIVE.  A workspace file may ask (a request), never grant:
+    reading the whole host journal used to be settable from a file the agent
+    inside the jail can rewrite, and the grant is what ended that.
     Endpoint file: /run/yolo-services/journal.endpoint
     Env var: YOLO_SERVICE_JOURNAL_ENDPOINT
     The value is a PATH to the endpoint file, not an address: the bridge is on
@@ -3083,10 +3058,9 @@
     CAP_SYS_ADMIN or writable cgroup mount is needed inside the container — it
     validates every request and operates on the host cgroup filesystem via a
     Unix socket.
-    [bold]OPT-IN since 2026-08-18[/bold] — two lines in your USER config, and
-    until you write them yolo-cglimit reports that it is not wired up:
-      "packs": ["cgroup-delegate"],
-      "loopholes": { "cgroup-delegate": { "enabled": true } }
+    [bold]OPT-IN since 2026-08-18[/bold] — select its pack, and until you do
+    yolo-cglimit reports that it is not wired up:
+      yolo pack add cgroup-delegate
     Then, inside the jail:
       yolo-cglimit --cpu 75 -- python train.py           # 75% of all CPUs
       yolo-cglimit --cpu 50 --memory 2g -- make -j8      # 50% CPU + 2GB RAM
@@ -3122,16 +3096,14 @@
     so the wrapper read nothing in every mode.  The log is now read on the HOST by
     the macos-log loophole, and [cyan]yolo-log[/cyan] is its client:
 
-      "packs": ["macos-log"],
-      "loopholes": { "macos-log": {
-        "enabled": true,                // what "user" was meant to give
-        "settings": { "full": true }    // what "full" was — USER CONFIG ONLY
-      }}
+      yolo pack add macos-log
+      yolo allow macos-log read        # what "user" was meant to give
+      yolo allow macos-log read_all    # what "full" was
 
-      • narrow (default) — [cyan]yolo-log show[/cyan] and [cyan]yolo-log stream[/cyan]
+      • narrow ("read") — [cyan]yolo-log show[/cyan] and [cyan]yolo-log stream[/cyan]
         only, printed as ndjson, and only entries logged by processes running as
         the macos-user sandbox account
-      • full — every argument passes to [cyan]log[/cyan] unchanged, as the host user
+      • full ("read_all") — every argument passes to [cyan]log[/cyan] unchanged, as the host user
     "off" needs nothing: delete the key.  The Seatbelt profile denies the sandbox
     the log itself whatever is set.  macOS only (the loophole declares darwin).
 

@@ -10,9 +10,6 @@
 name = "macos-log"
 description = "Read the Mac's unified log from inside the jail (yolo-log). The `read` grant narrows every request to the macos-user sandbox account's processes; `read_all` passes the request to `log` unchanged."
 version = 1
-# A grant-declaring loophole runs whenever its pack is selected; the grants below, not this
-# switch, decide what a request may read. The key goes when `default_enabled` is retired.
-default_enabled = false
 # The one line every refusal and the launch's disclosure print for this loophole.
 access = "read the Mac's unified log"
 # A Mac's log, so darwin only. Declared, not probed: on Linux there is nothing to install.

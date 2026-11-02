@@ -18,7 +18,7 @@ func TestPackFootprintOfAPathNamesALocalDoorwaysHostArgv(t *testing.T) {
 	writeFile(t, filepath.Join(pack, "pack.json"), `{"name": "acme", "contributes": [
 		{"kind": "loophole", "from": "loopholes/acme-door"}]}`)
 	writeFile(t, filepath.Join(pack, "loopholes", "acme-door", "manifest.jsonc"), `{"name": "acme-door",
-		"description": "acme door", "default_enabled": true, "transport": "loopback-tls",
+		"description": "acme door", "transport": "loopback-tls",
 		"jail_daemon": {"cmd": ["yolo-jaild", "acme-adapter", "--listen", "{listen}"],
 		"listen": "127.0.0.1:1999", "caller_token": true,
 		"host_cmd": ["yolo", "internal", "daemon", "acme-adapter", "--listen", "{listen}"]}}`)

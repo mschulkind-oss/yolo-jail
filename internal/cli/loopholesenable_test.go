@@ -80,7 +80,7 @@ func TestLoopholesEnableWritesThePerWorkspaceFileAndNothingElse(t *testing.T) {
 		t.Fatal(err)
 	}
 	block, _ := cfg.Get("loopholes")
-	if v, set := loopholes.ConfigEnabledOverride(asMapForTest(block), "journal"); !set || !v {
+	if v, set := config.LoopholeEnabledOverride(asMapForTest(block), "journal"); !set || !v {
 		t.Fatalf("after enable the launch's config has journal enabled=%v set=%v", v, set)
 	}
 

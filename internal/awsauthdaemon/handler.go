@@ -52,6 +52,12 @@ func BuildHandler(config HandlerConfig) hostservice.Handler {
 		case "ping":
 			_ = session.JSON(map[string]any{"pong": true, "pid": int64(os.Getpid())})
 		case "credentials":
+			if config.Broker.Config.Profile == "" {
+				// No profile: the agent's error names what to set (main.go, step 0).
+				replyError(session, &awsauth.MintError{Kind: awsauth.FailureUnavailable,
+					Code: "NotConfigured", Message: unconfiguredMessage()})
+				return
+			}
 			// Session.JailID is the HOST-ASSERTED caller from the connection
 			// preamble, which is what makes the audit line worth writing.
 			result, err := config.Broker.Fetch(context.Background(), session.JailID)

@@ -16,7 +16,8 @@ import (
 // (config/workspacefile.go; docs/design/boundary-broker.md BB-D54) as the launch does.
 
 // brokeredModule records one pack loophole declaring `brokered`, which runs whenever its pack is
-// selected (BB-D106), and one ordinary loophole, off by default.
+// selected (BB-D106). "plain", the loophole the tests switch, is a config-inline one: a pack
+// loophole has no switch at all now (T13), so only an entry the config alone declares can be off.
 func brokeredModule(t *testing.T) {
 	t.Helper()
 	isolateModules(t)
@@ -27,11 +28,7 @@ func brokeredModule(t *testing.T) {
 	  "transport": "loopback-tls", "lifecycle": "spawned",
 	  "host_daemon": {"cmd": ["/bin/true", "{repository_scope}"], "publishes": "socket"},
 	  "brokered": {"source": "gbsrc", "remote_host": "github.com"}}`), 0o644))
-	plain := filepath.Join(parent, "plain")
-	must(t, os.MkdirAll(plain, 0o755))
-	must(t, os.WriteFile(filepath.Join(plain, "manifest.jsonc"),
-		[]byte(`{"name": "plain", "transport": "none", "lifecycle": "external"}`), 0o644))
-	SetPackModules([]PackModule{{Dir: gb, HostExecApproved: true}, {Dir: plain, HostExecApproved: true}})
+	SetPackModules([]PackModule{{Dir: gb, HostExecApproved: true}})
 }
 
 // listedEnabled is each listed loophole's switch.

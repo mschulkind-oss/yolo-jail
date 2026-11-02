@@ -247,7 +247,7 @@ func loopholesWithConfigAndBlock(deps Deps, includeDisabled bool) (Set, *jsonx.O
 					if !isKnown && !inMerged {
 						continue
 					}
-					if v, set := ConfigEnabledOverride(block, name); set {
+					if v, set := config.LoopholeEnabledOverride(block, name); set {
 						setConfigEnabled(merged, name, v)
 					}
 				}

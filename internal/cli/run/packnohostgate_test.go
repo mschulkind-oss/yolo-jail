@@ -429,7 +429,7 @@ func TestAbsentBindSourceIsSkippedNotRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(mod, "manifest.jsonc"), []byte(
-		`{"name":"acme-proxy","transport":"none","default_enabled":true,`+
+		`{"name":"acme-proxy","transport":"none",`+
 			`"host_daemon":{"cmd":["/bin/true"],"publishes":"socket"},`+
 			`"host_bind_mounts":[{"host":"{loophole_dir}/conf","container":"/etc/acme-present"},`+
 			`{"host":"{loophole_dir}/gone","container":"/etc/acme-absent"}]}`), 0o644); err != nil {

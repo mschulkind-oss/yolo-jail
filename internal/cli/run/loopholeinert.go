@@ -241,10 +241,8 @@ func backendInertLines(packs []*packload.Pack, reason string) []string {
 // (a duplicate, a disabled loophole) contributes no line by construction rather than by this
 // function also remembering to drop it.
 //
-// THE USER'S SWITCH, NOT THE AUTHOR'S: resolveInertLoophole reads the manifest alone, so its
-// Enabled is `default_enabled`. ApplyConfigEnabled lays the merged config's
-// `loopholes.<name>.enabled` over it before the producer's disabled-skip reads it — without
-// that, a Linux-only loophole the user switched ON on a Mac drew no line (G15).
+// Every record here is a selected pack's, so every one runs and is reported: no switch decides
+// it (docs/design/loophole-access-approval.md §4.1).
 func platformInertLines(packs []*packload.Pack, cfg *jsonx.OrderedMap) []string {
 	var resolved []*loopholes.Loophole
 	packOf := map[string]string{}
@@ -261,7 +259,6 @@ func platformInertLines(packs []*packload.Pack, cfg *jsonx.OrderedMap) []string 
 		}
 	}
 	var lines []string
-	loopholes.ApplyConfigEnabled(resolved, cfgMap(cfg, "loopholes"))
 	for _, note := range loopholes.PlatformInertNotes(resolved) {
 		lines = append(lines, inertLineFor(packOf[note.Name], note))
 	}

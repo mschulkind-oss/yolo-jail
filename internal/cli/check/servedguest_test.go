@@ -57,7 +57,7 @@ func doorwayPack(t *testing.T, name string, official bool, body string) *packloa
 // composes. Deleting the doorways from loopholes.ServedJailDaemonNames fails this.
 func TestCheckPredictsADoorwayServedOnMacosUser(t *testing.T) {
 	p := doorwayPack(t, "acme", true,
-		`"name":"acme-door","description":"d","transport":"none","default_enabled":true,`+
+		`"name":"acme-door","description":"d","transport":"none",`+
 			`"jail_daemon":{"cmd":["yolo-jaild","acme","--listen","{listen}"],"listen":"127.0.0.1:1998",`+
 			`"caller_token":true,"host_cmd":["yolo","internal","daemon","acme","--listen","{listen}"]}`)
 	for _, rt := range []string{"podman", "macos-user"} {
@@ -80,7 +80,7 @@ func TestCheckPredictsADoorwayServedOnMacosUser(t *testing.T) {
 // predictedServed fails this.
 func TestCheckDoesNotPredictARefusedDoorwayServedOnMacosUser(t *testing.T) {
 	p := doorwayPack(t, "local", false,
-		`"name":"acme-door","description":"d","transport":"none","default_enabled":true,`+
+		`"name":"acme-door","description":"d","transport":"none",`+
 			`"jail_daemon":{"cmd":["{jail_loophole_dir}/acme","--listen","{listen}"],"listen":"127.0.0.1:1998",`+
 			`"caller_token":true,"host_cmd":["yolo","internal","daemon","acme","--listen","{listen}"]}`)
 	elf := []byte{0x7f, 'E', 'L', 'F', 2, 1, 1, 0}
@@ -108,7 +108,7 @@ func TestCheckDoesNotPredictARefusedDoorwayServedOnMacosUser(t *testing.T) {
 func TestCheckPredictsTheGuestDaemonsServedOnMacosUser(t *testing.T) {
 	moduleRoot := isolatedModuleDir(t)
 	writeLoopholeManifest(t, moduleRoot, "acme-adapter",
-		`"name":"acme-adapter","description":"d","transport":"none","default_enabled":true,`+
+		`"name":"acme-adapter","description":"d","transport":"none",`+
 			`"jail_daemon":{"cmd":["yolo-jaild","acme","--listen","{listen}"],"listen":"127.0.0.1:1999"}`)
 	var bridge []*packload.Pack
 	for _, p := range packload.Embedded() {

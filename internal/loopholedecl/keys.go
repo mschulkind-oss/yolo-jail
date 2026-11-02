@@ -24,7 +24,6 @@ const (
 	keyName           = "name"
 	keyDescription    = "description"
 	keyVersion        = "version"
-	keyDefaultEnabled = "default_enabled"
 	keyTransport      = "transport"
 	keyLifecycle      = "lifecycle"
 	keyIntercepts     = "intercepts"
@@ -88,74 +87,40 @@ const (
 // (docs/reference/loophole-system.md#default_enabled-versus-enabled, whose reverse-skew
 // warning is this paragraph's source).
 const (
-	// RetiredKeyEnabled is the manifest's old enablement key. It was renamed to
-	// `default_enabled` AND its default flipped (OQ-A9/R2), which is why a tolerance
-	// is not available here: silently dropping `"enabled": true` would leave the
-	// loophole OFF, and silently dropping `"enabled": false` would leave a loophole
-	// its author disabled looking like one that merely said nothing. Both readings
-	// are defensible, which is precisely why the manifest must not be guessed at.
+	// RetiredKeyEnabled is the manifest's first enablement key. OQ-A9 renamed it to
+	// `default_enabled` and flipped its default; LG-D3 then retired that too
+	// (docs/design/loophole-access-approval.md §4.5).
 	RetiredKeyEnabled = "enabled"
+	// RetiredKeyDefaultEnabled is the pack author's default for whether the loophole ran.
+	// Every loophole now runs whenever its pack is selected and grants nothing until a grant
+	// covers the project, so the key would have one legal value and no reader (LG-D3).
+	RetiredKeyDefaultEnabled = "default_enabled"
 )
 
-// # REVERSE SKEW, and why this file cannot fix it — read before adding a tripwire
+// # Reverse skew
 //
-// The refusal above protects a NEW build reading an OLD manifest. The opposite
-// direction is the dangerous one and it is NOT SOLVED HERE: an OLD build reading a
-// manifest that declares `default_enabled` does not know the key, tolerates it, and
-// falls back to enabled-defaults-TRUE. So a manifest shipping a loophole meant to be
-// OFF runs it ON under a yolo that predates the rename — a security regression
-// delivered by an upgrade of the CONTENT rather than of the binary.
+// The refusal protects a NEW build reading an OLD manifest. The opposite direction, an
+// OLD build reading a manifest with neither key, reads the absence as OFF (R2): the old
+// build does not run a loophole written for this one, which is the fail-closed direction.
 //
-// Three things were considered and only the third is honest.
-//
-//	A schema-version or unknown-key REFUSAL an old build trips on does not exist,
-//	and it does not exist ON PURPOSE. `version` is recognized-but-never-enum-checked
-//	(see Manifest.Version: refusing it "would brick a jail whose baked entrypoint is
-//	one just load behind"), unknown keys are tolerated by DecodeTolerant and again by
-//	packload.LoopholeModules, and BOTH tolerances are rulings with the `tier` incident
-//	as their measured cost. A value planted in new manifests purely to make old
-//	binaries choke reverses those rulings, and it fires for every pack manifest —
-//	including every harmless default-true one.
-//
-//	SHIPPING BOTH KEYS through a transition needs the refusal above scoped to
-//	non-shipped manifests. Pack-shippedness is deliberately the CALLER's fact and not
-//	the manifest's (internal/loopholes/load.go says why), and `yolo pack lint` runs
-//	the strict decoder over yolo's own packs — so the scoping would thread through
-//	three loaders and then exempt yolo from its own lint.
-//
-//	A VERSION FLOOR is the tempting one, and the reason it fails is worth keeping:
-//	internal/version does stamp a real version into the binary, so a `min_yolo` key
-//	is expressible. It is not ENFORCEABLE. A floor has to be checked by the READER,
-//	and the reader that needs stopping is precisely the build that shipped before the
-//	key existed — to which `min_yolo` is one more unknown key, tolerated. A floor
-//	added today can only bind the NEXT deletion-shaped change, never this one.
-//
-// So the residual is a RELEASE NOTE, and the population is smaller than it looks.
-// For the manifests yolo SHIPS reverse skew is structurally impossible: they ride the
-// OFFICIAL PACK embed into the binary with go:embed, and a staged official pack is
-// materialized from that embed, so a binary reads its own copy and never a newer one.
-// (This paragraph used to say the same of `bundled_loopholes/`, whose embed is retired —
-// docs/reference/loophole-system.md OQ-BP4 — and named BundledLoopholesDir's repo-checkout
-// preference as the lone exception. That preference is gone with the function.) For
-// FETCHED packs' manifests, written by third parties and updated independently of the
-// binary, it is real and unclosable from inside this package.
+// The refusal runs in BOTH decoders, so a jail an older yolo launched, whose frozen pack
+// tree still declares `default_enabled`, loses those records at an attach by this yolo
+// until it is relaunched; relaunching stages the current manifests.
 
 // retiredTopKeyRefusal returns the refusal text for a retired TOP-LEVEL key, or ""
 // when the key is not retired. Written as a lookup over all keys rather than an `if`
 // per key so retiring the next one is a single entry, not a second call site to
-// forget.
+// forget. The text follows "<manifest path>: ".
 func retiredTopKeyRefusal(key string) string {
 	switch key {
+	case RetiredKeyDefaultEnabled:
+		return "default_enabled is gone. A loophole runs whenever its pack\n" +
+			"  is selected and grants nothing until a grant covers the project; declare what can be granted under\n" +
+			"  [[grants]] instead, and remove the key."
 	case RetiredKeyEnabled:
-		return "'enabled' was retired from the loophole MANIFEST: write 'default_enabled'" +
-			" instead, and note that THE DEFAULT FLIPPED — an absent 'default_enabled' means" +
-			" the loophole is OFF, where an absent 'enabled' meant ON" +
-			" (docs/reference/loophole-system.md R2: \"presence never activates\"). So" +
-			" \"enabled\": true becomes \"default_enabled\": true, and \"enabled\": false is" +
-			" now what saying nothing means — delete the key." +
-			" THIS IS NOT THE CONFIG KEY: 'loopholes.<name>.enabled' in config.jsonc or" +
-			" yolo-jail.jsonc is the USER's switch and is unchanged. The manifest key was" +
-			" the pack author's DEFAULT, and it was renamed to say so."
+		return "'enabled' is gone, and so is the 'default_enabled' that replaced it. A loophole runs" +
+			" whenever its pack is selected and grants nothing until a grant covers the project;" +
+			" declare what can be granted under [[grants]] instead, and remove the key."
 	}
 	return ""
 }
@@ -165,7 +130,7 @@ func retiredTopKeyRefusal(key string) string {
 // key in them is known by construction.
 var (
 	topKeys = []string{
-		keyName, keyDescription, keyVersion, keyDefaultEnabled, keyTransport, keyLifecycle,
+		keyName, keyDescription, keyVersion, keyTransport, keyLifecycle,
 		keyIntercepts, keyBrokerIP, keyCACert, keyJailEnv, keyDoctorCmd, keyHostDaemon,
 		keyJailDaemon, keyHostBindMounts, keyHostDevices, keyStateFiles, keyRequires,
 		keyPlatforms, keyServes, keySettings, keyBrokered, keyGrants, keyAccess, keyBinaries, keyInheritFromParentJail,

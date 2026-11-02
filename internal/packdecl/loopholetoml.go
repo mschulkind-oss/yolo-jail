@@ -20,8 +20,8 @@ import (
 // `[[array of tables]]` blocks. A JSON null has no TOML spelling and is refused naming its path
 // (UnrepresentableError), never guessed.
 //
-// Every key is carried as written, `default_enabled` included, with its value: the key's future is
-// the owner's open question (docs/design/readable-config.md RC-D28), not the migration's.
+// Every key is carried as written, with its value. A retired key (`default_enabled`) is not
+// dropped here: the strict decode the migration proves against refuses it, naming what replaces it.
 func EncodeLoopholeTOMLLines(tree *jsonx.OrderedMap) ([]TOMLLine, error) {
 	if tree == nil {
 		return nil, fmt.Errorf("packdecl: cannot encode a nil loophole manifest")

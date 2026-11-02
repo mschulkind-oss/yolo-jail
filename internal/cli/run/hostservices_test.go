@@ -892,7 +892,6 @@ func TestManifestEOFDaemonRoundTripsBehindFront(t *testing.T) {
 	manifest := `{
   "name": "eofd",
   "description": "reads its request to EOF",
-  "default_enabled": true,
   "host_daemon": {
     "cmd": [` + fmt.Sprintf("%q", os.Args[0]) + `, "-front-upstream-child", "eof", "{socket}"],
     "publishes": "socket",

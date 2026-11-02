@@ -8,67 +8,26 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// THE PACK SWITCH (docs/design/config-user.md §7, approved 2026-10-25): in a TOML user config
-// `packs` is the only switch, and `loopholes.<name>.enabled` has no spelling. Its settings are
-// the pack's `[allow.<pack>]` table. A legacy JSONC user config keeps the old rule: the
-// manifest's `default_enabled`, overridden by `loopholes.<name>.enabled`.
+// THE PACK SWITCH (docs/design/config-user.md §7, approved 2026-10-25): `packs` is the only
+// switch. Every pack loophole runs whenever its pack is selected and grants nothing until a grant
+// covers the project (docs/design/loophole-access-approval.md §4.1); there is no manifest default
+// and no config key that decides whether it runs. Under a TOML user config a pack's settings are
+// its `[allow.<pack>]` table, read through ConfigBlock.
 //
-// ONLY THE UNGATED LOOPHOLES run on selection yet (ungatedOnSelection). The governing design,
-// docs/design/loophole-access-approval.md §4.1, runs EVERY selected loophole and grants nothing
-// until a grant covers the project; the grant layer is not built, and running a gated loophole
-// (journal, host-processes, audio, ...) without it would grant everything at once (§1). Those
-// keep `default_enabled` until it lands.
-//
-// An explicit `loopholes.<name>.enabled` in the merged config still decides in both modes: a
-// TOML file cannot write one, so under a TOML user config it can only come from a legacy layer
-// (a JSONC `--user-layer`, a workspace file), and that layer's answer outranks the selection the
-// way it outranks `default_enabled` in a legacy config.
-//
-// ONE PREDICATE for the mode, read from the user config's format, so every discovery surface
-// (the launch, `yolo check`, `yolo loopholes list`, the inert report) answers alike.
+// ONE PREDICATE for the settings shape, read from the user config's format, so every discovery
+// surface (the launch, `yolo check`, `yolo loopholes list`, the inert report) answers alike.
 // `yolo config migrate` proves a conversion against the explicit form, PackSwitchActivation.
 
-// SelectionIsTheSwitch reports whether the user config is TOML, where selecting a pack switches
-// its loopholes on.
+// SelectionIsTheSwitch reports whether the user config is TOML, whose `[allow.<pack>]` tables
+// carry the pack's settings.
 func SelectionIsTheSwitch() bool {
 	return strings.EqualFold(filepath.Ext(paths.UserConfigDisplayPath()), ".toml")
 }
 
-// selectionSwitches resolves DiscoverOptions.SelectionSwitch: the caller's answer when it gave
-// one, else the user config's format.
-func selectionSwitches(opts DiscoverOptions) bool {
-	if opts.SelectionSwitch != nil {
-		return *opts.SelectionSwitch
-	}
-	return SelectionIsTheSwitch()
-}
-
-// ungatedOnSelection is the shipped loopholes the access design rules ungated whose approval is a
-// login or a user-scope setting (loophole-access-approval.md §4.3, LG-D4): each runs on selection
-// and serves nothing until a human logs in or sets a profile. `cgroup-delegate`, the fourth
-// ungated one, is selected by default under LG-D13, which is not built; it is left out here with
-// the gated ones.
+// ungatedLoopholes is the shipped loopholes the access design rules ungated whose approval is a
+// login or a user-scope setting (loophole-access-approval.md §4.3, LG-D4): each declares no grant
+// kind, so a legacy `loopholes.<name>.enabled: true` for one carries nothing a grant could hold.
 var ungatedLoopholes = map[string]bool{"claude-oauth-broker": true, "openai-auth-broker": true, "aws-auth": true}
-
-// ungatedOnSelection is the subset the switch has to turn on: the two login services already
-// ship `default_enabled = true`, so selection runs them in either mode, and a test fixture that
-// declares one off keeps meaning off.
-var ungatedOnSelection = map[string]bool{"aws-auth": true}
-
-// switchOnSelected turns on every selected pack's ungated loophole (ungatedOnSelection). The
-// config block's explicit `enabled` is applied afterwards and wins.
-func switchOnSelected(byName map[string]*Loophole) {
-	for _, lp := range byName {
-		if onBySelection(lp) {
-			lp.Enabled = true
-		}
-	}
-}
-
-// onBySelection is whether selecting lp's pack runs it under the pack switch.
-func onBySelection(lp *Loophole) bool {
-	return lp != nil && lp.Source == SourcePack && SwitchedByConfig(lp) && ungatedOnSelection[lp.Name]
-}
 
 // allowanceKeys are the keys of an `allow.<source>` table that are a broker's allowance rather
 // than a pack setting (docs/design/config-user.md §6).
@@ -128,6 +87,33 @@ func configBlock(cfg *jsonx.OrderedMap, readable bool) *jsonx.OrderedMap {
 	return out
 }
 
+// ConfiguredSetting reads a loophole's setting the way the settings readers do (ConfigBlock): under a TOML
+// user config an `allow.<pack>` table's key counts, a legacy layer's `loopholes.<pack>.settings`
+// key winning. The value is a trimmed string, "" when unset or not a string. Pass it wherever a
+// reader asks for a `func(loophole, key string) string` (packload.LoopholeSettingIn's shape, which
+// reads only the `loopholes` block and so misses a TOML user's `[allow.<pack>]` table).
+func ConfiguredSetting(cfg *jsonx.OrderedMap) func(loophole, key string) string {
+	block := ConfigBlock(cfg)
+	return func(loophole, key string) string {
+		if block == nil {
+			return ""
+		}
+		entryV, _ := block.Get(loophole)
+		entry, _ := entryV.(*jsonx.OrderedMap)
+		if entry == nil {
+			return ""
+		}
+		settingsV, _ := entry.Get("settings")
+		settings, _ := settingsV.(*jsonx.OrderedMap)
+		if settings == nil {
+			return ""
+		}
+		v, _ := settings.Get(key)
+		s, _ := v.(string)
+		return strings.TrimSpace(s)
+	}
+}
+
 // getMapEntry returns m[key] as a map, creating it when absent (or replacing a non-map).
 func getMapEntry(m *jsonx.OrderedMap, key string) (*jsonx.OrderedMap, bool) {
 	if v, ok := m.Get(key); ok {
@@ -159,13 +145,13 @@ func PackSwitchActivation(cfg *jsonx.OrderedMap, readable bool, modules []PackMo
 	}
 	out := map[string]Activation{}
 	for _, lp := range Discover(DiscoverOptions{IncludeDisabled: true, LoopholesConfig: loopholesBlock,
-		PackModules: modules, SelectionSwitch: &readable}) {
+		PackModules: modules}) {
 		out[lp.Name] = Activation{Enabled: lp.Enabled, Settings: SettingsFromConfig(block, lp.Name)}
 	}
 	return out
 }
 
-// RunsOnSelection reports whether selecting the pack that ships the loophole name runs it under
-// a TOML user config. `yolo config migrate` asks before it drops a legacy
-// `loopholes.<name>.enabled: true`: for any other loophole the TOML spelling has no switch yet.
+// RunsOnSelection reports whether the loophole name is one of the ungated shipped loopholes, for
+// which a legacy `loopholes.<name>.enabled: true` means nothing beyond selecting its pack.
+// `yolo config migrate` asks before it drops one; any other loophole's switch becomes a grant.
 func RunsOnSelection(name string) bool { return ungatedLoopholes[name] }

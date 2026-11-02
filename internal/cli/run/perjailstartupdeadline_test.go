@@ -249,7 +249,6 @@ func runPerJailReasonFixture(t *testing.T, mode string, timeout time.Duration, r
 	}
 	manifest := fmt.Sprintf(`{
   "name": "per-jail-reason",
-  "default_enabled": true,
   "host_daemon": {
     "cmd": %s,
     "startup_reason": true,

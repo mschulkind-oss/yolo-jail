@@ -27,12 +27,11 @@ import (
 // ignored — "my logs stopped working" leads nowhere.
 //
 // The message has three jobs and all three are asserted, because migrating the value
-// alone leaves `yolo-journalctl` just as broken: select the pack, enable the loophole,
-// and (only for the old "full") write the setting — in the USER config, because `full`
-// is declared `scope: "user"` and a workspace file supplying it is itself refused.
+// alone leaves `yolo-journalctl` just as broken: select the pack, grant `read`, and (only
+// for the old "full") grant `read_all` — from the USER config, never a workspace file.
 // That scope is the ruling rather than a detail (OQ-K4's "security half"):
 // `"journal": "full"` was settable from an agent-editable file with no scope rule at
-// all.
+// all. Every command it names is one the dispatcher has.
 func TestRetiredJournalKeyIsRefusedAndNamesItsReplacement(t *testing.T) {
 	t.Setenv("YOLO_VERSION", "")
 	cfg := decode(t, `{"journal": "full"}`)
@@ -46,16 +45,17 @@ func TestRetiredJournalKeyIsRefusedAndNamesItsReplacement(t *testing.T) {
 	}
 	for _, want := range []string{
 		"REMOVED",
-		"packs",    // the bridge is a pack now; migrating the value alone is not enough
-		"journal",  // the loophole's name, which is also the pack's
-		"enabled",  // the switch that replaced "user"/true
-		"settings", // where the mode went
-		"full",     // the escalation, by the name it now has
-		"USER",     // and the scope, which is the point of the move
+		"yolo pack add journal",       // the bridge is a pack now; migrating the value alone is not enough
+		"yolo allow journal read",     // the grant that replaced "user"/true
+		"yolo allow journal read_all", // the escalation, by the name it now has
+		"user config",                 // and the scope, which is the point of the move
 	} {
 		if !strings.Contains(hits[0], want) {
 			t.Errorf("refusal %q does not mention %q", hits[0], want)
 		}
+	}
+	if strings.Contains(hits[0], "loopholes") || strings.Contains(hits[0], "settings") {
+		t.Errorf("refusal %q still teaches the retired switch or setting", hits[0])
 	}
 	if len(containing(warns, "config.journal")) != 0 {
 		t.Errorf("warnings = %v — on the host this is an error, not a warning", warns)

@@ -4,8 +4,6 @@
 name = "openai-auth-broker"
 description = "Serializes OpenAI subscription refreshes across agents, workspaces, hosts, and jails."
 version = 1
-# On, like the Claude broker (see packs/claude-auth): selecting the pack is what starts it.
-default_enabled = true
 serves = ["openai-oauth-refresh"]
 transport = "loopback-tls"
 lifecycle = "spawned"

@@ -34,7 +34,7 @@ func socketDaemonFixture(t *testing.T, name string) {
 		t.Fatal(err)
 	}
 	manifest := `{"name": "` + name + `", "description": "fixture", "version": 1,
-	  "default_enabled": true, "transport": "` + loopholes.TransportNone + `",
+	  "transport": "` + loopholes.TransportNone + `",
 	  "lifecycle": "spawned",
 	  "host_daemon": {"cmd": ` + string(cmd) + `, "publishes": "socket", "detach": true}}`
 	if err := os.WriteFile(filepath.Join(lp, "manifest.jsonc"), []byte(manifest), 0o644); err != nil {

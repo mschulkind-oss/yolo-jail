@@ -40,12 +40,12 @@ func livenessFixture(t *testing.T) {
 	moduleRoot := isolatedModuleDir(t)
 	writeLoopholeManifest(t, moduleRoot, brokerLoopholeName,
 		`"name":"`+brokerLoopholeName+`","description":"x","transport":"loopback-tls",`+
-			`"default_enabled":true,"host_daemon":{"cmd":["true"],"publishes":"socket","detach":true}`)
+			`"host_daemon":{"cmd":["true"],"publishes":"socket","detach":true}`)
 	writeLoopholeManifest(t, moduleRoot, "svc",
-		`"name":"svc","description":"x","transport":"loopback-tls","default_enabled":true,`+
+		`"name":"svc","description":"x","transport":"loopback-tls",`+
 			`"host_daemon":{"cmd":["true"],"publishes":"socket"}`)
 	writeLoopholeManifest(t, moduleRoot, "unixsvc",
-		`"name":"unixsvc","description":"x","transport":"none","default_enabled":true,`+
+		`"name":"unixsvc","description":"x","transport":"none",`+
 			`"host_daemon":{"cmd":["true"],"publishes":"socket"}`)
 }
 

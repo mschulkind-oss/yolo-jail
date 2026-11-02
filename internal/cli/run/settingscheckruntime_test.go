@@ -99,7 +99,6 @@ func TestManifestSettingsRefusalPreservesTheStableSettings(t *testing.T) {
 	manifest := fmt.Sprintf(`{
   "name": "refused",
   "description": "refusal fixture",
-  "default_enabled": true,
   "settings": {"profile": {"type": "string", "default": "old"}},
   "host_daemon": {
     "cmd": [%q, "-front-upstream-child", "line", "{socket}", "--settings", "{settings}"],
@@ -159,7 +158,6 @@ func TestPerJailSettingsSnapshotsRemainIsolatedAcrossInterleavedStarts(t *testin
 	coordDir := t.TempDir()
 	manifest := fmt.Sprintf(`{
   "name": "interleaved",
-  "default_enabled": true,
   "settings": {"profile": {"type": "string", "scope": "user", "default": "default-profile"}},
   "host_daemon": {
     "cmd": [%q, "-settings-interleave-child", "{socket}", "{settings}", %q],
@@ -339,7 +337,6 @@ func TestKeeperStartsWithTheLaunchValidatedSettingsSnapshot(t *testing.T) {
 	daemonMarker := filepath.Join(t.TempDir(), "daemon.marker")
 	manifest := fmt.Sprintf(`{
   "name": "keeper-settings",
-  "default_enabled": true,
   "settings": {"profile": {"type": "string", "scope": "user", "default": "default-profile"}},
   "host_daemon": {
     "cmd": [%q, "-settings-snapshot-daemon", "{socket}", "{settings}", %q],
@@ -416,7 +413,6 @@ func TestManifestSettingsCheckUsesAndRetainsLaunchPrivateSnapshot(t *testing.T) 
 	manifest := fmt.Sprintf(`{
   "name": "checked",
   "description": "private settings fixture",
-  "default_enabled": true,
   "settings": {"profile": {"type": "string", "default": "old"}},
   "host_daemon": {
     "cmd": [%q, "-settings-snapshot-daemon", "{socket}", "{settings}", %q],
@@ -503,7 +499,6 @@ func TestPrepareSettingsValidatorAdmissionAtLaunchCaller(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
 		approved    bool
-		disabled    bool
 		platform    string
 		superseded  bool
 		inWorkspace bool
@@ -513,7 +508,6 @@ func TestPrepareSettingsValidatorAdmissionAtLaunchCaller(t *testing.T) {
 		{name: "selected fresh launch", approved: true, allow: "podman", admit: true},
 		{name: "unselected service", approved: true, allow: "none"},
 		{name: "unresolved pack approval", approved: false, allow: "podman"},
-		{name: "disabled", approved: true, disabled: true, allow: "podman"},
 		{name: "unsupported platform", approved: true, platform: "darwin", allow: "podman"},
 		{name: "superseded", approved: true, superseded: true, allow: "podman"},
 		{name: "agent-editable module", approved: true, inWorkspace: true, allow: "podman"},
@@ -545,7 +539,7 @@ func TestPrepareSettingsValidatorAdmissionAtLaunchCaller(t *testing.T) {
 			}
 			validator := `grep -q current-profile "$1" && printf x >> ` + shquote.Quote(marker)
 			manifest := fmt.Sprintf(`{
-  "name":"admission-fixture", "default_enabled":true, "transport":"none"%s%s,
+  "name":"admission-fixture", "transport":"none"%s%s,
   "settings":{"profile":{"type":"string","default":"default-profile"}},
   "host_daemon":{
     "cmd":[%q,"-settings-snapshot-daemon","{socket}","{settings}",%q],
@@ -557,12 +551,9 @@ func TestPrepareSettingsValidatorAdmissionAtLaunchCaller(t *testing.T) {
 				t.Fatal(err)
 			}
 			config := settingsConfig("admission-fixture", "current-profile")
-			var moduleConfig *jsonx.OrderedMap
-			if tc.disabled {
-				moduleConfig = newConfig("admission-fixture", newConfig("enabled", false))
-			}
+			// No "disabled" case: a pack's loophole runs whenever its pack is selected, so the
+			// unselected case above is the off one.
 			set := loopholes.NewSet(loopholes.DiscoverOptions{
-				LoopholesConfig:   moduleConfig,
 				PackModules:       []loopholes.PackModule{{Dir: module, HostExecApproved: tc.approved}},
 				PackSupersessions: claims,
 			})
@@ -602,7 +593,6 @@ func writeSettingsValidatorModePack(t *testing.T, home, marker string) {
   "name":"settings-mode",
   "description":"settings validation mode fixture",
   "transport":"loopback-tls",
-  "default_enabled":true,
   "settings":{"profile":{"type":"string","scope":"user","default":"old-profile"}},
   "host_daemon":{
     "cmd":[%q,"-settings-snapshot-daemon","{socket}","{settings}",%q],
@@ -670,7 +660,7 @@ func TestSealedRunDoesNotValidateOrStartSelectedHostService(t *testing.T) {
 	daemonMarker := filepath.Join(t.TempDir(), "settings-daemon-ran")
 	manifest := fmt.Sprintf(`{
   "name":"sealed-settings", "description":"sealed validator fixture",
-  "transport":"loopback-tls", "default_enabled":true,
+  "transport":"loopback-tls", 
   "settings":{"profile":{"type":"string","scope":"user","default":"old-profile"}},
   "host_daemon":{
     "cmd":[%q,"-settings-snapshot-daemon","{socket}","{settings}",%q],
@@ -713,13 +703,11 @@ func TestRunAdmissionNegativeCasesDoNotExecuteSelectedSettingsValidator(t *testi
 	for _, tc := range []struct {
 		name          string
 		selected      bool
-		disabled      bool
 		unsupportedOS bool
 		superseded    bool
 		agentEditable bool
 	}{
 		{name: "unselected pack"},
-		{name: "disabled selected service", selected: true, disabled: true},
 		{name: "unsupported platform", selected: true, unsupportedOS: true},
 		{name: "superseded service", selected: true, superseded: true},
 		{name: "agent-editable pack placement", selected: true, agentEditable: true},
@@ -751,12 +739,8 @@ func TestRunAdmissionNegativeCasesDoNotExecuteSelectedSettingsValidator(t *testi
 				packs = `[{"source":"file://` + packDir + `","name":"settings-pack"},` +
 					`{"source":"file://` + replacementDir + `","name":"replacement"}]`
 			}
-			enabled := `true`
-			if tc.disabled {
-				enabled = `false`
-			}
-			writeUserConfigJSON(t, home, `{"packs":`+packs+`,"loopholes":{"settings-mode":{"enabled":`+enabled+
-				`,"settings":{"profile":"current-profile"}}}}`)
+			writeUserConfigJSON(t, home, `{"packs":`+packs+`,"loopholes":{"settings-mode":{`+
+				`"settings":{"profile":"current-profile"}}}}`)
 
 			got := macosUserLaunch(t, workspace)
 			if got.rc != 0 || got.env == nil {
@@ -797,7 +781,7 @@ func writeSettingsValidatorFilePack(t *testing.T, root, marker string, unsupport
 	}
 	manifest := fmt.Sprintf(`{
   "name":"settings-mode", "description":"admission boundary fixture",
-  "transport":"loopback-tls", "default_enabled":true%s%s,
+  "transport":"loopback-tls"%s%s,
   "settings":{"profile":{"type":"string","scope":"user","default":"old-profile"}},
   "host_daemon":{
     "cmd":["/bin/false","{settings}"],

@@ -57,7 +57,7 @@ func TestMacosUserRunsALoopholeJailDaemonInTheGuestAsDeclared(t *testing.T) {
 	home := packHome(t)
 	ws := t.TempDir()
 	writeLocalLoopholePack(t, home, "acme-proxy", `{"name": "acme-proxy",
-		"description": "acme proxy", "default_enabled": true, "transport": "loopback-tls",
+		"description": "acme proxy", "transport": "loopback-tls",
 		"jail_daemon": {"cmd": ["yolo-jaild", "acme-adapter", "--listen", "{listen}"],
 		"listen": "127.0.0.1:1460", "caller_token": true}}`)
 	writeUserConfigJSON(t, home, `{"packs": []}`)
@@ -99,7 +99,7 @@ func TestTheMacosUserGuestDaemonsPickedPortIsFreeWhenTheSandboxStarts(t *testing
 	home := packHome(t)
 	ws := t.TempDir()
 	writeLocalLoopholePack(t, home, "acme-proxy", `{"name": "acme-proxy",
-		"description": "acme proxy", "default_enabled": true, "transport": "loopback-tls",
+		"description": "acme proxy", "transport": "loopback-tls",
 		"jail_daemon": {"cmd": ["yolo-jaild", "acme-adapter", "--listen", "{listen}"],
 		"listen": "127.0.0.1:1460", "caller_token": true}}`)
 	writeUserConfigJSON(t, home, `{"packs": []}`)
@@ -212,7 +212,7 @@ func TestMacosUserWithNoJailDaemonDeclinesAndRunsNothing(t *testing.T) {
 	home := packHome(t)
 	ws := t.TempDir()
 	writeLocalLoopholePack(t, home, "acme-proxy", `{"name": "acme-proxy",
-		"description": "acme proxy", "default_enabled": true, "transport": "loopback-tls",
+		"description": "acme proxy", "transport": "loopback-tls",
 		"host_daemon": {"publishes": "socket", "cmd": `+testHostDaemonCmdJSON("acme-no-jd")+`}}`)
 	writeUserConfigJSON(t, home, `{"packs": []}`)
 
@@ -234,7 +234,7 @@ func TestMacosUserDryRunDescribesTheGuestDaemonsToo(t *testing.T) {
 	home := packHome(t)
 	ws := t.TempDir()
 	writeLocalLoopholePack(t, home, "acme-proxy", `{"name": "acme-proxy",
-		"description": "acme proxy", "default_enabled": true, "transport": "loopback-tls",
+		"description": "acme proxy", "transport": "loopback-tls",
 		"jail_daemon": {"cmd": ["yolo-jaild", "acme-adapter"]}}`)
 	writeLocalPackJSON(t, home, `{"contributes": [
 		{"kind": "loophole", "from": "loopholes/acme-proxy"},

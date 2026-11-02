@@ -31,7 +31,7 @@ func brokerAndOpenAIFixtureModules(t *testing.T) {
 		// `publishes: "socket"` is REQUIRED of a pack-shipped daemon (the default,
 		// "endpoint", is refused at load and the loophole silently vanishes).
 		manifest := `{"name":"` + name + `","description":"fixture","version":1,` +
-			`"default_enabled":true,"transport":"` + loopholes.TransportLoopbackTLS + `",` +
+			`"transport":"` + loopholes.TransportLoopbackTLS + `",` +
 			`"lifecycle":"spawned",` +
 			`"host_daemon":{"cmd":["yolo","internal","daemon","` + name + `","--socket","{socket}"],` +
 			`"publishes":"socket","detach":true},` +

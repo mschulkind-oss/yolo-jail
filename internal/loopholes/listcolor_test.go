@@ -42,15 +42,16 @@ func listColorFixture(t *testing.T, color bool) string {
 		"name": "needs", "description": "x", "transport": "none",
 		"requires": map[string]any{"command_on_path": "xyz-never-exists-abc"},
 	})
-	writeManifest(t, mkdir(t, filepath.Join(root, "off")), map[string]any{
-		"name": "off", "description": "x", "transport": "none", "default_enabled": false,
-	})
 	servingLoophole(t, root, "broker-like", []string{"claude-oauth-refresh"})
 	SetPackSupersessions([]PackSupersession{bedrock()})
 
 	var out, errBuf bytes.Buffer
 	deps := Deps{Out: &out, Err: &errBuf, Cwd: home, Color: color,
-		LoadUserConfig:      func() *jsonx.OrderedMap { return nil },
+		// Only a config-inline loophole can be off now (a pack's runs whenever it is selected).
+		LoadUserConfig: func() *jsonx.OrderedMap {
+			return orderedFromPairs("loopholes", orderedFromPairs("off",
+				map[string]any{"description": "x", "enabled": false, "command": []any{"offd"}}))
+		},
 		LoadWorkspaceConfig: func(string) *jsonx.OrderedMap { return nil }}
 	if rc := List(deps); rc != 0 {
 		t.Fatalf("List rc = %d, err=%q", rc, errBuf.String())
@@ -79,7 +80,7 @@ func TestListColorsItsStateVocabulary(t *testing.T) {
 		row("active", "good", "pack/none/external", "transport=none"),
 		row("active", "icept", "pack/"+TransportLoopbackTLS+"/external", "intercepts=[example.test]"),
 		row("inactive ('xyz-never-exists-abc' not on PATH)", "needs", "pack/none/external", "transport=none"),
-		row("disabled", "off", "pack/none/external", "transport=none"),
+		row("disabled", "off", "config/"+TransportLoopbackTLS+"/spawned", "transport="+TransportLoopbackTLS),
 		row("inactive (superseded)", "broker-like", "pack/none/external", "transport=none"),
 		"      reads [\u2060red] as text\n",
 		"      settings.quiet: bool, user-scope, default false\n",

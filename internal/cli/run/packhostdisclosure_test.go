@@ -443,7 +443,6 @@ func TestOpenAIAuthSubsetSpawnDisclosesBeforeItSpawns(t *testing.T) {
 	// runs it and the real broker's would start a host-wide daemon from a unit test.
 	p := writeRealLoopholePack(t, openAIAuthPackName, openAIAuthBrokerName, `{
 		"name": "`+openAIAuthBrokerName+`",
-		"default_enabled": true,
 		"transport": "none",
 		"host_daemon": {"cmd": ["python3", "{loophole_dir}/broker-daemon.py"], "publishes": "socket"}
 	}`)
@@ -512,25 +511,24 @@ func TestMacosUserDisclosureNamesEveryPackItNowStarts(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	emptyLoopholeDirs(t)
 
-	// Both switched on and recorded, so the spawn STARTS them (startingLoopholePacks); the
-	// broker's argv is a stand-in for TestOpenAIAuthSubsetSpawnDisclosesBeforeItSpawns' reason.
-	// A third pack's loophole is left off, and is the "no more": it starts nothing, so it is
-	// not named.
+	// Both recorded, so the spawn STARTS them (startingLoopholePacks); the broker's argv is a
+	// stand-in for TestOpenAIAuthSubsetSpawnDisclosesBeforeItSpawns' reason. A third pack's
+	// loophole is inactive on this OS, and is the "no more": it starts nothing, so it is not
+	// named.
 	broker := writeRealLoopholePack(t, openAIAuthPackName, openAIAuthBrokerName, `{
 		"name": "`+openAIAuthBrokerName+`",
-		"default_enabled": true,
 		"transport": "none",
 		"host_daemon": {"cmd": ["python3", "{loophole_dir}/broker-daemon.py"], "publishes": "socket"}
 	}`)
 	other := writeRealLoopholePack(t, "acme", "acme-proxy", `{
 		"name": "acme-proxy",
-		"default_enabled": true,
 		"transport": "none",
 		"host_daemon": {"cmd": ["python3", "{loophole_dir}/acme-daemon.py"], "publishes": "socket"}
 	}`)
 	off := writeRealLoopholePack(t, "zeta", "zeta-off", `{
 		"name": "zeta-off",
 		"transport": "none",
+		"platforms": ["`+foreignPlatform()+`"],
 		"host_daemon": {"cmd": ["python3", "{loophole_dir}/zeta-daemon.py"], "publishes": "socket"}
 	}`)
 	startingLoopholePacks(broker, other, off)
@@ -549,7 +547,7 @@ func TestMacosUserDisclosureNamesEveryPackItNowStarts(t *testing.T) {
 		[]*packload.Pack{broker, other, off}, nil)
 
 	if strings.Contains(errBuf.String(), "zeta-daemon.py") {
-		t.Errorf("a pack whose loophole is switched off starts nothing on this backend, and "+
+		t.Errorf("a pack whose loophole is inactive here starts nothing on this backend, and "+
 			"its daemon is named anyway:\n%s", errBuf.String())
 	}
 
@@ -661,9 +659,8 @@ func stubHostExecClaims(t *testing.T, fn func([]*packload.Pack, func(string) boo
 }
 
 // startingLoopholePacks records the loopholes packs ship as this launch's pack loopholes, as a
-// staged launch records them, so a fixture whose manifest sets `default_enabled` (and the
-// `"publishes": "socket"` a pack-shipped daemon must declare, or it does not load) declares a
-// daemon the spawn STARTS — the only kind the exec disclosure names (discloseLoopholes). The
+// staged launch records them, so a fixture whose manifest declares the `"publishes": "socket"` a
+// pack-shipped daemon must declare (or it does not load) declares a daemon the spawn STARTS — the only kind the exec disclosure names (discloseLoopholes). The
 // record is reset by emptyLoopholeDirs' cleanup, which every caller runs first. Each fixture's
 // daemon names a script that does not exist, so the spawn fails at once and leaves nothing
 // running.
@@ -766,7 +763,6 @@ func TestRealLoopholePackDisclosesItsDaemonBeforeTheSpawn(t *testing.T) {
 	// the daemon is one the spawn STARTS (startingLoopholePacks).
 	p := writeRealLoopholePack(t, "acme", "acme-proxy", `{
 		"name": "acme-proxy",
-		"default_enabled": true,
 		"transport": "none",
 		"host_daemon": {"cmd": ["python3", "{loophole_dir}/acme-daemon.py", "--socket", "{socket}"],
 			"publishes": "socket"}

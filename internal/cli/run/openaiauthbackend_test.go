@@ -18,7 +18,7 @@ func openAIAuthFixture(t *testing.T, approved bool) {
 		t.Fatal(err)
 	}
 	manifest := `{"name":"openai-auth-broker","description":"fixture","version":1,` +
-		`"default_enabled":true,"transport":"loopback-tls","lifecycle":"spawned",` +
+		`"transport":"loopback-tls","lifecycle":"spawned",` +
 		`"host_daemon":{"cmd":["yolo","internal","daemon","openai-auth-broker","--socket","{socket}"],` +
 		`"publishes":"socket","detach":true},` +
 		`"jail_daemon":{"cmd":["yolo-jaild","openai-auth-adapter"],"restart":"on-failure"}}`

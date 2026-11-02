@@ -122,11 +122,11 @@ func TestAMacosUserSessionsExitLeavesAConcurrentSessionsEndpointsWorking(t *test
 	const broker, proxy = "yjtest-hd10-broker", "yjtest-hd10-proxy"
 	writeLocalLoopholeModules(t, home, map[string]string{
 		broker: `{"name": "` + broker + `", "description": "formerly host-wide fixture",
-			"default_enabled": true, "transport": "loopback-tls",
+			"transport": "loopback-tls",
 			"host_daemon": {"publishes": "socket", "preamble": false,
 				"detach": true, "cmd": ` + testHostDaemonCmdJSON("hd10-broker") + `}}`,
 		proxy: `{"name": "` + proxy + `", "description": "per-jail fixture",
-			"default_enabled": true, "transport": "loopback-tls",
+			"transport": "loopback-tls",
 			"host_daemon": {"publishes": "socket", "preamble": false,
 				"cmd": ` + testHostDaemonCmdJSON("hd10-proxy") + `}}`,
 	})
@@ -410,7 +410,7 @@ func TestADryRunNamesTheSessionDirsShapeAndItsGrant(t *testing.T) {
 	ws := t.TempDir()
 	cname := yoloruntime.FromWorkspace(ws)
 	writeLocalLoopholePack(t, home, openAIAuthBrokerName, `{"name": "`+openAIAuthBrokerName+`",
-		"description": "credential service fixture", "default_enabled": true,
+		"description": "credential service fixture", 
 		"transport": "loopback-tls",
 		"host_daemon": {"publishes": "socket", "detach": true, "cmd": ["/bin/true"]}}`)
 	writeUserConfigJSON(t, home, `{"packs": []}`)

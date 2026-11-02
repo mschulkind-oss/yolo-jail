@@ -20,7 +20,7 @@ func TestAnUnfetchedPackBinaryDrawsAnInertLineNamingPackInstall(t *testing.T) {
 
 	sum := strings.Repeat("d", 64)
 	p := writeLoopholePack(t, "acme", "acme-tool", `{
-	  "name": "acme-tool", "default_enabled": true, "transport": "none",
+	  "name": "acme-tool", "transport": "none",
 	  "binaries": {"toold": {"linux/`+runtime.GOARCH+`": {
 	    "url": "https://example.test/toold", "sha256": "`+sum+`"}}},
 	  "jail_daemon": {"cmd": ["{jail_binary:toold}"]}

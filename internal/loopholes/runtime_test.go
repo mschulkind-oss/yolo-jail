@@ -887,8 +887,7 @@ func TestFrontedHostNames(t *testing.T) {
 	})
 	writeManifest(t, mkdir(t, filepath.Join(md, "fronted-off")), map[string]any{
 		"name": "fronted-off", "description": "x", "transport": "loopback-tls", "lifecycle": "spawned",
-		"default_enabled": false,
-		"host_daemon":     map[string]any{"cmd": []any{"daemon", "--socket", "{socket}"}},
+		"host_daemon": map[string]any{"cmd": []any{"daemon", "--socket", "{socket}"}},
 	})
 	writeManifest(t, mkdir(t, filepath.Join(md, "no-daemon")), map[string]any{
 		"name": "no-daemon", "description": "x", "transport": "none",
@@ -901,6 +900,7 @@ func TestFrontedHostNames(t *testing.T) {
 		"jail_daemon": map[string]any{"cmd": []any{"yolo-jaild", "both-daemons"}},
 	})
 	set := approvedSetFrom(md)
+	turnOff(t, set, "fronted-off")
 	for _, tc := range []struct {
 		runtime string
 		want    []string
@@ -933,8 +933,7 @@ func TestFrontedHostWhy(t *testing.T) {
 	})
 	writeManifest(t, mkdir(t, filepath.Join(md, "fronted-off")), map[string]any{
 		"name": "fronted-off", "description": "x", "transport": "loopback-tls", "lifecycle": "spawned",
-		"default_enabled": false,
-		"host_daemon":     map[string]any{"cmd": []any{"daemon", "--socket", "{socket}"}},
+		"host_daemon": map[string]any{"cmd": []any{"daemon", "--socket", "{socket}"}},
 	})
 	writeManifest(t, mkdir(t, filepath.Join(md, "both-daemons")), map[string]any{
 		"name": "both-daemons", "description": "x", "transport": "loopback-tls", "lifecycle": "spawned",
@@ -942,14 +941,15 @@ func TestFrontedHostWhy(t *testing.T) {
 		"jail_daemon": map[string]any{"cmd": []any{"yolo-jaild", "both-daemons"}},
 	})
 	set := approvedSetFrom(md)
+	turnOff(t, set, "fronted-off")
 
 	podman := set.FrontedHostWhy("podman")
 	if _, ok := podman["fronted"]; ok || len(podman) != 1 {
 		t.Fatalf("podman: FrontedHostWhy = %v, want only fronted-off", podman)
 	}
-	if got := podman["fronted-off"]; !strings.Contains(got, "off for this workspace") ||
-		!strings.Contains(got, "`yolo loopholes enable fronted-off`") {
-		t.Errorf("podman, loophole off: %q does not name the enable command", got)
+	if got := podman["fronted-off"]; !strings.Contains(got, "`enabled: false`") ||
+		!strings.Contains(got, "loopholes.fronted-off") || strings.Contains(got, "loopholes enable") {
+		t.Errorf("podman, loophole off: %q does not name the config entry that turned it off", got)
 	}
 	if got := set.FrontedHostWhy("macos-user")["fronted-off"]; got != podman["fronted-off"] {
 		t.Errorf("macos-user, loophole off: %q, want podman's %q", got, podman["fronted-off"])
@@ -971,4 +971,16 @@ func TestFrontedHostWhy(t *testing.T) {
 	if _, ok := host["both-daemons"]; ok {
 		t.Errorf("a record with a jail daemon got a fronted reason: %q", host["both-daemons"])
 	}
+}
+
+// turnOff flips one loaded record off by hand. A pack loophole is never off now (it runs
+// whenever its pack is selected); only a config-inline one is, and this keeps the disabled
+// branch of a pack-shaped record under test.
+func turnOff(t *testing.T, set Set, name string) {
+	t.Helper()
+	lp, ok := set.Lookup(name)
+	if !ok {
+		t.Fatalf("%s did not load", name)
+	}
+	lp.Enabled = false
 }

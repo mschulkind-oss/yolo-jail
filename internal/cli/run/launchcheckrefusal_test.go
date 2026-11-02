@@ -48,7 +48,6 @@ func askedEveryLaunchManifest(t *testing.T) string {
 	return `{
 	"name": "` + launchCheckFixtureName + `",
 	"description": "a host service that is asked the launch check",
-	"default_enabled": true,
 	"transport": "loopback-tls",
 	"lifecycle": "spawned",
 	"host_daemon": {"cmd": ` + string(cmd) + `, "publishes": "socket",

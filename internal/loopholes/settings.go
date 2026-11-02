@@ -126,8 +126,16 @@ func ResolveSettings(lp *Loophole, supplied *jsonx.OrderedMap) (*jsonx.OrderedMa
 	// typo would be invisible at exactly the moment the user is wondering why nothing
 	// changed. internal/config already errors on it host-side; this is the in-jail
 	// warning path saying the same thing.
+	//
+	// A key a grant names as its legacy setting (journal's `full`, host-processes' `visible`)
+	// is not one: the legacy projection reads its value as that grant
+	// (config/loopholegrantlegacy.go), and calling it unknown would tell the reader to delete
+	// a value that is honored.
 	if supplied != nil {
 		for _, key := range supplied.Keys() {
+			if retiredIntoAGrant(lp, key) {
+				continue
+			}
 			if _, declared := loopholedecl.SettingByKey(lp.Settings, key); !declared {
 				problems = append(problems, "loopholes."+lp.Name+".settings."+key+
 					": no such setting — "+pytext.Repr(lp.Name)+" declares "+
@@ -136,6 +144,17 @@ func ResolveSettings(lp *Loophole, supplied *jsonx.OrderedMap) (*jsonx.OrderedMa
 		}
 	}
 	return out, problems
+}
+
+// retiredIntoAGrant is whether key is a retired setting one of lp's grants reads as its
+// legacy_setting or legacy_values.
+func retiredIntoAGrant(lp *Loophole, key string) bool {
+	for _, g := range lp.Grants {
+		if g.LegacySetting == key || g.LegacyValues == key {
+			return true
+		}
+	}
+	return false
 }
 
 // WriteSettings resolves and writes one loophole's settings file, returning its

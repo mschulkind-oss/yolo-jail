@@ -36,8 +36,6 @@ func shippedModules(t *testing.T) map[string]string {
 // since a comment decodes to nothing); the module on disk is the loophole.toml that replaced it.
 // Both go through the strict decoder and must come out the identical in-memory manifest, every
 // field, including declaration order of settings and env keys.
-//
-// `default_enabled` is carried over as written, so its per-manifest values are part of the proof.
 func TestEveryShippedLoopholeIsTOMLAndDecodesToWhatItAlwaysDid(t *testing.T) {
 	modules := shippedModules(t)
 	legacy, err := filepath.Glob(filepath.Join("testdata", "legacy-shipped", "*.json"))

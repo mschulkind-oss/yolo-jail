@@ -135,14 +135,8 @@ func (l *Loophole) PackShippedProblems() []string {
 // manifest, where a module-relative path still looks module-relative.
 func (l *Loophole) subsetManifest() *loopholedecl.Manifest {
 	return &loopholedecl.Manifest{
-		Name:        l.Name,
-		Description: l.Description,
-		// The record's Enabled has already absorbed any config override, so projecting
-		// it back onto DefaultEnabled is lossy in principle. It costs nothing in fact
-		// (the subset reads neither), and the honest alternative — carrying the author's
-		// declaration separately on the record purely so this projection could be exact —
-		// would be a second boolean over one state, which is what OQ-A9 ruled against.
-		DefaultEnabled: l.Enabled,
+		Name:           l.Name,
+		Description:    l.Description,
 		Transport:      l.Transport,
 		Lifecycle:      l.Lifecycle,
 		Intercepts:     l.Intercepts,
@@ -296,21 +290,11 @@ func resolve(m *loopholedecl.Manifest, modulePath string) *Loophole {
 		Name:        m.Name,
 		Description: m.Description,
 		Path:        modulePath,
-		// THIS LINE IS WHERE THE AUTHOR'S DEFAULT BECOMES THE USER'S SWITCH, and it is
-		// the only place the two meet. `Manifest.DefaultEnabled` is what the pack said
-		// when nobody had spoken; `Loophole.Enabled` is the resolved state, which
-		// discovery then overwrites from the config key `loopholes.<name>.enabled` if
-		// the user set it (discover.go's applyWorkspaceOverrides). Seeding the switch
-		// with the default is what lets config stay an OVERRIDE rather than a third
-		// value to reconcile (docs/reference/loophole-system.md OQ-A9).
-		//
-		// A BROKERED loophole is the exception: it is on whenever it is installed, which for a
-		// pack's is whenever its pack is selected, and no switch decides it
-		// (docs/design/boundary-broker.md BB-D106). What it may do is decided by grants in
-		// config, not by whether it runs. So is a GRANT-DECLARING one (its manifest declares
-		// `[[grants]]`; docs/design/loophole-access-approval.md §4.1): selecting its pack runs it,
-		// and running grants nothing until a grant covers the project.
-		Enabled:       m.DefaultEnabled || m.Brokered != nil || len(m.Grants) > 0,
+		// A manifest's loophole runs whenever its pack is selected, and grants nothing until
+		// a grant covers the project (docs/design/loophole-access-approval.md §4.1). No key
+		// decides it: the manifest's `default_enabled` is refused at load, and a config's
+		// `loopholes.<name>.enabled` is projected into a grant, never onto this record.
+		Enabled:       true,
 		Transport:     m.Transport,
 		Lifecycle:     m.Lifecycle,
 		Intercepts:    m.Intercepts,

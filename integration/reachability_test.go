@@ -53,7 +53,7 @@ import (
 // CI.
 //
 // `claude` is the cheapest thing to name: the pack contributes the claude-oauth-broker
-// loophole, which is the one shipped manifest with `default_enabled: true`, and its
+// loophole, which runs because its pack is selected (as every pack loophole does), and its
 // transport is loopback-tls — so selecting the pack is sufficient to publish
 // /run/yolo-services/claude-oauth-broker.endpoint, on both platforms, with no
 // `loopholes` block. It installs no agent CLI (launchers are lazy), and several tests in

@@ -52,8 +52,7 @@ var shippedManifestHome = map[string]string{
 // worth having: EVERY loophole in the pack embed must have a row.
 //
 // Without it the table is a whitelist of what somebody remembered, and the tests it
-// drives — the strict/tolerant decode bar, the per-manifest field pins, the
-// default_enabled census — all iterate the table, so a NEW shipped loophole is covered by
+// drives — the strict/tolerant decode bar and the per-manifest field pins — all iterate the table, so a NEW shipped loophole is covered by
 // none of them and nothing says so. Measured 2026-08-18: adding a directory to
 // bundled_loopholes/ AND to its embed directive passed the entire unit gate, including
 // that channel's own drift test, whose job was only to catch a directive that was NOT
@@ -93,8 +92,8 @@ func TestShippedManifestHomeIsTotal(t *testing.T) {
 		if !listed {
 			t.Errorf("the loophole %q ships (from packs/%s/loopholes/) and shippedManifestHome "+
 				"has no row for it. Every test in this file iterates that table, so an unlisted "+
-				"loophole's manifest is never decoded, never field-checked and never in the "+
-				"default_enabled census — add the row rather than deleting this check.",
+				"loophole's manifest is never decoded and never field-checked "+
+				"— add the row rather than deleting this check.",
 				name, pack)
 			continue
 		}
@@ -141,64 +140,6 @@ func shippedManifest(t *testing.T, name string) []byte {
 // bundled embed left to mean: every one of these is read out of the official pack embed
 // through shippedManifestHome above. The acceptance bar is about what a release CARRIES.
 func TestShippedManifestsDecodeStrictly(t *testing.T) {
-	// The declared default, PER MANIFEST, because after OQ-A9 they no longer agree —
-	// and each disagreement is a ruling rather than an accident:
-	//
-	//   audio                 R4, "host access is never on by default". The one
-	//                         behaviour change in the rename commit.
-	//   claude-oauth-broker   OQ-A1. It must not gain a way to be silently off; a
-	//                         jail-only claude user without it races the single-use
-	//                         refresh token rather than merely losing a feature.
-	//   host-processes        R4 as of the pack conversion (2026-08-18). The activation
-	//                         census — `git show
-	//                         9190a4d1^:docs/design/loophole-activation.md`, §1.3, which
-	//                         did NOT graduate — had it ending at false, paid for by
-	//                         `packs:` selection, and this is the commit that pays: the
-	//                         pack is what turns it back on, so the capability is no
-	//                         longer removed with nothing to restore it.
-	//   cgroup-delegate       R4/OQ-A4, and the only one whose flip has a STATED,
-	//                         ACCEPTED COST rather than a migration: yolo-cglimit stops
-	//                         working out of the box. It was PRESENCE-ACTIVATED — no
-	//                         config key existed at all — so this value is the whole
-	//                         switch rather than a default over one.
-	//   journal               false, and unlike the two above it takes nothing away:
-	//                         the bridge was ALREADY off unless a top-level `journal`
-	//                         key said otherwise, so this is the same answer written in
-	//                         the new vocabulary. What the conversion adds is the pack
-	//                         selection, not the switch.
-	//   openai-auth-broker    true. Codex and Pi depend on its containing pack;
-	//                         silently disabling their only refresh owner would leave
-	//                         both with an adapter that can never answer.
-	//   aws-auth              false, and it is the only one whose value carries a
-	//                         BEHAVIOUR the framework cannot otherwise spell.
-	//                         the deleted SSO design's degenerate inputs:
-	//                         "the loophole does not start ... Not an error: a selected
-	//                         pack with no configuration is inert". Nothing supports a
-	//                         setting-conditional spawn, so `false` IS those two clauses
-	//                         — unconfigured is disabled. `true` plus a self-refusing
-	//                         daemon would turn the ordinary unconfigured case into an
-	//                         error, which that section says it is not.
-	//                         ⚠ THE SENTENCE HAS TWO MORE CLAUSES AND THIS VALUE CARRIES
-	//                         NEITHER, so do not read it as the whole ruling: "the pack
-	//                         contributes nothing" is the `"profile": "bedrock"` gate on
-	//                         packs/aws-auth's `kind: "env"` contribution, a separate
-	//                         mechanism; "and the launch says so once" is a DISCLOSURE
-	//                         that a default of false does not produce at all.
-	//
-	// A table rather than one blanket assertion because the blanket one — "every
-	// bundled manifest declares enabled:true" — is what this change had to delete, and
-	// a reader who flips a value here should have to say which ruling moved.
-	wantDefaultEnabled := map[string]bool{
-		"audio":               false,
-		"claude-oauth-broker": true,
-		"host-processes":      false,
-		"journal":             false,
-		"macos-log":           false,
-		"cgroup-delegate":     false,
-		"serial":              false,
-		"openai-auth-broker":  true,
-		"aws-auth":            false,
-	}
 	for _, name := range []string{
 		"audio", "claude-oauth-broker", "host-processes", "journal", "macos-log", "cgroup-delegate",
 		"serial", "openai-auth-broker", "aws-auth",
@@ -215,9 +156,6 @@ func TestShippedManifestsDecodeStrictly(t *testing.T) {
 			if m.Version != 1 || !m.VersionSet {
 				t.Errorf("Version = %d (set=%v), want 1 — `version` must be READ, not just tolerated",
 					m.Version, m.VersionSet)
-			}
-			if m.DefaultEnabled != wantDefaultEnabled[name] {
-				t.Errorf("DefaultEnabled = %v, want %v", m.DefaultEnabled, wantDefaultEnabled[name])
 			}
 			// The tolerant path must agree, key for key: these manifests cross the
 			// version boundary into a jail whose baked entrypoint may be older.
@@ -588,8 +526,8 @@ func TestShippedJournalFields(t *testing.T) {
 // The delegate is yolo's own in-process goroutine on an AF_UNIX socket — the last
 // service in the tree not on loopback-tls, because its whole security model is
 // SO_PEERCRED and a TCP hop carries no peer credential. So this manifest declares no
-// host_daemon, no bind mount, no device, no jail_env and no settings; what it declares
-// is `default_enabled: false`, which is the entire content of OQ-A4.
+// host_daemon, no bind mount, no device, no jail_env, no settings and no grants: it is an
+// identity, and it runs whenever its pack is selected.
 //
 // A `host_daemon` appearing here later would not be an addition, it would be a second
 // implementation: the spawn loop would start it BESIDE the in-process delegate, both

@@ -62,9 +62,6 @@ func TestConfigMigrateLoopholeRefusalsNameTheNextStep(t *testing.T) {
 		{"settings without enabled", `{"packs": ["aws-auth"], "loopholes": {"aws-auth": {"settings": {"profile": "sso"}}}}`, `Set "enabled": true`},
 		{"declared here", `{"loopholes": {"mine": {"command": ["x"]}}}`, "yolo pack init"},
 		{"gated loophole switched on", `{"packs": ["journal"], "loopholes": {"journal": {"enabled": true}}}`, "Keep the old file (this yolo keeps reading it) until those grants land, then run `yolo config migrate` again"},
-		// The proof compares which loopholes run: aws-auth is off in the old file and would run
-		// on selection in the new one, a difference the per-key layers cannot see.
-		{"activation changes", `{"packs": ["aws-auth"]}`, "next: the converted config runs aws-auth because its pack is selected, and the old one does not; add \"enabled\": true under loopholes.aws-auth in the old file to keep it running, or remove \"aws-auth\" from packs to keep it off, then run `yolo config migrate` again"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rc, toml, out := migrateUser(t, tc.old)
@@ -72,6 +69,16 @@ func TestConfigMigrateLoopholeRefusalsNameTheNextStep(t *testing.T) {
 				t.Fatalf("rc=%d, want a refusal naming %q, wrote %q\n%s", rc, tc.want, toml, out)
 			}
 		})
+	}
+}
+
+// A selected pack's loophole runs in the old file too now (no manifest defaults one off), so
+// selecting aws-auth with no `loopholes` entry changes nothing a conversion could see: the proof,
+// which compares which loopholes run, finds no difference and the file converts.
+func TestConfigMigrateConvertsASelectedLoopholeWithNoEntry(t *testing.T) {
+	rc, toml, out := migrateUser(t, `{"packs": ["aws-auth"]}`)
+	if rc != 0 || !strings.Contains(toml, `packs = ["aws-auth"]`) {
+		t.Fatalf("rc=%d, want the file converted, wrote %q\n%s", rc, toml, out)
 	}
 }
 

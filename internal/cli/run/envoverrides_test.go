@@ -682,7 +682,9 @@ func awsAuthServedConfig(t *testing.T, packs []*packload.Pack) *jsonx.OrderedMap
 	t.Helper()
 	t.Cleanup(loopholes.SnapshotPackModules())
 	loopholes.SetPackModules(packLoopholeModules(packs))
-	return newConfig("loopholes", newConfig("aws-auth", newConfig("enabled", true)))
+	// A profile, because an aws-auth naming none serves nothing, so nothing points at it
+	// (packload.ServedDaemons.WithoutUnconfiguredLogins).
+	return newConfig("loopholes", newConfig("aws-auth", newConfig("settings", newConfig("profile", "yolo-unit"))))
 }
 
 // TestEnvOverrideNeedsTheGatingProfile: selecting aws-auth WITHOUT the profile that gates

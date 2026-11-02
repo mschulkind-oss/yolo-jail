@@ -118,7 +118,7 @@ func TestPrepareMountSentinelsSkipsWhatTheArgvWouldNotMount(t *testing.T) {
 	md := modsDir(t)
 	mod := mkdir(t, filepath.Join(md, "off"))
 	writeManifest(t, mod, map[string]any{
-		"name": "off", "description": "x", "transport": "none", "default_enabled": false,
+		"name": "off", "description": "x", "transport": "none",
 		"state_files": []any{MountSentinelName},
 		"jail_daemon": map[string]any{"cmd": []any{"true"}, "restart": "no"},
 	})
@@ -131,6 +131,9 @@ func TestPrepareMountSentinelsSkipsWhatTheArgvWouldNotMount(t *testing.T) {
 	for _, m := range approved.All() {
 		if m.Name == "off" {
 			off = m
+			// A pack loophole is never off now; the record is turned off by hand so the
+			// disabled branch (a config-inline loophole's) is still exercised.
+			m.Enabled = false
 		}
 	}
 	if off == nil || off.Active() {

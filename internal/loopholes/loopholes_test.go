@@ -16,29 +16,8 @@ import (
 
 // writeManifest writes a manifest.jsonc built from a Go map via
 // json.MarshalIndent.
-//
-// It SUPPLIES `default_enabled: true` when the caller did not state one, and that
-// default is the opposite of the schema's on purpose. After OQ-A9 flipped the
-// manifest's default to OFF (docs/reference/loophole-system.md R2), a fixture that
-// says nothing about enablement produces a loophole that is not discovered, not
-// active, and absent from every report — so every test in this package about
-// something ELSE (platforms, requires, doctor_cmd, workspace overrides, the origin
-// gate) would go on passing while measuring an empty list. That is a silent
-// coverage loss, not a failure, which is why the default is stated here rather than
-// left to the schema.
-//
-// A caller that CARES about enablement writes the key, and its explicit value wins —
-// which is what the disabled-loophole tests in this file rely on.
 func writeManifest(t *testing.T, dir string, data map[string]any) {
 	t.Helper()
-	if _, stated := data["default_enabled"]; !stated {
-		withDefault := make(map[string]any, len(data)+1)
-		for k, v := range data {
-			withDefault[k] = v
-		}
-		withDefault["default_enabled"] = true
-		data = withDefault
-	}
 	b, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
 		t.Fatal(err)
@@ -219,14 +198,15 @@ func TestNameMustMatchDirectory(t *testing.T) {
 	}
 }
 
+// A config-inline loophole whose entry says `enabled: false` is the one kind of record that can
+// still be off (a pack's runs whenever its pack is selected).
 func TestDisabledSkippedByDefault(t *testing.T) {
 	md := modsDir(t)
-	mod := mkdir(t, filepath.Join(md, "off"))
-	writeManifest(t, mod, map[string]any{"name": "off", "description": "x", "default_enabled": false})
-	if got := discoverDir(md, false); len(got) != 0 {
+	cfg := orderedFromPairs("off", map[string]any{"description": "x", "enabled": false})
+	if got := discoverWithConfig(md, false, cfg); len(got) != 0 {
 		t.Errorf("disabled should be skipped: %v", names(got))
 	}
-	got := discoverDir(md, true)
+	got := discoverWithConfig(md, true, cfg)
 	if len(got) != 1 || got[0].Name != "off" {
 		t.Errorf("include_disabled: got %v", names(got))
 	}
@@ -358,11 +338,12 @@ func TestConfigLoopholePreambleOptIn(t *testing.T) {
 	}
 }
 
-func TestWorkspaceOverrideMergesEnabled(t *testing.T) {
+// The retired switch: `enabled: false` in a config entry for a pack loophole leaves it on.
+func TestWorkspaceOverrideDoesNotSwitchAPackLoophole(t *testing.T) {
 	md := modsDir(t)
 	mod := mkdir(t, filepath.Join(md, "module-like"))
-	writeManifest(t, mod, map[string]any{"name": "module-like", "description": "x", "default_enabled": false})
-	cfg := orderedFromPairs("module-like", map[string]any{"enabled": true})
+	writeManifest(t, mod, map[string]any{"name": "module-like", "description": "x"})
+	cfg := orderedFromPairs("module-like", map[string]any{"enabled": false})
 	loaded := discoverWithConfig(md, true, cfg)
 	if len(loaded) != 1 || loaded[0].Name != "module-like" || !loaded[0].Enabled || loaded[0].Source != SourcePack {
 		t.Errorf("override merge wrong: %+v", loaded)

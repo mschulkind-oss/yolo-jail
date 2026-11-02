@@ -68,16 +68,16 @@ var cgdSocket = paths.JailHostServicesDir + "/" + paths.CgdSocketName
 // 2026-08-18, when the delegate became an opt-in loophole shipped by the
 // `cgroup-delegate` pack (docs/reference/loophole-system.md OQ-A4): its reader had
 // already launched with the yolo CLI and was left with nothing to do. It names the
-// switch instead, the same two user-config lines yolo-ps names for its own loophole
-// (docs/reference/happy-path-principle.md, rule 1). The pack and the loophole share
-// the name, which TestTheNamedSwitchIsTheDelegates checks against the shipped pack.
+// command that selects the pack instead (docs/reference/happy-path-principle.md, rule 1):
+// a loophole runs whenever its pack is selected, and this one grants nothing a grant could
+// gate (docs/design/loophole-access-approval.md §4.3). The pack and the loophole share the
+// name, which TestTheNamedPackShipsTheDelegate checks against the shipped pack.
 const noDelegateMsg = "Error: cgroup delegation not available — host daemon socket not found.\n" +
-	"The cgroup delegate is an opt-in loophole, shipped by the " + paths.BuiltinCgroupLoopholeName + " pack.\n" +
-	"Two lines in the host's ~/.config/yolo-jail/config.jsonc turn it on:\n" +
-	"  \"packs\": [..., \"" + paths.BuiltinCgroupLoopholeName + "\"]\n" +
-	"  \"loopholes\": {\"" + paths.BuiltinCgroupLoopholeName + "\": {\"enabled\": true}}\n" +
-	"Then restart the jail. It needs a Linux host with cgroup v2; if it is already on,\n" +
-	"the jail's launch output says why the delegate did not start.\n"
+	"The cgroup delegate is a loophole shipped by the " + paths.BuiltinCgroupLoopholeName + " pack, and it runs\n" +
+	"whenever that pack is selected. On the host, select it:\n" +
+	"  yolo pack add " + paths.BuiltinCgroupLoopholeName + "\n" +
+	"Then restart the jail. It needs a Linux host with cgroup v2; if the pack is already\n" +
+	"selected, the jail's launch output says why the delegate did not start.\n"
 
 // options is the parsed command line.
 type options struct {

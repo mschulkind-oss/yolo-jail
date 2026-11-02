@@ -111,10 +111,10 @@ type doorwayLaunch struct {
 // bedrockDoorwayConfig is a user config selecting agent on the bedrock profile, with a region on
 // the provider and aws-auth enabled un-narrowed for the fake profile (a role needs `aws sts`,
 // and the narrowing has its own tests). enabled false leaves the loophole off.
-func bedrockDoorwayConfig(agent string, enabled bool) string {
-	loophole := `"loopholes": {"aws-auth": {"enabled": true, "settings": {"profile": "` +
+func bedrockDoorwayConfig(agent string, configured bool) string {
+	loophole := `"loopholes": {"aws-auth": {"settings": {"profile": "` +
 		doorwayProfile + `", "unnarrowed": true}}}`
-	if !enabled {
+	if !configured {
 		loophole = `"loopholes": {}`
 	}
 	return `{"packs": ["` + agent + `", "bedrock"], "profile": {"` + agent + `": "bedrock"}, ` +
@@ -426,16 +426,19 @@ func TestHostRefusesABearerBesideTheDoorwaysPointer(t *testing.T) {
 	}
 }
 
-// NO DOORWAY WITHOUT ITS LOOPHOLE, AND THE LINE SAYS WHY. With aws-auth off (it ships disabled)
-// the launch execs as before, withholds the pointer, and names the one change that opens the
-// doorway, where the old line said a jail daemon never runs at the host.
-func TestHostOpensNoDoorwayWhenTheLoopholeIsDisabled(t *testing.T) {
+// NO DOORWAY TO A LOGIN SERVICE WITH NO PROFILE, AND THE LINE SAYS WHY. aws-auth runs whenever
+// its pack is selected, and with no `profile` setting it serves nothing
+// (packload.UnconfiguredLogins), so the launch execs as before, opens no doorway and starts no
+// host code, withholds the pointer, and names the setting and the verb that opens the doorway,
+// where the old line said a jail daemon never runs at the host.
+func TestHostOpensNoDoorwayWhenTheLoginLoopholeHasNoProfile(t *testing.T) {
 	l := runDoorwayLaunch(t, bedrockDoorwayConfig("pi", false), nil, nil, "pi")
 	if l.rc != 0 || !l.execed || len(l.started) != 0 {
 		t.Fatalf("rc = %d, exec'd %v, started %d; want a plain exec\n%s", l.rc, l.execed, len(l.started), l.errs)
 	}
 	for _, want := range []string{"Not set at this notch", "AWS_CONTAINER_CREDENTIALS_FULL_URI",
-		`loophole "aws-auth" is disabled`, `"loopholes": {"aws-auth": {"enabled": true}}`,
+		"serves nothing until its `profile` setting names a profile",
+		"`yolo config set allow.aws-auth.profile <profile>`",
 		// THE MAINTAINER'S SYMPTOM, NAMED: pi reaches Bedrock through its own client, and nothing
 		// delivers it a credential, so the profile line warns and names the pointer that would.
 		`pi → provider "bedrock", through pi's own "aws-bedrock" client`,

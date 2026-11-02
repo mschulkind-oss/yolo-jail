@@ -57,7 +57,6 @@ func launchCheckPack(t *testing.T) *packload.Pack {
 	return writeRealLoopholePack(t, "yjtest-launchcheck-pack", launchCheckFixtureName, `{
 		"name": "`+launchCheckFixtureName+`",
 		"description": "a host service that answers the launch check",
-		"default_enabled": true,
 		"transport": "loopback-tls",
 		"lifecycle": "spawned",
 		"host_daemon": {"cmd": `+string(cmd)+`, "publishes": "socket",

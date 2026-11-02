@@ -118,7 +118,7 @@ func TestLaunchPreflightValidatorInputIsPrivateAndAlwaysRemoved(t *testing.T) {
 			validator := recordSettingsInput + `; case "$3" in accept) exit 0;; refuse) ` +
 				`printf '%s' '{"reason":"fixture refused","remedy":"fix the fixture"}'; exit 1;; *) sleep 5;; esac`
 			set := lifecycleModuleSet(t, name, fmt.Sprintf(`{
-  "name": %q, "default_enabled": true,
+  "name": %q, 
   "settings": {"profile": {"type": "string", "scope": "user", "default": "default-profile"}},
   "host_daemon": {
     "cmd": ["/bin/false", "{socket}", "{settings}"],
@@ -209,7 +209,7 @@ func TestPerJailPrivateSnapshotIsRemovedWhenTheSpawnFails(t *testing.T) {
 					recordSettingsInput+"; exit 3", marker)
 			}
 			set := lifecycleModuleSet(t, name, fmt.Sprintf(`{
-  "name": %q, "default_enabled": true,
+  "name": %q, 
   "settings": {"profile": {"type": "string", "scope": "user", "default": "default-profile"}},
   "host_daemon": {
     "cmd": %s,
@@ -258,7 +258,7 @@ func TestLegacyPerJailManifestKeepsTheStableSettingsPath(t *testing.T) {
 	const name = "legacy-settings-path"
 	marker := filepath.Join(t.TempDir(), "daemon.marker")
 	set := lifecycleModuleSet(t, name, fmt.Sprintf(`{
-  "name": %q, "default_enabled": true,
+  "name": %q, 
   "settings": {"profile": {"type": "string", "scope": "user", "default": "default-profile"}},
   "host_daemon": {
     "cmd": ["/bin/sh", "-c", %q, "daemon", "{settings}", %q, "{socket}"],

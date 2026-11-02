@@ -250,7 +250,7 @@ func TestMacosUserSaysARefusedDoorwayTheGuestDeclinesRunsNowhere(t *testing.T) {
 	src := fetchedPackSource(t, map[string]string{
 		"pack.json": `{"name": "acme", "contributes": [{"kind": "loophole", "from": "loopholes/acme-proxy"}]}`,
 		"loopholes/acme-proxy/manifest.jsonc": `{"name": "acme-proxy",
-		"description": "acme proxy", "default_enabled": true, "transport": "loopback-tls",
+		"description": "acme proxy", "transport": "loopback-tls",
 		"jail_daemon": {"cmd": ["{jail_loophole_dir}/my-agent", "--listen", "{listen}"],
 		"listen": "127.0.0.1:1999", "caller_token": true,
 		"host_cmd": ["yolo", "internal", "daemon", "acme-adapter", "--listen", "{listen}"]}}`,
@@ -303,7 +303,7 @@ func TestALocalAdapterWithoutAHostArgvRunsInTheGuest(t *testing.T) {
 	home := packHome(t)
 	ws := t.TempDir()
 	writeLocalLoopholePack(t, home, "openai-auth-broker", `{"name": "openai-auth-broker",
-		"description": "the adapter as a guest jail daemon", "version": 1, "default_enabled": true,
+		"description": "the adapter as a guest jail daemon", "version": 1, 
 		"transport": "loopback-tls", "lifecycle": "spawned",
 		"host_daemon": {"cmd": ["yolo", "internal", "daemon", "openai-auth-broker",
 		  "--socket", "{socket}", "--state-file", "{state}/credentials.json"],

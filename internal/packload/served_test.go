@@ -294,3 +294,40 @@ func TestGitRewriteWithheldWhereUnserved(t *testing.T) {
 		}
 	}
 }
+
+// An unconfigured LOGIN LOOPHOLE serves nothing (ServedDaemons.WithoutUnconfiguredLogins): the
+// shipped aws-auth, whose env contribution names its `profile` setting, leaves the served set
+// with no profile, naming the setting and the verb that writes it, and stays with one. A daemon
+// no login contribution points at is untouched, and so is one served by inheritance.
+func TestAnUnconfiguredLoginServiceServesNothing(t *testing.T) {
+	packs := embeddedNamed(t, "aws-auth")
+	served := ServedInJail([]string{"aws-auth", "other"})
+	none := func(string, string) string { return "" }
+
+	got := served.WithoutUnconfiguredLogins(packs, none)
+	if got.Serves("aws-auth") || !got.Serves("other") {
+		t.Fatalf("serves aws-auth=%v other=%v; want only the unconfigured login service dropped",
+			got.Serves("aws-auth"), got.Serves("other"))
+	}
+	if why := got.notServedWhy("aws-auth"); !strings.Contains(why, "`profile`") ||
+		!strings.Contains(why, "yolo config set allow.aws-auth.profile") {
+		t.Errorf("the withheld pointer's clause does not name the setting and its verb: %q", why)
+	}
+	if !served.Serves("aws-auth") {
+		t.Error("WithoutUnconfiguredLogins modified its receiver")
+	}
+
+	profile := func(loophole, key string) string {
+		if loophole == "aws-auth" && key == "profile" {
+			return "bedrock"
+		}
+		return ""
+	}
+	if !served.WithoutUnconfiguredLogins(packs, profile).Serves("aws-auth") {
+		t.Error("a login service with a profile was dropped")
+	}
+	inherited := served.WithInherited(map[string]map[string]string{"aws-auth": {"AWS_CONTAINER_CREDENTIALS_FULL_URI": "http://x"}})
+	if !inherited.WithoutUnconfiguredLogins(packs, none).Serves("aws-auth") {
+		t.Error("a pointer the launching jail served was dropped")
+	}
+}

@@ -45,11 +45,11 @@ func TestAWSUnnarrowedRoutineDisclosureDoesNotSuppressOtherPackDisclosures(t *te
 		t.Fatal(err)
 	}
 	awsPack := writeRealLoopholePack(t, "aws-auth", "aws-auth", fmt.Sprintf(
-		`{"name":"aws-auth","transport":"none","default_enabled":false,"settings":%s,
+		`{"name":"aws-auth","transport":"none","settings":%s,
 		"host_daemon":{"cmd":[%q,"-front-upstream-child","line","{socket}"],"publishes":"socket"}}`,
 		settingsJSON, os.Args[0]))
 	otherPack := writeRealLoopholePack(t, "independent", "independent", fmt.Sprintf(`{
-		"name":"independent","transport":"none","default_enabled":true,
+		"name":"independent","transport":"none",
 		"settings":{"notice":{"type":"bool","scope":"user","default":false,
 			"disclose":"an independent pack setting is enabled"}},
 		"host_daemon":{"cmd":[%q,"-front-upstream-child","line","{socket}"],"publishes":"socket"}
@@ -122,7 +122,7 @@ s = socket.socket(fileno=3)
 s.sendall(struct.pack(">I", len(data)) + data)
 `
 	manifest := `{
-		"name":"host-singleton-fixture", "default_enabled":true, "transport":"loopback-tls",
+		"name":"host-singleton-fixture", "transport":"loopback-tls",
 		"host_daemon":{"cmd":["python3","{loophole_dir}/daemon.py","--socket","{socket}"],
 			"publishes":"socket","startup_reason":true}
 	}`
@@ -182,7 +182,7 @@ func TestAWSStartupRefusalRendersSafeCauseWithoutProfileOrPolicyValues(t *testin
 	policy := `{"Statement":[{"Effect":"Allow","Action":["` + policyKey + `"],"Resource":"` + policyValue + `"}]}`
 	stateFile := filepath.Join(t.TempDir(), "state.json")
 	manifest := fmt.Sprintf(`{
-		"name":"aws-auth", "default_enabled":true, "transport":"none",
+		"name":"aws-auth", "transport":"none",
 		"settings":{
 			"profile":{"type":"string","scope":"user","default":""},
 			"role_arn":{"type":"string","scope":"user","default":""},
@@ -250,7 +250,7 @@ s = socket.socket(fileno=3)
 s.sendall(struct.pack(">I", len(data)) + data)
 `
 	manifest := `{
-		"name":"diagnostic-fixture", "default_enabled":true, "transport":"none",
+		"name":"diagnostic-fixture", "transport":"none",
 		"settings":{"value":{"type":"string","scope":"user","default":"valid"}},
 		"host_daemon":{"cmd":["python3","{loophole_dir}/daemon.py","--settings","{settings}"],
 			"settings_check":["/bin/test","-s","{settings}"],

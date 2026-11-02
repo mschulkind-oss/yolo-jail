@@ -259,7 +259,9 @@ func (o *Options) composePackChannel(cfg *jsonx.OrderedMap, packs []*packload.Pa
 func (o *Options) composePackChannelWith(cfg *jsonx.OrderedMap, packs []*packload.Pack,
 	userEnv, profiles *jsonx.OrderedMap, userProfiles map[string]packload.UserProfile,
 	specs []loopholes.JailDaemonSpec) (*packChannel, error) {
-	served := o.servedDaemons(specs)
+	// A login service with no profile serves nothing, so nothing points at it
+	// (ServedDaemons.WithoutUnconfiguredLogins).
+	served := o.servedDaemons(specs).WithoutUnconfiguredLogins(packs, loopholes.ConfiguredSetting(cfg))
 	providers, unservedAdaptations, err := o.composedProvidersFor(cfg, packs, served)
 	if err != nil {
 		return nil, err

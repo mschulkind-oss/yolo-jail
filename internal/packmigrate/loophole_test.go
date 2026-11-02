@@ -15,13 +15,12 @@ const loopholeFixture = `{
   "description": "A probe.",
   "version": 1,
   /* Carried as written, false included. */
-  "default_enabled": false,
   "transport": "loopback-tls",
   "lifecycle": "spawned",
   "settings": {
     // The second key, declared first.
     "second": {"type": "int", "scope": "user", "default": 7, "description": "a description long enough that the whole declaration cannot stay on one line of the file"},
-    "first": {"type": "string", "scope": "workspace", "default": "", "description": "another description long enough that it too becomes a table of its own in the file"}
+    "first": {"type": "string", "scope": "user", "default": "", "description": "another description long enough that it too becomes a table of its own in the file"}
   },
   "host_bind_mounts": [
     // The socket.
@@ -135,9 +134,6 @@ func assertMigratedProbe(t *testing.T, dir string) {
 			t.Errorf("comment %q moved out of order:\n%s", c, got)
 		}
 		last = i
-	}
-	if !strings.Contains(got, "default_enabled = false") {
-		t.Errorf("a written default_enabled = false was not carried over:\n%s", got)
 	}
 	// Settings keep their declaration order, as sub-tables of settings.
 	second, first := strings.Index(got, "[settings.second]"), strings.Index(got, "[settings.first]")

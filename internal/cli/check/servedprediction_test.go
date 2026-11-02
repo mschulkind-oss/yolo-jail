@@ -49,7 +49,7 @@ func TestCheckPredictsTheBridgedPairingPerRuntime(t *testing.T) {
 func TestCheckPredictsEachDaemonAtItsDeclaredListenAddress(t *testing.T) {
 	moduleRoot := isolatedModuleDir(t)
 	writeLoopholeManifest(t, moduleRoot, "acme-adapter",
-		`"name":"acme-adapter","description":"d","transport":"none","default_enabled":true,`+
+		`"name":"acme-adapter","description":"d","transport":"none",`+
 			`"jail_daemon":{"cmd":["yolo-jaild","acme","--listen","{listen}"],"listen":"127.0.0.1:1999"}`)
 	served := (&Options{}).predictedServed(useProfiles("claude", "cerebras"), nil)
 	if got := served.Listen("acme-adapter"); got != "127.0.0.1:1999" {

@@ -2,7 +2,6 @@
   "name": "journal",
   "description": "Read the host's systemd journal from inside the jail (yolo-journalctl). The `read` grant forces --user onto every request; `read_all` passes the request through unchanged.",
   "version": 1,
-  "default_enabled": false,
   "access": "read the host's journal",
   "platforms": [
     "linux"

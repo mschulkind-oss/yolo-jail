@@ -67,9 +67,10 @@ func loopholesConfig(t *testing.T, block string) *jsonx.OrderedMap {
 
 // TestHostDoorwayLoopholesIsThePlansOwnSet: for every doorway a launch's selection asks the plan
 // for, the apply's notch line names it as delivered at launch exactly when PlanHostDoorways
-// composes it. A plan that runs no process (opens=false) still composes them, and says "only a
-// launch that runs the agent opens" of exactly those; every other reason means the doorway was not
-// composed. The two differences hostdoorwaysets.go's header states are pinned below it.
+// composes it, over a config naming aws-auth's profile. A plan that runs no process (opens=false)
+// still composes them, and says "only a launch that runs the agent opens" of exactly those; every
+// other reason means the doorway was not composed. The two differences hostdoorwaysets.go's header
+// states are pinned below it.
 func TestHostDoorwayLoopholesIsThePlansOwnSet(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -80,7 +81,7 @@ func TestHostDoorwayLoopholesIsThePlansOwnSet(t *testing.T) {
 		Platforms: map[string]string{"pi": "aws-bedrock"}}
 	const composedWhy = "which only a launch that runs the agent opens"
 
-	cfg := loopholesConfig(t, `{"aws-auth": {"enabled": true}}`)
+	cfg := loopholesConfig(t, `{"aws-auth": {"settings": {"profile": "work"}}}`)
 	plan, err := PlanHostDoorways(cfg, packs, sel, false, "yolo host -- pi")
 	if err != nil {
 		t.Fatal(err)
@@ -108,23 +109,34 @@ func TestHostDoorwayLoopholesIsThePlansOwnSet(t *testing.T) {
 		t.Errorf("want exactly the two credential doorways the shipped packs declare, got %v", got)
 	}
 
-	// The SWITCH is the other difference, on purpose: a loophole the user left off is still one
-	// the host notch delivers once it is on, and the launch that does not open it names the
-	// switch. The plan over the same config says disabled.
-	off := loopholesConfig(t, `{"aws-auth": {"enabled": false}}`)
-	plan, err = PlanHostDoorways(off, packs, sel, false, "yolo host -- pi")
+	// A LOGIN LOOPHOLE WITH NO PROFILE is the other difference: the plan opens no doorway to it,
+	// naming the setting, and the notch line still names its doorway, which opens once one is set.
+	none := loopholesConfig(t, `{}`)
+	nonePlan, err := PlanHostDoorways(none, packs, sel, false, "yolo host -- pi")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(plan.notOpened["aws-auth"], "is disabled") {
-		t.Fatalf("fixture bug: the plan over a disabled aws-auth says %q", plan.notOpened["aws-auth"])
+	if why := nonePlan.notOpened["aws-auth"]; !strings.Contains(why, "serves nothing until its `profile` setting") ||
+		!strings.Contains(why, "yolo config set allow.aws-auth.profile <profile>") {
+		t.Errorf("with no profile the plan's reason for aws-auth = %q, want the setting and its verb", why)
+	}
+	if !HostDoorwayLoopholes(none, packs)["aws-auth"] {
+		t.Error("with no profile the notch line stopped naming aws-auth's doorway")
+	}
+
+	// A config `enabled: false` is no switch: a pack's loophole runs whenever its pack is
+	// selected, so the plan and the named set over that config are the plan and the set without it.
+	off := loopholesConfig(t, `{"aws-auth": {"enabled": false, "settings": {"profile": "work"}}}`)
+	offPlan, err := PlanHostDoorways(off, packs, sel, false, "yolo host -- pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if offPlan.notOpened["aws-auth"] != plan.notOpened["aws-auth"] {
+		t.Errorf("a config `enabled: false` moved the plan for aws-auth: %q, want %q",
+			offPlan.notOpened["aws-auth"], plan.notOpened["aws-auth"])
 	}
 	if !HostDoorwayLoopholes(off, packs)["aws-auth"] {
-		t.Error("a disabled aws-auth is named as having no doorway at the host, which every " +
-			"notch's switch, not the host's, decides")
-	}
-	if !HostDoorwayLoopholes(newConfig(), packs)["aws-auth"] {
-		t.Error("aws-auth off by default (its manifest's default_enabled) is named as having no doorway")
+		t.Error("a config `enabled: false`, which switches nothing, took aws-auth's doorway away")
 	}
 }
 
@@ -142,7 +154,7 @@ func TestHostDoorwayLoopholesAppliesTheAdmissionGate(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(mod, "manifest.jsonc"), []byte(`{
-		"name": "acme-cred", "description": "d", "version": 1, "default_enabled": true,
+		"name": "acme-cred", "description": "d", "version": 1, 
 		"transport": "loopback-tls", "lifecycle": "spawned",
 		"host_daemon": {"cmd": ["yolo", "internal", "daemon", "acme", "--socket", "{socket}"],
 		                "publishes": "socket", "scope": "host"},

@@ -30,7 +30,7 @@ s = socket.socket(fileno=3)
 s.sendall(struct.pack(">I", len(data)) + data)
 `
 	manifest := fmt.Sprintf(`{
-		"name":%q,"default_enabled":true,"transport":"none",
+		"name":%q,"transport":"none",
 		"host_daemon":{"cmd":["python3","{loophole_dir}/daemon.py","--socket","{socket}"],
 			"publishes":"socket","startup_reason":true}
 	}`, name)

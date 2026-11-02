@@ -10,7 +10,6 @@
       "legacy_enable": true
     }
   ],
-  "default_enabled": false,
   "platforms": [
     "linux"
   ],

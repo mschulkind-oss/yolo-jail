@@ -143,12 +143,13 @@ func TestDisabledOutranksThePlatformReport(t *testing.T) {
 	md := modsDir(t)
 	mod := mkdir(t, filepath.Join(md, "off"))
 	writeManifest(t, mod, map[string]any{
-		"name": "off", "description": "x", "default_enabled": false, "platforms": []any{other},
+		"name": "off", "description": "x", "platforms": []any{other},
 	})
 	lp, err := LoadLoophole(mod)
 	if err != nil {
 		t.Fatal(err)
 	}
+	lp.Enabled = false // only a config-inline loophole can be off; flipped by hand here
 	reason, ok := lp.InactiveReason()
 	if !ok || reason != "disabled" {
 		t.Errorf("InactiveReason() = (%q, %v), want (\"disabled\", true)", reason, ok)

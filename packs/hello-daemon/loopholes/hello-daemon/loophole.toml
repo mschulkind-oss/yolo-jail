@@ -11,7 +11,6 @@
 name = "hello-daemon"
 description = "Experiment: runs a two-line program this pack ships, to prove a pack can deliver a jail-side daemon's executable (docs/reference/pack-binaries.md)."
 version = 1
-default_enabled = false
 # No daemon on the host, so no transport: `none` is the enum's word for that, and declaring it
 # keeps this file from claiming a loopback-TLS endpoint nothing publishes.
 transport = "none"

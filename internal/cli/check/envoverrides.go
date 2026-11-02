@@ -74,6 +74,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
@@ -113,6 +114,8 @@ type overrideGapFinding struct {
 func envOverrideGap(packs []*packload.Pack, merged *jsonx.OrderedMap, served packload.ServedDaemons,
 	workspace string, dirsDeliver bool, configWarn func(string),
 	userProfiles func() (map[string]packload.UserProfile, error)) (errs, warns []overrideGapFinding) {
+	// A login service with no profile serves nothing, as at launch (ServedDaemons.WithoutUnconfiguredLogins).
+	served = served.WithoutUnconfiguredLogins(packs, loopholes.ConfiguredSetting(merged))
 	scope := overrideScope(packs, merged, served, workspace, configWarn, userProfiles)
 	findings := packload.EnvOverrideFindings(packs, scope.Selection(), func(name string) (string, bool) {
 		// THE LAUNCH'S OWN ANSWER (run/profilechannel.go's deliverySource, read through
