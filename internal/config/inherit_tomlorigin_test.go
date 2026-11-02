@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -76,10 +77,11 @@ func TestInheritedJSONCRenderRefusesValuesATOMLFileWrote(t *testing.T) {
 
 // A legacy file included from a TOML one keeps the JSONC route only while the payload holds no
 // TOML-written value a reader judges by format. Here the TOML file writes such shapes and the
-// legacy include writes
-// a key a read does not lower yet (RC-D50's open gap 3, here `model_facts`): neither format is honest, so delivery fails
-// naming both sides, the legacy line and the next step, rather than handing readable values to
-// the legacy reader.
+// legacy include writes a key the readers keep in its legacy spelling (`model_facts`): neither
+// format carries it as it is, so the scope crosses as the migration's lowering of it
+// (RC-D55, configmigrate.LowerInheritedUserScope in a launch) and, where that lowering declines,
+// delivery fails naming both sides, the legacy line, why the lowering declined and the next
+// step, rather than handing readable values to the legacy reader.
 func TestInheritedDeliveryFailsRatherThanFallBackWithTOMLWrittenValues(t *testing.T) {
 	src, filtered := loadConvertedHostConfig(t, "include_if_found = ['extra.jsonc']\n"+convertedTOMLUserConfig,
 		map[string]string{"extra.jsonc": `{"model_facts": {"m1": {"context_window": 1000}}}`})
@@ -87,14 +89,36 @@ func TestInheritedDeliveryFailsRatherThanFallBackWithTOMLWrittenValues(t *testin
 	if _, present := values.Get("model_facts"); !present {
 		t.Fatalf("fixture: the legacy include's model_facts did not reach the preflight scope, so this proves nothing: %v", values)
 	}
-	body, format, fallback, err := RenderFilteredForDelivery(values, src, InheritPreflight, "")
+	decline := func(*jsonx.OrderedMap) (*jsonx.OrderedMap, error) {
+		return nil, errors.New("config.model_facts.m1: stand-in decline")
+	}
+	body, format, fallback, err := RenderFilteredForDeliveryLowering(values, src, InheritPreflight, "", decline)
 	if err == nil {
 		t.Fatalf("delivery fell back (format=%v, reason %q) with TOML-written values:\n%s", format, fallback, body)
 	}
-	for _, want := range []string{paths.UserConfigTOMLName, "config.model_facts", "extra.jsonc:1:", "yolo config migrate"} {
+	for _, want := range []string{paths.UserConfigTOMLName, "config.model_facts", "extra.jsonc:1:", "stand-in decline", "yolo config migrate"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("the delivery failure does not say %q: %v", want, err)
 		}
+	}
+
+	// A lowering that converts it is what crosses, as TOML, with no host origins: the jail
+	// judges a value by its origin's format, and the host file behind a respelled value is the
+	// legacy one.
+	respell := func(v *jsonx.OrderedMap) (*jsonx.OrderedMap, error) {
+		facts := jsonx.NewOrderedMap()
+		row := jsonx.NewOrderedMap()
+		row.Set("context", 1000)
+		facts.Set("m1", row)
+		v.Set("model_facts", facts)
+		return v, nil
+	}
+	body, format, fallback, err = RenderFilteredForDeliveryLowering(values, src, InheritPreflight, "", respell)
+	if err != nil || format != configdoc.TOML || fallback != "" {
+		t.Fatalf("the lowered scope did not cross as TOML: format=%v fallback=%q err=%v", format, fallback, err)
+	}
+	if !strings.Contains(body, "context = 1000") || strings.Contains(body, originsTOMLLinePrefix) {
+		t.Errorf("the lowered scope is not the lowering's, or names host origins:\n%s", body)
 	}
 }
 
