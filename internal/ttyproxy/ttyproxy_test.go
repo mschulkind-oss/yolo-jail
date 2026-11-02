@@ -2301,6 +2301,27 @@ func queuedTerminationResumeTraceError(trace, childReceipt, stages []byte) error
 		}
 		return nil
 	}
+	// The arm's os.Exit may also cut the log between the callback rows, before the
+	// controlling snapshot is written. Each observer row's boolean is loaded BEFORE the row is
+	// appended, so an entry row reading false may land after the arm's row (the 2026-11-02
+	// check-go trace, run 41525611066). Without a controlling snapshot nothing was forwarded,
+	// so the cut trace must hold no write row and the child no byte. A row written after the
+	// arm's row loaded its bit after the publication, except the entry row (its load may
+	// precede it), so a return row after an arm row before entry must read true.
+	if len(armCancel) == 1 && len(entry) == 1 && len(returned) <= 1 && len(checks) == 0 {
+		armPublished, armValid := published(armCancel[0])
+		entryPublished, entryValid := published(entry[0])
+		if !armValid || !armPublished || !entryValid || !pendingOne(entry[0]) || len(writes)+len(writeErrors)+len(enqueues)+len(flushes) != 0 || bytes.Contains(childReceipt, []byte{'R'}) {
+			return fmt.Errorf("arm exit before the controlling snapshot lacks a consistent no-forwarding trace: stages=%q trace=%q child=%q", stages, trace, childReceipt)
+		}
+		if len(returned) == 1 {
+			returnPublished, returnValid := published(returned[0])
+			if entry[0].index >= returned[0].index || !pendingOne(returned[0]) || !returnValid || entryPublished && !returnPublished || armCancel[0].index < entry[0].index && !returnPublished {
+				return fmt.Errorf("arm exit before the controlling snapshot has an out-of-order or contradictory callback trace: trace=%q", trace)
+			}
+		}
+		return nil
+	}
 	if len(entry) != 1 || len(returned) != 1 || len(checks) != 1 || len(armCancel) > 1 {
 		return fmt.Errorf("queued termination has missing or duplicate resume callback/snapshot events: trace=%q", trace)
 	}
@@ -2506,6 +2527,24 @@ func TestQueuedTerminationResumeTracePredicate(t *testing.T) {
 			child:  []byte("SDWR"),
 			stages: []byte("?ZRA?"),
 		},
+		// The 2026-11-02 check-go trace (run 41525611066): the entry row loaded false, the arm
+		// published and wrote its row first, and its os.Exit cut the log before the return row.
+		{
+			name:   "arm-exit-cuts-trace-after-callback-entry",
+			trace:  trace(arm, entryFalse),
+			child:  []byte("SDW"),
+			stages: []byte("?Z"),
+		},
+		{
+			name:   "arm-exit-cuts-trace-after-callback-return",
+			trace:  trace(entryFalse, arm, returnTrue),
+			child:  []byte("SDW"),
+			stages: []byte("?ZRA?"),
+		},
+		{name: "arm-exit-cut-before-snapshot-with-child-read", trace: trace(arm, entryFalse), child: []byte("SDWR"), stages: []byte("?Z"), wantError: true},
+		{name: "arm-exit-cut-before-snapshot-with-write", trace: trace(entryFalse, arm, writeFalse), child: []byte("SDW"), stages: []byte("?ZR"), wantError: true},
+		{name: "arm-before-entry-then-false-return", trace: trace(arm, entryFalse, returnFalse), child: []byte("SDW"), stages: []byte("?ZR"), wantError: true},
+		{name: "cut-before-snapshot-without-arm", trace: trace(entryFalse, returnFalse), child: []byte("SDW"), stages: []byte("?ZR"), wantError: true},
 		{name: "child-read-without-write-attempt", trace: trace(entryFalse, returnFalse, checkFalse, arm), child: []byte("SDWR"), stages: []byte("?ZRA?"), wantError: true},
 		{name: "outcome-without-write-attempt", trace: trace(entryFalse, returnFalse, checkFalse, enqueueDirect, arm), child: []byte("SDWR"), stages: []byte("?ZRA?"), wantError: true},
 		{name: "flush-without-enqueue-outcome", trace: trace(entryFalse, returnFalse, checkFalse, writeFalse, flushWritten, arm), child: []byte("SDWR"), stages: []byte("?ZRA?"), wantError: true},
