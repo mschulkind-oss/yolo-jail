@@ -1619,3 +1619,49 @@ func mustMap(t *testing.T, m *jsonx.OrderedMap, key string) *jsonx.OrderedMap {
 	}
 	return out
 }
+
+// config.d/*.toml as `yolo config-ref` states it: read with no user config file at all (the
+// absent user config is the TOML one a first write creates), never beside a legacy config.jsonc,
+// each fragment's own include_if_found followed (relative to config.d/), and a later fragment's
+// scalar winning over an earlier one's.
+func TestConfigDFragmentsReadAsConfigRefStates(t *testing.T) {
+	for _, tc := range []struct {
+		name, top, body string
+		want            any
+	}{
+		{"no user config file", "", "", "second"},
+		{"a TOML user config", paths.UserConfigTOMLName, "agents_md_extra = 'top'\n", "second"},
+		{"a legacy user config", paths.UserConfigLegacyJSONCName, `{"agents_md_extra": "top"}`, "top"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			t.Setenv("YOLO_VERSION", "")
+			t.Setenv(UserLayerEnv, "")
+			userDir := filepath.Join(home, ".config", "yolo-jail")
+			if tc.top != "" {
+				write(t, filepath.Join(userDir, tc.top), tc.body)
+			}
+			write(t, filepath.Join(userDir, "config.d", "10-a.toml"), "include_if_found = ['parts/nix.toml']\nagents_md_extra = 'first'\n")
+			write(t, filepath.Join(userDir, "config.d", "parts", "nix.toml"), "[install]\nnix = ['from-include']\n")
+			write(t, filepath.Join(userDir, "config.d", "20-b.toml"), "agents_md_extra = 'second'\n")
+			got, err := LoadReadableUserScopeConfig(true, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			extra, _ := got.Get("agents_md_extra")
+			if extra != tc.want {
+				t.Fatalf("agents_md_extra = %#v, want %#v", extra, tc.want)
+			}
+			install, _ := got.Get("install")
+			if tc.want == "second" {
+				nix, _ := install.(*jsonx.OrderedMap).Get("nix")
+				if !reflect.DeepEqual(nix, []any{"from-include"}) {
+					t.Fatalf("the fragment's include was not followed: install = %#v", install)
+				}
+			} else if install != nil {
+				t.Fatalf("a legacy user config read config.d: install = %#v", install)
+			}
+		})
+	}
+}

@@ -313,12 +313,27 @@
     Example (~/.config/yolo-jail/config.jsonc):
       "include_if_found": ["overrides.jsonc"]
 
-  [bold]~/.config/yolo-jail/config.d/*.toml[/bold] (user config fragments): With a
-    TOML user config, every *.toml file in config.d/ is read after config.toml,
-    in name order, and merged on top the same way; no include_if_found line is
-    needed. A linked fragment is followed. Use one file per machine or role (a
-    dotfiles manager can link in work.toml on one machine only). A legacy
-    config.jsonc reads no config.d/.
+  [bold]~/.config/yolo-jail/config.d/*.toml[/bold] (user config fragments): Read
+    automatically, with no include_if_found line, whenever the user config is
+    config.toml or there is no user config file at all.  A legacy config.jsonc
+    (or config.json) reads no config.d/.
+    What is loaded: each entry of config.d/ whose name ends in ".toml" and is a
+    regular file once links are followed (a linked fragment is read; a
+    subdirectory, a .jsonc file or any other name is skipped).  Each fragment
+    is user-scope, like config.toml, and may list its own include_if_found,
+    relative to config.d/.  A file already read (through an include, say) is
+    not read twice.
+    Order: config.toml with its includes first, then the fragments in byte
+    order of their names (uppercase before lowercase; number them, as in
+    10-base.toml and 20-work.toml, to fix the order), each with its own
+    includes, then a --user-layer last.
+    Merge: each fragment merges on top of everything before it exactly as a
+    TOML include does: tables merge key by key, a later scalar wins, lists
+    from each file add up (duplicates dropped), and a removal spelling
+    (an empty list, "off", "native" where a key has one) drops what earlier
+    files wrote.
+    Use one file per machine or role (a dotfiles manager can link in
+    work.toml on one machine only).
 
   [bold]agents_md_extra[/bold] (string): Markdown appended to every agent's briefing.
     Whatever you put here is concatenated onto the jail-managed section of
