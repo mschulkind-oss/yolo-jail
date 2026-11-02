@@ -18,3 +18,7 @@ lua = "5.4.9"
 # userguide/guides/git.md). Takes effect only once your user config allows the "branch"
 # grant kind and the request is approved at the config-change prompt or `yolo config apply`.
 push = ["main"]
+
+[requests.github]
+dispatch_workflows = ["release-request.yml", "nightly-macos.yml", "macos-user.yml", "apple-container.yml"]
+approve_runs = ["github-actions[bot]"]
