@@ -13,6 +13,10 @@ func SelfCheck(settingsPath string) int {
 		return 1
 	}
 
+	if r, refuse := cfg.refusal(""); refuse {
+		fmt.Printf("serial: devices %s for this project; nothing is listed or opened until a grant covers it\n", r.Standing)
+		return 0
+	}
 	devices := findDevices(cfg.AllowedDevices)
 	accessible := 0
 	for _, d := range devices {

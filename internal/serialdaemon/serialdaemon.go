@@ -124,6 +124,9 @@ func BuildHandler(cfg Settings) hostservice.Handler {
 }
 
 func handleList(s *hostservice.Session, cfg Settings) {
+	if refused(s, cfg, "") {
+		return
+	}
 	devices := findDevices(cfg.AllowedDevices)
 	if s.Request != nil {
 		if raw, ok := s.Get("format"); ok && raw == "json" {
@@ -136,7 +139,11 @@ func handleList(s *hostservice.Session, cfg Settings) {
 	}
 
 	if len(devices) == 0 {
-		s.Stdout("No serial devices found matching allowlist patterns.\n")
+		if cfg.Grants != nil {
+			s.Stdout("No serial devices found matching the granted device globs.\n")
+		} else {
+			s.Stdout("No serial devices found matching allowlist patterns.\n")
+		}
 		s.Exit(0)
 		return
 	}
@@ -162,6 +169,9 @@ func handleRead(s *hostservice.Session, cfg Settings) {
 		return
 	}
 
+	if refused(s, cfg, devicePath) {
+		return
+	}
 	if !isDeviceAllowed(devicePath, cfg.AllowedDevices) {
 		s.Stderr(fmt.Sprintf("serial: device %q is not in the allowed_devices list\n", devicePath))
 		s.Exit(2)
@@ -213,6 +223,9 @@ func handleWrite(s *hostservice.Session, cfg Settings) {
 		return
 	}
 
+	if refused(s, cfg, devicePath) {
+		return
+	}
 	if !isDeviceAllowed(devicePath, cfg.AllowedDevices) {
 		s.Stderr(fmt.Sprintf("serial: device %q is not in the allowed_devices list\n", devicePath))
 		s.Exit(2)
@@ -260,6 +273,9 @@ func handleMonitor(s *hostservice.Session, cfg Settings) {
 		return
 	}
 
+	if refused(s, cfg, devicePath) {
+		return
+	}
 	if !isDeviceAllowed(devicePath, cfg.AllowedDevices) {
 		s.Stderr(fmt.Sprintf("serial: device %q is not in the allowed_devices list\n", devicePath))
 		s.Exit(2)

@@ -15,11 +15,19 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/frameproto"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholegrant"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
 
 const dialTimeout = 30 * time.Second
+
+// inertEnv carries the inert note's reason when the serial loophole does nothing on this setup
+// (plan PD-8): the launch sets it, and the client says so before trying any endpoint.
+var inertEnv = paths.LoopholeInertEnv("serial")
+
+// refusedExit is a grant refusal's exit code (plan PD-7), the daemon's own for the same stop.
+const refusedExit = 64
 
 func main() {
 	os.Exit(run(os.Args[1:]))
@@ -33,6 +41,14 @@ func run(args []string) int {
 
 	cmd := args[0]
 	subArgs := args[1:]
+
+	switch cmd {
+	case "list", "read", "write", "monitor", "stream", "pty", "bridge":
+		if reason := os.Getenv(inertEnv); reason != "" {
+			fmt.Fprint(os.Stderr, loopholegrant.Refusal{Client: "yolo-serial", Pack: "serial", Inert: reason}.Text())
+			return refusedExit
+		}
+	}
 
 	switch cmd {
 	case "list":
@@ -148,13 +164,18 @@ func resolveEndpoint(custom string) (string, error) {
 	return "", errors.New("no endpoint")
 }
 
+// noEndpointMsg is the client's own fallback when no bridge is wired up in this jail: the
+// serial pack is not selected. `yolo pack add` edits the host's user config, and run in a jail
+// it prints the host-run line for the human. A loophole runs whenever its pack is selected
+// and grants nothing until a grant covers the project
+// (docs/design/loophole-access-approval.md §4), so the steps are the pack, then the request.
 func noEndpointMsg(w io.Writer) {
-	fmt.Fprintln(w,
-		"yolo-serial: no endpoint.  The serial loophole isn't wired up in "+
-			"this jail.  Two things turn it on:\n"+
-			"  1. ~/.config/yolo-jail/config.jsonc:  \"packs\": [..., \"serial\"]\n"+
-			"  2. ~/.config/yolo-jail/config.jsonc:  \"loopholes\": {\"serial\": {\"enabled\": true}}\n"+
-			"Then restart the jail.")
+	fmt.Fprint(w,
+		"yolo-serial: no endpoint, so nothing ran.  The serial loophole is not running in this jail.\n"+
+			"  The human selects its pack, on the host:  yolo pack add serial\n"+
+			"  then this project asks for the devices it may open:  yolo request serial devices <device globs>\n"+
+			"  then the human runs, on the host, in this workspace:  yolo config apply   and answers y,\n"+
+			"  and restarts the jail.\n")
 }
 
 func runList(args []string) int {
