@@ -8,7 +8,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholegrant"
 )
 
-// grants.go is the daemon's whole decision (docs/design/loophole-access-approval.md §4.3, §4.6,
+// grants.go is the daemon's whole decision (docs/reference/loophole-grants.md §4.3, §4.6,
 // §5; plan T8, F3, PD-12).
 //
 // # The grant file is the allowlist

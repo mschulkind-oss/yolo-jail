@@ -12,7 +12,7 @@ import (
 )
 
 // A project's request outside the user's ceiling is skipped and named by `yolo check`
-// (docs/design/loophole-access-approval.md §5): the request at its line, that the project runs
+// (docs/reference/loophole-grants.md §5): the request at its line, that the project runs
 // without it, and the one command that allows it. The fixture `journal` pack declares `read`
 // requestable by default and `read_all` not, as the journal will once it is flipped; the user
 // config selects it and has no `[allow.journal]`. Deleting the validator's call to the grant

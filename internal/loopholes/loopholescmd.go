@@ -546,7 +546,7 @@ type SetEnabledOptions struct {
 }
 
 // CmdSetEnabled runs `yolo loopholes enable|disable <name>`, which are RETIRED
-// (docs/design/loophole-access-approval.md §4.5, LG-D8): a loophole runs whenever its pack is
+// (docs/reference/loophole-grants.md §4.5, LG-D8): a loophole runs whenever its pack is
 // selected, and a project gets access by a grant, not a switch. Both refuse for every loophole
 // with §5's text, naming `yolo request` for this project and `yolo allow` for every project
 // (retiredRefusal), and exit 1, as a retired spelling does in this CLI.

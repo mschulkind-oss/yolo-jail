@@ -291,7 +291,7 @@ func resolve(m *loopholedecl.Manifest, modulePath string) *Loophole {
 		Description: m.Description,
 		Path:        modulePath,
 		// A manifest's loophole runs whenever its pack is selected, and grants nothing until
-		// a grant covers the project (docs/design/loophole-access-approval.md §4.1). No key
+		// a grant covers the project (docs/reference/loophole-grants.md §4.1). No key
 		// decides it: the manifest's `default_enabled` is refused at load, and a config's
 		// `loopholes.<name>.enabled` is projected into a grant, never onto this record.
 		Enabled:       true,

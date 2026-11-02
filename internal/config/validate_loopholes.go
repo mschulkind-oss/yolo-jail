@@ -429,7 +429,7 @@ func loopholeScopeKeyViolations(name string, spec *jsonx.OrderedMap, srcFile str
 // deliberate act either way, which is what keeps the line off every launch.
 //
 // A PACK's loophole (manifestBacked) has no switch: it runs whenever its pack is selected
-// (docs/design/loophole-access-approval.md §4.1), so either direction is disclosed as a key that
+// (docs/reference/loophole-grants.md §4.1), so either direction is disclosed as a key that
 // switches nothing, and the line names the key to remove.
 func loopholeScopeEnableProblems(name string, entries []wsLoopholeEntry, installed, manifestBacked bool) (violation, disclosure string) {
 	var enabled *bool

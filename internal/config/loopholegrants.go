@@ -12,7 +12,7 @@ import (
 )
 
 // loopholegrants.go reads the two layers of a grant-declaring loophole's approval
-// (docs/design/loophole-access-approval.md §4.2): the user's CEILING, `[allow.<pack>]` with its
+// (docs/reference/loophole-grants.md §4.2): the user's CEILING, `[allow.<pack>]` with its
 // `always` and `on_request` lists, and the project's REQUEST, `[requests.<pack>]` with
 // `<kind> = true` for an unvalued kind and `<kind> = [values]` for a valued one. From them it
 // computes each declared kind's standing BEFORE the approval record: whether the gate would hold

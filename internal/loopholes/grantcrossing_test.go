@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// grantcrossing_test.go pins the UNMEDIATED half of docs/design/loophole-access-approval.md §4.4
+// grantcrossing_test.go pins the UNMEDIATED half of docs/reference/loophole-grants.md §4.4
 // (LG-D6): a grant-declaring loophole whose crossing is a bind, a device or a socket the launch
 // publishes has no daemon to refuse a call, so the crossing itself is what a grant admits. With
 // no grant nothing crosses; with one, all of it does.

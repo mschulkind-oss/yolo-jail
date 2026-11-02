@@ -1,7 +1,7 @@
 package run
 
 // liveapplygrants.go is `yolo config apply` for grant-declaring loopholes
-// (docs/design/loophole-access-approval.md §4.6 "Live apply", LG-D7): what each one's running
+// (docs/reference/loophole-grants.md §4.6 "Live apply", LG-D7): what each one's running
 // daemon holds against what the gate approves, and the step that rewrites a mediated loophole's
 // grant file so its daemon takes the new standing at its next request, as a broker takes a scope
 // at its next call. An unmediated loophole's crossing (binds, devices) is container argv decided

@@ -2317,6 +2317,30 @@ follow, and none is optional:
 The launch refuses a loophole-name collision outright: it is the fourth launch pre-flight,
 and it is FATAL (`run.PackLoopholeNameConflicts` over `packload.LoopholeNameCollisions`).
 
+**What a project may reach through it is declared in its manifest, as grant kinds.** A
+loophole runs whenever its pack is selected and grants nothing until a grant covers the
+project ([`loophole-grants.md`](loophole-grants.md)); the manifest names what can be granted.
+Each `[[grants]]` entry takes these keys (`internal/loopholedecl/grants.go`):
+
+| Key | Means |
+| :--- | :--- |
+| `kind` | The grant kind's name, lowercase snake case, unique in the manifest: `read`, `devices` |
+| `text` | Required. The line the gate and refusals print: `"read your user journal"` |
+| `valued` | The grant carries values the project supplies (`view = ["postgres"]`). Default false |
+| `requestable_by_default` | With no `on_request` list in the user's `[allow.<pack>]`, a project may ask for this kind. Refused on a valued kind |
+| `value_noun` | A valued kind's noun for its values, used in refusals: `"device globs"`. Valued kinds only |
+| `legacy_enable` | The kind a legacy `enabled: true` becomes in the migration. At most one per manifest |
+| `legacy_setting` | A legacy boolean setting whose `true` becomes this kind: journal's `full` becomes `read_all` |
+| `legacy_values` | A legacy list setting whose values become this kind's value: `visible`, `allowed_devices`. Valued kinds only |
+| `legacy_default_values` | What that legacy list defaulted to when unset, so the migration carries it (serial's five globs). Needs `legacy_values` |
+
+A manifest that declares `[[grants]]` must also declare a top-level `access`, the whole
+crossing in a few words (`"read the host's journal"`) that every refusal prints; `access`
+without grants is refused. An unknown key in a `[[grants]]` entry is refused, as are `[brokered]`
+beside `[[grants]]` (a broker declares its kinds under `brokered.grants`) and a declared setting
+named `grants`. A manifest that declares none is **ungated**: whatever it serves is served once
+its pack is selected. `default_enabled` is refused at load.
+
 > [!WARNING]
 > **Do not re-add a reserved-loophole-name list.** It looks like the obvious hardening and it
 > is the exact change that was backed out. Once `claude-oauth-broker` became a contribution
@@ -3639,11 +3663,14 @@ avoid. Capabilities are declared by whoever holds the fact.
 
 ## A pack's own config keys
 
-A loophole a pack ships gets a `settings` block under its own name —
-`loopholes.<name>.settings.<key>` — whose keys are **declared and typed in the loophole's
-manifest**. Core validates them at the existing validation point, resolves them from the
-merged config, and writes them to a file it owns. `yolo config-ref` is the authority for the
-config keys; [`../guides/loopholes.md`](../../userguide/guides/loopholes.md) is the authority for the
+A loophole a pack ships gets settings under its pack's name — `[allow.<pack>]` in the TOML
+user config, `loopholes.<name>.settings.<key>` in a legacy JSONC one — whose keys are
+**declared and typed in the loophole's manifest**. Core validates them at the existing
+validation point, resolves them from the user config, and writes them to a file it owns, the
+same file that carries the project's grants
+([`loophole-grants.md` §4.6](loophole-grants.md#46-how-a-grant-reaches-the-machinery)). Every
+setting is user scope. `yolo config-ref` is the authority for the config keys;
+[`writing-loopholes.md`](../../userguide/guides/writing-loopholes.md) is the authority for the
 manifest block. The four halves are `internal/loopholedecl/settings.go` (declare),
 `internal/config/validate_loopholesettings.go` (validate), `internal/loopholes/settings.go`
 plus `internal/cli/run/loopholesettings.go` (resolve and write).
@@ -3656,20 +3683,17 @@ plus `internal/cli/run/loopholesettings.go` (resolve and write).
 > keys are typed and declared, from a closed type set: a free-form JSON Schema would put
 > validation outside core's hands and be a second config system.
 
-Placement decides severity, and that is why the block lives under `loopholes.<name>`: an
-unknown **top-level** key refuses the launch, while an unknown entry inside a loophole's block
-is a warning. The inner key set beside `settings` stays closed, so a nested map keeps the
-closure intact — an unknown key *inside* `settings` is checked against the declaration, an
-unknown key *beside* it is still the existing error.
+An unknown key inside a pack's settings is checked against the declaration, so a nested map
+keeps the closure intact.
 
 **Delivery is a file yolo owns, named by a manifest token** (`{settings}`, exactly as the
 manifest already names the socket and the state dir). **A path is the one thing a spawn may
 carry**, and the *contents* are written by core after validation rather than by whoever edited
-the config: the workspace supplies **values**, never **environment**. It also closes a hole
-rather than relocating one — a daemon reading the raw workspace file per request lets an agent
-rewrite the allowlist mid-session with no relaunch and therefore no approval gate, so a
-core-written file makes the value **launch-frozen**. Changing what such a daemon may reveal
-requires a jail restart, which is where the config-approval gate lives.
+the config: config supplies **values**, never **environment**. It also closes a hole rather
+than relocating one — a daemon reading the raw config per request would let an edit change what
+it reveals with no approval gate, so a core-written file makes the settings **launch-frozen**.
+The one part that changes live is the project's grants, which only `yolo config apply` rewrites,
+after the gate.
 
 > [!WARNING]
 > **The settings file must never cross into the jail.** A loophole with a `jail_daemon` gets
@@ -3689,26 +3713,25 @@ requires a jail restart, which is where the config-approval gate lives.
 > union-merges every list at every depth, and the replace-wholesale exception was deleted
 > precisely because a workspace value replacing the user's is what let an agent-editable file
 > decide what entered the jail. So for an allowlist the weak, agent-writable scope can only
-> **add** capability. The per-key `scope` field is the answer: a capability-widening key is
-> declared `scope: "user"` and a workspace cannot contribute to it at all. **`user` is the
-> default** — an author who says nothing gets the strict answer, and a widening key has to ask
-> in writing.
+> **add** capability. The answer is that **no setting is workspace scope**: a key that decides
+> what a project reaches is a valued grant kind, which a project requests and a human approves
+> value by value, and `scope = "workspace"` on a setting is refused at load
+> ([LG-D5](loophole-grants.md#LG-D5)).
 
 A workspace **may** supply values that reach a host daemon, and the conditional is the whole
-ruling: **as long as they go through the config-change gating**. A workspace's
-`brokered.<source>.repos` list, which widens a brokered loophole's repository scope, is one such
-value, approved as rows of the gate's scope block
-([`workspace-widening.md`](../design/workspace-widening.md)), and it falls with this answer. A typed, declared setting core
-validates and writes is a different object from an arbitrary key/value pair injected into a
-process environment — but "different object" alone would not be enough. What closes the gap is
-that the approval snapshot lives in host-side state the jail never mounts, and a
-non-interactive launch does not auto-accept a changed config. **If either is ever reverted,
-this answer goes with it:** a workspace-supplied value reaching a host daemon is only as strong
-as the approval that admits it.
+ruling: **as long as they go through the config-change gating**. A project's
+`[requests.<pack>]` values (the process names a `host-processes` grant shows, the device globs a
+`serial` grant opens) and a workspace's `brokered.<source>.repos` list are such values, approved
+as lines at the gate ([`loophole-grants.md` §4.2](loophole-grants.md#42-the-approval-in-two-layers),
+[`workspace-widening.md`](../design/workspace-widening.md)). What closes the gap is that the
+approval record lives in host-side state the jail never mounts, and a non-interactive launch
+does not auto-accept a changed config. **If either is ever reverted, this answer goes with
+it:** a workspace-supplied value reaching a host daemon is only as strong as the approval that
+admits it.
 
-`enabled` is **not** pack-declared. It is universal and core declares it for every loophole;
-what the manifest supplies is its *default*. One config key, one manifest field declaring its
-default, and the arbitration dissolves rather than needing one.
+There is no `enabled` for a pack's loophole: it runs whenever its pack is selected, and what
+the manifest declares beside its settings is what can be granted, under `[[grants]]`
+([`loophole`](#loophole)).
 
 Scope is a **host-notch** property only. Inside a jail the config directory is a read-write
 bind of the workspace's own tree, so user-vs-workspace is not a boundary there.
@@ -3720,8 +3743,17 @@ bind of the workspace's own tree, so user-vs-workspace is not a boundary there.
 Packs are selected by the `packs` config key, **user scope only** — a workspace config naming
 a pack is a hard error, because a workspace is agent-editable and travels with the repo.
 Nothing is active by default: an empty `packs` yields a jail with no agent, and says so at
-launch (`cli.warnIfNoPacks`). `internal/config/validate.go` hard-errors on the retired
+launch (`run.warnIfNoPacks`). `internal/config/validate.go` hard-errors on the retired
 `agents` key on the host.
+
+**One exception, by name: `selected_by_default`.** A pack's `pack.toml` may set
+`selected_by_default = true`, and the key is honored for the packs yolo ships (embedded packs)
+only. `config.LoadPacks` appends such a pack to the selection beside the implicit local pack,
+and `warnIfNoPacks` does not count it, so a config with no agent still says so. The one pack
+that sets it is `cgroup-delegate`, whose loophole can only limit the jail itself
+([PD-13](loophole-grants.md#PD-13), [LG-D13](loophole-grants.md#LG-D13)). **Ruled, not yet
+built:** until slice [T15](loophole-grants.md#T15) lands, the key is not read and
+`cgroup-delegate` still needs `yolo pack add`.
 
 Three source forms:
 

@@ -12,7 +12,7 @@ import (
 )
 
 // loopholegrants_test.go pins the ceiling and request readers for a grant-declaring loophole
-// (docs/design/loophole-access-approval.md §4.2; plan T3). No shipped pack declares [[grants]]
+// (docs/reference/loophole-grants.md §4.2; plan T3). No shipped pack declares [[grants]]
 // until the flips, so every case runs a fixture pack.
 
 // grantFixtureJournal is a journal-shaped manifest: `read` requestable by default, `read_all`

@@ -81,15 +81,12 @@ measured here.
 
 ## Running it
 
-It is off behind two gates. Select the pack, by path or by its bare name, then enable the
-loophole:
+Select the pack, by path or by its bare name; its loophole runs whenever the pack is
+selected, and it declares no grant:
 
-```jsonc
-// ~/.config/yolo-jail/config.jsonc
-{
-  "packs": ["claude", "/home/you/code/yolo-jail/packs/hello-daemon"],
-  "loopholes": { "hello-daemon": { "enabled": true } }
-}
+```toml
+# ~/.config/yolo-jail/config.toml
+packs = ["claude", "/home/you/code/yolo-jail/packs/hello-daemon"]
 ```
 
 ```console

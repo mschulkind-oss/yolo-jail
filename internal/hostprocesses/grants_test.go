@@ -10,7 +10,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholegrant"
 )
 
-// The grant half of the daemon (docs/design/loophole-access-approval.md §4.3, §4.6, §5; plan T8).
+// The grant half of the daemon (docs/reference/loophole-grants.md §4.3, §4.6, §5; plan T8).
 // Each test drives the REAL transport through startDaemon, with the settings loaded by
 // LoadSettings from a file written by loopholegrant.Merge, which is the launch's own writer.
 

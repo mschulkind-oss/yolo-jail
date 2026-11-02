@@ -13,8 +13,8 @@ goroutine and the teardown are still the run pipeline's.
 
 The manifest says `selected_by_default = true`, so **every launch selects this pack with no
 `packs` line naming it** and `yolo-cglimit` works in a jail with an empty config
-([LG-D13](../../docs/design/loophole-access-approval.md#LG-D13),
-[PD-13](../../docs/design/loophole-access-approval-plan.md#PD-13)). The loophole is ungated
+([LG-D13](../../docs/reference/loophole-grants.md#LG-D13),
+[PD-13](../../docs/reference/loophole-grants.md#PD-13)). The loophole is ungated
 (it declares no `[[grants]]`): the delegate can only narrow the jail, creating child cgroups
 inside the container's own with the `cpu`, `memory` and `pids` controllers and bounded
 values, and it reads and changes nothing of the host's
@@ -28,7 +28,7 @@ values, and it reads and changes nothing of the host's
   cgroup v2), since you did not choose it; `yolo loopholes status` reports it.
 - **It cannot be turned off yet.** Removing a `packs` line naming it leaves it selected. Its
   per-workspace `off` arrives with the pack switch of
-  [LG-D9](../../docs/design/loophole-access-approval.md#LG-D9).
+  [LG-D9](../../docs/reference/loophole-grants.md#LG-D9).
 
 ## Why it is still on AF_UNIX
 
@@ -59,12 +59,12 @@ and `startCgroupDelegate` in `internal/cli/run/loopholesruntime.go`.
   fire on.
 
 **The lookup is shadowable now, and that is a consequence rather than an oversight.** The
-in-process delegate starts when a loophole record named `cgroup-delegate` is enabled,
-active and origin-approved — so a pack you install that ships a loophole of that name can
-turn it on. That is exactly the case OQ-A3 already admits (*"a fetched pack can declare
-itself on"*): what a pack may **do** is bounded by the origin gate, installing one is a
-deliberate user-scope act, and the most this particular switch can buy is a capability
-you could grant yourself with one config line.
+in-process delegate starts when a selected pack's loophole record named `cgroup-delegate`
+is active and origin-approved — so a pack you install that ships a loophole of that name runs
+it. What a pack may **do** is bounded by the origin gate
+([OQ-A3](../../docs/reference/loophole-system.md#oq-a3)), installing one is a deliberate
+user-scope act, and the most this name can buy is a capability you could grant yourself with
+one `yolo pack add`.
 
 ## Verifying
 

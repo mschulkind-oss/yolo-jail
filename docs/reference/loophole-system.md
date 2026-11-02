@@ -22,24 +22,28 @@ covers:
   - internal/render/fieldset.go
   - packs/
 tags: [loopholes, packs, activation, trust, config]
-summary: "How a loophole gets onto a machine and how it turns on: the `loophole` contribution kind that lets a pack ship one, the three-predicate activation model (Enabled / Active / Honored) whose default is OFF, the pack-shipped subset a distributed manifest is held to, the total crossing enumeration behind `yolo pack footprint` and the per-launch disclosure, the install/enable scope split and the placement rule that makes it sound, and the reports for a loophole that will do nothing on this machine."
+summary: "How a loophole gets onto a machine and when it runs: the `loophole` contribution kind that lets a pack ship one, the three-predicate activation model (Enabled / Active / Honored) under which a selected pack's loophole runs and grants nothing until a grant covers the project, the pack-shipped subset a distributed manifest is held to, the total crossing enumeration behind `yolo pack footprint` and the per-launch disclosure, the install scope and the placement rule that makes it sound, and the reports for a loophole that will do nothing on this machine."
 ---
 
 # The loophole system — packaging, activation and disclosure
 
-**Status:** CURRENT as of 2026-10-07, checked against the worktree based on `31312f66`. The broker section and the `OQ-BP` rows were added on 2026-10-16, checked against `8e65f3444`, when the broker-as-a-pack design graduated here and into [`pack-binaries.md`](pack-binaries.md).
+**Status:** CURRENT as of 2026-10-07, checked against the worktree based on `31312f66`. The broker section and the `OQ-BP` rows were added on 2026-10-16, checked against `8e65f3444`, when the broker-as-a-pack design graduated here and into [`pack-binaries.md`](pack-binaries.md). The principles, the activation sections and their ledger rows were rewritten on 2026-11-02, checked against `14801eccf`, when the switch was replaced by grants; that system's own account is [`loophole-grants.md`](loophole-grants.md).
 
 A **loophole** is a single controlled permeability point between a jail and the host: a
 declared, narrow passage through the wall, and the only extension point that can put a
 process on the real machine. This document covers how one *arrives* on a machine, how it
-*turns on*, what the user is *told*, and where it does nothing at all. The wire it speaks
+*runs*, what the user is *told*, and where it does nothing at all. What a project may reach
+through one is a grant, and that system has its own account,
+[`loophole-grants.md`](loophole-grants.md). The wire it speaks
 is [`loophole-protocol.md`](loophole-protocol.md); how a jail reaches it is
 [`loophole-transport.md`](loophole-transport.md).
 
 Two sentences carry most of the design. **Every loophole yolo ships is a pack's, and there
 is no other channel** — there is no loophole registry, no reserved namespace, and no
-built-in service compiled into the run pipeline. And **presence never activates**: a
-loophole is on only because something said so, and a manifest that says nothing is off.
+built-in service compiled into the run pipeline. And **selection runs, and only a grant
+gives access**: a loophole's machinery runs because its pack is selected and this machine can
+run it, and a project reaches the host through it only once a grant covers that project
+([`loophole-grants.md`](loophole-grants.md)).
 
 | Component | Lives in |
 | :--- | :--- |
@@ -70,11 +74,14 @@ block, the CLI, and a worked example. This document does not restate it.
 The six activation rulings keep their original ids, because sibling docs, code comments
 and shipped manifests cite them by number.
 
-**R1. Presence never activates.** A loophole is active only if something said so.
+**R1. Presence never activates.** A loophole runs only because its pack is selected (or, for
+one declared in config, because that config says so); a manifest found on disk or a program
+found on `PATH` starts nothing.
 
-**R2. A pack declares its loophole's default state, and that declaration defaults to
-disabled.** `default_enabled`, on the loophole manifest. **Absent means off.** This is
-what lets a pack do the right thing by default without yolo guessing on its behalf.
+**R2. Retired.** It made `default_enabled`, on the manifest, the pack author's default state.
+Every loophole now runs whenever its pack is selected, so the key would have one legal value;
+it is refused at load ([LG-D3](loophole-grants.md#LG-D3)). The author's remaining declaration is
+what can be granted, under `[[grants]]`.
 
 **R3. The sniffing mechanism is not the way to decide activation.** `requires` answers
 *"can this machine run it"*, never *"should it be on"*. A loophole whose program is
@@ -87,35 +94,37 @@ missing should fail loudly at spawn, not vanish silently from a list.
 > manifest*, where a host-`PATH` probe stood in for a dependency pack selection now
 > expresses directly. Read R3 as being about that use, not about the schema.
 
-**R4. Host access is never on by default.** Being useful is not a reason to be automatic.
+**R4. Access is never granted by default.** Being useful is not a reason to be automatic. A
+grant kind a manifest marks *requestable by default* is only askable: a project still requests
+it and a human still answers y ([§4.2](loophole-grants.md#42-the-approval-in-two-layers)).
 
-**R5. Install is user-scope; enable is either scope.** `packs` is read from the user
-config only, install-shaped keys are refused in workspace scope, and
-`loopholes.<name>.enabled` is honored from both. So a workspace may switch on only what
-the user already installed — the weak, agent-editable scope is bounded by the strong one,
-which is what makes per-workspace enablement safe to offer at all. In a TOML config the user's
-install is `yolo pack add <name>` and a brokered loophole's grant is `yolo allow <source>
-[always|on_request] <capability>` (the project's ask is `yolo request`), not an edit to `packs` or
-`brokered` by hand.
+**R5. Install is user scope; access is a grant in two layers.** `packs` is read from the user
+config only, and install-shaped keys are refused in workspace scope. Access is the user's
+ceiling (`[allow.<pack>]`: what every project gets, and what one may ask for) and the project's
+request (`[requests.<pack>]`), approved at the config-change gate and recorded per workspace
+([`loophole-grants.md`](loophole-grants.md)). So the weak, agent-editable scope can ask, and
+never grant: a request outside the ceiling is skipped and named. In a TOML config the install is
+`yolo pack add <name>`, the ceiling `yolo allow <pack> [always|on_request] <kind>` and the request
+`yolo request <pack> <kind>`, not an edit by hand.
 
 > [!IMPORTANT]
-> **A brokered loophole is the exception to "either scope": it has no switch.** It runs
-> whenever its pack is selected and grants nothing until a grant under `brokered` does, the
-> read grant in the user config being the usual one, shown at each workspace's config-change
-> approval ([BB-D104](../design/boundary-broker.md#BB-D104) to
-> [BB-D109](../design/boundary-broker.md#BB-D109)). A switch of it in the user config or a
-> workspace config is refused, one an older yolo wrote into the per-workspace file is ignored
-> with a warning, and its manifest may not default it on. This replaced, on 2026-10-24, the
-> per-project switch of [OQ-BB13](../design/boundary-broker.md#15-decision-ledger).
+> **The brokers were first, and keep their own spelling.** `git-broker` and `github-broker`
+> declare their kinds under `brokered.grants` rather than `[[grants]]`, and their approval works
+> the same way ([BB-D104](../design/boundary-broker.md#BB-D104) to
+> [BB-D109](../design/boundary-broker.md#BB-D109)). That shape, ruled on 2026-10-24 in place of
+> the per-project switch of [OQ-BB13](../design/boundary-broker.md#15-decision-ledger), is what
+> every loophole now follows.
 
 > [!CAUTION]
-> **R5 is FALSE for list-shaped settings, and that is why a setting declares its own scope.**
+> **A setting can never widen access, and that is why every loophole setting is user scope.**
 > Config merge union-merges every list at every depth, so a user-scope *ceiling* that a
 > workspace *narrows* is inexpressible — a workspace can only **widen**, which for an allowlist
-> inverts the intended property. R5 holds for a scalar switch and not for a list; the answer is
-> the per-key `scope` field on a declared setting ([Settings](#settings)), and the same
-> correction is recorded as `R5` in [`pack-system.md`](pack-system.md#why-its-this-way) — a
-> different `R5` from this document's, in the one place the two vocabularies touch.
+> inverts the intended property. The allowlists that were workspace-scope settings
+> (`host-processes`' `visible`, `serial`'s `allowed_devices`) became the values of a valued
+> grant kind, approved line by line at the gate, and `scope = "workspace"` on a setting is
+> refused at load ([LG-D5](loophole-grants.md#LG-D5)). The same correction is recorded as `R5` in
+> [`pack-system.md`](pack-system.md#why-its-this-way) — a different `R5` from this document's, in
+> the one place the two vocabularies touch.
 
 **R6. A loophole that exists only to serve one agent is a contribution of that agent's
 pack.** The dependency is structural, so selecting the pack *is* the dependency — and no
@@ -175,8 +184,11 @@ exemptions was the point of the work rather than tidying after it.
 - **Inert** — a loophole that will do nothing on this machine, for a categorical reason
   (this platform, this backend) rather than a probe result. Distinct from *inactive*,
   which is the probe answer.
-- **The two verbs** — **install** (this code may run on this machine at all) and **enable**
-  (an installed loophole is active for this jail). The scope split between them is R5.
+- **Selected, running, granted, configured** — the four words that split what "enabled" used to
+  mean: a pack named in `packs`; its machinery up for this launch, decided by yolo; a project's
+  approved access, by grant kind; a parameter that admits nothing. Defined in
+  [`loophole-grants.md` §1](loophole-grants.md#1-the-verdict-in-four-words). **Install** is the
+  older word for *selected*; the scope rule over it is R5.
 
 ## Activation
 
@@ -184,7 +196,7 @@ exemptions was the point of the work rather than tidying after it.
 
 | Predicate | Means |
 | :--- | :--- |
-| `Enabled` | *the user's switch* |
+| `Enabled` | true for every loophole of a selected pack, which has no switch; for a loophole declared in config, that entry's `enabled` |
 | `Active` | `Enabled` **and** the machine can run it |
 | `Honored` | `Active` **and** this record came from a resolved pack set |
 
@@ -217,56 +229,46 @@ next caller omits. `Honored` exists for the surfaces that **describe** what cros
 all the **briefing**, which is instructions the agent acts on: advertising a loophole that
 never crossed sends the agent to debug host wiring that was deliberately withheld.
 
-### `default_enabled` versus `enabled`
+<a id="default_enabled-versus-enabled"></a>
 
-Two different keys with two different owners, and they used to share one spelling on
-opposite defaults with nothing saying which won.
+### `default_enabled` and `enabled`: no switch on a pack's loophole
 
-- **`default_enabled`**, on the **manifest** — the *pack author's* default. Absent means
-  **false** (R2). Type-checked, not coerced.
-- **`loopholes.<name>.enabled`**, in **config** — the *user's* answer. It outranks the
-  author's default in **both** directions, from either scope, because the block it is read
-  from is already user-plus-workspace with the workspace winning. Coerced truthily, because
-  the config layer above has already refused a non-boolean.
+Two keys used to share one job, and neither switches a pack's loophole now.
 
-Whether the key was **written at all** is load-bearing: *"the config said true"* and *"the
-config said nothing"* are different answers, and only the second may leave the author's
-default standing. **One shared reader** answers that for the launch and for `yolo check` —
-when there were two, the reporting surface answered off the manifest default alone, so a
-loophole the user had switched **on** rendered as the greenest line in the section while its
-host daemon went unprobed.
+- **`default_enabled`**, on the **manifest**, is **refused at load**, naming `[[grants]]`
+  ([§5 of the grants reference](loophole-grants.md#5-every-stop-and-its-next-step) quotes the
+  message). A loophole runs whenever its pack is selected, so the author's default had one legal
+  value left.
+- **`loopholes.<name>.enabled`**, in **config**, switches nothing for a pack's loophole. In a
+  legacy JSONC file, for a grant-declaring loophole it is read as a legacy grant until the file is
+  migrated ([§6](loophole-grants.md#6-migration)); for any other pack's loophole the launch and
+  `yolo check` say the key switches nothing and name the key to remove. It still switches a
+  loophole **declared in config** (an inline entry with a `command`), which no pack ships.
 
 > [!WARNING]
-> **The manifest's old `enabled` key is recognized and REFUSED, never tolerated.** The
-> rename flipped the default, so silently dropping `"enabled": true` would leave the
-> loophole off, and silently dropping `"enabled": false` would make a loophole its author
-> disabled look like one that merely said nothing. Both readings are defensible, which is
-> exactly why the manifest must not be guessed at.
+> **The manifest's old `enabled` key is recognized and REFUSED, never tolerated**, and so is
+> `default_enabled`. Silently dropping either would leave a reader guessing what the author
+> meant, which is exactly why the manifest must not be guessed at.
 
 > [!WARNING]
-> **Reverse skew is real and is not solved in this repo's code.** An *older* yolo reading a
-> newer manifest does not know `default_enabled`, tolerates it as an unknown key, and falls
-> back to enabled-defaults-**true** — so a manifest shipping a loophole meant to be off runs
-> it **on** under a build that predates the rename. That is a security regression delivered
-> by an upgrade of the *content* rather than of the binary. The generic unknown-key skew
-> note cannot help: its wording tells the reader a *newer* build will read the key, which is
-> the exact opposite of the truth for a removed one.
+> **Skew runs both ways, and both fail closed.** An *older* yolo reading a current manifest,
+> which carries neither key, reads the absence as off, so it does not run a loophole written for
+> this build. This build reading a frozen older pack tree (a jail an older yolo launched, at an
+> attach) refuses the record's `default_enabled` until the jail is relaunched. The generic
+> unknown-key skew note would have been wrong here: it tells the reader a *newer* build will read
+> the key, which is backwards for a removed one.
 
-### Disclosure of the user's switch, in both directions
+<a id="disclosure-of-the-users-switch-in-both-directions"></a>
 
-`enabled` is writable at workspace scope by design (R5), and a workspace file is
-agent-editable — so **disclosure is the protection, not scope**. One function answers
-*"what did workspace scope say about this switch"* in both directions, returning the file
-and the value; absence means *"workspace scope said nothing"*, because a zero value would
-read as a disable nobody wrote.
+### Disclosure of a workspace's switch
 
-Two surfaces consume it: a launch-time line naming the loophole **and the file**, and
-`yolo check`, which **warns rather than passing green**. Two details worth keeping. The
-`yolo check` row for an ON **discloses and then falls through**, where the OFF row stops —
-off means there is nothing left to measure, on means the loophole is about to run and its
-`doctor_cmd` is the next thing a reader wants. And a workspace file that merely **restates**
-the manifest default is disclosed too: the launch surface has no default in reach, and two
-disclosures contradicting each other over one file is worse than one redundant line.
+A workspace file is agent-editable, so **disclosure is the protection, not scope**. One function
+answers *"what did workspace scope say about this loophole's `enabled`"*, returning the file and
+the value; absence means *"workspace scope said nothing"*. For a pack's loophole the answer is
+always disclosed as a key that switches nothing, naming the key to remove and the `yolo request`
+that gives the project access instead. For a loophole declared in config, the launch names the
+loophole **and the file** in either direction, and `yolo check` **warns rather than passing
+green**; a workspace that switches on a config loophole that is not installed fails the launch.
 
 ### `requires`, `platforms`, and the difference
 
@@ -543,6 +545,11 @@ manifests stay inside the subset.
 
 ### The two verbs
 
+**For a pack's loophole there is one verb left, and a grant.** Selecting the pack is the install;
+the second verb, *enable*, is gone, and access is a grant the user approves per project
+([`loophole-grants.md`](loophole-grants.md)). The table below still governs a loophole
+**declared in config**, an inline entry in a legacy JSONC file, which keeps its `enabled`:
+
 | | **INSTALL** | **ENABLE** |
 | :--- | :--- | :--- |
 | Decides | that this code may run on this machine **at all** | whether an installed loophole is **active for this jail** |
@@ -618,10 +625,11 @@ an agent-writable target — including the ones no rule can see, like a Python d
 
 ### What is deliberately NOT a gate
 
-- **`default_enabled: true` is available to any pack, unrestricted.** *"A pack I fetched can
-  declare itself on"* survives a second reading: a declaration about a default cannot widen
-  what a pack may **do**, and a pack cannot be **selected** without a human editing user-scope
-  config, so declaring yourself default-on changes nothing until someone installs you.
+- **A fetched pack may ship an ungated loophole**, one that declares no `[[grants]]` and so
+  serves whatever it serves once selected. A pack cannot be **selected** without a human
+  editing user-scope config, and its footprint and the launch disclosure name every crossing;
+  yolo holds only the loopholes it ships to the closed ungated set
+  ([`loophole-grants.md` §8](loophole-grants.md#8-what-this-does-not-license)).
 - **A jail-side daemon, `state_files` and a loophole manifest's `requires` get no crossing
   claim.** (That `requires` is the loophole field, `command_on_path` and `file_exists`; the pack
   contribution kind of the same name is retired, by
@@ -783,23 +791,25 @@ Three properties worth knowing:
 > had its daemon skipped **without a word**, and still contributed its intercepts, mounts,
 > devices and jail environment to the container argv — half a loophole, silently.
 
-`yolo loopholes enable|disable` **writes the workspace's per-workspace file**, host-side, and
-never the user config ([`storage-and-config.md`](storage-and-config.md#the-per-workspace-file);
-the ruling is [OQ-BB12](../design/boundary-broker.md#15-decision-ledger)). That file is user scope for one
-workspace and merges last, so the switch it holds decides for that workspace over every config
-file. `--global` keeps the command's old behavior: it prints the user-config key to paste, writes
-nothing, and exits non-zero, because the user config is a hand-commented file that a
-read-modify-write would strip every comment from.
+`yolo loopholes enable|disable` **are retired** ([LG-D8](loophole-grants.md#LG-D8)): both refuse
+for every loophole, naming `yolo request` and `yolo allow` for a grant-declaring one, the read
+grant for a broker, and the pack for an ungated one. `disable` first removes a switch an older
+yolo wrote into the workspace's per-workspace file
+([`storage-and-config.md`](storage-and-config.md#the-per-workspace-file)) and exits 0. Nothing
+writes that file any more; a switch left in it is read as a legacy grant until the migration
+carries it into the approval record ([§6](loophole-grants.md#6-migration)). `list` and `status`
+show each kind's standing for the project.
 
 ## Settings
 
-A loophole's own settings are **declared, typed, and per-key scoped** in its manifest, supplied
-by the user under `loopholes.<name>.settings`, and delivered through a **file core writes**
-rather than an environment channel the workspace controls. The mechanism — the type set, the
-scope field, and the rulings behind them — is
-[`pack-system.md`](pack-system.md#a-packs-own-config-keys); an absent `scope` means **user
-only**, the fail-closed direction R5's list correction requires. Two traps are
-loophole-specific and belong here.
+A loophole's own settings are **declared and typed** in its manifest, supplied by the user
+under `[allow.<pack>]` (in a legacy JSONC file, `loopholes.<name>.settings`), and delivered
+through a **file core writes** rather than an environment channel the workspace controls; the
+same file carries the project's grants ([§4.6](loophole-grants.md#46-how-a-grant-reaches-the-machinery)).
+The mechanism — the type set and the rulings behind it — is
+[`pack-system.md`](pack-system.md#a-packs-own-config-keys). **Every setting is user scope**:
+`scope = "workspace"` is refused at load, because a setting that decides what a project reaches is
+a grant and is spelled as one (R5's caution). Two traps are loophole-specific and belong here.
 
 > [!WARNING]
 > **Never accept an opaque `settings` map.** If core validates only *"it is an object"*, it
@@ -810,8 +820,8 @@ loophole-specific and belong here.
 > [!WARNING]
 > **A closed type set with no enum means a string-valued mode is unvalidatable, and a typo that
 > silently WIDENS host access is the shape this whole design deletes.** The journal bridge's
-> old three-valued `off | user | full` was two questions wearing one key: the declared key is a
-> boolean and `off` is `enabled: false`.
+> old three-valued `off | user | full` was two questions wearing one key; it became a boolean,
+> and then two grant kinds, `read` and `read_all`.
 
 `host_daemon.settings_check` is an optional non-empty argv vector, executed directly (not
 through a shell). It requires declared `settings`, a `{settings}` argument in both the
@@ -867,12 +877,11 @@ hostname from it and knows no tool; `packs/github`'s `github-broker` is the firs
 - An unknown key in the block is refused by both decoders: it is a fence, and a fence key a build
   does not read is a fence that does not exist.
 - **It has no switch, and grants nothing by itself** ([BB-D104](../design/boundary-broker.md#BB-D104),
-  [BB-D106](../design/boundary-broker.md#BB-D106)): it is enabled whenever its pack is selected
-  (`loopholes.Load`), and every config switch of it is ignored (`loopholes.EnabledUnder`). Its
-  manifest may not set `default_enabled: true` (refused at load); a `loopholes.<name>.enabled` in
-  the user config, or any switch of it in a workspace config, refuses the launch and fails
-  `yolo check`, naming the read grant; one in the per-workspace file is ignored with a warning, and
-  `yolo loopholes enable` and `disable` refuse for it. yolo's shipped brokers generally refuse
+  [BB-D106](../design/boundary-broker.md#BB-D106)): it runs whenever its pack is selected, as
+  every pack's loophole now does. A `loopholes.<name>.enabled` in the user config, or any switch
+  of it in a workspace config, refuses the launch and fails `yolo check`, naming the read grant;
+  one in the per-workspace file is ignored with a warning. A manifest declaring both `[brokered]`
+  and `[[grants]]` is refused: a broker's kinds are its `brokered.grants`. yolo's shipped brokers generally refuse
   calls no `read` grant in the scope file covers ([BB-D108](../design/boundary-broker.md#BB-D108));
   the git broker's public HTTPS fetch is the narrow exception and never uses a credential. This is
   a precedent for shipped packs that yolo does not enforce on others.
@@ -935,9 +944,9 @@ is why*, and two half-messages for one user-visible situation is how a whole bac
 provisioned while configuring nothing.
 
 - **Platform** — the `platforms` declaration, evaluated as a pure function of the target pair.
-  The report applies the **user's** `loopholes.<name>.enabled` before it asks, so a Linux-only
-  loophole a user switched on on a Mac is named at launch with the platforms it supports, and
-  one the user switched off is not reported at all (`loopholes.ApplyConfigEnabled`). A
+  A selected pack's Linux-only loophole on a Mac is named at launch with the platforms it
+  supports; only a loophole declared in config whose entry switches it off is not reported at all
+  (`loopholes.PlatformInertNotes`). A
   [downloaded binary](#a-program-the-loophole-downloads) with no build for where it runs is this
   axis too: nothing is missing and nothing can be installed.
 - **Binary** — a downloaded binary whose build is declared for this machine and not fetched yet
@@ -978,9 +987,8 @@ one of two clauses, per contribution, pointing at `yolo config-ref` for the reas
   host daemon. The apply decides this with the launch's own composition and admission check
   (`run.HostDoorwayLoopholes` re-runs `run.PlanHostDoorways`'), so it names what an enabled
   loophole gets at `yolo host --` rather than what one launch opens. It differs from a launch in
-  two ways. Every selected pack's loophole is read as switched on, because the `enabled` switch
-  turns a loophole off at every notch alike, and a launch whose agent asks for a disabled one
-  names the switch. And there is no selection filter, since the apply runs no agent, so
+  two ways. Every selected pack's loophole is read as running, because a pack's loophole has no
+  switch at any notch. And there is no selection filter, since the apply runs no agent, so
   `openai-auth-broker` is named: a launch opens its doorway for no selection
   ([HS-D22](../design/host-notch-services.md#HS-D22)), and `yolo host -- codex` serves that
   address from its own managed launch instead ([HS-D20](../design/host-notch-services.md#HS-D20)).
@@ -1111,17 +1119,16 @@ embed package and every importer at once, and four consequences outlived the com
 
 ## Current values
 
-Verified at `f491d192`. The prose above explains what each of these is for; this table is the
+Verified at `f491d192`; the retired-key, switch and setting-scope rows at `14801eccf`. The prose above explains what each of these is for; this table is the
 only place the values themselves are stated.
 
 | Value | Setting | Defined in |
 | :--- | :--- | :--- |
 | Contribution kind, and its `from` field | `{"kind": "loophole", "from": "<pack-relative dir>"}`, `from` required | `packdecl.KindLoophole`; the full kind enumeration is `internal/packdecl/kinds.go`, pinned by `kinds_test.go` |
 | Combine rule | Exclusive, by loophole **name** | `internal/packdecl/kinds.go` |
-| Manifest enablement key | `default_enabled`, absent ⇒ **false** | `loopholedecl.Manifest.DefaultEnabled` |
-| Retired manifest key (recognized, refused) | `enabled` | `loopholedecl.RetiredKeyEnabled` |
-| User's switch | `loopholes.<name>.enabled`, either scope, or the per-workspace file, which merges last; a brokered loophole has none, and is on whenever its pack is selected (2026-10-24) | `loopholes.ConfigEnabledOverride`, `config.WorkspaceFilePath` |
-| Setting scopes, and the default | `user` (default), `workspace` | `loopholedecl.SettingScopeUser`, `SettingScopeWorkspace`, `DefaultSettingScope` |
+| Retired manifest keys (recognized, refused) | `enabled`, `default_enabled` (2026-11-02) | `loopholedecl.RetiredKeyEnabled`, `RetiredKeyDefaultEnabled` |
+| A pack's loophole's switch | none: it runs whenever its pack is selected; access is a grant ([`loophole-grants.md`](loophole-grants.md)) | `Enabled: true` in `internal/loopholes/load.go` |
+| Setting scope | `user` only; `workspace` is refused at load | `loopholedecl.DefaultSettingScope`, `SettingScopeWorkspace` |
 | Module-dir tokens | `{loophole_dir}` (host), `{jail_loophole_dir}` (the jail's copy: the container mount point, or on `macos-user` the module dir under the sandbox's staged-pack copy) | `loopholedecl.TokenLoopholeDir`, `TokenJailLoopholeDir`; substituted in `internal/loopholes/load.go`, and placed for `macos-user` by `loopholes.JailDaemonSpec.InGuest` |
 | Sources, in precedence order | `pack` < `config` | `loopholes.SourcePack`, `SourceConfig` |
 | Retired discovery directory (named only by the migration notice) | `~/.local/share/yolo-jail/loopholes/` | `loopholes.RetiredUserLoopholesDir` |
@@ -1144,19 +1151,19 @@ and after the design docs were deleted this table is where they resolve.
 
 | ID | Ruling | Why it stays |
 | :--- | :--- | :--- |
-| <a id="oq-a1"></a>[`OQ-A1`](#oq-a1) | The Claude OAuth broker's loophole ships `default_enabled: true` inside the claude pack — selecting the pack is what turns it on | It must be on for a user running Claude Code whether or not they know they need it: the alternative is silently reintroducing the concurrent single-use-refresh-token race the broker exists to prevent. |
+| <a id="oq-a1"></a>[`OQ-A1`](#oq-a1) | **Superseded 2026-11-02.** The Claude OAuth broker's loophole is a contribution of the pack `claude` needs, and runs whenever that pack is selected, as every loophole now does; it is ungated, approved by the login itself ([§4.3](loophole-grants.md#43-each-loopholes-access-and-its-approval)) | It must be on for a user running Claude Code whether or not they know they need it: the alternative is silently reintroducing the concurrent single-use-refresh-token race the broker exists to prevent. Running on selection now gives that to every pack, so no `default_enabled` is needed. |
 | <a id="oq-a2"></a>[`OQ-A2`](#oq-a2) | **Going dark is fine.** No migration machinery, no upgrade notice | A loophole you never listed behaving like an agent pack you never listed *is* the rule working. A migration writing the currently-active set into user config would make the ruling a no-op for precisely the people who already have host daemons running. |
-| <a id="oq-a3"></a>[`OQ-A3`](#oq-a3) | `default_enabled: true` stays available to fetched packs, unrestricted | A declaration about a default cannot widen what a pack may do, and a pack cannot be selected without a human editing user-scope config. Adding an origin restriction *specifically* to the default key would be a halfway measure over the wrong thing. |
-| <a id="oq-a4"></a>[`OQ-A4`](#oq-a4) | The cgroup delegate is **opt-in**, with no presence-activated exception — and `yolo-cglimit` therefore does not work out of the box | Its crossing is genuinely the weakest yolo has (it delegates the jail's *own* cgroup), so R4's argument is weaker here — but R1 is about the **mechanism**, not the severity. The moment one thing yolo ships stays presence-activated, "presence never activates" stops being a rule anyone can rely on while reading the code. |
-| <a id="oq-a5"></a>[`OQ-A5`](#oq-a5) | Keep all three gates for the host-process view — select the pack, enable the loophole, list the processes | They answer different questions: is it installed, is it running, what may it show. Collapsing them would mean a non-empty allowlist **silently starting a host daemon**, which is presence-activation wearing a different hat. Where the cost should be softened is the *message*, not the mechanism. |
+| <a id="oq-a3"></a>[`OQ-A3`](#oq-a3) | **Superseded 2026-11-02.** `default_enabled` was available to fetched packs, unrestricted; it is now refused for every pack ([LG-D3](loophole-grants.md#LG-D3)) | What survives is the argument: a declaration cannot widen what a pack may do, and a pack cannot be selected without a human editing user-scope config. A fetched pack may still ship an ungated loophole ([What is deliberately NOT a gate](#what-is-deliberately-not-a-gate)). |
+| <a id="oq-a4"></a>[`OQ-A4`](#oq-a4) | **Overruled 2026-10-30** by [LG-D13](loophole-grants.md#LG-D13): the cgroup delegate is ungated and its pack is selected by default. It had been opt-in, with `yolo-cglimit` not working out of the box | The delegate can only limit the jail (child cgroups inside the container's own, three controllers, bounded), so a grant would approve nothing of the user's. R1 still holds: the delegate runs because its pack is selected, by a default its pack declares, not because a probe found the platform able. |
+| <a id="oq-a5"></a>[`OQ-A5`](#oq-a5) | **Superseded 2026-11-02.** The host-process view has **two** gates: select the pack, and grant `view` with the process names as the grant's value | The middle gate asked "is it running", which the user no longer answers. What the ruling protected survives: a non-empty list still starts nothing by itself, since running follows selection and the list is a request a human approves. |
 | <a id="oq-a6"></a>[`OQ-A6`](#oq-a6) | The two remaining "builtin services" become ordinary pack-shipped manifests | A channel emptied of everything except the two things yolo happened to have compiled in has not been emptied, it has been renamed — and the asymmetry was the evidence: one was opt-in and the other could not be turned off, and nobody decided that. |
-| <a id="oq-a7"></a>[`OQ-A7`](#oq-a7) | A loophole-only pack still needs **selecting**. Shipped in the binary is not installed | A rule with one exception is two rules. The tempting third option — make every embedded pack default-selected — is presence-activation moved from the daemon to the surfaces: a pack's skills, config and briefing would land because it happened to be compiled in. |
+| <a id="oq-a7"></a>[`OQ-A7`](#oq-a7) | A loophole-only pack still needs **selecting**. Shipped in the binary is not installed. **One exception**, ruled 2026-10-30: `cgroup-delegate`, selected by default ([LG-D13](loophole-grants.md#LG-D13); built by slice [T15](loophole-grants.md#T15), until which it still needs `yolo pack add`) | A rule with one exception is two rules, so the exception is named rather than general. The tempting general option — make every embedded pack default-selected — is presence-activation moved from the daemon to the surfaces: a pack's skills, config and briefing would land because it happened to be compiled in. |
 | <a id="oq-a8"></a>[`OQ-A8`](#oq-a8) | A loophole's settings are **declared and typed** in its own manifest, with a per-key scope | See the two warnings under [Settings](#settings): an opaque map cannot tell a visibility allowlist from a preload variable, and a string mode with no enum is unvalidatable. |
-| <a id="oq-a9"></a>[`OQ-A9`](#oq-a9) | **One key, renamed.** The manifest's default and the user's switch are different keys with different names, and the old spelling is refused | Two booleans over one state would give the manifest, the listing and the CLI three ways to disagree. The field names are the enforcement: they can no longer be confused at a call site. |
+| <a id="oq-a9"></a>[`OQ-A9`](#oq-a9) | **One key, renamed**, then retired. The manifest's default and the user's switch were different keys with different names; the old spelling is refused, and since 2026-11-02 so is the new one ([LG-D3](loophole-grants.md#LG-D3)) | Two booleans over one state would give the manifest, the listing and the CLI three ways to disagree. With no switch left, refusing both spellings keeps a reader from guessing what an old manifest meant. |
 | <a id="oq-a10"></a>[`OQ-A10`](#oq-a10) | The broker's loophole is a **contribution of the claude pack**, not a pack of its own | R6's whole argument is that the dependency is structural; a separate pack reinstates the selection step R6 deletes, and hands back the every-jail default-on failure. A user on a different provider escapes with `supersedes` on the capability, not by deselection. |
 | <a id="oq-a11"></a>[`OQ-A11`](#oq-a11) | Gate the broker's host daemons on the loophole record; leave the nix socket ungated and **say why** | A daemon none of yolo's own surfaces name is worse than one that is merely on. Nix is infrastructure the image depends on rather than a capability a jail reaches for. |
 | <a id="oq-a12"></a>[`OQ-A12`](#oq-a12) | `yolo check` reads pack-shipped loopholes | Otherwise the command a user reaches for when a loophole is silently off prints a cheerful "nothing installed" while every `doctor_cmd` in the tree goes unreported. |
-| <a id="oq-a13"></a>[`OQ-A13`](#oq-a13) | R5 stands for the ON direction; the existing OFF disclosure is **mirrored** onto ON | Restricting enablement to user scope would cost the per-workspace opt-in R5 exists for. One seam answers both directions rather than two, so there is one vocabulary rather than a second invented for the new danger. |
+| <a id="oq-a13"></a>[`OQ-A13`](#oq-a13) | **Superseded 2026-11-02** for a pack's loophole, which has no switch: a workspace's `enabled` for one is disclosed as switching nothing. The ON/OFF disclosure stands for a loophole declared in config | A workspace now asks for access with a request a human approves, rather than switching anything on ([R5](#principles)). |
 | <a id="oq-lp1"></a>[`OQ-LP1`](#oq-lp1) | The manifest schema lives in a leaf package; the runtime re-exports it as type **aliases** | The claim producer cannot import the runtime (cycle), and two definitions of one manifest type would be two things a manifest could disagree with. |
 | <a id="oq-lp2"></a>[`OQ-LP2`](#oq-lp2) | The config block's install-shaped keys are user-scope-only, and a workspace enabling an uninstalled loophole is a **fatal** error with an install offer | The migration population is everyone who followed the shipped guide, and a scope error refuses the **whole launch** rather than one loophole — which is precisely why the message has to carry the fix. Warn-then-error assumes people have somewhere to go. |
 | <a id="oq-lp3"></a>[`OQ-LP3`](#oq-lp3) | A local origin is not a trusted-forever bypass — install confirms every origin | A local-origin check that constrains the path in no way means a directory an **agent** writes counts as yours. Folded into the placement rule rather than special-cased. |
@@ -1166,7 +1173,7 @@ and after the design docs were deleted this table is where they resolve.
 | <a id="oq-lp9"></a>[`OQ-LP9`](#oq-lp9) | Nested jails **recurse** the scope model: the outer jail is user scope for the inner one | "User level" is not a fixed path; it is the scope that owns the machine the daemon runs on. Inside a jail that is the jail's own config, legitimately owned by the jail's agent, because the blast radius is a container you can throw away. Delivered as generated per-consumer scope files plus an explicit layer flag — never a conventionally-named auto-merged file, which activates because a file exists, invisibly at the call site. |
 | <a id="oq-lp10"></a>[`OQ-LP10`](#oq-lp10) | Retire the hand-placed loopholes directory in the user's home | It was the one channel that started a host daemon with **no selection step at all**. What replaces it — a loophole in the conventional local pack — keeps the drop-a-directory ergonomics and gains a disclosure the directory never had. |
 | <a id="oq-lp11"></a>[`OQ-LP11`](#oq-lp11) | Every loophole yolo ships is a **pack's**; the bundled channel is gone | *Agents are packs, and core does not know what an agent is* — a loophole registry plus a magic directory plus a config block is the world before that move. Accountability is a property of who wrote it, which an official pack already carries. |
-| <a id="oq-lp12"></a>[`OQ-LP12`](#oq-lp12) | No request/grant machinery for per-workspace loopholes | The two verbs answer it: install once at user scope, and each workspace enables from the vetted set. The residual — a workspace can enable **any** installed loophole, not only the one that repo was installed for — is bounded by install-time vetting and visible in the per-launch disclosure. |
+| <a id="oq-lp12"></a>[`OQ-LP12`](#oq-lp12) | **Superseded 2026-11-02**: every loophole now has request/grant machinery, the brokers' two layers (`allow` and `requests` at the config-change gate) | The residual it accepted — a workspace could enable **any** installed loophole, not only the one that repo was installed for — was what the owner refused: *"the project shouldn't have access until it has been approved"* ([`loophole-grants.md`](loophole-grants.md)). |
 | <a id="oq-lp13"></a>[`OQ-LP13`](#oq-lp13) | **Not hashing, and no new confirmation** — a placement rule, and it must not judge yolo's own shipped content | *If you can edit user-level files, you have all the perms already.* A dialog guarding an act that already required the authority it protects is theatre. And the rule exists because installed content in an agent-writable tree can be swapped by an actor with **none** of the authority that installed it — so applying it to the very artifact that performs the check protects nothing it does not already presuppose. |
 | <a id="oq-lp14"></a>[`OQ-LP14`](#oq-lp14) | The bind-host path rule is **withdrawn, not extended** | Its two cases were inverted: it admitted `~/.ssh` and refused a session runtime-dir socket. A gate with its cases inverted is not a weak gate, it is not a gate — and adding vocabulary to it keeps the inversion. See the warning under [The pack-shipped subset](#the-pack-shipped-subset). |
 | <a id="oq-bp1"></a>[`OQ-BP1`](#oq-bp1) | The broker move and the pack-shipped binary capability ship in **one sprint, as separable commits**; an official pack may keep a baked daemon | The broker's manifest is correct on a baked daemon, so the binary work could slip without reverting it. Do not read it as "binaries are done": the mechanism followed, in [`pack-binaries.md`](pack-binaries.md), and [`OQ-BP8`](pack-binaries.md#OQ-BP8) later ruled that no official pack declares a binary. |

@@ -14,7 +14,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// loopholegrants.go is the migration's LOOPHOLE ROWS (docs/design/loophole-access-approval.md §6,
+// loopholegrants.go is the migration's LOOPHOLE ROWS (docs/reference/loophole-grants.md §6,
 // LG-D11): a legacy `loopholes.<name>` block of a grant-declaring loophole, the per-workspace
 // switch file `yolo loopholes enable` wrote, and an approved workspace snapshot's
 // `enabled: true` become the user's ceiling (`[allow.<pack>]`), the project's request

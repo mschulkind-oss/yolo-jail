@@ -35,7 +35,7 @@ func (o *Options) prepareLoopholeSettings(discovered []*loopholes.Loophole, cfg 
 	loopCfg := loopholes.ConfigBlock(cfg)
 	for _, lp := range discovered {
 		// A GRANT-DECLARING loophole is kept with no settings too: its daemon is handed a grant
-		// file however few settings it declares (docs/design/loophole-access-approval.md §4.6),
+		// file however few settings it declares (docs/reference/loophole-grants.md §4.6),
 		// so it needs the frozen object, "{}", that the block is merged into.
 		if !needsSettingsFile(lp) {
 			continue
@@ -125,7 +125,7 @@ func (o *Options) publishLoopholeSettings(plan *preparedLoopholeSettings, cname 
 	o.settingsSnapshots = make(map[string]*ownedSettingsSnapshot)
 	for _, lp := range plan.candidates {
 		body := plan.bytes[lp.Name]
-		// A GRANT-DECLARING LOOPHOLE'S FILE IS ITS GRANT FILE (docs/design/loophole-access-approval.md
+		// A GRANT-DECLARING LOOPHOLE'S FILE IS ITS GRANT FILE (docs/reference/loophole-grants.md
 		// §4.6, PD-2): the frozen settings with this launch's grant block merged under the reserved
 		// key, always a private snapshot, since the block names this launch and no other.
 		granting := len(lp.Grants) > 0

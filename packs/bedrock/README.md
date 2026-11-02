@@ -1,18 +1,17 @@
 # `bedrock` — Amazon Bedrock, as one provider every agent reads
 
 This pack declares Amazon Bedrock's `bedrock-runtime` endpoint as one provider, `bedrock`, and
-two profiles over it, `bedrock` and `bedrock-bridge`. It installs no program and ships no model list. Every agent pack
-that can put its agent on Bedrock `needs` it, so selecting that agent brings it in:
+two profiles over it, `bedrock` and `bedrock-bridge`. It installs no program and ships no model list. Select it beside
+the agent you want on Bedrock (`yolo pack add bedrock`):
 
-```jsonc
-// ~/.config/yolo-jail/config.jsonc
-{ "packs": ["codex"] }
+```toml
+# ~/.config/yolo-jail/config.toml
+packs = ["codex", "bedrock"]
 ```
 
 `yolo -p bedrock -- codex` then configures codex to reach Bedrock through its own Bedrock
 client, on its own default model, with nothing else listed but a region. No request to Bedrock has been measured from any
-agent yet: what each client sends was read from its shipped code, never run. The launch prints `+ bedrock (needed by codex)` and
-`+ aws-auth (needed by bedrock)`.
+agent yet: what each client sends was read from its shipped code, never run. The launch prints `+ aws-auth (needed by bedrock)`.
 
 Design: [`bedrock-plumbing.md`](../../docs/design/bedrock-plumbing.md) ([OQ-BR9](../../docs/design/bedrock-plumbing.md#decision-ledger),
 [OQ-BR1](../../docs/design/bedrock-plumbing.md#decision-ledger)); behavior:

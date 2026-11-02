@@ -237,7 +237,7 @@ func TestShippedAudioFields(t *testing.T) {
 		t.Errorf("jail_env = %v — refused for a pack-shipped loophole; the variables are "+
 			"the pack's `env` contribution", m.JailEnv.Keys())
 	}
-	// The GRANT half (docs/design/loophole-access-approval-plan.md F5): one unvalued kind, `use`,
+	// The GRANT half (docs/reference/loophole-grants.md F5): one unvalued kind, `use`,
 	// that admits the whole crossing. Not requestable by default (it is a microphone), and a
 	// legacy `enabled: true` becomes it.
 	if m.Access != "use the host's microphone and speakers" {
@@ -378,7 +378,7 @@ func TestShippedHostProcessesFields(t *testing.T) {
 	if m.HostDaemon == nil || !reflect.DeepEqual(m.HostDaemon.Cmd, wantCmd) {
 		t.Fatalf("host_daemon = %+v, want cmd %v", m.HostDaemon, wantCmd)
 	}
-	// The GRANT half (docs/design/loophole-access-approval-plan.md F3): what yolo-ps may
+	// The GRANT half (docs/reference/loophole-grants.md F3): what yolo-ps may
 	// show is the valued `view` kind, whose values are the process names, in place of the
 	// retired workspace-scope `visible` setting an agent could write. A valued kind is never
 	// requestable by default; a legacy `enabled: true` makes it requestable and a legacy
@@ -490,7 +490,7 @@ func TestShippedJournalFields(t *testing.T) {
 			"line and the daemon never reads to EOF",
 			m.HostDaemon.RequestEnd, loopholedecl.RequestEndFramed)
 	}
-	// The flip (docs/design/loophole-access-approval-plan.md F1): what the bridge may read is
+	// The flip (docs/reference/loophole-grants.md F1): what the bridge may read is
 	// two grant kinds, not a setting. `read` is the user's own journal and requestable by
 	// default; `read_all` is the whole host journal, which only the user's ceiling can make
 	// requestable. A `full` setting left beside them would be a second, ungated way to widen.
@@ -587,7 +587,7 @@ func TestShippedSerialFields(t *testing.T) {
 	if m.HostDaemon.Publishes != loopholedecl.PublishesSocket {
 		t.Errorf("publishes = %q, want %q", m.HostDaemon.Publishes, loopholedecl.PublishesSocket)
 	}
-	// The GRANT half (docs/design/loophole-access-approval-plan.md F4): what yolo-serial may
+	// The GRANT half (docs/reference/loophole-grants.md F4): what yolo-serial may
 	// list and open is the valued `devices` kind, whose values are device globs, in place of the
 	// retired workspace-scope `allowed_devices` setting an agent could write. A legacy
 	// `enabled: true` makes it requestable, a legacy `allowed_devices` list becomes the request's
@@ -762,7 +762,7 @@ func TestShippedMacosLogFields(t *testing.T) {
 		m.HostDaemon.RequestEnd != loopholedecl.RequestEndFramed {
 		t.Errorf("host_daemon = %+v, want a framed, preamble-bearing socket", m.HostDaemon)
 	}
-	// The flip (docs/design/loophole-access-approval-plan.md F2): what the bridge may read is
+	// The flip (docs/reference/loophole-grants.md F2): what the bridge may read is
 	// the journal's two grant kinds, not a setting. `read` is the sandbox account's own entries
 	// and requestable by default; `read_all` is every entry on the Mac, which only the user's
 	// ceiling can make requestable. A `full` setting left beside them would be a second,

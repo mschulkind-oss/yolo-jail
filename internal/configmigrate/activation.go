@@ -54,7 +54,7 @@ func loopholeActivation(composed *jsonx.OrderedMap, userTop string, packs []*pac
 		entry := jsonx.NewOrderedMap()
 		if d, isGated := gated[name]; isGated {
 			// A grant-declaring loophole's access is its grants, which the standing layer
-			// compares (loopholeStandingLayer): running is not access (loophole-access-approval.md
+			// compares (loopholeStandingLayer): running is not access (docs/reference/loophole-grants.md
 			// §4.1). Its settings are compared whether or not it runs, less the ones a grant
 			// replaced (journal's `full`, a `visible` list).
 			if settings := withoutLegacyGrantKeys(d, a.Settings); settings.Len() > 0 {
@@ -101,7 +101,7 @@ func activationNextSteps(diffs []Difference) []Difference {
 			diffs[i].Next = "the converted config runs " + name + " because its pack is selected, and the old one does not; add \"enabled\": true under loopholes." + name +
 				" in the old file to keep it running, or remove \"" + name + "\" from packs to keep it off, then run `yolo config migrate` again"
 		case field == "enabled":
-			diffs[i].Next = "a TOML user config has no switch that runs " + name + " yet (per-project grants, docs/design/loophole-access-approval.md, are not built); " +
+			diffs[i].Next = "a TOML user config has no switch that runs " + name + " yet (per-project grants, docs/reference/loophole-grants.md, are not built); " +
 				"keep the old file (this yolo keeps reading it) until they land, then run `yolo config migrate` again"
 		case field == "settings":
 			diffs[i].Next = "the converted [allow." + name + "] table would hand " + name + " different settings; write them under loopholes." + name +

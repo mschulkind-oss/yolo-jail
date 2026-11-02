@@ -1499,7 +1499,7 @@ func (o *Options) notePackHostAccess(loadedPacks []*packload.Pack, channel *pack
 	}
 	if !o.Sealed {
 		// What each selected grant-declaring loophole holds here, and the step that grants it
-		// (docs/design/loophole-access-approval.md §5). A sealed build is handed no loophole.
+		// (docs/reference/loophole-grants.md §5). A sealed build is handed no loophole.
 		o.noteLoopholeGrants(o.runtime, nil)
 		return
 	}

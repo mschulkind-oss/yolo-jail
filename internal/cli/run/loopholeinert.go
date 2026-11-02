@@ -258,7 +258,7 @@ func backendInertLines(packs []*packload.Pack, reason string) []string {
 // function also remembering to drop it.
 //
 // Every record here is a selected pack's, so every one runs and is reported: no switch decides
-// it (docs/design/loophole-access-approval.md §4.1).
+// it (docs/reference/loophole-grants.md §4.1).
 func platformInertLines(packs []*packload.Pack, cfg *jsonx.OrderedMap) []string {
 	var resolved []*loopholes.Loophole
 	packOf := map[string]string{}

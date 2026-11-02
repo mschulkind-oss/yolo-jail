@@ -22,39 +22,31 @@ host                                          jail
                                                              (AWS_CONTAINER_CREDENTIALS_FULL_URI)
 ```
 
-## Enabling it
+<a id="enabling-it"></a>
 
-Both halves go in your **user** config (`~/.config/yolo-jail/config.jsonc`), never in a
-workspace `yolo-jail.jsonc` — see [Why every key is user-scope](#why-every-key-is-user-scope).
-On your machine, `yolo pack add aws-auth` selects the pack, and in a TOML config a setting is
-`yolo config set allow.aws-auth.profile <value>` (and `.unnarrowed`, `.role_arn` and the rest the same
-way). The block below is the legacy JSONC spelling.
+## Setting it up
 
-```jsonc
-{
-  "packs": ["claude"],
-  "loopholes": {
-    "aws-auth": {
-      "enabled": true,
-      "settings": {
-        "profile": "my-sso-profile",
-        "role_arn": "arn:aws:iam::111122223333:role/yolo-jail-bedrock",
-        "session_policy": "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"bedrock:InvokeModel\",\"bedrock:InvokeModelWithResponseStream\"],\"Resource\":\"*\"}]}"
-      }
-    }
-  }
-}
+Everything goes in your **user** config, never in a project's — see
+[Why every key is user-scope](#why-every-key-is-user-scope). Select the
+[`bedrock`](../bedrock/README.md) pack beside your agent, which ships the Bedrock provider and
+`needs` this one (the launch prints `+ aws-auth (needed by bedrock)`), then name the profile and
+a permission mode:
+
+```bash
+yolo pack add bedrock
+yolo config set allow.aws-auth.profile my-sso-profile
+yolo config set allow.aws-auth.role_arn arn:aws:iam::111122223333:role/yolo-jail-bedrock
 ```
 
-Then `yolo -p bedrock -- claude`. `claude` brings this pack with it: the claude pack
-`needs` the [`bedrock`](../bedrock/README.md) pack, which ships the Bedrock provider and
-`needs` `aws-auth`, and the launch prints `+ bedrock (needed by claude)` and
-`+ aws-auth (needed by bedrock)`. codex, opencode and pi need `bedrock` the same way, so you
-never list either pack yourself. Having it selected changes nothing observable on its own: the
-credential pointer is gated on the selected provider being Bedrock (its `platform` is
-`aws-bedrock`), and the loophole is off until you enable it. Enabling it starts nothing either:
-the in-jail adapter starts only on a launch where some agent's selected provider is Bedrock, and
-a launch that leaves it out says so:
+`session_policy` and `unnarrowed` are set the same way. In a legacy JSONC user config the same
+values sit under `"loopholes": {"aws-auth": {"settings": {...}}}`.
+
+Then `yolo -p bedrock -- claude`. There is no grant to approve: this is a login service, and the
+profile setting is what makes it serve. With no `profile` it serves nothing, and the launch says
+to set it. Having the pack selected changes nothing observable on its own: the credential pointer
+is gated on the selected provider being Bedrock (its `platform` is `aws-bedrock`), and the in-jail
+adapter starts only on a launch where some agent's selected provider is Bedrock; a launch that
+leaves it out says so:
 
 ```
 Not started: the aws-auth jail daemon, because no agent's selected provider is on platform "aws-bedrock", which it serves; select one (`-p <agent>=bedrock`) to start it …
@@ -73,7 +65,8 @@ the adapter when pi exits; it says so on stderr:
 yolo host: opened the "aws-auth" doorway (pack "aws-auth", pid …) on 127.0.0.1:… for pi: it answers only this launch's caller token, forwards to the host's "aws-auth" service, and stops when pi exits. …
 ```
 
-With the loophole off, the launch withholds the pointer and says how to turn it on. pi counts
+With no `profile` set, the launch withholds the pointer and names the
+`yolo config set allow.aws-auth.profile` step. pi counts
 the pointer as a credential; so do opencode and, by its AWS SDK's chain, codex and claude
 ([`host-notch-services.md` §4.8](../../docs/design/host-notch-services.md#48-yolo-host)).
 
@@ -167,7 +160,7 @@ no other process, a bare shell included. In a container jail it crosses in that 
 env file, sourced by its launcher. The processes an agent spawns inherit it, as they inherit
 anything in the agent's environment. **It crosses only where the adapter runs.** The pointer
 names this loophole's jail daemon (`served_by: "aws-auth"`), so a launch that does not run it
-leaves the pointer out and says why: a jail launch that has not enabled the loophole, and
+leaves the pointer out and says why: a jail launch with no `profile` set, and
 `yolo host env`, which runs no process. macos-user opens the adapter outside its sandbox, on the
 Mac's loopback the agent shares, as a listener that launch owns, and `yolo host -- <agent>` does
 the same for the one agent it runs when that agent is on a Bedrock provider, stopping it when the
@@ -295,7 +288,7 @@ Bedrock-only role your permission set can assume. Without one, use
    ```console
    $ grep -oE '^\[[^]]+\]|^[a-z_]+ *=' ~/.aws/config | sed 's/=.*//' | sort | uniq -c
    ```
-3. **End to end:** add [the block above](#enabling-it) to `~/.config/yolo-jail/config.jsonc`,
+3. **End to end:** run [the setup above](#enabling-it) in your user config,
    run `yolo -p bedrock -- claude`, and send one short prompt. Paste the launch lines naming
    aws-auth, whether the turn worked, and
    `podman info --format '{{.Host.RootlessNetworkCmd}}'`.
@@ -327,7 +320,7 @@ says so and exits, and the launch reports it.
 > **Reachable since 2026-09-20.** Earlier builds never told the jail where the
 > credential service was, so the adapter answered every request with a
 > `ServiceUnreachable` 4xx. If you see that error, update yolo. A podman launch now
-> sets `YOLO_SERVICE_AWS_AUTH_ENDPOINT` whenever this loophole is enabled. The pack
+> sets `YOLO_SERVICE_AWS_AUTH_ENDPOINT` whenever this pack is selected. The pack
 > is in daily use against a live `aws sso login`
 > ([the try-out](#trying-it-on-a-real-host), 2026-09-29).
 

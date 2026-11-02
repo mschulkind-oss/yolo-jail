@@ -69,7 +69,7 @@ func TestMacosUserMacosLogBridgeScopesToTheSandbox(t *testing.T) {
 		`echo "=== END ==="`,
 	}, "\n")
 
-	// The flip (docs/design/loophole-access-approval-plan.md F2): selecting the pack runs the
+	// The flip (docs/reference/loophole-grants.md F2): selecting the pack runs the
 	// bridge, and the project's `read` request, accepted at the gate (runMacosUser passes
 	// --accept-config-changes), is the user scope. `read` is requestable by default, so the
 	// user config needs no allow line for it.

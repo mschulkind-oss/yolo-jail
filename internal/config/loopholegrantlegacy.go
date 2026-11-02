@@ -6,7 +6,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// loopholegrantlegacy.go is the LEGACY PROJECTION (docs/design/loophole-access-approval-plan.md
+// loopholegrantlegacy.go is the LEGACY PROJECTION (docs/reference/loophole-grants.md
 // PD-9, the design's §6 table): during the JSONC window, a legacy `loopholes.<name>` block in the
 // user or workspace config, and the per-workspace switch file yolo wrote for `yolo loopholes
 // enable`, read as the ceiling, request and record lines `yolo config migrate` would write for a

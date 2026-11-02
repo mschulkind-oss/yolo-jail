@@ -9,7 +9,7 @@ import (
 )
 
 // standings.go is what `yolo loopholes list` and `status` show of a grant-declaring loophole
-// (docs/design/loophole-access-approval.md LG-D8): each declared kind's STANDING for the
+// (docs/reference/loophole-grants.md LG-D8): each declared kind's STANDING for the
 // workspace, the word §4.6 defines (granted, pending, requestable, not_allowed). It reads the
 // gate's own resolver (config.WithLoopholeGrants over the user's ceiling, the project's request
 // and the approval record), never a second reading of either.

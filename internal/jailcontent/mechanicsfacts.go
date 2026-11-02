@@ -69,7 +69,7 @@ type ScopeRestrictionFact struct {
 
 // SwitchFact is a loophole a `loopholes.<name>.enabled` key decides for the selected launch.
 // There is no command for it: `yolo loopholes enable|disable` are retired
-// (docs/design/loophole-access-approval.md LG-D8), so the sheet names the pack and grant verbs.
+// (docs/reference/loophole-grants.md LG-D8), so the sheet names the pack and grant verbs.
 type SwitchFact struct {
 	Name      string
 	Available bool

@@ -363,7 +363,7 @@ type Options struct {
 	readWithoutScope map[string]string
 	// approvedLoopholeGrants are each grant-declaring loophole's standing per kind, by loophole
 	// name, as the same gate approved it (config.ScopeCheck.ApprovedLoopholeGrants;
-	// docs/design/loophole-access-approval.md §4.6), for the launch's grant file.
+	// docs/reference/loophole-grants.md §4.6), for the launch's grant file.
 	approvedLoopholeGrants map[string]map[string]config.LoopholeGrantStanding
 	// workspaceMounts are the mounts the workspace config declares that this launch binds, read-
 	// only ones and RC-D24's writable requests (oq-cx-symlink): set by the config-change gate

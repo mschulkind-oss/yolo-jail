@@ -16,7 +16,7 @@ possible.
 ## Selected, then granted
 
 Selecting the pack runs the bridge; a **grant** decides what a request may read
-([`loophole-access-approval.md`](../../docs/design/loophole-access-approval.md) §4.3). The
+([`loophole-grants.md` §4.3](../../docs/reference/loophole-grants.md#43-each-loopholes-access-and-its-approval)). The
 loophole declares two grant kinds:
 
 | Kind | What a request reads | Requestable by default |

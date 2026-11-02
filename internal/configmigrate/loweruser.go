@@ -183,7 +183,7 @@ func lowerLoopholes(value any, ctx loweringContext, place func([]string, any, []
 				case v == true && selected && loopholes.RunsOnSelection(name):
 					// The list already says it; nothing is written.
 				case v == true && selected:
-					skip(oldPath, v, "a TOML user config has no switch for "+name+" yet: selecting its pack does not run it until per-project grants land (docs/design/loophole-access-approval.md), so the converted config would turn it off. Keep the old file (this yolo keeps reading it) until those grants land, then run `yolo config migrate` again")
+					skip(oldPath, v, "a TOML user config has no switch for "+name+" yet: selecting its pack does not run it until per-project grants land (docs/reference/loophole-grants.md), so the converted config would turn it off. Keep the old file (this yolo keeps reading it) until those grants land, then run `yolo config migrate` again")
 				case v == true:
 					skip(oldPath, v, "`packs` is the only switch and does not list "+name+"; add it with `yolo pack add "+name+"` (or put \""+name+"\" in packs), then run `yolo config migrate` again")
 				default:

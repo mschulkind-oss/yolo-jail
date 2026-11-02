@@ -130,7 +130,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 	if endpoint == "" {
 		// A loophole runs whenever its pack is selected, and access is a grant the daemon
-		// checks (docs/design/loophole-access-approval.md §4.1, §5). So with no endpoint the
+		// checks (docs/reference/loophole-grants.md §4.1, §5). So with no endpoint the
 		// pack is not selected: select it, then ask for the grant. When the bridge is
 		// running, the refusal comes from the daemon instead, naming the exact step. Never
 		// the retired spellings: the top-level `journal` key (a config refusal since

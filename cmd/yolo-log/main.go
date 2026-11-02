@@ -98,7 +98,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	if endpoint == "" {
 		// Selected means running, and access is a grant the daemon checks
-		// (docs/design/loophole-access-approval.md §4.1, §5): with no endpoint the pack is not
+		// (docs/reference/loophole-grants.md §4.1, §5): with no endpoint the pack is not
 		// selected. `yolo pack add` adds to the user's packs, never replaces the list.
 		fmt.Fprint(stderr, "yolo-log: the macOS log bridge is not running in this jail, so nothing ran.\n")
 		fmt.Fprintf(stderr, "  %s is not set: the macos-log pack is not selected here.\n", endpointEnv)

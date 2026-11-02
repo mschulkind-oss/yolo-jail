@@ -14,7 +14,7 @@ ways in, then covers **loopholes**, the one kind that runs something on your hos
 | Single host files, such as a dotfile | `host_files`, in your user config | [Settings per setup](../reference/settings-per-setup.md#workspace-mounts-and-host-files) |
 | Services on your host's network | `network.forward_host_ports`, or `host.containers.internal` | [Networking](networking.md) |
 | USB devices, GPUs, `/dev/kvm` | `devices`, `gpu`, `kvm` (Linux only) | [Devices and GPUs](devices-and-gpus.md) |
-| A host capability behind a service | A loophole, from a pack | Below |
+| A host capability behind a service | A loophole, from a pack, plus a grant | Below |
 | Your own machine, with no jail | `yolo host` | [Where Agents Run](confinement.md) |
 
 Everything else stays out: your SSH keys, git credentials, cloud tokens, and the rest of your home.
@@ -23,62 +23,82 @@ Everything else stays out: your SSH keys, git credentials, cloud tokens, and the
 
 A **loophole** is a named connection from a jail to one specific capability on your host, such as
 a login service or a reader for your system log. It is not an escape from the jail: a pack ships it,
-the pack's footprint lists exactly what it touches, and it is on only when its pack is selected and,
-for most, when you turn it on by name. Many loopholes run a small service on your host that does the
-privileged part itself, so the jail gets the answer without ever holding the credential or the
-access behind it.
+the pack's footprint lists exactly what it touches, and it runs only when you select its pack. Many
+loopholes run a small service on your host that does the privileged part itself, so the jail gets
+the answer without ever holding the credential or the access behind it.
+
+**Selecting a pack gives no project anything.** The loophole's service runs, and a project gets
+access through it only once you approve a **grant**: a named thing a project may do, such as
+`read` for the journal. There is no on/off switch to set.
 
 ## The loopholes yolo ships
 
-| Loophole (its pack) | What it gives the jail | On when you select the pack? |
+| Loophole (its pack) | What it gives the jail | What gives a project access |
 |---|---|---|
-| `claude-oauth-broker` (`claude-auth`, which `claude` brings) | One shared Claude login that stays fresh across jails ([Logins](authentication.md#a-shared-claude-login-that-stays-fresh)) | Yes |
-| `openai-auth-broker` (`openai-auth`, brought in by `claude`, `codex`, `opencode` and `pi`) | One shared ChatGPT login for Codex, pi and opencode ([Logins](authentication.md#a-shared-chatgpt-login-for-codex-and-pi)) | Yes |
-| `aws-auth` (`aws-auth`, also brought in by `bedrock`, which `claude`, `codex`, `opencode` and `pi` bring in) | AWS Bedrock with credentials from your host's `aws sso login`, narrowed to one role | No |
-| `github-broker` (`github`) | `gh` in the jail, run by your host's own GitHub login against this workspace's repositories, with no token in the jail; reads run and writes require exact host Allow-once approval ([GitHub](github.md)) | Yes, but it grants nothing until a read grant in your user config does ([GitHub](github.md#turning-it-on)) |
-| `git-broker` (`git`) | `git fetch` and `git push` in the jail through your host's own credentials, its SSH keys or agent or, for HTTPS, its git credential helper, against this workspace's approved remotes. A public HTTPS fetch is tried anonymously even without a read grant or approved remote; no credential is used. A push lands only on a new branch a create-branch grant covers or on a branch in the working set: one the agent created that way, or one a branch grant in the project config declares; every other push is refused ([Git](git.md#letting-the-agent-push-its-own-branches)) | Yes, but it grants nothing until a read grant in your user config does ([Git](git.md#turning-it-on)) |
-| `serial` (`serial`) | USB serial devices on the host, through an allowlist, with the `yolo-serial` command | No |
-| `journal` (`journal`) | The host's systemd journal, with `yolo-journalctl` (Linux hosts) | No |
-| `macos-log` (`macos-log`) | The Mac's unified log, with `yolo-log`: by default only entries from processes the `macos-user` sandbox runs (Mac hosts) | No |
-| `host-processes` (`host-processes`) | A filtered list of host processes, with `yolo-ps` (Linux hosts) | No |
-| `audio` (`audio`) | The host's microphone and speakers through PipeWire or PulseAudio (Linux hosts) | No |
-| `cgroup-delegate` (`cgroup-delegate`) | Lets the jail cap the CPU and memory of its own jobs, with `yolo-cglimit` (Linux hosts) | No |
+| `claude-oauth-broker` (`claude-auth`, which `claude` brings) | One shared Claude login that stays fresh across jails ([Logins](authentication.md#a-shared-claude-login-that-stays-fresh)) | Your login: nothing is served until you log in |
+| `openai-auth-broker` (`codex-auth`, which `codex` brings) | One shared ChatGPT login for Codex, pi and opencode ([Logins](authentication.md#a-shared-chatgpt-login-for-codex-and-pi)) | Your login |
+| `aws-auth` (`aws-auth`, which `bedrock` brings) | AWS Bedrock with credentials from your host's `aws sso login`, narrowed to one role | Your settings: nothing is minted until you set a profile |
+| `github-broker` (`github`) | `gh` in the jail, run by your host's own GitHub login against this workspace's repositories, with no token in the jail; reads run and writes require exact host Allow-once approval ([GitHub](github.md)) | A read grant ([GitHub](github.md#turning-it-on)) |
+| `git-broker` (`git`) | `git fetch` and `git push` in the jail through your host's own credentials, its SSH keys or agent or, for HTTPS, its git credential helper, against this workspace's approved remotes. A public HTTPS fetch is tried anonymously even without a read grant or approved remote; no credential is used. A push lands only on a new branch a create-branch grant covers or on a branch in the working set: one the agent created that way, or one a branch grant in the project config declares; every other push is refused ([Git](git.md#letting-the-agent-push-its-own-branches)) | A read grant ([Git](git.md#turning-it-on)) |
+| `journal` (`journal`) | The host's systemd journal, with `yolo-journalctl` (Linux hosts) | A grant: `read` (your own journal) or `read_all` (the whole journal) |
+| `macos-log` (`macos-log`) | The Mac's unified log, with `yolo-log` (Mac hosts) | A grant: `read` (entries from processes the `macos-user` sandbox runs) or `read_all` (every entry) |
+| `host-processes` (`host-processes`) | A list of the host processes you name, with `yolo-ps` (Linux hosts) | A grant: `view`, with the process names |
+| `serial` (`serial`) | USB serial devices on the host, with the `yolo-serial` command | A grant: `devices`, with the device patterns |
+| `audio` (`audio`) | The host's microphone and speakers through PipeWire or PulseAudio (Linux hosts) | A grant: `use` |
+| `cgroup-delegate` (`cgroup-delegate`) | Lets the jail cap the CPU and memory of its own jobs, with `yolo-cglimit` (Linux hosts) | Nothing to grant: it can only limit the jail itself |
 
-To turn one on, select its pack in your user config, then switch the loophole on for one project
-or for all of them.
+## Giving a project access
 
-For one project, run this in the project, on your machine:
+Access takes two steps, and they are the same for every loophole that has grants.
+
+**1. The project asks.** Run this in the project, in the jail or on your machine:
 
 ```bash
-yolo loopholes enable serial
+yolo request journal read
+yolo request host-processes view postgres redis-server
+yolo request serial devices '/dev/ttyUSB*'
 ```
 
-It never edits your config: it writes a small file for that project in
-`~/.config/yolo-jail/workspaces/`, prints its name, and applies from the project's next fresh
-launch. `yolo loopholes disable serial` turns the loophole off there again, over what your config
-says, and `--workspace <folder>` names a project from somewhere else. No jail can read these files.
+Each writes a line under `[requests.<pack>]` in the project's `yolo-jail.toml` and prints the next
+step. The agent can run it too: a request is only a request.
 
-For every project, switch it on in your user config:
+**2. You approve it, on your machine.** The next launch of that project shows each grant in its
+config-change prompt, or run `yolo config apply` in the project. Answer y and the project holds the
+grant from then on, in every jail of that project. Answer n and nothing is granted.
 
-```jsonc
-{
-  "packs": ["claude", "serial"],
-  "loopholes": {
-    "serial": { "enabled": true }
-  }
-}
+**What a project may ask for is up to you.** Your user config sets a ceiling for each pack. A
+request outside it is skipped, and the launch names the command that would allow it:
+
+```bash
+yolo allow host-processes on_request view   # let any project ask to see processes
+yolo allow journal read                     # grant your journal to every project
 ```
 
-`github-broker` and `git-broker` have neither: they have no switch. Each runs in every project
-while its pack is selected and grants nothing until you grant read access under `brokered` in
-your user config, a grant each project's config-change prompt or `yolo config apply` shows before
-it takes effect. `yolo loopholes enable` refuses for them, and `yolo check` refuses their switch in
-any config file. See [GitHub](github.md#turning-it-on) and [Git](git.md#turning-it-on).
+`on_request` lets a project ask; the bare form (`always`) grants it to every project, which each
+project still shows you once at its next prompt. `journal` and `macos-log` let a project ask for
+`read` with no ceiling line at all; `read_all` always needs one. A grant that carries values, such
+as the process names or device patterns, can only be allowed on request, since only a project
+knows which ones it needs.
 
-Some loopholes take their own settings under `settings`, such as `aws-auth`'s SSO profile and role;
-each pack's README in the repository describes them, and `yolo check` reports a setting that is
-missing or misspelled. A loophole you turn on starts with the next fresh jail, not when you join one
-that is already running.
+To take a grant back, remove the request or the ceiling line and run `yolo config apply`. A
+running jail's journal, log, process and serial access changes at once; `audio` changes at the
+next fresh launch.
+
+Some loopholes also take settings of their own, such as `aws-auth`'s SSO profile and role or the
+`ps` columns `host-processes` shows. They go in your user config under `[allow.<pack>]`:
+
+```bash
+yolo config set allow.aws-auth.profile my-sso-profile
+```
+
+Settings never give a project anything by themselves. Each pack's README in the repository lists
+its settings, and `yolo check` reports one that is missing or misspelled.
+
+**Coming from an older config?** `"loopholes": {"<name>": {"enabled": true}}` and
+`yolo loopholes enable` are gone. An older JSONC config keeps working as grants until you convert
+it, and `yolo config migrate` carries every access you had into allow and request lines without
+losing any. `yolo loopholes enable` now refuses and names the `yolo request` and `yolo allow` lines
+to use instead.
 
 ## Loopholes on each setup
 
@@ -88,7 +108,8 @@ Loopholes work fully on Podman on Linux. On a Mac they depend on the runtime:
   from the jail to your Mac is tested nightly; the services themselves have not all been run end to
   end on a Mac.
 - **Apple Container:** none work yet. A jail on Apple Container cannot connect back to the Mac, so
-  the launch lists each loophole it had to skip. This includes the shared Claude and ChatGPT logins.
+  the launch lists each loophole it had to skip, and the config-change prompt shows no grant for one.
+  This includes the shared Claude and ChatGPT logins.
 - **`macos-user`:** the host services start, and the ChatGPT login service and Bedrock
   (`aws-auth`) work: the piece the agent talks to runs beside the launch, outside the sandbox, on
   the Mac's own loopback, which the agent shares. A pack's own in-jail helper runs inside the
@@ -100,26 +121,25 @@ Loopholes work fully on Podman on Linux. On a Mac they depend on the runtime:
   credentials still wins: the one `AWS_PROFILE` names, or `[default]` when it is unset.
   It finds a region the way a jail launch does, the `aws-auth` profile's in `~/.aws/config`
   included; a region only in the agent's own settings does not count. Tested with stand-ins for
-  the agent and for `aws`, not yet with a real agent.
+  the agent and for `aws`, not yet with a real agent. Other grants do not apply there: the agent
+  already runs as you.
 
 [Settings per setup](../reference/settings-per-setup.md#the-loopholes-host-services-a-jail-can-use)
 has the per-loophole detail.
 
-## See what is on, and check it
+## See what a project holds, and check it
 
 ```bash
-yolo loopholes list      # every loophole your config selects, and whether it is on
+yolo loopholes list      # every loophole your config selects, and what this project holds
 yolo loopholes status    # on the host: run each loophole's own self-check
-yolo loopholes enable serial    # on the host: on for this project only
 yolo host-daemon status  # the host services each running jail started, and whether each answers
 yolo pack footprint serial   # what a pack's loophole touches, before you select it
 ```
 
-`yolo host-daemon` arrives in the release after 0.10.0; on 0.10.0, `yolo broker status` checks the
-Claude login service.
-
-Every launch also prints what each pack reads from your machine, and names each host service just
-before it starts it.
+Every launch also prints what each pack reads from your machine, names each host service just
+before it starts it, and says for each loophole that has grants what this project holds or the
+command that would grant it. When a command in the jail is refused for want of a grant, its message names the same
+next step.
 
 ## Build your own
 

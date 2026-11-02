@@ -11,7 +11,7 @@
 # So this file is an identity: it puts the delegate in `yolo loopholes list`, `yolo check` and the
 # briefing under the same vocabulary as every other loophole. It runs whenever its pack is selected;
 # it grants nothing a grant could gate, since it can only narrow the jail
-# (docs/design/loophole-access-approval.md §4.3).
+# (docs/reference/loophole-grants.md §4.3).
 name = "cgroup-delegate"
 description = "Lets a jail set its own cgroup limits (yolo-cglimit). The delegate hands the jail control of ITS OWN cgroup; it reads no host state."
 version = 1

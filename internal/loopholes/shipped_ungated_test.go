@@ -10,7 +10,7 @@ import (
 
 // ungatedShippedLoopholes is the closed list of shipped loopholes that cross to the host and
 // declare no grant kind, each with the approval that stands in for a grant or the reason none is
-// needed (docs/design/loophole-access-approval.md §4.3). A fifth row is a design change, not a
+// needed (docs/reference/loophole-grants.md §4.3). A fifth row is a design change, not a
 // test fix.
 var ungatedShippedLoopholes = map[string]string{
 	"claude-oauth-broker": "the login: nothing is served until a human has logged in on the host",

@@ -147,7 +147,7 @@ func TestCheckLoopbackTLSServiceNamesTheLayer(t *testing.T) {
 }
 
 // TestCheckLoopholesSaysAWorkspaceDisableSwitchesNothing: a pack's loophole has no switch any
-// more (it runs whenever its pack is selected; docs/design/loophole-access-approval.md §4.1), so
+// more (it runs whenever its pack is selected; docs/reference/loophole-grants.md §4.1), so
 // a workspace `enabled: false` for one is disclosed as a key that switches nothing, naming the
 // file and the key to remove, and the row never says the loophole is disabled: it runs.
 func TestCheckLoopholesSaysAWorkspaceDisableSwitchesNothing(t *testing.T) {

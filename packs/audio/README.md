@@ -12,10 +12,10 @@ enumeration, its approval gate, its name pre-flight and its inert report.
 
 **Select it, and grant `use`. Neither is implied by the other.** Whether the sockets and the
 device reach a jail is a **grant**, not a switch
-([design §4.4](../../docs/design/loophole-access-approval.md#44-mediated-and-unmediated-crossings)).
+([design §4.4](../../docs/reference/loophole-grants.md#44-mediated-and-unmediated-crossings)).
 The loophole declares one grant kind, `use` (*"use your microphone and speakers"*), and it is
 all or nothing: no daemon answers audio's requests, so nothing can refuse one, and the crossing
-itself is what the grant admits ([LG-D6](../../docs/design/loophole-access-approval.md#LG-D6)).
+itself is what the grant admits ([LG-D6](../../docs/reference/loophole-grants.md#LG-D6)).
 Without it, selecting the pack binds nothing, and the launch says how to ask:
 
 ```text
@@ -33,7 +33,7 @@ Without it, selecting the pack binds nothing, and the launch says how to ask:
    jail), and answer y to the line `+ audio: use your microphone and speakers`.
 5. **Restart the jail.** The binds and the device are container argv, decided at launch, so
    `yolo config apply` records the grant and says it lands at the next restart
-   ([LG-D7](../../docs/design/loophole-access-approval.md#LG-D7)); a running jail keeps what it
+   ([LG-D7](../../docs/reference/loophole-grants.md#LG-D7)); a running jail keeps what it
    started with.
 
 The resulting config, in TOML:
@@ -53,7 +53,7 @@ use = true
 ```
 
 **A legacy `enabled` switch is read as the grant** while JSONC configs are still read
-([plan PD-9](../../docs/design/loophole-access-approval-plan.md#PD-9)):
+([plan PD-9](../../docs/reference/loophole-grants.md#PD-9)):
 `"loopholes": {"audio": {"enabled": true}}` in your user config is `[allow.audio] always =
 ["use"]`, in a workspace config it is the project's request for `use` (which your config must
 still allow on request), and one `yolo loopholes enable audio` wrote is a grant already

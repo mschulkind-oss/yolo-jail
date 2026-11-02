@@ -2,7 +2,7 @@ package loopholegrant
 
 import "testing"
 
-// Each want below is docs/design/loophole-access-approval.md §5's block, verbatim, with only the
+// Each want below is docs/reference/loophole-grants.md §5's block, verbatim, with only the
 // noun, the kind and <dir> filled.
 
 func TestRefusalTextRequestable(t *testing.T) {

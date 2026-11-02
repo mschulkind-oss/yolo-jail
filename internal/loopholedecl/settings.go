@@ -258,7 +258,7 @@ func parseSettings(manifestPath string, raw any) ([]Setting, error) {
 			scope = s
 		}
 		// The workspace scope let an agent-writable project file widen what a loophole
-		// grants; LG-D5 retired it (docs/design/loophole-access-approval.md §4.3). Refused
+		// grants; LG-D5 retired it (docs/reference/loophole-grants.md §4.3). Refused
 		// by name, in both decoders, so a fetched pack cannot reintroduce the shape.
 		if scope == SettingScopeWorkspace {
 			return nil, Errorf(

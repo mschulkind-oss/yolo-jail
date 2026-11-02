@@ -46,7 +46,7 @@ host_devices = ["/dev/snd"]
 # One grant kind, `use`, and it is all or nothing. No daemon answers this loophole's requests, so
 # nothing can refuse one: the crossing itself (the two sockets, the ALSA file and /dev/snd above
 # and below, and the pack's PULSE_SERVER/PIPEWIRE_REMOTE, which follow the binds) is what the
-# grant admits (docs/design/loophole-access-approval.md LG-D6). Without it, selecting the pack puts
+# grant admits (docs/reference/loophole-grants.md LG-D6). Without it, selecting the pack puts
 # none of them in the jail and the launch says how to ask. Being container argv, a grant `yolo
 # config apply` records lands at the next restart, not in the running jail (LG-D7).
 #

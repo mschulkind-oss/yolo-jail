@@ -44,7 +44,7 @@ type Loophole struct {
 	SwitchAvailable bool
 	// Standing is one line saying what this loophole holds in this project, for a grant-declaring
 	// loophole that holds nothing here, and the step that would grant it
-	// (docs/design/loophole-access-approval.md §5): an agent reading the section then does not
+	// (docs/reference/loophole-grants.md §5): an agent reading the section then does not
 	// debug a socket that never crossed. "" for an ungated loophole and for one holding a grant.
 	Standing string
 }
@@ -818,7 +818,7 @@ func BriefingContent(in BriefingInput) string {
 				lines = append(lines, "- **"+lh.Name+"**")
 			}
 			// What it holds in this project, so an agent does not debug a socket that was
-			// never bound (docs/design/loophole-access-approval.md §5).
+			// never bound (docs/reference/loophole-grants.md §5).
 			if lh.Standing != "" {
 				lines = append(lines, "  - "+lh.Standing)
 			}

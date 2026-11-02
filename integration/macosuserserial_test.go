@@ -37,7 +37,7 @@ func TestMacosUserSerialClientDrivesAHostPtyFromTheSandbox(t *testing.T) {
 	master, slave := hostPtyPair(t)
 	got := readMaster(t, master)
 
-	// The flip (docs/design/loophole-access-approval-plan.md F4): selecting the pack runs the
+	// The flip (docs/reference/loophole-grants.md F4): selecting the pack runs the
 	// daemon, and what it may open is the valued `devices` grant. A valued kind is never
 	// requestable by default, so the user's ceiling allows it on request; the project requests
 	// the slave's path, and the gate accepts it (runMacosUser passes --accept-config-changes).

@@ -519,7 +519,7 @@ func mechanicsLoopholeSwitches(cfg *jsonx.OrderedMap, packs []*packload.Pack) ma
 	available := make(map[string]bool, len(set.All()))
 	for _, lp := range set.All() {
 		// Only a config-inline loophole has a switch: a pack's runs whenever its pack is
-		// selected (docs/design/loophole-access-approval.md §4.1).
+		// selected (docs/reference/loophole-grants.md §4.1).
 		available[lp.Name] = lp.Source == loopholes.SourceConfig
 	}
 	return available
@@ -550,7 +550,7 @@ func mechanicsLoopholeSwitches(cfg *jsonx.OrderedMap, packs []*packload.Pack) ma
 // launch runs: the same expression retyped in a test asserts nothing about this file.
 //
 // standings (Options.loopholeGrantStandings) give each grant-declaring loophole its Standing line
-// (docs/design/loophole-access-approval.md §5): one holding nothing in this project says so, with
+// (docs/reference/loophole-grants.md §5): one holding nothing in this project says so, with
 // the step that grants it.
 func briefingLoopholes(loopholesCfg *jsonx.OrderedMap, standings map[string]map[string]config.LoopholeGrantStanding) []jailcontent.Loophole {
 	var out []jailcontent.Loophole

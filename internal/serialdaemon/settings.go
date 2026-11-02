@@ -17,7 +17,7 @@ const (
 //
 // There is no device allowlist here. What yolo-serial may list and open is the `devices` grant's
 // values, and only the grant file carries them: the retired `allowed_devices` setting and its five
-// default globs are gone (docs/design/loophole-access-approval-plan.md F4), so a grant file with no
+// default globs are gone (docs/reference/loophole-grants.md F4), so a grant file with no
 // block, no file, or no --settings at all grants nothing and every request fails closed.
 type Settings struct {
 	// DefaultBaud is the `default_baud` setting, read once at startup: a change needs a restart.

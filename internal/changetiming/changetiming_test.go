@@ -108,7 +108,7 @@ func TestHostSwitchOnlyChangesLoopholeTiming(t *testing.T) {
 
 // A grant change reaches a running mediated loophole's daemon at its next request, since `yolo
 // config apply` rewrites the grant file it reads; an unmediated loophole's grant is container
-// argv, decided when the jail starts (docs/design/loophole-access-approval.md §4.6, LG-D7).
+// argv, decided when the jail starts (docs/reference/loophole-grants.md §4.6, LG-D7).
 func TestAMediatedGrantIsLiveAndAnUnmediatedOneWaitsForRestart(t *testing.T) {
 	cases := []struct {
 		name string

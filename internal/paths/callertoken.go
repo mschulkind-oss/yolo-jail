@@ -71,7 +71,7 @@ func IsServiceCallerTokenEnv(key string) bool {
 
 // LoopholeInertEnvPrefix starts the variable a launch sets in a jail for a selected loophole
 // that runs but holds no grant there: YOLO_LOOPHOLE_INERT_<SLUG>=1. The loophole's client reads
-// it to print the inert line without dialing its daemon (docs/design/loophole-access-approval-plan.md, PD-8).
+// it to print the inert line without dialing its daemon (docs/reference/loophole-grants.md, PD-8).
 const LoopholeInertEnvPrefix = "YOLO_LOOPHOLE_INERT_"
 
 // LoopholeInertEnv is loophole's inert variable, its name folded as ServiceEnvSlug folds a

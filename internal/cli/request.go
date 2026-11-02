@@ -180,7 +180,7 @@ func reportRequestSkipped(out io.Writer, source, capability, description string)
 	}
 }
 
-// requestLoopholeKind writes a grant-declaring pack's request (docs/design/loophole-access-approval.md
+// requestLoopholeKind writes a grant-declaring pack's request (docs/reference/loophole-grants.md
 // §4.2) in the shape config.ResolveLoopholeGrants reads: `<kind> = true` for a plain kind, the
 // values appended to `<kind> = [...]` for a valued one. Then, as for a broker, it reports a request
 // outside the ceiling and names the host step.

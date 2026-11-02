@@ -88,7 +88,7 @@ type ServedDaemons struct {
 	// ungranted is why a jail notch left a GRANT-DECLARING bound loophole unbound, keyed by
 	// loophole name (WithUngrantedBinds): it holds no grant in this project, so the clause names
 	// the step that grants one rather than the `enabled` switch, which grants nothing to such a
-	// loophole (docs/design/loophole-access-approval.md LG-D6).
+	// loophole (docs/reference/loophole-grants.md LG-D6).
 	ungranted map[string]string
 }
 

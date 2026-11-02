@@ -237,7 +237,7 @@ func TestAudioPackLoopholeIsInsideThePackShippedSubset(t *testing.T) {
 	}
 	// GATED BY A GRANT: the loophole binds two host sockets and passes /dev/snd through,
 	// which is host access, and it runs whenever its pack is selected, so selecting the pack
-	// is not consent for what crosses (docs/design/loophole-access-approval.md §4.3).
+	// is not consent for what crosses (docs/reference/loophole-grants.md §4.3).
 	//
 	// Asserted through the EMBEDDED pack, so the declaration the binary carries is what is
 	// pinned — the same reason every other assertion in this file reads the embed.

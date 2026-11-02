@@ -418,7 +418,7 @@ func renderRecipe(file string, facts FactSheet) string {
 			case changetiming.UserScopeOnly:
 				fmt.Fprintf(&b, "%d. Do not add these settings to the workspace config. Give the human the exact edit for `%s`; they run `yolo check` and start a fresh `yolo` launch from `%s`. Workspace `yolo config apply` does not apply user-scope settings.\n\n", step, facts.UserConfigPath, facts.HostWorkspace)
 			case changetiming.HostSwitch:
-				// `yolo loopholes enable|disable` are retired (docs/design/loophole-access-approval.md
+				// `yolo loopholes enable|disable` are retired (docs/reference/loophole-grants.md
 				// LG-D8): what a loophole may do is a grant, and whether it runs is its pack.
 				var named []string
 				for _, sw := range facts.Switches {

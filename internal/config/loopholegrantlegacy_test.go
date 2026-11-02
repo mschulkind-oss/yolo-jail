@@ -11,7 +11,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// The legacy projection (the plan's PD-9; docs/design/loophole-access-approval.md §6): during the
+// The legacy projection (the plan's PD-9; docs/reference/loophole-grants.md §6): during the
 // JSONC window a legacy `loopholes.<name>` block, and the per-workspace switch file, read as the
 // ceiling, request and record lines the migration would write. Each test runs the real user and
 // workspace reads and the real gate (grantGate, loopholegrantgate_test.go).

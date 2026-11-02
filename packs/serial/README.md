@@ -5,7 +5,7 @@ The `serial` pack enables safe, scoped access to host USB serial devices (ESP32,
 ## Activation
 
 What `yolo-serial` may list and open is a **grant**, not a setting
-([design §4.3](../../docs/design/loophole-access-approval.md#43-each-loopholes-access-and-its-approval)).
+([design §4.3](../../docs/reference/loophole-grants.md#43-each-loopholes-access-and-its-approval)).
 The loophole declares one grant kind, `devices`, and it is **valued**: its values are the
 device globs `yolo-serial` may list and open. A device no granted glob matches is refused.
 There are no default globs.

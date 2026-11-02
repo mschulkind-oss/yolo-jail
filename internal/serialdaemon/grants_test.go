@@ -1,7 +1,7 @@
 package serialdaemon
 
 // grants_test.go pins the serial daemon's half of the loophole grants
-// (docs/design/loophole-access-approval.md §4.6, §5; plan T9, F4): the daemon reads only its
+// (docs/reference/loophole-grants.md §4.6, §5; plan T9, F4): the daemon reads only its
 // grant file, re-reading its block at each request, `list` and every open see only the granted
 // device globs, there are no default globs, a file with no block grants nothing, and a refusal is
 // loopholegrant's text on stderr with exit 64.

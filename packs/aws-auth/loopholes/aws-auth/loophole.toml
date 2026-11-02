@@ -23,7 +23,7 @@ description = "Serve Bedrock-scoped AWS credentials to the jail from a host SSO 
 version = 1
 # It runs whenever its pack is selected, like every loophole, and mints nothing until the user
 # config names a profile (`allow.aws-auth.profile`); without one it serves nothing and the launch
-# check names the key to write (docs/design/loophole-access-approval.md §4.3).
+# check names the key to write (docs/reference/loophole-grants.md §4.3).
 serves = ["aws-container-credentials"]
 transport = "loopback-tls"
 lifecycle = "spawned"

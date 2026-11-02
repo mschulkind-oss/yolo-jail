@@ -38,7 +38,7 @@ func TestMacosUserYoloPsListsAnAllowlistedHostProcess(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = stdin.Close() })
 
-	// The flip (docs/design/loophole-access-approval-plan.md F3): selecting the pack runs the
+	// The flip (docs/reference/loophole-grants.md F3): selecting the pack runs the
 	// daemon, and what it may show is the valued `view` grant. A valued kind is never
 	// requestable by default, so the user's ceiling allows it on request; the project requests
 	// the name, and the gate accepts it (runMacosUser passes --accept-config-changes).

@@ -83,7 +83,7 @@ Five sources, merged in order, later overriding earlier:
 | User | `~/.config/yolo-jail/config.toml` (legacy `config.jsonc`) | anything, including every install-shaped key |
 | Workspace | `<workspace>/yolo-jail.toml` (legacy `yolo-jail.jsonc`) | the repo's own needs; committed |
 | Workspace-local | `<workspace>/yolo-jail.local.toml` (legacy `yolo-jail.local.jsonc`) | per-machine tweaks; kept out of version control |
-| Per-workspace file | `~/.config/yolo-jail/workspaces/<folder>-<hash>.jsonc` | loophole switches for that one workspace, written by `yolo loopholes enable` and `disable`; never a broker's, which has no switch |
+| Per-workspace file | `~/.config/yolo-jail/workspaces/<folder>-<hash>.jsonc` | loophole switches an older yolo wrote for that one workspace; nothing writes it now, and a migration carries its switches into grants |
 | Environment | a small set of `YOLO_*` variables | last-resort overrides |
 
 TOML is the current format and the legacy JSONC files are still read for a few releases
@@ -116,8 +116,8 @@ the key it served, rather than left inert.
 `LoadPacks` deliberately takes no merged config: reading the user file is what makes
 workspace scope *inexpressible* rather than merely refused. The same reasoning applies to
 `cache_relocations`, which mounts an arbitrary host path read-write, and to a `host_files`
-entry that names a `source`. The general shape: a weak, agent-editable scope may switch on
-only what the strong scope already installed.
+entry that names a `source`. The general shape: a weak, agent-editable scope may ask only for
+what the strong scope already installed and allows, and a human approves the ask.
 
 ### The per-workspace file
 
@@ -127,22 +127,23 @@ is user scope for one workspace: a file yolo keeps beside the user config, in
 the user config, which yolo never writes, and not a workspace config, which the workspace's agent
 can edit.
 
-- **Who writes it.** `yolo loopholes enable <name>` and `disable`, run on the host, write the file
-  whole and print its name. With no `--workspace`, they switch the folder they run in, which is the
-  workspace a launch there opens. A hand edit is allowed; its comments are not kept by the next write.
-  Neither command touches `config.jsonc`, by the maintainer's ruling
-  ([OQ-BB12](../design/boundary-broker.md#15-decision-ledger)).
+- **Who writes it.** Nobody adds to it now. `yolo loopholes enable` and `disable` wrote it until
+  they were retired ([LG-D8](loophole-grants.md#LG-D8)); `disable` still removes a switch it finds
+  there, and the host migration of the user config removes every grant-declaring loophole's switch
+  once it has carried it into the workspace's approval record as a grant
+  ([`loophole-grants.md` §6](loophole-grants.md#6-migration)). Until then, the launch reads such a
+  switch as a legacy grant.
 - **Its name and its key.** One file per workspace, `<the folder's name>-<12 hex digits>.jsonc`,
   the digits from the SHA-256 of the workspace's resolved path, each name in it spelled as its
   folder lists it, so two spellings of one folder on a case-insensitive file system name one
   file. Its `workspace` field is
   authoritative: a file whose field does not resolve to the launching workspace is ignored, and the
   launch and `yolo check` warn.
-- **What it holds.** `loopholes.<name>.enabled` alone today. A brokered loophole's entry, which
-  an older yolo wrote, is ignored with a warning, and `yolo loopholes disable <name>` removes it
+- **What it holds.** `loopholes.<name>.enabled` alone. A brokered loophole's entry is ignored
+  with a warning, and `yolo loopholes disable <name>` removes it
   ([BB-D109](../design/boundary-broker.md#BB-D109)). Any other key is refused, with a next
   step, so later per-project properties have a home and a typo is never silent.
-- **Where it merges.** Last, over the workspace's own config files too, since each key it holds is
+- **Where it merges.** Last, over the workspace's own config files too, since each key it holds was
   a human's switch for this workspace. `yolo config dump`, `yolo check` and the launch all read it.
 - **No jail sees it.** A launch binds the user scope it generates into a jail as single files,
   never the folder, and composes that scope without this file, because its key is a host path no

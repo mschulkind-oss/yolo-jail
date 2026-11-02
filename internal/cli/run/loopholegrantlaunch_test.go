@@ -19,7 +19,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// loopholegrantlaunch_test.go drives the LAUNCH half of docs/design/loophole-access-approval.md
+// loopholegrantlaunch_test.go drives the LAUNCH half of docs/reference/loophole-grants.md
 // (§4.1, §4.4, §4.6, §5; plan T6) through the launch's own functions: its config-change gate
 // (checkConfigChanges), its spawn (startLoopholesMatching), its argv (loopholesRuntimeArgs), its
 // pack disclosure (notePackHostAccess) and its briefing list (briefingLoopholes). Each fixture is a

@@ -131,7 +131,7 @@ func applyWorkspaceOverrides(existing map[string]*Loophole, loopholesConfig *jso
 			continue
 		}
 		// No `enabled` here: a pack's loophole runs whenever its pack is selected
-		// (docs/design/loophole-access-approval.md §4.1), and a legacy switch is projected
+		// (docs/reference/loophole-grants.md §4.1), and a legacy switch is projected
 		// into a grant (§6 of that design), never onto the record.
 		if envV, ok := spec.Get("env"); ok && loopholedecl.Truthy(envV) {
 			if envMap, isMap := envV.(*jsonx.OrderedMap); isMap && target.HostDaemon != nil {
@@ -579,7 +579,7 @@ func (s Set) WithCredentialView(on bool) Set {
 }
 
 // WithGrants returns the set with the grant kinds this launch holds recorded, by loophole name
-// (docs/design/loophole-access-approval.md §4.4, LG-D6): the gate's approved result, which the
+// (docs/reference/loophole-grants.md §4.4, LG-D6): the gate's approved result, which the
 // launch hands every reader that builds the jail's crossings. A GRANT-DECLARING loophole whose
 // crossing is UNMEDIATED (binds, devices, the sockets the launch publishes, with no daemon to
 // refuse a call: Loophole.Mediated) puts its binds and devices in the jail only when it holds at

@@ -1,7 +1,7 @@
 package integration
 
 // hostprocessesgrant_test.go is the container tier of the host-processes flip
-// (docs/design/loophole-access-approval-plan.md F3): the shipped `host-processes` loophole
+// (docs/reference/loophole-grants.md F3): the shipped `host-processes` loophole
 // grants access through its valued `view` grant, not the old `enabled` switch and `visible`
 // setting. Selecting the pack runs the daemon; what `yolo-ps` may show is the process names the
 // project requested and a gate approved. The unit tiers pin the daemon's decision against a

@@ -8,7 +8,7 @@ the [`journal`](../journal/README.md) bridge's are. macOS only.
 ## Turning it on
 
 Selecting the pack runs the bridge; a **grant** decides what a request may read
-([`loophole-access-approval.md` §4.3](../../docs/design/loophole-access-approval.md#43-each-loopholes-access-and-its-approval)).
+([`loophole-grants.md` §4.3](../../docs/reference/loophole-grants.md#43-each-loopholes-access-and-its-approval)).
 The loophole declares the [`journal`](../journal/README.md) bridge's two grant kinds:
 
 | Kind | Verbs | Output | Entries | Requestable by default |
@@ -127,7 +127,7 @@ Each entry below is an implementation decision taken under the owner's ruling of
   capability on, so ignoring it silently would leave a user with no thread back to it.
 - **ML-D3. The mode is a grant: `read`, or `read_all`.** It was one boolean `full` setting,
   declared `scope: "user"`, beside an `enabled` switch. Since the grant flip
-  ([plan](../../docs/design/loophole-access-approval-plan.md) F2) the two modes are the
+  ([plan](../../docs/reference/loophole-grants.md) F2) the two modes are the
   journal's grant kinds. A workspace file can be rewritten by the agent, so `read_all` is not
   requestable by default: only your user config can make it requestable, and only a gate can
   grant it. A kind is a closed name, so it cannot be misspelled into a wider mode either.

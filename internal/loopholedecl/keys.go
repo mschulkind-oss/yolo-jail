@@ -89,7 +89,7 @@ const (
 const (
 	// RetiredKeyEnabled is the manifest's first enablement key. OQ-A9 renamed it to
 	// `default_enabled` and flipped its default; LG-D3 then retired that too
-	// (docs/design/loophole-access-approval.md §4.5).
+	// (docs/reference/loophole-grants.md §4.5).
 	RetiredKeyEnabled = "enabled"
 	// RetiredKeyDefaultEnabled is the pack author's default for whether the loophole ran.
 	// Every loophole now runs whenever its pack is selected and grants nothing until a grant

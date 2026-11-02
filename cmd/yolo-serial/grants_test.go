@@ -1,7 +1,7 @@
 package main
 
 // grants_test.go pins the client's half of the loophole grants
-// (docs/design/loophole-access-approval.md §5; plan T9, PD-8): an inert loophole says so before
+// (docs/reference/loophole-grants.md §5; plan T9, PD-8): an inert loophole says so before
 // any endpoint is tried, a daemon's grant refusal reaches the person verbatim with its exit
 // code, and the fallback for a bridge that is not there names a verb, not a config edit.
 

@@ -17,7 +17,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
-// loopholegrants.go is the LAUNCH half of docs/design/loophole-access-approval.md (§4.1, §4.4,
+// loopholegrants.go is the LAUNCH half of docs/reference/loophole-grants.md (§4.1, §4.4,
 // §4.6, §5): what each selected grant-declaring loophole holds in this workspace, and the four
 // places the launch says so — the grant file its daemon is handed (publishLoopholeSettings), the
 // container argv that carries an unmediated crossing only under a grant (loopholesRuntimeArgs,

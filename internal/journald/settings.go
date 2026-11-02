@@ -10,7 +10,7 @@ package journald
 // workspace file, one the agent inside the jail can rewrite, could set to `full`. It became a
 // user-scope `full` setting (OQ-K4), and is now the `read_all` grant kind, which only the
 // user's ceiling can make requestable and only an accepted gate can grant
-// (docs/design/loophole-access-approval.md §4.3).
+// (docs/reference/loophole-grants.md §4.3).
 
 // Bridge modes — what a request's args are allowed to reach. These are the strings
 // ParseRequest and PlanMacosLog take; grant.go's decide is the only producer.

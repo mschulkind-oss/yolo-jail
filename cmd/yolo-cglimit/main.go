@@ -70,7 +70,7 @@ var cgdSocket = paths.JailHostServicesDir + "/" + paths.CgdSocketName
 // already launched with the yolo CLI and was left with nothing to do. It names the
 // command that selects the pack instead (docs/reference/happy-path-principle.md, rule 1):
 // a loophole runs whenever its pack is selected, and this one grants nothing a grant could
-// gate (docs/design/loophole-access-approval.md §4.3). The pack and the loophole share the
+// gate (docs/reference/loophole-grants.md §4.3). The pack and the loophole share the
 // name, which TestTheNamedPackShipsTheDelegate checks against the shipped pack.
 const noDelegateMsg = "Error: cgroup delegation not available — host daemon socket not found.\n" +
 	"The cgroup delegate is a loophole shipped by the " + paths.BuiltinCgroupLoopholeName + " pack, and it runs\n" +

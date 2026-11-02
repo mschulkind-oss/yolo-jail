@@ -17,7 +17,7 @@ import (
 )
 
 // liveapplygrants_test.go pins `yolo config apply` for grant-declaring loopholes
-// (docs/design/loophole-access-approval.md §4.6, LG-D7; plan T11): a mediated loophole's running
+// (docs/reference/loophole-grants.md §4.6, LG-D7; plan T11): a mediated loophole's running
 // daemon has its grant file rewritten with what the gate approved, and an unmediated one's grant
 // is recorded and said to land at the next restart, since its crossing is container argv.
 

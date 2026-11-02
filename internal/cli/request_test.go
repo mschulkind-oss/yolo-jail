@@ -110,7 +110,7 @@ func TestRequestOutsideCeilingIsSkippedNotFatal(t *testing.T) {
 }
 
 // `yolo request <pack> <kind> [value...]` writes a loophole request in the shape the grant reader
-// takes (docs/design/loophole-access-approval.md §4.2): a list of values for a valued kind, true
+// takes (docs/reference/loophole-grants.md §4.2): a list of values for a valued kind, true
 // for a plain one; then names the host step.
 func TestRequestWritesALoopholeKindWithValues(t *testing.T) {
 	fx := newLoopholeGrantVerbFixture(t, "", "\n[allow.host-processes]\non_request = [\"view\"]\n")

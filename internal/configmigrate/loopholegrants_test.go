@@ -12,7 +12,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// The loophole rows of docs/design/loophole-access-approval.md §6, one fixture each, through the
+// The loophole rows of docs/reference/loophole-grants.md §6, one fixture each, through the
 // migration planner: each converts, the equality proof passes, and the standing per loophole per
 // kind in this workspace is the same before and after (LG-D11). The packs are the shipped
 // grant-declaring ones; the configs are synthetic.

@@ -56,7 +56,7 @@ func grantGate(t *testing.T, ws string, lps []GateLoophole) *ChangeReport {
 
 // An `always` grant in the user's ceiling shows at each project's gate once, is recorded by the
 // y, and asks nothing again until the ceiling changes; withdrawn, it shows removed once
-// (docs/design/loophole-access-approval.md LG-D12).
+// (docs/reference/loophole-grants.md LG-D12).
 func TestAnAlwaysGrantShowsOnceAtEachProjectsGate(t *testing.T) {
 	ws := approvalWorkspace(t)
 	writeGrantUserConfig(t, "[allow.fixture]\nalways = [\"read\"]\n")

@@ -16,7 +16,7 @@ import (
 )
 
 // TestSetEnabledGlobalPrintsTheConfigKeyAndWritesNothing: `enable` and `disable` are retired
-// (docs/design/loophole-access-approval.md LG-D8), `--global` included: for a loophole declared
+// (docs/reference/loophole-grants.md LG-D8), `--global` included: for a loophole declared
 // in config (no pack ships it) the refusal says so and names the file that declares it, writes
 // nothing, and exits 1.
 func TestSetEnabledGlobalPrintsTheConfigKeyAndWritesNothing(t *testing.T) {

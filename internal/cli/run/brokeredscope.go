@@ -50,7 +50,7 @@ var collectScopeCheck = CollectScopeCheck
 // (brokeredScopeForCheck), so the two cannot disagree: every brokered loophole this launch would
 // start (loopholes.Set.BrokeredToStart, the predicate the spawn applies) with its repository
 // scope, and every selected grant-declaring loophole
-// (docs/design/loophole-access-approval.md §4.2) with its ceiling, request and standing, an
+// (docs/reference/loophole-grants.md §4.2) with its ceiling, request and standing, an
 // inert one kept out of the gate (LG-D10). nil when neither is selected, which leaves the gate
 // exactly what it was before either existed.
 //

@@ -62,15 +62,20 @@
     brokered.*          -> [allow.<source>] (your ceiling) and [requests.<source>]
                            (a project's request); `repos` -> requests.github.repos
     profile, profiles   -> [active_provider] and providers.<name>.variants.<variant>
-    loopholes.*.enabled -> selecting the pack that ships the loophole
+    loopholes.*.enabled -> the grant it gave: [allow.<pack>] (your ceiling) and
+                           [requests.<pack>] (a project's request), approved
     loopholes.*.settings.* -> [allow.<pack>] settings
 
   [bold]allow[/bold] — (table, [bold]USER SCOPE ONLY[/bold]): what a project's jail may do with your
-    logins.  `[allow.git]` and `[allow.github]` each take `always = [...]` (every
-    project's jail gets it) and `on_request = [...]` (a project may ask for it;
-    it is never granted by this line).  Capabilities are the ones the selected
-    pack declares, such as `fetch`, `push`, `new_branches`, `create_pr`; a pack's
-    own settings live under `[allow.<pack>]` as well.  `[allow.mounts]
+    logins and your host's loopholes.  `[allow.<pack>]` takes `always = [...]`
+    (every project's jail gets it, each project's next prompt showing it once)
+    and `on_request = [...]` (a project may ask for it; it is never granted by
+    this line).  Capabilities are the ones the selected pack declares: for git
+    and github `fetch`, `push`, `new_branches`, `create_pr`; for a loophole its
+    grant kinds, such as `[allow.journal] always = ["read"]` or
+    `[allow.host-processes] on_request = ["view"]`.  A kind that carries values
+    (process names, device patterns) is allowed on request only.  A pack's own
+    settings live under `[allow.<pack>]` as well.  `[allow.mounts]
     on_request = ["write"]` lets a project request a writable mount.  Edit with
     [bold]yolo allow <source> [always|on_request] <capability>[/bold], on the host; it offers
     this workspace's approval of the change through `yolo config apply`.
@@ -79,7 +84,10 @@
     `allow` ceiling: `[requests.git]` `push = ["main"]`, `push_tags`,
     `new_branches = true`; `[requests.github]` `repos = ["acme/other"]`,
     `create_pr`, `create_issue`, `dispatch_workflows = ["nightly.yml"]` (run
-    that workflow on the default branch only; `"*"` for every workflow).  A
+    that workflow on the default branch only; `"*"` for every workflow); for a
+    loophole, `[requests.journal] read = true` or
+    `[requests.host-processes] view = ["postgres"]`.  A request is a grant
+    once approved (`yolo config apply`, or y at the launch prompt).  A
     request your ceiling does not allow is reported and skipped, never an
     error.  A `requests` table in a legacy JSONC user config is refused.  Edit with
     [bold]yolo request <source> <capability> [resource][/bold], which writes the project's
@@ -339,8 +347,8 @@
     NO NAME IS RESERVED any more.  "cgroup-delegate" and "journal" stopped being
     reserved on 2026-08-18 and "claude-oauth-broker" on 2026-08-19, when the last
     of yolo's own loopholes became a pack's manifest — writing
-    "packs": ["cgroup-delegate"] is how you switch the cgroup delegate on, and it
-    is OFF until you do.  What refuses a duplicate now
+    "packs": ["cgroup-delegate"] is how you run the cgroup delegate, and it
+    does not run until you do.  What refuses a duplicate now
     is exclusivity ACROSS PACKS (two packs claiming one loophole name refuses the
     launch), not a list of names yolo holds back.
 
@@ -433,12 +441,13 @@
       types are "string", "bool", "int" and "string_list".  See what a loophole
       declares with [cyan]yolo loopholes list[/cyan].
 
-      SCOPE IS PER KEY, and it is the manifest that decides.  A key declared
-      "workspace" may be set from a workspace yolo-jail.jsonc as well as the user
-      config; a key declared "user" — the DEFAULT when the manifest says nothing —
-      may only be set from ~/.config/yolo-jail/config.jsonc, and writing it in a
-      workspace file is refused naming both files.  The default is the strict one
-      because a setting can reach a host daemon, and silence must not grant.
+      EVERY SETTING IS USER SCOPE.  A setting may only be set from your user
+      config — in TOML under [allow.<pack>], written with
+      [cyan]yolo config set allow.<pack>.<key> <value>[/cyan] — and writing it in a
+      workspace file is refused naming both files.  A manifest's
+      `scope = "workspace"` is retired and refused at load: a setting can reach a
+      host daemon, and a project's say over what a loophole may do is a request
+      for one of its grant kinds instead.
 
       RESOLVED ONCE, AT LAUNCH.  yolo merges your values over the declared
       defaults, writes the result to a file it owns in the loophole's state dir,

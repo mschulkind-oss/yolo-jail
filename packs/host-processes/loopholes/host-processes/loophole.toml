@@ -7,7 +7,7 @@ description = "Allowlisted view of host processes (yolo-ps). What it may show is
 version = 1
 # The one line every refusal and the launch's disclosure print for this loophole.
 access = "see host processes"
-# Two gates (docs/design/loophole-access-approval.md §4.3, which replaced OQ-A5's three): select the
+# Two gates (docs/reference/loophole-grants.md §4.3, which replaced OQ-A5's three): select the
 # pack, and grant `view` with the process names as its value. The daemon runs on selection and
 # shows nothing until a name is granted; an ungranted name is invisible in every mode.
 #
@@ -64,7 +64,7 @@ legacy_values = "visible"
 # `fields` is frozen at launch: yolo resolves it once and writes it to the file {settings} names,
 # so a change needs a restart (OQ-K3). It is `user` scope: which columns of the host's process
 # table cross into the jail is the user's to say, not the agent's
-# (docs/design/loophole-access-approval.md §4.3).
+# (docs/reference/loophole-grants.md §4.3).
 [settings.fields]
 type = "string_list"
 scope = "user"

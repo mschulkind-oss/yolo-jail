@@ -415,7 +415,7 @@ func admitsJailSideEffects(m *Loophole, runtime string, gate *Set, what string) 
 		return false
 	}
 	// AN UNMEDIATED GRANT-DECLARING LOOPHOLE CROSSES ONLY UNDER A GRANT
-	// (docs/design/loophole-access-approval.md §4.4, LG-D6): no daemon answers its requests, so
+	// (docs/reference/loophole-grants.md §4.4, LG-D6): no daemon answers its requests, so
 	// nothing can refuse one, and the crossing itself is what a grant admits. Without a grant
 	// none of it reaches the jail. A mediated one runs and refuses per request instead; its
 	// binds and devices still wait on a grant (grantWithholdsBinds).
@@ -481,7 +481,7 @@ func (s Set) JailBoundNames(from []*Loophole, runtime string) []string {
 // Mediated reports whether a daemon answers each of this loophole's requests, so a grant is
 // checked there, per request, against the grant file: a `host_daemon`, or a `jail_daemon` that
 // fronts a host command. Everything else a loophole declares (binds, devices) is UNMEDIATED:
-// container argv decided at launch (docs/design/loophole-access-approval.md §4.4). It is read
+// container argv decided at launch (docs/reference/loophole-grants.md §4.4). It is read
 // from the manifest's shape, never from a name.
 func (l *Loophole) Mediated() bool {
 	return l.HostDaemon != nil || (l.JailDaemon != nil && len(l.JailDaemon.HostCmd) > 0)
@@ -1042,7 +1042,7 @@ func runOne(argv []string, timeout time.Duration, env []string) (*int, string) {
 // installed binary there is no file at all), and a PACK's manifest belongs to the
 // pack, where a local rewrite would be silently reverted by the next `pack install`.
 // Enable/disable state moved into config for every source, and since then out of the user's
-// hands entirely: `yolo loopholes enable|disable` are retired (loophole-access-approval.md
+// hands entirely: `yolo loopholes enable|disable` are retired (docs/reference/loophole-grants.md
 // LG-D8), a loophole runs whenever its pack is selected, and access is a grant; see CmdSetEnabled.
 //
 // OQ-A9 CLOSED THE OTHER HALF, and it is worth stating because the ruling reads like

@@ -470,7 +470,7 @@ func TestShippedAudioPackEmitsAReadOnlyBindIntoTheContainerArgv(t *testing.T) {
 	//
 	// WITH ITS `use` GRANT HELD, because audio's crossing is unmediated: no daemon answers
 	// it, so its binds and its device reach the argv only under a grant
-	// (docs/design/loophole-access-approval.md LG-D6; the withholding has its own test,
+	// (docs/reference/loophole-grants.md LG-D6; the withholding has its own test,
 	// loopholes' TestTheShippedAudioCrossesOnlyUnderItsUseGrant). The argv is what is under
 	// test here, so the grant is handed to the set as the launch hands it the gate's result.
 	set := loopholes.NewSet(loopholes.DiscoverOptions{

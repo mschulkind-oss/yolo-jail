@@ -18,7 +18,7 @@ verification rather than an edit: `publishes: "socket"` was already declared,
 ## Two gates: select the pack, grant the names
 
 What `yolo-ps` may show is a **grant**, not a setting
-([design §4.3](../../docs/design/loophole-access-approval.md#43-each-loopholes-access-and-its-approval)).
+([design §4.3](../../docs/reference/loophole-grants.md#43-each-loopholes-access-and-its-approval)).
 The loophole declares one grant kind, `view`, and it is **valued**: its values are the
 process names `yolo-ps` may show. `yolo-ps --tree` also shows every process below a granted
 one, with its command line, and a name that is not granted is invisible in every mode.

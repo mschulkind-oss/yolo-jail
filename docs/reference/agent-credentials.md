@@ -436,10 +436,12 @@ It bundles two jobs.
 
 **Selecting the `claude` pack is the dependency.** The broker is a *contribution* of
 `packs/claude-auth`, which `packs/claude` needs, not a pack of its own, because the dependency is
-structural ([OQ-PE5](../design/provider-enablement.md#OQ-PE5) moved it there from `packs/claude`). Its manifest ships
-`default_enabled: true`, which is what makes selecting the pack *sufficient*. One other shipped
-manifest does the same, `openai-auth-broker`, for the same reason: every other loophole is host
-access you ask for, and these two keep a credential you already asked for from being burnt.
+structural ([OQ-PE5](../design/provider-enablement.md#OQ-PE5) moved it there from `packs/claude`). Selecting the pack is
+*sufficient*: a loophole runs whenever its pack is selected, and this one declares no grant, so
+nothing further is asked. `openai-auth-broker` is the same. Every other loophole that reaches host
+data declares grants a project must be given
+([`loophole-grants.md`](loophole-grants.md)); these two keep a credential you already
+asked for from being burnt.
 
 The broker keeps **one canonical login** for the machine, `claude-credentials.json` in its own
 host-only state directory, which no launch mounts. It keeps two kinds of file in step with it,
@@ -888,9 +890,10 @@ permission mode:
 Then an agent selects a Bedrock provider, a provider whose `platform` is `aws-bedrock`: the
 shipped `bedrock` profile (`yolo -p bedrock -- claude`, or `-p <agent>=bedrock` for another
 agent), or a user's own profile over the same provider. The gate keys on the provider's
-platform, never on a profile's name. claude, codex, opencode and pi each `need`
-`packs/bedrock`, which `needs` `aws-auth`, so selecting any of them selects this pack, and
-selected but unconfigured it changes nothing. The worked config block is
+platform, never on a profile's name. `packs/bedrock`, selected beside the agent, `needs`
+`aws-auth`, so selecting it selects this pack, and selected but unconfigured it changes nothing:
+with no `profile` setting it serves nothing and the launch names the
+`yolo config set allow.aws-auth.profile` step. The worked setup is
 in [the pack README](../../packs/aws-auth/README.md#enabling-it).
 
 The service **refuses to start**, naming the key to write, in six cases:
@@ -1536,7 +1539,7 @@ Rulings a future change would otherwise undo, kept with their original IDs.
 | Ruling | Why it holds |
 | :--- | :--- |
 | **[OQ-A10](loophole-system.md#oq-a10)** — the broker is a *contribution* of `packs/claude`, not a pack of its own | The dependency is structural: there is no jail that wants the broker and not claude. Selecting the pack is the declaration, which is why the host-side activation probe could be deleted rather than replaced. |
-| **[OQ-A1](loophole-system.md#oq-a1)** — the broker stays on by default through `default_enabled: true` on its own manifest | A shipped loophole is host access you ask for, except where it keeps a credential you already asked for from being burnt, as this one and `openai-auth-broker` do, so the two kinds need opposite defaults. Off by default means silently reintroducing the race. |
+| **[OQ-A1](loophole-system.md#oq-a1)** — the broker runs whenever its pack is selected, with no grant to give (`default_enabled` is retired: [LG-D3](loophole-grants.md#LG-D3)) | A shipped loophole is host access you ask for, except where it keeps a credential you already asked for from being burnt, as this one and `openai-auth-broker` do, so the two kinds need opposite defaults. Off by default means silently reintroducing the race. |
 | **P1 (broker)** — concurrent consumers must be serialized by a host-wide flock | Anthropic mints single-use refresh tokens. This is a property of the upstream service, not of yolo's architecture, so no refactor retires it. |
 | <a id="oq-oa1"></a>[`OQ-OA1`](#oq-oa1) (OpenAI): **one machine-wide host service is the sole writer** of the subscription's refresh token, and every agent pack that can use the subscription `needs` the one pack that owns it | OpenAI's refresh token is single-use, so two writers race on it, and a login per agent or workspace would make the user repeat the browser flow every time. |
 | <a id="oq-oa2"></a>[`OQ-OA2`](#oq-oa2) (OpenAI): **no agent receives the canonical refresh token.** Codex uses its native refresh override with an opaque generation marker; Pi gets an access-token view | A view an agent can redeem would make that agent a second writer. The marker lets the service tell a stale view from a current one without trusting the caller with anything redeemable. |
@@ -1600,7 +1603,7 @@ $ rg -n '^detach = true' packs/*/loopholes/*/loophole.toml
 | OpenAI view markers (verified at `d4e435a3`) | `yolo-broker:<generation>` in Pi's and opencode's views; `yolo-broker:<generation>.<caller token>` in Codex's, the adapter stripping the suffix | `internal/openauthclient` (`pi.go`, `opencode.go`, `callermarker.go`) |
 | opencode's view (verified at `d4e435a3`) | the `openai` key of opencode's `auth.json`, merged by `yolo internal openai-auth-client token --opencode-auth`; at the host, `$XDG_DATA_HOME/opencode/auth.json`, else `~/.local/share/opencode/auth.json`, which yolo never writes | `internal/openauthclient/opencode.go`; `internal/openaiauthhost` (`opencodeHostAuthPath`) |
 | AWS credential daemon | `yolo internal daemon aws-auth`, one per jail, `detach: true` | `internal/awsauthdaemon`; `packs/aws-auth/loopholes/aws-auth/loophole.toml` |
-| AWS settings keys | `loopholes.aws-auth.settings.profile`, `.role_arn`, `.session_policy` (strings) and `.unnarrowed` (bool, default `false`), every one `scope: "user"`; the loophole writes no `default_enabled`, so it is off until its pack is selected | `packs/aws-auth/loopholes/aws-auth/loophole.toml`; `internal/awsauth` (`settings.go`) |
+| AWS settings keys | `loopholes.aws-auth.settings.profile`, `.role_arn`, `.session_policy` (strings) and `.unnarrowed` (bool, default `false`), every one `scope: "user"`, written in a TOML user config as `[allow.aws-auth]` (`yolo config set allow.aws-auth.profile <profile>`); the loophole runs whenever its pack is selected and serves nothing until `profile` is set | `packs/aws-auth/loopholes/aws-auth/loophole.toml`; `internal/awsauth` (`settings.go`) |
 | AWS pointer | `AWS_CONTAINER_CREDENTIALS_FULL_URI=http://{listen}/credentials` and `AWS_CONTAINER_AUTHORIZATION_TOKEN={caller_token}`, gated on the agent's provider declaring `"platform": "aws-bedrock"`, `served_by: "aws-auth"` | `packs/aws-auth/pack.json` |
 | AWS mint timing | re-mint below **10 min** of remaining life (twice the SDK's five-minute window), a pre-mint tick at half that; `AssumeRole` asks **3600 s**, the role-chaining ceiling, as session name `yolo-jail` | `internal/awsauth` (`RemintLead`, `Broker.TickInterval`, `MintDuration`, `SessionName`) |
 | AWS lapse answer | a `4xx` with `Code: ExpiredToken` and a message naming `aws sso login --profile <profile>`; a profile missing from `~/.aws/config` answers `ProfileNotFound` instead | `internal/awsauth` (`loginRequired`, `mint.go`) |

@@ -1,7 +1,7 @@
 package integration
 
 // journalgrant_test.go is the container tier of the journal's flip
-// (docs/design/loophole-access-approval-plan.md F1): the shipped `journal` loophole grants access
+// (docs/reference/loophole-grants.md F1): the shipped `journal` loophole grants access
 // through its [[grants]], not the old `enabled` switch. Selecting the pack runs the bridge; what a
 // request may read is the grant the project holds, approved at a gate. The unit tiers pin the
 // daemon's decision against a grant file (internal/journald/grant_test.go) and the launch's grant

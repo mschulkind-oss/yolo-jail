@@ -11,7 +11,7 @@ import (
 
 // loopholegrantcarried.go is the approval record's CARRIED GRANTS, a term coined here: a grant
 // `yolo config migrate` wrote into a workspace's approval record from the per-workspace switch
-// file a host-side `yolo loopholes enable` left (docs/design/loophole-access-approval.md §6, the
+// file a host-side `yolo loopholes enable` left (docs/reference/loophole-grants.md §6, the
 // switch-file row; LG-D11). That command was the human's approval, so the grant is recorded; but
 // it was a switch, not a request, so the project's files do not ask for it. A carried grant is
 // read as this project's request until a file states it, so the grant stands meanwhile, and

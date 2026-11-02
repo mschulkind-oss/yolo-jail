@@ -10,7 +10,7 @@ import (
 )
 
 // defaultenabled_test.go pins the retirement of both manifest enablement keys
-// (docs/design/loophole-access-approval.md §4.5, LG-D3): a loophole runs whenever its pack is
+// (docs/reference/loophole-grants.md §4.5, LG-D3): a loophole runs whenever its pack is
 // selected, and the pack author's one remaining declaration is what can be granted, `[[grants]]`.
 // `enabled` (the key OQ-A9 renamed) and `default_enabled` (the rename) are both refused BY NAME in
 // the structural walk, so both decoders refuse them and neither is reported as an unknown key.

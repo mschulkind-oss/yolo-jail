@@ -39,7 +39,6 @@ cat > ~/.config/yolo-jail/local/loopholes/hello/loophole.toml <<'EOF'
 name = "hello"
 description = "Smoke test: mounts a greeting into every jail"
 version = 1
-default_enabled = true
 transport = "none"
 
 [[host_bind_mounts]]
@@ -92,7 +91,7 @@ two entries.
 name = "my-loophole"            # required; must match the folder name
 description = "…"               # one-line summary, shown by `yolo loopholes list`
 version = 1                     # file format; currently 1
-default_enabled = false         # on when the pack is selected? Absent means off
+access = "read acme's logs"     # with [[grants]]: what a project reaches, for refusals
 transport = "loopback-tls"      # or "none" for no host program; default "loopback-tls"
 lifecycle = "spawned"           # "spawned" when yolo starts a host_daemon, else "external"
 intercepts = [{ host = "example.com" }]  # optional; TLS hostnames the jail is sent to you for
@@ -136,7 +135,12 @@ file_exists = ".config/pulse/cookie"   # relative to your home
 url = "https://…"
 sha256 = "…"
 
-[settings.visible]              # optional; config keys of its own, below
+[[grants]]                      # optional; what a project can be granted, below
+kind = "read"
+text = "read acme's logs"
+requestable_by_default = true
+
+[settings.fields]               # optional; config keys of its own, below
 type = "string_list"
 ```
 
@@ -147,17 +151,32 @@ Only `name` is required. A key yolo does not know is an error in `yolo pack lint
 caught while you write; a launch only warns about one, so a loophole written for a newer yolo still
 loads.
 
-### Keys for turning it on
+### What a project can be granted
 
-**`default_enabled`** is your choice, as the pack's author, for what happens when the user says
-nothing. Leave it out, and the loophole stays off until the user turns it on. Set it to `true` only
-when the pack is broken without it: `claude-oauth-broker` does, because Claude jails without it log
-each other out.
+A loophole runs whenever its pack is selected, and there is no switch for it. What you decide, as
+the pack's author, is what a project can be **granted** through it: each `[[grants]]` entry names
+one thing, and a project reaches it only once it asks and the user approves
+([Giving a project access](loopholes.md#giving-a-project-access)). A loophole with no `[[grants]]`
+serves whatever it serves to every project once selected, so declare grants for anything that
+reaches the user's data or devices.
 
-**`loopholes.<name>.enabled`** in a config file is the user's switch, and it overrides yours in
-either direction. The user writes it, or runs `yolo loopholes enable <name>` in a project to switch
-it for that project alone; see [The loopholes yolo ships](loopholes.md#the-loopholes-yolo-ships). A loophole file
-that still says `enabled`, the key's old name, is refused with a message naming the rename.
+| Key | Meaning |
+|---|---|
+| `kind` | The name a project asks for: lowercase letters, digits and `_`, such as `read`. Required |
+| `text` | What the user's prompt says the grant does, such as `"read acme's logs"`. Required |
+| `valued` | `true` when the project names values with it, such as process names: `view = ["postgres"]` |
+| `value_noun` | For a valued kind, what its values are, such as `"process names"`, used in messages |
+| `requestable_by_default` | `true` lets a project ask for it with no line in the user's config. Not for a valued kind |
+
+A loophole with `[[grants]]` also sets a top-level **`access`**: a few words for the whole of what
+it reaches, such as `"read the host's journal"`, which every refusal prints. Your host program
+reads the grants this project holds from the `{settings}` file and must refuse anything they do not
+cover; yolo's own packs show the shape. The full key list, including the `legacy_*` keys a pack
+that once had a switch uses to carry it, is in
+[`pack-system.md`](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/reference/pack-system.md#loophole).
+
+`default_enabled`, and its older name `enabled`, are refused in a loophole file, naming
+`[[grants]]`.
 
 **`requires`** makes the loophole inactive on a machine that lacks something:
 `command_on_path` names a program that must be on the host's `PATH`, and `file_exists` names a
@@ -210,12 +229,11 @@ must name that placeholder, and the program must refuse anything outside the lis
 selected, a project's `mounts` entry that reaches a `credential_paths` entry, or yolo's own broker
 folder, is refused.
 
-A `brokered` loophole has no switch: it runs whenever its pack is selected, so its loophole file may
-not set `default_enabled` to `true`, no config file may switch it, and `yolo loopholes enable`
-refuses for it. The scope file also carries the grants the human approved, a `read` grant among
-them when the user granted one. yolo's own brokers refuse every call no `read` grant covers, so
-that selecting their pack grants nothing; do the same in yours. yolo cannot enforce it for a pack
-it does not ship.
+A `brokered` loophole declares its grant kinds under `brokered.grants` rather than `[[grants]]`
+(a loophole file with both is refused), and no config file may switch it. The scope file also
+carries the grants the human approved, a `read` grant among them when the user granted one. yolo's
+own brokers refuse every call no `read` grant covers, so that selecting their pack grants nothing;
+do the same in yours. yolo cannot enforce it for a pack it does not ship.
 
 ### A program on the host
 
@@ -399,7 +417,7 @@ there uses its own default instead, which under `yolo host` is your machine's ow
 variable follows the loophole, not each mount: a mount or device whose host path is missing on
 that machine is skipped with a warning, but the variable is still set, naming a path that is not
 there. If that path is in the loophole's folder or your home, name it in
-[`requires.file_exists`](#keys-for-turning-it-on), and a machine without it leaves the loophole
+[`requires.file_exists`](#what-a-project-can-be-granted), and a machine without it leaves the loophole
 inactive and the variable out. The `audio` pack marks `PULSE_SERVER` and `PIPEWIRE_REMOTE` this
 way.
 This works only for a loophole that mounts something or runs a jail daemon: an entry marked
@@ -426,27 +444,26 @@ A loophole can declare config keys for the user to set, with types and defaults:
 
 ```toml
 # in loophole.toml
-[settings.visible]
+[settings.fields]
 type = "string_list"     # string, bool, int or string_list
-scope = "workspace"      # "workspace" (either config file) or "user" (user config only)
-default = []
-description = "process names this loophole may reveal"
+default = ["pid", "comm"]
+description = "the ps columns shown"
 ```
 
-```jsonc
-// in the user's config
-"loopholes": {
-  "host-processes": { "settings": { "visible": ["sway", "waykeeper"] } }
-}
+```toml
+# in the user's config
+[allow.host-processes]
+fields = ["pid", "comm", "args"]
 ```
 
 - A key you did not declare, or a value of the wrong type, is a config error that names the keys
   that exist.
-- A key with no `scope` can be set only in the user config. Write `scope = "workspace"` to let a
-  project's `yolo-jail.jsonc` set it too. For a list, a project can only add entries, never remove
-  the user's.
+- Every setting is set in the user config only. A setting can never give a project access: a value
+  a project chooses, such as which processes it may see, is a valued grant kind it requests, and
+  `scope = "workspace"` on a setting is refused.
 - yolo reads the values once, when the jail starts, and writes them to a file your program gets
-  through `{settings}`. A change takes effect at the next jail start.
+  through `{settings}`, beside the grants this project holds. A setting changes at the next jail
+  start; a grant changes at once, when the user runs `yolo config apply`.
 
 ## What the user sees
 
@@ -484,9 +501,9 @@ has the detail.
 yolo pack lint <folder>          # check a pack you are writing, loopholes included
 yolo pack footprint <folder>     # what it touches on the host
 yolo pack install                # download the programs your selected packs declare
-yolo loopholes list              # every loophole, and whether each is active
+yolo loopholes list              # every loophole, and what this project holds
 yolo loopholes status            # run each loophole's doctor_cmd
-yolo loopholes enable <name>     # on for this project only, from its next fresh launch
+yolo request <pack> <kind>       # ask for a grant for this project; approve with yolo config apply
 yolo check                       # includes each loophole's self-check
 ```
 

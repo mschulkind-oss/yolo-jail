@@ -10,7 +10,7 @@ import (
 
 // THE PACK SWITCH (docs/design/config-user.md §7, approved 2026-10-25): `packs` is the only
 // switch. Every pack loophole runs whenever its pack is selected and grants nothing until a grant
-// covers the project (docs/design/loophole-access-approval.md §4.1); there is no manifest default
+// covers the project (docs/reference/loophole-grants.md §4.1); there is no manifest default
 // and no config key that decides whether it runs. Under a TOML user config a pack's settings are
 // its `[allow.<pack>]` table, read through ConfigBlock.
 //
@@ -25,7 +25,7 @@ func SelectionIsTheSwitch() bool {
 }
 
 // ungatedLoopholes is the shipped loopholes the access design rules ungated whose approval is a
-// login or a user-scope setting (loophole-access-approval.md §4.3, LG-D4): each declares no grant
+// login or a user-scope setting (docs/reference/loophole-grants.md §4.3, LG-D4): each declares no grant
 // kind, so a legacy `loopholes.<name>.enabled: true` for one carries nothing a grant could hold.
 var ungatedLoopholes = map[string]bool{"claude-oauth-broker": true, "openai-auth-broker": true, "aws-auth": true}
 

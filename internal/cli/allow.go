@@ -239,7 +239,7 @@ func findDeclaredBroker(verb, source string, brokers []config.ReadableBrokerDecl
 }
 
 // findGrantDeclaringPack is the selected pack named source whose loophole declares [[grants]]
-// (docs/design/loophole-access-approval.md §4.2): its kinds are what allow.<pack>.always and
+// (docs/reference/loophole-grants.md §4.2): its kinds are what allow.<pack>.always and
 // .on_request and requests.<pack> take, as config.ResolveLoopholeGrants reads them back.
 func findGrantDeclaringPack(source string, packSettings []config.ReadablePackDeclaration) (config.LoopholeGrantDeclaration, bool) {
 	for _, p := range packSettings {

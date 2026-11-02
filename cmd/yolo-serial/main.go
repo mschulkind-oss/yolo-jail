@@ -168,7 +168,7 @@ func resolveEndpoint(custom string) (string, error) {
 // serial pack is not selected. `yolo pack add` edits the host's user config, and run in a jail
 // it prints the host-run line for the human. A loophole runs whenever its pack is selected
 // and grants nothing until a grant covers the project
-// (docs/design/loophole-access-approval.md §4), so the steps are the pack, then the request.
+// (docs/reference/loophole-grants.md §4), so the steps are the pack, then the request.
 func noEndpointMsg(w io.Writer) {
 	fmt.Fprint(w,
 		"yolo-serial: no endpoint, so nothing ran.  The serial loophole is not running in this jail.\n"+

@@ -14,7 +14,7 @@ import (
 )
 
 // loopholegrantgate.go is the approval record's LOOPHOLE GRANT PART and its rows at the
-// config-change gate (docs/design/loophole-access-approval.md §4.2 item 4, LG-D12; the plan's
+// config-change gate (docs/reference/loophole-grants.md §4.2 item 4, LG-D12; the plan's
 // PD-4 and PD-5): for each selected grant-declaring loophole this setup runs, one line per grant
 // the gate would hold and one per request the ceiling skips, approved by the same y as the config
 // and the repository scope and recorded beside them in `<cname>.loophole-grants.json`.

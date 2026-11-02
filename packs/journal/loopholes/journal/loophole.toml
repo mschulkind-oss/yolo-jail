@@ -9,7 +9,7 @@
 #     (docs/reference/loophole-system.md §1.4, OQ-A6; pack-config-keys.md OQ-K4), and a config that
 #     still writes the key is refused, naming this block.
 #
-#  2. What it may read is a grant, not a setting (docs/design/loophole-access-approval.md §4.3).
+#  2. What it may read is a grant, not a setting (docs/reference/loophole-grants.md §4.3).
 #     `"journal": "full"` was an agent-settable host-journal passthrough; it became a user-scope
 #     `full` setting, and is now the `read_all` grant kind below, which only the user's ceiling
 #     (`allow.journal`) can make requestable and only an accepted gate can grant.

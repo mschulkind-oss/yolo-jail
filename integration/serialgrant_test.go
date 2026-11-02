@@ -3,7 +3,7 @@
 package integration
 
 // serialgrant_test.go is the container tier of the serial flip
-// (docs/design/loophole-access-approval-plan.md F4): the shipped `serial` loophole grants access
+// (docs/reference/loophole-grants.md F4): the shipped `serial` loophole grants access
 // through its valued `devices` grant, not the old `enabled` switch and `allowed_devices` setting
 // with its five default globs. Selecting the pack runs the daemon; what `yolo-serial` may list and
 // open is the device globs the project requested and a gate approved. The unit tiers pin the

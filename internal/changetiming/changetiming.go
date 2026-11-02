@@ -55,7 +55,7 @@ type Context struct {
 	HostSwitch      bool
 	Rebuild         bool
 	// Grant says the change is a grant-declaring loophole's grant, and how that loophole crosses
-	// (docs/design/loophole-access-approval.md §4.4); NoGrant for anything else.
+	// (docs/reference/loophole-grants.md §4.4); NoGrant for anything else.
 	Grant GrantCrossing
 	// LiveGrants: every running daemon of that loophole was found, by its grant file, and takes
 	// a rewritten one at its next request.
@@ -207,7 +207,7 @@ func Classify(key string, ctx Context) (Row, error) {
 	return row, nil
 }
 
-// grantRow is a grant change's timing (docs/design/loophole-access-approval.md §4.6, LG-D7): a
+// grantRow is a grant change's timing (docs/reference/loophole-grants.md §4.6, LG-D7): a
 // mediated loophole's running daemon reads its rewritten grant file at its next request, as a
 // broker takes a scope at its next call; an unmediated loophole's crossing is container argv,
 // so its grant is recorded and lands at the next restart. A native session is a fresh launch,

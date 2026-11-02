@@ -3,7 +3,7 @@ package loopholegrant
 import "strings"
 
 // Refusal is what a mediated client prints when its daemon refuses for want of a grant
-// (docs/design/loophole-access-approval.md §5). The daemon fills it from its grant file and
+// (docs/reference/loophole-grants.md §5). The daemon fills it from its grant file and
 // the client prints Text; every client renders through here, so the wording is §5's for all.
 type Refusal struct {
 	Client    string // the in-jail command, "yolo-journalctl"
@@ -83,6 +83,6 @@ func (r Refusal) valueList() string {
 }
 
 // RefusedExit is the exit status of every grant refusal and of the inert line, in a daemon and
-// in its client alike (docs/design/loophole-access-approval-plan.md, PD-7): a caller tells "no
+// in its client alike (docs/reference/loophole-grants.md, PD-7): a caller tells "no
 // grant here" from a usage error (2) or a failed read (1) by status alone.
 const RefusedExit = 64

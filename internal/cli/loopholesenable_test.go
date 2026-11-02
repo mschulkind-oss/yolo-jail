@@ -13,7 +13,7 @@ import (
 
 // loopholesenable_test.go drives `yolo loopholes enable|disable|list|status` through the real
 // dispatch, over a temporary HOME selecting the github and journal packs, as a user runs it.
-// enable and disable are RETIRED (docs/design/loophole-access-approval.md §4.5, LG-D8): both
+// enable and disable are RETIRED (docs/reference/loophole-grants.md §4.5, LG-D8): both
 // refuse for every loophole naming `yolo request` and `yolo allow`, `disable` first removing a
 // switch an older yolo wrote; list and status show each grant kind's standing.
 

@@ -225,7 +225,7 @@ func newLoopholeGrantVerbFixture(t *testing.T, project, userExtra string) namedV
 }
 
 // `yolo allow <pack> on_request <kind>` writes the loophole ceiling the grant reader takes
-// (docs/design/loophole-access-approval.md §4.2), validated against the pack's [[grants]], and
+// (docs/reference/loophole-grants.md §4.2), validated against the pack's [[grants]], and
 // offers the approval as it does for a broker.
 func TestAllowWritesALoopholeKind(t *testing.T) {
 	fx := newLoopholeGrantVerbFixture(t, "", "")

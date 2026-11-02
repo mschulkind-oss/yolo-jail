@@ -15,7 +15,7 @@
 //     profile. Such a daemon serves nothing: it starts, mints nothing, answers every credential
 //     request and every launch check with what to set, and needs no `aws` CLI
 //     (docs/design/config-user.md §7, "a listed login pack whose table names no profile ... serves
-//     nothing, and the check says what to set"; loophole-access-approval.md §4.3).
+//     nothing, and the check says what to set"; docs/reference/loophole-grants.md §4.3).
 //  1. Once a profile is named, the NARROWING must be configured, or it refuses (OQ-SSO1). A widening
 //     retrofitted later breaks every setup that came to depend on the old default,
 //     so the requirement lands with the first release rather than after it.

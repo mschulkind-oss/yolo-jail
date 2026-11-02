@@ -206,7 +206,7 @@ func TestAnInertLoopholesRequestStaysOutOfTheGate(t *testing.T) {
 
 // A grant `yolo config migrate` carried into the approval record from a retired switch file, which
 // no file of the project requests: the grant stands, and `yolo check` names it with the `yolo
-// request` line that writes it (docs/design/loophole-access-approval.md §6, LG-D11). Once the
+// request` line that writes it (docs/reference/loophole-grants.md §6, LG-D11). Once the
 // project's file states the request, the note goes.
 func TestCheckReportsARecordGrantTheProjectFileDoesNotState(t *testing.T) {
 	ws := journalGrantFixture(t, "")

@@ -274,7 +274,7 @@ So `agents: ["agy"]` in a launch without agy is exactly what the manifest commen
 
 A pack a workspace turned off is unselected there. The per-workspace `off = true` on a pack entry
 is L4's ([`config-user.md` A.4](config-user.md#a4-what-l4-amends)), kept as a pack switch by
-[`loophole-access-approval.md`](loophole-access-approval.md) and not built: a pack off in one
+[`loophole-grants.md`](../reference/loophole-grants.md) and not built: a pack off in one
 workspace runs none of its machinery there, and its agent's addressed content is skipped there too.
 
 **Default, not an opt-in key.** An `if`/`optional` key would keep today's refusal for packs that do

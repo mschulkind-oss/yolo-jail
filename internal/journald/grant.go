@@ -5,7 +5,7 @@ import (
 )
 
 // grant.go is how both bridges judge a request against the project's grant
-// (docs/design/loophole-access-approval.md §4.3, §4.6; plan PD-11, PD-12).
+// (docs/reference/loophole-grants.md §4.3, §4.6; plan PD-11, PD-12).
 //
 // The launch writes the grant file, the private settings snapshot it already hands the daemon
 // as --settings, with a reserved `grants` key carrying the standing of each kind the manifest

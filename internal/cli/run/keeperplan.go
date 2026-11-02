@@ -83,7 +83,7 @@ type keeperPlan struct {
 	ApprovedGrants map[string][]brokerscope.Grant `json:"approved_grants,omitempty"`
 	// ApprovedLoopholeGrants are each grant-declaring loophole's standing per kind as the same
 	// gate approved it (Options.approvedLoopholeGrants), which the keeper writes into each one's
-	// grant file (docs/design/loophole-access-approval.md §4.6). Absent, the keeper's grant files
+	// grant file (docs/reference/loophole-grants.md §4.6). Absent, the keeper's grant files
 	// grant nothing.
 	ApprovedLoopholeGrants map[string]map[string]config.LoopholeGrantStanding `json:"approved_loophole_grants,omitempty"`
 	// ReadWithoutScope are the brokered loopholes whose read grant the same gate found applying

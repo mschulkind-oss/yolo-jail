@@ -225,7 +225,7 @@ func TestUnsetEndpointExplainsHowToEnableIt(t *testing.T) {
 		"host journal bridge is not running in this jail",
 		endpointEnv,
 		// A loophole runs whenever its pack is selected, and access is a grant
-		// (docs/design/loophole-access-approval.md §5): select, then request.
+		// (docs/reference/loophole-grants.md §5): select, then request.
 		"yolo pack add journal",
 		"yolo request journal read",
 		"yolo config apply",

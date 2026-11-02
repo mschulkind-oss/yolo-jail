@@ -10,7 +10,7 @@ import (
 
 // grants.go is the `[[grants]]` manifest block: the GRANT KINDS a loophole declares, the
 // decisions a project can be granted at the config-change gate
-// (docs/design/loophole-access-approval.md §4.2; the spelling is the plan's PD-1).
+// (docs/reference/loophole-grants.md §4.2; the spelling is the plan's PD-1).
 //
 // A loophole declaring none is UNGATED: it runs on selection and whatever it serves is served,
 // approved by its own means (a login, a setting) or by having nothing of the user's to approve.

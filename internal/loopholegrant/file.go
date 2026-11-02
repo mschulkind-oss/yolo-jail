@@ -1,5 +1,5 @@
 // Package loopholegrant is the grant file of a grant-declaring loophole
-// (docs/design/loophole-access-approval.md §4.6; plan PD-2, PD-3): the per-launch private
+// (docs/reference/loophole-grants.md §4.6; plan PD-2, PD-3): the per-launch private
 // settings snapshot the launch already writes in the loophole's state dir, with one reserved
 // key, `grants`, carrying the standing of every kind the manifest declares. The launch (or
 // `yolo config apply`) is its one writer; the daemon reads only it, never the config. Nothing

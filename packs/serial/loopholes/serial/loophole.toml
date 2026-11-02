@@ -5,7 +5,7 @@ description = "Host USB and serial device bridge (yolo-serial). What it may open
 version = 1
 # The one line every refusal and the launch's disclosure print for this loophole.
 access = "open host serial devices"
-# Two gates (docs/design/loophole-access-approval.md §4.3): select the pack, and grant `devices`
+# Two gates (docs/reference/loophole-grants.md §4.3): select the pack, and grant `devices`
 # with the device globs as its value. The daemon runs on selection and lists or opens nothing until
 # a glob is granted.
 transport = "loopback-tls"
@@ -42,7 +42,7 @@ legacy_default_values = [
 
 # `default_baud` is frozen at launch: yolo resolves it once and writes it to the file {settings}
 # names, so a change needs a restart (OQ-K3). It is `user` scope: how the host's hardware is
-# driven is the user's to say, not the agent's (docs/design/loophole-access-approval.md §4.3).
+# driven is the user's to say, not the agent's (docs/reference/loophole-grants.md §4.3).
 [settings.default_baud]
 type = "int"
 scope = "user"

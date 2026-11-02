@@ -106,7 +106,7 @@ func (o *Options) checkLoopholes(r *reporter) {
 	}
 	// Every loophole here is a pack's (ValidateSet reads the recorded packs), and a pack's
 	// loophole has no switch: it runs whenever its pack is selected and grants nothing until a
-	// grant covers the project (docs/design/loophole-access-approval.md §4.1). So an `enabled`
+	// grant covers the project (docs/reference/loophole-grants.md §4.1). So an `enabled`
 	// key an agent-editable workspace file writes for one switches nothing, and the row says so
 	// in the launch's own words (config.SwitchesNothingDisclosure) and then carries on to the
 	// self-check, because the loophole is about to run. A user-scope key draws no row here; the

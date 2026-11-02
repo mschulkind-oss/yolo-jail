@@ -856,7 +856,7 @@ func (o *Options) loopholesRuntimeArgs(cfg *jsonx.OrderedMap, rt string,
 	// CL-D10) and tells the jail it did, so its entrypoint does not link the shared file.
 	view := o.claudeCredentialView(rt, cfg)
 	// An unmediated grant-declaring loophole's crossing, and any grant-declaring loophole's binds
-	// and devices, are carried only under a grant (docs/design/loophole-access-approval.md §4.4).
+	// and devices, are carried only under a grant (docs/reference/loophole-grants.md §4.4).
 	set := o.withLaunchGrants(loopholes.NewHostSet(cfgMap(cfg, "loopholes")).WithCredentialView(view), rt, cfg)
 	// THE MOUNT SENTINELS FIRST, from the same Set over the same records, so every loophole
 	// whose state_files names the inert marker has it on disk before the argv resolves its bind

@@ -23,7 +23,7 @@ import (
 //
 // The launch's own collector (run.CollectScopeCheck), never a copy of it: two collectors are how
 // `yolo check` and a launch come to disagree about what the gate asks. It also carries each
-// selected grant-declaring loophole's grants (docs/design/loophole-access-approval.md §4.2).
+// selected grant-declaring loophole's grants (docs/reference/loophole-grants.md §4.2).
 func brokeredScopeForCheck(workspace string, merged *jsonx.OrderedMap, rt string, read *config.WorkspaceRead) *config.ScopeCheck {
 	return collectScopeCheck(run.ScopeInput{Workspace: workspace, Merged: merged, Runtime: rt, Read: read})
 }
