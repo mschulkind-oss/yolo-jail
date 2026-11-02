@@ -68,6 +68,9 @@ func settingsCheck(settingsPath string, out io.Writer) int {
 		return 0
 	}
 	cfg, ok := loadSettings(settingsPath)
+	if cfg.grantPath != "" {
+		return grantCheck(settingsPath, out)
+	}
 	if !ok {
 		fmt.Fprintln(out, "FAIL: settings file at "+settingsPath+" is not readable JSON — the "+
 			"daemon would start with an EMPTY allowlist and look healthy while yolo-ps "+

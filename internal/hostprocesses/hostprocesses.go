@@ -95,6 +95,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/json5"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholegrant"
 	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
 )
 
@@ -157,6 +158,9 @@ func listName(name string) string {
 type Config struct {
 	Visible []string
 	Fields  []string
+	// grantPath is the grant file this config came from when that file carries a `grants`
+	// block (grants.go); empty for a file without one, which keeps today's allowlist.
+	grantPath string
 }
 
 // disabled is the fail-closed Config: no allowlist, so every request exits 3.
@@ -214,6 +218,17 @@ func loadSettings(settingsPath string) (cfg Config, ok bool) {
 	root, isMap := decoded.(*jsonx.OrderedMap)
 	if !isMap {
 		return disabled(), false
+	}
+	if _, grants := root.Get(loopholegrant.ReservedKey); grants {
+		// A grant file: the block, re-read per request, is the allowlist (grants.go), so
+		// `visible` is not read at all. A block that does not read is a fault yolo check
+		// reports; the daemon refuses every request with it.
+		_, err := grantBlockAt(settingsPath)
+		return Config{
+			Visible:   []string{},
+			Fields:    strListOrDefault(root, "fields", DefaultFields),
+			grantPath: settingsPath,
+		}, err == nil
 	}
 	return Config{
 		Visible: strListOrEmpty(root, "visible"),
@@ -289,6 +304,7 @@ func BuildHandler(cfg Config) hostservice.Handler {
 	// Read once, like the allowlist: a handler never changes dialect or deadline mid-life.
 	d := dialectFor(hostOS)
 	treeSecs := treeDeadlineSeconds
+	grantPath := cfg.grantPath
 	return func(s *hostservice.Session) {
 		// mode = str(request["mode"] or "list"). A truthy NON-string (e.g. 5,
 		// {...}) is stringified and falls through to the unknown-mode exit-2
@@ -296,7 +312,21 @@ func BuildHandler(cfg Config) hostservice.Handler {
 		// null, false, []) -> "list".
 		mode := pyStrOrList(func() (any, bool) { return s.Get("mode") })
 
-		if len(visible) == 0 {
+		// Under a grant file the granted names are the allowlist, read afresh for this
+		// request (grants.go); outside one, `notCovered` stays empty and pid mode keeps its
+		// exit-2 answer.
+		visible := visible
+		notCovered := ""
+		if grantPath != "" {
+			names, refused := grantedNames(grantPath)
+			if refused != "" {
+				s.Stderr(refused)
+				s.Exit(exitNoGrant)
+				return
+			}
+			visible = names
+			notCovered = uncovered(loopholegrant.Block{})
+		} else if len(visible) == 0 {
 			// Names the CURRENT spelling, and ONLY it. The old top-level
 			// `host_processes.visible` does not work any more — it was honored through the
 			// step that moved the keys and REFUSED by the step that deleted it
@@ -316,7 +346,7 @@ func BuildHandler(cfg Config) hostservice.Handler {
 		case "tree":
 			handleTree(s, visible, d, treeSecs)
 		case "pid":
-			handlePid(s, visible, fields, d)
+			handlePid(s, visible, fields, d, notCovered)
 		default:
 			s.Stderr("unknown mode: " + pytext.Repr(mode) + "\n")
 			s.Exit(2)
@@ -521,7 +551,11 @@ func bsdFields(fields []string) []string {
 // handlePid runs `ps -o <fields> -p <pid>` after verifying the pid's comm is
 // allowlisted. The comm comes from /proc/<pid>/comm under GNU and from
 // `ps -o ucomm= -p <pid>` under BSD (commOf).
-func handlePid(s *hostservice.Session, visible map[string]struct{}, fields []string, d dialect) {
+//
+// notCovered is set under a grant file (grants.go): a pid whose name the grant does not
+// cover is refused with it, exit 64, and its name is not said, since an ungranted name is
+// invisible. Outside a grant file the refusal is today's exit 2 naming the comm.
+func handlePid(s *hostservice.Session, visible map[string]struct{}, fields []string, d dialect, notCovered string) {
 	pidV, ok := s.Get("pid")
 	pid, isInt := asIntStrict(pidV)
 	if !ok || !isInt {
@@ -541,6 +575,11 @@ func handlePid(s *hostservice.Session, visible map[string]struct{}, fields []str
 		return
 	}
 	if _, allowed := visible[comm]; !allowed {
+		if notCovered != "" {
+			s.Stderr(notCovered)
+			s.Exit(exitNoGrant)
+			return
+		}
 		s.Stderr("pid " + strconv.Itoa(pid) + " has comm=" + pytext.Repr(comm) + " which is not allowlisted\n")
 		s.Exit(2)
 		return

@@ -182,3 +182,52 @@ func TestDeadDaemonBehindALiveFrontIsAttributed(t *testing.T) {
 		}
 	}
 }
+
+// TestYoloPsPrintsTheInertLine: on a setup where the host-processes loophole is inert, the
+// launch sets YOLO_LOOPHOLE_INERT_HOST_PROCESSES to the inert note's reason (plan PD-8), and
+// yolo-ps prints design §5's inert line from it BEFORE it looks for an endpoint, so an
+// --endpoint naming nothing still yields the inert line rather than a dial error.
+func TestYoloPsPrintsTheInertLine(t *testing.T) {
+	t.Setenv("YOLO_LOOPHOLE_INERT_HOST_PROCESSES", "the container backend admits no host service")
+	t.Setenv("YOLO_SERVICE_HOST_PROCESSES_ENDPOINT", "")
+	missing := filepath.Join(t.TempDir(), "nope.endpoint")
+	for _, args := range [][]string{nil, {"--endpoint", missing}, {"--tree"}} {
+		var rc int
+		stderr := captureStderr(t, func() { rc = runArgs(args) })
+		want := "yolo-ps: the host-processes loophole does nothing on this setup " +
+			"(the container backend admits no host service); nothing is missing to install.\n"
+		if stderr != want {
+			t.Errorf("args %v: stderr = %q, want %q", args, stderr, want)
+		}
+		if rc != 2 {
+			t.Errorf("args %v: rc = %d, want 2", args, rc)
+		}
+	}
+}
+
+// TestYoloPsWithNoEndpointNamesTheRequest: with no endpoint the loophole is not running here,
+// and the client's own fallback names the request and the pack selection, never the retired
+// `loopholes.<name>.enabled` recipe.
+func TestYoloPsWithNoEndpointNamesTheRequest(t *testing.T) {
+	t.Setenv("YOLO_LOOPHOLE_INERT_HOST_PROCESSES", "")
+	t.Setenv("YOLO_SERVICE_HOST_PROCESSES_ENDPOINT", "")
+	var rc int
+	stderr := captureStderr(t, func() { rc = runArgs(nil) })
+	if rc != 2 {
+		t.Errorf("rc = %d, want 2", rc)
+	}
+	for _, want := range []string{
+		"yolo request host-processes view <process names>",
+		"yolo pack add host-processes",
+		"restarts the jail",
+	} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("stderr does not name %q:\n%s", want, stderr)
+		}
+	}
+	for _, gone := range []string{"enabled", "config.jsonc", "visible"} {
+		if strings.Contains(stderr, gone) {
+			t.Errorf("stderr still teaches the retired recipe (%q):\n%s", gone, stderr)
+		}
+	}
+}

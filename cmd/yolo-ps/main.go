@@ -31,9 +31,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/frameproto"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholegrant"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
 
@@ -41,17 +43,46 @@ import (
 // call below for why a session deadline would be a bug here.
 const dialTimeout = 30 * time.Second
 
+// inertEnv carries the inert note's reason when the launch found host-processes inert on
+// this setup. Plan PD-8 names one variable per loophole, the prefix and the loophole's name
+// in upper snake case, so it is spelled as that rule rather than as a fixed name: the launch
+// writes the family, and recognizes it, by the same rule.
+var inertEnv = "YOLO_LOOPHOLE_INERT_" + strings.ToUpper(strings.ReplaceAll("host-processes", "-", "_"))
+
+// noEndpointMsg is the client's fallback when no endpoint names the daemon (design §5's
+// shape, filled for a loophole whose pack is not selected).
+const noEndpointMsg = "yolo-ps: no host-processes endpoint in this jail, so nothing ran.\n" +
+	"  The host-processes loophole is not running here: its pack is not selected.\n" +
+	"  Ask for this project:   yolo request host-processes view <process names>\n" +
+	"  then the human selects the pack, on the host:   yolo pack add host-processes\n" +
+	"  and restarts the jail, answering y at its config-change prompt.\n"
+
 func main() {
 	os.Exit(run())
 }
 
 func run() int {
-	tree := flag.Bool("tree", false, "pstree-style output, filtered to allowlisted comms + their children")
-	flag.BoolVar(tree, "t", false, "pstree-style output (short)")
-	pid := flag.Int("pid", 0, "Details for a single PID (rejected if its comm isn't allowlisted)")
-	endpoint := flag.String("endpoint", "", "Override endpoint file (default: $YOLO_SERVICE_HOST_PROCESSES_ENDPOINT)")
-	socket := flag.String("socket", "", "Alias for --endpoint (accepted for compatibility)")
-	flag.Parse()
+	return runArgs(os.Args[1:])
+}
+
+// runArgs is the client on its arguments, parsed by its own flag set so a test can run it.
+func runArgs(args []string) int {
+	fs := flag.NewFlagSet("yolo-ps", flag.ExitOnError)
+	tree := fs.Bool("tree", false, "pstree-style output, filtered to allowlisted comms + their children")
+	fs.BoolVar(tree, "t", false, "pstree-style output (short)")
+	pid := fs.Int("pid", 0, "Details for a single PID (rejected if its comm isn't allowlisted)")
+	endpoint := fs.String("endpoint", "", "Override endpoint file (default: $YOLO_SERVICE_HOST_PROCESSES_ENDPOINT)")
+	socket := fs.String("socket", "", "Alias for --endpoint (accepted for compatibility)")
+	_ = fs.Parse(args)
+
+	// INERT FIRST, before any endpoint is looked for: on a setup where the loophole does
+	// nothing, the launch says why in this variable (plan PD-8), and that is the whole answer.
+	// A missing endpoint there is the setup's doing, and a dial error would send the reader to
+	// relaunch a jail that will never have one.
+	if reason := os.Getenv(inertEnv); reason != "" {
+		fmt.Fprint(os.Stderr, loopholegrant.Refusal{Client: "yolo-ps", Pack: "host-processes", Inert: reason}.Text())
+		return 2
+	}
 
 	ep := *endpoint
 	if ep == "" {
@@ -61,26 +92,18 @@ func run() int {
 		ep = os.Getenv("YOLO_SERVICE_HOST_PROCESSES_ENDPOINT")
 	}
 	if ep == "" {
-		// THREE GATES, NAMED IN ORDER, because "not wired up" has three causes and
-		// only one of them used to exist. The loophole ships in a pack now, so the
-		// old single line ("add host_processes.visible") would send a reader to a
-		// key that no longer exists AND leave the two gates in front of it unmet.
-		fmt.Fprintln(os.Stderr,
-			"yolo-ps: no endpoint.  The host-processes loophole isn't wired up in "+
-				"this jail.  Three things turn it on, and all three are needed:\n"+
-				"  1. ~/.config/yolo-jail/config.jsonc:  \"packs\": [..., \"host-processes\"]\n"+
-				"  2. ~/.config/yolo-jail/config.jsonc:  \"loopholes\": {\"host-processes\": {\"enabled\": true}}\n"+
-				"  3. this workspace's yolo-jail.jsonc:   \"loopholes\": {\"host-processes\": "+
-				"{\"settings\": {\"visible\": [\"...\"]}}}\n"+
-				"Then restart the jail.  (The top-level `host_processes` key is gone; "+
-				"step 3 is where it went.)")
+		// No endpoint is a loophole that is not running here, which means its pack is not
+		// selected: a selected loophole runs, and the daemon itself refuses an ungranted
+		// request with the step its grant file names. So this, the client's own fallback,
+		// names the request and the selection, never a switch.
+		fmt.Fprint(os.Stderr, noEndpointMsg)
 		return 2
 	}
 
 	// --pid is detected by PRESENCE, not by value: `--pid 0` is a query about
 	// pid 0, not an absent flag.
 	pidSet := false
-	flag.Visit(func(f *flag.Flag) {
+	fs.Visit(func(f *flag.Flag) {
 		if f.Name == "pid" {
 			pidSet = true
 		}
