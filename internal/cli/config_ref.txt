@@ -293,6 +293,13 @@
     Example (~/.config/yolo-jail/config.jsonc):
       "include_if_found": ["overrides.jsonc"]
 
+  [bold]~/.config/yolo-jail/config.d/*.toml[/bold] (user config fragments): With a
+    TOML user config, every *.toml file in config.d/ is read after config.toml,
+    in name order, and merged on top the same way; no include_if_found line is
+    needed. A linked fragment is followed. Use one file per machine or role (a
+    dotfiles manager can link in work.toml on one machine only). A legacy
+    config.jsonc reads no config.d/.
+
   [bold]agents_md_extra[/bold] (string): Markdown appended to every agent's briefing.
     Whatever you put here is concatenated onto the jail-managed section of
     AGENTS-copilot.md, AGENTS-codex.md, and CLAUDE.md before the host-level

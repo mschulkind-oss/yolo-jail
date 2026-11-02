@@ -157,14 +157,14 @@ func usageText() string {
 	// --user-layer is here: it is the one flag consumed before subcommand routing, so it is
 	// the one a reader cannot discover from any single subcommand's help.
 	b.WriteString("\n[bold]Global options:[/bold]\n")
-	b.WriteString("  [cyan]--user-layer <file>[/cyan]  Layer a JSONC config in at USER-LEVEL " +
-		"precedence for this\n")
-	b.WriteString("                       invocation only. Inert unless passed; a workspace " +
-		"config still\n")
-	b.WriteString("                       wins over it. Reaches every command that reads user " +
-		"scope, so\n")
-	b.WriteString("                       `pack`/`loopholes`/`check` agree with what a launch " +
-		"would compose.\n")
+	b.WriteString("  [cyan]--user-layer <file>[/cyan]  Layer a config file (TOML, or legacy JSONC) in at " +
+		"USER-LEVEL\n")
+	b.WriteString("                       precedence for this invocation only. Inert unless " +
+		"passed; a workspace\n")
+	b.WriteString("                       config still wins over it. " +
+		"Reaches every command that reads user\n")
+	b.WriteString("                       scope, so `pack`/`loopholes`/`check` agree with what\n")
+	b.WriteString("                       a launch would compose.\n")
 	b.WriteString("                       Inside a jail this is how you install a loophole for " +
 		"a nested\n")
 	b.WriteString("                       jail: write the layer in your own home and pass it.\n")

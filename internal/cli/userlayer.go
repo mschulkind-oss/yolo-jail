@@ -81,7 +81,7 @@ func stripUserLayer(args []string) (rest []string, path string, ok bool) {
 func applyUserLayerFlag(args []string, errw io.Writer) ([]string, bool) {
 	rest, path, ok := stripUserLayer(args)
 	if !ok {
-		fmt.Fprintf(errw, "yolo: %s needs a file argument (a JSONC config to layer in at "+
+		fmt.Fprintf(errw, "yolo: %s needs a file argument (a TOML, or legacy JSONC, config to layer in at "+
 			"user-level precedence for this invocation)\n", userLayerFlag)
 		return rest, false
 	}
