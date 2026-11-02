@@ -1680,3 +1680,34 @@ func TestConfigDFragmentsReadAsConfigRefStates(t *testing.T) {
 		})
 	}
 }
+
+// RC-D54: allow.<source>.sets is judged by the sets validator brokered.<source>.sets is, at a
+// launch's validation: a malformed set is refused by name, and a well-formed one launches.
+func TestAllowSetsIsValidatedLikeTheLegacySets(t *testing.T) {
+	for _, tc := range []struct {
+		sets string
+		want string
+	}{
+		{"[{ name = 'review', mode = 'standing' }]", ""},
+		{"[{ name = 'review', mode = 'sometimes' }]", "allow.github.sets[0]"},
+	} {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		t.Setenv("YOLO_VERSION", "")
+		t.Setenv(UserLayerEnv, "")
+		write(t, filepath.Join(home, ".config", "yolo-jail", paths.UserConfigTOMLName), "packs = ['github']\n[allow.github]\nsets = "+tc.sets+"\n")
+		ws := t.TempDir()
+		merged, err := LoadConfig(ws, true, func(string) {})
+		if err != nil {
+			t.Fatal(err)
+		}
+		errs, _ := ValidateConfig(merged, ws, nil)
+		got := strings.Join(errs, "\n")
+		if tc.want == "" && got != "" {
+			t.Errorf("%s: a well-formed set was refused: %s", tc.sets, got)
+		}
+		if tc.want != "" && !strings.Contains(got, tc.want) {
+			t.Errorf("%s: a malformed set was not refused by name: %q", tc.sets, got)
+		}
+	}
+}

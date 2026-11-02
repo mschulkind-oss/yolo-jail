@@ -63,7 +63,8 @@
     env_sources         -> [env] sources, entry for entry (an inline object
                            as { set = {...}, unset = [...] }); a null -> sources = []
     brokered.*          -> [allow.<source>] (your ceiling) and [requests.<source>]
-                           (a project's request); `repos` -> requests.github.repos
+                           (a project's request); `repos` -> requests.github.repos;
+                           `sets` -> [[allow.<source>.sets]], entry for entry
     profile, profiles   -> [active_provider] and providers.<name>.variants.<variant>
     loopholes.*.enabled -> the grant it gave: [allow.<pack>] (your ceiling) and
                            [requests.<pack>] (a project's request), approved
@@ -578,6 +579,14 @@
       "github-broker: sets from user config: read-only (+ pr comment), review 1h".  A workspace
       file may NOT name sets: that file is the agent's to edit, so `sets` there is a `yolo check`
       error.
+      In TOML the list is allow.<source>.sets, each entry the same table:
+        [[allow.github.sets]]
+        name = "review"
+        mode = "windowed"
+        window = "1h"
+        admit = ["pr comment", "pr review"]
+      A config that writes both spellings (a TOML user config including a legacy file) reads
+      both lists, the TOML entries first; a name may appear once across the two.
     • [bold]grant_kinds[/bold] (USER SCOPE ONLY): the kinds of user grant a workspace may hold
       for this source, as in "grant_kinds": ["create-branch"].  A kind is one the loophole's
       manifest defines (`brokered.grants`; the git pack's git-broker defines "create-branch",

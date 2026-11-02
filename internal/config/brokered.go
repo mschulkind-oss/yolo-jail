@@ -512,22 +512,70 @@ type BrokeredSet struct {
 // when the source names none, which leaves its defaults in force. It reads the user scope alone:
 // the sets are user scope only (BB-D23), and a workspace's copy is refused rather than read.
 func BrokeredSets(source string) []BrokeredSet {
-	v, _ := UserScopeConfigOrEmpty().Get(brokeredKey)
-	sources, ok := asMap(v)
-	if !ok {
-		return nil
-	}
-	sv, _ := sources.Get(source)
-	src, ok := asMap(sv)
-	if !ok {
-		return nil
-	}
-	rv, has := src.Get(brokeredSetsKey)
+	path, raw, has := brokeredSetsRaw(UserScopeConfigOrEmpty(), source)
 	if !has {
 		return nil
 	}
-	sets, _ := brokeredSetsValue(brokeredSetsPath(source), rv)
+	sets, _ := brokeredSetsValue(path, raw)
 	return sets
+}
+
+// BrokeredSetsOf is the sets user configures for source, in either spelling, with the problems
+// the validator reports (BrokeredSets is this over the live user scope). The equality proof of
+// `yolo config migrate` reads both sides through it.
+func BrokeredSetsOf(user *jsonx.OrderedMap, source string) ([]BrokeredSet, []string) {
+	path, raw, has := brokeredSetsRaw(user, source)
+	if !has {
+		return nil, nil
+	}
+	return brokeredSetsValue(path, raw)
+}
+
+// AllowSetsKey is a broker source's sets in the TOML spelling, `allow.<source>.sets` (RC-D54): the
+// same list `brokered.<source>.sets` holds in a legacy file, entry for entry.
+const AllowSetsKey = brokeredSetsKey
+
+// brokeredSetsRaw is the sets list user writes for source: `allow.<source>.sets` (TOML) and
+// `brokered.<source>.sets` (legacy), the TOML entries first when a piecemeal config writes both,
+// which is the layer order of its usual stage (a TOML user config including a legacy file). The
+// path names the one spelling written, or the TOML one when both are.
+func brokeredSetsRaw(user *jsonx.OrderedMap, source string) (string, any, bool) {
+	var lists [][]any
+	path := ""
+	var single any
+	count := 0
+	readAt := func(root, at string) {
+		v, _ := user.Get(root)
+		sources, ok := asMap(v)
+		if !ok {
+			return
+		}
+		sv, _ := sources.Get(source)
+		src, ok := asMap(sv)
+		if !ok {
+			return
+		}
+		rv, has := src.Get(brokeredSetsKey)
+		if !has {
+			return
+		}
+		count++
+		if path == "" {
+			path, single = at, rv
+		}
+		if list, ok := rv.([]any); ok {
+			lists = append(lists, list)
+		}
+	}
+	readAt("allow", "allow."+source+"."+brokeredSetsKey)
+	readAt(brokeredKey, brokeredSetsPath(source))
+	switch {
+	case count == 0:
+		return "", nil, false
+	case count == 1 || len(lists) < 2:
+		return path, single, true
+	}
+	return path, append(append([]any(nil), lists[0]...), lists[1]...), true
 }
 
 // CurrentBrokeredSets reads host user policy afresh and refuses malformed entries.
@@ -537,27 +585,22 @@ func CurrentBrokeredSets(source string) ([]BrokeredSet, error) {
 	if err != nil {
 		return nil, err
 	}
-	v, has := cfg.Get(brokeredKey)
-	if !has || v == nil {
-		return nil, nil
+	if v, has := cfg.Get(brokeredKey); has && v != nil {
+		sources, ok := asMap(v)
+		if !ok {
+			return nil, fmt.Errorf("invalid brokered host policy")
+		}
+		if v, has := sources.Get(source); has && v != nil {
+			if _, ok := asMap(v); !ok {
+				return nil, fmt.Errorf("invalid brokered.%s host policy", source)
+			}
+		}
 	}
-	sources, ok := asMap(v)
-	if !ok {
-		return nil, fmt.Errorf("invalid brokered host policy")
-	}
-	v, has = sources.Get(source)
-	if !has || v == nil {
-		return nil, nil
-	}
-	src, ok := asMap(v)
-	if !ok {
-		return nil, fmt.Errorf("invalid brokered.%s host policy", source)
-	}
-	v, has = src.Get(brokeredSetsKey)
+	path, raw, has := brokeredSetsRaw(cfg, source)
 	if !has {
 		return nil, nil
 	}
-	sets, problems := brokeredSetsValue(brokeredSetsPath(source), v)
+	sets, problems := brokeredSetsValue(path, raw)
 	if len(problems) != 0 {
 		return nil, fmt.Errorf("%s", strings.Join(problems, "; "))
 	}
@@ -819,7 +862,10 @@ func approvalConfigPartWith(wsCfg *jsonx.OrderedMap, resolved map[string]string)
 func validateBrokered(config *jsonx.OrderedMap, workspace string, resolver LoopholeResolver, errs, warns *[]string, edit ...*editValidationContext) {
 	if _, present := config.Get(brokeredKey); !present {
 		// Every scope's keys survive into the merged map, so an absent key proves no scope
-		// wrote one.
+		// wrote one; a TOML user config's sets (allow.<source>.sets, RC-D54) are still judged.
+		if _, allow := config.Get("allow"); allow {
+			validateBrokeredUserScope(errs, warns, edit...)
+		}
 		return
 	}
 	validateBrokeredRetired(config, workspace, errs, warns)
@@ -1050,10 +1096,6 @@ func validateBrokeredUserScope(errs, warns *[]string, edit ...*editValidationCon
 	if userCfg == nil {
 		userCfg = jsonx.NewOrderedMap()
 	}
-	v, present := userCfg.Get(brokeredKey)
-	if !present || v == nil {
-		return
-	}
 	refuse := func(msg string) {
 		if userSources != nil {
 			msg = userSources.AnnotateOne(msg)
@@ -1063,6 +1105,26 @@ func validateBrokeredUserScope(errs, warns *[]string, edit ...*editValidationCon
 			return
 		}
 		add(errs, msg)
+	}
+	// The TOML spelling of a source's sets, allow.<source>.sets (RC-D54), takes the same
+	// validator, so a malformed set is refused by name whichever spelling wrote it.
+	if allow, ok := asMap(getOr(userCfg, "allow", nil)); ok {
+		for _, name := range allow.Keys() {
+			table, ok := asMap(getOr(allow, name, nil))
+			if !ok {
+				continue
+			}
+			if setsV, has := table.Get(brokeredSetsKey); has && setsV != nil {
+				_, problems := brokeredSetsValue("config.allow."+name+"."+brokeredSetsKey, setsV)
+				for _, p := range problems {
+					refuse(p)
+				}
+			}
+		}
+	}
+	v, present := userCfg.Get(brokeredKey)
+	if !present || v == nil {
+		return
 	}
 	sources, ok := asMap(v)
 	if !ok {
