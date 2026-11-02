@@ -855,13 +855,16 @@ func (o *Options) loopholesRuntimeArgs(cfg *jsonx.OrderedMap, rt string,
 	// A CREDENTIAL-VIEW launch drops the interception from the argv (claudecredentialview.go,
 	// CL-D10) and tells the jail it did, so its entrypoint does not link the shared file.
 	view := o.claudeCredentialView(rt, cfg)
-	set := loopholes.NewHostSet(cfgMap(cfg, "loopholes")).WithCredentialView(view)
+	// An unmediated grant-declaring loophole's crossing, and any grant-declaring loophole's binds
+	// and devices, are carried only under a grant (docs/design/loophole-access-approval.md §4.4).
+	set := o.withLaunchGrants(loopholes.NewHostSet(cfgMap(cfg, "loopholes")).WithCredentialView(view), rt, cfg)
 	// THE MOUNT SENTINELS FIRST, from the same Set over the same records, so every loophole
 	// whose state_files names the inert marker has it on disk before the argv resolves its bind
 	// sources (loopholes/mountsentinel.go). A nonempty list is what keeps a credential cache
 	// out of the jail; without its marker the launch warned that the safe source was missing.
 	o.prepareMountSentinels(set, rt)
 	args := set.RuntimeArgsWithJailDaemons(set.Enabled(), rt, jailDaemons)
+	args = append(args, o.loopholeInertEnvArgs(rt, cfg)...)
 	return append(args, o.claudeCredentialViewEnvArgs(rt, cfg)...)
 }
 

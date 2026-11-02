@@ -6,6 +6,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholegrant"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -33,7 +34,10 @@ func (o *Options) prepareLoopholeSettings(discovered []*loopholes.Loophole, cfg 
 	// ConfigBlock, not the bare block: under a TOML user config the settings are `[allow.<pack>]`.
 	loopCfg := loopholes.ConfigBlock(cfg)
 	for _, lp := range discovered {
-		if len(lp.Settings) == 0 {
+		// A GRANT-DECLARING loophole is kept with no settings too: its daemon is handed a grant
+		// file however few settings it declares (docs/design/loophole-access-approval.md §4.6),
+		// so it needs the frozen object, "{}", that the block is merged into.
+		if !needsSettingsFile(lp) {
 			continue
 		}
 		supplied := suppliedSettings(loopCfg, lp.Name)
@@ -105,18 +109,41 @@ func LoopholeSettingsFixStep(lp *loopholes.Loophole) string {
 	return "Correct `loopholes." + lp.Name + ".settings` in " + where + ", then run `yolo check --no-build`."
 }
 
+// needsSettingsFile is whether the launch resolves a settings file for lp: one that declares
+// settings, or one that declares grants, whose grant file is that file with the block merged in.
+func needsSettingsFile(lp *loopholes.Loophole) bool {
+	return len(lp.Settings) > 0 || len(lp.Grants) > 0
+}
+
 // publishLoopholeSettings publishes a previously validated plan, without rereading config or the
 // validator input. The settings disclosure already preceded the validator during preparation.
-func (o *Options) publishLoopholeSettings(plan *preparedLoopholeSettings) {
+// cname is the container (or session) the launch's daemons serve, which a grant file names.
+func (o *Options) publishLoopholeSettings(plan *preparedLoopholeSettings, cname string) {
 	if plan == nil {
 		return
 	}
 	o.settingsSnapshots = make(map[string]*ownedSettingsSnapshot)
 	for _, lp := range plan.candidates {
+		body := plan.bytes[lp.Name]
+		// A GRANT-DECLARING LOOPHOLE'S FILE IS ITS GRANT FILE (docs/design/loophole-access-approval.md
+		// §4.6, PD-2): the frozen settings with this launch's grant block merged under the reserved
+		// key, always a private snapshot, since the block names this launch and no other.
+		granting := len(lp.Grants) > 0
+		if granting {
+			merged, err := loopholegrant.Merge(body, o.loopholeGrantBlock(lp, cname))
+			if err != nil {
+				o.cleanupSettingsSnapshots()
+				o.startupRefusal = &hostStartupRefusal{name: lp.Name, class: "settings-publication",
+					reason: "The grant file could not be composed: " + err.Error() + ".",
+					remedy: "Run `yolo check --no-build`, which names the declaration or setting at fault."}
+				return
+			}
+			body = merged
+		}
 		// EVERY CHECKED DAEMON GETS A PRIVATE SNAPSHOT: since HD-R1 each host daemon is this
 		// launch's own, so another workspace cannot swap the bytes it starts on.
-		if plan.checked[lp.Name] {
-			path, cleanup, err := loopholes.WritePrivateSettingsSnapshot(lp, plan.bytes[lp.Name])
+		if plan.checked[lp.Name] || granting {
+			path, cleanup, err := loopholes.WritePrivateSettingsSnapshot(lp, body)
 			if err != nil {
 				o.cleanupSettingsSnapshots()
 				o.startupRefusal = &hostStartupRefusal{name: lp.Name, class: "settings-publication",
@@ -125,7 +152,7 @@ func (o *Options) publishLoopholeSettings(plan *preparedLoopholeSettings) {
 				return
 			}
 			o.settingsSnapshots[lp.Name] = &ownedSettingsSnapshot{
-				path: path, bytes: append([]byte(nil), plan.bytes[lp.Name]...), cleanup: cleanup,
+				path: path, bytes: append([]byte(nil), body...), cleanup: cleanup,
 			}
 			continue
 		}
@@ -143,7 +170,7 @@ func (o *Options) writeLoopholeSettings(discovered []*loopholes.Loophole, cfg *j
 	if o.startupRefusal != nil {
 		return
 	}
-	o.publishLoopholeSettings(plan)
+	o.publishLoopholeSettings(plan, "")
 }
 
 func (o *Options) discloseSettingsCheckHostExec(packs []*packload.Pack, set loopholes.Set,

@@ -744,6 +744,11 @@ func Run(opts Options) (rc int) {
 		if o.atNotch == config.ConfinementGuest {
 			launchEnv.Set(config.NotchEnv, string(config.ConfinementGuest))
 		}
+		// AN INERT GRANT-DECLARING LOOPHOLE IS NAMED in the session's environment, as the
+		// container argv names it (loopholeInertEnv, plan PD-8), so its client says so.
+		for k, v := range o.loopholeInertEnv(rt, cfg) {
+			launchEnv.Set(k, v)
+		}
 		// THE GUEST'S HALF OF THE PAYLOAD (OQ-DP8, OQ-DP9; macosuserguestdaemons.go): the
 		// daemons this sandbox runs, confined, and the ones it declines by name. The split
 		// is loopholes.JailDaemonsRunIn, the same one the served set composed the channel
@@ -1487,6 +1492,9 @@ func (o *Options) notePackHostAccess(loadedPacks []*packload.Pack, channel *pack
 		}
 	}
 	if !o.Sealed {
+		// What each selected grant-declaring loophole holds here, and the step that grants it
+		// (docs/design/loophole-access-approval.md §5). A sealed build is handed no loophole.
+		o.noteLoopholeGrants(o.runtime, nil)
 		return
 	}
 	if line := sealedWithheldLine(disclosedClaimsWhere(loadedPacks, disclosureRead, served, sealWithholdsClaim),

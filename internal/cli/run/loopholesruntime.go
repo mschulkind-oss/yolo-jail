@@ -380,7 +380,7 @@ func (o *Options) prepareLoopholeSettingsForStart(set loopholes.Set, cfg *jsonx.
 		plan := &preparedLoopholeSettings{bytes: make(map[string][]byte), values: make(map[string]*jsonx.OrderedMap),
 			checked: make(map[string]bool)}
 		for _, lp := range candidates {
-			if len(lp.Settings) == 0 {
+			if !needsSettingsFile(lp) {
 				continue
 			}
 			frozen, ok := o.settingsFrozen[lp.Name]
@@ -426,7 +426,7 @@ func (o *Options) startLoopholesMatching(set loopholes.Set, cname, rt string, cf
 		o.cleanupSettingsSnapshots()
 		return nil
 	}
-	o.publishLoopholeSettings(o.settingsPlan)
+	o.publishLoopholeSettings(o.settingsPlan, cname)
 	o.settingsPlan = nil
 	o.settingsPrepared = false
 	o.settingsFrozen = nil

@@ -124,7 +124,7 @@ func (o *Options) refreshJailBriefingsMode(cname string, cfg *jsonx.OrderedMap, 
 	// feature; it plans around one it does not have.
 	var loops []jailcontent.Loophole
 	if backendInertReason(rt) == "" {
-		loops = briefingLoopholes(cfgMap(cfg, "loopholes"))
+		loops = briefingLoopholes(cfgMap(cfg, "loopholes"), o.loopholeGrantStandings(rt, cfg))
 		availableSwitches := mechanicsLoopholeSwitches(cfgMap(cfg, "loopholes"), staged.packs)
 		for i := range loops {
 			loops[i].SwitchAvailable = availableSwitches[loops[i].Name]
@@ -546,10 +546,18 @@ func mechanicsLoopholeSwitches(cfg *jsonx.OrderedMap, packs []*packload.Pack) ma
 //
 // A FUNCTION rather than four inline lines, so the property is testable at the code the
 // launch runs: the same expression retyped in a test asserts nothing about this file.
-func briefingLoopholes(loopholesCfg *jsonx.OrderedMap) []jailcontent.Loophole {
+//
+// standings (Options.loopholeGrantStandings) give each grant-declaring loophole its Standing line
+// (docs/design/loophole-access-approval.md §5): one holding nothing in this project says so, with
+// the step that grants it.
+func briefingLoopholes(loopholesCfg *jsonx.OrderedMap, standings map[string]map[string]config.LoopholeGrantStanding) []jailcontent.Loophole {
 	var out []jailcontent.Loophole
 	for _, lo := range loopholes.NewHostSet(loopholesCfg).Honored() {
-		out = append(out, jailcontent.Loophole{Name: lo.Name, Desc: lo.Description})
+		entry := jailcontent.Loophole{Name: lo.Name, Desc: lo.Description}
+		if len(lo.Grants) > 0 {
+			entry.Standing = summarizeGrants(lo, standings[lo.Name]).briefingLine(lo)
+		}
+		out = append(out, entry)
 	}
 	return out
 }

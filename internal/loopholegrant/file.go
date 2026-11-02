@@ -58,6 +58,10 @@ type Kind struct {
 	Values []string `json:"values,omitempty"`
 	// Text is the manifest's line for the kind ("read your user journal").
 	Text string `json:"text,omitempty"`
+	// ValueNoun is a valued kind's noun as the manifest declares it ("process names"), for a
+	// refusal's placeholder. Empty for an unvalued kind, and absent from a file an older launch
+	// wrote, where a daemon falls back to its own spelling.
+	ValueNoun string `json:"value_noun,omitempty"`
 }
 
 // Block is the reserved `grants` key: the launch's identity and one Kind per declared kind.
@@ -67,8 +71,12 @@ type Block struct {
 	Container string `json:"container"`
 	LaunchID  string `json:"launch_id"`
 	// PID is the launching yolo process; LiveFiles keeps a file only while it is alive.
-	PID   int             `json:"pid"`
-	Kinds map[string]Kind `json:"kinds"`
+	PID int `json:"pid"`
+	// Access is the manifest's `access` line ("read the host's journal"), which every refusal
+	// prints. Absent from a file an older launch wrote, where a daemon falls back to its own
+	// spelling.
+	Access string          `json:"access,omitempty"`
+	Kinds  map[string]Kind `json:"kinds"`
 }
 
 // check is the shape every Block written or read must have.

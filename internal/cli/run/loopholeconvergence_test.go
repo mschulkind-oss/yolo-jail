@@ -128,7 +128,7 @@ func TestBriefingAdvertisesOnlyActiveLoopholes(t *testing.T) {
 	// The BRIEFING'S OWN projection — the function refreshJailBriefings calls, not a
 	// retyped copy of its body, which would assert nothing about the launch path.
 	var advertised []string
-	for _, lo := range briefingLoopholes(nil) {
+	for _, lo := range briefingLoopholes(nil, nil) {
 		advertised = append(advertised, lo.Name)
 	}
 	for _, name := range advertised {

@@ -42,6 +42,11 @@ type Loophole struct {
 	Name            string
 	Desc            string
 	SwitchAvailable bool
+	// Standing is one line saying what this loophole holds in this project, for a grant-declaring
+	// loophole that holds nothing here, and the step that would grant it
+	// (docs/design/loophole-access-approval.md §5): an agent reading the section then does not
+	// debug a socket that never crossed. "" for an ungated loophole and for one holding a grant.
+	Standing string
 }
 
 // ContextMount is one entry of the "Additional Context Mounts" section: a context mount
@@ -811,6 +816,11 @@ func BriefingContent(in BriefingInput) string {
 				lines = append(lines, "- **"+lh.Name+"**: "+first)
 			} else {
 				lines = append(lines, "- **"+lh.Name+"**")
+			}
+			// What it holds in this project, so an agent does not debug a socket that was
+			// never bound (docs/design/loophole-access-approval.md §5).
+			if lh.Standing != "" {
+				lines = append(lines, "  - "+lh.Standing)
 			}
 		}
 		lines = append(lines, "", "Details: `yolo loopholes list`.", "")

@@ -226,7 +226,7 @@ func TestFetchedPackLoopholeSpawnsAndCrossesWithNoApproval(t *testing.T) {
 	// it to work around wiring that is actually there — the mirror of the old defect, where a
 	// withheld one was advertised.
 	advertised := false
-	for _, lo := range briefingLoopholes(nil) {
+	for _, lo := range briefingLoopholes(nil, nil) {
 		if lo.Name == "acme-proxy" {
 			advertised = true
 		}
@@ -296,7 +296,7 @@ func TestLocalPackLoopholeReachesTheSpawnAndTheArgv(t *testing.T) {
 	}
 	// And the briefing DOES advertise it.
 	advertised := false
-	for _, lo := range briefingLoopholes(nil) {
+	for _, lo := range briefingLoopholes(nil, nil) {
 		if lo.Name == "acme-proxy" {
 			advertised = true
 		}

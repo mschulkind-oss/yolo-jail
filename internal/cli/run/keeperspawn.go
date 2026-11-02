@@ -237,7 +237,8 @@ func (o *Options) keeperPlanFor(cfg *jsonx.OrderedMap, rt, cname string, staged 
 		PackTree: staged.root, Packs: names, Services: services,
 		Settings: o.frozenLoopholeSettings(), SettingsPrepared: o.settingsPrepared,
 		Payload:        payload,
-		ApprovedScopes: o.approvedScopes, ApprovedGrants: o.approvedGrants, ReadWithoutScope: o.readWithoutScope, Forwards: forwards, ForwardDir: forwardDir,
+		ApprovedScopes: o.approvedScopes, ApprovedGrants: o.approvedGrants, ReadWithoutScope: o.readWithoutScope,
+		ApprovedLoopholeGrants: o.approvedLoopholeGrants, Forwards: forwards, ForwardDir: forwardDir,
 		SocketsDir: socketsDir, RunCmd: runCmd, ImageRef: in.imageRef, Skeleton: in.homeSkeleton,
 		ScratchVolumes: o.scratchVolumes, PerfRecording: o.timingRecording(), Sealed: o.Sealed,
 		// THE JAIL'S GRANT (jailgrant.go): its NAMES, for the start record an attach reads. Its
@@ -1241,8 +1242,9 @@ func (o *Options) macosUserKeeperPlanFor(cfg *jsonx.OrderedMap, rt, cname string
 		MacosUserMode: o.MacosUserMode,
 		Color:         o.streamColor(), Config: raw, PackTree: staged.root, Packs: names, Services: services,
 		Payload: payload, ApprovedScopes: o.approvedScopes, ApprovedGrants: o.approvedGrants, ReadWithoutScope: o.readWithoutScope,
-		PerfRecording: o.timingRecording(),
-		Settings:      o.frozenLoopholeSettings(), SettingsPrepared: o.settingsPrepared,
+		ApprovedLoopholeGrants: o.approvedLoopholeGrants,
+		PerfRecording:          o.timingRecording(),
+		Settings:               o.frozenLoopholeSettings(), SettingsPrepared: o.settingsPrepared,
 		Sealed: o.Sealed, Notch: o.macosUserKeeperNotch(), Command: o.macosUserCommandName(),
 		CallerTokens: o.callerTokens,
 	}

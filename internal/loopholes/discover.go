@@ -150,10 +150,14 @@ func ConfigEnabledOverride(loopholesConfig *jsonx.OrderedMap, name string) (enab
 
 // SwitchedByConfig reports whether a `loopholes.<name>.enabled` key decides lp: true for every
 // loophole but a brokered one (its manifest declares `brokered`), which runs whenever it is
-// installed and is narrowed by grants instead (docs/design/boundary-broker.md BB-D106). A switch
-// for a brokered loophole in any file is ignored here; validation says where it is and what
+// installed and is narrowed by grants instead (docs/design/boundary-broker.md BB-D106), and a
+// grant-declaring one (its manifest declares `[[grants]]`), which runs whenever its pack is
+// selected and is narrowed by its grants the same way (docs/design/loophole-access-approval.md
+// §4.1). A switch for either in any file is ignored here; validation says where it is and what
 // replaces it.
-func SwitchedByConfig(lp *Loophole) bool { return lp != nil && lp.Brokered == nil }
+func SwitchedByConfig(lp *Loophole) bool {
+	return lp != nil && lp.Brokered == nil && len(lp.Grants) == 0
+}
 
 // EnabledUnder is whether lp runs under the merged config block: the block's switch where one
 // decides it (SwitchedByConfig), else the record's own state. Every reader that resolves a
@@ -621,6 +625,9 @@ type Set struct {
 	// credentialView says this launch delivers the Claude login as a credential view, which
 	// REPLACES every interception record's jail side effects (WithCredentialView).
 	credentialView bool
+	// granted is the grant kinds this launch holds, per grant-declaring loophole (WithGrants):
+	// what admits an UNMEDIATED crossing. A loophole absent from it holds none.
+	granted map[string]map[string]bool
 }
 
 // WithCredentialView returns the set with the launch's credential-view decision recorded
@@ -635,6 +642,31 @@ type Set struct {
 func (s Set) WithCredentialView(on bool) Set {
 	s.credentialView = on
 	return s
+}
+
+// WithGrants returns the set with the grant kinds this launch holds recorded, by loophole name
+// (docs/design/loophole-access-approval.md §4.4, LG-D6): the gate's approved result, which the
+// launch hands every reader that builds the jail's crossings. A GRANT-DECLARING loophole whose
+// crossing is UNMEDIATED (binds, devices, the sockets the launch publishes, with no daemon to
+// refuse a call: Loophole.Mediated) puts its binds and devices in the jail only when it holds at
+// least one kind here; with none, nothing of it crosses. A loophole that declares no grants is
+// ungated and never consults this, which keeps an absent `[[grants]]` today's behavior. A set
+// never handed grants holds none, so it fails closed.
+func (s Set) WithGrants(granted map[string][]string) Set {
+	s.granted = make(map[string]map[string]bool, len(granted))
+	for name, kinds := range granted {
+		held := make(map[string]bool, len(kinds))
+		for _, k := range kinds {
+			held[k] = true
+		}
+		s.granted[name] = held
+	}
+	return s
+}
+
+// holdsGrant is whether this set's launch holds any grant kind of lp.
+func (s *Set) holdsGrant(lp *Loophole) bool {
+	return s != nil && len(s.granted[lp.Name]) > 0
 }
 
 // gateOf builds the module-dir → approved map from the input modules.

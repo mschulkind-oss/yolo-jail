@@ -164,6 +164,7 @@ func (l *Loophole) subsetManifest() *loopholedecl.Manifest {
 		Settings:       l.Settings,
 		Brokered:       l.Brokered,
 		Grants:         l.Grants,
+		Access:         l.Access,
 		Binaries:       l.Binaries,
 		BinaryRefs:     l.BinaryRefs,
 
@@ -306,8 +307,10 @@ func resolve(m *loopholedecl.Manifest, modulePath string) *Loophole {
 		// A BROKERED loophole is the exception: it is on whenever it is installed, which for a
 		// pack's is whenever its pack is selected, and no switch decides it
 		// (docs/design/boundary-broker.md BB-D106). What it may do is decided by grants in
-		// config, not by whether it runs.
-		Enabled:       m.DefaultEnabled || m.Brokered != nil,
+		// config, not by whether it runs. So is a GRANT-DECLARING one (its manifest declares
+		// `[[grants]]`; docs/design/loophole-access-approval.md §4.1): selecting its pack runs it,
+		// and running grants nothing until a grant covers the project.
+		Enabled:       m.DefaultEnabled || m.Brokered != nil || len(m.Grants) > 0,
 		Transport:     m.Transport,
 		Lifecycle:     m.Lifecycle,
 		Intercepts:    m.Intercepts,
@@ -330,6 +333,7 @@ func resolve(m *loopholedecl.Manifest, modulePath string) *Loophole {
 		Settings:      m.Settings,
 		Brokered:      m.Brokered,
 		Grants:        m.Grants,
+		Access:        m.Access,
 		Binaries:      m.Binaries,
 		BinaryRefs:    m.BinaryRefs,
 

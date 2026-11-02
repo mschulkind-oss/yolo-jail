@@ -85,7 +85,7 @@ func CollectScopeCheck(in ScopeInput) *config.ScopeCheck {
 		}
 		if len(lp.Grants) > 0 {
 			granting = append(granting, config.GateLoophole{Pack: lp.Pack, Loophole: lp.Name,
-				Grants: lp.Grants, Inert: grantInertLine(lp, in.Runtime, allow)})
+				Access: lp.Access, Grants: lp.Grants, Inert: grantInertLine(lp, in.Runtime, allow)})
 		}
 	}
 	var check *config.ScopeCheck

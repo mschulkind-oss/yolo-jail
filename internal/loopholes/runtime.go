@@ -414,6 +414,14 @@ func admitsJailSideEffects(m *Loophole, runtime string, gate *Set, what string) 
 	if !gateAdmitsCrossing(m, gate, what) {
 		return false
 	}
+	// AN UNMEDIATED GRANT-DECLARING LOOPHOLE CROSSES ONLY UNDER A GRANT
+	// (docs/design/loophole-access-approval.md §4.4, LG-D6): no daemon answers its requests, so
+	// nothing can refuse one, and the crossing itself is what a grant admits. Without a grant
+	// none of it reaches the jail. A mediated one runs and refuses per request instead; its
+	// binds and devices still wait on a grant (grantWithholdsBinds).
+	if len(m.Grants) > 0 && !m.Mediated() && !gate.holdsGrant(m) {
+		return false
+	}
 	// Apple Container does not support --add-host (apple/container#673), so a
 	// loophole that needs one is skipped whole there.
 	//
@@ -462,12 +470,29 @@ func (s Set) JailBoundNames(from []*Loophole, runtime string) []string {
 		if m.JailDaemon != nil || (len(m.HostBindMount) == 0 && len(m.HostDevices) == 0) {
 			continue
 		}
-		if !admitsJailSideEffects(m, runtime, &s, "RuntimeArgsFor") {
+		if !admitsJailSideEffects(m, runtime, &s, "RuntimeArgsFor") || grantWithholdsBinds(m, &s) {
 			continue
 		}
 		names = append(names, m.Name)
 	}
 	return names
+}
+
+// Mediated reports whether a daemon answers each of this loophole's requests, so a grant is
+// checked there, per request, against the grant file: a `host_daemon`, or a `jail_daemon` that
+// fronts a host command. Everything else a loophole declares (binds, devices) is UNMEDIATED:
+// container argv decided at launch (docs/design/loophole-access-approval.md §4.4). It is read
+// from the manifest's shape, never from a name.
+func (l *Loophole) Mediated() bool {
+	return l.HostDaemon != nil || (l.JailDaemon != nil && len(l.JailDaemon.HostCmd) > 0)
+}
+
+// grantWithholdsBinds is whether m's binds and devices stay out of the jail for want of a
+// grant: a grant-declaring loophole this launch holds no kind of. A bind or a device is an
+// unmediated crossing even beside a daemon, so it waits on a grant whatever else m declares.
+// A nil gate holds no grant.
+func grantWithholdsBinds(m *Loophole, gate *Set) bool {
+	return len(m.Grants) > 0 && !gate.holdsGrant(m)
 }
 
 // FrontedHostNames names each record in from whose HOST DAEMON SERVES THE JAIL over yolo's
@@ -680,7 +705,11 @@ func runtimeArgsWith(loopholes []*Loophole, runtime string, gate *Set, specs []J
 			trustedCAPaths = append(trustedCAPaths, containerCA)
 		}
 
+		withheld := grantWithholdsBinds(m, gate)
 		for _, bm := range m.HostBindMount {
+			if withheld {
+				break // the launch's disclosure says so, with the step that grants it
+			}
 			if !pathExists(bm.Host) {
 				warnf("loophole %s: skipping bind mount, host source missing: %s", m.Name, bm.Host)
 				continue
@@ -692,10 +721,13 @@ func runtimeArgsWith(loopholes []*Loophole, runtime string, gate *Set, specs []J
 			args = append(args, "-v", spec)
 		}
 
-		if len(m.HostDevices) > 0 && inJail() {
+		switch {
+		case withheld:
+			// No device crosses without a grant either.
+		case len(m.HostDevices) > 0 && inJail():
 			infof("loophole %s: skipping device passthrough inside a jail — "+
 				"devices cannot nest under rootless podman", m.Name)
-		} else {
+		default:
 			for _, dev := range m.HostDevices {
 				if !pathExists(dev) {
 					warnf("loophole %s: skipping device passthrough, host node missing: %s", m.Name, dev)

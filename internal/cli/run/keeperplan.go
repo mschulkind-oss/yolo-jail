@@ -81,6 +81,11 @@ type keeperPlan struct {
 	// ApprovedGrants are the user grants the same gate approved, per brokered loophole
 	// (Options.approvedGrants), which the keeper writes into the same scope files.
 	ApprovedGrants map[string][]brokerscope.Grant `json:"approved_grants,omitempty"`
+	// ApprovedLoopholeGrants are each grant-declaring loophole's standing per kind as the same
+	// gate approved it (Options.approvedLoopholeGrants), which the keeper writes into each one's
+	// grant file (docs/design/loophole-access-approval.md §4.6). Absent, the keeper's grant files
+	// grant nothing.
+	ApprovedLoopholeGrants map[string]map[string]config.LoopholeGrantStanding `json:"approved_loophole_grants,omitempty"`
 	// ReadWithoutScope are the brokered loopholes whose read grant the same gate found applying
 	// over no repository (Options.readWithoutScope), each with the workspace key that would list
 	// one, so the keeper's launch line names the missing remote rather than a grant.

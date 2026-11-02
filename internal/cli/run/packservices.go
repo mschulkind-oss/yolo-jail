@@ -89,7 +89,10 @@ func (o *Options) jailDaemonsFor(cfg *jsonx.OrderedMap, rt string,
 	packs []*packload.Pack) []loopholes.JailDaemonSpec {
 	// The credential view drops the terminator from the payload, as it drops the rest of the
 	// interception from the argv (loopholesRuntimeArgs): one decision, both halves.
-	set := loopholes.NewHostSet(cfgMap(cfg, "loopholes")).WithCredentialView(o.claudeCredentialView(rt, cfg))
+	// Narrowed by this launch's grants as the argv is (loopholesRuntimeArgs), so a bound
+	// loophole's pointer is served exactly when its binds cross. This runs before the gate, so a
+	// grant reads from the record here (loopholeGrantStandings).
+	set := o.withLaunchGrants(loopholes.NewHostSet(cfgMap(cfg, "loopholes")).WithCredentialView(o.claudeCredentialView(rt, cfg)), rt, cfg)
 	// The service declarations the payload below sets aside, recorded for noteShadowedServices
 	// the way withoutUnselectedProfileDaemons records what it leaves out: every call composes
 	// the same packs, so the record is the same whichever call wrote it last.

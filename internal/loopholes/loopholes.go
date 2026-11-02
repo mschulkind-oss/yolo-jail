@@ -130,6 +130,10 @@ type Loophole struct {
 	// Grants is the manifest's `[[grants]]` declarations verbatim (loopholedecl/grants.go): the
 	// grant kinds a project can be granted. Nil means the loophole is ungated.
 	Grants []Grant
+	// Access is the manifest's top-level `access` line ("read the host's journal"), what the
+	// loophole reaches, which the grant file hands its daemon for every refusal. Set exactly when
+	// Grants is.
+	Access string
 	// Binaries and BinaryRefs carry the manifest's `binaries` declarations and which of them
 	// its argvs name, verbatim (loopholedecl/binaries.go). The argvs themselves are resolved
 	// at load (resolve, load.go); BinaryNeeds (binaries.go) is where the two meet this
