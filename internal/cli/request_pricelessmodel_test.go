@@ -74,9 +74,7 @@ func TestRequestIsNotRefusedForAPricelessModelItDidNotWrite(t *testing.T) {
 
 	// The launch's verdict: the post-write check, and the validation a launch runs, accept the
 	// same config the verb just accepted.
-	if !strings.Contains(out, "[PASS] Merged config is semantically valid") {
-		t.Fatalf("the post-write check did not accept the merged config: %q", out)
-	}
+	assertMergedConfigAccepted(t, out)
 	cfg, err := config.LoadReadableConfig(fx.workspace, true, func(string) {})
 	if err != nil {
 		t.Fatal(err)
@@ -141,9 +139,10 @@ func TestRequestCreatingTheProjectFileIsNotRefusedForAPricelessModel(t *testing.
 		return registry["request"]([]string{"request", "github", "approve_runs", "github-actions[bot]"})
 	})
 	assertPublicPostWriteCheck(t, rc, out, errs)
-	if strings.Contains(errs, "config edit refused") || !strings.Contains(out, "[PASS] Merged config is semantically valid") {
+	if strings.Contains(errs, "config edit refused") {
 		t.Fatalf("creating the project file was refused for a model it did not write: rc=%d stdout=%q stderr=%q", rc, out, errs)
 	}
+	assertMergedConfigAccepted(t, out)
 	if got := readFile(t, fx.project); !strings.Contains(got, `approve_runs = ["github-actions[bot]"]`) {
 		t.Fatalf("project file lacks the request:\n%s", got)
 	}
@@ -163,13 +162,34 @@ func TestUnsetScalarIsNotRefusedForAPricelessModelItLeaves(t *testing.T) {
 		return registry["config"]([]string{"config", "unset", "machine.resources.cpus", "--project"})
 	})
 	assertPublicPostWriteCheck(t, rc, out, errs)
-	if strings.Contains(errs, "config edit refused") || !strings.Contains(out, "[PASS] Merged config is semantically valid") {
+	if strings.Contains(errs, "config edit refused") {
 		t.Fatalf("an unrelated unset was refused for a pre-existing model: rc=%d stdout=%q stderr=%q", rc, out, errs)
 	}
+	assertMergedConfigAccepted(t, out)
 	if strings.Contains(readFile(t, fx.project), "cpus") {
 		t.Fatal("the unset did not remove the value")
 	}
 	if strings.Count(errs, "warning: already in your config") != 1 {
 		t.Fatalf("want exactly one pre-existing-problem warning: %q", errs)
+	}
+}
+
+// assertMergedConfigAccepted reads the post-write check's verdict on the merged config. On a
+// machine with a container runtime the section passes; on one without (the macOS CI runner has
+// neither Apple Container nor podman) the section stops at "No runtime available" by design
+// (check.sectionMergedConfig, HE-D2), so the check is read for the absence of a finding about
+// the priceless model instead. The launch's own validation is asserted separately.
+func assertMergedConfigAccepted(t *testing.T, out string) {
+	t.Helper()
+	if strings.Contains(out, "[PASS] Merged config is semantically valid") {
+		return
+	}
+	if !strings.Contains(out, "No runtime available — see Container Runtime above") {
+		t.Fatalf("the post-write check neither accepted the merged config nor stopped at a missing runtime: %q", out)
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "[FAIL]") && (strings.Contains(line, "price") || strings.Contains(line, "claude-haiku-5-5")) {
+			t.Fatalf("the post-write check refused the priceless model: %q", line)
+		}
 	}
 }
