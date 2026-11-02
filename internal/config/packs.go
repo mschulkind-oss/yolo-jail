@@ -157,7 +157,7 @@ type PackEntry struct {
 
 	// ByDefault marks a shipped pack in the selection because its manifest says
 	// `selected_by_default = true`, not because a config line named it (appendImplicitPacks;
-	// docs/design/loophole-access-approval-plan.md PD-13). json:"-" for Implicit's reason. Like
+	// docs/reference/loophole-grants.md PD-13). json:"-" for Implicit's reason. Like
 	// the local pack, it is not a CONFIGURED pack: HasConfiguredPack skips it, so a jail whose
 	// only packs are default ones still hears that it has no coding agent.
 	ByDefault bool `json:"-"`
@@ -342,7 +342,7 @@ func appendImplicitPacks(entries []PackEntry) []PackEntry {
 }
 
 // appendDefaultSelectedPacks appends one entry per name in defaults, each the entry a bare
-// `packs = ["<name>"]` lowers to, marked ByDefault (docs/design/loophole-access-approval-plan.md
+// `packs = ["<name>"]` lowers to, marked ByDefault (docs/reference/loophole-grants.md
 // PD-13). `cgroup-delegate` is the one such pack today (LG-D13).
 //
 // A configured entry already selecting the pack — or any configured pack already using the
@@ -976,5 +976,5 @@ func IsSelectedByDefault(name string) bool {
 func SelectedByDefaultNoOff(name string) string {
 	return name + " is selected by default (it ships with yolo and can only narrow the jail), so a " +
 		"launch selects it with or without a `packs` line; this yolo has no switch to turn it off, " +
-		"and a per-workspace `off` for it is planned (docs/design/loophole-access-approval.md LG-D9)"
+		"and a per-workspace `off` for it is planned (docs/reference/loophole-grants.md LG-D9)"
 }

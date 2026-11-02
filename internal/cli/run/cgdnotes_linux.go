@@ -35,7 +35,7 @@ import "fmt"
 // UNAVAILABLE GOES TO THE LAUNCH LOG ALONE, never the terminal: the pack is selected by default,
 // so this host would hear it on every launch about a capability nobody chose, and a
 // default-selected pack inert on this setup is not reported at launch (LG-D13 of
-// docs/design/loophole-access-approval.md). The record keeps it for whoever asks why
+// docs/reference/loophole-grants.md). The record keeps it for whoever asks why
 // `yolo-cglimit` is unavailable. FAILED still prints: that host can run the delegate, and the
 // fault is one to fix.
 func (o *Options) noteCgroupDelegateUnavailable(reason string) {

@@ -217,7 +217,7 @@ var knownReleaseBreaks = []knownReleaseBreak{
 		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
 		repair: dropKey("pinned_endpoint")},
 	// Measured against v0.15.1 on 2026-11-02: cgroup-delegate declares `selected_by_default`
-	// (docs/design/loophole-access-approval-plan.md PD-13), a pack-wide field that reader skips
+	// (docs/reference/loophole-grants.md PD-13), a pack-wide field that reader skips
 	// without failing its boot. The field is read on the host, by config.LoadPacks, and never by
 	// a jail's boot, so an old jail handed the tree loses nothing.
 	{release: "v0.15.1", pack: "cgroup-delegate", problem: `unknown field "selected_by_default"`,

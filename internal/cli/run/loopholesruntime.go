@@ -643,7 +643,7 @@ func hostDaemonOrder(set loopholes.Set, discovered []*loopholes.Loophole, cfg *j
 
 // cgroupDelegateBackend is whether a launch on runtime rt has a container cgroup to delegate. The
 // macos-user backend runs no container, so it plans and starts no delegate: with the pack selected
-// by default (docs/design/loophole-access-approval-plan.md PD-13), planning one there spawned a
+// by default (docs/reference/loophole-grants.md PD-13), planning one there spawned a
 // keeper holding a service that cannot start. Apple Container is already excluded by
 // HostServiceAdmittedOn.
 func cgroupDelegateBackend(rt string) bool {

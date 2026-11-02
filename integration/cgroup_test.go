@@ -26,7 +26,7 @@ import (
 //
 // IT NAMES NO PACK AND SWITCHES NOTHING ON, and that is the assertion: the cgroup-delegate
 // pack is selected by default and its loophole is ungated
-// (docs/design/loophole-access-approval.md LG-D13, plan PD-13), so a jail whose user config
+// (docs/reference/loophole-grants.md LG-D13, plan PD-13), so a jail whose user config
 // is requireJail's empty isolated one gets the delegate. The user half is still STATED
 // rather than inherited from the machine: requireJail's empty config is what a CI runner has,
 // so an ambient config cannot satisfy the assertion (the §10.5 defect).

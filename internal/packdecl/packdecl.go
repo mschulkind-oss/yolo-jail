@@ -105,7 +105,7 @@ type Manifest struct {
 	// SelectedByDefault, spelled `selected_by_default = true`, puts the pack in every launch's
 	// selection with no `packs` line naming it: config.LoadPacks appends it after the configured
 	// entries and before the conventional local pack, so the launch, `yolo check` and
-	// `yolo host apply` all read it as selected (docs/design/loophole-access-approval-plan.md
+	// `yolo host apply` all read it as selected (docs/reference/loophole-grants.md
 	// PD-13). It does not count as a configured pack, so the "no coding agent" notice still
 	// prints when it is the only one (run.warnIfNoPacks), and a loophole it ships that is inert on
 	// this setup is not reported at launch, only by `yolo loopholes status`, since the user did

@@ -3748,12 +3748,13 @@ launch (`run.warnIfNoPacks`). `internal/config/validate.go` hard-errors on the r
 
 **One exception, by name: `selected_by_default`.** A pack's `pack.toml` may set
 `selected_by_default = true`, and the key is honored for the packs yolo ships (embedded packs)
-only. `config.LoadPacks` appends such a pack to the selection beside the implicit local pack,
-and `warnIfNoPacks` does not count it, so a config with no agent still says so. The one pack
-that sets it is `cgroup-delegate`, whose loophole can only limit the jail itself
-([PD-13](loophole-grants.md#PD-13), [LG-D13](loophole-grants.md#LG-D13)). **Ruled, not yet
-built:** until slice [T15](loophole-grants.md#T15) lands, the key is not read and
-`cgroup-delegate` still needs `yolo pack add`.
+only: a local or fetched pack that declares it is refused when it resolves, naming the line to
+delete. `config.LoadPacks` appends such a pack after the configured entries and before the
+implicit local pack, unless the config already names it, and `warnIfNoPacks` does not count it,
+so a config with no agent still says so; `yolo pack ls` lists it as selected by default. The
+one pack that sets it is `cgroup-delegate`, whose loophole can only limit the jail itself
+([PD-13](loophole-grants.md#PD-13), [LG-D13](loophole-grants.md#LG-D13)). It cannot be turned
+off yet: its per-workspace `off` arrives with [LG-D9](loophole-grants.md#LG-D9).
 
 Three source forms:
 

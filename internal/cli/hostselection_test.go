@@ -18,7 +18,7 @@ import (
 )
 
 // claudeAndItsNeeds is what `"packs": ["claude"]` selects at every notch: claude, cgroup-delegate
-// (selected by default, an entry after the configured ones: docs/design/loophole-access-approval-plan.md
+// (selected by default, an entry after the configured ones: docs/reference/loophole-grants.md
 // PD-13), claude-auth (docs/design/provider-enablement.md OQ-PE2) and wire-bridge.
 var claudeAndItsNeeds = []string{"claude", "cgroup-delegate", "claude-auth", "wire-bridge"}
 

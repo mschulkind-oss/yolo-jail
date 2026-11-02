@@ -253,7 +253,7 @@ func EmbeddedNames() []string {
 // EmbeddedSelectedByDefault lists, sorted, the embedded packs whose manifest declares
 // `selected_by_default = true` (packdecl.Manifest.SelectedByDefault): the packs
 // config.LoadPacks puts in every selection with no `packs` line naming them
-// (docs/design/loophole-access-approval-plan.md PD-13).
+// (docs/reference/loophole-grants.md PD-13).
 //
 // Read from the registered embed.FS, manifest by manifest, never through Embedded(): LoadPacks
 // runs on every config read, and a flag does not justify materializing and leasing a tree

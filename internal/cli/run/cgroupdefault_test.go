@@ -1,6 +1,6 @@
 package run
 
-// cgroupdefault_test.go pins T15 of docs/design/loophole-access-approval-plan.md: the
+// cgroupdefault_test.go pins T15 of docs/reference/loophole-grants.md: the
 // cgroup-delegate pack is selected by default (PD-13, LG-D13), so its delegate runs with an empty
 // config, the "no coding agent" notice still prints, and a launch does not report it inert.
 

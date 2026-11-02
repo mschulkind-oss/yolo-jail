@@ -49,7 +49,9 @@ the new one through the manifest's `formerly` key ([PE-D7](docs/design/provider-
 `jail_env` and an absolute `requires.file_exists` are refused for every manifest yolo reads.
 
 **Nothing is active by default**: an empty config yields a jail with no coding agent, and says so at launch
-(`run.warnIfNoPacks`).
+(`run.warnIfNoPacks`). The one exception is a pack whose `pack.toml` sets `selected_by_default`, honored for
+shipped packs only and set only on `cgroup-delegate`, which can only limit the jail
+([PD-13](docs/reference/loophole-grants.md#PD-13)).
 
 A pack declares (`internal/packdecl`, read through `internal/packload`) an install spec, mounts,
 writable/shared dirs, host-file grants, composed `surfaces`, launch flags and named `hooks`. The boot path

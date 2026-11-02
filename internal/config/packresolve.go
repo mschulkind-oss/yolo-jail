@@ -298,7 +298,7 @@ func embeddedPackNamed(name string) (*packload.Pack, error) {
 }
 
 // selectedByDefaultProblem refuses `selected_by_default` in a pack yolo does not ship
-// (packdecl.Manifest.SelectedByDefault; docs/design/loophole-access-approval-plan.md PD-13). A
+// (packdecl.Manifest.SelectedByDefault; docs/reference/loophole-grants.md PD-13). A
 // configured pack, local or fetched, is already selected by the `packs` line naming it, and a
 // fetched one must not promote itself into every launch, so the key has nothing honest to do
 // there. ResolvePack is the one resolver every notch and verb goes through, so the refusal is the

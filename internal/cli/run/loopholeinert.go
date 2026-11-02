@@ -187,7 +187,7 @@ func (o *Options) notePackLoopholesInert(rt string, packs []*packload.Pack, cfg 
 // chosenPacks is packs less the ones selected by default (packload.Pack.SelectedByDefault):
 // a default-selected pack's loophole that does nothing on this setup is not reported at launch,
 // on either axis, since the user did not choose it; `yolo loopholes status` reports it
-// (docs/design/loophole-access-approval.md LG-D13). Today that is `cgroup-delegate` on macOS and
+// (docs/reference/loophole-grants.md LG-D13). Today that is `cgroup-delegate` on macOS and
 // on Apple Container, which would otherwise print a line on every launch there.
 func chosenPacks(packs []*packload.Pack) []*packload.Pack {
 	var out []*packload.Pack

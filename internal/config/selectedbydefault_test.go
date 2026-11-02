@@ -1,6 +1,6 @@
 package config
 
-// selectedbydefault_test.go pins PD-13 of docs/design/loophole-access-approval-plan.md: a shipped
+// selectedbydefault_test.go pins PD-13 of docs/reference/loophole-grants.md: a shipped
 // pack whose manifest says `selected_by_default = true` is in every selection with no `packs`
 // line naming it, appended beside the conventional local pack, and a configured pack may not
 // declare the key.
