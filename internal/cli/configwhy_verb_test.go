@@ -17,6 +17,7 @@ func TestConfigWhyNamesTheVerbOfAnUnsetKey(t *testing.T) {
 		"requests.github.repos":              "set it with `yolo request github repos <OWNER/REPO>`",
 		"requests.git.new_branches":          "set it with `yolo request git new_branches`",
 		"requests.github.dispatch_workflows": "set it with `yolo request github dispatch_workflows <workflow file>`",
+		"requests.github.approve_runs":       "set it with `yolo request github approve_runs <actor login>`",
 		"active_provider.claude":             "set it with `yolo active-provider claude <provider|native>`",
 		"active_provider.default":            "set it with `yolo active-provider default <provider|native>`",
 

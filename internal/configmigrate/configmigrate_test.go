@@ -166,6 +166,28 @@ func TestPlanConvertsADispatchWorkflowGrant(t *testing.T) {
 	}
 }
 
+// A legacy approve-run grant on the workspace's one remote converts to the request naming its
+// actor.
+func TestPlanConvertsAnApproveRunGrant(t *testing.T) {
+	env(t)
+	ws := realDir(t)
+	gitRemotes(t, ws, "https://github.com/acme/one.git")
+	write(t, filepath.Join(ws, "yolo-jail.jsonc"), `{
+  "brokered": {"github": {"grants": [
+    {"kind": "approve-run", "repo": "github.com/acme/one", "actor": "github-actions[bot]"}
+  ]}}
+}
+`)
+	p := plan(t, Request{Workspace: ws})
+	if !p.Equal {
+		t.Fatalf("plan unequal: %+v", p.Differences)
+	}
+	got := string(target(t, p, filepath.Join(ws, "yolo-jail.jsonc")).Bytes)
+	if !strings.Contains(got, "[requests.github]\napprove_runs = [\"github-actions[bot]\"]") {
+		t.Fatalf("converted file:\n%s", got)
+	}
+}
+
 // Every comment survives, as # lines, in document order: a template block, standalone and inline
 // comments, and one after a key the conversion drops.
 func TestPlanKeepsEveryCommentInOrder(t *testing.T) {

@@ -84,7 +84,10 @@
     `allow` ceiling: `[requests.git]` `push = ["main"]`, `push_tags`,
     `new_branches = true`; `[requests.github]` `repos = ["acme/other"]`,
     `create_pr`, `create_issue`, `dispatch_workflows = ["nightly.yml"]` (run
-    that workflow on the default branch only; `"*"` for every workflow); for a
+    that workflow on the default branch only; `"*"` for every workflow),
+    `approve_runs = ["github-actions[bot]"]` (approve a held workflow run that
+    login triggered from this repository itself, never a fork's; `"*"` for
+    every actor); for a
     loophole, `[requests.journal] read = true` or
     `[requests.host-processes] view = ["postgres"]`.  A request is a grant
     once approved (`yolo config apply`, or y at the launch prompt).  A

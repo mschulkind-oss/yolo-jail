@@ -12,10 +12,11 @@ import (
 // config allows, as the config-change gate approved them. The file carries them for the broker
 // to read at each write; the scope file is still written only from a gate's approved result.
 
-// Grant is one user grant: its kind (`create-branch`, `branch`, `tag`, `dispatch-workflow`) and
-// the repository it covers, a repository identity (`github.com/o/r`, gitproto.Identity) or
-// AnyRepo. A kind that names something (GrantTakesName) carries its name in Branch (`branch`),
-// Tag (`tag`) or Workflow (`dispatch-workflow`), and no other kind has any of them.
+// Grant is one user grant: its kind (`create-branch`, `branch`, `tag`, `dispatch-workflow`,
+// `approve-run`) and the repository it covers, a repository identity (`github.com/o/r`,
+// gitproto.Identity) or AnyRepo. A kind that names something (GrantTakesName) carries its name in
+// Branch (`branch`), Tag (`tag`), Workflow (`dispatch-workflow`) or Actor (`approve-run`), and no
+// other kind has any of them.
 type Grant struct {
 	Kind string `json:"kind"`
 	Repo string `json:"repo"`
@@ -31,6 +32,10 @@ type Grant struct {
 	// repository's .github/workflows (`nightly-macos.yml`), or AnyWorkflow for every one
 	// (docs/design/github-write-scopes.md GW-D14).
 	Workflow string `json:"workflow,omitempty"`
+	// Actor is an `approve-run` grant's actor: the GitHub login (`github-actions[bot]`) whose
+	// triggered workflow runs, held at action_required, the broker may approve unasked, or
+	// AnyActor for every actor. A run from a fork is never covered, whatever the actor.
+	Actor string `json:"actor,omitempty"`
 }
 
 // KindDispatchWorkflow is the GitHub grant kind that names a workflow, or AnyWorkflow: the
@@ -40,6 +45,14 @@ const KindDispatchWorkflow = "dispatch-workflow"
 
 // AnyWorkflow is a `dispatch-workflow` grant's wildcard: every workflow in the repository.
 const AnyWorkflow = "*"
+
+// KindApproveRun is the GitHub grant kind that names a run's triggering actor, or AnyActor: the
+// broker may send `gh api -X POST repos/{o}/{r}/actions/runs/{id}/approve` for it unasked, for a
+// run that actor triggered whose head is the repository itself, never a fork's.
+const KindApproveRun = "approve-run"
+
+// AnyActor is an `approve-run` grant's wildcard: a run any actor triggered.
+const AnyActor = "*"
 
 // AnyRepo is a grant's written-out wildcard: every repository the scope holds.
 const AnyRepo = "*"
@@ -89,12 +102,14 @@ func GrantTakesBranch(kind string) bool { return kind == KindBranch }
 func GrantTakesRef(kind string) bool { return kind == KindBranch || kind == KindTag }
 
 // GrantTakesName reports whether a grant of kind names something beside its repository: a ref
-// (GrantTakesRef) or a workflow (`dispatch-workflow`). Config spells such a kind's request as a
-// list of names, and an `always` capability cannot hold one.
-func GrantTakesName(kind string) bool { return GrantTakesRef(kind) || kind == KindDispatchWorkflow }
+// (GrantTakesRef), a workflow (`dispatch-workflow`) or an actor (`approve-run`). Config spells
+// such a kind's request as a list of names, and an `always` capability cannot hold one.
+func GrantTakesName(kind string) bool {
+	return GrantTakesRef(kind) || kind == KindDispatchWorkflow || kind == KindApproveRun
+}
 
 // GrantNameKey is the field a name-taking kind's name is written in, in a grant entry and the
-// scope file: `branch`, `tag` or `workflow`; "" for a kind that names nothing.
+// scope file: `branch`, `tag`, `workflow` or `actor`; "" for a kind that names nothing.
 func GrantNameKey(kind string) string {
 	switch kind {
 	case KindBranch:
@@ -103,21 +118,45 @@ func GrantNameKey(kind string) string {
 		return "tag"
 	case KindDispatchWorkflow:
 		return "workflow"
+	case KindApproveRun:
+		return "actor"
 	}
 	return ""
 }
 
 // ValidGrantName reports whether name is one a grant of the name-taking kind can hold: a ref name
 // or pattern for `branch` and `tag` (ValidGrantRefPattern), a workflow file name or `*` for
-// `dispatch-workflow` (ValidGrantWorkflow). False for a kind that names nothing.
+// `dispatch-workflow` (ValidGrantWorkflow), a GitHub login or `*` for `approve-run`
+// (ValidGrantActor). False for a kind that names nothing.
 func ValidGrantName(kind, name string) bool {
 	switch {
 	case GrantTakesRef(kind):
 		return ValidGrantRefPattern(name)
 	case kind == KindDispatchWorkflow:
 		return ValidGrantWorkflow(name)
+	case kind == KindApproveRun:
+		return ValidGrantActor(name)
 	}
 	return false
+}
+
+// ValidGrantActor reports whether s is an actor an `approve-run` grant can name: AnyActor, or a
+// GitHub login as GitHub spells one, a letter or digit, then up to 38 letters, digits and
+// hyphens, optionally followed by `[bot]` for an app's bot account (`github-actions[bot]`).
+func ValidGrantActor(s string) bool {
+	if s == AnyActor {
+		return true
+	}
+	login := strings.TrimSuffix(s, "[bot]")
+	if login == "" || len(login) > 39 || login[0] == '-' {
+		return false
+	}
+	for _, c := range []byte(login) {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-') {
+			return false
+		}
+	}
+	return true
 }
 
 // ValidGrantWorkflow reports whether s is a workflow a `dispatch-workflow` grant can name:
@@ -165,24 +204,28 @@ func RefGrant(kind, repo, name string) Grant {
 		g.Tag = name
 	case KindDispatchWorkflow:
 		g.Workflow = name
+	case KindApproveRun:
+		g.Actor = name
 	}
 	return g
 }
 
-// Name is the name or pattern a name-taking grant holds, its Branch, Tag or Workflow.
+// Name is the name or pattern a name-taking grant holds, its Branch, Tag, Workflow or Actor.
 func (g Grant) Name() string {
 	switch {
 	case g.Branch != "":
 		return g.Branch
 	case g.Tag != "":
 		return g.Tag
+	case g.Workflow != "":
+		return g.Workflow
 	}
-	return g.Workflow
+	return g.Actor
 }
 
 // Wildcard reports whether a name-taking grant reaches further than one name on one
-// repository: its repository is AnyRepo, or its name is a pattern (a ref pattern, or
-// AnyWorkflow).
+// repository: its repository is AnyRepo, or its name is a pattern (a ref pattern, AnyWorkflow
+// or AnyActor).
 func (g Grant) Wildcard() bool {
 	return GrantTakesName(g.Kind) && (g.Repo == AnyRepo || strings.Contains(g.Name(), "*"))
 }
@@ -214,6 +257,9 @@ func GrantNote(g Grant) string {
 	if g.Kind == KindDispatchWorkflow {
 		return dispatchWorkflowNote(g)
 	}
+	if g.Kind == KindApproveRun {
+		return approveRunNote(g)
+	}
 	what := "`" + g.Name() + "`"
 	if strings.Contains(g.Name(), "*") {
 		plural := "branches"
@@ -244,6 +290,20 @@ func dispatchWorkflowNote(g Grant) string {
 	return "may run " + what + " on the default branch of " + on + ", unasked"
 }
 
+// approveRunNote is GrantNote for a wildcard approve-run grant, in plain words: "may approve
+// workflow runs any actor triggered from github.com/o/r itself (never a fork's), unasked".
+func approveRunNote(g Grant) string {
+	who := "`" + g.Actor + "` triggered"
+	if g.Actor == AnyActor {
+		who = "any actor triggered"
+	}
+	on := g.Repo + " itself"
+	if g.Repo == AnyRepo {
+		on = "every repository in scope now and any approved later, each itself"
+	}
+	return "may approve workflow runs " + who + " from " + on + " (never a fork's), unasked"
+}
+
 // String is the grant as the gate's block and the approval record spell it: `<kind> <repo>`,
 // then ` <name>` for a kind that names something (GrantTakesName). No part can hold a space (ValidGrant), so the
 // spelling parses back (ParseGrant).
@@ -259,7 +319,7 @@ func ParseGrant(s string) (Grant, bool) {
 	kind, rest, found := strings.Cut(s, " ")
 	repo, name, _ := strings.Cut(rest, " ")
 	g := Grant{Kind: kind, Repo: repo, Branch: name}
-	if kind == KindTag || kind == KindDispatchWorkflow {
+	if kind == KindTag || kind == KindDispatchWorkflow || kind == KindApproveRun {
 		g = RefGrant(kind, repo, name)
 	}
 	return g, found && ValidGrant(g)
@@ -274,13 +334,15 @@ func ValidGrant(g Grant) bool {
 	}
 	switch g.Kind {
 	case KindBranch:
-		return g.Tag == "" && g.Workflow == "" && ValidGrantRefPattern(g.Branch)
+		return g.Tag == "" && g.Workflow == "" && g.Actor == "" && ValidGrantRefPattern(g.Branch)
 	case KindTag:
-		return g.Branch == "" && g.Workflow == "" && ValidGrantRefPattern(g.Tag)
+		return g.Branch == "" && g.Workflow == "" && g.Actor == "" && ValidGrantRefPattern(g.Tag)
 	case KindDispatchWorkflow:
-		return g.Branch == "" && g.Tag == "" && ValidGrantWorkflow(g.Workflow)
+		return g.Branch == "" && g.Tag == "" && g.Actor == "" && ValidGrantWorkflow(g.Workflow)
+	case KindApproveRun:
+		return g.Branch == "" && g.Tag == "" && g.Workflow == "" && ValidGrantActor(g.Actor)
 	}
-	return g.Branch == "" && g.Tag == "" && g.Workflow == ""
+	return g.Branch == "" && g.Tag == "" && g.Workflow == "" && g.Actor == ""
 }
 
 // ValidGrantBranch reports whether s is one ref's short name a grant can name: one name git
@@ -366,7 +428,7 @@ func ValidGrantRepo(s string) bool {
 func checkGrants(grants []Grant) error {
 	for _, g := range grants {
 		if !ValidGrant(g) {
-			return fmt.Errorf("scope file: grant %q is not a grant kind, a repository identity and, for a branch or tag grant, one name or pattern with at most one `*`, or for a dispatch-workflow grant, one workflow file name or `*`", g.String())
+			return fmt.Errorf("scope file: grant %q is not a grant kind, a repository identity and, for a branch or tag grant, one name or pattern with at most one `*`, for a dispatch-workflow grant, one workflow file name or `*`, or for an approve-run grant, one GitHub login or `*`", g.String())
 		}
 	}
 	return nil

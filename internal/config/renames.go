@@ -57,6 +57,7 @@ var configRenames = []RenameDescriptor{
 	{OldPath: "brokered.*.grants.*.branch", Replacements: []string{"requests.git.push"}, Scope: SchemaScopeWorkspaceOnly, Transform: RenameValueRewrite},
 	{OldPath: "brokered.*.grants.*.tag", Replacements: []string{"requests.git.push_tags"}, Scope: SchemaScopeWorkspaceOnly, Transform: RenameValueRewrite},
 	{OldPath: "brokered.*.grants.*.workflow", Replacements: []string{"requests.github.dispatch_workflows"}, Scope: SchemaScopeWorkspaceOnly, Transform: RenameValueRewrite},
+	{OldPath: "brokered.*.grants.*.actor", Replacements: []string{"requests.github.approve_runs"}, Scope: SchemaScopeWorkspaceOnly, Transform: RenameValueRewrite},
 	{OldPath: "brokered.*.sets", Replacements: nil, Scope: SchemaScopeUserOnly, Transform: RenameUnrepresentable},
 	{OldPath: "brokered.*.sets.*", Replacements: nil, Scope: SchemaScopeUserOnly, Transform: RenameUnrepresentable},
 	{OldPath: "profile", Replacements: []string{"active_provider.default", "active_provider.*"}, Scope: SchemaScopeUserOnly, Transform: RenameProfileSelection},

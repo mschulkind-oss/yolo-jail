@@ -23,6 +23,10 @@ GitHub repositories. The jail holds no GitHub token; `gh auth status` names the 
   `gh workflow run <file>` runs unasked on the repository's **default branch** only: omit `--ref`
   or pass the default branch's name. Name the workflow by its file name (`nightly.yml`), not its
   id or display name. A run on any other ref asks.
+- With an `approve-run` grant naming a GitHub login (or `*`), which the user adds with
+  `yolo request github approve_runs <login>` (such as `'github-actions[bot]'`) and approves the
+  same way, `gh api -X POST repos/OWNER/REPO/actions/runs/<id>/approve` runs unasked for a run
+  that login triggered whose head is the repository itself. A fork's run always asks.
 - Every other in-scope write files a pending request and waits briefly for the host. Tell the
   user to run `yolo approve <id>` on the host to allow that exact command once,
   `yolo approve <id> --add` to add the PR or issue it writes to the working set,

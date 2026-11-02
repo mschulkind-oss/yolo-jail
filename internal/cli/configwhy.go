@@ -217,6 +217,8 @@ func configWhySetCommand(steps []configdoc.Step, keys []string) string {
 			return "yolo request " + keys[1] + " push <ref>"
 		case len(keys) == 3 && keys[2] == "dispatch_workflows":
 			return "yolo request " + keys[1] + " dispatch_workflows <workflow file>"
+		case len(keys) == 3 && keys[2] == "approve_runs":
+			return "yolo request " + keys[1] + " approve_runs <actor login>"
 		case len(keys) == 3:
 			return "yolo request " + keys[1] + " " + keys[2]
 		}

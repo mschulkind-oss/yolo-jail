@@ -181,6 +181,7 @@ the entry to put in each project's `yolo-jail.local.jsonc` instead.
 | `gh pr view 32`, `gh issue list`, `gh run view --log`, `gh workflow list`, `gh repo view`, `gh release list`, `gh api repos/OWNER/REPO/...` and other reads | It runs with your login, and the output comes back as if it ran in the jail |
 | `gh pr create` or `gh issue create` under a `create-pr` or `create-issue` grant, and `gh pr comment 32`, `gh pr edit 32`, `gh pr review 32`, `gh issue close 32` and other writes to a PR or issue in the project's working set | It runs without asking. What the agent creates joins the working set, and a PR leaves it when it is merged. See [the working set](#the-working-set) |
 | `gh workflow run nightly.yml` under a `dispatch-workflow` grant naming that workflow, on the repository's default branch | It runs without asking. See [running a workflow](#running-a-workflow) |
+| `gh api -X POST repos/OWNER/REPO/actions/runs/<id>/approve` under an `approve-run` grant naming the run's triggering actor, for a run from the repository itself | It runs without asking. See [approving a held run](#approving-a-held-run) |
 | `gh pr merge`, and other in-scope writes nothing above covers | A request is filed and the broker waits briefly for host approval. Run `yolo approve <id>` on the host to allow that exact command once, or `yolo approve <id> --deny`; without a decision the command does not run and the agent can retry after approval |
 | `gh auth status` | Says which of your GitHub accounts the broker uses and which repositories the jail can reach. It never shows the token or its scopes |
 | `gh auth token`, `--web`, `gh api` to a full URL, a command that would read or write a file on your machine | Never runs, whatever else is allowed. It exits with code 64 and says why |
@@ -239,6 +240,26 @@ asks, because a workflow runs as its file is on that ref, with the repository's 
 agent that can push a branch could change the file there first. The agent must name the workflow
 by its file name; a numeric id or display name asks. Re-running, cancelling, enabling and
 disabling workflows always ask.
+
+### Approving a held run
+
+GitHub holds some workflow runs at `action_required` until someone approves them, such as the
+runs of a pull request a bot opened. To let the agent approve those without asking, allow the
+kind and name the GitHub login that triggers the runs in the project:
+
+```sh
+yolo allow github on_request approve_runs                       # on the host: your ceiling
+yolo request github approve_runs 'github-actions[bot]'          # in the project (or the jail)
+yolo config apply                                               # on the host, in the project: approve it
+```
+
+The project file then holds `approve_runs = ["github-actions[bot]"]` under `[requests.github]`;
+`"*"` there names every actor. With it, `gh api -X POST repos/OWNER/REPO/actions/runs/<id>/approve`
+runs without asking, but only after the broker reads the run and finds both that the login
+triggered it and that its head is in the repository itself. A run from a fork always asks,
+whoever triggered it, because approving it runs code from outside the repository. So does a run
+the broker cannot read. The agent must send exactly that call, with `-X POST`, a numeric run id
+and no fields. Re-running, cancelling and approving a deployment always ask.
 
 For output formatting, `--jq` and `--template` work as they do in `gh`, and so does piping
 `--json` output into `jq` inside the jail.

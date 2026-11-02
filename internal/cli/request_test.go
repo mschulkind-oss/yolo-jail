@@ -90,6 +90,41 @@ func TestRequestDispatchWorkflowsTakesAWorkflowFile(t *testing.T) {
 	}
 }
 
+// An approve_runs request takes one GitHub login, a bot's included, or *, into a list; anything
+// else is refused naming the command that works.
+func TestRequestApproveRunsTakesAnActorLogin(t *testing.T) {
+	fx := newNamedVerbFixture(t, "", "[allow.github]\nalways = [\"read\"]\non_request = [\"approve_runs\"]\n")
+	for _, actor := range []string{"github-actions[bot]", "octocat"} {
+		rc, out, errs := captureStd(t, func() int {
+			return registry["request"]([]string{"request", "github", "approve_runs", actor})
+		})
+		assertPublicPostWriteCheck(t, rc, out, errs)
+		if strings.Contains(out, "runs without it") {
+			t.Fatalf("an allowed request was reported as skipped: %q", out)
+		}
+	}
+	if got := readFile(t, fx.project); !strings.Contains(got, `approve_runs = ["github-actions[bot]", "octocat"]`) {
+		t.Fatalf("project file lacks the actors:\n%s", got)
+	}
+	for _, args := range [][]string{
+		{"request", "github", "approve_runs"},
+		{"request", "github", "approve_runs", "octo cat"},
+		{"request", "github", "approve_runs", "-x"},
+		{"request", "github", "approve_runs", "dependabot*"},
+	} {
+		rc, out, errs := captureStd(t, func() int { return registry["request"](args) })
+		if rc == 0 || !strings.Contains(errs, "GitHub login") && !strings.Contains(errs, "unknown flag") {
+			t.Fatalf("%v rc=%d, stdout=%q stderr=%q", args, rc, out, errs)
+		}
+		if strings.Contains(errs, "GitHub login") && !strings.Contains(errs, "yolo request github approve_runs 'github-actions[bot]'") {
+			t.Fatalf("%v refusal names no working command: %q", args, errs)
+		}
+	}
+	if got := readFile(t, fx.project); strings.Contains(got, "octo cat") || strings.Contains(got, "dependabot*") {
+		t.Fatalf("a refused actor was written:\n%s", got)
+	}
+}
+
 func TestRequestOutsideCeilingIsSkippedNotFatal(t *testing.T) {
 	fx := newNamedVerbFixture(t, "", "[allow.git]\nalways = [\"fetch\"]\n")
 	rc, out, errs := captureStd(t, func() int { return registry["request"]([]string{"request", "git", "push", "main"}) })

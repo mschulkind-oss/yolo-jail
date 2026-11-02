@@ -26,7 +26,9 @@ import (
 //  1. a user grant: a `create-pr` or `create-issue` grant the live scope file holds on the
 //     repository (or on `*`), while the user's own config still allows its kind, covers that
 //     creation; a `dispatch-workflow` grant naming the workflow's file (or `*`) covers its run
-//     on the repository's default branch, and on no other ref (dispatch.go);
+//     on the repository's default branch, and on no other ref (dispatch.go); an `approve-run`
+//     grant naming the run's triggering actor (or `*`) covers approving a run whose head is the
+//     repository itself, never a fork's (approverun.go);
 //  2. a working-set entry: a PR or issue in the workspace's working set covers every
 //     non-merge write to it (comment, edit, review, ready, close, reopen, and `gh api` writes
 //     under its pulls/{n} or issues/{n}), unless one host read of issues/{n} shows it merged,
@@ -64,13 +66,18 @@ func createGrantKind(t writeTarget) string {
 // userGrantCovers reports whether a user grant covers the write now: for a creation target t,
 // the live scope file holds a grant of its kind on the repository or on `*`; for a workflow run
 // the canonical argv asks for (dispatchOf), a dispatch-workflow grant naming its workflow or
-// `*`; and the host user's own config still allows that kind (BB-D96). Every failure to read
-// either covers nothing. A dispatch's ref is not read here: coveredWrite checks it.
-func (b *Broker) userGrantCovers(t writeTarget, argv []string) (string, bool) {
+// `*`; for a run approval (approveRunOf), an approve-run grant naming actor or `*` (any
+// approve-run grant on the repository when actor is "", before the run is read); and the host
+// user's own config still allows that kind (BB-D96). Every failure to read either covers
+// nothing. A dispatch's ref and a run's head are not read here: coveredWrite checks them.
+func (b *Broker) userGrantCovers(t writeTarget, argv []string, actor string) (string, bool) {
 	kind := createGrantKind(t)
 	w, dispatch := dispatchOf(argv, t)
 	if kind == "" && dispatch {
 		kind = GrantDispatchWorkflow
+	}
+	if _, approve := approveRunOf(argv, t); kind == "" && approve {
+		kind = GrantApproveRun
 	}
 	if kind == "" || b.authority == nil {
 		return "", false
@@ -80,11 +87,14 @@ func (b *Broker) userGrantCovers(t writeTarget, argv []string) (string, bool) {
 		return "", false
 	}
 	held := false
-	if kind == GrantDispatchWorkflow {
+	switch kind {
+	case GrantDispatchWorkflow:
 		held = dispatchGrantHeld(f.Grants, t.Repo, w)
+	case GrantApproveRun:
+		held = approveRunGrantHeld(f.Grants, t.Repo, actor)
 	}
 	for _, g := range f.Grants {
-		if kind != GrantDispatchWorkflow && g.Kind == kind && (g.Repo == brokerscope.AnyRepo || sameRepo(g.Repo, t.Repo)) {
+		if kind != GrantDispatchWorkflow && kind != GrantApproveRun && g.Kind == kind && (g.Repo == brokerscope.AnyRepo || sameRepo(g.Repo, t.Repo)) {
 			held = true
 		}
 	}
@@ -202,7 +212,14 @@ func (b *Broker) coveredWrite(ctx context.Context, req Request, jail string, d D
 	// 1. A user grant. A dispatch-workflow grant covers a run on the default branch alone, read
 	// by the broker's own host read; on any other ref the run asks like any repository write. A
 	// covered run is sent as refs/heads/<default>, so what runs is the branch that was checked.
-	kind, ok := b.userGrantCovers(t, d.Argv)
+	// An approve-run grant covers approving a run only once the broker's own read of the run
+	// shows a granted actor triggered it from the repository itself (approveRunCovered).
+	kind, ok := b.userGrantCovers(t, d.Argv, "")
+	// actor is a covered run approval's triggering actor, as the broker read it; "" otherwise.
+	actor := ""
+	if ok && kind == GrantApproveRun {
+		actor, ok = b.approveRunCovered(ctx, t, d.Argv, stderr)
+	}
 	if ok && kind == GrantDispatchWorkflow {
 		w, _ := dispatchOf(d.Argv, t)
 		def, onDefault, err := b.onDefaultBranch(ctx, t.Repo, w)
@@ -234,7 +251,7 @@ func (b *Broker) coveredWrite(ctx context.Context, req Request, jail string, d D
 			if err := gate(); err != nil {
 				return err
 			}
-			if _, still := b.userGrantCovers(t, d.Argv); !still {
+			if _, still := b.userGrantCovers(t, d.Argv, actor); !still {
 				return errors.New("this workspace's " + kind + " grant no longer holds")
 			}
 			return run(kind, kind)

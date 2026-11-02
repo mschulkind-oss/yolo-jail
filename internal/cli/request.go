@@ -33,6 +33,7 @@ Examples:
   yolo request git new_branches         the jail may create branches
   yolo request github create_pr
   yolo request github dispatch_workflows nightly.yml  a workflow the jail may run on the default branch
+  yolo request github approve_runs 'github-actions[bot]'  an actor whose held runs the jail may approve
   yolo request github repos acme/other  a repository beyond this one's own remotes
   yolo request journal read             the jail may read your user journal
   yolo request host-processes view postgres redis-server  the host processes the jail may see`
@@ -126,6 +127,13 @@ func requestRunIn(workspace string, args []string, out, errw io.Writer) int {
 		if resource == "" || !brokerscope.ValidGrantWorkflow(resource) {
 			fmt.Fprintf(errw, "yolo request: %s %s takes one workflow file name, such as nightly.yml, or * for every workflow; got %q.\n"+
 				"  For example:  yolo request %s %s nightly.yml\n", source, capability, resource, source, capability)
+			return 1
+		}
+		verb, value = "add", resource
+	case requestGrantKind(decl, capability) == brokerscope.KindApproveRun:
+		if resource == "" || !brokerscope.ValidGrantActor(resource) {
+			fmt.Fprintf(errw, "yolo request: %s %s takes one GitHub login, such as 'github-actions[bot]', or * for every actor; got %q.\n"+
+				"  For example:  yolo request %s %s 'github-actions[bot]'\n", source, capability, resource, source, capability)
 			return 1
 		}
 		verb, value = "add", resource

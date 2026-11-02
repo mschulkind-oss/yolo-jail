@@ -88,21 +88,23 @@ const (
 	brokeredGrantBranchKey   = "branch"
 	brokeredGrantTagKey      = "tag"
 	brokeredGrantWorkflowKey = "workflow"
+	brokeredGrantActorKey    = "actor"
 )
 
 var knownBrokeredGrantKeys = set(brokeredGrantKindKey, brokeredGrantRepoKey, brokeredGrantBranchKey, brokeredGrantTagKey,
-	brokeredGrantWorkflowKey)
+	brokeredGrantWorkflowKey, brokeredGrantActorKey)
 
 // grantRefKeys are the grant-entry keys that name something beside the repository, each the key
-// brokerscope.GrantNameKey gives its kind: `branch` (KindBranch), `tag` (KindTag) and `workflow`
-// (KindDispatchWorkflow).
-var grantRefKeys = []string{brokeredGrantBranchKey, brokeredGrantTagKey, brokeredGrantWorkflowKey}
+// brokerscope.GrantNameKey gives its kind: `branch` (KindBranch), `tag` (KindTag), `workflow`
+// (KindDispatchWorkflow) and `actor` (KindApproveRun).
+var grantRefKeys = []string{brokeredGrantBranchKey, brokeredGrantTagKey, brokeredGrantWorkflowKey, brokeredGrantActorKey}
 
 // grantRefKind is the kind each name key belongs to.
 var grantRefKind = map[string]string{
 	brokeredGrantBranchKey:   brokerscope.KindBranch,
 	brokeredGrantTagKey:      brokerscope.KindTag,
 	brokeredGrantWorkflowKey: brokerscope.KindDispatchWorkflow,
+	brokeredGrantActorKey:    brokerscope.KindApproveRun,
 }
 
 // grantRefExample is each name key's example name and what it means, for a refusal's next step.
@@ -110,6 +112,7 @@ var grantRefExample = map[string][2]string{
 	brokeredGrantBranchKey:   {"main", "refs/heads/main"},
 	brokeredGrantTagKey:      {"v*", "refs/tags/v1, refs/tags/v2.0 and every other tag starting with v"},
 	brokeredGrantWorkflowKey: {"nightly.yml", ".github/workflows/nightly.yml, run on the default branch; \"*\" names every workflow"},
+	brokeredGrantActorKey:    {"github-actions[bot]", "a run that login triggered from the repository itself; \"*\" names every actor"},
 }
 
 // grantEntry is one `grants` entry as a grant, ok false unless it holds exactly a kind, a
@@ -127,14 +130,15 @@ func grantEntry(m *jsonx.OrderedMap) (brokerscope.Grant, bool) {
 	branch, hasBranch, branchOK := str(brokeredGrantBranchKey)
 	tag, hasTag, tagOK := str(brokeredGrantTagKey)
 	workflow, hasWorkflow, workflowOK := str(brokeredGrantWorkflowKey)
+	actor, hasActor, actorOK := str(brokeredGrantActorKey)
 	keys := 2
-	for _, has := range []bool{hasBranch, hasTag, hasWorkflow} {
+	for _, has := range []bool{hasBranch, hasTag, hasWorkflow, hasActor} {
 		if has {
 			keys++
 		}
 	}
-	g := brokerscope.Grant{Kind: kind, Repo: repo, Branch: branch, Tag: tag, Workflow: workflow}
-	return g, kindOK && repoOK && branchOK && tagOK && workflowOK && len(m.Keys()) == keys && brokerscope.ValidGrant(g)
+	g := brokerscope.Grant{Kind: kind, Repo: repo, Branch: branch, Tag: tag, Workflow: workflow, Actor: actor}
+	return g, kindOK && repoOK && branchOK && tagOK && workflowOK && actorOK && len(m.Keys()) == keys && brokerscope.ValidGrant(g)
 }
 
 // grantRefProblem is the error for a grant entry's `branch`, `tag` and `workflow`, "" when they
@@ -167,6 +171,14 @@ func grantRefProblem(entryPath, kind string, m *jsonx.OrderedMap) (string, strin
 			return path + ": " + pyReprValue(v) + " is not a workflow a dispatch-workflow grant can name: write the " +
 				"workflow's file name in .github/workflows, such as \"" + example[0] + "\" (not its path, numeric " +
 				"id or display name), or \"*\" for every workflow in the repository. List each workflow as its own grant.", name
+		}
+		return "", name
+	}
+	if kind == brokerscope.KindApproveRun {
+		if !ok || !brokerscope.ValidGrantActor(name) {
+			return path + ": " + pyReprValue(v) + " is not an actor an approve-run grant can name: write the " +
+				"GitHub login that triggers the runs, such as \"" + example[0] + "\" (letters, digits and hyphens, " +
+				"with `[bot]` after an app's name), or \"*\" for every actor. List each actor as its own grant.", name
 		}
 		return "", name
 	}
@@ -228,6 +240,7 @@ func userGrantsValue(source, path string, v any) ([]brokerscope.Grant, []string)
 		_, hasBranch := m.Get(brokeredGrantBranchKey)
 		_, hasTag := m.Get(brokeredGrantTagKey)
 		_, hasWorkflow := m.Get(brokeredGrantWorkflowKey)
+		_, hasActor := m.Get(brokeredGrantActorKey)
 		switch {
 		case kv != readGrantKind:
 			problems = append(problems, entryPath+"."+brokeredGrantKindKey+": "+pyReprValue(kv)+" is not a grant "+
@@ -248,6 +261,8 @@ func userGrantsValue(source, path string, v any) ([]brokerscope.Grant, []string)
 			problems = append(problems, entryPath+"."+brokeredGrantTagKey+": a read grant names no tag. Remove this key.")
 		case hasWorkflow:
 			problems = append(problems, entryPath+"."+brokeredGrantWorkflowKey+": a read grant names no workflow. Remove this key.")
+		case hasActor:
+			problems = append(problems, entryPath+"."+brokeredGrantActorKey+": a read grant names no actor. Remove this key.")
 		}
 		if len(problems) > before {
 			continue
