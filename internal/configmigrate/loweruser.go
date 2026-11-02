@@ -1,6 +1,7 @@
 package configmigrate
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
@@ -61,6 +62,9 @@ func newUserView(user *jsonx.OrderedMap) *userView {
 // userViewOf reads the old user files through the launch's readers. A read that fails leaves the
 // view empty, so every conversion that rests on it refuses and names its next step.
 func userViewOf(g *Graph) *userView {
+	if g.layer != nil {
+		return layerViewOf(g)
+	}
 	top := oldTop(g)
 	if top == "" {
 		return newUserView(nil)
@@ -70,6 +74,66 @@ func userViewOf(g *Graph) *userView {
 		return newUserView(nil)
 	}
 	return newUserView(read.User)
+}
+
+// layerViewOf is userViewOf for a Request.Layer migration: the user config with the old layer
+// merged over it, as a launch passing the layer reads them. The layer writes every pack source
+// its converted packs need itself, so it reads the same over any user config; a source the user
+// config already writes with the same value keeps the user config's name, and no source takes a
+// name the user config gives another one (a layer's table would replace it).
+func layerViewOf(g *Graph) *userView {
+	read, err := config.ReadMigrationLayer(g.Request.baseUserTop(), g.layer.Logical)
+	if err != nil || read == nil {
+		return newUserView(nil)
+	}
+	v := newUserView(read.User)
+	existing, _ := mapAt(read.User, "pack_sources")
+	list, _ := read.User.Get("packs")
+	items, _ := list.([]any)
+	v.sources = reconcileSourceNames(v.sources, items, existing)
+	return v
+}
+
+// reconcileSourceNames gives each source the packs list needs a name that agrees with the
+// `pack_sources` already written: the existing key whose value is the very table the conversion
+// would write, else a name no existing key holds.
+func reconcileSourceNames(names map[string]string, list []any, existing *jsonx.OrderedMap) map[string]string {
+	if existing == nil || existing.Len() == 0 {
+		return names
+	}
+	out := map[string]string{}
+	taken := map[string]bool{"local": true, "yolo": true}
+	for _, k := range existing.Keys() {
+		taken[k] = true
+	}
+	for _, entry := range list {
+		c := classifyPack(entry)
+		if c.source == nil || out[c.source.key] != "" {
+			continue
+		}
+		want, _ := jsonx.DumpsSnapshot(c.source.value)
+		for _, k := range existing.Keys() {
+			have, _ := existing.Get(k)
+			if text, _ := jsonx.DumpsSnapshot(have); text == want {
+				out[c.source.key] = k
+				break
+			}
+		}
+		if out[c.source.key] != "" {
+			continue
+		}
+		base := names[c.source.key]
+		if base == "" {
+			base = "packs"
+		}
+		name := base
+		for i := 2; taken[name]; i++ {
+			name = fmt.Sprintf("%s-%d", base, i)
+		}
+		taken[name] = true
+		out[c.source.key] = name
+	}
+	return out
 }
 
 // userScoped reports whether the lowering may convert the user-only vocabulary (loopholes,

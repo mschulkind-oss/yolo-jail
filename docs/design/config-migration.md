@@ -217,10 +217,17 @@ Upgrade with `yolo update`, or `just install` from a checkout. Nothing was start
    already has; a selected pack only a launch would fetch leaves a *Not checked* line in the plan.
    Any refusal the old files do not already meet refuses the migration, which then says *nothing
    was changed*, lists the problems and gives the next step.
-8. **Converts only what the config reaches** ([RC-D46](readable-config.md#RC-D46)). The owner's
-   ruling (2026-10-31): *"not included. not touched. we only convert included stuff."* A
-   `--user-layer` file, and any file no include names, is left byte for byte as it is, and a JSONC
-   layer keeps loading on top of a TOML user config.
+8. **Converts only what the config reaches, or exactly the files named** ([RC-D46](readable-config.md#RC-D46)).
+   The owner's ruling (2026-10-31): *"not included. not touched. we only convert included
+   stuff."* With no file, a `--user-layer` file, and any file no include names, is left byte for
+   byte as it is, and a JSONC layer keeps loading on top of a TOML user config. The owner amended
+   it (2026-11-01: *"I do want the command"*): `yolo config migrate FILE...` converts each named
+   old-format file and what its includes reach, and nothing else. The proof applies the file as a
+   `--user-layer` over the current user config, before and after, and runs the launch's checks
+   over the staged result; a file the user config or the workspace also reaches is refused. The
+   converted layer carries its own `pack_sources`, and its renamed packs' records move as item 9
+   says. The report ends with the launch to run next, `--user-layer <name>.toml`, and a launch
+   still naming the old file is refused naming the twin.
 9. **Carries a renamed pack's state to its new name** ([RC-D47](readable-config.md#RC-D47)). A
    path in `packs` converts to its readable handle, and the handle is the pack's name
    ([OQ-RC15](config-user.md#4-naming-a-pack-that-is-not-shipped)), so `~/code/yolo-packs/pi-fork`, the pack

@@ -281,6 +281,10 @@ func loadPackEntries(warn Warn) ([]PackEntry, []string, error) {
 	if pathErr != nil {
 		return nil, nil, pathErr
 	}
+	// A TOML --user-layer names its packs by readable handle, over a legacy user config too:
+	// the readable reader takes each entry in the spelling of the file that wrote it, so the
+	// user config's legacy entries still read as they did (RC-D46, a converted layer).
+	readable = readable || userLayerIsTOML()
 	var userCfg *jsonx.OrderedMap
 	var sources *Sources
 	var err error

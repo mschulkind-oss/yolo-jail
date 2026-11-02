@@ -53,6 +53,9 @@ var convergenceExemptions = map[string]string{
 	// the pack switch per side (legacy before, TOML after) rather than from the user config on
 	// disk, and it is handed the converted selection's modules, never the process-wide record.
 	"internal/loopholes/packswitch.go": "the migration proof's per-side pack switch over the converted selection's modules",
+	// The same configmigrate.Discover, called by a --user-layer conversion to read the user
+	// config's include graph it must not overlap.
+	"internal/configmigrate/graph.go": "configmigrate.Discover, the config-file include graph, not loopholes.Discover",
 }
 
 // skippedTopLevelDirs are the repo-root subtrees the walker does not read, each because it

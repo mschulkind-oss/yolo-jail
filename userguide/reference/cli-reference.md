@@ -78,6 +78,7 @@ yolo request github repos acme/lib   # ... for a repository beyond its own remot
 yolo active-provider claude bedrock   # which provider an agent runs on
 yolo config set <key> <value> [--user|--project|--local]   # also: config add, config unset
 yolo config migrate [--dry-run]       # convert JSONC config files to TOML, once
+yolo config migrate <file>            # convert one --user-layer file the same way
 ```
 
 ## Packs

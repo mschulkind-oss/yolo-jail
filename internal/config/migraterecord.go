@@ -75,6 +75,32 @@ func ReadMigrationGraph(userPath, workspace string) (*MigrationGraphRead, error)
 	return out, nil
 }
 
+// ReadMigrationLayer is ReadMigrationGraph for a --user-layer file a migration converts on its
+// own (RC-D46): the user graph whose top-level file is userPath, with the layer at layerPath
+// merged over it exactly as a launch passed `--user-layer layerPath` merges it, strictly. No
+// workspace is read: a layer is user scope. User and Composed are the merged read; Workspace is
+// empty.
+func ReadMigrationLayer(userPath, layerPath string) (*MigrationGraphRead, error) {
+	read, err := ReadMigrationGraph(userPath, "")
+	if err != nil {
+		return nil, err
+	}
+	var problems []string
+	warn := func(msg string) { problems = append(problems, msg) }
+	layer, _, err := loadWithIncludesScope(layerPath, "--user-layer "+layerPath, true, warn, nil, false, SchemaScopeUserOnly, readAt{role: editRoleUser})
+	if err != nil {
+		return nil, err
+	}
+	if len(problems) > 0 {
+		return nil, configErr("%s", strings.Join(problems, "; "))
+	}
+	if layer != nil && layer.Len() > 0 {
+		read.User, _ = mergeReadableConfigMode(read.User, layer, nil, nil, nil, strings.EqualFold(filepath.Ext(layerPath), ".toml"))
+	}
+	read.Composed = jsonx.DeepCopyMap(read.User)
+	return read, nil
+}
+
 // ApprovalRecordPart is the approval record's config part for workspace as the launch's gate
 // computes it now: ReadWorkspaceForGate, the record projection with each mount's resolved
 // destination, and SnapshotJSON. It is the exact text the next launch compares the record with.

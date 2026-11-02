@@ -305,7 +305,13 @@ func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 	if err := p.preflight(); err != nil {
 		return nil, err
 	}
-	before, err := readCanonical(g, oldTop(g), g.Request.Workspace, remotes, view, "", true, opts, packs)
+	// A layer's side is the user config with the layer merged over it, before and after; the
+	// user config itself is read where it is, and no workspace is read (a layer is user scope).
+	userBefore, layerBefore, workspaceBefore := oldTop(g), "", g.Request.Workspace
+	if g.layer != nil {
+		userBefore, layerBefore, workspaceBefore = g.Request.baseUserTop(), g.layer.Logical, ""
+	}
+	before, err := readCanonical(g, userBefore, layerBefore, workspaceBefore, remotes, view, "", true, opts, packs)
 	if err != nil {
 		return nil, fmt.Errorf("read the old config: %w", err)
 	}
@@ -321,7 +327,11 @@ func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 	if err != nil {
 		return nil, fmt.Errorf("stage the converted files: %w", err)
 	}
-	after, err := readCanonical(g, userTop, workspace, nil, nil, mirror, false, planOptions{}, packs)
+	layerAfter := ""
+	if g.layer != nil {
+		userTop, layerAfter, workspace = g.Request.baseUserTop(), filepath.Join(mirror, twinPath(g.layer.Logical)), ""
+	}
+	after, err := readCanonical(g, userTop, layerAfter, workspace, nil, nil, mirror, false, planOptions{}, packs)
 	if err != nil {
 		return nil, fmt.Errorf("the converted files would not read: %w; nothing was written", err)
 	}
@@ -648,8 +658,17 @@ var loweredRoots = []string{"env_sources", "env", "brokered", "requests", "allow
 // readCanonical reads one side through the launch's readers (config.ReadMigrationGraph). The old
 // side (remotes non-nil or mirror empty) is lowered; the new side is the readers' output with
 // the staging root taken back out of every anchored path.
-func readCanonical(g *Graph, userTop, workspace string, remotes []string, view *userView, mirror string, lowerOld bool, opts planOptions, packs []*packload.Pack) (*sideRead, error) {
-	read, err := config.ReadMigrationGraph(userTop, workspace)
+//
+// With layer set, the side is the user config at userTop with that --user-layer file merged over
+// it (config.ReadMigrationLayer), and workspace is not read.
+func readCanonical(g *Graph, userTop, layer, workspace string, remotes []string, view *userView, mirror string, lowerOld bool, opts planOptions, packs []*packload.Pack) (*sideRead, error) {
+	var read *config.MigrationGraphRead
+	var err error
+	if layer != "" {
+		read, err = config.ReadMigrationLayer(userTop, layer)
+	} else {
+		read, err = config.ReadMigrationGraph(userTop, workspace)
+	}
 	if err != nil {
 		return nil, err
 	}

@@ -295,7 +295,7 @@ func TestAHandWrittenTOMLOfTheConvertedShapeComposesTheSameProviderTable(t *test
 	legacy := p.canonical.providers
 	handwritten := filepath.Join(realDir(t), "config.toml")
 	write(t, handwritten, maintainersModelsTOML)
-	s, err := readCanonical(nil, handwritten, "", nil, nil, "", false, planOptions{}, packload.Embedded())
+	s, err := readCanonical(nil, handwritten, "", "", nil, nil, "", false, planOptions{}, packload.Embedded())
 	if err != nil {
 		t.Fatalf("the hand-written TOML does not read: %v", err)
 	}

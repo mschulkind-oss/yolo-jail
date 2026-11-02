@@ -73,6 +73,17 @@ type migrationJournal struct {
 	// the converted files say: the read-back a finished migration checks.
 	UserTop   string `json:"user_top,omitempty"`
 	Canonical string `json:"canonical,omitempty"`
+	// Layer is the converted --user-layer file of a Request.Layer migration, read back merged
+	// over the user config UserTop names, with no workspace; "" otherwise.
+	Layer string `json:"layer,omitempty"`
+}
+
+// readBackWorkspace is the workspace the read-back reads: none for a layer, which is user scope.
+func readBackWorkspace(j *migrationJournal) string {
+	if j.Layer != "" {
+		return ""
+	}
+	return j.Workspace
 }
 
 // journalRecord is a Record as the journal keeps it.
@@ -122,7 +133,7 @@ func (j *migrationJournal) finish(journal string, res *ApplyResult) error {
 	syncDir(filepath.Dir(journal))
 	j.result(res)
 	if j.Canonical != "" {
-		after, err := readCanonical(nil, j.UserTop, j.Workspace, nil, nil, "", false, planOptions{}, packload.Embedded())
+		after, err := readCanonical(nil, j.UserTop, j.Layer, readBackWorkspace(j), nil, nil, "", false, planOptions{}, packload.Embedded())
 		if err != nil {
 			return fmt.Errorf("converted: %s; originals kept as %s. But the written files do not read: %w. This is a yolo bug: please report it; to go back, move each original back to its name", strings.Join(res.Written, ", "), strings.Join(res.Backups, ", "), err)
 		}

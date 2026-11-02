@@ -115,6 +115,9 @@ func Apply(p *MigrationPlan, opts ApplyOptions) (*ApplyResult, error) {
 	j := &migrationJournal{Version: 1, Workspace: p.Graph.Request.Workspace, Steps: commitSteps(p.Targets),
 		UserConfigDir: p.Graph.Request.UserConfigDir, Renames: p.Renames, Records: journalRecords(p.Records),
 		UserTop: newUserTop(p.Graph), Canonical: hashCanonical(p.canonical)}
+	if g := p.Graph; g.layer != nil {
+		j.UserTop, j.Layer = g.Request.baseUserTop(), twinPath(g.layer.Logical)
+	}
 	if err := j.write(journal); err != nil {
 		removeStaged(p.Targets)
 		return nil, fmt.Errorf("write the migration's journal %s: %w; nothing was changed", journal, err)

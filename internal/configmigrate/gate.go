@@ -56,26 +56,36 @@ func (p *MigrationPlan) gate() error {
 	// directory (an env file, an include). Staged, it points into the staged copy, as it will
 	// point into the real one once the files are in place: a workspace file's env file must be
 	// inside the workspace the gate reads.
+	// A layer is gated as a launch passing it reads it: over the user config, with no workspace.
+	userConfigDir, realWorkspace := g.Request.UserConfigDir, g.Request.Workspace
+	if g.layer != nil {
+		userConfigDir, realWorkspace = g.Request.baseUserDir(), ""
+	}
 	for _, t := range p.Targets {
-		content[t.File] = relocate(t.Bytes, mirror, g.Request.Workspace, g.Request.UserConfigDir)
+		content[t.File] = relocate(t.Bytes, mirror, realWorkspace, userConfigDir)
 	}
 	_, workspace, err := writeMirror(mirror, g, content)
 	if err != nil {
 		return fmt.Errorf("stage the converted files: %w; nothing was changed", err)
 	}
 	userDir := ""
-	if g.Request.UserConfigDir != "" {
-		userDir = filepath.Join(mirror, g.Request.UserConfigDir)
-		if err := linkTheRest(g.Request.UserConfigDir, userDir, g); err != nil {
+	if userConfigDir != "" {
+		userDir = filepath.Join(mirror, userConfigDir)
+		if err := linkTheRest(userConfigDir, userDir, g); err != nil {
 			return fmt.Errorf("stage the converted files: %w; nothing was changed", err)
 		}
+	}
+	oldLayer, newLayer := "", ""
+	if g.layer != nil {
+		oldLayer, newLayer, workspace = g.layer.Logical, filepath.Join(mirror, twinPath(g.layer.Logical)), ""
 	}
 	// The workspace's other entries are deliberately not linked in: the env-file scope check
 	// resolves symlinks (envsourcescope.go), so a link to a real workspace file would read as a
 	// file outside the staged workspace. A path that does not exist resolves by its deepest
 	// existing ancestor, the staged workspace, which is where it will be.
-	before := runGate(g.Request.UserConfigDir, g.Request.Workspace)
-	after := runGate(userDir, workspace)
+	var before, after config.MigrationGate
+	withUserLayer(oldLayer, func() { before = runGate(userConfigDir, realWorkspace) })
+	withUserLayer(newLayer, func() { after = runGate(userDir, workspace) })
 	already := map[string]int{}
 	for _, msg := range before.Problems {
 		already[unmirrorText(msg, mirror)]++
@@ -94,9 +104,13 @@ func (p *MigrationPlan) gate() error {
 		problems = append(problems, unmirrorText(located, mirror))
 	}
 	p.Unchecked = after.Unchecked
-	if g.Request.UserConfigDir != "" {
-		renames, packProblems := packRenames(g.Request.UserConfigDir, userDir)
-		p.Renames = renames
+	if g.Request.UserConfigDir != "" || g.layer != nil {
+		renames, packProblems := packRenamesWithLayer(userConfigDir, userDir, oldLayer, newLayer)
+		// In a jail the pack records are the host's and nothing moves them (moveRecords), so a
+		// layer converted there lists no renames; the proof that its packs are the same holds.
+		if !config.InJail() {
+			p.Renames = renames
+		}
 		problems = append(problems, packProblems...)
 	}
 	if len(problems) > 0 {
@@ -118,11 +132,38 @@ func loadPacks(dir string) ([]config.PackEntry, error) {
 // handle; this compares each entry's identity — its physical directory, its repository, path and
 // ref, or the shipped pack it names — and lets only the name differ.
 func packRenames(userConfigDir, stagedUserDir string) ([]PackRename, []string) {
-	before, err := loadPacks(userConfigDir)
+	return packRenamesWithLayer(userConfigDir, stagedUserDir, "", "")
+}
+
+// withUserLayer runs fn with the --user-layer of this process set to layer, as a launch passing
+// `--user-layer layer` reads its config; "" runs fn as the process is.
+func withUserLayer(layer string, fn func()) {
+	if layer == "" {
+		fn()
+		return
+	}
+	prior, had := os.LookupEnv(config.UserLayerEnv)
+	_ = os.Setenv(config.UserLayerEnv, layer)
+	defer func() {
+		if had {
+			_ = os.Setenv(config.UserLayerEnv, prior)
+		} else {
+			_ = os.Unsetenv(config.UserLayerEnv)
+		}
+	}()
+	fn()
+}
+
+// packRenamesWithLayer is packRenames for a Request.Layer migration: the old selection read with
+// the old layer passed, the new one with the staged converted layer.
+func packRenamesWithLayer(userConfigDir, stagedUserDir, oldLayer, newLayer string) ([]PackRename, []string) {
+	var before, after []config.PackEntry
+	var err error
+	withUserLayer(oldLayer, func() { before, err = loadPacks(userConfigDir) })
 	if err != nil {
 		return nil, nil // the old selection does not read; the launch's own gate says so
 	}
-	after, err := loadPacks(stagedUserDir)
+	withUserLayer(newLayer, func() { after, err = loadPacks(stagedUserDir) })
 	if err != nil {
 		return nil, []string{"the converted `packs` do not read: " + err.Error()}
 	}

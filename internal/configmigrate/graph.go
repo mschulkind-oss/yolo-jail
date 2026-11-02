@@ -21,6 +21,26 @@ type Request struct {
 	UserConfigDir string
 	// Workspace is the workspace whose project and local files migrate; "" leaves them out.
 	Workspace string
+	// Layer is one old-format file a migration converts on its own, the file a launch reads with
+	// `--user-layer` (RC-D46, amended 2026-11-01): it and what its include_if_found entries reach,
+	// nothing else. Set, no user or workspace file is converted. The user config is read as the
+	// base the layer applies over, from UserConfigDir, or in a jail (UserConfigDir "") from the
+	// jail's own; UserConfigDir and Workspace then only place the journal, as they do without it.
+	Layer string
+}
+
+// baseUserDir is the user config directory a layer applies over.
+func (r Request) baseUserDir() string {
+	if r.UserConfigDir != "" {
+		return r.UserConfigDir
+	}
+	return filepath.Dir(paths.UserConfigPath())
+}
+
+// baseUserTop is a path in baseUserDir whose directory names the user config: the reader selects
+// the file there (config.toml, else config.jsonc or config.json).
+func (r Request) baseUserTop() string {
+	return filepath.Join(r.baseUserDir(), paths.UserConfigLegacyJSONCName)
 }
 
 // Role is what a migration does to one file of the graph.
@@ -74,12 +94,64 @@ type Graph struct {
 
 	userTop *File
 	project []*File // the project and local top-level files, in that order
+	layer   *File   // the --user-layer file a Request.Layer migration converts
+}
+
+// discoverLayer reads the graph of a Request.Layer migration: the named file and every file its
+// include_if_found entries reach, by the rules the user config's graph is read by. A file the
+// user config or the workspace's files also reach is refused: converted on its own, it would
+// change what they read.
+func (g *Graph) discoverLayer() error {
+	path := g.Request.Layer
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".jsonc", ".json":
+	case ".toml":
+		return fmt.Errorf("%s is already TOML, so there is nothing to convert; launch with `--user-layer %s`", path, path)
+	default:
+		return fmt.Errorf("%s is not an old-format config file (.jsonc or .json); name the file a launch reads with --user-layer", path)
+	}
+	if _, err := os.Lstat(path); err != nil {
+		if twin := twinPath(path); errors.Is(err, os.ErrNotExist) && lexists(twin) {
+			return fmt.Errorf("%s is not there, and %s is: it looks converted already; launch with `--user-layer %s`", path, twin, twin)
+		}
+		return fmt.Errorf("%s: %w; name the file a launch reads with --user-layer", path, err)
+	}
+	reached := map[string]string{}
+	if base, err := Discover(Request{UserConfigDir: g.Request.baseUserDir(), Workspace: g.Request.Workspace}); err == nil {
+		for _, f := range base.Files {
+			reached[f.Physical] = f.Logical
+		}
+	}
+	seen := map[string]*File{}
+	top, err := g.read(path, "", ScopeUser)
+	if err != nil {
+		return err
+	}
+	top.topName = filepath.Base(path)
+	g.layer = top
+	if err := g.walk(top, seen); err != nil {
+		return err
+	}
+	for _, f := range g.Files {
+		if by, ok := reached[f.Physical]; ok {
+			return fmt.Errorf("%s is read by your user config or this workspace's config too (as %s), so converting it on its own "+
+				"would change what they read; nothing was changed. Run `yolo config migrate` with no file to convert it with them", f.Logical, by)
+		}
+	}
+	return nil
 }
 
 // Discover reads the graph a request covers: the top-level files, every file their
 // include_if_found entries reach, and the user's config.d fragments, without merging any of them.
 func Discover(req Request) (*Graph, error) {
 	g := &Graph{Request: req}
+	if req.Layer != "" {
+		if err := g.discoverLayer(); err != nil {
+			return nil, err
+		}
+		g.markRespelled()
+		return g, nil
+	}
 	seen := map[string]*File{}
 	if req.UserConfigDir != "" {
 		top, err := g.topLevel(req.UserConfigDir, paths.UserConfigTOMLName,
@@ -117,6 +189,12 @@ func Discover(req Request) (*Graph, error) {
 			}
 		}
 	}
+	g.markRespelled()
+	return g, nil
+}
+
+// markRespelled marks each TOML file that includes an old file: its include entry is respelled.
+func (g *Graph) markRespelled() {
 	for _, f := range g.Files {
 		if f.Role == RoleRead {
 			for _, edge := range f.includes {
@@ -127,7 +205,6 @@ func Discover(req Request) (*Graph, error) {
 			}
 		}
 	}
-	return g, nil
 }
 
 // topLevel finds the one top-level file among a TOML name and its old names, refusing two.

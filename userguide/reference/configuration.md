@@ -25,6 +25,11 @@ reads TOML: an older yolo finds no `config.jsonc` and starts with no packs. A la
 old file offers the conversion too, and `"convert_later": true` in your old user file stops the
 offer. `yolo pack migrate <path>` does the same for a pack you wrote (`pack.json` to `pack.toml`).
 
+A file you pass with `--user-layer` is not part of your config, so the plain command leaves it
+alone. Name it to convert it: `yolo config migrate ~/work.jsonc` writes `~/work.toml` beside it,
+proved over your user config the way a launch layers it, and touches nothing else. Then launch with
+`--user-layer ~/work.toml`; a command that still names `~/work.jsonc` is told the new name.
+
 ## Change it with a command
 
 You rarely need to edit a file by hand. Each command writes the right file, keeps your comments,

@@ -100,6 +100,10 @@ func ValidateUserLayer(path string) string {
 	}
 	fi, err := os.Stat(abs)
 	if err != nil {
+		if twin := convertedLayerTwin(path); twin != "" && os.IsNotExist(err) {
+			return "--user-layer: " + path + " is not there; `yolo config migrate` converted it to " + twin +
+				". Pass `--user-layer " + twin + "` instead"
+		}
 		return "--user-layer: cannot read " + path + ": " + err.Error() +
 			" (an explicitly-passed layer is never skipped silently)"
 	}
@@ -110,6 +114,33 @@ func ValidateUserLayer(path string) string {
 		return err.Error()
 	}
 	return ""
+}
+
+// userLayerIsTOML is whether this invocation's --user-layer is a TOML file.
+func userLayerIsTOML() bool {
+	return strings.EqualFold(filepath.Ext(UserLayerPath()), ".toml")
+}
+
+// convertedLayerTwin is the TOML twin of a JSONC layer path that is not there, spelled the way
+// the path was given (work.jsonc → work.toml), when that twin exists; "" otherwise. `yolo config
+// migrate FILE` keeps a converted layer's original only as <name>.pre-migrate, so a command still
+// naming the old file is told the new one.
+func convertedLayerTwin(path string) string {
+	ext := strings.ToLower(filepath.Ext(path))
+	if ext != ".jsonc" && ext != ".json" {
+		return ""
+	}
+	twin := path[:len(path)-len(ext)] + ".toml"
+	abs := twin
+	if !filepath.IsAbs(abs) {
+		if wd, err := os.Getwd(); err == nil {
+			abs = filepath.Join(wd, abs)
+		}
+	}
+	if fi, err := os.Stat(abs); err != nil || fi.IsDir() {
+		return ""
+	}
+	return twin
 }
 
 // UserScopeConfig is the standard format-aware user-scope read: the selected user file,

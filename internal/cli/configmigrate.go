@@ -8,7 +8,9 @@ package cli
 //
 // WHAT IT COVERS (§4 item 6). On the host: the user config with everything it includes and its
 // config.d fragments, plus this workspace's project and local files. In a jail: only this
-// workspace's files, since the user config there is the host's, inherited for the launch.
+// workspace's files, since the user config there is the host's, inherited for the launch. Named
+// files (`yolo config migrate FILE...`, RC-D46 as amended 2026-11-01) are converted on their own
+// instead, each as the --user-layer over the user config, and nothing else is.
 //
 // IT ASKS BEFORE WRITING. With a terminal it asks [y/N]; without one it writes only when told
 // to with --yes, which is how an agent in a jail runs it on the project's files (§5). A plan
@@ -30,11 +32,16 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
 
-const configMigrateUsage = `Usage: yolo config migrate [--dry-run] [--yes]
+const configMigrateUsage = `Usage: yolo config migrate [--dry-run] [--yes] [FILE...]
 
 Convert the old-format config files (config.jsonc, yolo-jail.jsonc, yolo-jail.local.jsonc and
 every file they include) into their TOML twins, once. On the host it converts the user config
 and this workspace's files; in a jail, only this workspace's files.
+
+With FILE, it converts only each named old-format file, such as one you pass with
+--user-layer, and the files it includes: <name>.toml beside it, proved over your user config
+as a launch layers it. The user config and this workspace's files are not touched. In a jail,
+a FILE must be inside this workspace.
 
 It proves the converted files say exactly what the old ones say (the effective config before
 and after, compared as canonical JSON), and that the next launch accepts them (its own config
@@ -44,8 +51,8 @@ original is kept, byte for byte, as <name>.pre-migrate, and the records only yol
 (approval records, .yolo/config-boot.json) are respelled so the next launch asks nothing new.
 If it is killed part way, the launch says so, and running it again finishes the moves.
 
-Only the files the config reaches are converted: a --user-layer file, or any file no include
-names, is left as it is.
+Without FILE, only the files the config reaches are converted: a --user-layer file, or any
+file no include names, is left as it is.
 
 Convert only once every machine that shares these files runs a yolo that reads TOML: an older
 yolo finds no config.jsonc and starts with no packs.
@@ -75,49 +82,49 @@ func configMigrateRequest(workspace string) configmigrate.Request {
 
 func configMigrate(args []string, in io.Reader, interactive bool, out, errw io.Writer) int {
 	dryRun, yes := false, false
+	var files []string
+	endOfFlags := false
 	for _, a := range args {
-		switch a {
-		case "--dry-run":
+		switch {
+		case endOfFlags || !strings.HasPrefix(a, "-"):
+			files = append(files, a)
+		case a == "--":
+			endOfFlags = true
+		case a == "--dry-run":
 			dryRun = true
-		case "--yes":
+		case a == "--yes":
 			yes = true
-		case "-h", "--help", "help":
+		case a == "-h" || a == "--help":
 			writeCLIUsage(out, colorForWriter(out), configMigrateUsage)
 			return 0
 		default:
-			fmt.Fprintf(errw, "yolo config migrate: unexpected argument %q; it takes --dry-run and --yes "+
+			fmt.Fprintf(errw, "yolo config migrate: unexpected argument %q; it takes --dry-run, --yes and file paths "+
 				"(`yolo config migrate --help`)\n", a)
 			return 2
 		}
 	}
+	if len(files) == 1 && files[0] == "help" {
+		writeCLIUsage(out, colorForWriter(out), configMigrateUsage)
+		return 0
+	}
 	workspace := configEditWorkspace()
 	req := configMigrateRequest(workspace)
+	if len(files) > 0 {
+		layers, rc := configMigrateLayerPaths(files, workspace, errw)
+		if rc != 0 {
+			return rc
+		}
+		if rc := finishInterruptedMigration(req, workspace, dryRun, out, errw); rc != 0 {
+			return rc
+		}
+		return configMigrateLayers(req, workspace, layers, dryRun, yes, in, interactive, out, errw)
+	}
 	if req.UserConfigDir == "" {
 		fmt.Fprintln(errw, "In a jail only this workspace's config files migrate; the user config is the host's. "+
 			"Run `yolo config migrate` on the host to convert it.")
 	}
-	// A migration a kill or a failed move stopped part way is finished first, forward, never back
-	// (config-migration.md, the commit steps).
-	if journal := configmigrate.Interrupted(req); journal != "" {
-		if dryRun {
-			fmt.Fprintf(errw, "yolo config migrate: an earlier migration stopped part way (%s); run `yolo config migrate` without --dry-run to finish it. Nothing was changed.\n", journal)
-			return 1
-		}
-		res, err := configmigrate.Resume(journal)
-		if err != nil {
-			fmt.Fprintf(errw, "yolo config migrate: %v\n", err)
-			return 1
-		}
-		fmt.Fprintf(out, "Finished the migration that stopped part way. Converted: %s; originals kept as %s.\n",
-			strings.Join(shownPaths(workspace, res.Written), ", "), strings.Join(shownPaths(workspace, res.Backups), ", "))
-		printLinks(out, workspace, res.Links)
-		printPackRecords(out, res.PackRecords)
-	} else if !dryRun {
-		// A converted file staged by a run killed before its journal is a hidden copy of private
-		// bytes nothing will move into place: removed here, never left for a later migrate.
-		for _, p := range configmigrate.RemoveStaleStaged(req) {
-			fmt.Fprintf(out, "Removed %s, left staged by a migration stopped before it began.\n", shownPaths(workspace, []string{p})[0])
-		}
+	if rc := finishInterruptedMigration(req, workspace, dryRun, out, errw); rc != 0 {
+		return rc
 	}
 	graph, err := configmigrate.Discover(req)
 	if err != nil {
@@ -186,6 +193,140 @@ func configMigrate(args []string, in io.Reader, interactive bool, out, errw io.W
 		fmt.Fprintln(out, ig.Report(workspace))
 	}
 	fmt.Fprintln(out, "Nothing else changed. Next: `yolo check`.")
+	return 0
+}
+
+// finishInterruptedMigration finishes a migration a kill or a failed move stopped part way, first,
+// forward, never back (config-migration.md, the commit steps), or else removes what a run killed
+// before its journal left staged. It returns non-zero when the verb must stop there.
+func finishInterruptedMigration(req configmigrate.Request, workspace string, dryRun bool, out, errw io.Writer) int {
+	if journal := configmigrate.Interrupted(req); journal != "" {
+		if dryRun {
+			fmt.Fprintf(errw, "yolo config migrate: an earlier migration stopped part way (%s); run `yolo config migrate` without --dry-run to finish it. Nothing was changed.\n", journal)
+			return 1
+		}
+		res, err := configmigrate.Resume(journal)
+		if err != nil {
+			fmt.Fprintf(errw, "yolo config migrate: %v\n", err)
+			return 1
+		}
+		fmt.Fprintf(out, "Finished the migration that stopped part way. Converted: %s; originals kept as %s.\n",
+			strings.Join(shownPaths(workspace, res.Written), ", "), strings.Join(shownPaths(workspace, res.Backups), ", "))
+		printLinks(out, workspace, res.Links)
+		printPackRecords(out, res.PackRecords)
+	} else if !dryRun {
+		// A converted file staged by a run killed before its journal is a hidden copy of private
+		// bytes nothing will move into place: removed here, never left for a later migrate.
+		for _, p := range configmigrate.RemoveStaleStaged(req) {
+			fmt.Fprintf(out, "Removed %s, left staged by a migration stopped before it began.\n", shownPaths(workspace, []string{p})[0])
+		}
+	}
+	return 0
+}
+
+// layerArg is one FILE named to `yolo config migrate`: as given, and absolute.
+type layerArg struct{ given, abs string }
+
+// configMigrateLayerPaths makes each named FILE absolute. In a jail a FILE outside the workspace is
+// refused, naming the host command: the jail converts only this workspace's files.
+func configMigrateLayerPaths(files []string, workspace string, errw io.Writer) ([]layerArg, int) {
+	out := make([]layerArg, 0, len(files))
+	for _, f := range files {
+		abs, err := filepath.Abs(f)
+		if err != nil {
+			fmt.Fprintf(errw, "yolo config migrate: %s: %v\n", f, err)
+			return nil, 1
+		}
+		if config.InJail() {
+			rel, err := filepath.Rel(workspace, abs)
+			if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				fmt.Fprintf(errw, "yolo config migrate: %s is outside this workspace, and in a jail only this workspace's "+
+					"files migrate; nothing was changed. Run `yolo config migrate %s` on the host to convert it.\n", f, abs)
+				return nil, 1
+			}
+		}
+		out = append(out, layerArg{given: f, abs: abs})
+	}
+	return out, 0
+}
+
+// configMigrateLayers is `yolo config migrate FILE...` (RC-D46, amended 2026-11-01): each named
+// file, a --user-layer file, is planned on its own over the user config it layers on, all are
+// shown, and only once every one proves equal does it ask, then convert each in turn.
+func configMigrateLayers(base configmigrate.Request, workspace string, layers []layerArg, dryRun, yes bool, in io.Reader, interactive bool, out, errw io.Writer) int {
+	plans := make([]*configmigrate.MigrationPlan, 0, len(layers))
+	targets := 0
+	for _, layer := range layers {
+		req := base
+		req.Layer = layer.abs
+		if !dryRun {
+			for _, p := range configmigrate.RemoveStaleStaged(req) {
+				fmt.Fprintf(out, "Removed %s, left staged by a migration stopped before it began.\n", shownPaths(workspace, []string{p})[0])
+			}
+		}
+		graph, err := configmigrate.Discover(req)
+		if err != nil {
+			fmt.Fprintf(errw, "yolo config migrate: %v\n", err)
+			return 1
+		}
+		plan, err := configmigrate.Plan(graph)
+		if plan != nil {
+			fmt.Fprint(out, plan.Transcript())
+		}
+		if err != nil {
+			var unequal *configmigrate.InequalityError
+			if !errors.As(err, &unequal) || plan == nil {
+				fmt.Fprintf(errw, "yolo config migrate: %v\n", err)
+			}
+			if len(layers) > 1 {
+				fmt.Fprintln(errw, "Nothing was written for any of the files named.")
+			}
+			return 1
+		}
+		plans = append(plans, plan)
+		targets += len(plan.Targets)
+	}
+	if dryRun {
+		fmt.Fprintln(out, "Dry run; nothing was written.")
+		return 0
+	}
+	if !yes {
+		if !interactive {
+			fmt.Fprintln(errw, "yolo config migrate: there is no terminal to ask on, so nothing was written. "+
+				"Read the plan above, then run the same command with --yes to write it.")
+			return 1
+		}
+		question := fmt.Sprintf("Write %d %s, keeping each original as <name>.pre-migrate? [y/N] ",
+			targets, plural(targets, "file", "files"))
+		if !tty.Confirm(errw, in, question, false) {
+			fmt.Fprintln(errw, "Nothing was written. Run the same command again whenever you are ready.")
+			return 1
+		}
+	}
+	var next []string
+	for i, plan := range plans {
+		result, err := configmigrate.Apply(plan, configmigrate.ApplyOptions{})
+		if err != nil {
+			fmt.Fprintf(errw, "yolo config migrate: %v\n", err)
+			if i > 0 {
+				fmt.Fprintf(errw, "The files named before %s were converted; name the rest again once that is fixed.\n", layers[i].given)
+			}
+			return 1
+		}
+		fmt.Fprintf(out, "Converted: %s.\n", strings.Join(result.Written, ", "))
+		printLinks(out, workspace, result.Links)
+		if len(result.Backups) > 0 {
+			fmt.Fprintf(out, "Kept the %s as %s; delete %s once the new file works for you.\n",
+				plural(len(result.Backups), "original", "originals"), strings.Join(result.Backups, ", "),
+				plural(len(result.Backups), "it", "them"))
+		}
+		printPackRecords(out, result.PackRecords)
+		given := layers[i].given
+		twin := strings.TrimSuffix(given, filepath.Ext(given)) + ".toml"
+		next = append(next, fmt.Sprintf("`--user-layer %s` in place of %s, which a launch no longer finds", twin, given))
+	}
+	fmt.Fprintln(out, "Your user config and this workspace's files were not touched, and nothing else changed.")
+	fmt.Fprintf(out, "Next: launch with %s.\n", strings.Join(next, "; and "))
 	return 0
 }
 
