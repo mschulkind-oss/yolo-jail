@@ -77,8 +77,9 @@ func TestInheritedJSONCRenderRefusesValuesATOMLFileWrote(t *testing.T) {
 // A legacy file included from a TOML one keeps the JSONC route only while the payload holds no
 // TOML-written value a reader judges by format. Here the TOML file writes such shapes and the
 // legacy include writes
-// a null TOML cannot carry: neither format is honest, so delivery fails naming both reasons and
-// the next step, rather than handing readable values to the legacy reader.
+// a null TOML cannot carry yet (RC-D50's open gaps): neither format is honest, so delivery fails
+// naming both sides, the legacy line and the next step, rather than handing readable values to
+// the legacy reader.
 func TestInheritedDeliveryFailsRatherThanFallBackWithTOMLWrittenValues(t *testing.T) {
 	src, filtered := loadConvertedHostConfig(t, "include_if_found = ['extra.jsonc']\n"+convertedTOMLUserConfig,
 		map[string]string{"extra.jsonc": `{"active_provider": {"claude": null}}`})
@@ -90,7 +91,7 @@ func TestInheritedDeliveryFailsRatherThanFallBackWithTOMLWrittenValues(t *testin
 	if err == nil {
 		t.Fatalf("delivery fell back (format=%v, reason %q) with TOML-written values:\n%s", format, fallback, body)
 	}
-	for _, want := range []string{paths.UserConfigTOMLName, "null", "yolo check"} {
+	for _, want := range []string{paths.UserConfigTOMLName, "config.active_provider.claude", "extra.jsonc:1:", "yolo config migrate"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("the delivery failure does not say %q: %v", want, err)
 		}

@@ -41,7 +41,7 @@ var legacyLowerings = map[string]legacyLowering{
 	"brokered.*.grant_kinds": loweredByMigrate, "brokered.*.repos": loweredByMigrate,
 	"brokered.*.workspaces": loweredByMigrate, "brokered.*.grants.*.kind": loweredByMigrate,
 	"brokered.*.grants.*.repo": loweredByMigrate, "brokered.*.grants.*.branch": loweredByMigrate,
-	"brokered.*.grants.*.tag": loweredByMigrate, "brokered.*.grants.*.workflow": loweredByMigrate,
+	"brokered.*.grants.*.tag": loweredByMigrate, "brokered.*.grants.*.actor": loweredByMigrate, "brokered.*.grants.*.workflow": loweredByMigrate,
 	"brokered.*.sets": loweredByMigrate, "brokered.*.sets.*": loweredByMigrate,
 	"profile": loweredByMigrate, "profile.*": loweredByMigrate, "profiles.*": loweredByMigrate,
 	"profiles.*.provider": loweredByMigrate, "profiles.*.model": loweredByMigrate,
