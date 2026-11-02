@@ -10,17 +10,54 @@ enumeration, its approval gate, its name pre-flight and its inert report.
 `/dev/snd`, and the ALSA→PipeWire routing fragment) and one `env` contribution
 (`PULSE_SERVER`, `PIPEWIRE_REMOTE`), set only in a jail that binds the sockets (note 4 below).
 
-**Select it, and switch it on. Neither is implied by the other:**
+**Select it, and grant `use`. Neither is implied by the other.** Whether the sockets and the
+device reach a jail is a **grant**, not a switch
+([design §4.4](../../docs/design/loophole-access-approval.md#44-mediated-and-unmediated-crossings)).
+The loophole declares one grant kind, `use` (*"use your microphone and speakers"*), and it is
+all or nothing: no daemon answers audio's requests, so nothing can refuse one, and the crossing
+itself is what the grant admits ([LG-D6](../../docs/design/loophole-access-approval.md#LG-D6)).
+Without it, selecting the pack binds nothing, and the launch says how to ask:
 
-On your machine, `yolo pack add audio` selects the pack. In a legacy JSONC user config the same selection, and the rest of this setup, reads:
-
-```jsonc
-// ~/.config/yolo-jail/config.jsonc
-{
-  "packs": ["claude", "audio"],
-  "loopholes": { "audio": { "enabled": true } }
-}
+```text
+  audio: selected, grants nothing here (not allowed on request by your config).
+    To let this project ask:  yolo allow audio on_request use   then  yolo request audio use
 ```
+
+1. **Select the pack**, once, on your machine: `yolo pack add audio`.
+2. **Allow `use` on request**, once, in your user config: `yolo allow audio on_request use`.
+   It is not requestable by default, because it is a microphone. To grant it to every
+   project instead, `yolo allow audio always use`; each project's gate still shows it once.
+3. **The project asks**, in its own file, from inside the jail if you like:
+   `yolo request audio use`.
+4. **The gate grants it.** Run `yolo config apply` on the host, in the workspace (or start the
+   jail), and answer y to the line `+ audio: use your microphone and speakers`.
+5. **Restart the jail.** The binds and the device are container argv, decided at launch, so
+   `yolo config apply` records the grant and says it lands at the next restart
+   ([LG-D7](../../docs/design/loophole-access-approval.md#LG-D7)); a running jail keeps what it
+   started with.
+
+The resulting config, in TOML:
+
+```toml
+# ~/.config/yolo-jail/config.toml — user scope
+packs = ["claude", "audio"]
+
+[allow.audio]
+on_request = ["use"]
+```
+
+```toml
+# <workspace>/yolo-jail.toml — the project's request
+[requests.audio]
+use = true
+```
+
+**A legacy `enabled` switch is read as the grant** while JSONC configs are still read
+([plan PD-9](../../docs/design/loophole-access-approval-plan.md#PD-9)):
+`"loopholes": {"audio": {"enabled": true}}` in your user config is `[allow.audio] always =
+["use"]`, in a workspace config it is the project's request for `use` (which your config must
+still allow on request), and one `yolo loopholes enable audio` wrote is a grant already
+approved. The gate shows each once; nothing is gained that the switch did not already turn on.
 
 ## It REPLACED the bundled loophole. It used to sit beside it
 
@@ -80,18 +117,27 @@ what happened, and at the host it did harm: `yolo host -- claude` pointed libpul
 `$XDG_RUNTIME_DIR/pulse/native`, so selecting this pack broke the host's audio. `served_by` names
 this loophole, which runs no jail daemon but binds the sockets, and a launch serves that name only
 where its container argv carries the binds
-([LP-D1](../../docs/design/loophole-packaging.md#LP-D1)): a podman jail on Linux with the loophole
-on. `yolo host`, macos-user, a Mac, and a jail with the loophole off leave both variables out and
-name them at launch. With the loophole on, a host missing one of the sockets still gets that
-socket's variable, because a missing socket skips only its own bind. And re-entering a running
-jail after switching the loophole on or off sets or leaves out both variables by the new switch,
-while the jail keeps the binds it started with (both recorded in LP-D1).
+([LP-D1](../../docs/design/loophole-packaging.md#LP-D1)): a podman jail on Linux that holds the
+`use` grant. `yolo host`, macos-user, a Mac, and a jail without the grant leave both variables out
+and name them at launch; without the grant the line names the step that grants it. With the grant,
+a host missing one of the sockets still gets that socket's variable, because a missing socket
+skips only its own bind. And re-entering a running jail after the grant changed sets or leaves out
+both variables by the new grant, while the jail keeps the binds it started with (both recorded in
+LP-D1).
+
+> **Known gap:** the variables are composed before the launch's config-change gate runs, from
+> the grant the approval record already holds. So the one launch whose gate *first* records
+> `use` binds the sockets but leaves both variables out (and names them); the next launch sets
+> them.
 
 ## Off by default
 
-`default_enabled: false` ([`loophole-activation.md`](../../docs/reference/loophole-system.md)
-R1/R4 — *"we don't give host access by default"*). Audio used to be on for everyone whose
-host had a Pulse socket, which is host presence deciding activation.
+Nothing of audio crosses until a project holds `use`, and `use` is not requestable by default
+([`loophole-activation.md`](../../docs/reference/loophole-system.md) R1/R4 — *"we don't give
+host access by default"*). Audio used to be on for everyone whose host had a Pulse socket, which
+is host presence deciding activation; then it was a `default_enabled: false` switch any config
+scope could flip. The manifest still says `default_enabled = false`, which a grant-declaring
+loophole does not read: selecting the pack runs it, and the grant decides what crosses.
 
 Note the sibling `audio-alsa` shipped `default_enabled: **true**`, on an argument that was
 sound for what it was — R4's subject is host access, and an ALSA config fragment the pack
@@ -144,7 +190,7 @@ can only be proven on a real desktop.
 | Observable in a nested jail | Needs a real (non-jail) host |
 |---|---|
 | discovery (`yolo loopholes list` shows `audio`, source `pack`) | `--device` passthrough of any kind |
-| selection (the pack must be in `packs`; nothing is default-on) | the live sockets crossing into a fresh jail |
+| selection (the pack must be in `packs`; nothing crosses without the `use` grant) | the live sockets crossing into a fresh jail |
 | the footprint claims (`yolo pack footprint` / `pack lint`) | audio actually reaching a speaker or microphone |
 | the approval path (a **fetched** copy prompts; this embedded one carries yolo's authority) | |
 | the `:ro` binds landing at their destinations | |
@@ -162,5 +208,5 @@ platform, because the actionable line there is "switch backends".
 $ yolo pack lint packs/audio          # claims + the strict manifest read
 $ yolo pack footprint audio           # the same claims, from the embedded copy
 $ yolo loopholes list                 # audio, source `pack`
-$ ls -l /etc/alsa/conf.d/             # in a jail that selected AND enabled the pack
+$ ls -l /etc/alsa/conf.d/             # in a jail that selected the pack AND holds `use`
 ```

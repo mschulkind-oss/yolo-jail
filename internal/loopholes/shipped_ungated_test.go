@@ -21,10 +21,9 @@ var ungatedShippedLoopholes = map[string]string{
 
 // awaitingGrantFlip names the shipped loopholes that will declare [[grants]] but do not yet:
 // each one's flip, the change that gives it [[grants]] (docs/design/loophole-access-approval.md
-// §12), removes its name here, and retiring `default_enabled` deletes the empty set.
-var awaitingGrantFlip = map[string]bool{
-	"audio": true,
-}
+// §12), removes its name here, and retiring `default_enabled` deletes the empty set. audio's
+// flip (plan F5) was the last.
+var awaitingGrantFlip = map[string]bool{}
 
 // TestNoShippedLoopholeIsUngatedWithoutAReason reads every loophole manifest in the official
 // pack embed, what an installed yolo ships, and holds the ungated set closed: a manifest declares

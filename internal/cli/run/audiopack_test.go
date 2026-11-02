@@ -467,19 +467,21 @@ func TestShippedAudioPackEmitsAReadOnlyBindIntoTheContainerArgv(t *testing.T) {
 	// so SetOf (which carries no gate) would withhold every crossing and this test would
 	// assert the withholding rather than the argv. Building it the way the run pipeline
 	// does is also the only spelling that proves the pack's own module reaches the gate.
+	//
+	// WITH ITS `use` GRANT HELD, because audio's crossing is unmediated: no daemon answers
+	// it, so its binds and its device reach the argv only under a grant
+	// (docs/design/loophole-access-approval.md LG-D6; the withholding has its own test,
+	// loopholes' TestTheShippedAudioCrossesOnlyUnderItsUseGrant). The argv is what is under
+	// test here, so the grant is handed to the set as the launch hands it the gate's result.
 	set := loopholes.NewSet(loopholes.DiscoverOptions{
 		PackModules: []loopholes.PackModule{{Dir: dir, HostExecApproved: true}},
-	})
+	}).WithGrants(map[string][]string{"audio": {"use"}})
 	lp, ok := set.Lookup("audio")
 	if !ok {
 		t.Fatalf("the shipped loophole was not discovered from its module dir %s", dir)
 	}
-	// ENABLED BY HAND, because the manifest ships `default_enabled: false` since the
-	// merge (R4: host access is never on by default, and this loophole is now nothing
-	// but host access). The argv is what is under test, not the switch — and the switch
-	// has its own test in loopholedecl. Setting it here rather than through a config
-	// fixture keeps this test about RuntimeArgsFor.
-	lp.Enabled = true
+	// ON BY SELECTION: a grant-declaring loophole runs whenever its pack is selected, and
+	// the grant, not the retired `enabled` switch, decides what crosses.
 	if !lp.Active() {
 		t.Fatalf("the loophole must be ACTIVE on a host: enabled=%v supportedHere=%v "+
 			"requirementsMet=%v", lp.Enabled, lp.SupportedHere(), lp.RequirementsMet())
@@ -627,7 +629,13 @@ func hostLauncher(t *testing.T) {
 // (yolo-user-env.sh, where the pack env fold crosses) and everything it printed.
 func podmanLaunchEnvFile(t *testing.T) (string, string) {
 	t.Helper()
-	ws := t.TempDir()
+	return podmanLaunchEnvFileIn(t, t.TempDir())
+}
+
+// podmanLaunchEnvFileIn is podmanLaunchEnvFile in the workspace ws, so a second launch reads
+// what the first one's gate recorded.
+func podmanLaunchEnvFileIn(t *testing.T, ws string) (string, string) {
+	t.Helper()
 	bin := t.TempDir()
 	if err := os.WriteFile(filepath.Join(bin, "podman"), []byte("#!/bin/sh\nexit 3\n"), 0o755); err != nil {
 		t.Fatal(err)
@@ -635,6 +643,9 @@ func podmanLaunchEnvFile(t *testing.T) (string, string) {
 	t.Setenv("PATH", bin+":/bin:/usr/bin")
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, ws, "podman", &stdout, &stderr, nil)
+	// A grant a user config adds shows at the gate once; with no terminal here the launch
+	// accepts it as --accept-config-changes would. An ungated loophole asks nothing.
+	o.AcceptConfigChanges = true
 	repo, _ := o.RepoRoot()
 	o.PathExists = func(p string) bool { return p == filepath.Join(prebuiltBinDir(repo.Root), "yolo-entrypoint") }
 	o.Exec = func([]string, string, []string, time.Duration) ExecResult { return ExecResult{Ran: true, RC: 0} }
@@ -692,13 +703,37 @@ func TestABoundLoopholesPointerReachesOnlyTheJailThatBindsIt(t *testing.T) {
 	}
 }
 
-// THE SHIPPED PACK, on podman: delivered on Linux, where its loophole binds; withheld and named on
-// darwin, where it is platform-inert (podman on a Mac reaches no host PipeWire socket).
+// audioGrantedUserTOML selects the shipped audio pack and grants `use` to every project from the
+// user's ceiling, which the gate shows once and the launch accepts (--accept-config-changes).
+const audioGrantedUserTOML = "packs = [\"audio\"]\n\n[allow.audio]\nalways = [\"use\"]\n"
+
+// writeUserConfigTOML writes the user's TOML config.
+func writeUserConfigTOML(t *testing.T, home, body string) {
+	t.Helper()
+	dir := filepath.Join(home, ".config", "yolo-jail")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// THE SHIPPED PACK, on podman, under its `use` grant: delivered on Linux, where its loophole
+// binds; withheld and named on darwin, where it is platform-inert (podman on a Mac reaches no host
+// PipeWire socket).
+//
+// THE SECOND LAUNCH is the one asserted: the channel, and with it the pointers, is composed
+// before the config-change gate runs, from the grant the approval record already holds, so the
+// launch whose gate first records `use` binds the sockets but withholds the pointers. That
+// first-launch gap is filed in the loophole-access-approval backlog (grant-backlog.md, F5).
 func TestTheShippedAudioPointersFollowItsBindsOnPodman(t *testing.T) {
 	hostLauncher(t)
 	home := packHome(t)
-	writeUserConfigJSON(t, home, `{"packs": ["audio"], "loopholes": {"audio": {"enabled": true}}}`)
-	file, out := podmanLaunchEnvFile(t)
+	writeUserConfigTOML(t, home, audioGrantedUserTOML)
+	ws := t.TempDir()
+	podmanLaunchEnvFileIn(t, ws)
+	file, out := podmanLaunchEnvFileIn(t, ws)
 	for _, k := range audioPointers {
 		delivered := strings.Contains(file, "export "+k+"=")
 		if want := runtime.GOOS == "linux"; delivered != want {
@@ -710,14 +745,46 @@ func TestTheShippedAudioPointersFollowItsBindsOnPodman(t *testing.T) {
 	}
 }
 
+// THE SHIPPED PACK SELECTED WITH NO GRANT (plan F5): nothing crosses, so neither pointer is
+// delivered, and the launch says how to ask, in the pack disclosure and in the line naming the
+// withheld pointers. Neither names the retired `enabled` switch, which grants nothing now.
+func TestTheShippedAudioSelectedWithNoGrantBindsNothingAndSaysHowToAsk(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skipf("audio is declared platforms: [linux]; on %s it is inert, which its own test covers", runtime.GOOS)
+	}
+	hostLauncher(t)
+	home := packHome(t)
+	writeUserConfigTOML(t, home, "packs = [\"audio\"]\n")
+	file, out := podmanLaunchEnvFile(t)
+	for _, k := range audioPointers {
+		if strings.Contains(file, "export "+k+"=") {
+			t.Errorf("an ungranted audio delivered %s, a socket nothing bound:\n%s", k, file)
+		}
+	}
+	for _, want := range []string{
+		"audio: selected, grants nothing here (not allowed on request by your config).",
+		"To let this project ask:  yolo allow audio on_request use   then  yolo request audio use",
+		`PIPEWIRE_REMOTE, PULSE_SERVER — points at what the "audio" loophole binds into a jail, ` +
+			"which this launch did not bind: it holds no grant in this project " +
+			"(`yolo allow audio on_request use`, then `yolo request audio use`)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the launch does not say %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, `{"audio": {"enabled": true}}`) {
+		t.Errorf("the launch names the retired switch for a grant-declaring loophole:\n%s", out)
+	}
+}
+
 // MACOS-USER BINDS NOTHING INTO ITS SANDBOX, so it hands the sandbox neither variable and names
 // both with that reason — on Linux too, where the loophole is otherwise active, which is the
 // half only the runtime decides.
 func TestMacosUserHandsTheSandboxNoAudioPointer(t *testing.T) {
 	hostLauncher(t)
 	home := packHome(t)
-	writeUserConfigJSON(t, home, `{"packs": ["audio"], "loopholes": {"audio": {"enabled": true}}}`)
-	got := macosUserLaunch(t, t.TempDir())
+	writeUserConfigTOML(t, home, audioGrantedUserTOML)
+	got := macosUserLaunchWithOptions(t, t.TempDir(), nil, func(o *Options) { o.AcceptConfigChanges = true })
 	if got.rc != 0 {
 		t.Fatalf("Run() = %d, want 0\n%s", got.rc, got.out)
 	}

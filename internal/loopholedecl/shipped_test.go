@@ -299,6 +299,19 @@ func TestShippedAudioFields(t *testing.T) {
 		t.Errorf("jail_env = %v — refused for a pack-shipped loophole; the variables are "+
 			"the pack's `env` contribution", m.JailEnv.Keys())
 	}
+	// The GRANT half (docs/design/loophole-access-approval-plan.md F5): one unvalued kind, `use`,
+	// that admits the whole crossing. Not requestable by default (it is a microphone), and a
+	// legacy `enabled: true` becomes it.
+	if m.Access != "use the host's microphone and speakers" {
+		t.Errorf("access = %q, want %q", m.Access, "use the host's microphone and speakers")
+	}
+	wantGrants := []loopholedecl.Grant{{Kind: "use", Text: "use your microphone and speakers", LegacyEnable: true}}
+	if !reflect.DeepEqual(m.Grants, wantGrants) {
+		t.Errorf("grants = %+v\nwant     %+v", m.Grants, wantGrants)
+	}
+	if len(m.Settings) != 0 {
+		t.Errorf("settings = %+v, want none", m.Settings)
+	}
 }
 
 // TestShippedBrokerFields pins the sharpest shipped manifest: a host daemon, a

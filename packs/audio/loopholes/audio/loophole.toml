@@ -15,16 +15,20 @@
 #     `env` contribution, marked `served_by = "audio"` (docs/design/loophole-packaging.md LP-D1).
 #     `jail_env` is refused for a pack-shipped loophole, and `served_by` naming this loophole makes
 #     the variables follow the binds below: a launch serves the name only where its container argv
-#     carries them, so `yolo host`, macos-user and a jail with this loophole off withhold both. A
-#     socket bind added here whose client needs a variable gets it in that same contribution.
+#     carries them, so `yolo host`, macos-user and a jail that holds no `use` grant withhold both.
+#     A socket bind added here whose client needs a variable gets it in that same contribution.
 #
 # The pack-shipped subset once refused a bind host that expands ${XDG_RUNTIME_DIR}; that rule was
 # withdrawn (OQ-LP14), and these sockets are why. If they draw a subset refusal again, read that
 # question before changing this file.
 name = "audio"
-description = "PipeWire/PulseAudio socket pass-through + ALSA→PipeWire routing — enables microphone and playback inside the jail (Claude Code /voice, sox, ffmpeg, pipewire-rs, libasound clients)."
+description = "PipeWire/PulseAudio socket pass-through + ALSA→PipeWire routing — enables microphone and playback inside the jail (Claude Code /voice, sox, ffmpeg, pipewire-rs, libasound clients). It crosses only under the `use` grant."
 version = 1
+# A grant-declaring loophole runs whenever its pack is selected; the grant below, not this switch,
+# decides whether anything crosses. The key goes when `default_enabled` is retired.
 default_enabled = false
+# The one line every refusal and the launch's disclosure print for this loophole.
+access = "use the host's microphone and speakers"
 # Linux only, declared rather than probed with `requires`: `requires` asks whether a thing is
 # present (the fix is to install it), `platforms` asks whether it exists for this machine at all
 # (there is no fix). ALSA and the PipeWire/Pulse socket layout are Linux. A host with no audio
@@ -41,6 +45,22 @@ lifecycle = "external"
 # RuntimeArgsFor skips device passthrough when the launcher is itself in a jail, so a change to it
 # can only be proven on a real desktop.
 host_devices = ["/dev/snd"]
+
+# One grant kind, `use`, and it is all or nothing. No daemon answers this loophole's requests, so
+# nothing can refuse one: the crossing itself (the two sockets, the ALSA file and /dev/snd above
+# and below, and the pack's PULSE_SERVER/PIPEWIRE_REMOTE, which follow the binds) is what the
+# grant admits (docs/design/loophole-access-approval.md LG-D6). Without it, selecting the pack puts
+# none of them in the jail and the launch says how to ask. Being container argv, a grant `yolo
+# config apply` records lands at the next restart, not in the running jail (LG-D7).
+#
+# Not requestable by default: the user first allows it with `yolo allow audio on_request use` (or
+# `always`), then a project asks with `[requests.audio] use = true` (`yolo request audio use`), and
+# only an accepted gate grants it. A legacy `enabled: true` becomes `use` during the JSONC window
+# (plan PD-9).
+[[grants]]
+kind = "use"
+text = "use your microphone and speakers"
+legacy_enable = true
 
 [[host_bind_mounts]]
 # The PulseAudio socket. Works for PipeWire (which ships a Pulse-compatible socket via

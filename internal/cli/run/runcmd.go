@@ -297,6 +297,9 @@ type Options struct {
 	// `served_by` one reaches the jail only where its binds do (docs/design/loophole-packaging.md
 	// LP-D1). nil on macos-user, which binds nothing, and when none is active.
 	jailBound []string
+	// ungrantedBound is why each active grant-declaring bound loophole jailBound leaves out holds
+	// no grant here (ungrantedBoundWhy), by name, for the withheld pointer's clause.
+	ungrantedBound map[string]string
 	// frontedHost are the FRONTED HOST LOOPHOLES (loopholes.FrontedHostNames: a host daemon this
 	// launch starts and fronts over loopback-TLS), recorded beside jailBound so servedDaemons
 	// serves their names: a pack env pointer `served_by` one (packs/git's GIT_CONFIG_* rewrite)

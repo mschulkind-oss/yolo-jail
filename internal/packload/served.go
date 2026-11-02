@@ -85,6 +85,31 @@ type ServedDaemons struct {
 	// what a loophole binds (a BOUND LOOPHOLE, notBoundWhy) is worded as one this notch cannot
 	// bind, never as one the launch left switched off.
 	mountsNothing bool
+	// ungranted is why a jail notch left a GRANT-DECLARING bound loophole unbound, keyed by
+	// loophole name (WithUngrantedBinds): it holds no grant in this project, so the clause names
+	// the step that grants one rather than the `enabled` switch, which grants nothing to such a
+	// loophole (docs/design/loophole-access-approval.md LG-D6).
+	ungranted map[string]string
+}
+
+// WithUngrantedBinds returns s with the clause, keyed by loophole name, a pointer at an ungranted
+// grant-declaring bound loophole's binds carries in place of the switch's (the ungranted field
+// says when it is read). nil adds nothing.
+func (s ServedDaemons) WithUngrantedBinds(why map[string]string) ServedDaemons {
+	if len(why) == 0 {
+		return s
+	}
+	out := make(map[string]string, len(s.ungranted)+len(why))
+	for k, v := range s.ungranted {
+		out[k] = v
+	}
+	for k, v := range why {
+		if v != "" {
+			out[k] = v
+		}
+	}
+	s.ungranted = out
+	return s
 }
 
 // AtHost returns s marked as the host notch's set (the host field says what that changes).
@@ -176,6 +201,8 @@ func (s ServedDaemons) notBoundWhy(loophole string) string {
 	case s.mountsNothing:
 		return "which the macos-user sandbox does not have: it binds nothing into the jail, so " +
 			"nothing would answer it"
+	case s.ungranted[loophole] != "":
+		return "which this launch did not bind: " + s.ungranted[loophole] + ", so nothing would answer it"
 	default:
 		return "which this launch did not bind: the loophole is off (`\"loopholes\": {" +
 			strconv.Quote(loophole) + ": {\"enabled\": true}}` in your config turns it on) or " +

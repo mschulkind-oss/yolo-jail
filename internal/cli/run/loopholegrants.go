@@ -91,6 +91,50 @@ func (o *Options) withLaunchGrants(set loopholes.Set, rt string, cfg *jsonx.Orde
 	return set.WithGrants(grantedKinds(o.loopholeGrantStandings(rt, cfg)))
 }
 
+// ungrantedBoundWhy is the clause, by loophole name, for every active grant-declaring BOUND
+// LOOPHOLE in set (no jail daemon; host binds or devices) that holds no grant in standings: its
+// binds stay out of the jail (loopholes.Set.WithGrants), so a pack env pointer `served_by` it is
+// withheld, and the line naming the pointer says what grants it (packload.WithUngrantedBinds)
+// instead of the `enabled` switch, which grants nothing to such a loophole. nil when none.
+func ungrantedBoundWhy(set loopholes.Set, standings grantStandings) map[string]string {
+	granted := grantedKinds(standings)
+	var out map[string]string
+	for _, lp := range grantDeclaring(set) {
+		if lp.JailDaemon != nil || (len(lp.HostBindMount) == 0 && len(lp.HostDevices) == 0) ||
+			len(granted[lp.Name]) > 0 || !lp.Active() {
+			continue
+		}
+		clause := summarizeGrants(lp, standings[lp.Name]).unboundClause(lp)
+		if clause == "" {
+			continue
+		}
+		if out == nil {
+			out = map[string]string{}
+		}
+		out[lp.Name] = clause
+	}
+	return out
+}
+
+// unboundClause is the clause for a pointer at what lp would bind, holding no grant: the standing
+// and the step that grants one, worded as the disclosure's (disclosureLines).
+func (s grantSummary) unboundClause(lp *loopholes.Loophole) string {
+	if len(s.granted) > 0 || s.standing == "" {
+		return ""
+	}
+	pack := packOf(lp)
+	switch s.standing {
+	case config.LoopholeGrantPending:
+		return "it holds no grant in this project yet (its request for " + s.kind.Kind +
+			" waits on `yolo config apply` on the host, answered y)"
+	case config.LoopholeGrantRequestable:
+		return "it holds no grant in this project (`" + requestCommand(pack, s.kind) + "` asks for one)"
+	default:
+		return "it holds no grant in this project (`yolo allow " + pack + " on_request " + s.kind.Kind +
+			"`, then `" + requestCommand(pack, s.kind) + "`)"
+	}
+}
+
 // loopholeGrantBlock is lp's grant block for this launch's grant file (PD-2): this launch's
 // identity, the manifest's `access` line, and every declared kind with its standing, line and
 // value noun.

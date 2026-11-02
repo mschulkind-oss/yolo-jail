@@ -318,12 +318,91 @@ func TestLegacySwitchFileGrantTheGateWouldNotHoldIsNotShownRemoved(t *testing.T)
 // embedded tree as a launch reads it, so the legacy rows run on the real manifest's keys.
 func shippedSerialGateLoophole(t *testing.T) []GateLoophole {
 	t.Helper()
-	decls := LoopholeGrantDeclarationsForPacks([]*packload.Pack{selectedEmbeddedPackForReadableDeclarations(t, "serial")})
+	return shippedGateLoophole(t, "serial")
+}
+
+// shippedGateLoophole is one shipped pack's single grant-declaring loophole, as the gate reads it.
+func shippedGateLoophole(t *testing.T, pack string) []GateLoophole {
+	t.Helper()
+	decls := LoopholeGrantDeclarationsForPacks([]*packload.Pack{selectedEmbeddedPackForReadableDeclarations(t, pack)})
 	if len(decls) != 1 {
-		t.Fatalf("the shipped serial pack declares %d grant-declaring loopholes, want 1: %+v", len(decls), decls)
+		t.Fatalf("the shipped %s pack declares %d grant-declaring loopholes, want 1: %+v", pack, len(decls), decls)
 	}
 	d := decls[0]
 	return []GateLoophole{{Pack: d.Pack, Loophole: d.Loophole, Access: d.Access, Grants: d.Grants}}
+}
+
+// A legacy audio switch (plan F5) reads as the one kind `use` on the shipped manifest, row for row
+// of design §6: the workspace's `enabled: true` is a request the gate shows naming its file, the
+// user's is an always line, and the host-written switch file is a grant the record already holds.
+// None of them gains anything a legacy config did not already turn on.
+func TestLegacyAudioSwitchReadsAsTheUseGrant(t *testing.T) {
+	lps := shippedGateLoophole(t, "audio")
+	if len(lps[0].Grants) != 1 || lps[0].Grants[0].Kind != "use" || !lps[0].Grants[0].LegacyEnable {
+		t.Fatalf("the shipped audio grants are %+v, want one `use` kind with legacy_enable", lps[0].Grants)
+	}
+	const line = "  + audio: use your microphone and speakers"
+
+	// `use` is not requestable by default, so a workspace switch alone is a request the user's
+	// config does not allow: the gate shows the step, and nothing is granted.
+	ws := approvalWorkspace(t)
+	writeLegacyWorkspaceConfig(t, ws, `{"loopholes": {"audio": {"enabled": true}}}`)
+	requireGrantLine(t, grantGate(t, ws, lps),
+		"  – audio: use (not allowed on request by your config: yolo allow audio on_request use)")
+	useStanding := func(ws string) LoopholeGrantStanding {
+		t.Helper()
+		read, err := ReadWorkspaceForGate(ws)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return WithLoopholeGrants(nil, ws, read, lps).LoopholeGrantStandings(ws)["audio"]["use"]
+	}
+	if got := useStanding(ws); got.Standing != LoopholeGrantNotAllowed {
+		t.Fatalf("a workspace switch alone reads %+v; want not_allowed", got)
+	}
+
+	// With the user's ceiling allowing it on request, the same switch is the request, named by
+	// its file.
+	ws = approvalWorkspace(t)
+	writeGrantUserConfig(t, "[allow.audio]\non_request = [\"use\"]\n")
+	writeLegacyWorkspaceConfig(t, ws, `{"loopholes": {"audio": {"enabled": true}}}`)
+	read, err := ReadWorkspaceForGate(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := WithLoopholeGrants(nil, ws, read, lps)
+	p := &reportPrompter{accept: false}
+	if ok, err := CheckConfigAndScopeChanges(ws, read.Config, check, true, false, p); ok || err != nil {
+		t.Fatalf("declined gate ok=%v err=%v", ok, err)
+	}
+	found := false
+	for _, l := range p.got.GrantBlock {
+		found = found || strings.HasPrefix(l, line+" (requested by ") && strings.Contains(l, WorkspaceConfigName)
+	}
+	if !found {
+		t.Fatalf("the workspace audio switch did not read as a `use` request naming %s:\n%s", WorkspaceConfigName, strings.Join(p.got.GrantBlock, "\n"))
+	}
+	if got := check.LoopholeGrantStandings(ws)["audio"]["use"]; got.Standing != LoopholeGrantPending {
+		t.Fatalf("a declined audio request reads %+v, want pending", got)
+	}
+
+	ws = approvalWorkspace(t)
+	writeLegacyUserConfig(t, `{"loopholes": {"audio": {"enabled": true}}}`)
+	requireGrantLine(t, grantGate(t, ws, lps), line+" (from your user config, for every project)")
+	if got := useStanding(ws); got.Standing != LoopholeGrantGranted {
+		t.Fatalf("after the y, use reads %+v; want granted", got)
+	}
+
+	ws = approvalWorkspace(t)
+	if _, err := SetWorkspaceLoophole(ws, "audio", true); err != nil {
+		t.Fatal(err)
+	}
+	if got := grantGate(t, ws, lps); asksAboutGrants(got) {
+		t.Fatalf("a switch-file audio grant asked the gate: %+v", got)
+	}
+	if got := useStanding(ws); got.Standing != LoopholeGrantGranted {
+		t.Fatalf("the switch file's audio grant reads %+v; want granted", got)
+	}
 }
 
 // A legacy config that switched serial on and wrote no `allowed_devices` ran on the setting's five

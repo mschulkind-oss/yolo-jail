@@ -92,7 +92,9 @@ func (o *Options) jailDaemonsFor(cfg *jsonx.OrderedMap, rt string,
 	// Narrowed by this launch's grants as the argv is (loopholesRuntimeArgs), so a bound
 	// loophole's pointer is served exactly when its binds cross. This runs before the gate, so a
 	// grant reads from the record here (loopholeGrantStandings).
-	set := o.withLaunchGrants(loopholes.NewHostSet(cfgMap(cfg, "loopholes")).WithCredentialView(o.claudeCredentialView(rt, cfg)), rt, cfg)
+	standings := o.loopholeGrantStandings(rt, cfg)
+	set := loopholes.NewHostSet(cfgMap(cfg, "loopholes")).WithCredentialView(o.claudeCredentialView(rt, cfg)).
+		WithGrants(grantedKinds(standings))
 	// The service declarations the payload below sets aside, recorded for noteShadowedServices
 	// the way withoutUnselectedProfileDaemons records what it leaves out: every call composes
 	// the same packs, so the record is the same whichever call wrote it last.
@@ -100,6 +102,9 @@ func (o *Options) jailDaemonsFor(cfg *jsonx.OrderedMap, rt string,
 	// The bound loopholes this runtime's argv binds, through the same set and so the same gate
 	// as the payload, recorded for servedDaemons the same way: every call reads the same config.
 	o.jailBound = set.JailBoundNames(set.Enabled(), rt)
+	// And why each grant-declaring bound loophole it leaves out is unbound: no grant here, so
+	// the withheld pointer's line names the step that grants one, not the retired switch.
+	o.ungrantedBound = ungrantedBoundWhy(set, standings)
 	// The fronted host loopholes, whose host daemon this launch starts, recorded the same way
 	// (loopholes.FrontedHostNames, docs/design/git-broker-plan.md ID-6).
 	o.frontedHost = set.FrontedHostNames(set.Enabled(), rt)

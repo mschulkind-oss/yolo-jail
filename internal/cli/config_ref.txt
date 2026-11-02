@@ -360,7 +360,7 @@
 
     "enabled" (boolean, optional) is accepted by BOTH, and it is THE SWITCH:
 
-      "loopholes": { "audio": { "enabled": true } }
+      "loopholes": { "cgroup-delegate": { "enabled": true } }
 
       It is the USER's answer, and it outranks whatever the loophole's manifest
       declared, in both directions.  DO NOT CONFUSE IT WITH "default_enabled",
@@ -368,8 +368,10 @@
       one is the PACK AUTHOR's default — what happens when nobody has spoken —
       and an ABSENT "default_enabled" means the loophole is OFF (presence never
       activates; docs/reference/loophole-system.md R1/R2).  So a loophole whose
-      author shipped it off, "audio" among them, runs only because this key says
-      so.  Honored from the user config and from a workspace yolo-jail.jsonc
+      author shipped it off, "cgroup-delegate" among them, runs only because this
+      key says so.  A loophole that declares [[grants]] ("audio" among them)
+      runs whenever its pack is selected; for it this key is read only as a
+      legacy request for its grant.  Honored from the user config and from a workspace yolo-jail.jsonc
       alike; the workspace is the agent-editable scope, so a switch written there
       is disclosed by name at every launch and by "yolo check".
       On an inline service the default is ON — writing the argv out by hand is

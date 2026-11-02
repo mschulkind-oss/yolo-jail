@@ -1,7 +1,15 @@
 {
   "name": "audio",
-  "description": "PipeWire/PulseAudio socket pass-through + ALSA\u2192PipeWire routing \u2014 enables microphone and playback inside the jail (Claude Code /voice, sox, ffmpeg, pipewire-rs, libasound clients).",
+  "description": "PipeWire/PulseAudio socket pass-through + ALSA\u2192PipeWire routing \u2014 enables microphone and playback inside the jail (Claude Code /voice, sox, ffmpeg, pipewire-rs, libasound clients). It crosses only under the `use` grant.",
   "version": 1,
+  "access": "use the host's microphone and speakers",
+  "grants": [
+    {
+      "kind": "use",
+      "text": "use your microphone and speakers",
+      "legacy_enable": true
+    }
+  ],
   "default_enabled": false,
   "platforms": [
     "linux"

@@ -1234,7 +1234,7 @@ func (o *Options) servedDaemons(specs []loopholes.JailDaemonSpec) packload.Serve
 	// One it leaves out carries its reason: the loophole is off, or the backend serves none.
 	names = append(names, o.frontedHost...)
 	served := packload.ServedInJail(names).WithListen(listen).WithRebind(o.movedServedAddresses()).
-		WithInherited(o.parentPointers).WithNotServedWhy(o.frontedWhy)
+		WithInherited(o.parentPointers).WithNotServedWhy(o.frontedWhy).WithUngrantedBinds(o.ungrantedBound)
 	if o.runtime == "macos-user" { // parity: Warned — the Seatbelt sandbox binds nothing (loopholes.JailBoundNames is nil there), so a pointer at what a loophole binds is withheld and the launch names it (packload.UnservedEnvLines)
 		served = served.MountsNothing()
 	}
