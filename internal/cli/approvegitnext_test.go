@@ -5,25 +5,36 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/ghbroker"
 	"github.com/mschulkind-oss/yolo-jail/internal/gitbroker"
 )
 
-// Every `yolo …` command a git push refusal names as its next step is one this CLI runs: its
-// subcommand is registered, and `yolo approve` takes the arguments the step gives it, reaching
-// the store (an unknown request is exit 4, never a usage error).
+// Every `yolo …` command a git push refusal or a pending gh write names as its next step,
+// whether in backticks or alone on its own indented line in the menu, is one this CLI runs:
+// its subcommand is registered, and `yolo approve` takes the arguments the step gives it,
+// reaching the store (an unknown request is exit 4, never a usage error).
 func TestGitRefusalNextStepsNameRealCommands(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("YOLO_VERSION", "")
 	t.Setenv("YOLO_USER_LAYER", "")
 	cmd := regexp.MustCompile("`(yolo [^`]*)`")
 	seen := map[string]bool{}
-	for _, step := range gitbroker.RefusalNextSteps() {
+	steps := append(gitbroker.RefusalNextSteps(), ghbroker.PendingMessageSamples()...)
+	for _, step := range steps {
 		for _, m := range cmd.FindAllStringSubmatch(step, -1) {
 			seen[m[1]] = true
 		}
+		for _, line := range strings.Split(step, "\n") {
+			if c, ok := strings.CutPrefix(line, "    "); ok && strings.HasPrefix(c, "yolo ") {
+				seen[strings.TrimSpace(c)] = true
+			}
+		}
 	}
-	if len(seen) == 0 {
-		t.Fatal("no next step names a yolo command")
+	const id = "r-00000000000000000000000000000000"
+	for _, must := range []string{"yolo wait " + id, "yolo approve " + id + " --remember", "yolo approve " + id + " --add", "yolo approve " + id + " --for 15m"} {
+		if !seen[must] {
+			t.Errorf("no next step names %q", must)
+		}
 	}
 	for line := range seen {
 		args := strings.Fields(strings.ReplaceAll(line, "<id>", "r-ffffffffffffffffffffffffffffffff"))

@@ -340,8 +340,13 @@ func TestApplyHostBriefingDroppingThePackLeavesNoOrphan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the claude pack's own prose: %v", err)
 	}
+	claudeWaiting, err := officialpacks.FS.ReadFile("claude/briefing/waiting.md")
+	if err != nil {
+		t.Fatalf("the claude pack's own prose: %v", err)
+	}
 	want := jailcontent.ComposeBriefingSections(jailcontent.HostBriefingBase("", paths.IsMacOS),
-		[]jailcontent.BriefingSection{{Pack: "claude", Text: strings.TrimRight(string(claudeOwn), "\n")}}, false)
+		[]jailcontent.BriefingSection{{Pack: "claude", Text: strings.TrimRight(string(claudeWaiting), "\n")},
+			{Pack: "claude", Text: strings.TrimRight(string(claudeOwn), "\n")}}, false)
 	after, err := os.ReadFile(dest)
 	if err != nil || strings.Contains(string(after), "Pack rule: use rg.") || string(after) != want {
 		t.Errorf("with only the agent pack left the destination is the host base and the claude "+

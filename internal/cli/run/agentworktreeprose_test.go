@@ -116,11 +116,21 @@ func TestEachAgentPackShipsItsOwnWorktreeProseToItsOwnAgent(t *testing.T) {
 				t.Errorf("%s %s carries its worktree prose %d times, want 1", notch, dest, strings.Count(body, want))
 			}
 		}
+		// Each agent's pack also says how its own harness starts the background `yolo wait`
+		// core's host-run section asks for (core names no harness).
+		for dest, want := range map[string]string{
+			claudeDest: "with the Bash tool and `run_in_background: true`",
+			piDest:     "with `background_task` and\n`completionPolicy: \"wake\"`",
+		} {
+			if notch == "jail" && strings.Count(files[dest], want) != 1 {
+				t.Errorf("%s %s does not say once how its harness starts the waiter (%q):\n%s", notch, dest, want, files[dest])
+			}
+		}
 		// Neither agent's prose reaches another agent.
 		for dest, gone := range map[string][]string{
-			claudeDest: {"## Where pi's workflow tools put worktrees"},
-			piDest:     {"## Claude Code's own worktrees"},
-			codexDest:  {"## Claude Code's own worktrees", "## Where pi's workflow tools put worktrees"},
+			claudeDest: {"## Where pi's workflow tools put worktrees", "## Waiting on the host in Pi"},
+			piDest:     {"## Claude Code's own worktrees", "## Waiting on the host in Claude Code"},
+			codexDest:  {"## Claude Code's own worktrees", "## Where pi's workflow tools put worktrees", "## Waiting on the host in"},
 		} {
 			for _, g := range gone {
 				if strings.Contains(files[dest], g) {

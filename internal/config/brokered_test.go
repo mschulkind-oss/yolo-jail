@@ -654,7 +654,7 @@ func TestGrantShapeRefusals(t *testing.T) {
 			`{}`, "config.brokered.git.grants[0].repo:", ""},
 		{"read at workspace scope, not allowed", `{}`,
 			`{"brokered": {"git": {"grants": [{"kind": "read", "repo": "github.com/o/r"}]}}}`,
-			"your user config does not allow a workspace to hold a 'read' grant", ""},
+			"your user config does not let a workspace hold a 'read' grant", ""},
 		{"read at workspace scope, allowed", `{"brokered": {"git": {"grant_kinds": ["read"]}}}`,
 			`{"brokered": {"git": {"grants": [{"kind": "read", "repo": "github.com/o/r"}]}}}`, "", ""},
 		{"read at workspace scope, user holds read", `{"brokered": {"git": {"grants": [{"kind": "read", "repo": "*"}]}}}`,

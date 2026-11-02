@@ -83,7 +83,7 @@ func TestApproveGitForAndAddCLI(t *testing.T) {
 
 	// --add: the branch joins the working set for good (no expiry).
 	rc, out, errs = run(tooLong.ID, "--add")
-	if rc != 0 || !strings.Contains(out, "added refs/heads/dev to the working set") {
+	if rc != 0 || !strings.Contains(out, "refs/heads/dev joined this workspace's working set") {
 		t.Fatalf("--add: rc %d\n%s%s", rc, out, errs)
 	}
 	ws, err := s.Working()

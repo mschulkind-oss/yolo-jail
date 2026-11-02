@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/approvalwait"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokeraudit"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerstore"
 	"github.com/mschulkind-oss/yolo-jail/internal/gitproto"
@@ -36,14 +37,21 @@ type refusal struct{ reason, next string }
 // hostPush is the fallback every refusal can name: the push run on the host.
 const hostPush = "push it from the host (`git push` in this workspace there)"
 
-// pendingRefusal is a push whose request id is still waiting for the host's answer.
-func pendingRefusal(id string) refusal {
-	return refusal{reasonNeedsApprovalPrefix + id, " It needs approval, and request " + id + " asks for it: ask the user " +
-		"to run `yolo approve " + id + "` on the host, then run the same push again within 15 minutes. That is Allow " +
-		"once: it covers exactly this push, once, and a different push asks again. `yolo approve " + id + " --for 15m` " +
-		"allows every push to these refs for 15 minutes instead, and `yolo approve " + id + " --add` adds these " +
-		"branches to the workspace's working set for good. To push a branch without asking each time, " +
-		"the lines above name the grant that covers it; or " + hostPush + "."}
+// pendingRefusal is a push whose request is still waiting for the host's answer: the menu of
+// every path that answers it (menu.go, approvalwait.Menu), with the request's id.
+func pendingRefusal(m approvalwait.Menu) refusal {
+	return refusal{reasonNeedsApprovalPrefix + m.ID, " It needs approval. Allow once covers exactly this push, " +
+		"once, within 15 minutes; a different push asks again.\n\n" + m.Render()}
+}
+
+// lapsedRefusal is a retry of a push the host allowed once as request id, whose window closed
+// before the push ran. The store refuses it once, and the next run of the same push files a
+// new request: the agent asks the human deliberately rather than a retry asking unnoticed.
+func lapsedRefusal(id string) refusal {
+	return refusal{reasonNeedsApprovalPrefix + id + ", allowed but its window closed",
+		" The host allowed request " + id + ", but its 15-minute window closed before this push ran, so it " +
+			"covers nothing now and no new request was filed. Tell the human, and only if they still want it, " +
+			"run the same push again: that files a new request for them to answer; or " + hostPush + "."}
 }
 
 // answeredRefusal is a push whose request id the host answered, or closed, with state, and
@@ -79,6 +87,9 @@ func answeredRefusal(id, state string) refusal {
 func filingRefusal(err error) refusal {
 	var limit *brokerstore.PendingLimitError
 	var denial *brokerstore.DenialCooldownError
+	if id, ok := brokerstore.IsLapsedAllow(err); ok {
+		return lapsedRefusal(id)
+	}
 	switch {
 	case errors.As(err, &limit):
 		return refusal{reasonNeedsApproval + "; this jail already has 3 requests waiting",
@@ -111,7 +122,7 @@ func storeFailure(what string, err error) refusal {
 // for a sample request, so the CLI's tests can check that each command they name exists.
 func RefusalNextSteps() []string {
 	const id = "r-00000000000000000000000000000000"
-	rs := []refusal{pendingRefusal(id), filingRefusal(&brokerstore.PendingLimitError{Requests: []string{id}}),
+	rs := []refusal{pendingRefusal((&pushMenu{project: []string{"yolo request git push main"}, ceiling: []string{AllowOnRequestCommand(grantBranch)}}).menu(id, []string{"refs/heads/main"})), lapsedRefusal(id), filingRefusal(&brokerstore.PendingLimitError{Requests: []string{id}}),
 		filingRefusal(&brokerstore.DenialCooldownError{Request: id}), filingRefusal(errors.New("e")), storeRefusal(errors.New("e"))}
 	for _, s := range []string{"allowed", "denied", "refused", "expired", "other"} {
 		rs = append(rs, answeredRefusal(id, s))
@@ -189,7 +200,9 @@ func (b *Broker) askForPush(ctx context.Context, repo string, cmds []gitproto.Co
 	status, err := b.waitStatus(ctx, q.Jail, filed.ID)
 	switch {
 	case err != nil || status.State == "pending":
-		return brokerstore.Grant{}, pendingRefusal(filed.ID), false
+		m := pushMenuFrom(ctx)
+		m.markListed()
+		return brokerstore.Grant{}, pendingRefusal(m.menu(filed.ID, needs)), false
 	case status.State != "allowed":
 		return brokerstore.Grant{}, answeredRefusal(filed.ID, status.State), false
 	}

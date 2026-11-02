@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/approvalwait"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
 	"github.com/mschulkind-oss/yolo-jail/internal/nixroots"
@@ -931,7 +932,7 @@ func BriefingContent(in BriefingInput) string {
 		noSudoLine,
 		"",
 	)
-	lines = append(lines, hostRunSection...)
+	lines = append(lines, hostRunSection()...)
 	lines = append(lines, "## Skills", "",
 		"Before editing the workspace config, asking for a restart, or relying on a file from the host: read **"+
 			BuiltinSkillName(in.ShippedSkillPrefix, mechanicsSkill)+"**.", "",
@@ -948,24 +949,75 @@ func BriefingContent(in BriefingInput) string {
 	return strings.Join(lines, "\n") + "\n"
 }
 
-// hostRunSection teaches the agent `yolo host-run` (docs/design/host-run-mailbox.md §4.1,
-// HX-D41): one line a human runs on the host, whose output comes back here. It is a jail
-// section; the host notch's briefing returns before it.
-var hostRunSection = []string{
-	"## Running a command on the host",
-	"",
-	"When you need something only the host can do, write ONE line for the human to run in a host",
-	"terminal, and the output comes back to you; nothing needs to run here first:",
-	"",
-	"    yolo host-run -C <value of $YOLO_HOST_DIR> --name <fresh-label> -- <command>",
-	"",
-	"Then start `yolo host-run wait --name <fresh-label>` as a background task (run it again if it",
-	"exits 75), or ask the human to say \"done\" and run `yolo host-run show --name <fresh-label>`.",
-	"Start the line with bare `yolo host-run`; no `;`, `&&`, `|`, `>` or `$(`; single-quote words",
-	"with shell characters; keep it under 300 characters (long text goes in a workspace file the",
-	"command reads). Typing the line here prints it ready to paste. If the host's yolo has no",
-	"`host-run`, ask the human to run the command and paste the output.",
-	"",
+// briefingMenuExample is the approval menu the briefing shows as its example: the same
+// renderer (approvalwait.Menu.Render) prints the git-broker's and the github-broker's, so the
+// example cannot drift from what a refusal really says. A placeholder id, since the example
+// is read, not run.
+var briefingMenuExample = approvalwait.Menu{
+	ID:    "r-<id>",
+	Retry: "run the refused command again",
+	Lasting: []approvalwait.Answer{
+		{What: "Once now, and remembered in the project's config for later pushes", Flags: "--remember"},
+		{What: "For good, on this host: add these branches to the working set", Flags: "--add"},
+	},
+	Project:  []approvalwait.ProjectStep{{Command: "yolo request git push <branch>"}},
+	Fallback: "git push",
+}
+
+// hostRunSection teaches the agent what to do when the human must act on the host: the three
+// rules (approvals are not host-run; each human command alone in a fenced block; the waiter
+// started in the background in the same turn), the approval menu a refusal prints, and
+// `yolo host-run` (docs/design/host-run-mailbox.md §4.1, HX-D41), one line a human runs on the
+// host whose output comes back here. It is a jail section; the host notch's briefing returns
+// before it. It names no harness: a pack that installs one adds how its background task is
+// started.
+func hostRunSection() []string {
+	lines := []string{
+		"## Running a command on the host",
+		"",
+		"Three rules whenever the human must do something on the host:",
+		"",
+		"- **Approvals are not host-run.** `yolo approve`, `yolo config apply` and `yolo allow` are the",
+		"  human's own answers: they run them directly in a host terminal, never through `yolo host-run`.",
+		"- **Each command for the human goes alone on its own line in a fenced code block**, one per",
+		"  line, never inline in prose: it is copied, not read.",
+		"- **Start the waiter in the background in the same turn** as you hand the human something, so",
+		"  its exit re-invokes you: `yolo wait r-<id>` for an approval request, `yolo wait <label>` for a",
+		"  host-run line. Exit 0: retry the refused command exactly once. Exit 75: give the human the",
+		"  commands again and stop. Any other exit: report what it printed, and do not retry.",
+		"",
+		"A git or gh write that needs approval is refused with a menu of every path that answers it.",
+		"Relay the whole menu, and recommend one path: `--remember`, or the project request and then",
+		"`yolo config apply`, for a branch you will push again; `yolo approve r-<id>` alone for a",
+		"one-off. Never report a host capability as impossible: the refusal names a path. A refusal's",
+		"menu reads like this:",
+		"",
+		"```text",
+	}
+	lines = append(lines, strings.Split(strings.TrimRight(briefingMenuExample.Render(), "\n"), "\n")...)
+	return append(lines,
+		"```",
+		"",
+		"If you have no background task whose exit wakes you, run `yolo wait --timeout <less than your",
+		"tool's timeout> r-<id>` once in the foreground. On exit 75, give the human the command and stop;",
+		"when they say they are done, run `yolo wait r-<id>` again. Never wait in a loop. A bare",
+		"`yolo wait` lists the requests still waiting on you, after a restart too.",
+		"",
+		"When you need something only the host can do, write ONE line for the human to run in a host",
+		"terminal, and the output comes back to you; nothing needs to run here first:",
+		"",
+		"```",
+		"yolo host-run -C <value of $YOLO_HOST_DIR> --name <fresh-label> -- <command>",
+		"```",
+		"",
+		"Then start `yolo wait <fresh-label>` in the background (run it again if it exits 75), or ask",
+		"the human to say \"done\" and run `yolo host-run show --name <fresh-label>`. Start the line",
+		"with bare `yolo host-run`; no `;`, `&&`, `|`, `>` or `$(`; single-quote words with shell",
+		"characters; keep it under 300 characters (long text goes in a workspace file the command",
+		"reads). Typing the line here prints it ready to paste. If the host's yolo has no `host-run`,",
+		"ask the human to run the command and paste the output.",
+		"",
+	)
 }
 
 // HostBriefingBase is the host notch's base body for every briefing destination `yolo host apply`

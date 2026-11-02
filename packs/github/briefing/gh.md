@@ -5,10 +5,16 @@ to the github-broker on the host, which runs the host's own `gh` login against t
 GitHub repositories. The jail holds no GitHub token; `gh auth status` names the login.
 
 - **The broker grants nothing until the user's config does.** A call refused with `no read
-  grant` means the user has not granted read access: ask them to add
-  `{"kind": "read", "repo": "*"}` to `brokered.github.grants` in their user config on the host,
-  then run `yolo config apply` on the host, in this workspace, and approve the grant. You cannot
-  grant it from the jail.
+  grant` means the user has not granted read access. Ask them to run this in a host terminal,
+  in this workspace, directly (not through `yolo host-run`), and answer y to the approval it
+  offers:
+
+  ```
+  yolo allow github always read
+  ```
+
+  (A user config still in JSONC needs `yolo config migrate` first; the command says so.) You
+  cannot grant it from the jail.
 - With the read grant, reads run, and their output and exit codes are `gh`'s own. `--jq` and `--template` work as in
   `gh`, and so does piping `--json` output into `jq`.
 - Some writes run without asking. With a `create-pr` (or `create-issue`) grant, which the user
@@ -27,14 +33,15 @@ GitHub repositories. The jail holds no GitHub token; `gh auth status` names the 
   `yolo request github approve_runs <login>` (such as `'github-actions[bot]'`) and approves the
   same way, `gh api -X POST repos/OWNER/REPO/actions/runs/<id>/approve` runs unasked for a run
   that login triggered whose head is the repository itself. A fork's run always asks.
-- Every other in-scope write files a pending request and waits briefly for the host. Tell the
-  user to run `yolo approve <id>` on the host to allow that exact command once,
-  `yolo approve <id> --add` to add the PR or issue it writes to the working set,
-  `yolo approve <id> --for 15m` to allow that kind of write on it for a time, or
-  `yolo approve <id> --deny`. An Allow once binds command, repository and stdin digest, is one
-  use, and expires after 15 minutes; a legacy set-wide grant is not spent. If the request times
-  out, it remains visible in the host broker log and `yolo approve`, and the same command can be
-  retried after approval. A configured `on_request` hook is optional; its output is never
+- Every other in-scope write files a pending request, waits briefly for the host, and is
+  refused with a menu of every answer, each command on its own line: `yolo approve <id>` once,
+  `--for 15m` for that kind of write on it for a time, `--add` to add the PR or issue it writes
+  to the working set, and, for a creation, the project request then `yolo config apply`. The
+  human runs these directly on the host, not through `yolo host-run`. Relay the whole menu as
+  **Running a command on the host** says, recommend one path, and start `yolo wait <id>` in the
+  background; on exit 0, run the same command again, once. An Allow once binds command,
+  repository and stdin digest, is one use, and expires after 15 minutes; a legacy set-wide grant
+  is not spent. A configured `on_request` hook is optional; its output is never
   consent.
 - Exit 64 is a refusal, and its message says why and what to do instead. Refused: anything that
   could print the credential or reach the host, a repository outside this workspace's scope, and

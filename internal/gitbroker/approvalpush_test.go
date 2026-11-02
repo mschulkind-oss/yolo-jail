@@ -19,6 +19,18 @@ import (
 // requestIDLen is the length of a request id, "r-" and 32 hex digits.
 const requestIDLen = 34
 
+// commandLines is the commands a refusal's menu puts alone on their own indented lines
+// (approvalwait.Menu.Render), each trimmed.
+func commandLines(out string) []string {
+	var cmds []string
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "    ") && strings.TrimSpace(line) != "" {
+			cmds = append(cmds, strings.TrimSpace(line))
+		}
+	}
+	return cmds
+}
+
 // refusedRequest is the request a refused push's output names on its ref line, checking
 // that the user is told the host command that approves it.
 func refusedRequest(t *testing.T, out string, err error) string {
@@ -28,8 +40,9 @@ func refusedRequest(t *testing.T, out string, err error) string {
 		t.Fatalf("the push was not refused naming a request: %v\n%s", err, out)
 	}
 	id := out[i+len("(needs approval: ") : i+len("(needs approval: ")+requestIDLen]
-	if !strings.Contains(strings.Join(strings.Fields(out), " "), "run `yolo approve "+id+"` on the host") {
-		t.Fatalf("the refusal does not name `yolo approve %s` on the host:\n%s", id, out)
+	lines := commandLines(out)
+	if !slices.Contains(lines, "yolo approve "+id) || !slices.Contains(lines, "yolo wait "+id) {
+		t.Fatalf("the refusal does not put `yolo approve %s` and `yolo wait %s` each on its own line:\n%s", id, id, out)
 	}
 	return id
 }

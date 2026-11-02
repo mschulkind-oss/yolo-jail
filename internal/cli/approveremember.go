@@ -15,7 +15,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerstore"
@@ -102,15 +101,14 @@ func approveRemember(stores []*brokerstore.Store, id string, out, errs io.Writer
 		fmt.Fprintf(errs, "yolo approve: the request was remembered in %s's config, but this push was not allowed.\n", termsafe.Visible(q.Workspace))
 		return approveFailure(err, errs)
 	}
-	fmt.Fprintf(out, "Allowed %s: one exact command, %d use(s) for every jail of %s, across restarts, expires %s (%s). Run `yolo approve` to list or `yolo approve --revoke %s` to revoke.\n",
-		termsafe.Visible(id), g.Uses, termsafe.Visible(g.Workspace), g.Expires.Format(time.RFC3339), g.ID, g.ID)
+	approveOnceOutcome(out, id, g)
 	file, _ := config.ResolveReadableWorkspaceConfigPath(q.Workspace, config.WorkspaceConfigName)
 	for _, r := range refs {
-		fmt.Fprintf(out, "Remembered %s in %s: requests.%s.%s now lists it, as `yolo request %s %s %s` run in %s writes it.\n",
+		fmt.Fprintf(out, "Remembered %s in %s.\n  requests.%s.%s now lists it, as `yolo request %s %s %s` would write it.\n",
 			termsafe.Visible(r.name), termsafe.Visible(file), gitbroker.Source, r.capability,
-			gitbroker.Source, r.capability, shquote.Quote(r.name), termsafe.Visible(q.Workspace))
+			gitbroker.Source, r.capability, shquote.Quote(r.name))
 	}
-	fmt.Fprintf(out, "Later pushes need no approval once you approve the change: run `yolo config apply` in %s and answer y.\n", termsafe.Visible(q.Workspace))
+	fmt.Fprintf(out, "  Later pushes need no approval once you approve the change, in %s:\n\n      yolo config apply\n\n  and answer y.\n", termsafe.Visible(q.Workspace))
 	return 0
 }
 

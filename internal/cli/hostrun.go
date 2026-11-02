@@ -161,7 +161,7 @@ func hostRunReadyLine(args []string) int {
 	}
 	wait := "yolo host-run wait"
 	if l.Label != "" {
-		wait += " --name " + l.Label
+		wait = "yolo wait " + l.Label
 	}
 	where := "into a terminal on the host"
 	fmt.Fprintf(os.Stderr, "yolo host-run: this runs on the host, so nothing ran here. Ask the human to paste this ONE line\n"+

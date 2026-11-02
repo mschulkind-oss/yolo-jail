@@ -3,10 +3,8 @@ package cli
 import (
 	"fmt"
 	"io"
-	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerstore"
-	"github.com/mschulkind-oss/yolo-jail/internal/ghbroker"
 	"github.com/mschulkind-oss/yolo-jail/internal/termsafe"
 )
 
@@ -31,15 +29,10 @@ func approveGitHubPerResource(s *brokerstore.Store, id string, d brokerstore.Dec
 	if err != nil {
 		return approveFailure(err, errs)
 	}
-	e := entries[0]
-	what := termsafe.Visible(ghbroker.DescribeEntry(e))
 	if add {
-		fmt.Fprintf(out, "Allowed %s: added %s to the working set of %s, across restarts: every write to it but a merge runs "+
-			"unasked until the PR is merged or the entry is revoked (%s). Run `yolo approve` to list or `yolo approve --revoke %s` to revoke.\n",
-			termsafe.Visible(id), what, termsafe.Visible(e.Workspace), e.ID, e.ID)
+		approveGitHubAddOutcome(out, id, entries[0])
 		return 0
 	}
-	fmt.Fprintf(out, "Allowed %s: %s for every jail of %s until %s, across restarts (%s). Run `yolo approve` to list or `yolo approve --revoke %s` to end it.\n",
-		termsafe.Visible(id), what, termsafe.Visible(e.Workspace), e.Expires.Format(time.RFC3339), e.ID, e.ID)
+	approveTimedOutcome(out, id, githubEntryName(entries[0]), entries)
 	return 0
 }

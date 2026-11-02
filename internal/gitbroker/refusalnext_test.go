@@ -21,7 +21,8 @@ func TestEveryApprovalRefusalNamesAWorkingNextStep(t *testing.T) {
 		r         refusal
 		want, not []string
 	}{
-		{"pending", pendingRefusal(id), []string{approveIt + " on the host", "within 15 minutes"}, nil},
+		{"pending", pendingRefusal((&pushMenu{}).menu(id, []string{"refs/heads/main"})), []string{"\n    yolo approve " + id + "\n", "\n    yolo approve " + id + " --for 15m\n", "\n    yolo approve " + id + " --remember\n", "\n    yolo wait " + id + "\n", "within 15 minutes", "not through `yolo host-run`"}, nil},
+		{"lapsed", lapsedRefusal(id), []string{"window closed", "no new request was filed", "push it from the host"}, []string{"\n    yolo approve " + id + "\n"}},
 		{"allowed, grant gone", answeredRefusal(id, "allowed"),
 			[]string{"allowed request " + id, "Run the same push again to file a new request"}, []string{approveIt}},
 		{"denied", answeredRefusal(id, "denied"),

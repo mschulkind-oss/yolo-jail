@@ -66,7 +66,9 @@ func TestApproveGitHubForAndAddCLI(t *testing.T) {
 	// --add: the PR joins the working set for good.
 	add := file("pr", "comment", "12", "--body", "x")
 	rc, out, errs := run(add.ID, "--add")
-	if rc != 0 || !strings.Contains(out, "added PR github.com/o/r#12 to the working set of /fixture") {
+	if rc != 0 || !strings.Contains(out, "Allowed "+add.ID+": PR o/r#12 joined this workspace's working set.\n") ||
+		!strings.Contains(out, "every write to it but a merge") || !strings.Contains(out, "until the PR is merged, or revoked") ||
+		!strings.Contains(out, "\n      yolo approve --revoke w-") {
 		t.Fatalf("--add: rc %d\n%s%s", rc, out, errs)
 	}
 	e, ok, err := s.LiveWorkingKind("/fixture", "github.com/o/r", "#12", brokerstore.WorkingPR)
@@ -83,7 +85,7 @@ func TestApproveGitHubForAndAddCLI(t *testing.T) {
 		t.Fatalf("--for session: rc %d %q", rc, errs)
 	}
 	rc, out, errs = run(merge.ID, "--for", "15m")
-	if rc != 0 || !strings.Contains(out, "merges of github.com/o/r#12 for every jail of /fixture until ") {
+	if rc != 0 || !strings.Contains(out, "Allowed "+merge.ID+": merges of o/r#12, unasked, for a while.") || !strings.Contains(out, "every jail of /fixture") {
 		t.Fatalf("--for on a merge: rc %d\n%s%s", rc, out, errs)
 	}
 	if _, gs, err := s.List(); err != nil || len(gs) != 0 {

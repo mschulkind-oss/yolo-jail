@@ -165,7 +165,7 @@ func TestWorkingSetMergeAsksAndEndsTheEntry(t *testing.T) {
 	if code != ExitTempFail || gh.writes() != 0 {
 		t.Fatalf("a merge of a working-set PR ran unasked: code %d: %s", code, msg)
 	}
-	if !strings.Contains(msg, "A merge asks per PR") {
+	if !strings.Contains(msg, "A merge always asks, per PR") {
 		t.Fatalf("no merge hint: %s", msg)
 	}
 	q := pending(t, b)

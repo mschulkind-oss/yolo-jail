@@ -23,12 +23,21 @@ In a jail: run a gh command through the github-broker, which runs the host's own
 gh login on this jail's behalf and returns its output. The jail holds no GitHub
 credential. With the ` + "`github`" + ` pack selected, a bare ` + "`gh`" + ` in the jail is this.
 
-This version supports host-approved writes. A write in the windowed ` + "`read-write`" + ` set files a pending request; run ` + "`yolo approve <id>`" + ` on the host to allow that exact
-command once, bound to its repository and stdin digest. The jail waits briefly; if no one answers,
-the command does not run and the request stays visible in the host broker log and ` + "`yolo approve`" + `.
-GitHub refuses ` + "`--for`" + ` and ` + "`--add`" + ` set-wide decisions. A standing ` + "`read-write`" + ` policy is also refused;
-remove it from ` + "`brokered.github.sets`" + ` to require Allow once. A configured ` + "`on_request`" + ` hook is optional
-and its output alone is never consent. Commands that could print the credential or reach the host
+Reads run under a read grant. A write a grant or this workspace's working set
+covers runs unasked; any other write files a pending request and does not run.
+The refusal lists the human's answers, each on its own line, for them to run in
+a host terminal directly (not through ` + "`yolo host-run`" + `):
+
+    yolo approve <id>              allow that exact command once, bound to its
+                                   repository and stdin digest
+    yolo approve <id> --for 15m    allow that kind of write on that PR, issue
+                                   or repository for 15 minutes
+    yolo approve <id> --add        add that PR or issue to the working set
+
+Start ` + "`yolo wait <id>`" + ` in the background meanwhile: it exits 0 once the request
+is allowed, and then the same command runs. A standing ` + "`read-write`" + ` entry in
+` + "`brokered.github.sets`" + ` is refused; remove it. A configured ` + "`on_request`" + ` hook is
+optional and its output alone is never consent. Commands that could print the credential or reach the host
 (auth token, --web, api to a URL, a host file, …) are refused with exit 64, as is anything outside
 the workspace's repositories. --jq and --template work as they do in gh.
 

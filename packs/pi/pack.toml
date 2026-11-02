@@ -154,6 +154,10 @@ into = ".pi/agent/AGENTS.md"
 
 [[briefing]]
 agents = ["pi"]
+from = "briefing/waiting.md"
+
+[[briefing]]
+agents = ["pi"]
 from = "briefing/worktrees.md"
 
 [[skills]]

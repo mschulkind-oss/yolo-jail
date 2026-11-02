@@ -366,23 +366,3 @@ func (b *Broker) afterWrite(t writeTarget, argv []string, code int, out []byte, 
 		}
 	}
 }
-
-// answerHint is the clause a pending GitHub request's message adds, naming the answers that
-// fit its kind (§6.4): Add for a PR or issue, a duration for a timed grant, and nothing beyond
-// Allow once for a write the broker cannot name the resource of.
-func answerHint(t writeTarget, id string) string {
-	switch t.Kind {
-	case targetPR, targetIssue, targetIssueOrPR:
-		return fmt.Sprintf(" The user may answer `yolo approve %s --add` to add %s to this workspace's working set, "+
-			"after which writes to it run without asking, or `--for 15m` to allow them for 15 minutes.", id, t.describe())
-	case targetMerge:
-		return fmt.Sprintf(" A merge asks per PR: `yolo approve %s` allows it once, `--for 15m` for 15 minutes.", id)
-	case targetCreatePR, targetCreateIssue:
-		return fmt.Sprintf(" `yolo approve %s --for 15m` allows %s for 15 minutes; a lasting right is a %s grant "+
-			"(`yolo request github %s`, then `yolo config apply` on the host).", id, t.describe(), createGrantKind(t),
-			strings.ReplaceAll(createGrantKind(t), "-", "_"))
-	case targetRepo:
-		return fmt.Sprintf(" `yolo approve %s --for 15m` allows %s for 15 minutes.", id, t.describe())
-	}
-	return ""
-}
