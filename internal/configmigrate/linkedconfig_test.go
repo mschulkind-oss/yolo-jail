@@ -12,9 +12,13 @@ import (
 )
 
 // gitIn runs git in dir with no user or system config, so the test sees only its own repository.
+// Automatic maintenance is off: on macOS a commit forks a detached `git maintenance run --auto`
+// whose lock file (.git/objects/maintenance.lock) appears and vanishes while treeState walks the
+// repository, which failed the walk with "no such file or directory" (CI, 2026-11-02).
 func gitIn(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	pre := []string{"-C", dir, "-c", "maintenance.auto=false", "-c", "gc.auto=0"}
+	cmd := exec.Command("git", append(pre, args...)...)
 	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
