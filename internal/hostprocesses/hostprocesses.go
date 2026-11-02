@@ -1,10 +1,10 @@
 // Package hostprocesses is the allowlisted host-process viewer daemon. It
-// answers ps-style requests from the jail against an allowlist yolo resolved at
-// launch, via internal/hostservice (the frame-protocol server).
+// answers ps-style requests from the jail against the process names this launch's
+// grant file grants (grants.go), via internal/hostservice (the frame-protocol server).
 // Frozen contracts: the DEFAULT_FIELDS, the list/tree/pid mode argv + allowlist
-// construction, and the exit codes (3 empty-allowlist, 2 bad-mode/bad-pid/
-// not-allowlisted). Each holds per ps dialect: the GNU argv below is unchanged, and
-// the BSD arm has its own (see "Two ps dialects").
+// construction, and the exit codes (64 no grant, or a pid whose name the grant does
+// not cover; 2 bad-mode/bad-pid). Each holds per ps dialect: the GNU argv below is
+// unchanged, and the BSD arm has its own (see "Two ps dialects").
 //
 // # Two ps dialects, chosen by the host's OS
 //
@@ -31,10 +31,10 @@
 // and that arm is compiled, vetted and tested on every platform rather than only on
 // the one it serves.
 //
-// # On darwin a `visible` name is matched against `ucomm`
+// # On darwin a granted name is matched against `ucomm`
 //
 // An implementation decision, taken under the maintainer's 2026-10-04 delegation
-// ("make them and build it … adjust later"); reversible. A `visible` entry is a comm
+// ("make them and build it … adjust later"); reversible. A granted `view` value is a comm
 // name: on Linux, the kernel's task name, at most 15 bytes, which is what
 // /proc/<pid>/comm holds. darwin's counterpart is the process's accounting name,
 // `p_comm`, at most 16 bytes (MAXCOMLEN), which BSD ps prints as `ucomm`. BSD `comm`
@@ -62,7 +62,7 @@
 // Linux shows, rather than a path. Every other field passes through verbatim: `fields`
 // is a list of the host ps's own `-o` keywords, and every default exists in both.
 //
-// # The allowlist is FROZEN at launch, and that is a deliberate change
+// # The settings are FROZEN at launch; the grant is the gate's
 //
 // This daemon used to open the raw workspace `yolo-jail.jsonc` itself, from an
 // inherited cwd, ON EVERY REQUEST — which is the only reason editing
@@ -71,10 +71,12 @@
 // its own allowlist mid-session, with no launch and therefore no config-approval
 // gate, and the config diff was not in that causal path at all.
 //
-// It now reads ONE file, ONCE, at startup: the settings file yolo writes after
-// validating the values against the loophole manifest's `settings` declarations
-// (docs/reference/pack-system.md OQ-K3). Changing what yolo-ps may show requires a
-// jail restart, which is exactly where the approval gate lives.
+// It now reads ONE file: the grant file yolo writes at launch, holding the settings
+// validated against the loophole manifest's declarations (docs/reference/pack-system.md
+// OQ-K3) and the reserved `grants` block. The settings (`fields`) are read ONCE, at
+// startup. The allowlist is the block's granted `view` values, re-read per request
+// (grants.go), and only the launch's gate and `yolo config apply` write that block, so
+// widening what yolo-ps may show still goes through the approval gate.
 //
 // The daemon therefore never parses a config file, never knows where the workspace
 // is, and never sees a key it was not handed. What it reads is a flat JSON object
@@ -156,26 +158,24 @@ func listName(name string) string {
 
 // Config is the resolved settings this daemon runs on.
 type Config struct {
-	Visible []string
-	Fields  []string
-	// grantPath is the grant file this config came from when that file carries a `grants`
-	// block (grants.go); empty for a file without one, which keeps today's allowlist.
+	Fields []string
+	// grantPath is the grant file, re-read at every request for the `view` grant
+	// (grants.go). Empty, or a file with no `grants` block, grants nothing.
 	grantPath string
 }
 
-// disabled is the fail-closed Config: no allowlist, so every request exits 3.
-//
-// It is what an absent, unreadable or malformed settings file resolves to, and the
-// three cases share an answer on purpose. A daemon that could not read its
-// allowlist has no basis for showing anything, and the alternative — refusing to
-// start — would turn a transient read failure into a launch that fails with the
-// daemon's readiness probe rather than with a sentence naming the file.
-func disabled() Config {
-	return Config{Visible: []string{}, Fields: append([]string(nil), DefaultFields...)}
+// disabled is the default-fields Config for a settings file that is absent, unreadable
+// or malformed: the handler then finds no grant in it (grants.go), so every request is
+// refused with the not_allowed text. The alternative — refusing to start — would turn
+// a transient read failure into a launch that fails with the daemon's readiness probe
+// rather than with a sentence naming the next step.
+func disabled(grantPath string) Config {
+	return Config{Fields: append([]string(nil), DefaultFields...), grantPath: grantPath}
 }
 
-// LoadSettings reads the flat settings file yolo wrote for this loophole: a JSON
-// object of already-validated values, keyed by the names the manifest declares.
+// LoadSettings reads the grant file yolo wrote for this loophole: a JSON object of
+// already-validated values, keyed by the names the manifest declares, plus the
+// reserved `grants` block, which BuildHandler's handler re-reads per request.
 //
 // It does NOT parse a yolo-jail.jsonc and does not know one exists. Every value here
 // was type-checked against the manifest declaration before it was written, so this
@@ -184,8 +184,7 @@ func disabled() Config {
 //
 // `fields` falls back to DefaultFields when absent OR EMPTY, which is the one place
 // an empty list is not taken literally — an empty `ps -o` column list is not a
-// narrower view, it is a broken invocation. `visible` empty is taken literally and means the feature is off,
-// which is what it has always meant.
+// narrower view, it is a broken invocation.
 func LoadSettings(settingsPath string) Config {
 	cfg, _ := loadSettings(settingsPath)
 	return cfg
@@ -195,7 +194,7 @@ func LoadSettings(settingsPath string) Config {
 // daemon must not have.
 //
 // The daemon collapses every failure to `disabled()` on purpose: a running daemon
-// with no readable allowlist has no basis for showing anything, and branching on why
+// with no readable grant has no basis for showing anything, and branching on why
 // would only give it more ways to be wrong. `yolo check` has the opposite need — it
 // exists to tell a human what is wrong — and the two cases it must not confuse are
 // "no jail has launched this loophole yet", which is the normal state of a fresh
@@ -205,58 +204,32 @@ func LoadSettings(settingsPath string) Config {
 // fail-closed Config, because absence is not a failure of anything.
 func loadSettings(settingsPath string) (cfg Config, ok bool) {
 	if settingsPath == "" {
-		return disabled(), true
+		return disabled(""), true
 	}
 	data, err := os.ReadFile(settingsPath)
 	if err != nil {
-		return disabled(), true
+		return disabled(settingsPath), true
 	}
 	decoded, err := json5.Decode(data)
 	if err != nil {
-		return disabled(), false
+		return disabled(settingsPath), false
 	}
 	root, isMap := decoded.(*jsonx.OrderedMap)
 	if !isMap {
-		return disabled(), false
+		return disabled(settingsPath), false
 	}
+	// The block, re-read per request, is the allowlist (grants.go). A file with no
+	// block grants nothing; one whose block does not read is a fault yolo check
+	// reports, and the daemon refuses every request with it.
+	ok = true
 	if _, grants := root.Get(loopholegrant.ReservedKey); grants {
-		// A grant file: the block, re-read per request, is the allowlist (grants.go), so
-		// `visible` is not read at all. A block that does not read is a fault yolo check
-		// reports; the daemon refuses every request with it.
 		_, err := grantBlockAt(settingsPath)
-		return Config{
-			Visible:   []string{},
-			Fields:    strListOrDefault(root, "fields", DefaultFields),
-			grantPath: settingsPath,
-		}, err == nil
+		ok = err == nil
 	}
 	return Config{
-		Visible: strListOrEmpty(root, "visible"),
-		Fields:  strListOrDefault(root, "fields", DefaultFields),
-	}, true
-}
-
-// strListOrEmpty returns the string elements of m[key], or [] if absent,
-// null, or not a list.
-func strListOrEmpty(m *jsonx.OrderedMap, key string) []string {
-	if m == nil {
-		return []string{}
-	}
-	v, ok := m.Get(key)
-	if !ok || v == nil {
-		return []string{}
-	}
-	arr, ok := v.([]any)
-	if !ok {
-		return []string{}
-	}
-	out := []string{}
-	for _, e := range arr {
-		if s, ok := e.(string); ok {
-			out = append(out, s)
-		}
-	}
-	return out
+		Fields:    strListOrDefault(root, "fields", DefaultFields),
+		grantPath: settingsPath,
+	}, ok
 }
 
 // strListOrDefault returns the string elements of m[key], defaulting to def.
@@ -290,16 +263,10 @@ func strListOrDefault(m *jsonx.OrderedMap, key string, def []string) []string {
 
 // BuildHandler returns the hostservice.Handler for an ALREADY-RESOLVED config.
 //
-// It takes the values, not a path, and that signature is the freeze: there is no
-// file for a request to re-read, so the "editing the allowlist takes effect on the
-// next request" behaviour is not merely turned off, it is unrepresentable. The
-// allowlist is closed over once, at startup, from the settings file yolo wrote at
-// launch (see the package comment for what that trades away and why).
+// The settings are closed over once, at startup, from the grant file yolo wrote at
+// launch (see the package comment for what that trades away and why). The one thing
+// a request re-reads is that file's `grants` block, which only the gate writes.
 func BuildHandler(cfg Config) hostservice.Handler {
-	visible := map[string]struct{}{}
-	for _, c := range cfg.Visible {
-		visible[c] = struct{}{}
-	}
 	fields := append([]string(nil), cfg.Fields...)
 	// Read once, like the allowlist: a handler never changes dialect or deadline mid-life.
 	d := dialectFor(hostOS)
@@ -312,31 +279,12 @@ func BuildHandler(cfg Config) hostservice.Handler {
 		// null, false, []) -> "list".
 		mode := pyStrOrList(func() (any, bool) { return s.Get("mode") })
 
-		// Under a grant file the granted names are the allowlist, read afresh for this
-		// request (grants.go); outside one, `notCovered` stays empty and pid mode keeps its
-		// exit-2 answer.
-		visible := visible
-		notCovered := ""
-		if grantPath != "" {
-			names, refused := grantedNames(grantPath)
-			if refused != "" {
-				s.Stderr(refused)
-				s.Exit(exitNoGrant)
-				return
-			}
-			visible = names
-			notCovered = uncovered(loopholegrant.Block{})
-		} else if len(visible) == 0 {
-			// Names the CURRENT spelling, and ONLY it. The old top-level
-			// `host_processes.visible` does not work any more — it was honored through the
-			// step that moved the keys and REFUSED by the step that deleted it
-			// (config.validateHostProcessesRetired), so there is no fold-in left to
-			// mention. Naming the retired key here would teach it, and this is the one
-			// line a user reads at the moment they are about to go edit a config.
-			s.Stderr("loopholes.host-processes.settings.visible is empty — nothing to show. " +
-				"Add process names to it and RESTART the jail: the allowlist is resolved " +
-				"once at launch, so an edit does not take effect in a running jail.\n")
-			s.Exit(3)
+		// The granted names are the allowlist, read afresh for this request
+		// (grants.go). No grant refuses before ps runs, naming the next step.
+		visible, notCovered, refused := grantedNames(grantPath)
+		if refused != "" {
+			s.Stderr(refused)
+			s.Exit(exitNoGrant)
 			return
 		}
 
@@ -552,9 +500,8 @@ func bsdFields(fields []string) []string {
 // allowlisted. The comm comes from /proc/<pid>/comm under GNU and from
 // `ps -o ucomm= -p <pid>` under BSD (commOf).
 //
-// notCovered is set under a grant file (grants.go): a pid whose name the grant does not
-// cover is refused with it, exit 64, and its name is not said, since an ungranted name is
-// invisible. Outside a grant file the refusal is today's exit 2 naming the comm.
+// A pid whose name the grant does not cover is refused with notCovered (grants.go),
+// exit 64, and its name is not said, since an ungranted name is invisible.
 func handlePid(s *hostservice.Session, visible map[string]struct{}, fields []string, d dialect, notCovered string) {
 	pidV, ok := s.Get("pid")
 	pid, isInt := asIntStrict(pidV)
@@ -575,13 +522,8 @@ func handlePid(s *hostservice.Session, visible map[string]struct{}, fields []str
 		return
 	}
 	if _, allowed := visible[comm]; !allowed {
-		if notCovered != "" {
-			s.Stderr(notCovered)
-			s.Exit(exitNoGrant)
-			return
-		}
-		s.Stderr("pid " + strconv.Itoa(pid) + " has comm=" + pytext.Repr(comm) + " which is not allowlisted\n")
-		s.Exit(2)
+		s.Stderr(notCovered)
+		s.Exit(exitNoGrant)
 		return
 	}
 	if d == bsdPS {

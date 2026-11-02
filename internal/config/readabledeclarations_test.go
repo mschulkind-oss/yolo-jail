@@ -93,31 +93,34 @@ func TestReadableDeclarationsForPacksRejectsUnboundOfficialDeclaration(t *testin
 	}
 }
 
+// TestReadableDeclarationsForPacksPreservesExplicitEmptyStringListDefault: a string_list
+// setting declared `default = []` keeps an explicit, non-nil empty default. Its shipped
+// instance was host-processes' `visible`, which became the `view` grant (plan F3), so the
+// declaration is a fixture pack's.
 func TestReadableDeclarationsForPacksPreservesExplicitEmptyStringListDefault(t *testing.T) {
-	pack := selectedEmbeddedPackForReadableDeclarations(t, "host-processes")
-	if pack == nil {
-		t.Fatalf("selected embedded host-processes pack is missing")
-	}
-	_, settings, err := ReadableDeclarationsForPacks([]*packload.Pack{pack})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, declaration := range settings {
-		if declaration.Pack != "host-processes" {
+	dir := writeGrantFixturePack(t, t.TempDir(), "lister", grantFixtureSerial+`
+[settings.names]
+type = "string_list"
+scope = "user"
+default = []
+description = "names"
+`)
+	for _, declaration := range grantFixtureDeclarations(t, dir, "lister") {
+		if declaration.Pack != "lister" {
 			continue
 		}
 		for _, setting := range declaration.Settings {
-			if setting.Key != "visible" {
+			if setting.Key != "names" {
 				continue
 			}
 			values, ok := setting.Default.([]string)
 			if !ok || values == nil || len(values) != 0 || !setting.DefaultSet {
-				t.Fatalf("visible default = %#v (%T), defaultSet=%t; want explicit non-nil empty []string", setting.Default, setting.Default, setting.DefaultSet)
+				t.Fatalf("names default = %#v (%T), defaultSet=%t; want explicit non-nil empty []string", setting.Default, setting.Default, setting.DefaultSet)
 			}
 			return
 		}
 	}
-	t.Fatal("host-processes visible setting missing from readable declarations")
+	t.Fatal("the fixture's names setting is missing from readable declarations")
 }
 
 func TestReadableBrokerDeclarationClonesSettingsDefaultLists(t *testing.T) {

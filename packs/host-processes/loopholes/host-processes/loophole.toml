@@ -3,14 +3,16 @@
 # jail-side CLI wrapper, both baked: an official pack may name a baked client
 # (docs/reference/pack-binaries.md).
 name = "host-processes"
-description = "Allowlisted view of host processes (yolo-ps). Visibility is controlled by this loophole's own `visible` setting."
+description = "Allowlisted view of host processes (yolo-ps). What it may show is the `view` grant: the process names an accepted request names."
 version = 1
+# A grant-declaring loophole runs whenever its pack is selected; the grant below, not this switch,
+# decides what a request may see. The key goes when `default_enabled` is retired.
 default_enabled = false
-# Three gates answer three questions, and OQ-A5 keeps all three on purpose: select the pack (is it
-# installed), switch the loophole on (is it running; off by default), and list the names (what may
-# it show). Collapsing them would mean a non-empty `visible` list silently starting a host daemon.
-# This loophole is nothing but host access (a daemon on the real machine reading the real process
-# table), and an empty `visible` list shows nothing.
+# The one line every refusal and the launch's disclosure print for this loophole.
+access = "see host processes"
+# Two gates (docs/design/loophole-access-approval.md §4.3, which replaced OQ-A5's three): select the
+# pack, and grant `view` with the process names as its value. The daemon runs on selection and
+# shows nothing until a name is granted; an ungranted name is invisible in every mode.
 #
 # Linux and darwin. Declared rather than probed: `requires` asks whether a thing is present (the
 # fix is to install it), `platforms` asks whether it exists for this machine at all. The daemon
@@ -20,7 +22,7 @@ default_enabled = false
 # macos-user launch stages `yolo-ps` into its sandbox whenever this loophole's endpoint is
 # published (macosuser.GuestClients).
 #
-# On a Mac a `visible` name is matched against `ucomm`, the kernel's accounting name (at most 16
+# On a Mac a granted name is matched against `ucomm`, the kernel's accounting name (at most 16
 # bytes, darwin's analog of /proc/<pid>/comm); BSD `comm` there is argv[0], often a full path. List
 # mode compares names as GNU `ps -C` does, on their first 15 bytes once they are that long, so a
 # name written for Linux list mode finds the same program on a Mac. Pid and tree mode compare the
@@ -43,27 +45,32 @@ lifecycle = "spawned"
 # file is in force.
 doctor_cmd = ["yolo", "internal", "daemon", "host-processes", "--self-check", "--settings", "{settings}"]
 
-# The loophole owns its config keys (docs/reference/pack-system.md); core's schema names none.
-# Two behaviors moved with them, and both are the point:
+# One grant kind, valued: `view`'s values are the process names yolo-ps may show, and
+# `yolo-ps --tree` also shows every process below a granted one, with its command line. It was
+# the workspace-scope `visible` setting, which an agent could write; now a project asks for names
+# with `[requests.host-processes] view = [...]` (or `yolo request host-processes view <names>`),
+# and only an accepted gate grants them. A valued kind is never requestable by default and is
+# never under `always`: the user first allows it with `yolo allow host-processes on_request view`.
+# Nothing is granted, so nothing is shown, until then.
 #
-#   Frozen at launch. yolo resolves these once and writes them to the file {settings} names, so an
-#   agent cannot widen its own allowlist mid-session with no relaunch and no config-approval gate;
-#   a change needs a restart (OQ-K3).
-#
-#   Scope is declared, per key. Both are `workspace`, which is what these keys have always been.
-#   It is safe because a workspace value reaches this host daemon only through the config-change
-#   approval flow (OQ-K2), and it is now said rather than assumed: the default for an undeclared
-#   scope is `user`, so a widening key has to ask.
-[settings.visible]
-type = "string_list"
-scope = "workspace"
-default = []
-# Empty means the loophole shows nothing: a daemon with an empty allowlist, not a view of the host.
-description = "process comm names yolo-ps may reveal; `yolo-ps --tree` also shows every process below one, with its command line (empty = show nothing)"
+# The legacy keys map a legacy JSONC config during the window (plan PD-9): `enabled: true` makes
+# `view` requestable, and the retired `visible` list becomes the request's values.
+[[grants]]
+kind = "view"
+text = "see"
+valued = true
+value_noun = "process names"
+legacy_enable = true
+legacy_values = "visible"
 
+# The loophole owns its config keys (docs/reference/pack-system.md); core's schema names none.
+# `fields` is frozen at launch: yolo resolves it once and writes it to the file {settings} names,
+# so a change needs a restart (OQ-K3). It is `user` scope: which columns of the host's process
+# table cross into the jail is the user's to say, not the agent's
+# (docs/design/loophole-access-approval.md §4.3).
 [settings.fields]
 type = "string_list"
-scope = "workspace"
+scope = "user"
 # The `ps -o` column list. Declared here rather than left to the daemon's DefaultFields so that
 # `yolo config dump` and the settings file show what is in force. The daemon keeps the same list as
 # its fallback for a settings file it cannot read.
@@ -86,10 +93,13 @@ description = "ps -o columns returned to the jail"
 # jail by construction (loophole-transport.md, "The connection preamble"). `request_end` stays at
 # "framed": hostservice reads exactly one frame and never to EOF.
 #
-# `{settings}` resolves to the file yolo writes from the declarations above after validating the
-# user's values. It is a path and not an env map on purpose: `loopholes.<name>.env` is user-scope
-# only because it reaches a host daemon's spawn environment, and a path is the one thing a spawn
-# may carry.
+# `{settings}` resolves to this launch's grant file: the private settings snapshot yolo writes in
+# the loophole's state dir from the declarations above after validating the user's values, with
+# one reserved `grants` key carrying `view`'s standing and granted names. The daemon reads the
+# settings once and re-reads the grant block at every request, so `yolo config apply` lands at the
+# next one; a file with no `grants` key grants nothing. It never crosses into the jail. It is a
+# path and not an env map on purpose: `loopholes.<name>.env` is user-scope only because it
+# reaches a host daemon's spawn environment, and a path is the one thing a spawn may carry.
 [host_daemon]
 cmd = ["yolo", "internal", "daemon", "host-processes", "--socket", "{socket}", "--settings", "{settings}"]
 publishes = "socket"

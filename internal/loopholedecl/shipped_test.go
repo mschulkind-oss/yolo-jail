@@ -427,22 +427,31 @@ func TestShippedHostProcessesFields(t *testing.T) {
 	if m.HostDaemon == nil || !reflect.DeepEqual(m.HostDaemon.Cmd, wantCmd) {
 		t.Fatalf("host_daemon = %+v, want cmd %v", m.HostDaemon, wantCmd)
 	}
-	// The SETTINGS half, pinned together with the argv that consumes it, because the
-	// two are one fact: the {settings} token resolves to a file yolo writes FROM these
-	// declarations, so a manifest carrying the token with no declarations is refused at
-	// load and a manifest carrying declarations no argv names writes a file nobody
-	// reads. Both keys are `workspace` scope, which is what preserves the one thing
-	// this loophole has always let a workspace do.
-	if len(m.Settings) != 2 {
-		t.Fatalf("settings = %+v, want the two declared keys (visible, fields)", m.Settings)
+	// The GRANT half (docs/design/loophole-access-approval-plan.md F3): what yolo-ps may
+	// show is the valued `view` kind, whose values are the process names, in place of the
+	// retired workspace-scope `visible` setting an agent could write. A valued kind is never
+	// requestable by default; a legacy `enabled: true` makes it requestable and a legacy
+	// `visible` list becomes the request's values.
+	if m.Access != "see host processes" {
+		t.Errorf("access = %q, want %q", m.Access, "see host processes")
+	}
+	wantGrants := []loopholedecl.Grant{{Kind: "view", Text: "see", Valued: true,
+		ValueNoun: "process names", LegacyEnable: true, LegacyValues: "visible"}}
+	if !reflect.DeepEqual(m.Grants, wantGrants) {
+		t.Errorf("grants = %+v\nwant     %+v", m.Grants, wantGrants)
+	}
+	// The SETTINGS half, pinned together with the argv that consumes it: the {settings}
+	// token resolves to the grant file yolo writes from these declarations and the grant
+	// block. `fields` is the one setting left, and it is `user` scope: which columns of the
+	// host's process table cross into the jail is the user's to say, not the agent's.
+	if len(m.Settings) != 1 {
+		t.Fatalf("settings = %+v, want only `fields` — `visible` became the view grant", m.Settings)
 	}
 	for _, want := range []struct {
 		key, typ, scope string
 		def             any
 	}{
-		{"visible", loopholedecl.SettingTypeStringList, loopholedecl.SettingScopeWorkspace,
-			[]string{}},
-		{"fields", loopholedecl.SettingTypeStringList, loopholedecl.SettingScopeWorkspace,
+		{"fields", loopholedecl.SettingTypeStringList, loopholedecl.SettingScopeUser,
 			[]string{"pid", "comm", "args", "etime", "%cpu", "%mem", "rss"}},
 	} {
 		got, ok := loopholedecl.SettingByKey(m.Settings, want.key)

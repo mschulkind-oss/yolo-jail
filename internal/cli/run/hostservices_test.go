@@ -15,8 +15,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/frameproto"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholegrant"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -592,22 +594,26 @@ func TestBundledHostProcessesRunsBehindTheFront(t *testing.T) {
 			"must survive internal/loopholes' field-by-field resolve (the ca_cert silent-drop class)")
 	}
 
-	// THE ALLOWLIST ARRIVES THROUGH THE SETTINGS FILE, written by the same launch-path
-	// function the run pipeline calls — not through $YOLO_HOST_PROCESSES_CONFIG, which
-	// the daemon no longer reads at all (docs/reference/pack-system.md OQ-K3). Going
-	// through writeLoopholeSettings rather than hand-writing the JSON is deliberate:
-	// the manifest declaration, the resolver, the writer and the daemon's reader are
-	// four pieces that have to agree on one file, and only an end-to-end path proves
-	// they do.
+	// THE ALLOWLIST ARRIVES THROUGH THE GRANT FILE, written by the same launch-path
+	// function the run pipeline calls, from the standings the config-change gate approved
+	// — not through $YOLO_HOST_PROCESSES_CONFIG, which the daemon no longer reads at all
+	// (docs/reference/pack-system.md OQ-K3). Going through writeLoopholeSettings rather
+	// than hand-writing the JSON is deliberate: the manifest's [[grants]] and settings, the
+	// launch's grant block, the writer and the daemon's reader have to agree on one file,
+	// and only an end-to-end path proves they do.
 	//
-	// A visible list that matches no real process keeps the `ps` exec deterministic;
+	// A granted name that matches no real process keeps the `ps` exec deterministic;
 	// PATH carries a fake one so it does not run at all on a host whose `ps` prints
 	// something else.
+	o := &Options{}
+	fillDefaults(o)
+	o.approvedLoopholeGrants = map[string]map[string]config.LoopholeGrantStanding{
+		"host-processes": {"view": {Standing: string(loopholegrant.Granted), Values: []string{"yolo-fake-proc"}}},
+	}
 	settingsCfg := jsonx.NewOrderedMap()
 	loopBlock := jsonx.NewOrderedMap()
 	hpEntry := jsonx.NewOrderedMap()
 	hpSettings := jsonx.NewOrderedMap()
-	hpSettings.Set("visible", []any{"yolo-fake-proc"})
 	hpSettings.Set("fields", []any{"pid", "comm"})
 	hpEntry.Set("settings", hpSettings)
 	loopBlock.Set("host-processes", hpEntry)
@@ -628,14 +634,18 @@ func TestBundledHostProcessesRunsBehindTheFront(t *testing.T) {
 	spec := jsonx.NewOrderedMap()
 	spec.Set("command", toAnyList(lp.HostDaemon.Cmd))
 	spec.Set("env", env)
-	o := &Options{}
-	fillDefaults(o)
 	var buf strings.Builder
 	o.Stderr = &buf
 	o.writeLoopholeSettings([]*loopholes.Loophole{lp}, settingsCfg)
-	if !fileExists(loopholes.SettingsFileFor("host-processes")) {
-		t.Fatalf("no settings file at %s; output: %q",
-			loopholes.SettingsFileFor("host-processes"), buf.String())
+	snapshot := o.settingsSnapshots["host-processes"]
+	if snapshot == nil {
+		t.Fatalf("no grant file for host-processes; output: %q", buf.String())
+	}
+	defer o.cleanupSettingsSnapshots()
+	if _, block, err := loopholegrant.Read(snapshot.path); err != nil || block == nil ||
+		block.Kinds["view"].Standing != loopholegrant.Granted || block.Access != "see host processes" {
+		t.Fatalf("grant file %s: block %+v, err %v; want view granted and the manifest's access",
+			snapshot.path, block, err)
 	}
 	h, ok := o.startExternalService("host-processes", spec, socketsDir,
 		lp.Transport, "127.0.0.1", lp.HostDaemon)

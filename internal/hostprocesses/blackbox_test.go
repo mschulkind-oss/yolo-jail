@@ -17,16 +17,16 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/frameproto"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholegrant"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
 
 // The black-box suite: drive the daemon over the REAL TRANSPORT (cert-pinned,
 // token-authenticated loopback TLS) with a PATH-shimmed fake `ps`, covering
-// list/tree/pid, the exit-code contract (0/1/2/3/124), the LAUNCH FREEZE (this line
-// used to read "per-request config re-read", which is the behaviour OQ-K3 deleted —
-// see TestBlackboxAllowlistIsFrozenAtStart, which is that test inverted),
-// empty-allowlist, and the failure/edge paths (non-string mode, tree timeout, tree
+// list/tree/pid, the exit-code contract (0/1/2/64/124), the LAUNCH FREEZE of the
+// settings (TestBlackboxSettingsAreFrozenAtStart), the refusal with no grant, and the
+// failure/edge paths (non-string mode, tree timeout, tree
 // ps-nonzero-empty -> exit 0). Byte-level where the fake ps makes output
 // deterministic. The daemon runs in-process (BuildHandler + hostservice.ServeEndpoint).
 //
@@ -238,15 +238,43 @@ func accessLine(t *testing.T, buf *accessLog) string {
 	return ""
 }
 
-// writeSettings writes the flat settings file yolo produces for this loophole and
-// returns its path — the daemon's ONLY input now. It deliberately goes through a
-// real file plus LoadSettings rather than building a Config literal: the read is
-// half of what changed, and a suite that skipped it would pass against a daemon
-// that could not parse what yolo writes.
+// writeSettings writes the grant file the launch produces for this loophole and
+// returns its path — the daemon's ONLY input. content is the fixture's shorthand: a
+// JSON object of settings in which a `view` key, if present, is not a setting but the
+// process names the grant block grants (standing granted). It deliberately goes
+// through a real file, written by loopholegrant.Merge as the launch writes it, plus
+// LoadSettings rather than building a Config literal: a suite that skipped the read
+// would pass against a daemon that could not parse what yolo writes.
 func writeSettings(t *testing.T, dir, content string) string {
 	t.Helper()
+	obj := map[string]any{}
+	if err := json.Unmarshal([]byte(content), &obj); err != nil {
+		t.Fatalf("fixture settings %q: %v", content, err)
+	}
+	var names []string
+	if v, ok := obj["view"]; ok {
+		delete(obj, "view")
+		for _, n := range v.([]any) {
+			names = append(names, n.(string))
+		}
+	}
+	body, err := json.Marshal(obj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := loopholegrant.Merge(body, loopholegrant.Block{
+		Pack: "host-processes", Workspace: "/home/u/proj", Container: "yolo-proj",
+		LaunchID: "launch-1", PID: os.Getpid(), Access: "see host processes",
+		Kinds: map[string]loopholegrant.Kind{"view": {
+			Standing: loopholegrant.Granted, Values: names,
+			Text: "see these host processes", ValueNoun: "process names",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	p := filepath.Join(dir, "settings.json")
-	if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
+	if err := os.WriteFile(p, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return p
@@ -315,7 +343,7 @@ func psInvocations(fakePSDir string) string {
 
 func TestBlackboxListMode(t *testing.T) {
 	withHostOS(t, "linux")
-	cfg := settings(t, `{"visible":["sway","waykeeper"],"fields":["pid","comm"]}`)
+	cfg := settings(t, `{"view":["sway","waykeeper"],"fields":["pid","comm"]}`)
 	ps := fakePS(t, `echo "ARGS: $*"`+"\n")
 	ep, stop := startDaemon(t, cfg, ps)
 	defer stop()
@@ -342,7 +370,7 @@ func TestBlackboxListMode(t *testing.T) {
 // its bytes.
 func TestBlackboxFrontedListModeIsIdentical(t *testing.T) {
 	withHostOS(t, "linux")
-	cfg := settings(t, `{"visible":["sway","waykeeper"],"fields":["pid","comm"]}`)
+	cfg := settings(t, `{"view":["sway","waykeeper"],"fields":["pid","comm"]}`)
 	ps := fakePS(t, `echo "ARGS: $*"`+"\n")
 	ep, stop := startFrontedDaemon(t, cfg, ps)
 	defer stop()
@@ -381,7 +409,7 @@ func TestBlackboxFrontedListModeIsIdentical(t *testing.T) {
 func TestBlackboxAccessLineIsHostAttributed(t *testing.T) {
 	withHostOS(t, "linux")
 	logs := captureAccessLog(t)
-	cfg := settings(t, `{"visible":["sway"],"fields":["pid","comm"]}`)
+	cfg := settings(t, `{"view":["sway"],"fields":["pid","comm"]}`)
 	ps := fakePS(t, `echo "ARGS: $*"`+"\n")
 	ep, stop := startFrontedDaemon(t, cfg, ps)
 	defer stop()
@@ -415,7 +443,7 @@ func TestBlackboxAccessLineIsHostAttributed(t *testing.T) {
 func TestBlackboxSpoofedJailIDIsOverridden(t *testing.T) {
 	withHostOS(t, "linux")
 	logs := captureAccessLog(t)
-	cfg := settings(t, `{"visible":["sway"],"fields":["pid","comm"]}`)
+	cfg := settings(t, `{"view":["sway"],"fields":["pid","comm"]}`)
 	ps := fakePS(t, `echo "ARGS: $*"`+"\n")
 	ep, stop := startFrontedDaemon(t, cfg, ps)
 	defer stop()
@@ -438,34 +466,52 @@ func TestBlackboxSpoofedJailIDIsOverridden(t *testing.T) {
 	}
 }
 
-func TestBlackboxEmptyAllowlistExit3(t *testing.T) {
-	cfg := settings(t, `{"visible":[]}`)
-	ps := fakePS(t, "echo x\n")
-	ep, stop := startDaemon(t, cfg, ps)
-	defer stop()
-	_, stderr, rc := query(t, ep, map[string]any{"mode": "list"})
-	if rc != 3 {
-		t.Errorf("empty allowlist rc=%d, want 3", rc)
+// TestBlackboxWithoutAGrantsKeyRefuses is the host-processes flip (plan F3, PD-12): a
+// settings file with no `grants` key — the shape a launch before the flip wrote, with
+// its `visible` allowlist — grants nothing. The request is refused, exit 64, with the
+// not_allowed text naming the next steps, and ps never runs. The retired setting is
+// never read and never named.
+func TestBlackboxWithoutAGrantsKeyRefuses(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	if err := os.WriteFile(path, []byte(`{"visible":["sway"],"fields":["pid"]}`), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	// The message names the CURRENT spelling and says the restart is required —
-	// both halves matter at the one moment a user is about to go edit a file. The
-	// retired top-level key still works, but a message naming it would teach it.
+	ps := fakePS(t, `echo "ARGS: $*"`+"\n")
+	ep, stop := startDaemon(t, LoadSettings(path), ps)
+	defer stop()
+	out, stderr, rc := query(t, ep, map[string]any{"mode": "list"})
+	if rc != 64 {
+		t.Errorf("no grants key: rc=%d, want 64 (out=%q stderr=%q)", rc, out, stderr)
+	}
 	got := string(stderr)
 	for _, want := range []string{
-		"loopholes.host-processes.settings.visible is empty",
-		"RESTART the jail",
+		"yolo-ps: this project holds no grant to see host processes, so nothing ran.",
+		"yolo allow host-processes on_request view",
+		"yolo request host-processes view <process names>",
+		"yolo config apply",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("stderr = %q, want it to contain %q", got, want)
 		}
 	}
-	if strings.Contains(got, "host_processes.visible") {
-		t.Errorf("stderr names the RETIRED spelling: %q", got)
+	if strings.Contains(got, "visible") {
+		t.Errorf("stderr names the retired setting: %q", got)
+	}
+	if calls := psCalls(ps); len(calls) != 0 {
+		t.Errorf("a refused request ran ps: %v", calls)
+	}
+
+	// No --settings at all is the same refusal.
+	ep2, stop2 := startDaemon(t, LoadSettings(""), ps)
+	defer stop2()
+	if _, stderr, rc := query(t, ep2, map[string]any{"mode": "tree"}); rc != 64 ||
+		!strings.Contains(string(stderr), "yolo allow host-processes on_request view") {
+		t.Errorf("no settings: rc=%d stderr=%q, want 64 and the not_allowed text", rc, stderr)
 	}
 }
 
 func TestBlackboxNonStringModeExit2(t *testing.T) {
-	cfg := settings(t, `{"visible":["sway"]}`)
+	cfg := settings(t, `{"view":["sway"]}`)
 	ps := fakePS(t, "echo x\n")
 	ep, stop := startDaemon(t, cfg, ps)
 	defer stop()
@@ -480,7 +526,7 @@ func TestBlackboxNonStringModeExit2(t *testing.T) {
 }
 
 func TestBlackboxUnknownModeExit2(t *testing.T) {
-	cfg := settings(t, `{"visible":["sway"]}`)
+	cfg := settings(t, `{"view":["sway"]}`)
 	ps := fakePS(t, "echo x\n")
 	ep, stop := startDaemon(t, cfg, ps)
 	defer stop()
@@ -492,7 +538,7 @@ func TestBlackboxUnknownModeExit2(t *testing.T) {
 
 func TestBlackboxTreeNonzeroEmptyExit0(t *testing.T) {
 	withHostOS(t, "linux")
-	cfg := settings(t, `{"visible":["sway"]}`)
+	cfg := settings(t, `{"view":["sway"]}`)
 	// fake ps exits 1 with EMPTY stdout -> stdout is read regardless ->
 	// exit 0 empty, NOT an error.
 	ps := fakePS(t, "exit 1\n")
@@ -519,53 +565,56 @@ func TestBlackboxPidModeNotAllowlisted(t *testing.T) {
 	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
 		t.Skip("handlePid names a pid through /proc (Linux) or BSD ps (darwin)")
 	}
-	cfg := settings(t, `{"visible":["definitely-not-our-comm"]}`)
+	cfg := settings(t, `{"view":["definitely-not-our-comm"]}`)
 	ps := fakePS(t, "echo x\n")
 	ep, stop := startDaemon(t, cfg, ps)
 	defer stop()
-	// Our own pid's comm won't be in the allowlist -> exit 2.
+	// Our own pid's comm won't be among the granted names -> the grant refusal, exit 64,
+	// naming the request rather than the process.
 	_, stderr, rc := query(t, ep, map[string]any{"mode": "pid", "pid": os.Getpid()})
-	if rc != 2 {
-		t.Errorf("pid not-allowlisted rc=%d, want 2 (stderr=%q)", rc, stderr)
+	if rc != 64 {
+		t.Errorf("pid not granted rc=%d, want 64 (stderr=%q)", rc, stderr)
+	}
+	if !strings.Contains(string(stderr), "does not cover this call") ||
+		!strings.Contains(string(stderr), "yolo request host-processes view <process names>") {
+		t.Errorf("pid not granted stderr=%q, want the uncovered refusal", stderr)
 	}
 }
 
-// TestBlackboxAllowlistIsFrozenAtStart is the INVERSION of what this suite used to
-// assert, and the inversion is the ruling (docs/reference/pack-system.md OQ-K3).
+// TestBlackboxSettingsAreFrozenAtStart pins the freeze the ruling made
+// (docs/reference/pack-system.md OQ-K3) for what is still a setting, `fields`.
 //
-// The old test was TestBlackboxConfigReReadBetweenRequests: it wrote an empty
-// allowlist, got exit 3, rewrote the config file, and demanded that the very next
-// request honor the edit. That behaviour was real and it was the hole — the same
-// property that let an operator widen an allowlist without a restart let an AGENT
-// widen its own, mid-session, with no launch and therefore no config-approval gate.
-//
-// So the assertion flips: the daemon reads its settings ONCE, and a file rewritten
-// underneath a running daemon changes nothing until the jail restarts. The edit here
-// is the WIDENING direction on purpose — an edit that would grant, ignored.
-func TestBlackboxAllowlistIsFrozenAtStart(t *testing.T) {
+// The old daemon re-read its config on every request, which let an AGENT widen its
+// own allowlist mid-session with no launch and therefore no config-approval gate.
+// The allowlist is now the grant block, re-read per request but written only by the
+// gate and `yolo config apply` (grants.go; TestHostprocessesReadsOnlyItsGrantFile
+// pins that half). The settings stay frozen: a file rewritten underneath a running
+// daemon changes no setting until the jail restarts.
+func TestBlackboxSettingsAreFrozenAtStart(t *testing.T) {
+	withHostOS(t, "linux")
 	dir := t.TempDir()
-	path := writeSettings(t, dir, `{"visible":[]}`)
+	path := writeSettings(t, dir, `{"view":["sway"],"fields":["pid"]}`)
 	// Loaded once, exactly as Main does before it accepts a connection.
 	cfg := LoadSettings(path)
 	ps := fakePS(t, `echo "ARGS: $*"`+"\n")
 	ep, stop := startDaemon(t, cfg, ps)
 	defer stop()
-	if _, _, rc := query(t, ep, map[string]any{"mode": "list"}); rc != 3 {
-		t.Fatalf("pre-edit rc=%d, want 3 (empty allowlist)", rc)
+	if out, _, rc := query(t, ep, map[string]any{"mode": "list"}); rc != 0 || string(out) != "ARGS: -o pid -C sway\n" {
+		t.Fatalf("pre-edit rc=%d out=%q", rc, out)
 	}
-	// Widen the file under the running daemon. Nothing may change.
-	writeSettings(t, dir, `{"visible":["sway"],"fields":["pid"]}`)
+	// Widen the settings under the running daemon. The fields may not change.
+	writeSettings(t, dir, `{"view":["sway"],"fields":["pid","args"]}`)
 	out, stderr, rc := query(t, ep, map[string]any{"mode": "list"})
-	if rc != 3 {
-		t.Fatalf("post-edit rc=%d, want 3 — the allowlist is resolved once at launch, so "+
-			"rewriting the file must NOT widen a running daemon (out=%q stderr=%q)",
+	if rc != 0 || string(out) != "ARGS: -o pid -C sway\n" {
+		t.Fatalf("post-edit rc=%d out=%q stderr=%q — the settings are resolved once at "+
+			"launch, so rewriting the file must NOT change a running daemon's fields",
 			rc, out, stderr)
 	}
 	// Reloading is what a restart does, and it must pick the new value up — the
 	// freeze is about the running process, not about the file being ignored.
-	if reloaded := LoadSettings(path); len(reloaded.Visible) != 1 || reloaded.Visible[0] != "sway" {
+	if reloaded := LoadSettings(path); !reflect.DeepEqual(reloaded.Fields, []string{"pid", "args"}) {
 		t.Errorf("a fresh load did not see the edit: %v — the freeze must be the daemon "+
-			"holding values, not the settings file being unread", reloaded.Visible)
+			"holding values, not the settings file being unread", reloaded.Fields)
 	}
 }
 
@@ -618,7 +667,7 @@ func TestBlackboxTreeMatchesAProcessBelowTheRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	ps := fakePS(t, "cat "+shquote.Quote(forest)+"\n")
-	ep, stop := startDaemon(t, settings(t, `{"visible":["sleep"]}`), ps)
+	ep, stop := startDaemon(t, settings(t, `{"view":["sleep"]}`), ps)
 	defer stop()
 
 	out, errOut, rc := query(t, ep, map[string]any{"mode": "tree"})
@@ -677,7 +726,7 @@ func bsdFakeListing(t *testing.T, pids, snapshotArgs, snapshot, other string) st
 // translated fields (comm -> ucomm). A name with spaces matches whole.
 func TestBlackboxBSDListModeSelectsInGo(t *testing.T) {
 	withHostOS(t, "darwin")
-	cfg := settings(t, `{"visible":["sway","waykeeper","Google Chrome He"],"fields":["pid","comm"]}`)
+	cfg := settings(t, `{"view":["sway","waykeeper","Google Chrome He"],"fields":["pid","comm"]}`)
 	ps := bsdFake(t, "-ax -o pid=,ucomm=",
 		"  101 sway            \n  102 bash\n  103 waykeeper\n  104 Google Chrome He\n  105 swayidle\n",
 		`echo "ARGS: $*"`)
@@ -722,7 +771,7 @@ func TestBlackboxBSDListModeNoMatchIsHeaderAndExit1(t *testing.T) {
 			"  PID\n", "ps: a warning\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			cfg := settings(t, `{"visible":["sway"],"fields":`+tc.fields+`}`)
+			cfg := settings(t, `{"view":["sway"],"fields":`+tc.fields+`}`)
 			ps := bsdFake(t, "-ax -o pid=,ucomm=", "  102 bash\n", tc.other)
 			ep, stop := startDaemon(t, cfg, ps)
 			defer stop()
@@ -746,7 +795,7 @@ func TestBlackboxBSDListModeNoMatchIsHeaderAndExit1(t *testing.T) {
 func TestBlackboxBSDListModeSnapshotFailureIsSaid(t *testing.T) {
 	withHostOS(t, "darwin")
 	ps := fakePS(t, "echo 'ps: boom' >&2\nexit 1\n")
-	ep, stop := startDaemon(t, settings(t, `{"visible":["sway"]}`), ps)
+	ep, stop := startDaemon(t, settings(t, `{"view":["sway"]}`), ps)
 	defer stop()
 	_, errOut, rc := query(t, ep, map[string]any{"mode": "list"})
 	for _, want := range []string{"list mode failed", "ps: boom", "yolo check"} {
@@ -764,13 +813,17 @@ func TestBlackboxBSDPidMode(t *testing.T) {
 	withHostOS(t, "darwin")
 	const pid = 999999999
 	lookup := "-o ucomm= -p 999999999"
+	// A name the grant does not cover is refused without being said (grants.go).
+	notCovered := loopholegrant.Refusal{Client: "yolo-ps", Pack: "host-processes",
+		Access: "see host processes", Kind: "view", ValueNoun: "process names",
+		Standing: loopholegrant.Granted}.Text()
 	for _, tc := range []struct {
 		name, answer   string
 		rc             int
 		stdout, stderr string
 	}{
 		{"allowlisted", `printf 'sway            \n'`, 0, "ARGS: -o pid,ucomm,args -p 999999999\n", ""},
-		{"not allowlisted", `echo bash`, 2, "", "pid 999999999 has comm='bash' which is not allowlisted\n"},
+		{"not granted", `echo bash`, 64, "", notCovered},
 		{"not found", `exit 1`, 1, "", "pid 999999999 not found\n"},
 		// A ps that REFUSED the lookup is not an absent pid: it says so, in ps's own words,
 		// and names the next step, as list mode does for a snapshot that listed nothing.
@@ -779,14 +832,13 @@ func TestBlackboxBSDPidMode(t *testing.T) {
 				"process: ps: ucomm: keyword not found\n" + checkHostPS},
 		// BSD ps prints ucomm raw, so a file name holding a newline prints two lines. The
 		// name is ALL of them: its first line alone would be a name the process does not
-		// have, here an allowlisted one.
-		{"newline in the name", `printf 'sway\nx               \n'`, 2, "",
-			"pid 999999999 has comm='sway\\nx' which is not allowlisted\n"},
+		// have, here a granted one.
+		{"newline in the name", `printf 'sway\nx               \n'`, 64, "", notCovered},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// The lookup gets tc.answer; the streamed query echoes its argv.
 			ps := fakePS(t, "case \"$*\" in\n  '"+lookup+"') "+tc.answer+" ;;\n  *) echo \"ARGS: $*\" ;;\nesac\n")
-			cfg := settings(t, `{"visible":["sway"],"fields":["pid","comm","args"]}`)
+			cfg := settings(t, `{"view":["sway"],"fields":["pid","comm","args"]}`)
 			ep, stop := startDaemon(t, cfg, ps)
 			defer stop()
 			out, errOut, rc := query(t, ep, map[string]any{"mode": "pid", "pid": pid})
@@ -819,7 +871,7 @@ func TestBlackboxBSDTreeBuildsTheForest(t *testing.T) {
 		"  300     1 bash\n"
 	args := `printf '  100 sway --my-config\n  101 waybar -c x\n  103 foot\n  104 -bash\n'`
 	ps := bsdFake(t, "-ax -o pid=,ppid=,ucomm=", snapshot, args)
-	ep, stop := startDaemon(t, settings(t, `{"visible":["sway"]}`), ps)
+	ep, stop := startDaemon(t, settings(t, `{"view":["sway"]}`), ps)
 	defer stop()
 
 	out, errOut, rc := query(t, ep, map[string]any{"mode": "tree"})
@@ -847,7 +899,7 @@ func TestBlackboxBSDTreeEdges(t *testing.T) {
 	withHostOS(t, "darwin")
 	t.Run("no match", func(t *testing.T) {
 		ps := bsdFake(t, "-ax -o pid=,ppid=,ucomm=", "    1     0 launchd\n  300     1 bash\n", "echo unexpected")
-		ep, stop := startDaemon(t, settings(t, `{"visible":["sway"]}`), ps)
+		ep, stop := startDaemon(t, settings(t, `{"view":["sway"]}`), ps)
 		defer stop()
 		out, _, rc := query(t, ep, map[string]any{"mode": "tree"})
 		if rc != 0 || string(out) != "PID PPID UCOMM ARGS\n" {
@@ -859,7 +911,7 @@ func TestBlackboxBSDTreeEdges(t *testing.T) {
 	})
 	t.Run("empty snapshot", func(t *testing.T) {
 		ps := fakePS(t, "exit 1\n")
-		ep, stop := startDaemon(t, settings(t, `{"visible":["sway"]}`), ps)
+		ep, stop := startDaemon(t, settings(t, `{"view":["sway"]}`), ps)
 		defer stop()
 		out, errOut, rc := query(t, ep, map[string]any{"mode": "tree"})
 		if rc != 0 || len(out) != 0 || len(errOut) != 0 {
@@ -874,7 +926,7 @@ func TestBlackboxBSDTreeEdges(t *testing.T) {
 func TestBlackboxBSDWithNoPSSaysWhatToDo(t *testing.T) {
 	withHostOS(t, "darwin")
 	t.Setenv("PATH", t.TempDir())
-	ep, stop := startDaemon(t, settings(t, `{"visible":["sway"]}`), "")
+	ep, stop := startDaemon(t, settings(t, `{"view":["sway"]}`), "")
 	defer stop()
 	for _, req := range []map[string]any{{"mode": "list"}, {"mode": "pid", "pid": 1}, {"mode": "tree"}} {
 		_, errOut, rc := query(t, ep, req)
@@ -921,7 +973,7 @@ func TestBlackboxBSDTreeArgsFailureSaysWhatToDo(t *testing.T) {
 	withHostOS(t, "darwin")
 	ps := bsdFake(t, "-ax -o pid=,ppid=,ucomm=", "    1     0 launchd\n  100     1 sway\n", "echo unexpected")
 	vanishAfter(t, ps, "-ax -o pid=,ppid=,ucomm=")
-	ep, stop := startDaemon(t, settings(t, `{"visible":["sway"]}`), "")
+	ep, stop := startDaemon(t, settings(t, `{"view":["sway"]}`), "")
 	defer stop()
 	_, errOut, rc := query(t, ep, map[string]any{"mode": "tree"})
 	if rc != 1 || !strings.HasPrefix(string(errOut), "tree mode failed: ") ||
@@ -938,7 +990,7 @@ func TestBlackboxBSDListHeaderQueryFailureSaysWhatToDo(t *testing.T) {
 	withHostOS(t, "darwin")
 	ps := bsdFake(t, "-ax -o pid=,ucomm=", "  102 bash\n", "echo unexpected")
 	vanishAfter(t, ps, "-ax -o pid=,ucomm=")
-	ep, stop := startDaemon(t, settings(t, `{"visible":["sway"],"fields":["pid"]}`), "")
+	ep, stop := startDaemon(t, settings(t, `{"view":["sway"],"fields":["pid"]}`), "")
 	defer stop()
 	out, errOut, rc := query(t, ep, map[string]any{"mode": "list"})
 	if rc != 1 || len(out) != 0 || !strings.HasPrefix(string(errOut), "list mode failed: ") ||
@@ -995,7 +1047,7 @@ func TestBlackboxTreeDeadlineKeepsTheFrozenMessage(t *testing.T) {
 			withHostOS(t, tc.goos)
 			withTreeDeadline(t, tc.secs)
 			ps := tc.ps(t)
-			ep, stop := startDaemon(t, settings(t, `{"visible":["sway"]}`), ps)
+			ep, stop := startDaemon(t, settings(t, `{"view":["sway"]}`), ps)
 			defer stop()
 			out, errOut, rc := query(t, ep, map[string]any{"mode": "tree"})
 			want := "tree mode failed: Command '" + tc.argv + "' timed out after " + strconv.Itoa(tc.secs) + " seconds\n"
@@ -1013,7 +1065,7 @@ func TestBlackboxTreeDeadlineKeepsTheFrozenMessage(t *testing.T) {
 func TestBlackboxTreeWithNoPSSaysWhatToDo(t *testing.T) {
 	withHostOS(t, "linux")
 	t.Setenv("PATH", t.TempDir())
-	ep, stop := startDaemon(t, settings(t, `{"visible":["sway"]}`), "")
+	ep, stop := startDaemon(t, settings(t, `{"view":["sway"]}`), "")
 	defer stop()
 	_, errOut, rc := query(t, ep, map[string]any{"mode": "tree"})
 	if rc != 1 || !strings.HasPrefix(string(errOut), "tree mode failed: ") ||
@@ -1072,7 +1124,7 @@ func TestBlackboxBSDForgedRowsSelectNothing(t *testing.T) {
 			// Every later query answers as if the victim existed, with its secret.
 			ps := bsdFakeListing(t, tc.pids, tc.snapshotArgs, tc.snapshot,
 				`printf '  PID UCOMM\n  '`+tc.victim+`' secret-holder --token=hunter2\n'`)
-			ep, stop := startDaemon(t, settings(t, `{"visible":["sway"]}`), ps)
+			ep, stop := startDaemon(t, settings(t, `{"view":["sway"]}`), ps)
 			defer stop()
 			out, errOut, rc := query(t, ep, map[string]any{"mode": tc.mode})
 			if rc != tc.rc || strings.Contains(string(out), "hunter2") || (tc.mode == "tree" && string(out) != tc.want) {
@@ -1102,7 +1154,7 @@ func TestBlackboxBSDForgedRowsSelectNothing(t *testing.T) {
 func TestBlackboxBSDListModeMatchesLongNamesAsGNUDoes(t *testing.T) {
 	withHostOS(t, "darwin")
 	snapshot := "  101 chrome-devtools-\n  102 chrome-devtools\n  103 chrome-devtoolX\n  104 swayidle\n  105 sway\n"
-	for _, tc := range []struct{ name, visible, pids string }{
+	for _, tc := range []struct{ name, granted, pids string }{
 		{"the full name", `"chrome-devtools-mcp"`, "101,102"},
 		{"what Linux shows", `"chrome-devtools"`, "101,102"},
 		{"what a Mac shows", `"chrome-devtools-"`, "101,102"},
@@ -1111,17 +1163,17 @@ func TestBlackboxBSDListModeMatchesLongNamesAsGNUDoes(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ps := bsdFake(t, "-ax -o pid=,ucomm=", snapshot, `echo "ARGS: $*"`)
-			ep, stop := startDaemon(t, settings(t, `{"visible":[`+tc.visible+`],"fields":["pid"]}`), ps)
+			ep, stop := startDaemon(t, settings(t, `{"view":[`+tc.granted+`],"fields":["pid"]}`), ps)
 			defer stop()
 			out, errOut, rc := query(t, ep, map[string]any{"mode": "list"})
 			if tc.pids == "" {
 				if rc != 1 {
-					t.Errorf("list %s = rc %d out %q, want rc 1 (no match)", tc.visible, rc, out)
+					t.Errorf("list %s = rc %d out %q, want rc 1 (no match)", tc.granted, rc, out)
 				}
 				return
 			}
 			if want := "ARGS: -o pid -p " + tc.pids + "\n"; rc != 0 || string(out) != want {
-				t.Errorf("list %s = rc %d out %q (stderr=%q), want rc 0 out %q", tc.visible, rc, out, errOut, want)
+				t.Errorf("list %s = rc %d out %q (stderr=%q), want rc 0 out %q", tc.granted, rc, out, errOut, want)
 			}
 		})
 	}

@@ -77,7 +77,7 @@ func TestBSDPSRealCommIsAPathAndUcommIsTheName(t *testing.T) {
 
 func TestBSDPSRealListMode(t *testing.T) {
 	pid := startSleep(t)
-	ep, stop := startDaemon(t, settings(t, `{"visible":["sleep"],"fields":["pid","comm","args"]}`), "")
+	ep, stop := startDaemon(t, settings(t, `{"view":["sleep"],"fields":["pid","comm","args"]}`), "")
 	defer stop()
 	out, errOut, rc := query(t, ep, map[string]any{"mode": "list"})
 	if rc != 0 {
@@ -103,7 +103,7 @@ func TestBSDPSRealListMode(t *testing.T) {
 // stderr, a non-zero exit or a column missing from the row.
 func TestBSDPSRealDefaultFields(t *testing.T) {
 	pid := startSleep(t)
-	cfg := settings(t, `{"visible":["sleep"]}`)
+	cfg := settings(t, `{"view":["sleep"]}`)
 	if !reflect.DeepEqual(cfg.Fields, DefaultFields) {
 		t.Fatalf("fields = %v, want the DefaultFields fallback %v", cfg.Fields, DefaultFields)
 	}
@@ -127,7 +127,7 @@ func TestBSDPSRealDefaultFields(t *testing.T) {
 }
 
 func TestBSDPSRealListNoMatchIsHeaderOnly(t *testing.T) {
-	ep, stop := startDaemon(t, settings(t, `{"visible":["yj-no-such-comm"],"fields":["pid","comm"]}`), "")
+	ep, stop := startDaemon(t, settings(t, `{"view":["yj-no-such-comm"],"fields":["pid","comm"]}`), "")
 	defer stop()
 	out, errOut, rc := query(t, ep, map[string]any{"mode": "list"})
 	lines := strings.Split(strings.TrimRight(string(out), "\n"), "\n")
@@ -138,7 +138,7 @@ func TestBSDPSRealListNoMatchIsHeaderOnly(t *testing.T) {
 
 func TestBSDPSRealPidMode(t *testing.T) {
 	pid := startSleep(t)
-	ep, stop := startDaemon(t, settings(t, `{"visible":["sleep"],"fields":["pid","comm"]}`), "")
+	ep, stop := startDaemon(t, settings(t, `{"view":["sleep"],"fields":["pid","comm"]}`), "")
 	defer stop()
 
 	n, _ := strconv.Atoi(pid)
@@ -147,8 +147,8 @@ func TestBSDPSRealPidMode(t *testing.T) {
 		t.Errorf("pid mode on the sleep = rc %d out %q (stderr=%q), want rc 0 and its row", rc, out, errOut)
 	}
 	_, errOut, rc = query(t, ep, map[string]any{"mode": "pid", "pid": os.Getpid()})
-	if rc != 2 || !strings.Contains(string(errOut), "which is not allowlisted") {
-		t.Errorf("pid mode on the test binary = rc %d stderr %q, want rc 2, not allowlisted", rc, errOut)
+	if rc != 64 || !strings.Contains(string(errOut), "does not cover this call") {
+		t.Errorf("pid mode on the test binary = rc %d stderr %q, want rc 64, not covered by the grant", rc, errOut)
 	}
 
 	// Exactly "not found", which pins the fact commOf reads a gone pid by: BSD ps asked
@@ -170,7 +170,7 @@ func TestBSDPSRealTreeMode(t *testing.T) {
 	pid := startSleep(t)
 	self := strconv.Itoa(os.Getpid())
 	name := realPS(t, "-o", "ucomm=", "-p", self)
-	ep, stop := startDaemon(t, settings(t, `{"visible":["`+name+`"]}`), "")
+	ep, stop := startDaemon(t, settings(t, `{"view":["`+name+`"]}`), "")
 	defer stop()
 
 	out, errOut, rc := query(t, ep, map[string]any{"mode": "tree"})
@@ -216,7 +216,7 @@ func TestBSDPSRealListMatchesALongNameAsGNUDoes(t *testing.T) {
 	if ucomm := realPS(t, "-o", "ucomm=", "-p", self); len(ucomm) > 16 {
 		t.Errorf("ucomm of %q = %q, longer than the 16 bytes the package comment says darwin keeps", full, ucomm)
 	}
-	ep, stop := startDaemon(t, settings(t, `{"visible":["`+full+`"],"fields":["pid","comm"]}`), "")
+	ep, stop := startDaemon(t, settings(t, `{"view":["`+full+`"],"fields":["pid","comm"]}`), "")
 	defer stop()
 	out, errOut, rc := query(t, ep, map[string]any{"mode": "list"})
 	if _, ok := rowFor(string(out), self); rc != 0 || !ok {

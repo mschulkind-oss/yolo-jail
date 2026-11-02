@@ -29,10 +29,11 @@ import (
 // line under every fresh machine for a condition the user cannot act on and that the
 // very next `yolo` invocation fixes.
 //
-// What IS a failure is a file that exists and does not parse: the daemon collapses
-// that to an empty allowlist and keeps running, so `yolo-ps` would show nothing while
-// everything looked healthy. That is the one thing this check can see that nothing
-// else reports.
+// What IS a failure is a file that exists and does not parse, or whose grant block
+// does not read: the daemon keeps running and refuses every request, so `yolo-ps`
+// would show nothing while everything looked healthy. That is the one thing this
+// check can see that nothing else reports. A file that reads is reported by its
+// `view` grant's standing (grantCheck).
 //
 // # It also asks the host's ps the daemon's own first question
 //
@@ -67,23 +68,13 @@ func settingsCheck(settingsPath string, out io.Writer) int {
 			" — yolo writes it when a jail launches this loophole")
 		return 0
 	}
-	cfg, ok := loadSettings(settingsPath)
-	if cfg.grantPath != "" {
-		return grantCheck(settingsPath, out)
-	}
-	if !ok {
+	if _, ok := loadSettings(settingsPath); !ok {
 		fmt.Fprintln(out, "FAIL: settings file at "+settingsPath+" is not readable JSON — the "+
-			"daemon would start with an EMPTY allowlist and look healthy while yolo-ps "+
-			"showed nothing")
+			"daemon would start, look healthy, and refuse every yolo-ps request. "+
+			"Restart the jail: the launch rewrites it.")
 		return 1
 	}
-	if len(cfg.Visible) == 0 {
-		fmt.Fprintln(out, "OK: settings at "+settingsPath+
-			" allowlist no process names (loopholes.host-processes.settings.visible is empty)")
-		return 0
-	}
-	fmt.Fprintln(out, "OK: "+strconv.Itoa(len(cfg.Visible))+" comms allowlisted at "+settingsPath)
-	return 0
+	return grantCheck(settingsPath, out)
 }
 
 // psCheck asks the host's ps the question list mode depends on and grades the answer:

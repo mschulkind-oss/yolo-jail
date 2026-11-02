@@ -49,10 +49,9 @@ func Main(argv []string) int {
 	// A RETIRED flag REFUSES and names its replacement. It does not fall back to
 	// --settings and it is not ignored, because the two flags do not name the same
 	// kind of file: --config named a yolo-jail.jsonc this daemon parsed itself, and
-	// silently treating one as the other would read `{"visible": …}` out of a file
-	// that spells it `host_processes.visible` and find nothing — an EMPTY allowlist
-	// reported as a working daemon. Failing to start says what happened; showing
-	// nothing does not.
+	// silently treating one as the other would look for a grant block in a file that
+	// has none and refuse every request — a daemon reported as working that grants
+	// nothing. Failing to start says what happened; refusing everything does not.
 	if *retiredConfig != "" {
 		fmt.Fprintln(os.Stderr, "ERROR: --config is retired — this daemon no longer reads a "+
 			"yolo-jail.jsonc. Pass --settings <file>, the resolved settings file yolo writes "+

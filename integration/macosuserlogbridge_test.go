@@ -7,13 +7,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
-	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // TestMacosUserMacosLogBridgeScopesToTheSandbox is the macos-log loophole on macos-user, end to
@@ -130,20 +128,6 @@ func TestMacosUserMacosLogBridgeScopesToTheSandbox(t *testing.T) {
 	if !strings.Contains(show, "SHOW_RC=0") || !strings.Contains(show, mine) || !strings.Contains(show, theirs) {
 		t.Errorf("`read_all` did not return both accounts' entries (%q, %q):\n%s%s", mine, theirs, show, diag())
 	}
-}
-
-// macosUserWorkspaceTOML is macosUserWorkspace holding yolo-jail.toml with body in place of
-// the legacy yolo-jail.jsonc, so a grant request is written in the format that carries it.
-func macosUserWorkspaceTOML(t *testing.T, body string) string {
-	t.Helper()
-	dir := macosUserWorkspace(t, `{}`)
-	if err := os.Remove(filepath.Join(dir, "yolo-jail.jsonc")); err != nil {
-		t.Fatalf("removing the seeded yolo-jail.jsonc: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, paths.WorkspaceConfigTOMLName), []byte(body), 0o644); err != nil {
-		t.Fatalf("writing yolo-jail.toml: %v", err)
-	}
-	return dir
 }
 
 // syslogAs logs msg through syslog(3) from a process that stays alive until the test ends, as the

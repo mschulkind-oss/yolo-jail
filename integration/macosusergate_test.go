@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // THE macos-user GATE — and the one property the whole suite rests on:
@@ -608,6 +609,20 @@ func macosUserWorkspace(t *testing.T, configJSON string) string {
 			"cannot write here, so the launch would refuse:\n%s", resolved, r.rc, r.combined())
 	}
 	return resolved
+}
+
+// macosUserWorkspaceTOML is macosUserWorkspace holding yolo-jail.toml with body in place of
+// the legacy yolo-jail.jsonc, so a grant request is written in the format that carries it.
+func macosUserWorkspaceTOML(t *testing.T, body string) string {
+	t.Helper()
+	dir := macosUserWorkspace(t, `{}`)
+	if err := os.Remove(filepath.Join(dir, "yolo-jail.jsonc")); err != nil {
+		t.Fatalf("removing the seeded yolo-jail.jsonc: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, paths.WorkspaceConfigTOMLName), []byte(body), 0o644); err != nil {
+		t.Fatalf("writing yolo-jail.toml: %v", err)
+	}
+	return dir
 }
 
 // removeMacosUserWorkspace deletes a workspace the SANDBOX USER has written into.

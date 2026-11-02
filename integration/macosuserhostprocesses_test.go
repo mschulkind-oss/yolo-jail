@@ -17,7 +17,7 @@ import (
 // (cross-process-procargs-deny) — and nothing outside the allowlist.
 //
 // THE SUBJECTS ARE THIS TEST'S OWN CHILDREN on the host: a `sleep` with a unique argument, whose
-// ucomm `visible` names, and a `cat` blocked on a pipe, whose ucomm it does not. So the window is
+// ucomm the `view` grant names, and a `cat` blocked on a pipe, whose ucomm it does not. So the window is
 // asserted both ways: the allowlisted pid is listed with its argument, and the other pid is not.
 func TestMacosUserYoloPsListsAnAllowlistedHostProcess(t *testing.T) {
 	requireMacosUser(t)
@@ -38,9 +38,12 @@ func TestMacosUserYoloPsListsAnAllowlistedHostProcess(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = stdin.Close() })
 
-	packHome(t, `{"packs": ["host-processes"], "loopholes": {"host-processes": {"enabled": true, `+
-		`"settings": {"visible": ["sleep"]}}}}`)
-	ws := macosUserWorkspace(t, `{}`)
+	// The flip (docs/design/loophole-access-approval-plan.md F3): selecting the pack runs the
+	// daemon, and what it may show is the valued `view` grant. A valued kind is never
+	// requestable by default, so the user's ceiling allows it on request; the project requests
+	// the name, and the gate accepts it (runMacosUser passes --accept-config-changes).
+	writeUserTOML(t, "packs = [\"host-processes\"]\n\n[allow.host-processes]\non_request = [\"view\"]\n")
+	ws := macosUserWorkspaceTOML(t, "[requests.host-processes]\nview = [\"sleep\"]\n")
 	r := macosUserRunProbe(t, "host-processes", ws, strings.Join([]string{
 		`echo "=== CLIENT ==="`,
 		`command -v yolo-ps || echo MISSING`,
@@ -65,7 +68,7 @@ func TestMacosUserYoloPsListsAnAllowlistedHostProcess(t *testing.T) {
 			listed = strings.Contains(line, arg)
 		}
 		if len(fields) > 0 && fields[0] == strconv.Itoa(hidden.Process.Pid) {
-			t.Errorf("yolo-ps shows pid %d (`cat`), which `visible` does not name:\n%s", hidden.Process.Pid, ps)
+			t.Errorf("yolo-ps shows pid %d (`cat`), which the view grant does not name:\n%s", hidden.Process.Pid, ps)
 		}
 	}
 	if !listed {

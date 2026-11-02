@@ -1,17 +1,22 @@
 {
   "name": "host-processes",
-  "description": "Allowlisted view of host processes (yolo-ps). Visibility is controlled by this loophole's own `visible` setting.",
+  "description": "Allowlisted view of host processes (yolo-ps). What it may show is the `view` grant: the process names an accepted request names.",
   "version": 1,
+  "access": "see host processes",
+  "grants": [
+    {
+      "kind": "view",
+      "text": "see",
+      "valued": true,
+      "value_noun": "process names",
+      "legacy_enable": true,
+      "legacy_values": "visible"
+    }
+  ],
   "settings": {
-    "visible": {
-      "type": "string_list",
-      "scope": "workspace",
-      "default": [],
-      "description": "process comm names yolo-ps may reveal; `yolo-ps --tree` also shows every process below one, with its command line (empty = show nothing)"
-    },
     "fields": {
       "type": "string_list",
-      "scope": "workspace",
+      "scope": "user",
       "default": [
         "pid",
         "comm",

@@ -148,8 +148,8 @@ func TestHostprocessesEachStandingRefusesWithItsText(t *testing.T) {
 	})
 }
 
-// TestHostprocessesAnUngrantedNameIsInvisible: under a grant the granted values ARE the
-// allowlist. A `visible` setting beside the block widens nothing, list mode asks ps for the
+// TestHostprocessesAnUngrantedNameIsInvisible: the granted values ARE the allowlist. A
+// `visible` key an older launch left beside the block widens nothing, list mode asks ps for the
 // granted names only, and pid mode on a process whose name is not granted is refused without
 // naming that process.
 func TestHostprocessesAnUngrantedNameIsInvisible(t *testing.T) {
@@ -183,15 +183,35 @@ func TestHostprocessesAnUngrantedNameIsInvisible(t *testing.T) {
 	}
 }
 
-// TestHostprocessesWithoutAGrantBlockKeepsTodaysAllowlist pins PD-12's transitional half: a
-// settings file with no `grants` key is read as before, `visible` and all.
-func TestHostprocessesWithoutAGrantBlockKeepsTodaysAllowlist(t *testing.T) {
-	cfg := settings(t, `{"visible":["sway"],"fields":["pid"]}`)
-	if cfg.grantPath != "" {
-		t.Errorf("a file with no grants key put the daemon in grant mode (%q)", cfg.grantPath)
+// TestHostprocessesRefusalSpeaksTheGrantFilesWords: the access line and the value noun come
+// from the grant file the launch wrote (the manifest's words), and the daemon's constants
+// are only the fallback for a file that does not carry them.
+func TestHostprocessesRefusalSpeaksTheGrantFilesWords(t *testing.T) {
+	withHostOS(t, "linux")
+	emptyHome(t)
+	path := filepath.Join(t.TempDir(), "s.json")
+	data, err := loopholegrant.Merge([]byte(`{}`), loopholegrant.Block{
+		Pack: "host-processes", Workspace: "/w", Access: "peek at the host",
+		Kinds: map[string]loopholegrant.Kind{"view": {
+			Standing: loopholegrant.Requestable, ValueNoun: "program names",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if len(cfg.Visible) != 1 || cfg.Visible[0] != "sway" {
-		t.Errorf("visible = %v", cfg.Visible)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ep, stop := startDaemon(t, LoadSettings(path), fakePS(t, "echo x\n"))
+	defer stop()
+	_, stderr, rc := query(t, ep, map[string]any{"mode": "list"})
+	if rc != 64 {
+		t.Fatalf("rc=%d, want 64 (stderr=%q)", rc, stderr)
+	}
+	for _, want := range []string{"no grant to peek at the host", "yolo request host-processes view <program names>"} {
+		if !strings.Contains(string(stderr), want) {
+			t.Errorf("stderr=%q, want %q from the grant file", stderr, want)
+		}
 	}
 }
 
