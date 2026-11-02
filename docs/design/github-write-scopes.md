@@ -3,7 +3,7 @@ title: "Where the GitHub line is drawn: which writes run unasked, per user and p
 date: 2026-10-30
 status: in-review
 stage: DESIGN
-next: "Rule OQ-GW1 to OQ-GW6; the vocabulary waits on OQ-GW1 and the Add rule on OQ-GW2"
+next: "Rule the narrowed OQ-GW2 (what replaces `yolo approve --add`); the design seat revises §6.2 and the wide grants against it"
 depends-on:
   - boundary-broker.md
 tags: [design, github, gh, broker, grants, approvals, config, toml]
@@ -21,8 +21,9 @@ on where they want the line drawn. And it may be on a per workspace basis."*
 > **In short.** The line between "runs" and "asks" is drawn by the *kind* of write, and the
 > same six kinds appear in both config layers: the user's config says which kinds any workspace
 > may hold, a workspace asks for them within that ceiling, and a workspace can also say that a
-> kind asks here whatever the user allows. Approving and merging are two of the kinds, and an
-> approval that would complete an armed auto-merge counts as a merge.
+> kind asks here whatever the user allows. Approving and merging are two of the kinds; an
+> approval is an approval even when the PR's auto-merge is armed, and the `approve` kind says so
+> ([OQ-GW5](#OQ-GW5)).
 
 **Why it matters.** The working set as built covers every write to a PR but its merge
 ([§1](#1-the-line-today-and-where-it-leaks)). A review found that on a PR a human added with
@@ -37,14 +38,14 @@ as against creating one; not a grant on the repository)*: `comment`, `edit`, `ap
 config layers compose exactly as they do for `create_pr` today, plus one narrowing word
 ([§5](#5-two-layers-ceiling-asks-and-the-narrowing)).
 
-**Cost.** A PR a human added covers less than today until the user allows kinds; an existing
-`create_pr` user sees a one-time hint naming the two commands that restore today's feel
-([§9](#9-migration-from-the-working-set-as-built)).
+**Cost.** A write the agent did not create covers less than today until the user allows a
+kind for it; `create_pr` and `create_issue` keep today's comment and edit on what they create
+([OQ-GW3](#OQ-GW3)).
 
 **Start at [§4](#4-the-work-kinds)** — the kinds. [§5](#5-two-layers-ceiling-asks-and-the-narrowing) is how the two files compose; everything else follows.
 
-**Needs your ruling:** [OQ-GW1](#OQ-GW1), [OQ-GW2](#OQ-GW2), [OQ-GW3](#OQ-GW3),
-[OQ-GW4](#OQ-GW4), [OQ-GW5](#OQ-GW5), [OQ-GW6](#OQ-GW6).
+**Needs your ruling:** [OQ-GW2](#OQ-GW2), narrowed: `yolo approve --add` is removed, and the
+question is what replaces it. [OQ-GW1](#OQ-GW1) and [OQ-GW3](#OQ-GW3) to [OQ-GW6](#OQ-GW6) are ruled ([§14](#14-decision-ledger)).
 
 **Reads with:** [`boundary-broker.md`](boundary-broker.md) (the grant model this refines:
 [§5.7](boundary-broker.md#57-permission-sets), [§5.8](boundary-broker.md#58-long-lived-access-and-temporary-access)
@@ -96,7 +97,7 @@ Two facts fix the frame:
   its `gh` argv or REST method and path, never from its effect at run time, so the same command
   is always the same kind and a user can predict it from the table in
   [§4](#4-the-work-kinds). The one exception is named as an exception
-  ([§4.2](#42-an-armed-auto-merge-makes-an-approval-a-merge)) and only ever moves a write
+  ([§4.2](#42-an-armed-auto-merge-an-approval-stays-an-approval)) and only ever moves a write
   toward asking.
 - **P2. Few words, each one a line a user would draw.** A kind exists only where real users
   differ on it. Nobody splits "comment on a PR" from "comment on an issue"; many split
@@ -162,7 +163,7 @@ Rules the table rests on, each a decision ledgered below:
   ([GW-D2](#GW-D2)).
 - **Marking ready is an `edit`, not an `approve`** ([GW-D3](#GW-D3)). It changes the item's
   state the way close and reopen do, it is routine on the agent's own drafts, and the one way
-  it can finish a merge is through an armed auto-merge, which [§4.2](#42-an-armed-auto-merge-makes-an-approval-a-merge)
+  it can finish a merge is through an armed auto-merge, which [§4.2](#42-an-armed-auto-merge-an-approval-stays-an-approval)
   catches by name. Putting it under `approve` would make a user who wants "ready my own drafts,
   never approve anyone's" unable to say so.
 - **Requesting changes is an `edit`, not a `comment`** ([GW-D4](#GW-D4)). A `comment` must
@@ -178,34 +179,21 @@ Rules the table rests on, each a decision ledgered below:
   read before each covered write all stand. This doc sorts the covered writes into kinds; it
   moves no fence ([BB-P8](boundary-broker.md#BB-P8)).
 
-### 4.2 An armed auto-merge makes an approval a merge
+### 4.2 An armed auto-merge: an approval stays an approval
 
-The trigger case, resolved: **an `approve`, or an `edit` that marks a draft ready, on a PR
-whose auto-merge is armed is treated as a `merge` of that PR.** It runs unasked only where a
-merge of that PR would ([§6.2](#62-what-a-humans-add-covers)); otherwise it asks as a merge,
-and the message says why:
+**An `approve`, or an `edit` that marks a draft ready, on a PR whose auto-merge is armed is
+classified by its argv like any other write: it is an `approve` or an `edit`, not a `merge`**
+([OQ-GW5](#OQ-GW5), ruled B: *"it's less surprising really"*). If GitHub then merges the PR,
+that merge is the author's armed auto-merge completing, not a merge the agent ran.
 
-```console
-$ gh pr review 32 --approve
-github-broker: approving PR o/r#32 would complete its armed auto-merge, so it asks as a merge:
-  the request is r-7k2m. On the host: `yolo approve r-7k2m` allows it once, `--for 15m` for 15 minutes.
-```
-
-- **The read is the one the broker already makes.** Before each covered write it reads the
-  item's state once ([BB-D111](boundary-broker.md#BB-D111)) to learn whether a PR is merged;
-  for an `approve` or a ready the read is of `pulls/{n}`, whose `auto_merge` field says whether
-  one is armed, and a failed read asks, as today.
-- **It only ever moves a write toward asking** (P1's exception). A write classified `approve`
-  from its argv is never made `comment` by state; it is made `merge` by one named fact.
-- **The race is the author's, not the agent's.** Auto-merge armed between the read and the
-  approval merges the PR; the agent cannot arm it itself without the `merge` kind, since
-  `pr merge --auto` is `merge`.
-- Whether GitHub lets auto-merge be armed on a draft is not verified here, and the rule does
-  not depend on it: a ready that finds no armed auto-merge is an `edit`, as the table says.
-
-The alternative, documenting the hazard beside the `approve` kind and letting users who allow
-`approve` accept it, leaves "a merge always asks" false of the outcome for every reviewer
-persona in [§7](#7-what-people-write) ([OQ-GW5](#OQ-GW5) asks the owner to confirm the rule).
+- **The `approve` kind says so where it is granted.** The config-change gate line for `approve`
+  (and for a wide approval grant) states that an approval can complete a PR's armed auto-merge,
+  so the reach is read where it is allowed rather than discovered afterwards.
+- **The agent cannot arm one itself without `merge`:** `pr merge --auto` is `merge`
+  ([GW-D5](#GW-D5)).
+- **"A merge always asks" is a statement about what the agent runs**, not about what GitHub does
+  next: a user who allows `approve` on a PR whose author armed auto-merge has allowed that
+  approval to finish the merge.
 
 ## 5. Two layers: ceiling, asks, and the narrowing
 
@@ -249,12 +237,9 @@ Three consequences worth stating:
 **Defaults.** Nothing. `[allow.github]` absent means every write asks and `read` itself is not
 granted ([BB-D104](boundary-broker.md#BB-D104)). A user who runs only
 `yolo allow github on_request create_pr` (after `yolo allow github read`) gets, in a project that
-requests it: PRs created unasked, and **every comment or edit on them asking**, because no work
-kind is allowed. That is what the config says, and the verb says it too: `yolo allow github
-on_request create_pr` offers the usual pairing in the same run, *"Also allow `comment` and `edit`
-on every workspace's working set, so the jail can tend the PRs it creates? [Y/n]"*, writing both
-on `y` and printing the two commands on `n` or without a terminal ([GW-D9](#GW-D9);
-[OQ-GW3](#OQ-GW3) asks whether creation should instead carry the two kinds by itself).
+requests it: PRs created unasked, and **comments and edits on the PRs it created unasked too**:
+`create_pr` and `create_issue` carry `comment` and `edit` on what they create
+([OQ-GW3](#OQ-GW3), ruled B). Approving and merging are never carried by creation.
 
 ## 6. The working set under kinds
 
@@ -270,9 +255,9 @@ commands, the scope, the read floor):
 
 1. **A creation under a user grant** (`create_pr`, `create_issue`): unchanged.
 2. **A working-set entry on N, and K resolves to "runs unasked" in this workspace**
-   ([§5](#5-two-layers-ceiling-asks-and-the-narrowing)), and the one state read finds N open
-   and, for an `approve` or a ready, no armed auto-merge ([§4.2](#42-an-armed-auto-merge-makes-an-approval-a-merge)):
-   runs, audited `held: <kind>` with the entry's id.
+   ([§5](#5-two-layers-ceiling-asks-and-the-narrowing)), or N was created by this workspace
+   under `create_pr`/`create_issue` and K is `comment` or `edit` ([OQ-GW3](#OQ-GW3)), and the
+   one state read finds N open: runs, audited `held: <kind>` with the entry's id.
 3. **A timed grant** from `yolo approve r-<id> --for <duration>`: covers **the request's kind
    on its resource**, and nothing wider, for the time ([BB-D82](boundary-broker.md#BB-D82);
    [GW-D10](#GW-D10)). A `--for 15m` on a comment request does not cover an approval.
@@ -281,6 +266,13 @@ commands, the scope, the read floor):
    ([§8](#8-every-stop-names-its-next-step)).
 
 ### 6.2 What a human's Add covers
+
+> **Ruled 2026-11-02: `yolo approve --add` is removed.** The owner: *"I don't like this add
+> flag because it's confusing. It rides along with a grant, or it rides along with an approval,
+> and depending on what the approval is, it does different things, and you're trying to guess
+> context. … Let's remove it. We can force the agent to take some other path here."* What
+> replaces it is [OQ-GW2](#OQ-GW2); the text below describes the Add as designed before the
+> ruling and is superseded once that question is answered.
 
 `yolo approve r-<id> --add` puts a colleague's PR or issue into the working set. Under this
 design the entry covers **the work kinds the workspace holds** — comment and edit for most
@@ -306,11 +298,12 @@ Allowed r-7k2m: added PR acme/app#32 to the working set of /home/m/acme, across 
 
 ### 6.3 What the agent's own creation covers
 
-A PR or issue the agent created under `create_pr` or `create_issue` is a working-set entry like
-any other: it covers the kinds the workspace holds. Whether the creation grant itself should
-carry `comment` and `edit` on what it creates, so that `create_pr` alone restores today's feel on
-the agent's own PRs, is [OQ-GW3](#OQ-GW3). `approve` on its own PR is refused by GitHub either
-way; `merge` on its own PR runs only under the `merge` kind.
+A PR or issue the agent created under `create_pr` or `create_issue` is a working-set entry, and
+**the creation grant carries `comment` and `edit` on it** ([OQ-GW3](#OQ-GW3), ruled B: *"agents
+should be able to comment on edit on PRs they create. We can just specify that as part of create
+PR."*). A project that wants even those to ask narrows with `comment = "ask"` or `edit = "ask"`
+([§5](#5-two-layers-ceiling-asks-and-the-narrowing)). `approve` on its own PR is refused by GitHub
+either way; `merge` on its own PR runs only under the `merge` kind.
 
 ## 7. What people write
 
@@ -358,7 +351,7 @@ merge = true
 
 **Reviewer's helper, in one workspace.** The user adds colleagues' PRs and wants approvals
 unasked there, and nowhere else. `approve` is allowed on request and asked for in the one
-project; an approval that would complete an armed auto-merge still asks as a merge.
+project; its gate line says an approval can complete a PR's armed auto-merge ([§4.2](#42-an-armed-auto-merge-an-approval-stays-an-approval)).
 
 ```toml
 # ~/.config/yolo-jail/config.toml        yolo allow github on_request approve
@@ -397,10 +390,8 @@ merge = true
 | A kind the workspace does not hold, on a working-set item | `github-broker: a comment on PR o/r#32 asks here: this workspace holds no `comment` on its working set (r-7k2m). On the host: `yolo approve r-7k2m` once, `--for 15m`, or for every workspace `yolo allow github comment`.` |
 | A kind narrowed to `"ask"` | `… asks here: yolo-jail.toml sets requests.github.comment = "ask" (r-7k2m). `yolo approve r-7k2m` once or `--for 15m`; to lift the line, `yolo config unset requests.github.comment --project`, then `yolo config apply`.` |
 | A merge of a PR a human added | `… merging PR o/r#32, which a human added, asks per PR (r-7k2m): `yolo approve r-7k2m` once or `--for 15m`.` |
-| An approval or ready on a PR with auto-merge armed | [§4.2](#42-an-armed-auto-merge-makes-an-approval-a-merge)'s message |
 | A review through `gh api` with an unreadable `event` | `… this review's verdict is not written on the command line (--input or @file), so it asks as a write to o/r (r-7k2m). Write the event as -f event=COMMENT to have it classified, or `yolo approve r-7k2m`.` |
 | `yolo check` on a project requesting `approve` outside the ceiling | `yolo-jail.toml:4: this project requests approve. Your config does not allow approve on request, so this project runs without it. To allow it for every project you work on: yolo allow github on_request approve` (the built shape for `push`) |
-| `yolo check` on `create_pr` held with no work kind | `allow.github allows create_pr, and no kind lets a jail tend the PRs it creates: every comment and edit on them will ask. The usual pairing: yolo allow github comment; yolo allow github edit` |
 | `yolo check` on `read = "ask"` | `requests.github.read: reads never ask. To keep your jails from reading GitHub, take github out of packs in your config: yolo pack remove github` |
 | The launch disclosure | `github-broker: this workspace holds create_pr on acme/app; on its working set comment and edit run unasked, approve and merge ask; working set: 2 PRs` |
 
@@ -418,10 +409,10 @@ timed entry already carries its kind.
 | Today ([BB-D111](boundary-broker.md#BB-D111)) | Under this design |
 | :--- | :--- |
 | `create_pr` / `create_issue` allowed and requested: creation runs unasked; the new item joins the working set | Unchanged |
-| Every non-merge write to a working-set item runs unasked | Only the kinds the workspace holds run unasked. A user with `create_pr` and no work kind sees the `yolo check` pairing hint once ([§8](#8-every-stop-names-its-next-step)) and runs two commands to have comments and edits on the working set again; approvals, which ran unasked, ask until `approve` is allowed |
-| A merge always asks | A merge of a PR the agent created runs unasked under `merge`; a merge of a PR a human added asks ([OQ-GW2](#OQ-GW2)); an approval or ready that would complete an armed auto-merge asks as a merge |
+| Every non-merge write to a working-set item runs unasked | Comments and edits on what the agent created run unasked under the creation grant ([OQ-GW3](#OQ-GW3)); other items run only the kinds the workspace holds; approvals, which ran unasked, ask until `approve` is allowed |
+| A merge always asks | A merge of a PR the agent created runs unasked under `merge`; a merge of a PR the agent did not create asks ([OQ-GW2](#OQ-GW2)); an approval stays an approval when auto-merge is armed ([§4.2](#42-an-armed-auto-merge-an-approval-stays-an-approval)) |
 | `--for <duration>` covers every non-merge write to the item for the time | Covers the request's kind on the item for the time |
-| `--add` covers every non-merge write to the added item | Covers the kinds the workspace holds, and says so |
+| `--add` covers every non-merge write to the added item | Removed (2026-11-02); its replacement is [OQ-GW2](#OQ-GW2) |
 | A `gh api` review with an unreadable `event` runs unasked on a working-set PR | Asks, as a write to the repository |
 | `grant_kinds` in a legacy user config | Already `on_request` ([config-user.md A.6](config-user.md#a6-the-grant-kinds-mapped)); the work kinds have no legacy spelling, so no rename |
 
@@ -439,8 +430,9 @@ timed entry already carries its kind.
   itself, under an `approve-run` grant ([GW-D15](#GW-D15)).
 - **The scope and the refusals** ([BB-P8](boundary-broker.md#BB-P8)). A kind never widens the
   repository scope and never reaches a refused command.
-- **Who may add a PR to the working set.** A human, with `yolo approve --add`, as ruled
-  ([BB-D92](boundary-broker.md#BB-D92)). This doc changes what the Add covers, not who makes it.
+- **Who may add a PR to the working set.** `yolo approve --add` is removed (2026-11-02,
+  superseding [BB-D92](boundary-broker.md#BB-D92) for this source); what replaces it is
+  [OQ-GW2](#OQ-GW2).
 - **Keeping a jail off GitHub entirely.** That is the user's pack selection, not a kind.
 - **Per-PR lines in config.** `yolo approve` draws those, one resource at a time, in the store.
 
@@ -449,12 +441,12 @@ timed entry already carries its kind.
 | Alternative | Verdict |
 | :--- | :--- |
 | **Keep one bit; take `approve` and `ready` out of the working set's coverage so they always ask.** Closes the trigger with no vocabulary | Rejected: it draws one line for everyone, and the ask is for everybody's line. The reviewer persona wants approvals unasked; the cautious persona wants comments asked |
-| **Two kinds, `work` and `merge`, where `work` is everything but a merge and an approval** | Rejected: `approve` must be a word a user can allow or withhold on its own, since it is the one that differs between the reviewer and the default persona; and `comment` against `edit` is where a colleague's PR differs from your own. Four is the count at which every persona in [§7](#7-what-people-write) is one line; [OQ-GW1](#OQ-GW1) confirms it |
+| **Two kinds, `work` and `merge`, where `work` is everything but a merge and an approval** | Rejected: `approve` must be a word a user can allow or withhold on its own, since it is the one that differs between the reviewer and the default persona; and `comment` against `edit` is where a colleague's PR differs from your own. Four is the count at which every persona in [§7](#7-what-people-write) is one line ([OQ-GW1](#OQ-GW1), ruled A) |
 | **Five or more kinds**: split `review` (request changes) from `comment`, or `close` from `edit`, or `ready` from both | Rejected for v1: no persona needed the split, and each word a reader must learn costs more than the line it draws. Add one when a real user asks |
 | **Origin as a suffix or second list** (`merge_own`, or `[allow.github] added = [...]`) | Rejected: it doubles the vocabulary for a distinction that matters to one kind. The working set already knows who added each item; the one rule that turns on it is stated in words ([§6.2](#62-what-a-humans-add-covers)) |
 | **Choose the kinds at Add time** (`yolo approve r-<id> --add comment,edit`) | Rejected as the model, kept as a possible later flag: a per-resource choice does not give the user a line they can read in their config, and the human's Add already has a config to read the line from |
-| **A separate workspace table for narrowing** (`[ask.github] kinds = [...]`) | Not taken, pending [OQ-GW4](#OQ-GW4): one table, `requests.github`, holding `true` and `"ask"` keeps a kind's whole story on one line of one table |
-| **Document the auto-merge hazard instead of catching it** | Rejected, pending [OQ-GW5](#OQ-GW5): it leaves "a merge always asks" false of the outcome for every user who allows `approve` |
+| **A separate workspace table for narrowing** (`[ask.github] kinds = [...]`) | Not taken ([OQ-GW4](#OQ-GW4), ruled A): one table, `requests.github`, holding `true` and `"ask"` keeps a kind's whole story on one line of one table |
+| **Catch the auto-merge case: an approval on an armed PR asks as a merge** | Not taken ([OQ-GW5](#OQ-GW5), ruled B): the owner found it more surprising than an approval that stays an approval; the `approve` gate line states the reach instead |
 | **A kind that names a repository** | Rejected ([§3](#3-the-axes-and-which-become-vocabulary)): the workspace file is where a repository's line goes |
 
 ## 12. What done looks like
@@ -463,14 +455,14 @@ timed entry already carries its kind.
   `comment` and `edit` only, files a request whose message names `approve` and the `yolo allow`
   line; `gh pr comment 32` on the same PR runs and is audited `held: comment`.
 - The same approval on a PR whose `auto_merge` is non-null, in a workspace that allows
-  `approve`, asks as a merge and says why; with auto-merge disarmed it runs.
+  `approve`, runs as an approval; the `approve` gate line names the auto-merge reach.
 - A project whose `yolo-jail.toml` sets `comment = "ask"` asks for a comment on the agent's own
   PR, for every user, and the request's message names the file and the `unset` line; deleting
   the line shows `+ github: comment` at the gate and runs nothing until `y`.
 - `gh pr merge 32` on a PR the agent created runs under `merge`; on a PR a human added it asks,
   whatever the config.
-- `yolo allow github on_request create_pr` on a terminal offers the pairing; declined, the user
-  config holds exactly `create_pr`, and `yolo check` prints the pairing hint once per run.
+- With only `create_pr` allowed and requested, `gh pr comment 12` on a PR the agent created
+  runs unasked; `comment = "ask"` in the project makes it ask.
 - `yolo approve r-<id> --for 15m` on a comment request leaves an approval on the same PR asking
   inside the window.
 - The launch disclosure line names the kinds that run and the kinds that ask, and
@@ -478,145 +470,21 @@ timed entry already carries its kind.
 
 ## 13. Open Questions
 
-1. 💬 **OQ-GW1: Are comment, edit, approve and merge the right four words for what the agent may do to a PR without asking?**
+1. 💬 **OQ-GW2: With `yolo approve --add` removed, how does the agent come to write to a PR or issue it did not create?**
 
-   Priya allows the jail to create PRs. It opens one, then runs `gh pr comment 12`,
-   `gh pr ready 12`, and on a teammate's PR she added, `gh pr review 40 --approve`. Today all
-   three run; she cannot say "comment yes, approve no". The table in [§4.1](#41-the-table)
-   gives her four words: `comment` (says something), `edit` (changes fields, open/draft state, or
-   requests changes), `approve`, `merge`. Fewer words draw fewer lines; more words are more to
-   learn before reading your own config.
+   The Add flag is removed ([§6.2](#62-what-a-humans-add-covers) quotes the ruling). Kurt
+   files bug #70; the agent fixes it and wants to comment and close it.
 
-   - **A — Four, as tabled.** Her config reads `always = ["read", "comment", "edit"]`; approve
-     and merge ask. Requesting changes counts as `edit`, marking ready as `edit`.
-   - **B — Three: `work`, `approve`, `merge`**, where `work` is comment and edit together. One
-     word fewer; a colleague's PR she adds can be edited by anyone who may comment on it.
-   - **C — Five or more**, splitting request-changes or ready into their own words. Each persona
-     gets a finer line and a longer table.
+   - Allow once per write, or a timed `--for`.
+   - The repository-wide `comment_any` / `edit_any` grants.
+   - A per-item grant spelled in config.
 
-   <!-- vantage: question id=OQ-GW1 leaning="A — four words: every persona in §7 is one line at four, and the split of comment from edit is where a colleague's PR differs from your own." -->
+   The design seat also says what git's `--add` and `--remember` become.
 
-   _Leaning:_ A. Every persona in [§7](#7-what-people-write) is one line at four, and the split
-   of `comment` from `edit` is exactly where a colleague's PR differs from your own.
+   <!-- vantage: question id=OQ-GW2 leaning="Pending the design seat's revision: likely Allow once, --for, and the wide *_any grants, with no per-item Add." -->
 
-   **Answer:**
-
-   > _(empty — fill in when decided)_
-
-2. 💬 **OQ-GW2: When a human adds a colleague's PR to the working set, what may the agent do to it without asking, and may it ever merge it?**
-
-   Matt adds a teammate's PR with `yolo approve r-7k2m --add` so the agent can review it. Today
-   the agent may then do anything but merge it, approval included; a merge asks. He wants the
-   agent to comment and edit, and he has `merge` allowed so it merges its own PRs. The question
-   is what the Add hands over.
-
-   - **A — The kinds his config allows, and a merge of an added PR always asks.** The agent
-     comments and edits; approving asks unless he allowed `approve`; merging the teammate's PR
-     asks per PR, answered `yolo approve r-… --for 15m`, whatever `merge` says.
-   - **B — The same as a PR the agent created**, today's rule. With `merge` allowed, the agent
-     may merge the teammate's PR unasked; with `approve` allowed, approve it.
-   - **C — A, plus a `--add` flag naming the kinds** for this one item.
-
-   <!-- vantage: question id=OQ-GW2 leaning="A — the kinds the config allows, and merging a PR someone else opened always asks per PR: it is the one act every persona wants a human for." -->
-
-   _Leaning:_ A. Merging a PR someone else opened is the one act every persona wants a human
-   for, and `--for` keeps it one command when he does want it.
-
-   **Answer:**
-
-   > _(empty — fill in when decided)_
-
-3. 💬 **OQ-GW3: Does allowing the jail to create PRs still let it comment on and edit the PRs it creates, or must those be allowed in words?**
-
-   Dana runs `yolo allow github read` and `yolo allow github on_request create_pr`, and her
-   project requests `create_pr`. The agent opens a PR, then runs `gh pr comment 12` to post the
-   CI result. Today it runs: creating implied working ([OQ-BB19](boundary-broker.md#15-decision-ledger)).
-   Under explicit kinds it asks until she allows `comment`.
-
-   - **A — Explicit.** Her config says exactly what runs. The verb offers the pairing when she
-     allows `create_pr` (*"Also allow comment and edit? [Y/n]"*), and `yolo check` names the
-     two commands when she declines. A cautious user writes `always = ["read"]` and reads it as
-     "everything else asks", which is true.
-   - **B — Creation carries comment and edit on what it creates.** `create_pr` alone gives
-     today's feel on the agent's own PRs. The words `comment` and `edit` then matter only for PRs
-     a human adds, and a cautious user needs `comment = "ask"` in a workspace to stop comments
-     on the agent's own PRs.
-
-   <!-- vantage: question id=OQ-GW3 leaning="A — explicit: what the config says is what runs, and the verb's one-question pairing makes the common path one command anyway." -->
-
-   _Leaning:_ A. What the config says is what runs, and the verb's one-question pairing makes
-   the common path one command anyway. B keeps the earlier ruling's convenience at the cost of
-   one word meaning two things.
-
-   **Answer:**
-
-   > _(empty — fill in when decided)_
-
-4. 💬 **OQ-GW4: How does a project say "even comments ask here"?**
-
-   A maintainer of a sensitive service wants every GitHub write from any contributor's jail to
-   ask, whatever that contributor's own config allows. Today there is no such line: a user's
-   `always` reaches every project. The line is a narrowing, so it needs nobody's approval.
-
-   - **A — A value in the table that already holds requests:** `[requests.github] comment =
-     "ask"`, written by `yolo request github comment --ask`. One table tells a kind's whole
-     story: `true` asks for it, `"ask"` turns it off here, absent leaves it to the user's config.
-   - **B — A table of its own:** `[ask.github] kinds = ["comment", "edit"]`. Reads as a list of
-     what asks; a second table and a second verb to learn.
-   - **C — `false` in the requests table.** No new word, but `comment = false` reads as "not
-     requested", which is what absent already means, so the reader cannot tell a decline from a
-     default.
-
-   <!-- vantage: question id=OQ-GW4 leaning="A — one table, one verb: true asks for the kind, the ask value makes it ask here, absent leaves it to the user." -->
-
-   _Leaning:_ A. One table, one verb; C is ruled out because a reader cannot tell it from
-   absent.
-
-   **Answer:**
-
-   > _(empty — fill in when decided)_
-
-5. 💬 **OQ-GW5: Should approving, or marking ready, a PR whose auto-merge is armed count as merging it?**
-
-   Sam allows `approve` so the agent can approve teammates' PRs he adds. A teammate opens a PR
-   and arms auto-merge; the agent runs `gh pr review 40 --approve`. Today that runs, and GitHub
-   merges the PR. The design reads the PR's state before the write anyway.
-
-   - **A — Yes.** The broker reads `auto_merge` in that read; armed, the approval asks as a
-     merge, and the message says *"approving PR #40 would complete its armed auto-merge"*. Sam
-     answers `yolo approve r-… --for 15m` when he means it. One more field read, no new command.
-   - **B — No; say so in the `approve` kind's description.** Sam allowed approvals; a merge that
-     follows is GitHub's doing. Simpler, and "a merge always asks" stops being true of the
-     outcome for anyone who allows `approve`.
-
-   <!-- vantage: question id=OQ-GW5 leaning="A — yes: it is the trigger case itself, costs one field in a read the broker already makes, and keeps 'a merge asks' true of what happens." -->
-
-   _Leaning:_ A. It is the trigger case itself, it costs one field in a read the broker already
-   makes, and it keeps "a merge asks" true of what happens, not only of what was typed.
-
-   **Answer:**
-
-   > _(empty — fill in when decided)_
-
-6. 💬 **OQ-GW6: May the user's `always` list hold a work kind, so comments run unasked in every workspace?**
-
-   Lee wants the agent to comment on and edit working-set PRs in every project without touching
-   each project's file, so he runs `yolo allow github comment`, which writes `always =
-   ["read", "comment"]`. The two lists have the same shape for every capability
-   ([config-user.md §6](config-user.md#6-what-a-jail-may-do-with-your-logins)), but
-   [OQ-BB23](boundary-broker.md#OQ-BB23) is still open on whether a user grant of a write kind
-   may reach every workspace at once.
-
-   - **A — Yes, for the work kinds.** `always` means every workspace's working set; each
-     workspace's gate still shows it as `+ github: comment`. A sensitive project narrows with
-     `"ask"`.
-   - **B — No: work kinds only in `on_request`.** Lee writes `comment = true` in every project
-     he works in, and approves each at its gate.
-
-   <!-- vantage: question id=OQ-GW6 leaning="A — yes: the personas are one line only if always may hold them, each gate still shows it, and a project can narrow it." -->
-
-   _Leaning:_ A. The personas in [§7](#7-what-people-write) are one line only if `always` may
-   hold them, each workspace's gate still shows it, and a project can narrow it.
+   _Leaning:_ pending the design seat's revision; likely Allow once, `--for` and the wide
+   `*_any` grants, with no per-item Add.
 
    **Answer:**
 
@@ -637,10 +505,15 @@ above lands here when it arrives.
 | <a id="GW-D6"></a>GW-D6 | A narrowing (`"ask"`) is honored from any file without the ceiling or a `y`; its removal is a widening and appears at the gate as a `+` line | 2026-10-30 | [§5](#5-two-layers-ceiling-asks-and-the-narrowing) | — |
 | <a id="GW-D7"></a>GW-D7 | The local file merges after the project file for `requests.github`, as it does for every key; the last file wins per kind | 2026-10-30 | [§5](#5-two-layers-ceiling-asks-and-the-narrowing) | — |
 | <a id="GW-D8"></a>GW-D8 | `requests.github.read = "ask"` is a `yolo check` error naming `yolo pack remove github`, the user-config verb; `packs` has no per-project form | 2026-10-30 | [§5](#5-two-layers-ceiling-asks-and-the-narrowing) | — |
-| <a id="GW-D9"></a>GW-D9 | `yolo allow github [on_request] create_pr` on a terminal offers to also allow `comment` and `edit` in `always`; declined, or without a terminal, it prints the two commands, and `yolo check` repeats the pairing hint while `create_pr` is held with no work kind | 2026-10-30 | [§5](#5-two-layers-ceiling-asks-and-the-narrowing) | — |
+| <a id="GW-D9"></a>GW-D9 | **Superseded by [OQ-GW3](#OQ-GW3) (2026-11-02): creation carries comment and edit, so there is no pairing to offer.** `yolo allow github [on_request] create_pr` on a terminal offers to also allow `comment` and `edit` in `always`; declined, or without a terminal, it prints the two commands, and `yolo check` repeats the pairing hint while `create_pr` is held with no work kind | 2026-10-30 | [§5](#5-two-layers-ceiling-asks-and-the-narrowing) | — |
 | <a id="GW-D10"></a>GW-D10 | A timed grant (`--for`) covers the request's kind on its resource and no other kind | 2026-10-30 | [§6.1](#61-what-covers-a-write-in-order) | — |
 | <a id="GW-D11"></a>GW-D11 | An issue's working-set entry never covers `approve` or `merge` | 2026-10-30 | [§6.2](#62-what-a-humans-add-covers) | — |
 | <a id="GW-D12"></a>GW-D12 | `yolo request github <kind> --ask [--local]` writes the narrowing; `yolo config set requests.github.<kind> ask` is the same edit, and advice names the former | 2026-10-30 | [§8](#8-every-stop-names-its-next-step) | — |
 | <a id="GW-D13"></a>GW-D13 | A covered write is audited `held: <kind>` with the covering entry's id; the launch disclosure names the kinds that run and the kinds that ask | 2026-10-30 | [§8](#8-every-stop-names-its-next-step) | — |
 | <a id="GW-D14"></a>GW-D14 | **Maintainer's ask:** *"I want you to improve the broker so dispatch is possible. then we'll modify my config to allow it, relaunch, and have you dispatch it."* A user grant kind `dispatch-workflow` names a repository and a `workflow`, one workflow file name (`nightly-macos.yml`) or `*` for every workflow; a grant without one is refused at config load. Readable spelling: `allow.github.on_request = ["dispatch_workflows"]`, `requests.github.dispatch_workflows = ["<file>"]`. It covers only `gh workflow run <file>` and `gh api` POST `repos/{o}/{r}/actions/workflows/{file}/dispatches`, with no query or fragment on the endpoint, no `--input`, and exactly one field rooted at `ref` (a key cut at `[` or `]`, as gh reads it), which must be `ref` itself; a workflow named by id or display name, `run rerun`, `run cancel` and `workflow enable`/`disable` ask as before. It covers a run on the repository's **default branch** only: `--ref` omitted, the default branch's name, or `refs/heads/<name>`, read by the broker's own `gh api repos/{o}/{r}`. A covered run is sent pinned to the full ref: the argv that runs carries `--ref=refs/heads/<default>`, or `ref=refs/heads/<default>` for `gh api`, so what runs is exactly the branch checked, and neither gh's own default-branch lookup nor a tag of the same name can change it (review fix, 2026-10-31, replacing a tag-shadow read). The reason: a dispatch runs the workflow file as it is on the ref, with the repository's secrets, and a jail able to push a branch could push a changed workflow and dispatch it there. Any other ref asks (Allow once or a timed grant). Inputs pass through unchanged. A covered run is authorized under the store's transaction lock with the grant re-read and audited under the set `dispatch-workflow`, as a `create-pr` creation is. Residual: the default-branch read happens just before the transaction, not inside it (a default branch renamed in between still runs the branch read), and a workspace that may push the default branch itself (a `branch` grant on it) can change the workflow it then dispatches | 2026-10-31 | [§10](#10-what-this-does-not-cover) | built |
 | <a id="GW-D15"></a>GW-D15 | **Maintainer's ask:** approve the workflow runs GitHub holds at `action_required` (the weekly `flake.lock` bump PR that `github-actions[bot]` opens from a branch of the same repository) from the jail without a per-call host approval. A user grant kind `approve-run`, modeled on `dispatch-workflow` ([GW-D14](#GW-D14)), names a repository and an `actor`: a GitHub login (letters, digits and hyphens, not starting with a hyphen, at most 39 characters, optionally followed by `[bot]`) or `*` for every actor; a grant without one is refused at config load. Readable spelling: `allow.github.on_request = ["approve_runs"]`, `requests.github.approve_runs = ["<login>"]`; `yolo request github approve_runs <login>` writes it. It covers exactly `gh api` with a stated `-X POST` (or `--method POST`) of `repos/{o}/{r}/actions/runs/{id}/approve`: a numeric id, no query or fragment, no field and no `--input`. Before running it, the broker reads `repos/{o}/{r}/actions/runs/{id}` through the host gh and covers the approval only when `triggering_actor.login` matches a grant's actor (case-insensitively, or `*`) **and** `head_repository.full_name` is the repository itself (case-insensitively). A fork's run is never covered, whatever the actor: approving it runs code from outside the repository. A failed or unreadable read, an answer naming another run, a fork head or an actor no grant names asks, with a stderr line saying which; the pending request names `yolo request github approve_runs <actor>` then `yolo config apply`. Re-running, cancelling and `pending_deployments` approvals ask as before. A covered approval is authorized under the store's transaction lock with the grant re-read for the actor the broker read, and audited under the set `approve-run`. Residual: the run read happens just before the transaction, not inside it | 2026-11-02 | [§10](#10-what-this-does-not-cover) | built |
+| <a id="OQ-GW1"></a>[OQ-GW1](#OQ-GW1) | **Ruled A:** four work kinds, `comment`, `edit`, `approve`, `merge`, as tabled in [§4.1](#41-the-table) | 2026-11-02 | [§4.1](#41-the-table) | — |
+| <a id="OQ-GW3"></a>[OQ-GW3](#OQ-GW3) | **Ruled B:** `create_pr` and `create_issue` carry `comment` and `edit` on what they create; a project narrows with `"ask"`. Owner: *"agents should be able to comment on edit on PRs they create. We can just specify that as part of create PR. I don't think it's really making one thing mean two things."* | 2026-11-02 | [§6.3](#63-what-the-agents-own-creation-covers) | — |
+| <a id="OQ-GW4"></a>[OQ-GW4](#OQ-GW4) | **Ruled A:** the narrowing is `"ask"` in `requests.github`, written by `yolo request github <kind> --ask`; `true` requests the kind, absent leaves it to the user | 2026-11-02 | [§5](#5-two-layers-ceiling-asks-and-the-narrowing) | — |
+| <a id="OQ-GW5"></a>[OQ-GW5](#OQ-GW5) | **Ruled B:** an approval or a ready on a PR with armed auto-merge is classified by its argv and is not a merge; the `approve` gate line states that an approval can complete an armed auto-merge. Owner: *"it's less surprising really"* | 2026-11-02 | [§4.2](#42-an-armed-auto-merge-an-approval-stays-an-approval) | — |
+| <a id="OQ-GW6"></a>[OQ-GW6](#OQ-GW6) | **Ruled A:** the user's `always` may hold a work kind; each workspace's gate still shows it, and a project narrows with `"ask"` | 2026-11-02 | [§5](#5-two-layers-ceiling-asks-and-the-narrowing) | — |
