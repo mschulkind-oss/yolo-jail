@@ -151,7 +151,19 @@ func validateReadablePortList(value any, field string) []string {
 			continue
 		}
 		for _, key := range port.Keys() {
-			if key != first && key != second {
+			switch {
+			case key == first || key == second:
+			case field == "ports" && key == "address":
+				// Any text podman takes before the host port, as the legacy entry's (RC-D53).
+				text, ok := mapValueString(port, key)
+				if !ok || strings.ContainsAny(text, ":/") {
+					errors = append(errors, entryPath+".address: expected an address string like '127.0.0.1', with no ':' or '/'")
+				}
+			case field == "ports" && key == "protocol":
+				if text, _ := mapValueString(port, key); text != "tcp" && text != "udp" {
+					errors = append(errors, entryPath+".protocol: expected 'tcp' or 'udp'")
+				}
+			default:
 				errors = append(errors, entryPath+"."+key+": unknown key")
 			}
 		}
@@ -346,4 +358,10 @@ func withoutOffEntries(value any) any {
 		out.Set(key, entry)
 	}
 	return out
+}
+
+func mapValueString(m *jsonx.OrderedMap, key string) (string, bool) {
+	value, _ := m.Get(key)
+	text, ok := value.(string)
+	return text, ok
 }

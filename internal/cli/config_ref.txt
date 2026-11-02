@@ -58,6 +58,8 @@
     packages            -> [install] nix = [...]       mise_tools -> [install] mise = {...}
     gpu, resources      -> [machine.gpu], [machine.resources]
     network.ports       -> machine.ports               network.forward_host_ports -> machine.forward
+                           "IP:HOST:JAIL/udp" -> { host = HOST, jail = JAIL,
+                           address = "IP", protocol = "udp" }
     env_sources         -> [env] sources, entry for entry (an inline object
                            as { set = {...}, unset = [...] }); a null -> sources = []
     brokered.*          -> [allow.<source>] (your ceiling) and [requests.<source>]
@@ -1748,6 +1750,11 @@
     Format: "HOST:JAIL" — host side first, podman's -p order.
       Also accepted: "IP:HOST:JAIL", and a "/tcp" or "/udp" suffix.
     Example: ["8000:8000", "3000:3000"]
+    In TOML: [machine] ports = [{ host = 8000, jail = 8000 }], and the other
+      two forms as the optional `address` (the IP: any text with no ':' or
+      '/') and `protocol` ("tcp" or "udp") of an entry:
+      { host = 9000, jail = 90, address = "127.0.0.1", protocol = "udp" }
+      is the same -p as "127.0.0.1:9000:90/udp".
       → a dev server on the jail's 0.0.0.0:3000 is at localhost:3000 ON THE HOST.
     A server bound to 127.0.0.1 inside the jail is NOT publishable — bind
     0.0.0.0 in here, which is safe: the published port is the only way in.

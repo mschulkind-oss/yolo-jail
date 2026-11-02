@@ -4,6 +4,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -131,27 +132,50 @@ func TestMixedFormatNullsCrossInTheirTOMLRemovalSpelling(t *testing.T) {
 	}
 }
 
-// A null with no TOML removal spelling yet (RC-D50's open gaps) cannot cross in either format
-// under a TOML user config with packs. The refusal names both sides, the legacy file's own line,
-// and `yolo config migrate`, which converts that file where it can and names what it cannot.
-func TestMixedFormatGapNamesTheLegacySettingAndMigrate(t *testing.T) {
+// RC-D53: a legacy port bound to an address or a protocol, under a TOML user config with packs,
+// crosses in the nested scope as TOML machine.ports tables that render the host's -p text. It was
+// refused before, since neither format could carry it.
+func TestMixedFormatAddressBoundPortsCrossAsTOML(t *testing.T) {
 	_, wsState := inheritHome(t, "")
 	o := inheritOptions(t)
 	if err := os.WriteFile(filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail", "config.toml"), []byte("packs = ['claude']\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	wsFile := filepath.Join(o.Workspace, "yolo-jail.jsonc")
-	if err := os.WriteFile(wsFile, []byte(`{"network": {"ports": ["127.0.0.1:8080:80"]}}`+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(wsFile, []byte(`{"network": {"ports": ["127.0.0.1:8080:80", "5353:53/udp"]}}`+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, err := o.userConfigMountArgsForHome("podman", wsState, nil)
-	if err == nil {
-		t.Fatal("a port bound to an address crossed with no TOML spelling")
+	effective, _, err := o.effectiveConfigForInherit()
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, want := range []string{"config.packs[0]", "config.network.ports", wsFile + ":1:", "yolo config migrate", "cannot yet write in TOML"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("the refusal does not name %q: %v", want, err)
-		}
+	want := readablePublishPorts(effective)
+	if !slices.Equal(want, []any{"127.0.0.1:8080:80", "5353:53/udp"}) {
+		t.Fatalf("the fixture publishes %v", want)
+	}
+	args, err := o.userConfigMountArgsForHome("podman", wsState, nil)
+	if err != nil {
+		t.Fatalf("the launch refused a legacy address-bound port under a TOML user config: %v", err)
+	}
+	body, source, ok := mountedBody(t, args, "/home/agent/.config/yolo-jail/inherited-launch.toml")
+	if !ok || filepath.Ext(source) != ".toml" {
+		t.Fatalf("the nested scope was not delivered as TOML; argv=%v", args)
+	}
+	// Read as the reader reads a TOML user config (numbers normalized), under a home of its own.
+	reread := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(reread, ".config", "yolo-jail"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(reread, ".config", "yolo-jail", "config.toml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", reread)
+	delivered, err := config.LoadReadableUserScopeConfig(true, nil)
+	if err != nil {
+		t.Fatalf("the delivered nested scope does not read: %v\n%s", err, body)
+	}
+	if got := readablePublishPorts(delivered); !slices.Equal(got, want) {
+		t.Errorf("the jail publishes %v, the host %v:\n%s", got, want, body)
 	}
 }
 

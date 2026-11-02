@@ -201,8 +201,10 @@ func TestReadablePublishPortsRetainResidualLegacyAddressBoundEntries(t *testing.
 			t.Errorf("mixed readable+residual legacy launch lacks %q: %v", want, argv)
 		}
 	}
-	if got := argvValues(argv, "-p"); !slices.Equal(got, []string{"8000:80", "127.0.0.1:9000:90"}) {
-		t.Errorf("canonical and residual legacy publish entries = %#v, want one of each without duplication", got)
+	// The user's address-bound entry is lowered to machine.ports now (RC-D53), so it publishes in
+	// layer order, the user's first, as the same two entries in TOML would.
+	if got := argvValues(argv, "-p"); !slices.Equal(got, []string{"127.0.0.1:9000:90", "8000:80"}) {
+		t.Errorf("user legacy and project TOML publish entries = %#v, want one of each, in layer order", got)
 	}
 }
 
@@ -256,5 +258,63 @@ func TestReadableMachinePresenceWinsLegacyAndDefaultsStayTyped(t *testing.T) {
 	}
 	if got := config.Resources(nil); got != nil {
 		t.Fatalf("absent machine.resources = %#v, want nil", got)
+	}
+}
+
+// RC-D53: a legacy network.ports entry bound to an address or a protocol and its TOML spelling,
+// machine.ports' `address` and `protocol`, assemble the same -p arguments and the same published
+// ports, in a legacy file, in a TOML one, and with a TOML layer under a legacy one. Fails if the
+// launch stops rendering the two fields (config.PublishPortSpec in readablePublishPorts).
+func TestAddressAndProtocolPortsRenderTheSameInEitherSpelling(t *testing.T) {
+	const legacy = `{"network":{"ports":["127.0.0.1:9000:90","5353:53/udp","0.0.0.0:8443:443/tcp"]}}`
+	const toml = "[[machine.ports]]\nhost = 9000\njail = 90\naddress = '127.0.0.1'\n" +
+		"[[machine.ports]]\nhost = 5353\njail = 53\nprotocol = 'udp'\n" +
+		"[[machine.ports]]\nhost = 8443\njail = 443\naddress = '0.0.0.0'\nprotocol = 'tcp'\n"
+	wantP := []string{"127.0.0.1:9000:90", "5353:53/udp", "0.0.0.0:8443:443/tcp"}
+	for _, tc := range []struct {
+		name, user, userName, project, projectName string
+		wantP                                      []string
+	}{
+		{"legacy", "", "", legacy, paths.WorkspaceConfigLegacyJSONCName, wantP},
+		{"TOML", "", "", toml, paths.WorkspaceConfigTOMLName, wantP},
+		{"a legacy project over a TOML user config", "[[machine.ports]]\nhost = 7000\njail = 70\naddress = '127.0.0.1'\n", paths.UserConfigTOMLName,
+			legacy, paths.WorkspaceConfigLegacyJSONCName, append([]string{"127.0.0.1:7000:70"}, wantP...)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			o, _, _ := amdHostOptions(t, map[string]string{"/etc/cdi/amd.json": amdSpecJSON})
+			if tc.user != "" {
+				userDir := filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail")
+				if err := os.MkdirAll(userDir, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(userDir, tc.userName), []byte(tc.user), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			workspace := t.TempDir()
+			if err := os.WriteFile(filepath.Join(workspace, tc.projectName), []byte(tc.project), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := config.LoadReadableConfig(workspace, true, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if errs, _ := config.ValidateConfig(cfg, workspace, nil); len(errs) > 0 {
+				t.Fatalf("the config does not launch: %v", errs)
+			}
+			in := gpuInput(t, "amd")
+			in.cfg = cfg
+			argv := o.assembleRunCmd(in)
+			if got := argvValues(argv, "-p"); !slices.Equal(got, tc.wantP) {
+				t.Errorf("-p = %q, want %q", got, tc.wantP)
+			}
+			published := `YOLO_PUBLISHED_PORTS=["90/tcp", "53/udp", "443/tcp"]`
+			if tc.user != "" {
+				published = `YOLO_PUBLISHED_PORTS=["70/tcp", "90/tcp", "53/udp", "443/tcp"]`
+			}
+			if !slices.Contains(argv, published) {
+				t.Errorf("argv lacks %s: %v", published, argv)
+			}
+		})
 	}
 }

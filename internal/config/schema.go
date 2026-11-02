@@ -195,6 +195,10 @@ func ReadableSchemaKeys() []SchemaKey {
 		{Path: "machine.ports.*", Scope: both, Type: SchemaTypeObject},
 		{Path: "machine.ports.*.host", Scope: both, Type: SchemaTypeNumber},
 		{Path: "machine.ports.*.jail", Scope: both, Type: SchemaTypeNumber},
+		// The interface a port binds on the host and its protocol, a legacy entry's
+		// `address:host:jail/protocol` (RC-D53).
+		{Path: "machine.ports.*.address", Scope: both, Type: SchemaTypeString},
+		{Path: "machine.ports.*.protocol", Scope: both, Type: SchemaTypeString},
 		{Path: "machine.forward", Scope: both, Type: SchemaTypeList},
 		{Path: "machine.forward.*", Scope: both, Type: SchemaTypeObject},
 		{Path: "machine.forward.*.host", Scope: both, Type: SchemaTypeNumber},

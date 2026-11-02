@@ -1175,14 +1175,29 @@ func TestStandardWorkspaceReaderProjectsRepresentableLegacyPorts(t *testing.T) {
 		t.Fatalf("normalized legacy port source locations missing: %#v", sources)
 	}
 
-	write(t, filepath.Join(workspace, paths.WorkspaceConfigLegacyJSONCName), `{"network":{"ports":["127.0.0.1:8000:80"]}}`)
+	// An address-bound or protocol entry is representable too (RC-D53): it reads as a table
+	// that renders the same -p text.
+	write(t, filepath.Join(workspace, paths.WorkspaceConfigLegacyJSONCName), `{"network":{"ports":["127.0.0.1:8000:80", "9000:9000/udp", "0.0.0.0:53:53/udp"]}}`)
 	legacyAddressBound, err := LoadWorkspaceConfig(workspace, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacyNetwork, _ := asMap(mustValue(t, legacyAddressBound, "network"))
-	if ports, _ := legacyNetwork.Get("ports"); !reflect.DeepEqual(ports, []any{"127.0.0.1:8000:80"}) {
-		t.Fatalf("unrepresentable address-bound port was rewritten: %#v", ports)
+	if _, exists := legacyAddressBound.Get("network"); exists {
+		t.Fatalf("an address-bound legacy port stayed in the legacy vocabulary: %#v", legacyAddressBound)
+	}
+	boundMachine, _ := asMap(mustValue(t, legacyAddressBound, "machine"))
+	boundPorts, _ := asList(mustValue(t, boundMachine, "ports"))
+	var specs []string
+	for _, entry := range boundPorts {
+		table, _ := asMap(entry)
+		spec, ok := PublishPortSpec(table)
+		if !ok {
+			t.Fatalf("a lowered port does not render: %#v", entry)
+		}
+		specs = append(specs, spec)
+	}
+	if want := []string{"127.0.0.1:8000:80", "9000:9000/udp", "0.0.0.0:53:53/udp"}; !reflect.DeepEqual(specs, want) {
+		t.Fatalf("the lowered ports render %q, want the legacy entries %q", specs, want)
 	}
 }
 

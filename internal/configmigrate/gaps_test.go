@@ -227,3 +227,46 @@ func TestMigrationKeepsEveryLegacyNullRead(t *testing.T) {
 		}
 	}
 }
+
+// RC-D53: a legacy network.ports entry bound to an address or a protocol lowers to machine.ports'
+// `address` and `protocol`, and renders the same -p text, in every piecemeal stage; `yolo config
+// migrate` converts it (it was "not converted" before) to a TOML config that reads the same.
+// Fails if the shared lowering (config.LowerLegacyPublishPorts) loses either field, or if migrate
+// stops using it.
+func TestMigrationKeepsEveryLegacyPortRead(t *testing.T) {
+	specs := func(cfg *jsonx.OrderedMap) string {
+		machine, _ := cfg.Get("machine")
+		m, _ := machine.(*jsonx.OrderedMap)
+		var out []string
+		if m != nil {
+			ports, _ := m.Get("ports")
+			list, _ := ports.([]any)
+			for _, entry := range list {
+				table, _ := entry.(*jsonx.OrderedMap)
+				spec, ok := config.PublishPortSpec(table)
+				if !ok {
+					return "unrenderable"
+				}
+				out = append(out, spec)
+			}
+		}
+		return strings.Join(out, ",")
+	}
+	const legacyPorts = `{"network": {"ports": ["127.0.0.1:9000:90", "5353:53/udp", "0.0.0.0:8443:443/tcp"]}}`
+	for _, mix := range []gapMix{
+		{"user legacy, workspace TOML", map[string]string{
+			"config.jsonc":      legacyPorts,
+			"ws/yolo-jail.toml": "[[machine.ports]]\nhost = 8000\njail = 80\n",
+		}, "", "127.0.0.1:9000:90,5353:53/udp,0.0.0.0:8443:443/tcp,8000:80"},
+		{"user TOML, workspace legacy", map[string]string{
+			"config.toml":        "[[machine.ports]]\nhost = 8000\njail = 80\n",
+			"ws/yolo-jail.jsonc": legacyPorts,
+		}, "", "8000:80,127.0.0.1:9000:90,5353:53/udp,0.0.0.0:8443:443/tcp"},
+		{"both legacy", map[string]string{
+			"config.jsonc":       `{"network": {"ports": ["8000:80"]}}`,
+			"ws/yolo-jail.jsonc": legacyPorts,
+		}, "", "8000:80,127.0.0.1:9000:90,5353:53/udp,0.0.0.0:8443:443/tcp"},
+	} {
+		t.Run(mix.name, func(t *testing.T) { assertMigrationKeepsRead(t, mix, mix.want, specs) })
+	}
+}
