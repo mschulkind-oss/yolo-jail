@@ -90,6 +90,26 @@ legacy_values = "visible"
 		t.Fatalf("Grants = %+v\nwant     %+v", m.Grants, wantValued)
 	}
 
+	// A legacy list's default rides with it (serial's five device globs, plan F4).
+	m, err = loadGrantProbe(t, grantProbe+`
+[[grants]]
+kind = "devices"
+text = "open"
+valued = true
+value_noun = "device globs"
+legacy_enable = true
+legacy_values = "allowed_devices"
+legacy_default_values = ["/dev/ttyUSB*", "/dev/ttyACM*"]
+`)
+	if err != nil {
+		t.Fatalf("LoadDir (legacy defaults): %v", err)
+	}
+	wantDefaults := []loopholedecl.Grant{{Kind: "devices", Text: "open", Valued: true, ValueNoun: "device globs",
+		LegacyEnable: true, LegacyValues: "allowed_devices", LegacyDefaultValues: []string{"/dev/ttyUSB*", "/dev/ttyACM*"}}}
+	if !reflect.DeepEqual(m.Grants, wantDefaults) {
+		t.Fatalf("Grants = %+v\nwant     %+v", m.Grants, wantDefaults)
+	}
+
 	// A manifest that declares none is ungated: no grants, no access.
 	m, err = loadGrantProbe(t, strings.Replace(grantProbe, "access = \"read the host's journal\"\n", "", 1))
 	if err != nil {
@@ -203,13 +223,16 @@ text = "read your user journal"
 func TestGrantDeclarationShapeIsRefused(t *testing.T) {
 	grant := func(lines string) string { return grantProbe + "\n[[grants]]\n" + lines }
 	for name, c := range map[string]struct{ body, want string }{
-		"no kind":                 {grant(`text = "t"`), "kind"},
-		"bad kind":                {grant("kind = \"Read All\"\ntext = \"t\""), "kind"},
-		"no text":                 {grant(`kind = "read"`), "text"},
-		"unknown key":             {grant("kind = \"read\"\ntext = \"t\"\nvalue = true"), "grants[0].value"},
-		"noun on unvalued":        {grant("kind = \"read\"\ntext = \"t\"\nvalue_noun = \"x\""), "value_noun"},
-		"legacy list on unvalued": {grant("kind = \"read\"\ntext = \"t\"\nlegacy_values = \"x\""), "legacy_values"},
-		"valued not a bool":       {grant("kind = \"read\"\ntext = \"t\"\nvalued = \"true\""), "valued"},
+		"no kind":                               {grant(`text = "t"`), "kind"},
+		"bad kind":                              {grant("kind = \"Read All\"\ntext = \"t\""), "kind"},
+		"no text":                               {grant(`kind = "read"`), "text"},
+		"unknown key":                           {grant("kind = \"read\"\ntext = \"t\"\nvalue = true"), "grants[0].value"},
+		"noun on unvalued":                      {grant("kind = \"read\"\ntext = \"t\"\nvalue_noun = \"x\""), "value_noun"},
+		"legacy list on unvalued":               {grant("kind = \"read\"\ntext = \"t\"\nlegacy_values = \"x\""), "legacy_values"},
+		"valued not a bool":                     {grant("kind = \"read\"\ntext = \"t\"\nvalued = \"true\""), "valued"},
+		"legacy defaults without a legacy list": {grant("kind = \"d\"\ntext = \"t\"\nvalued = true\nlegacy_default_values = [\"/dev/x\"]"), "legacy_default_values"},
+		"legacy defaults not a list":            {grant("kind = \"d\"\ntext = \"t\"\nvalued = true\nlegacy_values = \"a\"\nlegacy_default_values = \"/dev/x\""), "legacy_default_values"},
+		"legacy defaults empty":                 {grant("kind = \"d\"\ntext = \"t\"\nvalued = true\nlegacy_values = \"a\"\nlegacy_default_values = []"), "legacy_default_values"},
 		"grants without access": {strings.Replace(grantProbe, "access = \"read the host's journal\"\n", "", 1) +
 			"\n[[grants]]\nkind = \"read\"\ntext = \"t\"\n", "access"},
 		"access without grants": {grantProbe, "access"},

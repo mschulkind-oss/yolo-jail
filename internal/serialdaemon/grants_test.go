@@ -1,11 +1,13 @@
 package serialdaemon
 
 // grants_test.go pins the serial daemon's half of the loophole grants
-// (docs/design/loophole-access-approval.md §4.6, §5; plan T9): the daemon reads only its grant
-// file, `list` and every open see only the granted device globs, there are no default globs
-// once a grant block is present, and a refusal is loopholegrant's text on stderr with exit 64.
+// (docs/design/loophole-access-approval.md §4.6, §5; plan T9, F4): the daemon reads only its
+// grant file, re-reading its block at each request, `list` and every open see only the granted
+// device globs, there are no default globs, a file with no block grants nothing, and a refusal is
+// loopholegrant's text on stderr with exit 64.
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"os"
@@ -58,6 +60,18 @@ func ask(t *testing.T, cfg Settings, req map[string]any) session {
 	t.Helper()
 	ep, stop := startTestDaemon(t, cfg)
 	defer stop()
+	return askAt(t, ep, req)
+}
+
+// granted is a daemon config whose grant file grants globs and nothing else.
+func granted(t *testing.T, globs ...string) Settings {
+	t.Helper()
+	return LoadSettings(grantFile(t, "", loopholegrant.Granted, globs...))
+}
+
+// askAt sends one request to the running daemon at ep and returns what it answered.
+func askAt(t *testing.T, ep string, req map[string]any) session {
+	t.Helper()
 	conn, err := svcendpoint.Dial(ep, 5*time.Second)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
@@ -139,11 +153,7 @@ func TestListSeesOnlyTheGrantedGlobs(t *testing.T) {
 		t.Errorf("list granting /dev/null: exit %d, stdout %q, want %q", got.exit, got.stdout, want)
 	}
 
-	cfg := LoadSettings(grantFile(t, legacy, loopholegrant.Granted))
-	if len(cfg.AllowedDevices) != 0 {
-		t.Errorf("a granted kind with no values allows %v, want nothing", cfg.AllowedDevices)
-	}
-	got = ask(t, cfg, map[string]any{"mode": "list", "format": "json"})
+	got = ask(t, LoadSettings(grantFile(t, legacy, loopholegrant.Granted)), map[string]any{"mode": "list", "format": "json"})
 	if want := `{"devices": []}` + "\n"; got.exit != 0 || got.stdout != want {
 		t.Errorf("list granting no globs: exit %d, stdout %q, want %q", got.exit, got.stdout, want)
 	}
@@ -218,16 +228,106 @@ func TestEveryUngrantedStandingRefuses(t *testing.T) {
 	}
 }
 
-// TestASettingsFileWithoutGrantsKeepsTodaysAllowlist: plan PD-12. Until serial's flip, a file
-// with no `grants` key is read as before, `allowed_devices` and its defaults included.
-func TestASettingsFileWithoutGrantsKeepsTodaysAllowlist(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "settings.json")
-	if err := os.WriteFile(path, []byte(`{"allowed_devices":["/dev/null"]}`), 0o600); err != nil {
+// TestTheRefusalSpeaksTheGrantFilesWords: the launch writes the manifest's `access` and
+// `value_noun` into the grant file, and the refusal prints those, not the daemon's fallback.
+func TestTheRefusalSpeaksTheGrantFilesWords(t *testing.T) {
+	isolateConfig(t)
+	data, err := loopholegrant.Merge(nil, loopholegrant.Block{
+		Pack: "serial", Workspace: "/home/u/proj", Access: "drive the bench rig",
+		Kinds: map[string]loopholegrant.Kind{"devices": {Standing: loopholegrant.Requestable, ValueNoun: "rig ports"}},
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
-	got := ask(t, LoadSettings(path), map[string]any{"mode": "read", "device": "/dev/zero"})
-	if got.exit != 2 || !strings.Contains(got.stderr, "not in the allowed_devices list") {
-		t.Errorf("legacy refusal: exit %d, stderr %q", got.exit, got.stderr)
+	path := filepath.Join(t.TempDir(), "settings")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	want := loopholegrant.Refusal{
+		Client: "yolo-serial", Pack: "serial", Access: "drive the bench rig", Kind: "devices",
+		ValueNoun: "rig ports", Dir: "/home/u/proj", Standing: loopholegrant.Requestable,
+	}.Text()
+	if got := ask(t, LoadSettings(path), map[string]any{"mode": "list"}); got.exit != 64 || got.stderr != want {
+		t.Errorf("exit %d, stderr:\n%s\nwant 64 and:\n%s", got.exit, got.stderr, want)
+	}
+}
+
+// TestWithoutAGrantBlockEveryRequestFailsClosed: plan PD-12, serial's flip (F4). A settings file
+// with no `grants` key, even one an older launch wrote with `allowed_devices` naming the device,
+// no file at all, and no --settings grant nothing: there are no default globs any more, and every
+// mode is refused with the not_allowed text, exit 64, before any device is listed or opened.
+func TestWithoutAGrantBlockEveryRequestFailsClosed(t *testing.T) {
+	isolateConfig(t)
+	legacy := filepath.Join(t.TempDir(), "settings.json")
+	if err := os.WriteFile(legacy, []byte(`{"allowed_devices":["/dev/null"],"default_baud":9600}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	want := loopholegrant.Refusal{
+		Client: "yolo-serial", Pack: "serial", Access: "open host serial devices", Kind: "devices",
+		ValueNoun: "device globs", Standing: loopholegrant.NotAllowed,
+	}.Text()
+	for name, path := range map[string]string{
+		"no grants key": legacy,
+		"no file":       filepath.Join(t.TempDir(), "absent"),
+		"no --settings": "",
+	} {
+		for _, req := range []map[string]any{
+			{"mode": "list", "format": "json"},
+			{"mode": "read", "device": "/dev/null"},
+			{"mode": "write", "device": "/dev/null", "data": "x"},
+			{"mode": "monitor", "device": "/dev/null"},
+		} {
+			got := ask(t, LoadSettings(path), req)
+			if got.exit != 64 || got.stderr != want || got.stdout != "" {
+				t.Errorf("%s, %v: exit %d, stdout %q, stderr:\n%s\nwant exit 64 and:\n%s",
+					name, req, got.exit, got.stdout, got.stderr, want)
+			}
+		}
+	}
+	if got := LoadSettings(legacy).DefaultBaud; got != 9600 {
+		t.Errorf("DefaultBaud = %d, want the file's 9600: the settings still read without a block", got)
+	}
+}
+
+// TestTheGrantIsReReadAtEachRequest: `yolo config apply` rewrites a running jail's grant file
+// and says the change is applied now (plan T11), so one running daemon honors each rewrite at its
+// next request, with no restart: requestable refuses, granted serves the granted globs only, and a
+// grant taken back refuses again.
+func TestTheGrantIsReReadAtEachRequest(t *testing.T) {
+	isolateConfig(t)
+	path := grantFile(t, `{"default_baud":9600}`, loopholegrant.Requestable)
+	_, identity, err := loopholegrant.Read(path)
+	if err != nil || identity == nil {
+		t.Fatalf("grant file: %+v, %v", identity, err)
+	}
+	ep, stop := startTestDaemon(t, LoadSettings(path))
+	defer stop()
+	rewrite := func(standing loopholegrant.Standing, values ...string) {
+		t.Helper()
+		next := *identity
+		next.Kinds = map[string]loopholegrant.Kind{"devices": {Standing: standing, Values: values, Text: "open"}}
+		if err := loopholegrant.Replace(context.Background(), path, *identity, next); err != nil {
+			t.Fatal(err)
+		}
+	}
+	list := map[string]any{"mode": "list", "format": "json"}
+
+	if got := askAt(t, ep, list); got.exit != 64 || got.stderr != requestableText() {
+		t.Fatalf("before the grant: exit %d, stderr %q, want 64 and the requestable text", got.exit, got.stderr)
+	}
+
+	rewrite(loopholegrant.Granted, "/dev/null")
+	if got, want := askAt(t, ep, list), `{"devices": [{"path": "/dev/null", "accessible": true}]}`+"\n"; got.exit != 0 || got.stdout != want {
+		t.Fatalf("after the grant was applied: exit %d, stdout %q, stderr %q; want %q", got.exit, got.stdout, got.stderr, want)
+	}
+	if got := askAt(t, ep, map[string]any{"mode": "read", "device": "/dev/zero"}); got.exit != 64 ||
+		!strings.Contains(got.stderr, "/dev/zero") {
+		t.Fatalf("a device outside the applied grant: exit %d, stderr %q", got.exit, got.stderr)
+	}
+
+	rewrite(loopholegrant.NotAllowed)
+	if got := askAt(t, ep, list); got.exit != 64 || got.stdout != "" {
+		t.Fatalf("after the grant was taken back: exit %d, stdout %q, stderr %q", got.exit, got.stdout, got.stderr)
 	}
 }
 

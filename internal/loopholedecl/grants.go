@@ -46,6 +46,13 @@ type Grant struct {
 	// LegacyValues is the legacy setting whose list becomes this kind's values ("visible").
 	// Valued kinds only.
 	LegacyValues string
+	// LegacyDefaultValues is the list the legacy setting named by LegacyValues defaulted to: a
+	// legacy config that switched the loophole on and wrote no list ran on these values, so the
+	// legacy projection reads them as the request's values in that case (serial's five device
+	// globs). Declared here, beside LegacyValues, rather than kept as a list in the projection,
+	// because the manifest that retired the setting is the one place that knew its default.
+	// Valued kinds with LegacyValues only.
+	LegacyDefaultValues []string
 }
 
 const (
@@ -58,11 +65,12 @@ const (
 	keyLegacyEnable         = "legacy_enable"
 	keyLegacySetting        = "legacy_setting"
 	keyLegacyValues         = "legacy_values"
+	keyLegacyDefaultValues  = "legacy_default_values"
 )
 
 // grantKeys is one `[[grants]]` entry's census.
 var grantKeys = []string{keyKind, keyText, keyValued, keyRequestableByDefault, keyValueNoun,
-	keyLegacyEnable, keyLegacySetting, keyLegacyValues}
+	keyLegacyEnable, keyLegacySetting, keyLegacyValues, keyLegacyDefaultValues}
 
 // loopholeGrantKindRE spells a loophole grant kind. Snake case rather than ValidGrantKind's
 // hyphens, because the kind is a key of `[requests.<pack>]` and a value of the readable config's
@@ -154,6 +162,23 @@ func parseGrants(manifestPath string, raw any) ([]Grant, error) {
 					manifestPath, at, f[0], f[1])
 			}
 		}
+		if v, ok := m.Get(keyLegacyDefaultValues); ok {
+			list, isList := v.([]any)
+			if !isList || len(list) == 0 {
+				return nil, Errorf("%s: %s.%s must be a non-empty list of strings, the values the legacy "+
+					"setting defaulted to", manifestPath, at, keyLegacyDefaultValues)
+			}
+			for j, e := range list {
+				s, isStr := e.(string)
+				if !isStr || s == "" {
+					return nil, Errorf("%s: %s.%s[%d] must be a non-empty string", manifestPath, at, keyLegacyDefaultValues, j)
+				}
+				if err := refuseControlChars(manifestPath, fmt.Sprintf("%s.%s[%d]", at, keyLegacyDefaultValues, j), s); err != nil {
+					return nil, err
+				}
+				g.LegacyDefaultValues = append(g.LegacyDefaultValues, s)
+			}
+		}
 		if g.Valued && g.RequestableByDefault {
 			return nil, Errorf("%s: %s is valued, so it cannot be requestable_by_default: its values are "+
 				"the project's to name, and there is no default value for the ceiling to offer; drop "+
@@ -166,6 +191,10 @@ func parseGrants(manifestPath string, raw any) ([]Grant, error) {
 		if !g.Valued && g.LegacyValues != "" {
 			return nil, Errorf("%s: %s sets legacy_values but is not valued; a legacy list becomes a "+
 				"valued kind's values, so set valued = true or drop it", manifestPath, at)
+		}
+		if len(g.LegacyDefaultValues) > 0 && g.LegacyValues == "" {
+			return nil, Errorf("%s: %s sets legacy_default_values but no legacy_values; the defaults "+
+				"are the legacy setting's, so name that setting in legacy_values or drop them", manifestPath, at)
 		}
 		if g.LegacyEnable {
 			if legacyEnable != "" {

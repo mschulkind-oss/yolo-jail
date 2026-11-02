@@ -3,49 +3,33 @@ package serialdaemon
 import (
 	"os"
 	"path/filepath"
-	"reflect"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholegrant"
 )
 
-func TestDefaultSettings(t *testing.T) {
-	s := DefaultSettings()
-	if len(s.AllowedDevices) == 0 {
-		t.Fatal("DefaultSettings returned empty AllowedDevices")
-	}
-	if s.DefaultBaud != 115200 {
-		t.Errorf("DefaultBaud = %d, want 115200", s.DefaultBaud)
-	}
-}
-
+// TestLoadSettings: `default_baud` comes from the grant file's settings, read once at startup.
 func TestLoadSettings(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "settings.json")
-	content := []byte(`{
-		"allowed_devices": ["/dev/ttyUSB0", "/dev/ttyACM*"],
-		"default_baud": 9600
-	}`)
-	if err := os.WriteFile(path, content, 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg := LoadSettings(path)
-	wantDevices := []string{"/dev/ttyUSB0", "/dev/ttyACM*"}
-	if !reflect.DeepEqual(cfg.AllowedDevices, wantDevices) {
-		t.Errorf("AllowedDevices = %v, want %v", cfg.AllowedDevices, wantDevices)
-	}
+	cfg := LoadSettings(grantFile(t, `{"default_baud": 9600}`, loopholegrant.Granted, "/dev/ttyUSB0"))
 	if cfg.DefaultBaud != 9600 {
 		t.Errorf("DefaultBaud = %d, want 9600", cfg.DefaultBaud)
 	}
 }
 
+// TestLoadSettingsMissingOrEmpty: no --settings, a missing file, and a file without the setting
+// run on the default baud. None of them grants a device (grants_test.go).
 func TestLoadSettingsMissingOrEmpty(t *testing.T) {
-	cfg := LoadSettings("")
-	if len(cfg.AllowedDevices) == 0 {
-		t.Errorf("LoadSettings(\"\") gave empty AllowedDevices")
+	empty := filepath.Join(t.TempDir(), "settings.json")
+	if err := os.WriteFile(empty, []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
 	}
-
-	cfg = LoadSettings("/nonexistent/file.json")
-	if len(cfg.AllowedDevices) == 0 {
-		t.Errorf("LoadSettings(nonexistent) gave empty AllowedDevices")
+	for _, path := range []string{"", "/nonexistent/file.json", empty} {
+		cfg, ok := loadSettings(path)
+		if !ok || cfg.DefaultBaud != DefaultBaudRate {
+			t.Errorf("loadSettings(%q) = %+v, ok=%v; want the default baud, ok", path, cfg, ok)
+		}
+		if devices := readAccess(cfg.grantPath).devices(); len(devices) != 0 {
+			t.Errorf("loadSettings(%q) grants %v, want nothing", path, devices)
+		}
 	}
 }

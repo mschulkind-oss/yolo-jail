@@ -636,16 +636,29 @@ func TestShippedSerialFields(t *testing.T) {
 	if m.HostDaemon.Publishes != loopholedecl.PublishesSocket {
 		t.Errorf("publishes = %q, want %q", m.HostDaemon.Publishes, loopholedecl.PublishesSocket)
 	}
-	if len(m.Settings) != 2 {
-		t.Fatalf("settings = %+v, want 2 declared keys (allowed_devices, default_baud)", m.Settings)
+	// The GRANT half (docs/design/loophole-access-approval-plan.md F4): what yolo-serial may
+	// list and open is the valued `devices` kind, whose values are device globs, in place of the
+	// retired workspace-scope `allowed_devices` setting an agent could write. A legacy
+	// `enabled: true` makes it requestable, a legacy `allowed_devices` list becomes the request's
+	// values, and a legacy config that wrote no list reads as a request for the five globs the
+	// setting defaulted to (legacy_default_values), so it loses nothing it ran on.
+	if m.Access != "open host serial devices" {
+		t.Errorf("access = %q, want %q", m.Access, "open host serial devices")
 	}
-	devs, ok := loopholedecl.SettingByKey(m.Settings, "allowed_devices")
-	if !ok || devs.Type != loopholedecl.SettingTypeStringList {
-		t.Errorf("settings.allowed_devices = %+v, ok=%v", devs, ok)
+	wantGrants := []loopholedecl.Grant{{Kind: "devices", Text: "open", Valued: true,
+		ValueNoun: "device globs", LegacyEnable: true, LegacyValues: "allowed_devices",
+		LegacyDefaultValues: []string{"/dev/ttyUSB*", "/dev/ttyACM*", "/dev/cu.usbserial*",
+			"/dev/cu.usbmodem*", "/dev/serial/by-id/*"}}}
+	if !reflect.DeepEqual(m.Grants, wantGrants) {
+		t.Errorf("grants = %+v\nwant     %+v", m.Grants, wantGrants)
+	}
+	// `default_baud` is the one setting left, and it is `user` scope.
+	if len(m.Settings) != 1 {
+		t.Fatalf("settings = %+v, want only `default_baud` — `allowed_devices` became the devices grant", m.Settings)
 	}
 	baud, ok := loopholedecl.SettingByKey(m.Settings, "default_baud")
-	if !ok || baud.Type != loopholedecl.SettingTypeInt {
-		t.Errorf("settings.default_baud = %+v, ok=%v", baud, ok)
+	if !ok || baud.Type != loopholedecl.SettingTypeInt || baud.Scope != loopholedecl.SettingScopeUser {
+		t.Errorf("settings.default_baud = %+v, ok=%v; want an int, user scope", baud, ok)
 	}
 }
 

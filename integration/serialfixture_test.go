@@ -1,8 +1,10 @@
 package integration
 
 import (
+	"bytes"
 	"errors"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,6 +19,47 @@ func serialMasterFile(fd int, name string) (*os.File, error) {
 		return nil, err
 	}
 	return os.NewFile(uintptr(fd), name), nil
+}
+
+// readMaster reads the master in the background and returns a reader of everything seen so far.
+// Shared by the Linux serial tier (serialgrant_test.go) and the macos-user one
+// (macosuserserial_test.go).
+func readMaster(t *testing.T, master *os.File) func() string {
+	t.Helper()
+	// Fail before starting a reader if this native descriptor cannot be canceled.
+	if err := master.SetReadDeadline(time.Time{}); err != nil {
+		t.Fatalf("serial fixture master cannot cancel a blocked read: %v", err)
+	}
+	var mu sync.Mutex
+	var buf bytes.Buffer
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		b := make([]byte, 256)
+		for {
+			n, err := master.Read(b)
+			mu.Lock()
+			buf.Write(b[:n])
+			mu.Unlock()
+			if err != nil {
+				return
+			}
+		}
+	}()
+	t.Cleanup(func() {
+		t.Log("serial fixture cleanup: close master and join background reader")
+		_ = master.Close()
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Error("serial fixture background reader did not stop after master close")
+		}
+	})
+	return func() string {
+		mu.Lock()
+		defer mu.Unlock()
+		return buf.String()
+	}
 }
 
 func TestSerialFixtureRawDescriptorReadCanBeCanceled(t *testing.T) {

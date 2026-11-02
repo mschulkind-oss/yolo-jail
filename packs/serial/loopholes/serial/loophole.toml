@@ -1,31 +1,62 @@
 # The `serial` loophole, shipped by the official `serial` pack: an allowlisted host USB serial
 # bridge (yolo-serial).
 name = "serial"
-description = "Host USB and serial device bridge (yolo-serial). Access and monitor serial hardware connected to the host."
+description = "Host USB and serial device bridge (yolo-serial). What it may open is the `devices` grant: the device globs an accepted request names."
 version = 1
+# A grant-declaring loophole runs whenever its pack is selected; the grant below, not this switch,
+# decides what a request may open. The key goes when `default_enabled` is retired.
 default_enabled = false
+# The one line every refusal and the launch's disclosure print for this loophole.
+access = "open host serial devices"
+# Two gates (docs/design/loophole-access-approval.md §4.3): select the pack, and grant `devices`
+# with the device globs as its value. The daemon runs on selection and lists or opens nothing until
+# a glob is granted.
 transport = "loopback-tls"
 lifecycle = "spawned"
 doctor_cmd = ["yolo", "internal", "daemon", "serial", "--self-check", "--settings", "{settings}"]
 
-[settings.allowed_devices]
-type = "string_list"
-scope = "workspace"
-default = [
+# One grant kind, valued: `devices`' values are the device globs yolo-serial may list and open.
+# It was the workspace-scope `allowed_devices` setting, which an agent could write and which
+# defaulted to five globs; now a project asks with `[requests.serial] devices = [...]` (or
+# `yolo request serial devices <globs>`), and only an accepted gate grants them. A valued kind is
+# never requestable by default and is never under `always`: the user first allows it with
+# `yolo allow serial on_request devices`. There are no default globs: nothing is granted, so
+# nothing is opened, until then.
+#
+# The legacy keys map a legacy JSONC config during the window (plan PD-9): `enabled: true` makes
+# `devices` requestable, the retired `allowed_devices` list becomes the request's values, and a
+# legacy config that switched serial on and wrote no list reads as a request for the five globs
+# `allowed_devices` defaulted to, so it loses nothing it ran on (and gains nothing the gate does
+# not show).
+[[grants]]
+kind = "devices"
+text = "open"
+valued = true
+value_noun = "device globs"
+legacy_enable = true
+legacy_values = "allowed_devices"
+legacy_default_values = [
   "/dev/ttyUSB*",
   "/dev/ttyACM*",
   "/dev/cu.usbserial*",
   "/dev/cu.usbmodem*",
   "/dev/serial/by-id/*",
 ]
-description = "Device path patterns yolo-serial may access (glob patterns)"
 
+# `default_baud` is frozen at launch: yolo resolves it once and writes it to the file {settings}
+# names, so a change needs a restart (OQ-K3). It is `user` scope: how the host's hardware is
+# driven is the user's to say, not the agent's (docs/design/loophole-access-approval.md §4.3).
 [settings.default_baud]
 type = "int"
-scope = "workspace"
+scope = "user"
 default = 115200
 description = "Default baud rate for serial connections"
 
+# `{settings}` resolves to this launch's grant file: the private settings snapshot yolo writes in
+# the loophole's state dir, with one reserved `grants` key carrying `devices`' standing and granted
+# globs. The daemon reads the settings once and re-reads the grant block at every request, so
+# `yolo config apply` lands at the next one; a file with no `grants` key grants nothing. It never
+# crosses into the jail.
 [host_daemon]
 cmd = ["yolo", "internal", "daemon", "serial", "--socket", "{socket}", "--settings", "{settings}"]
 publishes = "socket"

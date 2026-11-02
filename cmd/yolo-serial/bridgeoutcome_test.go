@@ -22,20 +22,35 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholegrant"
 	"github.com/mschulkind-oss/yolo-jail/internal/serialdaemon"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
 
 // liveBridgeFront runs the serial loophole's own handler behind a real front, the way a
-// launch runs it (`publishes: "socket"`), allowing only devices that match nothing on this
+// launch runs it (`publishes: "socket"`), granting only devices that match nothing on this
 // machine. It returns the published endpoint file.
 func liveBridgeFront(t *testing.T) string {
 	t.Helper()
-	cfg := serialdaemon.Settings{
-		AllowedDevices: []string{"/dev/yolo-serial-test-none-*"},
-		DefaultBaud:    115200,
+	return frontFor(t, serialdaemon.BuildHandler(grantedSettings(t, "/dev/yolo-serial-test-none-*")))
+}
+
+// grantedSettings is the bridge's config from a grant file, as a launch writes it, whose `devices`
+// grant is globs: the grant file is the only allowlist the bridge has.
+func grantedSettings(t *testing.T, globs ...string) serialdaemon.Settings {
+	t.Helper()
+	data, err := loopholegrant.Merge([]byte(`{"default_baud": 115200}`), loopholegrant.Block{
+		Pack: "serial", Workspace: "/home/u/proj", PID: os.Getpid(),
+		Kinds: map[string]loopholegrant.Kind{"devices": {Standing: loopholegrant.Granted, Values: globs}},
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-	return frontFor(t, serialdaemon.BuildHandler(cfg))
+	path := filepath.Join(t.TempDir(), "settings")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return serialdaemon.LoadSettings(path)
 }
 
 // frontFor runs handler as the bridge behind a real front and returns the published endpoint
@@ -94,8 +109,8 @@ func TestALiveBridgeEndsWithItsExitCode(t *testing.T) {
 	_, stderr = captureStdio(t, func() {
 		rc = run([]string{"read", "--endpoint", endpoint, "/dev/ttyUSB0"})
 	})
-	if rc != 2 || !strings.Contains(stderr, "not in the allowed_devices list") {
-		t.Errorf("`read` of a refused device: rc = %d, want the bridge's 2; stderr = %q", rc, stderr)
+	if rc != 64 || !strings.Contains(stderr, "does not cover") || !strings.Contains(stderr, "/dev/ttyUSB0") {
+		t.Errorf("`read` of a device outside the grant: rc = %d, want the bridge's 64 naming it; stderr = %q", rc, stderr)
 	}
 	if strings.Contains(stderr, "relaunch the jail") {
 		t.Errorf("a bridge that answered was reported as dead:\n%s", stderr)
@@ -126,7 +141,7 @@ func TestPtyReportsADeadBridge(t *testing.T) {
 }
 
 // TestPtyEndsWithTheBridgesExitCode: a device the bridge refuses, met by `pty`. The bridge
-// says why and exits 2; `pty` printed the reason and exited 0.
+// says why and exits 64 (a device outside the grant); `pty` printed the reason and exited 0.
 func TestPtyEndsWithTheBridgesExitCode(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("pty allocation is Linux-only (openPty); the dial is never reached elsewhere")
@@ -136,10 +151,10 @@ func TestPtyEndsWithTheBridgesExitCode(t *testing.T) {
 	_, stderr := captureStdio(t, func() {
 		rc = run([]string{"pty", "--endpoint", endpoint, "/dev/ttyUSB0"})
 	})
-	if rc != 2 {
-		t.Errorf("rc = %d, want the bridge's 2 for a refused device; stderr = %q", rc, stderr)
+	if rc != 64 {
+		t.Errorf("rc = %d, want the bridge's 64 for a device outside the grant; stderr = %q", rc, stderr)
 	}
-	if !strings.Contains(stderr, "not in the allowed_devices list") {
+	if !strings.Contains(stderr, "does not cover") {
 		t.Errorf("stderr does not carry the bridge's reason:\n%s", stderr)
 	}
 }

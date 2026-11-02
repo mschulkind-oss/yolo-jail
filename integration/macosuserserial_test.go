@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 	"unsafe"
@@ -22,7 +21,7 @@ import (
 // the host daemon.
 //
 // THE DEVICE IS A HOST PTY PAIR, opened by this test on the Mac: the slave stands for a USB
-// serial port (allowed_devices names it alone), and the master is where this test reads what the
+// serial port (the `devices` grant names it alone), and the master is where this test reads what the
 // sandbox wrote. A real USB device is the human's check (docs/reference/macos-user-nix-and-features.md).
 //
 // WHAT ONLY THIS TEST CAN SEE, every item unexecuted before: that a darwin yolo-serial
@@ -38,9 +37,12 @@ func TestMacosUserSerialClientDrivesAHostPtyFromTheSandbox(t *testing.T) {
 	master, slave := hostPtyPair(t)
 	got := readMaster(t, master)
 
-	packHome(t, fmt.Sprintf(`{"packs": ["serial"], "loopholes": {"serial": {"enabled": true, `+
-		`"settings": {"allowed_devices": [%q]}}}}`, slave))
-	ws := macosUserWorkspace(t, `{}`)
+	// The flip (docs/design/loophole-access-approval-plan.md F4): selecting the pack runs the
+	// daemon, and what it may open is the valued `devices` grant. A valued kind is never
+	// requestable by default, so the user's ceiling allows it on request; the project requests
+	// the slave's path, and the gate accepts it (runMacosUser passes --accept-config-changes).
+	writeUserTOML(t, "packs = [\"serial\"]\n\n[allow.serial]\non_request = [\"devices\"]\n")
+	ws := macosUserWorkspaceTOML(t, fmt.Sprintf("[requests.serial]\ndevices = [%q]\n", slave))
 	out := fmt.Sprintf("/private/tmp/yolo-it-serial-pty-%d.out", os.Getpid())
 	// The sandbox account writes it, in sticky /private/tmp, so only that account removes it.
 	t.Cleanup(func() { _ = runAsSandboxQuiet(time.Minute, "/bin/rm", "-f", "--", out) })
@@ -126,43 +128,4 @@ func hostPtyPair(t *testing.T) (*os.File, string) {
 	}
 	t.Cleanup(func() { _ = hold.Close(); _ = master.Close() })
 	return master, slave
-}
-
-// readMaster reads the master in the background and returns a reader of everything seen so far.
-func readMaster(t *testing.T, master *os.File) func() string {
-	t.Helper()
-	// Fail before starting a reader if this native descriptor cannot be canceled.
-	if err := master.SetReadDeadline(time.Time{}); err != nil {
-		t.Fatalf("serial fixture master cannot cancel a blocked read: %v", err)
-	}
-	var mu sync.Mutex
-	var buf bytes.Buffer
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		b := make([]byte, 256)
-		for {
-			n, err := master.Read(b)
-			mu.Lock()
-			buf.Write(b[:n])
-			mu.Unlock()
-			if err != nil {
-				return
-			}
-		}
-	}()
-	t.Cleanup(func() {
-		t.Log("serial fixture cleanup: close master and join background reader")
-		_ = master.Close()
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("serial fixture background reader did not stop after master close")
-		}
-	})
-	return func() string {
-		mu.Lock()
-		defer mu.Unlock()
-		return buf.String()
-	}
 }

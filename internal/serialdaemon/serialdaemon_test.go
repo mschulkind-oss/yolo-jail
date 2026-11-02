@@ -71,7 +71,7 @@ func startTestDaemon(t *testing.T, cfg Settings) (string, func()) {
 }
 
 func TestSerialDaemonListMode(t *testing.T) {
-	cfg := DefaultSettings()
+	cfg := granted(t, "/dev/null", "/dev/ttyUSB*")
 	ep, stop := startTestDaemon(t, cfg)
 	defer stop()
 
@@ -119,7 +119,7 @@ func TestSerialDaemonListMode(t *testing.T) {
 // listJSONOver runs `list --json` against a bridge allowing allowed and returns its stdout.
 func listJSONOver(t *testing.T, allowed []string) []byte {
 	t.Helper()
-	ep, stop := startTestDaemon(t, Settings{AllowedDevices: allowed, DefaultBaud: DefaultBaudRate})
+	ep, stop := startTestDaemon(t, granted(t, allowed...))
 	defer stop()
 	conn, err := svcendpoint.Dial(ep, 5*time.Second)
 	if err != nil {
@@ -206,7 +206,7 @@ func TestListJSONIsJSONForEveryDeviceSet(t *testing.T) {
 }
 
 func TestSerialDaemonUnauthorizedDevice(t *testing.T) {
-	cfg := DefaultSettings()
+	cfg := granted(t, "/dev/null", "/dev/ttyUSB*")
 	ep, stop := startTestDaemon(t, cfg)
 	defer stop()
 
@@ -235,7 +235,7 @@ func TestSerialDaemonUnauthorizedDevice(t *testing.T) {
 		}
 	}
 
-	if exitCode != 2 {
-		t.Errorf("read unauthorized device exit code = %d, want 2", exitCode)
+	if exitCode != 64 {
+		t.Errorf("read unauthorized device exit code = %d, want 64 (a device outside the granted globs is a grant refusal)", exitCode)
 	}
 }

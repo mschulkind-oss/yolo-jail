@@ -167,10 +167,7 @@ func TestPtyExitsOnSIGTERMWhileBridging(t *testing.T) {
 		t.Fatalf("open the stand-in slave %s: %v", hostSlave, err)
 	}
 	t.Cleanup(func() { _ = hold.Close() })
-	endpoint := frontEndingSessions(t, serialdaemon.BuildHandler(serialdaemon.Settings{
-		AllowedDevices: []string{hostSlave},
-		DefaultBaud:    115200,
-	}))
+	endpoint := frontEndingSessions(t, serialdaemon.BuildHandler(grantedSettings(t, hostSlave)))
 	cmd, exited, read := startPty(t, endpoint, hostSlave)
 	time.Sleep(1500 * time.Millisecond) // the guest's `sleep 5`, shortened
 	requireExitOnSIGTERM(t, cmd, exited, read)

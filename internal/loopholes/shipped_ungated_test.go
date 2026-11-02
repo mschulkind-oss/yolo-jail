@@ -23,8 +23,7 @@ var ungatedShippedLoopholes = map[string]string{
 // each one's flip, the change that gives it [[grants]] (docs/design/loophole-access-approval.md
 // §12), removes its name here, and retiring `default_enabled` deletes the empty set.
 var awaitingGrantFlip = map[string]bool{
-	"serial": true,
-	"audio":  true,
+	"audio": true,
 }
 
 // TestNoShippedLoopholeIsUngatedWithoutAReason reads every loophole manifest in the official

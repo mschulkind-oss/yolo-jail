@@ -102,20 +102,23 @@ func listJSON(devices []DeviceEntry) *jsonx.OrderedMap {
 	return doc
 }
 
-// BuildHandler constructs the hostservice handler for the serial loophole.
+// BuildHandler constructs the hostservice handler for the serial loophole. The settings are
+// closed over once, at startup; the one thing a request re-reads is the grant file's `grants`
+// block (grants.go), so `yolo config apply` reaches a running daemon at its next request.
 func BuildHandler(cfg Settings) hostservice.Handler {
 	return func(s *hostservice.Session) {
 		mode := pyStrOr(func() (any, bool) { return s.Get("mode") }, "list")
+		a := readAccess(cfg.grantPath)
 
 		switch mode {
 		case "list":
-			handleList(s, cfg)
+			handleList(s, a)
 		case "read":
-			handleRead(s, cfg)
+			handleRead(s, cfg, a)
 		case "write":
-			handleWrite(s, cfg)
+			handleWrite(s, cfg, a)
 		case "monitor", "stream", "bridge", "pty":
-			handleMonitor(s, cfg)
+			handleMonitor(s, cfg, a)
 		default:
 			s.Stderr("unknown mode: " + pytext.Repr(mode) + "\n")
 			s.Exit(2)
@@ -123,11 +126,11 @@ func BuildHandler(cfg Settings) hostservice.Handler {
 	}
 }
 
-func handleList(s *hostservice.Session, cfg Settings) {
-	if refused(s, cfg, "") {
+func handleList(s *hostservice.Session, a access) {
+	if refused(s, a, "") {
 		return
 	}
-	devices := findDevices(cfg.AllowedDevices)
+	devices := findDevices(a.devices())
 	if s.Request != nil {
 		if raw, ok := s.Get("format"); ok && raw == "json" {
 			if err := s.JSON(listJSON(devices)); err != nil {
@@ -139,11 +142,7 @@ func handleList(s *hostservice.Session, cfg Settings) {
 	}
 
 	if len(devices) == 0 {
-		if cfg.Grants != nil {
-			s.Stdout("No serial devices found matching the granted device globs.\n")
-		} else {
-			s.Stdout("No serial devices found matching allowlist patterns.\n")
-		}
+		s.Stdout("No serial devices found matching the granted device globs.\n")
 		s.Exit(0)
 		return
 	}
@@ -161,7 +160,7 @@ func handleList(s *hostservice.Session, cfg Settings) {
 	s.Exit(0)
 }
 
-func handleRead(s *hostservice.Session, cfg Settings) {
+func handleRead(s *hostservice.Session, cfg Settings, a access) {
 	devicePath, ok := pyString(s, "device")
 	if !ok || devicePath == "" {
 		s.Stderr("serial: missing required field \"device\"\n")
@@ -169,12 +168,7 @@ func handleRead(s *hostservice.Session, cfg Settings) {
 		return
 	}
 
-	if refused(s, cfg, devicePath) {
-		return
-	}
-	if !isDeviceAllowed(devicePath, cfg.AllowedDevices) {
-		s.Stderr(fmt.Sprintf("serial: device %q is not in the allowed_devices list\n", devicePath))
-		s.Exit(2)
+	if refused(s, a, devicePath) {
 		return
 	}
 
@@ -215,7 +209,7 @@ func handleRead(s *hostservice.Session, cfg Settings) {
 	s.Exit(0)
 }
 
-func handleWrite(s *hostservice.Session, cfg Settings) {
+func handleWrite(s *hostservice.Session, cfg Settings, a access) {
 	devicePath, ok := pyString(s, "device")
 	if !ok || devicePath == "" {
 		s.Stderr("serial: missing required field \"device\"\n")
@@ -223,12 +217,7 @@ func handleWrite(s *hostservice.Session, cfg Settings) {
 		return
 	}
 
-	if refused(s, cfg, devicePath) {
-		return
-	}
-	if !isDeviceAllowed(devicePath, cfg.AllowedDevices) {
-		s.Stderr(fmt.Sprintf("serial: device %q is not in the allowed_devices list\n", devicePath))
-		s.Exit(2)
+	if refused(s, a, devicePath) {
 		return
 	}
 
@@ -265,7 +254,7 @@ func handleWrite(s *hostservice.Session, cfg Settings) {
 	s.Exit(0)
 }
 
-func handleMonitor(s *hostservice.Session, cfg Settings) {
+func handleMonitor(s *hostservice.Session, cfg Settings, a access) {
 	devicePath, ok := pyString(s, "device")
 	if !ok || devicePath == "" {
 		s.Stderr("serial: missing required field \"device\"\n")
@@ -273,12 +262,7 @@ func handleMonitor(s *hostservice.Session, cfg Settings) {
 		return
 	}
 
-	if refused(s, cfg, devicePath) {
-		return
-	}
-	if !isDeviceAllowed(devicePath, cfg.AllowedDevices) {
-		s.Stderr(fmt.Sprintf("serial: device %q is not in the allowed_devices list\n", devicePath))
-		s.Exit(2)
+	if refused(s, a, devicePath) {
 		return
 	}
 

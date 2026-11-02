@@ -25,7 +25,10 @@ import (
 //     enable` was the approval), with `on_request` for the kind in the ceiling where the
 //     ceiling does not already admit it;
 //   - `settings.<legacy_values>` (`visible`, `allowed_devices`) → a valued kind's request values,
-//     the user's list and the workspace's together, as the old merge unioned them.
+//     the user's list and the workspace's together, as the old merge unioned them; where
+//     neither wrote one, the setting's old default, which the manifest declares as
+//     `legacy_default_values` (serial's five device globs), since that is what the loophole
+//     ran on.
 //
 // A loophole the legacy files leave off in this workspace (the switch file, then the workspace
 // file, then the user file decides, as the old merge did; absent is off) projects nothing here:
@@ -136,6 +139,11 @@ func ProjectLegacyLoopholeGrants(in LegacyLoopholeGrantInput) []LegacyLoopholeGr
 			if g.Valued {
 				values = appendUnique(values, stringList(legacySetting(user, g.LegacyValues))...)
 				values = appendUnique(values, stringList(legacySetting(ws, g.LegacyValues))...)
+				if len(values) == 0 {
+					// No list written: the loophole ran on the setting's default, which the
+					// manifest that retired it declares (serial's five device globs).
+					values = appendUnique(values, g.LegacyDefaultValues...)
+				}
 				if len(values) == 0 {
 					continue // a valued kind with no value asks for nothing
 				}

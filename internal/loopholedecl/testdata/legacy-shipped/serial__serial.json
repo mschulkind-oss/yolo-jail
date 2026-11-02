@@ -1,23 +1,29 @@
 {
   "name": "serial",
-  "description": "Host USB and serial device bridge (yolo-serial). Access and monitor serial hardware connected to the host.",
+  "description": "Host USB and serial device bridge (yolo-serial). What it may open is the `devices` grant: the device globs an accepted request names.",
   "version": 1,
-  "settings": {
-    "allowed_devices": {
-      "type": "string_list",
-      "scope": "workspace",
-      "default": [
+  "access": "open host serial devices",
+  "grants": [
+    {
+      "kind": "devices",
+      "text": "open",
+      "valued": true,
+      "value_noun": "device globs",
+      "legacy_enable": true,
+      "legacy_values": "allowed_devices",
+      "legacy_default_values": [
         "/dev/ttyUSB*",
         "/dev/ttyACM*",
         "/dev/cu.usbserial*",
         "/dev/cu.usbmodem*",
         "/dev/serial/by-id/*"
-      ],
-      "description": "Device path patterns yolo-serial may access (glob patterns)"
-    },
+      ]
+    }
+  ],
+  "settings": {
     "default_baud": {
       "type": "int",
-      "scope": "workspace",
+      "scope": "user",
       "default": 115200,
       "description": "Default baud rate for serial connections"
     }

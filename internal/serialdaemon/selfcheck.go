@@ -13,11 +13,12 @@ func SelfCheck(settingsPath string) int {
 		return 1
 	}
 
-	if r, refuse := cfg.refusal(""); refuse {
+	a := readAccess(cfg.grantPath)
+	if r, refuse := a.refusal(""); refuse {
 		fmt.Printf("serial: devices %s for this project; nothing is listed or opened until a grant covers it\n", r.Standing)
 		return 0
 	}
-	devices := findDevices(cfg.AllowedDevices)
+	devices := findDevices(a.devices())
 	accessible := 0
 	for _, d := range devices {
 		if d.Accessible {
@@ -25,7 +26,7 @@ func SelfCheck(settingsPath string) int {
 		}
 	}
 
-	fmt.Printf("serial: %d device(s) found matching allowlist (%d accessible)\n", len(devices), accessible)
+	fmt.Printf("serial: %d device(s) found matching the granted device globs (%d accessible)\n", len(devices), accessible)
 	for _, d := range devices {
 		status := "ok"
 		if !d.Accessible {

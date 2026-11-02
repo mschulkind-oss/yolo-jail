@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -311,4 +312,64 @@ func TestLegacySwitchFileGrantTheGateWouldNotHoldIsNotShownRemoved(t *testing.T)
 	if got := legacyStandings(t, ws)["journal"]["read"]; got.Standing == LoopholeGrantGranted {
 		t.Fatalf("read reads %+v when the project declines it", got)
 	}
+}
+
+// shippedSerialGateLoophole is the shipped serial pack's grant declaration, read from the
+// embedded tree as a launch reads it, so the legacy rows run on the real manifest's keys.
+func shippedSerialGateLoophole(t *testing.T) []GateLoophole {
+	t.Helper()
+	decls := LoopholeGrantDeclarationsForPacks([]*packload.Pack{selectedEmbeddedPackForReadableDeclarations(t, "serial")})
+	if len(decls) != 1 {
+		t.Fatalf("the shipped serial pack declares %d grant-declaring loopholes, want 1: %+v", len(decls), decls)
+	}
+	d := decls[0]
+	return []GateLoophole{{Pack: d.Pack, Loophole: d.Loophole, Access: d.Access, Grants: d.Grants}}
+}
+
+// A legacy config that switched serial on and wrote no `allowed_devices` ran on the setting's five
+// default globs; after the flip (plan F4) it reads as a request for exactly those, shown at the
+// gate one line per glob, so the y keeps the access it had and nothing more. A list the config did
+// write stands alone: the defaults never join it.
+func TestLegacySerialWithNoListReadsAsTheDefaultGlobs(t *testing.T) {
+	defaults := []string{"/dev/ttyUSB*", "/dev/ttyACM*", "/dev/cu.usbserial*", "/dev/cu.usbmodem*", "/dev/serial/by-id/*"}
+
+	ws := approvalWorkspace(t)
+	writeLegacyUserConfig(t, `{"loopholes": {"serial": {"enabled": true, "settings": {"default_baud": 9600}}}}`)
+	lps := shippedSerialGateLoophole(t)
+	report := grantGate(t, ws, lps)
+	for _, glob := range defaults {
+		requireGrantLinePrefix(t, report, "  + serial: open "+glob+" (requested by ")
+	}
+	read, err := ReadWorkspaceForGate(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := WithLoopholeGrants(nil, ws, read, lps).LoopholeGrantStandings(ws)["serial"]["devices"]
+	if got.Standing != LoopholeGrantGranted || strings.Join(got.Values, ",") != strings.Join(defaults, ",") {
+		t.Fatalf("after the y, devices reads %+v; want granted on the five default globs", got)
+	}
+
+	ws = approvalWorkspace(t)
+	writeLegacyUserConfig(t, `{"loopholes": {"serial": {"enabled": true}}}`)
+	writeLegacyWorkspaceConfig(t, ws, `{"loopholes": {"serial": {"settings": {"allowed_devices": ["/dev/ttyACM0"]}}}}`)
+	report = grantGate(t, ws, lps)
+	for _, l := range report.GrantBlock {
+		if strings.Contains(l, "/dev/ttyUSB*") {
+			t.Fatalf("a written allowed_devices list gained a default glob: %q", l)
+		}
+	}
+	requireGrantLinePrefix(t, report, "  + serial: open /dev/ttyACM0 (requested by ")
+}
+
+func requireGrantLinePrefix(t *testing.T, report *ChangeReport, prefix string) {
+	t.Helper()
+	if report == nil {
+		t.Fatalf("the gate asked nothing; want a line starting %q", prefix)
+	}
+	for _, l := range report.GrantBlock {
+		if strings.HasPrefix(l, prefix) {
+			return
+		}
+	}
+	t.Fatalf("grant block has no line starting %q:\n%s", prefix, strings.Join(report.GrantBlock, "\n"))
 }
