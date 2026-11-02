@@ -50,13 +50,13 @@ $ yolo-journalctl -u some.service -n 50
 ```
 
 For the whole host journal, the user allows it first, since `read_all` is not requestable by
-default (`yolo allow journal on_request read_all` writes the first line), and the project
-asks for it:
+default, and the project asks for it. An `on_request` list you write replaces the default, so
+it names `read` too, or `read` stops being requestable:
 
 ```toml
 # ~/.config/yolo-jail/config.toml
 [allow.journal]
-on_request = ["read_all"]
+on_request = ["read", "read_all"]
 ```
 
 ```toml
