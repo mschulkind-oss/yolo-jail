@@ -10,33 +10,59 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-11-02
+
+Config is TOML changed with commands, and agents reach git and GitHub through your host's login, under grants and approvals you control.
+
 ### Added
 
-**Browse mounted folders from home.** Every jail links `~/ctx` to its mounted folders, unless your config already uses the name `ctx`.
+**Config in TOML, changed with commands.** Project and user configs are TOML files, and JSONC ones are still read; `yolo config migrate` converts them, including a profile a pack declares. `yolo config set`, `add`, `unset` and `why`, `yolo pack add` and `remove`, and `yolo active-provider` replace hand edits. See [configuration](userguide/reference/configuration.md#change-it-with-a-command).
 
-**Jails share your package caches.** With rootless podman on Linux, your npm, pnpm, yarn, pip, uv, Go, cargo registry and mise download caches are shared with the jail instead of downloaded a second time, and each one is named at launch. Config files and credentials are never shared. See [host-cache aliasing](docs/reference/disk-footprint.md#host-cas-aliasing).
+**You set the ceiling; a project asks.** `yolo allow` puts what projects get or may request in your user config, `yolo request` writes a project's ask, and `yolo config apply` approves it. A request outside your ceiling warns, naming the `yolo allow` line that fixes it. See [approvals](userguide/guides/approvals.md#standing-access-the-ceiling-and-the-request).
 
-**Run the macOS agent as you (experimental).** Set `"macos_user_mode": "self"` in your user config and `macos-user` runs the agent as you, with no setup and a project anywhere, under a stricter sandbox profile. See [the macos-user backend](userguide/guides/macos.md#the-macos-user-backend).
+**Git through your host's credentials.** The `git` pack fetches and pushes with your host's SSH keys or credential helper. Grants let an agent push its own new branches, or branches and tags you name; any other push asks you. See [git](userguide/guides/git.md).
 
-**Packs can build their own tools.** A launch, in a jail, on `macos-user` or with `yolo host`, builds a pack's tool from its source once, in a sealed build (for macOS on a Mac), and again only when the source changes; `yolo pack build` builds it ahead of time, and a pack without the source can name a checksum-verified prebuilt download, which you can also choose over the source. `programs.overrides` in your user config builds a pack's program from your own checkout instead, at each launch. See [programs built from a pack's tree](docs/reference/pack-system.md#program-via-pack).
+**GitHub writes that need no answer.** Grants let an agent open pull requests and issues and keep writing to them, run a named workflow on the default branch, and approve a held workflow run; other writes ask. See [GitHub](userguide/guides/github.md#what-an-agent-can-run).
 
-**Jails trust your host's certificate authorities.** A corporate or inspecting-proxy CA your host trusts is now trusted in every jail, and the launch names each one and where it came from. On macOS your login keychain's count too, including for Go programs such as `gh` under `macos-user`'s separate account when they were built with Go 1.27 or later. See [the corporate certificate trap](docs/design/provisioner-sets.md#163-the-corporate-certificate-trap).
+**Answer with `yolo approve`; resume with `yolo wait`.** Allow a request once, for a time, or for good. A refusal lists every answer, and `yolo wait` wakes the agent when you give one. See [one action](userguide/guides/approvals.md#one-action-yolo-approve).
 
-**The browser pack warns when there is no browser.** With `chrome-devtools` selected, a jail launch that finds no Chrome or Chromium prints one line saying what to install; the launch goes on, and a browser installed later just works. See [the chrome-devtools pack](docs/reference/mcp-configuration.md#the-chrome-devtools-pack).
+**Get notified with `on_request`.** A command in your user config runs for each request, with a short safe headline and a markup-escaped description ready for a notifier. Once the request is answered it gets SIGINT, so `notify-send` closes its own notification, and one you ignore is no failure. See [getting notified](userguide/guides/approvals.md#getting-notified).
 
-**Your fonts in the jail.** On `macos-user`, tools find the Mac's fonts and your packages' fonts, and a jail running as you finds your own too. Add `"share_host_fonts": true` to your user config to share your font folder read-only with a container jail or the separate sandbox user; each launch names it. See [the macos-user backend](userguide/guides/macos.md#the-macos-user-backend).
+**Hand the host a command with `yolo host-run`.** An agent hands you one line to run on your machine and gets its output back. See [host commands](userguide/guides/host-commands.md).
+
+**Jails share your package caches.** With rootless podman on Linux, your npm, pnpm, yarn, pip, uv, Go, cargo and mise download caches are shared with the jail, never config or credentials. See [host-cache aliasing](docs/reference/disk-footprint.md#host-cas-aliasing).
+
+**Jails trust your host's certificate authorities**, including your macOS login keychain's, and the launch names each. See [the corporate certificate trap](docs/design/provisioner-sets.md#163-the-corporate-certificate-trap).
+
+**Packs can build their own tools** from source, again only when it changes; `yolo pack build` builds ahead, and `programs.overrides` builds from your checkout. See [programs built from a pack's tree](docs/reference/pack-system.md#program-via-pack).
+
+**Run the macOS agent as you (experimental).** With `"macos_user_mode": "self"`, `macos-user` runs the agent as you, with no setup, under a stricter sandbox; tools there find your fonts. See [the macos-user backend](userguide/guides/macos.md#the-macos-user-backend).
+
+- Every jail links `~/ctx` to its mounted folders.
+- With `chrome-devtools` selected, a launch that finds no browser says what to install.
+- A `mesa` package's drivers reach programs in a GPU-enabled container jail. See [Mesa](userguide/guides/devices-and-gpus.md#mesa-graphics-libraries).
 
 ### Changed
 
-- `mcp_presets` is removed, and a config that still has it stops the launch: delete the key, add `chrome-devtools` to `packs` in your user config for the browser, and write `sequential-thinking` under `mcp_servers` yourself if you want it. See [MCP and LSP](userguide/guides/mcp-and-lsp.md#mcp_presets-is-gone).
-- A pack's `requires` entry is now refused: change it to `"kind": "program"`, keeping its `bin` and `install_hints`. Any selected pack that installs that program now meets it. A running jail that selects such a pack is offered a restart on its next attach after you upgrade. One pack may no longer declare a program both with and without a `via`, or with two recipes for the same platform. See [a program with no recipe](docs/reference/pack-system.md#program-needs).
-- A from-source install no longer follows its checkout. `yolo update` there changes nothing; to update, run `just install` in your checkout or `yolo update --from <checkout>`. See [from-source installs](docs/reference/self-update.md#from-source-installs).
+- **The GitHub broker grants nothing until you allow reads**: run `yolo allow github read`.
+- `yolo loopholes enable` and `disable` are retired for `yolo request` and `yolo allow`; earlier switches still count.
+- The `openai-auth` pack is now `codex-auth`: rename it in `packs`.
+- A loophole's `default_enabled` is refused: delete it; a loophole runs whenever its pack is selected.
+- `cgroup-delegate` is selected in every jail.
+- `mcp_presets` is removed: add the `chrome-devtools` pack instead. See [MCP and LSP](userguide/guides/mcp-and-lsp.md#mcp_presets-is-gone).
+- A pack's `requires` entry is refused: make it `"kind": "program"`. See [a program with no recipe](docs/reference/pack-system.md#program-needs).
+- A from-source install no longer follows its checkout: run `just install` there. See [from-source installs](docs/reference/self-update.md#from-source-installs).
 
 ### Fixed
 
-- In a container jail, an `SSL_CERT_FILE` you set in your config now applies to every TLS tool instead of losing to the jail's own bundle.
-- `yolo host apply` and `yolo host -- <agent>` now remove a file a pack stopped shipping or moved, and say so, instead of leaving the old copy to break launches; a copy from an earlier version is archived, and one you changed is kept and named with the command to remove it. See [the host copy converges](docs/reference/pack-system.md#host-files-converge).
-- On macOS (`macos-user`), a pack's skills, briefing and files now leave the agent's home at the next launch after you drop the pack; any you edited stay, and the launch names each with the command that removes it.
+- In a container jail, your `SSL_CERT_FILE` applies to every TLS tool.
+- `yolo host apply` removes a file a pack stopped shipping, keeping any you changed.
+- On `macos-user`, a dropped pack's skills and files leave the agent's home, and a workspace once run under podman launches.
+- Suspending with Ctrl-Z no longer leaves your terminal raw.
+
+### Contributors
+
+Thanks to Kurt Galiatsatos ([@kurt-hs](https://github.com/kurt-hs)) for fixes to running the macOS agent as you, and to the development launcher on macOS.
 
 ## [0.15.1] - 2026-10-22
 
