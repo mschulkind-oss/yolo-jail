@@ -11,6 +11,12 @@ depends-on:
   - github-write-scopes.md#OQ-GW4
   - github-write-scopes.md#OQ-GW5
   - github-write-scopes.md#OQ-GW6
+  - github-write-scopes.md#OQ-GW7
+  - github-write-scopes.md#OQ-GW8
+  - github-write-scopes.md#OQ-GW9
+  - github-write-scopes.md#OQ-GW10
+  - github-write-scopes.md#OQ-GW11
+  - github-write-scopes.md#OQ-GW12
 tags: [plan, github, broker, grants, config]
 summary: "What the design of the GitHub work kinds happened to surface about the build. Not a hand-off: nothing may be built from this while it is a sketch."
 ---
