@@ -30,6 +30,23 @@ func TestBrokerGrantHintsNameCommandsTheCLIRuns(t *testing.T) {
 	for _, kind := range []string{"create-branch", brokerscope.KindBranch, brokerscope.KindTag} {
 		commands = append(commands, gitbroker.AllowOnRequestCommand(kind))
 	}
+	// The workspace-grant refusal (config's grantKindAllowAdvice) names the on_request verb for
+	// each kind the shipped manifests map: read from the declarations a host selects, so a
+	// manifest rename fails here.
+	brokers, _, err := allowSelectedBrokers()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mapped := 0
+	for _, b := range brokers {
+		for _, capability := range b.KindCapabilities {
+			commands = append(commands, config.BrokerKindAllowCommand(b.Brokered.Source, capability))
+			mapped++
+		}
+	}
+	if mapped == 0 {
+		t.Fatal("no selected broker declares kind_capabilities; the fixture no longer selects git and github")
+	}
 	for _, g := range []brokerscope.Grant{
 		{Kind: "create-branch", Repo: "h/o/r"},
 		{Kind: brokerscope.KindBranch, Repo: "h/o/r", Branch: "main"},

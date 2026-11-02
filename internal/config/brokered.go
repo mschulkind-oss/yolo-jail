@@ -1183,11 +1183,15 @@ func brokeredGrantProblemsWithUser(v any, resolver LoopholeResolver, user *jsonx
 		return nil, nil, nil
 	}
 	defined := map[string][]string{}
+	declarations := map[string]loopholedecl.Brokered{}
 	if resolver != nil {
 		known, _ := resolver.Known()
 		for _, info := range known {
 			if info.Brokered != nil {
 				defined[info.Brokered.Source] = definedGrantKinds(append(defined[info.Brokered.Source], info.Brokered.Grants...))
+				if _, seen := declarations[info.Brokered.Source]; !seen {
+					declarations[info.Brokered.Source] = *info.Brokered
+				}
 			}
 		}
 	}
@@ -1209,7 +1213,8 @@ func brokeredGrantProblemsWithUser(v any, resolver LoopholeResolver, user *jsonx
 			continue
 		}
 		kinds, sourceKnown := defined[name]
-		allowed := allowedGrantKindsFromUser(name, user)
+		declaration := declarations[name]
+		allowed := append(allowedGrantKindsFromUser(name, user), readableAllowedGrantKinds(user, declaration)...)
 		var seen []string
 		for i, e := range list {
 			entryPath := path + "[" + itoa(i) + "]"
@@ -1259,13 +1264,65 @@ func brokeredGrantProblemsWithUser(v any, resolver LoopholeResolver, user *jsonx
 			}
 			if !inList(allowed, kind) {
 				userKind = append(userKind, entryPath+"."+brokeredGrantKindKey+": your user config does not "+
-					"allow a workspace to hold a "+pyReprValue(kind)+" grant. To allow it, add "+
-					pyReprValue(kind)+" to `"+brokeredGrantKindsPath(name)+"` in "+paths.UserConfigDisplayPath()+
-					"; otherwise remove this grant.")
+					"let a workspace hold a "+pyReprValue(kind)+" grant. "+grantKindAllowAdvice(declaration, name, kind)+
+					"; or remove this grant.")
 			}
 		}
 	}
 	return errs, warns, userKind
+}
+
+// readableAllowedGrantKinds is the kinds a workspace grant of the declaration's source may be of
+// through the readable user ceiling (`allow.<source>.always` and `.on_request`): each kind whose
+// declared capability is listed there, and read where the read capability is under `always`, as
+// the gate projects a workspace grant (ProduceReadableGateInput).
+func readableAllowedGrantKinds(user *jsonx.OrderedMap, declaration loopholedecl.Brokered) []string {
+	source := declaration.Source
+	if source == "" {
+		return nil
+	}
+	var out []string
+	if readableUserAllows(user, source, "always", declaration.ReadCapability) {
+		out = append(out, readGrantKind)
+	}
+	for _, kind := range declaration.Grants {
+		if readableUserAllowsEither(user, source, declaration.KindCapabilities[kind]) && !inList(out, kind) {
+			out = append(out, kind)
+		}
+	}
+	return out
+}
+
+// BrokerKindAllowCommand is the user-ceiling verb that lets a workspace hold a grant whose kind
+// the source's manifest maps to capability: `yolo allow <source> on_request <capability>`.
+// internal/cli pins that it parses.
+func BrokerKindAllowCommand(source, capability string) string {
+	return "yolo allow " + source + " on_request " + capability
+}
+
+// grantKindAllowAdvice is the next step that lets a workspace hold a grant of kind (AGENTS.md:
+// advice names a verb, not a file to hand-edit): the `yolo allow` verb for the capability the
+// declaration maps kind to, or for read the source's read capability under `always`, followed by
+// `yolo config apply`. A user config still in legacy JSONC gets the verb behind `yolo config
+// migrate`, which it needs first (docs/design/config-commands.md §4). With no declared
+// capability there is no verb to name, so it is the legacy key.
+func grantKindAllowAdvice(declaration loopholedecl.Brokered, source, kind string) string {
+	command, lead := "", "Allow it with "
+	if kind == readGrantKind && declaration.ReadCapability != "" {
+		command = BrokerReadAllowCommand(source, declaration.ReadCapability)
+		lead = "Let every workspace read its own approved remotes with "
+	} else if capability := declaration.KindCapabilities[kind]; capability != "" {
+		command = BrokerKindAllowCommand(source, capability)
+	}
+	if command == "" {
+		return "To allow it, add " + pyReprValue(kind) + " to `" + brokeredGrantKindsPath(source) + "` in " +
+			paths.UserConfigDisplayPath() + ", then run `yolo config apply` again"
+	}
+	if _, toml := UserConfigFile(); !toml {
+		return "Convert your user config to TOML with `yolo config migrate` on the host, then run `" + command +
+			"` there and `yolo config apply` again"
+	}
+	return lead + "`" + command + "` on the host, then run `yolo config apply` again"
 }
 
 // remoteURLSourceReposProblems refuses `brokered.<source>.repos` for each source a known loophole
