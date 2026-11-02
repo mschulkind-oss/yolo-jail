@@ -480,6 +480,15 @@ func validateStopTargetObservation(home string, p homeProcess, snapshot stopProc
 	if snapshot.startTime != p.startTime {
 		return stopProcessSnapshot{}, false, fmt.Errorf("revalidating %s before signalling: pid now names a different process", p)
 	}
+	// Listed with its environment read empty but now reading arguments under the same starttime:
+	// not an exiting process (one never reads arguments again) but one caught mid-exec, whose
+	// argv and environment read empty until the new image's are in place (CI run 41417994575's
+	// catatonit). Its HOME was never confirmed, so it is re-observed as an uncertain candidate
+	// (reobserveUncertainHome), stopped only once a fresh HOME read names this home.
+	if !p.exiting && errors.Is(p.homeErr, errHomeEnvironmentCleared) && len(snapshot.args) > 0 {
+		return stopProcessSnapshot{}, false, fmt.Errorf("revalidating %s before signalling: its arguments returned after an empty environment read: %w",
+			p, &uncertainHomeObservationError{err: p.homeErr})
+	}
 	if p.exiting || p.homeErr != nil {
 		proof, err := provenExitingStopTarget(home, p, snapshot, probes)
 		if err != nil {
@@ -1959,7 +1968,9 @@ func TestStopHomeProcessesRefusesUnconfirmedHomeWithoutExitProof(t *testing.T) {
 		want     string
 	}{
 		{name: "cleared environment without PF_EXITING", listed: listed, snapshot: notExiting, want: "does not prove PF_EXITING"},
-		{name: "cleared environment with arguments", listed: listed, snapshot: withArgs, want: "arguments are no longer empty"},
+		// Re-observed (TestStopHomeProcessesReobservesAProcessWhoseArgumentsReturn), and refused
+		// because the fresh HOME read still finds the environment empty.
+		{name: "cleared environment with arguments", listed: listed, snapshot: withArgs, want: "environment was cleared"},
 		{name: "starttime moved across the HOME bracket", listed: moved, snapshot: exitingStopSnapshot(startTime), want: "original process identity was unreadable"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1973,6 +1984,80 @@ func TestStopHomeProcessesRefusesUnconfirmedHomeWithoutExitProof(t *testing.T) {
 			stopped, err := stopHomeProcessesWithinWithProbes(home, time.Second, 0, probes)
 			if err == nil || !strings.Contains(err.Error(), tc.want) || len(stopped) != 0 || killCalls != 0 {
 				t.Fatalf("stop=%v, %v, signals=%d; want immediate refusal containing %q", stopped, err, killCalls, tc.want)
+			}
+		})
+	}
+}
+
+// CI run 41417994575: the census listed a catatonit whose argv and environment both read empty
+// (a process mid-exec reads so too, not only one exiting), and the stop then found its arguments
+// back under the same starttime and failed, as if an exit proof had been contradicted. Such a
+// process was never proven exiting: its HOME is read again, and it is stopped only if that read
+// names this HOME, and let go unsignalled if it does not.
+func TestStopHomeProcessesReobservesAProcessWhoseArgumentsReturn(t *testing.T) {
+	const home = "/test/home"
+	const pid = 21000
+	const startTime = "2718281"
+	cleared := fmt.Errorf("%w: pid %d has an empty environment", errHomeEnvironmentCleared, pid)
+	listed := homeProcess{
+		pid: pid, ppid: 20980, startTime: startTime,
+		homeErr: fmt.Errorf("%w: %w", errHomeOwnershipChanged, cleared),
+	}
+	args := []string{"catatonit", "-P"}
+	live := stopProcessSnapshot{
+		args: args, startTime: startTime, state: "S", stateFound: true, flagsFound: true,
+		lateStartTime: startTime, lateStartTimeFound: true,
+	}
+	for _, tc := range []struct {
+		name        string
+		homeMatches bool
+		homeErr     error
+		wantStopped []string
+	}{
+		{name: "under this HOME is stopped", homeMatches: true, wantStopped: []string{"pid 21000 (catatonit)"}},
+		{name: "without this HOME is let go", homeErr: fmt.Errorf("%w: pid %d no longer has HOME", errHomeOwnershipChanged, pid)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			listCalls, inspectCalls, homeCalls := 0, 0, 0
+			var signals []syscall.Signal
+			gone := false
+			probes := stopProcessProbes{
+				list: func(string) []homeProcess {
+					listCalls++
+					if listCalls == 1 {
+						return []homeProcess{listed}
+					}
+					if gone || !tc.homeMatches {
+						return nil
+					}
+					return []homeProcess{{pid: pid, ppid: listed.ppid, args: args, startTime: startTime, homeMatched: true}}
+				},
+				inspect: func(int) (stopProcessSnapshot, error) {
+					inspectCalls++
+					// A departed process is waited for briefly; it ends during that wait.
+					if gone || (!tc.homeMatches && inspectCalls > 2) {
+						return stopProcessSnapshot{gone: true}, nil
+					}
+					return live, nil
+				},
+				home: func(int, string) (bool, error) { homeCalls++; return tc.homeMatches, tc.homeErr },
+				kill: func(_ int, signal syscall.Signal) error {
+					signals = append(signals, signal)
+					gone = true
+					return nil
+				},
+			}
+			stopped, err := stopHomeProcessesWithinWithProbes(home, time.Second, time.Second, probes)
+			if err != nil || fmt.Sprint(stopped) != fmt.Sprint(tc.wantStopped) || homeCalls == 0 {
+				t.Fatalf("stop=%v, %v (lists=%d HOME=%d signals=%v); want its HOME read again and the process stopped only if it names this HOME",
+					stopped, err, listCalls, homeCalls, signals)
+			}
+			wantSignals := []syscall.Signal(nil)
+			if tc.homeMatches {
+				wantSignals = []syscall.Signal{syscall.SIGTERM}
+			}
+			if !slices.Equal(signals, wantSignals) {
+				t.Fatalf("signals=%v; want %v", signals, wantSignals)
 			}
 		})
 	}
