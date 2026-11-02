@@ -42,7 +42,7 @@ func renamedKeyReplacement(parts []string) string {
 		if len(parts) >= 3 && parts[2] == "settings" {
 			return fmt.Sprintf("allow.%s.<setting>", parts[1])
 		}
-		return "`yolo loopholes enable <name>` (this workspace, run on the host) or `yolo pack add <pack>` for a pack that ships it"
+		return "`yolo request <pack> <kind>` (a grant for this project) or `yolo pack add <pack>` for a pack that ships it"
 	case "profiles":
 		return "providers.<name> and providers.<name>.variants.<variant>, chosen with `yolo active-provider`"
 	}

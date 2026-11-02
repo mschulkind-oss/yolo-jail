@@ -61,15 +61,18 @@ runtimes: it avoids the rebuild entirely. When you touch `packages` (or trigger
 vaapi), say so in your handoff — on the yolo-jail dev repo a rebuild also needs
 a host `just load`.
 
-One loophole kind is not yours to switch: one whose manifest declares
-`brokered` (the github pack's `github-broker`) is turned on per project, by the
-human, on the host. Its `enabled` in the workspace config is only a `[WARN]` in
-here but refuses the next host launch, so don't write it: the human enables it
-on the host. Give them
-`yolo host-run -C <value of $YOLO_HOST_DIR> -- yolo loopholes enable <name>` to
-run there, so its output comes back to you (`yolo host-run wait`); if their
-yolo has no `host-run`, ask them to run `yolo loopholes enable <name>` on the
-host, in this project.
+No loophole has a switch: one runs whenever its pack is selected, and what it
+may do is a grant (`yolo loopholes enable` and `disable` are retired and refuse).
+Ask for a grant this project needs with `yolo request <pack> <kind>` (for
+example `yolo request journal read`); the human approves it with
+`yolo config apply` on the host, in this workspace. A kind their config does
+not allow on request is theirs to allow for every project: give them
+`yolo host-run -C <value of $YOLO_HOST_DIR> -- yolo allow <pack> <kind>` to run
+there, so its output comes back to you (`yolo host-run wait`). A brokered
+loophole's read (the github pack's `github-broker`) is always the human's:
+`yolo allow github read`. Don't write `loopholes.<name>.enabled` in the
+workspace config; it is only a `[WARN]` in here but refuses the next host
+launch. `yolo loopholes list` shows each kind's standing here.
 
 Its repository list is the other way round: `brokered.<source>.repos`
 (`brokered.github.repos` for the github pack) is a workspace key you may write,

@@ -637,8 +637,18 @@ func podmanLaunchEnvFile(t *testing.T) (string, string) {
 // what the first one's gate recorded.
 func podmanLaunchEnvFileIn(t *testing.T, ws string) (string, string) {
 	t.Helper()
+	file, out, _ := podmanLaunchIn(t, ws)
+	return file, out
+}
+
+// podmanLaunchIn is podmanLaunchEnvFileIn with every argument the launch handed the fake podman,
+// one per line, so a test can read the binds the same launch's argv carries beside its channel.
+func podmanLaunchIn(t *testing.T, ws string) (string, string, string) {
+	t.Helper()
 	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "podman"), []byte("#!/bin/sh\nexit 3\n"), 0o755); err != nil {
+	argvLog := filepath.Join(bin, "podman.argv")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" >> '" + argvLog + "'\nexit 3\n"
+	if err := os.WriteFile(filepath.Join(bin, "podman"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+":/bin:/usr/bin")
@@ -666,7 +676,8 @@ func podmanLaunchEnvFileIn(t *testing.T, ws string) (string, string) {
 	if err != nil {
 		t.Fatalf("the launch wrote no channel file: %v\n%s", err, stdout.String()+stderr.String())
 	}
-	return string(raw), stdout.String() + stderr.String()
+	argv, _ := os.ReadFile(argvLog)
+	return string(raw), stdout.String() + stderr.String(), string(argv)
 }
 
 // A CONTAINER LAUNCH THAT BINDS THE LOOPHOLE DELIVERS ITS POINTER, and one where it is inactive
@@ -727,25 +738,34 @@ func writeUserConfigTOML(t *testing.T, home, body string) {
 // binds; withheld and named on darwin, where it is platform-inert (podman on a Mac reaches no host
 // PipeWire socket).
 //
-// THE SECOND LAUNCH is the one asserted: the channel, and with it the pointers, is composed
-// before the config-change gate runs, from the grant the approval record already holds, so the
-// launch whose gate first records `use` binds the sockets but withholds the pointers. That
-// first-launch gap is filed in the loophole-access-approval backlog (grant-backlog.md, F5).
+// BOTH LAUNCHES are asserted, the first above all: its config-change gate records `use`, and the
+// channel, with it the pointers, is composed before that gate runs. The pointers must agree with
+// the binds the SAME launch's argv carries, in both directions, so a gate that changes what the
+// launch holds composes the channel again (recomposeForApprovedGrants); without that, the first
+// launch bound the sockets and withheld the pointers. The second reads the recorded grant.
 func TestTheShippedAudioPointersFollowItsBindsOnPodman(t *testing.T) {
 	hostLauncher(t)
 	home := packHome(t)
 	writeUserConfigTOML(t, home, audioGrantedUserTOML)
 	ws := t.TempDir()
-	podmanLaunchEnvFileIn(t, ws)
-	file, out := podmanLaunchEnvFileIn(t, ws)
-	for _, k := range audioPointers {
-		delivered := strings.Contains(file, "export "+k+"=")
-		if want := runtime.GOOS == "linux"; delivered != want {
-			t.Errorf("%s delivered = %v on %s, want %v\nfile:\n%s\nout:\n%s", k, delivered, runtime.GOOS, want, file, out)
+	const withheld = `points at what the "audio" loophole binds into a jail`
+	for _, launch := range []string{"first", "second"} {
+		file, out, argv := podmanLaunchIn(t, ws)
+		bound := strings.Contains(argv, "/etc/alsa/conf.d/50-yolo-audio-alsa.conf")
+		if want := runtime.GOOS == "linux"; bound != want {
+			t.Errorf("%s launch: audio's binds on the argv = %v on %s, want %v\nargv:\n%s\nout:\n%s",
+				launch, bound, runtime.GOOS, want, argv, out)
 		}
-	}
-	if runtime.GOOS != "linux" && !strings.Contains(out, `points at what the "audio" loophole binds into a jail`) {
-		t.Errorf("a launch withholding audio's pointers did not name them:\n%s", out)
+		for _, k := range audioPointers {
+			if delivered := strings.Contains(file, "export "+k+"="); delivered != bound {
+				t.Errorf("%s launch: %s delivered = %v while the argv binds = %v\nfile:\n%s\nout:\n%s",
+					launch, k, delivered, bound, file, out)
+			}
+		}
+		if named := strings.Contains(out, withheld); named == bound {
+			t.Errorf("%s launch: the pointers named as withheld = %v while the argv binds = %v:\n%s",
+				launch, named, bound, out)
+		}
 	}
 }
 

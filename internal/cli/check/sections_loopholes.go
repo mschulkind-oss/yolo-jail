@@ -272,8 +272,7 @@ func (o *Options) checkLoopholes(r *reporter) {
 					// Nothing says why, so the note names who can: the pack that ships the
 					// self-check, and the config line that turns the loophole off meanwhile.
 					note = "no output, so nothing says why. The pack or config that declares " + lp.Name + " owns this " +
-						"self-check; `yolo loopholes disable " + lp.Name + "`, run in a project, turns it " +
-						"off there meanwhile."
+						"self-check; removing that pack (`yolo pack remove <pack>`) turns it off meanwhile."
 				}
 				r.fail(fmt.Sprintf("loophole %s: self-check failed (rc=%d)", lp.Name, *res.RC), note)
 			}

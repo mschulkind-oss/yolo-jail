@@ -48,26 +48,25 @@ type Deps struct {
 	// LaunchConfig is the config the host launched this jail with (config.JailLaunchConfig), the
 	// one place in a jail a brokered loophole's switch can be read from; nil reads none.
 	LaunchConfig func(cwd string) (*jsonx.OrderedMap, bool)
-	// HostDir is this jail's workspace as the host names it (YOLO_HOST_DIR), for the next step
-	// an in-jail `enable` names; "" on the host or when unknown.
-	HostDir string
-	// WriteSwitch writes one switch into a workspace's per-workspace file and returns the file
-	// (config.SetWorkspaceLoophole).
-	WriteSwitch func(workspace, name string, enabled bool) (string, error)
 	// RemoveSwitch takes one switch out of a workspace's per-workspace file, returning the file
 	// and whether it held the switch (config.RemoveWorkspaceLoophole): `disable` of a loophole
 	// no longer installed.
 	RemoveSwitch func(workspace, name string) (string, bool, error)
+	// Standings is each grant-declaring loophole's standing per kind in a workspace
+	// (ResolveStandings), by loophole name, for `list`, `status` and the retired verbs' refusal;
+	// nil shows none.
+	Standings func(workspace string, lps []*Loophole) (map[string][]KindStanding, error)
 }
 
 // RealDeps returns Deps backed by the real filesystem/config loaders.
 func RealDeps() Deps {
 	cwd, _ := os.Getwd()
+	inJail := os.Getenv("YOLO_VERSION") != ""
 	return Deps{
 		Out:    os.Stdout,
 		Err:    os.Stderr,
 		Cwd:    cwd,
-		InJail: os.Getenv("YOLO_VERSION") != "",
+		InJail: inJail,
 		LoadUserConfig: func() *jsonx.OrderedMap {
 			// UserScopeConfig, not LoadJSONCFile: it carries the includes AND any
 			// --user-layer, which is what lets an in-jail agent install a loophole and
@@ -87,9 +86,10 @@ func RealDeps() Deps {
 		},
 		LoadWorkspaceFile: config.ReadWorkspaceFile,
 		LaunchConfig:      config.JailLaunchConfig,
-		HostDir:           os.Getenv("YOLO_HOST_DIR"),
-		WriteSwitch:       config.SetWorkspaceLoophole,
 		RemoveSwitch:      config.RemoveWorkspaceLoophole,
+		Standings: func(workspace string, lps []*Loophole) (map[string][]KindStanding, error) {
+			return ResolveStandings(workspace, inJail, lps)
+		},
 	}
 }
 
@@ -290,12 +290,13 @@ func loopholesWithConfigAndBlock(deps Deps, includeDisabled bool) (Set, *jsonx.O
 // List runs `yolo loopholes list`.
 func List(deps Deps) int {
 	all := loopholesWithConfig(deps, true).All()
+	standings := standingsFor(deps, all)
 	// Before the empty-set branch, because the two forms answer that case
 	// differently on purpose: the human form explains where a loophole could come
 	// from, the document says "nothing is installed" and nothing else. See
 	// jsonreport.go.
 	if outfmt.IsJSON(deps.Format) {
-		return listJSON(deps, all)
+		return listJSON(deps, all, standings)
 	}
 	// COLOR IS ADDITIVE (docs/plans/cli-visual-polish.md), as in Status: a colored line is the
 	// plain report's text wrapped in style tags, and what yolo did not write in it (a loophole's
@@ -357,6 +358,7 @@ func List(deps Deps) int {
 		if lh.Description != "" {
 			p.Printf("      [dim]%s[/dim]", richtext.Escape(lh.Description))
 		}
+		printStandings(p, standings[lh.Name])
 		// ANYTHING THAT TURNS SOMETHING OFF MUST NAME WHO DID IT AND WHY
 		// (docs/reference/pack-system.md §5). An unexplained disappearance is the
 		// failure mode the whole mechanism exists to avoid, and `loopholes list` is the
@@ -421,6 +423,7 @@ func Status(deps Deps) int {
 	// (docs/reference/loophole-system.md#selection-and-discovery). A withheld one is REPORTED, with the
 	// reason, rather than skipped: a skip is indistinguishable from `no-check`, which
 	// would read as "this loophole declares no self-check" — the wrong story entirely.
+	standings := standingsFor(deps, all)
 	for _, r := range runStatusDoctorChecks(set, all, currentConfig) {
 		state := doctorState(set, r)
 		// The state stays in its brackets, which are literal text to the renderer: no state
@@ -433,6 +436,7 @@ func Status(deps Deps) int {
 		for _, s := range r.Loophole.SupersededBy {
 			p.Printf("      %s", richtext.Escape(s.Line()))
 		}
+		printStandings(p, standings[r.Loophole.Name])
 		if r.Output != "" {
 			for _, line := range strings.Split(r.Output, "\n") {
 				p.Printf("      [dim]%s[/dim]", richtext.Escape(line))
@@ -533,68 +537,35 @@ func listStateStyle(state, reason string) string {
 
 // SetEnabledOptions is what `yolo loopholes enable|disable` was asked beyond the name.
 type SetEnabledOptions struct {
-	// Workspace is the workspace the switch is for, already resolved by the caller: the
-	// `--workspace` it was given, else the current workspace root.
+	// Workspace is the workspace whose old switch `disable` removes, already resolved by the
+	// caller: the `--workspace` it was given, else the working directory.
 	Workspace string
-	// Global asks for the user-config block that switches the loophole for every workspace,
-	// printed to paste: nothing is written.
+	// Global was the every-workspace form. It is still parsed, so an old script gets the
+	// refusal rather than a usage error, and it removes nothing.
 	Global bool
 }
 
-// CmdSetEnabled runs `yolo loopholes enable|disable <name>`: it writes the switch into the
-// workspace's PER-WORKSPACE FILE (config/workspacefile.go), host-side, and says which file and
-// that it applies at the workspace's next fresh launch.
+// CmdSetEnabled runs `yolo loopholes enable|disable <name>`, which are RETIRED
+// (docs/design/loophole-access-approval.md §4.5, LG-D8): a loophole runs whenever its pack is
+// selected, and a project gets access by a grant, not a switch. Both refuse for every loophole
+// with §5's text, naming `yolo request` for this project and `yolo allow` for every project
+// (retiredRefusal), and exit 1, as a retired spelling does in this CLI.
 //
-// IT NEVER EDITS THE USER CONFIG, by the maintainer's ruling (2026-10-01,
-// docs/design/boundary-broker.md OQ-BB12): "I don't want to do anything that edits the user
-// config directly. We can edit a file that lives next to it of a different name or whatever."
-// config.jsonc is a hand-commented file, and a read-modify-write through the JSONC decoder drops
-// every comment in it. So `--global`, the every-workspace switch, still prints the block to
-// paste, writes nothing and exits 1, as the whole command did until this change.
+// `disable` FIRST removes a switch an older yolo wrote into the workspace's per-workspace file
+// (config/workspacefile.go), host-side, and exits 0 when it removed one: until the migration
+// retires that file, its `enabled: true` reads as a grant, so this is the command that takes it
+// back. It does so for a name no installed loophole answers to too, the trace of a deselected
+// pack. In a jail the file is on the host, so there is nothing here to remove.
 //
-// A BROKERED LOOPHOLE HAS NO SWITCH (BB-D104, BB-D109): it runs whenever its pack is selected,
-// and what it may do is a grant in config. Both verbs refuse for one, naming that grant
-// (setBrokerSwitch), and `disable` first takes out a switch a previous yolo wrote.
-//
-// HOST-SIDE ONLY. In a jail it refuses, naming the command to run on the host: the file lives
-// in a folder no jail can read, and a jail's own folder would govern only launches made inside
-// it, which is not what someone typing this in a jail means.
-//
-// A name `yolo loopholes list` does not show is refused, `--global` included, except that
-// `disable` of one takes its switch out of the per-workspace file when the file still holds it:
-// the trace of a deselected pack, which nothing else could clear.
-//
-// It never writes a manifest either (TestSetEnabledNeverWritesAManifest): after OQ-A9 a
-// manifest carries the pack author's default, not the user's answer.
+// It never writes anything else: no switch, no user config, no manifest
+// (TestSetEnabledNeverWritesAManifest).
 func CmdSetEnabled(deps Deps, name string, enabled bool, opts SetEnabledOptions) int {
 	verb := verbFor(enabled)
-	if deps.InJail {
-		// A broker has no switch on either side (BB-D109): say so here too, rather than send
-		// the user to a host command that refuses.
-		for _, lp := range loopholesWithConfig(deps, true).All() {
-			if lp.Name == name && lp.Brokered != nil {
-				fmt.Fprintf(deps.Err, "yolo loopholes %s: %s has no switch: it runs whenever the pack that "+
-					"ships it is selected, and grants nothing until the user's config does. %s\n", verb, name,
-					config.BrokerGrantAdviceFor(*lp.Brokered))
-				return 1
-			}
+	if !enabled && !opts.Global && !deps.InJail {
+		if rc, handled := removeOldSwitch(deps, name, opts.Workspace); handled {
+			return rc
 		}
 	}
-	if deps.InJail && !opts.Global {
-		fmt.Fprintf(deps.Err, "yolo loopholes %s: this is a jail, and a per-workspace switch is "+
-			"made on the host, in a folder no jail can read.\n", verb)
-		if deps.HostDir != "" && config.IsJailOwnWorkspace(opts.Workspace) {
-			fmt.Fprintf(deps.Err, "On the host, run:\n  %s\nthen start a fresh jail there.\n",
-				setEnabledCommand(enabled, name, deps.HostDir))
-		} else {
-			fmt.Fprintf(deps.Err, "On the host, run `yolo loopholes %s %s` in that project, then "+
-				"start a fresh jail there.\n", verb, name)
-		}
-		return 1
-	}
-	// The names `yolo loopholes list` shows, so the refusal's next step lists exactly what
-	// this command accepts. Checked before `--global` too, whose block for a name nothing
-	// installs would be one the launch warns about or, once a pack ships it, refuses.
 	var found *Loophole
 	for _, lp := range loopholesWithConfig(deps, true).All() {
 		if lp.Name == name {
@@ -602,68 +573,20 @@ func CmdSetEnabled(deps Deps, name string, enabled bool, opts SetEnabledOptions)
 		}
 	}
 	if found == nil {
-		if !enabled && !opts.Global {
-			// A switch for a loophole whose pack was deselected since: `yolo check` warns about
-			// it, and this is the command that clears it.
-			if rc, handled := clearUninstalledSwitch(deps, name, opts.Workspace); handled {
-				return rc
-			}
-		}
 		fmt.Fprintf(deps.Err, "yolo loopholes %s: no loophole named %q is installed on this "+
 			"machine. `yolo loopholes list` shows the ones that are; a pack you select in %s "+
 			"installs its own.\n", verb, name, paths.UserConfigDisplayPath())
 		return 1
 	}
-	if found.Brokered != nil {
-		return setBrokerSwitch(deps, found, enabled, opts)
-	}
-	if opts.Global {
-		return setEnabledGlobally(deps, found, enabled)
-	}
-	ws := opts.Workspace
-	if !workspaceUsable(deps, verb, name, enabled, ws) {
-		return 1
-	}
-	write := deps.WriteSwitch
-	if write == nil {
-		write = config.SetWorkspaceLoophole
-	}
-	path, err := write(ws, name, enabled)
-	if err != nil {
-		fmt.Fprintf(deps.Err, "yolo loopholes %s: %v\n", verb, err)
-		return 1
-	}
-	state := "on"
-	if !enabled {
-		state = "off"
-	}
-	fmt.Fprintf(deps.Out, "%s is %s for %s from its next fresh launch; the switch is in %s\n",
-		name, state, ws, path)
-	return 0
+	fmt.Fprint(deps.Err, retiredRefusal(deps, verb, found))
+	return 1
 }
 
-// workspaceUsable reports whether ws can carry a per-workspace switch, and refuses with the next
-// step when it cannot: a folder no launch may use as a workspace, or no folder at all.
-func workspaceUsable(deps Deps, verb, name string, enabled bool, ws string) bool {
-	if breach := paths.WorkspaceScopeBreach(ws); breach != nil {
-		fmt.Fprintf(deps.Err, "yolo loopholes %s: %s, and no launch may use it as a workspace. "+
-			"cd into the project, or name it: %s\n", verb, breach.What(),
-			setEnabledCommand(enabled, name, "<project>"))
-		return false
-	}
-	if fi, err := os.Stat(ws); err != nil || !fi.IsDir() {
-		fmt.Fprintf(deps.Err, "yolo loopholes %s: %s is not a folder, so it cannot be a workspace. "+
-			"Name the project's folder with --workspace, or cd into it.\n", verb, ws)
-		return false
-	}
-	return true
-}
-
-// clearUninstalledSwitch is `disable` of a name no loophole on this machine answers to: when the
-// workspace's per-workspace file still holds a switch for it, it takes the switch out and says
-// so. handled is false when there is no such switch, and the caller refuses the name as before.
-func clearUninstalledSwitch(deps Deps, name, ws string) (rc int, handled bool) {
-	if paths.WorkspaceScopeBreach(ws) != nil {
+// removeOldSwitch is `disable`'s first step: when ws's per-workspace file holds a switch for
+// name, it takes the switch out, says so, and handled is true. handled is false when there is
+// no such switch, or ws cannot be a workspace, and the caller refuses as for `enable`.
+func removeOldSwitch(deps Deps, name, ws string) (rc int, handled bool) {
+	if ws == "" || paths.WorkspaceScopeBreach(ws) != nil {
 		return 0, false
 	}
 	if fi, err := os.Stat(ws); err != nil || !fi.IsDir() {
@@ -681,86 +604,99 @@ func clearUninstalledSwitch(deps Deps, name, ws string) (rc int, handled bool) {
 	if !removed {
 		return 0, false
 	}
-	fmt.Fprintf(deps.Out, "%s is not installed on this machine, so its switch for %s is removed "+
-		"from %s; it stays off there.\n", name, ws, path)
+	fmt.Fprintf(deps.Out, "Removed the switch an older yolo wrote for %s from %s. Switches are retired: a loophole "+
+		"runs whenever its pack is selected, and a project gets access by a grant (`yolo loopholes list` shows "+
+		"what this project holds).\n", name, path)
 	return 0, true
 }
 
-// setBrokerSwitch is `enable` or `disable` of a brokered loophole, which has no switch any more
-// (docs/design/boundary-broker.md BB-D104, BB-D109): it runs whenever its pack is selected, and
-// what it may do is a grant in config, approved with `yolo config apply`. So both verbs refuse,
-// naming that grant; `disable` first takes out a switch a previous yolo wrote into this
-// workspace's per-workspace file, which is ignored now, and says so.
-func setBrokerSwitch(deps Deps, lp *Loophole, enabled bool, opts SetEnabledOptions) int {
-	verb := verbFor(enabled)
-	advice := config.BrokerGrantAdviceFor(*lp.Brokered)
-	if !enabled && !opts.Global && paths.WorkspaceScopeBreach(opts.Workspace) == nil {
-		if fi, err := os.Stat(opts.Workspace); err == nil && fi.IsDir() {
-			remove := deps.RemoveSwitch
-			if remove == nil {
-				remove = config.RemoveWorkspaceLoophole
-			}
-			path, removed, err := remove(opts.Workspace, lp.Name)
-			if err != nil {
-				fmt.Fprintf(deps.Err, "yolo loopholes disable: %v\n", err)
-				return 1
-			}
-			if removed {
-				fmt.Fprintf(deps.Out, "%s has no per-workspace switch any more, so its old one is removed from "+
-					"%s. It runs whenever its pack is selected, and grants nothing until your config does. %s\n",
-					lp.Name, path, advice)
-				return 0
+// retiredHeader is the first two lines of every retired-verb refusal (§5).
+func retiredHeader(verb string) string {
+	return "yolo loopholes " + verb + " is retired: a loophole runs whenever its pack is selected, and a project " +
+		"gets access by a\n  grant, not a switch.\n"
+}
+
+// retiredRefusal is the refusal for lp, by what it declares: a grant-declaring loophole names
+// the request for this project and the allow for every project, on the kind a project asks for
+// first (exampleGrant); a brokered one names its read grant; one that declares no grant names
+// its pack, which is all that decides whether it runs.
+func retiredRefusal(deps Deps, verb string, lp *Loophole) string {
+	var b strings.Builder
+	b.WriteString(retiredHeader(verb))
+	pack := shquote.JoinDisplay([]string{lp.Pack})
+	switch {
+	case len(lp.Grants) > 0 && lp.Pack != "":
+		g := exampleGrant(lp.Grants)
+		req := "yolo request " + pack + " " + g.Kind
+		if g.Valued {
+			req += " <" + valueNoun(g) + ">"
+		}
+		fmt.Fprintf(&b, "  For this project:    %s     (in the workspace), then `yolo config apply` here and y\n", req)
+		if !requestableHere(deps, lp, g) {
+			fmt.Fprintf(&b, "                       your config does not allow it on request yet, so first:  "+
+				"yolo allow %s on_request %s\n", pack, g.Kind)
+		}
+		if g.Valued {
+			fmt.Fprintf(&b, "  For every project:   yolo allow %s on_request %s     (each project then requests its own %s)\n",
+				pack, g.Kind, valueNoun(g))
+		} else {
+			fmt.Fprintf(&b, "  For every project:   yolo allow %s %s\n", pack, g.Kind)
+		}
+		if path, toml := config.UserConfigFile(); !toml {
+			fmt.Fprintf(&b, "  `yolo allow` writes a TOML user config: convert %s first with `yolo config migrate` on the host.\n", path)
+		}
+	case lp.Brokered != nil:
+		fmt.Fprintf(&b, "  %s has no grant of its own to request. %s\n", lp.Name, config.BrokerGrantAdviceFor(*lp.Brokered))
+	case lp.Pack != "":
+		fmt.Fprintf(&b, "  %s declares no grant, so its pack, %s, is all that decides it: `yolo pack add %s` runs it "+
+			"everywhere.\n", lp.Name, lp.Pack, pack)
+	default:
+		fmt.Fprintf(&b, "  %s is declared in config (`loopholes.%s` in %s), not by a pack; it runs while that entry "+
+			"is there.\n", lp.Name, lp.Name, paths.UserConfigDisplayPath())
+	}
+	if verb == "disable" && lp.Pack != "" {
+		fmt.Fprintf(&b, "  To stop it running:  yolo pack remove %s\n", pack)
+	}
+	return b.String()
+}
+
+// exampleGrant is the kind a refusal shows: the one requestable by default, else the one a
+// legacy switch converted to, else the first declared.
+func exampleGrant(grants []Grant) Grant {
+	for _, g := range grants {
+		if g.RequestableByDefault {
+			return g
+		}
+	}
+	for _, g := range grants {
+		if g.LegacyEnable {
+			return g
+		}
+	}
+	return grants[0]
+}
+
+// valueNoun is a valued kind's noun for its placeholder, as `yolo request` spells it.
+func valueNoun(g Grant) string {
+	if g.ValueNoun != "" {
+		return g.ValueNoun
+	}
+	return "values"
+}
+
+// requestableHere is whether a request for g would reach the gate: its standing is anything but
+// not_allowed. With no standing to read, the manifest's own default answers.
+func requestableHere(deps Deps, lp *Loophole, g Grant) bool {
+	if deps.Standings != nil {
+		if byName, err := deps.Standings(deps.Cwd, []*Loophole{lp}); err == nil {
+			for _, k := range byName[lp.Name] {
+				if k.Kind == g.Kind {
+					return k.Standing != config.LoopholeGrantNotAllowed
+				}
 			}
 		}
 	}
-	fmt.Fprintf(deps.Err, "yolo loopholes %s: %s has no switch: it runs whenever the pack that ships it is "+
-		"selected, and grants nothing until your config does. %s To stop it running, take its pack out of "+
-		"`packs` in %s.\n", verb, lp.Name, advice, paths.UserConfigDisplayPath())
-	return 1
-}
-
-// setEnabledGlobally is `--global`: the every-workspace switch. In the readable config `packs` is
-// the only switch (docs/design/config-user.md A.4): a loophole is on user-wide when the pack that
-// ships it is selected, so the instruction names the pack verb, not a `loopholes.*` key (which
-// `yolo config set` refuses). It writes nothing and exits 1, since nothing changed here
-// (OQ-BB12). lp is the installed loophole, whose Pack says who ships it ("" when config does).
-func setEnabledGlobally(deps Deps, lp *Loophole, enabled bool) int {
-	verb, name := verbFor(enabled), lp.Name
-	perWS := fmt.Sprintf("To switch it for one workspace only, run `yolo loopholes %s %s` in it, which writes "+
-		"that workspace's own file beside the user config.\n", verb, name)
-	if lp.Pack == "" {
-		fmt.Fprintf(deps.Err, "yolo loopholes %s --global writes nothing: no pack ships %s (it is declared "+
-			"in config), so there is no pack to %s. `yolo pack ls` shows the selected packs and "+
-			"`yolo loopholes list` where each loophole comes from.\n%s", verb, name,
-			map[bool]string{true: "select", false: "deselect"}[enabled], perWS)
-		return 1
-	}
-	pack := shquote.JoinDisplay([]string{lp.Pack})
-	if enabled {
-		fmt.Fprintf(deps.Err, "yolo loopholes enable --global writes nothing: %s is on for every workspace "+
-			"whenever the pack that ships it is selected, and `%s` is (to select it again after removing it: "+
-			"`yolo pack add %s`, which edits %s). A workspace turns it off with `off = true` on its pack entry.\n%s",
-			name, lp.Pack, pack, paths.UserConfigDisplayPath(), perWS)
-		return 1
-	}
-	fmt.Fprintf(deps.Err, "yolo loopholes disable --global writes nothing: %s is on for every workspace "+
-		"because the pack that ships it, `%s`, is selected. To turn it off everywhere, run `yolo pack remove %s` "+
-		"(it edits %s).\n%s", name, lp.Pack, pack, paths.UserConfigDisplayPath(), perWS)
-	return 1
-}
-
-// setEnabledCommand is the command that makes this switch for workspace, spelled to paste: the
-// path is quoted for a shell, and a control character in it is written as an escape.
-// placeholder is a workspace the reader fills in, which is left as written.
-func setEnabledCommand(enabled bool, name, workspace string) string {
-	ws := workspace
-	if !strings.HasPrefix(ws, "<") {
-		ws = shquote.QuoteDisplay(ws)
-	}
-	if enabled {
-		return "yolo loopholes enable " + name + " --workspace " + ws
-	}
-	return "yolo loopholes disable " + name + " --workspace " + ws
+	return g.RequestableByDefault
 }
 
 // setConfigEnabled sets `enabled` on block's entry for name, keeping the entry's other keys, in a

@@ -71,10 +71,11 @@ var (
 )
 
 // workspaceFileHeader is the comment every write puts at the top of the file.
-const workspaceFileHeader = `// yolo's per-workspace file for the workspace named below. ` + "`yolo loopholes enable`" + ` and
-// ` + "`yolo loopholes disable`" + ` write it; it applies to that workspace alone, from its next fresh
-// launch, and no jail can read it. You may edit it by hand, but yolo rewrites the whole file
-// the next time one of those commands runs, so a comment you add is not kept.
+const workspaceFileHeader = `// yolo's per-workspace file for the workspace named below. An older yolo's
+// ` + "`yolo loopholes enable`" + ` wrote it, and ` + "`yolo loopholes disable`" + ` removes a switch from it;
+// it applies to that workspace alone, from its next fresh launch, and no jail can read it. You
+// may edit it by hand, but yolo rewrites the whole file when it removes a switch, so a comment
+// you add is not kept.
 `
 
 // WorkspaceFilePath is workspace's per-workspace file. The workspace is resolved first
@@ -228,8 +229,8 @@ func readWorkspaceFile(workspace string, record bool) *WorkspaceFile {
 		return nil
 	}
 	wf := &WorkspaceFile{Path: path, Workspace: resolved, Loopholes: jsonx.NewOrderedMap()}
-	fixUnreadable := " Fix it, or delete it and run `yolo loopholes enable` or `disable` " +
-		"for this workspace again, which writes a new one."
+	fixUnreadable := " Fix it, or delete it: switches are retired, and a project gets access by a " +
+		"grant (`yolo request <pack> <kind>`)."
 	if err != nil {
 		wf.unreadable = true
 		wf.Problems = append(wf.Problems, path+": cannot read this per-workspace file: "+err.Error()+"."+fixUnreadable)
@@ -276,7 +277,7 @@ func readWorkspaceFile(workspace string, record bool) *WorkspaceFile {
 	if !ok {
 		wf.Problems = append(wf.Problems, at(json5.Key(workspaceFileLoopholesKey))+
 			": \"loopholes\" must be an object of loophole name -> {\"enabled\": true|false}. "+
-			"Fix it, or run `yolo loopholes enable` or `disable` for this workspace after deleting it.")
+			"Fix it, or delete it: switches are retired, and a project gets access by a grant (`yolo request <pack> <kind>`).")
 		return wf
 	}
 	for _, name := range block.Keys() {
@@ -291,7 +292,7 @@ func readWorkspaceFile(workspace string, record bool) *WorkspaceFile {
 		if !ok {
 			wf.Problems = append(wf.Problems, at(steps...)+": expected {\"enabled\": true} or "+
 				"{\"enabled\": false} (got "+pyReprValue(ev)+"). Fix it, or run "+
-				"`yolo loopholes enable "+name+"` or `yolo loopholes disable "+name+"` for this workspace.")
+				"`yolo loopholes disable "+name+"` for this workspace, which removes it.")
 			continue
 		}
 		bad := false
@@ -311,8 +312,7 @@ func readWorkspaceFile(workspace string, record bool) *WorkspaceFile {
 		if !isBool {
 			wf.Problems = append(wf.Problems, at(append(steps, json5.Key(workspaceFileEnabledKey))...)+
 				": \"enabled\" must be true or false (got "+pyReprValue(v)+"). Run "+
-				"`yolo loopholes enable "+name+"` or `yolo loopholes disable "+name+"` for this "+
-				"workspace, which writes it.")
+				"`yolo loopholes disable "+name+"` for this workspace, which removes it.")
 			continue
 		}
 		if !bad {
@@ -335,8 +335,8 @@ func (wf *WorkspaceFile) Mismatch() string {
 		}
 	}
 	return wf.Path + " " + what + ", not " + wf.Workspace + ", so nothing in it applies. Delete " +
-		"it, and run `yolo loopholes enable` or `disable` in " + wf.Workspace + " to write this " +
-		"workspace's own."
+		"it: switches are retired, and " + wf.Workspace + " gets access by a grant " +
+		"(`yolo request <pack> <kind>`)."
 }
 
 // Switches describes the switches that apply, as "github-broker on, journal off", for the

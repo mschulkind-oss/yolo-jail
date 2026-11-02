@@ -589,6 +589,12 @@ func Run(opts Options) (rc int) {
 		if !o.DryRun && !o.checkConfigChanges(cfg, rt) {
 			return 1
 		}
+		// What the gate granted, on the payload and channel composed above from the approval
+		// record (recomposeForApprovedGrants), as the container arm does after its gate.
+		if channel, jailDaemons, err = o.recomposeForApprovedGrants(cfg, rt, staged.packs, channel, jailDaemons); err != nil {
+			o.printProviderRefusal([]string{"Refusing to launch: " + err.Error()})
+			return 1
+		}
 		if !o.DryRun && !sameWorkspaceMounts(plannedWritable, o.workspaceMounts) {
 			o.pr(o.Stderr).print("[bold red]The workspace config's mounts changed while yolo " +
 				"was reading it, so the mounts planned for this launch are not the ones just approved. " +
@@ -1699,6 +1705,13 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// --- Fresh launch: config-change approval ---
 	o.logRecord("decision: fresh launch of %s (no running jail to attach to)", cname)
 	if !o.checkConfigChanges(cfg, rt) {
+		return 1
+	}
+	// THE GATE'S GRANTS, on what this launch serves: the payload and channel were composed above
+	// the dispatch from the approval record, and the argv below binds what this gate approved.
+	var recomposeErr error
+	if channel, jailDaemons, recomposeErr = o.recomposeForApprovedGrants(cfg, rt, loadedPacks, channel, jailDaemons); recomposeErr != nil {
+		o.printProviderRefusal([]string{"Refusing to launch: " + recomposeErr.Error()})
 		return 1
 	}
 	if o.Update && config.InJail() {

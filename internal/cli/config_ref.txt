@@ -372,11 +372,19 @@
       [cyan]yolo request <name> <kind>[/cyan] after [cyan]yolo allow <name> on_request <kind>[/cyan].
       To keep a pack's loophole off, do not select the pack.  For a pack's
       loophole this key switches nothing, and "yolo check" says so wherever it
-      is written.  A switch an older [cyan]yolo loopholes enable[/cyan] wrote into a
-      project's per-workspace file (~/.config/yolo-jail/workspaces/) is read as
-      that project's legacy request for the loophole's grant.  The manifest
-      key "default_enabled" is refused at load: a loophole.toml declares what
-      can be granted under [[grants]] instead.
+      is written.  The manifest key "default_enabled" is refused at load: a
+      loophole.toml declares what can be granted under [[grants]] instead.
+
+      [cyan]yolo loopholes enable[/cyan] and [cyan]disable[/cyan] are RETIRED: a
+      loophole runs whenever its pack is selected, and a project gets access by
+      a grant, not a switch — [cyan]yolo request <pack> <kind>[/cyan] for one
+      project, [cyan]yolo allow <pack> <kind>[/cyan] for every project.  Both
+      refuse, naming those two.  A switch an older yolo wrote into a project's
+      PER-WORKSPACE FILE (~/.config/yolo-jail/workspaces/<folder>-<hash>.jsonc,
+      which merges LAST and no jail can read) is still read, as that project's
+      legacy request for the loophole's grant, until the migration retires that
+      file; [cyan]yolo loopholes disable <name>[/cyan], run on the host in the
+      project, removes it and exits 0.
 
       A loophole whose manifest declares "brokered" (the github pack's
       github-broker, the git pack's git-broker) grants nothing until a grant

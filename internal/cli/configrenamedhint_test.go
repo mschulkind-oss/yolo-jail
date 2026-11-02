@@ -58,7 +58,7 @@ func TestConfigSetOnARenamedLegacyRootNamesTheReplacement(t *testing.T) {
 			want string
 		}{
 			{[]string{"set", "resources.cpus", "2"}, "machine.resources.cpus"},
-			{[]string{"set", "loopholes.audio.enabled", "true"}, "yolo loopholes enable"},
+			{[]string{"set", "loopholes.audio.enabled", "true"}, "yolo request <pack> <kind>"},
 			{[]string{"set", "loopholes.audio.settings.x", "1"}, "allow.audio.<setting>"},
 			{[]string{"set", "profiles.x.model", "m"}, "providers.<name>"},
 		} {

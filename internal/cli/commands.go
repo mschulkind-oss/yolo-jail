@@ -859,27 +859,24 @@ otherwise isolated container. This group is how you see which ones exist, whethe
 they are active here, and whether they are healthy.
 
 Subcommands:
-  list              Every installed loophole, its source (bundled, pack-shipped
-                    or config-inline) and whether it is enabled here. This is the
-                    default: a bare ` + "`yolo loopholes`" + ` lists.
-  status            Run each loophole's own self-check. HOST-SIDE: inside a jail
-                    it says so and does nothing, because the things being checked
-                    are host daemons.
-  enable <name>     Turn <name> on for ONE workspace …
-  disable <name>    … or off. HOST-SIDE: each writes that workspace's own file in
-                    ~/.config/yolo-jail/workspaces/, never your config.jsonc, and
-                    prints which file; it applies from the workspace's next fresh
-                    launch, and no jail can read it. A loophole whose manifest
-                    declares ` + "`brokered`" + ` (github-broker, git-broker) has no switch:
-                    it runs whenever its pack is selected and grants nothing until
-                    a grant in config does, so both refuse for it, naming the grant;
-                    ` + "`disable`" + ` first removes a switch an older yolo wrote for it.
-
-Flags for ` + "`enable`" + ` and ` + "`disable`" + `:
-  --workspace <path>  The workspace to switch. Default: this folder, the workspace
-                      a launch here uses.
-  --global            Every workspace instead: print the ` + "`loopholes`" + ` block to add
-                      to ~/.config/yolo-jail/config.jsonc, write nothing, and exit 1.
+  list              Every installed loophole, its source (pack-shipped or
+                    config-inline), whether it is active here, and, for one that
+                    declares grants, each grant kind's standing in this workspace:
+                    granted, pending (requested, not yet approved), requestable
+                    (your config allows a request; none made), or not_allowed
+                    (candidate in a jail: held once the host's gate is answered y).
+                    This is the default: a bare ` + "`yolo loopholes`" + ` lists.
+  status            Run each loophole's own self-check, with the same standings.
+                    HOST-SIDE: inside a jail it says so and does nothing, because
+                    the things being checked are host daemons.
+  enable <name>     RETIRED. A loophole runs whenever its pack is selected, and a
+  disable <name>    project gets access by a grant: ` + "`yolo request <pack> <kind>`" + `
+                    for one project, ` + "`yolo allow <pack> <kind>`" + ` for every project.
+                    Both refuse, naming those two for <name>. ` + "`disable`" + ` first
+                    removes a switch an older yolo wrote for the workspace
+                    (--workspace <path>, default this folder) and exits 0 when it did.
+                    --global, the old every-workspace form, is still accepted and
+                    removes nothing.
 
 Flags for ` + "`list`" + ` and ` + "`status`" + ` (the two that report state):
 ` + outputFormatUsage + `
@@ -896,7 +893,7 @@ Examples:
   yolo loopholes list                   # what is wired into this jail?
   yolo loopholes list --format json     # the same, for an agent
   yolo loopholes status                 # host-side: is each one healthy?
-  yolo loopholes enable journal         # on, for this workspace only
+  yolo request journal read             # this project asks to read your journal
 
 The ` + "`loopholes`" + ` config key is documented in ` + "`yolo config-ref`" + `; a pack can ship one
 (` + "`yolo pack --help`" + `, the ` + "`loophole`" + ` kind).`
@@ -931,14 +928,13 @@ func runLoopholes(args []string) int {
 	case "status":
 		return loopholes.Status(deps)
 	case "enable", "disable":
-		// REFUSED, not ignored, on the verbs that ACT. enable/disable print a
-		// config block for a human to paste and exit non-zero; there is no state
-		// report to serialize, and accepting `--format json` here would answer a
-		// request for machine-readable output with prose — the exact failure the
-		// flag exists to prevent (outputformat.go).
+		// REFUSED, not ignored: the retired verbs report no state to serialize, and
+		// accepting `--format json` here would answer a request for machine-readable
+		// output with prose — the exact failure the flag exists to prevent
+		// (outputformat.go).
 		if outfmt.IsJSON(format) {
 			fmt.Fprintf(os.Stderr, "yolo loopholes %s: --format json is not available "+
-				"here — this verb writes a switch, it does not report "+
+				"here — this verb is retired and reports no "+
 				"state. `yolo loopholes list --format json` and `… status --format json` do.\n", sub)
 			return 2
 		}
@@ -955,13 +951,14 @@ func runLoopholes(args []string) int {
 	}
 }
 
-// parseSetEnabledArgs reads `yolo loopholes enable|disable`'s argv after the verb: the
-// loophole's name, `--workspace <path>` (or `--workspace=<path>`) and `--global`. The
-// workspace defaults to the working directory, which is the workspace a launch made here uses
-// (run.Run's own default), and is returned absolute with its symlinks resolved. It is NOT
-// `yolo config`'s walk up to the nearest marked folder: the per-workspace file matches its
-// exact folder, so a switch written for a parent would not reach a launch made here, and a
-// `disable` here would miss the switch that launch reads. A leading `~/` is expanded, since
+// parseSetEnabledArgs reads the retired `yolo loopholes enable|disable`'s argv after the verb:
+// the loophole's name, `--workspace <path>` (or `--workspace=<path>`) and `--global`, still
+// parsed so an old script gets the refusal rather than a usage error. The workspace is the one
+// whose old switch `disable` removes; it defaults to the working directory, which is the
+// workspace a launch made here uses (run.Run's own default), and is returned absolute with its
+// symlinks resolved. It is NOT `yolo config`'s walk up to the nearest marked folder: the
+// per-workspace file matches its exact folder, so a `disable` here would otherwise miss the
+// switch a launch here reads. A leading `~/` is expanded, since
 // bash leaves it in `--workspace=~/x`. problem is the usage error, "" when there is none.
 func parseSetEnabledArgs(args []string) (name string, opts loopholes.SetEnabledOptions, problem string) {
 	workspace := ""

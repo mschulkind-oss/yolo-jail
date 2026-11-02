@@ -91,10 +91,12 @@ func (o *Options) jailDaemonsFor(cfg *jsonx.OrderedMap, rt string,
 	// interception from the argv (loopholesRuntimeArgs): one decision, both halves.
 	// Narrowed by this launch's grants as the argv is (loopholesRuntimeArgs), so a bound
 	// loophole's pointer is served exactly when its binds cross. This runs before the gate, so a
-	// grant reads from the record here (loopholeGrantStandings).
+	// grant reads from the record here (loopholeGrantStandings), and what it read is recorded so
+	// a gate that grants otherwise has the launch compose again (recomposeForApprovedGrants).
 	standings := o.loopholeGrantStandings(rt, cfg)
+	o.composedGrants = grantedKinds(standings)
 	set := loopholes.NewHostSet(cfgMap(cfg, "loopholes")).WithCredentialView(o.claudeCredentialView(rt, cfg)).
-		WithGrants(grantedKinds(standings))
+		WithGrants(o.composedGrants)
 	// The service declarations the payload below sets aside, recorded for noteShadowedServices
 	// the way withoutUnselectedProfileDaemons records what it leaves out: every call composes
 	// the same packs, so the record is the same whichever call wrote it last.

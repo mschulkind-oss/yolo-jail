@@ -15,11 +15,10 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
-// TestSetEnabledGlobalPrintsTheConfigKeyAndWritesNothing: yolo never edits the user config
-// (docs/design/boundary-broker.md OQ-BB12), so `--global`, the every-workspace switch, still
-// prints the exact key, the exact file and the exact value to paste, writes nothing, and exits
-// non-zero, since nothing changed — which is what the whole command did before the per-workspace
-// file existed.
+// TestSetEnabledGlobalPrintsTheConfigKeyAndWritesNothing: `enable` and `disable` are retired
+// (docs/design/loophole-access-approval.md LG-D8), `--global` included: for a loophole declared
+// in config (no pack ships it) the refusal says so and names the file that declares it, writes
+// nothing, and exits 1.
 func TestSetEnabledGlobalPrintsTheConfigKeyAndWritesNothing(t *testing.T) {
 	isolateDirs(t)
 	home := t.TempDir()
@@ -47,7 +46,7 @@ func TestSetEnabledGlobalPrintsTheConfigKeyAndWritesNothing(t *testing.T) {
 			t.Errorf("%s --global wrote %v", tc.verb, entries)
 		}
 		got := errBuf.String()
-		for _, want := range []string{tc.verb, "loopholes", "myhole", "no pack ships", "yolo pack ls", "yolo loopholes list"} {
+		for _, want := range []string{"yolo loopholes " + tc.verb + " is retired", "myhole", "declared in config", "loopholes.myhole"} {
 			if !strings.Contains(got, want) {
 				t.Errorf("%s: message does not mention %q:\n%s", tc.verb, want, got)
 			}
@@ -458,7 +457,6 @@ func TestSetEnabledGlobalNamesTheLiveUserConfigFile(t *testing.T) {
 			home := t.TempDir()
 			t.Setenv("HOME", home)
 			dir := filepath.Join(home, ".config", "yolo-jail")
-			_ = tc.want
 			if tc.existing != "" {
 				if err := os.MkdirAll(dir, 0o755); err != nil {
 					t.Fatal(err)
@@ -482,8 +480,8 @@ func TestSetEnabledGlobalNamesTheLiveUserConfigFile(t *testing.T) {
 			if strings.Contains(got, `"loopholes": {`) || strings.Contains(got, "yolo config set") {
 				t.Errorf("prints a snippet or verb a %s home refuses:\n%s", tc.name, got)
 			}
-			if !strings.Contains(got, "yolo pack ls") {
-				t.Errorf("does not name the next step:\n%s", got)
+			if !strings.Contains(got, "is retired") || !strings.Contains(got, tc.want) || strings.Contains(got, tc.notWant) {
+				t.Errorf("does not name the live user config %s (and not %s):\n%s", tc.want, tc.notWant, got)
 			}
 		})
 	}

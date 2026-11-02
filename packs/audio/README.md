@@ -125,11 +125,6 @@ skips only its own bind. And re-entering a running jail after the grant changed 
 both variables by the new grant, while the jail keeps the binds it started with (both recorded in
 LP-D1).
 
-> **Known gap:** the variables are composed before the launch's config-change gate runs, from
-> the grant the approval record already holds. So the one launch whose gate *first* records
-> `use` binds the sockets but leaves both variables out (and names them); the next launch sets
-> them.
-
 ## Off by default
 
 Nothing of audio crosses until a project holds `use`, and `use` is not requestable by default

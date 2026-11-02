@@ -3,6 +3,7 @@ package loopholes
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -181,6 +182,16 @@ func TestTheShippedAudioCrossesOnlyUnderItsUseGrant(t *testing.T) {
 
 	with := set.WithGrants(map[string][]string{"audio": {"use"}})
 	joined = strings.Join(with.RuntimeArgsFor(with.Enabled(), "podman"), " ")
+	if runtime.GOOS != "linux" {
+		// The manifest says platforms = ["linux"]: off Linux even a granted `use` crosses
+		// nothing, because there is no ALSA or PipeWire socket layout to hand over.
+		for _, c := range crossing {
+			if strings.Contains(joined, c) {
+				t.Errorf("on %s a granted `use` put %s in the jail: %s", runtime.GOOS, c, joined)
+			}
+		}
+		return
+	}
 	for _, c := range crossing[:3] { // /dev/snd is skipped on a host without the snd module
 		if !strings.Contains(joined, c) {
 			t.Errorf("with `use` granted, %s is missing from the argv: %s", c, joined)

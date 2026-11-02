@@ -627,7 +627,7 @@ func (o *Options) sectionConfigFiles(r *reporter, workspace string) (*jsonx.Orde
 // nothing switched.
 func (o *Options) reportWorkspaceFile(r *reporter, workspace string) {
 	if o.inJail() && config.IsJailOwnWorkspace(workspace) {
-		r.dim("Per-workspace switches (`yolo loopholes enable`) are host-only; `yolo check` on the host reads them")
+		r.dim("Per-workspace switches an older yolo wrote are host-only; `yolo check` on the host reads them")
 		return
 	}
 	wf := config.ReadWorkspaceFile(workspace)
