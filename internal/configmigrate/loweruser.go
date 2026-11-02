@@ -8,6 +8,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 // userView is what converting one user-scope file needs to know about the whole merged old user
@@ -28,6 +29,13 @@ type userView struct {
 	sources map[string]string
 	// grants is the loophole rows' projection (loopholegrants.go); nil until planLoopholeGrants.
 	grants *loopholeGrantView
+	// providers is the merged `providers` entries a TOML file wrote (config.TOMLWrittenProviders),
+	// whose variants a legacy `profile` name may select (RC-D57).
+	providers *jsonx.OrderedMap
+	// packProfiles is every profile name a selected pack declares, read on first use (packProfile);
+	// packsKnown is false when the selected packs did not all resolve.
+	packProfiles map[string]bool
+	packsKnown   bool
 }
 
 func newUserView(user *jsonx.OrderedMap) *userView {
@@ -45,6 +53,7 @@ func newUserView(user *jsonx.OrderedMap) *userView {
 			}
 		}
 	}
+	v.providers = config.TOMLWrittenProviders(user)
 	if p, ok := user.Get("profiles"); ok {
 		if m, ok := p.(*jsonx.OrderedMap); ok {
 			v.profiles = m
@@ -407,7 +416,43 @@ func selectionOf(view *userView, name string) (string, string) {
 		return "", "the profile name " + name + " holds '/', which active_provider reads as provider/variant; " +
 			"rename the profile in the pack or file that declares it, or keep the old file for now"
 	}
+	// A bare variant name a TOML file declares (a piecemeal mix, RC-D57) is the launch's
+	// `<provider>/<variant>` unless a selected pack's profile holds the name, as the launch reads it
+	// (config.SelectableProfiles).
+	if variant, ok := config.LegacyProfileVariant(view.providers, name); ok {
+		held, known := view.packProfile(name)
+		switch {
+		case !known:
+			return "", "the profile name " + name + " is a variant in your TOML providers table, and the selected packs " +
+				"could not be read to tell whether one of them declares a profile of that name; run `yolo check`, " +
+				"then `yolo config migrate` again"
+		case !held:
+			return variant, ""
+		}
+	}
 	return name, ""
+}
+
+// packProfile reports whether a pack the merged old user config selects declares a profile named
+// name; known is false when those packs could not all be read.
+func (v *userView) packProfile(name string) (held, known bool) {
+	if v.packProfiles == nil {
+		v.packProfiles = map[string]bool{}
+		packs, complete := config.UserScopeSelectedPacks()
+		v.packsKnown = complete
+		for _, p := range packload.Embedded() {
+			if v.packs[p.Name] {
+				packs = append(packs, p)
+			}
+		}
+		for _, declared := range packload.DeclaredProfileNames(packs, nil) {
+			v.packProfiles[declared] = true
+		}
+	}
+	if v.packProfiles[name] {
+		return true, true
+	}
+	return false, v.packsKnown
 }
 
 func selectionValue(view *userView, v any) (any, string) {

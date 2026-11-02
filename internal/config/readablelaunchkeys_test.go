@@ -89,12 +89,19 @@ func TestAProvidersOwnModelAndVariantsAreSelectableWithoutActiveProvider(t *test
 	if got := profiles["bedrock/opus"].Options["model"]; got != "opus" {
 		t.Errorf("-p bedrock/opus starts on %q, want opus", got)
 	}
-	// A config still selecting through the legacy `profile` key keeps its legacy providers shape.
-	legacy := decode(t, `{"profile": {"*": "zai"}, "providers": {"bedrock": {"model": "sonnet"}}}`)
-	if profiles, err := SelectableProfiles(map[string]packload.UserProfile{}, legacy, packs); err != nil {
+	// A config still selecting through the legacy `profile` key reads a provider entry in the
+	// legacy shape as before, and one a TOML file wrote (it spells `model`, which a legacy file is
+	// refused) as active_provider would: a piecemeal mix (RC-D57).
+	legacy := decode(t, `{"profile": {"*": "zai"}, "providers": {"bedrock": {"model": "sonnet"}, "mine": {"api_key_env_name": "MINE_KEY"}}}`)
+	profiles, err = SelectableProfiles(map[string]packload.UserProfile{}, legacy, packs)
+	if err != nil {
 		t.Fatal(err)
-	} else if got := profiles["bedrock"].Options["model"]; got != "" {
-		t.Errorf("a legacy-selecting config's provider joined the readable namespace: model %q", got)
+	}
+	if got := profiles["bedrock"].Options["model"]; got != "sonnet" {
+		t.Errorf("a TOML-written provider under a legacy selection starts on %q, want sonnet", got)
+	}
+	if _, joined := profiles["mine"]; joined {
+		t.Errorf("a legacy-shaped provider entry joined the readable namespace: %+v", profiles["mine"])
 	}
 }
 
