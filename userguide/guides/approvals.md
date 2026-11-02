@@ -164,14 +164,14 @@ longer hook can live in a script the key names instead. Things to know:
 - **It runs until the request is answered or expires**, so a notification can stay on screen
   for the hour. Several requests run several commands at once. Pass `-u critical` to
   `notify-send`: the desktop notification spec asks that a critical notification not expire
-  on its own, so it waits for you.
-  A toast timeout (`-t`) is optional: a notification you ignore until the request expires is
-  not a failure.
+  on its own, so it waits for you. A toast timeout (`-t`) is optional: a notification you
+  ignore until the request expires is not a failure.
 - **When the request stops waiting, the command is stopped.** Answered (by its own button or a
-  `yolo approve` anywhere), expired, or refused because its jail stopped: yolo sends `SIGTERM`
+  `yolo approve` anywhere), expired, or refused because its jail stopped: yolo sends `SIGINT`
   to the command and everything it started, then `SIGKILL` to whatever is left two seconds
-  later. A script can close its notification in that time; see
-  [Closing the notification](#closing-the-notification).
+  later. `notify-send` from libnotify 0.8.0 or newer, waiting on `-A` or `-w`, closes its
+  notification on `SIGINT`, so the example above cleans up after itself. For a notifier that
+  does not, a script can close it from a `trap ... INT`.
 - **A failure is visible.** A command that exits non-zero, or cannot start, is recorded on the
   request: `yolo approve` shows `your on_request failed, so you may not have been notified: hook
   exited 127: sh: notify-send: not found`, `--json` carries the last of its output, and the
@@ -189,40 +189,6 @@ line, until interrupted: a request filed, decided or expired, a grant used, ende
 object carries `"schema": 1`. A UI built on it decides through `yolo approve`, like a button.
 **It must never accept an approval from a surface a jail can reach**, such as a port your machine
 listens on: a jail can connect to that port, and would approve its own request.
-
-#### Closing the notification
-
-The one-line example leaves its notification on screen when the request is answered somewhere
-else or expires. `notify-send` (libnotify 0.8) closes its own notification when it gets
-`SIGINT` while waiting for a button, but `SIGTERM` just kills it, and the notification stays.
-So a script that should clear it closes it by its id. With libnotify 0.8.4 or newer,
-`notify-send -p` prints the notification's id as soon as it is shown, then the clicked button
-after it, so a script can keep both in a file and close the notification from a `TERM` trap:
-
-```sh
-#!/bin/sh
-# ~/.config/yolo-jail/on-request.sh, run by on_request = 'sh ~/.config/yolo-jail/on-request.sh'
-out=$(mktemp) || exit 1
-close_toast() {
-  id=$(sed -n 1p "$out")
-  [ -n "$id" ] && gdbus call --session --dest org.freedesktop.Notifications \
-    --object-path /org/freedesktop/Notifications \
-    --method org.freedesktop.Notifications.CloseNotification "$id" >/dev/null
-  rm -f "$out"
-  exit 0
-}
-trap close_toast TERM
-notify-send -p -u critical -A once="Allow once" -A deny=Deny yolo "$YOLO_REQUEST_SUMMARY" >"$out"
-a=$(sed -n 2p "$out"); rm -f "$out"
-case "$a" in
-  once) yolo approve "$YOLO_REQUEST_ID" ;;
-  deny) yolo approve "$YOLO_REQUEST_ID" --deny ;;
-esac
-```
-
-`notify-send` dies of the same `SIGTERM`, and the shell then runs the trap. Before 0.8.4,
-`notify-send` does not flush the id it prints, so the file stays empty until it exits; there,
-or for a UI that tracks every request's end itself, use the watcher above.
 
 ### What it records
 

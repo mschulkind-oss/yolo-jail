@@ -162,14 +162,14 @@ func TestAHookStillRunningAtExpiryRecordsNoFailure(t *testing.T) {
 	}
 }
 
-// A hook is stopped with SIGTERM to its process group first, so a trap in it can close the
-// notification it showed, and only then, after TermGrace, with SIGKILL.
-func TestAStoppedHookGetsSIGTERMFirst(t *testing.T) {
+// A hook is stopped with SIGINT to its process group first, so a trap in it can close the
+// notification it showed, and only then, after StopGrace, with SIGKILL.
+func TestAStoppedHookGetsSIGINTFirst(t *testing.T) {
 	f := newFixture(t)
 	var log syncBuffer
 	closed := filepath.Join(f.dir, "closed")
 	started := filepath.Join(f.dir, "started")
-	hook := f.script(t, "hook", "trap 'echo closed >\""+closed+"\"; exit 0' TERM\ncat >/dev/null\nsleep 300 >/dev/null 2>&1 &\ntouch '"+started+"'\nwait\n")
+	hook := f.script(t, "hook", "trap \x27echo closed >\""+closed+"\"; exit 0\x27 INT\ncat >/dev/null\ntouch \x27"+started+"\x27\nwhile :; do sleep 1; done\n")
 	stop := f.run(t, hook, &log)
 	defer stop()
 	q, err := f.store.File(f.filing)
@@ -177,23 +177,64 @@ func TestAStoppedHookGetsSIGTERMFirst(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, "the hook to start", func() bool { _, err := os.Stat(started); return err == nil })
+	begun := time.Now()
 	if _, err := f.store.Decide(q.ID, "pending", brokerstore.Decision{Deny: true}); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "the hook's TERM trap to run", func() bool { b, _ := os.ReadFile(closed); return string(b) == "closed\n" })
+	waitFor(t, "the hook\x27s INT trap to run", func() bool { b, _ := os.ReadFile(closed); return string(b) == "closed\n" })
+	if took := time.Since(begun); took >= StopGrace {
+		t.Fatalf("the INT trap ran after %s, not before the SIGKILL at StopGrace (%s)", took, StopGrace)
+	}
 	stop()
 	if got := f.request(t, q.ID).HookFailure; got != "" {
-		t.Fatalf("a hook stopped by its request's decision recorded %q", got)
+		t.Fatalf("a hook stopped by its request\x27s decision recorded %q", got)
 	}
 }
 
-// A hook that ignores SIGTERM is still killed, everything it started included, once
-// TermGrace has passed: "kill everything it started" holds, and the stop is bounded.
-func TestAHookIgnoringSIGTERMIsKilledAfterTheGrace(t *testing.T) {
+// The documented one-liner cleans up after itself: its `a=$(notify-send -A ...)` child is in
+// the hook\x27s process group, so the group\x27s SIGINT reaches it while the non-interactive shell
+// waits on the command substitution. The fake notify-send records the SIGINT as notify-send
+// 0.8 does by closing its notification.
+func TestTheOneLinerNotifierGetsTheSIGINT(t *testing.T) {
+	f := newFixture(t)
+	bin := filepath.Join(f.dir, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	closed := filepath.Join(f.dir, "closed")
+	started := filepath.Join(f.dir, "started")
+	fake := "#!/bin/sh\ntrap \x27echo closed >\"" + closed + "\"; exit 0\x27 INT\ntouch \x27" + started + "\x27\nwhile :; do sleep 1; done\n"
+	if err := os.WriteFile(filepath.Join(bin, "notify-send"), []byte(fake), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	var log syncBuffer
+	stop := f.run(t, `a=$(notify-send -A once="Allow once" -A deny=Deny "$YOLO_REQUEST_SUMMARY"); case "$a" in once) yolo approve "$YOLO_REQUEST_ID";; deny) yolo approve "$YOLO_REQUEST_ID" --deny;; esac`, &log)
+	defer stop()
+	q, err := f.store.File(f.filing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "notify-send to start", func() bool { _, err := os.Stat(started); return err == nil })
+	if _, err := f.store.Decide(q.ID, "pending", brokerstore.Decision{Deny: true}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "notify-send to get the SIGINT", func() bool { b, _ := os.ReadFile(closed); return string(b) == "closed\n" })
+	stop()
+	if got := f.request(t, q.ID).HookFailure; got != "" {
+		t.Fatalf("a hook stopped by its request\x27s decision recorded %q", got)
+	}
+}
+
+// A hook that ignores SIGINT is still killed, everything it started included, once
+// StopGrace has passed: "kill everything it started" holds, and the stop is bounded. The
+// backgrounded child also ignores SIGINT, as a non-interactive shell starts every
+// background job.
+func TestAHookIgnoringSIGINTIsKilledAfterTheGrace(t *testing.T) {
 	f := newFixture(t)
 	var log syncBuffer
 	child := filepath.Join(f.dir, "child")
-	hook := f.script(t, "hook", "trap '' TERM\ncat >/dev/null\nsleep 300 >/dev/null 2>&1 &\necho $! >'"+child+"'\nwait\n")
+	hook := f.script(t, "hook", "trap \x27\x27 INT\ncat >/dev/null\nsleep 300 >/dev/null 2>&1 &\necho $! >\x27"+child+"\x27\nwait\n")
 	stop := f.run(t, hook, &log)
 	defer stop()
 	q, err := f.store.File(f.filing)
@@ -205,9 +246,9 @@ func TestAHookIgnoringSIGTERMIsKilledAfterTheGrace(t *testing.T) {
 	if _, err := f.store.Decide(q.ID, "pending", brokerstore.Decision{Deny: true}); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "the hook's child to die", func() bool { return !alive(pid) })
-	if took := time.Since(begun); took < TermGrace/2 || took > TermGrace+3*time.Second {
-		t.Fatalf("a hook ignoring SIGTERM was killed after %s, want about TermGrace (%s)", took, TermGrace)
+	waitFor(t, "the hook\x27s child to die", func() bool { return !alive(pid) })
+	if took := time.Since(begun); took < StopGrace/2 || took > StopGrace+3*time.Second {
+		t.Fatalf("a hook ignoring SIGINT was killed after %s, want about StopGrace (%s)", took, StopGrace)
 	}
 }
 

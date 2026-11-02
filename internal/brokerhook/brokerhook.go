@@ -28,9 +28,10 @@
 // stopped), until the request's expiry, or until its broker stops. Waiting on a click until
 // then is a notifier doing its job, so none of these is a failure, whichever the runner sees
 // first: the store's expiry event or its own clock reaching the request's expiry. It is then
-// stopped with its whole process group: SIGTERM first, so a trap in it can close the
-// notification it showed, then SIGKILL after TermGrace, so a notification waiting on a click
-// does not outlive the question it asks.
+// stopped with its whole process group: SIGINT first, on which a notify-send waiting for a
+// click closes its own notification (and a trap in a script can close another notifier's),
+// then SIGKILL after StopGrace, so a notification waiting on a click does not outlive the
+// question it asks.
 package brokerhook
 
 import (
@@ -349,22 +350,24 @@ func (r *Runner) fire(ctx context.Context, q brokerstore.Request) {
 	// The process group is the hook's own, so signalling it reaches whatever it started too.
 	// It is stopped when its request leaves pending or expires, its run times out or the
 	// broker stops, whether or not the shell has already exited: a notifier it backgrounded
-	// is still asking a question that has been answered. SIGTERM comes first, so a trap can
-	// close the notification it showed (notify-send itself does not handle SIGTERM, and dies
-	// leaving it on screen); whatever is left after TermGrace is SIGKILLed.
+	// is still asking a question that has been answered. SIGINT comes first: notify-send
+	// (libnotify 0.8.0 and newer) waiting on -A or -w closes its notification on it, where
+	// SIGTERM would kill it and leave the notification on screen. Whatever is left after
+	// StopGrace, such as a child a non-interactive shell backgrounded with SIGINT ignored, is
+	// SIGKILLed.
 	pgid := cmd.Process.Pid
 	stop := func() {
 		why := context.Cause(ctx)
 		if errors.Is(why, context.Canceled) {
 			why = errors.New("the broker stopped")
 		}
-		if syscall.Kill(-pgid, syscall.SIGTERM) != nil {
+		if syscall.Kill(-pgid, syscall.SIGINT) != nil {
 			return // the group is already gone
 		}
 		r.logf("the hook for %s was stopped because %v", q.ID, why)
-		grace := time.NewTimer(TermGrace)
+		grace := time.NewTimer(StopGrace)
 		defer grace.Stop()
-		tick := time.NewTicker(termPoll)
+		tick := time.NewTicker(stopPoll)
 		defer tick.Stop()
 		for syscall.Kill(-pgid, 0) == nil {
 			select {
@@ -499,14 +502,14 @@ func (t *tailBuffer) String() string {
 // groupPoll is how often an exited hook's process group is checked for members left behind.
 const groupPoll = 100 * time.Millisecond
 
-// termPoll is how often a stopped hook's process group is checked for members during
-// TermGrace.
-const termPoll = 20 * time.Millisecond
+// stopPoll is how often a stopped hook's process group is checked for members during
+// StopGrace.
+const stopPoll = 20 * time.Millisecond
 
 // KillWait bounds the wait on a hook's output once it exits or is killed. A broker
-// stopping waits at least TermGrace plus this long for its runner.
+// stopping waits at least StopGrace plus this long for its runner.
 const KillWait = 5 * time.Second
 
-// TermGrace is how long a stopped hook has, after SIGTERM to its process group, to close
+// StopGrace is how long a stopped hook has, after SIGINT to its process group, to close
 // what it showed (a notification still on screen) before the group is SIGKILLed.
-const TermGrace = 2 * time.Second
+const StopGrace = 2 * time.Second
