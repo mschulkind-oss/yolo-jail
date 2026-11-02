@@ -190,8 +190,7 @@ func TestStateReportingCommandsRefuseAnUnknownFormat(t *testing.T) {
 
 // TestActingVerbsRefuseJSONRatherThanIgnoreIt covers the verbs inside these
 // groups that do NOT report state. `yolo broker restart` cycles a daemon and
-// `yolo loopholes enable` prints a config block for a human to paste; neither
-// has a document to give, and accepting the flag to ignore it would answer a
+// `yolo loopholes enable` is retired and refuses; neither has a document to give, and accepting the flag to ignore it would answer a
 // request for machine-readable output with prose.
 //
 // These probes carry `--format json` on a verb that acts, so the refusal must

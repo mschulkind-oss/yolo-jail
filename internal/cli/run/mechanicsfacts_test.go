@@ -63,20 +63,24 @@ func TestRefreshedMechanicsSwitchFactsFollowLoopholeDecider(t *testing.T) {
 	for _, fact := range facts.Switches {
 		byName[fact.Name] = fact
 	}
-	if got := byName["brokered"]; got.Available || got.Enable != "" || got.Disable != "" {
-		t.Errorf("brokered switch fact = %#v, want unavailable with no commands", got)
+	if got := byName["brokered"]; got.Available {
+		t.Errorf("brokered switch fact = %#v, want unavailable", got)
 	}
-	if got := byName["switch-control"]; !got.Available || got.Enable != "yolo loopholes enable switch-control" || got.Disable != "yolo loopholes disable switch-control" {
-		t.Errorf("supported switch fact = %#v, want exact enable/disable commands", got)
+	if got := byName["switch-control"]; !got.Available {
+		t.Errorf("supported switch fact = %#v, want available", got)
 	}
 	facts.Timing = append(facts.Timing, changetiming.Row{Key: "loopholes", Backend: changetiming.Podman, Outcome: changetiming.HostSwitch})
-	files, err := jailcontent.RenderMechanicsIndexAndMap(*facts)
+	files, err := jailcontent.RenderBuiltinSkills(*facts)
 	if err != nil {
 		t.Fatalf("render produced mechanics sheet: %v", err)
 	}
-	body := string(files["jail-mechanics/SKILL.md"]) + string(files["jail-mechanics/host-map.md"])
-	if strings.Contains(body, "yolo loopholes enable brokered") {
-		t.Errorf("rendered produced sheet invented a brokered enable command:\n%s", body)
+	body := string(files["jail-mechanics/SKILL.md"]) + string(files["jail-mechanics/host-map.md"]) +
+		string(files["jail-mechanics/recipes/workspace-config.md"])
+	if strings.Contains(body, "yolo loopholes enable brokered") || strings.Contains(body, "yolo loopholes enable switch-control") {
+		t.Errorf("rendered produced sheet names the retired enable command:\n%s", body)
+	}
+	if !strings.Contains(body, "`switch-control` runs whenever its pack is selected") {
+		t.Errorf("rendered produced sheet does not name the available switch's loophole:\n%s", body)
 	}
 }
 

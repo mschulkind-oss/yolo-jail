@@ -67,10 +67,10 @@ type ScopeRestrictionFact struct {
 	When string
 }
 
-// SwitchFact is an actual host-side toggle that applies to the selected launch.
+// SwitchFact is a loophole a `loopholes.<name>.enabled` key decides for the selected launch.
+// There is no command for it: `yolo loopholes enable|disable` are retired
+// (docs/design/loophole-access-approval.md LG-D8), so the sheet names the pack and grant verbs.
 type SwitchFact struct {
 	Name      string
-	Enable    string
-	Disable   string
 	Available bool
 }

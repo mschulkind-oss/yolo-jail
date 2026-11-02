@@ -152,7 +152,7 @@ func TestAWorkspaceFileNamingAnotherWorkspaceIsIgnoredAndWarned(t *testing.T) {
 		t.Errorf("errors %v, want none", errs)
 	}
 	joined := strings.Join(warns, "\n")
-	for _, want := range []string{"/somewhere/else", ws, "nothing in it applies", "yolo loopholes enable"} {
+	for _, want := range []string{"/somewhere/else", ws, "nothing in it applies", "yolo request <pack> <kind>"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("the warning does not name %q:\n%s", want, joined)
 		}
@@ -186,7 +186,7 @@ func TestTheWorkspaceFileRefusesWhatItDoesNotHold(t *testing.T) {
 	for _, want := range []string{
 		"~/.config/yolo-jail/workspaces/" + filepath.Base(path) + ":3:",
 		`'packs' is not a key a per-workspace file holds`,
-		`"enabled" must be true or false`, "`yolo loopholes enable b`",
+		`"enabled" must be true or false`, "`yolo loopholes disable b`",
 		`'settings' is not a key a per-workspace file holds for a loophole`,
 	} {
 		if !strings.Contains(joined, want) {

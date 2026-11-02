@@ -558,8 +558,8 @@ func (s Set) FrontedHostWhy(runtime string) map[string]string {
 			why[m.Name] = "which Apple Container cannot serve: that backend runs no host services " +
 				"for a jail; the podman or macos-user backend runs it"
 		case !m.Enabled:
-			why[m.Name] = "whose loophole is off for this workspace: `yolo loopholes enable " +
-				m.Name + "` in the workspace turns it on for the next launch"
+			why[m.Name] = "whose loophole is off for this workspace: `yolo loopholes list` says why, " +
+				"and `yolo loopholes disable " + m.Name + "` removes a switch an older yolo wrote"
 		default:
 			why[m.Name] = "whose loophole is enabled but not active here: `yolo check` says what it " +
 				"is missing"
@@ -1038,17 +1038,17 @@ func runOne(argv []string, timeout time.Duration, env []string) (*int, string) {
 // to write: a BUNDLED manifest is the binary's own content (and go:embed'd, so on an
 // installed binary there is no file at all), and a PACK's manifest belongs to the
 // pack, where a local rewrite would be silently reverted by the next `pack install`.
-// Enable/disable state moved into config for every source, and `yolo loopholes enable|disable`
-// writes it into the workspace's per-workspace file beside the user config; see CmdSetEnabled.
+// Enable/disable state moved into config for every source, and since then out of the user's
+// hands entirely: `yolo loopholes enable|disable` are retired (loophole-access-approval.md
+// LG-D8), a loophole runs whenever its pack is selected, and access is a grant; see CmdSetEnabled.
 //
 // OQ-A9 CLOSED THE OTHER HALF, and it is worth stating because the ruling reads like
 // work still owed: the key this function used to write DOES NOT EXIST any more. The
 // manifest's `enabled` is now `default_enabled` and is the PACK AUTHOR's default, not
 // a user setting, so there is no longer a manifest field a `yolo loopholes enable`
 // could legitimately target even if a writable manifest turned up. The only writable
-// home for the user's answer is config, which is where CmdSetEnabled writes it (the
-// per-workspace file) or points (`--global`) —
-// `loopholes.<name>.enabled`, unrenamed, because it was always the other key.
+// home for the user's answer was config — `loopholes.<name>.enabled`, unrenamed, because it was
+// always the other key — and CmdSetEnabled now only removes a switch an older yolo wrote there.
 
 func toAnySlice(ss []string) []any {
 	out := make([]any, len(ss))

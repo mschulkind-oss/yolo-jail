@@ -418,19 +418,20 @@ func renderRecipe(file string, facts FactSheet) string {
 			case changetiming.UserScopeOnly:
 				fmt.Fprintf(&b, "%d. Do not add these settings to the workspace config. Give the human the exact edit for `%s`; they run `yolo check` and start a fresh `yolo` launch from `%s`. Workspace `yolo config apply` does not apply user-scope settings.\n\n", step, facts.UserConfigPath, facts.HostWorkspace)
 			case changetiming.HostSwitch:
-				available := 0
+				// `yolo loopholes enable|disable` are retired (docs/design/loophole-access-approval.md
+				// LG-D8): what a loophole may do is a grant, and whether it runs is its pack.
+				var named []string
 				for _, sw := range facts.Switches {
-					if !sw.Available {
-						continue
+					if sw.Available {
+						named = append(named, "`"+sw.Name+"`")
 					}
-					fmt.Fprintf(&b, "%d. For `%s`, run `%s` to enable or `%s` to disable it from `%s` on the host.\n", step, sw.Name, sw.Enable, sw.Disable, facts.HostWorkspace)
-					step++
-					available++
 				}
-				if available == 0 {
-					fmt.Fprintf(&b, "%d. Use the switch command reported by `yolo config-ref`; no enable command is available from the applied facts.\n", step)
-					step++
+				which := "A loophole"
+				if len(named) > 0 {
+					which = strings.Join(named, ", ")
 				}
+				fmt.Fprintf(&b, "%d. %s runs whenever its pack is selected; `yolo loopholes enable` and `disable` are retired. For a grant this project needs, run `yolo request <pack> <kind>` here; the human runs `yolo config apply` from `%s` on the host. To run or stop one, the human runs `yolo pack add <pack>` or `yolo pack remove <pack>` on the host.\n", step, which, facts.HostWorkspace)
+				step++
 				if facts.Briefing.Mechanism == "macos-user" {
 					fmt.Fprintf(&b, "%d. End this session and start a fresh `yolo` launch from `%s`; the switch is read at launch.\n\n", step, facts.HostWorkspace)
 				} else {

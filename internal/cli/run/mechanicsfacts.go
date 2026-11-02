@@ -244,12 +244,7 @@ func hostFileDelivery(rt string, entry config.HostFileEntry) string {
 func mechanicsSwitchFacts(loops []jailcontent.Loophole) []jailcontent.SwitchFact {
 	out := make([]jailcontent.SwitchFact, 0, len(loops))
 	for _, loop := range loops {
-		fact := jailcontent.SwitchFact{Name: loop.Name, Available: loop.SwitchAvailable}
-		if fact.Available {
-			fact.Enable = "yolo loopholes enable " + loop.Name
-			fact.Disable = "yolo loopholes disable " + loop.Name
-		}
-		out = append(out, fact)
+		out = append(out, jailcontent.SwitchFact{Name: loop.Name, Available: loop.SwitchAvailable})
 	}
 	return out
 }

@@ -948,8 +948,8 @@ func TestFrontedHostWhy(t *testing.T) {
 		t.Fatalf("podman: FrontedHostWhy = %v, want only fronted-off", podman)
 	}
 	if got := podman["fronted-off"]; !strings.Contains(got, "off for this workspace") ||
-		!strings.Contains(got, "`yolo loopholes enable fronted-off`") {
-		t.Errorf("podman, loophole off: %q does not name the enable command", got)
+		!strings.Contains(got, "`yolo loopholes list`") || strings.Contains(got, "loopholes enable") {
+		t.Errorf("podman, loophole off: %q does not name `yolo loopholes list`, or names the retired enable", got)
 	}
 	if got := set.FrontedHostWhy("macos-user")["fronted-off"]; got != podman["fronted-off"] {
 		t.Errorf("macos-user, loophole off: %q, want podman's %q", got, podman["fronted-off"])

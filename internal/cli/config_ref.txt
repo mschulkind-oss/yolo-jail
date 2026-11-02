@@ -378,18 +378,15 @@
       already the deliberate act — so there the key is only ever used to switch
       one off without deleting it.
 
-      FOR ONE PROJECT ONLY, run [cyan]yolo loopholes enable <name>[/cyan] (or
-      [cyan]disable[/cyan]) on the host, in the project or with --workspace <path>.
-      It writes the switch into that project's PER-WORKSPACE FILE,
-      ~/.config/yolo-jail/workspaces/<folder>-<hash>.jsonc, never into this
-      config, and prints which file.  That file merges LAST, over this config and
-      the project's own yolo-jail.jsonc and yolo-jail.local.jsonc, from the
-      project's next fresh launch; no jail can read it.  It holds
-      "workspace" (the project's path, which must match) and
-      "loopholes": {"<name>": {"enabled": true|false}} and nothing else.
-      [cyan]yolo loopholes enable <name> --global[/cyan] prints the block to
-      paste into this config (config.jsonc) instead, and writes nothing: yolo
-      does not edit your config.
+      [cyan]yolo loopholes enable[/cyan] and [cyan]disable[/cyan] are RETIRED: a
+      loophole runs whenever its pack is selected, and a project gets access by
+      a grant, not a switch — [cyan]yolo request <pack> <kind>[/cyan] for one
+      project, [cyan]yolo allow <pack> <kind>[/cyan] for every project.  Both
+      refuse, naming those two.  A switch an older yolo wrote into a project's
+      PER-WORKSPACE FILE (~/.config/yolo-jail/workspaces/<folder>-<hash>.jsonc,
+      which merges LAST and no jail can read) is still read until the
+      migration retires that file; [cyan]yolo loopholes disable <name>[/cyan],
+      run on the host in the project, removes it and exits 0.
 
       A loophole whose manifest declares "brokered" (the github pack's
       github-broker, the git pack's git-broker) has NO switch: it runs whenever

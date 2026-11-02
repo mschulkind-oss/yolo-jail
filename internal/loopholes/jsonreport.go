@@ -60,6 +60,9 @@ type ListEntry struct {
 	// form prints them: they are NOT in core's schema, so `yolo config-ref`
 	// cannot document them and this is the only place they are discoverable.
 	Settings []ListSetting `json:"settings,omitempty"`
+	// Grants is each declared grant kind's standing in this workspace (KindStanding), for a
+	// grant-declaring loophole; absent for an ungated one.
+	Grants []KindStanding `json:"grants,omitempty"`
 }
 
 // ListSetting is one pack-declared config key: what to write, which file may
@@ -85,6 +88,8 @@ type StatusEntry struct {
 	RC           *int     `json:"rc"`
 	Output       string   `json:"output,omitempty"`
 	SupersededBy []string `json:"superseded_by,omitempty"`
+	// Grants is as ListEntry's.
+	Grants []KindStanding `json:"grants,omitempty"`
 }
 
 // listState computes a loophole's reported state and the reason narrowing it.
@@ -117,7 +122,7 @@ func listLabel(state, reason string) string {
 }
 
 // listEntries converts the discovered set into the JSON shape.
-func listEntries(all []*Loophole) []ListEntry {
+func listEntries(all []*Loophole, standings map[string][]KindStanding) []ListEntry {
 	out := make([]ListEntry, 0, len(all))
 	for _, lh := range all {
 		state, reason := listState(lh)
@@ -130,6 +135,7 @@ func listEntries(all []*Loophole) []ListEntry {
 			Transport:   lh.Transport,
 			Lifecycle:   lh.Lifecycle,
 			Description: lh.Description,
+			Grants:      standings[lh.Name],
 		}
 		for _, ic := range lh.Intercepts {
 			e.Intercepts = append(e.Intercepts, ic.Host)
@@ -154,7 +160,7 @@ func listEntries(all []*Loophole) []ListEntry {
 // statusEntries converts the doctor results into the JSON shape. It takes the
 // Set because the `unapproved` state is the Set's decision (the origin gate),
 // not the loophole's.
-func statusEntries(set Set, results []DoctorResult) []StatusEntry {
+func statusEntries(set Set, results []DoctorResult, standings map[string][]KindStanding) []StatusEntry {
 	out := make([]StatusEntry, 0, len(results))
 	for _, r := range results {
 		e := StatusEntry{
@@ -162,6 +168,7 @@ func statusEntries(set Set, results []DoctorResult) []StatusEntry {
 			State:  doctorState(set, r),
 			RC:     r.RC,
 			Output: r.Output,
+			Grants: standings[r.Loophole.Name],
 		}
 		for _, s := range r.Loophole.SupersededBy {
 			e.SupersededBy = append(e.SupersededBy, s.Line())
@@ -188,8 +195,8 @@ func writeJSON(out, errw io.Writer, what string, v any) int {
 // An empty set is an empty ARRAY, not the human form's three-line explanation of
 // where a loophole could come from. That prose is guidance for a person; a
 // consumer asked what is installed and the answer is "nothing".
-func listJSON(deps Deps, all []*Loophole) int {
-	return writeJSON(deps.Out, deps.Err, "list", listEntries(all))
+func listJSON(deps Deps, all []*Loophole, standings map[string][]KindStanding) int {
+	return writeJSON(deps.Out, deps.Err, "list", listEntries(all, standings))
 }
 
 // statusJSON is `yolo loopholes status --format json`.
@@ -208,7 +215,7 @@ func statusJSON(deps Deps) int {
 	set, currentConfig := loopholesWithConfigAndBlock(deps, true)
 	all := set.All()
 	return writeJSON(deps.Out, deps.Err, "status", doc{
-		Entries: statusEntries(set, runStatusDoctorChecks(set, all, currentConfig)),
+		Entries: statusEntries(set, runStatusDoctorChecks(set, all, currentConfig), standingsFor(deps, all)),
 	})
 }
 
