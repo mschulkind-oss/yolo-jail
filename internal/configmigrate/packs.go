@@ -181,6 +181,72 @@ func sourceNames(list []any) map[string]string {
 	return names
 }
 
+// normalizeLegacyPacks respells, in place, each entry of m's `packs` list that only a legacy file
+// writes (a path, a file:// or git+ address, a `{ source }` object) as lowerPacks converts it,
+// writing the `pack_sources` entry it needs when m holds none of that name. Every other entry,
+// and an entry with no TOML spelling, is left as it is. It is the converted side's read of a
+// legacy file the migration does not write (RC-D58), so view, the old side's, names the sources.
+func normalizeLegacyPacks(m *jsonx.OrderedMap, view *userView) {
+	raw, _ := m.Get("packs")
+	list, ok := raw.([]any)
+	if !ok {
+		return
+	}
+	var names map[string]string
+	if view != nil {
+		names = view.sources
+	}
+	if names == nil {
+		names = sourceNames(list)
+	}
+	out := make([]any, 0, len(list))
+	changed := false
+	for _, entry := range list {
+		c := classifyPack(entry)
+		if !legacyPackEntry(entry) || c.reason != "" {
+			out = append(out, entry)
+			continue
+		}
+		if c.source != nil {
+			name := names[c.source.key]
+			if name == "" {
+				name = sourceNames([]any{entry})[c.source.key]
+			}
+			sources, ok := mapAt(m, "pack_sources")
+			if !ok {
+				sources = jsonx.NewOrderedMap()
+				m.Set("pack_sources", sources)
+			}
+			if _, has := sources.Get(name); !has {
+				sources.Set(name, c.source.value)
+			}
+			c.handle = name + "/" + c.handle.(string)
+		}
+		out = append(out, c.handle)
+		changed = true
+	}
+	if changed {
+		m.Set("packs", out)
+	}
+}
+
+// legacyPackEntry reports whether a `packs` entry is in a spelling only a legacy file writes: a
+// path or address string, or a `{ source }` object. A TOML handle is neither.
+func legacyPackEntry(entry any) bool {
+	if obj, ok := entry.(*jsonx.OrderedMap); ok {
+		_, has := obj.Get("source")
+		return has && obj.Len() == 1
+	}
+	text, _ := entry.(string)
+	text = strings.TrimSpace(text)
+	for _, prefix := range []string{"/", "~/", "file://", "git+"} {
+		if strings.HasPrefix(text, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 // lowerPacks converts one file's `packs` list (RC-D43), keeping every entry in its place. An entry
 // with no TOML spelling is reported; the equality check's old side keeps it at its old spelling,
 // so the proof shows it and the migration writes nothing.

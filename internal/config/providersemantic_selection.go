@@ -27,6 +27,7 @@ package config
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
@@ -159,15 +160,18 @@ func selectsNative(set []string) bool { return len(set) == 1 && set[0] == Native
 // selects the name. A variant's capabilities and protocols have no profile field, so they stay with
 // the provider semantics (SelectedProvider) and are not carried here.
 //
-// cfg's own `providers` table joins the namespace only when cfg selects through `active_provider`:
+// cfg's own `providers` table joins the namespace whole when cfg selects through `active_provider`:
 // that is the readable file's key, and its `providers` table is the typed declaration
 // ComposeProviderDeclarations reads. A config still selecting through the legacy `profile` key
 // holds the legacy `providers` shape (a `models` role map, read by packload.ComposeProviders), so
-// only its selected packs' declarations are added, and its own providers stay named by its
-// `profiles` as before.
+// only the entries a TOML file wrote join it (TOMLWrittenProviders): a piecemeal mix's legacy
+// `profile` names what its TOML files declare as active_provider would (RC-D57), and a bare
+// variant name a TOML file declares under one provider is that `<provider>/<variant>`
+// (LegacyProfileVariant), since RC-D32 converted the profile of that name to it.
 func SelectableProfiles(user map[string]packload.UserProfile, cfg *jsonx.OrderedMap,
 	packs []*packload.Pack) (map[string]packload.UserProfile, error) {
 	var authored *jsonx.OrderedMap
+	legacyKey := false
 	if cfg != nil && selectsThroughActiveProvider(cfg) {
 		if raw, present := cfg.Get(providersKey); present && raw != nil {
 			table, ok := raw.(*jsonx.OrderedMap)
@@ -176,8 +180,18 @@ func SelectableProfiles(user map[string]packload.UserProfile, cfg *jsonx.Ordered
 			}
 			authored = table
 		}
+	} else if cfg != nil {
+		_, legacyKey = cfg.Get(ProfileKey)
+		authored = TOMLWrittenProviders(cfg)
 	}
 	declarations, err := packload.ComposeProviderDeclarations(authored, packs)
+	if err != nil && authored != nil && !selectsThroughActiveProvider(cfg) {
+		// A TOML entry that the legacy entries merged into it leave unreadable as a declaration
+		// keeps the legacy namespace as it read before RC-D57, rather than refusing a launch that
+		// read before it.
+		authored = nil
+		declarations, err = packload.ComposeProviderDeclarations(nil, packs)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -185,7 +199,116 @@ func SelectableProfiles(user map[string]packload.UserProfile, cfg *jsonx.Ordered
 		return nil, fmt.Errorf("config.%s: %w. Rename it in your config's `%s` table, or deselect "+
 			"the pack that declares it", providersKey, err, providersKey)
 	}
-	return withImpliedProfiles(user, declarations, packs)
+	out, err := withImpliedProfiles(user, declarations, packs)
+	if err != nil || !legacyKey || authored == nil {
+		return out, err
+	}
+	// The legacy key's bare variant names (RC-D57): each is its implied `<provider>/<variant>`, and a
+	// profile, provider or alias already holding the name keeps it.
+	for _, name := range authored.Keys() {
+		raw, _ := authored.Get(name)
+		entry, _ := raw.(*jsonx.OrderedMap)
+		for _, variant := range entryMap(entry, "variants").Keys() {
+			selection, ok := LegacyProfileVariant(authored, variant)
+			if !ok {
+				continue
+			}
+			if _, held := out[variant]; held || packProfileDeclared(packs, variant) {
+				continue
+			}
+			if profile, implied := out[selection]; implied {
+				out[variant] = profile
+			}
+		}
+	}
+	return out, nil
+}
+
+// TOMLWrittenProviders is the entries of cfg's `providers` table a TOML file wrote: those holding a
+// key only the readable vocabulary spells (readableOnlyProviderKeys), which a legacy file is
+// refused. Nil when there are none.
+func TOMLWrittenProviders(cfg *jsonx.OrderedMap) *jsonx.OrderedMap {
+	if cfg == nil {
+		return nil
+	}
+	raw, _ := cfg.Get(providersKey)
+	table, ok := raw.(*jsonx.OrderedMap)
+	if !ok {
+		return nil
+	}
+	readable := readableOnlyProviderKeys()
+	var out *jsonx.OrderedMap
+	for _, name := range table.Keys() {
+		v, _ := table.Get(name)
+		entry, ok := v.(*jsonx.OrderedMap)
+		if !ok {
+			continue
+		}
+		for _, k := range entry.Keys() {
+			if readable[k] {
+				if out == nil {
+					out = jsonx.NewOrderedMap()
+				}
+				out.Set(name, entry)
+				break
+			}
+		}
+	}
+	return out
+}
+
+// LegacyProfileVariant is what a legacy `profile` selection's name means when it is a bare variant
+// name in a TOML-written providers table (TOMLWrittenProviders): `<provider>/<name>`, when exactly
+// one provider there declares that variant and none is named or aliased name. RC-D32 converts a
+// profile to a variant of its own name, so a selection still naming the profile names that
+// variant (RC-D57). A profile holding the name keeps it; the caller checks that.
+func LegacyProfileVariant(providers *jsonx.OrderedMap, name string) (string, bool) {
+	if providers == nil || name == "" || strings.Contains(name, "/") {
+		return "", false
+	}
+	found := ""
+	for _, provider := range providers.Keys() {
+		raw, _ := providers.Get(provider)
+		entry, _ := raw.(*jsonx.OrderedMap)
+		if entry == nil {
+			continue
+		}
+		if provider == name {
+			return "", false
+		}
+		if alias, _ := entry.Get("alias"); alias == name {
+			return "", false
+		}
+		if _, declared := entryMap(entry, "variants").Get(name); declared {
+			if found != "" {
+				return "", false
+			}
+			found = provider + "/" + name
+		}
+	}
+	return found, found != ""
+}
+
+// entryMap is m[key] as a table, an empty one when m or the value is not a table.
+func entryMap(m *jsonx.OrderedMap, key string) *jsonx.OrderedMap {
+	if m != nil {
+		if raw, ok := m.Get(key); ok {
+			if t, ok := raw.(*jsonx.OrderedMap); ok {
+				return t
+			}
+		}
+	}
+	return jsonx.NewOrderedMap()
+}
+
+// packProfileDeclared reports whether a pack in packs declares a profile named name.
+func packProfileDeclared(packs []*packload.Pack, name string) bool {
+	for _, declared := range packload.DeclaredProfileNames(packs, nil) {
+		if declared == name {
+			return true
+		}
+	}
+	return false
 }
 
 // withImpliedProfiles is SelectableProfiles over declarations already composed and checked.

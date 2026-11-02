@@ -301,7 +301,7 @@ func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 	if g.layer != nil {
 		userTop, layerAfter, workspace = g.Request.baseUserTop(), filepath.Join(mirror, twinPath(g.layer.Logical)), ""
 	}
-	after, err := readCanonical(g, userTop, layerAfter, workspace, nil, nil, mirror, false, planOptions{}, packs)
+	after, err := readCanonical(g, userTop, layerAfter, workspace, nil, view, mirror, false, planOptions{}, packs)
 	if err != nil {
 		return nil, fmt.Errorf("the converted files would not read: %w; nothing was written", err)
 	}
@@ -676,6 +676,11 @@ func readCanonical(g *Graph, userTop, layer, workspace string, remotes []string,
 		s.user = unmirror(read.User, mirror).(*jsonx.OrderedMap)
 		s.project = unmirror(read.Workspace, mirror).(*jsonx.OrderedMap)
 		s.composed = unmirror(read.Composed, mirror).(*jsonx.OrderedMap)
+		// A legacy file this migration leaves as it is (the base under a layer, an include under
+		// --only) still spells its packs as paths, which the old side reads lowered: both sides
+		// read them in the spelling the conversion gives them (RC-D58).
+		normalizeLegacyPacks(s.user, view)
+		normalizeLegacyPacks(s.composed, view)
 		s.env = launchEnv(s.composed)
 		s.providers, s.derived = providerTable(s.composed, packs)
 		s.grants = brokerGrants(s.user, brokers)
