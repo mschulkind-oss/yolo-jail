@@ -44,17 +44,23 @@ func writeGrantFile(t *testing.T, path, pack string, settings string, kinds map[
 }
 
 // grantedPolicy is the journal bridge's policy over a grant file that grants mode: ModeUser
-// grants `read`, ModeFull `read_all`. The journal bridge has no settings mode since its flip,
-// so a test that drives handleConn for its transport hands it a granted file.
+// grants `read`, ModeFull `read_all`. Neither bridge has a settings mode since its flip, so a
+// test that drives a handler for its transport hands it a granted file.
 func grantedPolicy(t *testing.T, mode string) Policy {
+	t.Helper()
+	return LoadPolicy(grantedFile(t, "journal", mode))
+}
+
+// grantedFile writes pack's grant file granting mode (grantedPolicy's mapping) and returns it.
+func grantedFile(t *testing.T, pack, mode string) string {
 	t.Helper()
 	kinds := map[string]loopholegrant.Standing{"read": loopholegrant.Granted, "read_all": loopholegrant.NotAllowed}
 	if mode == ModeFull {
 		kinds["read_all"] = loopholegrant.Granted
 	}
-	path := filepath.Join(t.TempDir(), "journal.settings.json")
-	writeGrantFile(t, path, "journal", `{}`, kinds)
-	return LoadJournalPolicy(path)
+	path := filepath.Join(t.TempDir(), pack+".settings.json")
+	writeGrantFile(t, path, pack, `{}`, kinds)
+	return path
 }
 
 // writeAtomically replaces path in one rename, as a live apply does, so a request racing
@@ -322,21 +328,34 @@ func TestMacosLogReadsOnlyItsGrantFile(t *testing.T) {
 	}
 }
 
-// PD-12 for macos-log: no `grants` key, today's `full` setting.
-func TestMacosLogWithoutAGrantsKeyKeepsItsSettingsMode(t *testing.T) {
+// PD-12, macos-log's flip: a settings file with no `grants` key grants nothing, and neither
+// does no settings file. The old `full: true` setting no longer widens anything; both fail
+// closed with the not_allowed text and run no `log`.
+func TestMacosLogWithoutAGrantsKeyRefuses(t *testing.T) {
 	isolateFromConfig(t)
 	savedBin, savedUID := macosLogBin, lookupSandboxUID
 	t.Cleanup(func() { macosLogBin, lookupSandboxUID = savedBin, savedUID })
 	macosLogBin = writeFakeLog(t)
 	lookupSandboxUID = func() (uint32, error) { return 401, nil }
+	notAllowed := loopholegrant.Refusal{
+		Client: "yolo-log", Pack: "macos-log", Access: "read the Mac's unified log",
+		Kind: "read", Standing: loopholegrant.NotAllowed,
+	}.Text()
+
 	dir := bridgeDir(t)
 	settings := filepath.Join(dir, "macos-log.settings.json")
 	if err := os.WriteFile(settings, []byte(`{"full": true}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	endpoint := startFrontedMain(t, dir, macosLogEntry(settings))
-	out, _, _ := ask(t, endpoint, `{"args":["show"]}`)
-	if !strings.Contains(out, "from-root") {
-		t.Fatalf("legacy full: stdout %q, want every entry", out)
+	out, errText, rc := ask(t, endpoint, `{"args":["show"]}`)
+	if rc != 64 || out != "" || errText != notAllowed {
+		t.Fatalf("legacy full, no grants key: rc %d stdout %q stderr\n%s\nwant rc 64 and\n%s", rc, out, errText, notAllowed)
+	}
+
+	noneEndpoint := startFrontedMain(t, bridgeDir(t), macosLogEntry(""))
+	out, errText, rc = ask(t, noneEndpoint, `{"args":["show"]}`)
+	if rc != 64 || out != "" || errText != notAllowed {
+		t.Fatalf("no settings file: rc %d stdout %q stderr\n%s\nwant rc 64 and\n%s", rc, out, errText, notAllowed)
 	}
 }

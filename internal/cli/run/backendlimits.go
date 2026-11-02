@@ -189,14 +189,17 @@ func backendLimits(rt string, packs []*packload.Pack, cfg *jsonx.OrderedMap, rel
 	// The log: every profile denies the unified log's stores and its stream service
 	// (macosuser.macosLogDenies), and the sandbox account could not read the log without them
 	// either, so `/usr/bin/log` reads nothing here. `yolo-log` reads it on the host, through the
-	// macos-log loophole, and is staged only when that loophole is on (macosuser.GuestClients);
-	// the sentence names both the tool and the switch, so it is true either way.
+	// macos-log loophole, and is staged only when that loophole runs (macosuser.GuestClients),
+	// which a grant-declaring loophole does whenever its pack is selected; the sentence names
+	// the tool, the pack and the grant, so it is true either way.
 	out = append(out, "The macOS unified log is unreadable from this sandbox: `/usr/bin/log` "+
 		"reads nothing here. `yolo-log` reads it on the host (`yolo-log show --last 5m`, "+
 		"`yolo-log stream`), narrowed to the processes this sandbox account runs, when the "+
-		"human has selected the `macos-log` pack and set "+
-		"`\"loopholes\": {\"macos-log\": {\"enabled\": true}}`. If `yolo-log` is not found "+
-		"and you need the log, ask the human to do that and relaunch.")
+		"human has selected the `macos-log` pack and this project holds its `read` grant. "+
+		"If `yolo-log` is not found and you need the log, ask the human to select the pack "+
+		"(`yolo pack add macos-log`) and relaunch; if it refuses for want of a grant, run "+
+		"`yolo request macos-log read` and ask the human to run `yolo config apply` on the "+
+		"host, in this workspace, and answer y.")
 	// Devices: the profile's `(deny file-ioctl)` is unconditional, re-allowed for terminals and
 	// for each raw-path `devices` entry (macosuser.DeviceIoctlPaths), so the sentence is
 	// unconditional too. Raw disks and packet capture are refused whatever the config lists, so

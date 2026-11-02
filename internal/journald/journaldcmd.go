@@ -95,7 +95,7 @@ func journalMain(argv []string, stopFn func() <-chan struct{}) int {
 	// The settings file is the grant file, re-read at every request so a live apply lands at
 	// the next one. One without a `grants` key grants nothing: there is no settings mode to
 	// fall back to (grant.go).
-	policy := LoadJournalPolicy(*settings)
+	policy := LoadPolicy(*settings)
 
 	if err := ServeFrontedUnix(*socket, policy, stopFn()); err != nil {
 		fmt.Fprintln(os.Stderr, "yolo-journald:", err)

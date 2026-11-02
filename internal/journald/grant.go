@@ -1,9 +1,6 @@
 package journald
 
 import (
-	"encoding/json"
-	"os"
-
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholegrant"
 )
 
@@ -21,11 +18,9 @@ import (
 //   - else refuse, exit 64, naming `read` and the step its standing calls for (§5's text,
 //     rendered by loopholegrant.Refusal, so the client prints the daemon's words).
 //
-// PD-12: the journal bridge is flipped. Its manifest declares `[[grants]]` and no setting, so a
+// PD-12: both bridges are flipped. Their manifests declare `[[grants]]` and no setting, so a
 // settings file with no `grants` key, or no settings file at all, grants nothing: every request
-// fails closed with the not_allowed text. TRANSITIONAL for macos-log alone, until its flip: a
-// settings file with no `grants` key keeps today's behavior, the mode its `full` setting names,
-// read once at startup.
+// fails closed with the not_allowed text. There is no settings mode to fall back to.
 
 // Grant kinds both bridges declare.
 const (
@@ -38,71 +33,31 @@ const refusalExit = loopholegrant.RefusedExit
 
 // bridge is what one bridge's refusals name: its in-jail client, the pack it ships in, the
 // access it gives (the manifest's `access`, used when the grant file does not carry it), and
-// the prefix of its own error lines. grantsOnly marks a flipped bridge: with no grant file it
-// refuses, where one not yet flipped runs in its settings mode (PD-12).
+// the prefix of its own error lines.
 type bridge struct {
 	client, pack, access, prefix string
-	grantsOnly                   bool
 }
 
 var (
-	journalBridge  = bridge{client: "yolo-journalctl", pack: "journal", access: "read the host's journal", prefix: "yolo-journal", grantsOnly: true}
+	journalBridge  = bridge{client: "yolo-journalctl", pack: "journal", access: "read the host's journal", prefix: "yolo-journal"}
 	macosLogBridge = bridge{client: "yolo-log", pack: "macos-log", access: "read the Mac's unified log", prefix: macosLogPrefix}
 )
 
-// LoadJournalPolicy is the journal bridge's policy: the settings file the launch handed over
-// is its grant file, whatever it holds. A file without a `grants` key grants nothing, and so
-// does an empty path; neither falls back to a mode (PD-12, the journal's flip).
-func LoadJournalPolicy(settingsPath string) Policy {
+// LoadPolicy is either bridge's policy: the settings file the launch handed over is its grant
+// file, whatever it holds. A file without a `grants` key grants nothing, and so does an empty
+// path; neither falls back to a mode (PD-12).
+func LoadPolicy(settingsPath string) Policy {
 	return Policy{GrantFile: settingsPath}
 }
 
 // Policy is what a bridge judges each request by.
 type Policy struct {
-	// Mode is the mode every request runs in when GrantFile is empty, for a bridge not yet
-	// flipped (macos-log): today's settings path (PD-12), ModeUser or ModeFull. A flipped
-	// bridge never consults it.
-	Mode string
-	// GrantFile is the grant file, re-read at every request: always the journal's settings
-	// file, and macos-log's when it carries a `grants` key. Mode is then never consulted.
+	// GrantFile is the grant file, re-read at every request. Empty grants nothing.
 	GrantFile string
-}
-
-// LoadPolicy is the macos-log bridge's policy until its flip; the journal bridge's is
-// LoadJournalPolicy. It reads the settings file the launch handed over (--settings). A file carrying a
-// `grants` key makes a grant policy, decided per request from that file alone; a `grants` key
-// that does not read still makes one, so every request fails closed rather than falling back
-// to the `full` setting beside it. Without the key it is today's mode (LoadSettings).
-func LoadPolicy(settingsPath string) Policy {
-	if hasGrantsKey(settingsPath) {
-		return Policy{GrantFile: settingsPath}
-	}
-	return Policy{Mode: LoadSettings(settingsPath)}
-}
-
-// hasGrantsKey reports whether the file is a JSON object with the reserved key, whatever its
-// value. It parses no grant: loopholegrant.Read is the one reader of the block.
-func hasGrantsKey(path string) bool {
-	if path == "" {
-		return false
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return false
-	}
-	var top map[string]json.RawMessage
-	if json.Unmarshal(data, &top) != nil {
-		return false
-	}
-	_, ok := top[loopholegrant.ReservedKey]
-	return ok
 }
 
 // decide returns the mode this request runs in, or the refusal text and exit code it gets.
 func (p Policy) decide(br bridge) (mode, refusal string, rc int) {
-	if p.GrantFile == "" && !br.grantsOnly {
-		return p.Mode, "", 0
-	}
 	var block *loopholegrant.Block
 	if p.GrantFile != "" {
 		var err error

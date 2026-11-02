@@ -1,21 +1,27 @@
 {
   "name": "macos-log",
-  "description": "Read the Mac's unified log from inside the jail (yolo-log). Every request is narrowed to the macos-user sandbox account's processes unless this loophole's own `full` setting says otherwise.",
+  "description": "Read the Mac's unified log from inside the jail (yolo-log). The `read` grant narrows every request to the macos-user sandbox account's processes; `read_all` passes the request to `log` unchanged.",
   "version": 1,
   "default_enabled": false,
+  "access": "read the Mac's unified log",
   "platforms": [
     "darwin"
   ],
   "transport": "loopback-tls",
   "lifecycle": "spawned",
-  "settings": {
-    "full": {
-      "type": "bool",
-      "scope": "user",
-      "default": false,
-      "description": "pass yolo-log's arguments to `log` unchanged, reading every entry on the Mac (the host user must be allowed to read the log, which an admin is); false keeps `show` and `stream` only and sends only entries logged by the macos-user sandbox account's processes"
+  "grants": [
+    {
+      "kind": "read",
+      "text": "read the sandbox account's entries in the Mac's unified log",
+      "requestable_by_default": true,
+      "legacy_enable": true
+    },
+    {
+      "kind": "read_all",
+      "text": "read every entry in the Mac's unified log",
+      "legacy_setting": "full"
     }
-  },
+  ],
   "host_daemon": {
     "cmd": [
       "yolo",

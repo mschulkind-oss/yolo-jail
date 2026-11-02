@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // TestMacosUserMacosLogBridgeScopesToTheSandbox is the macos-log loophole on macos-user, end to
@@ -25,7 +27,7 @@ import (
 // one as the runner. `show` in the user scope attributes an entry by its own `userID` alone (a
 // pid's owner today says nothing about history), so it must never return the runner's entry,
 // and returns the sandbox's only if this macOS's ndjson carries `userID` — recorded as a
-// MEASUREMENT, and asserted when it does. `full` must return both.
+// MEASUREMENT, and asserted when it does. The `read_all` grant must return both.
 //
 // THEN A LIVE STREAM: the sandbox starts `yolo-log stream`, logs a third entry from inside the
 // sandbox with a process that stays alive, and kills the client. The stream must deliver that
@@ -69,8 +71,13 @@ func TestMacosUserMacosLogBridgeScopesToTheSandbox(t *testing.T) {
 		`echo "=== END ==="`,
 	}, "\n")
 
-	packHome(t, `{"packs": ["macos-log"], "loopholes": {"macos-log": {"enabled": true}}}`)
-	r := macosUserRunProbe(t, "macos-log user", macosUserWorkspace(t, `{}`), script)
+	// The flip (docs/design/loophole-access-approval-plan.md F2): selecting the pack runs the
+	// bridge, and the project's `read` request, accepted at the gate (runMacosUser passes
+	// --accept-config-changes), is the user scope. `read` is requestable by default, so the
+	// user config needs no allow line for it.
+	writeUserTOML(t, "packs = [\"macos-log\"]\n")
+	r := macosUserRunProbe(t, "macos-log user",
+		macosUserWorkspaceTOML(t, "[requests.macos-log]\nread = true\n"), script)
 	diag := func() string {
 		return fmt.Sprintf("\n--- launch stdout:\n%s\n--- launch stderr:\n%s", r.stdout, r.stderr)
 	}
@@ -110,17 +117,33 @@ func TestMacosUserMacosLogBridgeScopesToTheSandbox(t *testing.T) {
 			"account's:\n%s%s", theirs, show, diag())
 	}
 	if c := section(r.stdout, "=== COLLECT ===", "=== END ==="); !strings.Contains(c, "COLLECT_RC=2") ||
-		!strings.Contains(c, `"full": true`) {
-		t.Errorf("`yolo-log collect` was not refused with the setting that widens it:\n%s%s", c, diag())
+		!strings.Contains(c, "yolo request macos-log read_all") {
+		t.Errorf("`yolo-log collect` was not refused naming the read_all grant that widens it:\n%s%s", c, diag())
 	}
 
-	packHome(t, `{"packs": ["macos-log"], "loopholes": {"macos-log": {"enabled": true, `+
-		`"settings": {"full": true}}}}`)
-	r = macosUserRunProbe(t, "macos-log full", macosUserWorkspace(t, `{}`), script)
+	// read_all is not requestable by default: the user's ceiling allows it on request, the
+	// project requests it, and the accepted gate grants it.
+	writeUserTOML(t, "packs = [\"macos-log\"]\n\n[allow.macos-log]\non_request = [\"read\", \"read_all\"]\n")
+	r = macosUserRunProbe(t, "macos-log read_all",
+		macosUserWorkspaceTOML(t, "[requests.macos-log]\nread_all = true\n"), script)
 	show = section(r.stdout, "=== SHOW ===", "=== STREAM ===")
 	if !strings.Contains(show, "SHOW_RC=0") || !strings.Contains(show, mine) || !strings.Contains(show, theirs) {
-		t.Errorf("`full` did not return both accounts' entries (%q, %q):\n%s%s", mine, theirs, show, diag())
+		t.Errorf("`read_all` did not return both accounts' entries (%q, %q):\n%s%s", mine, theirs, show, diag())
 	}
+}
+
+// macosUserWorkspaceTOML is macosUserWorkspace holding yolo-jail.toml with body in place of
+// the legacy yolo-jail.jsonc, so a grant request is written in the format that carries it.
+func macosUserWorkspaceTOML(t *testing.T, body string) string {
+	t.Helper()
+	dir := macosUserWorkspace(t, `{}`)
+	if err := os.Remove(filepath.Join(dir, "yolo-jail.jsonc")); err != nil {
+		t.Fatalf("removing the seeded yolo-jail.jsonc: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, paths.WorkspaceConfigTOMLName), []byte(body), 0o644); err != nil {
+		t.Fatalf("writing yolo-jail.toml: %v", err)
+	}
+	return dir
 }
 
 // syslogAs logs msg through syslog(3) from a process that stays alive until the test ends, as the

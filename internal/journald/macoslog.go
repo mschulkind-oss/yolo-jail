@@ -17,7 +17,7 @@ package journald
 //
 // # What the user scope is
 //
-// `full` (user config only) passes the client's arguments to `log` unchanged. The default,
+// The `read_all` grant passes the client's arguments to `log` unchanged. The `read` grant,
 // the user scope, is the macOS counterpart of journalctl's `--user`: entries logged by
 // processes running AS THE SANDBOX ACCOUNT, which on this backend is every process every
 // macos-user sandbox on the Mac runs. It is enforced on the OUTPUT, never on the arguments,
@@ -49,8 +49,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // macosLogBin is Apple's `log`, by absolute path: the host daemon runs with the launching
@@ -82,20 +80,16 @@ var macosLogUserFlags = map[string]bool{
 	"--loss": false, "--source": false, "--no-pager": false, "--mach-continuous-time": false,
 }
 
-// macosLogWiden is the sentence every user-scope refusal ends with: the next step. A readable
-// (TOML) user config holds the pack's setting under allow.macos-log, which `yolo config set`
-// writes (docs/design/config-commands.md); a legacy one keeps the loophole's settings block,
-// named in the file the host reads.
+// macosLogWiden is the sentence every user-scope refusal ends with: the next step. The user
+// scope is the `read` grant; passing arguments through is the `read_all` grant, which the
+// user's ceiling must allow before a project's request for it reaches the gate (§5's
+// not_allowed order: allow, request, apply).
 func macosLogWiden() string {
-	file := paths.UserConfigDisplayPath()
-	step := "a human runs `yolo config set allow.macos-log.full true --user` on the host " +
-		"(user config only) and relaunches.\n"
-	if !strings.HasSuffix(file, ".toml") {
-		step = "a human sets " + `"loopholes": {"macos-log": {"settings": {"full": true}}} in ` + file +
-			" (user config only) and relaunches.\n"
-	}
-	return "The user scope reads only `show` and `stream`, narrowed to the " +
-		"sandbox account's processes. To pass arguments to `log` unchanged, " + step
+	return "The user scope (the `read` grant) reads only `show` and `stream`, narrowed to the " +
+		"sandbox account's processes. To pass arguments to `log` unchanged, the human allows " +
+		"the `read_all` grant on the host with `yolo allow macos-log on_request read_all`, " +
+		"this project asks with `yolo request macos-log read_all`, and the human runs " +
+		"`yolo config apply` on the host, in this workspace, and answers y.\n"
 }
 
 // MacosLogPlan is one request's resolved run: the argv after `log`, and whether stdout goes

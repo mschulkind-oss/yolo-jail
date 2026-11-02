@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/journald"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholegrant"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
@@ -181,11 +182,23 @@ func TestEndToEndOverLoopbackTLS(t *testing.T) {
 	t.Setenv(svcendpoint.AdvertiseHostEnv, "127.0.0.1")
 	endpoint := filepath.Join(dir, "macos-log.endpoint")
 	upstream := filepath.Join(dir, "up.sock")
+	// The bridge reads only its grant file since its flip: grant `read`, the user scope.
+	grantFile := filepath.Join(dir, "macos-log.settings.json")
+	grantData, err := loopholegrant.Merge(nil, loopholegrant.Block{
+		Pack: "macos-log", Workspace: "/home/u/proj", Container: "yolo-proj", LaunchID: "l1", PID: os.Getpid(),
+		Kinds: map[string]loopholegrant.Kind{"read": {Standing: loopholegrant.Granted}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(grantFile, grantData, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	stop, done := make(chan struct{}), make(chan struct{})
 	go func() {
 		defer close(done)
 		_ = journald.ServeMacosLogFrontedUnix(upstream, journald.MacosLogConfig{
-			Bin: fake, Mode: journald.ModeUser, SandboxUID: 401,
+			Bin: fake, GrantFile: grantFile, SandboxUID: 401,
 			Owner: func(int) (uint32, time.Time, bool) { return 0, time.Time{}, false },
 		}, stop)
 	}()

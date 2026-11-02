@@ -233,13 +233,18 @@ func TestBackendLimitsNameTheLogAndDeviceSettings(t *testing.T) {
 	const devLine = "Device control calls (`ioctl`) on /dev nodes are refused here"
 	got := macosUserBriefing(t, appliedTestConfig())
 	for _, want := range []string{logLine, "`yolo-log` reads it on the host", "`macos-log` pack",
-		"`\"loopholes\": {\"macos-log\": {\"enabled\": true}}`", "relaunch"} {
+		"`yolo pack add macos-log`", "relaunch", "`read` grant", "`yolo request macos-log read`",
+		"`yolo config apply`"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the briefing's log sentence lacks %q:\n%s", want, got)
 		}
 	}
 	if strings.Contains(got, "macos_log") {
 		t.Errorf("the briefing still names the retired macos_log key:\n%s", got)
+	}
+	// Since its flip the loophole runs when its pack is selected; the switch grants nothing.
+	if strings.Contains(got, `{"macos-log": {"enabled": true}}`) {
+		t.Errorf("the briefing still names the macos-log switch:\n%s", got)
 	}
 	if !strings.Contains(got, devLine) || !strings.Contains(got, "add its path") ||
 		!strings.Contains(got, "to `devices` in yolo-jail.jsonc") {

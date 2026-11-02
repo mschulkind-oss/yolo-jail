@@ -78,7 +78,6 @@ func TestVerbAdviceCommandsAreAcceptedByTheirVerbs(t *testing.T) {
 		{"set", "mcp_servers.board.command", `"board-mcp"`, "--user", "--dry-run"},
 		{"set", "allow.aws-auth.role_arn", `"arn:aws:iam::123456789012:role/narrow"`, "--user", "--dry-run"},
 		{"set", "allow.aws-auth.unnarrowed", "true", "--user", "--dry-run"},
-		{"set", "allow.macos-log.full", "true", "--user", "--dry-run"},
 		{"set", "cache_relocations.go-build", `"` + filepath.Join(cacheParent, "go-build") + `"`, "--user", "--dry-run"},
 	} {
 		var out, errw bytes.Buffer
@@ -87,6 +86,14 @@ func TestVerbAdviceCommandsAreAcceptedByTheirVerbs(t *testing.T) {
 		}
 	}
 	var out, errw bytes.Buffer
+	// The macos-log bridge's user-scope refusal names the read_all grant's two verbs
+	// (journald.macosLogWiden): the human's allow, then the project's request.
+	if rc := allowRunW([]string{"macos-log", "on_request", "read_all", "--dry-run"}, &out, &errw); rc != 0 {
+		t.Errorf("yolo allow macos-log on_request read_all: rc %d, stderr %s", rc, errw.String())
+	}
+	if rc := requestRunW([]string{"macos-log", "read_all", "--dry-run"}, &out, &errw); rc != 0 {
+		t.Errorf("yolo request macos-log read_all: rc %d, stderr %s", rc, errw.String())
+	}
 	if rc := activeProviderRunW([]string{"claude", "native", "--dry-run"}, &out, &errw); rc != 0 {
 		t.Errorf("yolo active-provider claude native: rc %d, stderr %s", rc, errw.String())
 	}

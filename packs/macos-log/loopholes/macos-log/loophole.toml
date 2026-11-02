@@ -8,26 +8,50 @@
 # unified log even with no Seatbelt profile (macos-user CI run 37940733418), so the host user reads
 # it, here, and the old key is a refusal naming this loophole.
 name = "macos-log"
-description = "Read the Mac's unified log from inside the jail (yolo-log). Every request is narrowed to the macos-user sandbox account's processes unless this loophole's own `full` setting says otherwise."
+description = "Read the Mac's unified log from inside the jail (yolo-log). The `read` grant narrows every request to the macos-user sandbox account's processes; `read_all` passes the request to `log` unchanged."
 version = 1
+# A grant-declaring loophole runs whenever its pack is selected; the grants below, not this
+# switch, decide what a request may read. The key goes when `default_enabled` is retired.
 default_enabled = false
+# The one line every refusal and the launch's disclosure print for this loophole.
+access = "read the Mac's unified log"
 # A Mac's log, so darwin only. Declared, not probed: on Linux there is nothing to install.
 # `/usr/bin/log` missing on a Mac is reported per request (exit 127).
 platforms = ["darwin"]
 transport = "loopback-tls"
 lifecycle = "spawned"
 
-# One boolean, `scope = "user"`, for the journal bridge's reason: a workspace file is one the agent
-# can rewrite, so a workspace may switch the bridge on and get the narrow view, and only the user
-# config may widen it.
-[settings.full]
-type = "bool"
-scope = "user"
-default = false
-description = "pass yolo-log's arguments to `log` unchanged, reading every entry on the Mac (the host user must be allowed to read the log, which an admin is); false keeps `show` and `stream` only and sends only entries logged by the macos-user sandbox account's processes"
+# Two grant kinds, the journal bridge's (plan PD-11): `read_all` granted passes yolo-log's
+# arguments to `log` unchanged, reading every entry on the Mac (the host user must be allowed to
+# read the log, which an admin is); else `read` granted keeps `show` and `stream` only and sends
+# only entries logged by the macos-user sandbox account's processes; else the daemon refuses,
+# naming `read`. The bridge reads only its grant file, and with no `grants` key in it every
+# request is refused (internal/journald/grant.go).
+#
+# `read` is requestable by default: a project may ask for its sandbox account's own entries
+# without the user first widening their ceiling, and the gate still asks. `read_all` is not; the
+# user allows it with `yolo allow macos-log on_request read_all` first.
+#
+# The legacy keys map a legacy JSONC config during the window (plan PD-9): `enabled: true` becomes
+# `read`, and the retired user-scope `full` setting's `true` becomes `read_all`.
+[[grants]]
+kind = "read"
+text = "read the sandbox account's entries in the Mac's unified log"
+requestable_by_default = true
+legacy_enable = true
+
+[[grants]]
+kind = "read_all"
+text = "read every entry in the Mac's unified log"
+legacy_setting = "full"
 
 # The journal bridge's shape: a plain AF_UNIX socket behind yolo's front, the preamble consumed by
 # the daemon, one framed request line. The jail reads YOLO_SERVICE_MACOS_LOG_ENDPOINT.
+#
+# `{settings}` resolves to this launch's grant file: the private settings snapshot yolo writes in
+# the loophole's state dir, here with no settings and one reserved `grants` key carrying each
+# kind's standing. The daemon re-reads it at every request, so `yolo config apply` lands at the
+# next one. It never crosses into the jail.
 [host_daemon]
 cmd = ["yolo", "internal", "daemon", "macos-log", "--socket", "{socket}", "--settings", "{settings}"]
 publishes = "socket"

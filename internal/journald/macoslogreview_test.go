@@ -87,7 +87,7 @@ func TestAnAbandonedUserScopeStreamTerminatesItsLog(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		handleMacosLogConn(server, MacosLogConfig{Bin: macosLogBin, Mode: ModeUser, SandboxUID: 401,
+		handleMacosLogConn(server, MacosLogConfig{Bin: macosLogBin, GrantFile: grantedFile(t, "macos-log", ModeUser), SandboxUID: 401,
 			Owner: func(int) (uint32, time.Time, bool) { return 0, time.Time{}, false }})
 	}()
 	if _, err := client.Write([]byte(`{"args":["stream"]}` + "\n")); err != nil {
@@ -121,9 +121,10 @@ func TestMacosLogMainWiresTheRealOwnerAndAccount(t *testing.T) {
 	saved := lookupSandboxUID
 	t.Cleanup(func() { lookupSandboxUID = saved })
 	lookupSandboxUID = func() (uint32, error) { return 777, nil }
-	cfg := macosLogMainConfig(Policy{Mode: ModeFull})
-	if cfg.Bin != "/usr/bin/log" || cfg.Mode != ModeFull || cfg.SandboxUID != 777 || cfg.SandboxUIDErr != nil {
-		t.Errorf("config = %+v, want /usr/bin/log, full, uid 777 from lookupSandboxUID", cfg)
+	cfg := macosLogMainConfig(LoadPolicy("/state/macos-log.settings.json"))
+	if cfg.Bin != "/usr/bin/log" || cfg.GrantFile != "/state/macos-log.settings.json" ||
+		cfg.SandboxUID != 777 || cfg.SandboxUIDErr != nil {
+		t.Errorf("config = %+v, want /usr/bin/log, the grant file, uid 777 from lookupSandboxUID", cfg)
 	}
 	if reflect.ValueOf(cfg.Owner).Pointer() != reflect.ValueOf(processOwner).Pointer() {
 		t.Error("MacosLogMain does not attribute entries with processOwner")

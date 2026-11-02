@@ -65,37 +65,37 @@ func TestPlanMacosLogResolvesArgumentsPerScope(t *testing.T) {
 	}
 }
 
-// Every user-scope refusal names the next step: the `full` setting, and where it is written —
-// the verb for a readable (TOML) user config or none, the legacy block in the legacy file.
-func TestMacosLogUserRefusalNamesTheFullSetting(t *testing.T) {
-	for _, tc := range []struct {
-		file string
-		want []string
-	}{
-		{"", []string{"`yolo config set allow.macos-log.full true --user`", "user config only"}},
-		{"config.toml", []string{"`yolo config set allow.macos-log.full true --user`", "user config only"}},
-		{"config.jsonc", []string{`"loopholes": {"macos-log": {"settings": {"full": true}}}`,
-			filepath.Join(".config", "yolo-jail", "config.jsonc"), "user config only"}},
-	} {
+// Every user-scope refusal names the next step: the `read_all` grant, in §5's not_allowed
+// order — the human's allow, the project's request, the apply. The retired `full` setting is
+// named nowhere, whatever user config the host has.
+func TestMacosLogUserRefusalNamesTheReadAllGrant(t *testing.T) {
+	for _, file := range []string{"", "config.toml", "config.jsonc"} {
 		home, err := filepath.EvalSymlinks(t.TempDir())
 		if err != nil {
 			t.Fatal(err)
 		}
 		t.Setenv("HOME", home)
-		if tc.file != "" {
+		if file != "" {
 			dir := filepath.Join(home, ".config", "yolo-jail")
 			if err := os.MkdirAll(dir, 0o755); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile(filepath.Join(dir, tc.file), []byte("\n"), 0o600); err != nil {
+			if err := os.WriteFile(filepath.Join(dir, file), []byte("\n"), 0o600); err != nil {
 				t.Fatal(err)
 			}
 		}
 		p := PlanMacosLog([]string{"collect"}, ModeUser)
-		for _, want := range tc.want {
+		for _, want := range []string{
+			"`yolo allow macos-log on_request read_all`",
+			"`yolo request macos-log read_all`",
+			"`yolo config apply`",
+		} {
 			if !strings.Contains(p.ErrText, want) {
-				t.Errorf("user config %q: refusal %q does not name %q", tc.file, p.ErrText, want)
+				t.Errorf("user config %q: refusal %q does not name %q", file, p.ErrText, want)
 			}
+		}
+		if strings.Contains(p.ErrText, "full") {
+			t.Errorf("user config %q: refusal %q still names the retired `full` setting", file, p.ErrText)
 		}
 	}
 }
@@ -171,7 +171,7 @@ func writeFakeLog(t *testing.T) string {
 func driveMacosLog(t *testing.T, request, mode string, uidErr error) (string, string, int) {
 	t.Helper()
 	server, client := net.Pipe()
-	go handleMacosLogConn(server, MacosLogConfig{Bin: macosLogBin, Mode: mode, SandboxUID: 401,
+	go handleMacosLogConn(server, MacosLogConfig{Bin: macosLogBin, GrantFile: grantedFile(t, "macos-log", mode), SandboxUID: 401,
 		SandboxUIDErr: uidErr, Owner: func(int) (uint32, time.Time, bool) { return 0, time.Time{}, false }})
 	_ = client.SetDeadline(time.Now().Add(30 * time.Second))
 	if _, err := client.Write([]byte(request + "\n")); err != nil {
@@ -253,11 +253,17 @@ func TestMacosLogBridgeRefusesBeforeRunningAnything(t *testing.T) {
 	macosLogBin = writeFakeLog(t)
 
 	out, errText, rc := driveMacosLog(t, `{"args":["collect"]}`, ModeUser, nil)
-	if rc != 2 || out != "" || strings.Contains(errText, "ARGS:") || !strings.Contains(errText, "full") {
+	if rc != 2 || out != "" || strings.Contains(errText, "ARGS:") ||
+		!strings.Contains(errText, "yolo request macos-log read_all") {
 		t.Errorf("collect in the user scope: rc %d stdout %q stderr %q", rc, out, errText)
 	}
+	// No sandbox account: the next steps are a macos-user launch, or the read_all grant. The
+	// retired `full` setting is not one of them.
 	_, errText, rc = driveMacosLog(t, `{"args":[]}`, ModeUser, errors.New("id: _yolojail: no such user"))
-	if rc != 1 || strings.Contains(errText, "ARGS:") || !strings.Contains(errText, "macos-user") {
+	if rc != 1 || strings.Contains(errText, "ARGS:") || !strings.Contains(errText, "macos-user") ||
+		!strings.Contains(errText, "yolo allow macos-log on_request read_all") ||
+		!strings.Contains(errText, "yolo request macos-log read_all") ||
+		strings.Contains(errText, "`full`") {
 		t.Errorf("no sandbox account: rc %d stderr %q", rc, errText)
 	}
 }

@@ -7,37 +7,80 @@ the [`journal`](../journal/README.md) bridge's are. macOS only.
 
 ## Turning it on
 
-On your machine, `yolo pack add macos-log` selects the pack. In a legacy JSONC user config the same selection, and the rest of this setup, reads:
+Selecting the pack runs the bridge; a **grant** decides what a request may read
+([`loophole-access-approval.md` §4.3](../../docs/design/loophole-access-approval.md#43-each-loopholes-access-and-its-approval)).
+The loophole declares the [`journal`](../journal/README.md) bridge's two grant kinds:
 
-```jsonc
-// ~/.config/yolo-jail/config.jsonc — user scope
-{
-  "packs": ["claude", "macos-log"],                    // 1. installed
-  "loopholes": { "macos-log": { "enabled": true } }    // 2. running
-}
+| Kind | Verbs | Output | Entries | Requestable by default |
+| :--- | :--- | :--- | :--- | :--- |
+| `read` | `show` and `stream` only | ndjson | only entries logged by processes running as the macos-user sandbox account (`_yolojail`) | yes |
+| `read_all` | every `log` verb, every argument unchanged | whatever you ask for | every entry on the Mac you can read | no |
+
+With `read_all` granted the bridge passes the request to `log` unchanged; else with `read`
+granted, the user scope; else it refuses, exit 64, naming `read` and the next step. The daemon
+reads only this launch's grant file, never your config, and re-reads it at every request, so a
+`yolo config apply` takes effect at the next one.
+
+For the sandbox account's entries in one project:
+
+```toml
+# ~/.config/yolo-jail/config.toml — user scope; `yolo pack add macos-log` writes this
+packs = ["claude", "macos-log"]
 ```
 
-Then, in a `macos-user` jail:
+```toml
+# yolo-jail.toml — the project asks; `yolo request macos-log read` writes this
+[requests.macos-log]
+read = true
+```
+
+Then answer y at the launch's config-change gate, or run `yolo config apply` on the host in
+the workspace. In a `macos-user` jail:
 
 ```console
 $ yolo-log show --last 10m --predicate 'process == "myapp"'
 $ yolo-log stream --level debug
 ```
 
-`enabled` is honored from either scope, so a workspace `yolo-jail.jsonc` may switch the bridge
-on. Only your user config may widen what it reads:
+For every entry on the Mac, you allow it first, since `read_all` is not requestable by
+default (`yolo allow macos-log on_request read_all` adds it), and the project asks for it:
 
-```jsonc
-// ~/.config/yolo-jail/config.jsonc — USER SCOPE ONLY
-"loopholes": { "macos-log": { "enabled": true, "settings": { "full": true } } }
+```toml
+# ~/.config/yolo-jail/config.toml
+[allow.macos-log]
+on_request = ["read", "read_all"]
 ```
 
-## What each setting reads
+```toml
+# yolo-jail.toml — `yolo request macos-log read_all` writes this
+[requests.macos-log]
+read_all = true
+```
 
-| Setting | Verbs | Output | Entries |
-| :--- | :--- | :--- | :--- |
-| default | `show` and `stream` only | ndjson | only entries logged by processes running as the macos-user sandbox account (`_yolojail`) |
-| `"full": true` | every `log` verb, every argument unchanged | whatever you ask for | every entry on the Mac you can read |
+A kind under `always` instead of `on_request` (`[allow.macos-log] always = ["read"]`) is held
+for every project without a request; each project's gate still asks once.
+
+With no grant, `yolo-log` refuses and names the step:
+
+```console
+$ yolo-log show --last 1m
+yolo-log: this project holds no grant to read the Mac's unified log, so nothing ran.
+  The macos-log pack is selected and its service is running; it is waiting on a grant.
+  Ask for this project:   yolo request macos-log read
+  then the human runs, on the host, in this workspace:  yolo config apply   and answers y.
+```
+
+### From the old spellings
+
+| old | now |
+| :--- | :--- |
+| `"macos_log": "user"`, or `"loopholes": {"macos-log": {"enabled": true}}` | `read` |
+| `"macos_log": "full"`, or `"settings": {"full": true}` | `read_all` |
+
+A legacy JSONC config is read through these rows while the old format is still accepted:
+`enabled: true` in the user config holds `read` for every project, `settings.full: true`
+there adds `read_all`, and `enabled: true` in a workspace file is a request for `read`. The
+`full` setting is gone from the manifest.
 
 With no arguments `yolo-log` shows the last five minutes. A first argument that is a flag is a
 `show` flag, so `yolo-log --last 1m` is `log show --last 1m`.
@@ -75,16 +118,19 @@ Each entry below is an implementation decision taken under the owner's ruling of
 - **ML-D1. A pack and loophole of its own, not an extension of `journal`.** The program, its
   argument language, its platform and its client all differ. `journal` names systemd, and one
   loophole that meant two different programs depending on the host would leave `yolo loopholes
-  list` and the settings unable to say which one you get.
+  list` and the grants unable to say which one you get.
 - **ML-D2. The `macos_log` key is retired, and refused.** "Every loophole yolo ships is a
   pack's" (AGENTS.md). The schema kept the key only because there was no daemon to declare it
   on. A config still carrying it is refused on the host, and only warned about inside a jail's
   snapshot. The refusal names the pack, the switch and the user-scope `full` setting, and says
   to delete `"off"`. This is `journal`'s conversion, for `journal`'s reason. The key turned a
   capability on, so ignoring it silently would leave a user with no thread back to it.
-- **ML-D3. The mode is one boolean, `full`, declared `scope: "user"`.** `off` is `enabled:
-  false`. A workspace file can be rewritten by the agent, so a workspace may switch the bridge on
-  but may not widen it. A bool also cannot be misspelled into a wider mode.
+- **ML-D3. The mode is a grant: `read`, or `read_all`.** It was one boolean `full` setting,
+  declared `scope: "user"`, beside an `enabled` switch. Since the grant flip
+  ([plan](../../docs/design/loophole-access-approval-plan.md) F2) the two modes are the
+  journal's grant kinds. A workspace file can be rewritten by the agent, so `read_all` is not
+  requestable by default: only your user config can make it requestable, and only a gate can
+  grant it. A kind is a closed name, so it cannot be misspelled into a wider mode either.
 - **ML-D4. The user scope is the sandbox account's processes, enforced on the output.** It is
   journalctl `--user`'s counterpart. The bridge forces `--style ndjson` and sends a line only if
   it is a JSON entry owned by the sandbox account. No predicate the client writes can widen what
@@ -116,7 +162,9 @@ Each entry below is an implementation decision taken under the owner's ruling of
   `--backtrace`, `--loss`, `--source`, `--no-pager` and `--mach-continuous-time`. A positional
   argument is refused, because `log show <archive>` reads a host file. `--archive` is refused for
   the same reason, and so are `collect`, `config`, `erase`, `stats` and anything else. Every
-  refusal ends by naming the `full` setting and where it goes.
+  refusal ends by naming the `read_all` grant and its steps: `yolo allow macos-log on_request
+  read_all` on the host, `yolo request macos-log read_all` in the project, then `yolo config
+  apply`.
 - **ML-D6. The daemon lives in `internal/journald`.** The request line, the frames (1 = stdout,
   2 = stderr, 3 = exit), the spawn and the fronted socket are the journal bridge's, unchanged.
   Only the program, the policy and the stdout filter are new.
@@ -140,7 +188,7 @@ Each entry below is an implementation decision taken under the owner's ruling of
 - **ML-D9. Darwin hosts only, and meant for macos-user.** The loophole declares
   `platforms: ["darwin"]`. A podman jail on a Mac can reach it too, but by default it shows
   only the sandbox account's processes, and a container runs none of those, so there only
-  `full` returns anything. Apple Container cannot reach any host service. A container-shaped
+  `read_all` returns anything. Apple Container cannot reach any host service. A container-shaped
   scope would be a separate decision, left until someone asks for it.
 
 ## Verifying
@@ -148,10 +196,12 @@ Each entry below is an implementation decision taken under the owner's ruling of
 ```console
 $ yolo pack lint packs/macos-log
 $ yolo loopholes list               # macos-log, source `pack`, darwin
-$ yolo-log show --last 5m           # in a macos-user jail that selected AND enabled it
+$ yolo-log show --last 5m           # in a macos-user jail that selected it and holds `read`
 ```
 
-Needs a Mac: `TestMacosUserMacosLogBridgeScopesToTheSandbox` (the client staged, the user
-scope returning the sandbox account's entry and not the runner's, `collect` refused, `full`
-returning both). Also `TestMacosUserMacosLogAsTheSandboxAccountMeasurement`, which now records
+Needs a Mac: `TestMacosUserMacosLogBridgeScopesToTheSandbox` (the client staged, the `read`
+grant returning the sandbox account's entry and not the runner's, `collect` refused naming
+`read_all`, `read_all` returning both). The daemon's grant decisions are pinned on Linux by
+`internal/journald`'s `TestMacosLogReadsOnlyItsGrantFile` and
+`TestMacosLogWithoutAGrantsKeyRefuses`. Also `TestMacosUserMacosLogAsTheSandboxAccountMeasurement`, which now records
 `log`'s own words.

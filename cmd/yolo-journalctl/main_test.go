@@ -367,7 +367,7 @@ func TestEndToEndOverLoopbackTLS(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		if err := journald.ServeFrontedUnix(upstream, journald.LoadJournalPolicy(grantFile), stop); err != nil {
+		if err := journald.ServeFrontedUnix(upstream, journald.LoadPolicy(grantFile), stop); err != nil {
 			t.Errorf("ServeFrontedUnix: %v", err)
 		}
 	}()

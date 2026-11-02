@@ -767,8 +767,8 @@ func TestShippedAWSAuthFields(t *testing.T) {
 }
 
 // TestShippedMacosLogFields pins the macos-log manifest's ruling-bearing declarations
-// (packs/macos-log/README.md ML-D3, ML-D9): darwin only, off until asked for, one boolean
-// `full` that only the USER config may set, and the journal bridge's socket shape — the daemon
+// (packs/macos-log/README.md ML-D3, ML-D9): darwin only, the `read` and `read_all` grants in
+// place of the retired `full` setting, and the journal bridge's socket shape — the daemon
 // (journald.MacosLogMain) consumes the preamble exactly as the journal bridge does.
 func TestShippedMacosLogFields(t *testing.T) {
 	m, err := loopholedecl.Decode(shippedManifest(t, "macos-log"), filepath.Join("/loopholes", "macos-log"))
@@ -789,13 +789,24 @@ func TestShippedMacosLogFields(t *testing.T) {
 		m.HostDaemon.RequestEnd != loopholedecl.RequestEndFramed {
 		t.Errorf("host_daemon = %+v, want a framed, preamble-bearing socket", m.HostDaemon)
 	}
-	if len(m.Settings) != 1 {
-		t.Fatalf("settings = %+v, want exactly `full`", m.Settings)
+	// The flip (docs/design/loophole-access-approval-plan.md F2): what the bridge may read is
+	// the journal's two grant kinds, not a setting. `read` is the sandbox account's own entries
+	// and requestable by default; `read_all` is every entry on the Mac, which only the user's
+	// ceiling can make requestable. A `full` setting left beside them would be a second,
+	// ungated way to widen.
+	if len(m.Settings) != 0 {
+		t.Fatalf("settings = %+v, want none — `full` became the read_all grant", m.Settings)
 	}
-	full, ok := loopholedecl.SettingByKey(m.Settings, "full")
-	if !ok || full.Type != loopholedecl.SettingTypeBool || full.Scope != loopholedecl.SettingScopeUser ||
-		full.Default != false {
-		t.Errorf("settings.full = %+v, want a bool, user scope, default false — reading every "+
-			"entry on the Mac must not be settable from an agent-editable workspace file", full)
+	if m.Access != "read the Mac's unified log" {
+		t.Errorf("access = %q, want %q", m.Access, "read the Mac's unified log")
+	}
+	wantGrants := []loopholedecl.Grant{
+		{Kind: "read", Text: "read the sandbox account's entries in the Mac's unified log",
+			RequestableByDefault: true, LegacyEnable: true},
+		{Kind: "read_all", Text: "read every entry in the Mac's unified log", LegacySetting: "full"},
+	}
+	if !reflect.DeepEqual(m.Grants, wantGrants) {
+		t.Errorf("grants = %+v\nwant     %+v — read_all must never be requestable by default: "+
+			"reading every entry on the Mac is the user's to allow", m.Grants, wantGrants)
 	}
 }
