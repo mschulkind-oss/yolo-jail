@@ -1595,6 +1595,13 @@ func AllowPackNudges(user *jsonx.OrderedMap, userSrc *Sources, facts AllowPackFa
 			out = append(out, AllowNudge{Kind: AllowNudgeUnselected, Table: name, Pack: pack, Location: locate("allow." + name)})
 		}
 	}
+	// In a jail the user scope is the inherited copy, which never carries `allow` (it is the
+	// host's ceiling and crosses into no jail file, inherit.go), so every listed login pack would
+	// look profile-less whatever the host says. The finding cannot be judged there; the host's
+	// own check and `yolo config apply` make it.
+	if inJail() {
+		return out
+	}
 	logins := make([]string, 0, len(facts.LoginProfile))
 	for pack := range facts.LoginProfile {
 		logins = append(logins, pack)

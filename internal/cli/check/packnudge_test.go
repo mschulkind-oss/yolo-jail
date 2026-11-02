@@ -97,6 +97,7 @@ func TestCheckDidYouMeanForUnknownPack(t *testing.T) {
 }
 
 func TestCheckWarnsLoginPackWithoutProfile(t *testing.T) {
+	t.Setenv("YOLO_VERSION", "")
 	user := nudgeUser(map[string]map[string]any{})
 	o, r, buf := nudgeOptions([]string{"aws-auth"}, "", nil)
 	o.sectionPackNudge(r, user, nil)
@@ -121,5 +122,16 @@ func TestCheckRunsThePackNudgeSectionHeader(t *testing.T) {
 	o.sectionPackNudge(r, user, nil)
 	if !strings.Contains(buf.String(), "Pack switch") {
 		t.Errorf("no section header:\n%s", buf.String())
+	}
+}
+
+// In a jail the user scope never carries [allow] (the host withholds it), so a listed login
+// pack cannot be judged profile-less: no warning, whatever the host file says.
+func TestCheckDoesNotWarnLoginPackWithoutProfileInAJail(t *testing.T) {
+	t.Setenv("YOLO_VERSION", "9.9.9-test")
+	o, r, buf := nudgeOptions([]string{"aws-auth"}, "", nil)
+	o.sectionPackNudge(r, nudgeUser(map[string]map[string]any{}), nil)
+	if r.failed+r.warned != 0 || buf.Len() != 0 {
+		t.Errorf("in-jail check warned about a profile it cannot see: failed=%d warned=%d\n%s", r.failed, r.warned, buf.String())
 	}
 }
