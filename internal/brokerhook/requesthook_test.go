@@ -115,7 +115,9 @@ func TestAHookIsKilledWhenItsRequestLeavesPending(t *testing.T) {
 // whichever comes first, the store's expiry event or the runner's own clock on the request's
 // expiry, and when the runner's Timeout runs past the expiry, as its default does.
 func TestAHookStillRunningAtExpiryRecordsNoFailure(t *testing.T) {
-	const left = 300 * time.Millisecond
+	// Long enough for the hook to start and write its pid file before the expiry stops it, on a
+	// machine busy with the whole tree's tests: at 300ms it once timed out waiting for the file.
+	const left = 2 * time.Second
 	for _, c := range []struct {
 		name              string
 		timeout, interval time.Duration
