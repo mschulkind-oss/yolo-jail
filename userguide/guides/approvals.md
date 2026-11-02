@@ -180,7 +180,11 @@ what you approve.
 
 The command can answer, too. A plain `yolo` inside it is the yolo that started the broker,
 whatever your `PATH` (`$YOLO_BIN` is its full path), so a notification with buttons is the whole
-approval front end. With `notify-send` from libnotify 0.7.10 or newer, which takes `-A` for a
+approval front end. The command does not inherit the pane identity of the terminal that started
+the broker (`HERDR_PANE_ID`, `HERDR_TAB_ID`, `HERDR_WORKSPACE_ID`, `TMUX_PANE`,
+`ZELLIJ_PANE_ID`, `WEZTERM_PANE`, `KITTY_WINDOW_ID`): the broker outlives that pane, so a hook
+that drives a multiplexer names its pane itself. The session's identity (`HERDR_SOCKET_PATH`,
+`HERDR_SESSION`, `TMUX` and the like) is kept, so the hook still reaches the right session. With `notify-send` from libnotify 0.7.10 or newer, which takes `-A` for a
 button:
 
 ```toml

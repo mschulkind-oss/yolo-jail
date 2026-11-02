@@ -177,13 +177,17 @@ func (r *Runner) removeLinkDir() {
 	r.pathDir = ""
 }
 
-// hookEnv is base with dir first on PATH, then the request's fields.
+// hookEnv is base with dir first on PATH and no terminal pane identity, then the request's
+// fields.
 func hookEnv(base []string, dir string, fields []string) []string {
 	env := make([]string, 0, len(base)+len(fields)+1)
 	path := ""
 	for _, kv := range base {
 		if v, ok := strings.CutPrefix(kv, "PATH="); ok {
 			path = v
+			continue
+		}
+		if name, _, _ := strings.Cut(kv, "="); paneIdentity(name) {
 			continue
 		}
 		env = append(env, kv)
@@ -199,6 +203,23 @@ func hookEnv(base []string, dir string, fields []string) []string {
 		env = append(env, "PATH="+path)
 	}
 	return append(env, fields...)
+}
+
+// paneIdentity reports whether name is a terminal multiplexer's identity for the pane,
+// tab or window the broker was started from: herdr's (a terminal multiplexer for agents)
+// HERDR_PANE_ID, HERDR_TAB_ID and HERDR_WORKSPACE_ID, tmux's TMUX_PANE, zellij's
+// ZELLIJ_PANE_ID, WEZTERM_PANE and KITTY_WINDOW_ID. The broker outlives that pane, so in a
+// hook they are stale, and a hook running `herdr pane ...` or `tmux display` would act on a
+// pane that is gone or another one. The SESSION or server identity is kept (HERDR_SOCKET_PATH,
+// HERDR_SESSION, TMUX, ZELLIJ_SESSION_NAME and the rest): the session outlives the pane, and
+// a hook reaches the right one through it.
+func paneIdentity(name string) bool {
+	switch name {
+	case "HERDR_PANE_ID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID", "TMUX_PANE", "ZELLIJ_PANE_ID",
+		"WEZTERM_PANE", "KITTY_WINDOW_ID":
+		return true
+	}
+	return false
 }
 
 // opened fires for this lifetime's requests already pending when the watch opens: those

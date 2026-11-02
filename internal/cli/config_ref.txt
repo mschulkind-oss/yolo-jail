@@ -662,7 +662,11 @@
     A plain `yolo` works in the command, whatever your PATH: a private
     directory holding only a link named yolo to the running yolo comes first
     on its PATH, and YOLO_BIN names that same yolo by its full path, for a
-    script that wants it absolute.
+    script that wants it absolute.  The command does not inherit the pane
+    identity of the terminal that started the broker (HERDR_PANE_ID,
+    HERDR_TAB_ID, HERDR_WORKSPACE_ID, TMUX_PANE, ZELLIJ_PANE_ID, WEZTERM_PANE,
+    KITTY_WINDOW_ID), which is stale by then; the session's identity
+    (HERDR_SOCKET_PATH, HERDR_SESSION, TMUX, ...) is kept.
     IT ONLY NOTIFIES.  yolo reads nothing back from the command, and no hook is
     required: a pending request is also visible in the background broker log and
     can be answered manually with `yolo approve` on the host.  When configured,

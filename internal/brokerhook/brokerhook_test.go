@@ -288,3 +288,46 @@ func TestTheHookGetsTheRequestsActionTargetAndDescription(t *testing.T) {
 		t.Errorf("markup description holds raw markup: %q", env["YOLO_REQUEST_DESCRIPTION_MARKUP"])
 	}
 }
+
+// The broker outlives the terminal pane that started it, so the pane identity it inherited
+// (herdr's, tmux's, zellij's, wezterm's, kitty's) is stale by the time a hook runs, and a
+// hook calling `herdr pane ...` would act on the wrong pane: the hook does not inherit it.
+// The session's identity outlives the pane, so it is kept, and so is everything else.
+func TestTheHookDoesNotInheritTheLaunchingPanesIdentity(t *testing.T) {
+	stale := map[string]string{"HERDR_PANE_ID": "p1", "HERDR_TAB_ID": "t1", "HERDR_WORKSPACE_ID": "w1",
+		"TMUX_PANE": "%3", "ZELLIJ_PANE_ID": "2", "WEZTERM_PANE": "4", "KITTY_WINDOW_ID": "5"}
+	kept := map[string]string{"YOLO_TEST_KEPT": "yes", "TMUX_TMPDIR": "/tmp/t",
+		"HERDR_SOCKET_PATH": "/run/herdr.sock", "HERDR_SESSION": "s1", "HERDR_ENV": "1",
+		"TMUX": "/tmp/tmux-1/default,1,0", "ZELLIJ": "0", "ZELLIJ_SESSION_NAME": "s"}
+	for k, v := range stale {
+		t.Setenv(k, v)
+	}
+	for k, v := range kept {
+		t.Setenv(k, v)
+	}
+	f := newFixture(t)
+	out := filepath.Join(f.dir, "env")
+	stop := f.run(t, f.script(t, "hook", `env >'`+out+`.tmp' && mv '`+out+`.tmp' '`+out+`'`+"\n"), &syncBuffer{})
+	if _, err := f.store.File(f.filing); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the hook's environment", func() bool { _, err := os.Stat(out); return err == nil })
+	stop()
+	b, _ := os.ReadFile(out)
+	env := map[string]string{}
+	for _, line := range strings.Split(string(b), "\n") {
+		if k, v, ok := strings.Cut(line, "="); ok {
+			env[k] = v
+		}
+	}
+	for k := range stale {
+		if v, ok := env[k]; ok {
+			t.Errorf("the hook inherited %s=%s", k, v)
+		}
+	}
+	for k, want := range kept {
+		if env[k] != want {
+			t.Errorf("%s = %q, want %q kept", k, env[k], want)
+		}
+	}
+}
