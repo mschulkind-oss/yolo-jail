@@ -298,13 +298,53 @@ func TestPrependHostBriefingReportsAReadFailureButNotAbsence(t *testing.T) {
 	}
 }
 
+// The jail briefing carries the three rules for handing the human something to do on the
+// host, and its example menu is byte for byte what the one renderer the brokers' refusals use
+// prints, in a fenced block. It names no harness: a pack that installs one adds that line.
+func TestTheJailBriefingCarriesTheHandOffRules(t *testing.T) {
+	jail := BriefingContent(BriefingInput{Workspace: "/w"})
+	for _, want := range []string{
+		"**Approvals are not host-run.**",
+		"never through `yolo host-run`",
+		"**Each command for the human goes alone on its own line in a fenced code block**",
+		"it is copied, not read",
+		"**Start the waiter in the background in the same turn**",
+		"Exit 0: retry the refused command exactly once",
+		"Relay the whole menu, and recommend one path",
+		"Never report a host capability as impossible",
+		"run `yolo wait --timeout <less than your",
+		"Never wait in a loop",
+	} {
+		if !strings.Contains(jail, want) {
+			t.Errorf("the jail briefing lacks %q", want)
+		}
+	}
+	example := "```text\n" + briefingMenuExample.Render() + "```\n"
+	if !strings.Contains(jail, example) {
+		t.Errorf("the jail briefing's example is not the renderer's output:\n%s", example)
+	}
+	for _, line := range []string{"    yolo approve r-<id>\n", "    yolo approve r-<id> --for 15m\n", "    yolo approve r-<id> --remember\n",
+		"    yolo approve r-<id> --add\n", "    yolo wait r-<id>\n"} {
+		if !strings.Contains(example, line) {
+			t.Errorf("the example menu does not put %q on its own line", line)
+		}
+	}
+	for _, harness := range []string{"run_in_background", "background_task", "Claude Code", "completionPolicy"} {
+		if strings.Contains(hostRunSectionText(), harness) {
+			t.Errorf("the core section names a harness: %q", harness)
+		}
+	}
+}
+
+func hostRunSectionText() string { return strings.Join(hostRunSection(), "\n") }
+
 // The jail briefing teaches `yolo host-run` (docs/design/host-run-mailbox.md §4.1); the host
 // notch's base does not, since there is no jail to deliver to. A locked config's request names
 // the host-run line for the check's output.
 func TestTheJailBriefingTeachesHostRun(t *testing.T) {
 	jail := BriefingContent(BriefingInput{Workspace: "/w"})
-	for _, want := range []string{"## Running a command on the host", "yolo host-run wait --name",
-		"yolo host-run -C <value of $YOLO_HOST_DIR> --name <fresh-label> -- <command>"} {
+	for _, want := range []string{"## Running a command on the host", "Then start `yolo wait <fresh-label>` in the background",
+		"\nyolo host-run -C <value of $YOLO_HOST_DIR> --name <fresh-label> -- <command>\n"} {
 		if !strings.Contains(jail, want) {
 			t.Errorf("the jail briefing lacks %q", want)
 		}

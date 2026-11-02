@@ -18,10 +18,15 @@
 With the broker running:
 
 - **It grants nothing until the user's config does.** SSH fetches and pushes refused with `no read
-  grant` mean the user has not granted read access: ask them to add
-  `{"kind": "read", "repo": "*"}` to `brokered.git.grants` in their user config on the host, then
-  run `yolo config apply` on the host, in this workspace, and approve the grant. The running
-  broker takes it at its next call. You cannot grant it from the jail, and a workspace config
+  grant` mean the user has not granted read access. Ask them to run this in a host terminal, in
+  this workspace, directly (not through `yolo host-run`), and answer y to the approval it offers:
+
+  ```
+  yolo allow git fetch
+  ```
+
+  (A user config still in JSONC needs `yolo config migrate` first; the command says so.) The
+  running broker takes it at its next call. You cannot grant it from the jail, and a workspace config
   edit does not either. A public HTTPS fetch is the exception: it is tried anonymously, and never
   asks the host credential helper.
 - With the read grant, `git fetch`, `git pull` and `git ls-remote` work against this
@@ -39,18 +44,32 @@ With the broker running:
   created.
 - **Any other push of branches or tags asks the user.** It files one request for the whole push
   and waits up to 30 seconds for an answer on the host. Allowed in that time, it goes through.
-  Otherwise it is refused whole, nothing is pushed, and each such ref's line in git's report
-  names the request: `! [remote rejected] <ref> (needs approval: r-<id>)`. Tell the user to run
-  `yolo approve r-<id>` on the host; once they have, run the same push again within 15 minutes.
-  Allow once covers exactly that push, once: a different push (another commit, another ref) asks
-  again. `(needs approval: r-<id>, denied on the host)` means the user said no: do not push it
-  again without asking them. A new branch the user allowed once joins the working set like one a
-  `create-branch` grant created. To push a branch or tag without asking each time, the user can
-  grant `create-branch`, a `branch` grant for that branch, or a `tag` grant for that tag. For a
-  branch, request it here with `yolo request git push <branch>` (or `yolo request git
-  new_branches`), which writes the workspace config; either way the user approves it with
-  `yolo config apply` on the host. The refused ref's line names the grant. A ref outside `refs/heads/` and `refs/tags/` is never pushed through
-  the broker, and a push that holds one asks nothing: push that from the host.
+  Otherwise it is refused whole, nothing is pushed, each such ref's line in git's report names
+  the request (`! [remote rejected] <ref> (needs approval: r-<id>)`), and the refusal lists every
+  path that answers it, each command on its own line: `yolo approve r-<id>` once, `--for 15m`,
+  `--remember` (once now, and remembered in the project's config), `--add` (the branches join
+  the working set on this host), the project request here then `yolo config apply` on the host,
+  and the push from the host. Relay that whole menu as **Running a command on the host** says,
+  recommend one path, and start `yolo wait r-<id>` in the background; on exit 0, run the same
+  push again, once. Allow once covers exactly that push, once, within 15 minutes: a different
+  push (another commit, another ref) asks again. `(needs approval: r-<id>, denied on the host)`
+  means the user said no: do not push it again without asking them. A new branch the user
+  allowed once joins the working set like one a `create-branch` grant created. To push a branch
+  without asking each time, request it here (or `yolo request git new_branches` for any new
+  branch), which writes the workspace config:
+
+  ```
+  yolo request git push <branch>
+  ```
+
+  and the human approves it on the host, directly:
+
+  ```
+  yolo config apply
+  ```
+
+  A ref outside `refs/heads/` and `refs/tags/` is never pushed through the broker, and a push
+  that holds one asks nothing: push that from the host.
 - A remote outside the approved scope is refused for SSH and push. A public HTTPS fetch may be
   tried anonymously outside that scope; if it asks for credentials, it is refused naming the
   scope. A new remote joins only when the user approves it in the config-change prompt on the

@@ -81,6 +81,10 @@ into = ".claude/CLAUDE.md"
 
 [[briefing]]
 agents = ["claude"]
+from = "briefing/waiting.md"
+
+[[briefing]]
+agents = ["claude"]
 from = "briefing/worktrees.md"
 
 [[skills]]
