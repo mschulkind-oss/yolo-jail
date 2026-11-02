@@ -970,6 +970,11 @@ func runSuspendResumePreservesOutputQueueOrder(t *testing.T, backgroundChildExit
 	if negativeResumeWrite {
 		cmd.Env = append(cmd.Env, "YOLO_TTYPROXY_NEGATIVE_RESUME_WRITE=1")
 	}
+	if terminateAfterStop {
+		// The child holds after reading its input until the arm kills it, so the queued
+		// SIGTERM, not the child's own exit, ends the run (TestOutputPressureTarget says why).
+		cmd.Env = append(cmd.Env, "YOLO_TTYPROXY_HOLD_AFTER_INPUT=1")
+	}
 	if terminateAfterStop || cancelDuringResume || cancelAfterResumeCheck || cancelWakeAfterResumeCallback || negativeResumeWrite {
 		cmd.Env = append(cmd.Env, "YOLO_TTYPROXY_TRACE_RESUME=1")
 	}
@@ -2164,6 +2169,20 @@ func TestOutputPressureTarget(t *testing.T) {
 	}
 	if err := writePressureReceipt(fifo, 'R'); err != nil {
 		t.Fatal(err)
+	}
+	if os.Getenv("YOLO_TTYPROXY_HOLD_AFTER_INPUT") == "1" {
+		// The queued-SIGTERM control: the child outlives its input until the proxy's arm
+		// kills it. A child that exited on its own here could let the proxy's return claim
+		// the run before the arm took the SIGTERM off Go's channel, and a signal that
+		// arrives once the child has exited and the return is under way is the caller's,
+		// not the arm's (the package comment's frozen behavior). Nothing orders that
+		// channel delivery against the resumed write (publishCancelWake: a kernel-pending
+		// signal is outside its publication boundary), so only holding the child here
+		// makes the arm's exit the one outcome. A sleep loop, not select{}: the runtime
+		// reports a block with no timer pending as a deadlock.
+		for {
+			time.Sleep(time.Hour)
+		}
 	}
 	if segmented || os.Getenv("YOLO_TTYPROXY_OUTPUT_ACK") != "1" || os.Getenv("YOLO_TTYPROXY_ACK_AFTER_WRITE") != "1" {
 		if err := <-outputDone; err != nil {
