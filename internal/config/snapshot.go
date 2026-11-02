@@ -147,6 +147,19 @@ type ChangedNonInteractiveError struct {
 	GrantBlock    []string
 	GrantCounts   []string
 	GrantsPath    string
+
+	// Apply says the refusal is `yolo config apply`'s, not a launch's: that command has no launch
+	// to re-run with AcceptConfigChangesFlag, so the headline speaks of the command and the advice
+	// names running it again where it can ask (ApplyRetryStep).
+	Apply bool
+}
+
+// ApplyRetryStep is the next step a `yolo config apply` that could not ask gives: the same
+// command, where its question has a terminal to be answered on. workspace is named so the line
+// works from wherever it is pasted.
+func ApplyRetryStep(workspace string) string {
+	return "Run `yolo config apply` directly in a terminal on the host, in " + termsafe.Visible(workspace) +
+		": it shows this change and asks y/N, and a y records it and applies what the running jail can take."
 }
 
 // Headline states what happened and why the launch stopped. It names the repository scope
@@ -154,6 +167,14 @@ type ChangedNonInteractiveError struct {
 // announcing a config change that did not happen, above the block meant to be read first,
 // is the trap the block exists to close (BB-D31).
 func (e *ChangedNonInteractiveError) Headline() string {
+	h := e.launchHeadline()
+	if e.Apply {
+		h = strings.Replace(h, "this launch has no terminal", "`yolo config apply` has no terminal", 1)
+	}
+	return h
+}
+
+func (e *ChangedNonInteractiveError) launchHeadline() string {
 	if e.GrantsChanged {
 		return ChangedParts(e.ConfigChanged, e.ScopeChanged, true) + " changed since the last approved " +
 			"launch, and this launch has no terminal to approve them on."
@@ -172,9 +193,10 @@ func (e *ChangedNonInteractiveError) Headline() string {
 		"terminal to approve it on."
 }
 
-// Advice names the flag, the files, and the snapshot. It is the half of the
-// message that tells a reader who cannot be prompted what to do next, so the flag
-// is spelled out in full rather than referred to.
+// Advice names the files, the snapshot, and the way to approve (approveStep): the flag for a
+// launch, spelled out in full rather than referred to, and the command run again where it can
+// ask for `yolo config apply`. It is the half of the message that tells a reader who cannot be
+// prompted what to do next.
 func (e *ChangedNonInteractiveError) Advice() string {
 	files := "  workspace config: " + e.WorkspaceConfig + "\n"
 	if e.WorkspaceLocalConfig != "" {
@@ -209,10 +231,20 @@ func (e *ChangedNonInteractiveError) Advice() string {
 		"attached, and a scripted launch is exactly where nobody is watching.\n\n" +
 		files +
 		"\nAny file those configs `include` counts as part of the merge too.\n\n" +
-		"Revert the change, or approve it for THIS LAUNCH ONLY by re-running with\n" +
-		"  " + AcceptConfigChangesFlag + "\n" +
-		"which records " + recorded + " as approved exactly as answering `y` would." +
+		e.approveStep(recorded) +
 		withoutBrokerSteps(e.ScopeLabels, e.Workspace)
+}
+
+// approveStep is the advice's last paragraph: the way to approve the change from where the
+// refusal was printed. A launch re-runs with AcceptConfigChangesFlag; `yolo config apply` has no
+// launch to re-run, so it names running the command where its question can be answered.
+func (e *ChangedNonInteractiveError) approveStep(recorded string) string {
+	if e.Apply {
+		return "Revert the change, or approve it: " + ApplyRetryStep(e.Workspace)
+	}
+	return "Revert the change, or approve it for THIS LAUNCH ONLY by re-running with\n" +
+		"  " + AcceptConfigChangesFlag + "\n" +
+		"which records " + recorded + " as approved exactly as answering `y` would."
 }
 
 // withoutBrokerSteps is the other next step a changed repository scope has: launching the
@@ -506,11 +538,14 @@ func approveConfigAndScope(workspace string, config *jsonx.OrderedMap, resolved 
 			diffLines = unifiedDiff(splitLines(oldJSON), splitLines(currentJSON), fromLabel, toLabel)
 		}
 	}
-	localPath, _ := ResolveWorkspaceConfigPath(workspaceOrCwd(workspace), WorkspaceLocalConfigName)
+	// The files the loader READ, TOML or legacy: ResolveWorkspaceConfigPath knows only the legacy
+	// names, so for a TOML workspace it named a yolo-jail.jsonc that does not exist and left the
+	// local file out.
+	localPath, _ := ResolveReadableWorkspaceConfigPath(workspaceOrCwd(workspace), WorkspaceLocalConfigName)
 	if !pathExists(localPath) {
 		localPath = ""
 	}
-	wsPath, _ := ResolveWorkspaceConfigPath(workspaceOrCwd(workspace), WorkspaceConfigName)
+	wsPath, _ := ResolveReadableWorkspaceConfigPath(workspaceOrCwd(workspace), WorkspaceConfigName)
 	configFiles := []string{wsPath}
 	if localPath != "" {
 		configFiles = append(configFiles, localPath)

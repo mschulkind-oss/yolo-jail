@@ -1028,3 +1028,62 @@ func TestConfigApplyEntryParsesItsFlags(t *testing.T) {
 		t.Errorf("an unknown flag: rc=%d, want 2", rc)
 	}
 }
+
+// `yolo host-run -- yolo config apply` (docs/design/host-run-mailbox.md): the host terminal is
+// the command's stdin, and its stdout and stderr are pipes host-run copies to that terminal as
+// they arrive. A human is there to answer, so the apply asks, and a y records the change. The
+// owner's first run of exactly this refused "no terminal" over a question it could have asked.
+// A launch with the same streams still refuses: its stderr is the launch stream, and a
+// redirected one is a log nobody is reading.
+func TestConfigApplyAsksWhenOnlyStdinIsATerminal(t *testing.T) {
+	o, buf := applyFixture(t, `{}`, `{"packages":["jq"]}`, applyJail{running: true})
+	o.IsTTYStdin = func() bool { return true }
+	o.IsTTYStderr = func() bool { return false }
+	o.Stdin = strings.NewReader("y\n")
+	if rc := o.configApply(false); rc == 1 {
+		t.Fatalf("rc = 1, want the apply to ask and approve:\n%s", buf.String())
+	}
+	if !strings.Contains(buf.String(), "Accept these workspace config changes? [y/N]") {
+		t.Errorf("the apply did not ask its question:\n%s", buf.String())
+	}
+	if _, err := os.Stat(config.ApprovalSnapshotPath(o.Workspace)); err != nil {
+		t.Errorf("a y under host-run recorded nothing: %v\n%s", err, buf.String())
+	}
+
+	l, lbuf := applyFixture(t, `{}`, `{"packages":["jq"]}`, applyJail{})
+	l.IsTTYStdin = func() bool { return true }
+	l.IsTTYStderr = func() bool { return false }
+	l.Stdin = strings.NewReader("y\n")
+	merged, ok := l.loadAndValidateConfig()
+	if !ok {
+		t.Fatalf("load failed:\n%s", lbuf.String())
+	}
+	if l.checkConfigChanges(merged, "podman") {
+		t.Errorf("a launch with a redirected stderr asked its question:\n%s", lbuf.String())
+	}
+}
+
+// With no terminal at all the apply refuses, exits non-zero, records nothing, and names its own
+// next step: running `yolo config apply` where it can ask. It never offers the launch's
+// --accept-config-changes "for THIS LAUNCH ONLY", since there is no launch to re-run.
+func TestConfigApplyRefusalNamesTheApplysNextStep(t *testing.T) {
+	o, buf := applyFixture(t, `{}`, `{"packages":["jq"]}`, applyJail{running: true})
+	before, _ := os.ReadFile(config.ApprovalSnapshotPath(o.Workspace))
+	o.IsTTYStdin = func() bool { return false }
+	o.IsTTYStderr = func() bool { return false }
+	if rc := o.configApply(false); rc != 1 {
+		t.Fatalf("rc = %d, want 1 for a change nobody approved:\n%s", rc, buf.String())
+	}
+	out := buf.String()
+	if strings.Contains(out, config.AcceptConfigChangesFlag) || strings.Contains(out, "THIS LAUNCH") {
+		t.Errorf("the apply's refusal offers the launch's approval:\n%s", out)
+	}
+	for _, want := range []string{"`yolo config apply` has no terminal", config.ApplyRetryStep(o.Workspace)} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the apply's refusal does not say %q:\n%s", want, out)
+		}
+	}
+	if now, _ := os.ReadFile(config.ApprovalSnapshotPath(o.Workspace)); !bytes.Equal(before, now) {
+		t.Error("a refused apply rewrote the approval record")
+	}
+}

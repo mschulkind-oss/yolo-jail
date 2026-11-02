@@ -229,7 +229,7 @@ func (o *Options) liveApply(cfg *jsonx.OrderedMap, rt, cname string, envLines []
 	run := &applyRun{cfg: cfg, rt: rt, cname: cname, envLines: envLines, mode: mode}
 	var plan []applyChange
 	moved := false
-	hooks := &gateHooks{attach: mode.attach, plan: func(read *config.WorkspaceRead, scope *config.ScopeCheck) []string {
+	hooks := &gateHooks{attach: mode.attach, apply: !mode.attach, plan: func(read *config.WorkspaceRead, scope *config.ScopeCheck) []string {
 		// THE PLAN IS OF THE CONFIG THE GATE APPROVES (B1). cfg was loaded before the gate read
 		// the workspace again, and an agent can rewrite the file between the two: every step
 		// below is derived from cfg, so it runs only when the gate's read composes to cfg.

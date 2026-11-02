@@ -417,6 +417,16 @@ type gateHooks struct {
 	// attach is an attach's gate: an N does not stop the session, so the decline says that
 	// the session starts and names `yolo config apply` instead of "Exiting." (LA-D14).
 	attach bool
+	// apply is `yolo config apply`'s own gate (not an attach's). Two things differ from a launch:
+	//
+	//   - A HUMAN IS THERE WHEN STDIN IS A TERMINAL, whatever stderr is. `yolo host-run -- yolo
+	//     config apply` gives the command the host terminal as stdin and pipes for stdout and
+	//     stderr, which host-run copies to that terminal as they arrive, so the diff and the
+	//     question reach the person who answers them. A launch keeps asking for both, because its
+	//     stderr is the launch stream and a redirected one is a log nobody is reading.
+	//   - Its refusal names the command's own next step, not the launch's flag
+	//     (config.ChangedNonInteractiveError.Apply).
+	apply bool
 }
 
 // writableRequestResolver is the loophole resolver the gate's workspace-mount check fences with
@@ -465,8 +475,9 @@ func (o *Options) runConfigGate(merged *jsonx.OrderedMap, rt string, h *gateHook
 			pr.preQuestion = h.plan(read, scope)
 		}
 	}
+	interactive := o.IsTTYStdin() && (o.IsTTYStderr() || (h != nil && h.apply))
 	ok, approved, approvedMounts, err := config.ApproveWorkspaceRead(o.Workspace, read, scope,
-		o.IsTTYStdin() && o.IsTTYStderr(), o.AcceptConfigChanges, pr)
+		interactive, o.AcceptConfigChanges, pr)
 	o.workspaceMounts = nil
 	if ok && err == nil {
 		o.recordApprovedScopes(approved, scope.ApprovedGrants(), scope.ReadWithoutScope())
@@ -481,6 +492,7 @@ func (o *Options) runConfigGate(merged *jsonx.OrderedMap, rt string, h *gateHook
 		// on an unwritten approval record.
 		var changed *config.ChangedNonInteractiveError
 		if errors.As(err, &changed) {
+			changed.Apply = h != nil && h.apply
 			o.printChangeRefusal(changed)
 			return false
 		}

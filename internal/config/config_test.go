@@ -280,9 +280,10 @@ func TestCheckConfigChangesNonTTYRefuses(t *testing.T) {
 	// prompted, so it has to carry everything they need: the flag, the files, and
 	// what actually changed.
 	msg := refusal.Error()
+	wsFile, _ := ResolveReadableWorkspaceConfigPath(ws, WorkspaceConfigName)
 	for _, want := range []string{
 		AcceptConfigChangesFlag,
-		filepath.Join(ws, WorkspaceConfigName),
+		wsFile,
 		ApprovalSnapshotPath(ws),
 		"+    \"htop\"",
 	} {
