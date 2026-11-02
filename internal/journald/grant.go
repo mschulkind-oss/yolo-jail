@@ -31,7 +31,7 @@ const (
 )
 
 // refusalExit is a grant refusal's exit code, the brokers' and `gh`'s (plan PD-7).
-const refusalExit = 64
+const refusalExit = loopholegrant.RefusedExit
 
 // bridge is what one bridge's refusals name: its in-jail client, the pack it ships in, the
 // access it gives (the manifest's `access`), and the prefix of its own error lines.

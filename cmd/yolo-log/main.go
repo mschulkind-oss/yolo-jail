@@ -68,7 +68,7 @@ const endpointEnv = paths.MacosLogEndpointEnv
 var inertEnv = paths.LoopholeInertEnv("macos-log")
 
 // refusalExit is a refusal's exit code, the daemon's and the brokers' (plan PD-7).
-const refusalExit = 64
+const refusalExit = loopholegrant.RefusedExit
 
 const sigintExit = 130
 

@@ -88,7 +88,7 @@ const endpointEnv = "YOLO_SERVICE_JOURNAL_ENDPOINT"
 var inertEnv = paths.LoopholeInertEnv("journal")
 
 // refusalExit is a refusal's exit code, the daemon's and the brokers' (plan PD-7).
-const refusalExit = 64
+const refusalExit = loopholegrant.RefusedExit
 
 // passthroughHelpEnv, when set, forwards -h/--help to the host journalctl
 // instead of printing ours.
