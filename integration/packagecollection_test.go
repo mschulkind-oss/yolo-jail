@@ -590,7 +590,15 @@ func TestNixInstallablesUseTheMatchedBundleAsTheirFlake(t *testing.T) {
 
 // nixEvalTimeout bounds one nixEvalDrvPath. A variable so TestANixEvalThatOverrunsSaysWhatItWaitedOn
 // can run one out in a second.
-var nixEvalTimeout = 4 * time.Minute
+//
+// 10 minutes, up from 4. The FIRST eval in a macOS nightly shard is cold: it substitutes this
+// flake's nixpkgs source from cache.nixos.org and evaluates it on an Intel runner. Run
+// 40872571213 (shard 6) killed that eval at 4m00s while it was still working — the hang report
+// showed the client and its nix-daemon worker both 4 minutes old, the worker running, after
+// `copying path '…-source' from 'https://cache.nixos.org'` — and run 41053588731 (shard 8)
+// took 281s over the same subtest's evals, which take ~45s together warm (runs 41307872448,
+// 41465971761). The bound is for a hang, and the hang report names what one waited on.
+var nixEvalTimeout = 10 * time.Minute
 
 // nixSystem is this machine's nix system double. The flake's outputs are
 // per-system (flake-utils eachSystem), and hardcoding x86_64-linux would make
