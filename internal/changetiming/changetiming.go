@@ -54,7 +54,24 @@ type Context struct {
 	UserScopeOnly   bool
 	HostSwitch      bool
 	Rebuild         bool
+	// Grant says the change is a grant-declaring loophole's grant, and how that loophole crosses
+	// (docs/design/loophole-access-approval.md §4.4); NoGrant for anything else.
+	Grant GrantCrossing
+	// LiveGrants: every running daemon of that loophole was found, by its grant file, and takes
+	// a rewritten one at its next request.
+	LiveGrants bool
 }
+
+// GrantCrossing is how a grant-declaring loophole's grant reaches the host (§4.4): checked per
+// request by a daemon reading its grant file (mediated), or container argv decided when the jail
+// starts (unmediated: binds, devices).
+type GrantCrossing int
+
+const (
+	NoGrant GrantCrossing = iota
+	MediatedGrant
+	UnmediatedGrant
+)
 
 // Row is one explicit key's expected timing for a backend.
 type Row struct {
@@ -88,6 +105,9 @@ var schemaRows = map[string]Outcome{
 	"shipped_skill_prefix": AtNextRestart, "providers": AtNextRestart, "model_facts": AtNextRestart,
 	"profiles": AtNextRestart, "profile": AtNextRestart, "required_capabilities": AtNextRestart,
 	"adapters": AtNextRestart,
+	// `requests` is a project's ask (readable config), not one of TopLevelConfigKeys. A grant it
+	// carries for a mediated loophole is live (Context.Grant); every other ask waits.
+	"requests": AtNextRestart,
 }
 
 var nextSessionKeys = map[string]bool{
@@ -140,6 +160,9 @@ func Classify(key string, ctx Context) (Row, error) {
 		row.Reason = "this loophole is enabled by its host-side switch"
 		return row, nil
 	}
+	if ctx.Grant != NoGrant {
+		return grantRow(row, ctx), nil
+	}
 	if ctx.Backend == MacOSUser {
 		if key == "brokered" && ctx.LiveScope {
 			row.Outcome = AppliedNow
@@ -182,6 +205,27 @@ func Classify(key string, ctx Context) (Row, error) {
 		}
 	}
 	return row, nil
+}
+
+// grantRow is a grant change's timing (docs/design/loophole-access-approval.md §4.6, LG-D7): a
+// mediated loophole's running daemon reads its rewritten grant file at its next request, as a
+// broker takes a scope at its next call; an unmediated loophole's crossing is container argv,
+// so its grant is recorded and lands at the next restart. A native session is a fresh launch,
+// so a grant it cannot take live reaches the next one.
+func grantRow(row Row, ctx Context) Row {
+	switch {
+	case ctx.Grant == MediatedGrant && ctx.LiveGrants:
+		row.Outcome = AppliedNow
+	case ctx.Backend == MacOSUser:
+		row.Outcome = NextSession
+	case ctx.Grant == UnmediatedGrant:
+		row.Outcome = AtNextRestart
+		row.Reason = "this loophole's access is bound into the jail when it starts"
+	default:
+		row.Outcome = AtNextRestart
+		row.Reason = "no running daemon of this loophole was found"
+	}
+	return row
 }
 
 // HostCommand makes the human handoff sentence from its real command and

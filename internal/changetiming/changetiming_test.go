@@ -105,3 +105,36 @@ func TestHostSwitchOnlyChangesLoopholeTiming(t *testing.T) {
 		t.Fatalf("prune = %+v, %v; HostSwitch must not alter planner timing", row, err)
 	}
 }
+
+// A grant change reaches a running mediated loophole's daemon at its next request, since `yolo
+// config apply` rewrites the grant file it reads; an unmediated loophole's grant is container
+// argv, decided when the jail starts (docs/design/loophole-access-approval.md §4.6, LG-D7).
+func TestAMediatedGrantIsLiveAndAnUnmediatedOneWaitsForRestart(t *testing.T) {
+	cases := []struct {
+		name string
+		ctx  Context
+		want Outcome
+	}{
+		{"mediated, live file", Context{Backend: Podman, Grant: MediatedGrant, LiveGrants: true}, AppliedNow},
+		{"mediated, no live file", Context{Backend: Podman, Grant: MediatedGrant}, AtNextRestart},
+		{"unmediated", Context{Backend: Podman, Grant: UnmediatedGrant, LiveGrants: true}, AtNextRestart},
+		{"mediated on Apple Container", Context{Backend: AppleContainer, Grant: MediatedGrant, LiveGrants: true}, AppliedNow},
+		{"unmediated on Apple Container", Context{Backend: AppleContainer, Grant: UnmediatedGrant}, AtNextRestart},
+		{"mediated in a native session", Context{Backend: MacOSUser, Grant: MediatedGrant, LiveGrants: true}, AppliedNow},
+		{"unmediated in a native session", Context{Backend: MacOSUser, Grant: UnmediatedGrant}, NextSession},
+		{"no grant: the requests key alone", Context{Backend: Podman}, AtNextRestart},
+	}
+	for _, tc := range cases {
+		row, err := Classify("requests", tc.ctx)
+		if err != nil {
+			t.Errorf("%s: %v", tc.name, err)
+			continue
+		}
+		if row.Outcome != tc.want {
+			t.Errorf("%s: Classify(requests, %+v) = %q, want %q", tc.name, tc.ctx, row.Outcome, tc.want)
+		}
+		if row.Outcome == AtNextRestart && tc.ctx.Grant != NoGrant && row.Reason == "" {
+			t.Errorf("%s: a grant waiting for a restart says no reason", tc.name)
+		}
+	}
+}

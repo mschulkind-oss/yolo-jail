@@ -108,10 +108,19 @@ func (o *Options) loopholeGrantBlock(lp *loopholes.Loophole, cname string) looph
 	launchID, _ := brokerscope.NewLaunchID()
 	b := loopholegrant.Block{Pack: lp.Pack, Workspace: o.Workspace, Container: cname,
 		LaunchID: launchID, PID: os.Getpid(), Access: lp.Access,
-		Kinds: make(map[string]loopholegrant.Kind, len(lp.Grants))}
+		Kinds: grantFileKinds(lp, standings, fromGate)}
 	if b.Pack == "" {
 		b.Pack = lp.Name
 	}
+	return b
+}
+
+// grantFileKinds is the grant block's kinds for lp from standings: every declared kind with its
+// standing, line and value noun. A kind granted where fromGate is false is written pending. The
+// launch (loopholeGrantBlock) and `yolo config apply` (liveapplygrants.go) both write through it,
+// so a live rewrite and a launch's file compare equal for the same approval.
+func grantFileKinds(lp *loopholes.Loophole, standings map[string]config.LoopholeGrantStanding, fromGate bool) map[string]loopholegrant.Kind {
+	kinds := make(map[string]loopholegrant.Kind, len(lp.Grants))
 	for _, g := range lp.Grants {
 		st, ok := standings[g.Kind]
 		standing := loopholegrant.Standing(st.Standing)
@@ -126,9 +135,9 @@ func (o *Options) loopholeGrantBlock(lp *loopholes.Loophole, cname string) looph
 			k.Values = append([]string(nil), st.Values...)
 			k.ValueNoun = g.ValueNoun
 		}
-		b.Kinds[g.Kind] = k
+		kinds[g.Kind] = k
 	}
-	return b
+	return kinds
 }
 
 // loopholeInertEnv is the jail-env variable (paths.LoopholeInertEnv) of every selected

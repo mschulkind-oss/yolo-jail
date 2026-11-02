@@ -19,6 +19,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/changetiming"
 	"github.com/mschulkind-oss/yolo-jail/internal/ctxinject"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholegrant"
 )
 
 // applyOutcome is the one outcome every change gets (LA-D4, LA-P3).
@@ -160,6 +161,7 @@ const (
 	changeMountAdd                      // inject one context mount
 	changeMountRemove                   // detach one context mount
 	changeScope                         // replace one loophole's live scope files' repositories
+	changeGrants                        // rewrite one loophole's live grant files (liveapplygrants.go)
 )
 
 // applyChange is one entry of the plan, and later of the result.
@@ -180,6 +182,9 @@ type applyChange struct {
 	mountRemove liveCtxMount
 	// scope is the loophole whose files a changeScope step rewrites, and to what.
 	scope scopeDelta
+	// grant is the loophole whose grant files a changeGrants step rewrites, grantFiles those files.
+	grant      grantDelta
+	grantFiles []loopholegrant.LiveFile
 }
 
 // line is the change's outcome line, in plain text: `+ /ctx/datasets (read-only): applied now`.
@@ -302,6 +307,9 @@ type applyPlanInput struct {
 	// which the workspace config never carries, so only a line of their own can say they wait.
 	userMountsUnknown bool
 	scopes            []scopeDelta
+	// grants are the selected grant-declaring loopholes, each with its running daemon's live
+	// grant files (liveapplygrants.go).
+	grants []grantDelta
 }
 
 // liveMountRefusal is why the injector cannot reach the mount at dest from source, "" when it
@@ -451,8 +459,22 @@ func buildApplyPlan(in applyPlanInput) []applyChange {
 			outcome: o, reason: why})
 	}
 
+	// GRANTS: one change per grant-declaring loophole whose running daemon, or record, holds other
+	// than the gate approves; the `requests` key is then what no grant line speaks for.
+	grantPacks, lined := map[string]bool{}, map[string]bool{}
+	for _, d := range in.grants {
+		grantPacks[d.pack] = true
+		if cs := d.changes(in.rt); len(cs) > 0 {
+			plan = append(plan, cs...)
+			lined[d.pack] = true
+		}
+	}
+	if changed["requests"] {
+		plan = append(plan, requestsLines(in, grantPacks, lined)...)
+	}
+
 	for _, k := range keys {
-		if k == "mounts" || k == "brokered" {
+		if k == "mounts" || k == "brokered" || k == "requests" {
 			continue
 		}
 		o, why := keyOutcome(in.rt, k)

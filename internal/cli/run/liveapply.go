@@ -342,6 +342,7 @@ func (o *Options) applyPlan(run *applyRun, scope *config.ScopeCheck) []applyChan
 			}
 			in.scopes = append(in.scopes, d)
 		}
+		in.grants = o.grantDeltas(discoveryCtx, run, scope)
 	}
 	plan := buildApplyPlan(in)
 	if run.mode.recordOnly != "" {
@@ -526,6 +527,11 @@ func (o *Options) applyStep(run *applyRun, c *applyChange, deadline time.Time) e
 			}
 		}
 		return nil
+	case changeGrants:
+		// THE GRANTS THE GATE APPROVED, its in-memory result (WW-P2), never a re-read.
+		ctx, cancel := contextForDeadline(deadline)
+		defer cancel()
+		return o.replaceGrantFiles(ctx, c)
 	}
 	return nil
 }
