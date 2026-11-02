@@ -91,7 +91,7 @@ func TestApproveGitRequestAllowOnceAndRefusesFor(t *testing.T) {
 	}
 
 	rc, out, errs = captureStd(t, func() int { return registry["approve"]([]string{"approve", q.ID}) })
-	if rc != 0 || !strings.Contains(out, "one exact command, 1 use(s)") {
+	if rc != 0 || !strings.Contains(out, "this exact command, once") {
 		t.Fatalf("Allow once: rc %d\n%s%s", rc, out, errs)
 	}
 	_, gs, err := s.List()

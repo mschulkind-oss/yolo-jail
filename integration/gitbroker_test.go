@@ -446,7 +446,7 @@ func TestGitBrokerAllowOncePush(t *testing.T) {
 			t.Errorf("%s = %q, want %q", k, got, want)
 		}
 	}
-	if !strings.Contains(a.out, "one exact command, 1 use(s)") {
+	if !strings.Contains(a.out, "this exact command, once") {
 		t.Errorf("yolo approve %s did not Allow once:\n%s", a.id, a.out)
 	}
 	head := kvLine(r.stdout, "HEAD")

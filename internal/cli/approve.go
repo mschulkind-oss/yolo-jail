@@ -328,11 +328,7 @@ func approveAll(ctx context.Context, args []string, inJail bool, stores []*broke
 		if d.Deny {
 			fmt.Fprintf(out, "Denied %s. Run `yolo approve` to list requests and grants.\n", termsafe.Visible(request))
 		} else {
-			coverage := "one exact command"
-			if g.Digest == "" {
-				coverage = "whole set " + termsafe.Visible(g.Set)
-			}
-			fmt.Fprintf(out, "Allowed %s: %s, %d use(s) for every jail of %s, across restarts, expires %s (%s). Run `yolo approve` to list or `yolo approve --revoke %s` to revoke.\n", termsafe.Visible(request), coverage, g.Uses, termsafe.Visible(g.Workspace), g.Expires.Format(time.RFC3339), g.ID, g.ID)
+			approveOnceOutcome(out, request, g)
 		}
 		return 0
 	}
@@ -400,14 +396,11 @@ func approvePerRef(stores []*brokerstore.Store, source, id string, d brokerstore
 	for _, e := range entries {
 		refs = append(refs, termsafe.Visible(e.Resource))
 	}
-	e := entries[0]
 	if add {
-		fmt.Fprintf(out, "Allowed %s: added %s to the working set of %s, across restarts, until the branch is deleted or the entry is revoked (%s). Run `yolo approve` to list or `yolo approve --revoke %s` to revoke.\n",
-			termsafe.Visible(id), strings.Join(refs, ", "), termsafe.Visible(e.Workspace), e.ID, e.ID)
+		approveGitAddOutcome(out, id, refs, entries)
 		return 0
 	}
-	fmt.Fprintf(out, "Allowed %s: pushes to %s for every jail of %s until %s, across restarts (%s). Run `yolo approve` to list or `yolo approve --revoke %s` to end it.\n",
-		termsafe.Visible(id), strings.Join(refs, ", "), termsafe.Visible(e.Workspace), e.Expires.Format(time.RFC3339), e.ID, e.ID)
+	approveTimedOutcome(out, id, "pushes to "+strings.Join(refs, ", "), entries)
 	return 0
 }
 

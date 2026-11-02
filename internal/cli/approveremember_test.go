@@ -86,9 +86,9 @@ func TestApproveRememberWritesTheRequestAndAllowsOnce(t *testing.T) {
 			t.Fatalf("the project file lacks %q:\n%s\nstdout=%s\nstderr=%s", want, got, out, errs)
 		}
 	}
-	for _, want := range []string{"YOLO Jail Check", "Allowed " + q.ID + ": one exact command, 1 use(s)",
+	for _, want := range []string{"YOLO Jail Check", "Allowed " + q.ID + ": this exact command, once.",
 		"Remembered main in " + fx.project, "`yolo request git push main`", "`yolo request git push_tags v1`",
-		"run `yolo config apply` in " + fx.workspace} {
+		"once you approve the change, in " + fx.workspace, "\n      yolo config apply\n"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("output lacks %q:\n%s\nstderr=%s", want, out, errs)
 		}
