@@ -306,3 +306,78 @@ func TestAKilledLayerMigrationRollsForward(t *testing.T) {
 		t.Fatal("the resumed layer migration did not finish")
 	}
 }
+
+// RC-D51: `yolo config migrate FILE` converts FILE and the old files it includes, and the
+// converted FILE names the converted include; `--only FILE` (Request.Only) converts FILE alone,
+// leaving its include an old file the converted FILE still names. Either way a launch passing the
+// converted layer reads what it read before. Fails if Only stops skipping the include walk (the
+// include is then converted too), or if the default stops converting it.
+func TestAFileIsConvertedWithItsIncludesUnlessOnly(t *testing.T) {
+	for _, only := range []bool{false, true} {
+		name := "with its includes"
+		if only {
+			name = "--only"
+		}
+		t.Run(name, func(t *testing.T) {
+			home := env(t)
+			dir := filepath.Join(home, ".config", "yolo-jail")
+			write(t, filepath.Join(dir, paths.UserConfigTOMLName), "[install]\nnix = ['user']\n")
+			ws := realDir(t)
+			layer := filepath.Join(home, "layers", "work.jsonc")
+			include := filepath.Join(home, "layers", "more.jsonc")
+			write(t, layer, `{"packages": ["layer"], "include_if_found": ["more.jsonc"]}`+"\n")
+			write(t, include, `{"packages": ["more"], "env_sources": [{"A": "more"}]}`+"\n")
+			includeBytes, _ := os.ReadFile(include)
+			read := func(layer string) string {
+				t.Helper()
+				var text string
+				withUserLayer(layer, func() {
+					merged, err := config.LoadConfig(ws, true, func(string) {})
+					if err != nil {
+						t.Fatal(err)
+					}
+					text, err = config.SnapshotJSON(merged)
+					if err != nil {
+						t.Fatal(err)
+					}
+				})
+				return text
+			}
+			before := read(layer)
+			if !strings.Contains(before, `"more"`) || !strings.Contains(before, `"layer"`) {
+				t.Fatalf("the fixture reads %s", before)
+			}
+			p := plan(t, Request{UserConfigDir: dir, Workspace: ws, Layer: layer, Only: only})
+			if len(p.NotConverted) > 0 {
+				t.Fatalf("not converted: %+v", p.NotConverted)
+			}
+			if _, err := Apply(p, ApplyOptions{}); err != nil {
+				t.Fatal(err)
+			}
+			converted := filepath.Join(home, "layers", "work.toml")
+			data, err := os.ReadFile(converted)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if after := read(converted); after != before {
+				t.Errorf("the converted layer reads differently:\n  before %s\n  after  %s", before, after)
+			}
+			_, includeErr := os.Stat(filepath.Join(home, "layers", "more.toml"))
+			if only {
+				if now, _ := os.ReadFile(include); !reflect.DeepEqual(now, includeBytes) || includeErr == nil {
+					t.Errorf("--only touched the include: more.jsonc now %q, more.toml exists %v", now, includeErr == nil)
+				}
+				if !strings.Contains(string(data), "more.jsonc") {
+					t.Errorf("--only's converted layer does not name the old include:\n%s", data)
+				}
+				return
+			}
+			if includeErr != nil {
+				t.Errorf("the include was not converted with the file: %v", includeErr)
+			}
+			if !strings.Contains(string(data), "more.toml") || strings.Contains(string(data), "more.jsonc") {
+				t.Errorf("the converted layer does not name the converted include:\n%s", data)
+			}
+		})
+	}
+}

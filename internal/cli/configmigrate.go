@@ -32,7 +32,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
 
-const configMigrateUsage = `Usage: yolo config migrate [--dry-run] [--yes] [FILE...]
+const configMigrateUsage = `Usage: yolo config migrate [--dry-run] [--yes] [--only] [FILE...]
 
 Convert the old-format config files (config.jsonc, yolo-jail.jsonc, yolo-jail.local.jsonc and
 every file they include) into their TOML twins, once. On the host it converts the user config
@@ -41,7 +41,9 @@ and this workspace's files; in a jail, only this workspace's files.
 With FILE, it converts only each named old-format file, such as one you pass with
 --user-layer, and the files it includes: <name>.toml beside it, proved over your user config
 as a launch layers it. The user config and this workspace's files are not touched. In a jail,
-a FILE must be inside this workspace.
+a FILE must be inside this workspace. Each include entry in a converted file names the
+converted include. With --only, each FILE is converted alone: the old files it includes stay
+as they are, and the converted file keeps including them (a TOML file may include an old one).
 
 It proves the converted files say exactly what the old ones say (the effective config before
 and after, compared as canonical JSON), and that the next launch accepts them (its own config
@@ -60,6 +62,7 @@ yolo finds no config.jsonc and starts with no packs.
 Flags:
   --dry-run   Show what it would write, and write nothing.
   --yes       Write without asking (for use with no terminal, such as an agent in a jail).
+  --only      With FILE: convert each FILE alone, not the files it includes.
   --help, -h  Show this help.`
 
 // configMigrateInteractive is whether the migration can ask its question: a person at stdin
@@ -81,7 +84,7 @@ func configMigrateRequest(workspace string) configmigrate.Request {
 }
 
 func configMigrate(args []string, in io.Reader, interactive bool, out, errw io.Writer) int {
-	dryRun, yes := false, false
+	dryRun, yes, only := false, false, false
 	var files []string
 	endOfFlags := false
 	for _, a := range args {
@@ -94,11 +97,13 @@ func configMigrate(args []string, in io.Reader, interactive bool, out, errw io.W
 			dryRun = true
 		case a == "--yes":
 			yes = true
+		case a == "--only":
+			only = true
 		case a == "-h" || a == "--help":
 			writeCLIUsage(out, colorForWriter(out), configMigrateUsage)
 			return 0
 		default:
-			fmt.Fprintf(errw, "yolo config migrate: unexpected argument %q; it takes --dry-run, --yes and file paths "+
+			fmt.Fprintf(errw, "yolo config migrate: unexpected argument %q; it takes --dry-run, --yes, --only and file paths "+
 				"(`yolo config migrate --help`)\n", a)
 			return 2
 		}
@@ -109,6 +114,12 @@ func configMigrate(args []string, in io.Reader, interactive bool, out, errw io.W
 	}
 	workspace := configEditWorkspace()
 	req := configMigrateRequest(workspace)
+	if only && len(files) == 0 {
+		fmt.Fprintln(errw, "yolo config migrate: --only converts a named FILE alone, and no file was named; "+
+			"run `yolo config migrate --only FILE`, or `yolo config migrate` with no flag to convert every file the config reaches")
+		return 2
+	}
+	req.Only = only
 	if len(files) > 0 {
 		layers, rc := configMigrateLayerPaths(files, workspace, errw)
 		if rc != 0 {

@@ -27,6 +27,10 @@ type Request struct {
 	// base the layer applies over, from UserConfigDir, or in a jail (UserConfigDir "") from the
 	// jail's own; UserConfigDir and Workspace then only place the journal, as they do without it.
 	Layer string
+	// Only converts the Layer file alone (RC-D51, `yolo config migrate --only FILE`): the old
+	// files it includes stay as they are, and the converted file keeps naming them, since a TOML
+	// file may include an old one (RC-D50).
+	Only bool
 }
 
 // baseUserDir is the user config directory a layer applies over.
@@ -132,7 +136,19 @@ func (g *Graph) discoverLayer() error {
 	if err := g.walk(top, seen); err != nil {
 		return err
 	}
+	if g.Request.Only {
+		// What it includes is read, never written: each stays an old file, and the converted
+		// file names it as the old one did (RC-D51).
+		for _, f := range g.Files {
+			if f != top {
+				f.Role = RoleRead
+			}
+		}
+	}
 	for _, f := range g.Files {
+		if g.Request.Only && f != top {
+			continue // read, never written, so what else reads it reads the same
+		}
 		if by, ok := reached[f.Physical]; ok {
 			return fmt.Errorf("%s is read by your user config or this workspace's config too (as %s), so converting it on its own "+
 				"would change what they read; nothing was changed. Run `yolo config migrate` with no file to convert it with them", f.Logical, by)

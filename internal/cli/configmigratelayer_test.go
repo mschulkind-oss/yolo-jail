@@ -103,7 +103,7 @@ func TestConfigMigrateLayerInAJail(t *testing.T) {
 func TestConfigMigrateArguments(t *testing.T) {
 	_, layer := layerMigrateEnv(t)
 	rc, _, errw := runConfigMigrateVerb(t, "--user-layer", layer)
-	if rc != 2 || !strings.Contains(errw, "--dry-run, --yes and file paths") {
+	if rc != 2 || !strings.Contains(errw, "--dry-run, --yes, --only and file paths") {
 		t.Fatalf("an unknown flag: rc=%d %s", rc, errw)
 	}
 	rc, out, _ := runConfigMigrateVerb(t, "--help")
@@ -113,5 +113,46 @@ func TestConfigMigrateArguments(t *testing.T) {
 	rc, out, errw = runConfigMigrateVerb(t, "--dry-run", "--", layer)
 	if rc != 0 || !strings.Contains(out, "Found 1 file in the old format") {
 		t.Fatalf("FILE after --: rc=%d\n%s\n%s", rc, out, errw)
+	}
+	// --only (RC-D51) takes a FILE; with none it is refused, naming both commands that work.
+	rc, _, errw = runConfigMigrateVerb(t, "--only")
+	if rc != 2 || !strings.Contains(errw, "yolo config migrate --only FILE") {
+		t.Fatalf("--only with no FILE: rc=%d %s", rc, errw)
+	}
+	rc, out, errw = runConfigMigrateVerb(t, "--dry-run", "--only", layer)
+	if rc != 0 || !strings.Contains(out, "Found 1 file in the old format") {
+		t.Fatalf("--only FILE: rc=%d\n%s\n%s", rc, out, errw)
+	}
+}
+
+// RC-D51 through the verb: `--only FILE` converts FILE and leaves the old file it includes, which
+// the converted FILE still names; without --only both convert. Fails if the verb stops passing
+// --only to the migration (Request.Only).
+func TestConfigMigrateOnlyLeavesTheIncludes(t *testing.T) {
+	for _, only := range []bool{false, true} {
+		_, layer := layerMigrateEnv(t)
+		include := filepath.Join(filepath.Dir(layer), "inc.jsonc")
+		if err := os.WriteFile(include, []byte(`{"packages": ["inc"]}`+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		body, err := os.ReadFile(layer)
+		if err != nil {
+			t.Fatal(err)
+		}
+		withInclude := strings.Replace(string(body), "{", `{"include_if_found": ["inc.jsonc"],`, 1)
+		if err := os.WriteFile(layer, []byte(withInclude), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		args := []string{"--yes", layer}
+		if only {
+			args = []string{"--yes", "--only", layer}
+		}
+		if rc, out, errw := runConfigMigrateVerb(t, args...); rc != 0 {
+			t.Fatalf("only=%v: rc=%d\n%s\n%s", only, rc, out, errw)
+		}
+		_, err = os.Stat(strings.TrimSuffix(include, ".jsonc") + ".toml")
+		if converted := err == nil; converted == only {
+			t.Errorf("only=%v: the include was converted = %v", only, converted)
+		}
 	}
 }
