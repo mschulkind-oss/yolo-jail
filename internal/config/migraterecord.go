@@ -75,6 +75,17 @@ func ReadMigrationGraph(userPath, workspace string) (*MigrationGraphRead, error)
 	return out, nil
 }
 
+// UserConfigIsTOML is whether the user config the reader selects beside userPath (config.toml,
+// else config.jsonc or config.json) is the TOML one: the format that makes `packs` the only
+// switch and `[allow.<pack>]` a pack's settings. False when the directory cannot be read.
+func UserConfigIsTOML(userPath string) bool {
+	if userPath == "" {
+		return false
+	}
+	_, _, readable, err := resolveUserConfigPath(userPath)
+	return err == nil && readable
+}
+
 // ReadMigrationLayer is ReadMigrationGraph for a --user-layer file a migration converts on its
 // own (RC-D46): the user graph whose top-level file is userPath, with the layer at layerPath
 // merged over it exactly as a launch passed `--user-layer layerPath` merges it, strictly. No

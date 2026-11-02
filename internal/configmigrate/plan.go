@@ -692,6 +692,10 @@ func readCanonical(g *Graph, userTop, layer, workspace string, remotes []string,
 		return nil, fmt.Errorf("read the shipped broker declarations: %w", err)
 	}
 	s := &sideRead{}
+	// The side's pack switch is its user config's format. A layer's side names the base by a
+	// legacy-spelled path in its directory (Request.baseUserTop), so the format is the file the
+	// reader selects there, not that path's extension.
+	readable := strings.EqualFold(filepath.Ext(userTop), ".toml") || (layer != "" && config.UserConfigIsTOML(userTop))
 	if lowerOld {
 		s.user, _ = canonicalOld(read.User, loweringContext{scope: ScopeUser, remotes: remotes, user: view, inlineEnv: opts.inlineEnv, twinOf: opts.twinOf})
 		s.project, _ = canonicalOld(read.Workspace, loweringContext{scope: ScopeProject, remotes: remotes, user: view, inlineEnv: opts.inlineEnv, twinOf: opts.twinOf})
@@ -704,7 +708,7 @@ func readCanonical(g *Graph, userTop, layer, workspace string, remotes []string,
 		s.providers, s.derived = providerTable(withMovedProviderKeys(read.Composed, s.composed), packs)
 		// The OLD user config as the brokers read it, not its lowering.
 		s.grants = brokerGrants(read.User, brokers)
-		s.activation = loopholeActivation(read.Composed, userTop, packs)
+		s.activation = loopholeActivation(read.Composed, readable, packs)
 	} else {
 		s.user = unmirror(read.User, mirror).(*jsonx.OrderedMap)
 		s.project = unmirror(read.Workspace, mirror).(*jsonx.OrderedMap)
@@ -712,7 +716,7 @@ func readCanonical(g *Graph, userTop, layer, workspace string, remotes []string,
 		s.env = launchEnv(s.composed)
 		s.providers, s.derived = providerTable(s.composed, packs)
 		s.grants = brokerGrants(s.user, brokers)
-		s.activation = loopholeActivation(s.composed, userTop, packs)
+		s.activation = loopholeActivation(s.composed, readable, packs)
 	}
 	if lowerOld {
 		s.grantUser, s.grantWorkspace = jsonx.DeepCopyMap(read.User), jsonx.DeepCopyMap(read.Workspace)

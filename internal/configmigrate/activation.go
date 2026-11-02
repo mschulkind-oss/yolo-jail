@@ -21,10 +21,9 @@ const loopholeActivationLayer = "the loopholes a launch runs"
 
 // loopholeActivation is which shipped loopholes composed, one side's merged read, runs and with
 // which supplied settings, through the launch's own rule (loopholes.PackSwitchActivation) with the
-// pack switch decided by the side's user config format: a TOML user config's selection switches
-// its ungated loopholes on, a legacy one leaves `default_enabled` standing.
-func loopholeActivation(composed *jsonx.OrderedMap, userTop string, packs []*packload.Pack) *jsonx.OrderedMap {
-	readable := strings.EqualFold(filepath.Ext(userTop), ".toml")
+// pack switch decided by the side's user config format (readable): a TOML user config's selection
+// switches its ungated loopholes on, a legacy one leaves `default_enabled` standing.
+func loopholeActivation(composed *jsonx.OrderedMap, readable bool, packs []*packload.Pack) *jsonx.OrderedMap {
 	selected := newUserView(composed).packs
 	var modules []loopholes.PackModule
 	for _, p := range packs {

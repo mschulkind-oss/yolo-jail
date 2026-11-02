@@ -19,6 +19,10 @@ type userView struct {
 	profiles *jsonx.OrderedMap
 	// enabled is each loophole's merged `enabled` value, when one file wrote it.
 	enabled map[string]any
+	// selectionSwitch is set for a --user-layer over a TOML user config: there a selected pack's
+	// loophole runs and reads its settings whatever `enabled` says (loopholes.ConfigBlock), so
+	// a layer's `loopholes.<name>.settings` are live, never dormant.
+	selectionSwitch bool
 	// sources names each pack source the merged `packs` list needs (sourceNames), so every file
 	// that names one directory writes the same source.
 	sources map[string]string
@@ -89,6 +93,7 @@ func layerViewOf(g *Graph) *userView {
 		return newUserView(nil)
 	}
 	v := newUserView(read.User)
+	v.selectionSwitch = config.UserConfigIsTOML(g.Request.baseUserTop())
 	existing, _ := mapAt(read.User, "pack_sources")
 	list, _ := read.User.Get("packs")
 	items, _ := list.([]any)
@@ -169,7 +174,7 @@ func lowerLoopholes(value any, ctx loweringContext, place func([]string, any, []
 			continue
 		}
 		selected := view.packs[name]
-		enabled := view.enabled[name] == true
+		enabled := view.enabled[name] == true || view.selectionSwitch
 		if d, declared := view.grants.decl(name); declared && selected {
 			lowerGrantLoophole(d, entry, path, enabled, view.grants, place, skip)
 			continue
