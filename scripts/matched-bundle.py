@@ -277,13 +277,34 @@ def validate_pair(launcher: Path, bundle: Path, identity: str, build_kind: str, 
         raise RuntimeError("matched bundle is stamped for a different commit or dirtiness")
     env = _git_env()
     env.pop("YOLO_REPO_ROOT", None)
-    result = subprocess.run([str(launcher), "--version", "--full"], check=True,
-                            capture_output=True, text=True, env=env)
+    result = _run_fresh_executable([str(launcher), "--version", "--full"], env)
     fields = set(result.stdout.splitlines())
     if f"snapshot identity: {identity}" not in fields or f"build kind: {build_kind}" not in fields:
         raise RuntimeError("incomplete matched bundle: native launcher identity does not match bundle metadata")
     if stamps is not None and not _stamp_lines(*stamps) <= fields:
         raise RuntimeError("matched bundle launcher is stamped for a different commit or dirtiness")
+
+
+def _run_fresh_executable(argv: list[str], env: dict[str, str]) -> subprocess.CompletedProcess:
+    """Run a just-written executable, retrying while the kernel reports it busy.
+
+    Executing a file that some process still holds open for writing fails with ETXTBSY. The
+    writer here closed it, but a fork in another thread of this process (a concurrent publish)
+    can inherit that write descriptor for the instant before its exec closes it, so the busy
+    state is real but momentary: CI saw it in test_failed_and_concurrent_publication_is_atomic_
+    and_unique (2026-11-02). Go's os/exec retries the same condition for the same reason.
+    """
+    import errno
+    delay = 0.01
+    for attempt in range(8):
+        try:
+            return subprocess.run(argv, check=True, capture_output=True, text=True, env=env)
+        except OSError as exc:
+            if exc.errno != errno.ETXTBSY or attempt == 7:
+                raise
+            time.sleep(delay)
+            delay *= 2
+    raise AssertionError("unreachable")
 
 
 def validate_bundle(root: Path, identity: str, build_kind: str, *,

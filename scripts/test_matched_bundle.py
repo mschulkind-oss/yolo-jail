@@ -904,5 +904,45 @@ raise SystemExit(23)
         self.assertFalse(self.stale_marker.exists())
 
 
+class FreshExecutableTests(unittest.TestCase):
+    """A launcher another thread's fork briefly holds open for writing is busy, not broken."""
+
+    def test_a_momentarily_busy_executable_is_retried(self):
+        import errno
+        calls = []
+        real = mb.subprocess.run
+
+        def busy_then_ok(argv, **kw):
+            calls.append(argv)
+            if len(calls) < 3:
+                raise OSError(errno.ETXTBSY, "Text file busy", argv[0])
+            return subprocess.CompletedProcess(argv, 0, "ok\n", "")
+
+        mb.subprocess.run = busy_then_ok
+        try:
+            result = mb._run_fresh_executable(["/x/yolo", "--version"], {})
+        finally:
+            mb.subprocess.run = real
+        self.assertEqual(result.stdout, "ok\n")
+        self.assertEqual(len(calls), 3)
+
+    def test_any_other_error_is_not_retried(self):
+        import errno
+        calls = []
+        real = mb.subprocess.run
+
+        def missing(argv, **kw):
+            calls.append(argv)
+            raise OSError(errno.ENOENT, "No such file", argv[0])
+
+        mb.subprocess.run = missing
+        try:
+            with self.assertRaises(OSError):
+                mb._run_fresh_executable(["/x/yolo"], {})
+        finally:
+            mb.subprocess.run = real
+        self.assertEqual(len(calls), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
