@@ -126,6 +126,9 @@ func TestMacosUserAccountRelaunchKeepsDeliveredInheritedJSONC(t *testing.T) {
 	}
 }
 
+// lateOwnerEdit makes a late owner file's bytes its own.
+const lateOwnerEdit = "# late owner edit\n"
+
 type inheritedDeliveryProofFixture struct {
 	o           *Options
 	stagingRoot string
@@ -380,6 +383,8 @@ func TestMacosUserAccountRelaunchRefusesOwnerReplacementAtBothBoundaries(t *test
 				if err != nil {
 					t.Fatal(err)
 				}
+				// The owner's own bytes: a byte-identical file is one the delivery record admits.
+				body = append(body, []byte(lateOwnerEdit)...)
 				if err := os.WriteFile(late, body, 0o444); err != nil {
 					t.Fatal(err)
 				}
@@ -410,6 +415,11 @@ func TestMacosUserAccountRelaunchRefusesOwnerReplacementAtBothBoundaries(t *test
 	source := filepath.Join(sealed, filepath.FromSlash(inheritPreflightLegacyRel))
 	body, err := os.ReadFile(delivered)
 	if err != nil {
+		t.Fatal(err)
+	}
+	// WITHOUT THE DELIVERY RECORD (issue #70) matching bytes prove nothing: the agent can write
+	// them. With it, the same copy is admitted (TestMacosUserRelaunchAdmitsACopiedDelivery).
+	if err := os.Remove(entrypoint.InheritedDeliveryRecordPath(sealed)); err != nil {
 		t.Fatal(err)
 	}
 	copyPath := delivered + ".owner-copy"
@@ -502,7 +512,8 @@ func TestMacosUserAccountRelaunchRefusesOwnerReplacementAtBothBoundaries(t *test
 	}
 	lateAfter, err := os.Lstat(lateOwnerPath)
 	got, readErr = os.ReadFile(lateOwnerPath)
-	if err != nil || readErr != nil || !os.SameFile(lateOwner, lateAfter) || lateOwner.Mode() != lateAfter.Mode() || !bytes.Equal(body, got) {
+	if err != nil || readErr != nil || !os.SameFile(lateOwner, lateAfter) || lateOwner.Mode() != lateAfter.Mode() ||
+		!bytes.Equal(append(append([]byte(nil), body...), lateOwnerEdit...), got) {
 		t.Fatalf("installer refusal changed late owner entry: before %v, after %v, body %q, errors %v/%v", lateOwner, lateAfter, got, err, readErr)
 	}
 }

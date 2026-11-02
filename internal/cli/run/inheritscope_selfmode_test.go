@@ -26,6 +26,8 @@ import (
 // it (entrypoint.DeriveDarwinWorkspaceHome).
 type inheritedRelaunchFixture struct {
 	sidecar   string
+	ws        string
+	sealed    string // the staged overlay the installer delivers from
 	delivered string
 	// dispatched counts the launches that reached the sandbox, where the installer runs.
 	dispatched int
@@ -36,7 +38,7 @@ func newInheritedRelaunchFixture(t *testing.T, mode macosuser.Mode) *inheritedRe
 	t.Helper()
 	ws := floortest.ResolvedTemp(t)
 	sidecar := paths.WorkspaceHomeState(ws)
-	f := &inheritedRelaunchFixture{sidecar: sidecar}
+	f := &inheritedRelaunchFixture{sidecar: sidecar, ws: ws}
 	guestHome := sidecar
 	if mode == macosuser.ModeSelf {
 		if err := os.MkdirAll(filepath.Join(sidecar, ".config"), 0o755); err != nil {
@@ -59,6 +61,7 @@ func newInheritedRelaunchFixture(t *testing.T, mode macosuser.Mode) *inheritedRe
 	inheritedScopeStagingRoot = func() string { return stageRoot }
 	t.Cleanup(func() { inheritedScopeStagingRoot = previousRoot })
 	sealed := macosuser.StagedHomeOverlay(session, stageRoot)
+	f.sealed = sealed
 	t.Cleanup(func() { _ = exec.Command("chmod", "-R", "u+w", stageRoot).Run() })
 	f.launch = func() (int, string, error) {
 		t.Helper()
@@ -167,6 +170,8 @@ func TestMacosUserSelfRelaunchJudgesTheDestinationWhereItsHomeKeepsIt(t *testing
 	if err := os.Remove(f.delivered); err != nil {
 		t.Fatal(err)
 	}
+	// The owner's own bytes: a byte-identical copy is one the delivery record admits (issue #70).
+	body = append(body, []byte("# owner edit\n")...)
 	if err := os.WriteFile(f.delivered, body, 0o444); err != nil {
 		t.Fatal(err)
 	}
