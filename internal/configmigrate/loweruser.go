@@ -22,6 +22,8 @@ type userView struct {
 	// sources names each pack source the merged `packs` list needs (sourceNames), so every file
 	// that names one directory writes the same source.
 	sources map[string]string
+	// grants is the loophole rows' projection (loopholegrants.go); nil until planLoopholeGrants.
+	grants *loopholeGrantView
 }
 
 func newUserView(user *jsonx.OrderedMap) *userView {
@@ -168,6 +170,10 @@ func lowerLoopholes(value any, ctx loweringContext, place func([]string, any, []
 		}
 		selected := view.packs[name]
 		enabled := view.enabled[name] == true
+		if d, declared := view.grants.decl(name); declared && selected {
+			lowerGrantLoophole(d, entry, path, enabled, view.grants, place, skip)
+			continue
+		}
 		for _, key := range entry.Keys() {
 			v, _ := entry.Get(key)
 			oldPath := append(append([]string(nil), path...), key)
@@ -189,6 +195,50 @@ func lowerLoopholes(value any, ctx loweringContext, place func([]string, any, []
 				skip(oldPath, v, "only a loophole's `enabled` and `settings` convert; a loophole declared here (`"+key+"`) belongs in a pack: `yolo pack init`, or keep the old file for now")
 			}
 		}
+	}
+}
+
+// lowerGrantLoophole converts a user file's block for a selected grant-declaring loophole (§6's
+// user rows): `enabled` and a replaced setting (journal's `full`) become the pack's ceiling lines,
+// placed in this file; `enabled: false` writes nothing, since absent grants nothing; any other
+// setting becomes `allow.<pack>.<setting>` as before. A legacy `visible`-style list is a
+// project's request now, which a user file cannot write.
+func lowerGrantLoophole(d config.LoopholeGrantDeclaration, entry *jsonx.OrderedMap, path []string, enabled bool, gv *loopholeGrantView, place func([]string, any, []string) bool, skip func([]string, any, string)) {
+	owns := false
+	for _, key := range entry.Keys() {
+		v, _ := entry.Get(key)
+		oldPath := append(append([]string(nil), path...), key)
+		switch key {
+		case "enabled":
+			owns = true
+		case "settings":
+			settings, ok := v.(*jsonx.OrderedMap)
+			if !ok {
+				skip(oldPath, v, "settings must be an object")
+				continue
+			}
+			rest := jsonx.NewOrderedMap()
+			for _, sk := range settings.Keys() {
+				sv, _ := settings.Get(sk)
+				setting, values := legacyGrantKey(d, sk)
+				switch {
+				case setting:
+					owns = true
+				case values:
+					skip(append(append([]string(nil), oldPath...), sk), sv, "this list is a project's request now: run `yolo request "+d.Pack+" <kind> <values>` in each workspace that needs it, then remove it from the old file and run `yolo config migrate` again")
+				default:
+					rest.Set(sk, sv)
+				}
+			}
+			if rest.Len() > 0 {
+				lowerLoopholeSettings(d.Pack, rest, oldPath, true, enabled, place, skip)
+			}
+		default:
+			skip(oldPath, v, "only a loophole's `enabled` and `settings` convert; a loophole declared here (`"+key+"`) belongs in a pack: `yolo pack init`, or keep the old file for now")
+		}
+	}
+	if owns {
+		placeLoopholeCeiling(gv, d, place, path)
 	}
 }
 

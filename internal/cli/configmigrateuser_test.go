@@ -61,7 +61,8 @@ func TestConfigMigrateLoopholeRefusalsNameTheNextStep(t *testing.T) {
 		{"switched off", `{"packs": ["aws-auth"], "loopholes": {"aws-auth": {"enabled": false}}}`, `remove "aws-auth" from packs`},
 		{"settings without enabled", `{"packs": ["aws-auth"], "loopholes": {"aws-auth": {"settings": {"profile": "sso"}}}}`, `Set "enabled": true`},
 		{"declared here", `{"loopholes": {"mine": {"command": ["x"]}}}`, "yolo pack init"},
-		{"gated loophole switched on", `{"packs": ["journal"], "loopholes": {"journal": {"enabled": true}}}`, "Keep the old file (this yolo keeps reading it) until those grants land, then run `yolo config migrate` again"},
+		// A grant-declaring loophole converts to its grants (configmigrate.TestLegacyLoopholeEnabledMigratesToAllowAndRequests); one that declares none and does not run on selection keeps its old file.
+		{"gated loophole switched on", `{"packs": ["hello-daemon"], "loopholes": {"hello-daemon": {"enabled": true}}}`, "Keep the old file (this yolo keeps reading it) until those grants land, then run `yolo config migrate` again"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rc, toml, out := migrateUser(t, tc.old)

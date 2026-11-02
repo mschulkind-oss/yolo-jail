@@ -108,6 +108,11 @@ type MigrationPlan struct {
 	Renames []PackRename
 	// Unchecked are the launch checks the gate could not run in full on this machine, and why.
 	Unchecked []string
+	// GrantStandings are the loophole grant standings the proof compared, per workspace, pack and
+	// kind, as the converted files and record read (loopholegrants.go).
+	GrantStandings map[string]map[string]map[string]string
+	// Carries are the switch files and approved snapshots Apply carries into approval records.
+	Carries []CarriedSwitch
 
 	canonical canonicalSet
 }
@@ -267,6 +272,8 @@ func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 	packs := packload.Embedded()
 	remotes := workspaceRemotes(g.Request.Workspace)
 	view := userViewOf(g)
+	planLoopholeGrants(g, view, packs)
+	p.Carries = view.grants.carries
 	newBytes := map[*File][]byte{}
 	writers := writerCounts{}
 	for _, f := range g.Files {
@@ -344,8 +351,13 @@ func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 	p.Differences = append(p.Differences, diffValues(providerTableLayer, before.providers, after.providers)...)
 	p.Differences = append(p.Differences, diffValues(brokerGrantsLayer, before.grants, after.grants)...)
 	p.Differences = append(p.Differences, activationNextSteps(diffValues(loopholeActivationLayer, before.activation, after.activation))...)
+	beforeStandings, _ := loopholeStandings(view.grants, before.grantUser, before.grantWorkspace, false)
+	afterStandings, standingTexts := loopholeStandings(view.grants, after.grantUser, after.grantWorkspace, true)
+	standingDiffs := standingNextSteps(diffValues(loopholeStandingLayer, beforeStandings, afterStandings))
+	p.Differences = append(p.Differences, standingDiffs...)
+	p.GrantStandings = standingTexts
 	p.DerivedVendors = derivedOnlyBefore(before.derived, after.derived)
-	p.Equal = before.set == after.set
+	p.Equal = before.set == after.set && len(standingDiffs) == 0
 	if g.Request.Workspace != "" && len(g.project) > 0 {
 		p.Records = planRecords(g.Request.Workspace)
 	}
@@ -615,7 +627,10 @@ type sideRead struct {
 	grants *jsonx.OrderedMap
 	// activation is which loopholes the launch runs, with their settings (loopholeActivation).
 	activation *jsonx.OrderedMap
-	set        canonicalSet
+	// grantUser and grantWorkspace are the user and workspace configs as read, before any
+	// lowering or default: what the loophole grant standings are read from (loopholeStandings).
+	grantUser, grantWorkspace *jsonx.OrderedMap
+	set                       canonicalSet
 }
 
 // launchEnv is what the launch's env resolver walks over a merged read, as a map diffValues can
@@ -698,6 +713,11 @@ func readCanonical(g *Graph, userTop, layer, workspace string, remotes []string,
 		s.providers, s.derived = providerTable(s.composed, packs)
 		s.grants = brokerGrants(s.user, brokers)
 		s.activation = loopholeActivation(s.composed, userTop, packs)
+	}
+	if lowerOld {
+		s.grantUser, s.grantWorkspace = jsonx.DeepCopyMap(read.User), jsonx.DeepCopyMap(read.Workspace)
+	} else {
+		s.grantUser, s.grantWorkspace = jsonx.DeepCopyMap(s.user), jsonx.DeepCopyMap(s.project)
 	}
 	for _, m := range []*jsonx.OrderedMap{s.user, s.project, s.composed} {
 		m.Delete(convertLaterKey)

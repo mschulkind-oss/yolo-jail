@@ -51,7 +51,8 @@ func printRecordedGateChanges(r *reporter, rep config.ChangeReport) {
 
 // reportInertGrantRequests names each grant-declaring loophole this setup runs not at all whose
 // grants this project requests (LG-D10): the gate shows no line for it, so `yolo check` says why,
-// in the inert report's words. Nothing when the workspace config cannot be read for the gate, which
+// in the inert report's words. It also names each grant the approval record carries that no file
+// of this project states, with the `yolo request` line that writes it. Nothing when the workspace config cannot be read for the gate, which
 // the config's own section reports.
 func reportInertGrantRequests(r *reporter, workspace string, merged *jsonx.OrderedMap, rt string) {
 	read, err := config.ReadWorkspaceForGate(workspace)
@@ -61,6 +62,12 @@ func reportInertGrantRequests(r *reporter, workspace string, merged *jsonx.Order
 	scope := collectScopeCheck(run.ScopeInput{Workspace: workspace, Merged: merged, Runtime: rt, Read: read})
 	if scope == nil {
 		return
+	}
+	// A grant the approval record carries from a retired switch file, which no file of this
+	// project requests: it stands, and the note names the request that states it (LG-D11).
+	for _, note := range scope.UnstatedRecordGrantNotes() {
+		title, detail, _ := strings.Cut(note, "\n")
+		r.warn(termsafe.Visible(title), termsafe.VisibleLines(strings.TrimSpace(detail)))
 	}
 	for _, ig := range scope.InertLoopholeGrants {
 		if len(ig.Requested) == 0 {

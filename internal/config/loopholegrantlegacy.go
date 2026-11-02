@@ -210,24 +210,42 @@ func appendUnique(list []string, items ...string) []string {
 // already write, and the record-equivalent grants come back by pack. A readable `allow.<pack>`
 // or `requests.<pack>.<kind>` the user or project wrote stands: the projection only adds, and an
 // `allow.<pack> = "off"` takes nothing from it. Origins name the legacy key the line came from.
-func withLegacyLoopholeGrants(input LoopholeGrantInput, userSrc, wsSrc *Sources, workspace string) (LoopholeGrantInput, map[string][]string) {
+// The workspace's switch file and the approval record's carried grants (carriedLoopholeGrants)
+// are read from disk; withLegacyLoopholeGrantsFrom takes them as arguments.
+func withLegacyLoopholeGrants(input LoopholeGrantInput, userSrc, wsSrc *Sources, workspace string) (LoopholeGrantInput, map[string][]string, map[string][]string) {
 	switches := map[string]bool{}
+	wfPath := ""
 	wf := ReadWorkspaceFile(workspace)
+	if wf != nil {
+		wfPath = wf.Path
+	}
 	if wf != nil && wf.Applies {
 		for _, name := range wf.Loopholes.Keys() {
 			on, _ := wf.Loopholes.Get(name)
 			switches[name] = on == true
 		}
 	}
+	rec, _, _ := readLoopholeGrantRecord(workspace)
+	return withLegacyLoopholeGrantsFrom(input, userSrc, wsSrc, switches, wfPath, carriedLoopholeGrants(rec))
+}
+
+// withLegacyLoopholeGrantsFrom is withLegacyLoopholeGrants over the given switches (the switch
+// file at wfPath, "" for none) and carried grants. Its third result is, per pack, the carried
+// grants this project's files do not state: the ones laid over as requests.
+func withLegacyLoopholeGrantsFrom(input LoopholeGrantInput, userSrc, wsSrc *Sources, switches map[string]bool, wfPath string, carried map[string][]string) (LoopholeGrantInput, map[string][]string, map[string][]string) {
 	proj := ProjectLegacyLoopholeGrants(LegacyLoopholeGrantInput{User: input.User, Workspace: input.Workspace,
 		Switches: switches, Declarations: input.Declarations})
-	if len(proj) == 0 {
-		return input, nil
+	hasCarried := false
+	for _, d := range input.Declarations {
+		hasCarried = hasCarried || len(carried[d.Pack]) > 0
+	}
+	if len(proj) == 0 && !hasCarried {
+		return input, nil, nil
 	}
 	// A top-level `allow` or `requests` that is not a table is the resolver's error to report.
 	for _, top := range []any{getOr(input.User, "allow", nil), getOr(input.Workspace, "requests", nil)} {
 		if top != nil && mapOrNil(top) == nil {
-			return input, nil
+			return input, nil, nil
 		}
 	}
 	decls := map[string]LoopholeGrantDeclaration{}
@@ -246,8 +264,8 @@ func withLegacyLoopholeGrants(input LoopholeGrantInput, userSrc, wsSrc *Sources,
 		d := decls[p.Pack]
 		userFrom := scopeSourceFiles(userSrc, "loopholes", p.Loophole)
 		wsFrom := scopeSourceFiles(wsSrc, "loopholes", p.Loophole)
-		if len(wsFrom) == 0 && wf != nil {
-			wsFrom = []string{wf.Path}
+		if len(wsFrom) == 0 && wfPath != "" {
+			wsFrom = []string{wfPath}
 		}
 		if len(wsFrom) == 0 {
 			wsFrom = userFrom
@@ -317,9 +335,10 @@ func withLegacyLoopholeGrants(input LoopholeGrantInput, userSrc, wsSrc *Sources,
 			recorded[p.Pack] = append([]string(nil), p.Recorded...)
 		}
 	}
+	open := layCarriedRequests(input.Declarations, requests, carried)
 	out.User.Set("allow", allow)
 	out.Workspace.Set("requests", requests)
-	return out, recorded
+	return out, recorded, open
 }
 
 func hasRecordedKind(recorded []string, kind string) bool {

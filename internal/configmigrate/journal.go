@@ -76,6 +76,10 @@ type migrationJournal struct {
 	// Layer is the converted --user-layer file of a Request.Layer migration, read back merged
 	// over the user config UserTop names, with no workspace; "" otherwise.
 	Layer string `json:"layer,omitempty"`
+	// Carries are the switch files and approved snapshots carried into approval records, done
+	// inside the commit before the journal is removed (carryLoopholeGrants): each record is
+	// written before its switches are removed.
+	Carries []CarriedSwitch `json:"carries,omitempty"`
 }
 
 // readBackWorkspace is the workspace the read-back reads: none for a layer, which is user scope.
@@ -125,6 +129,10 @@ func (j *migrationJournal) finish(journal string, res *ApplyResult) error {
 	res.PackRecords = moved
 	if err != nil {
 		return fmt.Errorf("the converted files are in place, but moving the renamed packs' records failed (%w); "+
+			"fix what that names and run `yolo config migrate` to finish, as %s lists", err, journal)
+	}
+	if err := carryLoopholeGrants(j.Carries); err != nil {
+		return fmt.Errorf("the converted files are in place, but carrying the loophole switches into the approval records failed (%w); "+
 			"fix what that names and run `yolo config migrate` to finish, as %s lists", err, journal)
 	}
 	if err := os.Remove(journal); err != nil {

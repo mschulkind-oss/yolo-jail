@@ -64,6 +64,9 @@ type LoopholeGrantSource struct {
 	// legacyRecorded is the grants a legacy switch file holds as if recorded (the legacy
 	// projection, loopholegrantlegacy.go), read beside the record.
 	legacyRecorded []string
+	// carried is the record's carried grants this project's files do not state
+	// (loopholegrantcarried.go): requested on the record's word until a file does.
+	carried []string
 }
 
 // InertLoopholeGrants is an inert loophole's requests, which the gate does not show.
@@ -126,7 +129,7 @@ func WithLoopholeGrants(check *ScopeCheck, workspace string, read *WorkspaceRead
 		}
 	}
 	// The legacy projection (loopholegrantlegacy.go): a JSONC file's loophole switches read as grants.
-	input, legacyRecorded := withLegacyLoopholeGrants(LoopholeGrantInput{User: user, Workspace: ws, Declarations: decls,
+	input, legacyRecorded, carried := withLegacyLoopholeGrants(LoopholeGrantInput{User: user, Workspace: ws, Declarations: decls,
 		UserOrigins: readableUserOrigins(user, userSrc), WorkspaceOrigins: readableWorkspaceOrigins(ws, wsSrc)}, userSrc, wsSrc, workspace)
 	plan, err := ResolveLoopholeGrants(input)
 	if err != nil {
@@ -147,7 +150,8 @@ func WithLoopholeGrants(check *ScopeCheck, workspace string, read *WorkspaceRead
 			continue
 		}
 		src := LoopholeGrantSource{Pack: p.Pack, Loophole: p.Loophole, Access: p.Access, Kinds: p.Kinds,
-			Skipped: p.Skipped, requestedAt: map[string]string{}, legacyRecorded: legacyRecorded[p.Pack]}
+			Skipped: p.Skipped, requestedAt: map[string]string{}, legacyRecorded: legacyRecorded[p.Pack],
+			carried: carried[p.Pack]}
 		for _, k := range p.Kinds {
 			if !k.Requested {
 				continue
@@ -308,6 +312,18 @@ func compareLoopholeGrants(check *ScopeCheck, old loopholeGrantRecord) loopholeG
 			out.next[s.Pack] = grants
 		} else {
 			delete(out.next, s.Pack)
+		}
+		// A carried grant stays marked only while no file states it and the gate still holds it.
+		var stillCarried []string
+		for _, g := range s.carried {
+			if inList(grants, g) {
+				stillCarried = append(stillCarried, g)
+			}
+		}
+		if len(stillCarried) > 0 {
+			out.next[carriedRecordKey(s.Pack)] = stillCarried
+		} else {
+			delete(out.next, carriedRecordKey(s.Pack))
 		}
 		skipped := s.skippedLines()
 		if added+removed == 0 {
@@ -496,6 +512,9 @@ func RecordedLoopholeGrants(workspace string) map[string][]string {
 	}
 	out := map[string][]string{}
 	for _, p := range sortedGrantPacks(rec) {
+		if isCarriedRecordKey(p) {
+			continue
+		}
 		out[p] = append([]string(nil), rec[p]...)
 	}
 	return out

@@ -114,7 +114,7 @@ func Apply(p *MigrationPlan, opts ApplyOptions) (*ApplyResult, error) {
 	// packs' records, the approval records and the read-back, so Resume finishes all of it.
 	j := &migrationJournal{Version: 1, Workspace: p.Graph.Request.Workspace, Steps: commitSteps(p.Targets),
 		UserConfigDir: p.Graph.Request.UserConfigDir, Renames: p.Renames, Records: journalRecords(p.Records),
-		UserTop: newUserTop(p.Graph), Canonical: hashCanonical(p.canonical)}
+		UserTop: newUserTop(p.Graph), Canonical: hashCanonical(p.canonical), Carries: p.Carries}
 	if g := p.Graph; g.layer != nil {
 		j.UserTop, j.Layer = g.Request.baseUserTop(), twinPath(g.layer.Logical)
 	}

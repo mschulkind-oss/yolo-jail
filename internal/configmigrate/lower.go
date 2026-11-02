@@ -157,6 +157,9 @@ func lower(old *jsonx.OrderedMap, ctx loweringContext, file string) lowered {
 				lowerLoopholes(value, ctx, place, skip)
 				continue
 			}
+			if value = lowerProjectLoopholes(value, ctx, place, skip); value == nil {
+				continue
+			}
 		case "profile":
 			if ctx.userScoped() {
 				lowerProfileSelection(value, ctx, place, skip)
@@ -214,6 +217,16 @@ func lower(old *jsonx.OrderedMap, ctx loweringContext, file string) lowered {
 		}
 		for _, nc := range dropped {
 			skip(nc.path, nc.value, nc.reason)
+		}
+	}
+	// A ceiling only a switch file gives (§6's switch row) has no user file writing the
+	// loophole; the top-level file carries it.
+	if gv := ctx.view().grants; ctx.scope == ScopeUser && !ctx.merged && gv != nil && (file == "" || file == gv.topFile) {
+		for _, name := range sortedDeclNames(gv) {
+			d := gv.decls[name]
+			if c := gv.ceiling[d.Pack]; c != nil && c.fromSwitchOnly {
+				placeLoopholeCeiling(gv, d, place, []string{"loopholes", name})
+			}
 		}
 	}
 	if hasProfiles {

@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
@@ -43,15 +44,45 @@ func loopholeActivation(composed *jsonx.OrderedMap, userTop string, packs []*pac
 		names = append(names, name)
 	}
 	sort.Strings(names)
+	gated := map[string]config.LoopholeGrantDeclaration{}
+	for _, d := range selectedGrantDecls(packs, selected) {
+		gated[d.Loophole] = d
+	}
 	out := jsonx.NewOrderedMap()
 	for _, name := range names {
 		a := activation[name]
 		entry := jsonx.NewOrderedMap()
+		if d, isGated := gated[name]; isGated {
+			// A grant-declaring loophole's access is its grants, which the standing layer
+			// compares (loopholeStandingLayer): running is not access (loophole-access-approval.md
+			// §4.1). Its settings are compared whether or not it runs, less the ones a grant
+			// replaced (journal's `full`, a `visible` list).
+			if settings := withoutLegacyGrantKeys(d, a.Settings); settings.Len() > 0 {
+				entry.Set("settings", settings)
+			}
+			out.Set(name, entry)
+			continue
+		}
 		entry.Set("enabled", a.Enabled)
 		if a.Enabled && a.Settings != nil && a.Settings.Len() > 0 {
 			entry.Set("settings", jsonx.DeepCopyMap(a.Settings))
 		}
 		out.Set(name, entry)
+	}
+	return out
+}
+
+func withoutLegacyGrantKeys(d config.LoopholeGrantDeclaration, settings *jsonx.OrderedMap) *jsonx.OrderedMap {
+	out := jsonx.NewOrderedMap()
+	if settings == nil {
+		return out
+	}
+	for _, k := range settings.Keys() {
+		if setting, values := legacyGrantKey(d, k); setting || values {
+			continue
+		}
+		v, _ := settings.Get(k)
+		out.Set(k, v)
 	}
 	return out
 }

@@ -389,7 +389,7 @@ func validateLoopholeGrants(config *jsonx.OrderedMap, workspace string, errs, wa
 			return // the workspace config's own read reports it
 		}
 	}
-	input, _ := withLegacyLoopholeGrants(LoopholeGrantInput{User: user, Workspace: ws, Declarations: declarations},
+	input, _, _ := withLegacyLoopholeGrants(LoopholeGrantInput{User: user, Workspace: ws, Declarations: declarations},
 		userSrc, sourcesOf(wsNode), workspace)
 	plan, err := ResolveLoopholeGrants(input)
 	if err != nil {

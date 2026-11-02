@@ -203,3 +203,35 @@ func TestAnInertLoopholesRequestStaysOutOfTheGate(t *testing.T) {
 		t.Errorf("a running loophole's request was called inert:\n%s", podman)
 	}
 }
+
+// A grant `yolo config migrate` carried into the approval record from a retired switch file, which
+// no file of the project requests: the grant stands, and `yolo check` names it with the `yolo
+// request` line that writes it (docs/design/loophole-access-approval.md §6, LG-D11). Once the
+// project's file states the request, the note goes.
+func TestCheckReportsARecordGrantTheProjectFileDoesNotState(t *testing.T) {
+	ws := journalGrantFixture(t, "")
+	if err := config.CarryLoopholeGrants(ws, map[string][]string{"journal": {"read"}}); err != nil {
+		t.Fatal(err)
+	}
+	out := runCheckOn(t, ws, "podman", "", false)
+	for _, want := range []string{
+		"the approval record grants journal read to this project, carried from `yolo loopholes enable` by `yolo config migrate`, but this project's files do not request it.",
+		"yolo request journal read",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("yolo check does not say %q:\n%s", want, out)
+		}
+	}
+	read, err := config.ReadWorkspaceForGate(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope := brokeredScopeForCheck(ws, nil, "podman", read)
+	if got := scope.LoopholeGrantStandings(ws)["journal"]["read"].Standing; got != config.LoopholeGrantGranted {
+		t.Errorf("the carried grant does not stand: standing %q", got)
+	}
+	out = runCheckOn(t, ws, "podman", "[requests.journal]\nread = true\n", false)
+	if strings.Contains(out, "carried from `yolo loopholes enable`") {
+		t.Errorf("yolo check still names a grant the project's file now states:\n%s", out)
+	}
+}
