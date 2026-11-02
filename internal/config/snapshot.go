@@ -550,8 +550,11 @@ func approveConfigAndScope(workspace string, config *jsonx.OrderedMap, resolved 
 	if localPath != "" {
 		configFiles = append(configFiles, localPath)
 	}
+	// A request the user's ceiling skips is shown whenever the gate asks, as a skipped loophole
+	// request is (shownBlock): a y to its line in the diff approves nothing, and says so.
+	scopeBlock := append(append([]string(nil), sc.block...), brokeredSkippedGateLines(scope)...)
 	report := ChangeReport{ConfigChanged: configChanged, DiffLines: diffLines,
-		ScopeChanged: sc.changed, ScopeBlock: sc.block, ScopeCounts: sc.counts, EntryEdits: sc.entryEdits,
+		ScopeChanged: sc.changed, ScopeBlock: scopeBlock, ScopeCounts: sc.counts, EntryEdits: sc.entryEdits,
 		ConfigFiles: configFiles, ScopeLabels: sc.labels, Workspace: workspaceOrCwd(workspace),
 		GrantsChanged: grants.out.changed, GrantBlock: grants.out.shownBlock(), GrantCounts: grants.out.counts}
 	report.EntryEdits = append(report.EntryEdits, grants.out.requestEdits...)
@@ -572,7 +575,7 @@ func approveConfigAndScope(workspace string, config *jsonx.OrderedMap, resolved 
 				DiffLines:            diffLines,
 				ConfigChanged:        configChanged,
 				ScopeChanged:         sc.changed,
-				ScopeBlock:           sc.block,
+				ScopeBlock:           report.ScopeBlock,
 				ScopeCounts:          sc.counts,
 				GitConfigs:           sc.gitConfigs,
 				EntryEdits:           sc.entryEdits,
@@ -612,7 +615,7 @@ func approveConfigAndScope(workspace string, config *jsonx.OrderedMap, resolved 
 	if rp, ok := prompter.(ReportPrompter); ok {
 		accepted = rp.PromptReport(report)
 	} else {
-		accepted = prompter.Prompt(append(append(append([]string(nil), sc.block...), report.GrantBlock...), diffLines...))
+		accepted = prompter.Prompt(append(append(append([]string(nil), report.ScopeBlock...), report.GrantBlock...), diffLines...))
 	}
 	if !accepted {
 		return false, nil, nil

@@ -68,6 +68,12 @@ const (
 	ReadableRequestPending ReadableRequestStatus = "pending-runtime"
 )
 
+// outsideCeilingReason is the Reason of a request the user's ceiling for source leaves out, the
+// one skip brokeredSkippedRequests reports with the command that allows it.
+func outsideCeilingReason(source string) string {
+	return "not allowed by allow." + source + ".always or allow." + source + ".on_request"
+}
+
 // ReadableRequestResult preserves the authored key and its exact source-file provenance.
 type ReadableRequestResult struct {
 	Path       string
@@ -517,7 +523,7 @@ func ResolveReadableAllowance(input ReadableAllowanceInput) (ReadableAllowancePl
 			}
 			if !slices.Contains(policy.Always, key) && !slices.Contains(policy.OnRequest, key) {
 				plan.Requests = append(plan.Requests, ReadableRequestResult{Path: path, Files: cloneOrigins(input.WorkspaceOrigins[path]), Capability: key, Value: value,
-					Status: ReadableRequestSkipped, Reason: "not allowed by allow." + name + ".always or allow." + name + ".on_request"})
+					Status: ReadableRequestSkipped, Reason: outsideCeilingReason(name)})
 				continue
 			}
 			if shape == SchemaTypeList && len(stringList(value)) == 0 || shape == SchemaTypeBoolean && value == false {
