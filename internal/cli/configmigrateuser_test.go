@@ -109,9 +109,23 @@ func TestConfigMigrateConvertsProfilesToProvidersAndActiveProvider(t *testing.T)
 	}
 }
 
+// A profile a selected pack declares (codex-auth's `codex`) is selected by its own name in
+// active_provider, which the launch resolves exactly as it resolved the legacy key.
+func TestConfigMigrateCarriesAPacksProfileByName(t *testing.T) {
+	rc, toml, out := migrateUser(t, `{"packs": ["codex", "codex-auth"], "profile": {"*": "codex", "claude": ["codex"]}}`)
+	if rc != 0 {
+		t.Fatalf("rc=%d\n%s", rc, out)
+	}
+	for _, want := range []string{"[active_provider]", `default = "codex"`, `claude = ["codex"]`} {
+		if !strings.Contains(toml, want) {
+			t.Errorf("converted file lacks %q:\n%s", want, toml)
+		}
+	}
+}
+
 func TestConfigMigrateProfileRefusalsNameTheNextStep(t *testing.T) {
 	for _, tc := range []struct{ name, old, want string }{
-		{"selects a pack's profile", `{"profile": {"*": "codex"}}`, `active_provider.<agent> = "<provider>"`},
+		{"a name active_provider reads as a variant", `{"profile": {"*": "a/b"}}`, "provider/variant"},
 		{"same name, variant-only key", `{"profiles": {"bedrock": {"provider": "bedrock", "enforce_models": true}}}`, "rename the profile"},
 		{"no provider", `{"profiles": {"odd": {"model": "m"}}}`, `add "provider"`},
 	} {

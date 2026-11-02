@@ -283,7 +283,7 @@ type profilePlacement struct {
 func placeProfile(view *userView, name string) (profilePlacement, string, bool) {
 	raw, found := view.profiles.Get(name)
 	if !found {
-		return profilePlacement{}, "the profile " + name + " is not declared in this user config (a pack declares it); name its provider by hand, as active_provider.<agent> = \"<provider>\" (`yolo check` lists the providers), or keep the old file for now", false
+		return profilePlacement{}, "the profile " + name + " is not declared in this user config", false
 	}
 	profile, ok := raw.(*jsonx.OrderedMap)
 	if !ok {
@@ -387,16 +387,39 @@ func lowerProfileSelection(value any, ctx loweringContext, place func([]string, 
 	}
 }
 
+// selectionOf is what active_provider names for one name in a legacy `profile` selection. A
+// profile the old user files declare resolves through placeProfile, since the conversion moves
+// it onto its provider. Any other name (a profile a selected pack declares, such as claude-auth's
+// `claude` or a local pack's, or a provider's own name) is written as it is: the launch reads
+// `profile` and `active_provider` through one fold (config.ConfigActiveSelection) and resolves
+// either's names against one declared set, so the same name selects the same thing, and a name
+// that set does not hold is refused alike, by the launch, before and after. Only a name holding
+// '/' cannot be carried, since active_provider reads it as provider/variant.
+func selectionOf(view *userView, name string) (string, string) {
+	if _, declared := view.profiles.Get(name); declared {
+		p, reason, ok := placeProfile(view, name)
+		if !ok {
+			return "", reason
+		}
+		return p.selection, ""
+	}
+	if strings.Contains(name, "/") {
+		return "", "the profile name " + name + " holds '/', which active_provider reads as provider/variant; " +
+			"rename the profile in the pack or file that declares it, or keep the old file for now"
+	}
+	return name, ""
+}
+
 func selectionValue(view *userView, v any) (any, string) {
 	switch t := v.(type) {
 	case nil:
 		return "native", ""
 	case string:
-		p, reason, ok := placeProfile(view, t)
-		if !ok {
+		selection, reason := selectionOf(view, t)
+		if reason != "" {
 			return nil, reason
 		}
-		return p.selection, ""
+		return selection, ""
 	case []any:
 		out := make([]any, 0, len(t))
 		var reasons []string
@@ -406,12 +429,12 @@ func selectionValue(view *userView, v any) (any, string) {
 				reasons = append(reasons, "a profile list holds profile names")
 				continue
 			}
-			p, reason, ok := placeProfile(view, s)
-			if !ok {
+			selection, reason := selectionOf(view, s)
+			if reason != "" {
 				reasons = append(reasons, reason)
 				continue
 			}
-			out = append(out, p.selection)
+			out = append(out, selection)
 		}
 		if len(reasons) > 0 {
 			sort.Strings(reasons)
