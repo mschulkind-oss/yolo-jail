@@ -6956,6 +6956,7 @@
 "internal/cli/run/imageprewarm_test.go",
 "internal/cli/run/imageref_test.go",
 "internal/cli/run/inheritscope_converted_test.go",
+"internal/cli/run/inheritscope_copied_test.go",
 "internal/cli/run/inheritscope_loaderror_test.go",
 "internal/cli/run/inheritscope_placeholder_test.go",
 "internal/cli/run/inheritscope_relaunch_test.go",
