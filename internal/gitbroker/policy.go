@@ -133,7 +133,7 @@ func declaredBy(grants []brokerscope.Grant, kind, repo, ref string) (brokerscope
 
 // coverFor is the push policy for one push to repo under the live scope file f. A store it
 // cannot read covers nothing, and says so once.
-func (b *Broker) coverFor(f brokerscope.File, repo string, say func(string)) coverer {
+func (b *Broker) coverFor(f brokerscope.File, repo string, say func(string), menu *pushMenu) coverer {
 	if b.cover != nil {
 		return b.cover
 	}
@@ -158,27 +158,21 @@ func (b *Broker) coverFor(f brokerscope.File, repo string, say func(string)) cov
 			}
 		}
 	}
-	// unlisted is what a grant of kind also needs from the host user config before it covers
-	// anything, as the hint's clause; nothing when the config already allows the kind.
-	unlisted := func(kind string) string {
-		switch {
-		case authorityErr != nil:
-			return ", and repair `allow.git` in your user config on the host, which could not be validated"
-		case slices.Contains(kinds, kind):
-			return ""
-		default:
-			return ", and " + allowAdvice(kind) + " to allow it in your user config"
-		}
-	}
-	// hint is a refused ref's next step: the verb that declares the one grant covering it in the
-	// workspace config, behind `yolo config migrate` for a project still on yolo-jail.jsonc,
-	// which the verb does not write (docs/reference/happy-path-principle.md,
-	// docs/design/config-commands.md §4). The hint names no legacy key to hand-edit.
+	// hint is a refused ref's reason, and its lasting paths for the push's menu (menu.go): the
+	// verb that declares the one grant covering it in the workspace config, and the user-config
+	// step the kind still needs, if any (docs/reference/happy-path-principle.md,
+	// docs/design/config-commands.md §4). The menu names no legacy key to hand-edit.
 	hint := func(ref, why string, g brokerscope.Grant) {
-		say(ref + ": " + why + ". To let the broker push it unasked, run `" + RequestCommand(g) +
-			"` in this workspace (a project still on yolo-jail.jsonc converts first with `yolo config migrate`)" +
-			unlisted(g.Kind) + ", then run `yolo config apply` on the host, in this workspace, and approve the " +
-			"grant; or push it from the host (`git push` in this workspace there).")
+		if authorityErr != nil {
+			say(ref + ": " + why + "; the paths that cover it are listed below, and a lasting one also needs `allow.git` " +
+				"in your user config on the host repaired, since it could not be validated.")
+		} else {
+			say(ref + ": " + why + "; the paths that cover it are listed below.")
+		}
+		menu.addProject(RequestCommand(g))
+		if authorityErr == nil && !slices.Contains(kinds, g.Kind) {
+			menu.addCeiling(g.Kind)
+		}
 	}
 	warned := false
 	storeFailed := func(err error) {

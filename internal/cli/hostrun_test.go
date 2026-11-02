@@ -22,7 +22,7 @@ func TestMainRoutesHostRunBeforeTheFrontDoor(t *testing.T) {
 	if want := "yolo host-run -C /home/you/code/widgets --name t1 -- echo hi"; !strings.Contains(errOut, want) {
 		t.Fatalf("no ready line %q in:\n%s", want, errOut)
 	}
-	if !strings.Contains(errOut, "yolo host-run wait --name t1") {
+	if !strings.Contains(errOut, "yolo wait t1") {
 		t.Fatalf("missing wait line:\n%s", errOut)
 	}
 	if !strings.HasPrefix(errOut, "yolo host-run:") || !strings.Contains(errOut, "nothing ran here") {

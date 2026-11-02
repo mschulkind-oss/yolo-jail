@@ -154,10 +154,13 @@ func newBroker(ctx context.Context, scopeFile string, sf brokerscope.File, spawn
 	}
 	b := &Broker{ctx: ctx, scopeFile: scopeFile, bound: bound, start: start, spawnCwd: spawnCwd, getenv: getenv,
 		audit: brokeraudit.Open(paths.BrokerAuditLog(), func(msg string) { fmt.Fprintln(log, Name+":", msg) }),
-		log:   log, now: time.Now, store: &brokerstore.Store{Dir: paths.BrokerSourceDir(Source), Source: Source}}
+		log:   log, now: time.Now, store: &brokerstore.Store{Dir: paths.BrokerSourceDir(Source), Source: Source, PublishRecords: true}}
 	// The store revalidates against this launch's live scope and audits every request, decision
 	// and spent grant, as `yolo approve`'s does (ApprovalStore).
 	b.store.Revalidate, b.store.Audit = b.revalidate, StoreAudit(b.audit)
+	b.store.PublishFailed = func(q brokerstore.Request, err error) {
+		fmt.Fprintln(log, Name+": could not write the jail's record of request", q.ID+" (`yolo wait` there will not see its answer):", err)
+	}
 	fmt.Fprintln(log, Name+": serving this jail's git remotes through the host's ssh and approved HTTPS credentials; public HTTPS fetches are tried anonymously, and a push goes through when a create-branch grant or the workspace's working set (recorded, or declared in config) covers every ref, or else when the host allows it once with `yolo approve`")
 	return b, func() {
 		// Its pushes' requests still pending have no push waiting on them any more: refused, as
@@ -355,7 +358,10 @@ func (b *Broker) serveRequest(ctx context.Context, req request, jail string, in 
 	var cover coverer
 	if req.Service == serviceReceivePack {
 		// The live scope's grants and the user's grant kinds, as they read at this push.
-		cover = b.coverFor(f, ev.Repo, say)
+		// The paths the push's refusal lists are collected as its refs are judged.
+		menu := &pushMenu{}
+		ctx = withPushMenu(ctx, menu)
+		cover = b.coverFor(f, ev.Repo, say, menu)
 	}
 	if transport == transportHTTPS {
 		return finish(b.serveHTTPS(ctx, req, in, out, &ev, cover, say, credentialPolicy))

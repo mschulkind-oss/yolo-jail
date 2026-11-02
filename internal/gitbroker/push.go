@@ -113,7 +113,8 @@ type pushRead struct {
 	teed    []byte // the command section's bytes exactly as they arrived
 	reasons []string
 	refused bool
-	next    string // the refusal's next step, when the push asked for approval
+	next    string    // the refusal's next step, when the push asked for approval
+	menu    *pushMenu // the lasting paths its refused refs collected
 }
 
 // readPush reads the push's commands from the client without forwarding a byte of them, and
@@ -148,7 +149,7 @@ func (b *Broker) readPush(ctx context.Context, in io.Reader, ev *brokeraudit.Eve
 	}
 	refs, reasons, set := judge(cmds, cover)
 	ev.Refs = refs
-	p := pushRead{cmds: cmds, caps: caps, teed: teed.Bytes(), reasons: reasons}
+	p := pushRead{cmds: cmds, caps: caps, teed: teed.Bytes(), reasons: reasons, menu: pushMenuFrom(ctx)}
 	for _, r := range reasons {
 		p.refused = p.refused || r != ""
 	}
@@ -277,15 +278,20 @@ func approvable(cmds []gitproto.Command, reasons []string) []string {
 func refusalMessage(p pushRead, dest string) string {
 	lead := "this push was refused whole, so nothing reached " + dest + " and the remote is unchanged; each ref's " +
 		"reason is on its `! [remote rejected]` line."
-	if p.next != "" {
-		return lead + p.next
+	// The lasting paths the refused refs collected, when no pending request's menu listed them.
+	paths := ""
+	if p.menu.hasPaths() {
+		paths = "\n\n" + p.menu.menu("", nil).Render()
 	}
-	return lead + " The lines above name the grant that covers each refused branch. Unasked, the broker pushes " +
-		"only a new branch under a create-branch grant and the branches in this workspace's working set: those it " +
-		"created that way or under an Allow once, and those a branch grant in the workspace config declares " +
-		"(`yolo approve` on the host lists both). Any other branch or tag asks for approval, but nothing approves " +
-		"a ref outside refs/heads/ and refs/tags/, nor a push that holds one. Push that from the host instead " +
-		"(`git push` in this workspace there), where `yolo audit --service git` shows what was refused."
+	if p.next != "" {
+		return lead + p.next + paths
+	}
+	return lead + " Unasked, the broker pushes only a new branch under a create-branch grant and the branches " +
+		"in this workspace's working set: those it created that way or under an Allow once, and those a branch " +
+		"grant in the workspace config declares (`yolo approve` on the host lists both). Any other branch or tag " +
+		"asks for approval, but nothing approves a ref outside refs/heads/ and refs/tags/, nor a push that holds " +
+		"one. Push that from the host instead (`git push` in this workspace there), where `yolo audit --service " +
+		"git` shows what was refused." + paths
 }
 
 // writeRefusal is gitproto.WriteRefusal with a reason per ref: "unpack ok", then

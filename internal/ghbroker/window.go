@@ -168,7 +168,10 @@ func (b *Broker) window(ctx context.Context, req Request, jail string, d Decisio
 		err := filing.Err
 		var limit *brokerstore.PendingLimitError
 		if errors.As(err, &limit) {
-			return ExitTempFail, limit.Error() + "; inspect those requests with `yolo gh status <id>` before retrying; nothing ran"
+			return ExitTempFail, limit.Error() + "; nothing ran. `yolo wait` lists them; ask the human to answer them with `yolo approve` on the host before retrying"
+		}
+		if id, ok := brokerstore.IsLapsedAllow(err); ok {
+			return ExitNoPerm, lapsedMessage(id)
 		}
 		var denial *brokerstore.DenialCooldownError
 		if errors.As(err, &denial) {
@@ -182,7 +185,7 @@ func (b *Broker) window(ctx context.Context, req Request, jail string, d Decisio
 	}
 	status, err := b.waitStatus(ctx, jail, q.ID)
 	if err != nil {
-		return ExitTempFail, fmt.Sprintf("%s remains pending; nothing ran; re-run the command once it is approved, if still wanted: a grant for it lasts across a broker or jail restart (`yolo gh status %s` answers only while this broker runs).%s%s", q.ID, q.ID, answerHint(t, q.ID)+dispatchHint(d.Argv, t)+approveRunHint(d.Argv, t), b.notifierNote(jail, q.ID))
+		return ExitTempFail, pendingMessage(t, d.Argv, q.ID, b.notifierNote(jail, q.ID))
 	}
 	if status.State != "allowed" {
 		return ExitNoPerm, fmt.Sprintf("%s is %s; nothing ran; ask the host user before retrying", q.ID, status.State)

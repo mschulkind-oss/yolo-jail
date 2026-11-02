@@ -87,6 +87,11 @@ type Request struct {
 	// NeedsApproval is, for a git push, the refs among Argv's that nothing else covered: what
 	// a front end marks as the reason the push asks. It is shown, never part of Digest.
 	NeedsApproval []string `json:",omitempty"`
+	// Spent is an Allow once whose command already spent it; Lapsed one whose window closed
+	// unspent and whose retry was refused once naming it (LapsedAllowError). Neither is part
+	// of Digest.
+	Spent  bool `json:",omitempty"`
+	Lapsed bool `json:",omitempty"`
 }
 
 // Expires is when the request stops waiting for an answer, whatever its state now.
@@ -158,6 +163,12 @@ type Store struct {
 	// which is how an interleaving across transactions is reproduced without timing. Nil in
 	// production.
 	AfterTransaction func(error)
+	// PublishRecords copies every request record written to its workspace's jail-readable
+	// approval record (record.go). The host's brokers and `yolo approve` set it; a test store
+	// writing fixture workspaces does not.
+	PublishRecords bool
+	// PublishFailed, when set, hears each record that could not be published.
+	PublishFailed func(Request, error)
 }
 
 // Revalidate must re-read approved scope, current host policy, and live jail/start
@@ -468,7 +479,13 @@ func (s *Store) write(kind, id string, v any) error {
 		return err
 	}
 	defer d.Close()
-	return d.Sync()
+	if err = d.Sync(); err != nil {
+		return err
+	}
+	if q, ok := requestOf(v); ok && kind == "requests" {
+		s.publish(q)
+	}
+	return nil
 }
 
 // NewStartID draws the host broker lifetime identity (BB-D27).
@@ -531,6 +548,11 @@ func (s *Store) fileIn(ctx context.Context, r *records, now time.Time, input Req
 		if q.Jail == input.Jail && q.Start == input.Start && q.Set == input.Set && q.Digest == input.Digest && q.State == "pending" {
 			return q, nil
 		}
+	}
+	if q, lapsed, err := s.lapsedIn(r, input); err != nil {
+		return Request{}, err
+	} else if lapsed {
+		return Request{}, &LapsedAllowError{Request: q.ID}
 	}
 	if err := filingLimit(r, input, now); err != nil {
 		return Request{}, err
@@ -836,7 +858,8 @@ func (s *Store) spendIn(ctx context.Context, r *records, now time.Time, workspac
 		}
 		allowed := false
 		var parent Request
-		for _, q := range r.requests {
+		parentAt := -1
+		for i, q := range r.requests {
 			if q.ID == g.Request && q.State == "allowed" && SameWorkspace(q.Workspace, workspace) && q.Set == set && (!exactOnly || q.Digest == commandDigest && q.Digest == g.Digest) {
 				current, err := currentPolicy(q, revalidate)
 				if err != nil {
@@ -848,7 +871,7 @@ func (s *Store) spendIn(ctx context.Context, r *records, now time.Time, workspac
 					return Grant{}, false, errors.New("current policy narrowed; refile the command under the host's current policy")
 				}
 				allowed = true
-				parent = q
+				parent, parentAt = q, i
 				break
 			}
 		}
@@ -863,6 +886,15 @@ func (s *Store) spendIn(ctx context.Context, r *records, now time.Time, workspac
 		}
 		if err := s.write("grants", g.ID, g); err != nil {
 			return Grant{}, false, err
+		}
+		// An exact Allow once spent: its request's record says so, so a waiter started after
+		// the command ran does not send the agent to run it again.
+		if g.Uses == 0 && g.Digest != "" && !parent.Spent {
+			q := &r.requests[parentAt]
+			q.Spent = true
+			if err := s.write("requests", q.ID, q); err != nil {
+				return Grant{}, false, err
+			}
 		}
 		if err := s.audit(ctx, "grant-used", parent, *g); err != nil {
 			return Grant{}, false, err

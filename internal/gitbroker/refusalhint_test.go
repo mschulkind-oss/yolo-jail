@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -18,21 +19,29 @@ import (
 // declares for ref, on the workspace's own remote (the repository a request reaches).
 func suggestedGrant(t *testing.T, out, ref string) brokerscope.Grant {
 	t.Helper()
-	const prefix = "run `yolo request " + Source + " "
+	listed := false
 	for _, line := range strings.Split(out, "\n") {
-		if !strings.Contains(line, ref+":") {
+		listed = listed || (strings.Contains(line, ref+":") && strings.Contains(line, "the paths that cover it are listed below"))
+	}
+	if !listed {
+		t.Fatalf("no hint line for %s points at the menu:\n%s", ref, out)
+	}
+	const prefix = "yolo request " + Source + " "
+	short := ref[strings.LastIndex(ref, "/")+1:]
+	if s, ok := strings.CutPrefix(ref, "refs/heads/"); ok {
+		short = s
+	} else if s, ok := strings.CutPrefix(ref, "refs/tags/"); ok {
+		short = s
+	}
+	for _, line := range commandLines(out) {
+		rest, ok := strings.CutPrefix(line, prefix)
+		if !ok {
 			continue
 		}
-		start := strings.Index(line, prefix)
-		if start < 0 {
-			continue
+		fields := strings.Fields(rest)
+		if len(fields) == 2 && fields[1] != short {
+			continue // another ref's request
 		}
-		rest := line[start+len(prefix):]
-		end := strings.Index(rest, "`")
-		if end < 0 {
-			t.Fatalf("an unterminated command on the hint line %q", line)
-		}
-		fields := strings.Fields(rest[:end])
 		g := brokerscope.Grant{Repo: fixtureRepo}
 		for kind, capability := range KindCapabilities {
 			if len(fields) > 0 && fields[0] == capability {
@@ -48,8 +57,8 @@ func suggestedGrant(t *testing.T, out, ref string) brokerscope.Grant {
 		default:
 			t.Fatalf("an unreadable request on the hint line %q", line)
 		}
-		if RequestCommand(g) != "yolo request "+Source+" "+rest[:end] {
-			t.Fatalf("the hint's command %q is not RequestCommand(%+v)", rest[:end], g)
+		if RequestCommand(g) != line {
+			t.Fatalf("the menu's command %q is not RequestCommand(%+v)", line, g)
 		}
 		return g
 	}
@@ -61,8 +70,14 @@ func suggestedGrant(t *testing.T, out, ref string) brokerscope.Grant {
 // `yolo allow git on_request <capability>` for kind, and names no legacy key to hand-edit.
 func convertThenAllow(t *testing.T, out, kind string) {
 	t.Helper()
-	migrate := strings.Index(out, "`yolo config migrate`")
-	allow := strings.Index(out, "`"+AllowOnRequestCommand(kind)+"`")
+	lines := commandLines(out)
+	migrate := slices.Index(lines, "yolo config migrate")
+	allow := slices.Index(lines, AllowOnRequestCommand(kind))
+	if migrate < 0 || allow < migrate {
+		// A grant held but not in effect says so in its own sentence (policy.go's kindMissing).
+		migrate = strings.Index(out, "`yolo config migrate`")
+		allow = strings.Index(out, "`"+AllowOnRequestCommand(kind)+"`")
+	}
 	if migrate < 0 || allow < migrate {
 		t.Fatalf("the hint does not name `yolo config migrate`, then `%s`:\n%s", AllowOnRequestCommand(kind), out)
 	}
@@ -98,7 +113,7 @@ func TestRefusedUpdateNamesTheBranchGrantThatCoversIt(t *testing.T) {
 	if g != (brokerscope.Grant{Kind: "branch", Repo: fixtureRepo, Branch: "main"}) {
 		t.Fatalf("suggested %+v", g)
 	}
-	for _, want := range []string{"not in this workspace's working set", "run `yolo request git push main`", "yolo-jail.jsonc", "yolo config apply"} {
+	for _, want := range []string{"not in this workspace's working set", "yolo config apply"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("the hint lacks %q:\n%s", want, out)
 		}
@@ -122,7 +137,7 @@ func TestRefusedCreationNamesTheCreateBranchGrant(t *testing.T) {
 	if g != (brokerscope.Grant{Kind: "create-branch", Repo: fixtureRepo}) {
 		t.Fatalf("suggested %+v", g)
 	}
-	if !strings.Contains(out, "any new branch") || !strings.Contains(out, "run `yolo request git new_branches`") {
+	if !strings.Contains(out, "any new branch") {
 		t.Fatalf("the hint does not say the grant covers any new branch name:\n%s", out)
 	}
 	convertThenAllow(t, out, grantCreateBranch)
@@ -148,9 +163,16 @@ func TestRefusedUpdateNamesYoloAllowToATOMLUser(t *testing.T) {
 	if err == nil {
 		t.Fatalf("a push with no allowed kind landed:\n%s", out)
 	}
+	lines := commandLines(out)
+	for _, want := range []string{"yolo request git push main", AllowOnRequestCommand(grantBranch)} {
+		if !slices.Contains(lines, want) {
+			t.Fatalf("a TOML user's menu does not put %q on its own line:\n%s", want, out)
+		}
+	}
+	if slices.Contains(lines, "yolo config migrate") {
+		t.Fatalf("a TOML user's menu asks for a conversion:\n%s", out)
+	}
 	for _, want := range []string{
-		"run `yolo request git push main` in this workspace",
-		"run `" + AllowOnRequestCommand(grantBranch) + "` on the host",
 		"tag grant on " + fixtureRepo + " is not in effect",
 		"run `" + AllowOnRequestCommand(grantTag) + "` on the host",
 	} {
@@ -188,7 +210,7 @@ func TestRefusedTagNamesTheTagGrant(t *testing.T) {
 	if g != (brokerscope.Grant{Kind: "tag", Repo: fixtureRepo, Tag: "v1"}) {
 		t.Fatalf("suggested %+v", g)
 	}
-	for _, want := range []string{"no tag grant covers it", "asks for approval", "run `yolo request git push_tags v1`", "from the host", "yolo config apply"} {
+	for _, want := range []string{"no tag grant covers it", "asks for approval", "on the host instead", "yolo config apply"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("the tag hint lacks %q:\n%s", want, out)
 		}

@@ -258,15 +258,3 @@ func plainBranchName(s string) bool {
 	}
 	return true
 }
-
-// dispatchHint is the clause a pending request for a workflow run adds: the lasting grant that
-// would let it run unasked on the default branch. "" for any other write.
-func dispatchHint(argv []string, t writeTarget) string {
-	w, ok := dispatchOf(argv, t)
-	if !ok {
-		return ""
-	}
-	return fmt.Sprintf(" A lasting right to run %s on %s's default branch is a dispatch-workflow grant "+
-		"(`yolo request github dispatch_workflows %s`, then `yolo config apply` on the host); a run on any other ref still asks.",
-		w.Workflow, t.Repo, w.Workflow)
-}

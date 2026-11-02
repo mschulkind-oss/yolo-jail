@@ -19,7 +19,7 @@ import (
 
 // ApprovalStore is the GitHub source's host store as `yolo approve` opens it.
 func ApprovalStore() *brokerstore.Store {
-	return &brokerstore.Store{Dir: paths.BrokerSourceDir(Source), Source: Source, Revalidate: ApprovalAuthority,
+	return &brokerstore.Store{Dir: paths.BrokerSourceDir(Source), Source: Source, Revalidate: ApprovalAuthority, PublishRecords: true,
 		Entries: RequestEntries, Audit: StoreAudit(brokeraudit.Open(paths.BrokerAuditLog(), nil))}
 }
 

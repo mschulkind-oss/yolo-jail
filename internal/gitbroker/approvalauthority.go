@@ -174,7 +174,7 @@ func StoreAudit(log *brokeraudit.Log) func(context.Context, string, brokerstore.
 // ApprovalAuthority, its per-ref answers are pushEntries, and every request, decision and spent
 // grant is audited.
 func ApprovalStore() *brokerstore.Store {
-	return &brokerstore.Store{Dir: paths.BrokerSourceDir(Source), Source: Source, Revalidate: ApprovalAuthority,
+	return &brokerstore.Store{Dir: paths.BrokerSourceDir(Source), Source: Source, Revalidate: ApprovalAuthority, PublishRecords: true,
 		Entries: pushEntries, Audit: StoreAudit(brokeraudit.Open(paths.BrokerAuditLog(), nil))}
 }
 

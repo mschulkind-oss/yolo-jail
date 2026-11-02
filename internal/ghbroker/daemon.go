@@ -141,7 +141,10 @@ func newBroker(sf brokerscope.File, spawnCwd string, log io.Writer) (*Broker, fu
 	sweepRunDirs()
 	runDir := newRunDir()
 	startID, startErr := brokerstore.NewStartID()
-	store := &brokerstore.Store{Dir: paths.BrokerSourceDir(Source), Source: Source}
+	store := &brokerstore.Store{Dir: paths.BrokerSourceDir(Source), Source: Source, PublishRecords: true,
+		PublishFailed: func(q brokerstore.Request, err error) {
+			fmt.Fprintln(log, "github-broker: could not write the jail's record of request", q.ID+" (`yolo wait` there will not see its answer):", err)
+		}}
 	b := &Broker{
 		// The start-time copy, used only by a broker no host authority is bound to; a bound
 		// broker classifies against the file as it re-reads it (ServeContext).
@@ -457,7 +460,7 @@ func (b *Broker) ServeContext(ctx context.Context, req Request, jail string, std
 				ev.Outcome = "pending"
 			}
 		}
-		ev.Reason = msg
+		ev.Reason, _, _ = strings.Cut(msg, "\n") // the audit keeps the sentence, not the menu
 		if msg != "" {
 			say(msg)
 		}

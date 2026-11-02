@@ -1050,6 +1050,19 @@ func TestProductionUnusedGrantExpiryAndRevocation(t *testing.T) {
 				}
 			}
 			attempt := start("41")
+			if !tc.revoke {
+				// A retry after the Allow once lapsed unused is refused once, naming it, rather
+				// than filing a new request nobody relayed; the next run files one.
+				select {
+				case got := <-attempt:
+					if got.code != ghbroker.ExitNoPerm || !strings.Contains(got.stderr, approved.ID) || !strings.Contains(got.stderr, "window closed") {
+						t.Fatalf("a retry after a lapsed Allow once: exit %d %q", got.code, got.stderr)
+					}
+				case <-time.After(5 * time.Second):
+					t.Fatal("production caller did not return")
+				}
+				attempt = start("41")
+			}
 			refiled := pending(attempt, "41")
 			if refiled.Digest != approved.Digest || refiled.StdinDigest != stdinSHA256([]byte("expiry and revoke body\n")) || !slices.Equal(refiled.Argv, approved.Argv) {
 				t.Fatalf("expired/revoked refusal does not record the exact attempted action: approved=%+v refiled=%+v", approved, refiled)

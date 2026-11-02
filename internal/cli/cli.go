@@ -92,6 +92,10 @@ func Main(argv []string) int {
 	if len(args) >= 1 && args[0] == "host-run" {
 		return hostRunMain(args[1:])
 	}
+	// `yolo wait` too (wait.go): an agent reads its output and acts on its exit status.
+	if len(args) >= 1 && args[0] == "wait" {
+		return waitMain(args[1:])
+	}
 
 	if len(args) >= 1 && args[0] == "--version" {
 		// Resolve the repo root the SAME way run/check do (the shared method), so
