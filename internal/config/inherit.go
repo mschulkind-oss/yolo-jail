@@ -856,7 +856,7 @@ func encodeInheritedTOML(tomlValues, origins *jsonx.OrderedMap, node *srcNode, s
 // because it mixes the two: a value a TOML file wrote that the jail's legacy reader would
 // misjudge, and a value a legacy JSONC file wrote that has no TOML spelling here, either because
 // the launch passed no lowering or because `yolo config migrate`'s conversion of it declines
-// (declined, RC-D55: a grant-declaring loophole's block, a profile a pack declares). It names
+// (declined, RC-D55: a grant-declaring loophole's block). It names
 // both, why the conversion declined, and the step that works: `yolo config migrate`, which
 // converts the JSONC file where it can and names any setting it cannot. The step is the bare
 // verb, run in the workspace, not `yolo config migrate FILE`: FILE converts a --user-layer over
