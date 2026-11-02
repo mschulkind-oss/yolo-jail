@@ -2,6 +2,7 @@ package run
 
 import (
 	"os"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholegrant"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
@@ -82,6 +84,36 @@ func grantedKinds(standings grantStandings) map[string][]string {
 		sort.Strings(out[name])
 	}
 	return out
+}
+
+// recomposeForApprovedGrants is this launch's jail-daemon payload and channel as the
+// config-change gate that just passed left them: unchanged when the gate approved the grant kinds
+// the composition read from the approval record (composedGrants), else composed again over the
+// gate's result. Run composes both above the backend dispatch, before either arm's gate, and the
+// argv reads the gate's result (loopholesRuntimeArgs through loopholeGrantStandings), so without
+// this the launch whose gate first records a grant bound a loophole and withheld every pointer
+// `served_by` it, or the reverse for a grant the gate dropped. The pack env a launch serves must
+// agree with the binds its own argv carries, and the disclosures read the served set off the
+// channel, so they say what this launch holds too.
+//
+// The second composition takes the first one's hydrated env_sources (channel.userEnv), so no
+// env_sources command runs twice, and this process's caller tokens and served addresses, which
+// are settled once per process (launchCallerTokens, settleServedAddresses). A sealed launch holds
+// no grant and composes nothing.
+func (o *Options) recomposeForApprovedGrants(cfg *jsonx.OrderedMap, rt string, packs []*packload.Pack,
+	channel *packChannel, jailDaemons []loopholes.JailDaemonSpec) (*packChannel, []loopholes.JailDaemonSpec, error) {
+	if o.Sealed || channel == nil ||
+		reflect.DeepEqual(grantedKinds(o.loopholeGrantStandings(rt, cfg)), o.composedGrants) {
+		return channel, jailDaemons, nil
+	}
+	recomposed, err := o.composePackChannel(cfg, packs, channel.userEnv)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := o.resolveJailGrant(recomposed); err != nil {
+		return nil, nil, err
+	}
+	return recomposed, o.jailDaemonsFor(cfg, rt, packs), nil
 }
 
 // withLaunchGrants is set narrowed by what this launch holds: an unmediated grant-declaring

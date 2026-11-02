@@ -297,6 +297,11 @@ type Options struct {
 	// `served_by` one reaches the jail only where its binds do (docs/design/loophole-packaging.md
 	// LP-D1). nil on macos-user, which binds nothing, and when none is active.
 	jailBound []string
+	// composedGrants are the grant kinds held, by loophole name (grantedKinds), that the last
+	// jail-daemon payload this process composed was narrowed by: read from the approval record
+	// before the config-change gate runs, so a gate that changes them has the launch compose its
+	// payload and channel again (recomposeForApprovedGrants).
+	composedGrants map[string][]string
 	// ungrantedBound is why each active grant-declaring bound loophole jailBound leaves out holds
 	// no grant here (ungrantedBoundWhy), by name, for the withheld pointer's clause.
 	ungrantedBound map[string]string
