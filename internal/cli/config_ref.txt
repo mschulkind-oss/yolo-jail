@@ -636,29 +636,40 @@
     `yolo approve --watch --json` instead.  The request-filed event's JSON
     object, the same one `yolo approve --watch --json` prints, is on its stdin,
     and its fields are in the environment: YOLO_EVENT (request-filed),
-    YOLO_SOURCE, YOLO_REQUEST_ID, YOLO_REQUEST_SUMMARY,
-    YOLO_REQUEST_SUMMARY_MARKUP, YOLO_REQUEST_EXPIRES, YOLO_REQUEST_WORKSPACE,
-    YOLO_REQUEST_JAIL, YOLO_REQUEST_SET and YOLO_REQUEST_REPO.  A plain `yolo` works in it, whatever your PATH: a
-    private directory holding only a link named yolo to the running yolo
-    comes first on its PATH, and YOLO_BIN names that same yolo by its full
-    path, for a script that wants it absolute.
-    YOLO_REQUEST_SUMMARY is one line of at most 2048 bytes: the request id, the
-    set, the repository and the jail first, then the command, each value over
-    60 characters cut to its first 40 with its length and a short hash.
-    The summary is the agent's words: a notifier that renders markup (a
-    desktop notification daemon such as swaync renders <b> and <a href>)
-    shows YOLO_REQUEST_SUMMARY_MARKUP, the same line with & < > " ' as XML
-    entities (so it can be longer than 2048 bytes), and a plain-text one (a
-    terminal, a log) shows YOLO_REQUEST_SUMMARY; never run either.  The
-    markup field is for a notifier that renders notification markup; any
-    other renderer (Slack, HTML) needs its own escaping of the plain field.
+    YOLO_SOURCE, and YOLO_REQUEST_* in three groups.
+      Safe anywhere, yolo's own words and validated parts: _ID, _ACTION
+      (push, pr-create, pr-merge, pr-write, issue-create, issue-write,
+      workflow-dispatch, repo-write or api), _TARGET (such as `PR o/r#70`),
+      _HEADLINE (one short phrase, such as `merge PR o/r#70` or
+      `push 2 refs to github.com/o/r`), _SET, _JAIL, _EXPIRES and _REPO
+      (for git, the remote's host and path as its approved URL names them).
+      Free text, the agent's words made terminal-safe: _TITLE (the
+      --title or --subject, a workflow file, an API path), _REFS (one per
+      line: a push's refs, a dispatch's ref), _DESCRIPTION (the headline,
+      then `title: ...` and one `ref: ...` per ref, a line each) and
+      _SUMMARY (one line of at most 2048 bytes, the complete record: the
+      request id, the set, the repository and the jail, then the command,
+      each value over 60 characters cut to its first 40 with its length and
+      a short hash, then its digests).
+      Escaped for notification markup: _DESCRIPTION_MARKUP and
+      _SUMMARY_MARKUP, the same text with & < > " ' as XML entities.
+    _WORKSPACE names the request's workspace.  A notifier that renders
+    markup (a desktop notification daemon such as swaync renders <b> and
+    <a href>) shows a _MARKUP field, a plain-text one (a terminal, a log)
+    shows _DESCRIPTION, and _HEADLINE is safe in either; never run any of
+    them.  The _MARKUP fields are for notification markup only; any other
+    renderer (Slack, HTML) needs its own escaping of the plain field.
+    A plain `yolo` works in the command, whatever your PATH: a private
+    directory holding only a link named yolo to the running yolo comes first
+    on its PATH, and YOLO_BIN names that same yolo by its full path, for a
+    script that wants it absolute.
     IT ONLY NOTIFIES.  yolo reads nothing back from the command, and no hook is
     required: a pending request is also visible in the background broker log and
     can be answered manually with `yolo approve` on the host.  When configured,
     the hook runs the CLI itself, so its buttons get the same checks, refusals and audit.
     Example (~/.config/yolo-jail/config.toml, at the top level), a desktop
     notification with Allow once and Deny buttons:
-      on_request = 'a=$(notify-send -A once="Allow once" -A deny=Deny "$YOLO_REQUEST_SUMMARY_MARKUP"); case "$a" in once) yolo approve "$YOLO_REQUEST_ID";; deny) yolo approve "$YOLO_REQUEST_ID" --deny;; esac'
+      on_request = 'a=$(notify-send -u critical -A once="Allow once" -A deny=Deny "yolo: $YOLO_REQUEST_HEADLINE" "$YOLO_REQUEST_DESCRIPTION_MARKUP"); case "$a" in once) yolo approve "$YOLO_REQUEST_ID";; deny) yolo approve "$YOLO_REQUEST_ID" --deny;; esac'
     Allow once is `yolo approve <id>`: the exact command, once.  A GitHub write
     also takes `--for <duration>` on its resource and `--add` for its PR or
     issue (see `yolo approve --help`).  The same lines can live in a script

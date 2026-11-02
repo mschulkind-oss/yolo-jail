@@ -18,7 +18,7 @@ import (
 
 // onRequestExample is config-ref's optional notification example. It runs the existing host CLI;
 // the hook's output is never consent.
-const onRequestExample = `a=$(notify-send -A once="Allow once" -A deny=Deny "$YOLO_REQUEST_SUMMARY_MARKUP"); case "$a" in once) yolo approve "$YOLO_REQUEST_ID";; deny) yolo approve "$YOLO_REQUEST_ID" --deny;; esac`
+const onRequestExample = `a=$(notify-send -u critical -A once="Allow once" -A deny=Deny "yolo: $YOLO_REQUEST_HEADLINE" "$YOLO_REQUEST_DESCRIPTION_MARKUP"); case "$a" in once) yolo approve "$YOLO_REQUEST_ID";; deny) yolo approve "$YOLO_REQUEST_ID" --deny;; esac`
 
 // A click does exactly what the CLI does, because it IS the CLI (BB-D75): the documented
 // example, with a stand-in notify-send answering each button in turn, runs the real
@@ -80,9 +80,9 @@ func TestTheOnRequestExampleDecidesThroughTheCLI(t *testing.T) {
 	}
 	write(yolo, "exec '"+exe+"' "+testAsYoloArg+" \"$@\"\n")
 	write(filepath.Join(bin, "notify-send"), `case "$*" in
-  *comment*' 1 '*) echo once ;;
-  *comment*' 2 '*) echo once ;;
-  *comment*' 3 '*) echo deny ;;
+  *'yolo: write to PR o/r#1 '*) echo once ;;
+  *'yolo: write to PR o/r#2 '*) echo once ;;
+  *'yolo: write to PR o/r#3 '*) echo deny ;;
   *) touch "$HOME/asked-4"; echo "maybe later" ;;
 esac
 `)
@@ -104,7 +104,8 @@ esac
 			t.Fatal(err)
 		}
 		q, err := s.File(brokerstore.Request{Jail: paths.JailShortHash(sf.Container), Start: start, Workspace: ws,
-			LaunchID: sf.LaunchID, Argv: d.Argv, Repo: "o/r", Set: d.Set, Policy: policy, StdinDigest: "stdin"})
+			LaunchID: sf.LaunchID, Argv: d.Argv, Repo: "o/r", Set: d.Set, Policy: policy, StdinDigest: "stdin",
+			About: ghbroker.RequestAbout(d.Argv, d.Repos)})
 		if err != nil {
 			t.Fatal(err)
 		}

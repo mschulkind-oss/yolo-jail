@@ -252,3 +252,39 @@ func TestTheHookSummariesShowAZeroWidthSpace(t *testing.T) {
 		}
 	}
 }
+
+// The hook gets what the request does in fields that need no assembly: ACTION, TARGET and
+// HEADLINE are safe anywhere, TITLE and REFS are the agent's text, DESCRIPTION is the
+// headline plus that text, and DESCRIPTION_MARKUP is it escaped for notification markup.
+func TestTheHookGetsTheRequestsActionTargetAndDescription(t *testing.T) {
+	f := newFixture(t)
+	f.filing.Argv = []string{"pr", "create", "--title", "fix: Vec<T> && lexer", "--body", "b"}
+	f.filing.About = brokerstore.About{Action: brokerstore.ActionPRCreate, Target: "PR creation in o/r",
+		Headline: "create a PR in o/r", Title: "fix: Vec<T> && lexer\nsecond", Refs: []string{"refs/heads/a<b>", "refs/heads/c"}}
+	q, err := f.store.File(f.filing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := map[string]string{}
+	for _, kv := range Env(f.store, q, "") {
+		k, v, _ := strings.Cut(kv, "=")
+		env[k] = v
+	}
+	description := "create a PR in o/r\ntitle: fix: Vec<T> && lexer\\nsecond\nref: refs/heads/a<b>\nref: refs/heads/c"
+	for k, want := range map[string]string{
+		"YOLO_REQUEST_ACTION":             "pr-create",
+		"YOLO_REQUEST_TARGET":             "PR creation in o/r",
+		"YOLO_REQUEST_HEADLINE":           "create a PR in o/r",
+		"YOLO_REQUEST_TITLE":              `fix: Vec<T> && lexer\nsecond`,
+		"YOLO_REQUEST_REFS":               "refs/heads/a<b>\nrefs/heads/c",
+		"YOLO_REQUEST_DESCRIPTION":        description,
+		"YOLO_REQUEST_DESCRIPTION_MARKUP": brokerstore.MarkupEscape(description),
+	} {
+		if env[k] != want {
+			t.Errorf("%s = %q, want %q", k, env[k], want)
+		}
+	}
+	if strings.ContainsAny(env["YOLO_REQUEST_DESCRIPTION_MARKUP"], `<>"'`) {
+		t.Errorf("markup description holds raw markup: %q", env["YOLO_REQUEST_DESCRIPTION_MARKUP"])
+	}
+}

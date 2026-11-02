@@ -41,7 +41,7 @@ func validateOnRequest(config *jsonx.OrderedMap, workspace string, errs *[]strin
 	if v, present := config.Get(OnRequestKey); present && v != nil {
 		if s, ok := v.(string); !ok || strings.TrimSpace(s) == "" {
 			add(errs, fmt.Sprintf("config.%s: expected a shell command as a non-empty string, such as "+
-				`"notify-send \"$YOLO_REQUEST_SUMMARY_MARKUP\"" (got %s); set it in %s or remove it`,
+				`"notify-send \"yolo: $YOLO_REQUEST_HEADLINE\"" (got %s); set it in %s or remove it`,
 				OnRequestKey, pyReprValue(v), paths.UserConfigDisplayPath()))
 		}
 	}
