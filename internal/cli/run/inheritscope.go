@@ -36,7 +36,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -557,7 +559,10 @@ func (o *Options) macosUserInheritedScope(rt string) ([]overlayFile, error) {
 	wsState := paths.WorkspaceHomeState(o.Workspace)
 	storage := o.macosUserInheritedStorage
 	preserve := map[string]bool{}
+	// delivered holds each admitted previous delivery's bytes; recorded, those the delivery record
+	// lists, the only ones a changed body may replace.
 	delivered := map[string][]byte{}
+	recorded := map[string]bool{}
 	cleared := false
 	var gone map[string]bool
 	selectLegacy := func(scope config.InheritScope, format configdoc.Format) (bool, error) {
@@ -602,12 +607,13 @@ func (o *Options) macosUserInheritedScope(rt string) ([]overlayFile, error) {
 		if len(existing) != 1 || existing[0] != selected {
 			return false, refuseInheritedOverwrite(wsState, storage, scope)
 		}
-		body, admitted := o.priorInheritedDelivery(wsState, selected)
+		body, admitted, listed := o.admitPriorInheritedDelivery(wsState, selected)
 		if !admitted {
 			return false, refuseInheritedOverwrite(wsState, storage, scope)
 		}
 		preserve[selectedStorage] = true
 		delivered[selected] = body
+		recorded[selected] = listed
 		return forceLegacy, nil
 	}
 	files, err := o.inheritedScopeWithSelector(rt, false, selectLegacy)
@@ -617,14 +623,35 @@ func (o *Options) macosUserInheritedScope(rt string) ([]overlayFile, error) {
 	// UNSTAMPED: the home overlay is content-keyed and an unchanged relaunch reuses it whole
 	// (buildMacosHomeOverlayTreeIDs). A launch time in this header moved the overlay's digest on
 	// every launch, so every relaunch rebuilt, re-staged and re-installed all of it.
+	replaceable := map[string][]byte{}
 	for _, f := range files {
 		if prior, ok := delivered[f.rel]; ok && !bytes.Equal(prior, []byte(f.body)) {
-			return nil, refuseInheritedOverwrite(wsState, storage, f.scope)
+			if !recorded[f.rel] {
+				// A hardlink admitted on its inode alone, whose bytes no record lists: only an
+				// unchanged one is kept, and nothing proves a changed one may be replaced.
+				return nil, refuseInheritedOverwrite(wsState, storage, f.scope)
+			}
+			replaceable[f.rel] = prior
 		}
 		core = append(core, overlayFile{Rel: f.rel, Body: []byte(f.body)})
 	}
 	if !o.DryRun {
-		// Preserve an unchanged, admitted hardlink until the installer sees the same inode.
+		// THE DELIVERY RECORD, written before anything is staged or installed: it is what lets the
+		// next launch, and this launch's installer, admit a delivery that is not the staged
+		// file's own inode — a copy, or a link the re-staged overlay left behind (issue #70).
+		if len(files) > 0 {
+			if err := o.recordInheritedDelivery(files, replaceable); err != nil {
+				// Without it, a changed body cannot replace the admitted previous delivery, so the
+				// installer would refuse it: refuse here instead, naming the cause.
+				if len(replaceable) > 0 {
+					return nil, fmt.Errorf("could not record the inherited user config this launch delivers (%v), so the changed one cannot replace the previous delivery; run `yolo check` for the staging root, then relaunch", err)
+				}
+				o.pr(o.Stderr).print("[yellow]Warning: could not record the inherited user config this launch delivers (" +
+					err.Error() + "); if the next launch refuses it as a file in the way, run `yolo check` and relaunch[/yellow]")
+			}
+		}
+		// Preserve an admitted previous delivery: unchanged, the installer keeps it; changed, the
+		// installer replaces it through the record.
 		removeStaleInheritedScope(wsState, storage, preserve)
 	}
 	return core, nil
@@ -691,9 +718,22 @@ func refuseInheritedOverwrite(wsState string, storage func(string) (string, erro
 	return err
 }
 
-// priorInheritedDelivery proves that rel is the unchanged, sealed source file hardlinked into
-// the sidecar by an earlier installer run. A writable receipt or matching bytes alone is not proof.
-func (o *Options) priorInheritedDelivery(wsState, rel string) ([]byte, bool) {
+// inheritedStaging is the host-owned staging root (macosuser.StagingRoot) a launch delivers the
+// inherited config through, opened only once it is judged this user's (JudgeStagingRoot): the
+// sealed staged overlay and the delivery record (entrypoint.InheritedDeliveryRecordPath) both live
+// in it, and the sandbox can write neither — another account's directory in account mode, and a
+// read-only grant of the Seatbelt profile in run-as-you mode.
+type inheritedStaging struct {
+	root     *os.Root
+	rootPath string
+	cname    string
+	euid     int
+}
+
+func (s *inheritedStaging) Close() { _ = s.root.Close() }
+
+// openInheritedStaging opens and judges the staging root for this workspace's session.
+func (o *Options) openInheritedStaging() (*inheritedStaging, bool) {
 	rootPath := inheritedScopeStagingRoot()
 	probes := o.MacosUserLaunchProbes
 	if probes == nil {
@@ -711,7 +751,241 @@ func (o *Options) priorInheritedDelivery(wsState, rel string) ([]byte, bool) {
 	if err != nil {
 		return nil, false
 	}
+	return &inheritedStaging{root: root, rootPath: rootPath, cname: yoloruntime.FromWorkspace(o.Workspace), euid: euid}, true
+}
+
+// recordLeaf is the delivery record's directory (one level below the root) and file name.
+func (s *inheritedStaging) recordLeaf() (path, leaf, name string) {
+	path = entrypoint.InheritedDeliveryRecordPath(macosuser.StagedHomeOverlay(s.cname, s.rootPath))
+	rel, err := filepath.Rel(s.rootPath, path)
+	if err != nil {
+		return path, "", ""
+	}
+	return path, filepath.Dir(rel), filepath.Base(rel)
+}
+
+// openRecordLeaf opens the record's directory beneath the root, creating it (0755, this user's)
+// when create is set and it is missing; anything but a real 0755 directory of this user's is
+// refused.
+func (s *inheritedStaging) openRecordLeaf(create bool) (*os.Root, string, error) {
+	path, leaf, name := s.recordLeaf()
+	if leaf == "" || leaf == "." || strings.Contains(leaf, string(filepath.Separator)) {
+		return nil, "", fmt.Errorf("the inherited delivery record %s is not one directory below the staging root", path)
+	}
+	full := filepath.Join(s.rootPath, leaf)
+	if _, err := s.root.Lstat(leaf); os.IsNotExist(err) && create {
+		if err := s.root.Mkdir(leaf, 0o755); err != nil && !os.IsExist(err) {
+			return nil, "", err
+		}
+		if err := s.root.Chmod(leaf, 0o755); err != nil {
+			return nil, "", err
+		}
+	}
+	dir, err := paths.OpenStateSubdirRoot(s.root, leaf, full)
+	if err != nil {
+		return nil, "", err
+	}
+	info, err := dir.Stat(".")
+	if err != nil || info.Mode().Perm() != 0o755 || !inheritedFileOwnedBy(info, s.euid) {
+		_ = dir.Close()
+		return nil, "", fmt.Errorf("%s is not a 0755 directory of yours; remove it (the next launch recreates it) and relaunch", full)
+	}
+	return dir, name, nil
+}
+
+// readRecord reads the delivery record: only a regular, sealed 0444 file of this user's, opened
+// without following a link. Anything else is no record, which admits nothing.
+func (s *inheritedStaging) readRecord() (entrypoint.InheritedDeliveryRecord, bool) {
+	dir, name, err := s.openRecordLeaf(false)
+	if err != nil {
+		return entrypoint.InheritedDeliveryRecord{}, false
+	}
+	defer dir.Close()
+	info, err := dir.Lstat(name)
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o444 || !inheritedFileOwnedBy(info, s.euid) {
+		return entrypoint.InheritedDeliveryRecord{}, false
+	}
+	f, err := dir.OpenFile(name, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return entrypoint.InheritedDeliveryRecord{}, false
+	}
+	defer f.Close()
+	opened, err := f.Stat()
+	if err != nil || !os.SameFile(info, opened) {
+		return entrypoint.InheritedDeliveryRecord{}, false
+	}
+	data, err := io.ReadAll(io.LimitReader(f, 1<<20))
+	if err != nil {
+		return entrypoint.InheritedDeliveryRecord{}, false
+	}
+	r, err := entrypoint.ParseInheritedDeliveryRecord(data)
+	return r, err == nil
+}
+
+// writeRecord replaces the delivery record with r, sealed 0444: written beside it under a
+// temporary name, sealed, then renamed over it, so a reader sees the old record or the new one.
+func (s *inheritedStaging) writeRecord(r entrypoint.InheritedDeliveryRecord) error {
+	data, err := r.Marshal()
+	if err != nil {
+		return err
+	}
+	dir, name, err := s.openRecordLeaf(true)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	tmp := name + ".new"
+	if err := dir.Remove(tmp); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	f, err := dir.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		_ = dir.Remove(tmp)
+		return err
+	}
+	if err := f.Close(); err != nil {
+		_ = dir.Remove(tmp)
+		return err
+	}
+	if err := dir.Chmod(tmp, 0o444); err != nil {
+		_ = dir.Remove(tmp)
+		return err
+	}
+	if err := dir.Rename(tmp, name); err != nil {
+		_ = dir.Remove(tmp)
+		return err
+	}
+	return nil
+}
+
+// admitPriorInheritedDelivery decides whether the existing inherited destination rel is a delivery
+// of yolo's, returning its bytes: the unchanged sealed hardlink of the staged source
+// (priorInheritedDelivery), or a sealed file whose content digest the delivery record lists for rel
+// (recordedInheritedDelivery) — the copy a refused link made, or a link the re-staged overlay
+// orphaned (issue #70).
+//
+// recorded says the record lists those bytes for rel. Only then may a changed body REPLACE the
+// delivery: a hardlink admitted on its inode alone, with bytes no record lists, is kept when
+// unchanged and refused when the body changes, as before the record.
+func (o *Options) admitPriorInheritedDelivery(wsState, rel string) (body []byte, admitted, recorded bool) {
+	if body, ok := o.priorInheritedDelivery(wsState, rel); ok {
+		return body, true, o.inheritedRecordLists(rel, body)
+	}
+	body, ok := o.recordedInheritedDelivery(wsState, rel)
+	return body, ok, ok
+}
+
+// inheritedRecordLists reports whether the delivery record lists body's digest for rel.
+func (o *Options) inheritedRecordLists(rel string, body []byte) bool {
+	staging, ok := o.openInheritedStaging()
+	if !ok {
+		return false
+	}
+	defer staging.Close()
+	record, ok := staging.readRecord()
+	return ok && record.Admits(rel, entrypoint.ContentDigest(body))
+}
+
+// inheritedSandboxUID is the sandbox account's uid, the owner of a copy the account-mode installer
+// made; a var for tests. It asks the directory service (`id -u`), as a CGO-free os/user cannot.
+var inheritedSandboxUID = func() (uint32, bool) {
+	out, err := exec.Command("/usr/bin/id", "-u", macosuser.SandboxUser).Output()
+	if err != nil {
+		return 0, false
+	}
+	n, err := strconv.ParseUint(strings.TrimSpace(string(out)), 10, 32)
+	return uint32(n), err == nil
+}
+
+// recordedInheritedDelivery admits rel when the delivery record lists the content digest of the
+// file at its destination, and that file is regular, sealed 0444, and owned by this user (a hard
+// link, or a run-as-you copy) or, in account mode, by the sandbox account (its copy). A header
+// match never admits, and neither do matching bytes without a record: the agent can write both.
+func (o *Options) recordedInheritedDelivery(wsState, rel string) ([]byte, bool) {
+	staging, ok := o.openInheritedStaging()
+	if !ok {
+		return nil, false
+	}
+	defer staging.Close()
+	record, ok := staging.readRecord()
+	if !ok {
+		return nil, false
+	}
+	destRel, err := o.macosUserInheritedStorage(rel)
+	if err != nil {
+		return nil, false
+	}
+	destInfo, exists, err := lstatHomeFile(wsState, destRel)
+	if err != nil || !exists {
+		return nil, false
+	}
+	root, err := openStateRoot(wsState)
+	if err != nil {
+		return nil, false
+	}
 	defer root.Close()
+	f, err := root.OpenFile(destRel, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, false
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil || !os.SameFile(destInfo, info) || !info.Mode().IsRegular() || info.Mode().Perm() != 0o444 {
+		return nil, false
+	}
+	owned := inheritedFileOwnedBy(info, staging.euid)
+	if !owned && o.MacosUserMode == macosuser.ModeAccount {
+		if uid, ok := inheritedSandboxUID(); ok {
+			owned = inheritedFileOwnedBy(info, int(uid))
+		}
+	}
+	if !owned {
+		return nil, false
+	}
+	body, err := io.ReadAll(f)
+	if err != nil || !record.Admits(rel, entrypoint.ContentDigest(body)) {
+		return nil, false
+	}
+	return body, true
+}
+
+// recordInheritedDelivery writes the delivery record for this launch's inherited files: each one's
+// rendered digest, plus the digest of the previous delivery the launch admitted there and the old
+// record already listed (prior), so the installer may replace that one — and only that one — with
+// the new body. It runs before the
+// launch stages and installs, so the record already names whatever the installer lays down.
+func (o *Options) recordInheritedDelivery(files []inheritScopeFile, prior map[string][]byte) error {
+	staging, ok := o.openInheritedStaging()
+	if !ok {
+		return fmt.Errorf("the staging root %s is not a directory of yours", inheritedScopeStagingRoot())
+	}
+	defer staging.Close()
+	r := entrypoint.InheritedDeliveryRecord{Digests: map[string][]string{}}
+	for _, f := range files {
+		digests := []string{entrypoint.ContentDigest([]byte(f.body))}
+		if body, ok := prior[f.rel]; ok {
+			if d := entrypoint.ContentDigest(body); d != digests[0] {
+				digests = append(digests, d)
+			}
+		}
+		r.Digests[f.rel] = digests
+	}
+	return staging.writeRecord(r)
+}
+
+// priorInheritedDelivery proves that rel is the unchanged, sealed source file hardlinked into
+// the sidecar by an earlier installer run. A writable receipt or matching bytes alone is not proof.
+func (o *Options) priorInheritedDelivery(wsState, rel string) ([]byte, bool) {
+	staging, ok := o.openInheritedStaging()
+	if !ok {
+		return nil, false
+	}
+	defer staging.Close()
+	rootPath, root, euid, cname := staging.rootPath, staging.root, staging.euid, staging.cname
 	category, err := paths.OpenStateSubdirRoot(root, "home-overlay", filepath.Join(rootPath, "home-overlay"))
 	if err != nil {
 		return nil, false
@@ -720,7 +994,6 @@ func (o *Options) priorInheritedDelivery(wsState, rel string) ([]byte, bool) {
 	if info, err := category.Stat("."); err != nil || info.Mode().Perm() != 0o755 {
 		return nil, false
 	}
-	cname := yoloruntime.FromWorkspace(o.Workspace)
 	tree, err := paths.OpenStateSubdirRoot(category, cname, filepath.Join(rootPath, "home-overlay", cname))
 	if err != nil {
 		return nil, false
@@ -797,8 +1070,9 @@ func inheritedFileOwnedBy(info os.FileInfo, uid int) bool {
 // Best-effort: a stale file left behind costs a stale user scope, never a launch.
 //
 // ⚠ RESIDUAL: stale cleanup still recognizes only the legacy generated header for an undelivered
-// file. This slice preserves a destination only when its unchanged sealed hardlink is proven; it
-// does not extend ownership proof or alter cleanup for old header-only artifacts.
+// file. A destination is preserved only when admitted (admitPriorInheritedDelivery: the unchanged
+// sealed hardlink, or bytes the delivery record lists); cleanup of old header-only artifacts is
+// unchanged.
 func removeStaleInheritedScope(sidecar string, storage func(string) (string, error), preserve map[string]bool) {
 	// No sidecar, no files: and openStateRoot would create the directories it opens.
 	if _, err := os.Lstat(sidecar); err != nil {

@@ -35,7 +35,9 @@ import (
 // A LINK THE FILESYSTEM REFUSES IS A COPY. A workspace sidecar on another volume (EXDEV), a
 // filesystem without hard links, or a kernel that refuses a link to another user's file (Linux's
 // protected_hardlinks) gets the copy every launch made before; such a destination never passes the
-// inode check, so it is replaced on every launch, as it was.
+// inode check, so it is replaced on every launch, as it was. The install says so in the boot log
+// (copyNote). The inherited user config is the exception: it is never replaced blindly, and a
+// copy of it is admitted by the host's delivery record instead (inheriteddelivery.go, issue #70).
 //
 // Every write goes through a descriptor of the directory being filled, one name at a time, with
 // O_NOFOLLOW and O_EXCL where they apply, and that directory was itself opened beneath the os.Root
@@ -45,17 +47,17 @@ import (
 // linkTreeStrictBeneath fills rel beneath dst, which must exist and be empty, with the tree src: a
 // directory for each directory, the same link for each symbolic link, and a hard link (or, refused
 // one, a copy) of each file. The first error ends it; the caller removes the partial tree.
-func linkTreeStrictBeneath(src string, dst *os.Root, rel string) error {
+func linkTreeStrictBeneath(src string, dst *os.Root, rel string, onCopy copyNote) error {
 	d, err := dst.Open(rel)
 	if err != nil {
 		return err
 	}
 	defer d.Close()
-	return linkTreeInto(src, d)
+	return linkTreeInto(src, d, onCopy)
 }
 
 // linkTreeInto is linkTreeStrictBeneath below an open directory.
-func linkTreeInto(src string, dir *os.File) error {
+func linkTreeInto(src string, dir *os.File, onCopy copyNote) error {
 	ents, err := os.ReadDir(src)
 	if err != nil {
 		return err
@@ -88,13 +90,13 @@ func linkTreeInto(src string, dir *os.File) error {
 			if err != nil {
 				return err
 			}
-			err = linkTreeInto(from, sub)
+			err = linkTreeInto(from, sub, onCopy)
 			sub.Close()
 			if err != nil {
 				return err
 			}
 		case fi.Mode().IsRegular():
-			if err := linkOrCopyAt(from, fi.Mode().Perm(), fd, name, filepath.Join(dir.Name(), name)); err != nil {
+			if err := linkOrCopyAt(from, fi.Mode().Perm(), fd, name, filepath.Join(dir.Name(), name), onCopy); err != nil {
 				return err
 			}
 		default:
@@ -108,27 +110,46 @@ func linkTreeInto(src string, dir *os.File) error {
 
 // linkFileStrictBeneath is linkTreeStrictBeneath for a destination that is one file: rel, a name
 // directly in dst, must not exist.
-func linkFileStrictBeneath(src string, dst *os.Root, rel string, perm os.FileMode) error {
+func linkFileStrictBeneath(src string, dst *os.Root, rel string, perm os.FileMode, onCopy copyNote) error {
 	d, err := dst.Open(".")
 	if err != nil {
 		return err
 	}
 	defer d.Close()
-	return linkOrCopyAt(src, perm, int(d.Fd()), rel, filepath.Join(d.Name(), rel))
+	return linkOrCopyAt(src, perm, int(d.Fd()), rel, filepath.Join(d.Name(), rel), onCopy)
 }
 
 // overlayLinkat is linkat(2); a test swaps it to refuse, as a sidecar on another volume does.
 var overlayLinkat = unix.Linkat
 
+// RefuseOverlayLinksForTest makes every overlay hard link fail with err — as a sidecar on another
+// volume, or a link the Seatbelt profile refuses (issue #70), does — until the returned restore
+// runs. It is for another package's tests, which drive the real installer through Run; nothing
+// in production calls it.
+func RefuseOverlayLinksForTest(err error) (restore func()) {
+	orig := overlayLinkat
+	overlayLinkat = func(int, string, int, string, int) error { return err }
+	return func() { overlayLinkat = orig }
+}
+
+// copyNote is told each staged file a refused link made a copy of, with the link's error, so the
+// install can say so (a copy is never taken for already delivered, and an inherited config
+// delivered as one needs the delivery record to be admitted again: issue #70). nil says nothing.
+type copyNote func(from string, linkErr error)
+
 // linkOrCopyAt makes name in the directory dirfd a hard link of the regular file from, and copies
-// from there at perm when the link is refused for any reason but the name being taken.
-func linkOrCopyAt(from string, perm os.FileMode, dirfd int, name, display string) error {
+// from there at perm when the link is refused for any reason but the name being taken, telling
+// onCopy so.
+func linkOrCopyAt(from string, perm os.FileMode, dirfd int, name, display string, onCopy copyNote) error {
 	err := overlayLinkat(unix.AT_FDCWD, from, dirfd, name, 0)
 	if err == nil {
 		return nil
 	}
 	if errors.Is(err, unix.EEXIST) {
 		return &os.PathError{Op: "link", Path: display, Err: err}
+	}
+	if onCopy != nil {
+		onCopy(from, err)
 	}
 	in, err := os.OpenFile(from, os.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)
 	if err != nil {

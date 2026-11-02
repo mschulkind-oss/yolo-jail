@@ -24,6 +24,19 @@ After Run admission, the installer must also preserve an owner replacement arriv
 boundary: no-write reuse requires unchanged sealed-source identity; otherwise create atomically with
 no-replace semantics and refuse if any destination appeared. Do not displace any late occupant.
 
+**Amended for issue #70 (owner ruling, 2026-11-02):** a delivery the installer had to COPY (its
+hard link refused, as the run-as-you Seatbelt profile is believed to do) has an inode of its own,
+and the inode-only rule above refused every relaunch after one. A prior delivery is now also
+admitted by a DELIVERY RECORD the host writes before staging: sealed `0444`, at
+`<staging root>/inherited-delivered/<cname>.json` beside the staged overlay
+(`entrypoint.InheritedDeliveryRecordPath`), never in the agent-writable sidecar. It lists each
+destination's sha256 content digests. A regular, sealed `0444` destination owned by the expected
+account whose digest the record lists is admitted, linked or copied, at both the Run caller and the
+installer; a changed body replaces it only when the record lists the bytes being replaced, through
+a move aside checked against the hashed file. A header match, matching bytes with no record, and
+a hardlink whose changed bytes no record lists are still refused. The installer's copy fallback is
+written to the boot log.
+
 ## Map and reuse
 
 | Path | Change |

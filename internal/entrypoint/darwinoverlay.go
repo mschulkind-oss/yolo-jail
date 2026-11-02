@@ -371,7 +371,7 @@ type overlayRoot struct {
 // (retireOverlayDestinations), and records what it delivered for the next install to do the
 // same (HomeOverlayInstalledName). Neither ever fails the boot: what they could not do is a
 // line through warn. With no sidecar root there is nowhere to keep the record, so neither runs.
-func installHomeOverlayDestinations(overlay, home string, roots []overlayRoot, links overlayLinks, warn func(string)) error {
+func installHomeOverlayDestinations(overlay, home string, roots []overlayRoot, links overlayLinks, warn, note func(string)) error {
 	dests, err := readHomeOverlayManifest(overlay)
 	if err != nil {
 		return err
@@ -388,7 +388,7 @@ func installHomeOverlayDestinations(overlay, home string, roots []overlayRoot, l
 	installed := map[string]string{}
 	var errs []error
 	for _, d := range dests {
-		if err := installOverlayDestination(overlay, home, roots, links, d); err != nil {
+		if err := installOverlayDestination(overlay, home, roots, links, d, note); err != nil {
 			errs = append(errs, err)
 			// The home still holds the previous delivery, if any: keep what proves it yolo's.
 			if dg, ok := prev.Digests[d]; ok {
@@ -776,7 +776,7 @@ func closeOverlayRoots(roots []overlayRoot) {
 // resolved again by each call and follow the new link; the handle names the directory that
 // was checked, and os.Root refuses a component swapped for a link that leaves it. A swap
 // can make the install fail or land in the directory the agent moved, never outside.
-func installOverlayDestination(overlay, home string, roots []overlayRoot, links overlayLinks, dest string) error {
+func installOverlayDestination(overlay, home string, roots []overlayRoot, links overlayLinks, dest string, note func(string)) error {
 	rel := filepath.FromSlash(dest)
 	src := filepath.Join(overlay, rel)
 	srcInfo, err := os.Lstat(src)
@@ -819,6 +819,10 @@ func installOverlayDestination(overlay, home string, roots []overlayRoot, links 
 	}
 
 	inheritedConfig := inheritedCoreConfigDestination(dest)
+	// recorded is set when an existing inherited destination is a delivery the record lists
+	// (admitRecordedInheritedDelivery): it is replaced below, through a move aside checked against
+	// the very file that was hashed, rather than refused (issue #70).
+	var recorded *recordedInheritedDelivery
 	if inheritedConfig {
 		if !srcInfo.Mode().IsRegular() || srcInfo.Mode().Perm() != 0o444 {
 			return fmt.Errorf("refusing to install inherited core config ~/%s: its staged source is not a sealed 0444 regular file; repair the staged overlay and relaunch", dest)
@@ -830,7 +834,16 @@ func installOverlayDestination(overlay, home string, roots []overlayRoot, links 
 				os.SameFile(srcInfo, stagedInfo) && os.SameFile(srcInfo, cur) {
 				return nil
 			}
-			return fmt.Errorf("refusing to install inherited core config ~/%s: an existing destination is not the unchanged sealed hardlink; preserve it, inspect the path, then relaunch", dest)
+			adm, err := admitRecordedInheritedDelivery(overlay, dest, src, srcInfo, dir, base)
+			if err != nil {
+				return fmt.Errorf("refusing to install inherited core config ~/%s: an existing destination is neither the unchanged sealed hardlink nor a delivery yolo recorded; preserve it, inspect the path (move it aside if it is yours to keep), then relaunch", dest)
+			}
+			if adm.current {
+				// Already this delivery's bytes, sealed: delivered as a copy, or before a re-stage
+				// gave the staged file a fresh inode. Nothing to write.
+				return nil
+			}
+			recorded = &adm
 		}
 	}
 
@@ -858,13 +871,28 @@ func installOverlayDestination(overlay, home string, roots []overlayRoot, links 
 	// renamed into place would look like a complete delivery. Each file is a hard link of the
 	// sealed staged file where the filesystem allows one and a copy where it does not
 	// (linkTreeStrictBeneath).
+	// A REFUSED LINK IS SAID, once per destination, in the boot log: the copy it falls back to
+	// works, but is replaced on every install and, for an inherited config, is admitted on the
+	// next launch only through the delivery record (issue #70).
+	copied := 0
+	var firstLinkErr error
+	onCopy := func(_ string, linkErr error) {
+		if copied == 0 {
+			firstLinkErr = linkErr
+		}
+		copied++
+	}
 	if srcInfo.IsDir() {
 		err = dir.Mkdir(staged, 0o755)
 		if err == nil {
-			err = linkTreeStrictBeneath(src, dir, staged)
+			err = linkTreeStrictBeneath(src, dir, staged, onCopy)
 		}
 	} else {
-		err = linkFileStrictBeneath(src, dir, staged, srcInfo.Mode().Perm())
+		err = linkFileStrictBeneath(src, dir, staged, srcInfo.Mode().Perm(), onCopy)
+	}
+	if copied > 0 && note != nil {
+		note(fmt.Sprintf("home overlay: ~/%s was delivered as a copy of %d file(s), not a hard link: linking the staged file was refused (%v)",
+			dest, copied, firstLinkErr))
 	}
 	if err != nil {
 		_ = dir.RemoveAll(staged)
@@ -881,12 +909,40 @@ func installOverlayDestination(overlay, home string, roots []overlayRoot, links 
 			return fmt.Errorf("opening checked parent of inherited core config ~/%s: %w; inspect the path and relaunch", dest, err)
 		}
 		defer parent.Close()
-		if err := renameNoReplaceBetweenAt(int(parent.Fd()), staged, int(parent.Fd()), base); err != nil {
+		pfd := int(parent.Fd())
+		if recorded != nil {
+			// THE RECORDED DELIVERY STEPS ASIDE FIRST, and only the file that was hashed may: a
+			// destination the agent swapped in after the check is put back and refused, never
+			// replaced. Both renames refuse to replace, so nothing the agent laid at either name
+			// is overwritten.
+			if err := renameNoReplaceBetweenAt(pfd, base, pfd, aside); err != nil {
+				_ = dir.RemoveAll(staged)
+				return fmt.Errorf("moving aside the previous inherited core config ~/%s: %w; inspect the path and relaunch", dest, err)
+			}
+			moved, err := dir.Lstat(aside)
+			if err != nil || !os.SameFile(moved, recorded.info) || moved.Mode() != recorded.info.Mode() {
+				_ = renameNoReplaceBetweenAt(pfd, aside, pfd, base)
+				_ = dir.RemoveAll(staged)
+				return fmt.Errorf("refusing to replace inherited core config ~/%s: it changed during installation; preserve it, inspect the path, then relaunch", dest)
+			}
+		}
+		if err := renameNoReplaceBetweenAt(pfd, staged, pfd, base); err != nil {
+			if recorded != nil {
+				if rerr := renameNoReplaceBetweenAt(pfd, aside, pfd, base); rerr != nil {
+					_ = dir.RemoveAll(staged)
+					return fmt.Errorf("refusing to replace inherited core config ~/%s: a file appeared during installation, and the previous delivery stays at %s beside it; preserve both, inspect the path, then relaunch", dest, aside)
+				}
+			}
 			_ = dir.RemoveAll(staged)
 			if errors.Is(err, os.ErrExist) {
 				return fmt.Errorf("refusing to replace inherited core config ~/%s: a file appeared during installation; preserve it, inspect the path, then relaunch", dest)
 			}
 			return fmt.Errorf("installing inherited core config ~/%s without replacement: %w; inspect the path and relaunch", dest, err)
+		}
+		if recorded != nil {
+			// Only yolo's own previous delivery is under the aside name; a failure here leaves it
+			// for the next install's leftover sweep.
+			_ = dir.Remove(aside)
 		}
 		return nil
 	}

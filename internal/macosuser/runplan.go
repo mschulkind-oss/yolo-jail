@@ -1093,7 +1093,8 @@ func BuildRunPlanWithStages(workspace string, cfg *jsonx.OrderedMap, agents, age
 			cfgStrList(cfg, "devices"), sessionTmp, sessionServicesDirs(sandboxEnv, jailDaemons.Env))
 		// THIS SESSION'S STAGED PATHS ALONE, not the whole staging root: the root also holds
 		// every other session's env file and every other workspace's context copy.
-		params.StagedReads = []string{sessionGuestBinDir, packRoot, homeOverlay, ctxRoot, contextDir,
+		params.StagedReads = []string{sessionGuestBinDir, packRoot, homeOverlay,
+			entrypoint.InheritedDeliveryRecordPath(homeOverlay), ctxRoot, contextDir,
 			capturesRoot, envFile, daemonEnvFile, caBundleFile, caExtrasFile, fontsFile}
 		params.FontReads = session.Fonts.SeatbeltReads()
 		seatbelt = DenyDefaultProfile(params)
