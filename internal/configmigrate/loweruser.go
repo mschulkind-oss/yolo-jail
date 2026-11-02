@@ -6,6 +6,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 )
 
 // userView is what converting one user-scope file needs to know about the whole merged old user
@@ -109,8 +110,10 @@ func lowerLoopholes(value any, ctx loweringContext, place func([]string, any, []
 			switch key {
 			case "enabled":
 				switch {
-				case v == true && selected:
+				case v == true && selected && loopholes.RunsOnSelection(name):
 					// The list already says it; nothing is written.
+				case v == true && selected:
+					skip(oldPath, v, "a TOML user config has no switch for "+name+" yet: selecting its pack does not run it until per-project grants land (docs/design/loophole-access-approval.md), so the converted config would turn it off; keep the old file for now")
 				case v == true:
 					skip(oldPath, v, "`packs` is the only switch and does not list "+name+"; add it with `yolo pack add "+name+"` (or put \""+name+"\" in packs), then run `yolo config migrate` again")
 				default:

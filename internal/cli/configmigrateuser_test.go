@@ -11,6 +11,26 @@ import (
 	"testing"
 )
 
+// The owner's shape: aws-auth switched on in an INCLUDED legacy file. The conversion writes the
+// settings to the included file's TOML twin as `[allow.aws-auth]`, and the proof, which compares
+// the loopholes a launch runs, holds: aws-auth runs with the same settings either way.
+func TestConfigMigrateKeepsAnIncludedFilesLoopholeRunning(t *testing.T) {
+	e := newMigrateEnv(t)
+	writeMigrateFile(t, filepath.Join(e.userDir, "config.jsonc"), `{"include_if_found": ["work.jsonc"]}`)
+	writeMigrateFile(t, filepath.Join(e.userDir, "work.jsonc"), `{
+  "packs": ["aws-auth"],
+  "loopholes": {"aws-auth": {"enabled": true, "settings": {"profile": "sso", "unnarrowed": true}}}
+}`)
+	rc, stdout, stderr := runConfigMigrateVerb(t, "--yes")
+	if rc != 0 {
+		t.Fatalf("rc=%d\n%s%s", rc, stdout, stderr)
+	}
+	work, _ := os.ReadFile(filepath.Join(e.userDir, "work.toml"))
+	if !strings.Contains(string(work), "[allow.aws-auth]") || !strings.Contains(string(work), `profile = "sso"`) {
+		t.Fatalf("work.toml:\n%s", work)
+	}
+}
+
 // migrateUser writes the old user config, runs --yes, and returns the converted file.
 func migrateUser(t *testing.T, old string) (rc int, toml, out string) {
 	t.Helper()
@@ -41,6 +61,10 @@ func TestConfigMigrateLoopholeRefusalsNameTheNextStep(t *testing.T) {
 		{"switched off", `{"packs": ["aws-auth"], "loopholes": {"aws-auth": {"enabled": false}}}`, `remove "aws-auth" from packs`},
 		{"settings without enabled", `{"packs": ["aws-auth"], "loopholes": {"aws-auth": {"settings": {"profile": "sso"}}}}`, `Set "enabled": true`},
 		{"declared here", `{"loopholes": {"mine": {"command": ["x"]}}}`, "yolo pack init"},
+		{"gated loophole switched on", `{"packs": ["journal"], "loopholes": {"journal": {"enabled": true}}}`, "no switch for journal yet"},
+		// The proof compares which loopholes run: aws-auth is off in the old file and would run
+		// on selection in the new one, a difference the per-key layers cannot see.
+		{"activation changes", `{"packs": ["aws-auth"]}`, "the loopholes a launch runs"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rc, toml, out := migrateUser(t, tc.old)

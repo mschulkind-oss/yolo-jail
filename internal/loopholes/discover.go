@@ -162,6 +162,9 @@ func EnabledUnder(lp *Loophole, loopholesConfig *jsonx.OrderedMap) bool {
 	if v, set := ConfigEnabledOverride(loopholesConfig, lp.Name); set && SwitchedByConfig(lp) {
 		return v
 	}
+	if onBySelection(lp) && SelectionIsTheSwitch() {
+		return true
+	}
 	return lp.Enabled
 }
 
@@ -383,6 +386,10 @@ type DiscoverOptions struct {
 	// EMPTY means nothing is superseded, which is the safe direction: a caller that
 	// never resolved packs cannot silently turn a loophole off.
 	PackSupersessions []PackSupersession
+	// SelectionSwitch is whether selecting a pack switches its ungated loopholes on
+	// (packswitch.go): nil asks the user config's format (SelectionIsTheSwitch), which is what
+	// every launch and report surface wants; `yolo config migrate` passes each side's answer.
+	SelectionSwitch *bool
 }
 
 // PackModule is one externally-contributed loophole module dir plus the caller's statement
@@ -836,6 +843,9 @@ func Discover(opts DiscoverOptions) []*Loophole {
 	// refused it (docs/reference/loophole-system.md#selection-and-discovery).
 	if len(opts.PackModules) > 0 {
 		pm, pk := loadModuleDirs(opts.PackModules, SourcePack)
+		if selectionSwitches(opts) {
+			switchOnSelected(pm)
+		}
 		appendOrdered(pm, pk)
 	}
 

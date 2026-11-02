@@ -259,6 +259,28 @@ func loopholesWithConfigAndBlock(deps Deps, includeDisabled bool) (Set, *jsonx.O
 	// with the launch path about what this machine has. It always builds the
 	// include-disabled superset; includeDisabled selects the VIEW below.
 	set := NewHostSet(merged)
+	// Under a TOML user config a pack's settings are its `[allow.<pack>]` table (packswitch.go);
+	// a `loopholes.<name>.settings` key a legacy file wrote wins.
+	if user := load(deps.LoadUserConfig); user != nil {
+		if allowV, ok := user.Get("allow"); ok {
+			only := jsonx.NewOrderedMap()
+			only.Set("allow", allowV)
+			if lowered := ConfigBlock(only); lowered != nil {
+				for _, name := range lowered.Keys() {
+					supplied := SettingsFromConfig(lowered, name)
+					if supplied == nil {
+						continue
+					}
+					if previous := SettingsFromConfig(mergedSettings, name); previous != nil {
+						supplied = config.MergeConfig(supplied, previous)
+					}
+					entry := jsonx.NewOrderedMap()
+					entry.Set("settings", supplied)
+					mergedSettings.Set(name, entry)
+				}
+			}
+		}
+	}
 	if includeDisabled {
 		return set, mergedSettings
 	}

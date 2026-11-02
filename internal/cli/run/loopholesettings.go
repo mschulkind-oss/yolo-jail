@@ -30,7 +30,8 @@ func (o *Options) prepareLoopholeSettings(discovered []*loopholes.Loophole, cfg 
 	plan := &preparedLoopholeSettings{
 		bytes: make(map[string][]byte), values: make(map[string]*jsonx.OrderedMap), checked: make(map[string]bool),
 	}
-	loopCfg := cfgMap(cfg, "loopholes")
+	// ConfigBlock, not the bare block: under a TOML user config the settings are `[allow.<pack>]`.
+	loopCfg := loopholes.ConfigBlock(cfg)
 	for _, lp := range discovered {
 		if len(lp.Settings) == 0 {
 			continue

@@ -409,15 +409,8 @@ func loopholeConfigBlock(workspace string) *jsonx.OrderedMap {
 	if cfg == nil {
 		return nil
 	}
-	blockV, ok := cfg.Get("loopholes")
-	if !ok {
-		return nil
-	}
-	block, isMap := blockV.(*jsonx.OrderedMap)
-	if !isMap {
-		return nil
-	}
-	return block
+	// ConfigBlock: under a TOML user config a pack's settings are its `[allow.<pack>]` table.
+	return loopholes.ConfigBlock(cfg)
 }
 
 // reportSelfCheckLines renders a self-check's own graded output — "FAIL:" as a

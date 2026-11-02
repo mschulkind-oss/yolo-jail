@@ -144,6 +144,8 @@ type canonicalSet struct {
 	// grants is what the user config grants each broker (brokerGrants): the user layer compares
 	// `brokered` lowered to `allow`, and this is what proves the brokers read the same grants.
 	grants string
+	// activation is which loopholes a launch runs and with which settings (loopholeActivation).
+	activation string
 }
 
 // Plan converts every old file of g and proves the result says what the old files say. A plan
@@ -326,6 +328,7 @@ func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 	p.Differences = append(p.Differences, diffValues(envLayer, before.env, after.env)...)
 	p.Differences = append(p.Differences, diffValues(providerTableLayer, before.providers, after.providers)...)
 	p.Differences = append(p.Differences, diffValues(brokerGrantsLayer, before.grants, after.grants)...)
+	p.Differences = append(p.Differences, diffValues(loopholeActivationLayer, before.activation, after.activation)...)
 	p.DerivedVendors = derivedOnlyBefore(before.derived, after.derived)
 	p.Equal = before.set == after.set
 	if g.Request.Workspace != "" && len(g.project) > 0 {
@@ -595,7 +598,9 @@ type sideRead struct {
 	derived []DerivedVendor
 	// grants is what the user config grants each broker (brokerGrants).
 	grants *jsonx.OrderedMap
-	set    canonicalSet
+	// activation is which loopholes the launch runs, with their settings (loopholeActivation).
+	activation *jsonx.OrderedMap
+	set        canonicalSet
 }
 
 // launchEnv is what the launch's env resolver walks over a merged read, as a map diffValues can
@@ -660,6 +665,7 @@ func readCanonical(g *Graph, userTop, workspace string, remotes []string, view *
 		s.providers, s.derived = providerTable(withMovedProviderKeys(read.Composed, s.composed), packs)
 		// The OLD user config as the brokers read it, not its lowering.
 		s.grants = brokerGrants(read.User, brokers)
+		s.activation = loopholeActivation(read.Composed, userTop, packs)
 	} else {
 		s.user = unmirror(read.User, mirror).(*jsonx.OrderedMap)
 		s.project = unmirror(read.Workspace, mirror).(*jsonx.OrderedMap)
@@ -667,6 +673,7 @@ func readCanonical(g *Graph, userTop, workspace string, remotes []string, view *
 		s.env = launchEnv(s.composed)
 		s.providers, s.derived = providerTable(s.composed, packs)
 		s.grants = brokerGrants(s.user, brokers)
+		s.activation = loopholeActivation(s.composed, userTop, packs)
 	}
 	for _, m := range []*jsonx.OrderedMap{s.user, s.project, s.composed} {
 		m.Delete(convertLaterKey)
@@ -683,7 +690,7 @@ func readCanonical(g *Graph, userTop, workspace string, remotes []string, view *
 	for _, pair := range []struct {
 		m   *jsonx.OrderedMap
 		out *string
-	}{{s.user, &s.set.user}, {s.project, &s.set.project}, {s.composed, &s.set.composed}, {s.env, &s.set.env}, {s.providers, &s.set.providers}, {s.grants, &s.set.grants}} {
+	}{{s.user, &s.set.user}, {s.project, &s.set.project}, {s.composed, &s.set.composed}, {s.env, &s.set.env}, {s.providers, &s.set.providers}, {s.grants, &s.set.grants}, {s.activation, &s.set.activation}} {
 		text, err := config.SnapshotJSON(pair.m)
 		if err != nil {
 			return nil, err

@@ -49,6 +49,10 @@ var convergenceExemptions = map[string]string{
 	// Not loophole discovery at all: configmigrate.Discover reads the config-file include graph a
 	// `yolo config migrate` converts, and the textual scan cannot tell the two names apart.
 	"internal/configmigrate/apply.go": "configmigrate.Discover, the config-file include graph, not loopholes.Discover",
+	// `yolo config migrate`'s proof of which loopholes run (PackSwitchActivation): it must decide
+	// the pack switch per side (legacy before, TOML after) rather than from the user config on
+	// disk, and it is handed the converted selection's modules, never the process-wide record.
+	"internal/loopholes/packswitch.go": "the migration proof's per-side pack switch over the converted selection's modules",
 }
 
 // skippedTopLevelDirs are the repo-root subtrees the walker does not read, each because it
