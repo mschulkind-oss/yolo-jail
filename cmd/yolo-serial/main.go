@@ -27,7 +27,7 @@ const dialTimeout = 30 * time.Second
 var inertEnv = paths.LoopholeInertEnv("serial")
 
 // refusedExit is a grant refusal's exit code (plan PD-7), the daemon's own for the same stop.
-const refusedExit = 64
+const refusedExit = loopholegrant.RefusedExit
 
 func main() {
 	os.Exit(run(os.Args[1:]))

@@ -14,7 +14,7 @@ const (
 	grantAccess = "open host serial devices"
 	grantNoun   = "device globs"
 	// refusedExit is a grant refusal's exit code (plan PD-7), the brokers' and gh's.
-	refusedExit = 64
+	refusedExit = loopholegrant.RefusedExit
 )
 
 // refusal is why cfg refuses a request naming device ("" for `list`), or ok false when it may
