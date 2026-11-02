@@ -622,15 +622,8 @@ func TestOutputPressureCancellationRestoresOwnedTerminal(t *testing.T) {
 
 	cmd := exec.Command(os.Args[0], "-test.run=^TestOutputPressureDoesNotStopInputForwarding$", "-test.count=1")
 	cmd.Stdin = hostTTY
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	pipeFD := int(stdout.(*os.File).Fd())
-	pipeSize, err := unix.FcntlInt(uintptr(pipeFD), unix.F_GETPIPE_SZ, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	stdout, pipeWriter, pipeSize := startPressurePipe(t, cmd)
+	defer pipeWriter.Close()
 	cmd.Env = append(os.Environ(), "YOLO_TTYPROXY_PRESSURE_HELPER=1", "YOLO_TTYPROXY_PRESSURE_FIFO="+control, "YOLO_TTYPROXY_PRESSURE_BYTES="+strconv.Itoa(pipeSize*2))
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -656,9 +649,8 @@ func TestOutputPressureCancellationRestoresOwnedTerminal(t *testing.T) {
 	if err := waitPressureMarker(t, control, 'S', time.Now().Add(childDeadline)); err != nil {
 		t.Fatalf("target did not become ready: %v stderr=%q", err, stderr.String())
 	}
-	pressured, maxBuffered := waitForOutputPressure(t, pipeFD, pipeSize)
-	if !pressured {
-		t.Fatalf("host stdout pipe never became pressured (capacity=%d pending=%d)", pipeSize, maxBuffered)
+	if err := waitForFullPipe(t, pipeWriter, pipeSize); err != nil {
+		t.Fatalf("host stdout pipe never became pressured: %v stderr=%q", err, stderr.String())
 	}
 	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
 		t.Fatal(err)
@@ -1825,14 +1817,8 @@ func TestFatalOutputPreemptsPendingSuspend(t *testing.T) {
 	control := filepath.Join(t.TempDir(), "child-read")
 	cmd := exec.Command(os.Args[0], "-test.run=^TestOutputPressureDoesNotStopInputForwarding$", "-test.count=1")
 	cmd.Stdin = hostTTY
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	pipeSize, err := unix.FcntlInt(stdout.(*os.File).Fd(), unix.F_GETPIPE_SZ, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	stdout, pipeWriter, pipeSize := startPressurePipe(t, cmd)
+	defer pipeWriter.Close()
 	cmd.Env = append(os.Environ(), "YOLO_TTYPROXY_PRESSURE_HELPER=1", "YOLO_TTYPROXY_PRESSURE_FIFO="+control,
 		"YOLO_TTYPROXY_PRESSURE_BYTES="+strconv.Itoa(pipeSize*2), "YOLO_TTYPROXY_EXPECT_SINK_ERROR=1",
 		"YOLO_TTYPROXY_EXPECT_SUSPEND=1", "YOLO_TTYPROXY_SATURATE_RESET_TTY=1")
@@ -1862,8 +1848,8 @@ func TestFatalOutputPreemptsPendingSuspend(t *testing.T) {
 	if err := waitPressureMarker(t, control, 'S', time.Now().Add(childDeadline)); err != nil {
 		t.Fatalf("fatal-output target did not start: %v stderr=%q", err, stderr.String())
 	}
-	if pressured, buffered := waitForOutputPressure(t, int(stdout.(*os.File).Fd()), pipeSize); !pressured {
-		t.Fatalf("stdout did not saturate before the suspend request (capacity=%d pending=%d)", pipeSize, buffered)
+	if err := waitForFullPipe(t, pipeWriter, pipeSize); err != nil {
+		t.Fatalf("stdout did not saturate before the suspend request: %v stderr=%q", err, stderr.String())
 	}
 	if _, err := unix.Write(master, []byte{0x1a}); err != nil {
 		t.Fatal(err)
@@ -2206,30 +2192,48 @@ func mustGetTermios(t *testing.T, fd int) *unix.Termios {
 	return termios
 }
 
-func waitForOutputPressure(t *testing.T, pipeFD, pipeSize int) (bool, int) {
+// startPressurePipe gives cmd a host stdout pipe whose write end the test keeps, so
+// waitForFullPipe can ask the kernel whether the pipe is full. The caller passes the
+// returned write end to waitForFullPipe, which closes it, before it relies on EOF.
+func startPressurePipe(t *testing.T, cmd *exec.Cmd) (r, w *os.File, capacity int) {
 	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
-	maxBuffered, lastBuffered, stableSamples := 0, -1, 0
-	for time.Now().Before(deadline) {
-		buffered, err := unix.IoctlGetInt(pipeFD, unix.TIOCINQ)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if buffered > maxBuffered {
-			maxBuffered = buffered
-		}
-		if buffered >= pipeSize*4/5 && buffered == lastBuffered {
-			stableSamples++
-		} else {
-			stableSamples = 0
-		}
-		lastBuffered = buffered
-		if stableSamples >= 5 {
-			return true, maxBuffered
-		}
-		time.Sleep(25 * time.Millisecond)
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
 	}
-	return false, maxBuffered
+	capacity, err = unix.FcntlInt(r.Fd(), unix.F_GETPIPE_SZ, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd.Stdout = w
+	return r, w, capacity
+}
+
+// waitForFullPipe waits until the pipe refuses further writes, then closes the test's write
+// end. The kernel counts a pipe's capacity in page slots, not bytes: a write that cannot
+// merge into the last slot takes a new one, so a full pipe can hold far less than
+// F_GETPIPE_SZ (a two-page pipe written 2048 then 4096 bytes is full at 6144). A byte-count
+// threshold is therefore not a witness; POLLOUT on the write end is the kernel's own
+// "no free slot" answer, the same condition that parks the proxy's writer. Nothing reads
+// the pipe until the caller does and the helper writes more than the pipe's whole capacity,
+// so once full it stays full. The deadline bounds liveness only.
+func waitForFullPipe(t *testing.T, w *os.File, capacity int) error {
+	t.Helper()
+	defer w.Close()
+	deadline := time.Now().Add(childDeadline)
+	for {
+		fds := []unix.PollFd{{Fd: int32(w.Fd()), Events: unix.POLLOUT}}
+		if _, err := unix.Poll(fds, 0); err != nil && !errors.Is(err, syscall.EINTR) {
+			return err
+		}
+		if fds[0].Revents&unix.POLLOUT == 0 {
+			return nil
+		}
+		if !time.Now().Before(deadline) {
+			return fmt.Errorf("pipe still writable after %v (capacity=%d)", childDeadline, capacity)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 func assertQueuedTerminationResume(t *testing.T, trace, childReceipt, stages []byte) {
