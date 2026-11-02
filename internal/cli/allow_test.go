@@ -7,9 +7,11 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/testconfig"
 )
 
@@ -151,5 +153,129 @@ func TestAllowInJailPrintsHostRun(t *testing.T) {
 	}
 	if got := readFile(t, fx.fragment); got != "" || rec.calls != 0 {
 		t.Fatalf("an in-jail allow wrote %q or ran the gate (%d)", got, rec.calls)
+	}
+}
+
+// loopholeGrantPacks is the shipped set replaced by two grant-declaring fixture packs, since no
+// shipped pack declares [[grants]] until the flips: host-processes with the valued `view` (process
+// names), and journal with `read` requestable by default and `read_all` not, as the design's
+// §4.3 gives them.
+var loopholeGrantPacks = fstest.MapFS{
+	"host-processes/pack.toml": {Data: []byte("name = \"host-processes\"\n\n[[loophole]]\nfrom = \"loopholes/host-processes\"\n")},
+	"host-processes/loopholes/host-processes/loophole.toml": {Data: []byte(`name = "host-processes"
+description = "a grant-declaring fixture"
+version = 1
+transport = "loopback-tls"
+access = "see host processes"
+
+[host_daemon]
+cmd = ["yolo", "internal", "daemon", "host-processes", "--socket", "{socket}"]
+publishes = "socket"
+
+[[grants]]
+kind = "view"
+text = "see these host processes"
+valued = true
+value_noun = "process names"
+`)},
+	"journal/pack.toml": {Data: []byte("name = \"journal\"\n\n[[loophole]]\nfrom = \"loopholes/journal\"\n")},
+	"journal/loopholes/journal/loophole.toml": {Data: []byte(`name = "journal"
+description = "a grant-declaring fixture"
+version = 1
+transport = "loopback-tls"
+access = "read the host's journal"
+
+[host_daemon]
+cmd = ["yolo", "internal", "daemon", "journal", "--socket", "{socket}"]
+publishes = "socket"
+
+[[grants]]
+kind = "read"
+text = "read your user journal"
+requestable_by_default = true
+
+[[grants]]
+kind = "read_all"
+text = "read the whole host journal"
+`)},
+}
+
+// newLoopholeGrantVerbFixture is a host workspace whose TOML user config selects the fixture
+// grant-declaring packs, with userExtra appended to it and project as the workspace file.
+func newLoopholeGrantVerbFixture(t *testing.T, project, userExtra string) namedVerbFixture {
+	t.Helper()
+	shipped := packload.EmbeddedFS()
+	packload.ReleaseEmbedded()
+	t.Cleanup(func() {
+		packload.ReleaseEmbedded()
+		packload.SetEmbeddedFS(shipped)
+	})
+	packload.SetEmbeddedFS(loopholeGrantPacks)
+	ws := testconfig.Workspace(t, project)
+	user := testconfig.User(t, "packs = [\"host-processes\", \"journal\"]\n"+userExtra)
+	t.Setenv("HOME", user.Root)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("YOLO_VERSION", "")
+	t.Setenv("YOLO_WORKSPACE", "")
+	t.Setenv("YOLO_HOST_DIR", "")
+	loopholes.ResetPackModules()
+	t.Cleanup(loopholes.ResetPackModules)
+	withConfigEditCWD(t, ws.Root)
+	return namedVerbFixture{workspace: ws.Root, userConfig: user.Path, project: ws.Path}
+}
+
+// `yolo allow <pack> on_request <kind>` writes the loophole ceiling the grant reader takes
+// (docs/design/loophole-access-approval.md §4.2), validated against the pack's [[grants]], and
+// offers the approval as it does for a broker.
+func TestAllowWritesALoopholeKind(t *testing.T) {
+	fx := newLoopholeGrantVerbFixture(t, "", "")
+	rec := recordAllowGate(t, false)
+	rc, out, errs := captureStd(t, func() int {
+		return registry["allow"]([]string{"allow", "host-processes", "on_request", "view"})
+	})
+	if rc != 0 {
+		t.Fatalf("yolo allow host-processes on_request view rc=%d stdout=%q stderr=%q", rc, out, errs)
+	}
+	got := readFile(t, fx.userConfig)
+	if !strings.Contains(got, "[allow.host-processes]") || !strings.Contains(got, `on_request = ["view"]`) {
+		t.Fatalf("the ceiling was not written:\n%s\nstdout=%q stderr=%q", got, out, errs)
+	}
+	if rec.calls != 0 || !strings.Contains(out, "yolo config apply") {
+		t.Fatalf("non-interactive allow ran the gate (%d) or did not name the approval: %q", rec.calls, out)
+	}
+
+	// An unvalued kind defaults to always, as a broker capability does.
+	rc, out, errs = captureStd(t, func() int { return registry["allow"]([]string{"allow", "journal", "read"}) })
+	if rc != 0 {
+		t.Fatalf("yolo allow journal read rc=%d stdout=%q stderr=%q", rc, out, errs)
+	}
+	if got := readFile(t, fx.userConfig); !strings.Contains(got, "[allow.journal]") || !strings.Contains(got, `always = ["read"]`) {
+		t.Fatalf("allow.journal.always was not written:\n%s", got)
+	}
+
+	before := readFile(t, fx.userConfig)
+	for _, tc := range []struct {
+		args []string
+		want []string
+	}{
+		// A valued kind under always: its value is the project's (§5's wording), so the verb
+		// names the on_request command instead, and writes nothing.
+		{[]string{"allow", "host-processes", "view"}, []string{"carries a value only a project can give", "yolo allow host-processes on_request view"}},
+		{[]string{"allow", "host-processes", "always", "view"}, []string{"carries a value only a project can give", "yolo allow host-processes on_request view"}},
+		// An undeclared kind lists the declared ones.
+		{[]string{"allow", "journal", "write"}, []string{`"write"`, "read, read_all", "yolo allow journal always read"}},
+	} {
+		rc, out, errs := captureStd(t, func() int { return registry["allow"](tc.args) })
+		if rc != 1 {
+			t.Fatalf("%v rc=%d, want 1; stdout=%q stderr=%q", tc.args, rc, out, errs)
+		}
+		for _, want := range tc.want {
+			if !strings.Contains(errs, want) {
+				t.Fatalf("%v refusal lacks %q: %q", tc.args, want, errs)
+			}
+		}
+	}
+	if readFile(t, fx.userConfig) != before {
+		t.Fatal("a refused allow wrote the user config")
 	}
 }

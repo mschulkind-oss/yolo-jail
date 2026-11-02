@@ -21,22 +21,26 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/configdoc"
 	"github.com/mschulkind-oss/yolo-jail/internal/configedit"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostrun"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
 
 const allowUsage = `usage: yolo allow <source> [always|on_request] <capability> [--dry-run]
 
-Allow a broker capability in your user config, in the file that already holds [allow], then
-offer this workspace's approval of it through the gate ` + "`yolo config apply`" + ` runs.
+Allow a broker capability, or a grant kind a loophole pack declares, in your user config, in the
+file that already holds [allow], then offer this workspace's approval of it through the gate
+` + "`yolo config apply`" + ` runs.
 
-  always       every project's jail gets it (the default)
+  always       every project's jail gets it (the default); never a kind that carries a value
   on_request   a project may request it in its own config (yolo request)
 
 Examples:
   yolo allow git fetch
   yolo allow git on_request push
   yolo allow github always read
+  yolo allow journal read
+  yolo allow host-processes on_request view
 
 A pack's own settings under allow.<pack> have no named verb; use
 ` + "`yolo config set allow.<pack>.<setting> <value>`" + `.`
@@ -130,15 +134,21 @@ func allowRunW(args []string, out, errw io.Writer) int {
 			"  Run `yolo check` to see which pack is broken.\n", err)
 		return 1
 	}
-	decl, rc := findDeclaredBroker("allow", source, brokers, packSettings, errw)
-	if rc != 0 {
-		return rc
-	}
-	declared := declaredCapabilities(decl)
-	if !slices.Contains(declared, capability) {
-		fmt.Fprintf(errw, "yolo allow: %s declares no capability %q. Declared: %s.\n  For example:  yolo allow %s %s %s\n",
-			source, capability, strings.Join(declared, ", "), source, list, declared[0])
-		return 1
+	if grants, ok := findGrantDeclaringPack(source, packSettings); ok {
+		if rc := allowLoopholeKindRefusal(grants, list, capability, errw); rc != 0 {
+			return rc
+		}
+	} else {
+		decl, rc := findDeclaredBroker("allow", source, brokers, packSettings, errw)
+		if rc != 0 {
+			return rc
+		}
+		declared := declaredCapabilities(decl)
+		if !slices.Contains(declared, capability) {
+			fmt.Fprintf(errw, "yolo allow: %s declares no capability %q. Declared: %s.\n  For example:  yolo allow %s %s %s\n",
+				source, capability, strings.Join(declared, ", "), source, list, declared[0])
+			return 1
+		}
 	}
 
 	workspace := configEditWorkspace()
@@ -190,7 +200,6 @@ func findDeclaredBroker(verb, source string, brokers []config.ReadableBrokerDecl
 		}
 		sources = append(sources, b.Brokered.Source)
 	}
-	sort.Strings(sources)
 	for _, p := range packSettings {
 		if p.Pack == source && len(p.Settings) > 0 {
 			fmt.Fprintf(errw, "yolo %s: %s is a pack with settings, not a broker with capabilities.\n"+
@@ -198,13 +207,82 @@ func findDeclaredBroker(verb, source string, brokers []config.ReadableBrokerDecl
 			return config.ReadableBrokerDeclaration{}, 1
 		}
 	}
+	for _, p := range packSettings {
+		if len(p.Grants) > 0 && !slices.Contains(sources, p.Pack) {
+			sources = append(sources, p.Pack)
+		}
+	}
+	sort.Strings(sources)
 	listed := "none"
 	if len(sources) > 0 {
 		listed = strings.Join(sources, ", ")
 	}
-	fmt.Fprintf(errw, "yolo %s: no selected pack declares a broker source %q. Declared sources: %s.\n"+
+	fmt.Fprintf(errw, "yolo %s: no selected pack declares a broker source or grant kinds named %q. Declared sources: %s.\n"+
 		"  If a pack provides it, select that pack first:  yolo pack add <pack>\n", verb, source, listed)
 	return config.ReadableBrokerDeclaration{}, 1
+}
+
+// findGrantDeclaringPack is the selected pack named source whose loophole declares [[grants]]
+// (docs/design/loophole-access-approval.md §4.2): its kinds are what allow.<pack>.always and
+// .on_request and requests.<pack> take, as config.ResolveLoopholeGrants reads them back.
+func findGrantDeclaringPack(source string, packSettings []config.ReadablePackDeclaration) (config.LoopholeGrantDeclaration, bool) {
+	for _, p := range packSettings {
+		if p.Pack == source && len(p.Grants) > 0 {
+			return config.LoopholeGrantDeclaration{Pack: p.Pack, Loophole: p.Loophole, Access: p.Access,
+				Grants: append([]loopholedecl.Grant(nil), p.Grants...)}, true
+		}
+	}
+	return config.LoopholeGrantDeclaration{}, false
+}
+
+// loopholeGrantKind is the declared kind named kind.
+func loopholeGrantKind(decl config.LoopholeGrantDeclaration, kind string) (loopholedecl.Grant, bool) {
+	for _, g := range decl.Grants {
+		if g.Kind == kind {
+			return g, true
+		}
+	}
+	return loopholedecl.Grant{}, false
+}
+
+func loopholeGrantKindNames(decl config.LoopholeGrantDeclaration) []string {
+	out := make([]string, 0, len(decl.Grants))
+	for _, g := range decl.Grants {
+		out = append(out, g.Kind)
+	}
+	return out
+}
+
+// allowLoopholeKindRefusal refuses, before anything is written, a kind the pack does not declare
+// and a valued kind under always, whose value only a project can give: the ceiling the grant
+// reader refuses (config.ValuedKindUnderAlwaysError), turned into the command that works. 0 when
+// the kind may be written to list.
+func allowLoopholeKindRefusal(decl config.LoopholeGrantDeclaration, list, kind string, errw io.Writer) int {
+	g, ok := loopholeGrantKind(decl, kind)
+	if !ok {
+		example, exampleList := decl.Grants[0], list
+		if example.Valued {
+			exampleList = "on_request"
+		}
+		fmt.Fprintf(errw, "yolo allow: %s declares no grant kind %q. Declared: %s.\n  For example:  yolo allow %s %s %s\n",
+			decl.Pack, kind, strings.Join(loopholeGrantKindNames(decl), ", "), decl.Pack, exampleList, example.Kind)
+		return 1
+	}
+	if g.Valued && list == "always" {
+		fmt.Fprintf(errw, "yolo allow: %s %s carries a value only a project can give (%s), so always has none to carry.\n"+
+			"  Allow it on request:  yolo allow %s on_request %s\n",
+			decl.Pack, kind, loopholeValueNoun(g), decl.Pack, kind)
+		return 1
+	}
+	return 0
+}
+
+// loopholeValueNoun names a valued kind's values, as refusals print them.
+func loopholeValueNoun(g loopholedecl.Grant) string {
+	if g.ValueNoun != "" {
+		return g.ValueNoun
+	}
+	return "values"
 }
 
 // declaredCapabilities is the source's capability names, the read capability first: the
