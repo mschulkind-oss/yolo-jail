@@ -685,7 +685,7 @@ awk '
     inside { print }
 ' "$root/Justfile" >"$tmp/release-recipe"
 gate_line=$(grep -n 'sh scripts/changelog-section.sh "\$v"' "$tmp/release-recipe" | head -1 | cut -d: -f1)
-dispatch_line=$(grep -n 'gh workflow run release-request.yml --ref main' "$tmp/release-recipe" | head -1 | cut -d: -f1)
+dispatch_line=$(grep -n 'gh workflow run release-request.yml ${repo:+--repo "$repo"} --ref main' "$tmp/release-recipe" | head -1 | cut -d: -f1)
 if [ -n "$gate_line" ] && [ -n "$dispatch_line" ] && [ "$gate_line" -lt "$dispatch_line" ] \
     && ! grep -Eq 'git tag |git push ' "$tmp/release-recipe"; then
     pass=$((pass + 1))
@@ -693,6 +693,26 @@ else
     fail=$((fail + 1))
     echo "FAIL [just release gates before dispatch without tagging]: gate at line '${gate_line:-none}', dispatch at line '${dispatch_line:-none}' of the recipe"
 fi
+# `just release` names the repository: a `gh` that resolves none itself (yolo's github broker)
+# refuses a dispatch that names none. The helper reads origin's configured URL.
+for case in \
+    "git@github.com:o/r.git|o/r" \
+    "https://github.com/o/r|o/r" \
+    "https://github.com/o/r.git|o/r" \
+    "ssh://git@github.com/o/r.git|o/r" \
+    "yolo::git@github.com:o/r.git|o/r" \
+    "/srv/origin.git|" \
+    "https://gitlab.com/o/r|"; do
+    url=${case%%|*}
+    want=${case#*|}
+    got=$(sh "$root/scripts/github-repo-of.sh" "$url")
+    if [ "$got" = "$want" ]; then
+        pass=$((pass + 1))
+    else
+        fail=$((fail + 1))
+        echo "FAIL [github-repo-of $url]: got '$got', want '$want'"
+    fi
+done
 expect_file "request workflow calls readonly target preparation" "$root/.github/workflows/release-request.yml" \
     'run: tools/release-wiring/prepare.sh'
 expect_file "release workflow calls readonly target preparation" "$root/.github/workflows/release.yml" \
@@ -1098,6 +1118,7 @@ if command -v just >/dev/null 2>&1 && command -v git >/dev/null 2>&1; then
         cp "$root/Justfile" Justfile
         cp "$script" scripts/changelog-section.sh
         cp "$here/release-version.sh" scripts/release-version.sh
+        cp "$here/github-repo-of.sh" scripts/github-repo-of.sh
         # The recipe runs no Go: the pack binaries' pin check it used to run is retired
         # (docs/reference/pack-binaries.md OQ-BP8). A recording stub `go` stands in, so a
         # recipe that ran one again is caught below rather than reaching a real toolchain.

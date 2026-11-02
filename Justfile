@@ -469,7 +469,8 @@ release *args:
         echo "✗ CHANGELOG.md has no usable section for $v — write and commit it, then retry. No release request was sent." >&2
         exit 1
     fi
-    if ! gh workflow run release-request.yml --ref main -f "version=$v" -f "sha=$sha"; then
+    repo="$(sh scripts/github-repo-of.sh)"
+    if ! gh workflow run release-request.yml ${repo:+--repo "$repo"} --ref main -f "version=$v" -f "sha=$sha"; then
         echo "✗ could not submit the release request — check gh authentication and Actions permissions, then retry. No tag was created by this command." >&2
         exit 1
     fi
