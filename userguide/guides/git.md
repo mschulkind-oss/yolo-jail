@@ -7,13 +7,14 @@ service on your machine, the **git-broker**, connects to each remote for the jai
 result back. The jail runs the real `git`, unchanged.
 
 `git fetch`, `git pull` and `git ls-remote` work. A push goes through only when you have
-granted it ahead of time: with a **create-branch grant** the agent may push a new branch, and
+granted it ahead of time: with a **new-branches grant** the agent may push a new branch, and
 then keep pushing to the branches it created that way. Those branches are its **working set**,
-and a **branch grant** in the project config adds a branch you name, such as `main`, or every
+and a **push grant** in the project config adds a branch you name, such as `main`, or every
 branch a pattern such as `patch/*` matches, to it. A **tag grant** lets it push the tags you
 name, such as `v*`. Every other push asks you first, and is refused before anything reaches the
-remote, in git's own words, until you allow it or push it from your machine.
-Every call is recorded on your machine, and `yolo audit --service git` lists them.
+remote, in git's own words, until you allow it or push it from your machine
+([Approving What the Agent Asks For](approvals.md)). Every call is recorded on your machine, and
+`yolo audit --service git` lists them.
 
 ## Turning it on
 
@@ -25,31 +26,34 @@ Your machine needs whatever it already uses to reach your remotes:
   host, such as the one `git config credential.helper` names, a system keychain, or Git
   Credential Manager. The broker asks it with `git credential fill` and never prompts you.
 
-Select the pack, and grant read access, in your user config (`~/.config/yolo-jail/config.jsonc`):
+Select the pack, and grant read access, on your machine:
 
-```jsonc
-{
-  "packs": ["claude", "git"],
-  "brokered": { "git": { "grants": [{ "kind": "read", "repo": "*" }] } }
-}
+```bash
+yolo pack add git
+yolo allow git fetch
+```
+
+Your user config (`~/.config/yolo-jail/config.toml`) then holds:
+
+```toml
+packs = ["claude", "git"]
+
+[allow.git]
+always = ["fetch"]
 ```
 
 > [!NOTE]
-> **With a TOML config, run commands instead of editing these blocks.** On your machine,
-> `yolo pack add git` selects the pack and `yolo allow git fetch` grants the read. To let a project
-> push, allow the capability once, `yolo allow git on_request push` (`new_branches` for creating
-> branches, `push_tags` for tags), and the project asks for what it needs with
-> `yolo request git push <branch>`, `yolo request git new_branches` or `yolo request git push_tags <tag>`;
-> the project's request is approved by `yolo config apply` on your machine. The JSON blocks in this
-> guide show the older `brokered` spelling, which `yolo config migrate` converts to `[allow.git]` and
-> `[requests.git]`.
+> **Still on a JSONC config?** The same read grant is
+> `"brokered": { "git": { "grants": [{ "kind": "read", "repo": "*" }] } }`, and the push grants
+> below are `brokered.git.grant_kinds` (`create-branch`, `branch`, `tag`) in your user config and
+> `brokered.git.grants` entries in the project's. `yolo config migrate` converts all of it to the
+> `[allow.git]` and `[requests.git]` lines on this page.
 
 Selecting the pack starts the broker in every project, and on its own it **grants nothing**: an SSH
 fetch or any push without the read grant is refused, naming the grant to add. A public HTTPS fetch
 is tried anonymously and never uses a host credential; if that server asks for one, the fetch is
 refused until the read grant and the project's remote are approved. The read grant lets each
-project use its own approved remotes, and nothing else; `"*"` means each project's own remotes,
-never every repository you can reach.
+project use its own approved remotes, and nothing else: never every repository you can reach.
 
 The grant never takes effect unseen. Each project's next config-change prompt, or
 `yolo config apply` run on your machine in the project, shows it as a line of the
@@ -59,7 +63,7 @@ Without the read grant, the prompt asks nothing about the broker at all; withdra
 shows the remotes and the grant removed once, and after that the prompt is silent again.
 
 The broker has no on/off switch: `yolo loopholes enable git-broker` refuses, and `yolo check`
-refuses a `git-broker` switch in any config file. To stop the broker, take `git` out of `packs`.
+refuses a `git-broker` switch in any config file. To stop the broker, run `yolo pack remove git`.
 An older yolo's per-project switch is ignored with a warning; `yolo loopholes disable git-broker`
 removes it.
 
@@ -79,32 +83,26 @@ your machine, in the project, and answer y.
 
 ## Letting the agent push its own branches
 
-Two settings, one in each config, let the agent create branches:
+Two lines, one in each config, let the agent create branches:
 
-1. **Your user config allows the kind of grant.** Without this, no project can hold it, and
-   `yolo check` refuses a project that asks, naming this key:
+1. **Your user config allows the capability on request.** Without this, no project can hold it,
+   and `yolo check` and the launch warn about a project that asks, naming this command:
 
-   ```jsonc
-   // ~/.config/yolo-jail/config.jsonc
-   {
-     "packs": ["claude", "git"],
-     "brokered": { "git": { "grant_kinds": ["create-branch"] } }
-   }
+   ```bash
+   yolo allow git on_request new_branches     # on your machine
    ```
 
-2. **The project config names the grant and its repository**, as `host/path` (the remote's
-   address without the user, the scheme or `.git`), or `"*"` for every approved remote:
+2. **The project asks for it.** Run this in the project, on your machine or in the jail:
 
-   ```jsonc
-   // yolo-jail.jsonc in the project
-   {
-     "brokered": { "git": { "grants": [{ "kind": "create-branch", "repo": "github.com/me/app" }] } }
-   }
+   ```bash
+   yolo request git new_branches
+   yolo config apply                          # on your machine, in the project
    ```
 
-The grant joins at the next config-change prompt, where you approve it beside the remotes, or at
-`yolo config apply` for a running jail. Remove `create-branch` from your user config and the next
-push stops creating branches, in every project.
+The project's `yolo-jail.toml` then holds `new_branches = true` under `[requests.git]`, and the
+grant covers every remote the project has approved. It joins at the config-change prompt, or at
+`yolo config apply` for a running jail. Remove `new_branches` from `allow.git.on_request` in your
+user config and the next push stops creating branches, in every project.
 
 With the grant, the agent may push a branch that does not exist yet on that repository. When the
 remote accepts it, the branch joins the project's **working set**: the branches the agent may
@@ -113,7 +111,7 @@ project, not to one jail: two jails of the project share it, and it lasts across
 the branch is deleted (by a push through the broker, or found gone on the remote at the next
 push) or you revoke it. A branch you pushed from your machine, or one another project created,
 is never in it, and neither is `main` or any other branch the agent did not create: those pushes
-are still refused, unless a [branch grant](#declaring-a-working-set-branch-in-config) in the
+are still refused, unless a [push grant](#declaring-a-working-set-branch-in-config) in the
 project config declares the branch.
 
 On your machine, `yolo approve` lists each project's working set:
@@ -122,62 +120,55 @@ On your machine, `yolo approve` lists each project's working set:
 w-0c7b1e813e940452e59c53612436f6df  working set  git  [/home/me/code/app]  repo github.com/me/app  branch refs/heads/agent/x  by create-branch  since 2026-10-24T04:43:12Z
 ```
 
+`create-branch` is the broker's own name for the new-branches grant, as `branch` and `tag` are for
+the push and tag grants; the capability names you type are `new_branches`, `push` and `push_tags`.
+
 ```bash
 yolo approve --revoke w-0c7b1e813e940452e59c53612436f6df   # one branch
 yolo approve --revoke all --workspace ~/code/app            # every recorded branch of that project; branches declared in config stay
 ```
 
 Revoking ends what the broker recorded: the working-set entries, and any grant you allowed with
-`yolo approve`. It does not end the create-branch grant in the project's config, so the agent can
-still push a new branch afterward. To stop that, remove the grant from the project's
-`yolo-jail.jsonc` (`brokered.git.grants`), or remove `create-branch` from `brokered.git.grant_kinds`
-in your user config; the broker checks your user config at every push. A `--workspace` path that
-matches nothing says so and exits with an error; the path in brackets in `yolo approve` is the one
-to give.
+`yolo approve`. It does not end the new-branches grant in the project's config, so the agent can
+still push a new branch afterward. To stop that, remove the request from the project's config
+(`yolo config unset requests.git.new_branches --project`, then `yolo config apply`), or remove
+`new_branches` from `allow.git.on_request` in your user config; the broker checks your user config
+at every push. A `--workspace` path that matches nothing says so and exits with an error; the path
+in brackets in `yolo approve` is the one to give.
 
 ## Declaring a working-set branch in config
 
-A **branch grant** puts a branch you name, such as `main` of the agent's own fork, in the
+A **push grant** puts a branch you name, such as `main` of the agent's own fork, in the
 project's working set, declared in config rather than created by the agent. It is granted the same
-two ways as create-branch:
+two ways as new branches:
 
-1. **Your user config allows the kind**, beside any other kind you allow:
+1. **Your user config allows it on request**, beside any other capability you allow:
 
-   ```jsonc
-   // ~/.config/yolo-jail/config.jsonc
-   {
-     "packs": ["claude", "git"],
-     "brokered": { "git": { "grant_kinds": ["create-branch", "branch"] } }
-   }
+   ```bash
+   yolo allow git on_request push             # on your machine
    ```
 
-2. **The project config names the grant, its repository and its branch.** The branch is a
-   short name, `main` for `refs/heads/main`, or a pattern with one `*`, which matches any run of
-   characters, `/` included: `patch/*` covers `patch/one` and `patch/a/b`, and `agent-*` covers
-   every branch starting with `agent-`.
+2. **The project names the branch.** A branch is a short name, `main` for `refs/heads/main`, or
+   a pattern with one `*`, which matches any run of characters, `/` included: `patch/*` covers
+   `patch/one` and `patch/a/b`, and `agent-*` covers every branch starting with `agent-`.
 
-   ```jsonc
-   // yolo-jail.jsonc in the project
-   {
-     "brokered": { "git": { "grants": [
-       { "kind": "branch", "repo": "github.com/me/app", "branch": "main" },
-       { "kind": "branch", "repo": "github.com/me/app", "branch": "patch/*" }
-     ] } }
-   }
+   ```bash
+   yolo request git push main
+   yolo request git push 'patch/*'
+   yolo config apply                          # on your machine, in the project
    ```
+
+The project's `yolo-jail.toml` then reads:
+
+```toml
+[requests.git]
+push = ["main", "patch/*"]
+```
 
 The grant joins at the next config-change prompt, or at `yolo config apply` for a running jail,
-as create-branch does, and `yolo check` refuses it while your user config does not list
-`branch`. A `branch` that is not a name git accepts, one written as `refs/heads/main`, or a pattern
-with two `*` is refused when the config loads, saying how to write it.
-
-`"repo": "*"` is allowed too: the grant then covers that branch on **every remote in scope now and
-any you approve later**, an upstream project's `main` included. The prompt says so on the grant's
-line, and when you later approve a new remote, its line names each such grant that now covers it:
-
-```text
-  + git@github.com:org/app.git  remote "upstream"  added (now covered by the standing grant branch * main)
-```
+and covers that branch on every remote the project has approved. A branch that is not a name git
+accepts, one written as `refs/heads/main`, or a pattern with two `*` is refused when the config
+loads, saying how to write it.
 
 The branch is then in the working set like one the agent created: the agent may push it, create
 it if it does not exist yet, force-push it and delete it. The remote's own branch protection
@@ -187,35 +178,39 @@ the project runs, `yolo approve` lists the branch beside the recorded ones, mark
 with the file that declares it:
 
 ```text
-c-5d0f3c2a9b8e71d4a6c0e9f2b1d3a7c5  working set  git  [/home/me/code/app]  repo github.com/me/app  branch refs/heads/main  from config /home/me/code/app/yolo-jail.jsonc
+c-5d0f3c2a9b8e71d4a6c0e9f2b1d3a7c5  working set  git  [/home/me/code/app]  repo github.com/me/app  branch refs/heads/main  from config /home/me/code/app/yolo-jail.toml
 ```
 
 `yolo approve --revoke` refuses such a line and names that file, and
-`yolo approve --revoke all --workspace` leaves it in place. To take the branch out, remove
-the grant from the project's `yolo-jail.jsonc` and run `yolo config apply`, or remove `branch`
-from your user config. The broker reads both at every push, so either reaches the next one.
+`yolo approve --revoke all --workspace` leaves it in place. To take the branch out, remove it
+from the project's config (`yolo config unset 'requests.git.push[0]' --project` removes the first
+entry; `yolo config unset requests.git.push --project` the whole list) and run `yolo config apply`,
+or remove `push` from `allow.git.on_request` in your user config. The broker reads both at every
+push, so either reaches the next one.
+
+**A push the agent was refused can write this line for you.** When you answer a push request
+with `yolo approve r-<id> --remember`, the push is allowed once and each ref it needed approval
+for is written into the project's config as above, so after `yolo config apply` it needs no
+approval again ([Approving What the Agent Asks For](approvals.md#answering-on-your-machine)).
 
 ## Letting the agent push tags
 
-A **tag grant** works as a branch grant does, for tags under `refs/tags/`: your user config lists
-`tag` under `brokered.git.grant_kinds`, and the project config names the grant:
+A **tag grant** works as a push grant does, for tags under `refs/tags/`: your user config allows
+`push_tags` on request, and the project names the tags:
 
-```jsonc
-// yolo-jail.jsonc in the project
-{
-  "brokered": { "git": { "grants": [
-    { "kind": "tag", "repo": "github.com/me/app", "tag": "v*" }
-  ] } }
-}
+```bash
+yolo allow git on_request push_tags          # on your machine
+yolo request git push_tags 'v*'              # in the project
+yolo config apply                            # on your machine, in the project
 ```
 
-The tag is a short name or a pattern with one `*`, as a branch grant's is, and `"repo": "*"`
-covers every remote in scope now and any approved later. The agent may then create, move
-(force-push) and delete each tag the grant names, unasked. A tag never joins the working set: the
-config holds the grant, and removing it, or `tag` from your user config, ends it at the next push.
-A tag no grant covers still asks you, and the refused tag's line names the grant that would cover
-it. `yolo approve` lists each tag grant of a running jail as a `tag grant` line, marked `from
-config`.
+The project's `yolo-jail.toml` then holds `push_tags = ["v*"]` under `[requests.git]`. The tag is
+a short name or a pattern with one `*`, as a branch is, and the grant covers every remote the
+project has approved. The agent may then create, move (force-push) and delete each tag the grant
+names, unasked. A tag never joins the working set: the config holds the grant, and removing it, or
+`push_tags` from your user config, ends it at the next push. A tag no grant covers still asks you,
+and the refused tag's line names the grant that would cover it. `yolo approve` lists each tag grant
+of a running jail as a `tag grant` line, marked `from config`.
 
 ## What happens
 
@@ -223,10 +218,10 @@ config`.
 | :--- | :--- |
 | `git fetch`, `git pull`, `git ls-remote` over SSH | Run through your machine's `ssh` against an approved remote, streamed back as git expects |
 | `git fetch`, `git pull`, `git ls-remote` over HTTPS | Sent to an approved remote over HTTPS, checked against your machine's trusted certificates, with the credential your machine's `git credential fill` gives when the server asks for one |
-| A push of a new branch, with a create-branch grant | Sent to the remote; when the remote accepts it, the branch joins the working set |
+| A push of a new branch, with a new-branches grant | Sent to the remote; when the remote accepts it, the branch joins the working set |
 | A push to a branch in the working set, recorded or declared in config | Sent to the remote, force-pushes and deletes included |
 | A push of a tag a tag grant covers | Sent to the remote, force-pushes and deletes included; the tag joins no working set |
-| Any other `git push`, tags included | Asks you. The push waits 30 seconds for an answer; unanswered, it is refused per ref with nothing sent: `! [remote rejected] <ref> (needs approval: r-<id>)`. Run `yolo approve r-<id>` on your machine to allow that exact push once, then have the agent run it again within 15 minutes. `yolo approve r-<id> --for 15m` allows every push to those refs for 15 minutes instead (any duration up to 24 hours), and `yolo approve r-<id> --add` adds the branches to the working set for good (not for a tag or a new branch; use `--for` there). A new branch allowed this way joins the working set. `yolo approve r-<id> --deny` refuses it |
+| Any other `git push`, tags included | Asks you. The push waits 30 seconds for an answer; unanswered, it is refused per ref with nothing sent: `! [remote rejected] <ref> (needs approval: r-<id>)`, and the refusal lists every way to allow it. `yolo approve r-<id>` on your machine allows that exact push once, within 15 minutes; `--for 15m` allows every push to those refs for a time; `--add` adds the branches to the working set for good; `--remember` allows it and writes the push grant into the project's config; `--deny` refuses it. See [Approving What the Agent Asks For](approvals.md#one-action-yolo-approve) |
 | A push of several branches, one of them refused | Refused whole: a push through the broker goes through entirely or not at all |
 | A push to anything but a branch or a tag | Refused always, naming `refs/heads/` and `refs/tags/` |
 | A remote you did not approve | Refused at once, naming the approved remotes and how to add one; nothing runs |

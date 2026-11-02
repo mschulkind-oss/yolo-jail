@@ -123,7 +123,7 @@ See [Writing Your Own Pack](../guides/migrating-to-packs.md#part-2--manage-your-
 yolo broker status           # the shared Claude login service; also stop, restart, logs
 yolo openai-auth status      # the shared ChatGPT login; also import --from, logout
 yolo host-daemon status      # every host service shared by all jails
-yolo loopholes list          # the loopholes your config selects, and whether each is on
+yolo loopholes list          # the loopholes your config selects, and what this project holds
 yolo loopholes status        # on the host: run each loophole's self-check
 yolo audit                   # on the host: every brokered call, such as the jail's gh commands
 yolo host-run -- <cmd>       # on the host: run a command and send its output to the agent
@@ -132,35 +132,26 @@ yolo host-run wait           # in the jail: wait for that output; also show
 
 `yolo audit` takes `--since 1h`, `--service <source>` (such as `github` or `git`), `--jail <id>`, `--workspace <path>`, `--set <name>` and `--json`.
 
-An approval belongs to the project, not to one jail: every jail of that project may use it, and it
-lasts through broker and jail restarts and relaunches until it expires, its uses run out, or you
-revoke it. `yolo approve <request> --for <duration>` sets how long; `--for session` is 12 hours,
-whatever restarts in between. Removing a repository from the project's approved scope ends what
-an approval on that repository covers.
+## Approvals
 
-A GitHub Allow once is the exact command, resolved repository and stdin digest, one use within
-15 minutes. `--add` adds the PR or issue a GitHub write targets to the project's working set, and
-`--for <duration>` (at most 12h; not `session`) allows that kind of write on its resource for that
-long; a merge refuses `--add`, and a write naming no PR or issue number takes Allow once only. A
-legacy set-wide grant does not authorize a write. A configured `on_request` hook may notify or run the host CLI,
-but is optional and its output alone is never consent. Without a hook, the broker log and host
-`yolo approve` command remain available for manual decisions.
+```bash
+yolo approve                         # on the host: pending requests, live grants, each project's working set
+yolo approve r-<id>                  # allow that exact push or gh write once, within 15 minutes
+yolo approve r-<id> --for 15m        # allow pushes to those refs, or that kind of gh write, for a time
+yolo approve r-<id> --add            # add the branches, or the PR or issue, to the working set
+yolo approve r-<id> --remember       # git: allow once and write the push grant into the project's config
+yolo approve r-<id> --deny           # refuse it
+yolo approve --revoke <g-id|w-id|all> [--workspace <path>]   # end a grant or a working-set entry
+yolo approve --json                  # the same, as one JSON document
+yolo approve --watch --json          # the state, then one JSON object per event, for a UI of your own
+yolo wait r-<id>                     # in the jail: wait for the host's answer to a request
+yolo wait <label>                    # in the jail: the same as yolo host-run wait --name <label>
+```
 
-
-`yolo approve`, on the host, lists the broker's requests and grants and each project's git
-working set (the branches the agent created under a create-branch grant, and, marked
-`from config`, those a branch grant in a running project's config declares, a pattern shown as
-written, and each tag grant there; see
-[Git](../guides/git.md#letting-the-agent-push-its-own-branches)). `yolo approve --revoke <id>`
-ends one grant or working-set entry (`w-…`); a branch declared in config (`c-…`) is refused,
-naming the file to remove it from. `--revoke all` ends every grant, and
-`--revoke all --workspace <path>` every grant and recorded working-set entry of that project; a
-path that matches nothing exits with an error. Neither ends a create-branch, branch or tag grant written in
-the project's config: remove it from the project's config (`requests.git`, or `brokered.git.grants` in a
-legacy JSONC file), or remove the capability from `allow.git` (`brokered.git.grant_kinds` in a legacy
-file) in your user config. `--json` prints the same as one JSON document; a
-branch declared in config is a working-set entry there with `"by": "config"` and a `"file"`
-naming the config that declares it.
+A request is a push or a `gh` write that no grant covers; the refusal the agent sees names it.
+A branch declared in the project's config (`c-…`) is refused by `--revoke`, which names the file to
+edit instead. [Approving What the Agent Asks For](../guides/approvals.md) explains each answer, the
+`on_request` notification hook, and `--watch`; `yolo approve --help` has the exit codes.
 
 Inside a jail, `yolo gh -- <args>` is what a bare `gh` runs when the `github` pack is selected; see
 [GitHub](../guides/github.md). `yolo git-remote -- <remote> <url>` is the remote helper the jail's

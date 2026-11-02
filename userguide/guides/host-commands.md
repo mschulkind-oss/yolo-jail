@@ -1,7 +1,7 @@
 # Run a Host Command for the Agent
 
-Sometimes an agent needs something only your machine can do: merge a pull request with your
-GitHub login, enable a loophole, run `yolo check` on the host. With `yolo host-run` the agent
+Sometimes an agent needs something only your machine can do: run a release script with your
+own tools, inspect a host service, run `yolo check` on the host. With `yolo host-run` the agent
 writes one line, you run it in a terminal on your host, and the command's output, errors and exit
 status go straight back to the agent. You never copy the output back by hand.
 
@@ -112,7 +112,8 @@ setup, `wait` exits 69 and says to copy the output from your terminal instead.
 
 ## See also
 
-- [GitHub Without a Token](github.md): a `gh` write in the jail prints a ready `yolo host-run`
-  line.
+- [Approving What the Agent Asks For](approvals.md): a `git push` or `gh` write the jail is
+  refused asks you through `yolo approve`, not through `host-run`; the refusal lists its answers,
+  each run directly in a host terminal.
 - [Your Own Host Service](host-services.md): a program that answers the jail without you running
   anything.

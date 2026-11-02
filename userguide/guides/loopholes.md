@@ -38,8 +38,8 @@ access through it only once you approve a **grant**: a named thing a project may
 | `claude-oauth-broker` (`claude-auth`, which `claude` brings) | One shared Claude login that stays fresh across jails ([Logins](authentication.md#a-shared-claude-login-that-stays-fresh)) | Your login: nothing is served until you log in |
 | `openai-auth-broker` (`codex-auth`, which `codex` brings) | One shared ChatGPT login for Codex, pi and opencode ([Logins](authentication.md#a-shared-chatgpt-login-for-codex-and-pi)) | Your login |
 | `aws-auth` (`aws-auth`, which `bedrock` brings) | AWS Bedrock with credentials from your host's `aws sso login`, narrowed to one role | Your settings: nothing is minted until you set a profile |
-| `github-broker` (`github`) | `gh` in the jail, run by your host's own GitHub login against this workspace's repositories, with no token in the jail; reads run and writes require exact host Allow-once approval ([GitHub](github.md)) | A read grant ([GitHub](github.md#turning-it-on)) |
-| `git-broker` (`git`) | `git fetch` and `git push` in the jail through your host's own credentials, its SSH keys or agent or, for HTTPS, its git credential helper, against this workspace's approved remotes. A public HTTPS fetch is tried anonymously even without a read grant or approved remote; no credential is used. A push lands only on a new branch a create-branch grant covers or on a branch in the working set: one the agent created that way, or one a branch grant in the project config declares; every other push is refused ([Git](git.md#letting-the-agent-push-its-own-branches)) | A read grant ([Git](git.md#turning-it-on)) |
+| `github-broker` (`github`) | `gh` in the jail, run by your host's own GitHub login against this workspace's repositories, with no token in the jail. Reads run under the read grant; a write runs unasked only under a grant (`create_pr`, `create_issue`, `dispatch_workflows`, `approve_runs`, or a PR or issue in the agent's working set), and every other write asks you with `yolo approve` ([GitHub](github.md)) | `read`, with `yolo allow github read` ([GitHub](github.md#turning-it-on)) |
+| `git-broker` (`git`) | `git fetch` and `git push` in the jail through your host's own credentials, its SSH keys or agent or, for HTTPS, its git credential helper, against this workspace's approved remotes. A public HTTPS fetch is tried anonymously even without a read grant or approved remote; no credential is used. A push runs unasked only under a grant (`new_branches`, `push`, `push_tags`) or to a branch in the agent's working set; every other push asks you with `yolo approve` ([Git](git.md#letting-the-agent-push-its-own-branches)) | `fetch`, with `yolo allow git fetch` ([Git](git.md#turning-it-on)) |
 | `journal` (`journal`) | The host's systemd journal, with `yolo-journalctl` (Linux hosts) | A grant: `read` (your own journal) or `read_all` (the whole journal) |
 | `macos-log` (`macos-log`) | The Mac's unified log, with `yolo-log` (Mac hosts) | A grant: `read` (entries from processes the `macos-user` sandbox runs) or `read_all` (every entry) |
 | `host-processes` (`host-processes`) | A list of the host processes you name, with `yolo-ps` (Linux hosts) | A grant: `view`, with the process names |
@@ -66,8 +66,18 @@ step. The agent can run it too: a request is only a request.
 config-change prompt, or run `yolo config apply` in the project. Answer y and the project holds the
 grant from then on, in every jail of that project. Answer n and nothing is granted.
 
-**What a project may ask for is up to you.** Your user config sets a ceiling for each pack. A
-request outside it is skipped, and the launch names the command that would allow it:
+**What a project may ask for is up to you.** Your user config sets a ceiling for each pack, under
+`[allow.<pack>]`. A request outside it is skipped, never an error, and `yolo check`, every launch
+and the `yolo config apply` prompt each say so, naming the command that would allow it:
+
+```text
+[WARN] yolo-jail.toml:2: this project requests host-processes view postgres.
+  Your config does not allow view on request, so this project runs without it.
+  To allow it for every project you work on (in your config, not this file), run on the host:
+    yolo allow host-processes on_request view
+  then approve it for this workspace, if that command did not already ask:
+    yolo config apply
+```
 
 ```bash
 yolo allow host-processes on_request view   # let any project ask to see processes
@@ -84,6 +94,11 @@ To take a grant back, remove the request or the ceiling line and run `yolo confi
 running jail's journal, log, process and serial access changes at once; `audio` changes at the
 next fresh launch.
 
+The git and GitHub brokers hold their grants the same way, and can also ask you for **one
+action**, a push or a `gh` write no grant covers, which you answer with `yolo approve` on your
+machine. [Approving What the Agent Asks For](approvals.md) covers both kinds of asking, and how to
+be notified of a request.
+
 Some loopholes also take settings of their own, such as `aws-auth`'s SSO profile and role or the
 `ps` columns `host-processes` shows. They go in your user config under `[allow.<pack>]`:
 
@@ -96,9 +111,9 @@ its settings, and `yolo check` reports one that is missing or misspelled.
 
 **Coming from an older config?** `"loopholes": {"<name>": {"enabled": true}}` and
 `yolo loopholes enable` are gone. An older JSONC config keeps working as grants until you convert
-it, and `yolo config migrate` carries every access you had into allow and request lines without
-losing any. `yolo loopholes enable` now refuses and names the `yolo request` and `yolo allow` lines
-to use instead.
+it, and `yolo config migrate` carries every access you had into `[allow.<pack>]` and
+`[requests.<pack>]` lines without losing any. `yolo loopholes enable` now refuses and names the
+`yolo request` and `yolo allow` lines to use instead.
 
 ## Loopholes on each setup
 

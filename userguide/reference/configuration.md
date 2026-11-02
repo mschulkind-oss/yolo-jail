@@ -70,11 +70,11 @@ unset = ["AWS_PROFILE"]
 push = ["main"]                                  # asks; your [allow.git] on_request decides
 ```
 
-The settings in the rest of this page and the guides are written in the older JSONC spelling,
-which `yolo config migrate` converts: `packages` is `[install] nix`, `mise_tools` is `[install]
-mise`, `resources` is `[machine] resources`, `network.ports` is `machine.ports`, and a broker's
-`brokered` key is `[allow.<source>]` in your config and `[requests.<source>]` in a project's.
-`yolo config-ref` has the full table.
+Some guides still show settings in the older JSONC spelling, which `yolo config migrate`
+converts: `packages` is `[install] nix`, `mise_tools` is `[install] mise`, `resources` is
+`[machine] resources`, `network.ports` is `machine.ports`, and a broker's `brokered` key is
+`[allow.<source>]` in your config and `[requests.<source>]` in a project's. `yolo config-ref`
+has the full table.
 
 The **workspace** is the folder you run `yolo` in, exactly: there is no search upward for a config
 file, and launching from a subfolder makes that subfolder its own workspace with its own jail.
@@ -128,22 +128,21 @@ project config and names the file to move them to:
 - a `host_files` entry that names a `source` file on your host
 - a host service's `command`, `env` and `doctor_cmd`, and any loophole setting its pack marks as
   user-only
+- `allow`, your ceiling for what a project may do with your logins and your host's loopholes
+- `on_request`, the command that notifies you of an approval request
+  ([Getting notified](../guides/approvals.md#getting-notified)); it runs on your machine and can
+  approve, so a project naming it refuses the launch
 
-One key works **only in a project config**: `brokered`, which adds repositories to that project's
-[GitHub access](../guides/github.md#adding-a-repository-the-project-has-no-remote-for). The next
-fresh launch asks you to approve each one, and `yolo check` refuses it in your user config.
-
-Grants under `brokered` are split between the two: your user config lists the kinds of grant any
-project may hold, `brokered.<source>.grant_kinds`, and a project config names each grant and its
-repository, `brokered.<source>.grants`. A grant joins at the config-change prompt, and only if
-your user config lists its kind; `yolo check` refuses either key in the other config. The git
-source defines three kinds beside `read`: `create-branch`
-([Git](../guides/git.md#letting-the-agent-push-its-own-branches)); `branch`, a branch in the
-working set, declared in config, whose grant also names a `branch`, such as `"main"` or the
-pattern `"patch/*"` ([Git](../guides/git.md#declaring-a-working-set-branch-in-config)); and `tag`,
-whose grant names a `tag`, such as `"v*"`, the agent may push unasked
-([Git](../guides/git.md#letting-the-agent-push-tags)). `brokered.git.repos` is refused: a git
-remote joins with `git remote add`.
+One table works **only in a project config**: `requests`, what this project asks for. It takes
+effect only within your `allow` ceiling, and a request outside it is skipped with a warning at
+`yolo check`, at launch and in the `yolo config apply` prompt, naming the `yolo allow` command that
+would allow it. `yolo check` refuses `requests` in your user config. The two tables, and the verbs
+that write them, are explained in [Approving What the Agent Asks For](../guides/approvals.md);
+the capabilities each source takes are in [Git](../guides/git.md), [GitHub](../guides/github.md)
+and [Host Access and Loopholes](../guides/loopholes.md#giving-a-project-access), and in
+`yolo config-ref` under `allow` and `requests`. In a legacy JSONC config the same split is
+`brokered.<source>.grant_kinds` (yours) and `brokered.<source>.grants` (the project's), which
+`yolo config migrate` converts.
 
 ## A starting point
 
@@ -185,6 +184,11 @@ This is what stops an agent from quietly adding packages, mounts or devices by e
 `yolo-jail.toml` (or the legacy `yolo-jail.jsonc`): you approve every change. A project's first launch with a non-empty config asks
 too. The record of what you approved is kept on your host, under `~/.local/share/yolo-jail/approvals/`,
 where the jail cannot rewrite it. A project copied or moved to a new folder asks once more.
+
+The same prompt approves what the git and GitHub brokers may do for the project: the remotes and
+repositories they may reach, each grant the project requested within your ceiling, and, listed
+beside them, any request your ceiling skips with the `yolo allow` command that would allow it
+([Approving What the Agent Asks For](../guides/approvals.md#standing-access-the-ceiling-and-the-request)).
 
 Edits to your user config do not ask, because only you can make them.
 

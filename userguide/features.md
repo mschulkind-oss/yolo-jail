@@ -15,7 +15,7 @@ result observable and repeatable. Each entry links to the page that covers it.
 ## Where agents work
 
 **One setup across your repositories.** Keep personal defaults, such as your agents, in your user
-config, and give each repository the tools and limits it needs in its own `yolo-jail.jsonc`. The
+config, and give each repository the tools and limits it needs in its own `yolo-jail.toml`. The
 agent works on the same files you do, at `/workspace`, with no copy to sync.
 [Configuration →](reference/configuration.md)
 
@@ -72,9 +72,15 @@ for a `yolo host` command alike.
 Add read-only folders, host ports, devices or a loophole, one line at a time, and read a pack's
 footprint before you select it. [Host access and loopholes →](guides/loopholes.md)
 
-**Use GitHub without a token in the jail.** The `github` pack runs the jail's `gh` commands with
-your own host login, only against the project's own repositories, and records every call. Writes
-wait for exact, one-use host approval. [GitHub →](guides/github.md)
+**Use GitHub and git without a credential in the jail.** The `github` pack runs the jail's `gh`
+commands with your own host login, and the `git` pack its fetches and pushes with your SSH keys or
+credential helper, only against the project's own repositories, and records every call. A write
+runs unasked only under a grant you gave; every other one asks you.
+[GitHub →](guides/github.md) · [Git →](guides/git.md)
+
+**Approve from anywhere.** A project asks for standing access in its config and you approve it
+once; a one-off push or `gh` write asks you with `yolo approve`, and one line of config pops the
+request up on your desktop with Allow and Deny buttons. [Approvals →](guides/approvals.md)
 
 **Reach services and ports.** Open a jail's dev server from your browser, or reach a database on
 your host from the jail. [Networking →](guides/networking.md)

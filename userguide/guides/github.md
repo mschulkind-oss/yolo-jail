@@ -4,17 +4,13 @@ The `github` pack lets an agent in a jail use `gh`, the GitHub command-line tool
 GitHub login on your machine**. The jail never holds a GitHub token. Instead, a small service on
 your machine, the **github-broker**, runs each command for the jail and sends back what it printed.
 
-The broker supports **host-approved, exact, one-use writes** as well as reads. A write does not run
-until you approve its pending request with `yolo approve <id>` on the host. The approval binds the
-canonical command, repository and standard-input digest; it covers one use for up to 15 minutes.
-The jail waits briefly for your decision. If it times out, the request remains visible to the host
-and you can approve it before the agent retries the same command. GitHub does not accept set-wide
-`--for` or `--add` decisions. Standing `read-write` policy is refused; remove that entry from
-`brokered.github.sets` to require one Allow-once decision per write. Standing read access is unchanged.
-
-A configured `on_request` hook may notify you, but it is optional and its output is never consent.
-Pending writes are visible in the host broker log and `yolo approve`; without a hook, run
-`yolo approve <id>` on the host to Allow once or `yolo approve <id> --deny`.
+Reads run once you grant them. A write runs without asking only where you have granted it ahead of
+time: opening pull requests or issues, writing to the ones the agent opened (its **working set**),
+starting a workflow you name, approving a held workflow run. Every other write, a merge always
+included, **asks you first**: the broker files a request, the jail waits briefly, and nothing runs
+until you answer `yolo approve <id>` on your machine
+([Approving What the Agent Asks For](approvals.md)). Every call is recorded on your machine, and
+`yolo audit` lists them.
 
 ## Turning it on
 
@@ -24,29 +20,33 @@ You need `gh` installed on your machine and logged in:
 gh auth login          # on your machine, once
 ```
 
-Then select the pack, and grant read access, in your user config
-(`~/.config/yolo-jail/config.jsonc`):
+Then select the pack and grant read access, on your machine:
 
-```jsonc
-{
-  "packs": ["claude", "github"],
-  "brokered": { "github": { "grants": [{ "kind": "read", "repo": "*" }] } }
-}
+```bash
+yolo pack add github
+yolo allow github read
+```
+
+Your user config (`~/.config/yolo-jail/config.toml`) then holds:
+
+```toml
+packs = ["claude", "github"]
+
+[allow.github]
+always = ["read"]
 ```
 
 > [!NOTE]
-> **With a TOML config, run commands instead of editing these blocks.** On your machine,
-> `yolo pack add github` selects the pack and `yolo allow github read` grants the read. A project
-> asks for the other things with `yolo request github repos you/lib`, `yolo request github create_pr`
-> and so on, once your config allows them (`yolo allow github on_request create_pr`). The JSON
-> blocks in this guide show the older `brokered` spelling, which `yolo config migrate` converts to
-> `[allow.github]` and `[requests.github]`.
+> **Still on a JSONC config?** The same read grant is
+> `"brokered": { "github": { "grants": [{ "kind": "read", "repo": "*" }] } }`, a project's extra
+> repositories are `brokered.github.repos`, and the write grants below are `brokered.github.grant_kinds`
+> in your user config and `brokered.github.grants` entries in the project's. `yolo config migrate`
+> converts all of it to the `[allow.github]` and `[requests.github]` lines on this page.
 
 Selecting the pack puts yolo's `gh` in front of the jail's own copy and starts the broker, in
 every project, and on its own it **grants nothing**: without the read grant, every call is
 refused, naming the grant to add. The read grant lets each project read its own repositories,
-[below](#the-repositories-it-can-reach); `"*"` means each project's own, never every repository
-your login can reach.
+[below](#the-repositories-it-can-reach): never every repository your login can reach.
 
 The grant never takes effect unseen. Each project's next config-change prompt, or
 `yolo config apply` run on your machine in the project, shows it as a line of the
@@ -58,10 +58,9 @@ shows the remotes and the grant removed once, and after that the prompt is silen
 ### Turning it off
 
 The broker has no on/off switch: `yolo loopholes enable github-broker` refuses, and `yolo check`
-and the launch refuse a `github-broker` switch in your user config or in a project's
-`yolo-jail.jsonc` or `yolo-jail.local.jsonc`. To stop the broker, take `github` out of `packs`.
-An older yolo's per-project switch is ignored with a warning; `yolo loopholes disable
-github-broker` removes it.
+and the launch refuse a `github-broker` switch in your user config or in a project's config. To
+stop the broker, run `yolo pack remove github`. An older yolo's per-project switch is ignored with
+a warning; `yolo loopholes disable github-broker` removes it.
 
 If you answer `N` at the repository prompt, the launch stops and says the same: take the pack out
 of `packs`, or the next launch asks again.
@@ -70,7 +69,7 @@ of `packs`, or the next launch asks again.
 
 The broker only works on **this project's own GitHub repositories**: the `github.com` remotes in
 the project's `.git/config`, such as `origin` and `upstream`, and any repository the project's
-config lists, [below](#adding-a-repository-the-project-has-no-remote-for) — a specific one, or,
+config lists, [below](#adding-a-repository-the-project-has-no-remote-for), a specific one, or,
 with a wildcard, every repository it can reach. With no such entry it never reaches your other
 repositories, even though your login can.
 
@@ -91,8 +90,8 @@ Accept these repository scope changes? [y/N]
 
 Answer `y` to approve it. After that, yolo asks again only when the list changes, or where a
 repository comes from changes: a remote added, removed or renamed, or a repository added to the
-config. A change made while a jail is running is not reachable until the next fresh launch, and
-only once you approve it there.
+config. A change made while a jail is running reaches it through `yolo config apply`, and only
+once you approve it there.
 
 Without a terminal, such as in a script, the launch stops and prints the same list. Approve it for
 that launch with `--accept-config-changes`, or ahead of time on your machine with
@@ -100,40 +99,41 @@ that launch with `--accept-config-changes`, or ahead of time on your machine wit
 
 ### Adding a repository the project has no remote for
 
-A project sometimes needs another repository, such as a library it depends on. Run
-`yolo request github repos you/lib` in the project (add `--dry-run` to see the edit first). It adds the
-repository to the project's config, runs `yolo check`, and names the host step, `yolo config apply`.
-In a legacy JSONC project you can list it by hand, in `yolo-jail.jsonc`, or in
-`yolo-jail.local.jsonc` beside it for a repository the project should not commit:
+A project sometimes needs another repository, such as a library it depends on. Run this in the
+project (add `--dry-run` to see the edit first):
 
-```jsonc
-{
-  "brokered": {
-    "github": { "repos": ["you/lib"] }
-  }
-}
+```bash
+yolo request github repos you/lib
+```
+
+It writes `repos = ["you/lib"]` under `[requests.github]` in the project's `yolo-jail.toml`, runs
+`yolo check`, and names the host step, `yolo config apply`. For a repository the project should not
+commit, write it in `yolo-jail.local.toml` beside it instead:
+
+```bash
+yolo config add requests.github.repos '"you/lib"' --local
 ```
 
 The agent can add it too. When it asks for a repository outside the list, the refusal tells it
-to run `yolo request github repos <owner/repo>` and to ask you to run `yolo config apply` on the host. Nothing changes
-until you do: that command, or the next launch, shows the repository as a row of the prompt,
-naming the file it came from, and asks you to approve it. A running jail takes it at once, with no
-restart:
+to run `yolo request github repos <owner/repo>` and to ask you to run `yolo config apply` on your
+machine. Nothing changes until you do: that command, or the next launch, shows the repository as a
+row of the prompt, naming the file it came from, and asks you to approve it. A running jail takes
+it at once, with no restart:
 
 ```text
-github-broker repository scope, read from /home/you/code/app/.git/config and yolo-jail.jsonc:
+github-broker repository scope, read from /home/you/code/app/.git/config and yolo-jail.toml:
     you/app  remote "origin"   unchanged
-  + you/lib  yolo-jail.jsonc  added
+  + you/lib  yolo-jail.toml  added
 ```
 
 After `y`, that project can reach `you/lib` exactly as it reaches its own remotes, and the launch
 names the scope in one line:
 
 ```text
-github-broker: scope for this workspace: you/app (remote "origin"), you/lib (yolo-jail.jsonc)
+github-broker: scope for this workspace: you/app (remote "origin"), you/lib (yolo-jail.toml)
 ```
 
-No other project gets it. yolo does not git-ignore `yolo-jail.local.jsonc`, so check your
+No other project gets it. yolo does not git-ignore `yolo-jail.local.toml`, so check your
 `.gitignore` before keeping a private repository there. No entry allows a command across your
 whole account, such as a search with no `--repo`. `yolo config-ref` has the details.
 
@@ -143,12 +143,10 @@ When a project needs reach beyond a fixed list, list a wildcard instead. `*/*` i
 repository your login can reach, `you/*` is every repository under one owner, and `*/lib` is that
 repository name under any owner:
 
-```jsonc
-{
-  "brokered": {
-    "github": { "repos": ["*/*"] }
-  }
-}
+```toml
+# yolo-jail.toml, or yolo-jail.local.toml
+[requests.github]
+repos = ["*/*"]
 ```
 
 A wildcard is a whole segment between the slashes: `*/*`, `you/*` and `*/lib` are entries, and a
@@ -158,31 +156,30 @@ It is approved the same way, and the prompt says what you are approving rather t
 decode the token:
 
 ```text
-  + */*  yolo-jail.jsonc  added (every repository on github.com)
+  + */*  yolo-jail.toml  added (every repository on github.com)
 ```
 
-A wildcard widens which repositories the agent can reach, and nothing else. It stays read-only:
-a command that would change something still does not run. It also does not allow a command that
-acts across your whole account rather than on a repository, such as `gh search code` with no
-`--repo`, `gh repo list` or `gh status` — those are refused whatever the scope holds.
+A wildcard widens which repositories the agent can reach, and nothing else. Writes still need a
+grant or your approval, as everywhere. It also does not allow a command that acts across your
+whole account rather than on a repository, such as `gh search code` with no `--repo`,
+`gh repo list` or `gh status`: those are refused whatever the scope holds.
 
 The wildcard is a workspace entry like any other: the project's own config file, or the local one
-beside it, honored only from files inside the workspace, and taking effect at the next fresh
-launch once you approve it.
+beside it, honored only from files inside the workspace, and taking effect once you approve it.
 
 The old way, a `brokered.github.workspaces` entry in your user config keyed by the project's
 folder, is retired. A user config that still has one stops every launch, and the message names
-the entry to put in each project's `yolo-jail.local.jsonc` instead.
+the entry to put in each project's local config instead.
 
 ## What an agent can run
 
 | The agent runs | What happens |
 |---|---|
 | `gh pr view 32`, `gh issue list`, `gh run view --log`, `gh workflow list`, `gh repo view`, `gh release list`, `gh api repos/OWNER/REPO/...` and other reads | It runs with your login, and the output comes back as if it ran in the jail |
-| `gh pr create` or `gh issue create` under a `create-pr` or `create-issue` grant, and `gh pr comment 32`, `gh pr edit 32`, `gh pr review 32`, `gh issue close 32` and other writes to a PR or issue in the project's working set | It runs without asking. What the agent creates joins the working set, and a PR leaves it when it is merged. See [the working set](#the-working-set) |
-| `gh workflow run nightly.yml` under a `dispatch-workflow` grant naming that workflow, on the repository's default branch | It runs without asking. See [running a workflow](#running-a-workflow) |
-| `gh api -X POST repos/OWNER/REPO/actions/runs/<id>/approve` under an `approve-run` grant naming the run's triggering actor, for a run from the repository itself | It runs without asking. See [approving a held run](#approving-a-held-run) |
-| `gh pr merge`, and other in-scope writes nothing above covers | A request is filed and the broker waits briefly for host approval. Run `yolo approve <id>` on the host to allow that exact command once, or `yolo approve <id> --deny`; without a decision the command does not run and the agent can retry after approval |
+| `gh pr create` or `gh issue create` under a `create_pr` or `create_issue` grant, and `gh pr comment 32`, `gh pr edit 32`, `gh pr review 32`, `gh issue close 32` and other writes to a PR or issue in the project's working set | It runs without asking. What the agent creates joins the working set, and a PR leaves it when it is merged. See [the working set](#the-working-set) |
+| `gh workflow run nightly.yml` under a `dispatch_workflows` grant naming that workflow, on the repository's default branch | It runs without asking. See [running a workflow](#running-a-workflow) |
+| `gh api -X POST repos/OWNER/REPO/actions/runs/<id>/approve` under an `approve_runs` grant naming the run's triggering actor, for a run from the repository itself | It runs without asking. See [approving a held run](#approving-a-held-run) |
+| `gh pr merge`, and other in-scope writes nothing above covers | A request is filed and the command waits 30 seconds for your answer; unanswered, it is refused with the ways to allow it. `yolo approve <id>` on your machine allows that exact command once; the agent then runs it again. See [one action](approvals.md#one-action-yolo-approve) |
 | `gh auth status` | Says which of your GitHub accounts the broker uses and which repositories the jail can reach. It never shows the token or its scopes |
 | `gh auth token`, `--web`, `gh api` to a full URL, a command that would read or write a file on your machine | Never runs, whatever else is allowed. It exits with code 64 and says why |
 | A repository outside this project, or a command across your whole account, such as a search with no `--repo` | Never runs. It exits with code 64 and names the repositories it can reach, and, for a repository, [where to add it](#adding-a-repository-the-project-has-no-remote-for) |
@@ -191,13 +188,20 @@ the entry to put in each project's `yolo-jail.local.jsonc` instead.
 The repository is the one `-R OWNER/REPO` names, or else the project's `origin` remote. To send
 text on standard input, pass `-`, as in `--body-file -`.
 
-`yolo approve` is the host answer path, with or without a configured notification hook. Each GitHub
-Allow once binds the canonical argv, resolved repository and stdin digest; it is one use and expires
-after 15 minutes. `yolo approve <id> --add` instead adds the PR or issue the write targets to the
-project's working set, and `yolo approve <id> --for 15m` allows that kind of write on it (or, for
-a creation or a repository-level write, in its repository) for that long, at most 12 hours; a
-merge takes Allow once or `--for`, never `--add`. A write that names a PR by branch rather than
-number takes Allow once only. A legacy set-wide grant is not spent for a GitHub write.
+### Answering a write that asked
+
+A refused write names its request, and `yolo approve` on your machine lists it. Allow once,
+`yolo approve <id>`, is the exact command, its repository and its standard input, one use within
+15 minutes. Two answers give more: `yolo approve <id> --add` adds the PR or issue the write targets
+to the project's working set, and `yolo approve <id> --for 15m` allows that kind of write on it
+(or, for a creation or a repository-level write, in its repository) for that long, at most 12
+hours. A merge takes Allow once or `--for`, never `--add`. A write that names a PR by branch rather
+than number takes Allow once only. [Getting notified](approvals.md#getting-notified) says how to
+have a request pop up on your desktop.
+
+A standing `read-write` entry under `allow.github.sets` in your user config (a legacy permission
+set) is refused: the broker tells you to remove it, and every write then asks or runs under a
+grant as above. Standing reads are unaffected.
 
 ### The working set
 
@@ -205,29 +209,30 @@ The working set is the PRs and issues the agent may write to without asking. One
 agent creates it under a grant or an approval, or when you run `yolo approve <id> --add` on a
 request that writes to it. A PR leaves when it is merged (the broker checks before each write) or
 when you revoke its entry. To let the agent open PRs without asking in one project, allow the
-kind on request in your user config and request it in the project:
+capability on request in your user config and request it in the project:
 
 ```sh
-yolo allow github on_request create_pr   # on the host: your ceiling
+yolo allow github on_request create_pr   # on your machine: your ceiling
 yolo request github create_pr            # in the project (or the jail)
-yolo config apply                        # on the host, in the project: approve the grant
+yolo config apply                        # on your machine, in the project: approve the grant
 ```
 
-`yolo allow github always create_pr` gives every project the grant instead, with no request.
+The project's `yolo-jail.toml` then holds `create_pr = true` under `[requests.github]`;
+`create_issue` works the same way. `yolo allow github always create_pr` gives every project the
+grant instead, with no request, each project's next prompt still showing it once.
 
 `yolo approve` lists each project's working set as `w-<id>` entries; `yolo approve --revoke
-w-<id>` ends one. A merge always asks. If the host config makes `read-write` standing, the
-broker refuses writes and tells you to remove that entry; ordinary standing reads continue to work.
+w-<id>` ends one. A merge always asks.
 
 ### Running a workflow
 
-To let the agent start a workflow without asking, allow the kind and name the workflow file in
-the project:
+To let the agent start a workflow without asking, allow the capability and name the workflow file
+in the project:
 
 ```sh
-yolo allow github on_request dispatch_workflows          # on the host: your ceiling
+yolo allow github on_request dispatch_workflows          # on your machine: your ceiling
 yolo request github dispatch_workflows nightly.yml       # in the project (or the jail)
-yolo config apply                                        # on the host, in the project: approve it
+yolo config apply                                        # on your machine, in the project: approve it
 ```
 
 The project file then holds `dispatch_workflows = ["nightly.yml"]` under `[requests.github]`;
@@ -245,12 +250,12 @@ disabling workflows always ask.
 
 GitHub holds some workflow runs at `action_required` until someone approves them, such as the
 runs of a pull request a bot opened. To let the agent approve those without asking, allow the
-kind and name the GitHub login that triggers the runs in the project:
+capability and name the GitHub login that triggers the runs in the project:
 
 ```sh
-yolo allow github on_request approve_runs                       # on the host: your ceiling
+yolo allow github on_request approve_runs                       # on your machine: your ceiling
 yolo request github approve_runs 'github-actions[bot]'          # in the project (or the jail)
-yolo config apply                                               # on the host, in the project: approve it
+yolo config apply                                               # on your machine, in the project: approve it
 ```
 
 The project file then holds `approve_runs = ["github-actions[bot]"]` under `[requests.github]`;
@@ -267,6 +272,41 @@ For output formatting, `--jq` and `--template` work as they do in `gh`, and so d
 In the jail, `type gh` shows `~/.yolo/bin/block/gh`. That is the pack's forwarder, not a blocked
 tool. The jail's own copy of `gh` is still there, holding no login: run it with
 `YOLO_BYPASS_SHIMS=1 gh ...`.
+
+## Coming: finer write grants
+
+> [!NOTE]
+> **Planned, not yet available.** Nothing in this section works today; the design is in review
+> and some of it is still open. Today a write to a PR or issue the agent did not create, an
+> approval of a PR, and a merge each ask you, as the table above says.
+
+The next step is a grant per kind of write, in two tables of the project's `yolo-jail.toml`:
+`[requests.github.working_set]` for the PRs and issues the agent created or was handed, and
+`[requests.github.all]` for every other one in the repository. Each table takes the same keys,
+`comment_prs`, `comment_issues`, `edit_prs`, `edit_issues`, `approve_prs` and `merge_prs`, each
+`true` (runs without asking, once your ceiling allows it and you said `y`) or `"ask"` (asks here,
+whatever the ceiling says). Commenting on and editing what the agent created would be on by
+default. Beside them, opt-in grants for the repository itself: starting a workflow on other
+branches, approving a fork's held run, re-running and cancelling runs, drafting and publishing
+releases, labels, and project boards. The agent would ask for a PR or issue it did not create to
+join its working set with one request you answer with `yolo approve`, and `yolo approve --add`
+would go away in its favor.
+
+Still open, and ruled in the design document rather than here:
+
+- whether a project can say "never" for a kind of write, not just "ask"
+  ([OQ-GW8](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/design/github-write-scopes.md#9-open-questions));
+- what the agent types to ask for an item to join its working set
+  ([OQ-GW9](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/design/github-write-scopes.md#9-open-questions));
+- when an item leaves the working set: on merge or close, on an explicit removal, or after a time
+  ([OQ-GW10](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/design/github-write-scopes.md#9-open-questions));
+- and three recommendations awaiting the owner's confirmation: that a write on a working-set item
+  reads only the `working_set` table and any other write only `all`; that whatever `all` grants,
+  `working_set` must grant too, or the config is refused; and that `approve_prs` exists in both
+  tables ([GW-D57 to GW-D59](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/design/github-write-scopes.md#decision-ledger)).
+
+The whole design, with every example config and refusal message, is
+[Where the GitHub line is drawn](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/design/github-write-scopes.md).
 
 ## What it records
 
@@ -299,18 +339,22 @@ such as `\x1b`, so a command cannot change what your terminal shows.
 
 - **What a read returns.** An agent can read a private repository in the project's scope and send
   what it read elsewhere over its own network.
-- **`git push` and `git fetch`.** They do not go through the broker. They use whatever credential the
-  jail has, or none.
-- **A token you give the jail yourself**, such as a `GH_TOKEN` in `env_sources` or in a file in the
+- **`git push` and `git fetch`.** They are the [`git` pack's](git.md), with its own grants; without
+  it they use whatever credential the jail has, or none.
+- **A token you give the jail yourself**, such as a `GH_TOKEN` in an env file or in a file in the
   project. A `gh` that finds one uses it directly.
 - **Programs running as you on your machine.** The broker keeps the token out of the jail; it is not
   a guard against your own account.
 
 ## If something goes wrong
 
-- **`gh` exits 64** saying the workspace holds no read grant: add the read grant
-  [above](#turning-it-on) to your user config, then run `yolo config apply` on your machine, in
-  the project, and approve it.
+- **`gh` exits 64** saying the workspace holds no read grant: run `yolo allow github read` on your
+  machine, then `yolo config apply` in the project, and approve it.
+- **`gh` exits 75** naming a request id: the write needs your approval and did not run. Run
+  `yolo approve <id>` on your machine, or one of the other answers the message lists, and have the
+  agent run the command again ([Approving What the Agent Asks For](approvals.md#one-action-yolo-approve)).
+- **`gh` exits 77**: you denied the request, or your config refuses the write. The agent should
+  not run it again without asking you.
 - **`gh` exits 69** saying the jail has no github-broker endpoint: the broker did not start for
   this launch, or the jail was started before you selected the pack. Run `yolo check` on your
   machine, in the project, and start a fresh jail.

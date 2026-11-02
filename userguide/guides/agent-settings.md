@@ -22,8 +22,9 @@ For each file an agent reads, yolo stacks these sources, later ones winning:
    as with Claude's `/config`, yolo records the change when the jail stops and lays it back over
    the next render, so it is not lost when the file is written again.
 
-Your config itself comes in two files: your **user config**, `~/.config/yolo-jail/config.jsonc`,
-for personal defaults, and the project's `yolo-jail.jsonc` for what one project needs.
+Your config itself comes in two files: your **user config**, `~/.config/yolo-jail/config.toml`,
+for personal defaults, and the project's `yolo-jail.toml` for what one project needs (the legacy
+`.jsonc` spellings are still read).
 [Configuration](../reference/configuration.md) says which keys go where.
 
 ## What translates to which agent
