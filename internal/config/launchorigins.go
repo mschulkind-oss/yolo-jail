@@ -26,9 +26,14 @@ package config
 // (the user-scope files by path, the assembled copy's record only while its digest matches the
 // copy), and it changes what a message says and nothing a gate decides: an origin with a host
 // label still carries the copy's own file, so every reader that asks which file wrote a value
-// (gateread.go, brokered.go) gets the answer it got before. The jail can write some of those
-// paths, so a forged record can only mislabel a message, and every label is escaped on the way
-// in. It does show the jail the NAMES of host files that set its keys, includes among them,
+// (gateread.go, brokered.go) gets the answer it got before. The one thing besides words it
+// settles is the FORMAT a value was written in (srcOrigin.format, read off the label's
+// extension), which picks the schema the jail judges the value by — readable for a TOML host
+// writer, legacy otherwise — exactly as the host judged it; the copy's own format says nothing
+// about that, the assembled copy being JSON whatever wrote it. The jail can write some of those
+// paths, so a forged record can only mislabel a message or have the jail judge its own copy
+// by the other schema, which it could do by editing the copy, and every label is escaped on
+// the way in. It does show the jail the NAMES of host files that set its keys, includes among them,
 // never their contents.
 
 import (

@@ -699,7 +699,7 @@ func formatJudgedTOMLValue(values *jsonx.OrderedMap, src *Sources) string {
 	}
 	fromTOML := func(n *srcNode) bool {
 		origins := n.origins()
-		return len(origins) > 0 && origins[0].file != nil && origins[0].file.format == configdoc.TOML
+		return len(origins) > 0 && origins[0].format() == configdoc.TOML
 	}
 	named := func(path string) string {
 		if locations := src.Locations(path); len(locations) > 0 {

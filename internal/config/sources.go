@@ -128,6 +128,21 @@ type srcOrigin struct {
 	host          string
 }
 
+// format is the format the value was WRITTEN in, which decides whether a reader judges it by the
+// readable schema or the legacy one (writtenInTOML, packEntryIsReadable). For an origin in a launch
+// copy that is its host writer's, named by the label, not the copy's: the assembled copy is JSON
+// whatever wrote its values, and a jail judging a TOML-written provider `model` by it refused what
+// the host accepted. 0 when nothing wrote the value.
+func (o srcOrigin) format() configdoc.Format {
+	if o.host != "" {
+		return configFormatOf(o.host)
+	}
+	if o.file == nil {
+		return 0
+	}
+	return o.file.format
+}
+
 // srcNode mirrors one value of a composed config. Nodes are never modified once built: a merge
 // builds new nodes and shares the subtrees it does not change, as MergeConfig shares values.
 type srcNode struct {
@@ -446,7 +461,7 @@ func (s *Sources) writtenInTOML(keys ...string) bool {
 		return false
 	}
 	origins := n.origins()
-	return len(origins) > 0 && origins[0].file != nil && origins[0].file.format == configdoc.TOML
+	return len(origins) > 0 && origins[0].format() == configdoc.TOML
 }
 
 // longestKeyAt is the longest recorded key rest starts with that ends where a path step

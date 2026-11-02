@@ -110,7 +110,7 @@ func packEntryIsReadable(sources *Sources, item string) bool {
 	if len(origins) == 0 || origins[0].file == nil {
 		return true
 	}
-	return origins[0].file.format == configdoc.TOML
+	return origins[0].format() == configdoc.TOML
 }
 
 // readableLocalPackRoot is the named local source. It intentionally differs from

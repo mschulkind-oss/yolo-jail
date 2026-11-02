@@ -45,10 +45,20 @@ func (input ConfigReadInput) clone() *ConfigReadInput {
 	}
 }
 
+// configFormatOf is the format a config file at path is read in, by its extension: the one rule
+// loadConfigFile dispatches on, and so also the format of a host file a launch copy names by its
+// label (srcOrigin.format), which carries the same extension.
+func configFormatOf(path string) configdoc.Format {
+	if strings.EqualFold(filepath.Ext(path), ".toml") {
+		return configdoc.TOML
+	}
+	return configdoc.JSONC
+}
+
 // loadConfigFile dispatches by the selected filename. Legacy JSONC/JSON reads stay on their
 // existing decoder and error path; TOML goes through the shared positioned document contract.
 func loadConfigFile(path, label string, strict bool, warn Warn, record bool, scope SchemaScope, at readAt) (*jsonx.OrderedMap, *srcFile, *srcNode, error) {
-	if strings.EqualFold(filepath.Ext(path), ".toml") {
+	if configFormatOf(path) == configdoc.TOML {
 		return loadTOMLConfigFile(path, label, strict, warn, record, scope, at)
 	}
 	return loadJSONCFile(path, label, strict, warn, record, at)

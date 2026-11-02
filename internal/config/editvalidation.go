@@ -83,11 +83,7 @@ func (w *editReadWitness) observeSeenPath(path string, input *ConfigReadInput, r
 	if err != nil || !os.SameFile(opened, target) {
 		return
 	}
-	format := configdoc.JSONC
-	if strings.EqualFold(filepath.Ext(path), ".toml") {
-		format = configdoc.TOML
-	}
-	w.record(role, format)
+	w.record(role, configFormatOf(path))
 }
 
 func currentEditWitness(input *ConfigReadInput) *editReadWitness {
