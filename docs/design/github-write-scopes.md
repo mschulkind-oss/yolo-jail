@@ -3,7 +3,7 @@ title: "Where the GitHub line is drawn: which writes run unasked, per user and p
 date: 2026-10-30
 status: in-review
 stage: DESIGN
-next: "Owner confirms the pick-one-set rule, the invariant and the working-set approve cell (GW-D57 to GW-D59; OQ-GW7, OQ-GW11, OQ-GW12 recommended closed); then rules OQ-GW8 to OQ-GW10"
+next: "Owner confirms the pick-one-set rule, the invariant and the working-set approve cell (GW-D57 to GW-D59; OQ-GW7, OQ-GW11, OQ-GW12 recommended closed); then the plan is built from it"
 depends-on:
   - boundary-broker.md
 tags: [design, github, gh, broker, grants, approvals, config, toml]
@@ -22,15 +22,15 @@ Where that line sits is four small tables: two files, two sets of items.
 
 **The cells**, the same six in each table: `comment_prs`, `comment_issues`, `edit_prs`, `edit_issues`,
 `approve_prs`, `merge_prs`. A cell is `true` (runs unasked, once the ceiling allows it and a human
-said `y`), `"ask"` (asks here, nobody's `y` needed), or absent (the user's `always` list decides,
-else it asks).
+said `y`), `"ask"` (asks here, nobody's `y` needed), `false` (refused here, no request filed), or
+absent (the user's `always` list decides, else it asks).
 
 **The rule.** A write on an item in the working set reads the `working_set` table and nothing else.
 A write on any other item reads `all` and nothing else.
 
 **The invariant.** Whatever `all` grants, `working_set` grants too: `all.X = true` without
 `working_set.X = true` is a config error, because an agent that may merge everyone's PRs but not its
-own is a mistake. `"ask"` is not a grant, so it never trips it.
+own is a mistake. `"ask"` and `false` are not grants, so `all.X` set to either never trips it.
 
 ```toml
 [allow.github]                      # user config, host: the ceiling
@@ -95,11 +95,14 @@ the local file merges after the project file, last value per cell wins ([GW-D7](
 | :--- | :--- | :--- |
 | `true` | the cell runs unasked here | a covering ceiling token and a human's `y` at the config-change gate; outside the ceiling it is reported at load and counts as absent, never an error |
 | `"ask"` | the cell asks here, whatever the ceiling says | nobody's `y`; removing it is a widening and shows at the gate |
+| `false` | the cell is refused here, whatever the ceiling or `always` says, with no request filed; the refusal names the line to remove ([OQ-GW8](#decision-ledger)) | nobody's `y`; removing it is a widening and shows at the gate |
 | absent | the user's `always` decides; else it asks | — |
 
 **Where the invariant is checked** ([GW-D58](#GW-D58)): at config load, so `yolo check`, a launch and
 `yolo config apply` all refuse the same file, on the workspace's two tables after the project and local
-files merge, shipped defaults in. The ceiling needs no check: an `all.X` token covers `working_set.X`.
+files merge, shipped defaults in. The values order `true`, then `"ask"`, then `false`: `working_set.X`
+set to `"ask"` or `false` under `all.X = true` is the error. The ceiling needs no check: an `all.X`
+token covers `working_set.X`.
 For a grant, `all` therefore means all. For `"ask"` it means the rest: `all.merge_prs = "ask"` leaves
 working-set merges to `working_set.merge_prs`, and "every merge asks" is both lines ([§6](#6-what-people-write)).
 
@@ -111,12 +114,15 @@ The verbs: `yolo allow github [on_request] <path>` writes the ceiling, on the ho
 
 The **working set** is the PRs and issues the agent created through the broker under a `create_pr`
 or `create_issue` grant, plus the ones a human handed it. The two are one population, treated the same
-by every cell ([GW-D39](#GW-D39)). A PR leaves when it merges; close and `remove` are [OQ-GW10](#OQ-GW10).
+by every cell ([GW-D39](#GW-D39)). An item leaves when it merges or closes, or on
+`yolo github working-set remove 70`; nothing expires, since a created item has no expiry and a
+handed-over one is the same population ([OQ-GW10](#decision-ledger)). A reopened item is outside
+the set: its next write asks once, and the agent may ask for it again.
 
 **Hand-over.** The **hand-over request** *(coined here)* is the agent asking, by number, for an item to
-join the set: `yolo request github working-set 70` (spelling: [OQ-GW9](#OQ-GW9)). It is a broker
-request, not a config write, so no `yolo config apply`; the human answers `yolo approve r-<id>` or
-`--deny`. The approval line is computed from the project's `working_set` cells, so the human reads
+join the set: `yolo request github working-set 70` ([OQ-GW9](#decision-ledger)), so the agent's side
+of every grant is a `yolo request`. It is a broker request, not a config write, so no
+`yolo config apply`; the human answers `yolo approve r-<id>` or `--deny`. The approval line is computed from the project's `working_set` cells, so the human reads
 exactly what #70 gets here, `merge` and `approve` included when the project holds them
 ([GW-D47](#GW-D47), [OQ-GW12](#decision-ledger)):
 
@@ -146,8 +152,8 @@ scope, the read floor):
 1. **Classify.** The argv gives the verb; one state read gives PR or issue and whether N is open. Together
    they name the cell C. Unreadable, or on no row: asks as a repository write.
 2. **Pick the table.** N in the working set: `working_set`. Otherwise: `all`. Call it T.
-3. **Read T.C in the ask** (local over project, shipped defaults in). `"ask"`: asks. `true`: runs, since
-   it passed the ceiling and the gate at load. Absent: step 4.
+3. **Read T.C in the ask** (local over project, shipped defaults in). `false`: refused, no request
+   filed. `"ask"`: asks. `true`: runs, since it passed the ceiling and the gate at load. Absent: step 4.
 4. **Read the ceiling's `always`.** A token covering T.C: runs. Otherwise: asks.
 5. **A run** is audited with the cell's path and, for a working-set item, the entry's id ([GW-D13](#GW-D13)).
 6. **An ask** files a request naming the cell, the item and the commands ([§5](#5-every-stop-names-its-next-step)); a
@@ -166,6 +172,7 @@ The last column is that line.
 | A cell not held, on a working-set item | `github-broker: approving PR o/r#32 asks here: working_set.approve_prs is not granted (r-7k2m). Once: yolo approve r-7k2m, or --for 15m. To grant it, on the host:` | `yolo allow github on_request working_set.approve_prs`, then here `yolo request github working_set.approve_prs` |
 | An item outside the working set | `comment on issue #70 (opened by kurt): not in this workspace's working set, and all.comment_issues is not granted (r-8f2). Once: yolo approve r-8f2. To add it:` | `yolo request github working-set 70` |
 | A cell set to `"ask"` | `… asks here: yolo-jail.toml sets requests.github.working_set.comment_prs = "ask" (r-7k2m). Once: yolo approve r-7k2m. To lift the line:` | `yolo config unset requests.github.working_set.comment_prs --project` |
+| A cell set to `false` | `approving PR o/r#32 is refused here: yolo-jail.toml sets requests.github.all.approve_prs = false. To allow asking:` | `yolo config unset requests.github.all.approve_prs --project` |
 | `yolo check`: a `true` outside the ceiling | `yolo-jail.toml:4: this project requests all.approve_prs; your config does not allow it on request, so this project runs without it. To allow it:` | `yolo allow github on_request all.approve_prs` |
 | `yolo check`: a naked verb | `requests.github.approve: there is no approve on its own. To approve any PR:` | `yolo request github all.approve_prs` |
 | `yolo check`: `read = "ask"` | `requests.github.read: reads never ask. To keep your jails off GitHub:` | `yolo pack remove github` |
@@ -202,7 +209,8 @@ approve_prs = true
 
 # 4. Merge mine, ask for others'. With all.merge_prs = true instead, the agent merges every PR,
 #    its own included; with working_set.merge_prs = "ask" too, every merge asks, for everyone who
-#    clones the project, nobody's y needed. all = true beside working_set = "ask" is the error of §5.
+#    clones the project, nobody's y needed; with false, no merge ever runs here. all = true beside
+#    working_set = "ask" or false is the error of §5.
 [requests.github.working_set]     # yolo request github working_set.merge_prs
 merge_prs = true
 [requests.github.all]             # yolo request github all.merge_prs --ask
@@ -247,59 +255,6 @@ Not covered here: git's working set, whose line is the branch
 the refused commands ([BB-P8](boundary-broker.md#BB-P8)), which no cell or grant widens; a line per PR
 number, which `yolo approve` draws in the store.
 
-## 9. Open Questions
-
-1. 💬 **OQ-GW8: Should a project be able to say "never" for a cell?**
-
-   Sam's repository must never see the agent approve a PR, not even after a human answers a request.
-   `all.approve_prs = "ask"` still lets Sam say yes to one; nothing says "refuse it".
-
-   - **A — Add `false`.** `all.approve_prs = false` refuses every approval here, whatever the ceiling,
-     with no request filed; the refusal names the line to remove. The invariant orders it below
-     `"ask"`: `all.X = true` with `working_set.X = false` is the same error.
-   - **B — No `false`.** `"ask"` is the strongest line; a human who never wants it answers `--deny`.
-
-   <!-- vantage: question id=OQ-GW8 leaning="Add false, as a refusal that beats the ceiling: it is one more value, and it is the only way to say never." -->
-
-   _Leaning:_ Add false, as a refusal that beats the ceiling: it is one more value, and it is the only way to say never.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 **OQ-GW9: What command does the agent run to ask for an item?**
-
-   The agent wants Kurt's issue #70 in the working set. One command files a request the human
-   answers with `yolo approve`.
-
-   - **A — `yolo request github working-set 70`**, beside the commands that request grants, so the
-     agent's side of every ask starts `yolo request`. Unlike them it writes no config.
-   - **B — `yolo github working-set add 70`**, beside the list and `remove 70`, so every working-set
-     command is in one place.
-
-   <!-- vantage: question id=OQ-GW9 leaning="yolo request github working-set 70: the agent's side of every grant is filing a request, and the host's is yolo approve." -->
-
-   _Leaning:_ yolo request github working-set 70: the agent's side of every grant is filing a request, and the host's is yolo approve.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-3. 💬 **OQ-GW10: When does an item leave the working set?**
-
-   The agent closed issue #70, which Kurt handed over; a week later Kurt reopens it and the agent
-   comments. Today only a merge takes an item out.
-
-   - **A — On merge or close, or an explicit `remove`.** The comment on the reopened #70 asks once, and
-     the agent can ask for it again. Finished work leaves the set.
-   - **B — On merge or `remove` only.** The comment runs; the set grows with every closed issue.
-   - **C — An expiry** (say 30 days). Created items would expire too, since the two are one population.
-
-   <!-- vantage: question id=OQ-GW10 leaning="A: on merge or close, or an explicit remove; no expiry, since a created item has none and a handed-over one is the same thing." -->
-
-   _Leaning:_ A: on merge or close, or an explicit remove; no expiry, since a created item has none and a handed-over one is the same thing.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
 ## Decision Ledger
 
 | ID | Ruling / Decision | Date | Settled in | Built |
@@ -326,7 +281,7 @@ number, which `yolo approve` draws in the store.
 | <a id="GW-D38"></a>GW-D38 | **Owner's ruling (R2):** no key implies or changes another. Owner: *"setting issues to ask shouldn't rely on you knowing the default and maintaining for other bits that are implied."* The invariant ([GW-D58](#GW-D58)) refuses a file rather than implying the missing line, to keep R2 | 2026-11-02 | [§2](#2-the-ceiling-and-the-ask) | — |
 | <a id="GW-D39"></a>GW-D39 | **Owner's ruling (R3):** items the agent created and items handed to it by an approved request are one population, treated identically by every cell. Owner: *"1 and 2 should be handled identically. otherwise we have 3 types of things, no?"* | 2026-11-02 | [§3](#3-the-working-set) | — |
 | <a id="GW-D40"></a>GW-D40 | **Owner's rulings:** no naked verb and no `_own`/`_any` asymmetry; `comment`, `edit`, `approve`, `merge` alone, `*_any`, `*_own` and `merge = true` are `yolo check` errors naming the cell, with no migration. Owner: *"I don't even understand what the naked approve and comment would even be. So I think that says we should remove them."*; *"I don't like that asymmetry."* | 2026-11-02 | [§1](#1-the-cells) | — |
-| <a id="GW-D41"></a>GW-D41 | Six cells, verb plus suffix: `comment_prs`, `comment_issues`, `edit_prs`, `edit_issues`, `approve_prs`, `merge_prs`, classed by argv and the item's own PR-or-issue state; each takes `true` or `"ask"` or is absent; approve and merge have no `_issues` cell; no cell implies another. Amended by [GW-D59](#GW-D59): `approve_prs` sits in both tables | 2026-11-02 | [§1](#1-the-cells) | — |
+| <a id="GW-D41"></a>GW-D41 | Six cells, verb plus suffix: `comment_prs`, `comment_issues`, `edit_prs`, `edit_issues`, `approve_prs`, `merge_prs`, classed by argv and the item's own PR-or-issue state; each takes `true`, `"ask"` or `false` ([OQ-GW8](#OQ-GW8)) or is absent; approve and merge have no `_issues` cell; no cell implies another. Amended by [GW-D59](#GW-D59): `approve_prs` sits in both tables | 2026-11-02 | [§1](#1-the-cells) | — |
 | <a id="GW-D42"></a>GW-D42 | The working set's `comment_prs`, `comment_issues`, `edit_prs` and `edit_issues` ship `true` as present cells, reported `shipped default`, needing no ceiling token since every member entered under a ceiling-allowed creation or a human-approved hand-over; `approve_prs` and `merge_prs` ship absent and `all` ships empty. Carries [OQ-GW3](#decision-ledger) | 2026-11-02 | [§3](#3-the-working-set) | — |
 | <a id="GW-D43"></a>GW-D43 | **Superseded by [GW-D59](#GW-D59).** There was no `working_set.approve_prs`, on the ground that one key would mean two behaviors (GitHub refuses the agent's own; a handed-over one is a verdict on another's work) | 2026-11-02 | [§1](#1-the-cells) | — |
 | <a id="GW-D44"></a>GW-D44 | A ceiling token is a cell's config path (`"all.merge_prs"`), or a table alone for every cell in it (`"working_set"`, `"all"`); `all.X` covers `working_set.X`, which [GW-D58](#GW-D58) requires; `yolo allow github [on_request] <path>` writes it | 2026-11-02 | [§2](#2-the-ceiling-and-the-ask) | — |
@@ -348,3 +303,6 @@ number, which `yolo approve` draws in the store.
 | <a id="OQ-GW7"></a>[OQ-GW7](#OQ-GW7) | **Recommended B, strict, plus the invariant (pending the owner's confirmation):** `all` is every item not in the working set, as the owner phrased it, and [GW-D58](#GW-D58) carries every `all` grant into the set, so for grants `all` still means all; for `"ask"` it means the rest, and "every merge asks" is two lines. The earlier leaning, overlay, is dropped: a fallback per cell is a second rule to hold | 2026-11-02 | [§4](#4-how-one-call-resolves) | — |
 | <a id="OQ-GW11"></a>[OQ-GW11](#OQ-GW11) | **Recommended closed as moot (pending the owner's confirmation):** under [GW-D57](#GW-D57) `all.approve_prs` never reaches a working-set PR; `working_set.approve_prs` ([GW-D59](#GW-D59)) does, and the hand-over approval line says so before the `y` | 2026-11-02 | [§3](#3-the-working-set) | — |
 | <a id="OQ-GW12"></a>[OQ-GW12](#OQ-GW12) | **Recommended A (pending the owner's confirmation):** a handed-over PR merges when the project holds `working_set.merge_prs = true`; the two populations are one by [GW-D39](#GW-D39), and the approval line puts `merge` in front of the human before the `y`; `--deny` or `working_set.merge_prs = "ask"` are the ways out | 2026-11-02 | [§3](#3-the-working-set) | — |
+| <a id="OQ-GW8"></a>[OQ-GW8](#OQ-GW8) | **Ruled A:** a cell may be `false`, a refusal that beats the ceiling and `always`, filing no request and naming the line to remove; it orders below `"ask"`, so `all.X = true` with `working_set.X = false` breaks the invariant. Owner: *"Add false, as a refusal that beats the ceiling: it is one more value, and it is the only way to say never."* | 2026-11-02 | [§2](#2-the-ceiling-and-the-ask) | no |
+| <a id="OQ-GW9"></a>[OQ-GW9](#OQ-GW9) | **Ruled A:** the hand-over request is `yolo request github working-set <n>`. Owner: *"yolo request github working-set 70: the agent's side of every grant is filing a request, and the host's is yolo approve."* | 2026-11-02 | [§3](#3-the-working-set) | no |
+| <a id="OQ-GW10"></a>[OQ-GW10](#OQ-GW10) | **Ruled A:** an item leaves the working set on merge or close, or on `yolo github working-set remove <n>`; nothing expires; a reopened item asks once and may be requested again. Owner: *"A: on merge or close, or an explicit remove; no expiry, since a created item has none and a handed-over one is the same thing."* | 2026-11-02 | [§3](#3-the-working-set) | no |

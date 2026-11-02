@@ -277,33 +277,29 @@ tool. The jail's own copy of `gh` is still there, holding no login: run it with
 
 > [!NOTE]
 > **Planned, not yet available.** Nothing in this section works today; the design is in review
-> and some of it is still open. Today a write to a PR or issue the agent did not create, an
+> and some of it awaits the owner's confirmation. Today a write to a PR or issue the agent did not create, an
 > approval of a PR, and a merge each ask you, as the table above says.
 
 The next step is a grant per kind of write, in two tables of the project's `yolo-jail.toml`:
 `[requests.github.working_set]` for the PRs and issues the agent created or was handed, and
 `[requests.github.all]` for every other one in the repository. Each table takes the same keys,
 `comment_prs`, `comment_issues`, `edit_prs`, `edit_issues`, `approve_prs` and `merge_prs`, each
-`true` (runs without asking, once your ceiling allows it and you said `y`) or `"ask"` (asks here,
-whatever the ceiling says). Commenting on and editing what the agent created would be on by
-default. Beside them, opt-in grants for the repository itself: starting a workflow on other
+`true` (runs without asking, once your ceiling allows it and you said `y`), `"ask"` (asks here,
+whatever the ceiling says) or `false` (refused here, with nothing to approve). Commenting on and
+editing what the agent created would be on by default. Beside them, opt-in grants for the repository itself: starting a workflow on other
 branches, approving a fork's held run, re-running and cancelling runs, drafting and publishing
 releases, labels, and project boards. The agent would ask for a PR or issue it did not create to
 join its working set with one request you answer with `yolo approve`, and `yolo approve --add`
 would go away in its favor.
 
-Still open, and ruled in the design document rather than here:
-
-- whether a project can say "never" for a kind of write, not just "ask"
-  ([OQ-GW8](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/design/github-write-scopes.md#9-open-questions));
-- what the agent types to ask for an item to join its working set
-  ([OQ-GW9](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/design/github-write-scopes.md#9-open-questions));
-- when an item leaves the working set: on merge or close, on an explicit removal, or after a time
-  ([OQ-GW10](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/design/github-write-scopes.md#9-open-questions));
-- and three recommendations awaiting the owner's confirmation: that a write on a working-set item
-  reads only the `working_set` table and any other write only `all`; that whatever `all` grants,
-  `working_set` must grant too, or the config is refused; and that `approve_prs` exists in both
-  tables ([GW-D57 to GW-D59](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/design/github-write-scopes.md#decision-ledger)).
+The agent would ask with `yolo request github working-set <number>`, and an item would leave the
+working set when it is merged or closed, or when you remove it; nothing expires. These are decided
+but not built
+([OQ-GW8 to OQ-GW10](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/design/github-write-scopes.md#decision-ledger)).
+Three recommendations still await the owner's confirmation: that a write on a working-set item
+reads only the `working_set` table and any other write only `all`; that whatever `all` grants,
+`working_set` must grant too, or the config is refused; and that `approve_prs` exists in both
+tables ([GW-D57 to GW-D59](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/design/github-write-scopes.md#decision-ledger)).
 
 The whole design, with every example config and refusal message, is
 [Where the GitHub line is drawn](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/design/github-write-scopes.md).
