@@ -27,10 +27,25 @@ type ReadableBrokerDeclaration struct {
 	Settings            []loopholedecl.Setting
 }
 
-// ReadablePackDeclaration carries typed settings for a selected or unselected pack.
+// ReadablePackDeclaration carries typed settings for a selected or unselected pack, and, for a
+// loophole that declares `[[grants]]`, its grant kinds: that pack's `allow.<pack>.always` and
+// `.on_request` are then its ceiling and its `requests.<pack>.<kind>` its requests
+// (loopholegrants.go), while every other key stays a setting.
 type ReadablePackDeclaration struct {
 	Pack     string
 	Settings []loopholedecl.Setting
+	Loophole string
+	Access   string
+	Grants   []loopholedecl.Grant
+}
+
+// clone is a detached copy: the settings' defaults and the grants are copied, not shared.
+func (d ReadablePackDeclaration) clone() ReadablePackDeclaration {
+	d.Settings = cloneReadableSettingDecls(d.Settings)
+	if d.Grants != nil {
+		d.Grants = append([]loopholedecl.Grant(nil), d.Grants...)
+	}
+	return d
 }
 
 // ReadableAllowanceInput is decoded canonical input plus the selected declarations and
@@ -75,7 +90,10 @@ type ReadableAllowancePlan struct {
 	Requests           []ReadableRequestResult
 	PackSettings       map[string]map[string]any
 	PackSettingOrigins map[string]map[string][]string
-	Diagnostics        []string
+	// LoopholeGrants is each selected grant-declaring loophole's ceiling, request and standing
+	// before the record (ResolveLoopholeGrants).
+	LoopholeGrants LoopholeGrantPlan
+	Diagnostics    []string
 }
 
 // ReadableBrokerPolicy retains ceiling lists separately; neither list itself is a grant.
@@ -184,6 +202,7 @@ func ResolveReadableAllowance(input ReadableAllowanceInput) (ReadableAllowancePl
 		return ReadableAllowancePlan{}, err
 	}
 	selected := readableSet(input.SelectedPacks)
+	grantPacks, selectedGrants := loopholeGrantDeclarationsOf(input.PackSettings, selected)
 	plan := ReadableAllowancePlan{PackSettings: map[string]map[string]any{}, PackSettingOrigins: map[string]map[string][]string{}}
 	seenSources := map[string]bool{}
 	for _, declaration := range input.Declarations {
@@ -289,7 +308,15 @@ func ResolveReadableAllowance(input ReadableAllowanceInput) (ReadableAllowancePl
 		if !found {
 			return plan, fmt.Errorf("allow.%s names no declared broker source or pack; declared names: %s", name, strings.Join(readableDeclaredNames(settings, brokers), ", "))
 		}
+		_, grantPack := grantPacks[name]
 		for _, key := range table.Keys() {
+			if grantPack && (key == string(LoopholeCeilingAlways) || key == string(LoopholeCeilingOnRequest)) {
+				// The pack's grant ceiling, read by ResolveLoopholeGrants below.
+				if _, found, _ := readableSettingByKey(declaredSettings, key); found {
+					return plan, fmt.Errorf("allow.%s.%s ambiguously names both the grant ceiling and a pack setting", name, key)
+				}
+				continue
+			}
 			setting, found, ambiguous := readableSettingByKey(declaredSettings, key)
 			if ambiguous {
 				return plan, fmt.Errorf("allow.%s.%s has ambiguous setting declarations for pack %q", name, key, name)
@@ -361,10 +388,24 @@ func ResolveReadableAllowance(input ReadableAllowanceInput) (ReadableAllowancePl
 			if !exists {
 				return plan, fmt.Errorf("requests.%s names no declared broker source or pack; declared names: %s", name, strings.Join(readableDeclaredNames(settings, brokers), ", "))
 			}
+			grants, grantPack := grantPacks[name]
 			for _, key := range table.Keys() {
+				if grantPack {
+					if _, kind := loopholeGrantByKind(grants.Grants, key); kind {
+						// A grant kind, read by ResolveLoopholeGrants below.
+						if _, found, _ := readableSettingByKey(declaredSettings, key); found {
+							return plan, fmt.Errorf("requests.%s.%s ambiguously names both a grant kind and a pack setting", name, key)
+						}
+						continue
+					}
+				}
 				setting, found, ambiguous := readableSettingByKey(declaredSettings, key)
 				if ambiguous {
 					return plan, fmt.Errorf("requests.%s.%s has ambiguous setting declarations for pack %q", name, key, name)
+				}
+				if !found && grantPack {
+					return plan, fmt.Errorf("requests.%s.%s is not declared; declared grant kinds are %s and pack settings are %s", name, key,
+						strings.Join(loopholeGrantKinds(grants.Grants), ", "), strings.Join(readableSettingNames(declaredSettings), ", "))
 				}
 				if !found {
 					return plan, fmt.Errorf("requests.%s.%s is not declared; declared pack settings are %s", name, key, strings.Join(readableSettingNames(declaredSettings), ", "))
@@ -481,6 +522,11 @@ func ResolveReadableAllowance(input ReadableAllowanceInput) (ReadableAllowancePl
 				plan.Sources[i] = policy
 			}
 		}
+	}
+	plan.LoopholeGrants, err = ResolveLoopholeGrants(LoopholeGrantInput{User: input.User, Workspace: input.Workspace,
+		Declarations: selectedGrants, UserOrigins: input.UserOrigins, WorkspaceOrigins: input.WorkspaceOrigins})
+	if err != nil {
+		return plan, err
 	}
 	return plan, nil
 }

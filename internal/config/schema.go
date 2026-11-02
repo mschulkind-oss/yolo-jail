@@ -222,6 +222,10 @@ func ReadableSchemaKeys() []SchemaKey {
 		{Path: "requests.git.push_tags.*", Scope: workspace, Type: SchemaTypeString},
 		{Path: "requests.*.repos", Scope: workspace, Type: SchemaTypeList},
 		{Path: "requests.*.repos.*", Scope: workspace, Type: SchemaTypeString},
+		// A pack's request for a grant kind (`<kind> = true`, or `<kind> = [values]` for a valued
+		// one) or a workspace-scope setting: typed by the selected pack's declarations
+		// (ResolveReadableAllowance, ResolveLoopholeGrants), as `allow.*.*` is.
+		{Path: "requests.*.*", Scope: workspace, Type: SchemaTypeAny},
 		{Path: "requests.github.repos", Scope: workspace, Type: SchemaTypeList},
 		{Path: "requests.github.repos.*", Scope: workspace, Type: SchemaTypeString},
 		{Path: "requests.github.create_pr", Scope: workspace, Type: SchemaTypeBoolean},

@@ -95,7 +95,7 @@ func readableScopeCheckWithSettings(workspace string, brokers []ScopeBroker, rea
 	}
 	detachedSettings := make([]ReadablePackDeclaration, len(selectedSettings))
 	for i, pack := range selectedSettings {
-		detachedSettings[i] = ReadablePackDeclaration{Pack: pack.Pack, Settings: cloneReadableSettingDecls(pack.Settings)}
+		detachedSettings[i] = pack.clone()
 	}
 	userOrigins := readableUserOrigins(user, userSources)
 	if !userHasAllow {

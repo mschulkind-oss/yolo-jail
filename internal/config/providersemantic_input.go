@@ -226,7 +226,7 @@ func cloneReadablePackDeclarations(source []ReadablePackDeclaration) []ReadableP
 	}
 	cloned := make([]ReadablePackDeclaration, len(source))
 	for i, declaration := range source {
-		cloned[i] = ReadablePackDeclaration{Pack: declaration.Pack, Settings: cloneReadableSettingDecls(declaration.Settings)}
+		cloned[i] = declaration.clone()
 	}
 	return cloned
 }

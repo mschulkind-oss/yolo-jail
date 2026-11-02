@@ -104,6 +104,7 @@ func validateConfigWithEditContext(config *jsonx.OrderedMap, workspace string, r
 	validateLoopholes(config, workspace, resolver, errs, warns, edit)
 	validateBrokerMountFence(config, workspace, resolver, errs, warns, edit)
 	validateBrokered(config, workspace, resolver, errs, warns, edit)
+	validateLoopholeGrants(config, workspace, errs, warns, edit)
 	validateWorkspaceFile(workspace, errs, warns)
 	validateJournalRetired(config, errs, warns)
 	validateKVM(config, errs)

@@ -35,7 +35,8 @@ func ReadableDeclarationsForPacks(packs []*packload.Pack) ([]ReadableBrokerDecla
 				return nil, nil, fmt.Errorf("pack %s loophole %s has no loaded declaration", pack.Name, module.Name)
 			}
 			moduleSettings := cloneReadableSettingDecls(module.Decl.Settings)
-			settings = append(settings, ReadablePackDeclaration{Pack: pack.Name, Settings: moduleSettings})
+			settings = append(settings, ReadablePackDeclaration{Pack: pack.Name, Settings: moduleSettings,
+				Loophole: module.Name, Access: module.Decl.Access, Grants: append([]loopholedecl.Grant(nil), module.Decl.Grants...)})
 			if module.Decl.Brokered != nil {
 				brokers = append(brokers, readableBrokerDeclaration(pack.Name, module.Name, *module.Decl.Brokered, moduleSettings))
 			}
