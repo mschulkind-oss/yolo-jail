@@ -38,7 +38,7 @@ func TestServeReleasesSocketPathOnReturn(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
-			if err := serveUnixConns(sock, stop, func(c net.Conn) { handleConn(c, "user") }); err != nil {
+			if err := serveUnixConns(sock, stop, func(c net.Conn) { handleConn(c, Policy{Mode: ModeUser}) }); err != nil {
 				t.Errorf("iter %d: serveUnixConns: %v", i, err)
 			}
 		}()

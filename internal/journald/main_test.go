@@ -250,7 +250,7 @@ func startServe(t *testing.T, sock, mode string) (chan struct{}, chan struct{}) 
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		if err := serveUnixConns(sock, stop, func(c net.Conn) { handleConn(c, mode) }); err != nil {
+		if err := serveUnixConns(sock, stop, func(c net.Conn) { handleConn(c, Policy{Mode: mode}) }); err != nil {
 			t.Errorf("serveUnixConns: %v", err)
 		}
 	}()

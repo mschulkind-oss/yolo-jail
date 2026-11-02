@@ -121,7 +121,7 @@ func TestMacosLogMainWiresTheRealOwnerAndAccount(t *testing.T) {
 	saved := lookupSandboxUID
 	t.Cleanup(func() { lookupSandboxUID = saved })
 	lookupSandboxUID = func() (uint32, error) { return 777, nil }
-	cfg := macosLogMainConfig(ModeFull)
+	cfg := macosLogMainConfig(Policy{Mode: ModeFull})
 	if cfg.Bin != "/usr/bin/log" || cfg.Mode != ModeFull || cfg.SandboxUID != 777 || cfg.SandboxUIDErr != nil {
 		t.Errorf("config = %+v, want /usr/bin/log, full, uid 777 from lookupSandboxUID", cfg)
 	}

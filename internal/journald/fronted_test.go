@@ -97,7 +97,7 @@ func startFrontedJournal(t *testing.T, mode string, bodyLen int) (dir, sock, end
 	daemonDone := make(chan struct{})
 	go func() {
 		defer close(daemonDone)
-		if err := ServeFrontedUnix(sock, mode, daemonStop); err != nil {
+		if err := ServeFrontedUnix(sock, Policy{Mode: mode}, daemonStop); err != nil {
 			t.Errorf("ServeFrontedUnix: %v", err)
 		}
 	}()

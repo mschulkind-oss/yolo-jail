@@ -33,6 +33,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholegrant"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
 
@@ -62,8 +64,9 @@ const usage = "yolo-journalctl — Run journalctl on the host via the yolo-jail 
 	"\n" +
 	"Forwards all arguments to `journalctl` running on the host, streams stdout\n" +
 	"and stderr back to the local terminal, and exits with the host process's\n" +
-	"exit code.  Enabled only when the jail's config sets `journal: \"user\"`\n" +
-	"(forces --user) or `journal: \"full\"` (unrestricted).\n" +
+	"exit code.  A project's `read` grant reads your own journal (--user is\n" +
+	"forced); a `read_all` grant passes the arguments unchanged.  Without a\n" +
+	"grant the bridge refuses and names the step: `yolo request journal read`.\n" +
 	"\n" +
 	"Examples:\n" +
 	"  yolo-journalctl -u nginx -n 50\n" +
@@ -79,6 +82,13 @@ const usage = "yolo-journalctl — Run journalctl on the host via the yolo-jail 
 // the clean "not wired up" message is exactly right. A fallback to the old
 // socket path would instead make an off bridge look like a broken one.
 const endpointEnv = "YOLO_SERVICE_JOURNAL_ENDPOINT"
+
+// inertEnv is set by the launch, to the inert note's reason, when the journal loophole does
+// nothing on this setup (plan PD-8), named by the one derivation the launch uses too.
+var inertEnv = paths.LoopholeInertEnv("journal")
+
+// refusalExit is a refusal's exit code, the daemon's and the brokers' (plan PD-7).
+const refusalExit = 64
 
 // passthroughHelpEnv, when set, forwards -h/--help to the host journalctl
 // instead of printing ours.
@@ -111,22 +121,26 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 
+	// A loophole that does nothing on this setup says so in the inert report's words, before
+	// the endpoint is tried: its absence is not a fault to diagnose (plan PD-8).
+	if reason := os.Getenv(inertEnv); reason != "" {
+		fmt.Fprint(stderr, loopholegrant.Refusal{Client: "yolo-journalctl", Pack: "journal", Inert: reason}.Text())
+		return refusalExit
+	}
+
 	if endpoint == "" {
-		// The instructions name the PACK-ERA spelling. They used to say
-		// `journal: "user"` in yolo-jail.jsonc — a top-level key retired on
-		// 2026-08-19 when every loophole became a pack's, and now a hard config
-		// REFUSAL. So the one message a user reads at exactly the moment the
-		// bridge is missing told them to write something that fails the next
-		// launch (measured 2026-09-08).
-		fmt.Fprint(stderr, "yolo-journalctl: host journal bridge is not available.\n")
-		fmt.Fprintf(stderr, "  %s is not set in this jail\n", endpointEnv)
-		fmt.Fprint(stderr, "  1. select the pack in ~/.config/yolo-jail/config.jsonc (user scope only):\n")
-		fmt.Fprint(stderr, "       \"packs\": [\"journal\"]\n")
-		fmt.Fprint(stderr, "  2. enable the loophole, in either scope:\n")
-		fmt.Fprint(stderr, "       \"loopholes\": {\"journal\": {\"enabled\": true}}\n")
-		fmt.Fprint(stderr, "  For the SYSTEM journal rather than just your own units, add\n")
-		fmt.Fprint(stderr, "  \"settings\": {\"full\": true} to that entry — user config only, by ruling.\n")
-		fmt.Fprint(stderr, "  Then restart the jail.\n")
+		// A loophole runs whenever its pack is selected, and access is a grant the daemon
+		// checks (docs/design/loophole-access-approval.md §4.1, §5). So with no endpoint the
+		// pack is not selected: select it, then ask for the grant. When the bridge is
+		// running, the refusal comes from the daemon instead, naming the exact step. Never
+		// the retired spellings: the top-level `journal` key (a config refusal since
+		// 2026-08-19) or the `enabled` switch a grant replaced.
+		fmt.Fprint(stderr, "yolo-journalctl: the host journal bridge is not running in this jail, so nothing ran.\n")
+		fmt.Fprintf(stderr, "  %s is not set: the journal pack is not selected here.\n", endpointEnv)
+		fmt.Fprint(stderr, "  The human selects it, on the host:   yolo pack add journal\n")
+		fmt.Fprint(stderr, "  then this project asks:              yolo request journal read\n")
+		fmt.Fprint(stderr, "  then the human runs `yolo config apply` on the host, in this workspace, answers y,\n")
+		fmt.Fprint(stderr, "  and restarts the jail.\n")
 		return 1
 	}
 

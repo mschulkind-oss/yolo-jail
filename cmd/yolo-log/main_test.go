@@ -105,22 +105,55 @@ func TestTheDaemonParsesThisClientsRequest(t *testing.T) {
 
 func TestUnsetEndpointNamesHowToEnableIt(t *testing.T) {
 	t.Setenv(endpointEnv, "")
+	t.Setenv(inertEnv, "")
 	var out, errOut bytes.Buffer
 	if rc := run([]string{"show"}, &out, &errOut); rc != 1 {
 		t.Fatalf("rc = %d", rc)
 	}
-	for _, want := range []string{"add \"macos-log\" to \"packs\"", `"loopholes": {"macos-log": {"enabled": true}}`,
-		`"settings": {"full": true}`, "relaunch"} {
+	for _, want := range []string{"macOS log bridge is not running in this jail", endpointEnv,
+		"yolo pack add macos-log", "yolo request macos-log read", "yolo config apply"} {
 		if !strings.Contains(errOut.String(), want) {
 			t.Errorf("the off message does not name %q:\n%s", want, errOut.String())
 		}
 	}
-	if strings.Contains(errOut.String(), `"packs": [`) {
-		t.Errorf("the off message spells a whole packs list, which would replace the user's agents:\n%s", errOut.String())
+	// A whole packs list would replace the user's agents; the `enabled` switch and the
+	// `full` setting are retired by the grant.
+	for _, retired := range []string{`"packs": [`, `"enabled": true`, `"loopholes"`, `"full": true`} {
+		if strings.Contains(errOut.String(), retired) {
+			t.Errorf("the off message names the retired spelling %q:\n%s", retired, errOut.String())
+		}
 	}
 	out.Reset()
 	if rc := run([]string{"--help"}, &out, &errOut); rc != 0 || !strings.Contains(out.String(), "off in this jail") {
 		t.Errorf("--help: rc %d %q", rc, out.String())
+	}
+}
+
+// TestYoloLogPrintsTheInertLine: PD-8's YOLO_LOOPHOLE_INERT_MACOS_LOG makes the client say the
+// loophole does nothing here, before it tries the endpoint.
+func TestYoloLogPrintsTheInertLine(t *testing.T) {
+	t.Setenv(inertEnv, "the unified log exists only on macOS")
+	t.Setenv(endpointEnv, filepath.Join(shortSocketDir(t), "absent.endpoint"))
+	var out, errOut bytes.Buffer
+	rc := run([]string{"show"}, &out, &errOut)
+	want := "yolo-log: the macos-log loophole does nothing on this setup (the unified log exists only on macOS); nothing is missing to install.\n"
+	if rc != 64 || errOut.String() != want || out.Len() != 0 {
+		t.Fatalf("rc %d stdout %q stderr %q, want rc 64 and\n%s", rc, out.String(), errOut.String(), want)
+	}
+	if inertEnv != "YOLO_LOOPHOLE_INERT_MACOS_LOG" {
+		t.Errorf("inertEnv = %q, want PD-8's spelling for the macos-log loophole", inertEnv)
+	}
+}
+
+// The daemon is the source of a grant refusal: the client prints its text as it came and
+// exits with its code, 64.
+func TestTheDaemonsGrantRefusalPassesThrough(t *testing.T) {
+	text := "yolo-log: this project holds no grant to read the Mac's unified log, so nothing ran.\n"
+	reply := append(frame(frameStderr, []byte(text)), exitFrame(64)...)
+	c := &conversation{reply: bytes.NewReader(reply)}
+	var out, errOut bytes.Buffer
+	if rc := converse(c, []string{"show"}, &out, &errOut); rc != 64 || errOut.String() != text {
+		t.Fatalf("rc %d stderr %q", rc, errOut.String())
 	}
 }
 

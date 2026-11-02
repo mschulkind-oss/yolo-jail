@@ -27,6 +27,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholegrant"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
@@ -48,10 +49,11 @@ const usage = "yolo-log — read the Mac's unified log through the yolo-jail mac
 	"Runs Apple's `log` on the host and streams its output back. With no arguments it\n" +
 	"shows the last five minutes; a first argument that is a flag is a `show` flag.\n" +
 	"\n" +
-	"By default the bridge reads only `show` and `stream`, prints ndjson, and sends only\n" +
-	"entries logged by processes running as the macos-user sandbox account — this\n" +
-	"sandbox's own processes, and any other sandbox's on this Mac. The loophole's `full`\n" +
-	"setting (user config only) passes every argument to `log` unchanged.\n" +
+	"Under a project's `read` grant the bridge reads only `show` and `stream`, prints\n" +
+	"ndjson, and sends only entries logged by processes running as the macos-user\n" +
+	"sandbox account — this sandbox's own processes, and any other sandbox's on this\n" +
+	"Mac. A `read_all` grant passes every argument to `log` unchanged. Without a grant\n" +
+	"the bridge refuses and names the step: `yolo request macos-log read`.\n" +
 	"\n" +
 	"Examples:\n" +
 	"  yolo-log show --last 10m --predicate 'process == \"myapp\"'\n" +
@@ -60,6 +62,13 @@ const usage = "yolo-log — read the Mac's unified log through the yolo-jail mac
 // endpointEnv is the variable the run pipeline emits for the macos-log loophole: a PATH to
 // the endpoint file. Its absence means the bridge is off in this jail.
 const endpointEnv = paths.MacosLogEndpointEnv
+
+// inertEnv is set by the launch, to the inert note's reason, when the macos-log loophole does
+// nothing on this setup (plan PD-8), named by the one derivation the launch uses too.
+var inertEnv = paths.LoopholeInertEnv("macos-log")
+
+// refusalExit is a refusal's exit code, the daemon's and the brokers' (plan PD-7).
+const refusalExit = 64
 
 const sigintExit = 130
 
@@ -82,16 +91,21 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 		return 0
 	}
+	// A loophole that does nothing on this setup says so before the endpoint is tried (PD-8).
+	if reason := os.Getenv(inertEnv); reason != "" {
+		fmt.Fprint(stderr, loopholegrant.Refusal{Client: "yolo-log", Pack: "macos-log", Inert: reason}.Text())
+		return refusalExit
+	}
 	if endpoint == "" {
-		fmt.Fprint(stderr, "yolo-log: the macOS log bridge is not available in this jail.\n")
-		fmt.Fprintf(stderr, "  %s is not set. Ask the human to:\n", endpointEnv)
-		fmt.Fprint(stderr, "  1. add \"macos-log\" to \"packs\" in ~/.config/yolo-jail/config.jsonc\n")
-		fmt.Fprint(stderr, "     (user scope only), beside the agents already listed there\n")
-		fmt.Fprint(stderr, "  2. enable the loophole, in either scope:\n")
-		fmt.Fprint(stderr, "       \"loopholes\": {\"macos-log\": {\"enabled\": true}}\n")
-		fmt.Fprint(stderr, "  For every entry on the Mac rather than this sandbox account's, add\n")
-		fmt.Fprint(stderr, "  \"settings\": {\"full\": true} to that entry — user config only.\n")
-		fmt.Fprint(stderr, "  Then relaunch the jail.\n")
+		// Selected means running, and access is a grant the daemon checks
+		// (docs/design/loophole-access-approval.md §4.1, §5): with no endpoint the pack is not
+		// selected. `yolo pack add` adds to the user's packs, never replaces the list.
+		fmt.Fprint(stderr, "yolo-log: the macOS log bridge is not running in this jail, so nothing ran.\n")
+		fmt.Fprintf(stderr, "  %s is not set: the macos-log pack is not selected here.\n", endpointEnv)
+		fmt.Fprint(stderr, "  The human selects it, on the host:   yolo pack add macos-log\n")
+		fmt.Fprint(stderr, "  then this project asks:              yolo request macos-log read\n")
+		fmt.Fprint(stderr, "  then the human runs `yolo config apply` on the host, in this workspace, answers y,\n")
+		fmt.Fprint(stderr, "  and relaunches the jail.\n")
 		return 1
 	}
 	conn, err := svcendpoint.Dial(endpoint, dialTimeout)

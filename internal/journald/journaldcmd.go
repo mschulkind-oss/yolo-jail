@@ -45,6 +45,22 @@ import (
 // path the front expects to find a socket at, which fails the run pipeline's
 // socket-connectable readiness probe with no diagnosis.
 func Main(argv []string) int {
+	return journalMain(argv, signalStop)
+}
+
+// signalStop returns a channel closed at the first SIGTERM or SIGINT. It is called only once
+// the flags are accepted, so a refused flag installs no handler.
+func signalStop() <-chan struct{} {
+	stop := make(chan struct{})
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+	go func() { <-sigCh; close(stop) }()
+	return stop
+}
+
+// journalMain is Main with its stop source passed in, so a test drives the real flag parse
+// and settings read and stops the bridge without a signal.
+func journalMain(argv []string, stopFn func() <-chan struct{}) int {
 	fs := flag.NewFlagSet("yolo-journald", flag.ExitOnError)
 	socket := fs.String("socket", "", "AF_UNIX socket to bind (behind yolo's front)")
 	settings := fs.String("settings", "", "Resolved settings file written by yolo (see --help)")
@@ -75,17 +91,13 @@ func Main(argv []string) int {
 	}
 	setupLog(*logFile)
 
-	// READ ONCE, HERE, before a single connection is accepted — the freeze
-	// internal/hostprocesses states at length. Everything downstream holds a mode,
-	// not a path.
-	mode := LoadSettings(*settings)
+	// READ HERE, before a single connection is accepted. A settings file with no `grants`
+	// key is frozen into a mode, the freeze internal/hostprocesses states at length; one
+	// with the key is a grant file, re-read at every request so a live apply lands at the
+	// next one (grant.go).
+	policy := LoadPolicy(*settings)
 
-	stop := make(chan struct{})
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
-	go func() { <-sigCh; close(stop) }()
-
-	if err := ServeFrontedUnix(*socket, mode, stop); err != nil {
+	if err := ServeFrontedUnix(*socket, policy, stopFn()); err != nil {
 		fmt.Fprintln(os.Stderr, "yolo-journald:", err)
 		return 1
 	}
@@ -107,7 +119,7 @@ func Main(argv []string) int {
 // This daemon reads it and DISCARDS the value — it keeps its own per-request audit
 // line and asserts no jail identity of its own — but the frame still has to leave
 // the stream.
-func ServeFrontedUnix(socket, mode string, stop <-chan struct{}) error {
+func ServeFrontedUnix(socket string, policy Policy, stop <-chan struct{}) error {
 	return serveUnixConns(socket, stop, func(conn net.Conn) {
 		// INSIDE THE PER-CONNECTION GOROUTINE, NEVER IN THE ACCEPT LOOP: reading in
 		// the loop would let one client that connects and never writes stall every
@@ -129,7 +141,7 @@ func ServeFrontedUnix(socket, mode string, stop <-chan struct{}) error {
 			_ = conn.Close()
 			return
 		}
-		handleConn(conn, mode)
+		handleConn(conn, policy)
 	})
 }
 
@@ -183,7 +195,7 @@ func serveUnixConns(socket string, stop <-chan struct{}, onConn func(net.Conn)) 
 	return nil
 }
 
-func handleConn(conn net.Conn, mode string) {
+func handleConn(conn net.Conn, policy Policy) {
 	defer conn.Close()
 
 	// Read the JSON request header up to the first newline, capped at the
@@ -196,6 +208,14 @@ func handleConn(conn net.Conn, mode string) {
 	if !foundNL {
 		_ = WriteFrame(conn, FrameStderr, []byte("yolo-journal: malformed request\n"))
 		_ = WriteExit(conn, 2)
+		return
+	}
+
+	// The grant decides before anything runs: a refused request spawns nothing.
+	mode, refusal, rc := policy.decide(journalBridge)
+	if refusal != "" {
+		_ = WriteFrame(conn, FrameStderr, []byte(refusal))
+		_ = WriteExit(conn, rc)
 		return
 	}
 

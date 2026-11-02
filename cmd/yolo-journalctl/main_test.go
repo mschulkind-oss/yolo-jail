@@ -214,35 +214,66 @@ func TestHelpPassthroughEnvForwardsIt(t *testing.T) {
 // BROKEN one.
 func TestUnsetEndpointExplainsHowToEnableIt(t *testing.T) {
 	t.Setenv(endpointEnv, "")
+	t.Setenv(inertEnv, "")
 
 	var out, errOut bytes.Buffer
 	if rc := run([]string{"-n", "5"}, &out, &errOut); rc != 1 {
 		t.Fatalf("rc = %d, want 1", rc)
 	}
 	for _, want := range []string{
-		"host journal bridge is not available",
+		"host journal bridge is not running in this jail",
 		endpointEnv,
-		// The PACK-ERA spelling. Every loophole became a pack's on 2026-08-19.
-		`"packs": ["journal"]`,
-		`"loopholes"`,
-		`"enabled": true`,
-		"config.jsonc",
+		// A loophole runs whenever its pack is selected, and access is a grant
+		// (docs/design/loophole-access-approval.md §5): select, then request.
+		"yolo pack add journal",
+		"yolo request journal read",
+		"yolo config apply",
 	} {
 		if !strings.Contains(errOut.String(), want) {
 			t.Errorf("stderr is missing %q:\n%s", want, errOut.String())
 		}
 	}
-	// AND THE RETIRED SPELLING MUST NEVER COME BACK. This test used to REQUIRE
-	// `journal: "user"` — it pinned that the message said something, not that
-	// the something was true, so it went on passing for the three weeks after
-	// that key became a hard config refusal. A user who followed the advice got
-	// a launch that refused (measured 2026-09-08).
-	if strings.Contains(errOut.String(), `journal: "user"`) {
-		t.Errorf("the message names the RETIRED top-level `journal` key, which is now a "+
-			"config refusal — following it breaks the next launch:\n%s", errOut.String())
+	// AND NO RETIRED SPELLING COMES BACK. This test once REQUIRED `journal: "user"` — it
+	// pinned that the message said something, not that the something was true, so it went
+	// on passing for three weeks after that key became a hard config refusal (measured
+	// 2026-09-08). The per-loophole `enabled` switch is retired the same way: a grant
+	// replaced it.
+	for _, retired := range []string{`journal: "user"`, `"enabled": true`, `"loopholes"`} {
+		if strings.Contains(errOut.String(), retired) {
+			t.Errorf("the message names the retired spelling %q:\n%s", retired, errOut.String())
+		}
 	}
 	if strings.Contains(errOut.String(), ".sock") {
 		t.Errorf("the client still mentions a socket path — the fallback is back: %q", errOut.String())
+	}
+}
+
+// TestYoloJournalctlPrintsTheInertLine: on a setup where the journal loophole does nothing,
+// the launch names why in YOLO_LOOPHOLE_INERT_JOURNAL (plan PD-8), and the client says so in
+// the inert report's words BEFORE it tries the endpoint, instead of a missing-endpoint fault.
+func TestYoloJournalctlPrintsTheInertLine(t *testing.T) {
+	t.Setenv(inertEnv, "macOS has no systemd journal")
+	t.Setenv(endpointEnv, filepath.Join(shortSocketDir(t), "absent.endpoint"))
+	var out, errOut bytes.Buffer
+	rc := run([]string{"-n", "5"}, &out, &errOut)
+	want := "yolo-journalctl: the journal loophole does nothing on this setup (macOS has no systemd journal); nothing is missing to install.\n"
+	if rc != 64 || errOut.String() != want || out.Len() != 0 {
+		t.Fatalf("rc %d stdout %q stderr %q, want rc 64 and\n%s", rc, out.String(), errOut.String(), want)
+	}
+	if inertEnv != "YOLO_LOOPHOLE_INERT_JOURNAL" {
+		t.Errorf("inertEnv = %q, want PD-8's spelling for the journal loophole", inertEnv)
+	}
+}
+
+// The daemon is the source of a grant refusal: the client prints its text as it came and
+// exits with its code, 64.
+func TestTheDaemonsGrantRefusalPassesThrough(t *testing.T) {
+	text := "yolo-journalctl: this project holds no grant to read the host's journal, so nothing ran.\n"
+	reply := append(frame(frameStderr, []byte(text)), exitFrame(64)...)
+	c := &conversation{reply: bytes.NewReader(reply)}
+	var out, errOut bytes.Buffer
+	if rc := converse(c, []string{"-n", "1"}, &out, &errOut); rc != 64 || errOut.String() != text {
+		t.Fatalf("rc %d stderr %q", rc, errOut.String())
 	}
 }
 
@@ -321,7 +352,7 @@ func TestEndToEndOverLoopbackTLS(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		if err := journald.ServeFrontedUnix(upstream, journald.ModeFull, stop); err != nil {
+		if err := journald.ServeFrontedUnix(upstream, journald.Policy{Mode: journald.ModeFull}, stop); err != nil {
 			t.Errorf("ServeFrontedUnix: %v", err)
 		}
 	}()

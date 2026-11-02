@@ -6,10 +6,8 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"os/signal"
 	"strconv"
 	"strings"
-	"syscall"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
@@ -17,10 +15,16 @@ import (
 
 // MacosLogMain is the macos-log bridge's entry point (`yolo internal daemon macos-log`), the
 // host daemon packs/macos-log's loophole spawns. Its CLI is the journal bridge's: --socket (the
-// AF_UNIX socket yolo's own front dials), --settings (the resolved `full` setting) and
-// --log-file. Requests, frames and the fronted socket are the journal bridge's too; what differs
-// is the program (Apple's `/usr/bin/log`) and the user scope (macoslog.go).
+// AF_UNIX socket yolo's own front dials), --settings (the grant file, or the resolved `full`
+// setting before the flip; grant.go) and --log-file. Requests, frames and the fronted socket are
+// the journal bridge's too; what differs is the program (Apple's `/usr/bin/log`) and the user
+// scope (macoslog.go).
 func MacosLogMain(argv []string) int {
+	return macosLogMain(argv, signalStop)
+}
+
+// macosLogMain is MacosLogMain with its stop source passed in (journalMain's shape).
+func macosLogMain(argv []string, stopFn func() <-chan struct{}) int {
 	fs := flag.NewFlagSet("yolo-macos-log", flag.ExitOnError)
 	socket := fs.String("socket", "", "AF_UNIX socket to bind (behind yolo's front)")
 	settings := fs.String("settings", "", "Resolved settings file written by yolo")
@@ -33,16 +37,11 @@ func MacosLogMain(argv []string) int {
 	}
 	setupLog(*logFile)
 
-	// READ ONCE, before a connection is accepted: the setting is frozen at launch, as the
-	// journal bridge's is (LoadSettings — every failure is the user scope).
-	cfg := macosLogMainConfig(LoadSettings(*settings))
+	// READ before a connection is accepted, as the journal bridge's is (LoadPolicy): a grant
+	// file is re-read at every request, a settings file without one is frozen into a mode.
+	cfg := macosLogMainConfig(LoadPolicy(*settings))
 
-	stop := make(chan struct{})
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
-	go func() { <-sigCh; close(stop) }()
-
-	err := ServeMacosLogFrontedUnix(*socket, cfg, stop)
+	err := ServeMacosLogFrontedUnix(*socket, cfg, stopFn())
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "yolo-macos-log:", err)
 		return 1
@@ -52,10 +51,11 @@ func MacosLogMain(argv []string) int {
 
 // macosLogMainConfig is the config MacosLogMain serves with: the real `log`, the sandbox
 // account looked up on this Mac, and the kernel's process owner.
-func macosLogMainConfig(mode string) MacosLogConfig {
+func macosLogMainConfig(p Policy) MacosLogConfig {
 	uid, uidErr := lookupSandboxUID()
 	return MacosLogConfig{
-		Bin: macosLogBin, Mode: mode, SandboxUID: uid, SandboxUIDErr: uidErr, Owner: processOwner,
+		Bin: macosLogBin, Mode: p.Mode, GrantFile: p.GrantFile, SandboxUID: uid, SandboxUIDErr: uidErr,
+		Owner: processOwner,
 	}
 }
 
@@ -63,8 +63,10 @@ func macosLogMainConfig(mode string) MacosLogConfig {
 type MacosLogConfig struct {
 	// Bin is the `log` program; MacosLogMain passes /usr/bin/log.
 	Bin string
-	// Mode is ModeUser or ModeFull (LoadSettings).
+	// Mode is ModeUser or ModeFull (LoadSettings), used only when GrantFile is empty.
 	Mode string
+	// GrantFile is the grant file, re-read at every request (Policy.GrantFile).
+	GrantFile string
 	// SandboxUID is the sandbox account's uid; SandboxUIDErr non-nil means the account does
 	// not exist here, so the user scope has nobody to show.
 	SandboxUID    uint32
@@ -114,7 +116,14 @@ func handleMacosLogConn(conn net.Conn, cfg MacosLogConfig) {
 		_ = WriteExit(conn, 2)
 		return
 	}
-	plan := ParseMacosLogRequest(header, cfg.Mode)
+	// The grant decides before anything runs (grant.go).
+	mode, refusal, rc := Policy{Mode: cfg.Mode, GrantFile: cfg.GrantFile}.decide(macosLogBridge)
+	if refusal != "" {
+		_ = WriteFrame(conn, FrameStderr, []byte(refusal))
+		_ = WriteExit(conn, rc)
+		return
+	}
+	plan := ParseMacosLogRequest(header, mode)
 	if plan.ErrText != "" {
 		_ = WriteFrame(conn, FrameStderr, []byte(plan.ErrText))
 		_ = WriteExit(conn, plan.ExitCode)
@@ -133,7 +142,7 @@ func handleMacosLogConn(conn net.Conn, cfg MacosLogConfig) {
 		}
 		keep = macosLogKeep(cfg.SandboxUID, plan.Live, cfg.Owner)
 	}
-	logf("[macos-log] mode=%s args=%s", cfg.Mode, ArgsJSON(plan.Args))
+	logf("[macos-log] mode=%s args=%s", mode, ArgsJSON(plan.Args))
 	spawnAndStream(conn, cfg.Bin, plan.Args,
 		macosLogPrefix+": "+cfg.Bin+" not found on the host — this bridge reads the unified log "+
 			"of a Mac, and the loophole runs only there.\n",

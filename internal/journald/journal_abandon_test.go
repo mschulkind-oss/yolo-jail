@@ -31,7 +31,7 @@ func TestAnAbandonedFollowTerminatesItsJournalctl(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		handleConn(server, ModeFull)
+		handleConn(server, Policy{Mode: ModeFull})
 	}()
 	// net.Pipe is unbuffered, so the header must be written while handleConn reads it;
 	// the daemon then writes nothing until the child does, and this fake prints nothing.
