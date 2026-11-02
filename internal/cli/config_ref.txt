@@ -658,16 +658,24 @@
     the key names instead.  `"$YOLO_BIN" approve` works wherever plain yolo approve does.
     • A run may take as long as its request waits, one hour, so a notification
       left on screen can still be answered; several requests run several
-      commands at once.  As soon as the request stops waiting, whichever way
-      (a click's own `yolo approve`, a `yolo approve` elsewhere, expiry, or
-      refused because its jail stopped), or the jail stops, yolo kills the
-      command and everything it started.
-    • A command that exits non-zero, or runs until its request would
-      expire, is a failure: `yolo approve` lists it on its request ("hook
-      exited 127: sh: notify-send: not found"), and --json carries it as
-      "hook_failure" with the last 4 KiB of its output as "hook_output",
-      including what a refusing `yolo approve` it ran printed.  The agent
-      is told your notifier failed.  The output never decides anything.
+      commands at once.  Use `notify-send -u critical`: the desktop
+      notification spec asks that a critical notification not expire on its
+      own.  A `-t` toast timeout is optional, since a notification ignored
+      until the request expires is not a failure.
+    • As soon as the request stops waiting, whichever way (a click's own
+      `yolo approve`, a `yolo approve` elsewhere, expiry, or refused because
+      its jail stopped), or the jail stops, yolo sends SIGINT to the
+      command's process group, everything it started included, then SIGKILL
+      to whatever is left 2 seconds later.  notify-send (libnotify 0.8.0 and
+      newer) waiting on -A or -w closes its notification on SIGINT, so the
+      example above cleans up after itself.  For a notifier that does not, a
+      script can close it from `trap ... INT`.
+    • A command that exits non-zero, or cannot start, is a failure: `yolo
+      approve` lists it on its request ("hook exited 127: sh: notify-send:
+      not found"), and --json carries it as "hook_failure" with the last
+      4 KiB of its output as "hook_output", including what a refusing `yolo
+      approve` it ran printed.  The agent is told your notifier failed.  The
+      output never decides anything.
     • notify-send: -A needs libnotify 0.7.10 or newer.  A notification that
       times out or is dismissed ends the command with no answer, so the
       request waits for `yolo approve`.  On a machine you reach over SSH, it

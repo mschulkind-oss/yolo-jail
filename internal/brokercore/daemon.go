@@ -125,11 +125,12 @@ func (d Daemon) Main(argv []string) int {
 	err = hostservice.ServeFrontedUnix(l.Handle, *socket, stop)
 	cancel()
 	// A hook runs in its own process group, which the launcher's stop signal does not reach,
-	// so wait for the runner to kill what it started: past the runner's own wait on a killed
-	// hook's output. A launcher that SIGKILLs sooner still ends them, by Pdeathsig on Linux.
+	// so wait for the runner to stop what it started: past a hook's SIGINT grace and the
+	// runner's own wait on a killed hook's output. A launcher that SIGKILLs sooner still ends
+	// them, by Pdeathsig on Linux.
 	select {
 	case <-hookDone:
-	case <-time.After(brokerhook.KillWait + time.Second):
+	case <-time.After(brokerhook.StopGrace + brokerhook.KillWait + time.Second):
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, d.Name+":", err)

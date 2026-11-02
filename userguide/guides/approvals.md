@@ -162,12 +162,20 @@ longer hook can live in a script the key names instead. Things to know:
   `yolo approve` someone runs. A notification that is dismissed or times out leaves the request
   waiting for `yolo approve`.
 - **It runs until the request is answered or expires**, so a notification can stay on screen
-  for the hour, and is then stopped together with everything it started. Several requests run
-  several commands at once.
-- **A failure is visible.** A command that exits non-zero, or runs into the request's expiry, is
-  recorded on the request: `yolo approve` shows `your on_request failed, so you may not have been
-  notified: hook exited 127: sh: notify-send: not found`, `--json` carries the last of its output,
-  and the agent is told your notifier failed.
+  for the hour. Several requests run several commands at once. Pass `-u critical` to
+  `notify-send`: the desktop notification spec asks that a critical notification not expire
+  on its own, so it waits for you. A toast timeout (`-t`) is optional: a notification you
+  ignore until the request expires is not a failure.
+- **When the request stops waiting, the command is stopped.** Answered (by its own button or a
+  `yolo approve` anywhere), expired, or refused because its jail stopped: yolo sends `SIGINT`
+  to the command and everything it started, then `SIGKILL` to whatever is left two seconds
+  later. `notify-send` from libnotify 0.8.0 or newer, waiting on `-A` or `-w`, closes its
+  notification on `SIGINT`, so the example above cleans up after itself. For a notifier that
+  does not, a script can close it from a `trap ... INT`.
+- **A failure is visible.** A command that exits non-zero, or cannot start, is recorded on the
+  request: `yolo approve` shows `your on_request failed, so you may not have been notified: hook
+  exited 127: sh: notify-send: not found`, `--json` carries the last of its output, and the
+  agent is told your notifier failed.
 - **The summary is the agent's words.** The command, the branch names and the repository come
   from the jail. Show them; never run them or paste them into a shell.
 - **Over SSH**, the notification pops up on the desktop of the machine the broker runs on, which

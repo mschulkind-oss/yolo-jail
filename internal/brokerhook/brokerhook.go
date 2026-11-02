@@ -16,16 +16,21 @@
 // yolo, leads the hook's PATH, so a plain `yolo approve` works wherever the broker was started
 // (the maintainer's ruling, Q43); YOLO_BIN names the same binary absolutely.
 //
-// ITS FAILURES ARE VISIBLE (Q42). A hook that exits non-zero or runs into its timeout has its
-// exit and the last of its output recorded on its request in the host store, which every
-// listing of the request shows (`yolo approve`, `--json`, `--watch --json`); a `yolo approve`
-// the hook ran that refused is part of that output. The broker's log gets one line naming
+// ITS FAILURES ARE VISIBLE (Q42). A hook that exits non-zero, cannot start, or runs into a
+// Timeout set shorter than its request's life has its exit and the last of its output
+// recorded on its request in the host store, which every listing of the request shows
+// (`yolo approve`, `--json`, `--watch --json`); a `yolo approve` the hook ran that refused
+// is part of that output. The broker's log gets one line naming
 // the request and the exit, never the output: that log is shared by every jail.
 //
 // WHEN IT IS STOPPED. A hook runs until its request leaves `pending`, whichever way (decided
 // with `yolo approve`, the hook's own call included, expired, or refused because its jail
-// stopped), until the request's expiry, or until its broker stops, and is then killed with
-// its whole process group, so a notification waiting on a click does not outlive the
+// stopped), until the request's expiry, or until its broker stops. Waiting on a click until
+// then is a notifier doing its job, so none of these is a failure, whichever the runner sees
+// first: the store's expiry event or its own clock reaching the request's expiry. It is then
+// stopped with its whole process group: SIGINT first, on which a notify-send waiting for a
+// click closes its own notification (and a trap in a script can close another notifier's),
+// then SIGKILL after StopGrace, so a notification waiting on a click does not outlive the
 // question it asks.
 package brokerhook
 
@@ -65,8 +70,11 @@ type Runner struct {
 	// Interval is how often the store is polled, and how long a failed first read waits
 	// before it is tried again; zero means one second.
 	Interval time.Duration
-	// Timeout bounds one run; zero means brokerstore.PendingLife, so a hook that waits on a
-	// notification can still be answered until its request expires.
+	// Timeout, when set shorter than the time its request has left, is a hard bound on one
+	// run, and a hook that runs into it is recorded as failed: its request still waits, and
+	// may never have been shown. Zero, the broker's setting, bounds a run by its request's
+	// expiry alone, so a hook that waits on a notification can be answered until then and is
+	// not failed for waiting.
 	Timeout time.Duration
 	// Log takes one line per hook that fails or is stopped. It names no workspace, repository or
 	// command, and carries none of the hook's output, because a broker's log is shared by
@@ -83,7 +91,8 @@ type Runner struct {
 
 var (
 	errLeftPending = errors.New("its request is no longer pending (decided, expired, or refused because its jail stopped)")
-	errTimedOut    = errors.New("it ran until its request expired")
+	errExpired     = errors.New("its request expired")
+	errTimedOut    = errors.New("it ran into its timeout")
 )
 
 // Run fires the hook for each request this lifetime files until ctx ends, then waits for
@@ -252,7 +261,7 @@ func (r *Runner) logf(format string, args ...any) {
 
 // launch starts the hook for q, once per request; parent ending stops it.
 func (r *Runner) launch(parent context.Context, q brokerstore.Request) {
-	timeout := r.timeout()
+	limit, cause := r.limit(q)
 	ctx, cancel := context.WithCancelCause(parent)
 	r.mu.Lock()
 	if r.running == nil {
@@ -274,7 +283,7 @@ func (r *Runner) launch(parent context.Context, q brokerstore.Request) {
 			r.mu.Unlock()
 			cancel(nil)
 		}()
-		timer := time.AfterFunc(timeout, func() { cancel(errTimedOut) })
+		timer := time.AfterFunc(limit, func() { cancel(cause) })
 		defer timer.Stop()
 		r.fire(ctx, q)
 	}()
@@ -338,31 +347,47 @@ func (r *Runner) fire(ctx context.Context, q brokerstore.Request) {
 	}
 	waited := make(chan error, 1)
 	go func() { waited <- cmd.Wait() }()
-	// The process group is the hook's own, so killing it ends whatever it started too. It
-	// is killed when its request leaves pending, its run times out or the broker stops,
-	// whether or not the shell has already exited: a notifier it backgrounded is still
-	// asking a question that has been answered.
+	// The process group is the hook's own, so signalling it reaches whatever it started too.
+	// It is stopped when its request leaves pending or expires, its run times out or the
+	// broker stops, whether or not the shell has already exited: a notifier it backgrounded
+	// is still asking a question that has been answered. SIGINT comes first: notify-send
+	// (libnotify 0.8.0 and newer) waiting on -A or -w closes its notification on it, where
+	// SIGTERM would kill it and leave the notification on screen. Whatever is left after
+	// StopGrace, such as a child a non-interactive shell backgrounded with SIGINT ignored, is
+	// SIGKILLed.
 	pgid := cmd.Process.Pid
-	stop := func() bool {
+	stop := func() {
 		why := context.Cause(ctx)
 		if errors.Is(why, context.Canceled) {
 			why = errors.New("the broker stopped")
 		}
-		if syscall.Kill(-pgid, syscall.SIGKILL) == nil {
-			r.logf("the hook for %s was stopped because %v", q.ID, why)
-			return true
+		if syscall.Kill(-pgid, syscall.SIGINT) != nil {
+			return // the group is already gone
 		}
-		return false
+		r.logf("the hook for %s was stopped because %v", q.ID, why)
+		grace := time.NewTimer(StopGrace)
+		defer grace.Stop()
+		tick := time.NewTicker(stopPoll)
+		defer tick.Stop()
+		for syscall.Kill(-pgid, 0) == nil {
+			select {
+			case <-grace.C:
+				_ = syscall.Kill(-pgid, syscall.SIGKILL)
+				return
+			case <-tick.C:
+			}
+		}
 	}
 	select {
 	case err = <-waited:
 	case <-ctx.Done():
 		stop()
 		<-waited
-		// Stopped because its request left pending, or the broker stopped, is no failure;
-		// running into its timeout is: the request may never have been seen.
+		// Stopped because its request left pending or expired, or the broker stopped, is no
+		// failure; running into a Timeout shorter than its request's life is: the request
+		// still waits and may never have been seen.
 		if errors.Is(context.Cause(ctx), errTimedOut) {
-			r.noteFailure(q.ID, failureLine(fmt.Sprintf("hook timed out after %s", r.timeout()), out.String()), out.String())
+			r.noteFailure(q.ID, failureLine(fmt.Sprintf("hook timed out after %s", r.Timeout), out.String()), out.String())
 		}
 		return
 	}
@@ -403,11 +428,22 @@ func (r *Runner) noteFailure(id, failure, output string) {
 	}
 }
 
-func (r *Runner) timeout() time.Duration {
-	if r.Timeout > 0 {
-		return r.Timeout
+// limit is how long q's hook may run, and why it is stopped then. Its request's expiry, read
+// on the store's clock, bounds every run as a stop that is no failure (errExpired): a hook
+// still waiting on a click then was doing its job, and the store's own expiry event, which
+// may arrive first, stops it the same way, so the race between the two decides nothing. A
+// Timeout shorter than that is a hard bound, and running into it a failure (errTimedOut).
+// The expiry bound is capped at PendingLife, so a clock set back cannot stretch a run.
+func (r *Runner) limit(q brokerstore.Request) (time.Duration, error) {
+	now := time.Now()
+	if r.Store != nil && r.Store.Now != nil {
+		now = r.Store.Now()
 	}
-	return brokerstore.PendingLife
+	left := min(max(q.Expires().Sub(now), 0), brokerstore.PendingLife)
+	if r.Timeout > 0 && r.Timeout < left {
+		return r.Timeout, errTimedOut
+	}
+	return left, errExpired
 }
 
 // failureLine is what, then the hook's last non-empty output line, cut to FailureLineMax
@@ -466,6 +502,14 @@ func (t *tailBuffer) String() string {
 // groupPoll is how often an exited hook's process group is checked for members left behind.
 const groupPoll = 100 * time.Millisecond
 
+// stopPoll is how often a stopped hook's process group is checked for members during
+// StopGrace.
+const stopPoll = 20 * time.Millisecond
+
 // KillWait bounds the wait on a hook's output once it exits or is killed. A broker
-// stopping waits at least this long for its runner.
+// stopping waits at least StopGrace plus this long for its runner.
 const KillWait = 5 * time.Second
+
+// StopGrace is how long a stopped hook has, after SIGINT to its process group, to close
+// what it showed (a notification still on screen) before the group is SIGKILLed.
+const StopGrace = 2 * time.Second
