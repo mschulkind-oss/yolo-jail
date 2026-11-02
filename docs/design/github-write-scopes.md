@@ -468,28 +468,7 @@ timed entry already carries its kind.
 
 ## 13. Open Questions
 
-1. ✅ **OQ-GW2: With `yolo approve --add` removed, how does the agent come to write to a PR or issue it did not create?**
-
-   The Add flag is removed ([§6.2](#62-reaching-an-item-the-agent-did-not-create) quotes the ruling). Kurt
-   files bug #70; the agent fixes it and wants to comment and close it.
-
-   - Allow once per write, or a timed `--for`.
-   - The repository-wide `comment_any` / `edit_any` grants.
-   - A per-item grant spelled in config.
-
-   Git's `--add` and `--remember` go too ([GB-D28](git-broker.md#GB-D28)).
-
-   <!-- vantage: question id=OQ-GW2 leaning="Allow once, --for, the *_any grants, and a request by name to join the working set." -->
-
-   _Leaning:_ Allow once, `--for`, the wide `*_any` grants, and a request by name to join the
-   working set.
-
-   **Answer:** Allow once, `--for`, the wide `*_any` grants, and a request by name to join the
-   working set, answered by a plain `yolo approve`
-   ([§6.2](#62-reaching-an-item-the-agent-did-not-create)). No per-item grant in config.
-
-   > *"can't the agetn request it to be added to the working set somehow?"* … *"yes that sounds
-   > good."* (owner, 2026-11-02)
+None open. Every question this doc raised is ruled in the [Decision Ledger](#14-decision-ledger).
 
 ## 14. Decision Ledger
 
