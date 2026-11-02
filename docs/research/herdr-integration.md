@@ -65,6 +65,8 @@ today.
 
 **Reads with:**
 
+- [`herdr-approvals.md`](../design/herdr-approvals.md): the approval front end built on the pane
+  registration this doc describes (a jail token on the pane, a stock `on_request` notifier, a picker).
 - [`jail-lifetime-last-session-wins.md`](../design/jail-lifetime-last-session-wins.md): several
   sessions in one jail. This doc adds evidence to its [OQ-JL1](../design/jail-lifetime-last-session-wins.md#OQ-JL1).
 - [`agent-event-watchers.md`](../design/agent-event-watchers.md): pinging a running agent. herdr is
