@@ -101,7 +101,7 @@ func TestHostFoldMatchesTheJailFoldWinner(t *testing.T) {
 	if err := sel.launchRefusal(); err != nil {
 		t.Fatal(err)
 	}
-	packs := sel.packs
+	packs := chosenHostPacks(sel.packs)
 	if len(packs) != 2 {
 		t.Fatalf("loadedHostPacks = %d packs, want the fixture's two; the fixture only means "+
 			"anything if both packs are in the delivery order the config declared", len(packs))

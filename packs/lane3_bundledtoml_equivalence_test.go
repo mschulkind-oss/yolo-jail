@@ -39,8 +39,8 @@ func TestLane3BundledLoopholeTOMLSemanticEquivalence(t *testing.T) {
 		},
 		{
 			name:   "cgroup-delegate",
-			legacy: `{"contributes":[{"from":"loopholes/cgroup-delegate","kind":"loophole"}],"name":"cgroup-delegate"}`,
-			toml:   "name = \"cgroup-delegate\"\n\n[[loophole]]\nfrom = \"loopholes/cgroup-delegate\"\n",
+			legacy: `{"contributes":[{"from":"loopholes/cgroup-delegate","kind":"loophole"}],"name":"cgroup-delegate","selected_by_default":true}`,
+			toml:   "name = \"cgroup-delegate\"\nselected_by_default = true\n\n[[loophole]]\nfrom = \"loopholes/cgroup-delegate\"\n",
 		},
 		{
 			name:   "serial",

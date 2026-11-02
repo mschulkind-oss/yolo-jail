@@ -102,6 +102,23 @@ type Manifest struct {
 	// guessing on the pack's behalf is the thing being removed.
 	SkillsTier string `json:"skills_tier,omitempty"`
 
+	// SelectedByDefault, spelled `selected_by_default = true`, puts the pack in every launch's
+	// selection with no `packs` line naming it: config.LoadPacks appends it after the configured
+	// entries and before the conventional local pack, so the launch, `yolo check` and
+	// `yolo host apply` all read it as selected (docs/design/loophole-access-approval-plan.md
+	// PD-13). It does not count as a configured pack, so the "no coding agent" notice still
+	// prints when it is the only one (run.warnIfNoPacks), and a loophole it ships that is inert on
+	// this setup is not reported at launch, only by `yolo loopholes status`, since the user did
+	// not choose it (LG-D13).
+	//
+	// HONORED FOR A PACK YOLO SHIPS ONLY. A configured pack — local or fetched — that declares it
+	// is refused when it resolves (config.ResolvePack), naming the line to delete: a pack a user
+	// names is already selected by that line, and a fetched pack must not be able to promote
+	// itself into every launch. `cgroup-delegate` is the one shipped pack that sets it, because
+	// its loophole can only narrow the jail (LG-D13). There is no per-workspace way to deselect
+	// it yet; that arrives with the pack's per-workspace `off` (LG-D9).
+	SelectedByDefault bool `json:"selected_by_default,omitempty"`
+
 	// Supersedes is the pack's claim that some capability's job no longer needs doing,
 	// so whichever loophole SERVES it can stop (docs/reference/pack-system.md §2).
 	// Each entry carries a MANDATORY `because` — see supersedes.go for why it is a

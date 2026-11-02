@@ -26,6 +26,7 @@ func TestLoadPacksIgnoresWorkspaceScopeByConstruction(t *testing.T) {
 		`{"packs": ["file:///packs/from-workspace"]}`)
 
 	got, err := LoadPacks(nil)
+	got = withoutDefaultSelected(got)
 	if err != nil {
 		t.Fatal(err)
 	}

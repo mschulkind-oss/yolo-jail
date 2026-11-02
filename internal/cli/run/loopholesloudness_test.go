@@ -1,6 +1,7 @@
 package run
 
 import (
+	"bytes"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -373,15 +374,17 @@ func TestCgroupDelegateSaysWhyWhenTheKernelHasNoCgroupV2(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("the in-process delegate is Linux-only; off Linux the inert report owns this")
 	}
-	var buf strings.Builder
-	o := &Options{Stderr: &buf}
+	// Since T15 the pack is selected by default, so this line goes to the launch log alone
+	// (TestNoCgroupV2GoesToTheLaunchLogAlone pins the terminal half); the register is read there.
+	var term, logBuf bytes.Buffer
+	o := &Options{Stderr: logTee{term: &term, log: &logBuf}}
 	fillDefaults(o)
 	o.IsMacOS = false
 	o.PathExists = func(string) bool { return false }
 	if _, ok := o.startCgroupDelegate("yolo-ws-loud0000", "podman", t.TempDir()); ok {
 		t.Fatal("the delegate started without cgroup v2")
 	}
-	out := buf.String()
+	out := logBuf.String()
 	for _, want := range []string{"cgroup-delegate", "cgroup v2", "Nothing is missing", "yolo-cglimit"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("no-cgroup-v2 report %q missing %q", out, want)

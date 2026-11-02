@@ -172,6 +172,7 @@ func backendInertReason(rt string) string {
 // on a backend that ignores it (B-0). Only the platform axis is a per-loophole property the
 // user's own switch can preempt.
 func (o *Options) notePackLoopholesInert(rt string, packs []*packload.Pack, cfg *jsonx.OrderedMap) {
+	packs = chosenPacks(packs)
 	if backend := backendInertReason(rt); backend != "" {
 		// CONFIG-DECLARED loopholes are inert on these backends too, and this report
 		// walked packs only — so a user whose `loopholes.<name>.command` names a daemon
@@ -181,6 +182,21 @@ func (o *Options) notePackLoopholesInert(rt string, packs []*packload.Pack, cfg 
 		return
 	}
 	o.printInertLines(platformInertLines(packs, cfg))
+}
+
+// chosenPacks is packs less the ones selected by default (packload.Pack.SelectedByDefault):
+// a default-selected pack's loophole that does nothing on this setup is not reported at launch,
+// on either axis, since the user did not choose it; `yolo loopholes status` reports it
+// (docs/design/loophole-access-approval.md LG-D13). Today that is `cgroup-delegate` on macOS and
+// on Apple Container, which would otherwise print a line on every launch there.
+func chosenPacks(packs []*packload.Pack) []*packload.Pack {
+	var out []*packload.Pack
+	for _, p := range packs {
+		if !p.SelectedByDefault() {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // configInertLines is one line per `loopholes.<name>` entry in the user's own config on a

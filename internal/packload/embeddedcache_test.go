@@ -19,7 +19,24 @@ import (
 	"testing"
 	"testing/fstest"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 )
+
+// A pack read back from a launch's tree carries no origin (Official is false), so the shipped
+// set's own list decides; a non-shipped name declaring the key is not selected by default.
+func TestSelectedByDefaultHoldsForATreeReadShippedPack(t *testing.T) {
+	decl := &packdecl.Manifest{SelectedByDefault: true}
+	if !(&Pack{Name: "cgroup-delegate", Decl: decl}).SelectedByDefault() {
+		t.Error("a tree-read cgroup-delegate is not selected by default")
+	}
+	if (&Pack{Name: "acme", Decl: decl}).SelectedByDefault() {
+		t.Error("a non-shipped pack declaring selected_by_default was honored")
+	}
+	if !(&Pack{Name: "acme", Decl: decl, Official: true}).SelectedByDefault() {
+		t.Error("an official pack declaring the key was not honored")
+	}
+}
 
 func sampleFS() fstest.MapFS {
 	return fstest.MapFS{
@@ -38,6 +55,7 @@ func withEmbeddedFS(t *testing.T, f fs.FS) (string, string) {
 	releaseEmbeddedLocked()
 	prevFS, prevMemo := embeddedFS, embeddedHashMemo
 	embeddedFS, embeddedHashMemo = f, nil
+	embeddedByDefaultMemo, embeddedByDefaultRead = nil, false
 	embeddedMu.Unlock()
 	// RESOLVED where minted: the loader resolves its base through symlinks, and on darwin
 	// t.TempDir() is under /var/folders, itself a symlink — a raw one would never compare
@@ -49,6 +67,7 @@ func withEmbeddedFS(t *testing.T, f fs.FS) (string, string) {
 		restore()
 		embeddedMu.Lock()
 		embeddedFS, embeddedHashMemo = prevFS, prevMemo
+		embeddedByDefaultMemo, embeddedByDefaultRead = nil, false
 		embeddedMu.Unlock()
 	})
 	return base, tmp

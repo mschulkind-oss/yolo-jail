@@ -150,6 +150,7 @@ func TestPackSourceRenameKeepsAnOmittedRefGitPackAtItsPinnedCommit(t *testing.T)
 	userPath := filepath.Join(home, ".config", "yolo-jail", paths.UserConfigTOMLName)
 	writeFile(t, userPath, "packs = ['acme/x']\n[pack_sources.acme]\ngit = 'file://"+filepath.ToSlash(remote)+"'\n")
 	entries, err := config.LoadPacks(func(string) {})
+	entries = config.WithoutSelectedByDefault(entries)
 	if err != nil || len(entries) != 1 || !entries[0].AllowDefaultRef {
 		t.Fatalf("entries = %+v, %v", entries, err)
 	}

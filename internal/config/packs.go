@@ -154,6 +154,13 @@ type PackEntry struct {
 	// agent, so counting it there would silence a warning that is still true. See
 	// HasConfiguredPack.
 	Implicit bool `json:"-"`
+
+	// ByDefault marks a shipped pack in the selection because its manifest says
+	// `selected_by_default = true`, not because a config line named it (appendImplicitPacks;
+	// docs/design/loophole-access-approval-plan.md PD-13). json:"-" for Implicit's reason. Like
+	// the local pack, it is not a CONFIGURED pack: HasConfiguredPack skips it, so a jail whose
+	// only packs are default ones still hears that it has no coding agent.
+	ByDefault bool `json:"-"`
 }
 
 // Identity is the pack's identity (packsrc.PackIdentity; docs/design/pack-naming.md §3.2): where
@@ -313,15 +320,59 @@ func loadPackEntries(warn Warn) ([]PackEntry, []string, error) {
 	// checkPacks refuses among configured entries, which this one bypasses by being appended
 	// rather than lowered). Yielding to the explicit entry is the honest direction: a config
 	// line the user wrote outranks a convention yolo applied for them.
-	entries = appendImplicitLocalPack(entries)
+	//
+	// THE DEFAULT-SELECTED SHIPPED PACKS go in just before it (appendImplicitPacks), so the local
+	// pack stays last.
+	entries = appendImplicitPacks(entries)
 	return entries, problems, nil
 }
 
-func appendImplicitLocalPack(entries []PackEntry) []PackEntry {
+// appendImplicitPacks appends the entries no config line asked for to the configured ones, in
+// this order: every shipped pack whose manifest says `selected_by_default = true`
+// (appendDefaultSelectedPacks), then the conventional local pack, LAST (localPackEntry says why).
+// Every reader of the user scope's selection lowers its entries and then calls this, so the
+// launch, `yolo check`, `yolo host apply`, edit validation and the broker selection agree on
+// what is selected.
+func appendImplicitPacks(entries []PackEntry) []PackEntry {
+	entries = appendDefaultSelectedPacks(entries, packload.EmbeddedSelectedByDefault())
 	if local, ok := localPackEntry(); ok && !hasPackNamed(entries, local.Name) {
 		entries = append(entries, local)
 	}
 	return entries
+}
+
+// appendDefaultSelectedPacks appends one entry per name in defaults, each the entry a bare
+// `packs = ["<name>"]` lowers to, marked ByDefault (docs/design/loophole-access-approval-plan.md
+// PD-13). `cgroup-delegate` is the one such pack today (LG-D13).
+//
+// A configured entry already selecting the pack — or any configured pack already using the
+// name — wins the slot, for the reason the local pack yields: two entries with one name share a
+// staging dir. Selecting the pack explicitly therefore changes nothing but the entry's
+// ByDefault, which only HasConfiguredPack reads.
+//
+// NO CONFIG LINE DESELECTS IT YET. Removing the `packs` line leaves the pack selected; its
+// per-workspace `off` arrives with L4's (LG-D9).
+func appendDefaultSelectedPacks(entries []PackEntry, defaults []string) []PackEntry {
+	for _, name := range defaults {
+		if hasPackNamed(entries, name) || hasEmbeddedPackNamed(entries, name) {
+			continue
+		}
+		e := EmbeddedPackEntry(name)
+		e.ByDefault = true
+		entries = append(entries, e)
+	}
+	return entries
+}
+
+// hasEmbeddedPackNamed reports whether an entry already selects the shipped pack of this name
+// under any handle (`yolo/<name>` included).
+func hasEmbeddedPackNamed(entries []PackEntry, name string) bool {
+	for _, e := range entries {
+		if e.EmbeddedName == name {
+			return true
+		}
+	}
+	return false
 }
 
 func lowerReadablePackEntries(userCfg *jsonx.OrderedMap, sources *Sources) ([]PackEntry, []string) {
@@ -423,7 +474,7 @@ func localPackEntry() (PackEntry, bool) {
 // jail genuinely has no coding agent — the exact contradiction the opt-in ruling removed.
 func HasConfiguredPack(entries []PackEntry) bool {
 	for _, e := range entries {
-		if !e.Implicit {
+		if !e.Implicit && !e.ByDefault {
 			return true
 		}
 	}
@@ -892,4 +943,38 @@ func unknownEmbeddedMessageFromNames(s string, names []string) string {
 	return fmt.Sprintf("no pack named %q ships with yolo (available: %s); for a pack from "+
 		"elsewhere, give a full address like file:///path/to/pack or "+
 		"git+ssh://git@host/org/repo//sub?ref=main", s, strings.Join(names, ", "))
+}
+
+// WithoutSelectedByDefault is entries less the ones selected by default (ByDefault). A verb whose
+// "no packs configured" branch is about the user's own selection asks this, so the shipped default
+// pack, which no line named, does not turn that branch off (PD-13: it is not a coding agent and
+// renders nothing at the host notch).
+func WithoutSelectedByDefault(entries []PackEntry) []PackEntry {
+	var out []PackEntry
+	for _, e := range entries {
+		if !e.ByDefault {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// IsSelectedByDefault reports whether name is a shipped pack every launch selects with no
+// `packs` line naming it (appendImplicitPacks). A verb that would tell the user to add or remove
+// the pack asks this first: for such a pack neither line changes what a launch selects.
+func IsSelectedByDefault(name string) bool {
+	for _, n := range packload.EmbeddedSelectedByDefault() {
+		if n == name {
+			return true
+		}
+	}
+	return false
+}
+
+// SelectedByDefaultNoOff is the sentence a verb gives when the user asks to stop a
+// default-selected pack: there is no way to yet, and it says where the way will come from.
+func SelectedByDefaultNoOff(name string) string {
+	return name + " is selected by default (it ships with yolo and can only narrow the jail), so a " +
+		"launch selects it with or without a `packs` line; this yolo has no switch to turn it off, " +
+		"and a per-workspace `off` for it is planned (docs/design/loophole-access-approval.md LG-D9)"
 }

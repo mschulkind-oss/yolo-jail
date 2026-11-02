@@ -50,7 +50,7 @@ func TestStagePacksAppliesAnEmbeddedEntrysFilters(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(staged, "pack.toml")); err != nil {
 		t.Errorf("control: the rest of the pack must stage: %v", err)
 	}
-	if len(loaded) != 1 || loaded[0].Root != staged {
+	if len(chosenPacks(loaded)) != 1 || chosenPacks(loaded)[0].Root != staged {
 		t.Errorf("the loaded pack must be the staged copy: %+v", loaded)
 	}
 }
@@ -104,7 +104,7 @@ func TestStagePacksFollowsADotfileManagersLinksInALocalPack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a local pack a dotfile manager deployed must launch: %v", err)
 	}
-	if got := packNames(loaded); !slices.Equal(got, []string{"stowed", "local"}) {
+	if got := packNames(chosenPacks(loaded)); !slices.Equal(got, []string{"stowed", "local"}) {
 		t.Fatalf("loaded = %v, want both local packs", got)
 	}
 	for rel, want := range map[string]string{
@@ -180,7 +180,7 @@ func TestStagePacksReadsTheOneEmbeddedMaterialization(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a pack the registered embedded FS carries must stage: %v", err)
 	}
-	if len(loaded) != 1 || loaded[0].Name != "onlyinfs" {
+	if len(chosenPacks(loaded)) != 1 || chosenPacks(loaded)[0].Name != "onlyinfs" {
 		t.Fatalf("loaded = %+v, want the one embedded pack", loaded)
 	}
 

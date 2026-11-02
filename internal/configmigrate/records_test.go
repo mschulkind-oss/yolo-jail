@@ -56,6 +56,8 @@ func renamedPackFixture(t *testing.T) (dir, ws string) {
 func assertStateFollowsTheNewName(t *testing.T, dir string) {
 	t.Helper()
 	entries, err := config.LoadPacks(func(string) {})
+	// Less cgroup-delegate, which every load selects by default (PD-13).
+	entries = config.WithoutSelectedByDefault(entries)
 	if err != nil || len(entries) != 1 {
 		t.Fatalf("LoadPacks after the migration: %v %v", entries, err)
 	}

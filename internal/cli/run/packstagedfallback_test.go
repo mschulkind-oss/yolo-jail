@@ -65,8 +65,8 @@ func TestStagePacksUsesTheDeliveredTreeWhenTheSourceIsNotVisible(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a launch whose packs were all delivered must not be refused: %v", err)
 	}
-	if len(loaded) != 1 || loaded[0].Name != "matt-core" {
-		t.Fatalf("want the delivered pack loaded, got %d pack(s)", len(loaded))
+	if len(chosenPacks(loaded)) != 1 || chosenPacks(loaded)[0].Name != "matt-core" {
+		t.Fatalf("want the delivered pack loaded, got %d pack(s)", len(chosenPacks(loaded)))
 	}
 	// Staged for THIS launch out of the delivered copy, not merely resolved: the nested
 	// jail mounts its own staging root, so the content has to have been copied in.

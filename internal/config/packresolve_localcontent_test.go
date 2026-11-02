@@ -207,6 +207,7 @@ func TestResolvePackPreservesExplicitEmbeddedHandleAcrossStagingAndFiltering(t *
 		t.Fatal(err)
 	}
 	entries, problems, err := LoadPackEntries()
+	entries = withoutDefaultSelected(entries)
 	if err != nil || len(problems) != 0 || len(entries) != 1 {
 		t.Fatalf("LoadPackEntries: entries=%+v problems=%v err=%v", entries, problems, err)
 	}

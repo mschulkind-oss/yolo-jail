@@ -42,6 +42,7 @@ func TestLoadPackEntriesReadsQualifiedReadablePacks(t *testing.T) {
 		"packs = ['yolo/claude', 'src/tools', 'local/fixture']\n[pack_sources]\nsrc = '"+root+"'\n")
 
 	entries, problems, err := LoadPackEntries()
+	entries = withoutDefaultSelected(entries)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,6 +134,7 @@ func TestLoadPackEntriesRejectsPhysicalDirectoryAliasesWithBothOrigins(t *testin
 		"packs = [\n  'a/one',\n  'b/one',\n]\n[pack_sources]\na = '"+root+"'\nb = '"+alias+"'\n")
 
 	entries, problems, err := LoadPackEntries()
+	entries = withoutDefaultSelected(entries)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,6 +150,7 @@ func TestLoadPackEntriesKeepsLegacyPackReferences(t *testing.T) {
 	home := readablePackTestHome(t)
 	write(t, filepath.Join(home, ".config", "yolo-jail", paths.UserConfigLegacyJSONCName), `{"packs":["claude"]}`)
 	entries, problems, err := LoadPackEntries()
+	entries = withoutDefaultSelected(entries)
 	if err != nil || len(problems) != 0 || len(entries) != 1 || entries[0].Name != "claude" || !entries[0].Embedded() {
 		t.Fatalf("legacy packs = %#v, %q, %v", entries, problems, err)
 	}
@@ -213,6 +216,7 @@ func TestReadableDefaultPackResolvesLockedCommitAfterFreshProcessAndMirrorMove(t
 	write(t, filepath.Join(home, ".config", "yolo-jail", paths.UserConfigTOMLName),
 		"packs = ['acme/tools']\n[pack_sources.acme]\ngit = 'file://"+filepath.ToSlash(remote)+"'\n")
 	entries, err := LoadPacks(nil)
+	entries = withoutDefaultSelected(entries)
 	if err != nil || len(entries) != 1 || !entries[0].AllowDefaultRef {
 		t.Fatalf("readable pack entries = %v, %v", entries, err)
 	}
@@ -379,6 +383,7 @@ func TestReadableNamedShippedSourceIsNotEmbedded(t *testing.T) {
 			}
 			write(t, filepath.Join(home, ".config", "yolo-jail", paths.UserConfigTOMLName), sourceConfig)
 			entries, err := LoadPacks(nil)
+			entries = withoutDefaultSelected(entries)
 			if err != nil || len(entries) != 1 || entries[0].Embedded() || entries[0].EmbeddedName != "" {
 				t.Fatalf("named shipped source was classified as embedded: %+v, %v", entries, err)
 			}
@@ -444,6 +449,7 @@ func TestLoadReadablePacksRejectsBarePathsUnknownSourcesAndMalformedRefs(t *test
 			home := readablePackTestHome(t)
 			write(t, filepath.Join(home, ".config", "yolo-jail", paths.UserConfigTOMLName), tc.config)
 			entries, problems, err := LoadPackEntries()
+			entries = withoutDefaultSelected(entries)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -475,6 +481,7 @@ func TestReadablePackSourceDirectoryDoesNotSelectEveryPack(t *testing.T) {
 	write(t, filepath.Join(home, ".config", "yolo-jail", paths.UserConfigTOMLName),
 		"packs = []\n[pack_sources]\nsrc = '"+root+"'\n")
 	entries, problems, err := LoadPackEntries()
+	entries = withoutDefaultSelected(entries)
 	if err != nil || len(problems) != 0 || len(entries) != 0 {
 		t.Fatalf("unselected source directory was activated: entries %v, problems %q, err %v", entries, problems, err)
 	}

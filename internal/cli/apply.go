@@ -409,7 +409,10 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 		fmt.Fprintf(errw, "yolo host apply: %v\n", err)
 		return 1
 	}
-	if len(entries) == 0 && len(entryProblems) == 0 {
+	// WithoutSelectedByDefault: the shipped default pack (cgroup-delegate, PD-13) is selected with no
+	// line and contributes nothing the host notch renders, so a `packs` that names nothing still
+	// takes this branch and its "No packs configured" verdict.
+	if len(config.WithoutSelectedByDefault(entries)) == 0 && len(entryProblems) == 0 {
 		// "Nothing to apply" is not "nothing to clean up" — emptying `packs` is the MOST complete
 		// drop there is, and returning here left every pack's delivered output in the home with
 		// nothing that would ever ask about it again. So the retire pass still runs, against an empty

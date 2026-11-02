@@ -1,4 +1,5 @@
 name = "cgroup-delegate"
+selected_by_default = true
 
 [[loophole]]
 from = "loopholes/cgroup-delegate"

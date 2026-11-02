@@ -192,6 +192,9 @@ func ResolvePack(entry PackEntry, spec ResolvePackSpec) (ResolvedPack, error) {
 		load = packload.LoadDirForLocalUse
 	}
 	out.Pack, out.Problems = load(loadFrom, packName)
+	if !entry.Embedded() && out.Pack != nil && out.Pack.Decl != nil && out.Pack.Decl.SelectedByDefault {
+		out.Problems = append(out.Problems, selectedByDefaultProblem(entry.Name))
+	}
 	if out.Pack != nil && len(out.Problems) > 0 && len(out.Pack.SkewNotes) > 0 {
 		// A REFUSED PACK SAYS WHAT WAS SKIPPED TOO (PF-D75): every caller's refusal prints Problems
 		// alone, and a problem may be one only the skip left, such as a restriction kept without the
@@ -292,4 +295,15 @@ func embeddedPackNamed(name string) (*packload.Pack, error) {
 		}
 	}
 	return nil, errors.New("this build of yolo ships no pack by that name")
+}
+
+// selectedByDefaultProblem refuses `selected_by_default` in a pack yolo does not ship
+// (packdecl.Manifest.SelectedByDefault; docs/design/loophole-access-approval-plan.md PD-13). A
+// configured pack, local or fetched, is already selected by the `packs` line naming it, and a
+// fetched one must not promote itself into every launch, so the key has nothing honest to do
+// there. ResolvePack is the one resolver every notch and verb goes through, so the refusal is the
+// launch's, `yolo check`'s and `yolo host apply`'s alike.
+func selectedByDefaultProblem(name string) string {
+	return fmt.Sprintf("pack %s: selected_by_default is honored only for a pack shipped with yolo; "+
+		"delete that line from its pack.toml (your `packs` entry already selects it)", name)
 }

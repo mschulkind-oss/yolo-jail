@@ -44,7 +44,7 @@ func explicitEditProfileNamespaces(ctx *editValidationContext) (map[string]bool,
 	if len(problems) != 0 {
 		return nil, nil, fmt.Errorf("read planned configured pack entries: %v; repair config.packs before validating profile names", problems)
 	}
-	entries = appendImplicitLocalPack(entries)
+	entries = appendImplicitPacks(entries)
 	resolved := make(map[string]*packload.Pack, len(ctx.packs))
 	for _, pack := range ctx.packs {
 		if pack != nil {

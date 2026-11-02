@@ -463,8 +463,13 @@ func TestLoopholesEnableNamesAValuedKindAndAnUngatedPack(t *testing.T) {
 		}
 	}
 	rc, _, stderr := captureDispatchRC(t, []string{"loopholes", "disable", "cgroup-delegate"})
+	// cgroup-delegate's pack is selected by default (PD-13), so removing a `packs` line would not
+	// stop it, and there is no per-workspace `off` yet (LG-D9): the refusal says so instead of
+	// naming `yolo pack remove`.
 	if rc != 1 || !strings.Contains(stderr, "cgroup-delegate declares no grant") ||
-		!strings.Contains(stderr, "To stop it running:  yolo pack remove cgroup-delegate") {
+		!strings.Contains(stderr, "is selected by default") ||
+		!strings.Contains(stderr, "To stop it running:  not possible yet") ||
+		strings.Contains(stderr, "yolo pack remove cgroup-delegate") {
 		t.Errorf("disable of an ungated loophole rc = %d:\n%s", rc, stderr)
 	}
 }

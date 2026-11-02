@@ -98,8 +98,8 @@ func TestStagePacksAllowsOverlayAlongsideOwner(t *testing.T) {
 		t.Fatalf("config + config-overlay on one identity is the supported shape and must "+
 			"launch: %v", err)
 	}
-	if len(loaded) != 2 {
-		t.Errorf("loaded %d packs, want 2", len(loaded))
+	if len(chosenPacks(loaded)) != 2 {
+		t.Errorf("loaded %d packs, want 2", len(chosenPacks(loaded)))
 	}
 }
 
@@ -116,8 +116,8 @@ func TestStagePacksShippedSetStillLoads(t *testing.T) {
 		t.Fatalf("all six shipped packs together must still launch (the config-exclusivity "+
 			"pre-flight must not fire on them): %v", err)
 	}
-	if len(loaded) != 10 {
+	if len(chosenPacks(loaded)) != 10 {
 		t.Errorf("loaded %d packs, want 6 agent packs plus Claude's wire bridge and the three "+
-			"provider packs claude, codex and copilot need", len(loaded))
+			"provider packs claude, codex and copilot need", len(chosenPacks(loaded)))
 	}
 }

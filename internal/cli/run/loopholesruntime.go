@@ -485,7 +485,7 @@ func (o *Options) startLoopholesMatching(set loopholes.Set, cname, rt string, cf
 	// 2. The in-process cgroup delegate, gated on its loophole (Linux + cgroup v2 still
 	//    checked inside, because that is a fact about this kernel rather than a
 	//    declaration anyone can make).
-	if allow(paths.BuiltinCgroupLoopholeName) && o.cgroupDelegateHonored(set) {
+	if allow(paths.BuiltinCgroupLoopholeName) && cgroupDelegateBackend(rt) && o.cgroupDelegateHonored(set) {
 		if h, ok := o.startCgroupDelegate(cname, rt, socketsDir); ok {
 			handles = append(handles, h)
 		}
@@ -639,6 +639,15 @@ func hostDaemonOrder(set loopholes.Set, discovered []*loopholes.Loophole, cfg *j
 		}
 	}
 	return order, external
+}
+
+// cgroupDelegateBackend is whether a launch on runtime rt has a container cgroup to delegate. The
+// macos-user backend runs no container, so it plans and starts no delegate: with the pack selected
+// by default (docs/design/loophole-access-approval-plan.md PD-13), planning one there spawned a
+// keeper holding a service that cannot start. Apple Container is already excluded by
+// HostServiceAdmittedOn.
+func cgroupDelegateBackend(rt string) bool {
+	return rt != "macos-user" // parity: NotApplicable — macos-user runs no container, so there is no container cgroup to delegate
 }
 
 // cgroupDelegateHonored is the cgroup delegate's SWITCH — the thing that replaced

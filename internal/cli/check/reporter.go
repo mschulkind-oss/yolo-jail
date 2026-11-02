@@ -44,6 +44,9 @@ type reporter struct {
 	section  string
 	version  string
 	findings []Finding
+	// configWarned is every message configWarn has graded, so a config loader's finding read
+	// by two sections is one row and one count (configWarn).
+	configWarned map[string]bool
 }
 
 func newReporter(w io.Writer, color bool) *reporter {
@@ -187,7 +190,19 @@ func (r *reporter) hostFact(msg, whereToCheck string) {
 // three gates at check.go), and r.warned is read only by summaryFailWarn and
 // summaryFinal below. So a finding that used to scroll past now lands in the count
 // and nothing starts refusing — which is why this step needed no ruling on OQ-RM1.
+//
+// ONE FINDING, ONE ROW. Two sections read the same loader: the Packs section's env-override
+// prediction resolves env_sources as the Entrypoint Dry-Run does, so with any pack selected (and
+// cgroup-delegate is selected by default) a missing env_sources file was graded and counted
+// twice. A message already graded is not graded again.
 func (r *reporter) configWarn(msg string) {
+	if r.configWarned[msg] {
+		return
+	}
+	if r.configWarned == nil {
+		r.configWarned = map[string]bool{}
+	}
+	r.configWarned[msg] = true
 	r.warn(msg, "Fix the config entry this names (`yolo config-ref` documents every key), "+recheck)
 }
 

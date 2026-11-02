@@ -17,9 +17,10 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
-// claudeAndItsNeeds is what `"packs": ["claude"]` selects at every notch: claude, claude-auth
-// (docs/design/provider-enablement.md OQ-PE2) and wire-bridge.
-var claudeAndItsNeeds = []string{"claude", "claude-auth", "wire-bridge"}
+// claudeAndItsNeeds is what `"packs": ["claude"]` selects at every notch: claude, cgroup-delegate
+// (selected by default, an entry after the configured ones: docs/design/loophole-access-approval-plan.md
+// PD-13), claude-auth (docs/design/provider-enablement.md OQ-PE2) and wire-bridge.
+var claudeAndItsNeeds = []string{"claude", "cgroup-delegate", "claude-auth", "wire-bridge"}
 
 // claudeDirectNeeds says which pack's need joins claude, the pack a cause line names.
 var claudeDirectNeeds = []string{"claude-auth", "wire-bridge"}
@@ -66,9 +67,10 @@ func TestClaudeAloneSelectsTheLaunchClosureAtEveryHostVerb(t *testing.T) {
 			t.Errorf("%s selects %v, want %v (what a jail launch stages)", tc.verb, got, claudeAndItsNeeds)
 		}
 	}
-	if fold.afterConfigured != 1 {
-		t.Errorf("config promote's fold puts the local pack's slot at %d, want 1: after the "+
-			"configured entries and before the closure's additions", fold.afterConfigured)
+	// 2: claude, then cgroup-delegate, which LoadPacks appends as an entry (PD-13).
+	if fold.afterConfigured != 2 {
+		t.Errorf("config promote's fold puts the local pack's slot at %d, want 2: after the "+
+			"configured and default-selected entries and before the closure's additions", fold.afterConfigured)
 	}
 	// The one host verb that reads the shipped set on top: every one of them is a candidate.
 	for _, name := range claudeAndItsNeeds {

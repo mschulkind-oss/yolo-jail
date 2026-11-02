@@ -647,6 +647,9 @@ func retiredRefusal(deps Deps, verb string, lp *Loophole) string {
 		}
 	case lp.Brokered != nil:
 		fmt.Fprintf(&b, "  %s has no grant of its own to request. %s\n", lp.Name, config.BrokerGrantAdviceFor(*lp.Brokered))
+	case lp.Pack != "" && config.IsSelectedByDefault(lp.Pack):
+		fmt.Fprintf(&b, "  %s declares no grant, and its pack, %s, is selected by default: it runs in every launch "+
+			"whose setup can run it, with no line in any config.\n", lp.Name, lp.Pack)
 	case lp.Pack != "":
 		fmt.Fprintf(&b, "  %s declares no grant, so its pack, %s, is all that decides it: `yolo pack add %s` runs it "+
 			"everywhere.\n", lp.Name, lp.Pack, pack)
@@ -655,7 +658,11 @@ func retiredRefusal(deps Deps, verb string, lp *Loophole) string {
 			"is there.\n", lp.Name, lp.Name, paths.UserConfigDisplayPath())
 	}
 	if verb == "disable" && lp.Pack != "" {
-		fmt.Fprintf(&b, "  To stop it running:  yolo pack remove %s\n", pack)
+		if config.IsSelectedByDefault(lp.Pack) {
+			fmt.Fprintf(&b, "  To stop it running:  not possible yet. %s.\n", config.SelectedByDefaultNoOff(lp.Pack))
+		} else {
+			fmt.Fprintf(&b, "  To stop it running:  yolo pack remove %s\n", pack)
+		}
 	}
 	return b.String()
 }

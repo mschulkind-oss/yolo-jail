@@ -35,7 +35,9 @@ func precedenceHome(t *testing.T) {
 	writePack(t, local, `{"name":"local"}`)
 }
 
-var wantPrecedence = []string{"zeta", "guardrails", "hello-daemon", "local"}
+// cgroup-delegate is selected by default (PD-13): an entry after the configured ones, so the
+// closure's additions follow it and the local pack stays last.
+var wantPrecedence = []string{"zeta", "guardrails", "cgroup-delegate", "hello-daemon", "local"}
 
 func packNames(packs []*packload.Pack) []string {
 	var out []string

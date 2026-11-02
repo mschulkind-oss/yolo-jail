@@ -26,9 +26,9 @@ func TestOnlySelectedEmbeddedPacksAreStaged(t *testing.T) {
 		t.Fatalf("stagePacks: %v", err)
 	}
 	// claude's needs: claude-auth and wire-bridge (packs/claude/pack.json).
-	if len(loaded) != 3 || loaded[0].Name != "claude" {
+	if len(chosenPacks(loaded)) != 3 || chosenPacks(loaded)[0].Name != "claude" {
 		var names []string
-		for _, p := range loaded {
+		for _, p := range chosenPacks(loaded) {
 			names = append(names, p.Name)
 		}
 		t.Fatalf("loaded = %v, want claude plus its declared dependencies", names)
@@ -38,7 +38,8 @@ func TestOnlySelectedEmbeddedPacksAreStaged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 3 {
+	// Plus cgroup-delegate, which every launch selects by default (PD-13).
+	if len(entries) != 4 {
 		var names []string
 		for _, e := range entries {
 			names = append(names, e.Name())
@@ -61,8 +62,8 @@ func TestNoPacksStagesNothing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stagePacks: %v", err)
 	}
-	if len(loaded) != 0 {
-		t.Errorf("want no packs, got %d", len(loaded))
+	if len(chosenPacks(loaded)) != 0 {
+		t.Errorf("want no packs, got %d", len(chosenPacks(loaded)))
 	}
 	if len(briefings) != 0 {
 		t.Errorf("want no briefings, got %d", len(briefings))
@@ -79,8 +80,8 @@ func TestDroppingAPackUnstagesIt(t *testing.T) {
 	o := &Options{Workspace: t.TempDir(), Stderr: discardBuf()}
 	if _, loaded, _, err := o.stagePacks("yolo-test-drop"); err != nil {
 		t.Fatalf("stagePacks: %v", err)
-	} else if len(loaded) != 5 {
-		t.Fatalf("first pass: want claude, codex, their auth packs and Claude's wire bridge; got %d packs", len(loaded))
+	} else if len(chosenPacks(loaded)) != 5 {
+		t.Fatalf("first pass: want claude, codex, their auth packs and Claude's wire bridge; got %d packs", len(chosenPacks(loaded)))
 	}
 
 	writeUserPacks(t, home, `["claude"]`)
@@ -88,8 +89,8 @@ func TestDroppingAPackUnstagesIt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stagePacks after drop: %v", err)
 	}
-	if len(loaded) != 3 || loaded[0].Name != "claude" {
-		t.Fatalf("after dropping codex: want claude and its dependencies, got %d packs", len(loaded))
+	if len(chosenPacks(loaded)) != 3 || chosenPacks(loaded)[0].Name != "claude" {
+		t.Fatalf("after dropping codex: want claude and its dependencies, got %d packs", len(chosenPacks(loaded)))
 	}
 	entries, err := os.ReadDir(filepath.Dir(loaded[0].Root))
 	if err != nil {

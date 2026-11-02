@@ -24,7 +24,8 @@ import (
 // firstPacksAnswer is the first session's sync point: the ANSWER to its /ctx/packs listing, the
 // marker followed by at least one character, and never the boot's echo of the command, which
 // carries the marker with `$(` after it.
-var firstPacksAnswer = regexp.MustCompile(`FIRST-PACKS-[a-z,]+`)
+// `-` too: cgroup-delegate, selected by default (PD-13), is in every tree.
+var firstPacksAnswer = regexp.MustCompile(`FIRST-PACKS-[a-z,-]+`)
 
 // TestAnAttachKeepsThePackTreeTheJailBootedWith: launch with the zai pack selected, drop it from
 // the config, and attach. The attached session still sees zai at /ctx/packs — the tree its jail
@@ -75,7 +76,7 @@ func TestAnAttachKeepsThePackTreeTheJailBootedWith(t *testing.T) {
 	if !strings.Contains(r.stderr, "Attaching to existing jail") {
 		t.Fatalf("the launch did not attach, so it tested a fresh launch:\n%s", r.combined())
 	}
-	if !strings.Contains(r.stdout, "ATTACH-PACKS-zai") {
+	if !regexp.MustCompile(`ATTACH-PACKS-[a-z,-]*\bzai,`).MatchString(r.stdout) {
 		t.Errorf("the attached session no longer sees zai at /ctx/packs: the attach re-staged the "+
 			"tree the running jail binds\n%s", r.combined())
 	}

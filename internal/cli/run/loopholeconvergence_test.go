@@ -333,7 +333,7 @@ func TestLazyResolverReadsTheStoreAndGates(t *testing.T) {
 	pack := loopholePackDir(t, "hasloop", "loopholes/acme-proxy")
 	writeUserPacks(t, home, `["file://`+pack+`"]`)
 
-	got := resolvePackLoopholeModules()
+	got := chosenModules(resolvePackLoopholeModules())
 	// This used to t.Skip on len(got) == 0, because before the kind landed packdecl.Decode
 	// refused the unknown kind and the projection legitimately found nothing. The kind
 	// landed, so an empty answer is now the DEFECT this test exists to catch — a resolver
@@ -364,7 +364,7 @@ func TestLazyResolverIsSilentAndEmptyOnAnUnresolvablePack(t *testing.T) {
 	// A git pack that was never fetched: PackRoot fails, and `yolo check` must not.
 	writeUserPacks(t, home, `["git+ssh://git@example.invalid/org/repo?ref=main"]`)
 
-	if got := resolvePackLoopholeModules(); len(got) != 0 {
+	if got := chosenModules(resolvePackLoopholeModules()); len(got) != 0 {
 		t.Errorf("an unresolvable pack must contribute nothing, got %+v", got)
 	}
 }

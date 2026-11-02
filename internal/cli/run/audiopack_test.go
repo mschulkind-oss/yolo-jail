@@ -342,7 +342,7 @@ func selectEmbeddedAudio(t *testing.T) {
 // on was the case where nothing was wrong.
 func TestLazyResolverSeesAnEmbeddedPackLoophole(t *testing.T) {
 	selectEmbeddedAudio(t)
-	mods := resolvePackLoopholeModules()
+	mods := chosenModules(resolvePackLoopholeModules())
 	if len(mods) == 0 {
 		t.Fatal("the lazy resolver returned no modules for a selected EMBEDDED pack that " +
 			"ships a loophole — `yolo loopholes list` would omit it and config validation " +

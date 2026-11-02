@@ -47,10 +47,10 @@ func TestConfiguredPackNameComesFromTheAddressNotTheManifest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stagePacks: %v", err)
 	}
-	if len(loaded) != 1 {
-		t.Fatalf("loaded %d packs, want exactly the configured one", len(loaded))
+	if len(chosenPacks(loaded)) != 1 {
+		t.Fatalf("loaded %d packs, want exactly the configured one", len(chosenPacks(loaded)))
 	}
-	p := loaded[0]
+	p := chosenPacks(loaded)[0]
 	// The manifest WAS read — this is not a "pack.json got skipped" result.
 	if p.Decl.Name != "house" {
 		t.Fatalf("Decl.Name = %q, want house — the manifest was not read, so this test is "+
@@ -95,10 +95,10 @@ func TestStagedPackNameIsWhatTheJailWillDerive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stagePacks: %v", err)
 	}
-	if len(loaded) != 1 {
-		t.Fatalf("loaded %d packs, want exactly the configured one", len(loaded))
+	if len(chosenPacks(loaded)) != 1 {
+		t.Fatalf("loaded %d packs, want exactly the configured one", len(chosenPacks(loaded)))
 	}
-	host := loaded[0]
+	host := chosenPacks(loaded)[0]
 	// Exactly what LoadJailPacks does with the tree the host just staged.
 	jail, problems := packload.LoadDir(host.Root, filepath.Base(host.Root))
 	if len(problems) != 0 {
@@ -178,10 +178,10 @@ func TestPackCtxMountAgreesAcrossTheSplitForANonSlugCleanName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stagePacks: %v", err)
 	}
-	if len(loaded) != 1 {
-		t.Fatalf("loaded %d packs, want exactly the configured one", len(loaded))
+	if len(chosenPacks(loaded)) != 1 {
+		t.Fatalf("loaded %d packs, want exactly the configured one", len(chosenPacks(loaded)))
 	}
-	host := loaded[0]
+	host := chosenPacks(loaded)[0]
 	// The fixture only measures anything while the two strings differ. If staging ever
 	// stops escaping, this test is comparing a value with itself and must say so rather
 	// than passing quietly.

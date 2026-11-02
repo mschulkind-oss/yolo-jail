@@ -589,6 +589,10 @@ func TestPackLsEmptyExplainsWhereToConfigure(t *testing.T) {
 	if !strings.Contains(out.String(), "user scope only") {
 		t.Errorf("empty ls should say where packs are configured:\n%s", out.String())
 	}
+	// The default-selected pack (PD-13) is listed, and says why no config line names it.
+	if !strings.Contains(out.String(), "cgroup-delegate") || !strings.Contains(out.String(), "selected by default") {
+		t.Errorf("empty ls should list the pack selected by default:\n%s", out.String())
+	}
 }
 
 // gitPackRepo builds a real git repo containing a pack in a subdirectory, so the

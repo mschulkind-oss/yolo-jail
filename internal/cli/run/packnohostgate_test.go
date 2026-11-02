@@ -123,11 +123,11 @@ func TestFetchedPackHostClaimsAreHonoredWithNoApproval(t *testing.T) {
 			"this refusal is deliberate, rule on it in docs/design/trust-paths.md first.\n%s",
 			err, out.String())
 	}
-	if root == "" || len(loaded) != 1 {
+	if root == "" || len(chosenPacks(loaded)) != 1 {
 		t.Fatalf("staging returned root=%q and %d packs, want the one configured pack",
-			root, len(loaded))
+			root, len(chosenPacks(loaded)))
 	}
-	p := loaded[0]
+	p := chosenPacks(loaded)[0]
 
 	installs, refused := p.HonoredInstalls()
 	if len(refused) != 0 {

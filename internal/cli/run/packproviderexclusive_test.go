@@ -98,7 +98,7 @@ func TestStagePacksAllowsDistinctProviderNames(t *testing.T) {
 	if err != nil {
 		t.Fatalf("two providers with distinct names are not a collision: %v", err)
 	}
-	if len(loaded) != 2 {
-		t.Errorf("loaded %d packs, want 2", len(loaded))
+	if len(chosenPacks(loaded)) != 2 {
+		t.Errorf("loaded %d packs, want 2", len(chosenPacks(loaded)))
 	}
 }

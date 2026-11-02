@@ -29,6 +29,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"path"
 	"sort"
 	"sync"
 )
@@ -40,6 +41,11 @@ var (
 	embeddedProblems []string
 	embeddedFS       fs.FS
 	embeddedExiting  bool
+
+	// embeddedByDefaultMemo is EmbeddedSelectedByDefault's answer for the registered FS;
+	// SetEmbeddedFS clears it.
+	embeddedByDefaultMemo []string
+	embeddedByDefaultRead bool
 
 	// embeddedRoot is the tree the packs were loaded from: <base>/<hash> in the cache, or a
 	// per-process TMPDIR dir when embeddedFallback. Only a fallback tree is ever deleted by
@@ -67,6 +73,7 @@ func SetEmbeddedFS(f fs.FS) {
 	defer embeddedMu.Unlock()
 	embeddedFS = f
 	embeddedHashMemo = nil
+	embeddedByDefaultMemo, embeddedByDefaultRead = nil, false
 }
 
 // EmbeddedFS returns the registered immutable source filesystem without loading or materializing packs.
@@ -241,6 +248,50 @@ func EmbeddedRetireMiseTools() []string { return RetireMiseTools(nil) }
 func EmbeddedNames() []string {
 	names, _ := EmbeddedNamesFromFS(EmbeddedFS())
 	return names
+}
+
+// EmbeddedSelectedByDefault lists, sorted, the embedded packs whose manifest declares
+// `selected_by_default = true` (packdecl.Manifest.SelectedByDefault): the packs
+// config.LoadPacks puts in every selection with no `packs` line naming them
+// (docs/design/loophole-access-approval-plan.md PD-13).
+//
+// Read from the registered embed.FS, manifest by manifest, never through Embedded(): LoadPacks
+// runs on every config read, and a flag does not justify materializing and leasing a tree
+// (the reason EmbeddedNames reads the FS too; embeddedlazy_test.go pins it). Memoized per
+// registration, since the embed cannot change under a process. A manifest that cannot be read
+// or decoded contributes nothing here: the selection of that pack is then the user's alone, and
+// the resolver reports the same manifest's problem to whoever selects it.
+func EmbeddedSelectedByDefault() []string {
+	embeddedMu.Lock()
+	defer embeddedMu.Unlock()
+	if embeddedByDefaultRead {
+		return append([]string(nil), embeddedByDefaultMemo...)
+	}
+	embeddedByDefaultMemo = selectedByDefaultFromFS(embeddedFS)
+	embeddedByDefaultRead = true
+	return append([]string(nil), embeddedByDefaultMemo...)
+}
+
+func selectedByDefaultFromFS(fsys fs.FS) []string {
+	names, err := EmbeddedNamesFromFS(fsys)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, name := range names {
+		data, found, problem := discoverManifestWith(name,
+			func(p string) (os.FileInfo, error) { return fs.Stat(fsys, p) },
+			func(p string) ([]byte, error) { return fs.ReadFile(fsys, p) },
+			func(a, b string) string { return path.Join(a, b) })
+		if problem != "" || found == "" {
+			continue
+		}
+		decl, problems, _ := decodeManifest(data, found, name, true)
+		if len(problems) == 0 && decl != nil && decl.SelectedByDefault {
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 // EmbeddedNamesFromFS lists the embedded pack directory names in one captured registered source.

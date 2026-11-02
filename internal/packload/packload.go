@@ -1291,6 +1291,21 @@ func loadEmbeddedPack(root, name string) (*Pack, []string) {
 	return p, probs
 }
 
+// SelectedByDefault reports that this is a pack yolo ships whose manifest says
+// `selected_by_default = true` (packdecl.Manifest.SelectedByDefault): one every launch selects
+// with no `packs` line naming it. A launch does not report such a pack's loophole as inert, since
+// the user did not choose it (docs/design/loophole-access-approval.md LG-D13); `yolo loopholes
+// status` does. The key is honored for shipped packs only: the pack is Official (resolved this
+// process), or it was read back from a launch's tree (loadPackTree, which records no origin) under
+// a name the shipped set itself selects by default — a configured pack declaring the key is
+// refused before it can reach a tree (config.ResolvePack).
+func (p *Pack) SelectedByDefault() bool {
+	if p == nil || p.Decl == nil || !p.Decl.SelectedByDefault {
+		return false
+	}
+	return p.Official || slices.Contains(EmbeddedSelectedByDefault(), p.Name)
+}
+
 // loadEmbeddedPacks loads every pack of embedded from an already-written tree at dest.
 func loadEmbeddedPacks(embedded fs.FS, dest string) ([]*Pack, []string) {
 	names, err := embeddedPackDirs(embedded)

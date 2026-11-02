@@ -122,6 +122,7 @@ func TestLaunchRefreshUsesReadableOmittedRefAndRecordsRemoteDefault(t *testing.T
 	// The producer's durable lock must survive a new resolver process even when its
 	// mirror now advertises another branch.
 	entries, err := config.LoadPacks(nil)
+	entries = config.WithoutSelectedByDefault(entries)
 	if err != nil || len(entries) != 1 {
 		t.Fatalf("load readable packs after refresh = %v, %v", entries, err)
 	}

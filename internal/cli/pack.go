@@ -1491,10 +1491,12 @@ func packLs(out, errw io.Writer, color bool) int {
 		return 1
 	}
 	pr := richtext.Printer{W: out, Color: color}
-	if len(entries) == 0 {
+	if len(config.WithoutSelectedByDefault(entries)) == 0 {
 		pr.Printf("[dim]No packs configured. Select one with `yolo pack add <name>` " +
 			"(your user config; user scope only).[/dim]")
-		return 0
+		if len(entries) == 0 {
+			return 0
+		}
 	}
 	pr.Printf("[bold]%-20s %-8s %s[/bold]", "NAME", "KIND", "SOURCE")
 	for _, e := range entries {
@@ -1512,6 +1514,10 @@ func packLs(out, errw io.Writer, color bool) int {
 			// "embedded:claude" is a synthetic marker, not an address; printing it in a
 			// SOURCE column would invite someone to copy it as one.
 			source = "(ships with yolo)"
+		}
+		if e.ByDefault {
+			// No config line names it (PD-13), so the row says why it is listed.
+			source = "(ships with yolo; selected by default)"
 		}
 		pr.Printf("%-20s %-8s %s", e.Name, kind, source)
 		// The word its skills are delivered under (docs/design/pack-naming.md §3.3).

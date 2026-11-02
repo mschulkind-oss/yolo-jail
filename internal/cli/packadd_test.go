@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/testconfig"
 )
 
@@ -103,6 +104,49 @@ func TestPackRemoveLeavesNeighborCommentBytes(t *testing.T) {
 	if rc == 0 || !strings.Contains(errw, "is not in") {
 		t.Fatalf("absent remove rc=%d stderr=%q", rc, errw)
 	}
+}
+
+// A DEFAULT-SELECTED pack cannot be deselected yet (PD-13; its per-workspace `off` is LG-D9's):
+// `yolo pack remove` drops a line naming it, but says the pack stays selected, and with no line
+// it says why there is nothing to remove instead of implying the pack is already gone.
+func TestPackRemoveOfTheDefaultPackSaysItStaysSelected(t *testing.T) {
+	project := testconfig.Workspace(t, "")
+	user := testconfig.User(t, "packs = [\"claude\", \"cgroup-delegate\"]\n")
+	t.Setenv("HOME", user.Root)
+	t.Setenv("YOLO_VERSION", "")
+	rc, out, errw := runPackCapture(t, project.Root, []string{"remove", "cgroup-delegate"})
+	if rc != 0 || errw != "" || !strings.Contains(out, `Removed "cgroup-delegate" from packs`) ||
+		!strings.Contains(out, "is selected by default") || strings.Contains(out, "no longer reads it") {
+		t.Fatalf("pack remove rc=%d stdout=%q stderr=%q", rc, out, errw)
+	}
+	rc, out, errw = runPackCapture(t, project.Root, []string{"remove", "cgroup-delegate"})
+	if rc == 0 || out != "" || !strings.Contains(errw, "is not in") || !strings.Contains(errw, "is selected by default") ||
+		!strings.Contains(errw, "no switch to turn it off") {
+		t.Fatalf("absent remove rc=%d stdout=%q stderr=%q", rc, out, errw)
+	}
+}
+
+// `yolo loopholes status` is where a default-selected pack's loophole is reported (LG-D13): with
+// an empty user config it lists cgroup-delegate, which no config line named.
+func TestLoopholesStatusShowsTheDefaultSelectedDelegate(t *testing.T) {
+	tomlHome(t, "", "")
+	rc, stdout, stderr := captureDispatchRC(t, []string{"loopholes", "status"})
+	if rc != 0 || !strings.Contains(stdout, "cgroup-delegate") {
+		t.Fatalf("loopholes status rc=%d with an empty config does not list cgroup-delegate:\nstdout:\n%s\nstderr:\n%s",
+			rc, stdout, stderr)
+	}
+}
+
+// chosenHostPacks is packs less the default-selected one (cgroup-delegate, PD-13), for a test
+// about the packs its config named.
+func chosenHostPacks(packs []*packload.Pack) []*packload.Pack {
+	var out []*packload.Pack
+	for _, p := range packs {
+		if !p.SelectedByDefault() {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func TestPackAddInJailPrintsHostRun(t *testing.T) {

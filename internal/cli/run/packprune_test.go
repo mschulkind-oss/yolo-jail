@@ -19,6 +19,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -81,8 +82,8 @@ func TestADroppedConfiguredPackIsAbsentFromTheNextTree(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first launch: %v", err)
 	}
-	if len(loaded) != 2 {
-		t.Fatalf("first launch: want 2 packs staged, got %d", len(loaded))
+	if len(chosenPacks(loaded)) != 2 {
+		t.Fatalf("first launch: want 2 packs staged, got %d", len(chosenPacks(loaded)))
 	}
 	for _, slug := range []string{"keeper", "dropped"} {
 		if !isDir(filepath.Join(first, slug)) {
@@ -103,8 +104,8 @@ func TestADroppedConfiguredPackIsAbsentFromTheNextTree(t *testing.T) {
 	if filepath.Dir(second) != paths.PackTreeRoot("yolo-test-prune") {
 		t.Fatalf("the tree %s is not under the pack-tree root %s", second, paths.PackTreeRoot("yolo-test-prune"))
 	}
-	if len(loaded) != 1 || loaded[0].Name != "keeper" {
-		t.Fatalf("second launch: want [keeper], got %d packs", len(loaded))
+	if len(chosenPacks(loaded)) != 1 || chosenPacks(loaded)[0].Name != "keeper" {
+		t.Fatalf("second launch: want [keeper], got %d packs", len(chosenPacks(loaded)))
 	}
 	if _, statErr := os.Stat(filepath.Join(second, "dropped")); !os.IsNotExist(statErr) {
 		t.Errorf("the dropped pack is in the next launch's tree (%v) — the entrypoint renders "+
@@ -140,10 +141,12 @@ func TestADroppedEmbeddedPackIsAbsentFromTheNextTree(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second launch: %v", err)
 	}
-	if len(loaded) != 0 {
-		t.Fatalf("an empty config loaded %d packs", len(loaded))
+	if len(chosenPacks(loaded)) != 0 {
+		t.Fatalf("an empty config loaded %d packs", len(chosenPacks(loaded)))
 	}
-	if entries, _ := os.ReadDir(filepath.Join(second, officialStagingDir)); len(entries) != 0 {
+	// Only the default-selected pack (cgroup-delegate, PD-13) stays: no config line names it.
+	if entries, _ := os.ReadDir(filepath.Join(second, officialStagingDir)); len(entries) != 1 ||
+		!config.IsSelectedByDefault(entries[0].Name()) {
 		t.Errorf("the next launch's tree still holds embedded packs nobody selected: %v", entries)
 	}
 	if !isDir(filepath.Join(first, officialStagingDir, "claude")) {
@@ -234,6 +237,7 @@ func TestNoPackNameCollidesWithTheTreeRecord(t *testing.T) {
 			t.Fatalf("a pack named %q refused the launch: %v\n%s", name, err, out.String())
 		}
 		reread, err := loadPackTree(tree)
+		reread = chosenPacks(reread)
 		if err != nil || len(reread) != 1 || reread[0].Name != name {
 			t.Errorf("a pack named %q does not read back from its tree: %v (%d packs)", name, err, len(reread))
 		}

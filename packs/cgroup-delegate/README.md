@@ -4,42 +4,31 @@ One `loophole` contribution and nothing else. The delegate itself is **yolo's ow
 in-process goroutine** on the launcher side and the in-jail client (`cmd/yolo-cglimit`)
 is baked into the image, so nothing here ships a binary.
 
-**This manifest declares no daemon, and that is the point.** It is a *switch and an
-identity*: the thing that makes the delegate opt-in like everything else, and the thing
-that puts it in `yolo loopholes list`, `yolo check` and the briefing under the same
-vocabulary as every other loophole. The socket, the goroutine and the teardown are still
-the run pipeline's; what the run pipeline no longer does is decide by itself that the
-delegate should be running.
+**This manifest declares no daemon, and that is the point.** It is an *identity*: the
+thing that puts the delegate in `yolo loopholes list`, `yolo loopholes status`, `yolo check`
+and the briefing under the same vocabulary as every other loophole. The socket, the
+goroutine and the teardown are still the run pipeline's.
 
-## ⚠️ `yolo-cglimit` does not work until you ask for it
+## Selected by default
 
-This is the sprint's one **accepted cost**, stated in the ruling rather than discovered
-afterwards ([`loophole-activation.md`](../../docs/reference/loophole-system.md) OQ-A4).
+The manifest says `selected_by_default = true`, so **every launch selects this pack with no
+`packs` line naming it** and `yolo-cglimit` works in a jail with an empty config
+([LG-D13](../../docs/design/loophole-access-approval.md#LG-D13),
+[PD-13](../../docs/design/loophole-access-approval-plan.md#PD-13)). The loophole is ungated
+(it declares no `[[grants]]`): the delegate can only narrow the jail, creating child cgroups
+inside the container's own with the `cpu`, `memory` and `pids` controllers and bounded
+values, and it reads and changes nothing of the host's
+([`security-shim.md`](../../docs/reference/security-shim.md)).
 
-On your machine, `yolo pack add cgroup-delegate` selects the pack. In a legacy JSONC user config the same selection, and the rest of this setup, reads:
-
-```jsonc
-// ~/.config/yolo-jail/config.jsonc
-{
-  "packs": ["claude", "cgroup-delegate"],
-  "loopholes": { "cgroup-delegate": { "enabled": true } }
-}
-```
-
-Until then the jail's boot output says `cgroup delegate: not available (no host daemon
-socket)` and `yolo-cglimit` reports that it is not wired up in this jail.
-
-## Why it was converted at all
-
-It was **presence-activated**: it started whenever the platform allowed — *"Linux only,
-cgroup v2 only"* — with **no config key anywhere**. That is precisely the shape R1
-deletes, in a host-side service, and it was the last one left.
-
-The counter-argument was considered and overruled. The delegate hands a jail control of
-**its own** cgroup rather than reading host state, so R4's *"we don't give host access by
-default"* is genuinely weaker here — but *"weaker is not absent, and R1 is about the
-mechanism, not the severity. The moment one builtin stays presence-activated, 'presence
-never activates' stops being a rule anyone can rely on while reading the code."*
+- **The key is honored for a pack shipped with yolo only.** A local or fetched pack that
+  declares it is refused when it resolves, naming the line to delete.
+- **It is not a coding agent and does not count as one**: a launch whose only packs are
+  default-selected still prints the "no coding agent" notice.
+- **Where it cannot run, the launch says nothing** (macOS, Apple Container, a kernel without
+  cgroup v2), since you did not choose it; `yolo loopholes status` reports it.
+- **It cannot be turned off yet.** Removing a `packs` line naming it leaves it selected. Its
+  per-workspace `off` arrives with the pack switch of
+  [LG-D9](../../docs/design/loophole-access-approval.md#LG-D9).
 
 ## Why it is still on AF_UNIX
 
@@ -82,5 +71,6 @@ you could grant yourself with one config line.
 ```console
 $ yolo pack lint packs/cgroup-delegate
 $ yolo loopholes list                   # cgroup-delegate, source `pack`, transport none
-$ yolo-cglimit --help                   # in a jail that selected AND enabled it
+$ yolo loopholes status                 # cgroup-delegate, selected by default
+$ yolo-cglimit --help                   # in any jail on Linux with cgroup v2
 ```

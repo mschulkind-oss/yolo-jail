@@ -38,7 +38,7 @@ func readableBrokerSelection(user *jsonx.OrderedMap, sources *Sources) ([]string
 	if len(problems) != 0 {
 		return nil, nil, nil, fmt.Errorf("read selected user pack entries: %v", problems)
 	}
-	entries = appendImplicitLocalPack(entries)
+	entries = appendImplicitPacks(entries)
 
 	var temporaryRoots []string
 	defer func() {

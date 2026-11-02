@@ -29,8 +29,9 @@ func TestHostVerbsOrderPacksAsTheConfigListsThem(t *testing.T) {
 	for _, p := range set.packs {
 		got = append(got, p.Name)
 	}
-	want := []string{"zeta", "guardrails", "hello-daemon", "local"}
+	// cgroup-delegate is selected by default (PD-13), an entry after the configured ones.
+	want := []string{"zeta", "guardrails", "cgroup-delegate", "hello-daemon", "local"}
 	if !slices.Equal(got, want) {
-		t.Errorf("the host selects %v, want %v (config order, the closure, then the local pack)", got, want)
+		t.Errorf("the host selects %v, want %v (config order, the default-selected pack, the closure, then the local pack)", got, want)
 	}
 }

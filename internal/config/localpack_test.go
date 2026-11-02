@@ -36,6 +36,7 @@ func TestLocalPackAbsentIsSilent(t *testing.T) {
 	localPackHome(t, `{"packs": ["claude"]}`, false)
 	var warnings []string
 	entries, err := LoadPacks(func(m string) { warnings = append(warnings, m) })
+	entries = withoutDefaultSelected(entries)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,6 +54,7 @@ func TestLocalPackAbsentIsSilent(t *testing.T) {
 func TestLocalPackIncludedWithoutAConfigEntry(t *testing.T) {
 	home := localPackHome(t, `{"packs": ["claude"]}`, true)
 	entries, err := LoadPacks(nil)
+	entries = withoutDefaultSelected(entries)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,6 +84,7 @@ func TestLocalPackIncludedWithoutAConfigEntry(t *testing.T) {
 func TestLocalPackIncludedWithNoPacksKey(t *testing.T) {
 	localPackHome(t, `{}`, true)
 	entries, err := LoadPacks(nil)
+	entries = withoutDefaultSelected(entries)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,6 +100,7 @@ func TestLocalPackIncludedWithNoPacksKey(t *testing.T) {
 func TestLocalPackComposesLast(t *testing.T) {
 	localPackHome(t, `{"packs": ["claude", "pi", "codex"]}`, true)
 	entries, err := LoadPacks(nil)
+	entries = withoutDefaultSelected(entries)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,6 +120,7 @@ func TestLocalPackYieldsToAConfiguredPackOfTheSameName(t *testing.T) {
 	elsewhere := t.TempDir()
 	localPackHome(t, `{"packs": [{"source": "file://`+elsewhere+`", "name": "local"}]}`, true)
 	entries, err := LoadPacks(nil)
+	entries = withoutDefaultSelected(entries)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,6 +145,7 @@ func TestLocalPackNonDirectoryIsAbsent(t *testing.T) {
 	write(t, filepath.Join(home, ".config", "yolo-jail", "local"), "not a pack\n")
 
 	entries, err := LoadPacks(nil)
+	entries = withoutDefaultSelected(entries)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,6 +168,7 @@ func TestLocalPackNonDirectoryIsAbsent(t *testing.T) {
 func TestLocalPackIsAnOrdinaryLocalPack(t *testing.T) {
 	localPackHome(t, `{}`, true)
 	entries, err := LoadPacks(nil)
+	entries = withoutDefaultSelected(entries)
 	if err != nil {
 		t.Fatal(err)
 	}

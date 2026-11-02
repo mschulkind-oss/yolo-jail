@@ -24,24 +24,16 @@ import (
 // gate to prove the helper is on PATH even in a nested jail where cgroup writes
 // are impossible — folding it in here would over-skip and lose that coverage.
 //
-// BOTH of this test's inputs are now STATED, and they have to be. The delegate stopped
-// being presence-activated on 2026-08-18 (loophole-activation.md OQ-A4): it is a PACK
-// you select plus a loophole you switch on, and neither is on by default. This test used
-// to write neither and inherit both from the machine's own user config — so it asserted
-// "the socket exists" on a developer host that happened to select the pack, and could not
-// pass on a CI runner, which has no user config at all. That is the §10.5 defect in its
-// purest form: an ambient config SATISFYING an assertion.
-//
-// `packs` is user-scope only (writeProjectWithPacks); `loopholes.<name>.enabled` is
-// either-scope (loopholes.ConfigEnabledOverride, R5), so the switch reads well in the
-// workspace config next to the network mode.
+// IT NAMES NO PACK AND SWITCHES NOTHING ON, and that is the assertion: the cgroup-delegate
+// pack is selected by default and its loophole is ungated
+// (docs/design/loophole-access-approval.md LG-D13, plan PD-13), so a jail whose user config
+// is requireJail's empty isolated one gets the delegate. The user half is still STATED
+// rather than inherited from the machine: requireJail's empty config is what a CI runner has,
+// so an ambient config cannot satisfy the assertion (the §10.5 defect).
 func TestCgroupDelegation(t *testing.T) {
 	requireJail(t)
 	skipIfCgroupReadonly(t)
-	dir := writeProjectWithPacks(t, `{
-  "network": {"mode": "bridge"},
-  "loopholes": {"cgroup-delegate": {"enabled": true}}
-}`, "cgroup-delegate")
+	dir := writeProject(t, `{"network": {"mode": "bridge"}}`)
 
 	r := runYolo(t, dir,
 		"set -e; "+
@@ -70,7 +62,8 @@ func TestCgroupDelegation(t *testing.T) {
 //
 // It also needs NO pack and no loophole, and that is the assertion rather than an
 // oversight: yolo-cglimit is a BAKED binary (flake.nix's shippedBinaries), so it is on
-// PATH in a jail with nothing selected. Only the socket it talks to is opt-in.
+// PATH in a jail with nothing configured. The socket it talks to comes from the
+// cgroup-delegate pack, which is selected by default.
 func TestCglimitHelperAvailable(t *testing.T) {
 	requireJail(t)
 	dir := writeProject(t, `{"network": {"mode": "bridge"}}`)

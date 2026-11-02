@@ -189,8 +189,8 @@ func TestFetchedPackLoopholeSpawnsAndCrossesWithNoApproval(t *testing.T) {
 			"gate — the person who put a git URL in their own user config already granted "+
 			"strictly more than it withheld.\n%s", err, out.String())
 	}
-	if len(loaded) != 1 {
-		t.Fatalf("staging returned %d packs, want the one configured pack", len(loaded))
+	if len(chosenPacks(loaded)) != 1 {
+		t.Fatalf("staging returned %d packs, want the one configured pack", len(chosenPacks(loaded)))
 	}
 	// AND THE MODULE IS RECORDED. stagePacks calls loopholes.SetPackModules on its way out;
 	// under the old gate the refusal returned first and the converged set never learned the

@@ -137,7 +137,7 @@ func TestHostApplyNamesWhatYoloHostDeliversAtLaunch(t *testing.T) {
 	verboseReport(t)
 	_, verbose := surveyApply(t)
 	for _, want := range []string{"env (aws-auth, guardrails, pi)", "env (audio)", "loophole (aws-auth, codex-auth)",
-		"loophole (audio)", "`yolo config-ref` says how"} {
+		"loophole (audio, cgroup-delegate)", "`yolo config-ref` says how"} {
 		if !strings.Contains(verbose, want) {
 			t.Errorf("--verbose does not say %q:\n%s", want, verbose)
 		}

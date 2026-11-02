@@ -168,6 +168,12 @@ func packRemove(args []string, out, errw io.Writer) int {
 		}
 	}
 	if at < 0 {
+		if config.IsSelectedByDefault(handle) {
+			// Removing nothing cannot deselect it, and "not in packs" would read as already gone.
+			fmt.Fprintf(errw, "yolo pack remove: %q is not in %s; nothing written. %s\n", handle,
+				target.LogicalPath, config.SelectedByDefaultNoOff(handle))
+			return 1
+		}
 		fmt.Fprintf(errw, "yolo pack remove: %q is not in %s; nothing written. `yolo pack ls` lists the "+
 			"packs a launch reads and where each is listed\n", handle, target.LogicalPath)
 		return 1
@@ -188,6 +194,11 @@ func packRemove(args []string, out, errw io.Writer) int {
 	writeConfigEditHunks(out, result.Plan.Hunks)
 	if dryRun {
 		fmt.Fprintln(out, "Dry run; nothing was written.")
+		return 0
+	}
+	if config.IsSelectedByDefault(handle) {
+		// The line is gone, but the pack is not: the next launch selects it anyway.
+		fmt.Fprintf(out, "Removed %q from packs. %s.\n", handle, config.SelectedByDefaultNoOff(handle))
 		return 0
 	}
 	fmt.Fprintf(out, "Removed %q. The next launch no longer reads it.\n", handle)

@@ -49,7 +49,7 @@ func TestPreparationSchedulerDefersLockedMirrorAndDrainsWithoutRevokingSelection
 	if _, err := store.Sync(addr); err != nil {
 		t.Fatalf("seed configured pack mirror: %v", err)
 	}
-	configured := selectConfiguredHostPacks().packs
+	configured := chosenHostPacks(selectConfiguredHostPacks().packs)
 	trees := packload.PatchedTrees(configured)
 	if len(trees) != 2 || trees[0].Key() != poolKeyA || len(configured) != 1 {
 		t.Fatalf("configured remote pack trees = %+v", trees)

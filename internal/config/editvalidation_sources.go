@@ -25,7 +25,7 @@ func (ctx *editValidationContext) selectedPacks() ([]*packload.Pack, error) {
 	if len(problems) != 0 {
 		return nil, fmt.Errorf("read planned pack entries: %v", problems)
 	}
-	entries = appendImplicitLocalPack(entries)
+	entries = appendImplicitPacks(entries)
 	fsys := ctx.embeddedFS
 	embedded := map[string]*packload.Pack{}
 	var embeddedErr error

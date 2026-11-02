@@ -1025,7 +1025,7 @@ func (o *Options) hostServiceNames(rt string, cfg *jsonx.OrderedMap) []string {
 	set := loopholes.NewHostSet(cfgMap(cfg, "loopholes"))
 	allow := o.loopholeAllow(rt, cfg)
 	var names []string
-	if allow(paths.BuiltinCgroupLoopholeName) && o.cgroupDelegateHonored(set) {
+	if allow(paths.BuiltinCgroupLoopholeName) && cgroupDelegateBackend(rt) && o.cgroupDelegateHonored(set) {
 		names = append(names, paths.BuiltinCgroupLoopholeName)
 	}
 	var discovered []*loopholes.Loophole

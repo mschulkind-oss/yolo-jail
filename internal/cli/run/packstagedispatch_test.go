@@ -12,6 +12,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/heldchildren"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor/floortest"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -176,8 +177,19 @@ func TestPackRootIsEmptyWhenNoPacksAreConfigured(t *testing.T) {
 	if readErr != nil {
 		t.Fatalf("staged root %s: %v", got, readErr)
 	}
+	// The one pack every launch selects by default (cgroup-delegate, PD-13) is in _official;
+	// nothing else may be.
 	var names []string
 	for _, e := range entries {
+		if e.Name() == officialStagingDir {
+			official, _ := os.ReadDir(filepath.Join(got, officialStagingDir))
+			for _, o := range official {
+				if !config.IsSelectedByDefault(o.Name()) {
+					names = append(names, officialStagingDir+"/"+o.Name())
+				}
+			}
+			continue
+		}
 		if e.Name() != packTreeRecordName {
 			names = append(names, e.Name())
 		}

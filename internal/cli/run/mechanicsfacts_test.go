@@ -58,12 +58,16 @@ func TestRefreshedMechanicsSwitchFactsFollowLoopholeDecider(t *testing.T) {
 	if _, err := o.refreshJailBriefings("yolo-ws-switchfacts", cfg, "podman", stagedPacks{packs: packs}, ioprio.Normal, facts); err != nil {
 		t.Fatalf("refreshJailBriefings: %v", err)
 	}
-	if len(facts.Switches) != 2 {
-		t.Fatalf("produced switch facts = %#v, want both brokered and supported entries", facts.Switches)
-	}
+	// The default-selected pack's loophole (cgroup-delegate, PD-13) is listed too, with no switch;
+	// this test is about the two the config names.
 	byName := map[string]jailcontent.SwitchFact{}
 	for _, fact := range facts.Switches {
-		byName[fact.Name] = fact
+		if !config.IsSelectedByDefault(fact.Name) {
+			byName[fact.Name] = fact
+		}
+	}
+	if len(byName) != 2 {
+		t.Fatalf("produced switch facts = %#v, want both brokered and supported entries", facts.Switches)
 	}
 	if got := byName["brokered"]; got.Available {
 		t.Errorf("brokered switch fact = %#v, want unavailable", got)
