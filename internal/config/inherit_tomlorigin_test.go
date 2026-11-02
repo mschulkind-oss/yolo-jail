@@ -77,21 +77,21 @@ func TestInheritedJSONCRenderRefusesValuesATOMLFileWrote(t *testing.T) {
 // A legacy file included from a TOML one keeps the JSONC route only while the payload holds no
 // TOML-written value a reader judges by format. Here the TOML file writes such shapes and the
 // legacy include writes
-// a null TOML cannot carry yet (RC-D50's open gaps): neither format is honest, so delivery fails
+// a key a read does not lower yet (RC-D50's open gap 3, here `model_facts`): neither format is honest, so delivery fails
 // naming both sides, the legacy line and the next step, rather than handing readable values to
 // the legacy reader.
 func TestInheritedDeliveryFailsRatherThanFallBackWithTOMLWrittenValues(t *testing.T) {
 	src, filtered := loadConvertedHostConfig(t, "include_if_found = ['extra.jsonc']\n"+convertedTOMLUserConfig,
-		map[string]string{"extra.jsonc": `{"active_provider": {"claude": null}}`})
+		map[string]string{"extra.jsonc": `{"model_facts": {"m1": {"context_window": 1000}}}`})
 	values := filtered[InheritPreflight]
-	if _, present := values.Get("active_provider"); !present {
-		t.Fatalf("fixture: the legacy include's null did not reach the preflight scope, so this proves nothing: %v", values)
+	if _, present := values.Get("model_facts"); !present {
+		t.Fatalf("fixture: the legacy include's model_facts did not reach the preflight scope, so this proves nothing: %v", values)
 	}
 	body, format, fallback, err := RenderFilteredForDelivery(values, src, InheritPreflight, "")
 	if err == nil {
 		t.Fatalf("delivery fell back (format=%v, reason %q) with TOML-written values:\n%s", format, fallback, body)
 	}
-	for _, want := range []string{paths.UserConfigTOMLName, "config.active_provider.claude", "extra.jsonc:1:", "yolo config migrate"} {
+	for _, want := range []string{paths.UserConfigTOMLName, "config.model_facts", "extra.jsonc:1:", "yolo config migrate"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("the delivery failure does not say %q: %v", want, err)
 		}

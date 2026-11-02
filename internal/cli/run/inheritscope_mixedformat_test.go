@@ -141,16 +141,92 @@ func TestMixedFormatGapNamesTheLegacySettingAndMigrate(t *testing.T) {
 		t.Fatal(err)
 	}
 	wsFile := filepath.Join(o.Workspace, "yolo-jail.jsonc")
-	if err := os.WriteFile(wsFile, []byte(`{"lsp_servers": {"foo": null}}`+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(wsFile, []byte(`{"network": {"ports": ["127.0.0.1:8080:80"]}}`+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	_, err := o.userConfigMountArgsForHome("podman", wsState, nil)
 	if err == nil {
-		t.Fatal("a null with no TOML spelling crossed")
+		t.Fatal("a port bound to an address crossed with no TOML spelling")
 	}
-	for _, want := range []string{"config.packs[0]", "config.lsp_servers.foo", wsFile + ":1:", "yolo config migrate", "cannot yet write in TOML"} {
+	for _, want := range []string{"config.packs[0]", "config.network.ports", wsFile + ":1:", "yolo config migrate", "cannot yet write in TOML"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("the refusal does not name %q: %v", want, err)
 		}
+	}
+}
+
+// removalReads is what the consumers a legacy null reaches read from cfg (RC-D52): the live
+// language servers, the mise tools a jail installs, the blocked tools, and each agent's
+// selection.
+func removalReads(cfg *jsonx.OrderedMap) map[string]string {
+	out := map[string]string{}
+	var live []string
+	if table, ok := cfg.Get("lsp_servers"); ok {
+		if m, ok := table.(*jsonx.OrderedMap); ok {
+			for _, k := range m.Keys() {
+				if v, _ := m.Get(k); v != nil && v != "off" {
+					live = append(live, k)
+				}
+			}
+		}
+	}
+	out["lsp"] = strings.Join(live, ",")
+	out["mise"] = jsonx.MustDumpsCompact(config.MergeMiseTools(cfg))
+	sec, _ := cfg.Get("security")
+	secMap, _ := sec.(*jsonx.OrderedMap)
+	out["blocked"] = jsonx.MustDumpsCompact(config.NormalizeBlockedTools(secMap))
+	s := config.ConfigActiveSelection(cfg)
+	out["selection"] = strings.Join(s.Default, ",") + "|claude=" + strings.Join(s.Named["claude"], ",")
+	return out
+}
+
+// Every legacy null whose meaning reaches a launch crosses into the jail in its TOML removal
+// spelling (RC-D52: "off" for a language server or a mise tool, an empty list for blocked_tools,
+// "native" for an agent's selection), so under a TOML user config with packs the nested scope
+// crosses as TOML through the launch's own caller, and the jail's consumers read from it exactly
+// what the host's read from the mixed config. Fails if the delivery stops lowering the nulls
+// (config.LowerLegacyNulls), which refused these launches.
+func TestMixedFormatEveryRemovalCrossesAsTOML(t *testing.T) {
+	home, wsState := inheritHome(t, "")
+	o := inheritOptions(t)
+	dir := filepath.Join(home, ".config", "yolo-jail")
+	userTOML := "packs = ['claude']\ninclude_if_found = ['more.jsonc']\n" +
+		"[active_provider]\ndefault = 'anthropic'\nclaude = ['anthropic']\n" +
+		"[lsp_servers.foo]\ncommand = 'foo-ls'\nfileExtensions = { '.f' = 'f' }\n" +
+		"[install.mise]\nnode = '22'\n[security]\nblocked_tools = ['curl']\n"
+	for name, body := range map[string]string{
+		"config.toml": userTOML,
+		"more.jsonc":  `{"active_provider": {"claude": null}}`,
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ws := `{"lsp_servers": {"foo": null}, "mise_tools": {"node": null}, "security": {"blocked_tools": null}}`
+	if err := os.WriteFile(filepath.Join(o.Workspace, "yolo-jail.jsonc"), []byte(ws+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	effective, _, err := o.effectiveConfigForInherit()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := removalReads(effective)
+	if want["lsp"] != "" || want["mise"] != "{}" || want["blocked"] != "[]" || want["selection"] != "anthropic|claude=native" {
+		t.Fatalf("the fixture reads %v", want)
+	}
+	args, err := o.userConfigMountArgsForHome("podman", wsState, nil)
+	if err != nil {
+		t.Fatalf("the launch refused a mixed TOML/JSONC config: %v", err)
+	}
+	body, source, ok := mountedBody(t, args, "/home/agent/.config/yolo-jail/inherited-launch.toml")
+	if !ok || filepath.Ext(source) != ".toml" {
+		t.Fatalf("the nested scope was not delivered as TOML; argv=%v", args)
+	}
+	doc, err := configdoc.Parse([]byte(body), configdoc.TOML)
+	if err != nil {
+		t.Fatalf("delivered nested scope is not TOML: %v\n%s", err, body)
+	}
+	if got := removalReads(doc.Values); !maps.Equal(got, want) {
+		t.Errorf("the jail reads the removals differently:\n  host %v\n  jail %v\n%s", want, got, body)
 	}
 }

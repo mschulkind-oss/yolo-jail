@@ -380,6 +380,8 @@ func ReadableSchemaKeys() []SchemaKey {
 		{Path: "programs.overrides.*.path", Scope: user, Type: SchemaTypeString},
 		{Path: "programs.overrides.*.prebuilt", Scope: user, Type: SchemaTypeBoolean},
 		{Path: "programs.overrides.*.run", Scope: user, Type: SchemaTypeString},
+		// A language server's entry, so its removal spelling ("off", RC-D52) has a path.
+		{Path: "lsp_servers.*", Scope: both, Type: SchemaTypeObject},
 		{Path: "mcp_servers", Scope: both, Type: SchemaTypeObject},
 		{Path: "mcp_servers.*", Scope: both, Type: SchemaTypeObject},
 		{Path: "mcp_servers.*.command", Scope: both, Type: SchemaTypeList},

@@ -67,6 +67,14 @@
                            [requests.<pack>] (a project's request), approved
     loopholes.*.settings.* -> [allow.<pack>] settings
 
+  TOML has no null.  A legacy null that drops what a lower file wrote is, in TOML:
+    a list (packages, blocked_tools, env_sources ...) -> an empty list, e.g.
+                           [security] blocked_tools = [] (replaces the lists below)
+    one server or tool  -> "off": mcp_servers.<name>, lsp_servers.<name>,
+                           [install] mise.<tool> = "off"
+    an agent's selection -> active_provider.<agent> = "native"
+  `yolo config migrate` and a jail's inherited config write exactly these.
+
   [bold]allow[/bold] — (table, [bold]USER SCOPE ONLY[/bold]): what a project's jail may do with your
     logins and your host's loopholes.  `[allow.<pack>]` takes `always = [...]`
     (every project's jail gets it, each project's next prompt showing it once)
@@ -100,7 +108,7 @@
   [bold]active_provider[/bold] — (table, [bold]USER SCOPE ONLY[/bold]): which provider each agent runs on.
     `claude = "bedrock"`, `claude = "bedrock/opus"` (a variant), `default = ...`
     for every agent the table does not name, and `"native"` to leave an agent
-    to its own login.  The name must be one a selected pack declares.  Edit with
+    to its own login (a legacy null under active_provider reads as "native").  The name must be one a selected pack declares.  Edit with
     [bold]yolo active-provider <agent|default> <provider|provider/variant|native>[/bold];
     it takes effect at the next launch.
 
@@ -1791,6 +1799,9 @@
       • find unconditionally blocked.
     Your own entries here are unaffected, and an entry naming the same
     tool as a pack's REPLACES it whole.
+    Lists from several files merge.  In TOML an empty list
+    (blocked_tools = []) drops every entry a lower file wrote, as a legacy
+    "blocked_tools": null does.
     Conditional on the ALTERNATIVE existing: add ``replacement`` (a bare
     binary name) and the tool is blocked only when that binary is on the
     jail's PATH.  The two defaults set it (rg for grep, fd for find), so
@@ -1841,6 +1852,8 @@
     there is none — see internal/config/config.go's defaultMiseToolsVals.)
     These are injected into the jail's global mise config (not workspace mise.toml).
     Deep-merged: user config adds tools, workspace config overrides versions.
+    A tool written "off" (TOML: [install] mise.<tool> = "off"; legacy: null)
+    drops the version a lower file pinned.
 
     [bold]Which of the three places does your tool belong?[/bold] They are not
     interchangeable, and picking by habit is the common mistake:
@@ -2820,6 +2833,8 @@
     pack that composes one.
     Example: {"rust": {"command": "rust-analyzer", "args": [],
               "fileExtensions": {".rs": "rust"}}}
+    A server written "off" (TOML: lsp_servers.<name> = "off"; legacy: null)
+    drops one a lower file declared.
 
   [bold]mcp_presets[/bold] (array of strings): REMOVED — a config carrying it is REFUSED,
     in either file.  yolo no longer keeps its own list of MCP servers:

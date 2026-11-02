@@ -75,6 +75,11 @@ func ReadableRemovalPolicies() []RemovalRule {
 		{Path: "requests.*.repos", Policy: RemovalEmptyList},
 		{Path: "requests.github.repos", Policy: RemovalEmptyList},
 		{Path: "mcp_servers.*", Policy: RemovalOffString},
+		// A legacy null under each of these dropped what a lower layer wrote; TOML says it with
+		// the spelling the readable merge already gives that meaning (RC-D52).
+		{Path: "lsp_servers.*", Policy: RemovalOffString},
+		{Path: "install.mise.*", Policy: RemovalOffString},
+		{Path: "security.blocked_tools", Policy: RemovalEmptyList},
 		{Path: "providers.*", Policy: RemovalOffString},
 		{Path: "providers.*.variants.*", Policy: RemovalOffString},
 	}

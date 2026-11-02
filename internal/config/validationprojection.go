@@ -30,7 +30,7 @@ func projectReadableB2ForValidation(config *jsonx.OrderedMap) (*jsonx.OrderedMap
 			projection.changed = true
 		}
 		if value, present := install.Get("mise"); present {
-			projected.Set("mise_tools", value)
+			projected.Set("mise_tools", withoutOffEntries(value))
 			projection.changed = true
 		}
 		install.Delete("nix")
@@ -80,6 +80,15 @@ func projectReadableB2ForValidation(config *jsonx.OrderedMap) (*jsonx.OrderedMap
 			projected.Delete("env")
 			projection.changed = true
 			projection.env = true
+		}
+	}
+
+	// A tool or server written "off" is no entry at all (RC-D52), which the legacy validator
+	// spells as its absence.
+	if lspValue, present := projected.Get("lsp_servers"); present {
+		if _, ok := asMap(lspValue); ok {
+			projected.Set("lsp_servers", withoutOffEntries(lspValue))
+			projection.changed = true
 		}
 	}
 
@@ -319,4 +328,22 @@ func replaceReadableDiagnosticPrefix(message, before, after string) string {
 		return message
 	}
 	return after + message[len(before):]
+}
+
+// withoutOffEntries is value, when it is a table, without its entries written "off" (a removal,
+// RC-D52); any other value as it is.
+func withoutOffEntries(value any) any {
+	table, ok := asMap(value)
+	if !ok {
+		return value
+	}
+	out := jsonx.NewOrderedMap()
+	for _, key := range table.Keys() {
+		entry, _ := table.Get(key)
+		if entry == "off" {
+			continue
+		}
+		out.Set(key, entry)
+	}
+	return out
 }

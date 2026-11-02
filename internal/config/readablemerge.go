@@ -42,6 +42,9 @@ func projectLegacyB2Config(values *jsonx.OrderedMap, source *srcNode) (*jsonx.Or
 	}
 	values, source = projectLegacyReadableNetwork(values, source)
 	values, source = lowerLegacyEnvSources(values, source)
+	// A null no merged read honored is respelled to the scalar that reads the same in every merge
+	// (RC-D52), so a TOML layer over or under it, and the TOML delivery of it, agree.
+	lowerLegacyScalarNulls(values)
 	return values, source
 }
 

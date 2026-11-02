@@ -102,6 +102,11 @@ func MergeMiseTools(config *jsonx.OrderedMap) *jsonx.OrderedMap {
 	if userTools := OwnMiseTools(config); userTools != nil {
 		for _, k := range userTools.Keys() {
 			v, _ := userTools.Get(k)
+			if v == "off" {
+				// A tool written "off" drops what a lower layer pinned (RC-D52).
+				out.Delete(k)
+				continue
+			}
 			out.Set(k, v)
 		}
 	}
