@@ -132,6 +132,11 @@ func knownLaunchYOLOEnvNames(packs []*packload.Pack, channel *packChannel) []str
 			if slug := paths.ServiceEnvSlug(path.Base(from)); slug != "" {
 				add(paths.ServiceEnvVarPrefix + slug + paths.ServiceEnvVarSuffix)
 			}
+			// The launch also tells the jail when the loophole holds no grant there, and a
+			// nested launch inherits that variable the same way.
+			if name := paths.LoopholeInertEnv(path.Base(from)); name != "" {
+				add(name)
+			}
 		}
 		for _, service := range p.Decl.Services() {
 			slug := paths.ServiceEnvSlug(service.Name)

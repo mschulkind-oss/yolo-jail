@@ -68,3 +68,19 @@ func IsServiceCallerTokenEnv(key string) bool {
 	return len(key) > len(ServiceEnvVarPrefix)+len(ServiceCallerTokenSuffix) &&
 		strings.HasPrefix(key, ServiceEnvVarPrefix) && strings.HasSuffix(key, ServiceCallerTokenSuffix)
 }
+
+// LoopholeInertEnvPrefix starts the variable a launch sets in a jail for a selected loophole
+// that runs but holds no grant there: YOLO_LOOPHOLE_INERT_<SLUG>=1. The loophole's client reads
+// it to print the inert line without dialing its daemon (docs/design/loophole-access-approval-plan.md, PD-8).
+const LoopholeInertEnvPrefix = "YOLO_LOOPHOLE_INERT_"
+
+// LoopholeInertEnv is loophole's inert variable, its name folded as ServiceEnvSlug folds a
+// service name: `host-processes` → YOLO_LOOPHOLE_INERT_HOST_PROCESSES. "" for a name that
+// folds to nothing.
+func LoopholeInertEnv(loophole string) string {
+	slug := ServiceEnvSlug(loophole)
+	if slug == "" {
+		return ""
+	}
+	return LoopholeInertEnvPrefix + slug
+}

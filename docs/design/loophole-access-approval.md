@@ -3,7 +3,7 @@ title: "A selected pack runs its loophole and grants nothing: access is approved
 date: 2026-10-30
 status: accepted
 stage: DESIGN
-next: "Write the implementation plan from §12; OQ-LG1 to OQ-LG3 are ruled (LG-D12 to LG-D14)"
+next: "Build from loophole-access-approval-plan.md, starting with T1 and T2 in parallel"
 depends-on: [readable-config.md]
 tags: [loopholes, packs, config, grants, approval, design]
 summary: "Selecting a pack installs its loophole and runs its machinery; neither gives any project access. Access is a grant in two layers, the user's ceiling (allow) and the project's request (requests), approved at the config-change gate, the shape the brokers already have. The six loopholes that today grant the moment they are switched on get the same shape, default_enabled and the enabled switch go, and the migration carries every access the owner has today into a grant."

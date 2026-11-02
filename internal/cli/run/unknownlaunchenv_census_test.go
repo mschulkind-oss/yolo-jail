@@ -188,4 +188,11 @@ func TestKnownLaunchYOLOEnvNamesIncludeSelectedLoopholeEndpoints(t *testing.T) {
 	if slices.Contains(knownLaunchYOLOEnvNames(nil, nil), want) {
 		t.Errorf("%s is recognized with no pack selected", want)
 	}
+	inert := paths.LoopholeInertEnv("acme-proxy")
+	if !slices.Contains(knownLaunchYOLOEnvNames([]*packload.Pack{selected}, nil), inert) {
+		t.Errorf("selected pack's loophole inert variable %s is not recognized", inert)
+	}
+	if slices.Contains(knownLaunchYOLOEnvNames(nil, nil), inert) {
+		t.Errorf("%s is recognized with no pack selected", inert)
+	}
 }
