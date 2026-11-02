@@ -43,6 +43,10 @@ type LoopholeInfo struct {
 	// Brokered is the loophole's `brokered` block, or nil. Its presence among the
 	// selected packs' loopholes is what arms the mount fence (validateBrokerMountFence).
 	Brokered *loopholedecl.Brokered
+	// Grants is the loophole's `[[grants]]` declarations: their legacy keys name the legacy
+	// settings the legacy projection reads (loopholegrantlegacy.go), which the settings
+	// validator accepts though the manifest no longer declares them.
+	Grants []loopholedecl.Grant
 }
 
 // LoopholeResolver supplies the file-backed loophole set (including disabled

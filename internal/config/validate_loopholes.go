@@ -221,6 +221,13 @@ func validateLoopholes(config *jsonx.OrderedMap, workspace string, resolver Loop
 			}
 			installed := infoPtr != nil || userInstalledInline(spec, entries)
 			violation, disclosure := loopholeScopeEnableProblems(name, entries, installed)
+			if infoPtr != nil && len(infoPtr.Grants) > 0 && workspaceSwitchesOn(entries) {
+				// A grant-declaring loophole's workspace `enabled: true` is read as a request
+				// (the legacy projection, loopholegrantlegacy.go), which the gate shows where
+				// it was written and `yolo check` names when the ceiling skips it: a line
+				// saying the file switched it on would be wrong.
+				disclosure = ""
+			}
 			if _, decided := wsFile.LoopholeSwitch(name); brokered || decided {
 				// A brokered switch here was refused just above, and one the per-workspace file
 				// overrides decides nothing: a line saying it runs, or does not, would be wrong.
@@ -436,6 +443,22 @@ func loopholeScopeEnableProblems(name string, entries []wsLoopholeEntry, install
 			"agent-editable file switched it on.")
 	}
 	return "", ""
+}
+
+// workspaceSwitchesOn is whether the workspace files' deciding `enabled` (the last one written,
+// as the merge reads it, skipping install-shaped entries as loopholeScopeEnableProblems does) is
+// true.
+func workspaceSwitchesOn(entries []wsLoopholeEntry) bool {
+	on := false
+	for _, e := range entries {
+		if e.spec == nil || hasKey(e.spec, "command") {
+			continue
+		}
+		if b, ok := getOr(e.spec, "enabled", nil).(bool); ok {
+			on = b
+		}
+	}
+	return on
 }
 
 // userScopeLoopholes is the user scope's own `loopholes` block — config.jsonc and its

@@ -17,6 +17,7 @@ func (r explicitPackLoopholeResolver) Known() (map[string]LoopholeInfo, bool) {
 				info.HasHostDaemon = module.Decl.HostDaemon != nil
 				info.Settings = module.Decl.Settings
 				info.Brokered = module.Decl.Brokered
+				info.Grants = module.Decl.Grants
 			}
 			known[module.Name] = info
 		}

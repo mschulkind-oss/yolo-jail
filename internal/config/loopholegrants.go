@@ -358,7 +358,8 @@ func loopholeGrantDeclarationsOf(packs []ReadablePackDeclaration, selected map[s
 func validateLoopholeGrants(config *jsonx.OrderedMap, workspace string, errs, warns *[]string, edit ...*editValidationContext) {
 	_, hasAllow := config.Get("allow")
 	_, hasRequests := config.Get("requests")
-	if !hasAllow && !hasRequests {
+	_, hasLegacy := config.Get("loopholes") // read through the legacy projection
+	if !hasAllow && !hasRequests && !hasLegacy {
 		return
 	}
 	var packs []*packload.Pack
@@ -388,7 +389,9 @@ func validateLoopholeGrants(config *jsonx.OrderedMap, workspace string, errs, wa
 			return // the workspace config's own read reports it
 		}
 	}
-	plan, err := ResolveLoopholeGrants(LoopholeGrantInput{User: user, Workspace: ws, Declarations: declarations})
+	input, _ := withLegacyLoopholeGrants(LoopholeGrantInput{User: user, Workspace: ws, Declarations: declarations},
+		userSrc, sourcesOf(wsNode), workspace)
+	plan, err := ResolveLoopholeGrants(input)
 	if err != nil {
 		var valued *ValuedKindUnderAlwaysError
 		msg := err.Error()

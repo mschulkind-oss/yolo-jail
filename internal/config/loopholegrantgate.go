@@ -61,6 +61,9 @@ type LoopholeGrantSource struct {
 	// requestedAt is, per kind, where its request was written: "yolo-jail.toml:14" where the
 	// provenance carries a line, else the file, else "".
 	requestedAt map[string]string
+	// legacyRecorded is the grants a legacy switch file holds as if recorded (the legacy
+	// projection, loopholegrantlegacy.go), read beside the record.
+	legacyRecorded []string
 }
 
 // InertLoopholeGrants is an inert loophole's requests, which the gate does not show.
@@ -122,8 +125,10 @@ func WithLoopholeGrants(check *ScopeCheck, workspace string, read *WorkspaceRead
 			inert[lp.Pack] = lp.Inert
 		}
 	}
-	plan, err := ResolveLoopholeGrants(LoopholeGrantInput{User: user, Workspace: ws, Declarations: decls,
-		UserOrigins: readableUserOrigins(user, userSrc), WorkspaceOrigins: readableWorkspaceOrigins(ws, wsSrc)})
+	// The legacy projection (loopholegrantlegacy.go): a JSONC file's loophole switches read as grants.
+	input, legacyRecorded := withLegacyLoopholeGrants(LoopholeGrantInput{User: user, Workspace: ws, Declarations: decls,
+		UserOrigins: readableUserOrigins(user, userSrc), WorkspaceOrigins: readableWorkspaceOrigins(ws, wsSrc)}, userSrc, wsSrc, workspace)
+	plan, err := ResolveLoopholeGrants(input)
 	if err != nil {
 		if out.Fatal == nil {
 			out.Fatal = err
@@ -142,7 +147,7 @@ func WithLoopholeGrants(check *ScopeCheck, workspace string, read *WorkspaceRead
 			continue
 		}
 		src := LoopholeGrantSource{Pack: p.Pack, Loophole: p.Loophole, Access: p.Access, Kinds: p.Kinds,
-			Skipped: p.Skipped, requestedAt: map[string]string{}}
+			Skipped: p.Skipped, requestedAt: map[string]string{}, legacyRecorded: legacyRecorded[p.Pack]}
 		for _, k := range p.Kinds {
 			if !k.Requested {
 				continue
@@ -265,7 +270,14 @@ func compareLoopholeGrants(check *ScopeCheck, old loopholeGrantRecord) loopholeG
 	}
 	for _, s := range check.LoopholeGrants {
 		rows := s.rows()
-		prev := old[s.Pack]
+		prev := append([]string(nil), old[s.Pack]...)
+		for _, r := range rows {
+			// A legacy switch file's grant reads as recorded only while the gate would hold it;
+			// one the ceiling now leaves out is no grant, never a removal shown at every launch.
+			if legacyRecordHolds(s.legacyRecorded, r.grant) {
+				prev = appendUnique(prev, r.grant)
+			}
+		}
 		inPrev := map[string]bool{}
 		for _, g := range prev {
 			inPrev[g] = true
@@ -405,7 +417,13 @@ func (s *ScopeCheck) LoopholeGrantStandings(workspace string) map[string]map[str
 		return nil
 	}
 	rec, _, _ := readLoopholeGrantRecord(workspace)
-	return s.loopholeGrantStandings(func(pack, grant string) bool { return inList(rec[pack], grant) })
+	legacy := map[string][]string{}
+	for _, src := range s.LoopholeGrants {
+		legacy[src.Pack] = src.legacyRecorded
+	}
+	return s.loopholeGrantStandings(func(pack, grant string) bool {
+		return inList(rec[pack], grant) || legacyRecordHolds(legacy[pack], grant)
+	})
 }
 
 // ApprovedLoopholeGrants is the standing a passing gate over this check approved, by loophole

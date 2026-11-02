@@ -57,7 +57,8 @@ func validateLoopholeSettings(spec *jsonx.OrderedMap, path string, info *Loophol
 	if info == nil {
 		return
 	}
-	if settings.Len() > 0 && len(info.Settings) == 0 {
+	legacy := legacyGrantSettings(info)
+	if settings.Len() > 0 && len(info.Settings) == 0 && len(legacy) == 0 {
 		add(errs, path+".settings: "+pytext.Repr(info.Name)+" declares no settings, so there is "+
 			"nothing to configure here — a loophole's settable keys are declared in its "+
 			"loophole.toml (or a legacy manifest.jsonc) under 'settings', and only declared keys may be supplied")
@@ -66,6 +67,9 @@ func validateLoopholeSettings(spec *jsonx.OrderedMap, path string, info *Loophol
 	for _, key := range settings.Keys() {
 		keyPath := path + ".settings." + key
 		decl, declared := loopholedecl.SettingByKey(info.Settings, key)
+		if !declared {
+			decl, declared = legacy[key]
+		}
 		if !declared {
 			add(errs, keyPath+": no such setting — "+pytext.Repr(info.Name)+" declares "+
 				declaredKeyList(info.Settings))
@@ -127,9 +131,13 @@ func loopholeSettingsScopeViolations(name string, spec *jsonx.OrderedMap, srcFil
 		return nil // the shape pass reports the type error
 	}
 	path := "config.loopholes." + name
+	legacy := legacyGrantSettings(info)
 	var out []string
 	for _, key := range settings.Keys() {
 		decl, declared := loopholedecl.SettingByKey(info.Settings, key)
+		if !declared {
+			decl, declared = legacy[key]
+		}
 		if !declared || decl.Scope != loopholedecl.SettingScopeUser {
 			continue
 		}
@@ -137,6 +145,29 @@ func loopholeSettingsScopeViolations(name string, spec *jsonx.OrderedMap, srcFil
 			" declares this setting "+pytext.Repr(loopholedecl.SettingScopeUser)+
 			" in its manifest, and "+srcFile+" is agent-editable. Move this key to "+
 			loopholeUserConfigHint+".")
+	}
+	return out
+}
+
+// legacyGrantSettings is the legacy settings a grant-declaring loophole's `[[grants]]` read
+// through the legacy projection (loopholegrantlegacy.go), as declarations: a `legacy_setting`
+// is the user-scope boolean it was (journal's `full`), a `legacy_values` the workspace-scope list
+// it was (`visible`, `allowed_devices`). The manifest may no longer declare them as settings, and
+// a legacy file still writing them is read as grants, not refused as unknown.
+func legacyGrantSettings(info *LoopholeInfo) map[string]loopholedecl.Setting {
+	if info == nil {
+		return nil
+	}
+	out := map[string]loopholedecl.Setting{}
+	for _, g := range info.Grants {
+		if g.LegacySetting != "" {
+			out[g.LegacySetting] = loopholedecl.Setting{Key: g.LegacySetting, Type: loopholedecl.SettingTypeBool,
+				Scope: loopholedecl.SettingScopeUser}
+		}
+		if g.LegacyValues != "" {
+			out[g.LegacyValues] = loopholedecl.Setting{Key: g.LegacyValues, Type: loopholedecl.SettingTypeStringList,
+				Scope: loopholedecl.SettingScopeWorkspace}
+		}
 	}
 	return out
 }
