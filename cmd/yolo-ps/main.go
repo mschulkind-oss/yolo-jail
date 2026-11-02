@@ -31,11 +31,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/frameproto"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholegrant"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
 
@@ -44,10 +44,9 @@ import (
 const dialTimeout = 30 * time.Second
 
 // inertEnv carries the inert note's reason when the launch found host-processes inert on
-// this setup. Plan PD-8 names one variable per loophole, the prefix and the loophole's name
-// in upper snake case, so it is spelled as that rule rather than as a fixed name: the launch
-// writes the family, and recognizes it, by the same rule.
-var inertEnv = "YOLO_LOOPHOLE_INERT_" + strings.ToUpper(strings.ReplaceAll("host-processes", "-", "_"))
+// this setup (plan PD-8). paths.LoopholeInertEnv is the one spelling the launch writes and
+// recognizes, so the client never spells the name itself.
+var inertEnv = paths.LoopholeInertEnv("host-processes")
 
 // noEndpointMsg is the client's fallback when no endpoint names the daemon (design §5's
 // shape, filled for a loophole whose pack is not selected).
