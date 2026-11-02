@@ -45,7 +45,7 @@ or a note for the planner to check; no behavior is decided here.
   new capabilities; `pending_capabilities` is empty and stays so. Check how `readableallow.go`
   turns an `always` capability into a per-repository grant (`legacyKind`) and whether a work kind
   should be a grant on the repository in the scope file or a workspace-level fact the broker
-  reads directly — the design needs only the resolution in [§5](github-write-scopes.md#5-two-layers-ceiling-asks-and-the-narrowing),
+  reads directly — the design needs only the resolution in [§4](github-write-scopes.md#4-how-one-call-resolves),
   evaluated under the store lock.
 - **Verbs.** `yolo request` takes `<capability> [resource]`; `--ask` and `--local` are new flags.
   `yolo allow`'s pairing offer needs the interactive check `allowInteractive` already has.
