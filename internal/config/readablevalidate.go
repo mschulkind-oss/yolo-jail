@@ -11,22 +11,47 @@ import (
 )
 
 func validateReadableTOML(values *jsonx.OrderedMap, scope SchemaScope, label string, index *configdoc.Index) error {
-	var visit func(any, []string, []configdoc.Step) error
-	visit = func(value any, path []string, locationPath []configdoc.Step) error {
+	if v := firstReadableTOMLViolation(values, scope); v != nil {
+		return readableTOMLError(label, index, v.path, v.locationPath, v.message)
+	}
+	return nil
+}
+
+// readableTOMLViolation is the first value the readable schema refuses: its schema path, its
+// location path in the document, and why.
+type readableTOMLViolation struct {
+	path         []string
+	locationPath []configdoc.Step
+	message      string
+}
+
+// display is the key as the validators print it after "config.": "env_sources", "packs[0]".
+func (v *readableTOMLViolation) display() string {
+	return readablePathDisplay(v.path, v.locationPath)
+}
+
+// firstReadableTOMLViolation is validateReadableTOML's walk, returning the first refusal as a
+// value so a caller can look up who wrote the key; nil when values is representable.
+func firstReadableTOMLViolation(values *jsonx.OrderedMap, scope SchemaScope) *readableTOMLViolation {
+	var visit func(any, []string, []configdoc.Step) *readableTOMLViolation
+	refuse := func(path []string, locationPath []configdoc.Step, message string) *readableTOMLViolation {
+		return &readableTOMLViolation{path: path, locationPath: locationPath, message: message}
+	}
+	visit = func(value any, path []string, locationPath []configdoc.Step) *readableTOMLViolation {
 		if len(path) > 0 {
 			rule, ok := readableSchemaRule(path)
 			if !ok {
-				return readableTOMLError(label, index, path, locationPath, readableUnknownMessage(path))
+				return refuse(path, locationPath, readableUnknownMessage(path))
 			}
 			if !readableTypeMatches(rule.Type, value, rule.Removal) && !readableLegacyShapeAccepted(path, value) {
-				return readableTOMLError(label, index, path, locationPath, fmt.Sprintf("expected %s (got %s)", schemaTypeName(rule.Type), reprAny(value)))
+				return refuse(path, locationPath, fmt.Sprintf("expected %s (got %s)", schemaTypeName(rule.Type), reprAny(value)))
 			}
 			userOnly := rule.Scope == SchemaScopeUserOnly || (len(path) == 1 && WorkspaceUserScopeOnlyKey(path[0]))
 			if scope == SchemaScopeWorkspaceOnly && userOnly {
-				return readableTOMLError(label, index, path, locationPath, "user-scope only; move this key to the user config")
+				return refuse(path, locationPath, "user-scope only; move this key to the user config")
 			}
 			if scope == SchemaScopeUserOnly && rule.Scope == SchemaScopeWorkspaceOnly {
-				return readableTOMLError(label, index, path, locationPath, "workspace-only key; this file is user scope")
+				return refuse(path, locationPath, "workspace-only key; this file is user scope")
 			}
 			if rule.Type == SchemaTypeAny {
 				return nil
@@ -36,14 +61,14 @@ func validateReadableTOML(values *jsonx.OrderedMap, scope SchemaScope, label str
 		case *jsonx.OrderedMap:
 			for _, key := range current.Keys() {
 				child, _ := current.Get(key)
-				if err := visit(child, appendReadablePath(path, key), appendReadableLocation(locationPath, configdoc.Step{Key: key})); err != nil {
-					return err
+				if v := visit(child, appendReadablePath(path, key), appendReadableLocation(locationPath, configdoc.Step{Key: key})); v != nil {
+					return v
 				}
 			}
 		case []any:
 			for i, child := range current {
-				if err := visit(child, appendReadablePath(path, "*"), appendReadableLocation(locationPath, configdoc.Step{Index: i, IsIndex: true})); err != nil {
-					return err
+				if v := visit(child, appendReadablePath(path, "*"), appendReadableLocation(locationPath, configdoc.Step{Index: i, IsIndex: true})); v != nil {
+					return v
 				}
 			}
 		}
@@ -118,6 +143,10 @@ func readableLegacyShapeAccepted(path []string, value any) bool {
 	switch {
 	case len(path) == 3 && path[0] == "mcp_servers" && path[2] == "command":
 		_, ok := asStr(value)
+		return ok
+	case len(path) == 3 && path[0] == "env" && path[1] == "sources" && path[2] == "*":
+		// An env.sources entry is a dotenv path or a { set, unset } table (RC-D50).
+		_, ok := asMap(value)
 		return ok
 	case len(path) == 3 && path[0] == "machine" && path[1] == "resources" && path[2] == "pids_limit":
 		// The legacy resources.pids_limit counts a boolean as an integer (true is 1), and

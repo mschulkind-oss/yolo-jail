@@ -188,7 +188,7 @@ func TestInJailCheckIsSilentAboutFilteredHostKeys(t *testing.T) {
 		{"mounts", `{"mounts": ["/definitely-not-here:/ctx/x:ro"]}`,
 			[]string{"host path does not exist and will be skipped"}},
 		{"env_sources", `{"env_sources": ["~/.definitely-not-here.env"]}`,
-			[]string{"env_sources file not found"}},
+			[]string{"dotenv file not found", ".definitely-not-here.env"}},
 		// The two the doc names. Already silent in-jail via a hand-written guard, so these
 		// rows are a REGRESSION on the property OQ-LP9 asks for rather than a fix: the key
 		// must be absent, so that a future refactor deleting the guard (reasonably — it is

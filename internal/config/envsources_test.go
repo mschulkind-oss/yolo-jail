@@ -197,7 +197,9 @@ func TestEnvSourcesAnchorBesideTheDeclaringFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries := getListOrNilFalsy(cfg, "env_sources")
+	// Read as one list under env.sources (RC-D50: an inline table puts the layers' lists there).
+	envMap, _ := envTable(cfg)
+	entries := getListOrNilFalsy(envMap, "sources")
 	if len(entries) != 4 {
 		t.Fatalf("env_sources = %#v, want 4 entries in merge order", entries)
 	}

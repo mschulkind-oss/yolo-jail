@@ -292,9 +292,17 @@ func TestApplyRespellsApprovalAndBootRecords(t *testing.T) {
 	ws := realDir(t)
 	write(t, filepath.Join(ws, "dev.env"), "A=1\n")
 	write(t, filepath.Join(ws, "yolo-jail.jsonc"), `{"packages": ["just"], "env_sources": ["dev.env"]}`+"\n")
-	approved, err := config.ApprovalRecordPart(ws)
+	current, err := config.ApprovalRecordPart(ws)
 	if err != nil {
 		t.Fatal(err)
+	}
+	// A record a yolo wrote before env_sources was read in its readable spelling (RC-D50): the
+	// gate reads it respelled, so it asks nothing before or after the migration.
+	approved := strings.Replace(current, `"env": {
+    "files": [`, `"env_sources": [`, 1)
+	approved = strings.Replace(approved, "]\n  },\n  \"install\"", "],\n  \"install\"", 1)
+	if approved == current || !strings.Contains(approved, `"env_sources"`) {
+		t.Fatalf("could not make a legacy record from:\n%s\ngot:\n%s", current, approved)
 	}
 	if err := config.WriteApprovalRecord(ws, approved); err != nil {
 		t.Fatal(err)
@@ -342,7 +350,7 @@ func TestApplyRespellsApprovalAndBootRecords(t *testing.T) {
 		t.Fatalf("approval record not respelled:\n%s", record)
 	}
 	baseline, _, _ := config.ReadBootBaseline(ws)
-	if now, _ := config.BootBaselinePart(ws); baseline != now || baseline == boot {
+	if now, _ := config.BootBaselinePart(ws); baseline != now {
 		t.Fatalf("boot baseline not respelled:\n%s", baseline)
 	}
 	if len(res.Records) != 2 {

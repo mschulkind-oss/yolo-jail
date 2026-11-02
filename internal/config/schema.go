@@ -200,6 +200,12 @@ func ReadableSchemaKeys() []SchemaKey {
 		{Path: "machine.forward.*.host", Scope: both, Type: SchemaTypeNumber},
 		{Path: "machine.forward.*.jail", Scope: both, Type: SchemaTypeNumber},
 		{Path: "env", Scope: both, Type: SchemaTypeObject},
+		{Path: "env.sources", Scope: both, Type: SchemaTypeList},
+		{Path: "env.sources.*", Scope: both, Type: SchemaTypeString}, // or a { set, unset } table (readableLegacyShapeAccepted)
+		{Path: "env.sources.*.set", Scope: both, Type: SchemaTypeObject},
+		{Path: "env.sources.*.set.*", Scope: both, Type: SchemaTypeString},
+		{Path: "env.sources.*.unset", Scope: both, Type: SchemaTypeList},
+		{Path: "env.sources.*.unset.*", Scope: both, Type: SchemaTypeString},
 		{Path: "env.files", Scope: both, Type: SchemaTypeList},
 		{Path: "env.files.*", Scope: both, Type: SchemaTypeString},
 		{Path: "env.set", Scope: both, Type: SchemaTypeObject},

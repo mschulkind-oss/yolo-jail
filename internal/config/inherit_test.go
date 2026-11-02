@@ -91,7 +91,7 @@ func TestPreflightFilterDropsTheFalseErrorKeys(t *testing.T) {
 	effective.Set("devices", []any{mapOf(t, "usb", "1234:5678")})
 	// kvm — a host device passthrough.
 	effective.Set("kvm", true)
-	// env_sources — "env_sources file not found, skipping" for a host dotenv path.
+	// env_sources — "dotenv file not found, skipping" for a host dotenv path.
 	effective.Set("env_sources", []any{"~/.acme.env"})
 	// host_files — the misread grant: "the host home" becomes the jail's own.
 	effective.Set("host_files", []any{mapOf(t, "path", ".config/acme/creds", "source", "~/.config/acme/creds")})

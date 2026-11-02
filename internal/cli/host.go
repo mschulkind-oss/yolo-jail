@@ -3652,8 +3652,8 @@ func macosUserGuestRuns(packs []*packload.Pack, service string) bool {
 // shares this map with composition steps that must keep seeing the original, and the
 // copy is throwaway.
 func hostScopedEnvSources(cfg *jsonx.OrderedMap, warn func(string)) *jsonx.OrderedMap {
-	// Both spellings of a file entry: the legacy `env_sources` list and the readable
-	// `env.files` list, which config's one env resolver walks alike.
+	// Every spelling of a file entry: the legacy `env_sources` list and the readable
+	// `env.sources` and `env.files` lists, which config's one env resolver walks alike.
 	filter := func(label string, list []any) ([]any, bool) {
 		var kept []any
 		dropped := false
@@ -3695,22 +3695,31 @@ func hostScopedEnvSources(cfg *jsonx.OrderedMap, warn func(string)) *jsonx.Order
 	}
 	if envValue, present := cfg.Get("env"); present {
 		if env, ok := envValue.(*jsonx.OrderedMap); ok {
-			if files, present := env.Get("files"); present {
-				if list, ok := files.([]any); ok && len(list) > 0 {
-					if kept, dropped := filter("env.files", list); dropped {
-						narrowed := jsonx.NewOrderedMap()
-						for _, k := range env.Keys() {
-							v, _ := env.Get(k)
-							narrowed.Set(k, v)
-						}
-						if len(kept) > 0 {
-							narrowed.Set("files", kept)
-						} else {
-							narrowed.Delete("files")
-						}
-						copied().Set("env", narrowed)
+			var narrowed *jsonx.OrderedMap
+			for _, key := range []string{"sources", "files"} {
+				list, ok := getList(env, key)
+				if !ok || len(list) == 0 {
+					continue
+				}
+				kept, dropped := filter("env."+key, list)
+				if !dropped {
+					continue
+				}
+				if narrowed == nil {
+					narrowed = jsonx.NewOrderedMap()
+					for _, k := range env.Keys() {
+						v, _ := env.Get(k)
+						narrowed.Set(k, v)
 					}
 				}
+				if len(kept) > 0 {
+					narrowed.Set(key, kept)
+				} else {
+					narrowed.Delete(key)
+				}
+			}
+			if narrowed != nil {
+				copied().Set("env", narrowed)
 			}
 		}
 	}
@@ -4186,4 +4195,14 @@ func hostProviderSectionRefusal(cfg *jsonx.OrderedMap, warn func(string)) error 
 		}
 	}
 	return nil
+}
+
+// getList is env[key] as a list, ok false when absent or not a list.
+func getList(env *jsonx.OrderedMap, key string) ([]any, bool) {
+	value, present := env.Get(key)
+	if !present {
+		return nil, false
+	}
+	list, ok := value.([]any)
+	return list, ok
 }

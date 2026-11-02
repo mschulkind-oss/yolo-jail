@@ -342,7 +342,7 @@ func ApprovedWorkspaceMounts(workspace string) []WorkspaceMount {
 		return nil
 	}
 	old, err := os.ReadFile(ApprovalSnapshotPath(workspace))
-	if err != nil || pyRstrip(string(old)) != current {
+	if err != nil || respellLegacyRecord(pyRstrip(string(old))) != current {
 		return nil
 	}
 	return mounts
@@ -360,7 +360,7 @@ func ConfigPartChangedOfRead(workspace string, read *WorkspaceRead, mounts []Wor
 		return true
 	}
 	old, err := os.ReadFile(ApprovalSnapshotPath(workspace))
-	return err != nil || pyRstrip(string(old)) != current
+	return err != nil || respellLegacyRecord(pyRstrip(string(old))) != current
 }
 
 // MountSourceBlock is the plain block the gate shows for read-only workspace mounts' lines

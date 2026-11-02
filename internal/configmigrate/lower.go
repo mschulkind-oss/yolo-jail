@@ -68,9 +68,6 @@ type loweringContext struct {
 	merged bool
 	// user is the merged old user config the user-scope conversions rest on (RC-D32).
 	user *userView
-	// inlineEnv converts inline variable entries that follow every file in env_sources to
-	// env.set and env.unset. The plan turns it off when the proof fails with it on (Plan).
-	inlineEnv bool
 	// twinOf writes a legacy `wire_id` twin as `twin_of` its sibling's key (MF-D3). The plan
 	// turns it off when the provider table differs with it on (Plan).
 	twinOf bool
@@ -187,8 +184,12 @@ func lower(old *jsonx.OrderedMap, ctx loweringContext, file string) lowered {
 			lowerNetwork(value, ctx, place, skip)
 			continue
 		case "env_sources":
-			lowerEnvSources(value, ctx.inlineEnv, place, skip)
+			lowerEnvSources(value, place, skip)
 			continue
+		case "env":
+			// What the readers made of a legacy env_sources null (a null on both lists) is
+			// the reset TOML spells as an empty env.files.
+			value = envResetSpelling(value)
 		case "brokered":
 			lowerBrokered(value, ctx, place, skip)
 			continue
@@ -239,6 +240,9 @@ func lower(old *jsonx.OrderedMap, ctx loweringContext, file string) lowered {
 			deletePath(out.values, strings.Split(nc, "."))
 		}
 	}
+	// A null converts to its TOML removal spelling where there is one, the lowering the
+	// inherited delivery uses too (config.LowerLegacyNulls, RC-D50).
+	config.LowerLegacyNulls(out.values)
 	for _, nc := range nullPaths(out.values, nil) {
 		if !ctx.keepUnconverted {
 			out.skipped = append(out.skipped, NotConverted{File: file, Path: nc, Reason: "a null has no TOML spelling; remove the key, or keep the old file for now"})
@@ -392,78 +396,42 @@ func portNumber(text string) (int, bool) {
 	return n, err == nil && n >= 1 && n <= 65535
 }
 
-// lowerEnvSources converts an env_sources list of dotenv paths to env.files. An inline object
-// entry sets variables at its place in the list. env.set and env.unset apply after every file, so
-// inline entries convert only when they follow every file in the list (and inlineEnv allows it):
-// merged in order, a string value becomes env.set and a null one env.unset. An inline entry
-// before a file is not converted.
-func lowerEnvSources(value any, inlineEnv bool, place func([]string, any, []string) bool, skip func([]string, any, string)) {
+// lowerEnvSources converts an env_sources list verbatim to env.sources through
+// config.LowerEnvSources, the one lowering every read of a legacy file uses too (RC-D50): the same
+// list in the same order, an inline table as { set, unset }. Never split into env.files, env.set
+// or env.unset: env.set and env.unset apply after every layer's list, so moving a variable there
+// would move it past a later file (a user [u.env, {A}] under a project [w.env] applies u.env, A,
+// w.env), and the walk keeps a layer's sources ahead of its files.
+func lowerEnvSources(value any, place func([]string, any, []string) bool, skip func([]string, any, string)) {
 	oldPath := []string{"env_sources"}
-	list, ok := value.([]any)
-	if !ok {
-		skip(oldPath, value, "env_sources must be a list")
-		return
-	}
-	const placed = "an inline variable entry takes effect at its place in the list, which env.set cannot say; move those variables into a dotenv file listed here, or keep the old file for now"
-	var files []any
-	set, unset := jsonx.NewOrderedMap(), jsonx.NewOrderedMap()
-	for _, entry := range list {
-		if path, isString := entry.(string); isString {
-			if set.Len()+unset.Len() > 0 {
-				skip(oldPath, value, placed)
-				return
-			}
-			files = append(files, path)
-			continue
-		}
-		vars, isMap := entry.(*jsonx.OrderedMap)
-		if !isMap || !inlineEnv {
-			skip(oldPath, value, placed)
-			return
-		}
-		for _, name := range vars.Keys() {
-			v, _ := vars.Get(name)
-			switch v := v.(type) {
-			case string:
-				unset.Delete(name)
-				set.Delete(name)
-				set.Set(name, v)
-			case nil:
-				set.Delete(name)
-				unset.Set(name, nil)
-			default:
-				skip(oldPath, value, "an inline variable's value must be a string or null")
-				return
-			}
-		}
-	}
 	target, ok := renameReplacement("env_sources")
 	if !ok {
 		skip(oldPath, value, "env_sources has no new spelling in this yolo")
 		return
 	}
-	env := target[:len(target)-1]
-	names := make([]any, 0, unset.Len())
-	for _, name := range unset.Keys() {
-		names = append(names, name)
-	}
-	parts := []struct {
-		key   string
-		value any
-		write bool
-	}{
-		{target[len(target)-1], files, len(files) > 0},
-		{"set", set, set.Len() > 0},
-		{"unset", names, len(names) > 0},
-	}
-	for _, part := range parts {
-		if !part.write {
-			continue
+	if value == nil {
+		// A legacy null replaces the lists the layers beneath wrote; TOML's spelling of that
+		// reset is an empty env.sources (config.lowerLegacyEnvSources reads the null the same way).
+		if !place(target, []any{}, oldPath) {
+			skip(oldPath, value, dotted(target)+" is already written in this file; keep one of the two")
 		}
-		if !place(append(append([]string(nil), env...), part.key), part.value, oldPath) {
-			skip(oldPath, value, "env."+part.key+" is already written in this file; keep one of the two")
-			return
-		}
+		return
+	}
+	list, ok := value.([]any)
+	if !ok {
+		skip(oldPath, value, "env_sources must be a list")
+		return
+	}
+	lowered, err := config.LowerEnvSources(list)
+	if err != nil {
+		skip(oldPath, value, err.Error())
+		return
+	}
+	if len(lowered) == 0 {
+		return
+	}
+	if !place(target, lowered, oldPath) {
+		skip(oldPath, value, dotted(target)+" is already written in this file; keep one of the two")
 	}
 }
 
@@ -808,4 +776,31 @@ func describe(v any) string {
 		return fmt.Sprintf("%v", v)
 	}
 	return s
+}
+
+// envResetSpelling is env with a null env.sources and env.files, the readers' form of a legacy
+// env_sources null, respelled as the empty env.files that says the same in TOML. Anything else
+// is returned as it is.
+func envResetSpelling(value any) any {
+	env, ok := value.(*jsonx.OrderedMap)
+	if !ok {
+		return value
+	}
+	sources, hasSources := env.Get("sources")
+	files, hasFiles := env.Get("files")
+	if !hasSources || !hasFiles || sources != nil || files != nil {
+		return value
+	}
+	out := jsonx.NewOrderedMap()
+	for _, k := range env.Keys() {
+		switch k {
+		case "sources":
+		case "files":
+			out.Set("files", []any{})
+		default:
+			v, _ := env.Get(k)
+			out.Set(k, v)
+		}
+	}
+	return out
 }

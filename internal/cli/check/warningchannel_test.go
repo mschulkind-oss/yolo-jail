@@ -188,7 +188,7 @@ func TestEnvSourcesWarningsReachTheSummary(t *testing.T) {
 			t.Errorf("the finding for %s is not in the output at all:\n%s", name, got)
 		}
 	}
-	if n := strings.Count(got, "[WARN] env_sources file not found"); n != 2 {
+	if n := strings.Count(got, "[WARN] dotenv file not found"); n != 2 {
 		t.Errorf("want 2 graded [WARN] rows for the missing env_sources files, got %d — "+
 			"an ungraded 'Warning:' line is the channel this step retired:\n%s", n, got)
 	}
@@ -206,7 +206,7 @@ func TestGradedConfigWarningsDoNotChangeTheExitCode(t *testing.T) {
 	var out bytes.Buffer
 	exit := Check(warnChannelFixture(t, &out, `{"env_sources": ["ghost-a.env", "ghost-b.env"]}`))
 	got := stripANSI(out.String())
-	if !strings.Contains(got, "[WARN] env_sources file not found") {
+	if !strings.Contains(got, "[WARN] dotenv file not found") {
 		t.Fatalf("fixture did not produce the graded warning it exists to produce:\n%s", got)
 	}
 	if strings.Contains(got, "[FAIL]") {

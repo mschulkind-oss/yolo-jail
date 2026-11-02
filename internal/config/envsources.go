@@ -77,6 +77,7 @@ func anchorReadableEnvSources(cfg *jsonx.OrderedMap, dir string) {
 	}
 	if envValue, ok := cfg.Get("env"); ok {
 		if env, ok := asMap(envValue); ok {
+			anchorEnvSourceList(env, "sources", dir)
 			anchorEnvSourceList(env, "files", dir)
 		}
 	}
@@ -119,7 +120,7 @@ type envEntry struct {
 
 func (e envEntry) describeInline(m *jsonx.OrderedMap) string {
 	label := "inline dict"
-	if e.key != "env_sources" {
+	if e.key != "env_sources" && e.key != "env.sources" {
 		label = e.key
 	}
 	return label + " (keys: " + strings.Join(m.Keys(), ", ") + ")"
@@ -128,7 +129,8 @@ func (e envEntry) describeInline(m *jsonx.OrderedMap) string {
 // envEntries is the ONE ordered entry list every env reader walks, whichever spelling the
 // config used, so the legacy and readable forms cannot drift apart:
 //
-//  1. every `env_sources` entry, in order (the legacy JSONC spelling);
+//  1. every `env_sources` entry, in order (the legacy JSONC spelling), then every `env.sources`
+//     entry (its readable spelling, LowerEnvSources), all layers' in layer order;
 //  2. every `env.files` path, in order (the readable spelling of its file entries);
 //  3. `env.set` as one inline table, applied after every file — the reading the migrator
 //     converts by (configmigrate.lowerEnvSources) and config-project.md §1 shows;
@@ -146,6 +148,20 @@ func envEntries(cfg *jsonx.OrderedMap) []envEntry {
 	env, ok := envTable(cfg)
 	if !ok || env == nil {
 		return out
+	}
+	// env.sources is env_sources' readable spelling and holds its slot (RC-D50): every read of a
+	// legacy file lowers env_sources into it (lowerLegacyEnvSources), so the merge has already
+	// joined every layer's list in layer order, whichever format each layer is written in.
+	for _, entry := range getListOrNilFalsy(env, "sources") {
+		if _, isPath := asStr(entry); isPath {
+			out = append(out, envEntry{key: "env.sources", value: entry})
+			continue
+		}
+		if table, isTable := asMap(entry); isTable {
+			if inline, ok := envSourcesInline(table); ok {
+				out = append(out, envEntry{key: "env.sources", value: inline})
+			}
+		}
 	}
 	for _, entry := range getListOrNilFalsy(env, "files") {
 		if _, isPath := asStr(entry); isPath {
@@ -284,9 +300,12 @@ func ResolveEnvSourcesFull(workspace string, config *jsonx.OrderedMap, warn Warn
 			data, err := os.ReadFile(p)
 			if err != nil {
 				if os.IsNotExist(err) {
-					warn(e.key + " file not found, skipping: " + s + " (resolved to " + p + ")")
+					// The label names no key: a legacy env_sources list reads lowered to env.files
+					// or env.sources (RC-D50), so the key a reader holds is not always the one
+					// the file wrote. The path names the entry in every spelling.
+					warn("dotenv file not found, skipping: " + s + " (resolved to " + p + ")")
 				} else {
-					warn(e.key + " file unreadable, skipping: " + s + ": " + err.Error())
+					warn("dotenv file unreadable, skipping: " + s + ": " + err.Error())
 				}
 				continue
 			}

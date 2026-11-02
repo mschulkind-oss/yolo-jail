@@ -103,7 +103,7 @@ func TestPlanFallsBackToWireIDWhenTwinOfChangesTheTable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	first, err := planWith(g, planOptions{fold: true, inlineEnv: true, twinOf: true})
+	first, err := planWith(g, planOptions{fold: true, twinOf: true})
 	var ineq *InequalityError
 	if !errors.As(err, &ineq) || !first.differsIn(providerTableLayer) || !first.twinned() {
 		t.Fatalf("twin_of over a sibling with its own max_tokens should change the table: %v", err)

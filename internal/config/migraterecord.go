@@ -140,7 +140,7 @@ func ReadApprovalRecord(workspace string) (string, bool, error) {
 		}
 		return "", false, err
 	}
-	return pyRstrip(string(data)), true, nil
+	return respellLegacyRecord(pyRstrip(string(data))), true, nil
 }
 
 // WriteApprovalRecord replaces the approval record's config part with part, through the writer

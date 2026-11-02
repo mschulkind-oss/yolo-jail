@@ -8,12 +8,9 @@ import (
 // user config it applies over, for the keys where the two spellings would otherwise sit side by
 // side in the merged config and answer one question twice:
 //
-//   - `env_sources` (every entry a file path) becomes `env.files`, ahead of any `env.files` the
-//     layer writes itself (the order envEntries walks them). Merged, the base's files come
-//     first and the layer's after, as a layer's entries always do. Left as `env_sources`, the
-//     layer's files loaded BEFORE the base's (envEntries walks `env_sources` first), so the
-//     base won every variable both files set. A list holding an inline table is left alone:
-//     inline entries have no lossless `env.set` spelling once they sit between files.
+//   - `env_sources` needs nothing here: every read of a legacy file lowers it to env.sources or
+//     env.files (lowerLegacyEnvSources), and the merge walks the base's entries before the
+//     layer's, whatever each spelled (RC-D50).
 //   - `loopholes.<name>.settings.<key>` becomes `allow.<name>.<key>` where the base already
 //     writes an `allow.<name>` table, the mapping `yolo config migrate` writes and
 //     loopholes.ConfigBlock reads back. Left as it was, the launch handed the daemon the
@@ -34,58 +31,8 @@ func projectLegacyLayerOverReadable(layer *jsonx.OrderedMap, layerNode *srcNode,
 	if layerNode != nil {
 		layerNode = cloneSourceNode(layerNode)
 	}
-	layer, layerNode = projectLayerEnvSources(layer, layerNode)
 	layer, layerNode = projectLayerLoopholeSettings(layer, layerNode, base)
 	return layer, layerNode
-}
-
-func projectLayerEnvSources(layer *jsonx.OrderedMap, node *srcNode) (*jsonx.OrderedMap, *srcNode) {
-	value, present := layer.Get("env_sources")
-	entries, ok := asList(value)
-	if !present || !ok {
-		return layer, node
-	}
-	for _, entry := range entries {
-		if _, isPath := entry.(string); !isPath {
-			return layer, node
-		}
-	}
-	env, hasEnv := asMap(getOr(layer, "env", nil))
-	if getOr(layer, "env", nil) != nil && !hasEnv {
-		return layer, node // a malformed `env` is the validator's to name
-	}
-	if env == nil {
-		env = jsonx.NewOrderedMap()
-	}
-	own, _ := asList(getOr(env, "files", nil))
-	files := append(append([]any(nil), entries...), own...)
-	sourcesNode := node.key("env_sources")
-	envNode := cloneSourceNode(node.key("env"))
-	filesNode := envNode.key("files")
-	var projected *srcNode
-	if sourcesNode != nil || filesNode != nil {
-		projected = &srcNode{writers: concatWriters(sourcesNode.writerList(), filesNode.writerList())}
-		for i := range entries {
-			projected.elems = append(projected.elems, sourcesNode.elem(i))
-		}
-		for i := range own {
-			projected.elems = append(projected.elems, filesNode.elem(i))
-		}
-	}
-	env.Set("files", files)
-	layer.Delete("env_sources")
-	layer.Set("env", env)
-	if node != nil {
-		node.keys = cloneSourceKeys(node.keys)
-		delete(node.keys, "env_sources")
-		if envNode == nil {
-			envNode = &srcNode{writers: sourcesNode.writerList()}
-		}
-		envNode.keys = cloneSourceKeys(envNode.keys)
-		envNode.keys["files"] = projected
-		node.keys["env"] = envNode
-	}
-	return layer, node
 }
 
 func projectLayerLoopholeSettings(layer *jsonx.OrderedMap, node *srcNode, base *jsonx.OrderedMap) (*jsonx.OrderedMap, *srcNode) {

@@ -337,6 +337,7 @@ func applyInheritedLaunchWithStrictInputUse(base *jsonx.OrderedMap, baseNode *sr
 			base, baseNode = projectLegacyB2Config(base, baseNode)
 		}
 		anchorReadableEnvSources(inherited, filepath.Dir(path))
+		inherited, inheritedNode = normalizeLayerEnv(inherited, inheritedNode)
 	} else {
 		AnchorEnvSources(inherited, filepath.Dir(path))
 	}

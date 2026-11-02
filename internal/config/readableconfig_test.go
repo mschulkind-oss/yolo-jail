@@ -609,22 +609,25 @@ func TestStandardReaderPreservesLegacyEnvSourcesAndLiteralOff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries, ok := asList(mustValue(t, got, "env_sources"))
+	// Read in its readable spelling, env.sources (RC-D50): the same list, an inline entry as
+	// { set, unset }.
+	entries, ok := asList(mustValue(t, mustMap(t, got, "env"), "sources"))
 	if !ok || len(entries) != 2 || entries[0] != filepath.Join(filepath.Dir(userPath), "secrets.env") {
 		t.Fatalf("legacy ordered env_sources = %#v", entries)
 	}
-	assignments, _ := asMap(entries[1])
+	inline, _ := asMap(entries[1])
+	assignments, _ := asMap(mustValue(t, inline, "set"))
 	if value, _ := assignments.Get("AWS_PROFILE"); value != "off" {
 		t.Fatalf("literal environment value off changed: %#v", value)
 	}
-	if value, present := assignments.Get("PAGER"); !present || value != nil {
-		t.Fatalf("legacy environment unset changed: %#v present=%t", value, present)
+	if unset, _ := asList(mustValue(t, inline, "unset")); !reflect.DeepEqual(unset, []any{"PAGER"}) {
+		t.Fatalf("legacy environment unset changed: %#v", unset)
 	}
 	resolved, removals := ResolveEnvSourcesFull(t.TempDir(), got, nil)
 	if value, _ := resolved.Get("AWS_PROFILE"); value != "off" || !reflect.DeepEqual(removals, []string{"PAGER"}) {
 		t.Fatalf("legacy environment operation changed: values=%#v removals=%#v", resolved, removals)
 	}
-	if sources == nil || len(sources.Locations("config.env_sources[1].AWS_PROFILE")) == 0 || len(sources.Locations("config.env_sources[1].PAGER")) == 0 {
+	if sources == nil || len(sources.Locations("config.env.sources[1].set.AWS_PROFILE")) == 0 || len(sources.Locations("config.env.sources[1]")) == 0 {
 		t.Fatalf("legacy env source origins were lost: %#v", sources)
 	}
 }
@@ -647,7 +650,7 @@ func TestStandardReaderPreservesOrderedLegacyEnvSourcesAcrossLayers(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries, ok := asList(mustValue(t, got, "env_sources"))
+	entries, ok := asList(mustValue(t, mustMap(t, got, "env"), "sources"))
 	if !ok || len(entries) != 5 {
 		t.Fatalf("legacy ordered env_sources compatibility projection = %#v, want five entries", entries)
 	}
@@ -669,7 +672,7 @@ func TestStandardReaderPreservesOrderedLegacyEnvSourcesAcrossLayers(t *testing.T
 	if !reflect.DeepEqual(removals, []string{"DROP"}) {
 		t.Errorf("legacy null unset was not preserved: %#v", removals)
 	}
-	for _, sourcePath := range []string{"config.env_sources[0]", "config.env_sources[2]", "config.env_sources[4].VALUE"} {
+	for _, sourcePath := range []string{"config.env.sources[0]", "config.env.sources[2]", "config.env.sources[4].set.VALUE"} {
 		if locations := sources.Locations(sourcePath); len(locations) == 0 {
 			t.Errorf("ordered source provenance missing %s: %#v", sourcePath, sources)
 		}
@@ -694,7 +697,7 @@ func TestStandardReaderAnchorsLegacyInheritedEnvSources(t *testing.T) {
 	if pager, _ := set.Get("PAGER"); pager != "local" {
 		t.Fatalf("jail's own config did not win over inherited layer: PAGER=%#v", pager)
 	}
-	sources, _ := asList(mustValue(t, got, "env_sources"))
+	sources, _ := asList(mustValue(t, env, "files"))
 	if len(sources) != 1 || sources[0] != filepath.Join(filepath.Dir(userPath), "secrets.env") {
 		t.Fatalf("inherited legacy env_sources were not anchored beside their file: %#v", sources)
 	}
@@ -1606,4 +1609,13 @@ func TestLoadReadableWorkspaceConfigFormatVersion(t *testing.T) {
 	if _, err := LoadReadableWorkspaceConfig(dir, true, nil); err == nil {
 		t.Fatal("format 1 was accepted in the TOML filename")
 	}
+}
+
+func mustMap(t *testing.T, m *jsonx.OrderedMap, key string) *jsonx.OrderedMap {
+	t.Helper()
+	out, ok := asMap(mustValue(t, m, key))
+	if !ok {
+		t.Fatalf("%s is not a table in %#v", key, m)
+	}
+	return out
 }

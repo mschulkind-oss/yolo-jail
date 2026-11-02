@@ -435,7 +435,7 @@ The `--network` CLI flag overrides `network.mode` for a jail that launch starts,
 | `profile` † / `-p <name>`, a list for pi[^profset] | works — refuses a `-p` it cannot honor | works | works[^reentry] | works[^profmac] | any entry[^reentry] |
 | `agent_updates` † | works | works | works | works | fresh launch |
 | `agent_updates` set to `"next-launch"` (pi's extension update in the background) | works[^nextlaunch] | works[^nextlaunch] | works[^nextlaunch] | works[^nextlaunch] | fresh launch |
-| `env_sources` (dotenv files) | works | works | works[^reentry] | works — per-session, not editable in-jail | any entry[^reentry] |
+| `env_sources`, or `[env]` in TOML (dotenv files and inline values) | works | works | works[^reentry] | works — per-session, not editable in-jail | any entry[^reentry] |
 | `nix build` usable inside the jail | works — host daemon, store read-only[^gcroot] | **absent, silent** — possible, not planned for now[^nixmac] | **absent, silent** — possible, not planned for now[^nixmac] | works — the host's own `nix`, through its daemon[^munix] | fresh launch |
 | GNU behaviour of `sed`/`find`/`grep`/`tar` | works — GNU userland baked | works | works | BSD tools — GNU flags fail[^bsd] | fresh launch |
 | Build toolchain (`cc`, `make`, `strace`) | works — baked | works | works | works only with Xcode CLT[^clt] | fresh launch |

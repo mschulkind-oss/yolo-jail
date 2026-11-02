@@ -425,7 +425,7 @@ func approveConfigAndScope(workspace string, config *jsonx.OrderedMap, resolved 
 	oldBytes, readErr := os.ReadFile(snapshotPath)
 	switch {
 	case readErr == nil:
-		oldJSON = pyRstrip(string(oldBytes))
+		oldJSON = respellLegacyRecord(pyRstrip(string(oldBytes)))
 	case !os.IsNotExist(readErr):
 		return false, nil, readErr
 	default:

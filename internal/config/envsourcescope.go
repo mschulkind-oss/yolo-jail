@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/configdoc"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
@@ -68,11 +69,16 @@ func validateEnvSourceScope(config *jsonx.OrderedMap, workspace string, errs *[]
 			if pathWithin(real, root) {
 				continue
 			}
-			add(errs, locatedAt(node.elem(idx), envSourceScopeRefusal(key, s, real, root, userPath, userTOML)))
+			label := key
+			if origins := node.elem(idx).origins(); len(origins) > 0 && origins[0].format() != configdoc.TOML {
+				label = "env_sources" // a legacy file's list, read under env (lowerLegacyEnvSources)
+			}
+			add(errs, locatedAt(node.elem(idx), envSourceScopeRefusal(label, s, real, root, userPath, userTOML)))
 		}
 	}
 	check("env_sources", getListOrNilFalsy(wsCfg, "env_sources"), wsNode.key("env_sources"))
 	if env, ok := envTable(wsCfg); ok {
+		check("env.sources", getListOrNilFalsy(env, "sources"), wsNode.key("env").key("sources"))
 		check("env.files", getListOrNilFalsy(env, "files"), wsNode.key("env").key("files"))
 	}
 }

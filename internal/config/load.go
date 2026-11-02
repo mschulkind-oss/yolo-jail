@@ -164,6 +164,14 @@ func MergeConfig(base, override *jsonx.OrderedMap) *jsonx.OrderedMap {
 // the merge about which file's value won: every branch below decides the value and its
 // record together. With neither recorded the node is nil and no record is built.
 func mergeConfig(base, override *jsonx.OrderedMap, bsrc, osrc *srcNode) (*jsonx.OrderedMap, *srcNode) {
+	// Two configs' env lists meet in layer order under one key (alignEnvForMerge, RC-D50).
+	base, override, bsrc, osrc = alignEnvForMerge(base, override, bsrc, osrc)
+	return canonicalEnvReset(mergeConfigTables(base, override, bsrc, osrc))
+}
+
+// mergeConfigTables is mergeConfig's walk, recursing into nested tables without the top-level
+// env alignment.
+func mergeConfigTables(base, override *jsonx.OrderedMap, bsrc, osrc *srcNode) (*jsonx.OrderedMap, *srcNode) {
 	track := bsrc != nil || osrc != nil
 	result := jsonx.NewOrderedMap()
 	var node *srcNode
@@ -184,7 +192,7 @@ func mergeConfig(base, override *jsonx.OrderedMap, bsrc, osrc *srcNode) (*jsonx.
 		if present {
 			if em, ok := asMap(existing); ok {
 				if vm, ok := asMap(value); ok {
-					merged, mn := mergeConfig(em, vm, node.key(key), osrc.key(key))
+					merged, mn := mergeConfigTables(em, vm, node.key(key), osrc.key(key))
 					result.Set(key, merged)
 					if track {
 						node.keys[key] = mn
@@ -289,6 +297,9 @@ func loadWithIncludesMode(path, label string, strict bool, warn Warn, seen map[s
 	// recursion loads it, so provenance survives the concat that is about to happen.
 	if readable {
 		anchorReadableEnvSources(raw, filepath.Dir(path))
+		// One ordered env list per layer, so the merges below walk the layers in order
+		// whichever spelling each one used (RC-D50).
+		raw, node = normalizeLayerEnv(raw, node)
 	} else {
 		AnchorEnvSources(raw, filepath.Dir(path))
 	}

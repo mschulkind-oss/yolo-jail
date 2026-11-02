@@ -58,7 +58,8 @@
     packages            -> [install] nix = [...]       mise_tools -> [install] mise = {...}
     gpu, resources      -> [machine.gpu], [machine.resources]
     network.ports       -> machine.ports               network.forward_host_ports -> machine.forward
-    env_sources         -> [env] files, set, unset
+    env_sources         -> [env] sources, entry for entry (an inline object
+                           as { set = {...}, unset = [...] }); a null -> sources = []
     brokered.*          -> [allow.<source>] (your ceiling) and [requests.<source>]
                            (a project's request); `repos` -> requests.github.repos
     profile, profiles   -> [active_provider] and providers.<name>.variants.<variant>
@@ -755,6 +756,20 @@
       {"DEBUG": "1"},
       ".secrets/claude.env"
     ]
+    In TOML the list is [env] sources (or [env] files, which takes
+    dotenv paths only), an inline object written as a table:
+      [env]
+      sources = ["~/.config/yolo-jail/defaults.env",
+                 { set = { DEBUG = "1" }, unset = ["AWS_PROFILE"] },
+                 ".secrets/claude.env"]
+    plus [env] set = {...} and unset = [...], which apply after every
+    list.  The lists are walked per config file, in the order the files
+    merge (your config, its includes, a --user-layer, the workspace
+    config); within a TOML file, sources and then files.  So a project
+    may convert to TOML while your config stays legacy, or the other
+    way round, and the variables come out the same.  An empty list
+    (sources = [] or files = []) drops every list a lower file wrote, as a legacy
+    "env_sources": null does.
 
   [bold]mounts[/bold] (array of strings and objects): Extra host paths, read-only unless you ask.
     [bold]For paths OUTSIDE the workspace only.[/bold]  The workspace itself is

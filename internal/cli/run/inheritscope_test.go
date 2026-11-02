@@ -467,8 +467,12 @@ func mountSpecs(argv []string) []string {
 	return specs
 }
 
-func TestInheritedLegacyJSONCFallbackIsPerScope(t *testing.T) {
-	_, wsState := inheritHome(t, `{"packs": ["claude"], "env_sources": [".env"]}`)
+// A legacy user config's env_sources once had no TOML spelling, so the nested scope (the only
+// one carrying it) fell back to JSONC while the preflight scope crossed as TOML. The read now
+// lowers env_sources to env.sources / env.files (RC-D50), so both scopes cross as TOML and the
+// nested one keeps every entry, in order.
+func TestInheritedLegacyEnvSourcesCrossesAsTOMLInEveryScope(t *testing.T) {
+	_, wsState := inheritHome(t, `{"packs": ["claude"], "env_sources": [".env", {"A": "1", "B": null}]}`)
 	o := inheritOptions(t)
 	args := o.userConfigMountArgs("podman", wsState)
 	preflight, _, hasTOMLPreflight := mountedBody(t, args, "/home/agent/"+inheritPreflightRel)
@@ -478,19 +482,33 @@ func TestInheritedLegacyJSONCFallbackIsPerScope(t *testing.T) {
 	if _, err := configdoc.Parse([]byte(preflight), configdoc.TOML); err != nil {
 		t.Fatalf("preflight output is not TOML: %v\n%s", err, preflight)
 	}
-	nested, nestedSource, hasJSONCNested := mountedBody(t, args, "/home/agent/"+inheritNestedLegacyRel)
-	if !hasJSONCNested {
-		t.Fatalf("nested-only legacy env_sources did not stay on its JSONC compatibility route; argv=%v", args)
+	nested, _, hasTOMLNested := mountedBody(t, args, "/home/agent/"+inheritNestedRel)
+	if !hasTOMLNested {
+		t.Fatalf("nested legacy env_sources did not cross as TOML; argv=%v", args)
 	}
-	parsed, err := config.LoadJSONCFile(nestedSource, inheritNestedLegacyRel, true, nil)
+	if _, _, found := mountedBody(t, args, "/home/agent/"+inheritNestedLegacyRel); found {
+		t.Errorf("the nested scope still fell back to JSONC: %v", args)
+	}
+	doc, err := configdoc.Parse([]byte(nested), configdoc.TOML)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("nested output is not TOML: %v\n%s", err, nested)
 	}
-	if _, ok := parsed.Get("env_sources"); !ok || !strings.Contains(nested, `"env_sources"`) {
-		t.Errorf("the nested JSONC fallback erased legacy env_sources:\n%s", nested)
+	entries := config.EnvEntries(doc.Values)
+	if len(entries) != 2 {
+		t.Fatalf("nested env entries = %v, want the dotenv path then the inline table:\n%s", entries, nested)
 	}
-	if _, _, found := mountedBody(t, args, "/home/agent/"+inheritNestedRel); found {
-		t.Errorf("a global TOML fallback decision was made instead of a per-scope decision: %v", args)
+	if path, ok := entries[0].(string); !ok || filepath.Base(path) != ".env" {
+		t.Errorf("first nested env entry = %v, want the .env path:\n%s", entries[0], nested)
+	}
+	inline, ok := entries[1].(*jsonx.OrderedMap)
+	if !ok {
+		t.Fatalf("second nested env entry = %v, want the inline table:\n%s", entries[1], nested)
+	}
+	if a, _ := inline.Get("A"); a != "1" {
+		t.Errorf("inline A = %v, want 1:\n%s", a, nested)
+	}
+	if b, present := inline.Get("B"); !present || b != nil {
+		t.Errorf("inline B = %v (present %v), want a removal:\n%s", b, present, nested)
 	}
 }
 

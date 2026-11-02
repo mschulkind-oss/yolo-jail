@@ -927,6 +927,53 @@ func TestHostEnvRefusesUnanchoredRelativeEntries(t *testing.T) {
 	}
 }
 
+// TestHostEnvRefusesUnanchoredRelativeEnvSourcesEntries: the backstop covers env.sources, the
+// key a legacy env_sources list with an inline table reads lowered to (RC-D50), as it covers
+// env_sources and env.files. Fails if hostScopedEnvSources stops narrowing env.sources.
+func TestHostEnvRefusesUnanchoredRelativeEnvSourcesEntries(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("YOLO_VERSION", "")
+	ws := t.TempDir()
+	t.Chdir(ws)
+	if err := os.WriteFile(filepath.Join(ws, "rel.env"), []byte("PWNED=yes\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	set := jsonx.NewOrderedMap()
+	set.Set("KEEP", "yes")
+	table := jsonx.NewOrderedMap()
+	table.Set("set", set)
+	env := jsonx.NewOrderedMap()
+	env.Set("sources", []any{"rel.env", table})
+	cfg := jsonx.NewOrderedMap()
+	cfg.Set("env", env)
+
+	var warnings []string
+	vars, err := hostEnvVars(cfg, ws, "claude", "", func(msg string) { warnings = append(warnings, msg) })
+	if err != nil {
+		t.Fatalf("hostEnvVars: %v", err)
+	}
+	var got []string
+	for _, v := range vars {
+		got = append(got, v.Key+"="+v.Value)
+	}
+	if hasEnv(got, "PWNED=yes") {
+		t.Error("an unanchored relative env.sources entry resolved against the cwd")
+	}
+	if !hasEnv(got, "KEEP=yes") {
+		t.Errorf("the inline table beside the refused entry was lost: %v", got)
+	}
+	refused := false
+	for _, w := range warnings {
+		if strings.Contains(w, `"rel.env" is relative`) {
+			refused = true
+		}
+	}
+	if !refused {
+		t.Errorf("the backstop refusal must fire for env.sources entries, got warnings %q", warnings)
+	}
+}
+
 // TestHostEnvResolvesTheReadableEnvTable: `yolo host` composes the user config.toml's [env]
 // table (files, set, unset) through the same resolver as env_sources, and its relative-entry
 // backstop covers env.files too. Fails if hostEnvVars stops reading the readable spelling.

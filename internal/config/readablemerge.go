@@ -41,6 +41,7 @@ func projectLegacyB2Config(values *jsonx.OrderedMap, source *srcNode) (*jsonx.Or
 		}
 	}
 	values, source = projectLegacyReadableNetwork(values, source)
+	values, source = lowerLegacyEnvSources(values, source)
 	return values, source
 }
 
@@ -306,6 +307,16 @@ func mergeReadableConfig(base, override *jsonx.OrderedMap, baseSource, overrideS
 }
 
 func mergeReadableConfigMode(base, override *jsonx.OrderedMap, baseSource, overrideSource *srcNode, path []string, clearEmptyLists bool) (*jsonx.OrderedMap, *srcNode) {
+	if len(path) != 0 {
+		return mergeReadableConfigWalk(base, override, baseSource, overrideSource, path, clearEmptyLists)
+	}
+	// Two configs' env lists meet in layer order under one key (alignEnvForMerge, RC-D50).
+	base, override, baseSource, overrideSource = alignEnvForMerge(base, override, baseSource, overrideSource)
+	merged, node := mergeReadableConfigWalk(base, override, baseSource, overrideSource, path, clearEmptyLists)
+	return canonicalEnvReset(merged, node)
+}
+
+func mergeReadableConfigWalk(base, override *jsonx.OrderedMap, baseSource, overrideSource *srcNode, path []string, clearEmptyLists bool) (*jsonx.OrderedMap, *srcNode) {
 	track := baseSource != nil || overrideSource != nil
 	result := jsonx.NewOrderedMap()
 	var node *srcNode

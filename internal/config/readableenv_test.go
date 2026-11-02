@@ -60,8 +60,8 @@ func TestReadableEnvResolvesForTheLaunch(t *testing.T) {
 	if !reflect.DeepEqual(removals, []string{"KEEP"}) {
 		t.Fatalf("removals = %v, want [KEEP]: an env.unset wins over an env.set of the same name", removals)
 	}
-	if len(warnings) != 1 || !strings.Contains(warnings[0], "env.files file not found") {
-		t.Fatalf("a missing env.files entry must warn under its own key: %q", warnings)
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "dotenv file not found, skipping: ") {
+		t.Fatalf("a missing env.files entry must warn: %q", warnings)
 	}
 
 	described := strings.Join(DescribeEnvSources(f.ws, merged), "\n")

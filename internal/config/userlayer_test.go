@@ -281,7 +281,7 @@ func TestInheritedLaunchFileIsActuallyRead(t *testing.T) {
 	if packages, ok := asList(mustValue(t, install, "nix")); !ok || !reflect.DeepEqual(packages, []any{"hello"}) {
 		t.Errorf("legacy inherited packages were not normalized losslessly: %#v", packages)
 	}
-	if _, present := cfg.Get("env_sources"); !present {
+	if env, _ := asMap(mustValue(t, cfg, "env")); env == nil || getListOrNilFalsy(env, "files") == nil {
 		t.Error("ordered legacy env_sources from the inherited-launch file did not reach the user scope")
 	}
 }

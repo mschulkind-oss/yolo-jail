@@ -163,8 +163,26 @@ func validateReadablePortList(value any, field string) []string {
 
 func readableEnvValidationShape(env *jsonx.OrderedMap) bool {
 	for _, key := range env.Keys() {
-		if key != "files" && key != "set" && key != "unset" {
+		if key != "sources" && key != "files" && key != "set" && key != "unset" {
 			return false
+		}
+	}
+	if rawSources, present := env.Get("sources"); present {
+		sources, ok := asList(rawSources)
+		if !ok {
+			return false
+		}
+		for _, entry := range sources {
+			if _, ok := asStr(entry); ok {
+				continue
+			}
+			table, ok := asMap(entry)
+			if !ok {
+				return false
+			}
+			if _, ok := envSourcesInline(table); !ok {
+				return false
+			}
 		}
 	}
 	if rawFiles, present := env.Get("files"); present {
@@ -216,6 +234,24 @@ func validateReadableEnvironment(config *jsonx.OrderedMap, errors *[]string) {
 			for _, name := range set.Keys() {
 				if !envVarNameRe.MatchString(name) {
 					add(errors, "config.env.set."+name+": invalid variable name (must match [A-Za-z_][A-Za-z0-9_]*)")
+				}
+			}
+		}
+	}
+	if sourcesValue, present := env.Get("sources"); present {
+		sources, _ := asList(sourcesValue)
+		for i, entry := range sources {
+			table, ok := asMap(entry)
+			if !ok {
+				continue
+			}
+			inline, _ := envSourcesInline(table)
+			if inline == nil {
+				continue
+			}
+			for _, name := range inline.Keys() {
+				if !envVarNameRe.MatchString(name) {
+					add(errors, fmt.Sprintf("config.env.sources[%d]: invalid variable name %s (must match [A-Za-z_][A-Za-z0-9_]*)", i, pyReprValue(name)))
 				}
 			}
 		}

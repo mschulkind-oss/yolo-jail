@@ -165,16 +165,11 @@ type canonicalSet struct {
 // a plan with folds whose provider table differs is planned again without them, and that plan's
 // verdict is the answer.
 //
-// Inline env_sources variables converted to env.set are kept the same way: env.set applies after
-// every file of every scope, so a later scope's files can make it mean something else, and a plan
-// that converted them and does not prove equal in the environment is planned again with them
-// left unconverted. A refusal elsewhere keeps the conversion, so it names only what it is about.
-//
 // A legacy `wire_id` twin is written as `twin_of` its sibling the same way (model-facts-migration.md
 // MF-D3): a plan with twins whose provider table still differs once the folds are dropped is
 // planned again with each twin keeping `wire_id`, first with the folds and then without.
 func Plan(g *Graph) (*MigrationPlan, error) {
-	opts := planOptions{fold: true, inlineEnv: true, twinOf: true}
+	opts := planOptions{fold: true, twinOf: true}
 	p, err := planWith(g, opts)
 	var ineq *InequalityError
 	if errors.As(err, &ineq) && p.differsIn(providerTableLayer) {
@@ -192,33 +187,12 @@ func Plan(g *Graph) (*MigrationPlan, error) {
 			}
 		}
 	}
-	if errors.As(err, &ineq) && hasInlineEnv(g) && p.differsInEnv() {
-		opts.inlineEnv = false
-		p, err = planWith(g, opts)
-	}
 	return p, err
 }
 
 // planOptions are the conversions a plan makes only while the proof holds.
 type planOptions struct {
-	fold, inlineEnv, twinOf bool
-}
-
-// hasInlineEnv is whether a file being converted writes an inline variable entry in env_sources.
-func hasInlineEnv(g *Graph) bool {
-	for _, f := range g.Files {
-		if f.Role != RoleConvert {
-			continue
-		}
-		list, _ := f.doc.Values.Get("env_sources")
-		entries, _ := list.([]any)
-		for _, e := range entries {
-			if _, isPath := e.(string); !isPath {
-				return true
-			}
-		}
-	}
-	return false
+	fold, twinOf bool
 }
 
 // providerTableLayer is the equality check's layer for the provider table a launch resolves.
@@ -254,17 +228,6 @@ func (p *MigrationPlan) differsIn(layer string) bool {
 	return false
 }
 
-// differsInEnv is whether a difference is in the environment a launch resolves, or in a key that
-// spells part of it.
-func (p *MigrationPlan) differsInEnv() bool {
-	for _, d := range p.Differences {
-		if d.Layer == envLayer || d.Path == "env_sources" || d.Path == "env" || strings.HasPrefix(d.Path, "env.") {
-			return true
-		}
-	}
-	return false
-}
-
 func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 	p := &MigrationPlan{Graph: g, Unreachable: append([]Missing(nil), g.Unreachable...)}
 	// Every shipped pack, for the provider table both sides are proved against: a pack's own
@@ -279,7 +242,7 @@ func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 	for _, f := range g.Files {
 		switch f.Role {
 		case RoleConvert:
-			writers.add(lower(f.doc.Values, loweringContext{scope: f.Scope, remotes: remotes, user: view, inlineEnv: opts.inlineEnv, twinOf: opts.twinOf}, f.Logical).values)
+			writers.add(lower(f.doc.Values, loweringContext{scope: f.Scope, remotes: remotes, user: view, twinOf: opts.twinOf}, f.Logical).values)
 		default:
 			writers.add(f.doc.Values)
 		}
@@ -384,7 +347,7 @@ func oldTop(g *Graph) string {
 
 // convertFile makes one old file's TOML.
 func convertFile(f *File, remotes []string, view *userView, writers writerCounts, opts planOptions) (Target, []NotConverted, error) {
-	l := lower(f.doc.Values, loweringContext{scope: f.Scope, remotes: remotes, user: view, inlineEnv: opts.inlineEnv, twinOf: opts.twinOf}, f.Logical)
+	l := lower(f.doc.Values, loweringContext{scope: f.Scope, remotes: remotes, user: view, twinOf: opts.twinOf}, f.Logical)
 	dropped := dropDefaults(l.values, writers)
 	var folded []FoldedFact
 	if opts.fold {
@@ -697,11 +660,11 @@ func readCanonical(g *Graph, userTop, layer, workspace string, remotes []string,
 	// reader selects there, not that path's extension.
 	readable := strings.EqualFold(filepath.Ext(userTop), ".toml") || (layer != "" && config.UserConfigIsTOML(userTop))
 	if lowerOld {
-		s.user, _ = canonicalOld(read.User, loweringContext{scope: ScopeUser, remotes: remotes, user: view, inlineEnv: opts.inlineEnv, twinOf: opts.twinOf})
-		s.project, _ = canonicalOld(read.Workspace, loweringContext{scope: ScopeProject, remotes: remotes, user: view, inlineEnv: opts.inlineEnv, twinOf: opts.twinOf})
-		twins := fileTwins(map[string]bool{}, read.User, loweringContext{scope: ScopeUser, remotes: remotes, user: view, inlineEnv: opts.inlineEnv, twinOf: opts.twinOf})
-		twins = fileTwins(twins, read.Workspace, loweringContext{scope: ScopeProject, remotes: remotes, user: view, inlineEnv: opts.inlineEnv, twinOf: opts.twinOf})
-		s.composed, _ = canonicalOld(read.Composed, loweringContext{scope: ScopeProject, remotes: remotes, user: view, merged: true, inlineEnv: opts.inlineEnv, twinOf: opts.twinOf, twinsOnly: twins})
+		s.user, _ = canonicalOld(read.User, loweringContext{scope: ScopeUser, remotes: remotes, user: view, twinOf: opts.twinOf})
+		s.project, _ = canonicalOld(read.Workspace, loweringContext{scope: ScopeProject, remotes: remotes, user: view, twinOf: opts.twinOf})
+		twins := fileTwins(map[string]bool{}, read.User, loweringContext{scope: ScopeUser, remotes: remotes, user: view, twinOf: opts.twinOf})
+		twins = fileTwins(twins, read.Workspace, loweringContext{scope: ScopeProject, remotes: remotes, user: view, twinOf: opts.twinOf})
+		s.composed, _ = canonicalOld(read.Composed, loweringContext{scope: ScopeProject, remotes: remotes, user: view, merged: true, twinOf: opts.twinOf, twinsOnly: twins})
 		// The OLD spelling as the launch reads it, not its lowering: the proof is that the
 		// converted files resolve to the env the old ones resolve to.
 		s.env = launchEnv(read.Composed)

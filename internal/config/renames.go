@@ -46,7 +46,7 @@ var configRenames = []RenameDescriptor{
 	{OldPath: "network.forward_host_ports", Replacements: []string{"machine.forward"}, Scope: SchemaScopeBoth, Transform: RenameMove},
 	{OldPath: "network.mode", Replacements: []string{"network.mode"}, Scope: SchemaScopeBoth, Transform: RenameKey},
 	{OldPath: "network", Replacements: []string{"network.mode", "machine.ports", "machine.forward"}, Scope: SchemaScopeBoth, Transform: RenameSplit},
-	{OldPath: "env_sources", Replacements: []string{"env.files", "env.set", "env.unset"}, Scope: SchemaScopeBoth, Transform: RenameSplit},
+	{OldPath: "env_sources", Replacements: []string{"env.sources"}, Scope: SchemaScopeBoth, Transform: RenameMove},
 	{OldPath: "brokered", Replacements: []string{"allow.*", "requests.*"}, Scope: SchemaScopeFieldSensitive, Transform: RenameValueRewrite},
 	{OldPath: "brokered.*.grants.*", Replacements: []string{"allow.*.always", "requests.*"}, Scope: SchemaScopeFieldSensitive, Transform: RenameValueRewrite},
 	{OldPath: "brokered.*.grant_kinds", Replacements: []string{"allow.*.on_request"}, Scope: SchemaScopeUserOnly, Transform: RenameMove},
