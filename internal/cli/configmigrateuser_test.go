@@ -61,10 +61,10 @@ func TestConfigMigrateLoopholeRefusalsNameTheNextStep(t *testing.T) {
 		{"switched off", `{"packs": ["aws-auth"], "loopholes": {"aws-auth": {"enabled": false}}}`, `remove "aws-auth" from packs`},
 		{"settings without enabled", `{"packs": ["aws-auth"], "loopholes": {"aws-auth": {"settings": {"profile": "sso"}}}}`, `Set "enabled": true`},
 		{"declared here", `{"loopholes": {"mine": {"command": ["x"]}}}`, "yolo pack init"},
-		{"gated loophole switched on", `{"packs": ["journal"], "loopholes": {"journal": {"enabled": true}}}`, "no switch for journal yet"},
+		{"gated loophole switched on", `{"packs": ["journal"], "loopholes": {"journal": {"enabled": true}}}`, "Keep the old file (this yolo keeps reading it) until those grants land, then run `yolo config migrate` again"},
 		// The proof compares which loopholes run: aws-auth is off in the old file and would run
 		// on selection in the new one, a difference the per-key layers cannot see.
-		{"activation changes", `{"packs": ["aws-auth"]}`, "the loopholes a launch runs"},
+		{"activation changes", `{"packs": ["aws-auth"]}`, "next: the converted config runs aws-auth because its pack is selected, and the old one does not; add \"enabled\": true under loopholes.aws-auth in the old file to keep it running, or remove \"aws-auth\" from packs to keep it off, then run `yolo config migrate` again"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rc, toml, out := migrateUser(t, tc.old)

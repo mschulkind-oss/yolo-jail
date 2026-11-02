@@ -55,3 +55,27 @@ func loopholeActivation(composed *jsonx.OrderedMap, userTop string, packs []*pac
 	}
 	return out
 }
+
+// activationNextSteps names, on each line of the activation layer, the step that makes it agree
+// (AGENTS.md: every stop names the next step). A path is `<loophole>.enabled` or
+// `<loophole>.settings`.
+func activationNextSteps(diffs []Difference) []Difference {
+	for i, d := range diffs {
+		name, field, ok := strings.Cut(d.Path, ".")
+		if !ok {
+			continue
+		}
+		switch {
+		case field == "enabled" && d.After == "true":
+			diffs[i].Next = "the converted config runs " + name + " because its pack is selected, and the old one does not; add \"enabled\": true under loopholes." + name +
+				" in the old file to keep it running, or remove \"" + name + "\" from packs to keep it off, then run `yolo config migrate` again"
+		case field == "enabled":
+			diffs[i].Next = "a TOML user config has no switch that runs " + name + " yet (per-project grants, docs/design/loophole-access-approval.md, are not built); " +
+				"keep the old file (this yolo keeps reading it) until they land, then run `yolo config migrate` again"
+		case field == "settings":
+			diffs[i].Next = "the converted [allow." + name + "] table would hand " + name + " different settings; write them under loopholes." + name +
+				".settings with \"enabled\": true in the old file, then run `yolo config migrate` again"
+		}
+	}
+	return diffs
+}

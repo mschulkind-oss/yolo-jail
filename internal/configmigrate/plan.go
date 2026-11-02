@@ -54,6 +54,8 @@ type Difference struct {
 	Path  string
 	// Before and After are compact JSON, "(absent)" when the key is not there.
 	Before, After string
+	// Next is the step that makes this line agree, where the layer knows one ("" otherwise).
+	Next string
 }
 
 // RecordState is what a migration does to one record only yolo reads.
@@ -118,6 +120,9 @@ func (e *InequalityError) Error() string {
 	b.WriteString("the converted config would not say what the old one says, so nothing was written:")
 	for _, d := range e.Plan.Differences {
 		fmt.Fprintf(&b, "\n  %s: %s\n    - %s\n    + %s", d.Layer, d.Path, d.Before, d.After)
+		if d.Next != "" {
+			fmt.Fprintf(&b, "\n    next: %s", d.Next)
+		}
 	}
 	for _, nc := range e.Plan.NotConverted {
 		where := nc.Path
@@ -328,7 +333,7 @@ func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 	p.Differences = append(p.Differences, diffValues(envLayer, before.env, after.env)...)
 	p.Differences = append(p.Differences, diffValues(providerTableLayer, before.providers, after.providers)...)
 	p.Differences = append(p.Differences, diffValues(brokerGrantsLayer, before.grants, after.grants)...)
-	p.Differences = append(p.Differences, diffValues(loopholeActivationLayer, before.activation, after.activation)...)
+	p.Differences = append(p.Differences, activationNextSteps(diffValues(loopholeActivationLayer, before.activation, after.activation))...)
 	p.DerivedVendors = derivedOnlyBefore(before.derived, after.derived)
 	p.Equal = before.set == after.set
 	if g.Request.Workspace != "" && len(g.project) > 0 {
