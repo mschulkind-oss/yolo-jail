@@ -164,7 +164,7 @@ Blocked on [OQ-JH4](jail-history.md#OQ-JH4) — whether a third built-in skill e
   correctly on the host, where `yolo history` runs in the workspace.
 - The briefing sentence goes in `hostRunSection` (`briefing.go`), beside *"A bare `yolo wait`
   lists…"*; `briefing_test.go` pins that section's lines.
-- `diagnosing-the-jail` §6 and §7 cross-link; nothing else in it changes.
+- `diagnosing-the-jail` [§6](../../internal/jailcontent/builtinskills/diagnosing-the-jail/SKILL.md#6-my-fix-isnt-taking-effect--youre-running-stale-code) and [§7](../../internal/jailcontent/builtinskills/diagnosing-the-jail/SKILL.md#7-orphans-and-logs) cross-link; nothing else in it changes.
 - Content is the design's outline, in the second person, steps not explanations
   ([JM-P4](../reference/jail-mechanics-skill.md#JM-P4)).
 

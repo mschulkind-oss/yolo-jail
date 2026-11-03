@@ -384,7 +384,7 @@ what a skill description is for.
 `explaining-what-happened`, rendered from the same fact sheet as the other two
 (`internal/jailcontent/mechanicsrender.go`, so paths are this jail's), plus one sentence in the
 briefing's *Running a command on the host* section and a cross-link from `diagnosing-the-jail`
-§6 (*"you're running stale code"*) and from the `jail-mechanics` index.
+[§6](../../internal/jailcontent/builtinskills/diagnosing-the-jail/SKILL.md#6-my-fix-isnt-taking-effect--youre-running-stale-code) (*"you're running stale code"*) and from the `jail-mechanics` index.
 
 **Trigger description** (the one line an agent matches on):
 
