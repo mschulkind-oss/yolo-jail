@@ -41,11 +41,22 @@ func hostHalf(e *entrypoint.Env) bool {
 // environment, where the launch names the descriptors): the address the agent was composed with,
 // held from the pick, so no other listener could be given it first. A jail's bridge binds addr.
 func listenAt(e *entrypoint.Env, addr string) (net.Listener, error) {
+	if heldListener != nil {
+		if l, ok := heldListener(addr); ok {
+			return l, nil
+		}
+	}
 	if hostHalf(e) {
 		return launchservice.Listen(os.Getenv, addr)
 	}
 	return net.Listen("tcp", addr)
 }
+
+// heldListener is nil outside this package's tests. A test sets it once, to hand the daemon a
+// listener the test already bound for addr, so no window opens between the test choosing a free
+// port and the daemon binding it, in which another process on the machine could take the port and
+// make the daemon exit before it publishes anything. An address it does not hold binds as above.
+var heldListener func(addr string) (net.Listener, bool)
 
 // HostMain is the host half's subcommand body. rest is ignored: the whole input is the launch's
 // input file, never an argv.

@@ -284,12 +284,7 @@ func TestRunWakesForAnAttachedRoute(t *testing.T) {
 	EndpointFile = endpointFile
 	t.Cleanup(func() { EndpointFile = oldEndpointFile })
 
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	addr := listener.Addr().String()
-	_ = listener.Close()
+	addr := freeLoopback(t)
 	writeChannel(t, home, `{}`, `{"codex":{"provider":"openai-codex"}}`, `{"pi":"codex"}`)
 	initial := routeEnv(`{}`, `{"codex":{"provider":"openai-codex"}}`, `{"pi":"codex"}`)
 	initial.Vars["JAIL_HOME"] = home

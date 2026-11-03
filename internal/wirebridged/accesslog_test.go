@@ -98,9 +98,8 @@ func TestTheRequestLogNamesAnUpstreamFiveHundred(t *testing.T) {
 }
 
 func TestTheRequestLogSaysAHangIsStillWaitingOnTheUpstream(t *testing.T) {
-	old := stillWaitingInterval
-	stillWaitingInterval = 50 * time.Millisecond
-	t.Cleanup(func() { stillWaitingInterval = old })
+	stillWaitingOverride.Store(int64(50 * time.Millisecond))
+	t.Cleanup(func() { stillWaitingOverride.Store(0) })
 	logged := captureDiag(t)
 	_, adapterAddr, _ := servedBridge(t, map[string]string{CallerTokenEnv: testCallerToken})
 	release := make(chan struct{})
@@ -166,7 +165,7 @@ func TestTheRequestLogNamesAResetAndARefusedConnect(t *testing.T) {
 	requestLine(t, logged, "POST /v1/messages 502", `upstream_error="connection `)
 
 	// REFUSED: a port nothing listens on.
-	realUpstream(t, freeLoopback(t))
+	realUpstream(t, refusingLoopback(t))
 	if resp, err := postBridge(t, context.Background(), "http://"+adapterAddr+"/v1/messages", anthropicHi); err != nil || resp.StatusCode != http.StatusBadGateway {
 		t.Fatalf("refused: got %v %v, want a 502", resp, err)
 	}

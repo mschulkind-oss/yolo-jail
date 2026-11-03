@@ -11,7 +11,10 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -162,6 +165,28 @@ func writeKeyChannel(t *testing.T, home string, lines ...string) {
 	}
 }
 
+// heldLoopback holds every listener freeLoopback bound and the daemon has not yet taken, by
+// address. listenAt asks it before binding (heldListener), so a test's port is never released
+// between being chosen and being served on.
+var heldLoopback = struct {
+	sync.Mutex
+	m map[string]net.Listener
+}{m: map[string]net.Listener{}}
+
+func init() {
+	heldListener = func(addr string) (net.Listener, bool) {
+		heldLoopback.Lock()
+		defer heldLoopback.Unlock()
+		l, ok := heldLoopback.m[addr]
+		delete(heldLoopback.m, addr)
+		return l, ok
+	}
+}
+
+// freeLoopback is a loopback address for a bridge under test to serve on. The port stays bound
+// from the pick: the daemon is handed this very listener when it binds the address, and one it
+// never binds is closed when the test ends. An address only dialed, never served on, wants
+// refusingLoopback instead, since this one accepts connections into its backlog.
 func freeLoopback(t *testing.T) string {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -169,26 +194,103 @@ func freeLoopback(t *testing.T) string {
 		t.Fatal(err)
 	}
 	addr := ln.Addr().String()
-	_ = ln.Close()
+	heldLoopback.Lock()
+	heldLoopback.m[addr] = ln
+	heldLoopback.Unlock()
+	t.Cleanup(func() {
+		if l, ok := heldListener(addr); ok {
+			_ = l.Close()
+		}
+	})
 	return addr
+}
+
+// stillHeld reports whether freeLoopback still holds addr: true until a daemon binds it.
+func stillHeld(addr string) bool {
+	heldLoopback.Lock()
+	defer heldLoopback.Unlock()
+	_, ok := heldLoopback.m[addr]
+	return ok
+}
+
+// refusingLoopback is a loopback address a dial is refused at: a TCP socket bound to it that
+// never listens, held until the test ends so no other process can start listening there.
+func refusingLoopback(t *testing.T) string {
+	t.Helper()
+	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = syscall.Close(fd) })
+	if err := syscall.Bind(fd, &syscall.SockaddrInet4{Addr: [4]byte{127, 0, 0, 1}}); err != nil {
+		t.Fatal(err)
+	}
+	sa, err := syscall.Getsockname(fd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return net.JoinHostPort("127.0.0.1", strconv.Itoa(sa.(*syscall.SockaddrInet4).Port))
+}
+
+// teeDiag copies the daemon's log, from now on, into a buffer of its own while it still reaches
+// whatever sink a test's captureDiag installed, and returns a reader for the copy.
+func teeDiag(t *testing.T) func() string {
+	t.Helper()
+	buf := &bytes.Buffer{}
+	diagMu.Lock()
+	prev := diagSink
+	diagSink = io.MultiWriter(prev, buf)
+	diagMu.Unlock()
+	t.Cleanup(func() {
+		diagMu.Lock()
+		diagSink = prev
+		diagMu.Unlock()
+	})
+	return func() string {
+		diagMu.Lock()
+		defer diagMu.Unlock()
+		return buf.String()
+	}
+}
+
+// awaitEndpoint runs serve with a private endpoint file and returns the address the daemon
+// published there. A daemon that exits first, or publishes nothing within 5s, fails the test with
+// its exit code, the file it was waited on for, and every line it logged.
+func awaitEndpoint(t *testing.T, serve func(ctx context.Context) int) string {
+	t.Helper()
+	endpointFile := filepath.Join(t.TempDir(), "wire-bridge.endpoint")
+	old := EndpointFile
+	EndpointFile = endpointFile
+	t.Cleanup(func() { EndpointFile = old })
+	logged := teeDiag(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan int, 1)
+	go func() { done <- serve(ctx) }()
+	deadline := time.After(5 * time.Second)
+	for {
+		if b, err := os.ReadFile(endpointFile); err == nil && strings.TrimSpace(string(b)) != "" {
+			t.Cleanup(func() { cancel(); <-done })
+			return strings.TrimSpace(string(b))
+		}
+		select {
+		case code := <-done:
+			cancel()
+			t.Fatalf("the bridge exited %d before publishing %s. Its log:\n%s", code, endpointFile, logged())
+		case <-deadline:
+			cancel()
+			<-done
+			t.Fatalf("the bridge published no endpoint at %s within 5s. Its log:\n%s", endpointFile, logged())
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
 }
 
 // startPlan runs servePlan with a private endpoint file and returns when it is published.
 func startPlan(t *testing.T, p plan, home string) {
 	t.Helper()
 	noReadinessPipe(t)
-	endpointFile := filepath.Join(t.TempDir(), "wire-bridge.endpoint")
-	old := EndpointFile
-	EndpointFile = endpointFile
-	t.Cleanup(func() { EndpointFile = old })
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan int, 1)
-	go func() { done <- servePlan(ctx, p, tokenEnv(map[string]string{"JAIL_HOME": home})) }()
-	t.Cleanup(func() { cancel(); <-done })
-	waitFor(t, func() bool {
-		b, err := os.ReadFile(endpointFile)
-		return err == nil && strings.TrimSpace(string(b)) != ""
-	})
+	e := tokenEnv(map[string]string{"JAIL_HOME": home})
+	awaitEndpoint(t, func(ctx context.Context) int { return servePlan(ctx, p, e) })
 }
 
 func postTo(t *testing.T, url, body string, header map[string]string) (*http.Response, string) {
@@ -599,25 +701,15 @@ func TestRunServesAViaRouteFromTheChannel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	endpointFile := filepath.Join(t.TempDir(), "wire-bridge.endpoint")
-	old := EndpointFile
-	EndpointFile = endpointFile
-	t.Cleanup(func() { EndpointFile = old })
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan int, 1)
-	go func() {
-		done <- run(ctx, tokenEnv(map[string]string{
-			"JAIL_HOME":         home,
-			"YOLO_PROVIDERS":    viaProviders,
-			"YOLO_PROFILES":     profiles,
-			"YOLO_USE_PROFILES": `{"pi":"pz"}`,
-		}), time.Hour)
-	}()
-	defer func() { cancel(); <-done }()
-	waitFor(t, func() bool {
-		b, err := os.ReadFile(endpointFile)
-		return err == nil && strings.TrimSpace(string(b)) == addr
+	e := tokenEnv(map[string]string{
+		"JAIL_HOME":         home,
+		"YOLO_PROVIDERS":    viaProviders,
+		"YOLO_PROFILES":     profiles,
+		"YOLO_USE_PROFILES": `{"pi":"pz"}`,
 	})
+	if got := awaitEndpoint(t, func(ctx context.Context) int { return run(ctx, e, time.Hour) }); got != addr {
+		t.Fatalf("run() published %s, want the via address %s", got, addr)
+	}
 	if resp, b := postTo(t, "http://"+addr+"/agent/pi/chat/completions", `{"model":"m"}`, nil); resp.StatusCode != 200 {
 		t.Fatalf("via route through run(): %d %s", resp.StatusCode, b)
 	}
