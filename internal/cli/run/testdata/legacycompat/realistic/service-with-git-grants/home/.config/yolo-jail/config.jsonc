@@ -1,0 +1,9 @@
+{
+  "packs": ["git", "github"],
+  "brokered": {
+    "git": {
+      "grants": [{"kind": "read", "repo": "*"}],
+      "grant_kinds": ["create-branch", "branch"]
+    }
+  }
+}

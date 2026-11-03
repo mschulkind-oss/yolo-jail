@@ -1,0 +1,5 @@
+{
+  "about": "A TOML user config beside a legacy JSONC workspace with loopholes.journal.enabled: the mix the owner hit, refused at the jail crossing as an inherited user config.",
+  "current_only": true,
+  "expect_enabled": ["journal"]
+}

@@ -1,0 +1,36 @@
+// Shared yolo-jail user config, deployed from a dotfiles repo by symlink.
+// Machine-specific tweaks go in overrides.jsonc (untracked, often absent); the
+// tag layer (personal.jsonc or work.jsonc) is deployed per machine.
+{
+  "include_if_found": ["overrides.jsonc", "personal.jsonc"],
+  // Order is load-bearing: later packs win on same-named skills.
+  "packs": [
+    "pi",
+    "codex",
+    "journal",
+    "host-processes",
+    "serial",
+    "guardrails",
+    "github",
+    "chrome-devtools",
+    "~/dotfiles-sample/agent-packs/house-rules",
+    "~/dotfiles-sample/agent-packs/house-tools"
+  ],
+  "perf_logging": true,
+  "promotion_target": "pack:house-rules",
+  "host_management": "own",
+  "packages": ["fzf"],
+  "mise_tools": {
+    "neovim": "nightly",
+    "pipx:sample-notes": "latest"
+  },
+  "env_sources": [
+    "~/.config/yolo-jail/local.env",
+    {"SAMPLE_TRUE_COLOR": "1", "SAMPLE_IN_JAIL": "1"}
+  ],
+  "loopholes": {
+    "journal": {"enabled": true},
+    "host-processes": {"enabled": true},
+    "serial": {"enabled": true}
+  }
+}

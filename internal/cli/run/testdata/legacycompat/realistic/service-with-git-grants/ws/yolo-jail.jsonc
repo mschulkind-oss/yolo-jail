@@ -1,0 +1,11 @@
+// The project asks to push new branches and to push main.
+{
+  "brokered": {
+    "git": {
+      "grants": [
+        {"kind": "create-branch", "repo": "github.com/example-org/sample-service"},
+        {"kind": "branch", "repo": "github.com/example-org/sample-service", "branch": "main"}
+      ]
+    }
+  }
+}

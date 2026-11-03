@@ -1,0 +1,8 @@
+{
+  "about": "The owner's personal-machine shape: a symlinked shared user config, a symlinked tag layer, a missing machine-local include, local path packs, user-scope loophole switches, and a committed service workspace with host-processes visible and fields, journal, network, mounts and env_sources.",
+  "links": {
+    "home/.config/yolo-jail/config.jsonc": "../../dotfiles-sample/yolo-jail/config.jsonc",
+    "home/.config/yolo-jail/personal.jsonc": "../../dotfiles-sample/tag-personal/personal.jsonc"
+  },
+  "dirs": ["home/reference/sample-docs"]
+}

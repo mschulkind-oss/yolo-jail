@@ -1,0 +1,2 @@
+# A user config already migrated to TOML.
+packs = ["pi", "journal"]

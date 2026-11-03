@@ -1,0 +1,6 @@
+{
+  "about": "The owner's current TOML shape (a config.d layer, a pack source handle, allow grants) against an unmigrated service workspace that switches host-processes and journal the legacy way and sets host-processes visible and fields.",
+  "current_only": true,
+  "dirs": ["home/reference/sample-docs"],
+  "expect_enabled": ["host-processes", "journal"]
+}

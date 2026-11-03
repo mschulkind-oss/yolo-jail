@@ -1,0 +1,9 @@
+// Personal machines only, deployed by the dotfiles manager's "personal" tag.
+{
+  "packs": ["cerebras", "openrouter"],
+  "providers": {
+    "openrouter": {
+      "models": {"sample-fast": "sample-vendor/sample-model-flash"}
+    }
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "personal-desktop": {
+    "v0151": {
+      "enabled": [
+        "host-processes",
+        "journal",
+        "serial"
+      ],
+      "settings": {
+        "host-processes": {
+          "fields": [
+            "pid",
+            "comm",
+            "args",
+            "rss"
+          ],
+          "visible": [
+            "postgres",
+            "sample-daemon"
+          ]
+        },
+        "journal": {
+          "full": false
+        },
+        "serial": {
+          "allowed_devices": [
+            "/dev/ttyUSB*",
+            "/dev/ttyACM*",
+            "/dev/cu.usbserial*",
+            "/dev/cu.usbmodem*",
+            "/dev/serial/by-id/*"
+          ],
+          "default_baud": 115200
+        }
+      }
+    }
+  },
+  "work-laptop": {
+    "v0151": {
+      "enabled": [
+        "aws-auth",
+        "claude-oauth-broker"
+      ],
+      "settings": {
+        "aws-auth": {
+          "profile": "sample-sso-profile",
+          "role_arn": "",
+          "session_policy": "",
+          "unnarrowed": true
+        }
+      }
+    }
+  }
+}

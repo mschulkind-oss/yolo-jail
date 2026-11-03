@@ -1,0 +1,7 @@
+// A work laptop: the shared base plus a work tag layer.
+{
+  "include_if_found": ["overrides.jsonc", "work.jsonc"],
+  "packs": ["pi", "guardrails", "github"],
+  "host_management": "own",
+  "packages": ["fzf"]
+}

@@ -1,0 +1,5 @@
+{
+  "about": "A TOML user config beside a dangling config.jsonc symlink a dotfiles manager left after its source was migrated away: the link must be ignored, not refused as a second format.",
+  "current_only": true,
+  "links": {"home/.config/yolo-jail/config.jsonc": "../../sample-dotfiles/yolo-jail/config.jsonc"}
+}
