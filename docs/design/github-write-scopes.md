@@ -388,14 +388,21 @@ github-broker repository scope, read from this workspace's .git/config, yolo-jai
 
 1. 💬 **<a id="OQ-GW7"></a>[OQ-GW7](#OQ-GW7): When the agent merges its own PR, should only the working-set line decide, or should an `all` line count too?**
 
+   The defaults, when no file sets a line ([§3](#3-the-working-set), *Shipped defaults*): the
+   working set's comment and edit lines are on, its approve and merge lines are absent, and `all`
+   is empty. An absent line runs only if Kurt's user config lists it under `always`; otherwise it
+   asks. Kurt's user config lists nothing under `always` but `read`.
+
    Kurt's `yolo-jail.toml` says `[requests.github.all] merge_prs = "ask"`, meaning "every merge asks
-   me". The agent opened PR #41 itself, so #41 is in the working set, and the working set's
-   `merge_prs` line is absent. The agent runs `gh pr merge 41`. Under the rule as drafted, a write on
-   a working-set item reads only the working-set lines, so `all` does not reach #41, and the merge
-   falls through to Kurt's user config. To make every merge ask, Kurt writes two lines, one in each
-   table. The check that refuses a config whose `all` grants more than its working set does means a
-   `true` in `all` is always copied into the working set, so only `"ask"` and `false` can be split
-   this way.
+   me". The agent opened PR #41 itself, so #41 is in the working set, whose `merge_prs` line is
+   absent by default. The agent runs `gh pr merge 41`. Under the rule as drafted, a write on a
+   working-set item reads only the working-set lines, so `all` does not reach #41. The absent line
+   falls through to Kurt's `always`, which has no merge, so the merge asks anyway: the defaults
+   give Kurt what he meant. The split only shows when his user config holds
+   `always = ["working_set.merge_prs"]`: then #41 merges unasked despite his `all` line, and making
+   every merge ask takes a second line, `working_set.merge_prs = "ask"`. A `true` in `all` never
+   splits this way, because the check that refuses an `all` granting more than the working set
+   copies it in.
 
    - **A — Each table falls back to the other, line by line.** Kurt's one `all` line makes #41's
      merge ask too. There's a second rule to keep in mind when reading any config: which table wins
