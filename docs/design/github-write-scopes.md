@@ -3,7 +3,7 @@ title: "Where the GitHub line is drawn: which writes run unasked, per user and p
 date: 2026-10-30
 status: in-review
 stage: DESIGN
-next: "Owner confirms the pick-one-set rule and the invariant (GW-D57, GW-D58; OQ-GW7) and rules OQ-GW14 and OQ-GW15 on which repository a line is for (§8); then the plan is built from it"
+next: "Owner confirms the invariant (GW-D58) and rules OQ-GW14 and OQ-GW15 on which repository a line is for (§8); then the plan is built from it"
 depends-on:
   - boundary-broker.md
 tags: [design, github, gh, broker, grants, approvals, config, toml]
@@ -386,48 +386,7 @@ github-broker repository scope, read from this workspace's .git/config, yolo-jai
 
 ## Open Questions
 
-1. 💬 **<a id="OQ-GW7"></a>[OQ-GW7](#OQ-GW7): When the agent merges its own PR, should only the working-set line decide, or should an `all` line count too?**
-
-   What runs with no line in any file, and `always = ["read"]` in the user config
-   ([§3](#3-the-working-set), *Shipped defaults*):
-
-   | Cell | `working_set` | `all` |
-   | :--- | :--- | :--- |
-   | `comment_prs`, `comment_issues` | runs | asks |
-   | `edit_prs`, `edit_issues` | runs | asks |
-   | `approve_prs` | asks | asks |
-   | `merge_prs` | asks | asks |
-
-   So by default the two tables differ only in comment and edit. A line the table leaves out
-   runs only if the user config lists it under `always`.
-
-   Kurt's `yolo-jail.toml` says `[requests.github.all] merge_prs = "ask"`, meaning "every merge asks
-   me". The agent opened PR #41 itself, so #41 is in the working set, whose `merge_prs` line is
-   absent by default. The agent runs `gh pr merge 41`. Under the rule as drafted, a write on a
-   working-set item reads only the working-set lines, so `all` does not reach #41. The absent line
-   falls through to Kurt's `always`, which has no merge, so the merge asks anyway: the defaults
-   give Kurt what he meant. The split only shows when his user config holds
-   `always = ["working_set.merge_prs"]`: then #41 merges unasked despite his `all` line, and making
-   every merge ask takes a second line, `working_set.merge_prs = "ask"`. A `true` in `all` never
-   splits this way, because the check that refuses an `all` granting more than the working set
-   copies it in.
-
-   - **A — Each table falls back to the other, line by line.** Kurt's one `all` line makes #41's
-     merge ask too. There's a second rule to keep in mind when reading any config: which table wins
-     on a given line.
-   - **B — Only the working-set table decides for a working-set item.** One rule. Kurt needs two lines to make
-     every merge ask, and `yolo config why requests.github.working_set.merge_prs` shows him that the line is
-     absent.
-
-   <!-- vantage: question id=OQ-GW7 leaning="B: one table per call is the rule you can hold in your head, and the check already carries every all grant into the working set." -->
-
-   _Leaning:_ **B.** Reading one table per call is the rule you can keep in your head, and the check
-   already copies every `all` grant into the working set, so only "ask" ever takes two lines.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 **<a id="OQ-GW14"></a>[OQ-GW14](#OQ-GW14): May a committed config name a repository by a remote's name, when each clone's remote can point somewhere different?**
+1. 💬 **<a id="OQ-GW14"></a>[OQ-GW14](#OQ-GW14): May a committed config name a repository by a remote's name, when each clone's remote can point somewhere different?**
 
    The project's committed `yolo-jail.toml` holds `[requests.github.repository.upstream]
    labels = true`. In Kurt's clone `upstream` is `acme/app`, and in Ana's it is
@@ -449,7 +408,7 @@ github-broker repository scope, read from this workspace's .git/config, yolo-jai
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. 💬 🤷 **<a id="OQ-GW15"></a>[OQ-GW15](#OQ-GW15): Should `repos`, the read-only list of extra repositories, stay beside named repositories?**
+2. 💬 🤷 **<a id="OQ-GW15"></a>[OQ-GW15](#OQ-GW15): Should `repos`, the read-only list of extra repositories, stay beside named repositories?**
 
    This repository's uncommitted `yolo-jail.local.toml` says `repos = ["mschulkind/dotfiles"]`, so the agent can
    read your yolo configs. Named repositories give a second way to say the same thing: a
@@ -512,7 +471,8 @@ github-broker repository scope, read from this workspace's .git/config, yolo-jai
 | <a id="GW-D54"></a>GW-D54 | **Owner's ruling:** offer projects. `projects = ["<owner>/<number>"]` covers adding this repository's items to a granted board, `item-edit` and `item-archive` on it, and `--add-project`/`--remove-project` after one read resolves the title to a granted board; never board or field create, close, edit, delete, copy or link, nor draft items | 2026-11-02 | [§7](#7-repository-level-grants-and-what-is-refused-outright) | — |
 | <a id="GW-D55"></a>GW-D55 | Still refused under every grant: settings, secrets, variables, deploy keys, rulesets, branch protection, collaborators, archive, transfer, `repo delete`, any delete, raw GraphQL | 2026-11-02 | [§7](#7-repository-level-grants-and-what-is-refused-outright) | — |
 | <a id="GW-D56"></a>GW-D56 | No cell covers a delete: `pr merge --delete-branch` and `pr close --delete-branch` ask, naming the write without the flag and a git `push` grant for the branch delete | 2026-11-02 | [§1](#1-the-cells) | — |
-| <a id="GW-D57"></a>GW-D57 | **Recommended (pending the owner's confirmation), from the owner's model of 2026-11-02:** pick the table first. A write on a working-set item reads `working_set` only; a write on any other item reads `all` only; neither table is a fallback for the other. Amends [GW-D45](#GW-D45) | 2026-11-02 | [§4](#4-how-one-call-resolves) | — |
+| <a id="GW-D57"></a>GW-D57 | **Owner's ruling (confirmed 2026-11-03 through [OQ-GW7](#OQ-GW7)), from the owner's model of 2026-11-02:** pick the table first. A write on a working-set item reads `working_set` only; a write on any other item reads `all` only; neither table is a fallback for the other. Amends [GW-D45](#GW-D45) | 2026-11-02 | [§4](#4-how-one-call-resolves) | — |
+| <a id="OQ-GW7"></a>[OQ-GW7](#OQ-GW7) | **Owner's ruling: B.** Only the working-set table decides for a working-set item; `all` decides for every other item; neither falls back to the other ([GW-D57](#GW-D57)). Owner: *"the more specific governs. … Working set is clearly a subset of all, so working set covers working set. All covers things that aren't working set."* So making every merge ask, the agent's own PRs included, takes both `all.merge_prs = "ask"` and `working_set.merge_prs = "ask"` | 2026-11-03 | [§4](#4-how-one-call-resolves) | — |
 | <a id="GW-D58"></a>GW-D58 | **Recommended (pending the owner's confirmation):** the invariant. For every cell X, `all.X = true` requires `working_set.X = true` (a shipped default counts); `"ask"` is never a grant, so `all.X = "ask"` constrains nothing and `working_set.X = "ask"` under `all.X = true` is the error. Checked at config load on the workspace's merged tables, so `yolo check`, a launch and `yolo config apply` refuse the same file, naming both fixes; the ceiling satisfies it by construction ([GW-D44](#GW-D44)). Owner: *"a check to make sure that at least the minimum of the all permissions are specified in the working set permissions. Otherwise ... that's probably a fatal error because somebody probably made a mistake there."* | 2026-11-02 | [§2](#2-the-ceiling-and-the-ask) | — |
 | <a id="GW-D59"></a>GW-D59 | `working_set.approve_prs` exists (ruled with [OQ-GW11](#decision-ledger)), so the two tables hold the same six cells and the invariant needs no special case; it ships absent. On the agent's own PR GitHub refuses the approval; on a handed-over PR the hand-over line named `approve` before the `y`. Supersedes [GW-D43](#GW-D43) | 2026-11-02 | [§1](#1-the-cells) | — |
 | <a id="OQ-GW11"></a>[OQ-GW11](#OQ-GW11) | **Ruled A:** the working set has its own `approve_prs` line, absent by default, so both tables hold the same six cells and the invariant needs no special case; the hand-over prompt shows `approve` before the human's `y` ([GW-D59](#GW-D59)). Owner, taking the leaning: *"the hand-over prompt shows approve before the y, and same six lines in both tables means no special case."* | 2026-11-02 | [§3](#3-the-working-set) | no |
