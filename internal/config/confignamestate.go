@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
@@ -133,8 +134,15 @@ func includeSkipNotice(path, from string) string {
 	if refusal == nil {
 		return ""
 	}
-	return refusal.Fact + "; include_if_found is best effort, so it was skipped. To include it: " + refusal.Step
+	return refusal.Fact + includeSkipMarker + " To include it: " + refusal.Step
 }
+
+// includeSkipMarker is the clause every include-skip notice carries, so a reader that turns the
+// loader's warnings into errors (a migration's strict read) can tell a skipped include, which is
+// not a problem with the config, from one that is (isIncludeSkipNotice).
+const includeSkipMarker = "; include_if_found is best effort, so it was skipped."
+
+func isIncludeSkipNotice(msg string) bool { return strings.Contains(msg, includeSkipMarker) }
 
 // IncludeSkipped is whether an include_if_found entry at path counts as not found (RC-D67):
 // absent, or present but not readable as a regular file.

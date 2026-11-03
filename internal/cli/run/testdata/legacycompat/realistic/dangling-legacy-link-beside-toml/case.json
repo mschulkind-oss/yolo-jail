@@ -1,5 +1,6 @@
 {
-  "about": "A TOML user config beside a dangling config.jsonc symlink a dotfiles manager left after its source was migrated away: the link must be ignored, not refused as a second format.",
+  "about": "A TOML user config beside a dangling config.jsonc symlink a dotfiles manager left after its source was migrated away. The owner ruled (2026-11-03, RC-D67) that a config name in that state is present, so it counts as a second file and is an error naming the link: you thought you had both files, so look and remediate.",
   "current_only": true,
-  "links": {"home/.config/yolo-jail/config.jsonc": "../../sample-dotfiles/yolo-jail/config.jsonc"}
+  "links": {"home/.config/yolo-jail/config.jsonc": "../../sample-dotfiles/yolo-jail/config.jsonc"},
+  "expect_refused": "config.jsonc is a symbolic link to ../../sample-dotfiles/yolo-jail/config.jsonc, which does not exist"
 }

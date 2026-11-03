@@ -129,8 +129,6 @@ var knownLegacyBreaks = []legacyBreak{
 		"pending fix: lc-migrate-ws-loophole-switch"},
 	{"loophole/openai-auth-broker/*", "migrate-*", "only shipped packs may be named without a source",
 		"pending fix: lc-openai-auth-renamed"},
-	{"realistic/service-with-git-grants", "migrate-*", `a "create-branch" grant has no request spelling`,
-		"pending fix: lc-migrate-create-branch-grant"},
 
 	// The config launches, but means less than it did: a legacy switch no longer grants the access
 	// it gave, so the launch asks (pending), needs a request (requestable) or refuses it.
@@ -166,6 +164,10 @@ type legacyCase struct {
 	ExpectEnabled []string
 	// ExpectGitGrants is the git broker grant kinds the workspace must hold.
 	ExpectGitGrants []string
+	// ExpectRefused, when set, is text the launch's refusal must hold: a case the owner ruled
+	// is an error (a dangling config name beside its sibling, RC-D59 and RC-D67), so its
+	// launch passing is the finding.
+	ExpectRefused string
 }
 
 type legacyFinding struct {
@@ -383,6 +385,14 @@ func runLegacyCell(t *testing.T, c legacyCase, cell legacyCell) []legacyFinding 
 		IsTTYStderr: func() bool { return false }, Getenv: os.Getenv,
 		Now: func() time.Time { return time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC) }}
 	cfg, ok := o.loadAndValidateConfig()
+	if c.ExpectRefused != "" {
+		if ok {
+			note("load", "launched; the owner ruled it an error, so it must be refused naming "+c.ExpectRefused)
+		} else if !strings.Contains(buf.String(), c.ExpectRefused) {
+			note("load", "refused, but not naming "+c.ExpectRefused+": "+buf.String())
+		}
+		return out
+	}
 	if !ok {
 		note("load", buf.String())
 		return out
@@ -810,6 +820,7 @@ func realisticLegacyCases(t *testing.T) []legacyCase {
 			WorkspaceFile   map[string]bool   `json:"workspace_file"`
 			ExpectEnabled   []string          `json:"expect_enabled"`
 			ExpectGitGrants []string          `json:"expect_git_grants"`
+			ExpectRefused   string            `json:"expect_refused"`
 		}
 		dir := filepath.Join(root, e.Name())
 		body, err := os.ReadFile(filepath.Join(dir, "case.json"))
@@ -820,7 +831,7 @@ func realisticLegacyCases(t *testing.T) []legacyCase {
 			t.Fatalf("%s: %v", e.Name(), err)
 		}
 		lc := legacyCase{ID: "realistic/" + e.Name(), About: spec.About, WorkspaceFile: spec.WorkspaceFile,
-			ExpectEnabled: spec.ExpectEnabled, ExpectGitGrants: spec.ExpectGitGrants}
+			ExpectEnabled: spec.ExpectEnabled, ExpectGitGrants: spec.ExpectGitGrants, ExpectRefused: spec.ExpectRefused}
 		if !spec.CurrentOnly {
 			got, ok := v0151[e.Name()]
 			if !ok || got.V0151 == nil {

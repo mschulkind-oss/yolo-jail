@@ -45,6 +45,9 @@ func TestConfigMigrateRefusesADanglingConfigLink(t *testing.T) {
 	if len(g.Unreachable) != 1 || g.Unreachable[0].Path != inc {
 		t.Fatalf("the dangling include is not recorded as not found: %+v", g.Unreachable)
 	}
+	if _, err := Plan(g); err != nil {
+		t.Fatalf("the plan over a dangling include: %v", err)
+	}
 	if err := os.Remove(inc); err != nil {
 		t.Fatal(err)
 	}

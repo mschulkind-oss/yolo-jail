@@ -33,7 +33,13 @@ type MigrationGraphRead struct {
 // or workspace skips that half.
 func ReadMigrationGraph(userPath, workspace string) (*MigrationGraphRead, error) {
 	var problems []string
-	warn := func(msg string) { problems = append(problems, msg) }
+	warn := func(msg string) {
+		// An include_if_found entry skipped as not found is the config as written, not a problem
+		// with it (RC-D67); the converted file keeps the entry.
+		if !isIncludeSkipNotice(msg) {
+			problems = append(problems, msg)
+		}
+	}
 	out := &MigrationGraphRead{User: jsonx.NewOrderedMap(), Workspace: jsonx.NewOrderedMap()}
 	if userPath != "" {
 		selected, label, readable, err := resolveUserConfigPath(userPath)
@@ -97,7 +103,13 @@ func ReadMigrationLayer(userPath, layerPath string) (*MigrationGraphRead, error)
 		return nil, err
 	}
 	var problems []string
-	warn := func(msg string) { problems = append(problems, msg) }
+	warn := func(msg string) {
+		// An include_if_found entry skipped as not found is the config as written, not a problem
+		// with it (RC-D67); the converted file keeps the entry.
+		if !isIncludeSkipNotice(msg) {
+			problems = append(problems, msg)
+		}
+	}
 	layer, _, err := loadWithIncludesScope(layerPath, "--user-layer "+layerPath, true, warn, nil, false, SchemaScopeUserOnly, readAt{role: editRoleUser})
 	if err != nil {
 		return nil, err
