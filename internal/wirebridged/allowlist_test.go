@@ -128,18 +128,8 @@ func bootNarrowed(t *testing.T, names []string, company string, user map[string]
 		vars["YOLO_PACK_ROOT"] = stagedTree(t, packs)
 	}
 	noReadinessPipe(t)
-	endpointFile := filepath.Join(t.TempDir(), "wire-bridge.endpoint")
-	old := EndpointFile
-	EndpointFile = endpointFile
-	t.Cleanup(func() { EndpointFile = old })
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan int, 1)
-	go func() { done <- servePlan(ctx, p, tokenEnv(vars)) }()
-	t.Cleanup(func() { cancel(); <-done })
-	waitFor(t, func() bool {
-		raw, err := os.ReadFile(endpointFile)
-		return err == nil && strings.TrimSpace(string(raw)) != ""
-	})
+	e := tokenEnv(vars)
+	awaitEndpoint(t, func(ctx context.Context) int { return servePlan(ctx, p, e) })
 	return b
 }
 

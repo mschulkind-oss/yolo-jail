@@ -46,9 +46,20 @@ import (
 )
 
 // stillWaitingInterval is how long a request may be in flight before the log says so, and how
-// often it says so again. A variable so a test can reach it without waiting; never rebound in
-// production.
-var stillWaitingInterval = 30 * time.Second
+// often it says so again.
+const stillWaitingInterval = 30 * time.Second
+
+// stillWaitingOverride, when nonzero, replaces stillWaitingInterval so a test need not wait. It is
+// never set in production. Atomic because a handler goroutine from an earlier test's bridge may
+// still be starting its ticker while the next test sets or restores it.
+var stillWaitingOverride atomic.Int64
+
+func stillWaitingEvery() time.Duration {
+	if d := time.Duration(stillWaitingOverride.Load()); d > 0 {
+		return d
+	}
+	return stillWaitingInterval
+}
 
 // requestSeq numbers requests for the life of the daemon, so a request's "still waiting" lines
 // and its final line can be read together.
@@ -162,7 +173,7 @@ func (rl *reqLog) setNote(note string) {
 func (rl *reqLog) watch() func() {
 	done := make(chan struct{})
 	go func() {
-		t := time.NewTicker(stillWaitingInterval)
+		t := time.NewTicker(stillWaitingEvery())
 		defer t.Stop()
 		for {
 			select {

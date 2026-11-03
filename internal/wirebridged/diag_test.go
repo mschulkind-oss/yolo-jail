@@ -164,14 +164,7 @@ func TestBindConflictDetailReachesTheReadinessPipeOnOneLine(t *testing.T) {
 // listener is closed explicitly for exactly this reason.
 func TestPublishFailureNamesTheFileAndReleasesTheListener(t *testing.T) {
 	noReadinessPipe(t)
-	probe, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	addr := probe.Addr().String()
-	if err := probe.Close(); err != nil {
-		t.Fatal(err)
-	}
+	addr := freeLoopback(t)
 
 	// A regular file where the endpoint directory should be: MkdirAll fails.
 	blocker := filepath.Join(t.TempDir(), "not-a-dir")
