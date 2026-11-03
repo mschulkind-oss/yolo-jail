@@ -142,13 +142,14 @@ func modelOrder(entry *jsonx.OrderedMap) []any {
 	return out
 }
 
-// RC-D55: a user config that mixes a TOML file with a legacy include holding a setting the
+// RC-D55, LC-D4: a user config that mixes a TOML file with a legacy include holding a setting the
 // readers keep in its legacy spelling (a model row's facts, model_facts, profile and profiles, a
 // loophole block) crosses into the jail as the TOML `yolo config migrate` writes for it, and the
-// jail resolves the same providers, profiles and loophole settings from it as the host. Before,
-// the scope could cross in neither format and the launch refused. Fails if the delivery stops
-// passing the migration's lowering (inheritScopeFilesWithSelector's
-// configmigrate.LowerInheritedUserScope): every case is then the old refusal.
+// jail resolves the same providers and profiles from it as the host; a loophole block crosses as
+// nothing (LC-D6). Before, the scope could cross in neither format and the launch refused. Fails
+// if the delivery stops passing the migration's lowering (inheritScopeFilesWithSelector's
+// configmigrate.LowerInheritedUserScope): the providers and profiles then cross without the
+// legacy settings.
 func TestMixedFormatLegacyUserSettingsCrossAsTheirMigration(t *testing.T) {
 	const provider = `"myp": {"endpoints": {"anthropic": {"base_url": "https://llm.example"}}, "api_key_env_name": "MYP_KEY"`
 	for _, tc := range []struct{ name, include, read, holds string }{
@@ -213,6 +214,12 @@ func TestMixedFormatLegacyUserSettingsCrossAsTheirMigration(t *testing.T) {
 					t.Fatalf("the delivered scope does not launch: %v\n%s", errs, body)
 				}
 				got := loweredScopeReads(t, jail, delivered, packs)
+				if tc.read == "loophole settings" {
+					// LC-D6: a legacy loopholes block crosses into a TOML delivery as its readable
+					// reading, nothing: its settings are `allow`, which no jail inherits, the same
+					// as the TOML table it converts to (X14). The host's own launch keeps them.
+					want["loophole settings"] = "{}"
+				}
 				for k, w := range want {
 					if got[k] != w {
 						t.Errorf("%s: the jail reads\n  %s\nthe host\n  %s\ndelivered:\n%s", k, got[k], w, body)

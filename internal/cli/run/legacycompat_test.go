@@ -29,7 +29,7 @@ package run
 //   - load: the launch's config gate, loadAndValidateConfig (load, validate, the pack switch,
 //     the capability gate);
 //   - packs: config.LoadPacks, the selection every pack reader resolves;
-//   - inherit: the jail crossing, inheritedScopeWithSelector (RenderFilteredForDeliveryLowering
+//   - inherit: the jail crossing, inheritedScopeWithSelector (config.RenderInheritedDelivery
 //     with configmigrate.LowerInheritedUserScope), for podman: ANY USER SCOPE THE HOST ACCEPTS
 //     MUST CROSS INTO THE JAIL;
 //   - jail-load: the jail's own read of what crossed, with YOLO_VERSION set;
@@ -96,12 +96,6 @@ var knownLegacyBreaks = []legacyBreak{
 		"pending fix: lc-hostproc-fields-scope (fields moved from workspace to user scope)"},
 	{"loophole/serial/settings.default_baud/workspace", "load", "serial.settings.default_baud: user-scope only",
 		"pending fix: lc-serial-baud-scope (default_baud moved from workspace to user scope)"},
-
-	// The jail crossing refuses a TOML user config beside a legacy workspace loophole switch.
-	{"loophole/*/workspace", "inherit", "mixes a TOML file and a legacy JSONC file",
-		"pending fix: lc-inherit-mixed-format"},
-	{"realistic/toml-user-legacy-ws-journal", "inherit", "mixes a TOML file and a legacy JSONC file",
-		"pending fix: lc-inherit-mixed-format"},
 
 	// The migration (the launch's offer, and the conversion a TOML cell needs) cannot convert a
 	// legacy file exactly.

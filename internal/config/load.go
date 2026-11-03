@@ -599,7 +599,11 @@ func composeReadableConfigWithInputUse(workspace string, strict bool, warn Warn,
 }
 
 func composeReadableConfigWithInputUseAudit(workspace string, strict bool, warn Warn, record, withWorkspaceFile bool, input *ConfigReadInput, inputUsed *bool, roleAudit *[]editTargetReadObservation) (*jsonx.OrderedMap, *srcNode, error) {
-	if input == nil && inJail() && jailOwnWorkspace(workspace) && UserLayerPath() == "" {
+	// The assembled copy is the host's merge WITH the per-workspace file applied, so it answers
+	// only a caller that wants that file. One that does not (the user scope a nested launch hands
+	// its jail) composes from the files, the same computation as the host's (LC-D8,
+	// docs/design/legacy-config-compat.md; BB-D56 forbids that file reaching a jail's user scope).
+	if input == nil && withWorkspaceFile && inJail() && jailOwnWorkspace(workspace) && UserLayerPath() == "" {
 		if snapshot, ok := loadAssembledSnapshot(workspace); ok {
 			if !record {
 				snapshot, _ = projectLegacyB2Config(snapshot, nil)
@@ -746,7 +750,10 @@ func composeConfig(workspace string, strict bool, warn Warn, record, withWorkspa
 	// ignore the file the caller explicitly named, which is exactly the invisibility the
 	// flag exists to avoid (a silently-ignored explicit argument is worse than no flag).
 	// With a layer set we fall through and assemble, then merge it in.
-	if inJail() && jailOwnWorkspace(workspace) && UserLayerPath() == "" {
+	//
+	// And a caller that does not want the per-workspace file never gets the copy, which has it
+	// applied (LC-D8).
+	if withWorkspaceFile && inJail() && jailOwnWorkspace(workspace) && UserLayerPath() == "" {
 		if snap, ok := loadAssembledSnapshot(workspace); ok {
 			if !record {
 				return snap, nil, nil
