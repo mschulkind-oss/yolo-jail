@@ -94,7 +94,9 @@ func TestBuildRunPlanCarriesDeclaredDevicesIntoTheProfile(t *testing.T) {
 	cfg.Set("devices", []any{"/dev/cu.usbserial-A1", usb})
 	plan := BuildRunPlan("/Users/Shared/proj", cfg, nil, []string{"bash"}, "/usr/local/bin/yolo", "",
 		HomeOverlay{}, HostContext{}, jsonx.NewOrderedMap(), nil, nil)
-	if !strings.Contains(plan.Seatbelt, "(allow file-ioctl\n    (literal \"/dev/cu.usbserial-A1\"))") {
+	// The deny-by-default profile (every mode's since MMP-D25) opens the node and its ioctls in
+	// one form (denyDefaultDeviceAllow).
+	if !strings.Contains(plan.Seatbelt, "(allow file-read* file-write* file-ioctl\n    (literal \"/dev/cu.usbserial-A1\"))") {
 		t.Errorf("the launch's profile does not carry the declared device\n%s", plan.Seatbelt)
 	}
 	if strings.Contains(plan.Seatbelt, "1234") {

@@ -13,12 +13,14 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// ISSUE #66: a workspace that once ran under podman keeps, in its sidecar, the EMPTY file podman
-// creates at the target of a single-file `:ro` bind (0 bytes, mode 0700). It holds no data, yet
-// a macos-user launch refused it as an owner file it could not prove it had delivered. Through
-// Run, both with the user config still JSONC and with it converted to TOML: the launch moves the
-// placeholder aside, says so in one line, and dispatches. Red if the arm stops clearing it.
-func TestMacosUserLaunchMovesAsideAnEmptyPodmanPlaceholder(t *testing.T) {
+// ISSUE #66, AFTER SLICE 12a: a workspace that once ran under podman keeps, in its sidecar, the
+// EMPTY file podman creates at the target of a single-file `:ro` bind (0 bytes, mode 0700), at
+// podman's `config/yolo-jail/config.jsonc`. A macos-user launch in either mode now delivers its
+// user scope at HOME's own `.config` (MMP-D5, MMP-D25), so the placeholder is in nobody's way:
+// through Run, with the user config JSONC and TOML, the launch dispatches, leaves the placeholder
+// exactly where it was, and says nothing about it. Red if the account mode's destination goes
+// back to podman's path, where the placeholder would refuse or be moved.
+func TestMacosUserLaunchLeavesAPodmanPlaceholderOutOfItsWay(t *testing.T) {
 	for _, tc := range []struct {
 		name, file, body string
 	}{
@@ -35,74 +37,41 @@ func TestMacosUserLaunchMovesAsideAnEmptyPodmanPlaceholder(t *testing.T) {
 				t.Fatal(err)
 			}
 			ws := floortest.ResolvedTemp(t)
-			configDir := filepath.Join(paths.WorkspaceHomeState(ws), "config", "yolo-jail")
-			placeholder := plantPodmanPlaceholder(t, configDir, "config.jsonc")
-			nested := plantPodmanPlaceholder(t, configDir, "inherited-launch.jsonc")
+			podmanDir := filepath.Join(paths.WorkspaceHomeState(ws), "config", "yolo-jail")
+			placeholder := plantPodmanPlaceholder(t, podmanDir, "config.jsonc")
 			before, err := os.Lstat(placeholder)
 			if err != nil {
 				t.Fatal(err)
 			}
-
-			var stdout, stderr bytes.Buffer
-			o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
-			var got macosUserCall
-			called := false
-			o.MacosUserRun = fakeMacosUserRun(func(c macosUserCall) int {
-				called, got = true, c
-				return 0
-			})
-			if rc := Run(*o); rc != 0 || !called {
-				t.Fatalf("Run() = %d, dispatched %v: an empty podman placeholder refused the launch\nstderr:\n%s", rc, called, stderr.String())
-			}
-			if _, err := os.Lstat(placeholder); !os.IsNotExist(err) {
-				t.Errorf("the placeholder still occupies %s (err %v)", placeholder, err)
-			}
-			aside := placeholder + ".podman-placeholder"
-			after, err := os.Lstat(aside)
-			if err != nil || !os.SameFile(before, after) || after.Size() != 0 || after.Mode() != before.Mode() {
-				t.Errorf("the placeholder was not moved intact to %s: before %v after %v err %v", aside, before, after, err)
-			}
-			if _, err := os.Lstat(nested); err != nil {
-				t.Errorf("the nested placeholder, which this backend never writes, was touched: %v", err)
-			}
-			var lines []string
-			for _, line := range strings.Split(stderr.String(), "\n") {
-				if strings.Contains(line, placeholder) {
-					lines = append(lines, line)
+			for _, dry := range []bool{true, false} {
+				var stdout, stderr bytes.Buffer
+				o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
+				o.DryRun = dry
+				var got macosUserCall
+				called := false
+				o.MacosUserRun = fakeMacosUserRun(func(c macosUserCall) int {
+					called, got = true, c
+					return 0
+				})
+				if rc := Run(*o); rc != 0 || (!dry && !called) {
+					t.Fatalf("Run() (dry %v) = %d, dispatched %v: a podman placeholder outside HOME's .config refused the launch\nstderr:\n%s",
+						dry, rc, called, stderr.String())
+				}
+				after, err := os.Lstat(placeholder)
+				if err != nil || !os.SameFile(before, after) || after.Size() != 0 {
+					t.Errorf("the launch (dry %v) touched the placeholder at %s: err %v", dry, placeholder, err)
+				}
+				if _, err := os.Lstat(placeholder + podmanPlaceholderSuffix); !os.IsNotExist(err) {
+					t.Errorf("the launch (dry %v) moved something to %s%s (err %v)", dry, placeholder, podmanPlaceholderSuffix, err)
+				}
+				if strings.Contains(stderr.String(), placeholder) {
+					t.Errorf("the launch (dry %v) spoke of a placeholder in nobody's way:\n%s", dry, stderr.String())
+				}
+				if !dry && (!slices.Contains(got.overlay.Dests, inheritPreflightRel) || slices.Contains(got.overlay.Dests, inheritPreflightLegacyRel)) {
+					t.Errorf("the launch delivered %v, want the TOML user scope and no JSONC fallback", got.overlay.Dests)
 				}
 			}
-			if len(lines) != 1 || !strings.Contains(lines[0], aside) || !strings.Contains(lines[0], "empty") {
-				t.Errorf("the launch did not say in one line that it moved %s aside to %s:\n%s", placeholder, aside, stderr.String())
-			}
-			if !slices.Contains(got.overlay.Dests, inheritPreflightRel) || slices.Contains(got.overlay.Dests, inheritPreflightLegacyRel) {
-				t.Errorf("the launch delivered %v, want the TOML user scope and no JSONC fallback", got.overlay.Dests)
-			}
 		})
-	}
-}
-
-// A dry run describes the launch without changing the sidecar: it neither moves the placeholder
-// nor refuses because of it, and it says what a launch will do.
-func TestMacosUserDryRunLeavesTheEmptyPlaceholderAndSaysALaunchMovesIt(t *testing.T) {
-	home := packHome(t)
-	writeUserPacks(t, home, `["claude"]`)
-	ws := floortest.ResolvedTemp(t)
-	placeholder := plantPodmanPlaceholder(t, filepath.Join(paths.WorkspaceHomeState(ws), "config", "yolo-jail"), "config.jsonc")
-	var stdout, stderr bytes.Buffer
-	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
-	o.DryRun = true
-	o.MacosUserRun = fakeMacosUserRun(func(macosUserCall) int { return 0 })
-	if rc := Run(*o); rc != 0 {
-		t.Fatalf("dry Run() = %d\nstderr:\n%s", rc, stderr.String())
-	}
-	if _, err := os.Lstat(placeholder); err != nil {
-		t.Errorf("a dry run moved the placeholder: %v", err)
-	}
-	if _, err := os.Lstat(placeholder + ".podman-placeholder"); !os.IsNotExist(err) {
-		t.Errorf("a dry run created %s.podman-placeholder (err %v)", placeholder, err)
-	}
-	if !strings.Contains(stderr.String(), "will move") || !strings.Contains(stderr.String(), placeholder) {
-		t.Errorf("the dry run did not say a launch will move %s aside:\n%s", placeholder, stderr.String())
 	}
 }
 
@@ -142,7 +111,7 @@ func TestMacosUserKeepsRefusingAnythingButAnUnsharedEmptyFile(t *testing.T) {
 			home := packHome(t)
 			writeUserPacks(t, home, `["claude"]`)
 			ws := floortest.ResolvedTemp(t)
-			configDir := filepath.Join(paths.WorkspaceHomeState(ws), "config", "yolo-jail")
+			configDir := filepath.Join(paths.WorkspaceHomeState(ws), ".config", "yolo-jail")
 			if err := os.MkdirAll(configDir, 0o755); err != nil {
 				t.Fatal(err)
 			}
@@ -180,28 +149,24 @@ func TestMacosUserKeepsRefusingAnythingButAnUnsharedEmptyFile(t *testing.T) {
 }
 
 // The move never overwrites: an earlier placeholder already aside keeps its place, and the new one
-// takes the next free name.
-func TestMacosUserPlaceholderMoveNeverOverwritesAnEarlierOne(t *testing.T) {
-	home := packHome(t)
-	writeUserPacks(t, home, `["claude"]`)
-	ws := floortest.ResolvedTemp(t)
-	configDir := filepath.Join(paths.WorkspaceHomeState(ws), "config", "yolo-jail")
-	placeholder := plantPodmanPlaceholder(t, configDir, "config.jsonc")
-	earlier := placeholder + ".podman-placeholder"
+// takes the next free name. Asked of the mover a podman relaunch uses (movePlaceholderAside), at
+// podman's own path, since no macos-user destination is a podman bind's target since slice 12a.
+func TestPlaceholderMoveNeverOverwritesAnEarlierOne(t *testing.T) {
+	wsState := floortest.ResolvedTemp(t)
+	placeholder := plantPodmanPlaceholder(t, filepath.Join(wsState, "config", "yolo-jail"), "config.jsonc")
+	earlier := placeholder + podmanPlaceholderSuffix
 	if err := os.WriteFile(earlier, []byte("kept\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	var stdout, stderr bytes.Buffer
-	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
-	o.MacosUserRun = fakeMacosUserRun(func(macosUserCall) int { return 0 })
-	if rc := Run(*o); rc != 0 {
-		t.Fatalf("Run() = %d\nstderr:\n%s", rc, stderr.String())
+	dest, err := movePlaceholderAside(wsState, filepath.Join("config", "yolo-jail", "config.jsonc"), os.Geteuid())
+	if err != nil {
+		t.Fatalf("the placeholder was not moved: %v", err)
 	}
 	if b, err := os.ReadFile(earlier); err != nil || string(b) != "kept\n" {
 		t.Errorf("the earlier placeholder at %s was overwritten (err %v): %q", earlier, err, b)
 	}
-	if info, err := os.Lstat(earlier + "-2"); err != nil || info.Size() != 0 {
-		t.Errorf("the new placeholder did not land at %s-2 (info %v err %v)", earlier, info, err)
+	if info, err := os.Lstat(earlier + "-2"); err != nil || info.Size() != 0 || dest != earlier+"-2" {
+		t.Errorf("the new placeholder did not land at %s-2 (dest %s info %v err %v)", earlier, dest, info, err)
 	}
 }
 
@@ -251,13 +216,15 @@ func TestPlaceholderMovePutsBackAFileThatChangedBeforeTheRename(t *testing.T) {
 }
 
 // The TOML destination is in the family too: a podman launch of today binds config.toml the same
-// single-file way, so its empty target is moved aside like the legacy one.
+// single-file way, so its empty target is moved aside like the legacy one. Asked with podman's
+// own storage (each destination at the undotted path its bind uses).
 func TestClearPodmanPlaceholdersCoversTheTOMLDestination(t *testing.T) {
 	wsState := floortest.ResolvedTemp(t)
 	path := plantPodmanPlaceholder(t, filepath.Join(wsState, "config", "yolo-jail"), "config.toml")
 	var stderr bytes.Buffer
 	o := &Options{Stderr: &stderr}
-	if gone := o.clearPodmanPlaceholders(wsState, o.macosUserInheritedStorage, inheritScopeDestinations(config.InheritPreflight)...); len(gone) != 0 {
+	podmanStorage := func(rel string) (string, error) { return filepath.FromSlash(strings.TrimPrefix(rel, ".")), nil }
+	if gone := o.clearPodmanPlaceholders(wsState, podmanStorage, inheritScopeDestinations(config.InheritPreflight)...); len(gone) != 0 {
 		t.Errorf("a launch reported %v as planned rather than moved", gone)
 	}
 	if _, err := os.Lstat(path + podmanPlaceholderSuffix); err != nil {

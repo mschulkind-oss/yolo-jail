@@ -158,7 +158,9 @@ func TestSiteContextLinksFoldsCaseOnlyWhereTheVolumeDoes(t *testing.T) {
 
 // THE PROFILE FROM THE PLAN BUILDER carries each context rule with its test id, every source
 // named in the block its mode needs, in §3.4's order — judged per operation class, since
-// last-match-wins is decided among the rules matching ONE operation.
+// last-match-wins is decided among the rules matching ONE operation. The profile is the
+// deny-by-default one in every mode since MMP-D25, so the order is read against its
+// `(deny default)` head rather than the retired allow-default profile's root denies.
 func TestPlanSeatbeltCarriesTheContextRulesInOrder(t *testing.T) {
 	sb := planWithLinks(t, roLink, rwLink).Seatbelt
 
@@ -183,23 +185,23 @@ func TestPlanSeatbeltCarriesTheContextRulesInOrder(t *testing.T) {
 	if strings.Contains(profileBlock(sb, "context-readonly-deny"), rwLink.Source) {
 		t.Errorf("a read-write source is in the write deny:\n%s", sb)
 	}
-	// Writes: the rw allow after the root deny and the writable set, the ro deny after every
+	// Writes: the rw allow after the default deny and the writable set, the ro deny after every
 	// write allow, and nothing re-allows writes after it.
-	if !(at("write-outside-deny") < at("workspace-write-allow") && at("workspace-write-allow") < at("context-write-allow") &&
+	if !(at("deny-default") < at("workspace-write-allow") && at("workspace-write-allow") < at("context-write-allow") &&
 		at("context-write-allow") < at("context-readonly-deny")) {
 		t.Errorf("the write rules are out of order:\n%s", sb)
 	}
 	if strings.Contains(sb[at("context-readonly-deny"):], "(allow file-write") {
 		t.Errorf("a write allow follows the read-only context deny, so it may not win:\n%s", sb)
 	}
-	// Reads: the source allow after the /Users deny it re-opens, before every keychain deny.
-	if !(at("users-read-deny") < at("context-read-allow") && at("context-read-allow") < at("library-keychains-deny") &&
+	// Reads: the source allow after the default deny it re-opens, before every keychain deny.
+	if !(at("deny-default") < at("context-read-allow") && at("context-read-allow") < at("library-keychains-deny") &&
 		at("context-read-allow") < at("system-keychains-deny")) {
-		t.Errorf("the read allow is not between the /Users deny and the keychain denies:\n%s", sb)
+		t.Errorf("the read allow is not between the default deny and the keychain denies:\n%s", sb)
 	}
-	// The traversal the workspace needed, for a source under /Users/Shared/: its intermediate
+	// The traversal the source needs, for a source under /Users/Shared/: its intermediate
 	// directory as a literal, never a subpath that would re-open its siblings.
-	if !strings.Contains(profileBlock(sb, "workspace-read-allow"), `(literal "/Users/Shared/ci")`) {
+	if !strings.Contains(sb, `(literal "/Users/Shared/ci")`) {
 		t.Errorf("no ancestor literal for %s:\n%s", roLink.Source, sb)
 	}
 	if strings.Contains(sb, `(subpath "/Users/Shared/ci")`) {
@@ -207,13 +209,10 @@ func TestPlanSeatbeltCarriesTheContextRulesInOrder(t *testing.T) {
 	}
 }
 
-// NO CONTEXT MOUNT, NO CHANGE: the profile of a launch that delivers none is the one every
-// launch got before this existed.
-func TestAPlanWithNoContextLinksKeepsItsProfile(t *testing.T) {
+// NO CONTEXT MOUNT, NO CONTEXT RULE: the profile of a launch that delivers none carries no
+// context block and no probe.
+func TestAPlanWithNoContextLinksCarriesNoContextRule(t *testing.T) {
 	plan := planWithLinks(t)
-	if want := SeatbeltProfile(ctxWorkspace, SandboxHome(), nil, HomeReadonly{}); plan.Seatbelt != want {
-		t.Errorf("a plan with no context links changed the profile")
-	}
 	if strings.Contains(plan.Seatbelt, "context-") || len(plan.ContextPreflight) != 0 {
 		t.Errorf("a plan with no links carries context rules or probes")
 	}

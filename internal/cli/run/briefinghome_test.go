@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // THE CALL-SITE PIN for the Environment block's backend arm. internal/jailcontent proves it
@@ -17,13 +18,24 @@ import (
 // import jailcontent back. Delete `Home: nativeHomeFor(rt)` from prepare.go and the briefing
 // silently tells a macos-user agent its home is /home/agent.
 func TestTheMacosUserBriefingNamesTheSandboxHome(t *testing.T) {
-	got := macosUserBriefing(t, appliedTestConfig("packages", []any{}))
-
-	if want := "- **Home**: `" + macosuser.SandboxHome() + "`"; !strings.Contains(got, want) {
-		t.Errorf("the briefing does not name the sandbox home (%q).\n\nA macos-user agent is "+
-			"told its home is somewhere it cannot write, on the one surface it reads first.\n\n%s",
-			want, got)
+	// HOME is the workspace's own home in both modes (MMP-D5, MMP-D25), never the account's
+	// machine root, which every workspace shares.
+	for _, mode := range []macosuser.Mode{macosuser.ModeAccount, macosuser.ModeSelf} {
+		var ws string
+		got := macosUserBriefingWith(t, appliedTestConfig("packages", []any{}), func(o *Options) {
+			o.MacosUserMode, o.MacosUserHostHome = mode, "/Users/you"
+			ws = o.Workspace
+		})
+		if want := "- **Home**: `" + paths.WorkspaceHomeState(ws) + "`"; !strings.Contains(got, want) {
+			t.Errorf("%s: the briefing does not name the sandbox home (%q).\n\nA macos-user agent is "+
+				"told its home is somewhere it does not live, on the one surface it reads first.\n\n%s",
+				mode, want, got)
+		}
+		if strings.Contains(got, "- **Home**: `"+macosuser.SandboxHome()+"`") {
+			t.Errorf("%s: the briefing names the account's shared home as the agent's", mode)
+		}
 	}
+	got := macosUserBriefing(t, appliedTestConfig("packages", []any{}))
 	if strings.Contains(got, "- **Home**: `/home/agent`") {
 		t.Errorf("the briefing still names the CONTAINER's home on a backend that has no "+
 			"container:\n\n%s", got)

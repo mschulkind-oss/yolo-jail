@@ -66,10 +66,131 @@ func TestSelfModeUsesTheDenyDefaultProfileAndTheWorkspaceHome(t *testing.T) {
 	}
 }
 
-func TestAccountModePlanIsUnchanged(t *testing.T) {
-	if !strings.Contains(testRunPlan(t).Seatbelt, "(allow default)") {
-		t.Error("the zero-mode plan stopped using today's profile")
+// THE ACCOUNT MODE TAKES THE SAME PROFILE AND A HOME PER WORKSPACE (slice 12a, MMP-D25): the zero
+// mode's plan installs the deny-by-default profile, runs its bootstrap confined, sets HOME to the
+// workspace's own home, and still crosses through the sudo rule as the sandbox account. Two
+// workspaces' plans share no HOME. Fails if BuildRunPlanWithStages sends the account mode back to
+// the allow-default profile, the account's home or an unconfined bootstrap.
+func TestAccountModePlanTakesTheDenyDefaultProfileAndTheWorkspaceHome(t *testing.T) {
+	plan := testRunPlan(t)
+	if plan.RunAs.Mode != ModeAccount {
+		t.Fatalf("testRunPlan is not an account-mode plan: %v", plan.RunAs.Mode)
 	}
+	if !strings.Contains(plan.Seatbelt, "\n(deny default)\n") || strings.Contains(plan.Seatbelt, "(allow default)") {
+		t.Error("the account mode does not run under the deny-default profile")
+	}
+	home := paths.WorkspaceHomeState("/Users/Shared/proj")
+	if !containsArg(plan.LaunchArgv, "HOME="+home) {
+		t.Errorf("launch HOME is not the workspace home %s: %v", home, plan.LaunchArgv)
+	}
+	if !containsArgPair(plan.BootstrapArgv, "/usr/bin/sandbox-exec", "-f", plan.ProfilePath) {
+		t.Errorf("the account-mode bootstrap is not confined (MMP-D9): %v", plan.BootstrapArgv)
+	}
+	for name, argv := range map[string][]string{"launch": plan.LaunchArgv, "bootstrap": plan.BootstrapArgv} {
+		if len(argv) < 4 || argv[0] != "/usr/bin/sudo" || !containsArg(argv, "--user="+SandboxUser) {
+			t.Errorf("the account-mode %s argv does not cross as %s through the rule: %v", name, SandboxUser, argv)
+		}
+	}
+	if len(plan.EnvFileGrantCommands) == 0 {
+		t.Error("the account-mode plan grants the sandbox account no read on its session env file")
+	}
+	if !strings.Contains(plan.Seatbelt, "(subpath "+sbplStr(home)+")") {
+		t.Errorf("the profile does not open the workspace home %s", home)
+	}
+	if problems := PlanInvariants(plan); len(problems) > 0 {
+		t.Errorf("the account-mode plan violates its invariants:\n%s", strings.Join(problems, "\n"))
+	}
+	other := BuildRunPlan("/Users/Shared/other", jsonx.NewOrderedMap(), nil, []string{"claude"},
+		"/usr/local/bin/yolo", "", HomeOverlay{}, HostContext{}, jsonx.NewOrderedMap(), nil, nil)
+	if other.RunAs.Homes.Home == plan.RunAs.Homes.Home {
+		t.Errorf("two workspaces' account-mode plans share HOME %s", plan.RunAs.Homes.Home)
+	}
+	if strings.Contains(other.Seatbelt, sbplStr(home)) {
+		t.Errorf("another workspace's profile names this workspace's home %s", home)
+	}
+}
+
+// THE ACCOUNT-MODE TWIN OF TestSelfModeBootstrapIsToldTheHomes: HOME is the sidecar (which selects
+// the workspace-home layout), and the account's own home is the machine root, the shared store
+// and the real home at once, with the mise store in it. Fails if the bootstrap env's homes go back
+// to self mode only: the bootstrap would refuse the layout (darwinWorkspaceHomeProblem).
+func TestAccountModeBootstrapIsToldTheHomes(t *testing.T) {
+	ws := "/Users/Shared/proj"
+	plan := testRunPlan(t)
+	h := plan.RunAs.Homes
+	if h != (Homes{Home: paths.WorkspaceHomeState(ws), Machine: SandboxHome(), Shared: SandboxHome(), Real: SandboxHome()}) {
+		t.Fatalf("the account-mode plan's homes are %+v", h)
+	}
+	for _, want := range []string{
+		"HOME=" + paths.WorkspaceHomeState(ws),
+		entrypoint.DarwinHomeSidecarEnv + "=" + paths.WorkspaceHomeState(ws),
+		entrypoint.DarwinMachineHomeEnv + "=" + SandboxHome(),
+		entrypoint.DarwinSharedHomeEnv + "=" + SandboxHome(),
+		paths.DarwinRealHomeEnv + "=" + SandboxHome(),
+		"MISE_DATA_DIR=" + SandboxMiseData(SandboxHome()),
+	} {
+		if !containsArg(plan.BootstrapArgv, want) {
+			t.Errorf("the bootstrap env lacks %s: %v", want, plan.BootstrapArgv)
+		}
+	}
+	if !containsArg(plan.LaunchArgv, "USER="+SandboxUser) {
+		t.Errorf("the launch runs with another USER than the account's: %v", plan.LaunchArgv)
+	}
+	if !containsArg(plan.LaunchArgv, "MISE_DATA_DIR="+SandboxMiseData(SandboxHome())) {
+		t.Errorf("the launch's mise store is not the machine root's: %v", plan.LaunchArgv)
+	}
+}
+
+// THE ACCOUNT-MODE HALF OF PlanInvariants fails each plan that lost a piece of MMP-D25, and is
+// silent for a run-as-you plan. A mutation test, so deleting accountModeProblems' call in
+// PlanInvariants fails it.
+func TestAccountModeInvariantsCatchAnOldShapedPlan(t *testing.T) {
+	good := testRunPlan(t)
+	for name, tc := range map[string]struct {
+		mutate func(*RunPlan)
+		want   string
+	}{
+		"the account's home": {func(p *RunPlan) {
+			p.RunAs.Homes = accountHomes("")
+		}, "two workspaces would share one home"},
+		"HOME off the argv": {func(p *RunPlan) {
+			p.LaunchArgv = replaceArg(p.LaunchArgv, "HOME="+p.RunAs.Homes.Home, "HOME="+SandboxHome())
+		}, "does not set HOME="},
+		"the allow-default profile": {func(p *RunPlan) {
+			p.Seatbelt = "(version 1)\n(allow default)\n"
+		}, "does not install the deny-by-default"},
+		"an unconfined bootstrap": {func(p *RunPlan) {
+			p.BootstrapArgv = replaceArg(p.BootstrapArgv, "/usr/bin/sandbox-exec", "/usr/bin/true")
+		}, "the account-mode bootstrap does not run under"},
+		"no env-file grant": {func(p *RunPlan) {
+			p.EnvFileGrantCommands = nil
+		}, "grants the sandbox account no read"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			p := good
+			p.LaunchArgv = append([]string(nil), good.LaunchArgv...)
+			p.BootstrapArgv = append([]string(nil), good.BootstrapArgv...)
+			tc.mutate(&p)
+			if probs := strings.Join(PlanInvariants(p), "\n"); !strings.Contains(probs, tc.want) {
+				t.Errorf("PlanInvariants did not say %q:\n%s", tc.want, probs)
+			}
+		})
+	}
+	if probs := accountModeProblems(selfRunPlan(t, "/Users/you/code/alpha")); len(probs) > 0 {
+		t.Errorf("the account-mode half spoke for a run-as-you plan: %v", probs)
+	}
+}
+
+// replaceArg returns argv with every word equal to old replaced by new.
+func replaceArg(argv []string, old, new string) []string {
+	out := make([]string, len(argv))
+	for i, a := range argv {
+		if a == old {
+			a = new
+		}
+		out[i] = a
+	}
+	return out
 }
 
 // THE BOOTSTRAP IS TOLD THE RUN-AS-YOU HOMES: HOME is the sidecar itself (which selects the
@@ -173,7 +294,7 @@ func TestSelfModeInvariantsCatchAnAccountShapedPlan(t *testing.T) {
 		"sudo crossing": {func(p *RunPlan) {
 			p.LaunchArgv = append([]string{sudoBin, "-n", "--user=" + SandboxUser}, p.LaunchArgv...)
 		}, "does not cross"},
-		"old profile":            {func(p *RunPlan) { p.Seatbelt = testRunPlan(t).Seatbelt }, "deny-by-default"},
+		"old profile":            {func(p *RunPlan) { p.Seatbelt = "(version 1)\n(allow default)\n" }, "deny-by-default"},
 		"unconfined bootstrap":   {func(p *RunPlan) { p.BootstrapArgv = DarwinBootstrapArgv(p.RunAs, p.StagedYolo, "", nil, "") }, "MMP-D9"},
 		"an access entry staged": {func(p *RunPlan) { p.StageCommands = append(p.StageCommands, []string{chmodBin, "+a", "x", "/y"}) }, "grants an access entry"},
 	} {
@@ -219,17 +340,12 @@ func selfModeOpts(ws string) Options {
 	return o
 }
 
-// THE RUN-AS-YOU LAUNCH TAKES NO ACCOUNT-HOME HOLD and needs no account: on a Mac with no
-// sandbox account and no run-as rule it runs to the session, runs no sudo, and says first that
-// the agent runs as you. Fails if RunMacosUser's self branch is deleted: the account
-// preconditions would refuse this Mac, or the hold would be taken.
-func TestSelfModeTakesNoAccountHomeHold(t *testing.T) {
+// THE RUN-AS-YOU LAUNCH NEEDS NO ACCOUNT: on a Mac with no sandbox account and no run-as rule it
+// runs to the session, runs no sudo, and says first that the agent runs as you. Fails if
+// RunMacosUser's self branch is deleted: the account preconditions would refuse this Mac.
+func TestSelfModeNeedsNoAccount(t *testing.T) {
 	var rec []string
 	d := selfModeDeps(&rec)
-	d.HoldAccountHome = func(string, string, string) (func(), string) {
-		t.Error("a run-as-you launch took the account home's hold")
-		return func() {}, ""
-	}
 	var out bytes.Buffer
 	d.Out = &out
 	if rc := RunMacosUser(d, selfModeOpts("/Users/you/code/alpha")); rc != 42 {

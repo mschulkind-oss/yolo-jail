@@ -433,18 +433,17 @@ func SandboxDaemonEnvFile(key, sd string) string {
 const SupervisorLogName = "supervisor.log"
 
 // SupervisorLogPath is where the guest's supervisor sends its own stdout and stderr, as the
-// HOST sees it: <workspace>/.yolo/home/local/state/yolo-jail-daemons/supervisor.log. That is
-// the directory the daemons' own logs land in (supervisor.LogDir, ~/.local/state/
-// yolo-jail-daemons in the sandbox, whose ~/.local is the workspace overlay's `local` subtree —
-// paths.HomeSurfaces), spelled here from the workspace rather than through the sandbox home's
-// symlink so the file the guest writes and the file the launch reads are one path.
+// HOST sees it: <workspace>/.yolo/home/.local/state/yolo-jail-daemons/supervisor.log. That is
+// the directory the daemons' own logs land in (supervisor.LogDir, paths.JailDaemonLogsRel under
+// HOME), since HOME is the workspace home in both modes (MMP-D5, MMP-D25). Spelled from the
+// workspace so the file the guest writes and the file the launch reads are one path.
 //
 // Readable by the user on the ACL model the daemons' logs already use: the guest creates it as
 // the sandbox account, inside the workspace, whose inheriting `group:_yolojail` ACEs
 // (WorkspaceACLAces) are applied to whatever is created there whoever creates it — and the host
 // user is a member of that group. Nothing here grants anything.
 func SupervisorLogPath(workspace string) string {
-	return filepath.Join(paths.WorkspaceHomeState(workspace), "local", "state", "yolo-jail-daemons",
+	return filepath.Join(paths.WorkspaceHomeState(workspace), filepath.FromSlash(paths.JailDaemonLogsRel()),
 		SupervisorLogName)
 }
 

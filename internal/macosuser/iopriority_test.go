@@ -232,7 +232,7 @@ func launchPlan(t *testing.T, res *jsonx.OrderedMap) RunPlan {
 // plan's invariants hold — and fire when the guard is lost.
 func TestTheMemoryGuardRunsInsideTheSessionAndOnlyWhenDeclared(t *testing.T) {
 	plain := launchPlan(t, resourcesOf("cpus", 2))
-	direct := LaunchArgvWithGuard(RunAs{}, []string{"claude"}, plain.ProfilePath, plain.EnvFile,
+	direct := LaunchArgvWithGuard(plain.RunAs, []string{"claude"}, plain.ProfilePath, plain.EnvFile,
 		plain.Workspace, "", "", plain.DarwinPathPrefix, plain.SessionGuard, plain.StagedYolo)
 	if !slices.Equal(plain.LaunchArgv, direct) {
 		t.Errorf("with no resources.memory the launch argv moved:\n got %q\nwant %q", plain.LaunchArgv, direct)

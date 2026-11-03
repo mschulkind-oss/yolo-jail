@@ -192,7 +192,7 @@ func (o *Options) refreshJailBriefingsMode(cname string, cfg *jsonx.OrderedMap, 
 		// import internal/macosuser without routing through internal/entrypoint, whose
 		// tests import jailcontent back. Empty for every container backend, which renders
 		// /home/agent exactly as before.
-		Home: nativeHomeFor(rt),
+		Home: o.nativeHomeFor(rt),
 		// The platform this launch runs ON, for the one answer the mechanism does not
 		// carry: the Seatbelt-vs-Landlock spelling of a `guest` notch whose mechanism names
 		// no backend (jailcontent.ConfinementProfile). A guest LAUNCH always names one —
@@ -967,9 +967,12 @@ func (o *Options) noteHandoffConsumed() {
 // It exists so internal/jailcontent never has to import internal/macosuser: that path
 // runs through internal/entrypoint, whose tests import jailcontent, and the cycle it
 // would create is only avoided today by accident of which files are test files.
-func nativeHomeFor(rt string) string {
+//
+// The launch's own HOME (macosuser.LaunchHomes): the workspace's home state in both macos-user
+// modes (MMP-D5, MMP-D25), so the briefing never names the account's machine root as the home.
+func (o *Options) nativeHomeFor(rt string) string {
 	if slices.Contains(paths.NativeRuntimes, rt) {
-		return macosuser.SandboxHome()
+		return macosuser.LaunchHomes(o.MacosUserMode, o.Workspace, o.macosUserHostHome()).Home
 	}
 	return ""
 }

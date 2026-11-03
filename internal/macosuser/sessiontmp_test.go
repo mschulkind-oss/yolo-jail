@@ -13,6 +13,7 @@ const (
 	testSessionID  = "0123456789abcdef"
 	testUserTmp    = "/private/var/folders/ab/xyz/T"
 	testSessionTmp = testUserTmp + "/yolo-01234567"
+	testAccountTmp = "/private/var/folders/zz/acct/T"
 )
 
 // sessionTmpPlan is a plan whose session env names an endpoint in a session's host-services dir,
@@ -32,6 +33,8 @@ func sessionTmpPlanWith(t *testing.T, mode Mode, env *jsonx.OrderedMap, edit fun
 	session := PlanSession{ID: testSessionID, Mode: mode}
 	if mode == ModeSelf {
 		session.HostHome, session.HostUser, session.DarwinUserTempDir = "/Users/you", "you", testUserTmp+"/"
+	} else {
+		session.DarwinUserTempDir = testAccountTmp + "/" // the account's own (MMP-D29)
 	}
 	if edit != nil {
 		edit(&session)
@@ -213,9 +216,11 @@ func TestSelfModePlanClosesTheSharedTmpUnlessTheHatchIsSet(t *testing.T) {
 	}
 }
 
-// The account mode is today's plan: no session TMPDIR, and its profile (the old one) carries no
-// services grant.
-func TestAccountModeHasNoSessionTmpdirOrServicesGrant(t *testing.T) {
+// The account mode keeps its temp dirs (MMP-D29): no session TMPDIR, the shared /tmp open in the
+// deny-default profile it now runs under (MMP-D25), and the account's own DARWIN_USER_TEMP_DIR
+// granted, the profile's RunAsUser the account. Like every deny-default profile it carries the
+// services grant, since its jail daemons' endpoints are under that dir.
+func TestAccountModeKeepsItsTmpAndCarriesTheServicesGrant(t *testing.T) {
 	plan := sessionTmpPlan(t, ModeAccount, nil)
 	if plan.SessionTmpDir != "" || len(plan.SessionTmpRemoveCommands) != 0 {
 		t.Errorf("the account mode got a session TMPDIR: %q %v", plan.SessionTmpDir, plan.SessionTmpRemoveCommands)
@@ -225,8 +230,58 @@ func TestAccountModeHasNoSessionTmpdirOrServicesGrant(t *testing.T) {
 			t.Errorf("the account mode's env file sets %s", key)
 		}
 	}
-	if strings.Contains(plan.Seatbelt, ServicesDirReadAllowID) {
-		t.Error("the account mode's profile carries the services grant")
+	if !strings.Contains(plan.Seatbelt, "#seatbelt-test-id:"+SharedTmpAllowID+"#") {
+		t.Error("the account mode's profile closed the shared /tmp its tools use (MMP-D29)")
+	}
+	if !strings.Contains(plan.Seatbelt, "#seatbelt-test-id:"+UserTmpAllowID+"#") ||
+		!strings.Contains(plan.Seatbelt, sbplStr(testAccountTmp)) {
+		t.Error("the account mode's profile does not grant the account's DARWIN_USER_TEMP_DIR")
+	}
+	if strings.Contains(plan.Seatbelt, testUserTmp) {
+		t.Error("the account mode's profile grants a temp dir that is not the account's")
+	}
+	if !strings.Contains(plan.Seatbelt, ServicesDirReadAllowID) {
+		t.Error("the account mode's profile lacks the services grant")
+	}
+	if plan.SharedTmp {
+		t.Error("the account mode's open /tmp is reported as the run-as-you hatch")
+	}
+}
+
+// MMP-D29: the account mode's temp dir is the ACCOUNT's, asked through the sudo rule
+// (AccountUserTempDirArgv) and resolved to its physical /private/var spelling; the run-as-you
+// mode's is yours. Through buildPlan, so it fails if the orchestrator stops asking the account or
+// stops handing the answer to the profile.
+func TestTheAccountModeGrantsTheAccountsOwnTempDir(t *testing.T) {
+	argv := AccountUserTempDirArgv()
+	if problems := RunAsArgvProblems("account temp dir", argv); len(problems) > 0 {
+		t.Errorf("the account temp-dir probe does not cross through the rule: %v", problems)
+	}
+	if argv[0] != "/usr/bin/sudo" || !containsArg(argv, "--user="+SandboxUser) ||
+		!slices.Equal(argv[len(argv)-2:], []string{"/usr/bin/getconf", "DARWIN_USER_TEMP_DIR"}) {
+		t.Errorf("the account temp-dir probe is not `getconf DARWIN_USER_TEMP_DIR` as %s: %v", SandboxUser, argv)
+	}
+
+	d := mockDeps(nil)
+	d.DarwinUserTempDir = func() string { return "/private/var/folders/me/mine/T/" }
+	d.AccountUserTempDir = func() string { return "/var/folders/zz/acct/T/\n" }
+	if got := d.darwinUserTempDir(ModeAccount); got != testAccountTmp {
+		t.Errorf("the account mode's temp dir = %q, want the account's physical %q", got, testAccountTmp)
+	}
+	if got := d.darwinUserTempDir(ModeSelf); got != "/private/var/folders/me/mine/T" {
+		t.Errorf("the run-as-you mode's temp dir = %q, want yours", got)
+	}
+	d.AccountUserTempDir = nil
+	if got := d.darwinUserTempDir(ModeAccount); got != "" {
+		t.Errorf("with no account probe the account mode's temp dir = %q, want none", got)
+	}
+
+	d = mockDeps(nil)
+	d.AccountUserTempDir = func() string { return testAccountTmp + "/" }
+	plan := buildPlan(d, newOpts("/Users/Shared/proj"), nil)
+	if !strings.Contains(profileBlock(plan.Seatbelt, UserTmpAllowID), sbplStr(testAccountTmp)) {
+		t.Errorf("the account-mode launch's profile does not grant the account's temp dir %s:\n%s",
+			testAccountTmp, profileBlock(plan.Seatbelt, UserTmpAllowID))
 	}
 }
 

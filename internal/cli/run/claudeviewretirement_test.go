@@ -83,7 +83,7 @@ func TestClaudeViewOffRetiresResolvedRuntimeLocationNonfatally(t *testing.T) {
 	}{
 		{name: "podman", rt: "podman", want: "claude"},
 		{name: "container", rt: "container", want: ".claude"},
-		{name: "macos-user account", rt: "macos-user", mode: macosuser.ModeAccount, want: "claude"},
+		{name: "macos-user account", rt: "macos-user", mode: macosuser.ModeAccount, want: ".claude"}, // MMP-D25
 		{name: "macos-user self", rt: "macos-user", mode: macosuser.ModeSelf, want: ".claude"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

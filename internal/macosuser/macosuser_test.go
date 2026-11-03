@@ -604,13 +604,29 @@ func TestSandboxEnvPairsCarryTheHomes(t *testing.T) {
 		t.Errorf("the plan invariant refuses self mode's own pairs: %v", problems)
 	}
 
-	if acct := LaunchHomes(ModeAccount, ws, host); acct != (Homes{Home: SandboxHome(), Machine: SandboxHome(), Shared: SandboxHome()}) {
-		t.Errorf("LaunchHomes(account) = %+v, want SandboxHome() in every role and no real home", acct)
+	// THE ACCOUNT MODE (MMP-D25): HOME is the workspace's own home, so two workspaces share no
+	// HOME, and the account's home is the machine root, the shared root and the real home at
+	// once — the caller's home is never consulted.
+	acct := LaunchHomes(ModeAccount, ws, host)
+	if want := (Homes{Home: ws + "/.yolo/home", Machine: SandboxHome(), Shared: SandboxHome(), Real: SandboxHome()}); acct != want {
+		t.Errorf("LaunchHomes(account) = %+v, want %+v", acct, want)
 	}
-	for _, p := range sandboxEnvPairs(LaunchHomes(ModeAccount, ws, host), SandboxUser, "/usr/bin:/bin", "") {
-		if strings.HasPrefix(p, "YOLO_DARWIN_REAL_HOME=") || strings.HasPrefix(p, "YOLO_DARWIN_MACHINE_HOME=") ||
-			strings.HasPrefix(p, "YOLO_DARWIN_SHARED_HOME=") {
-			t.Errorf("account mode carries %s; its argvs must not change", p)
+	if other := LaunchHomes(ModeAccount, "/Users/Shared/beta", host); other.Home == acct.Home {
+		t.Errorf("two workspaces got one account-mode HOME %s", acct.Home)
+	}
+	acctPairs := sandboxEnvPairs(acct, SandboxUser, "/usr/bin:/bin", "")
+	for _, want := range []string{
+		"HOME=" + ws + "/.yolo/home",
+		"MISE_DATA_DIR=" + SandboxHome() + "/.yolo/mise",
+		"YOLO_DARWIN_REAL_HOME=" + SandboxHome(),
+		"YOLO_DARWIN_MACHINE_HOME=" + SandboxHome(),
+		"YOLO_DARWIN_SHARED_HOME=" + SandboxHome(),
+	} {
+		if !slices.Contains(acctPairs, want) {
+			t.Errorf("account-mode pairs lack %s: %v", want, acctPairs)
 		}
+	}
+	if problems := SandboxArgvEnvProblems("account", append([]string{"/usr/bin/env", "-i"}, append(acctPairs, "/bin/true")...)); len(problems) != 0 {
+		t.Errorf("the plan invariant refuses the account mode's own pairs: %v", problems)
 	}
 }

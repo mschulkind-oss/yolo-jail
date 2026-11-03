@@ -987,11 +987,10 @@ func TestDarwinLoginRCFilesAreTheFilesWriteLoginRCWrites(t *testing.T) {
 }
 
 // TestASecondWorkspaceLayoutRepointsTheFirstsLinks keeps the measurement the macos-user account
-// home's hold rests on (internal/cli/run's accounthomehold.go,
-// docs/reference/macos-user-home-tiers.md#ht-d15): the one account home holds ONE link set, and a
-// second workspace's layout repoints the first's core links even when the two select disjoint
-// packs. If this ever stops holding — a per-workspace home, say — the hold that refuses a second
-// workspace's launch while a session runs is what to revisit, and this test is the evidence.
+// home's hold rested on (docs/reference/macos-user-home-tiers.md#ht-d15) until slice 12a gave each
+// workspace its own HOME and deleted the hold (docs/design/macos-user-model-plan.md, MMP-D25): one
+// shared home holds ONE link set, and a second workspace's layout repoints the first's core links
+// even when the two select disjoint packs. It pins the shared-home layout, which slice 13 deletes.
 func TestASecondWorkspaceLayoutRepointsTheFirstsLinks(t *testing.T) {
 	base, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {

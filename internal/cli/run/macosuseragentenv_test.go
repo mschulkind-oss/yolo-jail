@@ -76,24 +76,11 @@ func TestMacosUserBareLaunchWritesEveryProfiledAgentsEnvFile(t *testing.T) {
 		t.Fatalf("Run() = %d (handler ran %v)\nstdout:\n%s\nstderr:\n%s", rc, ran, stdout.String(), stderr.String())
 	}
 
-	// WHERE the sandbox reads it: its ~/.config is the layout's link into the sidecar, and the
-	// launchers source ~/.config/yolo-agent-env/<bin>.sh (entrypoint.AgentEnvFile).
+	// WHERE the sandbox reads it: HOME is the sidecar in both modes (MMP-D5, MMP-D25), with a
+	// real ~/.config in it (entrypoint.DeriveDarwinWorkspaceHome), and the launchers source
+	// ~/.config/yolo-agent-env/<bin>.sh (entrypoint.AgentEnvFile).
 	sidecar := paths.WorkspaceHomeState(ws)
-	sandboxHome := "/Users/_yolojail"
-	var configTarget string
-	for _, l := range entrypoint.DeriveDarwinHomeLayout(sandboxHome, sidecar, nil, nil).Links {
-		if l.Path == filepath.Join(sandboxHome, ".config") {
-			configTarget = l.Target
-		}
-	}
-	if configTarget == "" {
-		t.Fatal("the darwin home layout links no ~/.config; the files have nowhere to be read from")
-	}
-	rel, err := filepath.Rel(filepath.Join(sandboxHome, ".config"), entrypoint.AgentEnvFile(sandboxHome, "pi"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	piFile := filepath.Join(configTarget, rel)
+	piFile := entrypoint.AgentEnvFile(sidecar, "pi")
 	st, err := os.Stat(piFile)
 	if err != nil {
 		t.Fatalf("the macos-user launch wrote no env file for pi at %s: %v", piFile, err)

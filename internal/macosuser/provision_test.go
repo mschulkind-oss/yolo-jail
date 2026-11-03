@@ -82,7 +82,10 @@ func TestNoStageWhenNothingIsDeclared(t *testing.T) {
 		t.Fatalf("rc = %d, want 42\n%s", rc, buf.String())
 	}
 	for _, line := range rec {
-		if strings.HasPrefix(line, "run:") && strings.Contains(line, "sandbox-exec") {
+		// The bootstrap runs confined too (MMP-D9, MMP-D25), so a stage is a confined run
+		// that is not the bootstrap.
+		if strings.HasPrefix(line, "run:") && strings.Contains(line, "sandbox-exec") &&
+			!strings.Contains(line, "darwin-bootstrap") {
 			t.Errorf("a bare launch ran a provisioning stage:\n%s", line)
 		}
 	}
@@ -261,8 +264,9 @@ func TestStageBypassesTheBlockedToolShims(t *testing.T) {
 // would drift one key at a time, silently.
 func TestStageAndAgentShareOneEnvironment(t *testing.T) {
 	plan := provisionPlan(t)
+	// HOME is the workspace's own home and the mise store the machine root's (MMP-D25).
 	for _, want := range []string{
-		"HOME=" + SandboxHome(),
+		"HOME=" + paths.WorkspaceHomeState("/Users/Shared/yolo/proj"),
 		"MISE_DATA_DIR=" + SandboxMiseData(SandboxHome()),
 	} {
 		if !containsArg(plan.ProvisionArgv, want) {
@@ -691,8 +695,9 @@ func TestADeclaredNodeFloorStartsTheStageUnlessTheHostShowsItMet(t *testing.T) {
 			if want, _ := argvEnvValue(plan.BootstrapArgv, entrypoint.DarwinLoginPathEnv); askedPath != want {
 				t.Errorf("the host check read PATH %q, but the sandbox's is %q", askedPath, want)
 			}
-			if askedHome != SandboxHome() {
-				t.Errorf("the host check excluded home %q, want the sandbox's %q", askedHome, SandboxHome())
+			// The agent's HOME, the workspace's own in every mode (MMP-D25).
+			if want := paths.WorkspaceHomeState("/Users/Shared/yolo/proj"); askedHome != want {
+				t.Errorf("the host check excluded home %q, want the sandbox's %q", askedHome, want)
 			}
 		})
 	}
@@ -836,7 +841,9 @@ func stageFailureDeps(t *testing.T, rec *[]string, ws, logBody string) Deps {
 	inner := d.Run
 	d.Run = func(argv []string) int {
 		rc := inner(argv)
-		if strings.Contains(strings.Join(argv, " "), "sandbox-exec") {
+		// The stage, not the bootstrap, which runs confined too (MMP-D9, MMP-D25).
+		if joined := strings.Join(argv, " "); strings.Contains(joined, "sandbox-exec") &&
+			!strings.Contains(joined, "darwin-bootstrap") {
 			return 7 // the stage body's own code, forwarded by the script's `exit "$_prc"`
 		}
 		return rc

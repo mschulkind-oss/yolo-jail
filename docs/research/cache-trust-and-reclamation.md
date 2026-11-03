@@ -77,8 +77,9 @@ children beneath a checked root; it is not compatible with blindly linking that 
 into a workspace. Its link manifest is guest-writable, not cache ownership authority.
 [The relocation boundary](../../internal/entrypoint/darwinhomelayout.go#L811-L886) stays.
 
-Native overlap is constrained already: [the account-home hold](../../internal/cli/run/accounthomehold.go#L3-L36)
-refuses another workspace while a host session holds the home; two same-workspace
+Native overlap was constrained when this was written: the account-home hold (`accounthomehold.go`,
+deleted by [slice 12a](../design/macos-user-model-plan.md#MMP-D25), which gives each workspace its own HOME)
+refused another workspace while a host session holds the home; two same-workspace
 sessions share it. It explicitly loses the hold if host yolo dies while the guest
 survives, and it sees only the invoking host user's holds. Neither a free flock nor
 one shared symlink proves that two scopes can use that name safely. The existing

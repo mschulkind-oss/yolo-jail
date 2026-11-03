@@ -62,10 +62,11 @@ var retireView = func(loc claudeview.Location) (bool, error) {
 
 func (o *Options) claudeCredentialViewLocation(rt string) claudeview.Location {
 	subdir := claudeview.HostSubdir(rt)
-	if rt == "macos-user" && o.MacosUserMode == macosuser.ModeSelf { // parity: HonoredBy — registration follows MMP-D5 HOME; account mode keeps its undotted location
-		homes := macosuser.LaunchHomes(macosuser.ModeSelf, o.Workspace, o.macosUserHostHome())
-		// MMP-D5 makes self HOME the workspace's home state; place the view at the `.claude`
-		// directory under that HOME, where CL-D8 says Claude reads without env overrides.
+	if rt == "macos-user" { // parity: HonoredBy — registration follows the native HOME (MMP-D5, MMP-D25)
+		homes := macosuser.LaunchHomes(o.MacosUserMode, o.Workspace, o.macosUserHostHome())
+		// MMP-D5 (and MMP-D25 for the account mode) makes HOME the workspace's home state; place
+		// the view at the `.claude` directory under that HOME, where CL-D8 says Claude reads
+		// without env overrides.
 		subdir = filepath.Base(filepath.Join(homes.Home, filepath.Dir(claudeview.ViewRel)))
 	}
 	return claudeview.Location{Workspace: o.Workspace, Subdir: subdir}

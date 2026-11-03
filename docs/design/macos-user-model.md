@@ -3,7 +3,7 @@ title: "macos-user's model: a second account, or a sandbox that starts from noth
 date: 2026-10-22
 status: in-review
 stage: DESIGN
-next: "Rule OQ-MM10 (what an absent macos_user_mode means on a Mac set up for the account); slice 12a, two workspaces at once in account mode, waits on nothing"
+next: "Rule OQ-MM10 (what an absent macos_user_mode means on a Mac set up for the account); slice 12a, two workspaces at once in account mode, is built and waits on its Mac witness (W1)"
 tags: [macos-user, seatbelt, design, isolation, parity, safehouse, sandvault]
 summary: "Today macos-user runs the agent as a second Mac account under a Seatbelt profile that allows everything and denies a short list (SandVault's model). Ruled 2026-10-22: macos-user moves to Safehouse's model, the agent running as you under a profile that denies everything and allows a list, the closest macOS gets to podman's start-from-nothing container; the second account is kept from day one as an optional mode, off by default, on the same profile. This doc lays the models side by side, maps podman's pieces onto the Safehouse model, and names what the second account buys and costs."
 vantage:
@@ -14,9 +14,10 @@ vantage:
 
 **Status:** 2026-11-03 — the model is ruled ([§7](#7-the-ruled-model-two-modes-one-profile)).
 Ten of [the plan](macos-user-model-plan.md)'s thirteen slices are built, opt-in behind
-`macos_user_mode = "self"`; the production default is still the second account with one shared
-home, so a second workspace is refused while a session runs, until
-[slice 12a](macos-user-model-plan.md#MMP-D25) gives account mode its per-workspace home. The
+`macos_user_mode = "self"`. [Slice 12a](macos-user-model-plan.md#MMP-D25), built 2026-11-03 and
+awaiting its Mac witness, moves the production default, the second account, onto the same
+deny-by-default profile with a home per workspace, so a second workspace launches beside a running
+session instead of being refused. The
 [§6](#6-what-a-prototype-must-show) prototype passed in both modes on 2026-10-23. This document
 also carries the account mode's concurrency rulings, made in the retired concurrent-workspaces
 design ([OQ-MCW2](#decision-ledger) to [OQ-MCW4](#decision-ledger)).
@@ -51,7 +52,7 @@ another deny. Podman has no such list: a container starts empty and sees only wh
 | One-time admin setup | yes ([privilege lifecycle](macos-user-privilege-lifecycle.md)) | yes | **none** |
 | Access grants on project folders | yes (`macos-fix-permissions`) | yes | **none**: the files are yours |
 | A projects folder | yes ([configurable root](configurable-workspace-root.md)) | yes | **none** |
-| Two workspaces at once | refused while a session runs: every workspace shares one account home until [slice 12a](macos-user-model-plan.md#MMP-D25) | same | **each launch gets its own profile and home** |
+| Two workspaces at once | refused while a session runs: every workspace shares one account home | **each launch gets its own home** ([slice 12a](macos-user-model-plan.md#MMP-D25), which moves the account mode here) | **each launch gets its own profile and home** |
 | Agent logins | bridged across accounts ([Claude refresh](macos-user-claude-refresh.md), [keychain from a jail](keychain-from-a-jail.md)) | same | rendered into the launch's own home, as on podman |
 | What stops a missed rule | Unix permissions on your 0600/0700 files | Unix permissions | nothing: the profile is the whole wall |
 
@@ -381,9 +382,9 @@ Ruled 2026-10-22 ([OQ-MM1](#OQ-MM1), [MM-R2](#decision-ledger)):
 | <a id="OQ-MM2"></a>[OQ-MM2](#OQ-MM2) | Start from Safehouse's layered profiles (Apache-2.0, credited), adapted for nix and narrowed where they read wider than yolo wants, such as all of `/opt`. | 2026-10-22 | [§7](#7-the-ruled-model-two-modes-one-profile) | built in the run-as-you mode, opt-in; the production default is unchanged |
 | <a id="OQ-MM3"></a>[OQ-MM3](#OQ-MM3) | Deny loopback by default and allow yolo's own service ports, matching podman; a workspace config may allow more ports, through the config-change approval. | 2026-10-22 | [§7](#7-the-ruled-model-two-modes-one-profile) | built in the run-as-you mode, opt-in; the production default is unchanged |
 | <a id="OQ-MM4"></a>[OQ-MM4](#OQ-MM4) | No transition for Macs already set up for the second account; reusing the account for the optional mode is welcome, not required. | 2026-10-22 | [§7](#7-the-ruled-model-two-modes-one-profile) | pending; whether "launches move to the default mode" survives the 2026-11-03 rule that an unchanged config keeps its meaning is [OQ-MM10](#OQ-MM10) |
-| OQ-MCW4 | **The account mode's concurrency, carried from the retired concurrent-workspaces design.** Sharing remains limited to selected pack machine scope and existing configured shared paths. The exact backing and relative-link geometry are engineering design, not a new credential grant. | 2026-10-20 | [§7](#7-the-ruled-model-two-modes-one-profile) | — |
-| OQ-MCW2 | **Carried from the retired concurrent-workspaces design.** Protect Seatbelt-confined processes and their descendants against sibling HOME/state access; confinement is irreversible from inside. Host/admin control and trusted unconfined same-UID processes are outside the claim. | 2026-10-22 | [§7](#7-the-ruled-model-two-modes-one-profile) | — |
-| OQ-MCW3 | **Carried from the retired concurrent-workspaces design.** Retain persistent workspace HOME/state by default, like container workspace state. No automatic deletion, expiry or cap; any future separately authorized explicit cleanup must refuse live or unknown state. | 2026-10-22 | [§7](#7-the-ruled-model-two-modes-one-profile) | — |
+| OQ-MCW4 | **The account mode's concurrency, carried from the retired concurrent-workspaces design.** Sharing remains limited to selected pack machine scope and existing configured shared paths. The exact backing and relative-link geometry are engineering design, not a new credential grant. | 2026-10-20 | [§7](#7-the-ruled-model-two-modes-one-profile) | built in account mode by [slice 12a](macos-user-model-plan.md#MMP-D25) (2026-11-03): unit-tested on Linux, not yet run on a Mac |
+| OQ-MCW2 | **Carried from the retired concurrent-workspaces design.** Protect Seatbelt-confined processes and their descendants against sibling HOME/state access; confinement is irreversible from inside. Host/admin control and trusted unconfined same-UID processes are outside the claim. | 2026-10-22 | [§7](#7-the-ruled-model-two-modes-one-profile) | built in account mode by [slice 12a](macos-user-model-plan.md#MMP-D25) (2026-11-03): unit-tested on Linux, not yet run on a Mac |
+| OQ-MCW3 | **Carried from the retired concurrent-workspaces design.** Retain persistent workspace HOME/state by default, like container workspace state. No automatic deletion, expiry or cap; any future separately authorized explicit cleanup must refuse live or unknown state. | 2026-10-22 | [§7](#7-the-ruled-model-two-modes-one-profile) | built in account mode by [slice 12a](macos-user-model-plan.md#MMP-D25) (2026-11-03): unit-tested on Linux, not yet run on a Mac |
 | <a id="OQ-MM6"></a>[OQ-MM6](#OQ-MM6) | A `~/ctx` link to `$YOLO_CONTEXT_DIR` in the agent's home on every backend; `$YOLO_CONTEXT_DIR` stays the documented path. | 2026-10-22 | [§7](#7-the-ruled-model-two-modes-one-profile) | built: podman via the home skeleton (skipped when a config entry claims `ctx`); Apple Container and macos-user via the `link_context_dir` boot step (macos-user retargets its own link per workspace); macos-user is unit-tested only, not yet run on a Mac; Apple Container is untested |
 | <a id="OQ-MM5"></a>[OQ-MM5](#OQ-MM5) | Containers do not also bind mounts at their original host path; `$YOLO_CONTEXT_DIR/<name>` is the one supported path, and macOS allows the original path only for the link. | 2026-10-22 | [§7](#7-the-ruled-model-two-modes-one-profile) | — |
 | [OQ-MM7](#OQ-MM7) | macos-user allows all loopback, like podman's host network mode: Seatbelt filters by port, not by process, so a jail's own random-port servers cannot be told from host services, and there is no private loopback without a VM. Replaces [OQ-MM3](#OQ-MM3) on macOS. | 2026-10-23 | [§8](#8-open-questions) | pending |

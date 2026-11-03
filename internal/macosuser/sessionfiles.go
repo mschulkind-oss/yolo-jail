@@ -423,7 +423,7 @@ func sessionFileInvariants(plan RunPlan) []string {
 			if !SandboxEnvFileSets(plan.EnvFileContent, entrypoint.SessionIDEnv, plan.SessionID) {
 				problems = append(problems, "native child env does not carry its session identity")
 			}
-			// The plan's own HOME: the launch's in run-as-you mode, SandboxHome() in account mode.
+			// The plan's own HOME: the workspace's home state in both modes (MMP-D5, MMP-D25).
 			dir, _ := nativehome.Dir(plan.RunAs.homes("").Home, plan.Workspace, plan.SessionID)
 			if plan.SessionHomeDir != "" && plan.SessionHomeDir != dir {
 				problems = append(problems, "native config home is not workspace/session qualified")

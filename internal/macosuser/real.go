@@ -680,6 +680,18 @@ func darwinUserTempDirReal() string {
 	return strings.TrimSpace(out)
 }
 
+// accountUserTempDirReal is Deps.AccountUserTempDir: AccountUserTempDirArgv with no stdin, so it
+// can never wait on a password, bounded at 10 s; "" when it cannot answer.
+func accountUserTempDirReal() string {
+	cmd := commandFor(AccountUserTempDirArgv())
+	cmd.Stdin = nil
+	out, rc := outputWithTimeout(cmd, 10*time.Second)
+	if rc != 0 {
+		return ""
+	}
+	return strings.TrimSpace(out)
+}
+
 // accountNameOfUIDReal names the account uid belongs to through `/usr/bin/id -un <uid>`, which asks
 // the directory service (os/user's pure-Go path reads /etc/passwd, which a Mac's accounts are not
 // in). "" when it cannot.

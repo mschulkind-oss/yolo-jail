@@ -15,7 +15,9 @@ import (
 // through RunAs (docs/design/macos-user-model-plan.md, slice 3 and MMP-D4) and must not change
 // when they are: the refactor is proven behavior-preserving by this file staying byte-identical.
 // Regenerate only for a deliberate change to an account-mode argv, with
-// YOLO_UPDATE_RUNAS_GOLDEN=1, and say why in the commit.
+// YOLO_UPDATE_RUNAS_GOLDEN=1, and say why in the commit. Regenerated once so far, for slice 12a
+// (MMP-D25): the whole-plan entries moved (HOME is the workspace's own home, the bootstrap is
+// told the homes and runs confined); every builder's own entry stayed byte-identical.
 const runAsGoldenFile = "testdata/runas_account_argvs.golden.json"
 
 // accountCrossingArgvs builds every sandbox crossing this package emits, through every builder

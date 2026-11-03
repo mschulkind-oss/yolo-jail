@@ -150,8 +150,8 @@ func TestMacosUserOverlayCarriesTheInheritedUserScope(t *testing.T) {
 			t.Errorf("dryRun=%v: the overlay delivers %s on a backend that cannot nest", dryRun, inheritNestedRel)
 		}
 		// WRITE-PROTECTED: the profile's content rules name the file where the layout puts it.
-		ro := macosuser.ResolveHomeReadonly(macosuser.SandboxHome(), ws, got.overlay.WorkspaceDirs, got.overlay.Dests)
-		want := filepath.Join(paths.WorkspaceHomeState(ws), "config", "yolo-jail", "config.toml")
+		ro := macosuser.ResolveHomeReadonly(paths.WorkspaceHomeState(ws), ws, got.overlay.WorkspaceDirs, got.overlay.Dests)
+		want := filepath.Join(paths.WorkspaceHomeState(ws), ".config", "yolo-jail", "config.toml")
 		if !slices.Contains(ro.Paths, want) {
 			t.Errorf("dryRun=%v: the Seatbelt content rules %v do not protect %s", dryRun, ro.Paths, want)
 		}
@@ -175,7 +175,7 @@ func TestMacosUserRunRefusesExistingDestinationsBeforeOverlayInstall(t *testing.
 			home := packHome(t)
 			writeUserPacks(t, home, `["claude"]`)
 			ws := floortest.ResolvedTemp(t)
-			configDir := filepath.Join(paths.WorkspaceHomeState(ws), "config", "yolo-jail")
+			configDir := filepath.Join(paths.WorkspaceHomeState(ws), ".config", "yolo-jail")
 			if err := os.MkdirAll(configDir, 0o755); err != nil {
 				t.Fatal(err)
 			}
@@ -258,7 +258,7 @@ func TestMacosUserEmptyUserScopeRemovesOnlyTheGeneratedFile(t *testing.T) {
 	}
 	plant := func(rel, body string) string {
 		t.Helper()
-		path := filepath.Join(paths.WorkspaceHomeState(ws), filepath.FromSlash(strings.TrimPrefix(rel, ".")))
+		path := filepath.Join(paths.WorkspaceHomeState(ws), filepath.FromSlash(rel))
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -289,13 +289,13 @@ func TestMacosUserEmptyUserScopeRemovesOnlyTheGeneratedFile(t *testing.T) {
 		if got := launch(true); slices.Contains(got.overlay.Dests, rel) {
 			t.Fatalf("a user config with nothing to inherit delivered %s", rel)
 		}
-		if _, err := os.Stat(filepath.Join(paths.WorkspaceHomeState(ws), filepath.FromSlash(strings.TrimPrefix(rel, ".")))); err != nil {
+		if _, err := os.Stat(filepath.Join(paths.WorkspaceHomeState(ws), filepath.FromSlash(rel))); err != nil {
 			t.Fatalf("a --dry-run removed %s (%v); a plan render removes nothing", rel, err)
 		}
 	}
 	launch(false)
 	for rel := range stale {
-		if _, err := os.Stat(filepath.Join(paths.WorkspaceHomeState(ws), filepath.FromSlash(strings.TrimPrefix(rel, ".")))); err == nil {
+		if _, err := os.Stat(filepath.Join(paths.WorkspaceHomeState(ws), filepath.FromSlash(rel))); err == nil {
 			t.Errorf("the generated %s a previous launch installed survived a launch that renders none", rel)
 		}
 	}

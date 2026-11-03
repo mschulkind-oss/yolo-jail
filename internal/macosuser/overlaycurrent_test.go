@@ -148,7 +148,6 @@ func TestALaunchStagesTheOverlayOnlyWhenItsStagedCopyIsStale(t *testing.T) {
 			ws := "/Users/Shared/yolo/proj"
 			fakeSupervisor(&d, &rec, ws, "", readyLine, "", false)
 			d.GuestBinaries = func(string) (string, error) { return "/opt/yolo/bin/darwin-arm64", nil }
-			d.HoldAccountHome = func(string, string, string) (func(), string) { return func() {}, "" }
 			o := stageTimingOpts(t, ws)
 			if rc := RunMacosUser(d, o); rc != 42 {
 				t.Fatalf("rc = %d", rc)

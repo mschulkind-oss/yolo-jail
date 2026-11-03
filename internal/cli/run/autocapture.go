@@ -42,7 +42,7 @@ package run
 //
 // ON macos-user, ONLY FOR A LAUNCH THE BACKEND WILL NOT REFUSE AT ONCE (autoCaptureMacosUser).
 // The arm's trigger runs before the backend's dispatch, and so before the backend's own first
-// steps, its preconditions and the account home's hold; a capture is the most expensive and the
+// step, its preconditions; a capture is the most expensive and the
 // most stateful thing a launch does, and it used to run for launches those steps then refused.
 // So the arm asks them first, through the backend's own walk (macosuser.PreflightLaunch).
 
@@ -87,53 +87,44 @@ func (o *Options) autoCaptureBins(packs []*packload.Pack) []string {
 }
 
 // autoCaptureMacosUser is the macos-user arm's trigger: autoCaptureInstallerPrograms at the
-// sandbox's platform, for a launch the backend will not refuse at its first two steps.
+// sandbox's platform, for a launch the backend will not refuse at its first step.
 //
-// THE BACKEND'S OWN FIRST STEPS, ASKED FIRST (macosuser.PreflightLaunch): its launch
+// THE BACKEND'S OWN FIRST STEP, ASKED FIRST (macosuser.PreflightLaunch): its launch
 // preconditions — macOS, not root, Seatbelt, the sandbox account and its home, the workspace
-// outside every home and shared with the sandbox — and the account home's hold, which refuses a
-// second workspace while another's session runs. Each used to be asked only after the capture,
+// outside every home and shared with the sandbox. Each used to be asked only after the capture,
 // so a launch about to be refused paid for one first:
 //
 //   - on a Mac where `yolo macos-setup` never ran, the capture act refused for want of the sandbox
 //     account, and that refusal was remembered as a failed capture (OQ-PD26), so after the setup
 //     every launch for a day downloaded;
 //   - with the workspace under a home, the commonest first-run mistake, the capture paid its sudo
-//     prompts and a vendor installer download before the launch refused;
-//   - with another workspace's session live, the capture replaced the staged yolo under that
-//     session, the interference the hold exists to stop, before the hold refused this launch.
+//     prompts and a vendor installer download before the launch refused.
 //
 // It skips the capture SILENTLY: the launch's own refusal follows at once and names the next
-// step. The hold is kept through the capture, so no other workspace's launch starts while it
-// runs, and let go before the backend takes its own.
-//
-// The probes are Options.MacosUserLaunchProbes, nil meaning the launch's own
-// (macosuser.RealLaunchProbes), and the hold the backend's (HoldAccountHome).
+// step. The probes are Options.MacosUserLaunchProbes, nil meaning the launch's own
+// (macosuser.RealLaunchProbes).
 func (o *Options) autoCaptureMacosUser(packs []*packload.Pack) {
 	bins := o.autoCaptureBins(packs)
 	if len(bins) == 0 {
 		return
 	}
-	release, ok := o.macosUserPreflight()
-	if !ok {
+	if !o.macosUserPreflight() {
 		return
 	}
-	defer release()
 	o.AutoCapture(bins, macosUserJailPlatform(), o.launchStderr(), o.streamColor())
 }
 
-// macosUserPreflight asks the macos-user backend's own first steps for this launch
-// (macosuser.PreflightLaunch): ok is false when the backend is about to refuse it, and when it is
-// true the account home's hold is held until release. The probes are
-// Options.MacosUserLaunchProbes, nil meaning the launch's own (macosuser.RealLaunchProbes), and
-// the hold the backend's (HoldAccountHome). Its callers are the arm's acts that must not run for
-// a launch about to be refused: the auto-capture (autoCaptureMacosUser) and the fork-build slot.
-func (o *Options) macosUserPreflight() (release func(), ok bool) {
+// macosUserPreflight asks the macos-user backend's own first step for this launch
+// (macosuser.PreflightLaunch), and reports false when the backend is about to refuse it. The
+// probes are Options.MacosUserLaunchProbes, nil meaning the launch's own
+// (macosuser.RealLaunchProbes). Its callers are the arm's acts that must not run for a launch
+// about to be refused: the auto-capture (autoCaptureMacosUser) and the fork-build slot.
+func (o *Options) macosUserPreflight() bool {
 	probes := o.MacosUserLaunchProbes
 	if probes == nil {
 		probes = macosuser.RealLaunchProbes
 	}
-	return macosuser.PreflightLaunch(probes(), HoldAccountHome, o.Workspace)
+	return macosuser.PreflightLaunch(probes(), o.Workspace)
 }
 
 // installerBins is every program the SELECTED packs install with `via: "installer"`,
