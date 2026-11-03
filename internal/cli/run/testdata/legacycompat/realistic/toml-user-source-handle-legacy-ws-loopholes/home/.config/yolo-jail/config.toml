@@ -1,0 +1,14 @@
+# A user config already migrated to TOML, with a personal pack first.
+perf_logging = true
+
+# The personal pack is named through its source, never by a path.
+packs = [
+  "sample-packs/house-rules",
+  "pi",
+  "journal",
+  "host-processes",
+]
+
+[pack_sources.sample-packs]
+path = "~/sample-dotfiles/sample-packs"
+bare = true

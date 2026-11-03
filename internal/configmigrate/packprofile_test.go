@@ -140,9 +140,9 @@ func TestAShippedPackProfileInAListConvertsAndCrossesInherited(t *testing.T) {
 	values := mustJSON(t, `{"packs": ["claude", "bedrock"],
 	  "profiles": {"work": {"provider": "bedrock", "model": "opus"}},
 	  "profile": {"claude": ["bedrock-bridge", "work"]}}`)
-	lowered, err := LowerInheritedUserScope(values)
-	if err != nil {
-		t.Fatalf("the inherited delivery declined a pack's profile: %v", err)
+	lowered, omitted := LowerInheritedUserScope(values, nil)
+	if len(omitted) > 0 {
+		t.Fatalf("the inherited delivery left out part of a pack's profile: %v", omitted)
 	}
 	sel, _ := mapAt(lowered, "active_provider")
 	if sel == nil {

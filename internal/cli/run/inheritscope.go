@@ -49,6 +49,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	yoloruntime "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
@@ -75,7 +76,10 @@ type inheritScopeFile struct {
 	body           string
 	format         configdoc.Format
 	fallbackReason string
-	keys           int
+	// omissions are the legacy-written values a TOML delivery left out (LC-D4), disclosed once
+	// per launch by inheritedScopeWithSelector.
+	omissions []config.InheritOmission
+	keys      int
 }
 
 // canNest reports whether a jail on this backend can launch a jail of its own — the gate on
@@ -144,10 +148,11 @@ func inheritScopeFilesWithSelector(effective *jsonx.OrderedMap, src *config.Sour
 		if filtered.Len() == 0 {
 			return nil
 		}
-		body, format, fallbackReason, rerr := config.RenderFilteredForDeliveryLowering(filtered, src, scope, launchedAt, configmigrate.LowerInheritedUserScope)
+		delivery, rerr := config.RenderInheritedDelivery(filtered, src, scope, launchedAt, configmigrate.LowerInheritedUserScope)
 		if rerr != nil {
 			return rerr
 		}
+		body, format, fallbackReason, omissions := delivery.Body, delivery.Format, delivery.FallbackReason, delivery.Omissions
 		if selectLegacy != nil {
 			forceLegacy, selectErr := selectLegacy(scope, format)
 			if selectErr != nil {
@@ -160,14 +165,14 @@ func inheritScopeFilesWithSelector(effective *jsonx.OrderedMap, src *config.Sour
 						"scope to JSONC, but %w. Review that file in the workspace's .yolo/home, move it aside, then relaunch",
 						InheritedScopeRel(scope, configdoc.JSONC), rerr)
 				}
-				format = configdoc.JSONC
+				format, omissions = configdoc.JSONC, nil // the JSONC route carries every value
 				fallbackReason = "a legacy JSON or JSONC file that is not an empty placeholder already sits at ~/" +
 					InheritedScopeRel(scope, configdoc.JSONC) + " (or its .json sibling) in this jail's home; review it in the " +
 					"workspace's .yolo/home and move it aside, and the next launch delivers TOML"
 			}
 		}
 		rel := InheritedScopeRel(scope, format)
-		files = append(files, inheritScopeFile{scope: scope, rel: rel, body: body, format: format, fallbackReason: fallbackReason, keys: filtered.Len()})
+		files = append(files, inheritScopeFile{scope: scope, rel: rel, body: body, format: format, fallbackReason: fallbackReason, omissions: omissions, keys: filtered.Len()})
 		return nil
 	}
 
@@ -212,7 +217,28 @@ func (o *Options) inheritedScopeWithSelector(rt string, stamped bool, selectLega
 				". No user-owned sibling file was changed.[/yellow]")
 		}
 	}
+	for _, line := range inheritOmissionLines(files) {
+		out.print("[yellow]" + richtext.Escape(line) + "[/yellow]")
+	}
 	return files, nil
+}
+
+// inheritOmissionLines is the one disclosure line per value a TOML delivery left out of the
+// jail's user scope (LC-D4): each named once, however many of the scope files left it out, with
+// the host file and line that wrote it, what the jail does without it, and the step where one
+// is named. Nothing refuses, and nothing else is required of the user.
+func inheritOmissionLines(files []inheritScopeFile) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, f := range files {
+		for _, o := range f.omissions {
+			if key := o.Path + "\x00" + o.Where; !seen[key] {
+				seen[key] = true
+				out = append(out, "The jail's inherited user config leaves out "+o.String()+".")
+			}
+		}
+	}
+	return out
 }
 
 // selectInheritedJSONCRouteSkipping reports whether an existing legacy file at scope's

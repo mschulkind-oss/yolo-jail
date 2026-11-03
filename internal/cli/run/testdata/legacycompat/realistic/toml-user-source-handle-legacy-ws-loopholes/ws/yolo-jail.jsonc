@@ -1,0 +1,14 @@
+// A sample service's workspace config, not yet migrated.
+{
+  "loopholes": {
+    "host-processes": {
+      "enabled": true,
+      "settings": {
+        "visible": ["postgres", "sample-worker"],
+        "fields": ["pid", "comm", "args"]
+      }
+    },
+    "journal": {"enabled": true}
+  },
+  "packages": ["jq"]
+}

@@ -756,29 +756,71 @@ func InheritTOMLHeader(scope InheritScope, launchedAt string) string {
 	return strings.Join(lines, "\n")
 }
 
-// RenderFilteredForDelivery selects TOML only when the filtered legacy projection is
-// representable by the live readable schema. An unrepresentable legacy user payload remains
-// on the dual-reader JSONC path unchanged; it is never erased or made more authoritative. A
-// payload holding any value a TOML file wrote has no JSONC path (RenderFilteredWithOrigins): it
-// crosses as TOML or the render fails, naming the key.
+// RenderFilteredForDelivery is RenderInheritedDelivery with no lowering, for a caller that
+// prints no disclosure: the rendered file, its format and the JSONC route's reason. A launch uses
+// RenderInheritedDelivery, which also returns what a TOML delivery left out.
 func RenderFilteredForDelivery(filtered *jsonx.OrderedMap, src *Sources, scope InheritScope, launchedAt string) (string, configdoc.Format, string, error) {
-	return RenderFilteredForDeliveryLowering(filtered, src, scope, launchedAt, nil)
+	d, err := RenderInheritedDelivery(filtered, src, scope, launchedAt, nil)
+	return d.Body, d.Format, d.FallbackReason, err
+}
+
+// InheritOmission is one legacy-written value a TOML delivery of the inherited user scope leaves
+// out because the jail's TOML reader has no spelling for it (LC-D4,
+// docs/design/legacy-config-compat.md): the launch discloses each one once, and nothing refuses.
+type InheritOmission struct {
+	// Path is the value as the validators spell it: "config.loopholes.lab-tool".
+	Path string
+	// Where is the host file, line and column that wrote it; "" when the record does not hold it.
+	Where string
+	// Reason says why it has no TOML spelling, what the jail does without it, and the step where
+	// a ruling names one.
+	Reason string
+}
+
+// String is the omission as one disclosure line's body.
+func (o InheritOmission) String() string {
+	where := ""
+	if o.Where != "" {
+		where = " (" + o.Where + ")"
+	}
+	return o.Path + where + ": " + o.Reason
 }
 
 // UserScopeLowering is the lowering of a legacy user-scope read to its TOML spelling that `yolo
 // config migrate` writes (configmigrate.LowerInheritedUserScope): the conversions resting on
-// pack declarations and the provider composition, which this package cannot reach. It returns
-// an error, naming the setting, when one value has no lossless TOML spelling.
-type UserScopeLowering func(values *jsonx.OrderedMap) (*jsonx.OrderedMap, error)
+// pack declarations and the provider composition, which this package cannot reach. tomlWritten
+// reports whether a TOML file wrote the value at a validator-spelled path ("packs[0]",
+// "providers.x.model"); the lowering respells only the values it does not (LC-D5) and leaves
+// every TOML-written value as written. It never declines: a legacy value with no TOML spelling
+// is left out and returned as an omission (LC-D4).
+type UserScopeLowering func(values *jsonx.OrderedMap, tomlWritten func(path string) bool) (*jsonx.OrderedMap, []InheritOmission)
 
-// RenderFilteredForDeliveryLowering is RenderFilteredForDelivery with the migration's lowering
-// for the one case neither format carries as it is: a scope that mixes a value a TOML file wrote
-// (which has no JSONC path) with a legacy setting the readers keep in its legacy spelling (a
-// model row's facts, model_facts, profile, profiles, a loophole block). Such a scope crosses as
-// the TOML `yolo config migrate` would write for it (RC-D55), and is refused only when the
-// lowering declines, naming the setting and why. A scope either format carries as it is crosses
-// as before; a nil lower keeps the refusal.
-func RenderFilteredForDeliveryLowering(filtered *jsonx.OrderedMap, src *Sources, scope InheritScope, launchedAt string, lower UserScopeLowering) (string, configdoc.Format, string, error) {
+// InheritedDelivery is one rendered inherited scope file.
+type InheritedDelivery struct {
+	Body   string
+	Format configdoc.Format
+	// FallbackReason is set when a scope with no TOML-written value a reader judges by format
+	// crosses as JSONC.
+	FallbackReason string
+	// Omissions are the legacy-written values a TOML delivery left out, each to be disclosed.
+	Omissions []InheritOmission
+}
+
+// RenderInheritedDelivery renders a filtered inherited scope for the jail. It never refuses a
+// scope the host accepted (LC-D4, which supersedes RC-D55's "still refused"):
+//
+//   - a scope the readable schema takes as it is (after the read-side lowerings and the null
+//     lowering) crosses as TOML;
+//   - a scope holding no value the jail's legacy reader would misjudge (formatJudgedTOMLValue)
+//     crosses as JSONC with its origins line, as before, a legacy loopholes block and all;
+//   - any other scope crosses as TOML, always: each TOML-written value as written, each legacy
+//     value through lower (the migration's lowering applied to legacy-written values only,
+//     LC-D5), and a legacy value neither spells is left out and returned as an omission.
+//
+// A legacy `null` the readable schema has no removal spelling for means what absence means
+// (LC-D8): the scope is the jail's bottom user layer, with nothing beneath it to remove. The only
+// error left is a yolo bug: a TOML-written value the jail's TOML reader refuses.
+func RenderInheritedDelivery(filtered *jsonx.OrderedMap, src *Sources, scope InheritScope, launchedAt string, lower UserScopeLowering) (InheritedDelivery, error) {
 	values := jsonx.DeepCopyMap(filtered)
 	var node *srcNode
 	if src != nil {
@@ -787,39 +829,199 @@ func RenderFilteredForDeliveryLowering(filtered *jsonx.OrderedMap, src *Sources,
 	values, node = projectLegacyB2Config(values, node)
 	tomlValues := jsonx.DeepCopyMap(values)
 	// A legacy null crosses in its TOML removal spelling (an empty list, or "off"), the one
-	// lowering `yolo config migrate` writes too (RC-D50).
-	leftNulls := LowerLegacyNulls(tomlValues)
-	body, err := encodeInheritedTOML(tomlValues, values, node, scope, launchedAt)
+	// lowering `yolo config migrate` writes too (RC-D50); one with no removal spelling is absent.
+	for _, left := range LowerLegacyNulls(tomlValues) {
+		deleteDottedPath(tomlValues, strings.Split(left, "."))
+	}
+	body, err := encodeInheritedTOML(jsonx.DeepCopyMap(tomlValues), values, node, scope, launchedAt)
 	if err == nil {
-		return body, configdoc.TOML, "", nil
+		return InheritedDelivery{Body: body, Format: configdoc.TOML}, nil
 	}
-	legacy, legacyErr := RenderFilteredWithOrigins(filtered, src, scope, launchedAt)
-	if legacyErr != nil {
-		var declined error
-		if lower != nil {
-			lowered, lowerErr := lower(jsonx.DeepCopyMap(values))
-			if lowerErr == nil {
-				// No host origins: the jail judges a value's format by the file its origin
-				// names (formatJudgedTOMLValue), a value the record says nothing about takes
-				// its parent's, and the host file behind a respelled value is the legacy one,
-				// while what the jail reads is the TOML yolo wrote for it. A refusal in the
-				// jail names the generated file instead.
-				body, lowerErr = encodeInheritedTOML(lowered, nil, node, scope, launchedAt)
-			}
-			if lowerErr == nil {
-				return body, configdoc.TOML, "", nil
-			}
-			declined = lowerErr
-			err = fmt.Errorf("%v; and `yolo config migrate`'s conversion of it declines: %v", err, lowerErr)
+	if formatJudgedTOMLValue(filtered, src) == "" {
+		legacy, legacyErr := RenderFilteredWithOrigins(filtered, src, scope, launchedAt)
+		if legacyErr != nil {
+			return InheritedDelivery{}, legacyErr
 		}
-		if mixed := mixedFormatRefusal(filtered, src, tomlValues, leftNulls, node, scope, declined); mixed != nil {
-			return "", configdoc.JSONC, "", mixed
-		}
-		legacyErr = fmt.Errorf("%w; and it is not representable as TOML either: %v. Run `yolo check` on "+
-			"the host and fix the key it names, then launch again", legacyErr, err)
-		return "", configdoc.JSONC, "", legacyErr
+		return InheritedDelivery{Body: legacy, Format: configdoc.JSONC,
+			FallbackReason: "legacy user-scope values are not representable by the current TOML reader: " + err.Error()}, nil
 	}
-	return legacy, configdoc.JSONC, "legacy user-scope values are not representable by the current TOML reader: " + err.Error(), nil
+	tomlWritten := func(path string) bool {
+		n := node.follow(path)
+		if n == nil {
+			return false
+		}
+		origins := n.origins()
+		return len(origins) > 0 && origins[0].format() == configdoc.TOML
+	}
+	lowered := tomlValues
+	var omissions []InheritOmission
+	if lower != nil {
+		lowered, omissions = lower(jsonx.DeepCopyMap(tomlValues), tomlWritten)
+	}
+	for i := range omissions {
+		if omissions[i].Where == "" {
+			omissions[i].Where = firstLocation(src, omissions[i].Path)
+		}
+	}
+	// The schema is the last word: a legacy value still outside it is left out and disclosed.
+	for {
+		v, err := encodedReadableViolation(lowered)
+		if err != nil {
+			return InheritedDelivery{}, fmt.Errorf("the inherited %s user config cannot cross into the jail: %v. This is a "+
+				"yolo bug: report it with this message", scope, err)
+		}
+		if v == nil {
+			break
+		}
+		display := v.display()
+		if tomlWritten(display) {
+			return InheritedDelivery{}, fmt.Errorf("the inherited %s user config cannot cross into the jail: config.%s (%s) "+
+				"was written in TOML and the host accepted it, but the jail's TOML reader refuses it (%s). This is a yolo "+
+				"bug: report it with this message", scope, display, firstLocation(src, "config."+display), v.message)
+		}
+		if !deleteAtSteps(lowered, v.locationPath) {
+			return InheritedDelivery{}, fmt.Errorf("the inherited %s user config cannot cross into the jail: config.%s "+
+				"(%s) has no TOML spelling and could not be left out. This is a yolo bug: report it with this message",
+				scope, display, v.message)
+		}
+		// A table the omission emptied held only what was left out, so it goes too.
+		for up := v.locationPath[:len(v.locationPath)-1]; len(up) > 0; up = up[:len(up)-1] {
+			if m, ok := valueAtSteps(lowered, up); !ok || !isEmptyMap(m) || !deleteAtSteps(lowered, up) {
+				break
+			}
+		}
+		omissions = append(omissions, InheritOmission{Path: "config." + display, Where: firstLocation(src, "config."+display),
+			Reason: v.message + "; the TOML user scope the jail reads has no spelling for it, so the jail reads its user " +
+				"scope without it, and the host's own launch reads it as before"})
+	}
+	// No host origins: the jail judges a value's format by the file its origin names
+	// (formatJudgedTOMLValue), a value the record says nothing about takes its parent's, and the
+	// host file behind a respelled value is the legacy one, while what the jail reads is the TOML
+	// yolo wrote for it, which is the right format for every value it holds.
+	body, err = encodeInheritedTOML(lowered, nil, node, scope, launchedAt)
+	if err != nil {
+		return InheritedDelivery{}, fmt.Errorf("the inherited %s user config cannot cross into the jail: %v. This is a "+
+			"yolo bug: report it with this message", scope, err)
+	}
+	return InheritedDelivery{Body: body, Format: configdoc.TOML, Omissions: omissions}, nil
+}
+
+// firstLocation is the first place src records for a validator-spelled path ("config.x"), or "".
+func firstLocation(src *Sources, path string) string {
+	if locations := src.Locations(path); len(locations) > 0 {
+		return locations[0]
+	}
+	return ""
+}
+
+// deleteDottedPath removes the value at a dotted map path, if it is there.
+func deleteDottedPath(values *jsonx.OrderedMap, path []string) {
+	current := values
+	for i, key := range path {
+		if i == len(path)-1 {
+			current.Delete(key)
+			return
+		}
+		v, _ := current.Get(key)
+		next, ok := asMap(v)
+		if !ok {
+			return
+		}
+		current = next
+	}
+}
+
+// deleteAtSteps removes the value at a document location path (map keys and list indexes),
+// reporting whether it was there.
+func deleteAtSteps(values *jsonx.OrderedMap, steps []configdoc.Step) bool {
+	if len(steps) == 0 {
+		return false
+	}
+	parent, ok := valueAtSteps(values, steps[:len(steps)-1])
+	if !ok {
+		return false
+	}
+	last := steps[len(steps)-1]
+	switch p := parent.(type) {
+	case *jsonx.OrderedMap:
+		if _, present := p.Get(last.Key); last.IsIndex || !present {
+			return false
+		}
+		p.Delete(last.Key)
+		return true
+	case []any:
+		if !last.IsIndex || last.Index < 0 || last.Index >= len(p) || len(steps) < 2 {
+			return false
+		}
+		// A list is its parent's value, so the shortened list is written back there.
+		shortened := append(append([]any(nil), p[:last.Index]...), p[last.Index+1:]...)
+		grand, ok := valueAtSteps(values, steps[:len(steps)-2])
+		if !ok {
+			return false
+		}
+		at := steps[len(steps)-2]
+		switch g := grand.(type) {
+		case *jsonx.OrderedMap:
+			g.Set(at.Key, shortened)
+			return true
+		case []any:
+			g[at.Index] = shortened
+			return true
+		}
+	}
+	return false
+}
+
+// encodedReadableViolation is the first value the jail's TOML reader would refuse in values,
+// judged as encodeInheritedTOML judges it (encoded, parsed back, numbers normalized), or nil.
+// values' integers are normalized in place, as the encoding does.
+func encodedReadableViolation(values *jsonx.OrderedMap) (*readableTOMLViolation, error) {
+	if err := normalizeInheritedTOMLIntegers(values); err != nil {
+		return nil, err
+	}
+	encoded, err := configdoc.Encode(values, configdoc.TOML)
+	if err != nil {
+		return nil, err
+	}
+	doc, err := configdoc.Parse(encoded, configdoc.TOML)
+	if err != nil {
+		return nil, err
+	}
+	if err := normalizeTOMLNumbers(doc.Values); err != nil {
+		return nil, err
+	}
+	return firstReadableTOMLViolation(doc.Values, SchemaScopeUserOnly), nil
+}
+
+func isEmptyMap(v any) bool {
+	m, ok := v.(*jsonx.OrderedMap)
+	return ok && m.Len() == 0
+}
+
+// valueAtSteps is the value at a document location path.
+func valueAtSteps(values *jsonx.OrderedMap, steps []configdoc.Step) (any, bool) {
+	var current any = values
+	for _, step := range steps {
+		switch c := current.(type) {
+		case *jsonx.OrderedMap:
+			if step.IsIndex {
+				return nil, false
+			}
+			v, ok := c.Get(step.Key)
+			if !ok {
+				return nil, false
+			}
+			current = v
+		case []any:
+			if !step.IsIndex || step.Index < 0 || step.Index >= len(c) {
+				return nil, false
+			}
+			current = c[step.Index]
+		default:
+			return nil, false
+		}
+	}
+	return current, true
 }
 
 // encodeInheritedTOML encodes tomlValues as the generated TOML scope file and proves the jail's
@@ -850,53 +1052,6 @@ func encodeInheritedTOML(tomlValues, origins *jsonx.OrderedMap, node *srcNode, s
 			"# names that file.\n" + originsTOMLLinePrefix + record + "\n"
 	}
 	return header + string(encoded) + "\n", nil
-}
-
-// mixedFormatRefusal is the refusal for an inherited scope that can cross in neither format
-// because it mixes the two: a value a TOML file wrote that the jail's legacy reader would
-// misjudge, and a value a legacy JSONC file wrote that has no TOML spelling here, either because
-// the launch passed no lowering or because `yolo config migrate`'s conversion of it declines
-// (declined, RC-D55: a grant-declaring loophole's block). It names
-// both, why the conversion declined, and the step that works: `yolo config migrate`, which
-// converts the JSONC file where it can and names any setting it cannot. The step is the bare
-// verb, run in the workspace, not `yolo config migrate FILE`: FILE converts a --user-layer over
-// the user config, and the JSONC file here is one the config reaches (the workspace's, or an
-// include), which the bare verb converts. leftNulls are the nulls LowerLegacyNulls could not
-// respell. nil when the TOML refusal is not a key a JSONC file wrote, and the caller keeps its
-// general message.
-func mixedFormatRefusal(filtered *jsonx.OrderedMap, src *Sources, tomlValues *jsonx.OrderedMap, leftNulls []string, node *srcNode, scope InheritScope, declined error) error {
-	tomlSide := formatJudgedTOMLValue(filtered, src)
-	if tomlSide == "" || node == nil {
-		return nil
-	}
-	display := ""
-	if len(leftNulls) > 0 {
-		display = leftNulls[0]
-	} else if violation := firstReadableTOMLViolation(tomlValues, SchemaScopeUserOnly); violation != nil {
-		display = violation.display()
-	} else {
-		return nil
-	}
-	key := "config." + display
-	written := node.follow(display)
-	if written == nil {
-		return nil
-	}
-	origins := written.origins()
-	if len(origins) == 0 || origins[0].host != "" || origins[0].file == nil || origins[0].format() == configdoc.TOML {
-		return nil
-	}
-	legacyFile := origins[0].file.label()
-	why := ""
-	if declined != nil {
-		why = " (" + declined.Error() + ")"
-	}
-	return fmt.Errorf("the config handed into the jail as its %s user scope mixes a TOML file and a legacy JSONC "+
-		"file, so it can cross in neither format: %s was written in TOML, which the jail's legacy reader would "+
-		"misjudge, and %s (%s) is a legacy JSONC setting this yolo cannot write in TOML%s. Run `yolo config "+
-		"migrate` on the host, in this workspace: it converts %s where it can and names any setting it cannot, "+
-		"then launch again",
-		scope, tomlSide, key, origins[0].String(), why, legacyFile)
 }
 
 func normalizeInheritedTOMLIntegers(value any) error {
