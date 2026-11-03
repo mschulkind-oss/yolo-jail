@@ -1,24 +1,24 @@
 ---
-title: "What to call the macOS middle ground: four terminology plans for guest, macos-user and the second account"
+title: "What to call the macOS middle ground: five terminology plans for guest, macos-user and the yolo account"
 date: 2026-11-03
 status: draft
 stage: DESIGN
-next: "Rule OQ-MT1 (which plan). OQ-MT2 to OQ-MT4 settle its spellings."
+next: "Rule OQ-MT1 (which plan); OQ-MT5 follows from Plans 3 and 4, OQ-MT3 from any plan."
 depends-on:
   - macos-user-model.md#OQ-MM10
 tags: [design, macos-user, terminology, confinement, guest, naming]
-summary: "One concept, the agent on your real Mac under Apple's sandbox with no container, has five names, and one word, guest, means three things. Guest was never dropped: it is the confinement setting's middle value, coined 2026-07-28. Account mode came from the 2026-10-22 prototype script's --mode self|account flag, which the plan copied into config without an owner ruling on the words. Once running as you becomes the default, guest's documented meaning, a separate user account, stops being true. Four plans, from fixing only the prose to renaming everything; the recommendation keeps guest as the one user-facing name and renames the who-runs-it setting."
+summary: "One concept, the agent on your real Mac under Apple's sandbox with no container, has five names, and one word, guest, means three things. Guest was never dropped: it is the confinement setting's middle value, coined 2026-07-28. Account mode came from the 2026-10-22 prototype script's --mode self|account flag, copied into config without an owner ruling on the words. Second round, after the owner's review: no bare account value, the separate user is the yolo account, mechanism names are rejected, and every plan is tested against a future Linux mode with a yolo account. Five plans, from respelling two values to splitting walls and identity into two settings; the recommendation makes the yolo account a fourth value of the confinement dial."
 vantage:
   status-chip: true
 ---
 
 # What to call the macOS middle ground
 
-**Status:** 2026-11-03. Draft; nothing renamed. The owner asked: *"why did we stop calling it a
+**Status:** 2026-11-03, second round after the owner's review of the first (`c4bb08284`). Draft; nothing renamed. The owner asked: *"why did we stop calling it a
 guest? where did account mode come from? have the designer come up with a few clear terminology
 plans for this area."* Origins come from `git log -S` on the tree at `ea3b0dc1e`.
 
-**Needs your ruling:** [OQ-MT1](#OQ-MT1), [OQ-MT2](#OQ-MT2), [OQ-MT3](#OQ-MT3), [OQ-MT4](#OQ-MT4).
+**Needs your ruling:** [OQ-MT1](#OQ-MT1), [OQ-MT3](#OQ-MT3), [OQ-MT5](#OQ-MT5). **Ruled 2026-11-03:** [OQ-MT2](#OQ-MT2), [OQ-MT4](#OQ-MT4), MT-R1 and MT-R2 ([ledger](#decision-ledger)).
 
 > **In short.** Nothing stopped being called a guest. `guest` is still the value of the
 > `confinement` setting, and asking for it is what launches `macos-user`. What changed is
@@ -71,13 +71,25 @@ That work never mentioned the dial, so its new words (self, account, run-as-you,
 sit beside "guest" rather than under it. Meanwhile "guest" was reused for the account ("the guest OS
 user") and for the confined side ("guest yolo").
 
-**The two facts every plan has to fit.**
+**The facts every plan has to fit.**
 
-- The planned Linux guest (bwrap plus Landlock) runs as you, with no separate user. So **running
-  as you is the cross-platform guest**, and the separate account is a macOS-only extra
-  boundary.
-- `host` also runs as you. What separates "guest, as you" from `host` is the Seatbelt profile,
-  so a name must not lean on "you" alone.
+- **Two things vary, not one.** The *walls* (a container, the OS sandbox, or nothing) and the
+  *identity* (you, or a separate user yolo owns). Today's dial names only the walls, and the
+  macOS mode setting carries the identity off to one side.
+- **The identity choice may reach Linux.** The planned Linux guest (bwrap plus Landlock) runs as
+  you. The owner raised a Linux mode that runs the agent as a separate yolo user too, so every plan
+  below shows how it spells that on both operating systems.
+- **Same walls plus a separate user is strictly stronger.** The yolo account runs the same Seatbelt
+  profile as running as you ([MM-R2](macos-user-model.md#decision-ledger)), and adds a different
+  Unix user. So the two choices order cleanly: jail, then the yolo account, then you in the OS
+  sandbox, then the host. The macOS guest preset in the code already says "a separate user
+  (credential boundary) + Seatbelt" ([`confinement.go`](../../internal/render/confinement.go)).
+- **`host` also runs as you.** What separates "you, in the OS sandbox" from `host` is the profile,
+  so no name may lean on "you" alone.
+- **No value is called a bare "account".** Running as you is an account too
+  ([OQ-MT2](#OQ-MT2)). The separate user is **the yolo account** in prose and `yolo-account` in
+  config ([OQ-MT4](#OQ-MT4)); on a Mac it is `_yolojail`, and its Linux name is the Linux
+  design's to choose.
 
 ## 2. The plans
 
@@ -88,177 +100,189 @@ spelling can either be read as an alias, which `yolo config migrate` rewrites, o
 message naming the new spelling, as a renamed pack is ([PE-D7](provider-enablement.md#PE-D7)). The
 costs below assume the alias; either works with any plan.
 
-### Plan A: keep every spelling, fix the meanings
+Every plan shares these, so the tables leave them out: `runtime = "macos-user"` stays the macOS
+mechanism ([OQ-MT3](#OQ-MT3)); `yolo macos-setup` and its siblings keep their names, and their help
+says they create or remove the yolo account; "sandbox" names only Seatbelt; "guest" in code keeps
+meaning "inside the sandbox" wherever the plan still has a `guest` value; `SandboxUser` and
+`SandboxHome()` become `AccountUser` and `AccountHome()`.
 
-*One-line idea:* no config or CLI change; one prose name per concept, and "guest" means only the
-notch.
+### Plan 1: keep the key, respell the values
 
-| Concept | Config | CLI | Messages and docs | Code |
-| :--- | :--- | :--- | :--- | :--- |
-| The middle notch | `confinement = "guest"` | `--at guest` | "guest", defined as "your real machine, its own home, the OS sandbox, no container" | unchanged |
-| The macOS backend | `runtime = "macos-user"` | unchanged | "the `macos-user` backend" | unchanged |
-| Who it runs as | `macos_user_mode = "self" \| "account"` | none | "runs as you" / "runs as the yolo account" | unchanged |
-| `_yolojail` | (none) | none | "the yolo account (`_yolojail`)" everywhere | unchanged |
-| Confined side | (none) | none | "inside the sandbox" | unchanged |
-| Account setup | (none) | `yolo macos-setup` and siblings | help says it is needed only to run as the yolo account | unchanged |
-| The profile | (none) | none | "the Seatbelt profile" | unchanged |
+*Idea:* the smallest change that obeys both rulings: `macos_user_mode = "you" | "yolo-account"`.
 
-*Pros:* zero user cost; fixes the false definition. *Cons:* `"account"` stays ambiguous (whose
-account?), and `macos-user` keeps naming a user that the default no longer involves.
-*Cost:* the guide pages and the charter's definition; the message strings that say "Sandbox
-user" or "second account".
+| Concept | Config | CLI | Messages and docs |
+| :--- | :--- | :--- | :--- |
+| You, in the OS sandbox | `confinement = "guest"`, `macos_user_mode = "you"` (default after the flip) | `--at guest` | "guest, running as you" |
+| The yolo account, in the OS sandbox | `confinement = "guest"`, `macos_user_mode = "yolo-account"` | none | "guest, running as the yolo account" |
+| Who may choose | user config only, as today | — | — |
+| Linux, as you | `confinement = "guest"` | `--at guest` | as on a Mac |
+| Linux, as the yolo account | a second key, `linux_user_mode = "yolo-account"`, or a rename then | none | as on a Mac |
 
-### Plan B: guest is the one name, and the account is an option of it (recommended)
+*Pros:* one value respelled; no new concept. *Cons:* the key's name is macOS-only, so the Linux
+mode forces the rename later anyway; identity stays off to one side of the dial. *Cost:* aliases
+for `"self"` and `"account"`; the launch disclosure and the refusal line that spell them; guide
+pages.
 
-*One-line idea:* `guest` is the only user-facing name for the middle ground; who it runs as is a
-guest setting phrased in plain words; "guest" never names the account.
+### Plan 2: guest is the one name; who it runs as is a guest setting (A and B merged)
 
-| Concept | Config | CLI | Messages and docs | Code |
-| :--- | :--- | :--- | :--- | :--- |
-| The middle notch | `confinement = "guest"` (the front door) | `--at guest` | "guest", defined as in Plan A | unchanged |
-| The macOS backend | `runtime = "macos-user"` kept, documented as "the guest backend on a Mac" ([OQ-MT3](#OQ-MT3)) | unchanged | the guide leads with `confinement = "guest"`, mentions the runtime once | unchanged |
-| Who it runs as | `guest_runs_as = "you" \| "yolo-account"`; `macos_user_mode` read as an alias ([OQ-MT2](#OQ-MT2)) | none | "the guest runs as you" / "the guest runs as the yolo account" | `Mode` values `RunsAsYou` / `RunsAsAccount` |
-| `_yolojail` | (none) | none | "the yolo account (`_yolojail`)" ([OQ-MT4](#OQ-MT4)) | `SandboxUser` → `AccountUser`, `SandboxHome()` → `AccountHome()` |
-| Confined side | (none) | none | "inside the guest" | "guest" kept (`GuestRealHome`, guest binaries): it now means only "inside the notch" |
-| Account setup | (none) | `yolo macos-setup` kept | help: "Create the yolo account, needed only for `guest_runs_as = "yolo-account"`" | unchanged |
-| The profile | (none) | none | "the Seatbelt profile" | unchanged |
+*Idea:* the notch stays three values; one cross-platform guest setting picks the identity:
+`guest_runs_as = "you" | "yolo-account"`.
 
-*Pros:* one word for the place, plain words for the choice; matches Linux, where the guest will
-run as you; the existing internal "guest" usage becomes correct rather than renamed. *Cons:* a
-second spelling of a key that shipped one release ago; "the guest runs as you" needs the profile
-named beside it to tell it from `host`. *Cost:* one key alias plus migrate mapping
-(`self` → `you`, `account` → `yolo-account`); the launch disclosure and refusal lines in
-[`commands.go`](../../internal/cli/commands.go) and
-[`orchestrator.go`](../../internal/macosuser/orchestrator.go); the guide pages; the config
-reference.
+| Concept | Config | CLI | Messages and docs |
+| :--- | :--- | :--- | :--- |
+| You, in the OS sandbox | `confinement = "guest"` (default `guest_runs_as = "you"`) | `--at guest` | "the guest runs as you" |
+| The yolo account, in the OS sandbox | `confinement = "guest"`, `guest_runs_as = "yolo-account"` | none | "the guest runs as the yolo account" |
+| Who may choose | user config only, as today ([MMP-D3](macos-user-model-plan.md#MMP-D3)) | — | — |
+| Linux, as you | `confinement = "guest"` | `--at guest` | as on a Mac |
+| Linux, as the yolo account | `guest_runs_as = "yolo-account"`, the same line | none | as on a Mac |
 
-### Plan C: drop the metaphor, name the mechanism
+*Pros:* reads as a sentence; one line works on both systems; keeps the machine-wide choice where
+it is. *Cons:* the stronger choice hides in a side setting, so the footer and `yolo describe` say
+`guest` for two different boundaries; there is no per-launch flag for it. *Cost:* one key aliased
+(`macos_user_mode`, `self` → `you`, `account` → `yolo-account`); the same messages and pages as
+Plan 1.
 
-*One-line idea:* call things what they are: the notch `sandboxed`, the backend `seatbelt`, the
-choice `run_as`.
+### Plan 3: the yolo account is a notch of its own (recommended)
 
-| Concept | Config | CLI | Messages and docs | Code |
-| :--- | :--- | :--- | :--- | :--- |
-| The middle notch | `confinement = "sandboxed"`; `guest` an alias | `--at sandboxed` | "sandboxed: on your machine, in the OS sandbox" | `ConfinementSandboxed` |
-| The macOS backend | `runtime = "seatbelt"`; `macos-user` an alias | unchanged | "the Seatbelt backend" | package rename optional |
-| Who it runs as | `run_as = "me" \| "_yolojail"` | none | "runs as you" / "runs as `_yolojail`" | as Plan B |
-| `_yolojail` | (none) | none | "`_yolojail`", by name only | as Plan B |
-| Confined side | (none) | none | "inside the sandbox" | every "guest" identifier renamed |
-| Account setup | (none) | `yolo seatbelt-setup`, old verbs kept as aliases | as Plan B | renamed |
-| The profile | (none) | none | "the Seatbelt profile" | unchanged |
+*Idea:* the dial gets the fourth value the ordering already implies: `jail` / `yolo-account` /
+`guest` / `host`. `guest` keeps meaning "you, in the OS sandbox", the meaning running as you by
+default already gives it.
 
-*Pros:* every name is literally true on a Mac. *Cons:* reverses a recorded ruling ([why
-`guest`](../reference/what-yolo-is.md#why-guest-not-sandbox)): "sandbox" already names the jail
-in this codebase and the whole field outside it, and `seatbelt` lies about Linux. *Cost:* the
-highest: two shipped config values and a key aliased, a flag, the footer, four verbs, the
-charter, and hundreds of code identifiers.
+| Concept | Config | CLI | Messages and docs |
+| :--- | :--- | :--- | :--- |
+| You, in the OS sandbox | `confinement = "guest"` | `--at guest` | "guest: you, inside the OS sandbox, no container" |
+| The yolo account, in the OS sandbox | `confinement = "yolo-account"` | `--at yolo-account` | "the yolo account: a separate user yolo owns, inside the OS sandbox" |
+| Who may choose | whoever may set `confinement` ([OQ-MT5](#OQ-MT5)) | per launch | the footer names the notch |
+| Linux, as you | `confinement = "guest"` | `--at guest` | as on a Mac |
+| Linux, as the yolo account | `confinement = "yolo-account"` | `--at yolo-account` | as on a Mac |
 
-### Plan D: make the account a notch of its own
+*Pros:* the breakdown the dial was built for, its notches named by the agent's relationship to
+the machine; one spelling on both systems; the footer, `yolo describe` and the briefing state the
+identity with no extra key; the code's macOS guest preset becomes this notch as written. *Cons:* a
+four-value dial to explain; a notch whose name is a noun phrase beside three single words; until
+the Linux mode exists, `yolo-account` is refused on Linux by name, as Linux `guest` is today.
+*Cost:* a new dial value and preset, `--at` and the footer; the charter's table; the alias
+`macos_user_mode = "account"` → `confinement = "yolo-account"` wherever the setting was `guest`
+or `macos-user`; `"self"` becomes a no-op.
 
-*One-line idea:* the dial names the agent's relationship to the machine, and a separate identity
-*is* a relationship, so the dial gets four notches: `jail` / `account` / `guest` / `host`.
+### Plan 4: guest regains its first meaning, and running as you gets a new notch
 
-| Concept | Config | CLI | Messages and docs | Code |
-| :--- | :--- | :--- | :--- | :--- |
-| Separate account, Seatbelt | `confinement = "account"` (macOS only) | `--at account` | "its own account on your Mac" | new preset in `render` |
-| You, Seatbelt (Linux: bwrap) | `confinement = "guest"` | `--at guest` | "guest: you, inside the OS sandbox" | unchanged |
-| The macOS backend | `runtime = "macos-user"` serves both | unchanged | as Plan B | unchanged |
-| Who it runs as | no setting: chosen by the notch; `macos_user_mode` read as an alias | none | none needed | `Mode` derived from the notch |
-| `_yolojail`, confined side, setup, profile | as Plan B | as Plan B | as Plan B | as Plan B |
+*Idea:* the July name meant "a guest account: its own identity"
+([why `guest`](../reference/what-yolo-is.md#why-guest-not-sandbox)), so give it back that meaning:
+`jail` / `guest` (the yolo account) / `fenced` (you, in the OS sandbox) / `host`.
 
-*Pros:* no separate "mode" setting at all; the footer and `yolo describe` state the identity.
-*Cons:* a notch that exists on one platform only; the choice moves from user scope to a setting a
-workspace may set, which reopens the rule that a workspace cannot choose the account
-([MMP-D3](macos-user-model-plan.md#MMP-D3)). *Cost:* a new dial value and preset, the charter's
-table, and an alias for the shipped key.
+| Concept | Config | CLI | Messages and docs |
+| :--- | :--- | :--- | :--- |
+| You, in the OS sandbox | `confinement = "fenced"` | `--at fenced` | "fenced: you, inside the OS sandbox" |
+| The yolo account, in the OS sandbox | `confinement = "guest"` | `--at guest` | "guest: the yolo account, inside the OS sandbox" |
+| Who may choose | whoever may set `confinement` ([OQ-MT5](#OQ-MT5)) | per launch | the footer names the notch |
+| Linux, as you | `confinement = "fenced"` | `--at fenced` | as on a Mac |
+| Linux, as the yolo account | `confinement = "guest"` | `--at guest` | as on a Mac |
 
-## 3. Recommendation: Plan B
+*Pros:* every definition in today's guide becomes true again; "guest" means a guest. *Cons:* it
+changes what an existing `confinement = "guest"` line will do. Today that line runs as
+`_yolojail`, and after the [default flip](macos-user-model.md#OQ-MM10) it would run as you; under
+this plan it stays on the yolo account, so the flip skips exactly the users who chose the notch by
+name. The default macOS middle ground becomes a brand-new word. *Cost:* a new value and preset;
+the code's "guest" identifiers, which today mean the sandbox side in both identities, renamed; the
+guide's guest section rewritten.
 
-Plan B fixes the actual defect, a definition that becomes false, by moving the one fact that
-varies (who the agent runs as) out of the notch's name and into a guest setting. It keeps every
-spelling a user typed for the notch, keeps the July ruling on "guest", and makes the
-hundreds of internal "guest" identifiers correct as they stand instead of renaming them. Plan A is
-the fallback if you would rather not alias a key that shipped one release ago; it leaves the
-`"account"` ambiguity. Plan C costs the most to buy literal names the July ruling already weighed
-and rejected. Plan D is coherent, but it spends a dial notch on a macOS-only option and turns a
-machine-wide choice into a per-workspace one.
+### Plan 5: walls and identity as two settings
 
-Whatever you pick, three things hold, and none of them needs your ruling: "guest" stops naming
-`_yolojail` in docs ("the guest OS user" goes); "private mode" and "self mode" disappear from live
-docs; "sandbox" is kept for Seatbelt alone.
+*Idea:* the true grid: `confinement = jail | guest | host` names the walls only, and a top-level
+`runs_as = "you" | "yolo-account"` names the identity, wherever that pair is meaningful.
+
+| Concept | Config | CLI | Messages and docs |
+| :--- | :--- | :--- | :--- |
+| You, in the OS sandbox | `confinement = "guest"` | `--at guest` | "guest, as you" |
+| The yolo account, in the OS sandbox | `confinement = "guest"`, `runs_as = "yolo-account"` | `--at guest --as yolo-account` | "guest, as the yolo account" |
+| The yolo account, no sandbox | `confinement = "host"`, `runs_as = "yolo-account"`: a new cell, the second-account-only model macos-user started with | `yolo host --as yolo-account` | "host, as the yolo account" |
+| Linux, as you | `confinement = "guest"` | `--at guest` | as on a Mac |
+| Linux, as the yolo account | `runs_as = "yolo-account"`, the same line | `--as yolo-account` | as on a Mac |
+
+*Pros:* each setting means one thing, and the grid also places a separate user with no sandbox. *Cons:* two settings to combine, which the
+[fill-the-matrix rule](../reference/fill-the-matrix-principle.md) warns against as a front door;
+`jail` with `runs_as` means nothing and is refused; a new host cell to build or refuse. *Cost:*
+the key aliased as in Plan 2; a new flag; the host cell's refusal or build.
+
+## 3. Recommendation: Plan 3
+
+Plan 3 is the breakdown the owner pointed at, with the fewest moving parts. Identity really is a
+step on the confinement ladder, since the yolo account is the same walls plus a credential
+boundary, so it belongs on the dial rather than in a side setting. Its spelling is the same on
+macOS and Linux, and the footer and `yolo describe` then say which boundary is in force. It keeps
+`guest` for what the default already makes it mean, so no existing line changes behavior beyond
+what [OQ-MM10](macos-user-model.md#OQ-MM10) ruled. Plan 4 is the same idea with the names swapped,
+and it breaks that: the users who typed `guest` would stop following the flip. Plan 2 is the
+fallback if a fourth notch is one too many; Plan 1 only defers the rename to the day Linux needs
+it; Plan 5 is the honest grid but makes the user assemble it.
 
 ## 4. Open Questions
 
 1. 💬 **OQ-MT1: Which terminology plan?**
 
-   Today a Mac user sets `confinement = "guest"`, reads that a guest is "a separate user account",
-   and then sees a launch line saying the agent runs as them. The plan decides what they read
-   instead, and whether any setting is respelled.
+   The answer decides what a Mac user types to get the yolo account, and what a Linux user will
+   type for the same thing later.
 
-   - **A — Fix the meanings only.** No setting changes; the guide and messages are reworded.
-   - **B — Guest is the one name; who it runs as is a guest setting.** One key gets a new spelling.
-   - **C — Mechanism names.** `sandboxed`, `seatbelt`, `run_as`; reverses the July ruling.
-   - **D — The account becomes its own notch.** Four dial values, no mode setting.
+   - **1 — Keep the key:** `macos_user_mode = "yolo-account"`.
+   - **2 — A guest setting:** `guest_runs_as = "yolo-account"`.
+   - **3 — A fourth notch:** `confinement = "yolo-account"`.
+   - **4 — Guest is the account:** `confinement = "guest"`, and `fenced` for you.
+   - **5 — Two settings:** `runs_as = "yolo-account"` beside `confinement`.
 
-   <!-- vantage: question id=OQ-MT1 leaning="B: it fixes the false definition, keeps every notch spelling, and makes the internal uses of guest correct as they stand." -->
+   <!-- vantage: question id=OQ-MT1 leaning="Plan 3: identity is a step on the ladder, the spelling is the same on both systems, and no existing line changes beyond the ruled default flip." -->
 
-   _Leaning:_ B. It fixes the false definition, keeps every notch spelling, and makes the internal
-   uses of "guest" correct as they stand.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 🤷 **OQ-MT2: Under Plan B, how is the who-runs-it setting spelled?**
-
-   It is one line in the user config, and the old `macos_user_mode` line keeps working either way.
-   For example, a user who wants the separate account writes one of these.
-
-   - **`guest_runs_as = "yolo-account"`** (default `"you"`). It reads as a sentence and names
-     both choices.
-   - **`guest_account = true`** (default `false`). Shorter, but "guest account" is also the name
-     of macOS's own built-in Guest User, which is a different thing.
-   - **Keep `macos_user_mode = "account"`.** No alias, but "account" stays ambiguous.
-
-   <!-- vantage: question id=OQ-MT2 leaning="guest_runs_as with you and yolo-account: the line says what it does, and it avoids the clash with the macOS Guest User." -->
-
-   _Leaning:_ `guest_runs_as = "you" | "yolo-account"`. The line says what it does, and it avoids
-   the clash with the macOS Guest User.
+   _Leaning:_ Plan 3. Identity is a step on the ladder, the spelling is the same on both systems,
+   and no existing line changes beyond the ruled default flip. A Mac user who wants the stronger
+   boundary for one launch types `yolo --at yolo-account -- claude`.
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. 💬 **OQ-MT3: Should `runtime = "macos-user"` be renamed now?**
+2. 💬 **OQ-MT3: Should `runtime = "macos-user"` be renamed now?**
 
-   Once the guest runs as you by default, the name describes a macOS user that is not there. But
-   it is the value every macOS user who chose this backend typed, and Plan B makes
-   `confinement = "guest"` the front door, so new users need not meet it.
+   Once the default runs as you, the name describes a macOS user that is not there. But it is the
+   value every existing user of this backend typed, and every plan makes `confinement` the front
+   door, so new users need not meet it.
 
-   - **Keep it**, and document it as "the guest backend on a Mac".
-   - **Rename it to `seatbelt`**, reading `macos-user` as an alias forever.
+   - **Keep it**, documented as "the mechanism behind guest and the yolo account on a Mac".
+   - **Rename it**, reading `macos-user` as an alias.
 
-   <!-- vantage: question id=OQ-MT3 leaning="Keep it: with guest as the front door the runtime value fades from view, and a rename buys a second spelling of a value every existing user has." -->
+   <!-- vantage: question id=OQ-MT3 leaning="Keep it: with confinement as the front door the runtime value fades from view, and a rename buys a second spelling of a value every existing user has." -->
 
-   _Leaning:_ keep it. With `guest` as the front door, the runtime value fades from view, and a
-   rename buys a second spelling of a value every existing user has.
+   _Leaning:_ keep it. With `confinement` as the front door the runtime value fades from view, and
+   a rename buys a second spelling of a value every existing user has.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+3. 💬 **OQ-MT5: Under Plans 3 and 4, may a workspace config choose between you and the yolo account?**
+
+   Today only the user config picks the identity, because a workspace is agent-editable
+   ([MMP-D3](macos-user-model-plan.md#MMP-D3)). A notch is something a workspace may set, so these
+   plans let it. For example, a client repository's `yolo-jail.toml` says
+   `confinement = "yolo-account"`, and a teammate's Mac that never ran `yolo macos-setup` stops with
+   the setup command.
+
+   - **Yes, through the config-change approval** a workspace's `confinement` edit already takes.
+     Choosing the yolo account only strengthens the boundary; choosing `guest` over it weakens
+     it, and the approval prompt names that.
+   - **Only the user config may set either value**, so the dial gains a value a workspace cannot
+     use.
+
+   <!-- vantage: question id=OQ-MT5 leaning="Yes, through the existing approval: a project that wants the stronger boundary should be able to say so, and the weakening direction is already gated." -->
+
+   _Leaning:_ yes, through the existing approval. A project that wants the stronger boundary should
+   be able to say so, and the weakening direction is already gated.
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-4. 💬 🤷 **OQ-MT4: What do messages and docs call `_yolojail`?**
+## Decision Ledger
 
-   Today `yolo macos-setup` prints "Sandbox user '_yolojail' exists", the launch says "with no
-   second account", and the troubleshooting page says "files show as owned by `_yolojail`. That is
-   the sandbox account".
-
-   - **"the yolo account"**: says whose it is, and needs no other mode to make sense.
-   - **"the sandbox account"**: today's most common wording, but "sandbox" also names Seatbelt.
-   - **"the second account"**: true only next to a mention of yours.
-   - **"the guest account"**: matches the notch, but collides with macOS's Guest User.
-
-   <!-- vantage: question id=OQ-MT4 leaning="the yolo account: Sandbox user '_yolojail' exists becomes The yolo account _yolojail exists, which needs no other term to read." -->
-
-   _Leaning:_ "the yolo account". "Sandbox user '_yolojail' exists" becomes "The yolo account
-   `_yolojail` exists", which needs no other term to read.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
+| ID | Ruling | Date | Settled in |
+| :--- | :--- | :--- | :--- |
+| <a id="OQ-MT2"></a>[OQ-MT2](#OQ-MT2) | No value is called a bare `account`: running as you is an account too. The owner: *"I hate 'account' here because 'self' is also an account."* The separate user's value is `yolo-account`. | 2026-11-03 | [§1](#1-the-problem-every-term-in-use-today) |
+| <a id="OQ-MT4"></a>[OQ-MT4](#OQ-MT4) | `_yolojail` is **the yolo account** in messages and docs. The owner: *"I like the YOLO account here … instead of account, just use YOLO account."* | 2026-11-03 | [§1](#1-the-problem-every-term-in-use-today) |
+| MT-R1 | Naming by mechanism (notch `sandboxed`, runtime `seatbelt`, `run_as = "me"`) is rejected. The owner: *"don't like."* | 2026-11-03 | [§2](#2-the-plans) |
+| MT-R2 | Every plan is tested against a future Linux mode that runs the agent as a separate yolo user. The owner, on the account as its own notch: *"what if we add a Linux guest user mode? then we wouldn't want it to be organized in the way it is right now."* | 2026-11-03 | [§2](#2-the-plans) |
