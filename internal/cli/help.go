@@ -65,6 +65,7 @@ var commandHelp = []struct{ name, blurb string }{
 	{"approve", "Host request and grant decisions, and the git working set"},
 	{"host-run", "Run one command on the host for this workspace's agent, and deliver its output to the jail ('wait', 'show' in the jail)"},
 	{"wait", "In a jail: wait for the host's answer to an approval request (r-<id>) or a host-run label, and exit with it"},
+	{"history", "What happened to this workspace's broker requests: answered how, when they ran, what to do next"},
 	{"init", "Scaffold yolo-jail.jsonc in the current workspace"},
 	{"init-user-config", "Write user-level defaults at ~/.config/yolo-jail/config.jsonc"},
 	{"config", "Edit and inspect yolo's own configuration: 'config apply', 'config drift', 'config dump'"},

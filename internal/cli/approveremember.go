@@ -46,7 +46,7 @@ func rememberCapability(ref string) (rememberedRef, bool) {
 // approval for, the project request that covers that ref from the next `yolo config apply` on.
 // The checks that refuse run before anything is written or decided; the write comes before the
 // decision, so a write that fails leaves the request pending for another answer.
-func approveRemember(stores []*brokerstore.Store, id string, out, errs io.Writer) int {
+func approveRemember(stores []*brokerstore.Store, id, via string, out, errs io.Writer) int {
 	s, q, err := findRequest(stores, id)
 	if err != nil {
 		return approveFailure(err, errs)
@@ -96,7 +96,7 @@ func approveRemember(stores []*brokerstore.Store, id string, out, errs io.Writer
 		}
 	}
 
-	g, err := s.Decide(id, "pending", brokerstore.Decision{})
+	g, err := s.Decide(id, "pending", brokerstore.Decision{Remember: true, Via: via})
 	if err != nil {
 		fmt.Fprintf(errs, "yolo approve: the request was remembered in %s's config, but this push was not allowed.\n", termsafe.Visible(q.Workspace))
 		return approveFailure(err, errs)

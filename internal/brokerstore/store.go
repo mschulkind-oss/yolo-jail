@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/approvalwait"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerlock"
 )
 
@@ -95,7 +96,42 @@ type Request struct {
 	// of Digest.
 	Spent  bool `json:",omitempty"`
 	Lapsed bool `json:",omitempty"`
+	// SpentAt is when the command that spent its Allow once ran; zero unless Spent.
+	SpentAt time.Time `json:",omitzero"`
+	// Answer is how the host answered it (AnswerOnce, AnswerFor, AnswerAdd, AnswerRemember,
+	// AnswerDeny), and Via who ran the `yolo approve` that did (ViaOnRequest, ViaHost); Until
+	// is when an AnswerFor stops covering its commands. All three are the decision's, empty
+	// while pending and in a request an older yolo decided (docs/design/jail-history.md
+	// JH-D11). None is part of Digest.
+	Answer string    `json:",omitempty"`
+	Via    string    `json:",omitempty"`
+	Until  time.Time `json:",omitzero"`
+	// HookRan is the user's on_request hook having started for it (NoteHookRan); a hook that
+	// then failed says so in HookFailure.
+	HookRan bool `json:",omitempty"`
+	// Reason is why a request left pending unanswered: ReasonBrokerStopped for one End closed.
+	Reason string `json:",omitempty"`
 }
+
+// How a request was answered (Request.Answer): the jail-readable record's own spellings
+// (approvalwait), so the two cannot drift.
+const (
+	AnswerOnce     = approvalwait.AnswerOnce     // Allow once: one run of the exact command
+	AnswerFor      = approvalwait.AnswerFor      // allowed for a time (`--for`), the set or the request's resources
+	AnswerAdd      = approvalwait.AnswerAdd      // its resources added to the working set (`--add`)
+	AnswerRemember = approvalwait.AnswerRemember // Allow once, its refs remembered in the project's config
+	AnswerDeny     = approvalwait.AnswerDeny
+)
+
+// Who answered it (Request.Via): `yolo approve` run by the request's own on_request hook (the
+// hook's environment names the request, brokerhook.Env), or by the human at a host terminal.
+const (
+	ViaOnRequest = approvalwait.ViaOnRequest
+	ViaHost      = approvalwait.ViaHost
+)
+
+// ReasonBrokerStopped is a request End closed: the broker lifetime that filed it stopped.
+const ReasonBrokerStopped = approvalwait.ReasonBrokerStopped
 
 // Expires is when the request stops waiting for an answer, whatever its state now.
 func (q Request) Expires() time.Time { return q.Filed.Add(PendingLife) }
@@ -144,6 +180,11 @@ type Decision struct {
 	Uses    int
 	// Add (DecideWorking only) puts the request's resources into the working set for good.
 	Add bool
+	// Remember (Decide only) records the Allow once as AnswerRemember: the caller has written
+	// the request's refs into the project's config. It grants nothing more than Allow once.
+	Remember bool
+	// Via is who answered (ViaOnRequest, ViaHost), recorded on the request; it grants nothing.
+	Via string
 }
 type Store struct {
 	Dir string
@@ -569,6 +610,9 @@ func (s *Store) fileIn(ctx context.Context, r *records, now time.Time, input Req
 	input.Filed = now
 	input.Decided = time.Time{}
 	input.State = "pending"
+	// The decision's facts are the store's to record, never the filer's to supply.
+	input.Answer, input.Via, input.Until, input.Reason = "", "", time.Time{}, ""
+	input.SpentAt, input.HookRan = time.Time{}, false
 	if err := s.audit(ctx, "request", input, Grant{}); err != nil {
 		return Request{}, err
 	}
@@ -654,6 +698,7 @@ func (s *Store) Decide(id, expected string, d Decision) (Grant, error) {
 				}
 				q.State = "denied"
 				q.Decided = now
+				q.Answer, q.Via = AnswerDeny, d.Via
 				return s.write("requests", q.ID, q)
 			}
 			current, err := currentPolicy(*q, s.Revalidate)
@@ -707,6 +752,15 @@ func (s *Store) Decide(id, expected string, d Decision) (Grant, error) {
 			}
 			q.State = "allowed"
 			q.Decided = now
+			q.Via = d.Via
+			switch {
+			case command == "":
+				q.Answer, q.Until = AnswerFor, out.Expires
+			case d.Remember:
+				q.Answer = AnswerRemember
+			default:
+				q.Answer = AnswerOnce
+			}
 			return s.write("requests", q.ID, q)
 		}
 		return refusal(ErrUnknownID, "request %q not found", id)
@@ -781,6 +835,12 @@ func (s *Store) DecideWorking(id string, d Decision) ([]WorkingEntry, error) {
 			}
 			q.State = "allowed"
 			q.Decided = now
+			q.Via = d.Via
+			if d.Add {
+				q.Answer = AnswerAdd
+			} else {
+				q.Answer, q.Until = AnswerFor, expires
+			}
 			return s.write("requests", q.ID, q)
 		}
 		return refusal(ErrUnknownID, "request %q not found", id)
@@ -895,7 +955,7 @@ func (s *Store) spendIn(ctx context.Context, r *records, now time.Time, workspac
 		// the command ran does not send the agent to run it again.
 		if g.Uses == 0 && g.Digest != "" && !parent.Spent {
 			q := &r.requests[parentAt]
-			q.Spent = true
+			q.Spent, q.SpentAt = true, now
 			if err := s.write("requests", q.ID, q); err != nil {
 				return Grant{}, false, err
 			}
@@ -913,6 +973,25 @@ func (s *Store) spendIn(ctx context.Context, r *records, now time.Time, workspac
 func (s *Store) Revoke(id string) error {
 	_, err := s.RevokeIn(id, "")
 	return err
+}
+
+// NoteHookRan records that the user's on_request hook started for request id. Like
+// NoteHookFailure it decides nothing and is not audited.
+func (s *Store) NoteHookRan(id string) error {
+	return s.transaction(func(r *records, _ time.Time) error {
+		for i := range r.requests {
+			q := &r.requests[i]
+			if q.ID != id {
+				continue
+			}
+			if q.HookRan {
+				return nil
+			}
+			q.HookRan = true
+			return s.write("requests", q.ID, q)
+		}
+		return refusal(ErrUnknownID, "request %q not found", id)
+	})
 }
 
 // NoteHookFailure records that the user's on_request failed for request id, with a one-line
@@ -943,6 +1022,7 @@ func (s *Store) End(jail, start string) error {
 			if q.Jail == jail && q.Start == start && q.State == "pending" {
 				q.State = "refused"
 				q.Decided = now
+				q.Reason = ReasonBrokerStopped
 				if err := s.write("requests", q.ID, q); err != nil {
 					return err
 				}

@@ -477,3 +477,21 @@ func TestTheHookRunsInItsDirectory(t *testing.T) {
 		t.Fatalf("the hook ran in %s, want %s", got, want)
 	}
 }
+
+// A hook that started is recorded on its request, so the jail-readable record can say the user
+// was asked (docs/design/jail-history.md JH-D11); one that exits 0 records no failure.
+func TestAHookThatRanIsRecordedOnItsRequest(t *testing.T) {
+	f := newFixture(t)
+	var log syncBuffer
+	stop := f.run(t, f.script(t, "hook", "cat >/dev/null\n"), &log)
+	defer stop()
+	q, err := f.store.File(f.filing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the hook's run to be recorded", func() bool { return f.request(t, q.ID).HookRan })
+	stop()
+	if got := f.request(t, q.ID); got.HookFailure != "" || got.State != "pending" {
+		t.Fatalf("a hook that exited 0 left %+v", got)
+	}
+}

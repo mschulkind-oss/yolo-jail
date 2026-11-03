@@ -99,9 +99,13 @@ func TestApproveRememberWritesTheRequestAndAllowsOnce(t *testing.T) {
 	if st := requestState(t, s, q.ID); st == "pending" {
 		t.Fatalf("the request is still pending after --remember")
 	}
-	_, gs, err := s.List()
+	rs, gs, err := s.List()
 	if err != nil || len(gs) != 1 || gs[0].Digest != q.Digest || gs[0].Uses != 1 {
 		t.Fatalf("Allow once grant: %+v %v", gs, err)
+	}
+	// Its record says how: remembered, by the human at the host (no hook named this request).
+	if len(rs) != 1 || rs[0].Answer != brokerstore.AnswerRemember || rs[0].Via != brokerstore.ViaHost {
+		t.Fatalf("the request does not record a remembered answer from the host: %+v", rs)
 	}
 }
 

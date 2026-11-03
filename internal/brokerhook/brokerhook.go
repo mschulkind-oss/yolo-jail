@@ -389,6 +389,12 @@ func (r *Runner) fire(ctx context.Context, q brokerstore.Request) {
 	}
 	waited := make(chan error, 1)
 	go func() { waited <- cmd.Wait() }()
+	// Started: the request's record says a hook ran for it, so whoever reads it later knows
+	// the user was asked (docs/design/jail-history.md section 5.4). A failure below overrides
+	// it in the record. Like a failure, it is not audited.
+	if err := r.Store.NoteHookRan(q.ID); err != nil {
+		r.logf("could not record the hook's run on %s: %s", q.ID, termsafe.Visible(err.Error()))
+	}
 	// The process group is the hook's own, so signalling it reaches whatever it started too.
 	// It is stopped when its request leaves pending or expires, its run times out or the
 	// broker stops, whether or not the shell has already exited: a notifier it backgrounded

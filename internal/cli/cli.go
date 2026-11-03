@@ -96,6 +96,10 @@ func Main(argv []string) int {
 	if len(args) >= 1 && args[0] == "wait" {
 		return waitMain(args[1:])
 	}
+	// `yolo history` too (history.go): an agent reads its output to answer "what happened".
+	if len(args) >= 1 && args[0] == "history" {
+		return historyMain(args[1:])
+	}
 
 	if len(args) >= 1 && args[0] == "--version" {
 		// Resolve the repo root the SAME way run/check do (the shared method), so
