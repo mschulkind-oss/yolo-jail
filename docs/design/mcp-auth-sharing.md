@@ -3,7 +3,7 @@ title: "One sign-in per user-level MCP server: a host broker that shares the ent
 date: 2026-11-03
 status: draft
 stage: DESIGN
-next: "Rule OQ-MA1 (the refresh model) and OQ-MA5 (how one sign-in for every agent is turned on). Then OQ-MA2, OQ-MA3, OQ-MA7 and OQ-MA8."
+next: "Rule OQ-MA1 (the refresh model). Then OQ-MA2, OQ-MA3, OQ-MA4, OQ-MA6, OQ-MA7 and OQ-MA8."
 depends-on: []
 tags: [design, mcp, oauth, credentials, broker, packs, loopholes, sharing]
 summary: "Every coding agent keeps one token store for all of its remote MCP servers, and none can redirect one server. So sharing only the user-level servers' sign-ins is not a link or a mount: it is a host broker that copies individual entries between one machine-wide canonical store and each workspace's own store, under each agent's own lock, and that is the single refresher of every shared entry so a rotating refresh token is never redeemed twice. A server is user-level when the user's layer alone produces the same server (same name, same sign-in identity). Agent packs declare their store's shape (path, format, key function, lock protocol); core runs one broker and names no agent. Opt in per server, one sign-in serves every agent: the broker itself becomes the OAuth client, signs in once, and hands the access token to each agent through a header command (Claude, Codex, pi) or by writing it into the agent's store, because an MCP access token is bound to the server it was issued for, not to the program presenting it, while a refresh token stays with the client that got it. Prerequisite: mcp_servers grows a remote (url) form, since yolo cannot know a remote server's scope today."
@@ -41,7 +41,7 @@ every agent needs a client the server accepts: for Slack, an internal Slack app 
 falls out of it.
 
 **Needs your ruling:** [OQ-MA1](#OQ-MA1), [OQ-MA2](#OQ-MA2), [OQ-MA3](#OQ-MA3), [OQ-MA4](#OQ-MA4),
-[OQ-MA5](#OQ-MA5), [OQ-MA6](#OQ-MA6), [OQ-MA7](#OQ-MA7), [OQ-MA8](#OQ-MA8).
+[OQ-MA6](#OQ-MA6), [OQ-MA7](#OQ-MA7), [OQ-MA8](#OQ-MA8).
 
 **Reads with:** [`mcp-configuration.md`](../reference/mcp-configuration.md) (how the one MCP table is
 composed and projected), [`claude-login-without-interception.md`](claude-login-without-interception.md)
@@ -417,8 +417,13 @@ oauth = { client_id = "1234.5678", client_secret_command = ["pass", "show", "sla
 ```
 
 - **`sign_in`** takes `"per_agent"` (the default: each agent signs in once, shared across
-  workspaces by [§8](#8-the-broker)) or `"once"`. Turning it on per server or for all servers is
-  [OQ-MA5](#OQ-MA5).
+  workspaces by [§8](#8-the-broker)) or `"once"`. It can be turned on per server, or for every
+  user-level server at once with the user-scope key `mcp_sign_in = "once"`, which a server's own
+  `sign_in = "per_agent"` opts back out of ([OQ-MA5](#OQ-MA5)).
+- **Under the user-wide switch, a server that cannot take one sign-in is not refused.** It keeps
+  per-agent sign-in, and the launch prints one line naming what it lacks and the fix (for Slack,
+  its own app's `oauth.client_id`), as [MA-D15](#decision-ledger)'s fallback does. A server that
+  sets `sign_in = "once"` itself and cannot take it is refused, naming the same fix.
 - **`"once"` is user config only.** A workspace config setting it is refused, naming
   `yolo config set mcp_servers.slack.sign_in once --user`: the broker's client acts for the user on
   every workspace, so the workspace cannot opt in for them.
@@ -707,28 +712,7 @@ a Slack refresh token.
    **Answer:**
    > _(empty — fill in when decided)_
 
-5. 💬 **OQ-MA5: Is one sign-in for every agent turned on server by server, or once for all your servers?**
-
-   Ana declared Slack, Linear and Sentry in her user config. Today each of Claude, Codex and pi
-   asks her to sign in to each one: nine sign-ins. With one sign-in turned on, yolo signs in to a
-   server once and every agent uses that sign-in; Slack also needs her own Slack app's id first.
-
-   - **Per server.** Ana writes `sign_in = "once"` on each server she wants. Cost: one line per
-     server; the launch suggests it for each server that could take it.
-   - **Once, for all.** One user-wide setting turns it on for every user-level server, and a server
-     can opt back out. Cost: a server that cannot take it (Slack without her app) is refused at
-     every launch until she fixes or excludes it.
-
-   <!-- vantage: question id=OQ-MA5 leaning="Per server: it is opt in, as asked, and each server needs a client it accepts, so a blanket switch mostly produces refusals to fix. A user-wide default can be added later without changing the per-server key." -->
-
-   _Leaning:_ Per server: it is opt in, as asked, and each server needs a client it accepts, so a
-   blanket switch mostly produces refusals to fix. A user-wide default can be added later without
-   changing the per-server key.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-6. 💬 **OQ-MA6: On a Mac, should `yolo host` move Codex's MCP sign-ins out of the Keychain so they can be shared?**
+5. 💬 **OQ-MA6: On a Mac, should `yolo host` move Codex's MCP sign-ins out of the Keychain so they can be shared?**
 
    Omar runs `yolo host -- codex` on his Mac. Codex keeps MCP sign-ins in the login Keychain
    there, which the broker cannot reach, while his jails use a file. Pinning Codex to its file
@@ -748,7 +732,7 @@ a Slack refresh token.
    **Answer:**
    > _(empty — fill in when decided)_
 
-7. 💬 **OQ-MA7: Should yolo publish an OAuth client of its own that any server can recognize?**
+6. 💬 **OQ-MA7: Should yolo publish an OAuth client of its own that any server can recognize?**
 
    Jo turns on one sign-in for a server that offers no automatic registration but does accept a
    client described by a public web page (the specification's recommended route). yolo has no such
@@ -769,7 +753,7 @@ a Slack refresh token.
    **Answer:**
    > _(empty — fill in when decided)_
 
-8. 💬 **OQ-MA8: When an agent cannot take the shared sign-in, should it sign in itself or go without the server?**
+7. 💬 **OQ-MA8: When an agent cannot take the shared sign-in, should it sign in itself or go without the server?**
 
    Ana turned on one sign-in for Slack. Claude, Codex and pi use it, but Copilot has neither a
    header command nor a store yolo can write. Ana opens Copilot in the same jail.
@@ -809,6 +793,7 @@ Implementation decisions taken in this draft, inside the owner's 2026-11-03 ask.
 | MA-D13 | `yolo mcp-auth login` runs on the host's browser and loopback, from the host or a jail | 2026-11-03 | [§9.4](#94-signing-in-once) | — |
 | MA-D14 | Header command first, store entry second; the agent's own OAuth is off for a one-sign-in server | 2026-11-03 | [§9.5](#95-delivery-routes) | — |
 | MA-D15 | DPoP-bound tokens, and a server that rejects a fresh token, fall back to per-agent sign-in with a line | 2026-11-03 | [§9.6](#96-refresh-sign-out-and-where-it-cannot-work) | — |
+| <a id="OQ-MA5"></a>[OQ-MA5](#OQ-MA5) | **Owner's ruling (2026-11-03):** opt in both ways, per server (`sign_in = "once"`) and for ALL user-level servers at once (user-scope `mcp_sign_in = "once"`; a server's `sign_in = "per_agent"` opts out). Owner: *"I also want opt in for ALL servers for MCP signin across agents."* Implementation decisions, not rulings: the key's spelling, and that under the user-wide switch a server that cannot take one sign-in keeps per-agent sign-in with a launch line naming the fix rather than being refused | 2026-11-03 | [§9.2](#92-the-opt-in) | — |
 
 ## Appendix A: Evidence
 
