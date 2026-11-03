@@ -73,21 +73,29 @@ type legacyBreak struct {
 	Case, Gate, Contains, Reason string
 }
 
+// ruledLegacyRefusals is every refusal of a config v0.15.1 accepted that the owner ruled is the
+// behavior, outside docs/design/legacy-config-compat.md's rule (which is scoped to the TOML
+// switch): retirements with their own transition (OQ-LC1) and a security refusal (OQ-LC3). Each
+// must still occur, so a refusal that goes away silently is caught too.
+var ruledLegacyRefusals = []legacyBreak{
+	{"toplevel/env_sources/workspace", "*", "is in the workspace config, outside the workspace",
+		"ruled: OQ-LC3 (the 2026-10-29 security refusal stands)"},
+	{"toplevel/mcp_presets/*", "load", "config.mcp_presets: REMOVED", "ruled: OQ-LC1 (OQ-MP6's retirement stands)"},
+	{"toplevel/mcp_presets/*", "migrate-*", "mcp_presets - [", "ruled: OQ-LC1 (OQ-MP6's retirement stands)"},
+	{"loophole/openai-auth-broker/*", "load", "openai-auth-broker", "ruled: OQ-LC1 (OQ-PE3's rename stands)"},
+	{"loophole/openai-auth-broker/*", "migrate-*", "only shipped packs may be named without a source",
+		"ruled: OQ-LC1 (OQ-PE3's rename stands)"},
+}
+
 // knownLegacyBreaks is every way a config that worked in v0.15.1 fails today. It only shrinks.
 var knownLegacyBreaks = []legacyBreak{
 	// The launch's config gate refuses what v0.15.1 accepted.
-	{"toplevel/env_sources/workspace", "load", "is in the workspace config, outside the workspace",
-		"pending fix: lc-ws-env-file-outside (a workspace env_sources file outside the workspace is now refused)"},
-	{"toplevel/mcp_presets/*", "load", "config.mcp_presets: REMOVED",
-		"pending fix: lc-mcp-presets-removed (the retired key refuses instead of being ignored)"},
 	{"loophole/host-processes/settings.fields/workspace", "load", "host-processes.settings.fields: user-scope only",
 		"pending fix: lc-hostproc-fields-scope (fields moved from workspace to user scope)"},
 	{"realistic/*", "load", "host-processes.settings.fields: user-scope only",
 		"pending fix: lc-hostproc-fields-scope (fields moved from workspace to user scope)"},
 	{"loophole/serial/settings.default_baud/workspace", "load", "serial.settings.default_baud: user-scope only",
 		"pending fix: lc-serial-baud-scope (default_baud moved from workspace to user scope)"},
-	{"loophole/openai-auth-broker/*", "load", "openai-auth-broker",
-		"pending fix: lc-openai-auth-renamed (the openai-auth pack is now codex-auth; its old name selects nothing)"},
 
 	// The jail crossing refuses a TOML user config beside a legacy workspace loophole switch.
 	{"loophole/*/workspace", "inherit", "mixes a TOML file and a legacy JSONC file",
@@ -97,14 +105,10 @@ var knownLegacyBreaks = []legacyBreak{
 
 	// The migration (the launch's offer, and the conversion a TOML cell needs) cannot convert a
 	// legacy file exactly.
-	{"toplevel/env_sources/workspace", "migrate-*", "is in the workspace config, outside the workspace",
-		"pending fix: lc-ws-env-file-outside"},
 	{"toplevel/host_files/user", "migrate-*", "config.host_files: expected a table",
 		"pending fix: lc-migrate-host-files-list"},
 	{"toplevel/host_path/user", "migrate-*", "config.host_path: expected a string",
 		"pending fix: lc-migrate-host-path-list"},
-	{"toplevel/mcp_presets/*", "migrate-*", "mcp_presets - [",
-		"pending fix: lc-mcp-presets-removed"},
 	{"toplevel/model_facts/workspace", "migrate-*", "config.model_facts: user-scope only",
 		"pending fix: lc-migrate-ws-model-facts (the load accepts it in a workspace; the converted file is refused)"},
 	{"toplevel/profile*/user", "migrate-*", `expected a table (got "`,
@@ -127,8 +131,6 @@ var knownLegacyBreaks = []legacyBreak{
 		"pending fix: lc-migrate-ws-loophole-switch"},
 	{"realistic/*", "migrate-*", "project config: loopholes - ",
 		"pending fix: lc-migrate-ws-loophole-switch"},
-	{"loophole/openai-auth-broker/*", "migrate-*", "only shipped packs may be named without a source",
-		"pending fix: lc-openai-auth-renamed"},
 
 	// The config launches, but means less than it did: a legacy switch no longer grants the access
 	// it gave, so the launch asks (pending), needs a request (requestable) or refuses it.
@@ -211,8 +213,14 @@ func TestLegacyConfigsLaunchUnchanged(t *testing.T) {
 		}
 	}
 	used := make([]bool, len(knownLegacyBreaks))
+	ruledUsed := make([]bool, len(ruledLegacyRefusals))
 	for _, f := range findings {
 		covered := false
+		for i, k := range ruledLegacyRefusals {
+			if legacyGlob(k.Case, f.Case) && legacyGlob(k.Gate, f.Gate) && strings.Contains(f.Text, k.Contains) {
+				ruledUsed[i], covered = true, true
+			}
+		}
 		for i, k := range knownLegacyBreaks {
 			if legacyGlob(k.Case, f.Case) && legacyGlob(k.Gate, f.Gate) && strings.Contains(f.Text, k.Contains) {
 				used[i], covered = true, true
@@ -221,6 +229,12 @@ func TestLegacyConfigsLaunchUnchanged(t *testing.T) {
 		if !covered {
 			t.Errorf("a config v0.15.1 accepted no longer launches unchanged with the same meaning:\n  %s\n"+
 				"Fix it; only a break with a pending fix is listed in knownLegacyBreaks.", f)
+		}
+	}
+	for i, k := range ruledLegacyRefusals {
+		if !ruledUsed[i] && !testing.Short() && only == "" {
+			t.Errorf("ruledLegacyRefusals entry {%q, %q, %q} (%s) no longer occurs: the ruled refusal went away",
+				k.Case, k.Gate, k.Contains, k.Reason)
 		}
 	}
 	for i, k := range knownLegacyBreaks {
