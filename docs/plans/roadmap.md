@@ -33,10 +33,9 @@ the maintainer, 2026-11-03: *"why do I need to change my configs? that's not the
 the configs keep working."* Every config that launched in the previous release launches unchanged
 and means the same; the census found 56 that do not, in six classes, each decided there, with a
 corpus test whose allowlist must empty as the enforcer. The maintainer scoped the rule to the TOML switch and kept the three earlier retirements
-([OQ-LC1](../design/legacy-config-compat.md#OQ-LC1), 2026-11-03). Two rulings are owed:
-[OQ-LC2](../design/legacy-config-compat.md#OQ-LC2) (what a v0.15.1 broker switch
-becomes) and [OQ-LC3](../design/legacy-config-compat.md#OQ-LC3) (whether the two security refusals
-are the one exemption). It carries the inherited-scope crossing decisions for item 11's
+([OQ-LC1](../design/legacy-config-compat.md#OQ-LC1), 2026-11-03). The broker switch carries its read grant
+([OQ-LC2](../design/legacy-config-compat.md#OQ-LC2)), and the 2026-10-29 security refusals are
+outside the rule ([OQ-LC3](../design/legacy-config-compat.md#OQ-LC3)); no ruling is owed. It carries the inherited-scope crossing decisions for item 11's
 [readable-config redesign](../design/readable-config.md) until that document takes them, and it is
 why [the host-processes columns](../reference/loophole-grants.md#OQ-LG5) and
 [macos-user's default mode](../design/macos-user-model.md#OQ-MM10) each gained a question.

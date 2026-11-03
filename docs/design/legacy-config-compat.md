@@ -3,7 +3,7 @@ title: "Legacy configs keep working: every config that launched last release lau
 date: 2026-11-03
 status: in-review
 stage: DESIGN
-next: "Rule OQ-LC2 (what a v0.15.1 broker switch becomes) and OQ-LC3 (whether the two security refusals are the one exemption); every LC decision builds without them"
+next: "Build in §9 order; no ruling is owed"
 depends-on:
   - readable-config.md
   - config-migration.md
@@ -49,7 +49,7 @@ projection grants what v0.15.1 granted, which is more than it grants today. No h
 **Start at [§4](#4-the-classes-and-what-each-becomes).** [§1](#1-the-one-rule) is the rule it
 applies; [Appendix A](#appendix-a-every-census-row-and-its-disposition) is every census row.
 
-**Needs your ruling:** [OQ-LC2](#OQ-LC2), [OQ-LC3](#OQ-LC3).
+**Needs your ruling:** none; [OQ-LC1](#OQ-LC1), [OQ-LC2](#OQ-LC2) and [OQ-LC3](#OQ-LC3) are ruled.
 
 **Reads with:** [`readable-config.md`](readable-config.md) (the TOML redesign; its ledger owns
 the crossing rows [§4.2](#42-class-b-the-crossing-refuses-what-the-host-accepted) carries),
@@ -91,9 +91,9 @@ Three corollaries, each a rule the body applies:
 
 **Where the rule stops.** P1 holds for every release while both readers exist
 ([RC-D19](readable-config.md#RC-D19) keeps the legacy reader *"for a few releases"*); the release
-that removes the legacy reader is the owner's to time and is outside this document. A genuine
-trust boundary the owner named with a reason is the one candidate exemption, and whether it is
-one is [OQ-LC3](#OQ-LC3).
+that removes the legacy reader is the owner's to time and is outside this document. A security
+refusal ruled for its own reason (the two of 2026-10-29) is not a TOML-switch change, so it is
+outside P1 and stands ([OQ-LC3](#OQ-LC3)).
 
 ## 2. Vocabulary
 
@@ -124,7 +124,7 @@ one is [OQ-LC3](#OQ-LC3).
 | Same-meaning break | 9 | 8 at launch, 1 at the crossing |
 | Of those, retired by an owner ruling with its own transition (they stand) | 3 | `mcp_presets`, the `openai-auth` pack name, the `requires` kind ([OQ-LC1](#OQ-LC1)) |
 | Ruled, and lets a config stop | 2 | a provider named `native` ([OQ-RC20](readable-config.md#decision-ledger)); `yolo allow` on a JSONC file holding `brokered` ([RC-D37](readable-config.md#RC-D37)) |
-| A trust boundary the owner named | 3 | a workspace env file outside the workspace, a mount in or inside the workspace or another mount, broker ceilings never crossing ([OQ-LC3](#OQ-LC3)) |
+| A trust boundary the owner named | 3 | a workspace env file outside the workspace, a mount in or inside the workspace or another mount, broker ceilings never crossing; not TOML-switch changes, so they stand ([OQ-LC3](#OQ-LC3)) |
 | Happy-path-only | 44 | 41 advice strings naming a legacy file or a JSON snippet, 3 migration texts |
 | Unverified | 5 | listed in [Appendix A](#appendix-a-every-census-row-and-its-disposition); the corpus test settles them |
 
@@ -262,8 +262,11 @@ their RC and BB ids, when it is free.
   check` and `yolo config apply` rewrite it through the writer `yolo loopholes disable` already
   uses, and print one line naming the file and what replaced the switch; a file that cannot be
   rewritten whole keeps a warning naming why. Nothing asks the user to run a command for it,
-  revising the warning half of [BB-D109](boundary-broker.md#BB-D109). **What replaces the switch**,
-  the read grant it gave or nothing, is [OQ-LC2](#OQ-LC2); the mechanism does not wait on it.
+  revising the warning half of [BB-D109](boundary-broker.md#BB-D109). **The switch becomes the read
+  grant it gave, for that workspace** ([OQ-LC2](#OQ-LC2)): recorded in the approval record as a
+  carried grant, the way every other loophole's switch file is, and the one line says so:
+  *"Removed the old github-broker switch from <file>; this workspace keeps the read grant it
+  gave"*.
 
 Two mechanics beside these, settled here because an implementer would otherwise guess:
 <a id="LC-D8"></a>**LC-D8: the in-jail read of the jail's own workspace honors
@@ -430,8 +433,8 @@ but nothing here is reachability- or rootless-shaped: the corpus runs on the Lin
 - **No automatic migration.** The launch offers; a person answers ([RC-D21](readable-config.md#RC-D21)).
 - **No change to what the gate approves**, or to which scope may hold which key in TOML. Where
   the legacy projection admits a workspace value (LC-D2), it is the gate's y that admits it.
-- **No reopening of the two security refusals** of 2026-10-29 by this document; whether they are
-  exempt from P1 is asked, not decided ([OQ-LC3](#OQ-LC3)).
+- **No reopening of the two security refusals** of 2026-10-29: they are not TOML-switch changes,
+  so P1 does not reach them, and they stand ([OQ-LC3](#OQ-LC3)).
 - **No hatch.** Nothing here has a `YOLO_ALLOW_*`: a legacy config that cannot launch is a yolo
   bug, and the corpus test is where it is caught.
 - **Not the release that removes the legacy reader.** That release breaks every legacy config by
@@ -472,72 +475,6 @@ but nothing here is reachability- or rootless-shaped: the corpus runs on the Lin
 6. **The dangling links** (LC-D11) and **the message sweep** (LC-D12), with their tests.
 7. **The manifest window** (LC-D10), last: no owner pack is hit today.
 
-## Open Questions
-
-1. 💬 **<a id="OQ-LC2"></a>[OQ-LC2](#OQ-LC2): Does a broker switch an older yolo wrote carry the read grant it used to give?**
-
-   Sam turned the GitHub broker on for one project in October by running `yolo loopholes
-   enable github-broker` on the host; yolo wrote the switch into its own per-workspace file, and
-   `gh pr view` worked in that jail from then on. Sam upgrades and launches the same project.
-   Today the launch warns that the switch *"is ignored … the fetches the switch used to allow
-   are refused"*, and `gh` fails with *"no read grant"* until Sam runs `yolo allow github read`
-   on the host. The switch was a deliberate host-side act by a human, as the gate's y is; the
-   read grant lends the host's GitHub login to the jail, which is why you ruled on 2026-10-24
-   that selecting the pack grants nothing by default. Under this document's rule the launch
-   removes the switch from yolo's file either way and says so once; what it writes in its place
-   is the choice.
-
-   - **A — The switch becomes the read grant, for that workspace.** Sam's launch prints one line,
-     *"Removed the old github-broker switch from <file>; this workspace keeps the read grant it
-     gave"*, the grant is recorded in the approval record as a carried grant the way every other
-     loophole's switch file is, and `gh` works as before. Cost: a credential grant is carried from
-     a stale file on the strength of a command run weeks ago, with no fresh y.
-   - **B — The switch becomes nothing, said once.** Sam's launch prints *"Removed the old
-     github-broker switch from <file>: github-broker runs whenever its pack is selected and
-     grants nothing until your config does"*, and `gh` is refused naming `yolo allow github read`.
-     Cost: a project that read GitHub last release cannot until Sam runs a command, which the
-     2026-11-03 rule forbids for every other loophole.
-
-   <!-- vantage: question id=OQ-LC2 leaning="A — it is what the migration already does for every other loophole's switch file (the human's host command was the approval), and the job makes no exception for brokers; but it carries a login, so it is yours." -->
-
-   _Leaning:_ A — it is what the migration already does for every other loophole's switch file
-   (the human's host command was the approval), and the job makes no exception for brokers; but
-   it carries a login, so it is yours.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 **<a id="OQ-LC3"></a>[OQ-LC3](#OQ-LC3): Are the two security refusals of 2026-10-29 the one exemption from "the configs keep working"?**
-
-   Dana's project file, committed in September, has `"env_sources": ["~/secrets.env"]` and a
-   read-only mount `"./data:/ctx/data"` whose source is inside the workspace. Both launched in
-   v0.15.1. She upgrades and runs `yolo`. Today both are refused: the env file because a
-   workspace file may not read outside the workspace, the mount because a path inside the
-   workspace is one a symlink the agent writes can point anywhere. You ruled both on 2026-10-29
-   with a reason (*"env sources in a workspace should not be able to specify outside the
-   workspace"*; *"no symlinks in agent writeable locations … makes it safe"*), five days before
-   saying the configs keep working, and neither ruling mentions a config that already launched.
-   Both are a trust boundary, not a spelling, and this document has no other exemption.
-
-   - **A — They stand, and are the one exemption.** Dana's launch is refused as today, naming the
-     user config as the place for the env file and a directory outside the workspace as the
-     mount's source. This document's rule reads *"every config that launched keeps working,
-     except where a security ruling you made names a reason"*, and the corpus test records the
-     two rows as excepted with the ruling ids.
-   - **B — They yield to the job for a file that already launched.** Dana's launch proceeds with
-     one disclosure line per entry naming the risk, and a *new* project file writing either is
-     refused as today. Cost: the agent-writable file keeps a path out of the workspace it had
-     before, which is the hole the rulings closed.
-
-   <!-- vantage: question id=OQ-LC3 leaning="A — the job is about spellings a changed model left behind, not about a hole a security ruling closed, and you named the reason both times; it is asked because the 2026-11-03 statement has no carve-out and the rule should say in your words that it has one." -->
-
-   _Leaning:_ A — the job is about spellings a changed model left behind, not about a hole a
-   security ruling closed, and you named the reason both times; it is asked because the
-   2026-11-03 statement has no carve-out and the rule should say in your words that it has one.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
 ## Decision Ledger
 
 Every LC row is a design-seat decision under the owner's words of 2026-11-03 unless it says
@@ -547,6 +484,8 @@ when that document is free.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
+| <a id="OQ-LC3"></a>[OQ-LC3](#OQ-LC3) | **The two security refusals of 2026-10-29 (a workspace `env_sources` file outside the workspace; a mount source inside the workspace) are not TOML-switch changes, so P1 does not reach them; they stand as ruled.** The owner's ruling, on the question whether they were the one exemption: *"this has nothing to do with TOML converfsion? not sure why we're thinkgin about this."* | 2026-11-03 | [§1](#1-the-one-rule); [§6](#6-what-this-does-not-license) | nothing to build; not built: the corpus test still lists `lc-ws-env-file-outside` as a break, and it becomes an expected refusal |
+| <a id="OQ-LC2"></a>[OQ-LC2](#OQ-LC2) | **A broker switch an older yolo wrote into its own per-workspace file becomes the read grant it gave, for that workspace:** the launch removes the switch, records the grant in the approval record as a carried grant (as every other loophole's switch file is carried), and says so in one line; `gh` works as before, with no command. The owner chose option A, in the words of its leaning: *"A — it is what the migration already does for every other loophole's switch file (the human's host command was the approval), and the job makes no exception for brokers; but it carries a login, so it is yours."* | 2026-11-03 | [§4.2](#42-class-b-the-crossing-refuses-what-the-host-accepted), [LC-D7](#LC-D7) | not built |
 | <a id="OQ-LC1"></a>[OQ-LC1](#OQ-LC1) | **P1's scope is the TOML switch: a config that launched as JSONC keeps launching, and its TOML conversion launches meaning the same. The three retire-outright rulings (`mcp_presets`, [OQ-MP6](mcp-presets-removal.md#decision-ledger); the `openai-auth` pack name, [OQ-PE3](provider-enablement.md#OQ-PE3); the user pack `requires` kind, [OQ-PS11](provisioner-sets.md#OQ-PS11)) stand, with the transition paths ruled there.** The owner's ruling: *I want specifically the Toml switch not to break things. The Chrome DevTools and the OpenAI rename had nothing to do with it. Those were already ruled on, transition paths ruled on there. For specifically the Toml, if one moment it worked with JSONC and then you convert, then it has to work with Toml. That's the only rule I'm implying here.* | 2026-11-03 | [§1](#1-the-one-rule); [§4.4](#44-class-d-a-retired-spelling-is-refused-outright) | not built: the corpus test still lists the `mcp_presets` and `openai-auth` refusals as breaks; they become expected refusals |
 | [LC-D1](#LC-D1) | **The corpus test's allowlist may only shrink.** A fixture outside it that fails, or a row that passes and is not removed, fails the test; empty is the done-state and the test stays | 2026-11-03 | [§5](#5-the-enforcer-a-corpus-that-must-launch) | — |
 | [LC-D2](#LC-D2) | **The legacy projection grants what v0.15.1 granted.** A workspace `enabled: true` is the request and its admission ([LG-D16](../reference/loophole-grants.md#LG-D16)); a user `enabled: true` on a valued kind is a user-sourced request to every project, admitted and shown once per project like an `always` line; workspace `fields` is the project's columns ([LG-D15](../reference/loophole-grants.md#LG-D15)); a switch for an unselected pack selects nothing and offers `yolo pack add` | 2026-11-03 | [§4.1](#41-class-a-the-grant-projection-grants-less-than-the-switch-did) | — |
@@ -554,7 +493,7 @@ when that document is free.
 | [LC-D4](#LC-D4) | **(RC-D63) The crossing never refuses a config the host accepted;** any TOML-written value means a TOML delivery, an unspellable legacy value is left out and disclosed once, `yolo check` renders the same; the combined refusal, `mixedFormatRefusal` and the grant-declaring decline are deleted. Supersedes RC-D55's *Still refused* | 2026-11-03 | [§4.2](#42-class-b-the-crossing-refuses-what-the-host-accepted) | — |
 | [LC-D5](#LC-D5) | **(RC-D64) The crossing's lowering is origin-aware:** only legacy-written values are respelled; a TOML handle crosses verbatim; a mixed list keeps its order. Shares [RC-D58](readable-config.md#RC-D58)'s respell | 2026-11-03 | [§4.2](#42-class-b-the-crossing-refuses-what-the-host-accepted) | — |
 | [LC-D6](#LC-D6) | **(RC-D65) A legacy `loopholes` block crosses into a TOML delivery as nothing;** an inline declaration and a selected pack's `enabled: false` are disclosed, never refused; the JSONC delivery still carries the block | 2026-11-03 | [§4.2](#42-class-b-the-crossing-refuses-what-the-host-accepted) | — |
-| [LC-D7](#LC-D7) | **(RC-D66, BB-D112) A stale broker switch in yolo's own per-workspace file is removed by the launch, `yolo check` and `yolo config apply`, said once;** an unrewritable file keeps a warning naming why. Revises the warning half of [BB-D109](boundary-broker.md#BB-D109). What replaces the switch is [OQ-LC2](#OQ-LC2) | 2026-11-03 | [§4.2](#42-class-b-the-crossing-refuses-what-the-host-accepted) | — |
+| [LC-D7](#LC-D7) | **(RC-D66, BB-D112) A stale broker switch in yolo's own per-workspace file is removed by the launch, `yolo check` and `yolo config apply`, said once;** an unrewritable file keeps a warning naming why. Revises the warning half of [BB-D109](boundary-broker.md#BB-D109). What replaces the switch is the read grant it gave, for that workspace ([OQ-LC2](#OQ-LC2)) | 2026-11-03 | [§4.2](#42-class-b-the-crossing-refuses-what-the-host-accepted) | — |
 | [LC-D8](#LC-D8) | **The in-jail loader honors `withWorkspaceFile=false`** past the assembled-snapshot short-circuit, and a legacy `null` in the inherited bottom layer means absence, as it does for `env` | 2026-11-03 | [§4.2](#42-class-b-the-crossing-refuses-what-the-host-accepted) | — |
 | [LC-D9](#LC-D9) | **`yolo config migrate` never declines a config that launches;** every census gap gets a TOML spelling that reads back to the same value (the table in [§4.3](#43-class-c-the-migration-declines-a-config-that-launches) proposes each), so the launch offer never stops a launch; a plan that cannot convert a launching config is a yolo bug and says so | 2026-11-03 | [§4.3](#43-class-c-the-migration-declines-a-config-that-launches) | — |
 | [LC-D10](#LC-D10) | **A legacy manifest key is read for the window as what it meant** (`default_enabled`, a workspace-scope setting), never dropped with a warning; `pack migrate` reports what the author must restate. Revises [LG-D3](../reference/loophole-grants.md#LG-D3) and [LG-D5](../reference/loophole-grants.md#LG-D5) for legacy manifests only | 2026-11-03 | [§4.4](#44-class-d-a-retired-spelling-is-refused-outright) | — |
