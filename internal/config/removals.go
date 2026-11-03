@@ -57,6 +57,8 @@ func ReadableRemovalPolicies() []RemovalRule {
 		{Path: "include_if_found", Policy: RemovalEmptyList},
 		{Path: "devices", Policy: RemovalEmptyList},
 		{Path: "writable_home_dirs", Policy: RemovalEmptyList},
+		{Path: "host_files", Policy: RemovalEmptyList},
+		{Path: "host_path", Policy: RemovalEmptyList},
 		{Path: "required_capabilities", Policy: RemovalEmptyList},
 		{Path: "providers.*.capabilities", Policy: RemovalEmptyList},
 		{Path: "providers.*.variants.*.capabilities", Policy: RemovalEmptyList},

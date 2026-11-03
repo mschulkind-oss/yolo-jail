@@ -1139,6 +1139,8 @@
           "defaults": { "telemetry": false, "theme": "dark" },
           "managed":  { "telemetry": false } }
       ]
+    In TOML it is the same list, each entry a string or an inline table:
+      host_files = ["~/.npmrc", { path = "~/.config/ripgrep/config", content = "--smart-case\n" }]
 
   [bold]host_import_exclusions[/bold] (map of surface address to JSON Pointer array): Omit exact
     object members from imported user host config bytes for the selected surface. This is a
@@ -1528,6 +1530,8 @@
     error, and is never read.
     Example (~/.config/yolo-jail/config.jsonc):
       "host_path": ["~/.cargo/bin", "~/.local/share/mise/shims", "/opt/homebrew/bin"]
+    In TOML (~/.config/yolo-jail/config.toml):
+      host_path = ["~/.cargo/bin", "~/.local/share/mise/shims", "/opt/homebrew/bin"]
 
   [bold]provisioners[/bold] (object): The order yolo picks a way to install a program in.
     Default: none -- each pack's own recipe first, then your package manager.
@@ -1861,7 +1865,10 @@
     tool as a pack's REPLACES it whole.
     Lists from several files merge.  In TOML an empty list
     (blocked_tools = []) drops every entry a lower file wrote, as a legacy
-    "blocked_tools": null does.
+    "blocked_tools": null does.  A detailed entry is an inline table in TOML,
+    or a [[security.blocked_tools]] table:
+      [security]
+      blocked_tools = ["curl", { name = "grep", message = "Use rg", suggestion = "rg <pattern>" }]
     Conditional on the ALTERNATIVE existing: add ``replacement`` (a bare
     binary name) and the tool is blocked only when that binary is on the
     jail's PATH.  The two defaults set it (rg for grep, fd for find), so
@@ -2660,6 +2667,8 @@
                      its facts says `twin_of = "<that row's key>"` instead.  A row
                      over a pack's alias for another id must say `model`, or it would
                      send its key as the id.  `yolo config migrate` writes all of these.
+                     A plain string stays a string in TOML, default = "glm-5.3": the
+                     alias's wire id with no facts of its own, as in the old file.
       capabilities   the named jobs this provider performs for itself, e.g.
                      ["web_search"].  A launch that selects it OMITS every
                      `mcp_servers` entry whose "provides" names one of them — the
@@ -2704,6 +2713,7 @@
               "context_window": 1000000, "max_tokens": 128000}}
     In TOML an entry takes a row's fact spellings, `accepts`, `price` and `context`, and
     refuses what only a route says: `model`, `wire_id`, `twin_of`, `compact_at`, `extends`.
+    A project config may write it too, in TOML as in the old file.
 
   [bold]adapters[/bold] (object): Where an ADAPTED provider answers — the one field of an
     adapter you may set.  [bold yellow]USER SCOPE ONLY[/bold yellow], for the same reason `providers`

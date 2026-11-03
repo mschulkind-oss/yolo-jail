@@ -82,7 +82,7 @@ func SchemaKeys() []SchemaKey {
 		"loopholes.*.env.*", "host_files.*", "host_wrappers.*", "programs.*",
 		"programs.overrides.*", "cache_relocations.*", "writable_home_dirs.*",
 		"include_if_found.*", "required_capabilities.*", "adapters.*", "local_clones.*",
-		"host_import_exclusions.*",
+		"host_import_exclusions.*", "host_path.*", "security.blocked_tools.*",
 		"packages.*.outputs.*", "packages.*.platforms.*",
 	} {
 		add(path)
@@ -328,33 +328,34 @@ func ReadableSchemaKeys() []SchemaKey {
 		{Path: "providers.*.models.*.model", Scope: both, Type: SchemaTypeString},
 		{Path: "providers.*.models.*.wire_id", Scope: both, Type: SchemaTypeString},
 		// Facts written once and shared by a model's routes (MF-D2), in the row fact spellings,
-		// without what only a route can say (packdecl.ModelFactsRouteOnlyKeys).
-		{Path: "model_facts", Scope: user, Type: SchemaTypeObject},
-		{Path: "model_facts.*", Scope: user, Type: SchemaTypeObject},
-		{Path: "model_facts.*.name", Scope: user, Type: SchemaTypeString},
-		{Path: "model_facts.*.description", Scope: user, Type: SchemaTypeString},
-		{Path: "model_facts.*.vendor", Scope: user, Type: SchemaTypeString},
-		{Path: "model_facts.*.api", Scope: user, Type: SchemaTypeString},
-		{Path: "model_facts.*.thinking", Scope: user, Type: SchemaTypeList},
-		{Path: "model_facts.*.thinking.*", Scope: user, Type: SchemaTypeString},
-		{Path: "model_facts.*.accepts", Scope: user, Type: SchemaTypeList},
-		{Path: "model_facts.*.accepts.*", Scope: user, Type: SchemaTypeString},
-		{Path: "model_facts.*.max_tokens", Scope: user, Type: SchemaTypeNumber},
-		{Path: "model_facts.*.reasoning", Scope: user, Type: SchemaTypeBoolean},
-		{Path: "model_facts.*.context", Scope: user, Type: SchemaTypeNumber},
-		{Path: "model_facts.*.base", Scope: user, Type: SchemaTypeString},
-		{Path: "model_facts.*.openrouter_routing", Scope: user, Type: SchemaTypeObject},
-		{Path: "model_facts.*.openrouter_routing.*", Scope: user, Type: SchemaTypeAny},
-		{Path: "model_facts.*.price", Scope: user, Type: SchemaTypeObject},
-		{Path: "model_facts.*.price.input", Scope: user, Type: SchemaTypeNumber},
-		{Path: "model_facts.*.price.output", Scope: user, Type: SchemaTypeNumber},
-		{Path: "model_facts.*.price.cache_read", Scope: user, Type: SchemaTypeNumber},
-		{Path: "model_facts.*.price.cache_write", Scope: user, Type: SchemaTypeNumber},
-		{Path: "model_facts.*.images", Scope: user, Type: SchemaTypeObject},
-		{Path: "model_facts.*.images.max_width", Scope: user, Type: SchemaTypeNumber},
-		{Path: "model_facts.*.images.max_height", Scope: user, Type: SchemaTypeNumber},
-		{Path: "model_facts.*.images.max_bytes", Scope: user, Type: SchemaTypeNumber},
-		{Path: "model_facts.*.images.jpeg_quality", Scope: user, Type: SchemaTypeNumber},
+		// without what only a route can say (packdecl.ModelFactsRouteOnlyKeys). Either scope: the
+		// legacy reader merges a workspace's entries too (legacy-config-compat.md LC-D9).
+		{Path: "model_facts", Scope: both, Type: SchemaTypeObject},
+		{Path: "model_facts.*", Scope: both, Type: SchemaTypeObject},
+		{Path: "model_facts.*.name", Scope: both, Type: SchemaTypeString},
+		{Path: "model_facts.*.description", Scope: both, Type: SchemaTypeString},
+		{Path: "model_facts.*.vendor", Scope: both, Type: SchemaTypeString},
+		{Path: "model_facts.*.api", Scope: both, Type: SchemaTypeString},
+		{Path: "model_facts.*.thinking", Scope: both, Type: SchemaTypeList},
+		{Path: "model_facts.*.thinking.*", Scope: both, Type: SchemaTypeString},
+		{Path: "model_facts.*.accepts", Scope: both, Type: SchemaTypeList},
+		{Path: "model_facts.*.accepts.*", Scope: both, Type: SchemaTypeString},
+		{Path: "model_facts.*.max_tokens", Scope: both, Type: SchemaTypeNumber},
+		{Path: "model_facts.*.reasoning", Scope: both, Type: SchemaTypeBoolean},
+		{Path: "model_facts.*.context", Scope: both, Type: SchemaTypeNumber},
+		{Path: "model_facts.*.base", Scope: both, Type: SchemaTypeString},
+		{Path: "model_facts.*.openrouter_routing", Scope: both, Type: SchemaTypeObject},
+		{Path: "model_facts.*.openrouter_routing.*", Scope: both, Type: SchemaTypeAny},
+		{Path: "model_facts.*.price", Scope: both, Type: SchemaTypeObject},
+		{Path: "model_facts.*.price.input", Scope: both, Type: SchemaTypeNumber},
+		{Path: "model_facts.*.price.output", Scope: both, Type: SchemaTypeNumber},
+		{Path: "model_facts.*.price.cache_read", Scope: both, Type: SchemaTypeNumber},
+		{Path: "model_facts.*.price.cache_write", Scope: both, Type: SchemaTypeNumber},
+		{Path: "model_facts.*.images", Scope: both, Type: SchemaTypeObject},
+		{Path: "model_facts.*.images.max_width", Scope: both, Type: SchemaTypeNumber},
+		{Path: "model_facts.*.images.max_height", Scope: both, Type: SchemaTypeNumber},
+		{Path: "model_facts.*.images.max_bytes", Scope: both, Type: SchemaTypeNumber},
+		{Path: "model_facts.*.images.jpeg_quality", Scope: both, Type: SchemaTypeNumber},
 		{Path: "network.mode", Scope: both, Type: SchemaTypeString},
 		{Path: "providers.*.api_key_env_name", Scope: user, Type: SchemaTypeMixed},
 		{Path: "providers.*.platform", Scope: user, Type: SchemaTypeString},
@@ -371,7 +372,8 @@ func ReadableSchemaKeys() []SchemaKey {
 		{Path: "mounts.*.at", Scope: mixed, Type: SchemaTypeString},
 		{Path: "mounts.*.mode", Scope: mixed, Type: SchemaTypeString},
 		{Path: "mounts.*.optional", Scope: mixed, Type: SchemaTypeBoolean},
-		{Path: "host_files", Scope: mixed, Type: SchemaTypeObject},
+		// A list of entries, each a path string or a table (checkHostFiles), as in the legacy file.
+		{Path: "host_files", Scope: mixed, Type: SchemaTypeList},
 		{Path: "host_files.*", Scope: mixed, Type: SchemaTypeMixed},
 		{Path: "host_files.*.path", Scope: mixed, Type: SchemaTypeString},
 		{Path: "host_files.*.source", Scope: mixed, Type: SchemaTypeString},
@@ -458,7 +460,7 @@ func fieldSensitivePath(path string) bool {
 
 func legacySchemaType(path string) SchemaType {
 	switch path {
-	case "runtime", "confinement", "repo_path", "host_path", "macos_user_mode", "programs.overrides.*.run",
+	case "runtime", "confinement", "repo_path", "macos_user_mode", "programs.overrides.*.run",
 		"providers.*.region", "providers.*.base_url", "providers.*.wire_api",
 		"providers.*.endpoints.*.base_url", "providers.*.endpoints.*.wire_api",
 		"providers.*.models.*.id", "providers.*.models.*.name", "providers.*.models.*.description",
@@ -474,12 +476,12 @@ func legacySchemaType(path string) SchemaType {
 		"brokered.*.sets.*.max_window":
 		return SchemaTypeString
 	case "include_if_found.*", "packages.*.name", "packages.*.nixpkgs", "packages.*.version", "packages.*.url", "packages.*.hash",
-		"packages.*.outputs.*", "packages.*.platforms.*", "providers.*.models.*.input.*":
+		"packages.*.outputs.*", "packages.*.platforms.*", "providers.*.models.*.input.*", "host_path.*":
 		return SchemaTypeString
 	case "packages", "env_sources", "include_if_found", "writable_home_dirs", "required_capabilities",
 		"providers.*.capabilities", "providers.*.models.*.input",
 		"brokered.*.repos", "brokered.*.grant_kinds", "brokered.*.grants", "network.ports", "network.forward_host_ports",
-		"devices", "packages.*.outputs", "packages.*.platforms":
+		"devices", "packages.*.outputs", "packages.*.platforms", "host_path", "host_files":
 		return SchemaTypeList
 	case "mounts.*.optional", "programs.autoprune", "programs.overrides.*.prebuilt", "profiles.*.enforce_models",
 		"gpu.enabled", "gpu.seccomp_unconfined", "gpu.vaapi", "providers.*.models.*.reasoning":
@@ -489,14 +491,15 @@ func legacySchemaType(path string) SchemaType {
 		"providers.*.models.*.cost.cache_read", "providers.*.models.*.cost.cache_write",
 		"brokered.*.sets.*.uses", "resources.pids_limit":
 		return SchemaTypeNumber
-	case "network", "security", "providers", "profiles", "loopholes", "brokered", "host_files", "resources", "gpu", "mcp_servers.*",
+	case "network", "security", "providers", "profiles", "loopholes", "brokered", "resources", "gpu", "mcp_servers.*",
 		"providers.*.endpoints", "providers.*.models", "providers.*.options", "providers.*.models.*.cost",
 		"model_facts", "model_facts.*", "profiles.*", "loopholes.*.settings", "programs", "programs.overrides", "programs.overrides.*",
 		"brokered.*", "brokered.*.grants.*", "brokered.*.sets", "brokered.*.sets.*":
 		return SchemaTypeObject
 	case "host_files.*.managed", "host_files.*.defaults":
 		return SchemaTypeAny
-	case "profile", "packs", "mounts.*", "host_files.*", "devices.*", "packages.*", "resources.cpus", "resources.io":
+	case "profile", "packs", "mounts.*", "host_files.*", "devices.*", "packages.*", "resources.cpus", "resources.io",
+		"security.blocked_tools.*":
 		return SchemaTypeMixed
 	case "profile.*", "profile.*.*", "profiles.*.*":
 		return SchemaTypeMixed
