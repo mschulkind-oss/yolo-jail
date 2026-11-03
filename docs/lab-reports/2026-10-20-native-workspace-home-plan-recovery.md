@@ -13,7 +13,7 @@ A [lab report](README.md). This report separates archived design evidence, nativ
 
 The selected architecture is **parallel private workspace homes and persistent workspace state under exactly one guest OS user**, with Seatbelt allowing only the selected workspace and explicitly selected shared machine paths. A separate OS account per workspace and waiting for or refusing a second workspace as product policy are not selected. The owner's 2026-10-20 confirmation and the [HT6 decision ledger](../reference/macos-user-home-tiers.md#decision-ledger) are the current authority.
 
-The [concurrent-workspace design](../design/macos-user-concurrent-workspaces.md) records this choice separately from its remaining questions about the same-UID threat boundary and state reclamation. The exact physical home/state layout and shared-link geometry still need design and native verification; no implementation or native trial is authorized by this report.
+The [concurrent-workspace design](../design/macos-user-model.md#7-the-ruled-model-two-modes-one-profile) records this choice separately from its remaining questions about the same-UID threat boundary and state reclamation. The exact physical home/state layout and shared-link geometry still need design and native verification; no implementation or native trial is authorized by this report.
 
 ## Source chronology
 
@@ -33,8 +33,8 @@ The selected future model preserves private workspace state and existing declare
 
 ## Remaining limits
 
-- The status of arbitrary same-UID processes running outside the applicable Seatbelt profile remains open as [OQ-MCW2](../design/macos-user-concurrent-workspaces.md#OQ-MCW2). The design makes no isolation claim about such a process.
-- The explicit event, if any, that can reclaim persistent workspace-home/state bytes remains open as [OQ-MCW3](../design/macos-user-concurrent-workspaces.md#OQ-MCW3). Pi-session cleanup is a separate lifecycle and does not decide ordinary workspace-home retention.
+- The status of arbitrary same-UID processes running outside the applicable Seatbelt profile remains open as [OQ-MCW2](../design/macos-user-model.md#decision-ledger). The design makes no isolation claim about such a process.
+- The explicit event, if any, that can reclaim persistent workspace-home/state bytes remains open as [OQ-MCW3](../design/macos-user-model.md#decision-ledger). Pi-session cleanup is a separate lifecycle and does not decide ordinary workspace-home retention.
 - The broad shared-resource scope is settled: selected pack machine scope and existing configured shared paths remain shared. Exact backing and relative-hook geometry are engineering design, not new permission; native Seatbelt enforcement remains unmeasured.
 - The early-September index gap is not proof that a prior ruling did or did not occur. The present owner clarification is the authority regardless of that incomplete historical coverage.
 

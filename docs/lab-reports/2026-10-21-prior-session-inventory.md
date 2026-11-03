@@ -114,10 +114,10 @@ Current interpretation is separate from the table's historical statuses:
 - Current-session items 123/124/125 are additions after this 59-row snapshot and are not counted or
   substituted for any historical ID.
 
-The [concurrent-workspace design](../design/macos-user-concurrent-workspaces.md#selected-architecture-and-boundary)
+The [concurrent-workspace design](../design/macos-user-model.md#7-the-ruled-model-two-modes-one-profile)
 records the one-UID architecture, private workspace homes/state, and selected shared scope. Its
-[OQ-MCW2](../design/macos-user-concurrent-workspaces.md#OQ-MCW2) and
-[OQ-MCW3](../design/macos-user-concurrent-workspaces.md#OQ-MCW3) remain open. The
-[engineering sketch](../design/macos-user-concurrent-workspaces-plan.md) remains unbuilt and is
+[OQ-MCW2](../design/macos-user-model.md#decision-ledger) and
+[OQ-MCW3](../design/macos-user-model.md#decision-ledger) remain open. The
+[engineering sketch](../design/macos-user-model-plan.md#MMP-D25) remains unbuilt and is
 not a build handoff; the existing account-home hold remains in place. No private session text,
 credential, or native runtime result is supplied by this inventory.

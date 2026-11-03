@@ -31,7 +31,7 @@ Codemode is not a bypass: installed codemode calls `ctx.executeTool`, and Pi's n
 
 ## Payload shapes — examples only, not submitted
 
-The write replaces the whole list. Preserve every row and its fields; the snippets transform one row inside the complete `rows` array. The first illustrates the still-open [OQ-MCW2](../design/macos-user-concurrent-workspaces.md#OQ-MCW2), not an answer:
+The write replaces the whole list. Preserve every row and its fields; the snippets transform one row inside the complete `rows` array. The first illustrates the still-open [OQ-MCW2](../design/macos-user-model.md#decision-ledger), not an answer:
 
 ```js
 const updated = rows.map(row => row.id === 46
@@ -58,7 +58,7 @@ const payload = { operation: "write", todoList: updated };
 
 Item 23 remains `not-done` at inspected baseline `9f6ab06821bdc55a5c1f340433b3a6ded976e39d`; this report does not re-adjudicate it. The [existing evidence report](2026-10-21-macos-repair-evidence.md#native-evidence-and-acceptance-boundary) records hosted acceptance pending without a row-specific successful receipt. The exact non-secret frozen packet-contract excerpt needed to identify the acceptance channel remains unavailable here. **Channel 23 is unknown.** A push or green GitHub CI is not established as sufficient. Do not convert pending to acceptance by cosmetic deletion, start a duplicate review/implementation, or dispatch a new child under the completed-item guard.
 
-The task handoff reports that nested `question:` lines did not clear warnings and that a later direct write tried the same criterion/question, but whether that write was consumed is unverified. The currently loaded build and projection are **not verified**; no claim is made about current runtime bytes or cleared warnings. The canonical [OQ-MCW2](../design/macos-user-concurrent-workspaces.md#OQ-MCW2) and [OQ-MCW3](../design/macos-user-concurrent-workspaces.md#OQ-MCW3) remain open with empty answers.
+The task handoff reports that nested `question:` lines did not clear warnings and that a later direct write tried the same criterion/question, but whether that write was consumed is unverified. The currently loaded build and projection are **not verified**; no claim is made about current runtime bytes or cleared warnings. The canonical [OQ-MCW2](../design/macos-user-model.md#decision-ledger) and [OQ-MCW3](../design/macos-user-model.md#decision-ledger) remain open with empty answers.
 
 ## Evidence and locators
 

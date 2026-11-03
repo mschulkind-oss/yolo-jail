@@ -3,7 +3,7 @@ title: "macos-user's model: a second account, or a sandbox that starts from noth
 date: 2026-10-22
 status: in-review
 stage: DESIGN
-next: "Slice 11's last precondition: a real self-mode `yolo -- claude` on a Mac (both prototype modes passed 2026-10-23)"
+next: "Rule OQ-MM10 (what an absent macos_user_mode means on a Mac set up for the account); slice 12a, two workspaces at once in account mode, waits on nothing"
 tags: [macos-user, seatbelt, design, isolation, parity, safehouse, sandvault]
 summary: "Today macos-user runs the agent as a second Mac account under a Seatbelt profile that allows everything and denies a short list (SandVault's model). Ruled 2026-10-22: macos-user moves to Safehouse's model, the agent running as you under a profile that denies everything and allows a list, the closest macOS gets to podman's start-from-nothing container; the second account is kept from day one as an optional mode, off by default, on the same profile. This doc lays the models side by side, maps podman's pieces onto the Safehouse model, and names what the second account buys and costs."
 vantage:
@@ -12,11 +12,16 @@ vantage:
 
 # macos-user's model: a second account, or a sandbox that starts from nothing
 
-**Status:** 2026-10-22 — the model is ruled ([§7](#7-the-ruled-model-two-modes-one-profile)); nothing
-is built. The [§6](#6-what-a-prototype-must-show) prototype is the check before building, not a
-reopening of the ruling. Its [first Mac run](#first-mac-run-2026-10-22) raised two questions.
+**Status:** 2026-11-03 — the model is ruled ([§7](#7-the-ruled-model-two-modes-one-profile)).
+Ten of [the plan](macos-user-model-plan.md)'s thirteen slices are built, opt-in behind
+`macos_user_mode = "self"`; the production default is still the second account with one shared
+home, so a second workspace is refused while a session runs, until
+[slice 12a](macos-user-model-plan.md#MMP-D25) gives account mode its per-workspace home. The
+[§6](#6-what-a-prototype-must-show) prototype passed in both modes on 2026-10-23. This document
+also carries the account mode's concurrency rulings, made in the retired concurrent-workspaces
+design ([OQ-MCW2](#decision-ledger) to [OQ-MCW4](#decision-ledger)).
 
-**Needs your ruling:** nothing open. **Ruled 2026-10-23:** [OQ-MM7](#OQ-MM7), [OQ-MM8](#OQ-MM8) (a trial), [OQ-MM9](#OQ-MM9), raised by the [first Mac run](#first-mac-run-2026-10-22).
+**Needs your ruling:** [OQ-MM10](#OQ-MM10). **Ruled 2026-10-23:** [OQ-MM7](#OQ-MM7), [OQ-MM8](#OQ-MM8) (a trial), [OQ-MM9](#OQ-MM9), raised by the [first Mac run](#first-mac-run-2026-10-22).
 
 **Reads with:** [Agent Safehouse research](../research/agent-safehouse.md) (the evidence for every
 Safehouse claim here), [SandVault and Safehouse compatibility](sandvault-safehouse-compat.md), and
@@ -46,7 +51,7 @@ another deny. Podman has no such list: a container starts empty and sees only wh
 | One-time admin setup | yes ([privilege lifecycle](macos-user-privilege-lifecycle.md)) | yes | **none** |
 | Access grants on project folders | yes (`macos-fix-permissions`) | yes | **none**: the files are yours |
 | A projects folder | yes ([configurable root](configurable-workspace-root.md)) | yes | **none** |
-| Two workspaces at once | needs [a plan](macos-user-concurrent-workspaces.md): every workspace shares one account home | same | **each launch gets its own profile and home** |
+| Two workspaces at once | refused while a session runs: every workspace shares one account home until [slice 12a](macos-user-model-plan.md#MMP-D25) | same | **each launch gets its own profile and home** |
 | Agent logins | bridged across accounts ([Claude refresh](macos-user-claude-refresh.md), [keychain from a jail](keychain-from-a-jail.md)) | same | rendered into the launch's own home, as on podman |
 | What stops a missed rule | Unix permissions on your 0600/0700 files | Unix permissions | nothing: the profile is the whole wall |
 
@@ -331,6 +336,41 @@ Ruled 2026-10-22 ([OQ-MM1](#OQ-MM1), [MM-R2](#decision-ledger)):
    > decided."* Install trees (`/opt/homebrew`, `/usr/local`, `/Applications`) are readable and
    > runnable; your home's toolchain folders stay hidden; declared packages come first on `PATH`.
 
+4. 💬 **<a id="OQ-MM10"></a>[OQ-MM10](#OQ-MM10): When the default becomes "run as you", what happens on a Mac that was set up for the second account and has no `macos_user_mode` line?**
+
+   Dana set up `_yolojail` with `yolo macos-setup` in October, keeps her projects under
+   `/Users/Shared/yolo`, and has never written `macos_user_mode`; her user config is otherwise
+   ordinary. She upgrades yolo and runs `yolo -- claude` in a project as always. On 2026-10-22
+   you ruled ([OQ-MM4](#OQ-MM4)) *"No transition for Macs already set up for the second account.
+   Launches move to the default mode, and nothing migrates, cleans up or announces the old
+   account."* On 2026-11-03 you ruled *"Every config that worked in the previous release keeps
+   working, UNCHANGED, with the same meaning."* Her unchanged config meant "the agent is
+   `_yolojail`"; under the first ruling as written, the same config would now mean "the agent is
+   Dana", with a different Seatbelt profile and her Claude state read from
+   `<ws>/.yolo/home/.claude` instead of the account's links. The two rulings cannot both be
+   applied to her launch, so the default flip needs to know which wins.
+
+   - **A — The 2026-10-22 ruling as made.** Dana's next launch prints the run-as-you disclosure
+     and runs as her. Nothing to edit. Cost: a config that launched one way launches another, and
+     `_yolojail`'s home keeps her old agent state with nothing pointing at it.
+   - **B — The absent key follows the machine.** With no line, a Mac where the account exists
+     (the sudo rule and `_yolojail` that `yolo macos-setup` installs) keeps running as the
+     account; a Mac never set up runs as you. Dana's launch is unchanged; a first-time user gets
+     run-as-you with no admin step, as the done-state says. One line at Dana's launch offers the
+     switch: `yolo config set macos_user_mode self --user`. Cost: "the default" is a machine fact,
+     and `yolo check` has to print which one this Mac is on.
+   - **C — The absent key stays "account" for good; run-as-you stays opt-in.** Dana is unchanged,
+     and so is every Mac: a first-time user still meets `yolo macos-setup`. Cost: *"Default mode:
+     the agent runs as you"* is not delivered.
+
+   <!-- vantage: question id=OQ-MM10 leaning="B — it is the only option under which both rulings hold: an unchanged config means what it meant, and a fresh Mac runs as you with no admin step." -->
+
+   _Leaning:_ B — it is the only option under which both rulings hold: an unchanged config means
+   what it meant, and a fresh Mac runs as you with no admin step.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
 ## Decision Ledger
 
 | ID | Ruling / Decision | Date | Settled in | Built |
@@ -340,7 +380,10 @@ Ruled 2026-10-22 ([OQ-MM1](#OQ-MM1), [MM-R2](#decision-ledger)):
 | MM-R2 | The second account is kept from day one as an optional mode, off by default, running the same profile; it alone carries account setup and workspace access grants. | 2026-10-22 | [§7](#7-the-ruled-model-two-modes-one-profile) | built in the run-as-you mode, opt-in; the production default is unchanged |
 | <a id="OQ-MM2"></a>[OQ-MM2](#OQ-MM2) | Start from Safehouse's layered profiles (Apache-2.0, credited), adapted for nix and narrowed where they read wider than yolo wants, such as all of `/opt`. | 2026-10-22 | [§7](#7-the-ruled-model-two-modes-one-profile) | built in the run-as-you mode, opt-in; the production default is unchanged |
 | <a id="OQ-MM3"></a>[OQ-MM3](#OQ-MM3) | Deny loopback by default and allow yolo's own service ports, matching podman; a workspace config may allow more ports, through the config-change approval. | 2026-10-22 | [§7](#7-the-ruled-model-two-modes-one-profile) | built in the run-as-you mode, opt-in; the production default is unchanged |
-| <a id="OQ-MM4"></a>[OQ-MM4](#OQ-MM4) | No transition for Macs already set up for the second account; reusing the account for the optional mode is welcome, not required. | 2026-10-22 | [§7](#7-the-ruled-model-two-modes-one-profile) | pending |
+| <a id="OQ-MM4"></a>[OQ-MM4](#OQ-MM4) | No transition for Macs already set up for the second account; reusing the account for the optional mode is welcome, not required. | 2026-10-22 | [§7](#7-the-ruled-model-two-modes-one-profile) | pending; whether "launches move to the default mode" survives the 2026-11-03 rule that an unchanged config keeps its meaning is [OQ-MM10](#OQ-MM10) |
+| OQ-MCW4 | **The account mode's concurrency, carried from the retired concurrent-workspaces design.** Sharing remains limited to selected pack machine scope and existing configured shared paths. The exact backing and relative-link geometry are engineering design, not a new credential grant. | 2026-10-20 | [§7](#7-the-ruled-model-two-modes-one-profile) | — |
+| OQ-MCW2 | **Carried from the retired concurrent-workspaces design.** Protect Seatbelt-confined processes and their descendants against sibling HOME/state access; confinement is irreversible from inside. Host/admin control and trusted unconfined same-UID processes are outside the claim. | 2026-10-22 | [§7](#7-the-ruled-model-two-modes-one-profile) | — |
+| OQ-MCW3 | **Carried from the retired concurrent-workspaces design.** Retain persistent workspace HOME/state by default, like container workspace state. No automatic deletion, expiry or cap; any future separately authorized explicit cleanup must refuse live or unknown state. | 2026-10-22 | [§7](#7-the-ruled-model-two-modes-one-profile) | — |
 | <a id="OQ-MM6"></a>[OQ-MM6](#OQ-MM6) | A `~/ctx` link to `$YOLO_CONTEXT_DIR` in the agent's home on every backend; `$YOLO_CONTEXT_DIR` stays the documented path. | 2026-10-22 | [§7](#7-the-ruled-model-two-modes-one-profile) | built: podman via the home skeleton (skipped when a config entry claims `ctx`); Apple Container and macos-user via the `link_context_dir` boot step (macos-user retargets its own link per workspace); macos-user is unit-tested only, not yet run on a Mac; Apple Container is untested |
 | <a id="OQ-MM5"></a>[OQ-MM5](#OQ-MM5) | Containers do not also bind mounts at their original host path; `$YOLO_CONTEXT_DIR/<name>` is the one supported path, and macOS allows the original path only for the link. | 2026-10-22 | [§7](#7-the-ruled-model-two-modes-one-profile) | — |
 | [OQ-MM7](#OQ-MM7) | macos-user allows all loopback, like podman's host network mode: Seatbelt filters by port, not by process, so a jail's own random-port servers cannot be told from host services, and there is no private loopback without a VM. Replaces [OQ-MM3](#OQ-MM3) on macOS. | 2026-10-23 | [§8](#8-open-questions) | pending |

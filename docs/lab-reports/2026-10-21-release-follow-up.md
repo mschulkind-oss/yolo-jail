@@ -144,13 +144,13 @@ These are follow-ups with their stated dependencies, not newly declared release 
 - **Concurrent macOS workspaces:** the architecture is already selected: one guest user, distinct
   persistent private workspace homes/state, and only selected pack machine-scope paths plus
   existing configured shared paths. That decision and its boundaries live in the
-  [concurrent-workspace design](../design/macos-user-concurrent-workspaces.md#selected-architecture-and-boundary)
+  [concurrent-workspace design](../design/macos-user-model.md#7-the-ruled-model-two-modes-one-profile)
   and [home-tier ledger](../reference/macos-user-home-tiers.md#decision-ledger). MCW4's sharing
   policy is settled; the physical backing and relative-link geometry remain engineering work, not
-  a new permission grant. [OQ-MCW2](../design/macos-user-concurrent-workspaces.md#OQ-MCW2) remains
+  a new permission grant. [OQ-MCW2](../design/macos-user-model.md#decision-ledger) remains
   the same-UID/outside-Seatbelt threat-claim question, and
-  [OQ-MCW3](../design/macos-user-concurrent-workspaces.md#OQ-MCW3) remains the reclamation policy.
-  The [implementation sketch](../design/macos-user-concurrent-workspaces-plan.md) is not a build
+  [OQ-MCW3](../design/macos-user-model.md#decision-ledger) remains the reclamation policy.
+  The [implementation sketch](../design/macos-user-model-plan.md#MMP-D25) is not a build
   handoff: concrete layout, reader inventory, lifecycle, and authorized native sibling-denial
   proof remain before implementation.
 - **Native Pi/fork and remaining Mac launch evidence:** the

@@ -3668,8 +3668,10 @@ user config, `loopholes.<name>.settings.<key>` in a legacy JSONC one — whose k
 **declared and typed in the loophole's manifest**. Core validates them at the existing
 validation point, resolves them from the user config, and writes them to a file it owns, the
 same file that carries the project's grants
-([`loophole-grants.md` §4.6](loophole-grants.md#46-how-a-grant-reaches-the-machinery)). Every
-setting is user scope. `yolo config-ref` is the authority for the config keys;
+([`loophole-grants.md` §4.6](loophole-grants.md#46-how-a-grant-reaches-the-machinery)). A
+setting is user scope unless its manifest declares `scope = "request"`, which lets a project ask
+for it under `[requests.<pack>]`, approved at the gate ([LG-D15](loophole-grants.md#LG-D15)).
+`yolo config-ref` is the authority for the config keys;
 [`writing-loopholes.md`](../../userguide/guides/writing-loopholes.md) is the authority for the
 manifest block. The four halves are `internal/loopholedecl/settings.go` (declare),
 `internal/config/validate_loopholesettings.go` (validate), `internal/loopholes/settings.go`
@@ -3713,10 +3715,12 @@ after the gate.
 > union-merges every list at every depth, and the replace-wholesale exception was deleted
 > precisely because a workspace value replacing the user's is what let an agent-editable file
 > decide what entered the jail. So for an allowlist the weak, agent-writable scope can only
-> **add** capability. The answer is that **no setting is workspace scope**: a key that decides
-> what a project reaches is a valued grant kind, which a project requests and a human approves
-> value by value, and `scope = "workspace"` on a setting is refused at load
-> ([LG-D5](loophole-grants.md#LG-D5)).
+> **add** capability. The answer is that **no setting is set in both files**: a key deciding
+> which resources a project reaches is a valued grant kind; a key shaping what a granted resource
+> shows (`host-processes`' columns) is a request-scope setting, asked under the project's own key
+> and approved as a gate line, replacing the user's default rather than merging with it.
+> `scope = "workspace"` on a setting is refused at load ([LG-D5](loophole-grants.md#LG-D5),
+> [LG-D15](loophole-grants.md#LG-D15)).
 
 A workspace **may** supply values that reach a host daemon, and the conditional is the whole
 ruling: **as long as they go through the config-change gating**. A project's

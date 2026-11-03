@@ -62,8 +62,8 @@ from a claim that is still an argument.
 | Content delivery over the layout | `internal/cli/run/macoshomeoverlay.go` (`buildMacosHomeOverlay`), `internal/entrypoint/darwin.go` (`InstallHomeOverlay`), `internal/entrypoint/darwinoverlay.go` (`WriteHomeOverlayManifest`, `overlayLinks.route`, `installOverlayDestination`) |
 
 **Reads with:** [`macos-user-nix-and-features.md`](macos-user-nix-and-features.md) (the backend,
-and the current global-`HOME` implementation), [`../design/macos-user-concurrent-workspaces.md`](../design/macos-user-concurrent-workspaces.md)
-(the selected but unbuilt per-workspace-`HOME` architecture),
+and the current global-`HOME` implementation), [`../design/macos-user-model.md`](../design/macos-user-model.md#7-the-ruled-model-two-modes-one-profile)
+(the ruled per-launch `HOME` in both modes, built so far in the run-as-you mode only),
 [`jail-home.md`](jail-home.md) (the container home layout this converges on — its *Shared
 credentials* section is the relative-link fact the mirror exists for),
 [`agent-credentials.md`](agent-credentials.md) (what crosses the boundary, and the per-backend
@@ -767,11 +767,13 @@ profile can still access data allowed by that UID; the sandbox is not a boundary
 process.
 
 **Current implementation, not final architecture.** `macosuser.SandboxHome()` remains
-`/Users/_yolojail`, with this document's symlink-and-sidecar workspace layout. HT-D15's
-account-home hold still refuses a different workspace while a session holds that home. The hold
-is a protective implementation guard until the selected workspace-home design and its native
-Seatbelt behavior are implemented and verified; it does not override the architecture above.
-Do not remove the guard before that replacement is verified.
+`/Users/_yolojail`, with this document's symlink-and-sidecar workspace layout, in the account mode
+only; the run-as-you mode already runs each workspace in its own `<ws>/.yolo/home`
+([MMP-D5](../design/macos-user-model-plan.md#MMP-D5)). HT-D15's account-home hold still refuses a
+different workspace while a session holds that home. The replacement is ruled, the same per-launch
+home in both modes ([the model, §7](../design/macos-user-model.md#7-the-ruled-model-two-modes-one-profile)),
+and is built by [slice 12a](../design/macos-user-model-plan.md#MMP-D25) of the model plan, which
+removes the hold after its Mac witness.
 
 The original [OQ-HT4](#oq-ht4) ledger entry records the historical, audit-derived choice of a global `HOME`
 for the implementation then built; it is not a direct owner ruling against future workspace

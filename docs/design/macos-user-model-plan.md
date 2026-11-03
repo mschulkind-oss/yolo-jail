@@ -2,7 +2,7 @@
 title: "Plan: rebuild macos-user on one deny-by-default profile, run as you by default"
 status: accepted
 stage: DECIDED
-next: "Slice 11: preconditions 1 and 2 met on 2026-10-23 (docs/lab-reports/2026-10-23-native-mac-verification.md); precondition 3, a real self-mode launch, then the default flips"
+next: "Slice 12a: account mode gets its per-workspace HOME and the hold goes (MMP-D25); slice 11 waits on OQ-MM10"
 depends-on:
   - macos-user-model.md
 tags: [macos-user, seatbelt, plan, safehouse, home, parity]
@@ -12,24 +12,25 @@ vantage:
 
 # Plan: rebuild macos-user on one deny-by-default profile, run as you by default
 
-**Status:** 2026-10-23. Slices 1 to 10 are built; slices 11 to 13 remain. Two maintainer rulings
-from the prototype's first Mac run are still pending (loopback and the shared `/tmp`), and
-Homebrew's visibility is unconfirmed. The plan treats all three as
-parameters of the profile, and only slice 11 sets their production values
-([Blockers](#blockers)). Slices 1 to 10 leave the production default as it is today: the second
-account under the `(allow default)` profile.
+**Status:** 2026-11-03. Slices 1 to 10 are built; 12a is next, then 11 (waiting on
+[OQ-MM10](macos-user-model.md#OQ-MM10)), 12b and 13. Loopback and the shared `/tmp` are ruled and
+built ([MMP-D14](#MMP-D14), [MMP-D18](#MMP-D18)); Homebrew's visibility is the one profile
+parameter still at the prototype's value ([Blockers](#blockers)). Until 12a, the production
+default is the second account under the `(allow default)` profile with one shared home, and a
+second workspace is refused while a session runs ([MMP-D25](#MMP-D25), [MMP-D26](#MMP-D26)).
 
 **Design:** [macos-user's model](macos-user-model.md#7-the-ruled-model-two-modes-one-profile). The
 measured starting point is the
 [prototype profile](../plans/runbooks/macos-user-model-prototype/profile.sb) and its
 [runbook](../plans/runbooks/macos-user-model-prototype/README.md).
 
-**Supersedes in part:** the [concurrent-workspace plan](macos-user-concurrent-workspaces-plan.md).
-Its account-mode mechanisms are reused below where they still fit: the machine root
-([MCWP-D2](macos-user-concurrent-workspaces-plan.md#MCWP-D2)), the machine-tier lock
-([MCWP-D8](macos-user-concurrent-workspaces-plan.md#MCWP-D8)) and the guest scope check
-([MCWP-D10](macos-user-concurrent-workspaces-plan.md#MCWP-D10)). Its HOME geometry
-(`.yolo/native-home`) is replaced by [MMP-D5](#MMP-D5). Do not build both plans.
+**Supersedes:** the concurrent-workspaces design and its plan, retired on 2026-11-03
+([MMP-D28](#MMP-D28)); git history has both. Their rulings are carried in
+[the model's ledger](macos-user-model.md#decision-ledger) ([OQ-MCW2](macos-user-model.md#decision-ledger) to [OQ-MCW4](macos-user-model.md#decision-ledger)), and the two
+account-mode mechanisms this plan reuses are rows below under their own ids: the machine root
+([MCWP-D2](#MCWP-D2)) and the guest scope check ([MCWP-D10](#MCWP-D10)). Its machine-tier lock is
+not reused ([MMP-D27](#MMP-D27)), and its HOME geometry (`.yolo/native-home`) is replaced by
+[MMP-D5](#MMP-D5).
 
 **Precedence:** the design wins on behavior. The tree wins on fact when the drift is cosmetic (a
 moved line, or a renamed helper with the same role): follow the tree and say so in the report and
@@ -92,7 +93,7 @@ These are mechanism choices made under the rulings above, not owner rulings. The
 | <a id="MMP-D2"></a>MMP-D2 | **`macosuser.Mode`**: `ModeAccount` is the zero value, `ModeSelf` the other. It is carried on `PlanSession.Mode` beside a new `PlanSession.HostHome` (the invoking user's resolved home). `internal/cli/commands.go` sets both explicitly on every launch. | With account as the zero value, the hundreds of existing plan tests keep building today's plan unchanged. The orchestrator never relies on the zero value. |
 | <a id="MMP-D3"></a>MMP-D3 | **The setting is `"macos_user_mode": "self" \| "account"`**, top level and user scope only. It is read through `UserScopeConfigOrEmpty`, so the per-workspace user layer is not consulted. An absent key means `account` until slice 11, then `self`. | The values match the prototype's `--mode self\|account`. One machine-wide mode keeps a second mental model out of each workspace (design [§4](macos-user-model.md#4-what-the-second-account-buys-and-what-it-costs)). |
 | <a id="MMP-D4"></a>MMP-D4 | **One crossing value, `RunAs{Mode}`**, with `Argv(setHome bool, argv ...string)`. Account mode returns `RunAsSandboxArgv` byte for byte. Self mode returns `/usr/bin/env argv…`, with no sudo. Every caller of `RunAsSandboxArgv` goes through it. | One switch per launch, so no consumer can be left crossing into an account that self mode does not have. |
-| <a id="MMP-D5"></a>MMP-D5 | **HOME is `paths.WorkspaceHomeState(ws)`, `<ws>/.yolo/home` itself, in both modes.** Agent state sits there as real dot-named directories (`.claude`, `.pi/agent`, `.config`, `.local`, `.npm-global`, `go`, `.yolo/bin`), which is the layout Apple Container already binds at `/home/agent`. There are no links from HOME into the sidecar. Existing undotted sidecar dirs (`claude/` and the rest, written by today's account layout or by podman) are left in place and unused. | This is design [§3](macos-user-model.md#3-podman-mapped-onto-the-safehouse-model) taken literally. [MCWP-D1](macos-user-concurrent-workspaces-plan.md#MCWP-D1) rejected `.yolo/home` only because of the account home's name mapping, which this model removes. Leaving the old dirs unused is [OQ-MM4](macos-user-model.md#OQ-MM4). |
+| <a id="MMP-D5"></a>MMP-D5 | **HOME is `paths.WorkspaceHomeState(ws)`, `<ws>/.yolo/home` itself, in both modes.** Agent state sits there as real dot-named directories (`.claude`, `.pi/agent`, `.config`, `.local`, `.npm-global`, `go`, `.yolo/bin`), which is the layout Apple Container already binds at `/home/agent`. There are no links from HOME into the sidecar. Existing undotted sidecar dirs (`claude/` and the rest, written by today's account layout or by podman) are left in place and unused. | This is design [§3](macos-user-model.md#3-podman-mapped-onto-the-safehouse-model) taken literally. The retired concurrent-workspaces plan rejected `.yolo/home` only because of the account home's name mapping, which this model removes. Leaving the old dirs unused is [OQ-MM4](macos-user-model.md#OQ-MM4). |
 | <a id="MMP-D6"></a>MMP-D6 | **The machine root.** Self mode uses a new `paths.MacosUserMachineRoot()` = `<GlobalStorage>/macos-user`, holding `.cache`, `Library/Caches` and `.yolo/mise`. HOME links `.cache` and `Library/Caches` into it, and `MISE_DATA_DIR` names `<root>/.yolo/mise` absolutely. Selected `scope: machine` pack dirs link to `paths.GlobalHome()/<dir>`, the same store podman binds. Account mode keeps `SandboxHome()` for all of these (MCWP-D2). | `GlobalCache()` and `GlobalMise()` hold Linux artifacts on a Mac that also runs podman or Apple Container, so darwin binaries must not land there. The credential dirs are OS-neutral, so sharing them with podman keeps one login per machine, as every backend does today. Cheap to reverse. |
 | <a id="MMP-D7"></a>MMP-D7 | **`YOLO_DARWIN_REAL_HOME`** joins the protected env pairs (`sandboxEnvPairs`, `protectedSandboxEnvKeys` in `envfile.go`). Self mode sets it to the invoking user's home, account mode to `SandboxHome()`. One `paths` helper, called from `cli.Main` and `cmd/yolo-jaild`, judges guest workspace scope against it instead of `$HOME` (MCWP-D10's shape). | With HOME inside the workspace, every guest verb that creates `.yolo` would otherwise see "the workspace contains your home" and refuse. Do not use `os/user`: yolo is built without cgo, and without cgo `os/user` on darwin answers from `$HOME`. |
 | <a id="MMP-D8"></a>MMP-D8 | **The staging root stays `/Users/Shared/yolo-staged` in both modes.** When it is absent, a self-mode launch creates it through `ensureHostOwnedRoot`'s `mkdir` branch, which needs no root because `/Users/Shared` is 1777. A root that is foreign, a link, or unsafe stays a refusal. | No refactor of `StagingRoot()`'s many callers. The profile grants it read only, so the sandbox cannot write it even as you. |
@@ -112,6 +113,12 @@ These are mechanism choices made under the rulings above, not owner rulings. The
 | <a id="MMP-D22"></a>MMP-D22 | **A run-as-you capture or fork build tells its bootstrap your real home, lets it stat that home, and the bootstrap admits the capture's staging home.** `buildCapturePlanAt`'s self branch sets `YOLO_DARWIN_REAL_HOME` (`paths.DarwinRealHomeEnv`) on the bootstrap's `env -i` list and nothing else from a launch's self branch: the machine root and shared store are what the capture profile denies, the mise store is the staging home's, and a capture names no sidecar, so no workspace-home layout reads them. `SeatbeltSelfCaptureProfile` sets the new `ProfileParams.HostHomeStat`, which renders `host-home-stat-allow`: `file-read-metadata` on the real home and each directory above it, before the closing denies. `selfCapturePlanProblems` refuses a plan missing either half. `darwinBootstrapSelfHomeRefusal` admits one more shape: no sidecar, and `HOME` equal to `macosuser.CaptureStagingHome(<workspace>)`, unless that home is or holds your real home or sits in yolo's own directories. | The [2026-10-24 Mac report](../lab-reports/2026-10-24-mac-verification-after-gitbroker.md#1b-why-as-read-from-the-code-not-yet-confirmed-by-a-fix), section 1b. With no variable, `paths.GuestRealHome` answered `""` and the bootstrap took the account mode's identity check, which stats `/Users/_yolojail`. Reading the code confirmed both follow-on refusals the report predicted. The capture profile's granted roots (the staging tree under `/Users/Shared`, the staging root, the user temp dir) are not under the real home, so no ancestor literal reached it and the stat would have been denied. A capture's `HOME` is its staging home, so the launch-only HOME guard would have refused it next. A stat lists nothing and reads nothing below the home. |
 | <a id="MMP-D23"></a>MMP-D23 | **Only the diagnostic fields of the two build-decision wires are exempt from the "names the second account" check.** The checks (`selfModeProblems`, `selfCapturePlanProblems`, through `argvWordNamingAccount`) still judge every word of every argv: paths, flags, env pairs, JSON wires and shell bodies. The one exemption: for `YOLO_FORK_BUILDS` (`entrypoint.ForkDelivery`) and `YOLO_PATCHED_TREES` (`entrypoint.TreeDelivery`), each entry's `reason` and `cause` are removed before the check (`diagnosticWireFields`). Every other field, including ones added later, is judged. A value that does not decode is judged whole, so the exemption fails closed. A match is the account name as a whole token (`namesSandboxAccount`): `/Users/_yolojail`, `USER=_yolojail` and `~_yolojail` match, but a workspace called `my_yolojail_fork` does not. The refusal names the offending word. `TestDiagnosticWireFieldsMatchTheEntrypointTypes` pins the exempt names to the types' JSON tags. | The maintainer's ruling (2026-10-24) on [section 1c](../lab-reports/2026-10-24-mac-verification-after-gitbroker.md#1c-a-self-mode-build-failure-now-refuses-the-whole-launch-hatch-included): a failed build's `YOLO_FORK_BUILDS` quoted the bootstrap's stderr, which named `/Users/_yolojail`, so every self-mode launch was refused and `YOLO_ALLOW_MISSING_PROGRAMS=1` could not help. This replaces a first version that judged only "location-shaped" words. Review found it admitted `USER=_yolojail`, a launch body naming the account's home, JSON wires that locate something (`YOLO_MCP_SERVERS`, `YOLO_DARWIN_CACHE_ALIASES`) and `HOME=~_yolojail`; the maintainer ruled for the narrow exemption instead. |
 | <a id="MMP-D24"></a>MMP-D24 | **`YOLO_FORK_BUILDS` stays on the bootstrap's argv.** It is not moved to a file. | With [MMP-D23](#MMP-D23) the viability defect is gone either way. The session env file cannot carry it, because the bootstrap's hydrator drops every `YOLO_` name from that file on purpose ([OQ-PD29](program-delivery.md#decision-ledger)). A launcher-owned file would be a second channel in `internal/entrypoint` for one variable. Revisit it if the value's size nears `ARG_MAX`, or if a decision ever carries something that must not show in `ps`. |
+| <a id="MMP-D25"></a>MMP-D25 | **Slice 12 moves ahead of slice 11 and splits.** *12a, concurrency in account mode:* account mode takes the self branch of `BuildRunPlanWithStages` for its homes and profile: `LaunchHomes(ModeAccount, ws, _)` returns `Homes{Home: WorkspaceHomeState(ws), Machine: SandboxHome(), Shared: SandboxHome(), Real: SandboxHome()}`; the profile is `DenyDefaultProfile` with those homes; the bootstrap runs confined ([MMP-D9](#MMP-D9)) and is told `DarwinMachineHomeEnv`/`DarwinSharedHomeEnv`/`DarwinRealHomeEnv` as self mode is; `MISE_DATA_DIR` is `SandboxMiseData(SandboxHome())`; the sudo crossing, the grant stage, every account precondition and the `HomeContaining` refusal stay as they are; `HoldAccountHome` is not called in any mode and the `account_home` step goes. *12b, a workspace inside a home in account mode* (ancestor traverse grants, `HomeContaining` stops refusing) stays where the plan had it, after 11. Slice 13's deletions that 12a orphans (`accounthomehold.go`, `Deps.HoldAccountHome`, `PreflightLaunch`'s hold parameter, the `Mirrors` routing, `ContextLinkOwnerEnv` retargeting) land with 12a or the commit after it, not after 13. | The owner's 2026-11-03 rule ([`legacy-config-compat.md`](legacy-config-compat.md)): the users owed concurrency *now* are account-mode users, because that is what an unchanged config means. Gating their fix on the default flip made the ruling true only for people who edit their config. Reusing the self branch is the smallest change: `DenyDefaultProfile` already renders a Machine root distinct from HOME (self mode's `<GlobalStorage>/macos-user`), and the bootstrap's workspace-home layout (`DeriveDarwinWorkspaceHome`) already runs for a HOME equal to the sidecar. Keeping `HomeContaining` keeps 12a off the access-grant questions that make 12b a Mac question of its own. |
+| <a id="MMP-D26"></a>MMP-D26 | **The refusal is rewritten now, and deleted with 12a.** Until 12a lands, the three `accountHome*` texts say what is true: yolo does not yet give the sandbox account a home per workspace, so two workspaces cannot run as it at once, and that is being fixed with no change to the user's config; and they give the no-edit next step: end the other session (`yolo stop` run in that workspace, or quit it) and run `yolo` here again. No config edit, no file name, no runtime or mode switch is offered; the `step` clause (`containerStep`) is dropped from these messages and the `step` parameter from `HoldAccountHome`, `holdAccountHomeIn`, `probeAccountHome`, `Deps.HoldAccountHome` and `PreflightLaunch`. `TestALiveSessionOfAnotherWorkspaceRefusesTheLaunch` and the integration test's `want` list lose `"runtime": "container"` and gain `yolo stop`. | A message is not the fix (the owner, 2026-11-03), so it may not offer the user work; the Happy Path Principle still wants a next step that leads to what they asked for, and ending the other session is the only one that needs no edit and no new runtime. Naming `yolo-jail.jsonc` by hand was already wrong for a TOML workspace. |
+| <a id="MMP-D27"></a>MMP-D27 | **No machine-tier lock in 12a.** Account mode on the model shares its machine root (`SandboxHome()`: the mise store, `.cache`, `Library/Caches`, the shared credential dirs) across concurrent workspaces exactly as self mode shares `<GlobalStorage>/macos-user` today, with no lock. The one known cross-workspace write in that root, the alias manifest sweep ([Open items](#open-items)), is self-only today (`cacheAliasProblems` refuses an alias in account mode) and is fixed for both modes in slice 12c: a launch removes from the machine root only alias links *its own* manifest laid and that no other workspace's manifest still names, with the manifests keyed per workspace. The retired plan's machine-tier lock (its MCWP-D8, a 60-second `flock` around the machine dirs) is not reused. | A lock serializes a write that should not be shared; the defect is the single manifest, and the self-mode open item is the same defect. A `flock` that a wedged bootstrap could hold against every other workspace is a second failure mode for no gain. Reversible: if a Mac run shows a concurrent mise-store write corrupt, the lock is one function. |
+| <a id="MMP-D28"></a>MMP-D28 | **The concurrent-workspaces design and its plan are retired.** Their three ledger rows ([OQ-MCW2](macos-user-model.md#decision-ledger), [OQ-MCW3](macos-user-model.md#decision-ledger), [OQ-MCW4](macos-user-model.md#decision-ledger)) moved verbatim, with dates, into [the model doc's ledger](macos-user-model.md#decision-ledger) as the account mode's concurrency rulings; MCWP-D2 and MCWP-D10 are rows in this table; every inbound link ([`macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md), [`macos-user-claude-refresh.md`](macos-user-claude-refresh.md), roadmap item 51, the model doc's [§2](macos-user-model.md#2-the-three-models) table, this plan's header, the 2026-10-2x lab reports) is repointed at the model doc's ledger or [§7](macos-user-model.md#7-the-ruled-model-two-modes-one-profile); both files are deleted in the same commit. | The concurrent doc said `accepted` and *"Do not build from this doc"* in the same header, which is the status-line drift the design-doc skill names; its rulings are not dead, its *design* is (the model removed the shared account home it worked around). Keeping a superseded doc for its ledger is what the maintainer's delete-after-repointing rule is against; the rows survive in the owning ledger and git keeps the argument. |
+| <a id="MCWP-D2"></a>MCWP-D2 | **Machine root stays `/Users/_yolojail`** (`macosuser.SandboxHome()`), passed to the bootstrap as the env var `YOLO_DARWIN_MACHINE_HOME` and to every sandbox argv. Absent, or equal to HOME, means today's single-home layout, byte for byte. *Carried from the retired concurrent-workspaces plan (2026-10-22), where it was decided.* | Moves no shared bytes. The directory-service record (`NFSHomeDirectory`) and the bootstrap's identity and scope checks stay on the account. |
+| <a id="MCWP-D10"></a>MCWP-D10 | **Guest yolo judges workspace scope by the account.** `sandboxEnvPairs` emits `YOLO_DARWIN_MACHINE_HOME` (protected) in private mode. `cli.Main` and `cmd/yolo-jaild` call one `paths` helper that, when that variable names a directory owned by the process euid, applies `paths.GuardScopeUnder` to it. The three per-verb copies (bootstrap, log sink, capture materialize) may stay. *Carried from the retired concurrent-workspaces plan (2026-10-22), where it was decided.* | With HOME inside the workspace, every guest verb that creates `.yolo` would otherwise see "workspace CONTAINS your home" and refuse. `yolo-jaild` reaches `nixroots` and `durable`, which create it. Ownership, not the variable, is the identity check, so the host user is unaffected even if it has the variable set. |
 
 ## Map
 
@@ -937,8 +944,10 @@ and its plan with it; git history keeps both.
 - **Commit:** `test(macos-user): run the prototype checks against the generated profile`
 - **Report:** the CI run id and its pass, fail and skip counts.
 
-### Slice 11 — the rerun gate, then the default flips (after 6 to 10; human Mac run)
+### Slice 11 — the rerun gate, then the default flips (after 6 to 10 and 12a; human Mac run)
 
+- **Waits on [OQ-MM10](macos-user-model.md#OQ-MM10):** what an absent `macos_user_mode` means on
+  a Mac set up for the account. Nothing in 12a does.
 - **Preconditions (stop and ask if any fails):**
   1. The maintainer has ruled loopback, the shared `/tmp`, and Homebrew's visibility, in the design
      doc ([Blockers](#blockers)).
@@ -964,27 +973,58 @@ and its plan with it; git history keeps both.
 - **Commit:** `feat(macos-user): run as the invoking user by default`
 - **Report:** the two pasted runs, the CI run id, and the rulings each constant encodes.
 
-### Slice 12 — account mode on the model (after 11; human Mac run)
+### Slice 12a — two workspaces at once in account mode (after 6 to 10; human Mac run)
 
-- **Settled:** the same profile run as `_yolojail`; HOME in the workspace; access grants that let the
-  account reach the workspace; two workspaces at once, so no hold. A workspace in your home works
-  with grants: the design's done-state launches `~/code/alpha` in account mode, and
+- **Settled:** the same profile run as `_yolojail`; HOME in the workspace; two workspaces at once,
+  so no hold ([MMP-D25](#MMP-D25), [MMP-D27](#MMP-D27)). The design's *"two workspaces launch at
+  once in either mode"* is owed first to account-mode users, since that is what an unchanged
+  config means ([`legacy-config-compat.md`](legacy-config-compat.md)).
+- **Change:**
+  - account mode takes the self-mode branch of `BuildRunPlanWithStages` for its homes, profile and
+    confined bootstrap, keeping the sudo crossing, the grant stage, the account preconditions and
+    the `HomeContaining` refusal ([MMP-D25](#MMP-D25));
+  - the machine root is `SandboxHome()`, with no lock ([MMP-D27](#MMP-D27));
+  - `HoldAccountHome` is not taken in any mode, and its file, `Deps.HoldAccountHome` and
+    `PreflightLaunch`'s hold parameter go.
+- **Tests first, on Linux:** `TestAccountModePlanIsUnchanged` is rewritten to pin the deny-default
+  profile and the workspace HOME for the zero mode; `TestSelfModeBootstrapIsToldTheHomes` gains an
+  account-mode twin with `Machine == Shared == Real == SandboxHome()`;
+  `TestTheAccountHomeHoldGatesTheBuildAndSpansTheSession` and `TestARefusedHoldRunsNoContextPreflight`
+  are deleted with the hold; `PlanInvariants` gains the account-mode half of `selfModeProblems`
+  (deny-default profile, confined bootstrap, sudo crossing, grants present). Then
+  `integration/macosuseraccounthome_test.go`'s refusal test becomes
+  `TestMacosUserTwoWorkspacesRunAtOnceAsTheAccount`: A holds a session; B launches and prints;
+  `$HOME` in each is its own `<ws>/.yolo/home`; nothing under `/Users/_yolojail` is a link into
+  either sidecar. Account-mode readers that follow HOME: `run/claudecredentialview.go` (*"account
+  mode keeps its undotted location"*), `run/agentenvfiles.go:writeMacosUserAgentEnvFiles`
+  (passes `SandboxHome()`), `run/inheritscope.go` (the sidecar layout derivation),
+  `macosuser/homereadonly.go`, and `ContextLinkOwnerEnv` in `runplan.go`;
+  `rg -n 'SandboxHome\(\)' internal/cli/run internal/macosuser` is the checklist.
+- **Gate:** witness W1 in [Mac checks](#mac-checks), then `just check-ci`, and macOS CI. Land only
+  after W1.
+- **Commit:** `feat(macos-user): two workspaces at once in account mode`
+
+### Slice 12b — a workspace inside a home in account mode (after 11; human Mac run)
+
+- **Settled:** access grants let the account reach a workspace inside your home: the design's
+  done-state launches `~/code/alpha` in account mode, and
   [MM-R1](macos-user-model.md#decision-ledger) accepts the grant risk.
 - **Change:**
-  - account mode takes the self-mode branch of `BuildRunPlanWithStages`, keeping the sudo
-    crossing, the grant stage and the account preconditions;
-  - the machine root is `SandboxHome()`, with MCWP-D8's machine-tier lock around machine dirs and
-    cache relocations;
   - the workspace grant extends a traverse-only entry to each ancestor inside a home;
-  - `HomeContaining` stops refusing;
-  - `HoldAccountHome` is no longer taken.
-- **Tests first:** rewrite `TestHomeContaining`, `inhomeorder_test.go` and
-  `TestTheAccountHomeHoldGatesTheBuildAndSpansTheSession` to the new behavior. Delete
-  `integration/macosuseraccounthome_test.go`'s refusal case, and replace it with a two-workspace
-  concurrent launch as `_yolojail`.
-- **Gate:** a human reruns `run-checks.sh --mode account` with the generated profile and launches two
-  workspaces at once as the account. Then `just check-ci`, and macOS CI.
-- **Commit:** `feat(macos-user): run the optional account mode on the deny-default profile`
+  - `HomeContaining` stops refusing.
+- **Tests first:** rewrite `TestHomeContaining` and `inhomeorder_test.go` to the new behavior.
+- **Gate:** a human reruns `run-checks.sh --mode account` with the generated profile from a
+  workspace inside a home. Then `just check-ci`, and macOS CI.
+- **Commit:** `feat(macos-user): run the optional account mode from a workspace inside a home`
+
+### Slice 12c — one alias manifest per workspace (after 12a; macOS CI)
+
+- **Change:** the machine root's alias links are recorded per workspace, and a launch removes only
+  links its own record laid that no other workspace's record names ([MMP-D27](#MMP-D27)); closes
+  the [Open items](#open-items) entry "One workspace can sweep another's alias links", for both
+  modes.
+- **Gate:** witness W3 in [Mac checks](#mac-checks); `just check-ci`; macOS CI.
+- **Commit:** `fix(macos-user): one cache-alias manifest per workspace`
 
 ### Slice 13 — delete what nothing uses (after 12; macOS CI)
 
@@ -998,9 +1038,8 @@ and its plan with it; git history keeps both.
   - `ctxlink.go`'s `ContextLinkOwnerEnv` retargeting;
   - `DarwinLoginPathEnv`'s shared-home rationale, if nothing else reads it.
 
-  Run `rg -n` for each symbol before deleting it; a remaining caller means stop and report.
-  Mark the [concurrent-workspace plan](macos-user-concurrent-workspaces-plan.md) superseded in the
-  same commit, and repoint roadmap item 51.
+  Run `rg -n` for each symbol before deleting it; a remaining caller means stop and report. What
+  slice 12a already deleted ([MMP-D25](#MMP-D25)) is not here twice.
 - **Gates:** `just check-ci`; macOS CI.
 - **Commit:** `refactor(macos-user): delete the shared account home and the allow-default profile`
 
@@ -1087,6 +1126,28 @@ Mac. The maintainer's Mac agent runs:
 That check is Step 1 of [the 2026-10-24 Mac session](../plans/runbooks/mac-claude-login-session.md),
 which goes on to whether macos-user's Claude reads the credential view.
 
+**Witnesses for the second-workspace work** (macOS only; the owner's Mac agent runs them, never
+the colleague who reported the refusal):
+
+- **W0 (today's tree, before anything lands):** with no `macos_user_mode` key, launch `yolo -- bash`
+  in `/Users/Shared/yolo/a`, then `yolo -- bash` in `/Users/Shared/yolo/b`. Expected: the refusal
+  naming the live session, verbatim, and `readlink /Users/_yolojail/.yolo/bin` still inside
+  `a/.yolo/home`. Confirms the report is the shipped default, not the reporter's config.
+- **W1 (slice 12a, gates its landing):** the same two launches on the 12a build. Expected: both
+  run; `echo $HOME` prints `/Users/Shared/yolo/a/.yolo/home` and `…/b/.yolo/home`;
+  `ls -la /Users/_yolojail` shows no `.yolo/bin`, `.config`, `.npm-global`, `.local` or `go` link;
+  in A, `ls ~/.claude` is unchanged after B starts; `claude -p 'Reply with the single word: ok'`
+  answers in both; `log show --last 5m --predicate 'sender == "Sandbox"'` shows no denial on either
+  workspace's paths; `./run-checks.sh --mode account --account _yolojail --profile-from-yolo <dev
+  yolo>` has no FAIL line. Paste into the model doc's *Self-mode rerun* section as the account-mode
+  run.
+- **W2 (slice 11's precondition 3, the rows not yet recorded):** with `macos_user_mode = "self"` in
+  the user config, `yolo -- claude` in a fresh `~/code/alpha` twice; Claude is logged in both times
+  without a `/login`; a second workspace runs at the same time; `pip download requests` inside
+  writes into the host's `~/Library/Caches/pip`. Paste as a dated run beside W1.
+- **W3 (slice 12c):** two account-mode workspaces with different `cache_relocations` or alias sets
+  launched in turn; A's alias links under `/Users/_yolojail/.cache` survive B's launch.
+
 ## Blockers
 
 Only slice 11 is blocked. The rest build without the rulings, because each pending decision is a
@@ -1110,4 +1171,4 @@ None of these blocks a slice, and none is fixed yet.
   either in `DenyDefaultProfile` only when a Mac run shows a real tool needs it.
 - **One workspace can sweep another's alias links.** The cache-alias manifest sits in the shared
   machine root, so a launch of one workspace reads and may remove alias links another workspace
-  laid there.
+  laid there. Slice 12c closes it for both modes ([MMP-D27](#MMP-D27)).
