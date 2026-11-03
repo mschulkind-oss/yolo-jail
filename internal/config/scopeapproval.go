@@ -72,6 +72,12 @@ type ScopeSource struct {
 	// They keep remediation in requests.* rather than projecting it back to brokered grants.
 	GrantPaths map[string][]string
 	UserGrants []brokerscope.Grant
+	// GrantOrigins is, by grant (brokerscope.Grant.String), the file and key its gate line ends
+	// with (docs/design/github-write-scopes.md GW-D68): `yolo-jail.toml:
+	// requests.github.dispatch_workflows` for a grant the workspace asked for, `~/.config/yolo-jail/
+	// config.toml: allow.github.always, for every workspace` for one the user config holds. A grant
+	// it does not name falls back to the UserGrants mark.
+	GrantOrigins map[string]string
 	// Dormant is a source that holds no read grant now and held none at its last approval
 	// (BB-D110): its broker grants nothing, so it stays out of the gate: no block, no change, no
 	// refusal of a launch with no terminal, and nothing recorded. It approves an empty scope.
@@ -684,8 +690,9 @@ func grantBlock(s ScopeSource, prev []string) (lines []string, count string, cha
 		inPrev[g] = true
 	}
 	added, removed := 0, 0
-	// A grant the user's own config holds says so on its line (BB-D107): it applies to every
-	// workspace, and a human sees it at each workspace's gate rather than meeting it unseen.
+	// Every grant line says where it came from (GW-D68): the file and key GrantOrigins names, and
+	// otherwise, for a grant the user's own config holds, that it is theirs (BB-D107): it applies
+	// to every workspace, and a human sees it at each workspace's gate rather than meeting it unseen.
 	fromUser := map[string]bool{}
 	for _, g := range grantStrings(s.UserGrants) {
 		fromUser[g] = true
@@ -700,7 +707,9 @@ func grantBlock(s ScopeSource, prev []string) (lines []string, count string, cha
 	}
 	for _, g := range grantStrings(s.Grants) {
 		suffix := notes[g]
-		if fromUser[g] {
+		if origin, ok := s.GrantOrigins[g]; ok {
+			suffix += " (" + origin + ")"
+		} else if fromUser[g] {
 			suffix += " (from your user config, for every workspace)"
 		}
 		if inPrev[g] {
