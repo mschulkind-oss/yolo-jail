@@ -1,6 +1,7 @@
 package configmigrate
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -46,11 +47,13 @@ provider = "openrouter"
 		write(t, filepath.Join(dir, "config.toml"), tomlPacks)
 	}
 	overrides = filepath.Join(dir, "overrides.jsonc")
+	// A relocation target whose parent exists on every host (macOS has no /var/cache).
+	pip, _ := json.Marshal(filepath.Join(dir, "pip-elsewhere"))
 	write(t, overrides, `{
   "providers": { "local": { "endpoints": { "anthropic": { "base_url": "http://localhost:8080" } }, "api_key_env_name": "LOCAL_API_KEY", "models": { "default": { "id": "local-default" } } } },
   "profiles": { "local": { "provider": "local", "model": "default" } },
   "mcp_servers": {},
-  "cache_relocations": { "pip": "/var/cache/pip-elsewhere" },
+  "cache_relocations": { "pip": `+string(pip)+` },
   "profile": { "agy": null, "*": "or" }
 }
 `)

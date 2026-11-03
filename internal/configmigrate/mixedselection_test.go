@@ -125,7 +125,7 @@ func packProfileDeclaredIn(packs []*packload.Pack, name string) bool {
 // `local/<name>` (RC-D58).
 func TestALayerOverAJSONCBaseWithAPathPackConverts(t *testing.T) {
 	for _, tc := range []struct{ name, layer, packDir string }{
-		{"a layer selecting a pack profile", `{ "profile": {"*": "or"}, "cache_relocations": {"pip": "/var/cache/pip-x"} }`, ".config/yolo-jail/packs"},
+		{"a layer selecting a pack profile", `{ "profile": {"*": "or"}, "cache_relocations": {"pip": "HOME/pip-x"} }`, ".config/yolo-jail/packs"},
 		{"a layer naming packs of its own", `{ "packs": ["claude", "openrouter"] }`, ".config/yolo-jail/packs"},
 		{"a base pack outside the packs directory", `{ "profile": {"*": "or"} }`, "src/mypacks"},
 	} {
@@ -138,7 +138,8 @@ func TestALayerOverAJSONCBaseWithAPathPackConverts(t *testing.T) {
 			baseText := `{"packs": ["claude", "openrouter", "` + routes + `"]}` + "\n"
 			write(t, base, baseText)
 			layer := filepath.Join(home, "elsewhere", "layer.jsonc")
-			write(t, layer, tc.layer+"\n")
+			// HOME stands for the test home: a relocation target's parent must exist (macOS has no /var/cache).
+			write(t, layer, strings.ReplaceAll(tc.layer, "HOME", filepath.ToSlash(home))+"\n")
 			ws := realDir(t)
 			p := plan(t, Request{UserConfigDir: dir, Workspace: ws, Layer: layer})
 			if len(p.NotConverted) > 0 {
