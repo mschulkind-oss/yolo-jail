@@ -218,19 +218,21 @@ func (b *Broker) notifierNote(jail, id string) string {
 // request.
 const NotifierFailed = "; the user's notifier failed, so they may not have seen this request: tell them to run `yolo approve` on the host"
 
+// waitStatus polls request id until it is answered, the wait limit passes, or ctx ends. The
+// limit bounds the wait for an answer, never a read: each status read runs under ctx alone,
+// so an answer already recorded is returned even when the read itself outlasts the limit
+// (a slow store on a loaded host). A limit that passes while the request is still pending
+// returns context.DeadlineExceeded.
 func (b *Broker) waitStatus(ctx context.Context, jail, id string) (brokerstore.Request, error) {
 	limit := 30 * time.Second
 	if b.waitLimit > 0 && b.waitLimit < limit {
 		limit = b.waitLimit
 	}
-	ctx, cancel := context.WithTimeout(ctx, limit)
-	defer cancel()
+	expired := time.NewTimer(limit)
+	defer expired.Stop()
 	tick := time.NewTicker(10 * time.Millisecond)
 	defer tick.Stop()
 	for {
-		if err := ctx.Err(); err != nil {
-			return brokerstore.Request{}, err
-		}
 		q, err := b.store.StatusContext(ctx, jail, b.startID, id)
 		if err != nil {
 			return q, err
@@ -241,6 +243,8 @@ func (b *Broker) waitStatus(ctx context.Context, jail, id string) (brokerstore.R
 		select {
 		case <-ctx.Done():
 			return q, ctx.Err()
+		case <-expired.C:
+			return q, context.DeadlineExceeded
 		case <-tick.C:
 		}
 	}

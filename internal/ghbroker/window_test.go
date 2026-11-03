@@ -540,3 +540,21 @@ func TestWindowSpendsAnAnswerLandingAfterItsFirstTransaction(t *testing.T) {
 		t.Fatalf("after the command: requests %+v, grants %+v, %v", rs, gs, err)
 	}
 }
+
+// The wait limit bounds how long a command waits for the human's answer; it is not a deadline
+// on reading an answer already recorded. The fixture's limit is 20ms, and a status read is a
+// whole store transaction, so on a loaded runner the first read outlasted the limit: the wait
+// reported the request still pending though it was allowed, the command returned "pending"
+// without running, and TestHandlerFinalAuditFailureDoesNotRetryCanceledAction hung on its
+// executor (macOS CI). A limit that expires before the first read still returns the answer.
+func TestWindowWaitReturnsAnAnswerAlreadyRecordedPastItsLimit(t *testing.T) {
+	b, n := windowFixture(t)
+	b.waitLimit = time.Nanosecond
+	b.delivery = &fakeDelivery{ready: true, request: func(q brokerstore.Request) error {
+		_, err := b.store.Decide(q.ID, "pending", brokerstore.Decision{})
+		return err
+	}}
+	if got := callWindow(b, context.Background()); got != 0 || n.Load() != 1 {
+		t.Fatalf("an allowed request read past the wait limit: exit %d, ran %d times", got, n.Load())
+	}
+}

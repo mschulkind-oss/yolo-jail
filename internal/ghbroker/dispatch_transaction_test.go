@@ -73,7 +73,15 @@ func TestHandlerSerializesWindowedDispatchAndRejectsStandingWrites(t *testing.T)
 				return RunResult{Exit: 0}
 			}
 			go func() { returned <- callWindow(b, context.Background()) }()
-			err := <-entered
+			var err error
+			select {
+			case err = <-entered:
+			case code := <-returned:
+				t.Fatalf("the call returned %d without reaching its executor", code)
+			case <-time.After(dispatchStepTimeout):
+				close(release)
+				t.Fatalf("the executor did not start within %v", dispatchStepTimeout)
+			}
 			removing := make(chan struct{})
 			removed := make(chan error, 1)
 			go func() { close(removing); removed <- brokerscope.Remove(b.authority.path) }()
@@ -117,7 +125,7 @@ func TestHandlerCanceledBoundedDispatchReleasesAuthorityLock(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	returned := make(chan int, 1)
 	go func() { returned <- callWindow(b, ctx) }()
-	<-entered
+	awaitDispatchStep(t, "the executor to start", entered, returned)
 	removed := make(chan error, 1)
 	go func() { removed <- brokerscope.Remove(b.authority.path) }()
 	cancel()
@@ -211,9 +219,9 @@ func TestHandlerFinalAuditFailureDoesNotRetryCanceledAction(t *testing.T) {
 	}()
 	returned := make(chan int, 1)
 	go func() { returned <- callWindow(b, ctx) }()
-	<-entered
+	awaitDispatchStep(t, "the executor to start", entered, returned)
 	cancel()
-	<-locked
+	awaitDispatchStep(t, "the executor to hold the audit lock", locked, returned)
 	select {
 	case code := <-returned:
 		if code != ExitTimeout {
@@ -296,5 +304,22 @@ func TestHandlerPendingLimitAndDenialCooldownNeverNotifyAgain(t *testing.T) {
 	}
 	if n.Load() != 0 {
 		t.Fatal("limit/cooldown dispatched")
+	}
+}
+
+// dispatchStepTimeout bounds each step a dispatch test waits on, so a call that returns early
+// or wedges fails with what it was waiting for instead of hanging to the package timeout.
+const dispatchStepTimeout = 30 * time.Second
+
+// awaitDispatchStep waits for step to close, failing at once if the call returned first (it
+// never reached the step) and after dispatchStepTimeout if neither happens.
+func awaitDispatchStep(t *testing.T, what string, step <-chan struct{}, returned <-chan int) {
+	t.Helper()
+	select {
+	case <-step:
+	case code := <-returned:
+		t.Fatalf("waiting for %s: the call returned %d first", what, code)
+	case <-time.After(dispatchStepTimeout):
+		t.Fatalf("waiting for %s: nothing happened within %v", what, dispatchStepTimeout)
 	}
 }
