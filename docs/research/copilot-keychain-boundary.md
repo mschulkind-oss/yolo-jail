@@ -274,6 +274,9 @@ shipped boundary, independent of Copilot.
 
 ### (f) Pin Copilot 1.0.92
 
+**Ruled out permanently** by the owner on 2026-11-03 ([§4](#4-recommendation)). What follows is
+the analysis as written, kept for the record.
+
 - **Feasibility.** 1.0.92 reached GitHub and updated itself inside the unchanged profile **[R]**
   ([#65](https://github.com/mschulkind-oss/yolo-jail/issues/65)). Copilot's own updater must be off
   (`COPILOT_AUTO_UPDATE=false`, documented **[B]**), or it replaces itself.
@@ -312,7 +315,7 @@ shipped boundary, independent of Copilot.
 | 2 | (h1) account mode for Copilot | UID and file permissions; session shared, as for every account launch | Probably | W2, W5 |
 | 3 | (a) SecurityServer only, files and secd denied | Secrets; not session-wide operations | Probably | W2–W5 |
 | 4 | (c1) BYOK over loopback HTTP | Full | Probably, without GitHub models | W7 |
-| 5 | (f) pin 1.0.92 | Full | Yes, for now | expiry |
+| 5 | (f) pin 1.0.92 | Full | Ruled out for good ([§4](#4-recommendation)) | none: never offered |
 | 6 | (b) own audit session | Adds a layer under (a) | Unbuilt | W6 |
 | 7 | (c2) redirected GitHub API | Full | Unknown | URL shapes and other hosts |
 | 8 | (e) message filter | Closest to full | Unknown | W8; MT-D3 |
@@ -427,7 +430,31 @@ message number and rerun W2 and W5. If `sandbox-exec` rejects the profile, (e) i
 
 ## 4. Recommendation
 
-**My opinion.**
+**The owner's ruling, 2026-11-03:** *"yes I want to build 1 now of the keychain thing
+regardless., the rest I think we need to wait on, and I don't want to do 4 ever"*. In this
+research's terms:
+
+- **Built: the refusal** (#65's option 1, item 1 below without its pin). In run-as-you mode the
+  Copilot launcher reads the installed version with `copilot --version` before its update act and
+  refuses 1.0.93 and later, naming [#5085](https://github.com/github/copilot-cli/issues/5085). It
+  names two routes, as commands typed outside the jail: the dedicated-account mode
+  (`yolo config set macos_user_mode account --user`) and a container backend, for one launch
+  (`YOLO_RUNTIME=podman yolo -- copilot`) or for good (`yolo config set runtime podman --user`).
+  It offers no `YOLO_USE_INSTALLED` and no "Start anyway:", and the SecurityServer deny is
+  unchanged. The rule is the copilot pack's
+  [`copilot.json`](../../packs/copilot/home/.config/yolo-program-compatibility/copilot.json); the
+  gate and its next steps are
+  [`programcompatibility.go`](../../internal/entrypoint/programcompatibility.go).
+- **Never: a Copilot 1.0.92 pin**, option (f) here and #65's temporary pin. No refusal, finding
+  or guide offers one.
+- **Waiting on the owner: (a) and (h1).** Neither is built, and both still need W2–W5.
+
+**Mac witness for the built refusal (W9).** On the owner's Mac, in run-as-you mode with Copilot
+1.0.93 or later installed, run `yolo -- copilot`, and again with `YOLO_USE_INSTALLED=copilot`.
+Expected both times: the refusal above, before any "Checking GitHub" line, and no "Start anyway:".
+Then each of the three commands it names leads to a running Copilot.
+
+**My opinion** (written before the ruling; the pin in item 1 is now ruled out).
 
 1. **Keep p0 as shipped, and make the refusal useful.** Replace "Start anyway"
    (`YOLO_USE_INSTALLED`) with the routes that work: account mode, a container backend, or a
@@ -448,7 +475,7 @@ message number and rerun W2 and W5. If `sandbox-exec` rejects the profile, (e) i
   W2–W5 results? This overturns MT-D1 for that one launch shape.
 - **Whether account mode's shared session is acceptable** once W1 and W5 report. If it is not,
   account mode needs its own session (b), whatever happens to Copilot.
-- **Whether a Copilot pin is allowed at all**, and for how long.
+- **Whether a Copilot pin is allowed at all**: ruled 2026-11-03, never.
 
 ## Sources
 

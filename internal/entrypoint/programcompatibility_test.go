@@ -210,16 +210,41 @@ func TestShippedCopilotInvalidGenerationMetadataRefuses(t *testing.T) {
 	}
 }
 
+// TestShippedCopilotCompatibilityRefusalNamesIssueAndRemedy: issue #65, option 1. The refusal
+// says why (the installed version, the SecurityServer deny, upstream #5085) and names, as commands
+// to type outside the jail, the two routes that run Copilot: the dedicated-account mode and a
+// container backend. It never offers YOLO_USE_INSTALLED, which cannot get past this deny, and so
+// it carries no "Start anyway:" block. Run with the hatch set, as the user who tried it would.
 func TestShippedCopilotCompatibilityRefusalNamesIssueAndRemedy(t *testing.T) {
 	orig := imageProbeBase
 	imageProbeBase = t.TempDir()
 	t.Cleanup(func() { imageProbeBase = orig })
-	p := newCopilotCompatibilityProbe(t, `{"mode":1,"workspace":"/w","home":"/h"}`, true, "false", "1.0.103")
-	out, err := p.run(t, "1")
-	if err == nil || !strings.Contains(out, "https://github.com/github/copilot-cli/issues/5085") ||
-		!strings.Contains(out, "Use a container backend (podman or container)") ||
-		!strings.Contains(out, "only after the upstream TLS implementation no longer reproduces the incompatibility") {
-		t.Fatalf("compatibility refusal lacks the tracked issue and workable remedy (err=%v):\n%s", err, out)
+	for _, hatch := range []string{"", "1", "copilot"} {
+		p := newCopilotCompatibilityProbe(t, `{"mode":1,"workspace":"/w","home":"/h"}`, true, "true", "1.0.103")
+		out, err := p.run(t, hatch)
+		if err == nil || strings.Contains(p.log(t), "UPDATE") || strings.Contains(p.log(t), "EXEC") {
+			t.Fatalf("hatch %q: an affected Copilot reached its update or ran (err=%v, log=%q):\n%s", hatch, err, p.log(t), out)
+		}
+		for _, want := range []string{
+			"copilot 1.0.103 is installed",
+			"com.apple.SecurityServer",
+			"https://github.com/github/copilot-cli/issues/5085",
+			"\nNext steps, in a terminal outside this jail:\n",
+			"\n  yolo config set macos_user_mode account --user ",
+			"yolo macos-setup",
+			"\n  YOLO_RUNTIME=podman yolo -- copilot ",
+			"YOLO_RUNTIME=container",
+			"\n  yolo config set runtime podman --user ",
+		} {
+			if !strings.Contains(out, want) {
+				t.Errorf("hatch %q: the refusal lacks %q:\n%s", hatch, want, out)
+			}
+		}
+		for _, unwanted := range []string{"Start anyway", "YOLO_USE_INSTALLED=", "1.0.92"} {
+			if strings.Contains(out, unwanted) {
+				t.Errorf("hatch %q: the refusal offers %q, which does not run an affected Copilot (or is ruled out):\n%s", hatch, unwanted, out)
+			}
+		}
 	}
 }
 
@@ -357,7 +382,8 @@ func TestShippedCopilotUnparseableVersionProbeFailsClosed(t *testing.T) {
 	t.Cleanup(func() { imageProbeBase = orig })
 	p := newCopilotCompatibilityProbe(t, `{"mode":1,"workspace":"/w","home":"/h"}`, true, "false", "not-a-version")
 	out, err := p.run(t, "1")
-	if err == nil || !strings.Contains(out, "cannot parse copilot's declared version probe") || strings.Contains(p.log(t), "EXEC") {
+	if err == nil || !strings.Contains(out, "cannot parse copilot's declared version probe") || strings.Contains(p.log(t), "EXEC") ||
+		!strings.Contains(out, "\n  yolo config set macos_user_mode account --user ") || strings.Contains(out, "Start anyway") {
 		t.Fatalf("unparseable version did not fail closed (err=%v, log=%q):\n%s", err, p.log(t), out)
 	}
 }
