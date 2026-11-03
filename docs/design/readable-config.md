@@ -3,7 +3,7 @@ title: "Config that reads right the first time: the front door"
 date: 2026-10-24
 status: in-review
 stage: DESIGN
-next: "Rule OQ-RC22 (whether the converter writes a provider alias); build the rest of RC-D60 (the workspace half of the broker-grants proof). Then graduate to a system doc. OQ-RC8's refusal of a fetched pack still on pack.json belongs to the release that removes the old reader"
+next: "Build RC-D68 (`selected_as`, OQ-RC22) and the rest of RC-D60 (the workspace half of the broker-grants proof). Then graduate to a system doc. OQ-RC8's refusal of a fetched pack still on pack.json belongs to the release that removes the old reader"
 tags: [config, packs, manifest, providers, profiles, broker, grants, format, toml, migration, editing, readability, design]
 summary: "The front door to the readable-config redesign: the thesis, the principles, the five documents (each one annotated config file with its questions), and the ledger of rulings made so far. The maintainer's config takes 178 lines to say about 20 things and is misread by its author; reshaped it is under 60, yolo can edit it one hunk at a time, and one command converts every file."
 vantage:
@@ -18,12 +18,11 @@ reads TOML configs and `pack.toml` manifests at launch, check and apply, the nam
 them, and every shipped pack is a `pack.toml`. Legacy JSONC is still read for a few releases
 ([RC-D19](#RC-D19)): a launch offers `yolo config migrate`, and `"convert_later": true` written in
 the old user file stops the offer ([RC-D21](#RC-D21)). Each ledger row's Built cell names its
-landing commit and pinning test, or what is not built yet. One question open, [OQ-RC22](#OQ-RC22), from the owner's migration of 2026-11-03. The design's evidence
+landing commit and pinning test, or what is not built yet. No question is open: [OQ-RC22](#OQ-RC22), from the owner's migration of 2026-11-03, is ruled as [RC-D68](#RC-D68) and not built yet. The design's evidence
 was verified at `fa13f42d9` against this repository, the effective user config this jail
 inherited, the shipped packs, and the maintainer's twelve packs.
 
-**Needs your ruling:** [OQ-RC22](#OQ-RC22), whether `yolo config migrate` should turn a lone
-profile into the provider's short name. The build's record is
+**Needs your ruling:** nothing. The build's record is
 [`readable-config-plan.md`](readable-config-plan.md).
 
 > **In short.** A config a stranger reads correctly comes from its shape, not its file format, and
@@ -98,6 +97,7 @@ the TOML spelling and proved conversion of shared model facts, model names and w
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
+| <a id="RC-D68"></a>RC-D68 | **A provider entry in your config may say `selected_as = "<name>"`: that name is then the ONLY one the provider has in your selection namespace (`-p`, `active_provider`, every picker), its variants are `<name>/<variant>`, and its declared name is not selectable for you. `alias` is unchanged, a second name beside the declared one. `yolo config migrate` is unchanged too.** <a id="OQ-RC22"></a>[OQ-RC22](#OQ-RC22) asked whether the converter should turn a lone profile into the provider's short name (A: leave it, name the command; B: the converter writes an alias; C: a bare variant name selects it). The owner answered with the intent rather than an option, and asked for the mechanism to be picked (2026-11-03): *"the idea was that I wanted the open router provider, but I wanted my own name, OR, for this. I don't think anybody else is using this. So the migration path isn't that key. And what I really want here would be To be able to use Open Router but only put OR into my namespace that I select dash P from"*, and of the 300k profile, *"I never wanted the 300k, it was only there. as a limitation"*. None of A–C says that: each leaves `openrouter` selectable. So the converter stays as [RC-D62](#RC-D62) rules (A, with its report line), and the config gains the spelling the owner asked for, picked by the design seat: `[providers.openrouter] selected_as = "or"` with the provider's `model`, and the two variants deleted. Why a new key and not a stronger `alias`: a TOML file that already writes `alias = "codex"` and selects `openai-codex` would stop launching, and the TOML files that work must keep working. The pack keeps calling the provider `openrouter`, as the owner wants. Rules: `selected_as` and `alias` on one entry are refused, naming which to keep; a name another provider, alias, profile or former name holds is refused as any taken name is; selecting the declared name of a provider you renamed is refused naming yours (*"openrouter is selected as `or` in your config: -p or"*). Consumers that write the provider into an agent's config (its id in pi's or OpenCode's files) keep the declared name; only the selection namespace changes | 2026-11-03 | the owner's comment on [OQ-RC22](#OQ-RC22) (2026-11-03) | not built: the key in the readable schema, the namespace (`config.SelectableProfiles`), the three refusals, and [`config-user.md` §5](config-user.md#5-which-setup-each-agent-runs-on)'s example |
 | <a id="RC-D67"></a>RC-D67 | **An `include_if_found` entry that exists but cannot be read as a regular file (a symbolic link whose target is missing, a link loop, a directory, an unreadable file) is *not found*: the load goes on without it and says once what it skipped and how to include it. A config name in that state (the workspace's names, the user's, `config.d/*.toml`, `--user-layer`) is still *present*, so it counts toward the both-files rule ([RC-D19](#RC-D19)), and is refused ([RC-D59](#RC-D59)).** The owner's ruling (2026-11-03): *"an error even counts for the file being present in terms of having both files, but the "include if found" is a little different and an error there should count as it not being found, because "include if found" is a is really a term for include if we can, and we can't, best effort. And I think that's a consistent way to rule here."* The notice is `include_if_found[<n>] in <file>: <path> is a symbolic link to <target>, which does not exist; include_if_found is best effort, so it was skipped. To include it: <RC-D59's step>`; the launch prints it, and `yolo check` WARNs with the step as its note. `yolo config migrate` keeps such an entry as written, as it keeps one naming no file | 2026-11-03 | the owner's words of 2026-11-03 | built: the loader (`loadWithIncludesMode`), `yolo check`'s Config Files section, and `yolo config migrate`'s discovery; `TestADanglingUserConfigLinkIsRefusedInEveryScope`, `TestConfigMigrateRefusesADanglingConfigLink`, `TestCheckPrintsTheAgentsConfigTextAsText` |
 | <a id="RC-D62"></a>RC-D62 | **One short name for a provider is its `alias`, which starts on the provider's `model`; a variant is selected as `provider/variant` only, and a profile the owner no longer wants is deleted, not renamed. The migration does neither: it converts exactly, and its closing report names the alias command once for each provider it gave a variant and no alias.** A design-seat decision on the owner's report of 2026-11-03 (*"why did my personal config go from a provider named or … to having openrouter, openrouter/or and openrouter/or-300k? I want to go back to having a provider named or (and maybe the unshortened openrouter) but certainly no 300k naming"*). The three names are [RC-D32](#RC-D32) and [OQ-RC3](#decision-ledger) working as ruled; the owner's shape is `[providers.openrouter] alias = "or"` with `model = "deepseek/deepseek-v4.1-flash-1017:floor"` and both variants removed (`yolo config set` and `yolo config unset`, four verbs), after which the declared list reads `openrouter (or)`. The 300k model stays a row of the provider's list, selectable inside the agent; the `or-300k` variant's subagent pairing goes with the variant, which is what "no 300k naming" asks. Whether the converter should write the alias itself is [OQ-RC22](#OQ-RC22) | 2026-11-03 | [`config-user.md` §5](config-user.md#5-which-setup-each-agent-runs-on); [`model-facts-migration.md` A.2](model-facts-migration.md#a2-what-the-owner-could-write-afterwards-by-hand) | the closing report's line is built, in `yolo config migrate`'s transcript and the launch offer's report; `TestTheTranscriptNamesTheAliasCommandForAVariantWithoutOne`. The alias selecting a pack-declared provider is existing behavior, not re-pinned here |
 | <a id="RC-D61"></a>RC-D61 | **A conversion the launch declines reports each setting with that setting's own next step; the stop and the "answer `n`" step stay as [RC-D35](#RC-D35) ruled them.** A design-seat decision under the Happy Path Principle, on the owner's refusal of 2026-11-03, whose last line was *"Nothing was changed. Change those settings and convert again, or run the same command again and answer n to launch with your current files."*: "those settings" named no setting and no change, and the owner's setting was a yolo gap, not theirs to change. The line is now *"Nothing was changed. Each line above says what to do with its setting; then convert again, or run the same command again and answer n to launch with your current files."*; each not-converted reason ends in its own step (a yolo gap: leave it, this yolo keeps reading the old file; a scope a request cannot say: the exact edit, or leave it until [GW-D66](github-write-scopes.md#GW-D66) ships; a user setting that belongs to a project: move it there); and *"keep the old file for now"* goes from every reason, since it is not a step but what happens anyway. `yolo config migrate`'s own closing line already points at its lines and keeps its wording | 2026-11-03 | the Happy Path Principle; [RC-D35](#RC-D35) | built; `TestADeclinedLaunchConversionNamesEachSettingsStep`, `TestNoNotConvertedReasonSaysKeepTheOldFile`, `TestAYesNoGrantOnAnotherRepositoryStaysNamingTheEdit` |
@@ -182,46 +182,3 @@ the TOML spelling and proved conversion of shared model facts, model names and w
 | <a id="RC-D3"></a>RC-D3 | **Plural for a collection the user fills, singular for one thing.** Review comment: *"why is this plural and mcp singular?"* `mcp.<name>` becomes `mcp_servers.<name>` (today's name), `[[mount]]` becomes `[[mounts]]`; all-singular would collide the selection with the declarations | 2026-10-24 | [`config-user.md` §3](config-user.md#3-principles) | built `00e1d05f6`; `TestReadableTOMLMCPServerTableAndOffRemoval` |
 | <a id="RC-D2"></a>RC-D2 | **Not `as_you`.** Review comment: *"I hate the name 'as_you'."* The section's name was then ruled `allow` ([OQ-RC4](#decision-ledger)) | 2026-10-24 | [`config-user.md` §2](config-user.md#2-the-file-proposed) | nothing to build; the section is `allow` ([OQ-RC4](#decision-ledger)) |
 | <a id="RC-D1"></a>RC-D1 | **The `profile` key keeps its job.** Review comment on the draft's `use`: *"awful name … isn't this a profile?"* It is the agent-to-setup selection, and PP-D10's reason (the key mirrors `-p`) stands; its name was later ruled `active_provider` ([OQ-RC14](#decision-ledger)) | 2026-10-24 | [`config-user.md` §2](config-user.md#2-the-file-proposed) | built `4d96756cb`; `TestLegacyProfileKeyStillSelectsFromJSONC`, under the name `active_provider` ([OQ-RC14](#decision-ledger)) |
-
-## Open Questions
-
-1. 💬 **OQ-RC22: Should `yolo config migrate` turn a lone profile with its own name into the provider's short name, instead of a variant?**
-
-   Matt's old config has `profiles.or` and `profiles.or-300k` on the openrouter provider. They run
-   `yolo config migrate`, and their new file declares `[providers.openrouter.variants.or]` and
-   `[providers.openrouter.variants.or-300k]`; every picker now lists `openrouter`,
-   `openrouter/or` and `openrouter/or-300k`, where they had `or`. The rule that did it is the ruled
-   one (2026-10-25: a provider is selectable by its name, a second configuration of it is a
-   variant selected as `provider/variant`), and it leaves them three names where they want one.
-   Someone with one profile `fast` on cerebras gets `cerebras` and `cerebras/fast` the same way.
-
-   - **A — Leave the converter; name the short name in the report.** Matt's file converts as
-     today, and the report ends with *"openrouter: its variants are selected as openrouter/or
-     and openrouter/or-300k; for one short name, `yolo config set providers.openrouter.alias
-     or`"*. They run that, set `providers.openrouter.model` to the floor id, and delete the two
-     variants; pickers then show `openrouter (or)`. Cost: four commands after a conversion that
-     said it lost nothing. What stays true: the converted file is predictable from one sentence.
-   - **B — The converter writes the alias.** A profile whose name is not its provider's, that
-     carries only what a provider can hold (`model`, `via`), on a provider with no alias and no
-     same-named profile, becomes `alias = "<name>"` with its `model` on the provider; any other
-     profile stays a variant. Matt's `or` becomes the alias and `or-300k` (it carries
-     `subagents`) stays `openrouter/or-300k`; they still delete that one by hand. The `fast` user
-     gets `cerebras (fast)` and bare `cerebras` now starts on `fast`'s model rather than the
-     pack's default — a change to a name the old config never let them select. Cost: a
-     tie-break nobody can predict when two profiles name one provider and both qualify (the
-     first in file order would win), and a second conversion rule to keep in step with the
-     first.
-   - **C — A bare variant name selects it everywhere.** `-p or` and `active_provider.pi =
-     "or"` resolve to `openrouter/or` when exactly one provider declares a variant `or` and no
-     provider, alias or profile holds the name — the rule the legacy `profile` key already gets,
-     extended to the new key. Matt types `or` and nothing in their file changes; the
-     pickers still list the three names, and `openrouter/or-300k` stays until they delete it.
-     Cost: the selection grammar gains a second spelling for one thing, which the approved selection design
-     ruled against in the words "share one namespace".
-
-   <!-- vantage: question id=OQ-RC22 leaning="A — the converted file stays predictable from one sentence, and the short name is one command the report now names." -->
-
-   _Leaning:_ A — the converted file stays predictable from one sentence, and the short name is one command the report now names.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
