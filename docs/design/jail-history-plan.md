@@ -3,7 +3,7 @@ title: "Plan seed: the workspace event record, the launch id and yolo history"
 date: 2026-11-02
 status: draft
 stage: SKETCH
-next: "Build slice 1 (the approvals twin's fields, the yolo wait footer, yolo history requests); the rest waits on the design's rulings"
+next: "Slice 1 is built; slice 2 (the launch id) needs no ruling either; the rest waits on the design's rulings"
 depends-on:
   - jail-history.md#OQ-JH1
   - jail-history.md#OQ-JH2
@@ -28,6 +28,25 @@ build order. Every line below is a candidate, not evidence; each was read at `95
 
 The thin first slice ([JH-D16](jail-history.md#decision-ledger)): no record, no launch id, no
 new file under `.yolo`. Three edits to things that exist.
+
+**Built 2026-11-03**, as follows; where it departs from the list below, this paragraph is what
+the tree does.
+
+- The twin carries `answer`, `via`, `jail`, `hook`, `spent_at` and `reason`, plus `until`, the
+  end of a `for` answer's window, which the listing JH-D10 describes needs. The host store's
+  request record carries the same facts (`Answer`, `Via`, `Until`, `SpentAt`, `HookRan`,
+  `Reason`), set by the decision that made them and cleared at filing so a filer cannot supply
+  them. `brokerstore.Decision` gained `Remember` and `Via`, which grant nothing.
+- **`launch` is not written**: the broker scope's per-source id is not the launch id this
+  design defines (see [Don't](#dont)), so the field waits for slice 2 rather than holding a
+  second spelling.
+- `hook` is `ran` from the moment the hook starts (`Store.NoteHookRan`, from
+  `brokerhook.Runner.fire`), `failed` once `NoteHookFailure` records one, and `none` otherwise.
+- `yolo history` routes before the front door like `yolo wait`, takes `requests` and `r-<id>`
+  with `-C`, `--since` and `--json`, and reads the twin on both sides. **On the host it reads the
+  twin too**, not the host store, and names `yolo approve` as the store's own view; reading the
+  store there ([JH-D9](jail-history.md#JH-D9)) comes with the record. Every other subject, and
+  the bare form, refuses with exit 64 naming `yolo history requests` and the two logs.
 
 1. **The twin's new fields.** `approvalwait.Record` (`internal/approvalwait/record.go`) gains
    `answer` (`once|for|add|remember|deny`), `via` (`on_request|host`), `jail`, `launch` (the

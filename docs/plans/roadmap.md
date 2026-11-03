@@ -292,6 +292,7 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
     keeper at `yolo host` is ruled; its build waits on [the sidecars and doorbell](../design/agent-event-watchers.md).
 22. [The boot snapshot and diagnostic dial](../design/diagnostics-past-the-boundary.md) — a refused boot keeps no record
     of the jail's state, and the readiness act built 2026-10-06 adds one more refusal.
+    Beside it, [what just happened in this jail](../design/jail-history.md): its first slice is built; the rest waits on [OQ-JH1](../design/jail-history.md#OQ-JH1), [OQ-JH2](../design/jail-history.md#OQ-JH2) and [OQ-JH4](../design/jail-history.md#OQ-JH4).
 23. [Rule the add-only model lists](../design/model-lists-and-pickers.md) and [web search on Bedrock](../design/bedrock-web-search.md)
     — what most agents' menus show turns on the first, and no agent gets search from Bedrock on runtime.
 24. [Decide whether pack-declared traps fold into the agent directory map](../design/agent-directory-map.md) — the map
