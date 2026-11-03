@@ -45,7 +45,8 @@ go run ./tools/release-gate darwin-floor --repo OWNER/REPO --cache NAME --sha FU
 Each `--path` must be a `/nix/store/<hash>-<name>` path; `--wait-shas` is a file of full commit SHAs, one per
 line. A path is cached when `https://NAME.cachix.org/<hash>.narinfo` answers 200 with a `StorePath:` naming
 it; a 404 is a miss; 429/5xx retry; anything else refuses. A profile counts only when every path on its
-narinfo's `References:` line is cached too. A `darwin-floor-cache.yml` run is relevant when the commit its
+narinfo's `References:` line is cached too, in that cache or in `https://cache.nixos.org`, which every
+user's nix already substitutes from and whose paths `cachix push` skips; a profile itself must be in NAME. A `darwin-floor-cache.yml` run is relevant when the commit its
 title (`darwin floor cache for <SHA>`) names is one of the listed commits, and it is a push on main or a
 dispatch on any branch. While a relevant run is queued or running, the gate polls, even when every path is
 already cached. With none pending it reads the cache once more and passes if every path is served. Otherwise

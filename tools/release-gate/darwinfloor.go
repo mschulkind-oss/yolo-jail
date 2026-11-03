@@ -53,8 +53,14 @@ type floorGate struct {
 	api      gate // Actions API access: repo, token, baseURL, client, clock
 	cache    string
 	cacheURL string
-	paths    []string
-	waitSHAs map[string]bool
+	// upstreamURLs are binary caches every user's nix already substitutes from
+	// (cache.nixos.org): a profile's reference one of them serves needs no copy
+	// in the project's cache, and `cachix push` skips exactly those paths, so
+	// requiring them there would refuse every release whose floor reuses
+	// nixpkgs' own builds. The profiles themselves must be in the project's cache.
+	upstreamURLs []string
+	paths        []string
+	waitSHAs     map[string]bool
 	// targetSHA is the commit being released; a dispatched run builds exactly it.
 	targetSHA string
 	// progress receives one line per wait, so a log shows which run it is on.
@@ -290,19 +296,30 @@ func (f *floorGate) dispatch(ctx context.Context, g *gate) error {
 
 // missingPaths returns the store paths the cache does not serve: each profile
 // whose narinfo is absent, and, for a profile that is present, each path its
-// narinfo's References line names that is absent (the floor's own packages,
-// mise among them). Each path is asked once per call.
+// narinfo's References line names that neither the project's cache nor an
+// upstream cache serves (the floor's own packages, mise among them). Each path
+// is asked once per call.
 func (f *floorGate) missingPaths(ctx context.Context, g *gate) ([]string, error) {
 	var missing []string
 	seen := map[string]bool{}
-	check := func(path string) ([]string, error) {
+	check := func(path string, profile bool) ([]string, error) {
 		if seen[path] {
 			return nil, nil
 		}
 		seen[path] = true
-		hit, refs, err := f.narinfoHit(ctx, g, path)
+		hit, refs, err := f.narinfoHit(ctx, g, f.cacheURL, path)
 		if err != nil {
 			return nil, err
+		}
+		if !hit && !profile {
+			for _, upstream := range f.upstreamURLs {
+				if hit, _, err = f.narinfoHit(ctx, g, upstream, path); err != nil {
+					return nil, err
+				}
+				if hit {
+					break
+				}
+			}
 		}
 		if !hit {
 			missing = append(missing, path)
@@ -310,12 +327,12 @@ func (f *floorGate) missingPaths(ctx context.Context, g *gate) ([]string, error)
 		return refs, nil
 	}
 	for _, path := range f.paths {
-		refs, err := check(path)
+		refs, err := check(path, true)
 		if err != nil {
 			return nil, err
 		}
 		for _, ref := range refs {
-			if _, err := check(ref); err != nil {
+			if _, err := check(ref, false); err != nil {
 				return nil, err
 			}
 		}
@@ -323,14 +340,14 @@ func (f *floorGate) missingPaths(ctx context.Context, g *gate) ([]string, error)
 	return missing, nil
 }
 
-// narinfoHit reports whether the cache serves path's narinfo and, when it
-// does, the other store paths that narinfo's References line names.
-func (f *floorGate) narinfoHit(ctx context.Context, g *gate, path string) (bool, []string, error) {
+// narinfoHit reports whether the cache at base serves path's narinfo and, when
+// it does, the other store paths that narinfo's References line names.
+func (f *floorGate) narinfoHit(ctx context.Context, g *gate, base, path string) (bool, []string, error) {
 	m := storePathPattern.FindStringSubmatch(path)
 	if m == nil {
 		return false, nil, fmt.Errorf("invalid store path %q", path)
 	}
-	endpoint := strings.TrimRight(f.cacheURL, "/") + "/" + m[1] + ".narinfo"
+	endpoint := strings.TrimRight(base, "/") + "/" + m[1] + ".narinfo"
 	for attempt := 0; attempt <= 3; attempt++ {
 		if err := g.checkDeadline(ctx, g.deadline); err != nil {
 			return false, nil, err

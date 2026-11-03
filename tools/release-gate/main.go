@@ -158,7 +158,7 @@ func runFloorCLI(args []string, stdout, stderr io.Writer, configure func(*floorG
 			repo: *repo, token: token, client: &http.Client{}, baseURL: "https://api.github.com",
 			now: time.Now, sleep: sleepContext, timeout: *timeout, pollEvery: *poll, requestMax: defaultRequestMax,
 		},
-		cache: *cache, cacheURL: "https://" + *cache + ".cachix.org", paths: paths, waitSHAs: waitSHAs, progress: stderr,
+		cache: *cache, cacheURL: "https://" + *cache + ".cachix.org", upstreamURLs: []string{"https://cache.nixos.org"}, paths: paths, waitSHAs: waitSHAs, progress: stderr,
 		targetSHA: strings.ToLower(*target),
 	}
 	if configure != nil {

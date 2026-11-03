@@ -38,8 +38,12 @@ type fakeFloor struct {
 	// repeating: a run GitHub reports changing while the gate polls.
 	runSeq [][]run
 	// refs is a narinfo's References line, as store path base names.
-	refs      map[string][]string
-	runsCalls int
+	refs map[string][]string
+	// upstream holds the store paths the stub upstream cache (cache.nixos.org's
+	// stand-in, under /upstream/) serves, and upstreamReads counts its reads.
+	upstream      map[string]bool
+	upstreamReads map[string]int
+	runsCalls     int
 	// dispatches records each workflow_dispatch body the gate POSTed;
 	// dispatchStatus answers it (204 when zero), and afterDispatch, when set,
 	// answers the Nth run listing after the dispatch with the usual runs plus
@@ -53,7 +57,8 @@ type fakeFloor struct {
 
 func newFakeFloor(t *testing.T) *fakeFloor {
 	t.Helper()
-	f := &fakeFloor{present: map[string]int{}, checks: map[string]int{}, narinfoPath: map[string]string{}, refs: map[string][]string{}}
+	f := &fakeFloor{present: map[string]int{}, checks: map[string]int{}, narinfoPath: map[string]string{}, refs: map[string][]string{},
+		upstream: map[string]bool{}, upstreamReads: map[string]int{}}
 	f.server = httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(f.server.Close)
 	return f
@@ -63,6 +68,16 @@ func (f *fakeFloor) serve(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	switch {
+	case strings.HasPrefix(r.URL.Path, "/upstream/") && strings.HasSuffix(r.URL.Path, ".narinfo"):
+		hash := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/upstream/"), ".narinfo")
+		for path := range f.upstream {
+			if strings.Contains(path, "/"+hash+"-") {
+				f.upstreamReads[path]++
+				fmt.Fprintf(w, "StorePath: %s\nURL: nar/x.nar.xz\nCompression: xz\nReferences: \n", path)
+				return
+			}
+		}
+		http.NotFound(w, r)
 	case strings.HasPrefix(r.URL.Path, "/cache/") && strings.HasSuffix(r.URL.Path, ".narinfo"):
 		if f.cacheFailures > 0 {
 			f.cacheFailures--
@@ -155,7 +170,8 @@ func newTestFloorGate(t *testing.T, f *fakeFloor) (*floorGate, *fakeClock) {
 			repo: "owner/project", token: "write-token", client: f.server.Client(), baseURL: f.server.URL,
 			now: clock.now, sleep: clock.sleep, timeout: 10 * time.Minute, pollEvery: 30 * time.Second, requestMax: time.Second,
 		},
-		cache: "yolo-jail", cacheURL: f.server.URL + "/cache", paths: []string{floorArm, floorIntel},
+		cache: "yolo-jail", cacheURL: f.server.URL + "/cache", upstreamURLs: []string{f.server.URL + "/upstream"},
+		paths:    []string{floorArm, floorIntel},
 		waitSHAs: map[string]bool{testSHA: true, flakeSHA: true}, targetSHA: testSHA,
 	}, clock
 }
@@ -483,6 +499,41 @@ func TestFloorGateRequiresEveryReferencedPath(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), mise) || strings.Contains(err.Error(), floorArm+",") {
 			t.Fatalf("err = %v, want a refusal naming only the missing reference", err)
 		}
+	}
+}
+
+// A reference cache.nixos.org already serves passes without a copy in the
+// project's cache, because `cachix push` skips such paths (the v0.16.0 request
+// refused a floor whose only "missing" references were nixpkgs' own builds). A
+// profile itself still must be in the project's cache, and a reference neither
+// cache serves (the floor's own mise) is still refused.
+func TestFloorGateAcceptsAReferenceTheUpstreamCacheServes(t *testing.T) {
+	const openssl = "/nix/store/0568rp7whq8ysn4k2a7jranag23grgqn-openssl-3.5.9-dev"
+	const mise = "/nix/store/0123456789abcdfghijklmnpqrsvwxyz-mise-2026.10.0"
+	f := newFakeFloor(t)
+	f.present[floorArm], f.present[floorIntel] = 0, 0
+	f.refs[floorArm] = []string{strings.TrimPrefix(openssl, "/nix/store/")}
+	f.upstream[openssl] = true
+	g, _ := newTestFloorGate(t, f)
+	if _, err := g.wait(context.Background()); err != nil {
+		t.Fatalf("wait with the reference upstream: %v", err)
+	}
+	if f.upstreamReads[openssl] != 1 {
+		t.Fatalf("the upstream cache was read %d times for the reference, want once", f.upstreamReads[openssl])
+	}
+
+	f = newFakeFloor(t)
+	f.present[floorIntel] = 0
+	f.upstream[floorArm] = true // a profile upstream is not the project's floor
+	f.refs[floorIntel] = []string{strings.TrimPrefix(mise, "/nix/store/")}
+	f.afterDispatch = [][]run{{dispatchedRun(40, "completed", "success")}}
+	g, _ = newTestFloorGate(t, f)
+	_, err := g.wait(context.Background())
+	if err == nil || !strings.Contains(err.Error(), floorArm) || !strings.Contains(err.Error(), mise) {
+		t.Fatalf("err = %v, want a refusal naming the profile and the reference neither cache serves", err)
+	}
+	if f.upstreamReads[floorArm] != 0 {
+		t.Fatalf("the gate asked the upstream cache for a profile")
 	}
 }
 
