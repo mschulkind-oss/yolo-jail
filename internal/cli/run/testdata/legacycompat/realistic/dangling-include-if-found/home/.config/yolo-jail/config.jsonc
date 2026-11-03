@@ -1,0 +1,4 @@
+{
+  "packs": ["git"],
+  "include_if_found": ["work.jsonc"]
+}

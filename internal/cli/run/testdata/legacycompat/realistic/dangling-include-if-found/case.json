@@ -1,0 +1,5 @@
+{
+  "about": "A legacy user config whose include_if_found names a work overlay that a dotfiles manager links on another machine only; on this one the link points at nothing. include_if_found is best effort (the owner's ruling, 2026-11-03, RC-D67), so the launch goes on without it.",
+  "current_only": true,
+  "links": {"home/.config/yolo-jail/work.jsonc": "../../sample-dotfiles/yolo-jail/work.jsonc"}
+}
