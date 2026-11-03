@@ -20,7 +20,11 @@ import (
 //   - user `enabled: true` → the `legacy_enable` kind joins `allow.<pack>.always`, or
 //     `on_request` for a valued kind, whose value only a project can give;
 //   - user `settings.<legacy_setting>: true` (journal's `full`) → that kind joins the same list;
-//   - workspace `enabled: true` → `[requests.<pack>] <kind> = true`;
+//   - workspace `enabled: true` → `[requests.<pack>] <kind> = true`, and the kind in this
+//     launch's ceiling as `on_request`: the switch is the request and its admission (LG-D16),
+//     so the gate's y grants it as the config-change gate's y switched it on;
+//   - a user config already in TOML: its ceiling listing the switch's kind is the old user
+//     switch, so a legacy workspace block's values still request under it (LC-D2);
 //   - switch file `enabled: true` → a grant the record holds (the host-side `yolo loopholes
 //     enable` was the approval), with `on_request` for the kind in the ceiling where the
 //     ceiling does not already admit it;
@@ -116,12 +120,22 @@ func ProjectLegacyLoopholeGrants(in LegacyLoopholeGrantInput) []LegacyLoopholeGr
 			effective = wsOn
 		case userSet:
 			effective = userOn
+		default:
+			// A user config already in TOML spells the old user switch as its ceiling (the
+			// migration's row: `enabled: true` → `[allow.<pack>]`), so a legacy workspace block
+			// that only writes values (`visible`, `allowed_devices`) is on where that ceiling
+			// admits the switch's kind, as it was on under the user's switch (LC-D2).
+			effective = userCeilingAdmitsSwitch(in.User, d)
 		}
 		p := LegacyLoopholeGrants{Pack: d.Pack, Loophole: d.Loophole, Requests: map[string][]string{}}
 		if !effective {
 			continue
 		}
 		switched := switchSet && switchOn
+		// A workspace `enabled: true` is the request AND its admission (LG-D16): the old switch
+		// needed no ceiling, so its kind joins this launch's ceiling as on_request, and the gate's
+		// y grants it as the config-change gate's y switched it on.
+		wsSwitched := !switchSet && wsSet && wsOn
 		// The legacy_enable kind first: a legacy_setting kind is requested where it is.
 		enableRequested := false
 		for _, g := range d.Grants {
@@ -152,6 +166,9 @@ func ProjectLegacyLoopholeGrants(in LegacyLoopholeGrantInput) []LegacyLoopholeGr
 			}
 			p.Requests[g.Kind] = values
 			enableRequested = enableRequested || g.LegacyEnable
+			if wsSwitched && g.LegacyEnable && !slices.Contains(p.Always, g.Kind) {
+				p.OnRequest = appendUnique(p.OnRequest, g.Kind)
+			}
 			if switched {
 				p.Recorded = append(p.Recorded, recordSpelling(g.Kind, values)...)
 				if !g.RequestableByDefault && !slices.Contains(p.Always, g.Kind) {
@@ -183,6 +200,31 @@ func ProjectLegacyLoopholeGrants(in LegacyLoopholeGrantInput) []LegacyLoopholeGr
 		}
 	}
 	return out
+}
+
+// userCeilingAdmitsSwitch is whether the user's readable ceiling, `[allow.<pack>]`'s `always` or
+// `on_request`, lists a kind the legacy switch maps to: the TOML spelling of a user
+// `enabled: true`. A table written "off" admits nothing.
+func userCeilingAdmitsSwitch(user *jsonx.OrderedMap, d LoopholeGrantDeclaration) bool {
+	allow := mapOrNil(getOr(user, "allow", nil))
+	if allow == nil {
+		return false
+	}
+	table := mapOrNil(getOr(allow, d.Pack, nil))
+	if table == nil {
+		return false
+	}
+	for _, g := range d.Grants {
+		if !g.LegacyEnable {
+			continue
+		}
+		for _, list := range []LoopholeCeiling{LoopholeCeilingAlways, LoopholeCeilingOnRequest} {
+			if slices.Contains(stringList(getOr(table, string(list), nil)), g.Kind) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func recordSpelling(kind string, values []string) []string {
@@ -226,7 +268,88 @@ func withLegacyLoopholeGrants(input LoopholeGrantInput, userSrc, wsSrc *Sources,
 		}
 	}
 	rec, _, _ := readLoopholeGrantRecord(workspace)
-	return withLegacyLoopholeGrantsFrom(input, userSrc, wsSrc, switches, wfPath, carriedLoopholeGrants(rec))
+	out, recorded, open := withLegacyLoopholeGrantsFrom(input, userSrc, wsSrc, switches, wfPath, carriedLoopholeGrants(rec))
+	return out, withApprovedLegacyGrants(recorded, input, switches, approvedWorkspaceSnapshot(workspace)), open
+}
+
+// approvedWorkspaceSnapshot is the approval record's config part for workspace, decoded: the
+// workspace config a human's y last approved. nil when there is none or it does not read.
+func approvedWorkspaceSnapshot(workspace string) *jsonx.OrderedMap {
+	text, exists, err := ReadApprovalRecord(workspace)
+	if err != nil || !exists {
+		return nil
+	}
+	parsed, err := jsonx.Decode([]byte(text))
+	if err != nil {
+		return nil
+	}
+	snapshot, _ := parsed.(*jsonx.OrderedMap)
+	return snapshot
+}
+
+// withApprovedLegacyGrants is recorded with the grants an APPROVED legacy workspace switch holds
+// (LG-D16, the §6 row for an approved snapshot): where the workspace config the record approved
+// switches a grant-declaring loophole on, and the workspace still does, the human's y at that
+// launch was the approval, as the config-change gate's y was the switch in v0.15.1. So the
+// requests that switch projects, in the approved file and in the current one alike, read as
+// recorded and the gate asks nothing about them; a value the file added since is still asked.
+// It is the same carry `yolo config migrate` writes into the record (approvedEnables).
+func withApprovedLegacyGrants(recorded map[string][]string, input LoopholeGrantInput, switches map[string]bool, snapshot *jsonx.OrderedMap) map[string][]string {
+	if snapshot == nil {
+		return recorded
+	}
+	var decls []LoopholeGrantDeclaration
+	for _, d := range input.Declarations {
+		if _, decided := switches[d.Loophole]; decided {
+			continue // the switch file decides this loophole, as it outranks the workspace
+		}
+		approvedOn, approvedSet := legacyEnabled(legacyLoopholeBlock(snapshot, d.Loophole))
+		nowOn, nowSet := legacyEnabled(legacyLoopholeBlock(input.Workspace, d.Loophole))
+		if approvedOn && approvedSet && nowOn && nowSet {
+			decls = append(decls, d)
+		}
+	}
+	if len(decls) == 0 {
+		return recorded
+	}
+	then := ProjectLegacyLoopholeGrants(LegacyLoopholeGrantInput{User: input.User, Workspace: snapshot, Declarations: decls})
+	now := ProjectLegacyLoopholeGrants(LegacyLoopholeGrantInput{User: input.User, Workspace: input.Workspace, Declarations: decls})
+	approved := map[string]map[string][]string{}
+	for _, p := range then {
+		approved[p.Pack] = p.Requests
+	}
+	out := map[string][]string{}
+	for k, v := range recorded {
+		out[k] = append([]string(nil), v...)
+	}
+	for _, p := range now {
+		for _, d := range decls {
+			if d.Pack != p.Pack {
+				continue
+			}
+			for _, g := range d.Grants {
+				if !g.LegacyEnable {
+					continue
+				}
+				values, asked := p.Requests[g.Kind]
+				was, approvedAsk := approved[p.Pack][g.Kind]
+				if !asked || !approvedAsk {
+					continue
+				}
+				var kept []string
+				for _, v := range values {
+					if slices.Contains(was, v) {
+						kept = append(kept, v)
+					}
+				}
+				if g.Valued && len(kept) == 0 {
+					continue
+				}
+				out[p.Pack] = appendUnique(out[p.Pack], recordSpelling(g.Kind, kept)...)
+			}
+		}
+	}
+	return out
 }
 
 // withLegacyLoopholeGrantsFrom is withLegacyLoopholeGrants over the given switches (the switch

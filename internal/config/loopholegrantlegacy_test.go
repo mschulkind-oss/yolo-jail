@@ -303,7 +303,8 @@ legacy_values = "visible"
 
 // Through the real load and `yolo check`'s validator, with the pack's real manifest: a legacy
 // workspace file's `enabled` and `visible` read as a request (no "switched it on" line, no
-// "no such setting" refusal), and a request the ceiling leaves out is named with its command.
+// "no such setting" refusal) and as its admission (LG-D16): the user's config, which never
+// allowed the kind, is not named as a step, since the old switch needed no ceiling.
 func TestLegacyWorkspaceSwitchReadsAsARequestThroughTheValidator(t *testing.T) {
 	_, cfgDir := sourcesHome(t)
 	useGrantFixturePacks(t, map[string]string{"procs": grantFixtureLegacyProcs})
@@ -325,8 +326,8 @@ func TestLegacyWorkspaceSwitchReadsAsARequestThroughTheValidator(t *testing.T) {
 	if hits := containing(warns, "switched it on"); len(hits) != 0 {
 		t.Fatalf("the workspace switch was disclosed as switching the loophole on: %q", hits)
 	}
-	if hits := containing(warns, "this project requests procs view postgres", "yolo allow procs on_request view"); len(hits) != 1 {
-		t.Fatalf("warnings = %q, want the skipped request named with its command", warns)
+	if hits := containing(warns, "yolo allow procs on_request view"); len(hits) != 0 {
+		t.Fatalf("a legacy workspace switch asked the user for a `yolo allow` line: %q", hits)
 	}
 }
 
@@ -379,12 +380,12 @@ func TestLegacyAudioSwitchReadsAsTheUseGrant(t *testing.T) {
 	}
 	const line = "  + audio: use your microphone and speakers"
 
-	// `use` is not requestable by default, so a workspace switch alone is a request the user's
-	// config does not allow: the gate shows the step, and nothing is granted.
+	// `use` is not requestable by default, but a workspace switch is the request AND its
+	// admission (LG-D16): the old switch needed no ceiling, so the gate shows the request and its
+	// y grants it, with no `yolo allow` asked of the user.
 	ws := approvalWorkspace(t)
 	writeLegacyWorkspaceConfig(t, ws, `{"loopholes": {"audio": {"enabled": true}}}`)
-	requireGrantLine(t, grantGate(t, ws, lps),
-		"  – audio: use (not allowed on request by your config: yolo allow audio on_request use)")
+	requireGrantLinePrefix(t, grantGate(t, ws, lps), line+" (requested by ")
 	useStanding := func(ws string) LoopholeGrantStanding {
 		t.Helper()
 		read, err := ReadWorkspaceForGate(ws)
@@ -393,8 +394,8 @@ func TestLegacyAudioSwitchReadsAsTheUseGrant(t *testing.T) {
 		}
 		return WithLoopholeGrants(nil, ws, read, lps).LoopholeGrantStandings(ws)["audio"]["use"]
 	}
-	if got := useStanding(ws); got.Standing != LoopholeGrantNotAllowed {
-		t.Fatalf("a workspace switch alone reads %+v; want not_allowed", got)
+	if got := useStanding(ws); got.Standing != LoopholeGrantGranted {
+		t.Fatalf("after the y, a workspace switch alone reads %+v; want granted", got)
 	}
 
 	// With the user's ceiling allowing it on request, the same switch is the request, named by
@@ -487,4 +488,79 @@ func requireGrantLinePrefix(t *testing.T, report *ChangeReport, prefix string) {
 		}
 	}
 	t.Fatalf("grant block has no line starting %q:\n%s", prefix, strings.Join(report.GrantBlock, "\n"))
+}
+
+// LG-D16: a legacy workspace `enabled: true` is the request AND its admission. With a user
+// config that allows nothing on request, the switch's kind still joins this launch's ceiling, so
+// the gate shows the request (not a skipped line naming `yolo allow`) and its y grants it, for a
+// valued kind with the values the old settings gave.
+func TestALegacyWorkspaceSwitchGrantsWithoutACeilingLine(t *testing.T) {
+	ws := approvalWorkspace(t)
+	writeGrantUserConfig(t, "packs = []\n")
+	writeLegacyWorkspaceConfig(t, ws, `{"loopholes": {"procs": {"enabled": true, "settings": {"visible": ["postgres"]}}}}`)
+	report := grantGate(t, ws, legacyGrantFixture())
+	requireGrantLinePrefix(t, report, "  + procs: see postgres (requested by ")
+	for _, l := range report.GrantBlock {
+		if strings.Contains(l, "yolo allow") {
+			t.Fatalf("the gate asked the user for a ceiling line: %q", l)
+		}
+	}
+	got := legacyStandings(t, ws)["procs"]["view"]
+	if got.Standing != LoopholeGrantGranted || strings.Join(got.Values, ",") != "postgres" {
+		t.Fatalf("after the y, view reads %+v; want granted postgres", got)
+	}
+}
+
+// LG-D16: a workspace file the approval record already approved (an older yolo's y, which recorded
+// the config and no grant part) carries its switch's grant and prompts nothing; a value the file
+// added since is still asked about.
+func TestAnApprovedLegacyWorkspaceSwitchPromptsNothing(t *testing.T) {
+	ws := approvalWorkspace(t)
+	body := `{"loopholes": {"journal": {"enabled": true}, "procs": {"enabled": true, "settings": {"visible": ["postgres"]}}}}`
+	writeLegacyWorkspaceConfig(t, ws, body)
+	approve(t, ws, decode(t, body))
+	if got := grantGate(t, ws, legacyGrantFixture()); asksAboutGrants(got) {
+		t.Fatalf("an approved legacy workspace was asked about its grants: %+v", got.GrantBlock)
+	}
+	standings := legacyStandings(t, ws)
+	if got := standings["journal"]["read"]; got.Standing != LoopholeGrantGranted {
+		t.Fatalf("journal read reads %+v; want granted", got)
+	}
+	if got := standings["procs"]["view"]; got.Standing != LoopholeGrantGranted || strings.Join(got.Values, ",") != "postgres" {
+		t.Fatalf("procs view reads %+v; want granted postgres", got)
+	}
+
+	// The file changes: the new value is a request the gate asks about; the approved one is not.
+	ws2 := approvalWorkspace(t)
+	writeLegacyWorkspaceConfig(t, ws2, body)
+	approve(t, ws2, decode(t, body))
+	writeLegacyWorkspaceConfig(t, ws2, `{"loopholes": {"procs": {"enabled": true, "settings": {"visible": ["postgres", "redis-server"]}}}}`)
+	report := grantGate(t, ws2, legacyGrantFixture())
+	requireGrantLinePrefix(t, report, "  + procs: see redis-server (requested by ")
+	for _, l := range report.GrantBlock {
+		if strings.HasPrefix(l, "  + procs: see postgres") {
+			t.Fatalf("the approved value was asked again: %q", l)
+		}
+	}
+}
+
+// LC-D2: under a user config already in TOML, whose ceiling is the migration's spelling of the old
+// user switch, a legacy workspace block that writes only values still requests them, as it did
+// under the user's switch.
+func TestALegacyWorkspaceValueListRequestsUnderATOMLCeiling(t *testing.T) {
+	ws := approvalWorkspace(t)
+	writeGrantUserConfig(t, "[allow.procs]\non_request = [\"view\"]\n")
+	writeLegacyWorkspaceConfig(t, ws, `{"loopholes": {"procs": {"settings": {"visible": ["postgres"]}}}}`)
+	requireGrantLinePrefix(t, grantGate(t, ws, legacyGrantFixture()), "  + procs: see postgres (requested by ")
+	if got := legacyStandings(t, ws)["procs"]["view"]; got.Standing != LoopholeGrantGranted {
+		t.Fatalf("view reads %+v; want granted", got)
+	}
+
+	// With no ceiling naming the kind, the values alone switch nothing on: no access gained.
+	ws = approvalWorkspace(t)
+	writeGrantUserConfig(t, "packs = []\n")
+	writeLegacyWorkspaceConfig(t, ws, `{"loopholes": {"procs": {"settings": {"visible": ["postgres"]}}}}`)
+	if got := grantGate(t, ws, legacyGrantFixture()); asksAboutGrants(got) {
+		t.Fatalf("values with no switch anywhere were asked about: %+v", got.GrantBlock)
+	}
 }

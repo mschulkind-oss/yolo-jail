@@ -313,25 +313,29 @@ func TestABrokeredLoopholeHasNoSwitch(t *testing.T) {
 			}
 		}
 	})
+	// The per-workspace file is yolo's own, so yolo cleans an old switch out of it rather than
+	// asking the user to (LC-D7): TestAStaleBrokerSwitchIsRemovedAndKeepsItsReadGrant.
 	t.Run("per-workspace file", func(t *testing.T) {
 		_, _, ws := workspaceFileHome(t, "app")
-		if _, err := SetWorkspaceLoophole(ws, "github-broker", true); err != nil {
+		path, err := SetWorkspaceLoophole(ws, "github-broker", false)
+		if err != nil {
 			t.Fatal(err)
 		}
 		errs, warns := validate(ws)
 		if errs != "" {
-			t.Errorf("the per-workspace file's old switch was refused, not ignored:\n%s", errs)
+			t.Errorf("the per-workspace file's old switch was refused:\n%s", errs)
 		}
-		for _, want := range []string{"loopholes.github-broker.enabled (on) is ignored", "brokered.github.grants",
-			"yolo config apply", "`yolo loopholes disable github-broker --workspace " + ws + "`"} {
-			if !strings.Contains(warns, want) {
-				t.Errorf("the ignored switch's note does not say %q:\n%s", want, warns)
-			}
+		want := "Removed the old github-broker switch from " + path + "; it was off, and this workspace holds no grant from it"
+		if !strings.Contains(warns, want) || strings.Contains(warns, "yolo loopholes disable") {
+			t.Errorf("the note does not say %q, or still hands the user a command:\n%s", want, warns)
+		}
+		if got := CarriedBrokerGrants(ws, "github"); len(got) != 0 {
+			t.Errorf("a switch that was off carried %v", got)
 		}
 	})
 	t.Run("no per-workspace switch, no note", func(t *testing.T) {
 		_, _, ws := workspaceFileHome(t, "app")
-		if _, warns := validate(ws); strings.Contains(warns, "is ignored") {
+		if _, warns := validate(ws); strings.Contains(warns, "switch from") {
 			t.Errorf("a note with no old switch:\n%s", warns)
 		}
 	})

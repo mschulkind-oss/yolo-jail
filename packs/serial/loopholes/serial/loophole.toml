@@ -42,10 +42,14 @@ legacy_default_values = [
 
 # `default_baud` is frozen at launch: yolo resolves it once and writes it to the file {settings}
 # names, so a change needs a restart (OQ-K3). It is `user` scope: how the host's hardware is
-# driven is the user's to say, not the agent's (docs/reference/loophole-grants.md §4.3).
+# driven is the user's to say, not the agent's (docs/reference/loophole-grants.md §4.3). A baud
+# rate admits nothing, so a legacy JSONC project file's value, which v0.15.1 took, is read as the
+# user's for that launch and disclosed (`legacy_workspace`, docs/design/legacy-config-compat.md
+# LC-D2).
 [settings.default_baud]
 type = "int"
 scope = "user"
+legacy_workspace = true
 default = 115200
 description = "Default baud rate for serial connections"
 

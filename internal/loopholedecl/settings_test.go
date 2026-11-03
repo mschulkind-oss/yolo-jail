@@ -92,6 +92,35 @@ func TestSettingScopeDefaultsToUser(t *testing.T) {
 	}
 }
 
+// TestRequestScopeAndLegacyWorkspaceDecode pins the two declarations a project's value rides on:
+// `scope = "request"` (LG-D15), and `legacy_workspace` on a user setting (LC-D2), which a
+// request-scope setting refuses since it already takes a project's value, and which must be a
+// boolean.
+func TestRequestScopeAndLegacyWorkspaceDecode(t *testing.T) {
+	m, err := loopholedecl.Decode(settingsManifest(t, map[string]any{
+		"columns": map[string]any{"type": "string_list", "scope": "request"},
+		"baud":    map[string]any{"type": "int", "legacy_workspace": true},
+	}, nil), "/loopholes/acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := loopholedecl.SettingByKey(m.Settings, "columns"); got.Scope != loopholedecl.SettingScopeRequest || got.LegacyWorkspace {
+		t.Errorf("columns = %+v, want request scope", got)
+	}
+	if got, _ := loopholedecl.SettingByKey(m.Settings, "baud"); got.Scope != loopholedecl.SettingScopeUser || !got.LegacyWorkspace {
+		t.Errorf("baud = %+v, want user scope with legacy_workspace", got)
+	}
+	for _, bad := range []map[string]any{
+		{"type": "string_list", "scope": "request", "legacy_workspace": true},
+		{"type": "int", "legacy_workspace": "yes"},
+	} {
+		if _, err := loopholedecl.Decode(settingsManifest(t, map[string]any{"k": bad}, nil), "/loopholes/acme"); err == nil ||
+			!strings.Contains(err.Error(), "legacy_workspace") {
+			t.Errorf("%v decodes (err %v), want a refusal naming legacy_workspace", bad, err)
+		}
+	}
+}
+
 // TestSettingDefaultsToTypeZeroWhenUndeclared pins TOTALITY: every declared key ends
 // up in the settings file, so a daemon never has to distinguish "absent" from
 // "false". A nil here would put that distinction back.

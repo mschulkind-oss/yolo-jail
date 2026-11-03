@@ -393,8 +393,9 @@ func TestShippedHostProcessesFields(t *testing.T) {
 	}
 	// The SETTINGS half, pinned together with the argv that consumes it: the {settings}
 	// token resolves to the grant file yolo writes from these declarations and the grant
-	// block. `fields` is the one setting left, and it is `user` scope: which columns of the
-	// host's process table cross into the jail is the user's to say, not the agent's.
+	// block. `fields` is the one setting left, and it is `request` scope (LG-D15): the user's
+	// list is every project's default, and a project's own list, approved at the gate,
+	// replaces it there, since a project drops `args` per project.
 	if len(m.Settings) != 1 {
 		t.Fatalf("settings = %+v, want only `fields` — `visible` became the view grant", m.Settings)
 	}
@@ -402,7 +403,7 @@ func TestShippedHostProcessesFields(t *testing.T) {
 		key, typ, scope string
 		def             any
 	}{
-		{"fields", loopholedecl.SettingTypeStringList, loopholedecl.SettingScopeUser,
+		{"fields", loopholedecl.SettingTypeStringList, loopholedecl.SettingScopeRequest,
 			[]string{"pid", "comm", "args", "etime", "%cpu", "%mem", "rss"}},
 	} {
 		got, ok := loopholedecl.SettingByKey(m.Settings, want.key)
@@ -603,13 +604,14 @@ func TestShippedSerialFields(t *testing.T) {
 	if !reflect.DeepEqual(m.Grants, wantGrants) {
 		t.Errorf("grants = %+v\nwant     %+v", m.Grants, wantGrants)
 	}
-	// `default_baud` is the one setting left, and it is `user` scope.
+	// `default_baud` is the one setting left, and it is `user` scope, with a legacy project
+	// file's value read as the user's (LC-D2): a baud rate admits nothing.
 	if len(m.Settings) != 1 {
 		t.Fatalf("settings = %+v, want only `default_baud` — `allowed_devices` became the devices grant", m.Settings)
 	}
 	baud, ok := loopholedecl.SettingByKey(m.Settings, "default_baud")
-	if !ok || baud.Type != loopholedecl.SettingTypeInt || baud.Scope != loopholedecl.SettingScopeUser {
-		t.Errorf("settings.default_baud = %+v, ok=%v; want an int, user scope", baud, ok)
+	if !ok || baud.Type != loopholedecl.SettingTypeInt || baud.Scope != loopholedecl.SettingScopeUser || !baud.LegacyWorkspace {
+		t.Errorf("settings.default_baud = %+v, ok=%v; want an int, user scope, legacy_workspace", baud, ok)
 	}
 }
 

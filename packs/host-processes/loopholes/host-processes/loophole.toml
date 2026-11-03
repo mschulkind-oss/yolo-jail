@@ -62,12 +62,13 @@ legacy_values = "visible"
 
 # The loophole owns its config keys (docs/reference/pack-system.md); core's schema names none.
 # `fields` is frozen at launch: yolo resolves it once and writes it to the file {settings} names,
-# so a change needs a restart (OQ-K3). It is `user` scope: which columns of the host's process
-# table cross into the jail is the user's to say, not the agent's
-# (docs/reference/loophole-grants.md §4.3).
+# so a change needs a restart (OQ-K3). It is `request` scope (docs/reference/loophole-grants.md
+# §4.3, LG-D15): the user's `[allow.host-processes] fields` is every project's default, and a
+# project asks for its own columns under `[requests.host-processes]`, which replace the user's
+# there and reach the jail only through the config-change gate's y.
 [settings.fields]
 type = "string_list"
-scope = "user"
+scope = "request"
 # The `ps -o` column list. Declared here rather than left to the daemon's DefaultFields so that
 # `yolo config dump` and the settings file show what is in force. The daemon keeps the same list as
 # its fallback for a settings file it cannot read.

@@ -166,7 +166,8 @@ func validateLoopholes(config *jsonx.OrderedMap, workspace string, resolver Loop
 		// --- NO SWITCH (docs/design/boundary-broker.md BB-D106, BB-D109): a brokered loophole
 		// runs whenever its pack is selected, so the user config's switch for it is refused here,
 		// the workspace files' below, and the per-workspace file's, which a previous yolo wrote,
-		// is ignored with a note naming the grant that replaces it.
+		// is taken out of that file, its read grant carried for the workspace, and said once
+		// (carryStaleBrokerSwitch; docs/design/legacy-config-compat.md LC-D7, OQ-LC2).
 		if brokered {
 			if !userBlockRead {
 				if len(edit) != 0 && edit[0] != nil {
@@ -181,7 +182,7 @@ func validateLoopholes(config *jsonx.OrderedMap, workspace string, resolver Loop
 			if msg := brokeredUserSwitchRefusalWithSources(name, *infoPtr.Brokered, userBlock, validationUserSources(edit...)); msg != "" {
 				add(errs, msg)
 			}
-			if note := staleBrokerSwitchNote(name, *infoPtr.Brokered, wsFile); note != "" {
+			if note := carryStaleBrokerSwitch(name, *infoPtr.Brokered, workspace, wsFile); note != "" {
 				add(warns, note)
 			}
 		}
@@ -236,6 +237,9 @@ func validateLoopholes(config *jsonx.OrderedMap, workspace string, resolver Loop
 				// error here would refuse every nested launch over the same file.
 				for _, viol := range loopholeSettingsScopeViolations(name, e.spec, e.file, infoPtr) {
 					scoped(e.locate(viol))
+				}
+				for _, note := range legacyWorkspaceSettingNotes(name, e.spec, e.file, infoPtr) {
+					add(warns, e.locate(note))
 				}
 				if brokered {
 					if viol := brokeredWorkspaceSwitchRefusal(name, *infoPtr.Brokered, e.file, e.spec); viol != "" {
@@ -578,27 +582,6 @@ func brokeredWorkspaceSwitchRefusal(name string, broker loopholedecl.Brokered, s
 	return "config.loopholes." + name + ".enabled: " + pytext.Repr(name) + " has no switch: it runs whenever " +
 		"the pack that ships it is selected, and grants nothing until the user's config does, never " + srcFile +
 		", a file an agent can edit. Remove this key. " + BrokerGrantAdviceFor(broker)
-}
-
-// staleBrokerSwitchNote is the note for a brokered loophole's switch a previous yolo wrote into
-// the per-workspace file (`yolo loopholes enable`), "" when the file holds none for it. The switch
-// is ignored (BB-D109): the broker runs because its pack is selected, and the read access that
-// switch used to give now takes a grant, which the note names along with the command that takes
-// the old switch out.
-func staleBrokerSwitchNote(name string, broker loopholedecl.Brokered, wsFile *WorkspaceFile) string {
-	v, set := wsFile.LoopholeSwitch(name)
-	if !set {
-		return ""
-	}
-	was := "on"
-	if !v {
-		was = "off"
-	}
-	return wsFile.Path + ": loopholes." + name + ".enabled (" + was + ") is ignored: " + pytext.Repr(name) +
-		" no longer has a per-workspace switch. It runs whenever its pack is selected, and grants nothing " +
-		"until your config does, so the fetches the switch used to allow are refused. " +
-		BrokerGrantAdviceFor(broker) + " Take the old switch out with `yolo loopholes disable " + name +
-		" --workspace " + shquote.QuoteDisplay(wsFile.Workspace) + "`."
 }
 
 // userInstalledInline reports whether the merged entry carries a `command`

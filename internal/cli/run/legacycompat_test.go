@@ -58,7 +58,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/configdoc"
 	"github.com/mschulkind-oss/yolo-jail/internal/configmigrate"
-	"github.com/mschulkind-oss/yolo-jail/internal/json5"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
@@ -90,17 +89,13 @@ var ruledLegacyRefusals = []legacyBreak{
 // knownLegacyBreaks is every way a config that worked in v0.15.1 fails today. It only shrinks.
 var knownLegacyBreaks = []legacyBreak{
 	// The launch's config gate refuses what v0.15.1 accepted.
-	{"loophole/host-processes/settings.fields/workspace", "load", "host-processes.settings.fields: user-scope only",
-		"pending fix: lc-hostproc-fields-scope (fields moved from workspace to user scope)"},
-	{"realistic/*", "load", "host-processes.settings.fields: user-scope only",
-		"pending fix: lc-hostproc-fields-scope (fields moved from workspace to user scope)"},
-	{"loophole/serial/settings.default_baud/workspace", "load", "serial.settings.default_baud: user-scope only",
-		"pending fix: lc-serial-baud-scope (default_baud moved from workspace to user scope)"},
-
 	// The jail crossing refuses a TOML user config beside a legacy workspace loophole switch.
 	{"loophole/*/workspace", "inherit", "mixes a TOML file and a legacy JSONC file",
 		"pending fix: lc-inherit-mixed-format"},
 	{"realistic/toml-user-legacy-ws-journal", "inherit", "mixes a TOML file and a legacy JSONC file",
+		"pending fix: lc-inherit-mixed-format"},
+	// Reached once its load stopped refusing the project's `fields` (LG-D15).
+	{"realistic/owner-shaped-toml", "inherit", "mixes a TOML file and a legacy JSONC file",
 		"pending fix: lc-inherit-mixed-format"},
 
 	// The migration (the launch's offer, and the conversion a TOML cell needs) cannot convert a
@@ -131,15 +126,13 @@ var knownLegacyBreaks = []legacyBreak{
 		"pending fix: lc-migrate-ws-loophole-switch"},
 	{"realistic/*", "migrate-*", "project config: loopholes - ",
 		"pending fix: lc-migrate-ws-loophole-switch"},
+	{"loophole/*/workspace", "migrate-offer", "the loophole grants each workspace holds",
+		"pending fix: lc-migrate-ws-loophole-switch (under a TOML user config the converted workspace needs the on_request ceiling line LG-D16 names)"},
 
-	// The config launches, but means less than it did: a legacy switch no longer grants the access
-	// it gave, so the launch asks (pending), needs a request (requestable) or refuses it.
-	{"loophole/*", "meaning", `is "pending", v0.15.1 allowed it`,
-		"pending fix: lc-legacy-switch-grants (a user-scope switch projects to a grant the launch still asks for)"},
-	{"loophole/*", "meaning", `is "requestable", v0.15.1 allowed it`,
-		"pending fix: lc-legacy-switch-grants (a user-scope switch of a valued grant projects to on_request, which nothing requests)"},
-	{"loophole/*", "meaning", `is "not_allowed", v0.15.1 allowed it`,
-		"pending fix: lc-legacy-switch-grants (a workspace or per-workspace-file switch projects to a request the user config does not allow)"},
+	// The config launches, but means less than it did: a user switch of a valued grant reads as
+	// on_request under a TOML user config, and TOML has no spelling for the user-sourced request.
+	{"loophole/serial/enabled/user", "meaning", `is "requestable", v0.15.1 allowed it`,
+		"pending fix: lc-migrate-user-loophole-switch (the converted user ceiling lists on_request, which nothing requests)"},
 }
 
 const legacyCompatDir = "testdata/legacycompat"
@@ -522,9 +515,12 @@ func writeLegacyWorkspaceFile(t *testing.T, ws, name string, on bool) {
 //   - a loophole v0.15.1 started through the per-workspace file whose broker needs a read grant
 //     must hold one.
 //
-// A grant is the same meaning when it is granted, or pending when the legacy switch was in the
-// workspace's own config: v0.15.1's config-change prompt asked about that file too, and the
-// current gate asks the same question once.
+// A grant is the same meaning when it is granted, or pending when the legacy line that gave it was
+// in a config file (the workspace's own, or the user's): pending is requested and admitted, so the
+// gate's y grants it. For the workspace's file v0.15.1's config-change prompt asked the same
+// question; for the user's, one y per project is the owner's rule for a user-wide grant (LG-D12,
+// docs/design/legacy-config-compat.md LC-D2), the one host step P4 allows. A switch in the
+// per-workspace file was the human's own host command, so it must be granted outright.
 func meaningMismatches(o *Options, cfg *jsonx.OrderedMap, c legacyCase) []string {
 	var out []string
 	set := loopholes.NewHostSet(cfgMap(cfg, "loopholes"))
@@ -556,7 +552,6 @@ func meaningMismatches(o *Options, cfg *jsonx.OrderedMap, c legacyCase) []string
 	for _, name := range want.Enabled {
 		started[name] = true
 	}
-	wsSwitched := workspaceSwitched(c)
 	for _, name := range want.Enabled {
 		lp := running[name]
 		if lp == nil {
@@ -582,8 +577,15 @@ func meaningMismatches(o *Options, cfg *jsonx.OrderedMap, c legacyCase) []string
 				expect = legacySettings[g.LegacySetting] == true
 			}
 			st := standings[name][g.Kind]
+			if expect && g.Valued && g.LegacyValues != "" {
+				if v, ok := legacySettings[g.LegacyValues].([]any); ok && len(v) == 0 {
+					// v0.15.1 ran it on an empty list, which showed nothing (host-processes'
+					// `visible: []` exits "empty allowlist"): no access then, none now.
+					continue
+				}
+			}
 			granted := st.Standing == config.LoopholeGrantGranted ||
-				(wsSwitched[name] && st.Standing == config.LoopholeGrantPending)
+				(legacySwitchInConfig(c, name) && st.Standing == config.LoopholeGrantPending)
 			switch {
 			case expect && !granted:
 				out = append(out, fmt.Sprintf("%s: grant %q is %q, v0.15.1 allowed it (%s)", name, g.Kind,
@@ -591,7 +593,8 @@ func meaningMismatches(o *Options, cfg *jsonx.OrderedMap, c legacyCase) []string
 			case !expect && st.Standing == config.LoopholeGrantGranted:
 				out = append(out, fmt.Sprintf("%s: grant %q is granted, v0.15.1 did not allow it", name, g.Kind))
 			}
-			if expect && granted && g.Valued {
+			// A current_only case recorded no v0.15.1 values to compare against.
+			if expect && granted && g.Valued && c.V0151 != nil {
 				wantVals := g.LegacyDefaultValues
 				if v, ok := legacySettings[g.LegacyValues].([]any); ok && g.LegacyValues != "" {
 					wantVals = toStrings(v)
@@ -675,38 +678,11 @@ func brokerHolds(check *config.ScopeCheck, source, kind string) bool {
 	return false
 }
 
-// workspaceSwitched is the loopholes the case's own workspace config switched on.
-func workspaceSwitched(c legacyCase) map[string]bool {
-	out := map[string]bool{}
-	dir, err := os.MkdirTemp("", "legacycompat-ws-")
-	if err != nil {
-		return out
-	}
-	defer os.RemoveAll(dir)
-	c.write(nil, dir)
-	body, err := os.ReadFile(filepath.Join(dir, "ws", "yolo-jail.jsonc"))
-	if err != nil {
-		return out
-	}
-	v, err := json5.Decode(body)
-	if err != nil {
-		return out
-	}
-	doc, _ := v.(*jsonx.OrderedMap)
-	block := cfgMap(doc, "loopholes")
-	if block == nil {
-		return out
-	}
-	for _, name := range block.Keys() {
-		entry := cfgMap(block, name)
-		if entry == nil {
-			continue
-		}
-		if v, _ := entry.Get("enabled"); v == true {
-			out[name] = true
-		}
-	}
-	return out
+// legacySwitchInConfig is whether the line that switched name on in v0.15.1 was in a config file
+// (the user's or the workspace's), not in the per-workspace file `yolo loopholes enable` wrote.
+func legacySwitchInConfig(c legacyCase, name string) bool {
+	_, inFile := c.WorkspaceFile[name]
+	return !inFile
 }
 
 // legacyGrantWhy names the legacy spelling a grant maps from.

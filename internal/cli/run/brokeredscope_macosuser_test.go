@@ -12,7 +12,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
-	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // brokerLaunch is one launch of a workspace with a GitHub remote, through Run itself, with the
@@ -143,17 +142,30 @@ func TestASelectedBrokerPackPutsTheBrokerInPlay(t *testing.T) {
 			t.Errorf("the gate does not show the user config's read grant:\n%s", l.out)
 		}
 	})
+	// The per-workspace file is yolo's own, so the launch takes an old switch out of it and says
+	// so once, with no command for the user (LC-D7). One that was on becomes the read grant it
+	// gave this workspace (OQ-LC2), which the gate shows as carried and its y approves, as every
+	// admission is; one that was off gave nothing.
 	for _, v := range []string{"true", "false"} {
 		t.Run("an old per-workspace switch, "+v, func(t *testing.T) {
 			home, ws, run := launchWithGitHub(t, "")
 			writeWorkspaceSwitch(t, home, ws, `{"workspace": "`+ws+`", "loopholes": {"github-broker": {"enabled": `+v+`}}}`)
 			l := run()
-			notAsked(t, l)
-			for _, want := range []string{"loopholes.github-broker.enabled", "is ignored", "`yolo allow github read`",
-				"`yolo loopholes disable github-broker --workspace " + shquote.QuoteDisplay(ws) + "`"} {
-				if !strings.Contains(l.out, want) {
-					t.Errorf("the launch does not note the ignored switch with %q:\n%s", want, l.out)
+			const removed = "Removed the old github-broker switch from "
+			want := ""
+			if v == "true" {
+				asked(t, l)
+				want2 := "+ grant read *  added (carried from an older yolo's switch, for this workspace)"
+				if !strings.Contains(l.out, want2) {
+					t.Errorf("the gate does not show the carried read grant %q:\n%s", want2, l.out)
 				}
+				want = "; this workspace keeps the read grant it gave"
+			} else {
+				notAsked(t, l)
+				want = "; it was off, and this workspace holds no grant from it"
+			}
+			if !strings.Contains(l.out, removed) || !strings.Contains(l.out, want) || strings.Contains(l.out, "yolo loopholes disable") {
+				t.Errorf("the launch does not say %q, or hands the user a command:\n%s", want, l.out)
 			}
 		})
 	}

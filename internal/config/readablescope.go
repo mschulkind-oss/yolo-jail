@@ -105,6 +105,7 @@ func readableScopeCheckWithSettings(workspace string, brokers []ScopeBroker, rea
 			userOrigins[key] = files
 		}
 	}
+	user, carriedRead := withCarriedBrokerRead(workspace, user, declarations)
 	workspaceOrigins := readableWorkspaceOrigins(read.Config, read.sources)
 	plan, err := ResolveReadableAllowance(ReadableAllowanceInput{
 		User: user, Workspace: read.Config, SelectedPacks: selectedPacks, Declarations: declarations,
@@ -121,7 +122,79 @@ func readableScopeCheckWithSettings(workspace string, brokers []ScopeBroker, rea
 		return readableScopeFailure(workspace, brokers, err), true
 	}
 	applyLegacyReadableWorkspace(read, user, brokers, &gate)
-	return scopeCheckFromReadable(workspace, brokers, gate), true
+	check := scopeCheckFromReadable(workspace, brokers, gate)
+	markCarriedBrokerRead(check, carriedRead)
+	return check, true
+}
+
+// withCarriedBrokerRead is user with each declared broker's read capability in
+// `allow.<source>.always` where workspace's approval record carries the read grant an older yolo's
+// switch gave it (carryStaleBrokerSwitch, LC-D7) and the user's own config does not already allow
+// the read, and the sources it added it for. A copy: the user config a caller holds is untouched,
+// and a table the user wrote as other than a table is left as their word.
+func withCarriedBrokerRead(workspace string, user *jsonx.OrderedMap, declarations []ReadableBrokerDeclaration) (*jsonx.OrderedMap, map[string]bool) {
+	var added map[string]bool
+	for _, d := range declarations {
+		source, capability := d.Brokered.Source, d.ReadCapability
+		if capability == "" || readableUserAllowsEither(user, source, capability) ||
+			!brokerscope.HoldsRead(CarriedBrokerGrants(workspace, source)) {
+			continue
+		}
+		top := getOr(user, "allow", nil)
+		allow := mapOrNil(top)
+		if top != nil && allow == nil {
+			continue // the resolver reports an `allow` that is not a table
+		}
+		var existing any
+		has := false
+		if allow != nil {
+			existing, has = allow.Get(source)
+		}
+		if has && mapOrNil(existing) == nil {
+			continue
+		}
+		if added == nil {
+			added = map[string]bool{}
+			user = shallowCopyMap(user)
+		}
+		allow = shallowCopyMap(mapOrNil(getOr(user, "allow", nil)))
+		table := shallowCopyMap(mapOrNil(existing))
+		addToList(table, string(LoopholeCeilingAlways), []string{capability})
+		allow.Set(source, table)
+		user.Set("allow", allow)
+		added[source] = true
+	}
+	return user, added
+}
+
+// markCarriedBrokerRead says, on the gate line of each read grant withCarriedBrokerRead admitted,
+// that it is carried for this workspace, not the user config's grant for every workspace.
+func markCarriedBrokerRead(check *ScopeCheck, carried map[string]bool) {
+	if check == nil || len(carried) == 0 {
+		return
+	}
+	for i := range check.Sources {
+		s := &check.Sources[i]
+		if !carried[s.Source] {
+			continue
+		}
+		kept := s.UserGrants[:0]
+		for _, g := range s.UserGrants {
+			if g.Kind != brokerscope.KindRead {
+				kept = append(kept, g)
+			}
+		}
+		s.UserGrants = kept
+		for _, g := range s.Grants {
+			if g.Kind != brokerscope.KindRead {
+				continue
+			}
+			if s.GrantOrigins == nil {
+				s.GrantOrigins = map[string]string{}
+			}
+			s.GrantOrigins[g.String()] = carriedBrokerGrantOrigin
+		}
+	}
 }
 
 func sameReadableBrokerMetadata(a, b ReadableBrokerDeclaration) bool {

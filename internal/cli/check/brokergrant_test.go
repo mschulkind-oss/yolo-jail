@@ -12,7 +12,7 @@ import (
 // Host `yolo check` says up front what a selected pack's broker may do (docs/design/boundary-broker.md
 // BB-D108, BB-D109, BB-D110): with no read grant in the user config, a plain note, never a
 // warning, that it grants nothing, naming the grant; with the grant, no note; and a switch a previous yolo wrote into the per-workspace
-// file is reported as ignored, naming the grant and the command that takes it out.
+// file is taken out of it, its read grant kept for the workspace (docs/design/legacy-config-compat.md LC-D7).
 func TestCheckSaysUpFrontWhatASelectedBrokerGrants(t *testing.T) {
 	const note = "loophole gb is selected and grants nothing"
 	t.Run("no grant", func(t *testing.T) {
@@ -46,10 +46,15 @@ func TestCheckSaysUpFrontWhatASelectedBrokerGrants(t *testing.T) {
 			_, err := config.SetWorkspaceLoophole(w, "gb", true)
 			must(t, err)
 		}, onTheHost)
-		for _, want := range []string{"loopholes.gb.enabled (on) is ignored", "`yolo loopholes disable gb --workspace "} {
+		// yolo's own file, so yolo takes the switch out and keeps the read grant it gave this
+		// workspace, said once, with no command for the user (LC-D7, OQ-LC2).
+		for _, want := range []string{"Removed the old gb switch from ", "this workspace keeps the read grant it gave"} {
 			if !strings.Contains(out, want) {
 				t.Errorf("yolo check does not say %q:\n%s", want, out)
 			}
+		}
+		if strings.Contains(out, "yolo loopholes disable") {
+			t.Errorf("yolo check still hands the user a command for yolo's own file:\n%s", out)
 		}
 	})
 }

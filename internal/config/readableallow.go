@@ -907,7 +907,8 @@ func ProjectReadableLegacyPack(mapping ReadableLegacyPackMapping, values []Reada
 		}
 		switch value.OriginScope {
 		case "user":
-			if setting.Scope != loopholedecl.SettingScopeUser && setting.Scope != loopholedecl.SettingScopeWorkspace {
+			if setting.Scope != loopholedecl.SettingScopeUser && setting.Scope != loopholedecl.SettingScopeWorkspace &&
+				setting.Scope != loopholedecl.SettingScopeRequest {
 				projection.Differences = append(projection.Differences, fmt.Sprintf("legacy user setting %q has no user-scope projection", value.Key))
 				continue
 			}

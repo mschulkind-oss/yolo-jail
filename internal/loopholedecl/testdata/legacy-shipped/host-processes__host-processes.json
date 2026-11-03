@@ -16,7 +16,7 @@
   "settings": {
     "fields": {
       "type": "string_list",
-      "scope": "user",
+      "scope": "request",
       "default": [
         "pid",
         "comm",

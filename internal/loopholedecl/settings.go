@@ -65,12 +65,20 @@ var validSettingTypes = []string{
 // SettingScopeWorkspace is RETIRED in a manifest (LG-D5): parseSettings refuses it by name. The
 // constant stays because the config validator still classifies the in-memory declarations it is
 // handed, and a declaration built in code may carry it.
+//
+// SettingScopeRequest is a request-scope setting (docs/reference/loophole-grants.md §4.3,
+// LG-D15): the user sets it under `[allow.<pack>]` as every project's default, and a project may
+// ask for its own value under `[requests.<pack>]` (a legacy `loopholes.<name>.settings` in a
+// project file), which REPLACES the user's for that project, never unions with it. The project's
+// value reaches the loophole only through the config-change gate's y, as every project file
+// does. host-processes' `fields` is the one shipped: a project drops `args` per project.
 const (
 	SettingScopeUser      = "user"
 	SettingScopeWorkspace = "workspace"
+	SettingScopeRequest   = "request"
 )
 
-var validSettingScopes = []string{SettingScopeUser}
+var validSettingScopes = []string{SettingScopeUser, SettingScopeRequest}
 
 // DefaultSettingScope is what an ABSENT `scope` means: user-scope only.
 //
@@ -110,9 +118,16 @@ type Setting struct {
 	// decode — it is a required key, because a declaration with no type is a
 	// declaration core cannot validate against, which OQ-K1 makes a refusal.
 	Type string
-	// Scope is SettingScopeUser or SettingScopeWorkspace, defaulted to
-	// DefaultSettingScope. Always one of the two after a successful decode.
+	// Scope is SettingScopeUser or SettingScopeRequest after a successful decode,
+	// defaulted to DefaultSettingScope (a declaration built in code may still carry
+	// SettingScopeWorkspace).
 	Scope string
+	// LegacyWorkspace, on a user-scope setting, reads a legacy JSONC project file's value
+	// for it as the user's for that launch, with a one-line disclosure, where a project's
+	// value is otherwise refused (docs/design/legacy-config-compat.md LC-D2). It is for a
+	// setting that admits nothing, which v0.15.1 let a project file set: serial's
+	// `default_baud`. A TOML project still cannot set it.
+	LegacyWorkspace bool
 	// Description is the one-line human summary. Optional.
 	Description string
 	// Default is the value the resolved settings file carries when no config
@@ -271,9 +286,10 @@ func parseSettings(manifestPath string, raw any) ([]Setting, error) {
 		if !inList(scope, validSettingScopes) {
 			return nil, Errorf(
 				"%s: '%s.scope'=%s not in %s — %s means only the user config may supply a"+
-					" value, which is also what an absent 'scope' means",
+					" value, which is also what an absent 'scope' means; %s lets a project ask"+
+					" for its own value, which replaces the user's there",
 				manifestPath, path, pytext.Repr(scope), sortedListRepr(validSettingScopes),
-				pytext.Repr(SettingScopeUser))
+				pytext.Repr(SettingScopeUser), pytext.Repr(SettingScopeRequest))
 		}
 
 		description := ""
@@ -300,6 +316,20 @@ func parseSettings(manifestPath string, raw any) ([]Setting, error) {
 			disclose = s
 		}
 
+		legacyWorkspace := false
+		if lv, ok := decl.Get(keyLegacyWorkspace); ok {
+			b, isBool := lv.(bool)
+			if !isBool {
+				return nil, Errorf("%s: '%s.%s' must be a boolean", manifestPath, path, keyLegacyWorkspace)
+			}
+			if b && scope != SettingScopeUser {
+				return nil, Errorf("%s: '%s.%s' is allowed on only a %s-scope setting: a %s-scope"+
+					" one already takes a project's value", manifestPath, path, keyLegacyWorkspace,
+					pytext.Repr(SettingScopeUser), pytext.Repr(SettingScopeRequest))
+			}
+			legacyWorkspace = b
+		}
+
 		def, defSet := SettingZero(typ), false
 		if dv, ok := decl.Get(keyDefault); ok && dv != nil {
 			coerced, typeErr := CoerceSettingValue(typ, dv)
@@ -317,6 +347,8 @@ func parseSettings(manifestPath string, raw any) ([]Setting, error) {
 			Default:     def,
 			DefaultSet:  defSet,
 			Disclose:    disclose,
+
+			LegacyWorkspace: legacyWorkspace,
 		})
 	}
 	return out, nil

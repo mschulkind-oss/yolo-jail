@@ -141,8 +141,8 @@ func loopholeSettingsScopeViolations(name string, spec *jsonx.OrderedMap, srcFil
 		if !declared {
 			decl, declared = legacy[key]
 		}
-		if !declared || decl.Scope != loopholedecl.SettingScopeUser {
-			continue
+		if !declared || decl.Scope != loopholedecl.SettingScopeUser || decl.LegacyWorkspace {
+			continue // a legacy_workspace value is read and disclosed (legacyWorkspaceSettingNotes)
 		}
 		msg := path + ".settings." + key + ": user-scope only — " + pytext.Repr(name) +
 			" declares this setting " + pytext.Repr(loopholedecl.SettingScopeUser) +
@@ -155,6 +155,32 @@ func loopholeSettingsScopeViolations(name string, spec *jsonx.OrderedMap, srcFil
 			msg += "Move this key to " + loopholeUserConfigHint() + "."
 		}
 		out = append(out, msg)
+	}
+	return out
+}
+
+// legacyWorkspaceSettingNotes is the one-line disclosure for each user-scope setting a legacy
+// project file writes whose manifest declares `legacy_workspace` (serial's `default_baud`): the
+// value is read as the user's for this launch, as v0.15.1 read it, rather than refused
+// (docs/design/legacy-config-compat.md LC-D2). A `loopholes` block exists only in a legacy JSONC
+// file, so a TOML project cannot reach this.
+func legacyWorkspaceSettingNotes(name string, spec *jsonx.OrderedMap, srcFile string, info *LoopholeInfo) []string {
+	if info == nil {
+		return nil
+	}
+	settings, ok := asMap(getOr(spec, "settings", nil))
+	if !ok {
+		return nil
+	}
+	var out []string
+	for _, key := range settings.Keys() {
+		decl, declared := loopholedecl.SettingByKey(info.Settings, key)
+		if !declared || decl.Scope != loopholedecl.SettingScopeUser || !decl.LegacyWorkspace {
+			continue
+		}
+		out = append(out, "config.loopholes."+name+".settings."+key+": "+srcFile+
+			" sets this user setting; it is read as your value for this launch, as yolo"+
+			" v0.15.1 read it, since it admits nothing")
 	}
 	return out
 }
