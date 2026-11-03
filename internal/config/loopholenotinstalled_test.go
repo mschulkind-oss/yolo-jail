@@ -1,6 +1,7 @@
 package config
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -36,6 +37,7 @@ import (
 // everything yolo ships — and must say that key is user-scope too, because the file
 // being refused cannot write it either.
 func TestWorkspaceEnableOfUninstalledLoopholeNamesThePackRoute(t *testing.T) {
+	userConfigHintPath := userConfigHintPathIn(t)
 	_, errs, _ := validateScoped(t, `{}`,
 		`{"loopholes": {"journal": {"enabled": true}}}`, fakeResolver{})
 
@@ -142,7 +144,15 @@ func TestRetiredLoopholeNameIsAnsweredWithItsReplacement(t *testing.T) {
 	}
 }
 
-// userConfigHintPath is the literal path both messages must name. Spelled out here
-// rather than referencing loopholeUserConfigHint so a change to the constant has to
-// be a deliberate change to this expectation too — the path is what a user types.
-const userConfigHintPath = "~/.config/yolo-jail/config.jsonc"
+// userConfigHintPathIn points HOME at a fresh directory holding no user config and
+// returns the path both messages must then name: config.toml, the file a first write
+// creates. Spelled out here rather than calling loopholeUserConfigHint so a change to
+// the helper has to be a deliberate change to this expectation too — the path is what
+// a user opens. It used to be a hard-coded ~/.config/yolo-jail/config.jsonc, which
+// sent a user whose config is config.toml to a file they do not have.
+func userConfigHintPathIn(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	return filepath.Join(home, ".config", "yolo-jail", "config.toml")
+}

@@ -39,8 +39,12 @@ import (
 const loopholeScopeInJailSuffix = " (warning in-jail: an error here would refuse " +
 	"every nested launch over the live-mounted workspace file — fix it host-side.)"
 
-// loopholeUserConfigHint is the fix every scope violation names.
-const loopholeUserConfigHint = "~/.config/yolo-jail/config.jsonc"
+// loopholeUserConfigHint is the user config file every scope violation's fix names: the one
+// that exists — config.toml, or the legacy config.jsonc or config.json only when that is what
+// the user has — or config.toml, the file a first write creates. It was a hard-coded
+// ~/.config/yolo-jail/config.jsonc, which sent a user whose config is config.toml to a file
+// they do not have.
+func loopholeUserConfigHint() string { return paths.UserConfigDisplayPath() }
 
 // retiredLoopholeNames maps a loophole name yolo NO LONGER SHIPS to the name that
 // replaced it, so the two "no loophole called that is installed here" messages below
@@ -95,13 +99,13 @@ func loopholeNotInstalledRemedy(name string) string {
 		return "The loophole " + pytext.Repr(name) + " was RETIRED and replaced by " +
 			pytext.Repr(r.replacement) + " — " + r.why + ". Write the entry under the " +
 			"new name instead (" + `"loopholes": {"` + r.replacement + `": {"enabled": true}}` +
-			"), and select the pack that ships it in " + loopholeUserConfigHint + ": " +
+			"), and select the pack that ships it in " + loopholeUserConfigHint() + ": " +
 			`"packs": ["` + r.replacement + `"]. ` + pytext.Repr(name) + " names nothing now."
 	}
 	return "Installing is user-scope, and there are two shapes of it — this file can do " +
 		"neither. If the loophole SHIPS IN A PACK (every loophole yolo itself ships " +
 		"does), the install is the selection: add " + `"packs": ["<pack>"]` + " to " +
-		loopholeUserConfigHint + ", which is user-scope only, and leave the " +
+		loopholeUserConfigHint() + ", which is user-scope only, and leave the " +
 		`"enabled"` + " key where it is. If it ships in no pack, install it inline in " +
 		"that same file: " + `"loopholes": {"` + name + `": {"command": ["<host daemon argv>"]}}.`
 }
@@ -367,13 +371,13 @@ func loopholeScopeKeyViolations(name string, spec *jsonx.OrderedMap, srcFile str
 		// doctor_cmd fall with the command).
 		return []string{path + ": a loophole with a 'command' is INSTALLED here, and " +
 			"installing is user-scope only — " + srcFile + " is agent-editable, so it " +
-			"cannot declare host execution. Move this entry to " + loopholeUserConfigHint + "."}
+			"cannot declare host execution. Move this entry to " + loopholeUserConfigHint() + "."}
 	}
 	var out []string
 	if hasKey(spec, "env") {
 		out = append(out, path+".env: user-scope only — 'env' reaches a host daemon's "+
 			"spawn environment, and "+srcFile+" is agent-editable. Move this key to "+
-			loopholeUserConfigHint+".")
+			loopholeUserConfigHint()+".")
 	}
 	// On a manifest-backed loophole this entry is an OVERRIDE, and doctor_cmd is
 	// not overridable at any scope — validateLoopholeOverride refuses it with the
@@ -383,7 +387,7 @@ func loopholeScopeKeyViolations(name string, spec *jsonx.OrderedMap, srcFile str
 	if hasKey(spec, "doctor_cmd") && !manifestBacked {
 		out = append(out, path+".doctor_cmd: user-scope only — 'doctor_cmd' is a host "+
 			"command run by `yolo check` and `yolo loopholes status`, and "+srcFile+
-			" is agent-editable. Move this key to "+loopholeUserConfigHint+".")
+			" is agent-editable. Move this key to "+loopholeUserConfigHint()+".")
 	}
 	return out
 }

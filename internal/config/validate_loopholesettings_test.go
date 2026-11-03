@@ -143,7 +143,7 @@ func TestUserScopedSettingIsRefusedFromTheWorkspace(t *testing.T) {
 	if len(hits) != 1 {
 		t.Fatalf("errors = %v, want one scope refusal", errs)
 	}
-	for _, want := range []string{filepath.Join(ws, WorkspaceConfigName), loopholeUserConfigHint} {
+	for _, want := range []string{filepath.Join(ws, WorkspaceConfigName), loopholeUserConfigHint()} {
 		if !strings.Contains(hits[0], want) {
 			t.Errorf("error %q does not name %q — a scope refusal has to name the file it "+
 				"came from and the file it belongs in", hits[0], want)
@@ -155,6 +155,55 @@ func TestUserScopedSettingIsRefusedFromTheWorkspace(t *testing.T) {
 		`{"loopholes": {"acme": {"settings": {"visible": ["sway"]}}}}`, "", res)
 	if len(errs) != 0 {
 		t.Errorf("user-config errors = %v, want none", errs)
+	}
+}
+
+// TestUserScopedSettingRefusalNamesTheLiveUserFileAndTheVerb is the owner's
+// v0.16.0 launch refusal: a legacy workspace yolo-jail.jsonc setting
+// host-processes' user-scope `fields` was told to "Move this key to
+// ~/.config/yolo-jail/config.jsonc" while the owner's user config was config.toml,
+// and handed no command. The refusal must name the user config file that is
+// actually there (the legacy file only when that is what the user has) and the
+// `yolo config set --user` command that writes the key, carrying the value the
+// workspace file wrote, in the spelling the user config takes
+// (`allow.<loophole>.<key>`, which `yolo config set` writes into either format).
+func TestUserScopedSettingRefusalNamesTheLiveUserFileAndTheVerb(t *testing.T) {
+	const wsJSON = `{"loopholes": {"host-processes": {"settings": {"fields": ["pid", "comm", "args"]}}}}`
+	const verb = `yolo config set --user allow.host-processes.fields '["pid", "comm", "args"]'`
+	res := declaring("host-processes", userSetting("fields", loopholedecl.SettingTypeStringList))
+	for _, tc := range []struct {
+		name, existing, wantFile string
+	}{
+		{"toml user config", "config.toml", "config.toml"},
+		{"legacy user config", "config.jsonc", "config.jsonc"},
+		{"no user config yet", "", "config.toml"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			dir := filepath.Join(home, ".config", "yolo-jail")
+			if tc.existing != "" {
+				body := "{}"
+				if tc.existing == "config.toml" {
+					body = "packs = []\n"
+				}
+				write(t, filepath.Join(dir, tc.existing), body)
+			}
+			ws, errs, _ := validateScoped(t, "", wsJSON, res)
+			hits := containing(errs, "settings.fields", "user-scope only")
+			if len(hits) != 1 {
+				t.Fatalf("errors = %v, want the one scope refusal (the refusal stays)", errs)
+			}
+			msg := hits[0]
+			for _, want := range []string{filepath.Join(ws, WorkspaceConfigName), filepath.Join(dir, tc.wantFile), verb} {
+				if !strings.Contains(msg, want) {
+					t.Errorf("refusal does not name %q:\n%s", want, msg)
+				}
+			}
+			if tc.wantFile == "config.toml" && strings.Contains(msg, "config.jsonc") {
+				t.Errorf("refusal names the legacy user config the user does not have:\n%s", msg)
+			}
+		})
 	}
 }
 
