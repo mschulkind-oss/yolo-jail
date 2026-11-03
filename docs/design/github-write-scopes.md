@@ -3,7 +3,7 @@ title: "Where the GitHub line is drawn: which writes run unasked, per user and p
 date: 2026-10-30
 status: in-review
 stage: DESIGN
-next: "Owner confirms the pick-one-set rule and the invariant (GW-D57, GW-D58; OQ-GW7) and rules OQ-GW13 to OQ-GW15 on which repository a line is for (§8); then the plan is built from it"
+next: "Owner confirms the pick-one-set rule and the invariant (GW-D57, GW-D58; OQ-GW7) and rules OQ-GW14 and OQ-GW15 on which repository a line is for (§8); then the plan is built from it"
 depends-on:
   - boundary-broker.md
 tags: [design, github, gh, broker, grants, approvals, config, toml]
@@ -276,7 +276,7 @@ entry does ([GW-D63](#GW-D63)); a line per PR number, which `yolo approve` draws
 Every line in `[requests.github]`, cells and repository-level grants alike, is for the
 **workspace's own repositories** *(a plain phrase, used here as [`config-user.md` §6](config-user.md#6-what-a-jail-may-do-with-your-logins)
 uses "its own repositories")*: the repositories the workspace's git remotes name on github.com,
-which of them is [OQ-GW13](#OQ-GW13), each a row the human approved at the gate. A
+and of those, `origin` only ([OQ-GW13](#OQ-GW13)), a row the human approved at the gate. A PR the agent opens on another remote from a branch on `origin`, such as an upstream PR from a fork, counts as `origin`'s `create_pr` and joins the working set, but only its comment and edit lines apply there: a merge on it asks whatever `working_set.merge_prs` says, and a dispatch there asks. To grant more on that repository, the project names it (below). A
 repository the project lists in `requests.github.repos` is in scope for **reading only**: no
 unqualified line reaches it, and a write on it asks ([GW-D60](#GW-D60)). That is what this
 repository's own local file says of `mschulkind/dotfiles`, and what the lowering did not honor.
@@ -427,35 +427,7 @@ github-broker repository scope, read from this workspace's .git/config, yolo-jai
    **Answer:**
    > _(empty — fill in when decided)_
 
-2. 💬 **<a id="OQ-GW13"></a>[OQ-GW13](#OQ-GW13): Is a line that names no repository for `origin` only, so that a PR the agent opens upstream from a fork gets only comment and edit?**
-
-   Kurt works in a fork: `origin` is `kurt/app`, `upstream` is `acme/app`. The project's
-   `yolo-jail.toml` says `create_pr = true`, `working_set.merge_prs = true` and
-   `dispatch_workflows = ["nightly.yml"]`, naming no repository. The agent pushes a branch to
-   `kurt/app` and runs `gh pr create`, which GitHub opens as PR #88 on `acme/app`. Later it runs
-   `gh pr comment 88`, then `gh pr merge 88`, then `gh workflow run nightly.yml --repo acme/app`.
-   Today the draft covers every remote, so all four run. The question is what a line with no
-   repository means for `acme/app`.
-
-   - **A — `origin` only, and an upstream PR is origin's for what an author does.** Opening #88
-     runs: its branch is on `kurt/app`, so it counts as `origin`'s `create_pr`. #88 joins the
-     working set, but on a repository other than `origin` only its comment and edit lines apply,
-     so `gh pr comment 88` and closing or retitling it run, while `gh pr merge 88` asks whatever
-     `working_set.merge_prs` says. The dispatch on `acme/app` asks. To merge there, Kurt names it:
-     `[requests.github.repository.upstream]`.
-   - **B — Every GitHub remote.** All four run, approved once when Kurt accepted `acme/app` as a
-     remote at his prompt; GitHub's own permissions on his account are the only other limit.
-
-   <!-- vantage: question id=OQ-GW13 leaning="A: the line grants what the human pictured, their own repository, and the upstream PR gets exactly what its author can do there anyway." -->
-
-   _Leaning:_ **A.** A line with no repository grants what Kurt pictured when he wrote it, his own
-   repository, and the upstream PR gets exactly what its author can do there anyway; merging into
-   someone else's repository is a choice he should name.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-3. 💬 **<a id="OQ-GW14"></a>[OQ-GW14](#OQ-GW14): May a committed config name a repository by a remote's name, when each clone's remote can point somewhere different?**
+2. 💬 **<a id="OQ-GW14"></a>[OQ-GW14](#OQ-GW14): May a committed config name a repository by a remote's name, when each clone's remote can point somewhere different?**
 
    The project's committed `yolo-jail.toml` holds `[requests.github.repository.upstream]
    labels = true`. In Kurt's clone `upstream` is `acme/app`, and in Ana's it is
@@ -477,7 +449,7 @@ github-broker repository scope, read from this workspace's .git/config, yolo-jai
    **Answer:**
    > _(empty — fill in when decided)_
 
-4. 💬 🤷 **<a id="OQ-GW15"></a>[OQ-GW15](#OQ-GW15): Should `repos`, the read-only list of extra repositories, stay beside named repositories?**
+3. 💬 🤷 **<a id="OQ-GW15"></a>[OQ-GW15](#OQ-GW15): Should `repos`, the read-only list of extra repositories, stay beside named repositories?**
 
    This repository's uncommitted `yolo-jail.local.toml` says `repos = ["mschulkind/dotfiles"]`, so the agent can
    read your yolo configs. Named repositories give a second way to say the same thing: a
@@ -557,3 +529,4 @@ github-broker repository scope, read from this workspace's .git/config, yolo-jai
 | <a id="GW-D66"></a>GW-D66 | Git takes the same qualification: `[requests.git.repository.<name>]` with `push`, `push_tags`, `new_branches`; a name is a remote's (any host) or declared with `repo = "<host>/<path>"` (git's identity, `gitproto.Identity`) or `"*"` ([GB-D25](git-broker.md#GB-D25)). Unqualified `[requests.git]` stays every remote of the workspace, on any host, as today. [RC-D26](readable-config.md#RC-D26) is unchanged for `repos`; a named github.com repository no remote names joins git's scope as RC-D26's two exact URLs and keeps its writes, since it was named for them; any other host must be a remote. `yolo request git repository …` writes it; `yolo request git repos` stays refused | 2026-11-02 | [§8](#8-which-repository-a-line-is-for) | — |
 | <a id="GW-D67"></a>GW-D67 | Migration. No TOML key changes spelling: an unqualified line keeps its text, its meaning narrows to the workspace's own repositories, and the grants it loses on `repos` repositories show at the next gate as removed. `yolo config migrate` converts a legacy workspace `brokered.<source>.grants` entry to the unqualified key when its `repo` is the sole remote (today's `soleRemote`), otherwise to `repository.<name>` with `repo` written, the name being the remote that points at it, else the repository's last segment (`owner-repo` on a tie, as pack namespaces do), `any` for `"*"`; the grant set the lowering resolves is proved equal before and after, as [RC-D55](readable-config.md#RC-D55) proves. This retires `lower.go`'s "keep the old file for now" for several remotes, a `repos`-only repository and `"*"`; a legacy grant on a `repos` repository therefore keeps its writes through the name while the `repos` line stays | 2026-11-02 | [§8](#8-which-repository-a-line-is-for) | — |
 | <a id="GW-D68"></a>GW-D68 | What the gate prints: every grant line ends with its key and file, `(yolo-jail.toml: requests.github.repository.infra.dispatch_workflows)`, `(yolo-jail.toml: requests.github.dispatch_workflows, on remote origin)`, `(~/.config/yolo-jail/config.toml: allow.github.always, for every workspace)`; a repository row names its origin the same way, and a `repos` row says `read only`. The label `(from your user config, for every workspace)` is then true only of lines whose key is under `allow` | 2026-11-02 | [§5](#5-every-stop-names-its-next-step), [§8](#8-which-repository-a-line-is-for) | — |
+| <a id="OQ-GW13"></a>[OQ-GW13](#OQ-GW13) | **Owner's ruling: A.** A `requests.github` line that names no repository is for `origin` only. A PR opened on another remote from a branch on `origin` (an upstream PR from a fork) counts as `origin`'s `create_pr` and joins the working set with its comment and edit lines only; a merge there asks per `working_set.merge_prs`, and a dispatch there asks; more needs a `[requests.github.repository.<name>]` table. Owner: *"the line grants what the human pictured, their own repository, and the upstream PR gets exactly what its author can do there anyway"* | 2026-11-03 | [§8](#8-which-repository-a-line-is-for) | — |
