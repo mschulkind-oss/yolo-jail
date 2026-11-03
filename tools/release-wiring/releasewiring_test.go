@@ -897,7 +897,7 @@ func TestRequestHostRecipeDoesNotTagLocally(t *testing.T) {
 		t.Fatal("Justfile has no release recipe")
 	}
 	body := data[start:]
-	if !strings.Contains(body, "gh workflow run release-request.yml --ref main") || !strings.Contains(body, "sha=$sha") {
+	if !strings.Contains(body, `gh workflow run release-request.yml ${repo:+--repo "$repo"} --ref main`) || !strings.Contains(body, "sha=$sha") {
 		t.Fatal("host request no longer sends exact SHA to trusted main")
 	}
 	if strings.Contains(body, "git tag") || strings.Contains(body, "git push") {
