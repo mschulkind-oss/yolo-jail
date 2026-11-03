@@ -3,22 +3,22 @@ title: "What to call the macOS middle ground: walls first, then who the agent ru
 date: 2026-11-03
 status: draft
 stage: DESIGN
-next: "Rule OQ-MT1 (adopt walls first). Then OQ-MT6 and OQ-MT9 (spellings), OQ-MT3, OQ-MT5, OQ-MT7 and OQ-MT8."
+next: "Rule OQ-MT1 (which plan). Then OQ-MT9 (spellings), OQ-MT3, OQ-MT5, OQ-MT7 and OQ-MT8."
 depends-on:
   - macos-user-model.md#OQ-MM10
 tags: [design, macos-user, terminology, confinement, guest, naming]
-summary: "One concept, the agent on your real Mac under Apple's sandbox with no container, has five names, and one word, guest, means three things. Guest was never dropped: it is the confinement setting's middle value, coined 2026-07-28. Account mode came from the 2026-10-22 prototype script's --mode self|account flag, copied into config without an owner ruling on the words. Third round, after two owner reviews: confinement names only the walls (container, sandbox, host), an independent runs_as names the account (you, or the yolo account), every combination is a cell on both macOS and Linux, and renames are free: a removed spelling is refused naming its replacement, with no aliases."
+summary: "One concept, the agent on your real Mac under Apple's sandbox with no container, has five names, and one word, guest, means three things. Guest was never dropped: it is the confinement setting's middle value, coined 2026-07-28. Account mode came from the 2026-10-22 prototype script's --mode self|account flag, copied into config without an owner ruling on the words. Fourth draft, in the second draft's format: five plans, three of them walls first (confinement names container, sandbox or host; runs_as names you or the yolo account) differing in how the container backend is chosen, one with the yolo account as a fourth notch, and one with a single value per combination. Renames are free: a removed spelling is refused naming its replacement, with no aliases. The recommendation is walls first with runtime naming the container runtime."
 vantage:
   status-chip: true
 ---
 
 # What to call the macOS middle ground
 
-**Status:** 2026-11-03, third round, after the owner's reviews of `c4bb08284` and `90ff72f2c`. Draft; nothing renamed. The owner first asked: *"why did we stop calling it a
+**Status:** 2026-11-03, fourth draft, in the second draft's format (`90ff72f2c`), carrying the third round's rulings. Draft; nothing renamed. The owner first asked: *"why did we stop calling it a
 guest? where did account mode come from? have the designer come up with a few clear terminology
 plans for this area."* Origins come from `git log -S` on the tree at `ea3b0dc1e`.
 
-**Needs your ruling:** [OQ-MT1](#OQ-MT1), [OQ-MT6](#OQ-MT6), [OQ-MT3](#OQ-MT3), [OQ-MT5](#OQ-MT5), [OQ-MT7](#OQ-MT7), [OQ-MT8](#OQ-MT8), [OQ-MT9](#OQ-MT9). **Ruled 2026-11-03:** [OQ-MT2](#OQ-MT2), [OQ-MT4](#OQ-MT4), MT-R1 to MT-R3 ([ledger](#decision-ledger)).
+**Needs your ruling:** [OQ-MT1](#OQ-MT1), [OQ-MT3](#OQ-MT3), [OQ-MT5](#OQ-MT5), [OQ-MT7](#OQ-MT7), [OQ-MT8](#OQ-MT8), [OQ-MT9](#OQ-MT9). **Ruled 2026-11-03:** [OQ-MT2](#OQ-MT2), [OQ-MT4](#OQ-MT4), MT-R1 to MT-R3 ([ledger](#decision-ledger)).
 
 > **In short.** Nothing stopped being called a guest. `guest` is still the value of the
 > `confinement` setting, and asking for it is what launches `macos-user`. What changed is
@@ -71,145 +71,164 @@ That work never mentioned the dial, so its new words (self, account, run-as-you,
 sit beside "guest" rather than under it. Meanwhile "guest" was reused for the account ("the guest OS
 user") and for the confined side ("guest yolo").
 
-**What the third round changes.** The owner, reviewing the second round: *"I'm now leaning
-towards confinement = <the walls> as the first thing to base all this off of."* So the setting
-names only the walls, and who the agent runs as becomes a second, independent setting. Two
-consequences shape everything below:
+**What the third round changed.** The owner, reviewing the second round: *"I'm now leaning
+towards confinement = <the walls> as the first thing to base all this off of."* So in Plans 1 to 3
+the setting names only the walls, and who the agent runs as is a second, independent setting.
 
-- **There is no ladder any more.** The yolo account with no sandbox and you inside the sandbox
-  are different walls, not stronger and weaker versions of one. Each setting is ordered on its
-  own; their combinations are not.
-- **Renames are free** ([MT-R3](#decision-ledger)): a plan is judged on clarity, how it reads on
-  macOS and Linux, and room for future modes, never on what it costs today's configs.
+- **Walls:** `container` (an isolated Linux container: its own filesystem, home and tools; your
+  files reach it only as mounts), `sandbox` (your real machine under an operating-system rule
+  set that denies by default: Seatbelt on macOS, the planned Landlock on Linux), `host` (no walls).
+- **Who runs it:** `you`, or `yolo-account`, a separate OS user yolo creates once with an admin
+  step (`_yolojail` on macOS). No value is a bare "account" ([OQ-MT2](#OQ-MT2)).
+- **No ladder.** The yolo account with no sandbox and you inside the sandbox are different walls,
+  not stronger and weaker versions of one. Only Plan 4 keeps a ladder, by giving up that cell.
+- **Renames are free** ([MT-R3](#decision-ledger)): plans are judged on clarity, how they read on
+  macOS and Linux, and room for future modes. A removed spelling is refused, never aliased, and
+  the refusal names its replacement, the minimum the
+  [Happy Path Principle](../reference/happy-path-principle.md#the-rules) asks of a stop: for
+  example, *"`guest` is now `sandbox`: set `confinement = "sandbox"`"*.
 
-## 2. The lead plan: walls first, then who runs it
+## 2. The plans
 
-*Idea:* `confinement` says what walls surround the agent; `runs_as` says whose account it runs
-in; a backend is named only where there is a real choice of one.
+Each table maps every concept to its config, CLI, messages (including the footer and `yolo
+describe`) and code, then says what works on a Mac and on Linux. A cell that is not built on a
+system stops naming the nearest one that is. Round two's Plans 1, 2 and 4 are dropped: each kept
+identity tied to one wall, so a Linux yolo account or a yolo account with no sandbox had no
+spelling. Its Plan 3 is Plan 4 here.
 
-**Removed spellings.** Every spelling this plan drops is refused, not aliased: the refusal names
-the spelling that replaces it, which is the minimum the
-[Happy Path Principle](../reference/happy-path-principle.md#the-rules) asks of a stop. For example,
-`confinement = "guest"` stops with *"`guest` is now `sandbox`: set `confinement = "sandbox"`"*.
+### Plan 1: walls first, `runtime` names the container runtime
 
-### 2.1 The two settings
+*Idea:* `confinement` picks the walls, `runs_as` the account, and `runtime` survives only as the
+choice of container runtime, the industry's own term.
 
-| Setting | Values | Default | Means |
-| :--- | :--- | :--- | :--- |
-| `confinement` | `container` | yes | An isolated Linux container: its own filesystem, home and tools; your files reach it only as mounts |
-| | `sandbox` | | Your real machine, under an operating-system rule set that denies by default: Seatbelt on macOS; on Linux a kernel rule set of the same kind (Landlock, the planned one) |
-| | `host` | | No walls: your machine as it is |
-| `runs_as` | `you` | yes | The agent runs in your own account |
-| | `yolo-account` | | The agent runs in the yolo account, a separate OS user yolo creates once with an admin step (`_yolojail` on macOS) |
-
-### 2.2 Every combination
-
-| | `runs_as = "you"` | `runs_as = "yolo-account"` |
-| :--- | :--- | :--- |
-| `container` | Today's jail. Works on both systems | Not built; refused naming `runs_as = "you"` ([OQ-MT7](#OQ-MT7)) |
-| `sandbox` | macOS: today's run-as-you mode, the default after [the flip](macos-user-model.md#OQ-MM10). Linux: the planned bwrap plus Landlock | macOS: today's account mode. Linux: a future mode, the same profile plus a yolo account |
-| `host` | Today's `yolo host` | New: the separate user is the only wall. On macOS it is the model macos-user started with; on Linux, `sudo -u` into the account |
-
-A cell that is not built on a system stops naming the nearest cell that is; none is silently
-swapped.
-
-### 2.3 What each surface becomes
-
-| Concept | Config | CLI | Messages, footer, `yolo describe` | Code |
+| Concept | Config | CLI | Messages, footer, describe | Code |
 | :--- | :--- | :--- | :--- | :--- |
-| The walls | `confinement = "container" \| "sandbox" \| "host"` | `--at container\|sandbox\|host`; `yolo host -- <cmd>` stays as `--at host` | footer `sandbox · as you`; describe `confinement: sandbox (Seatbelt)`; briefing heading `YOLO Environment — sandbox, as you` | `ConfinementContainer`, `ConfinementSandbox`; `YOLO_CONFINEMENT` takes the new values |
-| Who runs it | `runs_as = "you" \| "yolo-account"` | `--as you\|yolo-account` | footer `· as the yolo account`; describe `runs as: the yolo account (_yolojail)` | `macosuser.Mode` becomes `RunsAs`, one value for every backend; `YOLO_RUNS_AS` |
-| The container backend | see [OQ-MT6](#OQ-MT6): `runtime = "podman" \| "apple-container"` in the leaning | unchanged `YOLO_RUNTIME` | describe `container (Apple Container)` | Apple Container's value is no longer `container`, which now names the walls |
-| The sandbox backend | none: one per system, so nothing to choose | none | describe names it (`Seatbelt`) | internal |
-| `macos-user` | refused, naming `confinement = "sandbox"` ([OQ-MT3](#OQ-MT3)) | — | — | package name is internal |
-| The yolo account | (none) | setup and removal verbs ([OQ-MT8](#OQ-MT8)) | "the yolo account (`_yolojail`)" | `SandboxUser`, `SandboxHome()` become `AccountUser`, `AccountHome()`: "sandbox" now names a setting value |
-| "guest" | refused, naming `sandbox` | `--at guest` refused | gone | "guest" identifiers become "sandbox side" ([OQ-MT8](#OQ-MT8)) |
-| "jail" | not a value; `jail` refused naming `container` | — | the product's name ([OQ-MT8](#OQ-MT8)) | — |
+| Container, as you | `confinement = "container"` (default), `runs_as = "you"` (default) | `--at container` | `container · as you`; describe `container (Podman)` | `ConfinementContainer` |
+| Container backend | `runtime = "podman" \| "apple-container"`, refused beside any other `confinement` | `YOLO_RUNTIME` | describe names it | Apple Container leaves the value `container` |
+| Container, as the yolo account | `runs_as = "yolo-account"` | `--as yolo-account` | refused, naming `runs_as = "you"` ([OQ-MT7](#OQ-MT7)) | — |
+| Sandbox, as you | `confinement = "sandbox"` | `--at sandbox` | `sandbox · as you`; describe `sandbox (Seatbelt)` | `ConfinementSandbox`; `RunsAs` replaces `macosuser.Mode` |
+| Sandbox, as the yolo account | `confinement = "sandbox"`, `runs_as = "yolo-account"` | `--at sandbox --as yolo-account` | `sandbox · as the yolo account` | the one crossing (`RunAs`), as today |
+| Host, as you | `confinement = "host"` | `--at host`, `yolo host -- <cmd>` | `host · as you` | `ConfinementHost` |
+| Host, as the yolo account | `confinement = "host"`, `runs_as = "yolo-account"` | `yolo host --as yolo-account -- <cmd>` | `host · as the yolo account` | new: the crossing with no profile |
+| The yolo account | (none) | setup verbs ([OQ-MT8](#OQ-MT8)) | "the yolo account (`_yolojail`)" | `AccountUser`, `AccountHome()` |
+| Retired | `guest`, `jail`, `macos-user`, `macos_user_mode`, `runtime = "container"`: each refused naming its replacement | `--at guest`, `--at jail` refused the same way | "guest", "second account", "sandbox account" gone | "guest" identifiers become "sandbox side" |
+| On a Mac | every cell but container with the yolo account | the same spellings | the same | — |
+| On Linux | container is Podman; sandbox is bwrap plus Landlock, refused until built; the yolo account needs a Linux account and crossing, future work; host with it is `sudo -u` | the same spellings | the same | — |
 
-**Linux, end to end.** `container` is Podman, as today. `sandbox` is the planned bwrap plus
-Landlock; until it ships, `confinement = "sandbox"` on Linux stops naming `container` and
-`host`. `runs_as = "yolo-account"` needs a Linux yolo account and a crossing into it, both future
-work, and the same two spellings cover it with nothing renamed.
+*Pros:* each setting means one thing; one flat line per choice; identical spellings on both
+systems; every mode raised so far is a cell, not a new word. *Cons:* three settings, one of which
+(`runtime`) is meaningful beside only one value of another.
 
-### 2.4 Variants of the details
+### Plan 2: walls first, a table per kind of walls
 
-The settings above are fixed by the owner's lean; three details have real alternatives.
+*Idea:* as Plan 1, but the backend lives under the walls it belongs to, so a second sandbox
+backend could join later without a new key.
 
-- **The backend choice ([OQ-MT6](#OQ-MT6)).**
-  - **V1, `runtime` narrowed to container runtimes:** `runtime = "podman" | "apple-container"`,
-    refused with any other confinement. "Container runtime" is the industry's own term.
-  - **V2, one table per confinement:** `[container] backend = "podman"`, leaving room for
-    `[sandbox] backend` if a system ever offers two.
-  - **V3, one compound value:** `confinement = "container:podman"`; plain `container` picks the
-    platform default.
-- **The value spellings ([OQ-MT9](#OQ-MT9)):** `container` or keep `jail`; `you` or `me`.
-- **Where `runs_as` may be set ([OQ-MT5](#OQ-MT5)):** the user config only, as the mode is today,
-  or a workspace too.
+| Concept | Config | CLI | Messages, footer, describe | Code |
+| :--- | :--- | :--- | :--- | :--- |
+| Container, as you | `confinement = "container"`, `runs_as = "you"` (both defaults) | `--at container` | as Plan 1 | as Plan 1 |
+| Container backend | `[container] backend = "podman" \| "apple-container"` | `--backend apple-container`; `YOLO_CONTAINER_BACKEND` | describe `container (Apple Container)` | `runtime` key gone |
+| Sandbox backend | `[sandbox] backend`, reserved, one value per system today | none | describe `sandbox (Seatbelt)` | reserved |
+| Container, as the yolo account | as Plan 1 | as Plan 1 | refused ([OQ-MT7](#OQ-MT7)) | — |
+| Sandbox, as you / as the yolo account | as Plan 1 | as Plan 1 | as Plan 1 | as Plan 1 |
+| Host, as you / as the yolo account | as Plan 1 | as Plan 1 | as Plan 1 | as Plan 1 |
+| The yolo account; retired | as Plan 1, plus `runtime` refused naming `[container] backend` | as Plan 1 | as Plan 1 | as Plan 1 |
+| On a Mac / on Linux | as Plan 1 | as Plan 1 | as Plan 1 | — |
 
-### 2.5 Why this plan
+*Pros:* the config file shows which setting each backend belongs to; room for a second sandbox
+backend. *Cons:* a table holding one key; a reserved key with no second value in sight.
 
-It names the two things that vary separately, so every setting means one thing and the footer can
-say both. It reads the same on macOS and Linux, and every future mode the owner has raised (a
-Linux yolo account, a separate user with no sandbox) is a cell in the grid rather than a new
-word. Its cost is the one the fill-the-matrix rule warns about, two settings to combine; it is
-small here because both have safe defaults (`container`, `you`) and a user changes one at a time.
+### Plan 3: walls first, the backend inside the value
 
-## 3. The other plans, briefly
+*Idea:* one value names the walls and, optionally, their backend: `container:podman`.
 
-From the second round, judged again on clarity, cross-platform fit and future modes:
+| Concept | Config | CLI | Messages, footer, describe | Code |
+| :--- | :--- | :--- | :--- | :--- |
+| Container, as you | `confinement = "container"` (the system's default runtime) or `"container:podman"` / `"container:apple-container"` | `--at container:apple-container` | footer `container:apple-container · as you` | `Confinement` gains a backend field |
+| Sandbox, as you / as the yolo account | `confinement = "sandbox"`, `runs_as` as Plan 1 | `--at sandbox`, `--as` | as Plan 1 | as Plan 1 |
+| Host, as you / as the yolo account | as Plan 1 | as Plan 1 | as Plan 1 | as Plan 1 |
+| Container, as the yolo account | as Plan 1 | as Plan 1 | refused ([OQ-MT7](#OQ-MT7)) | — |
+| The yolo account; retired | as Plan 1, plus `runtime` and `YOLO_RUNTIME` refused naming the compound value | as Plan 1 | as Plan 1 | as Plan 1 |
+| On a Mac / on Linux | as Plan 1; Linux has only `container:podman` | as Plan 1 | as Plan 1 | — |
 
-- **1, respell `macos_user_mode`:** a macOS-only key for a choice Linux will need. Loses.
-- **2, `guest_runs_as`:** the same split as the lead plan, but scoped to one wall, so
-  host plus the yolo account has no spelling. Loses.
-- **3, the yolo account as a fourth notch:** a ladder that the host-plus-yolo-account cell breaks,
-  since that cell is neither stronger nor weaker than the sandbox. The best alternative if the
-  owner drops that cell.
-- **4, `guest` as the account, `fenced` for you:** two metaphors where the lead plan needs none.
-  Loses.
-- **5, walls and identity:** became the lead plan, with the walls renamed.
-- **Mechanism names** (`sandboxed`, `seatbelt`): the owner rejected them ([MT-R1](#decision-ledger)). The
-  lead plan's `sandbox` is the kind of walls, not a mechanism, and Seatbelt appears only in
-  `describe`.
+*Pros:* one setting and one flag pick walls and backend together. *Cons:* a mini-syntax inside a
+string; the colon form appears nowhere else in yolo's config.
+
+### Plan 4: the yolo account as a fourth notch
+
+*Idea:* keep one ordered dial, `container` / `yolo-account` / `sandbox` / `host`, where
+`yolo-account` is the sandbox plus a separate user; no `runs_as`.
+
+| Concept | Config | CLI | Messages, footer, describe | Code |
+| :--- | :--- | :--- | :--- | :--- |
+| Container | `confinement = "container"` (default); backend as Plan 1 | `--at container` | `container` | `ConfinementContainer` |
+| Sandbox, as the yolo account | `confinement = "yolo-account"` | `--at yolo-account` | "the yolo account: a separate user, inside the OS sandbox" | the macOS preset the code already calls "a separate user + Seatbelt" ([`confinement.go`](../../internal/render/confinement.go)) |
+| Sandbox, as you | `confinement = "sandbox"` | `--at sandbox` | `sandbox` | `ConfinementSandbox` |
+| Host | `confinement = "host"` | `--at host`, `yolo host` | `host` | `ConfinementHost` |
+| Host, as the yolo account | no spelling | — | — | — |
+| The yolo account; retired | as Plan 1 | as Plan 1 | as Plan 1 | as Plan 1 |
+| On a Mac / on Linux | the same four values; Linux `sandbox` and `yolo-account` refused until built | the same | the same | — |
+
+*Pros:* one setting, an honest strength order, and a single word in the footer. *Cons:* a yolo
+account with no sandbox, which the owner wants to be able to specify, has nowhere to go; a
+notch named for an account beside three named for walls.
+
+### Plan 5: one value per cell
+
+*Idea:* walls first, but the account is part of the one value: `sandbox`, `sandbox+yolo-account`,
+`host+yolo-account`. A user picks one preset from a short list, as the
+[fill-the-matrix rule](../reference/fill-the-matrix-principle.md) prefers.
+
+| Concept | Config | CLI | Messages, footer, describe | Code |
+| :--- | :--- | :--- | :--- | :--- |
+| Container | `confinement = "container"`; backend as Plan 1 | `--at container` | `container` | as Plan 1 |
+| Sandbox, as you / as the yolo account | `"sandbox"` / `"sandbox+yolo-account"` | `--at sandbox+yolo-account` | the value as written | `Confinement` carries the account |
+| Host, as you / as the yolo account | `"host"` / `"host+yolo-account"` | `--at host+yolo-account` | the value as written | as above |
+| Container, as the yolo account | no such value until built ([OQ-MT7](#OQ-MT7)) | — | — | — |
+| The yolo account; retired | as Plan 1 | as Plan 1 | as Plan 1 | as Plan 1 |
+| On a Mac / on Linux | the same five values | the same | the same | — |
+
+*Pros:* one setting covers every cell; the footer is the value. *Cons:* five values to learn where
+Plan 1 has three and two; a user who wants "the yolo account wherever I run" restates it in every
+value.
+
+## 3. Recommendation: Plan 1
+
+Plan 1 is the owner's favored shape with the plainest spelling. Each setting means one thing, so
+the footer, `yolo describe` and every message can say both halves (`sandbox · as the yolo
+account`). It reads the same on macOS and Linux, and both future modes raised so far, a Linux
+yolo account and a yolo account with no sandbox, are cells rather than new words. `runtime` stays
+the industry's term for what it now names. Plan 2 is right only if a second sandbox backend is
+ever likely; Plan 3 trades a key for a syntax; Plan 4 is the fallback if the host-plus-yolo-account
+cell is dropped; Plan 5 is the fallback if two settings prove one too many.
 
 ## 4. Open Questions
 
-1. 💬 **OQ-MT1: Adopt the walls-first plan, `confinement` plus `runs_as`?**
+1. 💬 **OQ-MT1: Which plan, and so how is the container backend chosen?**
 
-   The owner called it *"my favorite"* while leaning, not ruling. Ruling it sets the vocabulary
-   for the guide, the footer and every message in this area.
+   The answer fixes the vocabulary of the guide, the footer and every message in this area. On a
+   Mac a container is Podman or Apple Container, and today's `runtime = "container"` (Apple
+   Container) collides with the new value.
 
-   - **Adopt it** as [§2](#2-the-lead-plan-walls-first-then-who-runs-it) states it.
-   - **Plan 3 instead**, if host plus the yolo account is not wanted.
+   - **Plan 1:** `confinement`, `runs_as`, and `runtime = "apple-container"`.
+   - **Plan 2:** the same, with `[container] backend = "apple-container"`.
+   - **Plan 3:** the same, with `confinement = "container:apple-container"`.
+   - **Plan 4:** a fourth notch, `confinement = "yolo-account"`, and no host with the yolo account.
+   - **Plan 5:** one value per cell, such as `confinement = "sandbox+yolo-account"`.
 
-   <!-- vantage: question id=OQ-MT1 leaning="Adopt it: each setting means one thing, and every mode raised so far is a cell, not a new word." -->
+   <!-- vantage: question id=OQ-MT1 leaning="Plan 1: each setting means one thing, both systems spell every cell alike, and runtime keeps the industry's meaning." -->
 
-   _Leaning:_ adopt it. Each setting means one thing, and every mode raised so far is a cell, not a
-   new word: a Linux yolo account is `confinement = "sandbox"` plus `runs_as = "yolo-account"`.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 **OQ-MT6: How is the container backend chosen?**
-
-   On a Mac a container is either Podman or Apple Container; on Linux it is Podman. Today's
-   `runtime = "container"` means Apple Container, which collides with the new value.
-
-   - **V1:** `runtime = "podman" | "apple-container"`, valid only with `container`.
-   - **V2:** `[container] backend = "apple-container"`.
-   - **V3:** `confinement = "container:apple-container"`.
-
-   <!-- vantage: question id=OQ-MT6 leaning="V1: one flat line, the industry's word for it, and the sandbox has nothing to choose." -->
-
-   _Leaning:_ V1. It is one flat line in the industry's word, and the sandbox has nothing to
-   choose, so a per-confinement table would hold one key.
+   _Leaning:_ Plan 1. Each setting means one thing and both systems spell every cell alike: a
+   Linux yolo account is `confinement = "sandbox"` plus `runs_as = "yolo-account"`, and an Apple
+   Container launch is `runtime = "apple-container"`.
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. 💬 **OQ-MT3: Does `macos-user` survive anywhere?**
+2. 💬 **OQ-MT3: Does `macos-user` survive anywhere?**
 
-   It named a backend that ran as a macOS user. Under this plan the walls are `sandbox` and the
-   user is `runs_as`, so the name describes neither.
+   It named a backend that ran as a macOS user. In every plan the walls are `sandbox` and the account is
+   named on its own, so the name describes neither.
 
    - **Retire it:** `runtime = "macos-user"` is refused, naming `confinement = "sandbox"`.
    - **Keep it as the sandbox backend's name**, shown only in `describe`.
@@ -221,7 +240,7 @@ From the second round, judged again on clarity, cross-platform fit and future mo
    **Answer:**
    > _(empty — fill in when decided)_
 
-4. 💬 **OQ-MT5: May a workspace config set `runs_as`?**
+3. 💬 **OQ-MT5: May a workspace config choose the yolo account (`runs_as`, or the value that carries it in Plans 4 and 5)?**
 
    Today only the user config picks the account, because a workspace is agent-editable
    ([MMP-D3](macos-user-model-plan.md#MMP-D3)). For example, a client repository wants
@@ -239,7 +258,7 @@ From the second round, judged again on clarity, cross-platform fit and future mo
    **Answer:**
    > _(empty — fill in when decided)_
 
-5. 💬 **OQ-MT7: Is `container` with the yolo account built, or refused for good?**
+4. 💬 **OQ-MT7: Is `container` with the yolo account built, or refused for good?**
 
    It would run the container runtime itself as the yolo account, so even an escape from the
    container lands in an account holding none of your files. It is real work: a second rootless
@@ -255,7 +274,7 @@ From the second round, judged again on clarity, cross-platform fit and future mo
    **Answer:**
    > _(empty — fill in when decided)_
 
-6. 💬 🤷 **OQ-MT8: What happens to the words "jail" and "guest", and what are the setup verbs called?**
+5. 💬 🤷 **OQ-MT8: What happens to the words "jail" and "guest", and what are the setup verbs called?**
 
    The product is yolo-jail and the guide says "the jail" everywhere. `yolo macos-setup` creates
    an account Linux will also need.
@@ -272,7 +291,7 @@ From the second round, judged again on clarity, cross-platform fit and future mo
    **Answer:**
    > _(empty — fill in when decided)_
 
-7. 💬 🤷 **OQ-MT9: `container` or `jail` for the value, and `you` or `me`?**
+6. 💬 🤷 **OQ-MT9: `container` or `jail` for the value, and `you` or `me`?**
 
    The owner suggested *"jail could be called container."* `you` matches how yolo's messages speak;
    `me` matches how a user writes their own config.
@@ -292,8 +311,8 @@ From the second round, judged again on clarity, cross-platform fit and future mo
 
 | ID | Ruling | Date | Settled in |
 | :--- | :--- | :--- | :--- |
-| <a id="OQ-MT2"></a>[OQ-MT2](#OQ-MT2) | No value is called a bare `account`: running as you is an account too. The owner: *"I hate 'account' here because 'self' is also an account."* The separate user's value is `yolo-account`. | 2026-11-03 | [§2.1](#21-the-two-settings) |
-| <a id="OQ-MT4"></a>[OQ-MT4](#OQ-MT4) | `_yolojail` is **the yolo account** in messages and docs. The owner: *"I like the YOLO account here … instead of account, just use YOLO account."* | 2026-11-03 | [§2.3](#23-what-each-surface-becomes) |
-| MT-R1 | The second round's Plan C, naming by mechanism (the notch `sandboxed`, the runtime `seatbelt`), is rejected. The owner: *"don't like."* The third round's `sandbox` names a kind of walls, which the owner proposed. | 2026-11-03 | [§3](#3-the-other-plans-briefly) |
-| MT-R2 | Every plan is tested against a future Linux mode that runs the agent as a separate yolo user. The owner: *"what if we add a Linux guest user mode? then we wouldn't want it to be organized in the way it is right now."* | 2026-11-03 | [§2.3](#23-what-each-surface-becomes) |
-| MT-R3 | **What a rename costs existing configs is not a criterion; current spellings may break.** The owner: *"are these costs migration from current? I don't care. we can break current."* A removed spelling is refused with a message naming its replacement, the [happy-path](../reference/happy-path-principle.md) minimum; there are no aliases. | 2026-11-03 | [§2](#2-the-lead-plan-walls-first-then-who-runs-it) |
+| <a id="OQ-MT2"></a>[OQ-MT2](#OQ-MT2) | No value is called a bare `account`: running as you is an account too. The owner: *"I hate 'account' here because 'self' is also an account."* The separate user's value is `yolo-account`. | 2026-11-03 | [§1](#1-the-problem-every-term-in-use-today) |
+| <a id="OQ-MT4"></a>[OQ-MT4](#OQ-MT4) | `_yolojail` is **the yolo account** in messages and docs. The owner: *"I like the YOLO account here … instead of account, just use YOLO account."* | 2026-11-03 | [§2](#2-the-plans) |
+| MT-R1 | The second round's Plan C, naming by mechanism (the notch `sandboxed`, the runtime `seatbelt`), is rejected. The owner: *"don't like."* The third round's `sandbox` names a kind of walls, which the owner proposed. | 2026-11-03 | [§2](#2-the-plans) |
+| MT-R2 | Every plan is tested against a future Linux mode that runs the agent as a separate yolo user. The owner: *"what if we add a Linux guest user mode? then we wouldn't want it to be organized in the way it is right now."* | 2026-11-03 | [§2](#2-the-plans) |
+| MT-R3 | **What a rename costs existing configs is not a criterion; current spellings may break.** The owner: *"are these costs migration from current? I don't care. we can break current."* A removed spelling is refused with a message naming its replacement, the [happy-path](../reference/happy-path-principle.md) minimum; there are no aliases. | 2026-11-03 | [§2](#2-the-plans) |
