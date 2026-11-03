@@ -3,9 +3,9 @@ title: "Breaking the security-session chain that `sudo -u _yolojail` keeps: why 
 date: 2026-11-03
 status: draft
 stage: DESIGN
-next: "Owner's Mac agent runs witnesses R1–R6 (§2) after [OQ-KS6](#OQ-KS6) authorizes R3 and R5; the owner rules [OQ-KS1](#OQ-KS1) to OQ-KS5"
+next: "Owner's Mac agent runs witnesses R1–R6 (§2) after [OQ-KS6](#OQ-KS6) authorizes R3 and R5, and H1 (§3.3) once the owner allows a witness root helper; the owner rules [OQ-KS1](#OQ-KS1) to OQ-KS9"
 tags: [research, design-input, macos, macos-user, keychain, securityd, audit-session, copilot]
-summary: "sudo changes a process's UIDs and nothing else in its kernel credential, so the macOS audit session id (ASID) and the audit user id (AUID) cross `sudo -u` unchanged, and securityd keys lock-all, its password dialogs and its keybag routines by that session. That is why an account-mode jail can lock the owner's keychains and raise dialogs on the owner's screen, while it still cannot read a keychain secret: the database bytes come from a file that POSIX permissions keep from `_yolojail`. Making a new session takes root in the kernel, but launchd does it for any user's own LaunchAgent that sets SessionCreate, which the 10-30 run measured without root. The recommended cut is a yolo session host started that way, for both macOS modes, after the re-verification witnesses here pass; the cheap stopgap is denying SecurityServer in the account profile, which the 10-30 report wrongly says is already done."
+summary: "sudo changes a process's UIDs and nothing else in its kernel credential, so the macOS audit session id (ASID) and the audit user id (AUID) cross `sudo -u` unchanged, and securityd keys lock-all, its password dialogs and its keybag routines by that session. That is why an account-mode jail can lock the owner's keychains and raise dialogs on the owner's screen, while it still cannot read a keychain secret: the database bytes come from a file that POSIX permissions keep from `_yolojail`. Making a new session takes root in the kernel, but launchd does it for any user's own LaunchAgent that sets SessionCreate, which the 10-30 run measured without root. The owner then asked whether one passwordless sudo rule to a root helper that makes a fresh session would solve everything: it would cut lock-all and dialogs off the owner's session in both modes, and with it Copilot can reach SecurityServer in run-as-you without the owner's session exposed, which closes #65 for practical purposes. It does not solve everything: run-as-you would need setup for the first time, a root program runs at every launch, and the Mach bootstrap (clipboard, notifications) and the keybag routines are not keyed by the session alone. It is now the leaning, with the no-root launchd session host as the fallback; the cheap stopgap is denying SecurityServer in the account profile, which the 10-30 report wrongly says is already done."
 ---
 
 # Breaking the security-session chain that `sudo -u _yolojail` keeps
@@ -17,6 +17,14 @@ summary: "sudo changes a process's UIDs and nothing else in its kernel credentia
 > allowing lock and prompt doesn't sound too bad if it's documented. can we break that chain sudo
 > -u creates? that seems weird that after a sudo something as sensitive as keychain is still
 > connected? I'd like to really verify that's true.
+
+The owner's follow-up, the same day, is answered in [§3.2](#32-route-4-in-depth-one-passwordless-rule-to-a-root-session-helper)
+("pseudo" is sudo and "route" is root in the dictation):
+
+> If all we need is a sudo command to make this safe, we already have provisions for setting up
+> certain commands that can be run without sudo [a password]. For both modes, can we just require
+> that you set that up and then just use root to swap out the security session? Would that solve
+> all of our issues?
 
 It builds on, and does not repeat, the
 [Copilot keychain-boundary research](../research/copilot-keychain-boundary.md) ([§1.2](../research/copilot-keychain-boundary.md#12-what-allowing-that-one-service-exposes), [§1.5](../research/copilot-keychain-boundary.md#15-run-as-you-versus-the-dedicated-account), option
@@ -325,14 +333,16 @@ in account mode today, a separate leak that a session host would also cut **[U]*
 ## 3. Every way to break the chain
 
 Every route below has to change the session **before** the first `_yolojail` process starts,
-because nothing after the crossing is root ([§1.1](#11-the-mechanism) row 5).
+because nothing after the crossing is root ([§1.1](#11-the-mechanism) row 5). The ranks are this
+draft's first ones; the owner's offer of a setup step moves route 4 to the leaning
+([§3.2.6](#326-route-4-against-route-1)).
 
 | Rank | Route | Root needed? | Cuts lock-all and dialogs? | What it costs or breaks | Evidence | Witness |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | 1 | **Session host via launchd `SessionCreate`**: a per-user LaunchAgent with `SessionCreate` true runs a yolo session host; the launcher hands it a pty slave over a unix socket (`SCM_RIGHTS`), and the host runs the unchanged sudo crossing on that pty, so the new session carries through sudo ([§1.1](#11-the-mechanism) rows 2–4) | **No**: launchd makes the session (W6) | Yes: lock-all hits a session with nothing unlocked, and the session has no graphic access, so dialogs fail ([§1.2](#12-what-securityd-keys-by-session)) | A pty bridge (yolo already has [`internal/ttyproxy`](../../internal/ttyproxy)); exit status and signals relayed over the socket; a plist written and booted out per launch (or one installed). Possible macOS "background item added" notice **[U]**. The AUID is likely still the owner's **[U]**, so the keybag context may not change | `SessionCreate` gives a new session without root, and lock-all there spared the desktop **[M]** W6; **[A]** `man launchd.plist` | B2, B3 |
 | 2 | **Join variant of 1**: the session-created agent only vends its session port (`audit_session_self`) over a Mach service; a short-lived child of the launcher calls `audit_session_join`, then execs the sudo crossing on the real terminal | No | Yes, as 1 | No pty bridge, the terminal stays native. But it needs Mach IPC from Go without cgo (yolo has none), and a bootstrap lookup that works from an SSH launch **[U]** | **[S]** `audit_session_join` needs only the port | B2j |
 | 3 | **A LaunchDaemon installed at setup**, `UserName` `_yolojail`, `SessionCreate` true, socket-activated; it checks the peer is the owner (`LOCAL_PEERCRED`) and starts the jail as `_yolojail` itself | Once, at setup (setup already uses sudo for the account and the rule) | Yes, and the AUID becomes `_yolojail`'s or none **[U]**, which also moves the keybag context off the owner | A resident root-installed service; a second crossing beside the sudo rule, against the one-rule contract ([OQ-MP10](../design/macos-user-privilege-lifecycle.md#decision-ledger)); the same pty bridge | **[A]** launchd keys; daemon behavior **[U]** | B4 |
-| 4 | **A root helper behind a second sudo rule**: `newsess` (`setaudit_addr(AU_ASSIGN_ASID)`), then drop to `_yolojail` | Every launch | Yes, natively, with the terminal kept | Runs yolo code as root at every launch: against the rule "never as root" ([`privilege.go`](../../internal/macosuser/privilege.go)). **Rejected** unless the owner overturns [OQ-MP10](../design/macos-user-privilege-lifecycle.md#decision-ledger) | **[S]** | B1 |
+| 4 | **A root session helper behind a passwordless sudo rule**: a tiny root-owned program calls `setaudit_addr` with a new ASID, no session flags and the target's AUID, drops to the target UID (the owner in run-as-you, `_yolojail` in account mode), and execs the unchanged launch | Every launch, through one `NOPASSWD` rule set up once | **Yes, in both modes**, with the terminal kept ([§3.2](#32-route-4-in-depth-one-passwordless-rule-to-a-root-session-helper)) | Root code at every launch; run-as-you needs setup for the first time; overturns "no root helper" in [OQ-MP10](../design/macos-user-privilege-lifecycle.md#decision-ledger). Details in [§3.2](#32-route-4-in-depth-one-passwordless-rule-to-a-root-session-helper) | **[S]** | B1, H1 |
 | 5 | **`ssh _yolojail@localhost`** | Setup writes a key; the owner must turn on Remote Login | Yes: SSH logins get their own session **[M]** W1, runbook [§2](#2-re-verification-witnesses) | Opens sshd to the network for the whole Mac; often blocked by device management; a second login path into the account | **[M]** | B5 |
 | 6 | **Deny `com.apple.SecurityServer` (and `com.apple.authd`) in the account profile.** Not a break of the chain: it stops the jail from *using* it | No | Lock-all and keychain dialogs, yes (p0 could not lock, **[M]** W5); authd dialogs only if authd is also denied **[U]** | Breaks SecureTransport TLS in account mode (Copilot ≥1.0.93), and any keychain of the agent's own (it has none). Leaves the bootstrap side (R6) open. One profile line | **[M]** W5 for p0 | R3b repeated with the deny |
 | — | `sudo -i`, `sudo -s`, `su -l` | — | **No**: none of them sets the audit session ([§1.1](#11-the-mechanism) row 4; `su` also needs `_yolojail`'s password or root) | — | [S, I] | B6 |
@@ -380,6 +390,223 @@ All in A and B, except B6.
 `/etc/sudoers.d/yolowitness`, `/Users/Shared/yolo/r4b`, `/Users/Shared/yolo/b2`, and delete A and B
 with the witness script.
 
+### 3.2 Route 4 in depth: one passwordless rule to a root session helper
+
+**The owner's question:** setup already installs a passwordless sudo rule, so require one more for
+both modes and let root swap the session. **Short answer: it solves the session problem in both
+modes, and with it the Copilot problem ([#65](https://github.com/mschulkind-oss/yolo-jail/issues/65)),
+but not everything**; the residue is in [§3.2.5](#325-what-it-does-not-solve).
+
+#### 3.2.1 What setup allows today
+
+`yolo macos-setup` writes exactly one file, `/etc/sudoers.d/yolo-jail` (`SudoersRule` in
+[`privilege.go`](../../internal/macosuser/privilege.go)):
+
+```text
+Defaults>_yolojail secure_path="/usr/bin:/bin:/usr/sbin:/sbin"
+<owner> ALL=(_yolojail) NOPASSWD: /usr/bin/env
+```
+
+- It lets the owner run **any** command as `_yolojail`, without a password, and **nothing as root**.
+  `/usr/bin/env` takes any argv, so the rule is "be `_yolojail`", by design
+  ([OQ-MP10](../design/macos-user-privilege-lifecycle.md#decision-ledger), walkthrough
+  [point 1](../design/macos-user-privilege-lifecycle.md#points-settled-in-the-walkthrough-2026-10-15)).
+- yolo only ever spells it `/usr/bin/sudo -n [--set-home] --user=_yolojail /usr/bin/env …`
+  (`RunAsSandboxArgv`; `RunAsArgvProblems` refuses any other shape), and every crossing goes through
+  `RunAs.Argv` in [`mode.go`](../../internal/macosuser/mode.go).
+- **Run-as-you uses no sudo and needs no setup at all**: its crossing is a bare `/usr/bin/env`
+  (`RunAs.Argv`, self mode), and its tests pin that it runs no sudo
+  ([`capture_selfmode_test.go`](../../internal/macosuser/capture_selfmode_test.go)).
+- The ruled privilege design kept a root helper only as a fallback and chose "no root helper"
+  ([the lifecycle design's summary](../design/macos-user-privilege-lifecycle.md)).
+
+So the "provision for passwordless commands" exists, but it has never granted root, and
+run-as-you has never needed it.
+
+#### 3.2.2 The narrowest rule
+
+The helper is coined here as the **session helper**: a separate, root-owned program whose whole
+job is "give me a fresh audit session, then become the target user". The narrowest rule that does
+it for both modes:
+
+```text
+Cmnd_Alias YOLO_SESSION = sha256:<digest> /Library/PrivilegedHelperTools/dev.yolo-jail.session-exec
+Defaults!YOLO_SESSION env_reset
+<owner> ALL=(root) NOPASSWD: YOLO_SESSION
+```
+
+- **`sha256:` pins the bytes** in sudo itself (sudoers(5) command digests): a replaced binary is
+  refused by sudo before it runs **[A, U: H1j]**. Setup writes the digest; an upgrade reruns setup.
+- **The path is root-owned all the way up.** `/Library/PrivilegedHelperTools` is root's; never the
+  staged yolo, the bundle, `/usr/local` (Homebrew may own it) or anything under a home **[I]**.
+- **Not the `yolo` binary.** A full yolo run as root would put its whole start-up path (config
+  reading, environment, pack code) in front of root. The helper is a separate program of a few
+  dozen lines **[I]**.
+- **The rule can replace the `_yolojail` rule** rather than join it, since the helper also performs
+  the switch to `_yolojail`: still one rule, but now a root one ([OQ-KS8](#OQ-KS8)).
+
+**The helper's whole root phase**, in order, with nothing read from a caller-writable path:
+
+1. Accept exactly `session-exec self -- <abs path> [args…]` or `session-exec account -- <abs path> [args…]`;
+   refuse anything else, a relative path included.
+2. Read the target from a **root-owned enrollment record** written at setup (the owner's numeric
+   UID, `_yolojail`'s numeric UID), never from argv or the environment. Require sudo's `SUDO_UID`
+   to equal the enrolled owner, so that only the enrolled owner's sudo reaches step 3.
+3. `setaudit_addr` with `ai_asid = AU_ASSIGN_ASID`, `ai_auid` = the target UID,
+   **`ai_flags` = 0**, an empty mask and a zero IPv4 terminal id. Root may set any flags on a new
+   session, graphic access included, and the kernel runs no immutability check for a new ASID
+   (`audit_session_setaia`, [`audit_session.c`](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/security/audit/audit_session.c)) **[S]**, so the helper
+   must clear them itself: **copying the caller's flags would give the new session graphic access,
+   and securityd would draw dialogs again.** After that, a non-root member can set no flag
+   (`audit_session_member_set_sflags_mask = 0`) **[S]**, so the jail cannot win graphic access back.
+4. `initgroups`, `setgid`, `setuid` to the target; then check that `setuid(0)` fails and that the
+   real, effective and saved IDs are the target's.
+5. `execv` the absolute path. Everything it runs, it runs as a user the owner could already run as.
+
+**What the rule adds to what a compromised owner account could already do:** create an audit
+session with no flags and an AUID of its own UID or `_yolojail`'s. No root code execution follows
+unless the helper has a bug in steps 1–4, which is why they must stay that small **[I]**.
+
+**Building it.** yolo has no cgo, and `setaudit_addr` has no wrapper in `golang.org/x/sys/unix`
+**[I]**. The options are a Go program calling it through `syscall.Syscall` on darwin (deprecated by
+Apple but working, **[U: H1]**) or a small C program, which the Linux-hosted nix build cannot
+cross-compile easily. A new `cmd/` binary must also join `flake.nix`'s `shippedBinaries` and the
+bundle script ([AGENTS.md](../../AGENTS.md#architecture)).
+
+#### 3.2.3 Does it cut lock-all and dialogs in both modes?
+
+| Surface | Account mode | Run-as-you | Mark |
+| :--- | :--- | :--- | :--- |
+| Lock-all | Hits the new session, where nothing is unlocked | The same | [S, M by analog: W6] |
+| securityd dialogs | Refused: the session has no graphic access | The same | [S: `agentquery.cpp`] |
+| authd dialogs | Refused for the same reason | The same | [I; U: H1d] |
+| Reuse of the owner's **unlocked** login keychain | Not possible (POSIX already) | **Newly closed**: the unlocked state is per session, so even the hard-link escape W4 found would meet a locked database and no way to prompt | [S: `kcdatabase.cpp`; U: H1h] |
+| Keybag routines' context | `{new session, _yolojail}` | `{new session, owner}`, unless the AUID is set to none ([OQ-KS9](#OQ-KS9)) | [S; U: R5, H1i] |
+
+So, yes for both modes, on the source; H1 measures it.
+
+#### 3.2.4 What it breaks, and Copilot
+
+- **The terminal: nothing.** The helper execs in place; an audit session is not a POSIX session or
+  a controlling terminal, so the fds, the process group and Ctrl-C are untouched. Account mode
+  already runs through sudo and its signal relay ([`sessionguard.go`](../../internal/macosuser/sessionguard.go));
+  run-as-you would gain that sudo hop **[S, I; U: H1f]**.
+- **Notifications, `open`, the clipboard: unchanged.** They go through the Mach bootstrap port the
+  process inherited, which the helper does not touch; run-as-you's profile denies the pasteboard,
+  LaunchServices and Apple Events anyway, and account mode's does not ([R6](#26-r6-the-bootstrap-side-adjacent-optional-a-at-the-desktop-b-through-sudo)) **[I; U: H1k]**.
+- **The agent's own keychain use: no dialog, ever.** An item that needs a prompt fails with
+  `errSecInteractionNotAllowed`. Copilot's token write, which looks for a default keychain the jail's
+  `HOME` does not have, then fails instead of raising a "keychain not found" dialog on the owner's
+  screen, and Copilot falls back to its own plain-text consent prompt
+  ([token storage](copilot-token-storage.md)) **[I]**. Anything that needs Touch ID or a GUI
+  password prompt (1Password's CLI, `ssh-add --apple-use-keychain`) stops working in the jail **[I]**.
+- **Copilot's TLS works.** It needs SecurityServer and the two root-certificate files (vd), not a
+  graphic session: W2 ran Copilot under vd in an SSH session, which has no graphic access, and it
+  worked **[M]**.
+- **So #65 closes for practical purposes.** In run-as-you, vd plus the session helper lets Copilot
+  reach SecurityServer while lock-all, dialogs and unlocked-keychain reuse all stop at the jail's
+  own session. What vd still exposes: keychain files the jail can read (its own), notification
+  spoofing (`postNotification`, per session **[U]**), and the keybag routines, which W5 found refused
+  under vd anyway (`SecKeychainResetLogin`, **[M]**). The upstream fix
+  ([#5085](https://github.com/github/copilot-cli/issues/5085)) is still the clean end.
+- **Every crossing must use it**, or a daemon started outside it stays in the owner's session: the
+  bootstrap, provisioning, the supervisor and the agent. They already meet in `RunAs.Argv`, so the
+  helper goes there once, and a test can pin that no crossing skips it **[S]**.
+
+#### 3.2.5 What it does not solve
+
+1. **Run-as-you stops being setup-free.** Today it needs no account, no rule and no sudo; with the
+   helper, every run-as-you launch needs `yolo macos-setup` and an administrator once
+   ([OQ-KS7](#OQ-KS7)).
+2. **Root code runs at every launch**, the thing the privilege design ruled out. Its surface is
+   steps 1–4 and the install path; a bug there is a local root escalation for the owner account.
+3. **The Mach bootstrap side** (clipboard, notifications, other per-user GUI services) is not keyed
+   by the audit session, so account mode's `(allow default)` still reaches them (R6). The fix is a
+   profile deny, not a session.
+4. **The keybag context in run-as-you** still names the owner unless the AUID is set to none, and the
+   keybag service's own check is unknown (R5).
+5. **File-level escapes** stay file-level: a keychain file the jail can read is still the jail's to
+   use, with no unlock prompt possible.
+6. **A stale helper** after an upgrade must refuse the launch and name `yolo macos-setup`, like the
+   existing readiness probe G2 ([`preconditions.go`](../../internal/macosuser/preconditions.go)).
+
+#### 3.2.6 Route 4 against route 1
+
+| | Route 4: root session helper | Route 1: launchd session host |
+| :--- | :--- | :--- |
+| Root | One `NOPASSWD` root rule; a root program at every launch | None |
+| Setup for run-as-you | Required, new | None |
+| Terminal | Native: exec in place | A pty bridge, exit status and signals over a socket |
+| Session flags and AUID | Chosen explicitly: flags 0, AUID the target's | launchd's: flags 0 measured (W6); AUID unknown |
+| SSH-only launches | Work the same way | Unknown whether launchd honors `SessionCreate` there (B3) |
+| macOS side effects | None expected | A plist bootstrapped per launch; a "background item" notice possible |
+| Rulings it overturns | "No root helper" in [OQ-MP10](../design/macos-user-privilege-lifecycle.md#decision-ledger) | None |
+| Evidence | Kernel source; B1 and H1 to run | W6 measured the session; B2/B3 to run |
+
+**My leaning moves to route 4**, since the owner offers the setup step: it is simpler, keeps the
+terminal native, works over SSH, and sets the flags and AUID itself rather than trusting launchd's
+defaults. Route 1 stays the fallback for a run-as-you user who declines setup; such a launch keeps
+p0 and gets no vd.
+
+### 3.3 H1: the session helper, on the Mac (A and B, with the owner's admin password once)
+
+A stands for the owner and B for `_yolojail`, so the owner's real session is never the target.
+Install a **witness** helper, never yolo's:
+
+```c
+/* sessexec.c: build with -DOWNER_UID=<A's uid> -DACCOUNT_UID=<B's uid> */
+#include <bsm/audit.h>
+#include <grp.h>
+#include <pwd.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+int main(int argc, char **argv) {
+    if (argc < 4 || strcmp(argv[2], "--") || argv[3][0] != '/') { fputs("usage\n", stderr); return 64; }
+    uid_t t;
+    if (!strcmp(argv[1], "self")) t = OWNER_UID; else if (!strcmp(argv[1], "account")) t = ACCOUNT_UID;
+    else { fputs("bad mode\n", stderr); return 64; }
+    const char *su = getenv("SUDO_UID");
+    if (!su || (uid_t)strtoul(su, NULL, 10) != OWNER_UID) { fputs("not the enrolled owner\n", stderr); return 77; }
+    auditinfo_addr_t a; memset(&a, 0, sizeof a);
+    a.ai_auid = t; a.ai_asid = AU_ASSIGN_ASID; a.ai_flags = 0; a.ai_termid.at_type = AU_IPv4;
+    if (setaudit_addr(&a, sizeof a)) { perror("setaudit_addr"); return 71; }
+    struct passwd *pw = getpwuid(t);
+    if (!pw || initgroups(pw->pw_name, pw->pw_gid) || setgid(pw->pw_gid) || setuid(t)) { perror("drop"); return 71; }
+    if (setuid(0) == 0 || getuid() != t || geteuid() != t) { fputs("drop failed\n", stderr); return 71; }
+    execv(argv[3], argv + 3); perror("execv"); return 71;
+}
+```
+
+```zsh
+cc -DOWNER_UID=$(id -u yolo-witness) -DACCOUNT_UID=$(id -u yolo-witness2) -o /tmp/sessexec sessexec.c
+sudo install -o root -g wheel -m 755 /tmp/sessexec /Library/PrivilegedHelperTools/dev.yolo-witness.sessexec
+D=$(shasum -a 256 /Library/PrivilegedHelperTools/dev.yolo-witness.sessexec | cut -d' ' -f1)
+echo "yolo-witness ALL=(root) NOPASSWD: sha256:$D /Library/PrivilegedHelperTools/dev.yolo-witness.sessexec" |
+  sudo tee /etc/sudoers.d/yolowitnessroot >/dev/null && sudo visudo -cf /etc/sudoers.d/yolowitnessroot
+```
+
+Then, as A, at A's desktop unless a row says SSH, with `H=/Library/PrivilegedHelperTools/dev.yolo-witness.sessexec`
+and the R2 keychain `$K` unlocked in A's desktop session before each lock row:
+
+| Row | Command | Expected |
+| :--- | :--- | :--- |
+| H1a | `sudo -n $H account -- /Users/Shared/yolo/sid/asid` | euid B, a new ASID, AUID B, `attrs=0` |
+| H1b | `sudo -n $H self -- /Users/Shared/yolo/sid/asid` | euid A, a new ASID, AUID A, `attrs=0` |
+| H1c | `sudo -n $H account -- /usr/bin/security lock-keychain -a`, then the same with `self` | `kcstate "$K"` in A's desktop: **unlocked** both times |
+| H1d | the R4 dialog command through `$H account --`, and `… /usr/bin/security authorize -u system.preferences` | no dialog on A's screen; an interaction-not-allowed error |
+| H1e | `sudo -n $H self -- /Users/Shared/yolo/sid/newsess /usr/bin/true` | `setaudit_addr: Operation not permitted`: the jail cannot make or reflag a session |
+| H1f | `sudo -n $H self -- /bin/zsh -i`; inside: `tty`, `stty size`, `less /etc/hosts`, Ctrl-C a `sleep 100`, resize the window | all behave as in a plain shell |
+| H1g | in A's workspace, `sudo -n $H self -- /usr/bin/sandbox-exec -f "$W/vd.sb" "$W/copilot" update`, as in [W2](../lab-reports/2026-10-30-mac-copilot-keychain-witnesses-and-issue-66.md#2-w2-copilots-own-tls) | a version line; no dialog |
+| H1h | the W4 outside hard link of A's unlocked `$K`, read under vd through `$H self --` | **rc 36 or 152, never the secret, no dialog** |
+| H1i | the W5 `SecKeychainResetLogin` probe under vd through `$H self --` (optional, as R5) | refused, as in W5 |
+| H1j | negative: a relative path; mode `root`; from B's SSH login (no rule); from a root shell (`SUDO_UID` unset); `DYLD_INSERT_LIBRARIES=/x sudo -n $H …`; after `sudo cp /usr/bin/true $H` | each refused; the last one by sudo, on the digest |
+| H1k | `sudo -n $H self -- /usr/bin/osascript -e 'display notification "h1k"'`; `sudo -n $H account -- /usr/bin/pbpaste` after `echo h1k \| pbcopy` | record: these show the bootstrap side, which the helper is not expected to change |
+| H1l | over an SSH login of A, H1a–H1c again | the same results |
+
+**Cleanup:** remove `/etc/sudoers.d/yolowitnessroot` and the helper, before deleting A and B.
+
 ## 4. Recommendation
 
 1. **Run R1–R4 first** (R3 at a moment the owner picks). They turn the two inherited claims, W1 and
@@ -390,26 +617,36 @@ with the witness script.
    > macos-user (account mode): this jail shares your login's security session. It can lock your
    > keychains and make macOS ask you for your password; it cannot read your keychains.
 
-3. **Build route 1, the session host, for both modes**, once B2 (and B3 for SSH-only use) pass. It
-   needs no root, keeps the one-rule contract, and also removes the dialog and authd surfaces that
-   a profile deny cannot reach. The disclosure then becomes "this jail runs in its own security
-   session: it cannot lock your keychains or show you keychain dialogs."
-4. **Allow vd for launches that select Copilot in run-as-you**, as the owner leans, with the
-   disclosure above, until [github/copilot-cli#5085](https://github.com/github/copilot-cli/issues/5085)
-   ships. With route 1 in place the residue is the keybag context (R5).
-5. **Until route 1 ships, deny `com.apple.SecurityServer` in the account profile** for launches
+3. **Build route 4, the session helper, for both modes**, once H1 passes
+   ([§3.2](#32-route-4-in-depth-one-passwordless-rule-to-a-root-session-helper)). Setup installs
+   the digest-pinned root rule; every crossing goes through it. It also removes the dialog and
+   authd surfaces that a profile deny cannot reach. The disclosure then becomes "this jail runs in
+   its own security session: it cannot lock your keychains or show you keychain dialogs."
+   **Route 1** (the launchd session host, no root) is the fallback for a run-as-you user who
+   declines setup; if B2/B3 also pass, it can replace route 4 there.
+4. **Allow vd for launches that select Copilot in run-as-you, behind the session helper.** With
+   it, Copilot reaches SecurityServer without the owner's session exposed, which closes #65 for
+   practical purposes until [github/copilot-cli#5085](https://github.com/github/copilot-cli/issues/5085)
+   ships. A run-as-you launch without the helper keeps p0 and the existing Copilot refusal, which
+   then names `yolo macos-setup`.
+5. **Until the helper ships, deny `com.apple.SecurityServer` in the account profile** for launches
    that do not select Copilot: one line, measured to stop lock-all.
+6. **Deny the pasteboard and other GUI services in the account profile too** (R6), separately: a
+   session does not cover them.
 
 ## 5. Open questions for the owner
 
 | OQ | Question | Options | My leaning |
 | :--- | :--- | :--- | :--- |
-| <a id="OQ-KS1"></a>[OQ-KS1](#OQ-KS1) | Adopt a session break for macos-user? | (a) no, disclose only; (b) route 1, session host via `SessionCreate` LaunchAgent; (c) route 3, setup-installed daemon; (d) route 4, root helper | **(b)**, gated on B2/B3. (c) only if B3 fails and SSH-only launches matter |
+| <a id="OQ-KS1"></a>[OQ-KS1](#OQ-KS1) | Adopt a session break for macos-user? | (a) no, disclose only; (b) route 1, session host via `SessionCreate` LaunchAgent; (c) route 3, setup-installed daemon; (d) route 4, the root session helper ([§3.2](#32-route-4-in-depth-one-passwordless-rule-to-a-root-session-helper)) | **(d)**, gated on H1, with (b) as the no-setup fallback for run-as-you. This overturns "no root helper" in [OQ-MP10](../design/macos-user-privilege-lifecycle.md#decision-ledger), so it is the owner's call |
 | <a id="OQ-KS2"></a>[OQ-KS2](#OQ-KS2) | One fresh session per launch, or one shared by every jail? | (a) per launch; (b) shared | **(a)**: jails cannot lock each other's state, and the session dies with the launch |
 | <a id="OQ-KS3"></a>[OQ-KS3](#OQ-KS3) | Deny SecurityServer in the account profile until KS1 ships? | (a) yes, except launches that select Copilot; (b) yes, always (Copilot then needs run-as-you vd); (c) no | **(a)** |
-| <a id="OQ-KS4"></a>[OQ-KS4](#OQ-KS4) | Allow vd (SecurityServer plus the two root-certificate files) for Copilot in run-as-you? | (a) yes, gated to Copilot launches, disclosed, removed when #5085 ships; (b) only after KS1 ships; (c) no | **(a)**, as the owner leans; (b) if R5 shows the keybag reset reaches the owner's keybag |
+| <a id="OQ-KS4"></a>[OQ-KS4](#OQ-KS4) | Allow vd (SecurityServer plus the two root-certificate files) for Copilot in run-as-you? | (a) yes, gated to Copilot launches, disclosed, removed when #5085 ships; (b) only behind the session helper ([KS1](#OQ-KS1) (d)); (c) no | **(b)**: with the helper, lock and prompt no longer reach the owner, so nothing is left to accept; (a) only if the owner wants Copilot before the helper ships |
 | <a id="OQ-KS5"></a>[OQ-KS5](#OQ-KS5) | The launch disclosure line | the drafts in [§4](#4-recommendation), shown on every macos-user launch that shares the session or allows vd | as drafted; the lock and prompt clauses are the ones that matter |
-| <a id="OQ-KS6"></a>[OQ-KS6](#OQ-KS6) | Authorize R3 (locks the owner's real keychains once) and R5 (may destroy A's keybag)? | each yes or no | R3 **yes**, it is the test the owner asked for; R5 **yes** on A only, since it is the one unknown that could do lasting harm |
+| <a id="OQ-KS7"></a>[OQ-KS7](#OQ-KS7) | Run-as-you has needed no setup so far. With the helper, does it require `yolo macos-setup`? | (a) required for every run-as-you launch; (b) optional: without it, p0 and no Copilot; (c) never, use route 1 there | **(b)**: the setup-free mode keeps working, and the setup step buys Copilot and the session break |
+| <a id="OQ-KS8"></a>[OQ-KS8](#OQ-KS8) | Does the root rule replace the `(_yolojail) NOPASSWD: /usr/bin/env` rule or join it? | (a) replace: the helper also does the switch, still one rule; (b) both | **(a)**: one rule to audit, and no crossing can skip the session |
+| <a id="OQ-KS9"></a>[OQ-KS9](#OQ-KS9) | The new session's AUID | (a) the target UID; (b) none (`AU_DEFAUDITID`), so the keybag context never names the owner; (c) the owner's, as today | **(a)** for account mode; **(b)** for run-as-you if H1 shows it works, since it takes the owner off the keybag context |
+| <a id="OQ-KS6"></a>[OQ-KS6](#OQ-KS6) | Authorize R3 (locks the owner's real keychains once), R5 (may destroy A's keybag) and H1 (installs a witness root helper and rule for A, removed after)? | each yes or no | R3 **yes**, it is the test the owner asked for; R5 **yes** on A only, since it is the one unknown that could do lasting harm; H1 **yes**, it decides KS1 |
 
 ## Sources
 
