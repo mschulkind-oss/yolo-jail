@@ -3,7 +3,7 @@ title: "Where the GitHub line is drawn: which writes run unasked, per user and p
 date: 2026-10-30
 status: in-review
 stage: DESIGN
-next: "Owner confirms the invariant (GW-D58) and rules OQ-GW14 and OQ-GW15 on which repository a line is for (§8); then the plan is built from it"
+next: "Owner confirms the invariant (GW-D58) and rules OQ-GW15 on which repository a line is for (§8); then the plan is built from it"
 depends-on:
   - boundary-broker.md
 tags: [design, github, gh, broker, grants, approvals, config, toml]
@@ -292,7 +292,9 @@ word, today's and the ones yolo adds later, which would silently change what a u
 
 - **A git remote's name**, `origin`, `upstream`, read from this clone's `.git/config` and nothing
   else written. It means the repository that remote points at on github.com. In a committed file it
-  resolves per clone ([OQ-GW14](#OQ-GW14)); a remote on another host, or no remote of that
+  resolves per clone, and each person approves the repository it resolves to at their own prompt;
+  someone whose remote is wrong for the project pins `repo = "OWNER/REPO"` in their uncommitted
+  `yolo-jail.local.toml` ([OQ-GW14](#OQ-GW14)); a remote on another host, or no remote of that
   name, is a `yolo check` error naming the remotes and the `repo` line.
 - **A declared name**, with `repo = "OWNER/REPO"`, or a whole-segment wildcard
   (`"acme/*"`, `"*/*"`, [WW-D31](workspace-widening.md#WW-D31)), carried by the gate line that
@@ -386,29 +388,7 @@ github-broker repository scope, read from this workspace's .git/config, yolo-jai
 
 ## Open Questions
 
-1. 💬 **<a id="OQ-GW14"></a>[OQ-GW14](#OQ-GW14): May a committed config name a repository by a remote's name, when each clone's remote can point somewhere different?**
-
-   The project's committed `yolo-jail.toml` holds `[requests.github.repository.upstream]
-   labels = true`. In Kurt's clone `upstream` is `acme/app`, and in Ana's it is
-   `ana/app-experiments`. Each of them launches, and their prompts show
-   `+ grant labels github.com/acme/app` and `+ grant labels github.com/ana/app-experiments`. So one
-   committed line grants label writes on two different repositories, depending on whose clone it is.
-
-   - **A — Allow it.** This is exactly what a fork workflow wants to say. Each person approves the
-     repository it resolves to at their own prompt. Someone whose `upstream` is wrong for the
-     project puts `repo = "acme/app"` in their uncommitted `yolo-jail.local.toml`.
-   - **B — Remote names only in the uncommitted local file.** The committed file always means the same
-     repositories. Every fork contributor adds their own table by hand before the line does anything.
-
-   <!-- vantage: question id=OQ-GW14 leaning="A: each person sees and approves the repository it resolves to, so nothing is granted unseen." -->
-
-   _Leaning:_ **A.** Each person sees and approves the repository the name resolves to, so nothing
-   is granted unseen.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 🤷 **<a id="OQ-GW15"></a>[OQ-GW15](#OQ-GW15): Should `repos`, the read-only list of extra repositories, stay beside named repositories?**
+1. 💬 🤷 **<a id="OQ-GW15"></a>[OQ-GW15](#OQ-GW15): Should `repos`, the read-only list of extra repositories, stay beside named repositories?**
 
    This repository's uncommitted `yolo-jail.local.toml` says `repos = ["mschulkind/dotfiles"]`, so the agent can
    read your yolo configs. Named repositories give a second way to say the same thing: a
@@ -490,3 +470,4 @@ github-broker repository scope, read from this workspace's .git/config, yolo-jai
 | <a id="GW-D67"></a>GW-D67 | Migration. No TOML key changes spelling: an unqualified line keeps its text, its meaning narrows to the workspace's own repositories, and the grants it loses on `repos` repositories show at the next gate as removed. `yolo config migrate` converts a legacy workspace `brokered.<source>.grants` entry to the unqualified key when its `repo` is the sole remote (today's `soleRemote`), otherwise to `repository.<name>` with `repo` written, the name being the remote that points at it, else the repository's last segment (`owner-repo` on a tie, as pack namespaces do), `any` for `"*"`; the grant set the lowering resolves is proved equal before and after, as [RC-D55](readable-config.md#RC-D55) proves. This retires `lower.go`'s "keep the old file for now" for several remotes, a `repos`-only repository and `"*"`; a legacy grant on a `repos` repository therefore keeps its writes through the name while the `repos` line stays | 2026-11-02 | [§8](#8-which-repository-a-line-is-for) | — |
 | <a id="GW-D68"></a>GW-D68 | What the gate prints: every grant line ends with its key and file, `(yolo-jail.toml: requests.github.repository.infra.dispatch_workflows)`, `(yolo-jail.toml: requests.github.dispatch_workflows, on remote origin)`, `(~/.config/yolo-jail/config.toml: allow.github.always, for every workspace)`; a repository row names its origin the same way, and a `repos` row says `read only`. The label `(from your user config, for every workspace)` is then true only of lines whose key is under `allow` | 2026-11-02 | [§5](#5-every-stop-names-its-next-step), [§8](#8-which-repository-a-line-is-for) | — |
 | <a id="OQ-GW13"></a>[OQ-GW13](#OQ-GW13) | **Owner's ruling: A.** A `requests.github` line that names no repository is for `origin` only. A PR opened on another remote from a branch on `origin` (an upstream PR from a fork) counts as `origin`'s `create_pr` and joins the working set with its comment and edit lines only; a merge there asks per `working_set.merge_prs`, and a dispatch there asks; more needs a `[requests.github.repository.<name>]` table. Owner: *"the line grants what the human pictured, their own repository, and the upstream PR gets exactly what its author can do there anyway"* | 2026-11-03 | [§8](#8-which-repository-a-line-is-for) | — |
+| <a id="OQ-GW14"></a>[OQ-GW14](#OQ-GW14) | **Owner's ruling: A.** A committed config may name a repository by a git remote's name; it resolves per clone, each person approves the repository it resolves to at their own prompt, and a wrong remote is pinned with `repo = "OWNER/REPO"` in the uncommitted local file. Owner: *"each person sees and approves the repository it resolves to, so nothing is granted unseen"* | 2026-11-03 | [§8](#8-which-repository-a-line-is-for) | — |
