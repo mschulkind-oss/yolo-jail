@@ -32,9 +32,9 @@ Ahead of every numbered item: [legacy configs keep working](../design/legacy-con
 the maintainer, 2026-11-03: *"why do I need to change my configs? that's not the point of this.
 the configs keep working."* Every config that launched in the previous release launches unchanged
 and means the same; the census found 56 that do not, in six classes, each decided there, with a
-corpus test whose allowlist must empty as the enforcer. Three rulings are owed:
-[OQ-LC1](../design/legacy-config-compat.md#OQ-LC1) (three earlier retire-outright rulings against
-the job), [OQ-LC2](../design/legacy-config-compat.md#OQ-LC2) (what a v0.15.1 broker switch
+corpus test whose allowlist must empty as the enforcer. The maintainer scoped the rule to the TOML switch and kept the three earlier retirements
+([OQ-LC1](../design/legacy-config-compat.md#OQ-LC1), 2026-11-03). Two rulings are owed:
+[OQ-LC2](../design/legacy-config-compat.md#OQ-LC2) (what a v0.15.1 broker switch
 becomes) and [OQ-LC3](../design/legacy-config-compat.md#OQ-LC3) (whether the two security refusals
 are the one exemption). It carries the inherited-scope crossing decisions for item 11's
 [readable-config redesign](../design/readable-config.md) until that document takes them, and it is

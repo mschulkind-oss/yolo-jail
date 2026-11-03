@@ -3,7 +3,7 @@ title: "Legacy configs keep working: every config that launched last release lau
 date: 2026-11-03
 status: in-review
 stage: DESIGN
-next: "Rule OQ-LC1 (three retire-outright rulings against the job), OQ-LC2 (what a v0.15.1 broker switch becomes) and OQ-LC3 (whether the two security refusals are the one exemption); every LC decision builds without them"
+next: "Rule OQ-LC2 (what a v0.15.1 broker switch becomes) and OQ-LC3 (whether the two security refusals are the one exemption); every LC decision builds without them"
 depends-on:
   - readable-config.md
   - config-migration.md
@@ -33,8 +33,8 @@ host-processes columns and the macOS second workspace were written the same day 
 block that worked a week earlier: *"why do I need to change my configs? that's not the point of
 this. the configs keep working."* The census found 47 configs that are refused or need a command,
 9 that launch meaning something else, and 44 that launch into a message with no next step. Five
-of the six root causes are build decisions no owner ruled; the sixth is three owner rulings this
-document asks about ([OQ-LC1](#OQ-LC1)).
+of the six root causes are build decisions no owner ruled; the sixth is three owner rulings
+that retire a spelling with a transition of their own, which stand ([OQ-LC1](#OQ-LC1)).
 
 **The shape.** One invariant ([§1](#1-the-one-rule)); the **legacy projection** and the
 **crossing**, the two read-time maps every legacy value goes through ([§2](#2-vocabulary)); six
@@ -49,7 +49,7 @@ projection grants what v0.15.1 granted, which is more than it grants today. No h
 **Start at [§4](#4-the-classes-and-what-each-becomes).** [§1](#1-the-one-rule) is the rule it
 applies; [Appendix A](#appendix-a-every-census-row-and-its-disposition) is every census row.
 
-**Needs your ruling:** [OQ-LC1](#OQ-LC1), [OQ-LC2](#OQ-LC2), [OQ-LC3](#OQ-LC3).
+**Needs your ruling:** [OQ-LC2](#OQ-LC2), [OQ-LC3](#OQ-LC3).
 
 **Reads with:** [`readable-config.md`](readable-config.md) (the TOML redesign; its ledger owns
 the crossing rows [§4.2](#42-class-b-the-crossing-refuses-what-the-host-accepted) carries),
@@ -67,6 +67,13 @@ named below.
 means the same.** The owner's words of 2026-11-03, in full:
 
 > why do I need to change my configs? that's not the point of this. the configs keep working.
+
+**Its scope is the TOML switch.** The owner, ruling [OQ-LC1](#OQ-LC1) the same day: *I want specifically the Toml switch not to break things. The Chrome DevTools and the OpenAI rename had nothing to do with it. Those were already ruled on, transition paths ruled on there. For specifically the Toml, if one moment it worked with JSONC and then you convert, then it has to work with Toml. That's the only rule I'm implying here.* So P1 is about what the TOML transition (the readable-config
+redesign, the release that brought TOML and the grant model with it) did to a config that
+launched as JSONC: that config keeps launching, and its conversion launches meaning the same. A
+spelling another ruling retired with its own transition path (`mcp_presets`, the `openai-auth`
+pack name, the user pack `requires` kind; [§4.4](#44-class-d-a-retired-spelling-is-refused-outright))
+is that ruling's, and outside P1.
 
 Three corollaries, each a rule the body applies:
 
@@ -115,7 +122,7 @@ one is [OQ-LC3](#OQ-LC3).
 | :--- | :--- | :--- |
 | Break | 47 | 5 at launch or `yolo check`, 12 at the crossing, 30 in `yolo config migrate` |
 | Same-meaning break | 9 | 8 at launch, 1 at the crossing |
-| Of those, in conflict with an owner ruling | 3 | `mcp_presets`, the `openai-auth` pack name, the `requires` kind ([OQ-LC1](#OQ-LC1)) |
+| Of those, retired by an owner ruling with its own transition (they stand) | 3 | `mcp_presets`, the `openai-auth` pack name, the `requires` kind ([OQ-LC1](#OQ-LC1)) |
 | Ruled, and lets a config stop | 2 | a provider named `native` ([OQ-RC20](readable-config.md#decision-ledger)); `yolo allow` on a JSONC file holding `brokered` ([RC-D37](readable-config.md#RC-D37)) |
 | A trust boundary the owner named | 3 | a workspace env file outside the workspace, a mount in or inside the workspace or another mount, broker ceilings never crossing ([OQ-LC3](#OQ-LC3)) |
 | Happy-path-only | 44 | 41 advice strings naming a legacy file or a JSON snippet, 3 migration texts |
@@ -306,7 +313,7 @@ a different spelling that reads back identically is the planner's to prefer:
 | The generic *"has no spelling in the TOML config"* fallback | M32 | Unreachable from a legacy file once every key in the legacy schema has a rename row or a lowering; `TestEveryLegacyKeyHasALoweringRule` already pins the rule and gains the sixteen keys the census did not sample |
 
 Three texts go with the declines: *"keep the old file for now"*, *"this yolo keeps reading
-them"* (false for every Class D row until [OQ-LC1](#OQ-LC1) is ruled), and *"This is a yolo bug …
+them"* (false for every Class D row, whose refusal stands by [OQ-LC1](#OQ-LC1)), and *"This is a yolo bug …
 Your files still work as they are"* (false for M17). Under LC-D9 a plan that cannot convert a
 launching config *is* a yolo bug, and the one remaining text says so and where to file it.
 
@@ -322,7 +329,12 @@ no warn-and-ignore release"*; the owner's own v0.15.1 config held `"mcp_presets"
 2026-10-29: *"the old pack and profile names are refused naming the new one"*; in the owner's
 v0.15.1 `personal.jsonc`), and a user pack's `requires` kind
 ([OQ-PS11](provisioner-sets.md#OQ-PS11), 2026-10-23: *"We don't have to support the old
-thing"*). Whether the job overrides them is [OQ-LC1](#OQ-LC1); the mappings are in the question.
+thing"*). **They stand** ([OQ-LC1](#OQ-LC1), the owner, 2026-11-03: *"The Chrome DevTools and
+the OpenAI rename had nothing to do with it. Those were already ruled on, transition paths ruled
+on there."*): each is a retirement with its own ruled transition, not a break the TOML switch
+made, so its refusal naming the replacement is the behavior, and the corpus test expects it
+rather than listing it as a break. Not built: the corpus's `mcp_presets` and `openai-auth`
+allowlist rows become expected refusals.
 
 **Two are build decisions**, and the decision here is theirs: <a id="LC-D10"></a>**LC-D10: a
 legacy manifest key is read for the window as what it meant, never dropped with a warning that
@@ -444,7 +456,7 @@ but nothing here is reachability- or rootless-shaped: the corpus runs on the Lin
 | LC-D9's new spellings are invented here, and [`readable-config.md`](readable-config.md) owns the vocabulary | Each row proposes one spelling and the behavior it must read back to; the planner may prefer another spelling that reads back identically, and the rows move to that document when it is free. |
 | A fixture passes the corpus by accident (a thinner shape than the owner's) | The owner's shapes are fixtures by name: twice this release a fixture thinner than the owner's config passed while the owner's launch failed, and the corpus exists so that cannot repeat. |
 | The allowlist stalls with rows nobody owns | Each row names its LC decision; the roadmap routes this document; an empty list is the done-state. |
-| The three rulings [OQ-LC1](#OQ-LC1) asks about are upheld, and three fixtures can never pass | Then those three leave the corpus with the owner's reason recorded in the ledger, and *"this yolo keeps reading them"* is deleted for them; the test is still green on everything else. |
+| The three retirements stand ([OQ-LC1](#OQ-LC1)), so three fixtures can never pass as written | They become expected refusals in the corpus with the owner's reason recorded in the ledger, and *"this yolo keeps reading them"* is deleted for them; the test is still green on everything else. |
 
 ## 9. What I would build, in order
 
@@ -456,49 +468,13 @@ but nothing here is reachability- or rootless-shaped: the corpus runs on the Lin
    grants what it did, the Bedrock file stays off.
 4. **The migration's gaps** (LC-D9), one spelling at a time, each with its proof row; the launch
    offer stops stopping as a consequence.
-5. **The three retire-outright spellings**, once [OQ-LC1](#OQ-LC1) is ruled.
+5. **The three retire-outright spellings** stand ([OQ-LC1](#OQ-LC1)): the corpus expects their refusals, and each refusal keeps naming its replacement.
 6. **The dangling links** (LC-D11) and **the message sweep** (LC-D12), with their tests.
 7. **The manifest window** (LC-D10), last: no owner pack is hit today.
 
 ## Open Questions
 
-1. 💬 **<a id="OQ-LC1"></a>[OQ-LC1](#OQ-LC1): Do three earlier rulings that retire a spelling outright still hold, now that configs must keep working?**
-
-   Priya has used yolo since the summer. Her user config still says `"mcp_presets":
-   ["chrome-devtools"]`, her `personal.jsonc` lists `"openai-auth"` in `packs`, and a pack of
-   her own declares `{"kind": "requires", "bin": "rg"}`. All three launched a week ago. She
-   upgrades and runs `yolo`. Today the first two are refused: *"config.mcp_presets: REMOVED …
-   Delete the key"* and *"`openai-auth` is now `codex-auth`; write `codex-auth`"*; the third is
-   skipped at launch with a warning, so the program it needed is no longer checked. Each refusal
-   follows a ruling you made: no warn-and-ignore release for presets (2026-09-20), old pack names
-   refused naming the new one (2026-10-29), *"we don't have to support the old thing"* for the
-   kind (2026-10-23). Each also has a mapping that loses nothing: the preset is the
-   `chrome-devtools` pack, the old pack name is the new pack, the old kind is a `program` with no
-   recipe. On 2026-11-03 you said the configs keep working, so one of the two has to give.
-
-   - **A — The job overrides all three; map losslessly.** Priya's launch prints nothing new, and
-     `yolo config migrate` writes the new spelling for each. The refusals stay for a TOML file
-     that writes the old spelling; only a legacy file is read through the map. Cost: three
-     rulings are revised in their own documents, and the retired names live one more window in
-     the reader.
-   - **B — The three stand; everything else keeps working.** Priya edits three lines once, as
-     each message says. Cost: three configs that launched last release do not, and this
-     document's rule has three named exceptions that are not trust boundaries.
-   - **C — Two map, one stands.** The preset and the pack name map (both are in your own v0.15.1
-     files); the `requires` kind stands, since no pack but yours declares one and you said you
-     would change yours. Cost: a rule with one exception needs a reason a reader can check, and
-     "only I am affected" is not one the test can read.
-
-   <!-- vantage: question id=OQ-LC1 leaning="A — the mapping is lossless in all three, the rulings predate the job and were about the vocabulary going forward, not about a file that already launched; and a rule with named exceptions is the thing the corpus test exists to refuse." -->
-
-   _Leaning:_ A — the mapping is lossless in all three, the rulings predate the job and were about
-   the vocabulary going forward, not about a file that already launched; and a rule with named
-   exceptions is the thing the corpus test exists to refuse.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 **<a id="OQ-LC2"></a>[OQ-LC2](#OQ-LC2): Does a broker switch an older yolo wrote carry the read grant it used to give?**
+1. 💬 **<a id="OQ-LC2"></a>[OQ-LC2](#OQ-LC2): Does a broker switch an older yolo wrote carry the read grant it used to give?**
 
    Sam turned the GitHub broker on for one project in October by running `yolo loopholes
    enable github-broker` on the host; yolo wrote the switch into its own per-workspace file, and
@@ -531,7 +507,7 @@ but nothing here is reachability- or rootless-shaped: the corpus runs on the Lin
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. 💬 **<a id="OQ-LC3"></a>[OQ-LC3](#OQ-LC3): Are the two security refusals of 2026-10-29 the one exemption from "the configs keep working"?**
+2. 💬 **<a id="OQ-LC3"></a>[OQ-LC3](#OQ-LC3): Are the two security refusals of 2026-10-29 the one exemption from "the configs keep working"?**
 
    Dana's project file, committed in September, has `"env_sources": ["~/secrets.env"]` and a
    read-only mount `"./data:/ctx/data"` whose source is inside the workspace. Both launched in
@@ -571,6 +547,7 @@ when that document is free.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
+| <a id="OQ-LC1"></a>[OQ-LC1](#OQ-LC1) | **P1's scope is the TOML switch: a config that launched as JSONC keeps launching, and its TOML conversion launches meaning the same. The three retire-outright rulings (`mcp_presets`, [OQ-MP6](mcp-presets-removal.md#decision-ledger); the `openai-auth` pack name, [OQ-PE3](provider-enablement.md#OQ-PE3); the user pack `requires` kind, [OQ-PS11](provisioner-sets.md#OQ-PS11)) stand, with the transition paths ruled there.** The owner's ruling: *I want specifically the Toml switch not to break things. The Chrome DevTools and the OpenAI rename had nothing to do with it. Those were already ruled on, transition paths ruled on there. For specifically the Toml, if one moment it worked with JSONC and then you convert, then it has to work with Toml. That's the only rule I'm implying here.* | 2026-11-03 | [§1](#1-the-one-rule); [§4.4](#44-class-d-a-retired-spelling-is-refused-outright) | not built: the corpus test still lists the `mcp_presets` and `openai-auth` refusals as breaks; they become expected refusals |
 | [LC-D1](#LC-D1) | **The corpus test's allowlist may only shrink.** A fixture outside it that fails, or a row that passes and is not removed, fails the test; empty is the done-state and the test stays | 2026-11-03 | [§5](#5-the-enforcer-a-corpus-that-must-launch) | — |
 | [LC-D2](#LC-D2) | **The legacy projection grants what v0.15.1 granted.** A workspace `enabled: true` is the request and its admission ([LG-D16](../reference/loophole-grants.md#LG-D16)); a user `enabled: true` on a valued kind is a user-sourced request to every project, admitted and shown once per project like an `always` line; workspace `fields` is the project's columns ([LG-D15](../reference/loophole-grants.md#LG-D15)); a switch for an unselected pack selects nothing and offers `yolo pack add` | 2026-11-03 | [§4.1](#41-class-a-the-grant-projection-grants-less-than-the-switch-did) | — |
 | [LC-D3](#LC-D3) | **`enabled: false` keeps meaning off** for the login- and setting-approved services and `cgroup-delegate`; TOML spelling `off = true` under the pack's table. Closes the user-scope half [RC-D32](readable-config.md#RC-D32) left open | 2026-11-03 | [§4.1](#41-class-a-the-grant-projection-grants-less-than-the-switch-did) | — |
