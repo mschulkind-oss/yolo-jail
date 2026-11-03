@@ -100,22 +100,6 @@ var knownLegacyBreaks = []legacyBreak{
 
 	// The migration (the launch's offer, and the conversion a TOML cell needs) cannot convert a
 	// legacy file exactly.
-	{"toplevel/host_files/user", "migrate-*", "config.host_files: expected a table",
-		"pending fix: lc-migrate-host-files-list"},
-	{"toplevel/host_path/user", "migrate-*", "config.host_path: expected a string",
-		"pending fix: lc-migrate-host-path-list"},
-	{"toplevel/model_facts/workspace", "migrate-*", "config.model_facts: user-scope only",
-		"pending fix: lc-migrate-ws-model-facts (the load accepts it in a workspace; the converted file is refused)"},
-	{"toplevel/profile*/user", "migrate-*", `expected a table (got "`,
-		"pending fix: lc-migrate-provider-model-string (a provider's string model alias)"},
-	{"toplevel/providers/user", "migrate-*", `expected a table (got "`,
-		"pending fix: lc-migrate-provider-model-string"},
-	{"realistic/personal-desktop", "migrate-*", `expected a table (got "`,
-		"pending fix: lc-migrate-provider-model-string"},
-	{"realistic/work-laptop", "migrate-*", `expected a table (got "`,
-		"pending fix: lc-migrate-provider-model-string"},
-	{"toplevel/security/*", "migrate-*", "security.blocked_tools.*: it has no spelling in the TOML config",
-		"pending fix: lc-migrate-blocked-tools"},
 	{"loophole/*/enabled/user", "migrate-*", "user config: loopholes - ",
 		"pending fix: lc-migrate-user-loophole-switch"},
 	{"toplevel/loopholes/user", "migrate-*", "user config: loopholes - ",
