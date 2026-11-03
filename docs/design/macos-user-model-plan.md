@@ -1165,6 +1165,10 @@ the colleague who reported the refusal):
   workspace's paths; `./run-checks.sh --mode account --account _yolojail --profile-from-yolo <dev
   yolo>` has no FAIL line. Paste into the model doc's *Self-mode rerun* section as the account-mode
   run.
+  *Run 2026-11-03 at `90ff72f2c`* ([lab report](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md)):
+  two workspaces ran at once and `run-checks.sh` had no FAIL line, but `$TMPDIR` was empty, nine
+  `^TestMacosUser` tests that pass on 12a's parent failed (five not listed above), and `claude -p`
+  could not authenticate (a revoked login). W1 is not yet passed.
 - **W2 (slice 11's precondition 3, the rows not yet recorded):** with `macos_user_mode = "self"` in
   the user config, `yolo -- claude` in a fresh `~/code/alpha` twice; Claude is logged in both times
   without a `/login`; a second workspace runs at the same time; `pip download requests` inside
