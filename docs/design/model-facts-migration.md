@@ -546,6 +546,20 @@ and `model_shared` leave the table, so his pi fork's `models.json` gets full row
 `sharedModels`; the price of the two tiers is written twice; and the file no longer says "these
 two rows are one model's facts" anywhere but in `base`.
 
+The two profiles converted as variants, `openrouter/or` and `openrouter/or-300k`, are not shown
+above; the owner's own shape for them (2026-11-03: *"a provider named or … but certainly no 300k
+naming"*) is the provider's alias with the starting model on the provider, and no variant at
+all ([RC-D62](readable-config.md#RC-D62)):
+
+```toml
+[providers.openrouter]
+alias = "or"
+model = "deepseek/deepseek-v4.1-flash-1017:floor"
+```
+
+`deepseek-floor-300k` stays in the list and is chosen inside the agent; the `or-300k` variant's
+subagent pairing (parent on the 300k twin, subagents on the 1M floor) goes with the variant.
+
 ## Appendix B: evidence
 
 ### B.1 The dry run

@@ -182,6 +182,11 @@ func (o *Options) offerConfigMigration() bool {
 	for _, ig := range res.Ignores {
 		pr.print(richtext.Escape(ig.Report(o.Workspace)))
 	}
+	// A converted profile that was a provider's short name is now provider/variant; the one
+	// command that gives a short name back, once per provider (RC-D62).
+	for _, line := range configmigrate.UnaliasedLines(plan) {
+		pr.print(richtext.Escape(line))
+	}
 	return true
 }
 
@@ -207,7 +212,7 @@ func (o *Options) reportMigrationRefusal(plan *configmigrate.MigrationPlan, err 
 			}
 			pr.printf("  %s — %s", richtext.Escape(where), richtext.Escape(nc.Reason))
 		}
-		pr.printf("Nothing was changed. Change those settings and convert again, or %s", strings.ToLower(keepGoing[:1])+keepGoing[1:])
+		pr.printf("Nothing was changed. Each line above says what to do with its setting; then convert again, or %s", strings.ToLower(keepGoing[:1])+keepGoing[1:])
 		return
 	}
 	pr.print("The converted config would not mean the same as yours:")

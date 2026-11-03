@@ -213,6 +213,14 @@ pi = ["bedrock", "codex"]                      # several, switchable inside the 
 codex = "native"                               # left to itself: yolo configures nothing for it
 ```
 
+A variant is selected as `provider/variant` and nothing shorter; the one short name a provider
+offers is its `alias`, which selects the provider's own configuration and so starts on its
+`model`. A converted profile that was the way you selected a provider under a short name
+(`profiles.or` on openrouter) comes out as `openrouter/or`; to have `or` back, make it the
+provider's alias and put the starting model on the provider
+([RC-D62](readable-config.md#RC-D62)), and the conversion's report names that command when it
+writes a variant for a provider with no alias.
+
 A name is refused with the list of providers the selected packs declare, so the names are
 discoverable at the point of use:
 

@@ -105,3 +105,38 @@ func TestConfigNoteNamesTheWorkspaceConfigTheLoaderReads(t *testing.T) {
 			want, note)
 	}
 }
+
+// RC-D59: a workspace config name that is a link to nothing FAILs with the launch's own
+// sentence, and the next step (restore the target or remove the link) is the note.
+func TestCheckFailsOnADanglingConfigLink(t *testing.T) {
+	var out bytes.Buffer
+	o := baseOptions(t, &out)
+	ws, err := filepath.EvalSymlinks(o.Workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o.Workspace = ws
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv(config.UserLayerEnv, "")
+	if err := os.WriteFile(filepath.Join(ws, "yolo-jail.toml"), []byte("[install]\nnix = ['just']\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(ws, "yolo-jail.jsonc")
+	if err := os.Symlink("swarf/.links/yolo-jail.jsonc", link); err != nil {
+		t.Fatal(err)
+	}
+
+	if rc := Check(o); rc == 0 {
+		t.Errorf("check passed a dangling config link:\n%s", out.String())
+	}
+	got := out.String()
+	if want := "[FAIL] " + link + " is a symbolic link to swarf/.links/yolo-jail.jsonc, which does not exist\n"; !strings.Contains(got, want) {
+		t.Errorf("check does not FAIL with the launch's sentence (want %q):\n%s", want, got)
+	}
+	if want := "Restore the target (if a dotfiles manager keeps this file, sync it on this machine), or remove the link: rm " + link + "; " + recheck; !strings.Contains(got, want) {
+		t.Errorf("check's note does not name both ways out (want %q):\n%s", want, got)
+	}
+	if strings.Contains(got, "Parsed workspace config") {
+		t.Errorf("check reported the workspace config parsed beside a dangling link:\n%s", got)
+	}
+}

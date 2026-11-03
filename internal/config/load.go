@@ -349,8 +349,13 @@ func loadWithIncludesMode(path, label string, strict bool, warn Warn, seen map[s
 			continue
 		}
 		incPath := resolveJoin(baseDir, s)
-		if !pathExists(incPath) {
+		if !configNamePresent(incPath) {
 			continue
+		}
+		// "If found" is about the name: a found name whose target is not is a broken setup on
+		// this machine, refused whatever the strictness (RC-D59).
+		if refusal := configNameRefusal(incPath, entryLabel+" in "+label); refusal != nil {
+			return nil, nil, refusal
 		}
 		var included *jsonx.OrderedMap
 		var incNode *srcNode
@@ -429,9 +434,16 @@ func resolveWorkspaceConfigPath(workspace, baseName string) (path, name string, 
 	candidates := readableWorkspaceConfigCandidates(baseName)
 	var found []string
 	for _, candidate := range candidates {
-		if pathExists(filepath.Join(workspace, candidate)) {
-			found = append(found, candidate)
+		p := filepath.Join(workspace, candidate)
+		if !configNamePresent(p) {
+			continue
 		}
+		// A name that is there but cannot be read is refused before the sibling rule, whose
+		// moves assume two readable files (RC-D59).
+		if refusal := configNameRefusal(p, ""); refusal != nil {
+			return "", "", refusal
+		}
+		found = append(found, candidate)
 	}
 	if len(found) > 1 && found[0] == candidates[0] {
 		paths := make([]string, len(found))

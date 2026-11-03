@@ -98,6 +98,11 @@ func ValidateUserLayer(path string) string {
 			abs = filepath.Join(wd, abs)
 		}
 	}
+	// A layer that is there but cannot be read says what it is, in the words every config name
+	// does (RC-D59).
+	if refusal := configNameRefusal(abs, ""); refusal != nil {
+		return "--user-layer: " + refusal.Msg + " (an explicitly-passed layer is never skipped silently)"
+	}
 	fi, err := os.Stat(abs)
 	if err != nil {
 		if twin := convertedLayerTwin(path); twin != "" && os.IsNotExist(err) {

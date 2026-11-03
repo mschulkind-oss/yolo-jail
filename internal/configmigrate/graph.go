@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/configdoc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -227,9 +228,15 @@ func (g *Graph) markRespelled() {
 func (g *Graph) topLevel(dir, tomlName string, oldNames []string, scope Scope) (*File, error) {
 	var found []string
 	for _, name := range append([]string{tomlName}, oldNames...) {
-		if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
-			found = append(found, name)
+		p := filepath.Join(dir, name)
+		if !config.ConfigNamePresent(p) {
+			continue
 		}
+		// A name that is there but cannot be read is never "no old file here" (RC-D59).
+		if err := config.ConfigNameRefusal(p, ""); err != nil {
+			return nil, err
+		}
+		found = append(found, name)
 	}
 	if len(found) == 0 {
 		return nil, nil
@@ -296,6 +303,9 @@ func (g *Graph) walk(f *File, seen map[string]*File) error {
 		}
 		joined := filepath.Join(dir, entry)
 		edge := includeEdge{index: i, entry: entry}
+		if err := config.ConfigNameRefusal(joined, fmt.Sprintf("include_if_found[%d] in %s", i, f.Logical)); err != nil {
+			return err
+		}
 		if _, err := os.Stat(joined); err != nil {
 			if !errors.Is(err, os.ErrNotExist) {
 				return fmt.Errorf("%s (listed in %s): %w", joined, f.Logical, err)
@@ -357,6 +367,11 @@ func (g *Graph) fragments(dir string, seen map[string]*File) error {
 	sort.Strings(names)
 	for _, name := range names {
 		logical := filepath.Join(dir, "config.d", name)
+		if info, err := os.Lstat(logical); err == nil && info.Mode()&os.ModeSymlink != 0 {
+			if err := config.ConfigNameRefusal(logical, "config.d/"+name); err != nil {
+				return err
+			}
+		}
 		if info, err := os.Stat(logical); err != nil || !info.Mode().IsRegular() {
 			continue
 		}

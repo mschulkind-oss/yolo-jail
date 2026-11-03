@@ -226,6 +226,31 @@ func TestLaunchOfferYesWithAnUnconvertibleSettingNamesItAndStops(t *testing.T) {
 	}
 }
 
+// RC-D61: the declined conversion names each setting with its own next step, and the closing line
+// points at those lines instead of at "those settings"; the stop and the "answer n" step stay
+// (RC-D35).
+func TestADeclinedLaunchConversionNamesEachSettingsStep(t *testing.T) {
+	old := "{\n  \"packs\": [],\n  \"loopholes\": {\"mine\": {\"command\": [\"mine-daemon\"]}}\n}\n"
+	l := runOfferLaunch(t, old, true, "y\n")
+	if l.rc == 0 || l.launched {
+		t.Fatalf("Run() = %d, launched = %v; want the launch stopped\nstderr:\n%s", l.rc, l.launched, l.stderr.String())
+	}
+	s := l.stderr.String()
+	for _, want := range []string{
+		"config.jsonc: loopholes.mine.command — only a loophole's `enabled` and `settings` convert; a loophole declared here (`command`) belongs in a pack: move it into one (`yolo pack init` starts one), then run `yolo config migrate` again",
+		"Nothing was changed. Each line above says what to do with its setting; then convert again, or run the same command again and answer n to launch with your current files.",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("stderr lacks %q:\n%s", want, s)
+		}
+	}
+	for _, gone := range []string{"Change those settings", "keep the old file for now"} {
+		if strings.Contains(s, gone) {
+			t.Errorf("stderr still says %q:\n%s", gone, s)
+		}
+	}
+}
+
 // A conversion that would change the config's meaning IS a yolo bug, and says where to report it.
 func TestAConversionThatChangesMeaningIsReportedAsABug(t *testing.T) {
 	var stderr bytes.Buffer

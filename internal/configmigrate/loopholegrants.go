@@ -452,7 +452,7 @@ func lowerProjectLoopholes(value any, ctx loweringContext, place func([]string, 
 					skip(append(append([]string(nil), at...), sk), sv, "a project cannot set "+name+"'s "+sk+"; it is the user's setting, allow."+d.Pack+"."+sk+" in the user config. Move it there (`yolo config set allow."+d.Pack+"."+sk+" …` on the host), then run `yolo config migrate` again")
 				}
 			default:
-				skip(at, v, "only a loophole's `enabled` and `settings` convert; a loophole declared here (`"+key+"`) belongs in a pack: `yolo pack init`, or keep the old file for now")
+				skip(at, v, "only a loophole's `enabled` and `settings` convert; a loophole declared here (`"+key+"`) belongs in a pack: move it into one (`yolo pack init` starts one), then run `yolo config migrate` again")
 			}
 		}
 		if !asks {

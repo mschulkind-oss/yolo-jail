@@ -95,7 +95,7 @@ func lowerUserBrokered(sources *jsonx.OrderedMap, ctx loweringContext, place fun
 			skip(path, sv, "a broker's entry must be an object")
 			continue
 		case err != nil:
-			skip(path, sv, "the shipped broker declarations could not be read ("+err.Error()+"); keep the old file for now")
+			skip(path, sv, "the shipped broker declarations could not be read ("+err.Error()+"); "+noSpellingYet)
 			continue
 		}
 		declaration, reason := userBrokerDeclaration(declarations, source, ctx.view())
@@ -169,14 +169,14 @@ func userBrokerDeclaration(declarations []config.ReadableBrokerDeclaration, sour
 	case len(selected) == 1:
 		return selected[0], ""
 	case len(selected) > 1:
-		return config.ReadableBrokerDeclaration{}, "more than one selected pack declares the " + source + " broker; keep one of them in packs, or keep the old file for now"
+		return config.ReadableBrokerDeclaration{}, "more than one selected pack declares the " + source + " broker; keep one of them in packs, then run `yolo config migrate` again"
 	case len(declaring) == 1:
 		pack := declaring[0].Pack
 		return config.ReadableBrokerDeclaration{}, "[allow." + source + "] grants only while " + pack + ", the pack declaring the broker, is in packs; add it with `yolo pack add " + pack + "`, then run `yolo config migrate` again"
 	case len(declaring) > 1:
 		return config.ReadableBrokerDeclaration{}, "no selected pack declares the " + source + " broker, and more than one shipped pack does; add the one you use with `yolo pack add`, then run `yolo config migrate` again"
 	default:
-		return config.ReadableBrokerDeclaration{}, "no shipped pack declares a broker named " + source + ", so its [allow." + source + "] capabilities are not known here; keep the old file for now"
+		return config.ReadableBrokerDeclaration{}, "no shipped pack declares a broker named " + source + ", so its [allow." + source + "] capabilities are not known here; " + noSpellingYet
 	}
 }
 
@@ -230,9 +230,9 @@ func userGrantKindsProblem(v any, declaration config.ReadableBrokerDeclaration) 
 		capability := declaration.KindCapabilities[kind]
 		switch {
 		case capability == "":
-			return describe(kind) + " is not a grant kind the " + declaration.Pack + " pack maps to a capability (it maps " + strings.Join(maps, ", ") + "); remove it from the list, or keep the old file for now"
+			return describe(kind) + " is not a grant kind the " + declaration.Pack + " pack maps to a capability (it maps " + strings.Join(maps, ", ") + "); " + noSpellingYet
 		case pending[capability]:
-			return describe(kind) + " maps to " + capability + ", which the " + declaration.Pack + " pack has not built yet; remove it from the list, or keep the old file for now"
+			return describe(kind) + " maps to " + capability + ", which the " + declaration.Pack + " pack has not built yet; " + noSpellingYet
 		}
 	}
 	return ""

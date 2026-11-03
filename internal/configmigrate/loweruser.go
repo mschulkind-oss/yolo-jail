@@ -201,12 +201,12 @@ func lowerLoopholes(value any, ctx loweringContext, place func([]string, any, []
 				case v == true:
 					skip(oldPath, v, "`packs` is the only switch and does not list "+name+"; add it with `yolo pack add "+name+"` (or put \""+name+"\" in packs), then run `yolo config migrate` again")
 				default:
-					skip(oldPath, v, "a user config cannot turn a listed pack's service off; remove \""+name+"\" from packs to stop it, or keep the old file for now")
+					skip(oldPath, v, "a user config cannot turn a listed pack's service off; remove \""+name+"\" from packs to stop it, then run `yolo config migrate` again")
 				}
 			case "settings":
 				lowerLoopholeSettings(name, v, oldPath, selected, enabled, place, skip)
 			default:
-				skip(oldPath, v, "only a loophole's `enabled` and `settings` convert; a loophole declared here (`"+key+"`) belongs in a pack: `yolo pack init`, or keep the old file for now")
+				skip(oldPath, v, "only a loophole's `enabled` and `settings` convert; a loophole declared here (`"+key+"`) belongs in a pack: move it into one (`yolo pack init` starts one), then run `yolo config migrate` again")
 			}
 		}
 	}
@@ -248,7 +248,7 @@ func lowerGrantLoophole(d config.LoopholeGrantDeclaration, entry *jsonx.OrderedM
 				lowerLoopholeSettings(d.Pack, rest, oldPath, true, enabled, place, skip)
 			}
 		default:
-			skip(oldPath, v, "only a loophole's `enabled` and `settings` convert; a loophole declared here (`"+key+"`) belongs in a pack: `yolo pack init`, or keep the old file for now")
+			skip(oldPath, v, "only a loophole's `enabled` and `settings` convert; a loophole declared here (`"+key+"`) belongs in a pack: move it into one (`yolo pack init` starts one), then run `yolo config migrate` again")
 		}
 	}
 	if owns {
@@ -359,6 +359,9 @@ func lowerProfiles(value any, ctx loweringContext, out *lowered, skip func([]str
 			put(out.values, target, m[1])
 			out.origins[strings.Join(target, "\x00")] = path
 		}
+		if placement.variant != "" {
+			out.variants = append(out.variants, [2]string{placement.provider, placement.variant})
+		}
 	}
 }
 
@@ -382,7 +385,7 @@ func lowerProfileSelection(value any, ctx loweringContext, place func([]string, 
 		if key == "*" {
 			target = "default"
 		} else if key == "default" {
-			skip(oldPath, v, "an agent named `default` would collide with active_provider.default; rename it in the old file, or keep the old file for now")
+			skip(oldPath, v, "an agent named `default` would collide with active_provider.default; rename it in the old file, then run `yolo config migrate` again")
 			continue
 		}
 		converted, reason := selectionValue(view, v)
@@ -414,7 +417,7 @@ func selectionOf(view *userView, name string) (string, string) {
 	}
 	if strings.Contains(name, "/") {
 		return "", "the profile name " + name + " holds '/', which active_provider reads as provider/variant; " +
-			"rename the profile in the pack or file that declares it, or keep the old file for now"
+			"rename the profile in the pack or file that declares it, then run `yolo config migrate` again"
 	}
 	// A bare variant name a TOML file declares (a piecemeal mix, RC-D57) is the launch's
 	// `<provider>/<variant>` unless a selected pack's profile holds the name, as the launch reads it
