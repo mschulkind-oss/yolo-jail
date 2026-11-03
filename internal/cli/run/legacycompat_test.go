@@ -92,10 +92,9 @@ var knownLegacyBreaks = []legacyBreak{
 	// The jail crossing refuses a TOML user config beside a legacy workspace loophole switch.
 	{"loophole/*/workspace", "inherit", "mixes a TOML file and a legacy JSONC file",
 		"pending fix: lc-inherit-mixed-format"},
-	{"realistic/toml-user-legacy-ws-journal", "inherit", "mixes a TOML file and a legacy JSONC file",
-		"pending fix: lc-inherit-mixed-format"},
-	// Reached once its load stopped refusing the project's `fields` (LG-D15).
-	{"realistic/owner-shaped-toml", "inherit", "mixes a TOML file and a legacy JSONC file",
+	// The realistic cases with a TOML user config beside a legacy workspace switch, some reached
+	// only once their load stopped refusing the project's `fields` (LG-D15).
+	{"realistic/*", "inherit", "mixes a TOML file and a legacy JSONC file",
 		"pending fix: lc-inherit-mixed-format"},
 
 	// The migration (the launch's offer, and the conversion a TOML cell needs) cannot convert a
@@ -115,7 +114,7 @@ var knownLegacyBreaks = []legacyBreak{
 
 	// The config launches, but means less than it did: a user switch of a valued grant reads as
 	// on_request under a TOML user config, and TOML has no spelling for the user-sourced request.
-	{"loophole/serial/enabled/user", "meaning", `is "requestable", v0.15.1 allowed it`,
+	{"*", "meaning", `serial: grant "devices" is "requestable", v0.15.1 allowed it`,
 		"pending fix: lc-migrate-user-loophole-switch (the converted user ceiling lists on_request, which nothing requests)"},
 }
 
