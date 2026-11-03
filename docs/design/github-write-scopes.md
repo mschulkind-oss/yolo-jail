@@ -3,11 +3,11 @@ title: "Where the GitHub line is drawn: which writes run unasked, per user and p
 date: 2026-10-30
 status: in-review
 stage: DESIGN
-next: "Owner confirms the pick-one-set rule, the invariant and the working-set approve cell (GW-D57 to GW-D59; OQ-GW7, OQ-GW11, OQ-GW12 recommended closed); then the plan is built from it"
+next: "Owner confirms the pick-one-set rule, the invariant and the working-set approve cell (GW-D57 to GW-D59; OQ-GW7, OQ-GW11, OQ-GW12 recommended closed), and rules OQ-GW13 to OQ-GW15 on which repository a line is for (§8); then the plan is built from it"
 depends-on:
   - boundary-broker.md
 tags: [design, github, gh, broker, grants, approvals, config, toml]
-summary: "Which of the agent's gh writes run unasked is a 2x2: the user's config is the ceiling (the most a workspace may hold) and the workspace's config is the ask, each with two tables of the same six cells, `working_set` (the PRs and issues the agent created or was handed) and `all` (every other item). A write on a working-set item reads the `working_set` table only; any other write reads `all` only. One invariant: whatever `all` grants, `working_set` grants too, or the config is refused. Repository-level grants (dispatch on more refs, fork-run approval, reruns, cancels, releases, labels, projects) sit beside the cells, opt-in and never default."
+summary: "Which of the agent's gh writes run unasked is a 2x2: the user's config is the ceiling (the most a workspace may hold) and the workspace's config is the ask, each with two tables of the same six cells, `working_set` (the PRs and issues the agent created or was handed) and `all` (every other item). A write on a working-set item reads the `working_set` table only; any other write reads `all` only. One invariant: whatever `all` grants, `working_set` grants too, or the config is refused. Repository-level grants (dispatch on more refs, fork-run approval, reruns, cancels, releases, labels, projects) sit beside the cells, opt-in and never default. Every line is for the workspace's own repositories, the ones its git remotes name, unless it sits under `[requests.github.repository.<name>]`, which names one other repository, by a remote's name or an `OWNER/REPO`; a repository listed in `repos` is read only."
 ---
 
 # Where the GitHub line is drawn: which writes run unasked, per user and per workspace
@@ -89,7 +89,10 @@ Its tokens are cell paths, `"all.merge_prs"`, or a whole table, `"working_set"` 
 `all.X` allows `working_set.X` too, which the invariant needs. `on_request` lists what a workspace may
 ask for; `always` lists what runs in every workspace with no project line, each workspace's gate still
 showing it ([OQ-GW6](#decision-ledger)). The **ask** is the workspace's `[requests.github]` tables;
-the local file merges after the project file, last value per cell wins ([GW-D7](#GW-D7)).
+the local file merges after the project file, last value per cell wins ([GW-D7](#GW-D7)). Both
+tables, and every grant of [§7](#7-repository-level-grants-and-what-is-refused-outright), are for
+the workspace's own repositories; a `[requests.github.repository.<name>]` table holds the same
+keys for one other repository ([§8](#8-which-repository-a-line-is-for)).
 
 | Value in the ask | Means | Needs |
 | :--- | :--- | :--- |
@@ -146,8 +149,11 @@ or a hand-over a human approved ([GW-D42](#GW-D42)). They are also the invariant
 
 ## 4. How one call resolves
 
-For a `gh` write on item N, after the fences nothing here moves (refused commands, the repository
-scope, the read floor):
+For a `gh` write on item N of repository R, after the fences nothing here moves (refused commands,
+the repository scope, the read floor), the tables read are R's: `requests.github` when a git remote
+of the workspace names R, the `repository.<name>` table whose name resolves to R otherwise, and
+none when R is in scope for reading only, in which case every write asks
+([§8](#8-which-repository-a-line-is-for)). Then:
 
 1. **Classify.** The argv gives the verb; one state read gives PR or issue and whether N is open. Together
    they name the cell C. Unreadable, or on no row: asks as a repository write.
@@ -178,7 +184,12 @@ The last column is that line.
 | `yolo check`: `read = "ask"` | `requests.github.read: reads never ask. To keep your jails off GitHub:` | `yolo pack remove github` |
 | A merge with `--delete-branch` | `a merge that deletes its branch asks (r-7k2m): merge without --delete-branch, then delete the branch under a git push grant:` | `git push origin --delete <head>` |
 | A `gh api` review with an unreadable `event` | `this review's verdict is not on the command line (--input or @file), so it asks as a write to o/r (r-7k2m). Write the verdict plainly:` | `-f event=COMMENT` |
-| The launch disclosure | `github-broker: acme/app: create_pr; working set: comment, edit run (shipped default), merge runs; all: comment_issues runs, merge asks; working set: 2 PRs, 1 issue` | — |
+| The launch disclosure, one line per repository | `github-broker: acme/app (origin): create_pr; working set: comment, edit run (shipped default), merge runs; all: comment_issues runs, merge asks; working set: 2 PRs, 1 issue` then `github-broker: acme/infra (repository.infra): dispatch deploy.yml runs; every other write asks` then `github-broker: acme/docs: read only (requests.github.repos)` | — |
+| A write on a repository in scope for reading only | `dispatching sync.yml on mschulkind/dotfiles asks here (r-4c1): yolo-jail.local.toml lists it under requests.github.repos, which is read only. Once: yolo approve r-4c1. To grant writes on it, name it:` | `yolo request github repository dotfiles mschulkind/dotfiles`, then `yolo request github repository.dotfiles.dispatch_workflows sync.yml` |
+| `yolo check`: a name that is neither a remote nor declared | `yolo-jail.toml:14: [requests.github.repository.infra] names no git remote of this workspace (origin, upstream) and declares no repo. Name the repository:` | `yolo request github repository infra acme/infra` |
+| `yolo check`: a declared name that disagrees with a remote | `yolo-jail.toml:14: requests.github.repository.upstream.repo = "acme/infra", but this workspace's remote upstream is acme/app. Rename the table, or drop the repo line to mean the remote:` | `yolo config unset requests.github.repository.upstream.repo --project` |
+| `yolo check`: a name that is a word the table takes | `yolo-jail.toml:14: [requests.github.repository.all]: "all" is a key of requests.github, so a repository cannot be called that. Pick another name:` | `yolo request github repository infra acme/infra` |
+| `yolo check`: a request under a name, outside the ceiling | `yolo-jail.toml:16: this project requests dispatch_workflows on acme/infra (repository.infra); your config allows it on request for no repository that admits acme/infra, so this project runs without it. To allow it for every repository, or for this one:` | `yolo allow github on_request dispatch_workflows`, or `yolo allow github repository.infra on_request dispatch_workflows` after `yolo allow github repository infra acme/infra` |
 
 Advice follows the format of the file it names ([RC-D40](readable-config.md#RC-D40)).
 
@@ -227,7 +238,10 @@ Writes to the repository rather than to a PR or issue never join the working set
 ([BB-D95](boundary-broker.md#BB-D95)). They ask unless one of these covers them; none is a default
 ([GW-D48](#GW-D48)). Each is two-layer like a cell: the user's `on_request` lists the word, the project
 names the resource, it joins at the gate's `y` with a plain-words line, and it is checked under the
-store lock and audited under its own set. A grant that names a resource is `on_request` only.
+store lock and audited under its own set. A grant that names a resource is `on_request` only. Written
+in `[requests.github]` it is for the workspace's own repositories; written in
+`[requests.github.repository.<name>]` it is for that one repository and no other
+([§8](#8-which-repository-a-line-is-for)).
 
 | Project spelling | Covers | Never covers | Build |
 | :--- | :--- | :--- | :--- |
@@ -251,9 +265,124 @@ deploy keys, rulesets, branch protection and collaborators; archive, transfer an
 delete (`DELETE`, a `delete` verb, `--delete-last`, `--delete-branch`, `item-delete`); raw GraphQL.
 
 Not covered here: git's working set, whose line is the branch
-([`git-broker.md` §5.1](git-broker.md#51-the-working-set-of-pushable-branches)); the repository scope and
-the refused commands ([BB-P8](boundary-broker.md#BB-P8)), which no cell or grant widens; a line per PR
-number, which `yolo approve` draws in the store.
+([`git-broker.md` §5.1](git-broker.md#51-the-working-set-of-pushable-branches)), though git takes the
+same `repository.<name>` qualification ([GW-D66](#GW-D66)); the refused commands
+([BB-P8](boundary-broker.md#BB-P8)), which no cell or grant widens; the repository scope, which no cell
+widens and which a `repository.<name>` table joins only at the gate's `y`, as a remote or a `repos`
+entry does ([GW-D63](#GW-D63)); a line per PR number, which `yolo approve` draws in the store.
+
+## 8. Which repository a line is for
+
+Every line in `[requests.github]`, cells and repository-level grants alike, is for the
+**workspace's own repositories** *(a plain phrase, used here as [`config-user.md` §6](config-user.md#6-what-a-jail-may-do-with-your-logins)
+uses "its own repositories")*: the repositories the workspace's git remotes name on github.com,
+every one of them ([OQ-GW13](#decision-ledger)), each a row the human approved at the gate. A
+repository the project lists in `requests.github.repos` is in scope for **reading only**: no
+unqualified line reaches it, and a write on it asks ([GW-D60](#GW-D60)). That is what this
+repository's own local file says of `mschulkind/dotfiles`, and what the lowering did not honor.
+
+To write on any other repository, the project names it. A **named repository** *(coined here)*
+is one table, `[requests.github.repository.<name>]`, holding exactly the keys `[requests.github]`
+takes, `repos` and `repository` excepted, each meaning on that repository what it means on the
+workspace's own ([GW-D61](#GW-D61)). The segment is the fixed word `repository`, never the name
+alone, because a bare name would collide with `all`, `working_set`, `repos` and every capability
+word, today's and the ones yolo adds later, which would silently change what a user's name means.
+
+**A name is one of two things** ([GW-D62](#GW-D62)):
+
+- **A git remote's name**, `origin`, `upstream`, read from this clone's `.git/config` and nothing
+  else written. It means the repository that remote points at on github.com. In a committed file it
+  resolves per clone ([OQ-GW14](#decision-ledger)); a remote on another host, or no remote of that
+  name, is a `yolo check` error naming the remotes and the `repo` line.
+- **A declared name**, with `repo = "OWNER/REPO"`, or a whole-segment wildcard
+  (`"acme/*"`, `"*/*"`, [WW-D31](workspace-widening.md#WW-D31)), carried by the gate line that
+  says in plain words what it admits. A declared name that is also a remote's name is fine when
+  both name the same repository and an error when they do not.
+
+A name is a TOML bare key, letters, digits, `-` and `_`, so no path ever needs quoting, and it may
+not be a word `requests.github` takes. `yolo request github repository <name> <OWNER/REPO>` declares
+one; `yolo request github repository.<name>.<key> [resource]` writes a line under it, as
+`yolo request github working_set.merge_prs` writes a cell ([GW-D46](#GW-D46)).
+
+```toml
+# yolo-jail.toml: this project (origin and, in a fork clone, upstream) and two other repositories
+[requests.github]
+create_pr = true                                     # on the workspace's own repositories
+dispatch_workflows = ["release-request.yml"]         # on them too, default branch
+
+[requests.github.repository.infra]                   # yolo request github repository infra acme/infra
+repo = "acme/infra"
+dispatch_workflows = ["deploy.yml"]                  # yolo request github repository.infra.dispatch_workflows deploy.yml
+[requests.github.repository.infra.all]
+comment_issues = true                                # the same cells, the same invariant, on acme/infra
+
+[requests.github.repository.upstream]                # no repo line: this clone's remote "upstream"
+labels = true
+
+# yolo-jail.local.toml: read only, as its comment says
+[requests.github]
+repos = ["mschulkind/dotfiles"]
+```
+
+**The ceiling is per repository the same way** ([GW-D64](#GW-D64)). `[allow.github]` is the
+ceiling for every repository; `[allow.github.repository.<name>]`, with a `repo` line (a user config
+has no remotes, so a name there is always declared) and its own `always` and `on_request`, adds a
+ceiling for the repositories its `repo` admits. A project's request on repository R is within the
+ceiling when the unqualified lists or any qualified table admitting R lists the token; a qualified
+table never narrows the unqualified one, so a user who wants "dispatch on mine, never elsewhere"
+moves the word from `[allow.github] on_request` to `[allow.github.repository.mine]`.
+
+```toml
+# ~/.config/yolo-jail/config.toml
+[allow.github]
+always = ["read"]
+on_request = ["create_pr", "create_issue"]           # any repository a project names
+
+[allow.github.repository.mine]                       # yolo allow github repository mine 'mschulkind/*'
+repo = "mschulkind/*"
+on_request = ["dispatch_workflows", "approve_runs", "all.merge_prs"]   # only under my own account
+```
+
+**Scope** ([GW-D63](#GW-D63)). A named repository is in the approved scope in its own right: a row
+in the gate's scope block under its key and file, joining at the `y` like a remote or a `repos`
+entry; no second line in `repos` is needed or implied. Its grants are the ones its table holds,
+fanned out over the repositories its name resolves to, and over nothing else; a remote's repository
+gets the unqualified lines and, when a table names that remote, that table's lines too.
+
+**The cells and the working set** ([GW-D65](#GW-D65)). `[requests.github.repository.<name>.working_set]`
+and `.all` are the same six cells, and the invariant ([GW-D58](#GW-D58)) holds within each
+repository's pair. Items are already keyed by repository, so the working set changes only in
+spelling: `yolo request github working-set acme/infra#70` names the item's repository, and a bare
+`working-set 70` is accepted only when the workspace's own repositories are one. A covered write is
+audited with the full key, `requests.github.repository.infra.all.comment_issues`.
+
+**Git takes the same qualification** ([GW-D66](#GW-D66)). `[requests.git]` lines (`push`,
+`push_tags`, `new_branches`) are for every remote of the workspace, on any host, as today;
+`[requests.git.repository.<name>]` names one, by a remote's name or `repo = "<host>/<path>"`
+(git's identity, `github.com/acme/infra`) or `"*"` ([GB-D25](git-broker.md#GB-D25)). A requested
+github.com repository stays read only in git ([RC-D26](readable-config.md#RC-D26)); a named one
+on github.com joins the git scope as RC-D26's two URLs and keeps its writes, because it was named
+for them.
+
+**Today's files** ([GW-D67](#GW-D67)). No TOML key changes spelling: an unqualified line keeps its
+text and loses the `repos` repositories it was fanned out over, which the next gate shows as
+`- grant … removed`. `yolo config migrate` converts a legacy `brokered.<source>.grants` entry to the
+unqualified key when its `repo` is the workspace's sole remote, as today, and otherwise to
+`repository.<name>` with the `repo` line written, so the cases `lower.go` leaves as "keep the old
+file for now" (several remotes, a `repos`-only repository, `"*"`) convert exactly.
+
+**What the gate prints** ([GW-D68](#GW-D68)). Every grant line ends with where it came from, the
+key and the file, so the provenance a human reads is never a guess:
+
+```text
+github-broker repository scope, read from this workspace's .git/config, yolo-jail.toml and yolo-jail.local.toml:
+    github.com/mschulkind-oss/yolo-jail   remote origin                                    unchanged
+  + github.com/acme/infra                 requests.github.repository.infra (yolo-jail.toml)  added
+    github.com/mschulkind/dotfiles        requests.github.repos (yolo-jail.local.toml)       unchanged, read only
+  + grant dispatch-workflow github.com/acme/infra deploy.yml  added (yolo-jail.toml: requests.github.repository.infra.dispatch_workflows)
+    grant dispatch-workflow github.com/mschulkind-oss/yolo-jail release-request.yml  unchanged (yolo-jail.toml: requests.github.dispatch_workflows, on remote origin)
+    grant read *  unchanged (~/.config/yolo-jail/config.toml: allow.github.always, for every workspace)
+```
 
 ## Decision Ledger
 
@@ -306,3 +435,15 @@ number, which `yolo approve` draws in the store.
 | <a id="OQ-GW8"></a>[OQ-GW8](#OQ-GW8) | **Ruled A:** a cell may be `false`, a refusal that beats the ceiling and `always`, filing no request and naming the line to remove; it orders below `"ask"`, so `all.X = true` with `working_set.X = false` breaks the invariant. Owner: *"Add false, as a refusal that beats the ceiling: it is one more value, and it is the only way to say never."* | 2026-11-02 | [§2](#2-the-ceiling-and-the-ask) | no |
 | <a id="OQ-GW9"></a>[OQ-GW9](#OQ-GW9) | **Ruled A:** the hand-over request is `yolo request github working-set <n>`. Owner: *"yolo request github working-set 70: the agent's side of every grant is filing a request, and the host's is yolo approve."* | 2026-11-02 | [§3](#3-the-working-set) | no |
 | <a id="OQ-GW10"></a>[OQ-GW10](#OQ-GW10) | **Ruled A:** an item leaves the working set on merge or close, or on `yolo github working-set remove <n>`; nothing expires; a reopened item asks once and may be requested again. Owner: *"A: on merge or close, or an explicit remove; no expiry, since a created item has none and a handed-over one is the same thing."* | 2026-11-02 | [§3](#3-the-working-set) | no |
+| <a id="GW-D60"></a>GW-D60 | **An unqualified `requests.github` line is for the workspace's own repositories only: the repositories its git remotes name on github.com, never a `requests.github.repos` entry.** A `repos` entry is read scope, as its spelling in this repository's local file promises (*"Pushes are never widened by a requested repository"*) and as git already holds ([RC-D26](readable-config.md#RC-D26)); a write on one asks, naming `yolo request github repository <name> <OWNER/REPO>`. Replaces the lowering that fanned every request over every target (`ProduceReadableGateInput`), which gave `mschulkind/dotfiles` four dispatch grants on 2026-11-02. Which of the remotes the unqualified line covers is [OQ-GW13](#OQ-GW13) | 2026-11-02 | [§8](#8-which-repository-a-line-is-for) | — |
+| <a id="GW-D61"></a>GW-D61 | **Owner's ask, shaped:** *"somebody's gonna want to grant things across multiple repositories … you'll have some name you can define somewhere. And then that name will be part of the path to these grants."* The path is `requests.github.repository.<name>.<key>`, the fixed segment `repository` then the name, never the name alone as the owner feared (*"that does create collision risks"*): a bare name would collide with `all`, `working_set`, `repos`, every capability word and every one yolo adds later, which would silently change a user's name's meaning; a fixed segment makes the collision impossible instead of reserved against. `repository`, not `repo`, because the repo treats a singular spelling beside a plural key as a typo (`singularRootKeys`) and `repos` stays. A named table takes exactly the keys `requests.github` takes, `repos` and `repository` excepted, each meaning on that repository what it means unqualified ([GW-D37](#GW-D37): every key reads cold at either depth). A name is a TOML bare key (letters, digits, `-`, `_`) so no path is ever quoted, and may not be a key `requests.github` takes (`all`, `working_set`, `repos`, `repository`, a capability word), which `yolo check` refuses naming another name | 2026-11-02 | [§8](#8-which-repository-a-line-is-for) | — |
+| <a id="GW-D62"></a>GW-D62 | A name is a git remote's name or a declared one. A remote's name (`origin`, `upstream`) is a name with nothing written: it means the repository that remote points at on github.com, read from this clone's `.git/config`; a remote on another host or no remote of that name is a `yolo check` error naming the remotes and the `repo` line. A declared name has `repo = "OWNER/REPO"`, or a whole-segment wildcard in [WW-D31](workspace-widening.md#WW-D31)'s forms, whose gate line says in plain words what it admits, as [GB-D25](git-broker.md#GB-D25) does for a `*` ref grant; the owner on wildcards: *"if someone wants to grant repo \*, why should we stop them?"*. A declared name equal to a remote's name is accepted when both name the same repository and refused when they differ, naming the rename or the `repo` line to drop. `yolo request github repository <name> <OWNER/REPO>` declares; `yolo request github repository.<name>.<key> [resource]` writes under it, the dotted form of [GW-D46](#GW-D46) | 2026-11-02 | [§8](#8-which-repository-a-line-is-for) | — |
+| <a id="GW-D63"></a>GW-D63 | A named repository is a scope entry in its own right: a row in the gate's scope block under `requests.github.repository.<name>` and its file, joining at the `y` as a remote or a `repos` entry does, with no second `repos` line needed or implied (the scope is computed from remotes, `repos` and names; no key changes another, [GW-D38](#GW-D38)). Its grants are its table's, fanned out over the repositories the name resolves to and nothing else; a remote's repository gets the unqualified lines plus any table naming that remote. [OQ-BB18](boundary-broker.md#OQ-BB18) is unchanged: which repositories stays a workspace request, the access level stays the user's ceiling | 2026-11-02 | [§8](#8-which-repository-a-line-is-for) | — |
+| <a id="GW-D64"></a>GW-D64 | The ceiling is per repository by the same table: `[allow.github.repository.<name>]` with `repo` (always declared, since a user config has no remotes) and its own `always` and `on_request`, written by `yolo allow github repository <name> <OWNER/REPO or wildcard>` and `yolo allow github repository.<name> [always|on_request] <token>`. The unqualified `[allow.github]` is the ceiling for every repository; a qualified table adds for the repositories its `repo` admits and never narrows. A request on R is within the ceiling when either lists the token. A skipped request names both commands | 2026-11-02 | [§8](#8-which-repository-a-line-is-for) | — |
+| <a id="GW-D65"></a>GW-D65 | The cells live under a name too, `[requests.github.repository.<name>.working_set]` and `.all`, and [GW-D58](#GW-D58) holds within each repository's pair, checked at load. The hand-over request names the item's repository, `yolo request github working-set acme/infra#70`; a bare number is accepted only when the workspace's own repositories are one, else refused naming the form. Audit and `yolo config why` carry the full key, `requests.github.repository.infra.all.comment_issues`; the launch disclosure is one line per repository, a read-only one saying so | 2026-11-02 | [§3](#3-the-working-set), [§8](#8-which-repository-a-line-is-for) | — |
+| <a id="GW-D66"></a>GW-D66 | Git takes the same qualification: `[requests.git.repository.<name>]` with `push`, `push_tags`, `new_branches`; a name is a remote's (any host) or declared with `repo = "<host>/<path>"` (git's identity, `gitproto.Identity`) or `"*"` ([GB-D25](git-broker.md#GB-D25)). Unqualified `[requests.git]` stays every remote of the workspace, on any host, as today. [RC-D26](readable-config.md#RC-D26) is unchanged for `repos`; a named github.com repository no remote names joins git's scope as RC-D26's two exact URLs and keeps its writes, since it was named for them; any other host must be a remote. `yolo request git repository …` writes it; `yolo request git repos` stays refused | 2026-11-02 | [§8](#8-which-repository-a-line-is-for) | — |
+| <a id="GW-D67"></a>GW-D67 | Migration. No TOML key changes spelling: an unqualified line keeps its text, its meaning narrows to the workspace's own repositories, and the grants it loses on `repos` repositories show at the next gate as removed. `yolo config migrate` converts a legacy workspace `brokered.<source>.grants` entry to the unqualified key when its `repo` is the sole remote (today's `soleRemote`), otherwise to `repository.<name>` with `repo` written, the name being the remote that points at it, else the repository's last segment (`owner-repo` on a tie, as pack namespaces do), `any` for `"*"`; the grant set the lowering resolves is proved equal before and after, as [RC-D55](readable-config.md#RC-D55) proves. This retires `lower.go`'s "keep the old file for now" for several remotes, a `repos`-only repository and `"*"`; a legacy grant on a `repos` repository therefore keeps its writes through the name while the `repos` line stays | 2026-11-02 | [§8](#8-which-repository-a-line-is-for) | — |
+| <a id="GW-D68"></a>GW-D68 | What the gate prints: every grant line ends with its key and file, `(yolo-jail.toml: requests.github.repository.infra.dispatch_workflows)`, `(yolo-jail.toml: requests.github.dispatch_workflows, on remote origin)`, `(~/.config/yolo-jail/config.toml: allow.github.always, for every workspace)`; a repository row names its origin the same way, and a `repos` row says `read only`. The label `(from your user config, for every workspace)` is then true only of lines whose key is under `allow` | 2026-11-02 | [§5](#5-every-stop-names-its-next-step), [§8](#8-which-repository-a-line-is-for) | — |
+| <a id="OQ-GW13"></a>[OQ-GW13](#OQ-GW13) | **Which remotes does an unqualified line cover: every github.com remote, or `origin` only?** The owner: *"we'll have one for like origin or main or whatever the default one is."* Example: Kurt clones a fork, `origin = kurt/app`, `upstream = acme/app`; the committed `create_pr = true` must reach `acme/app`, because `gh pr create` from a fork writes the PR to upstream, while a committed `dispatch_workflows = ["nightly.yml"]` reaching `acme/app` from Kurt's clone is a reach the maintainer did not write for. **Leaning A, every remote**, today's rule: each remote is a row Kurt approved at his own gate, GitHub's own permissions on `acme/app` are the backstop, and origin-only breaks the fork PR flow, the one case upstream matters most; a project that means one remote names it. B, `origin` only, would make `[requests.github.repository.upstream]` the fork spelling | 2026-11-02 | [§8](#8-which-repository-a-line-is-for) | — |
+| <a id="OQ-GW14"></a>[OQ-GW14](#OQ-GW14) | **May a committed file name a repository by a remote's name, which resolves per clone?** Example: `yolo-jail.toml` holds `[requests.github.repository.upstream] labels = true`; in Kurt's clone `upstream` is `acme/app`, in Ana's it is `ana/app-experiments`, so one committed line grants label writes on two different repositories. **Leaning A, allow it**: that is exactly what a fork workflow wants to say, the resolved identity is a row at each person's own gate, and the local file (`yolo-jail.local.toml`) is where a clone-specific `repo` line goes when the committed name is wrong for it. B, remote names only in the local file, keeps the committed file deterministic at the cost of making every fork workflow a per-clone edit | 2026-11-02 | [§8](#8-which-repository-a-line-is-for) | — |
+| <a id="OQ-GW15"></a>[OQ-GW15](#OQ-GW15) | **Does `requests.github.repos` stay beside named repositories, or is it retired into them?** Both put a repository in scope; the one-path-per-cell rule ([fill-the-matrix](../reference/fill-the-matrix-principle.md)) asks for one spelling. Example: this repository's local file says `repos = ["mschulkind/dotfiles"]`; the alternative is an empty `[requests.github.repository.dotfiles] repo = "mschulkind/dotfiles"`, read only because it grants nothing. **Leaning A, keep `repos`**: it is the shipped read-only spelling, its comment in the owner's own file is the truest statement of this design, and retiring it is a TOML-to-TOML rewrite `yolo config migrate` does not do today; `yolo config why` on a scope row names which spelling put it there. B, retire it, is one grammar at the cost of that rewrite | 2026-11-02 | [§8](#8-which-repository-a-line-is-for) | — |
