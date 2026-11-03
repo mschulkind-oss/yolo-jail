@@ -153,6 +153,12 @@ func readableLegacyShapeAccepted(path []string, value any) bool {
 		// machine.resources.cpus is already typed to take one.
 		_, ok := value.(bool)
 		return ok
+	case len(path) == 4 && path[0] == "providers" && path[2] == "models":
+		// A provider's model may be the alias's wire id as one string ("glm-5.3"), as the
+		// legacy reader takes it: a legacy alias with no facts of its own and none from the
+		// catalog, which no table spelling says (legacy-config-compat.md LC-D9).
+		_, ok := asStr(value)
+		return ok
 	}
 	return false
 }

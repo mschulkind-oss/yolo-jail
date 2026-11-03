@@ -74,7 +74,7 @@ var configRenames = []RenameDescriptor{
 	// Shared facts keep their name, a row's pointer at them and a row's sent id theirs
 	// (docs/design/model-facts-migration.md MF-D2, MF-D3): identity rows, which the conversion
 	// passes through (lower.go's model_facts case respells each entry's facts).
-	{OldPath: "model_facts.*", Replacements: []string{"model_facts.*"}, Scope: SchemaScopeUserOnly, Transform: RenameKey},
+	{OldPath: "model_facts.*", Replacements: []string{"model_facts.*"}, Scope: SchemaScopeBoth, Transform: RenameKey},
 	{OldPath: "providers.*.models.*.extends", Replacements: []string{"providers.*.models.*.extends"}, Scope: SchemaScopeBoth, Transform: RenameKey},
 	{OldPath: "providers.*.models.*.wire_id", Replacements: []string{"providers.*.models.*.wire_id"}, Scope: SchemaScopeBoth, Transform: RenameKey},
 	{OldPath: "providers.*.models.*.context_window", Replacements: []string{"providers.*.models.*.context", "providers.*.every_model.context"}, Scope: SchemaScopeBoth, Transform: RenameFoldWhenEqual},
