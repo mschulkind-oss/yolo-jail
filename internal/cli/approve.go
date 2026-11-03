@@ -175,6 +175,16 @@ func approveFailure(err error, errs io.Writer) int {
 	return code
 }
 
+// approveVia is who is answering request id, as its record keeps it (docs/design/jail-history.md
+// JH-D11): the request's own on_request hook, whose environment names that request
+// (brokerhook.Env sets YOLO_REQUEST_ID, and nothing else does), or the human at a host terminal.
+func approveVia(id string, getenv func(string) string) string {
+	if id != "" && getenv("YOLO_REQUEST_ID") == id {
+		return brokerstore.ViaOnRequest
+	}
+	return brokerstore.ViaHost
+}
+
 // approveMain is approveAll over one store.
 func approveMain(ctx context.Context, args []string, inJail bool, s *brokerstore.Store, out, errs io.Writer) int {
 	return approveAll(ctx, args, inJail, []*brokerstore.Store{s}, out, errs)
@@ -274,6 +284,7 @@ func approveAll(ctx context.Context, args []string, inJail bool, stores []*broke
 	if answers > 1 || (revoke != "" && (request != "" || answers > 0)) || (answers > 0 && request == "") {
 		return fail(fmt.Errorf("choose one request decision, or --revoke"))
 	}
+	d.Via = approveVia(request, os.Getenv)
 	if workspaceSeen && revoke != "all" {
 		return fail(fmt.Errorf("the --workspace flag narrows only --revoke all; revoke one grant or entry by its id alone"))
 	}
@@ -296,7 +307,7 @@ func approveAll(ctx context.Context, args []string, inJail bool, stores []*broke
 			return approveExitPolicy
 		}
 		if rememberSeen {
-			return approveRemember(stores, request, out, errs)
+			return approveRemember(stores, request, d.Via, out, errs)
 		}
 		if !found && addSeen {
 			// No request has this id: --add is answered by the store that takes it, which says so.

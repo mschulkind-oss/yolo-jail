@@ -7,8 +7,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"slices"
-	"strings"
 	"syscall"
 	"time"
 
@@ -198,7 +196,10 @@ func (o Opts) lock() (unlock func(), held bool, err error) {
 }
 
 // List prints this workspace's requests that still want something of the agent: each pending
-// one, and each answered within the last day whose answer no command has acted on yet.
+// one, and each answered within the last day whose answer no command has acted on yet. One
+// answered for a time or into the working set is listed as waiting on nothing. It ends naming
+// how many answered requests of the last day it left out, and the verb that lists them
+// (docs/design/jail-history.md JH-D10).
 func List(o Opts) int {
 	o = o.withDefaults()
 	dir, err := openDir(o.Workspace)
@@ -207,41 +208,53 @@ func List(o Opts) int {
 		return ExitUnavailable
 	}
 	var recs []Record
+	omitted := 0
 	if dir != nil {
 		defer dir.Close()
-		d, err := dir.Open(".")
+		all, err := readAll(dir)
 		if err != nil {
 			o.say("cannot list the approval records (%s).", termsafe.Visible(err.Error()))
 			return ExitUnavailable
 		}
-		names, _ := d.Readdirnames(-1)
-		d.Close()
-		slices.Sort(names)
 		now := o.Now()
-		for _, n := range names {
-			id, ok := strings.CutSuffix(n, ".json")
-			if !ok || !ValidID(id) {
-				continue
-			}
-			rec, err := readRecord(dir, id)
-			if err != nil || rec == nil || rec.Used || rec.Lapsed {
+		for _, rec := range all {
+			recent := !rec.Decided.IsZero() && now.Sub(rec.Decided) <= listWindow
+			if rec.Used || rec.Lapsed {
+				if recent {
+					omitted++
+				}
 				continue
 			}
 			state := rec.effectiveState(now)
-			if state != StatePending && (rec.Decided.IsZero() || now.Sub(rec.Decided) > listWindow) {
+			if state != StatePending && !recent {
 				continue
 			}
 			rec.State = state
-			recs = append(recs, *rec)
+			recs = append(recs, rec)
 		}
 	}
 	if len(recs) == 0 {
 		fmt.Fprintln(o.Out, "No approval request of this workspace is pending or answered and waiting on you.")
-		return 0
 	}
+	acts, covered := false, false
 	for _, r := range recs {
-		fmt.Fprintf(o.Out, "%s  %-7s  %s  %s\n", r.ID, r.State, r.Source, termsafe.Visible(r.Command))
+		label := r.State
+		switch {
+		case r.State == StateAllowed && r.covers():
+			label, covered = r.answered(time.Time{}), true
+		case r.State == StatePending || r.State == StateAllowed:
+			acts = true
+		}
+		fmt.Fprintf(o.Out, "%s  %-7s  %s  %s\n", r.ID, label, r.Source, termsafe.Visible(r.Command))
 	}
-	fmt.Fprintf(o.Out, "\nFor each allowed one, run its command again, once; for a pending one, start `yolo wait <id>` in the background.\n")
+	if acts {
+		fmt.Fprintf(o.Out, "\nFor each allowed one, run its command again, once; for a pending one, start `yolo wait <id>` in the background.\n")
+	}
+	if covered {
+		fmt.Fprintf(o.Out, "\nOne allowed for a time or added to the working set waits on nothing: a command it covers runs without asking.\n")
+	}
+	if omitted > 0 {
+		fmt.Fprintf(o.Out, "\n%d more request(s) of this workspace were answered in the last day and need nothing more of you; `yolo history requests` lists them.\n", omitted)
+	}
 	return 0
 }

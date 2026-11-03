@@ -23,10 +23,23 @@ func (s *Store) publish(q Request) {
 	}
 	rec := approvalwait.Record{ID: q.ID, Source: s.SourceName(), State: q.State,
 		Command: termsafe.Visible(shquote.JoinDisplay(summaryArgv(q.Argv))), Filed: q.Filed,
-		Expires: q.Expires(), Decided: q.Decided, Used: q.Spent, Lapsed: q.Lapsed}
+		Expires: q.Expires(), Decided: q.Decided, Used: q.Spent, Lapsed: q.Lapsed,
+		Answer: q.Answer, Via: q.Via, Until: q.Until, Jail: termsafe.Visible(q.Jail), Hook: hookOf(q),
+		SpentAt: q.SpentAt, Reason: q.Reason}
 	if err := approvalwait.Publish(q.Workspace, rec); err != nil && s.PublishFailed != nil {
 		s.PublishFailed(q, err)
 	}
+}
+
+// hookOf is q's on_request hook as the jail-readable record names it.
+func hookOf(q Request) string {
+	switch {
+	case q.HookFailure != "":
+		return approvalwait.HookFailed
+	case q.HookRan:
+		return approvalwait.HookRan
+	}
+	return approvalwait.HookNone
 }
 
 // requestOf is the request a write("requests", …) carries.

@@ -54,7 +54,52 @@ type Record struct {
 	Used bool `json:"used,omitempty"`
 	// Lapsed is an Allow once whose window closed before any command spent it.
 	Lapsed bool `json:"lapsed,omitempty"`
+
+	// How it was answered, and by whom (docs/design/jail-history.md JH-D11). Every field is
+	// additive: a record an older yolo wrote has none and reads as before.
+
+	// Answer is the decision's kind: AnswerOnce, AnswerFor, AnswerAdd, AnswerRemember or
+	// AnswerDeny; empty while pending, and for a request closed or expired unanswered.
+	Answer string `json:"answer,omitempty"`
+	// Via is who ran the `yolo approve` that answered it: ViaOnRequest when the user's
+	// on_request hook ran it for this request, ViaHost otherwise.
+	Via string `json:"via,omitempty"`
+	// Until is when an AnswerFor stops covering the commands it allowed.
+	Until time.Time `json:"until,omitzero"`
+	// Jail is the jail that filed it, as the host names it.
+	Jail string `json:"jail,omitempty"`
+	// Hook is the on_request hook's part: HookRan, HookFailed or HookNone (none ran, so far).
+	Hook string `json:"hook,omitempty"`
+	// SpentAt is when the command that used its Allow once ran.
+	SpentAt time.Time `json:"spent_at,omitzero"`
+	// Reason is why it was closed unanswered: ReasonBrokerStopped.
+	Reason string `json:"reason,omitempty"`
 }
+
+// The answers a record names (Record.Answer), the host store's own.
+const (
+	AnswerOnce     = "once"
+	AnswerFor      = "for"
+	AnswerAdd      = "add"
+	AnswerRemember = "remember"
+	AnswerDeny     = "deny"
+)
+
+// Who answered (Record.Via).
+const (
+	ViaOnRequest = "on_request"
+	ViaHost      = "host"
+)
+
+// The on_request hook's part (Record.Hook).
+const (
+	HookRan    = "ran"
+	HookFailed = "failed"
+	HookNone   = "none"
+)
+
+// ReasonBrokerStopped is a request closed because the broker that filed it stopped.
+const ReasonBrokerStopped = "broker-stopped"
 
 // idPattern is a request id as the store mints it.
 var idPattern = regexp.MustCompile(`^r-[0-9a-f]{32}$`)

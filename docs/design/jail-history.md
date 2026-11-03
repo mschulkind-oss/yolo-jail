@@ -14,7 +14,9 @@ summary: "An agent in a jail is asked 'what just happened?' and today answers fr
 
 # What just happened in this jail: one record an agent can read, and the verb that reads it
 
-**Status:** 2026-11-02; design, nothing built. Evidence read at `9506ea4e0`, and the incident's
+**Status:** 2026-11-02; design. Only the thin first slice is built (2026-11-03,
+[the plan](jail-history-plan.md#slice-1--needs-no-ruling-the-approvals-twin-says-how-and-the-verb-reads-it)
+says how). Evidence read at `9506ea4e0`, and the incident's
 facts from this workspace's own `.yolo/launch.log`, `.yolo/approvals/`, and the host logs mounted
 read-only at `/ctx/host-yolo-logs` by this workspace's *local* config (`yolo-jail.local.toml`, a
 `mounts` entry no other workspace has, so nothing below assumes it). No agent CLI was run.
