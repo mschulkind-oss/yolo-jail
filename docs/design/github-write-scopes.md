@@ -127,7 +127,7 @@ join the set: `yolo request github working-set 70` ([OQ-GW9](#decision-ledger)),
 of every grant is a `yolo request`. It is a broker request, not a config write, so no
 `yolo config apply`; the human answers `yolo approve r-<id>` or `--deny`. The approval line is computed from the project's `working_set` cells, so the human reads
 exactly what #70 gets here, `merge` and `approve` included when the project holds them
-([GW-D47](#GW-D47), [OQ-GW12](#decision-ledger)):
+([GW-D47](#GW-D47), [OQ-GW12](#OQ-GW12)):
 
 ```text
 r-9a1  add issue #70 "flaky nightly on darwin" (opened by kurt) to the working set of yolo-jail
@@ -276,7 +276,7 @@ entry does ([GW-D63](#GW-D63)); a line per PR number, which `yolo approve` draws
 Every line in `[requests.github]`, cells and repository-level grants alike, is for the
 **workspace's own repositories** *(a plain phrase, used here as [`config-user.md` §6](config-user.md#6-what-a-jail-may-do-with-your-logins)
 uses "its own repositories")*: the repositories the workspace's git remotes name on github.com,
-every one of them ([OQ-GW13](#decision-ledger)), each a row the human approved at the gate. A
+every one of them ([OQ-GW13](#OQ-GW13)), each a row the human approved at the gate. A
 repository the project lists in `requests.github.repos` is in scope for **reading only**: no
 unqualified line reaches it, and a write on it asks ([GW-D60](#GW-D60)). That is what this
 repository's own local file says of `mschulkind/dotfiles`, and what the lowering did not honor.
@@ -292,7 +292,7 @@ word, today's and the ones yolo adds later, which would silently change what a u
 
 - **A git remote's name**, `origin`, `upstream`, read from this clone's `.git/config` and nothing
   else written. It means the repository that remote points at on github.com. In a committed file it
-  resolves per clone ([OQ-GW14](#decision-ledger)); a remote on another host, or no remote of that
+  resolves per clone ([OQ-GW14](#OQ-GW14)); a remote on another host, or no remote of that
   name, is a `yolo check` error naming the remotes and the `repo` line.
 - **A declared name**, with `repo = "OWNER/REPO"`, or a whole-segment wildcard
   (`"acme/*"`, `"*/*"`, [WW-D31](workspace-widening.md#WW-D31)), carried by the gate line that
@@ -384,6 +384,92 @@ github-broker repository scope, read from this workspace's .git/config, yolo-jai
     grant read *  unchanged (~/.config/yolo-jail/config.toml: allow.github.always, for every workspace)
 ```
 
+## Open Questions
+
+1. 💬 **<a id="OQ-GW7"></a>[OQ-GW7](#OQ-GW7): Does `all` mean every item, or every item not in the working set?**
+
+   A merge on a PR the agent opened reads `working_set.merge_prs` only, never `all.merge_prs` ([GW-D57](#GW-D57)). With the invariant ([GW-D58](#GW-D58)), every `all` grant is carried into the working set, so for grants `all` still means all.
+
+   - **A, overlay** — `working_set` falls back to `all` cell by cell; a second rule to hold.
+   - **B, strict, plus the invariant** — `all` is everything not in the working set; "every merge asks" is two lines.
+
+   <!-- vantage: question id=OQ-GW7 leaning="B: one rule per call, and the invariant keeps all meaning all for grants." -->
+
+   _Leaning:_ **B**, strict plus the invariant. This was recommended in the rewrite and needs your confirmation.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+2. 💬 **<a id="OQ-GW11"></a>[OQ-GW11](#OQ-GW11): Does `all.approve_prs` reach a working-set PR?**
+
+   Under [GW-D57](#GW-D57) it cannot: a working-set PR reads `working_set.approve_prs` ([GW-D59](#GW-D59)), and the hand-over approval line names `approve` before the `y`.
+
+   - **A, close as moot** — nothing to decide once GW-D57 and GW-D59 stand.
+   - **B, keep open** — only if you reject GW-D57.
+
+   <!-- vantage: question id=OQ-GW11 leaning="A: moot under GW-D57." -->
+
+   _Leaning:_ **A**, close it as moot, pending your confirmation of GW-D57 and GW-D59.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+3. 💬 **<a id="OQ-GW12"></a>[OQ-GW12](#OQ-GW12): Does a handed-over PR merge unasked when the project holds `working_set.merge_prs = true`?**
+
+   A PR you hand over with `yolo request github working-set 70` joins the same set as the agent's own ([GW-D39](#GW-D39)); the approval line puts `merge` in front of you before the `y`.
+
+   - **A, yes** — one population, one cell; `--deny` or `working_set.merge_prs = "ask"` are the ways out.
+   - **B, handed-over PRs always ask to merge** — a second population inside the set.
+
+   <!-- vantage: question id=OQ-GW12 leaning="A: the hand-over line already shows merge before the y." -->
+
+   _Leaning:_ **A**, pending your confirmation.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+4. 💬 **<a id="OQ-GW13"></a>[OQ-GW13](#OQ-GW13): Which remotes does an unqualified `requests.github` line cover: every github.com remote, or `origin` only?**
+
+   Kurt clones a fork: `origin = kurt/app`, `upstream = acme/app`. A committed `create_pr = true` must reach `acme/app`, because `gh pr create` from a fork writes the PR to upstream; a committed `dispatch_workflows = ["nightly.yml"]` reaching `acme/app` from his clone is reach the maintainer did not write for.
+
+   - **A, every github.com remote** — today's rule; each remote is a row Kurt approved at his own gate, and GitHub's own permissions are the backstop.
+   - **B, `origin` only** — `[requests.github.repository.upstream]` becomes the fork spelling.
+
+   <!-- vantage: question id=OQ-GW13 leaning="A: origin-only breaks the fork PR flow; a project that means one remote names it." -->
+
+   _Leaning:_ **A**, every remote. Origin-only breaks the fork PR flow, the one case upstream matters most.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+5. 💬 **<a id="OQ-GW14"></a>[OQ-GW14](#OQ-GW14): May a committed file name a repository by a remote's name, which resolves per clone?**
+
+   `yolo-jail.toml` holds `[requests.github.repository.upstream] labels = true`; in Kurt's clone `upstream` is `acme/app`, in Ana's `ana/app-experiments`, so one committed line grants label writes on two different repositories.
+
+   - **A, allow it** — what a fork workflow wants to say; each person approves the resolved repository at their own gate, and `yolo-jail.local.toml` carries a clone-specific `repo` line.
+   - **B, remote names only in the local file** — the committed file stays deterministic; every fork workflow becomes a per-clone edit.
+
+   <!-- vantage: question id=OQ-GW14 leaning="A: the resolved identity is a row at each gate." -->
+
+   _Leaning:_ **A**, allow it.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+6. 💬 **<a id="OQ-GW15"></a>[OQ-GW15](#OQ-GW15): Does `requests.github.repos` stay beside named repositories, or is it retired into them?**
+
+   Both put a repository in scope. This repository's local file says `repos = ["mschulkind/dotfiles"]`; the alternative is an empty `[requests.github.repository.dotfiles]` with `repo = "mschulkind/dotfiles"`, read only because it grants nothing.
+
+   - **A, keep `repos`** — the shipped read-only spelling; `yolo config why` names which spelling put a scope row there.
+   - **B, retire it** — one grammar, at the cost of a TOML-to-TOML rewrite `yolo config migrate` does not do today.
+
+   <!-- vantage: question id=OQ-GW15 leaning="A: keep the shipped read-only spelling." -->
+
+   _Leaning:_ **A**, keep `repos`.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
 ## Decision Ledger
 
 | ID | Ruling / Decision | Date | Settled in | Built |
@@ -429,9 +515,6 @@ github-broker repository scope, read from this workspace's .git/config, yolo-jai
 | <a id="GW-D57"></a>GW-D57 | **Recommended (pending the owner's confirmation), from the owner's model of 2026-11-02:** pick the table first. A write on a working-set item reads `working_set` only; a write on any other item reads `all` only; neither table is a fallback for the other. Amends [GW-D45](#GW-D45) | 2026-11-02 | [§4](#4-how-one-call-resolves) | — |
 | <a id="GW-D58"></a>GW-D58 | **Recommended (pending the owner's confirmation):** the invariant. For every cell X, `all.X = true` requires `working_set.X = true` (a shipped default counts); `"ask"` is never a grant, so `all.X = "ask"` constrains nothing and `working_set.X = "ask"` under `all.X = true` is the error. Checked at config load on the workspace's merged tables, so `yolo check`, a launch and `yolo config apply` refuse the same file, naming both fixes; the ceiling satisfies it by construction ([GW-D44](#GW-D44)). Owner: *"a check to make sure that at least the minimum of the all permissions are specified in the working set permissions. Otherwise ... that's probably a fatal error because somebody probably made a mistake there."* | 2026-11-02 | [§2](#2-the-ceiling-and-the-ask) | — |
 | <a id="GW-D59"></a>GW-D59 | **Recommended (pending the owner's confirmation):** `working_set.approve_prs` exists, so the two tables hold the same six cells and the invariant needs no special case; it ships absent. On the agent's own PR GitHub refuses the approval; on a handed-over PR the hand-over line named `approve` before the `y`. Supersedes [GW-D43](#GW-D43) | 2026-11-02 | [§1](#1-the-cells) | — |
-| <a id="OQ-GW7"></a>[OQ-GW7](#OQ-GW7) | **Recommended B, strict, plus the invariant (pending the owner's confirmation):** `all` is every item not in the working set, as the owner phrased it, and [GW-D58](#GW-D58) carries every `all` grant into the set, so for grants `all` still means all; for `"ask"` it means the rest, and "every merge asks" is two lines. The earlier leaning, overlay, is dropped: a fallback per cell is a second rule to hold | 2026-11-02 | [§4](#4-how-one-call-resolves) | — |
-| <a id="OQ-GW11"></a>[OQ-GW11](#OQ-GW11) | **Recommended closed as moot (pending the owner's confirmation):** under [GW-D57](#GW-D57) `all.approve_prs` never reaches a working-set PR; `working_set.approve_prs` ([GW-D59](#GW-D59)) does, and the hand-over approval line says so before the `y` | 2026-11-02 | [§3](#3-the-working-set) | — |
-| <a id="OQ-GW12"></a>[OQ-GW12](#OQ-GW12) | **Recommended A (pending the owner's confirmation):** a handed-over PR merges when the project holds `working_set.merge_prs = true`; the two populations are one by [GW-D39](#GW-D39), and the approval line puts `merge` in front of the human before the `y`; `--deny` or `working_set.merge_prs = "ask"` are the ways out | 2026-11-02 | [§3](#3-the-working-set) | — |
 | <a id="OQ-GW8"></a>[OQ-GW8](#OQ-GW8) | **Ruled A:** a cell may be `false`, a refusal that beats the ceiling and `always`, filing no request and naming the line to remove; it orders below `"ask"`, so `all.X = true` with `working_set.X = false` breaks the invariant. Owner: *"Add false, as a refusal that beats the ceiling: it is one more value, and it is the only way to say never."* | 2026-11-02 | [§2](#2-the-ceiling-and-the-ask) | no |
 | <a id="OQ-GW9"></a>[OQ-GW9](#OQ-GW9) | **Ruled A:** the hand-over request is `yolo request github working-set <n>`. Owner: *"yolo request github working-set 70: the agent's side of every grant is filing a request, and the host's is yolo approve."* | 2026-11-02 | [§3](#3-the-working-set) | no |
 | <a id="OQ-GW10"></a>[OQ-GW10](#OQ-GW10) | **Ruled A:** an item leaves the working set on merge or close, or on `yolo github working-set remove <n>`; nothing expires; a reopened item asks once and may be requested again. Owner: *"A: on merge or close, or an explicit remove; no expiry, since a created item has none and a handed-over one is the same thing."* | 2026-11-02 | [§3](#3-the-working-set) | no |
@@ -444,6 +527,3 @@ github-broker repository scope, read from this workspace's .git/config, yolo-jai
 | <a id="GW-D66"></a>GW-D66 | Git takes the same qualification: `[requests.git.repository.<name>]` with `push`, `push_tags`, `new_branches`; a name is a remote's (any host) or declared with `repo = "<host>/<path>"` (git's identity, `gitproto.Identity`) or `"*"` ([GB-D25](git-broker.md#GB-D25)). Unqualified `[requests.git]` stays every remote of the workspace, on any host, as today. [RC-D26](readable-config.md#RC-D26) is unchanged for `repos`; a named github.com repository no remote names joins git's scope as RC-D26's two exact URLs and keeps its writes, since it was named for them; any other host must be a remote. `yolo request git repository …` writes it; `yolo request git repos` stays refused | 2026-11-02 | [§8](#8-which-repository-a-line-is-for) | — |
 | <a id="GW-D67"></a>GW-D67 | Migration. No TOML key changes spelling: an unqualified line keeps its text, its meaning narrows to the workspace's own repositories, and the grants it loses on `repos` repositories show at the next gate as removed. `yolo config migrate` converts a legacy workspace `brokered.<source>.grants` entry to the unqualified key when its `repo` is the sole remote (today's `soleRemote`), otherwise to `repository.<name>` with `repo` written, the name being the remote that points at it, else the repository's last segment (`owner-repo` on a tie, as pack namespaces do), `any` for `"*"`; the grant set the lowering resolves is proved equal before and after, as [RC-D55](readable-config.md#RC-D55) proves. This retires `lower.go`'s "keep the old file for now" for several remotes, a `repos`-only repository and `"*"`; a legacy grant on a `repos` repository therefore keeps its writes through the name while the `repos` line stays | 2026-11-02 | [§8](#8-which-repository-a-line-is-for) | — |
 | <a id="GW-D68"></a>GW-D68 | What the gate prints: every grant line ends with its key and file, `(yolo-jail.toml: requests.github.repository.infra.dispatch_workflows)`, `(yolo-jail.toml: requests.github.dispatch_workflows, on remote origin)`, `(~/.config/yolo-jail/config.toml: allow.github.always, for every workspace)`; a repository row names its origin the same way, and a `repos` row says `read only`. The label `(from your user config, for every workspace)` is then true only of lines whose key is under `allow` | 2026-11-02 | [§5](#5-every-stop-names-its-next-step), [§8](#8-which-repository-a-line-is-for) | — |
-| <a id="OQ-GW13"></a>[OQ-GW13](#OQ-GW13) | **Which remotes does an unqualified line cover: every github.com remote, or `origin` only?** The owner: *"we'll have one for like origin or main or whatever the default one is."* Example: Kurt clones a fork, `origin = kurt/app`, `upstream = acme/app`; the committed `create_pr = true` must reach `acme/app`, because `gh pr create` from a fork writes the PR to upstream, while a committed `dispatch_workflows = ["nightly.yml"]` reaching `acme/app` from Kurt's clone is a reach the maintainer did not write for. **Leaning A, every remote**, today's rule: each remote is a row Kurt approved at his own gate, GitHub's own permissions on `acme/app` are the backstop, and origin-only breaks the fork PR flow, the one case upstream matters most; a project that means one remote names it. B, `origin` only, would make `[requests.github.repository.upstream]` the fork spelling | 2026-11-02 | [§8](#8-which-repository-a-line-is-for) | — |
-| <a id="OQ-GW14"></a>[OQ-GW14](#OQ-GW14) | **May a committed file name a repository by a remote's name, which resolves per clone?** Example: `yolo-jail.toml` holds `[requests.github.repository.upstream] labels = true`; in Kurt's clone `upstream` is `acme/app`, in Ana's it is `ana/app-experiments`, so one committed line grants label writes on two different repositories. **Leaning A, allow it**: that is exactly what a fork workflow wants to say, the resolved identity is a row at each person's own gate, and the local file (`yolo-jail.local.toml`) is where a clone-specific `repo` line goes when the committed name is wrong for it. B, remote names only in the local file, keeps the committed file deterministic at the cost of making every fork workflow a per-clone edit | 2026-11-02 | [§8](#8-which-repository-a-line-is-for) | — |
-| <a id="OQ-GW15"></a>[OQ-GW15](#OQ-GW15) | **Does `requests.github.repos` stay beside named repositories, or is it retired into them?** Both put a repository in scope; the one-path-per-cell rule ([fill-the-matrix](../reference/fill-the-matrix-principle.md)) asks for one spelling. Example: this repository's local file says `repos = ["mschulkind/dotfiles"]`; the alternative is an empty `[requests.github.repository.dotfiles] repo = "mschulkind/dotfiles"`, read only because it grants nothing. **Leaning A, keep `repos`**: it is the shipped read-only spelling, its comment in the owner's own file is the truest statement of this design, and retiring it is a TOML-to-TOML rewrite `yolo config migrate` does not do today; `yolo config why` on a scope row names which spelling put it there. B, retire it, is one grammar at the cost of that rewrite | 2026-11-02 | [§8](#8-which-repository-a-line-is-for) | — |
