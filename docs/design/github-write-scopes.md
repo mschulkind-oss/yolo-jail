@@ -388,10 +388,18 @@ github-broker repository scope, read from this workspace's .git/config, yolo-jai
 
 1. 💬 **<a id="OQ-GW7"></a>[OQ-GW7](#OQ-GW7): When the agent merges its own PR, should only the working-set line decide, or should an `all` line count too?**
 
-   The defaults, when no file sets a line ([§3](#3-the-working-set), *Shipped defaults*): the
-   working set's comment and edit lines are on, its approve and merge lines are absent, and `all`
-   is empty. An absent line runs only if Kurt's user config lists it under `always`; otherwise it
-   asks. Kurt's user config lists nothing under `always` but `read`.
+   What runs with no line in any file, and `always = ["read"]` in the user config
+   ([§3](#3-the-working-set), *Shipped defaults*):
+
+   | Cell | `working_set` | `all` |
+   | :--- | :--- | :--- |
+   | `comment_prs`, `comment_issues` | runs | asks |
+   | `edit_prs`, `edit_issues` | runs | asks |
+   | `approve_prs` | asks | asks |
+   | `merge_prs` | asks | asks |
+
+   So by default the two tables differ only in comment and edit. A line the table leaves out
+   runs only if the user config lists it under `always`.
 
    Kurt's `yolo-jail.toml` says `[requests.github.all] merge_prs = "ask"`, meaning "every merge asks
    me". The agent opened PR #41 itself, so #41 is in the working set, whose `merge_prs` line is
