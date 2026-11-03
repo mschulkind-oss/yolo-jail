@@ -109,6 +109,7 @@ func containing(list []string, subs ...string) []string {
 // entry — the `command` shape — is an INSTALL, legal only in the user config. In a
 // workspace file it is an error naming the offending file and the exact fix.
 func TestWorkspaceInlineLoopholeIsError(t *testing.T) {
+	userConfig := userConfigHintPathIn(t)
 	ws, errs, _ := validateScoped(t, "",
 		`{"loopholes": {"svc": {"command": ["/bin/true"]}}}`, nil)
 	hits := containing(errs, "config.loopholes.svc")
@@ -118,7 +119,7 @@ func TestWorkspaceInlineLoopholeIsError(t *testing.T) {
 	for _, want := range []string{
 		filepath.Join(ws, WorkspaceConfigName),
 		"user-scope only",
-		"~/.config/yolo-jail/config.jsonc",
+		userConfig,
 	} {
 		if !strings.Contains(hits[0], want) {
 			t.Errorf("error %q does not name %q", hits[0], want)
@@ -204,7 +205,7 @@ func TestInlineDoctorCmdKeepsTheScopeError(t *testing.T) {
 	if len(hits) != 1 || !strings.Contains(hits[0], filepath.Join(ws, WorkspaceConfigName)) {
 		t.Fatalf("errors = %v, want the one install-scope error naming the workspace file", errs)
 	}
-	if !strings.Contains(hits[0], loopholeUserConfigHint) {
+	if !strings.Contains(hits[0], loopholeUserConfigHint()) {
 		t.Errorf("the install-scope error must still point at the user config: %q", hits[0])
 	}
 }
@@ -235,6 +236,7 @@ func TestWorkspaceEnableAndJailEnvStayLegal(t *testing.T) {
 // snippet that would install it — this error IS the human-in-the-loop moment.
 // It replaces the every-launch "treating the entry as an override" warning.
 func TestWorkspaceEnableUninstalledIsFatal(t *testing.T) {
+	userConfig := userConfigHintPathIn(t)
 	ws, errs, warns := validateScoped(t, "",
 		`{"loopholes": {"ghost": {"enabled": true}}}`, nil)
 	hits := containing(errs, "config.loopholes.ghost")
@@ -244,7 +246,7 @@ func TestWorkspaceEnableUninstalledIsFatal(t *testing.T) {
 	for _, want := range []string{
 		filepath.Join(ws, WorkspaceConfigName),
 		"not installed",
-		"~/.config/yolo-jail/config.jsonc",
+		userConfig,
 		`"loopholes": {"ghost": {"command": [`,
 	} {
 		if !strings.Contains(hits[0], want) {

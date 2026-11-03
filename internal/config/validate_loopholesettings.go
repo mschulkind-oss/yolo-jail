@@ -4,9 +4,11 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/configdoc"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // validate_loopholesettings.go is core's half of docs/reference/pack-system.md:
@@ -135,18 +137,40 @@ func loopholeSettingsScopeViolations(name string, spec *jsonx.OrderedMap, srcFil
 	var out []string
 	for _, key := range settings.Keys() {
 		decl, declared := loopholedecl.SettingByKey(info.Settings, key)
+		manifestSetting := declared
 		if !declared {
 			decl, declared = legacy[key]
 		}
 		if !declared || decl.Scope != loopholedecl.SettingScopeUser {
 			continue
 		}
-		out = append(out, path+".settings."+key+": user-scope only — "+pytext.Repr(name)+
-			" declares this setting "+pytext.Repr(loopholedecl.SettingScopeUser)+
-			" in its manifest, and "+srcFile+" is agent-editable. Move this key to "+
-			loopholeUserConfigHint+".")
+		msg := path + ".settings." + key + ": user-scope only — " + pytext.Repr(name) +
+			" declares this setting " + pytext.Repr(loopholedecl.SettingScopeUser) +
+			" in its manifest, and " + srcFile + " is agent-editable. "
+		value, _ := settings.Get(key)
+		if set := userSettingSetCommand(name, key, value); manifestSetting && set != "" {
+			msg += "Move this key to your user config, " + loopholeUserConfigHint() + ": run `" +
+				set + "` on the host, then remove it from " + srcFile + "."
+		} else {
+			msg += "Move this key to " + loopholeUserConfigHint() + "."
+		}
+		out = append(out, msg)
 	}
 	return out
+}
+
+// userSettingSetCommand is the `yolo config set --user` command that writes a loophole's
+// user-scope setting with the value a workspace file gave it, or "" when the value cannot be
+// spelled as one TOML value. The key is `allow.<loophole>.<key>`, the spelling the user config
+// takes in either format: `yolo config set` writes it into config.toml and into a legacy
+// config.jsonc alike, and refuses the legacy `loopholes.<name>.settings.<key>` spelling as
+// renamed. The value is the TOML spelling the verb parses, shell-quoted.
+func userSettingSetCommand(name, key string, value any) string {
+	encoded, err := configdoc.EncodeValue(value, configdoc.TOML)
+	if err != nil {
+		return ""
+	}
+	return "yolo config set --user " + shquote.Join([]string{"allow." + name + "." + key, string(encoded)})
 }
 
 // legacyGrantSettings is the legacy settings a grant-declaring loophole's `[[grants]]` read
