@@ -352,10 +352,14 @@ func loadWithIncludesMode(path, label string, strict bool, warn Warn, seen map[s
 		if !configNamePresent(incPath) {
 			continue
 		}
-		// "If found" is about the name: a found name whose target is not is a broken setup on
-		// this machine, refused whatever the strictness (RC-D59).
-		if refusal := configNameRefusal(incPath, entryLabel+" in "+label); refusal != nil {
-			return nil, nil, refusal
+		// "If found" means "if it can be read": an entry that is a link to nothing, a loop, a
+		// directory or unreadable counts as not found, and is skipped with a notice (RC-D67).
+		// A config NAME in that state is still present and refused (RC-D59).
+		if notice := includeSkipNotice(incPath, entryLabel+" in "+label); notice != "" {
+			if warn != nil {
+				warn(notice)
+			}
+			continue
 		}
 		var included *jsonx.OrderedMap
 		var incNode *srcNode

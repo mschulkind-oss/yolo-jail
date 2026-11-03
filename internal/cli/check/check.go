@@ -560,7 +560,11 @@ func (o *Options) sectionConfigFiles(r *reporter, workspace string) (*jsonx.Orde
 	// the same user scope a launch would compose — a flag that changed the launch but not
 	// the preflight would leave the agent no way to verify what it just did.
 	src := &configSources{}
-	userConfig, userSrc, err := config.UserScopeConfigWithSources(true, func(string) {})
+	// The loader's notices (an include_if_found entry skipped as not found, RC-D67) are what a
+	// launch would say; the check says them too, after the line naming the file.
+	var loadNotices []string
+	notice := func(msg string) { loadNotices = append(loadNotices, msg) }
+	userConfig, userSrc, err := config.UserScopeConfigWithSources(true, notice)
 	src.user = userSrc
 	if err != nil {
 		userConfig = jsonx.NewOrderedMap()
@@ -591,7 +595,7 @@ func (o *Options) sectionConfigFiles(r *reporter, workspace string) (*jsonx.Orde
 	// reported no workspace config at all.
 	wsPath, _ := config.ResolveReadableWorkspaceConfigPath(workspace, config.WorkspaceConfigName)
 	localPath, _ := config.ResolveReadableWorkspaceConfigPath(workspace, config.WorkspaceLocalConfigName)
-	workspaceConfig, wsSrc, err := config.LoadWorkspaceConfigWithSources(workspace, true, func(string) {})
+	workspaceConfig, wsSrc, err := config.LoadWorkspaceConfigWithSources(workspace, true, notice)
 	src.workspace = wsSrc
 	if err != nil {
 		// It names the file it could not read, an include's name being the agent's to choose (WW-D30).
@@ -612,6 +616,13 @@ func (o *Options) sectionConfigFiles(r *reporter, workspace string) (*jsonx.Orde
 		r.ok("Parsed workspace config: " + strings.Join(parsed, " + "))
 	} else {
 		r.ok("No workspace config found (yolo-jail.toml or yolo-jail.jsonc)")
+	}
+	for _, msg := range loadNotices {
+		note := "Fix what it names, then run `yolo check` again."
+		if fact, step, ok := strings.Cut(msg, " To include it: "); ok {
+			msg, note = fact, "To include it: "+step
+		}
+		r.warn(termsafe.VisibleLines(msg), termsafe.VisibleLines(note))
 	}
 	o.reportWorkspaceFile(r, workspace)
 	o.reportWorkspaceConfigLock(r, workspace)

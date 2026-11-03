@@ -124,6 +124,25 @@ func configNameError(path, from string, kind configNameKind, target, reason stri
 	}
 }
 
+// includeSkipNotice is RC-D67's answer for an include_if_found entry whose name exists but cannot
+// be read as a regular file: "include if found" is best effort, so such an entry counts as not
+// found and is skipped, and the notice says once what was skipped and how to bring it back. ""
+// for an entry that is absent (silently skipped) or readable (read).
+func includeSkipNotice(path, from string) string {
+	refusal := configNameRefusal(path, from)
+	if refusal == nil {
+		return ""
+	}
+	return refusal.Fact + "; include_if_found is best effort, so it was skipped. To include it: " + refusal.Step
+}
+
+// IncludeSkipped is whether an include_if_found entry at path counts as not found (RC-D67):
+// absent, or present but not readable as a regular file.
+func IncludeSkipped(path string) bool {
+	kind, _, _ := configNameState(path)
+	return kind != nameRegular
+}
+
 // ConfigNameRefusal is configNameRefusal for a reader outside this package (`yolo config
 // migrate`'s discovery): nil for a name that is absent or a readable file, else the refusal.
 func ConfigNameRefusal(path, from string) error {

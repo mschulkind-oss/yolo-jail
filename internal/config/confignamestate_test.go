@@ -85,19 +85,45 @@ func TestADanglingUserConfigLinkIsRefusedInEveryScope(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// An include_if_found entry that is a link to nothing: found, so not skipped.
+	// An include_if_found entry that is a link to nothing is NOT FOUND: "include if found" is
+	// best effort, so the load goes on without it and says once what it skipped (RC-D67).
 	write(t, filepath.Join(dir, paths.UserConfigLegacyJSONCName), `{"packs":["git"], "include_if_found":["work.jsonc"]}`)
 	inc := filepath.Join(dir, "work.jsonc")
 	symlink(t, "missing/work.jsonc", inc)
-	_, err := LoadReadableUserScopeConfig(true, nil)
-	if err == nil || !strings.HasPrefix(err.Error(), "include_if_found[0] in ") ||
-		!strings.Contains(err.Error(), inc+" is a symbolic link to missing/work.jsonc, which does not exist.") {
-		t.Fatalf("dangling include_if_found entry: %v", err)
+	var notices []string
+	got, err := LoadReadableUserScopeConfig(true, func(msg string) { notices = append(notices, msg) })
+	if err != nil {
+		t.Fatalf("a dangling include_if_found entry stopped the load: %v", err)
 	}
-	// A truly absent include stays "if found".
+	if packs, _ := got.Get("packs"); packs == nil {
+		t.Fatalf("the including file was not read: %v", got)
+	}
+	if len(notices) != 1 || !strings.HasPrefix(notices[0], "include_if_found[0] in ") ||
+		!strings.Contains(notices[0], inc+" is a symbolic link to missing/work.jsonc, which does not exist") ||
+		!strings.Contains(notices[0], "skipped") {
+		t.Fatalf("dangling include_if_found notice: %q", notices)
+	}
+	// A loop, a directory and an unreadable entry are not found either.
 	if err := os.Remove(inc); err != nil {
 		t.Fatal(err)
 	}
+	symlink(t, "work.jsonc", inc)
+	if _, err := LoadReadableUserScopeConfig(true, nil); err != nil {
+		t.Fatalf("an include_if_found loop stopped the load: %v", err)
+	}
+	if err := os.Remove(inc); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(inc, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadReadableUserScopeConfig(true, nil); err != nil {
+		t.Fatalf("an include_if_found directory stopped the load: %v", err)
+	}
+	if err := os.Remove(inc); err != nil {
+		t.Fatal(err)
+	}
+	// A truly absent include stays "if found", silently.
 	if _, err := LoadReadableUserScopeConfig(true, nil); err != nil {
 		t.Fatalf("an absent include_if_found entry refused: %v", err)
 	}

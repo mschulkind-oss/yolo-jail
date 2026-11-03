@@ -9,7 +9,8 @@ import (
 
 // RC-D59: `yolo config migrate` refuses a config name that is a link to nothing before planning
 // anything, so a dangling name is never counted as "no old file here": not at the top level of
-// either scope, not an include, not a config.d fragment.
+// either scope, not a config.d fragment. An include_if_found entry in that state is the one
+// difference: it is not found, and kept as written (RC-D67).
 func TestConfigMigrateRefusesADanglingConfigLink(t *testing.T) {
 	home := env(t)
 	dir := filepath.Join(home, ".config", "yolo-jail")
@@ -35,10 +36,14 @@ func TestConfigMigrateRefusesADanglingConfigLink(t *testing.T) {
 	if err := os.Symlink("../../gone/work.jsonc", inc); err != nil {
 		t.Fatal(err)
 	}
-	_, err = Discover(Request{UserConfigDir: dir})
-	if err == nil || !strings.Contains(err.Error(), "include_if_found[0] in ") ||
-		!strings.Contains(err.Error(), inc+" is a symbolic link to ../../gone/work.jsonc, which does not exist.") {
+	// An include is "if found", best effort: a link to nothing is not found, so the migration
+	// keeps the entry as it keeps one naming no file (RC-D67).
+	g, err := Discover(Request{UserConfigDir: dir})
+	if err != nil {
 		t.Fatalf("user discovery over a dangling include: %v", err)
+	}
+	if len(g.Unreachable) != 1 || g.Unreachable[0].Path != inc {
+		t.Fatalf("the dangling include is not recorded as not found: %+v", g.Unreachable)
 	}
 	if err := os.Remove(inc); err != nil {
 		t.Fatal(err)

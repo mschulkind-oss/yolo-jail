@@ -303,13 +303,9 @@ func (g *Graph) walk(f *File, seen map[string]*File) error {
 		}
 		joined := filepath.Join(dir, entry)
 		edge := includeEdge{index: i, entry: entry}
-		if err := config.ConfigNameRefusal(joined, fmt.Sprintf("include_if_found[%d] in %s", i, f.Logical)); err != nil {
-			return err
-		}
-		if _, err := os.Stat(joined); err != nil {
-			if !errors.Is(err, os.ErrNotExist) {
-				return fmt.Errorf("%s (listed in %s): %w", joined, f.Logical, err)
-			}
+		// An entry the loader skips as not found (absent, or a link to nothing, a loop, a
+		// directory, unreadable: RC-D67) is kept as written, like one naming no file.
+		if config.IncludeSkipped(joined) {
 			g.Unreachable = append(g.Unreachable, Missing{Path: joined, ListedIn: f.Logical})
 			f.includes = append(f.includes, edge)
 			continue
