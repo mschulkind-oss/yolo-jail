@@ -257,14 +257,18 @@ func (b *Broker) coveredNow(cmds []gitproto.Command, needs []string, cover cover
 	return first, first != ""
 }
 
-// waitStatus polls request id until it is no longer pending, for at most the push wait.
+// waitStatus polls request id until it is no longer pending, the push wait passes, or ctx
+// ends. The wait bounds the wait for an answer, never a read: each status read runs under ctx
+// alone, so an answer already recorded is returned even when the read itself outlasts the wait
+// (a slow store on a loaded host). A wait that passes while the request is still pending
+// returns context.DeadlineExceeded.
 func (b *Broker) waitStatus(ctx context.Context, jail, id string) (brokerstore.Request, error) {
 	limit := pushWait
 	if b.waitLimit > 0 && b.waitLimit < limit {
 		limit = b.waitLimit
 	}
-	ctx, cancel := context.WithTimeout(ctx, limit)
-	defer cancel()
+	expired := time.NewTimer(limit)
+	defer expired.Stop()
 	tick := time.NewTicker(20 * time.Millisecond)
 	defer tick.Stop()
 	for {
@@ -275,6 +279,8 @@ func (b *Broker) waitStatus(ctx context.Context, jail, id string) (brokerstore.R
 		select {
 		case <-ctx.Done():
 			return q, ctx.Err()
+		case <-expired.C:
+			return q, context.DeadlineExceeded
 		case <-tick.C:
 		}
 	}

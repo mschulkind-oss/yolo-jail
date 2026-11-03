@@ -250,3 +250,42 @@ func TestAllowOnceSpendsOnlyOnItsExactPush(t *testing.T) {
 		t.Fatalf("the exact push did not spend the Allow once: %+v %+v", spent, why)
 	}
 }
+
+// The wait limit bounds how long a push waits for the host's answer; it is not a deadline on
+// reading an answer already recorded. A status read is a whole store transaction, so with a
+// short limit on a loaded host the first read could outlast it: the wait reported the request
+// still pending though it was allowed, and the push was refused. The host allows the request
+// right after the filing transaction, before the wait's first read, and a limit that has
+// already passed still returns that answer.
+func TestAskForPushReturnsAnAnswerAlreadyRecordedPastItsLimit(t *testing.T) {
+	f := newFixture(t, "")
+	// The refused git push leaves its request, for the same push as cmds, pending.
+	cmds := refusedPushCommands(t, f)
+	repo, _ := gitproto.Identity(origin)
+	fired := false
+	f.broker.store.AfterTransaction = func(error) {
+		if fired {
+			return
+		}
+		fired = true
+		reqs, _, err := ApprovalStore().List()
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		for _, q := range reqs {
+			if q.State != "pending" {
+				continue
+			}
+			if _, err := ApprovalStore().Decide(q.ID, "pending", brokerstore.Decision{}); err != nil {
+				t.Error(err)
+			}
+		}
+	}
+	f.broker.waitLimit = time.Nanosecond
+	ev := &brokeraudit.Event{}
+	g, reason, ok := f.broker.askForPush(context.Background(), repo, cmds, nil, []string{"refs/heads/main"}, nil, ev)
+	if !fired || !ok || ev.Grant != g.ID {
+		t.Fatalf("an allowed request read past the wait limit: answered %v, ok %v, %q, grant %+v, event %+v", fired, ok, reason, g, ev)
+	}
+}
