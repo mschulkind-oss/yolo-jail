@@ -178,9 +178,13 @@ Upgrade with `yolo update`, or `just install` from a checkout. Nothing was start
 1. **Proves it lost nothing.** Effective config before (old files) and after (the files it would
    write), as canonical JSON in the new vocabulary; it refuses to write unless they are equal, and
    prints any difference key by key. A user config's `brokered` table converts to the
-   `[allow.<source>]` tables of [config-user.md §6](config-user.md#6-what-a-jail-may-do-with-your-logins)
-   through the capabilities the declaring pack maps, and is proved against the grants the brokers
-   resolve from each side ([RC-D42](readable-config.md#RC-D42)).
+   `[allow.<source>]` tables of [config-user.md §6](config-user.md#6-what-a-jail-may-do-with-your-logins),
+   and a project's `brokered.<source>.grants` to `[requests.<source>]` as
+   [A.6](config-user.md#a6-the-grant-kinds-mapped) maps them, both through the capabilities the
+   declaring pack maps (`kind_capabilities`), and both proved against the grants the brokers
+   resolve from each side ([RC-D42](readable-config.md#RC-D42),
+   [RC-D60](readable-config.md#RC-D60)). A project grant converts only when its repository is the
+   workspace's one remote; any other stays, with its exact next step named.
 2. **Rewrites each file where it is, and never merges.** `config.jsonc` → `config.toml`, each
    include → its `.toml` twin with the include entries respelled. A file reached through a
    symlink is never written through: the link itself moves to `<name>.pre-migrate`, the converted
@@ -323,6 +327,14 @@ that deletes a file it does not convert is code written for nobody.
 
 - **Both `config.toml` and `config.jsonc` in one place:** refused, naming both and the command.
   Formats are never merged.
+- **A config name that is a link to nothing** (`yolo-jail.jsonc -> swarf/.links/yolo-jail.jsonc`
+  with no such target, in any scope, an `include_if_found` entry or a `config.d` fragment
+  included): refused, naming the link, its target, and the two ways out — restore the target
+  (a dotfiles manager may need to sync this machine) or `rm` the link
+  ([RC-D59](readable-config.md#RC-D59)). It is never read as "no file", and it is checked before
+  the sibling rule above, so a dangling TOML link beside a real JSONC file is reported as the link
+  it is. A link loop, a directory or an unreadable file at a config name is refused the same way,
+  each naming what it is.
 - **An old key in a new file:** refused, naming the replacement already respelled, from the
   conversion's own rename table. Reviewed 2026-10-25: *"If we have this mapping anyway for the
   conversion, we might as well use it for nice happy path errors."* No aliases; nothing is
