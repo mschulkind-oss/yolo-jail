@@ -386,86 +386,139 @@ github-broker repository scope, read from this workspace's .git/config, yolo-jai
 
 ## Open Questions
 
-1. 💬 **<a id="OQ-GW7"></a>[OQ-GW7](#OQ-GW7): Does `all` mean every item, or every item not in the working set?**
+1. 💬 **<a id="OQ-GW7"></a>[OQ-GW7](#OQ-GW7): When the agent merges its own PR, should only the working-set line decide, or should an `all` line count too?**
 
-   A merge on a PR the agent opened reads `working_set.merge_prs` only, never `all.merge_prs` ([GW-D57](#GW-D57)). With the invariant ([GW-D58](#GW-D58)), every `all` grant is carried into the working set, so for grants `all` still means all.
+   Kurt's `yolo-jail.toml` says `[requests.github.all] merge_prs = "ask"`, meaning "every merge asks
+   me". The agent opened PR #41 itself, so #41 is in the working set, and the working set's
+   `merge_prs` line is absent. The agent runs `gh pr merge 41`. Under the rule as drafted, a write on
+   a working-set item reads only the working-set lines, so `all` does not reach #41, and the merge
+   falls through to Kurt's user config. To make every merge ask, Kurt writes two lines, one in each
+   table. The check that refuses a config whose `all` grants more than its working set does means a
+   `true` in `all` is always copied into the working set, so only `"ask"` and `false` can be split
+   this way.
 
-   - **A, overlay** — `working_set` falls back to `all` cell by cell; a second rule to hold.
-   - **B, strict, plus the invariant** — `all` is everything not in the working set; "every merge asks" is two lines.
+   - **A — Each table falls back to the other, line by line.** Kurt's one `all` line makes #41's
+     merge ask too. There's a second rule to keep in mind when reading any config: which table wins
+     on a given line.
+   - **B — Only the working-set table decides for a working-set item.** One rule. Kurt needs two lines to make
+     every merge ask, and `yolo config why requests.github.working_set.merge_prs` shows him that the line is
+     absent.
 
-   <!-- vantage: question id=OQ-GW7 leaning="B: one rule per call, and the invariant keeps all meaning all for grants." -->
+   <!-- vantage: question id=OQ-GW7 leaning="B: one table per call is the rule you can hold in your head, and the check already carries every all grant into the working set." -->
 
-   _Leaning:_ **B**, strict plus the invariant. This was recommended in the rewrite and needs your confirmation.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 **<a id="OQ-GW11"></a>[OQ-GW11](#OQ-GW11): Does `all.approve_prs` reach a working-set PR?**
-
-   Under [GW-D57](#GW-D57) it cannot: a working-set PR reads `working_set.approve_prs` ([GW-D59](#GW-D59)), and the hand-over approval line names `approve` before the `y`.
-
-   - **A, close as moot** — nothing to decide once GW-D57 and GW-D59 stand.
-   - **B, keep open** — only if you reject GW-D57.
-
-   <!-- vantage: question id=OQ-GW11 leaning="A: moot under GW-D57." -->
-
-   _Leaning:_ **A**, close it as moot, pending your confirmation of GW-D57 and GW-D59.
+   _Leaning:_ **B.** Reading one table per call is the rule you can keep in your head, and the check
+   already copies every `all` grant into the working set, so only "ask" ever takes two lines.
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. 💬 **<a id="OQ-GW12"></a>[OQ-GW12](#OQ-GW12): Does a handed-over PR merge unasked when the project holds `working_set.merge_prs = true`?**
+2. 💬 **<a id="OQ-GW11"></a>[OQ-GW11](#OQ-GW11): Should the working set have its own "approve a PR" line?**
 
-   A PR you hand over with `yolo request github working-set 70` joins the same set as the agent's own ([GW-D39](#GW-D39)); the approval line puts `merge` in front of you before the `y`.
+   Ana hands the agent PR #70, which a teammate opened, with `yolo request github working-set 70`,
+   and approves the hand-over. She wants the agent to approve #70 once its review passes, so it can
+   merge under branch protection. The agent runs `gh pr review 70 --approve`. #70 is now in the
+   working set, so only that table's lines decide, and if the working set has no approve line, the
+   write asks every time, whatever Ana's `all` table says. On a PR the agent opened itself, GitHub
+   refuses the approval anyway, since an author cannot approve their own PR.
 
-   - **A, yes** — one population, one cell; `--deny` or `working_set.merge_prs = "ask"` are the ways out.
-   - **B, handed-over PRs always ask to merge** — a second population inside the set.
+   - **A — Give the working set an approve line, off by default.** Ana writes
+     `working_set.approve_prs = true`. The hand-over prompt then shows `approve` among what the agent
+     may do with #70, before her `y`. Both tables then hold the same six lines.
+   - **B — No approve line in the working set.** Approving a handed-over PR always asks. The tables
+     differ by one line, and the check needs a special case for it.
 
-   <!-- vantage: question id=OQ-GW12 leaning="A: the hand-over line already shows merge before the y." -->
+   <!-- vantage: question id=OQ-GW11 leaning="A: the hand-over prompt shows approve before the y, and same six lines in both tables means no special case." -->
 
-   _Leaning:_ **A**, pending your confirmation.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-4. 💬 **<a id="OQ-GW13"></a>[OQ-GW13](#OQ-GW13): Which remotes does an unqualified `requests.github` line cover: every github.com remote, or `origin` only?**
-
-   Kurt clones a fork: `origin = kurt/app`, `upstream = acme/app`. A committed `create_pr = true` must reach `acme/app`, because `gh pr create` from a fork writes the PR to upstream; a committed `dispatch_workflows = ["nightly.yml"]` reaching `acme/app` from his clone is reach the maintainer did not write for.
-
-   - **A, every github.com remote** — today's rule; each remote is a row Kurt approved at his own gate, and GitHub's own permissions are the backstop.
-   - **B, `origin` only** — `[requests.github.repository.upstream]` becomes the fork spelling.
-
-   <!-- vantage: question id=OQ-GW13 leaning="A: origin-only breaks the fork PR flow; a project that means one remote names it." -->
-
-   _Leaning:_ **A**, every remote. Origin-only breaks the fork PR flow, the one case upstream matters most.
+   _Leaning:_ **A.** The hand-over prompt shows `approve` before Ana says yes, and the same six lines in both
+   tables leave the check without a special case.
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-5. 💬 **<a id="OQ-GW14"></a>[OQ-GW14](#OQ-GW14): May a committed file name a repository by a remote's name, which resolves per clone?**
+3. 💬 **<a id="OQ-GW12"></a>[OQ-GW12](#OQ-GW12): Should a PR you hand to the agent merge unasked when the project lets the agent merge its own PRs?**
 
-   `yolo-jail.toml` holds `[requests.github.repository.upstream] labels = true`; in Kurt's clone `upstream` is `acme/app`, in Ana's `ana/app-experiments`, so one committed line grants label writes on two different repositories.
+   The project's `yolo-jail.toml` holds `working_set.merge_prs = true`, so the agent merges PRs it
+   opened without asking. Ana hands it #70, a teammate's PR, and the hand-over prompt reads `there the agent may, unasked: comment, edit, merge`. She answers `y`. Later the agent runs
+   `gh pr merge 70`. Today, a handed-over PR and one the agent created are treated the same, so the merge runs.
 
-   - **A, allow it** — what a fork workflow wants to say; each person approves the resolved repository at their own gate, and `yolo-jail.local.toml` carries a clone-specific `repo` line.
-   - **B, remote names only in the local file** — the committed file stays deterministic; every fork workflow becomes a per-clone edit.
+   - **A — Yes, the same as the agent's own PRs.** The prompt showed `merge` before Ana's `y`. To keep
+     merges asking for one PR, she answers `--deny` and hands it over later. To keep them asking for
+     every PR, she sets `working_set.merge_prs = "ask"`.
+   - **B — A handed-over PR always asks before it merges.** Ana approves each merge as it happens.
+     The working set then holds two kinds of item that behave differently, and every line has to
+     say which kind it means.
 
-   <!-- vantage: question id=OQ-GW14 leaning="A: the resolved identity is a row at each gate." -->
+   <!-- vantage: question id=OQ-GW12 leaning="A: the hand-over prompt already shows merge before the y, so a second kind of item buys nothing." -->
 
-   _Leaning:_ **A**, allow it.
+   _Leaning:_ **A.** The hand-over prompt already puts `merge` in front of Ana before her `y`, so a
+   second kind of item buys nothing.
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-6. 💬 **<a id="OQ-GW15"></a>[OQ-GW15](#OQ-GW15): Does `requests.github.repos` stay beside named repositories, or is it retired into them?**
+4. 💬 **<a id="OQ-GW13"></a>[OQ-GW13](#OQ-GW13): When a project grants a write without naming a repository, does it cover every GitHub remote or only `origin`?**
 
-   Both put a repository in scope. This repository's local file says `repos = ["mschulkind/dotfiles"]`; the alternative is an empty `[requests.github.repository.dotfiles]` with `repo = "mschulkind/dotfiles"`, read only because it grants nothing.
+   Kurt works in a fork: his `origin` is `kurt/app` and his `upstream` is `acme/app`. The
+   project's committed `yolo-jail.toml` says `create_pr = true` and
+   `dispatch_workflows = ["nightly.yml"]`, with no repository named. The agent runs
+   `gh pr create`, which from a fork opens the PR on `acme/app`. Later it runs
+   `gh workflow run nightly.yml --repo acme/app`. Today, both reach `acme/app`, because each
+   remote is a repository Kurt approved at his own prompt.
 
-   - **A, keep `repos`** — the shipped read-only spelling; `yolo config why` names which spelling put a scope row there.
-   - **B, retire it** — one grammar, at the cost of a TOML-to-TOML rewrite `yolo config migrate` does not do today.
+   - **A — Every GitHub remote.** The fork's PR flow works with no extra line. The nightly
+     dispatch also runs on `acme/app`, where GitHub's own permissions on Kurt's account are the
+     backstop. A project that means one remote writes
+     `[requests.github.repository.origin]`.
+   - **B — `origin` only.** `gh pr create` from a fork asks every time unless the project adds a
+     `[requests.github.repository.upstream]` table. Kurt's dispatch to `acme/app` asks.
 
-   <!-- vantage: question id=OQ-GW15 leaning="A: keep the shipped read-only spelling." -->
+   <!-- vantage: question id=OQ-GW13 leaning="A: origin-only breaks the fork PR flow, the case upstream matters most, and a project that means one remote can name it." -->
 
-   _Leaning:_ **A**, keep `repos`.
+   _Leaning:_ **A.** Origin-only breaks the fork PR flow, which is where `upstream` matters most,
+   and a project that means one remote can name it.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+5. 💬 **<a id="OQ-GW14"></a>[OQ-GW14](#OQ-GW14): May a committed config name a repository by a remote's name, when each clone's remote can point somewhere different?**
+
+   The project's committed `yolo-jail.toml` holds `[requests.github.repository.upstream]
+   labels = true`. In Kurt's clone `upstream` is `acme/app`, and in Ana's it is
+   `ana/app-experiments`. Each of them launches, and their prompts show
+   `+ grant labels github.com/acme/app` and `+ grant labels github.com/ana/app-experiments`. So one
+   committed line grants label writes on two different repositories, depending on whose clone it is.
+
+   - **A — Allow it.** This is exactly what a fork workflow wants to say. Each person approves the
+     repository it resolves to at their own prompt. Someone whose `upstream` is wrong for the
+     project puts `repo = "acme/app"` in their uncommitted `yolo-jail.local.toml`.
+   - **B — Remote names only in the uncommitted local file.** The committed file always means the same
+     repositories. Every fork contributor adds their own table by hand before the line does anything.
+
+   <!-- vantage: question id=OQ-GW14 leaning="A: each person sees and approves the repository it resolves to, so nothing is granted unseen." -->
+
+   _Leaning:_ **A.** Each person sees and approves the repository the name resolves to, so nothing
+   is granted unseen.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+6. 💬 🤷 **<a id="OQ-GW15"></a>[OQ-GW15](#OQ-GW15): Should `repos`, the read-only list of extra repositories, stay beside named repositories?**
+
+   This repository's uncommitted `yolo-jail.local.toml` says `repos = ["mschulkind/dotfiles"]`, so the agent can
+   read your yolo configs. Named repositories give a second way to say the same thing: a
+   `[requests.github.repository.dotfiles]` table holding only `repo = "mschulkind/dotfiles"`, which
+   is read-only because it grants nothing. Two spellings for one thing is what this project usually
+   avoids.
+
+   - **A — Keep `repos`.** "Read these" stays one short line. `yolo config why` shows which
+     spelling put a repository in scope.
+   - **B — Retire `repos` into named tables.** One way to say it. Every existing `repos` line
+     needs rewriting, which `yolo config migrate` does not do today for a file already in TOML.
+
+   <!-- vantage: question id=OQ-GW15 leaning="A: weak, mostly taste; repos is the short spelling for the common read-only case." -->
+
+   _Leaning:_ **A**, weakly. This is mostly taste. `repos` is the short spelling for the common
+   read-only case.
 
    **Answer:**
    > _(empty — fill in when decided)_
