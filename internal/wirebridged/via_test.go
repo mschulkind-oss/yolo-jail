@@ -11,10 +11,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 
@@ -213,23 +211,22 @@ func stillHeld(addr string) bool {
 	return ok
 }
 
-// refusingLoopback is a loopback address a dial is refused at: a TCP socket bound to it that
-// never listens, held until the test ends so no other process can start listening there.
+// refusingLoopback is a loopback address a dial is refused at: a port the kernel just handed a
+// listener, which is closed before the address is returned. A socket bound and held without
+// listening is refused on Linux but not on macOS, where the dial connected and then broke its
+// pipe, so the port is freed instead; the kernel does not hand a just-freed ephemeral port out
+// again at once, so nothing listens there while the test runs.
 func refusingLoopback(t *testing.T) string {
 	t.Helper()
-	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM, 0)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = syscall.Close(fd) })
-	if err := syscall.Bind(fd, &syscall.SockaddrInet4{Addr: [4]byte{127, 0, 0, 1}}); err != nil {
+	addr := ln.Addr().String()
+	if err := ln.Close(); err != nil {
 		t.Fatal(err)
 	}
-	sa, err := syscall.Getsockname(fd)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return net.JoinHostPort("127.0.0.1", strconv.Itoa(sa.(*syscall.SockaddrInet4).Port))
+	return addr
 }
 
 // teeDiag copies the daemon's log, from now on, into a buffer of its own while it still reaches
