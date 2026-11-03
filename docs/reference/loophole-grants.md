@@ -26,8 +26,7 @@ summary: "Selecting a pack installs its loophole and runs its machinery; neither
 **Status:** 2026-11-02. Built and verified against `14801eccf`, with two decisions of 2026-11-03
 not yet built: the columns a project asks for ([LG-D15](#LG-D15)) and a legacy workspace block
 launching unchanged ([LG-D16](#LG-D16)), both under
-[`legacy-config-compat.md`](../design/legacy-config-compat.md). One question is open
-([OQ-LG5](#OQ-LG5)). This is the as-built account of the loophole grant system. The design
+[`legacy-config-compat.md`](../design/legacy-config-compat.md). [OQ-LG5](#OQ-LG5), ruled 2026-11-03 as [LG-D17](#LG-D17), is not built yet. This is the as-built account of the loophole grant system. The design
 argument it graduated from, and its build plan, live in git history:
 
 ```console
@@ -492,31 +491,7 @@ Each drives a production entry point, so deleting the call site fails it.
 
 ## 13. Open Questions
 
-1. 💬 **<a id="OQ-LG5"></a>[OQ-LG5](#OQ-LG5): Should `yolo-ps --tree` honor a project that dropped `args` from its columns?**
-
-   Sam's project drops `args` from its columns, with a comment that tree mode shows command
-   arguments and should not be used by default. An agent in the jail runs `yolo-ps --tree`.
-   Today, and in v0.15.1 alike, the daemon runs `ps -eo pid,ppid,comm,args --forest` whatever the
-   columns say, so every command line of every granted process and of every process below one
-   prints; the comment is advice to the agent, not a control the gate approved. The tree's names
-   come from `/proc/<pid>/comm` (`ucomm` on a Mac), never from the `args` text, so dropping the
-   column changes what is shown and nothing about what is matched.
-
-   - **A — The tree honors the columns.** With `args` absent from the project's list, the tree
-     prints `pid`, `ppid` and `comm` only; the narrowing the y approved holds in every mode. A
-     project whose list keeps `args` sees the tree as today.
-   - **B — The tree stays as it was.** Sam's agents can still read every granted command line
-     through `--tree`; the pack README says so, and the narrowing is list and pid mode only, as in
-     v0.15.1.
-
-   <!-- vantage: question id=OQ-LG5 leaning="A — a narrowing the human approved at the gate should hold in every mode, and the tree matches on names, not on the column it would lose; but it is a behavior change from v0.15.1, so it is the owner's." -->
-
-   _Leaning:_ A — a narrowing the human approved at the gate should hold in every mode, and the
-   tree matches on names, not on the column it would lose; but it is a behavior change from
-   v0.15.1, so it is the owner's.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
+None open.
 
 ## 14. Decision Ledger
 
@@ -541,6 +516,7 @@ LG-D12 to LG-D14 are the owner's rulings of 2026-10-30; their question ids, [OQ-
 | <a id="LG-D14"></a><a id="OQ-LG3"></a>LG-D14 | **Owner ruling** on [`OQ-LG3`](#OQ-LG3): the migration may write a user-ceiling `on_request` line from an approval the owner gave at a launch, printing it as a hunk; the journal needs none, because its `read` is requestable by default. Under it: a manifest may mark an unvalued kind requestable by default, never `always` and never a valued kind; a user's own `on_request` list replaces the default; `read_all` is not requestable by default. **Owner ruling** on `macos-log`: its `read` is requestable by default whenever the pack is selected | 2026-10-30 | [§4.2](#42-the-approval-in-two-layers), [§6](#6-migration) | Yes |
 | <a id="LG-D15"></a>LG-D15 | **Columns are the project's.** `fields` is a request-scope setting (`scope = "request"`): a project asks for it under `[requests.host-processes]` beside `view`, the gate shows it as a columns line naming the delta from the list in force, the y freezes it, and it replaces the user's `allow.host-processes.fields` for that project, never unions with it. Reason: `args` carries command lines and the owner's project drops it per project; under user scope that is inexpressible. A second grant kind rejected: "not granted" would mean the default with `args` | 2026-11-03 | [§4.3](#43-each-loopholes-access-and-its-approval) | No |
 | <a id="LG-D16"></a>LG-D16 | **A legacy workspace block launches unchanged and means what it meant.** The legacy projection reads a workspace `enabled: true` as the request and its admission (the kind joins this launch's ceiling as `on_request`), a file the record already approved carries its grant with no prompt, and a legacy `settings.fields` is the project's columns request. No `yolo allow`, no user-config change, no edit, under the owner's ruling of 2026-11-03 (*"the configs keep working"*, [`legacy-config-compat.md`](../design/legacy-config-compat.md)) and [§6](#6-migration)'s rule; `yolo config migrate` writes the same lines, with the `on_request` ceiling line LG-D14 licenses. The v0.16.0 refusal and the skipped request were regressions, fixed forward with no hatch | 2026-11-03 | [§6](#6-migration) | No |
+| <a id="LG-D17"></a><a id="OQ-LG5"></a>LG-D17 | **Owner ruling** on [`OQ-LG5`](#OQ-LG5): `yolo-ps --tree` honors the project's columns. With `args` absent from the project's `fields`, the tree prints `pid`, `ppid` and `comm` only, so a narrowing approved at the gate holds in every mode; a project whose list keeps `args` sees the tree as before. The tree still matches on names (`/proc/<pid>/comm`, `ucomm` on a Mac), never on `args`. The owner chose A (2026-11-03): *"a narrowing the human approved at the gate should hold in every mode, and the tree matches on names, not on the column it would lose"*. A change from v0.15.1, outside the TOML-switch rule | 2026-11-03 | [§13](#13-open-questions) | not built |
 | <a id="PD-1"></a>PD-1 | **Manifest spelling:** a top-level `[[grants]]` array with `kind`, `text`, `valued`, `requestable_by_default`, `value_noun` and the migration keys `legacy_enable`, `legacy_setting`, `legacy_values` (and `legacy_default_values`), plus a top-level `access`. Kinds unique per manifest; `[brokered]` with `[[grants]]` refused; a setting named `grants` refused | 2026-10-30 | [§4.2](#42-the-approval-in-two-layers) | Yes (T1) |
 | <a id="PD-2"></a>PD-2 | **The grant file is the private settings snapshot** with one reserved key `grants`; every grant-declaring loophole gets one even with no settings; live apply finds files by workspace, container and a live pid | 2026-10-30 | [§4.6](#46-how-a-grant-reaches-the-machinery) | Yes (T2, T6) |
 | <a id="PD-3"></a>PD-3 | **One package, `internal/loopholegrant`**, owns the standing type, the file's read, write and live replace, and the refusal renderer; nothing else parses the `grants` key | 2026-10-30 | [§2](#2-where-it-lives) | Yes (T2) |

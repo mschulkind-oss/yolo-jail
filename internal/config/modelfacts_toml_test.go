@@ -42,8 +42,10 @@ floor = { model = "deepseek/deepseek-v4.1-flash-1017:floor", extends = "floor-10
 		key, ok := keys[path]
 		if !ok {
 			t.Errorf("readable schema omits %q", path)
-		} else if key.Scope != SchemaScopeUserOnly {
-			t.Errorf("readable schema scope of %q = %v, want user only", path, key.Scope)
+		} else if key.Scope != SchemaScopeBoth {
+			// Either scope: the legacy reader merges a workspace's entries, so its TOML
+			// conversion must read too (legacy-config-compat.md LC-D9).
+			t.Errorf("readable schema scope of %q = %v, want either scope", path, key.Scope)
 		}
 	}
 	// The launch's validation reads the readable spellings, and a row's `extends` finds the entry.

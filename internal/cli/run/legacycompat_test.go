@@ -29,7 +29,7 @@ package run
 //   - load: the launch's config gate, loadAndValidateConfig (load, validate, the pack switch,
 //     the capability gate);
 //   - packs: config.LoadPacks, the selection every pack reader resolves;
-//   - inherit: the jail crossing, inheritedScopeWithSelector (RenderFilteredForDeliveryLowering
+//   - inherit: the jail crossing, inheritedScopeWithSelector (config.RenderInheritedDelivery
 //     with configmigrate.LowerInheritedUserScope), for podman: ANY USER SCOPE THE HOST ACCEPTS
 //     MUST CROSS INTO THE JAIL;
 //   - jail-load: the jail's own read of what crossed, with YOLO_VERSION set;
@@ -97,30 +97,8 @@ var knownLegacyBreaks = []legacyBreak{
 	{"loophole/serial/settings.default_baud/workspace", "load", "serial.settings.default_baud: user-scope only",
 		"pending fix: lc-serial-baud-scope (default_baud moved from workspace to user scope)"},
 
-	// The jail crossing refuses a TOML user config beside a legacy workspace loophole switch.
-	{"loophole/*/workspace", "inherit", "mixes a TOML file and a legacy JSONC file",
-		"pending fix: lc-inherit-mixed-format"},
-	{"realistic/toml-user-legacy-ws-journal", "inherit", "mixes a TOML file and a legacy JSONC file",
-		"pending fix: lc-inherit-mixed-format"},
-
 	// The migration (the launch's offer, and the conversion a TOML cell needs) cannot convert a
 	// legacy file exactly.
-	{"toplevel/host_files/user", "migrate-*", "config.host_files: expected a table",
-		"pending fix: lc-migrate-host-files-list"},
-	{"toplevel/host_path/user", "migrate-*", "config.host_path: expected a string",
-		"pending fix: lc-migrate-host-path-list"},
-	{"toplevel/model_facts/workspace", "migrate-*", "config.model_facts: user-scope only",
-		"pending fix: lc-migrate-ws-model-facts (the load accepts it in a workspace; the converted file is refused)"},
-	{"toplevel/profile*/user", "migrate-*", `expected a table (got "`,
-		"pending fix: lc-migrate-provider-model-string (a provider's string model alias)"},
-	{"toplevel/providers/user", "migrate-*", `expected a table (got "`,
-		"pending fix: lc-migrate-provider-model-string"},
-	{"realistic/personal-desktop", "migrate-*", `expected a table (got "`,
-		"pending fix: lc-migrate-provider-model-string"},
-	{"realistic/work-laptop", "migrate-*", `expected a table (got "`,
-		"pending fix: lc-migrate-provider-model-string"},
-	{"toplevel/security/*", "migrate-*", "security.blocked_tools.*: it has no spelling in the TOML config",
-		"pending fix: lc-migrate-blocked-tools"},
 	{"loophole/*/enabled/user", "migrate-*", "user config: loopholes - ",
 		"pending fix: lc-migrate-user-loophole-switch"},
 	{"toplevel/loopholes/user", "migrate-*", "user config: loopholes - ",
