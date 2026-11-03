@@ -52,13 +52,19 @@ type oldGraph struct {
 // cache-reclaim offer, which is also asked at a terminal, is not asked here.
 func newOldGraph(t *testing.T, userExtra string) oldGraph {
 	t.Helper()
+	return newOldGraphWith(t, userExtra, oldFormatWorkspace)
+}
+
+// newOldGraphWith is newOldGraph with workspace as the project's old-format file.
+func newOldGraphWith(t *testing.T, userExtra, workspace string) oldGraph {
+	t.Helper()
 	user := oldFormatUser
 	if userExtra != "" {
 		user = "{\n  \"packs\": [\"guardrails\"],\n  " + userExtra + "\n}\n"
 	}
 	packHome(t, user)
 	emptyYoloState(t)
-	dir := writeProject(t, oldFormatWorkspace)
+	dir := writeProject(t, workspace)
 	userDir := filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail")
 	return oldGraph{
 		dir:       dir,
@@ -428,7 +434,12 @@ func TestConfigMigrateKeepsPreMigrateCopiesAndRespellsRecords(t *testing.T) {
 // asked nothing, and the old files are as the first left them (fed00b301).
 func TestAnAttachIsNotOfferedTheConversion(t *testing.T) {
 	requireJail(t)
-	g := newOldGraph(t, "")
+	// A project with no `packages`: what is under test is the attach, and a package makes the
+	// first launch build an image of its own, which emptyYoloState leaves no record of. On a
+	// macOS runner that cold build alone ran past the first session's whole budget (the
+	// 2026-11-03 nightly: "first session never started within 20m0s"). Both files are still
+	// old-format, so a fresh launch at a terminal would be offered the conversion.
+	g := newOldGraphWith(t, "", "{}\n")
 	before := treeBytes(t, g.dir)
 
 	const releaseName = "release-offer-attach"
