@@ -43,6 +43,15 @@ const (
 //
 // It also records whether the refresh LOCK was held while it ran, and whether anything
 // arrived on stdin — the two facts a caller cannot see from the outside.
+//
+// Run as the program, it honors FAKE_LAUNCH_WAIT=<f> the same way, and while it waits it ends
+// on SIGINT with status 130 through a trap rather than relying on bash's default. A
+// non-interactive bash that gets SIGINT while it waits on a foreground child, here one
+// `sleep 0.05` of the poll, kills itself only if that child died of the signal too. A sleep
+// that had already exited normally when the group's SIGINT arrived makes bash treat the
+// signal as handled and keep polling for the loop's full 20 s. That race is rare on Linux and
+// happened on a loaded macOS runner (TestABackgroundRefreshOutlivesTheLaunchersSignals/interrupt).
+// A pending trap runs once the child is reaped, whatever the child's status was.
 func fakeRefreshProgram(log, lock string) string {
 	q := shellQuoteForTest
 	return `#!/bin/bash
@@ -66,6 +75,7 @@ fi
 echo "LAUNCH:$*" >> "$LOG"
 echo "RAN $*"
 if [ -n "${FAKE_LAUNCH_WAIT:-}" ]; then
+    trap 'exit 130' INT
     : > "$FAKE_LAUNCH_WAIT.started"
     for _ in $(seq 1 400); do [ -e "$FAKE_LAUNCH_WAIT" ] && break; sleep 0.05; done
 fi
