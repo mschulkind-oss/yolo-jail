@@ -82,6 +82,8 @@ type lowered struct {
 	origins map[string][]string
 	skipped []NotConverted
 	twins   []Twin
+	// variants are the (provider, variant) pairs lowerProfiles wrote, in order (RC-D62).
+	variants [][2]string
 }
 
 // renameReplacement is the first replacement the rename table gives an old path: the one table
@@ -236,7 +238,7 @@ func lower(old *jsonx.OrderedMap, ctx loweringContext, file string) lowered {
 	// The schema is the last word: a key with no readable spelling is not written.
 	if !ctx.keepUnconverted {
 		for _, nc := range unknownToReadableSchema(out.values, ctx.scope) {
-			out.skipped = append(out.skipped, NotConverted{File: file, Path: nc, Reason: "it has no spelling in the TOML config; remove it from the old file, or keep the old file for now"})
+			out.skipped = append(out.skipped, NotConverted{File: file, Path: nc, Reason: "it has no spelling in the TOML config; " + noSpellingYet})
 			deletePath(out.values, strings.Split(nc, "."))
 		}
 	}
@@ -245,7 +247,7 @@ func lower(old *jsonx.OrderedMap, ctx loweringContext, file string) lowered {
 	config.LowerLegacyNulls(out.values)
 	for _, nc := range nullPaths(out.values, nil) {
 		if !ctx.keepUnconverted {
-			out.skipped = append(out.skipped, NotConverted{File: file, Path: nc, Reason: "a null has no TOML spelling; remove the key, or keep the old file for now"})
+			out.skipped = append(out.skipped, NotConverted{File: file, Path: nc, Reason: "a null has no TOML spelling; " + noSpellingYet})
 			deletePath(out.values, strings.Split(nc, "."))
 		}
 	}
@@ -257,9 +259,9 @@ func unconvertedReason(d config.RenameDescriptor) string {
 		return d.TOMLRefusal
 	}
 	if len(d.Replacements) > 0 {
-		return "this yolo has no lossless conversion to " + strings.Join(d.Replacements, ", ") + " yet; rewrite it by hand in the new spelling, or keep the old file for now"
+		return "this yolo has no lossless conversion to " + strings.Join(d.Replacements, ", ") + " yet; rewrite it by hand in the new spelling, or leave it: this yolo keeps reading the old file"
 	}
-	return "this yolo has no lossless conversion for it yet; keep the old file for now"
+	return "this yolo has no lossless conversion for it yet; leave it: this yolo keeps reading the old file"
 }
 
 type droppedLeaf struct {
@@ -457,26 +459,37 @@ func lowerGrants(source string, value any, ctx loweringContext, place func([]str
 		skip(base, value, "grants must be a list")
 		return
 	}
+	declaration, declReason := projectBrokerDeclaration(source)
 	var leftover []any
 	var reasons []string
-	refs := map[string][]any{}
+	values := map[string]any{}
 	var order []string
 	for i, entry := range list {
 		at := dotted(base) + "[" + strconv.Itoa(i) + "]"
-		reason := grantRequest(source, entry, ctx, func(key, ref string) {
-			if _, seen := refs[key]; !seen {
-				order = append(order, key)
-			}
-			refs[key] = append(refs[key], ref)
-		})
+		reason := declReason
+		if reason == "" {
+			reason = grantRequest(entry, declaration, ctx, func(key, ref string) {
+				prior, seen := values[key]
+				if !seen {
+					order = append(order, key)
+				}
+				if ref == "" {
+					// A yes/no kind: one grant or several say the same `= true`.
+					values[key] = true
+					return
+				}
+				refs, _ := prior.([]any)
+				values[key] = append(refs, ref)
+			})
+		}
 		if reason != "" {
 			leftover = append(leftover, entry)
 			reasons = append(reasons, at+": "+reason)
 		}
 	}
 	for _, key := range order {
-		if !place(strings.Split(key, "."), refs[key], base) {
-			reasons = append(reasons, dotted(base)+": "+key+" is already written in this file")
+		if !place(strings.Split(key, "."), values[key], base) {
+			reasons = append(reasons, dotted(base)+": "+key+" is already written in this file; keep one of the two")
 		}
 	}
 	if len(leftover) > 0 {
@@ -484,42 +497,82 @@ func lowerGrants(source string, value any, ctx loweringContext, place func([]str
 	}
 }
 
-// grantRequest converts one grant through add, or says why it cannot.
-func grantRequest(source string, entry any, ctx loweringContext, add func(key, ref string)) string {
+// projectBrokerDeclaration is the shipped declaration of the broker named source, whose
+// kind_capabilities a project's grants convert through (RC-D60), or why there is none. The user
+// side converts through the same declarations (lowerUserBrokered).
+func projectBrokerDeclaration(source string) (config.ReadableBrokerDeclaration, string) {
+	declarations, err := shippedBrokers()
+	if err != nil {
+		return config.ReadableBrokerDeclaration{}, "the shipped broker declarations could not be read (" + err.Error() + "); " + noSpellingYet
+	}
+	var found []config.ReadableBrokerDeclaration
+	for _, d := range declarations {
+		if d.Brokered.Source == source {
+			found = append(found, d)
+		}
+	}
+	switch len(found) {
+	case 1:
+		return found[0], ""
+	case 0:
+		return config.ReadableBrokerDeclaration{}, "no shipped pack declares a broker named " + source + ", so its [requests." + source + "] capabilities are not known here; " + noSpellingYet
+	default:
+		return config.ReadableBrokerDeclaration{}, "more than one shipped pack declares the " + source + " broker; " + noSpellingYet
+	}
+}
+
+// noSpellingYet is the step for a setting this yolo cannot convert yet (RC-D61): nothing is the
+// user's to change, and leaving it costs nothing, since this yolo reads the old file.
+const noSpellingYet = "this yolo has no TOML spelling for it yet, so leave it: this yolo keeps reading the old file"
+
+// grantRequest converts one grant through add, or says why it cannot. The kind converts through
+// the declaring pack's kind_capabilities (RC-D60): a kind that names something (a branch, a
+// tag, a workflow, an actor) adds its name to the list requests.<source>.<capability>, and a
+// yes/no kind (create-branch, create-pr, create-issue) adds "", which is `= true`.
+func grantRequest(entry any, declaration config.ReadableBrokerDeclaration, ctx loweringContext, add func(key, ref string)) string {
 	m, ok := entry.(*jsonx.OrderedMap)
 	if !ok {
 		return "a grant must be an object"
 	}
 	kind, _ := m.Get("kind")
-	repo, _ := m.Get("repo")
+	repo, hasRepo := m.Get("repo")
 	kindText, _ := kind.(string)
 	repoText, _ := repo.(string)
-	field := ""
-	switch kindText {
-	case brokerscope.KindBranch:
-		field = "branch"
-	case brokerscope.KindTag:
-		field = "tag"
-	case brokerscope.KindDispatchWorkflow:
-		field = "workflow"
-	case brokerscope.KindApproveRun:
-		field = "actor"
+	pending := map[string]bool{}
+	for _, c := range declaration.PendingCapabilities {
+		pending[c] = true
 	}
-	target, hasRow := renameReplacement("brokered.*.grants.*." + field)
-	ref, _ := m.Get(field)
-	refText, _ := ref.(string)
+	capability := declaration.KindCapabilities[kindText]
 	switch {
-	case field == "" || !hasRow:
-		d, _ := renameDescriptorFor([]string{"brokered", source, "grants", "*", "kind"})
-		return "a " + strconv.Quote(kindText) + " grant has no request spelling in this conversion (it becomes " + strings.Join(d.Replacements, " or ") + "); keep the old file for now"
-	case len(target) < 2 || source != target[1]:
-		return "only the " + target[1] + " broker takes " + dotted(target) + "; keep the old file for now"
-	case m.Len() != 3 || refText == "":
-		return "a grant with keys beyond kind, repo and " + field + " has no request spelling; keep the old file for now"
-	case !soleRemote(ctx.remotes, repoText):
+	case capability == "":
+		var maps []string
+		for _, k := range declaration.Brokered.Grants {
+			if c := declaration.KindCapabilities[k]; c != "" && !pending[c] {
+				maps = append(maps, k+" → "+c)
+			}
+		}
+		return describe(kindText) + " is not a grant kind the " + declaration.Pack + " pack maps to a capability (it maps " + strings.Join(maps, ", ") + "); " + noSpellingYet
+	case pending[capability]:
+		return describe(kindText) + " maps to " + capability + ", which the " + declaration.Pack + " pack has not built yet; " + noSpellingYet
+	}
+	field := brokerscope.GrantNameKey(kindText)
+	want, keys := 2, "kind and repo"
+	refText := ""
+	if field != "" {
+		want, keys = 3, "kind, repo and "+field
+		ref, _ := m.Get(field)
+		refText, _ = ref.(string)
+		if refText == "" {
+			return "a " + strconv.Quote(kindText) + " grant names a " + field + ", and this one names none; name it in the old file, then run `yolo config migrate` again"
+		}
+	}
+	if m.Len() != want || !hasRepo {
+		return "a " + strconv.Quote(kindText) + " grant with keys other than " + keys + " has no request spelling; " + noSpellingYet
+	}
+	if !soleRemote(ctx.remotes, repoText) {
 		return grantScopeReason(ctx.remotes, repoText)
 	}
-	add(dotted(target), refText)
+	add(dotted([]string{"requests", declaration.Brokered.Source, capability}), refText)
 	return ""
 }
 
@@ -527,16 +580,20 @@ func soleRemote(remotes []string, repo string) bool {
 	return len(remotes) == 1 && repo != brokerscope.AnyRepo && strings.EqualFold(remotes[0], repo)
 }
 
+// grantScopeReason is why a grant on repo has no request spelling in a workspace with these
+// remotes, ending in its exact next step (RC-D61): an unqualified request names every remote of
+// the workspace (GW-D66).
 func grantScopeReason(remotes []string, repo string) string {
+	keepAlone := "a request names every remote of this workspace. To keep this grant on " + repo + " alone, leave the old file (this yolo keeps reading it)"
 	switch {
 	case repo == brokerscope.AnyRepo:
-		return "a grant on every repository (\"*\") would apply to remotes added later, which a request cannot say; keep the old file for now"
+		return "a grant on every repository (\"*\") would apply to remotes added later; a request names the remotes this workspace has now. To mean every remote, leave the old file (this yolo keeps reading it)"
 	case len(remotes) == 0:
-		return "this workspace has no git remote, so a request could not be shown to name " + repo + "; add the remote, or keep the old file for now"
+		return "this workspace has no git remote, so a request could not be shown to name " + repo + "; add the remote (git remote add), then run `yolo config migrate` again"
 	case len(remotes) > 1:
-		return "a request names refs on every remote of this workspace (" + strings.Join(remotes, ", ") + "), and this grant names only " + repo + "; keep the old file for now"
+		return "this workspace has more than one remote (" + strings.Join(remotes, ", ") + "), and this grant names only " + repo + "; " + keepAlone
 	default:
-		return "the workspace's remote is " + remotes[0] + ", not " + repo + "; keep the old file for now"
+		return "the workspace's remote is " + remotes[0] + ", not " + repo + "; " + keepAlone + "; if every remote may take it, set \"repo\" to " + remotes[0] + " and convert again"
 	}
 }
 

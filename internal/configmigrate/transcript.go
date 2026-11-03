@@ -3,6 +3,8 @@ package configmigrate
 import (
 	"fmt"
 	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // Transcript is what `yolo config migrate` shows before it asks (config-migration.md §1): the old
@@ -82,7 +84,45 @@ func (p *MigrationPlan) Transcript() string {
 	for _, ig := range p.Ignores {
 		b.WriteString(ig.Plan(p.Graph.Request.Workspace) + ".\n")
 	}
+	for _, line := range UnaliasedLines(p) {
+		b.WriteString(line + "\n")
+	}
 	return b.String()
+}
+
+// UnaliasedLines are the closing report's lines for each provider the conversion gave variants
+// and no alias (RC-D62, docs/design/readable-config.md#RC-D62): a variant is selected as
+// provider/variant and nothing shorter, so the line names the one command that gives a short
+// name. One line per provider, however many files wrote its variants.
+func UnaliasedLines(p *MigrationPlan) []string {
+	var order []string
+	variants := map[string][]string{}
+	for _, t := range p.Targets {
+		for _, u := range t.Unaliased {
+			if _, seen := variants[u.Provider]; !seen {
+				order = append(order, u.Provider)
+			}
+			variants[u.Provider] = append(variants[u.Provider], u.Variants...)
+		}
+	}
+	lines := make([]string, 0, len(order))
+	for _, provider := range order {
+		names := make([]string, len(variants[provider]))
+		for i, v := range variants[provider] {
+			names[i] = provider + "/" + v
+		}
+		lines = append(lines, fmt.Sprintf("%s: its %s selected as %s; for one short name, `yolo config set providers.%s.alias %s` (an alias starts on the provider's own `model`).",
+			provider, plural(len(names), "variant is", "variants are"), joinWithAnd(names), provider, shquote.Quote(variants[provider][0])))
+	}
+	return lines
+}
+
+// joinWithAnd is "a", "a and b", "a, b and c".
+func joinWithAnd(items []string) string {
+	if len(items) < 2 {
+		return strings.Join(items, "")
+	}
+	return strings.Join(items[:len(items)-1], ", ") + " and " + items[len(items)-1]
 }
 
 // Respelled counts the records respelled in place by kind, in the order each kind first

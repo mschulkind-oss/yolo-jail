@@ -38,6 +38,36 @@ type Target struct {
 	Folded []FoldedFact
 	// Twins are the legacy `wire_id` rows written as `twin_of` their sibling (models.go, MF-D3).
 	Twins []Twin
+	// Unaliased are the providers this file's conversion gave variants and no alias: each is
+	// selected as provider/variant only, and the transcript names the alias command (RC-D62).
+	Unaliased []UnaliasedProvider
+}
+
+// UnaliasedProvider is a provider a conversion wrote variants for, in a file that gives it no
+// alias (RC-D62).
+type UnaliasedProvider struct {
+	Provider string
+	Variants []string
+}
+
+// unaliasedProviders groups the variants lowerProfiles wrote by provider, keeping those whose
+// converted file writes no providers.<provider>.alias.
+func unaliasedProviders(values *jsonx.OrderedMap, variants [][2]string) []UnaliasedProvider {
+	var out []UnaliasedProvider
+	index := map[string]int{}
+	for _, pv := range variants {
+		if _, aliased := get(values, []string{"providers", pv[0], "alias"}); aliased {
+			continue
+		}
+		i, ok := index[pv[0]]
+		if !ok {
+			i = len(out)
+			index[pv[0]] = i
+			out = append(out, UnaliasedProvider{Provider: pv[0]})
+		}
+		out[i].Variants = append(out[i].Variants, pv[1])
+	}
+	return out
 }
 
 // DerivedVendor is one model the launch after migration carries a `vendor` for that the old
@@ -399,6 +429,7 @@ func convertFile(f *File, remotes []string, view *userView, writers writerCounts
 		return Target{}, nil, err
 	}
 	t.Bytes, t.Comments, t.Respelled, t.Dropped, t.Folded, t.Twins = data, len(comments), respelled, dropped, folded, l.twins
+	t.Unaliased = unaliasedProviders(l.values, l.variants)
 	return t, l.skipped, nil
 }
 

@@ -50,7 +50,7 @@ func classifyPack(entry any) convertedPack {
 		}
 		for _, k := range obj.Keys() {
 			if k != "source" {
-				return convertedPack{reason: "a pack entry's `" + k + "` has no TOML spelling (a pack is named by its source, OQ-RC15); remove it from the old file, or keep the old file for now"}
+				return convertedPack{reason: "a pack entry's `" + k + "` has no TOML spelling (a pack is named by its source, OQ-RC15); this yolo has no TOML spelling for it yet, so leave it: this yolo keeps reading the old file"}
 			}
 		}
 		src, _ := obj.Get("source")
@@ -81,7 +81,7 @@ func classifyPack(entry any) convertedPack {
 		return convertedPack{handle: bareEntry("local/" + name)}
 	}
 	if parent == "~" || parent == "/" {
-		return convertedPack{reason: "a pack directory directly under ~ or / has no source a TOML handle can name; move it into a directory of packs, or keep the old file for now"}
+		return convertedPack{reason: "a pack directory directly under ~ or / has no source a TOML handle can name; move it into a directory of packs, then run `yolo config migrate` again"}
 	}
 	source := jsonx.NewOrderedMap()
 	source.Set("path", parent)
@@ -101,13 +101,13 @@ func classifyGitPack(text string) convertedPack {
 	}
 	if addr.Path == "" {
 		if !ownerRepoShaped(addr.Repo) {
-			return convertedPack{reason: "a repository that is one pack is named owner/repository from its URL, and " + addr.Repo + " has no owner/repository path; keep the old file for now"}
+			return convertedPack{reason: "a repository that is one pack is named owner/repository from its URL, and " + addr.Repo + " has no owner/repository path; this yolo has no TOML spelling for it yet, so leave it: this yolo keeps reading the old file"}
 		}
 		table.Set("bare", true)
 		return convertedPack{handle: table}
 	}
 	if strings.Contains(addr.Path, "/") || !validSegment(addr.Path) {
-		return convertedPack{reason: "a pack in a nested subdirectory (" + addr.Path + ") has no TOML handle: a source is a repository of <pack>/ directories; keep the old file for now"}
+		return convertedPack{reason: "a pack in a nested subdirectory (" + addr.Path + ") has no TOML handle: a source is a repository of <pack>/ directories; this yolo has no TOML spelling for it yet, so leave it: this yolo keeps reading the old file"}
 	}
 	table.Set("bare", true)
 	return convertedPack{handle: addr.Path, source: &packSource{key: "git:" + addr.Repo + "@" + addr.Ref, value: table}}
