@@ -25,8 +25,14 @@ import (
 )
 
 // ConfigError is the only error type users ever see when their yolo-jail.jsonc
-// is malformed.
-type ConfigError struct{ Msg string }
+// is malformed. Fact and Step, when set, are the refusal split in two (RC-D59): the one
+// sentence of fact `yolo check` FAILs with, and the next step its note names. Msg is still the
+// whole refusal a launch prints.
+type ConfigError struct {
+	Msg  string
+	Fact string
+	Step string
+}
 
 func (e *ConfigError) Error() string { return e.Msg }
 

@@ -1,6 +1,7 @@
 package check
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -563,7 +564,8 @@ func (o *Options) sectionConfigFiles(r *reporter, workspace string) (*jsonx.Orde
 	src.user = userSrc
 	if err != nil {
 		userConfig = jsonx.NewOrderedMap()
-		r.fail(err.Error(), "Fix it in the file this names, "+recheck)
+		msg, note := configReadFailure(err)
+		r.fail(msg, note)
 		failed = true
 	} else if o.PathExists(userPath) {
 		r.ok("Parsed user config: " + userPath)
@@ -594,7 +596,8 @@ func (o *Options) sectionConfigFiles(r *reporter, workspace string) (*jsonx.Orde
 	if err != nil {
 		// It names the file it could not read, an include's name being the agent's to choose (WW-D30).
 		workspaceConfig = jsonx.NewOrderedMap()
-		r.fail(termsafe.VisibleLines(err.Error()), "Fix it in the file this names, "+recheck)
+		msg, note := configReadFailure(err)
+		r.fail(termsafe.VisibleLines(msg), termsafe.VisibleLines(note))
 		failed = true
 	} else if o.PathExists(wsPath) || o.PathExists(localPath) {
 		// Name every file that was actually read: a local override that silently
@@ -614,6 +617,18 @@ func (o *Options) sectionConfigFiles(r *reporter, workspace string) (*jsonx.Orde
 	o.reportWorkspaceConfigLock(r, workspace)
 	r.blank()
 	return userConfig, workspaceConfig, src, failed
+}
+
+// configReadFailure is the FAIL line and note for a config scope that could not be read. A
+// config name that is there but cannot be read (RC-D59, docs/design/readable-config.md#RC-D59)
+// FAILs with the launch's own sentence of fact, and its next step is the note; anything else is
+// named in the file it names.
+func configReadFailure(err error) (msg, note string) {
+	var ce *config.ConfigError
+	if errors.As(err, &ce) && ce.Fact != "" && ce.Step != "" {
+		return ce.Fact, strings.TrimSuffix(ce.Step, ".") + "; " + recheck
+	}
+	return err.Error(), "Fix it in the file this names, " + recheck
 }
 
 // reportWorkspaceFile names this workspace's per-workspace file (config/workspacefile.go) and

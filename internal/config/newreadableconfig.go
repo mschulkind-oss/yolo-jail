@@ -266,9 +266,14 @@ func resolveUserConfigPath(legacyPath string) (path, label string, toml bool, er
 	candidates := []string{paths.UserConfigTOMLName, paths.UserConfigLegacyJSONCName, paths.UserConfigLegacyJSONName}
 	var found []string
 	for _, candidate := range candidates {
-		if pathExists(filepath.Join(dir, candidate)) {
-			found = append(found, candidate)
+		p := filepath.Join(dir, candidate)
+		if !configNamePresent(p) {
+			continue
 		}
+		if refusal := configNameRefusal(p, ""); refusal != nil {
+			return "", "", false, refusal
+		}
+		found = append(found, candidate)
 	}
 	if len(found) > 1 && found[0] == paths.UserConfigTOMLName {
 		conflicts := make([]string, len(found))
@@ -317,6 +322,12 @@ func loadUserConfigFragmentsWithInputUse(base *jsonx.OrderedMap, baseNode *srcNo
 	mergedNode := baseNode
 	for _, name := range names {
 		path := filepath.Join(fragmentDir, name)
+		// A fragment that is a link that cannot be followed is refused, never skipped (RC-D59);
+		// a directory named *.toml is still not a fragment.
+		switch kind, target, reason := configNameState(path); kind {
+		case nameDangling, nameLoop, nameUnreadable:
+			return nil, nil, configNameError(path, "config.d/"+name, kind, target, reason)
+		}
 		info, statErr := os.Stat(path) // Follow conventional symlinked fragments.
 		if statErr != nil {
 			_, parseErr := handleParseFailure(path, statErr, strict, warn)
