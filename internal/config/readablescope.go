@@ -8,6 +8,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/termsafe"
 )
 
 type ReadableAuthorityError struct {
@@ -444,6 +445,72 @@ func readableWorkspaceOrigins(config *jsonx.OrderedMap, sources *Sources) map[st
 	return origins
 }
 
+// readableGrantProvenance is where one gate grant came from (docs/design/github-write-scopes.md
+// GW-D68): whether the user's own config holds it for every workspace, and the text its gate line
+// ends with, the file and the key. A grant the user config holds outright, an
+// `allow.<source>.always.<capability>` origin, or one with an `allow.` origin and no request, is
+// the user config's. A grant a workspace request asked for is the workspace's even though the user
+// config's `allow.<source>.on_request` (or `.always`) ceiling admits it: the ceiling lets the
+// workspace ask, and the workspace asked. The label is empty when no file is known.
+func readableGrantProvenance(source string, decision ReadableGrantDecision, input ReadableGateInput) (fromUser bool, label string) {
+	var userKey, requestKey, brokeredKey string
+	for _, origin := range decision.Origins {
+		switch {
+		case strings.HasPrefix(origin, "allow."):
+			parts := strings.SplitN(origin, ".", 4)
+			if len(parts) == 4 || userKey == "" {
+				userKey = origin
+			}
+		case strings.HasPrefix(origin, "requests.") && requestKey == "":
+			requestKey = origin
+		case strings.HasPrefix(origin, "brokered.") && brokeredKey == "":
+			brokeredKey = origin
+		}
+	}
+	fromUser = userKey != "" && (requestKey == "" || len(strings.SplitN(userKey, ".", 4)) == 4)
+	located := func(files []string, key, tail string) string {
+		if len(files) == 0 {
+			return ""
+		}
+		return termsafe.Visible(strings.Join(files, ", ") + ": " + key + tail)
+	}
+	switch {
+	case fromUser:
+		// The table's key, `allow.<source>.always`, as the user file spells it.
+		parts := strings.SplitN(userKey, ".", 4)
+		key := strings.Join(parts[:min(3, len(parts))], ".")
+		var files []string
+		for _, capability := range input.ReadCapabilities {
+			if capability.Source != source {
+				continue
+			}
+			switch {
+			case strings.HasSuffix(key, ".always"):
+				files = capability.AlwaysFiles
+			case strings.HasSuffix(key, ".on_request"):
+				files = capability.OnRequestFiles
+			}
+		}
+		shown := make([]string, len(files))
+		for i, f := range files {
+			shown[i] = tildePath(f)
+		}
+		return true, located(shown, key, ", for every workspace")
+	case requestKey != "":
+		var files []string
+		for _, request := range input.Requests {
+			if request.Path == requestKey {
+				files = request.Files
+				break
+			}
+		}
+		return false, located(files, requestKey, "")
+	case brokeredKey != "":
+		return false, located(decision.Files, brokeredKey, "")
+	}
+	return false, ""
+}
+
 func readableUserOrigins(config *jsonx.OrderedMap, sources *Sources) map[string][]string {
 	origins := map[string][]string{}
 	var raw any
@@ -605,8 +672,17 @@ func scopeCheckFromReadable(workspace string, brokers []ScopeBroker, input Reada
 					if strings.HasPrefix(origin, "brokered.") {
 						source.GrantFiles = appendUniqueStrings(source.GrantFiles, decision.Files...)
 					}
-					if strings.HasPrefix(origin, "allow.") && !containsGrant(source.UserGrants, decision.Grant) {
-						source.UserGrants = append(source.UserGrants, decision.Grant)
+				}
+				fromUser, label := readableGrantProvenance(broker.Source, decision, input)
+				if fromUser && !containsGrant(source.UserGrants, decision.Grant) {
+					source.UserGrants = append(source.UserGrants, decision.Grant)
+				}
+				if label != "" {
+					if source.GrantOrigins == nil {
+						source.GrantOrigins = map[string]string{}
+					}
+					if _, seen := source.GrantOrigins[decision.Grant.String()]; !seen {
+						source.GrantOrigins[decision.Grant.String()] = label
 					}
 				}
 			}
@@ -625,6 +701,7 @@ func scopeCheckFromReadable(workspace string, brokers []ScopeBroker, input Reada
 			source.Grants = nil
 			source.GrantFiles = nil
 			source.UserGrants = nil
+			source.GrantOrigins = nil
 			// A record of a read grant over no repository approved nothing (recordHeldLiveScope):
 			// it shows no removal, as the legacy producer's does not (NewScopeCheck).
 			source.Dormant = !recordHeldLiveScope(rec, broker.Source)
