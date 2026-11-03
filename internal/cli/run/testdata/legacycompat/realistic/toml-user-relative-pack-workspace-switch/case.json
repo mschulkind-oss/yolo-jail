@@ -1,0 +1,7 @@
+{
+  "about": "A TOML user config whose packs list names a pack through a relative pack source handle and grants github read, a yolo-written per-workspace file holding the retired loopholes.github-broker.enabled switch, and a legacy JSONC workspace with no loopholes and a GitHub origin. ws/dot-git is renamed to ws/.git when the case is materialized.",
+  "current_only": true,
+  "renames": {"ws/dot-git": "ws/.git"},
+  "workspace_file": {"github-broker": true},
+  "expect_enabled": ["github-broker"]
+}

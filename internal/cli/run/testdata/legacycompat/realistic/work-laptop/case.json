@@ -1,0 +1,3 @@
+{
+  "about": "The owner's work-machine shape: a base config including a work tag layer that selects bedrock and aws-auth, enables aws-auth with a profile and unnarrowed, and sets a Bedrock region and model. No workspace config."
+}

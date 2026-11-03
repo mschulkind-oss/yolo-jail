@@ -1,0 +1,1935 @@
+[
+  {
+    "id": "toplevel/adapters/user",
+    "user": {
+      "adapters": {
+        "openai->anthropic": {
+          "address": "http://127.0.0.1:9214"
+        }
+      }
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/agent_updates/user",
+    "user": {
+      "agent_updates": {
+        "*": true,
+        "claude": false
+      }
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/agents_md_extra/user",
+    "user": {
+      "agents_md_extra": "Prefer small commits."
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/agents_md_extra/workspace",
+    "workspace": {
+      "agents_md_extra": "Prefer small commits."
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/briefing_provenance/user",
+    "user": {
+      "briefing_provenance": true
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/briefing_provenance/workspace",
+    "workspace": {
+      "briefing_provenance": true
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/brokered/workspace",
+    "workspace": {
+      "brokered": {
+        "github": {
+          "repos": [
+            "example-org/widgets"
+          ]
+        }
+      }
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/cache_relocations/user",
+    "user": {
+      "cache_relocations": {
+        "huggingface": "@HOME@/reloc/huggingface"
+      }
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/confinement/user",
+    "user": {
+      "confinement": "jail"
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/confinement/workspace",
+    "workspace": {
+      "confinement": "jail"
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/devices/user",
+    "user": {
+      "devices": [
+        {
+          "usb": "0bda:2838",
+          "description": "Radio dongle"
+        }
+      ]
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/devices/workspace",
+    "workspace": {
+      "devices": [
+        {
+          "usb": "0bda:2838",
+          "description": "Radio dongle"
+        }
+      ]
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/env_sources/user",
+    "user": {
+      "env_sources": [
+        {
+          "DEBUG": "1"
+        },
+        "~/.config/yolo-jail/local.env"
+      ]
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/env_sources/workspace",
+    "workspace": {
+      "env_sources": [
+        {
+          "DEBUG": "1"
+        },
+        "~/.config/yolo-jail/local.env"
+      ]
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/ephemeral_storage/user",
+    "user": {
+      "ephemeral_storage": "volume"
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/ephemeral_storage/workspace",
+    "workspace": {
+      "ephemeral_storage": "volume"
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/gpu/user",
+    "user": {
+      "gpu": {
+        "enabled": true,
+        "devices": "all",
+        "capabilities": "compute,utility"
+      }
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/gpu/workspace",
+    "workspace": {
+      "gpu": {
+        "enabled": true,
+        "devices": "all",
+        "capabilities": "compute,utility"
+      }
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/host_apply_on_launch/user",
+    "user": {
+      "host_apply_on_launch": true
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/host_files/user",
+    "user": {
+      "host_files": [
+        "~/.npmrc",
+        {
+          "path": "~/.config/ripgrep/config",
+          "content": "--smart-case\n"
+        }
+      ]
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/host_floor/user",
+    "user": {
+      "host_floor": {
+        "*": true,
+        "claude": false
+      }
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/host_import_exclusions/user",
+    "user": {
+      "host_import_exclusions": {
+        "claude/settings": [
+          "/hooks"
+        ]
+      }
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/host_management/user",
+    "user": {
+      "host_management": "own"
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/host_path/user",
+    "user": {
+      "host_path": [
+        "~/.cargo/bin"
+      ]
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/host_wrappers/user",
+    "user": {
+      "host_wrappers": true
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/include_if_found/user",
+    "user": {
+      "include_if_found": [
+        "overrides.jsonc"
+      ]
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/include_if_found/workspace",
+    "workspace": {
+      "include_if_found": [
+        "overrides.jsonc"
+      ]
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/kvm/user",
+    "user": {
+      "kvm": true
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/kvm/workspace",
+    "workspace": {
+      "kvm": true
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/loopholes/user",
+    "user": {
+      "loopholes": {
+        "cgroup-delegate": {
+          "enabled": true
+        }
+      }
+    },
+    "v0151": {
+      "enabled": [
+        "cgroup-delegate"
+      ]
+    }
+  },
+  {
+    "id": "toplevel/lsp_servers/user",
+    "user": {
+      "lsp_servers": {
+        "rust": {
+          "command": "rust-analyzer",
+          "args": [],
+          "fileExtensions": {
+            ".rs": "rust"
+          }
+        }
+      }
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/lsp_servers/workspace",
+    "workspace": {
+      "lsp_servers": {
+        "rust": {
+          "command": "rust-analyzer",
+          "args": [],
+          "fileExtensions": {
+            ".rs": "rust"
+          }
+        }
+      }
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/mcp_presets/user",
+    "user": {
+      "mcp_presets": [
+        "sequential-thinking"
+      ]
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/mcp_presets/workspace",
+    "workspace": {
+      "mcp_presets": [
+        "sequential-thinking"
+      ]
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/mcp_servers/user",
+    "user": {
+      "mcp_servers": {
+        "docs-search": {
+          "command": "npx",
+          "args": [
+            "-y",
+            "docs-search-mcp"
+          ]
+        }
+      }
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/mcp_servers/workspace",
+    "workspace": {
+      "mcp_servers": {
+        "docs-search": {
+          "command": "npx",
+          "args": [
+            "-y",
+            "docs-search-mcp"
+          ]
+        }
+      }
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/mise_tools/user",
+    "user": {
+      "mise_tools": {
+        "neovim": "nightly"
+      }
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/mise_tools/workspace",
+    "workspace": {
+      "mise_tools": {
+        "neovim": "nightly"
+      }
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/model_facts/user",
+    "user": {
+      "model_facts": {
+        "opus-5.5": {
+          "reasoning": true,
+          "input": [
+            "text",
+            "image"
+          ],
+          "context_window": 1000000,
+          "max_tokens": 128000
+        }
+      }
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/model_facts/workspace",
+    "workspace": {
+      "model_facts": {
+        "opus-5.5": {
+          "reasoning": true,
+          "input": [
+            "text",
+            "image"
+          ],
+          "context_window": 1000000,
+          "max_tokens": 128000
+        }
+      }
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/mounts/user",
+    "user": {
+      "mounts": [
+        "/srv/reference/handbook",
+        {
+          "host": "~/notes",
+          "at": "/ctx/notes",
+          "mode": "ro",
+          "optional": true
+        }
+      ]
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/mounts/workspace",
+    "workspace": {
+      "mounts": [
+        "/srv/reference/handbook",
+        {
+          "host": "~/notes",
+          "at": "/ctx/notes",
+          "mode": "ro",
+          "optional": true
+        }
+      ]
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/network/user",
+    "user": {
+      "network": {
+        "mode": "bridge",
+        "ports": [
+          "8000:8000"
+        ],
+        "forward_host_ports": [
+          5432
+        ]
+      }
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/network/workspace",
+    "workspace": {
+      "network": {
+        "mode": "bridge",
+        "ports": [
+          "8000:8000"
+        ],
+        "forward_host_ports": [
+          5432
+        ]
+      }
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/packages/user",
+    "user": {
+      "packages": [
+        "ripgrep",
+        {
+          "name": "strace",
+          "platforms": [
+            "linux"
+          ]
+        }
+      ]
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/packages/workspace",
+    "workspace": {
+      "packages": [
+        "ripgrep",
+        {
+          "name": "strace",
+          "platforms": [
+            "linux"
+          ]
+        }
+      ]
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/packs/user",
+    "user": {
+      "packs": [
+        "claude"
+      ]
+    },
+    "v0151": {
+      "enabled": [
+        "claude-oauth-broker"
+      ]
+    }
+  },
+  {
+    "id": "toplevel/per_side_paths/user",
+    "user": {
+      "per_side_paths": [
+        ".venv"
+      ]
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/per_side_paths/workspace",
+    "workspace": {
+      "per_side_paths": [
+        ".venv"
+      ]
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/perf_logging/user",
+    "user": {
+      "perf_logging": true
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/profile/user",
+    "user": {
+      "profile": {
+        "*": "zai-fast"
+      },
+      "profiles": {
+        "zai-fast": {
+          "provider": "zai",
+          "model": "fast"
+        }
+      },
+      "providers": {
+        "zai": {
+          "endpoints": {
+            "openai": {
+              "base_url": "https://api.z.ai/api/paas/v4",
+              "wire_api": "openai-chat-completions"
+            }
+          },
+          "api_key_env_name": "ZAI_API_KEY",
+          "models": {
+            "default": "glm-5.3",
+            "fast": "glm-5.3-flash"
+          },
+          "options": {
+            "model": "default"
+          }
+        }
+      }
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/profiles/user",
+    "user": {
+      "profiles": {
+        "zai-fast": {
+          "provider": "zai",
+          "model": "fast"
+        }
+      },
+      "providers": {
+        "zai": {
+          "endpoints": {
+            "openai": {
+              "base_url": "https://api.z.ai/api/paas/v4",
+              "wire_api": "openai-chat-completions"
+            }
+          },
+          "api_key_env_name": "ZAI_API_KEY",
+          "models": {
+            "default": "glm-5.3",
+            "fast": "glm-5.3-flash"
+          },
+          "options": {
+            "model": "default"
+          }
+        }
+      }
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/programs/user",
+    "user": {
+      "programs": {
+        "autoprune": false
+      }
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/promotion_target/user",
+    "user": {
+      "promotion_target": "local"
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/providers/user",
+    "user": {
+      "providers": {
+        "zai": {
+          "endpoints": {
+            "openai": {
+              "base_url": "https://api.z.ai/api/paas/v4",
+              "wire_api": "openai-chat-completions"
+            }
+          },
+          "api_key_env_name": "ZAI_API_KEY",
+          "models": {
+            "default": "glm-5.3",
+            "fast": "glm-5.3-flash"
+          },
+          "options": {
+            "model": "default"
+          }
+        }
+      }
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/provisioners/user",
+    "user": {
+      "provisioners": {
+        "host": [
+          "brew"
+        ]
+      }
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/prune/user",
+    "user": {
+      "prune": {
+        "warn_threshold_gb": 40
+      }
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/prune/workspace",
+    "workspace": {
+      "prune": {
+        "warn_threshold_gb": 40
+      }
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/resources/user",
+    "user": {
+      "resources": {
+        "memory": "8g",
+        "cpus": 4,
+        "pids_limit": 4096
+      }
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/resources/workspace",
+    "workspace": {
+      "resources": {
+        "memory": "8g",
+        "cpus": 4,
+        "pids_limit": 4096
+      }
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/runtime/user",
+    "user": {
+      "runtime": "podman"
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/runtime/workspace",
+    "workspace": {
+      "runtime": "podman"
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/security/user",
+    "user": {
+      "security": {
+        "blocked_tools": [
+          {
+            "name": "wget",
+            "message": "Use curl",
+            "suggestion": "curl <url>"
+          }
+        ]
+      }
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/security/workspace",
+    "workspace": {
+      "security": {
+        "blocked_tools": [
+          {
+            "name": "wget",
+            "message": "Use curl",
+            "suggestion": "curl <url>"
+          }
+        ]
+      }
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/update_check/user",
+    "user": {
+      "update_check": false
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/workspace_readonly/user",
+    "user": {
+      "workspace_readonly": [
+        "docs"
+      ]
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/workspace_readonly/workspace",
+    "workspace": {
+      "workspace_readonly": [
+        "docs"
+      ]
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/writable_home_dirs/user",
+    "user": {
+      "writable_home_dirs": [
+        ".pi-lens"
+      ]
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "toplevel/writable_home_dirs/workspace",
+    "workspace": {
+      "writable_home_dirs": [
+        ".pi-lens"
+      ]
+    },
+    "v0151": {
+      "enabled": []
+    }
+  },
+  {
+    "id": "loophole/audio/enabled/user",
+    "user": {
+      "loopholes": {
+        "audio": {
+          "enabled": true
+        }
+      },
+      "packs": [
+        "audio"
+      ]
+    },
+    "v0151": {
+      "enabled": [
+        "audio"
+      ]
+    }
+  },
+  {
+    "id": "loophole/audio/enabled/workspace",
+    "user": {
+      "packs": [
+        "audio"
+      ]
+    },
+    "workspace": {
+      "loopholes": {
+        "audio": {
+          "enabled": true
+        }
+      }
+    },
+    "v0151": {
+      "enabled": [
+        "audio"
+      ]
+    }
+  },
+  {
+    "id": "loophole/audio/enabled/per-workspace-file",
+    "user": {
+      "packs": [
+        "audio"
+      ]
+    },
+    "workspace_file": {
+      "audio": true
+    },
+    "v0151": {
+      "enabled": [
+        "audio"
+      ]
+    }
+  },
+  {
+    "id": "loophole/aws-auth/enabled/user",
+    "user": {
+      "loopholes": {
+        "aws-auth": {
+          "enabled": true
+        }
+      },
+      "packs": [
+        "aws-auth"
+      ]
+    },
+    "v0151": {
+      "enabled": [
+        "aws-auth"
+      ],
+      "settings": {
+        "aws-auth": {
+          "profile": "",
+          "role_arn": "",
+          "session_policy": "",
+          "unnarrowed": false
+        }
+      }
+    }
+  },
+  {
+    "id": "loophole/aws-auth/enabled/workspace",
+    "user": {
+      "packs": [
+        "aws-auth"
+      ]
+    },
+    "workspace": {
+      "loopholes": {
+        "aws-auth": {
+          "enabled": true
+        }
+      }
+    },
+    "v0151": {
+      "enabled": [
+        "aws-auth"
+      ],
+      "settings": {
+        "aws-auth": {
+          "profile": "",
+          "role_arn": "",
+          "session_policy": "",
+          "unnarrowed": false
+        }
+      }
+    }
+  },
+  {
+    "id": "loophole/aws-auth/enabled/per-workspace-file",
+    "user": {
+      "packs": [
+        "aws-auth"
+      ]
+    },
+    "workspace_file": {
+      "aws-auth": true
+    },
+    "v0151": {
+      "enabled": [
+        "aws-auth"
+      ],
+      "settings": {
+        "aws-auth": {
+          "profile": "",
+          "role_arn": "",
+          "session_policy": "",
+          "unnarrowed": false
+        }
+      }
+    }
+  },
+  {
+    "id": "loophole/aws-auth/settings.profile/user",
+    "user": {
+      "loopholes": {
+        "aws-auth": {
+          "enabled": true,
+          "settings": {
+            "profile": "example-profile"
+          }
+        }
+      },
+      "packs": [
+        "aws-auth"
+      ]
+    },
+    "v0151": {
+      "enabled": [
+        "aws-auth"
+      ],
+      "settings": {
+        "aws-auth": {
+          "profile": "example-profile",
+          "role_arn": "",
+          "session_policy": "",
+          "unnarrowed": false
+        }
+      }
+    }
+  },
+  {
+    "id": "loophole/aws-auth/settings.role_arn/user",
+    "user": {
+      "loopholes": {
+        "aws-auth": {
+          "enabled": true,
+          "settings": {
+            "role_arn": "example-role_arn"
+          }
+        }
+      },
+      "packs": [
+        "aws-auth"
+      ]
+    },
+    "v0151": {
+      "enabled": [
+        "aws-auth"
+      ],
+      "settings": {
+        "aws-auth": {
+          "profile": "",
+          "role_arn": "example-role_arn",
+          "session_policy": "",
+          "unnarrowed": false
+        }
+      }
+    }
+  },
+  {
+    "id": "loophole/aws-auth/settings.session_policy/user",
+    "user": {
+      "loopholes": {
+        "aws-auth": {
+          "enabled": true,
+          "settings": {
+            "session_policy": "example-session_policy"
+          }
+        }
+      },
+      "packs": [
+        "aws-auth"
+      ]
+    },
+    "v0151": {
+      "enabled": [
+        "aws-auth"
+      ],
+      "settings": {
+        "aws-auth": {
+          "profile": "",
+          "role_arn": "",
+          "session_policy": "example-session_policy",
+          "unnarrowed": false
+        }
+      }
+    }
+  },
+  {
+    "id": "loophole/aws-auth/settings.unnarrowed/user",
+    "user": {
+      "loopholes": {
+        "aws-auth": {
+          "enabled": true,
+          "settings": {
+            "unnarrowed": true
+          }
+        }
+      },
+      "packs": [
+        "aws-auth"
+      ]
+    },
+    "v0151": {
+      "enabled": [
+        "aws-auth"
+      ],
+      "settings": {
+        "aws-auth": {
+          "profile": "",
+          "role_arn": "",
+          "session_policy": "",
+          "unnarrowed": true
+        }
+      }
+    }
+  },
+  {
+    "id": "loophole/cgroup-delegate/enabled/user",
+    "user": {
+      "loopholes": {
+        "cgroup-delegate": {
+          "enabled": true
+        }
+      },
+      "packs": [
+        "cgroup-delegate"
+      ]
+    },
+    "v0151": {
+      "enabled": [
+        "cgroup-delegate"
+      ]
+    }
+  },
+  {
+    "id": "loophole/cgroup-delegate/enabled/workspace",
+    "user": {
+      "packs": [
+        "cgroup-delegate"
+      ]
+    },
+    "workspace": {
+      "loopholes": {
+        "cgroup-delegate": {
+          "enabled": true
+        }
+      }
+    },
+    "v0151": {
+      "enabled": [
+        "cgroup-delegate"
+      ]
+    }
+  },
+  {
+    "id": "loophole/cgroup-delegate/enabled/per-workspace-file",
+    "user": {
+      "packs": [
+        "cgroup-delegate"
+      ]
+    },
+    "workspace_file": {
+      "cgroup-delegate": true
+    },
+    "v0151": {
+      "enabled": [
+        "cgroup-delegate"
+      ]
+    }
+  },
+  {
+    "id": "loophole/claude-oauth-broker/enabled/user",
+    "user": {
+      "loopholes": {
+        "claude-oauth-broker": {
+          "enabled": true
+        }
+      },
+      "packs": [
+        "claude"
+      ]
+    },
+    "v0151": {
+      "enabled": [
+        "claude-oauth-broker"
+      ]
+    }
+  },
+  {
+    "id": "loophole/claude-oauth-broker/enabled/workspace",
+    "user": {
+      "packs": [
+        "claude"
+      ]
+    },
+    "workspace": {
+      "loopholes": {
+        "claude-oauth-broker": {
+          "enabled": true
+        }
+      }
+    },
+    "v0151": {
+      "enabled": [
+        "claude-oauth-broker"
+      ]
+    }
+  },
+  {
+    "id": "loophole/claude-oauth-broker/enabled/per-workspace-file",
+    "user": {
+      "packs": [
+        "claude"
+      ]
+    },
+    "workspace_file": {
+      "claude-oauth-broker": true
+    },
+    "v0151": {
+      "enabled": [
+        "claude-oauth-broker"
+      ]
+    }
+  },
+  {
+    "id": "loophole/github-broker/enabled/per-workspace-file",
+    "user": {
+      "packs": [
+        "github"
+      ]
+    },
+    "workspace_file": {
+      "github-broker": true
+    },
+    "v0151": {
+      "enabled": [
+        "github-broker"
+      ]
+    }
+  },
+  {
+    "id": "loophole/hello-daemon/enabled/user",
+    "user": {
+      "loopholes": {
+        "hello-daemon": {
+          "enabled": true
+        }
+      },
+      "packs": [
+        "hello-daemon"
+      ]
+    },
+    "v0151": {
+      "enabled": [
+        "hello-daemon"
+      ]
+    }
+  },
+  {
+    "id": "loophole/hello-daemon/enabled/workspace",
+    "user": {
+      "packs": [
+        "hello-daemon"
+      ]
+    },
+    "workspace": {
+      "loopholes": {
+        "hello-daemon": {
+          "enabled": true
+        }
+      }
+    },
+    "v0151": {
+      "enabled": [
+        "hello-daemon"
+      ]
+    }
+  },
+  {
+    "id": "loophole/hello-daemon/enabled/per-workspace-file",
+    "user": {
+      "packs": [
+        "hello-daemon"
+      ]
+    },
+    "workspace_file": {
+      "hello-daemon": true
+    },
+    "v0151": {
+      "enabled": [
+        "hello-daemon"
+      ]
+    }
+  },
+  {
+    "id": "loophole/host-processes/enabled/user",
+    "user": {
+      "loopholes": {
+        "host-processes": {
+          "enabled": true
+        }
+      },
+      "packs": [
+        "host-processes"
+      ]
+    },
+    "v0151": {
+      "enabled": [
+        "host-processes"
+      ],
+      "settings": {
+        "host-processes": {
+          "fields": [
+            "pid",
+            "comm",
+            "args",
+            "etime",
+            "%cpu",
+            "%mem",
+            "rss"
+          ],
+          "visible": []
+        }
+      }
+    }
+  },
+  {
+    "id": "loophole/host-processes/enabled/workspace",
+    "user": {
+      "packs": [
+        "host-processes"
+      ]
+    },
+    "workspace": {
+      "loopholes": {
+        "host-processes": {
+          "enabled": true
+        }
+      }
+    },
+    "v0151": {
+      "enabled": [
+        "host-processes"
+      ],
+      "settings": {
+        "host-processes": {
+          "fields": [
+            "pid",
+            "comm",
+            "args",
+            "etime",
+            "%cpu",
+            "%mem",
+            "rss"
+          ],
+          "visible": []
+        }
+      }
+    }
+  },
+  {
+    "id": "loophole/host-processes/enabled/per-workspace-file",
+    "user": {
+      "packs": [
+        "host-processes"
+      ]
+    },
+    "workspace_file": {
+      "host-processes": true
+    },
+    "v0151": {
+      "enabled": [
+        "host-processes"
+      ],
+      "settings": {
+        "host-processes": {
+          "fields": [
+            "pid",
+            "comm",
+            "args",
+            "etime",
+            "%cpu",
+            "%mem",
+            "rss"
+          ],
+          "visible": []
+        }
+      }
+    }
+  },
+  {
+    "id": "loophole/host-processes/settings.visible/workspace",
+    "user": {
+      "loopholes": {
+        "host-processes": {
+          "enabled": true
+        }
+      },
+      "packs": [
+        "host-processes"
+      ]
+    },
+    "workspace": {
+      "loopholes": {
+        "host-processes": {
+          "settings": {
+            "visible": [
+              "sway",
+              "postgres"
+            ]
+          }
+        }
+      }
+    },
+    "v0151": {
+      "enabled": [
+        "host-processes"
+      ],
+      "settings": {
+        "host-processes": {
+          "fields": [
+            "pid",
+            "comm",
+            "args",
+            "etime",
+            "%cpu",
+            "%mem",
+            "rss"
+          ],
+          "visible": [
+            "sway",
+            "postgres"
+          ]
+        }
+      }
+    }
+  },
+  {
+    "id": "loophole/host-processes/settings.fields/workspace",
+    "user": {
+      "loopholes": {
+        "host-processes": {
+          "enabled": true
+        }
+      },
+      "packs": [
+        "host-processes"
+      ]
+    },
+    "workspace": {
+      "loopholes": {
+        "host-processes": {
+          "settings": {
+            "fields": [
+              "pid",
+              "comm",
+              "args"
+            ]
+          }
+        }
+      }
+    },
+    "v0151": {
+      "enabled": [
+        "host-processes"
+      ],
+      "settings": {
+        "host-processes": {
+          "fields": [
+            "pid",
+            "comm",
+            "args"
+          ],
+          "visible": []
+        }
+      }
+    }
+  },
+  {
+    "id": "loophole/journal/enabled/user",
+    "user": {
+      "loopholes": {
+        "journal": {
+          "enabled": true
+        }
+      },
+      "packs": [
+        "journal"
+      ]
+    },
+    "v0151": {
+      "enabled": [
+        "journal"
+      ],
+      "settings": {
+        "journal": {
+          "full": false
+        }
+      }
+    }
+  },
+  {
+    "id": "loophole/journal/enabled/workspace",
+    "user": {
+      "packs": [
+        "journal"
+      ]
+    },
+    "workspace": {
+      "loopholes": {
+        "journal": {
+          "enabled": true
+        }
+      }
+    },
+    "v0151": {
+      "enabled": [
+        "journal"
+      ],
+      "settings": {
+        "journal": {
+          "full": false
+        }
+      }
+    }
+  },
+  {
+    "id": "loophole/journal/enabled/per-workspace-file",
+    "user": {
+      "packs": [
+        "journal"
+      ]
+    },
+    "workspace_file": {
+      "journal": true
+    },
+    "v0151": {
+      "enabled": [
+        "journal"
+      ],
+      "settings": {
+        "journal": {
+          "full": false
+        }
+      }
+    }
+  },
+  {
+    "id": "loophole/journal/settings.full/user",
+    "user": {
+      "loopholes": {
+        "journal": {
+          "enabled": true,
+          "settings": {
+            "full": true
+          }
+        }
+      },
+      "packs": [
+        "journal"
+      ]
+    },
+    "v0151": {
+      "enabled": [
+        "journal"
+      ],
+      "settings": {
+        "journal": {
+          "full": true
+        }
+      }
+    }
+  },
+  {
+    "id": "loophole/macos-log/enabled/user",
+    "user": {
+      "loopholes": {
+        "macos-log": {
+          "enabled": true
+        }
+      },
+      "packs": [
+        "macos-log"
+      ]
+    },
+    "v0151": {
+      "enabled": [
+        "macos-log"
+      ],
+      "settings": {
+        "macos-log": {
+          "full": false
+        }
+      }
+    }
+  },
+  {
+    "id": "loophole/macos-log/enabled/workspace",
+    "user": {
+      "packs": [
+        "macos-log"
+      ]
+    },
+    "workspace": {
+      "loopholes": {
+        "macos-log": {
+          "enabled": true
+        }
+      }
+    },
+    "v0151": {
+      "enabled": [
+        "macos-log"
+      ],
+      "settings": {
+        "macos-log": {
+          "full": false
+        }
+      }
+    }
+  },
+  {
+    "id": "loophole/macos-log/enabled/per-workspace-file",
+    "user": {
+      "packs": [
+        "macos-log"
+      ]
+    },
+    "workspace_file": {
+      "macos-log": true
+    },
+    "v0151": {
+      "enabled": [
+        "macos-log"
+      ],
+      "settings": {
+        "macos-log": {
+          "full": false
+        }
+      }
+    }
+  },
+  {
+    "id": "loophole/macos-log/settings.full/user",
+    "user": {
+      "loopholes": {
+        "macos-log": {
+          "enabled": true,
+          "settings": {
+            "full": true
+          }
+        }
+      },
+      "packs": [
+        "macos-log"
+      ]
+    },
+    "v0151": {
+      "enabled": [
+        "macos-log"
+      ],
+      "settings": {
+        "macos-log": {
+          "full": true
+        }
+      }
+    }
+  },
+  {
+    "id": "loophole/openai-auth-broker/enabled/user",
+    "user": {
+      "loopholes": {
+        "openai-auth-broker": {
+          "enabled": true
+        }
+      },
+      "packs": [
+        "openai-auth"
+      ]
+    },
+    "v0151": {
+      "enabled": [
+        "openai-auth-broker"
+      ]
+    }
+  },
+  {
+    "id": "loophole/openai-auth-broker/enabled/workspace",
+    "user": {
+      "packs": [
+        "openai-auth"
+      ]
+    },
+    "workspace": {
+      "loopholes": {
+        "openai-auth-broker": {
+          "enabled": true
+        }
+      }
+    },
+    "v0151": {
+      "enabled": [
+        "openai-auth-broker"
+      ]
+    }
+  },
+  {
+    "id": "loophole/openai-auth-broker/enabled/per-workspace-file",
+    "user": {
+      "packs": [
+        "openai-auth"
+      ]
+    },
+    "workspace_file": {
+      "openai-auth-broker": true
+    },
+    "v0151": {
+      "enabled": [
+        "openai-auth-broker"
+      ]
+    }
+  },
+  {
+    "id": "loophole/serial/enabled/user",
+    "user": {
+      "loopholes": {
+        "serial": {
+          "enabled": true
+        }
+      },
+      "packs": [
+        "serial"
+      ]
+    },
+    "v0151": {
+      "enabled": [
+        "serial"
+      ],
+      "settings": {
+        "serial": {
+          "allowed_devices": [
+            "/dev/ttyUSB*",
+            "/dev/ttyACM*",
+            "/dev/cu.usbserial*",
+            "/dev/cu.usbmodem*",
+            "/dev/serial/by-id/*"
+          ],
+          "default_baud": 115200
+        }
+      }
+    }
+  },
+  {
+    "id": "loophole/serial/enabled/workspace",
+    "user": {
+      "packs": [
+        "serial"
+      ]
+    },
+    "workspace": {
+      "loopholes": {
+        "serial": {
+          "enabled": true
+        }
+      }
+    },
+    "v0151": {
+      "enabled": [
+        "serial"
+      ],
+      "settings": {
+        "serial": {
+          "allowed_devices": [
+            "/dev/ttyUSB*",
+            "/dev/ttyACM*",
+            "/dev/cu.usbserial*",
+            "/dev/cu.usbmodem*",
+            "/dev/serial/by-id/*"
+          ],
+          "default_baud": 115200
+        }
+      }
+    }
+  },
+  {
+    "id": "loophole/serial/enabled/per-workspace-file",
+    "user": {
+      "packs": [
+        "serial"
+      ]
+    },
+    "workspace_file": {
+      "serial": true
+    },
+    "v0151": {
+      "enabled": [
+        "serial"
+      ],
+      "settings": {
+        "serial": {
+          "allowed_devices": [
+            "/dev/ttyUSB*",
+            "/dev/ttyACM*",
+            "/dev/cu.usbserial*",
+            "/dev/cu.usbmodem*",
+            "/dev/serial/by-id/*"
+          ],
+          "default_baud": 115200
+        }
+      }
+    }
+  },
+  {
+    "id": "loophole/serial/settings.allowed_devices/workspace",
+    "user": {
+      "loopholes": {
+        "serial": {
+          "enabled": true
+        }
+      },
+      "packs": [
+        "serial"
+      ]
+    },
+    "workspace": {
+      "loopholes": {
+        "serial": {
+          "settings": {
+            "allowed_devices": [
+              "/dev/ttyUSB*"
+            ]
+          }
+        }
+      }
+    },
+    "v0151": {
+      "enabled": [
+        "serial"
+      ],
+      "settings": {
+        "serial": {
+          "allowed_devices": [
+            "/dev/ttyUSB*"
+          ],
+          "default_baud": 115200
+        }
+      }
+    }
+  },
+  {
+    "id": "loophole/serial/settings.default_baud/workspace",
+    "user": {
+      "loopholes": {
+        "serial": {
+          "enabled": true
+        }
+      },
+      "packs": [
+        "serial"
+      ]
+    },
+    "workspace": {
+      "loopholes": {
+        "serial": {
+          "settings": {
+            "default_baud": 9600
+          }
+        }
+      }
+    },
+    "v0151": {
+      "enabled": [
+        "serial"
+      ],
+      "settings": {
+        "serial": {
+          "allowed_devices": [
+            "/dev/ttyUSB*",
+            "/dev/ttyACM*",
+            "/dev/cu.usbserial*",
+            "/dev/cu.usbmodem*",
+            "/dev/serial/by-id/*"
+          ],
+          "default_baud": 9600
+        }
+      }
+    }
+  }
+]

@@ -1,0 +1,16 @@
+// Work machines only: inference through Bedrock with SSO credentials.
+{
+  "packs": ["bedrock", "aws-auth", "copilot", "claude"],
+  "loopholes": {
+    "aws-auth": {
+      "enabled": true,
+      "settings": {"profile": "sample-sso-profile", "unnarrowed": true}
+    }
+  },
+  "providers": {
+    "bedrock": {
+      "region": "us-west-2",
+      "models": {"default": "us.anthropic.sample-model-v1"}
+    }
+  }
+}

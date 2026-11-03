@@ -1,0 +1,22 @@
+# The owner's current shape: TOML with a config.d layer and grants.
+packs = ["pi", "journal", "host-processes", "git", "github", "sample-packs/house-rules"]
+perf_logging = true
+promotion_target = "pack:house-rules"
+host_management = "own"
+
+[pack_sources.sample-packs]
+path = "~/sample-dotfiles/sample-packs"
+bare = true
+
+[install]
+nix = ["fzf"]
+
+[env.set]
+SAMPLE_TRUE_COLOR = "1"
+
+[allow.git]
+always = ["fetch"]
+on_request = ["new_branches", "push"]
+
+[allow.github]
+always = ["read"]

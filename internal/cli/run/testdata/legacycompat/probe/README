@@ -1,0 +1,23 @@
+The v0.15.1 probe that wrote ../v0151-generated.json and ../v0151-realistic.json.
+
+It is not built with this tree (testdata/ is outside every package). It runs inside a v0.15.1
+checkout, against v0.15.1's own config load, validation and loophole resolution:
+
+    git archive -o v0151.tar v0.15.1      # then untar it into a scratch directory, v0151/
+    mkdir v0151/cmd/lcaccept && cp main.go v0151/cmd/lcaccept/
+    cd v0151
+    go run -mod=vendor ./cmd/lcaccept <this dir>/candidates.json > v0151-generated.json
+    go run -mod=vendor ./cmd/lcaccept <this dir>/candidates.json <this dir>/../realistic > v0151-realistic.json
+
+The first form generates the per-key cases (every top-level key in candidates.json at user and
+workspace scope; every loophole switch at user scope, workspace scope and in the per-workspace
+file; every declared loophole setting at its declared scope), keeps those v0.15.1 accepted and
+records what v0.15.1 made of each. Refused cases go to stderr. The second judges the realistic
+case trees the same way, skipping those marked current_only.
+
+The probe runs v0.15.1's ValidateConfig, not its launch's capability gate, so it reports the
+toplevel/required_capabilities cases as accepted; v0.15.1's launch refused them (nothing satisfies
+the sample capability), and they were removed from v0151-generated.json by hand.
+
+Run it with YOLO_VERSION unset and TMPDIR on a disk that survives the run; it leaves its temporary
+homes behind, because v0.15.1 leases its embedded pack tree under the first HOME it sees.

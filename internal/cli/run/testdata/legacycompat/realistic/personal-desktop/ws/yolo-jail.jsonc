@@ -1,0 +1,24 @@
+// A sample service's workspace config, committed with the project.
+{
+  "loopholes": {
+    "host-processes": {
+      "enabled": true,
+      "settings": {
+        "visible": ["postgres", "sample-daemon"],
+        "fields": ["pid", "comm", "args", "rss"]
+      }
+    },
+    "journal": {"enabled": true}
+  },
+  "network": {
+    "mode": "bridge",
+    "ports": ["8000:8000"],
+    "forward_host_ports": [5432]
+  },
+  "mounts": [
+    "~/reference/sample-docs",
+    {"host": "~/datasets/sample", "at": "/ctx/datasets", "mode": "ro", "optional": true}
+  ],
+  "env_sources": [{"SAMPLE_ENV": "dev"}],
+  "packages": ["jq"]
+}

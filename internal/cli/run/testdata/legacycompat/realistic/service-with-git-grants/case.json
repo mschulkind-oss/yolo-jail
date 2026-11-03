@@ -1,0 +1,6 @@
+{
+  "about": "Legacy JSONC brokered git grants (the JSONC spelling between v0.15.1 and the TOML cutover; v0.15.1 had no git pack): the user config grants read everywhere and lets workspaces ask for create-branch and branch; the workspace asks for create-branch and branch main on its origin. ws/dot-git is renamed to ws/.git when the case is materialized.",
+  "current_only": true,
+  "renames": {"ws/dot-git": "ws/.git"},
+  "expect_git_grants": ["read", "create-branch", "branch"]
+}

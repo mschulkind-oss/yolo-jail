@@ -1,0 +1,12 @@
+# A migrated user config naming a personal pack through a pack source handle.
+packs = ["pi", "git", "github", "sample-packs/house-rules"]
+
+[pack_sources.sample-packs]
+path = "~/sample-dotfiles/sample-packs"
+bare = true
+
+[allow.git]
+always = ["fetch"]
+
+[allow.github]
+always = ["read"]

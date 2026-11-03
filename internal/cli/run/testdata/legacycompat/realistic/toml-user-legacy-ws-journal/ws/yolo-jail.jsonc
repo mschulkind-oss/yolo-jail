@@ -1,0 +1,2 @@
+// A project not yet migrated: it still switches journal on the legacy way.
+{"loopholes": {"journal": {"enabled": true}}}
