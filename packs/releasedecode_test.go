@@ -679,12 +679,24 @@ func TestKnownSkippedReleaseBreakMatchesOnlyTheListedField(t *testing.T) {
 }
 
 // repairManifest applies repair to the manifest in dir, in place: the materialized copy, never
-// the source tree. A manifest is JSON5 and a shipped one carries comments (each install hint's
+// the source tree. A pack.toml is rendered as its legacy pack.json first, the shape every repair
+// edits. A manifest is JSON5 and a shipped one carries comments (each install hint's
 // source is one), so it is read as the pack loader reads it and written back as plain JSON,
 // which every release's reader reads; the comments it drops are nothing a reader decodes.
 func repairManifest(t *testing.T, dir string, repair func(any) any) {
 	t.Helper()
 	path := filepath.Join(dir, "pack.json")
+	if toml := filepath.Join(dir, "pack.toml"); fileExists(toml) {
+		// A repair edits the legacy shape, so a pack.toml is first replaced by the pack.json the
+		// same manifest means; a reader refuses a pack holding both.
+		legacy := legacyManifestJSON(t, filepath.Base(dir), shippedManifest(t, filepath.Base(dir)))
+		if err := os.WriteFile(path, legacy, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Remove(toml); err != nil {
+			t.Fatal(err)
+		}
+	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("repairing %s: %v", dir, err)
@@ -831,16 +843,9 @@ func shippedManifest(t *testing.T, pack string) *packdecl.Manifest {
 }
 
 // materialize copies the embed a binary built from this tree carries into dest, one directory
-// per pack: the shape a host stages into a jail's _official tree.
-//
-// THE NEW-NAME BOUNDARY (docs/design/readable-config-plan.md M1). A shipped pack is a pack.toml,
-// which a release before the TOML reader does not read at all: it would see a pack with no
-// manifest. So that this test keeps checking what its real subject is, the legacy-shaped
-// contributions that release's reader decodes, each pack.toml is also written beside itself as
-// the pack.json the same manifest means (the legacy rendering of the decoded manifest). That
-// stands in for nothing a jail does: the guard on every known break is that no old jail is ever
-// handed this tree. TestTheLastReleaseReadsNoPackToml pins the boundary itself, and fails the
-// release that learns TOML, which is when this rendering is deleted.
+// per pack: the shape a host stages into a jail's _official tree. Every release since v0.16.0
+// reads pack.toml, so the tree is handed over as it ships; repairManifest renders a pack's
+// legacy pack.json only for a pack it must edit.
 func materialize(t *testing.T, dest string) {
 	t.Helper()
 	err := fs.WalkDir(packs.FS, ".", func(path string, d fs.DirEntry, err error) error {
@@ -859,22 +864,6 @@ func materialize(t *testing.T, dest string) {
 	})
 	if err != nil {
 		t.Fatal(err)
-	}
-	entries, err := os.ReadDir(dest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		if _, err := os.Stat(filepath.Join(dest, e.Name(), "pack.toml")); err != nil {
-			continue
-		}
-		legacy := legacyManifestJSON(t, e.Name(), shippedManifest(t, e.Name()))
-		if err := os.WriteFile(filepath.Join(dest, e.Name(), "pack.json"), legacy, 0o644); err != nil {
-			t.Fatal(err)
-		}
 	}
 }
 
@@ -914,54 +903,6 @@ func legacyManifestJSON(t *testing.T, pack string, manifest *packdecl.Manifest) 
 		t.Fatalf("rendering %s's pack.json for the last release's reader: %v", pack, err)
 	}
 	return out
-}
-
-// TestTheLastReleaseReadsNoPackToml pins the new-name boundary materialize documents, with the
-// real last-release reader: a pack that is only a pack.toml reads as a pack with no manifest,
-// so it installs no program. When the last release is one that reads TOML this fails, and
-// materialize's legacy rendering is then deleted.
-func TestTheLastReleaseReadsNoPackToml(t *testing.T) {
-	root, release := lastRelease(t)
-	old := t.TempDir()
-	extractRelease(t, root, release, old)
-	probeDir := filepath.Join(old, "cmd", "yolo-release-decode-probe")
-	if err := os.MkdirAll(probeDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(probeDir, "main.go"), []byte(releaseDecodeProbe), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	goBin, err := exec.LookPath("go")
-	if err != nil {
-		t.Skipf("no go toolchain on PATH to build %s's reader with", release)
-	}
-	probe := buildReleaseProbe(t, goBin, old, release)
-	tree := filepath.Join(t.TempDir(), "packs")
-	// One program, spelled both ways. "legacy" is the control that the probe sees programs at all.
-	const toml = "name = \"boundary\"\n\n[[program]]\nbin = \"boundary\"\nvia = \"npm\"\npackage = \"boundary\"\n"
-	const legacy = `{"name":"boundary","contributes":[{"kind":"program","bin":"boundary","via":"npm","package":"boundary"}]}`
-	if _, problems := packdecl.DecodeTOML([]byte(toml)); len(problems) != 0 {
-		t.Fatalf("the TOML fixture does not decode: %v", problems)
-	}
-	for name, file := range map[string]struct{ name, body string }{
-		"tomlonly": {"pack.toml", toml}, "legacy": {"pack.json", legacy},
-	} {
-		if err := os.MkdirAll(filepath.Join(tree, name), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(tree, name, file.name), []byte(file.body), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	got := runReleaseProbe(t, probe, tree, release)
-	if len(got["legacy"]["programs"]) == 0 {
-		t.Fatalf("the control pack declares no program under %s's reader (%v), so this pin compares nothing",
-			release, got["legacy"])
-	}
-	if len(got["tomlonly"]["programs"]) != 0 {
-		t.Errorf("%s's reader now reads a pack.toml (programs %v): delete materialize's pack.json "+
-			"rendering and this test", release, got["tomlonly"]["programs"])
-	}
 }
 
 // testFuncExists reports whether any _test.go file under root declares func name(.
@@ -1010,4 +951,9 @@ func TestUntarIntoReadsTheWholeStream(t *testing.T) {
 	if r.Len() != 0 {
 		t.Errorf("untarInto left %d bytes of the stream unread; a pipe writer would block on them", r.Len())
 	}
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
