@@ -1,0 +1,44 @@
+name: Re-run jobs no runner took
+
+# GITHUB'S HOSTED macOS arm64 RUNNERS RUN SHORT AT TIMES, and a job then waits for hours and is
+# dropped with "The job was not acquired by Runner of type hosted even after multiple attempts",
+# having run no step. Measured 2026-11-03: three check-macos jobs on three pushes, and two vendor
+# installs of the macos-user workflow, while every Intel and Linux job got its runner. Such a job
+# says nothing about the code, but it fails the run, and the release gate (tools/release-gate)
+# needs every check-macos job green on the exact commit.
+#
+# So when a watched workflow finishes without success, scripts/ci_rerun_unacquired.py re-runs
+# that run's failed jobs, ONLY when every job that did not succeed was one no runner took: a
+# job that ran and failed is a human's to read, and a re-run would hide it. At most two re-runs
+# per run (its MAX_ATTEMPT). The release gate reads a run's latest attempt, so a green re-run
+# on the same commit is what it accepts. scripts/test_ci_rerun_unacquired.py pins the decision,
+# this file's permissions, and that every workflow with a hosted macOS job is watched.
+
+on:
+  workflow_run:
+    workflows: [CI, "macos-user backend", "Nightly macOS Integration", "Homebrew tap install"]
+    types: [completed]
+
+permissions:
+  actions: write
+  checks: read
+
+jobs:
+  rerun:
+    # Never a fork's run, and nothing to do for one that succeeded.
+    if: >
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      github.event.workflow_run.conclusion != 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The script from the default branch, never the finished run's own commit.
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Re-run the jobs no runner took
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: python3 scripts/ci_rerun_unacquired.py

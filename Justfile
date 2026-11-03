@@ -351,6 +351,8 @@ lint-ci: lint
     python3 scripts/test_launcher_slot.py
     # The macOS nightly's duration-balanced shard partition, and the workflow step that calls it.
     python3 scripts/test_nightly_shard.py
+    # The re-run of a job no hosted runner took: when it re-runs, and what it watches.
+    python3 scripts/test_ci_rerun_unacquired.py
     # An answered question left in question form still reads as a decision to make, and only
     # `vantage-check index` lists it, so check the index (the design-doc skill's compaction rule).
     python3 scripts/test-check-answered-questions.py
