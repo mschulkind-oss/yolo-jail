@@ -1,16 +1,16 @@
 ---
 title: "Pack brokers: a third-party pack brokers its own service through core's grants, approvals and dry run"
 date: 2026-11-04
-status: draft
-stage: DESIGN
-next: "Rule OQ-BX1 to OQ-BX6, starting with OQ-BX1 (who executes an allowed call) and OQ-BX3 (where the CircleCI pack lives)"
+status: accepted
+stage: DECIDED
+next: "Complete the build hand-off for built-in CircleCI and locally operated CLI/HTTP proofs"
 depends-on:
   - boundary-broker.md
   - github-write-scopes.md
   - access-introspection.md
   - mcp-auth-sharing.md
-tags: [design, broker, packs, extension-point, approvals, grants, working-set, circleci, linear, graphql, mcp]
-summary: "The git and GitHub brokers are built into core, so a pack that wants the same grants, working set, requests, yolo approve, yolo wait, yolo audit and on_request machinery for another service has to change yolo. This design splits a broker into what a pack knows (how to read a call: its kind, its resource, which lookups it needs) and what core owns (the jail-facing front, the decision, the store, the approvals, the audit, execution with the host's login, and the dry run). A pack declares cells and resource types and ships a classifier; core does everything else. Two proofs: CircleCI through its own CLI, and Linear's GraphQL API as the hard HTTP case. The MCP sign-in broker shares the lower layer (lifecycle, declarations, fences, audit, a readout line) and stays outside the call layer, because it brokers no calls."
+tags: [design, broker, packs, extension-point, approvals, grants, working-set, circleci, local-testing, graphql, mcp]
+summary: "The git and GitHub brokers are built into core, so a pack that wants the same grants, working set, requests, yolo approve, yolo wait, yolo audit and on_request machinery for another service has to change yolo. This design splits a broker into what a pack knows (how to read a call: its kind, its resource, which lookups it needs) and what core owns (the jail-facing front, the decision, the store, the approvals, the audit, execution with the host's login, and the dry run). A pack declares cells and resource types and ships a classifier; core does everything else. CircleCI ships as a built-in CLI pack. Local test CLI and HTTP services prove the extension point without external accounts and provide host-operated demos. The MCP sign-in broker shares the lower layer (lifecycle, declarations, fences, audit, a readout line) and stays outside the call layer, because it brokers no calls."
 ---
 
 # Pack brokers: a third-party pack brokers its own service through core's grants, approvals and dry run
@@ -21,7 +21,8 @@ or agent CLI was run.
 
 > **In short.** A pack knows how to read a call; only core may decide one. So the extension point
 > is a **classifier** the pack ships, and everything that grants, files, approves, executes or
-> predicts stays in core, where a jail and a buggy pack alike cannot reach it.
+> predicts stays in core. Core supplies CLI and HTTP executors by default; a pack supplies an
+executor where core cannot apply its credential or prepare its call.
 
 **Why it matters.** A downstream user built their own broker for several internal services
 because yolo's approvals only exist for git and GitHub. Each such broker re-implements the store,
@@ -39,8 +40,8 @@ HTTP front, and a conformance kit.
 
 **Start at [§5](#5-two-layers)**, then [§6](#6-the-decision-is-cores).
 
-**Needs your ruling:** [OQ-BX1](#OQ-BX1), [OQ-BX2](#OQ-BX2), [OQ-BX3](#OQ-BX3),
-[OQ-BX4](#OQ-BX4), [OQ-BX5](#OQ-BX5), [OQ-BX6](#OQ-BX6).
+**Needs your ruling:** None. The design is settled; the build hand-off and implementation remain
+pending.
 
 **Reads with:** [`access-introspection.md`](access-introspection.md) (the readout and the dry run;
 its decision function is the one every call broker uses),
@@ -54,11 +55,10 @@ its decision function is the one every call broker uses),
 
 The owner asked for a full extension point: a pack that is not yolo's, with no change to yolo
 core, uses the grant, working-set, request, `yolo approve`, `yolo wait`, `yolo audit` and
-`on_request` machinery as the git and GitHub brokers do, and the dry run covers it. The proof is
-CircleCI, and on its form the owner said:
-
-> *"If CCI has a CLI tool, I'd rather use that and build that, and then find another service for
-> the HTTP example."*
+`on_request` machinery as the git and GitHub brokers do, and the dry run covers it. CircleCI is
+a built-in pack wrapping its CLI. Independently loadable test packs and local CLI/HTTP services
+prove the extension point without a public-service account; a human can also operate them on
+the host to demonstrate and learn the approval flow.
 
 ### 1.1 Requirements
 
@@ -68,10 +68,12 @@ CircleCI, and on its form the owner said:
 | R2 | It uses the same grants, cells, working set, requests, `yolo approve`, `yolo wait`, `yolo audit`, `on_request` and gate as git and GitHub | the owner |
 | R3 | `yolo access` reads and predicts its calls with the same guarantee as git's and GitHub's | the owner; [access-introspection R6](access-introspection.md#11-requirements) |
 | R4 | One extension point serves a CLI-wrapping broker and an HTTP-wrapping broker | the owner's two proofs |
-| R5 | The CircleCI proof wraps CircleCI's CLI; where the CLI falls short the design says so, and never silently falls back to the HTTP API | the owner |
-| R6 | The HTTP proof is a widely used public service, harder than CircleCI | the owner |
+| R5 | CircleCI ships as a built-in pack wrapping its CLI; where the CLI falls short the design says so, and never silently falls back to the HTTP API | the owner |
+| R6 | Local test CLI and HTTP services provide complete broker tests without Linear, CircleCI or another external account | the owner |
 | R7 | One host-broker framework, not two: the MCP sign-in broker either fits it or this doc says exactly why not | the coordinator |
 | R8 | Every refusal names its next step | [`happy-path-principle.md`](../reference/happy-path-principle.md) |
+| R9 | A human can start and operate the local services on the host for demos, tests and learning, with a small documented control surface | the owner |
+| R10 | Nested-jail tests use real fronts, transport, classifiers, approvals and executors against the local fixtures | the owner |
 
 ### 1.2 What a downstream user's broker asks for
 
@@ -84,7 +86,7 @@ what a pack would want to build. Each of its features, generalized, and where it
 | Per-call human approval for any such service | **Core** | Approvals are core's ([§6](#6-the-decision-is-cores)) |
 | Time-windowed approvals | **Core**, `yolo approve --for`, capped by a per-cell maximum the pack declares | One store, one clock |
 | Approvals that follow a conversation | **Out of scope** | No grant is scoped to a session ([BB-D83](boundary-broker.md#BB-D83)) |
-| Previewing a batch of writes and approving them together | **Core, partly**: [OQ-AX1](access-introspection.md#decision-ledger) lets an agent file its requests before acting; a "request changes" answer is [OQ-BX5](#OQ-BX5) | The preview is the dry run |
+| Previewing a batch of writes and approving them together | **Core, partly**: [OQ-AX1](access-introspection.md#decision-ledger) lets an agent file its requests before acting; an optional denial note is [OQ-BX5](#decision-ledger) | The preview is the dry run |
 | Draft-only writes and author attribution | **Out of scope** here | A source's own policy; GitHub's lives in [`github-write-scopes.md`](github-write-scopes.md) |
 | Desktop and chat notifications | **Core's `on_request` hook**; anything richer out of tree | The hook already serves any source |
 | A web console of requests | **Out of tree**, on the CLI's stable surface | [`boundary-broker.md` §1.5](boundary-broker.md#15-the-maintainers-path-2026-10-23) |
@@ -171,7 +173,7 @@ flowchart TB
   MCP[MCP sign-in broker] --> L1
   GH[git and GitHub brokers] --> L1
   GH --> L2
-  PB[pack brokers: CircleCI, Linear] --> L1
+  PB[pack brokers: CircleCI, local test services] --> L1
   PB --> L2
 ```
 
@@ -246,6 +248,11 @@ scope root and the workspace's standing, as GitHub's `ApprovalAuthority` does to
 that spends the approval classifies the call again from scratch. A classification that changed
 between filing and spending no longer matches the stored digest, so it asks again.
 
+**A denial may carry an optional note.** `yolo approve r-<id> --deny --note "use the release
+branch"` records the note with that answer. `yolo wait` and `yolo history` show it as human
+feedback, not as a command to execute or a new grant. This applies to every approval source,
+including git and GitHub. A denial without a note retains its existing behavior.
+
 ## 7. What a pack declares
 
 ### 7.1 The block
@@ -256,8 +263,9 @@ between filing and spending no longer matches the stored digest, so it asks agai
 source = "circleci"
 front = "cli"                      # or "http"
 program = "circleci"               # CLI front: the host program; intercepted in the jail
-classifier = "bin/circleci-classify"   # from the pack's `binaries`
-executor = "core"                  # or "pack" (OQ-BX1)
+classifier = ["yolo", "internal", "call-broker-classify", "circleci"]
+# Built-in classifier is a yolo subcommand; external packs may ship a program.
+executor = "core"                  # pack executor where core cannot apply the call
 credential_paths = ["~/.config/circleci"]
 env_from_host = ["CIRCLE_TOKEN", "DBUS_SESSION_BUS_ADDRESS"]
 
@@ -276,7 +284,7 @@ parent = "pipeline"
 [[call_broker.cell]]
 name = "rerun_workflows"
 tables = ["working_set", "all"]
-default = { working_set = true }   # shown at the gate (OQ-BX6)
+default = { working_set = true }   # shown at the gate and capped by the user ceiling
 max_for = "8h"
 
 [[call_broker.joins_working_set]]
@@ -302,7 +310,13 @@ naming another source names one the workspace selects.
 
 ### 7.2 The classifier
 
-A program the pack ships, run by core as a subprocess per call with an empty environment beyond
+There is one classifier interface: a program, not a second declarative-pattern language. A
+third-party pack may generate its program from a table. Built-in CircleCI uses a yolo
+subcommand and declares no binaries, preserving
+[OQ-BP8](../reference/pack-binaries.md#OQ-BP8). Independently loadable test packs use fixture
+programs through the same interface, without adding their names to core.
+
+The declared program is run by core as a subprocess per call with an empty environment beyond
 `PATH`, an empty working directory, no TTY, a 2 s deadline and a 64 KiB answer cap. It is given
 JSON on stdin and answers JSON on stdout:
 
@@ -327,6 +341,10 @@ run time. A lookup that fails is a fact the classifier is given, and it usually 
 or classifies the write as asking.
 
 ### 7.4 Working-set rules
+
+A third-party pack may ship working-set cell defaults that run without asking. The gate shows
+each default before approval, and the user's ceiling still caps it; selecting a pack does not
+silently widen that ceiling.
 
 A resource joins the source's working set when:
 
@@ -373,8 +391,8 @@ For a credential core cannot apply as a header: a request signature over the bod
 store's), a token minted per call, or a CLI that must run in a prepared directory. Core spawns the
 pack's executor only after the decision says the call runs, gives it the canonical form on stdin,
 and relays what it prints. The pack's executor holds the credential; core still owns everything
-before it and audits the result. Whether core ships both executor kinds is
-[OQ-BX1](#OQ-BX1).
+before it and audits the result. Both executor kinds are supported: core executors are the
+default, and a pack executor is reserved for calls core cannot apply.
 
 ## 9. The trust boundary
 
@@ -406,12 +424,17 @@ pack.
 | Lookups | argv templates | request templates |
 | Credential | The host program's own login | A header core builds from a declared source |
 | Executor hazards | Host file writes by flag, a server or token flag, spawned helper programs, git pushes | Redirects, cookies, credentials in URLs, response size, non-safe methods that read |
-| A refusal reaches the agent as | Exit 64 and the refusal text on stderr, as `gh`'s | Status 403 with headers `Yolo-Verdict` and `Yolo-Request`, and a body in the error shape the block declares (GraphQL's `errors` array for Linear), whose message is the refusal text |
+| A refusal reaches the agent as | Exit 64 and the refusal text on stderr, as `gh`'s | Status 403 with headers `Yolo-Verdict` and `Yolo-Request`, and a body in the error shape the block declares (GraphQL's `errors` array for the local HTTP proof), whose message is the refusal text |
 | An ask reaches the agent as | Exit 75 and the menu | Status 403, `Yolo-Verdict: asks`, the menu in the message |
 
 ## 11. Proof one: CircleCI, through its CLI
 
 ### 11.1 Why the CLI works here
+
+The pack ships in `packs/circleci`; its classifier is a yolo subcommand, not a manifest binary.
+Local fake CLI execution verifies the same classifier and approval wiring in nested jails. It
+does not prove the real CLI's login or cloud behavior; those require separate compatibility
+evidence. The local fixture must not silently replace the production host program.
 
 CircleCI's current CLI (v1, a Go rewrite on API v3, generally available August 2026) has a verb
 for everything an agent needs: listing and reading runs, workflows, jobs, test results and
@@ -426,8 +449,8 @@ nothing, as with `gh`.
 | :--- | :--- | :--- | :--- |
 | `run list/get/watch`, `workflow list/get`, `job get/output`, `job artifact` (listing), `testresult list/get`, `pipeline list`, `envvar list` (values masked), `context list/get`, `context secret list` (names only) | `read` | project, or the item's project by lookup | runs |
 | `run trigger`, `pipeline run` | `trigger_pipelines` (joins the working set) | project | asks |
-| `workflow rerun` (with or without `--from-failed`) | `rerun_workflows` | workflow → pipeline → project | working set: runs ([OQ-BX6](#OQ-BX6)); otherwise asks |
-| `run cancel`, `workflow cancel` | `cancel` | pipeline or workflow | working set: runs ([OQ-BX6](#OQ-BX6)); otherwise asks |
+| `workflow rerun` (with or without `--from-failed`) | `rerun_workflows` | workflow → pipeline → project | working set: runs ([OQ-BX6](#decision-ledger)); otherwise asks |
+| `run cancel`, `workflow cancel` | `cancel` | pipeline or workflow | working set: runs ([OQ-BX6](#decision-ledger)); otherwise asks |
 | `run approve` (a hold job) | `approve_holds` | job → workflow → pipeline → project | asks, even in the working set: a hold is often a deploy gate |
 | `envvar set/delete` | `project_envvars` | project | asks |
 | `context create/delete`, `context secret set/delete` | `contexts` | the organization, by lookup; `all` table only | asks |
@@ -471,39 +494,80 @@ Said plainly, with no HTTP fallback behind any of them:
 7. **A new CLI release's new flags** are refused until the classifier learns them
    ([BX-P4](#BX-P4)); yolo pins no CLI version.
 
-## 12. Proof two: Linear, over HTTP
+## 12. Local proofs: CLI and HTTP services
 
-### 12.1 Why Linear
+### 12.1 What the fixtures prove
 
-Linear's public API is GraphQL only: every call is a POST to one path, so the method and path say
-nothing. Reading a call means parsing the document, choosing the operation, and naming each
-mutation field; the resources sit in variables, often as identifiers like `ENG-123` that need a
-lookup; one request can carry several mutations under aliases; there is no official CLI. That
-defeats every declarative route table, which is why it proves the classifier.
+The **local proof services** *(coined here)* are small test services with a CLI client and an
+HTTP interface, controlled entirely on the host. They are not public-service integrations and
+use only synthetic credentials. They exercise the same broker fronts, transport, classifiers,
+decision, approvals, executors and audit as a real service, without a CircleCI or Linear account.
 
-**The close alternative is Slack's Web API** ([OQ-BX4](#OQ-BX4)): its method is in the path and
-classifies by table, but its targets are in form bodies, some methods return tokens, and its
-workspace and token types are many. It would test the HTTP executor harder and the classifier
-less.
+The CLI proof covers argv, stdin, lookup-driven resource scope and host-program execution. The
+HTTP proof covers method/path/body classification, credentials, redirects and canonical request
+execution. Independently loadable fixture packs must work without adding their service names to
+core; an in-tree CircleCI pack alone does not establish that extension property.
 
-### 12.2 How it classifies
+The services hold a small set of projects and work items with stable ids, parent scope, owner,
+state and a write log. Humans and the broker see the same service state. A denied or predicted
+write leaves that state and log unchanged; an approved act creates exactly the expected change.
+They do not simulate the full CircleCI product.
 
-- **Operation.** A `query` is `read`; a `mutation` is decided per top-level field; a
-  `subscription` is refused. A document with more than one operation and no `operationName` is
-  refused; with one, the canonical form is that operation alone, re-printed.
-- **Cells.** `issueCreate` is `create_issues` (joins the working set); `issueUpdate`,
-  `issueArchive` are `edit_issues`; `commentCreate` is `comment_issues`; `issueDelete` and anything
-  named `*Delete` asks in every table; `fileUpload` is `attach_files`; an unknown mutation is
-  refused ([BX-P4](#BX-P4)).
-- **Resources.** An issue id or identifier resolves by lookup to its team; the team must be a
-  declared scope root (`team:ENG`).
-- **The method floor.** The block declares `read_over_post = ["/graphql"]`; the gate line reads
-  *Linear's reads arrive as POST; the pack's classifier decides which are reads.*
-- **Uploads.** `fileUpload` returns a signed upload URL on another host. The URL crosses to the
-  jail, which uploads directly; no credential is involved, and the storage host is not brokered.
-- **Rate limits** are by query complexity and are Linear's: a prediction says yolo's verdict only.
-- **The credential.** A Linear API key in a 0600 file under a fenced path, sent as the
-  `Authorization` header. A missing file refuses every call, naming the file to create.
+### 12.2 Calls and failure scenarios
+
+| Proof | Required cases | Observable result |
+| :--- | :--- | :--- |
+| CLI | List/get, create, update/rerun/cancel, parent lookup, stdin input; unknown or host-file/server/token flags | Reads return synthetic data; writes apply only after the broker permits them; forbidden flags refuse before the host client acts |
+| HTTP | Reads and writes over JSON routes; a bounded GraphQL route with queries, mutations, aliases and operation selection | The classifier distinguishes reads from writes and executes only its canonical operation; a multi-write request is decided as a whole |
+| Scope | Two projects, resources under each, unknown id and a lookup failure | An approved root does not cover another project; missing facts are reported rather than guessed |
+| Approval | Working-set defaults, an uncovered write, timed and one-time approval, duplicate pre-ask, denial with a note | The gate/ceiling and existing limits apply; pre-ask files but does not execute or spend; the note appears in wait/history |
+| HTTP guards | Redirect to another local endpoint, credential echo, credential in URL, oversized response, jail-supplied Authorization | No credential follows a redirect or crosses to the jail; the declared caps and refusal shape apply |
+| Determinism | Same classification inputs in act and evaluate; changed standing or resource fact | Equal inputs produce equal decisions; real calls re-evaluate changed inputs |
+| Custom execution | One synthetic signed-call case using a pack executor | Core approves the canonical call before giving it to the executor; the classifier never receives the synthetic credential |
+
+The HTTP fixture uses a finite allowlist, not arbitrary code execution. A GraphQL query is a
+read; a mutation is classified per top-level field; subscriptions and unknown fields refuse.
+Multiple operations without an operation name refuse; the selected operation alone is
+canonicalized. Its `read_over_post = ["/graphql"]` exception is shown at the gate, so a POST
+is never presumed safe just because the fixture implements it.
+
+Failures are explicit fixture scenarios, selected by the host operator or test harness, never
+by a jail argument that can alter the broker's credential destination. Tests inspect the second
+endpoint's request log to prove redirects do not leak the synthetic credential.
+
+### 12.3 Host operation for demos and learning
+
+A small repository tool supplies a documented way to:
+
+- start the local service and print its address, synthetic identity and state location;
+- seed two projects and work items, list/read them, and make a direct host-side change;
+- inspect the state and write log while an agent predicts, asks and acts;
+- select a failure scenario, reset the demo state, and stop the service.
+
+The default listener is host loopback on a locally allocated port, and each run has private
+fixture state. Persistence is opt-in to an explicitly chosen demo directory. Reset affects only
+that fixture's state, never a real service, yolo's approval store or a real credential. Host-side
+operation is direct and intentionally separate from the jail's brokered client, so a human can
+compare the requested call with the resulting change. No web UI or production daemon is owed.
+
+The demo guide walks a human through read, predict, pre-ask, approve once, act, denial with a note
+and an out-of-scope refusal. It labels the services and credentials as synthetic, provides exact
+build/start/stop commands once implemented, and distinguishes a direct host operation from a
+brokered jail call. The selected fixture endpoint is pinned by host-side configuration approved
+for that run; no jail-supplied server override can redirect the host credential.
+
+### 12.4 End-to-end acceptance
+
+Nested-jail tests start the local service on the host side of the test, load the fixture packs,
+and send calls from the jail through the real fronts and approval transport. Assertions cover
+service state, host write logs, request ids, working-set entries, grant use and audit events. A
+fake classifier verdict or a unit-only executor test cannot stand in for this path.
+
+The CircleCI pack's nested-jail fixture uses a fake host CLI with the supported grammar and
+exercises its actual classifier. This proves policy and execution wiring, not the upstream
+CircleCI CLI's account login, release compatibility or cloud behavior. Those facts require
+separate compatibility evidence. Nested podman also cannot prove real rootless network
+reachability; native/CI checks retain that boundary.
 
 ## 13. Coherence with the MCP sign-in broker
 
@@ -529,7 +593,7 @@ call broker, whose credential never crosses. Every touch point:
 
 **A future MCP call broker**, one that keeps a server's token on the host and forwards each tool
 call for approval, would be a pack broker with an HTTP front: a JSON-RPC `tools/call` classified by
-its tool name, as Slack's methods would be. Nothing here builds it.
+its tool name. Nothing here builds it.
 
 ## 14. Failure paths
 
@@ -549,7 +613,8 @@ its tool name, as Slack's methods would be. Nothing here builds it.
 - **No change to the git and GitHub brokers' rules.** They move onto the shared decision function
   through [`access-introspection.md`](access-introspection.md); they keep their own front and
   classifier.
-- **No declarative classifier language.** See [OQ-BX2](#OQ-BX2).
+- **No declarative classifier language.** Every classifier is a program
+  ([OQ-BX2](#decision-ledger)).
 - **No host login verb.** A pack's credential is the host program's login or a declared file.
 - **No defense against a malicious pack** ([§9](#9-the-trust-boundary)).
 - **No CircleCI Server.**
@@ -570,7 +635,7 @@ its tool name, as Slack's methods would be. Nothing here builds it.
 | :--- | :--- |
 | A classifier misreads a write as a read | The method floor; lookups must classify as reads; the conformance kit's fixtures; the audit shows every read |
 | The classifier's latency on every call | One subprocess per call with a 2 s deadline; the plan measures it, and a long-lived classifier is a later change if it bites |
-| A pack's shipped working-set defaults are too generous | The gate shows them ([BX-P5](#BX-P5)), and [OQ-BX6](#OQ-BX6) rules whether they may exist |
+| A pack's shipped working-set defaults are too generous | The gate shows each default ([BX-P5](#BX-P5)) and the user ceiling caps it ([OQ-BX6](#decision-ledger)) |
 | CircleCI's CLI moves fast | Unknown words are refused, not passed |
 
 ## 18. What I would build, in order
@@ -581,9 +646,10 @@ its tool name, as Slack's methods would be. Nothing here builds it.
    daemon. The fence and `launch_input` arrive with the MCP sign-in plan; this design reuses them.
 3. **The `call_broker` block, the classifier protocol and the CLI executor**, with the CircleCI
    pack as the first user.
-4. **The HTTP front and executor**, with the Linear pack.
-5. **The pack executor**, if [OQ-BX1](#OQ-BX1) rules for it.
-6. **The conformance kit.**
+4. **The local test CLI and HTTP services**, their independently loadable fixture packs and
+   small host-operated demo controls; the HTTP proof includes a bounded GraphQL route.
+5. **The HTTP front and executor, and the pack executor**, exercised against those services.
+6. **The conformance kit and nested-jail end-to-end tests**, plus the host demo guide.
 
 ## 19. What done looks like
 
@@ -593,120 +659,31 @@ its tool name, as Slack's methods would be. Nothing here builds it.
   `yolo approve r-<id>` answers.
 - `yolo access -- circleci run approve <job>` predicts `asks`, naming `approve_holds`.
 - `circleci api /me` is refused, naming the named verb.
-- A Linear `issueUpdate` on an issue of an out-of-scope team is refused, naming
-  `brokered.linear.roots`.
+- The local CLI and HTTP proofs run end to end in nested jails without an external account.
+  Predicting or pre-asking a write changes no fixture state; approval followed by act changes
+  it once. An out-of-scope project refuses before the service receives a write.
+- A human on the host can start, seed, inspect, change, reset and stop the demo services, and
+  follow a short guide through approval and denial with a note. The demo changes only synthetic
+  state and credentials.
 - `yolo audit --service circleci` lists every call, read or write, refused included.
 - **The conformance kit** *(coined here)*: a command a pack author runs against their pack that
   feeds its fixtures through the classifier twice (determinism), through act and evaluate mode
   (same verdict), checks each lookup classifies as a read, and checks the block loads. A pack
   broker is done when the kit passes.
 
-## Open Questions
-
-1. 💬 **OQ-BX1: Who runs an allowed call: core, the pack, or either?**
-
-   A pack author wraps a service whose CLI uses the host login (CircleCI) and another whose API
-   needs each request signed (an object store). Core can run the first and send a plain header for
-   a token API; it cannot sign.
-
-   - **A — Core executors only.** The object store cannot be brokered.
-   - **B — The pack's executor only.** Every pack writes its own execution and redaction.
-   - **C — Both.** Core executors by default; a pack executor only where core's cannot apply.
-
-   <!-- vantage: question id=OQ-BX1 leaning="C — core's executors carry the redirect and redaction rules most packs would get wrong, and the pack executor covers what core cannot sign." -->
-
-   _Leaning:_ C — core's executors carry the redirect and redaction rules most packs would get wrong, and the pack executor covers what core cannot sign.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 **OQ-BX2: Is the classifier a program, or a declaration core interprets?**
-
-   A pack author writes the CircleCI classifier. As a program, they write Go (or anything) and
-   ship it with a checksum. As a declaration, they write a table of argv patterns in the
-   manifest, and core interprets it; GraphQL would still need a program.
-
-   - **A — A program.** One shape for every service.
-   - **B — A declaration**, with a program allowed when the declaration cannot express it.
-
-   <!-- vantage: question id=OQ-BX2 leaning="A — GraphQL forces the program anyway, and two shapes double what the kit has to check; a pack can still generate its program from a table." -->
-
-   _Leaning:_ A — GraphQL forces the program anyway, and two shapes double what the kit has to check; a pack can still generate its program from a table.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-3. 💬 **OQ-BX3: Where does the CircleCI pack live?**
-
-   The proof must show a pack that is not yolo's. In `packs/`, it would be official, and official
-   packs ship no binaries ([OQ-BP8](../reference/pack-binaries.md#OQ-BP8)), so its classifier would
-   be a yolo subcommand: a change to yolo. In its own repository, it ships its classifier by URL
-   and checksum, as any third-party pack does.
-
-   - **A — `packs/circleci`**, its classifier a yolo subcommand.
-   - **B — Its own repository**, added with `yolo pack add <url>`.
-
-   <!-- vantage: question id=OQ-BX3 leaning="B — only a pack outside the tree proves the extension point needs no change to yolo." -->
-
-   _Leaning:_ B — only a pack outside the tree proves the extension point needs no change to yolo.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-4. 💬 **OQ-BX4: Which service is the HTTP proof?**
-
-   The HTTP proof should be the hardest common case. Linear's GraphQL hides every write inside one
-   POST, so classifying it needs a parser and lookups. Slack's Web API names its method in the path,
-   which a table reads, but carries targets in form bodies and returns tokens from some methods.
-
-   - **A — Linear.** Proves the classifier.
-   - **B — Slack.** Proves the HTTP executor's guards.
-
-   <!-- vantage: question id=OQ-BX4 leaning="A — a design whose classifier handles GraphQL handles a method table too; the reverse is not true." -->
-
-   _Leaning:_ A — a design whose classifier handles GraphQL handles a method table too; the reverse is not true.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-5. 💬 **OQ-BX5: May a human deny with a note the agent reads?**
-
-   An agent asks to trigger a pipeline on the wrong branch. Today the human can only deny, and the
-   agent learns nothing but "denied". With a note, `yolo approve r-<id> --deny --note "use the
-   release branch"` and `yolo wait` prints the note.
-
-   - **A — Deny only**, as today.
-   - **B — An optional note on deny**, shown by `yolo wait` and `yolo history`, for every source.
-
-   <!-- vantage: question id=OQ-BX5 leaning="B — it turns a dead end into a next step, for git and GitHub too." -->
-
-   _Leaning:_ B — it turns a dead end into a next step, for git and GitHub too.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-6. 💬 **OQ-BX6: May a third-party pack ship working-set cells that run unasked by default?**
-
-   GitHub ships `working_set.comment_*` and `edit_*` as `true`, so an agent comments on its own PR
-   without asking. The CircleCI pack would like `rerun_workflows` and `cancel` on the agent's own
-   pipelines to run the same way. The human would see them in the gate before their first `y`.
-
-   - **A — No.** A third-party pack's cells all start at ask; the human adds `true` lines.
-   - **B — Yes, shown at the gate** with a line per default cell, and capped by the user's ceiling.
-
-   <!-- vantage: question id=OQ-BX6 leaning="B — the gate shows the defaults and the ceiling still bounds them, which is the rule official packs already follow." -->
-
-   _Leaning:_ B — the gate shows the defaults and the ceiling still bounds them, which is the rule official packs already follow.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
 ## Decision Ledger
 
-Designer decisions taken while drafting; none is a ruling of the owner's.
+Owner rulings and designer decisions are recorded below. A settled decision is not evidence
+that its implementation is built.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
+| OQ-BX1 | Both executor forms: core CLI/HTTP by default, pack executor where core cannot sign or prepare the call | 2026-11-04 | [§8](#8-what-core-runs) | — |
+| OQ-BX2 | Classifiers are programs; a pack may generate its program from a table, with no second classifier language in core | 2026-11-04 | [§7.2](#72-the-classifier) | — |
+| OQ-BX3 | Ship CircleCI as a built-in pack; prove extensibility with local test packs/services and nested-jail end-to-end tests, not a separately hosted CircleCI pack | 2026-11-04 | [§11.1](#111-why-the-cli-works-here) | — |
+| OQ-BX4 | Replace the public-service proof with local test CLI and HTTP services a human can operate on the host for demos, testing and learning | 2026-11-04 | [§12](#12-local-proofs-cli-and-http-services) | — |
+| OQ-BX5 | Optional denial note appears in yolo wait and yolo history for every approval source | 2026-11-04 | [§6](#6-the-decision-is-cores) | — |
+| OQ-BX6 | Third-party working-set defaults may run unasked after the gate shows each one, bounded by the user ceiling | 2026-11-04 | [§7.4](#74-working-set-rules) | — |
 | BX-D1 | Two layers: the host-broker framework for every credential daemon, and the call layer for brokers of calls | 2026-11-04 | [§5](#5-two-layers) | — |
 | BX-D2 | A pack broker's daemon is core's; the pack ships a classifier and optionally an executor | 2026-11-04 | [§5.2](#52-the-call-layer) | — |
 | BX-D3 | Core executes the classifier's canonical form, never the jail's bytes | 2026-11-04 | [§4](#4-principles) | — |
