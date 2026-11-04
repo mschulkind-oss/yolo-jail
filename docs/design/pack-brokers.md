@@ -84,7 +84,7 @@ what a pack would want to build. Each of its features, generalized, and where it
 | Per-call human approval for any such service | **Core** | Approvals are core's ([§6](#6-the-decision-is-cores)) |
 | Time-windowed approvals | **Core**, `yolo approve --for`, capped by a per-cell maximum the pack declares | One store, one clock |
 | Approvals that follow a conversation | **Out of scope** | No grant is scoped to a session ([BB-D83](boundary-broker.md#BB-D83)) |
-| Previewing a batch of writes and approving them together | **Core, partly**: [OQ-AX1](access-introspection.md#OQ-AX1) lets an agent file its requests before acting; a "request changes" answer is [OQ-BX5](#OQ-BX5) | The preview is the dry run |
+| Previewing a batch of writes and approving them together | **Core, partly**: [OQ-AX1](access-introspection.md#decision-ledger) lets an agent file its requests before acting; a "request changes" answer is [OQ-BX5](#OQ-BX5) | The preview is the dry run |
 | Draft-only writes and author attribution | **Out of scope** here | A source's own policy; GitHub's lives in [`github-write-scopes.md`](github-write-scopes.md) |
 | Desktop and chat notifications | **Core's `on_request` hook**; anything richer out of tree | The hook already serves any source |
 | A web console of requests | **Out of tree**, on the CLI's stable surface | [`boundary-broker.md` §1.5](boundary-broker.md#15-the-maintainers-path-2026-10-23) |

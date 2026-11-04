@@ -1373,6 +1373,6 @@ framework and not two:
 6. **Naming.**
    - The pack is `mcp-auth`, the loophole `mcp-auth-broker`, the audit service `mcp-auth`, and
      the verb `yolo mcp-auth`.
-   - `yolo access` ([OQ-AX2](access-introspection.md#OQ-AX2) is still open) shows this broker
+   - `yolo access` ([OQ-AX2](access-introspection.md#decision-ledger)) shows this broker
      under its loophole name.
    - `yolo approve`, `yolo wait` and `yolo history` never list it.

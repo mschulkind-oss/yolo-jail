@@ -1,9 +1,9 @@
 ---
 title: "Ask before you act: the jail reads its own access, and a dry run answers with the broker's own decision"
 date: 2026-11-04
-status: draft
-stage: DESIGN
-next: "Rule OQ-AX1 (may a prediction file its request ahead of the call) and OQ-AX2 (the verb's name)"
+status: accepted
+stage: DECIDED
+next: "Complete the implementation plan against the current tree, including explicit pre-execution request filing"
 depends-on:
   - boundary-broker.md
   - github-write-scopes.md
@@ -29,7 +29,8 @@ correct.
 
 **The shape.** One broker pipeline with an **act** and an **evaluate** mode; a readout and a
 prediction request every broker answers over its own loophole transport; one in-jail verb,
-`yolo access`, that asks them and renders JSON for an agent or text for a person.
+`yolo access`, that asks them and renders JSON for an agent or text for a person. Plain prediction
+files nothing; explicit `--ask` files the approval request before executing the proposed call.
 
 **Cost.** The git and GitHub brokers' decisions must be split out of their effectful code into a
 pure function, which is real refactoring in `internal/ghbroker` and `internal/gitbroker`. One new
@@ -37,7 +38,7 @@ verb, one new request kind per broker, one host-written snapshot file per launch
 
 **Start at [§5](#5-one-pipeline-two-modes)**; the rest falls out of it.
 
-**Needs your ruling:** [OQ-AX1](#OQ-AX1), [OQ-AX2](#OQ-AX2).
+**Needs your ruling:** None. The design is settled; implementation remains pending.
 
 **Reads with:** [`pack-brokers.md`](pack-brokers.md) (the extension point that lets a pack's broker
 answer the same two requests; its decision function is this doc's),
@@ -282,7 +283,21 @@ The decision function's output ([§5.2](#52-the-decision-function)) plus the cla
 facts it read, and the inputs digest. For `asks`, the menu the real refusal would print, with
 `r-<id>` left as a placeholder since nothing is filed.
 
-### 7.3 Limits, said in the output
+### 7.3 Filing before execution
+
+`yolo access --ask -- <command>` evaluates the proposed call through the same broker pipeline.
+When the outcome is `asks`, it uses the real call's request-filing path and prints the resulting
+request's approval menu with its actual id. The same command and input digest bind the request
+and any resulting Allow once to the later real call. Existing pending-request limits, denial
+cooldowns and duplicate-request handling apply unchanged.
+
+This explicit filing runs no proposed write, spends no grant and adds nothing to a working set.
+For `runs` or `refused`, it reports that outcome without filing or dispatching. The agent can
+collect a batch's requests before acting; the human answers them in one sitting, and each later
+call still passes the normal decision pipeline. A plain prediction remains read-only apart from
+its existing audit and prediction record.
+
+### 7.4 Limits, said in the output
 
 - **It is yolo's decision, not the upstream's.** `runs` means yolo forwards it; the forge may still
   refuse.
@@ -318,21 +333,23 @@ construction and is checked at run time.
 
 ## 9. The verb
 
-The verb is `yolo access` here; its name is [OQ-AX2](#OQ-AX2).
+The verb is `yolo access`: one command for the readout, prediction and explicit request filing.
 
 ```console
 $ yolo access                          # the readout, every source
 $ yolo access github                   # one source
 $ yolo access -- gh pr merge 40        # predict a call
 $ yolo access -- git push origin agent/x
+$ yolo access --ask -- gh pr merge 40 --squash  # file approval without merging
 $ yolo access --json …                 # any of the above, for an agent
 ```
 
 It runs in a jail and at the host notch alike; on the host with no jail it says no broker serves
 this shell and names `yolo approve --json` for the host's view of every workspace.
 
-**Exit status:** 0 when it produced a readout or a prediction, whatever the verdict; 69 when it
-could not (no broker answered the call's source); 64 for a usage error. The verdict is in the
+**Exit status:** 0 when it produced a readout, prediction or request-filing answer, whatever the
+verdict; 69 when it could not (no broker answered the call's source); 64 for a usage error.
+`--ask` requires a proposed call. The verdict is in the
 output, never only in the status, so an agent cannot read "refused" as "the tool failed".
 
 **Text form**, one prediction:
@@ -341,8 +358,8 @@ output, never only in the status, so an agent cannot read "refused" as "the tool
 gh pr merge 40 --squash  →  asks
   github-broker: merging PR acme/app#40 (opened by kurt) asks here:
   yolo-jail.toml:12 sets requests.github.all.merge_prs = "ask", and #40 is not in the working set.
-  Run it to file the request, then wait in the background:
-    gh pr merge 40 --squash
+  File approval without merging, then wait in the background:
+    yolo access --ask -- gh pr merge 40 --squash
     yolo wait r-<id>
   The human answers on the host:
     yolo approve r-<id>
@@ -360,7 +377,7 @@ gh pr merge 40 --squash  →  asks
   "rule": {"text": "requests.github.all.merge_prs = \"ask\"", "file": "yolo-jail.toml", "line": 12},
   "covered_by": null,
   "next": [
-    {"who": "agent", "where": "jail", "run": "gh pr merge 40 --squash"},
+    {"who": "agent", "where": "jail", "run": "yolo access --ask -- gh pr merge 40 --squash"},
     {"who": "agent", "where": "jail", "run": "yolo wait r-<id>", "background": true},
     {"who": "human", "where": "host", "run": "yolo approve r-<id>"}
   ],
@@ -413,7 +430,7 @@ implementer's beyond the ones shown; the schema name, `verdict`, `rule`, `covere
 1. **Split the decision out of the GitHub broker**, behind its existing tests, with both-mode
    tests. No behavior change, no new verb.
 2. **The evaluate request and the readout request (`{"op":"status"}`, the framework's) on the GitHub broker**, and `yolo access` with
-   the readout and `gh` predictions.
+   the readout, `gh` predictions and explicit `--ask` request filing.
 3. **The same for the git broker**, including the ref-update computation for a push.
 4. **The access snapshot** and the loophole section of the readout.
 5. **The tripwire**, and the briefing line.
@@ -425,6 +442,8 @@ implementer's beyond the ones shown; the schema name, `verdict`, `rule`, `covere
 - In a jail with the github pack, `yolo access --json -- gh pr merge 40` prints `asks` with the
   line that decided it, and running the command then files a request whose menu matches the
   prediction's `next`.
+- `yolo access --ask -- gh pr merge 40` files that approval request without merging, prints the
+  actual request id and menu, and leaves every grant unspent. Plain prediction files nothing.
 - After the human runs `yolo approve r-<id>`, the same prediction prints `runs`, `covered_by` names
   the Allow once with its expiry, and the command runs.
 - `yolo access` lists the working set, the timed grants with end times and the pending requests,
@@ -432,55 +451,15 @@ implementer's beyond the ones shown; the schema name, `verdict`, `rule`, `covere
 - `yolo audit --event evaluate` on the host shows each prediction; a forced divergence in a test
   build shows a `prediction-diverged` line and a `yolo check` finding.
 
-## Open Questions
-
-1. 💬 **OQ-AX1: Should an agent be able to file its approval requests before it runs anything?**
-
-   An agent is about to merge three PRs and comment on two issues for a release. It runs
-   `yolo access -- gh pr merge 40` and learns the merge asks. Today the only way to file that
-   request is to run the merge itself, be refused, relay the menu and wait, then do the same for
-   the next write, so the human is interrupted once per write, minutes apart. The choice is whether
-   asking can come before acting.
-
-   - **A — Predict only.** `yolo access` never files. The agent runs each command to file its
-     request, as today; the human answers one request at a time as each arrives.
-   - **B — `yolo access --ask -- <command>` files the request the call would file, and prints the
-     menu.** The agent files all five up front, the human answers them in one sitting, and each
-     command then runs under its Allow once. A plain prediction still files nothing.
-
-   <!-- vantage: question id=OQ-AX1 leaning="B — it lets an agent collect every approval a plan needs before it starts, which is the useful half of a write batch, and a plain prediction stays pure." -->
-
-   _Leaning:_ B — it lets an agent collect every approval a plan needs before it starts, which is the useful half of a write batch, and a plain prediction stays pure.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 🤷 **OQ-AX2: What should the verb be called?**
-
-   An agent wants to know whether a push will run. It needs one command to remember, and the owner
-   will type it too. Three names fit: `yolo access` (the readout is the noun, and
-   `yolo access -- git push` reads as "access for this"), `yolo can -- git push` (reads as a
-   question, but the bare readout `yolo can` reads oddly), and `yolo explain -- git push` (reads
-   well for a prediction, poorly for a list of grants).
-
-   - **A — `yolo access`.** `yolo access`, `yolo access github`, `yolo access -- <command>`.
-   - **B — `yolo can`.** `yolo can`, `yolo can -- <command>`.
-   - **C — `yolo explain`.** `yolo explain`, `yolo explain -- <command>`.
-
-   <!-- vantage: question id=OQ-AX2 leaning="A — one noun covers both the readout and the prediction, and no existing verb uses it." -->
-
-   _Leaning:_ A — one noun covers both the readout and the prediction, and no existing verb uses it.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
 ## Decision Ledger
 
-Designer decisions taken while drafting, recorded so a later reader can find them; none is a
-ruling of the owner's.
+The owner rulings and the designer's implementation-independent decisions are recorded below;
+none is evidence that the behavior is built.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
+| OQ-AX1 | Explicit `yolo access --ask -- <command>` files the real call's approval request before execution, so a batch can be approved together; plain prediction files nothing | 2026-11-04 | [§7.3](#73-filing-before-execution) | — |
+| OQ-AX2 | The readout, prediction and request-filing verb is `yolo access` | 2026-11-04 | [§9](#9-the-verb) | — |
 | AX-D1 | A prediction is the broker's pipeline in evaluate mode; there is no jail-side predictor | 2026-11-04 | [§5](#5-one-pipeline-two-modes) | — |
 | AX-D2 | The readout comes from each broker live; only non-broker loopholes are read from a launch-written snapshot | 2026-11-04 | [§6.2](#62-where-each-part-comes-from) | — |
 | AX-D3 | A divergence on equal inputs digests is audited and reported by `yolo check`, never blocking | 2026-11-04 | [§8](#8-keeping-it-truthful) | — |

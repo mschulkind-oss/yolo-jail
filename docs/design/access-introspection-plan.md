@@ -3,6 +3,7 @@ title: "Access introspection: implementation plan (seed)"
 date: 2026-11-04
 status: draft
 stage: SKETCH
+next: "Complete the build hand-off against the current tree and the accepted access design"
 depends-on:
   - access-introspection.md#OQ-AX1
   - access-introspection.md#OQ-AX2
@@ -12,8 +13,8 @@ summary: "Seed of the implementation plan for access-introspection.md: notes the
 
 # Access introspection: implementation plan (seed)
 
-**Status:** 2026-11-04 — seeded during design; not a hand-off, and incomplete until the design is
-accepted.
+**Status:** 2026-11-04 — the design is accepted; this seed still needs a tree-grounded build
+hand-off before implementation.
 
 This seeds the plan for [`access-introspection.md`](access-introspection.md). Where the two
 disagree on behavior, the design wins. Do not build from this file while it is a sketch.
@@ -32,5 +33,7 @@ disagree on behavior, the design wins. Do not build from this file while it is a
   existing decision tests can run unchanged in both modes.
 - **The access snapshot** is written in the same launch step as the grant file, from the same
   in-memory result; find that step and the live-apply path of `yolo config apply`.
-- **Verb name** is blocked on [OQ-AX2](access-introspection.md#OQ-AX2); `--ask` is blocked on
-  [OQ-AX1](access-introspection.md#OQ-AX1).
+- **The verb is `yolo access`; explicit `--ask` files approvals before execution**, while plain
+  prediction files nothing ([OQ-AX1 and OQ-AX2](access-introspection.md#decision-ledger)). Map
+  request filing to the existing broker path and preserve command/input binding, limits and
+  duplicate handling; no proposed write runs and no grant is spent.
