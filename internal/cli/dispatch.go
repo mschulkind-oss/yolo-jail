@@ -55,7 +55,9 @@ var registry = map[string]func(args []string) int{
 	// The yolo account's verbs (commands.go). The four macos-* verbs they replaced are not
 	// keys: the front door refuses them naming these (renamedVerbs).
 	"yolo-account": runYoloAccount,
-	"update":       runUpdate,
+	// The named setups: list, show and copy one (setupcmd.go; docs/design/named-setups.md §6).
+	"setup":  runSetup,
+	"update": runUpdate,
 	// The github-broker's two ends: `gh` is the jail side (Main routes it before the
 	// front door, gh.go), `audit` the host's record of every brokered call (audit.go).
 	"gh": runGHVerb,
