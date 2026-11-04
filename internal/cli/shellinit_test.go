@@ -20,6 +20,9 @@ import (
 // run is visible on disk: an opted-in user config whose pack installs a program, the declared
 // binary stubbed so the dependency gate does not refuse first, and a user rc with content of
 // its own. t.Chdir keeps the repo's own yolo-jail.jsonc out of the merged config.
+// portablePathLine is the PATH line for a wrapper dir under $HOME, as yolo prints it.
+const portablePathLine = `export PATH="$HOME/.local/share/yolo-jail/bin/wrap:$PATH"`
+
 func shellInitHome(t *testing.T) (home, rcPath string) {
 	t.Helper()
 	home = t.TempDir()
@@ -78,6 +81,10 @@ func TestHostApplyShellInitIsRemovedAndRefuses(t *testing.T) {
 			}
 			if want := hostwrap.PathLine(paths.WrapDirUnder(home)); !strings.Contains(stderr, want) {
 				t.Errorf("the refusal must hand over the exact line %q:\n%s", want, stderr)
+			}
+			if !strings.Contains(stderr, portablePathLine) || strings.Contains(stderr, home) {
+				t.Errorf("the refusal must spell the line under $HOME (%q), not %s:\n%s",
+					portablePathLine, home, stderr)
 			}
 			if stdout != "" {
 				t.Errorf("a refusal prints nothing on stdout; got:\n%s", stdout)
@@ -150,6 +157,10 @@ func TestNothingOffersShellInit(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), hostwrap.PathLine(paths.WrapDirUnder(home))) {
 		t.Errorf("the apply that created the wrapper dir must print the PATH line:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), portablePathLine) {
+		t.Errorf("the apply must print the PATH line under $HOME (%q), which survives a "+
+			"dotfiles repo shared across machines:\n%s", portablePathLine, out.String())
 	}
 	if body, err := os.ReadFile(rcPath); err != nil || string(body) != "# my own aliases\n" {
 		t.Errorf("an apply changed the user's rc (err=%v):\n%q", err, body)

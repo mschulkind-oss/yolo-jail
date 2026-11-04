@@ -490,9 +490,57 @@ func TestClearOnAbsentDirIsNotAnError(t *testing.T) {
 }
 
 func TestPathLinePrepends(t *testing.T) {
-	line := PathLine("/home/u/.local/share/yolo-jail/bin/wrap")
-	if !strings.Contains(line, `"/home/u/.local/share/yolo-jail/bin/wrap:$PATH"`) {
+	line := PathLineUnder("/opt/yolo/bin/wrap", "/home/u")
+	if line != `export PATH="/opt/yolo/bin/wrap:$PATH"` {
 		t.Errorf("PathLine = %q — it must PREPEND, or the real binary wins and the wrapper never runs", line)
+	}
+}
+
+// The lab report 2026-11-03-mac-slice-12a-witness-w1: an absolute /home/<user> line pasted
+// into shared dotfiles broke on a machine whose home differs. Under $HOME, print $HOME.
+func TestPathLineIsPortableUnderHome(t *testing.T) {
+	for _, tc := range []struct{ dir, home, want string }{
+		{"/home/u/.local/share/yolo-jail/bin/wrap", "/home/u",
+			`export PATH="$HOME/.local/share/yolo-jail/bin/wrap:$PATH"`},
+		{"/home/u/.local/share/yolo-jail/bin/wrap", "/home/u/",
+			`export PATH="$HOME/.local/share/yolo-jail/bin/wrap:$PATH"`},
+		{"/home/uu/wrap", "/home/u", `export PATH="/home/uu/wrap:$PATH"`},
+		{"/home/u", "/home/u", `export PATH="/home/u:$PATH"`},
+		{"/wrap", "/", `export PATH="/wrap:$PATH"`},
+		{"/home/u/a$b/wrap", "/home/u", `export PATH="$HOME/a\$b/wrap:$PATH"`},
+		{"/home/u/wrap", "", `export PATH="/home/u/wrap:$PATH"`},
+	} {
+		if got := PathLineUnder(tc.dir, tc.home); got != tc.want {
+			t.Errorf("PathLineUnder(%q, %q) = %q, want %q", tc.dir, tc.home, got, tc.want)
+		}
+	}
+}
+
+// A home reached through a symlink (every macOS t.TempDir) still yields $HOME.
+func TestPathLineResolvesSymlinkedHome(t *testing.T) {
+	real, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "home-link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(real, "w")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := PathLineUnder(dir, link), `export PATH="$HOME/w:$PATH"`; got != want {
+		t.Errorf("PathLineUnder through a symlinked home = %q, want %q", got, want)
+	}
+}
+
+// PathLine reads the invoking shell's $HOME.
+func TestPathLineReadsHOME(t *testing.T) {
+	t.Setenv("HOME", "/home/someone")
+	if got, want := PathLine("/home/someone/.local/share/yolo-jail/bin/wrap"),
+		`export PATH="$HOME/.local/share/yolo-jail/bin/wrap:$PATH"`; got != want {
+		t.Errorf("PathLine = %q, want %q", got, want)
 	}
 }
 

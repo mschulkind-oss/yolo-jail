@@ -39,6 +39,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
@@ -357,8 +358,56 @@ func Clear(dir string) (Plan, error) {
 // It PREPENDS. Appending puts the wrapper behind the real binary and it never runs — and
 // the real binary is genuinely there: claude's own installer writes ~/.local/bin/claude,
 // which is why wrappers need a directory of their own rather than that one (§5.1).
-func PathLine(dir string) string {
-	return `export PATH="` + dir + `:$PATH"`
+//
+// It is PORTABLE where it can be: a dir under the invoking user's $HOME is spelled
+// "$HOME/...", inside double quotes so the shell expands it. People paste this line into
+// dotfiles shared across machines, and an absolute /home/<user> (or /Users/<user>) spelling
+// breaks on every machine whose home differs. A dir outside $HOME keeps its absolute path.
+// Every place yolo prints the line goes through here, so the spellings cannot drift.
+func PathLine(dir string) string { return PathLineUnder(dir, paths.Home()) }
+
+// PathLineUnder is PathLine against an EXPLICIT home: the $HOME of the shell the line is for.
+func PathLineUnder(dir, home string) string {
+	return `export PATH="` + homeRelative(dir, home) + `:$PATH"`
+}
+
+// homeRelative spells dir as "$HOME/<rest>" when it lies strictly under home, comparing the
+// spellings first and then their symlink-resolved forms (macOS's /var -> /private/var makes
+// the two differ for the same directory). The result is escaped for a double-quoted shell
+// word, except the leading $HOME, which must expand.
+func homeRelative(dir, home string) string {
+	if rel, ok := relUnder(dir, home); ok {
+		return "$HOME/" + dquoteEscape(rel)
+	}
+	rd, err1 := filepath.EvalSymlinks(dir)
+	rh, err2 := filepath.EvalSymlinks(home)
+	if err1 == nil && err2 == nil {
+		if rel, ok := relUnder(rd, rh); ok {
+			return "$HOME/" + dquoteEscape(rel)
+		}
+	}
+	return dquoteEscape(dir)
+}
+
+// relUnder returns dir relative to home when dir lies strictly below it.
+func relUnder(dir, home string) (string, bool) {
+	if !filepath.IsAbs(home) || !filepath.IsAbs(dir) {
+		return "", false
+	}
+	home = filepath.Clean(home)
+	if home == string(filepath.Separator) {
+		return "", false // "$HOME/..." for a root home is no more portable than the path itself
+	}
+	rel, err := filepath.Rel(home, filepath.Clean(dir))
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return filepath.ToSlash(rel), true
+}
+
+// dquoteEscape escapes the characters a POSIX shell interprets inside double quotes.
+func dquoteEscape(s string) string {
+	return strings.NewReplacer(`\`, `\\`, `"`, `\"`, "$", `\$`, "`", "\\`").Replace(s)
 }
 
 // OnPath reports whether dir is an entry in pathEnv (a PATH-formatted string).
