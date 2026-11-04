@@ -3,7 +3,7 @@ title: "One sign-in per user-level MCP server: a host broker that shares the ent
 date: 2026-11-03
 status: accepted
 stage: DECIDED
-next: "Write the implementation plan, then build the remote mcp_servers form first."
+next: "Build from the implementation plan, starting with its task 1 (the remote mcp_servers form)."
 depends-on: []
 tags: [design, mcp, oauth, credentials, broker, packs, loopholes, sharing]
 summary: "No agent can split its MCP token store per server, so yolo shares user-level sign-ins through a host broker that copies individual entries between one machine-wide canonical store and each workspace's store, under each agent's own lock, and is the only refresher of every shared entry. Agent packs declare their store's shape; core names no agent. Opted in, the broker adopts one agent's sign-in (for Slack, Claude Code's plugin) and hands its access token to every other agent. Prerequisite: a remote (url) form of mcp_servers."
@@ -11,7 +11,7 @@ summary: "No agent can split its MCP token store per server, so yolo shares user
 
 # One sign-in per user-level MCP server: a host broker that shares the entries, not the store
 
-**Status:** 2026-11-03. Every ruling is in; nothing built. Evidence read the same day ([Appendix A](#appendix-a-evidence)); tree claims checked at `05f445e8d`.
+**Status:** 2026-11-04. Every ruling is in; nothing built; the implementation plan is written. Evidence read 2026-11-03 ([Appendix A](#appendix-a-evidence)); tree claims checked at `05f445e8d`.
 
 > **In short.** Because no agent can split its MCP token store per server, sharing only the
 > user-level sign-ins means yolo owns the split: one host broker writes a canonical copy of each
@@ -34,7 +34,10 @@ For Slack, every agent then appears to Slack as Claude Code's Slack app, with th
 [`mcp-configuration.md`](../reference/mcp-configuration.md) (how the MCP table is composed),
 [`claude-login-without-interception.md`](claude-login-without-interception.md) (the broker this one
 is modeled on), [`universal-login-sharing.md`](universal-login-sharing.md) (model logins; reconciled
-in [§9.8](#98-how-this-sits-with-one-model-login-for-several-agents)). No plan seed: this is a design-only pass.
+in [§9.8](#98-how-this-sits-with-one-model-login-for-several-agents)),
+[`pack-brokers.md`](pack-brokers.md) (the host-broker framework this broker sits on, and its
+[§13](pack-brokers.md#13-coherence-with-the-mcp-sign-in-broker)), and the build hand-off,
+[`mcp-auth-sharing-plan.md`](mcp-auth-sharing-plan.md).
 
 ---
 
@@ -146,7 +149,11 @@ sign_in = "per_agent"       # or "once": one sign-in for every agent (§9), user
   setting (Claude `oauth.clientId`, Codex `oauth.client_id`, pi `oauth.clientId`, opencode
   `oauth.clientId`, Copilot `oauthClientId`), so a server that refuses dynamic registration works
   in each agent with the user's own app. A client secret is never rendered into an agent's config;
-  `oauth.client_secret_command` exists only for the broker ([§9.4](#94-the-brokers-client-identity)).
+  `oauth.client_secret_command` exists only for the broker ([§9.4](#94-the-brokers-client-identity)),
+  and only in user config: it runs on the host ([MA-D26](#decision-ledger)).
+- **A pack declares which remote transports its derive renders**, and a server whose transport is
+  not among them is withheld from that derive before it runs, so the boot's notice needs no script.
+  `transport` defaults to `"http"`; `url` must be `https://`, or `http://` to a loopback host.
 - **The form is worth shipping on its own**, before any sharing: it lets a user declare a remote
   server once for every agent.
 
@@ -183,6 +190,10 @@ selects, then the user's config). Every server in the effective table gets one s
   shared from its next launch on: the broker adopts the workspace's existing entry as canonical
   ([§8.2](#82-adopt)) rather than asking for a new sign-in.
 - **`yolo config why mcp_servers.<name>`** names the scope and the layer that decided it.
+- **A pack added at launch with `-p` is the workspace's**: it is in no config layer of the user's,
+  so its servers take workspace scope. A workspace `off` removes a server as `null` does. `packs`
+  is a user-only key today, so the row for a pack only the workspace config selects cannot occur
+  yet; it holds when that changes ([MA-D25](#decision-ledger)).
 - **A bundle's servers are shared only when yolo delivered the bundle** ([OQ-MA2](#decision-ledger)).
   A pack can wrap a Claude plugin (its `.claude-plugin/` tree, hooks and `mcpServers`), delivered
   whole under `skills_tier = "namespaced"` ([`pack-system.md`](../reference/pack-system.md)), and
@@ -374,6 +385,21 @@ MCP sign-ins (codex): linear, sentry shared from your user-level servers
 
 `yolo mcp-auth status` lists the same per agent and workspace, with each record's generation,
 expiry and last refresh, and never a token.
+
+### 8.7 Audit and readout
+
+- **The broker is a daemon of the host-broker framework, not a call broker**
+  ([`pack-brokers.md` §13](pack-brokers.md#13-coherence-with-the-mcp-sign-in-broker)): it decides
+  no call, files no request, and `yolo approve` never lists it. The launch hands it its share of
+  the registry as one per-launch file; a running broker holds a lock on its own registry entry for
+  life, which is how another broker tells a live replica from a leftover ([MA-D21](#decision-ledger)).
+- **Every change it makes is audited** under `service = "mcp-auth"`: an adoption, a refresh, a
+  sign-out, a record going dead, a seed or harvest that wrote something, and (with one sign-in)
+  each header it issues. An event names the server, the generation, the jail and the workspace,
+  and never a token ([MA-D22](#decision-ledger)). `yolo audit --service mcp-auth` reads them.
+- **It answers the framework's readout request** over its jail endpoint with the same object
+  `yolo mcp-auth status` prints, so the access readout shows this broker's state from inside a
+  jail ([MA-D23](#decision-ledger)).
 
 ## 9. One sign-in for every agent, opt in
 
@@ -663,10 +689,11 @@ changes.
   pack declares it with `format = "unsupported"` on that platform, and the line names the next
   step the pack knows, or says none exists yet: `Copilot keeps MCP sign-ins in the macOS Keychain
   here, which yolo cannot share; each workspace signs in once.`
-- **yolo does not relax another program's Keychain use by default.** On a Mac, `yolo host` leaves
-  Codex on its Keychain store, so Codex's MCP sign-ins are not shared there, and the launch says
-  so: `codex keeps MCP sign-ins in the macOS Keychain here, so they are not shared. To share them:
-  yolo config set mcp_sign_in_store file --user`. The user-scope key `mcp_sign_in_store` takes
+- **yolo does not relax another program's credential-store use by default.** At `yolo host`, on
+  every OS (Linux's Secret Service as much as a Mac's Keychain, [MA-D20](#decision-ledger)), yolo
+  leaves Codex on its own default store, so Codex's MCP sign-ins are not shared there, and the
+  launch says so: `codex keeps MCP sign-ins in its own credential store here, so they are not
+  shared. To share them: yolo config set mcp_sign_in_store file --user`. The user-scope key `mcp_sign_in_store` takes
   `"agent"` (the default: each agent's own default store) or `"file"`, which makes every agent pack
   that declares a file-store setting render it (Codex: `mcp_oauth_credentials_store = "file"`), so
   the broker can share that agent's sign-ins. Like the other sign-in keys it is refused in project
@@ -694,7 +721,9 @@ changes.
 
 - Never write an agent store without that agent's lock, and never through a symlink.
 - Never read, copy or log a workspace or unknown server's entry beyond its key.
-- Never mount the canonical store into a jail.
+- Never mount the canonical store into a jail. A `mounts` entry that reaches any host daemon's
+  state directory is refused from workspace config and disclosed from user config
+  ([MA-D24](#decision-ledger)).
 - Never redeem a shared refresh token anywhere but the broker, once the record is canonical.
 - Never give a jail a one-sign-in server's refresh token or client secret, and never hand its
   access token to a jail whose launch did not compose that server. An adopted record's refresh
@@ -746,7 +775,8 @@ changes.
 1. **The remote `mcp_servers` form** and the codex derive's rendering of it, plus scope attribution
    in the composer and `config why`. Useful alone.
 2. **Slice 1: the `mcp-auth` pack, the broker, the canonical store, Codex end to end** on podman and
-   Linux `yolo host`: seed, adopt, propagate, host refresh, the launch block, `yolo mcp-auth status`.
+   Linux `yolo host` (with `mcp_sign_in_store = "file"` there): seed, adopt, propagate, host refresh,
+   the launch block, `yolo mcp-auth status`, its audit events and readout.
    Codex first because it has one file, one `flock`, a reproducible key and an MCP-only store.
    Pack-delivered bundles' servers join each agent's slice with that agent's adapter.
 3. **Slice 2:** pi (after the lock fix), opencode, Claude in view mode; the Apple Container and
@@ -797,6 +827,13 @@ The `OQ-MA` rows are the owner's rulings on compacted questions.
 | MA-D17 | An adopted record's refresh token moves to the host; the source agent's entry keeps only a fresh access token, written back under its lock after each refresh | 2026-11-03 | [§9.3](#93-adopting-a-sign-in-an-agent-already-has) | — |
 | MA-D18 | yolo never starts a sign-in under an adopted client id, nor renders one into an agent's config | 2026-11-03 | [§9.7](#97-refresh-sign-out-and-where-it-cannot-work) | — |
 | MA-D19 | The Codex Keychain opt-in is the agent-neutral user-scope key `mcp_sign_in_store` (`"agent"` default, `"file"`), rendered by each pack that declares a file-store setting, refused in project config | 2026-11-03 | [§10](#10-parity-every-backend-and-notch) | — |
+| MA-D20 | [OQ-MA6](#decision-ledger)'s default holds at `yolo host` on every OS, not only a Mac: Codex's `auto` store reaches Linux's Secret Service too, and the ruling's reason (do not relax another program's store) is the same | 2026-11-04 | [§10](#10-parity-every-backend-and-notch) | — |
+| MA-D21 | The broker is a host-broker framework daemon, not a call broker: no request store, no `[brokered]` block; the launch hands it a per-launch share file, and a held lock on that file is a replica's liveness | 2026-11-04 | [§8.7](#87-audit-and-readout) | — |
+| MA-D22 | Audit under `service = "mcp-auth"` for adopt, refresh, sign-out, dead, a seed or harvest that wrote, and each header issued; never a token | 2026-11-04 | [§8.7](#87-audit-and-readout) | — |
+| MA-D23 | The broker answers the framework's readout request with the `yolo mcp-auth status` object | 2026-11-04 | [§8.7](#87-audit-and-readout) | — |
+| MA-D24 | Every selected host-daemon loophole's state directory is fenced from `mounts` (refused at workspace scope, disclosed at user scope); nothing fenced a read-only mount of it before | 2026-11-04 | [§12](#12-forbidden-behavior) | — |
+| MA-D25 | A `-p` pack gives workspace scope; `off` removes like `null`; the workspace-selected-pack row is dormant while `packs` is user-only | 2026-11-04 | [§5](#5-which-servers-are-user-level) | — |
+| MA-D26 | `oauth.client_secret_command` is user config only, because it runs on the host; a pack declares the remote transports its derive renders | 2026-11-04 | [§4](#4-prerequisite-a-remote-mcp_servers-form) | — |
 | OQ-MA1 | **Owner's ruling (2026-11-03):** a copy in an agent's store never carries a refresh token where removing it is possible; only the broker refreshes, and with the broker down a copy expires and the agent asks for a sign-in. Owner: *"don't carry a refresh token if that's possible."* The one case it is not: an agent measured to break on an entry with no refresh token | 2026-11-03 | [§8.4](#84-refresh-the-broker-is-the-single-refresher) | — |
 | OQ-MA5 | **Owner's ruling (2026-11-03):** opt in both ways, per server (`sign_in = "once"`) and for ALL user-level servers at once (user-scope `mcp_sign_in = "once"`; a server's `sign_in = "per_agent"` opts out). Owner: *"I also want opt in for ALL servers for MCP signin across agents."* Implementation decisions, not rulings: the key's spelling, and that under the user-wide switch a server that cannot take one sign-in keeps per-agent sign-in with a launch line naming the fix rather than being refused | 2026-11-03 | [§9.2](#92-the-opt-in) | — |
 | OQ-MA2 | **Owner's ruling (2026-11-03):** share the MCP servers of plugins, and of every other agent's equivalent bundle, that yolo delivers through a pack the user's config selects; never those installed outside yolo. Owner: *"D, and whatever other agents call their plugins as well."* Implementation decisions, not rulings: core reads bundle formats by name and names no agent, and each pack's store adapter maps its bundle-server key back | 2026-11-03 | [§5](#5-which-servers-are-user-level) | — |
