@@ -244,11 +244,11 @@ test:
     YOLO_TEST_REAL_PACK_INSTALLS=1 python3 scripts/go_packages.py run go test -count=1 -timeout 0 -- ./integration
 
 # Run fast tests only (skip container integration tests).
-# -timeout is per PACKAGE: internal/cli alone takes about seven minutes on a CI
-# runner, close enough to go test's default of ten that a slower runner trips it
-# with no test hung.
+# -timeout is per PACKAGE, and is SHORT_TEST_TIMEOUT in scripts/go_packages.py,
+# which says why it is 45m (internal/cli, serial and git-process-bound, on a
+# loaded Mac). `just done` takes the same value.
 test-fast:
-    python3 scripts/go_packages.py run go test -short -timeout=20m
+    python3 scripts/go_packages.py run go test -short -timeout=45m
 
 # Run linter (Go: vet + staticcheck) ONCE PER BUILD CONFIGURATION THIS TREE
 # TARGETS — not once per machine.

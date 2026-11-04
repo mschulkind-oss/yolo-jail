@@ -20,6 +20,9 @@ import unittest
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+from go_packages import SHORT_TEST_TIMEOUT  # noqa: E402
+TIMEOUT = f"-timeout={SHORT_TEST_TIMEOUT}"
 REPO = HERE.parent
 FRONT_DOOR = HERE / "completion-check.py"
 REAL_GO = shutil.which("go")
@@ -171,7 +174,7 @@ class FrontDoor(unittest.TestCase):
         rc, out, calls = self.done()
         self.assertEqual(rc, 0, out)
         self.assertEqual(sorted((c["tool"], c["argv"]) for c in calls),
-                         [("go", ["test", "-short", "-run", "^(TestScansSource)$", "./c"]),
+                         [("go", ["test", "-short", TIMEOUT, "-run", "^(TestScansSource)$", "./c"]),
                           ("vantage-check.sh", ["docs/unread.md"])])
         self.assertEqual(self.record(self.head())["route"], "selective")
 
@@ -182,7 +185,7 @@ class FrontDoor(unittest.TestCase):
         rc, out, calls = self.done()
         self.assertEqual(rc, 0, out)
         self.assertEqual([c["argv"] for c in self.ran(calls, "go", "test")],
-                         [["test", "-short", "-run", "^(TestReadsDoc|TestScansSource)$", "./c"]])
+                         [["test", "-short", TIMEOUT, "-run", "^(TestReadsDoc|TestScansSource)$", "./c"]])
         self.assertTrue(self.ran(calls, "vantage-check.sh", "docs/read.md"))
         for tool in ("staticcheck", "gofmt", "just"):
             self.assertEqual(self.ran(calls, tool), [], tool)
@@ -194,7 +197,7 @@ class FrontDoor(unittest.TestCase):
         self.commit("new doc")
         rc, out, calls = self.done()
         self.assertEqual(rc, 0, out)
-        self.assertTrue(self.ran(calls, "go", "test", "-short", "-run", "^(TestReadsDoc|TestScansSource)$", "./c"))
+        self.assertTrue(self.ran(calls, "go", "test", "-short", TIMEOUT, "-run", "^(TestReadsDoc|TestScansSource)$", "./c"))
 
     def test_a_scanning_test_runs_on_every_change(self):
         # What a scanning test reads moves with ordinary edits (a new doc citation in Go source
@@ -205,7 +208,7 @@ class FrontDoor(unittest.TestCase):
         rc, out, calls = self.done()
         self.assertEqual(rc, 0, out)
         self.assertEqual([c["argv"] for c in self.ran(calls, "go", "test")],
-                         [["test", "-short", "-run", "^(TestScansSource)$", "./c"]])
+                         [["test", "-short", TIMEOUT, "-run", "^(TestScansSource)$", "./c"]])
 
     def test_a_changed_package_is_tested_alone_but_its_importers_are_still_linted(self):
         # The local route tests the packages whose OWN files changed; the importer closure's
@@ -219,8 +222,8 @@ class FrontDoor(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         closure = ["example.com/m/a", "example.com/m/b"]
         self.assertEqual(sorted(c["argv"] for c in self.ran(calls, "go", "test")),
-                         sorted([["test", "-short", "example.com/m/a"],
-                                 ["test", "-short", "-run", "^(TestScansSource)$", "./c"]]))
+                         sorted([["test", "-short", TIMEOUT, "example.com/m/a"],
+                                 ["test", "-short", TIMEOUT, "-run", "^(TestScansSource)$", "./c"]]))
         self.assertNotIn("example.com/m/b",
                          [a for c in self.ran(calls, "go", "test") for a in c["argv"]])
         self.assertNotIn("example.com/m/c", [a for c in calls for a in c["argv"]])
@@ -246,7 +249,7 @@ class FrontDoor(unittest.TestCase):
         rc, out, calls = self.done()
         self.assertEqual(rc, 0, out)
         self.assertNotIn("go list", out)
-        self.assertTrue(self.ran(calls, "go", "test", "-short", "example.com/m/a"))
+        self.assertTrue(self.ran(calls, "go", "test", "-short", TIMEOUT, "example.com/m/a"))
         self.assertFalse(self.ran(calls, "just", "check-ci"))
 
     def test_unformatted_go_fails_without_rewriting_it(self):
@@ -266,7 +269,7 @@ class FrontDoor(unittest.TestCase):
         self.commit("docs")
         rc, out, calls = self.done()
         self.assertEqual(rc, 0, out)
-        self.assertTrue(self.ran(calls, "go", "test", "-short", "example.com/m/a"))
+        self.assertTrue(self.ran(calls, "go", "test", "-short", TIMEOUT, "example.com/m/a"))
         self.assertTrue(self.ran(calls, "vantage-check.sh", "docs/unread.md"))
 
     def test_a_gate_input_runs_the_full_gate(self):
@@ -290,7 +293,7 @@ class FrontDoor(unittest.TestCase):
         self.assertEqual(self.ran(calls, "just", "check-ci"), [])
         self.assertEqual(self.record(self.head())["route"], "selective")
         # The scanning test still runs: a census refresh can move what any test reads.
-        self.assertTrue(self.ran(calls, "go", "test", "-short", "-run", "^(TestScansSource)$", "./c"))
+        self.assertTrue(self.ran(calls, "go", "test", "-short", TIMEOUT, "-run", "^(TestScansSource)$", "./c"))
 
     def test_another_script_change_still_runs_the_full_gate(self):
         # Only the census is exempt; every other scripts/ path remains a gate input.
@@ -333,7 +336,7 @@ class FrontDoor(unittest.TestCase):
         self.commit("rename")
         rc, out, calls = self.done()
         self.assertEqual(rc, 0, out)
-        self.assertTrue(self.ran(calls, "go", "test", "-short", "-run", "^(TestReadsDoc|TestScansSource)$"))
+        self.assertTrue(self.ran(calls, "go", "test", "-short", TIMEOUT, "-run", "^(TestReadsDoc|TestScansSource)$"))
         self.assertTrue(self.ran(calls, "vantage-check.sh", "docs/moved.md"))
 
     # -- safety
@@ -363,7 +366,7 @@ class FrontDoor(unittest.TestCase):
         self.assertIn("Nothing was recorded", out)
         rc, out, calls = self.done()
         self.assertEqual(rc, 0, out)
-        self.assertTrue(self.ran(calls, "go", "test", "-short", "example.com/m/a"))
+        self.assertTrue(self.ran(calls, "go", "test", "-short", TIMEOUT, "example.com/m/a"))
         self.assertEqual(self.record(self.head())["baseline"], base)
 
     def test_a_write_during_the_checks_records_nothing(self):

@@ -30,6 +30,11 @@ func alive(pid int) bool {
 	return true
 }
 
+// hookStartAllowance is how long a test gives a hook to start and write its child's pid file
+// before a clock it races (a Timeout, a request's expiry) stops it, on a machine busy with the
+// whole tree's tests: at 300ms both the timeout and the expiry cases once stopped the hook first.
+const hookStartAllowance = 2 * time.Second
+
 func readPid(t *testing.T, path string) int {
 	t.Helper()
 	var pid int
@@ -67,7 +72,11 @@ func TestAHookIsKilledWhenItsRequestLeavesPending(t *testing.T) {
 			f.skew.Store(int64(brokerstore.PendingLife + time.Minute))
 			return nil
 		}, "stopped because its request is no longer pending"},
-		{"timed out", 300 * time.Millisecond, func(*fixture, brokerstore.Request) error { return nil },
+		// The runner's timeout clock starts before the hook's shell does, and the case needs the
+		// hook's child alive (its pid file written) before the clock runs out: at 300ms a Mac
+		// running the whole tree's tests timed the hook out first, and the pid file never came.
+		// The same start-up allowance the expiry test below gives its hook.
+		{"timed out", hookStartAllowance, func(*fixture, brokerstore.Request) error { return nil },
 			"stopped because it ran into its timeout"},
 	} {
 		for _, shape := range []struct{ name, tail string }{
@@ -115,9 +124,7 @@ func TestAHookIsKilledWhenItsRequestLeavesPending(t *testing.T) {
 // whichever comes first, the store's expiry event or the runner's own clock on the request's
 // expiry, and when the runner's Timeout runs past the expiry, as its default does.
 func TestAHookStillRunningAtExpiryRecordsNoFailure(t *testing.T) {
-	// Long enough for the hook to start and write its pid file before the expiry stops it, on a
-	// machine busy with the whole tree's tests: at 300ms it once timed out waiting for the file.
-	const left = 2 * time.Second
+	const left = hookStartAllowance
 	for _, c := range []struct {
 		name              string
 		timeout, interval time.Duration

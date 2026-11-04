@@ -38,28 +38,52 @@ func TestBoundedCommandTimesOutAndCapsCombinedOutput(t *testing.T) {
 	}
 }
 
+// escapedDescendantHold is how long the escaped leaf keeps both output descriptors at most; it
+// exits sooner, at its first write after the bounded command closed them.
+const escapedDescendantHold = 30 * time.Second
+
 // This test helper is invoked as a child binary by the escaped-descendant test. The
 // intermediate command exits, while a setsid descendant retains both output descriptors.
+//
+// The intermediate exits only once the leaf says, on a pipe of their own, that it has written
+// its marker: a fixed sleep raced the leaf's start-up (a fresh test binary), and under load the
+// marker arrived after the intermediate's 6000 bytes had filled the capture, or not at all.
 func TestBoundedCommandEscapedDescendantHelper(t *testing.T) {
 	switch os.Getenv(boundedCommandHelperEnv) {
 	case "spawn":
+		ready, readyW, err := os.Pipe()
+		if err != nil {
+			os.Exit(2)
+		}
 		child := exec.Command(os.Args[0], "-test.run=^TestBoundedCommandEscapedDescendantHelper$")
 		child.Stdout, child.Stderr = os.Stdout, os.Stderr
+		child.ExtraFiles = []*os.File{readyW} // the leaf's fd 3
 		child.Env = append(os.Environ(), boundedCommandHelperEnv+"=leaf")
 		child.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 		if err := child.Start(); err != nil {
 			os.Exit(2)
 		}
+		_ = readyW.Close()
 		_ = child.Process.Release()
-		time.Sleep(50 * time.Millisecond)
+		if n, _ := ready.Read(make([]byte, 1)); n != 1 {
+			os.Exit(3) // the leaf died before its marker
+		}
 		_, _ = os.Stdout.Write([]byte(strings.Repeat("o", 3000)))
 		_, _ = os.Stderr.Write([]byte(strings.Repeat("e", 3000)))
 		os.Exit(0)
 	case "leaf":
 		_, _ = os.Stdout.WriteString("escaped-descendant-started")
-		time.Sleep(3 * time.Second)
-		_, _ = os.Stdout.WriteString("escaped stdout")
-		_, _ = os.Stderr.WriteString("escaped stderr")
+		ready := os.NewFile(3, "ready")
+		_, _ = ready.Write([]byte{1})
+		_ = ready.Close()
+		// Hold fd 1 and 2 until the bounded command has closed its ends (a write then fails, or
+		// SIGPIPE ends this process), so no leaf outlives the test by the whole hold.
+		for end := time.Now().Add(escapedDescendantHold); time.Now().Before(end); {
+			time.Sleep(100 * time.Millisecond)
+			if _, err := os.Stdout.WriteString("."); err != nil {
+				os.Exit(0)
+			}
+		}
 		os.Exit(0)
 	}
 }
@@ -75,7 +99,7 @@ func TestBoundedCommandClosesInheritedOutputWithoutWaitingForEscapedDescendant(t
 	if total := len(cmd.Stdout) + len(cmd.Stderr); total > SettingsCheckOutputMax {
 		t.Fatalf("inherited writers exceeded the combined capture limit: got %d, max %d", total, SettingsCheckOutputMax)
 	}
-	if elapsed := time.Since(start); elapsed > 2500*time.Millisecond {
+	if elapsed := time.Since(start); elapsed > escapedDescendantHold/2 {
 		t.Fatalf("validator cleanup waited %s for an escaped descendant holding both output descriptors", elapsed)
 	}
 }
