@@ -42,7 +42,8 @@ Manage the yolo account: ` + "`_yolojail`" + `, the macOS account agents run as 
 should not run as you. It holds none of your files. The four verbs come in two
 inverse pairs:
 
-  create            Create the yolo account and its sudo rule (asks for your admin password once)
+  create            Create the yolo account and its sudo rule (asks for your admin password once;
+                    --recheck re-checks the rule with it on a Mac already set up)
   remove            Remove the yolo account, its group and its rule: the undo of create
   share [path]      Give the yolo account an existing directory under the shared root
   unshare <path>    Take a directory back out of the yolo account's reach: the undo of share
@@ -69,12 +70,17 @@ and stop with no password prompt. One macOS user per Mac: create refuses a
 second while another user's rule or staging directory is in place.
 
 Run it as your normal admin user, not with sudo. It asks for your admin password
-once. macOS only: on any other system it refuses.
+once. On a Mac already set up it asks for none: it checks, with no password, that
+sudo runs commands as ` + "`_yolojail`" + ` and that nothing else needs root, and exits 0.
+macOS only: on any other system it refuses.
 
+  --recheck   Run every step that needs your admin password even when the Mac is
+              already set up, re-checking and rewriting the sudo rule.
   --help, -h  Show this help. Answered before anything is created.
 
 Examples:
   yolo yolo-account create            # create the yolo account and the rule (idempotent)
+  yolo yolo-account create --recheck  # re-check the rule with your admin password
 
 ` + "`yolo yolo-account remove`" + ` removes the account again.`
 
@@ -142,7 +148,8 @@ var yoloAccountVerbUsage = map[string]string{
 // real acts (which ask for sudo and change the Mac). path is the verb's one positional,
 // "" when none was given.
 type yoloAccountActs struct {
-	create, remove func() int
+	create         func(recheck bool) int
+	remove         func() int
 	share, unshare func(path string) int
 }
 
@@ -151,7 +158,9 @@ type yoloAccountActs struct {
 func runYoloAccount(args []string) int {
 	deps := func() macosuser.Deps { return macosuser.RealDeps(nil, nil, colorForWriter(os.Stdout)) }
 	return yoloAccountMain(args, yoloAccountActs{
-		create:  func() int { return macosuser.AccountCreate(deps()) },
+		create: func(recheck bool) int {
+			return macosuser.AccountCreateWith(deps(), macosuser.CreateOptions{Recheck: recheck})
+		},
 		remove:  func() int { return macosuser.AccountRemove(deps()) },
 		share:   func(p string) int { return macosuser.AccountShare(deps(), p) },
 		unshare: func(p string) int { return macosuser.AccountUnshare(deps(), p) },
@@ -178,6 +187,15 @@ func yoloAccountMain(args []string, acts yoloAccountActs, out, errw io.Writer) i
 		return 2
 	}
 	verb, pos := rest[0], rest[1:]
+	// create's one flag, taken out before the path checks so `create --recheck` is not read as
+	// a path.
+	recheck := false
+	if verb == "create" {
+		if i := slices.Index(pos, "--recheck"); i >= 0 {
+			recheck = true
+			pos = slices.Delete(slices.Clone(pos), i, i+1)
+		}
+	}
 	path := ""
 	if len(pos) > 0 {
 		path = pos[0]
@@ -193,7 +211,7 @@ func yoloAccountMain(args []string, acts yoloAccountActs, out, errw io.Writer) i
 			fmt.Fprintf(errw, "yolo yolo-account create: takes no path, got %q. Run it bare:\n  yolo yolo-account create\n", path)
 			return 2
 		}
-		return acts.create()
+		return acts.create(recheck)
 	case "remove":
 		if path != "" {
 			fmt.Fprintf(errw, "yolo yolo-account remove: takes no path, got %q. Run it bare:\n  yolo yolo-account remove\n", path)

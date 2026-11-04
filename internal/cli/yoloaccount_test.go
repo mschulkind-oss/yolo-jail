@@ -79,7 +79,14 @@ func TestEveryRenamedVerbNamesAYoloAccountVerbThatExists(t *testing.T) {
 
 func recordingActs(ran *[]string) yoloAccountActs {
 	return yoloAccountActs{
-		create:  func() int { *ran = append(*ran, "create:"); return 0 },
+		create: func(recheck bool) int {
+			if recheck {
+				*ran = append(*ran, "create:--recheck")
+			} else {
+				*ran = append(*ran, "create:")
+			}
+			return 0
+		},
 		remove:  func() int { *ran = append(*ran, "remove:"); return 0 },
 		share:   func(p string) int { *ran = append(*ran, "share:"+p); return 0 },
 		unshare: func(p string) int { *ran = append(*ran, "unshare:"+p); return 0 },
@@ -96,6 +103,8 @@ func TestYoloAccountDispatchesEachVerbToItsAct(t *testing.T) {
 		wantErr string
 	}{
 		{[]string{"yolo-account", "create"}, []string{"create:"}, 0, ""},
+		{[]string{"yolo-account", "create", "--recheck"}, []string{"create:--recheck"}, 0, ""},
+		{[]string{"yolo-account", "create", "--recheck", "x"}, nil, 2, "yolo yolo-account create: takes no path"},
 		{[]string{"yolo-account", "remove"}, []string{"remove:"}, 0, ""},
 		{[]string{"yolo-account", "share"}, []string{"share:"}, 0, ""},
 		{[]string{"yolo-account", "share", "/Users/Shared/yolo/p"}, []string{"share:/Users/Shared/yolo/p"}, 0, ""},

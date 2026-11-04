@@ -69,6 +69,10 @@ func wrapDirIn(t *testing.T) string {
 	return filepath.Join(os.Getenv("HOME"), ".local", "share", "yolo-jail", "bin", "wrap")
 }
 
+// portableWrapDir is how the PATH line spells wrapDirIn: under $HOME, so a line pasted into
+// dotfiles shared across machines works on one whose home differs.
+const portableWrapDir = "$HOME/.local/share/yolo-jail/bin/wrap"
+
 // TestHostWrappersSilentWhenNotOptedIn: not opted in means no row at all. This is what
 // keeps the feature from being a nag for everyone who never asked for it.
 func TestHostWrappersSilentWhenNotOptedIn(t *testing.T) {
@@ -123,8 +127,8 @@ func TestHostWrappersWarnsWhenNotOnPath(t *testing.T) {
 	dir := wrapDirIn(t)
 	if got := noteLinesAfter(t, out, "[WARN] wrapper directory is not on PATH"); len(got) == 0 ||
 		strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(got[0]), "->")) !=
-			`export PATH="`+dir+`:$PATH"` {
-		t.Errorf("the first note line must be the export line, prepending:\n%s", out)
+			`export PATH="`+portableWrapDir+`:$PATH"` {
+		t.Errorf("the first note line must be the export line, prepending, spelled under $HOME:\n%s", out)
 	}
 	for _, want := range []string{
 		"a bare claude or pi runs unwrapped",
@@ -138,7 +142,7 @@ func TestHostWrappersWarnsWhenNotOnPath(t *testing.T) {
 		t.Errorf("a row points at another row for its fix:\n%s", out)
 	}
 	// The directory is spelled ONCE, inside the line: the old pair spelled it three times.
-	if n := strings.Count(out, dir); n != 1 {
+	if n := strings.Count(out, portableWrapDir); n != 1 || strings.Contains(out, dir) {
 		t.Errorf("the wrapper directory is spelled %d times, want 1:\n%s", n, out)
 	}
 	// And it must say the absolute-path escape hatch still works, which is the whole
@@ -753,7 +757,7 @@ func TestHostWrappersWarnsWhenAWrapperIsShadowed(t *testing.T) {
 	if !strings.Contains(out, "claude runs "+filepath.Join(ahead, "claude")) {
 		t.Errorf("the row must name the binary that WINS:\n%s", out)
 	}
-	if !strings.Contains(out, `export PATH="`+dir+`:$PATH"`) {
+	if !strings.Contains(out, `export PATH="`+portableWrapDir+`:$PATH"`) {
 		t.Errorf("the row must give the exact prepend fix:\n%s", out)
 	}
 	if strings.Contains(out, "[PASS] wrapper directory is on PATH") {
@@ -764,7 +768,7 @@ func TestHostWrappersWarnsWhenAWrapperIsShadowed(t *testing.T) {
 		t.Errorf("warned = %d, want 1 (the shadow row):\n%s", r.warned, out)
 	}
 	if got := noteLinesAfter(t, out, "[WARN] 1 wrapper(s) are shadowed"); len(got) == 0 ||
-		!strings.Contains(got[0], `export PATH="`+dir+`:$PATH"`) {
+		!strings.Contains(got[0], `export PATH="`+portableWrapDir+`:$PATH"`) {
 		t.Errorf("the shadow row's first note line must be the fix:\n%s", out)
 	}
 	if !strings.Contains(out, "host_apply_on_launch is on but cannot fire") {
@@ -1232,7 +1236,7 @@ func TestHostWrappersOffPathAndShadowedRowsSayALauncherNeedsHostPath(t *testing.
 			if strings.Contains(out, "each wrapper works by absolute path") {
 				t.Errorf("the row still claims every wrapper works from any launcher:\n%s", out)
 			}
-			if n := strings.Count(out, wrapDirIn(t)); n != 1 {
+			if n := strings.Count(out, portableWrapDir); n != 1 || strings.Contains(out, wrapDirIn(t)) {
 				t.Errorf("the wrapper directory is spelled %d times, want 1:\n%s", n, out)
 			}
 		})
