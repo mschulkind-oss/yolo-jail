@@ -2,12 +2,14 @@ package configmigrate
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
@@ -39,6 +41,21 @@ type userView struct {
 	// packsKnown is false when the selected packs did not all resolve.
 	packProfiles map[string]bool
 	packsKnown   bool
+	// loopholePacks is the shipped pack that ships each loophole, by loophole name
+	// (shippedLoopholePacks): `github-broker` is the github pack's, not a pack of its own.
+	loopholePacks map[string]string
+}
+
+// loopholePack is the pack that ships the loophole name: the shipped pack whose manifest
+// contributes it, else, for a loophole no shipped pack ships, the name itself.
+func (v *userView) loopholePack(name string) string {
+	if pack, offSwitch := loopholedecl.OffSwitchPack(name); offSwitch {
+		return pack
+	}
+	if pack := v.loopholePacks[name]; pack != "" {
+		return pack
+	}
+	return name
 }
 
 func newUserView(user *jsonx.OrderedMap) *userView {
@@ -190,13 +207,9 @@ func lowerLoopholes(value any, ctx loweringContext, place func([]string, any, []
 		// pack's `off = true`, and the settings written beside it are configured-and-off, never
 		// dormant: they convert too, so turning the loophole back on finds them.
 		offPack, offSwitch := loopholedecl.OffSwitchPack(name)
-		// The pack that ships the loophole: an off-switch loophole names its own (the Claude
-		// broker is claude-auth's, which the claude pack needs); a shipped pack's other loopholes
-		// carry their pack's name.
-		pack := name
-		if offSwitch {
-			pack = offPack
-		}
+		// The pack that ships the loophole, through the shipped manifests: the Claude broker is
+		// claude-auth's, which the claude pack needs, and github-broker is the github pack's.
+		pack := view.loopholePack(name)
 		// A pack every launch selects with no `packs` line (cgroup-delegate) is selected too.
 		selected := view.packs[name] || view.packs[pack] || view.needed[pack] || config.IsSelectedByDefault(pack)
 		if offSwitch && view.enabled[name] == false {
@@ -217,6 +230,15 @@ func lowerLoopholes(value any, ctx loweringContext, place func([]string, any, []
 				case v == false && offSwitch:
 					if !place([]string{"allow", offPack, loopholedecl.AllowOffKey}, true, oldPath) {
 						skip(oldPath, v, "allow."+offPack+"."+loopholedecl.AllowOffKey+" is already written in this file")
+					}
+				case v == true && selected && userBrokerRead(name).ReadCapability != "":
+					// L5, LC-D2: a user switch on a selected broker is its read grant on every
+					// repository, `[allow.<source>] always = ["<read capability>"]`.
+					b := userBrokerRead(name)
+					at := []string{"allow", b.Brokered.Source, "always"}
+					if !place(at, []any{b.ReadCapability}, oldPath) {
+						skip(oldPath, v, "allow."+b.Brokered.Source+".always is already written in this file, and this switch is its read grant; "+
+							"remove the `\"enabled\": true` (the list already says what it gives), then run `yolo config migrate` again")
 					}
 				case v == true && selected:
 					// A selected pack's loophole runs whenever its pack is selected
@@ -530,6 +552,40 @@ func selectionValue(view *userView, v any) (any, string) {
 }
 
 // neededPacks is the shipped packs the listed ones' `needs` add (packload.ResolveNeeds), by name.
+// userBrokerRead is the shipped broker declaration of the loophole name, a zero one when no
+// shipped pack declares it a broker.
+func userBrokerRead(name string) config.ReadableBrokerDeclaration {
+	declarations, err := shippedBrokers()
+	if err != nil {
+		return config.ReadableBrokerDeclaration{}
+	}
+	for _, d := range declarations {
+		if d.Label == name {
+			return d
+		}
+	}
+	return config.ReadableBrokerDeclaration{}
+}
+
+// shippedLoopholePacks is, by loophole name, the shipped pack whose manifest contributes it.
+func shippedLoopholePacks(shipped []*packload.Pack) map[string]string {
+	out := map[string]string{}
+	for _, p := range shipped {
+		if p == nil || p.Decl == nil {
+			continue
+		}
+		for _, c := range p.Decl.Contributions() {
+			if c.Kind != packdecl.KindLoophole || c.From == "" {
+				continue
+			}
+			if name := filepath.Base(filepath.FromSlash(c.From)); out[name] == "" {
+				out[name] = p.Name
+			}
+		}
+	}
+	return out
+}
+
 func neededPacks(listed map[string]bool, shipped []*packload.Pack) map[string]bool {
 	out := map[string]bool{}
 	byName := map[string]*packload.Pack{}

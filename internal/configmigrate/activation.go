@@ -119,16 +119,17 @@ func withoutLegacyGrantKeys(d config.LoopholeGrantDeclaration, settings *jsonx.O
 // activationNextSteps names, on each line of the activation layer, the step that makes it agree
 // (AGENTS.md: every stop names the next step). A path is `<loophole>.enabled` or
 // `<loophole>.settings`.
-func activationNextSteps(diffs []Difference) []Difference {
+// loopholePacks is the shipped pack of each loophole (shippedLoopholePacks), so a step names the
+// pack to add, not the loophole.
+func activationNextSteps(diffs []Difference, loopholePacks map[string]string) []Difference {
+	view := &userView{loopholePacks: loopholePacks}
 	for i, d := range diffs {
 		name, field, ok := strings.Cut(d.Path, ".")
 		if !ok {
 			continue
 		}
-		pack, offSwitch := loopholedecl.OffSwitchPack(name)
-		if !offSwitch {
-			pack = name // a shipped pack's other loopholes carry their pack's name
-		}
+		pack := view.loopholePack(name)
+		_, offSwitch := loopholedecl.OffSwitchPack(name)
 		switch {
 		case field == "enabled" && d.After == "true" && offSwitch:
 			// An off-switch loophole runs whenever its pack is selected (LC-D3), so the old file

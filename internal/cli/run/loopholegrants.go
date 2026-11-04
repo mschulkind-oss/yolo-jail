@@ -161,6 +161,11 @@ func (s grantSummary) unboundClause(lp *loopholes.Loophole) string {
 			" waits on `yolo config apply` on the host, answered y)"
 	case config.LoopholeGrantRequestable:
 		return "it holds no grant in this project (`" + requestCommand(pack, s.kind) + "` asks for one)"
+	case config.LoopholeGrantNotAllowed:
+		if s.withheld {
+			return "it holds no grant in this project, which turns it off (to take it: " + withheldStep(pack) + ")"
+		}
+		fallthrough
 	default:
 		return "it holds no grant in this project (`yolo allow " + pack + " on_request " + s.kind.Kind +
 			"`, then `" + requestCommand(pack, s.kind) + "`)"
@@ -264,6 +269,15 @@ type grantSummary struct {
 	granted  []string
 	kind     loopholedecl.Grant
 	standing string
+	// withheld: the chosen kind is not_allowed because this project turns the pack's grants off
+	// (config.LoopholeGrantStanding.Withheld), so the step is the project's, not the user's.
+	withheld bool
+}
+
+// withheldStep is the step that takes a withheld pack's grants in this project: the project's
+// own off, which it removes.
+func withheldStep(pack string) string {
+	return "remove this project's `requests." + pack + " = \"off\"` (or, in a legacy yolo-jail.jsonc, its `\"enabled\": false` under loopholes)"
 }
 
 func summarizeGrants(lp *loopholes.Loophole, kinds map[string]config.LoopholeGrantStanding) grantSummary {
@@ -286,7 +300,7 @@ func summarizeGrants(lp *loopholes.Loophole, kinds map[string]config.LoopholeGra
 			standing = config.LoopholeGrantNotAllowed
 		}
 		if rank[standing] > best {
-			best, s.kind, s.standing = rank[standing], g, standing
+			best, s.kind, s.standing, s.withheld = rank[standing], g, standing, st.Withheld
 		}
 	}
 	return s
@@ -336,6 +350,13 @@ func (s grantSummary) disclosureLines(lp *loopholes.Loophole) []string {
 	case config.LoopholeGrantRequestable:
 		why = "not requested by this project"
 		step = "To ask for this project:  " + requestCommand(pack, s.kind)
+	case config.LoopholeGrantNotAllowed:
+		if s.withheld {
+			why = "this project turns it off"
+			step = "To take it here:  " + withheldStep(pack)
+			break
+		}
+		fallthrough
 	default:
 		why = "not allowed on request by your config"
 		step = "To let this project ask:  yolo allow " + pack + " on_request " + s.kind.Kind +
@@ -362,6 +383,12 @@ func (s grantSummary) briefingLine(lp *loopholes.Loophole) string {
 	case config.LoopholeGrantRequestable:
 		return "It grants nothing in this project, which has not asked. To ask: `" + requestCommand(pack, s.kind) +
 			"`, then the human runs `yolo config apply` on the host, in this workspace, and answers y."
+	case config.LoopholeGrantNotAllowed:
+		if s.withheld {
+			return "It grants nothing in this project, which turns it off. To take it here: " + withheldStep(pack) +
+				", then the human runs `yolo config apply` on the host, in this workspace, and answers y."
+		}
+		fallthrough
 	default:
 		return "It grants nothing in this project, and the user's config does not allow asking. The human " +
 			"allows it on the host: `yolo allow " + pack + " on_request " + s.kind.Kind + "`; then `" +

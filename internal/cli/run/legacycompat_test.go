@@ -554,8 +554,8 @@ func meaningMismatches(o *Options, cfg *jsonx.OrderedMap, c legacyCase) []string
 			case expect && !granted:
 				out = append(out, fmt.Sprintf("%s: grant %q is %q, v0.15.1 allowed it (%s)", name, g.Kind,
 					orNone(st.Standing), legacyGrantWhy(g)))
-			case !expect && st.Standing == config.LoopholeGrantGranted:
-				out = append(out, fmt.Sprintf("%s: grant %q is granted, v0.15.1 did not allow it", name, g.Kind))
+			case !expect && heldOrOffered(st):
+				out = append(out, fmt.Sprintf("%s: grant %q is %s, v0.15.1 did not allow it", name, g.Kind, st.Standing))
 			}
 			// A current_only case recorded no v0.15.1 values to compare against.
 			if expect && granted && g.Valued && c.V0151 != nil {
@@ -602,8 +602,8 @@ func meaningMismatches(o *Options, cfg *jsonx.OrderedMap, c legacyCase) []string
 			continue
 		}
 		for kind, st := range standings[name] {
-			if st.Standing == config.LoopholeGrantGranted {
-				out = append(out, fmt.Sprintf("%s: grant %q is granted, v0.15.1 did not start it", name, kind))
+			if heldOrOffered(st) {
+				out = append(out, fmt.Sprintf("%s: grant %q is %s, v0.15.1 did not start it", name, kind, st.Standing))
 			}
 		}
 	}
@@ -614,6 +614,12 @@ func meaningMismatches(o *Options, cfg *jsonx.OrderedMap, c legacyCase) []string
 	}
 	sort.Strings(out)
 	return out
+}
+
+// heldOrOffered is whether a grant is held, or pending: requested and admitted, so the gate's y
+// grants it. Either is access v0.15.1 did not give when it did not allow the grant.
+func heldOrOffered(st config.LoopholeGrantStanding) bool {
+	return st.Standing == config.LoopholeGrantGranted || st.Standing == config.LoopholeGrantPending
 }
 
 func legacyScopeCheck(o *Options, cfg *jsonx.OrderedMap) *config.ScopeCheck {

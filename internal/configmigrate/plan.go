@@ -272,6 +272,7 @@ func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 	remotes := workspaceRemotes(g.Request.Workspace)
 	view := userViewOf(g)
 	view.needed = neededPacks(view.packs, packs)
+	view.loopholePacks = shippedLoopholePacks(packs)
 	planLoopholeGrants(g, view, packs)
 	p.Carries = view.grants.carries
 	if len(view.grants.tomlCeiling) > 0 && g.userTop.Role == RoleRead {
@@ -373,7 +374,7 @@ func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 	p.Differences = append(p.Differences, diffValues(envLayer, before.env, after.env)...)
 	p.Differences = append(p.Differences, diffValues(providerTableLayer, before.providers, after.providers)...)
 	p.Differences = append(p.Differences, diffValues(brokerGrantsLayer, before.grants, after.grants)...)
-	p.Differences = append(p.Differences, activationNextSteps(diffValues(loopholeActivationLayer, before.activation, after.activation))...)
+	p.Differences = append(p.Differences, activationNextSteps(diffValues(loopholeActivationLayer, before.activation, after.activation), view.loopholePacks)...)
 	beforeStandings, _ := loopholeStandings(view.grants, before.grantUser, before.grantWorkspace, before.grantLegacyUser, false)
 	afterStandings, standingTexts := loopholeStandings(view.grants, after.grantUser, after.grantWorkspace, after.grantLegacyUser, true)
 	standingDiffs := standingNextSteps(diffValues(loopholeStandingLayer, beforeStandings, afterStandings))

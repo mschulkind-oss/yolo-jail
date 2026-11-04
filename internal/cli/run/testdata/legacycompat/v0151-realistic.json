@@ -35,6 +35,27 @@
       }
     }
   },
+  "user-on-workspace-off": {
+    "v0151": {
+      "enabled": []
+    }
+  },
+  "user-values-workspace-values": {
+    "v0151": {
+      "enabled": [
+        "serial"
+      ],
+      "settings": {
+        "serial": {
+          "allowed_devices": [
+            "/dev/ttyACM0",
+            "/dev/ttyUSB1"
+          ],
+          "default_baud": 115200
+        }
+      }
+    }
+  },
   "work-laptop": {
     "v0151": {
       "enabled": [

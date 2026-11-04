@@ -92,6 +92,10 @@ type LoopholeGrantStanding struct {
 	Values   []string
 	// Text is the kind's declared line.
 	Text string
+	// Withheld: not_allowed because this project writes `requests.<pack> = "off"`, or its legacy
+	// `enabled: false` reads as it (LoopholeKindState.Withheld), not because the ceiling leaves
+	// it out.
+	Withheld bool
 }
 
 // WithLoopholeGrants adds the selected grant-declaring loopholes to check, the scope a gate is
@@ -486,6 +490,7 @@ func (s *ScopeCheck) loopholeGrantStandings(recorded func(pack, grant string) bo
 			default:
 				st.Standing = LoopholeGrantNotAllowed
 				st.Values = append([]string(nil), k.Values...)
+				st.Withheld = k.Withheld
 			}
 			kinds[k.Grant.Kind] = st
 		}

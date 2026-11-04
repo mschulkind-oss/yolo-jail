@@ -1,0 +1,5 @@
+{
+  "about": "A project already converted to TOML that requests host-processes view, beside a legacy user config that selects host-processes and writes nothing else (LC-D14): the legacy user config admits the request, and the user config's own conversion must keep admitting it, whichever workspace it runs from.",
+  "current_only": true,
+  "expect_enabled": ["host-processes"]
+}

@@ -1,0 +1,2 @@
+// This project never talks to the bench board.
+{"loopholes": {"serial": {"enabled": false}}}

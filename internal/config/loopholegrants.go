@@ -76,6 +76,10 @@ type LoopholeKindState struct {
 	RequestPath  string
 	RequestFiles []string
 	Standing     LoopholeKindStanding
+	// Withheld: the project writes `requests.<pack> = "off"` (or a legacy workspace's
+	// `enabled: false` reads as it), so the kind is not_allowed here whatever the ceiling says
+	// (docs/design/legacy-config-compat.md LC-D18).
+	Withheld bool
 }
 
 // LoopholeSkippedRequest is a project's request the ceiling leaves out, named so `yolo check`
@@ -189,6 +193,11 @@ func ResolveLoopholeGrants(input LoopholeGrantInput) (LoopholeGrantPlan, error) 
 		if err != nil {
 			return LoopholeGrantPlan{}, err
 		}
+		// A project that writes `requests.<pack> = "off"` asks for nothing of the pack and takes
+		// nothing from it, an `always` line included (LC-D18): the string narrows this project
+		// only, so it widens nothing.
+		packReq, _ := requests.Get(d.Pack)
+		withheld := isReadableTableOff(packReq)
 		for _, g := range d.Grants {
 			state := LoopholeKindState{Grant: g}
 			if c, ok := ceiling.kinds[g.Kind]; ok {
@@ -203,6 +212,8 @@ func ResolveLoopholeGrants(input LoopholeGrantInput) (LoopholeGrantPlan, error) 
 				state.RequestPath, state.RequestFiles = path, cloneOrigins(input.WorkspaceOrigins[path])
 			}
 			switch {
+			case withheld:
+				state.Standing, state.Withheld = LoopholeKindNotAllowed, true
 			case state.Ceiling == LoopholeCeilingAlways:
 				state.Standing = LoopholeKindCandidate
 			case state.Ceiling == LoopholeCeilingOnRequest && asked:
@@ -504,10 +515,7 @@ func validateLoopholeGrants(config *jsonx.OrderedMap, workspace string, errs, wa
 			return // the workspace config's own read reports it
 		}
 	}
-	input, _, _ := withLegacyLoopholeGrants(LoopholeGrantInput{User: user, Workspace: ws, Declarations: declarations,
-		LegacyUser: UserConfigIsLegacy()},
-		userSrc, sourcesOf(wsNode), workspace)
-	plan, err := ResolveLoopholeGrants(input)
+	plan, err := ResolveLoopholeGrants(launchLoopholeGrantInput(user, userSrc, ws, sourcesOf(wsNode), workspace, declarations))
 	if err != nil {
 		var valued *ValuedKindUnderAlwaysError
 		msg := err.Error()
@@ -526,6 +534,43 @@ func validateLoopholeGrants(config *jsonx.OrderedMap, workspace string, errs, wa
 			add(warns, lineLocated(wsNode, skippedLoopholeRequestMessage(s), "requests", s.Pack, s.Kind))
 		}
 	}
+}
+
+// launchLoopholeGrantInput is the grant input a launch reads for workspace from the raw user and
+// workspace configs: the legacy projection laid over them, a legacy user config's admission
+// (LC-D14) and the user-sourced requests (LC-D16) included. The validator and `yolo request`
+// (LoopholeRequestAdmitted) read through it, so neither can disagree with the gate.
+func launchLoopholeGrantInput(user *jsonx.OrderedMap, userSrc *Sources, ws *jsonx.OrderedMap, wsSrc *Sources, workspace string, declarations []LoopholeGrantDeclaration) LoopholeGrantInput {
+	input, _, _ := withLegacyLoopholeGrants(LoopholeGrantInput{User: user, Workspace: ws, Declarations: declarations,
+		LegacyUser: UserConfigIsLegacy()}, userSrc, wsSrc, workspace)
+	return input
+}
+
+// LoopholeRequestAdmitted reports whether workspace's gate would hold kind of decl, reading the
+// user and workspace configs on disk as a launch reads them (launchLoopholeGrantInput): the
+// ceiling lets the gate hold the request, `always` or `on_request`, a kind requestable by default
+// included. A config it cannot read or judge counts as admitted; the post-write check reports it.
+func LoopholeRequestAdmitted(workspace string, decl LoopholeGrantDeclaration, kind string) bool {
+	user, userSrc, err := LoadReadableUserScopeConfigWithSources(false, func(string) {})
+	if err != nil {
+		return true
+	}
+	ws, wsNode, err := loadMountsWorkspaceConfig(workspace)
+	if err != nil {
+		return true
+	}
+	plan, err := ResolveLoopholeGrants(launchLoopholeGrantInput(user, userSrc, ws, sourcesOf(wsNode), workspace, []LoopholeGrantDeclaration{decl}))
+	if err != nil {
+		return true
+	}
+	for _, p := range plan.Packs {
+		for _, k := range p.Kinds {
+			if k.Grant.Kind == kind {
+				return k.Standing == LoopholeKindCandidate
+			}
+		}
+	}
+	return true
 }
 
 // skippedLoopholeRequestMessage is §5's `yolo check` text for a request outside the ceiling.

@@ -1071,6 +1071,13 @@ func UserBrokerAuthorityOf(user *jsonx.OrderedMap, selected []string, declaratio
 		}
 		if !hasTable {
 			a.Read = containsGrant(userGrantsOf(user, source), brokerscope.Grant{Kind: brokerscope.KindRead, Repo: brokerscope.AnyRepo})
+			// A legacy user `loopholes.<broker>.enabled: true` is the read grant on every
+			// repository while the broker's pack is selected (docs/design/legacy-config-compat.md
+			// LC-D2, row L5); with the pack not selected it ran nothing.
+			if on, set := legacyEnabled(legacyLoopholeBlock(user, declaration.Label)); on && set && declaration.ReadCapability != "" &&
+				slices.Contains(selected, declaration.Pack) {
+				a.Read = true
+			}
 			a.GrantKinds = grantKindsOf(user, source)
 		} else {
 			// Only this source's table: another `allow` table answers to its own declaration,

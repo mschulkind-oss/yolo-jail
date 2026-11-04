@@ -1,0 +1,6 @@
+{
+  "packs": ["serial"],
+  "loopholes": {
+    "serial": { "enabled": true, "settings": { "allowed_devices": ["/dev/ttyACM0"] } }
+  }
+}

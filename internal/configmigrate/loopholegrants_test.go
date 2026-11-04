@@ -1,7 +1,6 @@
 package configmigrate
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -82,10 +81,13 @@ func TestLegacyLoopholeEnabledMigratesToAllowAndRequests(t *testing.T) {
 		wantUser:  []string{`fields = ["pid", "comm"]`, `on_request = ["view"]`},
 		standings: map[string]string{"host-processes.view": "requestable"},
 	}, {
+		// A user `enabled: false` limited no workspace's switch, so the legacy user config admits
+		// a request for audio's use as before (LC-D14), and the converted ceiling says so.
 		name:        "user enabled: false",
 		user:        `{` + packs + `, "loopholes": {"audio": {"enabled": false}}}`,
-		wantNotUser: []string{"[allow.audio]", "enabled"},
-		standings:   map[string]string{"audio.use": "not_allowed", "journal.read": "requestable"},
+		wantUser:    []string{"[allow.audio]", `on_request = ["use"]`},
+		wantNotUser: []string{"enabled"},
+		standings:   map[string]string{"audio.use": "requestable", "journal.read": "requestable"},
 	}, {
 		name:        "switch file, enabled: true",
 		user:        `{` + packs + `}`,
@@ -104,10 +106,12 @@ func TestLegacyLoopholeEnabledMigratesToAllowAndRequests(t *testing.T) {
 		standings:   map[string]string{"host-processes.view": "granted: postgres"},
 		carried:     map[string][]string{"host-processes": {"view=postgres"}},
 	}, {
+		// The switch file's false is this workspace's withdrawal (LC-D18): it stays in the file,
+		// and the workspace holds nothing of journal on either side.
 		name:      "switch file, enabled: false",
 		user:      `{` + packs + `}`,
 		switches:  map[string]bool{"journal": false},
-		standings: map[string]string{"journal.read": "requestable"},
+		standings: map[string]string{"journal.read": "not_allowed"},
 	}, {
 		name:        "enabled: true in an approved workspace snapshot",
 		user:        `{` + packs + `}`,
@@ -134,10 +138,11 @@ func TestLegacyLoopholeEnabledMigratesToAllowAndRequests(t *testing.T) {
 		wantProject: []string{`view = ["postgres", "redis-server"]`},
 		standings:   map[string]string{"host-processes.view": "pending: postgres, redis-server"},
 	}, {
-		name:      "project enabled: false, nothing to turn off",
-		user:      `{` + packs + `}`,
-		project:   `{"loopholes": {"journal": {"enabled": false}}}`,
-		standings: map[string]string{"journal.read": "requestable"},
+		name:        "project enabled: false, nothing to turn off",
+		user:        `{` + packs + `}`,
+		project:     `{"loopholes": {"journal": {"enabled": false}}}`,
+		wantProject: []string{`journal = "off"`},
+		standings:   map[string]string{"journal.read": "not_allowed"},
 	}}
 	for _, r := range rows {
 		t.Run(r.name, func(t *testing.T) {
@@ -194,38 +199,28 @@ func TestLegacyLoopholeEnabledMigratesToAllowAndRequests(t *testing.T) {
 }
 
 // A project's `enabled: false` under a user's `enabled: true` turned the loophole off in that
-// workspace; the per-workspace `off` that would say so is not built, so the converted files would
-// grant what the old ones did not. The proof prints the standing that would change, names the
-// next step, and nothing is written.
-func TestAGrantTheMigrationWouldChangeIsPrintedAndNothingWritten(t *testing.T) {
+// workspace. It converts to the project's withdrawal, `requests.<pack> = "off"` (LC-D18), which
+// withholds the user's `always` line there, so the proof passes and the workspace holds nothing
+// of journal on either side.
+func TestAProjectsEnabledFalseUnderAUsersAlwaysConvertsToItsWithdrawal(t *testing.T) {
 	dir, ws := loopholeRowFixture(t, loopholeRow{
 		user:    `{"packs": ["journal"], "loopholes": {"journal": {"enabled": true}}}`,
 		project: `{"loopholes": {"journal": {"enabled": false}}}`,
 	})
-	g, err := Discover(Request{UserConfigDir: dir, Workspace: ws})
-	if err != nil {
-		t.Fatal(err)
+	p := plan(t, Request{UserConfigDir: dir, Workspace: ws})
+	if !p.Equal || len(p.NotConverted) != 0 {
+		t.Fatalf("the proof did not pass: equal=%v not converted=%+v differences=%+v", p.Equal, p.NotConverted, p.Differences)
 	}
-	p, err := Plan(g)
-	var ineq *InequalityError
-	if !errors.As(err, &ineq) {
-		t.Fatalf("Plan error = %v, want an InequalityError", err)
+	project := string(target(t, p, filepath.Join(ws, "yolo-jail.jsonc")).Bytes)
+	if !strings.Contains(project, `journal = "off"`) {
+		t.Fatalf("the project config does not withdraw journal:\n%s", project)
 	}
-	found := false
-	for _, d := range p.Differences {
-		if d.Layer == loopholeStandingLayer && strings.HasSuffix(d.Path, "journal.read") &&
-			d.Before == `"requestable"` && d.After == `"pending"` && strings.Contains(d.Next, "yolo config migrate") {
-			found = true
-		}
+	user := string(target(t, p, filepath.Join(dir, "config.jsonc")).Bytes)
+	if !strings.Contains(user, `always = ["read"]`) {
+		t.Fatalf("the user config lost its always line:\n%s", user)
 	}
-	if !found {
-		t.Fatalf("no standing difference for journal.read names its next step: %+v", p.Differences)
-	}
-	if _, err := Apply(p, ApplyOptions{}); err == nil {
-		t.Fatal("Apply wrote a plan whose proof failed")
-	}
-	if !exists(filepath.Join(dir, "config.jsonc")) || exists(filepath.Join(dir, "config.toml")) {
-		t.Fatal("the refused migration changed the user config")
+	if got := p.GrantStandings[ws]["journal"]["read"]; got != "not_allowed" {
+		t.Fatalf("journal.read = %q here, want not_allowed, as the old files hold it", got)
 	}
 }
 
