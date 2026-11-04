@@ -375,9 +375,9 @@ func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 	p.Differences = append(p.Differences, diffValues(providerTableLayer, before.providers, after.providers)...)
 	p.Differences = append(p.Differences, diffValues(brokerGrantsLayer, before.grants, after.grants)...)
 	p.Differences = append(p.Differences, activationNextSteps(diffValues(loopholeActivationLayer, before.activation, after.activation), view.loopholePacks)...)
-	beforeStandings, _ := loopholeStandings(view.grants, before.grantUser, before.grantWorkspace, before.grantLegacyUser, false)
-	afterStandings, standingTexts := loopholeStandings(view.grants, after.grantUser, after.grantWorkspace, after.grantLegacyUser, true)
-	standingDiffs := standingNextSteps(diffValues(loopholeStandingLayer, beforeStandings, afterStandings))
+	beforeStandings, _, _ := loopholeStandings(view.grants, before.grantUser, before.grantWorkspace, before.grantLegacyUser, false)
+	afterStandings, standingTexts, withheld := loopholeStandings(view.grants, after.grantUser, after.grantWorkspace, after.grantLegacyUser, true)
+	standingDiffs := standingNextSteps(diffValues(loopholeStandingLayer, beforeStandings, afterStandings), withheld)
 	p.Differences = append(p.Differences, standingDiffs...)
 	p.GrantStandings = standingTexts
 	p.DerivedVendors = derivedOnlyBefore(before.derived, after.derived)

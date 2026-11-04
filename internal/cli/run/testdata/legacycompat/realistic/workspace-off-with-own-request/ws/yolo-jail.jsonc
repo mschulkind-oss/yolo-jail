@@ -1,0 +1,2 @@
+// The board came back: this project asks for it again, but nobody deleted the old off line.
+{"loopholes": {"serial": {"enabled": false, "settings": {"default_baud": 9600}}}, "requests": {"serial": {"devices": ["/dev/ttyACM0"]}}}

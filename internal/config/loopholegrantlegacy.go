@@ -521,7 +521,7 @@ func withLegacyProjection(input LoopholeGrantInput, userSrc, wsSrc *Sources, swi
 	// user's config directory, so its false holds over anything the project's own files request;
 	// a workspace file's false yields to a `requests.<pack>` the same project wrote.
 	for _, w := range withdrawn {
-		if _, has := requests.Get(w.pack); !has || w.bySwitchFile {
+		if w.bySwitchFile || !ProjectWritesPackRequests(input.Workspace, w.pack) {
 			requests.Set(w.pack, "off")
 		}
 	}
@@ -547,6 +547,23 @@ func legacyWithdrawals(ws *jsonx.OrderedMap, switches map[string]bool, decls []L
 		}
 	}
 	return out
+}
+
+// ProjectWritesPackRequests is whether a project's config writes `requests.<pack>` at all: its
+// own say over the pack, which a legacy `loopholes.<name>.enabled: false` in the same project
+// yields to (docs/design/legacy-config-compat.md LC-D18). Written "off", it withdraws the pack by
+// itself, so the false adds nothing either way. The launch, the migration's lowering and its proof
+// share it, so the three read the line alike.
+func ProjectWritesPackRequests(project *jsonx.OrderedMap, pack string) bool {
+	if project == nil {
+		return false
+	}
+	requests := mapOrNil(getOr(project, "requests", nil))
+	if requests == nil {
+		return false
+	}
+	_, has := requests.Get(pack)
+	return has
 }
 
 // legacyWithdrawal is one pack a workspace's legacy files switch off, and whether the user's

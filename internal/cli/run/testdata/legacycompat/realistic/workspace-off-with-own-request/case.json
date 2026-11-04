@@ -1,0 +1,5 @@
+{
+  "about": "A legacy user config that switches serial on with its allowed devices, and a workspace whose enabled: false sits beside its own requests.serial table (LC-D18), a mix v0.15.1 could not read (it refused the requests key): the launch reads the request over the false, so serial runs here, and the conversion keeps the request and the default_baud, drops the dead false, and converts equal.",
+  "current_only": true,
+  "expect_enabled": ["serial"]
+}
