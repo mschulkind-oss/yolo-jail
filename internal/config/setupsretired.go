@@ -60,12 +60,17 @@ func IsRemovedSetupKey(key string) bool {
 	return false
 }
 
+// removedSetupKeyMigrateHint closes the refusal of a user TOML file's removed key that `yolo
+// config migrate` converts. It comes and goes with the file's `setup` (validateSetupsRetired), so
+// an edit's problem identity leaves it out (problemKey): writing `setup`, the refusal's first
+// step, takes the hint away and is not a new problem.
+const removedSetupKeyMigrateHint = "\nOr let yolo convert it:\n    yolo config migrate"
+
 // isWorkspaceLocalLocation reports a "<file>:<line>:<col>" location in the workspace's local
-// config (yolo-jail.local.*), whose unset scope flag is --local.
+// config (yolo-jail.local.*: .toml, .jsonc and .json, each of which the loader reads), whose
+// unset scope flag is --local.
 func isWorkspaceLocalLocation(loc string) bool {
-	file := locationFile(loc)
-	base := filepath.Base(file)
-	return base == WorkspaceLocalTOMLConfigName || base == WorkspaceLocalLegacyConfigName
+	return strings.HasPrefix(filepath.Base(locationFile(loc)), "yolo-jail.local.")
 }
 
 // isTOMLLocation reports a "<file>:<line>:<col>" location in a TOML file.
@@ -165,9 +170,13 @@ func validateSetupsRetired(config *jsonx.OrderedMap, workspace string, errs, war
 		// A TOML FILE HOLDING THE KEY is one v0.16.1 wrote (`yolo config set runtime …`, or its
 		// migrate copying the key verbatim), and `yolo config migrate` converts it as it does a
 		// JSONC file (named-setups-plan.md SUP-D17): the refusal names it where the conversion
-		// would act, a user file's value that names one setup or the default.
-		if flag == "--user" && len(locs) > 0 && isTOMLLocation(locs[0]) && RemovedSetupKeyConverts(key, v) {
-			msg += "\nOr let yolo convert it:\n    yolo config migrate"
+		// would act, a user file's value that names one setup or the default. Once any user file
+		// writes `setup` (the refusal's own first step), migrate leaves a value naming a setup for
+		// its unset, so it is not offered then.
+		_, setupWritten := config.Get("setup")
+		converts := RemovedSetupKeyConverts(key, v) && (!setupWritten || SetupForRemovedKey(key, v) == "")
+		if flag == "--user" && len(locs) > 0 && isTOMLLocation(locs[0]) && converts {
+			msg += removedSetupKeyMigrateHint
 		}
 		if inJail() {
 			add(warns, msg+" (ignored here: this is the host-generated config snapshot, "+

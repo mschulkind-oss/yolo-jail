@@ -266,19 +266,46 @@ func Discover(req Request) (*Graph, error) {
 // value `yolo config migrate` converts (config.RemovedSetupKeyConverts): v0.16.1 wrote those keys
 // to TOML (`yolo config set runtime …`, and its migrate copied them verbatim), and a TOML file
 // holding one converts in place as a JSONC file does (named-setups-plan.md SUP-D17). A project's
-// value never converts, so a project file is left to its refusal.
+// value never converts, so a project file is left to its refusal; nor does a value naming a setup
+// once any user file already writes `setup`, which decides (UserSetupFile).
 func (g *Graph) markRemovedSetupKeys() {
+	setupFile := g.UserSetupFile()
 	for _, f := range g.Files {
 		if (f.Role != RoleRead && f.Role != RoleRespell) || f.Scope != ScopeUser || f.doc == nil {
 			continue
 		}
 		for _, key := range config.RemovedSetupKeys {
-			if v, ok := f.doc.Values.Get(key); ok && config.RemovedSetupKeyConverts(key, v) {
-				f.Role, f.removedKeys = RoleRespell, true
-				break
+			v, ok := f.doc.Values.Get(key)
+			if !ok || !config.RemovedSetupKeyConverts(key, v) {
+				continue
 			}
+			if setupFile != "" && config.SetupForRemovedKey(key, v) != "" {
+				continue
+			}
+			f.Role, f.removedKeys = RoleRespell, true
+			break
 		}
 	}
+}
+
+// UserSetupFile is the first user-scope file of the graph that writes `setup`, "" when none
+// does: a key named setups replace whose value names a setup is then left for its unset, never
+// converted, since the written `setup` decides whatever the old key says.
+func (g *Graph) UserSetupFile() string {
+	for _, f := range g.Files {
+		if f.Scope != ScopeUser || f.doc == nil {
+			continue
+		}
+		if _, ok := f.doc.Values.Get("setup"); ok {
+			return f.Logical
+		}
+	}
+	return ""
+}
+
+// setupWrittenReason is the not-converted reason of key when file already writes `setup`.
+func setupWrittenReason(key, file string) string {
+	return "`setup` is already written in " + file + ", and it decides; remove the old line:\n    yolo config unset " + key + " --user"
 }
 
 // Rewritten is every TOML file the migration rewrites in place for a removed setup key, in

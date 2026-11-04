@@ -223,3 +223,105 @@ func TestConfigMigrateConvertsARemovedSetupKeyInATOMLFile(t *testing.T) {
 		})
 	}
 }
+
+// TestALegacyLocalJSONFileIsToldLocal: the loader reads yolo-jail.local.json too, so its removed
+// key is refused naming `--local`, and that unset removes it.
+func TestALegacyLocalJSONFileIsToldLocal(t *testing.T) {
+	e := newMigrateEnv(t)
+	path := filepath.Join(e.ws, "yolo-jail.local.json")
+	writeMigrateFile(t, path, `{"runtime": "podman", "kvm": false}`)
+	refusal := removedKeyRefusal(t, e, "runtime")
+	step := unsetStep.FindString(refusal)
+	if step != "yolo config unset runtime --local" {
+		t.Fatalf("the refusal names %q, want the --local unset:\n%s", step, refusal)
+	}
+	rc, out, errw := runRemovedKeyVerb(t, strings.Fields(step)[2:]...)
+	if rc != 0 && !strings.Contains(out+errw, "Written") && !strings.Contains(out+errw, "config file was written") {
+		t.Fatalf("`%s` was refused: rc=%d\n%s\n%s", step, rc, out, errw)
+	}
+	if after := readText(t, path); strings.Contains(after, "runtime") || !strings.Contains(after, "kvm") {
+		t.Errorf("`%s` did not remove exactly the key:\n%s", step, after)
+	}
+	if got := removedKeyRefusal(t, e, "runtime"); got != "" {
+		t.Errorf("the refusal is still there after `%s`:\n%s", step, got)
+	}
+}
+
+// TestTheMigrateTranscriptListsEachFileUnderItsHeading: with an old-format workspace file and a
+// TOML user file rewritten for a removed key, each is listed under its own heading.
+func TestTheMigrateTranscriptListsEachFileUnderItsHeading(t *testing.T) {
+	e := newMigrateEnv(t)
+	writeMigrateFile(t, filepath.Join(e.userDir, "config.toml"), "runtime = \"podman\"\n")
+	writeMigrateFile(t, filepath.Join(e.ws, "yolo-jail.jsonc"), `{"kvm": false}`)
+	rc, out, errw := runConfigMigrateVerb(t, "--dry-run")
+	if rc != 0 {
+		t.Fatalf("--dry-run: rc=%d\n%s\n%s", rc, out, errw)
+	}
+	oldHead := strings.Index(out, "in the old format:")
+	jsonc := strings.Index(out, "yolo-jail.jsonc  (")
+	tomlHead := strings.Index(out, "holding keys named setups replace:")
+	toml := strings.Index(out, filepath.Join(e.userDir, "config.toml")+"\n")
+	if oldHead < 0 || tomlHead < 0 || !(oldHead < jsonc && jsonc < tomlHead && tomlHead < toml) {
+		t.Errorf("the files are not each under their heading:\n%s", out)
+	}
+}
+
+// TestAWrittenSetupIsNotOverwrittenByARemovedKey: once a user file writes `setup` (in another
+// file, or in the same one after the refusal's first step), a removed key naming a setup is not
+// offered to migrate, migrate leaves it naming its unset rather than writing a second `setup`,
+// and that unset clears the refusal.
+func TestAWrittenSetupIsNotOverwrittenByARemovedKey(t *testing.T) {
+	for _, c := range []struct {
+		name          string
+		files         map[string]string
+		holdsRemoved  string
+		holdsSetupRel string
+	}{
+		{"a fragment beside a setup", map[string]string{
+			"config.toml":     "setup = \"apple-container-self\"\n",
+			"config.d/x.toml": "runtime = \"podman\"\nkvm = false\n",
+		}, "config.d/x.toml", "config.toml"},
+		{"the same file after the first step", map[string]string{
+			"config.toml": "runtime = \"podman\"\nkvm = false\n",
+		}, "config.toml", "config.toml"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := newMigrateEnv(t)
+			for rel, body := range c.files {
+				writeMigrateFile(t, filepath.Join(e.userDir, rel), body)
+			}
+			if c.name == "the same file after the first step" {
+				// The refusal's first step, as the user would run it.
+				rc, out, errw := runRemovedKeyVerb(t, "set", "setup", "podman-self", "--user")
+				if rc != 0 && !strings.Contains(out+errw, "Written") {
+					t.Fatalf("set setup: rc=%d\n%s\n%s", rc, out, errw)
+				}
+			}
+			refusal := removedKeyRefusal(t, e, "runtime")
+			if refusal == "" || strings.Contains(refusal, "yolo config migrate") {
+				t.Fatalf("the refusal offers migrate, which would refuse:\n%s", refusal)
+			}
+			removedPath := filepath.Join(e.userDir, c.holdsRemoved)
+			before := readText(t, removedPath)
+			rc, out, errw := runConfigMigrateVerb(t, "--yes")
+			want := "yolo config unset runtime --user"
+			if rc == 0 || !strings.Contains(out+errw, "not converted") || !strings.Contains(out+errw, want) ||
+				!strings.Contains(out+errw, "already written in "+filepath.Join(e.userDir, c.holdsSetupRel)) {
+				t.Fatalf("migrate did not leave runtime naming its unset: rc=%d\n%s\n%s", rc, out, errw)
+			}
+			if readText(t, removedPath) != before {
+				t.Errorf("a refused migration changed %s", removedPath)
+			}
+			rc, out, errw = runRemovedKeyVerb(t, strings.Fields(want)[2:]...)
+			if rc != 0 && !strings.Contains(out+errw, "Written") {
+				t.Fatalf("`%s`: rc=%d\n%s\n%s", want, rc, out, errw)
+			}
+			if after := readText(t, removedPath); strings.Contains(after, "runtime") {
+				t.Errorf("`%s` left the key in %s:\n%s", want, removedPath, after)
+			}
+			if got := removedKeyRefusal(t, e, "runtime"); got != "" {
+				t.Errorf("the refusal is still there after `%s`:\n%s", want, got)
+			}
+		})
+	}
+}

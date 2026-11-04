@@ -24,14 +24,10 @@ func (p *MigrationPlan) Transcript() string {
 		b.WriteString("\n")
 		return b.String()
 	}
+	// Each heading is followed by its own files: the old-format files, then the TOML files
+	// rewritten for a removed setup key.
 	if len(old) > 0 {
 		fmt.Fprintf(&b, "Found %d %s in the old format:\n", len(old), plural(len(old), "file", "files"))
-	}
-	if len(rewritten) > 0 {
-		fmt.Fprintf(&b, "Found %d TOML %s holding keys named setups replace:\n", len(rewritten), plural(len(rewritten), "file", "files"))
-		for _, f := range rewritten {
-			fmt.Fprintf(&b, "  %s\n", f.Logical)
-		}
 	}
 	for _, f := range old {
 		via := ""
@@ -39,6 +35,12 @@ func (p *MigrationPlan) Transcript() string {
 			via = ", via include_if_found"
 		}
 		fmt.Fprintf(&b, "  %s  (%d lines%s)\n", f.Logical, countLines(f.Bytes), via)
+	}
+	if len(rewritten) > 0 {
+		fmt.Fprintf(&b, "Found %d TOML %s holding keys named setups replace:\n", len(rewritten), plural(len(rewritten), "file", "files"))
+		for _, f := range rewritten {
+			fmt.Fprintf(&b, "  %s\n", f.Logical)
+		}
 	}
 	for _, m := range p.Unreachable {
 		fmt.Fprintf(&b, "Not found here (listed in %s): %s.\n  Run `yolo config migrate` on a machine that has it.\n", m.ListedIn, m.Path)

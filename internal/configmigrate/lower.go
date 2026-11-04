@@ -305,6 +305,11 @@ func lowerRemovedSetupKey(key string, value any, ctx loweringContext, file strin
 		return
 	}
 	if name := config.SetupForRemovedKey(key, value); name != "" {
+		if v := ctx.view(); v != nil && v.setupFile != "" {
+			// Another user file already writes `setup`, which decides (Graph.UserSetupFile).
+			skip(path, value, setupWrittenReason(key, v.setupFile))
+			return
+		}
 		if !place([]string{"setup"}, name, path) {
 			skip(path, value, "`setup` is already written in this file, and it decides; remove the old line:\n    yolo config unset "+key+" --user")
 		}

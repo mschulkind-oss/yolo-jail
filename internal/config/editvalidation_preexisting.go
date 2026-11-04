@@ -53,9 +53,11 @@ func (r ValidatedExplicitEditResult) Preexisting() []string {
 // without changing the problem.
 var problemPosition = regexp.MustCompile(`:\d+(:\d+)?`)
 
-// problemKey is the identity of a problem across an edit: its message without line and column.
+// problemKey is the identity of a problem across an edit: its message without line and column,
+// and without a removed setup key's migrate hint, which the edit of `setup` takes away
+// (removedSetupKeyMigrateHint).
 func problemKey(problem string) string {
-	return problemPosition.ReplaceAllString(problem, "")
+	return problemPosition.ReplaceAllString(strings.Replace(problem, removedSetupKeyMigrateHint, "", 1), "")
 }
 
 // ResolvedProblems is each of before's problems that after no longer has: what an edit fixed

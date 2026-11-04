@@ -40,6 +40,9 @@ type userView struct {
 	// removedSetupKeys are the merged old user config's values of the keys named setups replace
 	// (lowerRemovedSetupKey): the merged read converts only these, as a project's never convert.
 	removedSetupKeys map[string]any
+	// setupFile is the user file that already writes `setup` (Graph.UserSetupFile), "" for none:
+	// a removed key naming a setup is then left for its unset, never converted.
+	setupFile string
 	// packProfiles is every profile name a selected pack declares, read on first use (packProfile);
 	// packsKnown is false when the selected packs did not all resolve.
 	packProfiles map[string]bool

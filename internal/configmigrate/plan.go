@@ -13,7 +13,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/configedit"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
-	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // Target is one file a plan writes.
@@ -275,6 +274,7 @@ func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 	packs := packload.Embedded()
 	remotes := workspaceRemotes(g.Request.Workspace)
 	view := userViewOf(g)
+	view.setupFile = g.UserSetupFile()
 	view.needed = neededPacks(view.packs, packs)
 	view.loopholePacks = shippedLoopholePacks(packs)
 	planLoopholeGrants(g, view, packs)
@@ -314,7 +314,7 @@ func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 			}
 			if f.removedKeys {
 				var skipped []NotConverted
-				if t.Bytes, t.Rewrote, skipped, err = withRemovedSetupKeysConverted(t.Bytes, f.Logical); err != nil {
+				if t.Bytes, t.Rewrote, skipped, err = withRemovedSetupKeysConverted(t.Bytes, f.Logical, g.UserSetupFile()); err != nil {
 					return nil, fmt.Errorf("%s: convert the keys setups replace: %w", f.Logical, err)
 				}
 				p.NotConverted = append(p.NotConverted, skipped...)
@@ -528,9 +528,9 @@ func respellFile(f *File) (Target, error) {
 // withRemovedSetupKeysConverted rewrites a user-scope TOML file's keys named setups replace
 // through the byte-preserving editor `yolo config` uses, as the lowering converts a JSONC file's
 // (lowerRemovedSetupKey): a value naming one setup is written as `setup` unless the file already
-// writes one, the default `confinement = "jail"` is dropped, and every other value is left with
-// its refusal as the reason.
-func withRemovedSetupKeysConverted(data []byte, logical string) ([]byte, []string, []NotConverted, error) {
+// or any other user file (setupFile, Graph.UserSetupFile) already writes one, the default
+// `confinement = "jail"` is dropped, and every other value is left with its refusal as the reason.
+func withRemovedSetupKeysConverted(data []byte, logical, setupFile string) ([]byte, []string, []NotConverted, error) {
 	var rewrote []string
 	var skipped []NotConverted
 	for _, key := range config.RemovedSetupKeys {
@@ -546,9 +546,8 @@ func withRemovedSetupKeysConverted(data []byte, logical string) ([]byte, []strin
 		line := fmt.Sprintf("%s = %s", key, jsonx.MustDumpsCompact(value))
 		switch name := config.SetupForRemovedKey(key, value); {
 		case name != "":
-			if _, has := doc.Values.Get("setup"); has {
-				skipped = append(skipped, NotConverted{File: logical, Path: key, Reason: "`setup` is already written in this file, and it decides; " +
-					"remove the old line:\n    yolo config unset " + key + " --user"})
+			if setupFile != "" {
+				skipped = append(skipped, NotConverted{File: logical, Path: key, Reason: setupWrittenReason(key, setupFile)})
 				continue
 			}
 			mutations = append(mutations, configedit.Mutation{Action: configedit.Add, Path: []configdoc.Step{{Key: "setup"}}, Value: name})
@@ -577,6 +576,7 @@ func withRemovedSetupKeysConverted(data []byte, logical string) ([]byte, []strin
 // own (withRemovedSetupKeysConverted).
 func removedSetupKeysLeft(g *Graph) []NotConverted {
 	var out []NotConverted
+	setupFile := g.UserSetupFile()
 	for _, f := range g.Files {
 		if f.doc == nil || (f.Role != RoleRead && f.Role != RoleRespell) || f.removedKeys {
 			continue
@@ -586,10 +586,15 @@ func removedSetupKeysLeft(g *Graph) []NotConverted {
 			if !ok {
 				continue
 			}
+			if f.Scope == ScopeUser && setupFile != "" && config.SetupForRemovedKey(key, value) != "" {
+				// Converting it would write a second `setup`; the one written decides.
+				out = append(out, NotConverted{File: f.Logical, Path: key, Reason: setupWrittenReason(key, setupFile)})
+				continue
+			}
 			flag := "--user"
 			if f.Scope != ScopeUser {
 				flag = "--project"
-				if filepath.Base(f.Logical) == paths.WorkspaceLocalConfigTOMLName {
+				if strings.HasPrefix(filepath.Base(f.Logical), "yolo-jail.local.") {
 					flag = "--local"
 				}
 			}
