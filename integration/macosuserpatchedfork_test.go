@@ -128,7 +128,7 @@ func patchedRuns(ver string) string { return patchFixtureMarker + "_" + ver + "_
 func (f *macosUserPatchFixture) moveToConflict(t *testing.T) string {
 	t.Helper()
 	v12 := f.up.release("1.2.0", "upstream-ten", "v1.2.0")
-	r := runCommand(t, f.ws, []string{"pack", "update"}, withHostSemantics(), macosUserRunEnv())
+	r := runCommand(t, f.ws, []string{"pack", "update"}, withHostSemantics(), macosUserRunEnv("account"))
 	if r.rc == 0 || !hasPatchFailureBlock(r.combined(), f.owner, "v1.2.0", v12, "f.txt") {
 		t.Fatalf("yolo pack update: rc %d, want it to fail on the series' conflict at v1.2.0 with the patch "+
 			"failure block (ERROR, Patch, Conflict, Repair, the rebase onto %s, Start anyway)\nstdout:\n%s\nstderr:\n%s",

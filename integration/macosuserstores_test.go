@@ -44,7 +44,7 @@ func TestMacosUserStoresListsTheSandboxAccount(t *testing.T) {
 		"rm -rf "+probe))
 	session.awaitUp(t)
 
-	r := runCommand(t, ws, []string{"stores", "--format", "json", "--no-record"}, macosUserRunEnv())
+	r := runCommand(t, ws, []string{"stores", "--format", "json", "--no-record"}, macosUserRunEnv("account"))
 	var rep storesJSON
 	if r.rc != 0 || json.Unmarshal([]byte(r.stdout), &rep) != nil {
 		t.Fatalf("`yolo stores --format json` rc %d did not print an inventory:\n%s", r.rc, r.combined())

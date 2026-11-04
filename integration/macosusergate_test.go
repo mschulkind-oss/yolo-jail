@@ -653,14 +653,29 @@ func removeMacosUserWorkspace(t *testing.T, dir string) {
 	}
 }
 
-// macosUserRunArgs is jailRunArgs plus the runtime selection, spelled on the ARGV side
-// via the launcher env rather than in the workspace config.
+// macosUserSetupFor is the Seatbelt setup a fixture's `macos_user_mode` names: seatbelt-self for
+// "self" (run as you), seatbelt-yolo-account for "account" and for no mode, the account default.
+func macosUserSetupFor(mode string) string {
+	if mode == "self" {
+		return "seatbelt-self"
+	}
+	return "seatbelt-yolo-account"
+}
+
+// macosUserRunEnv is the launcher env selecting the Seatbelt setup for mode (macosUserSetupFor),
+// spelled per launch via YOLO_SETUP rather than in the workspace config.
 //
 // Why the env and not the user config's `setup`: YOLO_SETUP outranks the config
 // (config.SelectSetup), so a fixture that used the config would be silently overridden on
 // any machine that exports the variable — including a CI step that set it for a different
 // job in the same workflow. Saying it per launch is the spelling that cannot be shadowed.
-func macosUserRunEnv() runOption { return withEnv("YOLO_SETUP=seatbelt-yolo-account") }
+//
+// It outranks the `macos_user_mode` key too, which no longer chooses who a launch runs as (the
+// setup's run_as does), so a cell that loops over the modes passes its mode here
+// (runMacosUserAs) or every cell runs as the yolo account.
+func macosUserRunEnv(mode string) runOption {
+	return withEnv("YOLO_SETUP=" + macosUserSetupFor(mode))
+}
 
 // runMacosUser launches the sandbox and runs script in a LOGIN shell, which is the
 // shell macos-user's PATH re-prepend actually targets: the login rc files re-prepend
@@ -669,8 +684,15 @@ func macosUserRunEnv() runOption { return withEnv("YOLO_SETUP=seatbelt-yolo-acco
 func runMacosUser(t *testing.T, dir, script string, opts ...runOption) result {
 	t.Helper()
 	args := append(jailRunArgs(), "--", "bash", "-lc", script)
-	opts = append([]runOption{withTimeout(macosUserTimeout()), macosUserRunEnv()}, opts...)
+	opts = append([]runOption{withTimeout(macosUserTimeout()), macosUserRunEnv("account")}, opts...)
 	return runCommand(t, dir, args, opts...)
+}
+
+// runMacosUserAs is runMacosUser in mode's setup (macosUserRunEnv): the launch a cell looping over
+// `macos_user_mode` makes, whose later YOLO_SETUP replaces runMacosUser's account default.
+func runMacosUserAs(t *testing.T, mode, dir, script string, opts ...runOption) result {
+	t.Helper()
+	return runMacosUser(t, dir, script, append(opts, macosUserRunEnv(mode))...)
 }
 
 // macosUserTimeoutEnv overrides the per-launch deadline below.
