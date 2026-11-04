@@ -601,6 +601,48 @@ with exactly: KC5-OK'`. Step 3 follows.
 **Decision needed:** whether the keychain-read message should tell "locked" apart from "a
 confirmation could not be shown". That needs the status code from a rerun first.
 
+**The owner's run, from their own terminal.** Same command, installed `0.16.1+35`, without
+`YOLO_ALLOW_MISSING_PROGRAMS` (the pi builds finished in 6.8 s). **The same refusal, and no Allow
+dialog appeared** (the owner, 2026-11-04). Copilot started logged out (`Error: No authentication
+information found.`). `<ws>/.yolo/launch.log` line 282 holds it. So "the agent's process can't
+show a dialog" does not explain it: the owner's terminal failed the same way.
+
+- **What the message means in code.** `DefaultHostKeychainRead`
+  (`internal/cli/run/hostkeychainenv.go`) runs `/usr/bin/security find-generic-password -s
+  copilot-cli -w` from the foreground `yolo` process (called at `internal/cli/run/run.go:1245`),
+  with a 2-minute bound meant for the dialog. `securityExitError` maps exit 36 to this message,
+  commenting it as `errSecInteractionNotAllowed` (-25308). So `security` was refused permission
+  to interact, which is not the same as a locked keychain.
+- **Hypothesis, unconfirmed: the terminal's tmux server.** The owner works in tmux, and this
+  agent's session runs in the same server (`$TMUX` names pid 3310). That server's parent is
+  launchd, and it started **Fri Oct 9 18:29:58**, two minutes after boot
+  (`kern.boottime` 18:28:00). A server started outside, or before, the GUI login session cannot
+  raise keychain dialogs, and `security` then gets `errSecInteractionNotAllowed` with no prompt.
+  The test that decides it: `security find-generic-password -s copilot-cli -w >/dev/null; echo
+  rc=$?` in a tmux pane, then in a plain Terminal window outside tmux. Asked of the owner; not yet
+  answered.
+- **If it's confirmed**, two yolo-side consequences follow. The message's first remedy, "unlock
+  your login keychain", cannot help. A better next step names the real cause ("macOS could not
+  show the access dialog in this terminal session, e.g. a tmux server started outside your
+  login"), and offers running once from a plain Terminal window, or choosing *Always Allow* there
+  so later reads need no dialog.
+
+**A second finding from the same run: yolo refuses Copilot's own `config.json`.** The launch
+printed `warning: copilot/config: refused: <ws>/.yolo/home/.copilot/config.json is not valid JSON
+(invalid character '/' looking for beginning of value) — refusing to rewrite it`. That file's
+first two lines are `// User settings belong in settings.json.` and `// This file is managed
+automatically.`, and the host's `~/.copilot/config.json` has the same two. Copilot 1.0.105 writes
+them itself; nobody edited the file. `packs/copilot/pack.toml:62` declares the surface `{ agent =
+"copilot", mode = "rmw", name = "config", path = "~/.copilot/config.json" }`, read as strict
+JSON. The refusal is careful (nothing written, and it says why). The pack's `defaults = { yolo =
+true }` is not applied, though, and every workspace where Copilot 1.0.105 has run once will print
+this warning on each launch. The fresh `w1b-a` workspace's copy had no comment lines (Copilot had
+not written it yet).
+
+**Decision needed:** read `copilot/config` as JSON with comments (as the codec does for other
+surfaces, if it can keep the comments on write), or name another next step in the warning. The
+warning's own "fix or move the file" undoes itself the next time Copilot runs.
+
 ## Evidence
 
 All at `90ff72f2c` unless named. The logs were kept under `/tmp/macnotes/` on the Mac and are not
