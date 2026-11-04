@@ -46,8 +46,8 @@ func TestMacosUserSessionDepsAreTheArms(t *testing.T) {
 	if deps.Perf != log {
 		t.Error("the backend's steps are not spanned on the launch's collector")
 	}
-	// Still a launch's Deps: the lock, the guest binaries and the account home's hold.
-	if deps.LockWorkspace == nil || deps.GuestBinaries == nil || deps.HoldAccountHome == nil {
+	// Still a launch's Deps: the lock, the guest binaries and the account's temp-dir probe (MMP-D29).
+	if deps.LockWorkspace == nil || deps.GuestBinaries == nil || deps.AccountUserTempDir == nil {
 		t.Error("macosUserSessionDeps dropped a launch-only seam macosLaunchDeps wires")
 	}
 }

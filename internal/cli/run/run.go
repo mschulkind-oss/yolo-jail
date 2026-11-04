@@ -656,15 +656,13 @@ func Run(opts Options) (rc int) {
 		// (dryRunForkDeliveries, dryRunTreeDeliveries). And, as the auto-capture, never for a launch the backend's own
 		// first steps are about to refuse (macosUserPreflight): on a Mac where `yolo macos-setup`
 		// never ran the build act would fail and the launch refuse for a missing program, where the
-		// backend's refusal names the setup. Skipped silently, the backend's refusal follows; the
-		// account home's hold is kept through the builds, as through a capture.
+		// backend's refusal names the setup. Skipped silently, the backend's refusal follows.
 		if o.DryRun {
 			o.dryRunForkDeliveries()
 			o.dryRunTreeDeliveries()
-		} else if release, ok := o.macosUserPreflight(); ok {
+		} else if o.macosUserPreflight() {
 			o.addPackTreePins(staged.packs, rt)
 			slotOK := o.runForkBuildSlotAndRefusals(cfg, rt, repoRoot)
-			release()
 			if !slotOK {
 				return 1
 			}
@@ -1066,15 +1064,9 @@ func Run(opts Options) (rc int) {
 		// delivered as one copy over the sandbox home. See that file for why a tree
 		// rather than a manifest.
 		//
-		// ⚠ THE DESTINATION HOME IS SHARED, and that is this step's known defect rather
-		// than an oversight: SandboxHome() is the constant /Users/_yolojail, so a second
-		// workspace launching concurrently overwrites the first's briefings while its
-		// agent is mid-session — and a briefing is per-project prose, so that agent
-		// would go on reading another project's description. The hazard is not new (the
-		// bootstrap already rewrites agent configs and shims on every launch) but this
-		// widens it from workspace-independent files to per-project ones. The fix is a
-		// per-workspace home, which is a design change and has its own doc:
-		// docs/reference/macos-user-home-tiers.md.
+		// THE DESTINATION HOME IS THE WORKSPACE'S OWN in both modes (macosuser.LaunchHomes;
+		// MMP-D5, and MMP-D25 for the account mode), so a second workspace launching at once
+		// writes its briefings into its own HOME and never over this one's.
 		// NOT gated on --dry-run, and that is deliberate: the plan's job is to describe
 		// the launch, and a plan that omitted the content staging would show a launch
 		// nobody runs. Composing writes only into the host-side staging dir, which pack

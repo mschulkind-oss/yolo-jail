@@ -26,11 +26,8 @@ func TestMacosUserAccountRelaunchKeepsDeliveredInheritedJSONC(t *testing.T) {
 	treeLaunchHome(t, true) // Object pack entries exercise RenderFilteredForDelivery's JSONC fallback.
 	ws := floortest.ResolvedTemp(t)
 	sidecar := paths.WorkspaceHomeState(ws)
-	guestHome := floortest.ResolvedTemp(t)
-	if err := os.MkdirAll(filepath.Join(sidecar, "config"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(filepath.Join(sidecar, "config"), filepath.Join(guestHome, ".config")); err != nil {
+	guestHome := sidecar // HOME is the workspace's own home in account mode too (MMP-D25)
+	if err := os.MkdirAll(filepath.Join(sidecar, ".config"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	entries, err := config.LoadPacks(nil)
@@ -106,7 +103,7 @@ func TestMacosUserAccountRelaunchKeepsDeliveredInheritedJSONC(t *testing.T) {
 	if rc, stderr := launch(); rc != 0 || calls != 1 {
 		t.Fatalf("first Run() = %d, callbacks = %d\nstderr:\n%s", rc, calls, stderr)
 	}
-	delivered := filepath.Join(sidecar, "config", "yolo-jail", "config.jsonc")
+	delivered := filepath.Join(sidecar, ".config", "yolo-jail", "config.jsonc")
 	before := overlayFileInfo(t, delivered)
 	body, err := os.ReadFile(delivered)
 	if err != nil {
@@ -165,7 +162,7 @@ func newInheritedDeliveryProofFixture(t *testing.T) inheritedDeliveryProofFixtur
 		}
 	}
 	sidecar := filepath.Join(ws, ".yolo", "home")
-	destination := filepath.Join(sidecar, "config", "yolo-jail", "config.jsonc")
+	destination := filepath.Join(sidecar, ".config", "yolo-jail", "config.jsonc")
 	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -305,11 +302,8 @@ func TestMacosUserAccountRelaunchRefusesOwnerReplacementAtBothBoundaries(t *test
 	treeLaunchHome(t, true)
 	ws := floortest.ResolvedTemp(t)
 	sidecar := paths.WorkspaceHomeState(ws)
-	guestHome := floortest.ResolvedTemp(t)
-	if err := os.MkdirAll(filepath.Join(sidecar, "config"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(filepath.Join(sidecar, "config"), filepath.Join(guestHome, ".config")); err != nil {
+	guestHome := sidecar // HOME is the workspace's own home in account mode too (MMP-D25)
+	if err := os.MkdirAll(filepath.Join(sidecar, ".config"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	entries, err := config.LoadPacks(nil)
@@ -377,7 +371,7 @@ func TestMacosUserAccountRelaunchRefusesOwnerReplacementAtBothBoundaries(t *test
 				"YOLO_DARWIN_HOME_OVERLAY":      sealed,
 			}, guestHome)
 			if lateReplace {
-				lateOwnerPath = filepath.Join(sidecar, "config", "yolo-jail", "config.jsonc")
+				lateOwnerPath = filepath.Join(sidecar, ".config", "yolo-jail", "config.jsonc")
 				late := lateOwnerPath + ".late-owner"
 				body, err := os.ReadFile(lateOwnerPath)
 				if err != nil {
@@ -411,7 +405,7 @@ func TestMacosUserAccountRelaunchRefusesOwnerReplacementAtBothBoundaries(t *test
 	if rc, stderr := launch(); rc != 0 || calls != 1 {
 		t.Fatalf("first Run() = %d, callbacks = %d\nstderr:\n%s", rc, calls, stderr)
 	}
-	delivered := filepath.Join(sidecar, "config", "yolo-jail", "config.jsonc")
+	delivered := filepath.Join(sidecar, ".config", "yolo-jail", "config.jsonc")
 	source := filepath.Join(sealed, filepath.FromSlash(inheritPreflightLegacyRel))
 	body, err := os.ReadFile(delivered)
 	if err != nil {

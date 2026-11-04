@@ -180,7 +180,7 @@ func TestRegistrationUsesTheClaudeHomeForEachMode(t *testing.T) {
 	}{
 		{name: "podman account home", rt: "podman", mode: macosuser.ModeAccount, want: "claude"},
 		{name: "podman self-configured options", rt: "podman", mode: macosuser.ModeSelf, want: "claude"},
-		{name: "macos-user account home", rt: "macos-user", mode: macosuser.ModeAccount, want: "claude"},
+		{name: "macos-user account home", rt: "macos-user", mode: macosuser.ModeAccount, want: ".claude"}, // HOME is the workspace home (MMP-D25)
 		{name: "macos-user self home", rt: "macos-user", mode: macosuser.ModeSelf, want: ".claude"},
 		{name: "Apple Container home", rt: "container", mode: macosuser.ModeSelf, want: ".claude"},
 	} {
@@ -192,8 +192,8 @@ func TestRegistrationUsesTheClaudeHomeForEachMode(t *testing.T) {
 			if loc.Workspace != ws || loc.Subdir != tc.want {
 				t.Fatalf("registered %+v, want workspace %q subdir %q", loc, ws, tc.want)
 			}
-			if tc.rt == "macos-user" && tc.mode == macosuser.ModeSelf {
-				homes := macosuser.LaunchHomes(macosuser.ModeSelf, ws, o.MacosUserHostHome)
+			if tc.rt == "macos-user" {
+				homes := macosuser.LaunchHomes(tc.mode, ws, o.MacosUserHostHome)
 				if loc.Path() != filepath.Join(homes.Home, claudeview.ViewRel) {
 					t.Fatalf("registered view %q, Claude HOME reads %q", loc.Path(), filepath.Join(homes.Home, claudeview.ViewRel))
 				}
@@ -293,7 +293,7 @@ func TestMacosUserKeeperRegistersModeSpecificLocationIntoTheFinalEnvironment(t *
 		notice string
 	}{
 		{name: "self", mode: macosuser.ModeSelf, want: ".claude", notice: "uses the session TMPDIR"},
-		{name: "account", mode: macosuser.ModeAccount, want: "claude", notice: "scoped security adapter fails Keychain writes promptly"},
+		{name: "account", mode: macosuser.ModeAccount, want: ".claude", notice: "scoped security adapter fails Keychain writes promptly"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			home := packHome(t)

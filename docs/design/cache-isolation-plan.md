@@ -227,7 +227,7 @@ Source facts:
 - **Host side:** the host user cannot signal the guest, and a double-forked daemon escapes the
   in-sandbox guard ([`sessionguard.go`](../../internal/macosuser/sessionguard.go#L39-L46)).
   Host locks see only the invoking host user's launches
-  ([`accounthomehold.go`](../../internal/cli/run/accounthomehold.go#L36-L39)).
+  (the account-home hold did, before [slice 12a](macos-user-model-plan.md#MMP-D25) deleted it).
 - **Process tooling:** no code lists or kills processes by the guest uid. The profile leaves the
   account home, including `~/Library/LaunchAgents`, writable.
 
@@ -337,7 +337,7 @@ or green result.
 | Warm restart and legacy attach | Extend run-path fixtures and then real container integration: sentinel survives fresh restart; attach names the inspected original source after a default/config change and creates no new backing. |
 | Two active workspace poisoning/read isolation | Add an offline two-jail fixture: each uses the same guest lookup name with different backing; A changes lookup plus matching bytes, reads/deletes sentinels, and B still sees only its own data. Use no interactive agent or API. |
 | Path and root races | [`jailwritable_test.go`](../../internal/prune/jailwritable_test.go#L108-L179) and [`record replacement`](../../internal/macosuser/sessionfiles_test.go#L369-L395) are starting fixtures. Add root/parent/record replacement before open, between open/lock and after open/before runtime submission; include in-root symlinks into held data and hardlink aliases. Outside sentinels survive launch/inventory/apply. |
-| Fence and unknown status | [`sessionlock_test.go`](../../internal/cli/run/sessionlock_test.go), [`keeperpins2_test.go`](../../internal/cli/run/keeperpins2_test.go), [`accounthomehold_test.go`](../../internal/cli/run/accounthomehold_test.go) expose lifecycle seams. Add crash between dispatched/ack, empty running poll, delayed runtime creation, surviving native writer and multiple holders. Delete durable registration or manual/slot admission checks and show each control fails. |
+| Fence and unknown status | [`sessionlock_test.go`](../../internal/cli/run/sessionlock_test.go), [`keeperpins2_test.go`](../../internal/cli/run/keeperpins2_test.go), `accounthomehold_test.go` (deleted with the hold in slice 12a) exposed lifecycle seams. Add crash between dispatched/ack, empty running poll, delayed runtime creation, surviving native writer and multiple holders. Delete durable registration or manual/slot admission checks and show each control fails. |
 | Real budget exit | Inject clock/cancellation into a large fixture; prove visitation stops before the tail, unknown bytes remain, apply stops too, and no completion stamp is written. Elapsed-time labeling alone must fail. |
 | Opaque/credential holds | Old token/profile files inside a cache-shaped tree remain under dry-run/apply/automatic consent; unknown classes remain even in a known-inactive owned scope. |
 | Sharing exceptions | [`cacherelocation_test.go`](../../integration/cacherelocation_test.go) proves actual relocated writes. Extend disclosure/selected backing without changing grants; [`hostcasalias_test.go`](../../internal/cli/run/hostcasalias_test.go) pins alias emitter and caller; keep npm/Go exclusion. |

@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,59 +10,71 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 )
 
-// TestMacosUserASecondWorkspaceIsRefusedWhileASessionHoldsTheAccountHome is the account-home hold
-// on the hardware (internal/cli/run's accounthomehold.go;
-// docs/reference/macos-user-home-tiers.md#ht-d15): while a session of workspace A runs, a launch in
-// workspace B is refused — not made to wait — before its nix build and before any sudo (the hold is
-// asked ahead of the context-mount preflight, the first step that may run one), naming A and the
-// next steps, and the account home's links still point into A's sidecar; once A's session ends, B
-// launches.
+// TestMacosUserTwoWorkspacesRunAtOnceAsTheAccount is slice 12a on the hardware
+// (docs/design/macos-user-model-plan.md, MMP-D25): while a session of workspace A runs as the
+// sandbox account, a launch in workspace B runs too. Each session's $HOME is its own workspace's
+// home state (<ws>/.yolo/home), and nothing under the account's home is a link into either
+// sidecar, so neither workspace's layout can repoint the other's.
 //
-// The hazard the hold closes is measured on Linux (entrypoint's
-// TestASecondWorkspaceLayoutRepointsTheFirstsLinks: B's layout takes five of A's core links); its
-// consequence for a live session on a Mac is reasoned, not observed.
-func TestMacosUserASecondWorkspaceIsRefusedWhileASessionHoldsTheAccountHome(t *testing.T) {
+// The pre-12a refusal ("Refusing the macos-user launch … shares one sandbox account") must not
+// appear.
+func TestMacosUserTwoWorkspacesRunAtOnceAsTheAccount(t *testing.T) {
 	requireMacosUser(t)
 	packHome(t, `{"packs": []}`)
 	wsA := macosUserWorkspace(t, `{}`)
 	wsB := macosUserWorkspace(t, `{}`)
 	sync := macosUserSyncDir(t, wsA, ".yolo-it-account-home")
-	a := holdSession(t, wsA, sync, heldSessionScript(sync, "", ""))
+	a := holdSession(t, wsA, sync, heldSessionScript(sync, `printf '%s' "$HOME" > `+sync+`/home-a`, ""))
 	a.awaitUp(t)
 
-	binLink := filepath.Join(macosuser.SandboxHome(), ".yolo", "bin")
-	targetA, err := os.Readlink(binLink)
+	homeA, err := os.ReadFile(filepath.Join(sync, "home-a"))
 	if err != nil {
-		t.Fatalf("A's session laid no %s: %v", binLink, err)
+		t.Fatalf("A's session recorded no $HOME: %v", err)
 	}
-	if !strings.HasPrefix(targetA, filepath.Join(wsA, ".yolo", "home")) {
-		t.Fatalf("%s points at %s during A's session, not into A's sidecar", binLink, targetA)
+	if want := filepath.Join(wsA, ".yolo", "home"); string(homeA) != want {
+		t.Errorf("A's $HOME is %q, want its own workspace home %q", homeA, want)
 	}
 
-	r := runMacosUser(t, wsB, "echo B-RAN")
+	r := runMacosUser(t, wsB, `echo "B-RAN HOME=$HOME"`)
 	out := r.combined()
-	if r.rc != 1 || strings.Contains(out, "B-RAN") {
-		t.Fatalf("B's launch ran beside A's session (rc %d):\n%s", r.rc, out)
+	if r.rc != 0 || !strings.Contains(r.stdout, "B-RAN") {
+		t.Fatalf("B did not launch beside A's session (rc %d):\n%s", r.rc, out)
 	}
-	for _, want := range []string{"Refusing the macos-user launch", wsA, "Quit that session", `"runtime": "container"`} {
-		if !strings.Contains(out, want) {
-			t.Errorf("B's refusal does not say %q:\n%s", want, out)
+	if strings.Contains(out, "Refusing the macos-user launch") {
+		t.Errorf("B's launch printed the pre-12a refusal:\n%s", out)
+	}
+	if want := "HOME=" + filepath.Join(wsB, ".yolo", "home"); !strings.Contains(r.stdout, want) {
+		t.Errorf("B's session does not have its own workspace home (%s):\n%s", want, r.stdout)
+	}
+
+	// Nothing under the account's home points into either sidecar. A pre-12a account home may
+	// still hold links into an OLD workspace's sidecar (nothing migrates, OQ-MM4); these two
+	// workspaces are fresh, so any link into them was laid by this run.
+	sidecars := []string{filepath.Join(wsA, ".yolo", "home"), filepath.Join(wsB, ".yolo", "home")}
+	root := macosuser.SandboxHome()
+	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil // a dir the test user cannot read is not one it can judge
 		}
-	}
-	for _, before := range []string{"Building the sandbox's tools with nix", "Setting up the sandbox"} {
-		if strings.Contains(out, before) {
-			t.Errorf("B was refused only after %q:\n%s", before, out)
+		if d.IsDir() && strings.Count(strings.TrimPrefix(p, root), string(filepath.Separator)) >= 4 {
+			return filepath.SkipDir
 		}
-	}
-	if got, _ := os.Readlink(binLink); got != targetA {
-		t.Errorf("B's refused launch repointed %s from %s to %s", binLink, targetA, got)
-	}
+		if d.Type()&fs.ModeSymlink == 0 {
+			return nil
+		}
+		target, err := os.Readlink(p)
+		if err != nil {
+			return nil
+		}
+		for _, sc := range sidecars {
+			if target == sc || strings.HasPrefix(target, sc+string(filepath.Separator)) {
+				t.Errorf("%s is a link into a workspace sidecar (%s)", p, target)
+			}
+		}
+		return nil
+	})
 
 	if res := a.release(t); res.rc != 0 {
 		t.Fatalf("A's session ended %d:\n%s\n%s", res.rc, res.stdout, res.stderr)
-	}
-	r = runMacosUser(t, wsB, "echo B-RAN")
-	if r.rc != 0 || !strings.Contains(r.stdout, "B-RAN") {
-		t.Errorf("B did not launch once A's session ended (rc %d):\n%s", r.rc, r.combined())
 	}
 }

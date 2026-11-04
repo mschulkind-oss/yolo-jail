@@ -80,6 +80,13 @@ func selectedProgramCompatibility(p *packload.Pack, inst *packdecl.Install) (*pa
 // nativeCompatibilityShell emits a version refusal only for the self mode carried by the
 // host-resolved native launch context. Container launchers and explicit account mode keep their
 // existing behavior; invalid native metadata cannot silently disable a declared compatibility gate.
+//
+// PARITY: the gate is not a per-backend difference in behavior but the shadow of one. It exists
+// for Copilot 1.0.93+ (yolo-jail #65, github/copilot-cli#5085), whose native TLS needs the Mach
+// service com.apple.SecurityServer, and only run-as-you mode's Seatbelt profile denies that
+// service, on purpose, as the way into the user's login keychain (macos-native-tls.md MT-D7). A
+// container runs the Linux Copilot, which reads a CA bundle, and the dedicated-account mode leaves
+// the service reachable, so neither meets the failure and neither is gated.
 func nativeCompatibilityShell(compatibility *packdecl.VersionCompatibility, context string, native bool) string {
 	if compatibility == nil || !native {
 		return "COMPATIBILITY_CONTEXT_VALID=1\nCOMPATIBILITY_ENABLED=0\n" + nativeCompatibilityFunctions
@@ -122,7 +129,24 @@ func nativeCompatibilityMode(context string) (valid, self bool) {
 	}
 }
 
+// nativeCompatibilityFunctions is the gate's shell. Every refusal it makes in self mode ends with
+// _yolo_self_mode_next_steps, the routes that run the program (the Happy Path Principle): the
+// dedicated-account mode, and a container backend for one launch or for good. They are typed
+// outside the jail, as the user config they edit is the host's. Nothing here offers
+// YOLO_USE_INSTALLED: a refused version fails the same way however it is started, and the gate runs
+// before the update act, so no refusal of a failed update and its "Start anyway:" is reached.
 const nativeCompatibilityFunctions = `
+_yolo_self_mode_next_steps() {
+    {
+        echo
+        echo "Next steps, in a terminal outside this jail:"
+        printf '  %-48s  %s\n' \
+            "yolo config set macos_user_mode account --user" "run as the dedicated sandbox account (yolo macos-setup creates it once)" \
+            "YOLO_RUNTIME=podman yolo -- $BIN" "run this launch in a podman container (YOLO_RUNTIME=container for Apple Container)" \
+            "yolo config set runtime podman --user" "run every launch in a podman container (container for Apple Container)"
+    } >&2
+}
+
 _yolo_version_at_least() {
     local IFS=. actual_major actual_minor actual_patch threshold_major threshold_minor threshold_patch
     read -r actual_major actual_minor actual_patch <<< "$1"
@@ -151,20 +175,24 @@ _yolo_compatibility_check() {
     done
     if [ "$probe_ok" != "1" ]; then
         echo "yolo: ERROR: cannot verify $BIN's version for this macos-user self launch; use a container backend (podman or container), or repair its declared version probe." >&2
+        _yolo_self_mode_next_steps
         return 1
     fi
     if [[ "$output" =~ (^|[^[:alnum:].]|[vV])([0-9]+)\.([0-9]+)\.([0-9]+)($|[^[:alnum:].]|\.($|[[:space:]])) ]]; then
         actual="${BASH_REMATCH[2]}.${BASH_REMATCH[3]}.${BASH_REMATCH[4]}"
     else
         echo "yolo: ERROR: cannot parse $BIN's declared version probe for this macos-user self launch; use a container backend (podman or container), or repair its declared version probe." >&2
+        _yolo_self_mode_next_steps
         return 1
     fi
     if [ "${#BASH_REMATCH[2]}" -gt 9 ] || [ "${#BASH_REMATCH[3]}" -gt 9 ] || [ "${#BASH_REMATCH[4]}" -gt 9 ]; then
         echo "yolo: ERROR: $BIN's version is outside the supported numeric comparison bound; refusing this macos-user self launch. Use a container backend (podman or container)." >&2
+        _yolo_self_mode_next_steps
         return 1
     fi
     if _yolo_version_at_least "$actual" "$COMPATIBILITY_REFUSE_AT_OR_ABOVE"; then
-        printf 'yolo: ERROR: %s\n' "$COMPATIBILITY_MESSAGE" >&2
+        printf 'yolo: ERROR: %s %s is installed. %s\n' "$BIN" "$actual" "$COMPATIBILITY_MESSAGE" >&2
+        _yolo_self_mode_next_steps
         return 1
     fi
     return 0

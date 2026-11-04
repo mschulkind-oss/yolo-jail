@@ -36,7 +36,6 @@ func TestRunMacosUserSpansEveryStepInOrder(t *testing.T) {
 	ws := "/Users/Shared/yolo/proj"
 	fakeSupervisor(&d, &rec, ws, "", readyLine, "", false)
 	d.GuestBinaries = func(string) (string, error) { return "/opt/yolo/bin/darwin-arm64", nil }
-	d.HoldAccountHome = func(string, string, string) (func(), string) { return func() {}, "" }
 	log, events := recordingLog()
 	d.Perf = log
 	o := newOpts(ws)
@@ -53,7 +52,7 @@ func TestRunMacosUserSpansEveryStepInOrder(t *testing.T) {
 			got = append(got, name)
 		}
 	}
-	want := []string{"preconditions", "account_home", "context_preflight", "materialize", "host_nix",
+	want := []string{"preconditions", "context_preflight", "materialize", "host_nix",
 		"guest_binaries", "ca_trust", "build_plan", "workspace_lock", "session_sweep", "install_profile",
 		"stage", "env_file", "bootstrap", "provision", "start_jail_daemons", "service_probe", "agent",
 		"stop_jail_daemons", "remove_env_file", "release_pack_tree"}
@@ -88,7 +87,7 @@ func TestAFailedMaterializeEndsItsSpanAndStartsNoLaterOne(t *testing.T) {
 		t.Fatalf("rc = %d, want the refusal", rc)
 	}
 	got := spanEnds(events)
-	want := []string{"macos_user.preconditions", "macos_user.account_home", "macos_user.context_preflight",
+	want := []string{"macos_user.preconditions", "macos_user.context_preflight",
 		"macos_user.materialize"}
 	if !slices.Equal(got, want) {
 		t.Errorf("a refused build's spans: %v, want %v", got, want)

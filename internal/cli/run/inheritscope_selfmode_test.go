@@ -21,9 +21,9 @@ import (
 )
 
 // inheritedRelaunchFixture drives Run through the real home-overlay installer for one macos-user
-// mode, laying the sandbox home the way that mode's layout does: account mode links the account's
-// ~/.config into the sidecar's `config`, self mode makes HOME the sidecar with a real `.config` in
-// it (entrypoint.DeriveDarwinWorkspaceHome).
+// mode, laying the sandbox home the way that mode's layout does: in both modes HOME is the sidecar
+// with a real `.config` in it (entrypoint.DeriveDarwinWorkspaceHome; MMP-D5, and MMP-D25 for the
+// account mode).
 type inheritedRelaunchFixture struct {
 	sidecar   string
 	ws        string
@@ -40,21 +40,10 @@ func newInheritedRelaunchFixture(t *testing.T, mode macosuser.Mode) *inheritedRe
 	sidecar := paths.WorkspaceHomeState(ws)
 	f := &inheritedRelaunchFixture{sidecar: sidecar, ws: ws}
 	guestHome := sidecar
-	if mode == macosuser.ModeSelf {
-		if err := os.MkdirAll(filepath.Join(sidecar, ".config"), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		f.delivered = filepath.Join(sidecar, ".config", "yolo-jail", "config.jsonc")
-	} else {
-		guestHome = floortest.ResolvedTemp(t)
-		if err := os.MkdirAll(filepath.Join(sidecar, "config"), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.Symlink(filepath.Join(sidecar, "config"), filepath.Join(guestHome, ".config")); err != nil {
-			t.Fatal(err)
-		}
-		f.delivered = filepath.Join(sidecar, "config", "yolo-jail", "config.jsonc")
+	if err := os.MkdirAll(filepath.Join(sidecar, ".config"), 0o755); err != nil {
+		t.Fatal(err)
 	}
+	f.delivered = filepath.Join(sidecar, ".config", "yolo-jail", "config.jsonc")
 	stageRoot := floortest.ResolvedTemp(t)
 	session := yoloruntime.FromWorkspace(ws)
 	previousRoot := inheritedScopeStagingRoot
@@ -193,15 +182,16 @@ func TestMacosUserSelfRelaunchJudgesTheDestinationWhereItsHomeKeepsIt(t *testing
 	}
 }
 
-// The inherited destinations map through the same layout the bootstrap lays, per mode: account
-// mode's ~/.config is a link into the sidecar's `config`, run-as-you mode's HOME is the sidecar.
+// The inherited destinations map through the same layout the bootstrap lays, per mode: in both
+// modes HOME is the sidecar (MMP-D5, and MMP-D25 for the account mode), so ~/.config is the
+// sidecar's `.config`. The account layout's undotted `config` is no longer a destination.
 func TestMacosUserInheritedStorageFollowsTheModesHomeLayout(t *testing.T) {
 	ws := floortest.ResolvedTemp(t)
 	for _, tc := range []struct {
 		mode macosuser.Mode
 		dir  string
 	}{
-		{macosuser.ModeAccount, "config"},
+		{macosuser.ModeAccount, ".config"},
 		{macosuser.ModeSelf, ".config"},
 	} {
 		o := &Options{Workspace: ws, MacosUserMode: tc.mode}

@@ -862,7 +862,10 @@ func cacheRelocationProblems(plan RunPlan) []string {
 	read := profileBlock(plan.Seatbelt, "cache-relocation-read-allow")
 	write := profileBlock(plan.Seatbelt, "cache-relocation-write-allow")
 	readAt := strings.Index(plan.Seatbelt, ";; #seatbelt-test-id:cache-relocation-read-allow#")
-	for _, id := range []string{"volumes-read-deny", "users-read-deny"} {
+	// The allow-default profile's two root read denies, and the deny-by-default profile's own
+	// head (every launch's profile since MMP-D25): whichever the profile carries, the read allow
+	// must follow it.
+	for _, id := range []string{"deny-default", "volumes-read-deny", "users-read-deny"} {
 		if at := strings.Index(plan.Seatbelt, ";; #seatbelt-test-id:"+id+"#"); readAt >= 0 && at > readAt {
 			problems = append(problems, "the cache relocations' read allow comes before the "+id+
 				" rule it must re-open; last match wins, so a target there would stay unreadable")

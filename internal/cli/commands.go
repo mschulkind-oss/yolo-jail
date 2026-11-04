@@ -1543,10 +1543,6 @@ func macosLaunchDeps(runProxy func(argv []string) int,
 	deps := macosuser.RealDeps(runProxy, materialize, colorForWriter(os.Stdout))
 	deps.LockWorkspace = workspaceLockSeam
 	deps.GuestBinaries = guestBinariesSeam
-	// The account home's hold, a launch's alone for LockWorkspace's reason: none of the four
-	// `yolo macos-*` commands lays the home's links (run.HoldAccountHome says why a second
-	// workspace's launch is refused while a session holds them).
-	deps.HoldAccountHome = run.HoldAccountHome
 	return deps
 }
 

@@ -11,6 +11,8 @@ import unittest
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+from go_packages import SHORT_TEST_TIMEOUT  # noqa: E402
 REPO = HERE.parent
 REAL_GO = shutil.which("go")
 JUST = shutil.which("just")
@@ -92,7 +94,7 @@ class GoPackageSelection(unittest.TestCase):
                                timeout=120)
             calls = [json.loads(line) for line in log.read_text().splitlines()]
             go_calls = [call["argv"] for call in calls]
-            self.assertIn(["test", "-short", "-timeout=20m", "./..."], go_calls)
+            self.assertIn(["test", "-short", f"-timeout={SHORT_TEST_TIMEOUT}", "./..."], go_calls)
             self.assertIn(["test", "-short", "./..."], go_calls)
             self.assertIn(["test", "-count=1", "-timeout", "0", "./integration"], go_calls)
 
@@ -238,6 +240,16 @@ class GoPackageSelection(unittest.TestCase):
         self.assertEqual({ip for ip, _ in pkgs}, {"example.test/project/pkg"})
         self.assertEqual(dirs, {"pkg"})
 
+    def test_completion_graph_names_package_dirs_through_a_symlinked_root(self):
+        # macOS's TMPDIR is under /var -> /private/var, and go list reports each Dir resolved;
+        # a checkout reached through any symlink must still yield rel paths inside it.
+        link = self.tmp / "link"
+        link.symlink_to(self.root)
+        check = load_module("completion_check_symlink", HERE / "completion-check.py")
+        graph = check.go_graph(link, "linux")
+        self.assertIsNotNone(graph)
+        self.assertEqual({p["rel"] for p in graph.values()}, {"pkg"})
+
     @unittest.skipIf(JUST is None, "just is not on PATH")
     def test_production_just_lint_and_test_recipes_use_selected_packages(self):
         shutil.copy(REPO / "Justfile", self.root / "Justfile")
@@ -269,7 +281,7 @@ class GoPackageSelection(unittest.TestCase):
         self.assertEqual({c["GOOS"] for c in static}, {"linux", "darwin"})
         self.assertTrue(all(c["argv"][-1:] == ["./pkg"] for c in static))
         tests = [c["argv"] for c in go_calls if c["argv"][:1] == ["test"]]
-        self.assertIn(["test", "-short", "-timeout=20m", "./integration", "./pkg"], tests)
+        self.assertIn(["test", "-short", f"-timeout={SHORT_TEST_TIMEOUT}", "./integration", "./pkg"], tests)
         self.assertIn(["test", "-short", "./integration", "./pkg"], tests)
         self.assertIn(["test", "-count=1", "-timeout", "0", "./integration"], tests)
         self.assertEqual((REPO / "Justfile").read_text().count("python3 scripts/go_packages.py run"), 7)

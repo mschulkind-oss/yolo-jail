@@ -259,66 +259,6 @@ func TestTheSessionStartHookRunsOnceJustBeforeTheSession(t *testing.T) {
 	}
 }
 
-// THE ACCOUNT HOME'S HOLD is asked before the nix build and kept through the session: a refusal
-// returns 1 before any build, sudo or bootstrap, naming what the seam said; an admitted launch
-// holds it while its session runs and releases it after its teardown.
-func TestTheAccountHomeHoldGatesTheBuildAndSpansTheSession(t *testing.T) {
-	var rec []string
-	d := mockDeps(&rec)
-	var gotWS, gotCname, gotStep string
-	d.HoldAccountHome = func(ws, cname, step string) (func(), string) {
-		gotWS, gotCname, gotStep = ws, cname, step
-		rec = append(rec, "hold")
-		return nil, "a macos-user session of /Users/Shared/yolo/other is running."
-	}
-	d.MaterializeDarwin = func(string, []any) (*Darwin, bool, error) {
-		rec = append(rec, "materialize")
-		return mockDarwin(), true, nil
-	}
-	var buf bytes.Buffer
-	d.Out = &buf
-	o := newOpts("/Users/Shared/yolo/proj")
-	if rc := RunMacosUser(d, o); rc != 1 {
-		t.Fatalf("rc = %d, want the refusal's 1\n%s", rc, buf.String())
-	}
-	for _, r := range rec {
-		if r == "materialize" || strings.HasPrefix(r, "write:") || strings.HasPrefix(r, "run:") {
-			t.Errorf("a refused hold went on to %s", r)
-		}
-	}
-	if !strings.Contains(buf.String(), "Refusing the macos-user launch: a macos-user session of /Users/Shared/yolo/other") {
-		t.Errorf("the refusal is not printed:\n%s", buf.String())
-	}
-	if gotWS != resolvePathAbs(o.Workspace) || gotCname != cnameFor(resolvePathAbs(o.Workspace)) || gotStep != "" {
-		t.Errorf("the hold was asked for (%q, %q, %q)", gotWS, gotCname, gotStep)
-	}
-
-	rec = nil
-	d = mockDeps(&rec)
-	held := false
-	d.HoldAccountHome = func(string, string, string) (func(), string) {
-		held = true
-		return func() { held = false; rec = append(rec, "released") }, ""
-	}
-	heldInSession := false
-	d.RunWithProxy = func([]string) int { heldInSession = held; rec = append(rec, "proxy:"); return 42 }
-	if rc := RunMacosUser(d, newOpts("/Users/Shared/yolo/proj")); rc != 42 {
-		t.Fatalf("rc = %d", rc)
-	}
-	if !heldInSession {
-		t.Error("the account home was not held while the session ran")
-	}
-	if held {
-		t.Error("the account home's hold outlived the launch")
-	}
-	if rel, rm := recAt(rec, "released"), slices.IndexFunc(rec, func(r string) bool {
-		return strings.HasPrefix(r, "run:"+rmBin)
-	}); rel < 0 || rm < 0 || rel < rm {
-		t.Errorf("the hold must be released after the teardown's removals (released at %d, first removal at %d):\n%s",
-			rel, rm, strings.Join(rec, "\n"))
-	}
-}
-
 // guestLaunch is a launch that runs a jail daemon (so it builds the guest binaries and starts the
 // supervisor), provisions (provisionCfg) and probes a published host service (brokerEndpointEnv),
 // so each of RunMacosUser's later step boundaries has a step on each side of it.
@@ -646,28 +586,4 @@ func TestASignalAtTheContextPreflightIsNotARefusal(t *testing.T) {
 			}
 		})
 	}
-}
-
-// THE HOLD IS ASKED BEFORE THE CONTEXT PREFLIGHT: it crosses into nothing, so a launch the hold
-// refuses never runs the preflight's crossings into the sandbox account.
-func TestARefusedHoldRunsNoContextPreflight(t *testing.T) {
-	var rec []string
-	d := mockDeps(&rec)
-	d.HoldAccountHome = func(string, string, string) (func(), string) {
-		return nil, "a macos-user session of /Users/Shared/yolo/other is running."
-	}
-	o := newOpts("/Users/Shared/yolo/proj")
-	o.HostCtx.Links = []ContextLink{{Dest: "/ctx/notes", Source: "/Users/matt/notes", Dir: true}}
-	var buf bytes.Buffer
-	d.Out = &buf
-	if rc := RunMacosUser(d, o); rc != 1 {
-		t.Fatalf("rc = %d, want the hold's refusal\n%s", rc, buf.String())
-	}
-	if i := recAt(rec, "run:"); i >= 0 {
-		t.Errorf("a launch the hold refused ran %s first", rec[i])
-	}
-	if strings.Contains(buf.String(), "context mount source(s)") {
-		t.Errorf("a launch the hold refused announced the context preflight:\n%s", buf.String())
-	}
-
 }

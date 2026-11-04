@@ -57,8 +57,8 @@ func TestMacosUserBriefingAndLaunchLinesDescribeThisBackend(t *testing.T) {
 			"the one sentence telling the agent that the built-in skills' `/workspace` means its own path is missing"},
 		{"Environment", "- **OS**: macOS, Seatbelt-confined",
 			"the OS line is not the macOS one"},
-		{"DP-B11", "one account home, shared by every workspace on this",
-			"the Home line does not say the account home is shared by every workspace"},
+		{"DP-B11", "` (this workspace's own; its links to shared logins and",
+			"the Home line does not say the home is this workspace's own and only its machine-wide links are shared (MMP-D25)"},
 		{"DP-B3", "- **Network**: Host networking",
 			"the network line is not host networking, which is what a native process has"},
 		{"macos-log", "The macOS unified log is unreadable from this sandbox",
@@ -79,6 +79,7 @@ func TestMacosUserBriefingAndLaunchLinesDescribeThisBackend(t *testing.T) {
 	// literal of string literals, `+` and `ws`.
 	for _, c := range []struct{ row, unwanted, why string }{
 		{"DP-B19", "a sandboxed container", "the briefing calls this backend a container"},
+		{"DP-B11", "one account home, shared by every workspace", "the briefing still calls the home the pre-12a account home every workspace shares (MMP-D25)"},
 		{"Environment", "NixOS-based minimal container", "the container's OS line reached a macOS sandbox"},
 		{"DP-B3", "host.containers.internal", "the agent is told to reach the host through a container hostname"},
 		{"DP-B6", "Resource limits** (kernel-enforced)", "the agent is told `resources` are kernel-enforced on a backend that warns they are ignored"},

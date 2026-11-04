@@ -208,6 +208,12 @@ func TestJailHomeHostPath(t *testing.T) {
 		{"podman", "~/go/env", "go/env", true}, // no dot to strip
 		{"container", "~/.gemini/antigravity-cli/settings.json",
 			".gemini/antigravity-cli/settings.json", true},
+		// macos-user: HOME IS the workspace's sidecar in both modes (MMP-D5, MMP-D25), so the dot
+		// survives as on Apple Container. Stripping it read the podman spelling and folded
+		// nothing (the Mac run of 2026-11-03, TestMacosUserCapturesConfigEditsWhenTheSessionEnds).
+		{"macos-user", "~/.gemini/antigravity-cli/settings.json",
+			".gemini/antigravity-cli/settings.json", true},
+		{"macos-user", "~/.claude/settings.json", "", false},
 		// Declines: wrong layout for the runtime, absent file, non-home path.
 		{"container", "~/.claude/settings.json", "", false},
 		{"podman", "~/.gemini/antigravity-cli/settings.json", "", false},

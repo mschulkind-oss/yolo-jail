@@ -19,8 +19,8 @@ const (
 	loweredAtRead legacyLowering = "lowered at read and by migrate"
 	// loweredByMigrate: `yolo config migrate` converts it exactly, and a read keeps the legacy
 	// spelling. A mixed config holding one crosses into a jail as the migration's lowering of it
-	// (LowerInheritedUserScope, RC-D55), and the launch refuses naming `yolo config migrate`
-	// (config.mixedFormatRefusal) only where that conversion declines, as migrate does.
+	// (LowerInheritedUserScope, RC-D55), and where that conversion has no spelling for a value the
+	// crossing leaves it out and discloses it (LC-D4); it never refuses.
 	loweredByMigrate legacyLowering = "lowered by migrate only"
 	// retired: the key means nothing any more, in either spelling; a legacy file holding one is
 	// refused with its own retirement message, so there is nothing to lower.

@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/supervisor"
 	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
@@ -70,12 +71,20 @@ func runGuestLaunch(t *testing.T, d Deps) (int, string) {
 	return RunMacosUser(d, o), buf.String()
 }
 
-// THE SUPERVISOR'S OWN STDOUT AND STDERR GO TO <ws>/.yolo/home/local/state/yolo-jail-daemons/
+// THE SUPERVISOR'S OWN STDOUT AND STDERR GO TO <ws>/.yolo/home/.local/state/yolo-jail-daemons/
 // supervisor.log, through the wrapper, INSIDE the profile and in front of the env-file reader —
-// in the plan, and in the argv the launch actually starts.
+// in the plan, and in the argv the launch actually starts. That is beside the daemons' own logs:
+// HOME is the workspace home in both modes (MMP-D5, MMP-D25), so their ~/.local/state is HOME's
+// `.local`, not the undotted `local` the pre-12a account layout linked ~/.local to.
 func TestTheSupervisorArgvSendsItsOutputToTheWorkspaceLog(t *testing.T) {
 	ws := "/Users/Shared/yolo/proj"
-	want := filepath.Join(ws, ".yolo", "home", "local", "state", "yolo-jail-daemons", "supervisor.log")
+	want := filepath.Join(ws, ".yolo", "home", ".local", "state", "yolo-jail-daemons", "supervisor.log")
+	for _, mode := range []Mode{ModeAccount, ModeSelf} {
+		daemonLogs := filepath.Join(LaunchHomes(mode, ws, "/Users/you").Home, filepath.FromSlash(paths.JailDaemonLogsRel()))
+		if got := SupervisorLogPath(ws); filepath.Dir(got) != daemonLogs {
+			t.Errorf("%s: the supervisor log %s is not beside the daemons' logs in %s", mode, got, daemonLogs)
+		}
+	}
 	plan := guestPlan(t, openAIAdapterDaemons("/src"))
 	if plan.SupervisorLog != want {
 		t.Fatalf("SupervisorLog = %q, want %q", plan.SupervisorLog, want)

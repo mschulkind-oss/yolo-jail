@@ -75,6 +75,42 @@ func awsAndZaiKeys() *jsonx.OrderedMap {
 	return m
 }
 
+// THE MACOS-USER FILES LAND WHERE HOME READS THEM, and the pre-12a location is emptied: HOME is the
+// sidecar in both modes (MMP-D25), so pi's file is <sidecar>/.config/yolo-agent-env/pi.sh, and the
+// account layout's <sidecar>/config/yolo-agent-env, whose keys nothing reads any more, keeps no
+// file. A sidecar that never had the old directory does not get one.
+func TestMacosUserAgentEnvFilesMoveToTheWorkspaceHome(t *testing.T) {
+	home := packHome(t)
+	o := goldenOptions(t.TempDir(), home)
+	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "bedrock"), officialPack(t, "pi"), officialPack(t, "zai")}
+	o.UseProfiles = map[string]string{"pi": "zai"}
+	channel := channelFor(t, o, bareConfig(), packs, awsAndZaiKeys())
+
+	sidecar := t.TempDir()
+	legacy := filepath.Join(sidecar, "config", "yolo-agent-env")
+	if err := os.MkdirAll(legacy, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	stale := filepath.Join(legacy, "pi.sh")
+	if err := os.WriteFile(stale, []byte("export ZAI_API_KEY='old-key'\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeMacosUserAgentEnvFiles(sidecar, channel)
+	body, err := os.ReadFile(entrypoint.AgentEnvFile(sidecar, "pi"))
+	if err != nil || !strings.Contains(string(body), "tok-zai") {
+		t.Errorf("pi's file is not at HOME's %s (err %v):\n%s", entrypoint.AgentEnvFile(sidecar, "pi"), err, body)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Errorf("the pre-12a file %s still holds a provider key nothing reads (err %v)", stale, err)
+	}
+
+	fresh := t.TempDir()
+	writeMacosUserAgentEnvFiles(fresh, channel)
+	if _, err := os.Stat(filepath.Join(fresh, "config")); !os.IsNotExist(err) {
+		t.Errorf("a sidecar with no pre-12a directory got one (err %v)", err)
+	}
+}
+
 // The container vehicle's whole contract over the shipped claude + pi + zai packs with
 // pi on zai: the shared file keeps only what no provider claims, pi's own file carries
 // zai's key, and neither carries the Bedrock pair nobody selected.
@@ -157,8 +193,13 @@ func TestAnAgentFileLandsBesideItsEnvFileAndLeavesWithIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "'" + macosuser.SandboxHome() + "/.config/yolo-agent-env/copilot.providers.json'"; !strings.Contains(string(macEnv), want) {
+	// HOME is the sidecar in both modes (MMP-D5, MMP-D25), so the file is named where that HOME
+	// reads it.
+	if want := "'" + sidecar + "/.config/yolo-agent-env/copilot.providers.json'"; !strings.Contains(string(macEnv), want) {
 		t.Errorf("macos-user's copilot.sh does not name the file in the sandbox home %s:\n%s", want, macEnv)
+	}
+	if strings.Contains(string(macEnv), macosuser.SandboxHome()) {
+		t.Errorf("macos-user's copilot.sh names the account's shared home:\n%s", macEnv)
 	}
 	if _, err := os.Stat(filepath.Join(sidecar, macosUserAgentEnvDir, "copilot.providers.json")); err != nil {
 		t.Errorf("macos-user's writer wrote no providers.json: %v", err)

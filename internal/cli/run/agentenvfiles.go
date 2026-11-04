@@ -30,7 +30,6 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
-	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
@@ -105,16 +104,27 @@ func clearAgentEnvFiles(wsState, rt string) {
 }
 
 // writeMacosUserAgentEnvFiles is the macos-user arm's delivery of the per-agent files (OQ-CN9):
-// writeAgentEnvFiles, the container vehicle's own writer, into <sidecar>/config/yolo-agent-env —
-// entrypoint.AgentEnvDirRel with its leading dot trimmed, the rule the bootstrap's home layout
-// links the sandbox's ~/.config by (entrypoint.DeriveDarwinHomeLayout: `.config` → `config`).
-// One writer, so the two backends' files cannot differ in grammar, mode or revocation.
+// writeAgentEnvFiles, the container vehicle's own writer, into <sidecar>/.config/yolo-agent-env.
+// The sidecar IS the sandbox's HOME in both modes (macosuser.LaunchHomes; MMP-D5, MMP-D25), so
+// the directory is entrypoint.AgentEnvDirRel beneath it and each agent-file line names its file
+// under that HOME. One writer, so the two backends' files cannot differ in grammar, mode or
+// revocation.
+//
+// THE OLD LOCATION IS EMPTIED: before slice 12a the account's ~/.config linked to
+// <sidecar>/config, and those files carry provider keys nothing reads any more.
 func writeMacosUserAgentEnvFiles(sidecar string, channel *packChannel) {
-	_ = writeAgentEnvFiles(sidecar, macosUserAgentEnvDir, entrypoint.AgentEnvDirRel, macosuser.SandboxHome(), channel)
+	_ = writeAgentEnvFiles(sidecar, macosUserAgentEnvDir, entrypoint.AgentEnvDirRel, sidecar, channel)
+	if _, err := os.Stat(filepath.Join(sidecar, macosUserLegacyAgentEnvDir)); err == nil {
+		_ = writeAgentEnvFiles(sidecar, macosUserLegacyAgentEnvDir, entrypoint.AgentEnvDirRel, sidecar, nil)
+	}
 }
 
-// macosUserAgentEnvDir is the per-agent env directory beneath the macos-user sidecar.
-var macosUserAgentEnvDir = strings.TrimPrefix(entrypoint.AgentEnvDirRel, ".")
+// macosUserAgentEnvDir is the per-agent env directory beneath the macos-user sidecar, which is the
+// sandbox's HOME; macosUserLegacyAgentEnvDir is where the account layout kept it before slice 12a.
+var (
+	macosUserAgentEnvDir       = entrypoint.AgentEnvDirRel
+	macosUserLegacyAgentEnvDir = strings.TrimPrefix(entrypoint.AgentEnvDirRel, ".")
+)
 
 // writeAgentEnvFiles rewrites <wsState>/<dir> to hold exactly this entry's per-agent files:
 // one per profiled agent with anything of its own, and nothing else. REPLACE, NEVER MERGE —

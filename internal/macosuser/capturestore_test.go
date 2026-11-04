@@ -193,17 +193,25 @@ func TestPlanInvariantsRefuseAWrongCaptureStore(t *testing.T) {
 	}
 }
 
-// THE SESSION PROFILE IS UNCHANGED, which is the property (b) was chosen for: the staged store is
-// under the staging root, which the profile already lets the sandbox read, so staging it adds no
-// rule — not a read allow for the user's store under /Users, which (a) would.
-func TestTheSessionProfileIsTheSameWithAndWithoutCaptures(t *testing.T) {
+// THE SESSION PROFILE READS THE STAGED COPY ALONE, which is the property (b) was chosen for: the
+// deny-by-default profile (every mode's since MMP-D25) grants this session's staged paths one by
+// one, so staging a capture adds exactly the read of the staged store under the staging root —
+// never a read allow for the user's store under /Users, which (a) would.
+func TestTheSessionProfileReadsOnlyTheStagedCaptureStore(t *testing.T) {
 	without := planWithCtx(t, HostContext{})
 	with := planWithCtx(t, stagedCaptureCtx())
-	if with.Seatbelt != without.Seatbelt {
-		t.Errorf("staging a capture changed the session Seatbelt profile; (b) changes no byte of it")
+	staged := `(subpath "` + StagedCapturesRoot("") + `")`
+	if strings.Contains(without.Seatbelt, staged) {
+		t.Errorf("a launch staging no capture reads the staged capture store")
 	}
-	if strings.Contains(with.Seatbelt, capturesLeaf) || strings.Contains(with.Seatbelt, "yolo-jail/captures") {
-		t.Errorf("the session profile names the capture store")
+	if !strings.Contains(with.Seatbelt, staged) {
+		t.Errorf("a launch staging a capture does not read the staged store %s", StagedCapturesRoot(""))
+	}
+	if strings.Count(with.Seatbelt, "\n")-strings.Count(without.Seatbelt, "\n") != 1 {
+		t.Errorf("staging a capture changed the profile by more than the one staged-store read")
+	}
+	if strings.Contains(with.Seatbelt, "yolo-jail/captures") {
+		t.Errorf("the session profile names the user's capture store")
 	}
 }
 
@@ -698,52 +706,26 @@ func TestAFailedCaptureCopyLeavesNoPartialCopy(t *testing.T) {
 	}
 }
 
-// PreflightLaunch ASKS WHAT THE LAUNCH ASKS, of the same workspace spelling and under the same
-// hold name: a caller deciding "will the backend refuse this launch?" before the launch does
-// (internal/cli/run's auto-capture) must get the launch's answer, or it acts for launches the
-// backend then refuses, or skips ones it admits.
+// PreflightLaunch ASKS WHAT THE LAUNCH ASKS, of the same workspace spelling: a caller deciding
+// "will the backend refuse this launch?" before the launch does (internal/cli/run's auto-capture)
+// must get the launch's answer, or it acts for launches the backend then refuses, or skips ones it
+// admits. There is no hold to ask any more (MMP-D25): a second workspace is admitted.
 func TestPreflightLaunchAsksWhatTheLaunchAsks(t *testing.T) {
-	type holdCall struct{ ws, cname string }
-	recordHold := func(calls *[]holdCall, refusal string) func(string, string, string) (func(), string) {
-		return func(ws, cname, _ string) (func(), string) {
-			*calls = append(*calls, holdCall{ws, cname})
-			if refusal != "" {
-				return nil, refusal
-			}
-			return func() {}, ""
-		}
-	}
 	const ws = "/Users/Shared/yolo/proj"
-
-	// Admitted: both take the hold, under one name for one workspace.
-	var pre, launch []holdCall
 	d := mockDeps(nil)
-	release, ok := PreflightLaunch(d.launchProbes(), recordHold(&pre, ""), ws)
-	if !ok || release == nil {
+	if !PreflightLaunch(d.launchProbes(), ws) {
 		t.Fatalf("PreflightLaunch refused a launch every precondition admits")
 	}
-	release()
-	d.HoldAccountHome = recordHold(&launch, "")
 	if rc := RunMacosUser(d, newOpts(ws)); rc != 42 {
 		t.Fatalf("the launch itself was refused (rc %d)", rc)
 	}
-	if len(pre) != 1 || len(launch) != 1 || pre[0] != launch[0] {
-		t.Errorf("PreflightLaunch held %+v, the launch %+v; they must be one hold", pre, launch)
-	}
-
-	// Refused by a precondition: the in-home rule, a pure fact about the path, and no hold taken.
-	pre = nil
-	if _, ok := PreflightLaunch(d.launchProbes(), recordHold(&pre, ""), "/Users/matt/proj"); ok || len(pre) != 0 {
-		t.Errorf("PreflightLaunch admitted a workspace under a home (ok %v, holds %v)", ok, pre)
+	// Refused by a precondition: the in-home rule, a pure fact about the path.
+	if PreflightLaunch(d.launchProbes(), "/Users/matt/proj") {
+		t.Errorf("PreflightLaunch admitted a workspace under a home")
 	}
 	nd := mockDeps(nil)
 	nd.SandboxUserExists = func() bool { return false }
-	if _, ok := PreflightLaunch(nd.launchProbes(), recordHold(&pre, ""), ws); ok {
+	if PreflightLaunch(nd.launchProbes(), ws) {
 		t.Errorf("PreflightLaunch admitted a Mac with no sandbox account")
-	}
-
-	// Refused by the hold, as the launch is.
-	if _, ok := PreflightLaunch(d.launchProbes(), recordHold(&pre, "another session is live"), ws); ok {
-		t.Errorf("PreflightLaunch admitted a launch the account-home hold refuses")
 	}
 }

@@ -49,6 +49,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	yoloruntime "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
@@ -75,7 +76,10 @@ type inheritScopeFile struct {
 	body           string
 	format         configdoc.Format
 	fallbackReason string
-	keys           int
+	// omissions are the legacy-written values a TOML delivery left out (LC-D4), disclosed once
+	// per launch by inheritedScopeWithSelector.
+	omissions []config.InheritOmission
+	keys      int
 }
 
 // canNest reports whether a jail on this backend can launch a jail of its own — the gate on
@@ -144,10 +148,11 @@ func inheritScopeFilesWithSelector(effective *jsonx.OrderedMap, src *config.Sour
 		if filtered.Len() == 0 {
 			return nil
 		}
-		body, format, fallbackReason, rerr := config.RenderFilteredForDeliveryLowering(filtered, src, scope, launchedAt, configmigrate.LowerInheritedUserScope)
+		delivery, rerr := config.RenderInheritedDelivery(filtered, src, scope, launchedAt, configmigrate.LowerInheritedUserScope)
 		if rerr != nil {
 			return rerr
 		}
+		body, format, fallbackReason, omissions := delivery.Body, delivery.Format, delivery.FallbackReason, delivery.Omissions
 		if selectLegacy != nil {
 			forceLegacy, selectErr := selectLegacy(scope, format)
 			if selectErr != nil {
@@ -160,14 +165,14 @@ func inheritScopeFilesWithSelector(effective *jsonx.OrderedMap, src *config.Sour
 						"scope to JSONC, but %w. Review that file in the workspace's .yolo/home, move it aside, then relaunch",
 						InheritedScopeRel(scope, configdoc.JSONC), rerr)
 				}
-				format = configdoc.JSONC
+				format, omissions = configdoc.JSONC, nil // the JSONC route carries every value
 				fallbackReason = "a legacy JSON or JSONC file that is not an empty placeholder already sits at ~/" +
 					InheritedScopeRel(scope, configdoc.JSONC) + " (or its .json sibling) in this jail's home; review it in the " +
 					"workspace's .yolo/home and move it aside, and the next launch delivers TOML"
 			}
 		}
 		rel := InheritedScopeRel(scope, format)
-		files = append(files, inheritScopeFile{scope: scope, rel: rel, body: body, format: format, fallbackReason: fallbackReason, keys: filtered.Len()})
+		files = append(files, inheritScopeFile{scope: scope, rel: rel, body: body, format: format, fallbackReason: fallbackReason, omissions: omissions, keys: filtered.Len()})
 		return nil
 	}
 
@@ -212,7 +217,28 @@ func (o *Options) inheritedScopeWithSelector(rt string, stamped bool, selectLega
 				". No user-owned sibling file was changed.[/yellow]")
 		}
 	}
+	for _, line := range inheritOmissionLines(files) {
+		out.print("[yellow]" + richtext.Escape(line) + "[/yellow]")
+	}
 	return files, nil
+}
+
+// inheritOmissionLines is the one disclosure line per value a TOML delivery left out of the
+// jail's user scope (LC-D4): each named once, however many of the scope files left it out, with
+// the host file and line that wrote it, what the jail does without it, and the step where one
+// is named. Nothing refuses, and nothing else is required of the user.
+func inheritOmissionLines(files []inheritScopeFile) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, f := range files {
+		for _, o := range f.omissions {
+			if key := o.Path + "\x00" + o.Where; !seen[key] {
+				seen[key] = true
+				out = append(out, "The jail's inherited user config leaves out "+o.String()+".")
+			}
+		}
+	}
+	return out
 }
 
 // selectInheritedJSONCRouteSkipping reports whether an existing legacy file at scope's
@@ -714,9 +740,71 @@ func darwinSidecarRel(layout entrypoint.DarwinHomeLayout, rel string) (string, e
 var inheritedScopeStagingRoot = macosuser.StagingRoot
 
 func refuseInheritedOverwrite(wsState string, storage func(string) (string, error), scope config.InheritScope) error {
+	if err := refuseAppleContainerHome(wsState, storage, scope); err != nil {
+		return err
+	}
 	_, err := refuseExistingScopeDestination(wsState, storage, scope, "macos-user", "the home-overlay installer cannot prove it is a file it delivered before, so installing the user config there could overwrite it",
 		"It was not moved aside for you because it shares its data with another hard link or belongs to another user.")
 	return err
+}
+
+// refuseAppleContainerHome is the refusal for a workspace whose home an Apple Container launch
+// laid (macos-user-model-plan.md MMP-D32; the Mac run of 2026-11-03, §5). Since slice 12a both
+// backends use <ws>/.yolo/home as HOME with the same dotted layout, and Apple Container COPIES the
+// generated user config into it (userConfigMountArgsForHome: writable, yolo's generated header
+// first), where macos-user delivers a sealed 0444 file it can prove. Nothing proves that copy
+// unedited, so it is not overwritten; and the rest of an Apple Container home (files with no
+// sandbox-account access, links to container paths) is not this backend's to repair file by file,
+// so the step named is the one that clears it all and keeps it: move the whole home aside. nil
+// when no destination of scope holds a copy of that shape.
+func refuseAppleContainerHome(wsState string, storage func(string) (string, error), scope config.InheritScope) error {
+	uid := os.Geteuid()
+	for _, rel := range inheritScopeDestinations(scope) {
+		storageRel, err := storage(rel)
+		if err != nil {
+			continue
+		}
+		if _, exists, err := lstatHomeFile(wsState, storageRel); err != nil || !exists {
+			continue
+		}
+		path := filepath.Join(wsState, storageRel)
+		if !isAppleContainerInheritedCopy(path, uid) {
+			continue
+		}
+		mv := shquote.JoinDisplay([]string{"mv", wsState, wsState + ".apple-container"})
+		return fmt.Errorf("refusing macos-user inherited %s scope: %s is the user config an Apple "+
+			"Container launch of this workspace copied there (writable, with yolo's generated header), "+
+			"so this workspace's home %s was laid by Apple Container, which uses the same directory as "+
+			"its home; macos-user cannot prove that copy unedited and will not overwrite it. To run this "+
+			"workspace on macos-user, move that home aside, keeping all of it (%s), and relaunch; to "+
+			"keep it on Apple Container, launch with YOLO_RUNTIME=container", scope, path, wsState, mv)
+	}
+	return nil
+}
+
+// isAppleContainerInheritedCopy reports whether path is a generated user-scope file in the shape an
+// Apple Container launch leaves it: a regular file of uid's with one link, writable (macos-user's
+// own deliveries are sealed 0444), whose first line is yolo's generated header in either format.
+// A shape, never a proof: it only chooses which refusal to print.
+func isAppleContainerInheritedCopy(path string, uid int) bool {
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o222 == 0 || !inheritedFileOwnedBy(info, uid) {
+		return false
+	}
+	if stat, ok := info.Sys().(*syscall.Stat_t); !ok || stat.Nlink != 1 {
+		return false
+	}
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	line, err := bufio.NewReader(io.LimitReader(f, 4096)).ReadString('\n')
+	if err != nil && err != io.EOF {
+		return false
+	}
+	line = strings.TrimRight(line, "\r\n")
+	return line == inheritHeaderFirstLine() || line == inheritTOMLHeaderFirstLine()
 }
 
 // inheritedStaging is the host-owned staging root (macosuser.StagingRoot) a launch delivers the

@@ -57,7 +57,6 @@ func TestTheStageSpansEveryGroupOfItsCommandsAndTheyAccountForIt(t *testing.T) {
 	ws := "/Users/Shared/yolo/proj"
 	fakeSupervisor(&d, &rec, ws, "", readyLine, "", false)
 	d.GuestBinaries = func(string) (string, error) { return "/opt/yolo/bin/darwin-arm64", nil }
-	d.HoldAccountHome = func(string, string, string) (func(), string) { return func() {}, "" }
 	log, events := tickingLog(&d)
 	d.Perf = log
 	if rc := RunMacosUser(d, stageTimingOpts(t, ws)); rc != 42 {
@@ -108,7 +107,6 @@ func TestTheStageSpansEveryGroupOfItsCommandsAndTheyAccountForIt(t *testing.T) {
 // A REFUSED STAGE COMMAND ends the group it ran in, and no group after it starts.
 func TestAFailedStageCommandEndsItsGroupsSpan(t *testing.T) {
 	d := mockDeps(nil)
-	d.HoldAccountHome = func(string, string, string) (func(), string) { return func() {}, "" }
 	ws := "/Users/Shared/yolo/proj"
 	o := stageTimingOpts(t, ws)
 	o.JailDaemons = JailDaemons{}

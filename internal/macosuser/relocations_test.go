@@ -122,13 +122,10 @@ func TestPlanWithCacheRelocationsHoldsEveryInvariant(t *testing.T) {
 	}
 }
 
-// NO RELOCATION, NO CHANGE: the profile is byte-identical to one built without the key, the
-// bootstrap is told nothing, and nothing is probed.
+// NO RELOCATION, NO CHANGE: the profile carries no relocation rule, the bootstrap is told
+// nothing, and nothing is probed.
 func TestAPlanWithNoRelocationIsUnchanged(t *testing.T) {
 	plan := planWithRelocations(t)
-	if want := SeatbeltProfile(relocWS, SandboxHome(), nil, HomeReadonly{}); plan.Seatbelt != want {
-		t.Errorf("a launch with no relocation got a different profile")
-	}
 	if _, ok := argvEnvValue(plan.BootstrapArgv, entrypoint.DarwinCacheRelocationsEnv); ok {
 		t.Errorf("a launch with no relocation names %s to the bootstrap", entrypoint.DarwinCacheRelocationsEnv)
 	}
@@ -154,7 +151,8 @@ func TestTheProfileOpensEachRelocationTargetAfterTheDeniesItReopens(t *testing.T
 		return i
 	}
 	read, write := at("cache-relocation-read-allow"), at("cache-relocation-write-allow")
-	for _, deny := range []string{"volumes-read-deny", "users-read-deny"} {
+	// The deny-by-default profile (every mode's since MMP-D25) re-opens what its head denies.
+	for _, deny := range []string{"deny-default"} {
 		if at(deny) > read {
 			t.Errorf("the relocations' read allow comes before %s, so it re-opens nothing", deny)
 		}
@@ -175,14 +173,17 @@ func TestTheProfileOpensEachRelocationTargetAfterTheDeniesItReopens(t *testing.T
 			t.Errorf("%s is not opened read and write:\nread:\n%s\nwrite:\n%s", target, readBlock, writeBlock)
 		}
 	}
+	// The deny-by-default profile grants the directory entries on the way in its one
+	// ancestor-literal block.
+	ancestors := profileBlock(p, "ancestor-literal-allow")
 	for _, lit := range []string{"/Volumes", "/Volumes/Data", "/Volumes/Data/yolo", "/Users/Shared/caches"} {
-		if !strings.Contains(readBlock, "(literal "+sbplStr(lit)+")") {
-			t.Errorf("the directory entry %s on the way to a target is not granted:\n%s", lit, readBlock)
+		if !strings.Contains(ancestors, "(literal "+sbplStr(lit)+")") {
+			t.Errorf("the directory entry %s on the way to a target is not granted:\n%s", lit, ancestors)
 		}
 	}
-	for _, sub := range []string{"/Volumes", "/Volumes/Data", "/Users/Shared"} {
-		if strings.Contains(readBlock, "(subpath "+sbplStr(sub)+")") {
-			t.Errorf("the relocations' read allow re-opens all of %s:\n%s", sub, readBlock)
+	for _, sub := range []string{"/Volumes", "/Volumes/Data", "/Users/Shared/caches"} {
+		if strings.Contains(p, "(subpath "+sbplStr(sub)+")") {
+			t.Errorf("the profile re-opens all of %s:\n%s", sub, p)
 		}
 	}
 }
@@ -215,7 +216,7 @@ func TestPlanInvariantsFailWithoutEachRelocationHalf(t *testing.T) {
 			block := ";; #seatbelt-test-id:cache-relocation-read-allow#\n"
 			p.Seatbelt = strings.Replace(p.Seatbelt, block, "", 1)
 			p.Seatbelt = block + p.Seatbelt
-		}, "comes before the volumes-read-deny"},
+		}, "comes before the deny-default"},
 		"no preflight":   {func(p *RunPlan) { p.CacheRelocationPreflight = nil }, "not checked by the DAC preflight"},
 		"no write probe": {func(p *RunPlan) { p.CacheRelocationProbes = nil }, "not probed by a write under the session's"},
 		"no bootstrap link": {func(p *RunPlan) {

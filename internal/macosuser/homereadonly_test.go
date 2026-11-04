@@ -312,7 +312,9 @@ func TestBuildRunPlanWriteProtectsTheDeliveredContent(t *testing.T) {
 				"handing the overlay's destinations to SeatbeltProfile?\n%s", want, plan.Seatbelt)
 		}
 	}
-	if !strings.Contains(sbplForm(t, plan.Seatbelt, "home-content-anchor-deny"), `(literal "`+hrHome+`/.claude")`) {
+	// HOME is the workspace's own home in every mode (MMP-D25), so the ~/.claude the agent
+	// writes through is the sidecar's.
+	if !strings.Contains(sbplForm(t, plan.Seatbelt, "home-content-anchor-deny"), `(literal "`+hrSC+`/.claude")`) {
 		t.Errorf("the run plan's profile does not anchor the ~/.claude layout link\n%s", plan.Seatbelt)
 	}
 }

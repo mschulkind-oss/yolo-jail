@@ -14,6 +14,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	officialpacks "github.com/mschulkind-oss/yolo-jail/packs"
 )
 
@@ -45,13 +46,15 @@ func bootstrapMCPServers(t *testing.T, cfg *jsonx.OrderedMap, hostPackRoot strin
 
 func TestTheMacosUserBootstrapCarriesThePacksMCPEntry(t *testing.T) {
 	root := stagedShippedTree(t)
-	wrapper := SandboxHome() + "/.local/share/yolo-chrome-devtools/chrome-devtools-mcp-wrapper"
+	// The agent's HOME is the workspace's own home in every mode (MMP-D25).
+	home := paths.WorkspaceHomeState("/Users/Shared/proj")
+	wrapper := home + "/.local/share/yolo-chrome-devtools/chrome-devtools-mcp-wrapper"
 
 	got := bootstrapMCPServers(t, jsonx.NewOrderedMap(), root)
 	if !strings.Contains(got, `"chrome-devtools"`) || !strings.Contains(got, wrapper) ||
 		!strings.Contains(got, `"/bin/sh"`) {
 		t.Errorf("the bootstrap's MCP table does not run the pack's wrapper under %s: %s",
-			SandboxHome(), got)
+			home, got)
 	}
 
 	cfg, err := jsonx.Decode([]byte(`{"mcp_servers":{"chrome-devtools":null,` +

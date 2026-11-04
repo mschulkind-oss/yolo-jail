@@ -13,9 +13,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -219,16 +221,63 @@ func TestParseProcargs2ReadsTheEnvironmentAfterTheArguments(t *testing.T) {
 	}
 }
 
+// envVisibleShellDir is a directory to put first on a stand-in's PATH so that its `sh` is one
+// whose environment the harness can read. macOS 26 withholds a PLATFORM binary's environment
+// from kern.procargs2, its owner's read included (the Mac run of 2026-11-03, §6: `/bin/sh` and
+// `/bin/sleep` return their arguments and no environment, a nix-store `sleep` its full one), so a
+// stand-in that is `/bin/sh` can never show the HOME the stop matches on. The first `sh` on PATH,
+// or in a nix profile, that resolves outside the system's own directories is not a platform
+// binary. With none, the test skips naming the install that gives it one.
+func envVisibleShellDir(t *testing.T) string {
+	t.Helper()
+	dirs := filepath.SplitList(os.Getenv("PATH"))
+	if home, err := os.UserHomeDir(); err == nil {
+		dirs = append(dirs, filepath.Join(home, ".nix-profile", "bin"))
+	}
+	if u := os.Getenv("USER"); u != "" {
+		dirs = append(dirs, filepath.Join("/etc/profiles/per-user", u, "bin"))
+	}
+	dirs = append(dirs, "/run/current-system/sw/bin", "/nix/var/nix/profiles/default/bin")
+	for _, dir := range dirs {
+		if dir == "" {
+			continue
+		}
+		real, err := filepath.EvalSymlinks(filepath.Join(dir, "sh"))
+		if err != nil || platformBinaryPath(real) {
+			continue
+		}
+		if info, err := os.Stat(real); err == nil && info.Mode().IsRegular() && info.Mode()&0o111 != 0 {
+			return dir
+		}
+	}
+	t.Skip("no `sh` resolves outside the system's own directories, and kern.procargs2 hides a " +
+		"platform binary's environment on this macOS, so no stand-in can show its HOME. Put a nix " +
+		"one on PATH: nix profile install nixpkgs#bash")
+	return ""
+}
+
+// platformBinaryPath reports a path under the directories macOS ships its own signed binaries in.
+func platformBinaryPath(p string) bool {
+	for _, root := range []string{"/bin/", "/sbin/", "/usr/", "/System/", "/Library/Apple/"} {
+		if strings.HasPrefix(p, root) {
+			return true
+		}
+	}
+	return false
+}
+
 // processEnviron reads a live child's environment, and its start time and parent come from the
-// same kernel table the listing reads.
+// same kernel table the listing reads. The child is a non-platform `sh` (envVisibleShellDir),
+// since this macOS hides a platform binary's environment; it waits in the background so it stays
+// the shell, and takes its sleep with it on SIGTERM.
 func TestProcessEnvironReadsALiveChildsHome(t *testing.T) {
 	home := t.TempDir()
-	cmd := exec.Command("sleep", "4986")
+	cmd := exec.Command(filepath.Join(envVisibleShellDir(t), "sh"), "-c", standInScript)
 	cmd.Env = append(os.Environ(), "HOME="+home)
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+	t.Cleanup(func() { _ = cmd.Process.Signal(syscall.SIGTERM); _ = cmd.Wait() })
 	deadline := time.Now().Add(5 * time.Second)
 	for !processRunsWithHome(cmd.Process.Pid, home) {
 		if time.Now().After(deadline) {

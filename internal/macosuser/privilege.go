@@ -94,6 +94,14 @@ func isRunAsSandboxArgv(argv []string) bool {
 // `/usr/bin/true` would not match: sudo matches the command's path, and the rule names env.
 func RunAsGrantProbeArgv() []string { return RunAsSandboxArgv(nil, "/usr/bin/true") }
 
+// AccountUserTempDirArgv asks the sandbox account's own DARWIN_USER_TEMP_DIR through the rule:
+// `/usr/bin/sudo -n --user=_yolojail /usr/bin/env /usr/bin/getconf DARWIN_USER_TEMP_DIR`. Only
+// the account can answer it — the directory is derived from the asking user — and the account
+// mode's profile opens it (MMP-D29).
+func AccountUserTempDirArgv() []string {
+	return RunAsSandboxArgv(nil, "/usr/bin/getconf", "DARWIN_USER_TEMP_DIR")
+}
+
 // RunAsArgvProblems reports how argv departs from the rule's shape. An argv that does not run
 // sudo at all is not this check's business and has no problems; any sudo argv must be exactly
 // what RunAsSandboxArgv builds: sudo by absolute path, `-n`, at most `--set-home`, `--user=` the

@@ -1,7 +1,6 @@
 package config
 
 import (
-	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -78,34 +77,44 @@ func TestInheritedJSONCRenderRefusesValuesATOMLFileWrote(t *testing.T) {
 // A legacy file included from a TOML one keeps the JSONC route only while the payload holds no
 // TOML-written value a reader judges by format. Here the TOML file writes such shapes and the
 // legacy include writes a key the readers keep in its legacy spelling (`model_facts`): neither
-// format carries it as it is, so the scope crosses as the migration's lowering of it
-// (RC-D55, configmigrate.LowerInheritedUserScope in a launch) and, where that lowering declines,
-// delivery fails naming both sides, the legacy line, why the lowering declined and the next
-// step, rather than handing readable values to the legacy reader.
-func TestInheritedDeliveryFailsRatherThanFallBackWithTOMLWrittenValues(t *testing.T) {
+// format carries the scope as it is, so it crosses as TOML, always (LC-D4): as the lowering
+// respells it, and where the lowering leaves a legacy value with no TOML spelling, without it,
+// disclosed once naming the legacy line. It never refuses, and it never hands readable values to
+// the legacy reader. Fails if the combined refusal comes back, or if an omission goes unnamed.
+func TestInheritedDeliveryWithTOMLWrittenValuesCrossesAsTOMLLeavingOutWhatHasNoSpelling(t *testing.T) {
 	src, filtered := loadConvertedHostConfig(t, "include_if_found = ['extra.jsonc']\n"+convertedTOMLUserConfig,
 		map[string]string{"extra.jsonc": `{"model_facts": {"m1": {"context_window": 1000}}}`})
 	values := filtered[InheritPreflight]
 	if _, present := values.Get("model_facts"); !present {
 		t.Fatalf("fixture: the legacy include's model_facts did not reach the preflight scope, so this proves nothing: %v", values)
 	}
-	decline := func(*jsonx.OrderedMap) (*jsonx.OrderedMap, error) {
-		return nil, errors.New("config.model_facts.m1: stand-in decline")
+	var sawTOMLWritten, sawLegacy bool
+	keep := func(v *jsonx.OrderedMap, tomlWritten func(string) bool) (*jsonx.OrderedMap, []InheritOmission) {
+		sawTOMLWritten = tomlWritten("packs[1]") && tomlWritten("providers.bedrock.model")
+		sawLegacy = !tomlWritten("model_facts.m1")
+		return v, nil
 	}
-	body, format, fallback, err := RenderFilteredForDeliveryLowering(values, src, InheritPreflight, "", decline)
-	if err == nil {
-		t.Fatalf("delivery fell back (format=%v, reason %q) with TOML-written values:\n%s", format, fallback, body)
-	}
-	for _, want := range []string{paths.UserConfigTOMLName, "config.model_facts", "extra.jsonc:1:", "stand-in decline", "yolo config migrate"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("the delivery failure does not say %q: %v", want, err)
+	for name, lower := range map[string]UserScopeLowering{"no lowering": nil, "a lowering that respells nothing": keep} {
+		d, err := RenderInheritedDelivery(values, src, InheritPreflight, "", lower)
+		if err != nil {
+			t.Fatalf("%s: the crossing refused a scope the host accepted: %v", name, err)
 		}
+		if d.Format != configdoc.TOML || strings.Contains(d.Body, "model_facts") || !strings.Contains(d.Body, "mine/tools") {
+			t.Fatalf("%s: want TOML holding the TOML handle and no model_facts, got format=%v:\n%s", name, d.Format, d.Body)
+		}
+		if len(d.Omissions) != 1 || !strings.HasPrefix(d.Omissions[0].Path, "config.model_facts") ||
+			!strings.Contains(d.Omissions[0].Where, "extra.jsonc:1:") || !strings.Contains(d.Omissions[0].String(), "without it") {
+			t.Errorf("%s: the left-out legacy value is not disclosed once, naming its line: %+v", name, d.Omissions)
+		}
+	}
+	if !sawTOMLWritten || !sawLegacy {
+		t.Errorf("the lowering is not told which values a TOML file wrote (LC-D5): toml=%v legacy=%v", sawTOMLWritten, sawLegacy)
 	}
 
 	// A lowering that converts it is what crosses, as TOML, with no host origins: the jail
 	// judges a value by its origin's format, and the host file behind a respelled value is the
 	// legacy one.
-	respell := func(v *jsonx.OrderedMap) (*jsonx.OrderedMap, error) {
+	respell := func(v *jsonx.OrderedMap, _ func(string) bool) (*jsonx.OrderedMap, []InheritOmission) {
 		facts := jsonx.NewOrderedMap()
 		row := jsonx.NewOrderedMap()
 		row.Set("context", 1000)
@@ -113,12 +122,26 @@ func TestInheritedDeliveryFailsRatherThanFallBackWithTOMLWrittenValues(t *testin
 		v.Set("model_facts", facts)
 		return v, nil
 	}
-	body, format, fallback, err = RenderFilteredForDeliveryLowering(values, src, InheritPreflight, "", respell)
-	if err != nil || format != configdoc.TOML || fallback != "" {
-		t.Fatalf("the lowered scope did not cross as TOML: format=%v fallback=%q err=%v", format, fallback, err)
+	d, err := RenderInheritedDelivery(values, src, InheritPreflight, "", respell)
+	if err != nil || d.Format != configdoc.TOML || d.FallbackReason != "" || len(d.Omissions) != 0 {
+		t.Fatalf("the lowered scope did not cross as TOML: %+v err=%v", d, err)
 	}
-	if !strings.Contains(body, "context = 1000") || strings.Contains(body, originsTOMLLinePrefix) {
-		t.Errorf("the lowered scope is not the lowering's, or names host origins:\n%s", body)
+	if !strings.Contains(d.Body, "context = 1000") || strings.Contains(d.Body, originsTOMLLinePrefix) {
+		t.Errorf("the lowered scope is not the lowering's, or names host origins:\n%s", d.Body)
+	}
+}
+
+// LC-D8: in the inherited bottom layer a legacy null the readable schema has no removal spelling
+// for means absence, the rule the crossing already applies to env: it neither refuses nor is
+// disclosed. Fails if such a null blocks the TOML delivery again.
+func TestInheritedLegacyNullWithNoRemovalSpellingCrossesAsAbsent(t *testing.T) {
+	src, filtered := loadConvertedHostConfig(t, "include_if_found = ['extra.jsonc']\n"+convertedTOMLUserConfig,
+		map[string]string{"extra.jsonc": `{"mise_tools": null, "resources": null}`})
+	for scope, values := range filtered {
+		d, err := RenderInheritedDelivery(values, src, scope, "", nil)
+		if err != nil || d.Format != configdoc.TOML || len(d.Omissions) != 0 {
+			t.Fatalf("%s: a legacy null did not cross as absence: %+v err=%v", scope, d, err)
+		}
 	}
 }
 

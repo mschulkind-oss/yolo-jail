@@ -498,14 +498,20 @@ func darwinBootstrapArgvUnder(runAs RunAs, stagedYolo, home string, bootstrapEnv
 	return argv
 }
 
-// selfProfileParams is the deny-by-default profile's inputs for a run-as-you launch: the
-// workspace, HOME, the invoking user's home (named to deny parts of it), the machine root and
-// each selected `scope: machine` dir in the shared store as the writable places beyond them
-// (MMP-D6; never the whole store, which holds every other agent's login), the context mounts,
-// relocations, workspace_readonly, the staged home content, devices and the shared caches, with
-// the two pending rulings at their production values (MMP-D13), the session's own TMPDIR
+// denyDefaultProfileParams is the deny-by-default profile's inputs for a launch in either mode:
+// the workspace, HOME, the real home of the user it runs as (named to deny parts of it), the
+// machine root and each selected `scope: machine` dir in the shared store as the writable places
+// beyond them (MMP-D6; never the whole store, which holds every other agent's login), the context
+// mounts, relocations, workspace_readonly, the staged home content, devices and the shared caches,
+// with the two pending rulings at their production values (MMP-D13), the session's own TMPDIR
 // (MMP-D17) and the session's host-services dirs, read only by exact path (MMP-D15).
-func selfProfileParams(workspace string, homes Homes, hostPackRoot string, session PlanSession,
+//
+// THE ACCOUNT MODE (MMP-D25, MMP-D29) differs in two inputs. It runs as SandboxUser, and its
+// shared /tmp stays open: the account mode sets no session TMPDIR and keeps the TMPDIR its
+// user's env layers give it (SandboxTmpdirValidationProblem), so a closed /tmp would break
+// every tool that falls back to /tmp under an unchanged config. Its per-user temp dir is the
+// account's own (Deps.AccountUserTempDir), open under that same policy.
+func denyDefaultProfileParams(workspace string, homes Homes, hostPackRoot string, session PlanSession,
 	readonlyRels, readonlyTargets []string, homeReadonly HomeReadonly, ctxLinks []ContextLink,
 	relocs []CacheRelocation, aliases []CacheAlias, devices []string, sandboxTmp string,
 	servicesDirs []string) ProfileParams {
@@ -535,6 +541,11 @@ func selfProfileParams(workspace string, homes Homes, hostPackRoot string, sessi
 		Devices:           devices,
 		RunAsUser:         session.HostUser,
 	}.WithProductionRulings()
+	if session.Mode != ModeSelf {
+		p.RunAsUser = SandboxUser
+		p.Tmp = TmpShared // the account mode keeps its /tmp (MMP-D29)
+		return p
+	}
 	if session.SharedTmp {
 		p.Tmp = TmpShared // the user's hatch (OQ-MM8, MMP-D18)
 	}
@@ -613,22 +624,24 @@ func BuildRunPlanWithStages(workspace string, cfg *jsonx.OrderedMap, agents, age
 	// from an argument somebody constructed.
 	workspace = resolvePathAbs(workspace)
 	// THE ONE CROSSING (mode.go, MMP-D4) AND THE HOMES IT RENDERS, decided once from the
-	// session's mode. The account mode is today's plan byte for byte: SandboxHome() in every home
-	// role and the second account's sudo crossing. The run-as-you mode (macos_user_mode "self",
-	// slice 6) runs as you: HOME is <workspace>/.yolo/home, the machine tier and the shared store
-	// are under your state dir (LaunchHomes), and every argv crosses through /usr/bin/env alone.
+	// session's mode. In BOTH modes HOME is <workspace>/.yolo/home (LaunchHomes; MMP-D25 for the
+	// account mode, slice 12a), so two workspaces run at once with no home in common. The account
+	// mode crosses into the second account through its sudo rule, its machine tier and shared store
+	// are the account's own home; the run-as-you mode (macos_user_mode "self", slice 6) runs as
+	// you, its machine tier and shared store under your state dir, and every argv crosses through
+	// /usr/bin/env alone.
 	runAs := RunAs{Mode: session.Mode}
-	homes := accountHomes("")
 	self := session.Mode == ModeSelf
+	// An unnamed home stays unnamed (resolvePathAbs would make "" the cwd), and PlanInvariants
+	// refuses a run-as-you plan for it. The account mode does not read it.
+	hostHome := session.HostHome
+	if self && hostHome != "" {
+		hostHome = resolvePathAbs(hostHome)
+	}
+	homes := LaunchHomes(session.Mode, workspace, hostHome)
+	runAs.Homes = homes
 	if self {
-		// An unnamed home stays unnamed (resolvePathAbs would make "" the cwd), and
-		// PlanInvariants refuses the plan for it.
-		hostHome := session.HostHome
-		if hostHome != "" {
-			hostHome = resolvePathAbs(hostHome)
-		}
-		homes = LaunchHomes(ModeSelf, workspace, hostHome)
-		runAs.Homes, runAs.User = homes, session.HostUser
+		runAs.User = session.HostUser
 	}
 	sandboxHome := homes.Home
 	darwinPrefix := sandboxPathPrefix(darwin)
@@ -778,6 +791,16 @@ func BuildRunPlanWithStages(workspace string, cfg *jsonx.OrderedMap, agents, age
 		}
 		sessionTmp = SessionTmpDir(session.DarwinUserTempDir, sessionID)
 		sandboxEnv = withSessionTmpEnv(sandboxEnv, sessionTmp)
+	} else {
+		// THE ACCOUNT MODE'S TMPDIR IS THE ACCOUNT'S OWN TEMP DIR (MMP-D29, MMP-D30). The `sudo`
+		// crossing and the closed `env -i` list leave the sandbox no TMPDIR at all, and
+		// `getconf DARWIN_USER_TEMP_DIR` inside the profile answers nothing (measured on a Mac,
+		// 2026-11-03), so without this every tool fell back to /tmp. The directory is the one the
+		// profile already grants; a TMPDIR one of the user's env layers composed still wins.
+		sandboxEnv = withAccountTmpEnv(sandboxEnv, session.DarwinUserTempDir)
+		// HOME is the workspace's sidecar, which YOU own, and the sandbox runs as the account, so
+		// nix refused it on every call (MMP-D31); naming the XDG base dirs keeps nix off getHome.
+		sandboxEnv = withAccountXDGEnv(sandboxEnv, homes.Home)
 	}
 	sandboxEnv = withSandboxTmpdirEnv(sandboxEnv, tempEnvNames)
 	darwinUserTempDir := ""
@@ -830,9 +853,9 @@ func BuildRunPlanWithStages(workspace string, cfg *jsonx.OrderedMap, agents, age
 	}
 	// THE WORKSPACE SIDECAR — <workspace>/.yolo/home, the same directory the podman argv
 	// binds the jail home's per-workspace dirs from (paths.WorkspaceHomeState, one spelling
-	// for both backends). Naming it is what turns the tier collapse off: the bootstrap
-	// symlinks the account home's per-workspace dirs into it
-	// (entrypoint.InstallDarwinHomeLayout). A capture passes none — see the parameter.
+	// for both backends). It is HOME itself in both modes, so the bootstrap lays the workspace-home
+	// layout in it (entrypoint.InstallDarwinHomeLayout, DeriveDarwinWorkspaceHome). A capture
+	// passes none — see the parameter.
 	launchMiseTools, _ := config.JailMiseTools(cfg, false)
 	bootstrapEnv := buildBootstrapEnv(workspace, cfg, gitIdentity, sandboxEnv, packRoot,
 		homeOverlay, ctxRoot, capturesRoot, hostCtx, paths.WorkspaceHomeState(workspace), sandboxHome,
@@ -843,16 +866,18 @@ func BuildRunPlanWithStages(workspace string, cfg *jsonx.OrderedMap, agents, age
 	// sandbox home is shared by every workspace, and each workspace's context dir is a child of
 	// this one.
 	bootstrapEnv.Set(entrypoint.ContextLinkOwnerEnv, StagedCtxParent(""))
-	// THE RUN-AS-YOU HOMES, told to the bootstrap: HOME is the sidecar itself, so it lays the
-	// workspace-home layout (entrypoint.DeriveDarwinWorkspaceHome), which needs the machine root
-	// and the shared store; the mise store is the machine root's, never HOME's (MMP-D6); and the
-	// real home is the boundary its scope check and identity check read (MMP-D7). The shared
-	// package caches' links ride beside them (MMP-D12), named only when there is one.
+	// THE LAUNCH'S HOMES, told to the bootstrap in BOTH modes (MMP-D25): HOME is the sidecar
+	// itself, so it lays the workspace-home layout (entrypoint.DeriveDarwinWorkspaceHome), which
+	// needs the machine root and the shared store; the mise store is the machine root's, never
+	// HOME's (MMP-D6); and the real home is the boundary its scope check and identity check read
+	// (MMP-D7) — the account's own home in the account mode, yours in the run-as-you mode.
+	bootstrapEnv.Set("MISE_DATA_DIR", SandboxMiseData(homes.Machine))
+	bootstrapEnv.Set(entrypoint.DarwinMachineHomeEnv, homes.Machine)
+	bootstrapEnv.Set(entrypoint.DarwinSharedHomeEnv, homes.Shared)
+	bootstrapEnv.Set(paths.DarwinRealHomeEnv, homes.Real)
+	// The shared package caches' links (MMP-D12) and the session's TMPDIR are the run-as-you
+	// mode's alone: the account mode shares no host cache (cacheAliasProblems) and keeps its TMPDIR.
 	if self {
-		bootstrapEnv.Set("MISE_DATA_DIR", SandboxMiseData(homes.Machine))
-		bootstrapEnv.Set(entrypoint.DarwinMachineHomeEnv, homes.Machine)
-		bootstrapEnv.Set(entrypoint.DarwinSharedHomeEnv, homes.Shared)
-		bootstrapEnv.Set(paths.DarwinRealHomeEnv, homes.Real)
 		// THE SESSION'S TMPDIR, to the bootstrap too (MMP-D21): its env is `env -i`'s closed list,
 		// so without it the bootstrap's children (the npm refresh, the nix root watcher, the identity
 		// step) would fall back to the shared /tmp the profile closes.
@@ -1071,34 +1096,26 @@ func BuildRunPlanWithStages(workspace string, cfg *jsonx.OrderedMap, agents, age
 		envFileRemove = append(envFileRemove, SandboxEnvRemoveCommands(f)...)
 	}
 
-	// THE BOOTSTRAP IS CONFINED IN THE RUN-AS-YOU MODE (MMP-D9), under the session's own profile:
-	// run unconfined as you, a link the agent planted in its own writable HOME would carry a
-	// bootstrap write into your real home. Confined, it can write only what the agent can. The
-	// account mode's stays unconfined until slice 12, so its argv is today's byte for byte.
-	bootstrapProfile := ""
-	if self {
-		bootstrapProfile = profilePath
-	}
-	bootstrapArgv := darwinBootstrapArgvUnder(runAs, stagedYolo, sandboxHome, bootstrapEnv, bootstrapProfile)
-	// THE PROFILE: the deny-by-default one in the run-as-you mode, with the pending rulings at
-	// their production values (MMP-D13) and the collected loopback ports (slice 7); today's in the
-	// account mode, until slice 12 moves it onto the same profile.
-	seatbelt := seatbeltProfile(workspace, SandboxHome(), readonlyRels, readonlyTargets,
-		homeReadonly, ctxLinks, relocs, cfgStrList(cfg, "devices"), session.Fonts.SeatbeltReads())
-	if self {
-		// THE SESSION'S HOST-SERVICES DIRS, read off the endpoint variables the sandbox and its
-		// jail daemons are told (sessionServicesDirs), each granted by exact path (MMP-D15).
-		params := selfProfileParams(workspace, homes, hostPackRoot, session,
-			readonlyRels, readonlyTargets, homeReadonly, ctxLinks, relocs, hostCtx.CacheAliases,
-			cfgStrList(cfg, "devices"), sessionTmp, sessionServicesDirs(sandboxEnv, jailDaemons.Env))
-		// THIS SESSION'S STAGED PATHS ALONE, not the whole staging root: the root also holds
-		// every other session's env file and every other workspace's context copy.
-		params.StagedReads = []string{sessionGuestBinDir, packRoot, homeOverlay,
-			entrypoint.InheritedDeliveryRecordPath(homeOverlay), ctxRoot, contextDir,
-			capturesRoot, envFile, daemonEnvFile, caBundleFile, caExtrasFile, fontsFile}
-		params.FontReads = session.Fonts.SeatbeltReads()
-		seatbelt = DenyDefaultProfile(params)
-	}
+	// THE BOOTSTRAP IS CONFINED IN BOTH MODES (MMP-D9; MMP-D25 for the account mode), under the
+	// session's own profile: unconfined, a link the agent planted in its own writable HOME — the
+	// workspace's .yolo/home in either mode — would carry a bootstrap write out of what the agent
+	// may write. Confined, it can write only what the agent can.
+	bootstrapArgv := darwinBootstrapArgvUnder(runAs, stagedYolo, sandboxHome, bootstrapEnv, profilePath)
+	// THE PROFILE: the deny-by-default one in BOTH modes (design §7, "one profile"; MMP-D25), with
+	// the pending rulings at their production values (MMP-D13) and the collected loopback ports
+	// (slice 7). Which user runs it is a parameter (denyDefaultProfileParams).
+	// THE SESSION'S HOST-SERVICES DIRS, read off the endpoint variables the sandbox and its jail
+	// daemons are told (sessionServicesDirs), each granted by exact path (MMP-D15).
+	params := denyDefaultProfileParams(workspace, homes, hostPackRoot, session,
+		readonlyRels, readonlyTargets, homeReadonly, ctxLinks, relocs, hostCtx.CacheAliases,
+		cfgStrList(cfg, "devices"), sessionTmp, sessionServicesDirs(sandboxEnv, jailDaemons.Env))
+	// THIS SESSION'S STAGED PATHS ALONE, not the whole staging root: the root also holds every
+	// other session's env file and every other workspace's context copy.
+	params.StagedReads = []string{sessionGuestBinDir, packRoot, homeOverlay,
+		entrypoint.InheritedDeliveryRecordPath(homeOverlay), ctxRoot, contextDir,
+		capturesRoot, envFile, daemonEnvFile, caBundleFile, caExtrasFile, fontsFile}
+	params.FontReads = session.Fonts.SeatbeltReads()
+	seatbelt := DenyDefaultProfile(params)
 	envDirCommands := SandboxEnvDirCommands(envFile, "")
 	envGrantCommands := SandboxEnvGrantCommands(envFile, "")
 	if self {
@@ -1654,6 +1671,7 @@ func PlanInvariants(plan RunPlan) []string {
 	// fails under the rule setup installs (RunAsArgvProblems says which).
 	problems = append(problems, crossingArgvProblems(plan)...)
 	problems = append(problems, selfModeProblems(plan)...)
+	problems = append(problems, accountModeProblems(plan)...)
 
 	// Git identity must reach the BOOTSTRAP env (baked onto the self-exec argv).
 	bootStr := strings.Join(plan.BootstrapArgv, " ")
@@ -2200,6 +2218,46 @@ func selfModeProblems(plan RunPlan) []string {
 			problems = append(problems, "a run-as-you argv names the second account "+SandboxUser+
 				": "+w)
 		}
+	}
+	return problems
+}
+
+// accountModeProblems is PlanInvariants' half for an account-mode plan (slice 12a of
+// docs/design/macos-user-model-plan.md, MMP-D25), silent for a run-as-you plan. Each rule is the
+// mode's promise read back off the plan:
+//
+//   - HOME is the workspace's own .yolo/home, never the account's home, so two workspaces run at
+//     once with no HOME in common, and the agent is told it on its crossing;
+//   - the profile is the deny-by-default one, never the `(allow default)` one;
+//   - the bootstrap runs under the session's profile (MMP-D9);
+//   - the session env file the account reads is granted to it (the sudo crossing itself is
+//     crossingArgvProblems').
+func accountModeProblems(plan RunPlan) []string {
+	if plan.RunAs.Mode == ModeSelf {
+		return nil
+	}
+	var problems []string
+	want := paths.WorkspaceHomeState(plan.Workspace)
+	if plan.RunAs.Homes.Home != want {
+		problems = append(problems, "the account-mode plan's HOME is "+quoteOrNone(plan.RunAs.Homes.Home)+
+			", not the workspace's own "+want+"; two workspaces would share one home (MMP-D25)")
+	} else if len(plan.LaunchArgv) > 0 && !containsArg(plan.LaunchArgv, "HOME="+want) {
+		problems = append(problems, "the account-mode launch argv does not set HOME="+want+
+			"; the agent would run in the account's shared home (MMP-D25)")
+	}
+	if !strings.Contains(plan.Seatbelt, "\n(deny default)\n") || strings.Contains(plan.Seatbelt, "(allow default)") {
+		problems = append(problems, "the account-mode plan does not install the deny-by-default "+
+			"Seatbelt profile (MMP-D25); the agent would run under a profile that allows by default")
+	}
+	if len(plan.BootstrapArgv) > 0 &&
+		!containsArgPair(plan.BootstrapArgv, "/usr/bin/sandbox-exec", "-f", plan.ProfilePath) {
+		problems = append(problems, "the account-mode bootstrap does not run under `sandbox-exec -f "+
+			plan.ProfilePath+"`; unconfined, a link the agent planted in its HOME would carry a "+
+			"bootstrap write out of what the agent may write (MMP-D9, MMP-D25)")
+	}
+	if plan.EnvFile != "" && len(plan.EnvFileGrantCommands) == 0 {
+		problems = append(problems, "the account-mode plan grants the sandbox account no read on "+
+			"the session env file "+plan.EnvFile+"; the agent could not read its own environment")
 	}
 	return problems
 }

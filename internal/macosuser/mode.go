@@ -60,18 +60,28 @@ type Homes struct {
 }
 
 // LaunchHomes derives a launch's Homes from its mode, its workspace and the invoking user's
-// resolved home.
+// resolved home. In BOTH modes HOME is <workspace>/.yolo/home itself (MMP-D5; MMP-D25 for the
+// account mode), so two workspaces launch at once with no HOME in common.
 //
-// ModeAccount is today's: SandboxHome() for Home, Machine and Shared, and no Real, because the
-// account's HOME is its real home. The workspace and hostHome are not read.
+// ModeAccount (slice 12a, MMP-D25): Machine, Shared and Real are the account's own home,
+// SandboxHome(). The mise store, `.cache`, `Library/Caches` and the `scope: machine` dirs stay
+// where account-mode launches have always kept them, shared by every workspace with no lock
+// (MMP-D27), and the account's real home is the boundary its guest judges scope by. hostHome is
+// not read.
 //
-// ModeSelf is the run-as-you geometry: HOME is <workspace>/.yolo/home itself (MMP-D5); Machine is
-// the darwin-only machine root and Shared the store podman binds credentials from, both under
-// hostHome's state dir (MMP-D6) — never the shared cache or mise store, which hold Linux files on
-// a Mac that also runs podman; Real is hostHome (MMP-D7).
+// ModeSelf is the run-as-you geometry: Machine is the darwin-only machine root and Shared the
+// store podman binds credentials from, both under hostHome's state dir (MMP-D6) — never the
+// shared cache or mise store, which hold Linux files on a Mac that also runs podman; Real is
+// hostHome (MMP-D7).
 func LaunchHomes(mode Mode, workspace, hostHome string) Homes {
 	if mode != ModeSelf {
-		return accountHomes(SandboxHome())
+		account := SandboxHome()
+		return Homes{
+			Home:    paths.WorkspaceHomeState(workspace),
+			Machine: account,
+			Shared:  account,
+			Real:    account,
+		}
 	}
 	return Homes{
 		Home:    paths.WorkspaceHomeState(workspace),
@@ -81,9 +91,9 @@ func LaunchHomes(mode Mode, workspace, hostHome string) Homes {
 	}
 }
 
-// accountHomes is account mode's Homes for one home: the same directory in every role but Real.
-// It is what every builder taking a bare `home` (empty meaning SandboxHome()) renders with, so
-// their argvs are byte for byte what they were before Homes existed.
+// accountHomes is one home in every role but Real: what a builder handed a bare `home` (empty
+// meaning SandboxHome()) renders with when its crossing carries no launch Homes — an install
+// capture's staging home, and the `yolo macos-*` commands' probes.
 func accountHomes(home string) Homes {
 	if home == "" {
 		home = SandboxHome()
@@ -98,18 +108,18 @@ func accountHomes(home string) Homes {
 // crossing any other way.
 type RunAs struct {
 	Mode Mode
-	// Homes and User are a run-as-you crossing's environment: the homes LaunchHomes derived for
-	// the launch and the invoking user's name, which every argv builder renders in place of the
-	// account's (sandboxEnvPairs). Read only in self mode; the account mode's are SandboxHome()
-	// and SandboxUser, as before, so its argvs stay byte for byte what they were.
+	// Homes are the homes LaunchHomes derived for the launch, which every argv builder renders in
+	// BOTH modes (sandboxEnvPairs, MMP-D25); the zero value renders the bare home a builder was
+	// handed. User is the invoking user's name, read only in self mode: the account mode's USER
+	// is SandboxUser.
 	Homes Homes
 	User  string
 }
 
-// homes is the Homes an argv builder renders with: the launch's, in self mode, else the
-// account's for home ("" meaning SandboxHome()).
+// homes is the Homes an argv builder renders with: the launch's when the crossing carries them,
+// in either mode, else one home, home ("" meaning SandboxHome()), in every role.
 func (r RunAs) homes(home string) Homes {
-	if r.Mode == ModeSelf && r.Homes.Home != "" {
+	if r.Homes.Home != "" {
 		return r.Homes
 	}
 	return accountHomes(home)

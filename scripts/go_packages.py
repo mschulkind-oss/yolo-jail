@@ -13,6 +13,18 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
+# The short suite's go test -timeout, which is per PACKAGE, for both runs of it: `just
+# test-fast` (the Justfile spells it, and test-go-packages.py pins the spelling to this) and
+# `just done`'s changed-package run (completion-check.py). internal/cli is the long pole: one
+# process of thousands of tests, serial by design (t.Setenv throughout), starting tens of
+# thousands of git processes, most of them its patched-build tests' replays. Measured 2026-11-03,
+# with no test hung in any run: about 3 minutes on a 32-core Linux machine, about 9 on an idle
+# macOS CI runner (check-macos's three shards summed), where a process start costs far more, and
+# 22.6 on a Mac also running the macos-user and integration suites
+# (docs/lab-reports/2026-11-03-mac-slice-12a-witness-w1.md). The bound sits at twice the
+# slowest, so a hang still panics with every goroutine's stack.
+SHORT_TEST_TIMEOUT = "45m"
+
 
 def _has_git_metadata(root):
     """Whether Git metadata exists for this directory; metadata makes Git errors fatal."""

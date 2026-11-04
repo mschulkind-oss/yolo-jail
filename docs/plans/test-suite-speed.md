@@ -177,8 +177,8 @@ fixture setup.
 **MEASURED on that Mac, 2026-10-19 at `8d8e73653`, and it is 41 seconds:** `go test -short
 -count=1 -timeout 60m ./...` reports `ok … /internal/cli 1241.180s`. The package **passes** — it
 is not hanging, and no test in it fails — but 1241 s is 41 s past the gate's own
-`-timeout=20m` ([`Justfile:320`](../../Justfile)), so `just check-ci` and `just done` cannot go
-green on that host while every other package passes. ⚠ **This supersedes the ~25-minute estimate
+`-timeout=20m` of the time (the Justfile's `test-fast`), so `just check-ci` and `just done` could not go
+green on that host while every other package passed. ⚠ **This supersedes the ~25-minute estimate
 below as the number to plan against.** It also changes what the fix has to be worth: the levers
 in this section are each a ruling and a build, and the gap they must close is 3.4% of one
 package's wall time. `internal/entrypoint` is second at 722.8 s, so nothing else is near the
@@ -194,6 +194,17 @@ passing both times. That is 255 s saved, 23%, under more load. The two heaviest 
 30.4 s to 21.6 s and from 22.2 s to 16.4 s. So the cheaper `git` on darwin, the second lever
 below, is now measured; how yolo or its tests would pick that binary is still a ruling.
 `internal/entrypoint` took 655 s the same day, so it does not approach the gate.
+
+**The gate's bound, 2026-11-03: the per-package timeout settles it, at 45 minutes.** The Mac
+timed `internal/cli` out again under `just done` (1359 s alone with `-timeout 25m` while the
+macos-user and integration suites ran, the lab report
+[`2026-11-03-mac-slice-12a-witness-w1.md`](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#9-the-short-suite-on-this-mac)),
+and check-macos's three `internal/cli` shards summed to about 9 minutes on an idle runner, so the
+work is legitimately that long. `SHORT_TEST_TIMEOUT` in
+[`scripts/go_packages.py`](../../scripts/go_packages.py) is now the one bound, twice the slowest
+run, and both `just test-fast` and `just done`'s changed-package `go test` take it; the latter
+took go test's default of 10 minutes before. The three levers below are still open and still
+each a ruling; the bound only stops the gate from failing on time when no test hung.
 
 **INFERRED from the lab report's two timings, superseded by the measurement above:** the two tests it names take 45.9 s and 29.8 s on
 the Mac, and start 1468 and 837 `git` processes on Linux, so each start costs about 31 to 36 ms
@@ -423,6 +434,26 @@ $ fd -e jsonl . ~/.claude/projects/-workspace | xargs -d '\n' jq -r '
 The hook's cost, the usage-limit stalls, and the concurrency failure counts were each worked out once
 from 09-27's session transcripts. They have no recipe here: the hook has been retired, and the other
 two depend on how a particular day's agents were scheduled.
+
+## Mac witness: the darwin `just done` fixes (2026-11-03)
+
+The [W1 lab report's](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md) short-suite failures
+were fixed on Linux (merged as `b208e4f51`): the symlinked-root bug in `scripts/completion-check.py`'s
+`go_graph`, the GC-closed lease in `TestHostPiLaunchGetsItsOwnSessionHome`, the sleep in the bounded
+command test's helper, the brokerhook start-up allowance, and one `SHORT_TEST_TIMEOUT` (45m) for
+`test-fast` and `just done`, which had used Go's default 10m. The owner's Mac agent re-runs, on `main`,
+and appends the results to that lab report:
+
+1. `python3 scripts/test-go-packages.py` with the default `TMPDIR` (under `/var/folders`): all pass.
+2. `go test -short -count=3 -run '^TestHostPiLaunchGetsItsOwnSessionHome$' ./internal/cli`: passes; it
+   exercises the new `/dev/fd` close-on-exec check on darwin.
+3. `go test -short -count=5 -run '^TestBoundedCommand' ./internal/hostservice`, then
+   `pgrep -f hostservice.test`: passes, and no leaf process is left.
+4. `go test -short -count=1 -run '^TestAHook' ./internal/brokerhook`: passes.
+5. `python3 scripts/test-completion-check.py`: passes.
+6. `just done` (the full `just check-ci`), under the same load as the report's [§9](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#9-the-short-suite-on-this-mac) if practical: the
+   only expected failures are none (the four `kern.procargs2` tests were fixed in `f25911eb3`); report
+   the `internal/cli` package's time.
 
 ## Open Questions
 

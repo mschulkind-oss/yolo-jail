@@ -38,7 +38,7 @@ corpus test whose allowlist must empty as the enforcer. The maintainer scoped th
 outside the rule ([OQ-LC3](../design/legacy-config-compat.md#OQ-LC3)); no ruling is owed. It carries the inherited-scope crossing decisions for item 11's
 [readable-config redesign](../design/readable-config.md) until that document takes them, and it is
 why [the host-processes columns](../reference/loophole-grants.md#OQ-LG5) and
-[macos-user's default mode](../design/macos-user-model.md#OQ-MM10) each gained a question.
+[macos-user's default mode](../design/macos-user-model.md#OQ-MM10) each gained a question, both ruled 2026-11-03.
 
 1. [Enable profile-served daemons on attach without ending sibling sessions](../design/attach-daemon-activation.md)
    — the reported late Bedrock selection reaches a restart prompt; settle additive activation

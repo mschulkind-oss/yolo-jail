@@ -29,7 +29,7 @@ package run
 //   - load: the launch's config gate, loadAndValidateConfig (load, validate, the pack switch,
 //     the capability gate);
 //   - packs: config.LoadPacks, the selection every pack reader resolves;
-//   - inherit: the jail crossing, inheritedScopeWithSelector (RenderFilteredForDeliveryLowering
+//   - inherit: the jail crossing, inheritedScopeWithSelector (config.RenderInheritedDelivery
 //     with configmigrate.LowerInheritedUserScope), for podman: ANY USER SCOPE THE HOST ACCEPTS
 //     MUST CROSS INTO THE JAIL;
 //   - jail-load: the jail's own read of what crossed, with YOLO_VERSION set;
@@ -89,13 +89,6 @@ var ruledLegacyRefusals = []legacyBreak{
 // knownLegacyBreaks is every way a config that worked in v0.15.1 fails today. It only shrinks.
 var knownLegacyBreaks = []legacyBreak{
 	// The launch's config gate refuses what v0.15.1 accepted.
-	// The jail crossing refuses a TOML user config beside a legacy workspace loophole switch.
-	{"loophole/*/workspace", "inherit", "mixes a TOML file and a legacy JSONC file",
-		"pending fix: lc-inherit-mixed-format"},
-	// The realistic cases with a TOML user config beside a legacy workspace switch, some reached
-	// only once their load stopped refusing the project's `fields` (LG-D15).
-	{"realistic/*", "inherit", "mixes a TOML file and a legacy JSONC file",
-		"pending fix: lc-inherit-mixed-format"},
 
 	// The migration (the launch's offer, and the conversion a TOML cell needs) cannot convert a
 	// legacy file exactly.

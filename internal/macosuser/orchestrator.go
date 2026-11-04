@@ -106,23 +106,15 @@ type Deps struct {
 	// one npm prefix and one mise store; the container serialises the same window and
 	// then attaches to the jail that won, which this backend cannot do.
 	LockWorkspace func(workspace, cname string) func()
-	// HoldAccountHome takes this workspace's hold on the sandbox account's home for the session,
-	// or refuses: the home holds ONE set of links into one workspace's sidecar, so a launch of
-	// another workspace while a session runs would repoint them under it
-	// (docs/reference/macos-user-home-tiers.md#ht-d15, HT-D15). It returns the release, idempotent and
-	// never nil when it admits, or a refusal that names the live workspace and the next step,
-	// ending with step, the container-runtime clause this launch's notch needs (containerStep).
-	//
-	// Asked BEFORE the native nix build, so a refusal costs seconds, and before the first crossing
-	// into the sandbox account (the context preflight's); released when the session's teardown
-	// has run. A SEAM for LockWorkspace's reason: the implementation lives in
-	// internal/cli/run (run.HoldAccountHome), which imports this package. nil takes no hold, which
-	// is what the four `yolo macos-*` commands get (RealDeps): none of them lays the links.
-	HoldAccountHome func(workspace, cname, step string) (release func(), refusal string)
 	// DarwinUserTempDir is `getconf DARWIN_USER_TEMP_DIR` of the invoking user, or "" when it
 	// cannot be read. Asked only in the run-as-you mode, whose profile opens that directory under
 	// the shared-/tmp ruling (ProfileParams.DarwinUserTempDir). nil reads "".
 	DarwinUserTempDir func() string
+	// AccountUserTempDir is the same question asked AS the sandbox account, through its run-as
+	// rule (`sudo -n --user=_yolojail /usr/bin/env /usr/bin/getconf DARWIN_USER_TEMP_DIR`), or ""
+	// when it cannot be read. Asked only in the account mode, whose deny-by-default profile opens
+	// the account's own per-user temp dir (MMP-D29). nil reads "".
+	AccountUserTempDir func() string
 	// Ending reports that a signal has begun ending this launch, with the status it ends with
 	// (128+N): the launch's signal arm's answer (internal/cli/run's macosuserarm.go). RunMacosUser
 	// asks it at each step boundary and returns that status, so every deferred teardown runs. nil
@@ -371,17 +363,15 @@ const SelfModeDisclosure = "[bold]macos-user runs the agent as you[/bold] (macos
 // here.
 func (o Options) runAs() RunAs {
 	if o.Mode != ModeSelf {
-		return RunAs{}
+		return RunAs{Mode: o.Mode, Homes: o.homes()}
 	}
 	return RunAs{Mode: ModeSelf, Homes: o.homes(), User: o.HostUser}
 }
 
-// homes is the launch's Homes (LaunchHomes): SandboxHome() in every role in the account mode.
+// homes is the launch's Homes (LaunchHomes): HOME is the workspace's .yolo/home in both modes
+// (MMP-D25).
 func (o Options) homes() Homes {
-	if o.Mode != ModeSelf {
-		return accountHomes("")
-	}
-	return LaunchHomes(ModeSelf, resolvePathAbs(o.Workspace), o.HostHome)
+	return LaunchHomes(o.Mode, resolvePathAbs(o.Workspace), o.HostHome)
 }
 
 // grantTarget is the path a stage command grants the sandbox account an ACE on (`chmod +a <ace>
@@ -1036,25 +1026,8 @@ func RunMacosUser(deps Deps, opts Options) int {
 		return 1
 	}
 
-	// THE ACCOUNT HOME'S HOLD (Deps.HoldAccountHome), before the nix build for the preconditions'
-	// reason: a launch of another workspace while a session runs here would repoint the links that
-	// session's agent reads through, so it is refused now, in seconds, rather than after a
-	// half-hour build. And before the context preflight, the first step that crosses into the
-	// sandbox account: the hold runs none. Held until this function returns — after the session
-	// and after every teardown deferred below, which run first.
-	//
-	// NOT IN THE RUN-AS-YOU MODE, which has no account home: each workspace's HOME is its own
-	// .yolo/home, so two workspaces launch at once with nothing shared to hold.
-	steps.begin("account_home")
-	if deps.HoldAccountHome != nil && opts.Mode != ModeSelf {
-		releaseHome, refusal := deps.HoldAccountHome(opts.Workspace, cnameFor(opts.Workspace),
-			containerStep(opts.PackEnv))
-		if refusal != "" {
-			out.print("[bold red]Refusing the macos-user launch:[/bold red] " + refusal)
-			return 1
-		}
-		defer releaseHome()
-	}
+	// NO HOLD ON ANY HOME (MMP-D25): each workspace's HOME is its own .yolo/home in both modes, so
+	// two workspaces launch at once with no HOME in common to hold.
 
 	// THE DAC PREFLIGHT for every context mount this launch delivers (ctxlinks.go;
 	// docs/reference/context-mounts.md#the-dac-preflight-and-siting), asked here, BEFORE the nix build, for the reason the
@@ -1518,8 +1491,7 @@ func RunMacosUser(deps Deps, opts Options) int {
 
 	// 4. Launch the session — OUTSIDE the lock. Everything that writes the per-workspace tier
 	// has happened; the agent's own writes are the same ones two sessions on one workspace
-	// already share on every backend. The account home's hold is kept (Deps.HoldAccountHome):
-	// the session reads through the links the bootstrap laid.
+	// already share on every backend.
 	release()
 	// THE LAST BOUNDARY: a signal that has begun ending the launch never reaches the agent. The
 	// arm's own runner refuses too (MacosUserArm.RunSession), for a signal landing after this.
@@ -1566,18 +1538,33 @@ func sharedTmpDisclosure(plan RunPlan) string {
 		"close /tmp again)[/dim]"
 }
 
-// darwinUserTempDir is the invoking user's DARWIN_USER_TEMP_DIR, physical and with no trailing
-// slash (a profile rule on the /var spelling matches nothing), asked only in the run-as-you mode;
-// "" otherwise or when it cannot be read.
+// darwinUserTempDir is the DARWIN_USER_TEMP_DIR of the user the sandbox runs as — yours in the
+// run-as-you mode (Deps.DarwinUserTempDir), the account's in the account mode
+// (Deps.AccountUserTempDir) — physical and with no trailing slash (a profile rule on the /var
+// spelling matches nothing); "" when it cannot be read.
 func (d Deps) darwinUserTempDir(mode Mode) string {
-	if mode != ModeSelf || d.DarwinUserTempDir == nil {
+	ask := d.DarwinUserTempDir
+	if mode != ModeSelf {
+		ask = d.AccountUserTempDir
+	}
+	if ask == nil {
 		return ""
 	}
-	p := strings.TrimRight(strings.TrimSpace(d.DarwinUserTempDir()), "/")
+	p := strings.TrimRight(strings.TrimSpace(ask()), "/")
 	if p == "" || !filepath.IsAbs(p) {
 		return ""
 	}
-	return resolvePathAbs(p)
+	return physicalVarPath(resolvePathAbs(p))
+}
+
+// physicalVarPath is p with /var spelled /private/var: the account's temp dir sits under a parent
+// you may not be able to search, so resolvePathAbs can hand back the /var spelling unresolved, and
+// /var is a symlink to /private/var on every Mac.
+func physicalVarPath(p string) string {
+	if p == "/var" || strings.HasPrefix(p, "/var/") {
+		return "/private" + p
+	}
+	return p
 }
 
 // ending is Deps.Ending, false when no arm is wired.
@@ -2509,6 +2496,7 @@ func RealDeps(runProxy func(argv []string) int, materialize func(repoRoot string
 		StagingRootFacts:    stagingRootFactsReal,
 		RunAsGrant:          runAsGrantReal,
 		DarwinUserTempDir:   darwinUserTempDirReal,
+		AccountUserTempDir:  accountUserTempDirReal,
 		Out:                 LaunchWriter(),
 		Notices:             LaunchNoticeWriter(),
 		Color:               color,
@@ -2521,32 +2509,17 @@ func RealLaunchProbes() LaunchProbes {
 	return RealDeps(nil, nil, false).launchProbes()
 }
 
-// PreflightLaunch asks, before a launch of workspace does, the first two things RunMacosUser asks
-// — its preconditions (LaunchPreconditions, on p) and then the account home's hold, taken through
-// hold — with the launch's own resolution of the workspace and its own name for the hold
-// (cnameFor), so the answer cannot differ from the launch's for any reason but time. ok is false
-// when either would refuse the launch; when it is true the hold is held until release, which the
-// caller must call. RunMacosUser takes its own when it runs, and a second shared hold of one
-// workspace admits, so a caller may hold this one across that call too.
+// PreflightLaunch asks, before a launch of workspace does, the first thing RunMacosUser asks —
+// its preconditions (LaunchPreconditions, on p) — with the launch's own resolution of the
+// workspace, so the answer cannot differ from the launch's for any reason but time. It reports
+// false when the launch would be refused.
 //
 // For a caller that must not act for a launch about to be refused: the run pipeline's
 // auto-capture (internal/cli/run's autoCaptureMacosUser), which on a Mac never set up used to
 // record a failure memo that held every later capture off for a day, and with the workspace
-// under a home or another workspace's session live paid an installer download, and replaced the
-// staged yolo under that session, only for the launch to refuse. It says nothing: the launch's
-// own refusal, which names the next step, follows.
-func PreflightLaunch(p LaunchProbes, hold func(workspace, cname, step string) (func(), string),
-	workspace string) (release func(), ok bool) {
-	ws := resolvePathAbs(workspace)
-	if _, unmet := unmetLaunchPrecondition(p, ws); unmet {
-		return nil, false
-	}
-	if hold == nil {
-		return func() {}, true
-	}
-	r, refusal := hold(ws, cnameFor(ws), "")
-	if refusal != "" {
-		return nil, false
-	}
-	return r, true
+// under a home paid an installer download only for the launch to refuse. It says nothing: the
+// launch's own refusal, which names the next step, follows.
+func PreflightLaunch(p LaunchProbes, workspace string) bool {
+	_, unmet := unmetLaunchPrecondition(p, resolvePathAbs(workspace))
+	return !unmet
 }

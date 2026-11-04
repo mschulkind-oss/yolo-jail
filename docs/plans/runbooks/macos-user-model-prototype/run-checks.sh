@@ -168,6 +168,26 @@ for d in "$SERVICES_DIR" "$SIBLING_DIR"; do
 	mkdir -m 0755 "$d" && printf 'ok\n' >"$d/demo.endpoint" && : >"$d/.session.lock" &&
 		chmod 0644 "$d/demo.endpoint" "$d/.session.lock" || { echo "cannot create $d" >&2; exit 2; }
 done
+# Each fake session HOLDS its liveness lock, as a live launch does, for as long as this script
+# runs. A launch reaps every session dir whose lock nobody holds (collectDeadServicesSessions,
+# internal/cli/run/servicessession.go), so an unheld one made g4 fail whenever a yolo launch ran
+# beside this script (the Mac run of 2026-11-03, §7). A holder exits with its parent, so a
+# killed script releases them too; cleanup kills them first.
+LOCK_PIDS=""
+for d in "$SERVICES_DIR" "$SIBLING_DIR"; do
+	/usr/bin/perl -MFcntl=:flock -e 'my $pp = getppid(); open(my $f, "<", $ARGV[0]) or die "open $ARGV[0]: $!\n"; flock($f, LOCK_SH | LOCK_NB) or die "flock $ARGV[0]: $!\n"; open(my $r, ">", $ARGV[1]) or die "$ARGV[1]: $!\n"; close $r; sleep 1 while getppid() == $pp' \
+		"$d/.session.lock" "$d.held" &
+	LOCK_PIDS="$LOCK_PIDS $!"
+done
+for d in "$SERVICES_DIR" "$SIBLING_DIR"; do
+	n=0
+	until [ -e "$d.held" ]; do
+		n=$((n + 1))
+		[ "$n" -gt 100 ] && { echo "could not hold the fake session lock $d/.session.lock" >&2; exit 2; }
+		sleep 0.05
+	done
+	rm -f "$d.held"
+done
 
 # A /tmp file of yours, which the closed shared /tmp must hide (b14, OQ-MM8).
 TMP_DECOY="/private/tmp/yolo-prototype-tmpdecoy-$NONCE"
@@ -241,6 +261,8 @@ cleanup() {
 	[ -n "$LISTENER_PID" ] && kill "$LISTENER_PID" 2>/dev/null
 	[ -n "$G7_PID" ] && kill "$G7_PID" 2>/dev/null
 	kill "$DECOY_PID" 2>/dev/null
+	# shellcheck disable=SC2086  # a list of pids
+	[ -n "$LOCK_PIDS" ] && kill $LOCK_PIDS 2>/dev/null
 	[ "$KC_ADDED" = 1 ] && security delete-generic-password -s "$KC_SERVICE" -a yolo "$LOGIN_KC" >/dev/null 2>&1
 	launchctl remove "$CLAUDE_LABEL" 2>/dev/null
 	rm -f "$DECOY_SECRET" "$TMP_DECOY"
