@@ -27,6 +27,9 @@ def ann(table):
 
 RUN = {"conclusion": "failure", "run_attempt": 1}
 
+# What GitHub writes on the jobs of a run its concurrency group cancelled for a newer push.
+SUPERSEDED = [{"message": "Canceling since a higher priority waiting request for 'CI-refs/heads/main' exists"}]
+
 
 class Decide(unittest.TestCase):
     def test_a_run_failed_only_by_a_dropped_job_is_rerun(self):
@@ -69,6 +72,33 @@ class Decide(unittest.TestCase):
         rerun, reason = cr.decide(RUN, jobs, ann({"install omp": DROPPED}))
         self.assertTrue(rerun, reason)
 
+    def test_a_run_cancelled_by_a_newer_push_is_not_rerun(self):
+        # cancel-in-progress cancels the queued jobs (no steps) and the running ones (some steps);
+        # neither carries the not-acquired annotation, so neither counts as dropped.
+        run = {"id": 1, "run_number": 10, "head_sha": "a" * 40, "conclusion": "cancelled", "run_attempt": 1}
+        jobs = [job("check-go", "cancelled", steps=4), job("check-macos (1)", "cancelled", steps=0)]
+        table = {"check-go": SUPERSEDED, "check-macos (1)": SUPERSEDED}
+        rerun, reason = cr.decide(run, jobs, ann(table))
+        self.assertFalse(rerun, reason)
+        newest = {"id": 2, "run_number": 11, "head_sha": "b" * 40}
+        rerun, reason = cr.decide(run, jobs, ann(table), newest)
+        self.assertFalse(rerun, reason)
+
+    def test_an_older_run_is_not_rerun_while_a_newer_one_exists(self):
+        # Even a run dropped only for want of a runner: re-running it would rejoin the
+        # concurrency group and cancel the newer run on the same branch.
+        run = {"id": 1, "run_number": 10, "head_sha": "a" * 40, "head_branch": "main",
+               "conclusion": "failure", "run_attempt": 1}
+        jobs = [job("check-macos (1)", "cancelled", steps=0)]
+        for newest in ({"id": 2, "run_number": 11, "head_sha": "b" * 40},
+                       {"id": 2, "run_number": 11, "head_sha": "a" * 40},
+                       {"id": 2, "run_number": 10, "head_sha": "b" * 40}):
+            rerun, reason = cr.decide(run, jobs, ann({"check-macos (1)": DROPPED}), newest)
+            self.assertFalse(rerun, reason)
+            self.assertIn("would cancel it", reason)
+        rerun, reason = cr.decide(run, jobs, ann({"check-macos (1)": DROPPED}), dict(run))
+        self.assertTrue(rerun, reason)
+
 
 class Workflow(unittest.TestCase):
     def setUp(self):
@@ -93,6 +123,15 @@ class Workflow(unittest.TestCase):
         perms = re.search(r"^permissions:\n((?:  .+\n)+)", self.text, re.M).group(1)
         got = {l.strip() for l in perms.splitlines() if l.strip()}
         self.assertEqual(got, {"actions: write", "checks: read"})
+
+    def test_ci_and_apple_container_cancel_superseded_runs(self):
+        # The ruling of 2026-11-03: a newer push cancels the older run of the same workflow and ref.
+        for name in ("ci.yml", "apple-container.yml"):
+            body = (WORKFLOW.parent / name).read_text()
+            block = re.search(r"^concurrency:\n((?:  .+\n)+)", body, re.M)
+            self.assertIsNotNone(block, "%s has no top-level concurrency group" % name)
+            self.assertIn("group: ${{ github.workflow }}-${{ github.ref }}", block.group(1), name)
+            self.assertIn("cancel-in-progress: true", block.group(1), name)
 
     def test_it_never_reruns_a_fork(self):
         self.assertIn("github.event.workflow_run.head_repository.full_name == github.repository", self.text)

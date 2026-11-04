@@ -18,7 +18,8 @@ The policy is fixed: `.github/workflows/ci.yml`, `push`, `main`, exact SHA and r
 identity is resolved from the Actions API, not trusted by its display name. The newest eligible run by run
 number (then run ID) wins; an older green run never substitutes for a newer queued or failed matching run.
 The helper waits through queued/running states and missing runs until the deadline, but refuses completed
-non-success conclusions immediately. It verifies the latest run attempt and paginates the jobs endpoint,
+non-success conclusions immediately; a cancelled run, which `ci.yml`'s concurrency group leaves when a
+newer push supersedes it, is refused with the `gh run rerun <id> -R OWNER/REPO` that re-tests it. It verifies the latest run attempt and paginates the jobs endpoint,
 requiring successful `secrets-scan`, `check-go`, `check-macos`, both `build-image` matrix jobs, all four
 `integration` architecture/shard jobs, and `integration-complete`. If these job IDs/matrix cardinalities
 change in `ci.yml`, update this fixed gate and its fixtures with the workflow change.

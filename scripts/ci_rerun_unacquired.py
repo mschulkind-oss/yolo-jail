@@ -11,7 +11,15 @@ workflow finishes, re-runs the failed jobs of that run when, and only when:
   * at least one job was never acquired: no step ran, and its check run carries the annotation;
   * every other job that did not succeed was skipped (never a real failure: a job that ran and
     failed is a human's to read, and re-running it would hide it);
-  * the run is below MAX_ATTEMPT, so a long outage cannot loop forever.
+  * the run is below MAX_ATTEMPT, so a long outage cannot loop forever;
+  * it is still the newest run of its workflow for its branch and event. ci.yml has one
+    concurrency group per ref with cancel-in-progress, so a re-run of an older run would rejoin
+    that group and cancel the newer run testing a newer commit. (For a watched workflow with no
+    such group, the newer run already tests the newer code.)
+
+A run the concurrency group cancelled because a newer push superseded it is never re-run: its
+cancelled jobs carry GitHub's "Canceling since a higher priority waiting request ..." annotation,
+not the not-acquired one, and the newer run exists.
 
 `decide` is the whole decision and is pure; `main` is the API calls around it (through `gh`).
 """
@@ -19,6 +27,7 @@ import json
 import os
 import subprocess
 import sys
+import urllib.parse
 
 NOT_ACQUIRED = "was not acquired by Runner"
 # The attempt that just finished; at MAX_ATTEMPT no further re-run is asked for.
@@ -34,10 +43,26 @@ def unacquired(job, annotations):
     return any(NOT_ACQUIRED in (a.get("message") or "") for a in annotations)
 
 
-def decide(run, jobs, annotations_of):
-    """Return (rerun, reason). annotations_of(job) is that job's check-run annotations."""
+def superseded_by(run, newest):
+    """The newer run that replaced this one in its concurrency group, or None."""
+    if not newest or newest.get("id") == run.get("id"):
+        return None
+    if newest.get("head_sha") != run.get("head_sha") or \
+            newest.get("run_number", 0) > run.get("run_number", 0):
+        return newest
+    return None
+
+
+def decide(run, jobs, annotations_of, newest=None):
+    """Return (rerun, reason). annotations_of(job) is that job's check-run annotations; newest is
+    the newest run of the same workflow, branch and event (None when there is none to compare)."""
     if run.get("conclusion") not in ("failure", "cancelled"):
         return False, "the run concluded %s" % run.get("conclusion")
+    newer = superseded_by(run, newest)
+    if newer:
+        return False, ("not re-run: run %s (#%s, %s) is newer on %s, and a re-run would cancel it"
+                       % (newer.get("id"), newer.get("run_number"),
+                          (newer.get("head_sha") or "")[:12], run.get("head_branch")))
     if run.get("run_attempt", 1) >= MAX_ATTEMPT:
         return False, "attempt %d is the last this workflow re-runs" % run.get("run_attempt", 1)
     dropped, other = [], []
@@ -78,7 +103,17 @@ def main():
     def annotations_of(job):
         return gh_json("repos/%s/check-runs/%d/annotations" % (repo, job["id"]))
 
-    rerun, reason = decide(run, jobs, annotations_of)
+    # The newest run of this workflow for the same branch and event: the API lists newest first.
+    newest = gh_json("repos/%s/actions/workflows/%d/runs?branch=%s&event=%s&per_page=1"
+                     % (repo, run["workflow_id"], urllib.parse.quote(run["head_branch"], safe=""),
+                        run["event"]))["workflow_runs"]
+    if not newest:
+        # The run itself should be listed; a listing without it cannot show it is the newest.
+        print("%s run %s: not re-run: the newest run of its branch could not be read"
+              % (run.get("name"), run_id))
+        return 0
+
+    rerun, reason = decide(run, jobs, annotations_of, newest[0])
     print("%s run %s attempt %d: %s" % (run.get("name"), run_id, run["run_attempt"], reason))
     if rerun:
         subprocess.run(["gh", "api", "-X", "POST",
