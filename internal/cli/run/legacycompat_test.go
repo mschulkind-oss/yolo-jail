@@ -74,8 +74,9 @@ type legacyBreak struct {
 
 // ruledLegacyRefusals is every refusal of a config v0.15.1 accepted that the owner ruled is the
 // behavior, outside docs/design/legacy-config-compat.md's rule (which is scoped to the TOML
-// switch): retirements with their own transition (OQ-LC1) and a security refusal (OQ-LC3). Each
-// must still occur, so a refusal that goes away silently is caught too.
+// switch): retirements with their own transition (OQ-LC1, which names each ruling: OQ-MP6, OQ-PE3,
+// OQ-PS11 and named-setups.md's MT-R3) and a security refusal (OQ-LC3). Each must still occur, so
+// a refusal that goes away silently is caught too.
 var ruledLegacyRefusals = []legacyBreak{
 	{"toplevel/env_sources/workspace", "*", "is in the workspace config, outside the workspace",
 		"ruled: OQ-LC3 (the 2026-10-29 security refusal stands)"},
@@ -91,12 +92,12 @@ var ruledLegacyRefusals = []legacyBreak{
 	// `yolo config migrate` writes the setup (SUP-D15), so its TOML cells launch. A project's
 	// never converts, as a project cannot choose where its agent runs, and its refusal names the
 	// unset that removes it.
-	{"toplevel/runtime/*", "load", "config.runtime: REMOVED", "ruled: MT-R3 (named setups replace the key)"},
-	{"toplevel/confinement/*", "load", "config.confinement: REMOVED", "ruled: MT-R3 (named setups replace the key)"},
+	{"toplevel/runtime/*", "load", "config.runtime: REMOVED", "ruled: OQ-LC1 (MT-R3's removal stands: named setups replace the key)"},
+	{"toplevel/confinement/*", "load", "config.confinement: REMOVED", "ruled: OQ-LC1 (MT-R3's removal stands: named setups replace the key)"},
 	{"toplevel/runtime/workspace", "migrate-*", "yolo config unset runtime --project",
-		"ruled: MT-R3 (a project cannot choose a setup, named-setups.md §8)"},
+		"ruled: OQ-LC1 (MT-R3's removal stands: a project cannot choose a setup, named-setups.md §8)"},
 	{"toplevel/confinement/workspace", "migrate-*", "yolo config unset confinement --project",
-		"ruled: MT-R3 (a project cannot choose a setup, named-setups.md §8)"},
+		"ruled: OQ-LC1 (MT-R3's removal stands: a project cannot choose a setup, named-setups.md §8)"},
 }
 
 // knownLegacyBreaks is every way a config that worked in v0.15.1 fails today. It only shrinks.
