@@ -14,7 +14,7 @@ covers:
   - internal/macosuser/runplan.go
   - internal/entrypoint/hostlayerlabel.go
 tags: [config, cli, notch, workspace, capture, disclosure]
-summary: "One resolved config target per `yolo config` invocation — notch, workspace, capture store, home root, may-write and chosen-by — disclosed on stderr by every verb and selectable with `--at`; the workspace marker that decides it; the four store states and three surface reaches that keep an unknown from reading as an empty; the fifth `YOLO_HOST_LAYERS` disposition that delivers yolo's own render as a baseline rather than a layer, keyed on the provenance mark and not on the posture; and the host-side jail-notch `reset` with its tri-state liveness refusal. `host_management` has two values, `none` (the unset answer) and `own`, since the `assert` retirement was built on 2026-10-05; a home `assert` wrote into keeps its mark."
+summary: "One resolved config target per `yolo config` invocation — notch, workspace, capture store, home root, may-write and chosen-by — disclosed on stderr by every verb and selectable with `--setup`; the workspace marker that decides it; the four store states and three surface reaches that keep an unknown from reading as an empty; the fifth `YOLO_HOST_LAYERS` disposition that delivers yolo's own render as a baseline rather than a layer, keyed on the provenance mark and not on the posture; and the host-side jail-notch `reset` with its tri-state liveness refusal. `host_management` has two values, `none` (the unset answer) and `own`, since the `assert` retirement was built on 2026-10-05; a home `assert` wrote into keeps its mark."
 ---
 
 # The config target — which home a `yolo config` verb is about
@@ -25,7 +25,7 @@ them, and no later commit has verified those passages. The `assert` passages wer
 2026-10-05 in the change that retires it ([OQ-CO14](config-ownership.md#oq-co14)).
 
 **MEASURED:** the resolution and its disclosure, the marker and the unknown states, the
-presence answer, `--at`, the preview's host layer in every disposition, and the host-side
+presence answer, `--setup`, the preview's host layer in every disposition, and the host-side
 jail-notch `reset` in all three liveness answers — by unit tests in `internal/cli`, plus
 `TestHostFilesConfigLsAndReset` and `TestConfigTargetResolvesFromTheCwd` in `integration`
 against a real jail. The fifth host-layer disposition end to end, by two unit tests that drive a
@@ -67,7 +67,7 @@ and `reset` could disagree about which store they meant, and nothing on screen n
 | Component | Lives in |
 | :--- | :--- |
 | The target, the resolution point, the marker walk, the store states, the disclosure | `internal/cli` (`configtarget.go`: `configTarget`, `resolveConfigTarget`, `workspaceMarked`, `storeState`, `disclosure`) |
-| The verb dispatch that resolves once, and `--at`'s token extraction | `internal/cli` (`config.go`: `configRunW`, `extractAtFlag`, `notchlessVerbs`) |
+| The verb dispatch that resolves once, and `--setup`'s token extraction | `internal/cli` (`config.go`: `configRunW`, `extractSetupFlag`, `notchlessVerbs`) |
 | The preview's host layer | `internal/cli` (`config.go`: `hostLayerFor`, `userHostLayerFor`) |
 | `diff`, `reset`, the write guard, the truncation to a pure render | `internal/cli` (`configdiff.go`: `configDiff`, `configReset`, `refuseHostSideWrite`, `truncateSurfaceToPureRender`, `userSurfaceFor`) |
 | `ls`, and the per-key provenance block it inherited from `diff` | `internal/cli` (`configls.go`, `configprovenance.go`) |
@@ -113,9 +113,9 @@ same file. They are different rules from different documents.
   The rule is this repo's standing one for reapers — *unreferenced* and *I could not ask the
   runtime* are the same empty answer, so a reaper that cannot ask declines — applied to a
   report instead of a sweep.
-- **P4. The selector is explicit, and it is `--at`.** `yolo apply --at jail|guest|host` is the
-  shipped answer to *"which notch does this verb act on"*. A second spelling for the read verbs
-  would be a second vocabulary for one fact.
+- **P4. The selector is explicit, and it is `--setup`.** Read verbs take `--setup <name>` to
+  name a built-in or user-defined setup; the same setup vocabulary serves launches, `apply`, and
+  config reads. The removed `--at` flag is refused and names this replacement.
 - **P5. No jail-scope input gains authority over a real home.** Whatever the working directory
   decides, it decides which *jail* is being described — never what yolo asserts into `$HOME`.
 - **P6. yolo never reads back a file it writes.** A host layer exists to carry the *user's*
@@ -147,7 +147,7 @@ same file. They are different rules from different documents.
 - **The workspace store has three writers and no more:** the boot render, an in-jail
   `capture`/`reset`, and the host-side jail-notch `reset`. The host capture store keeps its
   two: the owned render, and the reset that discards.
-- **`local` is false at the host notch by construction.** A `--at host` invocation *inside* a
+- **`local` is false at the host notch by construction.** A `--setup host-self` invocation *inside* a
   jail is about the jail's disposable home; letting that count as local would let `reset`
   truncate it.
 - **A workspace target never falls back to the process home.** Host-side that home is the
@@ -163,13 +163,13 @@ Seven facts, resolved together:
 
 | Field | What it answers |
 | :--- | :--- |
-| notch | `jail` or `host`. `guest` is refused by name at the boundary |
+| setup kind | `jail` or `host`. Seatbelt setups render through the jail target; `host` setups target your real home |
 | workspace | which jail is being described; empty at a host target |
 | store | the capture sidecar directory, as a `render.Target` — never a joined path |
 | home root | the home a surface path's `~` resolves against |
 | may write | whether this invocation may write, and which refusal it earns otherwise |
-| runtime | which backend lays out a non-local workspace's jail home |
-| chosen by | `--at`, or the working directory — the clause the disclosure prints |
+| confinement | which technology lays out a non-local workspace's home |
+| chosen by | `--setup`, or the working directory — the clause the disclosure prints |
 
 Two payoffs follow from having a home root on the target. Presence becomes *knowable* for a
 workspace target host-side, because that jail's files sit under the workspace's own state
@@ -198,9 +198,9 @@ other way.
 
 ### Resolution order
 
-`--at` wins where given. Otherwise **the working directory selects the target**: a directory
-that resolves a workspace gets that workspace at the `jail` notch, and a directory that
-resolves none gets the `host` notch. Either way the disclosure names which, and what chose it.
+`--setup` wins where given. Otherwise **the working directory selects the target**: a directory
+that resolves a workspace gets that workspace as a jail-kind target, and a directory that
+resolves none gets the host target. Either way the disclosure names which, and what chose it.
 
 > [!WARNING]
 > **Do not read *"the `cwd` selects nothing"* as governing this.** That ruling
@@ -210,13 +210,13 @@ resolves none gets the `host` notch. Either way the disclosure names which, and 
 > already names the thing a reader means by "this jail". What this design removed is not the
 > inference — it is the **pair**.
 
-`--at jail` from a directory that resolves no workspace **refuses, naming what is missing**. An
+`--setup podman-self` from a directory that resolves no workspace **refuses, naming what is missing**. An
 explicit request for a thing that does not exist is a different case from an unstated default,
 and silently degrading to the other notch is the original defect. **Every remedy is a `cd` or
-an `--at`:** there is no `--workspace` flag, and the launcher's own refusal says there will not
+a `--setup`:** there is no `--workspace` flag, and the launcher's own refusal says there will not
 be one.
 
-Three verbs take no notch and refuse `--at` rather than accepting it inertly: `promote`
+Three verbs take no target and refuse `--setup` rather than accepting it inertly: `promote`
 (host-only, and its destination is user scope, which is not a notch), `drift` and `dump`. A
 flag a verb accepts and does nothing with is the declaration-parity defect.
 
@@ -479,7 +479,7 @@ launcher's label, the provenance mark or the boot's label check is removed. What
 reach is the container runtime's bind of the file, so a real launch of a managed home is still
 unmeasured.
 
-**3. `yolo apply --sealed` keeps the bare-working-directory walk, and `--at` is parsed twice.**
+**3. `yolo apply --sealed` keeps the bare-working-directory walk; it does not take `--setup`.**
 `applySealed` calls the pre-target spellings — `workspaceRoot`, which falls back to the bare
 working directory, and `overlayKeyCount`, which reads the store that walk resolves — so from a
 directory with no workspace it resolves an empty store, finds nothing undeclared, and reports
@@ -490,14 +490,15 @@ alone, fenced by an allowlist test that names the two files permitted to call it
 wrapper it reaches through is itself unpinned, so a *new* caller of that wrapper would spread
 the bare-working-directory answer without tripping anything.
 
-`--at`'s token shape is genuinely written twice — once in `apply`'s own argv loop, once in
-`extractAtFlag` — and the two differ in three small ways: `apply` hardcodes the notch list in
-its messages while the config verbs derive it, `apply` validates against the confinement
-vocabulary directly while the config verbs go through the render kind resolver, and `apply`
-refuses unrecognised arguments where `extractAtFlag` passes them through for each verb's own
-parser. What is **not** duplicated is the thing [P4](#principles) is about: two tests pin that
-the read verbs and `apply` accept the same set and refuse `guest` with the same sentence, by
-running both commands rather than by comparing two lists.
+The old `--at` token shape was parsed twice, by `apply` and `extractAtFlag` (historical names
+in the retired implementation). The current `--setup` selector uses the named-setup vocabulary
+for config and surface read verbs and is refused on verbs that do not act on a selected target.
+The retired parser differed in these ways: `apply` had its own notch list in messages while the
+config verbs derived it, `apply` validated against the confinement vocabulary directly while the
+config verbs went through the render-kind resolver, and `apply` refused unrecognised arguments
+where the former `extractAtFlag` passed them through to each verb's parser. Current tests pin that
+read verbs and `apply` accept the same setup set and refuse an unbuilt setup with the same
+sentence, by running both commands rather than comparing two lists.
 
 ## What this does not license
 
@@ -518,10 +519,11 @@ running both commands rather than by comparing two lists.
   [the host capture store](config-ownership.md#the-host-capture-store)).
 - **No new store, no new sidecar, no new file format, and no migration.** Every path here is
   derived at read time.
-- **No `guest` notch.** `--at guest` is refused by name, with the same sentence `apply` prints.
+- **No `guest` setup.** The old `guest` spelling is retired; choose `seatbelt-yolo-account` or
+  `seatbelt-self` on macOS.
 - **No second notch vocabulary.** No `yolo host config`, no `--jail`/`--host` pair.
 - **No `--workspace` flag.** The launcher's refusal rules one out in as many words, so every
-  remedy this document names is a `cd` or an `--at`.
+  remedy this document names is a `cd` or a `--setup`.
 - **Not a repo-scoped host input.** [P5](#principles) is a restatement, not an extension.
 - **Not a licence to hard-code the container workspace in-jail.** That is wrong the moment the
   CLI runs for a different workspace than the one it is jailed for — a nested jail, and every
@@ -543,7 +545,7 @@ and its original anchor, because they are cited from code comments across `inter
 
 | ID | Ruling | Why it stays |
 | :--- | :--- | :--- |
-| <a id="oq-cr1"></a>[`OQ-CR1`](#oq-cr1) | **The working directory selects the TARGET** — workspace *and* notch — and `--at` overrides | The obvious "fix" is to import the write side's *"the `cwd` selects nothing"*. That governs what a directory may change about a real home's configuration; choosing what a report is **about** is not that hazard, and the working directory is the one input that already names the jail a reader means. What had to go was the **pair**, not the inference. |
+| <a id="oq-cr1"></a>[`OQ-CR1`](#oq-cr1) | **The working directory selects the TARGET** — workspace *and* notch — and `--setup` overrides | The obvious "fix" is to import the write side's *"the `cwd` selects nothing"*. That governs what a directory may change about a real home's configuration; choosing what a report is **about** is not that hazard, and the working directory is the one input that already names the jail a reader means. What had to go was the **pair**, not the inference. |
 | <a id="oq-cr2"></a>[`OQ-CR2`](#oq-cr2) | **Marker: the launch artifact OR a workspace config file. No workspace resolves the HOST target, under disclosure — not a refusal** | A launch artifact alone answers *"has a jail run here"*, which is not what a workspace is: a fresh clone with a committed config is one before its first launch. And outside a workspace the only home to describe is the host's, so naming it removes the confident-empty-answer failure exactly as well as an error does, with an answer instead. It is a target, not a permission — the write guard is untouched. |
 | <a id="oq-cr3"></a>[`OQ-CR3`](#oq-cr3) | **One target, one store.** `diff` and `ls` resolve the capture store through `render.Target`, as `reset` already did | Closes the owned-host disagreement by **removing the second resolution**, not by teaching the readers about ownership. The tempting alternative — show both stores, labelled — is a two-home report wearing a feature's clothes. |
 | <a id="oq-cr4"></a>[`OQ-CR4`](#oq-cr4) | **A host-side `reset` at a jail notch exists, with the running-jail refusal** | The store was always workspace-keyed and the surface file was always a resolver away. Without it, discarding a stopped jail's captures requires launching that jail — performing the act being undone. The refusal costs nothing because the in-jail command is available exactly when it fires. |
@@ -629,7 +631,7 @@ only place the values themselves are stated.
 
 | Value | Setting | Defined in |
 | :--- | :--- | :--- |
-| Notch selector | `--at jail\|guest\|host`, on every `yolo config` verb but `promote`, `drift`, `dump` | `internal/cli` (`extractAtFlag`, `notchlessVerbs`) |
+| Notch selector | `--setup <name>`, on config and surface read verbs; refused on `apply`, `promote`, `drift` and `dump` | `internal/cli` (`extractSetupFlag`, `notchlessVerbs`) |
 | Disclosure stream | stderr, every verb, every invocation | `internal/cli` (`configRunW`) |
 | Workspace markers | `.yolo/config-boot.json`, or any name `config.LoadWorkspaceConfig` reads | `internal/cli` (`workspaceMarked`, `workspaceConfigNames`) over `internal/config` |
 | Workspace capture store | `<workspace>/.yolo/prism` | `render.Target.SidecarDir` at the jail kind |

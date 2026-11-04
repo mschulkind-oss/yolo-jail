@@ -56,14 +56,14 @@ and "never" stops the asking.
 Each jail records which tool versions it uses, and yolo keeps a version any jail used in the last
 30 days, whichever project it was in. Because it judges from those records, the first tool versions
 are offered 30 days after you upgrade. On a Mac yolo does not clean up tool versions yet: the store
-lives inside the VM, or in the sandbox account on `macos-user`.
+lives inside the VM, or with the yolo account used by a Seatbelt setup.
 
-On `macos-user`, a launch reclaims old loophole state by itself, and makes the same offer to clear
+On a Seatbelt setup, a launch reclaims old loophole state by itself, and makes the same offer to clear
 the shared build cache, which container jails on the same Mac fill. The container stores are left
-to a container launch or `YOLO_RUNTIME=container yolo prune --apply`, and nothing reclaims the
-sandbox account's own caches yet; `yolo stores` lists them.
+to a container launch or `YOLO_SETUP=apple-container-self yolo prune --apply`, and nothing reclaims the
+yolo account's own caches yet; `yolo stores` lists them.
 
-On Apple Container each project keeps its own disk for mise's tools, so two projects' jails can
+On `apple-container-self` each project keeps its own disk for mise's tools, so two projects' jails can
 run at once, and a project's first jail downloads its tools again. `yolo stores` lists each disk
 with its project and size, and `yolo prune --apply` removes the disk of a project whose folder is
 gone. `yolo prune` does not see stopped Apple Container jails; list them with `container ls --all`

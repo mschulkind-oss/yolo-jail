@@ -1579,9 +1579,8 @@ that callback to refuse — so reclamation defers until nothing is live.
 
 ## Ownership and UIDs
 
-The container user is **root (UID 0)** with home `/home/agent`. Docker is removed:
-`runtime: "docker"` is a validation error, and the resolvable runtimes are `podman`,
-`container` (Apple Container) and `macos-user`.
+The container user is **root (UID 0)** with home `/home/agent`. Docker is not a supported container runtime. Choose a container setup by name: `podman-self` or
+`apple-container-self`; Seatbelt setups run on macOS without a container.
 
 - **Rootless podman, normal branch** — an identity map for ID 0 plus a range map above it,
   matching gidmaps, `/dev/fuse`, and the capabilities nested podman needs. Under rootless

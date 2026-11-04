@@ -59,16 +59,19 @@ other ways to install yolo.
 | **Container runtime** | [Apple Container](#macos-apple-container-recommended) on macOS 26 or later; [Podman](#macos-podman) otherwise | [Podman](#macos-podman) | [Podman](#linux-podman), rootless |
 | **yolo** | [Homebrew](#homebrew) | A [release archive](#other-ways-to-install), or [Homebrew](#homebrew) | [Homebrew](#homebrew) or a [release archive](#other-ways-to-install) |
 
-On a Mac you have three ways to run the jail, and yolo supports all three:
+On a Mac, use a named setup for the environment you want:
 
-- **Apple Container** is the recommended one today. Each jail runs in its own small Linux virtual
-  machine (VM), and there is no VM for you to manage.
-- **Podman** runs every jail inside one Linux VM called the Podman Machine. It supports more of yolo's
-  features than Apple Container, and it is the container runtime to use on an Intel Mac or on macOS
-  before 26.
-- **`macos-user`** is coming, but it is not the recommended setup yet. It runs the agent as a hidden
-  macOS user inside Apple's built-in sandbox, with no container and no VM. It will become the main Mac
-  setup once it is finished. [About `macos-user` →](guides/macos.md#the-macos-user-backend)
+- **`apple-container-self`** is the default on Apple silicon with macOS 26 or later. Each container
+  runs in its own small Linux virtual machine.
+- **`podman-self`** runs containers inside one Linux VM called the Podman Machine. It supports
+  features Apple Container may not, and is the available container setup for Intel Macs and older
+  macOS.
+- **`seatbelt-self`** runs as you under macOS's deny-by-default Seatbelt rules. Choose
+  `seatbelt-yolo-account` to use the separate yolo account instead; create it once with
+  `yolo yolo-account create`.
+
+The current default is not selected by probing and never falls back to `yolo host`. See
+[Choosing a setup](guides/macos.md#choosing-a-setup) for the tradeoffs.
 
 > [!NOTE]
 > **Intel Macs work today, but support is ending.** Apple Container, Podman 6 and the NixOS Nix
@@ -212,7 +215,7 @@ if yolo says the runtime is not running, run `container system start` again.
 > your Mac for the jail, such as the one that keeps a shared Claude login fresh. So on this runtime,
 > two jails sharing one Claude login can log each other out, and `codex` and `pi` cannot use a
 > ChatGPT subscription login. If you need either, use Podman.
-> [What Apple Container does not do →](guides/macos.md#apple-container-runtime-container--what-it-does-not-do)
+> [What Apple Container does not do →](guides/macos.md#apple-container-apple-container-self--what-it-does-not-do)
 
 ### macOS: Podman
 
@@ -243,15 +246,25 @@ can be set only when the machine is created. If you did not install yolo with Ho
 last `-v` and the last line. `yolo check` warns if the machine has less than 4096 MB of memory, and
 fails if it does not share your project or yolo's own files.
 
-If yolo later says the runtime is not running, run `podman machine start`. If Apple Container is
-installed and running too, yolo picks it; set `YOLO_RUNTIME=podman` or `"runtime": "podman"` to use
-Podman.
+If yolo says Podman is not running, run `podman machine start`. Setup selection is explicit: macOS
+defaults to `apple-container-self`, while `podman-self` is available when you want Podman:
 
-### macOS: the macos-user sandbox (coming)
+```bash
+yolo --setup podman-self -- claude                 # one launch
+# or set setup = "podman-self" in your user config
+yolo config set setup podman-self --user
+```
 
-`macos-user` needs no container runtime at all: only Nix, with your user trusted, and a one-time
-`yolo yolo-account create` that creates the hidden user. It is still in development, and several agents have
-not been tried on it yet. [Set up `macos-user` →](guides/macos.md#the-macos-user-backend)
+### macOS: Seatbelt setups
+
+`seatbelt-self` runs on macOS under deny-by-default Seatbelt rules, as you; it needs no container
+runtime. `seatbelt-yolo-account` runs under the same rules as the separate yolo account, which you
+create once with `yolo yolo-account create`. These are selectable setups, not the current macOS
+default. See [the macOS guide](guides/macos.md#choosing-a-setup) for the differences and limits.
+
+Choose one launch with `yolo --setup seatbelt-self -- claude`, or make it your user-wide default
+with `yolo config set setup seatbelt-self --user`. A project config cannot choose or define a
+setup.
 
 ### Linux: Podman
 
@@ -288,19 +301,20 @@ back to a slower network helper and says so when a jail starts. Older versions, 
 Podman 4.3, are untested. Nothing needs configuring for the AppArmor user-namespace restriction on
 Ubuntu 24.04 and later, which yolo already works around.
 
-### Which runtime yolo picks
+### Which setup yolo uses
 
 | Setup | When yolo uses it |
 |---|---|
-| `podman` / Linux | Always, on Linux |
-| `container` / macOS | When Apple Container is installed and running |
-| `podman` / macOS | Otherwise, when Podman is installed and its machine is running |
-| `macos-user` / macOS | Only when you choose it |
+| `podman-self` | Linux default; also available on macOS when Podman is installed |
+| `apple-container-self` | macOS 26 or later on Apple silicon; macOS default |
+| `seatbelt-self` | On macOS when selected; agent runs as you under Seatbelt |
+| `seatbelt-yolo-account` | On macOS when selected and the yolo account exists |
 
-If no installed runtime is running, yolo stops before building anything and prints the command that
-starts each one. To choose yourself, set the `runtime` config key or the `YOLO_RUNTIME` environment
-variable to `podman`, `container` or `macos-user`. `command -v container podman` shows which runtimes
-are installed.
+Selection order is `--setup`, then `YOLO_SETUP`, then the `setup` value in your user config, then
+the OS default (`podman-self` on Linux, `apple-container-self` on macOS). yolo does not probe for
+an installed alternative or fall back to `yolo host`; `yolo setup list` shows available setups.
+The `setup` key and `[setups.<name>]` tables are user-scope only, so a project cannot choose its
+own environment.
 
 ## Step 3: Install yolo
 
@@ -447,8 +461,7 @@ becomes `config.toml`; the verbs edit whichever format you have.
 
 The shipped agent packs are `claude`, `copilot`, `codex`, `opencode`, `pi`, `agy` and `omp`; list as
 many as you like. `omp`'s vendor publishes no ARM Linux build, so it does not run in a jail on an Apple
-silicon Mac. A jail installs each selected agent when it first starts, before your command runs (on
-`macos-user`, the first time you run it). Only your user config can
+silicon Mac. A jail installs each selected agent when it first starts, before your command runs (on a Seatbelt setup, the first time you run it). Only your user config can
 select packs; a project's own config cannot. [How packs work →](guides/packs-and-skills.md)
 
 ### Check the setup
@@ -612,8 +625,7 @@ or `git pull && just deploy` in your clone, and then `yolo broker restart`.
 
 1. **Exit every jail**, which stops the host services each one started. `yolo host-daemon status`
    lists any still running, and `yolo host-daemon stop <name>` stops one (on yolo 0.10.0,
-   `yolo broker stop`). If you set up
-   `macos-user`, run `yolo yolo-account remove`.
+   `yolo broker stop`). If you created the yolo account, run `yolo yolo-account remove`.
 2. **Remove yolo:** `brew uninstall yolo-jail`, or delete the release archive's folder, or remove
    `yolo` from Go's bin directory.
 3. **Remove what yolo stored:** `rm -rf ~/.local/share/yolo-jail ~/.config/yolo-jail`. This deletes

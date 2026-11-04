@@ -32,7 +32,7 @@ Launch flags, placed before `--`:
 | `--with-credentials <provider,…\|all>` | Start the jail holding those providers' keys from `env_sources`, keys only, for every process and later session in it; see [Give a shell a provider's key](../guides/providers-and-models.md#give-a-shell-a-providers-key) |
 | `--accept-config-changes` | Approve a changed project config on a launch with no terminal, such as CI; see [Approving config changes](configuration.md#approving-config-changes) |
 | `--network bridge\|host` | Choose the network mode for a jail this launch starts, overriding the config's `network.mode` |
-| `--at jail\|host` | Choose where to run: `--at host` is the same as `yolo host` |
+| `--setup <name>` | Choose a named setup for this launch; `yolo setup list` shows them |
 | `--timing` | Report where the launch spent its time |
 
 ## Set up and check
@@ -193,13 +193,16 @@ example on a metered connection. Old recordings are reclaimed by `yolo prune`.
 ## macOS
 
 ```bash
-yolo macos-setup             # create the hidden user the macos-user sandbox runs as
-yolo macos-teardown          # remove it again
-yolo macos-fix-permissions   # repair sharing on a macos-user project
-yolo macos-unshare <dir>     # remove sharing from a project
+yolo setup list              # built-in and user-defined setups, and the current selection
+yolo setup show <name>       # show a setup's confinement and run_as fields
+yolo setup new <name> --from <setup>  # copy a setup into your user config
+yolo yolo-account create     # create the separate yolo account on macOS
+yolo yolo-account remove     # remove the account
+yolo yolo-account share <dir>
+yolo yolo-account unshare <dir>
 ```
 
-See [macOS](../guides/macos.md#the-macos-user-backend).
+See [macOS](../guides/macos.md#choosing-a-setup) for setup choices and [Where Agents Run](../guides/confinement.md) for the user-only selection rule.
 
 ## Output
 

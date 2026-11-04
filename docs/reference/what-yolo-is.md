@@ -18,14 +18,14 @@ covers:
 tags: [charter, boundaries, architecture, separability, packs, confinement, notches]
 ---
 
-# What yolo is — the charter, the confinement dial, and the boundaries
+# What yolo is — the charter, named setups, and the boundaries
 
-**Status:** Verified 2026-10-16 against `8e65f3444`. The charter, the confinement dial, the
-verbs and the input closure graduated here on 2026-10-16 from the environment-manager design
-(`git log --follow -- docs/reference/what-yolo-is.md`); the separability sections
-were verified 2026-09-09 against `4385c81a` and re-read at this commit. Two parts of the dial are
-not built: [`check` at a notch](#check-at-a-notch) and the Linux `guest` notch
-([Not built](#not-built)).
+**Status:** The charter graduated here from the environment-manager design on 2026-10-16. The
+named-setup section and the current setup-selection/refusal examples were checked against the
+implementation on 2026-11-03; the older notch vocabulary below is retained only where it explains
+internal render concepts or design history. The separability sections were verified 2026-09-09
+against `4385c81a` and re-read at the earlier verification commit. The direct setup override for
+`yolo check` and Linux Landlock setups are not built ([Not built](#not-built)).
 
 yolo describes the environment an agent works in — its tools, its config, its skills, its
 credentials — reproducibly, declaratively, per workspace. **Confinement is one attribute of that
@@ -37,7 +37,7 @@ description**, and a jail is the strongest setting of that attribute and the def
 | Codec helpers, its only first-party dependencies | `internal/jsonx`, `internal/tomlx` |
 | Jail-side render of composed surfaces | `internal/entrypoint` (`ConfigurePackSurfaces`) |
 | Host-side render, and `yolo config render` | `internal/cli/config.go`, `internal/cli/hostapply.go` |
-| The `confinement` key and its notches | `internal/config` (`ResolveConfinement`, `Confinement`) |
+| The named `setup` and its fields | `internal/setup` (`Setup`, `Confinement`, `RunAs`) |
 | The primitive model under the notches, and the autonomy policy | `internal/render` (`Profile`, `ProfileFor`, `AgentAutonomy`) |
 | Which pack kinds and config keys apply at each notch | `internal/render` (`HostFields`, `FieldSet`) |
 | `apply`, `apply --sealed` | `internal/cli` (`apply.go`: `applySealed`) |
@@ -84,112 +84,106 @@ the strongest confinement level, so "yolo jail" reads as "yolo, at the jail leve
 
 <a id="description-and-confinement"></a>
 
-## Description and confinement: the two axes
+## Description and setup: the two inputs
 
-What a user does with yolo is **describe the environment, then choose how confined it is.**
+What a user does with yolo is **describe the environment, then choose a named setup for it**.
 
 ```text
-       DESCRIPTION                                    CONFINEMENT
+       DESCRIPTION                                    SETUP
   ┌──────────────────────────┐              ┌────────────────────────────┐
-  │ tools      packages, mise│              │  jail     container        │
-  │ agents     packs         │      ×       │  guest    own identity+LSM │
-  │ knowledge  skills, briefs│              │  host     none             │
-  │ config     composed files│              └────────────────────────────┘
-  │ services   loopholes     │
-  │ layout     workspace, env│                one description,
-  └──────────────────────────┘                three places to realize it
+  │ tools      packages, mise│              │ podman-self                │
+  │ agents     packs         │      ×       │ apple-container-self       │
+  │ knowledge  skills, briefs│              │ seatbelt-self              │
+  │ config     composed files│              │ seatbelt-yolo-account      │
+  │ services   loopholes     │              │ host setups                 │
+  │ layout     workspace, env│              │ fields: confinement + run_as│
+  └──────────────────────────┘              └────────────────────────────┘
 ```
 
-The description is the product. The confinement column is a setting, and its three values are
-presets, not backends. `yolo -- claude` is unchanged by this framing: one command, at `jail`,
-credentials omitted.
+The description is the product. A setup names the technology and account that apply it; it is
+not a free-form policy vector. `yolo -- claude` still runs the selected/default setup, with
+credentials omitted by default.
 
 <a id="the-confinement-dial"></a>
 
-## The confinement dial
+## The setup
 
-The user-scope or workspace `confinement` key names the notch; `runtime` stays a mechanism hint
-inside `jail`, normally `auto`. Splitting them undoes a conflation: `runtime: "macos-user"` used to
-mean both *how much confinement* and *by what mechanism*.
+Where the environment runs is selected by naming a **setup**: a named set of values with two
+independent fields. `confinement` names the technology that sets the boundary; `run_as` names the
+account. Built-ins include `podman-self`, `apple-container-self`, `seatbelt-self` and
+`seatbelt-yolo-account`. `landlock-*` names are reserved but not built. `host-self` has no walls and
+is run only through `yolo host`.
 
-| Notch | Mechanism | What the agent gets | Credentials |
-| :--- | :--- | :--- | :--- |
-| **`jail`** (default) | podman, or Apple Container | namespaces or a VM, a disposable home, a baked image | none of yours |
-| **`guest`** | on macOS, the macos-user backend (a separate account under Seatbelt); on Linux, not built | a real home on the real filesystem, no image | its own, separate identity |
-| **`host`** | none | you, your machine, your dotfiles | yours |
+The ordinary launch's one named default is `podman-self` on Linux and `apple-container-self` on
+macOS. It does not probe for a runtime or fall back to `host`. A person can choose another setup
+for a launch with `--setup <name>`, set `YOLO_SETUP=<name>` for a shell, or select a default in
+user config with `setup = "<name>"`. `yolo setup list` reports built-ins, user-defined setups and
+the current selection. The user config alone may hold `setup` or `[setups.<name>]`; a project file
+cannot choose where its agent runs or define a setup. A user may copy a setup into that config with
+`yolo setup new <name> --from <setup>`.
 
-The notches are named for **the agent's relationship to the machine**, the one thing true on
-every platform: it is jailed, it is a guest, or it is you.
+The old `confinement` and `runtime` dials, the `macos_user_mode` selector and the launch flag
+`--at` are removed, not aliases. Their refusals name the setup command to use. The former `guest`
+value is replaced by the explicit Seatbelt setup names; a host choice remains explicit through
+`yolo host`.
 
-- **A launch takes the notch from `confinement`.** At `host` the launch verb is `yolo host --
-  <cmd>` ([`host-agent-environment.md`](host-agent-environment.md)); a launch asked for
-  `--at host`, or for a Linux `guest`, is refused by name before anything starts
-  (`run.refuseUnbuiltNotch`).
-- **`host` is never inferred**, never auto-detected, never the fallback when something fails. The
-  default is the strongest notch.
-- **The dial is ordinal within a platform, not absolute across them.** `jail` spans podman
-  (namespaces, a shared kernel) and Apple Container (one VM per container), so `jail` means "the
-  strongest confinement available here." `describe` prints the mechanism beside the notch for
-  that reason.
-- **Three notches on the surface, composable primitives underneath.** Confinement is composed
-  policy — filesystem write scope, credential visibility, network reach, process view, resource
-  caps — enforced by primitives that combine independently (a separate OS user, a Seatbelt
-  profile, a user namespace). `render.Profile` holds that vector; the three notches are presets
-  over it, and `describe` and the briefing print it. Hand-assembling a custom combination is not
-  a user-facing interface: [`fill-the-matrix-principle.md`](fill-the-matrix-principle.md) rules
-  that out as the everyday front door, so a user selects one of the three presets.
+- **`host` is never inferred**, never auto-detected and never a fallback when a technology is
+  missing. The ordinary launch's default is a container setup, and missing technology is a
+  refusal naming an installed alternative where one is available.
+- **Setup names never change meaning by OS.** `podman-self` means Podman on both platforms, while
+  `seatbelt-self` is macOS-only; each OS has one named default, chosen without probing.
+- **The setup is a pair, not a free-form policy vector.** `confinement` and `run_as` are
+  independent; neither field derives its value from the other. `render.Profile` holds the
+  enforcement primitives underneath them, but users choose a named setup rather than assembling
+  those primitives directly ([`fill-the-matrix-principle.md`](fill-the-matrix-principle.md)).
 - **The grants stay where they are.** `mounts`, `host_files`, `network.ports`, `devices`, `gpu`
-  and loopholes are holes through a wall. Below `jail` there is no wall, so they are inert, and
-  yolo says which.
+  and loopholes remain project or user choices. A setup changes the walls, not the grants.
 
 <a id="why-guest-not-sandbox"></a>
 
-### Why the middle notch is `guest`, not `sandbox`
+### Why the former `guest` name was retired
 
-"Sandbox" is the generic term for the whole column, not a point on it: Kubernetes' CRI unit is a
-`PodSandbox`, gVisor and Firecracker are sandboxes, and this codebase already spends the word on
-the jail. `jail` survives the same test — FreeBSD jails and chroot jails are OS-level
-partitioning of one kernel, and a container is a jail in the term's own lineage. The middle notch
-bundles two different things on macOS (a separate user is the credential boundary, Seatbelt the
-confinement), and a Linux form would need no separate user at all, so any name drawn from either
-mechanism lies about the other platform. `guest` carries "guest account" — its own identity,
-restricted reach, on the real machine — and commits to no mechanism.
+The earlier notch design called its middle option `guest`, but that name hid two different
+choices on macOS: a separate account and Seatbelt confinement. Named setups make those independent
+choices explicit as `seatbelt-self` and `seatbelt-yolo-account`; they do not use `guest` as a
+current config value or command-line selector.
 
 <a id="autonomy-is-a-confinement-policy"></a>
 
-### Agent autonomy is a confinement policy
+### Agent autonomy follows the setup's enforcement kind
 
-Every agent pack's "run without permission prompts" settings are safe only because a jail
-contains the agent. They are therefore **selected by the notch, not asserted by the pack
-everywhere**:
+Every agent pack's "run without permission prompts" settings are safe only where the selected
+setup confines the agent. They are therefore **selected by the setup's enforcement kind, not
+asserted by the pack everywhere**:
 
-- **The notch carries an autonomy policy bit** (`render.Profile.AgentAutonomy`), beside its
-  enforcement primitives. The presets follow the wall: `jail` on, `guest` on (still confined),
-  `host` off (nothing contains the agent, so its prompts stay).
+- **The enforcement kind carries an autonomy policy bit** (`render.Profile.AgentAutonomy`), beside
+  its enforcement primitives. Container and Seatbelt setups enable it; `host` leaves it off so
+  prompts stay on.
 - **Each pack declares both postures as data**, in the dedicated `autonomy` kind: the config
   patches and launch flags that mean *autonomous*, and those that mean *guarded*. The policy
   selects which renders. It runs in both directions: claude, codex, agy, opencode and copilot are
-  guarded by default and a jail loosens them, while pi is permissive by default and the `host`
-  notch tightens it.
-- **Keys safe at any notch** (an auto-updater off, a trust dialog accepted) stay in ordinary
+  guarded by default and a container or Seatbelt setup loosens them, while pi is permissive by
+  default and `host` tightens it.
+- **Keys safe anywhere** (an auto-updater off, a trust dialog accepted) stay in ordinary
   `managed` config and are unconditional.
-- **A jail boot is byte-identical** with the policy on: the jail's autonomous posture reproduces
+- **A container boot is byte-identical** with the policy on: its autonomous posture reproduces
   exactly what the packs rendered before the kind existed (the render fingerprint gate).
 
 > [!WARNING]
-> **Never put a jail-bypass key in a pack's unconditional `config` or `launch`.** At `host` it
-> would land in the user's real `~/.claude/settings.json` and strip the confirmation prompts that
-> are the only thing protecting a machine with no jail. The `autonomy` kind exists so a bypass key
-> cannot sit in the always-on half by accident ([`OQ-11`](#why-its-this-way)).
+> **Do not put a permission-bypass key in a pack's unconditional `config` or `launch`.** A
+> no-walls setup can render that value into the agent's host configuration without a jail to
+> contain its effect. The `autonomy` kind keeps the guarded and autonomous values separate so the
+> selected enforcement kind chooses the posture ([`OQ-11`](#why-its-this-way)).
 
 <a id="the-verbs"></a>
 
 ## The verbs
 
 ```text
-yolo -- <cmd>          run <cmd> in the described environment, at the configured notch
-yolo apply             make this environment match its description, run nothing
-yolo apply --at host   … at the host notch (also spelled `yolo host apply`)
+yolo -- <cmd>                    run <cmd> in the selected setup
+yolo --setup seatbelt-self -- c  choose a setup for one launch
+yolo apply                       make this environment match its description, run nothing
+yolo apply --setup host-self     … in your real home (also `yolo host apply`)
 yolo apply --sealed    … and refuse if anything undeclared participates
 yolo describe          print the resolved description
 yolo check-deps        probe this machine for what the selected packs need
@@ -214,7 +208,7 @@ there is nothing to enter.
 - **At `host`**, `apply` is the whole host-render feature: it writes the applicable config into
   the real home ([`host-agent-environment.md`](host-agent-environment.md#what-yolo-host-apply-renders-into-a-derived-surface)).
   Its run half is the separate verb `yolo host -- <cmd>`.
-- **At a macOS `guest`** it points at the launch; a Linux `guest` has no backend.
+- **At a Seatbelt setup** it follows the launch path; a Linux `landlock` setup is not built.
 - `--format json` and `--timing` belong to the host notch's apply alone, and every other route
   refuses them by name.
 
@@ -280,21 +274,19 @@ unset or retired `host_management`.
 
 <a id="check-at-a-notch"></a>
 
-### `check` at a notch — not built
+### `check` and setup selection — no one-off override built
 
-`yolo check` parses no `--at`. The design is that `check --at <notch>` names by key what is inert
-at that notch and treats an inert key as a hand-off rather than a verdict: it probes whether the
-dependency is present anyway and names the command that fixes it, and with host access it reports
-host-render drift with `yolo host apply` as the fix. `check` never writes. What ships of this is
-`yolo check-deps` and the host apply's per-kind naming of what does not apply
-([packs across notches](#packs-across-notches)). Whether the hand-off lands in a `check --at` is
-question [Q1b](../design/environment-manager-user-stories.md#Q1b) of the user stories.
+`yolo check` validates the machine, user and workspace config, the selected/default setup and
+its prerequisites. It has no one-off `--setup` override. The earlier proposal for
+`check --at <notch>` was not built; `--at` is now refused and names `--setup` for commands that
+support setup selection. `check` never writes. `yolo check-deps` and host apply report which
+selected contributions do not apply.
 
 <a id="dependency-provisioning"></a>
 
 ### Dependency provisioning: declare once, check once, hand off
 
-Below `jail` a `packages` or `requires` declaration becomes a question about the host.
+Outside the container setups, a `packages` or `requires` declaration becomes a question about the host.
 
 - **One declaration, owned by whoever introduced the need.** A pack declares the binaries it
   introduces, with per-package-manager `install_hints`; it does not re-declare what another
@@ -319,8 +311,8 @@ Below `jail` a `packages` or `requires` declaration becomes a question about the
 
 ### `program` below `jail`
 
-A pack's `program` (an agent CLI it installs) is honored at every notch. At `guest` the
-macos-user backend runs the jail's own launchers. At `host` the **host agent floor** installs
+A pack's `program` (an agent CLI it installs) is honored in every setup that can run it. In a
+Seatbelt setup, the agent uses the same Mac-side launchers. At `host` the **host agent floor** installs
 every program a selected pack declares into a yolo-owned host prefix, with no prompt: selecting
 the pack in user config is the consent ([`host-agent-environment.md`](host-agent-environment.md#the-host-agent-floor)).
 A program the floor delivers is never a dependency-gate blocker; the gate's one prompt covers the
@@ -481,20 +473,17 @@ real logic should look like an MCP server, not like a plugin.
 - **`host` will be over-used.** It is faster and it has the user's real credentials. The counter
   is that `host` is a reduced environment that says what it cannot do, with the agent's prompts
   left on; this is a product-discipline risk with no technical fix.
-- **`guest` must actually work before a three-notch story is honest.** On macOS it does; on Linux
-  it is [not built](#not-built).
+- **A Linux Landlock setup must be built before it is a supported launch choice.** Its names are
+  reserved, but Linux users currently use `podman-self` for a confined container.
 
 <a id="not-built"></a>
 
 ## Not built
 
-- **`check --at <notch>`** ([`check` at a notch](#check-at-a-notch)). `yolo check` parses no
-  `--at`; whether the inert-key hand-off lands there is question
-  [Q1b](../design/environment-manager-user-stories.md#Q1b).
-- **A Linux `guest` notch.** There is no Linux enforcement code; a Linux `guest` launch refuses,
-  and the `guest` row of `render`'s mode table is deliberately undecided. It is the environment
-  manager plan's Phase 7.2 ([`../plans/environment-manager-plan.md`](../plans/environment-manager-plan.md)),
-  and question Q7 of [the user stories](../design/environment-manager-user-stories.md).
+- **A one-off setup override for `yolo check`.** The command checks the resolved selection; there
+  is no `check --setup` flag.
+- **Linux Landlock setups.** `landlock-self` and `landlock-yolo-account` are reserved names, not
+  working launch choices. A refusal names `podman-self` as the nearest built setup.
 - **The questions the user stories raised** — capture against the closure, a shortfall as
   success, briefing stamping, a confinement floor for an organization, the exposure view — live
   in [`../design/environment-manager-user-stories.md`](../design/environment-manager-user-stories.md),

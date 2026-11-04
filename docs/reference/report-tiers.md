@@ -344,7 +344,7 @@ instead of re-reading a paragraph per contribution.
 | **does not apply** | this declaration has no meaning at this notch: no verb there, `yolo host apply` or `yolo host --`, does anything with it | anything that stops the apply, and anything `yolo host --` delivers |
 | **refused** | the apply stopped; nothing was rendered | a notch fact |
 | **replaces** | a value of the user's is overwritten by a managed key or a pack's `config-overlay`, measured against the file the write produces | a key yolo already owned, or one the write leaves as the file has it |
-| **kept** | under `host_management: own`, the user's captured edit outranks a pack's `config-overlay`, so the pack's value is not in effect. Not a loss: stated on its own line with how to take the pack's value (set it in the file and apply again) or drop every captured edit (`yolo config reset <surface> --at host`) | a replaced value |
+| **kept** | under `host_management: own`, the user's captured edit outranks a pack's `config-overlay`, so the pack's value is not in effect. Not a loss: stated on its own line with how to take the pack's value (set it in the file and apply again) or drop every captured edit (`yolo config reset <surface> --setup host-self`) | a replaced value |
 | **drops** | an entry of the user's is removed | a replaced value |
 | **moves** | a file of the user's becomes yolo-managed in the local pack | a copy — the original does not stay |
 | **archives** | content is retired into this run's archive generation | a delete; nothing is deleted |
@@ -613,7 +613,7 @@ order (`launchcontext.go`):
 A `yolo host --` block holds the same records but the decision, its `invocation:` keeping the
 program's base name and argument count only (PR-D26's rule above), and its captured edits read from
 the host's capture store, which exists under `host_management: "own"` alone, with
-`yolo config reset <agent/surface> --at host`. Its comparison files are under
+`yolo config reset <agent/surface> --setup host-self`. Its comparison files are under
 `~/.local/share/yolo-jail/host-launches/<code>-last-launch*.json`, 0600, keyed by the directory's
 short code: not in the logs directory, which a jail may mount, because the snapshot is the whole
 config unredacted. Neither pair is read back to decide anything; a jail can rewrite the workspace's,

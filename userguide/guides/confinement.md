@@ -1,43 +1,67 @@
 # Where Agents Run
 
-yolo describes an agent's environment once, and that description can be applied in more than one
-place. How much of your machine the agent can reach there is its **confinement**. You choose it; it
-is one setting, not the whole product.
+yolo describes the environment an agent works in — its tools, config, skills and credentials — and
+applies it through a named **setup**. A setup has two independent values: **confinement**, the
+technology that sets the boundary, and **run_as**, the account that runs the agent. The
+[settings-per-setup reference](../reference/settings-per-setup.md) compares what each can do.
 
-| Where | What the agent can reach | Status |
+| Setup | What it runs | Availability |
 |---|---|---|
-| **Jail** | Only your project and what you allow, inside an isolated container | Supported, and the default |
-| **Your own machine** (`yolo host`) | Everything you can, as you | Supported: configuration and launch |
-| **Guest** | A separate user account on your machine, with a real home and no container | In development on a Mac, as the `macos-user` sandbox; not yet on Linux |
+| `podman-self` | Linux container; Podman runs directly on Linux and in a Podman Machine VM on macOS | Linux default; available on macOS when Podman is installed |
+| `apple-container-self` | Linux container in its own small VM | macOS 26 or later on Apple silicon; macOS default |
+| `seatbelt-self` | Agent on macOS, as you, under yolo's deny-by-default Seatbelt rules | macOS |
+| `seatbelt-yolo-account` | Agent on macOS, as the separate yolo account, under the same Seatbelt rules | macOS; create the account once with `yolo yolo-account create` |
+| `landlock-self`, `landlock-yolo-account` | Planned Linux setups | Not built |
+| `host-self`, `host-yolo-account` | No confinement; only `yolo host` can run these | `host-self` is the default for `yolo host`; the yolo-account variant is available on macOS |
+
+The ordinary launch defaults to `podman-self` on Linux and `apple-container-self` on macOS. It does
+not probe for another installed setup or fall back to the host. Choose another setup for one launch
+with `--setup`, through `YOLO_SETUP`, or as your user-wide default with `setup = "<name>"` in your
+user config. A project file cannot choose or define a setup: the choice belongs to you, not to a
+workspace an agent can edit.
+
+```bash
+yolo setup list                                  # names every built-in and your own setups
+yolo setup show seatbelt-self                    # show its fields
+yolo --setup seatbelt-self -- claude             # one launch, as you under Seatbelt
+YOLO_SETUP=podman-self yolo -- claude             # one shell's default
+# In ~/.config/yolo-jail/config.toml:
+# setup = "seatbelt-self"
+yolo config set setup seatbelt-self --user        # write that user-wide default
+yolo setup new mac-as-me --from seatbelt-self     # define a setup of your own, in user config
+yolo config set setups.mac-as-me.run_as self --user
+```
+
+The removed launch flag `--at` is refused and names `--setup`; `--at host` names `yolo host`. The
+removed `YOLO_RUNTIME` environment variable is refused on the host and warns if inherited inside a
+running session. Removed config keys `runtime`, `confinement` and `macos_user_mode` are refused,
+never treated as aliases. `yolo config migrate` converts only user values that name one setup; use
+`yolo config-ref` and the refusal's suggested command for values it cannot convert. A project file
+holding one of these old keys is an error too; remove it with the named `--project` command. See
+[configuration](../reference/configuration.md) for config scope.
 
 ## The jail
 
-A **jail** is an isolated Linux container. The agent works on your project, mounted read-write at
-`/workspace`, with its own home, its own tools and its own network. Your SSH keys, git credentials,
-cloud tokens and the rest of your home are not there, and each additional thing it may reach is a
-line in your config. Because of that boundary, yolo starts agents in a jail with their permission
-prompts off.
+A **jail** is an isolated environment for autonomous work. The container setups run a Linux
+container with its own home and network; your SSH keys, git credentials, cloud tokens and the rest
+of your home are not there. Each additional thing it may reach is a line in your config. Because of
+that boundary, yolo starts agents in a jail with their permission prompts off.
 
-Use the jail for autonomous work: an agent that runs commands, installs packages and edits files
-without asking you each time.
+On Linux, the default `podman-self` runs rootless Podman containers. On an Apple silicon Mac with
+macOS 26 or later, the default `apple-container-self` runs each container in its own small Linux
+virtual machine. Podman also works on macOS inside one Linux virtual machine (the Podman Machine),
+and supports features Apple Container may not. [Getting Started](../getting-started.md) installs
+the container setup for your platform.
 
-A jail needs a **container runtime**, the program that runs it:
+### Seatbelt setups
 
-- **Linux:** [Podman](https://podman.io/), run as your own user.
-- **Mac:** [Apple Container](https://github.com/apple/container) is recommended, on an Apple silicon
-  Mac with macOS 26 or later. Podman, which runs jails inside one Linux virtual machine, also works
-  and supports more features. [macOS](macos.md) compares them.
+On macOS, `seatbelt-self` runs the agent as you inside Apple's built-in Seatbelt sandbox, with no
+container, virtual machine or Linux image. `seatbelt-yolo-account` uses the same deny-by-default
+rules but runs the agent as the separate yolo account, which holds none of your files. Create that
+account once with `yolo yolo-account create`; the command asks for your administrator password.
+These setups are available to choose explicitly; they are not the current macOS default.
 
-[Getting Started](../getting-started.md) installs both.
-
-### The `macos-user` sandbox
-
-On a Mac there is a third way to run a jail, **`macos-user`**: the agent runs as a hidden macOS user
-inside Apple's built-in sandbox, with no container and no virtual machine. It
-[starts a fresh jail faster than Apple Container](macos.md#how-they-compare-on-speed) and needs no
-runtime, but its boundary is weaker than a container's and several features are missing.
-It is still in development, and is planned to become the main Mac setup once it is finished.
-[About `macos-user` →](macos.md#the-macos-user-backend)
+[The macOS guide](macos.md#choosing-a-setup) explains the tradeoffs and the one-time account setup.
 
 ## Your own machine
 
@@ -45,9 +69,10 @@ yolo can also apply your packs and config to your real home, for agents you run 
 Nothing is confined here, so treat it as managing your agents' configuration, not as a boundary:
 
 ```bash
-yolo host apply            # show what would change in your real home; writes nothing
-yolo host apply --assert   # write it
-yolo host -- claude        # run an agent with its composed environment: keys, profile
+yolo host apply
+yolo host apply --assert
+yolo host -- claude
+yolo host --setup host-yolo-account -- claude
 ```
 
 On your own machine the agents keep their permission prompts on, and yolo warns before it changes a
@@ -61,7 +86,9 @@ puts one link at the agent's own folder (`.codex/skills`) pointing at those skil
 `.gitignore` once; a repository that already has the agent's folder is left alone. Whether each
 agent follows a linked folder is not yet measured.
 
-### yolo's own copy of your agents
+<a id="yolos-own-copy-of-your-agents"></a>
+
+## Host agent floor
 
 `yolo host -- claude` runs **yolo's own copy** of each agent your selected packs install, not
 whichever `claude` happens to be first on the PATH of whatever started it. So the same agent starts
@@ -83,16 +110,16 @@ in `~/.local/share/yolo-jail/host-floor`:
   installer, so the first one may run a capture if the machine has none yet. On Linux with a
   container runtime that is the same capture your jails use. With none, yolo runs the installer on
   your machine instead, confined by Landlock to a throwaway home, and that capture serves yolo's own
-  copy alone: your jails capture their own. On a Mac the installer runs as the sandbox account
-  `yolo macos-setup` makes, through the rule setup installs, with no password.
+  copy alone: your jails capture their own. On a Mac the installer runs as the yolo account, created
+  once with `yolo yolo-account create`, through the rule setup installs, with no password.
 - **Keeping it current.** The floor updates an agent the way a jail does: at most once an hour, when
   you start it, unless `agent_updates` freezes that pack. It says when it is checking for a newer
   version, so a slow package registry is not a launch that hangs saying nothing. An agent with its
   own installer is captured again once its capture is a day old, and the floor moves only to a newer
   release, never back to an older one. If a newer release fails to install, the launch stops and
   gives the command that runs the installed one: `YOLO_USE_INSTALLED=<agent> yolo host -- <agent>`.
-- **What it cannot hold yet.** On a Mac before `yolo macos-setup`, yolo has no copy of an agent with
-  its own installer, and the launch stops and names that step. The same happens on Linux for an
+- **What it cannot hold yet.** On a Mac before the yolo account has been created, yolo has no copy of an agent with
+  its own installer, and the launch stops and names `yolo yolo-account create`. The same happens on Linux for an
   installer agent on a machine with neither a container runtime nor Landlock to capture it with. On
   NixOS without nix-ld, or on a musl system such as Alpine, the agents yolo copies cannot start,
   because they need a dynamic loader those systems do not have: the launch stops and names the
@@ -172,27 +199,24 @@ it off, `yolo host -- <agent>` says nothing about a missing tool, and the agent'
 fails; run `yolo host apply` or `yolo check-deps` from the same launcher to see the line. The
 command you start is looked up either way, and a miss prints the line.
 
-## Guest (in development)
+## Choosing a setup
 
-**Guest** is the middle ground: the agent runs as a separate user account on your machine, with
-its own real home and no container, inside the operating system's own sandbox.
-
-- **On a Mac** it is the `macos-user` sandbox, which is still in development. Set
-  `"confinement": "guest"` in your config, or run `yolo --at guest -- claude` for one launch; no
-  `runtime` setting is needed. It works as `macos-user` does, with the same limits
-  ([macOS](macos.md#the-macos-user-backend)), and the agent's footer says `guest`. If your
-  config's `runtime` or `YOLO_RUNTIME` names Podman or Apple Container, the launch stops and asks
-  you to drop one of the two.
-- **On Linux** it is not available yet. A guest launch stops and suggests the jail, or
-  `yolo host -- <cmd>` to run on your own machine.
-
-## Choosing for one launch
-
-The `confinement` key in your config picks the default, `jail` unless you change it. `--at` picks
-for one launch:
+For one launch, pass a setup name. `yolo setup list` shows the built-ins and your own setups, the
+current selection and why:
 
 ```bash
-yolo -- claude              # the jail
-yolo --at host -- claude    # your own machine, the same as `yolo host -- claude`
-yolo --at guest -- claude   # on a Mac: the macos-user sandbox
+yolo --setup podman-self -- claude
+YOLO_SETUP=seatbelt-self yolo -- claude
+yolo host -- claude                         # host-self
+yolo host --setup host-yolo-account -- claude
 ```
+
+The precedence is `--setup`, `YOLO_SETUP`, the `setup` value in your user config, then the OS
+default (`podman-self` on Linux, `apple-container-self` on macOS). To make a lasting selection, use
+`yolo config set setup <name> --user`. The `setup` key and `[setups.<name>]` tables are user-scope
+only; a project cannot select its own walls or define a setup.
+
+A setup has two independent fields, `confinement` and `run_as`. `yolo setup show <name>` displays
+them, and `yolo setup new <name> --from <setup>` copies a built-in or one of your setups into a new
+user-config table. `host` setups are only run with `yolo host`; they are never selected by an
+ordinary launch, project config or automatic fallback.

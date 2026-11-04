@@ -20,8 +20,9 @@ summary: "Every config key and every pack contribution kind, and what each of th
 
 # Settings per setup
 
-The short answers for each way to run yolo come first. The tables below then describe what each
-configuration key and pack contribution does on those setups.
+The short answers for each named setup come first. The tables below compare the technology/platform
+combinations in the implementation census; the setup column above names the command-line choice.
+Configuration keys and pack contributions can behave differently across those combinations.
 
 ## What works in each setup
 
@@ -33,7 +34,11 @@ support the same things; find your column below.
 | `podman` / Linux | `podman-self` | Linux | Containers on your own Linux machine. Everything in this guide works here. |
 | `podman` / macOS | `podman-self` | macOS | Containers inside a Linux virtual machine that Podman runs on your Mac (the Podman Machine). |
 | `container` / macOS | `apple-container-self` | macOS | [Apple Container](https://github.com/apple/container): each jail runs in its own small Linux virtual machine. **The Mac default.** |
-| `macos-user` / macOS | `seatbelt-yolo-account`, `seatbelt-self` | macOS | An ordinary Mac program running inside Apple's built-in sandbox. No container and no virtual machine, so your project stays at its real path and host folders cannot be added. |
+| Seatbelt / macOS | `seatbelt-yolo-account`, `seatbelt-self` | macOS | An ordinary Mac program running inside Apple's built-in sandbox. No container and no virtual machine. |
+
+**Implementation labels below.** The tables retain `podman`, `container` and `macos-user` for the
+runtime/host-OS combinations the feature census measures. `macos-user` names the shared Mac-side
+implementation behind both `seatbelt-self` and `seatbelt-yolo-account`; it is not a setup name.
 
 **Words used below.** A **pack** is an add-on you list under `packs` in your user config; most install
 an agent, such as `claude`. Some packs bring a **host service**: a small program yolo runs on your real
@@ -51,7 +56,7 @@ yet* means they have not. The subsections and tables further down have the detai
 
 | You want to… | `podman` / Linux | `podman` / macOS | `container` / macOS | `macos-user` / macOS |
 |---|---|---|---|---|
-| **Start a jail** | Yes. The first launch builds the jail image and takes a few minutes; later launches take seconds. | Yes, once the Podman Machine VM is running and shares the folders yolo needs ([setup](../getting-started.md#macos-podman)). The first launch is slow.[^cap-first-mac] | Yes, and it is the Mac default.[^cap-ac-stop] | Yes, after a one-time `yolo macos-setup`. Projects must be outside every home folder; `/Users/Shared/yolo` is set up for you.[^cap-mu-start] |
+| **Start a jail** | Yes. The first launch builds the jail image and takes a few minutes; later launches take seconds. | Yes, once the Podman Machine VM is running and shares the folders yolo needs ([setup](../getting-started.md#macos-podman)). The first launch is slow.[^cap-first-mac] | Yes, and it is the Mac default.[^cap-ac-stop] | Yes, after a one-time `yolo yolo-account create`. Projects must be outside every home folder; `/Users/Shared/yolo` is set up for you.[^cap-mu-start] |
 | **Open a second session** | Yes. `yolo` in the same project joins the running jail; another project gets its own jail. | Yes, the same. | Yes, the same, but jails for two different projects can log each other out of `claude`.[^refresh-ac] | Yes. Each `yolo` gets its own sandbox, and a second one in the same project shares the host services the first started, which stay up until the last of them ends; two `claude` sessions at once can still log each other out.[^mu-keeper] A launch in another project stops while a session runs, and names the project it belongs to.[^shared] |
 | **Install an agent** | Yes. Add its pack to your user config; it installs the first time you type its name and keeps itself up to date. | Yes. `omp` is not available on Apple silicon.[^cap-omp] | Yes, except `omp`, which is not available on Apple silicon, the only kind of Mac Apple Container runs on.[^cap-omp] | Yes for `claude` and `codex`. `agy`, `copilot`, `opencode`, `pi` and (on Apple silicon only) `omp` should work. |
 | **Run an agent without permission prompts** | Yes, automatically, for every agent except `omp`.[^cap-yolo-mode] | Yes, the same. | Yes, the same. | Yes, the same. |
@@ -81,7 +86,7 @@ yet* means they have not. The subsections and tables further down have the detai
 
 [^cap-ac-stop]: On Apple Container a jail left behind by a closed window is not cleaned up. Run `yolo stop` in its project to stop it.
 
-[^cap-mu-start]: A project inside a home folder is refused. `yolo macos-setup` prepares `/Users/Shared/yolo`, so a project created under it, such as `/Users/Shared/yolo/<name>`, needs nothing more. Launch with `yolo --setup seatbelt-yolo-account -- claude`; after that one-time setup, a launch asks for no password. There is no image to build, but the first launch builds the sandbox's tools with nix, which can take many minutes. See [the macos-user backend](../guides/macos.md#the-macos-user-backend).
+[^cap-mu-start]: A project inside a home folder is refused. `yolo yolo-account create` prepares `/Users/Shared/yolo`, so a project created under it, such as `/Users/Shared/yolo/<name>`, needs nothing more. Launch with `yolo --setup seatbelt-yolo-account -- claude`; after that one-time setup, a launch asks for no password. There is no image to build, but the first launch builds the sandbox's tools with nix, which can take many minutes. See [Seatbelt setups](../guides/macos.md#seatbelt-setups).
 
 [^cap-omp]: A jail on an Apple silicon Mac runs ARM Linux, and the `omp` vendor publishes no ARM Linux build, so the launch says `omp` is unavailable. The same is true on an ARM Linux machine. On `macos-user` it is the other way round: `omp` has a build for Apple silicon Macs but not for Intel ones. That depends on the vendor, not on yolo.
 
@@ -113,7 +118,7 @@ A few pointers for the rows above:
 
 - **Choose a backend on a Mac:** launch with `--setup podman-self`, `--setup apple-container-self` or
   `--setup seatbelt-yolo-account` (`seatbelt-self` runs the agent as you), or make one your default with
-  `yolo config set setup <name> --user`. `yolo setup list` shows them all. See [Which runtime yolo picks](../getting-started.md#which-runtime-yolo-picks).
+  `yolo config set setup <name> --user`. `yolo setup list` shows them all. See [Which setup yolo uses](../getting-started.md#which-setup-yolo-uses).
 - **Install an agent:** run `yolo pack add claude` on the host, then type
   `claude` in the jail. A project's `yolo-jail.toml` cannot set `packs`. See
   [Packs, and the host services they bring](#packs-and-the-host-services-they-bring).
@@ -152,7 +157,7 @@ A few pointers for the rows above:
 
 [^own-rootless]: The agent runs as root inside the container, which on a rootless podman is your own user on the host. Check yours: `podman info --format '{{.Host.Security.Rootless}}'`. A rootful podman makes it the host's root instead, and the launch does not say so.
 [^vmshare]: Measured on a Mac: a file the agent writes is owned by your own user. The project must be in a folder the Podman Machine VM shares (your home folder by default); a project outside it fails at launch as a mount that cannot be found.
-[^macuserown]: The agent is a real macOS account, so there is no owner mapping. Your access comes from a shared group plus access-control entries inherited from the project folder, so `ls -l` shows `_yolojail` and `git` may print ownership warnings. Two consequences: the project must sit outside every user's home folder (`/Users/Shared/yolo` is set up for you; a project under `/Users/<name>` is refused), and a file *moved* into the folder inherits nothing, so the next launch stops and names `yolo macos-fix-permissions`.
+[^macuserown]: The agent is a real macOS account, so there is no owner mapping. Your access comes from a shared group plus access-control entries inherited from the project folder, so `ls -l` shows `_yolojail` and `git` may print ownership warnings. Two consequences: the project must sit outside every user's home folder (`/Users/Shared/yolo` is set up for you; a project under `/Users/<name>` is refused), and a file *moved* into the folder inherits nothing, so the next launch stops and names `yolo yolo-account share`.
 
 #### 2. Can the agent make a git commit?
 
@@ -321,11 +326,11 @@ This block is what the jail can see of your machine's filesystem, and what it ma
 
 [^cachegap]: One yellow line per launch names the cache subdirectories that stayed put and points at `--setup podman-self`. It is not a backend limitation: Apple Container already nests a writable bind at exactly the depth a relocation needs, and it is unbuilt work. The line is printed at launch assembly, so a re-entry never shows it.
 
-[^mureloc]: `~/.cache/<subdir>` in the sandbox account's home becomes a link to your folder, and each launch names it. The folder may be on another disk under `/Volumes`, but not in a home or in the project. A folder yolo creates is opened to the sandbox account as it is created; one that already holds files needs `yolo macos-fix-permissions <folder>`, and the launch stops, saying so, until the sandbox can write it. A Mac tool that caches under `~/Library/Caches` instead (Go's build cache; likely pip and playwright) is not moved.
+[^mureloc]: `~/.cache/<subdir>` in the sandbox account's home becomes a link to your folder, and each launch names it. The folder may be on another disk under `/Volumes`, but not in a home or in the project. A folder yolo creates is opened to the sandbox account as it is created; one that already holds files needs `yolo yolo-account share <folder>`, and the launch stops, saying so, until the sandbox can write it. A Mac tool that caches under `~/Library/Caches` instead (Go's build cache; likely pip and playwright) is not moved.
 
 [^dac]: These modes set file permission bits, not enforcement. In a container the agent is root, so `readonly`'s `0444` is a speed bump; on `macos-user` the sandbox runs as a separate account, so the bits actually bite.
 
-[^acl]: `capture` is the one mode that writes into your workspace (it stores your local edits beside the composed file), so on `macos-user` the workspace needs the inherited `group:_yolojail allow` entry. Check with `ls -lde <workspace>`; repair with `yolo macos-fix-permissions`. Without it the launch dies as `mkdir …/.yolo/prism: permission denied`, naming neither ACLs nor the fix.
+[^acl]: `capture` is the one mode that writes into your workspace (it stores your local edits beside the composed file), so on `macos-user` the workspace needs the inherited `group:_yolojail allow` entry. Check with `ls -lde <workspace>`; repair with `yolo yolo-account share`. Without it the launch dies as `mkdir …/.yolo/prism: permission denied`, naming neither ACLs nor the fix.
 
 [^achostlayer]: Apple Container cannot bind a single file, so the host bytes are copied into the jail's home. That home is bound writable, so the agent can rewrite the host layer its own composed file is built from — where `podman` keeps that layer read-only. Nothing warns.
 
@@ -333,7 +338,7 @@ This block is what the jail can see of your machine's filesystem, and what it ma
 
 [^acdir]: A directory source is bound read-only from Apple Container 1.1.0. Below that version, or when yolo cannot read `container --version`, the entry is skipped with one `Skipping host_files directory ~/<path> …` line naming the reason, rather than bound writable, and nothing appears at the destination. Like the `mounts` skip lines, it prints only while a fresh launch builds the container.
 
-[^mudir]: The folder is copied at every launch, as a container copies it into the home at boot, and each file keeps its permissions. Only what is inside the folder is copied: a link in it that leads elsewhere is left out. A folder over 32 MiB or 4096 files and folders (64 MiB and 8192 across a launch's directory entries) stops the launch and names the entry; split it into file entries, or use `runtime: "podman"`, or `"container"` from Apple Container 1.1.0[^acdir]. Not yet tried on a Mac.
+[^mudir]: The folder is copied at every launch, as a container copies it into the home at boot, and each file keeps its permissions. Only what is inside the folder is copied: a link in it that leads elsewhere is left out. A folder over 32 MiB or 4096 files and folders (64 MiB and 8192 across a launch's directory entries) stops the launch and names the entry; split it into file entries, or use `yolo --setup podman-self -- claude`, or set `setup = "podman-self"` in your user config. From Apple Container 1.1.0[^acdir], read-only folders can also be added.
 
 [^mutier]: Composed files under `~/.config/…` and at the home root (`~/.npmrc`, `~/.netrc`) land in a per-workspace directory and are fine; the home-root half has not yet run on a Mac. A file in a new top-level folder (`~/.aws/config`) lands in the sandbox account home that *every* workspace on the machine shares, so one workspace's launch overwrites another's — or, under `once`, finds the other's file already there and never seeds its own. Nothing warns. After an upgrade, a launch may stop once on a home-root file an earlier version left in the sandbox account; run the `sudo rm` it prints. `~/.zprofile`, `~/.zshrc` and `~/.bash_profile` are yolo's own on this backend, rewritten on every launch, so an entry naming one stops the launch; for zsh, declare `~/.zshenv` instead.
 
@@ -484,8 +489,8 @@ The keys the tables above leave out. Most of them do the same thing on every set
 
 | Key | `podman` / Linux | `podman` / macOS | `container` / macOS | `macos-user` / macOS |
 |---|---|---|---|---|
-| `runtime` — removed: which setup a launch uses is now `--setup` or the `setup` key | works — `podman` still chooses podman-self when nothing else names a setup | works — the same | works — `container` chooses apple-container-self, the Mac default | works — `macos-user` chooses seatbelt-yolo-account (seatbelt-self with `macos_user_mode = "self"`) |
-| `confinement` — removed: the setup decides how confined the agent is | works — when nothing else names a setup, `host` refuses the launch naming `yolo host`, and `guest` names a Seatbelt setup, which Linux refuses | works — the same | works — the same | works — the same |
+| `runtime` — removed and refused; no alias | refused — leave setup unset for the Linux default, or use `yolo config set setup podman-self --user` | refused — use `yolo config set setup podman-self --user` | refused — use `yolo config set setup apple-container-self --user` | refused — choose `seatbelt-self` or `seatbelt-yolo-account` with `yolo config set setup <name> --user` |
+| `confinement` — removed and refused; no alias | refused — for a container use `podman-self` or leave setup unset | refused — for a container use `podman-self` | refused — use `apple-container-self` | refused — choose `seatbelt-self` or `seatbelt-yolo-account` |
 | `setup` — your default setup, in your user config only | works — a project file holding it is refused, and so is a setup with no walls, which only `yolo host` runs | works — the same | works — the same | works — the same |
 | `setups` — setups of your own, in your user config only | works — a project file holding one is refused, and so is a table named like a built-in | works — the same | works — the same | works — the same |
 | `required_capabilities` — what the jail must be able to do | works — a capability nothing in your config or its packs provides refuses the launch | works — the same | works — the same | works — the same |
@@ -498,8 +503,8 @@ The keys the tables above leave out. Most of them do the same thing on every set
 | `include_if_found`, `prune`, `perf_logging`, `update_check` | works | works | works | works |
 | `shipped_skill_prefix` — a word every skill yolo ships starts with, in your user config only | works | works | works | works |
 | `local_clones` — clones of yours a published patch branch URL can be built from, in your user config only | works | works | works | works |
-| `macos_user_mode` — which account a macos-user jail runs as | `n/a` — ignored: only the macos-user setup reads it | `n/a` — ignored: only the macos-user setup reads it | `n/a` — ignored: only the macos-user setup reads it | works — the setup decides now (`seatbelt-yolo-account` or `seatbelt-self`, experimental); `"self"` only steers a removed `runtime = "macos-user"` to seatbelt-self |
-| `macos_user_shared_tmp` — open the shared `/tmp` to a run-as-you macos-user jail | `n/a` — ignored: only the macos-user setup reads it | `n/a` — ignored: only the macos-user setup reads it | `n/a` — ignored: only the macos-user setup reads it | works — with `"macos_user_mode": "self"`, `true` opens `/tmp` read and write; the launch says so |
+| `macos_user_mode` — removed and refused; no alias | refused — select a setup with `yolo config set setup <name> --user` | refused — select a setup with `yolo config set setup <name> --user` | refused — select a setup with `yolo config set setup <name> --user` | refused — choose `seatbelt-self` or `seatbelt-yolo-account` with `yolo config set setup <name> --user` |
+| `macos_user_shared_tmp` — open shared `/tmp` to `seatbelt-self` | `n/a` — only the Seatbelt setup reads it | `n/a` — only the Seatbelt setup reads it | `n/a` — only the Seatbelt setup reads it | works — with `setup = "seatbelt-self"`, `true` opens `/tmp` read and write; the launch says so |
 | `share_host_fonts` — share your own font folder read-only with the jail | works — `~/.local/share/fonts` and `~/.fonts`, read-only; the launch names each | works — `~/Library/Fonts`, read-only; the launch names it | works — the same, on a version that honors read-only mounts | works — the separate account reads a copy of `~/Library/Fonts`; a run-as-you jail reads the folder without this key |
 
 ## What a running jail picks up when you run `yolo` again

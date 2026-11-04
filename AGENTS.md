@@ -83,7 +83,8 @@ run too) with **no switch on any tool name**. Three rules before debugging it â€
 pack surfaces via `ManifestWith`. `internal/jailcontent` keeps only what was never per-agent: skills
 staging, briefing composition, loophole descriptions, the source-tree probe.
 
-Backends are `podman`, `container` (Apple Container) and `macos-user` (macOS Seatbelt, no VM). Docker is
+Built-in setups name the technology and account: `podman-self`, `apple-container-self`,
+`seatbelt-self` and `seatbelt-yolo-account`; `yolo host` is the unconfined path. Docker is
 not one; validate.go hard-errors on it.
 
 ## Architecture
@@ -291,7 +292,7 @@ The mechanics behind each of these are in
   to the private copy; none can refuse a launch. The launch discloses each alias by name and `yolo stores`
   lists it as `not yolo's`, so no reclaimer offers to delete host bytes. A path-keyed store needs rootless podman, so a nested
   jail only ever shows the decline. No store is aliased on macOS except under macos-user's run-as-you
-  mode, `"macos_user_mode": "self"` ([MMP-D12](docs/design/macos-user-model-plan.md#MMP-D12)). The only other writable host binds are the workspace, yolo's own state
+  mode, the `seatbelt-self` setup ([MMP-D12](docs/design/macos-user-model-plan.md#MMP-D12)). The only other writable host binds are the workspace, yolo's own state
   and cache dirs, and ones the user named in user-scope config (`cache_relocations`, read-write `mounts`).
 - **Nix inside the jail** delegates to the host daemon: the CLI mounts `/nix/var/nix/daemon-socket` +
   `/nix/store:ro` and sets `NIX_REMOTE=daemon`. Without this you get "build users group has no members".
@@ -380,7 +381,7 @@ The mechanics behind each of these are in
 | The docs site and its Cloudflare deploy | [`docs-website.md`](docs/reference/docs-website.md) |
 
 **`YOLO_*` environment dials have no authority row, because they have no authority.** `config-ref`'s
-`ENVIRONMENT VARIABLES` section lists only `YOLO_RUNTIME`, `YOLO_BYPASS_SHIMS`, the two record-only timing
+`ENVIRONMENT VARIABLES` section lists only `YOLO_SETUP`, `YOLO_BYPASS_SHIMS`, the two record-only timing
 gates and `YOLO_EXTRA_PACKAGES`. Every other dial, including every `YOLO_ALLOW_*` hatch, is documented
 where it is ENFORCED: the invariant above that names it, the refusal message that offers it, or the design
 doc that ruled it. Grep the source for the spelling before believing any prose about one.

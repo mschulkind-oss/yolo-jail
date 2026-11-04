@@ -241,7 +241,7 @@ What to look for:
 
 `--verbose` lists every file it checked. The dry run names the keys it would overwrite but does not
 print the full content, so before your first `--assert` read what your packs manage:
-`yolo config render claude --at host` prints the exact file `--assert` would write.
+`yolo config render claude --setup host-self` prints the exact file `--assert` would write.
 
 ### Step 2: apply
 
@@ -333,12 +333,12 @@ compare with a colleague's.
 
 ## Not built yet
 
-- **Guest confinement**, a separate user account between the jail and your own machine. See
-  [Where Agents Run](confinement.md#guest-in-development).
+- **Linux Landlock setups**, which are reserved but not built. Choose `podman-self` on Linux for a
+  confined setup. See [Where Agents Run](confinement.md#choosing-a-setup).
 - **Importing existing settings into a pack.** Skills and house rules are moved for you on the first
   `yolo host apply --assert`; settings files are copied by hand.
-- **Installing a `macos-user` sandbox's programs ahead of time.** A jail on a container runtime
-  installs every agent and tool its packs declare when it starts; on `macos-user` each one still
+- **Installing a Seatbelt setup's programs ahead of time.** A jail on a container setup
+  installs every agent and tool its packs declare when it starts; on Seatbelt each one still
   installs the first time you run it.
 
 ## Quick reference
@@ -350,7 +350,7 @@ compare with a colleague's.
 | See what is selected and delivered | `yolo pack ls`, `yolo pack explain <name>` |
 | Fetch or update git packs | `yolo pack install`, `yolo pack update` |
 | See the resolved environment | `yolo describe` (`--json`, `--hash`) |
-| Preview the host render | `yolo host apply`, `yolo config render <agent> --at host` |
+| Preview the host render | `yolo host apply`, `yolo config render <agent> --setup host-self` |
 | Write it into your real home | `yolo host apply --assert` |
 | Take yolo back out | `yolo host apply --revert`, then `--assert` |
 | Check the host has the tools | `yolo check-deps` |

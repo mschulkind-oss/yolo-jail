@@ -14,15 +14,16 @@ wiring its MCP and language servers, giving it skills and tools, and handing it 
 needs, then doing it all again for the next agent, the next project and the next machine. yolo turns
 that into one declaration you can version, share as a **pack**, and apply anywhere.
 
-How much the agent is confined is one setting of that declaration:
+Choose a named setup for how that description is applied; confinement is one attribute of the environment:
 
 - **A jail**, the default: an isolated Linux container, with Podman on Linux or Apple Container or
   Podman on a Mac. Your project is mounted read-write at `/workspace`, and your SSH keys, git
   credentials and cloud tokens are not there, so agents run without permission prompts.
 - **Your own machine**: `yolo host apply` writes the same settings, skills and house rules into your
   real home, and `yolo host -- <agent>` runs an agent there with its keys and profile.
-- **`macos-user`**, in development: the agent runs as a hidden macOS user inside Apple's sandbox,
-  with no VM.
+- **Seatbelt setups** on macOS: `seatbelt-self` runs as you under deny-by-default rules;
+  `seatbelt-yolo-account` uses the separate yolo account. `apple-container-self` remains the Mac
+  default on Apple silicon with macOS 26 or later.
 
 The [user guide](https://docs.yolo-jail.mschulkind.dev) ([source](userguide/README.md)) explains
 how it works, and its [feature index](userguide/features.md) lists everything yolo can set up.
@@ -43,8 +44,8 @@ Platforms:
 
 - **Linux, x86_64 and arm64** — rootless Podman. Both are CI-tested, from one Nix image definition.
 - **macOS, Apple silicon** — Apple Container (recommended) or Podman Machine, running a native
-  **arm64** Linux container with no emulation. The `macos-user` sandbox, which needs no container
-  runtime, is coming. See the [macOS guide](userguide/guides/macos.md).
+  **arm64** Linux container with no emulation. The `seatbelt-self` setup needs no container
+  runtime; `seatbelt-yolo-account` runs as the separate yolo account. See the [macOS guide](userguide/guides/macos.md).
 - **macOS, Intel** — Podman Machine only, and ending: Apple Container, Podman 6, Homebrew's
   prebuilt packages and the NixOS Nix installer have dropped Intel Macs, and the Nix packages
   yolo uses there stop receiving fixes at the end of 2026. Install yolo there from a
@@ -115,7 +116,7 @@ Next steps, in the user guide:
 - [Getting Started](userguide/getting-started.md): the first launch, logging in, and what to do next
 - [Packs and Skills](userguide/guides/packs-and-skills.md): agents, shared skills and house rules
 - [Configuration](userguide/reference/configuration.md): the config files, and which keys go where
-- [macOS](userguide/guides/macos.md): choosing between Apple Container, Podman and `macos-user`
+- [macOS](userguide/guides/macos.md): choosing among Apple Container, Podman and Seatbelt setups
 - [Troubleshooting](userguide/guides/troubleshooting.md): `yolo check` names the fix for most problems
 
 ## Contributing

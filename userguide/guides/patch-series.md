@@ -457,9 +457,9 @@ For `yolo host` and `yolo capture`, the error prints the same lines with that co
 | Jail, Podman (Linux, or a Mac's Podman machine) | Works | Works |
 | Jail, Apple Container 1.1.0 or later | Works. A new build cannot start while another jail is running: the launch stops and says so, and `yolo capture` builds it once the other jails stop. To run your good build meanwhile, use `YOLO_USE_CACHED_GOOD`. | Works, the same way |
 | Jail, older Apple Container | Doesn't: the launch says so | No new builds; a good build already on this Mac is still copied in |
-| `macos-user` | Works: the launch builds it for your Mac as the sandbox account, one build at a time. Until a build exists the launch stops and names a container backend. | Works, the same way: built for your Mac and copied into the sandbox home, read-only |
+| Seatbelt setup | Works: the launch builds it for your Mac under the setup's selected account, one build at a time. Until a build exists the launch stops and names a container setup. | Works, the same way: built for your Mac and copied into the sandbox home, read-only |
 | `yolo host`, Linux | Works: `yolo host -- <bin>` and `yolo host apply --assert` build and install it | Works: `yolo host apply --assert` builds it and links `~/<into>` to a copy yolo keeps, and so does `yolo host -- pi` with `host_apply_on_launch` on. `yolo host -- pi` does not start pi while an extension it loads has no build. |
-| `yolo host`, macOS | Works: built for your Mac as the sandbox account (run `yolo macos-setup` once) | Works as on Linux, built for your Mac as the sandbox account |
+| `yolo host`, macOS | Works: built for your Mac in the selected host setup; `host-yolo-account` needs `yolo yolo-account create` first | Works the same way, in the selected host setup |
 
 On a Linux host under host management, `yolo pack update` also runs `yolo host apply --assert`. That
 run installs only builds that already exist; it builds nothing new.

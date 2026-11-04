@@ -79,8 +79,8 @@ The **[feature index](features.md)** links every feature to the page that covers
 | Page | What it covers |
 |---|---|
 | [Getting Started](getting-started.md) | Installing Nix, a runtime and yolo on macOS and Linux; the first launch |
-| [macOS](guides/macos.md) | Apple Container, Podman and the `macos-user` sandbox, and what each can do |
-| [Where Agents Run](guides/confinement.md) | The jail, your own machine, and guest confinement |
+| [macOS](guides/macos.md) | Apple Container, Podman and the Seatbelt setups, and what each can do |
+| [Where Agents Run](guides/confinement.md) | Named setups, their boundaries, and the user-only selection rule |
 | [Packs and Skills](guides/packs-and-skills.md) | Choosing packs, checking them, sharing skills, keeping agents updated |
 | [Claude Code Plugins and Mods](guides/claude-plugins-and-mods.md) | Bringing a Claude Code plugin or mod into a jail, and what the launch shows about it |
 | [Settings Across Agents](guides/agent-settings.md) | How yolo writes each agent's settings, and how to inspect them |
@@ -102,7 +102,7 @@ The **[feature index](features.md)** links every feature to the page that covers
 | [Writing a Loophole](guides/writing-loopholes.md) | The loophole manifest, for pack authors |
 | [Troubleshooting](guides/troubleshooting.md) | Common failures and their fixes |
 | [Configuration](reference/configuration.md) | Config files, which keys go where, and approving changes |
-| [Settings per setup](reference/settings-per-setup.md) | What each setting does on each runtime |
+| [Settings per setup](reference/settings-per-setup.md) | What each setting does on each platform and setup |
 | [CLI Reference](reference/cli-reference.md) | Commands and flags |
 
 The complete list of config keys is `yolo config-ref`, and every command has its own `--help`.

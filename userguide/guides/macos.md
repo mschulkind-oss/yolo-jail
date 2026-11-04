@@ -9,26 +9,36 @@ A Mac cannot run a Linux container directly, so every container setup runs a sma
 emulation. The only time emulation appears is when you pull an image that exists for Intel Linux
 only, such as some database images; that is a property of the image, not of yolo.
 
-> [!NOTE]
-> **Today, use Apple Container.** It is the recommended Mac setup, and Podman is fully supported
-> too. `macos-user`, which needs no VM at all, is planned to become the main Mac setup once it is
-> finished; it is still in development.
+The current macOS default is `apple-container-self` on Apple silicon with macOS 26 or later.
+`podman-self` is available when Podman is installed, including on Intel Macs and older macOS.
+`seatbelt-self` runs directly on macOS under deny-by-default Seatbelt rules; it is a selectable
+setup, not the current default. `seatbelt-yolo-account` uses those rules as the separate yolo
+account, which you create once with `yolo yolo-account create` (the account is named `_yolojail`).
 
-## Choosing a runtime
+## Choosing a setup
 
-| Runtime | What it is | Choose it when |
+| Setup | What it is | Choose it when |
 |---|---|---|
-| **Apple Container** (recommended) | Apple's own container tool: each jail runs in its own small VM, and there is no VM for you to manage | You have an Apple silicon Mac on macOS 26 (Tahoe) or later |
-| **Podman** | Every jail runs inside one Linux VM, the **Podman Machine** | You have an Intel Mac or macOS before 26, or you need a feature Apple Container lacks, such as the shared Claude login or published ports |
-| **`macos-user`** (in development) | The agent runs as a hidden macOS user inside Apple's built-in sandbox, with no container and no VM | You want a faster fresh start than Apple Container gives, and accept a weaker boundary and missing features |
+| `apple-container-self` (default) | Each container runs in its own small Linux VM | You have Apple silicon and macOS 26 or later |
+| `podman-self` | Containers run inside one Linux VM, the Podman Machine | You have an Intel Mac, older macOS, or need a feature Apple Container lacks |
+| `seatbelt-self` | A Mac process under yolo's deny-by-default Seatbelt rules, as you | You want no Linux VM and accept the features Seatbelt supports |
+| `seatbelt-yolo-account` | Seatbelt as the separate yolo account | You want the agent not to run as your account; create the account once |
+| `host-self` | No confinement | Only with `yolo host`, which keeps agent permission prompts on |
 
-If both container runtimes are installed and running, yolo uses Apple Container. `macos-user` is
-used only when you ask for it. `"confinement": "guest"` asks for it too, with no `runtime` key. To choose, set the `runtime` key in your config or the
-`YOLO_RUNTIME` environment variable to `container`, `podman` or `macos-user`:
+To choose for one launch, pass a setup name. `yolo setup list` shows available setups; a setup
+whose technology is not installed refuses rather than silently picking another. The ordinary
+launch defaults to Apple Container on macOS and never falls back to `yolo host`.
 
 ```bash
-export YOLO_RUNTIME=podman     # for this shell; or "runtime": "podman" in your config
+yolo setup list
+yolo --setup podman-self -- claude
+YOLO_SETUP=seatbelt-self yolo -- claude
+yolo config set setup seatbelt-self --user   # lasting user-wide default
 ```
+
+A project config cannot choose a setup or define one: those are user-scope choices. `yolo setup
+new <name> --from <setup>` copies a setup into your user config, and `yolo setup show <name>` shows
+its `confinement` and `run_as` fields. See [Where Agents Run](confinement.md#choosing-a-setup).
 
 [Settings per setup](../reference/settings-per-setup.md#what-works-in-each-setup) compares all
 setups feature by feature.
@@ -43,7 +53,7 @@ work outside any jail. The Mac was an M1 Max on macOS 26.5 running CrowdStrike F
 security tool that may slow the Mac's own file work and program starts but not the work inside a
 VM, so a Mac without it may show different ratios.
 
-| | Apple Container | `macos-user` |
+| | Apple Container | `Seatbelt` |
 |---|---|---|
 | A fresh start | about 7 s, with install recording off (see below) | about 5.5 s |
 | A second terminal in the same project | about 2 s: it joins the running jail | another fresh start, which joins the host services the first one started |
@@ -53,7 +63,7 @@ VM, so a Mac without it may show different ratios.
 | Starting programs | about 7 times faster than on the Mac, and a program built moments ago starts at once | as on the Mac: a program built moments ago takes about 0.4 s to start the first time |
 | Memory the jail used | held until the jail stops | given back once a program frees it |
 
-So `macos-user` is faster for work on many project files and gives memory back, and Apple
+So `Seatbelt` is faster for work on many project files and gives memory back, and Apple
 Container is faster at starting programs and at opening another terminal.
 
 Apple Container's two start figures were measured with install recording switched off
@@ -75,7 +85,7 @@ steps are in [Getting Started](../getting-started.md#macos-apple-container-recom
 
 yolo builds the image Apple Container loads by itself; nothing else needs installing.
 
-### Apple Container (`runtime: container`) — what it does not do
+### Apple Container (`apple-container-self`) — what it does not do
 
 Apple Container is younger than Podman, and several features do not work there yet. Most of them
 are announced when a jail starts; the ones that are not are marked **silent**.
@@ -184,84 +194,44 @@ starts. If the alias is in Go's bin directory, run `just deploy-dev <name>` agai
 `ln -sfn /absolute/path/to/yolo-jail/scripts/dev-wrapper.sh /path/to/yolo-dev`, substituting your
 checkout and alias paths.
 
-## The macos-user backend
+<a id="the-macos-user-backend"></a>
 
-`macos-user` runs the agent directly on macOS, as a hidden user named `_yolojail`, inside Apple's
-built-in sandbox (Seatbelt). There is no container, no VM and no Linux image: the jail's `packages`
-are built as native Mac programs with Nix. It needs no container runtime, only Nix with your user
-trusted, and a one-time setup.
+## Seatbelt setups
 
-> [!NOTE]
-> **`macos-user` is in development.** It works, but several agents have not been tried on it yet
-> and the features listed below are missing. It is planned to become the main Mac setup once it is
-> finished; until then, use Apple Container.
-
-**One-time setup.** Run it as your normal admin user, **not** with `sudo`; it asks for your admin
-password once:
+`seatbelt-self` runs the agent on macOS as you, inside Apple's built-in Seatbelt sandbox. It does
+not need a container runtime, virtual machine or Linux image. `seatbelt-yolo-account` applies the
+same deny-by-default rules while running as the separate yolo account. Create that account once
+from your normal admin account, without `sudo`:
 
 ```bash
-yolo macos-setup      # creates the hidden _yolojail user, /Users/Shared/yolo and the one sudo rule
+yolo yolo-account create
 ```
 
-Setup installs one sudo rule, `/etc/sudoers.d/yolo-jail`, which lets you run commands as the
-sandbox user, never as root, without a password. From then on, launches start and stop with no
-password prompt. It also creates `/Users/Shared/yolo-staged`, owned by you, where each launch puts
-what the sandbox reads. One macOS user per Mac can use this backend: setup refuses a second user
-while the first is set up, and `yolo macos-teardown` removes the rule and that folder again.
+The account-management commands are `yolo yolo-account create`, `remove`, `share` and `unshare`.
+The `seatbelt-yolo-account` setup needs the account; the `seatbelt-self` setup does not. Run
+`yolo setup list` to see which setups are available on this Mac and which is selected.
 
-**Upgrading from an older yolo?** Run `yolo macos-setup` once more. Until you do, a launch stops
-and names it. Older versions kept their files in `/var/yolo-jail`; setup removes the ones an ended
-session left there, and `yolo stores` lists the rest, with the command that removes them.
-
-**Where projects live.** The sandbox user cannot work inside your home folder, so a project must be
-outside every user's home. Setup prepares `/Users/Shared/yolo` for this; put projects under it:
+The `setup` key and `[setups.<name>]` tables belong in your user config only. For example, to make
+Seatbelt-as-you the default for your launches, run:
 
 ```bash
-cd /Users/Shared/yolo/my-project
-YOLO_RUNTIME=macos-user yolo -- claude     # or "runtime": "macos-user", or "confinement": "guest", in the project config
+yolo config set setup seatbelt-self --user
 ```
 
-A launch from a project inside your home stops before it builds anything, and prints the
-commands that move the project under `/Users/Shared/yolo` and share it there. A fresh clone or a
-copy made there is shared as it is created.
+Or choose it just once with `yolo --setup seatbelt-self -- claude`. The environment variable
+`YOLO_SETUP=seatbelt-self` makes the same choice for commands launched from that shell. No project
+config may choose the setup or define one. The project home is currently shared at `.yolo/home`.
 
-**Run the agent as you (experimental).** Add one line to your user config,
-`~/.config/yolo-jail/config.jsonc`:
-
-```jsonc
-"macos_user_mode": "self"
-```
-
-The agent then runs as you rather than as `_yolojail`, so it needs no `yolo macos-setup`, no sudo
-rule and no sharing, and a project can be anywhere, your home folder included. A stricter Seatbelt
-profile takes the second account's place: it opens the project, the agent's own home in the
-project's `.yolo/home` and the tools, and denies the rest of your files, your keychain and your
-other processes. Every launch says so first. A project's config cannot choose this mode; only your
-user config can. Remove the line, or set it to `"account"`, to go back.
-
-It is experimental. The agent reaches every service on your Mac's loopback (`localhost`), as a
-jail on the host network would, and every launch says so. Servers the agent starts on `localhost`
-work too, test servers on random ports included. Each launch gets its own temporary folder for
-tools such as tmux, and the agent can use sockets it makes there or in the project. It cannot
-use your ssh agent's socket. The shared `/tmp` is closed to the agent, so it cannot read files
-your other programs leave there, and the agent is told to use its own temporary folder (`$TMPDIR`)
-instead. Your own temporary folder (`getconf DARWIN_USER_TEMP_DIR`) stays open, because macOS
-tools write there whatever `$TMPDIR` says. If a tool you need insists on `/tmp`, add
-`"macos_user_shared_tmp": true` to your user config and launch again; every launch then says
-`/tmp` is open. A project's config cannot set it.
-
-**Check without changing anything.** Run `yolo check` from the project. It checks each thing a
-launch refuses to start without: that you are on macOS and not running as root, Seatbelt, the
-sandbox user and its home folder, that `/Users/Shared/yolo-staged` is yours and safe, that the sudo
-rule lets you run commands as the sandbox user with no password, that the project is outside every
-user's home and shared with the sandbox, and Nix. Each failure names the command that fixes it.
-`YOLO_RUNTIME=macos-user yolo --dry-run` prints the full launch plan. Neither needs `sudo`.
+`yolo check` checks the local prerequisites, and `yolo --setup seatbelt-self --dry-run` prints the
+launch plan without running the agent. Seatbelt has the Mac's network stack; it does not provide a
+separate loopback. See [networking](networking.md) and [settings per setup](../reference/settings-per-setup.md)
+for limitations before switching from a container.
 
 **Company certificates.** If IT installed a certificate authority in your Mac's System keychain,
 for example for a proxy that inspects HTTPS, the sandbox trusts it too, and each launch names the
 authorities it took. One you trusted only in your own login keychain is trusted too, and so is
 every in-date certificate in the bundle your shell's `SSL_CERT_FILE` names, if you set it. When the
-agent runs as the separate sandbox account, Go programs such as `gh` trust it only if they were
+agent runs as the separate yolo account, Go programs such as `gh` trust it only if they were
 built with Go 1.27 or later; `go version <path to the program>` tells you, and the launch says so. mise,
 in that mode, does not trust it at all: put the authority in the System keychain instead.
 To use a bundle of your own instead, put one holding your authority and the public roots in the
@@ -282,14 +252,14 @@ set it.
 **Remove it.**
 
 ```bash
-yolo macos-teardown                                # removes the _yolojail user and its home
-yolo macos-unshare /Users/Shared/yolo/my-project   # removes the sharing from one project
+yolo yolo-account remove                               # removes the yolo account
+yolo yolo-account unshare /Users/Shared/yolo/my-project # removes sharing from one project
 ```
 
 A file you *move* into a project, rather than create there, does not inherit the sharing, and the
-next launch stops and names `yolo macos-fix-permissions`, which repairs it.
+next launch stops and names `yolo yolo-account share <dir>`, which repairs it.
 
-### macos-user trade-offs
+### Seatbelt trade-offs
 
 What you gain: no runtime to install, no Linux image to build, a faster fresh start than Apple
 Container, native speed on your project's files, and native Mac builds of your `packages`
@@ -310,7 +280,7 @@ What you give up:
 - **Mac tools, not Linux ones.** The agent uses macOS's own `sed`, `grep`, `find` and `tar`, whose
   flags differ from the Linux ones, so a script written for Linux can fail. Without Xcode's command
   line tools (`xcode-select --install`) there is no `cc` or `make`.
-- **The Mac's log through the host.** The sandbox account cannot read the unified log, so
+- **The Mac's log through the host.** The yolo account cannot read the unified log, so
   `/usr/bin/log` in the sandbox reads nothing. Select the `macos-log` pack and grant the project
   `read` (`yolo request macos-log read`, approved with `yolo config apply`), and `yolo-log show` and
   `yolo-log stream` read it on your Mac for the agent, limited to entries from processes the sandbox runs. If this macOS does not label each entry with its user, `yolo-log show` returns nothing in that default, and `yolo-log stream` while you reproduce a problem is the way in. A `read_all`
@@ -318,7 +288,7 @@ What you give up:
   every `log` argument through unchanged. Not yet
   tried on a Mac. See [the `macos-log` pack](https://github.com/mschulkind-oss/yolo-jail/blob/main/packs/macos-log/README.md).
 
-### macos-user (native, no VM) — what it does not do
+### Seatbelt (native, no VM) — what it does not do
 
 - **The shared Claude login is not coordinated between sessions.** Host services start on the
   Mac, so the ChatGPT login service and Bedrock through `aws-auth` work: the small helpers the
@@ -330,7 +300,7 @@ What you give up:
   when its folder is a read-only one under `/Users/Shared` or elsewhere on the startup disk (such as
   `/opt`), or a read-write one under `/Users/Shared/yolo`. The agent finds it under
   `$YOLO_CONTEXT_DIR`, not `/ctx`, as a link to the folder itself, so tools that resolve paths show
-  the real path, and a subfolder the sandbox account may not read stays unreadable. Any other
+  the real path, and a subfolder the yolo account may not read stays unreadable. Any other
   folder, including one in your home, on another disk, in the project or under `/tmp`, stops the
   launch and says why: move it, mark it optional, or use a container setup for that workspace.
   An optional entry, such as
@@ -351,7 +321,7 @@ What you give up:
   `~/.cache/<subdir>` becomes a link to your folder, which may be on another disk under
   `/Volumes` but not in your home or the project; the launch names it. A folder yolo creates is
   opened to the sandbox as it is created, and one that already holds files needs
-  `yolo macos-fix-permissions <folder>` first (the launch says so). A Mac tool that caches under
+  `yolo yolo-account share <folder>` first (the launch says so). A Mac tool that caches under
   `~/Library/Caches`, such as Go's build cache, is not moved. Not yet tried on a Mac.
 - **MCP servers**: your own `mcp_servers` work if their commands exist on your Mac. For Chrome
   DevTools, add `"chrome-devtools"` to `packs`: it uses the Chrome or
@@ -392,7 +362,7 @@ If you already run your own Linux builder, such as nix-darwin's `linux-builder` 
 
 On Linux, a jail can run `nix build` through your host's Nix. On a Mac it cannot: your Mac's Nix
 store holds Mac programs, and the jail is Linux. This is not planned for now. Instead, add the tool
-to `packages` and restart the jail, install a language runtime with mise, or use `macos-user`, whose
+to `packages` and restart the jail, install a language runtime with mise, or use `Seatbelt`, whose
 sandbox uses your Mac's own `nix`.
 
 On Podman there is an expert opt-in, for a Podman Machine created with `/nix` shared **and** a Mac
@@ -412,13 +382,13 @@ export YOLO_NIX_HOST_STORE_LINUX=1  # and the store holds the jail's Linux progr
 ## Stopping a jail and reclaiming space
 
 A jail normally ends when you exit the terminal session that started it. For one left running,
-run `yolo stop` from the project folder. On `macos-user` it ends every session of the project and
+run `yolo stop` from the project folder. On `Seatbelt` it ends every session of the project and
 the background process that holds their host services, and removes what one that was killed left
 behind; `yolo ps` lists each session that is still running and its project folder. Not yet tried
-on a Mac. A `macos-user` launch reclaims old loophole state by itself, and offers to clear the
+on a Mac. A `Seatbelt` launch reclaims old loophole state by itself, and offers to clear the
 shared build cache that container jails on the same Mac fill once it is large. To reclaim more
-disk, use `yolo prune`, a dry run until you add `--apply`; see [Storage](storage.md). On `macos-user`, `yolo stores` also
-lists what that backend keeps under `/Users/Shared/yolo-staged` and in the sandbox account's home,
+disk, use `yolo prune`, a dry run until you add `--apply`; see [Storage](storage.md). On `Seatbelt`, `yolo stores` also
+lists what that backend keeps under `/Users/Shared/yolo-staged` and in the yolo account's home,
 and anything an older yolo left in `/var/yolo-jail`, and how to remove each one.
 
 ## Troubleshooting

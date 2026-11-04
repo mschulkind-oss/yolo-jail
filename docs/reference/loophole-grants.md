@@ -390,10 +390,10 @@ is only whether the machinery can run, said in the inert report's words.
 
 | Setup | Running | Granted |
 | :--- | :--- | :--- |
-| podman, Linux | Every selected loophole the platform allows | As above |
-| podman, macOS | The same, minus the Linux-only loopholes | As above; inert lines for the platform axis |
-| Apple Container | Only the host services the backend admits; everything else inert | **A request for an inert loophole stays out of the gate** and is reported inert, so a y never approves a grant that serves nothing ([LG-D10](#LG-D10)) |
-| macos-user | Host services start as on a container launch; Linux-only loopholes inert | As above; every invocation reads the gate, since there is no attach |
+| `podman-self` / Linux | Every selected loophole the platform allows | As above |
+| `podman-self` / macOS | The same, minus the Linux-only loopholes | As above; inert lines for the platform axis |
+| `apple-container-self` | Only the host services the setup admits; everything else inert | **A request for an inert loophole stays out of the gate** and is reported inert, so a y never approves a grant that serves nothing ([LG-D10](#LG-D10)) |
+| `seatbelt-self` and `seatbelt-yolo-account` | Host services start as on a container setup; Linux-only loopholes inert | As above; every invocation reads the gate, since there is no attach |
 | `yolo host` (no jail) | Doorways only; every other loophole does not apply, since its only client is a container | Grants are accepted in config and reported as not applying |
 | A nested jail | The outer jail's config is the inner jail's user scope ([OQ-LP9](loophole-system.md#oq-lp9)) | `yolo allow` inside the outer jail writes the outer jail's own config |
 
