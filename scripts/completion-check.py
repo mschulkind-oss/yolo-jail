@@ -35,9 +35,12 @@ import sys
 import time
 from pathlib import Path
 
-from go_packages import package_patterns
+from go_packages import SHORT_TEST_TIMEOUT, package_patterns
 
 SCHEMA = 1
+# `just test-fast`'s go test, timeout included: without it go test's default of 10 minutes per
+# package applies, which internal/cli overruns on a Mac (go_packages.SHORT_TEST_TIMEOUT).
+SHORT_TEST = ["go", "test", "-short", f"-timeout={SHORT_TEST_TIMEOUT}"]
 READERS_FILE = "scripts/completion-readers.json"
 
 # Changes to these are inputs to every check, or to the gate itself: full `just check-ci`.
@@ -408,7 +411,7 @@ def plan_selective(root, base, entries, readers):
         tested = sorted(ip for ip in changed_pkgs if ip in graphs["linux"])
         if tested:
             plan.add(f"go test -short ({len(tested)} package{'s' if len(tested) != 1 else ''})",
-                     ["go", "test", "-short"] + tested, "the changed packages")
+                     SHORT_TEST + tested, "the changed packages")
     else:
         tested = []
     if gofmt:
@@ -424,7 +427,7 @@ def plan_selective(root, base, entries, readers):
         names = sorted(reads[pkg])
         rx = "^(" + "|".join(names) + ")$"
         plan.add(f"go test -short -run <{len(names)} reader test{'s' if len(names) != 1 else ''}> "
-                 f"./{pkg}", ["go", "test", "-short", "-run", rx, "./" + pkg],
+                 f"./{pkg}", SHORT_TEST + ["-run", rx, "./" + pkg],
                  "tests that read a changed file, and every scanning test")
 
     # Documents.

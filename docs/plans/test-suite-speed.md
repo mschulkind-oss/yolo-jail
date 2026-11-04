@@ -177,8 +177,8 @@ fixture setup.
 **MEASURED on that Mac, 2026-10-19 at `8d8e73653`, and it is 41 seconds:** `go test -short
 -count=1 -timeout 60m ./...` reports `ok … /internal/cli 1241.180s`. The package **passes** — it
 is not hanging, and no test in it fails — but 1241 s is 41 s past the gate's own
-`-timeout=20m` ([`Justfile:320`](../../Justfile)), so `just check-ci` and `just done` cannot go
-green on that host while every other package passes. ⚠ **This supersedes the ~25-minute estimate
+`-timeout=20m` of the time (the Justfile's `test-fast`), so `just check-ci` and `just done` could not go
+green on that host while every other package passed. ⚠ **This supersedes the ~25-minute estimate
 below as the number to plan against.** It also changes what the fix has to be worth: the levers
 in this section are each a ruling and a build, and the gap they must close is 3.4% of one
 package's wall time. `internal/entrypoint` is second at 722.8 s, so nothing else is near the
@@ -194,6 +194,17 @@ passing both times. That is 255 s saved, 23%, under more load. The two heaviest 
 30.4 s to 21.6 s and from 22.2 s to 16.4 s. So the cheaper `git` on darwin, the second lever
 below, is now measured; how yolo or its tests would pick that binary is still a ruling.
 `internal/entrypoint` took 655 s the same day, so it does not approach the gate.
+
+**The gate's bound, 2026-11-03: the per-package timeout settles it, at 45 minutes.** The Mac
+timed `internal/cli` out again under `just done` (1359 s alone with `-timeout 25m` while the
+macos-user and integration suites ran, the lab report
+[`2026-11-03-mac-slice-12a-witness-w1.md`](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#9-the-short-suite-on-this-mac)),
+and check-macos's three `internal/cli` shards summed to about 9 minutes on an idle runner, so the
+work is legitimately that long. `SHORT_TEST_TIMEOUT` in
+[`scripts/go_packages.py`](../../scripts/go_packages.py) is now the one bound, twice the slowest
+run, and both `just test-fast` and `just done`'s changed-package `go test` take it; the latter
+took go test's default of 10 minutes before. The three levers below are still open and still
+each a ruling; the bound only stops the gate from failing on time when no test hung.
 
 **INFERRED from the lab report's two timings, superseded by the measurement above:** the two tests it names take 45.9 s and 29.8 s on
 the Mac, and start 1468 and 837 `git` processes on Linux, so each start costs about 31 to 36 ms

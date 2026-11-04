@@ -11,6 +11,8 @@ import unittest
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+from go_packages import SHORT_TEST_TIMEOUT  # noqa: E402
 REPO = HERE.parent
 REAL_GO = shutil.which("go")
 JUST = shutil.which("just")
@@ -92,7 +94,7 @@ class GoPackageSelection(unittest.TestCase):
                                timeout=120)
             calls = [json.loads(line) for line in log.read_text().splitlines()]
             go_calls = [call["argv"] for call in calls]
-            self.assertIn(["test", "-short", "-timeout=20m", "./..."], go_calls)
+            self.assertIn(["test", "-short", f"-timeout={SHORT_TEST_TIMEOUT}", "./..."], go_calls)
             self.assertIn(["test", "-short", "./..."], go_calls)
             self.assertIn(["test", "-count=1", "-timeout", "0", "./integration"], go_calls)
 
@@ -279,7 +281,7 @@ class GoPackageSelection(unittest.TestCase):
         self.assertEqual({c["GOOS"] for c in static}, {"linux", "darwin"})
         self.assertTrue(all(c["argv"][-1:] == ["./pkg"] for c in static))
         tests = [c["argv"] for c in go_calls if c["argv"][:1] == ["test"]]
-        self.assertIn(["test", "-short", "-timeout=20m", "./integration", "./pkg"], tests)
+        self.assertIn(["test", "-short", f"-timeout={SHORT_TEST_TIMEOUT}", "./integration", "./pkg"], tests)
         self.assertIn(["test", "-short", "./integration", "./pkg"], tests)
         self.assertIn(["test", "-count=1", "-timeout", "0", "./integration"], tests)
         self.assertEqual((REPO / "Justfile").read_text().count("python3 scripts/go_packages.py run"), 7)
