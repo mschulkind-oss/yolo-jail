@@ -12,11 +12,15 @@ func TestEveryActivationDifferenceNamesItsNextStep(t *testing.T) {
 		{Layer: loopholeActivationLayer, Path: "aws-auth.enabled", Before: "false", After: "true"},
 		{Layer: loopholeActivationLayer, Path: "journal.enabled", Before: "true", After: "false"},
 		{Layer: loopholeActivationLayer, Path: "aws-auth.settings", Before: `{"profile": "a"}`, After: "(absent)"},
+		{Layer: loopholeActivationLayer, Path: "audio.enabled", Before: "false", After: "true"},
 	})
 	for i, want := range []string{
-		`add "enabled": true under loopholes.aws-auth in the old file to keep it running, or remove "aws-auth" from packs to keep it off, then run ` + "`yolo config migrate` again",
+		// An off-switch loophole runs whenever its pack is selected (legacy-config-compat.md
+		// LC-D3): the old file keeps it off, and no "enabled": true is needed to run it.
+		"the converted config runs aws-auth because its pack is selected, and the old one keeps it off; write `off = true` under [allow.aws-auth] in the TOML user config to keep it off, or remove the `\"enabled\": false` that keeps it off in the old file to let it run, then run `yolo config migrate` again",
 		"keep the old file (this yolo keeps reading it) until they land, then run `yolo config migrate` again",
 		`write them under loopholes.aws-auth.settings with "enabled": true in the old file, then run ` + "`yolo config migrate` again",
+		`add "enabled": true under loopholes.audio in the old file to keep it running, or remove "audio" from packs to keep it off, then run ` + "`yolo config migrate` again",
 	} {
 		if !strings.Contains(diffs[i].Next, want) {
 			t.Errorf("%s: next = %q, want it to contain %q", diffs[i].Path, diffs[i].Next, want)
