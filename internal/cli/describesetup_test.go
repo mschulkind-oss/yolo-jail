@@ -83,3 +83,34 @@ func TestDescribeTakesASetupFlagAndPrintsTheSelectionsWarnings(t *testing.T) {
 		}
 	}
 }
+
+// TestDescribeSaysASetupThisOSCannotRunCannotRunHere: a Seatbelt setup selected on Linux is
+// one the launch refuses (setup.Buildable), so describe says it cannot run here, names the setup
+// this OS runs instead, and never promises that "a run materializes" its package profile.
+func TestDescribeSaysASetupThisOSCannotRunCannotRunHere(t *testing.T) {
+	onPlatform(t, false)
+	home, _ := withHomeAndCwd(t)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("YOLO_SETUP", "")
+	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
+		`{"setup":"seatbelt-yolo-account","packages":["ripgrep"]}`)
+	var out, errw bytes.Buffer
+	if rc := describeMain(nil, &out, &errw, false); rc != 0 {
+		t.Fatalf("describe rc=%d: %s", rc, errw.String())
+	}
+	got := out.String()
+	if line := describeLine(t, got, "setup "); !strings.Contains(line, "seatbelt-yolo-account") ||
+		!strings.Contains(line, "cannot run on Linux") {
+		t.Errorf("the setup line does not say the setup cannot run here:\n%s", got)
+	}
+	if !strings.Contains(got, "yolo --setup podman-self -- claude") {
+		t.Errorf("describe does not name the setup this OS runs:\n%s", got)
+	}
+	line := describeLine(t, got, "packages ")
+	if strings.Contains(line, "a run materializes it") {
+		t.Errorf("describe promised a run that Linux refuses:\n%s", line)
+	}
+	if !strings.Contains(line, "seatbelt-yolo-account cannot run on Linux") {
+		t.Errorf("the packages line does not say why nothing materializes them:\n%s", line)
+	}
+}

@@ -27,6 +27,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
 func runDescribe(args []string) int {
@@ -104,11 +105,23 @@ func describeMain(args []string, out, errw io.Writer, color bool) int {
 	// is printed with its refusal, which names the next step, and describe goes on at the jail
 	// notch.
 	notch := render.KindJail
+	// A SETUP THIS OS CANNOT RUN (a Seatbelt or Apple Container setup on Linux, a Landlock one on
+	// a Mac) is one the launch refuses at its setup gate (setup.Buildable, here with no binary
+	// probe, so describe stays instant). describe still answers for that setup, says it cannot
+	// run here and names this OS's setup as the refusal does; nothing here would materialize its
+	// package profile, so the packages line never promises a run.
+	var unrunnable string
 	if serr != nil {
 		pr.Printf("[bold]setup[/bold]        [red]none[/red] — a launch from here refuses: %s", richtext.Escape(serr.Error()))
 	} else {
 		notch = render.KindForSetup(choice.Setup.Kind())
-		pr.Printf("[bold]setup[/bold]        [cyan]%s[/cyan] [dim](from %s)[/dim]", choice.Setup.Name, richtext.Escape(choice.From()))
+		if berr := setup.Buildable(choice.Setup, platformGOOS(), nil); berr != nil {
+			unrunnable = fmt.Sprintf("setup %s cannot run on %s", choice.Setup.Name, platformOSName())
+			pr.Printf("[bold]setup[/bold]        [cyan]%s[/cyan] [dim](from %s)[/dim] — [red]cannot run on %s[/red]: %s",
+				choice.Setup.Name, richtext.Escape(choice.From()), platformOSName(), richtext.Escape(berr.Error()))
+		} else {
+			pr.Printf("[bold]setup[/bold]        [cyan]%s[/cyan] [dim](from %s)[/dim]", choice.Setup.Name, richtext.Escape(choice.From()))
+		}
 	}
 	pr.Printf("[bold]environment[/bold]  confinement [cyan]%s[/cyan]", notch)
 	// jailcontent.ConfinementProfile, which is ALSO what the agent's briefing header
@@ -123,9 +136,15 @@ func describeMain(args []string, out, errw io.Writer, color bool) int {
 	// Reports what THIS machine would get, so it filters on the running platform —
 	// a linux-only package listed on a Mac would be a description of someone else's
 	// jail.
-	printPackageProfile(pr, notch, prof, config.EffectivePackages(cfg, runtime.GOOS),
-		darwinpkg.ProfileRootLink(paths.Home()),
-		packagesMaterializeAt(notch, resolvedMechanism(cfg)))
+	packages := config.EffectivePackages(cfg, runtime.GOOS)
+	if unrunnable != "" && len(packages) > 0 && !prof.Has(render.PrimBakedImage) {
+		pr.Printf("[bold]packages[/bold]     %d declared [dim](inert here — %s, so no run here "+
+			"materializes a nix profile)[/dim]", len(packages), unrunnable)
+	} else {
+		printPackageProfile(pr, notch, prof, packages,
+			darwinpkg.ProfileRootLink(paths.Home()),
+			packagesMaterializeAt(notch, resolvedMechanism(cfg)))
+	}
 	if packs, perr := config.LoadPacks(nil); perr == nil && len(packs) > 0 {
 		names := make([]string, 0, len(packs))
 		for _, p := range packs {
@@ -139,6 +158,14 @@ func describeMain(args []string, out, errw io.Writer, color bool) int {
 	pr.Printf("[bold]description[/bold]  sha256:%s [dim](unsealed — `describe --hash` for the pin, `describe --json` for the full config)[/dim]",
 		hex.EncodeToString(sum[:])[:16])
 	return 0
+}
+
+// platformOSName is the human name of the OS the read-only verbs answer for (platformGOOS).
+func platformOSName() string {
+	if paths.IsMacOS {
+		return "macOS"
+	}
+	return "Linux"
 }
 
 // confinementLabelPad aligns the primitive/autonomy detail column under the value column
