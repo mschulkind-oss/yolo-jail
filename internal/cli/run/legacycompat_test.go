@@ -140,6 +140,9 @@ type legacyCase struct {
 	V0151 *legacyMeaning
 	// ExpectEnabled is a current_only case's loopholes that must run.
 	ExpectEnabled []string
+	// ExpectOff is a current_only case's loopholes its config keeps off (LC-D3's off switch):
+	// one that runs is a mismatch, in every cell, converted ones included.
+	ExpectOff []string
 	// ExpectGitGrants is the git broker grant kinds the workspace must hold.
 	ExpectGitGrants []string
 	// ExpectRefused, when set, is text the launch's refusal must hold: a case the owner ruled
@@ -506,7 +509,7 @@ func writeLegacyWorkspaceFile(t *testing.T, ws, name string, on bool) {
 // per-workspace file was the human's own host command, so it must be granted outright.
 func meaningMismatches(o *Options, cfg *jsonx.OrderedMap, c legacyCase) []string {
 	var out []string
-	set := loopholes.NewHostSet(cfgMap(cfg, "loopholes"))
+	set := loopholes.NewHostSet(loopholes.LaunchBlock(cfg))
 	running := map[string]*loopholes.Loophole{}
 	for _, lp := range set.Enabled() {
 		running[lp.Name] = lp
@@ -534,6 +537,11 @@ func meaningMismatches(o *Options, cfg *jsonx.OrderedMap, c legacyCase) []string
 	started := map[string]bool{}
 	for _, name := range want.Enabled {
 		started[name] = true
+	}
+	for _, name := range c.ExpectOff {
+		if running[name] != nil {
+			out = append(out, fmt.Sprintf("%s: the config keeps it off (enabled: false, or off = true); it runs", name))
+		}
 	}
 	for _, name := range want.Enabled {
 		lp := running[name]
@@ -792,6 +800,7 @@ func realisticLegacyCases(t *testing.T) []legacyCase {
 			Renames         map[string]string `json:"renames"`
 			WorkspaceFile   map[string]bool   `json:"workspace_file"`
 			ExpectEnabled   []string          `json:"expect_enabled"`
+			ExpectOff       []string          `json:"expect_off"`
 			ExpectGitGrants []string          `json:"expect_git_grants"`
 			ExpectRefused   string            `json:"expect_refused"`
 		}
@@ -804,7 +813,7 @@ func realisticLegacyCases(t *testing.T) []legacyCase {
 			t.Fatalf("%s: %v", e.Name(), err)
 		}
 		lc := legacyCase{ID: "realistic/" + e.Name(), About: spec.About, WorkspaceFile: spec.WorkspaceFile,
-			ExpectEnabled: spec.ExpectEnabled, ExpectGitGrants: spec.ExpectGitGrants, ExpectRefused: spec.ExpectRefused}
+			ExpectEnabled: spec.ExpectEnabled, ExpectOff: spec.ExpectOff, ExpectGitGrants: spec.ExpectGitGrants, ExpectRefused: spec.ExpectRefused}
 		if !spec.CurrentOnly {
 			got, ok := v0151[e.Name()]
 			if !ok || got.V0151 == nil {

@@ -1,0 +1,5 @@
+{
+  "about": "A legacy user config that selects the Claude, Codex, aws-auth and cgroup-delegate packs and keeps each of LC-D3's four loopholes off with enabled: false, aws-auth beside a configured profile (configured, and off). Off meant the jail got no login, no credentials and no delegate, so each must stay off, before conversion and after.",
+  "current_only": true,
+  "expect_off": ["aws-auth", "cgroup-delegate", "claude-oauth-broker", "openai-auth-broker"]
+}

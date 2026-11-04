@@ -12,20 +12,22 @@ import (
 
 // THE OWNER'S BEDROCK-KEY LAYER over a TOML user config. The user config names aws-auth's
 // profile in `[allow.aws-auth]`; an opt-in `--user-layer bedrock-key.jsonc` delivers a static AWS
-// key pair through env_sources and used to turn aws-auth off with `enabled: false`. That key
-// switches nothing now (a pack's loophole runs whenever its pack is selected), so the served
-// pointer beside the pair is refused, and the refusal must name the step that does work: the
-// profile set to "" in that layer, so the login service serves nothing
-// (packload.UnconfiguredLogins) and its pointer is withheld. With the layer saying so, the launch
-// proceeds and the pointer is not in claude's environment.
+// key pair through env_sources and turns aws-auth off with `enabled: false`, "configured, and
+// off" (docs/design/legacy-config-compat.md LC-D3): the off switch keeps aws-auth from running,
+// so no pointer is served beside the pair and the launch proceeds. The profile set to "" in that
+// layer is the other spelling that works: the login service serves nothing
+// (packload.UnconfiguredLogins) and its pointer is withheld. Either way the pointer is not in
+// claude's environment.
 func TestABedrockKeyLayerNamesTheProfileStepAndThenLaunches(t *testing.T) {
 	const pair = `"env_sources": [{"AWS_ACCESS_KEY_ID": "AKIAEXAMPLE", "AWS_SECRET_ACCESS_KEY": "secret"}]`
 	for _, tc := range []struct {
 		name, layer string
 		refuses     bool
 	}{
-		{"enabled false", `{"loopholes": {"aws-auth": {"enabled": false}}, ` + pair + `}`, true},
+		{"enabled false", `{"loopholes": {"aws-auth": {"enabled": false}}, ` + pair + `}`, false},
 		{"profile empty", `{"loopholes": {"aws-auth": {"settings": {"profile": ""}}}, ` + pair + `}`, false},
+		// Neither: the served pointer beside the pair is refused, naming the step that works.
+		{"neither", `{` + pair + `}`, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			home := packHome(t)
@@ -53,10 +55,10 @@ func TestABedrockKeyLayerNamesTheProfileStepAndThenLaunches(t *testing.T) {
 
 			if !tc.refuses {
 				if got != "" {
-					t.Fatalf("with the profile emptied the launch was refused:\n%s", got)
+					t.Fatalf("with aws-auth off the launch was refused:\n%s", got)
 				}
 				if channel.served.Serves("aws-auth") {
-					t.Error("with the profile emptied aws-auth is still served")
+					t.Error("with aws-auth off it is still served")
 				}
 				if v, ok := channel.launchEnv("claude").Get(pointerVar); ok {
 					t.Errorf("claude still receives %s = %v", pointerVar, v)

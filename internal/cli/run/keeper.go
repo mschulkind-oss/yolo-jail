@@ -1022,7 +1022,7 @@ func (o *Options) plannedLoopholeNames(rt string, cfg *jsonx.OrderedMap) []strin
 // so the disclosure leaves it out. Seal-blind on purpose, as startLoopholes is, so a disclosure
 // can never name less than that spawn starts.
 func (o *Options) hostServiceNames(rt string, cfg *jsonx.OrderedMap) []string {
-	set := loopholes.NewHostSet(cfgMap(cfg, "loopholes"))
+	set := loopholes.NewHostSet(loopholes.LaunchBlock(cfg))
 	allow := o.loopholeAllow(rt, cfg)
 	var names []string
 	if allow(paths.BuiltinCgroupLoopholeName) && cgroupDelegateBackend(rt) && o.cgroupDelegateHonored(set) {

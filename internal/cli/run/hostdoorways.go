@@ -189,7 +189,7 @@ func PlanHostDoorwaysFor(cfg *jsonx.OrderedMap, packs []*packload.Pack, sel pack
 		return d, nil
 	}
 	set := loopholes.NewSet(loopholes.DiscoverOptions{
-		LoopholesConfig:   cfgMap(cfg, "loopholes"),
+		LoopholesConfig:   loopholes.LaunchBlock(cfg),
 		PackModules:       packLoopholeModules(packs),
 		PackSupersessions: packSupersessions(packs),
 	})
@@ -354,7 +354,7 @@ func notOpenedWhy(set loopholes.Set, refused []launchservice.RefusedDoorway, nam
 // it when the prelaunch started none.
 func HostOpenAIServiceOn(cfg *jsonx.OrderedMap, packs []*packload.Pack) bool {
 	set := loopholes.NewSet(loopholes.DiscoverOptions{
-		LoopholesConfig:   cfgMap(cfg, "loopholes"),
+		LoopholesConfig:   loopholes.LaunchBlock(cfg),
 		PackModules:       packLoopholeModules(packs),
 		PackSupersessions: packSupersessions(packs),
 	})
@@ -368,7 +368,7 @@ func HostOpenAIServiceOn(cfg *jsonx.OrderedMap, packs []*packload.Pack) bool {
 // already runs on the host, which the host notch's doorway clause would not say.
 func HostFrontedWhy(cfg *jsonx.OrderedMap, packs []*packload.Pack) map[string]string {
 	set := loopholes.NewSet(loopholes.DiscoverOptions{
-		LoopholesConfig:   cfgMap(cfg, "loopholes"),
+		LoopholesConfig:   loopholes.LaunchBlock(cfg),
 		PackModules:       packLoopholeModules(packs),
 		PackSupersessions: packSupersessions(packs),
 	})

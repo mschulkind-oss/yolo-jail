@@ -349,7 +349,7 @@ func TestKeeperStartsWithTheLaunchValidatedSettingsSnapshot(t *testing.T) {
 	}
 	loopholes.SetPackModules([]loopholes.PackModule{{Dir: module, HostExecApproved: true}})
 	original := settingsConfig("keeper-settings", "validated-profile")
-	set := loopholes.NewHostSet(cfgMap(original, "loopholes"))
+	set := loopholes.NewHostSet(loopholes.LaunchBlock(original))
 	launch := &Options{Workspace: t.TempDir()}
 	fillDefaults(launch)
 	launch.discloseSettingsCheckHostExec(nil, set, original, func(string) bool { return true })

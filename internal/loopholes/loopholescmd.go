@@ -258,6 +258,18 @@ func loopholesWithConfigAndBlock(deps Deps, includeDisabled bool) (Set, *jsonx.O
 	// composes pack + config (the only two sources left), so this command cannot come to disagree
 	// with the launch path about what this machine has. It always builds the
 	// include-disabled superset; includeDisabled selects the VIEW below.
+	// A TOML user config's `[allow.<pack>] off = true` keeps that pack's off-switch loophole off
+	// here as at the launch (LaunchBlock, LC-D3).
+	if user := load(deps.LoadUserConfig); user != nil {
+		if allowV, ok := user.Get("allow"); ok {
+			withAllow := jsonx.NewOrderedMap()
+			withAllow.Set("loopholes", merged)
+			withAllow.Set("allow", allowV)
+			if block := LaunchBlock(withAllow); block != nil {
+				merged = block
+			}
+		}
+	}
 	set := NewHostSet(merged)
 	// Under a TOML user config a pack's settings are its `[allow.<pack>]` table (packswitch.go);
 	// a `loopholes.<name>.settings` key a legacy file wrote wins.

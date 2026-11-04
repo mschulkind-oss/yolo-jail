@@ -28,7 +28,7 @@ func (o *Options) predictedServed(merged *jsonx.OrderedMap, packs []*packload.Pa
 	if o.Getenv != nil {
 		rt = o.configuredRuntimeName(merged)
 	}
-	set := loopholes.NewHostSet(subMap(merged, "loopholes"))
+	set := loopholes.NewHostSet(loopholes.LaunchBlock(merged))
 	// The pack services' daemons from the launch's own composer (launchservice.ServiceJailDaemons),
 	// so the one split below declines them where the launch does rather than by a second rule here.
 	services := launchservice.ServiceJailDaemons(packs)

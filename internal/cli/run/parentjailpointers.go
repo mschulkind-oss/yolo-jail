@@ -82,7 +82,7 @@ func (o *Options) parentJailPointers(rt string, set loopholes.Set) map[string]ma
 // inheritedLoopholes is parentJailPointers over cfg's converged loophole set, for the readers that
 // hold a config rather than a set.
 func (o *Options) inheritedLoopholes(rt string, cfg *jsonx.OrderedMap) map[string]map[string]string {
-	return o.parentJailPointers(rt, loopholes.NewHostSet(cfgMap(cfg, "loopholes")))
+	return o.parentJailPointers(rt, loopholes.NewHostSet(loopholes.LaunchBlock(cfg)))
 }
 
 // withoutInheritedDaemons drops from specs the jail daemon of every loophole whose pointer this
@@ -129,7 +129,7 @@ func (o *Options) noteParentJailPointers(cfg *jsonx.OrderedMap, channel *packCha
 	if channel == nil {
 		return
 	}
-	lines := o.inheritedDisclosures(loopholes.NewHostSet(cfgMap(cfg, "loopholes")), channel.served)
+	lines := o.inheritedDisclosures(loopholes.NewHostSet(loopholes.LaunchBlock(cfg)), channel.served)
 	names := make([]string, 0, len(lines))
 	for name := range lines {
 		names = append(names, name)

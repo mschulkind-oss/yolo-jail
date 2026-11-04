@@ -40,7 +40,7 @@ func (o *Options) loopholeGrantStandings(rt string, cfg *jsonx.OrderedMap) grant
 	if o.approvedLoopholeGrants != nil {
 		return o.approvedLoopholeGrants
 	}
-	if len(grantDeclaring(loopholes.NewHostSet(cfgMap(cfg, "loopholes")))) == 0 {
+	if len(grantDeclaring(loopholes.NewHostSet(loopholes.LaunchBlock(cfg)))) == 0 {
 		return nil
 	}
 	read, err := config.ReadWorkspaceForGate(o.Workspace)
@@ -224,7 +224,7 @@ func grantFileKinds(lp *loopholes.Loophole, standings map[string]config.Loophole
 func (o *Options) loopholeInertEnv(rt string, cfg *jsonx.OrderedMap) map[string]string {
 	allow := o.loopholeAllow(rt, cfg)
 	out := map[string]string{}
-	for _, lp := range grantDeclaring(loopholes.NewHostSet(cfgMap(cfg, "loopholes"))) {
+	for _, lp := range grantDeclaring(loopholes.NewHostSet(loopholes.LaunchBlock(cfg))) {
 		name := paths.LoopholeInertEnv(lp.Name)
 		if name == "" {
 			continue
@@ -373,7 +373,7 @@ func (s grantSummary) briefingLine(lp *loopholes.Loophole) string {
 // loophole holds in this workspace (§5): the grants in force, or the standing and the next step.
 // An inert one is left to the inert report, which already says it does nothing here.
 func (o *Options) noteLoopholeGrants(rt string, cfg *jsonx.OrderedMap) {
-	lps := grantDeclaring(loopholes.NewHostSet(cfgMap(cfg, "loopholes")))
+	lps := grantDeclaring(loopholes.NewHostSet(loopholes.LaunchBlock(cfg)))
 	if len(lps) == 0 {
 		return
 	}

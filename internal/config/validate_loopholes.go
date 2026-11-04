@@ -557,8 +557,22 @@ func userSwitchesNothingNote(name string, userBlock *jsonx.OrderedMap, sources *
 	if !ok || hasKey(entry, "command") {
 		return ""
 	}
-	if _, has := entry.Get("enabled"); !has {
+	enabledV, has := entry.Get("enabled")
+	if !has {
 		return ""
+	}
+	if off, isBool := enabledV.(bool); isBool && !off {
+		if pack, offSwitch := loopholedecl.OffSwitchPack(name); offSwitch {
+			// LC-D3: honored, not a no-op (loopholes.Discover keeps the record off).
+			msg := "config.loopholes." + name + ".enabled: false keeps the loophole " + pytext.Repr(name) +
+				" off: a launch that reads this file starts nothing for it, and nothing it serves reaches the jail. " +
+				"Its TOML spelling is `off = true under [allow." + pack + "]`, which `yolo config migrate` writes. " +
+				"To run it, remove the key."
+			if sources != nil {
+				msg = sources.AnnotateOne(msg)
+			}
+			return msg
+		}
 	}
 	msg := "config.loopholes." + name + ".enabled switches nothing: the loophole " + pytext.Repr(name) +
 		" runs whenever its pack is selected. Remove the key; to stop it running, take its pack out " +

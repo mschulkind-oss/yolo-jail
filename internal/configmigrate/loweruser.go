@@ -7,6 +7,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
@@ -184,6 +185,13 @@ func lowerLoopholes(value any, ctx loweringContext, place func([]string, any, []
 		}
 		selected := view.packs[name]
 		enabled := view.enabled[name] == true || view.selectionSwitch
+		// LC-D3: an off-switch loophole's `enabled: false` is honored, so it converts to its
+		// pack's `off = true`, and the settings written beside it are configured-and-off, never
+		// dormant: they convert too, so turning the loophole back on finds them.
+		offPack, offSwitch := loopholedecl.OffSwitchPack(name)
+		if offSwitch && view.enabled[name] == false {
+			enabled = true
+		}
 		if d, declared := view.grants.decl(name); declared && selected {
 			lowerGrantLoophole(d, entry, path, enabled, view.grants, place, skip)
 			continue
@@ -194,6 +202,10 @@ func lowerLoopholes(value any, ctx loweringContext, place func([]string, any, []
 			switch key {
 			case "enabled":
 				switch {
+				case v == false && offSwitch:
+					if !place([]string{"allow", offPack, loopholedecl.AllowOffKey}, true, oldPath) {
+						skip(oldPath, v, "allow."+offPack+"."+loopholedecl.AllowOffKey+" is already written in this file")
+					}
 				case v == true && selected && loopholes.RunsOnSelection(name):
 					// The list already says it; nothing is written.
 				case v == true && selected:

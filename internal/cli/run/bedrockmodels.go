@@ -166,7 +166,7 @@ func (o *Options) composeFetchedLists(cfg *jsonx.OrderedMap, packs []*packload.P
 		return false, nil
 	}
 	enabled := map[string]bool{}
-	for _, lp := range loopholes.NewHostSet(cfgMap(cfg, "loopholes")).Enabled() {
+	for _, lp := range loopholes.NewHostSet(loopholes.LaunchBlock(cfg)).Enabled() {
 		enabled[lp.Name] = true
 	}
 	setting := packload.LoopholeSettingIn(cfg)

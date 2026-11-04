@@ -29,7 +29,7 @@ func openAIServiceRefusal() string {
 }
 
 func openAIAuthLoopholeActive(cfg *jsonx.OrderedMap) bool {
-	set := loopholes.NewHostSet(cfgMap(cfg, "loopholes"))
+	set := loopholes.NewHostSet(loopholes.LaunchBlock(cfg))
 	lp, ok := set.Lookup(openAIAuthBrokerName)
 	return ok && lp.Active() && set.MayRunHostCode(lp)
 }

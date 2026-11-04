@@ -612,7 +612,7 @@ func (o *Options) hostServicesMountArgs(rt, cname string, cfg *jsonx.OrderedMap)
 // Discovery order, not sorted: it is the order every other view of this Set uses, so an
 // argv diff between two surfaces is a real difference rather than a collation one.
 func promisedEndpoints(rt string, cfg *jsonx.OrderedMap) []string {
-	set := loopholes.NewHostSet(cfgMap(cfg, "loopholes"))
+	set := loopholes.NewHostSet(loopholes.LaunchBlock(cfg))
 	var names []string
 	for _, lp := range set.Active() {
 		if !endpointPromisedAtAssembly(lp) {
@@ -857,7 +857,7 @@ func (o *Options) loopholesRuntimeArgs(cfg *jsonx.OrderedMap, rt string,
 	view := o.claudeCredentialView(rt, cfg)
 	// An unmediated grant-declaring loophole's crossing, and any grant-declaring loophole's binds
 	// and devices, are carried only under a grant (docs/reference/loophole-grants.md §4.4).
-	set := o.withLaunchGrants(loopholes.NewHostSet(cfgMap(cfg, "loopholes")).WithCredentialView(view), rt, cfg)
+	set := o.withLaunchGrants(loopholes.NewHostSet(loopholes.LaunchBlock(cfg)).WithCredentialView(view), rt, cfg)
 	// THE MOUNT SENTINELS FIRST, from the same Set over the same records, so every loophole
 	// whose state_files names the inert marker has it on disk before the argv resolves its bind
 	// sources (loopholes/mountsentinel.go). A nonempty list is what keeps a credential cache

@@ -24,7 +24,7 @@ import (
 // predicate the spawn applies (loopholes.Set.BrokeredToStart over the backend's allow), so
 // the gate asks about a scope exactly when a broker will be handed one.
 func (o *Options) brokeredToStart(rt string, cfg *jsonx.OrderedMap) []*loopholes.Loophole {
-	set := loopholes.NewHostSet(cfgMap(cfg, "loopholes"))
+	set := loopholes.NewHostSet(loopholes.LaunchBlock(cfg))
 	return set.BrokeredToStart(o.loopholeAllow(rt, cfg))
 }
 
@@ -63,7 +63,7 @@ func CollectScopeCheck(in ScopeInput) *config.ScopeCheck {
 		rt := in.Runtime
 		allow = func(name string) bool { return HostServiceAdmittedOn(rt, name, false) }
 	}
-	set := loopholes.NewHostSet(cfgMap(in.Merged, "loopholes"))
+	set := loopholes.NewHostSet(loopholes.LaunchBlock(in.Merged))
 	lps := set.BrokeredToStart(allow)
 	brokers := make([]config.ScopeBroker, 0, len(lps))
 	for _, lp := range lps {

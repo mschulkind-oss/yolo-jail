@@ -54,7 +54,7 @@ func (o *Options) grantDeltas(ctx context.Context, run *applyRun, scope *config.
 		return nil
 	}
 	byName := map[string]*loopholes.Loophole{}
-	for _, lp := range grantDeclaring(loopholes.NewHostSet(cfgMap(run.cfg, "loopholes"))) {
+	for _, lp := range grantDeclaring(loopholes.NewHostSet(loopholes.LaunchBlock(run.cfg))) {
 		byName[lp.Name] = lp
 	}
 	approved := scope.ApprovedLoopholeGrants()
