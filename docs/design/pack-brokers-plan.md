@@ -1,54 +1,108 @@
 ---
-title: "Pack brokers: implementation plan (seed)"
+title: "Pack brokers: build hand-off"
 date: 2026-11-04
-status: draft
-stage: SKETCH
-next: "Complete the tree-grounded hand-off for built-in CircleCI, local proof services and host demo controls"
+status: accepted
+stage: DECIDED
+next: "Build independent source-neutral approval and synthetic fixture slices; join the access decision seam before call dispatch"
 depends-on:
-  - pack-brokers.md#OQ-BX1
-  - pack-brokers.md#OQ-BX2
-  - pack-brokers.md#OQ-BX3
-tags: [plan, seed, broker, packs, extension-point]
-summary: "Seed of the implementation plan for pack-brokers.md: notes the design work surfaced. Not a hand-off; the design wins on behavior."
+  - pack-brokers.md
+  - access-introspection-plan.md
+tags: [plan, broker, packs, extension-point, circleci, local-testing]
+summary: "Tree-grounded tasks for pack call brokers, source-neutral approvals, CircleCI, independently loadable synthetic CLI/HTTP proofs and nested-jail acceptance."
 ---
 
-# Pack brokers: implementation plan (seed)
+# Pack brokers: build hand-off
 
-**Status:** 2026-11-04 — the design is accepted; this seed still needs a tree-grounded build
-hand-off before implementation.
+**Written against:** `3d77e3d8e`, 2026-11-04. Planning only; no broker behavior is built by this document. **Design:** [pack-brokers.md](pack-brokers.md), whose [decision ledger](pack-brokers.md#decision-ledger) is settled. The [access plan](access-introspection-plan.md) owns the shared act/evaluate/ask decision seam; the [MCP plan](mcp-auth-sharing-plan.md) owns its sign-in daemon, launch input and fence. Terms in this hand-off have the [design's definitions](pack-brokers.md#2-terms).
 
-This seeds the plan for [`pack-brokers.md`](pack-brokers.md). Where the two disagree on behavior,
-the design wins. Do not build from this file while it is a sketch.
+**Precedence:** design wins on behavior; tree wins on cosmetic fact; this plan is advice and first to be wrong. Do not twist source to match it. Stop and report without committing if a named symbol disappears, a proposed red test is not red for the predicted reason, another writer dirties a fenced file, a fix escapes the task fence, or an out-of-scope gate fails. Cheap choices: Go struct names, fixture state representation, bounded GraphQL parser implementation and formatting of noncontractual diagnostic detail. No owner decision remains in the accepted design.
 
-## Notes the design surfaced
+**Confirmed gap:** `internal/cli/approve.go:149-150` explicitly opens `ghbroker.ApprovalStore()` and `gitbroker.ApprovalStore()`; `:295-418` has source-specific approval paths. `internal/loopholedecl/brokered.go` has only the `brokered` manifest block, not `call_broker`. `internal/ghbroker/authority.go:53` and `internal/gitbroker` own current decisions; no generic call-broker daemon or fixture service exists. These are tree reads, not a runtime reproduction. Every test below must demonstrate its own red at the production consumer before implementation.
 
-- **Source-neutral approvals.** `internal/cli/approve.go` lists the GitHub and git stores through
-  their `ApprovalStore()` and has GitHub-only branches (`allowOnceOnly`); find every such branch in
-  `approve`, `wait`, `history` and the config validator before replacing them with declared sources.
-- **Manifest spellings** in the design's `call_broker` sketch are the plan's to settle against
-  `internal/loopholedecl` conventions (`brokered.go`'s census, token rules).
-- **The cells validator** for `[requests.<pack>]` today knows GitHub's cells; it must learn declared
-  cells, and the working-set invariant check must run on them too.
-- **CircleCI CLI facts to confirm at the current release** (from documentation, not run):
-  each verb's exact name and flags with `circleci <verb> --help`; whether `pipeline create` defines
-  or triggers; whether `job artifact` can stream to stdout; whether `config validate` reads stdin;
-  whether API v3 masks environment variable values; how a `circleci/<org>/<project>` project names
-  its repository.
-- **Local proof services:** plan a test CLI client and HTTP service with isolated synthetic
-  state/credentials, a finite GraphQL route, host start/seed/inspect/change/reset/stop controls
-  and a short demo guide. Use independently loadable fixture packs to prove extension without
-  core service-name edits. Nested-jail tests drive real broker paths and inspect service state,
-  write logs and approval use; no Linear or CircleCI account is needed.
-- **Built-in CircleCI:** ship `packs/circleci` with a yolo classifier subcommand, not a manifest
-  binary; exercise its actual classifier using a fake host CLI. Treat upstream CLI/login/cloud
-  compatibility as separate evidence, not as a result of the synthetic tests.
-- **The HTTP front in the jail** is a `yolo-jaild` daemon; check how `wire-bridge` publishes its
-  endpoint file and reuse that shape.
-- **Apple Container admission** (`internal/cli/run/loopholeinert.go`) lists admitted daemons by
-  name; decide how a pack broker is reported there.
-- **Classifier latency**: measure one subprocess per call against the 2 s deadline.
-- **Settled behavior:** core executors by default plus a pack executor where needed; one
-  program classifier interface; built-in CircleCI; local human-operated proofs; optional denial
-  notes across sources; gate-shown working-set defaults capped by the user ceiling
-  ([owner rulings](pack-brokers.md#decision-ledger)). Map independent tasks against the access
-  hand-off without stalling source-neutral or fixture work on unrelated implementation.
+## Map (new paths marked new)
+
+| Path | Change and task |
+| :--- | :--- |
+| `internal/cli/approve.go`, `approve_test.go`; `internal/config/brokered.go`, `schema.go`, `*_test.go` | A: selected-source registry, approval capability/revalidation, declarative cell validation |
+| `internal/brokerstore/store.go`, `*_test.go`; `internal/approvalwait/record.go`, `wait.go`, `history.go`, `*_test.go`; `internal/cli/{wait,history}.go`, `*_test.go` | B: optional denial note all sources, retained in published request and displayed |
+| `tools/broker-fixture/` (new), `integration/testdata/pack-broker-{cli,http}/` (new), `userguide/guides/pack-broker-demo.md` (new) | C: local host service/client, independent pack inputs, operator controls and demo guide |
+| `internal/loopholedecl/callbroker.go` (new), `loopholedecl.go`, `keys.go`, `tokens.go`, `*_test.go`; `internal/config/brokered.go`, `schema.go`, scope/gate tests; `internal/cli/run/{brokeredscope,loopholesruntime}.go`, `*_test.go` | D: block, roots/defaults, scoped launch input and gate |
+| `internal/callbroker/` (new), `internal/internaldaemon/internaldaemon.go`, `internal/cli/{dispatch,subhelp}.go`, `internal/cli/callbroker.go` (new), `internal/brokeraudit/` | E: classifier protocol, common decision/store, CLI front/core executor, status/evaluate/ask |
+| `packs/circleci/` (new), `internal/circleciclassify/` (new), `internal/cli/callbrokerclassify.go` (new), `internal/cli/run/*_test.go`, `internal/cli/check/*_test.go` | F: built-in CLI classifier and pack; fake host CircleCI implementation in tests only |
+| `cmd/yolo-jaild/main.go`, `main_test.go`; `internal/entrypoint/requiredservice.go`; `internal/callbroker/http.go` (new), `internal/callbroker/*_test.go` | G: HTTP jail front, canonical HTTP/core and pack executors |
+| `internal/callbroker/conformance.go` (new), `internal/callbroker/*_test.go`, `integration/packbroker_test.go` (new), `docs/reference/{loophole-grants,loophole-transport,pack-system}.md`, `userguide/reference/settings-per-setup.md` | H: conformance, real nested-jail test and overlapping shipped reference claims |
+
+`internal/cli/run` and `internal/config` are shared by A/D and the live access/MCP workers: land A first, rebase D on the integrated tree, and never overwrite their files. The map names likely source files, not authorization to change a live sibling's edits. Only add `packdecl`/`setupcensus` files if a fixture pack's declared *pack-level* contribution requires it; `call_broker` itself is a loophole-manifest block, not a second `[[program]]` or `[[service]]` kind.
+
+## Reuse and traps
+
+- **Constraint:** `loopholedecl.Decode`/`LoadDir`, `walk`, `parseBrokered`, `brokeredKeys`, `KnownKeys`, `parseHostDaemon` and token refusals own strict manifest decoding. Preserve leaf imports (`go list -deps ./internal/loopholedecl`); don't load/execute the classifier while parsing a manifest. Unknown nested keys must refuse, not warn and continue.
+- **Constraint:** `config.validateBrokeredWorkspace`, `BrokeredSetsOf`, `BrokeredSetsDisclosure`, `schema.go`, `run.CollectScopeCheck`, `writeScopeFiles`, `scopeTokenArg` and `startLoopholesMatching` are separate gate, read and start paths. Defaults are disclosed before consent and intersect the user ceiling; a jail cannot supply either. Follow the MCP plan's `launch_input` producer when present; before it lands, D may keep its file change local but must not add a second general input mechanism or silently rename `{repository_scope}`.
+- **Constraint:** `brokerstore.Store` already owns `transactionContext`, `SpendExactOrFileContext`, `Decide`, `Working`, `CommandDigest`; `approvalwait.Record` is the separately published jail-visible wait/history record. Update the publisher and the old-record reader together for notes. `brokerhook` is notify-only. A removed pack's pending records remain listable but cannot be approved.
+- **Constraint:** `internal/cli/dispatch.go` routes host/in-jail verbs; `internal/internaldaemon.Run` dispatches host daemons. `packs/github/pack.toml` shows `[[intercept]]`; `packs/wire-bridge/pack.toml` shows a *pack-level service* with an endpoint and jail daemon, not a replacement for the host call-broker loophole. `internal/cli/run.HostServiceAdmittedOn` excludes arbitrary host services on Apple Container: report unreachable with the reason; do not claim that nested podman tests prove Apple Container reachability.
+- **Constraint:** task 2 of the [access plan](access-introspection-plan.md) introduces versioned status/evaluate/ask and atomic file-if-asks; E adapts to that *actual* seam after it lands. Access tasks 1–5 do not depend on this plan. The MCP plan's [ID-9](mcp-auth-sharing-plan.md#id-9) fence candidate may land independently; D checks integrated state and builds only the missing scope-producer behavior. MCP records must not enter approve/wait/history.
+- **Constraint:** no generated in-jail client. CircleCI's classifier is `yolo internal call-broker-classify circleci`; official packs declare no `binaries`. Third-party fixture classifier/executor programs are checksum-pinned pack programs, resolved from the selected staged pack tree by the host, never by jail-supplied path or PATH search on the host. Preserve per-launch tree for attach (`internal/cli/run/packtree.go`); a fixture's program must be executable on the host and not expose the synthetic credential to classifier stdin.
+- **Trap:** current `approvePerRef`, `allowOnceOnly` and `storeConfigBranches` encode GitHub/git exceptions; represent those via explicit source capabilities rather than treating every pack store as a git ref store. No per-pack hardcoded switch in registration or validation. No selected pack means no new source.
+- **Trap:** canonical call digest must include stdin digest or canonical HTTP body and every write's resource chain; classify again before an approved act. A lookup is an audited, read-authorized call through core's executor, not a privileged classifier subprocess. Unsupported lookup, timeout, oversized JSON (>64 KiB), more than three rounds, unknown cells/resources or input-changing classification fails closed with next step and audit. Measure 2 s subprocess latency on a local fixture, without raising the limit merely to pass a slow machine.
+- **Trap:** the host fixture endpoint is approved host-side and pinned. No jail-selected server flag, URL authority, redirect, credential destination, file output or Authorization header may override it. The HTTP executor follows zero redirects, never stores cookies, caps response at 32 MiB and redacts readable credentials. A keyring-only CircleCI login cannot be redacted by token comparison; say so rather than claiming secrecy tests proved otherwise.
+
+## Common gates and hand-off protocol
+
+Each task is one commit. Before starting, `git status --short`, verify the required predecessor landed, and run its named red test *at the production call site*. After green: `just format`, targeted `go test -short`, and `go test -short ./...` at landing (`just check-ci` on combined tree). For `cmd/` or `internal/` edits, `just build-dev-bundle` and the emitted launcher by absolute path from a throwaway workspace; run only relevant integration tests per task, full slow suite **once** at combined launch-path landing. Use original HOME and shared Go cache (`go env` first); no private `GOCACHE`, real login, keychain, upstream API or interactive agent. New test reading files outside its package: run `python3 scripts/completion-census.py`, commit its output before landing. For changed docs run `scripts/vantage-check.sh <changed-docs>`; for stage changes run `uvx vantage-check index`. Each report supplies red and green output, nested result or explicit reachability limitation, diffstat and unverified upstream compatibility. If a required predecessor is missing, work on A/B/C rather than fabricate a global dependency.
+
+## Tasks
+
+### A — source-neutral approval registry and cell validation (independent; first shared-file landing)
+
+- **Settled, do not re-open:** selected sources, including third-party ones, use core approvals/ceilings/asks; git/GitHub current behavior remains unchanged. Approval revalidation belongs to core and cannot be supplied as an arbitrary pack command.
+- **Tests first:** `TestApproveSelectsDeclaredSourcesWithoutNameBranch` in `internal/cli/approve_test.go`: through `runApprove` with isolated user config and pack tree, load a selected `brokered` fixture source `local-tasks`, seed one pending request, assert `yolo approve --json` lists it and `--deny` records an answer; remove the pack, assert still listable but approval refused. Include git/GitHub unaffected. Red: `go test -short ./internal/cli -run TestApproveSelectsDeclaredSourcesWithoutNameBranch -count=1` (host `runApprove` opens only two named stores).
+- **Change:** replace source enumeration/special-case capability selection in `runApprove`/`approveAll` with descriptors from selected loophole declarations plus safe retired-source listing, never a directory-to-executable path. Keep core-owned revalidation for git/GitHub; new pack authority is D's scoped classification, so a selected pack request cannot be allowed until D supplies it. Do not make test-only injected stores the registration proof.
+- **Gates:** red above, then `go test -short ./internal/cli ./internal/config ./internal/brokerstore`; common gates. **Fence:** access task 2's `internal/brokerstore` protocol and access CLI; MCP fence. **Commit:** `refactor(broker): resolve approval sources from selected packs`. **Report:** red/green and evidence removed pack remains listable but not approvable.
+
+### B — denial note on every source (independent of A, same approve file: land after A)
+
+- **Settled, do not re-open:** `yolo approve r-<id> --deny --note "use the release branch"` records optional feedback; wait/history show it for git, GitHub and pack sources; no note keeps prior behavior. A note is not a command or grant.
+- **Tests first:** `TestDenyNoteAppearsInWaitAndHistoryForEverySource` in `internal/cli/approve_test.go` and `internal/approvalwait/history_test.go`: for sources `git`, `github`, `local-tasks`, deny a request with literal note `use the release branch`, assert store and published `approvalwait.Record` retain it and both `Wait` and `History` display it; absent note and old JSON record still read. Red: `go test -short ./internal/cli ./internal/approvalwait -run 'TestDenyNoteAppearsInWaitAndHistoryForEverySource|TestHistoryReadsPreNoteRecord' -count=1` (`--note` rejected).
+- **Change:** parse note only with deny in `approveAll`; add optional field to `brokerstore.Decision`/record and `approvalwait.Record`; publish it from the store's answer path, render in `Wait.report`/`History.showOne` and JSON. Bound and escape user text using existing visible-text conventions; no note on grants. **Gates:** red then `go test -short ./internal/cli ./internal/brokerstore ./internal/approvalwait`; common gates. **Fence:** don't rewrite git/GitHub decision rules. **Commit:** `feat(broker): show denial feedback in wait and history`. **Report:** existing-record compatibility and all-source cases.
+
+### C — local fixtures and host controls (independent; no core broker changes)
+
+- **Settled, do not re-open:** local CLI and HTTP proofs, synthetic credentials and state, finite GraphQL route, host start/seed/inspect/change/reset/stop controls; private per-run loopback listener and no real account.
+- **Tests first:** `TestFixtureHostControlsAndGraphQLSelection` under `tools/broker-fixture/`: `start` prints endpoint/identity/state path; `seed` creates projects `alpha`/`beta` and work items `a1`/`b1`; `inspect` shows write log; `change` changes `a1` only; `reset` empties only selected fixture state; `stop` terminates only that listener. HTTP `POST /graphql` with named query + mutation selects exactly the named operation; unknown field, subscription and ambiguous multi-operation reject without a write. Red: `go test -short ./tools/broker-fixture -run 'TestFixtureHostControlsAndGraphQLSelection|TestFixturePinnedEndpointRejectsOverride' -count=1` (package absent).
+- **Change:** add fixture tool/client and independently loadable CLI and HTTP pack directories under `integration/testdata/` (selected by configured path, no core-name edits). A third fixture can share the service but use a pack signing executor and synthetic key; classifier never reads it. Fixtures implement service semantics only; do not fake a broker verdict. Keep demo guide's brokered walk-through for H when the commands actually work; no invented runnable steps now. **Gates:** red then `go test -short ./tools/broker-fixture`; common gates. **Fence:** no production broker source or external service. **Commit:** `test(broker): add local CLI and HTTP proof services`. **Report:** reproducible host control commands, private-state cleanup and GraphQL cases.
+
+### D — manifest, scopes and disclosed defaults (after A registry slice; independent of access decision implementation)
+
+- **Settled, do not re-open:** strict `call_broker` replaces `host_daemon` for this loophole; declared roots/remotes, resources/cells/lookup templates, `read_over_post`, follows and join rules are gate-visible, capped by user ceiling and selected packs. No jail-controlled scope.
+- **Tests first:** `TestCallBrokerManifestGateAndScope` in `internal/loopholedecl/callbroker_test.go` and `internal/cli/run/brokeredscope_test.go`: load third-party fixture pack; unknown block key, `read` write cell, missing resource parent, duplicate source and unmatched follows refuse; `brokered.local-tasks.roots=["team:alpha"]`, gate discloses exact root, defaults, floor exception; reject read-only mount into selected daemon's fenced state. `TestDeclaredCellsRespectCeilingAndInvariant` in `internal/config/brokered_test.go`: `rerun_workflows` default `working_set=true` with ceiling `working_set=false` cannot run; `working_set=false, all=true` refuses; unknown cell refuses. Red: `go test -short ./internal/loopholedecl ./internal/config ./internal/cli/run -run 'TestCallBrokerManifestGateAndScope|TestDeclaredCellsRespectCeilingAndInvariant' -count=1` (block unknown).
+- **Change:** manifest decode/census and source registry from A; scope collection and approved file in `run/brokeredscope.go`; declared roots in `config/brokered.go`/schema and gate. Resolve manifest classifier/executor via selected pack's staged tree, validating program identity/checksum; default CircleCI yolo subcommand is not a manifest binary. Incorporate MCP `launch_input` only once its producing change lands; no new generic input channel. **Gates:** red then `go test -short ./internal/loopholedecl ./internal/config ./internal/cli/run`; common gates. **Fence:** no MCP phase B daemon, no access task's broker decision files. **Commit:** `feat(broker): validate pack call declarations and gated scope`. **Report:** loaded third-party manifest and gate/ceiling evidence.
+
+### E — shared call pipeline, CLI and default executor (after D and access task 2)
+
+- **Settled, do not re-open:** classifier is a single program interface (tables may generate it), never credentialed; core owns classification validation, facts/read lookups, per-write decision, request, approval and execution of canonical bytes. `status`/evaluate/ask follow the accepted access contract; classify again at act. No custom executor runs on asks/refused/predicted calls.
+- **Tests first:** `TestPackCLIActEvaluateAskAndCanonicalExecution` in `internal/callbroker/cli_test.go`: third-party `local-tasks` CLI classifier changes jail argv `update a1 --state done` to canonical argv, evaluates `asks` with zero host writes, `--ask` files one request without spending, repeated ask joins, approval then act writes once; changed canonical digest asks again; missing read grant forbids lookup. `TestPackCLIClassifierFailsClosed` covers malformed/oversized output, unknown cell, crash, timeout and four lookup rounds. Red: `go test -short ./internal/callbroker -run 'TestPackCLIActEvaluateAskAndCanonicalExecution|TestPackCLIClassifierFailsClosed' -count=1` (package absent).
+- **Change:** `callbroker` typed versioned input/output, 2 s/64 KiB/three-round boundary and generic pipeline consuming the landed access decision contract; host daemon via `internaldaemon.Run`, CLI forwarder via pack `[[intercept]]`, core CLI executor only canonical argv and original stdin, host `PATH`/`HOME`/allowlisted env, empty cwd/no TTY; audited lookups and redacted output. `yolo access -- <fixture program> ...` uses the same decision path. Per-write denial refuses entire call; one request covers a multiwrite ask. **Gates:** red then `go test -short ./internal/callbroker ./internal/cli ./internal/brokerstore ./internal/internaldaemon`; common gates. **Fence:** no changes to git/GitHub classification or MCP records. **Commit:** `feat(broker): execute classified CLI calls under core approval`. **Report:** predicted/acted digest, lookup audits, no-credential classifier proof.
+
+### F — CircleCI built-in CLI (after E; parallel with G, disjoint pack/classifier paths)
+
+- **Settled, do not re-open:** built-in pack uses actual yolo classifier; refuse `api`, auth, server/token/file-output flags and unknown grammar; no HTTP fallback. Fake host CLI is test-only, not a silent production replacement.
+- **Tests first:** `TestCircleCIClassifierAllowsOnlyNamedCLIGrammar` in `internal/circleciclassify/classify_test.go`: `run list` is read, `workflow rerun wf1` resolves workflow→pipeline→project, `run approve job1` asks even in working set; `api /me`, `auth login`, `--host`, `-o` and unknown flags refuse before fake CLI execution. `TestCircleCIFakeHostCLIUsesRealClassifier` in `integration/packbroker_test.go` starts fake host program and asserts actual in-jail `circleci` shim calls the built-in yolo classifier. Red: `go test -short ./internal/circleciclassify -run TestCircleCIClassifierAllowsOnlyNamedCLIGrammar -count=1` (package absent); integration red before pack registration.
+- **Change:** add `packs/circleci` loophole and `[[intercept]]`; classifier in `internal/circleciclassify`, dispatch `yolo internal call-broker-classify circleci`. `yolo check` reports missing host CLI/login with host next step. Verify upstream verb/flag/API v3/cloud-only claims from published documentation/source and safe `--help`/`--version` only; if a claimed verb is unsupported, omit/refuse it and document compatibility gap rather than asserting synthetic success. Artifact stdout, `config validate` stdin, envvar masking, project repository mapping and `pipeline create` semantics remain **unverified upstream facts** until evidenced; no live login/API/keychain probe. **Gates:** red then `go test -short ./internal/circleciclassify ./internal/cli ./internal/cli/check`; targeted `go test -run TestCircleCIFakeHostCLIUsesRealClassifier ./integration`; common gates. **Fence:** no core CircleCI source switch, no external credentials. **Commit:** `feat(broker): ship classified CircleCI CLI pack`. **Report:** docs/help version cited, supported/refused verbs and explicit upstream unknowns.
+
+### G — HTTP front and core/custom executors (after E; C fixture service available)
+
+- **Settled, do not re-open:** HTTP front in jail is request-scoped and holds no authoritative state; core HTTP sends canonical request to pinned host with declared header credential and zero redirect/cookie, 32 MiB cap; only gate-shown `read_over_post` paths can be read over a non-safe method. Pack signing executor runs only after core approves.
+- **Tests first:** `TestPackHTTPGraphQLMultiwriteIsAtomic` and `TestPackHTTPRedirectNeverLeaksCredential` in `internal/callbroker/http_test.go`: two mutations on `a1` and `b1`, only alpha scoped: whole call refuses with zero writes; selected named read query POST on `/graphql` reads under read grant; ambiguous ops/subscription refuse. Redirect to second local listener returns 3xx and second listener logs zero requests; credential in request URL, jail Authorization, response echo and >32 MiB response never leak synthetic token. `TestPackSigningExecutorRunsOnlyAfterDecision` asserts executor invocation count zero on asks/refused/evaluate and one after approval. Red: `go test -short ./internal/callbroker -run 'TestPackHTTPGraphQLMultiwriteIsAtomic|TestPackHTTPRedirectNeverLeaksCredential|TestPackSigningExecutorRunsOnlyAfterDecision' -count=1` (HTTP path absent).
+- **Change:** `yolo-jaild` dispatch/pack service shape from wire-bridge; launch-published in-jail base URL and endpoint; host transport uses authenticated preamble, not client-supplied identity; method floor before read verdict, pinned endpoint, canonical method/path/body, stripped jail Authorization, credential/redaction bounds. HTTP refusal `403` + `Yolo-Verdict`/`Yolo-Request`, GraphQL errors envelope; CLI retains exit 64/75. **Gates:** red then `go test -short ./internal/callbroker ./internal/entrypoint`; common gates. **Fence:** do not use a second classifier language or modify global host-network defaults. **Commit:** `feat(broker): mediate canonical HTTP and signed calls`. **Report:** second-listener request count, body cap and signer invocation count.
+
+### H — conformance, real nested-jail proof and operator guide (after C, D, E, F, G)
+
+- **Settled, do not re-open:** independently loadable packs exercise actual fronts, loopback-TLS transport, store, classifier, executor and approval in nested jails; host operator can demonstrate synthetic flow. No fixture bypass of the approval pipeline.
+- **Tests first:** `TestPackBrokerCLIEndToEnd` and `TestPackBrokerHTTPEndToEnd` in `integration/packbroker_test.go`, gated by `requireJail(t)`: host starts private local fixture, selects external pack by config, jail reads alpha, predicts/pre-asks write, host denies with note then `yolo wait`/history show it, host allows once then act writes exactly once; out-of-scope beta and changed facts refuse; assert fixture write log, request ID, grant use, audit, selected GraphQL operation and signed-call count. `TestPackBrokerConformance` calls a pack-author command against fixture classifier twice with identical inputs and compares answers, lookups-as-reads, act/evaluate verdict and block load. Red: `go test -run 'TestPackBroker(CLIEndToEnd|HTTPEndToEnd|Conformance)' ./integration` (tests not implemented; write them first and demonstrate failure on real call path).
+- **Change:** conformance command, fixture pack packaging, run-path registration and user guide with tested host `start/seed/inspect/change/reset/stop` commands, direct vs brokered operation and cleanup. Update reference scopes in map and generated setup matrix if a new contribution kind was introduced; `yolo access` includes pack source after access task 4, otherwise show unavailable honestly until it lands. **Gates:** targeted integration red/green, `go test -short ./...`, `scripts/vantage-check.sh` on changed docs, census if needed, common gates; combined-tree owner runs full suite once. **Fence:** no real CircleCI/Linear account, no interactive agent; nested podman does not prove rootless reachability or Apple Container admission. **Commit:** `test(broker): prove pack CLI and HTTP flows in nested jails`. **Report:** external pack path and real state/log deltas; native/CI reachability outstanding.
+
+## Ships with and remaining dependencies
+
+- A/B/C are ready independent implementation starts (B lands after A only because both edit approve); D can begin once A's source registry representation is stable. E waits for **actual** access task 2 decision/ask contract, not the entire access suite. F and G follow E independently; H joins all and access task 4's aggregate readout. MCP ID-4/ID-9 are shared producer/fence interfaces: integrate those changes when available, but don't block A/B/C or fabricate a second launch-input mechanism. MCP status is not an approval source. The Apple Container phase C admission remains separately planned; report unsupported backend honestly.
+- Published docs to revisit at implementation: [loophole grants](../reference/loophole-grants.md), [transport](../reference/loophole-transport.md), [pack system](../reference/pack-system.md), [setup matrix](../../userguide/reference/settings-per-setup.md); create the demo guide at `userguide/guides/pack-broker-demo.md` when the commands actually work. No landing changelog entry. CLI/help, `yolo check` findings, audit service/events and every refusal must give an actionable host or agent next step.
+- The proof boundary is explicit: fake CLI uses the real built-in CircleCI classifier but demonstrates only local grammar/policy wiring. Published grammar, host login, cloud API compatibility, keyring behavior and rootless native reachability require separate evidence; never turn synthetic green into an upstream claim.
