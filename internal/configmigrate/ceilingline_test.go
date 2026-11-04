@@ -1,6 +1,7 @@
 package configmigrate
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -64,5 +65,43 @@ func TestAWorkspaceSwitchUnderATOMLUserWritesTheCeilingLine(t *testing.T) {
 				t.Errorf("after Apply the user config is %q (%v), want the planned bytes", data, err)
 			}
 		})
+	}
+}
+
+// TestAUserOnRequestListIsNeverRewritten: an `on_request` the user wrote is the user's answer,
+// and an empty one means no project may ask (docs/reference/loophole-grants.md LG-D14, "a
+// user's own on_request list replaces the default"). Converting a workspace whose legacy switch
+// the launch admits for itself therefore writes nothing into that list; the converted workspace
+// would hold less, so the proof refuses, naming the user's own command that admits it, and nothing
+// is written.
+func TestAUserOnRequestListIsNeverRewritten(t *testing.T) {
+	home := env(t)
+	dir := filepath.Join(home, ".config", "yolo-jail")
+	ws := realDir(t)
+	const user = "packs = [\"serial\"]\n\n[allow.serial]\non_request = []\n"
+	write(t, filepath.Join(dir, "config.toml"), user)
+	write(t, filepath.Join(ws, "yolo-jail.jsonc"), `{"loopholes": {"serial": {"enabled": true}}}`)
+	g, err := Discover(Request{UserConfigDir: dir, Workspace: ws})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := Plan(g)
+	var ineq *InequalityError
+	if !errors.As(err, &ineq) {
+		t.Fatalf("the proof passes (or fails otherwise: %v), though the converted workspace's serial request is no longer admitted", err)
+	}
+	userPath := filepath.Join(dir, "config.toml")
+	if p != nil {
+		for _, tg := range p.Targets {
+			if tg.Old == userPath && string(tg.Bytes) != user {
+				t.Fatalf("the plan rewrites the user's own on_request list:\n%s", tg.Bytes)
+			}
+		}
+	}
+	if !strings.Contains(err.Error(), "yolo allow serial on_request devices") {
+		t.Errorf("the refusal does not name the user's command that admits the request:\n%v", err)
+	}
+	if data, _ := os.ReadFile(userPath); string(data) != user {
+		t.Errorf("the user config changed: %q", data)
 	}
 }

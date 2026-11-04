@@ -213,6 +213,13 @@ func Run(opts Options) (rc int) {
 	if !o.offerConfigMigration() {
 		return 1
 	}
+	// A conversion's ceiling lines stand only for a launch whose config-change gate passes: any
+	// stop before it takes them back (takeBackUnapprovedCeiling).
+	defer func() {
+		if rc != 0 {
+			o.takeBackUnapprovedCeiling()
+		}
+	}()
 	o.refreshPacks()
 	cfg, ok := o.loadAndValidateConfig()
 	if !ok {

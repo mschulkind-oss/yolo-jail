@@ -401,7 +401,12 @@ func runtimeProbeFailure(command string, res ExecResult) string {
 // applies. The scope is READ HERE, at every fresh launch that starts such a loophole, and only
 // here: an attach never reaches this function.
 func (o *Options) checkConfigChanges(merged *jsonx.OrderedMap, rt string) bool {
-	return o.runConfigGate(merged, rt, nil)
+	if !o.runConfigGate(merged, rt, nil) {
+		return false
+	}
+	// The gate passed, so the ceiling lines the migration offer's conversion wrote stand.
+	o.unapprovedCeiling = nil
+	return true
 }
 
 // gateHooks is what `yolo config apply` and the attach-time gate add to the launch's gate

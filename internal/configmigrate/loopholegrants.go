@@ -255,8 +255,8 @@ func convertsProject(g *Graph) bool {
 // tomlCeilingNeeded is the `on_request` kinds, by pack, a TOML user config must gain for this
 // workspace's projected lines (proj) to stand once the workspace's legacy switches are converted:
 // each kind a switch admits for this launch that the user's `[allow.<pack>]` does not list. A
-// kind requestable by default needs no line, unless the user's table already writes
-// `on_request`, which ends that default. A new `on_request` list is seeded with the pack's kinds
+// pack whose table already writes `on_request` gains nothing: that list is the user's. A kind
+// requestable by default needs no line. A new `on_request` list is seeded with the pack's kinds
 // requestable by default, since writing one ends their default. A pack whose allow entry is not
 // a table (`"off"`) gains nothing, and the proof shows what the conversion would change.
 func tomlCeilingNeeded(user *jsonx.OrderedMap, proj []config.LegacyLoopholeGrants, decls map[string]config.LoopholeGrantDeclaration) map[string][]string {
@@ -276,8 +276,14 @@ func tomlCeilingNeeded(user *jsonx.OrderedMap, proj []config.LegacyLoopholeGrant
 				}
 			}
 		}
-		listed := append(stringsAt(table, "always"), stringsAt(table, "on_request")...)
-		_, writesOnRequest := tableGet(table, "on_request")
+		// AN `on_request` THE USER WROTE IS THE USER'S ANSWER, and is never rewritten: `[]` means
+		// no project may ask (LG-D14). The converted request then stands unadmitted, which the
+		// proof shows with the user's own `yolo allow` line, and nothing is written.
+		if _, writesOnRequest := tableGet(table, "on_request"); writesOnRequest {
+			continue
+		}
+		listed := stringsAt(table, "always")
+		writesOnRequest := false
 		var add []string
 		for _, kind := range p.OnRequest {
 			if inStrings(listed, kind) {
@@ -654,7 +660,14 @@ func loopholeStandings(gv *loopholeGrantView, user, project *jsonx.OrderedMap, a
 func standingNextSteps(diffs []Difference) []Difference {
 	for i, d := range diffs {
 		weaker := standingRank(d.After) < standingRank(d.Before)
+		pack, kind := standingPackKind(d.Path)
 		switch {
+		case weaker && strings.Trim(d.After, `"`) == config.LoopholeGrantNotAllowed && pack != "":
+			// The user's own ceiling does not admit the converted request (an `on_request` the user
+			// wrote, which the conversion never rewrites): the user's command admits it.
+			diffs[i].Next = fmt.Sprintf("the converted files would take away what the old ones hold here (%s), because your own `[allow.%s] on_request` "+
+				"list leaves out %q and the conversion never rewrites a list you wrote; to let projects ask for it, run `yolo allow %s on_request %s` on the host, "+
+				"then run `yolo config migrate` again, or keep the old files (this yolo keeps reading them)", d.Before, pack, kind, pack, kind)
 		case weaker:
 			diffs[i].Next = fmt.Sprintf("the converted files would take away what the old ones hold here (%s); write the grant's line in the old files "+
 				"(`\"enabled\": true` under loopholes.<name>, or its settings) so the projection keeps it, or keep the old files (this yolo keeps reading them), then run `yolo config migrate` again", d.Before)
@@ -664,6 +677,20 @@ func standingNextSteps(diffs []Difference) []Difference {
 		}
 	}
 	return diffs
+}
+
+// standingPackKind is the pack and kind a standing-layer path ("<workspace>.<pack>.<kind>")
+// ends in, or "" when it has no such tail.
+func standingPackKind(path string) (pack, kind string) {
+	k := strings.LastIndex(path, ".")
+	if k <= 0 {
+		return "", ""
+	}
+	p := strings.LastIndex(path[:k], ".")
+	if p < 0 {
+		return "", ""
+	}
+	return path[p+1 : k], path[k+1:]
 }
 
 func standingRank(s string) int {

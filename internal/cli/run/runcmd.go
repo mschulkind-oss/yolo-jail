@@ -371,6 +371,10 @@ type Options struct {
 	// and, where no gate runs (an attach), only the ones the approval record already holds
 	// (config.ApprovedWorkspaceMounts). configCtxMounts binds each at that destination (WW-P2).
 	workspaceMounts []config.WorkspaceMount
+	// unapprovedCeiling is the user-config edit the migration offer's conversion made for a
+	// converted workspace's ceiling lines, until this launch's config-change gate passes; a
+	// launch that stops before then takes it back (takeBackUnapprovedCeiling).
+	unapprovedCeiling *ceilingEdit
 	// scopeFiles are the scope files this launch wrote, per brokered loophole name, which
 	// {repository_scope} resolves to at the spawn and the loophole's stop removes (BB-D32).
 	scopeFiles map[string]string
