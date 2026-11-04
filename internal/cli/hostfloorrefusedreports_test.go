@@ -13,7 +13,7 @@ import (
 // (host-agent-environment.md HNR-D2), so `yolo host apply` and `yolo check-deps` must say that, and
 // must not answer for it with whatever copy a PATH holds.
 
-// refusedOnThisMac is nativeFloorFixture on a Mac before `yolo macos-setup`, with a hand-installed
+// refusedOnThisMac is nativeFloorFixture on a Mac before `yolo yolo-account create`, with a hand-installed
 // nativecli first on PATH: the copy the old fallback ran, and the one a PATH probe would find.
 func refusedOnThisMac(t *testing.T) (hand string) {
 	t.Helper()

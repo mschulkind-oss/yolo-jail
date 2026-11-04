@@ -55,7 +55,7 @@ func TestMacosUserLaunchRunsAsTheSandboxAccountInTheWorkspace(t *testing.T) {
 		"id-un": "the same question as whoami, asked of the kernel's credential rather than of " +
 			"the login record",
 		"uid": "the name printed is right and the uid is not the account the host knows by that " +
-			"name, so the account the launch switched to is not the one macos-setup created",
+			"name, so the account the launch switched to is not the one yolo-account create created",
 		"pwd": "the sandbox did not start in the workspace: macosuser.LaunchArgv's inner shell " +
 			"`cd`s into it before exec'ing the agent, and an agent started elsewhere edits the " +
 			"wrong tree",

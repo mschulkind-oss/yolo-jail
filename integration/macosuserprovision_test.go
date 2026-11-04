@@ -227,7 +227,7 @@ func TestMacosUserProvisioningStageRunsAndRecordsItself(t *testing.T) {
 //
 // The grant is then re-applied, because the ACL the shared root hands out is INHERITED AT
 // CREATION: a directory this test makes after macosUserWorkspace already ran
-// `macos-fix-permissions` is covered only if the grant is applied again. Without it the
+// `yolo-account share` is covered only if the grant is applied again. Without it the
 // stage would fail to write its log as the sandbox user, and that failure would read as
 // the defect item 7 is hunting rather than as the fixture.
 func macosUserSeedStageLog(t *testing.T, ws string) string {
@@ -249,8 +249,8 @@ func macosUserSeedStageLog(t *testing.T, ws string) string {
 	if !created {
 		return sentinel
 	}
-	if r := runCommand(t, ws, []string{"macos-fix-permissions", ws}); r.rc != 0 {
-		t.Fatalf("`yolo macos-fix-permissions %s` failed (rc %d) after this test created "+
+	if r := runCommand(t, ws, []string{"yolo-account", "share", ws}); r.rc != 0 {
+		t.Fatalf("`yolo yolo-account share %s` failed (rc %d) after this test created "+
 			"the sidecar directory. The stage writes its log there as %s and cannot "+
 			"without the grant:\n%s", ws, r.rc, macosuser.SandboxUser, r.combined())
 	}

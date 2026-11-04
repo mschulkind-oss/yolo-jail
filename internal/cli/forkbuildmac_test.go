@@ -57,15 +57,15 @@ func TestAMacFloorThatCannotRunTheBuildActRefusesNamingTheStep(t *testing.T) {
 		mac  macSetup
 		want string
 	}{
-		"before macos-setup": {macSetup{}, "the sandbox account " + macosuser.SandboxUser +
+		"before yolo-account create": {macSetup{}, "the yolo account " + macosuser.SandboxUser +
 			", which a fork's build on a Mac runs as, does not exist — run the one-time setup, " +
-			"`yolo macos-setup`, and the next `yolo host` launch builds it"},
+			"`yolo yolo-account create`, and the next `yolo host` launch builds it"},
 		"as root": {macSetup{root: true, account: true, privilege: true},
 			"yolo is running as root, and a fork's build on a Mac runs as your own user"},
 		"with no run-as rule": {macSetup{account: true},
-			"a fork's build on a Mac runs as the sandbox account through the one-time setup's sudo rule, " +
+			"a fork's build on a Mac runs as the yolo account through the one-time setup's sudo rule, " +
 				"which this Mac does not have (sudo cannot run commands as _yolojail without a password) — run " +
-				"the one-time setup as your normal admin user: yolo macos-setup. It installs one rule, " +
+				"the one-time setup as your normal admin user: yolo yolo-account create. It installs one rule, " +
 				"/etc/sudoers.d/yolo-jail, which runs commands as _yolojail, never as root. On a managed Mac " +
 				"that refuses it, ask your administrator to allow that rule, and the next `yolo host` launch " +
 				"builds it"},

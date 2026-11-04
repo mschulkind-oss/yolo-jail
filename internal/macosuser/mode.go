@@ -13,7 +13,7 @@ type Mode int
 
 const (
 	// ModeAccount runs the sandbox as the second account, SandboxUser, through the one sudo rule
-	// `yolo macos-setup` installs. It is the zero value, so every plan built without a mode is
+	// `yolo yolo-account create` installs. It is the zero value, so every plan built without a mode is
 	// today's plan.
 	ModeAccount Mode = iota
 	// ModeSelf runs the sandbox as the invoking user: no account, no sudo.
@@ -103,7 +103,7 @@ func accountHomes(home string) Homes {
 
 // RunAs is THE ONE CROSSING into the macos-user sandbox (MMP-D4). Every argv that starts a
 // process as the sandbox's user is built by RunAs.Argv, so one value per launch decides whether
-// that user is the second account or you, and no consumer can be left crossing into an account
+// that user is the yolo account or you, and no consumer can be left crossing into an account
 // self mode does not have. TestEveryCrossingGoesThroughRunAs fails a file that builds the sudo
 // crossing any other way.
 type RunAs struct {

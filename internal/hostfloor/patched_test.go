@@ -698,7 +698,7 @@ func TestAMacFloorAdvancesAPatchedForkThroughItsBuildAct(t *testing.T) {
 // the store holds still installs. A Mac floor given no build act at all holds no fork's build.
 func TestAMacFloorWhoseBuildActCannotRunNamesItsStepForAPatchedFork(t *testing.T) {
 	const blocked = "the sandbox account _yolojail, which a fork's build on a Mac runs as, does not exist — " +
-		"run the one-time setup, `yolo macos-setup`, and the next `yolo host` launch"
+		"run the one-time setup, `yolo yolo-account create`, and the next `yolo host` launch"
 	w, pf := macPatchedWorld(t, blocked)
 	pf.advance = func(*patchedFake) { t.Error("a Mac whose build act cannot run ran the advance") }
 	p := patchedProgram()

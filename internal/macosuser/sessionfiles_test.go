@@ -342,7 +342,7 @@ func TestTheSweepKeepsALegacySessionsRecordAndWarnsOnce(t *testing.T) {
 	}
 	wantLine := richtext.Render("[yellow]Warning: a macos-user session from an older yolo left "+
 		"root-owned files in /var/yolo-jail[/yellow] (session "+legacyA+"). Launches no longer run "+
-		"root commands, so they cannot remove them. Run [bold]yolo macos-setup[/bold] (it asks for "+
+		"root commands, so they cannot remove them. Run [bold]yolo yolo-account create[/bold] (it asks for "+
 		"your password once), or remove them yourself: `sudo rm -f "+
 		strings.Join(SessionFilePaths(legacyA, LegacyStateDir()), " ")+"`.", false)
 	if !strings.Contains(text, wantLine) {

@@ -8,8 +8,8 @@ import (
 	"strings"
 )
 
-// THE ONE-RULE CONTRACT. A macos-user launch crosses into the sandbox account through exactly one
-// sudo rule, which `yolo macos-setup` installs and nothing else widens:
+// THE ONE-RULE CONTRACT. A macos-user launch crosses into the yolo account through exactly one
+// sudo rule, which `yolo yolo-account create` installs and nothing else widens:
 //
 //	<host user> ALL=(_yolojail) NOPASSWD: /usr/bin/env
 //
@@ -51,7 +51,7 @@ func StagingRoot() string { return stagingRoot }
 // LegacyStateDir is the root-owned state dir older yolo staged into, /var/yolo-jail.
 func LegacyStateDir() string { return legacyStateDir }
 
-// RunAsSandboxArgv is the only spelling of a crossing into the sandbox account:
+// RunAsSandboxArgv is the only spelling of a crossing into the yolo account:
 // `/usr/bin/sudo -n [--set-home] --user=_yolojail /usr/bin/env <argv…>`. `-n` makes a missing
 // rule fail instead of prompting. sudoFlags admits `--set-home` alone; anything else is a
 // programming error and panics, because every other sudo flag either leaves the rule's shape
@@ -73,7 +73,7 @@ func RunAsSandboxArgv(sudoFlags []string, argv ...string) []string {
 }
 
 // isRunAsSandboxArgv reports whether argv is RunAsSandboxArgv's shape: sudo by absolute path
-// whose `--user=` is the sandbox account. commandFor (real.go) starts such a crossing in `/`.
+// whose `--user=` is the yolo account. commandFor (real.go) starts such a crossing in `/`.
 func isRunAsSandboxArgv(argv []string) bool {
 	if len(argv) == 0 || argv[0] != sudoBin {
 		return false
@@ -94,7 +94,7 @@ func isRunAsSandboxArgv(argv []string) bool {
 // `/usr/bin/true` would not match: sudo matches the command's path, and the rule names env.
 func RunAsGrantProbeArgv() []string { return RunAsSandboxArgv(nil, "/usr/bin/true") }
 
-// AccountUserTempDirArgv asks the sandbox account's own DARWIN_USER_TEMP_DIR through the rule:
+// AccountUserTempDirArgv asks the yolo account's own DARWIN_USER_TEMP_DIR through the rule:
 // `/usr/bin/sudo -n --user=_yolojail /usr/bin/env /usr/bin/getconf DARWIN_USER_TEMP_DIR`. Only
 // the account can answer it — the directory is derived from the asking user — and the account
 // mode's profile opens it (MMP-D29).
@@ -160,9 +160,9 @@ func SudoersRule(hostUser string) (string, error) {
 		hostUser == SandboxUser {
 		return "", fmt.Errorf("user name %q cannot be written into a sudo rule safely", hostUser)
 	}
-	return "# Written by `yolo macos-setup` for " + hostUser + ". Lets " + hostUser +
+	return "# Written by `yolo yolo-account create` for " + hostUser + ". Lets " + hostUser +
 		" run commands as " + SandboxUser + ",\n" +
-		"# never as root, without a password. `yolo macos-teardown` removes it; setup rewrites it.\n" +
+		"# never as root, without a password. `yolo yolo-account remove` removes it; setup rewrites it.\n" +
 		"Defaults>" + SandboxUser + " secure_path=\"/usr/bin:/bin:/usr/sbin:/sbin\"\n" +
 		hostUser + " ALL=(" + SandboxUser + ") NOPASSWD: " + envBin + "\n", nil
 }

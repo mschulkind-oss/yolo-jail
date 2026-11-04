@@ -59,8 +59,8 @@ func onCaptureGOOS(t *testing.T, goos string) {
 }
 
 // macSetup is a Mac as the floor's capture predicate reads it. The zero value is a Mac before
-// `yolo macos-setup`: not root, Seatbelt present, no sandbox account, and none of the setup's
-// privilege facts (privilege) — no run-as rule for the sandbox account, no staging root of its own.
+// `yolo yolo-account create`: not root, Seatbelt present, no sandbox account, and none of the setup's
+// privilege facts (privilege) — no run-as rule for the yolo account, no staging root of its own.
 type macSetup struct {
 	root, noSeatbelt, account, privilege bool
 }
@@ -153,7 +153,7 @@ func TestAMacsFloorCapturesThroughTheMacosUserAct(t *testing.T) {
 	if launcher := filepath.Join(paths.HostFloorDir(), "bin", "nativecli"); got.target != launcher {
 		t.Fatalf("exec'd %s, want the floor's copy %s\n%s", got.target, launcher, errw.String())
 	}
-	if want := "running `yolo capture nativecli` (the macos-user sandbox account runs its installer once"; !strings.Contains(errw.String(), want) {
+	if want := "running `yolo capture nativecli` (the yolo account runs its installer once"; !strings.Contains(errw.String(), want) {
 		t.Errorf("stderr lacks %q:\n%s", want, errw.String())
 	}
 	if v := envValue(got.env, "YOLO_RUNTIME"); v != "" || os.Getenv("YOLO_RUNTIME") != "" {
@@ -212,17 +212,17 @@ func TestAMacsFloorNamesWhyTheMacosUserActCannotRun(t *testing.T) {
 		mac  macSetup
 		want string // "" for an installable entry
 	}{
-		{"before macos-setup", macSetup{},
-			"the sandbox account _yolojail, which a capture on a Mac runs its installer as, does not exist — run the " +
-				"one-time setup, `yolo macos-setup`, and the next `yolo host` launch captures it"},
+		{"before yolo-account create", macSetup{},
+			"the yolo account _yolojail, which a capture on a Mac runs its installer as, does not exist — run the " +
+				"one-time setup, `yolo yolo-account create`, and the next `yolo host` launch captures it"},
 		{"as root", macSetup{root: true, account: true, privilege: true},
 			"run `yolo host` without sudo, and it captures it"},
 		{"no Seatbelt", macSetup{noSeatbelt: true, account: true, privilege: true},
 			"sandbox-exec (Apple Seatbelt), which confines a capture's installer on a Mac, is not on PATH"},
 		{"no run-as rule", macSetup{account: true},
-			"a capture on a Mac runs as the sandbox account through the one-time setup's sudo rule, which this " +
+			"a capture on a Mac runs as the yolo account through the one-time setup's sudo rule, which this " +
 				"Mac does not have (sudo cannot run commands as _yolojail without a password) — run the one-time " +
-				"setup as your normal admin user: yolo macos-setup. It installs one rule, /etc/sudoers.d/yolo-jail, " +
+				"setup as your normal admin user: yolo yolo-account create. It installs one rule, /etc/sudoers.d/yolo-jail, " +
 				"which runs commands as _yolojail, never as root. On a managed Mac that refuses it, ask your " +
 				"administrator to allow that rule, and the next `yolo host` launch captures it"},
 		{"set up", macSetup{account: true, privilege: true}, ""},
@@ -237,8 +237,8 @@ func TestAMacsFloorNamesWhyTheMacosUserActCannotRun(t *testing.T) {
 					t.Fatalf("Status = %s (%s), want missing: the act can run", st.Disposition, st.Reason)
 				}
 				// The setup's run-as rule asks for no password, so the capture line promises none.
-				if how := f.CaptureHow(); !strings.Contains(how, "sandbox account") || strings.Contains(how, "password") {
-					t.Errorf("the Mac's capture line is %q: not the sandbox account's, or it warns of a password", how)
+				if how := f.CaptureHow(); !strings.Contains(how, "the yolo account") || strings.Contains(how, "password") {
+					t.Errorf("the Mac's capture line is %q: not the yolo account's, or it warns of a password", how)
 				}
 				return
 			}
@@ -532,7 +532,7 @@ func TestAFloorUnderTheMacosUserRuntimeSaysItBootsNoContainer(t *testing.T) {
 }
 
 // UNDER THE MACOS-USER RUNTIME THE CAPTURE ACT TAKES ITS JAIL ARM, nothing blocked: the run pipeline
-// is what checks that runtime (the sandbox account, Seatbelt), so `yolo capture` neither refuses it as
+// is what checks that runtime (the yolo account, Seatbelt), so `yolo capture` neither refuses it as
 // a program missing from PATH nor runs the installer on the host instead, on a Mac or on Linux.
 func TestTheCaptureActTakesItsJailArmUnderTheMacosUserRuntime(t *testing.T) {
 	for _, via := range []string{"YOLO_RUNTIME", "config"} {

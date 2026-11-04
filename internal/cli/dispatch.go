@@ -47,16 +47,15 @@ var registry = map[string]func(args []string) int{
 	"openai-auth": runOpenAIAuth,
 	// The host operator's verbs for the machine's Claude login, openai-auth's twin
 	// (claudeauth.go; docs/design/claude-login-without-interception.md, OQ-CL2).
-	"claude-auth":           runClaudeAuth,
-	"prune":                 runPrune,
-	"stores":                runStores,
-	"nix-roots":             runNixRoots,
-	"programs":              runPrograms,
-	"macos-setup":           runMacosSetup,
-	"macos-teardown":        runMacosTeardown,
-	"macos-unshare":         runMacosUnshare,
-	"macos-fix-permissions": runMacosFixPermissions,
-	"update":                runUpdate,
+	"claude-auth": runClaudeAuth,
+	"prune":       runPrune,
+	"stores":      runStores,
+	"nix-roots":   runNixRoots,
+	"programs":    runPrograms,
+	// The yolo account's verbs (commands.go). The four macos-* verbs they replaced are not
+	// keys: the front door refuses them naming these (renamedVerbs).
+	"yolo-account": runYoloAccount,
+	"update":       runUpdate,
 	// The github-broker's two ends: `gh` is the jail side (Main routes it before the
 	// front door, gh.go), `audit` the host's record of every brokered call (audit.go).
 	"gh": runGHVerb,

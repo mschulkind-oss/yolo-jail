@@ -607,7 +607,7 @@ func TestAMachineThatCapturesWithoutAJailStillCannotBuildAFork(t *testing.T) {
 // appends no runtime step to it, in both of the capture arms; and with no act predicate the runtime
 // predicate answers with its step, as before.
 func TestTheCaptureActsReasonCarriesItsOwnStep(t *testing.T) {
-	const own = "the sandbox account _yolojail does not exist — run `yolo macos-setup`, and the next launch "
+	const own = "the sandbox account _yolojail does not exist — run `yolo yolo-account create`, and the next launch "
 	for _, c := range []struct {
 		name, reason, does string
 		seed               func(cs *captureStore)
@@ -658,16 +658,16 @@ func TestNoFloorEntryDispositions(t *testing.T) {
 		{"unpublished", func(f *Floor, p *Program) { p.Install.Platforms = []string{"plan9"} }, "publishes no build"},
 		// An installer agent on a Mac with nothing captured and the macos-user capture act unable to
 		// run: its own refusal, whose step is the sandbox account's setup (HP-D2).
-		{"installer on macOS before macos-setup", func(f *Floor, p *Program) {
+		{"installer on macOS before yolo-account create", func(f *Floor, p *Program) {
 			f.GOOS, f.GOARCH = "darwin", "arm64"
 			f.ResolveCapture = newCaptureStore(t).resolve
 			f.Capture = func(string) error { t.Fatal("a capture ran on a Mac with no sandbox account"); return nil }
 			f.CaptureActUnavailable = func(bin, does string) string {
-				return "the sandbox account _yolojail does not exist — run the one-time setup, `yolo macos-setup`, " +
+				return "the sandbox account _yolojail does not exist — run the one-time setup, `yolo yolo-account create`, " +
 					"and the next `yolo host` launch " + does
 			}
 			*p = installerProgram("claude", "claude")
-		}, "`yolo macos-setup`, and the next `yolo host` launch captures it"},
+		}, "`yolo yolo-account create`, and the next `yolo host` launch captures it"},
 		// A Mac's floor given no capture act has none to run: no capture jail stands in for it.
 		{"installer on macOS with no capture act", func(f *Floor, p *Program) {
 			f.GOOS, f.GOARCH = "darwin", "arm64"

@@ -29,7 +29,7 @@ package macosuser
 //     locked, then renamed, so it never exists unlocked under its final name. The kernel drops
 //     the lock when the process dies, however it dies, so a record nobody holds is the evidence
 //     that its session is gone. It is the host user's own file in the host user's own state
-//     dir, so neither the sandbox account nor another account can touch it. It is independent
+//     dir, so neither the yolo account nor another account can touch it. It is independent
 //     of the host-services session dir (internal/cli/run/servicessession.go), which can fail to
 //     open, which `yolo host` sweeps machine-wide, and which sits in /tmp where the sandbox can
 //     read it.
@@ -48,7 +48,7 @@ package macosuser
 //     SAME macOS user, of any workspace; another user's launch never sees that record.
 //   - A record whose session an OLDER yolo started names root-owned files in the legacy state
 //     dir, which no launch can remove any more. The sweep keeps that record and warns once,
-//     naming `yolo macos-setup` (PL-8 in docs/design/macos-user-privilege-lifecycle-plan.md).
+//     naming `yolo yolo-account create` (PL-8 in docs/design/macos-user-privilege-lifecycle-plan.md).
 
 import (
 	"crypto/rand"
@@ -349,7 +349,7 @@ func sweepGoneSessions(deps Deps, out printer, dir string) {
 				warnedLegacy = true
 				out.printf("[yellow]Warning: a macos-user session from an older yolo left root-owned "+
 					"files in %s[/yellow] (session %s). Launches no longer run root commands, so they "+
-					"cannot remove them. Run [bold]yolo macos-setup[/bold] (it asks for your password "+
+					"cannot remove them. Run [bold]yolo yolo-account create[/bold] (it asks for your password "+
 					"once), or remove them yourself: `sudo rm -f %s`.", LegacyStateDir(), key,
 					shquote.JoinDisplay(SessionFilePaths(key, LegacyStateDir())))
 			}

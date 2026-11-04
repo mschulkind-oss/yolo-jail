@@ -16,7 +16,7 @@ import (
 // sudo (internal/cli/stores/inventory.go, macosUserStores).
 //
 // WHAT THIS SETTLES. Reading the sandbox home without sudo is an INFERENCE from the account's
-// layout (the home is 0750, owned by the sandbox account, and macos-setup puts the invoking user
+// layout (the home is 0750, owned by the sandbox account, and yolo-account create puts the invoking user
 // in its group); only a Mac can say whether the walk gets in. So the mise store must come back
 // measured or partial, never unknown. The session puts a probe file in that store first, so the
 // row has something to measure on a machine whose store a previous run left empty, and removes it

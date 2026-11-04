@@ -571,9 +571,9 @@ func TestNoFloorEntryForAFork(t *testing.T) {
 					t.Errorf("BuildActUnavailable asked about %q", bin)
 				}
 				return "the sandbox account _yolojail, which a fork's build on a Mac runs as, does not exist — run " +
-					"the one-time setup, `yolo macos-setup`, and the next `yolo host` launch " + does
+					"the one-time setup, `yolo yolo-account create`, and the next `yolo host` launch " + does
 			}
-		}, []string{"there is no build of forkcli at commit 111111111111", "run the one-time setup, `yolo macos-setup`",
+		}, []string{"there is no build of forkcli at commit 111111111111", "run the one-time setup, `yolo yolo-account create`",
 			"and the next `yolo host` launch builds it"}},
 		{"no build and no runtime", func(f *Floor, _ *string) {
 			f.CaptureUnavailable = func() string { return "no container runtime (podman) is on PATH" }

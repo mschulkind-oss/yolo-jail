@@ -1211,7 +1211,7 @@ const SectionMacosUserLegacy = "macos-user legacy state (older yolo)"
 // walked: the whole home is not this command's to walk (its other directories are links into each
 // workspace, and macOS guards a home's contents with TCC prompts).
 //
-// Neither the staging root nor the home on a Mac is one absent row naming `yolo macos-setup`; not
+// Neither the staging root nor the home on a Mac is one absent row naming `yolo yolo-account create`; not
 // a Mac is no rows.
 func macosUserStores(o Options) []Store {
 	roots := o.MacosUser()
@@ -1227,7 +1227,7 @@ func macosUserStores(o Options) []Store {
 			Key: "macos.absent", Section: SectionMacosUser, Name: "(no sandbox account)", Path: stateDir,
 			Sizing: SizingAbsent, Reclaimer: none(), Verdict: VerdictHuman,
 			Note: "neither " + stateDir + " nor " + home + " exists, so this Mac has no macos-user " +
-				"backend set up; `yolo macos-setup` creates the account it runs as",
+				"backend set up; `yolo yolo-account create` creates the account it runs as",
 		}}
 	} else {
 		rows = append(state, homeRows...)
@@ -1327,7 +1327,7 @@ func macosUserStateRows(o Options, stateDir string, f macosUserFlavor) (rows []S
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, false
 	}
-	teardown := "`yolo macos-teardown` does not remove it"
+	teardown := "`yolo yolo-account remove` does not remove it"
 	if err != nil {
 		s := Store{Key: strings.TrimSuffix(f.keyPrefix, "."), Section: f.section, Name: stateDir, Path: stateDir,
 			Sizing: SizingUnknown, Reason: err.Error(), Reclaimer: none(), Verdict: VerdictHuman,
@@ -1432,7 +1432,7 @@ func macosUserHomeRows(o Options, home string) (rows []Store, exists bool) {
 	if _, err := os.Lstat(home); errors.Is(err, fs.ErrNotExist) {
 		return nil, false
 	}
-	teardown := "`yolo macos-teardown` deletes it with the account's home"
+	teardown := "`yolo yolo-account remove` deletes it with the account's home"
 	for _, h := range []struct{ key, path, note string }{
 		{"macos.home.mise", macosuser.SandboxMiseData(home),
 			"the sandbox account's mise tool store, shared by every macos-user workspace; nothing in yolo prunes it, and " + teardown},

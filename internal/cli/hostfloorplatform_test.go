@@ -53,7 +53,7 @@ func nativeFloorFixture(t *testing.T) (pack string) {
 }
 
 // TestTheNoCopyLineNamesTheFloorsPlatform: an installer agent on a Mac whose sandbox account is not
-// set up has no floor copy, its reason naming `yolo macos-setup` (HP-D2's act cannot run), an npm
+// set up has no floor copy, its reason naming `yolo yolo-account create` (HP-D2's act cannot run), an npm
 // agent `host_floor` leaves out has none on a Mac or on Linux. The installer agent's launch refuses
 // (HNR-D2); the agent `host_floor` leaves out runs the copy on the caller's PATH (HNR-D4), said by
 // the hand-over line. No case says "yet": every reason names
@@ -66,11 +66,11 @@ func TestTheNoCopyLineNamesTheFloorsPlatform(t *testing.T) {
 		never           string
 		refused         bool
 	}{
-		{name: "an installer agent on a Mac before macos-setup", goos: "darwin", bin: "nativecli",
+		{name: "an installer agent on a Mac before yolo-account create", goos: "darwin", bin: "nativecli",
 			setup: func(t *testing.T) { nativeFloorFixture(t); withMac(t, macSetup{}) },
 			want: []string{"yolo host: yolo has no copy of nativecli on this Mac (there is no capture of nativecli " +
-				"on this machine, and the sandbox account _yolojail",
-				"run the one-time setup, `yolo macos-setup`, and the next `yolo host` launch captures it)" +
+				"on this machine, and the yolo account _yolojail",
+				"run the one-time setup, `yolo yolo-account create`, and the next `yolo host` launch captures it)" +
 					declaredNoCopyRefusal},
 			never: "yet", refused: true},
 		{name: "an npm agent host_floor leaves out, on a Mac", goos: "darwin", bin: "floorcli",

@@ -21,7 +21,7 @@ import (
 //
 // THE FLOOR IS PUT WHERE ONLY ITS OWN MODE CAN STOP THE ACCOUNT. A real floor sits under the user's
 // home, behind two more layers: the launch's Seatbelt profile denies reads under /Users outside the
-// workspace and the account's own home (seatbelt.go, users-read-deny), and `yolo macos-setup` takes
+// workspace and the account's own home (seatbelt.go, users-read-deny), and `yolo yolo-account create` takes
 // the account out of `staff` (macosuser.CreateUserCommands), the home's group. The suite's isolated
 // home is under the per-user temp dir, whose own mode can stop the account before the prefix's is
 // asked. So this test's HOME is minted under /private/tmp with every directory down to the prefix

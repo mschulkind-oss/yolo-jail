@@ -153,6 +153,10 @@ func Main(argv []string) int {
 	// run in the jail. The intended way to run an arbitrary command is `yolo -- <cmd>`.
 	sub, args, _ := routeArgv(args)
 	if sub == "" {
+		// A removed verb is refused naming the one that replaced it (renamedVerbs).
+		if refuseRenamedVerb(args, os.Stderr) {
+			return 2
+		}
 		fmt.Fprintf(os.Stderr, "yolo: unknown command %q\n", firstPositional(args))
 		return 1
 	}

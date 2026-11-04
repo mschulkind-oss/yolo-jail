@@ -26,10 +26,10 @@ func grantDeps(rec *[]string, buf *bytes.Buffer) Deps {
 // staging and the bootstrap. Measured 2026-09-03 on the first real end-to-end
 // launch: without this, it reached config generation and died with
 // `mkdir <ws>/.yolo/prism: permission denied` six times over, naming neither ACLs
-// nor `yolo macos-fix-permissions`.
+// nor `yolo yolo-account share`.
 //
 // It REFUSES and names the command rather than offering to fix inline: one
-// idempotent command the user has already met (macos-setup names it, so does
+// idempotent command the user has already met (yolo-account create names it, so does
 // `yolo --help` and the diagnosing-the-jail skill) beats a prompt in every path,
 // and it keeps the O(files) walk off the launch.
 //
@@ -59,13 +59,13 @@ func TestRunRefusesUnsharedWorkspace(t *testing.T) {
 	// The launch must NOT walk the tree: that cost is why the check exists rather
 	// than an unconditional retrofit.
 	if strings.Contains(strings.Join(rec, "\n"), "chmod -h +a") {
-		t.Error("applied ACLs on the launch path — the walk belongs in macos-fix-permissions")
+		t.Error("applied ACLs on the launch path — the walk belongs in yolo-account share")
 	}
 	got := buf.String()
-	if !strings.Contains(got, "macos-fix-permissions /Users/Shared/yolo/moved-in") {
+	if !strings.Contains(got, "yolo-account share /Users/Shared/yolo/moved-in") {
 		t.Errorf("refusal does not name the remedy with the workspace path:\n%s", got)
 	}
-	// After macos-setup shares everything under the root, a MOVED-in project is the
+	// After yolo-account create shares everything under the root, a MOVED-in project is the
 	// only route left — so that is what the message should lead with.
 	if !strings.Contains(got, "MOVED") {
 		t.Errorf("refusal does not name the likely cause:\n%s", got)

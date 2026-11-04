@@ -297,7 +297,7 @@ func TestMacosUserSuiteRootSudoGuardUsesShellCommandScanner(t *testing.T) {
 // such as macosuser.RunAsSandboxArgv), whose sudo is internal/macosuser's constant and always
 // carries `--user=_yolojail` and /usr/bin/env, so a sudo this suite spells itself is one that may
 // run as root, or off the rule's shape, and fails on a Mac that grants only what `yolo
-// macos-setup` installs.
+// yolo-account create` installs.
 //
 // Not behind a gate and not -short-gated: it is a reading of the source, so the Linux unit run
 // catches the regression before any Mac does. The prefix puts it in the macos-user job too.
@@ -354,7 +354,7 @@ func TestMacosUserSuiteSpendsNoRootSudo(t *testing.T) {
 					return true
 				}
 				t.Errorf("%s spells a sudo command (%s) in %s. The macos-user suite takes no "+
-					"privilege `yolo macos-setup` does not install (OQ-DM1): run a step as the "+
+					"privilege `yolo yolo-account create` does not install (OQ-DM1): run a step as the "+
 					"sandbox account through sandboxCommand, which builds the one run-as rule's "+
 					"argv (macosuser.RunAsSandboxArgv), and every other step as yourself.",
 					fset.Position(lit.Pos()), v, name)
@@ -363,7 +363,7 @@ func TestMacosUserSuiteSpendsNoRootSudo(t *testing.T) {
 			for _, script := range macosUserShellScripts(decl) {
 				for _, command := range rootSudoCommands(script) {
 					t.Errorf("%s runs root sudo (%s) in a shell command in %s. The macos-user suite takes no "+
-						"privilege `yolo macos-setup` does not install (OQ-DM1): run a step as the sandbox "+
+						"privilege `yolo yolo-account create` does not install (OQ-DM1): run a step as the sandbox "+
 						"account through sandboxCommand, and every other step as yourself.",
 						fset.Position(decl.Pos()), command, name)
 				}

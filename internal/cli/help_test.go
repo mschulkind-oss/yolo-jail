@@ -100,7 +100,7 @@ func listedCommandNames(t *testing.T) map[string]bool {
 // exists and is not advertised fails the build.
 //
 // This direction is the one that was missing, and its absence is why four
-// registered commands sat unlisted — `macos-teardown`, `macos-unshare`,
+// registered commands sat unlisted — `yolo-account remove`, `yolo-account unshare`,
 // `doctor`, `host` — for as long as they did. The forward test could not see
 // them: it only ever asked whether each help line named something real, which is
 // true of a list that names nothing at all.

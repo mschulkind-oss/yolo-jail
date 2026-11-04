@@ -21,7 +21,7 @@ import (
 // Each spelling is driven through every production caller of the check rather than through
 // the function alone, so deleting a call site fails a test here: the launch's precondition walk,
 // `yolo check`'s report of the same list, the plan invariants a dry-run prints,
-// `yolo macos-fix-permissions`, and the capture plan.
+// `yolo yolo-account share`, and the capture plan.
 //
 // These run on Linux, where none of the spellings exist: the check is lexical, and the facts
 // it needs about the filesystem are part of its layout. What only a Mac can say — that the
@@ -98,13 +98,13 @@ func TestThePlanInvariantsRefuseEverySpellingOfAPathInAHome(t *testing.T) {
 // The command that threads inheriting ACEs through a tree is the one where a missed spelling
 // costs most: it would grant the sandbox group a path inside the home, "exactly where a stray
 // grant silently exposes ~/.ssh" (29b00697).
-func TestMacosFixPermissionsRefusesEverySpellingOfAPathInAHome(t *testing.T) {
+func TestAccountShareRefusesEverySpellingOfAPathInAHome(t *testing.T) {
 	for _, tc := range inHomeSpellings {
 		var rec []string
 		var buf bytes.Buffer
 		d := mockDeps(&rec)
 		d.Out = &buf
-		if rc := MacosFixPermissions(d, tc.workspace); rc != 1 {
+		if rc := AccountShare(d, tc.workspace); rc != 1 {
 			t.Errorf("%s: rc = %d, want 1:\n%s", tc.workspace, rc, buf.String())
 		}
 		if len(rec) != 0 {

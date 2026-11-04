@@ -231,7 +231,7 @@ func TestShippedCopilotCompatibilityRefusalNamesIssueAndRemedy(t *testing.T) {
 			"https://github.com/github/copilot-cli/issues/5085",
 			"\nNext steps, in a terminal outside this jail:\n",
 			"\n  yolo config set macos_user_mode account --user ",
-			"yolo macos-setup",
+			"yolo yolo-account create",
 			"\n  YOLO_RUNTIME=podman yolo -- copilot ",
 			"YOLO_RUNTIME=container",
 			"\n  yolo config set runtime podman --user ",

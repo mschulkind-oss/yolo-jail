@@ -73,7 +73,7 @@ func (o *Options) macosLaunchProbes() macosuser.LaunchProbes {
 // NO INTERPRETER PROBE. It had one until this comment was written, hard-FAILing
 // a python3-less Mac — and it had been dead since J2 swapped the launch path to
 // self-exec of the staged Go binary (544a8069, 2026-07-21). Nothing the backend
-// runs has needed python since; `MacosSetup` already says so in as many words
+// runs has needed python since; `AccountCreate` already says so in as many words
 // ("No interpreter readiness check is needed: the sandbox self-execs the staged
 // yolo binary", internal/macosuser/commands.go). check was the last caller of a
 // requirement the backend had already dropped, which is the worst polarity for a

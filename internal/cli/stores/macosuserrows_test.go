@@ -171,7 +171,7 @@ func TestTheMacosUserSectionListsTheStateDirAndTheHomesStores(t *testing.T) {
 		t.Errorf("the packs row names no reclaimer: %+v, verdict %s", packs.Reclaimer, packs.Verdict)
 	}
 	for _, want := range []string{"per-launch immutable guest trees", "A launch removes its own tree once its guest has exited",
-		"`yolo prune --apply`", "`ls -la -- <exact-path>`", "`chmod -R -- u+w <exact-path> && rm -rf -- <exact-path>`", "yolo macos-teardown"} {
+		"`yolo prune --apply`", "`ls -la -- <exact-path>`", "`chmod -R -- u+w <exact-path> && rm -rf -- <exact-path>`", "yolo yolo-account remove"} {
 		if !strings.Contains(packs.Note, want) {
 			t.Errorf("the packs row does not name %q: %s", want, packs.Note)
 		}
@@ -351,8 +351,8 @@ func TestWithNeitherRootTheSectionIsOneAbsentRowNamingSetup(t *testing.T) {
 	}
 	rows := sectionRows(Inventory(o), SectionMacosUser)
 	s, ok := rows["macos.absent"]
-	if len(rows) != 1 || !ok || s.Sizing != SizingAbsent || !strings.Contains(s.Note, "yolo macos-setup") {
-		t.Errorf("rows = %+v, want one absent row naming `yolo macos-setup`", rows)
+	if len(rows) != 1 || !ok || s.Sizing != SizingAbsent || !strings.Contains(s.Note, "yolo yolo-account create") {
+		t.Errorf("rows = %+v, want one absent row naming `yolo yolo-account create`", rows)
 	}
 
 	o.MacosUser = func() MacosUserRoots {
@@ -374,7 +374,7 @@ func TestTheMacosUserSectionIsRendered(t *testing.T) {
 		t.Fatalf("Run = %d", rc)
 	}
 	text := out.String()
-	for _, want := range []string{SectionMacosUser, filepath.Join(stateDir, "packs") + "/", "yolo macos-teardown"} {
+	for _, want := range []string{SectionMacosUser, filepath.Join(stateDir, "packs") + "/", "yolo yolo-account remove"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the report lacks %q:\n%s", want, text)
 		}

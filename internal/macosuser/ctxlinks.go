@@ -121,7 +121,7 @@ type ContextRefusal struct {
 	// "macos-user can't reach a folder inside a home".
 	Brief string
 	// Unsafe marks a reason about safety rather than delivery: a source containing every home,
-	// the sandbox account's own home, or yolo's state directory (the refusal set's clause 3).
+	// the yolo account's own home, or yolo's state directory (the refusal set's clause 3).
 	// "optional" never skips one of these; it refuses as a required mount does.
 	Unsafe bool
 	// Index is the refused entry's position in the slice the siting was handed.
@@ -154,7 +154,7 @@ type ContextSiting struct {
 	// creates inherits the group access that lets the host user change it afterwards
 	// (SharedRootProvisionCommands).
 	SharedRoot string
-	// SandboxHome is the sandbox account's own home.
+	// SandboxHome is the yolo account's own home.
 	SandboxHome string
 	// StateDirs are every spelling of yolo's staging root, which holds the context dir, and of the
 	// root-owned state dir older yolo staged into, where a session it started may still run.
@@ -285,7 +285,7 @@ type siteVerdict struct {
 }
 
 // unsafeVerdict asks the three SAFETY predicates of the siting on their own, independent of
-// siteOne's rule order: a source containing every home, inside the sandbox account's home, or
+// siteOne's rule order: a source containing every home, inside the yolo account's home, or
 // overlapping yolo's state directory. It asks them of every spelling the source may be an alias
 // for — as written, through the Data volume stripped, and with a users-root alias replaced by the
 // users root — so a spelling rule refusing first cannot hide one. An unresolved or relative
@@ -311,8 +311,8 @@ func (s ContextSiting) unsafeVerdict(src string) siteVerdict {
 			}
 		}
 		if s.SandboxHome != "" && pathWithin(sp, s.SandboxHome, s.FoldCase) {
-			return siteVerdict{reason: "its source " + src + " is inside the sandbox account's own home " +
-				s.SandboxHome, brief: "it is inside the sandbox account's own home", unsafe: true}
+			return siteVerdict{reason: "its source " + src + " is inside the yolo account's own home " +
+				s.SandboxHome, brief: "it is inside the yolo account's own home", unsafe: true}
 		}
 		for _, sd := range s.StateDirs {
 			if rel := overlap(sp, sd, s.FoldCase); rel != "" {
@@ -368,8 +368,8 @@ func (s ContextSiting) siteOne(workspace string, l ContextLink) siteVerdict {
 			brief: "macos-user needs it spelled as " + plain}
 	}
 	if s.SandboxHome != "" && pathWithin(src, s.SandboxHome, s.FoldCase) {
-		return siteVerdict{reason: "its source " + src + " is inside the sandbox account's own home " +
-			s.SandboxHome, brief: "it is inside the sandbox account's own home", unsafe: true}
+		return siteVerdict{reason: "its source " + src + " is inside the yolo account's own home " +
+			s.SandboxHome, brief: "it is inside the yolo account's own home", unsafe: true}
 	}
 	// THE RUN-AS-YOU MODE'S HOME RULE, on the resolved source (rule 2 is the caller's contract):
 	// a mount, or a link someone planted where one points, that resolves to your home or above
@@ -384,7 +384,7 @@ func (s ContextSiting) siteOne(workspace string, l ContextLink) siteVerdict {
 		if dir := s.privacyDir(src, home); dir != "" {
 			msg += ", in " + dir + ", which macOS's privacy controls guard as well"
 		}
-		return siteVerdict{reason: msg + ": the sandbox account cannot reach into a real home, so " +
+		return siteVerdict{reason: msg + ": the yolo account cannot reach into a real home, so " +
 			"this backend delivers only sources outside every home",
 			brief: "macos-user can't reach a folder inside a home"}
 	}
@@ -398,7 +398,7 @@ func (s ContextSiting) siteOne(workspace string, l ContextLink) siteVerdict {
 	if s.VolumesRoot != "" && pathWithin(src, s.VolumesRoot, s.FoldCase) &&
 		(s.BootVolume == "" || !pathWithin(src, s.BootVolume, false)) {
 		return siteVerdict{reason: "its source " + src + " is on another volume (under " + s.VolumesRoot +
-			"): whether the sandbox account gets through a removable or network volume's ownership " +
+			"): whether the yolo account gets through a removable or network volume's ownership " +
 			"and privacy protections has not been measured, so this backend refuses one until it is",
 			brief: "macos-user can't reach another volume yet"}
 	}
@@ -470,7 +470,7 @@ func siteAgainst(links []ContextLink, i int, occupied []string, fold bool) siteV
 //
 // A copy is a selected pack's single-FILE `mount`, which this backend delivers by copying the
 // file into the composed tree at the grant's /ctx path instead of linking it: a pack grant names
-// a path in the user's home, which the sandbox account cannot reach through a link (OQ-CX7), and
+// a path in the user's home, which the yolo account cannot reach through a link (OQ-CX7), and
 // the host CLI, running as the user, can read it. Each is described by the ContextLink fields a
 // copy has (Dest, Source as the host resolved it, Named, Pack; never RW, never Dir).
 //
@@ -548,7 +548,7 @@ func SiteContextCopies(s ContextSiting, copies, links []ContextLink, occupied []
 // --- cache_relocations (docs/plans/cache-relocation.md) ------------------------------------
 //
 // A USER-SCOPE `cache_relocations` entry is delivered here as the context mounts are, by the
-// same three gates and for the same reasons: there is no bind to make, so the sandbox account
+// same three gates and for the same reasons: there is no bind to make, so the yolo account
 // home's ~/.cache/<subdir> becomes a LINK the bootstrap lays to the resolved target
 // (entrypoint's DarwinCacheRelocationsEnv), and the Seatbelt profile opens the target, read and
 // write, because Seatbelt judges a link's target (declaration-parity.md §6.1 probe 1).
@@ -591,7 +591,7 @@ type CacheRelocation struct {
 	// preflight and the write probe are the gates (CR-D4), and a volume that takes no access
 	// entries — an exFAT or FAT drive, the usual case — usually ignores ownership too, so the
 	// sandbox can write it anyway. It changes what the refusal names when a probe does fail:
-	// `yolo macos-fix-permissions` adds the same entries and would fail the same way, so it is
+	// `yolo yolo-account share` adds the same entries and would fail the same way, so it is
 	// not offered for this target (CacheRelocationRefusalMessage).
 	GrantFailure string
 }
@@ -631,7 +631,7 @@ type CacheRelocationRefusal struct {
 //  4. it is spelled under the users root as the profile spells it, and not through the Data
 //     volume's mount point;
 //  5. it is not in the sandbox home (that is where the link itself lives), nor in any real
-//     home (the sandbox account reaches nothing inside one, OQ-CX7's v1 rule);
+//     home (the yolo account reaches nothing inside one, OQ-CX7's v1 rule);
 //  6. it does not overlap yolo's state dir;
 //  7. it is not /Volumes itself, nor anything containing it (the read allow would re-open every
 //     other volume). One volume, or a folder on one, is admitted (CX-D5 narrowed for this key);
@@ -685,7 +685,7 @@ func (s ContextSiting) siteRelocation(workspace string, r CacheRelocation, links
 			"own mount point; spell it as " + plain + ", the spelling the sandbox profile names"
 	}
 	if s.SandboxHome != "" && pathWithin(t, s.SandboxHome, s.FoldCase) {
-		return "its target " + t + " is inside the sandbox account's own home " + s.SandboxHome +
+		return "its target " + t + " is inside the yolo account's own home " + s.SandboxHome +
 			", where the relocation's link itself lives"
 	}
 	if home, in := s.homes().containing(t); in && !s.RunsAsYou {
@@ -693,7 +693,7 @@ func (s ContextSiting) siteRelocation(workspace string, r CacheRelocation, links
 		if dir := s.privacyDir(t, home); dir != "" {
 			msg += ", in " + dir + ", which macOS's privacy controls guard as well"
 		}
-		return msg + ": the sandbox account cannot reach into a real home"
+		return msg + ": the yolo account cannot reach into a real home"
 	}
 	for _, sd := range s.StateDirs {
 		if rel := overlap(t, sd, s.FoldCase); rel != "" {
@@ -730,7 +730,7 @@ func CacheRelocationACECommands(target string) [][]string {
 }
 
 // CacheRelocationProbe is one question the launch asks about a relocation's target before the
-// agent starts: the DAC preflight's read, search and write, each as the sandbox account
+// agent starts: the DAC preflight's read, search and write, each as the yolo account
 // (CacheRelocationPreflight), and the write-and-remove under the session's own Seatbelt profile
 // (CacheRelocationWriteProbe).
 type CacheRelocationProbe struct {
@@ -770,7 +770,7 @@ func CacheRelocationProbeFile(target, sessionID string) string {
 	return target + "/.yolo-relocation-probe-" + sessionID
 }
 
-// CacheRelocationWriteProbe is one REAL write: as the sandbox account, under the session's
+// CacheRelocationWriteProbe is one REAL write: as the yolo account, under the session's
 // Seatbelt profile, create the probe file in the target and remove it. It is the question the
 // DAC preflight cannot ask — whether the profile's allow for the target, and the volume under it
 // (ownership, a removable or network volume's own rules), let the write through — asked before
@@ -788,11 +788,11 @@ func CacheRelocationWriteProbe(runAs RunAs, r CacheRelocation, profilePath, sess
 }
 
 // CacheRelocationRefusalMessage is the launch's message for the relocation probes that failed,
-// one line each, with the next steps: grant the sandbox account access to a target that was
+// one line each, with the next steps: grant the yolo account access to a target that was
 // already there, move the target somewhere it can be used, or a container runtime. step is
 // containerStep's clause, as ContextPreflightRefusal takes it.
 func CacheRelocationRefusalMessage(failed []CacheRelocationProbe, step string) string {
-	msg := "[bold red]Refusing the macos-user launch: the sandbox account cannot use every " +
+	msg := "[bold red]Refusing the macos-user launch: the yolo account cannot use every " +
 		"cache_relocations target.[/bold red]\n"
 	seen := map[string]bool{}
 	var targets []string
@@ -820,25 +820,25 @@ func CacheRelocationRefusalMessage(failed []CacheRelocationProbe, step string) s
 	if len(targets) > 0 {
 		msg += "; one that was already there, and holds files, needs the same entries added:\n"
 		for _, t := range targets {
-			msg += "  yolo macos-fix-permissions " + shquote.Quote(t) + "\n"
+			msg += "  yolo yolo-account share " + shquote.Quote(t) + "\n"
 		}
 	} else {
 		msg += ".\n"
 	}
-	// A TARGET yolo CREATED AND COULD NOT GRANT is not offered `yolo macos-fix-permissions`, which
+	// A TARGET yolo CREATED AND COULD NOT GRANT is not offered `yolo yolo-account share`, which
 	// runs the same `chmod +a` and fails the same way: its volume most likely takes no access
 	// entries, and the way on is a folder on one that does.
 	for _, r := range ungrantable {
 		msg += "yolo created " + r.Target + " on this launch and could not add those entries to it (" +
 			r.GrantFailure + "), most likely because its volume does not support them, as an exFAT " +
-			"or FAT drive does not; `yolo macos-fix-permissions` adds the same entries and would " +
+			"or FAT drive does not; `yolo yolo-account share` adds the same entries and would " +
 			"fail the same way. Point ~/.cache/" + r.Subdir + " at a folder on an APFS or Mac OS " +
 			"Extended volume instead.\n"
 	}
-	return msg + "Every folder above a target must also let the sandbox account pass (`ls -lde` " +
+	return msg + "Every folder above a target must also let the yolo account pass (`ls -lde` " +
 		"each one; mode 755 is enough), so a target inside a folder only you may open, such as " +
 		"your own temporary directory, needs another place. " +
-		"If a target is on a disk the sandbox account cannot write at all, point the entry at a " +
+		"If a target is on a disk the yolo account cannot write at all, point the entry at a " +
 		"folder on another disk. " +
 		"Or remove the entry from ~/.config/yolo-jail/config.jsonc, or use `runtime: \"podman\"`" +
 		step + ", which mounts it instead."
@@ -946,7 +946,7 @@ func ContextOccupied(delivered []string) []string {
 	return out
 }
 
-// ContextProbe is one question the DAC preflight asks the kernel, as the sandbox account,
+// ContextProbe is one question the DAC preflight asks the kernel, as the yolo account,
 // before the sandbox starts.
 type ContextProbe struct {
 	Link ContextLink
@@ -991,7 +991,7 @@ func ContextPreflight(runAs RunAs, links []ContextLink) []ContextProbe {
 // step follows its container-runtime step: containerStep's clause, which names the jail notch
 // beside a guest (env-manager plan EMP-D5) and is "" at the jail notch.
 func ContextPreflightRefusal(failed []ContextProbe, step string) string {
-	msg := "[bold red]Refusing the macos-user launch: the sandbox account cannot reach " +
+	msg := "[bold red]Refusing the macos-user launch: the yolo account cannot reach " +
 		"every context mount.[/bold red]\n"
 	for _, p := range failed {
 		msg += "  • " + p.Link.Origin() + ": " + SandboxUser + " cannot " + p.Access + " " +
@@ -1000,7 +1000,7 @@ func ContextPreflightRefusal(failed []ContextProbe, step string) string {
 	return msg + "The sandbox runs as " + SandboxUser + ", a separate account, and the file " +
 		"permissions or an ACL refuse it before the\nSeatbelt profile is consulted. Copy the " +
 		"folder under " + SharedRootDefault() + " (cp -R, or a fresh clone there): what is\n" +
-		"created there is shared with the sandbox account as it is created, and a folder moved " +
+		"created there is shared with the yolo account as it is created, and a folder moved " +
 		"there is not.\nOr use a container runtime (`runtime: \"podman\"` or `\"container\"`)" + step + "."
 }
 

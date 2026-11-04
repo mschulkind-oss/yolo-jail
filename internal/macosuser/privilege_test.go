@@ -52,8 +52,8 @@ func TestTheSudoersRuleIsExactlyTheRuledOne(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "# Written by `yolo macos-setup` for matt. Lets matt run commands as _yolojail,\n" +
-		"# never as root, without a password. `yolo macos-teardown` removes it; setup rewrites it.\n" +
+	want := "# Written by `yolo yolo-account create` for matt. Lets matt run commands as _yolojail,\n" +
+		"# never as root, without a password. `yolo yolo-account remove` removes it; setup rewrites it.\n" +
 		"Defaults>_yolojail secure_path=\"/usr/bin:/bin:/usr/sbin:/sbin\"\n" +
 		"matt ALL=(_yolojail) NOPASSWD: /usr/bin/env\n"
 	if got != want {

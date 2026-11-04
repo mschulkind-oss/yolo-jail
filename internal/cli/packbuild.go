@@ -331,9 +331,9 @@ func packBuildOne(pr richtext.Printer, f packload.Fork, rt string, opts packBuil
 
 // darwinPackTreeBuildable reports whether the darwin sealed act (macosuser.RunForkBuildAct, FP-D24)
 // can EVER build a pack's tree on this Mac: always in the run-as-you mode, which needs no account,
-// and in the account mode only once the sandbox account exists. A Mac with no sandbox account has
+// and in the account mode only once the yolo account exists. A Mac with no sandbox account has
 // never set up its build environment (pack-buildable-programs.md §9, the `yolo host` macOS row): by
-// OQ-BG2's ruling a build there is a fatal refusal naming `yolo macos-setup` and, when the pack
+// OQ-BG2's ruling a build there is a fatal refusal naming `yolo yolo-account create` and, when the pack
 // declares a darwin prebuilt, the explicit opt-in to it (darwinPackTreeUnbuildableReason) — never
 // the prebuilt on yolo's own.
 func darwinPackTreeBuildable(p macCaptureProbes) bool {
@@ -348,9 +348,9 @@ func darwinPackTreeUnbuildableReason(f packload.Fork, platform string) string {
 	if f.Checkout != "" {
 		src = f.SourceSaid()
 	}
-	why := "the sandbox account " + macosuser.SandboxUser + ", which a pack's build on a Mac runs as, does not " +
+	why := "the yolo account " + macosuser.SandboxUser + ", which a pack's build on a Mac runs as, does not " +
 		"exist, so " + f.Bin + " cannot be built from " + src + " — run the one-time " +
-		"setup, `yolo macos-setup`"
+		"setup, `yolo yolo-account create`"
 	return why + f.PrebuiltOptInClause(platform)
 }
 

@@ -14,7 +14,7 @@ import "strings"
 // directions: TestEveryRegisteredCommandIsListedInHelp walks the registry and
 // requires each key to be RENDERED here or explicitly hidden with a reason.
 // Until 2026-09-09 only help→registry was checked, and four registered commands
-// had drifted out of sight underneath it: `macos-teardown`, `macos-unshare`,
+// had drifted out of sight underneath it: `yolo-account remove`, `yolo-account unshare`,
 // `doctor` and — the one that mattered — `host`, the whole host-execution
 // surface, unreachable from `yolo --help` since it shipped.
 var commandHelp = []struct{ name, blurb string }{
@@ -88,25 +88,17 @@ var commandHelp = []struct{ name, blurb string }{
 	// In-jail only, and the blurb says so: the programs it reports on live in a
 	// jail's per-workspace home, and on the host every one of them would read as
 	// undeclared. Listed anyway — an act a user cannot find in `yolo --help` is a
-	// dead end with extra steps, the same argument macos-fix-permissions carries.
+	// dead end with extra steps, the same argument yolo-account share carries.
 	{"programs", "In a jail: what is installed, what nothing declares, and remove the orphans"},
 	{"config-ref", "Print the full configuration reference"},
 	// Beside config-ref: the reference says what a pack may declare, and this says which of
 	// it THIS build reads, which a version string cannot (patched-forks.md PF-D71).
 	{"features", "List what this yolo can read in a pack (patch-series, kind:<kind>, ...)"},
-	{"macos-setup", "Provision the native macOS sandbox user (macos-user backend)"},
-	// The four macos-* commands are listed as TWO INVERSE PAIRS, in that order:
-	// setup/teardown own the sandbox ACCOUNT, fix-permissions/unshare own a
-	// WORKSPACE's ACLs. Ordering them by pair is what makes each one's undo
-	// discoverable from the line above or below it, which is the only reason the
-	// destructive halves need to be in this list at all.
-	{"macos-teardown", "Remove that sandbox user and group again — the undo of macos-setup"},
-	// Listed because it is the REMEDY a launch names: a workspace created before
-	// macos-setup never inherited the sandbox group's ACL (macOS applies one at
-	// creation time only), and the launch now refuses with this command. A remedy
-	// a user cannot find in `yolo --help` is a dead end with extra steps.
-	{"macos-fix-permissions", "Retrofit the sandbox-group ACL onto an existing workspace"},
-	{"macos-unshare", "Strip those ACLs off a workspace — the inverse of macos-fix-permissions"},
+	// One line for the four verbs, which its usage lists as TWO INVERSE PAIRS: create/remove
+	// own the yolo ACCOUNT, share/unshare a WORKSPACE's ACLs. `share` is the REMEDY a launch
+	// names for a workspace created before the account (macOS applies an inherited ACL at
+	// creation time only), so the verb must be findable from `yolo --help`.
+	{"yolo-account", "The yolo account agents run as on a Mac: 'create', 'remove', 'share [path]', 'unshare <path>'"},
 }
 
 // hiddenFromCommandHelp names the registry keys deliberately absent from

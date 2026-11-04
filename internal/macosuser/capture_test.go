@@ -929,7 +929,7 @@ func TestRunForkBuildActRefusesBeforeItsToolchainAndOverAMissingPackage(t *testi
 		return nil, false, nil
 	}
 	if rc := RunForkBuildAct(d, testForkBuildOptions(), "/nonexistent/out", "/nonexistent/toolchain", false); rc != 1 ||
-		!strings.Contains(c.out.String(), "yolo macos-setup") {
+		!strings.Contains(c.out.String(), "yolo yolo-account create") {
 		t.Errorf("rc = %d, want a refusal naming the setup:\n%s", rc, c.out.String())
 	}
 
@@ -1072,7 +1072,7 @@ func TestACaptureRefusesBeforeAnyWorkWhenTheRuleIsMissing(t *testing.T) {
 		if rc := act(d); rc != 1 {
 			t.Errorf("%s: rc = %d", name, rc)
 		}
-		if !strings.Contains(buf.String(), "yolo macos-setup") ||
+		if !strings.Contains(buf.String(), "yolo yolo-account create") ||
 			recAt(rec, "sudo") >= 0 || recAt(rec, "write:") >= 0 {
 			t.Errorf("%s: printed %q and ran %v", name, buf.String(), rec)
 		}
@@ -1108,7 +1108,7 @@ func TestACaptureRefusesAForeignStagingRoot(t *testing.T) {
 // Absent is fine. Fails if captureGatesPass stops judging the capture root.
 func TestACaptureRefusesAForeignOrUnsafeCaptureRoot(t *testing.T) {
 	// The plan's refusal, as printed with color off (the printer drops the markup).
-	const refusal = " belongs to another account or is not safe. Run yolo macos-setup " +
+	const refusal = " belongs to another account or is not safe. Run yolo yolo-account create " +
 		"as your normal admin user; it gives the directory to you."
 	for _, tc := range []struct {
 		name  string
@@ -1149,7 +1149,7 @@ func TestACaptureRefusesAForeignOrUnsafeCaptureRoot(t *testing.T) {
 				t.Errorf("%s/%s: rc = %d, ran %v", tc.name, name, rc, rec)
 			}
 			if !strings.Contains(buf.String(), "Refusing the capture: "+captureRoot+tc.want) ||
-				!strings.Contains(buf.String(), "yolo macos-setup") {
+				!strings.Contains(buf.String(), "yolo yolo-account create") {
 				t.Errorf("%s/%s: refusal = %q, want %q", tc.name, name, buf.String(), captureRoot+tc.want)
 			}
 		}

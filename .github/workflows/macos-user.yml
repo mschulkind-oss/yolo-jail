@@ -291,7 +291,7 @@ jobs:
       # at /Users/Shared/yolo-staged, and the one sudo rule /etc/sudoers.d/yolo-jail that
       # runs commands as _yolojail, never as root (docs/design/macos-user-privilege-lifecycle-plan.md).
       #
-      # NOT under sudo: `macos-setup` refuses to run as root (it would assign the
+      # NOT under sudo: `yolo-account create` refuses to run as root (it would assign the
       # shared-workspace ACL to root), and calls sudo itself for the steps that need
       # it. That is why the `sudo -n` fact above matters — on a runner without
       # passwordless sudo this step hangs instead of failing.
@@ -306,10 +306,10 @@ jobs:
       # so a run in which every launch test skipped is failed even though the policy
       # tests ran — the step's failure surfaces as a named red below instead of an
       # aborted job with no results.
-      - name: Create the sandbox account
+      - name: Create the yolo account
         id: account
         continue-on-error: true
-        run: go run ./cmd/yolo macos-setup
+        run: go run ./cmd/yolo yolo-account create
 
       # THE /Volumes MEASUREMENT FOR cache_relocations (docs/plans/cache-relocation.md, the
       # macos-user section; CX-D5 and OQ-CX8 in docs/reference/context-mounts.md). A relocation may
@@ -443,7 +443,7 @@ jobs:
       # PASSWORDLESS START AND STOP, MEASURED (docs/design/macos-user-privilege-lifecycle-plan.md,
       # task 9). Every step above ran with this runner's blanket passwordless sudo, which would
       # pass a launch that still needed root. These two steps take that away and leave only the
-      # rule `yolo macos-setup` installed, then run the launch tests that need nothing more. They
+      # rule `yolo yolo-account create` installed, then run the launch tests that need nothing more. They
       # are LAST: after the first, no root sudo works on this runner, so nothing after them may
       # need root.
       #
@@ -557,7 +557,7 @@ jobs:
           /usr/bin/sudo -n -l 2>&1 || true
           sudo -k
           if ! /usr/bin/sudo -n --user=_yolojail /usr/bin/env /usr/bin/true; then
-            echo "::error::the run-as rule does not hold once root sudo is narrowed (/usr/bin/sudo -n --user=_yolojail /usr/bin/env /usr/bin/true failed); did 'Create the sandbox account' install /etc/sudoers.d/yolo-jail?"
+            echo "::error::the run-as rule does not hold once root sudo is narrowed (/usr/bin/sudo -n --user=_yolojail /usr/bin/env /usr/bin/true failed); did 'Create the yolo account' install /etc/sudoers.d/yolo-jail?"
             exit 1
           fi
           echo "the run-as rule holds: sudo runs commands as _yolojail with no password"
@@ -640,7 +640,7 @@ jobs:
       # For correlating a vendor's darwin break with an OS bump, and for the `sudo -n`
       # fact the account step below needs, as in the job above. Informational only.
       # TestMacosUserWorkflowRecordsSudoBeforeAccountSetup fails `just check-ci` if a job
-      # runs macos-setup without recording that fact first.
+      # runs yolo-account create without recording that fact first.
       - name: Runner facts
         run: |
           sw_vers
@@ -648,8 +648,8 @@ jobs:
           sudo -n true && echo "sudo -n: passwordless" || echo "sudo -n: WOULD PROMPT"
 
       # As above, and NOT under sudo, for the same reason.
-      - name: Create the sandbox account
-        run: go run ./cmd/yolo macos-setup
+      - name: Create the yolo account
+        run: go run ./cmd/yolo yolo-account create
 
       # As in the job above, and for its reason: a cold floor (the rustls mise after a
       # change to its derivation) must not be paid inside the install test's deadline.

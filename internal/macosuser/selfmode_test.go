@@ -324,7 +324,7 @@ func TestSelfModeSitesAContextSourceInTheHome(t *testing.T) {
 	}
 }
 
-// selfModeDeps is mockDeps on a Mac where `yolo macos-setup` never ran: no sandbox account, no
+// selfModeDeps is mockDeps on a Mac where `yolo yolo-account create` never ran: no sandbox account, no
 // run-as rule. A run-as-you launch needs neither.
 func selfModeDeps(rec *[]string) Deps {
 	d := mockDeps(rec)

@@ -9,16 +9,16 @@ import (
 	"testing"
 )
 
-// setupgrant_test.go pins `yolo macos-setup`'s administrator act G0 for the one run-as rule
+// setupgrant_test.go pins `yolo yolo-account create`'s administrator act G0 for the one run-as rule
 // (task 7 of docs/design/macos-user-privilege-lifecycle-plan.md) and its undo in
-// `yolo macos-teardown`.
+// `yolo yolo-account remove`.
 
 func TestSetupInstallsTheRuleThenProvesItWithAnEmptyCache(t *testing.T) {
 	var rec []string
 	d := mockDeps(&rec)
 	d.StagingRootFacts = func(string) StagingRootFacts { return StagingRootFacts{} } // fresh Mac
 	d.HostUser = func() string { return "matt" }
-	if rc := MacosSetup(d); rc != 0 {
+	if rc := AccountCreate(d); rc != 0 {
 		t.Fatalf("rc = %d", rc)
 	}
 	order := []string{
@@ -46,13 +46,13 @@ func TestSetupRefusesASecondEnrolledUserBeforeAnySudo(t *testing.T) {
 	d.StagingRootFacts = func(string) StagingRootFacts {
 		return StagingRootFacts{Exists: true, IsDir: true, UID: 502, Mode: 0o755}
 	}
-	if rc := MacosSetup(d); rc != 1 {
+	if rc := AccountCreate(d); rc != 1 {
 		t.Fatalf("rc = %d", rc)
 	}
 	if recAt(rec, "sudo") >= 0 {
 		t.Errorf("ran sudo before refusing: %v", rec)
 	}
-	if !strings.Contains(buf.String(), "yolo macos-teardown") {
+	if !strings.Contains(buf.String(), "yolo yolo-account remove") {
 		t.Errorf("the refusal names no remedy:\n%s", buf.String())
 	}
 }
@@ -65,7 +65,7 @@ func stubAccountNames(t *testing.T, names map[uint32]string) {
 	t.Cleanup(func() { accountNameOfUID = prev })
 }
 
-// A root the sandbox account made first is a squat, not an enrollment: setup refuses it without
+// A root the yolo account made first is a squat, not an enrollment: setup refuses it without
 // adopting it, before any sudo, and names how to inspect and remove it.
 func TestSetupRefusesAStagingRootTheSandboxAccountSquatted(t *testing.T) {
 	stubAccountNames(t, map[uint32]string{601: SandboxUser})
@@ -76,7 +76,7 @@ func TestSetupRefusesAStagingRootTheSandboxAccountSquatted(t *testing.T) {
 	d.StagingRootFacts = func(string) StagingRootFacts {
 		return StagingRootFacts{Exists: true, IsDir: true, UID: 601, Mode: 0o755}
 	}
-	if rc := MacosSetup(d); rc != 1 {
+	if rc := AccountCreate(d); rc != 1 {
 		t.Fatalf("rc = %d", rc)
 	}
 	if recAt(rec, "sudo") >= 0 {
@@ -85,7 +85,7 @@ func TestSetupRefusesAStagingRootTheSandboxAccountSquatted(t *testing.T) {
 	want := "/Users/Shared/yolo-staged already exists and belongs to _yolojail, not to you. Setup does " +
 		"not adopt it: whoever owns it controls what the sandbox reads. Inspect it with " +
 		"`ls -leR /Users/Shared/yolo-staged`, remove it with `sudo rm -rf /Users/Shared/yolo-staged`, " +
-		"then run yolo macos-setup again."
+		"then run yolo yolo-account create again."
 	if !strings.Contains(buf.String(), want) {
 		t.Errorf("squat refusal:\n%s\nwant %q", buf.String(), want)
 	}
@@ -115,7 +115,7 @@ func TestSetupRefusesWhenTheInstalledRuleNamesAnotherUser(t *testing.T) {
 	d := mockDeps(&rec)
 	d.Out = &buf
 	d.Run = grepRun(&rec, 1, 0)
-	if rc := MacosSetup(d); rc != 1 {
+	if rc := AccountCreate(d); rc != 1 {
 		t.Fatalf("rc = %d", rc)
 	}
 	if i := slices.Index(rec, "run:/usr/bin/sudo /usr/bin/grep -s -qxF -e matt ALL=(_yolojail) "+
@@ -129,7 +129,7 @@ func TestSetupRefusesWhenTheInstalledRuleNamesAnotherUser(t *testing.T) {
 	}
 	out := buf.String()
 	if !strings.Contains(out, "This Mac's macos-user backend is set up for another macOS user") ||
-		!strings.Contains(out, "That user runs yolo macos-teardown, then you run yolo macos-setup.") {
+		!strings.Contains(out, "That user runs yolo yolo-account remove, then you run yolo yolo-account create.") {
 		t.Errorf("second-user refusal:\n%s", out)
 	}
 }
@@ -142,13 +142,13 @@ func TestSetupDoesNotMistakeAFailedSudoForAnotherUsersRule(t *testing.T) {
 	d := mockDeps(&rec)
 	d.Out = &buf
 	d.Run = grepRun(&rec, 1, 1)
-	if rc := MacosSetup(d); rc != 1 {
+	if rc := AccountCreate(d); rc != 1 {
 		t.Fatalf("rc = %d", rc)
 	}
 	if strings.Contains(buf.String(), "another macOS user") {
 		t.Errorf("blamed another user for a failed sudo:\n%s", buf.String())
 	}
-	if !strings.Contains(buf.String(), "yolo macos-setup") || recAt(rec, "visudo") >= 0 {
+	if !strings.Contains(buf.String(), "yolo yolo-account create") || recAt(rec, "visudo") >= 0 {
 		t.Errorf("printed %q and ran %v", buf.String(), rec)
 	}
 }
@@ -164,7 +164,7 @@ func TestSetupStagesExactlyTheRuleUnderTheInertName(t *testing.T) {
 		tmp, content = path, c
 		return true
 	}
-	if rc := MacosSetup(d); rc != 0 {
+	if rc := AccountCreate(d); rc != 0 {
 		t.Fatalf("rc = %d", rc)
 	}
 	want, _ := SudoersRule("matt")
@@ -224,7 +224,7 @@ func TestSetupDoesNotPrintVisudoOutputWhenTheChecksPass(t *testing.T) {
 		visudoRuleCheck:   SudoersStagingFile + ": parsed OK\n",
 		visudoConfigCheck: "/etc/sudoers: parsed OK\n",
 	})
-	if rc := MacosSetup(d); rc != 0 {
+	if rc := AccountCreate(d); rc != 0 {
 		t.Fatalf("rc = %d\n%s", rc, buf.String())
 	}
 	if strings.Contains(buf.String(), "parsed OK") {
@@ -254,7 +254,7 @@ func TestSetupInstallsNothingWhenVisudoRejectsTheRule(t *testing.T) {
 	}
 	reason := ">>> " + SudoersStagingFile + ": syntax error near line 3 <<<\n"
 	captureVia(&d, map[string]string{visudoRuleCheck: reason})
-	if rc := MacosSetup(d); rc != 1 {
+	if rc := AccountCreate(d); rc != 1 {
 		t.Fatalf("rc = %d", rc)
 	}
 	if recAt(rec, "/bin/mv") >= 0 || recAt(rec, "-n --user=_yolojail") >= 0 {
@@ -358,7 +358,7 @@ func TestSetupInstallsTheRuleAndWarnsWhenTheConfigFailsTheSameWithoutIt(t *testi
 		"/private/etc/sudoers: parsed OK\n"
 	with := without + "/private/etc/sudoers.d/yolo-jail: parsed OK\n"
 	wholeCheck(&rec, 1, 1, &d, with, without)
-	if rc := MacosSetup(d); rc != 0 {
+	if rc := AccountCreate(d); rc != 0 {
 		t.Fatalf("rc = %d\n%s", rc, buf.String())
 	}
 	inOrder(t, rec, []string{
@@ -402,7 +402,7 @@ func TestSetupStopsWhenTheParkedRuleCannotMoveBack(t *testing.T) {
 		}
 		return f.run(argv)
 	}
-	if rc := MacosSetup(d); rc != 1 {
+	if rc := AccountCreate(d); rc != 1 {
 		t.Fatalf("rc = %d\n%s", rc, buf.String())
 	}
 	if recAt(rec, "-n --user=_yolojail") >= 0 {
@@ -414,7 +414,7 @@ func TestSetupStopsWhenTheParkedRuleCannotMoveBack(t *testing.T) {
 	want := "\n✗ yolo's sudo rule is not installed: " + unparkRule[len("run:"):] + " failed.\n\n" +
 		indented(without) + "\n" +
 		"  sudo chmod 0440 /private/etc/sudoers.d/00-matt\n" +
-		"  yolo macos-setup\n\n"
+		"  yolo yolo-account create\n\n"
 	if !strings.Contains(buf.String(), want) {
 		t.Errorf("stop lacks\n%s\ngot:\n%s", want, buf.String())
 	}
@@ -434,11 +434,11 @@ func TestSetupStopsWhenTheRuleCannotMoveIntoPlace(t *testing.T) {
 		}
 		return 0
 	}
-	if rc := MacosSetup(d); rc != 1 {
+	if rc := AccountCreate(d); rc != 1 {
 		t.Fatalf("rc = %d", rc)
 	}
 	want := "\n✗ yolo's sudo rule is not installed: " + unparkRule[len("run:"):] + " failed.\n\n" +
-		"  yolo macos-setup\n\n"
+		"  yolo yolo-account create\n\n"
 	if !strings.Contains(buf.String(), want) || slices.Contains(rec, "run:"+visudoConfigCheck) {
 		t.Errorf("stop lacks\n%s\ngot:\n%s\nran:\n%s", want, buf.String(), strings.Join(rec, "\n"))
 	}
@@ -476,7 +476,7 @@ func TestSetupRefusesWhenTheRuleAddsAFailure(t *testing.T) {
 	without := "/private/etc/sudoers.d/00-matt: bad permissions, should be mode 0440\n"
 	added := ">>> /private/etc/sudoers.d/yolo-jail: syntax error near line 1 <<<\n"
 	wholeCheck(&rec, 1, 1, &d, without+added, without)
-	if rc := MacosSetup(d); rc != 1 {
+	if rc := AccountCreate(d); rc != 1 {
 		t.Fatalf("rc = %d", rc)
 	}
 	inOrder(t, rec, []string{
@@ -508,14 +508,14 @@ func TestSetupRefusesWhenTheChecksFailWithNothingToCompare(t *testing.T) {
 	d := mockDeps(&rec)
 	d.Out = &buf
 	wholeCheck(&rec, 1, 1, &d, "", "")
-	if rc := MacosSetup(d); rc != 1 {
+	if rc := AccountCreate(d); rc != 1 {
 		t.Fatalf("rc = %d", rc)
 	}
 	if recAt(rec, "-n --user=_yolojail") >= 0 {
 		t.Errorf("went on:\n%s", strings.Join(rec, "\n"))
 	}
 	want := "✗ Your sudo configuration is invalid without yolo's rule too. Nothing was installed.\n\n" +
-		"Fix it, then run setup again:\n\n  sudo visudo -c\n  yolo macos-setup\n"
+		"Fix it, then run setup again:\n\n  sudo visudo -c\n  yolo yolo-account create\n"
 	if !strings.Contains(buf.String(), want) {
 		t.Errorf("refusal lacks\n%s\ngot:\n%s", want, buf.String())
 	}
@@ -530,7 +530,7 @@ func TestSetupCallsItAYoloBugWhenOnlyTheRuleBreaksTheConfig(t *testing.T) {
 	d.Run = wholeCheckRun(&rec, 1, 0)
 	reason := ">>> " + SudoersFile + ": syntax error near line 3 <<<\n"
 	captureVia(&d, map[string]string{visudoConfigCheck: reason})
-	if rc := MacosSetup(d); rc != 1 {
+	if rc := AccountCreate(d); rc != 1 {
 		t.Fatalf("rc = %d", rc)
 	}
 	if slices.Index(rec, "run:/usr/bin/sudo /bin/rm -f "+SudoersStagingFile) < 0 {
@@ -566,7 +566,7 @@ func TestSetupNamesTheRemovalWhenItCannotTakeTheRuleBackOut(t *testing.T) {
 		return inner(argv)
 	}
 	captureVia(&d, nil)
-	if rc := MacosSetup(d); rc != 1 {
+	if rc := AccountCreate(d); rc != 1 {
 		t.Fatalf("rc = %d", rc)
 	}
 	out := buf.String()
@@ -574,7 +574,7 @@ func TestSetupNamesTheRemovalWhenItCannotTakeTheRuleBackOut(t *testing.T) {
 		"  sudo rm -f /etc/sudoers.d/yolo-jail\n" +
 		"  # or, if sudo itself fails:\n" +
 		"  osascript -e 'do shell script \"/bin/rm -f /etc/sudoers.d/yolo-jail\" with administrator privileges'\n" +
-		"  yolo macos-setup\n"
+		"  yolo yolo-account create\n"
 	if !strings.Contains(out, "removing the rule failed") || !strings.Contains(out, want) {
 		t.Errorf("refusal lacks\n%s\ngot:\n%s", want, out)
 	}
@@ -616,10 +616,10 @@ func TestSetupSaysWhySudoPromptsBeforeTheFirstSudo(t *testing.T) {
 	d := mockDeps(&rec)
 	d.Out = recWriter{&rec}
 	d.Run = sudoNotCached(&rec)
-	if rc := MacosSetup(d); rc != 0 {
+	if rc := AccountCreate(d); rc != 0 {
 		t.Fatalf("rc = %d\n%s", rc, strings.Join(rec, "\n"))
 	}
-	line := "out:• sudo needs your password to set up the sandbox account and its rule (" +
+	line := "out:• sudo needs your password to set up the yolo account and its rule (" +
 		SudoersFile + ")."
 	at, first := slices.Index(rec, line), firstPromptingSudo(rec)
 	if at < 0 || first < 0 || at > first {
@@ -633,7 +633,7 @@ func TestSetupSaysNothingAboutAPromptWhenSudoIsCached(t *testing.T) {
 	var buf bytes.Buffer
 	d := mockDeps(&rec)
 	d.Out = &buf
-	if rc := MacosSetup(d); rc != 0 {
+	if rc := AccountCreate(d); rc != 0 {
 		t.Fatalf("rc = %d", rc)
 	}
 	if strings.Contains(buf.String(), "sudo needs your password") {
@@ -651,7 +651,7 @@ func TestTeardownSaysWhySudoPromptsBeforeTheFirstSudo(t *testing.T) {
 		d.StagingRootFacts = func(string) StagingRootFacts {
 			return StagingRootFacts{Exists: true, IsDir: true, UID: 501, Mode: 0o755}
 		}
-		if rc := MacosTeardown(d); rc != 0 {
+		if rc := AccountRemove(d); rc != 0 {
 			t.Fatalf("rc = %d", rc)
 		}
 		at := slices.IndexFunc(rec, func(r string) bool {
@@ -669,7 +669,7 @@ func TestTeardownSaysWhySudoPromptsBeforeTheFirstSudo(t *testing.T) {
 func TestSetupAsksAboutTheExistingRuleSilently(t *testing.T) {
 	var rec []string
 	d := mockDeps(&rec)
-	if rc := MacosSetup(d); rc != 0 {
+	if rc := AccountCreate(d); rc != 0 {
 		t.Fatalf("rc = %d", rc)
 	}
 	if recAt(rec, "/usr/bin/grep -s -qxF") < 0 {
@@ -691,7 +691,7 @@ func TestSetupRefusesWhenTheProbeFailsAfterTheInstall(t *testing.T) {
 		}
 		return 0
 	}
-	if rc := MacosSetup(d); rc != 1 {
+	if rc := AccountCreate(d); rc != 1 {
 		t.Fatalf("rc = %d", rc)
 	}
 	out := buf.String()
@@ -708,7 +708,7 @@ func TestSetupRefusesAUserNameItCannotWriteIntoTheRule(t *testing.T) {
 	d := mockDeps(&rec)
 	d.Out = &buf
 	d.HostUser = func() string { return "m att" }
-	if rc := MacosSetup(d); rc != 1 {
+	if rc := AccountCreate(d); rc != 1 {
 		t.Fatalf("rc = %d", rc)
 	}
 	if recAt(rec, "sudo") >= 0 {
@@ -726,7 +726,7 @@ func TestSetupsReadyVerdictPromisesNoPassword(t *testing.T) {
 	var buf bytes.Buffer
 	d := mockDeps(nil)
 	d.Out = &buf
-	if rc := MacosSetup(d); rc != 0 {
+	if rc := AccountCreate(d); rc != 0 {
 		t.Fatalf("rc = %d", rc)
 	}
 	out := buf.String()
@@ -772,7 +772,7 @@ func TestSetupRemovesOnlyTheLegacyFilesOfEndedOlderSessions(t *testing.T) {
 		return p == SessionProfilePath(gone, LegacyStateDir()) ||
 			p == SessionProfilePath(living, LegacyStateDir())
 	}
-	if rc := MacosSetup(d); rc != 0 {
+	if rc := AccountCreate(d); rc != 0 {
 		t.Fatalf("rc = %d\n%s", rc, buf.String())
 	}
 	want := "run:/usr/bin/sudo /bin/rm -f " + strings.Join(SessionFilePaths(gone, LegacyStateDir()), " ")
@@ -806,7 +806,7 @@ func TestTeardownRemovesTheRuleAndTheStagingRootButNotTheLegacyDir(t *testing.T)
 	d := mockDeps(&rec)
 	d.Out = &buf
 	d.PathIsDir = func(p string) bool { return p == LegacyStateDir() }
-	if rc := MacosTeardown(d); rc != 0 {
+	if rc := AccountRemove(d); rc != 0 {
 		t.Fatalf("rc = %d", rc)
 	}
 	order := []string{"run:/usr/bin/sudo /bin/rm -f /etc/sudoers.d/yolo-jail"}
@@ -839,7 +839,7 @@ func TestTeardownLeavesAStagingRootItDoesNotOwn(t *testing.T) {
 	d.StagingRootFacts = func(string) StagingRootFacts {
 		return StagingRootFacts{Exists: true, IsDir: true, UID: 502, Mode: 0o755}
 	}
-	if rc := MacosTeardown(d); rc != 0 {
+	if rc := AccountRemove(d); rc != 0 {
 		t.Fatalf("rc = %d", rc)
 	}
 	if recAt(rec, "rm -rf "+StagingRoot()) >= 0 {

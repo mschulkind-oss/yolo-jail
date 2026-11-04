@@ -21,7 +21,7 @@ import (
 // docs/design/provisioner-sets.md PS-D10, PS-D14, PS-D17).
 //
 // THE CA IS ONE THIS MAC ALREADY TRUSTS. The test never writes a keychain: the suite takes no
-// privilege `yolo macos-setup` does not install, and adding a trusted root to the System keychain
+// privilege `yolo yolo-account create` does not install, and adding a trusted root to the System keychain
 // needs root (OQ-DM1 in docs/design/macos-user-suite-on-a-developer-mac.md, ruled 2026-10-18). It
 // reads the System keychain as the invoking user, the way a launch does, through the launch's own
 // composition (macosuser.ComposeCATrust over macosuser.RealDeps: `security find-certificate`, then

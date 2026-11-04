@@ -8,7 +8,7 @@ import (
 
 // THE ORDERING TEST. A workspace under a user's home fails BOTH the in-home rule and the ACL
 // probe — nothing shares a home with the sandbox group — and the two refusals name opposite
-// remedies: the probe's names `yolo macos-fix-permissions <workspace>`, which refuses every
+// remedies: the probe's names `yolo yolo-account share <workspace>`, which refuses every
 // path under a home. So which one a launch asks first decides whether the user gets a fix or
 // a loop (the launch says run the fix, the fix says no, the launch says it again).
 //
@@ -37,15 +37,15 @@ func TestAnInHomeWorkspaceIsRefusedBeforeTheACLProbeRuns(t *testing.T) {
 	for _, want := range []string{
 		"/Users/matt/code/proj is inside the home folder /Users/matt",
 		"mv /Users/matt/code/proj /Users/Shared/yolo/proj",
-		"yolo macos-fix-permissions /Users/Shared/yolo/proj",
+		"yolo yolo-account share /Users/Shared/yolo/proj",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("refusal does not say %q:\n%s", want, got)
 		}
 	}
 	if strings.Contains(got, "is not shared with the sandbox user") ||
-		strings.Contains(got, "macos-fix-permissions /Users/matt") {
-		t.Errorf("the refusal sends the user to macos-fix-permissions for the path it refuses:\n%s", got)
+		strings.Contains(got, "yolo-account share /Users/matt") {
+		t.Errorf("the refusal sends the user to yolo-account share for the path it refuses:\n%s", got)
 	}
 	if materialized {
 		t.Error("reached the nix build for a workspace the launch refuses")
@@ -85,19 +85,19 @@ func TestTheInHomeRefusalNamesAFixTheFixCommandAccepts(t *testing.T) {
 	var buf bytes.Buffer
 	d := mockDeps(nil)
 	d.Out = &buf
-	if rc := MacosFixPermissions(d, "/Users/matt/code/proj"); rc != 1 {
-		t.Fatalf("macos-fix-permissions accepted a path under a home (rc %d), so this test's "+
+	if rc := AccountShare(d, "/Users/matt/code/proj"); rc != 1 {
+		t.Fatalf("yolo-account share accepted a path under a home (rc %d), so this test's "+
 			"premise is gone", rc)
 	}
 	buf.Reset()
 
 	msg := inHomeWorkspaceRefusal("/Users/matt/code/proj", "/Users/matt")
 	const dest = "/Users/Shared/yolo/proj"
-	if !strings.Contains(msg, "yolo macos-fix-permissions "+dest) {
+	if !strings.Contains(msg, "yolo yolo-account share "+dest) {
 		t.Fatalf("the refusal names no fix-permissions for the destination:\n%s", msg)
 	}
-	if rc := MacosFixPermissions(d, dest); rc != 0 {
-		t.Errorf("macos-fix-permissions refuses the destination the refusal names (rc %d):\n%s", rc, buf.String())
+	if rc := AccountShare(d, dest); rc != 0 {
+		t.Errorf("yolo-account share refuses the destination the refusal names (rc %d):\n%s", rc, buf.String())
 	}
 }
 
@@ -107,7 +107,7 @@ func TestTheInHomeRefusalQuotesPathsAndNeverMovesAHome(t *testing.T) {
 	msg := inHomeWorkspaceRefusal("/Users/matt/My Project", "/Users/matt")
 	for _, want := range []string{
 		"mv '/Users/matt/My Project' '/Users/Shared/yolo/My Project'",
-		"yolo macos-fix-permissions '/Users/Shared/yolo/My Project'",
+		"yolo yolo-account share '/Users/Shared/yolo/My Project'",
 	} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("refusal does not say %q:\n%s", want, msg)

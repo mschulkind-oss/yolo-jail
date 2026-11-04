@@ -50,7 +50,7 @@ func TestSiteCacheRelocationsRefusesEachUndeliverableTarget(t *testing.T) {
 		{"a firmlink spelling", CacheRelocation{Subdir: "hf", Target: "/System/Volumes/Data/Users/Shared/hf"}, "spelled through another name for /Users"},
 		{"a case spelling", CacheRelocation{Subdir: "hf", Target: "/users/Shared/hf"}, "spelled through another name for /Users"},
 		{"a Data-volume spelling", CacheRelocation{Subdir: "hf", Target: "/System/Volumes/Data/opt/hf"}, "spell it as /opt/hf"},
-		{"the sandbox home", CacheRelocation{Subdir: "hf", Target: "/Users/_yolojail/big"}, "the sandbox account's own home"},
+		{"the sandbox home", CacheRelocation{Subdir: "hf", Target: "/Users/_yolojail/big"}, "the yolo account's own home"},
 		{"a real home", CacheRelocation{Subdir: "hf", Target: "/Users/matt/hf-cache"}, "inside the home folder /Users/matt"},
 		{"a privacy-guarded dir", CacheRelocation{Subdir: "hf", Target: "/Users/matt/Documents/hf"}, "/Users/matt/Documents, which macOS's privacy controls guard"},
 		{"the state dir", CacheRelocation{Subdir: "hf", Target: "/private/var/yolo-jail/hf"}, "yolo's state directory"},
@@ -112,13 +112,13 @@ func TestPlanWithCacheRelocationsHoldsEveryInvariant(t *testing.T) {
 	if err != nil || got["huggingface"] != sharedReloc.Target || got["ms-playwright"] != volumeReloc.Target || len(got) != 2 {
 		t.Errorf("the bootstrap's relocation wire is %q (%v), want each subdir to its resolved target", wire, err)
 	}
-	// The write probe runs as the sandbox account, under THIS session's profile, on a file the
+	// The write probe runs as the yolo account, under THIS session's profile, on a file the
 	// session names, handed to the shell as an argument.
 	p := plan.CacheRelocationProbes[0].Argv
 	if len(RunAsArgvProblems("write probe", p)) > 0 || p[0] != "/usr/bin/sudo" ||
 		!containsArgPair(p, "/usr/bin/sandbox-exec", "-f", plan.ProfilePath) ||
 		p[len(p)-1] != CacheRelocationProbeFile(sharedReloc.Target, plan.SessionID) {
-		t.Errorf("the write probe is not a confined write by the sandbox account on the session's file: %v", p)
+		t.Errorf("the write probe is not a confined write by the yolo account on the session's file: %v", p)
 	}
 }
 
@@ -377,7 +377,7 @@ func TestARelocationTheSandboxCannotUseRefusesTheLaunch(t *testing.T) {
 				t.Errorf("the agent ran after a relocation probe failed")
 			}
 			for _, want := range []string{"cannot use every cache_relocations target",
-				"yolo macos-fix-permissions " + sharedReloc.Target, "`runtime: \"podman\"`",
+				"yolo yolo-account share " + sharedReloc.Target, "`runtime: \"podman\"`",
 				"~/.cache/huggingface → " + sharedReloc.Target} {
 				if !strings.Contains(out, want) {
 					t.Errorf("the refusal does not say %q:\n%s", want, out)
@@ -387,7 +387,7 @@ func TestARelocationTheSandboxCannotUseRefusesTheLaunch(t *testing.T) {
 	}
 }
 
-// A TARGET yolo CREATED AND COULD NOT GRANT is not offered `yolo macos-fix-permissions` when a
+// A TARGET yolo CREATED AND COULD NOT GRANT is not offered `yolo yolo-account share` when a
 // probe then fails: that command runs the same `chmod +a` and would fail the same way on a volume
 // that takes no access entries. The refusal says so and names a folder on a volume that does,
 // while a target that was already there in the same refusal is still offered the command.
@@ -398,18 +398,18 @@ func TestARefusalForAnUngrantableTargetDoesNotOfferFixPermissions(t *testing.T) 
 		CacheRelocationPreflight(RunAs{}, []CacheRelocation{sharedReloc})[2:]...)
 	msg := CacheRelocationRefusalMessage(failed, "")
 	for _, want := range []string{"yolo created " + ungranted.Target + " on this launch and could not add",
-		"Operation not supported", "exFAT", "APFS", "yolo macos-fix-permissions " + sharedReloc.Target,
+		"Operation not supported", "exFAT", "APFS", "yolo yolo-account share " + sharedReloc.Target,
 		"~/.cache/ms-playwright"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("the refusal does not say %q:\n%s", want, msg)
 		}
 	}
-	if strings.Contains(msg, "yolo macos-fix-permissions "+shquote.Quote(ungranted.Target)) {
-		t.Errorf("the refusal offers `yolo macos-fix-permissions` for a target whose grant failed:\n%s", msg)
+	if strings.Contains(msg, "yolo yolo-account share "+shquote.Quote(ungranted.Target)) {
+		t.Errorf("the refusal offers `yolo yolo-account share` for a target whose grant failed:\n%s", msg)
 	}
 	// Alone, it offers no fix-permissions command at all.
-	if msg := CacheRelocationRefusalMessage(failed[:1], ""); strings.Contains(msg, "  yolo macos-fix-permissions") {
-		t.Errorf("an ungrantable target alone was offered `yolo macos-fix-permissions`:\n%s", msg)
+	if msg := CacheRelocationRefusalMessage(failed[:1], ""); strings.Contains(msg, "  yolo yolo-account share") {
+		t.Errorf("an ungrantable target alone was offered `yolo yolo-account share`:\n%s", msg)
 	}
 }
 
