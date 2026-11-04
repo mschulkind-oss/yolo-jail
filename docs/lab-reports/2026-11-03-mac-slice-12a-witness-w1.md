@@ -565,13 +565,41 @@ asked whether yolo should change; the recommendation is yes.
 
 ### W-KC5, after `copilot login`
 
-The owner logged the host Copilot in, and step 1 ran again: `copilot --version` is still
-`GitHub Copilot CLI 1.0.105.`, and `security find-generic-password -s copilot-cli` (attributes
-only) **still** prints `The specified item could not be found in the keychain.` With the host now
-logged in, the witness's remaining reading is that 1.0.105 keeps its login under another service
-name, or outside the keychain. That branch is the owner's: the `security dump-keychain | grep -i
-copilot` search, then adding the name it shows to `services` in the pack. Steps 2 and 3 were not
-run.
+**Correction to the first version of this subsection.** Step 1 was rerun while the owner's
+`copilot login` was still waiting on its approvals, and still found no item. The conclusion drawn
+then, that 1.0.105 keeps its login under another service, was wrong. Once the login finished:
+
+- **Step 1 passes.** `copilot --version`: `GitHub Copilot CLI 1.0.105.`;
+  `security find-generic-password -s copilot-cli` prints `"svce"<blob>="copilot-cli"` and an
+  `"acct"` line. The pack's service name is right. No `dump-keychain` search is needed.
+- **Step 2 as written is refused by the installed yolo.** The installed `yolo` is
+  `0.16.1+35.g7f1210e630c9`, which includes `6707f0c72`. It refuses the witness's own command:
+  `Refusing to launch: YOLO_RUNTIME is removed: where an agent runs is now a setup. Use
+  YOLO_SETUP=seatbelt-yolo-account (or seatbelt-self)`. The refusal names its replacement, as it
+  should. **The witness text needs `YOLO_SETUP=seatbelt-yolo-account` in place of
+  `YOLO_RUNTIME=macos-user`** (step 3's second command too).
+- **Step 2 with `YOLO_SETUP=seatbelt-yolo-account`** (plus `YOLO_ALLOW_MISSING_PROGRAMS=1`, for
+  the pending pi builds of [§8](#8-blocked-and-not-run)), run from this agent's process: the
+  launch printed
+  `Could not read your host copilot login from your keychain (service copilot-cli: the keychain
+  is locked and macOS could not ask you to unlock it), so copilot in this sandbox starts logged
+  out: unlock your login keychain and allow the request when macOS asks, then relaunch; or log in
+  on the host with copilot login.` Copilot then printed its not-logged-in help (`/login`,
+  `COPILOT_GITHUB_TOKEN`, `gh auth login`), exit 1. No `KC5-OK`, and no route was measured.
+- **The message's cause is probably wrong.** `security show-keychain-info
+  ~/Library/Keychains/login.keychain-db` at the same moment printed `… no-timeout`, with no
+  locked error. The likelier cause: reading the item needs a one-time Allow confirmation for
+  `security`, and this agent's process has no way to show the owner a dialog, so macOS refused
+  rather than ask. **Unverified:** the macOS status code yolo received was not captured. If it
+  was `errSecInteractionNotAllowed`, the message says "locked" for the case "could not ask",
+  and its first remedy (unlock the keychain) does not apply.
+
+**Next:** the owner runs step 2 from their own Terminal, where macOS can show the Allow dialog:
+`cd /Users/Shared/yolo/kc5-witness && YOLO_SETUP=seatbelt-yolo-account yolo -- copilot -p 'Reply
+with exactly: KC5-OK'`. Step 3 follows.
+
+**Decision needed:** whether the keychain-read message should tell "locked" apart from "a
+confirmation could not be shown". That needs the status code from a rerun first.
 
 ## Evidence
 

@@ -1005,8 +1005,11 @@ What I would build, in order:
    step 2's `~/kc5-witness` is inside a home, which account mode refuses. Since then, step 2 uses
    `/Users/Shared/yolo/kc5-witness`, and step 1's missing-item branch is the owner's.
    *Step 1 again 2026-11-04, after the owner's `copilot login`* ([lab report](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#w-kc5-after-copilot-login)):
-   still no `copilot-cli` item. So 1.0.105 keeps its login under another service, or outside the
-   keychain. The owner's `dump-keychain` search decides which.
+   that run came before the login's approvals finished. After them, step 1 passes (`copilot-cli`,
+   with an account). Step 2 as written is refused by the installed `0.16.1+35` (`YOLO_RUNTIME is
+   removed`; use `YOLO_SETUP=seatbelt-yolo-account`). Run from the agent's process, the launch
+   could not read the item: macOS refused to show the Allow dialog, and yolo reported the keychain
+   as locked. It waits on the owner running step 2 in their own Terminal.
 
 ## 7. Open questions
 
