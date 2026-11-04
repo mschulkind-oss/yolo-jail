@@ -18,11 +18,11 @@ import (
 // inheriteddelivery.go is the RECORD of what the macos-user launch delivered as the inherited user
 // config (inheritedCoreConfigDestination), and the admission that reads it (issue #70).
 //
-// WHY A RECORD AND NOT ONLY THE INODE. The installer delivers each overlay file as a hard link of the
-// sealed staged file and, when the link is refused, as a copy (linkOrCopyAt). A copy has an inode of
-// its own, and the overlay is re-staged with fresh inodes whenever its digest changes, so "is this
-// destination the file yolo delivered?" cannot be answered by os.SameFile alone: answered that way,
-// every relaunch after a copied delivery was refused as an owner file in the way.
+// WHY A RECORD. The installer delivers each overlay file as a copy of the sealed staged file, never a
+// hard link (copyFileAt, MMP-D35). A copy has an inode of its own, which the sandbox account could
+// have written as well as yolo, so "is this destination the file yolo delivered?" is answered by the
+// host's record of the bytes it staged: without one, every relaunch after a copied delivery was
+// refused as an owner file in the way.
 //
 // WHAT THE RECORD IS. A small JSON file, one per workspace session (cname), listing for each
 // home-relative inherited destination the sha256 content digests yolo staged for it: the body this
@@ -148,15 +148,16 @@ var errNotRecorded = errors.New("not a delivery the record lists")
 // by this installer's account or by the staged source's owner, whose content digest the record
 // lists for dest. The bytes are hashed through a descriptor opened without following a link, and
 // that descriptor's stat is what the replacement later compares the moved-aside file with.
+//
+// THE STAGED FILE ITSELF, under the destination's name, is admitted too, record or not, and never
+// as current: that is the hard link an earlier yolo delivered, which only the host user's sealed
+// staged file can be, and the install now replaces it with a copy of its own (MMP-D35).
 func admitRecordedInheritedDelivery(overlay, dest, src string, srcInfo os.FileInfo, dir *os.Root, base string) (recordedInheritedDelivery, error) {
 	srcOwner, ok := fileOwner(srcInfo)
 	if !ok {
 		return recordedInheritedDelivery{}, errNotRecorded
 	}
-	record, ok := readInheritedDeliveryRecord(overlay, srcOwner)
-	if !ok {
-		return recordedInheritedDelivery{}, errNotRecorded
-	}
+	record, recordOK := readInheritedDeliveryRecord(overlay, srcOwner)
 	parent, err := dir.Open(".")
 	if err != nil {
 		return recordedInheritedDelivery{}, err
@@ -177,7 +178,13 @@ func admitRecordedInheritedDelivery(overlay, dest, src string, srcInfo os.FileIn
 		return recordedInheritedDelivery{}, errNotRecorded
 	}
 	digest, err := openFileDigest(f)
-	if err != nil || !record.Admits(dest, digest) {
+	if err != nil {
+		return recordedInheritedDelivery{}, errNotRecorded
+	}
+	if os.SameFile(info, srcInfo) {
+		return recordedInheritedDelivery{info: info, digest: digest, current: false}, nil
+	}
+	if !recordOK || !record.Admits(dest, digest) {
 		return recordedInheritedDelivery{}, errNotRecorded
 	}
 	staged, err := os.ReadFile(src)

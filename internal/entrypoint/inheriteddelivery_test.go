@@ -6,12 +6,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"golang.org/x/sys/unix"
 )
 
 // inheriteddelivery_test.go pins the installer's half of issue #70: an inherited config delivered
-// as a COPY (the hard link refused) is admitted on the next install by the delivery record the host
+// as a COPY (every delivery is one, MMP-D35) is admitted on the next install by the delivery record the host
 // keeps in the staging root, and nothing short of that record admits one.
 
 // writeInheritedRecord seals a delivery record for overlay listing each body's digest at dest.
@@ -42,12 +40,6 @@ func writeInheritedRecord(t *testing.T, overlay, dest string, mode os.FileMode, 
 	return path
 }
 
-// refuseLinks makes the installer's hard links fail as the reporter's Seatbelt-confined one did.
-func refuseLinks(t *testing.T) {
-	t.Helper()
-	t.Cleanup(RefuseOverlayLinksForTest(unix.EPERM))
-}
-
 // writeOwnerFile replaces dest with a sealed file of the given bytes, as an agent could.
 func writeOwnerFile(t *testing.T, dest string, body []byte) os.FileInfo {
 	t.Helper()
@@ -74,11 +66,11 @@ func requireUntouched(t *testing.T, path string, before os.FileInfo, body []byte
 	}
 }
 
-// THE REPORTED RELAUNCH. The link is refused, so the first install copies, and says so in the boot
-// log; the second install finds a sealed copy whose bytes the record lists and keeps it. Before the
-// record, the second install refused the copy as "not the unchanged sealed hardlink".
+// THE REPORTED RELAUNCH. The first install delivers a sealed copy (MMP-D35) and says nothing about
+// it — a copy is the design, not a fallback; the second install finds a sealed copy whose bytes the
+// record lists and keeps it. Before the record, the second install refused the copy as "not the
+// unchanged sealed hardlink"; before MMP-D35, every boot logged the refused link.
 func TestInheritedCoreOverlayAdmitsARecordedCopiedDelivery(t *testing.T) {
-	refuseLinks(t)
 	f := newInheritedCoreOverlayFixture(t)
 	writeInheritedRecord(t, f.overlay, inheritedCoreOverlayTestDest, 0o444, inheritedCoreOverlayTestBody)
 	var log bytes.Buffer
@@ -88,11 +80,10 @@ func TestInheritedCoreOverlayAdmitsARecordedCopiedDelivery(t *testing.T) {
 	}
 	delivered := inheritedCoreOverlayEntryInfo(t, f.dest)
 	if os.SameFile(delivered, inheritedCoreOverlayEntryInfo(t, f.source)) || delivered.Mode().Perm() != 0o444 {
-		t.Fatalf("the refused link was not delivered as a sealed copy: %v", delivered)
+		t.Fatalf("the inherited config was not delivered as a sealed copy: %v", delivered)
 	}
-	line := "~/" + inheritedCoreOverlayTestDest + " was delivered as a copy"
-	if !strings.Contains(log.String(), line) || !strings.Contains(log.String(), unix.EPERM.Error()) {
-		t.Fatalf("the boot log does not name the copied destination and the link error:\n%s", log.String())
+	if strings.Contains(log.String(), "delivered as a copy") || strings.Contains(log.String(), "refused") {
+		t.Fatalf("the boot log reports the copy as a refused link:\n%s", log.String())
 	}
 	if err := f.install(); err != nil {
 		t.Fatalf("relaunch over the recorded copied delivery: %v", err)
@@ -100,10 +91,36 @@ func TestInheritedCoreOverlayAdmitsARecordedCopiedDelivery(t *testing.T) {
 	requireUntouched(t, f.dest, delivered, inheritedCoreOverlayTestBody)
 }
 
+// AN EARLIER YOLO'S HARD LINK IS REPLACED BY A COPY. Before MMP-D35 the inherited config could be
+// the sealed staged file itself under the destination's name. That is admitted with no record —
+// only the host user's staged file has that inode — and is swapped for a copy of its own, leaving
+// the staged file where it was.
+func TestInheritedCoreOverlayReplacesAnEarlierHardLinkWithACopy(t *testing.T) {
+	f := newInheritedCoreOverlayFixture(t)
+	if err := os.MkdirAll(filepath.Dir(f.dest), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(f.source, f.dest); err != nil {
+		t.Skipf("no hard links here: %v", err)
+	}
+	if err := f.install(); err != nil {
+		t.Fatalf("install over an earlier yolo's hard link: %v", err)
+	}
+	delivered := inheritedCoreOverlayEntryInfo(t, f.dest)
+	source := inheritedCoreOverlayEntryInfo(t, f.source)
+	got, err := os.ReadFile(f.dest)
+	if err != nil || !bytes.Equal(got, inheritedCoreOverlayTestBody) || os.SameFile(delivered, source) ||
+		delivered.Mode().Perm() != 0o444 {
+		t.Fatalf("the hard link was not replaced by a sealed copy: %v (body %q, err %v)", delivered, got, err)
+	}
+	if source.Mode().Perm() != 0o444 {
+		t.Fatalf("the staged source changed: %v", source)
+	}
+}
+
 // A RE-STAGED OVERLAY REPLACES THE RECORDED PREVIOUS DELIVERY: the host lists the previous body's
 // digest beside the new one, and the installer swaps the old copy for the new body.
 func TestInheritedCoreOverlayReplacesARecordedPreviousDelivery(t *testing.T) {
-	refuseLinks(t)
 	f := newInheritedCoreOverlayFixture(t)
 	old := []byte("previous inherited config\n")
 	writeOwnerFile(t, f.dest, old)
@@ -142,7 +159,6 @@ func TestInheritedCoreOverlayRefusesWhatTheRecordDoesNotAdmit(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			refuseLinks(t)
 			f := newInheritedCoreOverlayFixture(t)
 			tc.record(t, f)
 			before := writeOwnerFile(t, f.dest, tc.body)
@@ -161,7 +177,6 @@ func TestInheritedCoreOverlayRefusesWhatTheRecordDoesNotAdmit(t *testing.T) {
 // A RECORDED DELIVERY SWAPPED FOR THE AGENT'S OWN FILE after the check is not replaced: the move
 // aside is checked against the file that was hashed, and the agent's file is put back.
 func TestInheritedCoreOverlayKeepsAnOwnerFileSwappedInAfterTheRecordCheck(t *testing.T) {
-	refuseLinks(t)
 	f := newInheritedCoreOverlayFixture(t)
 	old := []byte("previous inherited config\n")
 	writeOwnerFile(t, f.dest, old)
@@ -187,7 +202,6 @@ func TestInheritedCoreOverlayKeepsAnOwnerFileSwappedInAfterTheRecordCheck(t *tes
 // inode number (ext4, as on CI), the remove-and-recreate swap above produces exactly this, so the
 // installer must re-check the content of what it moved aside, not only its identity.
 func TestInheritedCoreOverlayKeepsAnOwnerRewriteInPlaceAfterTheRecordCheck(t *testing.T) {
-	refuseLinks(t)
 	f := newInheritedCoreOverlayFixture(t)
 	old := []byte("previous inherited config\n")
 	writeOwnerFile(t, f.dest, old)

@@ -61,7 +61,8 @@ func (f overlayFixture) stage(t *testing.T) {
 }
 
 // restage replaces the overlay with a fresh copy of the same content, as the host's re-staging
-// does (a new sealed tree, never an edit in place), so the next install has new inodes to deliver.
+// does (a new sealed tree, never an edit in place): new staged inodes, the same bytes, so the
+// delivered copies still match it (MMP-D35).
 func (f overlayFixture) restage(t *testing.T) {
 	t.Helper()
 	if err := os.RemoveAll(f.overlay); err != nil {
@@ -71,6 +72,15 @@ func (f overlayFixture) restage(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.stage(t)
+}
+
+// restageChanged is restage with new bytes in both destinations, so the next install has a
+// replacement to build for each.
+func (f overlayFixture) restageChanged(t *testing.T) {
+	t.Helper()
+	f.restage(t)
+	writeTreeFile(t, filepath.Join(f.overlay, ".pi", "agent", "skills", "demo", "SKILL.md"), "a re-staged skill")
+	writeTreeFile(t, filepath.Join(f.overlay, ".pi", "agent", "AGENTS.md"), "a re-staged briefing")
 }
 
 func (f overlayFixture) install(t *testing.T) error {
@@ -203,8 +213,8 @@ func TestOverlayInstallFailureKeepsThePreviousDeliveryWhole(t *testing.T) {
 	if err := syscall.Mkfifo(filepath.Join(f.overlay, ".pi", "agent", "skills", "demo", "pipe"), 0o644); err != nil {
 		t.Skipf("cannot make a FIFO here: %v", err)
 	}
-	// A NEW file, as a re-staged tree carries: the delivered SKILL.md is a hard link of the staged
-	// one, and the host never edits a staged file in place.
+	// NEW bytes, as a re-staged tree carries, so the delivered copy of SKILL.md no longer matches the staged
+	// one and the install must build a replacement (the host never edits a staged file in place).
 	staged := filepath.Join(f.overlay, ".pi", "agent", "skills", "demo", "SKILL.md")
 	if err := os.Remove(staged); err != nil {
 		t.Fatal(err)
@@ -586,9 +596,9 @@ func TestOverlayInstallStaysInsideTheJailWhenADirectoryIsSwappedMidInstall(t *te
 				if err := f.install(t); err != nil {
 					t.Fatal(err)
 				}
-				// And this launch re-staged, so the install has a replacement to build: an
+				// And this launch re-staged NEW content, so the install has a replacement to build: an
 				// unchanged delivery is left in place and reaches no window past "opened".
-				f.restage(t)
+				f.restageChanged(t)
 				state := f.agentState(t)
 				outside := filepath.Join(t.TempDir(), "another-workspace", "pi-agent")
 				writeTreeFile(t, filepath.Join(outside, "skills", "theirs", "SKILL.md"), "someone else's")
@@ -760,7 +770,7 @@ func TestOverlayInstallLeavesAChangedDroppedDestinationAndNamesIt(t *testing.T) 
 		t.Fatal(err)
 	}
 	briefing := filepath.Join(f.home, ".pi", "agent", "AGENTS.md")
-	if err := os.Remove(briefing); err != nil { // a hard link of the sealed staged file
+	if err := os.Remove(briefing); err != nil { // a copy of the sealed staged file
 		t.Fatal(err)
 	}
 	writeTreeFile(t, briefing, "my own notes")

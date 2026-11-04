@@ -109,8 +109,8 @@ func TestMacosUserAccountRelaunchKeepsDeliveredInheritedJSONC(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if before.Mode().Perm() != 0o444 || !os.SameFile(before, overlayFileInfo(t, filepath.Join(sealed, filepath.FromSlash(inheritPreflightLegacyRel)))) {
-		t.Fatal("first install did not hardlink the sealed 0444 inherited snapshot")
+	if before.Mode().Perm() != 0o444 || os.SameFile(before, overlayFileInfo(t, filepath.Join(sealed, filepath.FromSlash(inheritPreflightLegacyRel)))) {
+		t.Fatal("first install did not deliver a sealed 0444 copy of the inherited snapshot (MMP-D35: a copy, never a hard link)")
 	}
 	rc, stderr := launch()
 	after := overlayFileInfo(t, delivered)

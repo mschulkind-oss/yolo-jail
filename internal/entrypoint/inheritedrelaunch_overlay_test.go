@@ -66,8 +66,12 @@ func inheritedCoreOverlayEntryInfo(t *testing.T, name string) os.FileInfo {
 	return info
 }
 
-func TestInheritedCoreOverlayReusesTheUnchangedHardlinkWithoutWriting(t *testing.T) {
+// AN UNCHANGED RELAUNCH KEEPS THE DELIVERED COPY (MMP-D35): the first install copies the sealed
+// staged file, and the second, finding the bytes the host's record lists, builds nothing and leaves
+// the same inode in place.
+func TestInheritedCoreOverlayReusesTheUnchangedCopyWithoutWriting(t *testing.T) {
 	f := newInheritedCoreOverlayFixture(t)
+	writeInheritedRecord(t, f.overlay, inheritedCoreOverlayTestDest, 0o444, inheritedCoreOverlayTestBody)
 	staged := 0
 	withOverlayInstallHook(t, func(dest, window string) {
 		if dest == inheritedCoreOverlayTestDest && window == "staged" {
@@ -79,8 +83,8 @@ func TestInheritedCoreOverlayReusesTheUnchangedHardlinkWithoutWriting(t *testing
 	}
 	before := inheritedCoreOverlayEntryInfo(t, f.dest)
 	source, err := os.Lstat(f.source)
-	if err != nil || !os.SameFile(before, source) || before.Mode().Perm() != 0o444 {
-		t.Fatalf("first install is not the sealed source hardlink: source %v, destination %v, err %v", source, before, err)
+	if err != nil || os.SameFile(before, source) || before.Mode().Perm() != 0o444 {
+		t.Fatalf("first install is not a sealed copy of the source: source %v, destination %v, err %v", source, before, err)
 	}
 	if staged != 1 {
 		t.Fatalf("first install staged %d times, want 1", staged)
