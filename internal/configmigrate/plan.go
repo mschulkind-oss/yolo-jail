@@ -33,6 +33,8 @@ type Target struct {
 	Respelled []string
 	// Dropped are the written values left out because they are the default.
 	Dropped []DroppedDefault
+	// Inert are the old keys converted to nothing because no launch reads them.
+	Inert []DroppedInert
 	// Folded are the facts every model row of a provider repeated, written once in its
 	// `every_model` (models.go).
 	Folded []FoldedFact
@@ -265,6 +267,7 @@ func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 	packs := packload.Embedded()
 	remotes := workspaceRemotes(g.Request.Workspace)
 	view := userViewOf(g)
+	view.needed = neededPacks(view.packs, packs)
 	planLoopholeGrants(g, view, packs)
 	p.Carries = view.grants.carries
 	newBytes := map[*File][]byte{}
@@ -429,6 +432,7 @@ func convertFile(f *File, remotes []string, view *userView, writers writerCounts
 		return Target{}, nil, err
 	}
 	t.Bytes, t.Comments, t.Respelled, t.Dropped, t.Folded, t.Twins = data, len(comments), respelled, dropped, folded, l.twins
+	t.Inert = l.inert
 	t.Unaliased = unaliasedProviders(l.values, l.variants)
 	return t, l.skipped, nil
 }

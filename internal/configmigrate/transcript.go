@@ -37,6 +37,9 @@ func (p *MigrationPlan) Transcript() string {
 		for _, d := range t.Dropped {
 			fmt.Fprintf(&b, "  %q: %s dropped: it is the default\n", d.Path, d.Value)
 		}
+		for _, d := range t.Inert {
+			fmt.Fprintf(&b, "  %q: %s dropped: %s\n", d.Path, d.Value, d.Why)
+		}
 		for _, f := range t.Folded {
 			fmt.Fprintf(&b, "  %q: written on each of %d models, folded into one\n", f.Path, f.Rows)
 		}

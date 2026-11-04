@@ -135,3 +135,23 @@ func TestCheckDoesNotWarnLoginPackWithoutProfileInAJail(t *testing.T) {
 		t.Errorf("in-jail check warned about a profile it cannot see: failed=%d warned=%d\n%s", r.failed, r.warned, buf.String())
 	}
 }
+
+// TestCheckFailsAMisspelledOffSwitch: `yolo check` fails a non-boolean `off` and an `off` under a
+// pack with no off-switch loophole, never offers to add a pack for them, and names the fix.
+func TestCheckFailsAMisspelledOffSwitch(t *testing.T) {
+	user := nudgeUser(map[string]map[string]any{"claude": {"off": true}, "aws-auth": {"profile": "dev", "off": "yes"}})
+	o, r, buf := nudgeOptions([]string{"claude", "aws-auth"}, "y\n", func(string) error {
+		t.Error("an off-switch finding offered `yolo pack add`")
+		return nil
+	})
+	o.sectionPackNudge(r, user, nil)
+	out := buf.String()
+	for _, want := range []string{"allow.claude.off: claude has no loophole an off switch turns off", "allow.aws-auth.off: expected true or false"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
+	}
+	if r.failed != 2 || strings.Contains(out, "[y/N]") {
+		t.Errorf("failed = %d, want 2, and no question:\n%s", r.failed, out)
+	}
+}

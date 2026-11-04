@@ -3,6 +3,7 @@ package check
 import (
 	"errors"
 	"fmt"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"net"
 	"path/filepath"
 	"strconv"
@@ -127,8 +128,11 @@ func (o *Options) checkLoopholes(r *reporter) {
 		lp := e.Loophole
 		if sw, wsScoped := switches[lp.Name]; wsScoped {
 			if _, decided := wsFile.LoopholeSwitch(lp.Name); !decided {
-				r.warn("loophole "+lp.Name+": `enabled` in "+sw.File+" switches nothing",
-					config.SwitchesNothingDisclosure(lp.Name, sw.File))
+				title := "loophole " + lp.Name + ": `enabled` in " + sw.File + " switches nothing"
+				if loopholedecl.HasOffSwitch(lp.Name) {
+					title = "loophole " + lp.Name + ": `enabled` in " + sw.File
+				}
+				r.warn(title, config.WorkspaceSwitchDisclosure(lp.Name, sw.File, sw.Enabled))
 			}
 		}
 		if !lp.Enabled {

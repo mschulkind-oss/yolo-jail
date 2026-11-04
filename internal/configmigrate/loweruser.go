@@ -17,7 +17,10 @@ import (
 // settings need (config.jsonc), the profiles a selection names (work.jsonc), the provider a
 // profile picks. It is built once from what the readers made of the old user files.
 type userView struct {
-	packs    map[string]bool
+	packs map[string]bool
+	// needed is the shipped packs a listed pack's `needs` selects (neededPacks): a loophole of one
+	// runs as a listed pack's does.
+	needed   map[string]bool
 	profiles *jsonx.OrderedMap
 	// enabled is each loophole's merged `enabled` value, when one file wrote it.
 	enabled map[string]any
@@ -202,6 +205,8 @@ func lowerLoopholes(value any, ctx loweringContext, place func([]string, any, []
 			switch key {
 			case "enabled":
 				switch {
+				case v == false && offSwitch && !view.packs[offPack] && !view.needed[offPack]:
+					ctx.drop(oldPath, v, "no selected pack runs "+name+", so it is off without the key")
 				case v == false && offSwitch:
 					if !place([]string{"allow", offPack, loopholedecl.AllowOffKey}, true, oldPath) {
 						skip(oldPath, v, "allow."+offPack+"."+loopholedecl.AllowOffKey+" is already written in this file")
@@ -503,4 +508,33 @@ func selectionValue(view *userView, v any) (any, string) {
 		return out, ""
 	}
 	return nil, "a profile selection is a profile name, a list of them, or null"
+}
+
+// neededPacks is the shipped packs the listed ones' `needs` add (packload.ResolveNeeds), by name.
+func neededPacks(listed map[string]bool, shipped []*packload.Pack) map[string]bool {
+	out := map[string]bool{}
+	byName := map[string]*packload.Pack{}
+	for _, p := range shipped {
+		if p != nil && p.Decl != nil {
+			byName[p.Name] = p
+		}
+	}
+	var selected []*packload.Pack
+	for name := range listed {
+		if p := byName[name]; p != nil {
+			selected = append(selected, p)
+		}
+	}
+	sort.Slice(selected, func(i, j int) bool { return selected[i].Name < selected[j].Name })
+	added, _, err := packload.ResolveNeeds(selected, func(name string) (*packload.Pack, bool) {
+		p, ok := byName[name]
+		return p, ok
+	})
+	if err != nil {
+		return out
+	}
+	for _, p := range added {
+		out[p.Name] = true
+	}
+	return out
 }

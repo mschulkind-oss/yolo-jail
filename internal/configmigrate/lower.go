@@ -58,6 +58,8 @@ const convertLaterKey = "convert_later"
 // loweringContext is what the lowering of one scope needs beyond the values.
 type loweringContext struct {
 	scope Scope
+	// drop records an old key the lowering converts to nothing (lowered.inert); lower sets it.
+	drop func(path []string, value any, why string)
 	// remotes are the workspace's remote repositories as host/owner/repo, lowercased, each once.
 	remotes []string
 	// keepUnconverted keeps every old key the lowering cannot convert at its old spelling (the
@@ -81,7 +83,9 @@ type lowered struct {
 	values  *jsonx.OrderedMap
 	origins map[string][]string
 	skipped []NotConverted
-	twins   []Twin
+	// inert are the old keys converted to nothing because they say nothing a launch reads.
+	inert []DroppedInert
+	twins []Twin
 	// variants are the (provider, variant) pairs lowerProfiles wrote, in order (RC-D62).
 	variants [][2]string
 }
@@ -134,6 +138,9 @@ func lower(old *jsonx.OrderedMap, ctx loweringContext, file string) lowered {
 		if ctx.keepUnconverted {
 			put(out.values, path, value)
 		}
+	}
+	ctx.drop = func(path []string, value any, why string) {
+		out.inert = append(out.inert, DroppedInert{Path: dotted(path), Value: describe(value), Why: why})
 	}
 	place := func(newPath []string, value any, oldPath []string) bool {
 		if _, present := get(out.values, newPath); present {

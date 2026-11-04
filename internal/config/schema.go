@@ -222,6 +222,9 @@ func ReadableSchemaKeys() []SchemaKey {
 		{Path: "allow.*.always.*", Scope: user, Type: SchemaTypeString},
 		{Path: "allow.*.on_request", Scope: user, Type: SchemaTypeList},
 		{Path: "allow.*.on_request.*", Scope: user, Type: SchemaTypeString},
+		// The off switch of a pack's off-switch loophole (docs/design/legacy-config-compat.md
+		// LC-D3); a pack that ships none is refused for it (AllowNudgeOffNoSwitch).
+		{Path: "allow.*.off", Scope: user, Type: SchemaTypeBoolean},
 		{Path: "allow.*.*", Scope: user, Type: SchemaTypeAny},
 		{Path: "requests", Scope: workspace, Type: SchemaTypeObject},
 		{Path: "requests.*", Scope: workspace, Type: SchemaTypeObject},
@@ -484,7 +487,7 @@ func legacySchemaType(path string) SchemaType {
 		"devices", "packages.*.outputs", "packages.*.platforms", "host_path", "host_files":
 		return SchemaTypeList
 	case "mounts.*.optional", "programs.autoprune", "programs.overrides.*.prebuilt", "profiles.*.enforce_models",
-		"gpu.enabled", "gpu.seccomp_unconfined", "gpu.vaapi", "providers.*.models.*.reasoning":
+		"gpu.enabled", "gpu.seccomp_unconfined", "gpu.vaapi", "providers.*.models.*.reasoning", "loopholes.*.enabled":
 		return SchemaTypeBoolean
 	case "providers.*.models.*.context_window", "providers.*.models.*.max_tokens",
 		"providers.*.models.*.cost.input", "providers.*.models.*.cost.output",

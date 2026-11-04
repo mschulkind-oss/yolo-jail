@@ -2,6 +2,7 @@ package configmigrate
 
 import (
 	"fmt"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"os"
 	"path/filepath"
 	"sort"
@@ -423,6 +424,15 @@ func lowerProjectLoopholes(value any, ctx loweringContext, place func([]string, 
 		entryValue, _ := table.Get(name)
 		d, declared := gv.decl(name)
 		entry, isMap := entryValue.(*jsonx.OrderedMap)
+		if isMap && entry.Len() == 1 && loopholedecl.HasOffSwitch(name) {
+			if v, _ := entry.Get("enabled"); v == true {
+				// LC-D3: a project's `enabled: true` on an off-switch loophole turns nothing on (it
+				// runs when its pack is selected, and the user's off is the user's to lift), so it
+				// converts to nothing. Its `enabled: false` waits for the project's `off`.
+				ctx.drop([]string{"loopholes", name, "enabled"}, v, name+" runs whenever its pack is selected, and a project cannot lift the user's off, so the key turns nothing on")
+				continue
+			}
+		}
 		if !declared || !isMap {
 			rest.Set(name, entryValue)
 			continue

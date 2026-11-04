@@ -48,7 +48,7 @@ func (o *Options) sectionPackNudge(r *reporter, user *jsonx.OrderedMap, src *con
 		switch n.Kind {
 		case config.AllowNudgeLoginNoProfile:
 			r.warn(msg, step)
-		case config.AllowNudgeUnknown:
+		case config.AllowNudgeUnknown, config.AllowNudgeOffNotBool, config.AllowNudgeOffNoSwitch:
 			r.fail(msg, step)
 		default:
 			r.line(fmt.Sprintf("%s: [allow.%s] is set, but %s is not in packs.", n.Location, termsafe.Visible(n.Table), n.Pack))

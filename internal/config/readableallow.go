@@ -1534,6 +1534,12 @@ const (
 	// AllowNudgeLoginNoProfile: a listed login pack whose table names no profile. A warning: the
 	// pack installs and its service serves nothing.
 	AllowNudgeLoginNoProfile AllowNudgeKind = "login-no-profile"
+	// AllowNudgeOffNotBool: `off` under a pack's table is not true or false, so it keeps nothing
+	// off (docs/design/legacy-config-compat.md LC-D3). An error.
+	AllowNudgeOffNotBool AllowNudgeKind = "off-not-bool"
+	// AllowNudgeOffNoSwitch: `off` under a pack that ships no off-switch loophole, which it turns
+	// off nothing in. An error; Closest is the needed pack whose table takes it, if one does.
+	AllowNudgeOffNoSwitch AllowNudgeKind = "off-no-switch"
 )
 
 // AllowNudge is one finding of AllowPackNudges (docs/design/config-user.md §7).
@@ -1557,6 +1563,10 @@ func (n AllowNudge) Problem() string {
 		return fmt.Sprintf("%s: allow.%s names a pack that is not selected.", n.Location, n.Table)
 	case AllowNudgeUnknown:
 		return fmt.Sprintf("%s: allow.%s: no such pack.", n.Location, n.Table)
+	case AllowNudgeOffNotBool:
+		return fmt.Sprintf("%s: allow.%s.off: expected true or false, so it keeps nothing off.", n.Location, n.Table)
+	case AllowNudgeOffNoSwitch:
+		return fmt.Sprintf("%s: allow.%s.off: %s has no loophole an off switch turns off.", n.Location, n.Table, n.Pack)
 	default:
 		return fmt.Sprintf("%s: packs lists %s, but [allow.%s] names no %s, so it serves nothing.",
 			n.Location, n.Pack, n.Pack, n.Setting)
@@ -1573,6 +1583,16 @@ func (n AllowNudge) NextStep() string {
 			return "`yolo pack ls` lists the packs yolo ships; name one, or delete the table."
 		}
 		return "Did you mean " + n.Closest + "? Rename the table heading, or delete it."
+	case AllowNudgeOffNotBool:
+		return "Write `off = true` to keep it off, or delete the line to let it run."
+	case AllowNudgeOffNoSwitch:
+		// A hand fix, not a `yolo config` verb: an edit refuses a user config holding a table
+		// that names no declared pack, which is what this one is once `off` leaves it.
+		if n.Closest != "" {
+			return fmt.Sprintf("%s, which a listed pack needs, has one: move the line under [allow.%s], and delete [allow.%s] if it is then empty.",
+				n.Closest, n.Closest, n.Table)
+		}
+		return fmt.Sprintf("Delete the line, and [allow.%s] if it is then empty.", n.Table)
 	default:
 		return fmt.Sprintf("Set one: yolo config set allow.%s.%s <value>", n.Pack, n.Setting)
 	}
@@ -1627,6 +1647,8 @@ func AllowPackNudges(user *jsonx.OrderedMap, userSrc *Sources, facts AllowPackFa
 			out = append(out, AllowNudge{Kind: AllowNudgeUnknown, Table: name, Closest: closestAllowName(name, known), Location: locate("allow." + name)})
 		case !selected[pack]:
 			out = append(out, AllowNudge{Kind: AllowNudgeUnselected, Table: name, Pack: pack, Location: locate("allow." + name)})
+		default:
+			out = append(out, offSwitchNudges(allow, name, pack, facts.Needed, locate)...)
 		}
 	}
 	// In a jail the user scope is the inherited copy, which never carries `allow` (it is the
@@ -1654,6 +1676,36 @@ func AllowPackNudges(user *jsonx.OrderedMap, userSrc *Sources, facts AllowPackFa
 		out = append(out, AllowNudge{Kind: AllowNudgeLoginNoProfile, Pack: pack, Table: pack, Setting: setting, Location: locate("packs")})
 	}
 	return out
+}
+
+// offSwitchNudges is the findings for an `off` key in the selected pack's `allow.<table>` table:
+// it must be a boolean, and the pack must ship an off-switch loophole (loopholedecl.HasOffSwitch's
+// set) for it to turn anything off. AllowOff reads anything else as not off, so the launch refuses
+// it rather than run what the file says is off.
+func offSwitchNudges(allow *jsonx.OrderedMap, table, pack string, needed []string, locate func(string) string) []AllowNudge {
+	entry, _ := asMap(readableValue(allow, table))
+	if entry == nil {
+		return nil
+	}
+	v, has := entry.Get(loopholedecl.AllowOffKey)
+	if !has {
+		return nil
+	}
+	at := locate("allow." + table + "." + loopholedecl.AllowOffKey)
+	if len(loopholedecl.OffSwitchLoopholesOf(pack)) == 0 {
+		closest := ""
+		for _, n := range needed {
+			if len(loopholedecl.OffSwitchLoopholesOf(n)) > 0 {
+				closest = n
+				break
+			}
+		}
+		return []AllowNudge{{Kind: AllowNudgeOffNoSwitch, Table: table, Pack: pack, Closest: closest, Location: at}}
+	}
+	if _, isBool := v.(bool); !isBool {
+		return []AllowNudge{{Kind: AllowNudgeOffNotBool, Table: table, Pack: pack, Location: at}}
+	}
+	return nil
 }
 
 func closestAllowName(name string, known []string) string {

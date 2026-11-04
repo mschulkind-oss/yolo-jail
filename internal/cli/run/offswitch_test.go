@@ -123,7 +123,7 @@ func TestOffSwitchStartsNoHostService(t *testing.T) {
 	}
 	stderr.Reset()
 	o.noteLoopholesOff(tomlOff)
-	if !strings.Contains(stderr.String(), "your config sets `allow.aws-auth.off = true`") ||
+	if !strings.Contains(stderr.String(), "your user config sets `allow.aws-auth.off = true`") ||
 		!strings.Contains(stderr.String(), "`yolo config unset allow.cgroup-delegate.off`") {
 		t.Errorf("the launch does not disclose the TOML off switch by its key:\n%s", stderr.String())
 	}

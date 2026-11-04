@@ -3,6 +3,7 @@ package config
 import (
 	"bytes"
 	"fmt"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"os"
 	"path/filepath"
 	"strings"
@@ -177,6 +178,9 @@ func resolveEditTarget(workspace string, intent EditMutationIntent, choice EditT
 		parts[i] = step.Key
 	}
 	rule, ok := readableEditTargetRule(parts)
+	if !ok && intent.Kind == EditMutationRemove {
+		rule, ok = legacyOffSwitchRule(parts)
+	}
 	if !ok {
 		return ResolvedEditTarget{}, fmt.Errorf("config key %s has no readable schema target%s", strings.Join(parts, "."), renamedKeyHint(parts))
 	}
@@ -799,4 +803,16 @@ func roleName(scope ExplicitEditScope) string {
 	default:
 		return "unknown"
 	}
+}
+
+// legacyOffSwitchRule is the edit rule for removing a legacy `loopholes.<name>.enabled` of an
+// off-switch loophole (docs/design/legacy-config-compat.md LC-D3), the switch a legacy JSONC file
+// keeps the loophole off with and the key the launch's disclosure names to turn it back on. Only
+// removal: the key has no TOML spelling (that is `allow.<pack>.off`), and a TOML file never holds
+// it, so the unset of a TOML target finds no rule there and refuses as before.
+func legacyOffSwitchRule(parts []string) (SchemaKey, bool) {
+	if len(parts) != 3 || parts[0] != "loopholes" || parts[2] != "enabled" || !loopholedecl.HasOffSwitch(parts[1]) {
+		return SchemaKey{}, false
+	}
+	return SchemaKey{Path: "loopholes.*.enabled", Scope: SchemaScopeBoth, Type: SchemaTypeBoolean}, true
 }

@@ -460,7 +460,7 @@ func loopholeScopeEnableProblems(name string, entries []wsLoopholeEntry, install
 	}
 	file := at.file
 	if manifestBacked {
-		return "", at.locate(SwitchesNothingDisclosure(name, file))
+		return "", at.locate(WorkspaceSwitchDisclosure(name, file, *enabled))
 	}
 	if *enabled && !installed {
 		return at.locate("config.loopholes." + name + ": " + file + " enables a loophole that is " +
@@ -488,6 +488,27 @@ func SwitchesNothingDisclosure(name, file string) string {
 		pytext.Repr(name) + " runs whenever its pack is selected and grants nothing until a grant " +
 		"covers the project. Remove the key; to give this project access, run `yolo request " +
 		name + " <kind>` here."
+}
+
+// WorkspaceSwitchDisclosure is the line for a `loopholes.<name>.enabled: <enabled>` key in an
+// agent-editable workspace file when name is a pack's loophole. An off-switch loophole's
+// (docs/design/legacy-config-compat.md LC-D3) `false` is honored, for this workspace, and its
+// `true` lifts nothing the user scope keeps off; every other pack loophole's key switches nothing
+// (SwitchesNothingDisclosure). The launch and `yolo check` both print it.
+func WorkspaceSwitchDisclosure(name, file string, enabled bool) string {
+	if !loopholedecl.HasOffSwitch(name) {
+		return SwitchesNothingDisclosure(name, file)
+	}
+	if !enabled {
+		return "config.loopholes." + name + ".enabled: false in " + file + " keeps the loophole " +
+			pytext.Repr(name) + " off for jails launched from this workspace: they start nothing for " +
+			"it, and nothing it serves reaches them. To run it here, remove the key."
+	}
+	pack, _ := loopholedecl.OffSwitchPack(name)
+	return "config.loopholes." + name + ".enabled: true in " + file + " cannot turn the loophole " +
+		pytext.Repr(name) + " on: it runs whenever its pack is selected, and an off the user scope " +
+		"sets (`enabled: false`, or `off = true` under [allow." + pack +
+		"]) is the user's to lift, never a workspace file's. Remove the key."
 }
 
 // workspaceSwitchesOn is whether the workspace files' deciding `enabled` (the last one written,

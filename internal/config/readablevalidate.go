@@ -7,6 +7,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/configdoc"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/termsafe"
 )
 
@@ -44,7 +45,7 @@ func firstReadableTOMLViolation(values *jsonx.OrderedMap, scope SchemaScope) *re
 				return refuse(path, locationPath, readableUnknownMessage(path))
 			}
 			if !readableTypeMatches(rule.Type, value, rule.Removal) && !readableLegacyShapeAccepted(path, value) {
-				return refuse(path, locationPath, fmt.Sprintf("expected %s (got %s)", schemaTypeName(rule.Type), reprAny(value)))
+				return refuse(path, locationPath, fmt.Sprintf("expected %s (got %s)", schemaTypeName(rule.Type), reprAny(value))+readableTypeNextStep(path))
 			}
 			userOnly := rule.Scope == SchemaScopeUserOnly || (len(path) == 1 && WorkspaceUserScopeOnlyKey(path[0]))
 			if scope == SchemaScopeWorkspaceOnly && userOnly {
@@ -199,6 +200,18 @@ func readableTypeMatches(typ SchemaType, value any, removal RemovalPolicy) bool 
 	default:
 		return false
 	}
+}
+
+// readableTypeNextStep is the fix a wrongly typed key's refusal names, where one key's is not
+// already its type: an off switch that is not a boolean keeps nothing off
+// (docs/design/legacy-config-compat.md LC-D3).
+func readableTypeNextStep(path []string) string {
+	if len(path) == 3 && path[0] == "allow" && path[2] == loopholedecl.AllowOffKey {
+		// No `yolo config` verb is named: an edit reads the file first and refuses it for this
+		// same value.
+		return "; write `off = true` to keep the pack's loophole off, or delete the line to let it run"
+	}
+	return ""
 }
 
 func schemaTypeName(typ SchemaType) string {
