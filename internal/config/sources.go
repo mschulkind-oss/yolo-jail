@@ -302,13 +302,17 @@ func (s *Sources) node() *srcNode {
 	return s.root
 }
 
-// MergeConfigWithSources is MergeConfig over two configs and their provenance: the merged
-// config, which is exactly MergeConfig's, and where each of its values was written. Either
-// Sources may be nil (a config with no record), and the values it contributed are then
-// unattributed.
+// MergeConfigWithSources is MergeConfig of a USER scope (base) under a WORKSPACE scope
+// (override), with their provenance: the merged config, and where each of its values was
+// written. It is MergeConfig's merge plus the one step the launch's loader adds between those
+// two scopes, keepUserOffSwitchesOff (a legacy user `enabled: false` on an off-switch loophole
+// stays off whatever the workspace writes there, LC-D3), so `yolo check` predicts the config the
+// launch runs. Either Sources may be nil (a config with no record), and the values it
+// contributed are then unattributed.
 func MergeConfigWithSources(base *jsonx.OrderedMap, baseSrc *Sources, override *jsonx.OrderedMap,
 	overrideSrc *Sources) (*jsonx.OrderedMap, *Sources) {
 	merged, node := mergeConfig(base, override, baseSrc.node(), overrideSrc.node())
+	keepUserOffSwitchesOff(merged, node, base, baseSrc.node())
 	return merged, sourcesOf(node)
 }
 

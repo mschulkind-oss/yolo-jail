@@ -7,6 +7,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -95,7 +96,13 @@ func activationNextSteps(diffs []Difference) []Difference {
 		if !ok {
 			continue
 		}
+		pack, offSwitch := loopholedecl.OffSwitchPack(name)
 		switch {
+		case field == "enabled" && d.After == "true" && offSwitch:
+			// An off-switch loophole runs whenever its pack is selected (LC-D3), so the old file
+			// keeps it off with a switch, and no "enabled": true runs it.
+			diffs[i].Next = "the converted config runs " + name + " because its pack is selected, and the old one keeps it off; write `off = true` under [allow." + pack +
+				"] in the TOML user config to keep it off, or remove the `\"enabled\": false` that keeps it off in the old file to let it run, then run `yolo config migrate` again"
 		case field == "enabled" && d.After == "true":
 			diffs[i].Next = "the converted config runs " + name + " because its pack is selected, and the old one does not; add \"enabled\": true under loopholes." + name +
 				" in the old file to keep it running, or remove \"" + name + "\" from packs to keep it off, then run `yolo config migrate` again"

@@ -58,7 +58,6 @@ func TestConfigMigrateConvertsLoopholeSettingsToAllow(t *testing.T) {
 func TestConfigMigrateLoopholeRefusalsNameTheNextStep(t *testing.T) {
 	for _, tc := range []struct{ name, old, want string }{
 		{"pack not listed", `{"loopholes": {"aws-auth": {"enabled": true, "settings": {"profile": "sso"}}}}`, "yolo pack add aws-auth"},
-		{"switched off", `{"packs": ["aws-auth"], "loopholes": {"aws-auth": {"enabled": false}}}`, `remove "aws-auth" from packs`},
 		{"settings without enabled", `{"packs": ["aws-auth"], "loopholes": {"aws-auth": {"settings": {"profile": "sso"}}}}`, `Set "enabled": true`},
 		{"declared here", `{"loopholes": {"mine": {"command": ["x"]}}}`, "yolo pack init"},
 		// A grant-declaring loophole converts to its grants (configmigrate.TestLegacyLoopholeEnabledMigratesToAllowAndRequests); one that declares none and does not run on selection keeps its old file.
@@ -189,5 +188,14 @@ func TestConfigMigrateMovesALinkAndLeavesItsTarget(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(target); string(b) != `{"packs": []}` {
 		t.Fatalf("the link's target changed: %q", b)
+	}
+}
+
+// An off-switch loophole's `enabled: false` converts, through the verb, to its pack's `off = true`
+// (docs/design/legacy-config-compat.md LC-D3), where it used to be refused.
+func TestConfigMigrateConvertsAnOffSwitch(t *testing.T) {
+	rc, toml, out := migrateUser(t, `{"packs": ["aws-auth"], "loopholes": {"aws-auth": {"enabled": false}}}`)
+	if rc != 0 || !strings.Contains(toml, "[allow.aws-auth]\noff = true") || strings.Contains(toml, "loopholes") {
+		t.Fatalf("rc=%d, converted file:\n%s\n%s", rc, toml, out)
 	}
 }

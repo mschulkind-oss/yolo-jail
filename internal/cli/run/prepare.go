@@ -124,8 +124,8 @@ func (o *Options) refreshJailBriefingsMode(cname string, cfg *jsonx.OrderedMap, 
 	// feature; it plans around one it does not have.
 	var loops []jailcontent.Loophole
 	if backendInertReason(rt) == "" {
-		loops = briefingLoopholes(cfgMap(cfg, "loopholes"), o.loopholeGrantStandings(rt, cfg))
-		availableSwitches := mechanicsLoopholeSwitches(cfgMap(cfg, "loopholes"), staged.packs)
+		loops = briefingLoopholes(loopholes.LaunchBlock(cfg), o.loopholeGrantStandings(rt, cfg))
+		availableSwitches := mechanicsLoopholeSwitches(loopholes.LaunchBlock(cfg), staged.packs)
 		for i := range loops {
 			loops[i].SwitchAvailable = availableSwitches[loops[i].Name]
 		}

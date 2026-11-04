@@ -7,6 +7,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
@@ -16,7 +17,10 @@ import (
 // settings need (config.jsonc), the profiles a selection names (work.jsonc), the provider a
 // profile picks. It is built once from what the readers made of the old user files.
 type userView struct {
-	packs    map[string]bool
+	packs map[string]bool
+	// needed is the shipped packs a listed pack's `needs` selects (neededPacks): a loophole of one
+	// runs as a listed pack's does.
+	needed   map[string]bool
 	profiles *jsonx.OrderedMap
 	// enabled is each loophole's merged `enabled` value, when one file wrote it.
 	enabled map[string]any
@@ -184,6 +188,13 @@ func lowerLoopholes(value any, ctx loweringContext, place func([]string, any, []
 		}
 		selected := view.packs[name]
 		enabled := view.enabled[name] == true || view.selectionSwitch
+		// LC-D3: an off-switch loophole's `enabled: false` is honored, so it converts to its
+		// pack's `off = true`, and the settings written beside it are configured-and-off, never
+		// dormant: they convert too, so turning the loophole back on finds them.
+		offPack, offSwitch := loopholedecl.OffSwitchPack(name)
+		if offSwitch && view.enabled[name] == false {
+			enabled = true
+		}
 		if d, declared := view.grants.decl(name); declared && selected {
 			lowerGrantLoophole(d, entry, path, enabled, view.grants, place, skip)
 			continue
@@ -194,6 +205,12 @@ func lowerLoopholes(value any, ctx loweringContext, place func([]string, any, []
 			switch key {
 			case "enabled":
 				switch {
+				case v == false && offSwitch && !view.packs[offPack] && !view.needed[offPack]:
+					ctx.drop(oldPath, v, "no selected pack runs "+name+", so it is off without the key")
+				case v == false && offSwitch:
+					if !place([]string{"allow", offPack, loopholedecl.AllowOffKey}, true, oldPath) {
+						skip(oldPath, v, "allow."+offPack+"."+loopholedecl.AllowOffKey+" is already written in this file")
+					}
 				case v == true && selected && loopholes.RunsOnSelection(name):
 					// The list already says it; nothing is written.
 				case v == true && selected:
@@ -491,4 +508,33 @@ func selectionValue(view *userView, v any) (any, string) {
 		return out, ""
 	}
 	return nil, "a profile selection is a profile name, a list of them, or null"
+}
+
+// neededPacks is the shipped packs the listed ones' `needs` add (packload.ResolveNeeds), by name.
+func neededPacks(listed map[string]bool, shipped []*packload.Pack) map[string]bool {
+	out := map[string]bool{}
+	byName := map[string]*packload.Pack{}
+	for _, p := range shipped {
+		if p != nil && p.Decl != nil {
+			byName[p.Name] = p
+		}
+	}
+	var selected []*packload.Pack
+	for name := range listed {
+		if p := byName[name]; p != nil {
+			selected = append(selected, p)
+		}
+	}
+	sort.Slice(selected, func(i, j int) bool { return selected[i].Name < selected[j].Name })
+	added, _, err := packload.ResolveNeeds(selected, func(name string) (*packload.Pack, bool) {
+		p, ok := byName[name]
+		return p, ok
+	})
+	if err != nil {
+		return out
+	}
+	for _, p := range added {
+		out[p.Name] = true
+	}
+	return out
 }

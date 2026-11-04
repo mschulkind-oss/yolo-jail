@@ -328,6 +328,17 @@ func NewScopeCheck(workspace string, brokers []ScopeBroker, read *WorkspaceRead)
 		s.UserGrants = BrokeredUserGrants(b.Source)
 		ws, files := read.Grants(b.Source, b.GrantKinds)
 		s.Grants, s.GrantFiles = append([]brokerscope.Grant(nil), s.UserGrants...), files
+		// The read grant an older yolo's switch gave this workspace, carried in its approval
+		// record (carryStaleBrokerSwitch, LC-D7), joins beside the user's own, said as carried.
+		for _, g := range CarriedBrokerGrants(workspace, b.Source) {
+			if !slices.Contains(s.Grants, g) {
+				s.Grants = append(s.Grants, g)
+				if s.GrantOrigins == nil {
+					s.GrantOrigins = map[string]string{}
+				}
+				s.GrantOrigins[g.String()] = carriedBrokerGrantOrigin
+			}
+		}
 		for _, g := range ws {
 			if !slices.Contains(s.Grants, g) {
 				s.Grants = append(s.Grants, g)

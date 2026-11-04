@@ -407,7 +407,7 @@ func firstNonEmptyLine(s, fallback string) string {
 func (o *Options) runAttachLaunchChecks(cname, rt string, cfg *jsonx.OrderedMap, payload []loopholes.JailDaemonSpec) {
 	socketsDir := hostServiceSocketsDir(cname, o.IsMacOS)
 	var running []loopholeDaemon
-	for _, lp := range loopholes.NewHostSet(cfgMap(cfg, "loopholes")).Enabled() {
+	for _, lp := range loopholes.NewHostSet(loopholes.LaunchBlock(cfg)).Enabled() {
 		if lp.HostDaemon == nil || !lp.HostDaemon.LaunchCheck ||
 			lp.Transport != loopholes.TransportLoopbackTLS {
 			continue

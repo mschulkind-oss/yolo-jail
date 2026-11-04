@@ -1,0 +1,5 @@
+{
+  "about": "A legacy user config that keeps aws-auth (with a profile) and the cgroup delegate off with enabled: false, and a workspace config that writes enabled: true for both (LC-D3 across layers): the workspace's agent can edit that file, so it must not hand this project's jail the credentials or the delegate the user turned off.",
+  "current_only": true,
+  "expect_off": ["aws-auth", "cgroup-delegate"]
+}

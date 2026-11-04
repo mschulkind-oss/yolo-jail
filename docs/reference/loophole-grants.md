@@ -23,10 +23,11 @@ summary: "Selecting a pack installs its loophole and runs its machinery; neither
 
 # Loophole grants: a selected pack runs its loophole and grants nothing
 
-**Status:** 2026-11-02. Built and verified against `14801eccf`, with two decisions of 2026-11-03
-not yet built: the columns a project asks for ([LG-D15](#LG-D15)) and a legacy workspace block
-launching unchanged ([LG-D16](#LG-D16)), both under
-[`legacy-config-compat.md`](../design/legacy-config-compat.md). [OQ-LG5](#OQ-LG5), ruled 2026-11-03 as [LG-D17](#LG-D17), is not built yet. This is the as-built account of the loophole grant system. The design
+**Status:** 2026-11-03. Built and verified against `14801eccf`; of the two decisions of
+2026-11-03 under [`legacy-config-compat.md`](../design/legacy-config-compat.md), a legacy
+workspace block launches unchanged ([LG-D16](#LG-D16)) and a project's `fields` is its columns
+request ([LG-D15](#LG-D15)), while the gate's columns line and the migration's half of both are
+not built yet. [OQ-LG5](#OQ-LG5), ruled 2026-11-03 as [LG-D17](#LG-D17), is not built yet. This is the as-built account of the loophole grant system. The design
 argument it graduated from, and its build plan, live in git history:
 
 ```console
@@ -199,7 +200,8 @@ A journal or macos-log daemon picks its mode from the grant: `read_all` granted 
 
 **A project cannot widen access by editing a setting the gate does not show.** The old
 workspace-scope settings `visible` and `allowed_devices` are request values now, approved one
-line per value at the gate. `default_baud` is a user setting because a baud rate admits nothing.
+line per value at the gate. `default_baud` is a user setting because a baud rate admits nothing; a legacy workspace value is
+read as the user's for that launch and disclosed (`legacy_workspace = true`), as v0.15.1 read it.
 `fields` is a **request-scope setting** *(coined here: a setting the user may set under
 `[allow.<pack>]` as every project's default, and a project may ask for under `[requests.<pack>]`,
 shown as a gate line, replacing the user's for that project, frozen at launch)*: `args` carries
@@ -468,7 +470,7 @@ Each drives a production entry point, so deleting the call site fails it.
 | Live apply reaches a mediated daemon, not an unmediated crossing | `TestConfigApplyRewritesTheGrantFileAndSaysRestartForAudio` (`internal/cli/run`) |
 | Inert requests stay out of the gate | `TestAnInertLoopholesRequestStaysOutOfTheGate` (`internal/cli/check`), `TestAnInertLoopholesRequestStaysOutOfTheLaunchGate` (`internal/cli/run`) |
 | `yolo loopholes enable` refuses for all | `TestLoopholesEnableRefusesNamingRequestAndAllow`, `TestLoopholesEnableRefusesABroker` (`internal/cli`) |
-| The migration preserves access | `TestLegacyLoopholeEnabledMigratesToAllowAndRequests`, `TestTheMigrationCarriesASwitchFileIntoTheRecord` (`internal/configmigrate`); `TestCheckReportsARecordGrantTheProjectFileDoesNotState` (`internal/cli/check`) |
+| The migration preserves access | `TestLegacyLoopholeEnabledMigratesToAllowAndRequests`, `TestTheMigrationCarriesASwitchFileIntoTheRecord`, `TestAWorkspaceSwitchUnderATOMLUserWritesTheCeilingLine` (`internal/configmigrate`); `TestCheckReportsARecordGrantTheProjectFileDoesNotState` (`internal/cli/check`) |
 | Every refusal names a live command | `TestEveryHintedYoloCommandExists` (`internal/cli`) |
 | End to end, in a real jail | `TestJournalWithNoGrantRefusesInTheJail`, `TestJournalReadGrantServesTheUserJournal` (`integration/`; they skip where the host has no readable user journal, [PD-14](#PD-14)) |
 
@@ -480,14 +482,11 @@ Each drives a production entry point, so deleting the call site fails it.
   [`config-project.md`](../design/config-project.md#3-the-local-file-and-turning-something-off)'s.
   Until then a legacy `enabled: false` in a project file converts to nothing: an absent request
   asks for nothing, and the migration's standing layer proves no grant changed.
-- **The project's columns** ([LG-D15](#LG-D15)): `fields` as a request-scope setting, its gate
-  line, and `yolo config migrate` writing a project's `fields` under `[requests.host-processes]`.
-  Proposed pins: `TestALegacyProjectFieldsIsTheColumnsRequest` (`internal/config`),
-  `TestMigrateWritesAProjectsFieldsUnderRequests` (`internal/configmigrate`).
-- **A legacy workspace block launching unchanged** ([LG-D16](#LG-D16)): the switch as request and
-  admission, the approved file prompting nothing. Proposed pins:
-  `TestALegacyWorkspaceSwitchGrantsWithoutACeilingLine` (`internal/config`),
-  `TestAnApprovedLegacyWorkspaceLaunchesWithNoPrompt` (`internal/cli/run`).
+- **The project's columns at the gate and in the migration** ([LG-D15](#LG-D15)): `fields` is a
+  request-scope setting and a project's is read as its request; still to build are its own
+  columns line at the gate and `yolo config migrate` writing a project's `fields` under
+  `[requests.host-processes]`. Proposed pin: `TestMigrateWritesAProjectsFieldsUnderRequests`
+  (`internal/configmigrate`).
 
 ## 13. Open Questions
 
@@ -514,8 +513,8 @@ LG-D12 to LG-D14 are the owner's rulings of 2026-10-30; their question ids, [OQ-
 | <a id="LG-D12"></a><a id="OQ-LG1"></a>LG-D12 | **Owner ruling** on [`OQ-LG1`](#OQ-LG1): an `always` grant in the user ceiling shows once at each project's config-change gate and is recorded there; the user's edit alone grants no project anything. *"A, once at each project's gate: it is what you ruled for the broker read grant six days ago, and your words today, the project shouldn't have access until it has been approved, say the same."* | 2026-10-30 | [§4.2](#42-the-approval-in-two-layers) | Yes |
 | <a id="LG-D13"></a><a id="OQ-LG2"></a>LG-D13 | **Owner ruling** on [`OQ-LG2`](#OQ-LG2): `cgroup-delegate` is ungated and its pack is selected by default, a shipped pack in the default selection rather than core code, so every loophole stays a pack's ([OQ-A10](loophole-system.md#oq-a10)). It rests on the delegate being able only to limit the jail ([`security-shim.md`](security-shim.md)). *"If that is true, I would even consider just making this a built-in … it should just be default-enabled."* Under it: the pack's per-workspace `off` ([LG-D9](#LG-D9)) still turns it off; a default-selected pack inert on this setup is reported only by `yolo loopholes status`, since the user did not choose it | 2026-10-30 | [§4.3](#43-each-loopholes-access-and-its-approval) | Ungated: yes. Default selection: T15 ([PD-13](#PD-13)) |
 | <a id="LG-D14"></a><a id="OQ-LG3"></a>LG-D14 | **Owner ruling** on [`OQ-LG3`](#OQ-LG3): the migration may write a user-ceiling `on_request` line from an approval the owner gave at a launch, printing it as a hunk; the journal needs none, because its `read` is requestable by default. Under it: a manifest may mark an unvalued kind requestable by default, never `always` and never a valued kind; a user's own `on_request` list replaces the default; `read_all` is not requestable by default. **Owner ruling** on `macos-log`: its `read` is requestable by default whenever the pack is selected | 2026-10-30 | [§4.2](#42-the-approval-in-two-layers), [§6](#6-migration) | Yes |
-| <a id="LG-D15"></a>LG-D15 | **Columns are the project's.** `fields` is a request-scope setting (`scope = "request"`): a project asks for it under `[requests.host-processes]` beside `view`, the gate shows it as a columns line naming the delta from the list in force, the y freezes it, and it replaces the user's `allow.host-processes.fields` for that project, never unions with it. Reason: `args` carries command lines and the owner's project drops it per project; under user scope that is inexpressible. A second grant kind rejected: "not granted" would mean the default with `args` | 2026-11-03 | [§4.3](#43-each-loopholes-access-and-its-approval) | No |
-| <a id="LG-D16"></a>LG-D16 | **A legacy workspace block launches unchanged and means what it meant.** The legacy projection reads a workspace `enabled: true` as the request and its admission (the kind joins this launch's ceiling as `on_request`), a file the record already approved carries its grant with no prompt, and a legacy `settings.fields` is the project's columns request. No `yolo allow`, no user-config change, no edit, under the owner's ruling of 2026-11-03 (*"the configs keep working"*, [`legacy-config-compat.md`](../design/legacy-config-compat.md)) and [§6](#6-migration)'s rule; `yolo config migrate` writes the same lines, with the `on_request` ceiling line LG-D14 licenses. The v0.16.0 refusal and the skipped request were regressions, fixed forward with no hatch | 2026-11-03 | [§6](#6-migration) | No |
+| <a id="LG-D15"></a>LG-D15 | **Columns are the project's.** `fields` is a request-scope setting (`scope = "request"`): a project asks for it under `[requests.host-processes]` beside `view`, the gate shows it as a columns line naming the delta from the list in force, the y freezes it, and it replaces the user's `allow.host-processes.fields` for that project, never unions with it. Reason: `args` carries command lines and the owner's project drops it per project; under user scope that is inexpressible. A second grant kind rejected: "not granted" would mean the default with `args` | 2026-11-03 | [§4.3](#43-each-loopholes-access-and-its-approval) | Partly: `scope = "request"` and a project `fields` read as its request (`TestALegacyProjectFieldsIsTheColumnsRequest`); the gate's columns line and the migration's `[requests.host-processes]` line are not |
+| <a id="LG-D16"></a>LG-D16 | **A legacy workspace block launches unchanged and means what it meant.** The legacy projection reads a workspace `enabled: true` as the request and its admission (the kind joins this launch's ceiling as `on_request`), a file the record already approved carries its grant with no prompt, and a legacy `settings.fields` is the project's columns request. No `yolo allow`, no user-config change, no edit, under the owner's ruling of 2026-11-03 (*"the configs keep working"*, [`legacy-config-compat.md`](../design/legacy-config-compat.md)) and [§6](#6-migration)'s rule; `yolo config migrate` writes the same lines, with the `on_request` ceiling line LG-D14 licenses. The v0.16.0 refusal and the skipped request were regressions, fixed forward with no hatch | 2026-11-03 | [§6](#6-migration) | Yes at the launch (`TestALegacyWorkspaceSwitchGrantsWithoutACeilingLine`, `TestAnApprovedLegacyWorkspaceLaunchesWithNoPrompt`); and in the migration, which writes the `on_request` line into a TOML user config in place when it converts the workspace alone (`TestAWorkspaceSwitchUnderATOMLUserWritesTheCeilingLine`). There is no per-workspace ceiling to write it in instead: the per-workspace file holds only switches, so the line is user-wide. The launch's offer names the file and the line before its question, and takes the line back when the launch stops before its config-change gate passes, naming the `yolo allow` command that admits the request (`TestTheOfferNamesTheUserCeilingLineBeforeTheQuestion`, `TestANoAtTheGateTakesBackTheUserCeilingLine`, `TestAYesAtTheGateKeepsTheUserCeilingLine`). An `on_request` list the user wrote, `[]` included, is never rewritten: the conversion then refuses, naming that command (`TestAUserOnRequestListIsNeverRewritten`) |
 | <a id="LG-D17"></a><a id="OQ-LG5"></a>LG-D17 | **Owner ruling** on [`OQ-LG5`](#OQ-LG5): `yolo-ps --tree` honors the project's columns. With `args` absent from the project's `fields`, the tree prints `pid`, `ppid` and `comm` only, so a narrowing approved at the gate holds in every mode; a project whose list keeps `args` sees the tree as before. The tree still matches on names (`/proc/<pid>/comm`, `ucomm` on a Mac), never on `args`. The owner chose A (2026-11-03): *"a narrowing the human approved at the gate should hold in every mode, and the tree matches on names, not on the column it would lose"*. A change from v0.15.1, outside the TOML-switch rule | 2026-11-03 | [§13](#13-open-questions) | not built |
 | <a id="PD-1"></a>PD-1 | **Manifest spelling:** a top-level `[[grants]]` array with `kind`, `text`, `valued`, `requestable_by_default`, `value_noun` and the migration keys `legacy_enable`, `legacy_setting`, `legacy_values` (and `legacy_default_values`), plus a top-level `access`. Kinds unique per manifest; `[brokered]` with `[[grants]]` refused; a setting named `grants` refused | 2026-10-30 | [§4.2](#42-the-approval-in-two-layers) | Yes (T1) |
 | <a id="PD-2"></a>PD-2 | **The grant file is the private settings snapshot** with one reserved key `grants`; every grant-declaring loophole gets one even with no settings; live apply finds files by workspace, container and a live pid | 2026-10-30 | [§4.6](#46-how-a-grant-reaches-the-machinery) | Yes (T2, T6) |

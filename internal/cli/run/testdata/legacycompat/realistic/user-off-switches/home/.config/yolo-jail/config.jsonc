@@ -1,0 +1,9 @@
+{
+  "packs": ["claude", "codex", "aws-auth", "cgroup-delegate"],
+  "loopholes": {
+    "aws-auth": { "enabled": false, "settings": { "profile": "example-profile" } },
+    "cgroup-delegate": { "enabled": false },
+    "claude-oauth-broker": { "enabled": false },
+    "openai-auth-broker": { "enabled": false }
+  }
+}

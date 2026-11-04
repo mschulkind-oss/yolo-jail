@@ -118,12 +118,14 @@ func TestLegacyLoopholeEnabledMigratesToAllowAndRequests(t *testing.T) {
 		standings:   map[string]string{"audio.use": "granted"},
 		carried:     map[string][]string{"audio": {"use"}},
 	}, {
-		name:        "project enabled: true",
-		user:        `{` + packs + `}`,
-		project:     `{"loopholes": {"journal": {"enabled": true}, "audio": {"enabled": true}}}`,
+		name:    "project enabled: true",
+		user:    `{` + packs + `}`,
+		project: `{"loopholes": {"journal": {"enabled": true}, "audio": {"enabled": true}}}`,
+		// The workspace switch is the request and its admission (LG-D16): audio joins the user
+		// ceiling as on_request, and the gate's y grants it, on both sides.
+		wantUser:    []string{"[allow.audio]", `on_request = ["use"]`},
 		wantProject: []string{"[requests.journal]", "read = true", "[requests.audio]", "use = true"},
-		// audio is outside the ceiling: loud, skipped and named, on both sides.
-		standings: map[string]string{"journal.read": "pending", "audio.use": "not_allowed"},
+		standings:   map[string]string{"journal.read": "pending", "audio.use": "pending"},
 	}, {
 		name:        "project settings.visible",
 		user:        `{` + packs + `, "loopholes": {"host-processes": {"enabled": true}}}`,

@@ -1,0 +1,5 @@
+{
+  "about": "A legacy user config that selects aws-auth with a profile and the cgroup delegate, and a workspace that keeps both off with enabled: false (LC-D3 at workspace scope): this project's jail got neither the credentials nor the delegate, and must not now.",
+  "current_only": true,
+  "expect_off": ["aws-auth", "cgroup-delegate"]
+}

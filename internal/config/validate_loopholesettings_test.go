@@ -2,10 +2,12 @@ package config
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 // validate_loopholesettings_test.go pins core's half of
@@ -409,5 +411,75 @@ func TestLoopholeEntryErrorsAppliesTheSettingsScopeRule(t *testing.T) {
 	}
 	if errs := LoopholeEntryErrors("acme", spec, info, false, true, true, src, ws); len(errs) != 0 {
 		t.Errorf("in-jail errors = %v, want none — the launch path honors the entry in-jail", errs)
+	}
+}
+
+// shippedPackResolver resolves the loopholes of the named shipped packs from the embedded tree, as
+// a launch reads their manifests, so a scope rule is pinned on the real declaration.
+func shippedPackResolver(t *testing.T, names ...string) LoopholeResolver {
+	t.Helper()
+	var selected []*packload.Pack
+	for _, name := range names {
+		selected = append(selected, selectedEmbeddedPackForReadableDeclarations(t, name))
+	}
+	return explicitPackLoopholeResolver{packs: selected}
+}
+
+// TestALegacyProjectFieldsIsTheColumnsRequest is LG-D15 and LG-D16 at the validator: the shipped
+// host-processes manifest declares `fields` a request-scope setting, so a legacy workspace
+// `settings.fields` is the project's columns request, launched as v0.15.1 launched it, and no
+// longer the "user-scope only" refusal v0.16.0 gave the owner's project. A TOML project asks for
+// the same list under `[requests.host-processes]`, and it replaces the user's list there.
+func TestALegacyProjectFieldsIsTheColumnsRequest(t *testing.T) {
+	res := shippedPackResolver(t, "host-processes")
+	known, _ := res.Known()
+	fields, ok := loopholedecl.SettingByKey(known["host-processes"].Settings, "fields")
+	if !ok || fields.Scope != loopholedecl.SettingScopeRequest {
+		t.Fatalf("the shipped host-processes `fields` is %+v, want scope %q (LG-D15)", fields, loopholedecl.SettingScopeRequest)
+	}
+	_, errs, warns := validateScoped(t, `{"packs": ["host-processes"], "loopholes": {"host-processes": {"enabled": true}}}`,
+		`{"loopholes": {"host-processes": {"settings": {"fields": ["pid", "comm", "args"]}}}}`, res)
+	if hits := append(containing(errs, "settings.fields"), containing(warns, "settings.fields")...); len(hits) != 0 {
+		t.Fatalf("a legacy workspace `fields` is refused or warned: %v", hits)
+	}
+
+	decls := []ReadablePackDeclaration{{Pack: "host-processes", Settings: known["host-processes"].Settings}}
+	input := ReadableAllowanceInput{
+		User:          decode(t, `{"allow":{"host-processes":{"fields":["pid","comm","args","rss"]}}}`),
+		Workspace:     decode(t, `{"requests":{"host-processes":{"fields":["pid","comm"]}}}`),
+		SelectedPacks: []string{"host-processes"}, PackSettings: decls,
+	}
+	plan, err := ResolveReadableAllowance(input)
+	if err != nil {
+		t.Fatalf("a project's `requests.host-processes.fields` is refused: %v", err)
+	}
+	if got := plan.PackSettings["host-processes"]["fields"]; !slices.Equal(stringList(got), []string{"pid", "comm"}) {
+		t.Errorf("the columns in force are %v, want the project's list replacing the user's (never a union)", got)
+	}
+}
+
+// TestALegacyWorkspaceBaudIsReadAsTheUsersAndDisclosed is LC-D2's `default_baud` row: a baud rate
+// admits nothing, so a legacy workspace file's value is read as the user's for that launch and
+// said in one line, where v0.16.0 refused the launch. The setting stays the user's in TOML.
+func TestALegacyWorkspaceBaudIsReadAsTheUsersAndDisclosed(t *testing.T) {
+	res := shippedPackResolver(t, "serial")
+	known, _ := res.Known()
+	baud, ok := loopholedecl.SettingByKey(known["serial"].Settings, "default_baud")
+	if !ok || baud.Scope != loopholedecl.SettingScopeUser || !baud.LegacyWorkspace {
+		t.Fatalf("the shipped serial `default_baud` is %+v, want a user setting with legacy_workspace", baud)
+	}
+	ws, errs, warns := validateScoped(t, `{"packs": ["serial"], "loopholes": {"serial": {"enabled": true}}}`,
+		`{"loopholes": {"serial": {"settings": {"default_baud": 9600}}}}`, res)
+	if hits := containing(errs, "default_baud"); len(hits) != 0 {
+		t.Fatalf("a legacy workspace `default_baud` is refused: %v", hits)
+	}
+	hits := containing(warns, "settings.default_baud", "read as your value for this launch")
+	if len(hits) != 1 || !strings.Contains(hits[0], filepath.Join(ws, WorkspaceConfigName)) {
+		t.Fatalf("warnings = %v, want the one disclosure naming the workspace file", warns)
+	}
+	// A user-scope setting without the manifest's legacy_workspace key is still refused.
+	other := declaring("acme", userSetting("visible", loopholedecl.SettingTypeStringList))
+	if _, errs, _ := validateScoped(t, "", `{"loopholes": {"acme": {"settings": {"visible": ["x"]}}}}`, other); len(containing(errs, "user-scope only")) != 1 {
+		t.Errorf("errors = %v, want the scope refusal to stand for every other user setting", errs)
 	}
 }

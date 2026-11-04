@@ -95,7 +95,7 @@ func (o *Options) jailDaemonsFor(cfg *jsonx.OrderedMap, rt string,
 	// a gate that grants otherwise has the launch compose again (recomposeForApprovedGrants).
 	standings := o.loopholeGrantStandings(rt, cfg)
 	o.composedGrants = grantedKinds(standings)
-	set := loopholes.NewHostSet(cfgMap(cfg, "loopholes")).WithCredentialView(o.claudeCredentialView(rt, cfg)).
+	set := loopholes.NewHostSet(loopholes.LaunchBlock(cfg)).WithCredentialView(o.claudeCredentialView(rt, cfg)).
 		WithGrants(o.composedGrants)
 	// The service declarations the payload below sets aside, recorded for noteShadowedServices
 	// the way withoutUnselectedProfileDaemons records what it leaves out: every call composes

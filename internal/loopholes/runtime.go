@@ -558,7 +558,8 @@ func (s Set) FrontedHostWhy(runtime string) map[string]string {
 			why[m.Name] = "which Apple Container cannot serve: that backend runs no host services " +
 				"for a jail; the podman or macos-user backend runs it"
 		case !m.Enabled:
-			// Only a config-defined loophole can be off: a pack's runs whenever its pack is selected.
+			// A config-defined loophole, or a pack's off-switch one (LC-D3, loopholedecl.HasOffSwitch):
+			// any other pack loophole runs whenever its pack is selected.
 			why[m.Name] = "whose loophole is off: its `loopholes." + m.Name + "` config entry " +
 				"sets `enabled: false` (`yolo loopholes list` says where); remove that key to run it " +
 				"at the next launch, and `yolo loopholes disable " + m.Name + "` removes a switch an " +

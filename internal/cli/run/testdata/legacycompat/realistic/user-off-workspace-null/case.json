@@ -1,0 +1,8 @@
+{
+  "about": "A legacy user config that keeps aws-auth (with a profile) and the cgroup delegate off with enabled: false, and a workspace config whose \"loopholes\": null resets the whole block (LC-D3 across layers): the reset must not turn either back on in this project's jail.",
+  "current_only": true,
+  "expect_off": [
+    "aws-auth",
+    "cgroup-delegate"
+  ]
+}

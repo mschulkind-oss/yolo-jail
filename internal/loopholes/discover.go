@@ -124,15 +124,31 @@ func applyWorkspaceOverrides(existing map[string]*Loophole, loopholesConfig *jso
 			continue
 		}
 		target := existing[name]
+		if target == nil && loopholedecl.HasOffSwitch(name) && !specHasCommand(spec) {
+			// A shipped pack's off-switch loophole whose pack this launch did not select: its
+			// entry (an `enabled: false`, a profile) is that pack's config, not an inline
+			// loophole of its own, so it makes no record.
+			continue
+		}
 		if target == nil {
 			single := jsonx.NewOrderedMap()
 			single.Set(name, spec)
 			newInline = append(newInline, synthesizeConfigLoopholes(single)...)
 			continue
 		}
-		// No `enabled` here: a pack's loophole runs whenever its pack is selected
-		// (docs/reference/loophole-grants.md §4.1), and a legacy switch is projected
-		// into a grant (§6 of that design), never onto the record.
+		// `enabled` reaches the record for an OFF-SWITCH loophole only
+		// (docs/design/legacy-config-compat.md LC-D3): its approval is a login or a setting, or
+		// none, so off kept the login, the credentials or the delegate out of the jail, and
+		// `enabled: false` still does. Any other pack loophole runs whenever its pack is
+		// selected (docs/reference/loophole-grants.md §4.1), and its legacy switch is
+		// projected into a grant (§6 of that design), never onto the record.
+		if target.Source == SourcePack && loopholedecl.HasOffSwitch(name) {
+			if ev, ok := spec.Get("enabled"); ok {
+				if b, isBool := ev.(bool); isBool && !b {
+					target.Enabled = false
+				}
+			}
+		}
 		if envV, ok := spec.Get("env"); ok && loopholedecl.Truthy(envV) {
 			if envMap, isMap := envV.(*jsonx.OrderedMap); isMap && target.HostDaemon != nil {
 				override := NewEnvMap()
@@ -949,4 +965,9 @@ func validateSetOf(mods []PackModule, claims []PackSupersession) ([]ValidateEntr
 	// exists for is only real if every construction path runs it.
 	applySupersessions(loaded, claims)
 	return entries, Set{all: loaded, supersessions: claims, gate: gateOf(mods)}
+}
+
+func specHasCommand(spec *jsonx.OrderedMap) bool {
+	_, ok := spec.Get("command")
+	return ok
 }

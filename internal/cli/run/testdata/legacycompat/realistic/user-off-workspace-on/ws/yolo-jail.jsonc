@@ -1,0 +1,6 @@
+{
+  "loopholes": {
+    "aws-auth": { "enabled": true },
+    "cgroup-delegate": { "enabled": true }
+  }
+}

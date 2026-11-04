@@ -213,6 +213,13 @@ func Run(opts Options) (rc int) {
 	if !o.offerConfigMigration() {
 		return 1
 	}
+	// A conversion's ceiling lines stand only for a launch whose config-change gate passes: any
+	// stop before it takes them back (takeBackUnapprovedCeiling).
+	defer func() {
+		if rc != 0 {
+			o.takeBackUnapprovedCeiling()
+		}
+	}()
 	o.refreshPacks()
 	cfg, ok := o.loadAndValidateConfig()
 	if !ok {
@@ -614,12 +621,14 @@ func Run(opts Options) (rc int) {
 		// either, and the native backend is where a "where is my agent?" is hardest to
 		// diagnose (no image, no provisioning output to read back).
 		o.warnIfNoPacks()
+		// And each off-switch loophole the config keeps off (LC-D3), beside it for the same reason.
+		o.noteLoopholesOff(cfg)
 		// Validate the exact host-service settings this fresh native launch will use before
 		// capture/provisioning can execute pack code. The frozen plan is later consumed by
 		// the session or its keeper, after the ordinary execution disclosure.
 		if !o.DryRun && !o.Sealed && (o.macosUserKey == nil || o.macosUserKey.joined == nil) &&
 			len(o.plannedLoopholeNames(rt, cfg)) > 0 {
-			settingsSet := loopholes.NewHostSet(cfgMap(cfg, "loopholes"))
+			settingsSet := loopholes.NewHostSet(loopholes.LaunchBlock(cfg))
 			allowSettings := o.loopholeAllow(rt, cfg)
 			o.discloseSettingsCheckHostExec(staged.packs, settingsSet, cfg, allowSettings)
 			if !o.prepareLoopholeSettingsForStart(settingsSet, cfg, allowSettings) {
@@ -1831,7 +1840,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// auto-capture, fork builds, image work or any shared service publication. The exact frozen
 	// bytes travel in the keeper plan and are published only after the terminal disclosure.
 	if !o.Sealed {
-		settingsSet := loopholes.NewHostSet(cfgMap(cfg, "loopholes"))
+		settingsSet := loopholes.NewHostSet(loopholes.LaunchBlock(cfg))
 		allowSettings := o.loopholeAllow(rt, cfg)
 		o.discloseSettingsCheckHostExec(staged.packs, settingsSet, cfg, allowSettings)
 		if !o.prepareLoopholeSettingsForStart(settingsSet, cfg, allowSettings) {
@@ -2535,6 +2544,9 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// where the message is still on screen when the agent (or the fallback bash)
 	// starts. Printed any earlier it scrolls away behind the nix build.
 	o.warnIfNoPacks()
+	// Beside it, for the same reason: each off-switch loophole the config keeps off (LC-D3), the
+	// answer to an agent that finds no login, credentials or cgroup delegate in the jail.
+	o.noteLoopholesOff(cfg)
 
 	// Beside it, for the same reason: a declared disk I/O priority this backend cannot pass,
 	// or that the disk under the workspace ignores, is a declaration doing nothing, and this

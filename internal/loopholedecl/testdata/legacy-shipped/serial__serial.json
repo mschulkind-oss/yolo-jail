@@ -24,6 +24,7 @@
     "default_baud": {
       "type": "int",
       "scope": "user",
+      "legacy_workspace": true,
       "default": 115200,
       "description": "Default baud rate for serial connections"
     }

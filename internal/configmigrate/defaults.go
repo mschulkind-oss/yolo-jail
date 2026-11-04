@@ -12,6 +12,13 @@ type DroppedDefault struct {
 	Path, Value string
 }
 
+// DroppedInert is one old key a conversion left out because it says nothing a launch reads, such
+// as an off switch for a loophole no selected pack runs.
+type DroppedInert struct {
+	// Path is the old key, dotted; Value is what was written, compact JSON; Why says why.
+	Path, Value, Why string
+}
+
 // writerCounts says, per default key, how many files of the graph write it. A value is dropped
 // only from the one file that writes it: with two writers, the lower layer's value is what
 // remains when the higher one's is dropped, and the file cannot know which that is.

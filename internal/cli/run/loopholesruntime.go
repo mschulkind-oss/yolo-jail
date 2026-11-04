@@ -272,7 +272,7 @@ func (o *Options) inContainer() bool {
 // keeps its in-process start (see startCgroupDelegate for the SO_PEERCRED reason it
 // cannot be a spawned daemon at all) but is GATED on its record like everything else.
 func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loopholeDaemon {
-	return o.startLoopholesMatching(loopholes.NewHostSet(cfgMap(cfg, "loopholes")), cname, rt, cfg,
+	return o.startLoopholesMatching(loopholes.NewHostSet(loopholes.LaunchBlock(cfg)), cname, rt, cfg,
 		o.loopholeAllow(rt, cfg))
 }
 

@@ -144,6 +144,20 @@ func (o *Options) offerConfigMigration() bool {
 		pr.print(richtext.Escape(configmigrate.RenamesClosing(plan.Renames)))
 		pr.print("")
 	}
+	// A TOML user config the conversion writes ceiling lines into (LG-D16) is named, with the
+	// lines, before the question: it is the one file outside the ones listed above it changes, and
+	// the lines widen what every project may ask for. They are kept only once this launch's
+	// config-change gate passes (takeBackUnapprovedCeiling).
+	ceiling := ceilingTarget(plan, planErr)
+	if ceiling != nil {
+		pr.printf("Converting also adds %s to your user config, [cyan]%s[/cyan], so this workspace's legacy switches keep the meaning they have:",
+			plural(len(ceiling.Ceiling), "this line", "these lines"), richtext.Escape(ceiling.New))
+		for _, line := range ceiling.Ceiling {
+			pr.printf("  [green]+ %s[/green]", richtext.Escape(line))
+		}
+		pr.print("Any project may then ask for it, and each still asks you first. If this launch stops before its config changes are approved, the line is taken back.")
+		pr.print("")
+	}
 	if _, err := fmt.Fprint(o.Stderr, richtext.Render("[bold]Convert to TOML now? [y/N][/bold] ", o.streamColor())); err != nil {
 		return true
 	}
@@ -159,6 +173,12 @@ func (o *Options) offerConfigMigration() bool {
 		o.reportMigrationRefusal(plan, planErr, names)
 		return false
 	}
+	var ceilingBefore []byte
+	if ceiling != nil {
+		if ceilingBefore, err = os.ReadFile(ceiling.New); err != nil {
+			ceiling = nil
+		}
+	}
 	res, err := configmigrate.Apply(plan, configmigrate.ApplyOptions{})
 	if err != nil {
 		fmt.Fprintf(o.Stderr, "%v\n", err)
@@ -173,6 +193,10 @@ func (o *Options) offerConfigMigration() bool {
 	backups := make([]string, len(res.Backups))
 	for i, b := range res.Backups {
 		backups[i] = filepath.Base(b)
+	}
+	if ceiling != nil {
+		o.unapprovedCeiling = &ceilingEdit{path: ceiling.New, backup: ceiling.Backup, before: ceilingBefore,
+			after: ceiling.Bytes, lines: ceiling.Ceiling}
 	}
 	pr.printf("Converted. The %s next to the new %s, as %s.", plural(len(backups), "original is", "originals are"),
 		plural(len(backups), "file", "files"), richtext.Escape(joinAnd(backups)))
@@ -281,4 +305,91 @@ func convertLaterState() (userFile string, hasLegacyUser, silenced bool) {
 		return path, true, on
 	}
 	return userFile, true, false
+}
+
+// ceilingTarget is the plan's TOML user config rewritten in place for the ceiling lines a
+// converted workspace needs (configmigrate.Target.Ceiling, LG-D16), or nil.
+func ceilingTarget(plan *configmigrate.MigrationPlan, planErr error) *configmigrate.Target {
+	if plan == nil || planErr != nil {
+		return nil
+	}
+	for i := range plan.Targets {
+		if len(plan.Targets[i].Ceiling) > 0 {
+			return &plan.Targets[i]
+		}
+	}
+	return nil
+}
+
+// ceilingEdit is the user-config edit the offer's conversion made for a converted workspace's
+// ceiling lines, kept until this launch's config-change gate passes.
+type ceilingEdit struct {
+	path, backup  string
+	before, after []byte
+	// lines are the added lines, `allow.<pack>.on_request: <kind>`.
+	lines []string
+}
+
+// takeBackUnapprovedCeiling undoes the offer's ceiling lines when the launch stops before its
+// config-change gate passed — a no or no answer there, or any refusal before it: the person
+// said y to the conversion on the understanding that the lines stand only for a launch whose
+// changes they approve. The file is put back only while it still holds exactly what the
+// conversion wrote, and the backup the conversion made of it goes with them. It says what it
+// took back and the command that admits the converted request, since the workspace now asks
+// for what the user ceiling does not list.
+func (o *Options) takeBackUnapprovedCeiling() {
+	e := o.unapprovedCeiling
+	o.unapprovedCeiling = nil
+	if e == nil {
+		return
+	}
+	pr := o.pr(o.Stderr)
+	cur, err := os.ReadFile(e.path)
+	if err != nil || string(cur) != string(e.after) {
+		pr.printf("[yellow]%s changed after the conversion wrote its ceiling lines, so they were left in place:[/yellow]", richtext.Escape(e.path))
+		for _, line := range e.lines {
+			pr.printf("  %s", richtext.Escape(line))
+		}
+		pr.print("Remove them by hand if you did not mean to let projects ask for these.")
+		return
+	}
+	info, statErr := os.Stat(e.path)
+	mode := os.FileMode(0o644)
+	if statErr == nil {
+		mode = info.Mode().Perm()
+	}
+	if err := os.WriteFile(e.path, e.before, mode); err != nil {
+		pr.printf("[red]Could not take back the ceiling lines the conversion added to %s: %v[/red]", richtext.Escape(e.path), richtext.Escape(err.Error()))
+		pr.print("Remove these lines by hand if you did not mean to let projects ask for them:")
+		for _, line := range e.lines {
+			pr.printf("  %s", richtext.Escape(line))
+		}
+		return
+	}
+	if e.backup != "" {
+		if b, err := os.ReadFile(e.backup); err == nil && string(b) == string(e.before) {
+			_ = os.Remove(e.backup)
+		}
+	}
+	pr.printf("Took back what the conversion added to [cyan]%s[/cyan], since this launch's config changes were not approved:", richtext.Escape(e.path))
+	for _, line := range e.lines {
+		pr.printf("  [red]- %s[/red]", richtext.Escape(line))
+	}
+	pr.print("This workspace's converted files still ask for it, and your user config does not let a project ask. To let it, run on the host:")
+	for _, line := range e.lines {
+		if cmd := ceilingAllowCommand(line); cmd != "" {
+			pr.printf("  [green]%s[/green]", richtext.Escape(cmd))
+		}
+	}
+}
+
+// ceilingAllowCommand is the `yolo allow` command that writes a ceiling line
+// ("allow.<pack>.on_request: <kind>"), "" for a line of another shape.
+func ceilingAllowCommand(line string) string {
+	key, kind, ok := strings.Cut(line, ": ")
+	pack, list, ok2 := strings.Cut(strings.TrimPrefix(key, "allow."), ".")
+	if !ok || !ok2 || !strings.HasPrefix(key, "allow.") || list != "on_request" {
+		return ""
+	}
+	return "yolo allow " + pack + " on_request " + kind
 }

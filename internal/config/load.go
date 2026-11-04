@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"os"
 	"path/filepath"
 	"strings"
@@ -522,6 +523,7 @@ func loadReadableWorkspaceConfigOverWithInputUse(workspace string, strict bool, 
 		}
 		merged, mergedNode = mergeReadableConfigMode(merged, layer, mergedNode, layerNode, nil, strings.EqualFold(filepath.Ext(path), ".toml"))
 	}
+	keepUserOffSwitchesOff(merged, mergedNode, base, baseNode)
 	return merged, mergedNode, nil
 }
 
@@ -799,6 +801,7 @@ func composeAround(workspace string, strict bool, warn Warn, record, withWorkspa
 		return nil, nil, err
 	}
 	m, n := mergeConfig(userCfg, wsCfg, userNode, wsNode)
+	keepUserOffSwitchesOff(m, n, userCfg, userNode)
 	if withWorkspaceFile {
 		// LAST, over the workspace config too (workspacefile.go): every key the file may carry
 		// is a switch a human made for this one workspace, which outranks a file the
@@ -901,4 +904,70 @@ func loadAssembledSnapshot(workspace string) (*jsonx.OrderedMap, bool) {
 		return nil, false
 	}
 	return m, true
+}
+
+// keepUserOffSwitchesOff re-applies, over the user+workspace merge, every user-scope
+// `loopholes.<name>.enabled: false` on an off-switch loophole (docs/design/legacy-config-compat.md
+// LC-D3): off keeps a login, credentials or the cgroup delegate out of the jail, so a workspace
+// config, which the workspace's agent can edit, may turn one off but never back on. A workspace's
+// own `false` wins by the merge already. The per-workspace file, merged after this, is the human's
+// own switch for the workspace and is not overruled. The value's record names the user's file.
+func keepUserOffSwitchesOff(merged *jsonx.OrderedMap, node *srcNode, userCfg *jsonx.OrderedMap, userNode *srcNode) {
+	userBlock, _ := asMap(mapGet(userCfg, "loopholes"))
+	if userBlock == nil || merged == nil {
+		return
+	}
+	for _, name := range userBlock.Keys() {
+		if !loopholedecl.HasOffSwitch(name) {
+			continue
+		}
+		userEntry, _ := asMap(mapGet(userBlock, name))
+		if userEntry == nil {
+			continue
+		}
+		if v, ok := mapGet(userEntry, "enabled").(bool); !ok || v {
+			continue
+		}
+		// A workspace null resets the block or the entry to its default, which for these is on;
+		// the off is re-asserted in a block or entry made for it.
+		mergedBlock, _ := asMap(mapGet(merged, "loopholes"))
+		if mergedBlock == nil {
+			mergedBlock = jsonx.NewOrderedMap()
+			merged.Set("loopholes", mergedBlock)
+		}
+		entry, _ := asMap(mapGet(mergedBlock, name))
+		if entry == nil {
+			entry = jsonx.NewOrderedMap()
+			mergedBlock.Set(name, entry)
+		}
+		entry.Set("enabled", false)
+		if node == nil {
+			continue
+		}
+		userEn := userNode.key("loopholes").key(name).key("enabled")
+		bn := childNode(node, "loopholes", userNode.key("loopholes"))
+		en := childNode(bn, name, userNode.key("loopholes").key(name))
+		if userEn != nil {
+			en.keys["enabled"] = userEn
+		}
+	}
+}
+
+// childNode is n's member k, made (written by like's writers) where the merge left none.
+func childNode(n *srcNode, k string, like *srcNode) *srcNode {
+	if n.keys == nil {
+		n.keys = map[string]*srcNode{}
+	}
+	if c := n.keys[k]; c != nil {
+		if c.keys == nil {
+			c.keys = map[string]*srcNode{}
+		}
+		return c
+	}
+	c := &srcNode{keys: map[string]*srcNode{}}
+	if like != nil {
+		c.writers = append(c.writers, like.writers...)
+	}
+	n.keys[k] = c
+	return c
 }

@@ -130,12 +130,7 @@ func Check(opts Options) int {
 
 	// Merge + flake.nix resolution. The provenance merges beside it, so a refusal below names
 	// the file and line its key was written at (config's sources.go).
-	merged, mergedSrc := config.MergeConfigWithSources(userConfig, src.user, workspaceConfig, src.workspace)
-	// The per-workspace file LAST, as a launch merges it (config/workspacefile.go): without it
-	// a brokered loophole switched on for this workspace would read as off here, and
-	// --accept-config-changes would record no repository scope for the launch that asks.
-	merged, mergedSrc = config.WithWorkspaceFile(merged, mergedSrc, workspace)
-	src.merged = mergedSrc
+	merged := mergeScopes(userConfig, workspaceConfig, src, workspace)
 	var repoRoot string
 	var repoResolution reporoot.Resolution
 	repoRootOK := false
@@ -537,6 +532,23 @@ type configSources struct {
 	user, workspace, merged *config.Sources
 }
 
+// mergeScopes is the config a launch composes from the user and workspace scopes, with its
+// provenance recorded in src.merged: MergeConfigWithSources, which keeps a legacy user
+// `enabled: false` on an off-switch loophole off whatever the workspace writes there (null
+// included), as the launch's loader does (config's keepUserOffSwitchesOff, LC-D3), and then the
+// per-workspace file LAST, as a launch merges it (config/workspacefile.go): without it a
+// brokered loophole switched on for this workspace would read as off here, and
+// --accept-config-changes would record no repository scope for the launch that asks.
+func mergeScopes(userConfig, workspaceConfig *jsonx.OrderedMap, src *configSources, workspace string) *jsonx.OrderedMap {
+	if src == nil {
+		src = &configSources{}
+	}
+	merged, mergedSrc := config.MergeConfigWithSources(userConfig, src.user, workspaceConfig, src.workspace)
+	merged, mergedSrc = config.WithWorkspaceFile(merged, mergedSrc, workspace)
+	src.merged = mergedSrc
+	return merged
+}
+
 // orNone is s, or the zero record for a nil s.
 func (s *configSources) orNone() configSources {
 	if s == nil {
@@ -714,7 +726,7 @@ func (o *Options) sectionMergedConfig(r *reporter, merged *jsonx.OrderedMap, wor
 	// A selected pack's broker that the user config grants nothing: a legitimate choice, so a
 	// plain note naming the grant to add, never a warning (docs/design/boundary-broker.md BB-D109,
 	// BB-D110).
-	for _, msg := range config.UngrantedBrokerNotes(resolver) {
+	for _, msg := range config.UngrantedBrokerNotes(resolver, workspace) {
 		r.dim(termsafe.VisibleLines(msg))
 	}
 	// Every message above that names a config key, located (the preset/null ones already are).

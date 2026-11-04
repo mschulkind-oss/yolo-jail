@@ -334,6 +334,17 @@ func ResolveReadableAllowance(input ReadableAllowanceInput) (ReadableAllowancePl
 				}
 				continue
 			}
+			if key == loopholedecl.AllowOffKey && shipsOffSwitch(input.PackSettings, name) {
+				// The pack's off switch (docs/design/legacy-config-compat.md LC-D3), read by
+				// loopholes.LaunchBlock, never a setting its loophole is handed.
+				if _, found, _ := readableSettingByKey(declaredSettings, key); found {
+					return plan, fmt.Errorf("allow.%s.%s ambiguously names both the off switch and a pack setting", name, key)
+				}
+				if _, isBool := readableValue(table, key).(bool); !isBool {
+					return plan, fmt.Errorf("allow.%s.%s: expected true or false", name, key)
+				}
+				continue
+			}
 			setting, found, ambiguous := readableSettingByKey(declaredSettings, key)
 			if ambiguous {
 				return plan, fmt.Errorf("allow.%s.%s has ambiguous setting declarations for pack %q", name, key, name)
@@ -907,7 +918,8 @@ func ProjectReadableLegacyPack(mapping ReadableLegacyPackMapping, values []Reada
 		}
 		switch value.OriginScope {
 		case "user":
-			if setting.Scope != loopholedecl.SettingScopeUser && setting.Scope != loopholedecl.SettingScopeWorkspace {
+			if setting.Scope != loopholedecl.SettingScopeUser && setting.Scope != loopholedecl.SettingScopeWorkspace &&
+				setting.Scope != loopholedecl.SettingScopeRequest {
 				projection.Differences = append(projection.Differences, fmt.Sprintf("legacy user setting %q has no user-scope projection", value.Key))
 				continue
 			}
@@ -1522,6 +1534,12 @@ const (
 	// AllowNudgeLoginNoProfile: a listed login pack whose table names no profile. A warning: the
 	// pack installs and its service serves nothing.
 	AllowNudgeLoginNoProfile AllowNudgeKind = "login-no-profile"
+	// AllowNudgeOffNotBool: `off` under a pack's table is not true or false, so it keeps nothing
+	// off (docs/design/legacy-config-compat.md LC-D3). An error.
+	AllowNudgeOffNotBool AllowNudgeKind = "off-not-bool"
+	// AllowNudgeOffNoSwitch: `off` under a pack that ships no off-switch loophole, which it turns
+	// off nothing in. An error; Closest is the needed pack whose table takes it, if one does.
+	AllowNudgeOffNoSwitch AllowNudgeKind = "off-no-switch"
 )
 
 // AllowNudge is one finding of AllowPackNudges (docs/design/config-user.md §7).
@@ -1545,6 +1563,10 @@ func (n AllowNudge) Problem() string {
 		return fmt.Sprintf("%s: allow.%s names a pack that is not selected.", n.Location, n.Table)
 	case AllowNudgeUnknown:
 		return fmt.Sprintf("%s: allow.%s: no such pack.", n.Location, n.Table)
+	case AllowNudgeOffNotBool:
+		return fmt.Sprintf("%s: allow.%s.off: expected true or false, so it keeps nothing off.", n.Location, n.Table)
+	case AllowNudgeOffNoSwitch:
+		return fmt.Sprintf("%s: allow.%s.off: %s has no loophole an off switch turns off.", n.Location, n.Table, n.Pack)
 	default:
 		return fmt.Sprintf("%s: packs lists %s, but [allow.%s] names no %s, so it serves nothing.",
 			n.Location, n.Pack, n.Pack, n.Setting)
@@ -1561,6 +1583,16 @@ func (n AllowNudge) NextStep() string {
 			return "`yolo pack ls` lists the packs yolo ships; name one, or delete the table."
 		}
 		return "Did you mean " + n.Closest + "? Rename the table heading, or delete it."
+	case AllowNudgeOffNotBool:
+		return "Write `off = true` to keep it off, or delete the line to let it run."
+	case AllowNudgeOffNoSwitch:
+		// A hand fix, not a `yolo config` verb: an edit refuses a user config holding a table
+		// that names no declared pack, which is what this one is once `off` leaves it.
+		if n.Closest != "" {
+			return fmt.Sprintf("%s, which a listed pack needs, has one: move the line under [allow.%s], and delete [allow.%s] if it is then empty.",
+				n.Closest, n.Closest, n.Table)
+		}
+		return fmt.Sprintf("Delete the line, and [allow.%s] if it is then empty.", n.Table)
 	default:
 		return fmt.Sprintf("Set one: yolo config set allow.%s.%s <value>", n.Pack, n.Setting)
 	}
@@ -1574,7 +1606,11 @@ func (n AllowNudge) Message() string { return n.Problem() + " " + n.NextStep() }
 // LoginProfile maps a login pack to the setting key that names its profile; both come from pack
 // declarations, never from a list of tool names here.
 type AllowPackFacts struct {
-	Listed       []string
+	Listed []string
+	// Needed is the shipped packs a listed pack's `needs` selects (packload.ResolveNeeds), which
+	// run beside it, so an `allow.<pack>` table for one (claude-auth's `off`, LC-D3) names a
+	// selected pack. Only the unselected check reads it; the login nudge asks about Listed alone.
+	Needed       []string
 	Names        map[string]string
 	LoginProfile map[string]string
 }
@@ -1583,6 +1619,7 @@ type AllowPackFacts struct {
 // each finding is where the authored key was written (userSrc may be nil).
 func AllowPackNudges(user *jsonx.OrderedMap, userSrc *Sources, facts AllowPackFacts) []AllowNudge {
 	listed := readableSet(facts.Listed)
+	selected := readableSet(append(append([]string(nil), facts.Listed...), facts.Needed...))
 	userPath := paths.UserConfigPath()
 	locate := func(path string) string {
 		if locs := userSrc.Locations("config." + path); len(locs) > 0 {
@@ -1608,8 +1645,10 @@ func AllowPackNudges(user *jsonx.OrderedMap, userSrc *Sources, facts AllowPackFa
 		switch {
 		case !isKnown:
 			out = append(out, AllowNudge{Kind: AllowNudgeUnknown, Table: name, Closest: closestAllowName(name, known), Location: locate("allow." + name)})
-		case !listed[pack]:
+		case !selected[pack]:
 			out = append(out, AllowNudge{Kind: AllowNudgeUnselected, Table: name, Pack: pack, Location: locate("allow." + name)})
+		default:
+			out = append(out, offSwitchNudges(allow, name, pack, facts.Needed, locate)...)
 		}
 	}
 	// In a jail the user scope is the inherited copy, which never carries `allow` (it is the
@@ -1637,6 +1676,36 @@ func AllowPackNudges(user *jsonx.OrderedMap, userSrc *Sources, facts AllowPackFa
 		out = append(out, AllowNudge{Kind: AllowNudgeLoginNoProfile, Pack: pack, Table: pack, Setting: setting, Location: locate("packs")})
 	}
 	return out
+}
+
+// offSwitchNudges is the findings for an `off` key in the selected pack's `allow.<table>` table:
+// it must be a boolean, and the pack must ship an off-switch loophole (loopholedecl.HasOffSwitch's
+// set) for it to turn anything off. AllowOff reads anything else as not off, so the launch refuses
+// it rather than run what the file says is off.
+func offSwitchNudges(allow *jsonx.OrderedMap, table, pack string, needed []string, locate func(string) string) []AllowNudge {
+	entry, _ := asMap(readableValue(allow, table))
+	if entry == nil {
+		return nil
+	}
+	v, has := entry.Get(loopholedecl.AllowOffKey)
+	if !has {
+		return nil
+	}
+	at := locate("allow." + table + "." + loopholedecl.AllowOffKey)
+	if len(loopholedecl.OffSwitchLoopholesOf(pack)) == 0 {
+		closest := ""
+		for _, n := range needed {
+			if len(loopholedecl.OffSwitchLoopholesOf(n)) > 0 {
+				closest = n
+				break
+			}
+		}
+		return []AllowNudge{{Kind: AllowNudgeOffNoSwitch, Table: table, Pack: pack, Closest: closest, Location: at}}
+	}
+	if _, isBool := v.(bool); !isBool {
+		return []AllowNudge{{Kind: AllowNudgeOffNotBool, Table: table, Pack: pack, Location: at}}
+	}
+	return nil
 }
 
 func closestAllowName(name string, known []string) string {
@@ -1704,6 +1773,26 @@ func EmbeddedAllowPackFacts(listed []string) AllowPackFacts {
 			facts.Names[name] = name
 		}
 	}
+	byName := make(map[string]*packload.Pack, len(shipped))
+	for _, pack := range shipped {
+		if pack != nil && pack.Decl != nil {
+			byName[pack.Name] = pack
+		}
+	}
+	var selected []*packload.Pack
+	for _, name := range listed {
+		if pack := byName[name]; pack != nil {
+			selected = append(selected, pack)
+		}
+	}
+	if added, _, err := packload.ResolveNeeds(selected, func(name string) (*packload.Pack, bool) {
+		pack, ok := byName[name]
+		return pack, ok
+	}); err == nil {
+		for _, pack := range added {
+			facts.Needed = append(facts.Needed, pack.Name)
+		}
+	}
 	return facts
 }
 
@@ -1743,4 +1832,16 @@ func AllowPackSwitchErrors() []string {
 		}
 	}
 	return out
+}
+
+// shipsOffSwitch reports whether the declarations show pack shipping one of the off-switch
+// loopholes (loopholedecl.OffSwitchLoopholesOf), whose `[allow.<pack>]` table reserves `off`.
+func shipsOffSwitch(declarations []ReadablePackDeclaration, pack string) bool {
+	offSwitch := loopholedecl.OffSwitchLoopholesOf(pack)
+	for _, declaration := range declarations {
+		if declaration.Pack == pack && slices.Contains(offSwitch, declaration.Loophole) {
+			return true
+		}
+	}
+	return false
 }

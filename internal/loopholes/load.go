@@ -292,8 +292,10 @@ func resolve(m *loopholedecl.Manifest, modulePath string) *Loophole {
 		Path:        modulePath,
 		// A manifest's loophole runs whenever its pack is selected, and grants nothing until
 		// a grant covers the project (docs/reference/loophole-grants.md §4.1). No key
-		// decides it: the manifest's `default_enabled` is refused at load, and a config's
-		// `loopholes.<name>.enabled` is projected into a grant, never onto this record.
+		// decides it here: the manifest's `default_enabled` is refused at load, and a config's
+		// `loopholes.<name>.enabled` is projected into a grant, never onto this record, except
+		// for an off-switch loophole, whose `enabled: false` Discover applies
+		// (applyWorkspaceOverrides; docs/design/legacy-config-compat.md LC-D3).
 		Enabled:       true,
 		Transport:     m.Transport,
 		Lifecycle:     m.Lifecycle,

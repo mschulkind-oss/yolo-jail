@@ -5,14 +5,17 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // THE PACK SWITCH (docs/design/config-user.md §7, approved 2026-10-25): `packs` is the only
 // switch. Every pack loophole runs whenever its pack is selected and grants nothing until a grant
-// covers the project (docs/reference/loophole-grants.md §4.1); there is no manifest default
-// and no config key that decides whether it runs. Under a TOML user config a pack's settings are
-// its `[allow.<pack>]` table, read through ConfigBlock.
+// covers the project (docs/reference/loophole-grants.md §4.1); there is no manifest default,
+// and the one config key that decides whether it runs is the off switch of the four loopholes
+// whose running hands the jail a login, credentials or the cgroup delegate (LaunchBlock,
+// docs/design/legacy-config-compat.md LC-D3). Under a TOML user config a pack's settings are its
+// `[allow.<pack>]` table, read through ConfigBlock.
 //
 // ONE PREDICATE for the settings shape, read from the user config's format, so every discovery
 // surface (the launch, `yolo check`, `yolo loopholes list`, the inert report) answers alike.
@@ -76,6 +79,10 @@ func configBlock(cfg *jsonx.OrderedMap, readable bool) *jsonx.OrderedMap {
 			if allowanceKeys[key] {
 				continue
 			}
+			if key == loopholedecl.AllowOffKey && len(loopholedecl.OffSwitchLoopholesOf(name)) > 0 {
+				// The pack's off switch (LaunchBlock), not a setting its loophole is handed.
+				continue
+			}
 			value, _ := table.Get(key)
 			entry, _ := getMapEntry(out, name)
 			settings, _ := getMapEntry(entry, "settings")
@@ -85,6 +92,59 @@ func configBlock(cfg *jsonx.OrderedMap, readable bool) *jsonx.OrderedMap {
 		}
 	}
 	return out
+}
+
+// LaunchBlock is the `loopholes` block every launch-side set is built from (NewHostSet's
+// argument): cfg's own block, plus `<loophole>.enabled = false` for each off-switch loophole of a
+// pack whose `[allow.<pack>]` table sets `off = true`, the TOML spelling of a legacy
+// `enabled: false` (docs/design/legacy-config-compat.md LC-D3). The TOML `off` wins over a legacy
+// layer's `enabled: true`, which says nothing selecting the pack does not. The result is a copy
+// when it differs; cfg is unchanged.
+func LaunchBlock(cfg *jsonx.OrderedMap) *jsonx.OrderedMap {
+	if cfg == nil {
+		return nil
+	}
+	var block *jsonx.OrderedMap
+	if v, ok := cfg.Get("loopholes"); ok {
+		block, _ = v.(*jsonx.OrderedMap)
+	}
+	allowV, _ := cfg.Get("allow")
+	allow, _ := allowV.(*jsonx.OrderedMap)
+	if allow == nil {
+		return block
+	}
+	out := block
+	for _, pack := range allow.Keys() {
+		if !AllowOff(allow, pack) {
+			continue
+		}
+		for _, loophole := range loopholedecl.OffSwitchLoopholesOf(pack) {
+			if out == block {
+				out = jsonx.NewOrderedMap()
+				if block != nil {
+					out = jsonx.DeepCopyMap(block)
+				}
+			}
+			entry, _ := getMapEntry(out, loophole)
+			entry.Set("enabled", false)
+		}
+	}
+	return out
+}
+
+// AllowOff reports whether allow's `[allow.<pack>]` table sets `off = true` (LaunchBlock).
+func AllowOff(allow *jsonx.OrderedMap, pack string) bool {
+	if allow == nil {
+		return false
+	}
+	tv, _ := allow.Get(pack)
+	table, _ := tv.(*jsonx.OrderedMap)
+	if table == nil {
+		return false
+	}
+	off, _ := table.Get(loopholedecl.AllowOffKey)
+	b, _ := off.(bool)
+	return b
 }
 
 // ConfiguredSetting reads a loophole's setting the way the settings readers do (ConfigBlock): under a TOML
@@ -141,6 +201,12 @@ func PackSwitchActivation(cfg *jsonx.OrderedMap, readable bool, modules []PackMo
 	if cfg != nil {
 		if v, ok := cfg.Get("loopholes"); ok {
 			loopholesBlock, _ = v.(*jsonx.OrderedMap)
+		}
+		if readable {
+			// The TOML off switch counts exactly where the launch counts it (LaunchBlock), so a
+			// conversion that drops a legacy `enabled: false` without writing `off = true` is a
+			// loophole that starts running, which the proof reports.
+			loopholesBlock = LaunchBlock(cfg)
 		}
 	}
 	out := map[string]Activation{}

@@ -8,8 +8,10 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/configdoc"
 	"github.com/mschulkind-oss/yolo-jail/internal/json5"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -66,6 +68,13 @@ type loopholeGrantView struct {
 	// workspaces are the workspaces whose standings the proof compares, each with what the
 	// after side reads that differs from the before side.
 	workspaces []standingWorkspace
+	// tomlCeiling is the `on_request` kinds, by pack, a user config already in TOML gains so the
+	// converted workspace's requests stand where its legacy switches stood (LG-D16): the user's
+	// file is rewritten in place for them (withCeilingLines). Each list is the kinds to add, in
+	// order, with a new list seeded by the kinds requestable by default.
+	tomlCeiling map[string][]string
+	// currentProj is this workspace's projected lines.
+	currentProj []config.LegacyLoopholeGrants
 }
 
 type standingWorkspace struct {
@@ -182,6 +191,7 @@ func planLoopholeGrants(g *Graph, view *userView, packs []*packload.Pack) {
 		proj := config.ProjectLegacyLoopholeGrants(config.LegacyLoopholeGrantInput{User: user, Workspace: wsConfig,
 			Switches: projSwitches, Declarations: decls})
 		if ws == current {
+			gv.currentProj = proj
 			for _, p := range proj {
 				gv.requests[p.Pack] = p.Requests
 			}
@@ -220,12 +230,117 @@ func planLoopholeGrants(g *Graph, view *userView, packs []*packload.Pack) {
 			approved = approvedEnables(current, currentWS, gv.decls)
 		}
 		addWorkspace(current, file, switches, currentWS, approved)
+		if !carry && !config.InJail() && convertsProject(g) && g.userTop != nil && g.userTop.Role != RoleConvert &&
+			g.userTop.doc.Format == configdoc.TOML {
+			gv.tomlCeiling = tomlCeilingNeeded(user, gv.currentProj, gv.decls)
+		}
 	}
 	if carry {
 		for _, sf := range switchFiles() {
 			addWorkspace(sf.workspace, sf.path, sf.switches, workspaceRead(sf.workspace), nil)
 		}
 	}
+}
+
+// convertsProject is whether this migration converts a project file.
+func convertsProject(g *Graph) bool {
+	for _, f := range g.project {
+		if f.Role == RoleConvert {
+			return true
+		}
+	}
+	return false
+}
+
+// tomlCeilingNeeded is the `on_request` kinds, by pack, a TOML user config must gain for this
+// workspace's projected lines (proj) to stand once the workspace's legacy switches are converted:
+// each kind a switch admits for this launch that the user's `[allow.<pack>]` does not list. A
+// pack whose table already writes `on_request` gains nothing: that list is the user's. A kind
+// requestable by default needs no line. A new `on_request` list is seeded with the pack's kinds
+// requestable by default, since writing one ends their default. A pack whose allow entry is not
+// a table (`"off"`) gains nothing, and the proof shows what the conversion would change.
+func tomlCeilingNeeded(user *jsonx.OrderedMap, proj []config.LegacyLoopholeGrants, decls map[string]config.LoopholeGrantDeclaration) map[string][]string {
+	out := map[string][]string{}
+	allow, _ := mapAt(user, "allow")
+	for _, p := range proj {
+		d, ok := decls[p.Loophole]
+		if !ok || len(p.OnRequest) == 0 {
+			continue
+		}
+		var table *jsonx.OrderedMap
+		if allow != nil {
+			v, has := allow.Get(p.Pack)
+			if has {
+				if table, ok = v.(*jsonx.OrderedMap); !ok {
+					continue
+				}
+			}
+		}
+		// AN `on_request` THE USER WROTE IS THE USER'S ANSWER, and is never rewritten: `[]` means
+		// no project may ask (LG-D14). The converted request then stands unadmitted, which the
+		// proof shows with the user's own `yolo allow` line, and nothing is written.
+		if _, writesOnRequest := tableGet(table, "on_request"); writesOnRequest {
+			continue
+		}
+		listed := stringsAt(table, "always")
+		writesOnRequest := false
+		var add []string
+		for _, kind := range p.OnRequest {
+			if inStrings(listed, kind) {
+				continue
+			}
+			if !writesOnRequest && requestableByDefault(d, kind) {
+				continue
+			}
+			add = appendNew(add, kind)
+		}
+		if len(add) == 0 {
+			continue
+		}
+		if !writesOnRequest {
+			var seed []string
+			for _, g := range d.Grants {
+				if g.RequestableByDefault && !g.Valued && !inStrings(listed, g.Kind) {
+					seed = append(seed, g.Kind)
+				}
+			}
+			add = appendNew(seed, add...)
+		}
+		out[p.Pack] = appendNew(out[p.Pack], add...)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func requestableByDefault(d config.LoopholeGrantDeclaration, kind string) bool {
+	for _, g := range d.Grants {
+		if g.Kind == kind {
+			return g.RequestableByDefault
+		}
+	}
+	return false
+}
+
+func tableGet(table *jsonx.OrderedMap, key string) (any, bool) {
+	if table == nil {
+		return nil, false
+	}
+	return table.Get(key)
+}
+
+// stringsAt is table's key as a list of strings, nil when it is not one.
+func stringsAt(table *jsonx.OrderedMap, key string) []string {
+	v, _ := tableGet(table, key)
+	items, _ := v.([]any)
+	var out []string
+	for _, item := range items {
+		if s, ok := item.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // workspaceRead is a workspace's config as the launch reads it, nil when it does not read.
@@ -423,6 +538,15 @@ func lowerProjectLoopholes(value any, ctx loweringContext, place func([]string, 
 		entryValue, _ := table.Get(name)
 		d, declared := gv.decl(name)
 		entry, isMap := entryValue.(*jsonx.OrderedMap)
+		if isMap && entry.Len() == 1 && loopholedecl.HasOffSwitch(name) {
+			if v, _ := entry.Get("enabled"); v == true {
+				// LC-D3: a project's `enabled: true` on an off-switch loophole turns nothing on (it
+				// runs when its pack is selected, and the user's off is the user's to lift), so it
+				// converts to nothing. Its `enabled: false` waits for the project's `off`.
+				ctx.drop([]string{"loopholes", name, "enabled"}, v, name+" runs whenever its pack is selected, and a project cannot lift the user's off, so the key turns nothing on")
+				continue
+			}
+		}
 		if !declared || !isMap {
 			rest.Set(name, entryValue)
 			continue
@@ -536,7 +660,14 @@ func loopholeStandings(gv *loopholeGrantView, user, project *jsonx.OrderedMap, a
 func standingNextSteps(diffs []Difference) []Difference {
 	for i, d := range diffs {
 		weaker := standingRank(d.After) < standingRank(d.Before)
+		pack, kind := standingPackKind(d.Path)
 		switch {
+		case weaker && strings.Trim(d.After, `"`) == config.LoopholeGrantNotAllowed && pack != "":
+			// The user's own ceiling does not admit the converted request (an `on_request` the user
+			// wrote, which the conversion never rewrites): the user's command admits it.
+			diffs[i].Next = fmt.Sprintf("the converted files would take away what the old ones hold here (%s), because your own `[allow.%s] on_request` "+
+				"list leaves out %q and the conversion never rewrites a list you wrote; to let projects ask for it, run `yolo allow %s on_request %s` on the host, "+
+				"then run `yolo config migrate` again, or keep the old files (this yolo keeps reading them)", d.Before, pack, kind, pack, kind)
 		case weaker:
 			diffs[i].Next = fmt.Sprintf("the converted files would take away what the old ones hold here (%s); write the grant's line in the old files "+
 				"(`\"enabled\": true` under loopholes.<name>, or its settings) so the projection keeps it, or keep the old files (this yolo keeps reading them), then run `yolo config migrate` again", d.Before)
@@ -546,6 +677,20 @@ func standingNextSteps(diffs []Difference) []Difference {
 		}
 	}
 	return diffs
+}
+
+// standingPackKind is the pack and kind a standing-layer path ("<workspace>.<pack>.<kind>")
+// ends in, or "" when it has no such tail.
+func standingPackKind(path string) (pack, kind string) {
+	k := strings.LastIndex(path, ".")
+	if k <= 0 {
+		return "", ""
+	}
+	p := strings.LastIndex(path[:k], ".")
+	if p < 0 {
+		return "", ""
+	}
+	return path[p+1 : k], path[k+1:]
 }
 
 func standingRank(s string) int {

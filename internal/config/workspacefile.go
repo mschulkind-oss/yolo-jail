@@ -34,7 +34,8 @@ import (
 // today (`loopholes.<name>.enabled`, everything else refused), is written by a command whose
 // last line names it, and is named by `yolo check` and located by every refusal of a key in it.
 // A brokered loophole has no switch (BB-D106), so one this file holds for it, written by an
-// older yolo, is ignored with a note (staleBrokerSwitchNote, BB-D109).
+// older yolo, is taken out of the file with its read grant carried for the workspace, and said
+// once (carryStaleBrokerSwitch; docs/design/legacy-config-compat.md LC-D7).
 //
 // # Its shape
 //

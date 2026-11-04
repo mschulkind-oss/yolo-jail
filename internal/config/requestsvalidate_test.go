@@ -27,7 +27,7 @@ func TestUngrantedBrokerNotesReadTheReadableGrant(t *testing.T) {
 		for _, list := range []string{"always", "on_request"} {
 			h := newMountsHost(t)
 			h.userTOML(t, "packs = []\n\n[allow.git]\n"+list+" = [\"fetch\"]\n")
-			if notes := UngrantedBrokerNotes(gitBroker); len(notes) != 0 {
+			if notes := UngrantedBrokerNotes(gitBroker, h.ws); len(notes) != 0 {
 				t.Fatalf("%s = [\"fetch\"] drew a grants-nothing note: %q", list, notes)
 			}
 		}
@@ -35,7 +35,7 @@ func TestUngrantedBrokerNotesReadTheReadableGrant(t *testing.T) {
 	t.Run("a TOML user with no grant is told yolo allow", func(t *testing.T) {
 		h := newMountsHost(t)
 		userPath := h.userTOML(t, "packs = []\n")
-		got := strings.Join(UngrantedBrokerNotes(gitBroker), "\n")
+		got := strings.Join(UngrantedBrokerNotes(gitBroker, h.ws), "\n")
 		for _, want := range []string{"grants nothing", "`yolo allow git fetch`", userPath} {
 			if !strings.Contains(got, want) {
 				t.Fatalf("note lacks %q: %q", want, got)
@@ -50,7 +50,7 @@ func TestUngrantedBrokerNotesReadTheReadableGrant(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(h.home, ".config", "yolo-jail", "config.jsonc"), []byte(`{"packs": []}`), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		got := strings.Join(UngrantedBrokerNotes(gitBroker), "\n")
+		got := strings.Join(UngrantedBrokerNotes(gitBroker, h.ws), "\n")
 		migrate, allow := strings.Index(got, "`yolo config migrate`"), strings.Index(got, "`yolo allow git fetch`")
 		if migrate < 0 || allow < migrate || strings.Contains(got, "brokered.git.grants") {
 			t.Fatalf("a JSONC user's note does not name `yolo config migrate` then `yolo allow git fetch`: %q", got)

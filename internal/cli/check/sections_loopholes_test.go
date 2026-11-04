@@ -1371,3 +1371,22 @@ func TestCheckLoopholesWorkspaceSwitchNamesATOMLUsersConfigToml(t *testing.T) {
 		t.Errorf("the disclosure sends a TOML user to move a switch that no longer exists:\n%s", out)
 	}
 }
+
+// TestAWorkspaceOffSwitchRowSaysItIsOff: for an off-switch loophole (LC-D3) a workspace
+// `enabled: false` is honored, so the `yolo check` row carries the launch's line that it keeps the
+// loophole off here (config.WorkspaceSwitchDisclosure), never that the key switches nothing.
+func TestAWorkspaceOffSwitchRowSaysItIsOff(t *testing.T) {
+	t.Setenv("YOLO_VERSION", "")
+	bundled := isolatedModuleDir(t)
+	writeLoopholeManifest(t, bundled, "cgroup-delegate", `"name":"cgroup-delegate","description":"d","transport":"none"`)
+	ws := t.TempDir()
+	wsCfg := filepath.Join(ws, "yolo-jail.jsonc")
+	if err := os.WriteFile(wsCfg, []byte(`{"loopholes": {"cgroup-delegate": {"enabled": false}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, out := runCheckLoopholes(t, ws)
+	want := config.WorkspaceSwitchDisclosure("cgroup-delegate", wsCfg, false)
+	if !strings.Contains(out, want) || strings.Contains(out, "switches nothing") {
+		t.Errorf("the `yolo check` row does not carry %q, or says the key switches nothing:\n%s", want, out)
+	}
+}

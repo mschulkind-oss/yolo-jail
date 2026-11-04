@@ -80,11 +80,11 @@ func assertSetting(t *testing.T, values *jsonx.OrderedMap, key string, want any)
 	}
 }
 
-// A legacy JSONC layer's `loopholes.<name>.enabled: false` no longer turns a selected pack's
-// loophole off: a loophole runs whenever its pack is selected. What the owner's
-// `--user-layer bedrock-key.jsonc` wanted from it, a Bedrock API key the aws-auth pointer does not
-// override, is a layer that names no profile: an aws-auth with no profile serves nothing, so its
-// pointer is withheld and the key beside it overrides nothing
+// What the owner's `--user-layer bedrock-key.jsonc` wants, a Bedrock API key the aws-auth pointer
+// does not override, is given two ways over a TOML user config: the layer's
+// `loopholes.aws-auth.enabled: false`, which keeps aws-auth off (its off switch,
+// docs/design/legacy-config-compat.md LC-D3), and a layer that names no profile: an aws-auth with
+// no profile serves nothing, so its pointer is withheld and the key beside it overrides nothing
 // (packload.ServedDaemons.WithoutUnconfiguredLogins). This pins both halves over a TOML user config
 // whose `[allow.aws-auth]` names a profile, through the real user-layer loader and the setting
 // reader the launch hands that filter (loopholes.ConfiguredSetting): with no layer the table's profile
@@ -111,7 +111,7 @@ func TestALegacyLayerTakesTheAWSPointerAwayByNamingNoProfile(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		set := loopholes.NewSelectedSet(cfgMap(cfg, "loopholes"), []loopholes.PackModule{shippedPackLoopholeModule(t, "aws-auth")}, nil)
+		set := loopholes.NewSelectedSet(loopholes.LaunchBlock(cfg), []loopholes.PackModule{shippedPackLoopholeModule(t, "aws-auth")}, nil)
 		lp, ok := set.Lookup("aws-auth")
 		if !ok {
 			t.Fatal("aws-auth was not discovered")
@@ -122,8 +122,8 @@ func TestALegacyLayerTakesTheAWSPointerAwayByNamingNoProfile(t *testing.T) {
 	if enabled, served := serves(`{}`); !enabled || !served {
 		t.Errorf("the TOML table's profile gave enabled=%v served=%v; want both", enabled, served)
 	}
-	if enabled, served := serves(`{"loopholes": {"aws-auth": {"enabled": false}}}`); !enabled || !served {
-		t.Errorf("a layer's `enabled: false` gave enabled=%v served=%v; it switches nothing, so want both", enabled, served)
+	if enabled, _ := serves(`{"loopholes": {"aws-auth": {"enabled": false}}}`); enabled {
+		t.Error("a layer's `enabled: false` left aws-auth running; it is aws-auth's off switch")
 	}
 	if enabled, served := serves(`{"loopholes": {"aws-auth": {"settings": {"profile": ""}}}}`); !enabled || served {
 		t.Errorf("a layer naming no profile gave enabled=%v served=%v; want the loophole running and "+

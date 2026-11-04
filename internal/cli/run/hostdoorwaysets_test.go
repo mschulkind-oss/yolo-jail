@@ -124,19 +124,29 @@ func TestHostDoorwayLoopholesIsThePlansOwnSet(t *testing.T) {
 		t.Error("with no profile the notch line stopped naming aws-auth's doorway")
 	}
 
-	// A config `enabled: false` is no switch: a pack's loophole runs whenever its pack is
-	// selected, so the plan and the named set over that config are the plan and the set without it.
-	off := loopholesConfig(t, `{"aws-auth": {"enabled": false, "settings": {"profile": "work"}}}`)
-	offPlan, err := PlanHostDoorways(off, packs, sel, false, "yolo host -- pi")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if offPlan.notOpened["aws-auth"] != plan.notOpened["aws-auth"] {
-		t.Errorf("a config `enabled: false` moved the plan for aws-auth: %q, want %q",
-			offPlan.notOpened["aws-auth"], plan.notOpened["aws-auth"])
-	}
-	if !HostDoorwayLoopholes(off, packs)["aws-auth"] {
-		t.Error("a config `enabled: false`, which switches nothing, took aws-auth's doorway away")
+	// AN OFF SWITCH (docs/design/legacy-config-compat.md LC-D3): aws-auth's `enabled: false`, or
+	// its TOML spelling `[allow.aws-auth] off = true`, keeps it off beside a configured profile, so
+	// the plan opens no doorway to it, saying the config turned it off, and the notch line does not
+	// name its doorway as delivered.
+	for name, body := range map[string]string{
+		"legacy enabled: false": `{"loopholes": {"aws-auth": {"enabled": false, "settings": {"profile": "work"}}}}`,
+		"TOML off = true":       `{"allow": {"aws-auth": {"profile": "work", "off": true}}}`,
+	} {
+		v, err := jsonx.Decode([]byte(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		off := v.(*jsonx.OrderedMap)
+		offPlan, err := PlanHostDoorways(off, packs, sel, false, "yolo host -- pi")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if why := offPlan.notOpened["aws-auth"]; !strings.Contains(why, "is switched off by its own config entry") {
+			t.Errorf("%s: the plan's reason for aws-auth = %q, want that the config switched it off", name, why)
+		}
+		if HostDoorwayLoopholes(off, packs)["aws-auth"] {
+			t.Errorf("%s: the notch line still names the doorway of an aws-auth the config keeps off", name)
+		}
 	}
 }
 

@@ -30,12 +30,21 @@ func (p *MigrationPlan) Transcript() string {
 	for _, t := range p.Targets {
 		fmt.Fprintf(&b, "\n--- %s\n+++ %s\n", t.Old, t.New)
 		if t.New == t.Old {
-			fmt.Fprintf(&b, "  (include %s respelled to its .toml twin; nothing else changes)\n", strings.Join(t.Respelled, ", "))
+			if len(t.Respelled) > 0 {
+				fmt.Fprintf(&b, "  (include %s respelled to its .toml twin)\n", strings.Join(t.Respelled, ", "))
+			}
+			for _, line := range t.Ceiling {
+				fmt.Fprintf(&b, "  + %s: the converted workspace requests it, and its old switch admitted it\n", line)
+			}
+			b.WriteString("  (nothing else changes)\n")
 			continue
 		}
 		fmt.Fprintf(&b, "  (%d lines → %d; %d %s kept, in order)\n", countLines(t.File.Bytes), countLines(t.Bytes), t.Comments, plural(t.Comments, "comment", "comments"))
 		for _, d := range t.Dropped {
 			fmt.Fprintf(&b, "  %q: %s dropped: it is the default\n", d.Path, d.Value)
+		}
+		for _, d := range t.Inert {
+			fmt.Fprintf(&b, "  %q: %s dropped: %s\n", d.Path, d.Value, d.Why)
 		}
 		for _, f := range t.Folded {
 			fmt.Fprintf(&b, "  %q: written on each of %d models, folded into one\n", f.Path, f.Rows)

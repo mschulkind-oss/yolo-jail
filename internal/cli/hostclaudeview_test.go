@@ -351,10 +351,13 @@ func TestHostClaudeBesideALaunchOwnedServiceCarriesTheView(t *testing.T) {
 	}
 }
 
-// A user-config `enabled: false` for the broker loophole switches nothing: a pack's loophole runs
-// whenever its pack is selected, so the view is set up and the broker ensured exactly as without
-// the key, and the launch never says the loophole is off.
-func TestHostClaudeViewIgnoresABrokerLoopholeSwitch(t *testing.T) {
+// A user-config `enabled: false` for the broker loophole is its off switch
+// (docs/design/legacy-config-compat.md LC-D3), at the host notch as in a jail: the shared login is
+// what off keeps from the agent, so no view is set up, no broker is ensured, and the launch says
+// the loophole is not active, naming the step that says why. Its TOML spelling,
+// `[allow.claude-auth] off = true`, reaches the same predicate (run.PromisedEndpoints reads
+// loopholes.LaunchBlock; TestOffSwitchStartsNoHostService pins that block's TOML reading).
+func TestHostClaudeViewHonorsTheBrokerOffSwitch(t *testing.T) {
 	called := false
 	rc, env, errs := hostGateRunIn(t, `{"packs": ["claude"], "loopholes": `+
 		`{"claude-oauth-broker": {"enabled": false}}}`, viewShell("1"), nil, "claude", func(string) {
@@ -367,11 +370,11 @@ func TestHostClaudeViewIgnoresABrokerLoopholeSwitch(t *testing.T) {
 	if rc != 0 {
 		t.Fatalf("rc=%d\n%s", rc, errs)
 	}
-	if v := env[claudeview.SecureStorageEnv]; v == "" || !called {
-		t.Errorf("an `enabled: false` took the view away (env %q, broker ensured %v):\n%s", v, called, errs)
+	if v := env[claudeview.SecureStorageEnv]; v != "" || called {
+		t.Errorf("an `enabled: false` still gave the view (env %q, broker ensured %v):\n%s", v, called, errs)
 	}
-	if strings.Contains(errs, "loophole is not active here") {
-		t.Errorf("the launch said the loophole is off:\n%s", errs)
+	if !strings.Contains(errs, "loophole is not active here") || !strings.Contains(errs, "`yolo loopholes status` says which") {
+		t.Errorf("the launch did not say the loophole is off, with the step:\n%s", errs)
 	}
 }
 

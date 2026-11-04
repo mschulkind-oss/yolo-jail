@@ -64,7 +64,7 @@ func HostDoorwayLoopholes(cfg *jsonx.OrderedMap, packs []*packload.Pack) map[str
 		return out
 	}
 	set := loopholes.NewSet(loopholes.DiscoverOptions{
-		LoopholesConfig:   cfgMap(cfg, "loopholes"),
+		LoopholesConfig:   loopholes.LaunchBlock(cfg),
 		PackModules:       packLoopholeModules(packs),
 		PackSupersessions: packSupersessions(packs),
 	})
