@@ -329,6 +329,19 @@ func MechanismHasNoContainer(mechanism string) bool {
 	return slices.Contains(paths.NativeRuntimes, mechanism)
 }
 
+// macosUserHomeLines are the macos-user header's home sentence, at either notch. Since slice 12a
+// HOME is THIS workspace's own sidecar (`<ws>/.yolo/home`) in both modes, run as the second
+// account or as you (macos-user-model-plan.md MMP-D5, MMP-D25), so a second workspace has a home
+// of its own; what every workspace shares is the machine-wide state its links reach. Until the
+// Mac run of 2026-11-03 this said the account home was shared by every workspace, which stopped
+// being true with 12a.
+var macosUserHomeLines = []string{
+	"Your home is THIS workspace's own (its `.yolo/home`) and it PERSISTS between",
+	"launches; another workspace has its own. Only its links to machine-wide state, the",
+	"logins and caches your packs declare at `scope: machine`, reach directories that",
+	"are shared by every workspace on this machine.",
+}
+
 // confinementHeader is the briefing's opening block for the notch this environment runs
 // at (env-manager plan Phase 8, C2).
 //
@@ -354,6 +367,8 @@ func MechanismHasNoContainer(mechanism string) bool {
 // enforcementLines is appended on the guest/host/unknown paths and on the jail-WITHOUT-a-
 // container path, whose prose was rewritten for macos-user and never had historical bytes to
 // protect; the jail-with-a-container branch returns its historical literal and no vector.
+//
+// The macos-user home sentence, at either notch, is macosUserHomeLines.
 func confinementHeader(confinement, mechanism string, isMacOS bool) []string {
 	notch, known := render.KindForNotch(confinement)
 	if confinement == "" {
@@ -397,10 +412,7 @@ func confinementHeader(confinement, mechanism string, isMacOS bool) []string {
 			// jail-without-a-container branch below states, in the same words, because it
 			// is the same backend reached by the other notch — and an agent told only that
 			// its home is real would read the whole of it as its own.
-			lines = append(lines,
-				"The account is shared by every workspace on this machine; the state directories",
-				"your packs declare at `scope: workspace` are linked into THIS workspace's own",
-				"sidecar, and anything else you write in the home is not yours alone.")
+			lines = append(lines, macosUserHomeLines...)
 		}
 		return append(lines, enforcementLines(prof)...)
 	case known && notch == render.KindJail && noContainer:
@@ -408,8 +420,8 @@ func confinementHeader(confinement, mechanism string, isMacOS bool) []string {
 		// as well as at `guest` — the notch dial is a separate axis from the runtime,
 		// and `runtime: "macos-user"` with no `confinement` key is the jail notch — but
 		// there is no container anywhere in it: the boundary is a Seatbelt profile around
-		// a real account whose home persists and is shared by every workspace on the
-		// machine.
+		// a real account, with a home that persists and is this workspace's own
+		// (macosUserHomeLines).
 		//
 		// The header below said "a sandboxed container" there until 2026-09-04, which
 		// is the same dangerous falsehood the default branch was rewritten to avoid,
@@ -425,22 +437,15 @@ func confinementHeader(confinement, mechanism string, isMacOS bool) []string {
 		// appends. The tooling line is gone from here; the vector is now this
 		// mechanism's.
 		//
-		// The home sentence is narrowed to what is still true of it. Every workspace on
-		// the machine does share the ACCOUNT, but a pack's `scope: workspace` state dirs
-		// are symlinked into <workspace>/.yolo/home by entrypoint.DeriveDarwinHomeLayout,
-		// so "state you write there is not yours alone" stopped being true of the
-		// directories an agent actually writes. What remains machine-wide is the
-		// `scope: machine` set, which backendLimits names one by one.
-		return append([]string{
+		// The home sentence is macosUserHomeLines: since slice 12a HOME is the workspace's
+		// own sidecar in both modes, and what remains machine-wide is the `scope: machine`
+		// set, which backendLimits names one by one.
+		return append(append([]string{
 			"# YOLO Environment — jail (native, no container)",
 			"",
 			"You are confined by a Seatbelt sandbox on the human's REAL machine, not by a",
 			"container. There is no image and no jail to restart.",
-			"Your home is a real account's home and it PERSISTS between launches. The account",
-			"is shared by every workspace on this machine; the state directories your packs",
-			"declare at `scope: workspace` are linked into THIS workspace's own sidecar, and",
-			"anything else you write in the home is not yours alone.",
-		}, enforcementLines(prof)...)
+		}, macosUserHomeLines...), enforcementLines(prof)...)
 	case known && notch == render.KindJail:
 		// Byte-identical to the historical briefing — see the doc comment.
 		return []string{
@@ -737,11 +742,13 @@ func BriefingContent(in BriefingInput) string {
 			"  pull/push, fetch, or any sync step for this directory.",
 			"  ⚠ There is no `/workspace` on this backend. Skills and docs that name",
 			"  `/workspace` — including the built-in ones — mean the path above.",
-			// Not "persistent across sessions": true of this account home, but it hid the
-			// fact that matters, that one home serves every workspace on the machine
-			// (docs/reference/jail-home.md#the-storage-classes).
-			"- **Home**: `"+home+"` (one account home, shared by every workspace on this",
-			"  machine; its per-workspace directories are links into this workspace's `.yolo/home`)",
+			// Not "persistent across sessions": true, but it hid the fact that matters, which
+			// part of the home is this workspace's alone (docs/reference/jail-home.md#the-storage-classes).
+			// Since slice 12a the home IS the workspace's sidecar in both modes
+			// (macos-user-model-plan.md MMP-D25); until the Mac run of 2026-11-03 this line still
+			// called it one account home shared by every workspace.
+			"- **Home**: `"+home+"` (this workspace's own; its links to shared logins and",
+			"  caches reach state shared by every workspace on this machine)",
 			"- **OS**: macOS, Seatbelt-confined (no container, no systemd, no sudo)",
 		)
 	} else {
