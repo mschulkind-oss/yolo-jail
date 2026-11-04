@@ -1,0 +1,2 @@
+# Written by v0.16.1's `yolo config set runtime podman --project`, before setups replaced the key.
+runtime = "podman"

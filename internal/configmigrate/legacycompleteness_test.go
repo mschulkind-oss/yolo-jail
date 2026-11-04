@@ -55,8 +55,10 @@ var legacyLowerings = map[string]legacyLowering{
 	"providers.*.models.*.reasoning": loweredByMigrate,
 	"loopholes.*.enabled":            loweredByMigrate, "loopholes.*.settings.*": loweredByMigrate,
 	// The keys named setups replace: migrate writes `setup` for a value naming one and drops the
-	// default (lowerRemovedSetupKey); macos_user_mode never names one alone.
-	"runtime": loweredByMigrate, "confinement": loweredByMigrate, "macos_user_mode": retired,
+	// default (lowerRemovedSetupKey), which also leaves every macos_user_mode, naming no one setup
+	// alone, with its refusal's next step; a TOML file's are read and refused by their value
+	// (named-setups-plan.md SUP-D17).
+	"runtime": loweredByMigrate, "confinement": loweredByMigrate, "macos_user_mode": loweredByMigrate,
 }
 
 // Every legacy key has a lowering rule. Fails when a rename descriptor is added without one, when

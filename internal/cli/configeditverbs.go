@@ -379,6 +379,12 @@ func configEditValuePresent(root any, path []configdoc.Step) bool {
 }
 
 func configEditUnsetMutation(format configdoc.Format, canonicalPath, authoredPath []configdoc.Step, data []byte) (configedit.Mutation, error) {
+	// A KEY NAMED SETUPS REPLACE (config.RemovedSetupKeys) is in no schema any more, yet every
+	// refusal of one names this unset as its step (named-setups-plan.md SUP-D17): it removes
+	// the line, in JSONC and TOML alike.
+	if len(authoredPath) == 1 && !authoredPath[0].IsIndex && config.IsRemovedSetupKey(authoredPath[0].Key) {
+		return configedit.Mutation{Action: configedit.Remove, Path: append([]configdoc.Step(nil), authoredPath...)}, nil
+	}
 	rule, ok := configEditSchemaRule(authoredPath, format)
 	if !ok && format == configdoc.JSONC {
 		rule, ok = configEditSchemaRule(canonicalPath, configdoc.TOML)

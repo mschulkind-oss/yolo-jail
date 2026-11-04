@@ -1,0 +1,5 @@
+{
+  "about": "A TOML user config v0.16.1 wrote with confinement = \"host\": refused by its value, naming `yolo host` rather than a container setup (named-setups-plan.md SUP-D17).",
+  "current_only": true,
+  "expect_refused": "yolo host -- <cmd>"
+}

@@ -1,0 +1,5 @@
+{
+  "about": "A TOML user config v0.16.1 wrote with macos_user_mode = \"self\": refused by its value, naming the seatbelt-self setup (named-setups-plan.md SUP-D17).",
+  "current_only": true,
+  "expect_refused": "yolo config set setup seatbelt-self --user"
+}

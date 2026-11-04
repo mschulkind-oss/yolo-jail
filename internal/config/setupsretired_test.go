@@ -112,3 +112,58 @@ func TestSetupForRemovedKeyNamesOneSetupOrNone(t *testing.T) {
 		}
 	}
 }
+
+// TestARemovedSpellingInATOMLFileIsReadAndRefusedByItsValue: v0.16.1 wrote these keys to TOML
+// (`yolo config set runtime …`, and its migrate copied them verbatim), so a TOML file holding one
+// is read, not refused by the generic TOML refusal, and the refusal is the value's own, as a
+// JSONC file's is (SUP-D17): `confinement = "host"` is told `yolo host`, never podman-self. A
+// user file's value migrate converts names `yolo config migrate`; a project's names --project
+// and a local file's --local.
+func TestARemovedSpellingInATOMLFileIsReadAndRefusedByItsValue(t *testing.T) {
+	for _, tc := range []struct {
+		name, file, body, key string
+		want, wantNot         []string
+	}{
+		{"user runtime podman", "user", "runtime = \"podman\"\n", "runtime",
+			[]string{"yolo config set setup podman-self --user", "yolo config unset runtime --user", "yolo config migrate"}, nil},
+		{"user confinement host", "user", "confinement = \"host\"\n", "confinement",
+			[]string{"yolo host -- <cmd>", "yolo config unset confinement --user"}, []string{"podman-self", "yolo config migrate"}},
+		{"user macos_user_mode", "user", "macos_user_mode = \"self\"\n", "macos_user_mode",
+			[]string{"yolo config set setup seatbelt-self --user", "yolo config unset macos_user_mode --user"}, nil},
+		{"project runtime", WorkspaceTOMLConfigName, "runtime = \"podman\"\n", "runtime",
+			[]string{"A project cannot choose where its agent runs", "yolo config unset runtime --project"}, []string{"yolo config migrate"}},
+		{"local confinement", WorkspaceLocalTOMLConfigName, "confinement = \"guest\"\n", "confinement",
+			[]string{"seatbelt-yolo-account", "yolo config unset confinement --local"}, []string{"--project", "podman-self"}},
+		{"local JSONC", WorkspaceLocalLegacyConfigName, `{"runtime": "podman"}`, "runtime",
+			[]string{"yolo config unset runtime --local"}, []string{"--project"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := setupsHome(t)
+			ws := t.TempDir()
+			if tc.file == "user" {
+				userTOMLWith(t, home, tc.body)
+			} else {
+				write(t, filepath.Join(ws, tc.file), tc.body)
+			}
+			cfg, err := LoadConfig(ws, true, nil)
+			if err != nil {
+				t.Fatalf("a file holding %s was not read: %v", tc.key, err)
+			}
+			errs, _ := ValidateConfig(cfg, ws, nil)
+			got := lineFor(errs, tc.key)
+			if got == "" {
+				t.Fatalf("%s was not refused: %q", tc.key, errs)
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(got, want) {
+					t.Errorf("the refusal does not say %q:\n%s", want, got)
+				}
+			}
+			for _, not := range tc.wantNot {
+				if strings.Contains(got, not) {
+					t.Errorf("the refusal says %q:\n%s", not, got)
+				}
+			}
+		})
+	}
+}

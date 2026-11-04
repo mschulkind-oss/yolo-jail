@@ -348,13 +348,8 @@ pi = 'bedrock'
 `, "macos-log pack"},
 		{"mcp_presets", `mcp_presets = ['chrome-devtools']
 `, "mcp_servers"},
-		// The keys named setups replace (named-setups.md §10): refused naming the setup verb.
-		{"runtime", `runtime = 'podman'
-`, "yolo config set setup podman-self --user"},
-		{"confinement", `confinement = 'guest'
-`, "yolo config set setup podman-self --user"},
-		{"macos_user_mode", `macos_user_mode = 'self'
-`, "yolo config set setup seatbelt-self --user"},
+		// The keys named setups replace are not here: v0.16.1 wrote them to TOML, so a TOML file
+		// holding one is read and refused by its value (TestARemovedSpellingInATOMLFile…).
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

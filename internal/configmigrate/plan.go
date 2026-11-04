@@ -13,6 +13,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/configedit"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // Target is one file a plan writes.
@@ -44,6 +45,9 @@ type Target struct {
 	// Ceiling are the `[allow.<pack>] on_request` kinds a TOML user config gains, rewritten in
 	// place, so a converted workspace's requests stand (LG-D16): `allow.<pack>.on_request: <kind>`.
 	Ceiling []string
+	// Rewrote are the removed setup keys a TOML file rewritten in place converted, each as
+	// `<old> → <new>` (withRemovedSetupKeysConverted).
+	Rewrote []string
 	// Unaliased are the providers this file's conversion gave variants and no alias: each is
 	// selected as provider/variant only, and the transcript names the alias command (RC-D62).
 	Unaliased []UnaliasedProvider
@@ -282,6 +286,9 @@ func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 	}
 	newBytes := map[*File][]byte{}
 	writers := writerCounts{}
+	// setupLeft counts the keys named setups replace that TOML files hold and this migration
+	// leaves: as a JSONC file's, each refuses the migration naming its own next step (SUP-D17).
+	setupLeft := 0
 	for _, f := range g.Files {
 		switch f.Role {
 		case RoleConvert:
@@ -305,6 +312,14 @@ func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 			if err != nil {
 				return nil, err
 			}
+			if f.removedKeys {
+				var skipped []NotConverted
+				if t.Bytes, t.Rewrote, skipped, err = withRemovedSetupKeysConverted(t.Bytes, f.Logical); err != nil {
+					return nil, fmt.Errorf("%s: convert the keys setups replace: %w", f.Logical, err)
+				}
+				p.NotConverted = append(p.NotConverted, skipped...)
+				setupLeft += len(skipped)
+			}
 			if f == g.userTop && len(view.grants.tomlCeiling) > 0 {
 				if t.Bytes, t.Ceiling, err = withCeilingLines(t.Bytes, view.grants.tomlCeiling); err != nil {
 					return nil, fmt.Errorf("%s: write the ceiling lines the converted workspace needs: %w", f.Logical, err)
@@ -316,7 +331,15 @@ func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 			newBytes[f] = f.Bytes
 		}
 	}
-	if len(g.Old()) == 0 {
+	left := removedSetupKeysLeft(g)
+	p.NotConverted = append(p.NotConverted, left...)
+	setupLeft += len(left)
+	// A TOML file rewritten for a removed setup key changes what it says, so it is proved like
+	// a converted file: the before side lowers the key as a JSONC file's is (SUP-D17).
+	if len(g.Old()) == 0 && len(g.Rewritten()) == 0 {
+		if setupLeft > 0 {
+			return p, &InequalityError{Plan: p}
+		}
 		p.Equal = true
 		return p, nil
 	}
@@ -381,7 +404,7 @@ func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 	p.Differences = append(p.Differences, standingDiffs...)
 	p.GrantStandings = standingTexts
 	p.DerivedVendors = derivedOnlyBefore(before.derived, after.derived)
-	p.Equal = before.set == after.set && len(standingDiffs) == 0
+	p.Equal = before.set == after.set && len(standingDiffs) == 0 && setupLeft == 0
 	if g.Request.Workspace != "" && len(g.project) > 0 {
 		p.Records = planRecords(g.Request.Workspace)
 	}
@@ -500,6 +523,80 @@ func respellFile(f *File) (Target, error) {
 	}
 	t.Bytes, t.Comments, t.Respelled = data, len(f.doc.Index.Comments()), respelled
 	return t, nil
+}
+
+// withRemovedSetupKeysConverted rewrites a user-scope TOML file's keys named setups replace
+// through the byte-preserving editor `yolo config` uses, as the lowering converts a JSONC file's
+// (lowerRemovedSetupKey): a value naming one setup is written as `setup` unless the file already
+// writes one, the default `confinement = "jail"` is dropped, and every other value is left with
+// its refusal as the reason.
+func withRemovedSetupKeysConverted(data []byte, logical string) ([]byte, []string, []NotConverted, error) {
+	var rewrote []string
+	var skipped []NotConverted
+	for _, key := range config.RemovedSetupKeys {
+		doc, err := configdoc.Parse(data, configdoc.TOML)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		value, ok := doc.Values.Get(key)
+		if !ok {
+			continue
+		}
+		var mutations []configedit.Mutation
+		line := fmt.Sprintf("%s = %s", key, jsonx.MustDumpsCompact(value))
+		switch name := config.SetupForRemovedKey(key, value); {
+		case name != "":
+			if _, has := doc.Values.Get("setup"); has {
+				skipped = append(skipped, NotConverted{File: logical, Path: key, Reason: "`setup` is already written in this file, and it decides; " +
+					"remove the old line:\n    yolo config unset " + key + " --user"})
+				continue
+			}
+			mutations = append(mutations, configedit.Mutation{Action: configedit.Add, Path: []configdoc.Step{{Key: "setup"}}, Value: name})
+			rewrote = append(rewrote, fmt.Sprintf("%s → setup = %q", line, name))
+		case config.RemovedConfinementIsDefault(key, value):
+			rewrote = append(rewrote, line+" → dropped: it named the default, which an unset `setup` selects")
+		default:
+			skipped = append(skipped, NotConverted{File: logical, Path: key, Reason: config.RemovedSetupKeyMessage(key, value, "--user")})
+			continue
+		}
+		mutations = append(mutations, configedit.Mutation{Action: configedit.Remove, Path: []configdoc.Step{{Key: key}}})
+		for _, m := range mutations {
+			edit, err := configedit.PlanEdit(data, configdoc.TOML, m)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			data = edit.Updated
+		}
+	}
+	return data, rewrote, skipped, nil
+}
+
+// removedSetupKeysLeft is the not-converted line of every key named setups replace that a TOML
+// file holds and the migration leaves (a project's, or a user value naming no one setup), so a
+// migration over such a file says what it left and why. A file rewritten in place reports its
+// own (withRemovedSetupKeysConverted).
+func removedSetupKeysLeft(g *Graph) []NotConverted {
+	var out []NotConverted
+	for _, f := range g.Files {
+		if f.doc == nil || (f.Role != RoleRead && f.Role != RoleRespell) || f.removedKeys {
+			continue
+		}
+		for _, key := range config.RemovedSetupKeys {
+			value, ok := f.doc.Values.Get(key)
+			if !ok {
+				continue
+			}
+			flag := "--user"
+			if f.Scope != ScopeUser {
+				flag = "--project"
+				if filepath.Base(f.Logical) == paths.WorkspaceLocalConfigTOMLName {
+					flag = "--local"
+				}
+			}
+			out = append(out, NotConverted{File: f.Logical, Path: key, Reason: config.RemovedSetupKeyMessage(key, value, flag)})
+		}
+	}
+	return out
 }
 
 // withCeilingLines adds ceiling's kinds to each pack's `[allow.<pack>] on_request` list in the

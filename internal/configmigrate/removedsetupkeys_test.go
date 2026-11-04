@@ -128,3 +128,30 @@ func TestMigrateLeavesAValueNamingNoOneSetupNamingTheVerb(t *testing.T) {
 		})
 	}
 }
+
+// TestMigrateNamesLocalForAWorkspaceLocalFile: a removed key in yolo-jail.local.jsonc is left
+// naming `--local`, the flag that edits that file, never `--project`.
+func TestMigrateNamesLocalForAWorkspaceLocalFile(t *testing.T) {
+	home := env(t)
+	ws := realDir(t)
+	write(t, filepath.Join(ws, "yolo-jail.local.jsonc"), `{"confinement": "guest"}`)
+	g, err := Discover(Request{UserConfigDir: filepath.Join(home, ".config", "yolo-jail"), Workspace: ws})
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	_, err = Plan(g)
+	var refusal *InequalityError
+	if !errors.As(err, &refusal) {
+		t.Fatalf("Plan converted the local file's confinement: %v", err)
+	}
+	var reasons []string
+	for _, nc := range refusal.Plan.NotConverted {
+		if nc.Path == "confinement" {
+			reasons = append(reasons, nc.Reason)
+		}
+	}
+	joined := strings.Join(reasons, "\n")
+	if !strings.Contains(joined, "yolo config unset confinement --local") || strings.Contains(joined, "--project") {
+		t.Errorf("the local file's reason names the wrong flag:\n%s", joined)
+	}
+}

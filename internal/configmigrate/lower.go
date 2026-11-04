@@ -13,6 +13,7 @@ package configmigrate
 import (
 	"fmt"
 	"net/url"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -20,6 +21,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // Scope is which authored config a file belongs to.
@@ -203,7 +205,7 @@ func lower(old *jsonx.OrderedMap, ctx loweringContext, file string) lowered {
 			lowerBrokered(value, ctx, place, skip)
 			continue
 		case "runtime", "confinement", "macos_user_mode":
-			lowerRemovedSetupKey(key, value, ctx, place, skip)
+			lowerRemovedSetupKey(key, value, ctx, file, place, skip)
 			continue
 		case "requests":
 			// A project's own requests table merges leaf by leaf with what its loophole blocks
@@ -283,7 +285,7 @@ func lower(old *jsonx.OrderedMap, ctx loweringContext, file string) lowered {
 // other value names no one setup (the Seatbelt values, whose account lived in another key; `host`,
 // which is `yolo host` now), and a project file's never converts, since a project cannot choose
 // where its agent runs: each is reported with its refusal, which names the verbs that finish it.
-func lowerRemovedSetupKey(key string, value any, ctx loweringContext, place func([]string, any, []string) bool, skip func([]string, any, string)) {
+func lowerRemovedSetupKey(key string, value any, ctx loweringContext, file string, place func([]string, any, []string) bool, skip func([]string, any, string)) {
 	path := []string{key}
 	// The merged read converts the user config's value alone: a project's value it holds instead
 	// is the project's, which never converts.
@@ -293,7 +295,13 @@ func lowerRemovedSetupKey(key string, value any, ctx loweringContext, place func
 		fromUser = ok && jsonx.MustDumpsCompact(uv) == jsonx.MustDumpsCompact(value)
 	}
 	if !fromUser {
-		skip(path, value, config.RemovedSetupKeyMessage(key, value, "--project"))
+		// A workspace's local file is edited with --local, never --project.
+		flag := "--project"
+		switch filepath.Base(file) {
+		case paths.WorkspaceLocalConfigTOMLName, paths.WorkspaceLocalConfigLegacyJSONCName, paths.WorkspaceLocalConfigLegacyJSONName:
+			flag = "--local"
+		}
+		skip(path, value, config.RemovedSetupKeyMessage(key, value, flag))
 		return
 	}
 	if name := config.SetupForRemovedKey(key, value); name != "" {

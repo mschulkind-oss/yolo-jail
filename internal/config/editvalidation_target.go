@@ -181,6 +181,9 @@ func resolveEditTarget(workspace string, intent EditMutationIntent, choice EditT
 	if !ok && intent.Kind == EditMutationRemove {
 		rule, ok = legacyOffSwitchRule(parts)
 	}
+	if !ok && intent.Kind == EditMutationRemove {
+		rule, ok = removedSetupKeyRule(parts)
+	}
 	if !ok {
 		return ResolvedEditTarget{}, fmt.Errorf("config key %s has no readable schema target%s", strings.Join(parts, "."), renamedKeyHint(parts))
 	}
@@ -810,6 +813,16 @@ func roleName(scope ExplicitEditScope) string {
 // keeps the loophole off with and the key the launch's disclosure names to turn it back on. Only
 // removal: the key has no TOML spelling (that is `allow.<pack>.off`), and a TOML file never holds
 // it, so the unset of a TOML target finds no rule there and refuses as before.
+// removedSetupKeyRule is the removal target of a key named setups replace (RemovedSetupKeys):
+// every refusal of one ends in `yolo config unset <key> --user|--project|--local`, so an unset
+// reaches it in whichever file holds it, JSONC or TOML. Only a removal: nothing sets one.
+func removedSetupKeyRule(parts []string) (SchemaKey, bool) {
+	if len(parts) != 1 || !IsRemovedSetupKey(parts[0]) {
+		return SchemaKey{}, false
+	}
+	return SchemaKey{Path: parts[0], Scope: SchemaScopeBoth, Type: SchemaTypeString}, true
+}
+
 func legacyOffSwitchRule(parts []string) (SchemaKey, bool) {
 	if len(parts) != 3 || parts[0] != "loopholes" || parts[2] != "enabled" || !loopholedecl.HasOffSwitch(parts[1]) {
 		return SchemaKey{}, false

@@ -1,0 +1,5 @@
+{
+  "about": "A TOML project config v0.16.1 wrote with runtime = \"podman\": refused, naming the unset that removes it, as a project cannot choose where its agent runs (named-setups-plan.md SUP-D17).",
+  "current_only": true,
+  "expect_refused": "yolo config unset runtime --project"
+}

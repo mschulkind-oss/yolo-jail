@@ -11,12 +11,28 @@ import (
 // files, what is not on this machine, each file's summary, the equality verdict and the records.
 func (p *MigrationPlan) Transcript() string {
 	var b strings.Builder
-	old := p.Graph.Old()
-	if len(old) == 0 {
-		b.WriteString("No config file here is in the old format; nothing to migrate.\n")
+	old, rewritten := p.Graph.Old(), p.Graph.Rewritten()
+	if len(old) == 0 && len(rewritten) == 0 {
+		if p.Equal {
+			b.WriteString("No config file here is in the old format; nothing to migrate.\n")
+			return b.String()
+		}
+		// A TOML file holding a key named setups replace that this migration cannot convert
+		// (SUP-D17): the refusal names each one's own next step.
+		b.WriteString("No config file here is in the old format, but ")
+		b.WriteString((&InequalityError{Plan: p}).Error())
+		b.WriteString("\n")
 		return b.String()
 	}
-	fmt.Fprintf(&b, "Found %d %s in the old format:\n", len(old), plural(len(old), "file", "files"))
+	if len(old) > 0 {
+		fmt.Fprintf(&b, "Found %d %s in the old format:\n", len(old), plural(len(old), "file", "files"))
+	}
+	if len(rewritten) > 0 {
+		fmt.Fprintf(&b, "Found %d TOML %s holding keys named setups replace:\n", len(rewritten), plural(len(rewritten), "file", "files"))
+		for _, f := range rewritten {
+			fmt.Fprintf(&b, "  %s\n", f.Logical)
+		}
+	}
 	for _, f := range old {
 		via := ""
 		if f.Via != "" {
@@ -32,6 +48,9 @@ func (p *MigrationPlan) Transcript() string {
 		if t.New == t.Old {
 			if len(t.Respelled) > 0 {
 				fmt.Fprintf(&b, "  (include %s respelled to its .toml twin)\n", strings.Join(t.Respelled, ", "))
+			}
+			for _, line := range t.Rewrote {
+				fmt.Fprintf(&b, "  %s\n", line)
 			}
 			for _, line := range t.Ceiling {
 				fmt.Fprintf(&b, "  + %s: the converted workspace requests it, and its old switch admitted it\n", line)

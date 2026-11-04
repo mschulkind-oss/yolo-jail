@@ -78,6 +78,9 @@ type File struct {
 	includes []includeEdge
 	topName  string // the top-level name this file is read under, "" for an include or fragment
 	fragment bool   // a config.d fragment
+	// removedKeys marks a TOML file rewritten in place for a removed setup key it holds
+	// (markRemovedSetupKeys).
+	removedKeys bool
 }
 
 type includeEdge struct {
@@ -255,7 +258,39 @@ func Discover(req Request) (*Graph, error) {
 		}
 	}
 	g.markRespelled()
+	g.markRemovedSetupKeys()
 	return g, nil
+}
+
+// markRemovedSetupKeys marks each user-scope TOML file holding a key named setups replace whose
+// value `yolo config migrate` converts (config.RemovedSetupKeyConverts): v0.16.1 wrote those keys
+// to TOML (`yolo config set runtime …`, and its migrate copied them verbatim), and a TOML file
+// holding one converts in place as a JSONC file does (named-setups-plan.md SUP-D17). A project's
+// value never converts, so a project file is left to its refusal.
+func (g *Graph) markRemovedSetupKeys() {
+	for _, f := range g.Files {
+		if (f.Role != RoleRead && f.Role != RoleRespell) || f.Scope != ScopeUser || f.doc == nil {
+			continue
+		}
+		for _, key := range config.RemovedSetupKeys {
+			if v, ok := f.doc.Values.Get(key); ok && config.RemovedSetupKeyConverts(key, v) {
+				f.Role, f.removedKeys = RoleRespell, true
+				break
+			}
+		}
+	}
+}
+
+// Rewritten is every TOML file the migration rewrites in place for a removed setup key, in
+// discovery order (markRemovedSetupKeys).
+func (g *Graph) Rewritten() []*File {
+	var out []*File
+	for _, f := range g.Files {
+		if f.removedKeys {
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 // markRespelled marks each TOML file that includes an old file: its include entry is respelled.

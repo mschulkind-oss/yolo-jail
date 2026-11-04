@@ -98,6 +98,16 @@ var ruledLegacyRefusals = []legacyBreak{
 		"ruled: OQ-LC1 (MT-R3's removal stands: a project cannot choose a setup, named-setups.md §8)"},
 	{"toplevel/confinement/workspace", "migrate-*", "yolo config unset confinement --project",
 		"ruled: OQ-LC1 (MT-R3's removal stands: a project cannot choose a setup, named-setups.md §8)"},
+	// The same keys in a TOML file v0.16.1 wrote (named-setups-plan.md SUP-D17): the launch
+	// refuses each by its value (each case's expect_refused), and `yolo config migrate` converts
+	// a user file's value naming one setup in place, so the migrate offer refuses only what it
+	// leaves: a project's value, and a user value naming no one setup.
+	{"realistic/v0161-toml-project-*", "migrate-offer", "A project cannot choose where its agent runs; remove the line: yolo config unset ",
+		"ruled: OQ-LC1 (MT-R3's removal stands: a project cannot choose a setup, named-setups.md §8)"},
+	{"realistic/v0161-toml-user-confinement", "migrate-offer", "yolo config unset confinement --user",
+		"ruled: OQ-LC1 (MT-R3's removal stands: `confinement = \"host\"` names no setup)"},
+	{"realistic/v0161-toml-user-macos-user-mode", "migrate-offer", "yolo config unset macos_user_mode --user",
+		"ruled: OQ-LC1 (MT-R3's removal stands: `macos_user_mode` names no setup alone)"},
 }
 
 // knownLegacyBreaks is every way a config that worked in v0.15.1 fails today. It only shrinks.

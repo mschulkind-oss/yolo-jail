@@ -71,6 +71,13 @@ func firstReadableTOMLViolation(values *jsonx.OrderedMap, scope SchemaScope) *re
 		return &readableTOMLViolation{path: path, locationPath: locationPath, message: message}
 	}
 	visit = func(value any, path []string, locationPath []configdoc.Step) *readableTOMLViolation {
+		if len(path) == 1 && IsRemovedSetupKey(path[0]) {
+			// A REMOVED SETUP KEY IS READ, NOT REFUSED HERE: v0.16.1 wrote it to TOML, and a
+			// file holding one must still reach `yolo config migrate` and the edit verbs that
+			// remove it. validateSetupsRetired refuses it with its value's own next step
+			// (named-setups-plan.md SUP-D17).
+			return nil
+		}
 		if len(path) > 0 {
 			rule, ok := readableSchemaRule(path)
 			if !ok {

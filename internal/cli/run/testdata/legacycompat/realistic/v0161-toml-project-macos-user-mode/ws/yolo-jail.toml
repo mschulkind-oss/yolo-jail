@@ -1,0 +1,2 @@
+# Written by v0.16.1's `yolo config set macos_user_mode self --project`, before setups replaced the key.
+macos_user_mode = "self"

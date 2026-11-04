@@ -1,0 +1,5 @@
+{
+  "about": "A TOML user config v0.16.1 wrote with runtime = \"podman\": refused by its value, naming the setup it meant and `yolo config migrate`, which converts it in place (named-setups-plan.md SUP-D17).",
+  "current_only": true,
+  "expect_refused": "yolo config migrate"
+}

@@ -1,0 +1,3 @@
+# Written by v0.16.1's `yolo config set confinement host --user`, before setups replaced the key.
+packs = ["pi"]
+confinement = "host"
