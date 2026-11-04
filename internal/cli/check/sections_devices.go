@@ -175,8 +175,9 @@ func (o *Options) sectionGPUAmd(r *reporter, merged *jsonx.OrderedMap) {
 		r.ok("Podman will preserve render/video group via --group-add keep-groups")
 	} else if effectiveRuntime == "container" {
 		r.warn("Apple Container does not support device passthrough",
-			"ROCm passthrough will be ignored on the 'container' runtime. Set \"runtime\": "+
-				"\"podman\" in your config to use it, "+recheck)
+			"ROCm passthrough will be ignored on the Apple Container setup. Use the podman setup "+
+				"for it (`yolo config set setup podman-self --user`, or `--setup podman-self` for "+
+				"one launch), "+recheck)
 	}
 
 	if mode == "cdi" && inJail {
@@ -285,8 +286,9 @@ func (o *Options) sectionKVM(r *reporter, merged *jsonx.OrderedMap) {
 		r.ok("Podman will preserve kvm group via --group-add keep-groups")
 	} else if effectiveRuntimeKVM == "container" {
 		r.warn("Apple Container does not support device passthrough",
-			"kvm: true will be ignored on the 'container' runtime. Set \"runtime\": \"podman\" "+
-				"in your config to use it, "+recheck)
+			"kvm: true will be ignored on the Apple Container setup. Use the podman setup for it "+
+				"(`yolo config set setup podman-self --user`, or `--setup podman-self` for one "+
+				"launch), "+recheck)
 	}
 	r.blank()
 }

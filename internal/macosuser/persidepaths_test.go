@@ -155,7 +155,7 @@ func TestPerSideDisclosure(t *testing.T) {
 			if got := strings.Contains(line, "uv "); got != tc.uv {
 				t.Errorf("uv clause present = %v, want %v:\n%s", got, tc.uv, line)
 			}
-			if !strings.Contains(line, "use a container runtime") {
+			if !strings.Contains(line, "use a container setup (`") {
 				t.Errorf("the warning names no next step:\n%s", line)
 			}
 		})

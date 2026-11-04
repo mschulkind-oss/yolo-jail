@@ -1,9 +1,6 @@
 package config
 
-import (
-	"strings"
-	"testing"
-)
+import "testing"
 
 // confinementruntime_test.go pins the one resolver every runtime reader shares since the guest
 // notch launches on macOS (env-manager plan Phase 7.1, EMP-D1): YOLO_RUNTIME, then a known
@@ -121,25 +118,6 @@ func TestSessionNotchNamesTheGuestFromItsMarker(t *testing.T) {
 		}
 	}
 	if NotchEnv != "YOLO_CONFINEMENT" {
-		t.Errorf("NotchEnv = %q; the footer and the macos-user backend read YOLO_CONFINEMENT", NotchEnv)
-	}
-}
-
-// TestContainerStepClauseNamesTheJailNotchAtAGuestAlone: a next step naming a container runtime
-// gains the jail notch at a guest, where the runtime alone is refused as a contradiction, and
-// gains nothing anywhere else (EMP-D5). Each spelling it names is one the notch gate passes,
-// which TestMacosGuestContainerStepsPassTheNotchGate in internal/cli/run measures on Run().
-func TestContainerStepClauseNamesTheJailNotchAtAGuestAlone(t *testing.T) {
-	got := ContainerStepClause(ConfinementGuest)
-	for _, want := range []string{"; ", "`--at jail`", "`confinement` set to \"jail\"", GuestRuntime} {
-		if !strings.Contains(got, want) {
-			t.Errorf("the guest clause does not say %q: %q", want, got)
-		}
-	}
-	for _, n := range []Confinement{ConfinementJail, ConfinementHost, ""} {
-		if c := ContainerStepClause(n); c != "" {
-			t.Errorf("ContainerStepClause(%q) = %q, want none: only a guest contradicts a "+
-				"container runtime", n, c)
-		}
+		t.Errorf("NotchEnv = %q; the footer reads YOLO_CONFINEMENT", NotchEnv)
 	}
 }

@@ -21,6 +21,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
 // macosctxtree.go builds the CONTEXT TREE: the host bytes a `/ctx` mount carries on
@@ -860,8 +861,8 @@ func dirHostFileCopyError(e config.HostFileEntry, err error) error {
 		return fmt.Errorf("host_files ~/%s (source %s) is not copied for the macos-user sandbox: %v. This "+
 			"backend has no bind mounts, so a directory entry is copied at every launch, and the "+
 			"copy is capped. Split the entry into FILE entries for the files the agent needs, or "+
-			"use a container runtime, which binds the directory instead (`runtime: \"podman\"`, "+
-			"or `\"container\"` from Apple Container %s)", e.Path, e.Source, err, acROBindsFloor)
+			"use a container setup, which binds the directory instead %s; Apple Container binds "+
+			"it from %s", e.Path, e.Source, err, setup.ContainerStep(config.InJail()), acROBindsFloor)
 	}
 	return fmt.Errorf("host_files ~/%s (source %s) could not be copied for the macos-user "+
 		"sandbox: %v. A partial copy would hand the agent a directory that looks "+
@@ -878,8 +879,8 @@ func packFileMountCopyError(c macosuser.ContextLink, err error) error {
 		"by yolo, as you, so the file must be readable to you here: if it sits in a folder macOS's "+
 		"privacy controls guard (Desktop, Documents, Downloads), allow your terminal there in "+
 		"System Settings → Privacy & Security. Or remove the pack for this workspace, or use a "+
-		"container runtime (`runtime: \"podman\"` or `\"container\"`)",
-		c.Pack, c.NamedSource(), c.Dest, err)
+		"container setup %s",
+		c.Pack, c.NamedSource(), c.Dest, err, setup.ContainerStep(config.InJail()))
 }
 
 // ctxCopySize is n in the largest binary unit it fills ("32 MiB", "1.5 KiB"), exact for a whole

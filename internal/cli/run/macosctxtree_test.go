@@ -373,7 +373,7 @@ func TestMacosUserRefusesADirectoryHostFileOverTheCap(t *testing.T) {
 
 			out := runMacosUserExpectingRefusal(t, t.TempDir(), nil)
 			for _, want := range []string{tc.want, "Split the entry into FILE entries",
-				`runtime: "podman"`, "Apple Container " + acROBindsFloor} {
+				"use a container setup, which binds the directory instead (`", "Apple Container binds it from " + acROBindsFloor} {
 				if !strings.Contains(out, want) {
 					t.Errorf("the refusal does not say %q:\n%s", want, out)
 				}

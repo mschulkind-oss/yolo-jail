@@ -59,6 +59,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 	"github.com/mschulkind-oss/yolo-jail/internal/setupcensus"
 )
 
@@ -549,8 +550,8 @@ func (o *Options) noteMacosUserPortKeys(cfg *jsonx.OrderedMap, plan macosUserPor
 		if relaysExpose(plan.relays) {
 			step += ", on a port no relay named here publishes on a real interface"
 		}
-		step += ", or use a container runtime (`runtime: \"podman\"`), whose published ports are " +
-			"the only way in."
+		step += ", or use a container setup " + setup.ContainerStep(o.inJail()) + ", whose published " +
+			"ports are the only way in."
 		out.print("[yellow]Warning: `network.ports` confines nothing on macos-user[/yellow] — " +
 			strings.Join(portLabels(ports), ", ") + ". The sandbox runs on the launcher's own " +
 			"network stack, so a port it binds IS published on this machine's real interfaces — " +
