@@ -1075,6 +1075,10 @@ into the slice's report (see the macos-user plan's
   `yolo yolo-account unshare <dir>` exits 0 and `ls -lde <dir>` then lists no `_yolojail` entry;
   `yolo yolo-account create --help` prints `Usage: yolo yolo-account create` and runs no sudo
   (no password prompt). `remove` is not run here: it deletes the account the other witnesses use.
+  *Run 2026-11-04 at `3ccc28def`* ([lab report](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#w-su5-one-expectation-does-not-match)):
+  all as expected except `create` with the account present. It asks sudo for a password to
+  re-check `/etc/sudoers.d/yolo-jail`, and without one exits 1, exactly as the old
+  `yolo macos-setup` does.
 
 ## Blockers
 

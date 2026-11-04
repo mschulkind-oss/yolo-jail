@@ -1252,6 +1252,9 @@ the colleague who reported the refusal):
   `.yolo/boot.log` has no `home overlay: ~/… was delivered as a copy … refused` line (the test
   checks it; paste `rg -n 'delivered as a copy' <ws>/.yolo/boot.log` printing nothing, from a
   manual `yolo -- true` relaunch, as the record).
+  *Run 2026-11-04 at `3ccc28def`* ([lab report](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#w1c-passes)):
+  PASS, `/account` and `/self`, and the manual relaunch's `rg` printed nothing. W1's `claude -p`
+  line also answered `ok` on the Bedrock profile; the subscription login is still revoked.
 - **W2 (slice 11's precondition 3, the rows not yet recorded):** with `macos_user_mode = "self"` in
   the user config, `yolo -- claude` in a fresh `~/code/alpha` twice; Claude is logged in both times
   without a `/login`; a second workspace runs at the same time; `pip download requests` inside

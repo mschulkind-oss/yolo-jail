@@ -408,6 +408,98 @@ refuses a workspace inside a home: `HomeContaining(workspace)` runs only when th
 **Decision needed (the owner, at the Mac):** run `copilot login` on the host if it isn't logged
 in, or run the keychain search yourself, then rerun W-KC5 from step 1.
 
+## 13. 2026-11-04: W1c, W-SU5, `claude -p` on Bedrock, and `just done`
+
+**Run 2026-11-04 at `main` `3ccc28def`** (the v0.16.1 notes), as a fresh dev bundle
+(`yolo-jail 0.16.0+172.g3ccc28def766`). Nothing was fixed.
+
+### W1c: passes
+
+[W1c](../design/macos-user-model-plan.md#mac-checks) checks
+[MMP-D35](../design/macos-user-model-plan.md#MMP-D35), copies kept while unchanged.
+
+- `YOLO_TEST_MACOS_USER=1 go test -count=1 -timeout 0 -v -run
+  '^TestMacosUserUnchangedRelaunchKeepsTheDeliveredFiles$' ./integration`: **PASS** (30.4 s),
+  `/account` 11.2 s and `/self` 19.2 s. The harness also printed `stopped the processes left
+  running under this test's HOME …: pid … (internal pack-tree-reap), …`
+  (`detachedwriters_test.go:122`) for the self subtest. That's the harness cleaning up, not a
+  failure; noted in case it shouldn't happen.
+- The manual record: two `YOLO_RUNTIME=macos-user yolo -- true` relaunches of `w1b-a` (both exit
+  0), then `rg -n 'delivered as a copy' .yolo/boot.log` **printed nothing** (rc 1) against a
+  `boot.log` written by the second launch. `grep -c 'home overlay'` on it is 0.
+
+### W-SU5: one expectation does not match
+
+[W-SU5](../design/named-setups-plan.md) checks the `yolo yolo-account` verbs (slice 7,
+`563a42895`). It ran in a throwaway `/Users/Shared/yolo/su5-share`, with stdin closed and a 60 s
+alarm on each command so a password prompt could not hang it:
+
+| Command | Expected | Observed |
+| :--- | :--- | :--- |
+| `yolo macos-setup` | the new name, non-zero | `yolo macos-setup is now yolo yolo-account create. Run:` / `yolo yolo-account create`, rc 2 ✓ |
+| `yolo yolo-account share <dir>` | the ACL lists `_yolojail` | `✓ Applied shared-group ACLs`, rc 0; `ls -lde` shows two explicit `group:_yolojail allow …` entries ✓ |
+| `yolo yolo-account create` (account exists) | `The yolo account _yolojail already exists.`, rc 0, no password | **✗** `• sudo needs your password to set up the yolo account and its rule (/etc/sudoers.d/yolo-jail).`, then `sudo: a password is required` and `✗ sudo did not run the check of /etc/sudoers.d/yolo-jail, so nothing was changed. Run yolo yolo-account create again and give your admin password when sudo asks.`, rc 1 |
+| `yolo yolo-account unshare <dir>` | rc 0, no `_yolojail` entry | `✓ Stripped yolo-jail ACLs`, rc 0, and `ls -lde` lists **no entries at all** ✓ (see below) |
+| `yolo yolo-account create --help` | usage, no sudo | `Usage: yolo yolo-account create` and its description, rc 0, no prompt ✓ |
+
+**The `create` divergence is not new.** The installed `yolo` (`0.16.0+30.g5342558ff`, before
+the rename) runs `yolo macos-setup` the same way: the same password line, the same `sudo did not
+run the check of /etc/sudoers.d/yolo-jail`, rc 1. So on a Mac where the account exists,
+`create` still re-checks the sudo rule through a password `sudo`. W-SU5's "already exists, exit
+0, no password" describes behavior neither build has.
+
+**Decision needed:** whether `create` should short-circuit when the account and its rule are in
+place, or whether W-SU5's expectation should change.
+
+**What `unshare` removed.** After `share`, `<dir>` carried two explicit `_yolojail` entries and
+four inherited ones from `/Users/Shared/yolo`: two for `group:_yolojail`, and two for a principal
+shown only as `0E7B72D7-D737-43C8-B1DB-5D8E8C7CA00F`. `dscl . -search` finds no user or group with
+that GeneratedUID, so it's an orphan entry, and `/Users/Shared/yolo` itself carries it explicitly.
+`unshare` left `<dir>` with no ACL entries at all, the inherited orphan included. Whether
+stripping inherited and non-yolo entries is intended is not checked.
+
+### `claude -p` answers on Bedrock
+
+The `claude -p 'Reply with the single word: ok'` line in W1 (and W-SU3) failed in [§8](#8-blocked-and-not-run) and [§12](#12-results-of-the-section-11-witness-and-witness-w-kc5) with
+`OAuth token revoked`. Those runs used plain `yolo -- claude -p …`, which takes the Anthropic
+subscription. This Mac's user config also declares a `bedrock` profile for Claude
+(`work.toml`, plus the `claude-bedrock-global` pack). With it, in account mode:
+
+```
+YOLO_RUNTIME=macos-user yolo -p claude=bedrock -- bash -c 'claude -p "Reply with the single word: ok"'
+→ ok   (rc 0; the launch took 223 s, most of it a first install of Claude in that workspace)
+```
+
+So the jail's Claude works. What is revoked is the **subscription login that jails share**. The
+owner switches between the subscription and Bedrock, and was asked to run `/login` once in a
+subscription session to re-seed it. The subscription variant of the line stays unchecked until then.
+
+### `just done`: green, and a Mac timing after levers A and B
+
+`just done` ran the full `just check-ci`, because `.github/workflows/macos-user.yml` changed:
+**`verified 3ccc28def766 (full); working tree clean`**, 24 m 33 s wall. No `TempDir RemoveAll
+cleanup` and no `helper processes still running` line.
+
+| Package | 2026-11-03 at `064706ada` ([§12](#12-results-of-the-section-11-witness-and-witness-w-kc5)) | 2026-11-04 at `3ccc28def` |
+| :--- | ---: | ---: |
+| `internal/cli` | 1513 s | **1289 s** |
+| `internal/cli/run` | 796 s | 878 s |
+| `internal/entrypoint` | 897 s | 959 s |
+| `internal/packsrc` | — | 364 s |
+
+`internal/cli` is 224 s (15%) faster, the package [levers A and B](../plans/test-suite-speed.md)
+target. The other two are slower. That is **not a controlled comparison**: one run each, and
+this one overlapped a macos-user launch (the Bedrock check above, about 4 minutes) where [§12](#12-results-of-the-section-11-witness-and-witness-w-kc5)'s had
+none. The plan's inference for lever A on the Mac was 1.3 to 2.3 minutes saved. This result is
+consistent with it, but doesn't measure it. I counted no git starts.
+
+### Also checked
+
+`yolo setup list` (slice 1, `ba6ac38c9`) lists the eight built-ins, marks `landlock-*` `not
+available here`, and says `Selected: apple-container-self, this OS's default`. `yolo setup show`
+prints each built-in's `[setups.<name>]` table. No other W-SU witness ran: their slices are not
+built.
+
 ## Evidence
 
 All at `90ff72f2c` unless named. The logs were kept under `/tmp/macnotes/` on the Mac and are not
