@@ -185,6 +185,23 @@ func runSuite(m *testing.M) int {
 func applySuiteEnv() {
 	os.Setenv(autoReapersOffEnv, "1")
 	unsetParentJailPointers()
+	clearInheritedSetupSelection(os.Getenv("YOLO_VERSION") != "")
+}
+
+// clearInheritedSetupSelection unsets the setup-selection variables an outer jail hands the
+// suite, before any launch path (a run* helper, a worker, a host-side act) reads os.Environ.
+// YOLO_RUNTIME and YOLO_CONFINEMENT are removed spellings: a launch that clears YOLO_VERSION to
+// run as on the host refuses YOLO_RUNTIME outright, which failed 59 tests of the suite in this
+// repo's own jail (it exports YOLO_RUNTIME=podman). YOLO_SETUP is cleared only inside a launched
+// session (inJail), where it names the OUTER session's setup (SUP-D4); on a host it is the job's
+// own choice (the macOS workflows set YOLO_SETUP=podman-self job-wide) and stays. A test that
+// needs a setup names it per launch (withEnv("YOLO_SETUP=…")).
+func clearInheritedSetupSelection(inJail bool) {
+	_ = os.Unsetenv("YOLO_RUNTIME")
+	_ = os.Unsetenv("YOLO_CONFINEMENT")
+	if inJail {
+		_ = os.Unsetenv("YOLO_SETUP")
+	}
 }
 
 // warmJail pays the suite's ONE-TIME container costs here, where nothing is being

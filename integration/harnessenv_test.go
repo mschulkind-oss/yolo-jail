@@ -12,6 +12,35 @@ import (
 	"time"
 )
 
+// TestTheSuiteClearsAnOuterJailsSetupSelection drives applySuiteEnv, TestMain's environment
+// step: inside a launched session every setup-selection variable an outer jail exported is gone
+// before any launch reads os.Environ, and on a host the removed two are gone while a job's own
+// YOLO_SETUP stays (the macOS workflows select podman-self with it).
+func TestTheSuiteClearsAnOuterJailsSetupSelection(t *testing.T) {
+	for _, inJail := range []bool{true, false} {
+		t.Setenv(autoReapersOffEnv, os.Getenv(autoReapersOffEnv))
+		t.Setenv("YOLO_RUNTIME", "podman")
+		t.Setenv("YOLO_CONFINEMENT", "jail")
+		t.Setenv("YOLO_SETUP", "podman-self")
+		if inJail {
+			t.Setenv("YOLO_VERSION", "9.9.9-test")
+		} else {
+			t.Setenv("YOLO_VERSION", "")
+		}
+		applySuiteEnv()
+		env := launchEnvironment(runConfig{})
+		for _, kv := range env {
+			name, _, _ := strings.Cut(kv, "=")
+			if name == "YOLO_RUNTIME" || name == "YOLO_CONFINEMENT" {
+				t.Errorf("inJail=%v: a launch inherits the removed %s", inJail, kv)
+			}
+		}
+		if got := slices.Contains(env, "YOLO_SETUP=podman-self"); got == inJail {
+			t.Errorf("inJail=%v: a launch inherits YOLO_SETUP=%v, want it only on a host", inJail, got)
+		}
+	}
+}
+
 // Exercise TestMain itself: a helper-only test would stay green if runSuite
 // stopped calling the common matched-bundle builder. The Python probe stops
 // before any compilation or jail setup, keeping this regression in the short gate.
