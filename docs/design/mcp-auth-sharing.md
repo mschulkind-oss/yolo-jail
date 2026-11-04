@@ -1,9 +1,9 @@
 ---
 title: "One sign-in per user-level MCP server: a host broker that shares the entries, not the store"
 date: 2026-11-03
-status: draft
-stage: DESIGN
-next: "Rule OQ-MA2."
+status: accepted
+stage: DECIDED
+next: "Write the implementation plan, then build the remote mcp_servers form first."
 depends-on: []
 tags: [design, mcp, oauth, credentials, broker, packs, loopholes, sharing]
 summary: "No agent can split its MCP token store per server, so yolo shares user-level sign-ins through a host broker that copies individual entries between one machine-wide canonical store and each workspace's store, under each agent's own lock, and is the only refresher of every shared entry. Agent packs declare their store's shape; core names no agent. Opted in, the broker adopts one agent's sign-in (for Slack, Claude Code's plugin) and hands its access token to every other agent. Prerequisite: a remote (url) form of mcp_servers."
@@ -11,7 +11,7 @@ summary: "No agent can split its MCP token store per server, so yolo shares user
 
 # One sign-in per user-level MCP server: a host broker that shares the entries, not the store
 
-**Status:** 2026-11-03. Nothing built. Evidence read the same day ([Appendix A](#appendix-a-evidence)); tree claims checked at `05f445e8d`.
+**Status:** 2026-11-03. Every ruling is in; nothing built. Evidence read the same day ([Appendix A](#appendix-a-evidence)); tree claims checked at `05f445e8d`.
 
 > **In short.** Because no agent can split its MCP token store per server, sharing only the
 > user-level sign-ins means yolo owns the split: one host broker writes a canonical copy of each
@@ -28,7 +28,7 @@ For Slack, every agent then appears to Slack as Claude Code's Slack app, with th
 
 **Start at [§3](#3-why-it-cannot-be-a-link)** — why no cheaper mechanism meets the rule.
 
-**Needs your ruling:** [OQ-MA2](#OQ-MA2).
+**Needs your ruling:** None.
 
 **Reads with:** [`mcp-auth-stores.md`](../research/mcp-auth-stores.md) (the per-agent store research),
 [`mcp-configuration.md`](../reference/mcp-configuration.md) (how the MCP table is composed),
@@ -74,7 +74,11 @@ carry the rest of the document:
 - **User-level server** — a server the user's layer alone produces with the same name and sign-in
   identity; the full rule is [§5](#5-which-servers-are-user-level). **Workspace server** is every
   other server yolo composes. **Unknown server** *(coined here)* is one in an agent store that yolo
-  did not compose: a plugin's, a project `.mcp.json`'s, one added with the agent's own `mcp add`.
+  did not compose: a plugin installed outside yolo, a project `.mcp.json`'s, one added with the
+  agent's own `mcp add`.
+- **Bundle** *(coined here)* — an agent's installable package that can carry MCP servers: a Claude
+  plugin, and each other agent's equivalent. A **pack-delivered bundle** is one a selected pack
+  wraps and yolo delivers. Not a pack: the pack is yolo's unit, the bundle is the agent's.
 - **Sign-in identity** *(coined here)* — the fields of a server that decide which token it needs:
   its `url`, `transport`, the `headers` the agent hashes into its key, and `oauth.client_id`. Not
   `requires_env` or `provides`.
@@ -165,7 +169,8 @@ selects, then the user's config). Every server in the effective table gets one s
 | Workspace server whose name *and* identity equal a user one | user | indistinguishable by every agent's key |
 | A different name, same URL as a user server | workspace | — except under a URL-keyed agent, below |
 | In a `--local` (`yolo-jail.local.toml`) or a per-workspace file under `~/.config/yolo-jail/workspaces/` | workspace | both are this workspace's files |
-| Unknown server | not shared by default | [OQ-MA2](#OQ-MA2) |
+| From a bundle a pack delivers | the selecting pack's scope | yolo knows which layer selected the pack |
+| Unknown server | never shared | yolo cannot prove it is user-level |
 
 - **A URL-keyed agent forces one more share.** Copilot keys by URL and client id, not name, so a
   workspace server with a user server's URL lands on the same entry. The broker treats that entry
@@ -178,16 +183,26 @@ selects, then the user's config). Every server in the effective table gets one s
   shared from its next launch on: the broker adopts the workspace's existing entry as canonical
   ([§8.2](#82-adopt)) rather than asking for a new sign-in.
 - **`yolo config why mcp_servers.<name>`** names the scope and the layer that decided it.
-- **A Claude plugin can reach the agent through yolo.** A pack can wrap a Claude plugin (its
-  `.claude-plugin/` tree, hooks and `mcpServers`), delivered whole under `skills_tier =
-  "namespaced"` ([`pack-system.md`](../reference/pack-system.md)), and the `packs` entry that
-  selects it says which layer chose it. Its MCP servers do **not** enter yolo's MCP composition
-  today: yolo parses the plugin's `mcpServers` only to disclose it as code that runs in the jail
-  (`internal/pluginpack`, `notePackJailCode` in `internal/cli/run`), and Claude starts the servers
-  itself under keys `plugin:<plugin>:<server>`. Sharing them would need the composer to read each
-  wrapped plugin's servers (its manifest field and `.mcp.json`) into the scope tables with the
-  selecting layer's scope, and the Claude adapter's `mcp_auth_match` to map a `plugin:` key back
-  to that server. Whether to is [OQ-MA2](#OQ-MA2).
+- **A bundle's servers are shared only when yolo delivered the bundle** ([OQ-MA2](#decision-ledger)).
+  A pack can wrap a Claude plugin (its `.claude-plugin/` tree, hooks and `mcpServers`), delivered
+  whole under `skills_tier = "namespaced"` ([`pack-system.md`](../reference/pack-system.md)), and
+  the `packs` entry that selects it says which layer chose it. Its servers then take that layer's
+  scope: shared when the user's config selects the pack, kept to the workspace when the workspace's
+  does. A bundle installed outside yolo (`claude plugin install`, `codex mcp add`, an agent's own
+  package manager) is an unknown server and is never shared; the launch names the pack route.
+  The same rule covers every agent's bundle, not only Claude's: Copilot reads Claude plugins, and
+  Codex's plugins, pi's packages, opencode's plugins and the rest join when their pack declares
+  how its bundle names its servers. Which of those can carry MCP servers is unmeasured.
+- **Two things are built for it, and core names no agent in either.**
+  - **The composer reads each pack-delivered bundle's servers into the scope tables** at the
+    selecting layer's scope. A bundle's format is read by name, as lock protocols are: the Claude
+    plugin format (its manifest field and `.mcp.json`) is the one yolo reads today, and only to
+    disclose the plugin as code that runs in the jail (`internal/pluginpack`, `notePackJailCode`
+    in `internal/cli/run`). A pack whose agent loads a bundle format yolo cannot read declares
+    none, and that bundle's servers stay unknown.
+  - **Each agent pack's store adapter maps its bundle-server key back** to the server:
+    `mcp_auth_match` returns the bundle's server for a key such as Claude's
+    `plugin:<plugin>:<server>`, or by URL for a URL-keyed agent such as Copilot.
 
 ## 6. What an agent pack declares
 
@@ -353,7 +368,8 @@ One block, every launch, per agent:
 MCP sign-ins (codex): linear, sentry shared from your user-level servers
   notion kept to this workspace: yolo-jail.toml changes its url. To share it, declare it in your
     user config: yolo config set mcp_servers.notion.url https://mcp.notion.com/mcp --user
-  plugin:slack:slack not yolo's: kept to this workspace. To share it, declare it in mcp_servers.
+  plugin:slack:slack not yolo's: kept to this workspace. To share it, deliver the plugin through a
+    pack in your user config, or declare the server in mcp_servers.
 ```
 
 `yolo mcp-auth status` lists the same per agent and workspace, with each record's generation,
@@ -732,6 +748,7 @@ changes.
 2. **Slice 1: the `mcp-auth` pack, the broker, the canonical store, Codex end to end** on podman and
    Linux `yolo host`: seed, adopt, propagate, host refresh, the launch block, `yolo mcp-auth status`.
    Codex first because it has one file, one `flock`, a reproducible key and an MCP-only store.
+   Pack-delivered bundles' servers join each agent's slice with that agent's adapter.
 3. **Slice 2:** pi (after the lock fix), opencode, Claude in view mode; the Apple Container and
    macos-user witnesses.
 4. **One sign-in for every agent, adopted from Claude, header route:** `sign_in = "once"`, the
@@ -753,32 +770,6 @@ changes.
 - With `slack` opted in and Claude Code already signed in to Slack, Codex and pi in any jail list
   Slack's tools with no prompt, Claude's Slack plugin keeps working, and no agent's store holds a
   Slack refresh token.
-
-## 17. Open Questions
-
-1. 💬 **OQ-MA2: Should sign-ins for servers yolo never sees ever be shared?**
-
-   Sam added Slack's MCP server through a Claude plugin, and Sentry with `codex mcp add`. Neither
-   is in his yolo config, so every new workspace asks him to sign in again. A plugin wrapped in a
-   pack his user config selects is one yolo can prove is his.
-
-   - **A. Never share them.** The launch names the command that declares each in his user config.
-     Cost: a config line per server.
-   - **B. Share every plugin's servers.** Slack is shared at once. Cost: a plugin enabled for one
-     project is shared too.
-   - **C. Share all of them.** No second prompt. Cost: a project's own `.mcp.json`
-     server is shared, which the rule forbids.
-   - **D. Share servers from plugins a user-config pack delivers.** Slack through such a pack is
-     shared at once; Sentry is not, and the launch names the pack route. Cost: wrapping
-     the plugin in a pack once.
-
-   <!-- vantage: question id=OQ-MA2 leaning="D: share servers from plugins yolo delivers through a pack your user config selects, and never ones installed outside yolo. It shares exactly what yolo can prove is user-level." -->
-
-   _Leaning:_ D: share servers from plugins yolo delivers through a pack your user config selects,
-   and never ones installed outside yolo. It shares exactly what yolo can prove is user-level.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
 
 ## Decision Ledger
 
@@ -808,6 +799,7 @@ The `OQ-MA` rows are the owner's rulings on compacted questions.
 | MA-D19 | The Codex Keychain opt-in is the agent-neutral user-scope key `mcp_sign_in_store` (`"agent"` default, `"file"`), rendered by each pack that declares a file-store setting, refused in project config | 2026-11-03 | [§10](#10-parity-every-backend-and-notch) | — |
 | OQ-MA1 | **Owner's ruling (2026-11-03):** a copy in an agent's store never carries a refresh token where removing it is possible; only the broker refreshes, and with the broker down a copy expires and the agent asks for a sign-in. Owner: *"don't carry a refresh token if that's possible."* The one case it is not: an agent measured to break on an entry with no refresh token | 2026-11-03 | [§8.4](#84-refresh-the-broker-is-the-single-refresher) | — |
 | OQ-MA5 | **Owner's ruling (2026-11-03):** opt in both ways, per server (`sign_in = "once"`) and for ALL user-level servers at once (user-scope `mcp_sign_in = "once"`; a server's `sign_in = "per_agent"` opts out). Owner: *"I also want opt in for ALL servers for MCP signin across agents."* Implementation decisions, not rulings: the key's spelling, and that under the user-wide switch a server that cannot take one sign-in keeps per-agent sign-in with a launch line naming the fix rather than being refused | 2026-11-03 | [§9.2](#92-the-opt-in) | — |
+| OQ-MA2 | **Owner's ruling (2026-11-03):** share the MCP servers of plugins, and of every other agent's equivalent bundle, that yolo delivers through a pack the user's config selects; never those installed outside yolo. Owner: *"D, and whatever other agents call their plugins as well."* Implementation decisions, not rulings: core reads bundle formats by name and names no agent, and each pack's store adapter maps its bundle-server key back | 2026-11-03 | [§5](#5-which-servers-are-user-level) | — |
 | OQ-MA3 | **Owner's ruling (2026-11-03):** keep Claude's and Muse's whole-store share and say so at launch; narrow it when Claude's per-workspace credential files become the default. Owner: *"Keep it and say so at launch; narrow it when Claude's per-workspace credential files become the default. The login change carries its own measured gate, and this should not jump it."* | 2026-11-03 | [§11](#11-existing-state-on-the-day-it-ships) | — |
 | OQ-MA4 | **Owner's ruling (2026-11-03):** an entry that disappears from a cleanly parsed store signs that server out everywhere. Owner: *"Sign out everywhere, but only from a store that parsed cleanly. A shared sign-in is one sign-in, and Claude's machine sign-out already works this way."* | 2026-11-03 | [§8.2](#82-adopt) | — |
 | OQ-MA6 | **Owner's ruling (2026-11-03), neither drafted option:** on a Mac, `yolo host` keeps Codex on its Keychain store by default, so its MCP sign-ins are not shared there and the launch says so and names the opt-in; a user-scope key switches Codex to its file store so they can be shared. Owner: *"I'm hesitant to relax somebody else's security restrictions, so I'm tempted to say here, by default, Codex will just not get them shared. And if you want them to be shared, we should give you a config to explicitly turn off the keychain usage of Codex ... if you want it to be able to share things."* The key's spelling is [MA-D19](#decision-ledger) | 2026-11-03 | [§10](#10-parity-every-backend-and-notch) | — |
@@ -872,7 +864,7 @@ All 2026-11-03. They are the source of the requirement in [§1](#1-the-requireme
   that would be great. sign into slack once and get it everywhere. probably want this to be opt in."*
 - Adoption: *"slack has an mcp connector that works for me on claude, I just want to share that
   auth with other agents too,"* and then: sign in once, in whichever agent you like, and yolo adopts it.
-- The rulings, quoted in the Decision Ledger rows [OQ-MA1](#decision-ledger) and [OQ-MA3](#decision-ledger) to [OQ-MA8](#decision-ledger).
+- The rulings, quoted in the Decision Ledger rows [OQ-MA1](#decision-ledger) to [OQ-MA8](#decision-ledger).
 
 ## Appendix C: Slack, measured
 
