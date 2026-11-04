@@ -132,6 +132,14 @@ func (g *gate) wait(parent context.Context) (proof, error) {
 			case "queued", "in_progress", "waiting", "pending", "requested":
 				// Keep polling the newest matching run; an older green run cannot substitute.
 			case "completed":
+				if current.Conclusion == "cancelled" {
+					// ci.yml cancels a run when a newer push to main supersedes it, so the
+					// exact commit being released can be left with no finished run.
+					return proof{}, fmt.Errorf("latest matching CI run %d was cancelled, most likely "+
+						"superseded by a newer push to main; re-run it with `gh run rerun %d -R %s` "+
+						"(this cancels any newer CI run still in progress on main), wait for it to "+
+						"pass, then request the release again", current.ID, current.ID, g.repo)
+				}
 				if current.Conclusion != "success" {
 					return proof{}, errors.New("latest matching CI run did not conclude success")
 				}

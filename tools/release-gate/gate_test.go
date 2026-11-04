@@ -101,6 +101,24 @@ func TestCompletedNonSuccessConclusionsRefuse(t *testing.T) {
 	}
 }
 
+func TestCancelledRunNamesTheRerun(t *testing.T) {
+	// ci.yml's concurrency group cancels a run a newer push supersedes; the refusal must name
+	// the re-run of that exact run and the retry, not only report the conclusion.
+	api := newFakeAPI()
+	api.runs = []run{testRun(61, 1, "completed", "cancelled")}
+	api.details[61] = []run{api.runs[0]}
+	g, _ := newTestGate(t, api)
+	_, err := g.wait(context.Background())
+	if err == nil {
+		t.Fatal("accepted a cancelled run")
+	}
+	for _, want := range []string{"gh run rerun 61 -R owner/project", "request the release again"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q does not name %q", err, want)
+		}
+	}
+}
+
 func TestMissingRunTimesOutWithoutProof(t *testing.T) {
 	api := newFakeAPI()
 	g, clock := newTestGate(t, api)
