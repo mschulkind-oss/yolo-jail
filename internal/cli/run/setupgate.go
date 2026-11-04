@@ -22,7 +22,8 @@ import (
 
 // SetupRef carries the resolved setup across the by-value Options seam (Options.SetupRef).
 type SetupRef struct {
-	Setup setup.Setup
+	Setup  setup.Setup
+	Source setup.Source
 }
 
 // setupGOOS is the OS this launch judges the built-ins for: setupOS when a test states it, else
@@ -92,6 +93,7 @@ func (o *Options) resolveSetup(_ *jsonx.OrderedMap) (int, bool) {
 	o.MacosUserMode = macosuser.ModeFor(s.RunAs)
 	if o.SetupRef != nil {
 		o.SetupRef.Setup = s
+		o.SetupRef.Source = choice.Source
 	}
 	return 0, false
 }

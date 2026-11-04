@@ -223,7 +223,31 @@ func joinRunAs() string {
 	return strings.Join(out, ", ")
 }
 
-// technologyName is the confinement's name in prose.
+// LaunchDescription is the setup's fields for a launch disclosure, with the network the launch
+// actually applied. A Podman launch reports its resolved bridge/shared choice rather than the
+// setup's general rule; Apple Container's invariant network is simply "bridged".
+func LaunchDescription(s Setup, network string) string {
+	description := Describe(s)
+	switch s.Confinement {
+	case ConfinementPodman:
+		description = strings.TrimSuffix(description, "; bridged unless network.mode is host")
+		if network == "host" {
+			description += "; shares the host's network"
+		} else {
+			description += "; bridged"
+		}
+	case ConfinementAppleContainer:
+		description = strings.TrimSuffix(description, "; always bridged") + "; bridged"
+	}
+	return description
+}
+
+// LaunchDisclosure is the setup portion of the launch line, shared by container and native
+// launch paths so both name the same selected setup, fields, applied network and source.
+func LaunchDisclosure(s Setup, network string, source Source) string {
+	return "yolo: setup " + s.Name + " (" + LaunchDescription(s, network) + ") - from " + source.LaunchLabel()
+}
+
 func technologyName(c Confinement) string {
 	switch c {
 	case ConfinementPodman:

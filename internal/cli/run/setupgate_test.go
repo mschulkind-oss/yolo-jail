@@ -303,8 +303,6 @@ func resolvedGuestWorkspace(t *testing.T) string {
 	return ws
 }
 
-const guestBriefingHeader = "# YOLO Environment — guest"
-
 // TestASeatbeltSetupLaunchesTheMacosUserBackend: every spelling that selects a Seatbelt setup
 // reaches the macos-user handler with no container runtime on PATH, its mode is the setup's
 // run_as, the briefing states the guest notch, and the session is told its setup (SUP-D4).
@@ -344,11 +342,12 @@ func TestASeatbeltSetupLaunchesTheMacosUserBackend(t *testing.T) {
 			if mode != tc.wantMode {
 				t.Errorf("the handler read mode %v from the SetupRef, want %v", mode, tc.wantMode)
 			}
-			if got.notchEnv != string(config.ConfinementGuest) {
-				t.Errorf("YOLO_CONFINEMENT=%q, want guest (its readers move to YOLO_SETUP in slice 9)", got.notchEnv)
+			if got.notchEnv != "" {
+				t.Errorf("YOLO_CONFINEMENT=%q is still exported; YOLO_SETUP is the session marker", got.notchEnv)
 			}
-			if !strings.Contains(got.briefing, guestBriefingHeader) {
-				t.Errorf("the briefing does not carry the guest header:\n%s", got.briefing)
+			if !strings.Contains(got.briefing, "# YOLO Environment — setup "+tc.wantSetup) ||
+				!strings.Contains(got.briefing, "You are running under setup **"+tc.wantSetup+"**: Seatbelt, deny-by-default") {
+				t.Errorf("the briefing does not name and describe setup %s:\n%s", tc.wantSetup, got.briefing)
 			}
 		})
 	}

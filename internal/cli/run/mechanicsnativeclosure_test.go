@@ -70,9 +70,9 @@ func TestNativeMechanicsHostFileFactsReachProductionStaging(t *testing.T) {
 	}
 	caller := string(runSource)
 	producer := strings.Index(caller, "ctxDelivery, err := o.buildMacosCtxTree")
-	factsCall := strings.Index(caller, "facts := o.mechanicsFactSheet(cname, o.notchConfig(cfg), rt, staged, storePackagesPlan{}, ctxDelivery.ctx.HostFiles)")
+	factsCall := strings.Index(caller, "facts := o.mechanicsFactSheet(cname, cfg, rt, staged, storePackagesPlan{}, ctxDelivery.ctx.HostFiles)")
 	adapter := strings.Index(caller, "mechanicsNativeHostFileBackings(facts, ctxDelivery.ctx, cname)")
-	refresh := strings.Index(caller, "o.refreshJailBriefings(cname, o.notchConfig(cfg)")
+	refresh := strings.Index(caller, "o.refreshJailBriefings(cname, cfg")
 	if producer < 0 || factsCall < 0 || adapter < 0 || refresh < 0 || !(producer < factsCall && factsCall < adapter && adapter < refresh) {
 		t.Fatalf("native producer/facts/render order = (%d, %d, %d, %d), want buildMacosCtxTree < fact sheet < native backing adapter < suite refresh", producer, factsCall, adapter, refresh)
 	}

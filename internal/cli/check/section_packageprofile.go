@@ -41,20 +41,13 @@ import (
 // not apply prints nothing at all rather than a header over a claim. Nothing is counted and
 // no [PASS] is manufactured for work that did not happen.
 func (o *Options) sectionPackageProfile(r *reporter, merged *jsonx.OrderedMap, mechanism string) {
-	// The notch is the selected setup's (setup.Setup.Kind), as the launch it predicts acts at; a
-	// selection that refuses is a Merged-Configuration [FAIL] already, and reads as the jail.
-	kind := "jail"
+	// The setup kind directly selects the render profile; no name roundtrip through the retired
+	// confinement-notch vocabulary remains at this boundary.
+	kind := render.KindJail
 	if choice, err := o.checkSetup(merged); err == nil {
-		kind = choice.Setup.Kind().String()
+		kind = render.KindForSetup(choice.Setup.Kind())
 	}
-	notch, ok := render.KindForNotch(kind)
-	if !ok {
-		// Unreachable: every setup kind is a notch. Written out rather than discarded so a zero
-		// Kind can never reach ConfinementProfile as if it were a notch — describe's own boundary
-		// crossing makes the same choice.
-		return
-	}
-	prof := jailcontent.ConfinementProfile(notch, mechanism, o.IsMacOS)
+	prof := jailcontent.ConfinementProfile(kind, mechanism, o.IsMacOS)
 	if prof.Has(render.PrimBakedImage) {
 		return
 	}
@@ -69,7 +62,7 @@ func (o *Options) sectionPackageProfile(r *reporter, merged *jsonx.OrderedMap, m
 	// packages there are inert by design — not a gap awaiting a package layer, and not a
 	// finding. An info line, then, not a [WARN], and the same line on a Mac, whose macos-user
 	// backend materializes a profile for its own launches: a host launch is not one of them. Nothing declared is no report at all.
-	if notch == render.KindHost {
+	if kind == render.KindHost {
 		if declared == 0 {
 			return
 		}
@@ -95,7 +88,7 @@ func (o *Options) sectionPackageProfile(r *reporter, merged *jsonx.OrderedMap, m
 		return
 	}
 	r.sectionHeader("Declared packages")
-	o.checkPackageProfile(r, notch, materializes, declared)
+	o.checkPackageProfile(r, kind, materializes, declared)
 	r.blank()
 }
 

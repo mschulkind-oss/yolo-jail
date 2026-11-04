@@ -28,7 +28,7 @@ config = [{ agent = "agy", defaults = { mcpServers = {} }, mode = "computed", na
 
 [[config]]
 config = [
-  { agent = "agy", defaults = { statusLine = { command = "yolo internal footer --agent agy --login 'Google AI subscription' --template 'yolo: {yolo.billing} · {yolo.notch}'", stack_with_default = true, type = "command" } }, name = "settings", path = "~/.gemini/antigravity-cli/settings.json" },
+  { agent = "agy", defaults = { statusLine = { command = "yolo internal footer --agent agy --login 'Google AI subscription' --template 'yolo: {yolo.billing} · {yolo.setup}'", stack_with_default = true, type = "command" } }, name = "settings", path = "~/.gemini/antigravity-cli/settings.json" },
   { agent = "agy", name = "onboarding", path = "~/.gemini/antigravity-cli/cache/onboarding.json" },
 ]
 

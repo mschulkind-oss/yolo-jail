@@ -55,7 +55,7 @@ func knownLaunchYOLOEnvNames(packs []*packload.Pack, channel *packChannel) []str
 		setup.EnvVar,
 		// Contracts a launch writes into the container's environment, so a launch nested in
 		// that container inherits them.
-		paths.HoldExecEnv, ioprio.EnvVar, config.NotchEnv, config.BootBaselineDigestEnv,
+		paths.HoldExecEnv, ioprio.EnvVar, config.BootBaselineDigestEnv,
 		claudesecurity.EnvVar, paths.LaunchUpdateEnv, paths.ServedAddressesEnv,
 		entrypoint.StoreProfilesEnv, entrypoint.StoreFHSProfilesEnv, entrypoint.SealedBuildEnv,
 		entrypoint.TreeBuildEnv, entrypoint.ProgramCapturesEnv, entrypoint.HostCAFileEnv,

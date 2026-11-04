@@ -13,6 +13,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
 // mechanicsFactSheet adapts decisions already made by the launch pipeline. In particular,
@@ -25,16 +26,17 @@ func (o *Options) mechanicsFactSheet(cname string, cfg *jsonx.OrderedMap, rt str
 	if store.Active {
 		packageDelivery = changetiming.StoreDelivered
 	}
+	appliedNetworkMode := appliedNetMode(rt, o.resolveNetMode(cfg), mechanicsInContainer(o))
 	facts := &jailcontent.FactSheet{
 		HostWorkspace:      o.Workspace,
 		WorkspacePath:      "/workspace",
-		Confinement:        string(config.ResolveConfinement(cfg)),
+		Setup:              o.Setup.Name,
+		SetupDescription:   setup.LaunchDescription(o.Setup, appliedNetworkMode),
 		UserConfigPath:     paths.UserConfigPath(),
 		PackageDelivery:    string(packageDelivery),
 		Packs:              mechanicsPackNames(staged.packs),
 		ScopeRestrictions:  mechanicsScopeRestrictions(),
-		AppliedNetworkMode: appliedNetMode(rt, o.resolveNetMode(cfg), mechanicsInContainer(o)),
-		NixDelivery:        nixDelivery(rt, mechanicsHostNixMounted(o, rt)),
+		AppliedNetworkMode: appliedNetworkMode, NixDelivery: nixDelivery(rt, mechanicsHostNixMounted(o, rt)),
 	}
 	if rt == "macos-user" { // parity: HonoredBy — the workspace is already at its native host path, not mounted at /workspace
 		facts.WorkspacePath = o.Workspace

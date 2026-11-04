@@ -9,7 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
 // env is a getenv over a fixed map, so a billing case states its whole environment.
@@ -143,42 +144,24 @@ func TestBillingDegenerateInputs(t *testing.T) {
 	}
 }
 
-// TestNotch is "The notch": the marker a container launch sets, asked through config.InJail. An
-// EMPTY marker is the case the copies of the test disagree about, and it reads as host.
-func TestNotch(t *testing.T) {
+func TestSetupNamesTheSelectedSession(t *testing.T) {
+	testsupport.ClearSetupSelectionEnv()
 	t.Setenv("YOLO_VERSION", "0.10.0")
-	if got := Notch(); got != NotchJail {
-		t.Errorf("YOLO_VERSION set: Notch = %q, want %q", got, NotchJail)
+	t.Setenv(setup.EnvVar, "seatbelt-self")
+	if got := Setup(); got != "seatbelt-self" {
+		t.Errorf("launched setup = %q, want seatbelt-self", got)
 	}
-	t.Setenv("YOLO_VERSION", "")
-	if got := Notch(); got != NotchHost {
-		t.Errorf("YOLO_VERSION empty: Notch = %q, want %q", got, NotchHost)
-	}
-	os.Unsetenv("YOLO_VERSION") // restored by the t.Setenv cleanup above
-	if got := Notch(); got != NotchHost {
-		t.Errorf("YOLO_VERSION absent: Notch = %q, want %q", got, NotchHost)
+	t.Setenv(setup.EnvVar, "podman-self")
+	if got := Setup(); got != "podman-self" {
+		t.Errorf("launched setup = %q, want podman-self", got)
 	}
 }
 
-// TestNotchNamesTheGuestFromItsLaunchersMarker is "The notch"'s guest row: the macOS guest launch sets
-// config.NotchEnv beside YOLO_VERSION (env-manager plan EMP-D4), and the renderer prints `guest`
-// for it, as the briefing and `yolo describe` name that session. The marker only narrows a
-// launched session: without YOLO_VERSION it is no launch, and absence still reads as host.
-func TestNotchNamesTheGuestFromItsLaunchersMarker(t *testing.T) {
-	t.Setenv("YOLO_VERSION", "0.10.0")
-	t.Setenv(config.NotchEnv, "guest")
-	if got := Notch(); got != NotchGuest {
-		t.Errorf("a guest launch's session: Notch = %q, want %q", got, NotchGuest)
-	}
-	t.Setenv(config.NotchEnv, "jail")
-	if got := Notch(); got != NotchJail {
-		t.Errorf("a marker naming the jail: Notch = %q, want %q", got, NotchJail)
-	}
-	t.Setenv(config.NotchEnv, "guest")
+func TestSetupOutsideALaunchedSessionIsHostSelf(t *testing.T) {
+	testsupport.ClearSetupSelectionEnv()
 	t.Setenv("YOLO_VERSION", "")
-	if got := Notch(); got != NotchHost {
-		t.Errorf("the guest marker with no launch marker: Notch = %q, want %q — a stray "+
-			"variable must never claim a sandbox", got, NotchHost)
+	if got := Setup(); got != "host-self" {
+		t.Errorf("setup outside a launched session = %q, want host-self", got)
 	}
 }
 
@@ -216,15 +199,17 @@ func TestNoCopyOfTheJailProbe(t *testing.T) {
 // TestRenderTemplate covers the template rules of "The renderer": yolo facts, stdin paths, a missing
 // field rendering empty, and no literal {…} reaching the screen.
 func TestRenderTemplate(t *testing.T) {
+	testsupport.ClearSetupSelectionEnv()
+	t.Setenv(setup.EnvVar, "podman-self")
 	t.Setenv("YOLO_VERSION", "x")
 	e := env(map[string]string{"YOLO_USE_PROFILES": `{"claude": "bedrock"}`,
 		"YOLO_PROFILES": profilesTable, "YOLO_PROVIDERS": providersTable})
 	doc := map[string]any{"model": map[string]any{"display_name": "Opus", "ctx": []any{"a", "b"}}}
 	stdin := func() any { return doc }
 	cases := []struct{ tmpl, want string }{
-		{"{stdin.model.display_name} · yolo: {yolo.billing} · {yolo.notch}", "Opus · yolo: Bedrock · jail"},
-		{DefaultTemplate, "yolo: Bedrock · jail"},
-		{"{ yolo.notch }", "jail"},
+		{"{stdin.model.display_name} · yolo: {yolo.billing} · {yolo.setup}", "Opus · yolo: Bedrock · podman-self"},
+		{DefaultTemplate, "yolo: Bedrock · podman-self"},
+		{"{ yolo.setup }", "podman-self"},
 		{"[{stdin.model.missing}]", "[]"},
 		{"[{stdin.model}]", "[]"},
 		{"[{stdin.model.ctx}]", "[]"},
@@ -233,9 +218,9 @@ func TestRenderTemplate(t *testing.T) {
 		{"[{stdin.model.display_name.deeper}]", "[]"},
 		{"[{yolo.version}]", "[]"},
 		{"[{env.HOME}]", "[]"},
-		{"a {b {yolo.notch}", "a b jail"},
-		{"{{yolo.notch}}", "jail}"},
-		{"tail {yolo.notch", "tail yolo.notch"},
+		{"a {b {yolo.setup}", "a b podman-self"},
+		{"{{yolo.setup}}", "podman-self}"},
+		{"tail {yolo.setup", "tail yolo.setup"},
 		{"one\ntwo\r\nthree", "one two three"},
 		{"  padded  ", "padded"},
 		{"", ""},
@@ -253,6 +238,8 @@ func TestRenderTemplate(t *testing.T) {
 // printed only when the field has a value, so an optional field never leaves its separator
 // behind. It is how claude's footer puts the session's effort level next to the model.
 func TestRenderOptionalPrefix(t *testing.T) {
+	testsupport.ClearSetupSelectionEnv()
+	t.Setenv(setup.EnvVar, "podman-self")
 	t.Setenv("YOLO_VERSION", "x")
 	e := env(map[string]string{"YOLO_USE_PROFILES": `{"claude": "bedrock"}`,
 		"YOLO_PROFILES": profilesTable, "YOLO_PROVIDERS": providersTable})
@@ -271,7 +258,7 @@ func TestRenderOptionalPrefix(t *testing.T) {
 		{"the prefix keeps its own spaces", "[{  -  |stdin.effort.level}]", withEffort, "[  -  high]"},
 		{"only the last bar splits", "[{a|b|stdin.effort.level}]", withEffort, "[a|bhigh]"},
 		{"an empty prefix is a plain optional field", "[{|stdin.effort.level}]", withEffort, "[high]"},
-		{"a yolo fact takes a prefix too", "[{at |yolo.notch}]", noEffort, "[at jail]"},
+		{"a yolo fact takes a prefix too", "[{at |yolo.setup}]", noEffort, "[at podman-self]"},
 		{"an empty field name prints nothing", "[{x|}]", withEffort, "[]"},
 	}
 	for _, c := range cases {
@@ -302,9 +289,11 @@ func TestRenderNeverShowsABraceField(t *testing.T) {
 // TestRenderReadsStdinOnlyWhenAsked keeps a template with no stdin field from touching the
 // agent's pipe at all, and reads it once however many fields ask.
 func TestRenderReadsStdinOnlyWhenAsked(t *testing.T) {
+	testsupport.ClearSetupSelectionEnv()
+	t.Setenv(setup.EnvVar, "podman-self")
 	calls := 0
 	stdin := func() any { calls++; return map[string]any{"a": "1", "b": "2"} }
-	o := ParseArgs([]string{"--template", "yolo: {yolo.notch}"})
+	o := ParseArgs([]string{"--template", "yolo: {yolo.setup}"})
 	Render(o, env(nil), stdin)
 	if calls != 0 {
 		t.Errorf("a template with no stdin field read stdin %d times", calls)
@@ -329,10 +318,12 @@ func TestRenderScrubsValues(t *testing.T) {
 // TestRenderNeverPrintsASwitchValue: a switch is compared and never printed, so a secret
 // set in a switch's variable — or anywhere in the env — cannot reach the footer.
 func TestRenderNeverPrintsASwitchValue(t *testing.T) {
+	testsupport.ClearSetupSelectionEnv()
+	t.Setenv(setup.EnvVar, "podman-self")
 	t.Setenv("YOLO_VERSION", "x")
 	const secret = "sk-ant-api03-SECRET"
 	o := ParseArgs([]string{"--agent", "claude", "--switch", "ANTHROPIC_API_KEY=anthropic-api",
-		"--template", "{yolo.billing} {yolo.notch} {env.ANTHROPIC_API_KEY} {ANTHROPIC_API_KEY} {stdin.key}"})
+		"--template", "{yolo.billing} {yolo.setup} {env.ANTHROPIC_API_KEY} {ANTHROPIC_API_KEY} {stdin.key}"})
 	got := Render(o, env(map[string]string{"ANTHROPIC_API_KEY": secret}), func() any { return nil })
 	if strings.Contains(got, "SECRET") {
 		t.Fatalf("Render printed a credential value: %q", got)
@@ -395,7 +386,7 @@ func TestMainNeverFailsAndNeverWritesStderr(t *testing.T) {
 	codes := []int{
 		Main(nil, nil, &out, nil),
 		Main([]string{"--template"}, strings.NewReader("not json"), &out, nil),
-		Main([]string{"--agent", "claude", "--login", "L", "--template", "{stdin.a} {yolo.billing} {yolo.notch}"},
+		Main([]string{"--agent", "claude", "--login", "L", "--template", "{stdin.a} {yolo.billing} {yolo.setup}"},
 			strings.NewReader(`{"a": 1.50}`), &out, nil),
 		Main([]string{"--bogus", "--", "{", "}"}, strings.NewReader(strings.Repeat("x", stdinLimit+10)), &out, nil),
 	}
@@ -504,9 +495,9 @@ func TestHostTables(t *testing.T) {
 		calls = 0
 		t.Setenv("YOLO_VERSION", "")
 		o := claudeOpts()
-		o.Template = "{yolo.notch}"
-		if got := Render(o, WithHostTables(env(map[string]string{}), host), nil); got != "host" {
-			t.Errorf("render = %q, want host", got)
+		o.Template = "{yolo.setup}"
+		if got := Render(o, WithHostTables(env(map[string]string{}), host), nil); got != "host-self" {
+			t.Errorf("render = %q, want host-self", got)
 		}
 		if calls != 0 {
 			t.Errorf("host composed %d times for a notch-only template, want none", calls)

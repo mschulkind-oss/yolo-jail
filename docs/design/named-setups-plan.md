@@ -100,6 +100,7 @@ of them, and a slice that finds one wrong stops and reports rather than picking 
 | <a id="SUP-D15"></a>SUP-D15 | **`yolo config migrate` converts only the user-scope values that name one setup.** A user file's `runtime = "podman"` becomes `setup = "podman-self"` and `"container"` `setup = "apple-container-self"`; `confinement = "jail"` is dropped, since an unset `setup` selects the same default. `confinement = "guest"` or `"host"`, `runtime = "macos-user"` and every `macos_user_mode` stay unconverted, with the refusal naming the setups and the unset. A project file's value is never converted: it is left with its refusal, which names `yolo config unset <key> --project`. In a merged read, a value is converted only when the user file holds it. | [§10](named-setups.md#10-what-is-removed): *"`migrate` writes the replacement where the old value names exactly one."* A project cannot choose where its agent runs ([§8](named-setups.md#8-the-security-ceiling)), so writing `setup` from a project's key would move a choice the project never had. The legacy corpus records the load and project-scope migrate refusals as owner-ruled ([MT-R3](named-setups.md#decision-ledger)) rather than weakening `TestLegacyConfigsLaunchUnchanged`. |
 | <a id="SUP-D16"></a>SUP-D16 | **A removed key selects nothing, and `yolo check` reads the notch from the selected setup.** `confinement`, `runtime` and `macos_user_mode` are an error on the host and a warning in a session; in neither case do they reach `config.SelectSetup`, so a launch, `yolo apply`, `yolo check` and the listing verbs all run the selection without them. `yolo check`'s package-profile notch is the selected setup's `Kind`, and its macOS section's account is the selected setup's `run_as` only when that setup runs on macos-user. | Two readers of the old keys would disagree with the launch they predict. The macOS section had read the default `apple-container-self`'s `run_as` (`self`) as the run-as-you sandbox. |
 | <a id="SUP-D17"></a>SUP-D17 | **A TOML file holding `runtime`, `confinement` or `macos_user_mode` is read, refused by its value, edited by the steps the refusal names, and converted by `yolo config migrate` as a JSONC file is.** v0.16.1 wrote these keys to TOML (`yolo config set runtime podman --user`, and its migrate copied them verbatim), so the TOML reader no longer refuses them with one generic line: `validateSetupsRetired` gives the value-aware text a JSONC file gets (`confinement = "host"` is told `yolo host`, never `podman-self`), names `--user`, `--project` or `--local` from the file holding the key, and adds `yolo config migrate` for a user TOML value naming one setup. `yolo config unset <key>` removes the key at any scope, and `yolo config set setup <name> --user` is not blocked by the key it replaces. `yolo config migrate` rewrites a user TOML file in place (as it respells an include) with SUP-D15's conversion, proved like a converted file; a project's value, or a user value naming no one setup, refuses the migration naming its own next step, as a JSONC file's does. | The coordinator's decision under [RC-D50](readable-config.md#RC-D50) (2026-11-04), from the review of slices 4b and 5: a refusal whose step is itself refused is a stop with no next step, which the [happy path principle](../reference/happy-path-principle.md) forbids. The legacy corpus's `realistic/v0161-toml-*` cases hold the launch's refusal for each key at each scope. |
+| <a id="SUP-D18"></a>SUP-D18 | **Launch disclosures use compact source labels:** `--setup`, `YOLO_SETUP`, `user config` and `default`; the setup list and other explanatory surfaces keep `Source.String()`'s full wording. Both container and macos-user launches use one `setup.LaunchDisclosure` function. | The first launch line is a one-line operational statement; concise source labels preserve the invocation's meaning without repeating the longer prose used in setup list output. |
 
 ## Map
 
@@ -132,7 +133,7 @@ One row per file that changes. New files are marked. `…` means "and the siblin
 | `internal/cli/run/inheritscope.go:742-808`, a new `internal/cli/run/legacyhome.go` | adoption and the legacy-container refusal ([SUP-D9](#SUP-D9), [SUP-D10](#SUP-D10), [slice 6a](#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path)) |
 | `internal/cli/stop.go:82-196,323-420,601`, `ps.go:68-99,191-235`, `setupcmd.go` (running column), `internal/cli/stores/inventory.go:547-548,1148-1153` | enumerate setups ([slice 6b](#slice-6b--stop-ps-stores-and-setup-list-see-every-setup-after-6a)) |
 | `internal/macosuser/runplan.go` (`RunPlan`, `BuildRunPlanWithStages:604`, `PlanInvariants:1613`, argv builders), `provision.go:148-169`, `serviceprobe.go:46-64,119`, `jaildaemon.go:487`, `orchestrator.go:949,1325`; `internal/cli/host.go:214-250,606`; `commands.go` (the host-yolo-account dispatch) | `host-yolo-account` ([SUP-D5](#SUP-D5), [slice 8](#slice-8--host-yolo-account-on-macos-after-6a-mac-witness)) |
-| `internal/cli/run/banner.go:23-33`, `run.go:2524,3026,3549`; `internal/footer/footer.go:78-87,173-185`; `internal/jailcontent/briefing.go:128-133,280,308-320,390-455,526-531`; `internal/cli/run/prepare.go:182`, `mechanicsfacts.go:31`, `sharednetwork.go:20`; `internal/macosuser/orchestrator.go:888-900`; `packs/claude/pack.toml:101`, `packs/agy/pack.toml:31` (`{yolo.notch}`) | the setup named everywhere the notch was ([slice 9](#slice-9--the-launch-line-the-footer-and-the-briefing-name-the-setup-after-4a)) |
+| `internal/cli/run/banner.go:23-33`, `run.go:2524,3026,3549`; `internal/footer/footer.go:78-87,173-185`; `internal/jailcontent/briefing.go:128-133,280,308-320,390-455,526-531`; `internal/cli/run/prepare.go:182`, `mechanicsfacts.go:31`, `sharednetwork.go:20`; `internal/cli/check/section_packageprofile.go`; `internal/macosuser/orchestrator.go:888-900`; all pack footer adapter templates (`packs/claude`, `agy`, `copilot`, `omp`, `opencode`, `pi`) | the setup named everywhere the notch was ([slice 9](#slice-9--the-launch-line-the-footer-and-the-briefing-name-the-setup-after-4a)) |
 | `internal/cli/commands.go:112-145`, `dispatch.go:55-58`, `help.go:97-109`, `subhelp.go:132-135`; `internal/macosuser/commands.go`, `preconditions.go`, `privilege.go:158-165`, `macosuser.go`, `capture.go`, `ctxlinks.go`, `sessionfiles.go`, `mode.go:17`; `internal/cli/hostfloor.go:341`, `packbuild.go:353`, `hosttrees.go`; `internal/cli/run/run.go:269`, `macosuserrelocations.go`, `launchlog.go`, `autocapture.go`; `internal/entrypoint/programcompatibility.go:145`, `boot.go`; `integration/macosusergate_test.go:607,753-755`, `macosuserrelocations_test.go:131`, `macosusernorootsudo_test.go:357-366`, `hostfloor_test.go:427`; `.github/workflows/macos-user.yml:312,652` | the `yolo-account` verbs ([slice 7](#slice-7--yolo-yolo-account-create--remove--share--unshare-independent)) |
 | `internal/setupcensus/census.go:56-80` | column names ([SUP-D8](#SUP-D8), [slice 10](#slice-10--docs-after-5-and-6a)) |
 | `userguide/guides/confinement.md`, `userguide/reference/settings-per-setup.md`, `userguide/guides/macos.md`, `userguide/reference/cli-reference.md:35,193-201`, `userguide/getting-started.md:247-254,291-303,616`, `userguide/guides/storage.md:15-17,59-64`, `userguide/README.md:83`, `README.md:24,46-47,118`; `docs/reference/what-yolo-is.md:109-132`, `loophole-grants.md:383-395`, `storage-and-config.md:366,507`, `jail-home.md:182,194,558,1683`, `agent-footer.md:69,129-139,565`, `config-target-resolution.md:116,166,201-221,632`, `report-tiers.md:575`; `AGENTS.md` (the `macos_user_mode` line and the backend table) | docs ([slice 10](#slice-10--docs-after-5-and-6a)) |
@@ -562,10 +563,9 @@ are below).
   - `internal/cli/check`: `guestnotch_test.go` → rewrite as `setup_test.go`: `yolo check` under
     `YOLO_SETUP=seatbelt-self` on Linux reports the refusal; under `YOLO_RUNTIME=podman` on the host
     reports the removal.
-  - Integration (run by whoever lands): `TestMacosUserGuestNotchLaunchesTheSandbox`
-    (`integration/macosuserguestnotch_test.go:29`) → rewrite as
-    `TestMacosUserSeatbeltSelfLaunchesTheSandbox` with `withEnv("YOLO_SETUP=seatbelt-self")`
-    asserting the footer prints `seatbelt-self`; `macosUserRunEnv()` (`macosusergate_test.go:664`)
+  - Integration (run by whoever lands): `TestMacosUserSeatbeltSelfLaunchNamesTheSetupInItsBriefingAndFooter`
+    (`integration/macosusersetupfooter_test.go`) verifies the selected setup reaches the native launch,
+    its briefing, and footer; `macosUserRunEnv()` (`macosusergate_test.go:664`)
     → `YOLO_SETUP=seatbelt-yolo-account`; `appleContainerEnv()` (`applecontainer_test.go:166`) →
     `YOLO_SETUP=apple-container-self`; `keeperEnv` and `macarchivedelivery_test.go:199` map
     `rt` to the built-in name; `detectRuntime` (`harness_test.go:395-410`) decodes `YOLO_SETUP`.
@@ -899,17 +899,19 @@ are below).
   account", "sandbox account" and "jail" for the walls are replaced by the setup name, "the yolo
   account" and "a container" ([§10](named-setups.md#10-what-is-removed)).
 - **Preconditions:** slice 4a landed (`YOLO_SETUP` is in the session env).
-- **Tests first:** `internal/footer/footer_test.go`: `Notch()` → `Setup()` returns
-  `os.Getenv("YOLO_SETUP")` in a session and `host-self` outside one; `DefaultTemplate` renders
-  `yolo: … · seatbelt-self`. `internal/jailcontent/briefing_test.go`: the header for
+- **Tests first:** `internal/footer/footer_test.go`: `Setup()` returns `os.Getenv("YOLO_SETUP")` in a session and `host-self` outside one; `DefaultTemplate` renders `yolo: … · seatbelt-self`. `internal/jailcontent/setupbriefing_test.go`: the header for
   `seatbelt-self` says *"You are running under setup **seatbelt-self**: Seatbelt, deny-by-default,
   as you"*, for `podman-self` *"a container"* and never the word "jail" for the walls; for
-  `host-self` the host header stays. `internal/cli/run/banner_test.go`: `LaunchBanner` prints
+  `host-self` the host header stays. `internal/macosuser/setupdisclosure_test.go` exercises the native
+  caller through `RunMacosUser`, and `internal/cli/macosusermode_test.go` pins the setup/source passed
+  by the front door. `internal/cli/run/banner_test.go`: `LaunchBanner` prints
   `setup podman-self (Podman, as you; bridged) - from default` as its first part. Red:
   `go test -short -run 'Setup|Banner|Header' ./internal/footer/ ./internal/jailcontent/ ./internal/cli/run/`.
-  **Rewrite:** `TestMacosUserFooterSaysJail` (`integration/macosuserfooter_test.go:20`) →
-  `…SaysItsSetup`; `packs/claude/pack.toml:101` and `packs/agy/pack.toml:31` templates use
-  `{yolo.setup}`.
+  **Rewrite:** `TestMacosUserFooterSaysItsSetup` (`integration/macosuserfooter_test.go:20`) pins the
+  native footer; `TestMacosUserSeatbeltSelfLaunchNamesTheSetupInItsBriefingAndFooter`
+  (`integration/macosusersetupfooter_test.go`) retains the real-launch self identity, Claude
+  surface, briefing, and session/footer marker checks. Every shipped adapter template that used
+  `{yolo.notch}` changes to `{yolo.setup}` (claude, agy, copilot, omp, opencode, pi).
 - **Change:** `footer.go:78-87,173-185`; `briefing.go:128-133` (`BriefingInput.Setup`,
   `SetupDescription`), `:280`, `:308-320`, `:390-455`, `:526-531`; `prepare.go:182`,
   `mechanicsfacts.go:31`, `sharednetwork.go:20`; `banner.go:23-33` and its callers at

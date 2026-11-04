@@ -32,7 +32,7 @@ const FOOTER_ARGS = [
 	"--words", "openai-codex=ChatGPT subscription",
 	"--words", "bedrock=Bedrock",
 	"--bridged", "openai-codex",
-	"--template", "yolo: {yolo.billing} · {yolo.notch}"
+	"--template", "yolo: {yolo.billing} · {yolo.setup}"
 ];
 
 function renderFooter() {

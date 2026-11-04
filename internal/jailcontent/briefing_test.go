@@ -6,6 +6,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
 func must(t *testing.T, err error) {
@@ -140,40 +142,29 @@ func TestComposePackBriefingsSkipsEmpty(t *testing.T) {
 	}
 }
 
-// Phase 8 (env-manager): the briefing states the confinement notch. jail (and empty)
-// is unchanged; guest/host tell the agent it is NOT disposable.
-func TestBriefingConfinementHeader(t *testing.T) {
-	base := BriefingInput{Workspace: "/home/me/proj"}
-
-	jail := BriefingContent(base) // empty Confinement == jail
-	if !contains(jail, "sandboxed container") {
-		t.Errorf("default/jail briefing must keep the historical 'sandboxed container' line:\n%s", jail)
+// The selected setup, not a raw confinement marker, names the briefing header.
+func TestBriefingSetupHeader(t *testing.T) {
+	podman := setup.MustBuiltIn("podman-self")
+	jail := BriefingContent(BriefingInput{Workspace: "/home/me/proj", Setup: podman})
+	if !contains(jail, "setup **podman-self**") || !contains(jail, "inside a container") {
+		t.Errorf("podman setup briefing must name the setup and container:\n%s", jail)
 	}
 
-	base.Confinement = "jail"
-	if BriefingContent(base) != jail {
-		t.Error("explicit confinement=jail must be byte-identical to the empty default")
-	}
-
-	// The HEADER (the top paragraph, §8.1) states the notch and non-disposability.
-	// The deeper "## Environment" body stays jail-shaped until guest/host actually
-	// boot (Phases 4/7) — no jail boots at those notches today, so the body is not yet
-	// specialized; this test pins the header, which is what Phase 8 delivers.
-	base.Confinement = "host"
-	host := firstParagraph(BriefingContent(base))
-	for _, want := range []string{"host", "real", "NOT disposable"} {
+	hostSetup := setup.MustBuiltIn("host-self")
+	host := firstParagraph(BriefingContent(BriefingInput{Workspace: "/home/me/proj", Setup: hostSetup}))
+	for _, want := range []string{"setup **host-self**", "real machine", "NOT disposable"} {
 		if !contains(host, want) {
-			t.Errorf("host briefing header must warn it is not disposable (missing %q):\n%s", want, host)
+			t.Errorf("host setup briefing header must name it and warn it is not disposable (missing %q):\n%s", want, host)
 		}
 	}
-	if contains(host, "sandboxed container") {
-		t.Errorf("host briefing header must NOT claim it is a sandboxed container:\n%s", host)
+	if contains(host, "inside a container") {
+		t.Errorf("host setup briefing must NOT claim a container:\n%s", host)
 	}
 
-	base.Confinement = "guest"
-	guest := firstParagraph(BriefingContent(base))
-	if !contains(guest, "guest") || contains(guest, "sandboxed container") {
-		t.Errorf("guest briefing header wrong:\n%s", guest)
+	guestSetup := setup.MustBuiltIn("seatbelt-self")
+	guest := firstParagraph(BriefingContent(BriefingInput{Workspace: "/home/me/proj", Setup: guestSetup, Mechanism: "macos-user", IsMacOS: true}))
+	if !contains(guest, "setup **seatbelt-self**") || contains(guest, "inside a container") {
+		t.Errorf("Seatbelt setup briefing must name it and avoid a container claim:\n%s", guest)
 	}
 }
 
@@ -229,19 +220,13 @@ func index(s, sub string) int {
 	return -1
 }
 
-// THE JAIL NOTCH WITHOUT A CONTAINER. macos-user runs at `confinement: jail` — the
-// notch dial is a separate axis from the runtime — but there is no container in it.
-// The header claimed "a sandboxed container" there until 2026-09-04, which is the
-// same dangerous falsehood the default branch was rewritten to avoid, arriving
-// through the one branch still allowed to assert it.
-//
-// Caught by running the manual verification checklist on a real Mac, not by a test:
-// the briefing was delivered correctly and said something false.
+// THE SEATBELT SETUP RUNS WITHOUT A CONTAINER. Its selected setup and backend determine the
+// briefing; the setup name stays explicit and the profile describes the real boundary.
 func TestJailBriefingDoesNotClaimAContainerWhenThereIsNone(t *testing.T) {
 	got := BriefingContent(BriefingInput{
-		Workspace:   "/Users/Shared/yolo/proj",
-		Confinement: "jail",
-		Mechanism:   "macos-user",
+		Workspace: "/Users/Shared/yolo/proj",
+		Setup:     setup.MustBuiltIn("seatbelt-self"),
+		Mechanism: "macos-user",
 	})
 
 	if strings.Contains(got, "sandboxed container") {
@@ -258,15 +243,14 @@ func TestJailBriefingDoesNotClaimAContainerWhenThereIsNone(t *testing.T) {
 	}
 }
 
-// The container case is UNCHANGED: every other backend still gets the historical
-// header, byte for byte, because that is what the goldens and every existing jail
-// expect.
+// Container setup briefings identify the selected setup and do not revive the old generic
+// confinement-header wording.
 func TestJailBriefingStillClaimsAContainerWhenThereIsOne(t *testing.T) {
 	got := BriefingContent(BriefingInput{
-		Workspace:   "/workspace",
-		Confinement: "jail",
+		Workspace: "/workspace",
+		Setup:     setup.MustBuiltIn("podman-self"),
 	})
-	if !strings.Contains(got, "You are running inside a YOLO Jail — a sandboxed container.") {
+	if !strings.Contains(got, "You are running under setup **podman-self**") || !strings.Contains(got, "inside a container") {
 		t.Errorf("the container header changed for container backends:\n%s", got)
 	}
 }

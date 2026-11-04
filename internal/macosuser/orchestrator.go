@@ -245,9 +245,13 @@ type Deps struct {
 // config, agents, agent argv, repo src).
 type Options struct {
 	Workspace string
-	Config    *jsonx.OrderedMap
-	Agents    []string
-	AgentArgv []string
+	// Setup and SetupSource are resolved by the host launch gate; this native arm uses them
+	// to print the same launch disclosure as the container path.
+	Setup       setup.Setup
+	SetupSource setup.Source
+	Config      *jsonx.OrderedMap
+	Agents      []string
+	AgentArgv   []string
 	// BlockedTools are the `blocked-tool` contributions of the selected packs, which
 	// core no longer supplies any of by default (config.defaultBlockedList is empty
 	// since 2026-09-04). Passed in rather than re-derived here because the run pipeline
@@ -959,6 +963,12 @@ func RunMacosUser(deps Deps, opts Options) int {
 		return 1
 	}
 	opts.BundleIdentity = identity
+
+	// Every launch path starts with the same setup and fields disclosure. This native arm has
+	// no container runtime banner, so it uses the resolved setup passed by the gate.
+	if opts.Setup.Name != "" {
+		out.print(setup.LaunchDisclosure(opts.Setup, "host", opts.SetupSource))
+	}
 
 	// THE RUN-AS-YOU MODE IS SAID, every launch and every dry run, before anything else is asked:
 	// the agent is you, so what keeps your files from it is the profile alone (OQ-RO3: a

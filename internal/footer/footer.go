@@ -33,7 +33,7 @@
 //	--words ID=WORDS     the plain words for a provider id; repeatable
 //	--bridged NAME       a profile name or provider id this agent reaches through the wire
 //	                     bridge; repeatable
-//	--template TEXT      the line; `{yolo.billing}`, `{yolo.notch}`, `{stdin.a.b}`, and
+//	--template TEXT      the line; `{yolo.billing}`, `{yolo.setup}`, `{stdin.a.b}`, and
 //	                     `{prefix|name}`, which prints prefix only when name has a value
 //
 // # What it never does
@@ -71,21 +71,21 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
 // DefaultTemplate is the line a command that passes no --template prints: the segment
 // alone, in the shape every example in the design takes.
-const DefaultTemplate = "yolo: {yolo.billing} · {yolo.notch}"
+const DefaultTemplate = "yolo: {yolo.billing} · {yolo.setup}"
 
-// The three notches this renderer can name. `guest` needs a marker of its own beside the jail's,
-// which only its launcher sets — the macOS guest launch (config.NotchEnv; env-manager plan
-// EMP-D4) — so a guest session started any other way reads as the jail config.InJail says,
-// never as the host ("The notch").
-const (
-	NotchJail  = "jail"
-	NotchGuest = "guest"
-	NotchHost  = "host"
-)
+// Setup is the selected setup in a launched session, from the marker the launcher exports.
+// At the host outside a launched session, it is host-self.
+func Setup() string {
+	if !config.InJail() {
+		return "host-self"
+	}
+	return os.Getenv(setup.EnvVar)
+}
 
 // stdinLimit and stdinTimeout bound the one read this command makes that another process
 // controls. An agent that pipes its status JSON writes it and closes the pipe at once; one
@@ -165,24 +165,8 @@ func ParseArgs(args []string) Options {
 	return o
 }
 
-// Notch is where the agent runs, asked of config.InJail — the one answer to "am I in a
-// jail?" — and never of a copy of its test (the copies already disagree: "The notch"). An absent
-// or empty marker reads as host, deliberately: a missing marker can only under-claim
-// confinement.
-//
-// A launched session is the guest notch when its launcher said so through config.NotchEnv,
-// which the macOS guest launch sets (config.SessionNotch reads the value), and the jail
-// otherwise. The guest marker narrows a launched session only: without InJail's marker it is
-// no launch, and the footer says host.
-func Notch() string {
-	if !config.InJail() {
-		return NotchHost
-	}
-	if config.SessionNotch(os.Getenv(config.NotchEnv)) == config.ConfinementGuest {
-		return NotchGuest
-	}
-	return NotchJail
-}
+// Setup is where the agent runs, asked of config.InJail — a launched session's setup is the
+// YOLO_SETUP marker its launcher exports; outside one, the host setup is host-self.
 
 // Billing is the billing route in the pack's plain words, by the rule of "The billing route", in order:
 //
@@ -269,7 +253,7 @@ func (o Options) words(id string) string {
 
 // Render expands the template into the one line the agent shows.
 //
-// A placeholder is `{name}`: `yolo.billing` and `yolo.notch` are this package's facts, and
+// A placeholder is `{name}`: `yolo.billing` and `yolo.setup` are this package's facts, and
 // `stdin.<path>` is a dotted path into the agent's JSON (an all-digit segment indexes an
 // array). A missing field, an unknown name, an object or an array renders empty.
 // `{prefix|name}` prints prefix before the value only when there is one (placeholder). An
@@ -285,8 +269,8 @@ func Render(o Options, getenv func(string) string, stdin func() any) string {
 		switch {
 		case name == "yolo.billing":
 			return Billing(o, getenv)
-		case name == "yolo.notch":
-			return Notch()
+		case name == "yolo.setup":
+			return Setup()
 		case name == "stdin" || strings.HasPrefix(name, "stdin."):
 			if !read {
 				read = true

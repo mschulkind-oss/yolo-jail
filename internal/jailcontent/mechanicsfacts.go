@@ -10,7 +10,8 @@ type FactSheet struct {
 	Host                   bool
 	HostWorkspace          string
 	WorkspacePath          string
-	Confinement            string
+	Setup                  string
+	SetupDescription       string
 	UserConfigPath         string
 	ConfigPath             string
 	WorkspaceConfigPresent bool

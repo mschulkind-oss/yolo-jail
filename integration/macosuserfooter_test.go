@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// THE AGENT FOOTER'S NOTCH ON macos-user — docs/reference/agent-footer.md OQ-FT13, "What has and has not been observed".
+// THE AGENT FOOTER'S SETUP ON macos-user — docs/reference/agent-footer.md OQ-FT13, "What has and has not been observed".
 //
 // WHAT IT SETTLES. A macos-user session is at the jail notch, so its launch sets the marker
 // every container launch sets, YOLO_VERSION, in the session env file
@@ -17,7 +17,7 @@ import (
 // the renderer's own answer for the notch, which is what a macos-user Claude's footer shows.
 //
 // ONE LAUNCH, for macosusertools_test.go's reason: every launch pays for a native floor build.
-func TestMacosUserFooterSaysJail(t *testing.T) {
+func TestMacosUserFooterSaysItsSetup(t *testing.T) {
 	requireMacosUser(t)
 
 	probe := strings.Join([]string{
@@ -25,8 +25,8 @@ func TestMacosUserFooterSaysJail(t *testing.T) {
 		`printf '%s\n' "${YOLO_VERSION-UNSET}"`,
 		`echo "=== YOLO ==="`,
 		`command -v yolo || echo "YOLO-NOT-FOUND"`,
-		`echo "=== NOTCH ==="`,
-		`yolo internal footer --template '{yolo.notch}' 2>&1; echo "RC=$?"`,
+		`echo "=== SETUP ==="`,
+		`yolo internal footer --template '{yolo.setup}' 2>&1; echo "RC=$?"`,
 		// The same marker makes a host apply refuse inside the sandbox (hostapplyinjail.go):
 		// rendering the account's own home at the host notch would rewrite what its launch
 		// rendered for the jail.
@@ -40,10 +40,10 @@ func TestMacosUserFooterSaysJail(t *testing.T) {
 			"stdout:\n%s\nstderr:\n%s", r.rc, r.stdout, r.stderr)
 	}
 	marker := strings.TrimSpace(section(r.stdout, "=== MARKER ===", "=== YOLO ==="))
-	yolo := strings.TrimSpace(section(r.stdout, "=== YOLO ===", "=== NOTCH ==="))
-	notch := strings.TrimSpace(section(r.stdout, "=== NOTCH ===", "=== HOSTAPPLY ==="))
+	yolo := strings.TrimSpace(section(r.stdout, "=== YOLO ===", "=== SETUP ==="))
+	setupName := strings.TrimSpace(section(r.stdout, "=== SETUP ===", "=== HOSTAPPLY ==="))
 	hostApply := strings.TrimSpace(section(r.stdout, "=== HOSTAPPLY ===", "=== END ==="))
-	if marker == "" && yolo == "" && notch == "" {
+	if marker == "" && yolo == "" && setupName == "" {
 		t.Fatalf("the sandbox produced no probe output.\nstdout:\n%s\nstderr:\n%s", r.stdout, r.stderr)
 	}
 
@@ -66,10 +66,10 @@ func TestMacosUserFooterSaysJail(t *testing.T) {
 				"and a non-zero exit\nlaunch output:\n%s%s", hostApply, r.stdout, r.stderr)
 		}
 	})
-	t.Run("notch_is_jail", func(t *testing.T) {
-		if notch != "jail\nRC=0" {
-			t.Errorf("`yolo internal footer --template '{yolo.notch}'` in the sandbox printed %q, "+
-				"want `jail` and exit 0\nlaunch output:\n%s%s", notch, r.stdout, r.stderr)
+	t.Run("setup_is_named", func(t *testing.T) {
+		if setupName != "seatbelt-yolo-account\nRC=0" {
+			t.Errorf("`yolo internal footer --template '{yolo.setup}'` in the sandbox printed %q, "+
+				"want `seatbelt-yolo-account` and exit 0\nlaunch output:\n%s%s", setupName, r.stdout, r.stderr)
 		}
 	})
 }

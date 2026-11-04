@@ -3,6 +3,8 @@ package jailcontent
 import (
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
 // THE HOME LINE SAID "(persistent across sessions)" ON EVERY BACKEND, and on podman the home
@@ -16,11 +18,11 @@ func TestNoBriefingCallsTheHomePersistent(t *testing.T) {
 		{Workspace: "/w", Mechanism: "podman", Persistence: podmanShapedMap()},
 		{Workspace: "/w", Mechanism: "container"},
 		{Workspace: "/Users/Shared/yolo/p", Mechanism: "macos-user", Home: "/Users/_yolojail"},
-		{Confinement: "host"},
+		{Setup: setup.MustBuiltIn("host-self")},
 	} {
 		if out := BriefingContent(in); strings.Contains(out, "persistent across sessions") {
-			t.Errorf("mechanism %q, notch %q: the briefing still calls the home persistent:\n%s",
-				in.Mechanism, in.Confinement, environmentBlockOf(t, out))
+			t.Errorf("mechanism %q, setup %q: the briefing still calls the home persistent:\n%s",
+				in.Mechanism, in.Setup.Name, environmentBlockOf(t, out))
 		}
 	}
 }

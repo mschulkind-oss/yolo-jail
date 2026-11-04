@@ -1,7 +1,6 @@
 package run
 
 import (
-	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
@@ -17,7 +16,7 @@ import (
 // sharesLauncherNetns, the one predicate the assembler, the advertised addresses and the
 // briefing's network mode already read.
 func (o *Options) launchProfile(cfg *jsonx.OrderedMap, rt string) render.Profile {
-	notch, _ := render.KindForNotch(string(config.ResolveConfinement(cfg)))
+	notch := render.KindForSetup(o.Setup.Kind())
 	return jailcontent.LaunchProfile(notch, rt, o.IsMacOS,
 		sharesLauncherNetns(rt, o.resolveNetMode(cfg), o.inContainer()))
 }

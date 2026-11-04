@@ -31,7 +31,7 @@ import { jsx } from "@opentui/solid/jsx-runtime";
 const FOOTER_ARGS = [
 	"internal", "footer",
 	"--agent", "opencode",
-	"--template", "yolo: {yolo.notch}"
+	"--template", "yolo: {yolo.setup}"
 ];
 
 // The right end of the prompt's info row: on the home screen, and in a session.

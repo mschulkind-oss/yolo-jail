@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
 // C2. The per-notch header's two most consequential facts — what enforces the boundary, and
@@ -19,11 +20,30 @@ import (
 // construction, which is what "the jail's bytes do not move" means here. The mechanism rows
 // are in the section at the bottom.
 
-// briefingHeader is the confinement header block — everything before "## Environment", or the
-// whole body at the host notch, whose base IS the header (there is no launch to describe).
-func briefingHeader(t *testing.T, confinement string) string {
+// briefingHeader renders a synthetic setup with the requested kind so the profile tests exercise
+// the selected-setup path without reintroducing the removed raw confinement input.
+func briefingHeader(t *testing.T, name string) string {
 	t.Helper()
-	return headerOf(t, confinement, BriefingContent(BriefingInput{Workspace: "/w", Confinement: confinement}))
+	s := setupForHeaderTest(name)
+	return headerOf(t, name, BriefingContent(BriefingInput{Workspace: "/w", Setup: s}))
+}
+
+func setupForHeaderTest(name string) setup.Setup {
+	switch name {
+	case "host":
+		return setup.Setup{Name: name, Confinement: setup.ConfinementHost, RunAs: setup.RunAsSelf}
+	case "guest":
+		return setup.Setup{Name: name, Confinement: setup.ConfinementSeatbelt, RunAs: setup.RunAsSelf}
+	case "jail":
+		return setup.Setup{Name: name, Confinement: setup.ConfinementPodman, RunAs: setup.RunAsSelf}
+	default:
+		return setup.Setup{Name: name, Confinement: setup.Confinement("unknown"), RunAs: setup.RunAsSelf}
+	}
+}
+
+func setupHeaderForTest(name, mechanism string, isMacOS bool) []string {
+	s := setupForHeaderTest(name)
+	return setupHeader(s, setup.Describe(s), mechanism, isMacOS)
 }
 
 func headerOf(t *testing.T, confinement, out string) string {
@@ -49,10 +69,7 @@ func headerOf(t *testing.T, confinement, out string) string {
 // The JAIL is deliberately excluded and gets its own test below.
 func TestBriefingHeaderStatesTheProfilesPrimitives(t *testing.T) {
 	for _, notch := range []string{"guest", "host"} {
-		kind, ok := render.KindForNotch(notch)
-		if !ok {
-			t.Fatalf("fixture: %q is not a selectable notch", notch)
-		}
+		kind := render.KindForSetup(setupForHeaderTest(notch).Kind())
 		prof := render.ProfileFor(kind)
 		header := briefingHeader(t, notch)
 
@@ -85,7 +102,7 @@ func TestBriefingHeaderStatesTheProfilesPrimitives(t *testing.T) {
 // a line of its own — and getting it backwards would tell a host agent its prompts are off.
 func TestBriefingHeaderStatesTheAutonomyBit(t *testing.T) {
 	for _, notch := range []string{"guest", "host"} {
-		kind, _ := render.KindForNotch(notch)
+		kind := render.KindForSetup(setupForHeaderTest(notch).Kind())
 		header := briefingHeader(t, notch)
 		on := strings.Contains(header, "autonomy is **ON**")
 		off := strings.Contains(header, "autonomy is **OFF**")
@@ -100,18 +117,12 @@ func TestBriefingHeaderStatesTheAutonomyBit(t *testing.T) {
 	}
 }
 
-// THE JAIL'S BYTES DO NOT MOVE. Every jail that boots renders this header, so the C2 refactor
-// must be byte-identical there — the primitive detail is added only at the notches whose prose
-// was thin. Pinned as a literal rather than derived, because "unchanged" is the claim.
-func TestBriefingJailHeaderIsUnchanged(t *testing.T) {
-	want := "# YOLO Jail Environment\n" +
-		"\n" +
-		"You are running inside a YOLO Jail — a sandboxed container.\n" +
-		"Jail tooling: `yolo --help`; config reference: `yolo config-ref`.\n" +
-		"\n"
-	for _, notch := range []string{"jail", ""} { // empty means the default, which is jail
-		if got := briefingHeader(t, notch); got != want {
-			t.Errorf("confinement=%q header moved:\ngot:\n%s\nwant:\n%s", notch, got, want)
+// SETUP JAILS carry a selected name and fields, rather than a generic confinement-header label.
+func TestBriefingJailHeaderNamesTheSetup(t *testing.T) {
+	header := briefingHeader(t, "jail")
+	for _, want := range []string{"# YOLO Environment — setup jail", "setup **jail**: Podman", "inside a container", "Jail tooling:"} {
+		if !strings.Contains(header, want) {
+			t.Errorf("setup jail header omits %q:\n%s", want, header)
 		}
 	}
 }
@@ -142,10 +153,10 @@ func TestBriefingUnknownNotchDoesNotClaimAContainer(t *testing.T) {
 // give a bridge-networked host-notch jail the host-networking paragraph or, worse, tell a
 // host-NETWORKED jail it is running on the human's real machine. Pinned in both directions so
 // the conflation cannot be introduced silently.
-func TestBriefingNetModeHostIsNotTheHostNotch(t *testing.T) {
+func TestBriefingNetModeHostIsNotTheHostSetup(t *testing.T) {
 	// A jail with host NETWORKING is still a jail: container framing, network paragraph.
-	jailHostNet := BriefingContent(BriefingInput{Workspace: "/w", NetMode: "host"})
-	if !strings.Contains(jailHostNet, "sandboxed container") {
+	jailHostNet := BriefingContent(BriefingInput{Workspace: "/w", Setup: setupForHeaderTest("jail"), NetMode: "host"})
+	if !strings.Contains(jailHostNet, "inside a container") {
 		t.Errorf("netMode=host must not change the confinement framing:\n%s", jailHostNet)
 	}
 	if !strings.Contains(jailHostNet, "Host networking") {
@@ -155,13 +166,11 @@ func TestBriefingNetModeHostIsNotTheHostNotch(t *testing.T) {
 		t.Errorf("netMode=host must NOT be read as the host confinement notch:\n%s", jailHostNet)
 	}
 
-	// A host-NOTCH environment gets the host framing, and — the mirror-image confusion — is
-	// never read as a network mode either way. Since notch convergence item 26 its base is the
-	// header alone, so it carries no network paragraph at all: there is no launch whose stack
-	// the paragraph could describe.
-	hostNotch := BriefingContent(BriefingInput{Workspace: "/w", Confinement: "host"})
+	// A host setup gets host framing and, as the mirror-image confusion, is never read as a network
+	// mode either way. Its base is the header alone, so it carries no launch's network paragraph.
+	hostNotch := BriefingContent(BriefingInput{Workspace: "/w", Setup: setupForHeaderTest("host")})
 	if !strings.Contains(hostNotch, "NOT disposable") {
-		t.Errorf("confinement=host must produce the host framing:\n%s", hostNotch)
+		t.Errorf("setup=host-self must produce the host framing:\n%s", hostNotch)
 	}
 	if strings.Contains(hostNotch, "Bridge mode") || strings.Contains(hostNotch, "Host networking") {
 		t.Errorf("confinement=host must describe no launch's network:\n%s", hostNotch)
@@ -171,11 +180,11 @@ func TestBriefingNetModeHostIsNotTheHostNotch(t *testing.T) {
 // THE HOST NOTCH'S BASE IS ITS HEADER, and none of the launch's sections: each describes a jail
 // (the /workspace bind, the jail's limitations, the shims, how to ask for a package), and at the
 // host every one would be a false sentence to an agent on the real machine.
-func TestTheHostNotchBaseIsTheHeaderAlone(t *testing.T) {
-	out := BriefingContent(BriefingInput{Workspace: "/w", Confinement: "host",
+func TestTheHostSetupBaseIsTheHeaderAlone(t *testing.T) {
+	out := BriefingContent(BriefingInput{Workspace: "/w", Setup: setupForHeaderTest("host"),
 		BlockedTools: []BlockedTool{{Name: "grep"}}, Loopholes: []Loophole{{Name: "l", Desc: "d"}},
 		ContextMounts: []ContextMount{{Path: "/ctx/a", Host: "/a"}}})
-	if want := strings.Join(confinementHeader("host", "", false), "\n") + "\n"; out != want {
+	if want := strings.Join(setupHeaderForTest("host", "", false), "\n") + "\n"; out != want {
 		t.Errorf("host base:\n got %q\nwant %q", out, want)
 	}
 	for _, jailOnly := range []string{"/workspace", "## Limitations", "## Blocked Tools",
@@ -185,8 +194,9 @@ func TestTheHostNotchBaseIsTheHeaderAlone(t *testing.T) {
 		}
 	}
 	// HostBriefingBase is that base with agents_md_extra appended the jail's way.
-	if got := HostBriefingBase("  EXTRA  \n", false); got != ComposeBriefing(out, "  EXTRA  \n") ||
-		!strings.Contains(got, "real machine") && !strings.Contains(got, "REAL") {
+	base := BriefingContent(BriefingInput{Setup: setup.MustBuiltIn("host-self")})
+	if got := HostBriefingBase("  EXTRA  \n", false); got != ComposeBriefing(base, "  EXTRA  \n") ||
+		!strings.Contains(got, "REAL machine") {
 		t.Errorf("HostBriefingBase:\n%s", got)
 	}
 }
@@ -226,7 +236,7 @@ func TestBriefingHeaderVectorFollowsTheMechanism(t *testing.T) {
 		name := tc.notch + "/" + tc.mechanism
 		t.Run(name, func(t *testing.T) {
 			out := BriefingContent(BriefingInput{
-				Workspace: "/w", Confinement: tc.notch,
+				Workspace: "/w", Setup: setupForHeaderTest(tc.notch),
 				Mechanism: tc.mechanism, IsMacOS: tc.isMacOS,
 			})
 			header := headerOf(t, tc.notch, out)
@@ -249,7 +259,7 @@ func TestBriefingHeaderVectorFollowsTheMechanism(t *testing.T) {
 }
 
 // DP-B17: the mechanism must CHANGE the answer, not merely be accepted as a parameter.
-// It was acted on in exactly one of five arms — confinementHeader("guest", true) and
+// It was acted on in exactly one of five arms — setupHeaderForTest("guest", true) and
 // ("guest", false) were byte-identical, as were the two `host` calls — so the field's own
 // doc comment claimed two separate axes while only one of them moved anything.
 //
@@ -258,14 +268,14 @@ func TestBriefingHeaderVectorFollowsTheMechanism(t *testing.T) {
 // backend would be the overclaim.
 func TestBriefingHeaderMechanismChangesTheGuestAnswer(t *testing.T) {
 	guest := func(mechanism string) string {
-		return strings.Join(confinementHeader("guest", mechanism, false), "\n")
+		return strings.Join(setupHeaderForTest("guest", mechanism, false), "\n")
 	}
 	if guest("macos-user") == guest("podman") {
 		t.Error("the guest header is byte-identical across mechanisms — a Seatbelt sandbox " +
 			"and a bwrap namespace are different boundaries and the header names neither")
 	}
 	host := func(mechanism string) string {
-		return strings.Join(confinementHeader("host", mechanism, false), "\n")
+		return strings.Join(setupHeaderForTest("host", mechanism, false), "\n")
 	}
 	if host("macos-user") != host("podman") {
 		t.Error("the host header moved with the mechanism — at that notch there is no " +
@@ -280,7 +290,7 @@ func TestBriefingHeaderStatesTheToolingLineOnce(t *testing.T) {
 	for _, tc := range []struct{ notch, mechanism string }{
 		{"jail", "macos-user"}, {"jail", "podman"}, {"guest", "podman"}, {"host", "podman"},
 	} {
-		header := strings.Join(confinementHeader(tc.notch, tc.mechanism, false), "\n")
+		header := strings.Join(setupHeaderForTest(tc.notch, tc.mechanism, false), "\n")
 		if n := strings.Count(header, "Jail tooling:"); n != 1 {
 			t.Errorf("%s/%s: `Jail tooling` appears %d times, want 1:\n%s",
 				tc.notch, tc.mechanism, n, header)
@@ -295,7 +305,7 @@ func TestBriefingHeaderStatesTheToolingLineOnce(t *testing.T) {
 // autonomy bit.
 func TestBriefingUnknownNotchFailsClosedWhateverTheMechanism(t *testing.T) {
 	for _, mechanism := range []string{"", "podman", "container", "macos-user"} {
-		header := strings.Join(confinementHeader("bwrap-guest", mechanism, false), "\n")
+		header := strings.Join(setupHeaderForTest("bwrap-guest", mechanism, false), "\n")
 		if !strings.Contains(header, "autonomy is **OFF**") {
 			t.Errorf("mechanism=%q: an unrecognized notch must fail closed on autonomy:\n%s",
 				mechanism, header)

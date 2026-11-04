@@ -41,6 +41,7 @@ func macosModeLaunch(t *testing.T, userCfg, setupName string) (run.Options, maco
 			t.Fatal("the front door handed the pipeline no SetupRef for the gate to fill")
 		}
 		o.SetupRef.Setup = setup.MustBuiltIn(setupName)
+		o.SetupRef.Source = setup.FromEnv
 		seen = o
 		return 0
 	}
@@ -75,6 +76,10 @@ func TestMacosLaunchPassesSelfModeToTheBackend(t *testing.T) {
 	}
 	if backend.Mode != macosuser.ModeSelf {
 		t.Errorf("mode: backend %v; want self, the setup's run_as", backend.Mode)
+	}
+	if backend.Setup.Name != "seatbelt-self" || backend.SetupSource != setup.FromEnv {
+		t.Errorf("setup disclosure input: backend %q from %s, want seatbelt-self from YOLO_SETUP",
+			backend.Setup.Name, backend.SetupSource.LaunchLabel())
 	}
 	home, _ := filepath.EvalSymlinks(os.Getenv("HOME"))
 	if backend.HostHome != home || seen.MacosUserHostHome != home || backend.HostUser != "you" {

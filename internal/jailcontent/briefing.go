@@ -28,6 +28,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/nixroots"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
 // BlockedTool is one entry of the "Blocked Tools" section (name + optional
@@ -125,12 +126,10 @@ type BriefingInput struct {
 	// the kernel-enforced limits line: any process can raise its own priority, and the disk
 	// under the workspace may ignore it (docs/design/io-priority.md §5.2).
 	IOPriority string
-	// Confinement is the notch this environment runs at ("jail"|"guest"|"host"),
-	// env-manager plan Phase 8. Empty is treated as "jail" (the default and today's
-	// behavior). The briefing states the notch so an agent at guest/host knows it is
-	// NOT disposable — a briefing that always said "sandboxed container" would tell a
-	// host agent something dangerously false.
-	Confinement string
+	// Setup is the selected setup and its fields. SetupDescription is the user-facing spelling
+	// supplied by the launch pipeline; empty uses setup.Describe.
+	Setup            setup.Setup
+	SetupDescription string
 
 	// BackendLimits are this backend's standing constraints, in the agent's voice —
 	// the facts the launch prints to the human on stderr, which the agent never sees.
@@ -311,11 +310,22 @@ func LaunchProfile(notch render.Kind, mechanism string, isMacOS, sharedNetwork b
 // launcher's shared-namespace predicate read as a mode (run.appliedNetMode), so the network
 // line above and this fact rest on one answer.
 func briefingProfile(in BriefingInput, netMode string) render.Profile {
-	notch, _ := render.KindForNotch(in.Confinement)
-	if in.Confinement == "" {
-		notch = render.KindJail // confinementHeader's reading of the default
+	s := briefingSetup(in.Setup)
+	return LaunchProfile(render.KindForSetup(s.Kind()), in.Mechanism, in.IsMacOS, netMode == "host")
+}
+
+func briefingSetup(s setup.Setup) setup.Setup {
+	if s.Name == "" {
+		return setup.MustBuiltIn("podman-self")
 	}
-	return LaunchProfile(notch, in.Mechanism, in.IsMacOS, netMode == "host")
+	return s
+}
+
+func briefingSetupDescription(in BriefingInput, s setup.Setup) string {
+	if in.SetupDescription != "" {
+		return in.SetupDescription
+	}
+	return setup.Describe(s)
 }
 
 // MechanismHasNoContainer reports whether a runtime puts no container around the jail —
@@ -342,141 +352,41 @@ var macosUserHomeLines = []string{
 	"are shared by every workspace on this machine.",
 }
 
-// confinementHeader is the briefing's opening block for the notch this environment runs
-// at (env-manager plan Phase 8, C2).
-//
-// It reads the notch's PROFILE and the MECHANISM, not just the notch's name. The name still
-// picks the title and the framing sentence — that prose genuinely differs per notch, a human reads it, and no
-// generated sentence would say "this is the human's REAL machine" as usefully — but the
-// two facts an agent most needs are DERIVED: which primitives actually enforce the
-// boundary, and whether agent autonomy is on. That is what makes the header correct for a
-// notch nobody has enumerated yet (a Linux `guest`, whatever Phase 7.2 lands): an unrecognized
-// name falls to the default branch and still describes its real enforcement vector instead
-// of asserting a container that may not be there. Same argument that motivated
-// render.KindGuest — a new notch should be a question the code asks, not a branch it
-// silently inherits.
-//
-// The vocabulary comes from render.PrimitiveDoes, the same table `yolo describe` prints, so
-// the two human-facing descriptions of one primitive cannot drift.
-//
-// THE JAIL'S BYTES ARE UNCHANGED, deliberately. Every jail that boots today renders this
-// header, so adding detail there would move a rendered surface for every existing user to
-// tell them something the next two lines of the briefing already say ("a sandboxed
-// container", "no systemd, no sudo"). The notches that gain the primitive vector are the
-// ones whose prose was thin and whose enforcement is genuinely ambiguous — so
-// enforcementLines is appended on the guest/host/unknown paths and on the jail-WITHOUT-a-
-// container path, whose prose was rewritten for macos-user and never had historical bytes to
-// protect; the jail-with-a-container branch returns its historical literal and no vector.
-//
-// The macos-user home sentence, at either notch, is macosUserHomeLines.
-func confinementHeader(confinement, mechanism string, isMacOS bool) []string {
-	notch, known := render.KindForNotch(confinement)
-	if confinement == "" {
-		// Empty means the default, which is jail — the historical behavior, preserved so a
-		// caller that has not resolved the notch renders exactly what it always did.
-		notch, known = render.KindJail, true
-	}
-	// ConfinementProfile, not render.ProfileFor: the second reads the notch alone and
-	// returns the LINUX spelling of every preset, which is the table's own documented
-	// limitation and was printing "namespaces" and "a baked image" to an agent inside a
-	// Seatbelt sandbox with no image at all (OQ-DP2). `yolo describe` calls this same
-	// function for the human's copy of the vector.
-	prof := ConfinementProfile(notch, mechanism, isMacOS)
-	noContainer := MechanismHasNoContainer(mechanism)
+// setupHeader names the selected setup and spells its fields, while deriving the enforcement
+// vector from the setup kind and applied backend.
+func setupHeader(s setup.Setup, description, mechanism string, isMacOS bool) []string {
+	kind := render.KindForSetup(s.Kind())
+	prof := ConfinementProfile(kind, mechanism, isMacOS)
+	title := "# YOLO Environment — setup " + s.Name
+	intro := "You are running under setup **" + s.Name + "**: " + description + "."
 
-	switch {
-	case known && notch == render.KindHost:
+	switch s.Kind() {
+	case setup.KindHost:
 		return append([]string{
-			"# YOLO Environment — host",
-			"",
-			"You are running at the **host** confinement level: this is the human's REAL",
-			"machine, with no container around you. Changes are NOT disposable.",
+			title, "", intro,
+			"This is the human's REAL machine, with no container around you. Changes are NOT disposable.",
 			"You have: their real credentials, their real dotfiles, no snapshot to fall back on.",
 			"Absent: nothing is mounted read-only; there is no jail to restart; `sudo` is real.",
-			// OQ-DS3 (docs/reference/jail-home.md#the-storage-classes): one static sentence and no
-			// variable, because host /tmp is the machine's own and a per-launch variable
-			// cannot reach the files `yolo host apply` writes.
 			"`/tmp` is this machine's own: it survives an agent restart but may not survive a reboot; put worktrees you need later inside the repository or beside it.",
 		}, enforcementLines(prof)...)
-	case known && notch == render.KindGuest:
-		lines := []string{
-			"# YOLO Environment — guest",
-			"",
-			"You are running at the **guest** confinement level: a restricted account on the",
-			"real machine, NOT a disposable container.",
-			"Your home is real and persists; there is no image and no jail to restart.",
-		}
-		if noContainer {
-			// THE MACOS GUEST, which is the macos-user backend (env-manager plan Phase 7.1,
-			// EMP-D1): one account for every workspace on the machine. The same fact the
-			// jail-without-a-container branch below states, in the same words, because it
-			// is the same backend reached by the other notch — and an agent told only that
-			// its home is real would read the whole of it as its own.
+	case setup.KindGuest:
+		lines := []string{title, "", intro, "This setup runs on the real machine, not in a disposable container."}
+		if MechanismHasNoContainer(mechanism) {
+			lines = append(lines, "")
 			lines = append(lines, macosUserHomeLines...)
 		}
 		return append(lines, enforcementLines(prof)...)
-	case known && notch == render.KindJail && noContainer:
-		// THE JAIL NOTCH WITHOUT A CONTAINER. macos-user runs at `confinement: jail`
-		// as well as at `guest` — the notch dial is a separate axis from the runtime,
-		// and `runtime: "macos-user"` with no `confinement` key is the jail notch — but
-		// there is no container anywhere in it: the boundary is a Seatbelt profile around
-		// a real account, with a home that persists and is this workspace's own
-		// (macosUserHomeLines).
-		//
-		// The header below said "a sandboxed container" there until 2026-09-04, which
-		// is the same dangerous falsehood the default branch was rewritten to avoid,
-		// arriving through the one branch that was allowed to keep asserting it. An
-		// agent told it is in a disposable container reasons about its home as
-		// throwaway; here it is neither disposable nor its own.
-		//
-		// TWO LINES OF IT WERE ALSO WRONG, and both were wrong because the mechanism
-		// stopped at this branch instead of reaching enforcementLines (DP-B19, DP-B11):
-		// the vector under it read "namespaces … a baked image" one line after the
-		// paragraph said there was no container, and the "Jail tooling" line printed
-		// twice because this literal carried its own copy of the line enforcementLines
-		// appends. The tooling line is gone from here; the vector is now this
-		// mechanism's.
-		//
-		// The home sentence is macosUserHomeLines: since slice 12a HOME is the workspace's
-		// own sidecar in both modes, and what remains machine-wide is the `scope: machine`
-		// set, which backendLimits names one by one.
-		return append(append([]string{
-			"# YOLO Environment — jail (native, no container)",
-			"",
-			"You are confined by a Seatbelt sandbox on the human's REAL machine, not by a",
-			"container. There is no image and no jail to restart.",
-		}, macosUserHomeLines...), enforcementLines(prof)...)
-	case known && notch == render.KindJail:
-		// Byte-identical to the historical briefing — see the doc comment.
-		return []string{
-			"# YOLO Jail Environment",
-			"",
-			"You are running inside a YOLO Jail — a sandboxed container.",
-			"Jail tooling: `yolo --help`; config reference: `yolo config-ref`.",
-			"",
+	case setup.KindJail:
+		if MechanismHasNoContainer(mechanism) {
+			lines := []string{title, "", intro, "This setup runs on the real machine, not in a container."}
+			return append(append(lines, macosUserHomeLines...), enforcementLines(prof)...)
 		}
+		return []string{title, "", intro, "You are running inside a container.",
+			"Jail tooling: `yolo --help`; config reference: `yolo config-ref`.", ""}
 	default:
-		// A notch this function does not recognize. It gets a header describing its actual
-		// primitive vector rather than one that CLAIMS a container, which is the whole point
-		// of reading the Profile: the previous version's default branch told an agent at an
-		// unknown notch it was in a sandboxed container, which for anything below jail is
-		// exactly the dangerous falsehood Phase 8 exists to prevent. ProfileFor is total and
-		// fails closed (an unrecognized name resolves to KindUnset and thus the host preset —
-		// no primitives, autonomy off), so this describes the most restricted reading rather
-		// than guessing a stronger one.
-		//
-		// The name is echoed as the CONFIG WROTE IT, not as notch.String(): an unresolvable
-		// name lands on KindUnset, so printing the Kind would title the section "unset" and
-		// lose the one clue a human debugging it needs — which value produced this. Config
-		// validation rejects an unknown `confinement` (validateConfinement), so reaching here
-		// means something bypassed that, and the actual string is the evidence.
-		return append([]string{
-			"# YOLO Environment — " + confinement,
-			"",
-			"You are running at confinement level `" + confinement + "`, which this briefing does",
-			"not recognize. Do not assume a container: what actually constrains you is listed",
-			"below, and nothing beyond it is implied.",
-		}, enforcementLines(prof)...)
+		return append([]string{title, "", intro,
+			"This setup's boundary is not recognized. Do not assume a container; the enforcement details below are the only ones established."},
+			enforcementLines(ConfinementProfile(render.KindUnset, mechanism, isMacOS))...)
 	}
 }
 
@@ -527,8 +437,9 @@ func BriefingContent(in BriefingInput) string {
 	// nothing is disposable, what enforces nothing, and that autonomy is off. It is what
 	// `yolo host apply` composes ahead of the packs' prose (HostBriefingBase), which is how a host
 	// agent is told where it is (env-manager Phase 8's done-when).
-	if notch, known := render.KindForNotch(in.Confinement); known && notch == render.KindHost {
-		return strings.Join(confinementHeader(in.Confinement, in.Mechanism, in.IsMacOS), "\n") + "\n"
+	s := briefingSetup(in.Setup)
+	if s.Kind() == setup.KindHost {
+		return strings.Join(setupHeader(s, briefingSetupDescription(in, s), in.Mechanism, in.IsMacOS), "\n") + "\n"
 	}
 	// What the launch APPLIED wins over what the config asked for; NetMode is the
 	// fallback for a caller that never resolved a backend. Everything downstream — the
@@ -686,7 +597,7 @@ func BriefingContent(in BriefingInput) string {
 		}
 	}
 
-	lines := append([]string{}, confinementHeader(in.Confinement, in.Mechanism, in.IsMacOS)...)
+	lines := append([]string{}, setupHeader(s, briefingSetupDescription(in, s), in.Mechanism, in.IsMacOS)...)
 	lines = append(lines, provisioningFailed...)
 	// An acknowledged attach's account of the jail it entered, beside provisioning's: both say the
 	// environment is not what it should be, and both are absent in the common case.
@@ -1035,7 +946,7 @@ func hostRunSection() []string {
 // isMacOS picks the platform's spelling of the (empty) enforcement vector, as the jail's header
 // does.
 func HostBriefingBase(extra string, isMacOS bool) string {
-	return ComposeBriefing(BriefingContent(BriefingInput{Confinement: render.KindHost.String(), IsMacOS: isMacOS}), extra)
+	return ComposeBriefing(BriefingContent(BriefingInput{Setup: setup.MustBuiltIn("host-self"), IsMacOS: isMacOS}), extra)
 }
 
 // ComposeBriefing appends agents_md_extra to the jail content:

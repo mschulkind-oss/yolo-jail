@@ -752,20 +752,11 @@ func Run(opts Options) (rc int) {
 		// channel, whose per-agent half the arm also writes under <workspace>/.yolo/home below.
 		o.jailGrant.applyTo(launchEnv)
 		o.heldGrant = o.jailGrant
-		// THE NOTCH, told to the session (config.NotchEnv; env-manager plan EMP-D4). YOLO_VERSION,
-		// which the backend sets on every launch, says jail; a guest says so beside it, so the
-		// agent footer names the notch the briefing names (docs/reference/agent-footer.md, "The notch"), and
-		// the backend's own messages name a step that fits it. Set after the composition, so no
-		// pack env or env_sources entry can say otherwise. The jail notch sets nothing.
-		//
 		// THE SETUP, told to the session (setup.EnvVar; named-setups-plan.md SUP-D4): YOLO_SETUP
 		// is both the user's override and the session's fact, so a launch nested in this session
-		// selects the same setup. YOLO_CONFINEMENT stays beside it until its readers (the footer,
-		// the macos-user backend's next-step clause) read the setup instead (slice 9).
+		// selects the same setup. Set after composition so no pack env or env_sources entry can
+		// replace the resolved session fact.
 		launchEnv.Set(setup.EnvVar, o.Setup.Name)
-		if o.atNotch == config.ConfinementGuest {
-			launchEnv.Set(config.NotchEnv, string(config.ConfinementGuest))
-		}
 		// AN INERT GRANT-DECLARING LOOPHOLE IS NAMED in the session's environment, as the
 		// container argv names it (loopholeInertEnv, plan PD-8), so its client says so.
 		for k, v := range o.loopholeInertEnv(rt, cfg) {
@@ -1150,12 +1141,12 @@ func Run(opts Options) (rc int) {
 			return 1
 		}
 		ctxDelivery.ctx.HostImportExclusions = staged.hostImportExclusions
-		// notchConfig, not cfg: the briefing states the notch, and `--setup` names one the
-		// config's `confinement` key does not (EMP-D1). Everything else here reads cfg.
+		// The resolved setup is the briefing's source of truth: its name and fields travel together,
+		// with the selected backend deciding only the enforcement profile.
 		sp = o.Perf.Span("launch.refresh_jail_briefings")
-		facts := o.mechanicsFactSheet(cname, o.notchConfig(cfg), rt, staged, storePackagesPlan{}, ctxDelivery.ctx.HostFiles)
+		facts := o.mechanicsFactSheet(cname, cfg, rt, staged, storePackagesPlan{}, ctxDelivery.ctx.HostFiles)
 		mechanicsNativeHostFileBackings(facts, ctxDelivery.ctx, cname)
-		staging, err = o.refreshJailBriefings(cname, o.notchConfig(cfg), rt, staged,
+		staging, err = o.refreshJailBriefings(cname, cfg, rt, staged,
 			appliedIOPriority(rt, o.IsMacOS, config.Resources(cfg)), facts)
 		sp.End()
 		if err != nil {
@@ -2546,7 +2537,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// Fresh-launch line (with resource parts) to stderr for log capture (audit
 	// §B#4. The version and platform came earlier, from the startup banner every
 	// subcommand prints.
-	o.emitLaunchBanner(rt, cname, resPartsFor(cfg, rt), "")
+	o.emitLaunchBanner(rt, cname, cfg, resPartsFor(cfg, rt), "")
 
 	// The empty-packs notice rides immediately behind the banner: this is the LAST
 	// host-side output before the container takes the terminal, so it is the only spot
@@ -3051,7 +3042,7 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	// upgrade attaching to a pre-upgrade container (stale shims/mounts/entrypoint)
 	// is visible at a glance (audit §B#4.
 	baked, _ := runtime.BakedYoloVersionFromInspectEnv(envLines)
-	o.emitLaunchBanner(rt, cname, nil, baked)
+	o.emitLaunchBanner(rt, cname, cfg, nil, baked)
 	// THE JAIL'S GRANT IS THE ONE IT WAS LAUNCHED WITH (jailgrant.go, ES-D33): this session holds
 	// it, and asks for no other. A request the running jail does not hold is refused before anything
 	// is written, naming the fresh launch; a subset of it, or the same set, or none, goes ahead.
@@ -3574,7 +3565,7 @@ func runtimeWriteTracking(cname, workspace string) error {
 // color printer (o.pr, the run pipeline's tty.Color gate). The markup wraps
 // LaunchBanner's byte-identical return rather than living inside it, and a launch
 // tee strips the escapes from the log copy (launchlog.go's teeLog).
-func (o *Options) emitLaunchBanner(rt, cname string, resParts []string, jailVersion string) {
+func (o *Options) emitLaunchBanner(rt, cname string, cfg *jsonx.OrderedMap, resParts []string, jailVersion string) {
 	// Resolve the repo root via the shared method (o.RepoRoot → reporoot.Resolve),
 	// so the version this compares jailVersion against matches run/check and
 	// describes the yolo-jail repo, not whatever repo the cwd happens to sit in.
@@ -3585,7 +3576,8 @@ func (o *Options) emitLaunchBanner(rt, cname string, resParts []string, jailVers
 			repoRoot = rr.Root
 		}
 	}
-	line := LaunchBanner(rt, cname, version.Get(repoRoot), jailVersion, resParts)
+	line := LaunchBanner(o.Setup, appliedNetMode(rt, o.resolveNetMode(cfg), o.inContainer()), o.setupChoice.Source,
+		rt, cname, version.Get(repoRoot), jailVersion, resParts)
 	// print, not Fprint as it once was: LaunchBanner returns no trailing newline, and
 	// the old Fprint left the cursor mid-line so whatever printed next was glued onto
 	// the banner ("…pids=32768No packs are configured…", observed in a nested
@@ -3655,31 +3647,6 @@ func resPartsFor(cfg *jsonx.OrderedMap, rt string) []string {
 		parts = append(parts, "pids="+pids)
 	}
 	return parts
-}
-
-// notchConfig is cfg as this launch's notch reads it, for the one reader that states the
-// notch to the agent: the briefing (refreshJailBriefings → BriefingInput.Confinement), which
-// takes the notch from the config's `confinement` key. When the key already says the notch
-// the setup derives (atNotch, resolveSetup), or no setup was resolved, it is cfg itself.
-// Otherwise it is a shallow copy whose `confinement` is the setup's, so `yolo --setup
-// seatbelt-self -- <cmd>` tells the agent it is at the guest notch, as `confinement: "guest"`
-// did. Slice 9 of named-setups-plan.md names the setup there instead.
-//
-// A COPY, never an edit of cfg: the merged config is also what the config-change approval
-// compares and what the backend records as this launch's boot baseline, and a setup chosen
-// on one launch is neither.
-func (o *Options) notchConfig(cfg *jsonx.OrderedMap) *jsonx.OrderedMap {
-	notch := o.atNotch
-	if cfg == nil || notch == "" || notch == config.ResolveConfinement(cfg) {
-		return cfg
-	}
-	cp := jsonx.NewOrderedMap()
-	for _, k := range cfg.Keys() {
-		v, _ := cfg.Get(k)
-		cp.Set(k, v)
-	}
-	cp.Set("confinement", string(notch))
-	return cp
 }
 
 // packSurfacePaths is every destination the loaded packs compose, for the two-writers refusal.

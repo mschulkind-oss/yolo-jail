@@ -20,6 +20,22 @@ const (
 	FromDefault
 )
 
+// LaunchLabel is the compact source phrase for the launch line. The setup list and describe use
+// String's more explanatory wording; the first launch line uses the user's invocation spelling.
+func (s Source) LaunchLabel() string {
+	switch s {
+	case FromFlag:
+		return "--setup"
+	case FromEnv:
+		return EnvVar
+	case FromUserConfig:
+		return "user config"
+	case FromDefault:
+		return "default"
+	}
+	return s.String()
+}
+
 func (s Source) String() string {
 	switch s {
 	case FromFlag:

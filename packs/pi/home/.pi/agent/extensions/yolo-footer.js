@@ -23,7 +23,7 @@ const FOOTER_ARGS = [
 	"--login", "pi's own login",
 	"--words", "openai-codex=ChatGPT subscription",
 	"--words", "bedrock=Bedrock",
-	"--template", "yolo: {yolo.billing} · {yolo.notch}"
+	"--template", "yolo: {yolo.billing} · {yolo.setup}"
 ];
 
 function renderFooter() {

@@ -21,4 +21,4 @@
 command -v yolo >/dev/null 2>&1 || exit 0
 exec yolo internal footer --agent copilot --login 'Copilot subscription' \
   --bridged openai-codex --bridged cerebras --bridged kilo \
-  --template 'yolo: {yolo.billing} · {yolo.notch}'
+  --template 'yolo: {yolo.billing} · {yolo.setup}'

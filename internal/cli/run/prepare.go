@@ -17,6 +17,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
 // refreshJailBriefings rebuilds the per-jail skills staging + one briefing per
@@ -179,7 +180,8 @@ func (o *Options) refreshJailBriefingsMode(cname string, cfg *jsonx.OrderedMap, 
 		IOPriority:         ioPriorityForBriefing(io),
 		ProvisioningFailed: jailcontent.ReadProvisioningFailed(o.Workspace),
 		ShippedSkillPrefix: config.ShippedSkillPrefix(),
-		Confinement:        string(config.ResolveConfinement(cfg)),
+		Setup:              o.Setup,
+		SetupDescription:   setup.LaunchDescription(o.Setup, appliedNet),
 		// THE MECHANISM, which is the second axis of the header and was a boolean until
 		// OQ-DP2 (docs/design/declaration-parity.md §2.3). `rt` rather than the config,
 		// for the same reason the network, resource and mount fields above are: this

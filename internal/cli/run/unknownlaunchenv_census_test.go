@@ -30,12 +30,13 @@ import (
 // nested launch from that container and belongs in the recognized list instead.
 var notLaunchSettings = func() map[string]string {
 	const (
-		macosUser  = "macos-user sandbox/bootstrap contract; a macos-user sandbox cannot launch a jail (canNest)"
-		launcher   = "read by a generated in-jail program launcher for one invocation, not by `yolo`"
-		internal   = "handoff between yolo's own processes, consumed before any launch reads the environment"
-		hook       = "environment yolo gives a user's broker hook program"
-		testOnly   = "test-only override of a host daemon, never read by a launch"
-		daemonHalf = "a host or in-jail daemon's own environment, never a launch's"
+		macosUser         = "macos-user sandbox/bootstrap contract; a macos-user sandbox cannot launch a jail (canNest)"
+		launcher          = "read by a generated in-jail program launcher for one invocation, not by `yolo`"
+		internal          = "handoff between yolo's own processes, consumed before any launch reads the environment"
+		hook              = "environment yolo gives a user's broker hook program"
+		testOnly          = "test-only override of a host daemon, never read by a launch"
+		daemonHalf        = "a host or in-jail daemon's own environment, never a launch's"
+		legacySetupMarker = "retired pre-setups session marker; launches no longer read or write it"
 	)
 	m := map[string]string{
 		"YOLO_DARWIN_CACHE_ALIASES": macosUser, "YOLO_DARWIN_CACHE_RELOCATIONS": macosUser,
@@ -63,6 +64,7 @@ var notLaunchSettings = func() map[string]string {
 		"YOLO_REQUEST_REPO": hook, "YOLO_REQUEST_SET": hook, "YOLO_REQUEST_SUMMARY": hook,
 		"YOLO_REQUEST_SUMMARY_MARKUP": hook, "YOLO_REQUEST_WORKSPACE": hook,
 		"YOLO_REQUEST_ACTION": hook, "YOLO_REQUEST_TARGET": hook, "YOLO_REQUEST_HEADLINE": hook,
+		"YOLO_CONFINEMENT":   legacySetupMarker,
 		"YOLO_REQUEST_TITLE": hook, "YOLO_REQUEST_REFS": hook, "YOLO_REQUEST_DESCRIPTION": hook,
 		"YOLO_REQUEST_DESCRIPTION_MARKUP": hook, "YOLO_EVENT": hook, "YOLO_SOURCE": hook, "YOLO_BIN": hook,
 

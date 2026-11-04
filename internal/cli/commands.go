@@ -28,6 +28,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/perf"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
@@ -1352,7 +1353,7 @@ func runRun(args []string) int {
 		packEnv *jsonx.OrderedMap, blocked []packload.BlockedTool, jailDaemons macosuser.JailDaemons) int {
 		return macosUserRun(cfg, workspace, agents, agentArgv, repoRoot, packRoot, homeOverlay,
 			hostCtx, dryRun, packEnv, blocked, jailDaemons, arm, ref.Log,
-			macosUserIdentity{Mode: macosuser.ModeFor(setupRef.Setup.RunAs), HostHome: hostHome, HostUser: hostUser, SharedTmp: sharedTmp,
+			macosUserIdentity{Mode: macosuser.ModeFor(setupRef.Setup.RunAs), Setup: setupRef.Setup, SetupSource: setupRef.Source, HostHome: hostHome, HostUser: hostUser, SharedTmp: sharedTmp,
 				ShareHostFonts: config.ShareHostFonts()})
 	}
 	// Wire the fetched model list (docs/design/model-lists-and-pickers.md OQ-MM6): a provider no
@@ -1481,9 +1482,11 @@ var launchRunPipeline = run.Run
 // macosUserIdentity is who a macos-user launch's sandbox runs as: the mode, and the invoking
 // user's home and name, which the run-as-you mode runs with.
 type macosUserIdentity struct {
-	Mode     macosuser.Mode
-	HostHome string
-	HostUser string
+	Mode        macosuser.Mode
+	Setup       setup.Setup
+	SetupSource setup.Source
+	HostHome    string
+	HostUser    string
 	// SharedTmp is the user-scope `macos_user_shared_tmp` hatch (OQ-MM8, MMP-D18).
 	SharedTmp bool
 	// ShareHostFonts is the user-scope `share_host_fonts` opt-in (OQ-NX9).
@@ -1560,6 +1563,8 @@ func macosUserRun(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []s
 			// Who the sandbox runs as (the setup's run_as), and the invoking user the run-as-you mode
 			// runs with; the account mode reads neither of the last two.
 			Mode:           who.Mode,
+			Setup:          who.Setup,
+			SetupSource:    who.SetupSource,
 			HostHome:       who.HostHome,
 			HostUser:       who.HostUser,
 			SharedTmp:      who.SharedTmp,

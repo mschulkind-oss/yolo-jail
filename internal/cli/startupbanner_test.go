@@ -24,6 +24,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/banner"
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
 // captureStdio runs body with os.Stdout and os.Stderr pointed at temp FILES and
@@ -294,8 +295,8 @@ func TestRunDoesNotDoublePrintTheStartupFields(t *testing.T) {
 	// baked at a different version (the one case the launch line carries a
 	// version-shaped field at all).
 	for _, launch := range []string{
-		run.LaunchBanner("podman", "yolo-x-abc", "0.6.0", "", []string{"pids=32768"}),
-		run.LaunchBanner("podman", "yolo-x-abc", "0.6.0", "0.5.0", nil),
+		run.LaunchBanner(setup.MustBuiltIn("podman-self"), "bridge", setup.FromDefault, "podman", "yolo-x-abc", "0.6.0", "", []string{"pids=32768"}),
+		run.LaunchBanner(setup.MustBuiltIn("podman-self"), "bridge", setup.FromDefault, "podman", "yolo-x-abc", "0.6.0", "0.5.0", nil),
 	} {
 		for _, field := range []string{"yolo-jail", banner.Platform()} {
 			if strings.Contains(launch, field) {
