@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -143,6 +144,16 @@ func SelectSetup(in SetupInputs) (SetupChoice, error) {
 		return selectHostSetup(in.Flag, env, user, in.GOOS, choice)
 	}
 
+	// AN INHERITED YOLO_SETUP THIS MACHINE CANNOT RUN is ignored in a session (SUP-D12): a session
+	// is told its own setup through the variable, so a launch inside it inherits a value that
+	// describes the outer session, not a choice made for this machine. Outside a session the
+	// variable is the user's own, and a setup it names that cannot run here is refused.
+	ignored, why := "", ""
+	if in.InSession && in.Flag == "" && env != "" {
+		if why = inheritedSetupUnusable(env, user, in.GOOS); why != "" {
+			ignored, env = env, ""
+		}
+	}
 	s, src, err := setup.Select(in.Flag, env, configName, user, in.GOOS)
 	if err != nil {
 		choice.Source = src
@@ -150,7 +161,7 @@ func SelectSetup(in SetupInputs) (SetupChoice, error) {
 	}
 	choice.Setup, choice.Source = s, src
 	if src == setup.FromDefault {
-		name, key, err := removedKeysSetup(in.Merged)
+		name, key, err := removedKeysSetup(in.Merged, in.GOOS)
 		if err != nil {
 			return choice, err
 		}
@@ -158,7 +169,40 @@ func SelectSetup(in SetupInputs) (SetupChoice, error) {
 			choice.Setup, choice.Source, choice.RemovedKey = setup.MustBuiltIn(name), setup.FromRemovedKey, key
 		}
 	}
+	if ignored != "" {
+		choice.Warnings = append(choice.Warnings, inheritedSetupWarning(ignored, why, choice))
+	}
 	return choice, nil
+}
+
+// inheritedSetupUnusable is why the setup name names cannot run on goos, "" when it can: a name
+// this machine does not define, or a setup yolo has not built for this OS (setup.Buildable,
+// without the installed-binary check, which the launch makes itself).
+func inheritedSetupUnusable(name string, user map[string]setup.Setup, goos string) string {
+	if !setup.ValidName(name) {
+		return "it is not a setup name"
+	}
+	s, err := setup.Lookup(name, user)
+	if err != nil {
+		return "this machine defines no setup by that name"
+	}
+	if err := setup.Buildable(s, goos, nil); err != nil {
+		// The refusal's first sentence: what it says before the next step it names.
+		line := strings.SplitN(err.Error(), "\n", 2)[0]
+		if i := strings.LastIndex(line, ". "); i > 0 && strings.HasSuffix(line, ":") {
+			line = line[:i]
+		}
+		return line
+	}
+	return ""
+}
+
+// inheritedSetupWarning is SUP-D12's one disclosure line: which inherited value was ignored, why,
+// and what this launch selected instead.
+func inheritedSetupWarning(name, why string, choice SetupChoice) string {
+	return fmt.Sprintf("yolo: %s=%s came from the session this one runs in, and is ignored here: %s. "+
+		"This launch uses %s, from %s; --setup <name> picks another.", setup.EnvVar, name, strings.TrimSuffix(why, "."),
+		choice.Setup.Name, choice.From())
 }
 
 // selectHostSetup is `yolo host`'s selection: --setup when given, which must name a host
@@ -189,8 +233,9 @@ func selectHostSetup(flag, env string, user map[string]setup.Setup, goos string,
 // removedKeysSetup is the bridge: the built-in the removed `confinement`, `runtime` and
 // `macos_user_mode` keys mean together, the key phrase that chose it, or "" when none is
 // written. A `confinement = "guest"` beside a `runtime` naming a container names two
-// different setups, and is refused naming both, as the notch gate refused it before.
-func removedKeysSetup(merged *jsonx.OrderedMap) (name, key string, err error) {
+// different setups, and is refused naming each one goos can run, as the notch gate refused it
+// before, and recommending goos's default as the setup to keep.
+func removedKeysSetup(merged *jsonx.OrderedMap, goos string) (name, key string, err error) {
 	if merged == nil {
 		return "", "", nil
 	}
@@ -206,7 +251,13 @@ func removedKeysSetup(merged *jsonx.OrderedMap) (name, key string, err error) {
 		guest := seatbeltForRemovedMode()
 		if rt != "" && rt != GuestRuntime {
 			other := SetupForRemovedRuntime(rt)
-			return "", "", fmt.Errorf("the removed keys confinement = \"guest\" and runtime = %q in your config name two different setups. Choose one for this launch:\n    yolo --setup %s -- claude\n    yolo --setup %s -- claude\nThen make it your default and remove both keys:\n    yolo config set setup %s --user", rt, guest, other, guest)
+			var launches string
+			for _, name := range []string{guest, other} {
+				if setup.Buildable(setup.MustBuiltIn(name), goos, nil) == nil {
+					launches += "\n    " + setup.LaunchLine(setup.MustBuiltIn(name))
+				}
+			}
+			return "", "", fmt.Errorf("the removed keys confinement = \"guest\" and runtime = %q in your config name two different setups. Choose one for this launch:%s\nThen make one your default, this machine's own default for example, and remove both keys:\n    yolo config set setup %s --user", rt, launches, setup.Default(goos).Name)
 		}
 		return guest, `confinement = "guest"`, nil
 	}

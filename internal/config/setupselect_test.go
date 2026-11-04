@@ -61,14 +61,32 @@ func TestSelectSetupOrderAndTheRemovedKeysBridge(t *testing.T) {
 
 // A guest beside a runtime naming a container names two setups, refused naming both.
 func TestSelectSetupRefusesTwoRemovedKeysNamingDifferentSetups(t *testing.T) {
+	// On Linux the Seatbelt setup the guest key meant cannot run, so the refusal offers only
+	// podman-self, this OS's default, and recommends it.
 	_, err := selectWith(t, SetupForLaunch, "", nil, `{"confinement": "guest", "runtime": "podman"}`, false)
 	if err == nil {
 		t.Fatal("a guest beside runtime podman was selected")
 	}
-	for _, want := range []string{"name two different setups", "yolo --setup seatbelt-yolo-account -- claude",
-		"yolo --setup podman-self -- claude", "yolo config set setup seatbelt-yolo-account --user"} {
+	for _, want := range []string{"name two different setups", "yolo --setup podman-self -- claude",
+		"yolo config set setup podman-self --user"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("the refusal does not say %q:\n%s", want, err)
+		}
+	}
+	if strings.Contains(err.Error(), "seatbelt") {
+		t.Errorf("on Linux the refusal offers a Seatbelt setup, which only macOS has:\n%s", err)
+	}
+	// On a Mac both run, and the recommendation is the Mac's default.
+	t.Setenv("HOME", t.TempDir())
+	_, err = SelectSetup(SetupInputs{Verb: SetupForLaunch, GOOS: "darwin", Getenv: func(string) string { return "" },
+		Merged: decode(t, `{"confinement": "guest", "runtime": "podman"}`)})
+	if err == nil {
+		t.Fatal("a guest beside runtime podman was selected on macOS")
+	}
+	for _, want := range []string{"yolo --setup seatbelt-yolo-account -- claude", "yolo --setup podman-self -- claude",
+		"yolo config set setup apple-container-self --user"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("on macOS the refusal does not say %q:\n%s", want, err)
 		}
 	}
 }
@@ -100,5 +118,59 @@ func TestSelectSetupForHost(t *testing.T) {
 	if _, err := selectWith(t, SetupForHost, "seatbelt-self", nil, "", false); err == nil ||
 		!strings.Contains(err.Error(), "yolo --setup seatbelt-self -- claude") {
 		t.Errorf("yolo host --setup seatbelt-self was not refused naming the launch: %v", err)
+	}
+}
+
+// TestSelectSetupIgnoresAnInheritedSetupThisMachineCannotRun: SUP-D12. Inside a launched session a
+// YOLO_SETUP naming a setup this OS cannot run, or one this machine does not define, describes the
+// outer session; it is dropped with one line naming it and what was chosen instead, and the OS
+// default runs. One this machine can run is still taken, --setup still wins, and outside a
+// session the same value is the user's own and is not dropped.
+func TestSelectSetupIgnoresAnInheritedSetupThisMachineCannotRun(t *testing.T) {
+	for _, tc := range []struct {
+		name, flag, env string
+		inSession       bool
+		want            string
+		src             setup.Source
+		warned          bool
+	}{
+		{name: "an Apple Container session's marker, nested on Linux", env: "apple-container-self",
+			inSession: true, want: "podman-self", src: setup.FromDefault, warned: true},
+		{name: "a Seatbelt session's marker, nested on Linux", env: "seatbelt-yolo-account",
+			inSession: true, want: "podman-self", src: setup.FromDefault, warned: true},
+		{name: "a user setup the outer machine defined", env: "my-mac-box",
+			inSession: true, want: "podman-self", src: setup.FromDefault, warned: true},
+		{name: "a marker this machine can run is taken", env: "podman-self",
+			inSession: true, want: "podman-self", src: setup.FromEnv},
+		{name: "--setup still wins", flag: "podman-self", env: "apple-container-self",
+			inSession: true, want: "podman-self", src: setup.FromFlag},
+		{name: "outside a session the value is the user's", env: "apple-container-self",
+			want: "apple-container-self", src: setup.FromEnv},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := selectWith(t, SetupForLaunch, tc.flag, map[string]string{"YOLO_SETUP": tc.env}, "", tc.inSession)
+			if err != nil {
+				t.Fatalf("SelectSetup: %v", err)
+			}
+			if got.Setup.Name != tc.want || got.Source != tc.src {
+				t.Errorf("got %s from %v, want %s from %v", got.Setup.Name, got.Source, tc.want, tc.src)
+			}
+			if !tc.warned {
+				if len(got.Warnings) != 0 {
+					t.Errorf("warned %q, want nothing", got.Warnings)
+				}
+				return
+			}
+			if len(got.Warnings) != 1 {
+				t.Fatalf("warnings = %q, want one line", got.Warnings)
+			}
+			w := got.Warnings[0]
+			t.Log(w)
+			for _, want := range []string{"YOLO_SETUP=" + tc.env, "ignored here", "This launch uses " + tc.want, "--setup <name>"} {
+				if !strings.Contains(w, want) {
+					t.Errorf("the line does not say %q: %s", want, w)
+				}
+			}
+		})
 	}
 }

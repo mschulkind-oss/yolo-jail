@@ -111,7 +111,8 @@ func TestTheSetupGateRefusesWhatLinuxCannotRun(t *testing.T) {
 
 // TestTheSetupGatePassesARunnableSetup is the control: podman-self from the flag, from
 // YOLO_SETUP, from the user config and as the Linux default all walk past the gate; and a
-// removed YOLO_RUNTIME inside a launched session warns once and launches (SUP-D6).
+// removed YOLO_RUNTIME inside a launched session warns once and launches (SUP-D6), as does an
+// inherited YOLO_SETUP this machine cannot run (SUP-D12).
 func TestTheSetupGatePassesARunnableSetup(t *testing.T) {
 	for _, tc := range []struct {
 		name, flag, user string
@@ -125,6 +126,11 @@ func TestTheSetupGatePassesARunnableSetup(t *testing.T) {
 		{name: "a user setup", user: `{"setup": "mine", "setups": {"mine": {"confinement": "podman"}}}`},
 		{name: "YOLO_RUNTIME in a session", env: map[string]string{"YOLO_RUNTIME": "podman", "YOLO_VERSION": "1.0"},
 			warn: "YOLO_RUNTIME=podman is removed and ignored here"},
+		// SUP-D12: a nested launch inside an Apple Container jail inherits its marker, which this
+		// Linux machine cannot run, so the marker is ignored and the default runs.
+		{name: "an Apple Container session's YOLO_SETUP, nested", env: map[string]string{
+			"YOLO_SETUP": "apple-container-self", "YOLO_VERSION": "1.0"},
+			warn: "YOLO_SETUP=apple-container-self came from the session this one runs in, and is ignored here"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ws := setupGateWorkspace(t, "{}\n")
