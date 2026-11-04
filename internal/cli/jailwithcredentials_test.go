@@ -107,10 +107,10 @@ func TestFrontDoorRoutesWithCredentialsToRun(t *testing.T) {
 			t.Errorf("routeDecision(%q) = %q, want dispatch:run", argv, got)
 		}
 	}
-	// `--at host` is the systematic spelling of the host verb, and carries the flag there.
-	sub, got, _ := routeArgv([]string{"--at", "host", "--with-credentials", "all", "--", "bash"})
+	// `--setup host-self` is the systematic spelling of the host verb, and carries the flag there.
+	sub, got, _ := routeArgv([]string{"--setup", "host-self", "--with-credentials", "all", "--", "bash"})
 	if want := []string{"host", "--with-credentials", "all", "--", "bash"}; sub != "host" || !slices.Equal(got, want) {
-		t.Errorf("routeArgv(--at host --with-credentials all -- bash) = %q %q, want host %q", sub, got, want)
+		t.Errorf("routeArgv(--setup host-self --with-credentials all -- bash) = %q %q, want host %q", sub, got, want)
 	}
 }
 

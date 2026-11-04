@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sort"
 	"strconv"
@@ -29,6 +31,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
@@ -94,11 +97,12 @@ Exec flags (yolo host -- ...):
                                 print the table before the command starts, as a jail
                                 launch's --timing does. ` + "`perf_logging: true`" + ` and an
                                 exported YOLO_TIMING record without printing.
-  --at host                     Accepted and changes nothing: this verb is the host notch.
-                                ` + "`yolo --at host -- <cmd>`" + ` and ` + "`yolo run --at host -- <cmd>`" + `
-                                are this verb, wherever --at sits. Another notch is
-                                refused, as is a jail-launch flag with no meaning here
-                                (--dry-run, --network, --accept-config-changes).
+  --setup <name>                A setup with no walls: host-self (the default), or a user
+                                setup whose confinement is host. ` + "`yolo --setup host-self -- <cmd>`" + `
+                                is this verb, wherever --setup sits. A setup with walls is
+                                refused naming its launch, as is a jail-launch flag with no
+                                meaning here (--dry-run, --network, --accept-config-changes).
+                                host-yolo-account is not built yet. (--at is removed: use --setup.)
   --help, -h                    Show this help.
 
 With ` + "`host_apply_on_launch`" + ` enabled (defaulting to on when ` + "`host_wrappers: true`" + `),
@@ -180,7 +184,7 @@ Examples:
   yolo host apply --assert            # write the config surfaces
   yolo host apply --revert            # what would withdrawing yolo remove?
 
-` + "`yolo apply --at host`" + ` is the systematic spelling of ` + "`yolo host apply`" + `; both remain.`
+` + "`yolo apply --setup host-self`" + ` is the systematic spelling of ` + "`yolo host apply`" + `; both remain.`
 
 // runHost is the `yolo host` entry point.
 func runHost(args []string) int {
@@ -231,7 +235,7 @@ func hostMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) i
 		args = moved
 	}
 	// A LEADING FLAG WITH NO `--` IS AN EXEC FLAG, never a verb: no verb is spelled with a dash,
-	// and `yolo --at host -p zai` reaches here as [-p zai] exactly as `yolo host -p zai` does. So
+	// and `yolo --setup host-self -p zai` reaches here as [-p zai] exactly as `yolo host -p zai` does. So
 	// the exec half's parser judges it, and a missing value, a jail-only flag or a typo gets the
 	// refusal it gets before a `--` (exit 2) rather than `unknown verb "-p"` (exit 1). Help keeps
 	// the switch below.
@@ -268,7 +272,7 @@ func timingAheadOfApply(args []string) ([]string, bool) {
 }
 
 // hostExecWithoutCommand is exec flags typed with no `--` and so no command: `yolo host -p zai`,
-// `yolo --at host --timing`. The flags are parsed as a `--` line's are, so each is refused as it
+// `yolo --setup host-self --timing`. The flags are parsed as a `--` line's are, so each is refused as it
 // would be there; flags that parse are refused for naming nothing to run, since the host verb has
 // no default command (a jail's is its shell, and the host's shell is the one the user typed in).
 func hostExecWithoutCommand(flagArgs []string, out, errw io.Writer) int {
@@ -299,10 +303,13 @@ type hostExecFlags struct {
 	// timing is --timing, as typed on this invocation: the launch's spans recorded AND printed
 	// (perf-logging.md D12's explicit flag; hosttiming.go in internal/cli/run, D18).
 	timing bool
+	// setup is --setup as typed, "" when not given: it must name a setup with no walls
+	// (resolveHostSetup), and the host verb's own default is host-self.
+	setup string
 }
 
 // jailOnlyRunFlags are the launch flags `yolo run` takes and `yolo host --` has no meaning for:
-// runFlags less the four the host shares (the profile; `--at`, a no-op here; `--timing`, which
+// runFlags less the four the host shares (the profile; `--setup`, judged by resolveHostSetup; `--timing`, which
 // times the host launch as it times a jail's: perf-logging.md D18; and the grant, the host's own
 // flag first, which a jail launch takes too since OQ-ES5's jail half). Derived, so a run flag
 // added later is named here as a jail-launch flag rather than called unknown.
@@ -315,7 +322,7 @@ type hostExecFlags struct {
 func jailOnlyRunFlags() []string {
 	var out []string
 	for _, f := range runFlags {
-		if f != "--profile" && f != "--at" && f != hostTimingFlag && f != withCredentialsFlag &&
+		if f != "--profile" && f != "--setup" && f != hostTimingFlag && f != withCredentialsFlag &&
 			f != "--update" && f != "-u" {
 			out = append(out, f)
 		}
@@ -335,23 +342,45 @@ const acceptConfigChangesAtHost = "  A host launch has nothing to approve: it re
 	"home without asking. The one question it keeps, a first apply dropping MCP servers yolo " +
 	"does not declare, is asked at a terminal; `yolo host apply --assert` asks it.\n"
 
-// refuseHostNotchContradiction is `yolo host --at <notch>` for a notch other than the host:
-// the verb and the flag name two notches, and neither silently wins.
-func refuseHostNotchContradiction(notch string, errw io.Writer) {
-	known := false
-	for _, k := range config.KnownConfinements {
-		if config.Confinement(notch) == k {
-			known = true
-		}
+// resolveHostSetup is `yolo host`'s setup, through the selection every verb shares
+// (config.SelectSetup, Verb SetupForHost): `--setup` must name a setup with no walls, a built-in
+// or a user's; a session's YOLO_SETUP counts only when it names one; else host-self. A setup
+// this machine cannot run is refused naming one it can, and one run as the yolo account is
+// refused as not built yet (named-setups-plan.md slice 8 builds host-yolo-account), so a user
+// setup run as you is host-self under its own name. Exit 2 for a refused --setup (misuse, as
+// the launch's), 1 for anything else.
+func resolveHostSetup(flag string, getenv func(string) string, goos string, errw io.Writer) (setup.Setup, int) {
+	choice, err := config.SelectSetup(config.SetupInputs{
+		Verb:      config.SetupForHost,
+		Flag:      flag,
+		Getenv:    getenv,
+		GOOS:      goos,
+		InSession: getenv("YOLO_VERSION") != "",
+	})
+	for _, w := range choice.Warnings {
+		fmt.Fprintln(errw, w)
 	}
-	if !known {
-		// The jail launcher's words for the same typo (run.refuseUnbuiltNotch).
-		fmt.Fprintf(errw, "yolo host: --at %q is not a confinement level (jail|guest|host)\n", notch)
-		return
+	rc := 1
+	if flag != "" {
+		rc = 2
 	}
-	fmt.Fprintf(errw, "yolo host: --at %s names the %s notch, and `yolo host` runs at the host "+
-		"notch.\n  Drop one of them: `yolo --at %s -- <command>` for that notch, or "+
-		"`yolo host -- <command>` for this one.\n", notch, notch, notch)
+	if err != nil {
+		fmt.Fprintf(errw, "yolo host: %v\n", err)
+		return setup.Setup{}, rc
+	}
+	s := choice.Setup
+	if err := setup.Buildable(s, goos, func(bin string) bool {
+		_, lerr := exec.LookPath(bin)
+		return lerr == nil
+	}); err != nil {
+		fmt.Fprintf(errw, "yolo host: %v\n", err)
+		return setup.Setup{}, rc
+	}
+	if s.RunAs == setup.RunAsYoloAccount {
+		fmt.Fprintf(errw, "yolo host: %s\n", hostYoloAccountRefusal(s.Name))
+		return setup.Setup{}, rc
+	}
+	return s, 0
 }
 
 // hostGrantRequest is a --with-credentials request as typed: provider names and `all`, from
@@ -420,24 +449,24 @@ func parseHostExecFlags(args []string, errw io.Writer) (hostExecFlags, bool) {
 			}
 			continue
 		}
-		// THE NOTCH, which is this verb's own. `--at host` is a no-op, so the front door's
-		// spellings and this one agree (routeArgv hands `yolo --at host host -- c` here with the
-		// pair intact); any other notch contradicts the verb and is refused by name rather than
-		// silently overruled, in either direction.
-		if fl, ok := readValueFlag(args, i, "--at"); ok {
+		// THE SETUP, judged once the flags are read (resolveHostSetup): a setup with walls
+		// contradicts the verb and is refused naming both spellings, never silently overruled.
+		if fl, ok := readValueFlag(args, i, "--setup"); ok {
 			i = fl.last
 			v, ok := value(fl)
 			if !ok {
 				return f, false
 			}
-			if v != string(config.ConfinementHost) {
-				refuseHostNotchContradiction(v, errw)
-				return f, false
-			}
+			f.setup = v
 			continue
 		}
+		// THE REMOVED NOTCH FLAG, refused in the launch's words (atremoved.go).
+		if fl, ok := readValueFlag(args, i, atFlag); ok {
+			fmt.Fprintf(errw, "yolo host: %v\n", atRemoved(fl.value))
+			return f, false
+		}
 		a := args[i]
-		// `yolo host --help -- c`, and the front door's `yolo run --at host --help`: help, as
+		// `yolo host --help -- c`, and the front door's `yolo run --setup host-self --help`: help, as
 		// `yolo run --help -- c` answers run's.
 		if a == "--help" || a == "-h" {
 			f.help = true
@@ -452,7 +481,7 @@ func parseHostExecFlags(args []string, errw io.Writer) (hostExecFlags, bool) {
 			continue
 		}
 		// A LAUNCH FLAG WITH NO HOST MEANING is named as one. It reaches here from
-		// `yolo --at host --timing -- c` as readily as from `yolo host --timing -- c`, and an
+		// `yolo --setup host-self --timing -- c` as readily as from `yolo host --timing -- c`, and an
 		// "unknown flag" would hide that the flag exists and where it does mean something.
 		if name, _, _ := strings.Cut(a, "="); slices.Contains(jailOnlyRunFlags(), name) {
 			fmt.Fprintf(errw, "yolo host: %s is a jail-launch flag, and the host notch has no "+
@@ -615,6 +644,9 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 	if len(cmd) == 0 {
 		fmt.Fprintf(errw, "yolo host: nothing to run after `--`\n\n%s\n", hostUsage)
 		return 2
+	}
+	if _, rc := resolveHostSetup(flags.setup, os.Getenv, runtime.GOOS, errw); rc != 0 {
+		return rc
 	}
 	// SP-R1: decide whether this is an owned host launch before profile selection, the trace,
 	// pack refresh, environment/credential composition, readiness or any launch-owned writes.
@@ -3593,11 +3625,11 @@ func unservedAdapterRefusal(e *packload.UnservedAdapterError, packs []*packload.
 		"(`jail_daemon`), so no launch serves that address as declared.", a.Service, a.Pack)
 	if serviceHasJailDaemon(declared, a.Service) {
 		macos := "A macos-user launch runs a pack service only through its host half, as `yolo host` " +
-			"does, so it refuses this profile too; `YOLO_RUNTIME=podman` or `YOLO_RUNTIME=container` " +
-			"picks a container backend for one launch."
+			"does, so it refuses this profile too; `YOLO_SETUP=podman-self` or `YOLO_SETUP=apple-container-self` " +
+			"picks a container setup for one launch."
 		if e.Selected && e.ProviderPack == "" && macosUserGuestRuns(packs, a.Service) {
 			macos = "A macos-user launch runs that service's jail daemon in its sandbox, so the profile " +
-				"works there too (`YOLO_RUNTIME=macos-user` for one launch)."
+				"works there too (`YOLO_SETUP=seatbelt-yolo-account` for one launch)."
 		}
 		jails = fmt.Sprintf("The profile works in a container jail (podman or Apple Container), where "+
 			"that service's jail daemon runs: `yolo -p %s=%s -- %s`, which is a jail launch, not a "+
@@ -4168,7 +4200,7 @@ func hostWrappersStatus(pr richtext.Printer, errw io.Writer) int {
 //
 // ONE FUNCTION FOR EVERY HOST READER OF THOSE KEYS: the launch composition (composeHostVarsWith),
 // the render composition (composeHostInputs: `yolo host apply` in both postures, the automatic
-// apply a wrapped launch runs, `yolo config render --at host`) and the launch gate, which asks
+// apply a wrapped launch runs, `yolo config render --setup host-self`) and the launch gate, which asks
 // before its observe pass. Every one of them reads the selection off the `profile` key alone, so
 // a reader that skipped this refusal did not refuse the retired `use_profiles`: it ignored it,
 // and an --assert then deselected the profile an earlier apply had written into the real home

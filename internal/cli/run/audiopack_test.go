@@ -663,8 +663,8 @@ func podmanLaunchIn(t *testing.T, ws string) (string, string, string) {
 	o.autoLoad = func(image.AutoLoadOptions) image.LoadResult { return image.LoadResult{OK: true, Ref: goldenImageRef} }
 	o.Getenv = func(k string) string {
 		switch k {
-		case "YOLO_RUNTIME":
-			return "podman"
+		case "YOLO_SETUP":
+			return testSetupForRuntime("podman")
 		case "YOLO_NO_AUTO_IMAGE_REAP":
 			return "1"
 		}

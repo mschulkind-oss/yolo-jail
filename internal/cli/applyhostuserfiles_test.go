@@ -140,16 +140,16 @@ func TestHostApplyNamesSourceBearingHostFilesAndMiseToolsInert(t *testing.T) {
 	}
 }
 
-// `yolo config render --at host` previews the entry host apply writes (item 23's byte-for-byte
+// `yolo config render --setup host-self` previews the entry host apply writes (item 23's byte-for-byte
 // rule, extended to the user's surfaces): the preview holds the entry's content and managed key.
 // Under `own`, since under the unset key (`none`) host apply writes nothing to preview.
 func TestConfigRenderAtHostPreviewsASourceLessHostFile(t *testing.T) {
 	hostComputedHome(t, `{"packs":[],"host_management":"own",
 		"host_files":[{"path":"~/`+userFileRel+`","content":"{\"theme\": \"dark\"}",
 		               "managed":{"telemetry": false}}]}`)
-	rc, out, errs := runSurfaceVerb(t, "render", "user", "--at", "host")
+	rc, out, errs := runSurfaceVerb(t, "render", "user", "--setup", "host-self")
 	if rc != 0 || !strings.Contains(out, `"theme": "dark"`) || !strings.Contains(out, `"telemetry": false`) {
-		t.Fatalf("config render user --at host rc=%d does not preview the entry:\n%s%s", rc, out, errs)
+		t.Fatalf("config render user --setup host-self rc=%d does not preview the entry:\n%s%s", rc, out, errs)
 	}
 }
 

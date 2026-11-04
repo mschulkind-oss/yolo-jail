@@ -401,7 +401,7 @@ func TestContainerOnlySectionsSayTheyDoNotApplyOnMacosUser(t *testing.T) {
 		}
 		for _, s := range rows {
 			if s.Sizing != SizingAbsent || !strings.Contains(s.Reason, "not applicable on macos-user") ||
-				!strings.Contains(s.Note, "YOLO_RUNTIME=container yolo stores") {
+				!strings.Contains(s.Note, "YOLO_SETUP=apple-container-self yolo stores") {
 				t.Errorf("%s row = %+v", section, s)
 			}
 		}
@@ -416,8 +416,8 @@ func TestContainerOnlySectionsSayTheyDoNotApplyOnMacosUser(t *testing.T) {
 		if s.Reclaimer.Func != "SupersededStoreOutputs" || s.Verdict != VerdictYolo {
 			t.Errorf("%s: reclaimer %+v verdict %q; a container runtime on this Mac still runs the pass", key, s.Reclaimer, s.Verdict)
 		}
-		if !strings.Contains(s.Reclaimer.Trigger, "YOLO_RUNTIME=container yolo prune --apply") ||
-			!strings.Contains(s.Reclaimer.Trigger, "YOLO_RUNTIME=podman") ||
+		if !strings.Contains(s.Reclaimer.Trigger, "YOLO_SETUP=apple-container-self yolo prune --apply") ||
+			!strings.Contains(s.Reclaimer.Trigger, "YOLO_SETUP=podman-self") ||
 			!strings.Contains(s.Reclaimer.Detail, "container runtime") {
 			t.Errorf("%s on macos-user names reclaimer %+v; want the container runtime that runs it", key, s.Reclaimer)
 		}
@@ -464,8 +464,8 @@ func TestMacosUserRowsNameTheRuntimeThatRunsTheirPass(t *testing.T) {
 				key, s.Reclaimer, s.Verdict, fn)
 		}
 		if strings.HasPrefix(s.Reclaimer.Trigger, "yolo prune --apply") ||
-			!strings.Contains(s.Reclaimer.Trigger, "`YOLO_RUNTIME=container yolo prune --apply`") ||
-			!strings.Contains(s.Reclaimer.Trigger, "YOLO_RUNTIME=podman") {
+			!strings.Contains(s.Reclaimer.Trigger, "`YOLO_SETUP=apple-container-self yolo prune --apply`") ||
+			!strings.Contains(s.Reclaimer.Trigger, "YOLO_SETUP=podman-self") {
 			t.Errorf("%s on macos-user names trigger %q; macos-user's `yolo prune` does not run %s, a "+
 				"container runtime's does", key, s.Reclaimer.Trigger, fn)
 		}

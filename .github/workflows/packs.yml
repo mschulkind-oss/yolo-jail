@@ -223,7 +223,7 @@ jobs:
           go test -count=1 -timeout 0 -v ./integration \
             -run '^(TestPackInstallsVersionsAndConfigures|TestHostFloorInstallsTheVendorsRelease)$/^${{ matrix.pack }}$'
         env:
-          YOLO_RUNTIME: podman
+          YOLO_SETUP: podman-self
           YOLO_TEST_REAL_PACK_INSTALLS: "1"
           YOLO_TEST_JAIL_TIMEOUT: "1200"
 
@@ -268,6 +268,6 @@ jobs:
       - name: Two agents in one jail
         run: go test -count=1 -timeout 0 -v ./integration -run 'TestAgentToolsAvailable$'
         env:
-          YOLO_RUNTIME: podman
+          YOLO_SETUP: podman-self
           YOLO_TEST_REAL_PACK_INSTALLS: "1"
           YOLO_TEST_JAIL_TIMEOUT: "1200"

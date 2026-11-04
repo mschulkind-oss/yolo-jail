@@ -789,8 +789,8 @@ func CacheRelocationWriteProbe(runAs RunAs, r CacheRelocation, profilePath, sess
 
 // CacheRelocationRefusalMessage is the launch's message for the relocation probes that failed,
 // one line each, with the next steps: grant the yolo account access to a target that was
-// already there, move the target somewhere it can be used, or a container runtime. step is
-// containerStep's clause, as ContextPreflightRefusal takes it.
+// already there, move the target somewhere it can be used, or a container setup. step is
+// the container-setup step, as ContextPreflightRefusal takes it.
 func CacheRelocationRefusalMessage(failed []CacheRelocationProbe, step string) string {
 	msg := "[bold red]Refusing the macos-user launch: the yolo account cannot use every " +
 		"cache_relocations target.[/bold red]\n"
@@ -840,7 +840,7 @@ func CacheRelocationRefusalMessage(failed []CacheRelocationProbe, step string) s
 		"your own temporary directory, needs another place. " +
 		"If a target is on a disk the yolo account cannot write at all, point the entry at a " +
 		"folder on another disk. " +
-		"Or remove the entry from ~/.config/yolo-jail/config.jsonc, or use `runtime: \"podman\"`" +
+		"Or remove the entry from your user config, or use a container setup " +
 		step + ", which mounts it instead."
 }
 
@@ -988,8 +988,8 @@ func ContextPreflight(runAs RunAs, links []ContextLink) []ContextProbe {
 }
 
 // ContextPreflightRefusal is the launch's message for the probes that failed, one line each.
-// step follows its container-runtime step: containerStep's clause, which names the jail notch
-// beside a guest (env-manager plan EMP-D5) and is "" at the jail notch.
+// step is the container-setup step it ends on (setup.ContainerStep, through the orchestrator's
+// containerStep).
 func ContextPreflightRefusal(failed []ContextProbe, step string) string {
 	msg := "[bold red]Refusing the macos-user launch: the yolo account cannot reach " +
 		"every context mount.[/bold red]\n"
@@ -1001,7 +1001,7 @@ func ContextPreflightRefusal(failed []ContextProbe, step string) string {
 		"permissions or an ACL refuse it before the\nSeatbelt profile is consulted. Copy the " +
 		"folder under " + SharedRootDefault() + " (cp -R, or a fresh clone there): what is\n" +
 		"created there is shared with the yolo account as it is created, and a folder moved " +
-		"there is not.\nOr use a container runtime (`runtime: \"podman\"` or `\"container\"`)" + step + "."
+		"there is not.\nOr use a container setup " + step + "."
 }
 
 // StageContextDirCommands stages the context dir for this launch: the composed tree when the

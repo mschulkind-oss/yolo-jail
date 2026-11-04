@@ -53,6 +53,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/patchrecovery"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
 // missingBuild is one patched build this launch has nothing of.
@@ -209,23 +210,17 @@ func (o *Options) refuseMissingBuilds(rt string) bool {
 }
 
 // withContainerBackends is hatches with, on macos-user, the two container backends a launch can
-// take instead (docs/reference/patched-forks.md PF-D97): `YOLO_RUNTIME=container yolo` and
-// `YOLO_RUNTIME=podman yolo`, each of which builds the fork or extension for linux in its own build
-// jail. They
-// stand before the missing-program hatch, the ruling's order, or last when the list has none. At
-// the guest notch a container runtime also needs the jail notch (containerStepClause), so their
-// command is `yolo --at jail`. Every other runtime keeps hatches as they are.
+// take instead (docs/reference/patched-forks.md PF-D97): `YOLO_SETUP=apple-container-self yolo`
+// and `YOLO_SETUP=podman-self yolo`, each of which builds the fork or extension for linux in its
+// own build jail. They stand before the missing-program hatch, the ruling's order, or last when
+// the list has none. Every other runtime keeps hatches as they are.
 func (o *Options) withContainerBackends(rt string, hatches []patchrecovery.Hatch) []patchrecovery.Hatch {
 	if rt != "macos-user" { // parity: HonoredBy — only macos-user builds a patched fork or extension in its own act; the container backends' refusal needs no other backend to finish
 		return hatches
 	}
-	cmd := "yolo"
-	if o.containerStepClause() != "" {
-		cmd = "yolo --at jail"
-	}
 	backends := []patchrecovery.Hatch{
-		{Env: "YOLO_RUNTIME", Value: "container", Command: cmd, Label: "launch on Apple Container"},
-		{Env: "YOLO_RUNTIME", Value: "podman", Command: cmd, Label: "launch on podman"},
+		{Env: setup.EnvVar, Value: "apple-container-self", Command: "yolo", Label: "launch on Apple Container"},
+		{Env: setup.EnvVar, Value: "podman-self", Command: "yolo", Label: "launch on podman"},
 	}
 	i := slices.IndexFunc(hatches, func(h patchrecovery.Hatch) bool { return h.Env == patchrecovery.AllowMissingProgramsEnv })
 	if i < 0 {

@@ -61,7 +61,7 @@ func imageCopyMain(args []string, stderr io.Writer, goos string,
 		}
 		fmt.Fprintf(stderr, "yolo internal %s: writes podman's store on Linux only; "+
 			"runtime %q on %s takes an archive instead.\n"+
-			"  Next step: run `YOLO_RUNTIME=%s just load`, which writes the image to an OCI archive and loads it with `%s`; "+
+			"  Next step: run `YOLO_LOAD_RUNTIME=%s just load`, which writes the image to an OCI archive and loads it with `%s`; "+
 			"or launch a jail, which delivers the image by archive itself.\n",
 			imageCopyVerb, *rt, goos, *rt, loader)
 		return 2

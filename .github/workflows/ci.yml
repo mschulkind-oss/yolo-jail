@@ -487,7 +487,7 @@ jobs:
             | jq -Rj --unbuffered '. as $line | (try fromjson catch null) as $e
                 | if ($e | type) == "object" then ($e.Output // empty) else $line + "\n" end'
         env:
-          YOLO_RUNTIME: podman
+          YOLO_SETUP: podman-self
           PATTERN: ${{ steps.shard.outputs.pattern }}
 
       # Top-level tests only: a subtest runs wherever its parent does.

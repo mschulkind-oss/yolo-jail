@@ -67,7 +67,7 @@ func TestAMacosUserLaunchHandsItsSandboxTheForksReason(t *testing.T) {
 	pinFork(t, strings.Repeat("ef", 20))
 	out, env := macosUserLaunchEnv(t)
 	for _, w := range []string{"tool is not delivered on macos-user",
-		"this launch builds no fork; run it on a container backend with `YOLO_RUNTIME=container yolo` or `YOLO_RUNTIME=podman yolo`",
+		"this launch builds no fork; run it on a container setup with `YOLO_SETUP=apple-container-self yolo` or `YOLO_SETUP=podman-self yolo`",
 		"or start without it with `YOLO_ALLOW_MISSING_PROGRAMS=1 yolo`"} {
 		if !strings.Contains(out, w) {
 			t.Errorf("the macos-user launch lacks %q:\n%s", w, out)
@@ -81,7 +81,7 @@ func TestAMacosUserLaunchHandsItsSandboxTheForksReason(t *testing.T) {
 	d := handedOnMacosUser(t, env)["tool"]
 	if d.Key != "" ||
 		!strings.Contains(d.Reason, "tool is not delivered on macos-user: this launch builds no fork") ||
-		!strings.Contains(d.Reason, "YOLO_RUNTIME=container yolo") {
+		!strings.Contains(d.Reason, "YOLO_SETUP=apple-container-self yolo") {
 		t.Errorf("the sandbox is handed %+v for tool, want no build and the launch's reason", d)
 	}
 }
@@ -104,8 +104,8 @@ func TestAMacosUserLaunchNamesWhatRunsAPatchedFork(t *testing.T) {
 	}
 	out, env := macosUserLaunchEnv(t)
 	for _, w := range []string{"tool is not delivered on macos-user",
-		"this launch builds no fork; run it on a container backend with " +
-			"`YOLO_RUNTIME=container yolo` or `YOLO_RUNTIME=podman yolo`, or start without it with " +
+		"this launch builds no fork; run it on a container setup with " +
+			"`YOLO_SETUP=apple-container-self yolo` or `YOLO_SETUP=podman-self yolo`, or start without it with " +
 			"`YOLO_ALLOW_MISSING_PROGRAMS=1 yolo`",
 		"with another series or build recipe — a fresh launch builds the edited one"} {
 		if !strings.Contains(out, w) {

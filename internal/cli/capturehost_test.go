@@ -18,6 +18,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
@@ -76,10 +77,8 @@ func fakeCaptureJail(t *testing.T, seen *run.Options, entries []capture.Manifest
 		*seen = o
 		if o.OnRuntimeResolved != nil {
 			rt := "podman"
-			if o.Getenv != nil {
-				if selected := o.Getenv("YOLO_RUNTIME"); selected != "" {
-					rt = selected
-				}
+			if selected := pipelineBackend(o); selected != "" {
+				rt = selected
 			}
 			if err := o.OnRuntimeResolved(rt); err != nil {
 				t.Fatalf("record fake capture runtime: %v", err)
@@ -134,9 +133,9 @@ func withFakeCaptureJail(t *testing.T, fn func(run.Options) int) {
 			if _, workspaceErr := os.Stat(o.Workspace); workspaceErr == nil {
 				if _, err := readForkBuildRuntime(o.Workspace); errors.Is(err, os.ErrNotExist) {
 					rt := "podman"
-					selected := os.Getenv("YOLO_RUNTIME")
-					if o.Getenv != nil {
-						selected = o.Getenv("YOLO_RUNTIME")
+					selected := pipelineBackend(o)
+					if s, err := setup.Lookup(os.Getenv("YOLO_SETUP"), nil); selected == "" && err == nil {
+						selected = s.Backend()
 					}
 					for _, supported := range paths.AllRuntimes {
 						if selected == supported {

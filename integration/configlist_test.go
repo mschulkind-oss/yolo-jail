@@ -116,7 +116,7 @@ func TestConfigListSurvivesInJailEditsAndPackDrop(t *testing.T) {
 // and in-process chains were the only evidence; none of them booted a jail.
 //
 // The host half runs too, through the same isolated home, so the guarded entry's absence in
-// the jail cannot pass vacuously: `surface render --at host` must show it, which proves the
+// the jail cannot pass vacuously: `surface render --setup host-self` must show it, which proves the
 // fixture's guarded list is well-formed and placed, and that the jail dropped it by posture.
 func TestAPostureListRendersOnlyItsOwnSideOfTheLine(t *testing.T) {
 	requireJail(t)
@@ -155,9 +155,9 @@ func TestAPostureListRendersOnlyItsOwnSideOfTheLine(t *testing.T) {
 			"guarded posture's %q absent", inJail, jailOnly, hostOnly)
 	}
 
-	h := runYoloCLI(t, dir, "surface", "render", "pi/settings", "--at", "host")
+	h := runYoloCLI(t, dir, "surface", "render", "pi/settings", "--setup", "host-self")
 	if h.rc != 0 {
-		t.Fatalf("surface render --at host: rc %d\nstdout: %s\nstderr: %s", h.rc, h.stdout, h.stderr)
+		t.Fatalf("surface render --setup host-self: rc %d\nstdout: %s\nstderr: %s", h.rc, h.stdout, h.stderr)
 	}
 	if !strings.Contains(h.stdout, hostOnly) || strings.Contains(h.stdout, jailOnly) {
 		t.Fatalf("the host preview must carry the guarded posture's %q and not the autonomous "+

@@ -220,7 +220,7 @@ func TestAMacosUserLaunchRefusesAPatchedExtensionWithNoBuild(t *testing.T) {
 	for _, w := range []string{"ERROR: 1 patched extension pack agentpack loads has no build on this machine",
 		"yolo capture " + treeKey,
 		"\nStart anyway:\n",
-		"YOLO_RUNTIME=container yolo", "YOLO_RUNTIME=podman yolo",
+		"YOLO_SETUP=apple-container-self yolo", "YOLO_SETUP=podman-self yolo",
 		patchrecovery.SkipExtensionsEnv + "=" + treeKey + " yolo"} {
 		if !strings.Contains(r.out, w) {
 			t.Errorf("the refusal lacks %q:\n%s", w, r.out)

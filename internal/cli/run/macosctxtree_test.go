@@ -373,7 +373,7 @@ func TestMacosUserRefusesADirectoryHostFileOverTheCap(t *testing.T) {
 
 			out := runMacosUserExpectingRefusal(t, t.TempDir(), nil)
 			for _, want := range []string{tc.want, "Split the entry into FILE entries",
-				`runtime: "podman"`, "Apple Container " + acROBindsFloor} {
+				"use a container setup, which binds the directory instead (`", "Apple Container binds it from " + acROBindsFloor} {
 				if !strings.Contains(out, want) {
 					t.Errorf("the refusal does not say %q:\n%s", want, out)
 				}
@@ -588,7 +588,7 @@ func TestMacosUserRefusesADeclaredConfigMountItCannotDeliver(t *testing.T) {
 		"/ctx/ref-repo", // the bare-path entry, at the destination it would have taken
 		"/ctx/logs",     // the host:container entry, at the one it named
 		"macos-user can't mount read-only where the sandbox writes", // the REASON, per entry — not one sentence for all
-		"container runtime",
+		"use a container setup: yolo --setup podman-self -- claude",
 		macosuser.SharedRootDefault(), // where to move it
 	} {
 		if !strings.Contains(out, want) {

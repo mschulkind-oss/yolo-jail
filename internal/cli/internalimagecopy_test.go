@@ -72,8 +72,8 @@ func TestImageCopyRefusesWhatALaunchDoesNotWrite(t *testing.T) {
 		// takes the archive branch, and the loader that branch runs.
 		wantStep, wantLoader string
 	}{
-		{"podman on macOS", "darwin", nil, "YOLO_RUNTIME=podman just load", "podman load"},
-		{"apple container", "linux", []string{"--runtime", "container"}, "YOLO_RUNTIME=container just load", "container image load"},
+		{"podman on macOS", "darwin", nil, "YOLO_LOAD_RUNTIME=podman just load", "podman load"},
+		{"apple container", "linux", []string{"--runtime", "container"}, "YOLO_LOAD_RUNTIME=container just load", "container image load"},
 	} {
 		var stderr bytes.Buffer
 		if rc := imageCopyMain(append(tc.extra, args...), &stderr, tc.goos,

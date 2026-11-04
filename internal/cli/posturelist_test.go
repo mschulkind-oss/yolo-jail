@@ -158,8 +158,8 @@ func TestHostApplyRefusesAMalformedPostureListUnderItsOwnKind(t *testing.T) {
 }
 
 // INSPECTION FOLLOWS THE NOTCH (OQ-4). `yolo config render` and `yolo config ls` each pass
-// render.ProfileFor(<the notch they describe>).AgentAutonomy, so `--at host` shows the
-// guarded entry and `--at jail` does not — with no change to either verb, which is what this
+// render.ProfileFor(<the notch they describe>).AgentAutonomy, so `--setup host-self` shows the
+// guarded entry and `--setup podman-self` does not — with no change to either verb, which is what this
 // pins: a verb that fixed its bit would print one answer at both.
 func TestConfigRenderAndLsFollowAPostureListsNotch(t *testing.T) {
 	listWorldUnder(t, "own", func(home string) string {
@@ -169,23 +169,23 @@ func TestConfigRenderAndLsFollowAPostureListsNotch(t *testing.T) {
 	for _, c := range []struct {
 		notch string
 		want  bool
-	}{{"host", true}, {"jail", false}} {
-		rc, out, errw := runSurfaceVerb(t, "render", "pi/settings", "--at", c.notch)
+	}{{"host-self", true}, {"podman-self", false}} {
+		rc, out, errw := runSurfaceVerb(t, "render", "pi/settings", "--setup", c.notch)
 		if rc != 0 {
-			t.Fatalf("render --at %s rc=%d\n%s%s", c.notch, rc, out, errw)
+			t.Fatalf("render --setup %s rc=%d\n%s%s", c.notch, rc, out, errw)
 		}
 		pkgs, _ := json.Marshal(renderedJSON(t, out)["packages"])
 		if has := strings.Contains(string(pkgs), automodeEntry); has != c.want {
-			t.Errorf("config render --at %s: packages = %s, want the guarded entry present=%v",
+			t.Errorf("config render --setup %s: packages = %s, want the guarded entry present=%v",
 				c.notch, pkgs, c.want)
 		}
 
-		rc, out, errw = runSurfaceVerb(t, "ls", "--at", c.notch)
+		rc, out, errw = runSurfaceVerb(t, "ls", "--setup", c.notch)
 		if rc != 0 {
-			t.Fatalf("ls --at %s rc=%d\n%s%s", c.notch, rc, out, errw)
+			t.Fatalf("ls --setup %s rc=%d\n%s%s", c.notch, rc, out, errw)
 		}
 		if has := hasLine(out, "/packages", "matt (1 entry)"); has != c.want {
-			t.Errorf("config ls --at %s: matt's entry listed=%v, want %v\n%s", c.notch, has,
+			t.Errorf("config ls --setup %s: matt's entry listed=%v, want %v\n%s", c.notch, has,
 				c.want, out)
 		}
 	}

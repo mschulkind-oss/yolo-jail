@@ -35,7 +35,7 @@ func packTreeStagingHome(t *testing.T, packs string) {
 	t.Setenv("XDG_DATA_HOME", "")
 	t.Setenv("YOLO_VERSION", "")
 	t.Setenv("YOLO_PACK_ROOT", "")
-	t.Setenv("YOLO_RUNTIME", "podman")
+	t.Setenv("YOLO_SETUP", "podman-self")
 	t.Chdir(floortest.ResolvedTemp(t))
 	previousProbe := probeForkBuildContainer
 	probeForkBuildContainer = func(string, string, time.Duration) (bool, bool) { return false, true }

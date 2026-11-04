@@ -21,7 +21,7 @@ package cli
 //     every launch while it serves.
 //   - THE ACT is buildFork, the one every launch runs: the sealed build jail, the host's copy of a tree
 //     with no build line, or the verified fetch, under the build's lock. Its failure names the build's
-//     log and the retry, `yolo pack build <pack> --at host` (§8).
+//     log and the retry, `yolo pack build <pack> --setup host-self` (§8).
 
 import (
 	"fmt"
@@ -163,6 +163,6 @@ func floorPackTreeFailure(b forkBuild, store *capture.Store, err error) error {
 	case strings.TrimSpace(b.Fork.Build) == "":
 		verb = "copying"
 	}
-	return fmt.Errorf("%s %s from %s failed: %s — retry: `yolo pack build %s --at host`", verb, b.Fork.Bin,
+	return fmt.Errorf("%s %s from %s failed: %s — retry: `yolo pack build %s --setup host-self`", verb, b.Fork.Bin,
 		packTreeWhat(b), why, b.Fork.Pack)
 }

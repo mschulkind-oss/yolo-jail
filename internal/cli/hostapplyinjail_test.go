@@ -37,15 +37,15 @@ var hostApplySpellings = []struct {
 	{"host apply --timing", "", func(o, e *bytes.Buffer) int {
 		return hostMain([]string{"apply", "--timing"}, o, e, false, nil)
 	}, false},
-	{"apply --at host", "", func(o, e *bytes.Buffer) int { return applyMain([]string{"--at", "host"}, o, e, false, nil) }, false},
-	{"apply --at host --assert", "", func(o, e *bytes.Buffer) int {
-		return applyMain([]string{"--at", "host", "--assert"}, o, e, false, strings.NewReader("y\n"))
+	{"apply --setup host-self", "", func(o, e *bytes.Buffer) int { return applyMain([]string{"--setup", "host-self"}, o, e, false, nil) }, false},
+	{"apply --setup host-self --assert", "", func(o, e *bytes.Buffer) int {
+		return applyMain([]string{"--setup", "host-self", "--assert"}, o, e, false, strings.NewReader("y\n"))
 	}, false},
-	{"apply --at host --revert", "", func(o, e *bytes.Buffer) int {
-		return applyMain([]string{"--at", "host", "--revert"}, o, e, false, nil)
+	{"apply --setup host-self --revert", "", func(o, e *bytes.Buffer) int {
+		return applyMain([]string{"--setup", "host-self", "--revert"}, o, e, false, nil)
 	}, true},
-	{"apply --at host --revert --assert", "", func(o, e *bytes.Buffer) int {
-		return applyMain([]string{"--at", "host", "--revert", "--assert"}, o, e, false, nil)
+	{"apply --setup host-self --revert --assert", "", func(o, e *bytes.Buffer) int {
+		return applyMain([]string{"--setup", "host-self", "--revert", "--assert"}, o, e, false, nil)
 	}, true},
 	{"apply under confinement: host", `, "confinement": "host"`, func(o, e *bytes.Buffer) int {
 		return applyMain(nil, o, e, false, nil)
@@ -122,7 +122,7 @@ func TestHostApplyHelpAnswersInsideAJail(t *testing.T) {
 // under which an apply off the jail refuses too, for its own reason.
 func TestAHostApplyStillWritesOnTheHost(t *testing.T) {
 	for _, sp := range hostApplySpellings {
-		if sp.name != "host apply --assert" && sp.name != "apply --at host --assert" {
+		if sp.name != "host apply --assert" && sp.name != "apply --setup host-self --assert" {
 			continue
 		}
 		t.Run(sp.name, func(t *testing.T) {

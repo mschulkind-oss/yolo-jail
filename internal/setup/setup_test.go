@@ -277,6 +277,11 @@ func TestAMissingTechnologyNamesItsInstall(t *testing.T) {
 	if !errors.As(err, &missing) || missing.Alternative != "seatbelt-self" {
 		t.Fatalf("%v", err)
 	}
+	// And offering it, the refusal says what it gives up: it runs as you and confines less.
+	if !strings.Contains(err.Error(), "seatbelt-self runs the agent as you") ||
+		!strings.Contains(err.Error(), "confines less than podman-self") {
+		t.Fatalf("the seatbelt-self alternative does not say it confines less:\n%v", err)
+	}
 
 	// Linux without Podman has no other setup with walls; the refusal names the install and
 	// the list, and never offers host as a fallback.

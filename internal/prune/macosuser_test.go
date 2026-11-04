@@ -123,7 +123,7 @@ func TestPruneOnMacosUserAsksNoRuntimeAndExitsZero(t *testing.T) {
 		if n := strings.Count(out, strings.TrimSpace(stripMarkup(macosUserNotApplicable))); n != 10 {
 			t.Errorf("apply=%v: %d not-applicable lines, want 10:\n%s", apply, n, out)
 		}
-		if !strings.Contains(out, "YOLO_RUNTIME=container yolo prune") {
+		if !strings.Contains(out, "YOLO_SETUP=apple-container-self yolo prune") {
 			t.Errorf("apply=%v: the report does not name how to prune a container runtime:\n%s", apply, out)
 		}
 	}

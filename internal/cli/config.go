@@ -136,11 +136,11 @@ func configRunW(args []string, out, errw io.Writer) int {
 	case "migrate":
 		return configMigrateMain(args[1:], out, errw)
 	}
-	rest, at, rc := extractAtFlag(verb, args[1:], errw)
+	rest, setupName, rc := extractSetupFlag("config", verb, args[1:], errw)
 	if rc != 0 {
 		return rc
 	}
-	t, refusal := resolveConfigTarget(at)
+	t, refusal := resolveConfigTarget(setupName)
 	if refusal != "" {
 		fmt.Fprintf(errw, "yolo config %s: %s\n", verb, refusal)
 		return 1
@@ -180,11 +180,11 @@ var configColorVerbs = map[string]func(t configTarget, args []string, out, errw 
 }
 
 // notchlessVerbs are the `yolo config` verbs no notch selects, with the reason each one gives
-// for refusing `--at`.
+// for refusing `--setup`.
 //
 // REFUSED RATHER THAN ACCEPTED AND IGNORED. A flag a verb takes and does nothing with is the
 // declaration-parity defect (docs/design/declaration-parity.md): a surface that accepts a
-// declaration it does not honor. `--at host` on `promote` would be worse than inert — it
+// declaration it does not honor. `--setup host-self` on `promote` would be worse than inert — it
 // would resolve a target with no workspace store, so the verb would report nothing to promote
 // for a workspace full of captures.
 var notchlessVerbs = map[string]string{
@@ -198,40 +198,41 @@ var notchlessVerbs = map[string]string{
 		"jail from the host, which no notch selects",
 }
 
-// extractAtFlag pulls `--at <notch>` / `--at=<notch>` out of a verb's argv and returns the
-// rest unchanged, so the notch reaches the ONE resolution point above while each verb's own
-// parser keeps refusing every flag it does not know.
+// extractSetupFlag pulls `--setup <name>` / `--setup=<name>` out of a verb's argv and returns
+// the rest unchanged, so the setup reaches the ONE resolution point above while each verb's own
+// parser keeps refusing every flag it does not know. The removed `--at` is refused here, naming
+// `--setup` (atRemovedFor).
 //
-// It is `yolo apply`'s token shape, deliberately: `--at jail|guest|host` is the shipped answer
-// to "which notch does this verb act on"
+// It is `yolo apply`'s token shape, deliberately: `--setup <name>` is the shipped answer to
+// "which notch does this verb act on"
 // ([P4](docs/reference/config-target-resolution.md#principles) — the SELECTOR rule, not report-tiers.md's own P4),
 // and a second spelling for the read verbs would be a second vocabulary for one fact. The
-// VALUE is validated once, in resolveConfigTarget, through render.KindForNotch.
-func extractAtFlag(verb string, args []string, errw io.Writer) (rest []string, at string, rc int) {
+// VALUE is validated once, in resolveConfigTarget. group is the verb's words for a refusal
+// ("config" or "surface").
+func extractSetupFlag(group, verb string, args []string, errw io.Writer) (rest []string, setupName string, rc int) {
 	for i := 0; i < len(args); i++ {
-		a := args[i]
-		switch {
-		case a == "--at":
-			if i+1 >= len(args) {
-				fmt.Fprintf(errw, "yolo config %s: --at needs a value (%s)\n",
-					verb, strings.Join(notchNames(), "|"))
+		if fl, ok := readValueFlag(args, i, "--setup"); ok {
+			if fl.err != nil {
+				fmt.Fprintf(errw, "yolo %s %s: %v (a setup's name; `yolo setup list` names them)\n",
+					group, verb, fl.err)
 				return nil, "", 2
 			}
-			i++
-			at = args[i]
-		case strings.HasPrefix(a, "--at="):
-			at = a[len("--at="):]
-		default:
-			rest = append(rest, a)
+			setupName, i = fl.value, fl.last
+			continue
 		}
+		if fl, ok := readValueFlag(args, i, atFlag); ok {
+			fmt.Fprintf(errw, "yolo %s %s: %v\n", group, verb, atRemovedFor(group+" "+verb, fl.value))
+			return nil, "", 2
+		}
+		rest = append(rest, args[i])
 	}
-	if at != "" {
+	if setupName != "" {
 		if why, notchless := notchlessVerbs[verb]; notchless {
-			fmt.Fprintf(errw, "yolo config %s: --at does not apply here — %s.\n", verb, why)
+			fmt.Fprintf(errw, "yolo %s %s: --setup does not apply here — %s.\n", group, verb, why)
 			return nil, "", 2
 		}
 	}
-	return rest, at, 0
+	return rest, setupName, 0
 }
 
 func writeConfigUsage(out io.Writer, color bool) {
@@ -291,7 +292,7 @@ func configHelpToken(token string) bool {
 	switch token {
 	case "ls", "render", "diff", "reset", "promote", "capture", "set", "add", "unset", "drift", "dump", "apply", "migrate", "why",
 		"--user", "--project", "--local", "--file", "--dry-run",
-		"--help", "-h", "--all", "--explain", "--at", "--force", "--keys", "--to",
+		"--help", "-h", "--all", "--explain", "--setup", "--force", "--keys", "--to",
 		"--plan", "--json", "--accept-promotion", "--record-only", "--accept-config-changes", "--yes":
 		return true
 	default:

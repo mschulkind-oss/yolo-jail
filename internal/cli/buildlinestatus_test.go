@@ -55,7 +55,7 @@ func TestAContainerBuildJailRecordsItsLinesStatusInItsWorkspace(t *testing.T) {
 // Red with capturehost's LineStatusDest deleted.
 func TestAMacosUserBuildSaysItsLinesOwnStatus(t *testing.T) {
 	forkBuildHome(t)
-	t.Setenv("YOLO_RUNTIME", "macos-user")
+	t.Setenv("YOLO_SETUP", "seatbelt-yolo-account")
 	origAct := macForkBuildAct
 	macForkBuildAct = func(_ macosuser.Deps, o macosuser.ForkBuildOptions, _, toolchain string, _ bool) int {
 		writeFile(t, toolchain, "yolo test")

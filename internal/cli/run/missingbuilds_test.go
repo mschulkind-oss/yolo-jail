@@ -183,8 +183,8 @@ func TestAMissingForksPatchFailureWithItsHatchSetListsNothing(t *testing.T) {
 	argv, printed := fakePodmanLaunch(t, func(o *Options) {
 		o.Getenv = func(key string) string {
 			switch key {
-			case "YOLO_RUNTIME":
-				return "podman"
+			case "YOLO_SETUP":
+				return testSetupForRuntime("podman")
 			case paths.AllowMissingProgramsEnv:
 				return "1"
 			}

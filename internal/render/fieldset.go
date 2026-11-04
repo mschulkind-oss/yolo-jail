@@ -11,14 +11,14 @@ import (
 // ("apply", "launch", "config").
 //
 // WHERE IT IS SAID, since the guest notch launches on macOS (env-manager plan Phase 7.1,
-// decision EMP-D1): a launch and `yolo apply --at guest` say it on Linux only, because on
+// decision EMP-D1): a launch and `yolo apply --setup seatbelt-self` say it on Linux only, because on
 // macOS the first runs the macos-user backend and the second points at that launch; `yolo
-// config --at guest` says it on both. So the sentence names where the notch DOES run, and
+// config --setup seatbelt-self` says it on both. So the sentence names where the notch DOES run, and
 // is true on either platform for every verb that prints it. The next step is each caller's,
 // because the verbs differ in what to do instead.
 //
 // IT LIVES HERE BECAUSE TWO PACKAGES SAY IT AND NEITHER CAN IMPORT THE OTHER.
-// `cli.applyMain` has printed it since Phase 2 (`yolo apply --at guest` → rc 1); the launch
+// `cli.applyMain` has printed it since Phase 2 (`yolo apply --setup seatbelt-self` → rc 1); the launch
 // gate in `run.Run` says the same thing for the same reason, and internal/cli imports
 // internal/cli/run, so the string cannot live in either. internal/render is where it
 // belongs on its own merits: this package already owns the notch vocabulary (Kind,

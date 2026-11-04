@@ -206,7 +206,7 @@ func TestHostApplyRejectsActiveHostImportExclusionsBeforeWriting(t *testing.T) {
 		{"host apply", func() (int, string) { return hostApplyRun(t, true) }},
 		{"apply at host", func() (int, string) {
 			var out, errw strings.Builder
-			rc := applyMain([]string{"--at", "host", "--assert"}, &out, &errw, false, strings.NewReader("y\n"))
+			rc := applyMain([]string{"--setup", "host-self", "--assert"}, &out, &errw, false, strings.NewReader("y\n"))
 			return rc, out.String() + errw.String()
 		}},
 	} {

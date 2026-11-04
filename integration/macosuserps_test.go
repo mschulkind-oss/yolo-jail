@@ -110,7 +110,7 @@ type psJSON struct {
 
 func runPsJSON(t *testing.T, ws string) psJSON {
 	t.Helper()
-	r := runCommand(t, ws, []string{"ps", "--format", "json"}, macosUserRunEnv())
+	r := runCommand(t, ws, []string{"ps", "--format", "json"}, macosUserRunEnv("account"))
 	var rep psJSON
 	if r.rc != 0 || json.Unmarshal([]byte(r.stdout), &rep) != nil {
 		t.Fatalf("`yolo ps --format json` rc %d did not print a report:\n%s", r.rc, r.combined())
@@ -153,7 +153,7 @@ func TestMacosUserPsListsItsLiveSession(t *testing.T) {
 		t.Errorf("`yolo ps` does not list the running session of %s: %+v", ws, rep.Jails)
 	}
 
-	p := runCommand(t, ws, []string{"prune"}, macosUserRunEnv())
+	p := runCommand(t, ws, []string{"prune"}, macosUserRunEnv("account"))
 	if p.rc != 0 || strings.Contains(p.combined(), "FAILED") {
 		t.Errorf("`yolo prune` on macos-user: rc %d (want 0), output:\n%s", p.rc, p.combined())
 	}

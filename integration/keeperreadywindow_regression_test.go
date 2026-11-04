@@ -65,7 +65,8 @@ func TestKeeperReadyWindowDoesNotStopALaunchRecordWriter(t *testing.T) {
 	if err := os.WriteFile(rt, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("YOLO_RUNTIME", rt)
+	harnessRuntimeOverride = rt
+	t.Cleanup(func() { harnessRuntimeOverride = "" })
 
 	readerDone, readerExited := make(chan struct{}), make(chan struct{})
 	readerReady := make(chan error, 1)

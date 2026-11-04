@@ -11,10 +11,11 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
-// guestnotch_test.go pins the host-side verbs of the guest notch on macOS (env-manager plan
-// Phase 7.1, EMP-D1): there the notch is the macos-user backend, so `yolo apply --at guest`
-// points at that launch, `yolo describe` resolves its mechanism, and the listing commands look
-// at its sessions. The launch itself is internal/cli/run's notchgate_test.go.
+// guestnotch_test.go pins the host-side verbs of a Seatbelt setup (the guest notch; env-manager
+// plan Phase 7.1, EMP-D1, under named setups, named-setups-plan.md slice 4a): on macOS it is the
+// macos-user backend, so `yolo apply --setup seatbelt-yolo-account` points at that launch,
+// `yolo describe` resolves its mechanism, and the listing commands look at its sessions. The
+// launch itself is internal/cli/run's setupgate_test.go.
 //
 // These verbs read the platform from paths.IsMacOS, so each test states the platform it is
 // about with onPlatform rather than inheriting the machine's: check-macos runs this package on
@@ -29,30 +30,30 @@ func onPlatform(t *testing.T, macOS bool) {
 	t.Cleanup(func() { paths.IsMacOS, paths.IsLinux = wasMac, wasLinux })
 }
 
-// TestApplyAtGuestOnMacOSPointsAtTheLaunch: on macOS the guest notch is built, so `yolo apply
-// --at guest` is a pointer at the launch that provisions it, rc 0 — as the jail notch's apply
-// is — and not the Linux refusal. The launch it names carries the flag when the notch came
-// from it, and needs none when the config says `confinement: "guest"`.
-func TestApplyAtGuestOnMacOSPointsAtTheLaunch(t *testing.T) {
+// TestApplyAtASeatbeltSetupOnMacOSPointsAtTheLaunch: on macOS a Seatbelt setup is built, so
+// `yolo apply --setup seatbelt-yolo-account` is a pointer at the launch that provisions it,
+// rc 0 — as a container setup's apply is — and not the Linux refusal. The launch it names carries
+// the flag when the setup came from it, and needs none when the config chose it.
+func TestApplyAtASeatbeltSetupOnMacOSPointsAtTheLaunch(t *testing.T) {
 	onPlatform(t, true)
 	_, repo := withHomeAndCwd(t)
-	writeFile(t, filepath.Join(repo, "yolo-jail.jsonc"), `{"confinement":"jail"}`)
+	writeFile(t, filepath.Join(repo, "yolo-jail.jsonc"), `{}`)
 
 	var out, errw bytes.Buffer
-	if rc := applyMain([]string{"--at", "guest"}, &out, &errw, false, nil); rc != 0 {
-		t.Fatalf("apply --at guest on macOS rc=%d, want 0 (a pointer at the launch):\n%s%s",
+	if rc := applyMain([]string{"--setup", "seatbelt-yolo-account"}, &out, &errw, false, nil); rc != 0 {
+		t.Fatalf("apply --setup seatbelt-yolo-account on macOS rc=%d, want 0 (a pointer at the launch):\n%s%s",
 			rc, out.String(), errw.String())
 	}
 	got := out.String()
 	for _, want := range []string{"apply at confinement guest", "macos-user", "Seatbelt",
-		"`yolo --at guest -- <cmd>`"} {
+		"`yolo --setup seatbelt-yolo-account -- <cmd>`"} {
 		if !strings.Contains(got, want) {
-			t.Errorf("the macOS guest pointer does not say %q:\n%s", want, got)
+			t.Errorf("the macOS Seatbelt pointer does not say %q:\n%s", want, got)
 		}
 	}
 	if strings.Contains(got, render.NotchUnbuilt("apply")) {
-		t.Errorf("apply --at guest on macOS printed the Linux refusal, though the notch "+
-			"launches there:\n%s", got)
+		t.Errorf("apply --setup seatbelt-yolo-account on macOS printed the Linux refusal, though "+
+			"the setup launches there:\n%s", got)
 	}
 
 	// From the config: the launch to run is the bare one.
@@ -62,38 +63,39 @@ func TestApplyAtGuestOnMacOSPointsAtTheLaunch(t *testing.T) {
 	if rc := applyMain(nil, &out, &errw, false, nil); rc != 0 {
 		t.Fatalf("apply at a configured macOS guest rc=%d:\n%s%s", rc, out.String(), errw.String())
 	}
-	if !strings.Contains(out.String(), "`yolo -- <cmd>`") || strings.Contains(out.String(), "--at guest") {
-		t.Errorf("a configured guest needs no flag on its launch, and the pointer should say "+
-			"so:\n%s", out.String())
+	if !strings.Contains(out.String(), "`yolo -- <cmd>`") || strings.Contains(out.String(), "--setup") {
+		t.Errorf("a configured Seatbelt setup needs no flag on its launch, and the pointer should "+
+			"say so:\n%s", out.String())
 	}
 }
 
-// TestApplyAtGuestOnLinuxRefusesAndNamesTheNextStep: on Linux the guest notch has no backend,
-// so apply keeps refusing with render.NotchUnbuilt's sentence and rc 1 — and now names what to
-// run instead (EMP-D3).
-func TestApplyAtGuestOnLinuxRefusesAndNamesTheNextStep(t *testing.T) {
+// TestApplyAtASeatbeltSetupOnLinuxRefusesAndNamesTheNextStep: on Linux a Seatbelt setup has no
+// backend, so apply refuses with render.NotchUnbuilt's sentence and rc 1, and names what to run
+// instead (EMP-D3): the default setup's launch and the host verb.
+func TestApplyAtASeatbeltSetupOnLinuxRefusesAndNamesTheNextStep(t *testing.T) {
 	onPlatform(t, false)
 	_, repo := withHomeAndCwd(t)
-	writeFile(t, filepath.Join(repo, "yolo-jail.jsonc"), `{"confinement":"jail"}`)
+	writeFile(t, filepath.Join(repo, "yolo-jail.jsonc"), `{}`)
 
 	var out, errw bytes.Buffer
-	if rc := applyMain([]string{"--at", "guest"}, &out, &errw, false, nil); rc != 1 {
-		t.Fatalf("apply --at guest on Linux rc=%d, want 1:\n%s%s", rc, out.String(), errw.String())
+	if rc := applyMain([]string{"--setup", "seatbelt-self"}, &out, &errw, false, nil); rc != 1 {
+		t.Fatalf("apply --setup seatbelt-self on Linux rc=%d, want 1:\n%s%s", rc, out.String(), errw.String())
 	}
-	for _, want := range []string{render.NotchUnbuilt("apply"), "yolo -- <cmd>", "yolo host -- <cmd>"} {
+	for _, want := range []string{render.NotchUnbuilt("apply"), "podman-self", "yolo -- <cmd>",
+		"yolo host -- <cmd>", "yolo apply --setup host-self"} {
 		if !strings.Contains(out.String(), want) {
-			t.Errorf("the Linux guest refusal does not say %q:\n%s", want, out.String())
+			t.Errorf("the Linux Seatbelt refusal does not say %q:\n%s", want, out.String())
 		}
 	}
 }
 
-// TestApplyAtAConfiguredGuestOnLinuxNamesTheConfigEdit: when the guest notch comes from the
-// config, the bare jail launch is not a next step — `yolo -- <cmd>` reads the same config and
-// refuses too — so the step is the config edit (or `--at jail` for one launch), with or without
-// a `--at guest` typed over it. The host verbs stay offered.
+// TestApplyAtAConfiguredGuestOnLinuxNamesTheConfigEdit: when the Seatbelt setup comes from the
+// removed `confinement` key, the bare launch is not a next step — `yolo -- <cmd>` reads the same
+// config and refuses too — so the step is the config edit (or `--setup podman-self` for one
+// launch), with or without a `--setup` typed over it. The host verbs stay offered.
 func TestApplyAtAConfiguredGuestOnLinuxNamesTheConfigEdit(t *testing.T) {
 	onPlatform(t, false)
-	for _, args := range [][]string{nil, {"--at", "guest"}} {
+	for _, args := range [][]string{nil, {"--setup", "seatbelt-yolo-account"}} {
 		_, repo := withHomeAndCwd(t)
 		writeFile(t, filepath.Join(repo, "yolo-jail.jsonc"), `{"confinement":"guest"}`)
 
@@ -104,8 +106,8 @@ func TestApplyAtAConfiguredGuestOnLinuxNamesTheConfigEdit(t *testing.T) {
 		}
 		got := out.String()
 		for _, want := range []string{render.NotchUnbuilt("apply"),
-			"set `confinement` to \"jail\" (or remove it)", "`yolo --at jail -- <cmd>`",
-			"yolo host -- <cmd>", "yolo apply --at host"} {
+			"remove `confinement` from your config", "`yolo --setup podman-self -- <cmd>`",
+			"yolo host -- <cmd>", "yolo apply --setup host-self"} {
 			if !strings.Contains(got, want) {
 				t.Errorf("apply %v: the refusal does not say %q:\n%s", args, want, got)
 			}
@@ -116,12 +118,11 @@ func TestApplyAtAConfiguredGuestOnLinuxNamesTheConfigEdit(t *testing.T) {
 	}
 }
 
-// TestConfigAtGuestNamesTheNotchesItCanRead: the read verbs keep refusing `--at guest` on both
-// platforms with render.NotchUnbuilt's sentence, and now say what to read instead — `--at jail`,
-// which on macOS is where the guest notch renders (EMP-D2), and `--at host`. The step is a line
-// of its own, so the sentence line stays the one `yolo apply` prints
-// (TestAtGuestIsRefusedWithApplysOwnSentence).
-func TestConfigAtGuestNamesTheNotchesItCanRead(t *testing.T) {
+// TestConfigAtASeatbeltSetupNamesWhatItCanRead: the read verbs refuse a Seatbelt `--setup` on
+// both platforms with render.NotchUnbuilt's sentence, and say what to read instead — the verb
+// with no --setup, which on macOS is where that setup renders (EMP-D2), and `--setup host-self`.
+// The step is a line of its own, so the sentence line stays the one `yolo apply` prints.
+func TestConfigAtASeatbeltSetupNamesWhatItCanRead(t *testing.T) {
 	for _, macOS := range []bool{false, true} {
 		onPlatform(t, macOS)
 		scratchHostHome(t)
@@ -129,11 +130,12 @@ func TestConfigAtGuestNamesTheNotchesItCanRead(t *testing.T) {
 		withWorkspaceCwd(t)
 
 		var out, errw bytes.Buffer
-		if rc := surfaceRunW([]string{"ls", "--at", "guest"}, &out, &errw); rc != 1 {
-			t.Fatalf("macOS=%v: `config ls --at guest` rc=%d, want 1:\n%s%s", macOS, rc, out.String(), errw.String())
+		if rc := surfaceRunW([]string{"ls", "--setup", "seatbelt-yolo-account"}, &out, &errw); rc != 1 {
+			t.Fatalf("macOS=%v: `surface ls --setup seatbelt-yolo-account` rc=%d, want 1:\n%s%s",
+				macOS, rc, out.String(), errw.String())
 		}
 		got := errw.String()
-		wants := []string{render.NotchUnbuilt("config"), "`yolo config --at jail`", "`--at host`"}
+		wants := []string{render.NotchUnbuilt("config"), "with no --setup", "`--setup host-self`"}
 		if macOS {
 			wants = append(wants, "renders as the jail notch does")
 		}
@@ -149,7 +151,7 @@ func TestConfigAtGuestNamesTheNotchesItCanRead(t *testing.T) {
 }
 
 // TestApplyAtGuestStillRefusesJSONOnMacOS: a pointer is prose, not a document, so `--format
-// json` stays the host notch's alone at the macOS guest too — rc 2 and nothing on stdout.
+// json` stays the host setup's alone at a macOS Seatbelt setup too — rc 2 and nothing on stdout.
 func TestApplyAtGuestStillRefusesJSONOnMacOS(t *testing.T) {
 	onPlatform(t, true)
 	_, repo := withHomeAndCwd(t)
@@ -165,14 +167,14 @@ func TestApplyAtGuestStillRefusesJSONOnMacOS(t *testing.T) {
 }
 
 // TestDescribeOnMacOSResolvesTheGuestNotchToMacosUser: with no `runtime` key, describe resolves
-// a macOS guest's mechanism to macos-user — the separate user and Seatbelt, and a package
-// profile a run materializes. The packages line is the discriminator: the vector alone is the
-// macOS guest preset either way, while "a run materializes it" is true only of the backend
-// that builds the profile, which the mechanism names.
+// a macOS Seatbelt setup's mechanism to macos-user — the separate user and Seatbelt, and a
+// package profile a run materializes. The packages line is the discriminator: the vector alone
+// is the macOS guest preset either way, while "a run materializes it" is true only of the
+// backend that builds the profile, which the mechanism names.
 func TestDescribeOnMacOSResolvesTheGuestNotchToMacosUser(t *testing.T) {
 	onPlatform(t, true)
 	home, _ := withHomeAndCwd(t)
-	t.Setenv("YOLO_RUNTIME", "")
+	t.Setenv("YOLO_SETUP", "")
 	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
 		`{"confinement":"guest","packages":["ripgrep"]}`)
 
@@ -193,12 +195,13 @@ func TestDescribeOnMacOSResolvesTheGuestNotchToMacosUser(t *testing.T) {
 	}
 }
 
-// TestDescribeOnLinuxLeavesTheGuestNotchUnprovisioned is the control: a Linux guest has no
-// backend, so describe still calls its declared packages inert.
+// TestDescribeOnLinuxLeavesTheGuestNotchUnprovisioned is the control: a Seatbelt setup has no
+// backend on Linux, so describe still calls its declared packages inert, and never resolves the
+// mechanism to macos-user (selectedSetupBackend's OS check).
 func TestDescribeOnLinuxLeavesTheGuestNotchUnprovisioned(t *testing.T) {
 	onPlatform(t, false)
 	home, _ := withHomeAndCwd(t)
-	t.Setenv("YOLO_RUNTIME", "")
+	t.Setenv("YOLO_SETUP", "")
 	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
 		`{"confinement":"guest","packages":["ripgrep"]}`)
 
@@ -211,11 +214,11 @@ func TestDescribeOnLinuxLeavesTheGuestNotchUnprovisioned(t *testing.T) {
 	}
 }
 
-// TestListingRuntimeFollowsTheMacosGuestNotch: `yolo ps` and `yolo prune` resolve the runtime
-// a launch would, so a macOS guest workspace lists the macos-user sessions its launches run,
-// and a Linux one does not name a backend Linux lacks.
+// TestListingRuntimeFollowsTheMacosGuestNotch: `yolo ps` and `yolo prune` resolve the backend of
+// the setup a launch would select, so a macOS Seatbelt workspace lists the macos-user sessions
+// its launches run, and a Linux one does not name a backend Linux lacks.
 func TestListingRuntimeFollowsTheMacosGuestNotch(t *testing.T) {
-	t.Setenv("YOLO_RUNTIME", "")
+	t.Setenv("YOLO_SETUP", "")
 	ws := t.TempDir()
 	if err := os.WriteFile(filepath.Join(ws, "yolo-jail.jsonc"), []byte(`{"confinement":"guest"}`), 0o644); err != nil {
 		t.Fatal(err)

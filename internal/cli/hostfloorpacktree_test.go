@@ -139,7 +139,7 @@ func TestYoloHostBuildsAPackTreeProgramOnceInTheSealedAct(t *testing.T) {
 }
 
 // THE HOST FLOOR'S REFUSAL: a pack-tree program whose build fails stops `yolo host -- <other>` through
-// the readiness act, naming the program, the build's log, the retry `yolo pack build fx --at host` and
+// the readiness act, naming the program, the build's log, the retry `yolo pack build fx --setup host-self` and
 // the bypass; with the bypass the launch starts without it. Red if the floor still has no pack-tree
 // arm (the refusal would say the floor does not build it, with no log and no retry).
 func TestAFailedPackTreeBuildRefusesAHostLaunchNamingItsLogAndRetry(t *testing.T) {
@@ -155,7 +155,7 @@ func TestAFailedPackTreeBuildRefusesAHostLaunchNamingItsLogAndRetry(t *testing.T
 		t.Fatalf("rc=%d execed=%v, want a refusal\n%s", rc, got.execed, errw.String())
 	}
 	for _, want := range []string{"program x (pack fx)", "building x from pack fx's tools/x", "its log: ",
-		"yolo pack build fx --at host", paths.AllowMissingProgramsEnv + "=1 yolo host -- other"} {
+		"yolo pack build fx --setup host-self", paths.AllowMissingProgramsEnv + "=1 yolo host -- other"} {
 		if !strings.Contains(errw.String(), want) {
 			t.Errorf("the refusal lacks %q:\n%s", want, errw.String())
 		}

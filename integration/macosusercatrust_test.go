@@ -69,7 +69,7 @@ func TestMacosUserTrustsSystemKeychainCA(t *testing.T) {
 func macosUserCATrustLaunch(t *testing.T, mode string, kept []macosuser.TrustedCA, leftOut []string) {
 	t.Helper()
 	ws := macosUserWorkspace(t, `{}`)
-	r := runMacosUser(t, ws, `echo "=== VARS ==="; `+
+	r := runMacosUserAs(t, mode, ws, `echo "=== VARS ==="; `+
 		`echo "NIX=${NIX_SSL_CERT_FILE-}"; echo "SSL=${SSL_CERT_FILE-}"; echo "REQ=${REQUESTS_CA_BUNDLE-}"; `+
 		`echo "CURLCA=${CURL_CA_BUNDLE-}"; echo "GIT=${GIT_SSL_CAINFO-}"; echo "NODE=${NODE_EXTRA_CA_CERTS-}"; echo "GODEBUG=${GODEBUG-}"; `+
 		`echo "=== BUNDLE ==="; cat "$CURL_CA_BUNDLE"; echo "BUNDLE_RC=$?"; `+

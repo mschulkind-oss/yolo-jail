@@ -99,7 +99,7 @@ func envString(env *jsonx.OrderedMap, name string) string {
 
 // macosUserKeyOf is the macos-user key of ws's workspace.
 func macosUserKeyOf(ws string) string {
-	return keeperKey(yoloruntime.FromWorkspace(ws), keeperNotchMacosUser)
+	return keeperKey(yoloruntime.FromWorkspace(ws), keeperNotchGuest)
 }
 
 // assertKeyEnded fails unless nothing of key's keeper is left: no keeper, no roster, no session
@@ -159,7 +159,7 @@ func TestAPlannedHostServiceSpawnsOneMacosUserKeeper(t *testing.T) {
 			endpoint, keeperProxy, reply, out.String())
 	}
 	if alive != keeperAlive || !recorded || !rec.Ready || rec.Contract != keeperRosterContract ||
-		rec.Notch != keeperNotchMacosUser || rec.Endpoints[hostServiceEnvVar(keeperProxy)] != endpoint {
+		rec.Notch != keeperNotchGuest || rec.Endpoints[hostServiceEnvVar(keeperProxy)] != endpoint {
 		t.Errorf("while the session ran, the keeper (%v) and its roster (%v, %+v) did not name the endpoint the "+
 			"sandbox was told", alive, recorded, rec)
 	}
@@ -167,8 +167,8 @@ func TestAPlannedHostServiceSpawnsOneMacosUserKeeper(t *testing.T) {
 		t.Errorf("the session's record during the session = %+v, want this launch's, kept", sessions)
 	}
 	for _, want := range []string{
-		"keeper: yolo internal daemon jail-keeper will hold this workspace's macos-user host services (the " +
-			keeperProxy + " service) until its last macos-user session leaves; log: " + keeperLogPath(key),
+		"keeper: yolo internal daemon jail-keeper will hold this workspace's guest-notch macos-user host services (the " +
+			keeperProxy + " service) until its last guest-notch macos-user session leaves; log: " + keeperLogPath(key),
 		"keeper: started, pid ",
 		"keeper: done",
 	} {
@@ -400,7 +400,7 @@ func plantDeadKeeper(t *testing.T, ws, key string, isMacOS bool) (dir string, co
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	if err := writeKeeperRecord(key, keeperRecord{PID: 4247, Started: time.Now(), Workspace: ws,
-		Runtime: "macos-user", SocketsDir: dir, Contract: keeperRosterContract, Notch: keeperNotchMacosUser,
+		Runtime: "macos-user", SocketsDir: dir, Contract: keeperRosterContract, Notch: keeperNotchGuest,
 		Build: keeperBuildStamp(), Ready: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -479,7 +479,7 @@ func TestAJoinerRefusesARosterOfAContractItDoesNotKnow(t *testing.T) {
 	}
 	t.Cleanup(func() { releaseLock(live) })
 	if err := writeKeeperRecord(key, keeperRecord{PID: 4249, Started: time.Now(), Workspace: ws,
-		Contract: keeperRosterContract + 98, Notch: keeperNotchMacosUser, Build: "99.0.0@future", Ready: true}); err != nil {
+		Contract: keeperRosterContract + 98, Notch: keeperNotchGuest, Build: "99.0.0@future", Ready: true}); err != nil {
 		t.Fatal(err)
 	}
 	reached := false

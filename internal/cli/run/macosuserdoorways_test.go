@@ -289,8 +289,8 @@ func TestMacosUserSaysARefusedDoorwayTheGuestDeclinesRunsNowhere(t *testing.T) {
 	}
 	// A daemon the user selected runs nowhere, so the line names the next step: a container
 	// backend runs it (docs/reference/happy-path-principle.md).
-	if !strings.Contains(refusal, "nothing serves it this launch; a container runtime runs it "+
-		"(`YOLO_RUNTIME=podman` or `YOLO_RUNTIME=container` for one launch)") {
+	if !strings.Contains(refusal, "nothing serves it this launch; a container setup runs it "+
+		"(`YOLO_SETUP=podman-self` or `YOLO_SETUP=apple-container-self` for one launch)") {
 		t.Errorf("the refusal says the doorway runs nowhere and names no next step:\n%s", refusal)
 	}
 }

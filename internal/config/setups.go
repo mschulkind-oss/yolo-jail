@@ -1,7 +1,6 @@
 package config
 
 import (
-	"fmt"
 	"runtime"
 	"sort"
 
@@ -121,16 +120,6 @@ func setupsProjectRefusal(name string, table any) string {
 		"    yolo setup new " + name + " --from " + from
 }
 
-// hostSetupRefusal is design §6's refusal of a host setup chosen by config (§8: a setup that
-// puts no walls around the agent is never selected by config, only by `yolo host`).
-func hostSetupRefusal(s setup.Setup) string {
-	line := "yolo host --setup " + s.Name + " -- claude"
-	if s.Name == "host-self" {
-		line = "yolo host -- claude"
-	}
-	return fmt.Sprintf("setup %q puts no walls around the agent, and only `yolo host` runs one:\n    %s", s.Name, line)
-}
-
 // readableUserOnlyAdvice is the per-key refusal the readable walk gives a user-only key in a
 // workspace file, in place of its generic "user-scope only" line, or nil for a key with none.
 // It returns the path the refusal names (a `[setups.*]` refusal names the table, not the
@@ -247,6 +236,6 @@ func validateSetups(config *jsonx.OrderedMap, workspace string, errs *[]string, 
 		return
 	}
 	if s.Kind() == setup.KindHost {
-		add(errs, hostSetupRefusal(s))
+		add(errs, setup.HostRefusal(s))
 	}
 }

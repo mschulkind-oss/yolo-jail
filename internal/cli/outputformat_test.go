@@ -282,6 +282,18 @@ func captureDispatchRC(t *testing.T, args []string) (rc int, stdout, stderr stri
 // MUTATION: delete the `opts.Format = …` line in either function and the
 // matching case here fails. That is the whole point — before the assignment
 // moved onto these seams, deleting it left every suite in the repo green.
+// TestPruneAsksTheSelectedSetupsRuntime: prune's runtime is the selected setup's backend, so
+// YOLO_SETUP=apple-container-self points it at Apple Container even on Linux, where prune's own
+// platform probe would answer podman. It fails if pruneOptions stops injecting DetectRuntime.
+func TestPruneAsksTheSelectedSetupsRuntime(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("YOLO_RUNTIME", "")
+	t.Setenv("YOLO_SETUP", "apple-container-self")
+	if got := pruneOptions([]string{"prune"}).DetectRuntime(); got != "container" {
+		t.Errorf("prune under YOLO_SETUP=apple-container-self asks %q, want container", got)
+	}
+}
+
 func TestPruneOptionsWiring(t *testing.T) {
 	if got := pruneOptions([]string{"prune"}).Format; got != outfmt.Text {
 		t.Errorf("default format = %q, want %q — a bare `yolo prune` must print "+

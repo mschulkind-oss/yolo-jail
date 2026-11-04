@@ -377,7 +377,7 @@ func TestARelocationTheSandboxCannotUseRefusesTheLaunch(t *testing.T) {
 				t.Errorf("the agent ran after a relocation probe failed")
 			}
 			for _, want := range []string{"cannot use every cache_relocations target",
-				"yolo yolo-account share " + sharedReloc.Target, "`runtime: \"podman\"`",
+				"yolo yolo-account share " + sharedReloc.Target, "use a container setup (`",
 				"~/.cache/huggingface → " + sharedReloc.Target} {
 				if !strings.Contains(out, want) {
 					t.Errorf("the refusal does not say %q:\n%s", want, out)

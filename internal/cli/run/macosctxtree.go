@@ -21,6 +21,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
 // macosctxtree.go builds the CONTEXT TREE: the host bytes a `/ctx` mount carries on
@@ -545,7 +546,7 @@ func (o *Options) planMacosUserCtxMounts(cfg *jsonx.OrderedMap, packs []*packloa
 	if len(refused) == 0 {
 		return links, copies, true
 	}
-	o.pr(o.Stderr).print(macosCtxRefusal(refused, o.containerStepClause()))
+	o.pr(o.Stderr).print(macosCtxRefusal(refused))
 	return nil, nil, false
 }
 
@@ -553,8 +554,7 @@ func (o *Options) planMacosUserCtxMounts(cfg *jsonx.OrderedMap, packs []*packloa
 // headline, the offending mounts, then the fixes as lines to copy — "mark it optional" among them
 // with the exact JSON for each `mounts` element that may be, which is every refused config
 // element whose reason is not a safety one (docs/reference/context-mounts.md#optional-mounts).
-// step is the container-runtime step's notch clause (config.ContainerStepClause).
-func macosCtxRefusal(refused []macosuser.ContextRefusal, step string) string {
+func macosCtxRefusal(refused []macosuser.ContextRefusal) string {
 	noun := "context mount"
 	if len(refused) != 1 {
 		noun = fmt.Sprintf("%d context mounts", len(refused))
@@ -581,7 +581,7 @@ func macosCtxRefusal(refused []macosuser.ContextRefusal, step string) string {
 		}
 	}
 	b += "  remove the entry (or the pack) for this workspace\n"
-	b += "  use a container runtime: \"runtime\": \"podman\" (or \"container\")" + step
+	b += "  use a container setup: yolo --setup podman-self -- claude (or apple-container-self)"
 	return b
 }
 
@@ -861,8 +861,8 @@ func dirHostFileCopyError(e config.HostFileEntry, err error) error {
 		return fmt.Errorf("host_files ~/%s (source %s) is not copied for the macos-user sandbox: %v. This "+
 			"backend has no bind mounts, so a directory entry is copied at every launch, and the "+
 			"copy is capped. Split the entry into FILE entries for the files the agent needs, or "+
-			"use a container runtime, which binds the directory instead (`runtime: \"podman\"`, "+
-			"or `\"container\"` from Apple Container %s)", e.Path, e.Source, err, acROBindsFloor)
+			"use a container setup, which binds the directory instead %s; Apple Container binds "+
+			"it from %s", e.Path, e.Source, err, setup.ContainerStep(config.InJail()), acROBindsFloor)
 	}
 	return fmt.Errorf("host_files ~/%s (source %s) could not be copied for the macos-user "+
 		"sandbox: %v. A partial copy would hand the agent a directory that looks "+
@@ -879,8 +879,8 @@ func packFileMountCopyError(c macosuser.ContextLink, err error) error {
 		"by yolo, as you, so the file must be readable to you here: if it sits in a folder macOS's "+
 		"privacy controls guard (Desktop, Documents, Downloads), allow your terminal there in "+
 		"System Settings → Privacy & Security. Or remove the pack for this workspace, or use a "+
-		"container runtime (`runtime: \"podman\"` or `\"container\"`)",
-		c.Pack, c.NamedSource(), c.Dest, err)
+		"container setup %s",
+		c.Pack, c.NamedSource(), c.Dest, err, setup.ContainerStep(config.InJail()))
 }
 
 // ctxCopySize is n in the largest binary unit it fills ("32 MiB", "1.5 KiB"), exact for a whole

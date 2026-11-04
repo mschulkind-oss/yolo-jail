@@ -78,8 +78,8 @@ func TestMacOSPlatformGradesThePodmanMachineShares(t *testing.T) {
 			o.Machine = "arm64"
 			o.Workspace = workspace
 			o.Getenv = func(k string) string {
-				if k == "YOLO_RUNTIME" {
-					return "podman"
+				if k == "YOLO_SETUP" {
+					return "podman-self"
 				}
 				return ""
 			}

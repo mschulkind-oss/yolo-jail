@@ -825,7 +825,7 @@ jobs:
         timeout-minutes: 60
         run: go test -count=1 -timeout 0 -v -run '${{ steps.shard.outputs.pattern }}' ./integration
         env:
-          YOLO_RUNTIME: podman
+          YOLO_SETUP: podman-self
           # The other half of the -v /nix:/nix above: this is yolo's ONE spelling
           # of "my runtime VM does share /nix into the container"
           # (prefixUnreachableFromVM, userguide/guides/macos.md). Without it the launcher
@@ -1020,7 +1020,7 @@ jobs:
         timeout-minutes: 90
         run: go test -count=1 -timeout 0 -v -run '${{ steps.select.outputs.delivery }}' ./integration
         env:
-          YOLO_RUNTIME: podman
+          YOLO_SETUP: podman-self
           YOLO_NIX_HOST_DAEMON: "1"
           YOLO_TEST_MAC_ARCHIVE_DELIVERY: podman
 
@@ -1050,6 +1050,6 @@ jobs:
         timeout-minutes: 190
         run: go test -count=1 -timeout 0 -v -run '${{ steps.select.outputs.firstload }}' ./integration
         env:
-          YOLO_RUNTIME: podman
+          YOLO_SETUP: podman-self
           YOLO_NIX_HOST_DAEMON: "1"
           YOLO_TEST_MAC_ARCHIVE_DELIVERY: podman

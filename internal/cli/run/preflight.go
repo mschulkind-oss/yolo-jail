@@ -172,114 +172,45 @@ func (o *Options) refuseUnmetCapabilities(cfg *jsonx.OrderedMap, src *config.Sou
 	return refuse
 }
 
-// resolveRuntime returns the resolved runtime ('podman', 'container' or 'macos-user'), or
-// ("", false) when none is reachable (prints the actionable message; the caller exits 1).
-// The precedence is the one config.SelectedRuntime states for every runtime reader:
-// YOLO_RUNTIME, then config.runtime (each validated against ALL_RUNTIMES), then the notch's
-// own backend, then platform auto-detection.
+// resolveRuntime returns this launch's backend ('podman', 'container' or 'macos-user'), the
+// one its setup names (Setup.Backend; resolveSetup chose and gated the setup), or ("", false)
+// when that runtime cannot take the launch (it prints the actionable message; the caller exits
+// 1). There is no probing (design §2: one named default per OS): a setup names its technology,
+// and a missing or stopped one is refused naming the setup.
 //
-// THE NOTCH'S OWN BACKEND is the guest notch's on macOS: `confinement: "guest"` or `--at
-// guest` selects macos-user with no `runtime` key (config.NotchRuntime; env-manager plan
-// EMP-D1). It ranks below the two explicit inputs, and refuseUnbuiltNotch has already refused
-// an explicit one that contradicts it, so reaching this step means nothing explicit was named.
+// A caller that has not run resolveSetup (`yolo config apply`) gets it run here.
 func (o *Options) resolveRuntime(cfg *jsonx.OrderedMap) (string, bool) {
-	if env := o.Getenv("YOLO_RUNTIME"); env != "" && inStrSlice(paths.AllRuntimes, env) {
-		return o.validateExplicitRuntime(env, "YOLO_RUNTIME")
+	if o.Setup.Name == "" {
+		if _, refused := o.resolveSetup(cfg); refused {
+			return "", false
+		}
 	}
-	if rt := configRuntime(cfg); rt != "" && inStrSlice(paths.AllRuntimes, rt) {
-		return o.validateExplicitRuntime(rt, "yolo-jail.jsonc")
-	}
-	if rt := config.NotchRuntime(o.launchNotch(cfg), o.IsMacOS); rt != "" {
-		return o.validateExplicitRuntime(rt, "confinement")
-	}
-	var candidates []string
-	if o.IsMacOS {
-		candidates = []string{"container", "podman"}
-	} else {
-		candidates = []string{"podman"}
-	}
-	var offline []string
-	var downs []runtimeDown
-	for _, rt := range candidates {
-		path, ok := o.LookPath(rt)
-		if !ok {
-			continue
-		}
-		if rt == "container" && !o.isAppleContainer(path) {
-			continue
-		}
-		if ok, down := o.runtimeIsConnectable(rt); !ok {
-			offline = append(offline, rt)
-			downs = append(downs, down)
-			continue
-		}
-		return rt, true
-	}
-	// PATH presence does not tell us whether a VM is stopped: on Linux there
-	// is no VM, and a failed info probe may instead be a transient error. And on macOS a
-	// runtime that took the probe and never answered is not stopped either (PR-D24), so it
-	// gets a headline of its own; nor is one whose probe ended on yolo's own scratch file and
-	// never ran podman (PR-D23), which yolo could not query.
-	if len(offline) > 0 {
-		out := o.pr(o.Stderr)
-		var stopped, unqueried, unanswered []string
-		for i, rt := range offline {
-			switch d := downs[i]; {
-			case d.unanswered:
-				unanswered = append(unanswered, rt)
-			case o.IsMacOS && !d.scratch:
-				stopped = append(stopped, rt)
-			default:
-				unqueried = append(unqueried, rt)
-			}
-		}
-		if len(stopped) > 0 {
-			out.printf("[bold red]Container runtime installed but not started (%s).[/bold red]",
-				strings.Join(stopped, ", "))
-		}
-		if len(unqueried) > 0 {
-			out.printf("[bold red]Cannot query container runtime (%s).[/bold red]",
-				strings.Join(unqueried, ", "))
-		}
-		if len(unanswered) > 0 {
-			out.printf("[bold red]Container runtime installed but not answering (%s).[/bold red]",
-				strings.Join(unanswered, ", "))
-		}
-		for _, down := range downs {
-			down.print(out)
-		}
-		return "", false
-	}
-	o.pr(o.Stderr).print(
-		"[bold red]No container runtime found. Install podman, or on macOS, Apple's container CLI.[/bold red]")
-	return "", false
+	return o.validateExplicitRuntime(o.Setup.Backend(), "setup "+o.Setup.Name)
 }
 
-// validateExplicitRuntime gates an explicitly-selected runtime (YOLO_RUNTIME or
-// config.runtime, source names the origin). Native runtimes (macos-user) aren't
-// on PATH — their availability is checked downstream — so they pass through.
-// Container runtimes must be installed AND started: without this catch a
-// `YOLO_RUNTIME=podman` with no podman (or a stopped `podman machine`) sails
-// past into the image build and only surfaces as an opaque nix/builder failure
-// three layers deep.
+// validateExplicitRuntime gates the setup's runtime (source names the setup). Native runtimes
+// (macos-user) aren't on PATH — their availability is checked downstream — so they pass through.
+// Container runtimes must be installed AND started: without this catch a podman-self launch
+// with no podman (or a stopped `podman machine`) sails past into the image build and only
+// surfaces as an opaque nix/builder failure three layers deep.
 func (o *Options) validateExplicitRuntime(rt, source string) (string, bool) {
 	if inStrSlice(paths.NativeRuntimes, rt) {
 		return rt, true
 	}
 	out := o.pr(o.Stderr)
 	if _, ok := o.LookPath(rt); !ok {
-		out.printf("[bold red]Configured runtime '%s' (from %s) is not installed.[/bold red]", rt, source)
-		out.printf("[dim]Install it, or unset %s to auto-detect. Run `yolo check` to validate.[/dim]", source)
+		out.printf("[bold red]The runtime '%s' (for %s) is not installed.[/bold red]", rt, source)
+		out.printf("[dim]Install it, or choose another setup (`yolo setup list` shows them). Run `yolo check` to validate.[/dim]")
 		return "", false
 	}
 	if ok, down := o.runtimeIsConnectable(rt); !ok {
 		switch {
 		case down.unanswered:
-			out.printf("[bold red]Configured runtime '%s' (from %s) is installed but not answering.[/bold red]", rt, source)
+			out.printf("[bold red]The runtime '%s' (for %s) is installed but not answering.[/bold red]", rt, source)
 		case o.IsMacOS && !down.scratch:
-			out.printf("[bold red]Configured runtime '%s' (from %s) is installed but not started.[/bold red]", rt, source)
+			out.printf("[bold red]The runtime '%s' (for %s) is installed but not started.[/bold red]", rt, source)
 		default:
-			out.printf("[bold red]Cannot query configured runtime '%s' (from %s).[/bold red]", rt, source)
+			out.printf("[bold red]Cannot query the runtime '%s' (for %s).[/bold red]", rt, source)
 		}
 		down.print(out)
 		return "", false
@@ -324,16 +255,6 @@ func runtimeStartHint(rt string, isMacOS bool) string {
 	}
 	return "Start it: `podman machine start` " +
 		"(first time: `podman machine init && podman machine start`)"
-}
-
-// isAppleContainer reports whether the runtime at path is Apple's container CLI.
-func (o *Options) isAppleContainer(path string) bool {
-	res := o.Exec([]string{path, "--version"}, "", nil, 5*time.Second)
-	if !res.Ran || res.Timeout {
-		return false
-	}
-	out := res.Stdout + res.Stderr
-	return strings.Contains(out, "Apple") || strings.Contains(out, "container CLI version")
 }
 
 // runtimeIsConnectable reports whether the runtime answers and, if not, why.

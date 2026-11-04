@@ -41,7 +41,7 @@ package cli
 //     dropped pack's skills dir that links to a live one is not dead (liveSkillsDirs).
 //
 // Out of scope here: `yolo host apply --revert` (it does not withdraw skills of any kind) and
-// `yolo config render --at host` (it renders config surfaces, and the plugin is not one).
+// `yolo config render --setup host-self` (it renders config surfaces, and the plugin is not one).
 
 import (
 	"bytes"

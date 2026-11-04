@@ -23,7 +23,7 @@ func TestAMacOSHostNamesAStepThatWorksForAGuardedOnlyTree(t *testing.T) {
 	t.Cleanup(func() { hostTreesBuild = prev })
 	stubBins(t, "tool")
 	if out := fx.renderTrees(t, true); !strings.Contains(out, "this host builds no tree") ||
-		strings.Contains(out, "YOLO_RUNTIME=podman") || !strings.Contains(out, packload.GuardedOnlyStep) {
+		strings.Contains(out, "YOLO_SETUP=podman-self") || !strings.Contains(out, packload.GuardedOnlyStep) {
 		t.Errorf("the macOS render of a guarded-only tree:\n%s", out)
 	}
 	got := captureHostExec(t)
@@ -31,7 +31,7 @@ func TestAMacOSHostNamesAStepThatWorksForAGuardedOnlyTree(t *testing.T) {
 	if rc := hostExec(nil, []string{"tool"}, io.Discard, &errw, nil); rc != 0 || !got.execed {
 		t.Fatalf("rc=%d, execed %v\n%s", rc, got.execed, errw.String())
 	}
-	if s := errw.String(); !strings.Contains(s, "is not delivered on this host") || strings.Contains(s, "YOLO_RUNTIME=podman") ||
+	if s := errw.String(); !strings.Contains(s, "is not delivered on this host") || strings.Contains(s, "YOLO_SETUP=podman-self") ||
 		!strings.Contains(s, packload.GuardedOnlyStep) {
 		t.Errorf("the macOS launch's line for a guarded-only tree:\n%s", s)
 	}

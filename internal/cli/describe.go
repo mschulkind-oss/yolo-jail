@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"runtime"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
@@ -28,7 +27,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
-	runtimepkg "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 func runDescribe(args []string) int {
@@ -79,15 +77,17 @@ func describeMain(args []string, out, errw io.Writer, color bool) int {
 
 	// Human summary. Deliberately compact — the machine-readable answer is --json.
 	pr := richtext.Printer{W: out, Color: color}
-	// THE BOUNDARY CROSSING, and the only one this command makes: the config value is a
-	// NAME, everything below reasons about the Kind it resolves to. ResolveConfinement has
-	// already defaulted an absent or unknown value to jail, so the !ok branch is
-	// unreachable — and it is written out anyway rather than discarded, because a silent
-	// zero Kind here would print the unset notch's (empty) vector as if it were a level.
-	notch, ok := render.KindForNotch(string(config.ResolveConfinement(cfg)))
-	if !ok {
-		fmt.Fprintf(errw, "yolo describe: unknown confinement level\n")
-		return 1
+	// THE SETUP a launch from here would select (config.SelectSetup, the one selection every
+	// verb shares), and the notch and mechanism below are ITS: YOLO_SETUP and the user's `setup`
+	// move describe as they move the launch. A selection the launch would refuse is printed with
+	// its refusal, which names the next step, and describe goes on at the jail notch.
+	choice, serr := selectedSetup(cfg)
+	notch := render.KindJail
+	if serr != nil {
+		pr.Printf("[bold]setup[/bold]        [red]none[/red] — a launch from here refuses: %s", richtext.Escape(serr.Error()))
+	} else {
+		notch = render.KindForSetup(choice.Setup.Kind())
+		pr.Printf("[bold]setup[/bold]        [cyan]%s[/cyan] [dim](from %s)[/dim]", choice.Setup.Name, richtext.Escape(choice.From()))
 	}
 	pr.Printf("[bold]environment[/bold]  confinement [cyan]%s[/cyan]", notch)
 	// jailcontent.ConfinementProfile, which is ALSO what the agent's briefing header
@@ -268,21 +268,14 @@ func printPackageProfile(pr richtext.Printer, notch render.Kind, prof render.Pro
 		"GC-rooted at %s[/dim]", confinementLabelPad, target, rootLink)
 }
 
-// resolvedMechanism resolves the `runtime` a launch would pick, with run()'s own precedence
-// (YOLO_RUNTIME > config > the notch's own backend > platform probe; config.SelectedRuntime).
-// The notch's backend is what makes a macOS `confinement: "guest"` print the macos-user
-// vector, separate user and Seatbelt, rather than a container's. Loose by design: describe is a
-// read-only report, so an unreachable runtime is not its problem, and neither is an explicit
-// runtime that contradicts the guest notch, which describe reports as the runtime named and a
-// launch refuses (refuseUnbuiltNotch) — `yolo check` is where both are errors, and the
-// tolerant resolver never exits.
+// resolvedMechanism resolves the backend a launch would use: that of the setup the launch
+// selects (selectedSetupBackend, the selection every verb shares), which is what makes a macOS
+// seatbelt setup print the macos-user vector, separate user and Seatbelt, rather than a
+// container's. Loose by design: describe is a read-only report, so an unreachable runtime is
+// not its problem, and neither is a setup a launch refuses — `yolo check` is where both are
+// errors, and the tolerant resolver never exits.
 func resolvedMechanism(cfg *jsonx.OrderedMap) string {
-	cfgRT := config.ConfiguredRuntime(cfg, config.ResolveConfinement(cfg), paths.IsMacOS)
-	return runtimepkg.ResolveRuntime(os.Getenv("YOLO_RUNTIME"), cfgRT, paths.IsMacOS,
-		func(bin string) bool {
-			_, err := exec.LookPath(bin)
-			return err == nil
-		})
+	return selectedSetupBackend(cfg)
 }
 
 func joinComma(ss []string) string {

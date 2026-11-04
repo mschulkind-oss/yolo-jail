@@ -15,7 +15,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
-// configrenderhost.go is `yolo config render --at host`: the preview of what `yolo host
+// configrenderhost.go is `yolo config render --setup host-self`: the preview of what `yolo host
 // apply --assert` writes, byte for byte (docs/plans/notch-convergence.md item 23, row D5),
 // from the pack store as it stands: the preview never fetches (NC-D28).
 //
@@ -35,7 +35,7 @@ import (
 // renders what `yolo host apply --assert` writes without being it: the configured pack set (the
 // pack store as it stands — the read-only verbs never fetch), its destinations resolved, the
 // doubly-owned surfaces host apply refuses, and the cross-pack overlays collected at the host
-// notch's posture and profile table. Its two readers are `yolo config render --at host` (the
+// notch's posture and profile table. Its two readers are `yolo config render --setup host-self` (the
 // preview) and `yolo config reset` under `host_management: own` (the re-render after a reset);
 // one prelude, so the preview, the reset and the apply cannot fold different packs.
 type hostRenderPrelude struct {

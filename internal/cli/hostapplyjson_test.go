@@ -311,15 +311,15 @@ func sameHashes(a, b map[string]string) bool {
 	return true
 }
 
-// TestApplyAtHostEmitsTheDocumentAtBothSpellings: `yolo apply --at host` and `yolo host apply`
+// TestApplyAtHostEmitsTheDocumentAtBothSpellings: `yolo apply --setup host-self` and `yolo host apply`
 // are one operation and differ only in how they are typed (OQ-7), so a flag that worked at one
 // of them would be a flag an agent has to guess about.
 func TestApplyAtHostEmitsTheDocumentAtBothSpellings(t *testing.T) {
 	shippedPacksFixtureUnder(t, "own")
 
 	var out, errw bytes.Buffer
-	if rc := applyMain([]string{"--at", "host", "--format", "json"}, &out, &errw, false, nil); rc != 0 {
-		t.Fatalf("apply --at host --format json rc=%d\nstdout:\n%s\nstderr:\n%s",
+	if rc := applyMain([]string{"--setup", "host-self", "--format", "json"}, &out, &errw, false, nil); rc != 0 {
+		t.Fatalf("apply --setup host-self --format json rc=%d\nstdout:\n%s\nstderr:\n%s",
 			rc, out.String(), errw.String())
 	}
 	var viaApply hostApplyDoc
@@ -345,8 +345,8 @@ func TestApplyRefusesTheDocumentWhereThereIsNoneToEmit(t *testing.T) {
 	shippedPacksFixtureUnder(t, "own")
 
 	for _, args := range [][]string{
-		{"--at", "jail", "--format", "json"},
-		{"--at", "guest", "--json"},
+		{"--setup", "podman-self", "--format", "json"},
+		{"--setup", "seatbelt-self", "--json"},
 		{"--sealed", "--json"},
 	} {
 		var out, errw bytes.Buffer

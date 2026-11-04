@@ -50,8 +50,8 @@ func TestHostManagementUnsetIsNoneAndSaysSoOnlyAtTheAct(t *testing.T) {
 		t.Helper()
 		home, surface := hostManagementFixture(t, mode)
 		var out, errw bytes.Buffer
-		if rc := applyMain([]string{"--at", "host", "--assert"}, &out, &errw, false, nil); rc != 1 {
-			t.Fatalf("apply --at host --assert (host_management %q) rc=%d, want 1: %s%s",
+		if rc := applyMain([]string{"--setup", "host-self", "--assert"}, &out, &errw, false, nil); rc != 1 {
+			t.Fatalf("apply --setup host-self --assert (host_management %q) rc=%d, want 1: %s%s",
 				mode, rc, out.String(), errw.String())
 		}
 		if data, _ := os.ReadFile(surface); string(data) != `{"myOwnKey":"keep","telemetry":true}` {
@@ -81,7 +81,7 @@ func TestHostManagementUnsetIsNoneAndSaysSoOnlyAtTheAct(t *testing.T) {
 
 // TestHostManagementNoneRefusesBothSpellings pins the CALL SITES. Deleting either
 // refuseHostManagement line leaves the other spelling refusing and this test red, which is
-// the point: `yolo host apply` and `yolo apply --at host` are one operation (OQ-7), so a key
+// the point: `yolo host apply` and `yolo apply --setup host-self` are one operation (OQ-7), so a key
 // that stopped one and not the other would be a contract with a way around it.
 //
 // `own` WAS IN THIS LOOP and is deliberately not any more: it refused only because whole-file
@@ -116,8 +116,8 @@ func TestHostManagementNoneRefusesBothSpellings(t *testing.T) {
 				}
 			}
 			for _, argv := range [][]string{
-				{"--at", "host", "--assert"},
-				{"--at", "host"},
+				{"--setup", "host-self", "--assert"},
+				{"--setup", "host-self"},
 			} {
 				var out, errw bytes.Buffer
 				if rc := applyMain(argv, &out, &errw, false, nil); rc != 1 {
@@ -197,11 +197,11 @@ func TestHostManagementRetiredAssertIsRefusedByName(t *testing.T) {
 	viaApply := func(argv []string, out, errw *bytes.Buffer) int { return applyMain(argv, out, errw, false, nil) }
 	viaHost := func(argv []string, out, errw *bytes.Buffer) int { return hostMain(argv, out, errw, false, nil) }
 	for _, r := range []run{
-		{"apply --at host --assert", []string{"--at", "host", "--assert"}, viaApply, "yolo host apply: "},
-		{"apply --at host", []string{"--at", "host"}, viaApply, "yolo host apply: "},
+		{"apply --setup host-self --assert", []string{"--setup", "host-self", "--assert"}, viaApply, "yolo host apply: "},
+		{"apply --setup host-self", []string{"--setup", "host-self"}, viaApply, "yolo host apply: "},
 		{"host apply --assert", []string{"apply", "--assert"}, viaHost, "yolo host apply: "},
 		{"host apply --revert", []string{"apply", "--revert"}, viaHost, "yolo host apply --revert: "},
-		{"apply --at host --revert --assert", []string{"--at", "host", "--revert", "--assert"}, viaApply,
+		{"apply --setup host-self --revert --assert", []string{"--setup", "host-self", "--revert", "--assert"}, viaApply,
 			"yolo host apply --revert: "},
 		// A binary that is not on PATH, never `true`: past a missing refusal the launch would
 		// EXEC its program, replacing the test process, so a real binary here would read as a
@@ -320,7 +320,7 @@ func TestOwnTakesOverAHomeAssertWroteAndArchivesItOnce(t *testing.T) {
 // user's ownership contract does not overrule that) — so the assertion is that yolo's declared
 // key lands and the user's undeclared one survives, exactly as under `assert`.
 func TestHostManagementOwnApplies(t *testing.T) {
-	for _, argv := range [][]string{{"--at", "host", "--assert"}, {"--at", "host"}} {
+	for _, argv := range [][]string{{"--setup", "host-self", "--assert"}, {"--setup", "host-self"}} {
 		hostManagementFixture(t, "own")
 		var out, errw bytes.Buffer
 		if rc := applyMain(argv, &out, &errw, false, nil); rc != 0 {

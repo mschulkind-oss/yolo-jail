@@ -155,21 +155,30 @@ func setupSummary(s setup.Setup) string {
 	return tech + ", " + who
 }
 
-// setupHostLaunch is the one command that runs a host setup: only `yolo host` runs one
-// (design §8).
-func setupHostLaunch(s setup.Setup) string {
-	if s.Name == "host-self" {
-		return "yolo host -- claude"
-	}
-	return "yolo host --setup " + s.Name + " -- claude"
-}
-
 func setupList(out, errw io.Writer, color bool) int {
 	user, problems := userSetupTables()
 	configName, _, _ := config.SelectedSetupFromConfig()
 	env := os.Getenv(setup.EnvVar)
 	osDefault := setup.Default(setupGOOS).Name
-	selected, src, selErr := setup.Select("", env, configName, user, setupGOOS)
+	// THE ONE SELECTION a launch from here makes (config.SelectSetup), the removed inputs
+	// weighed as a launch weighs them: a removed YOLO_RUNTIME refuses on the host, and a
+	// removed config key still chooses its built-in when nothing names a setup. The workspace
+	// config is loaded loosely, as the listing verbs load it: one that does not load is none.
+	var merged *jsonx.OrderedMap
+	if cfg, err := config.LoadConfig("", false, func(string) {}); err == nil {
+		merged = cfg
+	}
+	choice, selErr := config.SelectSetup(config.SetupInputs{
+		Verb:      config.SetupForLaunch,
+		Getenv:    os.Getenv,
+		Merged:    merged,
+		GOOS:      setupGOOS,
+		InSession: os.Getenv("YOLO_VERSION") != "",
+	})
+	for _, w := range choice.Warnings {
+		fmt.Fprintln(errw, w)
+	}
+	selected, src := choice.Setup, choice.Source
 
 	rows := setup.BuiltIns()
 	mine := make([]string, 0, len(user))
@@ -226,13 +235,13 @@ func setupList(out, errw io.Writer, color bool) int {
 		fmt.Fprintf(errw, "No setup is selected: %v\n", selErr)
 		return 1
 	case selected.Kind() == setup.KindHost:
-		fmt.Fprintf(out, "Selected: %s, from %s.\n", selected.Name, src)
-		fmt.Fprintf(errw, "setup %q puts no walls around the agent, and only `yolo host` runs one:\n    %s\n", selected.Name, setupHostLaunch(selected))
+		fmt.Fprintf(out, "Selected: %s, from %s.\n", selected.Name, choice.From())
+		fmt.Fprintln(errw, setup.HostRefusal(selected))
 		return 1
 	case src == setup.FromDefault:
 		fmt.Fprintf(out, "Selected: %s, this OS's default. Choose your own default:\n    yolo config set setup <name> --user\n", selected.Name)
 	default:
-		fmt.Fprintf(out, "Selected: %s, from %s.\n", selected.Name, src)
+		fmt.Fprintf(out, "Selected: %s, from %s.\n", selected.Name, choice.From())
 	}
 	if err := setup.Buildable(selected, setupGOOS, setupHasBinary); err != nil {
 		var missing *setup.MissingTechnologyError
@@ -257,8 +266,7 @@ func setupLookup(name string, user map[string]setup.Setup, problems []string) (s
 			return setup.Setup{}, fmt.Errorf("%s: %s", paths.UserConfigDisplayPath(), p)
 		}
 	}
-	s, _, err := setup.Select(name, "", "", user, setupGOOS)
-	return s, err
+	return setup.Lookup(name, user)
 }
 
 // setupTable is a setup as design §6 spells it, the way it would be written in a config file.

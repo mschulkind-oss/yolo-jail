@@ -2,9 +2,8 @@ package run
 
 // podmanmachine_test.go pins macOS's podman probe, the patient one-shot (PR-D24 of
 // docs/reference/podman-readiness.md, internal/runtime/podmanmachine.go), THROUGH runtime
-// selection: every case runs down each of the three ways a launch reaches it (YOLO_RUNTIME,
-// the config's `runtime` key, autodetection), so deleting the probe from validateExplicitRuntime
-// or from resolveRuntime's candidate loop fails every case here.
+// selection: every case runs down each of the ways a launch selects podman (gatePaths), so
+// deleting the probe from validateExplicitRuntime fails every case here.
 //
 // The fake is a Podman machine, not a probe result: it answers `podman info` after a set time
 // through whichever seam the launch asks it by, Exec (whose timeout kills the probe) or the
@@ -47,6 +46,7 @@ func (m *fakeMachine) asMac(p gatePath, stdout, stderr *bytes.Buffer) *Options {
 	o := &Options{IsMacOS: true}
 	fillDefaults(o)
 	o.Getenv = p.getenv
+	o.SetupName = p.flag
 	o.LookPath = func(name string) (string, bool) { return "/opt/podman/bin/" + name, name == "podman" }
 	o.Stdout, o.Stderr = stdout, stderr
 	m.now = time.Unix(1_000_000, 0)

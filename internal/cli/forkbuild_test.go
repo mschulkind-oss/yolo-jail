@@ -222,7 +222,7 @@ func TestForkBuildRetryRequiresWorkspaceLaunchOwnership(t *testing.T) {
 
 func TestForkBuildRetryUsesRetainedBackendWhenRuntimeIsUnspecified(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv("YOLO_RUNTIME", "container")
+	t.Setenv("YOLO_SETUP", "apple-container-self")
 	f := forkBuildHome(t)
 	b := forkBuild{Fork: f, Commit: forkTestCommit, Platform: captureJailPlatform()}
 	_, cname, _ := seedRetainedForkBuildWorkspace(t, b, "podman")
@@ -248,12 +248,7 @@ func TestForkBuildRetryUsesRetainedBackendWhenRuntimeIsUnspecified(t *testing.T)
 		if err := o.OnRuntimeResolved("container"); err != nil {
 			t.Fatalf("record resolved current runtime: %v", err)
 		}
-		o.Getenv = func(key string) string {
-			if key == "YOLO_RUNTIME" {
-				return "container"
-			}
-			return ""
-		}
+		o.SetupName = "apple-container-self"
 		got, err := readForkBuildRuntime(o.Workspace)
 		if err != nil || got != "container" {
 			t.Errorf("fresh capture runtime = %q (%v), want actual selected backend container after old podman was proven absent", got, err)
@@ -275,7 +270,7 @@ func TestForkBuildRuntimeRecordMatchesChildResolution(t *testing.T) {
 	// an empty running-container table stands in for the idle Apple host here.
 	fakeAppleListing(t, "ID IMAGE STATE\n", nil)
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv("YOLO_RUNTIME", "podman")
+	t.Setenv("YOLO_SETUP", "podman-self")
 	f := forkBuildHome(t)
 	b := forkBuild{Fork: f, Commit: forkTestCommit, Platform: captureJailPlatform()}
 	var seen run.Options
@@ -338,7 +333,7 @@ func TestForkBuildRetryWithoutResolvedBackendEvidenceFailsClosed(t *testing.T) {
 
 func TestForkBuildRetryDoesNotProbeTheNewBackendForOldOwnership(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv("YOLO_RUNTIME", "container")
+	t.Setenv("YOLO_SETUP", "apple-container-self")
 	f := forkBuildHome(t)
 	b := forkBuild{Fork: f, Commit: forkTestCommit, Platform: captureJailPlatform()}
 	staging, cname, marker := seedRetainedForkBuildWorkspace(t, b, "podman")

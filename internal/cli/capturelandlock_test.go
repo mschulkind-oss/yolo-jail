@@ -162,9 +162,9 @@ func TestAMacsFloorCapturesThroughTheMacosUserAct(t *testing.T) {
 }
 
 // THE ACT HANDS ITS RUNTIME TO THE RUN PIPELINE ALONE: the Mac floor's act (hostFloorCaptureActOn's
-// production value) runs `yolo capture` with the pipeline's Getenv answering macos-user for
-// YOLO_RUNTIME and this process's environment for everything else, and leaves the process environment
-// as it was; a plain `yolo capture` leaves the pipeline its own resolution.
+// production value) runs `yolo capture` with the pipeline told the Seatbelt setup by name
+// (Options.SetupName, as `--setup` would), and leaves the process environment as it was; a plain
+// `yolo capture` leaves the pipeline its own resolution.
 func TestTheMacosUserCaptureActHandsItsRuntimeToTheRunPipelineAlone(t *testing.T) {
 	captureFixtureHome(t, captureFixtureInstaller)
 	t.Setenv("YOLO_RUNTIME", "")
@@ -179,21 +179,19 @@ func TestTheMacosUserCaptureActHandsItsRuntimeToTheRunPipelineAlone(t *testing.T
 	if rc := hostFloorCaptureActOn("macos-user", []string{"probetool"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("rc=%d\n%s\n%s", rc, out.String(), errw.String())
 	}
-	if seen.Getenv == nil || seen.Getenv("YOLO_RUNTIME") != "macos-user" {
-		t.Fatalf("the pipeline was not handed the macos-user runtime (Getenv set: %v)", seen.Getenv != nil)
+	if pipelineBackend(seen) != "macos-user" {
+		t.Fatalf("the pipeline was not handed a macos-user setup (SetupName %q)", seen.SetupName)
 	}
-	if seen.Getenv("HOME") != os.Getenv("HOME") {
-		t.Errorf("the pipeline's Getenv answers HOME %q, not this process's %q", seen.Getenv("HOME"), os.Getenv("HOME"))
-	}
-	if os.Getenv("YOLO_RUNTIME") != "" {
-		t.Errorf("the act set YOLO_RUNTIME=%q in this process, which the next exec would inherit", os.Getenv("YOLO_RUNTIME"))
+	if os.Getenv("YOLO_SETUP") != "" || os.Getenv("YOLO_RUNTIME") != "" {
+		t.Errorf("the act set YOLO_SETUP=%q / YOLO_RUNTIME=%q in this process, which the next exec would inherit",
+			os.Getenv("YOLO_SETUP"), os.Getenv("YOLO_RUNTIME"))
 	}
 	seen = run.Options{}
 	if rc := captureHost([]string{"probetool"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("plain capture: rc=%d\n%s", rc, errw.String())
 	}
-	if seen.Getenv != nil && seen.Getenv("YOLO_RUNTIME") != "" {
-		t.Errorf("a plain `yolo capture` named runtime %q to the pipeline", seen.Getenv("YOLO_RUNTIME"))
+	if pipelineBackend(seen) != "" {
+		t.Errorf("a plain `yolo capture` named runtime %q to the pipeline", pipelineBackend(seen))
 	}
 }
 
@@ -289,7 +287,7 @@ func TestALinuxFloorWithNoRuntimeCapturesWhereTheKernelConfinesIt(t *testing.T) 
 	}
 
 	withHostConfinement(t, 6, nil)
-	t.Setenv("YOLO_RUNTIME", "podman")
+	t.Setenv("YOLO_SETUP", "podman-self")
 	want = "there is no capture of claude on this machine, and no container runtime (podman) is on PATH to run " +
 		"`yolo capture` with — install one (`yolo check` names how on this machine) and the next `yolo host` " +
 		"launch captures it"
@@ -362,7 +360,7 @@ func TestTheCaptureActChoosesItsArmAtTheCallSite(t *testing.T) {
 	t.Run("a runtime selected and missing", func(t *testing.T) {
 		r := setup(t, "linux")
 		withHostConfinement(t, 6, nil)
-		t.Setenv("YOLO_RUNTIME", "podman")
+		t.Setenv("YOLO_SETUP", "podman-self")
 		var out, errw bytes.Buffer
 		captureHost([]string{"probetool"}, &out, &errw, false)
 		if r.host != 0 || r.jail != 1 {
@@ -502,7 +500,7 @@ func selectMacosUser(t *testing.T, via string) {
 	noRuntimeHere(t)
 	switch via {
 	case "YOLO_RUNTIME":
-		t.Setenv("YOLO_RUNTIME", "macos-user")
+		t.Setenv("YOLO_SETUP", "seatbelt-yolo-account")
 	case "config":
 		writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), `{"runtime":"macos-user"}`)
 	default:

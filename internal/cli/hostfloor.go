@@ -26,7 +26,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/pidlock"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
-	runtimepkg "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // hostfloor.go wires the HOST AGENT FLOOR (internal/hostfloor,
@@ -829,19 +828,10 @@ var hostFloorCaptureActOn = func(rt string, args []string, out, errw io.Writer, 
 // launch log takes only those (startHostLaunchTrace).
 func hostJailStdout() io.Writer { return os.Stderr }
 
-// captureRuntime is the runtime a `yolo capture` would boot its jail with: YOLO_RUNTIME, then the
-// user config's `runtime`, then the platform default — run's precedence without its probe.
+// captureRuntime is the backend a `yolo capture` would boot its jail with: that of the setup a
+// launch selects from YOLO_SETUP and the user config (selectedSetupBackend).
 func captureRuntime() string {
-	cfgRT := ""
-	if v, ok := config.UserScopeConfigOrEmpty().Get("runtime"); ok {
-		if s, ok := v.(string); ok {
-			cfgRT = s
-		}
-	}
-	return runtimepkg.ResolveRuntime(os.Getenv("YOLO_RUNTIME"), cfgRT, paths.IsMacOS, func(bin string) bool {
-		_, err := exec.LookPath(bin)
-		return err == nil
-	})
+	return selectedSetupBackend(config.UserScopeConfigOrEmpty())
 }
 
 // hostFloorBinDir is the floor's bin/, the directory a host launch appends last to its child's

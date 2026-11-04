@@ -63,8 +63,8 @@ func capabilityGateOptions(t *testing.T, ws string, env map[string]string,
 	// podman answers the readiness gate at once (podmanready.go).
 	answeringPodman(o, minimalPodmanInfo)
 	o.Getenv = func(k string) string {
-		if k == "YOLO_RUNTIME" {
-			return "podman"
+		if k == "YOLO_SETUP" {
+			return testSetupForRuntime("podman")
 		}
 		return env[k]
 	}

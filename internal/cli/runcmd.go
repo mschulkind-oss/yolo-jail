@@ -44,13 +44,14 @@ running session is never yanked out from under you. Ending it is deliberate and
 two-stepped: 'yolo stop' (from the workspace), then an ordinary launch.
 
 Flags:
-  --at <notch>       Run at this confinement notch (jail|guest|host), overriding
-                     the config's 'confinement' key for this launch (also
-                     --at=<notch>). 'jail' launches the jail. 'host' runs the
-                     command at the host notch, exactly as 'yolo host -- <cmd>'
-                     does, wherever the flag sits ('yolo run --at host -- <cmd>'
-                     included). 'guest' is not built (env-manager plan Phase 7),
-                     so it is refused rather than silently downgraded to a jail.
+  --setup <name>     Run this launch in the named setup, a built-in or one of the
+                     user config's [setups.<name>] (also --setup=<name>). It beats
+                     YOLO_SETUP, which beats the user config's 'setup' key, which
+                     beats this machine's default; 'yolo setup list' names them.
+                     A setup with no walls ('host-self') runs exactly as
+                     'yolo host -- <cmd>' does, wherever the flag sits. A setup this
+                     machine cannot run is refused, naming one it can. ('--at' is
+                     removed and refused, naming the setup that replaces it.)
   --network <mode>   Override the network mode for this launch, whatever the
                      config's 'network.mode' says (also --network=<mode>).
   --profile <sel>   Select the active profile for this launch (also -p <sel>,
@@ -146,7 +147,7 @@ Global options are listed by 'yolo --help'; the full config reference is
 // before the fourth author makes it differently. Ruled by OQ-RO3, 2026-09-11; pinned by
 // TestTheLaunchHasNoQuietFlag. `YOLO_NO_BANNER` is the one pre-existing hatch and it is
 // deliberately narrow — it silences the version line and nothing else.
-var runFlags = []string{"--profile", "--timing", "--dry-run", "--network", "--accept-config-changes", "--at",
+var runFlags = []string{"--profile", "--timing", "--dry-run", "--network", "--accept-config-changes", "--setup",
 	"--with-credentials", "--update"}
 
 // runKnownFlags is runFlags plus the spellings that are not policy: the short forms, help, and the
@@ -277,7 +278,7 @@ type runArgv struct {
 //
 // THE FOLD REFUSES ONE THING: a value flag given no value. Every value flag is read by
 // readValueFlag (valueflags.go), the one reader `yolo host` reads the same flags with,
-// so `-p`, `--profile`, `--at`, `--network` and `--with-credentials` take the next token
+// so `-p`, `--profile`, `--setup`, the removed `--at`, `--network` and `--with-credentials` take the next token
 // or a glued `=value`, and a missing or empty one is returned as runArgv.misuse ("-p
 // needs a value"). It used to be swallowed, and the glued empty spellings (`--profile=`,
 // `--network=`) fell to the default arm and STARTED THE COMMAND: `yolo --profile= --
@@ -336,18 +337,24 @@ func parseRunArgs(args []string, opts *run.Options) runArgv {
 			}
 			continue
 		}
-		// THE NOTCH, CONSUMED RATHER THAN SWALLOWED. Without it `--at` fell to the default
-		// arm below, which treats the first unrecognized bare token as the start of the
-		// command — so `yolo --at guest -- claude` handed the jail its own flag as argv and
-		// died inside it with `--at: command not found` (DP-B22).
-		//
-		// The VALUE is not validated here: run.refuseUnbuiltNotch is the one place a notch
-		// is judged, so `--at` and the config's `confinement` key cannot disagree about what
-		// is launchable (docs/design/declaration-parity.md DP-B16/DP-B22).
-		if f, ok := readValueFlag(args, i, "--at"); ok {
+		// THE SETUP (docs/design/named-setups.md): the name is not judged here. run's setup
+		// gate (setupgate.go) is the one place a setup is selected and refused, so `--setup`,
+		// YOLO_SETUP and the config's `setup` key cannot disagree about what is launchable.
+		if f, ok := readValueFlag(args, i, "--setup"); ok {
 			i = f.last
 			if v, ok := value(f); ok {
-				opts.Notch = v
+				opts.SetupName = v
+			}
+			continue
+		}
+		// THE REMOVED NOTCH FLAG, still CONSUMED with its value so the refusal names what was
+		// typed rather than the command start it would otherwise be read as (DP-B22).
+		if f, ok := readValueFlag(args, i, atFlag); ok {
+			i = f.last
+			// With or without a value: the flag is removed either way, and its refusal is the
+			// next step, where "--at needs a value" would invite typing one.
+			if parsed.misuse == nil {
+				parsed.misuse = atRemoved(f.value)
 			}
 			continue
 		}

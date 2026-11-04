@@ -188,7 +188,7 @@ type hostApplySurvey struct {
 	stageNames []string
 	loaded     []*packload.Pack
 	// floorStage is whether this run takes the host agent floor stage (applyHostFloor): set by
-	// the verb — `yolo host apply`, `yolo apply --at host` — and never by the launch gate's
+	// the verb — `yolo host apply`, `yolo apply --setup host-self` — and never by the launch gate's
 	// apply, because a launch installs the one agent it starts and removes nothing
 	// (host-agent-environment.md, "When the floor installs").
 	floorStage bool

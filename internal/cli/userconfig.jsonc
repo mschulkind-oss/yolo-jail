@@ -10,7 +10,7 @@
   //
   // Isolation backend: "podman", "container" (Apple Container), or
   // "macos-user" (a sandboxed macOS account, no VM; never auto-detected)
-  // (also settable via YOLO_RUNTIME env var)
+  // (YOLO_SETUP=<name> chooses a named setup instead: yolo setup list)
   // "runtime": "podman",
   // "packages": ["sqlite", "postgresql"],
   // "mounts": ["~/code/shared-lib:/ctx/shared-lib"],

@@ -61,12 +61,12 @@ var jailRuntimes = []string{"podman", "container"}
 //     names: delete the thing under test and the test still passes.
 //
 // So the runtime is now an INPUT, spelled per case, and every runtime-sensitive test runs over
-// both arms. YOLO_RUNTIME rather than the workspace's `runtime` key because it is the highest
-// precedence source detectListingRuntime reads (env > config > platform probe), so an ambient
-// YOLO_RUNTIME in the developer's own shell cannot defeat it.
+// both arms. YOLO_SETUP (naming the runtime's built-in setup) rather than the workspace's `setup`
+// key because it outranks the config in the selection detectListingRuntime reads, so an ambient
+// config in the developer's own home cannot defeat it.
 func withJailRuntime(t *testing.T, rt string) {
 	t.Helper()
-	t.Setenv("YOLO_RUNTIME", rt)
+	t.Setenv("YOLO_SETUP", config.SetupForRemovedRuntime(rt))
 }
 
 // runningJailStdout is what a probe prints for a live jail launched from ws, SHAPED FOR THE

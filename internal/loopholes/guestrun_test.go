@@ -144,7 +144,7 @@ func TestTheGuestsDeclinesThatRunNowhereNameTheNextStep(t *testing.T) {
 	if len(declined) != 6 {
 		t.Fatalf("declined %v, want all six", declined)
 	}
-	const dial = "a container runtime runs it (`YOLO_RUNTIME=podman` or `YOLO_RUNTIME=container` for one launch)"
+	const dial = "a container setup runs it (`YOLO_SETUP=podman-self` or `YOLO_SETUP=apple-container-self` for one launch)"
 	elsewhere := map[string]bool{"wire-bridge": true, "aws-auth": true}
 	for _, d := range declined {
 		if names := strings.Contains(d.Why, dial); names == elsewhere[d.Spec.Name] {

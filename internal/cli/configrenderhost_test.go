@@ -1,7 +1,7 @@
 package cli
 
 // configrenderhost_test.go pins docs/plans/notch-convergence.md item 23 (row D5): `yolo config
-// render --at host` previews exactly what `yolo host apply --assert` writes, byte for byte.
+// render --setup host-self` previews exactly what `yolo host apply --assert` writes, byte for byte.
 // MEASURED 2026-09-27 before the fix: the preview showed claude's autonomous
 // `additionalDirectories ["/"]` while host apply wrote the guarded `[]`.
 //
@@ -24,7 +24,7 @@ import (
 // target previews the host apply instead.
 func jailPreviewTargetForTest(t *testing.T) configTarget {
 	t.Helper()
-	t.Setenv("YOLO_RUNTIME", "podman") // no platform probe for the non-local jail's layout
+	t.Setenv("YOLO_SETUP", "podman-self") // no platform probe for the non-local jail's layout
 	ws, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -76,9 +76,9 @@ func configRenderAtHostIsWhatHostApplyWrites(t *testing.T, surface, rel string) 
 	path := filepath.Join(home, rel)
 	writeFile(t, path, `{"theme": "the users own"}`)
 
-	rc, out, errs := runSurfaceVerb(t, "render", surface, "--at", "host")
+	rc, out, errs := runSurfaceVerb(t, "render", surface, "--setup", "host-self")
 	if rc != 0 {
-		t.Fatalf("config render --at host rc=%d\n%s%s", rc, out, errs)
+		t.Fatalf("config render --setup host-self rc=%d\n%s%s", rc, out, errs)
 	}
 	preview := previewBody(t, out)
 	if !strings.Contains(out, "# "+surface+" → "+path) {
@@ -108,7 +108,7 @@ func configRenderAtHostIsWhatHostApplyWrites(t *testing.T, surface, rel string) 
 // is the one the write then stores.
 func TestConfigRenderAtHostExplainIsTheRecordHostApplyKeeps(t *testing.T) {
 	hostRenderHome(t, `"claude"`)
-	rc, out, errs := runSurfaceVerb(t, "render", "claude/settings", "--at", "host", "--explain")
+	rc, out, errs := runSurfaceVerb(t, "render", "claude/settings", "--setup", "host-self", "--explain")
 	if rc != 0 {
 		t.Fatalf("rc=%d\n%s%s", rc, out, errs)
 	}
@@ -124,7 +124,7 @@ func TestConfigRenderAtHostExplainIsTheRecordHostApplyKeeps(t *testing.T) {
 // sentence rather than printing a file nothing writes.
 func TestConfigRenderAtHostNamesAnAgentNoConfiguredPackRenders(t *testing.T) {
 	hostRenderHome(t, `"claude"`)
-	rc, out, errs := runSurfaceVerb(t, "render", "codex", "--at", "host")
+	rc, out, errs := runSurfaceVerb(t, "render", "codex", "--setup", "host-self")
 	if rc == 0 || out != "" {
 		t.Fatalf("an agent no configured pack renders at the host must refuse: rc=%d\n%s", rc, out)
 	}
@@ -154,7 +154,7 @@ func TestConfigRenderAtJailStillPreviewsTheJailsPosture(t *testing.T) {
 // incomplete set — which it used to, for a pack the apply would simply fetch and render.
 func TestConfigRenderAtHostSaysHostApplyFetchesAPackTheStoreLacks(t *testing.T) {
 	neverInstalledGitPackHome(t, `,"host_management":"own"`)
-	rc, out, errs := runSurfaceVerb(t, "render", "claude/settings", "--at", "host")
+	rc, out, errs := runSurfaceVerb(t, "render", "claude/settings", "--setup", "host-self")
 	if rc != 0 {
 		t.Fatalf("the resolvable packs still render: rc=%d\n%s%s", rc, out, errs)
 	}

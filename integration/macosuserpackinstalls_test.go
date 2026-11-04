@@ -388,7 +388,7 @@ func TestMacosUserPackInstallsWorkflowMirrorsPackMatrix(t *testing.T) {
 	}
 
 	// THE DECLARATIONS. Without YOLO_TEST_MACOS_USER a cell whose subtest skipped would be
-	// green; without YOLO_TEST_REAL_PACK_INSTALLS every subtest skips. YOLO_RUNTIME must stay
+	// green; without YOLO_TEST_REAL_PACK_INSTALLS every subtest skips. YOLO_SETUP must stay
 	// unset, as in the main job: the fixture selects the backend per launch, and a job-level
 	// value is read by the harness's detectRuntime as a container runtime instead.
 	for _, k := range []string{macosUserDeclareEnv, realPackInstallsEnv} {
@@ -396,8 +396,8 @@ func TestMacosUserPackInstallsWorkflowMirrorsPackMatrix(t *testing.T) {
 			t.Errorf("%s: the install step %q does not set %s", macosUserWorkflow, step.Name, k)
 		}
 	}
-	if _, set := step.Env["YOLO_RUNTIME"]; set {
-		t.Errorf("%s: the install step %q sets YOLO_RUNTIME. Pack Installs sets it to podman, "+
+	if _, set := step.Env["YOLO_SETUP"]; set {
+		t.Errorf("%s: the install step %q sets YOLO_SETUP. Pack Installs sets it to podman-self, "+
 			"but here the fixture selects macos-user per launch (macosUserRunEnv), and a "+
 			"job-level value is read by detectRuntime as a container runtime", macosUserWorkflow, step.Name)
 	}

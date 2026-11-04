@@ -65,7 +65,7 @@ func preparationEnvironment(in []string, providers *jsonx.OrderedMap, packs []*p
 		case "SSH_AUTH_SOCK", "SSH_AGENT_PID", "GIT_SSH", "GIT_SSH_COMMAND", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_CONFIG_NOSYSTEM":
 		// Existing source/runtime controls needed by the same sealed-build launcher. No YOLO_ALLOW_*
 		// hatches, jail markers, service tokens or arbitrary YOLO_* prefix is inherited.
-		case "YOLO_RUNTIME", "YOLO_NIX_HOST_DAEMON", "YOLO_NIX_HOST_STORE_LINUX", "NIX_REMOTE", "NIX_DAEMON_SOCKET_PATH", "NIX_STORE_DIR",
+		case "YOLO_SETUP", "YOLO_RUNTIME", "YOLO_NIX_HOST_DAEMON", "YOLO_NIX_HOST_STORE_LINUX", "NIX_REMOTE", "NIX_DAEMON_SOCKET_PATH", "NIX_STORE_DIR",
 			"CONTAINER_HOST", "CONTAINER_CONNECTION", "PODMAN_CONNECTIONS_CONF", "CONTAINERS_CONF", "CONTAINERS_STORAGE_CONF":
 		default:
 			continue

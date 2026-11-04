@@ -82,7 +82,7 @@ func onForkFloorPlatform(f *hostfloor.Floor) *hostfloor.Floor {
 // PATH: this jail and the Linux CI runners have podman, and the macOS runner has none.
 func stubContainerRuntime(t *testing.T) {
 	t.Helper()
-	t.Setenv("YOLO_RUNTIME", "podman")
+	t.Setenv("YOLO_SETUP", "podman-self")
 	stubBins(t, "podman")
 }
 
@@ -91,7 +91,7 @@ func stubContainerRuntime(t *testing.T) {
 // CaptureUnavailable finds no podman on any machine running the test.
 func withoutContainerRuntime(t *testing.T, path ...string) {
 	t.Helper()
-	t.Setenv("YOLO_RUNTIME", "podman")
+	t.Setenv("YOLO_SETUP", "podman-self")
 	t.Setenv("PATH", strings.Join(path, string(os.PathListSeparator)))
 }
 
@@ -618,7 +618,7 @@ func TestAMacHostLaunchOfAForkBuildsItAsTheSandboxAccount(t *testing.T) {
 		t.Fatalf("pack install rc=%d\n%s\n%s", rc, out.String(), errw.String())
 	}
 	withMacForkFloor(t)
-	t.Setenv("YOLO_RUNTIME", "podman")
+	t.Setenv("YOLO_SETUP", "podman-self")
 	const record = "yolo 9.9.9, darwin floor /nix/store/test-profile macOS 26.0"
 	var acts []macosuser.ForkBuildOptions
 	origAct := macForkBuildAct
@@ -633,13 +633,13 @@ func TestAMacHostLaunchOfAForkBuildsItAsTheSandboxAccount(t *testing.T) {
 	jails := 0
 	withFakeCaptureJail(t, func(o run.Options) int {
 		jails++
-		if !o.Sealed || o.Getenv == nil || o.Getenv("YOLO_RUNTIME") != "macos-user" {
+		if !o.Sealed || pipelineBackend(o) != "macos-user" {
 			t.Errorf("the Mac's build jail is sealed=%v under runtime %q, want a sealed macos-user build",
 				o.Sealed, func() string {
 					if o.Getenv == nil {
 						return ""
 					}
-					return o.Getenv("YOLO_RUNTIME")
+					return pipelineBackend(o)
 				}())
 			return 1
 		}

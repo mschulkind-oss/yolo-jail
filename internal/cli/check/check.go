@@ -319,15 +319,13 @@ func (o *Options) sectionContainerRuntime(r *reporter) string {
 	r.sectionHeader("Container Runtime")
 	detectedRuntime := ""
 
-	// Cheap early read of the effective runtime (env wins; else config runtime).
-	earlyRuntime := o.Getenv("YOLO_RUNTIME")
-	if !inStrSlice(paths.AllRuntimes, earlyRuntime) {
-		if cfg, err := config.LoadConfig(o.Workspace, false, func(string) {}); err == nil {
-			earlyRuntime = configRuntime(cfg)
-		} else {
-			earlyRuntime = ""
-		}
+	// Cheap early read of the runtime of the setup a launch would select (checkSetup), the
+	// workspace config loaded loosely: one that does not load is read as none.
+	var earlyCfg *jsonx.OrderedMap
+	if cfg, err := config.LoadConfig(o.Workspace, false, func(string) {}); err == nil {
+		earlyCfg = cfg
 	}
+	earlyRuntime := o.configuredRuntimeName(earlyCfg)
 	if inStrSlice(paths.NativeRuntimes, earlyRuntime) && o.IsMacOS {
 		r.ok("Native runtime '" + earlyRuntime + "' — no container runtime needed")
 		r.blank()
@@ -355,7 +353,9 @@ func (o *Options) sectionContainerRuntime(r *reporter) string {
 		{"podman", []string{"podman", "--version"}, []string{"podman", "info"}, podmanHint},
 		{"container", []string{"container", "--version"}, []string{"container", "system", "status"}, "Start with: container system start"},
 	}
-	selectedRuntime := o.Getenv("YOLO_RUNTIME")
+	// The runtime a setup was NAMED for (explicitRuntimeName): its being offline is a finding of
+	// its own, while the OS default's is folded into the [FAIL] below.
+	selectedRuntime := o.explicitRuntimeName(earlyCfg)
 	if !inStrSlice(paths.SupportedRuntimes, selectedRuntime) {
 		selectedRuntime = ""
 	}
@@ -443,7 +443,7 @@ func (o *Options) sectionContainerRuntime(r *reporter) string {
 	}
 
 	// A per-runtime [WARN] only when some OTHER runtime works: then the offline one is a
-	// finding of its own (the one YOLO_RUNTIME selected, or a dim aside). When NOTHING works,
+	// finding of its own (the one a named setup selected, or a dim aside). When NOTHING works,
 	// the [FAIL] below is the finding and names every offline runtime, its version and its
 	// start command — so a [WARN] per runtime there was the same cause and the same hint
 	// printed twice, a [WARN] and a [FAIL] for one stopped podman (one cause, one row: HE-D2,

@@ -230,11 +230,11 @@ func TestShippedCopilotCompatibilityRefusalNamesIssueAndRemedy(t *testing.T) {
 			"com.apple.SecurityServer",
 			"https://github.com/github/copilot-cli/issues/5085",
 			"\nNext steps, in a terminal outside this jail:\n",
-			"\n  yolo config set macos_user_mode account --user ",
+			"\n  yolo config set setup seatbelt-yolo-account --user ",
 			"yolo yolo-account create",
-			"\n  YOLO_RUNTIME=podman yolo -- copilot ",
-			"YOLO_RUNTIME=container",
-			"\n  yolo config set runtime podman --user ",
+			"\n  yolo --setup podman-self -- copilot ",
+			"apple-container-self for Apple Container",
+			"\n  yolo config set setup podman-self --user ",
 		} {
 			if !strings.Contains(out, want) {
 				t.Errorf("hatch %q: the refusal lacks %q:\n%s", hatch, want, out)
@@ -383,7 +383,7 @@ func TestShippedCopilotUnparseableVersionProbeFailsClosed(t *testing.T) {
 	p := newCopilotCompatibilityProbe(t, `{"mode":1,"workspace":"/w","home":"/h"}`, true, "false", "not-a-version")
 	out, err := p.run(t, "1")
 	if err == nil || !strings.Contains(out, "cannot parse copilot's declared version probe") || strings.Contains(p.log(t), "EXEC") ||
-		!strings.Contains(out, "\n  yolo config set macos_user_mode account --user ") || strings.Contains(out, "Start anyway") {
+		!strings.Contains(out, "\n  yolo config set setup seatbelt-yolo-account --user ") || strings.Contains(out, "Start anyway") {
 		t.Fatalf("unparseable version did not fail closed (err=%v, log=%q):\n%s", err, p.log(t), out)
 	}
 }

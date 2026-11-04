@@ -406,7 +406,7 @@ func TestUnslugHostFilePath(t *testing.T) {
 func TestSurfacePresenceReadsTheTargetsOwnHome(t *testing.T) {
 	home := withScratchHome(t)
 	t.Setenv("YOLO_VERSION", "")
-	t.Setenv("YOLO_RUNTIME", "podman")
+	t.Setenv("YOLO_SETUP", "podman-self")
 	tgt, _ := withSidecarDir(t)
 
 	s, ok := surfaceManifest().Lookup("claude", "settings")
@@ -443,7 +443,7 @@ func TestSurfacePresenceReadsTheTargetsOwnHome(t *testing.T) {
 func TestConfigLsSaysNotResolvableRatherThanAbsent(t *testing.T) {
 	withScratchHome(t)
 	t.Setenv("YOLO_VERSION", "")
-	t.Setenv("YOLO_RUNTIME", "podman")
+	t.Setenv("YOLO_SETUP", "podman-self")
 	tgt, _ := withSidecarDir(t)
 	// The workspace backs ~/.claude — the directory IS the mount source — and nothing else.
 	mkdirAllT(t, filepath.Join(paths.WorkspaceHomeState(tgt.workspace), "claude"))
@@ -474,7 +474,7 @@ func TestConfigLsSaysNotResolvableRatherThanAbsent(t *testing.T) {
 func TestConfigLsDoesNotInflateRowsHostSide(t *testing.T) {
 	withScratchHome(t)
 	t.Setenv("YOLO_VERSION", "")
-	t.Setenv("YOLO_RUNTIME", "podman")
+	t.Setenv("YOLO_SETUP", "podman-self")
 	tgt, _ := withSidecarDir(t)
 	writeFile(t, filepath.Join(paths.WorkspaceHomeState(tgt.workspace), "claude", "settings.json"), `{}`)
 

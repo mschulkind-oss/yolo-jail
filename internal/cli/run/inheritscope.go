@@ -777,7 +777,7 @@ func refuseAppleContainerHome(wsState string, storage func(string) (string, erro
 			"so this workspace's home %s was laid by Apple Container, which uses the same directory as "+
 			"its home; macos-user cannot prove that copy unedited and will not overwrite it. To run this "+
 			"workspace on macos-user, move that home aside, keeping all of it (%s), and relaunch; to "+
-			"keep it on Apple Container, launch with YOLO_RUNTIME=container", scope, path, wsState, mv)
+			"keep it on Apple Container, launch with `--setup apple-container-self`", scope, path, wsState, mv)
 	}
 	return nil
 }

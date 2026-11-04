@@ -2,7 +2,7 @@ package cli
 
 // hostcomputedlayer_test.go pins OQ-HC1 at the CLI's front doors (docs/reference/host-agent-environment.md):
 // `yolo host apply --assert`, the automatic apply a wrapped launch runs (`host_apply_on_launch`),
-// and `yolo config render|ls --at host` all compose the host's derive inputs (composeHostInputs)
+// and `yolo config render|ls --setup host-self` all compose the host's derive inputs (composeHostInputs)
 // and hand them to the render, so your MCP servers, LSP servers, providers and selected model
 // reach host agents' files as they reach a jail's. Each test goes through the real command, in a
 // temp HOME with YOLO_CTX_ROOT pointed at an empty dir, so deleting the composition from
@@ -139,28 +139,28 @@ func TestTheWrapperAutoApplyWritesTheComputedLayer(t *testing.T) {
 	}
 }
 
-// `yolo config render --at host` shows the computed layer's content — the bytes host apply
-// would write, derive included — and `yolo config ls --at host` lists the layer.
+// `yolo config render --setup host-self` shows the computed layer's content — the bytes host apply
+// would write, derive included — and `yolo config ls --setup host-self` lists the layer.
 func TestConfigRenderAndLsAtHostShowTheComputedLayer(t *testing.T) {
 	hostComputedHome(t, `{"packs":["pi","codex-auth"],"host_management":"own","mcp_servers":{"tavily":{"command":"npx"}}}`)
-	rc, out, errs := runSurfaceVerb(t, "render", "pi/mcp", "--at", "host")
+	rc, out, errs := runSurfaceVerb(t, "render", "pi/mcp", "--setup", "host-self")
 	if rc != 0 {
-		t.Fatalf("config render --at host rc=%d\n%s%s", rc, out, errs)
+		t.Fatalf("config render --setup host-self rc=%d\n%s%s", rc, out, errs)
 	}
 	if !strings.Contains(previewBody(t, out), `"tavily"`) {
 		t.Errorf("the host preview of pi/mcp does not show your server:\n%s", out)
 	}
-	rc, out, errs = runSurfaceVerb(t, "render", "pi/codex-models", "--at", "host")
+	rc, out, errs = runSurfaceVerb(t, "render", "pi/codex-models", "--setup", "host-self")
 	if rc != 0 || !strings.Contains(out, `"models"`) {
 		t.Errorf("the host preview of pi/codex-models shows no list (rc=%d):\n%s%s", rc, out, errs)
 	}
-	rc, out, errs = runSurfaceVerb(t, "ls", "--at", "host", "--all")
+	rc, out, errs = runSurfaceVerb(t, "ls", "--setup", "host-self", "--all")
 	if rc != 0 {
-		t.Fatalf("config ls --at host rc=%d\n%s%s", rc, out, errs)
+		t.Fatalf("config ls --setup host-self rc=%d\n%s%s", rc, out, errs)
 	}
 	for _, line := range strings.Split(out, "\n") {
 		if strings.HasPrefix(line, "pi/codex-models ") && !strings.Contains(line, "computed") {
-			t.Errorf("config ls --at host does not list pi/codex-models' computed layer: %q", line)
+			t.Errorf("config ls --setup host-self does not list pi/codex-models' computed layer: %q", line)
 		}
 	}
 }
