@@ -13,10 +13,10 @@ import (
 )
 
 // macosUserHomeRootProbeName is the home-root host_files destination both tests below use. A
-// FIXED NAME, NOT A NONCE, on purpose: the link the Mac test leaves in /Users/_yolojail is the
-// same relative string on every run, so the next run reuses it rather than adding one more
-// dangling link to the account home per run. No other test writes the name, so no real file
-// can be sitting there for the layout to refuse.
+// FIXED NAME, NOT A NONCE: no other test writes it, so no real file can be sitting there for
+// the layout to refuse. (Before slice 12a the Mac test's link stayed behind in the shared
+// /Users/_yolojail, and a fixed name kept that to one link; since MMP-D25 it is laid in each
+// workspace's own home and goes with the workspace.)
 const macosUserHomeRootProbeName = ".yolo-it-homeroot-probe"
 
 // macosUserHomeRootProbe prints what the session reads through ~/<name>, and the link itself.
@@ -42,17 +42,24 @@ func macosUserHomeRootProbeRead(stdout string) string {
 //
 // WHAT IT SETTLES. On podman a home-root entry (`~/.npmrc`) is a relative link in each jail's
 // home skeleton, `~/<name> -> .config/yolo-home/<slug>`, and `~/.config` is the workspace's own
-// sidecar, so each workspace has its own file. macos-user has ONE account home, and its layout
-// redirected only core's three files, so the same entry was a real file every workspace shared:
-// a `once` seeded by the first workspace was never seeded for the second at all. The layout now
-// lays the podman link in the account home (entrypoint.DarwinHomeLayout.WithHostFileRedirects),
-// and the host_files step writes the file through it.
+// sidecar, so each workspace has its own file. Before slice 12a macos-user's account mode ran
+// every workspace in ONE account home, where such an entry was a real file every workspace
+// shared: a `once` seeded by the first workspace was never seeded for the second at all.
+//
+// THE GEOMETRY NOW (slice 12a, MMP-D25 in docs/design/macos-user-model-plan.md). Account mode
+// runs with HOME = <ws>/.yolo/home, laid by entrypoint.DeriveDarwinWorkspaceHome with dotted
+// names: `~/.config` is a REAL directory in that home, and the layout lays podman's same
+// relative link `~/<name> -> .config/yolo-home/<slug>` in it
+// (entrypoint.DarwinHomeLayout.WithHostFileRedirects). So the file is at
+// <ws>/.yolo/home/.config/yolo-home/<slug> — not under the undotted `config/` the pre-12a
+// account layout linked ~/.config to, which a workspace used before 12a may still hold, unused
+// (OQ-MM4).
 //
 // WHY AN INTEGRATION TEST. The Linux unit gate (internal/entrypoint/hostfileredirect_test.go)
-// drives the real bootstrap against a real filesystem, two workspaces sharing one home included.
-// What it cannot reach is the Seatbelt half: that the sandboxed session READS the file through
-// two links (`~/<name>`, then `~/.config`) into its own workspace's sidecar, which the profile
-// allows, while another workspace's sidecar, which it denies, is never on the path.
+// drives the real bootstrap against a real filesystem. What it cannot reach is the Seatbelt
+// half: that the sandboxed session READS the file through `~/<name>` inside its own workspace's
+// home, which the profile allows, while another workspace's home, which it denies, is never on
+// the path — and that two workspaces run as the same account each get their own bytes.
 func TestMacosUserHomeRootHostFilesArePerWorkspace(t *testing.T) {
 	requireMacosUser(t)
 	name := macosUserHomeRootProbeName
@@ -90,8 +97,9 @@ func TestMacosUserHomeRootHostFilesArePerWorkspace(t *testing.T) {
 		t.Errorf("workspace B's session reads workspace A's file through ~/%s: %q", name, readB)
 	}
 
-	// SEPARATED, NOT ERASED: A's file is still in A's sidecar after B ran, read on the host.
-	inA := filepath.Join(wsA, ".yolo", "home", "config", "yolo-home", name)
+	// SEPARATED, NOT ERASED: A's file is still in A's home after B ran, read on the host, at the
+	// path A's own link names relative to that home (MMP-D25: HOME is <ws>/.yolo/home).
+	inA := filepath.Join(wsA, ".yolo", "home", filepath.FromSlash(wantLink))
 	if got, err := os.ReadFile(inA); err != nil || string(got) != bodyA {
 		t.Errorf("after workspace B's launch, %s holds %q (err %v), want A's own %q. `no such "+
 			"file` means the layout separated the workspaces by losing one; `permission denied` "+
@@ -110,19 +118,31 @@ func TestMacosUserHomeRootHostFilesProbeReadsARealLayout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	home := filepath.Join(base, "home")
-	sidecar := filepath.Join(base, "ws", ".yolo", "home")
-	if err := os.MkdirAll(home, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	// Account mode's homes since slice 12a (MMP-D25): HOME is the workspace home itself, and one
+	// machine root serves as both Machine and Shared.
+	machine := filepath.Join(base, "machine")
+	home := filepath.Join(base, "ws", ".yolo", "home")
 	entry := config.HostFileEntry{Path: macosUserHomeRootProbeName, Codec: "raw", HasContent: true, Mode: config.HostFileModeOnce}
-	layout := entrypoint.DeriveDarwinHomeLayout(home, sidecar, nil, nil).
+	layout := entrypoint.DeriveDarwinWorkspaceHome(
+		entrypoint.DarwinHomes{Home: home, Machine: machine, Shared: machine}, nil, nil).
 		WithHostFileRedirects([]config.HostFileEntry{entry}, nil)
 	if err := layout.Apply(); err != nil {
 		t.Fatalf("applying the real layout: %v", err)
 	}
-	// What the host_files step writes, at the physical path the layout's links lead to.
-	written := filepath.Join(sidecar, "config", "yolo-home", entry.Slug())
+	if len(layout.HostFileRedirects) != 1 {
+		t.Fatalf("the real layout lays %d host_files links for one home-root entry, want 1: %v",
+			len(layout.HostFileRedirects), layout.HostFileRedirects)
+	}
+	// What the host_files step writes, at the path the Mac test reads A's file from on the host:
+	// the link's own relative target under HOME, which is the dotted `.config` real directory.
+	written := filepath.Join(home, filepath.FromSlash(entry.SymlinkTarget()))
+	if want := filepath.Join(home, ".config", "yolo-home", entry.Slug()); written != want {
+		t.Fatalf("the link's target resolves to %s, want %s", written, want)
+	}
+	if fi, err := os.Lstat(filepath.Join(home, ".config")); err != nil || !fi.IsDir() {
+		t.Fatalf("~/.config is not a real directory in the workspace home (%v, %v), so the file "+
+			"the Mac test reads would not be where it looks", fi, err)
+	}
 	if err := os.MkdirAll(filepath.Dir(written), 0o755); err != nil {
 		t.Fatal(err)
 	}

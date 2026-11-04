@@ -59,7 +59,7 @@ if [ -f "$HOME/.oh-omp/agent/skills/configuring-the-jail/SKILL.md" ]; then s=PRE
 printf 'skills|%s\n' "$s"
 if [ -f "$HOME/.oh-omp/agent/AGENTS.md" ]; then b=PRESENT; else b=ABSENT; fi
 printf 'briefing|%s\n' "$b"
-if [ -L "$HOME/.oh-omp" ]; then l=SYMLINK; else l=NOT-A-SYMLINK; fi
+if [ -L "$HOME/.oh-omp" ]; then l=SYMLINK; elif [ -d "$HOME/.oh-omp" ]; then l=DIR; else l=ABSENT; fi
 printf 'layout|%s\n' "$l"
 echo "=== END STATE ==="
 `)
@@ -78,7 +78,11 @@ echo "=== END STATE ==="
 		"generated": "PRESENT",
 		"skills":    "PRESENT",
 		"briefing":  "PRESENT",
-		"layout":    "SYMLINK",
+		// HOME IS THE WORKSPACE'S SIDECAR since slice 12a (MMP-D25), so omp's `scope: workspace`
+		// state dir is a real directory in it, not the account home's link into the sidecar it
+		// was before; a link here would mean the layout still treats HOME as the shared account
+		// home. The Mac run of 2026-11-03 read the old SYMLINK premise as a failure.
+		"layout": "DIR",
 	} {
 		if got := state[key]; got != want {
 			t.Errorf("%s = %q after the second launch, want %q.\n"+
