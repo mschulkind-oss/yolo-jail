@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // networkrefusal_test.go pins the network refusal (networkrefusal.go; named-setups.md SU-R5, plan
@@ -43,6 +45,18 @@ func runNetworkLaunch(t *testing.T, wsConfig, userConfig, flag, network string) 
 				return "/usr/local/bin/container", true
 			}
 			return "", false
+		}
+		// The setup gate refuses a `container` that is not Apple's before the network gate runs
+		// (setup.CheckAppleContainer), so the fake on PATH answers as Apple's CLI.
+		inner := o.Exec
+		o.Exec = func(argv []string, cwd string, env []string, timeout time.Duration) ExecResult {
+			if len(argv) == 2 && filepath.Base(argv[0]) == "container" && argv[1] == "--version" {
+				return ExecResult{Ran: true, RC: 0, Stdout: "container CLI version 1.1.0 (build: release)"}
+			}
+			if inner == nil {
+				return ExecResult{Ran: false}
+			}
+			return inner(argv, cwd, env, timeout)
 		}
 	}
 	o.SetupName, o.Network = flag, network
