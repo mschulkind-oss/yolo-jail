@@ -15,3 +15,8 @@ BUILT = "built"
 GRADUATED = "done"
 SUPERSEDED = "done"
 CURRENT = "built"
+
+# Questions here carry a setup story and lettered options that say what the person sees,
+# which runs past the 120-word default measured on id-shaped questions (owner, 2026-11-03).
+[check.rules."planning/question-length"]
+max-words = 160
