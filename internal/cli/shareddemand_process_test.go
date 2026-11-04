@@ -36,6 +36,66 @@ func sharedDemandTestProcess(t *testing.T, mode string, extra ...string) *exec.C
 	return cmd
 }
 
+// passSharedDemandHelperAlive hands the helper cmd will start a liveness lock: a fresh file in
+// YOLO_TEST_DEMAND_ALIVE (set by newSharedDemandProcessFixture), flocked here and passed as an
+// inherited descriptor. A flock belongs to the open file, so from the fork on the helper holds it
+// (and so does any child it starts that inherits the descriptor); the kernel drops it only when
+// every holder has exited. The caller calls the returned func once Start has returned, to close
+// its own copy. Taking the lock in the helper itself would leave a gap between the spawn and the
+// helper's own first step, in which awaitSharedDemandHelpers could not see a helper exists.
+func passSharedDemandHelperAlive(t *testing.T, cmd *exec.Cmd, mode string) func() {
+	t.Helper()
+	dir := os.Getenv("YOLO_TEST_DEMAND_ALIVE")
+	if dir == "" {
+		return func() {}
+	}
+	f, err := os.CreateTemp(dir, mode+"-*.lock")
+	if err != nil {
+		t.Fatalf("helper liveness lock: %v", err)
+	}
+	if err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		_ = f.Close()
+		t.Fatalf("helper liveness lock: %v", err)
+	}
+	cmd.ExtraFiles = append(cmd.ExtraFiles, f)
+	return func() { _ = f.Close() }
+}
+
+// awaitSharedDemandHelpers waits until every helper process that took a liveness lock in dir has
+// exited, so none still writes under the test's home when its TempDir cleanup removes it. THE
+// FLAKE IT CLOSES (a loaded Mac run, 2026-11-03: `TempDir RemoveAll cleanup: unlinkat
+// …/.local/share/yolo-jail: directory not empty`): every requester spawns its own detached worker
+// (registerSharedDemand), which nothing waits for, so with two requesters a second worker runs
+// after the first. A test that saw worker.lock free saw the first worker's release, before the
+// second (slow to exec under load) had taken it, and the second then ran — re-creating the
+// demand dir and its locks (pidlock.Acquire's MkdirAll and O_CREATE) under the tree the cleanup
+// was removing. A helper still alive at the bound is reported.
+func awaitSharedDemandHelpers(t *testing.T, dir string, bound time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(bound)
+	for {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			t.Errorf("reading helper liveness locks: %v", err)
+			return
+		}
+		var alive []string
+		for _, e := range entries {
+			if pidlock.Held(filepath.Join(dir, e.Name())) {
+				alive = append(alive, e.Name())
+			}
+		}
+		if len(alive) == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Errorf("helper processes still running %s after the test (their liveness locks): %v", bound, alive)
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 // Only external execution and the sealed synthetic child are fixtures. The requester reaches
 // hostMain --update; the detached process resolves user config and runs the production pipeline;
 // runForkBuildChild owns/signals/drains a real child process. No agent is started.
@@ -59,6 +119,7 @@ func TestSharedDemandProcessHelper(t *testing.T) {
 			defer log.Close()
 			cmd.Stdout = log
 			cmd.Stderr = log
+			defer passSharedDemandHelperAlive(t, cmd, "worker")()
 			return notty.StartDetached(cmd)
 		}
 		code := hostMain([]string{"--update", "--", "tool"}, os.Stdout, os.Stderr, false, nil)
@@ -129,6 +190,7 @@ type sharedDemandProcessFixture struct {
 	fx            *patchedAdvanceFixture
 	listener      *net.UnixListener
 	gate, cleaned string
+	alive         string // the helpers' liveness locks (passSharedDemandHelperAlive)
 }
 
 func newSharedDemandProcessFixture(t *testing.T) *sharedDemandProcessFixture {
@@ -160,9 +222,18 @@ func newSharedDemandProcessFixture(t *testing.T) *sharedDemandProcessFixture {
 	}
 	t.Cleanup(func() { _ = listener.Close() })
 	cleaned := filepath.Join(real, "cleaned")
+	alive := filepath.Join(real, "alive")
+	if err := os.Mkdir(alive, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("YOLO_TEST_DEMAND_GATE", gate)
 	t.Setenv("YOLO_TEST_DEMAND_CLEANED", cleaned)
-	return &sharedDemandProcessFixture{fx, listener, gate, cleaned}
+	t.Setenv("YOLO_TEST_DEMAND_ALIVE", alive)
+	// Registered last, so it runs FIRST: before the gate closes, before the scratch dir goes, and
+	// before the fixture's home (patchedFloorFixture's TempDir) is removed under a helper still
+	// writing it.
+	t.Cleanup(func() { awaitSharedDemandHelpers(t, alive, 30*time.Second) })
+	return &sharedDemandProcessFixture{fx, listener, gate, cleaned, alive}
 }
 func (f *sharedDemandProcessFixture) requester(t *testing.T) (*exec.Cmd, string, *syncBuffer) {
 	t.Helper()
@@ -381,7 +452,13 @@ func TestSharedDemandPublicHostProcessesProducerInterruptSecondRemains(t *testin
 		t.Fatal("no guarded admission")
 	}
 	dir := sharedDemandDir("forkpack/tool", "podman", floorPatchedPlatform())
-	waitFor(t, "shared worker ended", func() bool { return !pidlock.Held(filepath.Join(dir, "worker.lock")) })
+	// Every worker PROCESS, not worker.lock: each requester spawned its own, and the lock reads
+	// free between the first's release and the second's acquire (awaitSharedDemandHelpers), so a
+	// child the second worker started after that would escape the check below.
+	awaitSharedDemandHelpers(t, f.alive, 30*time.Second)
+	if pidlock.Held(filepath.Join(dir, "worker.lock")) {
+		t.Fatal("worker.lock is held with every worker gone")
+	}
 	_ = f.listener.SetDeadline(time.Now())
 	if extra, err := f.listener.Accept(); err == nil {
 		extra.Close()
