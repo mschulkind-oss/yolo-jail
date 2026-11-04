@@ -619,13 +619,20 @@ show a dialog" does not explain it: the owner's terminal failed the same way.
   (`kern.boottime` 18:28:00). A server started outside, or before, the GUI login session cannot
   raise keychain dialogs, and `security` then gets `errSecInteractionNotAllowed` with no prompt.
   The test that decides it: `security find-generic-password -s copilot-cli -w >/dev/null; echo
-  rc=$?` in a tmux pane, then in a plain Terminal window outside tmux. Asked of the owner; not yet
-  answered.
-- **If it's confirmed**, two yolo-side consequences follow. The message's first remedy, "unlock
-  your login keychain", cannot help. A better next step names the real cause ("macOS could not
-  show the access dialog in this terminal session, e.g. a tmux server started outside your
-  login"), and offers running once from a plain Terminal window, or choosing *Always Allow* there
-  so later reads need no dialog.
+  rc=$?` in a tmux pane, then in a plain Terminal window outside tmux.
+- **Answered by the owner, 2026-11-04: it's ssh, not tmux.** That read returned `rc=36` in tmux
+  over ssh, and `rc=36` again in a fresh ssh session with no tmux. In a Terminal on the machine's
+  own display it raised the Allow prompt and returned `rc=0`. A shell reached over ssh is outside
+  the GUI login session, so macOS cannot show the dialog there and refuses at once. The owner
+  works over ssh, which is why every launch here failed. The owner answered the prompt with
+  Enter, the one-time Allow, so macOS remembered nothing: a launch from this agent's ssh session
+  straight afterwards printed the same refusal (`kc5-step2c`, launch log line 112). *Always Allow*
+  in that dialog should let later reads through over ssh. Not yet measured.
+- **Confirmed, so two yolo-side consequences follow.** The message's first remedy, "unlock your
+  login keychain", cannot help: the keychain was unlocked throughout. A better next step names
+  the real cause ("macOS could not show the access dialog here, because this shell is not in
+  your desktop session, as over ssh"), and offers running once from a Terminal on the Mac itself,
+  choosing *Always Allow* so later reads, ssh included, need no dialog.
 
 **A second finding from the same run: yolo refuses Copilot's own `config.json`.** The launch
 printed `warning: copilot/config: refused: <ws>/.yolo/home/.copilot/config.json is not valid JSON
