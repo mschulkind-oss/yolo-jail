@@ -203,8 +203,7 @@ and check-macos's three `internal/cli` shards summed to about 9 minutes on an id
 work is legitimately that long. `SHORT_TEST_TIMEOUT` in
 [`scripts/go_packages.py`](../../scripts/go_packages.py) is now the one bound, twice the slowest
 run, and both `just test-fast` and `just done`'s changed-package `go test` take it; the latter
-took go test's default of 10 minutes before. The three levers below are still open and still
-each a ruling; the bound only stops the gate from failing on time when no test hung.
+took go test's default of 10 minutes before. The three levers below were ruled 2026-11-03 (all three, fewer starts first); the bound only stops the gate from failing on time when no test hung.
 
 **INFERRED from the lab report's two timings, superseded by the measurement above:** the two tests it names take 45.9 s and 29.8 s on
 the Mac, and start 1468 and 837 `git` processes on Linux, so each start costs about 31 to 36 ms
@@ -215,7 +214,10 @@ apart on the Mac, time 100 runs of `/usr/bin/git --version` against 100 of
 
 So shortening real waits cannot fix this: the background-advance tests are not waiting, they are
 starting `git`. The levers are fewer `git` starts per replay (a launch on the Mac pays the same
-cost), a cheaper `git` on darwin, or running `git`-heavy tests in parallel. Each needs a ruling.
+cost), a cheaper `git` on darwin, or running `git`-heavy tests in parallel. **Ruled 2026-11-03:**
+all three, in that priority. Owner: *"A, and C if possible. B if it's easy."* Fewer starts per replay
+comes first, because a real launch on the Mac pays the same cost; parallel tests second, where tests
+can be made independent; the cheaper darwin `git` only if it is a small change.
 The one wait cut made: `TestAppleListingQueryIsBounded` sets the `container ls` bound
 (`appleListingBound`) to 100 ms instead of waiting out 2 s.
 
