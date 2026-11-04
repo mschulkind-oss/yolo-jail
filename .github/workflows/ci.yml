@@ -9,6 +9,17 @@ on:
 permissions:
   contents: read
 
+# ONE RUN PER REF: A NEWER PUSH CANCELS THE OLDER RUN STILL QUEUED OR RUNNING. On 2026-11-03 a
+# burst of about fifteen pushes to main queued 31 runs, every one waiting for the same runners
+# (owner ruling, the same day). A superseded commit is not tested on its own; the newest one is,
+# and every push is made only after the local landing gate (`just check-ci`) passed on it. A pull
+# request's ref is its own, so each PR keeps only its newest run too. A cancelled run is not
+# re-run by rerun-unacquired.yml, and the release gate names the re-run when the exact commit it
+# needs was superseded.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 # Opt every JavaScript action into Node.js 24 ahead of GitHub's
 # 2026-06-02 default switch.  ``actions/upload-artifact@v5`` still
 # bundles Node 20 in its ``action.yml`` (no v6 with Node 24 yet);
