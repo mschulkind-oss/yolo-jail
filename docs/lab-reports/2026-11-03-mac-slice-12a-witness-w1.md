@@ -500,6 +500,79 @@ available here`, and says `Selected: apple-container-self, this OS's default`. `
 prints each built-in's `[setups.<name>]` table. No other W-SU witness ran: their slices are not
 built.
 
+## 14. 2026-11-04: the host wrapper line yolo prints is not portable, and W-KC5 again
+
+**Terms.** A *host wrapper* is the small script `yolo host apply` writes for each program a
+selected pack installs, into `~/.local/share/yolo-jail/bin/wrap`, which runs `yolo host --
+<program>` (`host_wrappers` in `yolo config-ref`). A bare `copilot` composes its environment only
+when that directory is first on the shell's `PATH`. By ruling, yolo never edits a shell rc: it
+prints the line for the user to add
+([OQ-HP2](../reference/host-agent-environment.md#OQ-HP2),
+[apply reports actions, check reports state](../reference/host-agent-environment.md#apply-reports-actions-check-reports-state)).
+
+### What the owner saw
+
+With `host_management = "own"`, the dotfiles current and `yolo host apply` run, `copilot` was not
+on the owner's shell `PATH`, even after a fresh shell. The wrappers did exist (`board`,
+`chrome-devtools-mcp`, `claude`, `codex`, `copilot`, `pi`, written by an apply at 11:36), and
+`yolo check` said `[WARN] wrapper directory is not on PATH, so no wrapper runs`.
+
+### Why
+
+1. **The rc line names the Linux home.** The owner's shared dotfiles (`~/.dotfiles/bashrc`, line
+   241, committed 2026-09-28 as `0fd4d4474`) held
+   `export PATH="/home/matt/.local/share/yolo-jail/bin/wrap:$PATH"`. On this Mac the home is
+   `/Users/matt`, and `/home/matt` does not exist, so every new shell got a dead entry.
+2. **yolo printed that line.** `hostwrap.PathLine` (`internal/hostwrap/hostwrap.go:360`) returns
+   `export PATH="` + dir + `:$PATH"` with `dir` fully expanded (`paths.WrapDir()`). `yolo host
+   apply` (`internal/cli/hostapply.go:200`, `:282`), `yolo host` (`internal/cli/host.go:4191`)
+   and `yolo check` (`internal/cli/check/section_hostwrappers.go:164`, `:190`) all print it. It
+   has been that way since wrappers landed (`f7ec85ff0`, 2026-08-30). On the owner's Linux
+   machine it printed `/home/matt/…`; pasted into dotfiles shared with this Mac, that's the line
+   above. Only `yolo config-ref`'s `host_wrappers` entry prints the portable
+   `export PATH="$HOME/.local/share/yolo-jail/bin/wrap:$PATH"`.
+3. **A second, machine-local shadow.** Once (1) was fixed, `copilot`, `codex` and `pi` resolved
+   to their wrappers, but `claude` still resolved to `~/.local/bin/claude`. The untracked
+   `~/.bash_profile` sources `~/.bashrc` and *then* prepends `~/.local/bin` (a line marked
+   `# uv`, written by uv's installer). That puts Claude's own install ahead of its wrapper.
+   `yolo check` named it correctly: `[WARN] 1 wrapper(s) are shadowed by an earlier PATH entry:
+   claude`. Not yolo's defect.
+
+### What was changed, at the owner's request (outside this repository)
+
+- `~/.dotfiles/bashrc` line 241 now reads `$HOME/…` instead of `/home/matt/…` (dotfiles
+  `047445afa`, pushed).
+- `~/.bash_profile` (machine-local, untracked) moves uv's `~/.local/bin` line above the
+  `.bashrc` source, with a comment saying why. No `uv` lives in `~/.local/bin`, so nothing that
+  resolved there changed.
+- After both, in a clean login bash (`env -i HOME=… /bin/bash -lic …`), all six wrappers win.
+  `yolo check` passes the whole section: `wrapper directory is on PATH and wins for every wrapper
+  (board, chrome-devtools-mcp, claude, codex, copilot, pi)`, and `host_apply_on_launch is on — a
+  wrapped launch re-checks the render first`. `yolo` still resolves to `~/.local/bin/yolo`.
+
+### The yolo-side question (not fixed here)
+
+When the wrapper directory is under `$HOME`, the printed line could say
+`export PATH="$HOME/.local/share/yolo-jail/bin/wrap:$PATH"`. It works on any machine and is what
+`config-ref` already prints. The absolute form is right only for a directory outside the home, so
+it could stay as the fallback. Three tests read `PathLine`'s output and would move with it
+(`internal/cli/shellinit_test.go:79`, `:151`; `internal/cli/host_test.go:479`), and
+`yolo check`'s `OnPath` match compares the expanded directory, which a `$HOME` line still
+produces once a shell expands it.
+
+**Decision needed:** print the `$HOME` form when the directory is under the home. The owner
+asked whether yolo should change; the recommendation is yes.
+
+### W-KC5, after `copilot login`
+
+The owner logged the host Copilot in, and step 1 ran again: `copilot --version` is still
+`GitHub Copilot CLI 1.0.105.`, and `security find-generic-password -s copilot-cli` (attributes
+only) **still** prints `The specified item could not be found in the keychain.` With the host now
+logged in, the witness's remaining reading is that 1.0.105 keeps its login under another service
+name, or outside the keychain. That branch is the owner's: the `security dump-keychain | grep -i
+copilot` search, then adding the name it shows to `services` in the pack. Steps 2 and 3 were not
+run.
+
 ## Evidence
 
 All at `90ff72f2c` unless named. The logs were kept under `/tmp/macnotes/` on the Mac and are not

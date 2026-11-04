@@ -1004,6 +1004,9 @@ What I would build, in order:
    it is still unknown whether the host isn't logged in or 1.0.105 uses another service name. Also:
    step 2's `~/kc5-witness` is inside a home, which account mode refuses. Since then, step 2 uses
    `/Users/Shared/yolo/kc5-witness`, and step 1's missing-item branch is the owner's.
+   *Step 1 again 2026-11-04, after the owner's `copilot login`* ([lab report](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#w-kc5-after-copilot-login)):
+   still no `copilot-cli` item. So 1.0.105 keeps its login under another service, or outside the
+   keychain. The owner's `dump-keychain` search decides which.
 
 ## 7. Open questions
 
